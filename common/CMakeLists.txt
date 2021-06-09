@@ -440,6 +440,7 @@ set( COMMON_SRCS
     tool/grid_helper.cpp
     tool/grid_menu.cpp
     tool/picker_tool.cpp
+    tool/selection.cpp
     tool/selection_conditions.cpp
     tool/tool_action.cpp
     tool/tool_base.cpp
@@ -457,6 +458,7 @@ set( COMMON_SRCS
     settings/common_settings.cpp
     settings/json_settings.cpp
     settings/nested_settings.cpp
+    settings/parameters.cpp
     settings/settings_manager.cpp
 
     project/board_project_settings.cpp

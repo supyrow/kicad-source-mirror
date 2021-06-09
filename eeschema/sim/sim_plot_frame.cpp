@@ -461,7 +461,7 @@ void SIM_PLOT_FRAME::StartSimulation( const wxString& aSimCommand )
         SIM_PANEL_BASE* plotPanel = currentPlotWindow();
 
         if( plotPanel && m_workbook->HasPlotPanel( plotPanel ) )
-            m_exporter->SetSimCommand( m_workbook->GetSimCommand( plotPanel ) );
+            m_exporter->SetSimCommand( plotPanel->GetSimCommand() );
     }
     else
     {
@@ -649,26 +649,22 @@ void SIM_PLOT_FRAME::addPlot( const wxString& aName, SIM_PLOT_TYPE aType, const 
     if( !plotPanel )    // Something is wrong
         return;
 
-    TRACE_DESC descriptor( *m_exporter, aName, aType, aParam );
-
     bool updated = false;
     SIM_PLOT_TYPE xAxisType = GetXAxisType( simType );
 
     if( xAxisType == SPT_LIN_FREQUENCY || xAxisType == SPT_LOG_FREQUENCY )
     {
-        int baseType = descriptor.GetType() & ~( SPT_AC_MAG | SPT_AC_PHASE );
+        int baseType = aType & ~( SPT_AC_MAG | SPT_AC_PHASE );
 
         // Add two plots: magnitude & phase
-        TRACE_DESC mag_desc( *m_exporter, descriptor, (SIM_PLOT_TYPE)( baseType | SPT_AC_MAG ) );
-        TRACE_DESC phase_desc( *m_exporter, descriptor,
-                               (SIM_PLOT_TYPE)( baseType | SPT_AC_PHASE ) );
-
-        updated |= updatePlot( mag_desc, plotPanel );
-        updated |= updatePlot( phase_desc, plotPanel );
+        updated |=
+                updatePlot( aName, ( SIM_PLOT_TYPE )( baseType | SPT_AC_MAG ), aParam, plotPanel );
+        updated |= updatePlot( aName, ( SIM_PLOT_TYPE )( baseType | SPT_AC_PHASE ), aParam,
+                               plotPanel );
     }
     else
     {
-        updated = updatePlot( descriptor, plotPanel );
+        updated = updatePlot( aName, aType, aParam, plotPanel );
     }
 
     if( updated )
@@ -708,11 +704,11 @@ void SIM_PLOT_FRAME::updateNetlistExporter()
 }
 
 
-bool SIM_PLOT_FRAME::updatePlot( const TRACE_DESC& aDescriptor, SIM_PLOT_PANEL* aPanel )
+bool SIM_PLOT_FRAME::updatePlot( const wxString& aName, SIM_PLOT_TYPE aType, const wxString& aParam,
+                                 SIM_PLOT_PANEL* aPanel )
 {
     SIM_TYPE simType = m_exporter->GetSimType();
-    wxString spiceVector = m_exporter->ComponentToVector(
-            aDescriptor.GetName(), aDescriptor.GetType(), aDescriptor.GetParam() );
+    wxString spiceVector = m_exporter->ComponentToVector( aName, aType, aParam );
 
     if( !SIM_PANEL_BASE::IsPlottable( simType ) )
     {
@@ -734,19 +730,18 @@ bool SIM_PLOT_FRAME::updatePlot( const TRACE_DESC& aDescriptor, SIM_PLOT_PANEL* 
     if( data_x.empty() )
         return false;
 
-    SIM_PLOT_TYPE plotType = aDescriptor.GetType();
     std::vector<double> data_y;
 
     // Now, Y axis data
     switch( m_exporter->GetSimType() )
     {
     case ST_AC:
-        wxASSERT_MSG( !( ( plotType & SPT_AC_MAG ) && ( plotType & SPT_AC_PHASE ) ),
+        wxASSERT_MSG( !( ( aType & SPT_AC_MAG ) && ( aType & SPT_AC_PHASE ) ),
                       "Cannot set both AC_PHASE and AC_MAG bits" );
 
-        if( plotType & SPT_AC_MAG )
+        if( aType & SPT_AC_MAG )
             data_y = m_simulator->GetMagPlot( (const char*) spiceVector.c_str() );
-        else if( plotType & SPT_AC_PHASE )
+        else if( aType & SPT_AC_PHASE )
             data_y = m_simulator->GetPhasePlot( (const char*) spiceVector.c_str() );
         else
             wxASSERT_MSG( false, "Plot type missing AC_PHASE or AC_MAG bit" );
@@ -788,17 +783,15 @@ bool SIM_PLOT_FRAME::updatePlot( const TRACE_DESC& aDescriptor, SIM_PLOT_PANEL* 
 
             for( size_t idx = 0; idx <= outer; idx++ )
             {
-                name = wxString::Format( "%s (%s = %s V)", aDescriptor.GetTitle(),
-                                         source2.m_source, v.ToString() );
+                name = wxString::Format( "%s (%s = %s V)", aName, source2.m_source, v.ToString() );
 
                 std::vector<double> sub_x( data_x.begin() + offset,
                                            data_x.begin() + offset + inner );
                 std::vector<double> sub_y( data_y.begin() + offset,
                                            data_y.begin() + offset + inner );
 
-                if( aPanel->AddTrace( name, inner,
-                                      sub_x.data(), sub_y.data(), aDescriptor.GetType() ) )
-                    m_workbook->AddTrace( aPanel, name, aDescriptor );
+                if( aPanel->AddTrace( name, inner, sub_x.data(), sub_y.data(), aType, aParam ) )
+                    m_workbook->AddTrace( aPanel, name );
 
                 v = v + source2.m_vincrement;
                 offset += inner;
@@ -809,9 +802,8 @@ bool SIM_PLOT_FRAME::updatePlot( const TRACE_DESC& aDescriptor, SIM_PLOT_PANEL* 
         }
     }
 
-    if( aPanel->AddTrace( aDescriptor.GetTitle(), size,
-                data_x.data(), data_y.data(), aDescriptor.GetType() ) )
-        m_workbook->AddTrace( aPanel, aDescriptor.GetTitle(), aDescriptor );
+    if( aPanel->AddTrace( aName, size, data_x.data(), data_y.data(), aType, aParam ) )
+        m_workbook->AddTrace( aPanel, aName );
 
     updateFrame();
     return true;
@@ -876,7 +868,7 @@ void SIM_PLOT_FRAME::updateSignalList()
     // calculated from the trace name index
     int imgidx = 0;
 
-    for( const auto& trace : m_workbook->GetTraces( plotPanel ) )
+    for( const auto& trace : plotPanel->GetTraces() )
     {
         m_signals->InsertItem( imgidx, trace.first, imgidx );
         imgidx++;
@@ -956,9 +948,8 @@ bool SIM_PLOT_FRAME::loadWorkbook( const wxString& aPath )
         }
 
         wxString        simCommand = file.GetNextLine();
-        SIM_PANEL_BASE* plotPanel = NewPlotPanel( simCommand );
-        m_workbook->SetSimCommand( plotPanel, simCommand );
-        StartSimulation( m_workbook->GetSimCommand( plotPanel ) );
+        NewPlotPanel( simCommand );
+        StartSimulation( simCommand );
 
         // Perform simulation, so plots can be added with values
         do
@@ -1036,17 +1027,23 @@ bool SIM_PLOT_FRAME::saveWorkbook( const wxString& aPath )
 
     for( const SIM_PANEL_BASE*& plotPanel : plotPanels )
     {
-        SIM_WORKBOOK::PLOT_INFO plot = m_workbook->GetPlot( plotPanel );
-
         file.AddLine( wxString::Format( "%d", plotPanel->GetType() ) );
-        file.AddLine( plot.m_simCommand );
-        file.AddLine( wxString::Format( "%llu", plot.m_traces.size() ) );
+        file.AddLine( plotPanel->GetSimCommand() );
 
-        for( const auto& trace : plot.m_traces )
+        const SIM_PLOT_PANEL* panel = dynamic_cast<const SIM_PLOT_PANEL*>( plotPanel );
+
+        if( !panel )
+            file.AddLine( wxString::Format( "%llu", 0ull ) );
+        else
         {
-            file.AddLine( wxString::Format( "%d", trace.second.GetType() ) );
-            file.AddLine( trace.second.GetName() );
-            file.AddLine( trace.second.GetParam() );
+            file.AddLine( wxString::Format( "%llu", panel->GetTraces().size() ) );
+
+            for( const auto& trace : panel->GetTraces() )
+            {
+                file.AddLine( wxString::Format( "%d", trace.second->GetType() ) );
+                file.AddLine( trace.second->GetName() );
+                file.AddLine( trace.second->GetParam() );
+            }
         }
     }
 
@@ -1090,16 +1087,8 @@ void SIM_PLOT_FRAME::menuNewPlot( wxCommandEvent& aEvent )
 
     if( SIM_PANEL_BASE::IsPlottable( type ) )
     {
-        SIM_PLOT_PANEL* prevPlot = CurrentPlot();
-        SIM_PLOT_PANEL* newPlot =
-                dynamic_cast<SIM_PLOT_PANEL*>( NewPlotPanel( m_exporter->GetUsedSimCommand() ) );
-
-        // If the previous plot had the same type, copy the simulation command
-        if( prevPlot )
-        {
-            m_workbook->SetSimCommand( newPlot, m_workbook->GetSimCommand( prevPlot ) );
-            updateFrame();
-        }
+        NewPlotPanel( m_exporter->GetUsedSimCommand() );
+        updateFrame();
     }
 }
 
@@ -1405,14 +1394,14 @@ void SIM_PLOT_FRAME::onSettings( wxCommandEvent& event )
     }
 
     if( m_workbook->HasPlotPanel( plotPanelWindow ) )
-        m_settingsDlg->SetSimCommand( m_workbook->GetSimCommand( plotPanelWindow ) );
+        m_settingsDlg->SetSimCommand( plotPanelWindow->GetSimCommand() );
 
     if( m_settingsDlg->ShowModal() == wxID_OK )
     {
         wxString oldCommand;
 
         if( m_workbook->HasPlotPanel( plotPanelWindow ) )
-            oldCommand = m_workbook->GetSimCommand( plotPanelWindow );
+            oldCommand = plotPanelWindow->GetSimCommand();
         else
             oldCommand = wxString();
 
@@ -1429,8 +1418,12 @@ void SIM_PLOT_FRAME::onSettings( wxCommandEvent& event )
         {
             plotPanelWindow = NewPlotPanel( newCommand );
         }
+        else
+        {
+            // Update simulation command in the current plot
+            plotPanelWindow->SetSimCommand( newCommand );
+        }
 
-        m_workbook->SetSimCommand( plotPanelWindow, newCommand );
         m_simulator->Init();
         updateFrame();
     }
@@ -1653,18 +1646,37 @@ void SIM_PLOT_FRAME::onSimFinished( wxCommandEvent& aEvent )
         SIM_PLOT_PANEL* plotPanel = dynamic_cast<SIM_PLOT_PANEL*>( plotPanelWindow );
         wxCHECK_RET( plotPanel, "not a SIM_PLOT_PANEL"  );
 
-
-        for( auto it = m_workbook->TracesBegin( plotPanel );
-                it != m_workbook->TracesEnd( plotPanel ); )
+        struct TRACE_DESC
         {
-            if( !updatePlot( it->second, plotPanel ) )
+            ///< Name of the measured net/device
+            wxString m_name;
+
+            ///< Type of the signal
+            SIM_PLOT_TYPE m_type;
+
+            ///< Name of the signal parameter
+            wxString m_param;
+        };
+
+        std::vector<struct TRACE_DESC> traceInfo;
+
+        // Get information about all the traces on the plot, remove and add again
+        for( auto& trace : plotPanel->GetTraces() )
+        {
+            struct TRACE_DESC placeholder;
+            placeholder.m_name = trace.second->GetName();
+            placeholder.m_type = trace.second->GetType();
+            placeholder.m_param = trace.second->GetParam();
+
+            traceInfo.push_back( placeholder );
+        }
+
+        for( auto& trace : traceInfo )
+        {
+            if( !updatePlot( trace.m_name, trace.m_type, trace.m_param, plotPanel ) )
             {
-                removePlot( it->first, false );
-                it = m_workbook->RemoveTrace( plotPanel, it );
-            }
-            else
-            {
-                ++it;
+                removePlot( trace.m_name, false );
+                m_workbook->RemoveTrace( plotPanel, trace.m_name );
             }
         }
 

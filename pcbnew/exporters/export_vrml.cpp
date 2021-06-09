@@ -29,12 +29,15 @@
 #include <iomanip>
 #include <vector>
 #include <wx/dir.h>
+#include <wx/msgdlg.h>
 
 #include "3d_cache/3d_cache.h"
 #include "3d_cache/3d_info.h"
 #include "board.h"
+#include "board_design_settings.h"
 #include "fp_shape.h"
 #include "footprint.h"
+#include "pad.h"
 #include "pcb_text.h"
 #include "track.h"
 #include "convert_to_biu.h"

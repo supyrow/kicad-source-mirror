@@ -24,6 +24,9 @@
 #include <layers_id_colors_and_visibility.h>
 #include <settings/parameters.h>
 
+// Can be removed by refactoring PARAM_LAYER_PRESET
+#include <nlohmann/json.hpp>
+
 /**
  * This file contains data structures that are saved in the project file or project local settings
  * file that are specific to PcbNew.  This is done so that these structures are available in common.
@@ -120,12 +123,6 @@ enum class RATSNEST_MODE
  */
 struct LAYER_PRESET
 {
-    wxString     name;          ///< A name for this layer set
-    LSET         layers;        ///< Board layers that are visible
-    GAL_SET      renderLayers;  ///< Render layers (e.g. object types) that are visible
-    PCB_LAYER_ID activeLayer;   ///< Optional layer to set active when this preset is loaded
-    bool         readOnly;      ///< True if this is a read-only (built-in) preset
-
     LAYER_PRESET( const wxString& aName = wxEmptyString ) :
             name( aName ),
             activeLayer( UNSELECTED_LAYER )
@@ -158,6 +155,12 @@ struct LAYER_PRESET
     {
         return aOther.layers == layers && aOther.renderLayers == renderLayers;
     }
+
+    wxString     name;          ///< A name for this layer set
+    LSET         layers;        ///< Board layers that are visible
+    GAL_SET      renderLayers;  ///< Render layers (e.g. object types) that are visible
+    PCB_LAYER_ID activeLayer;   ///< Optional layer to set active when this preset is loaded
+    bool         readOnly;      ///< True if this is a read-only (built-in) preset
 };
 
 

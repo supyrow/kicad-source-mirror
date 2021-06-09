@@ -25,6 +25,7 @@
 #include <advanced_config.h>
 #include <base_units.h>
 #include <board.h>
+#include <board_design_settings.h>
 #include <boost/ptr_container/ptr_map.hpp>
 #include <confirm.h>
 #include <convert_basic_shapes_to_polygon.h> // for enum RECT_CHAMFER_POSITIONS definition
@@ -36,6 +37,7 @@
 #include <kiface_i.h>
 #include <locale_io.h>
 #include <macros.h>
+#include <pad.h>
 #include <pcb_group.h>
 #include <pcb_shape.h>
 #include <pcb_target.h>
@@ -2405,21 +2407,8 @@ void PCB_IO::FootprintSave( const wxString& aLibraryPath, const FOOTPRINT* aFoot
     wxFileName fn( aLibraryPath, aFootprint->GetFPID().GetLibItemName(),
                    KiCadFootprintFileExtension );
 
-#ifndef __WINDOWS__
     // Write through symlinks, don't replace them
-    if( fn.Exists( wxFILE_EXISTS_SYMLINK ) )
-    {
-        char buffer[ PATH_MAX + 1 ];
-        ssize_t pathLen = readlink( TO_UTF8( fn.GetFullPath() ), buffer, PATH_MAX );
-
-        if( pathLen > 0 )
-        {
-            buffer[ pathLen ] = '\0';
-            fn.Assign( fn.GetPath() + wxT( "/" ) + wxString::FromUTF8( buffer ) );
-            fn.Normalize();
-        }
-    }
-#endif
+    WX_FILENAME::ResolvePossibleSymlinks( fn );
 
     if( !fn.IsOk() )
     {

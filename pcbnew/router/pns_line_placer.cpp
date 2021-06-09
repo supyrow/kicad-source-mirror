@@ -550,9 +550,13 @@ bool LINE_PLACER::rhWalkOnly( const VECTOR2I& aP, LINE& aNewHead )
     walkaround.SetLogger( Logger() );
     walkaround.SetIterationLimit( Settings().WalkaroundIterationLimit() );
 
+    char name[50];
     int round = 0;
 
     do {
+        snprintf( name, sizeof( name ), "walk-round-%d", round );
+        PNS_DBG( Dbg(), BeginGroup, name );
+
         viaOk = buildInitialLine( walkP, initTrack, round == 0 );
 
         double initialLength = initTrack.CLine().Length();
@@ -568,8 +572,8 @@ bool LINE_PLACER::rhWalkOnly( const VECTOR2I& aP, LINE& aNewHead )
             int len_cw = wr.statusCw == WALKAROUND::DONE ? l_cw.Length() : INT_MAX;
             int len_ccw = wr.statusCcw == WALKAROUND::DONE ? l_ccw.Length() : INT_MAX;
 
-            Dbg()->AddLine( wr.lineCw.CLine(), CYAN, 10000, "wf-result-cw" );
-            Dbg()->AddLine( wr.lineCcw.CLine(), BLUE, 20000, "wf-result-ccw" );
+            PNS_DBG( Dbg(), AddLine, wr.lineCw.CLine(), CYAN, 10000, "wf-result-cw" );
+            PNS_DBG( Dbg(), AddLine, wr.lineCcw.CLine(), BLUE, 20000, "wf-result-ccw" );
 
             int bestLength = len_cw < len_ccw ? len_cw : len_ccw;
 
@@ -596,8 +600,8 @@ bool LINE_PLACER::rhWalkOnly( const VECTOR2I& aP, LINE& aNewHead )
                 {
                     int idx_ccw = l_ccw.Split( p_ccw );
                     l_ccw = l_ccw.Slice( 0, idx_ccw );
-                    Dbg()->AddPoint( p_ccw, BLUE, 500000, "hug-target-ccw" );
-                    Dbg()->AddLine( l_ccw, MAGENTA, 200000, "wh-result-ccw" );
+                    PNS_DBG( Dbg(), AddPoint, p_ccw, BLUE, 500000, "hug-target-ccw" );
+                    PNS_DBG( Dbg(), AddLine, l_ccw, MAGENTA, 200000, "wh-result-ccw" );
                 }
             }
             if( wr.statusCw == WALKAROUND::ALMOST_DONE )
@@ -607,8 +611,8 @@ bool LINE_PLACER::rhWalkOnly( const VECTOR2I& aP, LINE& aNewHead )
                 {
                     int idx_cw = l_cw.Split( p_cw );
                     l_cw = l_cw.Slice( 0, idx_cw );
-                    Dbg()->AddPoint( p_cw, YELLOW, 500000, "hug-target-cw" );
-                    Dbg()->AddLine( l_cw, BLUE, 200000, "wh-result-cw" );
+                    PNS_DBG( Dbg(), AddPoint, p_cw, YELLOW, 500000, "hug-target-cw" );
+                    PNS_DBG( Dbg(), AddLine, l_cw, BLUE, 200000, "wh-result-cw" );
                 }
             }
 
@@ -624,18 +628,22 @@ bool LINE_PLACER::rhWalkOnly( const VECTOR2I& aP, LINE& aNewHead )
             }
             else
             {
+                PNS_DBGN( Dbg(), EndGroup );
                 return false;
             }
         }
         else if ( wr.statusCcw == WALKAROUND::STUCK || wr.statusCw == WALKAROUND::STUCK )
         {
+            PNS_DBGN( Dbg(), EndGroup );
             return false;
         }
+
+        PNS_DBGN( Dbg(), EndGroup );
 
         round++;
     } while( round < 2 && m_placingVia );
 
-    Dbg()->AddLine( walkFull.CLine(), GREEN, 200000, "walk-full" );
+    PNS_DBG( Dbg(), AddLine, walkFull.CLine(), GREEN, 200000, "walk-full" );
 
     switch( Settings().OptimizerEffort() )
     {
@@ -952,8 +960,19 @@ void LINE_PLACER::routeStep( const VECTOR2I& aP )
 
     if( fail )
     {
-        m_head.RemoveVia();
-        m_head.Clear();
+        if( m_last_head.PointCount() > 0 )
+        {
+            m_head = m_last_head;
+        }
+        else
+        {
+            m_head.RemoveVia();
+            m_head.Clear();
+        }
+    }
+    else
+    {
+        m_last_head = m_head;
     }
 
     if( !fail && Settings().FollowMouse() )
@@ -1325,8 +1344,11 @@ bool LINE_PLACER::FixRoute( const VECTOR2I& aP, ITEM* aEndItem, bool aForceFinis
             seg.SetWidth( pl.Width() );
             seg.SetLayer( m_currentLayer );
 
-            if( m_lastNode->Add( std::make_unique<SEGMENT>( seg ) ) )
-                lastItem = &seg;
+            std::unique_ptr<SEGMENT> sp = std::make_unique<SEGMENT>( seg );
+            lastItem = sp.get();
+
+            if( !m_lastNode->Add( std::move( sp ) ) )
+                lastItem = nullptr;
         }
         else
         {
@@ -1337,8 +1359,10 @@ bool LINE_PLACER::FixRoute( const VECTOR2I& aP, ITEM* aEndItem, bool aForceFinis
             arc.SetWidth( pl.Width() );
             arc.SetLayer( m_currentLayer );
 
-            m_lastNode->Add( std::make_unique<ARC>( arc ) );
-            lastItem = &arc;
+            std::unique_ptr<ARC> ap = std::make_unique<ARC>( arc );
+            lastItem = ap.get();
+
+            m_lastNode->Add( std::move( ap ) );
             lastArc  = arcIndex;
         }
     }
@@ -1501,6 +1525,63 @@ void LINE_PLACER::removeLoops( NODE* aNode, LINE& aLatest )
 void LINE_PLACER::simplifyNewLine( NODE* aNode, LINKED_ITEM* aLatest )
 {
     wxASSERT( aLatest->OfKind( ITEM::SEGMENT_T | ITEM::ARC_T ) );
+
+    // Before we assemble the final line and run the optimizer, do a separate pass to clean up
+    // colinear segments that exist on non-line-corner joints, as these will prevent proper assembly
+    // of the line and won't get cleaned up by the optimizer.
+    NODE::ITEM_VECTOR removed, added;
+    aNode->GetUpdatedItems( removed, added );
+
+    std::set<ITEM*> cleanup;
+
+    auto processJoint =
+            [&]( JOINT* aJoint, ITEM* aItem )
+            {
+                if( !aJoint || aJoint->IsLineCorner() )
+                    return;
+
+                SEG refSeg = static_cast<SEGMENT*>( aItem )->Seg();
+
+                NODE::ITEM_VECTOR toRemove;
+
+                for( ITEM* neighbor : aJoint->Links() )
+                {
+                    if( neighbor == aItem || !neighbor->LayersOverlap( aItem ) )
+                        continue;
+
+                    const SEG& testSeg = static_cast<SEGMENT*>( neighbor )->Seg();
+
+                    if( refSeg.Contains( testSeg ) )
+                    {
+                        JOINT* nA = aNode->FindJoint( neighbor->Anchor( 0 ), neighbor );
+                        JOINT* nB = aNode->FindJoint( neighbor->Anchor( 1 ), neighbor );
+
+                        if( ( nA == aJoint && nB->LinkCount() == 1 ) ||
+                            ( nB == aJoint && nA->LinkCount() == 1 ) )
+                        {
+                            cleanup.insert( neighbor );
+                        }
+                    }
+                }
+            };
+
+    for( ITEM* item : added )
+    {
+        if( !item->OfKind( ITEM::SEGMENT_T ) || cleanup.count( item ) )
+            continue;
+
+        JOINT* jA = aNode->FindJoint( item->Anchor( 0 ), item );
+        JOINT* jB = aNode->FindJoint( item->Anchor( 1 ), item );
+
+        processJoint( jA, item );
+        processJoint( jB, item );
+    }
+
+    for( ITEM* seg : cleanup )
+        aNode->Remove( seg );
+
+    // And now we can proceed with assembling the final line and optimizing it.
+
     LINE l = aNode->AssembleLine( aLatest );
 
     bool optimized = OPTIMIZER::Optimize( &l, OPTIMIZER::MERGE_COLINEAR, aNode );
@@ -1520,19 +1601,20 @@ void LINE_PLACER::simplifyNewLine( NODE* aNode, LINKED_ITEM* aLatest )
 
 void LINE_PLACER::UpdateSizes( const SIZES_SETTINGS& aSizes )
 {
-    // initPlacement will kill the tail, don't do that unless the track size has changed
-    if( !m_idle && aSizes.TrackWidth() != m_sizes.TrackWidth() )
-    {
-        m_sizes = aSizes;
-        initPlacement();
-    }
-
     m_sizes = aSizes;
 
     if( !m_idle )
     {
-        m_head.SetWidth( m_sizes.TrackWidth() );
-        m_tail.SetWidth( m_sizes.TrackWidth() );
+        // If the track width was originally determined from the rules resolver ("use netclass
+        // width") or continuing from an existing track, we don't want to change the width unless
+        // the user is moving to an explicitly-specified value.
+        // NOTE: This doesn't quite correctly handle the case of moving *from* an explicit value
+        // *to* the "use netclass width" value, but that is more complicated to handle.
+        if( m_sizes.TrackWidthIsExplicit() )
+        {
+            m_head.SetWidth( m_sizes.TrackWidth() );
+            m_tail.SetWidth( m_sizes.TrackWidth() );
+        }
 
         if( m_head.EndsWithVia() )
         {

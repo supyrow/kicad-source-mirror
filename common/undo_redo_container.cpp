@@ -58,9 +58,17 @@ ITEM_PICKER::ITEM_PICKER( BASE_SCREEN* aScreen, EDA_ITEM* aItem, UNDO_REDO aUndo
 }
 
 
+void ITEM_PICKER::SetItem( EDA_ITEM* aItem )
+{
+    m_pickedItem = aItem;
+    m_pickedItemType = aItem ? aItem->Type() : TYPE_NOT_INIT;
+}
+
+
 PICKED_ITEMS_LIST::PICKED_ITEMS_LIST()
 {
 }
+
 
 PICKED_ITEMS_LIST::~PICKED_ITEMS_LIST()
 {
@@ -191,7 +199,7 @@ UNDO_REDO PICKED_ITEMS_LIST::GetPickedItemStatus( unsigned int aIdx ) const
 }
 
 
-STATUS_FLAGS PICKED_ITEMS_LIST::GetPickerFlags( unsigned aIdx ) const
+EDA_ITEM_FLAGS PICKED_ITEMS_LIST::GetPickerFlags( unsigned aIdx ) const
 {
     if( aIdx < m_ItemsList.size() )
         return m_ItemsList[aIdx].GetFlags();
@@ -249,7 +257,7 @@ bool PICKED_ITEMS_LIST::SetPickedItemStatus( UNDO_REDO aStatus, unsigned aIdx )
 }
 
 
-bool PICKED_ITEMS_LIST::SetPickerFlags( STATUS_FLAGS aFlags, unsigned aIdx )
+bool PICKED_ITEMS_LIST::SetPickerFlags( EDA_ITEM_FLAGS aFlags, unsigned aIdx )
 {
     if( aIdx < m_ItemsList.size() )
     {

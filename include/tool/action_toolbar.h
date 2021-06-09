@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2019-2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2019-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -33,12 +33,11 @@
 #include <wx/popupwin.h>
 #include <wx/panel.h>
 #include <tool/action_manager.h>
-#include <tool/tool_action.h>
-#include <tool/tool_event.h>
 
 class ACTION_MENU;
 class BITMAP_BUTTON;
 class EDA_BASE_FRAME;
+class TOOL_ACTION;
 class TOOL_MANAGER;
 
 /**
@@ -50,7 +49,7 @@ public:
     // Make the toolbar a friend so it can easily access everything inside here
     friend class ACTION_TOOLBAR;
 
-    ACTION_GROUP( std::string aName, const std::vector<const TOOL_ACTION*>& aActions );
+    ACTION_GROUP( const std::string& aName, const std::vector<const TOOL_ACTION*>& aActions );
 
     /**
      * Set the default action to use when first creating the toolbar palette icon.
@@ -75,12 +74,12 @@ public:
     /**
      * Get the ID used in the UI to reference this group
      */
-    int GetUIId() const { return m_id + TOOL_ACTION::GetBaseUIId(); }
+    int GetUIId() const;
 
     /**
      * Get a vector of all the actions contained inside this group.
      */
-    const std::vector< const TOOL_ACTION*>& GetActions() const { return m_actions; }
+    const std::vector<const TOOL_ACTION*>& GetActions() const { return m_actions; }
 
 protected:
     ///< The action ID for this action group

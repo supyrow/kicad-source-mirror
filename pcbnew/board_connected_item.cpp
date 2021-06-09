@@ -24,11 +24,13 @@
  */
 
 #include <board.h>
-#include <board_item.h>
+#include <board_connected_item.h>
+#include <board_design_settings.h>
 #include <connectivity/connectivity_data.h>
 #include <drc/drc_engine.h>
 #include <kicad_string.h>
 #include <i18n_utility.h>
+#include <netinfo.h>
 
 using namespace std::placeholders;
 
@@ -103,6 +105,12 @@ int BOARD_CONNECTED_ITEM::GetOwnClearance( PCB_LAYER_ID aLayer, wxString* aSourc
 }
 
 
+int BOARD_CONNECTED_ITEM::GetNetCode() const
+{
+    return m_netinfo ? m_netinfo->GetNetCode() : -1;
+}
+
+
 // Note: do NOT return a std::shared_ptr from this.  It is used heavily in DRC, and the
 // std::shared_ptr stuff shows up large in performance profiling.
 NETCLASS* BOARD_CONNECTED_ITEM::GetNetClass() const
@@ -123,6 +131,12 @@ wxString BOARD_CONNECTED_ITEM::GetNetClassName() const
 }
 
 
+wxString BOARD_CONNECTED_ITEM::GetNetname() const
+{
+    return m_netinfo ? m_netinfo->GetNetname() : wxString();
+}
+
+
 wxString BOARD_CONNECTED_ITEM::GetNetnameMsg() const
 {
     if( !GetBoard() )
@@ -136,6 +150,12 @@ wxString BOARD_CONNECTED_ITEM::GetNetnameMsg() const
         return wxT( "[" + UnescapeString( netname ) + "](" + _( "Not Found" ) + ")" );
     else
         return wxT( "[" + UnescapeString( netname ) + "]" );
+}
+
+
+wxString BOARD_CONNECTED_ITEM::GetShortNetname() const
+{
+    return m_netinfo->GetShortNetname();
 }
 
 

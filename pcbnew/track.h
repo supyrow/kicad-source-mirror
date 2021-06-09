@@ -38,15 +38,7 @@
 
 
 #include <board_connected_item.h>
-#include <board_item.h>
 #include <convert_to_biu.h>
-#include <pcb_display_options.h>
-#include <pcbnew.h>
-
-#include <geometry/seg.h>
-#include <geometry/shape_arc.h>
-
-#include <trigo.h>
 
 
 class TRACK;
@@ -54,6 +46,7 @@ class VIA;
 class PAD;
 class MSG_PANEL_ITEM;
 class SHAPE_POLY_SET;
+class SHAPE_ARC;
 
 
 // Flag used in locate routines (from which endpoint work)
@@ -138,10 +131,7 @@ public:
      * returns the length of the track using the hypotenuse calculation.
      * @return double - the length of the track
      */
-    virtual double GetLength() const
-    {
-        return GetLineLength( m_Start, m_End );
-    }
+    virtual double GetLength() const;
 
     /**
      * Function TransformShapeWithClearanceToPolygon
@@ -169,7 +159,7 @@ public:
      * (dist = min_dist) both ends, or 0 if none of the above.
      * if min_dist < 0: min_dist = track_width/2
      */
-    STATUS_FLAGS IsPointOnEnds( const wxPoint& point, int min_dist = 0 ) const;
+    EDA_ITEM_FLAGS IsPointOnEnds( const wxPoint& point, int min_dist = 0 ) const;
 
     /**
      * Function IsNull
@@ -187,12 +177,7 @@ public:
     bool HitTest( const wxPoint& aPosition, int aAccuracy = 0 ) const override;
     bool HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy = 0 ) const override;
 
-    bool ApproxCollinear( const TRACK& aTrack )
-    {
-        SEG  a( m_Start, m_End );
-        SEG  b( aTrack.GetStart(), aTrack.GetEnd() );
-        return a.ApproxCollinear( b );
-    }
+    bool ApproxCollinear( const TRACK& aTrack );
 
     wxString GetClass() const override
     {
@@ -264,13 +249,7 @@ class ARC : public TRACK
 public:
     ARC( BOARD_ITEM* aParent ) : TRACK( aParent, PCB_ARC_T ){};
 
-    ARC( BOARD_ITEM* aParent, const SHAPE_ARC* aArc ) :
-        TRACK( aParent, PCB_ARC_T )
-    {
-        m_Start = wxPoint( aArc->GetP0() );
-        m_End = wxPoint( aArc->GetP1() );
-        m_Mid = wxPoint( aArc->GetArcMid() );
-    }
+    ARC( BOARD_ITEM* aParent, const SHAPE_ARC* aArc );
 
     static inline bool ClassOf( const EDA_ITEM *aItem )
     {

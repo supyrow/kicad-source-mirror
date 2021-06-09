@@ -29,6 +29,7 @@
 #include "gerbview_id.h"
 #include <kiface_i.h>
 #include <menus_helpers.h>
+#include <tool/action_manager.h>
 #include <tool/action_menu.h>
 #include <tool/actions.h>
 #include <tool/tool_manager.h>
@@ -206,7 +207,12 @@ void GERBVIEW_FRAME::ReCreateMenuBar()
     //
     ACTION_MENU* preferencesMenu = new ACTION_MENU( false, selTool );
 
-    preferencesMenu->Add( ACTIONS::openPreferences );
+    // We can't use ACTIONS::showPreferences yet because wxWidgets moves this on
+    // Mac, and it needs the wxID_PREFERENCES id to find it.
+    preferencesMenu->Add( _( "Preferences..." ) + "\tCtrl+,",
+                          _( "Show preferences for all open tools" ),
+                          wxID_PREFERENCES,
+                          BITMAPS::preference );
 
     preferencesMenu->AppendSeparator();
     AddMenuLanguageList( preferencesMenu, selTool );

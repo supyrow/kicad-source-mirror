@@ -61,6 +61,7 @@
 #include <symbol_lib_table.h>  // for PropPowerSymsOnly definintion.
 #include <ee_selection.h>
 #include <kicad_string.h>
+#include <wx_filename.h>       // for ::ResolvePossibleSymlinks()
 
 
 using namespace TSCHEMATIC_T;
@@ -1380,22 +1381,7 @@ SCH_SEXPR_PLUGIN_CACHE::~SCH_SEXPR_PLUGIN_CACHE()
 wxFileName SCH_SEXPR_PLUGIN_CACHE::GetRealFile() const
 {
     wxFileName fn( m_libFileName );
-
-#ifndef __WINDOWS__
-    if( fn.Exists( wxFILE_EXISTS_SYMLINK ) )
-    {
-        char buffer[ PATH_MAX + 1 ];
-        ssize_t pathLen = readlink( TO_UTF8( fn.GetFullPath() ), buffer, PATH_MAX );
-
-        if( pathLen > 0 )
-        {
-            buffer[ pathLen ] = '\0';
-            fn.Assign( fn.GetPath() + wxT( "/" ) + wxString::FromUTF8( buffer ) );
-            fn.Normalize();
-        }
-    }
-#endif
-
+    WX_FILENAME::ResolvePossibleSymlinks( fn );
     return fn;
 }
 

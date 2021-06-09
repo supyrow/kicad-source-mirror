@@ -36,6 +36,7 @@
 
 #include <advanced_config.h>
 #include <board.h>
+#include <board_design_settings.h>
 #include <dimension.h>
 #include <pcb_shape.h>
 #include <fp_shape.h>
@@ -591,6 +592,23 @@ BOARD* PCB_PARSER::parseBOARD_unchecked()
 
         switch( token )
         {
+        case T_host:            // legacy token
+            NeedSYMBOL();
+            m_board->SetGenerator( FromUTF8() );
+
+            // Older formats included build data
+            if( m_requiredVersion < BOARD_FILE_HOST_VERSION )
+                NeedSYMBOL();
+
+            NeedRIGHT();
+            break;
+
+        case T_generator:
+            NeedSYMBOL();
+            m_board->SetGenerator( FromUTF8() );
+            NeedRIGHT();
+            break;
+
         case T_general:
             parseGeneralSection();
             break;
@@ -899,27 +917,12 @@ void PCB_PARSER::parseHeader()
         m_requiredVersion = parseInt( FromUTF8().mb_str( wxConvUTF8 ) );
         m_tooRecent = ( m_requiredVersion > SEXPR_BOARD_FILE_VERSION );
         NeedRIGHT();
-
-        NeedLEFT();
-        NeedSYMBOL();
-        NeedSYMBOL();
-
-        // Older formats included build data
-        if( m_requiredVersion < BOARD_FILE_HOST_VERSION )
-            NeedSYMBOL();
-
-        NeedRIGHT();
     }
     else
     {
         m_requiredVersion = 20201115;   // Last version before we started writing version #s
                                         // in footprint files as well as board files.
         m_tooRecent = ( m_requiredVersion > SEXPR_BOARD_FILE_VERSION );
-
-        // Skip the host name and host build version information.
-        NeedSYMBOL();
-        NeedSYMBOL();
-        NeedRIGHT();
     }
 
     m_board->SetFileFormatVersionAtLoad( m_requiredVersion );
@@ -1845,7 +1848,7 @@ void PCB_PARSER::parseSetup()
                 wxSize sz;
                 sz.SetWidth( parseBoardUnits( "master pad width" ) );
                 sz.SetHeight( parseBoardUnits( "master pad height" ) );
-                designSettings.m_Pad_Master.SetSize( sz );
+                designSettings.m_Pad_Master->SetSize( sz );
                 m_board->m_LegacyDesignSettingsLoaded = true;
                 NeedRIGHT();
             }
@@ -1854,7 +1857,7 @@ void PCB_PARSER::parseSetup()
         case T_pad_drill:
             {
                 int drillSize = parseBoardUnits( T_pad_drill );
-                designSettings.m_Pad_Master.SetDrillSize( wxSize( drillSize, drillSize ) );
+                designSettings.m_Pad_Master->SetDrillSize( wxSize( drillSize, drillSize ) );
                 m_board->m_LegacyDesignSettingsLoaded = true;
                 NeedRIGHT();
             }
@@ -2451,7 +2454,7 @@ PCB_SHAPE* PCB_PARSER::parsePCB_SHAPE()
 
         // We continue to parse the status field but it is no longer written
         case T_status:
-            shape->SetStatus( static_cast<STATUS_FLAGS>( parseHex() ) );
+            shape->SetStatus( static_cast<EDA_ITEM_FLAGS>( parseHex() ) );
             NeedRIGHT();
             break;
 
@@ -3702,7 +3705,7 @@ FP_SHAPE* PCB_PARSER::parseFP_SHAPE()
 
         // We continue to parse the status field but it is no longer written
         case T_status:
-            shape->SetStatus( static_cast<STATUS_FLAGS>( parseHex() ) );
+            shape->SetStatus( static_cast<EDA_ITEM_FLAGS>( parseHex() ) );
             NeedRIGHT();
             break;
 
@@ -4426,7 +4429,7 @@ ARC* PCB_PARSER::parseARC()
 
         // We continue to parse the status field but it is no longer written
         case T_status:
-            arc->SetStatus( static_cast<STATUS_FLAGS>( parseHex() ) );
+            arc->SetStatus( static_cast<EDA_ITEM_FLAGS>( parseHex() ) );
             break;
 
         // Continue to process "(locked)" format which was output during 5.99 development
@@ -4504,7 +4507,7 @@ TRACK* PCB_PARSER::parseTRACK()
 
         // We continue to parse the status field but it is no longer written
         case T_status:
-            track->SetStatus( static_cast<STATUS_FLAGS>( parseHex() ) );
+            track->SetStatus( static_cast<EDA_ITEM_FLAGS>( parseHex() ) );
             break;
 
         // Continue to process "(locked)" format which was output during 5.99 development
@@ -4617,7 +4620,7 @@ VIA* PCB_PARSER::parseVIA()
 
         // We continue to parse the status field but it is no longer written
         case T_status:
-            via->SetStatus( static_cast<STATUS_FLAGS>( parseHex() ) );
+            via->SetStatus( static_cast<EDA_ITEM_FLAGS>( parseHex() ) );
             NeedRIGHT();
             break;
 

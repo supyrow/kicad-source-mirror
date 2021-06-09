@@ -27,6 +27,7 @@
 #include <pcb_base_frame.h>
 #include <connectivity/connectivity_data.h>
 #include <board.h>
+#include <board_design_settings.h>
 #include <track.h>
 #include <base_units.h>
 #include <bitmaps.h>
@@ -35,11 +36,13 @@
 #include <settings/color_settings.h>
 #include <settings/settings_manager.h>
 #include <i18n_utility.h>
+#include <geometry/seg.h>
 #include <geometry/shape_segment.h>
 #include <geometry/shape_circle.h>
 #include <geometry/shape_arc.h>
 #include <drc/drc_engine.h>
 #include <pcb_painter.h>
+#include <trigo.h>
 
 using KIGFX::PCB_PAINTER;
 using KIGFX::PCB_RENDER_SETTINGS;
@@ -54,6 +57,14 @@ TRACK::TRACK( BOARD_ITEM* aParent, KICAD_T idtype ) :
 EDA_ITEM* TRACK::Clone() const
 {
     return new TRACK( *this );
+}
+
+
+ARC::ARC( BOARD_ITEM* aParent, const SHAPE_ARC* aArc ) : TRACK( aParent, PCB_ARC_T )
+{
+    m_Start = wxPoint( aArc->GetP0() );
+    m_End = wxPoint( aArc->GetP1() );
+    m_Mid = wxPoint( aArc->GetArcMid() );
 }
 
 
@@ -101,6 +112,14 @@ wxString VIA::GetSelectMenuText( EDA_UNITS aUnits ) const
 BITMAPS VIA::GetMenuImage() const
 {
     return BITMAPS::via;
+}
+
+
+bool TRACK::ApproxCollinear( const TRACK& aTrack )
+{
+    SEG a( m_Start, m_End );
+    SEG b( aTrack.GetStart(), aTrack.GetEnd() );
+    return a.ApproxCollinear( b );
 }
 
 
@@ -185,9 +204,9 @@ int VIA::GetDrillValue() const
 }
 
 
-STATUS_FLAGS TRACK::IsPointOnEnds( const wxPoint& point, int min_dist ) const
+EDA_ITEM_FLAGS TRACK::IsPointOnEnds( const wxPoint& point, int min_dist ) const
 {
-    STATUS_FLAGS result = 0;
+    EDA_ITEM_FLAGS result = 0;
 
     if( min_dist < 0 )
         min_dist = m_Width / 2;
@@ -260,6 +279,12 @@ const EDA_RECT TRACK::GetBoundingBox() const
     EDA_RECT ret( wxPoint( xmin, ymin ), wxSize( xmax - xmin + 1, ymax - ymin + 1 ) );
 
     return ret;
+}
+
+
+double TRACK::GetLength() const
+{
+    return GetLineLength( m_Start, m_End );
 }
 
 

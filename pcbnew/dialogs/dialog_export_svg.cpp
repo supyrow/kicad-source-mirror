@@ -27,6 +27,7 @@
 #include <pcbnew_settings.h>
 #include <wildcards_and_files_ext.h>
 #include <reporter.h>
+#include <board_design_settings.h>
 #include <confirm.h>
 #include <core/arraydim.h>
 #include <core/kicad_algo.h>
@@ -38,6 +39,7 @@
 #include <bitmaps.h>
 #include <widgets/unit_binder.h>
 #include <plotters/plotters_pslike.h>
+#include <wx/dirdlg.h>
 
 class DIALOG_EXPORT_SVG : public DIALOG_EXPORT_SVG_BASE
 {

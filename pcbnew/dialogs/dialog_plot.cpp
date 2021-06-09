@@ -35,6 +35,7 @@
 #include <locale_io.h>
 #include <bitmaps.h>
 #include <board.h>
+#include <board_design_settings.h>
 #include <dialog_plot.h>
 #include <dialog_gendrill.h>
 #include <wx_html_report_panel.h>
@@ -43,6 +44,9 @@
 #include <tools/drc_tool.h>
 #include <math/util.h>      // for KiROUND
 #include <macros.h>
+
+#include <wx/dirdlg.h>
+
 
 
 DIALOG_PLOT::DIALOG_PLOT( PCB_EDIT_FRAME* aParent ) :

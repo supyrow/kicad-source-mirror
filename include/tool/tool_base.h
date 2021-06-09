@@ -28,13 +28,12 @@
 #define __TOOL_BASE_H
 
 #include <cassert>
-#include <eda_item.h>    // for KICAD_T
-
-#include <tool/tool_event.h>
-
 #include <functional>
+#include <string>
+#include <wx/debug.h>
 
 class EDA_ITEM;
+class TOOL_EVENT;
 class TOOL_MANAGER;
 class TOOLS_HOLDER;
 

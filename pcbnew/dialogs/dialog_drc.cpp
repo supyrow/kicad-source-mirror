@@ -25,8 +25,10 @@
 
 #include <confirm.h>
 #include <dialog_drc.h>
+#include <board_design_settings.h>
 #include <kiface_i.h>
 #include <macros.h>
+#include <pad.h>
 #include <pcb_edit_frame.h>
 #include <pcbnew_settings.h>
 #include <pgm_base.h>
@@ -34,6 +36,7 @@
 #include <tools/pcb_actions.h>
 #include <wildcards_and_files_ext.h>
 #include <pcb_marker.h>
+#include <wx/filedlg.h>
 #include <wx/wupdlock.h>
 #include <widgets/appearance_controls.h>
 #include <widgets/ui_common.h>

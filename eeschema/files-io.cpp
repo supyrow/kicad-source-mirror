@@ -58,9 +58,12 @@
 #include <wildcards_and_files_ext.h>
 #include <drawing_sheet/ds_data_model.h>
 #include <wx/ffile.h>
+#include <wx/filedlg.h>
+#include <wx/log.h>
 #include <tools/ee_actions.h>
 #include <tools/ee_inspection_tool.h>
 #include <paths.h>
+#include <wx_filename.h>  // For ::ResolvePossibleSymlinks
 
 bool SCH_EDIT_FRAME::SaveEEFile( SCH_SHEET* aSheet, bool aSaveUnderNewName )
 {
@@ -108,6 +111,9 @@ bool SCH_EDIT_FRAME::SaveEEFile( SCH_SHEET* aSheet, bool aSaveUnderNewName )
         if( schematicFileName.GetExt().IsEmpty() )
             schematicFileName.SetExt( KiCadSchematicFileExtension );
     }
+
+    // Write through symlinks, don't replace them
+    WX_FILENAME::ResolvePossibleSymlinks( schematicFileName );
 
     if( !IsWritable( schematicFileName ) )
         return false;
@@ -409,8 +415,7 @@ bool SCH_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
         }
         catch( const IO_ERROR& ioe )
         {
-            msg.Printf( _( "Error loading schematic file \"%s\"" ),
-                        fullFileName);
+            msg.Printf( _( "Error loading schematic '%s'." ), fullFileName);
             DisplayErrorMessage( this, msg, ioe.What() );
 
             failedLoad = true;
@@ -430,7 +435,7 @@ bool SCH_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
             CreateScreens();
             m_toolManager->RunAction( ACTIONS::zoomFitScreen, true );
 
-            msg.Printf( _( "Failed to load \"%s\"" ), fullFileName );
+            msg.Printf( _( "Failed to load '%s'." ), fullFileName );
             SetMsgPanel( wxEmptyString, msg );
 
             return false;
@@ -622,7 +627,7 @@ bool SCH_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
     {
         m_infoBar->RemoveAllButtons();
         m_infoBar->AddCloseButton();
-        m_infoBar->ShowMessage( _( "Schematic file is read only." ), wxICON_WARNING );
+        m_infoBar->ShowMessage( _( "Schematic is read only." ), wxICON_WARNING );
     }
 
 #ifdef PROFILE
@@ -707,7 +712,7 @@ void SCH_EDIT_FRAME::OnImportProject( wxCommandEvent& aEvent )
     wxString fileFilters;
     wxString allWildcards;
 
-    for( auto& loader : loaders )
+    for( std::pair<const wxString, const SCH_IO_MGR::SCH_FILE_T>& loader : loaders )
     {
         if( !fileFilters.IsEmpty() )
             fileFilters += wxChar( '|' );
@@ -745,7 +750,7 @@ void SCH_EDIT_FRAME::OnImportProject( wxCommandEvent& aEvent )
 
     SCH_IO_MGR::SCH_FILE_T pluginType = SCH_IO_MGR::SCH_FILE_T::SCH_FILE_UNKNOWN;
 
-    for( auto& loader : loaders )
+    for( std::pair<const wxString, const SCH_IO_MGR::SCH_FILE_T>& loader : loaders )
     {
         if( fn.GetExt().CmpNoCase( SCH_IO_MGR::GetFileExtension( loader.second ) ) == 0 )
         {
@@ -759,6 +764,8 @@ void SCH_EDIT_FRAME::OnImportProject( wxCommandEvent& aEvent )
         wxLogError( wxString::Format( "unexpected file extension: %s", fn.GetExt() ) );
         return;
     }
+
+    m_toolManager->GetTool<EE_SELECTION_TOOL>()->ClearSelection();
 
     importFile( dlg.GetPath(), pluginType );
 }
@@ -795,26 +802,16 @@ bool SCH_EDIT_FRAME::SaveProject()
         if( newFileName.GetExt().IsEmpty() )
             newFileName.SetExt( KiCadSchematicFileExtension );
 
-        if( !newFileName.DirExists() && !newFileName.Mkdir() )
+        if( ( !newFileName.DirExists() && !newFileName.Mkdir() ) || !newFileName.IsDirWritable() )
         {
-            msg.Printf( _( "Cannot create folder \"%s\"." ), newFileName.GetPath() );
+            msg.Printf( _( "Folder '%s' could not be created.\n\n"
+                           "Make sure you have write permissions and try again." ),
+                        newFileName.GetPath() );
 
             wxMessageDialog dlgBadPath( this, msg, _( "Error" ),
                                         wxOK | wxICON_EXCLAMATION | wxCENTER );
 
             dlgBadPath.ShowModal();
-            return false;
-        }
-
-        if( !newFileName.IsDirWritable() )
-        {
-            msg.Printf( _( "You do not have write permissions to folder \"%s\"." ),
-                        newFileName.GetPath() );
-
-            wxMessageDialog dlgBadPerms( this, msg, _( "Error" ),
-                                         wxOK | wxICON_EXCLAMATION | wxCENTER );
-
-            dlgBadPerms.ShowModal();
             return false;
         }
 
@@ -858,12 +855,15 @@ bool SCH_EDIT_FRAME::SaveProject()
             }
 
             wxLogTrace( tracePathsAndFiles,
-                        wxT( "Changing schematic file name path from '%s' to '%s'." ),
-                        screen->GetFileName(), tmp.GetFullPath() );
+                        wxT( "Moving schematic from '%s' to '%s'." ),
+                        screen->GetFileName(),
+                        tmp.GetFullPath() );
 
             if( !tmp.DirExists() && !tmp.Mkdir() )
             {
-                msg.Printf( _( "Cannot create folder \"%s\"." ), newFileName.GetPath() );
+                msg.Printf( _( "Folder '%s' could not be created.\n\n"
+                               "Make sure you have write permissions and try again." ),
+                            newFileName.GetPath() );
 
                 wxMessageDialog dlgBadFilePath( this, msg, _( "Error" ),
                                                 wxOK | wxICON_EXCLAMATION | wxCENTER );
@@ -1103,8 +1103,7 @@ bool SCH_EDIT_FRAME::importFile( const wxString& aFileName, int aFileType )
 
         if( !LockFile( aFileName ) )
         {
-            wxString msg = wxString::Format( _( "Schematic file \"%s\" is already open." ),
-                                             aFileName );
+            wxString msg = wxString::Format( _( "Schematic '%s' is already open." ), aFileName );
             DisplayError( this, msg );
             return false;
         }
@@ -1176,11 +1175,10 @@ bool SCH_EDIT_FRAME::importFile( const wxString& aFileName, int aFileType )
             CreateScreens();
             m_toolManager->RunAction( ACTIONS::zoomFitScreen, true );
 
-            wxString msg;
-            msg.Printf( _( "Error loading schematic \"%s\".\n%s" ), aFileName, ioe.What() );
-            DisplayError( this, msg );
+            wxString msg = wxString::Format( _( "Error loading schematic '%s'." ), aFileName );
+            DisplayErrorMessage( this, msg, ioe.What() );
 
-            msg.Printf( _( "Failed to load \"%s\"" ), aFileName );
+            msg.Printf( _( "Failed to load '%s'." ), aFileName );
             SetMsgPanel( wxEmptyString, msg );
 
             return false;

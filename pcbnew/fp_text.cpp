@@ -27,12 +27,14 @@
 #include <base_units.h>
 #include <bitmaps.h>
 #include <board.h>
+#include <board_design_settings.h>
 #include <core/mirror.h>
 #include <footprint.h>
 #include <settings/settings_manager.h>
 #include <trigo.h>
 #include <kicad_string.h>
 #include <painter.h>
+#include <geometry/shape_compound.h>
 
 FP_TEXT::FP_TEXT( FOOTPRINT* aParentFootprint, TEXT_TYPE text_type ) :
     BOARD_ITEM( aParentFootprint, PCB_FP_TEXT_T ),
@@ -361,8 +363,6 @@ void FP_TEXT::ViewGetLayers( int aLayers[], int& aCount ) const
 double FP_TEXT::ViewGetLOD( int aLayer, KIGFX::VIEW* aView ) const
 {
     constexpr double HIDE = (double)std::numeric_limits<double>::max();
-    RENDER_SETTINGS* renderSettings = aView->GetPainter()->GetSettings();
-    COLOR4D          backgroundColor = renderSettings->GetLayerColor( LAYER_PCB_BACKGROUND );
 
     if( !aView )
         return 0.0;
@@ -371,6 +371,9 @@ double FP_TEXT::ViewGetLOD( int aLayer, KIGFX::VIEW* aView ) const
     // should only render if its native layer is visible.
     if( !aView->IsLayerVisible( GetLayer() ) )
         return HIDE;
+
+    RENDER_SETTINGS* renderSettings = aView->GetPainter()->GetSettings();
+    COLOR4D          backgroundColor = renderSettings->GetLayerColor( LAYER_PCB_BACKGROUND );
 
     // Handle Render tab switches
     if( m_Type == TEXT_is_VALUE || GetText() == wxT( "${VALUE}" ) )

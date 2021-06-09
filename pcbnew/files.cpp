@@ -28,6 +28,7 @@
 #include <kicad_string.h>
 #include <gestfich.h>
 #include <pcb_edit_frame.h>
+#include <board_design_settings.h>
 #include <3d_viewer/eda_3d_viewer.h>
 #include <pgm_base.h>
 #include <widgets/msgpanel.h>
@@ -59,6 +60,7 @@
 #include <tool/tool_manager.h>
 #include <tools/pcb_actions.h>
 #include "footprint_info_impl.h"
+#include <wx_filename.h>  // For ::ResolvePossibleSymlinks()
 
 #include <wx/wupdlock.h>
 #include <wx/filedlg.h>
@@ -778,10 +780,10 @@ bool PCB_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
         else
             GetScreen()->SetContentModified( false );
 
-        if( ( pluginType == IO_MGR::LEGACY &&
-              loadedBoard->GetFileFormatVersionAtLoad() < LEGACY_BOARD_FILE_VERSION ) ||
-            ( pluginType == IO_MGR::KICAD_SEXP &&
-              loadedBoard->GetFileFormatVersionAtLoad() < SEXPR_BOARD_FILE_VERSION ) )
+        if( ( pluginType == IO_MGR::LEGACY )
+         || ( pluginType == IO_MGR::KICAD_SEXP
+                && loadedBoard->GetFileFormatVersionAtLoad() < SEXPR_BOARD_FILE_VERSION
+                && loadedBoard->GetGenerator().Lower() != "gerbview" ) )
         {
             m_infoBar->RemoveAllButtons();
             m_infoBar->AddCloseButton();
@@ -941,6 +943,9 @@ bool PCB_EDIT_FRAME::SavePcbFile( const wxString& aFileName, bool addToHistory,
 
     if( pcbFileName.GetExt() == LegacyPcbFileExtension )
         pcbFileName.SetExt( KiCadPcbFileExtension );
+
+    // Write through symlinks, don't replace them
+    WX_FILENAME::ResolvePossibleSymlinks( pcbFileName );
 
     if( !IsWritable( pcbFileName ) )
     {

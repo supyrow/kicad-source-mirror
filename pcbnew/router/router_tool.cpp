@@ -26,6 +26,7 @@
 #include <functional>
 using namespace std::placeholders;
 #include <board.h>
+#include <board_design_settings.h>
 #include <board_item.h>
 #include <footprint.h>
 #include <fp_shape.h>
@@ -1058,6 +1059,9 @@ bool ROUTER_TOOL::finishInteractive()
 {
     m_router->StopRouting();
 
+    m_startItem = nullptr;
+    m_endItem   = nullptr;
+
     frame()->GetCanvas()->SetCurrentCursor( KICURSOR::ARROW );
     controls()->SetAutoPan( false );
     controls()->ForceCursorPosition( false );
@@ -1500,7 +1504,7 @@ void ROUTER_TOOL::NeighboringSegmentFilter( const VECTOR2I& aPt, GENERAL_COLLECT
     int refNet = reference->GetNetCode();
 
     wxPoint refPoint( aPt.x, aPt.y );
-    STATUS_FLAGS flags = reference->IsPointOnEnds( refPoint, -1 );
+    EDA_ITEM_FLAGS flags = reference->IsPointOnEnds( refPoint, -1 );
 
     if( flags & STARTPOINT )
         refPoint = reference->GetStart();
@@ -1869,7 +1873,7 @@ int ROUTER_TOOL::onTrackViaSizeChanged( const TOOL_EVENT& aEvent )
     PNS::SIZES_SETTINGS sizes( m_router->Sizes() );
 
     if( !m_router->GetCurrentNets().empty() )
-        m_iface->ImportSizes( sizes, nullptr, m_router->GetCurrentNets()[0] );
+        m_iface->ImportSizes( sizes, m_startItem, m_router->GetCurrentNets()[0] );
 
     m_router->UpdateSizes( sizes );
 

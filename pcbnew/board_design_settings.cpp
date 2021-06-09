@@ -25,19 +25,22 @@
 #include <track.h>
 #include <layers_id_colors_and_visibility.h>
 #include <kiface_i.h>
+#include <pad.h>
 #include <board_design_settings.h>
 #include <drc/drc_item.h>
 #include <drc/drc_engine.h>
+#include <settings/json_settings_internals.h>
 #include <settings/parameters.h>
 #include <project/project_file.h>
 #include <advanced_config.h>
+#include <board_design_settings.h>
+#include <pcbnew.h>
 
 const int bdsSchemaVersion = 2;
 
 
 BOARD_DESIGN_SETTINGS::BOARD_DESIGN_SETTINGS( JSON_SETTINGS* aParent, const std::string& aPath ) :
-        NESTED_SETTINGS( "board_design_settings", bdsSchemaVersion, aParent, aPath ),
-        m_Pad_Master( NULL )
+        NESTED_SETTINGS( "board_design_settings", bdsSchemaVersion, aParent, aPath )
 {
     // We want to leave alone parameters that aren't found in the project JSON as they may be
     // initialized by the board file parser before NESTED_SETTINGS::LoadFromFile is called.
@@ -50,6 +53,8 @@ BOARD_DESIGN_SETTINGS::BOARD_DESIGN_SETTINGS( JSON_SETTINGS* aParent, const std:
     m_netClasses = &m_internalNetClasses;
 
     m_HasStackup = false;                   // no stackup defined by default
+
+    m_Pad_Master = std::make_unique<PAD>( nullptr );
 
     LSET all_set = LSET().set();
     m_enabledLayers = all_set;              // All layers enabled at first.
@@ -558,9 +563,9 @@ BOARD_DESIGN_SETTINGS::BOARD_DESIGN_SETTINGS( JSON_SETTINGS* aParent, const std:
             {
                 nlohmann::json ret =
                         {
-                            { "width",  Iu2Millimeter( m_Pad_Master.GetSize().x ) },
-                            { "height", Iu2Millimeter( m_Pad_Master.GetSize().y ) },
-                            { "drill",  Iu2Millimeter( m_Pad_Master.GetDrillSize().x ) }
+                            { "width",  Iu2Millimeter( m_Pad_Master->GetSize().x ) },
+                            { "height", Iu2Millimeter( m_Pad_Master->GetSize().y ) },
+                            { "drill",  Iu2Millimeter( m_Pad_Master->GetDrillSize().x ) }
                         };
 
                 return ret;
@@ -574,11 +579,11 @@ BOARD_DESIGN_SETTINGS::BOARD_DESIGN_SETTINGS( JSON_SETTINGS* aParent, const std:
                     sz.SetWidth( Millimeter2iu( aJson["width"].get<double>() ) );
                     sz.SetHeight( Millimeter2iu( aJson["height"].get<double>() ) );
 
-                    m_Pad_Master.SetSize( sz );
+                    m_Pad_Master->SetSize( sz );
 
                     int drill = Millimeter2iu( aJson["drill"].get<double>() );
 
-                    m_Pad_Master.SetDrillSize( wxSize( drill, drill ) );
+                    m_Pad_Master->SetDrillSize( wxSize( drill, drill ) );
                 }
             }, {} ) );
 
@@ -622,10 +627,10 @@ BOARD_DESIGN_SETTINGS::BOARD_DESIGN_SETTINGS( JSON_SETTINGS* aParent, const std:
 
                 try
                 {
-                    at( "rules" ).erase( "solder_mask_clearance" );
-                    at( "rules" ).erase( "solder_mask_min_width" );
-                    at( "rules" ).erase( "solder_paste_clearance" );
-                    at( "rules" ).erase( "solder_paste_margin_ratio" );
+                    At( "rules" ).erase( "solder_mask_clearance" );
+                    At( "rules" ).erase( "solder_mask_min_width" );
+                    At( "rules" ).erase( "solder_paste_clearance" );
+                    At( "rules" ).erase( "solder_paste_margin_ratio" );
                 }
                 catch( ... )
                 {}
@@ -765,19 +770,19 @@ bool BOARD_DESIGN_SETTINGS::migrateSchema0to1()
      * 1: Mils
      * 2: Millimetres
      */
-    nlohmann::json::json_pointer units_ptr( "/defaults/dimension_units" );
-    nlohmann::json::json_pointer precision_ptr( "/defaults/dimension_precision" );
+    std::string units_ptr( "defaults.dimension_units" );
+    std::string precision_ptr( "defaults.dimension_precision" );
 
-    if( !( contains( units_ptr ) && contains( precision_ptr ) &&
-           at( units_ptr ).is_number_integer() &&
-           at( precision_ptr ).is_number_integer() ) )
+    if( !( Contains( units_ptr ) && Contains( precision_ptr ) &&
+           At( units_ptr ).is_number_integer() &&
+           At( precision_ptr ).is_number_integer() ) )
     {
         // if either is missing or invalid, migration doesn't make sense
         return true;
     }
 
-    int units     = at( units_ptr ).get<int>();
-    int precision = at( precision_ptr ).get<int>();
+    int units     = Get<int>( units_ptr ).value();
+    int precision = Get<int>( precision_ptr ).value();
 
     // The enum maps directly to precision if the units is mils
     int extraDigits = 0;
@@ -791,7 +796,7 @@ bool BOARD_DESIGN_SETTINGS::migrateSchema0to1()
 
     precision += extraDigits;
 
-    ( *this )[precision_ptr] = precision;
+    Set( precision_ptr, precision );
 
     return true;
 }
@@ -823,36 +828,35 @@ bool BOARD_DESIGN_SETTINGS::LoadFromFile( const wxString& aDirectory )
     std::string bp = "board.design_settings.rule_severities.";
     std::string rs = "rule_severities.";
 
-    if( OPT<bool> v =
-                    project->Get<bool>( PointerFromString( bp + "legacy_no_courtyard_defined" ) ) )
+    if( OPT<bool> v = project->Get<bool>( bp + "legacy_no_courtyard_defined" ) )
     {
         if( *v )
-            ( *this )[PointerFromString( rs + drcName( DRCE_MISSING_COURTYARD ) )] = "error";
+            Set( rs + drcName( DRCE_MISSING_COURTYARD ), "error" );
         else
-            ( *this )[PointerFromString( rs + drcName( DRCE_MISSING_COURTYARD ) )] = "ignore";
+            Set( rs + drcName( DRCE_MISSING_COURTYARD ), "ignore" );
 
-        project->erase( PointerFromString( bp + "legacy_no_courtyard_defined" ) );
+        project->Internals()->erase( m_internals->PointerFromString( bp + "legacy_no_courtyard_defined" ) );
         migrated = true;
     }
 
-    if( OPT<bool> v = project->Get<bool>( PointerFromString( bp + "legacy_courtyards_overlap" ) ) )
+    if( OPT<bool> v = project->Get<bool>( bp + "legacy_courtyards_overlap" ) )
     {
         if( *v )
-            ( *this )[PointerFromString( rs + drcName( DRCE_OVERLAPPING_FOOTPRINTS ) )] = "error";
+            Set( rs + drcName( DRCE_OVERLAPPING_FOOTPRINTS ), "error" );
         else
-            ( *this )[PointerFromString( rs + drcName( DRCE_OVERLAPPING_FOOTPRINTS ) )] = "ignore";
+            Set( rs + drcName( DRCE_OVERLAPPING_FOOTPRINTS ), "ignore" );
 
-        project->erase( PointerFromString( bp + "legacy_courtyards_overlap" ) );
+        project->Internals()->erase( JSON_SETTINGS_INTERNALS::PointerFromString( bp + "legacy_courtyards_overlap" ) );
         migrated = true;
     }
 
-    if( project->contains( "legacy" ) )
+    if( Contains( "legacy" ) )
     {
         // This defaults to false for new boards, but version 5.1.x and prior kept the fillets
         // so we do the same for legacy boards.
         m_ZoneKeepExternalFillets = true;
 
-        project->at( "legacy" ).erase( "pcbnew" );
+        project->At( "legacy" ).erase( "pcbnew" );
     }
 
     // Now that we have everything, we need to load again

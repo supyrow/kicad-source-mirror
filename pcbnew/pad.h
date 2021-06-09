@@ -28,12 +28,10 @@
 #include <mutex>
 #include <zones.h>
 #include <board_connected_item.h>
-#include <board_item.h>
 #include <convert_to_biu.h>
 #include <geometry/shape_poly_set.h>
 #include <geometry/shape_compound.h>
 #include <pad_shapes.h>
-#include <pcbnew.h>
 
 class PCB_SHAPE;
 class PARAM_CFG;

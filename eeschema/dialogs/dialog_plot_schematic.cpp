@@ -31,7 +31,6 @@
 #include <eeschema_settings.h>
 #include <kiface_i.h>
 #include <locale_io.h>
-#include <pgm_base.h>
 #include <plotters_specific.h>
 #include <reporter.h>
 #include <trace_helpers.h>
@@ -46,6 +45,7 @@
 #include <wx/dirdlg.h>
 #include <wx/msgdlg.h>
 #include <wx/stdpaths.h>
+#include <wx/log.h>
 
 
 // static members (static to remember last state):
@@ -127,7 +127,7 @@ void DIALOG_PLOT_SCHEMATIC::initDlg()
 
     if( cfg )
     {
-        for( COLOR_SETTINGS* settings : Pgm().GetSettingsManager().GetColorSettingsList() )
+        for( COLOR_SETTINGS* settings : m_parent->GetSettingsManager()->GetColorSettingsList() )
         {
             int idx = m_colorTheme->Append( settings->GetName(), static_cast<void*>( settings ) );
 
@@ -374,7 +374,7 @@ COLOR_SETTINGS* DIALOG_PLOT_SCHEMATIC::getColorSettings()
     int selection = m_colorTheme->GetSelection();
 
     if( selection < 0 )
-        return Pgm().GetSettingsManager().GetColorSettings( "_builtin_default" );
+        return m_parent->GetSettingsManager()->GetColorSettings( "_builtin_default" );
 
     return static_cast<COLOR_SETTINGS*>( m_colorTheme->GetClientData( selection ) );
 }

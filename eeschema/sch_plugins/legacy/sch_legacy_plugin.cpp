@@ -41,6 +41,7 @@
 #include <core/typeinfo.h>
 #include <properties.h>
 #include <trace_helpers.h>
+#include <trigo.h>
 
 #include <general.h>
 #include <sch_bitmap.h>
@@ -73,6 +74,7 @@
 #include <confirm.h>
 #include <tool/selection.h>
 #include <default_values.h>    // For some default values
+#include <wx_filename.h>       // For ::ResolvePossibleSymlinks()
 
 
 #define Mils2Iu( x ) Mils2iu( x )
@@ -2437,22 +2439,7 @@ SCH_LEGACY_PLUGIN_CACHE::~SCH_LEGACY_PLUGIN_CACHE()
 wxFileName SCH_LEGACY_PLUGIN_CACHE::GetRealFile() const
 {
     wxFileName fn( m_libFileName );
-
-#ifndef __WINDOWS__
-    if( fn.Exists( wxFILE_EXISTS_SYMLINK ) )
-    {
-        char buffer[ PATH_MAX + 1 ];
-        ssize_t pathLen = readlink( TO_UTF8( fn.GetFullPath() ), buffer, PATH_MAX );
-
-        if( pathLen > 0 )
-        {
-            buffer[ pathLen ] = '\0';
-            fn.Assign( fn.GetPath() + wxT( "/" ) + wxString::FromUTF8( buffer ) );
-            fn.Normalize();
-        }
-    }
-#endif
-
+    WX_FILENAME::ResolvePossibleSymlinks( fn );
     return fn;
 }
 

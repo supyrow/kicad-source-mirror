@@ -27,12 +27,12 @@
 #ifndef _DIALOG_PAD_PROPERTIES_H_
 #define _DIALOG_PAD_PROPERTIES_H_
 
-#include <pcbnew.h>
 #include <pcb_base_frame.h>
 #include <base_units.h>
 #include <wx/valnum.h>
 #include <board.h>
 #include <footprint.h>
+#include <pad_shapes.h>
 #include <pcb_shape.h>
 #include <origin_viewitem.h>
 #include <dialog_pad_properties_base.h>
@@ -80,11 +80,7 @@ private:
 	void OnCancel( wxCommandEvent& event ) override;
     void OnUpdateUI( wxUpdateUIEvent& event ) override;
 
-    void OnUpdateUINonCopperWarning( wxUpdateUIEvent& event ) override
-    {
-        bool isOnCopperLayer = ( m_dummyPad->GetLayerSet() & LSET::AllCuMask() ).any();
-        m_nonCopperWarningBook->SetSelection( isOnCopperLayer ? 0 : 1 );
-    }
+    void OnUpdateUINonCopperWarning( wxUpdateUIEvent& event ) override;
 
     void OnPadShapeSelection( wxCommandEvent& event ) override;
     void OnDrillShapeSelected( wxCommandEvent& event ) override;

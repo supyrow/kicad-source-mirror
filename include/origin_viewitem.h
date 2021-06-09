@@ -31,8 +31,7 @@
 #include <view/view.h>
 #include <layers_id_colors_and_visibility.h>
 #include <gal/color4d.h>
-
-class EDA_ITEM;
+#include <eda_item.h>
 
 /**
  * View item to draw an origin marker.
@@ -52,7 +51,7 @@ public:
                      MARKER_STYLE aStyle = CIRCLE_X, int aSize = 16,
                      const VECTOR2D& aPosition = VECTOR2D( 0, 0 ) );
 
-    ORIGIN_VIEWITEM( const VECTOR2D& aPosition, STATUS_FLAGS flags );
+    ORIGIN_VIEWITEM( const VECTOR2D& aPosition, EDA_ITEM_FLAGS flags );
 
     ORIGIN_VIEWITEM* Clone() const override;
 

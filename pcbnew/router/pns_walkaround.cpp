@@ -60,10 +60,11 @@ WALKAROUND::WALKAROUND_STATUS WALKAROUND::singleStep( LINE& aPath, bool aWinding
     if( !current_obs )
         return DONE;
 
+    VECTOR2I initialLast = aPath.CPoint( -1 );
+
     SHAPE_LINE_CHAIN path_walk;
 
-    bool s_cw = aPath.Walkaround( current_obs->m_hull, path_walk,
-                      aWindingDirection );
+    bool s_cw = aPath.Walkaround( current_obs->m_hull, path_walk, aWindingDirection );
 
     PNS_DBG( Dbg(), BeginGroup, "hull/walk" );
     char name[128];
@@ -76,10 +77,18 @@ WALKAROUND::WALKAROUND_STATUS WALKAROUND::singleStep( LINE& aPath, bool aWinding
     PNS_DBG( Dbg(), Message, wxString::Format( "Stat cw %d", !!s_cw ) );
     PNS_DBGN( Dbg(), EndGroup );
 
-    current_obs = nearestObstacle( LINE( aPath, path_walk ) );
-
     path_walk.Simplify();
     aPath.SetShape( path_walk );
+
+    // If the end of the line is inside an obstacle, additional walkaround iterations are not
+    // going to help.  Exit now to prevent pegging the iteration limiter and causing lag.
+    if( current_obs && current_obs->m_hull.PointInside( initialLast ) &&
+        !current_obs->m_hull.PointOnEdge( initialLast ) )
+    {
+        return ALMOST_DONE;
+    }
+
+    current_obs = nearestObstacle( LINE( aPath, path_walk ) );
 
     return IN_PROGRESS;
 }
@@ -118,6 +127,13 @@ const WALKAROUND::RESULT WALKAROUND::Route( const LINE& aInitialPath )
         m_forceSingleDirection = false;
     }
 
+    // In some situations, there isn't a trivial path (or even a path at all).  Hitting the
+    // iteration limit causes lag, so we can exit out early if the walkaround path gets very long
+    // compared with the initial path.  If the length exceeds the initial length times this factor,
+    // fail out.
+    const int maxWalkDistFactor = 10;
+    long long lengthLimit       = aInitialPath.CLine().Length() * maxWalkDistFactor;
+
     while( m_iteration < m_iterationLimit )
     {
         if( s_cw != STUCK && s_cw != ALMOST_DONE )
@@ -139,6 +155,10 @@ const WALKAROUND::RESULT WALKAROUND::Route( const LINE& aInitialPath )
         }
 
         if( s_cw != IN_PROGRESS && s_ccw != IN_PROGRESS )
+            break;
+
+        // Safety valve
+        if( path_cw.Line().Length() > lengthLimit && path_ccw.Line().Length() > lengthLimit )
             break;
 
         m_iteration++;

@@ -25,6 +25,7 @@
 #include <wx/colordlg.h>
 #include <wx/colour.h>
 #include <wx/filename.h>
+#include <wx/msgdlg.h>
 #include <wx/string.h>
 #include <wx/wupdlock.h>
 #include <wx/clipbrd.h>
@@ -35,6 +36,7 @@
 #include <3d_viewer/tools/3d_controller.h>
 #include <3d_viewer/tools/3d_conditions.h>
 #include <bitmaps.h>
+#include <board_design_settings.h>
 #include <board_stackup_manager/board_stackup.h>
 #include <board_stackup_manager/stackup_predefined_prms.h>
 #include <board.h>

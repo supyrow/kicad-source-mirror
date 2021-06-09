@@ -30,6 +30,7 @@
 #include <menus_helpers.h>
 #include <pgm_base.h>
 #include <schematic.h>
+#include <tool/action_manager.h>
 #include <tool/action_menu.h>
 #include <tool/tool_manager.h>
 #include <tools/ee_selection_tool.h>
@@ -261,11 +262,18 @@ void SCH_EDIT_FRAME::ReCreateMenuBar()
 
 
     //-- Preferences menu -----------------------------------------------
+    //
     ACTION_MENU* prefsMenu = new ACTION_MENU( false, selTool );
 
     prefsMenu->Add( ACTIONS::configurePaths );
     prefsMenu->Add( ACTIONS::showSymbolLibTable );
-    prefsMenu->Add( ACTIONS::openPreferences );
+
+    // We can't use ACTIONS::showPreferences yet because wxWidgets moves this on
+    // Mac, and it needs the wxID_PREFERENCES id to find it.
+    prefsMenu->Add( _( "Preferences..." ) + "\tCtrl+,",
+                    _( "Show preferences for all open tools" ),
+                    wxID_PREFERENCES,
+                    BITMAPS::preference );
 
     prefsMenu->AppendSeparator();
     AddMenuLanguageList( prefsMenu, selTool );

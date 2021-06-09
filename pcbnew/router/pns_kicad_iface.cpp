@@ -21,8 +21,10 @@
 
 #include <board.h>
 #include <board_connected_item.h>
+#include <board_design_settings.h>
 #include <fp_text.h>
 #include <footprint.h>
+#include <pad.h>
 #include <track.h>
 #include <zone.h>
 #include <pcb_shape.h>
@@ -461,6 +463,7 @@ bool PNS_KICAD_IFACE_BASE::ImportSizes( PNS::SIZES_SETTINGS& aSizes, PNS::ITEM* 
     }
 
     aSizes.SetTrackWidth( trackWidth );
+    aSizes.SetTrackWidthIsExplicit( !found );
 
     int viaDiameter = bds.m_ViasMinSize;
     int viaDrill = bds.m_MinThroughDrill;

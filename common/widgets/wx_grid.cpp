@@ -21,9 +21,9 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
+#include <wx/settings.h>
 #include <wx/tokenzr.h>
 #include <wx/dc.h>
-#include <wx/wx.h>
 #include <widgets/wx_grid.h>
 
 #include <algorithm>
