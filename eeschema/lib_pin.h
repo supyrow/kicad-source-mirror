@@ -27,8 +27,6 @@
 #ifndef CLASS_PIN_H
 #define CLASS_PIN_H
 
-class SCH_COMPONENT;
-
 #include <eda_rect.h>
 #include <lib_item.h>
 #include <pin_type.h>
@@ -42,7 +40,7 @@ class SCH_COMPONENT;
 
 
 /**
- *  The component library pin object orientations.
+ *  The symbol library pin object orientations.
  */
 enum DrawPinOrient {
     PIN_RIGHT = 'R',
@@ -106,6 +104,7 @@ public:
     }
 
     const wxString& GetName() const { return m_name; }
+    wxString GetShownName() const;
     void SetName( const wxString& aName )
     {
         m_name = aName;
@@ -115,6 +114,7 @@ public:
     }
 
     const wxString& GetNumber() const { return m_number; }
+    wxString GetShownNumber() const { return m_number; }
     void SetNumber( const wxString& aNumber )
     {
         m_number = aNumber;
@@ -152,9 +152,9 @@ public:
      */
     int PinDrawOrient( const TRANSFORM& aTransform ) const;
 
-    LIB_PIN( LIB_PART* aParent );
+    LIB_PIN( LIB_SYMBOL* aParent );
 
-    LIB_PIN( LIB_PART* aParent, const wxString& aName, const wxString& aNumber, int aOrientation,
+    LIB_PIN( LIB_SYMBOL* aParent, const wxString& aName, const wxString& aNumber, int aOrientation,
              ELECTRICAL_PINTYPE aPinType, int aLength, int aNameTextSize, int aNumTextSize,
              int aConvert, const wxPoint& aPos, int aUnit );
 
@@ -186,7 +186,7 @@ public:
     bool IsPowerConnection() const
     {
         return GetType() == ELECTRICAL_PINTYPE::PT_POWER_IN
-               && ( !IsVisible() || (LIB_PART*) GetParent()->IsPower() );
+               && ( !IsVisible() || (LIB_SYMBOL*) GetParent()->IsPower() );
     }
 
     int GetPenWidth() const override;

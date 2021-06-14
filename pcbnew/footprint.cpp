@@ -39,7 +39,7 @@
 #include <pcb_text.h>
 #include <pcb_marker.h>
 #include <pcb_group.h>
-#include <track.h>
+#include <pcb_track.h>
 #include <footprint.h>
 #include <zone.h>
 #include <view/view.h>
@@ -1380,7 +1380,7 @@ void FOOTPRINT::Flip( const wxPoint& aCentre, bool aFlipLeftRight )
     // footprint from library.
     // When flipped around the X axis (Y coordinates changed) orientation is negated
     // When flipped around the Y axis (X coordinates changed) orientation is 180 - old orient.
-    // Because it is specfic to a footprint, we flip around the X axis, and after rotate 180 deg
+    // Because it is specific to a footprint, we flip around the X axis, and after rotate 180 deg
 
     MIRROR( finalPos.y, aCentre.y );     /// Mirror the Y position (around the X axis)
 
@@ -1817,7 +1817,7 @@ double FOOTPRINT::GetCoverageArea( const BOARD_ITEM* aItem, const GENERAL_COLLEC
     }
     else if( aItem->Type() == PCB_TRACE_T || aItem->Type() == PCB_ARC_T )
     {
-        double width = static_cast<const TRACK*>( aItem )->GetWidth();
+        double width = static_cast<const PCB_TRACK*>( aItem )->GetWidth();
         return width * width;
     }
     else

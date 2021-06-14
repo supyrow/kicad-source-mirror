@@ -36,10 +36,10 @@
 #include <board_design_settings.h>
 #include <board_item.h>
 #include <dialogs/dialog_paste_special.h>
-#include <dimension.h>
+#include <pcb_dimension.h>
 #include <footprint.h>
 #include <pcb_group.h>
-#include <track.h>
+#include <pcb_track.h>
 #include <zone.h>
 #include <fp_shape.h>
 #include <confirm.h>
@@ -902,7 +902,7 @@ int PCB_CONTROL::placeBoardItems( std::vector<BOARD_ITEM*>& aItems, bool aIsNew,
         case PCB_DIM_LEADER_T:
             {
             // Dimensions need to have their units updated if they are automatic
-            DIMENSION_BASE* dim = static_cast<DIMENSION_BASE*>( item );
+            PCB_DIMENSION_BASE* dim = static_cast<PCB_DIMENSION_BASE*>( item );
 
             if( dim->GetUnitsMode() == DIM_UNITS_MODE::AUTOMATIC )
                 dim->SetUnits( frame()->GetUserUnits() );
@@ -982,7 +982,7 @@ int PCB_CONTROL::AppendBoard( PLUGIN& pi, wxString& fileName )
 
     // Mark existing items, in order to know what are the new items so we can select only
     // the new items after loading
-    for( TRACK* track : brd->Tracks() )
+    for( PCB_TRACK* track : brd->Tracks() )
         track->SetFlags( SKIP_STRUCT );
 
     for( FOOTPRINT* footprint : brd->Footprints() )

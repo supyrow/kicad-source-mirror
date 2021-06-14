@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2017 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 1992-2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -504,7 +504,7 @@ void SCH_EDIT_FRAME::SetSheetNumberAndCount()
     int              sheet_number      = 1;
     const KIID_PATH& current_sheetpath = GetCurrentSheet().Path();
 
-    // @todo Remove all psuedo page number system is left over from prior to real page number
+    // @todo Remove all pseudo page number system is left over from prior to real page number
     //       implementation.
     for( const SCH_SHEET_PATH& sheet : Schematic().GetSheets() )
     {
@@ -1158,9 +1158,9 @@ void SCH_EDIT_FRAME::AddItemToScreenAndUndoList( SCH_SCREEN* aScreen, SCH_ITEM* 
 {
     wxCHECK_RET( aItem != NULL, wxT( "Cannot add null item to list." ) );
 
-    SCH_SHEET*     parentSheet = nullptr;
-    SCH_COMPONENT* parentSymbol = nullptr;
-    SCH_ITEM*      undoItem = aItem;
+    SCH_SHEET*  parentSheet = nullptr;
+    SCH_SYMBOL* parentSymbol = nullptr;
+    SCH_ITEM*   undoItem = aItem;
 
     if( aItem->Type() == SCH_SHEET_PIN_T )
     {
@@ -1174,9 +1174,9 @@ void SCH_EDIT_FRAME::AddItemToScreenAndUndoList( SCH_SCREEN* aScreen, SCH_ITEM* 
 
     else if( aItem->Type() == SCH_FIELD_T )
     {
-        parentSymbol = (SCH_COMPONENT*) aItem->GetParent();
+        parentSymbol = (SCH_SYMBOL*) aItem->GetParent();
 
-        wxCHECK_RET( parentSymbol && parentSymbol->Type() == SCH_COMPONENT_T,
+        wxCHECK_RET( parentSymbol && parentSymbol->Type() == SCH_SYMBOL_T,
                      wxT( "Cannot place field in invalid schematic symbol." ) );
 
         undoItem = parentSymbol;
@@ -1483,10 +1483,10 @@ const BOX2I SCH_EDIT_FRAME::GetDocumentExtents( bool aIncludeAllVisible ) const
         {
             if( item != dsAsItem ) // Ignore the drawing-sheet itself
             {
-                if( item->Type() == SCH_COMPONENT_T )
+                if( item->Type() == SCH_SYMBOL_T )
                 {
                     // For symbols we need to get the bounding box without invisible text
-                    SCH_COMPONENT* symbol = static_cast<SCH_COMPONENT*>( item );
+                    SCH_SYMBOL* symbol = static_cast<SCH_SYMBOL*>( item );
                     bBoxItems.Merge( symbol->GetBoundingBox( false ) );
                 }
                 else
@@ -1606,7 +1606,7 @@ void SCH_EDIT_FRAME::onSize( wxSizeEvent& aEvent )
 }
 
 
-void SCH_EDIT_FRAME::SaveSymbolToSchematic( const LIB_PART& aSymbol )
+void SCH_EDIT_FRAME::SaveSymbolToSchematic( const LIB_SYMBOL& aSymbol )
 {
     wxString msg;
     bool appendToUndo = false;
@@ -1617,7 +1617,7 @@ void SCH_EDIT_FRAME::SaveSymbolToSchematic( const LIB_PART& aSymbol )
 
     wxCHECK( selectionTool, /* void */ );
 
-    EE_SELECTION& selection = selectionTool->RequestSelection( EE_COLLECTOR::ComponentsOnly );
+    EE_SELECTION& selection = selectionTool->RequestSelection( EE_COLLECTOR::SymbolsOnly );
 
     if( selection.Empty() )
         return;
@@ -1630,12 +1630,12 @@ void SCH_EDIT_FRAME::SaveSymbolToSchematic( const LIB_PART& aSymbol )
     // only works for a single symbol selection.
     for( EDA_ITEM* item : selection )
     {
-        SCH_COMPONENT* symbol = dynamic_cast<SCH_COMPONENT*>( item );
+        SCH_SYMBOL* symbol = dynamic_cast<SCH_SYMBOL*>( item );
 
         wxCHECK( symbol, /* void */ );
 
-        // This needs to be done before the LIB_PART is changed to prevent stale library symbols in
-        // the schematic file.
+        // This needs to be done before the LIB_SYMBOL is changed to prevent stale library
+        // symbols in the schematic file.
         currentScreen->Remove( symbol );
 
         if( !symbol->IsNew() )

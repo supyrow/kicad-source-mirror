@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2013 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
- * Copyright (C) 2013-2019 KiCad Developers, see change_log.txt for contributors.
+ * Copyright (C) 2013-2021 KiCad Developers, see change_log.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -46,9 +46,8 @@
 
 class wxFrame;
 class wxDialog;
-class LIB_PART;
 class PART_LIBS;
-class SCH_COMPONENT;
+class SCH_SYMBOL;
 class SCH_TEXT;
 class SCH_SHEET_PATH;
 class RESCUER;
@@ -92,11 +91,11 @@ void InvokeDialogBusManager( SCH_EDIT_FRAME* aCaller );
 int InvokeDialogNetList( SCH_EDIT_FRAME* aCaller );
 
 /**
- * Run a dialog to modify the LIB_ID of components for instance when a symbol has
+ * Run a dialog to modify the LIB_ID of symbols for instance when a symbol has
  * moved from a symbol library to another symbol library
  * @return true if changes are made, false if no change
  */
-bool InvokeDialogEditComponentsLibId( SCH_EDIT_FRAME* aCaller );
+bool InvokeDialogEditSymbolsLibId( SCH_EDIT_FRAME* aCaller );
 
 
 

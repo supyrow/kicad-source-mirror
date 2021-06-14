@@ -130,6 +130,7 @@ void ACTION_TOOLBAR_PALETTE::AddAction( const TOOL_ACTION& aAction )
     button->SetDisabledBitmap( disabledBmp );
     button->SetPadding( padding );
     button->SetToolTip( aAction.GetDescription() );
+    button->AcceptDragInAsClick();
 
     m_buttons[aAction.GetUIId()] = button;
 
@@ -458,6 +459,7 @@ void ACTION_TOOLBAR::onToolEvent( wxAuiToolBarEvent& aEvent )
             evt = actionIt->second->MakeEvent();
             evt->SetHasPosition( false );
             m_toolManager->ProcessEvent( *evt );
+            m_toolManager->GetToolHolder()->RefreshCanvas();
             handled = true;
         }
     }
@@ -596,6 +598,7 @@ void ACTION_TOOLBAR::onPaletteEvent( wxCommandEvent& aEvent )
         evt = action->MakeEvent();
         evt->SetHasPosition( false );
         m_toolManager->ProcessEvent( *evt );
+        m_toolManager->GetToolHolder()->RefreshCanvas();
 
         // Update the main toolbar item with the selected action
         doSelectAction( group, *action );

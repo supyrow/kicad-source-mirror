@@ -24,7 +24,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
-#include <pgm_base.h>
 #include <kiface_i.h>
 #include <confirm.h>
 #include <gestfich.h>
@@ -33,10 +32,9 @@
 #include <board.h>
 #include <footprint.h>
 #include <pad.h>
-#include <track.h>
 #include <zone.h>
 #include <pcb_target.h>
-#include <dimension.h>
+#include <pcb_dimension.h>
 #include <pcb_layer_box_selector.h>
 #include <dialog_drc.h>
 #include <connectivity/connectivity_data.h>
@@ -140,7 +138,7 @@ void PCB_EDIT_FRAME::OnEditItemRequest( BOARD_ITEM* aItem )
     case PCB_DIM_CENTER_T:
     case PCB_DIM_ORTHOGONAL_T:
     case PCB_DIM_LEADER_T:
-        ShowDimensionPropertiesDialog( static_cast<DIMENSION_BASE*>( aItem ) );
+        ShowDimensionPropertiesDialog( static_cast<PCB_DIMENSION_BASE*>( aItem ) );
         break;
 
     case PCB_FP_TEXT_T:
@@ -165,7 +163,7 @@ void PCB_EDIT_FRAME::OnEditItemRequest( BOARD_ITEM* aItem )
 }
 
 
-void PCB_EDIT_FRAME::ShowDimensionPropertiesDialog( DIMENSION_BASE* aDimension )
+void PCB_EDIT_FRAME::ShowDimensionPropertiesDialog( PCB_DIMENSION_BASE* aDimension )
 {
     if( aDimension == nullptr )
         return;

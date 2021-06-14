@@ -40,7 +40,7 @@
 #include <board_design_settings.h>
 #include <footprint.h>
 #include <pad.h>
-#include <track.h>
+#include <pcb_track.h>
 #include <zone.h>
 
 #include <board_stackup_manager/stackup_predefined_prms.h>
@@ -266,7 +266,7 @@ void GERBER_JOBFILE_WRITER::addJSONGeneralSpecs()
     m_json["GeneralSpecs"]["ProjectId"]["GUID"] = guid;
     m_json["GeneralSpecs"]["ProjectId"]["Revision"] = rev.ToAscii();
 
-    // output the bord size in mm:
+    // output the board size in mm:
     EDA_RECT brect = m_pcb->GetBoardEdgesBoundingBox();
 
     m_json["GeneralSpecs"]["Size"]["X"] = mapValue( brect.GetWidth() );
@@ -496,7 +496,7 @@ void GERBER_JOBFILE_WRITER::addJSONDesignRules()
     int mintrackWidthOuter = INT_MAX;
     int mintrackWidthInner = INT_MAX;
 
-    for( TRACK* track : m_pcb->Tracks() )
+    for( PCB_TRACK* track : m_pcb->Tracks() )
     {
         if( track->Type() == PCB_VIA_T )
             continue;

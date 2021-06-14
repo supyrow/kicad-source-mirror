@@ -45,7 +45,7 @@
  * Symbol library file version.
  */
 //#define SEXPR_SCHEMATIC_FILE_VERSION 20200310  // Initial version.  Sheet fields were named
-                                                 // incorectly (using symbol field vocabulary).
+                                                 // incorrectly (using symbol field vocabulary).
 //#define SEXPR_SCHEMATIC_FILE_VERSION 20200506  // Used "page" instead of "paper" for paper
                                                  // sizes.
 //#define SEXPR_SCHEMATIC_FILE_VERSION 20200512  // Add support for exclude from BOM.
@@ -60,4 +60,5 @@
 //#define SEXPR_SCHEMATIC_FILE_VERSION 20210123  // Rename "unconnected" pintype to "no_connect".
 //#define SEXPR_SCHEMATIC_FILE_VERSION 20210125  // R/W uuids for pins, labels, wires, etc.
 //#define SEXPR_SCHEMATIC_FILE_VERSION 20210126  // Fix bug with writing pin uuids.
-#define SEXPR_SCHEMATIC_FILE_VERSION 20210406    // Add schematic level uuids.
+//#define SEXPR_SCHEMATIC_FILE_VERSION 20210406  // Add schematic level uuids.
+#define SEXPR_SCHEMATIC_FILE_VERSION 20210606  // Change overbar syntax from `~...~` to `~{...}`.

@@ -34,7 +34,6 @@
 #include <pcb_base_frame.h>
 #include <pcb_edit_frame.h>
 #include <project.h>
-#include <stdint.h>
 #include <wx_html_report_panel.h>
 
 #include <frame_type.h>
@@ -183,7 +182,6 @@ private:
 
     PCB_EDIT_FRAME*  m_frame;
     FOOTPRINTS       m_footprints;
-    PCB_SCREEN*      m_screen;
     PCB_SELECTION    m_selection;
 
     std::vector<RefDesChange>  m_changeArray;

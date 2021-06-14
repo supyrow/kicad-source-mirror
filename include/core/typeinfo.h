@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2014 CERN
- * Copyright (C) 2004-2020 KiCad Developers, see change_log.txt for contributors.
+ * Copyright (C) 2004-2021 KiCad Developers, see change_log.txt for contributors.
  * @author Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  *
  * This program is free software; you can redistribute it and/or
@@ -31,7 +31,7 @@
 #include <type_traits>
 
 /**
- * Checks if the type of aObject is T.
+ * Check if the type of aObject is T.
  *
  * @param aObject the object for type check.
  * @return true, if aObject type equals T.
@@ -92,15 +92,15 @@ enum KICAD_T
     PCB_FP_TEXT_T,          ///< class FP_TEXT, text in a footprint
     PCB_FP_SHAPE_T,         ///< class FP_SHAPE, a footprint edge
     PCB_FP_ZONE_T,          ///< class ZONE, managed by a footprint
-    PCB_TRACE_T,            ///< class TRACK, a track segment (segment on a copper layer)
-    PCB_VIA_T,              ///< class VIA, a via (like a track segment on a copper layer)
-    PCB_ARC_T,              ///< class ARC, an arc track segment on a copper layer
-    PCB_MARKER_T,           ///< class MARKER_PCB, a marker used to show something
-    PCB_DIMENSION_T,        ///< class DIMENSION_BASE: abstract dimension meta-type
-    PCB_DIM_ALIGNED_T,      ///< class ALIGNED_DIMENSION, a linear dimension (graphic item)
-    PCB_DIM_LEADER_T,       ///< class LEADER, a leader dimension (graphic item)
-    PCB_DIM_CENTER_T,       ///< class CENTER_DIMENSION, a center point marking (graphic item)
-    PCB_DIM_ORTHOGONAL_T,   ///< class ORTHOGONAL_DIMENSION, a linear dimension constrained to x/y
+    PCB_TRACE_T,            ///< class PCB_TRACK, a track segment (segment on a copper layer)
+    PCB_VIA_T,              ///< class PCB_VIA, a via (like a track segment on a copper layer)
+    PCB_ARC_T,              ///< class PCB_ARC, an arc track segment on a copper layer
+    PCB_MARKER_T,           ///< class PCB_MARKER, a marker used to show something
+    PCB_DIMENSION_T,        ///< class PCB_DIMENSION_BASE: abstract dimension meta-type
+    PCB_DIM_ALIGNED_T,      ///< class PCB_DIM_ALIGNED, a linear dimension (graphic item)
+    PCB_DIM_LEADER_T,       ///< class PCB_DIM_LEADER, a leader dimension (graphic item)
+    PCB_DIM_CENTER_T,       ///< class PCB_DIM_CENTER, a center point marking (graphic item)
+    PCB_DIM_ORTHOGONAL_T,   ///< class PCB_DIM_ORTHOGONAL, a linear dimension constrained to x/y
     PCB_TARGET_T,           ///< class PCB_TARGET, a target (graphic item)
     PCB_ZONE_T,             ///< class ZONE, a copper pour area
     PCB_ITEM_LIST_T,        ///< class BOARD_ITEM_LIST, a list of board items
@@ -132,7 +132,7 @@ enum KICAD_T
     SCH_GLOBAL_LABEL_T,
     SCH_HIER_LABEL_T,
     SCH_FIELD_T,
-    SCH_COMPONENT_T,
+    SCH_SYMBOL_T,
     SCH_SHEET_PIN_T,
     SCH_SHEET_T,
     SCH_PIN_T,
@@ -154,8 +154,8 @@ enum KICAD_T
     SCH_LABEL_LOCATE_WIRE_T,
     SCH_LABEL_LOCATE_BUS_T,
 
-    // Same for picking components which are power symbols
-    SCH_COMPONENT_LOCATE_POWER_T,
+    // Same for picking symbols which are power symbols
+    SCH_SYMBOL_LOCATE_POWER_T,
 
     // matches any type
     SCH_LOCATE_ANY_T,
@@ -166,14 +166,14 @@ enum KICAD_T
     SCHEMATIC_T,
 
     /*
-     * Draw items in library component.
+     * Draw items in library symbol.
      *
      * The order of these items effects the sort order for items inside the
-     * "DRAW/ENDDRAW" section of the component definition in a library file.
+     * "DRAW/ENDDRAW" section of the symbol definition in a library file.
      * If you add a new draw item, type, please make sure you add it so the
      * sort order is logical.
      */
-    LIB_PART_T,
+    LIB_SYMBOL_T,
     LIB_ALIAS_T,
     LIB_ARC_T,
     LIB_CIRCLE_T,
@@ -224,7 +224,7 @@ enum KICAD_T
 };
 
 /**
- * Returns the underlying type of the given type.
+ * Return the underlying type of the given type.
  *
  * This is useful for finding the element type given one of the "non-type" types such as
  * SCH_LINE_LOCATE_WIRE_T.
@@ -251,8 +251,8 @@ constexpr KICAD_T BaseType( const KICAD_T aType )
     case SCH_LABEL_LOCATE_BUS_T:
         return SCH_LABEL_T;
 
-    case SCH_COMPONENT_LOCATE_POWER_T:
-        return SCH_COMPONENT_T;
+    case SCH_SYMBOL_LOCATE_POWER_T:
+        return SCH_SYMBOL_T;
 
     case PCB_LOCATE_HOLE_T:
     case PCB_LOCATE_PTH_T:

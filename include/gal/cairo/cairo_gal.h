@@ -316,9 +316,9 @@ protected:
         union {
             double DblArg[MAX_CAIRO_ARGUMENTS];     ///< Arguments for Cairo commands
             bool   BoolArg;                         ///< A bool argument
-            int    IntArg;                          ///< An int argument
+            int    IntArg = 0;                      ///< An int argument
         }                m_Argument;
-        cairo_path_t*    m_CairoPath;               ///< Pointer to a Cairo path
+        cairo_path_t*    m_CairoPath = nullptr;     ///< Pointer to a Cairo path
     } GROUP_ELEMENT;
 
     typedef std::deque<GROUP_ELEMENT> GROUP;        ///< A graphic group type definition

@@ -30,12 +30,12 @@ using namespace std::placeholders;
 #include <macros.h>
 #include <pcb_edit_frame.h>
 #include <board.h>
-#include <track.h>
+#include <pcb_track.h>
 #include <pcb_group.h>
 #include <pcb_target.h>
 #include <footprint.h>
 #include <pad.h>
-#include <dimension.h>
+#include <pcb_dimension.h>
 #include <origin_viewitem.h>
 #include <connectivity/connectivity_data.h>
 #include <pcbnew_settings.h>
@@ -113,7 +113,7 @@ using namespace std::placeholders;
 
 static bool TestForExistingItem( BOARD* aPcb, BOARD_ITEM* aItem )
 {
-    for( TRACK* item : aPcb->Tracks() )
+    for( PCB_TRACK* item : aPcb->Tracks() )
     {
         if( aItem == static_cast<BOARD_ITEM*>( item ) )
             return true;
@@ -191,7 +191,7 @@ void PCB_BASE_EDIT_FRAME::SaveCopyInUndoList( const PICKED_ITEMS_LIST& aItemsLis
     PICKED_ITEMS_LIST* commandToUndo = new PICKED_ITEMS_LIST();
 
     // First, filter unnecessary stuff from the list (i.e. for multiple pads / labels modified),
-    // take the first occurence of the footprint (we save copies of footprints when one of its
+    // take the first occurrence of the footprint (we save copies of footprints when one of its
     // subitems is changed).
     for( unsigned ii = 0; ii < aItemsList.GetCount(); ii++ )
     {

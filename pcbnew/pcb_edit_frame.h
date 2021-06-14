@@ -33,12 +33,12 @@ class BOARD;
 class BOARD_COMMIT;
 class BOARD_ITEM_CONTAINER;
 class FOOTPRINT;
-class TRACK;
-class VIA;
+class PCB_TRACK;
+class PCB_VIA;
 class PAD;
 class PCB_TARGET;
 class PCB_GROUP;
-class DIMENSION_BASE;
+class PCB_DIMENSION_BASE;
 class DRC;
 class DIALOG_PLOT;
 class ZONE;
@@ -544,7 +544,7 @@ public:
      * @param aUseNetclassValue true to use NetClass value, false to use current designSettings
      *                          value.
      */
-    void SetTrackSegmentWidth( TRACK* aTrackItem, PICKED_ITEMS_LIST* aItemsListPicker,
+    void SetTrackSegmentWidth( PCB_TRACK* aTrackItem, PICKED_ITEMS_LIST* aItemsListPicker,
                                bool aUseNetclassValue );
 
 
@@ -555,7 +555,7 @@ public:
 
     // Properties dialogs
     void ShowTargetOptionsDialog( PCB_TARGET* aTarget );
-    void ShowDimensionPropertiesDialog( DIMENSION_BASE* aDimension );
+    void ShowDimensionPropertiesDialog( PCB_DIMENSION_BASE* aDimension );
     void InstallNetlistFrame();
 
     /**

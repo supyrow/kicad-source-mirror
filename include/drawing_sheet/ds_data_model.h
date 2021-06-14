@@ -57,6 +57,9 @@ public:
      */
     static void SetAltInstance( DS_DATA_MODEL* aLayout = NULL );
 
+    int GetFileFormatVersionAtLoad() { return m_fileFormatVersionAtLoad; }
+    void SetFileFormatVersionAtLoad( int aVersion ) { m_fileFormatVersionAtLoad = aVersion; }
+
     double GetLeftMargin() { return m_leftMargin; }
     void SetLeftMargin( double aMargin ) { m_leftMargin = aMargin; }
 
@@ -101,12 +104,12 @@ public:
      *
      * @param aOutputString is a wxString to store the S expr string
      */
-    void SaveInString( const wxString& aOutputString );
+    void SaveInString( wxString* aOutputString );
 
     /**
      * Fill the given string with an S-expr serialization of the WS_DATA_ITEMs.
      */
-    void SaveInString( std::vector<DS_DATA_ITEM*>& aItemsList, const wxString& aOutputString );
+    void SaveInString( std::vector<DS_DATA_ITEM*>& aItemsList, wxString* aOutputString );
 
     void Append( DS_DATA_ITEM* aItem );
     void Remove( DS_DATA_ITEM* aItem );
@@ -208,6 +211,7 @@ private:
     bool   m_allowVoidList;         // If false, the default drawing sheet will be loaded the
                                     // first time DS_DRAW_ITEM_LIST::BuildDrawItemsList is run
                                     // (useful mainly for drawing sheet editor)
+    int m_fileFormatVersionAtLoad;
     double m_leftMargin;            // the left page margin in mm
     double m_rightMargin;           // the right page margin in mm
     double m_topMargin;             // the top page margin in mm

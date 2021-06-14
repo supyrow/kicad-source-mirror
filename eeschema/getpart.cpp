@@ -30,7 +30,6 @@
 #include <general.h>
 #include <kiway.h>
 #include <symbol_viewer_frame.h>
-#include <pgm_base.h>
 #include <sch_symbol.h>
 #include <sch_edit_frame.h>
 #include <symbol_lib_table.h>
@@ -95,7 +94,7 @@ PICKED_SYMBOL SCH_BASE_FRAME::PickSymbolFromLibTree( const SCHLIB_FILTER* aFilte
     std::unique_lock<std::mutex> dialogLock( DIALOG_CHOOSE_SYMBOL::g_Mutex, std::defer_lock );
     SYMBOL_LIB_TABLE*            libs = Prj().SchSymbolLibTable();
 
-    // One DIALOG_CHOOSE_SYMBOL dialog at a time.  User probaby can't handle more anyway.
+    // One DIALOG_CHOOSE_SYMBOL dialog at a time.  User probably can't handle more anyway.
     if( !dialogLock.try_lock() )
         return PICKED_SYMBOL();
 
@@ -118,14 +117,14 @@ PICKED_SYMBOL SCH_BASE_FRAME::PickSymbolFromLibTree( const SCHLIB_FILTER* aFilte
         adapter->AssignIntrinsicRanks();
 
         if( aFilter->GetFilterPowerParts() )
-            adapter->SetFilter( SYMBOL_TREE_MODEL_ADAPTER::CMP_FILTER_POWER );
+            adapter->SetFilter( SYMBOL_TREE_MODEL_ADAPTER::SYM_FILTER_POWER );
     }
 
     std::vector< LIB_TREE_ITEM* > history_list;
 
     for( const PICKED_SYMBOL& i : aHistoryList )
     {
-        LIB_PART* symbol = GetLibPart( i.LibId );
+        LIB_SYMBOL* symbol = GetLibPart( i.LibId );
 
         // This can be null, for example when a symbol has been deleted from a library
         if( symbol )
@@ -148,7 +147,7 @@ PICKED_SYMBOL SCH_BASE_FRAME::PickSymbolFromLibTree( const SCHLIB_FILTER* aFilte
 
     wxString dialogTitle;
 
-    if( adapter->GetFilter() == SYMBOL_TREE_MODEL_ADAPTER::CMP_FILTER_POWER )
+    if( adapter->GetFilter() == SYMBOL_TREE_MODEL_ADAPTER::SYM_FILTER_POWER )
         dialogTitle.Printf( _( "Choose Power Symbol (%d items loaded)" ), adapter->GetItemCount() );
     else
         dialogTitle.Printf( _( "Choose Symbol (%d items loaded)" ), adapter->GetItemCount() );
@@ -195,14 +194,14 @@ PICKED_SYMBOL SCH_BASE_FRAME::PickSymbolFromLibTree( const SCHLIB_FILTER* aFilte
 }
 
 
-void SCH_EDIT_FRAME::SelectUnit( SCH_COMPONENT* aSymbol, int aUnit )
+void SCH_EDIT_FRAME::SelectUnit( SCH_SYMBOL* aSymbol, int aUnit )
 {
-    LIB_PART* part = GetLibPart( aSymbol->GetLibId() );
+    LIB_SYMBOL* symbol = GetLibPart( aSymbol->GetLibId() );
 
-    if( !part )
+    if( !symbol )
         return;
 
-    int unitCount = part->GetUnitCount();
+    int unitCount = symbol->GetUnitCount();
 
     if( unitCount <= 1 || aSymbol->GetUnit() == aUnit )
         return;
@@ -234,7 +233,7 @@ void SCH_EDIT_FRAME::SelectUnit( SCH_COMPONENT* aSymbol, int aUnit )
 }
 
 
-void SCH_EDIT_FRAME::ConvertPart( SCH_COMPONENT* aSymbol )
+void SCH_EDIT_FRAME::ConvertPart( SCH_SYMBOL* aSymbol )
 {
     if( !aSymbol || !aSymbol->GetPartRef() )
         return;

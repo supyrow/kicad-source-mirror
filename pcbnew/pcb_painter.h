@@ -37,10 +37,10 @@
 class EDA_ITEM;
 class PCB_DISPLAY_OPTIONS;
 class BOARD_ITEM;
-class ARC;
+class PCB_ARC;
 class BOARD;
-class VIA;
-class TRACK;
+class PCB_VIA;
+class PCB_TRACK;
 class PAD;
 class PCB_SHAPE;
 class PCB_GROUP;
@@ -48,7 +48,7 @@ class FOOTPRINT;
 class ZONE;
 class PCB_TEXT;
 class FP_TEXT;
-class DIMENSION_BASE;
+class PCB_DIMENSION_BASE;
 class PCB_TARGET;
 class PCB_MARKER;
 class NET_SETTINGS;
@@ -254,9 +254,9 @@ public:
 
 protected:
     // Drawing functions for various types of PCB-specific items
-    void draw( const TRACK* aTrack, int aLayer );
-    void draw( const ARC* aArc, int aLayer );
-    void draw( const VIA* aVia, int aLayer );
+    void draw( const PCB_TRACK* aTrack, int aLayer );
+    void draw( const PCB_ARC* aArc, int aLayer );
+    void draw( const PCB_VIA* aVia, int aLayer );
     void draw( const PAD* aPad, int aLayer );
     void draw( const PCB_SHAPE* aSegment, int aLayer );
     void draw( const PCB_TEXT* aText, int aLayer );
@@ -264,7 +264,7 @@ protected:
     void draw( const FOOTPRINT* aFootprint, int aLayer );
     void draw( const PCB_GROUP* aGroup, int aLayer );
     void draw( const ZONE* aZone, int aLayer );
-    void draw( const DIMENSION_BASE* aDimension, int aLayer );
+    void draw( const PCB_DIMENSION_BASE* aDimension, int aLayer );
     void draw( const PCB_TARGET* aTarget );
     void draw( const PCB_MARKER* aMarker, int aLayer );
 
@@ -289,7 +289,7 @@ protected:
     /**
      * Return drill diameter for a via (internal units).
      */
-    virtual int getDrillSize( const VIA* aVia ) const;
+    virtual int getDrillSize( const PCB_VIA* aVia ) const;
 
 protected:
     PCB_RENDER_SETTINGS m_pcbSettings;

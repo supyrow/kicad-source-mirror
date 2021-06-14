@@ -40,9 +40,9 @@
 class DIALOG_SPICE_MODEL : public DIALOG_SPICE_MODEL_BASE
 {
 public:
-    DIALOG_SPICE_MODEL( wxWindow* aParent, SCH_COMPONENT& aComponent,
+    DIALOG_SPICE_MODEL( wxWindow* aParent, SCH_SYMBOL& aSymbol,
                         std::vector<SCH_FIELD>* aSchFields );
-    DIALOG_SPICE_MODEL( wxWindow* aParent, SCH_COMPONENT& aComponent,
+    DIALOG_SPICE_MODEL( wxWindow* aParent, SCH_SYMBOL& aSymbol,
                         std::vector<LIB_FIELD>* aLibFields );
 
 private:
@@ -130,10 +130,10 @@ private:
     void onRandomSourceType( wxCommandEvent& event ) override;
     void onTypeSelected( wxCommandEvent& event ) override;
 
-    ///< Edited component
-    SCH_COMPONENT& m_component;
+    ///< Edited symbol
+    SCH_SYMBOL& m_symbol;
 
-    ///< Fields from the component properties dialog
+    ///< Fields from the symbol properties dialog.
     std::vector<SCH_FIELD>* m_schfields;
     std::vector<LIB_FIELD>* m_libfields;
     bool m_useSchFields;

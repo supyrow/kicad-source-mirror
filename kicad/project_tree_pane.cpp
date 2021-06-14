@@ -282,7 +282,7 @@ wxString PROJECT_TREE_PANE::GetFileExt( TREE_FILE_TYPE type )
     case TREE_FILE_TYPE::PDF:                   return PdfFileExtension;
     case TREE_FILE_TYPE::TXT:                   return TextFileExtension;
     case TREE_FILE_TYPE::NET:                   return NetlistFileExtension;
-    case TREE_FILE_TYPE::CMP_LINK:              return ComponentFileExtension;
+    case TREE_FILE_TYPE::CMP_LINK:              return FootprintAssignmentFileExtension;
     case TREE_FILE_TYPE::REPORT:                return ReportFileExtension;
     case TREE_FILE_TYPE::FP_PLACE:              return FootprintPlaceFileExtension;
     case TREE_FILE_TYPE::DRILL:                 return DrillFileExtension;
@@ -1185,7 +1185,7 @@ void PROJECT_TREE_PANE::FileWatcherReset()
     {
         // Due to a combination of a bug in SAMBA sending bad change event IDs and wxWidgets
         // choosing to fault on an invalid event ID instead of sanely ignoring them we need to
-        // avoid spawning a filewatcher. Unforunately this punishes corporate environments with
+        // avoid spawning a filewatcher. Unfortunately this punishes corporate environments with
         // Windows Server shares :/
         m_Parent->SetStatusText( _( "Network path: not monitoring folder changes" ), 1 );
         return;

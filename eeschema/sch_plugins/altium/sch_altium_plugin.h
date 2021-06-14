@@ -2,6 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2020 Thomas Pointhuber <thomas.pointhuber@gmx.at>
+ * Copyright (C) 2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -32,7 +33,7 @@
 #include "altium_parser_sch.h"
 
 
-class SCH_COMPONENT;
+class SCH_SYMBOL;
 class SCH_SHEET;
 class TITLE_BLOCK;
 
@@ -78,10 +79,10 @@ public:
     //void EnumerateSymbolLib( wxArrayString& aAliasNameList, const wxString& aLibraryPath,
     //                         const PROPERTIES* aProperties = NULL ) override;
 
-    //LIB_PART* LoadSymbol( const wxString& aLibraryPath, const wxString& aAliasName,
+    //LIB_SYMBOL* LoadSymbol( const wxString& aLibraryPath, const wxString& aAliasName,
     //                      const PROPERTIES* aProperties = NULL ) override;
 
-    //void SaveSymbol( const wxString& aLibraryPath, const LIB_PART* aSymbol,
+    //void SaveSymbol( const wxString& aLibraryPath, const LIB_SYMBOL* aSymbol,
     //                 const PROPERTIES* aProperties = NULL ) override;
 
     //void DeleteAlias( const wxString& aLibraryPath, const wxString& aAliasName,
@@ -154,14 +155,14 @@ private:
 
     wxPoint                         m_sheetOffset;
     std::unique_ptr<ASCH_SHEET>     m_altiumSheet;
-    std::map<int, SCH_COMPONENT*>   m_components;
+    std::map<int, SCH_SYMBOL*>      m_components;
     std::map<int, SCH_SHEET*>       m_sheets;
-    std::map<int, LIB_PART*>        m_symbols;           // every component has its unique symbol
+    std::map<int, LIB_SYMBOL*>      m_symbols;           // every component has its unique symbol
 
-    std::map<wxString, LIB_PART*>   m_powerSymbols;
+    std::map<wxString, LIB_SYMBOL*> m_powerSymbols;
     std::vector<ASCH_STORAGE_FILE>  m_altiumStorage;
 
-    std::map<int, ASCH_COMPONENT>   m_altiumComponents;
+    std::map<int, ASCH_SYMBOL>      m_altiumComponents;
     std::vector<ASCH_PORT>          m_altiumPortsCurrentSheet; // we require all connections first
 };
 

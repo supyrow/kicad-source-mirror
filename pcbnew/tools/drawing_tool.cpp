@@ -49,7 +49,7 @@
 #include <fp_shape.h>
 #include <pcb_group.h>
 #include <pcb_text.h>
-#include <dimension.h>
+#include <pcb_dimension.h>
 #include <zone.h>
 #include <footprint.h>
 #include <preview_items/two_point_assistant.h>
@@ -643,7 +643,7 @@ int DRAWING_TOOL::PlaceText( const TOOL_EVENT& aEvent )
 }
 
 
-void DRAWING_TOOL::constrainDimension( DIMENSION_BASE* aDim )
+void DRAWING_TOOL::constrainDimension( PCB_DIMENSION_BASE* aDim )
 {
     const VECTOR2I lineVector{ aDim->GetEnd() - aDim->GetStart() };
 
@@ -666,7 +666,7 @@ int DRAWING_TOOL::DrawDimension( const TOOL_EVENT& aEvent )
     };
 
     TOOL_EVENT             originalEvent = aEvent;
-    DIMENSION_BASE*        dimension     = nullptr;
+    PCB_DIMENSION_BASE*    dimension     = nullptr;
     BOARD_COMMIT           commit( m_frame );
     PCB_GRID_HELPER        grid( m_toolMgr, m_frame->GetMagneticItemsSettings() );
     BOARD_DESIGN_SETTINGS& boardSettings = m_board->GetDesignSettings();
@@ -795,7 +795,7 @@ int DRAWING_TOOL::DrawDimension( const TOOL_EVENT& aEvent )
 
                 // Init the new item attributes
                 auto setMeasurementAttributes =
-                        [&]( DIMENSION_BASE* aDim )
+                        [&]( PCB_DIMENSION_BASE* aDim )
                         {
                             aDim->SetUnitsMode( boardSettings.m_DimensionUnitsMode );
                             aDim->SetUnitsFormat( boardSettings.m_DimensionUnitsFormat );
@@ -810,21 +810,21 @@ int DRAWING_TOOL::DrawDimension( const TOOL_EVENT& aEvent )
 
                 if( originalEvent.IsAction( &PCB_ACTIONS::drawAlignedDimension ) )
                 {
-                    dimension = new ALIGNED_DIMENSION( m_board );
+                    dimension = new PCB_DIM_ALIGNED( m_board );
                     setMeasurementAttributes( dimension );
                 }
                 else if( originalEvent.IsAction( &PCB_ACTIONS::drawOrthogonalDimension ) )
                 {
-                    dimension = new ORTHOGONAL_DIMENSION( m_board );
+                    dimension = new PCB_DIM_ORTHOGONAL( m_board );
                     setMeasurementAttributes( dimension );
                 }
                 else if( originalEvent.IsAction( &PCB_ACTIONS::drawCenterDimension ) )
                 {
-                    dimension = new CENTER_DIMENSION( m_board );
+                    dimension = new PCB_DIM_CENTER( m_board );
                 }
                 else if( originalEvent.IsAction( &PCB_ACTIONS::drawLeader ) )
                 {
-                    dimension = new LEADER( m_board );
+                    dimension = new PCB_DIM_LEADER( m_board );
                     dimension->Text().SetPosition( wxPoint( cursorPos ) );
                 }
                 else
@@ -929,7 +929,7 @@ int DRAWING_TOOL::DrawDimension( const TOOL_EVENT& aEvent )
 
                 if( dimension->Type() == PCB_DIM_ORTHOGONAL_T )
                 {
-                    ORTHOGONAL_DIMENSION* ortho = static_cast<ORTHOGONAL_DIMENSION*>( dimension );
+                    PCB_DIM_ORTHOGONAL* ortho = static_cast<PCB_DIM_ORTHOGONAL*>( dimension );
 
                     BOX2I bounds( dimension->GetStart(),
                                   dimension->GetEnd() - dimension->GetStart() );
@@ -937,8 +937,8 @@ int DRAWING_TOOL::DrawDimension( const TOOL_EVENT& aEvent )
                     // Create a nice preview by measuring the longer dimension
                     bool vert = bounds.GetWidth() < bounds.GetHeight();
 
-                    ortho->SetOrientation( vert ? ORTHOGONAL_DIMENSION::DIR::VERTICAL
-                                                : ORTHOGONAL_DIMENSION::DIR::HORIZONTAL );
+                    ortho->SetOrientation( vert ? PCB_DIM_ORTHOGONAL::DIR::VERTICAL
+                                                : PCB_DIM_ORTHOGONAL::DIR::HORIZONTAL );
                 }
 
                 dimension->Update();
@@ -952,7 +952,7 @@ int DRAWING_TOOL::DrawDimension( const TOOL_EVENT& aEvent )
             {
                 if( dimension->Type() == PCB_DIM_ALIGNED_T )
                 {
-                    ALIGNED_DIMENSION* aligned = static_cast<ALIGNED_DIMENSION*>( dimension );
+                    PCB_DIM_ALIGNED* aligned = static_cast<PCB_DIM_ALIGNED*>( dimension );
 
                     // Calculating the direction of travel perpendicular to the selected axis
                     double angle = aligned->GetAngle() + ( M_PI / 2 );
@@ -964,7 +964,7 @@ int DRAWING_TOOL::DrawDimension( const TOOL_EVENT& aEvent )
                 }
                 else if( dimension->Type() == PCB_DIM_ORTHOGONAL_T )
                 {
-                    ORTHOGONAL_DIMENSION* ortho = static_cast<ORTHOGONAL_DIMENSION*>( dimension );
+                    PCB_DIM_ORTHOGONAL* ortho = static_cast<PCB_DIM_ORTHOGONAL*>( dimension );
 
                     BOX2I    bounds( dimension->GetStart(),
                                   dimension->GetEnd() - dimension->GetStart() );
@@ -996,12 +996,12 @@ int DRAWING_TOOL::DrawDimension( const TOOL_EVENT& aEvent )
                         {
                             vert = std::abs( direction.y ) < std::abs( direction.x );
                         }
-                        ortho->SetOrientation( vert ? ORTHOGONAL_DIMENSION::DIR::VERTICAL
-                                                    : ORTHOGONAL_DIMENSION::DIR::HORIZONTAL );
+                        ortho->SetOrientation( vert ? PCB_DIM_ORTHOGONAL::DIR::VERTICAL
+                                                    : PCB_DIM_ORTHOGONAL::DIR::HORIZONTAL );
                     }
                     else
                     {
-                        vert = ortho->GetOrientation() == ORTHOGONAL_DIMENSION::DIR::VERTICAL;
+                        vert = ortho->GetOrientation() == PCB_DIM_ORTHOGONAL::DIR::VERTICAL;
                     }
 
                     VECTOR2I heightVector( cursorPos - dimension->GetStart() );
@@ -1640,7 +1640,7 @@ bool DRAWING_TOOL::drawSegment( const std::string& aTool, PCB_SHAPE** aGraphic,
         }
     }
 
-    if( !isLocalOriginSet ) // reset the relative coordinte if it was not set before
+    if( !isLocalOriginSet ) // reset the relative coordinate if it was not set before
         m_frame->GetScreen()->m_LocalOrigin = VECTOR2D( 0, 0 );
 
     m_view->Remove( &twoPointAsst );
@@ -2265,7 +2265,7 @@ int DRAWING_TOOL::DrawVia( const TOOL_EVENT& aEvent )
         {
         }
 
-        TRACK* findTrack( VIA* aVia )
+        PCB_TRACK* findTrack( PCB_VIA* aVia )
         {
             const LSET lset = aVia->GetLayerSet();
             wxPoint position = aVia->GetPosition();
@@ -2273,7 +2273,7 @@ int DRAWING_TOOL::DrawVia( const TOOL_EVENT& aEvent )
 
             std::vector<KIGFX::VIEW::LAYER_ITEM_PAIR> items;
             auto view = m_frame->GetCanvas()->GetView();
-            std::vector<TRACK*> possible_tracks;
+            std::vector<PCB_TRACK*> possible_tracks;
 
             view->Query( bbox, items );
 
@@ -2284,7 +2284,7 @@ int DRAWING_TOOL::DrawVia( const TOOL_EVENT& aEvent )
                 if( !(item->GetLayerSet() & lset ).any() )
                     continue;
 
-                if( TRACK* track = dyn_cast<TRACK*>( item ) )
+                if( PCB_TRACK* track = dyn_cast<PCB_TRACK*>( item ) )
                 {
                     if( TestSegmentHit( position, track->GetStart(), track->GetEnd(),
                                         ( track->GetWidth() + aVia->GetWidth() ) / 2 ) )
@@ -2292,10 +2292,10 @@ int DRAWING_TOOL::DrawVia( const TOOL_EVENT& aEvent )
                 }
             }
 
-            TRACK* return_track = nullptr;
+            PCB_TRACK* return_track = nullptr;
             int min_d = std::numeric_limits<int>::max();
 
-            for( TRACK* track : possible_tracks )
+            for( PCB_TRACK* track : possible_tracks )
             {
                 SEG test( track->GetStart(), track->GetEnd() );
                 int dist = ( test.NearestPoint( position ) - position ).EuclideanNorm();
@@ -2310,7 +2310,7 @@ int DRAWING_TOOL::DrawVia( const TOOL_EVENT& aEvent )
             return return_track;
         }
 
-        bool hasDRCViolation( VIA* aVia, BOARD_ITEM* aOther )
+        bool hasDRCViolation( PCB_VIA* aVia, BOARD_ITEM* aOther )
         {
             // It would really be better to know what particular nets a nettie should allow,
             // but for now it is what it is.
@@ -2347,8 +2347,8 @@ int DRAWING_TOOL::DrawVia( const TOOL_EVENT& aEvent )
 
             if( aOther->Type() == PCB_VIA_T )
             {
-                VIA* via = static_cast<VIA*>( aOther );
-                wxPoint pos = via->GetPosition();
+                PCB_VIA* via = static_cast<PCB_VIA*>( aOther );
+                wxPoint  pos = via->GetPosition();
 
                 holeShape.reset( new SHAPE_SEGMENT( pos, pos, via->GetDrill() ) );
             }
@@ -2378,7 +2378,7 @@ int DRAWING_TOOL::DrawVia( const TOOL_EVENT& aEvent )
             return false;
         }
 
-        bool checkDRCViolation( VIA* aVia )
+        bool checkDRCViolation( PCB_VIA* aVia )
         {
             std::vector<KIGFX::VIEW::LAYER_ITEM_PAIR> items;
             std::set<BOARD_ITEM*> checkedItems;
@@ -2415,7 +2415,7 @@ int DRAWING_TOOL::DrawVia( const TOOL_EVENT& aEvent )
             return false;
         }
 
-        PAD* findPad( VIA* aVia )
+        PAD* findPad( PCB_VIA* aVia )
         {
             const wxPoint position = aVia->GetPosition();
             const LSET    lset = aVia->GetLayerSet();
@@ -2433,7 +2433,7 @@ int DRAWING_TOOL::DrawVia( const TOOL_EVENT& aEvent )
             return nullptr;
         }
 
-        int findStitchedZoneNet( VIA* aVia )
+        int findStitchedZoneNet( PCB_VIA* aVia )
         {
             const wxPoint position = aVia->GetPosition();
             const LSET    lset = aVia->GetLayerSet();
@@ -2481,9 +2481,9 @@ int DRAWING_TOOL::DrawVia( const TOOL_EVENT& aEvent )
             // this situation.
 
             m_gridHelper.SetSnap( !( m_modifiers & MD_SHIFT ) );
-            auto    via = static_cast<VIA*>( aItem );
-            wxPoint position = via->GetPosition();
-            TRACK*  track = findTrack( via );
+            PCB_VIA*   via = static_cast<PCB_VIA*>( aItem );
+            wxPoint    position = via->GetPosition();
+            PCB_TRACK* track = findTrack( via );
 
             if( track )
             {
@@ -2496,9 +2496,9 @@ int DRAWING_TOOL::DrawVia( const TOOL_EVENT& aEvent )
 
         bool PlaceItem( BOARD_ITEM* aItem, BOARD_COMMIT& aCommit ) override
         {
-            VIA*    via = static_cast<VIA*>( aItem );
-            wxPoint viaPos = via->GetPosition();
-            TRACK*  track = findTrack( via );
+            PCB_VIA*   via = static_cast<PCB_VIA*>( aItem );
+            wxPoint    viaPos = via->GetPosition();
+            PCB_TRACK* track = findTrack( via );
             PAD *   pad = findPad( via );
 
             if( track )
@@ -2524,7 +2524,7 @@ int DRAWING_TOOL::DrawVia( const TOOL_EVENT& aEvent )
                 {
                     aCommit.Modify( track );
 
-                    TRACK* newTrack = dynamic_cast<TRACK*>( track->Clone() );
+                    PCB_TRACK* newTrack = dynamic_cast<PCB_TRACK*>( track->Clone() );
                     const_cast<KIID&>( newTrack->m_Uuid ) = KIID();
 
                     track->SetEnd( viaPos );
@@ -2544,15 +2544,15 @@ int DRAWING_TOOL::DrawVia( const TOOL_EVENT& aEvent )
 
         std::unique_ptr<BOARD_ITEM> CreateItem() override
         {
-            auto&   ds = m_board->GetDesignSettings();
-            VIA*    via = new VIA( m_board );
+            BOARD_DESIGN_SETTINGS& bds = m_board->GetDesignSettings();
+            PCB_VIA*               via = new PCB_VIA( m_board );
 
             via->SetNetCode( 0 );
-            via->SetViaType( ds.m_CurrentViaType );
+            via->SetViaType( bds.m_CurrentViaType );
 
             // for microvias, the size and hole will be changed later.
-            via->SetWidth( ds.GetCurrentViaSize() );
-            via->SetDrill( ds.GetCurrentViaDrill() );
+            via->SetWidth( bds.GetCurrentViaSize() );
+            via->SetDrill( bds.GetCurrentViaDrill() );
 
             // Usual via is from copper to component.
             // layer pair is B_Cu and F_Cu.

@@ -140,7 +140,7 @@ public:
     void AssignFootprints( const std::string& aChangedSetOfReferences );
 
     /**
-     * Find a symbol in the schematic and an item in this symobl.
+     * Find a symbol in the schematic and an item in this symbol.
      *
      * @param aReference The symbol reference designator to find.
      * @param aSearchHierarchy If false, search the current sheet only.  Otherwise,
@@ -161,7 +161,7 @@ private:
 
     void doCrossProbeSchToPcb( const TOOL_EVENT& aEvent, bool aForce );
 
-    void updatePastedSymbol( SCH_COMPONENT* aSymbol, SCH_SCREEN* aPasteScreen,
+    void updatePastedSymbol( SCH_SYMBOL* aSymbol, SCH_SCREEN* aPasteScreen,
                              const SCH_SHEET_PATH& aPastePath, const KIID_PATH& aClipPath,
                              bool aForceKeepAnnotations );
 

@@ -317,7 +317,7 @@ ADIMENSION6::ADIMENSION6( ALTIUM_PARSER& aReader )
     linewidth      = ALTIUM_PARSER::PropertiesReadKicadUnit( properties, "LINEWIDTH", "10mil" );
     textheight     = ALTIUM_PARSER::PropertiesReadKicadUnit( properties, "TEXTHEIGHT", "10mil" );
     textlinewidth  = ALTIUM_PARSER::PropertiesReadKicadUnit( properties, "TEXTLINEWIDTH", "6mil" );
-    textprecission = ALTIUM_PARSER::PropertiesReadInt( properties, "TEXTPRECISION", 2 );
+    textprecision  = ALTIUM_PARSER::PropertiesReadInt( properties, "TEXTPRECISION", 2 );
     textbold       = ALTIUM_PARSER::PropertiesReadBool( properties, "TEXTLINEWIDTH", false );
     textitalic     = ALTIUM_PARSER::PropertiesReadBool( properties, "ITALIC", false );
 
@@ -482,7 +482,7 @@ APOLYGON6::APOLYGON6( ALTIUM_PARSER& aReader )
 
 ARULE6::ARULE6( ALTIUM_PARSER& aReader )
 {
-    // Initalize all variables and make Coverity happy
+    // Initialize all variables and make Coverity happy
     clearanceGap                       = 0;
     planeclearanceClearance            = 0;
     polygonconnectAirgapwidth          = 0;

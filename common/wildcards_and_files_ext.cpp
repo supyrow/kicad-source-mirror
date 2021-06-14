@@ -103,7 +103,7 @@ wxString AddFileExtListToFilter( const std::vector<std::string>& aExts )
 
     files_filter << ")|*.";
 
-    // Add extensions to the filter list, using a formated string (GTK specific):
+    // Add extensions to the filter list, using a formatted string (GTK specific):
     bool first = true;
     for( const auto& ext : aExts )
     {
@@ -133,7 +133,7 @@ const std::string ProjectLocalSettingsFileExtension( "kicad_prl" );
 const std::string LegacySchematicFileExtension( "sch" );
 const std::string KiCadSchematicFileExtension( "kicad_sch" );
 const std::string NetlistFileExtension( "net" );
-const std::string ComponentFileExtension( "cmp" );
+const std::string FootprintAssignmentFileExtension( "cmp" );
 const std::string GerberFileExtension( "gbr" );
 const std::string GerberJobFileExtension( "gbrjob" );
 const std::string HtmlFileExtension( "html" );
@@ -360,7 +360,7 @@ wxString DrawingSheetFileWildcard()
 
 
 // Wildcard for cvpcb symbol to footprint link file
-wxString ComponentFileWildcard()
+wxString FootprintAssignmentFileWildcard()
 {
     return _( "KiCad symbol footprint link files" ) + AddFileExtListToFilter( { "cmp" } );
 }

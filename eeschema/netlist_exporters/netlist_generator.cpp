@@ -26,7 +26,6 @@
 #include <common.h>     // for ProcessExecute
 #include <kicad_string.h>
 #include <gestfich.h>
-#include <pgm_base.h>
 #include <sch_edit_frame.h>
 #include <schematic.h>
 #include <reporter.h>
@@ -170,7 +169,7 @@ bool SCH_EDIT_FRAME::ReadyToNetlist( const wxString& aAnnotateMessage )
     // Ensure all power symbols have a valid reference
     Schematic().GetSheets().AnnotatePowerSymbols();
 
-    // Components must be annotated
+    // Symbols must be annotated
     if( CheckAnnotate( []( ERCE_T, const wxString&, SCH_REFERENCE*, SCH_REFERENCE* ) {} ) )
     {
         // Schematic must be annotated: call Annotate dialog and tell the user why.

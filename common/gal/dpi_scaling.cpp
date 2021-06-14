@@ -26,7 +26,6 @@
 #include <core/optional.h>
 
 #include <env_vars.h>
-#include <pgm_base.h>
 #include <settings/common_settings.h>
 #include <kiplatform/ui.h>
 
@@ -73,7 +72,7 @@ static OPT<double> getKiCadConfiguredScale( const COMMON_SETTINGS& aConfig )
  *
  * @return the scale factor, if set
  */
-static OPT<double> getEnviromentScale()
+static OPT<double> getEnvironmentScale()
 {
     const wxPortId port_id = wxPlatformInfo::Get().GetPortId();
     OPT<double>    scale;
@@ -110,7 +109,7 @@ double DPI_SCALING::GetScaleFactor() const
 
     if( !val )
     {
-        val = getEnviromentScale();
+        val = getEnvironmentScale();
     }
 
     if( !val && m_window )

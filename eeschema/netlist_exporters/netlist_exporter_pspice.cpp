@@ -35,19 +35,20 @@
 #include <sch_edit_frame.h>
 #include <sch_reference_list.h>
 #include <env_paths.h>
+#include <pgm_base.h>
 
 #include <wx/tokenzr.h>
 #include <wx/regex.h>
 
 
-wxString NETLIST_EXPORTER_PSPICE::GetSpiceDevice( const wxString& aComponent ) const
+wxString NETLIST_EXPORTER_PSPICE::GetSpiceDevice( const wxString& aSymbol ) const
 {
     const std::list<SPICE_ITEM>& spiceItems = GetSpiceItems();
 
     auto it = std::find_if( spiceItems.begin(), spiceItems.end(),
                             [&]( const SPICE_ITEM& item )
                             {
-                                return item.m_refName == aComponent;
+                                return item.m_refName == aSymbol;
                             } );
 
     if( it == spiceItems.end() )
@@ -65,6 +66,7 @@ bool NETLIST_EXPORTER_PSPICE::WriteNetlist( const wxString& aOutFileName, unsign
 
     return Format( &outputFile, aNetlistOptions );
 }
+
 
 void  NETLIST_EXPORTER_PSPICE::ReplaceForbiddenChars( wxString &aNetName )
 {
@@ -103,7 +105,8 @@ bool NETLIST_EXPORTER_PSPICE::Format( OUTPUTFORMATTER* aFormatter, unsigned aCtl
 
             if( full_path.IsEmpty() )
             {
-                DisplayError( NULL, wxString::Format( _( "Could not find library file %s." ), lib ) );
+                DisplayError( nullptr, wxString::Format( _( "Could not find library file %s." ),
+                                                         lib ) );
                 full_path = lib;
             }
         }
@@ -125,12 +128,15 @@ bool NETLIST_EXPORTER_PSPICE::Format( OUTPUTFORMATTER* aFormatter, unsigned aCtl
         wxString device = GetSpiceDevice( item.m_refName );
         aFormatter->Print( 0, "%s ", TO_UTF8( device ) );
 
-        size_t pspiceNodes = item.m_pinSequence.empty() ? item.m_pins.size() : item.m_pinSequence.size();
+        size_t pspiceNodes =
+                item.m_pinSequence.empty() ? item.m_pins.size() : item.m_pinSequence.size();
 
         for( size_t ii = 0; ii < pspiceNodes; ii++ )
         {
-            // Use the custom order if defined, otherwise use the standard pin order as defined in the compon
+            // Use the custom order if defined, otherwise use the standard pin order as defined
+            // in the symbol.
             size_t activePinIndex = item.m_pinSequence.empty() ? ii : item.m_pinSequence[ii];
+
             // Valid used Node Indexes are in the set
             // {0,1,2,...m_item.m_pin.size()-1}
             if( activePinIndex >= item.m_pins.size() )
@@ -175,7 +181,7 @@ bool NETLIST_EXPORTER_PSPICE::Format( OUTPUTFORMATTER* aFormatter, unsigned aCtl
 }
 
 
-wxString NETLIST_EXPORTER_PSPICE::GetSpiceField( SPICE_FIELD aField, SCH_COMPONENT* aSymbol,
+wxString NETLIST_EXPORTER_PSPICE::GetSpiceField( SPICE_FIELD aField, SCH_SYMBOL* aSymbol,
                                                  unsigned aCtl )
 {
     SCH_FIELD* field = aSymbol->FindField( GetSpiceFieldName( aField ) );
@@ -183,7 +189,7 @@ wxString NETLIST_EXPORTER_PSPICE::GetSpiceField( SPICE_FIELD aField, SCH_COMPONE
 }
 
 
-wxString NETLIST_EXPORTER_PSPICE::GetSpiceFieldDefVal( SPICE_FIELD aField, SCH_COMPONENT* aSymbol,
+wxString NETLIST_EXPORTER_PSPICE::GetSpiceFieldDefVal( SPICE_FIELD aField, SCH_SYMBOL* aSymbol,
                                                        unsigned aCtl )
 {
     switch( aField )
@@ -204,7 +210,8 @@ wxString NETLIST_EXPORTER_PSPICE::GetSpiceFieldDefVal( SPICE_FIELD aField, SCH_C
         {
             // Regular expression to match common formats used for passive parts description
             // (e.g. 100k, 2k3, 1 uF)
-            wxRegEx passiveVal( "^([0-9\\. ]+)([fFpPnNuUmMkKgGtT]|M(e|E)(g|G))?([fFhH]|ohm)?([-1-9 ]*)$" );
+            wxRegEx passiveVal(
+                    "^([0-9\\. ]+)([fFpPnNuUmMkKgGtT]|M(e|E)(g|G))?([fFhH]|ohm)?([-1-9 ]*)$" );
 
             if( passiveVal.Matches( value ) )
             {
@@ -262,7 +269,7 @@ bool NETLIST_EXPORTER_PSPICE::ProcessNetlist( unsigned aCtl )
     const wxString      delimiters( "{:,; }" );
 
     SCH_SHEET_LIST      sheetList = m_schematic->GetSheets();
-    // Set of reference names, to check for duplications
+    // Set of reference names, to check for duplication
     std::set<wxString>  refNames;
 
     m_netMap.clear();
@@ -279,10 +286,10 @@ bool NETLIST_EXPORTER_PSPICE::ProcessNetlist( unsigned aCtl )
     {
         SCH_SHEET_PATH sheet = sheetList[sheet_idx];
 
-        // Process component attributes to find Spice directives
-        for( SCH_ITEM* item : sheet.LastScreen()->Items().OfType( SCH_COMPONENT_T ) )
+        // Process symbol attributes to find Spice directives
+        for( SCH_ITEM* item : sheet.LastScreen()->Items().OfType( SCH_SYMBOL_T ) )
         {
-            SCH_COMPONENT* symbol = findNextSymbol( item, &sheet );
+            SCH_SYMBOL* symbol = findNextSymbol( item, &sheet );
 
             if( !symbol )
                 continue;
@@ -302,14 +309,14 @@ bool NETLIST_EXPORTER_PSPICE::ProcessNetlist( unsigned aCtl )
             // Duplicate references will result in simulation errors
             if( refNames.count( spiceItem.m_refName ) )
             {
-                DisplayError( NULL, wxT( "Multiple symbols have the same reference designator.\n"
-                                         "Annotation must be corrected before simulating." ) );
+                DisplayError( nullptr, _( "Multiple symbols have the same reference designator.\n"
+                                          "Annotation must be corrected before simulating." ) );
                 return false;
             }
 
             refNames.insert( spiceItem.m_refName );
 
-            // Check to see if component should be removed from Spice netlist
+            // Check to see if symbol should be removed from Spice netlist
             spiceItem.m_enabled = StringToBool( GetSpiceField( SF_ENABLED, symbol, aCtl ) );
 
             if( fieldLibFile && !fieldLibFile->GetShownText().IsEmpty() )
@@ -423,15 +430,14 @@ void NETLIST_EXPORTER_PSPICE::UpdateDirectives( unsigned aCtl )
                     m_title = line.AfterFirst( ' ' );
                 }
 
-                else if( line.StartsWith( '.' )                           // one-line directives
-                        || controlBlock                                   // .control .. .endc block
-                        || circuitBlock                                   // .subckt  .. .ends block
-                        || couplingK.Matches( line )                      // K## L## L## coupling constant
+                else if( line.StartsWith( '.' )                    // one-line directives
+                        || controlBlock                            // .control .. .endc block
+                        || circuitBlock                            // .subckt  .. .ends block
+                        || couplingK.Matches( line )               // K## L## L## coupling constant
                         || ( directiveStarted && line.StartsWith( '+' ) ) ) // multiline directives
                 {
                     m_directives.push_back( line );
                 }
-
 
                 // Handle .control .. .endc blocks
                 if( lowercaseline.IsSameAs( ".control" ) && ( !controlBlock ) )

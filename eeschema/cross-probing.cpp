@@ -45,8 +45,8 @@ SCH_ITEM* SCH_EDITOR_CONTROL::FindSymbolAndItem( const wxString& aReference,
                                                  SCH_SEARCH_T    aSearchType,
                                                  const wxString& aSearchText )
 {
-    SCH_SHEET_PATH* sheetWithComponentFound = nullptr;
-    SCH_COMPONENT*  component               = nullptr;
+    SCH_SHEET_PATH* sheetWithSymbolFound = nullptr;
+    SCH_SYMBOL*     symbol                  = nullptr;
     wxPoint         pos;
     SCH_PIN*        pin = nullptr;
     SCH_SHEET_LIST  sheetList;
@@ -61,27 +61,27 @@ SCH_ITEM* SCH_EDITOR_CONTROL::FindSymbolAndItem( const wxString& aReference,
     {
         SCH_SCREEN* screen = sheet.LastScreen();
 
-        for( auto item : screen->Items().OfType( SCH_COMPONENT_T ) )
+        for( auto item : screen->Items().OfType( SCH_SYMBOL_T ) )
         {
-            SCH_COMPONENT* candidate = static_cast<SCH_COMPONENT*>( item );
+            SCH_SYMBOL* candidate = static_cast<SCH_SYMBOL*>( item );
 
             if( aReference.CmpNoCase( candidate->GetRef( &sheet ) ) == 0 )
             {
-                component = candidate;
-                sheetWithComponentFound = &sheet;
+                symbol = candidate;
+                sheetWithSymbolFound = &sheet;
 
                 if( aSearchType == HIGHLIGHT_PIN )
                 {
                     // temporary: will be changed if the pin is found.
-                    pos = component->GetPosition();
-                    pin = component->GetPin( aSearchText );
+                    pos = symbol->GetPosition();
+                    pin = symbol->GetPin( aSearchText );
 
                     // Ensure we have found the right unit in case of multi-units symbol
                     if( pin )
                     {
                         int unit = pin->GetLibPin()->GetUnit();
 
-                        if( unit != 0 && unit != component->GetUnit() )
+                        if( unit != 0 && unit != symbol->GetUnit() )
                         {
                             pin = nullptr;
                             continue;
@@ -95,8 +95,8 @@ SCH_ITEM* SCH_EDITOR_CONTROL::FindSymbolAndItem( const wxString& aReference,
                 }
                 else
                 {
-                    pos = component->GetPosition();
-                    foundItem = component;
+                    pos = symbol->GetPosition();
+                    foundItem = symbol;
                     break;
                 }
             }
@@ -109,11 +109,11 @@ SCH_ITEM* SCH_EDITOR_CONTROL::FindSymbolAndItem( const wxString& aReference,
     CROSS_PROBING_SETTINGS& crossProbingSettings = m_frame->eeconfig()->m_CrossProbing;
 
 
-    if( component )
+    if( symbol )
     {
-        if( *sheetWithComponentFound != m_frame->GetCurrentSheet() )
+        if( *sheetWithSymbolFound != m_frame->GetCurrentSheet() )
         {
-            m_frame->Schematic().SetCurrentSheet( *sheetWithComponentFound );
+            m_frame->Schematic().SetCurrentSheet( *sheetWithSymbolFound );
             m_frame->DisplayCurrentSheet();
         }
 
@@ -126,8 +126,8 @@ SCH_ITEM* SCH_EDITOR_CONTROL::FindSymbolAndItem( const wxString& aReference,
             {
 //#define COMP_1_TO_1_RATIO // Un-comment for normal KiCad full screen zoom cross-probe
 #ifdef COMP_1_TO_1_RATIO
-                // Pass "false" to only include visible fields of component in bbox calculations
-                EDA_RECT bbox       = component->GetBoundingBox( false );
+                // Pass "false" to only include visible fields of symbol in bbox calculations
+                EDA_RECT bbox       = symbol->GetBoundingBox( false );
                 wxSize   bbSize     = bbox.Inflate( bbox.GetWidth() * 0.2f ).GetSize();
                 VECTOR2D screenSize = getView()->GetViewport().GetSize();
 
@@ -144,13 +144,13 @@ SCH_ITEM* SCH_EDITOR_CONTROL::FindSymbolAndItem( const wxString& aReference,
 #endif // COMP_1_TO_1_RATIO
 
 #ifndef COMP_1_TO_1_RATIO // Do the scaled zoom
-                // Pass "false" to only include visible fields of component in bbox calculations
-                EDA_RECT bbox       = component->GetBoundingBox( false );
+                // Pass "false" to only include visible fields of symbol in bbox calculations.
+                EDA_RECT bbox       = symbol->GetBoundingBox( false );
                 wxSize   bbSize     = bbox.Inflate( bbox.GetWidth() * 0.2f ).GetSize();
                 VECTOR2D screenSize = getView()->GetViewport().GetSize();
 
                 // This code tries to come up with a zoom factor that doesn't simply zoom in
-                // to the cross probed component, but instead shows a reasonable amount of the
+                // to the cross probed symbol, but instead shows a reasonable amount of the
                 // circuit around it to provide context.  This reduces or eliminates the need
                 // to manually change the zoom because it's too close.
 
@@ -158,11 +158,11 @@ SCH_ITEM* SCH_EDITOR_CONTROL::FindSymbolAndItem( const wxString& aReference,
                 // height of the bounding box of visible items for a footprint to figure out
                 // if this is a big symbol (like a processor) or a small symbol (like a resistor).
                 // This ratio is not useful by itself as a scaling factor.  It must be "bent" to
-                // provide good scaling at varying component sizes.  Bigger components need less
+                // provide good scaling at varying symbol sizes.  Bigger symbols need less
                 // scaling than small ones.
                 double currTextHeight = Mils2iu( DEFAULT_TEXT_SIZE );
 
-                double compRatio = bbSize.y / currTextHeight; // Ratio of component to text height
+                double compRatio = bbSize.y / currTextHeight; // Ratio of symbol to text height
                 double compRatioBent = 1.0;
 
                 // LUT to scale zoom ratio to provide reasonable schematic context.  Must work
@@ -185,8 +185,8 @@ SCH_ITEM* SCH_EDITOR_CONTROL::FindSymbolAndItem( const wxString& aReference,
 
                 std::vector<std::pair<double, double>>::iterator it;
 
-                compRatioBent =
-                        lut.back().second; // Large component default is last LUT entry (1:1)
+                // Large symbol default is last LUT entry (1:1).
+                compRatioBent = lut.back().second;
 
                 // Use LUT to do linear interpolation of "compRatio" within "first", then
                 // use that result to linearly interpolate "second" which gives the scaling
@@ -209,15 +209,15 @@ SCH_ITEM* SCH_EDITOR_CONTROL::FindSymbolAndItem( const wxString& aReference,
                 }
                 else
                 {
-                    compRatioBent = lut.front().second; // Small component default is first entry
+                    compRatioBent = lut.front().second; // Small symbol default is first entry
                 }
 
                 // This is similar to the original KiCad code that scaled the zoom to make sure
-                // components were visible on screen.  It's simply a ratio of screen size to
-                // component size, and its job is to zoom in to make the component fullscreen.
-                // Earlier in the code the component BBox is given a 20% margin to add some
-                // breathing room. We compare the height of this enlarged component bbox to the
-                // default text height.  If a component will end up with the sides clipped, we
+                // symbols were visible on screen.  It's simply a ratio of screen size to
+                // symbol size, and its job is to zoom in to make the component fullscreen.
+                // Earlier in the code the symbol BBox is given a 20% margin to add some
+                // breathing room. We compare the height of this enlarged symbol bbox to the
+                // default text height.  If a symbol will end up with the sides clipped, we
                 // adjust later to make sure it fits on screen.
                 screenSize.x      = std::max( 10.0, screenSize.x );
                 screenSize.y      = std::max( 10.0, screenSize.y );
@@ -257,7 +257,7 @@ SCH_ITEM* SCH_EDITOR_CONTROL::FindSymbolAndItem( const wxString& aReference,
     /* Print diag */
     wxString msg;
 
-    if( component )
+    if( symbol )
     {
         if( aSearchType == HIGHLIGHT_PIN )
         {
@@ -347,10 +347,10 @@ void SCH_EDIT_FRAME::ExecuteRemoteCommand( const char* cmdline )
     /* look for a complement */
     idcmd = strtok( nullptr, " \n\r" );
 
-    if( idcmd == nullptr )    // Highlight component only (from CvPcb or Pcbnew)
+    if( idcmd == nullptr )    // Highlight symbol only (from CvPcb or Pcbnew)
     {
-        // Highlight component part_ref, or clear Highlight, if part_ref is not existing
-        editor->FindSymbolAndItem( part_ref, true, HIGHLIGHT_COMPONENT, wxEmptyString );
+        // Highlight symbol part_ref, or clear Highlight, if part_ref is not existing
+        editor->FindSymbolAndItem( part_ref, true, HIGHLIGHT_SYMBOL, wxEmptyString );
         return;
     }
 
@@ -365,13 +365,13 @@ void SCH_EDIT_FRAME::ExecuteRemoteCommand( const char* cmdline )
     {
         // Highlighting the reference itself isn't actually that useful, and it's harder to
         // see.  Highlight the parent and display the message.
-        editor->FindSymbolAndItem( part_ref, true, HIGHLIGHT_COMPONENT, msg );
+        editor->FindSymbolAndItem( part_ref, true, HIGHLIGHT_SYMBOL, msg );
     }
     else if( strcmp( idcmd, "$VAL:" ) == 0 )
     {
         // Highlighting the value itself isn't actually that useful, and it's harder to see.
         // Highlight the parent and display the message.
-        editor->FindSymbolAndItem( part_ref, true, HIGHLIGHT_COMPONENT, msg );
+        editor->FindSymbolAndItem( part_ref, true, HIGHLIGHT_SYMBOL, msg );
     }
     else if( strcmp( idcmd, "$PAD:" ) == 0 )
     {
@@ -379,16 +379,16 @@ void SCH_EDIT_FRAME::ExecuteRemoteCommand( const char* cmdline )
     }
     else
     {
-        editor->FindSymbolAndItem( part_ref, true, HIGHLIGHT_COMPONENT, wxEmptyString );
+        editor->FindSymbolAndItem( part_ref, true, HIGHLIGHT_SYMBOL, wxEmptyString );
     }
 }
 
 
-std::string FormatProbeItem( EDA_ITEM* aItem, SCH_COMPONENT* aSymbol )
+std::string FormatProbeItem( EDA_ITEM* aItem, SCH_SYMBOL* aSymbol )
 {
     // This is a keyword followed by a quoted string.
 
-    // Cross probing to Pcbnew if a pin or a component is found
+    // Cross probing to Pcbnew if a pin or a symbol is found.
     switch( aItem->Type() )
     {
     case SCH_FIELD_T:
@@ -399,8 +399,8 @@ std::string FormatProbeItem( EDA_ITEM* aItem, SCH_COMPONENT* aSymbol )
         }
         break;
 
-    case SCH_COMPONENT_T:
-        aSymbol = (SCH_COMPONENT*) aItem;
+    case SCH_SYMBOL_T:
+        aSymbol = (SCH_SYMBOL*) aItem;
         return StrPrintf( "$PART: \"%s\"",
                           TO_UTF8( aSymbol->GetField( REFERENCE_FIELD )->GetText() ) );
 
@@ -452,7 +452,7 @@ std::string FormatProbeItem( EDA_ITEM* aItem, SCH_COMPONENT* aSymbol )
 }
 
 
-void SCH_EDIT_FRAME::SendMessageToPCBNEW( EDA_ITEM* aObjectToSync, SCH_COMPONENT* aLibItem )
+void SCH_EDIT_FRAME::SendMessageToPCBNEW( EDA_ITEM* aObjectToSync, SCH_SYMBOL* aLibItem )
 {
     wxASSERT( aObjectToSync );     // fix the caller
 

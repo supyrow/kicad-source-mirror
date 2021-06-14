@@ -33,7 +33,7 @@
 
 
 class SCH_SHEET_PATH;
-class SCH_COMPONENT;
+class SCH_SYMBOL;
 
 
 /**
@@ -45,7 +45,7 @@ public:
     static const KICAD_T AllItems[];
     static const KICAD_T EditableItems[];
     static const KICAD_T MovableItems[];
-    static const KICAD_T ComponentsOnly[];
+    static const KICAD_T SymbolsOnly[];
     static const KICAD_T SheetsOnly[];
     static const KICAD_T WiresOnly[];
     static const KICAD_T FieldOwners[];
@@ -90,7 +90,7 @@ public:
     /**
      * Scan an #EDA_ITEM using this class's Inspector method which does the collection.
      *
-     * @param aItems is a LIB_PART multivector holding the part items.
+     * @param aItems is a LIB_SYMBOL multivector holding the symbol items.
      * @param aFilterList is a list of #KICAD_T types with a terminating #EOT, that determines
      *                    what is to be collected and the priority order of the resulting
      *                    collection.
@@ -115,6 +115,6 @@ public:
 
 
 void CollectOtherUnits( const wxString& thisRef, int thisUnit, const LIB_ID& aLibId,
-                        SCH_SHEET_PATH& aSheet, std::vector<SCH_COMPONENT*>* otherUnits );
+                        SCH_SHEET_PATH& aSheet, std::vector<SCH_SYMBOL*>* otherUnits );
 
 #endif // EE_COLLECTORS_H

@@ -32,7 +32,6 @@
 #include <kiface_ids.h>
 #include <kiway.h>
 #include <lib_id.h>
-#include <pgm_base.h>
 #include <wildcards_and_files_ext.h>
 #include <widgets/progress_reporter.h>
 #include <wx/textfile.h>
@@ -371,7 +370,7 @@ void FOOTPRINT_LIST_IMPL::WriteCacheToFile( const wxString& aFilePath )
 
     if( !wxRenameFile( tmpFileName.GetFullPath(), aFilePath, true ) )
     {
-        // cleanup incase rename failed
+        // cleanup in case rename failed
         // its also not the end of the world since this is just a cache file
         wxRemoveFile( tmpFileName.GetFullPath() );
     }

@@ -35,14 +35,14 @@ class FP_CACHE;
 class PCB_PARSER;
 class NETINFO_MAPPING;
 class BOARD_DESIGN_SETTINGS;
-class DIMENSION_BASE;
+class PCB_DIMENSION_BASE;
 class FP_SHAPE;
 class PCB_SHAPE;
 class PCB_TARGET;
 class PAD;
 class FP_TEXT;
 class PCB_GROUP;
-class TRACK;
+class PCB_TRACK;
 class ZONE;
 class PCB_TEXT;
 
@@ -96,7 +96,8 @@ class PCB_TEXT;
 //#define SEXPR_BOARD_FILE_VERSION    20210108  // Pad locking moved from footprint to pads
 //#define SEXPR_BOARD_FILE_VERSION    20210126  // Store pintype alongside pinfunction (in pads).
 //#define SEXPR_BOARD_FILE_VERSION      20210228  // Move global margins back to board file
-#define SEXPR_BOARD_FILE_VERSION      20210424  // Correct locked flag syntax (remove parens).
+//#define SEXPR_BOARD_FILE_VERSION      20210424  // Correct locked flag syntax (remove parens).
+#define SEXPR_BOARD_FILE_VERSION      20210606  // Change overbar syntax from `~...~` to `~{...}`.
 
 #define BOARD_FILE_HOST_VERSION       20200825  ///< Earlier files than this include the host tag
 
@@ -242,7 +243,7 @@ protected:
 private:
     void format( const BOARD* aBoard, int aNestLevel = 0 ) const;
 
-    void format( const DIMENSION_BASE* aDimension, int aNestLevel = 0 ) const;
+    void format( const PCB_DIMENSION_BASE* aDimension, int aNestLevel = 0 ) const;
 
     void format( const FP_SHAPE* aFPShape, int aNestLevel = 0 ) const;
 
@@ -260,7 +261,7 @@ private:
 
     void format( const FP_TEXT* aText, int aNestLevel = 0 ) const;
 
-    void format( const TRACK* aTrack, int aNestLevel = 0 ) const;
+    void format( const PCB_TRACK* aTrack, int aNestLevel = 0 ) const;
 
     void format( const ZONE* aZone, int aNestLevel = 0 ) const;
 

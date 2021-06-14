@@ -1341,7 +1341,7 @@ void mpScaleXBase::Plot( wxDC& dc, mpWindow& w )
         wxCoord maxYpx  = m_drawOutsideMargins ? w.GetScrY() : w.GetScrY() - w.GetMarginBottom();
 
         // int tmp=-65535;
-        int labelH = m_maxLabelHeight;    // Control labels heigth to decide where to put axis name (below labels or on top of axis)
+        int labelH = m_maxLabelHeight;    // Control labels height to decide where to put axis name (below labels or on top of axis)
 
         // int maxExtent = tc.MaxLabelWidth();
         for( int n = 0; n < tickCount(); n++ )
@@ -1548,9 +1548,9 @@ void mpScaleY::Plot( wxDC& dc, mpWindow& w )
 
         int labelW = 0;
         // Before staring cycle, calculate label height
-        int labelHeigth = 0;
+        int labelHeight = 0;
         s.Printf( fmt, n );
-        dc.GetTextExtent( s, &tx, &labelHeigth );
+        dc.GetTextExtent( s, &tx, &labelHeight );
 
         for( n = 0; n < tickCount(); n++ )
         {
@@ -1872,7 +1872,7 @@ void mpWindow::OnMouseWheel( wxMouseEvent& event )
 }
 
 
-// If the user "drags" with the right buttom pressed, do "pan"
+// If the user "drags" with the right button pressed, do "pan"
 // JLB
 void mpWindow::OnMouseMove( wxMouseEvent& event )
 {

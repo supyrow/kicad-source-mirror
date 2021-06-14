@@ -25,7 +25,7 @@
 
 /**
  * @file libarch.cpp
- * @brief Module for generation of component archive files.
+ * @brief Module for generation of symbol archive files.
  */
 
 #include <confirm.h>
@@ -83,17 +83,17 @@ bool SCH_EDIT_FRAME::CreateArchiveLibrary( const wxString& aFileName )
     for( SCH_SCREEN* screen = screens.GetFirst(); screen; screen = screens.GetNext() )
     {
 
-        for( auto aItem : screen->Items().OfType( SCH_COMPONENT_T ) )
+        for( auto aItem : screen->Items().OfType( SCH_SYMBOL_T ) )
         {
-            LIB_PART*      part = nullptr;
-            SCH_COMPONENT* symbol = static_cast<SCH_COMPONENT*>( aItem );
+            LIB_SYMBOL* libSymbol = nullptr;
+            SCH_SYMBOL* symbol = static_cast<SCH_SYMBOL*>( aItem );
 
             try
             {
                 if( archLib->FindPart( symbol->GetLibId() ) )
                     continue;
 
-                part = GetLibPart( symbol->GetLibId(), true );
+                libSymbol = GetLibPart( symbol->GetLibId(), true );
             }
             catch( const IO_ERROR& )
             {
@@ -109,15 +109,15 @@ bool SCH_EDIT_FRAME::CreateArchiveLibrary( const wxString& aFileName )
                 tmp = _( "Unexpected exception occurred." );
             }
 
-            if( part )
+            if( libSymbol )
             {
-                std::unique_ptr<LIB_PART> flattenedPart = part->Flatten();
+                std::unique_ptr<LIB_SYMBOL> flattenedSymbol = libSymbol->Flatten();
 
                 // Use the full LIB_ID as the symbol name to prevent symbol name collisions.
-                flattenedPart->SetName( symbol->GetLibId().GetUniStringLibId() );
+                flattenedSymbol->SetName( symbol->GetLibId().GetUniStringLibId() );
 
-                // AddPart() does first clone the part before adding.
-                archLib->AddPart( flattenedPart.get() );
+                // AddPart() does first clone the symbol before adding.
+                archLib->AddPart( flattenedSymbol.get() );
             }
             else
             {

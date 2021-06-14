@@ -35,7 +35,7 @@ class TEST_SCH_PIN_FIXTURE
 public:
     TEST_SCH_PIN_FIXTURE()
     {
-        m_parent_part = new LIB_PART( "parent_part", nullptr );
+        m_parent_part = new LIB_SYMBOL( "parent_part", nullptr );
 
         m_lib_pin = new LIB_PIN( m_parent_part );
         m_parent_part->AddDrawItem( m_lib_pin );
@@ -47,8 +47,8 @@ public:
         m_lib_pin->SetPosition( wxPoint( 1, -2 ) );  // local coord system is upside-down
 
         SCH_SHEET_PATH path;
-        m_parent_symbol = new SCH_COMPONENT( *m_parent_part, m_parent_part->GetLibId(),
-                                             &path, 0, 0, wxPoint( 1, 2 ) );
+        m_parent_symbol = new SCH_SYMBOL( *m_parent_part, m_parent_part->GetLibId(),
+                                          &path, 0, 0, wxPoint( 1, 2 ) );
         m_parent_symbol->SetRef( &path, "U2" );
         m_parent_symbol->UpdatePins();
 
@@ -61,11 +61,11 @@ public:
         delete m_parent_part;
     }
 
-    LIB_PART*      m_parent_part;
-    LIB_PIN*       m_lib_pin;
+    LIB_SYMBOL* m_parent_part;
+    LIB_PIN*    m_lib_pin;
 
-    SCH_COMPONENT* m_parent_symbol;
-    SCH_PIN*       m_sch_pin;       // owned by m_parent_symbol, not us
+    SCH_SYMBOL* m_parent_symbol;
+    SCH_PIN*    m_sch_pin;       // owned by m_parent_symbol, not us
 };
 
 
@@ -161,8 +161,8 @@ BOOST_AUTO_TEST_CASE( PinNumberingPower )
     // and update symbol from library...
     SCH_SHEET_PATH path;
     delete m_parent_symbol;
-    m_parent_symbol = new SCH_COMPONENT( *m_parent_part, m_parent_part->GetLibId(),
-                                         &path, 0, 0, wxPoint( 1, 2 ) );
+    m_parent_symbol = new SCH_SYMBOL( *m_parent_part, m_parent_part->GetLibId(),
+                                      &path, 0, 0, wxPoint( 1, 2 ) );
     m_parent_symbol->SetRef( &path, "U2" );
     m_parent_symbol->UpdatePins();
 

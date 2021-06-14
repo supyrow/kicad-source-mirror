@@ -41,10 +41,11 @@
 #include <lib_rectangle.h>
 #include <lib_text.h>
 #include <math/util.h>                           // KiROUND, Clamp
+#include <kicad_string.h>
 #include <sch_bitmap.h>
 #include <sch_bus_entry.h>
 #include <sch_symbol.h>
-#include <sch_edit_frame.h>          // CMP_ORIENT_XXX
+#include <sch_edit_frame.h>          // SYM_ORIENT_XXX
 #include <sch_field.h>
 #include <sch_line.h>
 #include <sch_junction.h>
@@ -90,7 +91,7 @@ bool SCH_SEXPR_PARSER::IsTooRecent() const
 }
 
 
-void SCH_SEXPR_PARSER::ParseLib( LIB_PART_MAP& aSymbolLibMap )
+void SCH_SEXPR_PARSER::ParseLib( LIB_SYMBOL_MAP& aSymbolLibMap )
 {
     T token;
 
@@ -109,7 +110,7 @@ void SCH_SEXPR_PARSER::ParseLib( LIB_PART_MAP& aSymbolLibMap )
         {
             m_unit = 1;
             m_convert = 1;
-            LIB_PART* symbol = ParseSymbol( aSymbolLibMap, m_requiredVersion );
+            LIB_SYMBOL* symbol = ParseSymbol( aSymbolLibMap, m_requiredVersion );
             aSymbolLibMap[symbol->GetName()] = symbol;
         }
         else
@@ -120,7 +121,7 @@ void SCH_SEXPR_PARSER::ParseLib( LIB_PART_MAP& aSymbolLibMap )
 }
 
 
-LIB_PART* SCH_SEXPR_PARSER::ParseSymbol( LIB_PART_MAP& aSymbolLibMap, int aFileVersion )
+LIB_SYMBOL* SCH_SEXPR_PARSER::ParseSymbol( LIB_SYMBOL_MAP& aSymbolLibMap, int aFileVersion )
 {
     wxCHECK_MSG( CurTok() == T_symbol, nullptr,
                  wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as a symbol." ) );
@@ -131,7 +132,7 @@ LIB_PART* SCH_SEXPR_PARSER::ParseSymbol( LIB_PART_MAP& aSymbolLibMap, int aFileV
     wxString error;
     LIB_ITEM* item;
     LIB_FIELD* field;
-    std::unique_ptr<LIB_PART> symbol = std::make_unique<LIB_PART>( wxEmptyString );
+    std::unique_ptr<LIB_SYMBOL> symbol = std::make_unique<LIB_SYMBOL>( wxEmptyString );
     std::set<int> fieldIDsRead;
 
     m_requiredVersion = aFileVersion;
@@ -601,6 +602,11 @@ void SCH_SEXPR_PARSER::parseEDA_TEXT( EDA_TEXT* aText )
     wxCHECK_RET( aText && CurTok() == T_effects,
                  wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as EDA_TEXT." ) );
 
+    // In version 20210606 the notation for overbars was changed from `~...~` to `~{...}`. We need to convert
+    // the old syntax to the new one.
+    if( m_requiredVersion < 20210606 )
+        aText->SetText( ConvertToNewOverbarNotation( aText->GetText() ) );
+
     T token;
 
     for( token = NextTok();  token != T_RIGHT;  token = NextTok() )
@@ -711,7 +717,7 @@ void SCH_SEXPR_PARSER::parseHeader( TSCHEMATIC_T::T aHeaderType, int aFileVersio
 }
 
 
-void SCH_SEXPR_PARSER::parsePinNames( std::unique_ptr<LIB_PART>& aSymbol )
+void SCH_SEXPR_PARSER::parsePinNames( std::unique_ptr<LIB_SYMBOL>& aSymbol )
 {
     wxCHECK_RET( CurTok() == T_pin_names,
                  wxT( "Cannot parse " ) + GetTokenString( CurTok() ) +
@@ -749,7 +755,7 @@ void SCH_SEXPR_PARSER::parsePinNames( std::unique_ptr<LIB_PART>& aSymbol )
 }
 
 
-LIB_FIELD* SCH_SEXPR_PARSER::parseProperty( std::unique_ptr<LIB_PART>& aSymbol )
+LIB_FIELD* SCH_SEXPR_PARSER::parseProperty( std::unique_ptr<LIB_SYMBOL>& aSymbol )
 {
     wxCHECK_MSG( CurTok() == T_property, nullptr,
                  wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as a property." ) );
@@ -758,7 +764,8 @@ LIB_FIELD* SCH_SEXPR_PARSER::parseProperty( std::unique_ptr<LIB_PART>& aSymbol )
     wxString error;
     wxString name;
     wxString value;
-    std::unique_ptr<LIB_FIELD> field = std::make_unique<LIB_FIELD>( aSymbol.get(), MANDATORY_FIELDS );
+    std::unique_ptr<LIB_FIELD> field = std::make_unique<LIB_FIELD>( aSymbol.get(),
+                                                                    MANDATORY_FIELDS );
 
     T token = NextTok();
 
@@ -2128,7 +2135,7 @@ void SCH_SEXPR_PARSER::ParseSchematic( SCH_SHEET* aSheet, bool aIsCopyableOnly, 
         case T_lib_symbols:
         {
             // Dummy map.  No derived symbols are allowed in the library cache.
-            LIB_PART_MAP symbolLibMap;
+            LIB_SYMBOL_MAP symbolLibMap;
 
             for( token = NextTok();  token != T_RIGHT;  token = NextTok() )
             {
@@ -2224,7 +2231,7 @@ void SCH_SEXPR_PARSER::ParseSchematic( SCH_SHEET* aSheet, bool aIsCopyableOnly, 
 }
 
 
-SCH_COMPONENT* SCH_SEXPR_PARSER::parseSchematicSymbol()
+SCH_SYMBOL* SCH_SEXPR_PARSER::parseSchematicSymbol()
 {
     wxCHECK_MSG( CurTok() == T_symbol, nullptr,
                  wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as a symbol." ) );
@@ -2234,7 +2241,7 @@ SCH_COMPONENT* SCH_SEXPR_PARSER::parseSchematicSymbol()
     wxString error;
     wxString libName;
     SCH_FIELD* field;
-    std::unique_ptr<SCH_COMPONENT> symbol = std::make_unique<SCH_COMPONENT>();
+    std::unique_ptr<SCH_SYMBOL> symbol = std::make_unique<SCH_SYMBOL>();
     TRANSFORM transform;
     std::set<int> fieldIDsRead;
 
@@ -2313,9 +2320,9 @@ SCH_COMPONENT* SCH_SEXPR_PARSER::parseSchematicSymbol()
             token = NextTok();
 
             if( token == T_x )
-                symbol->SetOrientation( CMP_MIRROR_X );
+                symbol->SetOrientation( SYM_MIRROR_X );
             else if( token == T_y )
-                symbol->SetOrientation( CMP_MIRROR_Y );
+                symbol->SetOrientation( SYM_MIRROR_Y );
             else
                 Expecting( "x or y" );
 

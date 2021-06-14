@@ -35,8 +35,9 @@
 #include <board_design_settings.h>
 #include <footprint.h>
 #include <pad.h>
-#include <track.h>
+#include <pcb_track.h>
 #include <paths.h>
+#include <project.h>
 #include <dialog_gendrill.h>
 #include <wildcards_and_files_ext.h>
 #include <reporter.h>
@@ -171,9 +172,9 @@ void DIALOG_GENDRILL::InitDisplayParams()
         }
     }
 
-    for( TRACK* track : m_board->Tracks() )
+    for( PCB_TRACK* track : m_board->Tracks() )
     {
-        const VIA *via = dynamic_cast<const VIA*>( track );
+        const PCB_VIA *via = dynamic_cast<const PCB_VIA*>( track );
 
         if( via )
         {

@@ -5,8 +5,8 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2007-2010 Wayne Stambaugh <stambaughw@verizon.net>
- * Copyright (C) 2007-2017 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2007-2010 Wayne Stambaugh <stambaughw@gmail.com>
+ * Copyright (C) 2007-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -40,7 +40,7 @@ class EDA_RECT;
  * This probably should be a base class with all pure virtual methods and a WXDC_TRANSFORM
  * derived class.  Then in the future if some new device context is used, a new transform could
  * be derived from the base class and all the drawable objects would have to do is provide
- * overloaded draw methods to use the new transorm.
+ * overloaded draw methods to use the new transform.
  */
 class TRANSFORM
 {
@@ -64,7 +64,7 @@ public:
    /**
     * Calculate a new coordinate according to the mirror/rotation transform.
     * Useful to calculate actual coordinates of a point
-    * from coordinates relative to a component
+    * from coordinates relative to a symbol.
     * which are given for a non rotated, non mirrored item
     * @param aPoint = The position to transform
     * @return The transformed coordinate.
@@ -74,7 +74,7 @@ public:
    /**
     * Calculate a new rect according to the mirror/rotation transform.
     * Useful to calculate actual coordinates of a point
-    * from coordinates relative to a component
+    * from coordinates relative to a symbol
     * which are given for a non rotated, non mirrored item
     * @param aRect = The rectangle to transform
     * @return The transformed rectangle.
@@ -83,7 +83,7 @@ public:
 
     /**
     * Calculate the Inverse mirror/rotation transform.
-    * Useful to calculate coordinates relative to a component
+    * Useful to calculate coordinates relative to a symbol.
     * which must be for a non rotated, non mirrored item
     * from the actual coordinate.
     * @return The inverse transform.

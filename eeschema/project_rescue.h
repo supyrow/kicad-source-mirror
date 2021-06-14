@@ -32,7 +32,7 @@
  *
  * bool SCH_EDIT_FRAME::RescueProject( bool aSilentIfNone );
  *
- * When this is called, a list of problematic components is compiled. If
+ * When this is called, a list of problematic symbols is compiled. If
  * this list is empty, then the function displays a notification and returns
  * (if aSilentIfNone is true, the notification is silenced).
  */
@@ -47,8 +47,8 @@
 #include <class_draw_panel_gal.h>
 
 
-class LIB_PART;
-class SCH_COMPONENT;
+class LIB_SYMBOL;
+class SCH_SYMBOL;
 class RESCUER;
 class SCH_EDIT_FRAME;
 class SCH_LEGACY_PLUGIN;
@@ -82,13 +82,13 @@ public:
      * Get the part that can be loaded from the project cache, if possible, or
      * else NULL.
      */
-    virtual LIB_PART* GetCacheCandidate() const { return NULL; }
+    virtual LIB_SYMBOL* GetCacheCandidate() const { return NULL; }
 
     /**
      * Get the part the would be loaded from the libraries, if possible, or else
      * NULL.
      */
-    virtual LIB_PART* GetLibCandidate() const { return m_lib_candidate; }
+    virtual LIB_SYMBOL* GetLibCandidate() const { return m_lib_candidate; }
 
     int GetUnit() const { return m_unit; }
 
@@ -107,11 +107,11 @@ public:
     virtual bool PerformAction( RESCUER* aRescuer ) = 0;
 
 protected:
-    wxString  m_requested_name;
-    wxString  m_new_name;
-    LIB_PART* m_lib_candidate;
-    int       m_unit;
-    int       m_convert;
+    wxString    m_requested_name;
+    wxString    m_new_name;
+    LIB_SYMBOL* m_lib_candidate;
+    int         m_unit;
+    int         m_convert;
 };
 
 
@@ -136,7 +136,7 @@ public:
      * @param aConvert is the body style of the rescued symbol.
      */
     RESCUE_CASE_CANDIDATE( const wxString& aRequestedName, const wxString& aNewName,
-                           LIB_PART* aLibCandidate, int aUnit = 0, int aConvert = 0 );
+                           LIB_SYMBOL* aLibCandidate, int aUnit = 0, int aConvert = 0 );
 
     RESCUE_CASE_CANDIDATE() { m_lib_candidate = NULL; }
 
@@ -148,7 +148,7 @@ public:
 
 class RESCUE_CACHE_CANDIDATE: public RESCUE_CANDIDATE
 {
-    LIB_PART* m_cache_candidate;
+    LIB_SYMBOL* m_cache_candidate;
 
 public:
     /**
@@ -170,12 +170,12 @@ public:
      * @param aConvert is the body style of the rescued symbol.
      */
     RESCUE_CACHE_CANDIDATE( const wxString& aRequestedName, const wxString& aNewName,
-                            LIB_PART* aCacheCandidate, LIB_PART* aLibCandidate,
+                            LIB_SYMBOL* aCacheCandidate, LIB_SYMBOL* aLibCandidate,
                             int aUnit = 0, int aConvert = 0 );
 
     RESCUE_CACHE_CANDIDATE();
 
-    virtual LIB_PART* GetCacheCandidate() const override { return m_cache_candidate; }
+    virtual LIB_SYMBOL* GetCacheCandidate() const override { return m_cache_candidate; }
 
     virtual wxString GetActionDescription() const override;
 
@@ -205,12 +205,12 @@ public:
      * @param aConvert is the body style of the rescued symbol.
      */
     RESCUE_SYMBOL_LIB_TABLE_CANDIDATE( const LIB_ID& aRequestedId, const LIB_ID& aNewId,
-                                       LIB_PART* aCacheCandidate, LIB_PART* aLibCandidate,
+                                       LIB_SYMBOL* aCacheCandidate, LIB_SYMBOL* aLibCandidate,
                                        int aUnit = 0, int aConvert = 0 );
 
     RESCUE_SYMBOL_LIB_TABLE_CANDIDATE();
 
-    virtual LIB_PART* GetCacheCandidate() const override { return m_cache_candidate; }
+    virtual LIB_SYMBOL* GetCacheCandidate() const override { return m_cache_candidate; }
 
     virtual wxString GetActionDescription() const override;
 
@@ -219,16 +219,16 @@ public:
 private:
     LIB_ID m_requested_id;
     LIB_ID m_new_id;
-    LIB_PART* m_cache_candidate;
+    LIB_SYMBOL* m_cache_candidate;
 };
 
 
 class RESCUE_LOG
 {
 public:
-    SCH_COMPONENT*  component;
-    wxString        old_name;
-    wxString        new_name;
+    SCH_SYMBOL*  symbol;
+    wxString     old_name;
+    wxString     new_name;
 };
 
 
@@ -258,7 +258,7 @@ public:
      */
     virtual void FindCandidates() = 0;
 
-    virtual void AddPart( LIB_PART* aNewPart ) = 0;
+    virtual void AddPart( LIB_SYMBOL* aNewSymbol ) = 0;
 
     /**
      * Display a dialog to allow the user to select rescues.
@@ -285,7 +285,7 @@ public:
     /**
      * Get the list of symbols that need rescued.
      */
-    std::vector<SCH_COMPONENT*>* GetComponents() { return &m_components; }
+    std::vector<SCH_SYMBOL*>* GetSymbols() { return &m_symbols; }
 
     /**
      * Return the #SCH_PROJECT object for access to the symbol libraries.
@@ -297,8 +297,7 @@ public:
     /**
      * Used by individual #RESCUE_CANDIDATE objects to log a rescue for undoing.
      */
-    void LogRescue( SCH_COMPONENT *aComponent, const wxString& aOldName,
-                    const wxString& aNewName );
+    void LogRescue( SCH_SYMBOL *aSymbol, const wxString& aOldName, const wxString& aNewName );
 
     /**
      * Perform all chosen rescue actions, logging them to be undone if necessary.
@@ -317,7 +316,7 @@ public:
 protected:
     friend class DIALOG_RESCUE_EACH;
 
-    std::vector<SCH_COMPONENT*> m_components;
+    std::vector<SCH_SYMBOL*> m_symbols;
     PROJECT* m_prj;
     SCHEMATIC* m_schematic;
     EDA_DRAW_PANEL_GAL::GAL_TYPE m_galBackEndType;
@@ -351,7 +350,7 @@ public:
 
     virtual bool WriteRescueLibrary( wxWindow *aParent ) override;
 
-    virtual void AddPart( LIB_PART* aNewPart ) override;
+    virtual void AddPart( LIB_SYMBOL* aNewSymbol ) override;
 
 private:
     std::unique_ptr<PART_LIB> m_rescue_lib;
@@ -377,7 +376,7 @@ public:
 
     virtual bool WriteRescueLibrary( wxWindow* aParent ) override;
 
-    virtual void AddPart( LIB_PART* aNewPart ) override;
+    virtual void AddPart( LIB_SYMBOL* aNewSymbol ) override;
 
 private:
     SCH_PLUGIN::SCH_PLUGIN_RELEASER m_pi;

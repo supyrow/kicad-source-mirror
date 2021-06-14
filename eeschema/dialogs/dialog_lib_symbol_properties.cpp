@@ -47,7 +47,7 @@ DIALOG_LIB_SYMBOL_PROPERTIES::LAST_LAYOUT
 
 
 DIALOG_LIB_SYMBOL_PROPERTIES::DIALOG_LIB_SYMBOL_PROPERTIES( SYMBOL_EDIT_FRAME* aParent,
-                                                            LIB_PART* aLibEntry ) :
+                                                            LIB_SYMBOL* aLibEntry ) :
     DIALOG_LIB_SYMBOL_PROPERTIES_BASE( aParent ),
     m_Parent( aParent ),
     m_libEntry( aLibEntry ),
@@ -67,7 +67,7 @@ DIALOG_LIB_SYMBOL_PROPERTIES::DIALOG_LIB_SYMBOL_PROPERTIES( SYMBOL_EDIT_FRAME* a
 
     // Show/hide columns according to the user's preference
     SYMBOL_EDITOR_SETTINGS* cfg = m_Parent->GetSettings();
-    m_grid->ShowHideColumns( cfg->m_EditComponentVisibleColumns );
+    m_grid->ShowHideColumns( cfg->m_EditSymbolVisibleColumns );
 
     wxGridCellAttr* attr = new wxGridCellAttr;
     attr->SetEditor( new GRID_CELL_URL_EDITOR( this ) );
@@ -129,7 +129,7 @@ DIALOG_LIB_SYMBOL_PROPERTIES::~DIALOG_LIB_SYMBOL_PROPERTIES()
     m_lastOpenedPage = m_NoteBook->GetSelection( );
 
     SYMBOL_EDITOR_SETTINGS* cfg = m_Parent->GetSettings();
-    cfg->m_EditComponentVisibleColumns = m_grid->GetShownColumns();
+    cfg->m_EditSymbolVisibleColumns = m_grid->GetShownColumns();
 
     // Prevents crash bug in wxGrid's d'tor
     m_grid->DestroyTable( m_fields );
@@ -222,7 +222,7 @@ bool DIALOG_LIB_SYMBOL_PROPERTIES::Validate()
 
     // Alias symbol reference can be empty because it inherits from the parent symbol.
     if( m_libEntry->IsRoot() &&
-        !SCH_COMPONENT::IsReferenceStringValid( m_fields->at( REFERENCE_FIELD ).GetText() ) )
+        !SCH_SYMBOL::IsReferenceStringValid( m_fields->at( REFERENCE_FIELD ).GetText() ) )
     {
         if( m_NoteBook->GetSelection() != 0 )
             m_NoteBook->SetSelection( 0 );
@@ -345,7 +345,7 @@ bool DIALOG_LIB_SYMBOL_PROPERTIES::TransferDataFromWindow()
         wxString libName = m_Parent->GetCurLib();
 
         // Get the parent from the libManager based on the name set in the inheritance combo box.
-        LIB_PART* newParent = m_Parent->GetLibManager().GetAlias( parentName, libName );
+        LIB_SYMBOL* newParent = m_Parent->GetLibManager().GetAlias( parentName, libName );
 
         // Verify that the requested parent exists
         wxCHECK( newParent, false );
@@ -361,7 +361,8 @@ bool DIALOG_LIB_SYMBOL_PROPERTIES::TransferDataFromWindow()
     m_libEntry->SetDescription( m_DescCtrl->GetValue() );
     m_libEntry->SetKeyWords( m_KeywordCtrl->GetValue() );
     m_libEntry->SetUnitCount( m_SelNumberOfUnits->GetValue() );
-    m_libEntry->LockUnits( m_libEntry->GetUnitCount() > 1 && !m_OptionPartsInterchangeable->GetValue() );
+    m_libEntry->LockUnits( m_libEntry->GetUnitCount() > 1 &&
+                           !m_OptionPartsInterchangeable->GetValue() );
     m_libEntry->SetConversion( m_AsConvertButt->GetValue() );
 
     if( m_OptionPower->GetValue() )
@@ -392,7 +393,7 @@ bool DIALOG_LIB_SYMBOL_PROPERTIES::TransferDataFromWindow()
     m_Parent->UpdateAfterSymbolProperties( &oldName );
 
     // It's possible that the symbol being edited has no pins, in which case there may be no
-    // alternate body style objects causing #LIB_PART::HasCoversion() to always return false.
+    // alternate body style objects causing #LIB_SYMBOL::HasCoversion() to always return false.
     // This allows the user to edit the alternate body style just in case this condition occurs.
     m_Parent->SetShowDeMorgan( m_AsConvertButt->GetValue() );
 
@@ -534,7 +535,9 @@ void DIALOG_LIB_SYMBOL_PROPERTIES::OnMoveUp( wxCommandEvent& event )
         m_grid->MakeCellVisible( m_grid->GetGridCursorRow(), m_grid->GetGridCursorCol() );
     }
     else
+    {
         wxBell();
+    }
 }
 
 
@@ -564,9 +567,9 @@ void DIALOG_LIB_SYMBOL_PROPERTIES::OnEditSpiceModel( wxCommandEvent& event )
 {
 #ifdef KICAD_SPICE
     int diff = m_fields->size();
-    auto cmp = SCH_COMPONENT( *m_libEntry, m_libEntry->GetLibId(), nullptr );
+    auto symbol = SCH_SYMBOL( *m_libEntry, m_libEntry->GetLibId(), nullptr );
 
-    DIALOG_SPICE_MODEL dialog( this, cmp, m_fields );
+    DIALOG_SPICE_MODEL dialog( this, symbol, m_fields );
 
     if( dialog.ShowModal() != wxID_OK )
         return;

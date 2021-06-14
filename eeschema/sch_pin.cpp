@@ -26,7 +26,7 @@
 #include <sch_edit_frame.h>
 
 
-SCH_PIN::SCH_PIN( LIB_PIN* aLibPin, SCH_COMPONENT* aParentSymbol ) :
+SCH_PIN::SCH_PIN( LIB_PIN* aLibPin, SCH_SYMBOL* aParentSymbol ) :
     SCH_ITEM( aParentSymbol, SCH_PIN_T )
 {
     m_alt = wxEmptyString;
@@ -39,9 +39,9 @@ SCH_PIN::SCH_PIN( LIB_PIN* aLibPin, SCH_COMPONENT* aParentSymbol ) :
 
 /**
  * Create a proxy pin from an alternate pin designation.
- * The LIB_PIN data will be filled in when the pin is resolved (see SCH_COMPONENT::UpdatePins).
+ * The LIB_PIN data will be filled in when the pin is resolved (see SCH_SYMBOL::UpdatePins).
  */
-SCH_PIN::SCH_PIN( SCH_COMPONENT* aParentSymbol, const wxString& aNumber, const wxString& aAlt ) :
+SCH_PIN::SCH_PIN( SCH_SYMBOL* aParentSymbol, const wxString& aNumber, const wxString& aAlt ) :
     SCH_ITEM( aParentSymbol, SCH_PIN_T )
 {
     m_alt = aAlt;
@@ -82,6 +82,15 @@ wxString SCH_PIN::GetName() const
         return m_alt;
 
     return m_libPin->GetName();
+}
+
+
+wxString SCH_PIN::GetShownName() const
+{
+    if( !m_alt.IsEmpty() )
+        return m_alt;
+
+    return m_libPin->GetShownName();
 }
 
 
@@ -138,9 +147,9 @@ bool SCH_PIN::Replace( const wxFindReplaceData& aSearchData, void* aAuxData )
 }
 
 
-SCH_COMPONENT* SCH_PIN::GetParentSymbol() const
+SCH_SYMBOL* SCH_PIN::GetParentSymbol() const
 {
-    return static_cast<SCH_COMPONENT*>( GetParent() );
+    return static_cast<SCH_SYMBOL*>( GetParent() );
 }
 
 
@@ -174,8 +183,8 @@ void SCH_PIN::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, MSG_PANEL_ITEMS& aList )
 
     aList.push_back( MSG_PANEL_ITEM( _( "Converted" ), msg ) );
 
-    aList.push_back( MSG_PANEL_ITEM( _( "Name" ), GetName() ) );
-    msg = GetNumber().IsEmpty() ? wxT( "?" ) : GetNumber();
+    aList.push_back( MSG_PANEL_ITEM( _( "Name" ), GetShownName() ) );
+    msg = GetNumber().IsEmpty() ? wxT( "?" ) : GetShownNumber();
     aList.push_back( MSG_PANEL_ITEM( _( "Number" ), msg ) );
     aList.push_back( MSG_PANEL_ITEM( _( "Type" ), ElectricalPinTypeGetText( GetType() ) ) );
 
@@ -200,7 +209,7 @@ void SCH_PIN::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, MSG_PANEL_ITEMS& aList )
 
     SCH_EDIT_FRAME* schframe = dynamic_cast<SCH_EDIT_FRAME*>( aFrame );
     SCH_SHEET_PATH* currentSheet = schframe ? &schframe->GetCurrentSheet() : nullptr;
-    SCH_COMPONENT*  symbol = GetParentSymbol();
+    SCH_SYMBOL*     symbol = GetParentSymbol();
 
     aList.emplace_back( symbol->GetRef( currentSheet ), symbol->GetValue( currentSheet, true ) );
 

@@ -126,10 +126,10 @@ public:
     void UpdateItemConnections();
 
     /**
-     * Returns the priority (higher is more important) of a candidate driver
+     * Return the priority (higher is more important) of a candidate driver
      *
      * 0: Invalid driver
-     * 1: Component pin
+     * 1: Symbol pin
      * 2: Hierarchical sheet pin
      * 3: Hierarchical label
      * 4: Local label
@@ -337,7 +337,7 @@ private:
      *
      * Any item that is stored in the list of items that have a connection point
      * at a given (x, y) location will eventually be electrically connected.
-     * This means that we can't store SCH_COMPONENTs in this map -- we must store
+     * This means that we can't store SCH_SYMBOLs in this map -- we must store
      * a structure that links a specific pin on a symbol back to that symbol: a
      * SCH_PIN_CONNECTION.  This wrapper class is a convenience for linking a pin
      * and symbol to a specific (x, y) point.

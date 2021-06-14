@@ -280,7 +280,7 @@ OPENGL_RENDER_LIST* RENDER_3D_LEGACY::generateHoles( const LIST_OBJECT2D& aListH
             }
         }
 
-        // Note: he can have a aListHolesObject2d whith holes but without countours
+        // Note: he can have a aListHolesObject2d with holes but without contours
         // eg: when there are only NPTH on the list and the contours were not added
         if( aPoly.OutlineCount() > 0 )
         {
@@ -737,11 +737,11 @@ void RENDER_3D_LEGACY::generateViasAndPads()
         // Insert plated vertical holes inside the board
 
         // Insert vias holes (vertical cylinders)
-        for( const TRACK* track : m_boardAdapter.GetBoard()->Tracks() )
+        for( const PCB_TRACK* track : m_boardAdapter.GetBoard()->Tracks() )
         {
             if( track->Type() == PCB_VIA_T )
             {
-                const VIA* via = static_cast<const VIA*>( track );
+                const PCB_VIA* via = static_cast<const PCB_VIA*>( track );
 
                 const float holediameter = via->GetDrillValue() * m_boardAdapter.BiuTo3dUnits();
                 const int nrSegments = m_boardAdapter.GetCircleSegmentCount( via->GetDrillValue() );

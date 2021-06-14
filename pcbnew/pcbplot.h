@@ -32,7 +32,6 @@
 #include <layers_id_colors_and_visibility.h>
 #include <pad_shapes.h>
 #include <pcb_plot_params.h>
-#include <pgm_base.h>
 #include <settings/color_settings.h>
 #include <settings/settings_manager.h>
 
@@ -40,7 +39,7 @@ class PLOTTER;
 class PCB_TEXT;
 class PAD;
 class PCB_SHAPE;
-class DIMENSION_BASE;
+class PCB_DIMENSION_BASE;
 class FOOTPRINT;
 class FP_SHAPE;
 class PCB_TARGET;
@@ -93,7 +92,7 @@ public:
      */
     void PlotFootprintTextItems( const FOOTPRINT* aFootprint );
 
-    void PlotDimension( const DIMENSION_BASE* aDim );
+    void PlotDimension( const PCB_DIMENSION_BASE* aDim );
     void PlotPcbTarget( const PCB_TARGET* aMire );
     void PlotFilledAreas( const ZONE* aZone, const SHAPE_POLY_SET& aPolysList );
     void PlotPcbText( const PCB_TEXT* aText );

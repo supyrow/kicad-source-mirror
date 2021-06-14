@@ -21,8 +21,8 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
-#include <dimension.h>
-#include <track.h>
+#include <pcb_dimension.h>
+#include <pcb_track.h>
 #include <layers_id_colors_and_visibility.h>
 #include <kiface_i.h>
 #include <pad.h>
@@ -761,7 +761,7 @@ bool BOARD_DESIGN_SETTINGS::migrateSchema0to1()
      * 1: 0.001mm / 0.1 mil / 0.0001 in
      * 2: 0.0001mm / 0.01 mil / 0.00001 in
      *
-     * Now it is indepenent of display units and is an integer meaning the number of digits
+     * Now it is independent of display units and is an integer meaning the number of digits
      * displayed after the decimal point, so we have to migrate based on the default units.
      *
      * The units is an integer with the following mapping:

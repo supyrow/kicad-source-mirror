@@ -50,7 +50,7 @@ class BOARD_ITEM;
 class ZONE;
 class RN_DATA;
 class RN_NET;
-class TRACK;
+class PCB_TRACK;
 class PAD;
 class FOOTPRINT;
 class PROGRESS_REPORTER;
@@ -138,7 +138,7 @@ public:
 
     /**
      * Moves the connectivity list anchors.  N.B., this does not move the bounding
-     * boxes for the the RTree, so the use of this function will invalidate the
+     * boxes for the RTree, so the use of this function will invalidate the
      * connectivity data for uses other than the dynamic ratsnest
      *
      * @param aDelta vector for movement of the tree
@@ -195,13 +195,14 @@ public:
      */
     unsigned int GetUnconnectedCount() const;
 
-    bool IsConnectedOnLayer( const BOARD_CONNECTED_ITEM* aItem, int aLayer, std::vector<KICAD_T> aTypes = {} ) const;
+    bool IsConnectedOnLayer( const BOARD_CONNECTED_ITEM* aItem,
+                             int aLayer, std::vector<KICAD_T> aTypes = {} ) const;
 
     unsigned int GetNodeCount( int aNet = -1 ) const;
 
     unsigned int GetPadCount( int aNet = -1 ) const;
 
-    const std::vector<TRACK*> GetConnectedTracks( const BOARD_CONNECTED_ITEM* aItem ) const;
+    const std::vector<PCB_TRACK*> GetConnectedTracks( const BOARD_CONNECTED_ITEM* aItem ) const;
 
     const std::vector<PAD*> GetConnectedPads( const BOARD_CONNECTED_ITEM* aItem ) const;
 
@@ -225,7 +226,7 @@ public:
 
     void GetUnconnectedEdges( std::vector<CN_EDGE>& aEdges ) const;
 
-    bool TestTrackEndpointDangling( TRACK* aTrack, wxPoint* aPos = nullptr );
+    bool TestTrackEndpointDangling( PCB_TRACK* aTrack, wxPoint* aPos = nullptr );
 
     /**
      * Function ClearDynamicRatsnest()

@@ -22,7 +22,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
-#include <pgm_base.h>
 #include <gerbview.h>
 #include <gerbview_frame.h>
 #include <gerbview_id.h>
@@ -177,7 +176,7 @@ void GERBVIEW_FRAME::ShowChangedLanguage()
     m_LayersManager->SetLayersManagerTabsText();
 
     wxAuiPaneInfo& pane_info = m_auimgr.GetPane( m_LayersManager );
-    pane_info.Caption( _( "Visibles" ) );
+    pane_info.Caption( _( "Layers Manager" ) );
     m_auimgr.Update();
 
     ReFillLayerWidget();

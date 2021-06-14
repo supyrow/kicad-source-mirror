@@ -75,10 +75,10 @@
 #include <board_design_settings.h>
 #include <footprint.h>
 #include <pad.h>
-#include <track.h>
+#include <pcb_track.h>
 #include <pcb_text.h>
 #include <zone.h>
-#include <dimension.h>
+#include <pcb_dimension.h>
 #include <pcb_shape.h>
 #include <pcb_target.h>
 #include <fp_shape.h>
@@ -1783,7 +1783,7 @@ void LEGACY_PLUGIN::loadMODULE_TEXT( FP_TEXT* aText )
     BIU     thickn  = biuParse( data, &data );
 
     // read the quoted text before the first call to strtok() which introduces
-    // NULs into the string and chops it into mutliple C strings, something
+    // NULs into the string and chops it into multiple C strings, something
     // ReadDelimitedText() cannot traverse.
 
     // convert the "quoted, escaped, UTF8, text" to a wxString, find it by skipping
@@ -2265,13 +2265,13 @@ void LEGACY_PLUGIN::loadTrackList( int aStructType )
             continue;
         }
 
-        TRACK* newTrack;
+        PCB_TRACK* newTrack;
 
         switch( makeType )
         {
         default:
-        case PCB_TRACE_T: newTrack = new TRACK( m_board ); break;
-        case PCB_VIA_T:   newTrack = new VIA( m_board );   break;
+        case PCB_TRACE_T: newTrack = new PCB_TRACK( m_board ); break;
+        case PCB_VIA_T:   newTrack = new PCB_VIA( m_board );   break;
         }
 
         const_cast<KIID&>( newTrack->m_Uuid ) = KIID( uuid );
@@ -2282,7 +2282,7 @@ void LEGACY_PLUGIN::loadTrackList( int aStructType )
 
         if( makeType == PCB_VIA_T )     // Ensure layers are OK when possible:
         {
-            VIA *via = static_cast<VIA*>( newTrack );
+            PCB_VIA *via = static_cast<PCB_VIA*>( newTrack );
             via->SetViaType( viatype );
 
             if( drill < 0 )
@@ -2720,7 +2720,7 @@ void LEGACY_PLUGIN::loadZONE_CONTAINER()
 
 void LEGACY_PLUGIN::loadDIMENSION()
 {
-    std::unique_ptr<ALIGNED_DIMENSION> dim = std::make_unique<ALIGNED_DIMENSION>( m_board );
+    std::unique_ptr<PCB_DIM_ALIGNED> dim = std::make_unique<PCB_DIM_ALIGNED>( m_board );
 
     char*   line;
 

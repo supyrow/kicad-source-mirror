@@ -49,9 +49,7 @@ MICROSTRIP::MICROSTRIP() : TRANSLINE(),
     l( 0.0 ),                // length of line
     Z0_0( 0.0 ),             // static characteristic impedance
     Z0( 0.0 ),               // characteristic impedance
-    ang_l( 0.0 ),            // Electrical length in angle
     er_eff_0( 0.0 ),         // Static effective dielectric constant
-    er_eff( 0.0 ),           // Effective dielectric constant
     mur_eff( 0.0 ),          // Effective mag. permeability
     w_eff( 0.0 ),            // Effective width of line
     atten_dielectric( 0.0 ), // Loss in dielectric (dB)
@@ -191,7 +189,7 @@ void MICROSTRIP::microstrip_Z0()
     delta_u_1 = delta_u_thickness( u, t_h, 1.0 );
     /* compute homogeneous stripline impedance */
     Z0_h_1 = Z0_homogeneous( u + delta_u_1 );
-    /* compute normalized width corection */
+    /* compute normalized width correction */
     delta_u_r = delta_u_thickness( u, t_h, e_r );
     u += delta_u_r;
     /* compute homogeneous stripline impedance */

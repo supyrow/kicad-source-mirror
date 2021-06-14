@@ -72,12 +72,12 @@ Load() TODO's
 #include <board_design_settings.h>
 #include <footprint.h>
 #include <pad.h>
-#include <track.h>
+#include <pcb_track.h>
 #include <fp_shape.h>
 #include <zone.h>
 #include <pad_shapes.h>
 #include <pcb_text.h>
-#include <dimension.h>
+#include <pcb_dimension.h>
 
 #include <plugins/eagle/eagle_plugin.h>
 
@@ -874,7 +874,7 @@ void EAGLE_PLUGIN::loadPlain( wxXmlNode* aGraphics )
             if( layer != UNDEFINED_LAYER )
             {
                 const BOARD_DESIGN_SETTINGS& designSettings = m_board->GetDesignSettings();
-                ALIGNED_DIMENSION* dimension = new ALIGNED_DIMENSION( m_board );
+                PCB_DIM_ALIGNED* dimension = new PCB_DIM_ALIGNED( m_board );
                 m_board->Add( dimension, ADD_MODE::APPEND );
 
                 if( d.dimensionType )
@@ -2366,7 +2366,7 @@ void EAGLE_PLUGIN::loadSignals( wxXmlNode* aSignals )
                         wxPoint end( KiROUND( radius * cos( end_angle + angle ) + center.x ),
                                      KiROUND( radius * sin( end_angle + angle ) + center.y ) );
 
-                        TRACK*  t = new TRACK( m_board );
+                        PCB_TRACK*  t = new PCB_TRACK( m_board );
 
                         t->SetPosition( start );
                         t->SetEnd( end );
@@ -2380,7 +2380,7 @@ void EAGLE_PLUGIN::loadSignals( wxXmlNode* aSignals )
                         angle -= delta_angle;
                     }
 
-                    TRACK*  t = new TRACK( m_board );
+                    PCB_TRACK*  t = new PCB_TRACK( m_board );
 
                     t->SetPosition( start );
                     t->SetEnd( wxPoint( kicad_x( w.x2 ), kicad_y( w.y2 ) ) );
@@ -2409,9 +2409,9 @@ void EAGLE_PLUGIN::loadSignals( wxXmlNode* aSignals )
                 if( IsCopperLayer( layer_front_most ) &&
                     IsCopperLayer( layer_back_most ) )
                 {
-                    int  kidiam;
-                    int  drillz = v.drill.ToPcbUnits();
-                    VIA* via = new VIA( m_board );
+                    int      kidiam;
+                    int      drillz = v.drill.ToPcbUnits();
+                    PCB_VIA* via = new PCB_VIA( m_board );
                     m_board->Add( via );
 
                     via->SetLayerPair( layer_front_most, layer_back_most );

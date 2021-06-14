@@ -23,8 +23,8 @@
  */
 
 /**
- * @file eeschema/dialogs/dialog_edit_components_libid.cpp
- * @brief Dialog to remap library id of components to another library id
+ * @file eeschema/dialogs/dialog_edit_symbols_libid.cpp
+ * @brief Dialog to remap library id of symbols to another library id
  */
 
 
@@ -34,12 +34,11 @@
 #include <sch_symbol.h>
 #include <sch_reference_list.h>
 #include <schematic.h>
-#include <pgm_base.h>
 #include <symbol_lib_table.h>
 #include <trace_helpers.h>
 #include <widgets/wx_grid.h>
 
-#include <dialog_edit_components_libid_base.h>
+#include <dialog_edit_symbols_libid_base.h>
 #include <wx/tokenzr.h>
 #include <wx/choicdlg.h>
 #include <wx/dcclient.h>
@@ -243,52 +242,52 @@ int GRIDCELL_AUTOWRAP_STRINGRENDERER::GetHeight( wxDC& aDC, wxGrid* aGrid, int a
 /**
  * A helper to handle symbols to edit.
  */
-class CMP_CANDIDATE
+class SYM_CANDIDATE
 {
 public:
-    CMP_CANDIDATE( SCH_COMPONENT* aComponent )
+    SYM_CANDIDATE( SCH_SYMBOL* aSymbol )
     {
-        m_Component = aComponent;
-        m_InitialLibId = m_Component->GetLibId().Format();
+        m_Symbol = aSymbol;
+        m_InitialLibId = m_Symbol->GetLibId().Format();
         m_Row = -1;
         m_IsOrphan = false;
         m_Screen = nullptr;
     }
 
-    // Return a string like mylib:symbol_name from the #LIB_ID of the component.
+    // Return a string like mylib:symbol_name from the #LIB_ID of the symbol.
     wxString GetStringLibId()
     {
-        return m_Component->GetLibId().GetUniStringLibId();
+        return m_Symbol->GetLibId().GetUniStringLibId();
     }
 
-    // Return a string containing the reference of the component.
+    // Return a string containing the reference of the symbol.
     wxString GetSchematicReference()
     {
         return m_Reference;
     }
 
-    SCH_COMPONENT* m_Component; // the schematic component
+    SCH_SYMBOL* m_Symbol;       // the schematic symbol
     int         m_Row;          // the row index in m_grid
-    SCH_SCREEN* m_Screen;       // the screen where m_Component lives
+    SCH_SCREEN* m_Screen;       // the screen where m_Symbol lives
     wxString    m_Reference;    // the schematic reference, only to display it in list
-    wxString    m_InitialLibId; // the Lib Id of the component before any change
-    bool        m_IsOrphan;     // true if a component has no corresponding symbol found in libs
+    wxString    m_InitialLibId; // the Lib Id of the symbol before any change.
+    bool        m_IsOrphan;     // true if a symbol has no corresponding symbol found in libs.
 };
 
 
 /**
- * Dialog to globally edit the #LIB_ID of groups if components having the same initial LIB_ID.
+ * Dialog to globally edit the #LIB_ID of groups if symbols having the same initial LIB_ID.
  *
  * This is useful when you want to:
  *  * move a symbol from a symbol library to another symbol library.
  *  * change the nickname of a library.
- *  * globally replace the symbol used by a group of components by another symbol.
+ *  * globally replace the symbol used by a group of symbols by another symbol.
  */
-class DIALOG_EDIT_COMPONENTS_LIBID : public DIALOG_EDIT_COMPONENTS_LIBID_BASE
+class DIALOG_EDIT_SYMBOLS_LIBID : public DIALOG_EDIT_SYMBOLS_LIBID_BASE
 {
 public:
-    DIALOG_EDIT_COMPONENTS_LIBID( SCH_EDIT_FRAME* aParent );
-    ~DIALOG_EDIT_COMPONENTS_LIBID() override;
+    DIALOG_EDIT_SYMBOLS_LIBID( SCH_EDIT_FRAME* aParent );
+    ~DIALOG_EDIT_SYMBOLS_LIBID() override;
 
     SCH_EDIT_FRAME* GetParent();
 
@@ -345,14 +344,14 @@ private:
     bool             m_isModified;          // set to true if the schematic is modified
     std::vector<int> m_OrphansRowIndexes;   // list of rows containing orphan lib_id
 
-    std::vector<CMP_CANDIDATE> m_components;
+    std::vector<SYM_CANDIDATE> m_symbols;
 
     GRIDCELL_AUTOWRAP_STRINGRENDERER* m_autoWrapRenderer;
 };
 
 
-DIALOG_EDIT_COMPONENTS_LIBID::DIALOG_EDIT_COMPONENTS_LIBID( SCH_EDIT_FRAME* aParent )
-    :DIALOG_EDIT_COMPONENTS_LIBID_BASE( aParent )
+DIALOG_EDIT_SYMBOLS_LIBID::DIALOG_EDIT_SYMBOLS_LIBID( SCH_EDIT_FRAME* aParent )
+    :DIALOG_EDIT_SYMBOLS_LIBID_BASE( aParent )
 {
     m_autoWrapRenderer = new GRIDCELL_AUTOWRAP_STRINGRENDERER;
 
@@ -364,7 +363,7 @@ DIALOG_EDIT_COMPONENTS_LIBID::DIALOG_EDIT_COMPONENTS_LIBID( SCH_EDIT_FRAME* aPar
 }
 
 
-DIALOG_EDIT_COMPONENTS_LIBID::~DIALOG_EDIT_COMPONENTS_LIBID()
+DIALOG_EDIT_SYMBOLS_LIBID::~DIALOG_EDIT_SYMBOLS_LIBID()
 {
     // Delete the GRID_TRICKS.
     m_grid->PopEventHandler( true );
@@ -373,63 +372,63 @@ DIALOG_EDIT_COMPONENTS_LIBID::~DIALOG_EDIT_COMPONENTS_LIBID()
 }
 
 
-// A sort compare function to sort components list by LIB_ID and then reference
-static bool sort_by_libid( const CMP_CANDIDATE& cmp1, const CMP_CANDIDATE& cmp2 )
+// A sort compare function to sort symbols list by LIB_ID and then reference.
+static bool sort_by_libid( const SYM_CANDIDATE& candidate1, const SYM_CANDIDATE& candidate2 )
 {
-    if( cmp1.m_Component->GetLibId() == cmp2.m_Component->GetLibId() )
-        return cmp1.m_Reference.Cmp( cmp2.m_Reference ) < 0;
+    if( candidate1.m_Symbol->GetLibId() == candidate2.m_Symbol->GetLibId() )
+        return candidate1.m_Reference.Cmp( candidate2.m_Reference ) < 0;
 
-    return cmp1.m_Component->GetLibId() < cmp2.m_Component->GetLibId();
+    return candidate1.m_Symbol->GetLibId() < candidate2.m_Symbol->GetLibId();
 }
 
 
-void DIALOG_EDIT_COMPONENTS_LIBID::initDlg()
+void DIALOG_EDIT_SYMBOLS_LIBID::initDlg()
 {
     // Clear the FormBuilder rows
     m_grid->DeleteRows( 0, m_grid->GetNumberRows() );
 
     m_isModified = false;
 
-    // This option build the full component list
-    // In complex hierarchies, the same component is in fact duplicated, but
+    // This option build the full symbol list.
+    // In complex hierarchies, the same symbol is in fact duplicated, but
     // it is listed with different references (one by sheet instance)
-    // the list is larger and looks like it contains all components
+    // the list is larger and looks like it contains all symbols.
     const SCH_SHEET_LIST& sheets = GetParent()->Schematic().GetSheets();
     SCH_REFERENCE_LIST references;
 
-    // build the full list of components including component having no symbol in loaded libs
-    // (orphan components)
+    // build the full list of symbols including symbol having no symbol in loaded libs
+    // (orphan symbols)
     sheets.GetSymbols( references, /* include power symbols */ true,
-                       /* include orphan components */ true );
+                       /* include orphan symbols */ true );
 
     for( unsigned ii = 0; ii < references.GetCount(); ii++ )
     {
         SCH_REFERENCE& item = references[ii];
-        CMP_CANDIDATE candidate( item.GetSymbol() );
+        SYM_CANDIDATE candidate( item.GetSymbol() );
         candidate.m_Screen = item.GetSheetPath().LastScreen();
         SCH_SHEET_PATH sheetpath = item.GetSheetPath();
-        candidate.m_Reference = candidate.m_Component->GetRef( &sheetpath );
-        int unitcount = candidate.m_Component->GetUnitCount();
+        candidate.m_Reference = candidate.m_Symbol->GetRef( &sheetpath );
+        int unitcount = candidate.m_Symbol->GetUnitCount();
         candidate.m_IsOrphan = ( unitcount == 0 );
-        m_components.push_back( candidate );
+        m_symbols.push_back( candidate );
     }
 
-    if( m_components.size() == 0 )
+    if( m_symbols.size() == 0 )
         return;
 
     // now sort by lib id to create groups of items having the same lib id
-    std::sort( m_components.begin(), m_components.end(), sort_by_libid );
+    std::sort( m_symbols.begin(), m_symbols.end(), sort_by_libid );
 
     // Now, fill m_grid
-    wxString last_str_libid = m_components.front().GetStringLibId();
+    wxString last_str_libid = m_symbols.front().GetStringLibId();
     int row = 0;
     wxString refs;
     wxString last_ref;
-    bool mark_cell = m_components.front().m_IsOrphan;
+    bool mark_cell = m_symbols.front().m_IsOrphan;
 
-    for( auto& cmp : m_components )
+    for( auto& symbol : m_symbols )
     {
-        wxString str_libid = cmp.GetStringLibId();
+        wxString str_libid = symbol.GetStringLibId();
 
         if( last_str_libid != str_libid )
         {
@@ -437,27 +436,27 @@ void DIALOG_EDIT_COMPONENTS_LIBID::initDlg()
             AddRowToGrid( mark_cell, refs, last_str_libid );
 
             // prepare next entry
-            mark_cell = cmp.m_IsOrphan;
+            mark_cell = symbol.m_IsOrphan;
             last_str_libid = str_libid;
             refs.Empty();
             row++;
         }
-        else if( cmp.GetSchematicReference() == last_ref )
+        else if( symbol.GetSchematicReference() == last_ref )
         {
-            cmp.m_Row = row;
+            symbol.m_Row = row;
             continue;
         }
 
-        last_ref = cmp.GetSchematicReference();
+        last_ref = symbol.GetSchematicReference();
 
         if( !refs.IsEmpty() )
             refs += wxT( ", " );
 
-        refs += cmp.GetSchematicReference();
-        cmp.m_Row = row;
+        refs += symbol.GetSchematicReference();
+        symbol.m_Row = row;
     }
 
-    // Add last component group:
+    // Add last symbol group:
     AddRowToGrid( mark_cell, refs, last_str_libid );
 
     // Allows only the selection by row
@@ -468,18 +467,18 @@ void DIALOG_EDIT_COMPONENTS_LIBID::initDlg()
 }
 
 
-SCH_EDIT_FRAME* DIALOG_EDIT_COMPONENTS_LIBID::GetParent()
+SCH_EDIT_FRAME* DIALOG_EDIT_SYMBOLS_LIBID::GetParent()
 {
     return dynamic_cast<SCH_EDIT_FRAME*>( wxDialog::GetParent() );
 }
 
 
-void DIALOG_EDIT_COMPONENTS_LIBID::AddRowToGrid( bool aMarkRow, const wxString& aReferences,
+void DIALOG_EDIT_SYMBOLS_LIBID::AddRowToGrid( bool aMarkRow, const wxString& aReferences,
                                                  const wxString& aStrLibId )
 {
     int row = m_grid->GetNumberRows();
 
-    if( aMarkRow )      // a orphan component exists, set m_AsOrphanCmp as true
+    if( aMarkRow )      // An orphaned symbol exists, set m_AsOrphanCmp as true.
         m_OrphansRowIndexes.push_back( row );
 
     m_grid->AppendRows( 1 );
@@ -512,7 +511,7 @@ void DIALOG_EDIT_COMPONENTS_LIBID::AddRowToGrid( bool aMarkRow, const wxString& 
 }
 
 
-bool DIALOG_EDIT_COMPONENTS_LIBID::validateLibIds()
+bool DIALOG_EDIT_SYMBOLS_LIBID::validateLibIds()
 {
     if( !m_grid->CommitPendingChanges() )
         return false;
@@ -551,7 +550,7 @@ bool DIALOG_EDIT_COMPONENTS_LIBID::validateLibIds()
 }
 
 
-void DIALOG_EDIT_COMPONENTS_LIBID::onCellBrowseLib( wxGridEvent& event )
+void DIALOG_EDIT_SYMBOLS_LIBID::onCellBrowseLib( wxGridEvent& event )
 {
     int row = event.GetRow();
     m_grid->SelectRow( row );   // only for user, to show the selected line
@@ -561,7 +560,7 @@ void DIALOG_EDIT_COMPONENTS_LIBID::onCellBrowseLib( wxGridEvent& event )
 }
 
 
-void DIALOG_EDIT_COMPONENTS_LIBID::onClickOrphansButton( wxCommandEvent& event )
+void DIALOG_EDIT_SYMBOLS_LIBID::onClickOrphansButton( wxCommandEvent& event )
 {
     std::vector< wxString > libs = Prj().SchSymbolLibTable()->GetLogicalLibs();
     wxArrayString aliasNames;
@@ -642,7 +641,7 @@ void DIALOG_EDIT_COMPONENTS_LIBID::onClickOrphansButton( wxCommandEvent& event )
         }
     }
 
-    if( fixesCount < m_OrphansRowIndexes.size() )   // Not all orphan components are fixed
+    if( fixesCount < m_OrphansRowIndexes.size() )   // Not all orphan symbols are fixed.
     {
         wxMessageBox( wxString::Format( _( "%u link(s) mapped, %u not found" ),
                                         fixesCount,
@@ -653,7 +652,7 @@ void DIALOG_EDIT_COMPONENTS_LIBID::onClickOrphansButton( wxCommandEvent& event )
 }
 
 
-bool DIALOG_EDIT_COMPONENTS_LIBID::setLibIdByBrowser( int aRow )
+bool DIALOG_EDIT_SYMBOLS_LIBID::setLibIdByBrowser( int aRow )
 {
 #if 0
     // Use dialog symbol selector to choose a symbol
@@ -692,7 +691,7 @@ bool DIALOG_EDIT_COMPONENTS_LIBID::setLibIdByBrowser( int aRow )
 }
 
 
-bool DIALOG_EDIT_COMPONENTS_LIBID::TransferDataFromWindow()
+bool DIALOG_EDIT_SYMBOLS_LIBID::TransferDataFromWindow()
 {
     if( !validateLibIds() )
         return false;
@@ -710,12 +709,12 @@ bool DIALOG_EDIT_COMPONENTS_LIBID::TransferDataFromWindow()
         LIB_ID id;
         id.Parse( new_libid, true );
 
-        for( CMP_CANDIDATE& cmp : m_components )
+        for( SYM_CANDIDATE& candidate : m_symbols )
         {
-            if( cmp.m_Row != row )
+            if( candidate.m_Row != row )
                 continue;
 
-            LIB_PART* symbol = nullptr;
+            LIB_SYMBOL* symbol = nullptr;
 
             try
             {
@@ -736,30 +735,30 @@ bool DIALOG_EDIT_COMPONENTS_LIBID::TransferDataFromWindow()
             if( symbol == nullptr )
                 continue;
 
-            GetParent()->SaveCopyInUndoList( cmp.m_Screen, cmp.m_Component, UNDO_REDO::CHANGED,
-                                             m_isModified );
+            GetParent()->SaveCopyInUndoList( candidate.m_Screen, candidate.m_Symbol,
+                                             UNDO_REDO::CHANGED, m_isModified );
             m_isModified = true;
 
-            cmp.m_Screen->Remove( cmp.m_Component );
-            SCH_FIELD* value = cmp.m_Component->GetField( VALUE_FIELD );
+            candidate.m_Screen->Remove( candidate.m_Symbol );
+            SCH_FIELD* value = candidate.m_Symbol->GetField( VALUE_FIELD );
 
             // If value is a proxy for the itemName then make sure it gets updated
-            if( cmp.m_Component->GetLibId().GetLibItemName().wx_str() == value->GetText() )
-                cmp.m_Component->SetValue( id.GetLibItemName().wx_str() );
+            if( candidate.m_Symbol->GetLibId().GetLibItemName().wx_str() == value->GetText() )
+                candidate.m_Symbol->SetValue( id.GetLibItemName().wx_str() );
 
-            cmp.m_Component->SetLibId( id );
-            cmp.m_Component->SetLibSymbol( symbol->Flatten().release() );
-            cmp.m_Screen->Append( cmp.m_Component );
-            cmp.m_Screen->SetContentModified();
+            candidate.m_Symbol->SetLibId( id );
+            candidate.m_Symbol->SetLibSymbol( symbol->Flatten().release() );
+            candidate.m_Screen->Append( candidate.m_Symbol );
+            candidate.m_Screen->SetContentModified();
 
             if ( m_checkBoxUpdateFields->IsChecked() )
             {
-                cmp.m_Component->UpdateFields( nullptr,
-                                               false, /* update style */
-                                               false, /* update ref */
-                                               false, /* update other fields */
-                                               false, /* reset ref */
-                                               true /* reset other fields */ );
+                candidate.m_Symbol->UpdateFields( nullptr,
+                                                  false, /* update style */
+                                                  false, /* update ref */
+                                                  false, /* update other fields */
+                                                  false, /* reset ref */
+                                                  true /* reset other fields */ );
             }
         }
     }
@@ -768,7 +767,7 @@ bool DIALOG_EDIT_COMPONENTS_LIBID::TransferDataFromWindow()
 }
 
 
-void DIALOG_EDIT_COMPONENTS_LIBID::AdjustGridColumns( int aWidth )
+void DIALOG_EDIT_SYMBOLS_LIBID::AdjustGridColumns( int aWidth )
 {
     // Account for scroll bars
     aWidth -= ( m_grid->GetSize().x - m_grid->GetClientSize().x );
@@ -803,7 +802,7 @@ void DIALOG_EDIT_COMPONENTS_LIBID::AdjustGridColumns( int aWidth )
 }
 
 
-void DIALOG_EDIT_COMPONENTS_LIBID::OnSizeGrid( wxSizeEvent& event )
+void DIALOG_EDIT_SYMBOLS_LIBID::OnSizeGrid( wxSizeEvent& event )
 {
     AdjustGridColumns( event.GetSize().GetX() );
 
@@ -817,13 +816,13 @@ void DIALOG_EDIT_COMPONENTS_LIBID::OnSizeGrid( wxSizeEvent& event )
 }
 
 
-bool InvokeDialogEditComponentsLibId( SCH_EDIT_FRAME* aCaller )
+bool InvokeDialogEditSymbolsLibId( SCH_EDIT_FRAME* aCaller )
 {
     // This dialog itself subsequently can invoke a KIWAY_PLAYER as a quasimodal
     // frame. Therefore this dialog as a modal frame parent, MUST be run under
     // quasimodal mode for the quasimodal frame support to work.  So don't use
     // the QUASIMODAL macros here.
-    DIALOG_EDIT_COMPONENTS_LIBID dlg( aCaller );
+    DIALOG_EDIT_SYMBOLS_LIBID dlg( aCaller );
     // DO NOT use ShowModal() here, otherwise the library browser will not work
     // properly.
     dlg.ShowQuasiModal();

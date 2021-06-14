@@ -24,8 +24,8 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
-#ifndef COMPONENT_CLASS_H
-#define COMPONENT_CLASS_H
+#ifndef __SYMBOL_H__
+#define __SYMBOL_H__
 
 #include <eda_item.h>
 #include <core/typeinfo.h>
@@ -46,7 +46,7 @@
 #include <sch_field.h>
 #include <sch_item.h>
 #include <sch_pin.h>
-#include <sch_sheet_path.h>    // COMPONENT_INSTANCE_REFERENCE
+#include <sch_sheet_path.h>    // SYMBOL_INSTANCE_REFERENCE
 #include <symbol_lib_table.h>
 #include <transform.h>
 
@@ -54,7 +54,7 @@ struct PICKED_SYMBOL;
 class SCH_SCREEN;
 class LIB_ITEM;
 class LIB_PIN;
-class LIB_PART;
+class LIB_SYMBOL;
 class NETLIST_OBJECT_LIST;
 class PART_LIB;
 class PART_LIBS;
@@ -66,7 +66,7 @@ class SYMBOL_LIB_TABLE;
 /// A container for several SCH_FIELD items
 typedef std::vector<SCH_FIELD>    SCH_FIELDS;
 
-typedef std::weak_ptr<LIB_PART>   PART_REF;
+typedef std::weak_ptr<LIB_SYMBOL> PART_REF;
 
 
 extern std::string toUTFTildaText( const wxString& txt );
@@ -75,10 +75,10 @@ extern std::string toUTFTildaText( const wxString& txt );
 /**
  * Schematic symbol object.
  */
-class SCH_COMPONENT : public SCH_ITEM
+class SCH_SYMBOL : public SCH_ITEM
 {
 public:
-    SCH_COMPONENT( const wxPoint& pos = wxPoint( 0, 0 ), SCH_ITEM* aParent = NULL );
+    SCH_SYMBOL( const wxPoint& pos = wxPoint( 0, 0 ), SCH_ITEM* aParent = NULL );
 
     /**
      * Create schematic symbol from library symbol object.
@@ -91,12 +91,12 @@ public:
      * @param pos is the position of the symbol.
      * @param setNewItemFlag is used to set the symbol #IS_NEW and #IS_MOVING flags.
      */
-    SCH_COMPONENT( const LIB_PART& aPart, const LIB_ID& aLibId, const SCH_SHEET_PATH* aSheet,
-                   int unit = 0, int convert = 0,
-                   const wxPoint& pos = wxPoint( 0, 0 ) );
+    SCH_SYMBOL( const LIB_SYMBOL& aSymbol, const LIB_ID& aLibId, const SCH_SHEET_PATH* aSheet,
+                int unit = 0, int convert = 0, const wxPoint& pos = wxPoint( 0, 0 ) );
 
-    SCH_COMPONENT( const LIB_PART& aPart, const SCH_SHEET_PATH* aSheet, const PICKED_SYMBOL& aSel,
-                   const wxPoint& pos = wxPoint( 0, 0 ) );
+    SCH_SYMBOL( const LIB_SYMBOL& aSymbol, const SCH_SHEET_PATH* aSheet, const PICKED_SYMBOL& aSel,
+                const wxPoint& pos = wxPoint( 0, 0 ) );
+
     /**
      * Clone \a aSymbol into a new schematic symbol object.
      *
@@ -106,18 +106,18 @@ public:
      *
      * @param aSymbol is the schematic symbol to clone.
      */
-    SCH_COMPONENT( const SCH_COMPONENT& aSymbol );
+    SCH_SYMBOL( const SCH_SYMBOL& aSymbol );
 
-    ~SCH_COMPONENT() { }
+    ~SCH_SYMBOL() { }
 
     static inline bool ClassOf( const EDA_ITEM* aItem )
     {
-        return aItem && SCH_COMPONENT_T == aItem->Type();
+        return aItem && SCH_SYMBOL_T == aItem->Type();
     }
 
     wxString GetClass() const override
     {
-        return wxT( "SCH_COMPONENT" );
+        return wxT( "SCH_SYMBOL" );
     }
 
     const std::vector<SYMBOL_INSTANCE_REFERENCE>& GetInstanceReferences()
@@ -161,26 +161,26 @@ public:
     wxString GetSchSymbolLibraryName() const;
     bool UseLibIdLookup() const { return m_schLibSymbolName.IsEmpty(); }
 
-    std::unique_ptr< LIB_PART >& GetPartRef() { return m_part; }
-    const std::unique_ptr< LIB_PART >& GetPartRef() const { return m_part; }
+    std::unique_ptr< LIB_SYMBOL >& GetPartRef() { return m_part; }
+    const std::unique_ptr< LIB_SYMBOL >& GetPartRef() const { return m_part; }
 
     /**
      * Set this schematic symbol library symbol reference to \a aLibSymbol
      *
      * The schematic symbol object owns \a aLibSymbol and the pin list will be updated
-     * accordingly.  The #LIB_PART object can be null to clear the library symbol link
-     * as well as the pin map.  If the #LIB_PART object is not null, it must be a root
+     * accordingly.  The #LIB_SYMBOL object can be null to clear the library symbol link
+     * as well as the pin map.  If the #LIB_SYMBOL object is not null, it must be a root
      * symbol.  Otherwise an assertion will be raised in debug builds and the library
      * symbol will be cleared.  The new file format will no longer require a cache
      * library so all library symbols must be valid.
      *
      * @note This is the only way to publicly set the library symbol for a schematic
-     *       symbol except for the ctors that take a LIB_PART reference.  All previous
+     *       symbol except for the ctors that take a LIB_SYMBOL reference.  All previous
      *       public resolvers have been deprecated.
      *
      * @param aLibSymbol is the library symbol to associate with this schematic symbol.
      */
-    void SetLibSymbol( LIB_PART* aLibSymbol );
+    void SetLibSymbol( LIB_SYMBOL* aLibSymbol );
 
     /**
      * Return information about the aliased parts
@@ -254,12 +254,12 @@ public:
      * Because there are different ways to have a given orientation/mirror,
      * the orientation/mirror is not necessary what the user does.  For example:
      * a mirrorV then a mirrorH returns no mirror but a rotate.  This function finds
-     * a rotation and a mirror value #CMP_MIRROR_X because this is the first mirror
+     * a rotation and a mirror value #SYM_MIRROR_X because this is the first mirror
      * option tested.  This can differs from the orientation made by an user.  A
-     * #CMP_MIRROR_Y is returned as a #CMP_MIRROR_X with an orientation 180 because
+     * #SYM_MIRROR_Y is returned as a #SYM_MIRROR_X with an orientation 180 because
      * they are equivalent.
      *
-     * @sa COMPONENT_ORIENTATION_T
+     * @sa SYMBOL_ORIENTATION_T
      *
      * @return the orientation and mirror of the symbol.
      */
@@ -601,7 +601,7 @@ public:
         return ( aItem->Type() == SCH_LINE_T && aItem->GetLayer() == LAYER_WIRE ) ||
                 ( aItem->Type() == SCH_NO_CONNECT_T ) ||
                 ( aItem->Type() == SCH_JUNCTION_T ) ||
-                ( aItem->Type() == SCH_COMPONENT_T ) ||
+                ( aItem->Type() == SCH_SYMBOL_T ) ||
                 ( aItem->Type() == SCH_LABEL_T ) ||
                 ( aItem->Type() == SCH_HIER_LABEL_T ) ||
                 ( aItem->Type() == SCH_GLOBAL_LABEL_T );
@@ -631,10 +631,10 @@ public:
 
     bool operator <( const SCH_ITEM& aItem ) const override;
 
-    bool operator==( const SCH_COMPONENT& aSymbol) const;
-    bool operator!=( const SCH_COMPONENT& aSymbol) const;
+    bool operator==( const SCH_SYMBOL& aSymbol) const;
+    bool operator!=( const SCH_SYMBOL& aSymbol) const;
 
-    SCH_COMPONENT& operator=( const SCH_ITEM& aItem );
+    SCH_SYMBOL& operator=( const SCH_ITEM& aItem );
 
     bool IsReplaceable() const override { return true; }
 
@@ -692,7 +692,7 @@ private:
     TRANSFORM   m_transform;    ///< The rotation/mirror transformation matrix.
     SCH_FIELDS  m_fields;       ///< Variable length list of fields.
 
-    std::unique_ptr< LIB_PART >            m_part;    // a flattened copy of the LIB_PART from
+    std::unique_ptr< LIB_SYMBOL >          m_part;    // a flattened copy of the LIB_SYMBOL from
                                                       // the PROJECT's libraries.
     std::vector<std::unique_ptr<SCH_PIN>>  m_pins;    // a SCH_PIN for every LIB_PIN (all units)
     std::unordered_map<LIB_PIN*, unsigned> m_pinMap;  // library pin pointer to SCH_PIN's index
@@ -706,4 +706,4 @@ private:
     std::vector<SYMBOL_INSTANCE_REFERENCE> m_instanceReferences;
 };
 
-#endif /* COMPONENT_CLASS_H */
+#endif /* __SYMBOL_H__ */

@@ -471,7 +471,7 @@ void RENDER_3D_RAYTRACE::Reload( REPORTER* aStatusReporter, REPORTER* aWarningRe
             for( int iOutlinePolyIdx = 0; iOutlinePolyIdx < antiboardPoly.OutlineCount();
                  iOutlinePolyIdx++ )
             {
-                CovertPolygonToBlocks( antiboardPoly,
+                ConvertPolygonToBlocks( antiboardPoly,
                         *m_antioutlineBoard2dObjects, m_boardAdapter.BiuTo3dUnits(), -1.0f,
                         *dynamic_cast<const BOARD_ITEM*>( m_boardAdapter.GetBoard() ),
                         iOutlinePolyIdx );
@@ -483,7 +483,7 @@ void RENDER_3D_RAYTRACE::Reload( REPORTER* aStatusReporter, REPORTER* aWarningRe
 
             for( int iOutlinePolyIdx = 0; iOutlinePolyIdx < outlineCount; iOutlinePolyIdx++ )
             {
-                CovertPolygonToBlocks( boardPolyCopy, *m_outlineBoard2dObjects,
+                ConvertPolygonToBlocks( boardPolyCopy, *m_outlineBoard2dObjects,
                                        m_boardAdapter.BiuTo3dUnits(), divFactor,
                                        *dynamic_cast<const BOARD_ITEM*>( m_boardAdapter.GetBoard() ),
                                        iOutlinePolyIdx );
@@ -1023,7 +1023,7 @@ void RENDER_3D_RAYTRACE::Reload( REPORTER* aStatusReporter, REPORTER* aWarningRe
 }
 
 
-void RENDER_3D_RAYTRACE::insertHole( const VIA* aVia )
+void RENDER_3D_RAYTRACE::insertHole( const PCB_VIA* aVia )
 {
     PCB_LAYER_ID top_layer, bottom_layer;
     int          radiusBUI = ( aVia->GetDrillValue() / 2 );
@@ -1254,11 +1254,11 @@ void RENDER_3D_RAYTRACE::addPadsAndVias()
     // Insert plated vertical holes inside the board
 
     // Insert vias holes (vertical cylinders)
-    for( TRACK* track : m_boardAdapter.GetBoard()->Tracks() )
+    for( PCB_TRACK* track : m_boardAdapter.GetBoard()->Tracks() )
     {
         if( track->Type() == PCB_VIA_T )
         {
-            const VIA* via = static_cast<const VIA*>( track );
+            const PCB_VIA* via = static_cast<const PCB_VIA*>( track );
             insertHole( via );
         }
     }

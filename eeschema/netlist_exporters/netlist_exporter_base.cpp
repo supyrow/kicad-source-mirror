@@ -25,7 +25,6 @@
 
 #include <netlist_exporter_base.h>
 
-#include <pgm_base.h>
 #include <refdes_utils.h>
 
 #include <class_library.h>
@@ -71,15 +70,15 @@ wxString NETLIST_EXPORTER_BASE::MakeCommandLine( const wxString& aFormatString,
 }
 
 
-SCH_COMPONENT* NETLIST_EXPORTER_BASE::findNextSymbol( EDA_ITEM* aItem, SCH_SHEET_PATH* aSheetPath )
+SCH_SYMBOL* NETLIST_EXPORTER_BASE::findNextSymbol( EDA_ITEM* aItem, SCH_SHEET_PATH* aSheetPath )
 {
     wxString    ref;
 
-    if( aItem->Type() != SCH_COMPONENT_T )
+    if( aItem->Type() != SCH_SYMBOL_T )
         return nullptr;
 
-    // found next component
-    SCH_COMPONENT* symbol = (SCH_COMPONENT*) aItem;
+    // found next symbol
+    SCH_SYMBOL* symbol = (SCH_SYMBOL*) aItem;
 
     // Power symbols and other symbols which have the reference starting with "#" are not
     // included in netlist (pseudo or virtual symbols)
@@ -96,7 +95,7 @@ SCH_COMPONENT* NETLIST_EXPORTER_BASE::findNextSymbol( EDA_ITEM* aItem, SCH_SHEET
     if( !symbol->GetPartRef() )
         return nullptr;
 
-    // If component is a "multi parts per package" type
+    // If symbol is a "multi parts per package" type
     if( symbol->GetPartRef()->GetUnitCount() > 1 )
     {
         // test if this reference has already been processed, and if so skip
@@ -104,7 +103,7 @@ SCH_COMPONENT* NETLIST_EXPORTER_BASE::findNextSymbol( EDA_ITEM* aItem, SCH_SHEET
             return nullptr;
     }
 
-    // record the usage of this library component entry.
+    // record the usage of this library symbol entry.
     m_libParts.insert( symbol->GetPartRef().get() ); // rejects non-unique pointers
 
     return symbol;
@@ -119,7 +118,7 @@ static bool sortPinsByNum( PIN_INFO& aPin1, PIN_INFO& aPin2 )
 }
 
 
-void NETLIST_EXPORTER_BASE::CreatePinList( SCH_COMPONENT* aSymbol,
+void NETLIST_EXPORTER_BASE::CreatePinList( SCH_SYMBOL* aSymbol,
                                            SCH_SHEET_PATH* aSheetPath,
                                            bool aKeepUnconnectedPins )
 {
@@ -174,13 +173,13 @@ void NETLIST_EXPORTER_BASE::CreatePinList( SCH_COMPONENT* aSymbol,
         }
     }
 
-    // Sort pins in m_SortedComponentPinList by pin number
+    // Sort pins in m_SortedSymbolPinList by pin number
     sort( m_sortedSymbolPinList.begin(), m_sortedSymbolPinList.end(), sortPinsByNum );
 
-    // Remove duplicate Pins in m_SortedComponentPinList
+    // Remove duplicate Pins in m_SortedSymbolPinList
     eraseDuplicatePins();
 
-    // record the usage of this library component entry.
+    // record the usage of this library symbol
     m_libParts.insert( aSymbol->GetPartRef().get() ); // rejects non-unique pointers
 }
 
@@ -218,11 +217,11 @@ void NETLIST_EXPORTER_BASE::eraseDuplicatePins()
 }
 
 
-void NETLIST_EXPORTER_BASE::findAllUnitsOfSymbol( SCH_COMPONENT* aSymbol,
-                                                  LIB_PART* aPart, SCH_SHEET_PATH* aSheetPath,
+void NETLIST_EXPORTER_BASE::findAllUnitsOfSymbol( SCH_SYMBOL* aSchSymbol, LIB_SYMBOL* aLibSymbol,
+                                                  SCH_SHEET_PATH* aSheetPath,
                                                   bool aKeepUnconnectedPins )
 {
-    wxString    ref = aSymbol->GetRef( aSheetPath );
+    wxString    ref = aSchSymbol->GetRef( aSheetPath );
     wxString    ref2;
 
     SCH_SHEET_LIST    sheetList = m_schematic->GetSheets();
@@ -232,9 +231,9 @@ void NETLIST_EXPORTER_BASE::findAllUnitsOfSymbol( SCH_COMPONENT* aSymbol,
     {
         SCH_SHEET_PATH& sheet = sheetList[i];
 
-        for( SCH_ITEM* item : sheetList[i].LastScreen()->Items().OfType( SCH_COMPONENT_T ) )
+        for( SCH_ITEM* item : sheetList[i].LastScreen()->Items().OfType( SCH_SYMBOL_T ) )
         {
-            SCH_COMPONENT* comp2 = static_cast<SCH_COMPONENT*>( item );
+            SCH_SYMBOL* comp2 = static_cast<SCH_SYMBOL*>( item );
 
             ref2 = comp2->GetRef( &sheet );
 

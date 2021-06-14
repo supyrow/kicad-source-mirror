@@ -150,29 +150,35 @@ PLOT_DASH_TYPE SCH_BUS_ENTRY_BASE::GetStrokeStyle() const
 
 int SCH_BUS_WIRE_ENTRY::GetPenWidth() const
 {
+    if( m_stroke.GetWidth() > 0 )
+        return m_stroke.GetWidth();
+
     NETCLASSPTR netclass = NetClass();
 
     if( netclass )
         return netclass->GetWireWidth();
 
-    if( m_stroke.GetWidth() == 0 && Schematic() )
+    if( Schematic() )
         return std::max( Schematic()->Settings().m_DefaultWireThickness, 1 );
 
-    return ( m_stroke.GetWidth() == 0 ) ? 1 : m_stroke.GetWidth();
+    return DEFAULT_WIRE_THICKNESS;
 }
 
 
 int SCH_BUS_BUS_ENTRY::GetPenWidth() const
 {
+    if( m_stroke.GetWidth() > 0 )
+        return m_stroke.GetWidth();
+
     NETCLASSPTR netclass = NetClass();
 
     if( netclass )
         return netclass->GetBusWidth();
 
-    if( m_stroke.GetWidth() == 0 && Schematic() )
+    if( Schematic() )
         return std::max( Schematic()->Settings().m_DefaultBusThickness, 1 );
 
-    return ( m_stroke.GetWidth() == 0 ) ? 1 : m_stroke.GetWidth();
+    return DEFAULT_BUS_THICKNESS;
 }
 
 
@@ -481,21 +487,21 @@ bool SCH_BUS_ENTRY_BASE::operator <( const SCH_ITEM& aItem ) const
     if( Type() != aItem.Type() )
         return Type() < aItem.Type();
 
-    auto component = static_cast<const SCH_BUS_ENTRY_BASE*>( &aItem );
+    auto symbol = static_cast<const SCH_BUS_ENTRY_BASE*>( &aItem );
 
-    if( GetLayer() != component->GetLayer() )
-        return GetLayer() < component->GetLayer();
+    if( GetLayer() != symbol->GetLayer() )
+        return GetLayer() < symbol->GetLayer();
 
-    if( GetPosition().x != component->GetPosition().x )
-        return GetPosition().x < component->GetPosition().x;
+    if( GetPosition().x != symbol->GetPosition().x )
+        return GetPosition().x < symbol->GetPosition().x;
 
-    if( GetPosition().y != component->GetPosition().y )
-        return GetPosition().y < component->GetPosition().y;
+    if( GetPosition().y != symbol->GetPosition().y )
+        return GetPosition().y < symbol->GetPosition().y;
 
-    if( GetEnd().x != component->GetEnd().x )
-        return GetEnd().x < component->GetEnd().x;
+    if( GetEnd().x != symbol->GetEnd().x )
+        return GetEnd().x < symbol->GetEnd().x;
 
-    return GetEnd().y < component->GetEnd().y;
+    return GetEnd().y < symbol->GetEnd().y;
 }
 
 

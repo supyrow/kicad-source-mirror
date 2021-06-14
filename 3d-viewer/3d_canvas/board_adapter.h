@@ -37,12 +37,12 @@
 
 #include <layers_id_colors_and_visibility.h>
 #include <pad.h>
-#include <track.h>
+#include <pcb_track.h>
 #include <wx/gdicmn.h>
 #include <pcb_base_frame.h>
 #include <pcb_text.h>
 #include <pcb_shape.h>
-#include <dimension.h>
+#include <pcb_dimension.h>
 #include <zone.h>
 #include <footprint.h>
 #include <reporter.h>
@@ -564,7 +564,8 @@ private:
     void destroyLayers();
 
     // Helper functions to create the board
-     void createTrack( const TRACK* aTrack, CONTAINER_2D_BASE* aDstContainer, int aClearanceValue );
+     void createTrack( const PCB_TRACK* aTrack, CONTAINER_2D_BASE* aDstContainer,
+                       int aClearanceValue );
 
     void createPadWithClearance( const PAD *aPad, CONTAINER_2D_BASE* aDstContainer,
                                  PCB_LAYER_ID aLayer, wxSize aClearanceValue ) const;
@@ -586,8 +587,9 @@ private:
     void addShapeWithClearance( const PCB_SHAPE* aShape, CONTAINER_2D_BASE* aDstContainer,
                                 PCB_LAYER_ID aLayerId, int aClearanceValue );
 
-    void addShapeWithClearance( const DIMENSION_BASE* aDimension, CONTAINER_2D_BASE* aDstContainer,
-                                PCB_LAYER_ID aLayerId, int aClearanceValue );
+    void addShapeWithClearance( const PCB_DIMENSION_BASE* aDimension,
+                                CONTAINER_2D_BASE* aDstContainer, PCB_LAYER_ID aLayerId,
+                                int aClearanceValue );
 
     void addSolidAreasShapes( const ZONE* aZoneContainer, CONTAINER_2D_BASE* aDstContainer,
                               PCB_LAYER_ID aLayerId );

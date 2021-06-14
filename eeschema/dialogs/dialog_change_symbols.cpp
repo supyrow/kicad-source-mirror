@@ -49,7 +49,7 @@ bool g_resetFieldPositions[2]    = { true,   false  };
 bool g_resetAttributes[2]        = { true,   false  };
 
 
-DIALOG_CHANGE_SYMBOLS::DIALOG_CHANGE_SYMBOLS( SCH_EDIT_FRAME* aParent, SCH_COMPONENT* aSymbol,
+DIALOG_CHANGE_SYMBOLS::DIALOG_CHANGE_SYMBOLS( SCH_EDIT_FRAME* aParent, SCH_SYMBOL* aSymbol,
                                               MODE aMode ) :
     DIALOG_CHANGE_SYMBOLS_BASE( aParent ),
     m_symbol( aSymbol),
@@ -261,7 +261,7 @@ void DIALOG_CHANGE_SYMBOLS::updateFieldsList()
 
     SCH_SHEET_LIST  hierarchy = frame->Schematic().GetSheets();
 
-    // Load non-mandatory fields from all matching symbols and their library parts
+    // Load non-mandatory fields from all matching symbols and their library symbols
     std::vector<SCH_FIELD*> fields;
     std::vector<LIB_FIELD*> libFields;
     std::set<wxString>      fieldNames;
@@ -272,9 +272,9 @@ void DIALOG_CHANGE_SYMBOLS::updateFieldsList()
 
         wxCHECK2( screen, continue );
 
-        for( SCH_ITEM* item : screen->Items().OfType( SCH_COMPONENT_T ) )
+        for( SCH_ITEM* item : screen->Items().OfType( SCH_SYMBOL_T ) )
         {
-            SCH_COMPONENT* symbol = dynamic_cast<SCH_COMPONENT*>( item );
+            SCH_SYMBOL* symbol = dynamic_cast<SCH_SYMBOL*>( item );
 
             wxCHECK2( symbol, continue );
 
@@ -289,24 +289,24 @@ void DIALOG_CHANGE_SYMBOLS::updateFieldsList()
 
             if( m_mode == MODE::UPDATE && symbol->GetLibId().IsValid() )
             {
-                LIB_PART* libSymbol = frame->GetLibPart( symbol->GetLibId() );
+                LIB_SYMBOL* libSymbol = frame->GetLibPart( symbol->GetLibId() );
 
                 if( libSymbol )
                 {
-                    std::unique_ptr<LIB_PART> flattenedPart = libSymbol->Flatten();
+                    std::unique_ptr<LIB_SYMBOL> flattenedSymbol = libSymbol->Flatten();
 
-                    flattenedPart->GetFields( libFields );
+                    flattenedSymbol->GetFields( libFields );
 
                     for( unsigned i = MANDATORY_FIELDS; i < libFields.size(); ++i )
                         fieldNames.insert( libFields[i]->GetName() );
 
-                    libFields.clear();  // flattenedPart is about to go out of scope...
+                    libFields.clear();  // flattenedSymbol is about to go out of scope...
                 }
             }
         }
     }
 
-    // Load non-mandatory fields from the change-to library part
+    // Load non-mandatory fields from the change-to library symbol
     if( m_mode == MODE::CHANGE )
     {
         LIB_ID newId;
@@ -315,18 +315,18 @@ void DIALOG_CHANGE_SYMBOLS::updateFieldsList()
 
         if( newId.IsValid() )
         {
-            LIB_PART* libSymbol = frame->GetLibPart( newId );
+            LIB_SYMBOL* libSymbol = frame->GetLibPart( newId );
 
             if( libSymbol )
             {
-                std::unique_ptr<LIB_PART> flattenedPart = libSymbol->Flatten();
+                std::unique_ptr<LIB_SYMBOL> flattenedSymbol = libSymbol->Flatten();
 
-                flattenedPart->GetFields( libFields );
+                flattenedSymbol->GetFields( libFields );
 
                 for( unsigned i = MANDATORY_FIELDS; i < libFields.size(); ++i )
                     fieldNames.insert( libFields[i]->GetName() );
 
-                libFields.clear();  // flattenedPart is about to go out of scope...
+                libFields.clear();  // flattenedSymbol is about to go out of scope...
             }
         }
     }
@@ -379,7 +379,7 @@ void DIALOG_CHANGE_SYMBOLS::onOkButtonClicked( wxCommandEvent& aEvent )
 }
 
 
-bool DIALOG_CHANGE_SYMBOLS::isMatch( SCH_COMPONENT* aSymbol, SCH_SHEET_PATH* aInstance )
+bool DIALOG_CHANGE_SYMBOLS::isMatch( SCH_SYMBOL* aSymbol, SCH_SHEET_PATH* aInstance )
 {
     LIB_ID id;
 
@@ -442,12 +442,12 @@ bool DIALOG_CHANGE_SYMBOLS::processMatchingSymbols()
 
         wxCHECK2( screen, continue );
 
-        std::vector<SCH_COMPONENT*> symbols;
+        std::vector<SCH_SYMBOL*> symbols;
 
-        for( SCH_ITEM* item : screen->Items().OfType( SCH_COMPONENT_T ) )
-            symbols.push_back( static_cast<SCH_COMPONENT*>( item ) );
+        for( SCH_ITEM* item : screen->Items().OfType( SCH_SYMBOL_T ) )
+            symbols.push_back( static_cast<SCH_SYMBOL*>( item ) );
 
-        for( SCH_COMPONENT* symbol : symbols )
+        for( SCH_SYMBOL* symbol : symbols )
         {
             if( !isMatch( symbol, &instance ) )
                 continue;
@@ -474,7 +474,7 @@ bool DIALOG_CHANGE_SYMBOLS::processMatchingSymbols()
 }
 
 
-bool DIALOG_CHANGE_SYMBOLS::processSymbol( SCH_COMPONENT* aSymbol, const SCH_SHEET_PATH* aInstance,
+bool DIALOG_CHANGE_SYMBOLS::processSymbol( SCH_SYMBOL* aSymbol, const SCH_SHEET_PATH* aInstance,
                                            const LIB_ID& aNewId, bool aAppendToUndo )
 {
     wxCHECK( aSymbol, false );
@@ -532,7 +532,7 @@ bool DIALOG_CHANGE_SYMBOLS::processSymbol( SCH_COMPONENT* aSymbol, const SCH_SHE
         }
     }
 
-    LIB_PART* libSymbol = frame->GetLibPart( aNewId );
+    LIB_SYMBOL* libSymbol = frame->GetLibPart( aNewId );
 
     if( !libSymbol )
     {
@@ -541,7 +541,7 @@ bool DIALOG_CHANGE_SYMBOLS::processSymbol( SCH_COMPONENT* aSymbol, const SCH_SHE
         return false;
     }
 
-    std::unique_ptr<LIB_PART> flattenedSymbol = libSymbol->Flatten();
+    std::unique_ptr<LIB_SYMBOL> flattenedSymbol = libSymbol->Flatten();
 
     if( flattenedSymbol->GetUnitCount() < aSymbol->GetUnit() )
     {
@@ -550,7 +550,7 @@ bool DIALOG_CHANGE_SYMBOLS::processSymbol( SCH_COMPONENT* aSymbol, const SCH_SHE
         return false;
     }
 
-    // Removing the symbol needs to be done before the LIB_PART is changed to prevent stale
+    // Removing the symbol needs to be done before the LIB_SYMBOL is changed to prevent stale
     // library symbols in the schematic file.
     screen->Remove( aSymbol );
     frame->SaveCopyInUndoList( screen, aSymbol, UNDO_REDO::CHANGED, aAppendToUndo );

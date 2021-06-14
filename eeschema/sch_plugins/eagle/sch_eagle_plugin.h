@@ -45,11 +45,11 @@ class SCH_LINE;
 class SCH_BUS_ENTRY_BASE;
 class SCH_TEXT;
 class SCH_GLOBALLABEL;
-class SCH_COMPONENT;
+class SCH_SYMBOL;
 class SCH_FIELD;
 class PROPERTIES;
 class SCH_EAGLE_PLUGIN_CACHE;
-class LIB_PART;
+class LIB_SYMBOL;
 class PART_LIB;
 class LIB_CIRCLE;
 class LIB_FIELD;
@@ -63,7 +63,7 @@ class wxXmlNode;
 typedef struct EAGLE_LIBRARY
 {
     wxString name;
-    boost::ptr_map<wxString, LIB_PART> KiCadSymbols;
+    boost::ptr_map<wxString, LIB_SYMBOL> KiCadSymbols;
     std::unordered_map<wxString, wxXmlNode*> SymbolNodes;
     std::unordered_map<wxString, int> GateUnit;
     std::unordered_map<wxString, wxString> package;
@@ -130,19 +130,19 @@ private:
     SCH_TEXT*           loadPlainText( wxXmlNode* aSchText );
     void                loadFrame( wxXmlNode* aFrameNode, std::vector<SCH_LINE*>& aLines );
 
-    bool            loadSymbol( wxXmlNode* aSymbolNode, std::unique_ptr<LIB_PART>& aPart,
+    bool            loadSymbol( wxXmlNode* aSymbolNode, std::unique_ptr<LIB_SYMBOL>& aSymbol,
                                 EDEVICE* aDevice, int aGateNumber, const wxString& aGateName );
-    LIB_CIRCLE*     loadSymbolCircle( std::unique_ptr<LIB_PART>& aPart, wxXmlNode* aCircleNode,
+    LIB_CIRCLE*     loadSymbolCircle( std::unique_ptr<LIB_SYMBOL>& aSymbol, wxXmlNode* aCircleNode,
                                       int aGateNumber );
-    LIB_RECTANGLE*  loadSymbolRectangle( std::unique_ptr<LIB_PART>& aPart, wxXmlNode* aRectNode,
+    LIB_RECTANGLE*  loadSymbolRectangle( std::unique_ptr<LIB_SYMBOL>& aSymbol, wxXmlNode* aRectNode,
                                          int aGateNumber );
-    LIB_POLYLINE*   loadSymbolPolyLine( std::unique_ptr<LIB_PART>& aPart, wxXmlNode* aPolygonNode,
-                                        int aGateNumber );
-    LIB_ITEM*       loadSymbolWire( std::unique_ptr<LIB_PART>& aPart, wxXmlNode* aWireNode,
+    LIB_POLYLINE*   loadSymbolPolyLine( std::unique_ptr<LIB_SYMBOL>& aSymbol,
+                                        wxXmlNode* aPolygonNode, int aGateNumber );
+    LIB_ITEM*       loadSymbolWire( std::unique_ptr<LIB_SYMBOL>& aSymbol, wxXmlNode* aWireNode,
                                     int aGateNumber );
-    LIB_PIN*        loadPin( std::unique_ptr<LIB_PART>& aPart, wxXmlNode*, EPIN* epin,
+    LIB_PIN*        loadPin( std::unique_ptr<LIB_SYMBOL>& aSymbol, wxXmlNode*, EPIN* epin,
                              int aGateNumber );
-    LIB_TEXT*       loadSymbolText( std::unique_ptr<LIB_PART>& aPart, wxXmlNode* aLibText,
+    LIB_TEXT*       loadSymbolText( std::unique_ptr<LIB_SYMBOL>& aSymbol, wxXmlNode* aLibText,
                                     int aGateNumber );
     void            loadFrame( wxXmlNode* aFrameNode, std::vector<LIB_ITEM*>& aLines );
 
@@ -166,7 +166,7 @@ private:
     wxFileName      getLibFileName();
 
     ///< Checks if there are other wires or pins at the position of the tested pin
-    bool checkConnections( const SCH_COMPONENT* aComponent, const LIB_PIN* aPin ) const;
+    bool checkConnections( const SCH_SYMBOL* aSymbol, const LIB_PIN* aPin ) const;
 
     /**
      * Create net labels to emulate implicit connections in Eagle.
@@ -176,11 +176,11 @@ private:
      * units that are not instantiated in the schematics, therefore such units need to be stored
      * in order to create them at later stage.
      *
-     * @param aComponent is the component to process.
+     * @param aSymbol is the symbol to process.
      * @param aScreen is the screen where net labels should be added.
      * @param aUpdateSet decides whether the missing units data should be updated.
      */
-    void addImplicitConnections( SCH_COMPONENT* aComponent, SCH_SCREEN* aScreen, bool aUpdateSet );
+    void addImplicitConnections( SCH_SYMBOL* aSymbol, SCH_SCREEN* aScreen, bool aUpdateSet );
 
     bool netHasPowerDriver( SCH_LINE* aLine, const wxString& aNetName ) const;
 
@@ -198,15 +198,15 @@ private:
     // (named power pins in Eagle).
     struct EAGLE_MISSING_CMP
     {
-        EAGLE_MISSING_CMP( const SCH_COMPONENT* aComponent = nullptr )
-            : cmp( aComponent )
+        EAGLE_MISSING_CMP( const SCH_SYMBOL* aSymbol = nullptr )
+            : cmp( aSymbol )
         {
         }
 
-        ///< Link to the parent component
-        const SCH_COMPONENT* cmp;
+        ///< Link to the parent symbol
+        const SCH_SYMBOL* cmp;
 
-        /* Map of the component units: for each unit there is a flag saying
+        /* Map of the symbol units: for each unit there is a flag saying
          * whether the unit needs to be instantiated with appropriate net labels to
          * emulate implicit connections as is done in Eagle.
          */
@@ -215,7 +215,7 @@ private:
 
     REPORTER*   m_reporter;       ///< Reporter for warnings/errors
 
-    ///< Map references to missing component units data
+    ///< Map references to missing symbol units data
     std::map<wxString, EAGLE_MISSING_CMP> m_missingCmps;
 
     SCH_SHEET*  m_rootSheet;      ///< The root sheet of the schematic being loaded

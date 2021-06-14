@@ -30,7 +30,7 @@
 #include <board_design_settings.h>
 #include <footprint.h>
 #include <pad.h>
-#include <track.h>
+#include <pcb_track.h>
 #include <pcb_edit_frame.h>
 #include <confirm.h>
 #include <connectivity/connectivity_data.h>
@@ -108,7 +108,7 @@ DIALOG_TRACK_VIA_PROPERTIES::DIALOG_TRACK_VIA_PROPERTIES( PCB_BASE_FRAME* aParen
             case PCB_TRACE_T:
             case PCB_ARC_T:
             {
-                const TRACK* t = static_cast<const TRACK*>( item );
+                const PCB_TRACK* t = static_cast<const PCB_TRACK*>( item );
 
                 if( !m_tracks )     // first track in the list
                 {
@@ -155,7 +155,7 @@ DIALOG_TRACK_VIA_PROPERTIES::DIALOG_TRACK_VIA_PROPERTIES( PCB_BASE_FRAME* aParen
 
             case PCB_VIA_T:
             {
-                const VIA* v = static_cast<const VIA*>( item );
+                const PCB_VIA* v = static_cast<const PCB_VIA*>( item );
 
                 if( !m_vias )       // first via in the list
                 {
@@ -308,7 +308,7 @@ DIALOG_TRACK_VIA_PROPERTIES::DIALOG_TRACK_VIA_PROPERTIES( PCB_BASE_FRAME* aParen
             m_DesignRuleWidthsCtrl->Append( msg );
 
             if( widthSelection == wxNOT_FOUND && m_trackWidth.GetValue() == width )
-                widthSelection = ii;
+                widthSelection = ii - 1;
         }
 
         m_DesignRuleWidthsCtrl->SetSelection( widthSelection );
@@ -426,7 +426,7 @@ bool DIALOG_TRACK_VIA_PROPERTIES::TransferDataFromWindow()
             case PCB_ARC_T:
             {
                 wxASSERT( m_tracks );
-                TRACK* t = static_cast<TRACK*>( item );
+                PCB_TRACK* t = static_cast<PCB_TRACK*>( item );
 
                 if( !m_trackStartX.IsIndeterminate() )
                     t->SetStart( wxPoint( m_trackStartX.GetValue(), t->GetStart().y ) );
@@ -459,7 +459,7 @@ bool DIALOG_TRACK_VIA_PROPERTIES::TransferDataFromWindow()
             case PCB_VIA_T:
             {
                 wxASSERT( m_vias );
-                VIA* v = static_cast<VIA*>( item );
+                PCB_VIA* v = static_cast<PCB_VIA*>( item );
 
                 if( !m_viaX.IsIndeterminate() )
                     v->SetPosition( wxPoint( m_viaX.GetValue(), v->GetPosition().y ) );
@@ -584,11 +584,11 @@ bool DIALOG_TRACK_VIA_PROPERTIES::TransferDataFromWindow()
             {
                 case PCB_TRACE_T:
                 case PCB_ARC_T:
-                    static_cast<TRACK*>( item )->SetNetCode( newNetCode );
+                    static_cast<PCB_TRACK*>( item )->SetNetCode( newNetCode );
                     break;
 
                 case PCB_VIA_T:
-                    static_cast<VIA*>( item )->SetNetCode( newNetCode );
+                    static_cast<PCB_VIA*>( item )->SetNetCode( newNetCode );
                     break;
 
                 default:
@@ -670,7 +670,7 @@ void DIALOG_TRACK_VIA_PROPERTIES::onViaEdit( wxCommandEvent& aEvent )
 
     if( m_vias )
     {
-        if( m_ViaTypeChoice->GetSelection() != 0 ) // check if selected type isnt through.
+        if( m_ViaTypeChoice->GetSelection() != 0 ) // check if selected type isn't through.
         {
             m_ViaStartLayer->Enable();
             m_ViaEndLayer->Enable();

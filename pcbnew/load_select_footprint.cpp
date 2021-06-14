@@ -45,7 +45,6 @@ using namespace std::placeholders;
 #include <macros.h>
 #include <pcb_edit_frame.h>
 #include <pcbnew_settings.h>
-#include <pgm_base.h>
 #include <view/view_controls.h>
 #include <widgets/lib_tree.h>
 #include <widgets/progress_reporter.h>
@@ -136,7 +135,7 @@ bool FOOTPRINT_EDIT_FRAME::LoadFootprintFromBoard( FOOTPRINT* aFootprint )
 
     // Clear references to any net info, because the footprint editor does know any thing about
     // nets handled by the current edited board.
-    // Morever we do not want to save any reference to an unknown net when saving the footprint
+    // Moreover we do not want to save any reference to an unknown net when saving the footprint
     // in lib cache so we force the ORPHANED dummy net info for all pads.
     newFootprint->ClearAllNets();
 

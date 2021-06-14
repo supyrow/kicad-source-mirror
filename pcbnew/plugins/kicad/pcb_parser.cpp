@@ -37,7 +37,7 @@
 #include <advanced_config.h>
 #include <board.h>
 #include <board_design_settings.h>
-#include <dimension.h>
+#include <pcb_dimension.h>
 #include <pcb_shape.h>
 #include <fp_shape.h>
 #include <pcb_group.h>
@@ -45,7 +45,7 @@
 #include <footprint.h>
 #include <netclass.h>
 #include <pad.h>
-#include <track.h>
+#include <pcb_track.h>
 #include <zone.h>
 #include <plugins/kicad/kicad_plugin.h>
 #include <pcb_plot_params_parser.h>
@@ -56,6 +56,7 @@
 #include <convert_basic_shapes_to_polygon.h>    // for RECT_CHAMFER_POSITIONS definition
 #include <template_fieldnames.h>
 #include <math/util.h>                           // KiROUND, Clamp
+#include <kicad_string.h>
 #include <wx/log.h>
 
 using namespace PCB_KEYS_T;
@@ -293,6 +294,11 @@ void PCB_PARSER::parseEDA_TEXT( EDA_TEXT* aText )
 {
     wxCHECK_RET( CurTok() == T_effects,
                  wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as EDA_TEXT." ) );
+
+    // In version 20210606 the notation for overbars was changed from `~...~` to `~{...}`. We need to convert
+    // the old syntax to the new one.
+    if( m_requiredVersion < 20210606 )
+        aText->SetText( ConvertToNewOverbarNotation( aText->GetText() ) );
 
     T token;
 
@@ -673,7 +679,7 @@ BOARD* PCB_PARSER::parseBOARD_unchecked()
             break;
 
         case T_segment:
-            item = parseTRACK();
+            item = parsePCB_TRACK();
             m_board->Add( item, ADD_MODE::BULK_APPEND );
             bulkAddedItems.push_back( item );
             break;
@@ -689,7 +695,7 @@ BOARD* PCB_PARSER::parseBOARD_unchecked()
             break;
 
         case T_via:
-            item = parseVIA();
+            item = parsePCB_VIA();
             m_board->Add( item, ADD_MODE::BULK_APPEND );
             bulkAddedItems.push_back( item );
             break;
@@ -753,11 +759,11 @@ BOARD* PCB_PARSER::parseBOARD_unchecked()
                                 }
                             };
 
-        for( auto segm : m_board->Tracks() )
+        for( PCB_TRACK* track : m_board->Tracks() )
         {
-            if( segm->Type() == PCB_VIA_T )
+            if( track->Type() == PCB_VIA_T )
             {
-                VIA*         via = (VIA*) segm;
+                PCB_VIA*     via = static_cast<PCB_VIA*>( track );
                 PCB_LAYER_ID top_layer, bottom_layer;
 
                 if( via->GetViaType() == VIATYPE::THROUGH )
@@ -782,7 +788,9 @@ BOARD* PCB_PARSER::parseBOARD_unchecked()
                 }
             }
             else
-                visitItem( segm );
+            {
+                visitItem( track );
+            }
         }
 
         for( BOARD_ITEM* zone : m_board->Zones() )
@@ -2566,14 +2574,14 @@ PCB_TEXT* PCB_PARSER::parsePCB_TEXT()
 }
 
 
-DIMENSION_BASE* PCB_PARSER::parseDIMENSION()
+PCB_DIMENSION_BASE* PCB_PARSER::parseDIMENSION()
 {
     wxCHECK_MSG( CurTok() == T_dimension, NULL,
                  wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as DIMENSION." ) );
 
     T token;
     bool locked = false;
-    std::unique_ptr<DIMENSION_BASE> dimension;
+    std::unique_ptr<PCB_DIMENSION_BASE> dimension;
 
     token = NextTok();
 
@@ -2595,7 +2603,7 @@ DIMENSION_BASE* PCB_PARSER::parseDIMENSION()
     if( token == T_width )
     {
         isLegacyDimension = true;
-        dimension = std::make_unique<ALIGNED_DIMENSION>( nullptr );
+        dimension = std::make_unique<PCB_DIM_ALIGNED>( nullptr );
         dimension->SetLineThickness( parseBoardUnits( "dimension width value" ) );
         NeedRIGHT();
     }
@@ -2607,19 +2615,19 @@ DIMENSION_BASE* PCB_PARSER::parseDIMENSION()
         switch( NextTok() )
         {
         case T_aligned:
-            dimension = std::make_unique<ALIGNED_DIMENSION>( nullptr );
+            dimension = std::make_unique<PCB_DIM_ALIGNED>( nullptr );
             break;
 
         case T_orthogonal:
-            dimension = std::make_unique<ORTHOGONAL_DIMENSION>( nullptr );
+            dimension = std::make_unique<PCB_DIM_ORTHOGONAL>( nullptr );
             break;
 
         case T_leader:
-            dimension = std::make_unique<LEADER>( nullptr );
+            dimension = std::make_unique<PCB_DIM_LEADER>( nullptr );
             break;
 
         case T_center:
-            dimension = std::make_unique<CENTER_DIMENSION>( nullptr );
+            dimension = std::make_unique<PCB_DIM_CENTER>( nullptr );
             break;
 
         default:
@@ -2691,7 +2699,7 @@ DIMENSION_BASE* PCB_PARSER::parseDIMENSION()
             wxCHECK_MSG( dimension->Type() == PCB_DIM_ALIGNED_T ||
                          dimension->Type() == PCB_DIM_ORTHOGONAL_T, nullptr,
                          wxT( "Invalid height token" ) );
-            ALIGNED_DIMENSION* aligned = static_cast<ALIGNED_DIMENSION*>( dimension.get() );
+            PCB_DIM_ALIGNED* aligned = static_cast<PCB_DIM_ALIGNED*>( dimension.get() );
             aligned->SetHeight( parseBoardUnits( "dimension height value" ) );
             NeedRIGHT();
             break;
@@ -2701,11 +2709,11 @@ DIMENSION_BASE* PCB_PARSER::parseDIMENSION()
         {
             wxCHECK_MSG( dimension->Type() == PCB_DIM_ORTHOGONAL_T, nullptr,
                          wxT( "Invalid orientation token" ) );
-            ORTHOGONAL_DIMENSION* ortho = static_cast<ORTHOGONAL_DIMENSION*>( dimension.get() );
+            PCB_DIM_ORTHOGONAL* ortho = static_cast<PCB_DIM_ORTHOGONAL*>( dimension.get() );
 
             int orientation = parseInt( "orthogonal dimension orientation" );
             orientation     = std::max( 0, std::min( 1, orientation ) );
-            ortho->SetOrientation( static_cast<ORTHOGONAL_DIMENSION::DIR>( orientation ) );
+            ortho->SetOrientation( static_cast<PCB_DIM_ORTHOGONAL::DIR>( orientation ) );
             NeedRIGHT();
             break;
         }
@@ -2806,7 +2814,7 @@ DIMENSION_BASE* PCB_PARSER::parseDIMENSION()
 
                 case T_extension_height:
                 {
-                    ALIGNED_DIMENSION* aligned = dynamic_cast<ALIGNED_DIMENSION*>( dimension.get() );
+                    PCB_DIM_ALIGNED* aligned = dynamic_cast<PCB_DIM_ALIGNED*>( dimension.get() );
                     wxCHECK_MSG( aligned, nullptr, wxT( "Invalid extension_height token" ) );
                     aligned->SetExtensionHeight( parseBoardUnits( "extension height" ) );
                     NeedRIGHT();
@@ -2826,7 +2834,7 @@ DIMENSION_BASE* PCB_PARSER::parseDIMENSION()
                 {
                     wxCHECK_MSG( dimension->Type() == PCB_DIM_LEADER_T, nullptr,
                                  wxT( "Invalid text_frame token" ) );
-                    LEADER* leader = static_cast<LEADER*>( dimension.get() );
+                    PCB_DIM_LEADER* leader = static_cast<PCB_DIM_LEADER*>( dimension.get() );
 
                     int textFrame = parseInt( "dimension text frame mode" );
                     textFrame = std::max( 0, std::min( 3, textFrame ) );
@@ -2893,7 +2901,7 @@ DIMENSION_BASE* PCB_PARSER::parseDIMENSION()
             if( token == T_pts )
             {
                 // If we have a crossbar, we know we're an old aligned dimension
-                ALIGNED_DIMENSION* aligned = static_cast<ALIGNED_DIMENSION*>( dimension.get() );
+                PCB_DIM_ALIGNED* aligned = static_cast<PCB_DIM_ALIGNED*>( dimension.get() );
 
                 // Old style: calculate height from crossbar
                 wxPoint point1, point2;
@@ -4364,7 +4372,7 @@ void PCB_PARSER::parseGROUP( BOARD_ITEM* aParent )
 }
 
 
-ARC* PCB_PARSER::parseARC()
+PCB_ARC* PCB_PARSER::parseARC()
 {
     wxCHECK_MSG( CurTok() == T_arc, NULL,
             wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as ARC." ) );
@@ -4372,7 +4380,7 @@ ARC* PCB_PARSER::parseARC()
     wxPoint pt;
     T       token;
 
-    std::unique_ptr<ARC> arc = std::make_unique<ARC>( m_board );
+    std::unique_ptr<PCB_ARC> arc = std::make_unique<PCB_ARC>( m_board );
 
     for( token = NextTok(); token != T_RIGHT; token = NextTok() )
     {
@@ -4448,15 +4456,15 @@ ARC* PCB_PARSER::parseARC()
 }
 
 
-TRACK* PCB_PARSER::parseTRACK()
+PCB_TRACK* PCB_PARSER::parsePCB_TRACK()
 {
     wxCHECK_MSG( CurTok() == T_segment, NULL,
-                 wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as TRACK." ) );
+                 wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as PCB_TRACK." ) );
 
     wxPoint pt;
     T token;
 
-    std::unique_ptr<TRACK> track = std::make_unique<TRACK>( m_board );
+    std::unique_ptr<PCB_TRACK> track = std::make_unique<PCB_TRACK>( m_board );
 
     for( token = NextTok();  token != T_RIGHT;  token = NextTok() )
     {
@@ -4526,15 +4534,15 @@ TRACK* PCB_PARSER::parseTRACK()
 }
 
 
-VIA* PCB_PARSER::parseVIA()
+PCB_VIA* PCB_PARSER::parsePCB_VIA()
 {
     wxCHECK_MSG( CurTok() == T_via, NULL,
-                 wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as VIA." ) );
+                 wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as PCB_VIA." ) );
 
     wxPoint pt;
     T token;
 
-    std::unique_ptr<VIA> via = std::make_unique<VIA>( m_board );
+    std::unique_ptr<PCB_VIA> via = std::make_unique<PCB_VIA>( m_board );
 
     for( token = NextTok();  token != T_RIGHT;  token = NextTok() )
     {

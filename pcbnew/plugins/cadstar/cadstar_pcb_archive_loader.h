@@ -34,7 +34,7 @@
 
 class BOARD;
 class BOARD_STACKUP_ITEM;
-class DIMENSION_BASE;
+class PCB_DIMENSION_BASE;
 
 class CADSTAR_PCB_ARCHIVE_LOADER : public CADSTAR_PCB_ARCHIVE_PARSER
 {
@@ -169,7 +169,7 @@ private:
     /// Load via and return via size
     int loadNetVia( const NET_ID& aCadstarNetID, const NET_PCB::VIA& aCadstarVia );
     void checkAndLogHatchCode( const HATCHCODE_ID& aCadstarHatchcodeID );
-    void applyDimensionSettings( const DIMENSION& aCadstarDim, DIMENSION_BASE* aKiCadDim );
+    void applyDimensionSettings( const DIMENSION& aCadstarDim, PCB_DIMENSION_BASE* aKiCadDim );
 
 
     /**
@@ -363,11 +363,11 @@ private:
      *                       in the DrawSegments
      * @return
     */
-    std::vector<TRACK*> makeTracksFromDrawsegments( const std::vector<PCB_SHAPE*> aDrawsegments,
-                                                    BOARD_ITEM_CONTAINER* aParentContainer,
-                                                    NETINFO_ITEM* aNet = nullptr,
-                                                    PCB_LAYER_ID aLayerOverride = UNDEFINED_LAYER,
-                                                    int aWidthOverride = -1 );
+    std::vector<PCB_TRACK*> makeTracksFromDrawsegments( const std::vector<PCB_SHAPE*> aDrawsegments,
+                                                        BOARD_ITEM_CONTAINER* aParentContainer,
+                                                        NETINFO_ITEM* aNet = nullptr,
+                                                        PCB_LAYER_ID aLayerOverride = UNDEFINED_LAYER,
+                                                        int aWidthOverride = -1 );
 
     /**
      * @brief Adds a CADSTAR Attribute to a KiCad footprint

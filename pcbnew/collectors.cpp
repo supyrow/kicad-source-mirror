@@ -28,9 +28,9 @@
 #include <footprint.h>
 #include <fp_shape.h>
 #include <pad.h>
-#include <track.h>
+#include <pcb_track.h>
 #include <pcb_marker.h>
-#include <dimension.h>
+#include <pcb_dimension.h>
 #include <zone.h>
 #include <pcb_shape.h>
 #include <pcb_group.h>
@@ -156,16 +156,16 @@ const KICAD_T GENERAL_COLLECTOR::DraggableItems[] = {
 
 SEARCH_RESULT GENERAL_COLLECTOR::Inspect( EDA_ITEM* testItem, void* testData )
 {
-    BOARD_ITEM*     item        = (BOARD_ITEM*) testItem;
-    FOOTPRINT*      footprint   = nullptr;
-    PCB_GROUP*      group       = nullptr;
-    PAD*            pad         = nullptr;
-    bool            pad_through = false;
-    VIA*            via         = nullptr;
-    PCB_MARKER*     marker      = nullptr;
-    ZONE*           zone        = nullptr;
-    PCB_SHAPE*      shape       = nullptr;
-    DIMENSION_BASE* dimension   = nullptr;
+    BOARD_ITEM*         item        = (BOARD_ITEM*) testItem;
+    FOOTPRINT*          footprint   = nullptr;
+    PCB_GROUP*          group       = nullptr;
+    PAD*                pad         = nullptr;
+    bool                pad_through = false;
+    PCB_VIA*            via         = nullptr;
+    PCB_MARKER*         marker      = nullptr;
+    ZONE*               zone        = nullptr;
+    PCB_SHAPE*          shape       = nullptr;
+    PCB_DIMENSION_BASE* dimension   = nullptr;
 
 #if 0   // debugging
     static int  breakhere = 0;
@@ -236,7 +236,7 @@ SEARCH_RESULT GENERAL_COLLECTOR::Inspect( EDA_ITEM* testItem, void* testData )
     {
     case PCB_PAD_T:
         // there are pad specific visibility controls.
-        // Criterias to select a pad is:
+        // Criteria to select a pad is:
         // for smd pads: the footprint parent must be visible, and pads on the corresponding
         // board side must be visible
         // if pad is a thru hole, then it can be visible when its parent footprint is not.
@@ -258,7 +258,7 @@ SEARCH_RESULT GENERAL_COLLECTOR::Inspect( EDA_ITEM* testItem, void* testData )
         break;
 
     case PCB_VIA_T:     // vias are on many layers, so layer test is specific
-        via = static_cast<VIA*>( item );
+        via = static_cast<PCB_VIA*>( item );
         break;
 
     case PCB_TRACE_T:
@@ -288,7 +288,7 @@ SEARCH_RESULT GENERAL_COLLECTOR::Inspect( EDA_ITEM* testItem, void* testData )
     case PCB_DIM_CENTER_T:
     case PCB_DIM_ORTHOGONAL_T:
     case PCB_DIM_LEADER_T:
-        dimension = static_cast<DIMENSION_BASE*>( item );
+        dimension = static_cast<PCB_DIMENSION_BASE*>( item );
         break;
 
     case PCB_TARGET_T:
@@ -465,7 +465,7 @@ SEARCH_RESULT GENERAL_COLLECTOR::Inspect( EDA_ITEM* testItem, void* testData )
                     else if( dimension )
                     {
                         // Dimensions feel particularly hard to select, probably due to their
-                        // noisy shape making it feel like they should have a larger bounary.
+                        // noisy shape making it feel like they should have a larger boundary.
                         if( dimension->HitTest( m_refPos, KiROUND( accuracy * 1.5 ) ) )
                         {
                             Append( dimension );
@@ -539,7 +539,7 @@ SEARCH_RESULT GENERAL_COLLECTOR::Inspect( EDA_ITEM* testItem, void* testData )
                     else if( dimension )
                     {
                         // Dimensions feels particularly hard to select, probably due to their
-                        // noisy shape making it feel like they should have a larger bounary.
+                        // noisy shape making it feel like they should have a larger boundary.
                         if( dimension->HitTest( m_refPos, KiROUND( accuracy * 1.5 ) ) )
                         {
                             Append2nd( dimension );

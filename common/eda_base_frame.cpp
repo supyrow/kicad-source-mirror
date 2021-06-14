@@ -568,20 +568,10 @@ void EDA_BASE_FRAME::LoadWindowState( const WINDOW_STATE& aState )
         wxDisplay display( aState.display );
         wxRect clientSize = display.GetClientArea();
 
-#ifndef _WIN32
-        // The percentage size (represented in decimal) of the region around the screen's border where
-        // an upper corner is not allowed
-        #define SCREEN_BORDER_REGION 0.10
-#else
-        // Windows uses a very rectangular clearly defined display region, there is no ambigious "screen border region"
-        // GetClientArea already accounts for the taskbar stealing display space
-        #define SCREEN_BORDER_REGION 0
-#endif
-
-        int yLimTop   = clientSize.y + ( clientSize.height * ( SCREEN_BORDER_REGION ) );
-        int yLimBottom = clientSize.y + ( clientSize.height * ( 1.0 - SCREEN_BORDER_REGION ) );
-        int xLimLeft  = clientSize.x + ( clientSize.width  * SCREEN_BORDER_REGION );
-        int xLimRight = clientSize.x + ( clientSize.width  * ( 1.0 - SCREEN_BORDER_REGION ) );
+        int yLimTop   = clientSize.y;
+        int yLimBottom = clientSize.y + clientSize.height;
+        int xLimLeft  = clientSize.x;
+        int xLimRight = clientSize.x + clientSize.width;
 
         if( upperLeft.x  > xLimRight ||  // Upper left corner too close to right edge of screen
             upperRight.x < xLimLeft  ||  // Upper right corner too close to left edge of screen
@@ -931,13 +921,23 @@ void EDA_BASE_FRAME::OnPreferences( wxCommandEvent& event )
     PANEL_HOTKEYS_EDITOR* hotkeysPanel = new PANEL_HOTKEYS_EDITOR( this, book, false );
     book->AddPage( hotkeysPanel, _( "Hotkeys" ) );
 
+    wxWindow* viewer3D = nullptr;
+
     for( unsigned i = 0; i < KIWAY_PLAYER_COUNT;  ++i )
     {
         KIWAY_PLAYER* frame = dlg.Kiway().Player( (FRAME_T) i, false );
 
         if( frame )
+        {
             frame->InstallPreferences( &dlg, hotkeysPanel );
+
+            if( !viewer3D )
+                viewer3D = wxFindWindowByName( QUALIFIED_VIEWER3D_FRAMENAME( frame ) );
+        }
     }
+
+    if( viewer3D )
+        static_cast<EDA_BASE_FRAME*>( viewer3D )->InstallPreferences( &dlg, hotkeysPanel );
 
     // The Kicad manager frame is not a player so we have to add it by hand
     wxWindow* manager = wxFindWindowByName( KICAD_MANAGER_FRAME_NAME );

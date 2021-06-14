@@ -170,7 +170,7 @@ SYMBOL_EDIT_FRAME::SYMBOL_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
 
     m_auimgr.AddPane( m_optionsToolBar, EDA_PANE().VToolbar().Name( "OptToolbar" )
                       .Left().Layer( 3 ) );
-    m_auimgr.AddPane( m_treePane, EDA_PANE().Palette().Name( "ComponentTree" )
+    m_auimgr.AddPane( m_treePane, EDA_PANE().Palette().Name( "SymbolTree" )
                       .Left().Layer( 2 )
                       .Caption( _( "Libraries" ) )
                       .MinSize( 250, -1 ).BestSize( 250, -1 ) );
@@ -184,7 +184,7 @@ SYMBOL_EDIT_FRAME::SYMBOL_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
 
     if( m_settings->m_LibWidth > 0 )
     {
-        wxAuiPaneInfo& treePane = m_auimgr.GetPane( "ComponentTree" );
+        wxAuiPaneInfo& treePane = m_auimgr.GetPane( "SymbolTree" );
 
         // wxAUI hack: force width by setting MinSize() and then Fixed()
         // thanks to ZenJu http://trac.wxwidgets.org/ticket/13180
@@ -560,7 +560,7 @@ void SYMBOL_EDIT_FRAME::RebuildSymbolUnitsList()
     {
         for( int i = 0; i < m_my_part->GetUnitCount(); i++ )
         {
-            wxString sub  = LIB_PART::SubReference( i+1, false );
+            wxString sub  = LIB_SYMBOL::SubReference( i+1, false );
             wxString unit = wxString::Format( _( "Unit %s" ), sub );
             m_unitSelectBox->Append( unit );
         }
@@ -675,15 +675,15 @@ wxString SYMBOL_EDIT_FRAME::SetCurLib( const wxString& aLibNickname )
 }
 
 
-void SYMBOL_EDIT_FRAME::SetCurPart( LIB_PART* aPart, bool aUpdateZoom )
+void SYMBOL_EDIT_FRAME::SetCurPart( LIB_SYMBOL* aSymbol, bool aUpdateZoom )
 {
     m_toolManager->RunAction( EE_ACTIONS::clearSelection, true );
     GetCanvas()->GetView()->Clear();
     delete m_my_part;
 
-    m_my_part = aPart;
+    m_my_part = aSymbol;
 
-    // select the current component in the tree widget
+    // select the current symbol in the tree widget
     if( !IsSymbolFromSchematic() && m_my_part )
         m_treePane->GetLibTree()->SelectLibId( m_my_part->GetLibId() );
     else
@@ -695,7 +695,7 @@ void SYMBOL_EDIT_FRAME::SetCurPart( LIB_PART* aPart, bool aUpdateZoom )
     Prj().SetRString( PROJECT::SCH_LIBEDIT_CUR_PART, partName );
 
     // Ensure synchronized pin edit can be enabled only symbols with interchangeable units
-    m_SyncPinEdit = aPart && aPart->IsRoot() && aPart->IsMulti() && !aPart->UnitsLocked();
+    m_SyncPinEdit = aSymbol && aSymbol->IsRoot() && aSymbol->IsMulti() && !aSymbol->UnitsLocked();
 
     m_toolManager->ResetTools( TOOL_BASE::MODEL_RELOAD );
 
@@ -703,7 +703,7 @@ void SYMBOL_EDIT_FRAME::SetCurPart( LIB_PART* aPart, bool aUpdateZoom )
     GetRenderSettings()->m_ShowConvert = m_convert;
     GetRenderSettings()->m_ShowDisabled = IsSymbolFromLegacyLibrary() && !IsSymbolFromSchematic();
     GetRenderSettings()->m_ShowGraphicsDisabled = IsSymbolAlias() && !IsSymbolFromSchematic();
-    GetCanvas()->DisplayComponent( m_my_part );
+    GetCanvas()->DisplaySymbol( m_my_part );
     GetCanvas()->GetView()->HideDrawingSheet();
     GetCanvas()->GetView()->ClearHiddenFlags();
 
@@ -858,13 +858,13 @@ LIB_ID SYMBOL_EDIT_FRAME::GetTreeLIBID( int* aUnit ) const
 }
 
 
-LIB_PART* SYMBOL_EDIT_FRAME::getTargetPart() const
+LIB_SYMBOL* SYMBOL_EDIT_FRAME::getTargetPart() const
 {
     LIB_ID libId = GetTreeLIBID();
 
     if( libId.IsValid() )
     {
-        LIB_PART* alias = m_libMgr->GetAlias( libId.GetLibItemName(), libId.GetLibNickname() );
+        LIB_SYMBOL* alias = m_libMgr->GetAlias( libId.GetLibItemName(), libId.GetLibNickname() );
         return alias;
     }
 
@@ -1051,9 +1051,11 @@ void SYMBOL_EDIT_FRAME::storeCurrentPart()
 bool SYMBOL_EDIT_FRAME::isCurrentPart( const LIB_ID& aLibId ) const
 {
     // This will return the root part of any alias
-    LIB_PART* part = m_libMgr->GetBufferedPart( aLibId.GetLibItemName(), aLibId.GetLibNickname() );
-    // Now we can compare the libId of the current part and the root part
-    return ( part && m_my_part && part->GetLibId() == m_my_part->GetLibId() );
+    LIB_SYMBOL* symbol = m_libMgr->GetBufferedPart( aLibId.GetLibItemName(),
+                                                  aLibId.GetLibNickname() );
+
+    // Now we can compare the libId of the current symbol and the root symbol
+    return ( symbol && m_my_part && symbol->GetLibId() == m_my_part->GetLibId() );
 }
 
 
@@ -1111,7 +1113,7 @@ void SYMBOL_EDIT_FRAME::RebuildView()
     GetRenderSettings()->m_ShowConvert = m_convert;
     GetRenderSettings()->m_ShowDisabled = IsSymbolFromLegacyLibrary() && !IsSymbolFromSchematic();
     GetRenderSettings()->m_ShowGraphicsDisabled = IsSymbolAlias() && !IsSymbolFromSchematic();
-    GetCanvas()->DisplayComponent( m_my_part );
+    GetCanvas()->DisplaySymbol( m_my_part );
     GetCanvas()->GetView()->HideDrawingSheet();
     GetCanvas()->GetView()->ClearHiddenFlags();
 
@@ -1234,7 +1236,7 @@ bool SYMBOL_EDIT_FRAME::IsContentModified() const
 {
     wxCHECK( m_libMgr, false );
 
-    // Test if the currently edited part is modified
+    // Test if the currently edited symbol is modified
     if( GetScreen() && GetScreen()->IsContentModified() && GetCurPart() )
         return true;
 
@@ -1272,10 +1274,10 @@ SELECTION& SYMBOL_EDIT_FRAME::GetCurrentSelection()
 }
 
 
-void SYMBOL_EDIT_FRAME::LoadSymbolFromSchematic( SCH_COMPONENT* aSymbol )
+void SYMBOL_EDIT_FRAME::LoadSymbolFromSchematic( SCH_SYMBOL* aSymbol )
 {
-    std::unique_ptr<LIB_PART> part = aSymbol->GetPartRef()->Flatten();
-    wxCHECK( part, /* void */ );
+    std::unique_ptr<LIB_SYMBOL> symbol = aSymbol->GetPartRef()->Flatten();
+    wxCHECK( symbol, /* void */ );
 
     std::vector<LIB_FIELD> fullSetOfFields;
 
@@ -1283,7 +1285,7 @@ void SYMBOL_EDIT_FRAME::LoadSymbolFromSchematic( SCH_COMPONENT* aSymbol )
     {
         const SCH_FIELD& field = aSymbol->GetFields()[i];
         wxPoint          pos = field.GetPosition() - aSymbol->GetPosition();
-        LIB_FIELD        libField( part.get(), field.GetId() );
+        LIB_FIELD        libField( symbol.get(), field.GetId() );
 
         if( i >= MANDATORY_FIELDS && !field.GetName( false ).IsEmpty() )
             libField.SetName( field.GetName( false ) );
@@ -1295,21 +1297,21 @@ void SYMBOL_EDIT_FRAME::LoadSymbolFromSchematic( SCH_COMPONENT* aSymbol )
         fullSetOfFields.emplace_back( std::move( libField ) );
     }
 
-    part->SetFields( fullSetOfFields );
+    symbol->SetFields( fullSetOfFields );
 
     if( m_my_part )
         SetCurPart( nullptr, false );
 
     m_isSymbolFromSchematic = true;
-    m_reference = part->GetFieldById( REFERENCE_FIELD )->GetText();
+    m_reference = symbol->GetFieldById( REFERENCE_FIELD )->GetText();
     m_unit = std::max( 1, aSymbol->GetUnit() );
     m_convert = std::max( 1, aSymbol->GetConvert() );
 
-    // The buffered screen for the part
+    // The buffered screen for the symbol
     SCH_SCREEN* tmpScreen = new SCH_SCREEN();
 
     SetScreen( tmpScreen );
-    SetCurPart( part.release(), true );
+    SetCurPart( symbol.release(), true );
 
     ReCreateMenuBar();
     ReCreateHToolbar();

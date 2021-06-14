@@ -22,8 +22,8 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
-#ifndef DEFAUT_VALUES_H
-#define DEFAUT_VALUES_H
+#ifndef DEFAULT_VALUES_H
+#define DEFAULT_VALUES_H
 
 
 #define DANGLING_SYMBOL_SIZE 12
@@ -57,7 +57,7 @@
 ///< The default junction diameter in mils. (can be changed in preference menu)
 #define DEFAULT_JUNCTION_DIAM 36
 
-///< The default bus and wire enty size in mils.
+///< The default bus and wire entry size in mils.
 #define DEFAULT_SCH_ENTRY_SIZE 100
 
 ///< The default text size in mils. (can be changed in preference menu)

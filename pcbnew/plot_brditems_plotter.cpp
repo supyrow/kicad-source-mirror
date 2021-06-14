@@ -54,12 +54,12 @@
 
 #include <board.h>
 #include <board_item.h>                       // for BOARD_ITEM, S_CIRCLE
-#include <dimension.h>
+#include <pcb_dimension.h>
 #include <pcb_shape.h>
 #include <fp_shape.h>
 #include <footprint.h>
 #include <fp_text.h>
-#include <track.h>
+#include <pcb_track.h>
 #include <pad.h>
 #include <pcb_target.h>
 #include <pcb_text.h>
@@ -291,7 +291,7 @@ void BRDITEMS_PLOTTER::PlotFootprintTextItems( const FOOTPRINT* aFootprint )
     const FP_TEXT* textItem = &aFootprint->Reference();
     LAYER_NUM textLayer = textItem->GetLayer();
 
-    // Reference and value are specfic items, not in graphic items list
+    // Reference and value are specific items, not in graphic items list
     if( GetPlotReference() && m_layerMask[textLayer]
         && ( textItem->IsVisible() || GetPlotInvisibleText() ) )
     {
@@ -355,7 +355,7 @@ void BRDITEMS_PLOTTER::PlotBoardGraphicItems()
         case PCB_DIM_CENTER_T:
         case PCB_DIM_ORTHOGONAL_T:
         case PCB_DIM_LEADER_T:
-            PlotDimension( (DIMENSION_BASE*) item );
+            PlotDimension( (PCB_DIMENSION_BASE*) item );
             break;
 
         case PCB_TARGET_T:
@@ -407,7 +407,7 @@ void BRDITEMS_PLOTTER::PlotFootprintTextItem( const FP_TEXT* aTextMod, COLOR4D a
 }
 
 
-void BRDITEMS_PLOTTER::PlotDimension( const DIMENSION_BASE* aDim )
+void BRDITEMS_PLOTTER::PlotDimension( const PCB_DIMENSION_BASE* aDim )
 {
     if( !m_layerMask[aDim->GetLayer()] )
         return;
@@ -1016,9 +1016,9 @@ void BRDITEMS_PLOTTER::PlotDrillMarks()
     if( GetPlotMode() == FILLED )
          m_plotter->SetColor( WHITE );
 
-    for( TRACK* tracks : m_board->Tracks() )
+    for( PCB_TRACK* tracks : m_board->Tracks() )
     {
-        const VIA* via = dyn_cast<const VIA*>( tracks );
+        const PCB_VIA* via = dyn_cast<const PCB_VIA*>( tracks );
 
         if( via )
         {

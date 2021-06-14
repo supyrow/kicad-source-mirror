@@ -99,7 +99,7 @@ struct VRML_COLOR
 };
 
 
-// Handle the board ans its board items to convert them to a VRML representation:
+// Handle the board and its board items to convert them to a VRML representation:
 class EXPORTER_PCB_VRML
 {
 public:
@@ -140,7 +140,7 @@ public:
     // Build and exports the board outlines (board body)
     void ExportVrmlBoard();
 
-    void ExportVrmlVia( const VIA* aVia );
+    void ExportVrmlVia( const PCB_VIA* aVia );
 
     // Export all via holes
     void ExportVrmlViaHoles();

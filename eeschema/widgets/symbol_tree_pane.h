@@ -2,6 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2017 CERN
+ * Copyright (C) 2021 KiCad Developers, see AUTHORS.txt for contributors.
  * @author Maciej Suminski <maciej.suminski@cern.ch>
  *
  * This program is free software; you can redistribute it and/or
@@ -22,8 +23,8 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
-#ifndef CMP_TREE_PANE_H
-#define CMP_TREE_PANE_H
+#ifndef SYM_TREE_PANE_H
+#define SYM_TREE_PANE_H
 
 #include <wx/panel.h>
 #include <wx/dataview.h>
@@ -49,7 +50,7 @@ public:
     }
 
 protected:
-    void onComponentSelected( wxCommandEvent& aEvent );
+    void onSymbolSelected( wxCommandEvent& aEvent );
     void onUpdateUI( wxUpdateUIEvent& aEvent );
 
     SYMBOL_EDIT_FRAME*      m_symbolEditFrame;
@@ -57,4 +58,4 @@ protected:
     SYMBOL_LIBRARY_MANAGER* m_libMgr;
 };
 
-#endif /* CMP_TREE_PANE_H */
+#endif /* SYM_TREE_PANE_H */

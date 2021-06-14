@@ -314,7 +314,7 @@ bool SCH_CONNECTION::IsDriver() const
     {
         auto pin = static_cast<SCH_PIN*>( Parent() );
 
-        // Only annotated components should drive nets
+        // Only annotated symbols should drive nets.
         return pin->IsPowerConnection() || pin->GetParentSymbol()->IsAnnotated( &m_sheet );
     }
 
@@ -360,7 +360,7 @@ void SCH_CONNECTION::recacheName()
         case SCH_GLOBAL_LABEL_T:
         case SCH_PIN_T:
             // Pins are either power connections or belong to a uniquely-annotated
-            // component, so they don't need a path if they are driving the subgraph
+            // symbol, so they don't need a path if they are driving the subgraph.
             prepend_path = false;
             break;
 
@@ -497,9 +497,9 @@ const std::vector< std::shared_ptr< SCH_CONNECTION > > SCH_CONNECTION::AllMember
 }
 
 
-static bool isSuperSub( wxChar c )
+static bool isSuperSubOverbar( wxChar c )
 {
-    return c == '_' || c == '^';
+    return c == '_' || c == '^' || c == '~';
 };
 
 
@@ -509,29 +509,16 @@ wxString SCH_CONNECTION::PrintBusForUI( const wxString& aGroup )
     size_t   i = 0;
     wxString ret;
     int      braceNesting = 0;
-    int      tildeNesting = 0;
 
     // Parse prefix
     //
     for( ; i < groupLen; ++i )
     {
-        if( isSuperSub( aGroup[i] ) && i + 1 < groupLen && aGroup[i+1] == '{' )
+        if( isSuperSubOverbar( aGroup[i] ) && i + 1 < groupLen && aGroup[i+1] == '{' )
         {
             braceNesting++;
             i++;
             continue;
-        }
-        else if( aGroup[i] == '~' )
-        {
-            if( tildeNesting )
-            {
-                tildeNesting = 0;
-                continue;
-            }
-            else
-            {
-                tildeNesting++;
-            }
         }
         else if( aGroup[i] == '}' )
         {
@@ -551,23 +538,11 @@ wxString SCH_CONNECTION::PrintBusForUI( const wxString& aGroup )
 
     for( ; i < groupLen; ++i )
     {
-        if( isSuperSub( aGroup[i] ) && i + 1 < groupLen && aGroup[i+1] == '{' )
+        if( isSuperSubOverbar( aGroup[i] ) && i + 1 < groupLen && aGroup[i+1] == '{' )
         {
             braceNesting++;
             i++;
             continue;
-        }
-        else if( aGroup[i] == '~' )
-        {
-            if( tildeNesting )
-            {
-                tildeNesting = 0;
-                continue;
-            }
-            else
-            {
-                tildeNesting++;
-            }
         }
         else if( aGroup[i] == '}' )
         {
