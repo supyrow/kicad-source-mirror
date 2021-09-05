@@ -28,7 +28,7 @@
  * @brief Custom text control validator implementations.
  */
 
-#include <kicad_string.h>
+#include <string_utils.h>
 #include <confirm.h>
 #include <validators.h>
 
@@ -299,7 +299,7 @@ bool LIB_ID_VALIDATOR::Validate( wxWindow *aParent )
     }
     else if( dummy.Parse( val ) != -1 || !dummy.IsValid() )   // Is valid LIB_ID.
     {
-        msg.Printf( _( "\"%s\" is not a valid library identifier format." ), val );
+        msg.Printf( _( "'%s' is not a valid library identifier format." ), val );
     }
 
     if( !msg.empty() )

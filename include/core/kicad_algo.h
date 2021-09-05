@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2019 CERN
- * Copyright (C) 2019 KiCad Developers, see CHANGELOG.TXT for contributors.
+ * Copyright (C) 2019-2021 KiCad Developers, see CHANGELOG.TXT for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -26,9 +26,27 @@
 #define INCLUDE_CORE_KICAD_ALGO_H_
 
 #include <algorithm>
+#include <functional> // std::function
+#include <utility>    // std::pair
+#include <wx/debug.h> // wxCHECK_MSG
 
 namespace alg
 {
+/**
+ *  @brief Apply a function to the first and second element of a std::pair
+ *  @param  __pair   A pair of elements (both elements must be the same type).
+ *  @param  __f      A unary function object.
+ *
+ *  Applies the function object @p __f to @p __pair.first and @p __pair.second
+ *  If @p __f has a return value it is ignored.
+*/
+template <typename _Type, typename _Function>
+void run_on_pair( std::pair<_Type, _Type>& __pair, _Function __f )
+{
+    __f( __pair.first );
+    __f( __pair.second );
+}
+
 /**
  *  @brief Apply a function to every sequential pair of elements of a sequence.
  *  @param  __first  An input iterator.
@@ -82,6 +100,60 @@ bool contains( const _Container& __container, _Value __value )
 {
     return std::find( __container.begin(), __container.end(), __value ) != __container.end();
 }
+
+/**
+ * @brief Returns true if either of the elements in an std::pair contains the given value
+ *
+ * @param  __pair   A pair of elements (both elements must be the same type).
+ * @param  __value  A value to test
+ * @return true if @p __value is contained in @p __pair
+ */
+template <typename _Type, typename _Value>
+bool pair_contains( const std::pair<_Type, _Type> __pair, _Value __value )
+{
+    return __pair.first == static_cast<_Type>( __value )
+           || __pair.second == static_cast<_Type>( __value );
+}
+
+/**
+ * @brief Test if __val lies within __minval and __maxval in a wrapped range.
+ *
+ * @param  __val     A value to test
+ * @param  __minval  Lowest permissible value within the wrapped range
+ * @param  __maxval  Highest permissible value within the wrapped range
+ * @param  __wrap    Value at which the range wraps around itself (must be positive)
+ * @return true if @p __val lies in the wrapped range
+ */
+template <class T>
+bool within_wrapped_range( T __val, T __minval, T __maxval, T __wrap )
+{
+    wxCHECK_MSG( __wrap > 0, false, "Wrap must be positive!" );
+
+    while( __maxval >= __wrap )
+        __maxval -= __wrap;
+
+    while( __maxval < 0 )
+        __maxval += __wrap;
+
+    while( __minval >= __wrap )
+        __minval -= __wrap;
+
+    while( __minval < 0 )
+        __minval += __wrap;
+
+    while( __val < 0 )
+        __val += __wrap;
+
+    while( __val >= __wrap )
+        __val -= __wrap;
+
+    if( __maxval > __minval )
+        return __val >= __minval && __val <= __maxval;
+    else
+        return __val >= __minval || __val <= __maxval;
+}
+
+
 } // namespace alg
 
 #endif /* INCLUDE_CORE_KICAD_ALGO_H_ */

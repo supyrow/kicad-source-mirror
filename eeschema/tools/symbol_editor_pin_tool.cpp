@@ -138,9 +138,13 @@ bool SYMBOL_EDITOR_PIN_TOOL::EditPinProperties( LIB_PIN* aPin )
     {
         LIB_PINS pinList;
         aPin->GetParent()->GetPins( pinList );
-        std::vector<bool> got_unit( aPin->GetParent()->GetUnitCount() );
 
-        got_unit[static_cast<size_t>(aPin->GetUnit()) - 1] = true;
+        // a pin can have a unit id = 0 (common to all units) to unit count
+        // So we need a buffer size = GetUnitCount()+1 to store a value in a vector
+        // when using the unit id of a pin as index
+        std::vector<bool> got_unit( aPin->GetParent()->GetUnitCount()+1 );
+
+        got_unit[static_cast<size_t>(aPin->GetUnit())] = true;
 
         for( LIB_PIN* other : pinList )
         {
@@ -150,7 +154,7 @@ bool SYMBOL_EDITOR_PIN_TOOL::EditPinProperties( LIB_PIN* aPin )
             /// Only change one pin per unit to allow stacking pins
             /// If you change all units on the position, then pins are not
             /// uniquely editable
-            if( got_unit[static_cast<size_t>( other->GetUnit() ) - 1] )
+            if( got_unit[static_cast<size_t>( other->GetUnit() )] )
                 continue;
 
             if( other->GetPosition() == original_pin.GetPosition()
@@ -185,7 +189,7 @@ bool SYMBOL_EDITOR_PIN_TOOL::EditPinProperties( LIB_PIN* aPin )
                 other->SetNumberTextSize( aPin->GetNumberTextSize() );
 
                 other->SetModified();
-                got_unit[static_cast<size_t>( other->GetUnit() ) - 1] = true;
+                got_unit[static_cast<size_t>( other->GetUnit() )] = true;
             }
         }
     }
@@ -214,7 +218,7 @@ bool SYMBOL_EDITOR_PIN_TOOL::EditPinProperties( LIB_PIN* aPin )
 
 bool SYMBOL_EDITOR_PIN_TOOL::PlacePin( LIB_PIN* aPin )
 {
-    LIB_SYMBOL* symbol = m_frame->GetCurPart();
+    LIB_SYMBOL* symbol = m_frame->GetCurSymbol();
     bool        ask_for_pin = true;   // Test for another pin in same position in other units
 
     for( LIB_PIN* test = symbol->GetNextPin(); test; test = symbol->GetNextPin( test ) )
@@ -371,7 +375,7 @@ void SYMBOL_EDITOR_PIN_TOOL::CreateImagePins( LIB_PIN* aPin )
 
 int SYMBOL_EDITOR_PIN_TOOL::PushPinProperties( const TOOL_EVENT& aEvent )
 {
-    LIB_SYMBOL*   symbol = m_frame->GetCurPart();
+    LIB_SYMBOL*   symbol = m_frame->GetCurSymbol();
     EE_SELECTION& selection = m_selectionTool->GetSelection();
     LIB_PIN*      sourcePin = dynamic_cast<LIB_PIN*>( selection.Front() );
 

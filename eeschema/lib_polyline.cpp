@@ -23,8 +23,7 @@
  */
 
 #include <sch_draw_panel.h>
-#include <eda_draw_frame.h>
-#include <plotter.h>
+#include <plotters/plotter.h>
 #include <trigo.h>
 #include <base_units.h>
 #include <widgets/msgpanel.h>
@@ -121,7 +120,7 @@ void LIB_POLYLINE::Rotate( const wxPoint& aCenter, bool aRotateCCW )
 void LIB_POLYLINE::Plot( PLOTTER* aPlotter, const wxPoint& aOffset, bool aFill,
                          const TRANSFORM& aTransform ) const
 {
-    wxASSERT( aPlotter != NULL );
+    wxASSERT( aPlotter != nullptr );
 
     static std::vector< wxPoint > cornerList;
     cornerList.clear();
@@ -139,12 +138,10 @@ void LIB_POLYLINE::Plot( PLOTTER* aPlotter, const wxPoint& aOffset, bool aFill,
     }
 
     bool already_filled = m_fill == FILL_TYPE::FILLED_WITH_BG_BODYCOLOR;
-    int  pen_size = GetPenWidth();
+    int  pen_size = GetEffectivePenWidth( aPlotter->RenderSettings() );
 
     if( !already_filled || pen_size > 0 )
     {
-        pen_size = std::max( pen_size, aPlotter->RenderSettings()->GetDefaultPenWidth() );
-
         aPlotter->SetColor( aPlotter->RenderSettings()->GetLayerColor( LAYER_DEVICE ) );
         aPlotter->PlotPoly( cornerList, already_filled ? FILL_TYPE::NO_FILL : m_fill, pen_size );
     }
@@ -185,11 +182,7 @@ void LIB_POLYLINE::RemoveCorner( int aIdx )
 
 int LIB_POLYLINE::GetPenWidth() const
 {
-    // Historically 0 meant "default width" and negative numbers meant "don't stroke".
-    if( m_Width < 0 && GetFillMode() != FILL_TYPE::NO_FILL )
-        return 0;
-    else
-        return std::max( m_Width, 1 );
+    return m_Width;
 }
 
 
@@ -197,7 +190,7 @@ void LIB_POLYLINE::print( const RENDER_SETTINGS* aSettings, const wxPoint& aOffs
                           const TRANSFORM& aTransform )
 {
     bool forceNoFill = static_cast<bool>( aData );
-    int  penWidth = GetPenWidth();
+    int  penWidth = GetEffectivePenWidth( aSettings );
 
     if( forceNoFill && m_fill != FILL_TYPE::NO_FILL && penWidth == 0 )
         return;
@@ -211,8 +204,6 @@ void LIB_POLYLINE::print( const RENDER_SETTINGS* aSettings, const wxPoint& aOffs
 
     if( forceNoFill || m_fill == FILL_TYPE::NO_FILL )
     {
-        penWidth = std::max( penWidth, aSettings->GetDefaultPenWidth() );
-
         GRPoly( nullptr, DC, m_PolyPoints.size(), buffer, false, penWidth, color, color );
     }
     else
@@ -265,21 +256,30 @@ bool LIB_POLYLINE::HitTest( const EDA_RECT& aRect, bool aContained, int aAccurac
     // Account for the width of the line
     sel.Inflate( ( GetPenWidth() / 2 ) + 1 );
 
-    // Only test closing segment if the polyline is filled
-    int count = m_fill == FILL_TYPE::NO_FILL ? m_PolyPoints.size() - 1 : m_PolyPoints.size();
-
-    for( int ii = 0; ii < count; ii++ )
+    for( size_t ii = 0; ii <  m_PolyPoints.size(); ii++ )
     {
         wxPoint pt = DefaultTransform.TransformCoordinate( m_PolyPoints[ ii ] );
-        wxPoint ptNext = DefaultTransform.TransformCoordinate( m_PolyPoints[ (ii+1) % count ] );
 
         // Test if the point is within aRect
         if( sel.Contains( pt ) )
             return true;
 
-        // Test if this edge intersects aRect
-        if( sel.Intersects( pt, ptNext ) )
-            return true;
+        if( ii + 1 < m_PolyPoints.size() )
+        {
+            wxPoint ptNext = DefaultTransform.TransformCoordinate( m_PolyPoints[ ii + 1 ] );
+
+            // Test if this edge intersects aRect
+            if( sel.Intersects( pt, ptNext ) )
+                return true;
+        }
+        else if( m_fill != FILL_TYPE::NO_FILL )
+        {
+            wxPoint ptNext = DefaultTransform.TransformCoordinate( m_PolyPoints[ 0 ] );
+
+            // Test if this edge intersects aRect
+            if( sel.Intersects( pt, ptNext ) )
+                return true;
+        }
     }
 
     return false;
@@ -348,8 +348,7 @@ void LIB_POLYLINE::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, MSG_PANEL_ITEMS& aLi
 
 wxString LIB_POLYLINE::GetSelectMenuText( EDA_UNITS aUnits ) const
 {
-    return wxString::Format( _( "Polyline, %d points" ),
-                             int( m_PolyPoints.size() ) );
+    return wxString::Format( _( "Polyline, %d points" ), int( m_PolyPoints.size() ) );
 }
 
 

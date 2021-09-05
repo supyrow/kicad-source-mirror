@@ -31,7 +31,7 @@
 #include <wildcards_and_files_ext.h>
 #include <wx_html_report_panel.h>
 
-#include <class_library.h>
+#include <symbol_library.h>
 #include <core/kicad_algo.h>
 #include <symbol_viewer_frame.h>
 #include <project_rescue.h>
@@ -55,8 +55,8 @@ DIALOG_SYMBOL_REMAP::DIALOG_SYMBOL_REMAP( SCH_EDIT_FRAME* aParent ) :
 
     if( !wxFileName::IsDirWritable( Prj().GetProjectPath() ) )
     {
-        DisplayInfoMessage( this, _( "Remapping is not possible because you do not have "
-                                     "write privileges to the project folder \"%s\"." ) );
+        DisplayInfoMessage( this, _( "Remapping is not possible because you have insufficient "
+                                     "privileges to the project folder '%s'." ) );
 
         // Disable the remap button.
         m_remapped = true;
@@ -121,7 +121,7 @@ void DIALOG_SYMBOL_REMAP::OnRemapSymbols( wxCommandEvent& aEvent )
     }
 
     createProjectSymbolLibTable( m_messagePanel->Reporter() );
-    Prj().SetElem( PROJECT::ELEM_SYMBOL_LIB_TABLE, NULL );
+    Prj().SetElem( PROJECT::ELEM_SYMBOL_LIB_TABLE, nullptr );
     Prj().SchSymbolLibTable();
 
     remapSymbolsToLibTable( m_messagePanel->Reporter() );
@@ -130,10 +130,10 @@ void DIALOG_SYMBOL_REMAP::OnRemapSymbols( wxCommandEvent& aEvent )
     wxString paths;
     wxArrayString libNames;
 
-    PART_LIBS::LibNamesAndPaths( &Prj(), true, &paths, &libNames );
+    SYMBOL_LIBS::LibNamesAndPaths( &Prj(), true, &paths, &libNames );
 
     // Reload the cache symbol library.
-    Prj().SetElem( PROJECT::ELEM_SCH_PART_LIBS, NULL );
+    Prj().SetElem( PROJECT::ELEM_SCH_SYMBOL_LIBS, nullptr );
     Prj().SchLibs();
 
     Raise();
@@ -141,11 +141,11 @@ void DIALOG_SYMBOL_REMAP::OnRemapSymbols( wxCommandEvent& aEvent )
 }
 
 
-size_t DIALOG_SYMBOL_REMAP::getLibsNotInGlobalSymbolLibTable( std::vector< PART_LIB* >& aLibs )
+size_t DIALOG_SYMBOL_REMAP::getLibsNotInGlobalSymbolLibTable( std::vector< SYMBOL_LIB* >& aLibs )
 {
-    PART_LIBS* libs = Prj().SchLibs();
+    SYMBOL_LIBS* libs = Prj().SchLibs();
 
-    for( PART_LIBS_BASE::iterator it = libs->begin(); it != libs->end(); ++it )
+    for( SYMBOL_LIBS_BASE::iterator it = libs->begin(); it != libs->end(); ++it )
     {
         // Ignore the cache library.
         if( it->IsCache() )
@@ -165,7 +165,7 @@ size_t DIALOG_SYMBOL_REMAP::getLibsNotInGlobalSymbolLibTable( std::vector< PART_
 void DIALOG_SYMBOL_REMAP::createProjectSymbolLibTable( REPORTER& aReporter )
 {
     wxString msg;
-    std::vector< PART_LIB* > libs;
+    std::vector< SYMBOL_LIB* > libs;
 
     if( getLibsNotInGlobalSymbolLibTable( libs ) )
     {
@@ -207,8 +207,9 @@ void DIALOG_SYMBOL_REMAP::createProjectSymbolLibTable( REPORTER& aReporter )
             // Don't add symbol libraries that do not exist.
             if( tmpFn.Normalize() && tmpFn.FileExists() )
             {
-                msg.Printf( _( "Adding library \"%s\", file \"%s\" to project symbol library table." ),
-                            libName, fullFileName );
+                msg.Printf( _( "Adding library '%s', file '%s' to project symbol library table." ),
+                            libName,
+                            fullFileName );
                 aReporter.Report( msg, RPT_SEVERITY_INFO );
 
                 prjLibTable.InsertRow( new SYMBOL_LIB_TABLE_ROW( libName, fullFileName,
@@ -216,7 +217,7 @@ void DIALOG_SYMBOL_REMAP::createProjectSymbolLibTable( REPORTER& aReporter )
             }
             else
             {
-                msg.Printf( _( "Library \"%s\" not found." ), fullFileName );
+                msg.Printf( _( "Library '%s' not found." ), fullFileName );
                 aReporter.Report( msg, RPT_SEVERITY_WARNING );
             }
         }
@@ -260,13 +261,13 @@ void DIALOG_SYMBOL_REMAP::remapSymbolsToLibTable( REPORTER& aReporter )
 
             if( !remapSymbolToLibTable( symbol ) )
             {
-                msg.Printf( _( "No symbol \"%s\" found in symbol library table." ),
+                msg.Printf( _( "No symbol %s found in symbol library table." ),
                             symbol->GetLibId().GetLibItemName().wx_str() );
                 aReporter.Report( msg, RPT_SEVERITY_WARNING );
             }
             else
             {
-                msg.Printf( _( "Symbol \"%s\" mapped to symbol library \"%s\"." ),
+                msg.Printf( _( "Symbol %s mapped to symbol library '%s'." ),
                             symbol->GetLibId().GetLibItemName().wx_str(),
                             symbol->GetLibId().GetLibNickname().wx_str() );
                 aReporter.Report( msg, RPT_SEVERITY_ACTION );
@@ -282,21 +283,21 @@ void DIALOG_SYMBOL_REMAP::remapSymbolsToLibTable( REPORTER& aReporter )
 
 bool DIALOG_SYMBOL_REMAP::remapSymbolToLibTable( SCH_SYMBOL* aSymbol )
 {
-    wxCHECK_MSG( aSymbol != NULL, false, "Null pointer passed to remapSymbolToLibTable." );
+    wxCHECK_MSG( aSymbol != nullptr, false, "Null pointer passed to remapSymbolToLibTable." );
     wxCHECK_MSG( aSymbol->GetLibId().GetLibNickname().empty(), false,
                  "Cannot remap symbol that is already mapped." );
     wxCHECK_MSG( !aSymbol->GetLibId().GetLibItemName().empty(), false,
                  "The symbol LIB_ID name is empty." );
 
-    PART_LIBS* libs = Prj().SchLibs();
+    SYMBOL_LIBS* libs = Prj().SchLibs();
 
-    for( PART_LIBS_BASE::iterator it = libs->begin(); it != libs->end(); ++it )
+    for( SYMBOL_LIBS_BASE::iterator it = libs->begin(); it != libs->end(); ++it )
     {
         // Ignore the cache library.
         if( it->IsCache() )
             continue;
 
-        LIB_SYMBOL* alias = it->FindPart( aSymbol->GetLibId().GetLibItemName().wx_str() );
+        LIB_SYMBOL* alias = it->FindSymbol( aSymbol->GetLibId().GetLibItemName().wx_str() );
 
         // Found in the same library as the old look up method assuming the user didn't
         // change the libraries or library ordering since the last time the schematic was
@@ -345,7 +346,7 @@ bool DIALOG_SYMBOL_REMAP::backupProject( REPORTER& aReporter )
     {
         if( !destFileName.Mkdir() )
         {
-            errorMsg.Printf( _( "Cannot create project remap back up folder \"%s\"." ),
+            errorMsg.Printf( _( "Cannot create project remap back up folder '%s'." ),
                              destFileName.GetPath() );
 
             wxMessageDialog dlg( this, errorMsg, _( "Backup Error" ),
@@ -368,14 +369,16 @@ bool DIALOG_SYMBOL_REMAP::backupProject( REPORTER& aReporter )
     destFileName.AppendDir( backupFolder );
     destFileName.SetName( destFileName.GetName() + timeStamp );
 
-    tmp.Printf( _( "Backing up file \"%s\" to file \"%s\"." ),
-                srcFileName.GetFullPath(), destFileName.GetFullPath() );
+    tmp.Printf( _( "Backing up file '%s' to '%s'." ),
+                srcFileName.GetFullPath(),
+                destFileName.GetFullPath() );
     aReporter.Report( tmp, RPT_SEVERITY_INFO );
 
     if( wxFileName::Exists( srcFileName.GetFullPath() )
       && !wxCopyFile( srcFileName.GetFullPath(), destFileName.GetFullPath() ) )
     {
-        tmp.Printf( _( "Failed to back up file \"%s\".\n" ), srcFileName.GetFullPath() );
+        tmp.Printf( _( "Failed to back up file '%s'.\n" ),
+                    srcFileName.GetFullPath() );
         errorMsg += tmp;
     }
 
@@ -401,13 +404,14 @@ bool DIALOG_SYMBOL_REMAP::backupProject( REPORTER& aReporter )
             destFileName.AppendDir( backupFolder );
         }
 
-        tmp.Printf( _( "Backing up file \"%s\" to file \"%s\"." ),
-                    screen->GetFileName(), destFileName.GetFullPath() );
+        tmp.Printf( _( "Backing up file '%s' to '%s'." ),
+                    screen->GetFileName(),
+                    destFileName.GetFullPath() );
         aReporter.Report( tmp, RPT_SEVERITY_INFO );
 
         if( !destFileName.DirExists() && !destFileName.Mkdir( wxS_DIR_DEFAULT, wxPATH_MKDIR_FULL ) )
         {
-            tmp.Printf( _( "Failed to create backup folder \"%s\"\n" ), destFileName.GetPath() );
+            tmp.Printf( _( "Failed to create backup folder '%s'.\n" ), destFileName.GetPath() );
             errorMsg += tmp;
             continue;
         }
@@ -415,7 +419,7 @@ bool DIALOG_SYMBOL_REMAP::backupProject( REPORTER& aReporter )
         if( wxFileName::Exists( screen->GetFileName() )
           && !wxCopyFile( screen->GetFileName(), destFileName.GetFullPath() ) )
         {
-            tmp.Printf( _( "Failed to back up file \"%s\".\n" ), screen->GetFileName() );
+            tmp.Printf( _( "Failed to back up file '%s'.\n" ), screen->GetFileName() );
             errorMsg += tmp;
         }
     }
@@ -425,14 +429,15 @@ bool DIALOG_SYMBOL_REMAP::backupProject( REPORTER& aReporter )
     destFileName.SetName( destFileName.GetName() + timeStamp );
     destFileName.AppendDir( backupFolder );
 
-    tmp.Printf( _( "Backing up file \"%s\" to file \"%s\"." ),
-                   Prj().GetProjectFullName(), destFileName.GetFullPath() );
+    tmp.Printf( _( "Backing up file '%s' to '%s'." ),
+                   Prj().GetProjectFullName(),
+                   destFileName.GetFullPath() );
     aReporter.Report( tmp, RPT_SEVERITY_INFO );
 
     if( wxFileName::Exists( Prj().GetProjectFullName() )
       && !wxCopyFile( Prj().GetProjectFullName(), destFileName.GetFullPath() ) )
     {
-        tmp.Printf( _( "Failed to back up file \"%s\".\n" ), Prj().GetProjectFullName() );
+        tmp.Printf( _( "Failed to back up file '%s'.\n" ), Prj().GetProjectFullName() );
         errorMsg += tmp;
     }
 
@@ -445,14 +450,15 @@ bool DIALOG_SYMBOL_REMAP::backupProject( REPORTER& aReporter )
     destFileName.SetName( destFileName.GetName() + timeStamp );
     destFileName.AppendDir( backupFolder );
 
-    tmp.Printf( _( "Backing up file \"%s\" to file \"%s\"." ),
-                srcFileName.GetFullPath(), destFileName.GetFullPath() );
+    tmp.Printf( _( "Backing up file '%s' to '%s'." ),
+                srcFileName.GetFullPath(),
+                destFileName.GetFullPath() );
     aReporter.Report( tmp, RPT_SEVERITY_INFO );
 
     if( srcFileName.Exists()
       && !wxCopyFile( srcFileName.GetFullPath(), destFileName.GetFullPath() ) )
     {
-        tmp.Printf( _( "Failed to back up file \"%s\".\n" ), srcFileName.GetFullPath() );
+        tmp.Printf( _( "Failed to back up file '%s'.\n" ), srcFileName.GetFullPath() );
         errorMsg += tmp;
     }
 
@@ -460,7 +466,7 @@ bool DIALOG_SYMBOL_REMAP::backupProject( REPORTER& aReporter )
     srcFileName.SetName( Prj().GetProjectName() + "-rescue" );
     destFileName.SetName( srcFileName.GetName() + timeStamp );
 
-    tmp.Printf( _( "Backing up file \"%s\" to file \"%s\"." ),
+    tmp.Printf( _( "Backing up file '%s' to '%s'." ),
                 srcFileName.GetFullPath(),
                 destFileName.GetFullPath() );
     aReporter.Report( tmp, RPT_SEVERITY_INFO );
@@ -468,7 +474,7 @@ bool DIALOG_SYMBOL_REMAP::backupProject( REPORTER& aReporter )
     if( srcFileName.Exists()
       && !wxCopyFile( srcFileName.GetFullPath(), destFileName.GetFullPath() ) )
     {
-        tmp.Printf( _( "Failed to back up file \"%s\".\n" ), srcFileName.GetFullPath() );
+        tmp.Printf( _( "Failed to back up file '%s'.\n" ), srcFileName.GetFullPath() );
         errorMsg += tmp;
     }
 
@@ -476,7 +482,7 @@ bool DIALOG_SYMBOL_REMAP::backupProject( REPORTER& aReporter )
     srcFileName.SetExt( LegacySymbolDocumentFileExtension );
     destFileName.SetExt( srcFileName.GetExt() );
 
-    tmp.Printf( _( "Backing up file \"%s\" to file \"%s\"." ),
+    tmp.Printf( _( "Backing up file '%s' to '%s'." ),
                 srcFileName.GetFullPath(),
                 destFileName.GetFullPath() );
     aReporter.Report( tmp, RPT_SEVERITY_INFO );
@@ -484,7 +490,7 @@ bool DIALOG_SYMBOL_REMAP::backupProject( REPORTER& aReporter )
     if( srcFileName.Exists()
       && !wxCopyFile( srcFileName.GetFullPath(), destFileName.GetFullPath() ) )
     {
-        tmp.Printf( _( "Failed to back up file \"%s\".\n" ), srcFileName.GetFullPath() );
+        tmp.Printf( _( "Failed to back up file '%s'.\n" ), srcFileName.GetFullPath() );
         errorMsg += tmp;
     }
 

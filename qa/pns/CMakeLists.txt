@@ -25,16 +25,10 @@
 find_package(Boost COMPONENTS unit_test_framework REQUIRED)
 find_package( wxWidgets 3.0.0 COMPONENTS gl aui adv html core net base xml stc REQUIRED )
 
-add_definitions(-DBOOST_TEST_DYN_LINK -DPCBNEW)
+add_definitions(-DBOOST_TEST_DYN_LINK -DPCBNEW -DTEST_APP_GUI)
 
-set ( PCB_OBJS $<TARGET_OBJECTS:pcbnew_kiface_objects> )
-list ( REMOVE_ITEM PCB_OBJS pcbnew.cpp )
-list ( REMOVE_ITEM PCB_OBJS pcbnew.o )
-list ( REMOVE_ITEM PCB_OBJS pcbnew.cpp.o )
-list ( REMOVE_ITEM PCB_OBJS pcbnew/CMakeFiles/pcbnew_kiface_objects.dir/pcbnew.cpp.o )
 
 add_executable( test_pns
-#  test_pns.cpp
     ../../pcbnew/drc/drc_rule.cpp
     ../../pcbnew/drc/drc_rule_condition.cpp
     ../../pcbnew/drc/drc_rule_parser.cpp
@@ -45,7 +39,7 @@ add_executable( test_pns
     ../../pcbnew/drc/drc_test_provider_hole_size.cpp
     ../../pcbnew/drc/drc_test_provider_disallow.cpp
     ../../pcbnew/drc/drc_test_provider_track_width.cpp
-    ../../pcbnew/drc/drc_test_provider_annulus.cpp
+    ../../pcbnew/drc/drc_test_provider_annular_width.cpp
     ../../pcbnew/drc/drc_test_provider_connectivity.cpp
     ../../pcbnew/drc/drc_test_provider_courtyard_clearance.cpp
     ../../pcbnew/drc/drc_test_provider_via_diameter.cpp
@@ -81,7 +75,6 @@ add_dependencies( test_pns pcbnew )
 
 target_link_libraries( test_pns
     qa_pcbnew_utils
-    3d-viewer
     connectivity
     pcbcommon
     pnsrouter
@@ -93,6 +86,8 @@ target_link_libraries( test_pns
     tinyspline_lib
     nanosvg
     idf3
+    pcbcommon
+    3d-viewer
     ${PCBNEW_IO_LIBRARIES}
     ${wxWidgets_LIBRARIES}
     ${GDI_PLUS_LIBRARIES}

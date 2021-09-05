@@ -41,7 +41,7 @@
 #include <gal/color4d.h>      // for COLOR4D, COLOR4D::BLACK
 #include <gal/stroke_font.h>  // for STROKE_FONT
 #include <gr_text.h>          // for GRText
-#include <kicad_string.h>     // for UnescapeString
+#include <string_utils.h>     // for UnescapeString
 #include <math/util.h>        // for KiROUND
 #include <math/vector2d.h>    // for VECTOR2D
 #include <richio.h>
@@ -369,6 +369,10 @@ EDA_RECT EDA_TEXT::GetTextBox( int aLine, bool aInvertY ) const
         }
     }
 
+    // Many fonts draw diacriticals, descenders, etc. outside the X-height of the font.  This
+    // will cacth most (but probably not all) of them.
+    rect.Inflate( 0, thickness * 1.5 );
+
     rect.Normalize();       // Make h and v sizes always >= 0
 
     return rect;
@@ -401,7 +405,7 @@ bool EDA_TEXT::TextHitTest( const EDA_RECT& aRect, bool aContains, int aAccuracy
 
 
 void EDA_TEXT::Print( const RENDER_SETTINGS* aSettings, const wxPoint& aOffset,
-                      COLOR4D aColor, OUTLINE_MODE aFillMode )
+                      const COLOR4D& aColor, OUTLINE_MODE aFillMode )
 {
     if( IsMultilineAllowed() )
     {
@@ -610,14 +614,14 @@ std::vector<wxPoint> EDA_TEXT::TransformToSegmentList() const
         for( unsigned ii = 0; ii < strings_list.Count(); ii++ )
         {
             wxString txt = strings_list.Item( ii );
-            GRText( NULL, positions[ii], color, txt, GetDrawRotation(), size, GetHorizJustify(),
+            GRText( nullptr, positions[ii], color, txt, GetDrawRotation(), size, GetHorizJustify(),
                     GetVertJustify(), penWidth, IsItalic(), forceBold, addTextSegmToBuffer,
                     &cornerBuffer );
         }
     }
     else
     {
-        GRText( NULL, GetTextPos(), color, GetShownText(), GetDrawRotation(), size,
+        GRText( nullptr, GetTextPos(), color, GetShownText(), GetDrawRotation(), size,
                 GetHorizJustify(), GetVertJustify(), penWidth, IsItalic(), forceBold,
                 addTextSegmToBuffer, &cornerBuffer );
     }
@@ -667,13 +671,16 @@ static struct EDA_TEXT_DESC
                                                           &EDA_TEXT::GetTextThickness,
                                                           PROPERTY_DISPLAY::DISTANCE ) );
         propMgr.AddProperty( new PROPERTY<EDA_TEXT, bool>( _HKI( "Italic" ),
-                    &EDA_TEXT::SetItalic, &EDA_TEXT::IsItalic ) );
+                                                         &EDA_TEXT::SetItalic,
+                                                         &EDA_TEXT::IsItalic ) );
         propMgr.AddProperty( new PROPERTY<EDA_TEXT, bool>( _HKI( "Bold" ),
-                    &EDA_TEXT::SetBold, &EDA_TEXT::IsBold ) );
+                                                         &EDA_TEXT::SetBold, &EDA_TEXT::IsBold ) );
         propMgr.AddProperty( new PROPERTY<EDA_TEXT, bool>( _HKI( "Mirrored" ),
-                    &EDA_TEXT::SetMirrored, &EDA_TEXT::IsMirrored ) );
+                                                         &EDA_TEXT::SetMirrored,
+                                                         &EDA_TEXT::IsMirrored ) );
         propMgr.AddProperty( new PROPERTY<EDA_TEXT, bool>( _HKI( "Visible" ),
-                    &EDA_TEXT::SetVisible, &EDA_TEXT::IsVisible ) );
+                                                         &EDA_TEXT::SetVisible,
+                                                         &EDA_TEXT::IsVisible ) );
         propMgr.AddProperty( new PROPERTY<EDA_TEXT, int>( _HKI( "Width" ),
                                                           &EDA_TEXT::SetTextWidth,
                                                           &EDA_TEXT::GetTextWidth,

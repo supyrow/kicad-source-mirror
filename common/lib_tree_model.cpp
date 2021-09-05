@@ -26,7 +26,7 @@
 #include <lib_tree_item.h>
 #include <utility>
 #include <pgm_base.h>
-#include <kicad_string.h>
+#include <string_utils.h>
 
 // Each node gets this lowest score initially, without any matches applied.
 // Matches will then increase this score depending on match quality.  This way,
@@ -160,7 +160,7 @@ LIB_TREE_NODE_LIB_ID::LIB_TREE_NODE_LIB_ID( LIB_TREE_NODE* aParent, LIB_TREE_ITE
     m_Parent = aParent;
 
     m_LibId.SetLibNickname( aItem->GetLibNickname() );
-    m_LibId.SetLibItemName( aItem->GetName () );
+    m_LibId.SetLibItemName( aItem->GetName() );
 
     m_Name = aItem->GetName();
     m_Desc = aItem->GetDescription();
@@ -213,7 +213,7 @@ void LIB_TREE_NODE_LIB_ID::UpdateScore( EDA_COMBINED_MATCHER& aMatcher )
 
     if( !m_Normalized )
     {
-        m_MatchName = m_MatchName.Lower();
+        m_MatchName = UnescapeString( m_MatchName ).Lower();
         m_SearchText = m_SearchText.Lower();
         m_Normalized = true;
     }

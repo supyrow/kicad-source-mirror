@@ -85,30 +85,14 @@ static const double safetyMargin = 0.1;
 
 bool PCB_EDIT_FRAME::ExportSpecctraFile( const wxString& aFullFilename )
 {
-    SPECCTRA_DB     db;
-    bool            ok = true;
-    wxString        errorText;
-
-    BASE_SCREEN*    screen = GetScreen();
-    bool            wasModified = screen->IsContentModified();
-
-    db.SetPCB( SPECCTRA_DB::MakePCB() );
-
-    LOCALE_IO       toggle;     // Switch the locale to standard C
-
-    // DSN Images (=KiCad FOOTPRINTs and PADs) must be presented from the top view.  So we
-    // temporarily flip any footprints which are on the back side of the board to the front,
-    // and record this in the FOOTPRINT's flag field.
-    db.FlipFOOTPRINTs( GetBoard() );
+    BASE_SCREEN* screen = GetScreen();
+    bool         wasModified = screen->IsContentModified();
+    wxString     errorText;
+    bool         ok = true;
 
     try
     {
-        GetBoard()->SynchronizeNetsAndNetClasses();
-        db.FromBOARD( GetBoard() );
-        db.ExportPCB( aFullFilename, true );
-
-        // if an exception is thrown by FromBOARD or ExportPCB(), then
-        // ~SPECCTRA_DB() will close the file.
+        ExportBoardToSpecctraFile( GetBoard(), aFullFilename );
     }
     catch( const IO_ERROR& ioe )
     {
@@ -118,10 +102,7 @@ bool PCB_EDIT_FRAME::ExportSpecctraFile( const wxString& aFullFilename )
         errorText = ioe.What();
     }
 
-    // done assuredly, even if an exception was thrown and caught.
-    db.RevertFOOTPRINTs( GetBoard() );
-
-    // The two calls below to FOOTPRINT::Flip(), both set the
+    // The two calls to FOOTPRINT::Flip() in ExportBoardToSpecctraFile both set the
     // modified flag, yet their actions cancel each other out, so it should
     // be ok to clear the modify flag.
     if( !wasModified )
@@ -133,12 +114,45 @@ bool PCB_EDIT_FRAME::ExportSpecctraFile( const wxString& aFullFilename )
     }
     else
     {
-        DisplayErrorMessage( this,
-                             _( "Unable to export, please fix and try again" ),
-                             errorText );
+        DisplayErrorMessage( this, _( "Unable to export, please fix and try again" ), errorText );
     }
 
     return ok;
+}
+
+
+void ExportBoardToSpecctraFile( BOARD* aBoard, const wxString& aFullFilename )
+{
+    SPECCTRA_DB db;
+
+    db.SetPCB( SPECCTRA_DB::MakePCB() );
+
+    LOCALE_IO toggle; // Switch the locale to standard C
+
+    // Build the board outlines *before* flipping footprints
+    if( !db.BuiltBoardOutlines( aBoard ) )
+        wxLogWarning( _( "Board outline is malformed. Run DRC for a full analysis." ) );
+
+    // DSN Images (=KiCad FOOTPRINTs and PADs) must be presented from the top view.  So we
+    // temporarily flip any footprints which are on the back side of the board to the front,
+    // and record this in the FOOTPRINT's flag field.
+    db.FlipFOOTPRINTs( aBoard );
+
+    try
+    {
+        aBoard->SynchronizeNetsAndNetClasses();
+        db.FromBOARD( aBoard );
+        db.ExportPCB( aFullFilename, true );
+        db.RevertFOOTPRINTs( aBoard );
+
+        // if an exception is thrown by FromBOARD or ExportPCB(), then
+        // ~SPECCTRA_DB() will close the file.
+    }
+    catch( ... )
+    {
+        db.RevertFOOTPRINTs( aBoard );
+        throw;
+    }
 }
 
 
@@ -229,6 +243,12 @@ static PATH* makePath( const POINT& aStart, const POINT& aEnd, const std::string
 }
 
 
+bool SPECCTRA_DB::BuiltBoardOutlines( BOARD* aBoard  )
+{
+    return aBoard->GetBoardPolygonOutlines( m_brd_outlines );
+}
+
+
 PADSTACK* SPECCTRA_DB::makePADSTACK( BOARD* aBoard, PAD* aPad )
 {
     char        name[256];                  // padstack name builder
@@ -295,298 +315,290 @@ PADSTACK* SPECCTRA_DB::makePADSTACK( BOARD* aBoard, PAD* aPad )
     switch( aPad->GetShape() )
     {
     case PAD_SHAPE::CIRCLE:
+    {
+        double diameter = scale( aPad->GetSize().x );
+
+        for( int ndx = 0; ndx < reportedLayers; ++ndx )
         {
-            double diameter = scale( aPad->GetSize().x );
+            SHAPE* shape = new SHAPE( padstack );
 
-            for( int ndx=0; ndx<reportedLayers; ++ndx )
-            {
-                SHAPE* shape = new SHAPE( padstack );
+            padstack->Append( shape );
 
-                padstack->Append( shape );
+            CIRCLE* circle = new CIRCLE( shape );
 
-                CIRCLE* circle = new CIRCLE( shape );
+            shape->SetShape( circle );
 
-                shape->SetShape( circle );
-
-                circle->SetLayerId( layerName[ndx] );
-                circle->SetDiameter( diameter );
-                circle->SetVertex( dsnOffset );
-            }
-
-            snprintf( name, sizeof(name), "Round%sPad_%.6g_um",
-                      uniqifier.c_str(), IU2um( aPad->GetSize().x ) );
-
-            name[ sizeof(name) - 1 ] = 0;
-
-            padstack->SetPadstackId( name );
+            circle->SetLayerId( layerName[ndx] );
+            circle->SetDiameter( diameter );
+            circle->SetVertex( dsnOffset );
         }
+
+        snprintf( name, sizeof(name), "Round%sPad_%.6g_um",
+                  uniqifier.c_str(), IU2um( aPad->GetSize().x ) );
+
+        name[ sizeof(name) - 1 ] = 0;
+
+        padstack->SetPadstackId( name );
         break;
+    }
 
     case PAD_SHAPE::RECT:
+    {
+        double dx = scale( aPad->GetSize().x ) / 2.0;
+        double dy = scale( aPad->GetSize().y ) / 2.0;
+
+        POINT lowerLeft( -dx, -dy );
+        POINT upperRight( dx, dy );
+
+        lowerLeft += dsnOffset;
+        upperRight += dsnOffset;
+
+        for( int ndx = 0; ndx < reportedLayers; ++ndx )
         {
-            double  dx  = scale( aPad->GetSize().x ) / 2.0;
-            double  dy  = scale( aPad->GetSize().y ) / 2.0;
+            SHAPE* shape = new SHAPE( padstack );
 
-            POINT   lowerLeft( -dx, -dy );
-            POINT   upperRight( dx, dy );
+            padstack->Append( shape );
 
-            lowerLeft   += dsnOffset;
-            upperRight  += dsnOffset;
+            RECTANGLE* rect = new RECTANGLE( shape );
 
-            for( int ndx=0;  ndx<reportedLayers;  ++ndx )
-            {
-                SHAPE* shape = new SHAPE( padstack );
+            shape->SetShape( rect );
 
-                padstack->Append( shape );
-
-                RECTANGLE* rect = new RECTANGLE( shape );
-
-                shape->SetShape( rect );
-
-                rect->SetLayerId( layerName[ndx] );
-                rect->SetCorners( lowerLeft, upperRight );
-            }
-
-            snprintf( name, sizeof(name), "Rect%sPad_%.6gx%.6g_um",
-                      uniqifier.c_str(),
-                      IU2um( aPad->GetSize().x ),
-                      IU2um( aPad->GetSize().y ) );
-
-            name[ sizeof(name) - 1 ] = 0;
-
-            padstack->SetPadstackId( name );
+            rect->SetLayerId( layerName[ndx] );
+            rect->SetCorners( lowerLeft, upperRight );
         }
+
+        snprintf( name, sizeof( name ), "Rect%sPad_%.6gx%.6g_um", uniqifier.c_str(),
+                  IU2um( aPad->GetSize().x ), IU2um( aPad->GetSize().y ) );
+
+        name[sizeof( name ) - 1] = 0;
+
+        padstack->SetPadstackId( name );
         break;
+    }
 
     case PAD_SHAPE::OVAL:
+    {
+        double dx = scale( aPad->GetSize().x ) / 2.0;
+        double dy = scale( aPad->GetSize().y ) / 2.0;
+        double dr = dx - dy;
+        double radius;
+        POINT  pstart;
+        POINT  pstop;
+
+        if( dr >= 0 ) // oval is horizontal
         {
-            double  dx  = scale( aPad->GetSize().x ) / 2.0;
-            double  dy  = scale( aPad->GetSize().y ) / 2.0;
-            double  dr  = dx - dy;
-            double  radius;
-            POINT   pstart;
-            POINT   pstop;
+            radius = dy;
 
-            if( dr >= 0 )       // oval is horizontal
-            {
-                radius = dy;
-
-                pstart   = POINT( -dr, 0.0 );
-                pstop    = POINT(  dr, 0.0 );
-            }
-            else        // oval is vertical
-            {
-                radius  = dx;
-                dr      = -dr;
-
-                pstart   = POINT( 0.0, -dr );
-                pstop    = POINT( 0.0, dr );
-            }
-
-            pstart   += dsnOffset;
-            pstop    += dsnOffset;
-
-            for( int ndx=0; ndx<reportedLayers; ++ndx )
-            {
-                SHAPE*  shape;
-                PATH*   path;
-                // see http://www.freerouting.net/usren/viewtopic.php?f=3&t=317#p408
-                shape = new SHAPE( padstack );
-
-                padstack->Append( shape );
-                path = makePath( pstart, pstop, layerName[ndx] );
-                shape->SetShape( path );
-                path->aperture_width = 2.0 * radius;
-            }
-
-            snprintf( name, sizeof(name), "Oval%sPad_%.6gx%.6g_um",
-                      uniqifier.c_str(),
-                      IU2um( aPad->GetSize().x ),
-                      IU2um( aPad->GetSize().y ) );
-            name[ sizeof(name) - 1 ] = 0;
-
-            padstack->SetPadstackId( name );
+            pstart = POINT( -dr, 0.0 );
+            pstop = POINT( dr, 0.0 );
         }
+        else // oval is vertical
+        {
+            radius = dx;
+            dr = -dr;
+
+            pstart = POINT( 0.0, -dr );
+            pstop = POINT( 0.0, dr );
+        }
+
+        pstart += dsnOffset;
+        pstop += dsnOffset;
+
+        for( int ndx = 0; ndx < reportedLayers; ++ndx )
+        {
+            SHAPE* shape;
+            PATH*  path;
+
+            // see http://www.freerouting.net/usren/viewtopic.php?f=3&t=317#p408
+            shape = new SHAPE( padstack );
+
+            padstack->Append( shape );
+            path = makePath( pstart, pstop, layerName[ndx] );
+            shape->SetShape( path );
+            path->aperture_width = 2.0 * radius;
+        }
+
+        snprintf( name, sizeof( name ), "Oval%sPad_%.6gx%.6g_um", uniqifier.c_str(),
+                  IU2um( aPad->GetSize().x ), IU2um( aPad->GetSize().y ) );
+        name[sizeof( name ) - 1] = 0;
+
+        padstack->SetPadstackId( name );
         break;
+    }
 
     case PAD_SHAPE::TRAPEZOID:
+    {
+        double dx = scale( aPad->GetSize().x ) / 2.0;
+        double dy = scale( aPad->GetSize().y ) / 2.0;
+
+        double ddx = scale( aPad->GetDelta().x ) / 2.0;
+        double ddy = scale( aPad->GetDelta().y ) / 2.0;
+
+        // see class_pad_draw_functions.cpp which draws the trapezoid pad
+        POINT lowerLeft( -dx - ddy, -dy - ddx );
+        POINT upperLeft( -dx + ddy, +dy + ddx );
+        POINT upperRight( +dx - ddy, +dy - ddx );
+        POINT lowerRight( +dx + ddy, -dy + ddx );
+
+        lowerLeft += dsnOffset;
+        upperLeft += dsnOffset;
+        upperRight += dsnOffset;
+        lowerRight += dsnOffset;
+
+        for( int ndx = 0; ndx < reportedLayers; ++ndx )
         {
-            double  dx  = scale( aPad->GetSize().x ) / 2.0;
-            double  dy  = scale( aPad->GetSize().y ) / 2.0;
+            SHAPE* shape = new SHAPE( padstack );
 
-            double  ddx = scale( aPad->GetDelta().x ) / 2.0;
-            double  ddy = scale( aPad->GetDelta().y ) / 2.0;
+            padstack->Append( shape );
 
-            // see class_pad_draw_functions.cpp which draws the trapezoid pad
-            POINT   lowerLeft(  -dx - ddy, -dy - ddx );
-            POINT   upperLeft(  -dx + ddy, +dy + ddx );
-            POINT   upperRight( +dx - ddy, +dy - ddx );
-            POINT   lowerRight( +dx + ddy, -dy + ddx );
+            // a T_polygon exists as a PATH
+            PATH* polygon = new PATH( shape, T_polygon );
 
-            lowerLeft   += dsnOffset;
-            upperLeft   += dsnOffset;
-            upperRight  += dsnOffset;
-            lowerRight  += dsnOffset;
+            shape->SetShape( polygon );
 
-            for( int ndx=0; ndx<reportedLayers; ++ndx )
-            {
-                SHAPE* shape = new SHAPE( padstack );
+            polygon->SetLayerId( layerName[ndx] );
 
-                padstack->Append( shape );
-
-                // a T_polygon exists as a PATH
-                PATH* polygon = new PATH( shape, T_polygon );
-
-                shape->SetShape( polygon );
-
-                polygon->SetLayerId( layerName[ndx] );
-
-                polygon->AppendPoint( lowerLeft );
-                polygon->AppendPoint( upperLeft );
-                polygon->AppendPoint( upperRight );
-                polygon->AppendPoint( lowerRight );
-            }
-
-            // this string _must_ be unique for a given physical shape
-            snprintf( name, sizeof(name), "Trapz%sPad_%.6gx%.6g_%c%.6gx%c%.6g_um",
-                     uniqifier.c_str(), IU2um( aPad->GetSize().x ), IU2um( aPad->GetSize().y ),
-                     aPad->GetDelta().x < 0 ? 'n' : 'p',
-                     std::abs( IU2um( aPad->GetDelta().x )),
-                     aPad->GetDelta().y < 0 ? 'n' : 'p',
-                     std::abs( IU2um( aPad->GetDelta().y ) )
-                     );
-            name[ sizeof(name)-1 ] = 0;
-
-            padstack->SetPadstackId( name );
+            polygon->AppendPoint( lowerLeft );
+            polygon->AppendPoint( upperLeft );
+            polygon->AppendPoint( upperRight );
+            polygon->AppendPoint( lowerRight );
         }
+
+        // this string _must_ be unique for a given physical shape
+        snprintf( name, sizeof( name ), "Trapz%sPad_%.6gx%.6g_%c%.6gx%c%.6g_um", uniqifier.c_str(),
+                  IU2um( aPad->GetSize().x ), IU2um( aPad->GetSize().y ),
+                  aPad->GetDelta().x < 0 ? 'n' : 'p', std::abs( IU2um( aPad->GetDelta().x ) ),
+                  aPad->GetDelta().y < 0 ? 'n' : 'p', std::abs( IU2um( aPad->GetDelta().y ) ) );
+        name[sizeof( name ) - 1] = 0;
+
+        padstack->SetPadstackId( name );
         break;
+    }
 
     case PAD_SHAPE::CHAMFERED_RECT:
     case PAD_SHAPE::ROUNDRECT:
+    {
+        // Export the shape as as polygon, round rect does not exist as primitive
+        const int      circleToSegmentsCount = 36;
+        int            rradius = aPad->GetRoundRectCornerRadius();
+        SHAPE_POLY_SET cornerBuffer;
+
+        // Use a slightly bigger shape because the round corners are approximated by
+        // segments, giving to the polygon a slightly smaller shape than the actual shape
+
+        /* calculates the coeff to compensate radius reduction of holes clearance
+         * due to the segment approx.
+         * For a circle the min radius is radius * cos( 2PI / s_CircleToSegmentsCount / 2)
+         * correctionFactor is cos( PI/s_CircleToSegmentsCount  )
+         */
+        double correctionFactor = cos( M_PI / (double) circleToSegmentsCount );
+        int    extra_clearance = KiROUND( rradius * ( 1.0 - correctionFactor ) );
+        wxSize psize = aPad->GetSize();
+        psize.x += extra_clearance * 2;
+        psize.y += extra_clearance * 2;
+        rradius += extra_clearance;
+        bool doChamfer = aPad->GetShape() == PAD_SHAPE::CHAMFERED_RECT;
+
+        TransformRoundChamferedRectToPolygon(
+                cornerBuffer, wxPoint( 0, 0 ), psize, 0, rradius, aPad->GetChamferRectRatio(),
+                doChamfer ? aPad->GetChamferPositions() : 0, 0,
+                aBoard->GetDesignSettings().m_MaxError, ERROR_INSIDE );
+        SHAPE_LINE_CHAIN& polygonal_shape = cornerBuffer.Outline( 0 );
+
+        for( int ndx = 0; ndx < reportedLayers; ++ndx )
         {
-            // Export the shape as as polygon, round rect does not exist as primitive
-            const int circleToSegmentsCount = 36;
-            int rradius = aPad->GetRoundRectCornerRadius();
-            SHAPE_POLY_SET cornerBuffer;
-            // Use a slightly bigger shape because the round corners are approximated by
-            // segments, giving to the polygon a slightly smaller shape than the actual shape
+            SHAPE* shape = new SHAPE( padstack );
 
-            /* calculates the coeff to compensate radius reduction of holes clearance
-             * due to the segment approx.
-             * For a circle the min radius is radius * cos( 2PI / s_CircleToSegmentsCount / 2)
-             * correctionFactor is cos( PI/s_CircleToSegmentsCount  )
-             */
-            double correctionFactor = cos( M_PI / (double) circleToSegmentsCount );
-            int extra_clearance = KiROUND( rradius * (1.0 - correctionFactor ) );
-            wxSize psize = aPad->GetSize();
-            psize.x += extra_clearance*2;
-            psize.y += extra_clearance*2;
-            rradius += extra_clearance;
-            bool doChamfer = aPad->GetShape() == PAD_SHAPE::CHAMFERED_RECT;
+            padstack->Append( shape );
 
-            TransformRoundChamferedRectToPolygon( cornerBuffer, wxPoint(0,0), psize,
-                                         0, rradius,
-                                         aPad->GetChamferRectRatio(),
-                                         doChamfer ? aPad->GetChamferPositions() : 0,
-                                         aBoard->GetDesignSettings().m_MaxError,
-                                         ERROR_INSIDE );
-            SHAPE_LINE_CHAIN& polygonal_shape = cornerBuffer.Outline( 0 );
+            // a T_polygon exists as a PATH
+            PATH* polygon = new PATH( shape, T_polygon );
 
-            for( int ndx=0; ndx < reportedLayers; ++ndx )
+            shape->SetShape( polygon );
+
+            polygon->SetLayerId( layerName[ndx] );
+
+            // append a closed polygon
+            POINT first_corner;
+
+            for( int idx = 0; idx < polygonal_shape.PointCount(); idx++ )
             {
-                SHAPE* shape = new SHAPE( padstack );
+                POINT corner( scale( polygonal_shape.CPoint( idx ).x ),
+                              scale( -polygonal_shape.CPoint( idx ).y ) );
+                corner += dsnOffset;
+                polygon->AppendPoint( corner );
 
-                padstack->Append( shape );
-
-                // a T_polygon exists as a PATH
-                PATH* polygon = new PATH( shape, T_polygon );
-
-                shape->SetShape( polygon );
-
-                polygon->SetLayerId( layerName[ndx] );
-                // append a closed polygon
-                POINT first_corner;
-
-                for( int idx = 0; idx < polygonal_shape.PointCount(); idx++ )
-                {
-                    POINT corner( scale( polygonal_shape.CPoint( idx ).x ),
-                            scale( -polygonal_shape.CPoint( idx ).y ) );
-                    corner += dsnOffset;
-                    polygon->AppendPoint( corner );
-
-                    if( idx == 0 )
-                        first_corner = corner;
-                }
-                polygon->AppendPoint( first_corner );   // Close polygon
+                if( idx == 0 )
+                    first_corner = corner;
             }
 
-            // this string _must_ be unique for a given physical shape
-            snprintf( name, sizeof(name), "RoundRect%sPad_%.6gx%.6g_%.6g_um_%f_%X",
-                      uniqifier.c_str(),
-                      IU2um( aPad->GetSize().x ),
-                      IU2um( aPad->GetSize().y ), IU2um( rradius ),
-                      doChamfer ? aPad->GetChamferRectRatio() : 0.0,
-                      doChamfer ? aPad->GetChamferPositions() : 0 );
-
-            name[ sizeof(name) - 1 ] = 0;
-
-            padstack->SetPadstackId( name );
+            polygon->AppendPoint( first_corner ); // Close polygon
         }
+
+        // this string _must_ be unique for a given physical shape
+        snprintf( name, sizeof( name ), "RoundRect%sPad_%.6gx%.6g_%.6g_um_%f_%X", uniqifier.c_str(),
+                  IU2um( aPad->GetSize().x ), IU2um( aPad->GetSize().y ), IU2um( rradius ),
+                  doChamfer ? aPad->GetChamferRectRatio() : 0.0,
+                  doChamfer ? aPad->GetChamferPositions() : 0 );
+
+        name[sizeof( name ) - 1] = 0;
+
+        padstack->SetPadstackId( name );
         break;
+    }
 
     case PAD_SHAPE::CUSTOM:
-        {
-            std::vector<wxPoint> polygonal_shape;
-            SHAPE_POLY_SET pad_shape;
-            aPad->MergePrimitivesAsPolygon( &pad_shape, UNDEFINED_LAYER );
+    {
+        std::vector<wxPoint> polygonal_shape;
+        SHAPE_POLY_SET       pad_shape;
+        aPad->MergePrimitivesAsPolygon( &pad_shape );
 
 #ifdef EXPORT_CUSTOM_PADS_CONVEX_HULL
-            BuildConvexHull( polygonal_shape, pad_shape );
+        BuildConvexHull( polygonal_shape, pad_shape );
 #else
-            const SHAPE_LINE_CHAIN& p_outline = pad_shape.COutline( 0 );
+        const SHAPE_LINE_CHAIN& p_outline = pad_shape.COutline( 0 );
 
-            for( int ii = 0; ii < p_outline.PointCount(); ++ii )
-                polygonal_shape.push_back( wxPoint( p_outline.CPoint( ii ) ) );
+        for( int ii = 0; ii < p_outline.PointCount(); ++ii )
+            polygonal_shape.push_back( wxPoint( p_outline.CPoint( ii ) ) );
 #endif
 
-            // The polygon must be closed
-            if( polygonal_shape.front() != polygonal_shape.back() )
-                polygonal_shape.push_back( polygonal_shape.front() );
+        // The polygon must be closed
+        if( polygonal_shape.front() != polygonal_shape.back() )
+            polygonal_shape.push_back( polygonal_shape.front() );
 
-            for( int ndx=0; ndx < reportedLayers; ++ndx )
+        for( int ndx = 0; ndx < reportedLayers; ++ndx )
+        {
+            SHAPE* shape = new SHAPE( padstack );
+
+            padstack->Append( shape );
+
+            // a T_polygon exists as a PATH
+            PATH* polygon = new PATH( shape, T_polygon );
+
+            shape->SetShape( polygon );
+
+            polygon->SetLayerId( layerName[ndx] );
+
+            for( unsigned idx = 0; idx < polygonal_shape.size(); idx++ )
             {
-                SHAPE* shape = new SHAPE( padstack );
-
-                padstack->Append( shape );
-
-                // a T_polygon exists as a PATH
-                PATH* polygon = new PATH( shape, T_polygon );
-
-                shape->SetShape( polygon );
-
-                polygon->SetLayerId( layerName[ndx] );
-
-                for( unsigned idx = 0; idx < polygonal_shape.size(); idx++ )
-                {
-                    POINT corner( scale( polygonal_shape[idx].x ),
-                                  scale( -polygonal_shape[idx].y ) );
-                    corner += dsnOffset;
-                    polygon->AppendPoint( corner );
-                }
+                POINT corner( scale( polygonal_shape[idx].x ), scale( -polygonal_shape[idx].y ) );
+                corner += dsnOffset;
+                polygon->AppendPoint( corner );
             }
-
-            // this string _must_ be unique for a given physical shape, so try to make it unique
-            MD5_HASH hash  = pad_shape.GetHash();
-            EDA_RECT rect = aPad->GetBoundingBox();
-            snprintf( name, sizeof(name), "Cust%sPad_%.6gx%.6g_%.6gx_%.6g_%d_um_%s",
-                      uniqifier.c_str(), IU2um( aPad->GetSize().x ), IU2um( aPad->GetSize().y ),
-                      IU2um( rect.GetWidth() ), IU2um( rect.GetHeight() ),
-                      (int)polygonal_shape.size(), hash.Format( true ).c_str() );
-            name[ sizeof(name)-1 ] = 0;
-
-            padstack->SetPadstackId( name );
         }
+
+        // this string _must_ be unique for a given physical shape, so try to make it unique
+        MD5_HASH hash = pad_shape.GetHash();
+        EDA_RECT rect = aPad->GetBoundingBox();
+        snprintf( name, sizeof( name ), "Cust%sPad_%.6gx%.6g_%.6gx_%.6g_%d_um_%s",
+                  uniqifier.c_str(), IU2um( aPad->GetSize().x ), IU2um( aPad->GetSize().y ),
+                  IU2um( rect.GetWidth() ), IU2um( rect.GetHeight() ), (int) polygonal_shape.size(),
+                  hash.Format( true ).c_str() );
+        name[sizeof( name ) - 1] = 0;
+
+        padstack->SetPadstackId( name );
         break;
+    }
     }
 
     return padstack;
@@ -600,7 +612,7 @@ typedef std::map<wxString, int> PINMAP;
 IMAGE* SPECCTRA_DB::makeIMAGE( BOARD* aBoard, FOOTPRINT* aFootprint )
 {
     PINMAP      pinmap;
-    wxString    padName;
+    wxString    padNumber;
 
     PCB_TYPE_COLLECTOR  fpItems;
 
@@ -612,7 +624,7 @@ IMAGE* SPECCTRA_DB::makeIMAGE( BOARD* aBoard, FOOTPRINT* aFootprint )
     image->image_id = aFootprint->GetFPID().Format().c_str();
 
     // from the pads, and make an IMAGE using collated padstacks.
-    for( int p=0; p < fpItems.GetCount(); ++p )
+    for( int p = 0; p < fpItems.GetCount(); ++p )
     {
         PAD* pad = (PAD*) fpItems[p];
 
@@ -639,9 +651,7 @@ IMAGE* SPECCTRA_DB::makeIMAGE( BOARD* aBoard, FOOTPRINT* aFootprint )
                 circle->SetLayerId( m_layerIds[layer].c_str() );
             }
         }
-        // else if() could there be a square keepout here?
-
-        else
+        else        // else if() could there be a square keepout here?
         {
             // Pads not on copper layers (i.e. only on tech layers) are ignored
             // because they create invalid pads in .dsn file for freeroute
@@ -666,18 +676,17 @@ IMAGE* SPECCTRA_DB::makeIMAGE( BOARD* aBoard, FOOTPRINT* aFootprint )
 
             PIN* pin = new PIN( image );
 
-            padName     = pad->GetName();
-            pin->pin_id = TO_UTF8( padName );
+            padNumber   = pad->GetNumber();
+            pin->pin_id = TO_UTF8( padNumber );
 
-            if( padName != wxEmptyString && pinmap.find( padName ) == pinmap.end() )
+            if( padNumber != wxEmptyString && pinmap.find( padNumber ) == pinmap.end() )
             {
-                pinmap[ padName ] = 0;
+                pinmap[ padNumber ] = 0;
             }
             else    // pad name is a duplicate within this footprint
             {
                 char    buf[32];
-
-                int     duplicates = ++pinmap[ padName ];
+                int     duplicates = ++pinmap[ padNumber ];
 
                 sprintf( buf, "@%d", duplicates );
 
@@ -713,7 +722,7 @@ IMAGE* SPECCTRA_DB::makeIMAGE( BOARD* aBoard, FOOTPRINT* aFootprint )
 
         switch( graphic->GetShape() )
         {
-        case PCB_SHAPE_TYPE::SEGMENT:
+        case SHAPE_T::SEGMENT:
             outline = new SHAPE( image, T_outline );
 
             image->Append( outline );
@@ -726,50 +735,130 @@ IMAGE* SPECCTRA_DB::makeIMAGE( BOARD* aBoard, FOOTPRINT* aFootprint )
             path->AppendPoint( mapPt( graphic->GetEnd0() ) );
             break;
 
-        case PCB_SHAPE_TYPE::CIRCLE:
+        case SHAPE_T::CIRCLE:
+        {
+            // this is best done by 4 QARC's but freerouter does not yet support QARCs.
+            // for now, support by using line segments.
+            outline = new SHAPE( image, T_outline );
+            image->Append( outline );
+
+            path = new PATH( outline );
+
+            outline->SetShape( path );
+            path->SetAperture( scale( graphic->GetWidth() ) );
+            path->SetLayerId( "signal" );
+
+            double radius = graphic->GetRadius();
+            wxPoint circle_centre = graphic->GetStart0();
+
+            SHAPE_LINE_CHAIN polyline;
+            ConvertArcToPolyline( polyline, VECTOR2I( circle_centre ), radius, 0.0, 360.0,
+                                  ARC_HIGH_DEF, ERROR_INSIDE );
+
+            for( int ii = 0; ii < polyline.PointCount(); ++ii )
             {
-                // this is best done by 4 QARC's but freerouter does not yet support QARCs.
-                // for now, support by using line segments.
-
-                outline = new SHAPE( image, T_outline );
-
-                image->Append( outline );
-                path = new PATH( outline );
-
-                outline->SetShape( path );
-                path->SetAperture( scale( graphic->GetWidth() ) );
-                path->SetLayerId( "signal" );
-
-                // Do the math using KiCad units, that way we stay out of the
-                // scientific notation range of floating point numbers in the
-                // DSN file.   We do not parse scientific notation in our own
-                // lexer/beautifier, and the spec is not clear that this is
-                // required.  Fixed point floats are all that should be needed.
-
-                double radius = GetLineLength( graphic->GetStart(), graphic->GetEnd() );
-
-                // seg count to approximate circle by line segments
-                int seg_per_circle = GetArcToSegmentCount( radius, ARC_LOW_DEF, 360.0 );
-
-                for( int ii = 0; ii < seg_per_circle; ++ii )
-                {
-                    double radians =  2*M_PI / seg_per_circle * ii;
-                    wxPoint point( KiROUND( radius * cos( radians ) ),
-                                   KiROUND( radius * sin( radians ) ) );
-
-                    point += graphic->m_Start0;     // an offset
-
-                    path->AppendPoint( mapPt( point ) );
-                }
-                // The shape must be closed
-                wxPoint point( radius , 0 );
-                point += graphic->m_Start0;
-                path->AppendPoint( mapPt( point ) );
+                wxPoint corner( polyline.CPoint( ii ).x, polyline.CPoint( ii ).y );
+                path->AppendPoint( mapPt( corner ) );
             }
-            break;
 
-        case PCB_SHAPE_TYPE::RECT:
-        case PCB_SHAPE_TYPE::ARC:
+            break;
+        }
+
+        case SHAPE_T::RECT:
+        {
+            outline = new SHAPE( image, T_outline );
+
+            image->Append( outline );
+            path = new PATH( outline );
+
+            outline->SetShape( path );
+            path->SetAperture( scale( graphic->GetWidth() ) );
+            path->SetLayerId( "signal" );
+            wxPoint corner = graphic->GetStart0();
+            path->AppendPoint( mapPt( corner ) );
+
+            corner.x = graphic->GetEnd0().x;
+            path->AppendPoint( mapPt( corner ) );
+
+            corner.y = graphic->GetEnd0().y;
+            path->AppendPoint( mapPt( corner ) );
+
+            corner.x = graphic->GetStart0().x;
+            path->AppendPoint( mapPt( corner ) );
+            break;
+        }
+
+        case SHAPE_T::ARC:
+        {
+            // this is best done by QARC's but freerouter does not yet support QARCs.
+            // for now, support by using line segments.
+            // So we use a polygon (PATH) to create a approximate arc shape
+            outline = new SHAPE( image, T_outline );
+
+            image->Append( outline );
+            path = new PATH( outline );
+
+            outline->SetShape( path );
+            path->SetAperture( 0 );//scale( graphic->GetWidth() ) );
+            path->SetLayerId( "signal" );
+
+            wxPoint arc_centre = graphic->GetStart0();
+            double  radius = graphic->GetRadius() + graphic->GetWidth() / 2;
+            double  arcStartDeg = graphic->GetArcAngleStart() / 10.0;
+            double  arcAngleDeg = graphic->GetAngle() / 10.0;
+
+            // For some obscure reason, FreeRouter does not show the same polygonal
+            // shape for polygons CW and CCW. So used only the order of corners
+            // giving the best look.
+            if( arcAngleDeg < 0 )
+            {
+                arcStartDeg = graphic->GetArcAngleEnd() / 10.0;
+                arcAngleDeg = -arcAngleDeg;
+            }
+
+            SHAPE_LINE_CHAIN polyline;
+            ConvertArcToPolyline( polyline, VECTOR2I( arc_centre ), radius, arcStartDeg,
+                                  arcAngleDeg, ARC_HIGH_DEF, ERROR_INSIDE );
+
+            SHAPE_POLY_SET polyBuffer;
+            polyBuffer.AddOutline( polyline );
+
+            radius -= graphic->GetWidth();
+
+            if( radius > 0 )
+            {
+                polyline.Clear();
+                ConvertArcToPolyline( polyline, VECTOR2I( arc_centre ), radius, arcStartDeg,
+                                      arcAngleDeg, ARC_HIGH_DEF, ERROR_INSIDE );
+
+                // Add points in reverse order, to create a closed polygon
+                for( int ii = polyline.PointCount() - 1; ii >= 0; --ii )
+                    polyBuffer.Append( polyline.CPoint( ii ) );
+            }
+
+            // ensure the polygon is closed
+            polyBuffer.Append( polyBuffer.Outline( 0 ).CPoint( 0 ) );
+
+            wxPoint move = graphic->GetCenter() - arc_centre;
+
+            TransformCircleToPolygon( polyBuffer, graphic->GetArcStart() - move,
+                                      graphic->GetWidth() / 2, ARC_HIGH_DEF, ERROR_INSIDE );
+
+            TransformCircleToPolygon( polyBuffer, graphic->GetArcEnd() - move,
+                                      graphic->GetWidth() / 2, ARC_HIGH_DEF, ERROR_INSIDE );
+
+            polyBuffer.Simplify( SHAPE_POLY_SET::PM_FAST );
+            SHAPE_LINE_CHAIN& poly = polyBuffer.Outline( 0 );
+
+            for( int ii = 0; ii < poly.PointCount(); ++ii )
+            {
+                wxPoint corner( poly.CPoint( ii ).x, poly.CPoint( ii ).y );
+                path->AppendPoint( mapPt( corner ) );
+            }
+
+            break;
+        }
+
         default:
             continue;
         }
@@ -949,20 +1038,13 @@ PADSTACK* SPECCTRA_DB::makeVia( const PCB_VIA* aVia )
 
 void SPECCTRA_DB::fillBOUNDARY( BOARD* aBoard, BOUNDARY* boundary )
 {
-    SHAPE_POLY_SET outlines;
-
-    if( !aBoard->GetBoardPolygonOutlines( outlines ) )
-    {
-        wxLogWarning( _( "Board outline is malformed. Run DRC for a full analysis." ) );
-    }
-
-    for( int cnt = 0; cnt < outlines.OutlineCount(); cnt++ )   // Should be one outline
+    for( int cnt = 0; cnt < m_brd_outlines.OutlineCount(); cnt++ )   // Should be one outline
     {
         PATH*  path = new PATH( boundary );
         boundary->paths.push_back( path );
         path->layer_id = "pcb";
 
-        SHAPE_LINE_CHAIN& outline = outlines.Outline( cnt );
+        SHAPE_LINE_CHAIN& outline = m_brd_outlines.Outline( cnt );
 
         for( int ii = 0; ii < outline.PointCount(); ii++ )
         {
@@ -975,17 +1057,17 @@ void SPECCTRA_DB::fillBOUNDARY( BOARD* aBoard, BOUNDARY* boundary )
         path->AppendPoint( mapPt( pos0 ) );
 
         // Generate holes as keepout:
-        for( int ii = 0; ii < outlines.HoleCount( cnt ); ii++ )
+        for( int ii = 0; ii < m_brd_outlines.HoleCount( cnt ); ii++ )
         {
             // emit a signal layers keepout for every interior polygon left...
-            KEEPOUT*    keepout = new KEEPOUT( NULL, T_keepout );
-            PATH*       poly_ko = new PATH( NULL, T_polygon );
+            KEEPOUT*    keepout = new KEEPOUT( nullptr, T_keepout );
+            PATH*       poly_ko = new PATH( nullptr, T_polygon );
 
             keepout->SetShape( poly_ko );
             poly_ko->SetLayerId( "signal" );
             m_pcb->structure->keepouts.push_back( keepout );
 
-            SHAPE_LINE_CHAIN& hole = outlines.Hole( cnt, ii );
+            SHAPE_LINE_CHAIN& hole = m_brd_outlines.Hole( cnt, ii );
 
             for( int jj = 0; jj < hole.PointCount(); jj++ )
             {
@@ -1026,7 +1108,7 @@ void SPECCTRA_DB::FromBOARD( BOARD* aBoard )
             if( footprint->GetReference() == wxEmptyString )
             {
                 THROW_IO_ERROR( wxString::Format(
-                        _( "Symbol with value of \"%s\" has empty reference id." ),
+                        _( "Symbol with value of '%s' has empty reference id." ),
                         footprint->GetValue() ) );
             }
 
@@ -1036,7 +1118,7 @@ void SPECCTRA_DB::FromBOARD( BOARD* aBoard )
             if( !refpair.second )      // insert failed
             {
                 THROW_IO_ERROR( wxString::Format(
-                        _( "Multiple symbols have identical reference IDs of \"%s\"." ),
+                        _( "Multiple symbols have identical reference IDs of '%s'." ),
                         footprint->GetReference() ) );
             }
         }
@@ -1165,7 +1247,7 @@ void SPECCTRA_DB::FromBOARD( BOARD* aBoard )
         static const KICAD_T scanZONEs[] = { PCB_ZONE_T, EOT };
         items.Collect( aBoard, scanZONEs );
 
-        for( int i = 0; i<items.GetCount(); ++i )
+        for( int i = 0; i < items.GetCount(); ++i )
         {
             ZONE* item = (ZONE*) items[i];
 
@@ -1283,7 +1365,7 @@ void SPECCTRA_DB::FromBOARD( BOARD* aBoard )
         static const KICAD_T  scanZONEs[] = { PCB_ZONE_T, EOT };
         items.Collect( aBoard, scanZONEs );
 
-        for( int i=0;  i<items.GetCount();  ++i )
+        for( int i = 0; i < items.GetCount(); ++i )
         {
             ZONE* item = (ZONE*) items[i];
 
@@ -1410,7 +1492,7 @@ void SPECCTRA_DB::FromBOARD( BOARD* aBoard )
         deleteNETs();
 
         // expand the net vector to highestNetCode+1, setting empty to NULL
-        m_nets.resize( highestNetCode + 1, NULL );
+        m_nets.resize( highestNetCode + 1, nullptr );
 
         for( unsigned i = 1 /* skip "No Net" at [0] */; i < m_nets.size(); ++i )
             m_nets[i] = new NET( m_pcb->network );
@@ -1425,7 +1507,7 @@ void SPECCTRA_DB::FromBOARD( BOARD* aBoard )
 
         m_padstackset.clear();
 
-        for( int m = 0; m<items.GetCount(); ++m )
+        for( int m = 0; m < items.GetCount(); ++m )
         {
             FOOTPRINT* footprint = (FOOTPRINT*) items[m];
 
@@ -1441,7 +1523,7 @@ void SPECCTRA_DB::FromBOARD( BOARD* aBoard )
             // exported netlist will have some fabricated pin names in it.
             // If you don't like fabricated pin names, then make sure all pads
             // within your FOOTPRINTs are uniquely named!
-            for( unsigned p = 0; p<image->pins.size(); ++p )
+            for( unsigned p = 0; p < image->pins.size(); ++p )
             {
                 PIN*    pin = &image->pins[p];
 
@@ -1566,7 +1648,7 @@ void SPECCTRA_DB::FromBOARD( BOARD* aBoard )
     {
         // export all of them for now, later we'll decide what controls we need
         // on this.
-        static const KICAD_T scanTRACKs[] = { PCB_TRACE_T, EOT };
+        static const KICAD_T scanTRACKs[] = { PCB_TRACE_T, PCB_ARC_T, EOT };
 
         items.Collect( aBoard, scanTRACKs );
 
@@ -1578,7 +1660,7 @@ void SPECCTRA_DB::FromBOARD( BOARD* aBoard )
         int old_width = -1;
         LAYER_NUM old_layer = UNDEFINED_LAYER;
 
-        for( int i=0;  i<items.GetCount();  ++i )
+        for( int i = 0; i < items.GetCount(); ++i )
         {
             PCB_TRACK*  track = static_cast<PCB_TRACK*>( items[i] );
             int         netcode = track->GetNetCode();

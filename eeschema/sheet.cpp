@@ -61,8 +61,8 @@ bool SCH_EDIT_FRAME::CheckSheetForRecursion( SCH_SHEET* aSheet, SCH_SHEET_PATH* 
     if( hierarchy.TestForRecursion( sheetHierarchy, destFile.GetFullPath() ) )
     {
         msg.Printf( _( "The sheet changes cannot be made because the destination sheet already "
-                       "has the sheet \"%s\" or one of it's subsheets as a parent somewhere in "
-                       "the schematic hierarchy." ),
+                       "has the sheet '%s' or one of its subsheets as a parent somewhere in the "
+                       "schematic hierarchy." ),
                     destFile.GetFullPath() );
         DisplayError( this, msg );
         return true;
@@ -81,10 +81,11 @@ bool SCH_EDIT_FRAME::checkForNoFullyDefinedLibIds( SCH_SHEET* aSheet )
 
     if( newScreens.HasNoFullyDefinedLibIds() )
     {
-        msg.Printf( _( "The schematic \"%s\" has not had it's symbol library links remapped "
+        msg.Printf( _( "The schematic '%s' has not had its symbol library links remapped "
                        "to the symbol library table.  The project this schematic belongs to "
                        "must first be remapped before it can be imported into the current "
-                       "project." ), aSheet->GetScreen()->GetFileName() );
+                       "project." ),
+                    aSheet->GetScreen()->GetFileName() );
         DisplayInfoMessage( this, msg );
         return true;
     }
@@ -158,7 +159,7 @@ bool SCH_EDIT_FRAME::LoadSheetFromFile( SCH_SHEET* aSheet, SCH_SHEET_PATH* aHier
     }
     catch( const IO_ERROR& ioe )
     {
-        msg.Printf( _( "Error occurred loading schematic file \"%s\"." ), fullFilename );
+        msg.Printf( _( "Error loading schematic '%s'." ), fullFilename );
         DisplayErrorMessage( this, msg, ioe.What() );
 
         msg.Printf( _( "Failed to load '%s'." ), fullFilename );
@@ -260,7 +261,7 @@ bool SCH_EDIT_FRAME::LoadSheetFromFile( SCH_SHEET* aSheet, SCH_SHEET_PATH* aHier
         {
             if( !symLibTableFn.Exists() || !symLibTableFn.IsFileReadable() )
             {
-                msg.Printf( _( "The project library table \"%s\" does not exist or cannot "
+                msg.Printf( _( "The project library table '%s' does not exist or cannot "
                                "be read.  This may result in broken symbol links for the "
                                "schematic.  Do you wish to continue?" ),
                             fileName.GetFullPath() );
@@ -280,7 +281,7 @@ bool SCH_EDIT_FRAME::LoadSheetFromFile( SCH_SHEET* aSheet, SCH_SHEET_PATH* aHier
                 }
                 catch( const IO_ERROR& ioe )
                 {
-                    msg.Printf( _( "An error occurred loading the symbol library table \"%s\"." ),
+                    msg.Printf( _( "Error loading the symbol library table '%s'." ),
                                 symLibTableFn.GetFullPath() );
                     DisplayErrorMessage( nullptr, msg, ioe.What() );
                     return false;
@@ -557,7 +558,7 @@ bool SCH_EDIT_FRAME::AllowCaseSensitiveFileNameClashes( const wxString& aSchemat
     if( eeconfig()->m_Appearance.show_sheet_filename_case_sensitivity_dialog
       && screens.CanCauseCaseSensitivityIssue( aSchematicFileName ) )
     {
-        msg.Printf( _( "The file name \"%s\" can cause issues with an existing file name\n"
+        msg.Printf( _( "The file name '%s' can cause issues with an existing file name\n"
                        "already defined in the schematic on systems that support case\n"
                        "insensitive file names.  This will cause issues if you copy this\n"
                        "project to an operating system that supports case insensitive file\n"

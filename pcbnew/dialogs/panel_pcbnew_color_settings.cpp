@@ -22,7 +22,7 @@
 
 #include <board.h>
 #include <gal/gal_display_options.h>
-#include <layers_id_colors_and_visibility.h>
+#include <layer_ids.h>
 #include <panel_pcbnew_color_settings.h>
 #include <pcbnew_settings.h>
 #include <pcb_edit_frame.h>
@@ -356,6 +356,8 @@ std::set<int> g_excludedLayers =
             LAYER_VIA_HOLEWALLS,
             LAYER_MOD_FR,
             LAYER_MOD_BK,
+            LAYER_PAD_FR,
+            LAYER_PAD_BK,
             LAYER_MOD_VALUES,
             LAYER_MOD_REFERENCES,
             LAYER_TRACKS,
@@ -501,7 +503,7 @@ void PANEL_PCBNEW_COLOR_SETTINGS::createPreviewItems()
 
     try
     {
-        pi.DoLoad( reader, m_preview->GetBoard(), nullptr );
+        pi.DoLoad( reader, m_preview->GetBoard(), nullptr, nullptr, 0 );
     }
     catch( const IO_ERROR& )
     {

@@ -145,7 +145,7 @@ static const std::vector<NUMBERING_LIST_DATA> numberingTypeData {
 
 DIALOG_CREATE_ARRAY::DIALOG_CREATE_ARRAY( PCB_BASE_FRAME* aParent,
                                           std::unique_ptr<ARRAY_OPTIONS>& aSettings,
-                                          bool enableNumbering, wxPoint aOrigPos ) :
+                                          bool enableNumbering, const wxPoint& aOrigPos ) :
         DIALOG_CREATE_ARRAY_BASE( aParent ),
         m_settings( aSettings ),
         m_originalItemPosition( aOrigPos ),
@@ -296,8 +296,8 @@ static bool validateAxisOptions( const wxTextCtrl& offsetEntry, const wxChoice& 
 
     if( !ok )
     {
-        errors.Add( wxString::Format( _( "Could not determine numbering start from \"%s\": "
-                                         "expected value consistent with alphabet \"%s\"" ),
+        errors.Add( wxString::Format( _( "Could not determine numbering start from '%s': "
+                                         "expected value consistent with alphabet '%s'." ),
                                       text,
                                       aAxis.GetAlphabet() ) );
         return false;

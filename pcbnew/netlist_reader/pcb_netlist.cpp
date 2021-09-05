@@ -24,7 +24,7 @@
  */
 
 
-#include <refdes_utils.h>
+#include <string_utils.h>
 #include "pcb_netlist.h"
 #include <footprint.h>
 
@@ -45,7 +45,7 @@ void COMPONENT::SetFootprint( FOOTPRINT* aFootprint )
     if( !m_kiids.empty() )
         path.push_back( m_kiids.front() );
 
-    if( aFootprint == NULL )
+    if( aFootprint == nullptr )
         return;
 
     aFootprint->SetReference( m_reference );
@@ -150,7 +150,7 @@ void NETLIST::AddComponent( COMPONENT* aComponent )
 
 COMPONENT* NETLIST::GetComponentByReference( const wxString& aReference )
 {
-    COMPONENT* component = NULL;
+    COMPONENT* component = nullptr;
 
     for( unsigned i = 0;  i < m_components.size();  i++ )
     {
@@ -211,7 +211,7 @@ void NETLIST::SortByFPID()
  */
 bool operator < ( const COMPONENT& item1, const COMPONENT& item2 )
 {
-    return UTIL::RefDesStringCompare( item1.GetReference(), item2.GetReference() ) < 0;
+    return StrNumCmp( item1.GetReference(), item2.GetReference(), true ) < 0;
 }
 
 

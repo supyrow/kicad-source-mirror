@@ -142,7 +142,7 @@ public:
      */
     void DrawBasicShape( const GERBER_DRAW_ITEM* aParent,
                          SHAPE_POLY_SET& aShapeBuffer,
-                         wxPoint aShapePos );
+                         const wxPoint& aShapePos );
 
 private:
     /**
@@ -150,6 +150,10 @@ private:
      *
      * Arcs and circles are approximated by segments.  Useful when a shape is not a graphic
      * primitive (shape with hole, rotated shape ... ) and cannot be easily drawn.
+     *
+     * @note Some schapes conbining circles and solid lines (rectangles), only rectangles are
+     *       converted because circles are very easy to draw (no rotation problem) so convert
+     *       them in polygons and draw them as polygons is not a good idea.
      */
     void ConvertShapeToPolygon( const GERBER_DRAW_ITEM* aParent, std::vector<wxPoint>& aBuffer );
 };
@@ -185,7 +189,8 @@ struct APERTURE_MACRO
      * @param aParent is the parent #GERBER_DRAW_ITEM which is actually drawn.
      * @return the shape of the item.
      */
-    SHAPE_POLY_SET* GetApertureMacroShape( const GERBER_DRAW_ITEM* aParent, wxPoint aShapePos );
+    SHAPE_POLY_SET* GetApertureMacroShape( const GERBER_DRAW_ITEM* aParent,
+                                           const wxPoint& aShapePos );
 
    /**
      * Draw the primitive shape for flashed items.
@@ -200,7 +205,8 @@ struct APERTURE_MACRO
      * @param aFilledShape set to true to draw in filled mode, false to draw in sketch mode.
      */
     void DrawApertureMacroShape( GERBER_DRAW_ITEM* aParent, EDA_RECT* aClipBox, wxDC* aDC,
-                                 COLOR4D aColor, wxPoint aShapePos, bool aFilledShape );
+                                 const COLOR4D& aColor, const wxPoint& aShapePos,
+                                 bool aFilledShape );
 
     /**
      * Calculate a value that can be used to evaluate the size of text when displaying the

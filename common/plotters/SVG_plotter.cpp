@@ -1,6 +1,6 @@
 /**
  * @file SVG_plotter.cpp
- * @brief Kicad: specialized plotter for SVG files format
+ * @brief KiCad: specialized plotter for SVG files format
  */
 
 /*
@@ -92,17 +92,15 @@
  */
 
 #include <base64.h>
-#include <eda_base_frame.h>
 #include <eda_rect.h>
-#include <kicad_string.h>
+#include <string_utils.h>
 #include <macros.h>
 #include <trigo.h>
 
 #include <cstdint>
 #include <wx/mstream.h>
-#include <render_settings.h>
 
-#include "plotters_pslike.h"
+#include <plotters/plotters_pslike.h>
 
 
 /**
@@ -192,6 +190,7 @@ void SVG_PLOTTER::SetViewport( const wxPoint& aOffset, double aIusPerDecimil,
     // this was used before the format was changeable, so we set is as default
     SetSvgCoordinatesFormat( 4, true );
 }
+
 
 void SVG_PLOTTER::SetSvgCoordinatesFormat( unsigned aResolution, bool aUseInches )
 {
@@ -355,8 +354,7 @@ void SVG_PLOTTER::emitSetRGBColor( double r, double g, double b )
         m_graphics_changed = true;
         m_pen_rgb_color = rgb_color;
 
-        // Currently, use the same color for brush and pen
-        // (i.e. to draw and fill a contour)
+        // Currently, use the same color for brush and pen (i.e. to draw and fill a contour).
         m_brush_rgb_color = rgb_color;
     }
 }
@@ -382,6 +380,7 @@ void SVG_PLOTTER::Rect( const wxPoint& p1, const wxPoint& p2, FILL_TYPE fill, in
     DPOINT  org_dev  = userToDeviceCoordinates( rect.GetOrigin() );
     DPOINT  end_dev = userToDeviceCoordinates( rect.GetEnd() );
     DSIZE  size_dev = end_dev - org_dev;
+
     // Ensure size of rect in device coordinates is > 0
     // I don't know if this is a SVG issue or a Inkscape issue, but
     // Inkscape has problems with negative or null values for width and/or height, so avoid them
@@ -554,7 +553,7 @@ void SVG_PLOTTER::BezierCurve( const wxPoint& aStart, const wxPoint& aControl1,
              start.x, start.y, ctrl1.x, ctrl1.y,
              ctrl2.x, ctrl2.y, end.x, end.y  );
 #else
-    PLOTTER::BezierCurve( aStart, aControl1,aControl2, aEnd,aTolerance, aLineThickness );
+    PLOTTER::BezierCurve( aStart, aControl1, aControl2, aEnd, aTolerance, aLineThickness );
 #endif
 }
 
@@ -811,6 +810,7 @@ void SVG_PLOTTER::Text( const wxPoint&              aPos,
     }
 
     wxSize text_size;
+
     // aSize.x or aSize.y is < 0 for mirrored texts.
     // The actual text size value is the absolute value
     text_size.x = std::abs( GraphicTextWidth( aText, aSize, aItalic, aWidth ) );

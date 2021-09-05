@@ -2,7 +2,7 @@
  * KiRouter - a push-and-(sometimes-)shove PCB router
  *
  * Copyright (C) 2013-2015 CERN
- * Copyright (C) 2016 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2016-2021 KiCad Developers, see AUTHORS.txt for contributors.
  * Author: Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  *
  * This program is free software: you can redistribute it and/or modify it
@@ -30,7 +30,7 @@ namespace PNS {
 MEANDER_PLACER_BASE::MEANDER_PLACER_BASE( ROUTER* aRouter ) :
         PLACEMENT_ALGO( aRouter )
 {
-    m_world = NULL;
+    m_world = nullptr;
     m_currentWidth = 0;
     m_padToDieLength = 0;
 }
@@ -53,9 +53,26 @@ void MEANDER_PLACER_BASE::AmplitudeStep( int aSign )
 void MEANDER_PLACER_BASE::SpacingStep( int aSign )
 {
     int s = m_settings.m_spacing + aSign * m_settings.m_step;
-    s = std::max( s, 2 * m_currentWidth );
+    s = std::max( s, m_currentWidth + Clearance() );
 
     m_settings.m_spacing = s;
+}
+
+
+int MEANDER_PLACER_BASE::Clearance()
+{
+    // Assumption: All tracks are part of the same net class.
+    // It shouldn't matter which track we pick. They should all have the same clearance if
+    // they are part of the same net class. Therefore, pick the first one on the list.
+    ITEM*           itemToCheck = Traces().CItems().front().item;
+    PNS::CONSTRAINT constraint;
+
+    Router()->GetRuleResolver()->QueryConstraint( PNS::CONSTRAINT_TYPE::CT_CLEARANCE, itemToCheck,
+                                                  nullptr, CurrentLayer(), &constraint );
+
+    wxCHECK_MSG( constraint.m_Value.HasMin(), m_currentWidth, "No minimum clearance?" );
+
+    return constraint.m_Value.Min();
 }
 
 
@@ -118,7 +135,7 @@ void MEANDER_PLACER_BASE::tuneLineLength( MEANDERED_LINE& aTuned, long long int 
 
     for( MEANDER_SHAPE* m : aTuned.Meanders() )
     {
-        if( m->Type() != MT_CORNER )
+        if( m->Type() != MT_CORNER && m->Type() != MT_ARC )
         {
             if( remaining >= 0 )
                 remaining -= m->MaxTunableLength() - m->BaselineLength();
@@ -152,7 +169,7 @@ void MEANDER_PLACER_BASE::tuneLineLength( MEANDERED_LINE& aTuned, long long int 
 
     for( MEANDER_SHAPE* m : aTuned.Meanders() )
     {
-        if( m->Type() != MT_CORNER && m->Type() != MT_EMPTY )
+        if( m->Type() != MT_CORNER && m->Type() != MT_ARC && m->Type() != MT_EMPTY )
         {
             if(remaining >= 0)
             {
@@ -171,7 +188,7 @@ void MEANDER_PLACER_BASE::tuneLineLength( MEANDERED_LINE& aTuned, long long int 
     {
         for( MEANDER_SHAPE* m : aTuned.Meanders() )
         {
-            if( m->Type() != MT_CORNER && m->Type() != MT_EMPTY )
+            if( m->Type() != MT_CORNER && m->Type() != MT_ARC && m->Type() != MT_EMPTY )
             {
                 m->Resize( std::max( m->Amplitude() - balance / 2,
                            (long long int) m_settings.m_minAmplitude ) );

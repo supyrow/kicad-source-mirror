@@ -29,13 +29,14 @@
 #include <sch_field.h>
 #include <sch_validators.h>
 #include <validators.h>
-#include <class_library.h>
+#include <symbol_library.h>
 #include <template_fieldnames.h>
 #include <widgets/grid_text_button_helpers.h>
 #include <wildcards_and_files_ext.h>
 #include <project/project_file.h>
 #include "eda_doc.h"
 #include <wx/settings.h>
+#include <string_utils.h>
 
 
 enum
@@ -381,7 +382,7 @@ wxString FIELDS_GRID_TABLE<T>::GetValue( int aRow, int aCol )
         return field.GetName( false );
 
     case FDC_VALUE:
-        return field.GetText();
+        return UnescapeString( field.GetText() );
 
     case FDC_SHOWN:
         return StringFromBool( field.IsVisible() );
@@ -486,6 +487,10 @@ void FIELDS_GRID_TABLE<T>::SetValue( int aRow, int aCol, const wxString &aValue 
                 fn.SetExt( KiCadSchematicFileExtension );
                 value = fn.GetFullPath();
             }
+        }
+        else if( m_parentType == SCH_SYMBOL_T && aRow == VALUE_FIELD )
+        {
+            value = EscapeString( value, CTX_LIBID );
         }
 
         field.SetText( value );

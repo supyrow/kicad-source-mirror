@@ -305,7 +305,7 @@ wxString PCB_GROUP::GetSelectMenuText( EDA_UNITS aUnits ) const
                                  m_items.size() );
     }
 
-    return wxString::Format( _( "Group \"%s\", %zu members" ),
+    return wxString::Format( _( "Group '%s', %zu members" ),
                              m_name,
                              m_items.size() );
 }
@@ -321,6 +321,9 @@ void PCB_GROUP::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_I
 {
     aList.emplace_back( _( "Group" ), m_name.empty() ? _( "<unnamed>" ) : m_name );
     aList.emplace_back( _( "Members" ), wxString::Format( "%zu", m_items.size() ) );
+
+    if( IsLocked() )
+        aList.emplace_back( _( "Status" ), _( "Locked" ) );
 }
 
 

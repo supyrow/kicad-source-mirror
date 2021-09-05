@@ -24,13 +24,13 @@
  */
 
 #include <sch_draw_panel.h>
-#include <plotter.h>
+#include <plotters/plotter.h>
 #include <sch_screen.h>
 #include <richio.h>
 #include <general.h>
 #include <template_fieldnames.h>
 #include <transform.h>
-#include <class_library.h>
+#include <symbol_library.h>
 #include <lib_pin.h>
 #include <lib_arc.h>
 #include <settings/color_settings.h>
@@ -79,7 +79,7 @@ struct null_deleter
 };
 
 
-LIB_SYMBOL::LIB_SYMBOL( const wxString& aName, LIB_SYMBOL* aParent, PART_LIB* aLibrary ) :
+LIB_SYMBOL::LIB_SYMBOL( const wxString& aName, LIB_SYMBOL* aParent, SYMBOL_LIB* aLibrary ) :
     EDA_ITEM( LIB_SYMBOL_T ),
     m_me( this, null_deleter() ),
     m_includeInBom( true ),
@@ -110,7 +110,7 @@ LIB_SYMBOL::LIB_SYMBOL( const wxString& aName, LIB_SYMBOL* aParent, PART_LIB* aL
 }
 
 
-LIB_SYMBOL::LIB_SYMBOL( const LIB_SYMBOL& aSymbol, PART_LIB* aLibrary ) :
+LIB_SYMBOL::LIB_SYMBOL( const LIB_SYMBOL& aSymbol, SYMBOL_LIB* aLibrary ) :
     EDA_ITEM( aSymbol ),
     m_me( this, null_deleter() )
 {
@@ -152,7 +152,7 @@ LIB_SYMBOL::LIB_SYMBOL( const LIB_SYMBOL& aSymbol, PART_LIB* aLibrary ) :
         }
     }
 
-    PART_SPTR parent = aSymbol.m_parent.lock();
+    LIB_SYMBOL_SPTR parent = aSymbol.m_parent.lock();
 
     if( parent )
         SetParent( parent.get() );
@@ -201,7 +201,7 @@ const LIB_SYMBOL& LIB_SYMBOL::operator=( const LIB_SYMBOL& aSymbol )
 
     m_drawings.sort();
 
-    PART_SPTR parent = aSymbol.m_parent.lock();
+    LIB_SYMBOL_SPTR parent = aSymbol.m_parent.lock();
 
     if( parent )
         SetParent( parent.get() );
@@ -313,12 +313,10 @@ wxString LIB_SYMBOL::GetUnitReference( int aUnit )
 
 void LIB_SYMBOL::SetName( const wxString& aName )
 {
-    wxString validatedName = LIB_ID::FixIllegalChars( aName );
+    m_name = aName;
+    m_libId.SetLibItemName( aName );
 
-    m_name = validatedName;
-    m_libId.SetLibItemName( validatedName, false );
-
-    GetValueField().SetText( validatedName );
+    GetValueField().SetText( aName );
 }
 
 
@@ -337,7 +335,7 @@ std::unique_ptr< LIB_SYMBOL > LIB_SYMBOL::Flatten() const
 
     if( IsAlias() )
     {
-        PART_SPTR parent = m_parent.lock();
+        LIB_SYMBOL_SPTR parent = m_parent.lock();
 
         wxCHECK_MSG( parent, retv,
                      wxString::Format( "Parent of derived symbol '%s' undefined", m_name ) );
@@ -410,7 +408,7 @@ const wxString LIB_SYMBOL::GetLibraryName() const
 
 bool LIB_SYMBOL::IsPower() const
 {
-    if( PART_SPTR parent = m_parent.lock() )
+    if( LIB_SYMBOL_SPTR parent = m_parent.lock() )
         return parent->m_options == ENTRY_POWER;
 
     return m_options == ENTRY_POWER;
@@ -419,7 +417,7 @@ bool LIB_SYMBOL::IsPower() const
 
 void LIB_SYMBOL::SetPower()
 {
-    if( PART_SPTR parent = m_parent.lock() )
+    if( LIB_SYMBOL_SPTR parent = m_parent.lock() )
         parent->m_options = ENTRY_POWER;
 
     m_options = ENTRY_POWER;
@@ -428,7 +426,7 @@ void LIB_SYMBOL::SetPower()
 
 bool LIB_SYMBOL::IsNormal() const
 {
-    if( PART_SPTR parent = m_parent.lock() )
+    if( LIB_SYMBOL_SPTR parent = m_parent.lock() )
         return parent->m_options == ENTRY_NORMAL;
 
     return m_options == ENTRY_NORMAL;
@@ -437,7 +435,7 @@ bool LIB_SYMBOL::IsNormal() const
 
 void LIB_SYMBOL::SetNormal()
 {
-    if( PART_SPTR parent = m_parent.lock() )
+    if( LIB_SYMBOL_SPTR parent = m_parent.lock() )
         parent->m_options = ENTRY_NORMAL;
 
     m_options = ENTRY_NORMAL;
@@ -477,7 +475,7 @@ wxString LIB_SYMBOL::SubReference( int aUnit, bool aAddSeparator )
 
 
 void LIB_SYMBOL::Print( const RENDER_SETTINGS* aSettings, const wxPoint& aOffset,
-                        int aMulti, int aConvert, const PART_DRAW_OPTIONS& aOpts )
+                        int aMulti, int aConvert, const LIB_SYMBOL_OPTIONS& aOpts )
 {
     /* draw background for filled items using background option
      * Solid lines will be drawn after the background
@@ -532,7 +530,7 @@ void LIB_SYMBOL::Print( const RENDER_SETTINGS* aSettings, const wxPoint& aOffset
         }
         else if( drawItem.Type() == LIB_FIELD_T )
         {
-            drawItem.Print( aSettings, aOffset, (void*) NULL, aOpts.transform );
+            drawItem.Print( aSettings, aOffset, (void*) nullptr, aOpts.transform );
         }
         else
         {
@@ -546,7 +544,7 @@ void LIB_SYMBOL::Print( const RENDER_SETTINGS* aSettings, const wxPoint& aOffset
 void LIB_SYMBOL::Plot( PLOTTER* aPlotter, int aUnit, int aConvert, const wxPoint& aOffset,
                        const TRANSFORM& aTransform ) const
 {
-    wxASSERT( aPlotter != NULL );
+    wxASSERT( aPlotter != nullptr );
 
     aPlotter->SetColor( aPlotter->RenderSettings()->GetLayerColor( LAYER_DEVICE ) );
     bool fill = aPlotter->GetColorMode();
@@ -592,7 +590,7 @@ void LIB_SYMBOL::Plot( PLOTTER* aPlotter, int aUnit, int aConvert, const wxPoint
 void LIB_SYMBOL::PlotLibFields( PLOTTER* aPlotter, int aUnit, int aConvert,
                                 const wxPoint& aOffset, const TRANSFORM& aTransform )
 {
-    wxASSERT( aPlotter != NULL );
+    wxASSERT( aPlotter != nullptr );
 
     aPlotter->SetColor( aPlotter->RenderSettings()->GetLayerColor( LAYER_FIELDS ) );
     bool fill = aPlotter->GetColorMode();
@@ -628,7 +626,7 @@ void LIB_SYMBOL::PlotLibFields( PLOTTER* aPlotter, int aUnit, int aConvert,
 
 void LIB_SYMBOL::RemoveDrawItem( LIB_ITEM* aItem )
 {
-    wxASSERT( aItem != NULL );
+    wxASSERT( aItem != nullptr );
 
     // none of the MANDATORY_FIELDS may be removed in RAM, but they may be
     // omitted when saving to disk.
@@ -642,7 +640,7 @@ void LIB_SYMBOL::RemoveDrawItem( LIB_ITEM* aItem )
 
     for( LIB_ITEMS::iterator i = items.begin(); i != items.end(); i++ )
     {
-        if( *i == aItem )
+        if( &*i == aItem )
         {
             items.erase( i );
             SetModified();
@@ -665,7 +663,7 @@ void LIB_SYMBOL::AddDrawItem( LIB_ITEM* aItem, bool aSort )
 
 LIB_ITEM* LIB_SYMBOL::GetNextDrawItem( const LIB_ITEM* aItem, KICAD_T aType )
 {
-    if( aItem == NULL )
+    if( aItem == nullptr )
     {
         LIB_ITEMS_CONTAINER::ITERATOR it1 = m_drawings.begin( aType );
 
@@ -688,7 +686,7 @@ LIB_ITEM* LIB_SYMBOL::GetNextDrawItem( const LIB_ITEM* aItem, KICAD_T aType )
             return &( *it );
     }
 
-    return NULL;
+    return nullptr;
 }
 
 
@@ -701,7 +699,7 @@ void LIB_SYMBOL::GetPins( LIB_PINS& aList, int aUnit, int aConvert ) const
      * when m_convert == 0, the body item is common to shapes
      */
 
-    PART_SPTR                  parent = m_parent.lock();
+    LIB_SYMBOL_SPTR                  parent = m_parent.lock();
     const LIB_ITEMS_CONTAINER& drawItems = parent ? parent->m_drawings : m_drawings;
 
     for( const LIB_ITEM& item : drawItems[LIB_PIN_T] )
@@ -733,7 +731,7 @@ LIB_PIN* LIB_SYMBOL::GetPin( const wxString& aNumber, int aUnit, int aConvert ) 
             return pinList[i];
     }
 
-    return NULL;
+    return nullptr;
 }
 
 
@@ -948,7 +946,7 @@ LIB_FIELD* LIB_SYMBOL::GetFieldById( int aId ) const
             return field;
     }
 
-    return NULL;
+    return nullptr;
 }
 
 
@@ -960,7 +958,7 @@ LIB_FIELD* LIB_SYMBOL::FindField( const wxString& aFieldName )
             return static_cast<LIB_FIELD*>( &item );
     }
 
-    return NULL;
+    return nullptr;
 }
 
 
@@ -972,14 +970,14 @@ const LIB_FIELD* LIB_SYMBOL::FindField( const wxString& aFieldName ) const
             return static_cast<const LIB_FIELD*>( &item );
     }
 
-    return NULL;
+    return nullptr;
 }
 
 
 LIB_FIELD& LIB_SYMBOL::GetValueField()
 {
     LIB_FIELD* field = GetFieldById( VALUE_FIELD );
-    wxASSERT( field != NULL );
+    wxASSERT( field != nullptr );
     return *field;
 }
 
@@ -987,7 +985,7 @@ LIB_FIELD& LIB_SYMBOL::GetValueField()
 LIB_FIELD& LIB_SYMBOL::GetReferenceField()
 {
     LIB_FIELD* field = GetFieldById( REFERENCE_FIELD );
-    wxASSERT( field != NULL );
+    wxASSERT( field != nullptr );
     return *field;
 }
 
@@ -995,7 +993,7 @@ LIB_FIELD& LIB_SYMBOL::GetReferenceField()
 LIB_FIELD& LIB_SYMBOL::GetFootprintField()
 {
     LIB_FIELD* field = GetFieldById( FOOTPRINT_FIELD );
-    wxASSERT( field != NULL );
+    wxASSERT( field != nullptr );
     return *field;
 }
 
@@ -1003,7 +1001,7 @@ LIB_FIELD& LIB_SYMBOL::GetFootprintField()
 LIB_FIELD& LIB_SYMBOL::GetDatasheetField()
 {
     LIB_FIELD* field = GetFieldById( DATASHEET_FIELD );
-    wxASSERT( field != NULL );
+    wxASSERT( field != nullptr );
     return *field;
 }
 
@@ -1029,7 +1027,7 @@ bool LIB_SYMBOL::HasConversion() const
             return true;
     }
 
-    if( PART_SPTR parent = m_parent.lock() )
+    if( LIB_SYMBOL_SPTR parent = m_parent.lock() )
     {
         for( const LIB_ITEM& item : parent->GetDrawItems() )
         {
@@ -1072,7 +1070,7 @@ LIB_ITEM* LIB_SYMBOL::LocateDrawItem( int aUnit, int aConvert,
             return &item;
     }
 
-    return NULL;
+    return nullptr;
 }
 
 
@@ -1164,7 +1162,7 @@ void LIB_SYMBOL::SetUnitCount( int aCount, bool aDuplicateDrawItems )
 
 int LIB_SYMBOL::GetUnitCount() const
 {
-    if( PART_SPTR parent = m_parent.lock() )
+    if( LIB_SYMBOL_SPTR parent = m_parent.lock() )
         return parent->GetUnitCount();
 
     return m_unitCount;
@@ -1253,9 +1251,9 @@ std::vector<LIB_ITEM*> LIB_SYMBOL::GetUnitItems( int aUnit, int aConvert )
 }
 
 
-std::vector<struct PART_UNITS> LIB_SYMBOL::GetUnitDrawItems()
+std::vector<struct LIB_SYMBOL_UNITS> LIB_SYMBOL::GetUnitDrawItems()
 {
-    std::vector<struct PART_UNITS> units;
+    std::vector<struct LIB_SYMBOL_UNITS> units;
 
     for( LIB_ITEM& item : m_drawings )
     {
@@ -1272,7 +1270,7 @@ std::vector<struct PART_UNITS> LIB_SYMBOL::GetUnitDrawItems()
 
         if( it == units.end() )
         {
-            struct PART_UNITS newUnit;
+            struct LIB_SYMBOL_UNITS newUnit;
             newUnit.m_unit = item.GetUnit();
             newUnit.m_convert = item.GetConvert();
             newUnit.m_items.push_back( &item );
@@ -1288,14 +1286,14 @@ std::vector<struct PART_UNITS> LIB_SYMBOL::GetUnitDrawItems()
 }
 
 
-std::vector<struct PART_UNITS> LIB_SYMBOL::GetUniqueUnits()
+std::vector<struct LIB_SYMBOL_UNITS> LIB_SYMBOL::GetUniqueUnits()
 {
     int unitNum;
     size_t i;
-    struct PART_UNITS unit;
+    struct LIB_SYMBOL_UNITS unit;
     std::vector<LIB_ITEM*> compareDrawItems;
     std::vector<LIB_ITEM*> currentDrawItems;
-    std::vector<struct PART_UNITS> uniqueUnits;
+    std::vector<struct LIB_SYMBOL_UNITS> uniqueUnits;
 
     // The first unit is guaranteed to be unique so always include it.
     unit.m_unit = 1;

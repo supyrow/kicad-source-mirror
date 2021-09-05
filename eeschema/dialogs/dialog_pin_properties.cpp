@@ -136,6 +136,24 @@ DIALOG_PIN_PROPERTIES::DIALOG_PIN_PROPERTIES( SYMBOL_EDIT_FRAME* parent, LIB_PIN
     // Creates a dummy pin to show on a panel, inside this dialog:
     m_dummyPin = new LIB_PIN( *m_pin );
 
+    m_bSizerInfo->Show( m_frame->m_SyncPinEdit );
+
+    if( m_frame->m_SyncPinEdit )
+    {
+        if( aPin->IsNew() )
+        {
+            m_textInfoUpper->SetLabel( _( "Synchronized pins edit mode, and this pin is new" ) );
+            m_textInfoLower->SetLabel( _( "Similar pins will be automatically added to other units, "
+                                          "if this pin is not common to all units" ) );
+        }
+        else
+        {
+            m_textInfoUpper->SetLabel( _( "Synchronized pins edit mode" ) );
+            m_textInfoLower->SetLabel( _( "Similar pins at the same location will be edited. "
+                                          "Pin number of other pins will be not modified" ) );
+        }
+    }
+
     COLOR4D bgColor = parent->GetRenderSettings()->GetLayerColor( LAYER_SCHEMATIC_BACKGROUND );
     m_panelShowPin->SetBackgroundColour( bgColor.ToColour() );
 
@@ -254,6 +272,22 @@ bool DIALOG_PIN_PROPERTIES::TransferDataToWindow()
 
     m_dummyPin->SetVisible( m_pin->IsVisible() );
 
+    bool hasMultiUnit    = m_pin->GetParent()->GetUnitCount() > 1;
+
+    m_checkApplyToAllParts->Enable( hasMultiUnit );
+
+    wxString toolTip;
+
+    if( !hasMultiUnit )
+        toolTip = _( "This symbol only has one unit. This control has no effect." );
+    else if( m_frame->m_SyncPinEdit )
+        toolTip = _( "Synchronized pin edit mode is enabled.\n"
+                     "Similar pins will be edited, regardless this option." );
+    else
+        toolTip = _( "If checked, this pin will exist in all units." );
+
+    m_checkApplyToAllParts->SetToolTip( toolTip );
+
     for( const std::pair<const wxString, LIB_PIN::ALT>& alt : m_pin->GetAlternates() )
         m_alternatesDataModel->AppendRow( alt.second );
 
@@ -347,7 +381,7 @@ void DIALOG_PIN_PROPERTIES::OnPaintShowPanel( wxPaintEvent& event )
     dc.SetUserScale( scale, scale );
     GRResetPenAndBrush( &dc );
 
-    PART_DRAW_OPTIONS opts;
+    LIB_SYMBOL_OPTIONS opts;
     opts.draw_hidden_fields = true;
     opts.show_connect_point = true;
 
@@ -469,3 +503,8 @@ void DIALOG_PIN_PROPERTIES::OnUpdateUI( wxUpdateUIEvent& event )
 }
 
 
+void DIALOG_PIN_PROPERTIES::onUpdateUIInfo( wxUpdateUIEvent& event )
+{
+    // Disable Info texts for pins common to all units
+    event.Enable( m_checkApplyToAllParts->GetValue() == 0 );
+}

@@ -28,7 +28,7 @@
 
 #include "../common_ogl/ogl_utils.h"
 #include "eda_3d_canvas.h"
-#include <eda_3d_viewer.h>
+#include <eda_3d_viewer_frame.h>
 #include <3d_rendering/3d_render_raytracing/render_3d_raytrace.h>
 #include <3d_rendering/legacy/render_3d_legacy.h>
 #include <3d_viewer_id.h>
@@ -87,7 +87,7 @@ BEGIN_EVENT_TABLE( EDA_3D_CANVAS, wxGLCanvas )
 END_EVENT_TABLE()
 
 
-EDA_3D_CANVAS::EDA_3D_CANVAS( wxWindow* aParent, const int* aAttribList, BOARD* aBoard,
+EDA_3D_CANVAS::EDA_3D_CANVAS( wxWindow* aParent, const int* aAttribList,
                               BOARD_ADAPTER& aBoardAdapter, CAMERA& aCamera,
                               S3D_CACHE* a3DCachePointer )
         : HIDPI_GL_CANVAS( aParent, wxID_ANY, aAttribList, wxDefaultPosition, wxDefaultSize,
@@ -126,8 +126,8 @@ EDA_3D_CANVAS::EDA_3D_CANVAS( wxWindow* aParent, const int* aAttribList, BOARD* 
 
     m_is_currently_painting.clear();
 
-    m_3d_render_raytracing = new RENDER_3D_RAYTRACE( m_boardAdapter, m_camera );
-    m_3d_render_ogl_legacy = new RENDER_3D_LEGACY( m_boardAdapter, m_camera );
+    m_3d_render_raytracing = new RENDER_3D_RAYTRACE( this, m_boardAdapter, m_camera );
+    m_3d_render_ogl_legacy = new RENDER_3D_LEGACY( this, m_boardAdapter, m_camera );
 
     wxASSERT( m_3d_render_raytracing != nullptr );
     wxASSERT( m_3d_render_ogl_legacy != nullptr );
@@ -138,9 +138,6 @@ EDA_3D_CANVAS::EDA_3D_CANVAS( wxWindow* aParent, const int* aAttribList, BOARD* 
     m_3d_render_ogl_legacy->SetBusyIndicatorFactory( busy_indicator_factory );
 
     RenderEngineChanged();
-
-    wxASSERT( aBoard != nullptr );
-    m_boardAdapter.SetBoard( aBoard );
 
     m_boardAdapter.SetColorSettings( Pgm().GetSettingsManager().GetColorSettings() );
 
@@ -411,7 +408,7 @@ void EDA_3D_CANVAS::DoRePaint()
         if( !m_is_opengl_version_supported )
         {
             warningReporter.Report( _( "Your OpenGL version is not supported. Minimum required "
-                                       "is 1.5" ), RPT_SEVERITY_ERROR );
+                                       "is 1.5." ), RPT_SEVERITY_ERROR );
 
             warningReporter.Finalize();
         }
@@ -724,7 +721,7 @@ void EDA_3D_CANVAS::OnMouseMove( wxMouseEvent& event )
                     reporter.Report( wxString::Format( _( "Net %s\tNetClass %s\tPadName %s" ),
                                                        pad->GetNet()->GetNetname(),
                                                        pad->GetNet()->GetNetClassName(),
-                                                       pad->GetName() ) );
+                                                       pad->GetNumber() ) );
                 }
             }
                 break;

@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2020 Jon Evans <jon@craftyjon.com>
- * Copyright (C) 2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -34,6 +34,7 @@
 #include <kiway.h>
 #include <lockfile.h>
 #include <macros.h>
+#include <pgm_base.h>
 #include <paths.h>
 #include <project.h>
 #include <project/project_archiver.h>
@@ -69,10 +70,7 @@ SETTINGS_MANAGER::SETTINGS_MANAGER( bool aHeadless ) :
     m_ok = true;
 
     // create the common settings shared by all applications.  Not loaded immediately
-    m_common_settings =
-            static_cast<COMMON_SETTINGS*>( RegisterSettings( new COMMON_SETTINGS, false ) );
-
-    loadAllColorSettings();
+    m_common_settings = RegisterSettings( new COMMON_SETTINGS, false );
 }
 
 SETTINGS_MANAGER::~SETTINGS_MANAGER()
@@ -83,7 +81,7 @@ SETTINGS_MANAGER::~SETTINGS_MANAGER()
 }
 
 
-JSON_SETTINGS* SETTINGS_MANAGER::RegisterSettings( JSON_SETTINGS* aSettings, bool aLoadNow )
+JSON_SETTINGS* SETTINGS_MANAGER::registerSettings( JSON_SETTINGS* aSettings, bool aLoadNow )
 {
     std::unique_ptr<JSON_SETTINGS> ptr( aSettings );
 
@@ -172,8 +170,6 @@ void SETTINGS_MANAGER::FlushAndRelease( JSON_SETTINGS* aSettings, bool aSave )
             m_app_settings_cache.erase( typeHash );
 
         m_settings.erase( it );
-
-
     }
 }
 
@@ -183,16 +179,23 @@ COLOR_SETTINGS* SETTINGS_MANAGER::GetColorSettings( const wxString& aName )
     if( m_color_settings.count( aName ) )
         return m_color_settings.at( aName );
 
-    COLOR_SETTINGS* ret = nullptr;
-
     if( !aName.empty() )
-        ret = loadColorSettingsByName( aName );
+    {
+        COLOR_SETTINGS* ret = loadColorSettingsByName( aName );
+
+        if( !ret )
+        {
+            ret = registerColorSettings( aName );
+            *ret = *m_color_settings.at( "_builtin_default" );
+            ret->SetFilename( wxT( "user" ) );
+            ret->SetReadOnly( false );
+        }
+
+        return ret;
+    }
 
     // This had better work
-    if( !ret )
-        ret = m_color_settings.at( "_builtin_default" );
-
-    return ret;
+    return m_color_settings.at( "_builtin_default" );
 }
 
 
@@ -208,27 +211,27 @@ COLOR_SETTINGS* SETTINGS_MANAGER::loadColorSettingsByName( const wxString& aName
         return nullptr;
     }
 
-    auto cs = static_cast<COLOR_SETTINGS*>(
-            RegisterSettings( new COLOR_SETTINGS( aName.ToStdString() ) ) );
+    COLOR_SETTINGS* settings = RegisterSettings( new COLOR_SETTINGS( aName ) );
 
-    if( cs->GetFilename() != aName.ToStdString() )
+    if( settings->GetFilename() != aName.ToStdString() )
     {
-        wxLogTrace( traceSettings, "Warning: stored filename is actually %s, ", cs->GetFilename() );
+        wxLogTrace( traceSettings, "Warning: stored filename is actually %s, ",
+                    settings->GetFilename() );
     }
 
-    m_color_settings[aName] = cs;
+    m_color_settings[aName] = settings;
 
-    return cs;
+    return settings;
 }
 
 
-class COLOR_SETTINGS_LOADER : public wxDirTraverser
+class JSON_DIR_TRAVERSER : public wxDirTraverser
 {
 private:
-    std::function<void( const wxString& )> m_action;
+    std::function<void( const wxFileName& )> m_action;
 
 public:
-    explicit COLOR_SETTINGS_LOADER( std::function<void( const wxString& )> aAction )
+    explicit JSON_DIR_TRAVERSER( std::function<void( const wxFileName& )> aAction )
             : m_action( std::move( aAction ) )
     {
     }
@@ -237,40 +240,37 @@ public:
     {
         wxFileName file( aFilePath );
 
-        if( file.GetExt() != "json" )
-            return wxDIR_CONTINUE;
-
-        m_action( file.GetName() );
+        if( file.GetExt() == "json" )
+            m_action( file );
 
         return wxDIR_CONTINUE;
     }
 
     wxDirTraverseResult OnDir( const wxString& dirPath ) override
     {
-        return wxDIR_IGNORE;
+        return wxDIR_CONTINUE;
     }
 };
 
 
-void SETTINGS_MANAGER::registerColorSettings( const wxString& aFilename )
+COLOR_SETTINGS* SETTINGS_MANAGER::registerColorSettings( const wxString& aName )
 {
-    if( m_color_settings.count( aFilename ) )
-        return;
+    if( !m_color_settings.count( aName ) )
+    {
+        COLOR_SETTINGS* colorSettings = RegisterSettings( new COLOR_SETTINGS( aName ) );
+        m_color_settings[aName] = colorSettings;
+    }
 
-    m_color_settings[aFilename] = static_cast<COLOR_SETTINGS*>(
-            RegisterSettings( new COLOR_SETTINGS( aFilename ) ) );
+    return m_color_settings.at( aName );
 }
 
 
-COLOR_SETTINGS* SETTINGS_MANAGER::AddNewColorSettings( const wxString& aFilename )
+COLOR_SETTINGS* SETTINGS_MANAGER::AddNewColorSettings( const wxString& aName )
 {
-    wxString filename = aFilename;
-
-    if( filename.EndsWith( wxT( ".json" ) ) )
-        filename = filename.BeforeLast( '.' );
-
-    registerColorSettings( filename );
-    return m_color_settings[filename];
+    if( aName.EndsWith( wxT( ".json" ) ) )
+        return registerColorSettings( aName.BeforeLast( '.' ) );
+    else
+        return registerColorSettings( aName );
 }
 
 
@@ -278,9 +278,9 @@ COLOR_SETTINGS* SETTINGS_MANAGER::GetMigratedColorSettings()
 {
     if( !m_color_settings.count( "user" ) )
     {
-        registerColorSettings( wxT( "user" ) );
-        m_color_settings.at( "user" )->SetName( wxT( "User" ) );
-        Save( m_color_settings.at( "user" ) );
+        COLOR_SETTINGS* settings = registerColorSettings( wxT( "user" ) );
+        settings->SetName( wxT( "User" ) );
+        Save( settings );
     }
 
     return m_color_settings.at( "user" );
@@ -291,21 +291,46 @@ void SETTINGS_MANAGER::loadAllColorSettings()
 {
     // Create the built-in color settings
     for( COLOR_SETTINGS* settings : COLOR_SETTINGS::CreateBuiltinColorSettings() )
-    {
-        m_color_settings[settings->GetFilename()] =
-                static_cast<COLOR_SETTINGS*>( RegisterSettings( settings, false ) );
-    }
+        m_color_settings[settings->GetFilename()] = RegisterSettings( settings, false );
+
+    wxFileName third_party_path;
+    const ENV_VAR_MAP& env = Pgm().GetLocalEnvVariables();
+    auto               it = env.find( "KICAD6_3RD_PARTY" );
+
+    if( it != env.end() && !it->second.GetValue().IsEmpty() )
+        third_party_path.SetPath( it->second.GetValue() );
+    else
+        third_party_path.SetPath( PATHS::GetDefault3rdPartyPath() );
+
+    third_party_path.AppendDir( "colors" );
+
+    wxDir third_party_colors_dir( third_party_path.GetFullPath() );
+    wxString color_settings_path = GetColorSettingsPath();
+
+    JSON_DIR_TRAVERSER copier(
+            [&]( const wxFileName& aFilename )
+            {
+                wxFileName new_file( color_settings_path, aFilename.GetFullName() );
+
+                if( !new_file.Exists() )
+                    wxCopyFile( aFilename.GetFullPath(), new_file.GetFullPath());
+            } );
 
     // Search for and load any other settings
-    COLOR_SETTINGS_LOADER loader( [&]( const wxString& aFilename )
-                                  {
-                                      registerColorSettings( aFilename );
-                                  } );
+    JSON_DIR_TRAVERSER loader( [&]( const wxFileName& aFilename )
+                               {
+                                   registerColorSettings( aFilename.GetName() );
+                               } );
 
-    wxDir colors_dir( GetColorSettingsPath() );
+    wxDir colors_dir( color_settings_path );
 
     if( colors_dir.IsOpened() )
+    {
+        if( third_party_colors_dir.IsOpened() )
+           third_party_colors_dir.Traverse( copier );
+
         colors_dir.Traverse( loader );
+    }
 }
 
 
@@ -332,21 +357,24 @@ void SETTINGS_MANAGER::SaveColorSettings( COLOR_SETTINGS* aSettings, const std::
     if( !aSettings->Store() )
     {
         wxLogTrace( traceSettings, "Color scheme %s not modified; skipping save",
-                aSettings->GetFilename(), aNamespace );
+                    aNamespace );
         return;
     }
 
     wxASSERT( aSettings->Contains( aNamespace ) );
 
-    wxLogTrace( traceSettings, "Saving color scheme %s, preserving %s", aSettings->GetFilename(),
+    wxLogTrace( traceSettings, "Saving color scheme %s, preserving %s",
+                aSettings->GetFilename(),
                 aNamespace );
 
-    nlohmann::json backup = aSettings->At( aNamespace );
+    OPT<nlohmann::json> backup = aSettings->GetJson( aNamespace );
     wxString path = GetColorSettingsPath();
 
     aSettings->LoadFromFile( path );
 
-    ( *aSettings->Internals() )[aNamespace].update( backup );
+    if( backup )
+        ( *aSettings->Internals() )[aNamespace].update( *backup );
+
     aSettings->Load();
 
     aSettings->SaveToFile( path, true );
@@ -776,6 +804,15 @@ bool SETTINGS_MANAGER::LoadProject( const wxString& aFullPath, bool aSetActive )
         PROJECT* oldProject = m_projects.begin()->second;
         unloadProjectFile( oldProject, false );
         m_projects.erase( m_projects.begin() );
+
+        auto it = std::find_if( m_projects_list.begin(), m_projects_list.end(),
+                                [&]( const std::unique_ptr<PROJECT>& ptr )
+                                {
+                                    return ptr.get() == oldProject;
+                                } );
+
+        wxASSERT( it != m_projects_list.end() );
+        m_projects_list.erase( it );
     }
 
     wxLogTrace( traceSettings, "Load project %s", fullPath );
@@ -801,7 +838,7 @@ bool SETTINGS_MANAGER::LoadProject( const wxString& aFullPath, bool aSetActive )
     PROJECT_LOCAL_SETTINGS* settings = new PROJECT_LOCAL_SETTINGS( m_projects[fullPath], fn );
 
     if( aSetActive )
-        settings = static_cast<PROJECT_LOCAL_SETTINGS*>( RegisterSettings( settings ) );
+        settings = RegisterSettings( settings );
 
     m_projects[fullPath]->setLocalSettings( settings );
 
@@ -856,7 +893,8 @@ bool SETTINGS_MANAGER::UnloadProject( PROJECT* aProject, bool aSave )
 PROJECT& SETTINGS_MANAGER::Prj() const
 {
     // No MDI yet:  First project in the list is the active project
-    return *m_projects.begin()->second;
+    wxASSERT_MSG( m_projects_list.size(), "no project in list" );
+    return *m_projects_list.begin()->get();
 }
 
 
@@ -926,6 +964,12 @@ void SETTINGS_MANAGER::SaveProjectAs( const wxString& aFullPath )
     wxFileName fn( aFullPath );
 
     PROJECT_FILE* project = m_project_files.at( oldName );
+
+    // Ensure read-only flags are copied; this allows doing a "Save As" on a standalong board/sch
+    // without creating project files if the checkbox is turned off
+    project->SetReadOnly( Prj().IsReadOnly() );
+    Prj().GetLocalSettings().SetReadOnly( Prj().IsReadOnly() );
+
     project->SetFilename( fn.GetName() );
     project->SaveToFile( fn.GetPath() );
 
@@ -966,8 +1010,7 @@ bool SETTINGS_MANAGER::loadProjectFile( PROJECT& aProject )
     wxFileName fullFn( aProject.GetProjectFullName() );
     wxString fn( fullFn.GetName() );
 
-    PROJECT_FILE* file = static_cast<PROJECT_FILE*>( RegisterSettings( new PROJECT_FILE( fn ),
-                                                                       false ) );
+    PROJECT_FILE* file = RegisterSettings( new PROJECT_FILE( fn ), false );
 
     m_project_files[aProject.GetProjectFullName()] = file;
 

@@ -28,8 +28,8 @@
 
 #include <sch_edit_frame.h>
 #include <sch_reference_list.h>
-#include <kicad_string.h>
-#include <class_library.h>
+#include <string_utils.h>
+#include <symbol_library.h>
 #include <symbol_lib_table.h>
 
 #include <netlist.h>
@@ -40,18 +40,18 @@ bool NETLIST_EXPORTER_ORCADPCB2::WriteNetlist( const wxString& aOutFileName,
                                                unsigned aNetlistOptions )
 {
     (void)aNetlistOptions;      //unused
-    FILE* f = NULL;
+    FILE* f = nullptr;
     wxString    field;
     wxString    footprint;
     int         ret = 0;        // zero now, OR in the sign bit on error
     wxString    netName;
 
 
-    if( ( f = wxFopen( aOutFileName, wxT( "wt" ) ) ) == NULL )
+    if( ( f = wxFopen( aOutFileName, wxT( "wt" ) ) ) == nullptr )
     {
         wxString msg;
-        msg.Printf( _( "Failed to create file \"%s\"" ), aOutFileName );
-        DisplayError( NULL, msg );
+        msg.Printf( _( "Failed to create file '%s'." ), aOutFileName );
+        DisplayError( nullptr, msg );
         return false;
     }
 
@@ -79,8 +79,10 @@ bool NETLIST_EXPORTER_ORCADPCB2::WriteNetlist( const wxString& aOutFileName,
 
             CreatePinList( symbol, &sheet, true );
 
-            if( symbol->GetPartRef() && symbol->GetPartRef()->GetFPFilters().GetCount() != 0  )
-                cmpList.push_back( SCH_REFERENCE( symbol, symbol->GetPartRef().get(), sheet ) );
+            if( symbol->GetLibSymbolRef()
+              && symbol->GetLibSymbolRef()->GetFPFilters().GetCount() != 0  )
+                cmpList.push_back( SCH_REFERENCE( symbol, symbol->GetLibSymbolRef().get(),
+                                                  sheet ) );
 
             footprint = symbol->GetFootprint( &sheet, true );
             footprint.Replace( wxT( " " ), wxT( "_" ) );

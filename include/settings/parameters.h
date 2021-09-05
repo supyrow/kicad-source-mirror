@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2020 Jon Evans <jon@craftyjon.com>
- * Copyright (C) 2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2020-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -53,12 +53,6 @@ public:
     virtual void Store( JSON_SETTINGS* aSettings ) const = 0;
 
     virtual void SetDefault() = 0;
-
-    /**
-     * Checks whether or not this param has been changed from its default value
-     * @return true if the parameter in memory matches its default value
-     */
-    virtual bool IsDefault() const = 0;
 
     /**
      * Checks whether the parameter in memory matches the one in a given JSON file
@@ -144,11 +138,6 @@ public:
         *m_ptr = m_default;
     }
 
-    bool IsDefault() const override
-    {
-        return *m_ptr == m_default;
-    }
-
     bool MatchesFile( JSON_SETTINGS* aSettings ) const override
     {
         if( OPT<ValueType> optval = aSettings->Get<ValueType>( m_path ) )
@@ -173,7 +162,7 @@ protected:
 class PARAM_PATH : public PARAM<wxString>
 {
 public:
-    PARAM_PATH( const std::string& aJsonPath, wxString* aPtr, wxString aDefault,
+    PARAM_PATH( const std::string& aJsonPath, wxString* aPtr, const wxString& aDefault,
                 bool aReadOnly = false ) :
             PARAM( aJsonPath, aPtr, aDefault, aReadOnly )
     { }
@@ -268,11 +257,6 @@ public:
         *m_ptr = m_default;
     }
 
-    bool IsDefault() const override
-    {
-        return *m_ptr == m_default;
-    }
-
     bool MatchesFile( JSON_SETTINGS* aSettings ) const override
     {
         if( OPT<int> val = aSettings->Get<int>( m_path ) )
@@ -326,11 +310,6 @@ public:
     void SetDefault() override
     {
         m_setter( m_default );
-    }
-
-    bool IsDefault() const override
-    {
-        return m_getter() == m_default;
     }
 
     bool MatchesFile( JSON_SETTINGS* aSettings ) const override;
@@ -414,11 +393,6 @@ public:
         *m_ptr = m_default;
     }
 
-    bool IsDefault() const override
-    {
-        return *m_ptr == m_default;
-    }
-
     bool MatchesFile( JSON_SETTINGS* aSettings ) const override
     {
         if( OPT<double> optval = aSettings->Get<double>( m_path ) )
@@ -461,11 +435,6 @@ public:
     void SetDefault() override
     {
         *m_ptr = m_default;
-    }
-
-    bool IsDefault() const override
-    {
-        return *m_ptr == m_default;
     }
 
     bool MatchesFile( JSON_SETTINGS* aSettings ) const override;
@@ -559,11 +528,6 @@ public:
         *m_ptr = m_default;
     }
 
-    bool IsDefault() const override
-    {
-        return *m_ptr == m_default;
-    }
-
     bool MatchesFile( JSON_SETTINGS* aSettings ) const override;
 
 private:
@@ -594,11 +558,6 @@ public:
     virtual void SetDefault() override
     {
         *m_ptr = m_default;
-    }
-
-    bool IsDefault() const override
-    {
-        return *m_ptr == m_default;
     }
 
     bool MatchesFile( JSON_SETTINGS* aSettings ) const override;

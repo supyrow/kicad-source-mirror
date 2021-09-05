@@ -26,6 +26,7 @@
 #include "wx/html/m_templ.h"
 #include "wx/html/styleparams.h"
 #include <drc/drc_item.h>
+#include <drc/drc_rule.h>
 #include <board.h>
 
 
@@ -69,7 +70,7 @@ DRC_ITEM DRC_ITEM::tracksCrossing( DRCE_TRACKS_CROSSING,
         _( "Tracks crossing" ),
         wxT( "tracks_crossing" ) );
 
-DRC_ITEM DRC_ITEM::copperEdgeClearance( DRCE_COPPER_EDGE_CLEARANCE,
+DRC_ITEM DRC_ITEM::edgeClearance( DRCE_EDGE_CLEARANCE,
         _( "Board edge clearance violation" ),
         wxT( "copper_edge_clearance" ) );
 
@@ -210,7 +211,7 @@ std::vector<std::reference_wrapper<RC_ITEM>> DRC_ITEM::allItemTypes( {
             DRC_ITEM::trackDangling,
 
             DRC_ITEM::heading_DFM,
-            DRC_ITEM::copperEdgeClearance,
+            DRC_ITEM::edgeClearance,
             DRC_ITEM::holeClearance,
             DRC_ITEM::holeNearHole,
             DRC_ITEM::trackWidth,
@@ -260,7 +261,7 @@ std::shared_ptr<DRC_ITEM> DRC_ITEM::Create( int aErrorCode )
     case DRCE_TEXT_ON_EDGECUTS:         return std::make_shared<DRC_ITEM>( textOnEdgeCuts );
     case DRCE_CLEARANCE:                return std::make_shared<DRC_ITEM>( clearance );
     case DRCE_TRACKS_CROSSING:          return std::make_shared<DRC_ITEM>( tracksCrossing );
-    case DRCE_COPPER_EDGE_CLEARANCE:    return std::make_shared<DRC_ITEM>( copperEdgeClearance );
+    case DRCE_EDGE_CLEARANCE:           return std::make_shared<DRC_ITEM>( edgeClearance );
     case DRCE_ZONES_INTERSECT:          return std::make_shared<DRC_ITEM>( zonesIntersect );
     case DRCE_ZONE_HAS_EMPTY_NET:       return std::make_shared<DRC_ITEM>( zoneHasEmptyNet );
     case DRCE_DANGLING_VIA:             return std::make_shared<DRC_ITEM>( viaDangling );
@@ -297,8 +298,6 @@ std::shared_ptr<DRC_ITEM> DRC_ITEM::Create( int aErrorCode )
         wxFAIL_MSG( "Unknown DRC error code" );
         return nullptr;
     }
-
-    return nullptr;
 }
 
 
@@ -314,4 +313,12 @@ std::shared_ptr<DRC_ITEM> DRC_ITEM::Create( const wxString& aErrorKey )
     return nullptr;
 }
 
+
+wxString DRC_ITEM::GetViolatingRuleDesc() const
+{
+    if( m_violatingRule )
+        return wxString::Format( _( "Rule: %s" ), m_violatingRule->m_Name );
+    else
+        return _("Local override" );
+}
 

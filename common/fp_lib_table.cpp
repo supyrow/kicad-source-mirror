@@ -197,8 +197,8 @@ void FP_LIB_TABLE::Parse( LIB_TABLE_LEXER* in )
         {
             delete tmp;     // The table did not take ownership of the row.
 
-            wxString msg = wxString::Format( _( "Duplicate library nickname \"%s\" found in "
-                                                "footprint library table file line %d" ),
+            wxString msg = wxString::Format( _( "Duplicate library nickname '%s' found in "
+                                                "footprint library table file line %d." ),
                                              nickname,
                                              lineNum );
 
@@ -467,7 +467,7 @@ FOOTPRINT* FP_LIB_TABLE::FootprintLoadWithOptionalNickname( const LIB_ID& aFootp
                 return ret;
         }
 
-        return NULL;
+        return nullptr;
     }
 }
 
@@ -489,7 +489,7 @@ bool FP_LIB_TABLE::LoadGlobalTable( FP_LIB_TABLE& aTable )
 
         if( !fn.DirExists() && !fn.Mkdir( 0x777, wxPATH_MKDIR_FULL ) )
         {
-            THROW_IO_ERROR( wxString::Format( _( "Cannot create global library table path \"%s\"." ),
+            THROW_IO_ERROR( wxString::Format( _( "Cannot create global library table path '%s'." ),
                                               fn.GetPath() ) );
         }
 

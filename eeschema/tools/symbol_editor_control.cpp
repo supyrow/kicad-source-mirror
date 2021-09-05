@@ -32,7 +32,7 @@
 #include <symbol_viewer_frame.h>
 #include <symbol_tree_model_adapter.h>
 #include <wildcards_and_files_ext.h>
-#include <gestfich.h>
+#include <wildcards_and_files_ext.h>
 #include <bitmaps/bitmap_types.h>
 #include <confirm.h>
 #include <wx/filedlg.h>
@@ -141,7 +141,7 @@ int SYMBOL_EDITOR_CONTROL::EditSymbol( const TOOL_EVENT& aEvent )
         int                unit = 0;
         LIB_ID             partId = editFrame->GetTreeLIBID( &unit );
 
-        editFrame->LoadPart( partId.GetLibItemName(), partId.GetLibNickname(), unit );
+        editFrame->LoadSymbol( partId.GetLibItemName(), partId.GetLibNickname(), unit );
     }
 
     return 0;
@@ -173,9 +173,9 @@ int SYMBOL_EDITOR_CONTROL::AddSymbol( const TOOL_EVENT& aEvent )
         }
 
         if( aEvent.IsAction( &EE_ACTIONS::newSymbol ) )
-            editFrame->CreateNewPart();
+            editFrame->CreateNewSymbol();
         else if( aEvent.IsAction( &EE_ACTIONS::importSymbol ) )
-            editFrame->ImportPart();
+            editFrame->ImportSymbol();
     }
 
     return 0;
@@ -214,7 +214,7 @@ int SYMBOL_EDITOR_CONTROL::Revert( const TOOL_EVENT& aEvent )
 int SYMBOL_EDITOR_CONTROL::ExportSymbol( const TOOL_EVENT& aEvent )
 {
     if( m_frame->IsType( FRAME_SCH_SYMBOL_EDITOR ) )
-        static_cast<SYMBOL_EDIT_FRAME*>( m_frame )->ExportPart();
+        static_cast<SYMBOL_EDIT_FRAME*>( m_frame )->ExportSymbol();
 
     return 0;
 }
@@ -227,7 +227,7 @@ int SYMBOL_EDITOR_CONTROL::CutCopyDelete( const TOOL_EVENT& aEvt )
         SYMBOL_EDIT_FRAME* editFrame = static_cast<SYMBOL_EDIT_FRAME*>( m_frame );
 
         if( aEvt.IsAction( &EE_ACTIONS::cutSymbol ) || aEvt.IsAction( &EE_ACTIONS::copySymbol ) )
-            editFrame->CopyPartToClipboard();
+            editFrame->CopySymbolToClipboard();
 
         if( aEvt.IsAction( &EE_ACTIONS::cutSymbol ) || aEvt.IsAction( &EE_ACTIONS::deleteSymbol ) )
         {
@@ -242,7 +242,7 @@ int SYMBOL_EDITOR_CONTROL::CutCopyDelete( const TOOL_EVENT& aEvt )
                 return 0;
             }
 
-            editFrame->DeletePartFromLibrary();
+            editFrame->DeleteSymbolFromLibrary();
         }
     }
 
@@ -267,7 +267,7 @@ int SYMBOL_EDITOR_CONTROL::DuplicateSymbol( const TOOL_EVENT& aEvent )
             return 0;
         }
 
-        editFrame->DuplicatePart( aEvent.IsAction( &EE_ACTIONS::pasteSymbol ) );
+        editFrame->DuplicateSymbol( aEvent.IsAction( &EE_ACTIONS::pasteSymbol ) );
     }
 
     return 0;
@@ -379,7 +379,7 @@ int SYMBOL_EDITOR_CONTROL::ExportView( const TOOL_EVENT& aEvent )
         return 0;
 
     SYMBOL_EDIT_FRAME* editFrame = getEditFrame<SYMBOL_EDIT_FRAME>();
-    LIB_SYMBOL*        symbol = editFrame->GetCurPart();
+    LIB_SYMBOL*        symbol = editFrame->GetCurSymbol();
 
     if( !symbol )
     {
@@ -405,7 +405,7 @@ int SYMBOL_EDITOR_CONTROL::ExportView( const TOOL_EVENT& aEvent )
 
         if( !SaveCanvasImageToFile( editFrame, dlg.GetPath(), BITMAP_TYPE::PNG ) )
         {
-            wxMessageBox( wxString::Format( _( "Can't save file \"%s\"." ), dlg.GetPath() ) );
+            wxMessageBox( wxString::Format( _( "Can't save file '%s'." ), dlg.GetPath() ) );
         }
     }
 
@@ -419,7 +419,7 @@ int SYMBOL_EDITOR_CONTROL::ExportSymbolAsSVG( const TOOL_EVENT& aEvent )
         return 0;
 
     SYMBOL_EDIT_FRAME* editFrame = getEditFrame<SYMBOL_EDIT_FRAME>();
-    LIB_SYMBOL*        symbol = editFrame->GetCurPart();
+    LIB_SYMBOL*        symbol = editFrame->GetCurSymbol();
 
     if( !symbol )
     {
@@ -427,15 +427,15 @@ int SYMBOL_EDITOR_CONTROL::ExportSymbolAsSVG( const TOOL_EVENT& aEvent )
         return 0;
     }
 
-    wxString   file_ext = wxT( "svg" );
-    wxString   mask     = wxT( "*." ) + file_ext;
+    wxString   file_ext = SVGFileExtension;
     wxFileName fn( symbol->GetName() );
-    fn.SetExt( file_ext );
+    fn.SetExt( SVGFileExtension );
 
     wxString pro_dir = wxPathOnly( m_frame->Prj().GetProjectFullName() );
 
-    wxString fullFileName = EDA_FILE_SELECTOR( _( "Filename:" ), pro_dir, fn.GetFullName(),
-                                               file_ext, mask, m_frame, wxFD_SAVE, true );
+    wxString fullFileName = wxFileSelector( _( "SVG File Name" ), pro_dir, fn.GetFullName(),
+                                            SVGFileExtension, SVGFileWildcard(), wxFD_SAVE,
+                                            m_frame );
 
     if( !fullFileName.IsEmpty() )
     {
@@ -443,7 +443,7 @@ int SYMBOL_EDITOR_CONTROL::ExportSymbolAsSVG( const TOOL_EVENT& aEvent )
         PAGE_INFO pageTemp = pageSave;
 
         wxSize symbolSize = symbol->GetUnitBoundingBox( editFrame->GetUnit(),
-                                                      editFrame->GetConvert() ).GetSize();
+                                                        editFrame->GetConvert() ).GetSize();
 
         // Add a small margin to the plot bounding box
         pageTemp.SetWidthMils(  int( symbolSize.x * 1.2 ) );
@@ -468,7 +468,7 @@ int SYMBOL_EDITOR_CONTROL::AddSymbolToSchematic( const TOOL_EVENT& aEvent )
     {
         SYMBOL_EDIT_FRAME* editFrame = getEditFrame<SYMBOL_EDIT_FRAME>();
 
-        libSymbol = editFrame->GetCurPart();
+        libSymbol = editFrame->GetCurSymbol();
         unit = editFrame->GetUnit();
         convert = editFrame->GetConvert();
 

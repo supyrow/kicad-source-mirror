@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2004-2018 Jean-Pierre Charras jp.charras at wanadoo.fr
- * Copyright (C) 2010-2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2010-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -28,7 +28,7 @@
 #include <board_commit.h>
 #include <board.h>
 #include <footprint.h>
-#include <kicad_string.h>
+#include <string_utils.h>
 #include <pcb_text.h>
 #include <fp_text.h>
 #include <pcbnew.h>
@@ -36,6 +36,7 @@
 #include <pcb_layer_box_selector.h>
 #include <wx/valnum.h>
 #include <math/util.h>      // for KiROUND
+#include <scintilla_tricks.h>
 
 
 DIALOG_TEXT_PROPERTIES::DIALOG_TEXT_PROPERTIES( PCB_BASE_EDIT_FRAME* aParent, BOARD_ITEM* aItem ) :
@@ -59,6 +60,12 @@ DIALOG_TEXT_PROPERTIES::DIALOG_TEXT_PROPERTIES( PCB_BASE_EDIT_FRAME* aParent, BO
     m_posY.SetCoordType( ORIGIN_TRANSFORMS::ABS_Y_COORD );
 
     m_MultiLineText->SetEOLMode( wxSTC_EOL_LF );
+
+    m_scintillaTricks = new SCINTILLA_TRICKS( m_MultiLineText, wxT( "{}" ), false,
+            [this]()
+            {
+                wxPostEvent( this, wxCommandEvent( wxEVT_COMMAND_BUTTON_CLICKED, wxID_OK ) );
+            } );
 
     // A hack which causes Scintilla to auto-size the text editor canvas
     // See: https://github.com/jacobslusser/ScintillaNET/issues/216
@@ -92,15 +99,6 @@ DIALOG_TEXT_PROPERTIES::DIALOG_TEXT_PROPERTIES( PCB_BASE_EDIT_FRAME* aParent, BO
         SetInitialFocus( m_MultiLineText );
         m_SingleLineSizer->Show( false );
 
-        int    size = wxNORMAL_FONT->GetPointSize();
-        wxFont fixedFont( size, wxFONTFAMILY_TELETYPE, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL );
-
-        for( size_t i = 0; i < wxSTC_STYLE_MAX; ++i )
-            m_MultiLineText->StyleSetFont( i, fixedFont );
-
-        // Addresses a bug in wx3.0 where styles are not correctly set
-        m_MultiLineText->StyleClearAll();
-
         // This option makes sense only for footprint texts; texts on board are always visible.
         m_Visible->SetValue( true );
         m_Visible->Enable( false );
@@ -133,7 +131,7 @@ DIALOG_TEXT_PROPERTIES::DIALOG_TEXT_PROPERTIES( PCB_BASE_EDIT_FRAME* aParent, BO
         m_OrientCtrl->SetString( ii, wxString::Format( "%.1f", rot_list[ii] ) );
 
     // Set font sizes
-    wxFont infoFont = wxSystemSettings::GetFont( wxSYS_DEFAULT_GUI_FONT );
+    wxFont infoFont = KIUI::GetInfoFont();
     infoFont.SetSymbolicSize( wxFONTSIZE_X_SMALL );
     m_statusLine->SetFont( infoFont );
 
@@ -161,7 +159,8 @@ DIALOG_TEXT_PROPERTIES::DIALOG_TEXT_PROPERTIES( PCB_BASE_EDIT_FRAME* aParent, BO
 
     // wxTextCtrls fail to generate wxEVT_CHAR events when the wxTE_MULTILINE flag is set,
     // so we have to listen to wxEVT_CHAR_HOOK events instead.
-    Connect( wxEVT_CHAR_HOOK, wxKeyEventHandler( DIALOG_TEXT_PROPERTIES::OnCharHook ), NULL, this );
+    Connect( wxEVT_CHAR_HOOK, wxKeyEventHandler( DIALOG_TEXT_PROPERTIES::OnCharHook ),
+             nullptr, this );
 
     finishDialogSettings();
 }
@@ -169,69 +168,17 @@ DIALOG_TEXT_PROPERTIES::DIALOG_TEXT_PROPERTIES( PCB_BASE_EDIT_FRAME* aParent, BO
 
 DIALOG_TEXT_PROPERTIES::~DIALOG_TEXT_PROPERTIES()
 {
-    Disconnect( wxEVT_CHAR_HOOK, wxKeyEventHandler( DIALOG_TEXT_PROPERTIES::OnCharHook ), NULL, this );
+    Disconnect( wxEVT_CHAR_HOOK, wxKeyEventHandler( DIALOG_TEXT_PROPERTIES::OnCharHook ),
+                nullptr, this );
+
+    delete m_scintillaTricks;
 }
 
 
-// Launch the text properties dialog in quasi modal mode.
 void PCB_BASE_EDIT_FRAME::ShowTextPropertiesDialog( BOARD_ITEM* aText )
 {
     DIALOG_TEXT_PROPERTIES dlg( this, aText );
     dlg.ShowQuasiModal();
-}
-
-
-void DIALOG_TEXT_PROPERTIES::OnCharHook( wxKeyEvent& aEvent )
-{
-    if( aEvent.GetKeyCode() == WXK_RETURN && aEvent.ShiftDown() )
-    {
-        if( TransferDataFromWindow() )
-        {
-            // Do not use EndModal to close the dialog that can be opened
-            // in quasi modal mode
-            SetReturnCode( wxID_OK );
-            Close();
-        }
-    }
-    else if( m_MultiLineText->IsShown() && m_MultiLineText->HasFocus() )
-    {
-        if( aEvent.GetKeyCode() == WXK_TAB && !aEvent.ControlDown() )
-        {
-            m_MultiLineText->Tab();
-        }
-        else if( IsCtrl( 'Z', aEvent ) )
-        {
-            m_MultiLineText->Undo();
-        }
-        else if( IsShiftCtrl( 'Z', aEvent ) || IsCtrl( 'Y', aEvent ) )
-        {
-            m_MultiLineText->Redo();
-        }
-        else if( IsCtrl( 'X', aEvent ) )
-        {
-            m_MultiLineText->Cut();
-        }
-        else if( IsCtrl( 'C', aEvent ) )
-        {
-            m_MultiLineText->Copy();
-        }
-        else if( IsCtrl( 'V', aEvent ) )
-        {
-            m_MultiLineText->Paste();
-        }
-        else if( IsCtrl( 'A', aEvent ) )
-        {
-            m_MultiLineText->SelectAll();
-        }
-        else
-        {
-            aEvent.Skip();
-        }
-    }
-    else
-    {
-        aEvent.Skip();
-    }
 }
 
 
@@ -359,7 +306,11 @@ bool DIALOG_TEXT_PROPERTIES::TransferDataFromWindow()
             BOARD*   board = m_Parent->GetBoard();
             wxString txt = board->ConvertCrossReferencesToKIIDs( m_MultiLineText->GetValue() );
 
-#ifdef __WINDOWS__
+#ifdef __WXMAC__
+            // On macOS CTRL+Enter produces '\r' instead of '\n' regardless of EOL setting.
+            // Replace it now.
+            txt.Replace( "\r", "\n" );
+#elif defined( __WINDOWS__ )
             // On Windows, a new line is coded as \r\n.  We use only \n in kicad files and in
             // drawing routines so strip the \r char.
             txt.Replace( "\r", "" );

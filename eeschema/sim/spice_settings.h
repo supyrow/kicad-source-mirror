@@ -2,6 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2021 CERN
+ * Copyright (C) 2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * @author Wayne Stambaugh <stambaughw@gmail.com>
  *
@@ -44,10 +45,24 @@ public:
     bool operator!=( const SPICE_SIMULATOR_SETTINGS& aRhs ) const { return !( *this == aRhs ); }
 
     wxString GetWorkbookFilename() const { return m_workbookFilename; }
-    void     SetWorkbookFilename( wxString aFilename ) { m_workbookFilename = aFilename; }
+    void     SetWorkbookFilename( const wxString& aFilename ) { m_workbookFilename = aFilename; }
+
+    bool GetFixPassiveVals() const { return m_fixPassiveVals; }
+    void SetFixPassiveVals( bool aFixPassiveVals )
+    {
+        m_fixPassiveVals = aFixPassiveVals;
+    }
+
+    bool GetFixIncludePaths() const { return m_fixIncludePaths; }
+    void SetFixIncludePaths( bool aFixIncludePaths )
+    {
+        m_fixIncludePaths = aFixIncludePaths;
+    }
 
 private:
     wxString m_workbookFilename;
+    bool m_fixPassiveVals;
+    bool m_fixIncludePaths;
 };
 
 /**
@@ -72,6 +87,7 @@ class NGSPICE_SIMULATOR_SETTINGS : public SPICE_SIMULATOR_SETTINGS
 {
 public:
     NGSPICE_SIMULATOR_SETTINGS( JSON_SETTINGS* aParent, const std::string& aPath );
+    virtual ~NGSPICE_SIMULATOR_SETTINGS() {}
 
     bool operator==( const SPICE_SIMULATOR_SETTINGS& aRhs ) const override;
 

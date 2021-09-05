@@ -71,6 +71,7 @@ enum CHANGED_COLOR
     RED_CHANGED,
     BLUE_CHANGED,
     GREEN_CHANGED,
+    ALPHA_CHANGED,
     HUE_CHANGED,
     SAT_CHANGED,
     VAL_CHANGED,
@@ -172,10 +173,13 @@ private:
      * if Saturation value computed from aMouseCursor is <= 1.0,
      * and false if aMouseCursor is outside this area.
      */
-	bool setHSvaluesFromCursor( wxPoint aMouseCursor );
+	bool setHSvaluesFromCursor( const wxPoint& aMouseCursor );
 
     ///< Event handler for defined color buttons
     void buttColorClick( wxMouseEvent& event );
+
+    ///< Event handler for double click on color buttons
+    void colorDClick( wxMouseEvent& event );
 
     ///< called when creating the dialog
     bool TransferDataToWindow() override;

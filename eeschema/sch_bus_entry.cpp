@@ -39,11 +39,15 @@
 
 
 SCH_BUS_ENTRY_BASE::SCH_BUS_ENTRY_BASE( KICAD_T aType, const wxPoint& pos, bool aFlipY ) :
-    SCH_ITEM( NULL, aType )
+    SCH_ITEM( nullptr, aType )
 {
     m_pos    = pos;
     m_size.x = Mils2iu( DEFAULT_SCH_ENTRY_SIZE );
     m_size.y = Mils2iu( DEFAULT_SCH_ENTRY_SIZE );
+
+    m_stroke.SetWidth( 0 );
+    m_stroke.SetPlotStyle( PLOT_DASH_TYPE::DEFAULT );
+    m_stroke.SetColor( COLOR4D::UNSPECIFIED );
 
     if( aFlipY )
         m_size.y *= -1;
@@ -55,6 +59,23 @@ SCH_BUS_ENTRY_BASE::SCH_BUS_ENTRY_BASE( KICAD_T aType, const wxPoint& pos, bool 
 SCH_BUS_WIRE_ENTRY::SCH_BUS_WIRE_ENTRY( const wxPoint& pos, bool aFlipY ) :
     SCH_BUS_ENTRY_BASE( SCH_BUS_WIRE_ENTRY_T, pos, aFlipY )
 {
+    m_layer  = LAYER_WIRE;
+    m_connected_bus_item = nullptr;
+}
+
+
+SCH_BUS_WIRE_ENTRY::SCH_BUS_WIRE_ENTRY( const wxPoint& pos, int aQuadrant ) :
+    SCH_BUS_ENTRY_BASE( SCH_BUS_WIRE_ENTRY_T, pos, false )
+{
+    switch( aQuadrant )
+    {
+    case 1: m_size.x *=  1; m_size.y *= -1; break;
+    case 2: m_size.x *=  1; m_size.y *=  1; break;
+    case 3: m_size.x *= -1; m_size.y *=  1; break;
+    case 4: m_size.x *= -1; m_size.y *= -1; break;
+    default: wxFAIL_MSG( "SCH_BUS_WIRE_ENTRY ctor: unexpected quadrant" );
+    }
+
     m_layer  = LAYER_WIRE;
     m_connected_bus_item = nullptr;
 }
@@ -161,7 +182,7 @@ int SCH_BUS_WIRE_ENTRY::GetPenWidth() const
     if( Schematic() )
         return std::max( Schematic()->Settings().m_DefaultWireThickness, 1 );
 
-    return DEFAULT_WIRE_THICKNESS;
+    return Mils2iu( DEFAULT_WIRE_WIDTH_MILS );
 }
 
 
@@ -178,7 +199,7 @@ int SCH_BUS_BUS_ENTRY::GetPenWidth() const
     if( Schematic() )
         return std::max( Schematic()->Settings().m_DefaultBusThickness, 1 );
 
-    return DEFAULT_BUS_THICKNESS;
+    return Mils2iu( DEFAULT_BUS_WIDTH_MILS );
 }
 
 

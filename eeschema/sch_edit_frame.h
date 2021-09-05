@@ -246,11 +246,6 @@ public:
     void ClearFindReplaceStatus();
 
     /**
-     * Get the find criteria (as set by the dialog).
-     */
-    wxFindReplaceData* GetFindReplaceData();
-
-    /**
      * Notification that the Find dialog has closed.
      */
     void OnFindDialogClose();
@@ -477,9 +472,13 @@ public:
     void NewProject();
     void LoadProject();
 
-    void Save_File( bool doSaveAs = false );
-
-    bool SaveProject();
+    /**
+     * Saves the currently-open schematic (including its hierarchy) and associated project
+     * @param aSaveAs is true to perform a Save As operation (rename the schematic and project).
+     *                This may only be done in standalone mode.
+     * @return true if the schematic was saved
+     */
+    bool SaveProject( bool aSaveAs = false );
 
     bool OpenProjectFiles( const std::vector<wxString>& aFileSet, int aCtl = 0 ) override;
 
@@ -491,18 +490,6 @@ public:
      * @return True if the schematic was imported properly.
      */
     bool AppendSchematic();
-
-    /**
-     * Save \a aSheet to a schematic file.
-     *
-     * @param aSheet is the #SCH_SHEET object to save.  A NULL pointer saves the
-     *               current screen only.
-     * @param aSaveUnderNewName Controls how the file is to be saved;: using  previous name
-     *                          or under a new name.
-     * @return True if the file has been saved.
-     */
-    bool SaveEEFile( SCH_SHEET* aSheet, bool aSaveUnderNewName = false );
-
 
     /**
      * Check if any of the screens has unsaved changes and asks the user whether to save or
@@ -814,6 +801,8 @@ public:
 
     void FixupJunctions();
 
+    int GetSchematicJunctionSize();
+
     void FocusOnItem( SCH_ITEM* aItem );
 
     /**
@@ -886,12 +875,12 @@ private:
     void initScreenZoom();
 
     /**
-     * Verify that the symbol library links \a aSheet and all of it's child sheets have
+     * Verify that the symbol library links \a aSheet and all of its child sheets have
      * been remapped to the symbol library table.
      *
      * @param aSheet is the #SCH_SHEET object to test.
      *
-     * @return true if \a aSheet and it's child sheets have not been remapped.
+     * @return true if \a aSheet and its child sheets have not been remapped.
      */
     bool checkForNoFullyDefinedLibIds( SCH_SHEET* aSheet );
 
@@ -902,6 +891,15 @@ private:
      *  @param aFileType SCH_FILE_T value for file type
      */
     bool importFile( const wxString& aFileName, int aFileType );
+
+    /**
+     * Save \a aSheet to a schematic file.
+     *
+     * @param aSheet is the #SCH_SHEET object to save.
+     * @param aSavePath is the full path of the destination file
+     * @return True if the file has been saved.
+     */
+    bool saveSchematicFile( SCH_SHEET* aSheet, const wxString& aSavePath );
 
     /**
      * Fill a map of uuid -> reference from the currently loaded schematic.

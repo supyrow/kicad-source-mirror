@@ -155,6 +155,8 @@ set( PCBNEW_DIALOGS
     dialogs/panel_fp_editor_color_settings.cpp
     dialogs/panel_fp_editor_defaults.cpp
     dialogs/panel_fp_editor_defaults_base.cpp
+    dialogs/panel_fp_properties_3d_model.cpp
+    dialogs/panel_fp_properties_3d_model_base.cpp
     dialogs/panel_pcbnew_action_plugins.cpp
     dialogs/panel_pcbnew_action_plugins_base.cpp
     dialogs/panel_pcbnew_color_settings.cpp
@@ -228,7 +230,7 @@ set( PCBNEW_MICROWAVE_SRCS
 set( PCBNEW_DRC_SRCS
     drc/drc_results_provider.cpp
     drc/drc_test_provider.cpp
-    drc/drc_test_provider_annulus.cpp
+    drc/drc_test_provider_annular_width.cpp
     drc/drc_test_provider_disallow.cpp
     drc/drc_test_provider_connectivity.cpp
     drc/drc_test_provider_copper_clearance.cpp
@@ -267,7 +269,7 @@ set( PCBNEW_CLASS_SRCS
 
     action_plugin.cpp
     array_creator.cpp
-    array_pad_name_provider.cpp
+    array_pad_number_provider.cpp
     build_BOM_from_board.cpp
     cleanup_item.cpp
     convert_drawsegment_list_to_polygon.cpp
@@ -292,11 +294,8 @@ set( PCBNEW_CLASS_SRCS
     load_select_footprint.cpp
     menubar_footprint_editor.cpp
     menubar_pcb_editor.cpp
-    pad_naming.cpp
     pcb_base_edit_frame.cpp
     pcb_layer_box_selector.cpp
-#    pcb_draw_panel_gal.cpp
-#    pcb_view.cpp
     pcb_edit_frame.cpp
     pcbnew_config.cpp
     pcbnew_printout.cpp
@@ -584,7 +583,7 @@ if( APPLE )
         MACOSX_PACKAGE_LOCATION Resources
         )
     set( MACOSX_BUNDLE_ICON_FILE pcbnew.icns )
-    set( MACOSX_BUNDLE_GUI_IDENTIFIER org.kicad-pcb.kicad )
+    set( MACOSX_BUNDLE_GUI_IDENTIFIER org.kicad.kicad )
     set( MACOSX_BUNDLE_NAME pcbnew )
 endif()
 
@@ -766,6 +765,11 @@ else()
         )
 endif()
 
+if( KICAD_WIN32_INSTALL_PDBS )
+    # Get the PDBs to copy over for MSVC
+    install(FILES $<TARGET_PDB_FILE:pcbnew> DESTINATION ${KICAD_BIN})
+    install(FILES $<TARGET_PDB_FILE:pcbnew_kiface> DESTINATION ${KICAD_BIN})
+endif()
 
 if( NOT APPLE )
     install( FILES ${CMAKE_BINARY_DIR}/pcbnew/pcbnew.py DESTINATION ${PYTHON_DEST} )

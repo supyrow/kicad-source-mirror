@@ -2,10 +2,10 @@
 Provides the backend for a basic python editor in KiCad.
 
 This takes most code from PyShell/PyCrust but adapts it to the KiCad
-environment where the Python doesn't create a frame but instead hooks 
+environment where the Python doesn't create a frame but instead hooks
 into the existing KIWAY_PLAYER
 
-Original PyCrust code used from 
+Original PyCrust code used from
 https://github.com/wxWidgets/Phoenix/tree/master/wx/py
 '''
 
@@ -14,6 +14,14 @@ import wx
 from wx.py import crust, version, dispatcher
 from wx.py.editor import Editor
 from wx.py.buffer import Buffer
+
+def KiNewId():
+    try:
+        wx.NewIdRef
+    except NameError:
+        return wx.NewId()
+    else:
+        return wx.NewIdRef()
 
 ID_NEW = wx.ID_NEW
 ID_OPEN = wx.ID_OPEN
@@ -30,48 +38,46 @@ ID_COPY = wx.ID_COPY
 ID_PASTE = wx.ID_PASTE
 ID_CLEAR = wx.ID_CLEAR
 ID_SELECTALL = wx.ID_SELECTALL
-ID_EMPTYBUFFER = wx.NewIdRef()
+ID_EMPTYBUFFER = KiNewId()
 ID_ABOUT = wx.ID_ABOUT
-ID_HELP = wx.NewIdRef()
-ID_AUTOCOMP_SHOW = wx.NewIdRef()
-ID_AUTOCOMP_MAGIC = wx.NewIdRef()
-ID_AUTOCOMP_SINGLE = wx.NewIdRef()
-ID_AUTOCOMP_DOUBLE = wx.NewIdRef()
-ID_CALLTIPS_SHOW = wx.NewIdRef()
-ID_CALLTIPS_INSERT = wx.NewIdRef()
-ID_COPY_PLUS = wx.NewIdRef()
-ID_NAMESPACE = wx.NewIdRef()
-ID_PASTE_PLUS = wx.NewIdRef()
-ID_WRAP = wx.NewIdRef()
-ID_TOGGLE_MAXIMIZE = wx.NewIdRef()
-ID_SHOW_LINENUMBERS = wx.NewIdRef()
-ID_ENABLESHELLMODE = wx.NewIdRef()
-ID_ENABLEAUTOSYMPY = wx.NewIdRef()
-ID_AUTO_SAVESETTINGS = wx.NewIdRef()
-ID_SAVEACOPY = wx.NewIdRef()
-ID_SAVEHISTORY = wx.NewIdRef()
-ID_SAVEHISTORYNOW = wx.NewIdRef()
-ID_CLEARHISTORY = wx.NewIdRef()
-ID_SAVESETTINGS = wx.NewIdRef()
-ID_DELSETTINGSFILE = wx.NewIdRef()
-ID_EDITSTARTUPSCRIPT = wx.NewIdRef()
-ID_EXECSTARTUPSCRIPT = wx.NewIdRef()
-ID_SHOWPYSLICESTUTORIAL = wx.NewIdRef()
+ID_HELP = KiNewId()
+ID_AUTOCOMP_SHOW = KiNewId()
+ID_AUTOCOMP_MAGIC = KiNewId()
+ID_AUTOCOMP_SINGLE = KiNewId()
+ID_AUTOCOMP_DOUBLE = KiNewId()
+ID_CALLTIPS_SHOW = KiNewId()
+ID_CALLTIPS_INSERT = KiNewId()
+ID_COPY_PLUS = KiNewId()
+ID_NAMESPACE = KiNewId()
+ID_PASTE_PLUS = KiNewId()
+ID_WRAP = KiNewId()
+ID_TOGGLE_MAXIMIZE = KiNewId()
+ID_SHOW_LINENUMBERS = KiNewId()
+ID_ENABLESHELLMODE = KiNewId()
+ID_ENABLEAUTOSYMPY = KiNewId()
+ID_AUTO_SAVESETTINGS = KiNewId()
+ID_SAVEACOPY = KiNewId()
+ID_SAVEHISTORY = KiNewId()
+ID_SAVEHISTORYNOW = KiNewId()
+ID_CLEARHISTORY = KiNewId()
+ID_SAVESETTINGS = KiNewId()
+ID_DELSETTINGSFILE = KiNewId()
+ID_EDITSTARTUPSCRIPT = KiNewId()
+ID_EXECSTARTUPSCRIPT = KiNewId()
+ID_SHOWPYSLICESTUTORIAL = KiNewId()
 ID_FIND = wx.ID_FIND
-ID_FINDNEXT = wx.NewIdRef()
-ID_FINDPREVIOUS = wx.NewIdRef()
-ID_SHOWTOOLS = wx.NewIdRef()
-ID_HIDEFOLDINGMARGIN = wx.NewIdRef()
-
-import pcbnew
+ID_FINDNEXT = KiNewId()
+ID_FINDPREVIOUS = KiNewId()
+ID_SHOWTOOLS = KiNewId()
+ID_HIDEFOLDINGMARGIN = KiNewId()
 
 INTRO = "KiCad - Python Shell"
 
 class KiCadPyFrame():
-    
+
     def __init__(self, parent):
         """Create a Frame instance."""
-        
+
         self.parent = parent
         self.parent.CreateStatusBar()
         self.parent.SetStatusText('Frame')
@@ -82,7 +88,7 @@ class KiCadPyFrame():
         self.findDlg = None
         self.findData = wx.FindReplaceData()
         self.findData.SetFlags(wx.FR_DOWN)
-        
+
         self.parent.Bind(wx.EVT_CLOSE, self.OnClose)
         self.parent.Bind(wx.EVT_ICONIZE, self.OnIconize)
 
@@ -165,7 +171,7 @@ class KiCadPyFrame():
 
         # Options
         m = self.optionsMenu = wx.Menu()
-        
+
         self.historyMenu = wx.Menu()
         self.historyMenu.Append(ID_SAVEHISTORY, '&Autosave History',
                  'Automatically save history on close', wx.ITEM_CHECK)
@@ -256,7 +262,7 @@ class KiCadPyFrame():
         self.parent.Bind(wx.EVT_MENU, self.OnFindPrevious, id=ID_FINDPREVIOUS)
         self.parent.Bind(wx.EVT_MENU, self.OnToggleTools, id=ID_SHOWTOOLS)
         self.parent.Bind(wx.EVT_MENU, self.OnHideFoldingMargin, id=ID_HIDEFOLDINGMARGIN)
-        
+
         self.parent.Bind(wx.EVT_UPDATE_UI, self.OnUpdateMenu, id=ID_NEW)
         self.parent.Bind(wx.EVT_UPDATE_UI, self.OnUpdateMenu, id=ID_OPEN)
         self.parent.Bind(wx.EVT_UPDATE_UI, self.OnUpdateMenu, id=ID_REVERT)
@@ -299,12 +305,12 @@ class KiCadPyFrame():
         self.parent.Bind(wx.EVT_UPDATE_UI, self.OnUpdateMenu, id=ID_FINDPREVIOUS)
         self.parent.Bind(wx.EVT_UPDATE_UI, self.OnUpdateMenu, id=ID_SHOWTOOLS)
         self.parent.Bind(wx.EVT_UPDATE_UI, self.OnUpdateMenu, id=ID_HIDEFOLDINGMARGIN)
-        
+
         self.parent.Bind(wx.EVT_ACTIVATE, self.OnActivate)
         self.parent.Bind(wx.EVT_FIND, self.OnFindNext)
         self.parent.Bind(wx.EVT_FIND_NEXT, self.OnFindNext)
         self.parent.Bind(wx.EVT_FIND_CLOSE, self.OnFindClose)
-        
+
     def OnShowLineNumbers(self, event):
         win = wx.Window.FindFocus()
         if hasattr(win, 'lineNumbers'):
@@ -694,7 +700,7 @@ class KiCadPyFrame():
 
 class KiCadEditorFrame(KiCadPyFrame):
     def __init__(self, parent=None, id=-1, title='KiCad Python'):
-        
+
         """Create EditorFrame instance."""
         KiCadPyFrame.__init__(self, parent)
         self.buffers = {}
@@ -907,9 +913,17 @@ class KiCadEditorFrame(KiCadPyFrame):
 class KiCadEditorNotebookFrame(KiCadEditorFrame):
     def __init__(self, parent):
         """Create EditorNotebookFrame instance."""
+
         self.notebook = None
         KiCadEditorFrame.__init__(self, parent)
+
         if self.notebook:
+            """Keep pydoc output on stdout instead of pager and
+                place the stdout into the editor window """
+            import pydoc, sys
+            self._keep_stdin = sys.stdin
+            pydoc.pager = pydoc.plainpager
+
             dispatcher.connect(receiver=self._editorChange,
                                signal='EditorChange', sender=self.notebook)
 
@@ -934,6 +948,7 @@ class KiCadEditorNotebookFrame(KiCadEditorFrame):
         self.notebook.AddPage(page=self.crust, text='*Shell*', select=True)
         self.setEditor(self.crust.editor)
         self.crust.editor.SetFocus()
+
 
     def _editorChange(self, editor):
         """Editor change signal receiver."""
@@ -992,7 +1007,7 @@ class KiCadEditorNotebookFrame(KiCadEditorFrame):
             self.bufferCreate(path)
         cancel = False
         return cancel
-    
+
 
 class KiCadEditorNotebook(wx.Notebook):
     """A notebook containing a page for each editor."""

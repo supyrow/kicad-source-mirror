@@ -39,7 +39,7 @@
 #include <wx/filedlg.h>
 
 #include <project.h>
-#include <3d_viewer/eda_3d_viewer.h>      // for KICAD6_3DMODEL_DIR
+#include <3d_viewer/eda_3d_viewer_frame.h>      // for KICAD6_3DMODEL_DIR
 #include <panel_fp_lib_table.h>
 #include <lib_id.h>
 #include <fp_lib_table.h>
@@ -896,7 +896,7 @@ void PANEL_FP_LIB_TABLE::browseLibrariesHandler( wxCommandEvent& event )
     for( const wxString& filePath : files )
     {
         wxFileName fn( filePath );
-        wxString   nickname = LIB_ID::FixIllegalChars( fn.GetName() );
+        wxString   nickname = LIB_ID::FixIllegalChars( fn.GetName(), true );
         bool       doAdd    = true;
 
         if( cur_model()->ContainsNickname( nickname ) )
@@ -1007,7 +1007,7 @@ void PANEL_FP_LIB_TABLE::populateEnvironReadOnlyTable()
     std::set< wxString > unique;
 
     // clear the table
-    m_path_subs_grid->DeleteRows( 0, m_path_subs_grid->GetNumberRows() );
+    m_path_subs_grid->ClearRows();
 
     for( FP_LIB_TABLE_GRID* tbl : { global_model(), project_model() } )
     {

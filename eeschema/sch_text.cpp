@@ -30,11 +30,11 @@
 
 #include <sch_symbol.h>
 #include <sch_edit_frame.h>
-#include <plotter.h>
+#include <plotters/plotter.h>
 #include <widgets/msgpanel.h>
 #include <gal/stroke_font.h>
 #include <bitmaps.h>
-#include <kicad_string.h>
+#include <string_utils.h>
 #include <sch_text.h>
 #include <schematic.h>
 #include <settings/color_settings.h>
@@ -46,7 +46,6 @@
 #include <project/project_file.h>
 #include <project/net_settings.h>
 #include <core/mirror.h>
-#include <dialog_helpers.h>
 #include <trigo.h>
 
 using KIGFX::SCH_RENDER_SETTINGS;
@@ -54,27 +53,29 @@ using KIGFX::SCH_RENDER_SETTINGS;
 
 bool IncrementLabelMember( wxString& name, int aIncrement )
 {
-    int  ii, nn;
-    long number = 0;
-
-    ii = name.Len() - 1;
-    nn = 0;
-
-    // No number found, but simply repeating the same label is valid
-
-    if( !wxIsdigit( name.GetChar( ii ) ) )
+    if( name.IsEmpty() )
         return true;
+
+    int  ii = name.Len() - 1;
+
+    // Ignore formatting constructs
+    if( name.GetChar( ii ) == '}' )
+        ii--;
+
+    wxString digits;
 
     while( ii >= 0 && wxIsdigit( name.GetChar( ii ) ) )
     {
+        digits = name.GetChar( ii ) + digits;
         ii--;
-        nn++;
     }
 
-    ii++; /* digits are starting at ii position */
-    wxString litt_number = name.Right( nn );
+    if( digits.IsEmpty() )
+        return true;
 
-    if( litt_number.ToLong( &number ) )
+    long number = 0;
+
+    if( digits.ToLong( &number ) )
     {
         number += aIncrement;
 
@@ -82,11 +83,12 @@ bool IncrementLabelMember( wxString& name, int aIncrement )
 
         if( number > -1 )
         {
-            name.Remove( ii );
+            name.Remove( ii + 1 );
             name << number;
             return true;
         }
     }
+
     return false;
 }
 
@@ -200,7 +202,7 @@ LABEL_SPIN_STYLE LABEL_SPIN_STYLE::MirrorY()
 
 
 SCH_TEXT::SCH_TEXT( const wxPoint& pos, const wxString& text, KICAD_T aType ) :
-        SCH_ITEM( NULL, aType ),
+        SCH_ITEM( nullptr, aType ),
         EDA_TEXT( text ),
         m_shape( PINSHEETLABEL_SHAPE::PS_INPUT ),
         m_isDangling( false ),
@@ -400,6 +402,23 @@ int SCH_TEXT::GetTextOffset( const RENDER_SETTINGS* aSettings ) const
         ratio = Schematic()->Settings().m_TextOffsetRatio;
     else
         ratio = DEFAULT_TEXT_OFFSET_RATIO;   // For previews (such as in Preferences), etc.
+
+    return KiROUND( ratio * GetTextSize().y );
+
+    return 0;
+}
+
+
+int SCH_TEXT::GetLabelBoxExpansion( const RENDER_SETTINGS* aSettings ) const
+{
+    double ratio;
+
+    if( aSettings )
+        ratio = static_cast<const SCH_RENDER_SETTINGS*>( aSettings )->m_LabelSizeRatio;
+    else if( Schematic() )
+        ratio = Schematic()->Settings().m_LabelSizeRatio;
+    else
+        ratio = DEFAULT_LABEL_SIZE_RATIO; // For previews (such as in Preferences), etc.
 
     return KiROUND( ratio * GetTextSize().y );
 
@@ -615,14 +634,19 @@ wxString SCH_TEXT::GetShownText( int aDepth ) const
                 return false;
             };
 
-    bool     processTextVars = false;
-    wxString text = EDA_TEXT::GetShownText( &processTextVars );
+    std::function<bool( wxString* )> schematicTextResolver =
+            [&]( wxString* token ) -> bool
+            {
+                return Schematic()->ResolveTextVar( token, aDepth + 1 );
+            };
+
+    wxString text = EDA_TEXT::GetShownText();
 
     if( text == "~" )   // Legacy placeholder for empty string
     {
         text = "";
     }
-    else if( processTextVars )
+    else if( HasTextVars() )
     {
         wxCHECK_MSG( Schematic(), wxEmptyString, "No parent SCHEMATIC set for SCH_TEXT!" );
 
@@ -632,7 +656,7 @@ wxString SCH_TEXT::GetShownText( int aDepth ) const
             project = &Schematic()->Prj();
 
         if( aDepth < 10 )
-            text = ExpandTextVars( text, &textResolver, nullptr, project );
+            text = ExpandTextVars( text, &textResolver, &schematicTextResolver, project );
     }
 
     return text;
@@ -786,6 +810,7 @@ void SCH_TEXT::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, MSG_PANEL_ITEMS& aList )
         }
     }
 }
+
 
 #if defined(DEBUG)
 
@@ -964,7 +989,7 @@ SEARCH_RESULT SCH_GLOBALLABEL::Visit( INSPECTOR aInspector, void* testData,
         // If caller wants to inspect my type
         if( stype == SCH_LOCATE_ANY_T || stype == Type() )
         {
-            if( SEARCH_RESULT::QUIT == aInspector( this, NULL ) )
+            if( SEARCH_RESULT::QUIT == aInspector( this, nullptr ) )
                 return SEARCH_RESULT::QUIT;
         }
 
@@ -987,15 +1012,17 @@ void SCH_GLOBALLABEL::RunOnChildren( const std::function<void( SCH_ITEM* )>& aFu
 
 wxPoint SCH_GLOBALLABEL::GetSchematicTextOffset( const RENDER_SETTINGS* aSettings ) const
 {
-    wxPoint text_offset;
-    int     dist = GetTextOffset( aSettings );
+    int horiz = GetLabelBoxExpansion( aSettings );
+
+    // Center the text on the center line of "E" instead of "R" to make room for an overbar
+    int vert = GetTextHeight() * 0.0715;
 
     switch( m_shape )
     {
     case PINSHEETLABEL_SHAPE::PS_INPUT:
     case PINSHEETLABEL_SHAPE::PS_BIDI:
     case PINSHEETLABEL_SHAPE::PS_TRISTATE:
-        dist += GetTextHeight() * 3 / 4;  // Use three-quarters-height as proxy for triangle size
+        horiz += GetTextHeight() * 3 / 4;  // Use three-quarters-height as proxy for triangle size
         break;
 
     case PINSHEETLABEL_SHAPE::PS_OUTPUT:
@@ -1007,13 +1034,11 @@ wxPoint SCH_GLOBALLABEL::GetSchematicTextOffset( const RENDER_SETTINGS* aSetting
     switch( GetLabelSpinStyle() )
     {
     default:
-    case LABEL_SPIN_STYLE::LEFT:   text_offset.x -= dist; break;
-    case LABEL_SPIN_STYLE::UP:     text_offset.y -= dist; break;
-    case LABEL_SPIN_STYLE::RIGHT:  text_offset.x += dist; break;
-    case LABEL_SPIN_STYLE::BOTTOM: text_offset.y += dist; break;
+    case LABEL_SPIN_STYLE::LEFT:   return wxPoint( -horiz, vert );
+    case LABEL_SPIN_STYLE::UP:     return wxPoint( vert, -horiz );
+    case LABEL_SPIN_STYLE::RIGHT:  return wxPoint( horiz, vert );
+    case LABEL_SPIN_STYLE::BOTTOM: return wxPoint( vert, horiz );
     }
-
-    return text_offset;
 }
 
 
@@ -1303,7 +1328,7 @@ void SCH_GLOBALLABEL::Plot( PLOTTER* aPlotter ) const
 void SCH_GLOBALLABEL::CreateGraphicShape( const RENDER_SETTINGS* aRenderSettings,
                                           std::vector<wxPoint>& aPoints, const wxPoint& Pos ) const
 {
-    int margin    = GetTextOffset( aRenderSettings );
+    int margin    = GetLabelBoxExpansion( aRenderSettings );
     int halfSize  = ( GetTextHeight() / 2 ) + margin;
     int linewidth = GetPenWidth();
     int symb_len  = LenSize( GetShownText(), linewidth ) + 2 * margin;

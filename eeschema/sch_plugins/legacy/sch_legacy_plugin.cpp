@@ -31,17 +31,15 @@
 #include <wx/log.h>
 #include <wx/textfile.h>
 #include <wx/tokenzr.h>
+#include <wx_filename.h>       // For ::ResolvePossibleSymlinks()
 
-#include <gr_text.h>
 #include <kiway.h>
-#include <kicad_string.h>
+#include <string_utils.h>
 #include <locale_io.h>
 #include <richio.h>
-#include <core/typeinfo.h>
-#include <properties.h>
 #include <trace_helpers.h>
 #include <trigo.h>
-
+#include <progress_reporter.h>
 #include <general.h>
 #include <sch_bitmap.h>
 #include <sch_bus_entry.h>
@@ -53,13 +51,11 @@
 #include <sch_text.h>
 #include <sch_sheet.h>
 #include <sch_sheet_pin.h>
-#include <sch_bitmap.h>
 #include <bus_alias.h>
 #include <sch_plugins/legacy/sch_legacy_plugin.h>
-#include <template_fieldnames.h>
 #include <sch_screen.h>
 #include <schematic.h>
-#include <class_library.h>
+#include <symbol_library.h>
 #include <lib_arc.h>
 #include <lib_bezier.h>
 #include <lib_circle.h>
@@ -69,11 +65,7 @@
 #include <lib_rectangle.h>
 #include <lib_text.h>
 #include <eeschema_id.h>       // for MAX_UNIT_COUNT_PER_PACKAGE definition
-#include <symbol_lib_table.h>  // for PropPowerSymsOnly definition.
-#include <confirm.h>
 #include <tool/selection.h>
-#include <default_values.h>    // For some default values
-#include <wx_filename.h>       // For ::ResolvePossibleSymlinks()
 
 
 #define Mils2Iu( x ) Mils2iu( x )
@@ -121,7 +113,7 @@ static bool is_eol( char c )
  * @param aOutput - A pointer to a string pointer to the end of the comparison if not NULL.
  * @return true if \a aString was found starting at \a aLine.  Otherwise false.
  */
-static bool strCompare( const char* aString, const char* aLine, const char** aOutput = NULL )
+static bool strCompare( const char* aString, const char* aLine, const char** aOutput = nullptr )
 {
     size_t len = strlen( aString );
     bool retv = ( strncasecmp( aLine, aString, len ) == 0 ) &&
@@ -158,7 +150,7 @@ static bool strCompare( const char* aString, const char* aLine, const char** aOu
  * @throw An #IO_ERROR on an unexpected end of line.
  * @throw A #PARSE_ERROR if the parsed token is not a valid integer.
  */
-static int parseInt( LINE_READER& aReader, const char* aLine, const char** aOutput = NULL )
+static int parseInt( LINE_READER& aReader, const char* aLine, const char** aOutput = nullptr )
 {
     if( !*aLine )
         SCH_PARSE_ERROR( _( "unexpected end of line" ), aReader, aLine );
@@ -200,7 +192,7 @@ static int parseInt( LINE_READER& aReader, const char* aLine, const char** aOutp
  * @throw IO_ERROR on an unexpected end of line.
  * @throw PARSE_ERROR if the parsed token is not a valid integer.
  */
-static uint32_t parseHex( LINE_READER& aReader, const char* aLine, const char** aOutput = NULL )
+static uint32_t parseHex( LINE_READER& aReader, const char* aLine, const char** aOutput = nullptr )
 {
     if( !*aLine )
         SCH_PARSE_ERROR( _( "unexpected end of line" ), aReader, aLine );
@@ -246,7 +238,7 @@ static uint32_t parseHex( LINE_READER& aReader, const char* aLine, const char** 
  * @throw PARSE_ERROR if the parsed token is not a valid integer.
  */
 static double parseDouble( LINE_READER& aReader, const char* aLine,
-                           const char** aOutput = NULL )
+                           const char** aOutput = nullptr )
 {
     if( !*aLine )
         SCH_PARSE_ERROR( _( "unexpected end of line" ), aReader, aLine );
@@ -287,7 +279,7 @@ static double parseDouble( LINE_READER& aReader, const char* aLine,
  * @throw PARSE_ERROR if the parsed token is not a single character token.
  */
 static char parseChar( LINE_READER& aReader, const char* aCurrentToken,
-                       const char** aNextToken = NULL )
+                       const char** aNextToken = nullptr )
 {
     while( *aCurrentToken && isspace( *aCurrentToken ) )
         aCurrentToken++;
@@ -327,7 +319,7 @@ static char parseChar( LINE_READER& aReader, const char* aCurrentToken,
  * @throw PARSE_ERROR if the \a aCanBeEmpty is false and no string was parsed.
  */
 static void parseUnquotedString( wxString& aString, LINE_READER& aReader,
-                                 const char* aCurrentToken, const char** aNextToken = NULL,
+                                 const char* aCurrentToken, const char** aNextToken = nullptr,
                                  bool aCanBeEmpty = false )
 {
     if( !*aCurrentToken )
@@ -389,7 +381,7 @@ static void parseUnquotedString( wxString& aString, LINE_READER& aReader,
  * @throw PARSE_ERROR if the \a aCanBeEmpty is false and no string was parsed.
  */
 static void parseQuotedString( wxString& aString, LINE_READER& aReader,
-                               const char* aCurrentToken, const char** aNextToken = NULL,
+                               const char* aCurrentToken, const char** aNextToken = nullptr,
                                bool aCanBeEmpty = false )
 {
     if( !*aCurrentToken )
@@ -582,9 +574,13 @@ public:
 };
 
 
-SCH_LEGACY_PLUGIN::SCH_LEGACY_PLUGIN()
+SCH_LEGACY_PLUGIN::SCH_LEGACY_PLUGIN() :
+    m_progressReporter( nullptr ),
+    m_lineReader( nullptr ),
+    m_lastProgressLine( 0 ),
+    m_lineCount( 0 )
 {
-    init( NULL );
+    init( nullptr );
 }
 
 
@@ -604,10 +600,32 @@ void SCH_LEGACY_PLUGIN::init( SCHEMATIC* aSchematic, const PROPERTIES* aProperti
 }
 
 
+void SCH_LEGACY_PLUGIN::checkpoint()
+{
+    const unsigned PROGRESS_DELTA = 250;
+
+    if( m_progressReporter )
+    {
+        unsigned curLine = m_lineReader->LineNumber();
+
+        if( curLine > m_lastProgressLine + PROGRESS_DELTA )
+        {
+            m_progressReporter->SetCurrentProgress( ( (double) curLine )
+                                                            / std::max( 1U, m_lineCount ) );
+
+            if( !m_progressReporter->KeepRefreshing() )
+                THROW_IO_ERROR( ( "Open cancelled by user." ) );
+
+            m_lastProgressLine = curLine;
+        }
+    }
+}
+
+
 SCH_SHEET* SCH_LEGACY_PLUGIN::Load( const wxString& aFileName, SCHEMATIC* aSchematic,
                                     SCH_SHEET* aAppendToMe, const PROPERTIES* aProperties )
 {
-    wxASSERT( !aFileName || aSchematic != NULL );
+    wxASSERT( !aFileName || aSchematic != nullptr );
 
     LOCALE_IO   toggle;     // toggles on, then off, the C locale.
     SCH_SHEET*  sheet;
@@ -645,7 +663,7 @@ SCH_SHEET* SCH_LEGACY_PLUGIN::Load( const wxString& aFileName, SCHEMATIC* aSchem
     m_currentPath.push( m_path );
     init( aSchematic, aProperties );
 
-    if( aAppendToMe == NULL )
+    if( aAppendToMe == nullptr )
     {
         // Clean up any allocated memory if an exception occurs loading the schematic.
         std::unique_ptr<SCH_SHEET> newSheet = std::make_unique<SCH_SHEET>( aSchematic );
@@ -675,7 +693,7 @@ SCH_SHEET* SCH_LEGACY_PLUGIN::Load( const wxString& aFileName, SCHEMATIC* aSchem
 
 void SCH_LEGACY_PLUGIN::loadHierarchy( SCH_SHEET* aSheet )
 {
-    SCH_SCREEN* screen = NULL;
+    SCH_SCREEN* screen = nullptr;
 
     if( !aSheet->GetScreen() )
     {
@@ -691,10 +709,10 @@ void SCH_LEGACY_PLUGIN::loadHierarchy( SCH_SHEET* aSheet )
         // Save the current path so that it gets restored when descending and ascending the
         // sheet hierarchy which allows for sheet schematic files to be nested in folders
         // relative to the last path a schematic was loaded from.
-        wxLogTrace( traceSchLegacyPlugin, "Saving path    \"%s\"", m_currentPath.top() );
+        wxLogTrace( traceSchLegacyPlugin, "Saving path    '%s'", m_currentPath.top() );
         m_currentPath.push( fileName.GetPath() );
-        wxLogTrace( traceSchLegacyPlugin, "Current path   \"%s\"", m_currentPath.top() );
-        wxLogTrace( traceSchLegacyPlugin, "Loading        \"%s\"", fileName.GetFullPath() );
+        wxLogTrace( traceSchLegacyPlugin, "Current path   '%s'", m_currentPath.top() );
+        wxLogTrace( traceSchLegacyPlugin, "Loading        '%s'", fileName.GetFullPath() );
 
         m_rootSheet->SearchHierarchy( fileName.GetFullPath(), &screen );
 
@@ -753,12 +771,28 @@ void SCH_LEGACY_PLUGIN::loadFile( const wxString& aFileName, SCH_SCREEN* aScreen
 {
     FILE_LINE_READER reader( aFileName );
 
+    if( m_progressReporter )
+    {
+        m_progressReporter->Report( wxString::Format( _( "Loading %s..." ), aFileName ) );
+
+        if( !m_progressReporter->KeepRefreshing() )
+            THROW_IO_ERROR( ( "Open cancelled by user." ) );
+
+        m_lineReader = &reader;
+        m_lineCount = 0;
+
+        while( reader.ReadLine() )
+            m_lineCount++;
+
+        reader.Rewind();
+    }
+
     loadHeader( reader, aScreen );
 
     LoadContent( reader, aScreen, m_version );
 
     // Unfortunately schematic files prior to version 2 are not terminated with $EndSCHEMATC
-    // so checking for it's existance will fail so just exit here and take our chances. :(
+    // so checking for its existance will fail so just exit here and take our chances. :(
     if( m_version > 1 )
     {
         char* line = reader.Line();
@@ -782,6 +816,8 @@ void SCH_LEGACY_PLUGIN::LoadContent( LINE_READER& aReader, SCH_SCREEN* aScreen, 
 
     while( aReader.ReadLine() )
     {
+        checkpoint();
+
         char* line = aReader.Line();
 
         while( *line == ' ' )
@@ -823,8 +859,8 @@ void SCH_LEGACY_PLUGIN::loadHeader( LINE_READER& aReader, SCH_SCREEN* aScreen )
 
     if( !line || !strCompare( "Eeschema Schematic File Version", line, &line ) )
     {
-        m_error.Printf(
-                _( "\"%s\" does not appear to be an Eeschema file" ), aScreen->GetFileName() );
+        m_error.Printf( _( "'%s' does not appear to be an Eeschema file." ),
+                        aScreen->GetFileName() );
         THROW_IO_ERROR( m_error );
     }
 
@@ -842,6 +878,8 @@ void SCH_LEGACY_PLUGIN::loadHeader( LINE_READER& aReader, SCH_SCREEN* aScreen )
     // Skip all lines until the end of header "EELAYER END" is found
     while( aReader.ReadLine() )
     {
+        checkpoint();
+
         line = aReader.Line();
 
         while( *line == ' ' )
@@ -857,7 +895,7 @@ void SCH_LEGACY_PLUGIN::loadHeader( LINE_READER& aReader, SCH_SCREEN* aScreen )
 
 void SCH_LEGACY_PLUGIN::loadPageSettings( LINE_READER& aReader, SCH_SCREEN* aScreen )
 {
-    wxASSERT( aScreen != NULL );
+    wxASSERT( aScreen != nullptr );
 
     wxString    buf;
     const char* line = aReader.Line();
@@ -894,7 +932,7 @@ void SCH_LEGACY_PLUGIN::loadPageSettings( LINE_READER& aReader, SCH_SCREEN* aScr
 
     aScreen->SetPageSettings( pageInfo );
 
-    while( line != NULL )
+    while( line != nullptr )
     {
         buf.clear();
 
@@ -990,7 +1028,7 @@ SCH_SHEET* SCH_LEGACY_PLUGIN::loadSheet( LINE_READER& aReader )
 
     const char* line = aReader.ReadLine();
 
-    while( line != NULL )
+    while( line != nullptr )
     {
         if( strCompare( "S", line, &line ) )        // Sheet dimensions.
         {
@@ -1041,9 +1079,9 @@ SCH_SHEET* SCH_LEGACY_PLUGIN::loadSheet( LINE_READER& aReader )
                 // Can be empty fields.
                 parseQuotedString( text, aReader, line, &line, true );
 
-                sheetPin->SetText( text );
+                sheetPin->SetText( ConvertToNewOverbarNotation( text ) );
 
-                if( line == NULL )
+                if( line == nullptr )
                     THROW_IO_ERROR( _( "unexpected end of line" ) );
 
                 switch( parseChar( aReader, line, &line ) )
@@ -1081,7 +1119,7 @@ SCH_SHEET* SCH_LEGACY_PLUGIN::loadSheet( LINE_READER& aReader )
         }
         else if( strCompare( "$EndSheet", line ) )
         {
-            sheet->AutoplaceFields( /* aScreen */ NULL, /* aManual */ false );
+            sheet->AutoplaceFields( /* aScreen */ nullptr, /* aManual */ false );
             return sheet.release();
         }
 
@@ -1090,7 +1128,7 @@ SCH_SHEET* SCH_LEGACY_PLUGIN::loadSheet( LINE_READER& aReader )
 
     SCH_PARSE_ERROR( "missing '$EndSheet`", aReader, line );
 
-    return NULL;  // Prevents compiler warning.  Should never get here.
+    return nullptr;  // Prevents compiler warning.  Should never get here.
 }
 
 
@@ -1100,11 +1138,11 @@ SCH_BITMAP* SCH_LEGACY_PLUGIN::loadBitmap( LINE_READER& aReader )
 
     const char* line = aReader.Line();
 
-    wxCHECK( strCompare( "$Bitmap", line, &line ), NULL );
+    wxCHECK( strCompare( "$Bitmap", line, &line ), nullptr );
 
     line = aReader.ReadLine();
 
-    while( line != NULL )
+    while( line != nullptr )
     {
         if( strCompare( "Pos", line, &line ) )
         {
@@ -1166,7 +1204,7 @@ SCH_BITMAP* SCH_LEGACY_PLUGIN::loadBitmap( LINE_READER& aReader )
                 }
             }
 
-            if( line == NULL )
+            if( line == nullptr )
                 THROW_IO_ERROR( _( "unexpected end of file" ) );
         }
         else if( strCompare( "$EndBitmap", line ) )
@@ -1185,7 +1223,7 @@ SCH_JUNCTION* SCH_LEGACY_PLUGIN::loadJunction( LINE_READER& aReader )
 
     const char* line = aReader.Line();
 
-    wxCHECK( strCompare( "Connection", line, &line ), NULL );
+    wxCHECK( strCompare( "Connection", line, &line ), nullptr );
 
     wxString name;
 
@@ -1207,7 +1245,7 @@ SCH_NO_CONNECT* SCH_LEGACY_PLUGIN::loadNoConnect( LINE_READER& aReader )
 
     const char* line = aReader.Line();
 
-    wxCHECK( strCompare( "NoConn", line, &line ), NULL );
+    wxCHECK( strCompare( "NoConn", line, &line ), nullptr );
 
     wxString name;
 
@@ -1229,7 +1267,7 @@ SCH_LINE* SCH_LEGACY_PLUGIN::loadWire( LINE_READER& aReader )
 
     const char* line = aReader.Line();
 
-    wxCHECK( strCompare( "Wire", line, &line ), NULL );
+    wxCHECK( strCompare( "Wire", line, &line ), nullptr );
 
     if( strCompare( "Wire", line, &line ) )
         wire->SetLayer( LAYER_WIRE );
@@ -1325,7 +1363,7 @@ SCH_BUS_ENTRY_BASE* SCH_LEGACY_PLUGIN::loadBusEntry( LINE_READER& aReader )
 {
     const char* line = aReader.Line();
 
-    wxCHECK( strCompare( "Entry", line, &line ), NULL );
+    wxCHECK( strCompare( "Entry", line, &line ), nullptr );
 
     std::unique_ptr<SCH_BUS_ENTRY_BASE> busEntry;
 
@@ -1381,7 +1419,7 @@ SCH_TEXT* SCH_LEGACY_PLUGIN::loadText( LINE_READER& aReader )
 {
     const char*   line = aReader.Line();
 
-    wxCHECK( strCompare( "Text", line, &line ), NULL );
+    wxCHECK( strCompare( "Text", line, &line ), nullptr );
 
     std::unique_ptr<SCH_TEXT> text;
 
@@ -1488,7 +1526,7 @@ SCH_TEXT* SCH_LEGACY_PLUGIN::loadText( LINE_READER& aReader )
         val.insert( i, wxT( "\n" ) );
     }
 
-    text->SetText( val );
+    text->SetText( ConvertToNewOverbarNotation( val ) );
 
     return text.release();
 }
@@ -1498,13 +1536,13 @@ SCH_SYMBOL* SCH_LEGACY_PLUGIN::loadSymbol( LINE_READER& aReader )
 {
     const char* line = aReader.Line();
 
-    wxCHECK( strCompare( "$Comp", line, &line ), NULL );
+    wxCHECK( strCompare( "$Comp", line, &line ), nullptr );
 
     std::unique_ptr<SCH_SYMBOL> symbol = std::make_unique<SCH_SYMBOL>();
 
     line = aReader.ReadLine();
 
-    while( line != NULL )
+    while( line != nullptr )
     {
         if( strCompare( "L", line, &line ) )
         {
@@ -1528,7 +1566,7 @@ SCH_SYMBOL* SCH_LEGACY_PLUGIN::loadSymbol( LINE_READER& aReader )
             if( m_version > 3 )
                 libId.Parse( libName, true );
             else
-                libId.SetLibItemName( libName, false );
+                libId.SetLibItemName( libName );
 
             symbol->SetLibId( libId );
 
@@ -1806,7 +1844,7 @@ SCH_SYMBOL* SCH_LEGACY_PLUGIN::loadSymbol( LINE_READER& aReader )
 
     SCH_PARSE_ERROR( "invalid symbol line", aReader, line );
 
-    return NULL;  // Prevents compiler warning.  Should never get here.
+    return nullptr;  // Prevents compiler warning.  Should never get here.
 }
 
 
@@ -1816,7 +1854,7 @@ std::shared_ptr<BUS_ALIAS> SCH_LEGACY_PLUGIN::loadBusAlias( LINE_READER& aReader
     auto busAlias = std::make_shared<BUS_ALIAS>( aScreen );
     const char* line = aReader.Line();
 
-    wxCHECK( strCompare( "BusAlias", line, &line ), NULL );
+    wxCHECK( strCompare( "BusAlias", line, &line ), nullptr );
 
     wxString buf;
     parseUnquotedString( buf, aReader, line, &line );
@@ -1839,7 +1877,7 @@ std::shared_ptr<BUS_ALIAS> SCH_LEGACY_PLUGIN::loadBusAlias( LINE_READER& aReader
 void SCH_LEGACY_PLUGIN::Save( const wxString& aFileName, SCH_SHEET* aSheet, SCHEMATIC* aSchematic,
                               const PROPERTIES* aProperties )
 {
-    wxCHECK_RET( aSheet != NULL, "NULL SCH_SHEET object." );
+    wxCHECK_RET( aSheet != nullptr, "NULL SCH_SHEET object." );
     wxCHECK_RET( !aFileName.IsEmpty(), "No schematic file name defined." );
 
     LOCALE_IO   toggle;     // toggles on, then off, the C locale, to write floating point values.
@@ -1862,8 +1900,8 @@ void SCH_LEGACY_PLUGIN::Save( const wxString& aFileName, SCH_SHEET* aSheet, SCHE
 
 void SCH_LEGACY_PLUGIN::Format( SCH_SHEET* aSheet )
 {
-    wxCHECK_RET( aSheet != NULL, "NULL SCH_SHEET* object." );
-    wxCHECK_RET( m_schematic != NULL, "NULL SCHEMATIC* object." );
+    wxCHECK_RET( aSheet != nullptr, "NULL SCH_SHEET* object." );
+    wxCHECK_RET( m_schematic != nullptr, "NULL SCHEMATIC* object." );
 
     SCH_SCREEN* screen = aSheet->GetScreen();
 
@@ -2148,11 +2186,11 @@ void SCH_LEGACY_PLUGIN::saveField( SCH_FIELD* aField )
 
 void SCH_LEGACY_PLUGIN::saveBitmap( SCH_BITMAP* aBitmap )
 {
-    wxCHECK_RET( aBitmap != NULL, "SCH_BITMAP* is NULL" );
+    wxCHECK_RET( aBitmap != nullptr, "SCH_BITMAP* is NULL" );
 
     const wxImage* image = aBitmap->GetImage()->GetImageData();
 
-    wxCHECK_RET( image != NULL, "wxImage* is NULL" );
+    wxCHECK_RET( image != nullptr, "wxImage* is NULL" );
 
     m_out->Print( 0, "$Bitmap\n" );
     m_out->Print( 0, "Pos %-4d %-4d\n",
@@ -2188,7 +2226,7 @@ void SCH_LEGACY_PLUGIN::saveBitmap( SCH_BITMAP* aBitmap )
 
 void SCH_LEGACY_PLUGIN::saveSheet( SCH_SHEET* aSheet )
 {
-    wxCHECK_RET( aSheet != NULL, "SCH_SHEET* is NULL" );
+    wxCHECK_RET( aSheet != nullptr, "SCH_SHEET* is NULL" );
 
     m_out->Print( 0, "$Sheet\n" );
     m_out->Print( 0, "S %-4d %-4d %-4d %-4d\n",
@@ -2252,7 +2290,7 @@ void SCH_LEGACY_PLUGIN::saveSheet( SCH_SHEET* aSheet )
 
 void SCH_LEGACY_PLUGIN::saveJunction( SCH_JUNCTION* aJunction )
 {
-    wxCHECK_RET( aJunction != NULL, "SCH_JUNCTION* is NULL" );
+    wxCHECK_RET( aJunction != nullptr, "SCH_JUNCTION* is NULL" );
 
     m_out->Print( 0, "Connection ~ %-4d %-4d\n",
                   Iu2Mils( aJunction->GetPosition().x ),
@@ -2262,7 +2300,7 @@ void SCH_LEGACY_PLUGIN::saveJunction( SCH_JUNCTION* aJunction )
 
 void SCH_LEGACY_PLUGIN::saveNoConnect( SCH_NO_CONNECT* aNoConnect )
 {
-    wxCHECK_RET( aNoConnect != NULL, "SCH_NOCONNECT* is NULL" );
+    wxCHECK_RET( aNoConnect != nullptr, "SCH_NOCONNECT* is NULL" );
 
     m_out->Print( 0, "NoConn ~ %-4d %-4d\n",
                   Iu2Mils( aNoConnect->GetPosition().x ),
@@ -2272,7 +2310,7 @@ void SCH_LEGACY_PLUGIN::saveNoConnect( SCH_NO_CONNECT* aNoConnect )
 
 void SCH_LEGACY_PLUGIN::saveBusEntry( SCH_BUS_ENTRY_BASE* aBusEntry )
 {
-    wxCHECK_RET( aBusEntry != NULL, "SCH_BUS_ENTRY_BASE* is NULL" );
+    wxCHECK_RET( aBusEntry != nullptr, "SCH_BUS_ENTRY_BASE* is NULL" );
 
     if( aBusEntry->GetLayer() == LAYER_WIRE )
         m_out->Print( 0, "Entry Wire Line\n\t%-4d %-4d %-4d %-4d\n",
@@ -2289,7 +2327,7 @@ void SCH_LEGACY_PLUGIN::saveBusEntry( SCH_BUS_ENTRY_BASE* aBusEntry )
 
 void SCH_LEGACY_PLUGIN::saveLine( SCH_LINE* aLine )
 {
-    wxCHECK_RET( aLine != NULL, "SCH_LINE* is NULL" );
+    wxCHECK_RET( aLine != nullptr, "SCH_LINE* is NULL" );
 
     const char* layer = "Notes";
     const char* width = "Line";
@@ -2328,7 +2366,7 @@ void SCH_LEGACY_PLUGIN::saveLine( SCH_LINE* aLine )
 
 void SCH_LEGACY_PLUGIN::saveText( SCH_TEXT* aText )
 {
-    wxCHECK_RET( aText != NULL, "SCH_TEXT* is NULL" );
+    wxCHECK_RET( aText != nullptr, "SCH_TEXT* is NULL" );
 
     const char* italics  = "~";
     const char* textType = "Notes";
@@ -2401,7 +2439,7 @@ void SCH_LEGACY_PLUGIN::saveText( SCH_TEXT* aText )
 
 void SCH_LEGACY_PLUGIN::saveBusAlias( std::shared_ptr<BUS_ALIAS> aAlias )
 {
-    wxCHECK_RET( aAlias != NULL, "BUS_ALIAS* is NULL" );
+    wxCHECK_RET( aAlias != nullptr, "BUS_ALIAS* is NULL" );
 
     wxString members = boost::algorithm::join( aAlias->Members(), " " );
 
@@ -2476,17 +2514,17 @@ bool SCH_LEGACY_PLUGIN_CACHE::IsFileChanged() const
 
 LIB_SYMBOL* SCH_LEGACY_PLUGIN_CACHE::removeSymbol( LIB_SYMBOL* aSymbol )
 {
-    wxCHECK_MSG( aSymbol != NULL, NULL, "NULL pointer cannot be removed from library." );
+    wxCHECK_MSG( aSymbol != nullptr, nullptr, "NULL pointer cannot be removed from library." );
 
-    LIB_SYMBOL* firstChild = NULL;
+    LIB_SYMBOL* firstChild = nullptr;
     LIB_SYMBOL_MAP::iterator it = m_symbols.find( aSymbol->GetName() );
 
     if( it == m_symbols.end() )
-        return NULL;
+        return nullptr;
 
     // If the entry pointer doesn't match the name it is mapped to in the library, we
     // have done something terribly wrong.
-    wxCHECK_MSG( *it->second == aSymbol, NULL,
+    wxCHECK_MSG( *it->second == aSymbol, nullptr,
                  "Pointer mismatch while attempting to remove alias entry <" + aSymbol->GetName() +
                  "> from library cache <" + m_libFileName.GetName() + ">." );
 
@@ -2541,7 +2579,7 @@ LIB_SYMBOL* SCH_LEGACY_PLUGIN_CACHE::removeSymbol( LIB_SYMBOL* aSymbol )
 
 void SCH_LEGACY_PLUGIN_CACHE::AddSymbol( const LIB_SYMBOL* aSymbol )
 {
-    // aSymbol is cloned in PART_LIB::AddPart().  The cache takes ownership of aSymbol.
+    // aSymbol is cloned in SYMBOL_LIB::AddSymbol().  The cache takes ownership of aSymbol.
     wxString name = aSymbol->GetName();
     LIB_SYMBOL_MAP::iterator it = m_symbols.find( name );
 
@@ -2560,21 +2598,21 @@ void SCH_LEGACY_PLUGIN_CACHE::Load()
 {
     if( !m_libFileName.FileExists() )
     {
-        THROW_IO_ERROR( wxString::Format( _( "Library file \"%s\" not found." ),
+        THROW_IO_ERROR( wxString::Format( _( "Library file '%s' not found." ),
                                           m_libFileName.GetFullPath() ) );
     }
 
     wxCHECK_RET( m_libFileName.IsAbsolute(),
                  wxString::Format( "Cannot use relative file paths in legacy plugin to "
-                                   "open library \"%s\".", m_libFileName.GetFullPath() ) );
+                                   "open library '%s'.", m_libFileName.GetFullPath() ) );
 
-    wxLogTrace( traceSchLegacyPlugin, "Loading legacy symbol file \"%s\"",
+    wxLogTrace( traceSchLegacyPlugin, "Loading legacy symbol file '%s'",
                 m_libFileName.GetFullPath() );
 
     FILE_LINE_READER reader( m_libFileName.GetFullPath() );
 
     if( !reader.ReadLine() )
-        THROW_IO_ERROR( _( "unexpected end of file" ) );
+        THROW_IO_ERROR( _( "Unexpected end of file." ) );
 
     const char* line = reader.Line();
 
@@ -2650,7 +2688,7 @@ void SCH_LEGACY_PLUGIN_CACHE::loadDocs()
     wxString    text;
     wxString    aliasName;
     wxFileName  fn = m_libFileName;
-    LIB_SYMBOL* symbol = NULL;;
+    LIB_SYMBOL* symbol = nullptr;;
 
     fn.SetExt( DOC_EXT );
 
@@ -2659,8 +2697,10 @@ void SCH_LEGACY_PLUGIN_CACHE::loadDocs()
         return;
 
     if( !fn.IsFileReadable() )
-        THROW_IO_ERROR( wxString::Format( _( "user does not have permission to read library "
-                                             "document file \"%s\"" ), fn.GetFullPath() ) );
+    {
+        THROW_IO_ERROR( wxString::Format( _( "Insufficient permissions to read library '%s'." ),
+                                          fn.GetFullPath() ) );
+    }
 
     FILE_LINE_READER reader( fn.GetFullPath() );
 
@@ -2685,7 +2725,7 @@ void SCH_LEGACY_PLUGIN_CACHE::loadDocs()
 
         aliasName = wxString::FromUTF8( line );
         aliasName.Trim();
-        aliasName = LIB_ID::FixIllegalChars( aliasName );
+        aliasName = EscapeString( aliasName, CTX_LIBID );
 
         LIB_SYMBOL_MAP::iterator it = m_symbols.find( aliasName );
 
@@ -3029,14 +3069,12 @@ void SCH_LEGACY_PLUGIN_CACHE::loadField( std::unique_ptr<LIB_SYMBOL>& aSymbol,
 
     parseQuotedString( text, aReader, line, &line, true );
 
-    field->SetText( text );
-
     // Doctor the *.lib file field which has a "~" in blank fields.  New saves will
     // not save like this.
     if( text.size() == 1 && text[0] == '~' )
         field->SetText( wxEmptyString );
     else
-        field->SetText( text );
+        field->SetText( ConvertToNewOverbarNotation( text ) );
 
     wxPoint pos;
 
@@ -3201,7 +3239,7 @@ void SCH_LEGACY_PLUGIN_CACHE::loadDrawEntries( std::unique_ptr<LIB_SYMBOL>& aSym
         line = aReader.ReadLine();
     }
 
-    SCH_PARSE_ERROR( "file ended prematurely loading symbol draw element", aReader, line );
+    SCH_PARSE_ERROR( "File ended prematurely loading symbol draw element.", aReader, line );
 }
 
 
@@ -3226,7 +3264,7 @@ LIB_ARC* SCH_LEGACY_PLUGIN_CACHE::loadArc( std::unique_ptr<LIB_SYMBOL>& aSymbol,
 {
     const char* line = aReader.Line();
 
-    wxCHECK_MSG( strCompare( "A", line, &line ), NULL, "Invalid LIB_ARC definition" );
+    wxCHECK_MSG( strCompare( "A", line, &line ), nullptr, "Invalid LIB_ARC definition" );
 
     LIB_ARC* arc = new LIB_ARC( aSymbol.get() );
 
@@ -3292,7 +3330,7 @@ LIB_CIRCLE* SCH_LEGACY_PLUGIN_CACHE::loadCircle( std::unique_ptr<LIB_SYMBOL>& aS
 {
     const char* line = aReader.Line();
 
-    wxCHECK_MSG( strCompare( "C", line, &line ), NULL, "Invalid LIB_CIRCLE definition" );
+    wxCHECK_MSG( strCompare( "C", line, &line ), nullptr, "Invalid LIB_CIRCLE definition" );
 
     LIB_CIRCLE* circle = new LIB_CIRCLE( aSymbol.get() );
 
@@ -3321,7 +3359,7 @@ LIB_TEXT* SCH_LEGACY_PLUGIN_CACHE::loadText( std::unique_ptr<LIB_SYMBOL>& aSymbo
 {
     const char* line = aReader.Line();
 
-    wxCHECK_MSG( strCompare( "T", line, &line ), NULL, "Invalid LIB_TEXT definition" );
+    wxCHECK_MSG( strCompare( "T", line, &line ), nullptr, "Invalid LIB_TEXT definition" );
 
     LIB_TEXT* text = new LIB_TEXT( aSymbol.get() );
 
@@ -3345,7 +3383,11 @@ LIB_TEXT* SCH_LEGACY_PLUGIN_CACHE::loadText( std::unique_ptr<LIB_SYMBOL>& aSymbo
 
     // If quoted string loading fails, load as not quoted string.
     if( *line == '"' )
+    {
         parseQuotedString( str, aReader, line, &line );
+
+        str = ConvertToNewOverbarNotation( str );
+    }
     else
     {
         parseUnquotedString( str, aReader, line, &line );
@@ -3412,7 +3454,7 @@ LIB_RECTANGLE* SCH_LEGACY_PLUGIN_CACHE::loadRectangle( std::unique_ptr<LIB_SYMBO
 {
     const char* line = aReader.Line();
 
-    wxCHECK_MSG( strCompare( "S", line, &line ), NULL, "Invalid LIB_RECTANGLE definition" );
+    wxCHECK_MSG( strCompare( "S", line, &line ), nullptr, "Invalid LIB_RECTANGLE definition" );
 
     LIB_RECTANGLE* rectangle = new LIB_RECTANGLE( aSymbol.get() );
 
@@ -3444,7 +3486,7 @@ LIB_PIN* SCH_LEGACY_PLUGIN_CACHE::loadPin( std::unique_ptr<LIB_SYMBOL>& aSymbol,
 {
     const char* line = aReader.Line();
 
-    wxCHECK_MSG( strCompare( "X", line, &line ), NULL, "Invalid LIB_PIN definition" );
+    wxCHECK_MSG( strCompare( "X", line, &line ), nullptr, "Invalid LIB_PIN definition" );
 
     wxString name;
     wxString number;
@@ -3570,8 +3612,17 @@ LIB_PIN* SCH_LEGACY_PLUGIN_CACHE::loadPin( std::unique_ptr<LIB_SYMBOL>& aSymbol,
     }
 
 
-    LIB_PIN* pin = new LIB_PIN( aSymbol.get(), name, number, orientation, pinType, length,
-            nameTextSize, numberTextSize, convert, position, unit );
+    LIB_PIN* pin = new LIB_PIN( aSymbol.get(),
+                                ConvertToNewOverbarNotation( name ),
+                                ConvertToNewOverbarNotation( number ),
+                                orientation,
+                                pinType,
+                                length,
+                                nameTextSize,
+                                numberTextSize,
+                                convert,
+                                position,
+                                unit );
 
     // Optional
     if( tokens.HasMoreTokens() )       /* Special Symbol defined */
@@ -3634,7 +3685,7 @@ LIB_POLYLINE* SCH_LEGACY_PLUGIN_CACHE::loadPolyLine( std::unique_ptr<LIB_SYMBOL>
 {
     const char* line = aReader.Line();
 
-    wxCHECK_MSG( strCompare( "P", line, &line ), NULL, "Invalid LIB_POLYLINE definition" );
+    wxCHECK_MSG( strCompare( "P", line, &line ), nullptr, "Invalid LIB_POLYLINE definition" );
 
     LIB_POLYLINE* polyLine = new LIB_POLYLINE( aSymbol.get() );
 
@@ -3665,7 +3716,7 @@ LIB_BEZIER* SCH_LEGACY_PLUGIN_CACHE::loadBezier( std::unique_ptr<LIB_SYMBOL>& aS
 {
     const char* line = aReader.Line();
 
-    wxCHECK_MSG( strCompare( "B", line, &line ), NULL, "Invalid LIB_BEZIER definition" );
+    wxCHECK_MSG( strCompare( "B", line, &line ), nullptr, "Invalid LIB_BEZIER definition" );
 
     LIB_BEZIER* bezier = new LIB_BEZIER( aSymbol.get() );
 
@@ -3717,7 +3768,7 @@ void SCH_LEGACY_PLUGIN_CACHE::loadFootprintFilters( std::unique_ptr<LIB_SYMBOL>&
         line = aReader.ReadLine();
     }
 
-    SCH_PARSE_ERROR( "file ended prematurely while loading footprint filters", aReader, line );
+    SCH_PARSE_ERROR( "File ended prematurely while loading footprint filters.", aReader, line );
 }
 
 
@@ -3911,7 +3962,8 @@ void SCH_LEGACY_PLUGIN_CACHE::saveArc( LIB_ARC* aArc, OUTPUTFORMATTER& aFormatte
     aFormatter.Print( 0, "A %d %d %d %d %d %d %d %d %c %d %d %d %d\n",
                       Iu2Mils( aArc->GetPosition().x ), Iu2Mils( aArc->GetPosition().y ),
                       Iu2Mils( aArc->GetRadius() ), x1, x2, aArc->GetUnit(), aArc->GetConvert(),
-                      Iu2Mils( aArc->GetWidth() ), fill_tab[ static_cast<int>( aArc->GetFillMode() ) ],
+                      Iu2Mils( aArc->GetWidth() ),
+                               fill_tab[ static_cast<int>( aArc->GetFillMode() ) ],
                       Iu2Mils( aArc->GetStart().x ), Iu2Mils( aArc->GetStart().y ),
                       Iu2Mils( aArc->GetEnd().x ), Iu2Mils( aArc->GetEnd().y ) );
 }
@@ -3940,7 +3992,8 @@ void SCH_LEGACY_PLUGIN_CACHE::saveCircle( LIB_CIRCLE* aCircle,
     aFormatter.Print( 0, "C %d %d %d %d %d %d %c\n",
                       Iu2Mils( aCircle->GetPosition().x ), Iu2Mils( aCircle->GetPosition().y ),
                       Iu2Mils( aCircle->GetRadius() ), aCircle->GetUnit(), aCircle->GetConvert(),
-                      Iu2Mils( aCircle->GetWidth() ), fill_tab[static_cast<int>( aCircle->GetFillMode() )] );
+                      Iu2Mils( aCircle->GetWidth() ),
+                               fill_tab[static_cast<int>( aCircle->GetFillMode() )] );
 }
 
 
@@ -4174,7 +4227,7 @@ void SCH_LEGACY_PLUGIN_CACHE::DeleteSymbol( const wxString& aSymbolName )
     {
         LIB_SYMBOL* rootSymbol = symbol;
 
-        // Remove the root symbol and all it's children.
+        // Remove the root symbol and all its children.
         m_symbols.erase( it );
 
         LIB_SYMBOL_MAP::iterator it1 = m_symbols.begin();
@@ -4215,10 +4268,10 @@ void SCH_LEGACY_PLUGIN::cacheLib( const wxString& aLibraryFileName, const PROPER
         delete m_cache;
         m_cache = new SCH_LEGACY_PLUGIN_CACHE( aLibraryFileName );
 
-        // Because m_cache is rebuilt, increment PART_LIBS::s_modify_generation
+        // Because m_cache is rebuilt, increment SYMBOL_LIBS::s_modify_generation
         // to modify the hash value that indicate symbol to symbol links
         // must be updated.
-        PART_LIBS::IncrementModifyGeneration();
+        SYMBOL_LIBS::IncrementModifyGeneration();
 
         if( !isBuffering( aProperties ) )
             m_cache->Load();
@@ -4345,9 +4398,8 @@ void SCH_LEGACY_PLUGIN::CreateSymbolLib( const wxString& aLibraryPath,
 {
     if( wxFileExists( aLibraryPath ) )
     {
-        THROW_IO_ERROR( wxString::Format(
-            _( "symbol library \"%s\" already exists, cannot create a new library" ),
-            aLibraryPath.GetData() ) );
+        THROW_IO_ERROR( wxString::Format( _( "Symbol library '%s' already exists." ),
+                                          aLibraryPath.GetData() ) );
     }
 
     LOCALE_IO toggle;
@@ -4372,7 +4424,7 @@ bool SCH_LEGACY_PLUGIN::DeleteSymbolLib( const wxString& aLibraryPath,
     // we don't want that.  we want bare metal portability with no UI here.
     if( wxRemove( aLibraryPath ) )
     {
-        THROW_IO_ERROR( wxString::Format( _( "library \"%s\" cannot be deleted" ),
+        THROW_IO_ERROR( wxString::Format( _( "Symbol library '%s' cannot be deleted." ),
                                           aLibraryPath.GetData() ) );
     }
 

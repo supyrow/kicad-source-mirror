@@ -25,13 +25,17 @@
 #define KICAD_CURL_EASY_H_
 
 /*
- * KICAD_CURL_EASY.h must included before wxWidgets because on Windows,
- * kicad_curl.h does not include curl.h, because wxWidgets ends up including windows.h
- * before winsocks2.h inside curl and curl.h causes build warnings if included before and wxxxx.h
+ * curl.h, and therefore kicad_curl.h must be included before wxWidgets headers because on Windows,
+ * wxWidgets ends up including windows.h before winsocks2.h
+ * curl and curl.h causes build warnings if included before any wxxxx.h
  *
- * so including kicad_curl.h could be needed in a few sources
+ * So kicad_curl_easy.h does not include curl.h to avoid constraints,
+ * and including kicad_curl.h could be needed in a few sources
  */
 
+#include <functional>
+#include <memory>
+#include <ostream>
 #include <string>
 
 typedef void CURL;
@@ -56,6 +60,10 @@ struct curl_slist;
  */
 
 
+typedef std::function<int( size_t, size_t, size_t, size_t )> TRANSFER_CALLBACK;
+struct CURL_PROGRESS;
+
+
 class KICAD_CURL_EASY
 {
 public:
@@ -66,10 +74,8 @@ public:
      * Function perform
      * equivalent to curl_easy_perform. Executes the request
      * that was previously setup.
-     *
-     * @throw IO_ERROR, if there is a CURL request error
      */
-    void Perform();
+    int Perform();
 
     /**
      * Function SetHeader
@@ -117,17 +123,23 @@ public:
      */
     const std::string GetErrorText( int aCode );
 
+    int GetTransferTotal( uint64_t& aDownloadedBytes ) const;
+
     /**
      * Function GetBuffer
      * returns a const reference to the received data buffer
      */
-    const std::string& GetBuffer()
-    {
-        return m_buffer;
-    }
+    const std::string& GetBuffer() { return m_buffer; }
 
     /// Escapes a string for use as a URL
     std::string Escape( const std::string& aUrl );
+
+    bool SetTransferCallback( const TRANSFER_CALLBACK& aCallback, size_t aInterval );
+
+    bool SetOutputStream( const std::ostream* aOutput );
+
+    CURL* GetCurl() { return m_CURL; }
+
 
 private:
     /**
@@ -138,12 +150,16 @@ private:
      * @param aArg is the argument being passed to CURL, ensure it is the right type per manual
      * @return int  - a CURL error code, will return CURLE_OK unless a problem was encountered
      */
-    template <typename T> int setOption( int aOption, T aArg );
+    template <typename T>
+    int setOption( int aOption, T aArg );
 
+    //static int xferinfo( void*, curl_off_t, curl_off_t, curl_off_t, curl_off_t );
 
-    CURL*           m_CURL;
-    curl_slist*     m_headers;
-    std::string     m_buffer;
+    CURL*                          m_CURL;
+    curl_slist*                    m_headers;
+    std::string                    m_buffer;
+    std::unique_ptr<CURL_PROGRESS> progress;
 };
+
 
 #endif // KICAD_CURL_EASY_H_

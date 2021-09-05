@@ -3,7 +3,7 @@
  *
  * Copyright (C) 1992-2017 jp.charras at wanadoo.fr
  * Copyright (C) 2013-2017 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.TXT for contributors.
+ * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -25,9 +25,9 @@
 
 #include <netlist_exporter_base.h>
 
-#include <refdes_utils.h>
+#include <string_utils.h>
 
-#include <class_library.h>
+#include <symbol_library.h>
 #include <connection_graph.h>
 #include <sch_reference_list.h>
 #include <sch_screen.h>
@@ -72,7 +72,10 @@ wxString NETLIST_EXPORTER_BASE::MakeCommandLine( const wxString& aFormatString,
 
 SCH_SYMBOL* NETLIST_EXPORTER_BASE::findNextSymbol( EDA_ITEM* aItem, SCH_SHEET_PATH* aSheetPath )
 {
-    wxString    ref;
+    wxCHECK( aItem, nullptr );
+    wxCHECK( aSheetPath, nullptr );
+
+    wxString ref;
 
     if( aItem->Type() != SCH_SYMBOL_T )
         return nullptr;
@@ -87,16 +90,16 @@ SCH_SYMBOL* NETLIST_EXPORTER_BASE::findNextSymbol( EDA_ITEM* aItem, SCH_SHEET_PA
     if( ref[0] == wxChar( '#' ) )
         return nullptr;
 
-    // if( symbol->m_FlagControlMulti == 1 )
-    //    continue;                                      /* yes */
-    // removed because with multiple instances of one schematic (several sheets pointing to
-    // 1 screen), this will be erroneously be toggled.
+    SCH_SCREEN* screen = aSheetPath->LastScreen();
 
-    if( !symbol->GetPartRef() )
-        return nullptr;
+    wxCHECK( screen, nullptr );
+
+    LIB_SYMBOL* libSymbol = screen->GetLibSymbols()[ symbol->GetSchSymbolLibraryName() ];
+
+    wxCHECK( libSymbol, nullptr );
 
     // If symbol is a "multi parts per package" type
-    if( symbol->GetPartRef()->GetUnitCount() > 1 )
+    if( libSymbol->GetUnitCount() > 1 )
     {
         // test if this reference has already been processed, and if so skip
         if( m_referencesAlreadyFound.Lookup( ref ) )
@@ -104,7 +107,7 @@ SCH_SYMBOL* NETLIST_EXPORTER_BASE::findNextSymbol( EDA_ITEM* aItem, SCH_SHEET_PA
     }
 
     // record the usage of this library symbol entry.
-    m_libParts.insert( symbol->GetPartRef().get() ); // rejects non-unique pointers
+    m_libParts.insert( libSymbol ); // rejects non-unique pointers
 
     return symbol;
 }
@@ -114,7 +117,7 @@ SCH_SYMBOL* NETLIST_EXPORTER_BASE::findNextSymbol( EDA_ITEM* aItem, SCH_SHEET_PA
 static bool sortPinsByNum( PIN_INFO& aPin1, PIN_INFO& aPin2 )
 {
     // return "lhs < rhs"
-    return UTIL::RefDesStringCompare( aPin1.num, aPin2.num ) < 0;
+    return StrNumCmp( aPin1.num, aPin2.num, true ) < 0;
 }
 
 
@@ -135,18 +138,18 @@ void NETLIST_EXPORTER_BASE::CreatePinList( SCH_SYMBOL* aSymbol,
     // removed because with multiple instances of one schematic (several sheets pointing to
     // 1 screen), this will be erroneously be toggled.
 
-    if( !aSymbol->GetPartRef() )
+    if( !aSymbol->GetLibSymbolRef() )
         return;
 
     m_sortedSymbolPinList.clear();
 
     // If symbol is a "multi parts per package" type
-    if( aSymbol->GetPartRef()->GetUnitCount() > 1 )
+    if( aSymbol->GetLibSymbolRef()->GetUnitCount() > 1 )
     {
         // Collect all pins for this reference designator by searching the entire design for
         // other parts with the same reference designator.
         // This is only done once, it would be too expensive otherwise.
-        findAllUnitsOfSymbol( aSymbol, aSymbol->GetPartRef().get(),
+        findAllUnitsOfSymbol( aSymbol, aSymbol->GetLibSymbolRef().get(),
                               aSheetPath, aKeepUnconnectedPins );
     }
 
@@ -168,7 +171,7 @@ void NETLIST_EXPORTER_BASE::CreatePinList( SCH_SYMBOL* aSymbol,
                     continue;
                 }
 
-                m_sortedSymbolPinList.emplace_back( pin->GetNumber(), netName );
+                m_sortedSymbolPinList.emplace_back( pin->GetShownNumber(), netName );
             }
         }
     }
@@ -180,7 +183,7 @@ void NETLIST_EXPORTER_BASE::CreatePinList( SCH_SYMBOL* aSymbol,
     eraseDuplicatePins();
 
     // record the usage of this library symbol
-    m_libParts.insert( aSymbol->GetPartRef().get() ); // rejects non-unique pointers
+    m_libParts.insert( aSymbol->GetLibSymbolRef().get() ); // rejects non-unique pointers
 }
 
 
@@ -254,7 +257,7 @@ void NETLIST_EXPORTER_BASE::findAllUnitsOfSymbol( SCH_SYMBOL* aSchSymbol, LIB_SY
                             continue;
                     }
 
-                    m_sortedSymbolPinList.emplace_back( pin->GetNumber(), netName );
+                    m_sortedSymbolPinList.emplace_back( pin->GetShownNumber(), netName );
                 }
             }
         }

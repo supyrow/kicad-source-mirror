@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2020 BeagleBoard Foundation
- * Copyright (C) 2020 KiCad Developers, see CHANGELOG.TXT for contributors.
+ * Copyright (C) 2020-2021 KiCad Developers, see CHANGELOG.TXT for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -29,15 +29,15 @@
 
 #include "fabmaster_plugin.h"
 #include <board.h>
-
+#include <progress_reporter.h>
 #include <common.h>
 #include <macros.h>
 
 
 FABMASTER_PLUGIN::FABMASTER_PLUGIN()
 {
-    m_board = NULL;
-    m_props = NULL;
+    m_board = nullptr;
+    m_props = nullptr;
 }
 
 
@@ -59,7 +59,8 @@ const wxString FABMASTER_PLUGIN::GetFileExtension() const
 
 
 BOARD* FABMASTER_PLUGIN::Load( const wxString &aFileName, BOARD *aAppendToMe,
-                               const PROPERTIES *aProperties, PROJECT *aProject )
+                               const PROPERTIES *aProperties, PROJECT *aProject,
+                               PROGRESS_REPORTER* aProgressReporter )
 {
     m_props = aProperties;
 
@@ -68,6 +69,14 @@ BOARD* FABMASTER_PLUGIN::Load( const wxString &aFileName, BOARD *aAppendToMe,
     // Give the filename to the board if it's new
     if( !aAppendToMe )
         m_board->SetFileName( aFileName );
+
+    if( aProgressReporter )
+    {
+        aProgressReporter->Report( wxString::Format( _( "Loading %s..." ), aFileName ) );
+
+        if( !aProgressReporter->KeepRefreshing() )
+            THROW_IO_ERROR( ( "Open cancelled by user." ) );
+    }
 
     if( !m_fabmaster.Read( aFileName.ToStdString() ) )
     {
@@ -78,6 +87,7 @@ BOARD* FABMASTER_PLUGIN::Load( const wxString &aFileName, BOARD *aAppendToMe,
     }
 
     m_fabmaster.Process();
-    m_fabmaster.LoadBoard( m_board );
+    m_fabmaster.LoadBoard( m_board, aProgressReporter );
+
     return m_board;
 }

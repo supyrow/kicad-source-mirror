@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2011 Jean-Pierre Charras, <jp.charras@wanadoo.fr>
- * Copyright (C) 1992-2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -252,7 +252,7 @@ public:
     virtual bool ReadFootprintFiles( FP_LIB_TABLE* aTable, const wxString* aNickname = nullptr,
                                      PROGRESS_REPORTER* aProgressReporter = nullptr ) = 0;
 
-    void DisplayErrors( wxTopLevelWindow* aCaller = NULL );
+    void DisplayErrors( wxTopLevelWindow* aCaller = nullptr );
 
     FP_LIB_TABLE* GetTable() const
     {
@@ -273,7 +273,7 @@ protected:
      * Launch worker threads to load footprints. Part of the #FOOTPRINT_ASYNC_LOADER
      * implementation.
      */
-    virtual void startWorkers( FP_LIB_TABLE* aTable, wxString const* aNickname,
+    virtual void startWorkers( FP_LIB_TABLE* aTable, const wxString* aNickname,
                                FOOTPRINT_ASYNC_LOADER* aLoader, unsigned aNThreads ) = 0;
 
     /**
@@ -327,7 +327,7 @@ public:
      *                  all known libraries in \a aTable.
      * @param aNThreads is the number of worker threads.
      */
-    void Start( FP_LIB_TABLE* aTable, wxString const* aNickname = nullptr,
+    void Start( FP_LIB_TABLE* aTable, const wxString* aNickname = nullptr,
                 unsigned aNThreads = DEFAULT_THREADS );
 
     /**

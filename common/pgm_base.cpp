@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2004-2015 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2008 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 1992-2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -102,12 +102,9 @@ LANGUAGE_DESCR LanguagesList[] =
 
 PGM_BASE::PGM_BASE()
 {
-    m_pgm_checker = nullptr;
     m_locale = nullptr;
     m_Printing = false;
     m_ModalDialogCount = 0;
-
-    m_show_env_var_dialog = true;
 
     setLanguageId( wxLANGUAGE_DEFAULT );
 
@@ -124,9 +121,6 @@ PGM_BASE::~PGM_BASE()
 void PGM_BASE::Destroy()
 {
     // unlike a normal destructor, this is designed to be called more than once safely:
-    delete m_pgm_checker;
-    m_pgm_checker = nullptr;
-
     delete m_locale;
     m_locale = nullptr;
 }
@@ -167,7 +161,7 @@ const wxString& PGM_BASE::GetEditorName( bool aCanShowFileChooser )
     // If we still don't have an editor name show a dialog asking the user to select one
     if( !editorname && aCanShowFileChooser )
     {
-        DisplayInfoMessage( NULL, _( "No default editor found, you must choose it" ) );
+        DisplayInfoMessage( nullptr, _( "No default editor found, you must choose it" ) );
 
         editorname = AskUserForPreferredEditor();
     }
@@ -187,9 +181,9 @@ const wxString PGM_BASE::AskUserForPreferredEditor( const wxString& aDefaultEdit
 {
     // Create a mask representing the executable files in the current platform
 #ifdef __WINDOWS__
-    wxString mask( _( "Executable file (*.exe)|*.exe" ) );
+    wxString mask( _( "Executable file" ) + wxT( " (*.exe)|*.exe" ) );
 #else
-    wxString mask( _( "Executable file (*)|*" ) );
+    wxString mask( _( "Executable file" ) + wxT( " (*)|*" ) );
 #endif
 
     // Extract the path, name and extension from the default editor (even if the editor's
@@ -199,14 +193,14 @@ const wxString PGM_BASE::AskUserForPreferredEditor( const wxString& aDefaultEdit
 
     // Show the modal editor and return the file chosen (may be empty if the user cancels
     // the dialog).
-    return EDA_FILE_SELECTOR( _( "Select Preferred Editor" ), path, name, ext, mask, NULL,
-                              wxFD_OPEN | wxFD_FILE_MUST_EXIST, true );
+    return wxFileSelector( _( "Select Preferred Editor" ), path, name, wxT( "." ) + ext,
+                           mask, wxFD_OPEN | wxFD_FILE_MUST_EXIST, nullptr );
 }
 
 
-bool PGM_BASE::InitPgm( bool aHeadless )
+bool PGM_BASE::InitPgm( bool aHeadless, bool aSkipPyInit )
 {
-    wxFileName pgm_name( App().argv[0] );
+    wxString pgm_name = wxFileName( App().argv[0] ).GetName().Lower();
 
     wxInitAllImageHandlers();
 
@@ -218,18 +212,6 @@ bool PGM_BASE::InitPgm( bool aHeadless )
         return false;
     }
 #endif
-
-    m_pgm_checker = new wxSingleInstanceChecker( pgm_name.GetName().Lower() + wxT( "-" ) +
-                                                 wxGetUserId(), GetKicadLockFilePath() );
-
-    if( m_pgm_checker->IsAnotherRunning() )
-    {
-        if( !IsOK( NULL, wxString::Format( _( "%s is already running. Continue?" ),
-                                           App().GetAppDisplayName() ) ) )
-        {
-            return false;
-        }
-    }
 
     // Init KiCad environment
     // the environment variable KICAD (if exists) gives the kicad path:
@@ -246,16 +228,16 @@ bool PGM_BASE::InitPgm( bool aHeadless )
 
     // Init parameters for configuration
     App().SetVendorName( "KiCad" );
-    App().SetAppName( pgm_name.GetName().Lower() );
+    App().SetAppName( pgm_name );
 
     // Install some image handlers, mainly for help
-    if( wxImage::FindHandler( wxBITMAP_TYPE_PNG ) == NULL )
+    if( wxImage::FindHandler( wxBITMAP_TYPE_PNG ) == nullptr )
         wxImage::AddHandler( new wxPNGHandler );
 
-    if( wxImage::FindHandler( wxBITMAP_TYPE_GIF ) == NULL )
+    if( wxImage::FindHandler( wxBITMAP_TYPE_GIF ) == nullptr )
         wxImage::AddHandler( new wxGIFHandler );
 
-    if( wxImage::FindHandler( wxBITMAP_TYPE_JPEG ) == NULL )
+    if( wxImage::FindHandler( wxBITMAP_TYPE_JPEG ) == nullptr )
         wxImage::AddHandler( new wxJPEGHandler );
 
     wxFileSystem::AddHandler( new wxZipFSHandler );
@@ -272,13 +254,16 @@ bool PGM_BASE::InitPgm( bool aHeadless )
     if( !m_settings_manager->IsOK() )
         return false;
 
-    // Set up built-in environment variables (and override them from the system enviroment if set)
+    // Set up built-in environment variables (and override them from the system environment if set)
     GetCommonSettings()->InitializeEnvironment();
+
+    // Load color settings after env is initialized
+    m_settings_manager->ReloadColorSettings();
 
     // Load common settings from disk after setting up env vars
     GetSettingsManager().Load( GetCommonSettings() );
 
-    // Init user language *before* calling loadCommonSettings, because
+    // Init user language *before* calling loadSettings, because
     // env vars could be incorrectly initialized on Linux
     // (if the value contains some non ASCII7 chars, the env var is not initialized)
     SetLanguage( tmp, true );
@@ -290,7 +275,10 @@ bool PGM_BASE::InitPgm( bool aHeadless )
 
     ReadPdfBrowserInfos();      // needs GetCommonSettings()
 
-    m_python_scripting = std::make_unique<SCRIPTING>();
+    // Create the python scripting stuff
+    // Skip it fot applications that do not use it
+    if( !aSkipPyInit )
+        m_python_scripting = std::make_unique<SCRIPTING>();
 
 #ifdef __WXMAC__
     // Always show filters on Open dialog to be able to choose plugin
@@ -354,12 +342,11 @@ bool PGM_BASE::setExecutablePath()
 
 void PGM_BASE::loadCommonSettings()
 {
-    m_show_env_var_dialog = GetCommonSettings()->m_Env.show_warning_dialog;
     m_editor_name = GetCommonSettings()->m_System.editor_name;
 
     for( const std::pair<wxString, ENV_VAR_ITEM> it : GetCommonSettings()->m_Env.vars )
     {
-        wxLogTrace( traceEnvVars, "PGM_BASE::loadCommonSettings: Found entry %s = %s",
+        wxLogTrace( traceEnvVars, "PGM_BASE::loadSettings: Found entry %s = %s",
                     it.first, it.second.GetValue() );
 
         // Do not store the env var PROJECT_VAR_NAME ("KIPRJMOD") definition if for some reason
@@ -385,10 +372,7 @@ void PGM_BASE::SaveCommonSettings()
     // GetCommonSettings() is not initialized until fairly late in the
     // process startup: InitPgm(), so test before using:
     if( GetCommonSettings() )
-    {
         GetCommonSettings()->m_System.working_dir = wxGetCwd();
-        GetCommonSettings()->m_Env.show_warning_dialog = m_show_env_var_dialog;
-    }
 }
 
 
@@ -579,7 +563,7 @@ void PGM_BASE::SetLanguagePath()
             wxLocale::AddCatalogLookupPathPrefix( fn.GetPath() );
         }
 
-	// Append path for macOS install
+        // Append path for macOS install
         fn.RemoveLastDir();
         fn.RemoveLastDir();
         fn.RemoveLastDir();

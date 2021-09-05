@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2018 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 1992-2019 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -61,6 +61,25 @@ int GetArcToSegmentCount( int aRadius, int aErrorMax, double aArcAngleDegree )
 
     // Ensure at least two segments are used for algorithmic safety
     return std::max( segCount, 2 );
+}
+
+
+int CircleToEndSegmentDeltaRadius( int aRadius, int aSegCount )
+{
+    // The minimal seg count is 3, otherwise we cannot calculate the result
+    // in practice, the min count is clamped to 8 in kicad
+    if( aSegCount <= 2 )
+        aSegCount = 3;
+
+    // The angle between the center of the segment and one end of the segment
+    // when the circle is approximated by aSegCount segments
+    double alpha = M_PI / aSegCount;
+
+    // aRadius is the radius of the circle tangent to the middle of each segment
+    // and aRadius/cos(aplha) is the radius of the circle defined by seg ends
+    int delta = KiROUND( aRadius * ( 1/cos(alpha) - 1 ) );
+
+    return delta;
 }
 
 // When creating polygons to create a clearance polygonal area, the polygon must

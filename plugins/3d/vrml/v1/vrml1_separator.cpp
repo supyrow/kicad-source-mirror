@@ -2,6 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2015-2016 Cirilo Bernardo <cirilo.bernardo@gmail.com>
+ * Copyright (C) 2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -33,7 +34,6 @@
 WRL1SEPARATOR::WRL1SEPARATOR( NAMEREGISTER* aDictionary ) : WRL1NODE( aDictionary )
 {
     m_Type = WRL1NODES::WRL1_SEPARATOR;
-    return;
 }
 
 
@@ -43,78 +43,41 @@ WRL1SEPARATOR::WRL1SEPARATOR( NAMEREGISTER* aDictionary, WRL1NODE* aParent ) :
     m_Type = WRL1NODES::WRL1_SEPARATOR;
     m_Parent = aParent;
 
-    if( NULL != m_Parent )
+    if( nullptr != m_Parent )
         m_Parent->AddChildNode( this );
-
-    return;
 }
 
 
 WRL1SEPARATOR::~WRL1SEPARATOR()
 {
-    #if defined( DEBUG_VRML1 ) && ( DEBUG_VRML1 > 2 )
-    do {
-        std::ostringstream ostr;
-        ostr << " * [INFO] Destroying Separator with " << m_Children.size();
-        ostr << " children, " << m_Refs.size() << " references and ";
-        ostr << m_BackPointers.size() << " backpointers";
-        wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-    } while( 0 );
-    #endif
-
-    return;
+    wxLogTrace( traceVrmlPlugin,
+                wxT( " * [INFO] Destroying Separator with %zu children %zu references, and %zu "
+                     "back pointers." ),
+                m_Children.size(), m_Refs.size(), m_BackPointers.size() );
 }
 
 
-// functions inherited from WRL1NODE
 bool WRL1SEPARATOR::Read( WRLPROC& proc, WRL1BASE* aTopNode )
 {
-    if( NULL == aTopNode )
-    {
-        #ifdef DEBUG_VRML1
-        do {
-            std::ostringstream ostr;
-            ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-            ostr << " * [BUG] aTopNode is NULL";
-            wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-        } while( 0 );
-        #endif
-
-        return false;
-    }
-
-    size_t line, column;
-    proc.GetFilePosData( line, column );
+    wxCHECK_MSG( aTopNode, false, wxT( "Invalid top node." ) );
 
     char tok = proc.Peek();
 
     if( proc.eof() )
     {
-        #if defined( DEBUG_VRML1 ) && ( DEBUG_VRML1 > 1 )
-        do {
-            std::ostringstream ostr;
-            ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-            ostr << " * [INFO] bad file format; unexpected eof at line ";
-            ostr << line << ", column " << column;
-            wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-        } while( 0 );
-        #endif
+        wxLogTrace( traceVrmlPlugin, wxT( "%s:%s:%d\n"
+                                          " * [INFO] bad file format; unexpected eof %s." ),
+                    __FILE__, __FUNCTION__, __LINE__, proc.GetFilePosition() );
 
         return false;
     }
 
     if( '{' != tok )
     {
-        #if defined( DEBUG_VRML1 ) && ( DEBUG_VRML1 > 1 )
-        do {
-            std::ostringstream ostr;
-            ostr << proc.GetError() << "\n";
-            ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-            ostr << " * [INFO] bad file format; expecting '{' but got '" << tok;
-            ostr << "' at line " << line << ", column " << column;
-            wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-        } while( 0 );
-        #endif
+        wxLogTrace( traceVrmlPlugin,
+                    wxT( "%s:%s:%d\n"
+                         " * [INFO] bad file format; expecting '{' but got '%s' %s." ),
+                    __FILE__, __FUNCTION__, __LINE__, tok, proc.GetFilePosition() );
 
         return false;
     }
@@ -129,19 +92,11 @@ bool WRL1SEPARATOR::Read( WRLPROC& proc, WRL1BASE* aTopNode )
             break;
         }
 
-        proc.GetFilePosData( line, column );
-
-        if( !aTopNode->ReadNode( proc, this, NULL ) )
+        if( !aTopNode->ReadNode( proc, this, nullptr ) )
         {
-            #if defined( DEBUG_VRML1 ) && ( DEBUG_VRML1 > 1 )
-            do {
-                std::ostringstream ostr;
-                ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-                ostr << " * [INFO] bad file format; unexpected eof at line ";
-                ostr << line << ", column " << column;
-                wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-            } while( 0 );
-            #endif
+            wxLogTrace( traceVrmlPlugin, wxT( "%s:%s:%d\n"
+                                              " * [INFO] bad file format; unexpected eof %s." ),
+                        __FILE__, __FUNCTION__, __LINE__, proc.GetFilePosition() );
 
             return false;
         }
@@ -157,52 +112,23 @@ bool WRL1SEPARATOR::Read( WRLPROC& proc, WRL1BASE* aTopNode )
 
 SGNODE* WRL1SEPARATOR::TranslateToSG( SGNODE* aParent, WRL1STATUS* sp )
 {
-    #if defined( DEBUG_VRML1 ) && ( DEBUG_VRML1 > 2 )
-    do {
-        std::ostringstream ostr;
-        ostr << " * [INFO] Translating Separator with " << m_Children.size();
-        ostr << " children, " << m_Refs.size() << " references and ";
-        ostr << m_BackPointers.size() << " backpointers (total ";
-        ostr << m_Items.size() << " items)";
-        wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-    } while( 0 );
-    #endif
+    wxCHECK_MSG( m_Parent, nullptr, wxT( "Separator has no parent." )  );
 
-    if( !m_Parent )
-    {
-        #ifdef DEBUG
-        do {
-            std::ostringstream ostr;
-            ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-            ostr << " * [BUG] Separator has no parent";
-            wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-        } while( 0 );
-        #endif
+    wxLogTrace( traceVrmlPlugin,
+                wxT( " * [INFO] Translating Separator with %zu children, %zu references, and "
+                     "%zu back pointers (%zu total items)." ),
+                m_Children.size(), m_Refs.size(), m_BackPointers.size(), m_Items.size() );
 
-        return NULL;
-    }
-
-    if( sp != NULL )
+    if( sp != nullptr )
         m_current = *sp;
     else
         m_current.Init();
 
     S3D::SGTYPES ptype = S3D::GetSGNodeType( aParent );
 
-    if( NULL != aParent && ptype != S3D::SGTYPE_TRANSFORM )
-    {
-        #ifdef DEBUG_VRML1
-        do {
-            std::ostringstream ostr;
-            ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-            ostr << " * [BUG] Separator does not have a Transform parent (parent ID: ";
-            ostr << ptype << ")";
-            wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-        } while( 0 );
-        #endif
-
-        return NULL;
-    }
+    wxCHECK_MSG( aParent && ( ptype == S3D::SGTYPE_TRANSFORM ), nullptr,
+                 wxString::Format( wxT( "Separator does not have a Transform parent (parent "
+                                        "ID: %d)." ), ptype ) );
 
     IFSG_TRANSFORM txNode( aParent );
     bool hasContent = false;
@@ -214,7 +140,7 @@ SGNODE* WRL1SEPARATOR::TranslateToSG( SGNODE* aParent, WRL1STATUS* sp )
 
     while( sI != eI )
     {
-        if( NULL != (*sI)->TranslateToSG( node, &m_current ) )
+        if( nullptr != (*sI)->TranslateToSG( node, &m_current ) )
             hasContent = true;
 
         ++sI;
@@ -223,7 +149,7 @@ SGNODE* WRL1SEPARATOR::TranslateToSG( SGNODE* aParent, WRL1STATUS* sp )
     if( !hasContent )
     {
         txNode.Destroy();
-        return NULL;
+        return nullptr;
     }
 
     return node;

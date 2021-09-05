@@ -70,7 +70,7 @@ static const wxString pageFmts[] =
 };
 
 DIALOG_PAGES_SETTINGS::DIALOG_PAGES_SETTINGS( EDA_DRAW_FRAME* aParent, double aIuPerMils,
-                                              wxSize aMaxUserSizeMils ) :
+                                              const wxSize& aMaxUserSizeMils ) :
         DIALOG_PAGES_SETTINGS_BASE( aParent ),
         m_parent( aParent ),
         m_screen( m_parent->GetScreen() ),
@@ -202,11 +202,17 @@ bool DIALOG_PAGES_SETTINGS::TransferDataToWindow()
 
 bool DIALOG_PAGES_SETTINGS::TransferDataFromWindow()
 {
-    if( !m_customSizeX.Validate( MIN_PAGE_SIZE_MILS, m_maxPageSizeMils.x, EDA_UNITS::MILS ) )
-        return false;
+    int idx = std::max( m_paperSizeComboBox->GetSelection(), 0 );
+    const wxString paperType = m_pageFmt[idx];
 
-    if( !m_customSizeY.Validate( MIN_PAGE_SIZE_MILS, m_maxPageSizeMils.y, EDA_UNITS::MILS ) )
-        return false;
+    if( paperType.Contains( PAGE_INFO::Custom ) )
+    {
+        if( !m_customSizeX.Validate( MIN_PAGE_SIZE_MILS, m_maxPageSizeMils.x, EDA_UNITS::MILS ) )
+            return false;
+
+        if( !m_customSizeY.Validate( MIN_PAGE_SIZE_MILS, m_maxPageSizeMils.y, EDA_UNITS::MILS ) )
+            return false;
+    }
 
     if( SavePageSettings() )
     {
@@ -439,7 +445,8 @@ void DIALOG_PAGES_SETTINGS::OnDateApplyClick( wxCommandEvent& event )
 {
     wxDateTime datetime = m_PickDate->GetValue();
     wxString date =
-    // We can choose different formats. Only one must be uncommented
+    // We can choose different formats. Should probably be kept in sync with CURRENT_DATE
+    // formatting in TITLE_BLOCK.
     //
     //  datetime.Format( wxLocale::GetInfo( wxLOCALE_SHORT_DATE_FMT ) );
     //  datetime.Format( wxLocale::GetInfo( wxLOCALE_LONG_DATE_FMT ) );
@@ -463,7 +470,7 @@ bool DIALOG_PAGES_SETTINGS::SavePageSettings()
         if( !fullFileName.IsEmpty() && !wxFileExists( fullFileName ) )
         {
             wxString msg;
-            msg.Printf( _( "Drawing sheet file \"%s\" not found." ), fullFileName );
+            msg.Printf( _( "Drawing sheet file '%s' not found." ), fullFileName );
             wxMessageBox( msg );
             return false;
         }
@@ -534,7 +541,8 @@ bool DIALOG_PAGES_SETTINGS::SavePageSettings()
 
     if( !success )
     {
-        wxASSERT_MSG( false, _( "the translation for paper size must preserve original spellings" ) );
+        wxASSERT_MSG( false,
+                      _( "the translation for paper size must preserve original spellings" ) );
         m_pageInfo.SetType( PAGE_INFO::A4 );
     }
 
@@ -636,6 +644,7 @@ void DIALOG_PAGES_SETTINGS::UpdateDrawingSheetExample()
         wxString pageFmtName = m_pageFmt[idx].BeforeFirst( ' ' );
         bool portrait = clamped_layout_size.x < clamped_layout_size.y;
         pageDUMMY.SetType( pageFmtName, portrait );
+
         if( m_customFmt )
         {
             pageDUMMY.SetWidthMils( clamped_layout_size.x );
@@ -664,7 +673,8 @@ void DIALOG_PAGES_SETTINGS::UpdateDrawingSheetExample()
                 renderSettings.SetLayerColor( LAYER_DRAWINGSHEET, color );
             }
 
-            GRFilledRect( NULL, &memDC, 0, 0, m_layout_size.x, m_layout_size.y, bgColor, bgColor );
+            GRFilledRect( nullptr, &memDC, 0, 0, m_layout_size.x, m_layout_size.y, bgColor,
+                          bgColor );
 
             PrintDrawingSheet( &renderSettings, pageDUMMY, emptyString, emptyString, m_tb,
                                m_screen->GetPageCount(), m_screen->GetPageNumber(), 1, &Prj(),
@@ -673,7 +683,8 @@ void DIALOG_PAGES_SETTINGS::UpdateDrawingSheetExample()
             memDC.SelectObject( wxNullBitmap );
             m_PageLayoutExampleBitmap->SetBitmap( *m_pageBitmap );
         }
-        DS_DATA_MODEL::SetAltInstance( NULL );
+
+        DS_DATA_MODEL::SetAltInstance( nullptr );
 
         // Refresh the dialog.
         Layout();

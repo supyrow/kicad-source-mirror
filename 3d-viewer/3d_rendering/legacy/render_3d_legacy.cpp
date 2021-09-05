@@ -39,8 +39,8 @@
  */
 #define UNITS3D_TO_UNITSPCB (IU_PER_MM)
 
-RENDER_3D_LEGACY::RENDER_3D_LEGACY( BOARD_ADAPTER& aAdapter, CAMERA& aCamera ) :
-        RENDER_3D_BASE( aAdapter, aCamera )
+RENDER_3D_LEGACY::RENDER_3D_LEGACY( EDA_3D_CANVAS* aCanvas, BOARD_ADAPTER& aAdapter, CAMERA& aCamera ) :
+        RENDER_3D_BASE( aCanvas, aAdapter, aCamera )
 {
     wxLogTrace( m_logTrace, wxT( "RENDER_3D_LEGACY::RENDER_3D_LEGACY" ) );
 
@@ -674,9 +674,13 @@ bool RENDER_3D_LEGACY::Redraw( bool aIsMoving, REPORTER* aStatusReporter,
         if( ( layer_id == B_Mask ) || ( layer_id == F_Mask ) )
             continue;
 
-        // Do not show inner layers when it is displaying the board and board body is full opaque
+        // Do not show inner layers when it is displaying the board and board body is opaque
+        // enough: the time to create inner layers can be *really significant*.
+        // So avoid creating them is they are not very visible
+        const double opacity_min = 0.8;
+
         if( m_boardAdapter.GetFlag( FL_SHOW_BOARD_BODY ) &&
-            ( m_boardAdapter.m_BoardBodyColor.a > 0.99f ) )
+            ( m_boardAdapter.m_BoardBodyColor.a > opacity_min ) )
         {
             if( ( layer_id > F_Cu ) && ( layer_id < B_Cu ) )
                 continue;
@@ -1174,6 +1178,8 @@ void RENDER_3D_LEGACY::renderSolderMaskLayer( PCB_LAYER_ID aLayerID, float aZPos
 void RENDER_3D_LEGACY::render3dModelsSelected( bool aRenderTopOrBot, bool aRenderTransparentOnly,
                                                bool aRenderSelectedOnly )
 {
+    if( !m_boardAdapter.GetBoard() )
+        return;
 
     MODEL_3D::BeginDrawMulti( !aRenderSelectedOnly );
 
@@ -1365,7 +1371,7 @@ void RENDER_3D_LEGACY::generate3dGrid( GRID3D_TYPE aGridType )
     const SFVEC3F gridColor = m_boardAdapter.GetColor( DARKGRAY );
 
     // Color of grid lines every 5 lines
-    const SFVEC3F gridColor_marker = m_boardAdapter.GetColor( LIGHTGRAY );
+    const SFVEC3F gridColor_marker = m_boardAdapter.GetColor( LIGHTBLUE );
     const double  scale            = m_boardAdapter.BiuTo3dUnits();
     const GLfloat transparency     = 0.35f;
 
@@ -1407,6 +1413,9 @@ void RENDER_3D_LEGACY::generate3dGrid( GRID3D_TYPE aGridType )
     double  ymax = ( brd_center_pos.y + ysize / 2 ) * scale;
     double  zmin = Millimeter2iu( -50 ) * scale;
     double  zmax = Millimeter2iu( 100 ) * scale;
+
+    // Set rasterised line width (min value = 1)
+    glLineWidth( 1 );
 
     // Draw horizontal grid centered on 3D origin (center of the board)
     for( int ii = 0; ; ii++ )

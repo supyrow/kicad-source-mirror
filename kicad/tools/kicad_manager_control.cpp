@@ -30,12 +30,16 @@
 #include <tools/kicad_manager_control.h>
 #include <dialogs/dialog_template_selector.h>
 #include <gestfich.h>
+#include <paths.h>
 #include <wx/checkbox.h>
 #include <wx/dir.h>
 #include <wx/filedlg.h>
+#ifdef PCM
+#include "dialog_pcm.h"
+#endif
 
 
-///< Helper widget to select whether a new directory should be created for a project.
+///> Helper widget to select whether a new directory should be created for a project.
 class DIR_CHECKBOX : public wxPanel
 {
 public:
@@ -225,9 +229,8 @@ int KICAD_MANAGER_CONTROL::NewFromTemplate( const TOOL_EVENT& aEvent )
     {
         wxString msg;
 
-        msg.Printf( _( "Cannot write to folder '%s'." ), fn.GetPath() );
+        msg.Printf( _( "Insufficient permissions to write to folder '%s'." ), fn.GetPath() );
         wxMessageDialog msgDlg( m_frame, msg, _( "Error" ), wxICON_ERROR | wxOK | wxCENTER );
-        msgDlg.SetExtendedMessage( _( "Make sure you have write permissions and try again." ) );
         msgDlg.ShowModal();
         return -1;
     }
@@ -287,14 +290,13 @@ int KICAD_MANAGER_CONTROL::NewFromTemplate( const TOOL_EVENT& aEvent )
 }
 
 
-int KICAD_MANAGER_CONTROL::OpenProject( const TOOL_EVENT& aEvent )
+int KICAD_MANAGER_CONTROL::openProject( const wxString& aDefaultDir )
 {
     wxString wildcard = AllProjectFilesWildcard() + "|" + ProjectFileWildcard() + "|"
                         + LegacyProjectFileWildcard();
 
-    wxString     default_dir = m_frame->GetMruPath();
-    wxFileDialog dlg( m_frame, _( "Open Existing Project" ), default_dir, wxEmptyString,
-                      wildcard, wxFD_OPEN | wxFD_FILE_MUST_EXIST );
+    wxFileDialog dlg( m_frame, _( "Open Existing Project" ), aDefaultDir, wxEmptyString, wildcard,
+                      wxFD_OPEN | wxFD_FILE_MUST_EXIST );
 
     if( dlg.ShowModal() == wxID_CANCEL )
         return -1;
@@ -308,7 +310,20 @@ int KICAD_MANAGER_CONTROL::OpenProject( const TOOL_EVENT& aEvent )
         return -1;
 
     m_frame->LoadProject( pro );
+
     return 0;
+}
+
+
+int KICAD_MANAGER_CONTROL::OpenDemoProject( const TOOL_EVENT& aEvent )
+{
+    return openProject( PATHS::GetStockDemosPath() );
+}
+
+
+int KICAD_MANAGER_CONTROL::OpenProject( const TOOL_EVENT& aEvent )
+{
+    return openProject( m_frame->GetMruPath() );
 }
 
 
@@ -473,7 +488,7 @@ public:
             if( !m_errors.empty() )
                 m_errors += "\n";
 
-            msg.Printf( _( "Cannot copy folder \"%s\"." ), destDir.GetFullPath() );
+            msg.Printf( _( "Cannot copy folder '%s'." ), destDir.GetFullPath() );
             m_errors += msg;
         }
 
@@ -529,14 +544,14 @@ int KICAD_MANAGER_CONTROL::SaveProjectAs( const TOOL_EVENT& aEvent )
 
     if( wxDirExists( newProjectDir.GetFullPath() ) )
     {
-        msg.Printf( _( "\"%s\" already exists." ), newProjectDir.GetFullPath() );
+        msg.Printf( _( "'%s' already exists." ), newProjectDir.GetFullPath() );
         DisplayErrorMessage( m_frame, msg );
         return -1;
     }
 
     if( !wxMkdir( newProjectDir.GetFullPath() ) )
     {
-        msg.Printf( _( "Directory \"%s\" could not be created.\n\n"
+        msg.Printf( _( "Folder '%s' could not be created.\n\n"
                        "Please make sure you have write permissions and try again." ),
                     newProjectDir.GetPath() );
         DisplayErrorMessage( m_frame, msg );
@@ -545,10 +560,9 @@ int KICAD_MANAGER_CONTROL::SaveProjectAs( const TOOL_EVENT& aEvent )
 
     if( !newProjectDir.IsDirWritable() )
     {
-        msg.Printf( _( "Cannot write to folder \"%s\"." ), newProjectDir.GetFullPath() );
+        msg.Printf( _( "Insufficient permissions to write to folder '%s'." ),
+                    newProjectDir.GetFullPath() );
         wxMessageDialog msgDlg( m_frame, msg, _( "Error!" ), wxICON_ERROR | wxOK | wxCENTER );
-        msgDlg.SetExtendedMessage( _( "Please check your access permissions to this folder "
-                                      "and try again." ) );
         msgDlg.ShowModal();
         return -1;
     }
@@ -665,18 +679,16 @@ int KICAD_MANAGER_CONTROL::ShowPlayer( const TOOL_EVENT& aEvent )
                 filepath = legacy_board.GetFullPath();
         }
 
-        // Show the frame (and update widgets to set valid sizes),
-        // after creating player and before calling OpenProjectFiles().
-        // Useful because loading a complex board and building its internal data can be
-        // time consuming
-        player->Show( true );
-        wxSafeYield();
-
         if( !filepath.IsEmpty() )
         {
             if( !player->OpenProjectFiles( std::vector<wxString>( 1, filepath ) ) )
+            {
+                player->Destroy();
                 return -1;
+            }
         }
+
+        player->Show( true );
     }
 
     // Needed on Windows, other platforms do not use it, but it creates no issue
@@ -744,6 +756,14 @@ int KICAD_MANAGER_CONTROL::Execute( const TOOL_EVENT& aEvent )
         execFile = EESCHEMA_EXE;
     else if( aEvent.IsAction( &KICAD_MANAGER_ACTIONS::editOtherPCB ) )
         execFile = PCBNEW_EXE;
+#ifdef PCM
+    else if( aEvent.IsAction( &KICAD_MANAGER_ACTIONS::showPluginManager ) )
+    {
+        DIALOG_PCM* pcm = new DIALOG_PCM( m_frame );
+        pcm->ShowModal();
+        pcm->Destroy();
+    }
+#endif
     else
         wxFAIL_MSG( "Execute(): unexpected request" );
 
@@ -786,6 +806,7 @@ void KICAD_MANAGER_CONTROL::setTransitions()
 {
     Go( &KICAD_MANAGER_CONTROL::NewProject,      KICAD_MANAGER_ACTIONS::newProject.MakeEvent() );
     Go( &KICAD_MANAGER_CONTROL::NewFromTemplate, KICAD_MANAGER_ACTIONS::newFromTemplate.MakeEvent() );
+    Go( &KICAD_MANAGER_CONTROL::OpenDemoProject, KICAD_MANAGER_ACTIONS::openDemoProject.MakeEvent() );
     Go( &KICAD_MANAGER_CONTROL::OpenProject,     KICAD_MANAGER_ACTIONS::openProject.MakeEvent() );
     Go( &KICAD_MANAGER_CONTROL::CloseProject,    KICAD_MANAGER_ACTIONS::closeProject.MakeEvent() );
     Go( &KICAD_MANAGER_CONTROL::SaveProjectAs,   ACTIONS::saveAs.MakeEvent() );
@@ -805,4 +826,8 @@ void KICAD_MANAGER_CONTROL::setTransitions()
 
     Go( &KICAD_MANAGER_CONTROL::Execute,         KICAD_MANAGER_ACTIONS::editOtherSch.MakeEvent() );
     Go( &KICAD_MANAGER_CONTROL::Execute,         KICAD_MANAGER_ACTIONS::editOtherPCB.MakeEvent() );
+
+#ifdef PCM
+    Go( &KICAD_MANAGER_CONTROL::Execute,         KICAD_MANAGER_ACTIONS::showPluginManager.MakeEvent() );
+#endif
 }

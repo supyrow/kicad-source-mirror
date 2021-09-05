@@ -23,7 +23,6 @@
 #include <lib_symbol.h>
 #include <convert_to_biu.h>
 #include <default_values.h>
-#include <eda_text.h>
 #include <eeschema_settings.h>
 #include <kiface_i.h>
 #include <macros.h>
@@ -33,19 +32,21 @@
 #include <sim/spice_settings.h>
 
 
-const int schSettingsSchemaVersion = 0;
+const int schSettingsSchemaVersion = 1;
 
 
 SCHEMATIC_SETTINGS::SCHEMATIC_SETTINGS( JSON_SETTINGS* aParent, const std::string& aPath ) :
         NESTED_SETTINGS( "schematic", schSettingsSchemaVersion, aParent, aPath ),
-        m_DefaultLineWidth( DEFAULT_LINE_THICKNESS * IU_PER_MILS ),
-        m_DefaultWireThickness( DEFAULT_WIRE_THICKNESS * IU_PER_MILS ),
-        m_DefaultBusThickness( DEFAULT_BUS_THICKNESS * IU_PER_MILS ),
+        m_DefaultLineWidth( DEFAULT_LINE_WIDTH_MILS * IU_PER_MILS ),
+        m_DefaultWireThickness( DEFAULT_WIRE_WIDTH_MILS * IU_PER_MILS ),
+        m_DefaultBusThickness( DEFAULT_BUS_WIDTH_MILS * IU_PER_MILS ),
         m_DefaultTextSize( DEFAULT_TEXT_SIZE * IU_PER_MILS ),
+        m_LabelSizeRatio( DEFAULT_LABEL_SIZE_RATIO ),
         m_TextOffsetRatio( DEFAULT_TEXT_OFFSET_RATIO ),
         m_PinSymbolSize( DEFAULT_TEXT_SIZE * IU_PER_MILS / 2 ),
-        m_JunctionSize( DEFAULT_JUNCTION_DIAM * IU_PER_MILS ),
         m_JunctionSizeChoice( 3 ),
+        m_JunctionSize( DEFAULT_JUNCTION_DIAM * IU_PER_MILS ),
+        m_AnnotateStartNum( 0 ),
         m_IntersheetRefsShow( false ),
         m_IntersheetRefsListOwnPage( true ),
         m_IntersheetRefsFormatShort( false ),
@@ -57,11 +58,11 @@ SCHEMATIC_SETTINGS::SCHEMATIC_SETTINGS( JSON_SETTINGS* aParent, const std::strin
     EESCHEMA_SETTINGS* appSettings = dynamic_cast<EESCHEMA_SETTINGS*>( Kiface().KifaceSettings() );
 
     int defaultLineThickness =
-            appSettings ? appSettings->m_Drawing.default_line_thickness : DEFAULT_LINE_THICKNESS;
+            appSettings ? appSettings->m_Drawing.default_line_thickness : DEFAULT_LINE_WIDTH_MILS;
     int defaultWireThickness =
-            appSettings ? appSettings->m_Drawing.default_wire_thickness : DEFAULT_WIRE_THICKNESS;
+            appSettings ? appSettings->m_Drawing.default_wire_thickness : DEFAULT_WIRE_WIDTH_MILS;
     int defaultBusThickness =
-            appSettings ? appSettings->m_Drawing.default_bus_thickness : DEFAULT_BUS_THICKNESS;
+            appSettings ? appSettings->m_Drawing.default_bus_thickness : DEFAULT_BUS_WIDTH_MILS;
     int defaultTextSize =
             appSettings ? appSettings->m_Drawing.default_text_size : DEFAULT_TEXT_SIZE;
     int defaultPinSymbolSize =
@@ -97,39 +98,37 @@ SCHEMATIC_SETTINGS::SCHEMATIC_SETTINGS( JSON_SETTINGS* aParent, const std::strin
             &m_IntersheetRefsSuffix, defaultIntersheetsRefSuffix ) );
 
     m_params.emplace_back( new PARAM_SCALED<int>( "drawing.default_line_thickness",
-            &m_DefaultLineWidth, Mils2iu( defaultLineThickness ),
-            Mils2iu( 5 ), Mils2iu( 1000 ), 1 / IU_PER_MILS ) );
+            &m_DefaultLineWidth, Mils2iu( defaultLineThickness ), Mils2iu( 5 ), Mils2iu( 1000 ),
+            1 / IU_PER_MILS ) );
 
     m_params.emplace_back( new PARAM_SCALED<int>( "drawing.default_wire_thickness",
-            &m_DefaultWireThickness, Mils2iu( defaultWireThickness ),
-            Mils2iu( 5 ), Mils2iu( 1000 ), 1 / IU_PER_MILS ) );
+            &m_DefaultWireThickness, Mils2iu( defaultWireThickness ), Mils2iu( 5 ), Mils2iu( 1000 ),
+            1 / IU_PER_MILS ) );
 
     m_params.emplace_back( new PARAM_SCALED<int>( "drawing.default_bus_thickness",
             &m_DefaultBusThickness, Mils2iu( defaultBusThickness ),
             Mils2iu( 5 ), Mils2iu( 1000 ), 1 / IU_PER_MILS ) );
 
     m_params.emplace_back( new PARAM_SCALED<int>( "drawing.default_text_size",
-            &m_DefaultTextSize,
-            Mils2iu( defaultTextSize ), Mils2iu( 5 ), Mils2iu( 1000 ),
+            &m_DefaultTextSize, Mils2iu( defaultTextSize ), Mils2iu( 5 ), Mils2iu( 1000 ),
             1 / IU_PER_MILS ) );
 
     m_params.emplace_back( new PARAM<double>( "drawing.text_offset_ratio",
-            &m_TextOffsetRatio,
-            (double) TXT_MARGIN / DEFAULT_SIZE_TEXT, -200.0, 200.0 ) );
+            &m_TextOffsetRatio, DEFAULT_TEXT_OFFSET_RATIO, 0.0, 2.0 ) );
+
+    m_params.emplace_back( new PARAM<double>( "drawing.label_size_ratio",
+            &m_LabelSizeRatio, DEFAULT_LABEL_SIZE_RATIO, 0.0, 2.0 ) );
 
     m_params.emplace_back( new PARAM_SCALED<int>( "drawing.pin_symbol_size",
-            &m_PinSymbolSize,
-            Mils2iu( defaultPinSymbolSize ), Mils2iu( 5 ), Mils2iu( 1000 ),
+            &m_PinSymbolSize, Mils2iu( defaultPinSymbolSize ), Mils2iu( 5 ), Mils2iu( 1000 ),
             1 / IU_PER_MILS ) );
 
-    m_params.emplace_back( new PARAM_SCALED<int>( "drawing.default_junction_size",
-            &m_JunctionSize,
-            Mils2iu( defaultJunctionSize ), Mils2iu( 5 ), Mils2iu( 1000 ), 1 / IU_PER_MILS ) );
+    // m_JunctionSize is only a run-time cache of the calculated size.  Do not save it.
 
     // User choice for junction dot size ( e.g. none = 0, smallest = 1, small = 2, etc )
-    m_params.emplace_back(new PARAM<int>("drawing.junction_size_choice",
-           &m_JunctionSizeChoice,
-           defaultJunctionSizeChoice) );
+    m_params.emplace_back( new PARAM<int>( "drawing.junction_size_choice",
+            &m_JunctionSizeChoice,
+            defaultJunctionSizeChoice ) );
 
     m_params.emplace_back( new PARAM_LAMBDA<nlohmann::json>( "drawing.field_names",
             [&]() -> nlohmann::json
@@ -158,7 +157,9 @@ SCHEMATIC_SETTINGS::SCHEMATIC_SETTINGS( JSON_SETTINGS* aParent, const std::strin
                     {
                         if( !entry.contains( "name" ) || !entry.contains( "url" )
                                 || !entry.contains( "visible" ) )
+                        {
                             continue;
+                        }
 
                         TEMPLATE_FIELDNAME field( entry["name"].get<wxString>() );
                         field.m_URL     = entry["url"].get<bool>();
@@ -212,8 +213,21 @@ SCHEMATIC_SETTINGS::SCHEMATIC_SETTINGS( JSON_SETTINGS* aParent, const std::strin
     m_params.emplace_back( new PARAM<int>( "subpart_first_id",
             LIB_SYMBOL::SubpartFirstIdPtr(), 'A', '1', 'z' ) );
 
+    m_params.emplace_back( new PARAM<int>( "annotate_start_num",
+            &m_AnnotateStartNum, 0 ) );
+
     m_NgspiceSimulatorSettings =
-            std::make_shared<NGSPICE_SIMULATOR_SETTINGS>( this, "ngspice" );
+        std::make_shared<NGSPICE_SIMULATOR_SETTINGS>( this, "ngspice" );
+
+    registerMigration( 0, 1, [&]() -> bool
+    {
+        OPT<double> tor = Get<double>( "drawing.text_offset_ratio" );
+
+        if( tor.is_initialized() )
+            Set( "drawing.label_size_ratio", tor.get() );
+
+        return true;
+    } );
 }
 
 

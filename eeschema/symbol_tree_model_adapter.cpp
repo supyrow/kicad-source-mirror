@@ -22,8 +22,7 @@
 #include <wx/log.h>
 #include <wx/tokenzr.h>
 #include <wx/window.h>
-#include <widgets/progress_reporter.h>
-
+#include <widgets/wx_progress_reporters.h>
 #include <dialogs/html_messagebox.h>
 #include <eda_pattern_match.h>
 #include <generate_alias_info.h>
@@ -102,7 +101,7 @@ void SYMBOL_TREE_MODEL_ADAPTER::AddLibraries( const std::vector<wxString>& aNick
     {
         HTML_MESSAGE_BOX dlg( aParent, _( "Load Error" ) );
 
-        dlg.MessageSet( _( "Errors were encountered loading symbols:" ) );
+        dlg.MessageSet( _( "Errors loading symbols:" ) );
 
         wxString msg = loader.GetErrors();
         msg.Replace( "\n", "<BR>" );
@@ -150,9 +149,9 @@ void SYMBOL_TREE_MODEL_ADAPTER::AddLibrary( wxString const& aLibNickname )
     }
     catch( const IO_ERROR& ioe )
     {
-        wxLogError( wxString::Format( _( "Error loading symbol library %s.\n\n%s" ),
-                                      aLibNickname,
-                                      ioe.What() ) );
+        wxLogError( _( "Error loading symbol library '%s'." ) + wxS( "\n%s" ),
+                    aLibNickname,
+                    ioe.What() );
         return;
     }
 

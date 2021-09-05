@@ -23,7 +23,7 @@
  */
 
 #include <algorithm>
-#include <class_library.h>
+#include <symbol_library.h>
 #include <dialog_choose_symbol.h>
 #include <eeschema_settings.h>
 #include <kiface_i.h>
@@ -96,7 +96,7 @@ DIALOG_CHOOSE_SYMBOL::DIALOG_CHOOSE_SYMBOL( SCH_BASE_FRAME* aParent, const wxStr
         m_hsplitter = new wxSplitterWindow( m_vsplitter, wxID_ANY, wxDefaultPosition, wxDefaultSize,
                                             wxSP_LIVE_UPDATE | wxSP_NOBORDER | wxSP_3DSASH );
 
-        //Avoid the splitter window being assigned as the Parent to additional windows
+        // Avoid the splitter window being assigned as the parent to additional windows.
         m_vsplitter->SetExtraStyle( wxWS_EX_TRANSIENT );
         m_hsplitter->SetExtraStyle( wxWS_EX_TRANSIENT );
 
@@ -219,7 +219,7 @@ DIALOG_CHOOSE_SYMBOL::DIALOG_CHOOSE_SYMBOL( SCH_BASE_FRAME* aParent, const wxStr
     if( m_details )
     {
         m_details->Connect( wxEVT_CHAR_HOOK, wxKeyEventHandler( DIALOG_CHOOSE_SYMBOL::OnCharHook ),
-                            NULL, this );
+                            nullptr, this );
     }
 }
 
@@ -230,6 +230,10 @@ DIALOG_CHOOSE_SYMBOL::~DIALOG_CHOOSE_SYMBOL()
     Unbind( wxEVT_TIMER, &DIALOG_CHOOSE_SYMBOL::OnCloseTimer, this );
     Unbind( SYMBOL_PRESELECTED, &DIALOG_CHOOSE_SYMBOL::OnComponentPreselected, this );
     Unbind( SYMBOL_SELECTED, &DIALOG_CHOOSE_SYMBOL::OnComponentSelected, this );
+
+    // Stop the timer during destruction early to avoid potential race conditions (that do happen)
+    m_dbl_click_timer->Stop();
+    delete m_dbl_click_timer;
 
     if( m_browser_button )
     {
@@ -246,12 +250,9 @@ DIALOG_CHOOSE_SYMBOL::~DIALOG_CHOOSE_SYMBOL()
     if( m_details )
     {
         m_details->Disconnect( wxEVT_CHAR_HOOK,
-                               wxKeyEventHandler( DIALOG_CHOOSE_SYMBOL::OnCharHook ), NULL, this );
+                               wxKeyEventHandler( DIALOG_CHOOSE_SYMBOL::OnCharHook ), nullptr,
+                               this );
     }
-
-    // I am not sure the following two lines are necessary, but they will not hurt anyone
-    m_dbl_click_timer->Stop();
-    delete m_dbl_click_timer;
 
     if( EESCHEMA_SETTINGS* cfg = dynamic_cast<EESCHEMA_SETTINGS*>( Kiface().KifaceSettings() ) )
     {
@@ -356,12 +357,7 @@ void DIALOG_CHOOSE_SYMBOL::OnUseBrowser( wxCommandEvent& aEvent )
 {
     m_external_browser_requested = true;
 
-    if( IsQuasiModal() )
-        EndQuasiModal( wxID_OK );
-    else if( IsModal() )
-        EndModal( wxID_OK );
-    else
-        wxFAIL_MSG( "Dialog called with neither Modal nor QuasiModal" );
+    wxPostEvent( this, wxCommandEvent( wxEVT_COMMAND_BUTTON_CLICKED, wxID_OK ) );
 }
 
 
@@ -381,12 +377,7 @@ void DIALOG_CHOOSE_SYMBOL::OnCloseTimer( wxTimerEvent& aEvent )
     }
     else
     {
-        if( IsQuasiModal() )
-            EndQuasiModal( wxID_OK );
-        else if( IsModal() )
-            EndModal( wxID_OK );
-        else
-            wxFAIL_MSG( "Dialog called with neither Modal nor QuasiModal" );
+        wxPostEvent( this, wxCommandEvent( wxEVT_COMMAND_BUTTON_CLICKED, wxID_OK ) );
     }
 }
 
@@ -404,10 +395,10 @@ void DIALOG_CHOOSE_SYMBOL::ShowFootprintFor( LIB_ID const& aLibId )
     }
     catch( const IO_ERROR& ioe )
     {
-        wxLogError( wxString::Format( _( "Error loading symbol %s from library %s.\n\n%s" ),
-                                      aLibId.GetLibItemName().wx_str(),
-                                      aLibId.GetLibNickname().wx_str(),
-                                      ioe.What() ) );
+        wxLogError( _( "Error loading symbol %s from library '%s'." ) + wxS( "\n%s" ),
+                    aLibId.GetLibItemName().wx_str(),
+                    aLibId.GetLibNickname().wx_str(),
+                    ioe.What() );
     }
 
     if( !symbol )
@@ -463,11 +454,10 @@ void DIALOG_CHOOSE_SYMBOL::PopulateFootprintSelector( LIB_ID const& aLibId )
         }
         catch( const IO_ERROR& ioe )
         {
-            wxLogError( wxString::Format( _( "Error occurred loading symbol %s from library %s."
-                                             "\n\n%s" ),
-                                          aLibId.GetLibItemName().wx_str(),
-                                          aLibId.GetLibNickname().wx_str(),
-                                          ioe.What() ) );
+            wxLogError( _( "Error loading symbol %s from library '%s'." ) + wxS( "\n%s" ),
+                        aLibId.GetLibItemName().wx_str(),
+                        aLibId.GetLibNickname().wx_str(),
+                        ioe.What() );
         }
     }
 

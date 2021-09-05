@@ -62,15 +62,15 @@ endif()
 
 if( APPLE )
     # setup bundle
-    set( PL_EDITOR_RESOURCES pl_editor.icns pl_editor_doc.icns )
-    set_source_files_properties( "${CMAKE_CURRENT_SOURCE_DIR}/pl_editor.icns" PROPERTIES
+    set( PL_EDITOR_RESOURCES pagelayout_editor.icns pagelayout_editor_doc.icns )
+    set_source_files_properties( "${CMAKE_CURRENT_SOURCE_DIR}/pagelayout_editor.icns" PROPERTIES
         MACOSX_PACKAGE_LOCATION Resources
         )
-    set_source_files_properties( "${CMAKE_CURRENT_SOURCE_DIR}/pl_editor_doc.icns" PROPERTIES
+    set_source_files_properties( "${CMAKE_CURRENT_SOURCE_DIR}/pagelayout_editor_doc.icns" PROPERTIES
         MACOSX_PACKAGE_LOCATION Resources
         )
-    set( MACOSX_BUNDLE_ICON_FILE pl_editor.icns )
-    set( MACOSX_BUNDLE_GUI_IDENTIFIER org.kicad-pcb.kicad )
+    set( MACOSX_BUNDLE_ICON_FILE pagelayout_editor.icns )
+    set( MACOSX_BUNDLE_GUI_IDENTIFIER org.kicad.kicad )
     set( MACOSX_BUNDLE_NAME pl_editor )
 endif()
 
@@ -165,4 +165,10 @@ else()
         DESTINATION ${KICAD_BIN}
         COMPONENT binary
         )
+endif()
+
+if( KICAD_WIN32_INSTALL_PDBS )
+    # Get the PDBs to copy over for MSVC
+    install(FILES $<TARGET_PDB_FILE:pl_editor> DESTINATION ${KICAD_BIN})
+    install(FILES $<TARGET_PDB_FILE:pl_editor_kiface> DESTINATION ${KICAD_BIN})
 endif()

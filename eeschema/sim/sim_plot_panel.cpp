@@ -2,6 +2,8 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2016 CERN
+ * Copyright (C) 2021 KiCad Developers, see AUTHORS.txt for contributors.
+ *
  * @author Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  * @author Maciej Suminski <maciej.suminski@cern.ch>
  *
@@ -31,6 +33,7 @@
 #include <limits>
 
 #include <wx/regex.h>
+
 
 static wxString formatFloat( double x, int nDigits )
 {
@@ -131,9 +134,6 @@ static int countDecimalDigits( double x, int maxDigits )
 template <typename parent>
 class LIN_SCALE : public parent
 {
-private:
-    const wxString m_unit;
-
 public:
     LIN_SCALE( wxString name, wxString unit, int flags ) : parent( name, flags ), m_unit( unit ){};
 
@@ -162,15 +162,15 @@ public:
             l.visible = true;
         }
     }
+
+private:
+    const wxString m_unit;
 };
 
 
 template <typename parent>
 class LOG_SCALE : public parent
 {
-private:
-    const wxString m_unit;
-
 public:
     LOG_SCALE( wxString name, wxString unit, int flags ) : parent( name, flags ), m_unit( unit ){};
 
@@ -189,6 +189,9 @@ public:
             l.visible = true;
         }
     }
+
+private:
+    const wxString m_unit;
 };
 
 
@@ -257,9 +260,11 @@ void CURSOR::Plot( wxDC& aDC, mpWindow& aWindow )
                              aWindow.y2p( m_trace->y2s( m_coords.y ) ) );
 
     wxCoord leftPx   = m_drawOutsideMargins ? 0 : aWindow.GetMarginLeft();
-    wxCoord rightPx  = m_drawOutsideMargins ? aWindow.GetScrX() : aWindow.GetScrX() - aWindow.GetMarginRight();
+    wxCoord rightPx  = m_drawOutsideMargins ? aWindow.GetScrX() :
+                                              aWindow.GetScrX() - aWindow.GetMarginRight();
     wxCoord topPx    = m_drawOutsideMargins ? 0 : aWindow.GetMarginTop();
-    wxCoord bottomPx = m_drawOutsideMargins ? aWindow.GetScrY() : aWindow.GetScrY() - aWindow.GetMarginBottom();
+    wxCoord bottomPx = m_drawOutsideMargins ? aWindow.GetScrY() :
+                                              aWindow.GetScrY() - aWindow.GetMarginBottom();
 
     wxPen pen = GetPen();
     pen.SetStyle( m_continuous ? wxPENSTYLE_SOLID : wxPENSTYLE_LONG_DASH );
@@ -278,8 +283,10 @@ bool CURSOR::Inside( wxPoint& aPoint )
     if( !m_window )
         return false;
 
-    return ( std::abs( (double) aPoint.x - m_window->x2p( m_trace->x2s( m_coords.x ) ) ) <= DRAG_MARGIN )
-        || ( std::abs( (double) aPoint.y - m_window->y2p( m_trace->y2s( m_coords.y ) ) ) <= DRAG_MARGIN );
+    return ( std::abs( (double) aPoint.x -
+                       m_window->x2p( m_trace->x2s( m_coords.x ) ) ) <= DRAG_MARGIN )
+        || ( std::abs( (double) aPoint.y -
+                       m_window->y2p( m_trace->y2s( m_coords.y ) ) ) <= DRAG_MARGIN );
 }
 
 
@@ -293,14 +300,15 @@ void CURSOR::UpdateReference()
 }
 
 
-SIM_PLOT_PANEL::SIM_PLOT_PANEL( wxString aCommand, wxWindow* parent, SIM_PLOT_FRAME* aMainFrame,
-        wxWindowID id, const wxPoint& pos, const wxSize& size, long style, const wxString& name )
-        : SIM_PANEL_BASE( aCommand, parent, id, pos, size, style, name ),
-          m_axis_x( nullptr ),
-          m_axis_y1( nullptr ),
-          m_axis_y2( nullptr ),
-          m_dotted_cp( false ),
-          m_masterFrame( aMainFrame )
+SIM_PLOT_PANEL::SIM_PLOT_PANEL( const wxString& aCommand, wxWindow* parent,
+                                SIM_PLOT_FRAME* aMainFrame, wxWindowID id, const wxPoint& pos,
+                                const wxSize& size, long style, const wxString& name )
+    : SIM_PANEL_BASE( aCommand, parent, id, pos, size, style, name ),
+      m_axis_x( nullptr ),
+      m_axis_y1( nullptr ),
+      m_axis_y2( nullptr ),
+      m_dotted_cp( false ),
+      m_masterFrame( aMainFrame )
 {
     m_sizer   = new wxBoxSizer( wxVERTICAL );
     m_plotWin = new mpWindow( this, wxID_ANY, pos, size, style );
@@ -386,9 +394,9 @@ void SIM_PLOT_PANEL::prepareDCAxes()
 {
     wxRegEx simCmd( "^.dc[[:space:]]+([[:alnum:]]+\\M).*", wxRE_ADVANCED | wxRE_ICASE );
 
-    if( simCmd.Matches( GetSimCommand() ) )
+    if( simCmd.Matches( getSimCommand() ) )
     {
-        switch( static_cast<char>( simCmd.GetMatch( GetSimCommand().Lower(), 1 ).GetChar( 0 ) ) )
+        switch( static_cast<char>( simCmd.GetMatch( getSimCommand().Lower(), 1 ).GetChar( 0 ) ) )
         {
         case 'v':
             m_axis_x =
@@ -441,10 +449,10 @@ void SIM_PLOT_PANEL::UpdateTraceStyle( TRACE* trace )
 }
 
 
-bool SIM_PLOT_PANEL::AddTrace( const wxString& aName, int aPoints, const double* aX,
+bool SIM_PLOT_PANEL::addTrace( const wxString& aName, int aPoints, const double* aX,
                                const double* aY, SIM_PLOT_TYPE aType, const wxString& aParam )
 {
-    TRACE* trace = NULL;
+    TRACE* trace = nullptr;
     wxString name = aName;
 
     if( aType & SPT_AC_MAG )
@@ -509,7 +517,11 @@ bool SIM_PLOT_PANEL::AddTrace( const wxString& aName, int aPoints, const double*
         else
         {
             for( int i = 0; i < aPoints; i++ )
-                tmp[i] = 20 * log( tmp[i] ) / log( 10.0 );      // convert to dB
+            {
+                // log( 0 ) is not valid.
+                if( tmp[i] != 0 )
+                    tmp[i] = 20 * log( tmp[i] ) / log( 10.0 );  // convert to dB
+            }
         }
     }
 
@@ -526,7 +538,7 @@ bool SIM_PLOT_PANEL::AddTrace( const wxString& aName, int aPoints, const double*
 }
 
 
-bool SIM_PLOT_PANEL::DeleteTrace( const wxString& aName )
+bool SIM_PLOT_PANEL::deleteTrace( const wxString& aName )
 {
     auto it = m_traces.find( aName );
 
@@ -548,11 +560,11 @@ bool SIM_PLOT_PANEL::DeleteTrace( const wxString& aName )
 }
 
 
-void SIM_PLOT_PANEL::DeleteAllTraces()
+void SIM_PLOT_PANEL::deleteAllTraces()
 {
     for( auto& t : m_traces )
     {
-        DeleteTrace( t.first );
+        deleteTrace( t.first );
     }
 
     m_traces.clear();
@@ -589,7 +601,7 @@ void SIM_PLOT_PANEL::EnableCursor( const wxString& aName, bool aEnable )
     else
     {
         CURSOR* c = t->GetCursor();
-        t->SetCursor( NULL );
+        t->SetCursor( nullptr );
         m_plotWin->DelLayer( c, true );
     }
 

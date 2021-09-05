@@ -164,7 +164,7 @@ bool LIB_PIN::HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy ) c
 
 int LIB_PIN::GetPenWidth() const
 {
-    return 1;
+    return 0;
 }
 
 
@@ -180,7 +180,7 @@ wxString LIB_PIN::GetShownName() const
 void LIB_PIN::print( const RENDER_SETTINGS* aSettings, const wxPoint& aOffset, void* aData,
                      const TRANSFORM& aTransform )
 {
-    PART_DRAW_OPTIONS* opts = (PART_DRAW_OPTIONS*) aData;
+    LIB_SYMBOL_OPTIONS* opts = (LIB_SYMBOL_OPTIONS*) aData;
     bool               drawHiddenFields = opts ? opts->draw_hidden_fields : false;
     bool               showPinType = opts ? opts->show_elec_type : false;
     bool               show_connect_point = opts ? opts->show_connect_point : false;
@@ -217,7 +217,7 @@ void LIB_PIN::printPinSymbol( const RENDER_SETTINGS* aSettings, const wxPoint& a
 {
     wxDC*   DC = aSettings->GetPrintDC();
     int     MapX1, MapY1, x1, y1;
-    int     width = std::max( GetPenWidth(), aSettings->GetDefaultPenWidth() );
+    int     width = GetEffectivePenWidth( aSettings );
     int     posX = aPos.x, posY = aPos.y, len = m_length;
     COLOR4D color = aSettings->GetLayerColor( IsVisible() ? LAYER_PIN : LAYER_HIDDEN );
 
@@ -537,7 +537,7 @@ void LIB_PIN::PlotSymbol( PLOTTER* aPlotter, const wxPoint& aPosition, int aOrie
 {
     int     MapX1, MapY1, x1, y1;
     COLOR4D color = aPlotter->RenderSettings()->GetLayerColor( LAYER_PIN );
-    int     penWidth = std::max( GetPenWidth(), aPlotter->RenderSettings()->GetDefaultPenWidth() );
+    int     penWidth = GetEffectivePenWidth( aPlotter->RenderSettings() );
 
     aPlotter->SetColor( color );
     aPlotter->SetCurrentLineWidth( penWidth );

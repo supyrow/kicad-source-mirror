@@ -2,6 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2016 Cirilo Bernardo <cirilo.bernardo@gmail.com>
+ * Copyright (C) 2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -33,7 +34,6 @@
 WRL1COORDS::WRL1COORDS( NAMEREGISTER* aDictionary ) : WRL1NODE( aDictionary )
 {
     m_Type = WRL1NODES::WRL1_COORDINATE3;
-    return;
 }
 
 
@@ -43,91 +43,51 @@ WRL1COORDS::WRL1COORDS( NAMEREGISTER* aDictionary, WRL1NODE* aParent ) :
     m_Type = WRL1NODES::WRL1_COORDINATE3;
     m_Parent = aParent;
 
-    if( NULL != m_Parent )
+    if( nullptr != m_Parent )
         m_Parent->AddChildNode( this );
-
-    return;
 }
 
 
 WRL1COORDS::~WRL1COORDS()
 {
-    #if defined( DEBUG_VRML1 ) && ( DEBUG_VRML1 > 2 )
-    wxLogTrace( MASK_VRML, " * [INFO] Destroying Coordinate3 node\n" );
-    #endif
-
-    return;
+    wxLogTrace( traceVrmlPlugin, " * [INFO] Destroying Coordinate3 node." );
 }
 
 
 bool WRL1COORDS::AddRefNode( WRL1NODE* aNode )
 {
     // this node may not own or reference any other node
-
-    #ifdef DEBUG_VRML1
-    do {
-        std::ostringstream ostr;
-        ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-        ostr << " * [BUG] AddRefNode is not applicable";
-        wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-    } while( 0 );
-    #endif
-
-    return false;
+    wxCHECK_MSG( false, false, wxT( "AddRefNode is not applicable." ) );
 }
 
 
 bool WRL1COORDS::AddChildNode( WRL1NODE* aNode )
 {
     // this node may not own or reference any other node
-
-    #ifdef DEBUG_VRML1
-    do {
-        std::ostringstream ostr;
-        ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-        ostr << " * [BUG] AddChildNode is not applicable";
-        wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-    } while( 0 );
-    #endif
-
-    return false;
+    wxCHECK_MSG( false, false, wxT( "AddChildNode is not applicable." ) );
 }
 
 
 bool WRL1COORDS::Read( WRLPROC& proc, WRL1BASE* aTopNode )
 {
-    size_t line, column;
-    proc.GetFilePosData( line, column );
-
     char tok = proc.Peek();
 
     if( proc.eof() )
     {
-        #if defined( DEBUG_VRML1 ) && ( DEBUG_VRML1 > 1 )
-        do {
-            std::ostringstream ostr;
-            ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-            ostr << " * [INFO] bad file format; unexpected eof at line ";
-            ostr << line << ", column " << column;
-            wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-        } while( 0 );
-        #endif
+        wxLogTrace( traceVrmlPlugin,
+                    wxT( "%s:%s:%d\n"
+                         " * [INFO] bad file format; unexpected eof %s." ),
+                    __FILE__, __FUNCTION__, __LINE__, proc.GetFilePosition() );
 
         return false;
     }
 
     if( '{' != tok )
     {
-        #if defined( DEBUG_VRML1 ) && ( DEBUG_VRML1 > 1 )
-        do {
-            std::ostringstream ostr;
-            ostr << proc.GetError() << "\n";
-            ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-            ostr << " * [INFO] bad file format; expecting '{' but got '" << tok;
-            ostr << "' at line " << line << ", column " << column << "\n";
-            wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-        } while( 0 );
-        #endif
+        wxLogTrace( traceVrmlPlugin,
+                    wxT( "%s:%s:%d\n"
+                         " * [INFO] bad file format; expecting '{' but got '%s' %s" ),
+                    __FILE__, __FUNCTION__, __LINE__, tok, proc.GetFilePosition() );
 
         return false;
     }
@@ -143,57 +103,39 @@ bool WRL1COORDS::Read( WRLPROC& proc, WRL1BASE* aTopNode )
 
     if( !proc.ReadName( glob ) )
     {
-        #if defined( DEBUG_VRML1 ) && ( DEBUG_VRML1 > 1 )
-        do {
-            std::ostringstream ostr;
-            ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-            ostr << proc.GetError();
-            wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-        } while( 0 );
-        #endif
+        wxLogTrace( traceVrmlPlugin, wxT( "%s:%s:%d\n%s" ),
+                    __FILE__, __FUNCTION__, __LINE__, proc.GetError() );
 
         return false;
     }
-
-    proc.GetFilePosData( line, column );
 
     // expecting 'point'
     if( !glob.compare( "point" ) )
     {
         if( !proc.ReadMFVec3f( points ) )
         {
-            #if defined( DEBUG_VRML1 ) && ( DEBUG_VRML1 > 1 )
-            do {
-                std::ostringstream ostr;
-                ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-                ostr << " * [INFO] invalid point set at line " << line << ", column ";
-                ostr << column << "\n";
-                ostr << " * [INFO] file: '" << proc.GetFileName() << "'\n";
-                ostr << " * [INFO] message: '" << proc.GetError();
-                wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-            } while( 0 );
-            #endif
+            wxLogTrace( traceVrmlPlugin,
+                        wxT( "%s:%s:%d\n"
+                             " * [INFO] invalid point set %s\n"
+                             " * [INFO] file: '%s'\n"
+                             "%s" ),
+                        __FILE__, __FUNCTION__, __LINE__, proc.GetFilePosition(),
+                        proc.GetFileName(), proc.GetError() );
 
             return false;
         }
     }
     else
     {
-        #if defined( DEBUG_VRML1 ) && ( DEBUG_VRML1 > 1 )
-        do {
-            std::ostringstream ostr;
-            ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-            ostr << " * [INFO] bad Coordinate at line " << line << ", column ";
-            ostr << column << "\n";
-            ostr << " * [INFO] file: '" << proc.GetFileName();
-            wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-        } while( 0 );
-        #endif
+        wxLogTrace( traceVrmlPlugin, wxT( "%s:%s:%d\n"
+                                          "* [INFO] bad Coordinate %s.\n"
+                                          "* [INFO] file: '%s'." ),
+                    __FILE__, __FUNCTION__, __LINE__, proc.GetFilePosition(), proc.GetFileName() );
 
         return false;
     }
 
-    // assuming legacy kicad expectation of 1U = 0.1 inch,
+    // assuming legacy KiCad expectation of 1U = 0.1 inch,
     // convert to mm to meet the expectations of the SG structure
     std::vector< WRLVEC3F >::iterator sP = points.begin();
     std::vector< WRLVEC3F >::iterator eP = points.end();
@@ -212,18 +154,10 @@ bool WRL1COORDS::Read( WRLPROC& proc, WRL1BASE* aTopNode )
         return true;
     }
 
-    proc.GetFilePosData( line, column );
-
-    #if defined( DEBUG_VRML1 ) && ( DEBUG_VRML1 > 1 )
-    do {
-        std::ostringstream ostr;
-        ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-        ostr << " * [INFO] bad Coordinate at line " << line << ", column ";
-        ostr << column << " (no closing brace)\n";
-        ostr << " * [INFO] file: '" << proc.GetFileName();
-        wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-    } while( 0 );
-    #endif
+    wxLogTrace( traceVrmlPlugin,
+                wxT( "%s:%s:%d\n"
+                     " * [INFO] bad Coordinate %s (no closing brace)." ),
+                __FILE__, __FUNCTION__, __LINE__, proc.GetFilePosition() );
 
     return false;
 }
@@ -233,29 +167,21 @@ void WRL1COORDS::GetCoords( WRLVEC3F*& aCoordList, size_t& aListSize )
 {
     if( points.size() < 3 )
     {
-        aCoordList = NULL;
+        aCoordList = nullptr;
         aListSize = 0;
         return;
     }
 
     aCoordList = &points[0];
     aListSize = points.size();
-    return;
 }
 
 
 SGNODE* WRL1COORDS::TranslateToSG( SGNODE* aParent, WRL1STATUS* sp )
 {
-    if( NULL == sp )
-    {
-        #if defined( DEBUG_VRML1 ) && ( DEBUG_VRML1 > 1 )
-        wxLogTrace( MASK_VRML, " * [INFO] bad model: no base data given\n" );
-        #endif
-
-        return NULL;
-    }
+    wxCHECK_MSG( sp, nullptr, wxT( "Inalid base data." ) );
 
     sp->coord = this;
 
-    return NULL;
+    return nullptr;
 }

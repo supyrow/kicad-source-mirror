@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2009 Jean-Pierre Charras, jaen-pierre.charras@gipsa-lab.inpg.com
  * Copyright (C) 2011 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 1992-2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -97,6 +97,11 @@ public:
      */
     void ScriptingConsoleEnableDisable();
 
+    /**
+     * Gets the current visibility of the scripting console window
+     */
+    bool IsScriptingConsoleVisible();
+
     wxFindReplaceData& GetFindReplaceData() { return *m_findReplaceData; }
     wxArrayString& GetFindHistoryList() { return m_findStringHistoryList; }
 
@@ -166,7 +171,7 @@ public:
     // the background color of the draw canvas:
     // Virtual because some frames can have a specific way to get/set the bg color
     virtual COLOR4D GetDrawBgColor() const { return m_drawBgColor; }
-    virtual void SetDrawBgColor( COLOR4D aColor) { m_drawBgColor= aColor ; }
+    virtual void SetDrawBgColor( const COLOR4D& aColor) { m_drawBgColor= aColor ; }
 
     /// Returns a pointer to the active color theme settings
     virtual COLOR_SETTINGS* GetColorSettings() const;
@@ -220,7 +225,7 @@ public:
     virtual void SetGridVisibility( bool aVisible );
 
     virtual COLOR4D GetGridColor() { return m_gridColor; }
-    virtual void SetGridColor( COLOR4D aColor ) { m_gridColor = aColor; }
+    virtual void SetGridColor( const COLOR4D& aColor ) { m_gridColor = aColor; }
 
     /**
      * Command event handler for selecting grid sizes.
@@ -274,7 +279,7 @@ public:
     /**
      * Recalculate the size of toolbars and display panel when the frame size changes.
      */
-    virtual void OnSize( wxSizeEvent& event );
+    virtual void OnSize( wxSizeEvent& event ) override;
 
     void OnMove( wxMoveEvent& aEvent ) override;
 

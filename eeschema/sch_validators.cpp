@@ -52,14 +52,7 @@ SCH_FIELD_VALIDATOR::SCH_FIELD_VALIDATOR(  bool aIsLibEditor, int aFieldId, wxSt
     }
     else if( m_fieldId == SHEETNAME_V )
     {
-        // Does it make sense to exclude the colon and back slash characters?  The forward slash
-        // makes sense because it is used as the separator when generating human readable sheet
-        // paths.
-        excludes += wxT( ":/\\" );
-    }
-    else if( aFieldId == VALUE_FIELD && m_isLibEditor )
-    {
-        excludes += wxT( " :/\\" );
+        excludes += wxT( "/" );
     }
 
     long style = GetStyle();
@@ -209,14 +202,30 @@ bool SCH_FIELD_VALIDATOR::Validate( wxWindow* aParent )
 }
 
 
+// Match opening curly brace, preceeded by start-of-line or by a character not including $_^~
+wxRegEx SCH_NETNAME_VALIDATOR::m_busGroupRegex( R"((^|[^$_\^~]){)", wxRE_ADVANCED );
+
+
 wxString SCH_NETNAME_VALIDATOR::IsValid( const wxString& str ) const
 {
-    if( NET_SETTINGS::ParseBusGroup( str, nullptr, nullptr ) )
+    // We don't do single-character validation here
+    if( str.Length() == 1 )
         return wxString();
 
     if( ( str.Contains( '[' ) || str.Contains( ']' ) ) &&
         !NET_SETTINGS::ParseBusVector( str, nullptr, nullptr ) )
-        return _( "Signal name contains '[' or ']' but is not a valid vector bus name" );
+    {
+        return _( "Signal name contains '[' or ']' but is not a valid vector bus name." );
+    }
+
+    // Figuring out if the user "meant" to make a bus group is somewhat trickier because curly
+    // braces are also used for formatting and variable expansion
+
+    if( m_busGroupRegex.Matches( str ) && str.Contains( '}' ) &&
+        !NET_SETTINGS::ParseBusGroup( str, nullptr, nullptr ) )
+    {
+        return _( "Signal name contains '{' and '}' but is not a valid group bus name" );
+    }
 
     return NETNAME_VALIDATOR::IsValid( str );
 }

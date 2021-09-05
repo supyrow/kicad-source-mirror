@@ -27,15 +27,15 @@
 #include <wx/wupdlock.h>
 
 #include <bitmaps.h>
-#include <eda_3d_viewer.h>
+#include <eda_3d_viewer_frame.h>
 #include <menus_helpers.h>
 #include <tool/action_toolbar.h>
-#include <tools/3d_actions.h>
+#include <tools/eda_3d_actions.h>
 #include <3d_viewer_id.h>
 
-void EDA_3D_VIEWER::ReCreateMainToolbar()
+void EDA_3D_VIEWER_FRAME::ReCreateMainToolbar()
 {
-    wxLogTrace( m_logTrace, "EDA_3D_VIEWER::ReCreateMainToolbar" );
+    wxLogTrace( m_logTrace, "EDA_3D_VIEWER_FRAME::ReCreateMainToolbar" );
 
     wxWindowUpdateLocker dummy( this );
 
@@ -93,6 +93,11 @@ void EDA_3D_VIEWER::ReCreateMainToolbar()
 
     m_mainToolBar->AddScaledSeparator( this );
     m_mainToolBar->Add( EDA_3D_ACTIONS::toggleOrtho, ACTION_TOOLBAR::TOGGLE );
+
+    m_mainToolBar->AddScaledSeparator( this );
+    m_mainToolBar->Add( EDA_3D_ACTIONS::showTHT, ACTION_TOOLBAR::TOGGLE );
+    m_mainToolBar->Add( EDA_3D_ACTIONS::showSMD, ACTION_TOOLBAR::TOGGLE );
+    m_mainToolBar->Add( EDA_3D_ACTIONS::showVirtual, ACTION_TOOLBAR::TOGGLE );
 
     m_mainToolBar->KiRealize();
 }

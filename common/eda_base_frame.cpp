@@ -35,11 +35,11 @@
 #include <menus_helpers.h>
 #include <panel_hotkeys_editor.h>
 #include <paths.h>
+#include <confirm.h>
 #include <pgm_base.h>
 #include <settings/app_settings.h>
 #include <settings/common_settings.h>
 #include <settings/settings_manager.h>
-#include <pgm_base.h>
 #include <project/project_local_settings.h>
 #include <tool/action_manager.h>
 #include <tool/action_menu.h>
@@ -55,7 +55,6 @@
 #include <wx/app.h>
 #include <wx/config.h>
 #include <wx/display.h>
-#include <wx/msgdlg.h>
 #include <wx/stdpaths.h>
 #include <wx/string.h>
 #include <wx/treebook.h>
@@ -80,6 +79,7 @@ static const wxSize minSize( FRAME_T aFrameType )
     }
 }
 
+
 static const wxSize defaultSize( FRAME_T aFrameType )
 {
     switch( aFrameType )
@@ -102,6 +102,7 @@ BEGIN_EVENT_TABLE( EDA_BASE_FRAME, wxFrame )
     EVT_MENU_CLOSE( EDA_BASE_FRAME::OnMenuEvent )
     EVT_MENU_HIGHLIGHT_ALL( EDA_BASE_FRAME::OnMenuEvent )
     EVT_MOVE( EDA_BASE_FRAME::OnMove )
+    EVT_SIZE( EDA_BASE_FRAME::OnSize )
     EVT_MAXIMIZE( EDA_BASE_FRAME::OnMaximize )
 
     EVT_SYS_COLOUR_CHANGED( EDA_BASE_FRAME::onSystemColorChange )
@@ -125,6 +126,7 @@ void EDA_BASE_FRAME::commonInit( FRAME_T aFrameType )
     m_autoSaveTimer     = new wxTimer( this, ID_AUTO_SAVE_TIMER );
     m_mruPath           = PATHS::GetDefaultUserProjectsPath();
     m_frameSize         = defaultSize( aFrameType );
+    m_displayIndex      = -1;
 
     m_auimgr.SetArtProvider( new WX_AUI_DOCK_ART() );
 
@@ -144,8 +146,8 @@ void EDA_BASE_FRAME::commonInit( FRAME_T aFrameType )
     Connect( wxEVT_CLOSE_WINDOW, wxCloseEventHandler( EDA_BASE_FRAME::windowClosing ) );
 
     initExitKey();
-
 }
+
 
 EDA_BASE_FRAME::EDA_BASE_FRAME( FRAME_T aFrameType, KIWAY* aKiway ) :
         wxFrame(),
@@ -154,6 +156,7 @@ EDA_BASE_FRAME::EDA_BASE_FRAME( FRAME_T aFrameType, KIWAY* aKiway ) :
 {
     commonInit( aFrameType );
 }
+
 
 EDA_BASE_FRAME::EDA_BASE_FRAME( wxWindow* aParent, FRAME_T aFrameType,
                                 const wxString& aTitle, const wxPoint& aPos, const wxSize& aSize,
@@ -398,8 +401,8 @@ void EDA_BASE_FRAME::HandleUpdateUIEvent( wxUpdateUIEvent& aEvent, EDA_BASE_FRAM
 #else
     bool canCheck = true;
 
-    // wxMenuItems don't want to be checked unless they actually are checkable, so we have to check to
-    // see if they can be and can't just universally apply a check in this event.
+    // wxMenuItems don't want to be checked unless they actually are checkable, so we have to
+    // check to see if they can be and can't just universally apply a check in this event.
     if( auto menu = dynamic_cast<wxMenu*>( aEvent.GetEventObject() ) )
         canCheck = menu->FindItem( aEvent.GetId() )->IsCheckable();
 
@@ -455,6 +458,8 @@ void EDA_BASE_FRAME::AddStandardHelpMenu( wxMenuBar* aMenuBar )
 
 void EDA_BASE_FRAME::ShowChangedLanguage()
 {
+    TOOLS_HOLDER::ShowChangedLanguage();
+
     if( GetMenuBar() )
     {
         ReCreateMenuBar();
@@ -504,6 +509,24 @@ void EDA_BASE_FRAME::ThemeChanged()
 }
 
 
+void EDA_BASE_FRAME::OnSize( wxSizeEvent& aEvent )
+{
+#ifdef __WXMAC__
+    int currentDisplay = wxDisplay::GetFromWindow( this );
+
+    if( m_displayIndex >= 0 && currentDisplay >= 0 && currentDisplay != m_displayIndex )
+    {
+        wxLogTrace( traceDisplayLocation, "OnSize: current display changed %d to %d",
+                    m_displayIndex, currentDisplay );
+        m_displayIndex = currentDisplay;
+        ensureWindowIsOnScreen();
+    }
+#endif
+
+    aEvent.Skip();
+}
+
+
 void EDA_BASE_FRAME::LoadWindowState( const wxString& aFileName )
 {
     if( !Pgm().GetCommonSettings()->m_Session.remember_open_files )
@@ -536,7 +559,8 @@ void EDA_BASE_FRAME::LoadWindowState( const WINDOW_STATE& aState )
         m_frameSize = defaultSize( m_ident );
         wasDefault  = true;
 
-        wxLogTrace( traceDisplayLocation, "Using minimum size (%d, %d)", m_frameSize.x, m_frameSize.y );
+        wxLogTrace( traceDisplayLocation, "Using minimum size (%d, %d)",
+                    m_frameSize.x, m_frameSize.y );
     }
 
     wxLogTrace( traceDisplayLocation, "Number of displays: %d", wxDisplay::GetCount() );
@@ -583,16 +607,6 @@ void EDA_BASE_FRAME::LoadWindowState( const WINDOW_STATE& aState )
         }
     }
 
-    // Ensure Window title bar is visible
-#if defined( __WXOSX__ )
-    // for macOSX, the window must be below system (macOSX) toolbar
-    int Ypos_min = 20;
-#else
-    int Ypos_min = 0;
-#endif
-    if( m_framePos.y < Ypos_min )
-        m_framePos.y = Ypos_min;
-
     wxLogTrace( traceDisplayLocation, "Final window position (%d, %d) with size (%d, %d)",
                 m_framePos.x, m_framePos.y, m_frameSize.x, m_frameSize.y );
 
@@ -616,6 +630,60 @@ void EDA_BASE_FRAME::LoadWindowState( const WINDOW_STATE& aState )
         wxLogTrace( traceDisplayLocation, "Maximizing window" );
         Maximize();
     }
+
+    m_displayIndex = wxDisplay::GetFromWindow( this );
+}
+
+
+void EDA_BASE_FRAME::ensureWindowIsOnScreen()
+{
+    wxDisplay display( wxDisplay::GetFromWindow( this ) );
+    wxRect    clientSize = display.GetClientArea();
+    wxPoint   pos        = GetPosition();
+    wxSize    size       = GetWindowSize();
+
+    wxLogTrace( traceDisplayLocation,
+                "ensureWindowIsOnScreen: clientArea (%d, %d) w %d h %d", clientSize.x, clientSize.y,
+                clientSize.width, clientSize.height );
+
+    if( pos.y < clientSize.y )
+    {
+        wxLogTrace( traceDisplayLocation,
+                    "ensureWindowIsOnScreen: y pos %d below minimum, setting to %d", pos.y,
+                    clientSize.y );
+        pos.y = clientSize.y;
+    }
+
+    if( pos.x < clientSize.x )
+    {
+        wxLogTrace( traceDisplayLocation,
+                    "ensureWindowIsOnScreen: x pos %d is off the client rect, setting to %d", pos.x,
+                    clientSize.x );
+        pos.x = clientSize.x;
+    }
+
+    if( pos.x + size.x - clientSize.x > clientSize.width )
+    {
+        int newWidth = clientSize.width - ( pos.x - clientSize.x );
+        wxLogTrace( traceDisplayLocation,
+                    "ensureWindowIsOnScreen: effective width %d above available %d, setting to %d",
+                    pos.x + size.x, clientSize.width, newWidth );
+        size.x = newWidth;
+    }
+
+    if( pos.y + size.y - clientSize.y > clientSize.height )
+    {
+        int newHeight = clientSize.height - ( pos.y - clientSize.y );
+        wxLogTrace( traceDisplayLocation,
+                    "ensureWindowIsOnScreen: effective height %d above available %d, setting to %d",
+                    pos.y + size.y, clientSize.height, newHeight );
+        size.y = newHeight;
+    }
+
+    wxLogTrace( traceDisplayLocation, "Updating window position (%d, %d) with size (%d, %d)",
+                pos.x, pos.y, size.x, size.y );
+
+    SetSize( pos.x, pos.y, size.x, size.y );
 }
 
 
@@ -661,7 +729,8 @@ void EDA_BASE_FRAME::SaveWindowSettings( WINDOW_SETTINGS* aCfg )
     aCfg->state.maximized = IsMaximized();
     aCfg->state.display   = wxDisplay::GetFromWindow( this );
 
-    wxLogTrace( traceDisplayLocation, "Saving window maximized: %s", IsMaximized() ? "true" : "false" );
+    wxLogTrace( traceDisplayLocation, "Saving window maximized: %s",
+                IsMaximized() ? "true" : "false" );
     wxLogTrace( traceDisplayLocation, "Saving config position (%d, %d) with size (%d, %d)",
                 m_framePos.x, m_framePos.y, m_frameSize.x, m_frameSize.y );
 
@@ -778,14 +847,15 @@ void EDA_BASE_FRAME::FinishAUIInitialization()
 }
 
 
-void EDA_BASE_FRAME::ShowInfoBarError( const wxString& aErrorMsg, bool aShowCloseButton )
+void EDA_BASE_FRAME::ShowInfoBarError( const wxString& aErrorMsg, bool aShowCloseButton,
+                                       WX_INFOBAR::MESSAGE_TYPE aType )
 {
     m_infoBar->RemoveAllButtons();
 
     if( aShowCloseButton )
         m_infoBar->AddCloseButton();
 
-    GetInfoBar()->ShowMessageFor( aErrorMsg, 8000, wxICON_ERROR );
+    GetInfoBar()->ShowMessageFor( aErrorMsg, 8000, wxICON_ERROR, aType );
 }
 
 
@@ -863,12 +933,12 @@ wxString EDA_BASE_FRAME::GetFileFromHistory( int cmdId, const wxString& type,
         wxString fn = aFileHistory->GetHistoryFile( i );
 
         if( wxFileName::FileExists( fn ) )
+        {
             return fn;
+        }
         else
         {
-            wxString msg = wxString::Format( _( "File \"%s\" was not found." ), fn );
-            wxMessageBox( msg );
-
+            DisplayErrorMessage( this, wxString::Format( _( "File '%s' was not found." ), fn ) );
             aFileHistory->RemoveFileFromHistory( i );
         }
     }
@@ -904,7 +974,7 @@ void EDA_BASE_FRAME::ClearFileHistory( FILE_HISTORY* aFileHistory )
 
 void EDA_BASE_FRAME::OnKicadAbout( wxCommandEvent& event )
 {
-    void ShowAboutDialog(EDA_BASE_FRAME * aParent); // See AboutDialog_main.cpp
+    void ShowAboutDialog( EDA_BASE_FRAME * aParent ); // See AboutDialog_main.cpp
     ShowAboutDialog( this );
 }
 
@@ -973,17 +1043,17 @@ bool EDA_BASE_FRAME::IsWritable( const wxFileName& aFileName )
 
     if( fn.IsDir() && !fn.IsDirWritable() )
     {
-        msg.Printf( _( "You do not have write permissions to folder \"%s\"." ),
+        msg.Printf( _( "Insufficient permissions to folder '%s'." ),
                     fn.GetPath() );
     }
     else if( !fn.FileExists() && !fn.IsDirWritable() )
     {
-        msg.Printf( _( "You do not have write permissions to save file \"%s\" to folder \"%s\"." ),
+        msg.Printf( _( "Insufficient permissions to save file '%s'." ),
                     fn.GetFullName(), fn.GetPath() );
     }
     else if( fn.FileExists() && !fn.IsFileWritable() )
     {
-        msg.Printf( _( "You do not have write permissions to save file \"%s\"." ),
+        msg.Printf( _( "Insufficient permissions to save file '%s'." ),
                     fn.GetFullPath() );
     }
 
@@ -1132,8 +1202,10 @@ void EDA_BASE_FRAME::OnMaximize( wxMaximizeEvent& aEvent )
     {
         m_normalFrameSize = GetWindowSize();
         m_normalFramePos  = GetPosition();
-        wxLogTrace( traceDisplayLocation, "Maximizing window - Saving position (%d, %d) with size (%d, %d)",
-                    m_normalFramePos.x, m_normalFramePos.y, m_normalFrameSize.x, m_normalFrameSize.y );
+        wxLogTrace( traceDisplayLocation,
+                    "Maximizing window - Saving position (%d, %d) with size (%d, %d)",
+                    m_normalFramePos.x, m_normalFramePos.y,
+                    m_normalFrameSize.x, m_normalFrameSize.y );
     }
 
     // Skip event to actually maximize the window

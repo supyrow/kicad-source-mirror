@@ -23,9 +23,8 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
-#include <outline_mode.h>
-#include <plotter.h>
-#include <layers_id_colors_and_visibility.h>
+#include <plotters/plotter.h>
+#include <layer_ids.h>
 
 class COLOR_SETTINGS;
 class PCB_PLOT_PARAMS_PARSER;
@@ -136,7 +135,7 @@ public:
     void        SetFormat( PLOT_FORMAT aFormat ) { m_format = aFormat; }
     PLOT_FORMAT GetFormat() const { return m_format; }
 
-    void        SetOutputDirectory( wxString aDir ) { m_outputDirectory = aDir; }
+    void        SetOutputDirectory( const wxString& aDir ) { m_outputDirectory = aDir; }
     wxString    GetOutputDirectory() const { return m_outputDirectory; }
 
     void        SetDisableGerberMacros( bool aDisable ) { m_gerberDisableApertMacros = aDisable; }

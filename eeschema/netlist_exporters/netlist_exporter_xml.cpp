@@ -28,10 +28,10 @@
 #include <build_version.h>
 #include <common.h>     // for ExpandTextVars
 #include <sch_base_frame.h>
-#include <class_library.h>
-#include <kicad_string.h>
+#include <symbol_library.h>
+#include <string_utils.h>
 #include <connection_graph.h>
-#include <refdes_utils.h>
+#include <string_utils.h>
 #include <wx/wfstream.h>
 #include <xnode.h>      // also nests: <wx/xml/xml.h>
 
@@ -87,20 +87,15 @@ XNODE* NETLIST_EXPORTER_XML::makeRoot( unsigned aCtl )
 
 
 /// Holder for multi-unit symbol fields
-struct COMP_FIELDS
-{
-    wxString value;
-    wxString datasheet;
-    wxString footprint;
-
-    std::map< wxString, wxString >   f;
-};
 
 
 void NETLIST_EXPORTER_XML::addSymbolFields( XNODE* aNode, SCH_SYMBOL* aSymbol,
                                             SCH_SHEET_PATH* aSheet )
 {
-    COMP_FIELDS fields;
+    wxString                     value;
+    wxString                     datasheet;
+    wxString                     footprint;
+    std::map<wxString, wxString> userFields;
 
     if( aSymbol->GetUnitCount() > 1 )
     {
@@ -111,7 +106,7 @@ void NETLIST_EXPORTER_XML::addSymbolFields( XNODE* aNode, SCH_SYMBOL* aSymbol,
         // any non blank fields in all units and use the first non-blank field
         // for each unique field name.
 
-        wxString    ref = aSymbol->GetRef( aSheet );
+        wxString ref = aSymbol->GetRef( aSheet );
 
         SCH_SHEET_LIST sheetList = m_schematic->GetSheets();
         int minUnit = aSymbol->GetUnit();
@@ -133,24 +128,24 @@ void NETLIST_EXPORTER_XML::addSymbolFields( XNODE* aNode, SCH_SYMBOL* aSymbol,
                 // remark: IsVoid() returns true for empty strings or the "~" string (empty
                 // field value)
                 if( !symbol2->GetValue( &sheetList[i], m_resolveTextVars ).IsEmpty()
-                        && ( unit < minUnit || fields.value.IsEmpty() ) )
+                        && ( unit < minUnit || value.IsEmpty() ) )
                 {
-                    fields.value = symbol2->GetValue( &sheetList[i], m_resolveTextVars );
+                    value = symbol2->GetValue( &sheetList[i], m_resolveTextVars );
                 }
 
                 if( !symbol2->GetFootprint( &sheetList[i], m_resolveTextVars ).IsEmpty()
-                        && ( unit < minUnit || fields.footprint.IsEmpty() ) )
+                        && ( unit < minUnit || footprint.IsEmpty() ) )
                 {
-                    fields.footprint = symbol2->GetFootprint( &sheetList[i], m_resolveTextVars );
+                    footprint = symbol2->GetFootprint( &sheetList[i], m_resolveTextVars );
                 }
 
                 if( !symbol2->GetField( DATASHEET_FIELD )->IsVoid()
-                        && ( unit < minUnit || fields.datasheet.IsEmpty() ) )
+                        && ( unit < minUnit || datasheet.IsEmpty() ) )
                 {
                     if( m_resolveTextVars )
-                        fields.datasheet = symbol2->GetField( DATASHEET_FIELD )->GetShownText();
+                        datasheet = symbol2->GetField( DATASHEET_FIELD )->GetShownText();
                     else
-                        fields.datasheet = symbol2->GetField( DATASHEET_FIELD )->GetText();
+                        datasheet = symbol2->GetField( DATASHEET_FIELD )->GetText();
                 }
 
                 for( int ii = MANDATORY_FIELDS; ii < symbol2->GetFieldCount(); ++ii )
@@ -158,12 +153,12 @@ void NETLIST_EXPORTER_XML::addSymbolFields( XNODE* aNode, SCH_SYMBOL* aSymbol,
                     const SCH_FIELD& f = symbol2->GetFields()[ ii ];
 
                     if( f.GetText().size()
-                        && ( unit < minUnit || fields.f.count( f.GetName() ) == 0 ) )
+                        && ( unit < minUnit || userFields.count( f.GetName() ) == 0 ) )
                     {
                         if( m_resolveTextVars )
-                            fields.f[ f.GetName() ] = f.GetShownText();
+                            userFields[ f.GetName() ] = f.GetShownText();
                         else
-                            fields.f[ f.GetName() ] = f.GetText();
+                            userFields[ f.GetName() ] = f.GetText();
                     }
                 }
 
@@ -173,13 +168,13 @@ void NETLIST_EXPORTER_XML::addSymbolFields( XNODE* aNode, SCH_SYMBOL* aSymbol,
     }
     else
     {
-        fields.value = aSymbol->GetValue( aSheet, m_resolveTextVars );
-        fields.footprint = aSymbol->GetFootprint( aSheet, m_resolveTextVars );
+        value = aSymbol->GetValue( aSheet, m_resolveTextVars );
+        footprint = aSymbol->GetFootprint( aSheet, m_resolveTextVars );
 
         if( m_resolveTextVars )
-            fields.datasheet = aSymbol->GetField( DATASHEET_FIELD )->GetShownText();
+            datasheet = aSymbol->GetField( DATASHEET_FIELD )->GetShownText();
         else
-            fields.datasheet = aSymbol->GetField( DATASHEET_FIELD )->GetText();
+            datasheet = aSymbol->GetField( DATASHEET_FIELD )->GetText();
 
         for( int ii = MANDATORY_FIELDS; ii < aSymbol->GetFieldCount(); ++ii )
         {
@@ -188,37 +183,36 @@ void NETLIST_EXPORTER_XML::addSymbolFields( XNODE* aNode, SCH_SYMBOL* aSymbol,
             if( f.GetText().size() )
             {
                 if( m_resolveTextVars )
-                    fields.f[ f.GetName() ] = f.GetShownText();
+                    userFields[ f.GetName() ] = f.GetShownText();
                 else
-                    fields.f[ f.GetName() ] = f.GetText();
+                    userFields[ f.GetName() ] = f.GetText();
             }
         }
     }
 
     // Do not output field values blank in netlist:
-    if( fields.value.size() )
-        aNode->AddChild( node( "value", fields.value ) );
+    if( value.size() )
+        aNode->AddChild( node( "value", UnescapeString( value ) ) );
     else    // value field always written in netlist
         aNode->AddChild( node( "value", "~" ) );
 
-    if( fields.footprint.size() )
-        aNode->AddChild( node( "footprint", fields.footprint ) );
+    if( footprint.size() )
+        aNode->AddChild( node( "footprint", UnescapeString( footprint ) ) );
 
-    if( fields.datasheet.size() )
-        aNode->AddChild( node( "datasheet", fields.datasheet ) );
+    if( datasheet.size() )
+        aNode->AddChild( node( "datasheet", UnescapeString( datasheet ) ) );
 
-    if( fields.f.size() )
+    if( userFields.size() )
     {
         XNODE* xfields;
         aNode->AddChild( xfields = node( "fields" ) );
 
         // non MANDATORY fields are output alphabetically
-        for( std::map< wxString, wxString >::const_iterator it = fields.f.begin();
-             it != fields.f.end();  ++it )
+        for( const std::pair<const wxString, wxString>& f : userFields )
         {
-            XNODE*  xfield;
-            xfields->AddChild( xfield = node( "field", it->second ) );
-            xfield->AddAttribute( "name", it->first );
+            XNODE* xfield = node( "field", UnescapeString( f.second ) );
+            xfield->AddAttribute( "name", UnescapeString( f.first ) );
+            xfields->AddChild( xfield );
         }
     }
 }
@@ -243,8 +237,8 @@ XNODE* NETLIST_EXPORTER_XML::makeSymbols( unsigned aCtl )
 
         auto cmp = [sheet]( SCH_SYMBOL* a, SCH_SYMBOL* b )
                    {
-                       return ( UTIL::RefDesStringCompare( a->GetRef( &sheet ),
-                                                           b->GetRef( &sheet ) ) < 0 );
+                       return ( StrNumCmp( a->GetRef( &sheet, false ),
+                                           b->GetRef( &sheet, false ), true ) < 0 );
                    };
 
         std::set<SCH_SYMBOL*, decltype( cmp )> ordered_symbols( cmp );
@@ -297,12 +291,23 @@ XNODE* NETLIST_EXPORTER_XML::makeSymbols( unsigned aCtl )
             // "logical" library name, which is in anticipation of a better search algorithm
             // for parts based on "logical_lib.part" and where logical_lib is merely the library
             // name minus path and extension.
-            if( symbol->GetPartRef() )
-                xlibsource->AddAttribute( "lib",
-                                          symbol->GetPartRef()->GetLibId().GetLibNickname() );
+            wxString libName;
+            wxString partName;
+
+            if( symbol->UseLibIdLookup() )
+            {
+                libName = symbol->GetLibId().GetLibNickname();
+                partName = symbol->GetLibId().GetLibItemName();
+            }
+            else
+            {
+                partName = symbol->GetSchSymbolLibraryName();
+            }
+
+            xlibsource->AddAttribute( "lib", libName );
 
             // We only want the symbol name, not the full LIB_ID.
-            xlibsource->AddAttribute( "part", symbol->GetLibId().GetLibItemName() );
+            xlibsource->AddAttribute( "part", partName );
 
             xlibsource->AddAttribute( "description", symbol->GetDescription() );
 
@@ -695,7 +700,7 @@ XNODE* NETLIST_EXPORTER_XML::makeListOfNets( unsigned aCtl )
                        wxString refB = b.m_Pin->GetParentSymbol()->GetRef( &b.m_Sheet );
 
                        if( refA == refB )
-                           return a.m_Pin->GetNumber() < b.m_Pin->GetNumber();
+                           return a.m_Pin->GetShownNumber() < b.m_Pin->GetShownNumber();
 
                        return refA < refB;
                    } );
@@ -710,14 +715,15 @@ XNODE* NETLIST_EXPORTER_XML::makeListOfNets( unsigned aCtl )
                             wxString refA = a.m_Pin->GetParentSymbol()->GetRef( &a.m_Sheet );
                             wxString refB = b.m_Pin->GetParentSymbol()->GetRef( &b.m_Sheet );
 
-                            return refA == refB && a.m_Pin->GetNumber() == b.m_Pin->GetNumber();
+                            return refA == refB
+                                        && a.m_Pin->GetShownNumber() == b.m_Pin->GetShownNumber();
                         } ),
                 net_record->m_Nodes.end() );
 
         for( const NET_NODE& netNode : net_record->m_Nodes )
         {
             wxString refText = netNode.m_Pin->GetParentSymbol()->GetRef( &netNode.m_Sheet );
-            wxString pinText = netNode.m_Pin->GetNumber();
+            wxString pinText = netNode.m_Pin->GetShownNumber();
 
             // Skip power symbols and virtual symbols
             if( refText[0] == wxChar( '#' ) )
@@ -741,8 +747,7 @@ XNODE* NETLIST_EXPORTER_XML::makeListOfNets( unsigned aCtl )
             wxString pinName = netNode.m_Pin->GetShownName();
             wxString pinType = netNode.m_Pin->GetCanonicalElectricalTypeName();
 
-            //  ~ is a char used to code empty strings in libs.
-            if( pinName != "~" && !pinName.IsEmpty() )
+            if( !pinName.IsEmpty() )
                 xnode->AddAttribute( "pinfunction", pinName );
 
             if( netNode.m_NoConnect )
@@ -774,5 +779,5 @@ XNODE* NETLIST_EXPORTER_XML::node( const wxString& aName,
 static bool sortPinsByNumber( LIB_PIN* aPin1, LIB_PIN* aPin2 )
 {
     // return "lhs < rhs"
-    return UTIL::RefDesStringCompare( aPin1->GetNumber(), aPin2->GetNumber() ) < 0;
+    return StrNumCmp( aPin1->GetShownNumber(), aPin2->GetShownNumber(), true ) < 0;
 }

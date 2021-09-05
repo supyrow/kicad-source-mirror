@@ -25,6 +25,8 @@
 #include <drc/drc_engine.h>
 #include <drc/drc_item.h>
 #include <drc/drc_rule.h>
+#include <pad.h>
+#include <geometry/shape_segment.h>
 #include <drc/drc_test_provider_clearance_base.h>
 #include <footprint.h>
 
@@ -34,6 +36,8 @@
     - DRCE_OVERLAPPING_FOOTPRINTS
     - DRCE_MISSING_COURTYARD
     - DRCE_MALFORMED_COURTYARD
+    - DRCE_PTH_IN_COURTYARD,
+    - DRCE_NPTH_IN_COURTYARD,
 
     TODO: do an actual clearance check instead of polygon intersection. Treat closed outlines
     as filled and allow open curves in the courtyard.
@@ -120,8 +124,8 @@ bool DRC_TEST_PROVIDER_COURTYARD_CLEARANCE::testFootprintCourtyardDefinitions()
             // Re-run courtyard tests to generate DRC_ITEMs
             footprint->BuildPolyCourtyards( &errorHandler );
         }
-        else if( footprint->GetPolyCourtyardFront().OutlineCount() == 0
-                && footprint->GetPolyCourtyardBack().OutlineCount() == 0 )
+        else if( footprint->GetPolyCourtyard( F_CrtYd ).OutlineCount() == 0
+                && footprint->GetPolyCourtyard( B_CrtYd ).OutlineCount() == 0 )
         {
             if( m_drcEngine->IsErrorLimitExceeded( DRCE_MISSING_COURTYARD ) )
                 continue;
@@ -132,8 +136,8 @@ bool DRC_TEST_PROVIDER_COURTYARD_CLEARANCE::testFootprintCourtyardDefinitions()
         }
         else
         {
-            footprint->GetPolyCourtyardFront().BuildBBoxCaches();
-            footprint->GetPolyCourtyardBack().BuildBBoxCaches();
+            footprint->GetPolyCourtyard( F_CrtYd ).BuildBBoxCaches();
+            footprint->GetPolyCourtyard( B_CrtYd ).BuildBBoxCaches();
         }
     }
 
@@ -145,55 +149,64 @@ bool DRC_TEST_PROVIDER_COURTYARD_CLEARANCE::testCourtyardClearances()
 {
     const int delta = 100;  // This is the number of tests between 2 calls to the progress bar
 
-    if( m_drcEngine->IsErrorLimitExceeded( DRCE_OVERLAPPING_FOOTPRINTS) )
-        return true;   // continue with other tests
-
     if( !reportPhase( _( "Checking footprints for overlapping courtyards..." ) ) )
         return false;   // DRC cancelled
 
     int ii = 0;
 
-    for( auto it1 = m_board->Footprints().begin(); it1 != m_board->Footprints().end(); it1++ )
+    for( auto itA = m_board->Footprints().begin(); itA != m_board->Footprints().end(); itA++ )
     {
         if( !reportProgress( ii++, m_board->Footprints().size(), delta ) )
             return false;   // DRC cancelled
 
-        if( m_drcEngine->IsErrorLimitExceeded( DRCE_OVERLAPPING_FOOTPRINTS) )
-            break;
+        if( m_drcEngine->IsErrorLimitExceeded( DRCE_OVERLAPPING_FOOTPRINTS)
+            && m_drcEngine->IsErrorLimitExceeded( DRCE_PTH_IN_COURTYARD )
+            && m_drcEngine->IsErrorLimitExceeded( DRCE_NPTH_IN_COURTYARD ) )
+        {
+            return true;   // continue with other tests
+        }
 
-        FOOTPRINT*            footprint = *it1;
-        const SHAPE_POLY_SET& footprintFront = footprint->GetPolyCourtyardFront();
-        const SHAPE_POLY_SET& footprintBack = footprint->GetPolyCourtyardBack();
+        FOOTPRINT*            fpA = *itA;
+        const SHAPE_POLY_SET& frontA = fpA->GetPolyCourtyard( F_CrtYd );
+        const SHAPE_POLY_SET& backA = fpA->GetPolyCourtyard( B_CrtYd );
 
-        if( footprintFront.OutlineCount() == 0 && footprintBack.OutlineCount() == 0 )
-            continue; // No courtyards defined
+        if( frontA.OutlineCount() == 0 && backA.OutlineCount() == 0
+             && m_drcEngine->IsErrorLimitExceeded( DRCE_PTH_IN_COURTYARD )
+             && m_drcEngine->IsErrorLimitExceeded( DRCE_NPTH_IN_COURTYARD ) )
+        {
+            // No courtyards defined and no hole testing against other footprint's courtyards
+            continue;
+        }
 
-        BOX2I frontBBox = footprintFront.BBoxFromCaches();
-        BOX2I backBBox = footprintBack.BBoxFromCaches();
+        BOX2I frontBBox = frontA.BBoxFromCaches();
+        BOX2I backBBox = backA.BBoxFromCaches();
 
         frontBBox.Inflate( m_largestClearance );
         backBBox.Inflate( m_largestClearance );
 
-        for( auto it2 = it1 + 1; it2 != m_board->Footprints().end(); it2++ )
+        EDA_RECT fpABBox = fpA->GetBoundingBox();
+
+        for( auto itB = itA + 1; itB != m_board->Footprints().end(); itB++ )
         {
-            FOOTPRINT*            test = *it2;
-            const SHAPE_POLY_SET& testFront = test->GetPolyCourtyardFront();
-            const SHAPE_POLY_SET& testBack = test->GetPolyCourtyardBack();
+            FOOTPRINT*            fpB = *itB;
+            EDA_RECT              fpBBBox = fpB->GetBoundingBox();
+            const SHAPE_POLY_SET& frontB = fpB->GetPolyCourtyard( F_CrtYd );
+            const SHAPE_POLY_SET& backB = fpB->GetPolyCourtyard( B_CrtYd );
             DRC_CONSTRAINT        constraint;
             int                   clearance;
             int                   actual;
             VECTOR2I              pos;
 
-            if( footprintFront.OutlineCount() > 0 && testFront.OutlineCount() > 0
-                    && frontBBox.Intersects( testFront.BBoxFromCaches() ) )
+            if( frontA.OutlineCount() > 0 && frontB.OutlineCount() > 0
+                    && frontBBox.Intersects( frontB.BBoxFromCaches() ) )
             {
-                constraint = m_drcEngine->EvalRules( COURTYARD_CLEARANCE_CONSTRAINT, footprint,
-                                                     test, F_Cu );
+                constraint = m_drcEngine->EvalRules( COURTYARD_CLEARANCE_CONSTRAINT, fpA, fpB,
+                                                     F_Cu );
                 clearance = constraint.GetValue().Min();
 
-                if( clearance >= 0 && footprintFront.Collide( &testFront, clearance, &actual, &pos ) )
+                if( clearance >= 0 && frontA.Collide( &frontB, clearance, &actual, &pos ) )
                 {
-                    std::shared_ptr<DRC_ITEM> drce = DRC_ITEM::Create( DRCE_OVERLAPPING_FOOTPRINTS );
+                    auto drce = DRC_ITEM::Create( DRCE_OVERLAPPING_FOOTPRINTS );
 
                     if( clearance > 0 )
                     {
@@ -206,21 +219,21 @@ bool DRC_TEST_PROVIDER_COURTYARD_CLEARANCE::testCourtyardClearances()
                         drce->SetViolatingRule( constraint.GetParentRule() );
                     }
 
-                    drce->SetItems( footprint, test );
+                    drce->SetItems( fpA, fpB );
                     reportViolation( drce, (wxPoint) pos );
                 }
             }
 
-            if( footprintBack.OutlineCount() > 0 && testBack.OutlineCount() > 0
-                    && backBBox.Intersects( testBack.BBoxFromCaches() ) )
+            if( backA.OutlineCount() > 0 && backB.OutlineCount() > 0
+                    && backBBox.Intersects( backB.BBoxFromCaches() ) )
             {
-                constraint = m_drcEngine->EvalRules( COURTYARD_CLEARANCE_CONSTRAINT, footprint,
-                                                     test, B_Cu );
+                constraint = m_drcEngine->EvalRules( COURTYARD_CLEARANCE_CONSTRAINT, fpA, fpB,
+                                                     B_Cu );
                 clearance = constraint.GetValue().Min();
 
-                if( clearance >= 0 && footprintBack.Collide( &testBack, clearance, &actual, &pos ) )
+                if( clearance >= 0 && backA.Collide( &backB, clearance, &actual, &pos ) )
                 {
-                    std::shared_ptr<DRC_ITEM> drce = DRC_ITEM::Create( DRCE_OVERLAPPING_FOOTPRINTS );
+                    auto drce = DRC_ITEM::Create( DRCE_OVERLAPPING_FOOTPRINTS );
 
                     if( clearance > 0 )
                     {
@@ -233,9 +246,51 @@ bool DRC_TEST_PROVIDER_COURTYARD_CLEARANCE::testCourtyardClearances()
                         drce->SetViolatingRule( constraint.GetParentRule() );
                     }
 
-                    drce->SetItems( footprint, test );
+                    drce->SetItems( fpA, fpB );
                     reportViolation( drce, (wxPoint) pos );
                 }
+            }
+
+            auto testPadAgainstCourtyards =
+                    [&]( const PAD* pad, const FOOTPRINT* footprint )
+                    {
+                        int errorCode = 0;
+
+                        if( pad->GetAttribute() == PAD_ATTRIB::PTH )
+                            errorCode = DRCE_PTH_IN_COURTYARD;
+                        else if( pad->GetAttribute() == PAD_ATTRIB::NPTH )
+                            errorCode = DRCE_NPTH_IN_COURTYARD;
+                        else
+                            return;
+
+                        if( m_drcEngine->IsErrorLimitExceeded( errorCode ) )
+                            return;
+
+                        const SHAPE_SEGMENT*  hole = pad->GetEffectiveHoleShape();
+                        const SHAPE_POLY_SET& front = footprint->GetPolyCourtyard( F_CrtYd );
+                        const SHAPE_POLY_SET& back = footprint->GetPolyCourtyard( B_CrtYd );
+
+                        if( ( front.OutlineCount() > 0 && front.Collide( hole, 0 ) )
+                            || ( back.OutlineCount() > 0 && back.Collide( hole, 0 ) ) )
+                        {
+                            std::shared_ptr<DRC_ITEM> drce = DRC_ITEM::Create( errorCode );
+                            drce->SetItems( pad, footprint );
+                            reportViolation( drce, pad->GetPosition() );
+                        }
+                    };
+
+            if( ( frontA.OutlineCount() > 0 && frontA.BBoxFromCaches().Intersects( fpBBBox ) )
+                || ( backA.OutlineCount() > 0 && backA.BBoxFromCaches().Intersects( fpBBBox ) ) )
+            {
+                for( const PAD* padB : fpB->Pads() )
+                    testPadAgainstCourtyards( padB, fpA );
+            }
+
+            if( ( frontB.OutlineCount() > 0 && frontB.BBoxFromCaches().Intersects( fpABBox ) )
+                || ( backB.OutlineCount() > 0 && backB.BBoxFromCaches().Intersects( fpABBox ) ) )
+            {
+                for( const PAD* padA : fpA->Pads() )
+                    testPadAgainstCourtyards( padA, fpB );
             }
         }
     }

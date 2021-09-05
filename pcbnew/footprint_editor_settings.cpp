@@ -20,7 +20,7 @@
 
 #include <common.h>
 #include <footprint_editor_settings.h>
-#include <layers_id_colors_and_visibility.h>
+#include <layer_ids.h>
 #include <pgm_base.h>
 #include <settings/common_settings.h>
 #include <settings/json_settings_internals.h>
@@ -359,8 +359,6 @@ bool FOOTPRINT_EDITOR_SETTINGS::MigrateFromLegacy( wxConfigBase* aCfg )
     migrateLegacyColor( f + "Color4DGrid",               LAYER_GRID );
     migrateLegacyColor( f + "Color4DNoNetPadMarker",     LAYER_NO_CONNECTS );
     migrateLegacyColor( f + "Color4DNonPlatedEx",        LAYER_NON_PLATEDHOLES );
-    migrateLegacyColor( f + "Color4DPadBackEx",          LAYER_PAD_BK );
-    migrateLegacyColor( f + "Color4DPadFrontEx",         LAYER_PAD_FR );
     migrateLegacyColor( f + "Color4DPadThruHoleEx",      LAYER_PADS_TH );
     migrateLegacyColor( f + "Color4DPCBBackground",      LAYER_PCB_BACKGROUND );
     migrateLegacyColor( f + "Color4DPCBCursor",          LAYER_CURSOR );

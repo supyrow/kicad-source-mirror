@@ -83,6 +83,13 @@ protected:
 
 
 /**
+ * Display a dialog indicating the file is already open, with an option to reset the lock.
+ * @return true if the lock was reset.
+ */
+bool OverrideLock( wxWindow* aParent, const wxString& aMessage  );
+
+
+/**
  * Display a dialog with Save, Cancel and Discard Changes buttons.
  *
  * @param aParent = the parent window
@@ -105,7 +112,7 @@ bool HandleUnsavedChanges( wxWindow* aParent, const wxString& aMessage,
  *                      written back to the bool.
  * @return wxID_YES, wxID_CANCEL, wxID_NO.
  */
-int UnsavedChangesDialog( wxWindow* aParent, wxString aMessage, bool* aApplyToAll );
+int UnsavedChangesDialog( wxWindow* aParent, const wxString& aMessage, bool* aApplyToAll );
 
 int UnsavedChangesDialog( wxWindow* aParent, const wxString& aMessage );
 
@@ -169,8 +176,9 @@ bool IsOK( wxWindow* aParent, const wxString& aMessage );
  * @return wxID_OK or wxID_CANCEL depending on the button the user selected.
  */
 int OKOrCancelDialog( wxWindow* aParent, const wxString& aWarning, const wxString& aMessage,
-                      wxString aDetailedMessage = wxEmptyString, wxString aOKLabel = wxEmptyString,
-                      wxString aCancelLabel = wxEmptyString, bool* aApplyToAll = nullptr );
+                      const wxString& aDetailedMessage = wxEmptyString,
+                      const wxString& aOKLabel = wxEmptyString,
+                      const wxString& aCancelLabel = wxEmptyString, bool* aApplyToAll = nullptr );
 
 
 

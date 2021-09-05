@@ -280,6 +280,7 @@ set( BMAPS_MID
     icon_cvpcb_24
     icon_footprint_browser
     icon_gerbview_24
+    icon_pcm_24
     import3d
     image
     import_brd_file
@@ -432,9 +433,13 @@ set( BMAPS_MID
     show_mod_edge
     show_ratsnest
     showtrack
+    show_other
+    show_tht
+    show_smt
     show_zone
     show_zone_disable
     show_zone_outline_only
+    show_zone_triangulation
     show_all_layers
     show_no_layers
     show_no_copper_layers
@@ -525,6 +530,7 @@ set( BMAPS_BIG
     icon_bitmap2component
     icon_pagelayout_editor
     icon_pcbcalculator
+    icon_pcm
     reannotate_down_left
     reannotate_down_right
     reannotate_left_down
@@ -749,11 +755,15 @@ endfunction()
 
 include( FindUnixCommands )
 
-# CMake on Windows CI seems to struggle to find tar even though it's in PATH
-# Let's help it out as modern windows (Server 2019 and 10 provide tar)
-if( MSVC AND TAR STREQUAL "TAR-NOTFOUND" )
-   # yolo
-    set( TAR "C:\\Windows\\System32\\tar.exe" )
+if( TAR STREQUAL "TAR-NOTFOUND" )
+    # CMake on Windows CI seems to struggle to find tar even though it's in PATH
+    # Let's help it out as modern windows (Server 2019 and 10 provide tar)
+    if( MSVC )
+        # yolo
+        set( TAR "C:\\Windows\\System32\\tar.exe" )
+    else()
+        message( FATAL_ERROR "Could not find the tar program." )
+    endif()
 endif()
 
 set( BITMAP_ARCHIVE_PATH ${CMAKE_BINARY_DIR}/resources/images.tar.gz )

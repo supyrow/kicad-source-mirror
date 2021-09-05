@@ -54,9 +54,9 @@ NODE::NODE()
 {
     m_depth = 0;
     m_root = this;
-    m_parent = NULL;
+    m_parent = nullptr;
     m_maxClearance = 800000;    // fixme: depends on how thick traces are.
-    m_ruleResolver = NULL;
+    m_ruleResolver = nullptr;
     m_index = new INDEX;
 
 #ifdef DEBUG
@@ -97,28 +97,38 @@ NODE::~NODE()
     delete m_index;
 }
 
+
 int NODE::GetClearance( const ITEM* aA, const ITEM* aB ) const
 {
    if( !m_ruleResolver )
         return 100000;
+
+   if( aA->IsVirtual() || aB->IsVirtual() )
+       return 0;
 
    return m_ruleResolver->Clearance( aA, aB );
 }
 
 
 int NODE::GetHoleClearance( const ITEM* aA, const ITEM* aB ) const
-   {
-      if( !m_ruleResolver )
-           return 0;
+{
+    if( !m_ruleResolver )
+        return 0;
 
-      return m_ruleResolver->HoleClearance( aA, aB );
-   }
+    if( aA->IsVirtual() || aB->IsVirtual() )
+        return 0;
+
+    return m_ruleResolver->HoleClearance( aA, aB );
+}
 
 
 int NODE::GetHoleToHoleClearance( const ITEM* aA, const ITEM* aB ) const
 {
    if( !m_ruleResolver )
         return 0;
+
+   if( aA->IsVirtual() || aB->IsVirtual() )
+       return 0;
 
    return m_ruleResolver->HoleToHoleClearance( aA, aB );
 }
@@ -171,8 +181,8 @@ void NODE::unlinkParent()
 
 OBSTACLE_VISITOR::OBSTACLE_VISITOR( const ITEM* aItem ) :
     m_item( aItem ),
-    m_node( NULL ),
-    m_override( NULL )
+    m_node( nullptr ),
+    m_override( nullptr )
 {
 }
 
@@ -240,6 +250,7 @@ struct NODE::DEFAULT_OBSTACLE_VISITOR : public OBSTACLE_VISITOR
 
         obs.m_item = aCandidate;
         obs.m_head = m_item;
+        obs.m_distFirst = INT_MAX;
         m_tab.push_back( obs );
 
         m_matchCount++;
@@ -255,6 +266,10 @@ struct NODE::DEFAULT_OBSTACLE_VISITOR : public OBSTACLE_VISITOR
 int NODE::QueryColliding( const ITEM* aItem, NODE::OBSTACLES& aObstacles, int aKindMask,
                           int aLimitCount, bool aDifferentNetsOnly )
 {
+    /// By default, virtual items cannot collide
+    if( aItem->IsVirtual() )
+        return 0;
+
     DEFAULT_OBSTACLE_VISITOR visitor( aObstacles, aItem, aKindMask, aDifferentNetsOnly );
 
 #ifdef DEBUG
@@ -262,7 +277,7 @@ int NODE::QueryColliding( const ITEM* aItem, NODE::OBSTACLES& aObstacles, int aK
 #endif
 
     visitor.SetCountLimit( aLimitCount );
-    visitor.SetWorld( this, NULL );
+    visitor.SetWorld( this, nullptr );
 
     // first, look for colliding items in the local index
     m_index->Query( aItem, m_maxClearance, visitor );
@@ -297,11 +312,12 @@ NODE::OPT_OBSTACLE NODE::NearestObstacle( const LINE* aLine, int aKindMask,
         return OPT_OBSTACLE();
 
     OBSTACLE nearest;
-    nearest.m_item = NULL;
+    nearest.m_item = nullptr;
     nearest.m_distFirst = INT_MAX;
 
     auto updateNearest =
-            [&]( const SHAPE_LINE_CHAIN::INTERSECTION& pt, ITEM* obstacle, const SHAPE_LINE_CHAIN& hull, bool isHole )
+            [&]( const SHAPE_LINE_CHAIN::INTERSECTION& pt, ITEM* obstacle,
+                 const SHAPE_LINE_CHAIN& hull, bool isHole )
             {
                 int dist = aLine->CLine().PathLength( pt.p, pt.index_their );
 
@@ -347,6 +363,7 @@ NODE::OPT_OBSTACLE NODE::NearestObstacle( const LINE* aLine, int aKindMask,
         {
             const VIA& via = aLine->Via();
             // Don't use via.Drill(); it doesn't include the plating thickness
+
             int viaHoleRadius = static_cast<const SHAPE_CIRCLE*>( via.Hole() )->GetRadius();
 
             int viaClearance = GetClearance( obstacle.m_item, &via ) + via.Diameter() / 2;
@@ -361,7 +378,7 @@ NODE::OPT_OBSTACLE NODE::NearestObstacle( const LINE* aLine, int aKindMask,
             intersectingPts.clear();
             HullIntersection( obstacleHull, aLine->CLine(), intersectingPts );
 
-//            obstacleHull.Intersect( aLine->CLine(), intersectingPts, true );
+            // obstacleHull.Intersect( aLine->CLine(), intersectingPts, true );
 
             for( const SHAPE_LINE_CHAIN::INTERSECTION& ip : intersectingPts )
                 updateNearest( ip, obstacle.m_item, obstacleHull, false );
@@ -474,7 +491,7 @@ struct HIT_VISITOR : public OBSTACLE_VISITOR
     const VECTOR2I& m_point;
 
     HIT_VISITOR( ITEM_SET& aTab, const VECTOR2I& aPoint ) :
-        OBSTACLE_VISITOR( NULL ),
+        OBSTACLE_VISITOR( nullptr ),
         m_items( aTab ),
         m_point( aPoint )
     {}
@@ -504,14 +521,14 @@ const ITEM_SET NODE::HitTest( const VECTOR2I& aPoint ) const
     // fixme: we treat a point as an infinitely small circle - this is inefficient.
     SHAPE_CIRCLE s( aPoint, 0 );
     HIT_VISITOR visitor( items, aPoint );
-    visitor.SetWorld( this, NULL );
+    visitor.SetWorld( this, nullptr );
 
     m_index->Query( &s, m_maxClearance, visitor );
 
     if( !isRoot() )    // fixme: could be made cleaner
     {
         ITEM_SET items_root;
-        visitor.SetWorld( m_root, NULL );
+        visitor.SetWorld( m_root, nullptr );
         HIT_VISITOR  visitor_root( items_root, aPoint );
         m_root->m_index->Query( &s, m_maxClearance, visitor_root );
 
@@ -583,7 +600,7 @@ void NODE::Add( LINE& aLine, bool aAllowRedundant )
 
     for( int i = 0; i < l.SegmentCount(); i++ )
     {
-        if( l.isArc( i ) )
+        if( l.IsArcSegment( i ) )
             continue;
 
         SEG s = l.CSegment( i );
@@ -645,10 +662,19 @@ void NODE::addArc( ARC* aArc )
 }
 
 
-void NODE::Add( std::unique_ptr< ARC > aArc )
+bool NODE::Add( std::unique_ptr< ARC > aArc, bool aAllowRedundant )
 {
+    const SHAPE_ARC& arc = aArc->CArc();
+
+    if( !aAllowRedundant && findRedundantArc( arc.GetP0(), arc.GetP1(), aArc->Layers(),
+                                              aArc->Net() ) )
+    {
+        return false;
+    }
+
     aArc->SetOwner( this );
     addArc( aArc.release() );
+    return true;
 }
 
 
@@ -687,7 +713,7 @@ void NODE::doRemove( ITEM* aItem )
     // the item belongs to this particular branch: un-reference it
     if( aItem->BelongsTo( this ) )
     {
-        aItem->SetOwner( NULL );
+        aItem->SetOwner( nullptr );
         m_root->m_garbageItems.insert( aItem );
     }
 }
@@ -899,7 +925,7 @@ void NODE::followLine( LINKED_ITEM* aCurrent, bool aScanDirection, int& aPos, in
         if( count && guard == p )
         {
             if( aPos >= 0 && aPos < aLimit )
-                aSegments[aPos] = NULL;
+                aSegments[aPos] = nullptr;
 
             aGuardHit = true;
             break;
@@ -948,7 +974,7 @@ const LINE NODE::AssembleLine( LINKED_ITEM* aSeg, int* aOriginSegmentIndex,
 
     int n = 0;
 
-    LINKED_ITEM* prev_seg = NULL;
+    LINKED_ITEM* prev_seg = nullptr;
     bool originSet = false;
 
     SHAPE_LINE_CHAIN& line = pl.Line();
@@ -963,8 +989,6 @@ const LINE NODE::AssembleLine( LINKED_ITEM* aSeg, int* aOriginSegmentIndex,
 
         if( li && prev_seg != li )
         {
-            int segIdxIncrement = 1;
-
             if( li->Kind() == ITEM::ARC_T )
             {
                 const ARC*       arc = static_cast<const ARC*>( li );
@@ -972,16 +996,9 @@ const LINE NODE::AssembleLine( LINKED_ITEM* aSeg, int* aOriginSegmentIndex,
 
                 int      nSegs     = line.PointCount();
                 VECTOR2I last      = nSegs ? line.CPoint( -1 ) : VECTOR2I();
-                ssize_t  lastShape = nSegs ? line.CShapes()[nSegs - 1] : -1;
+                ssize_t lastShape = nSegs ? line.ArcIndex( static_cast<ssize_t>( nSegs ) - 1 ) : -1;
 
                 line.Append( arcReversed[i] ? sa->Reversed() : *sa );
-
-                segIdxIncrement = line.PointCount() - nSegs - 1;
-
-                // Are we adding an arc after an arc? add the hidden segment if the arcs overlap.
-                // If they don't overlap, don't add this, as it will have been added as a segment.
-                if( lastShape >= 0 && last == line.CPoint( nSegs ) )
-                    segIdxIncrement++;
             }
 
             pl.Link( li );
@@ -991,11 +1008,9 @@ const LINE NODE::AssembleLine( LINKED_ITEM* aSeg, int* aOriginSegmentIndex,
             {
                 wxASSERT( n < line.SegmentCount() ||
                           ( n == line.SegmentCount() && li->Kind() == ITEM::SEGMENT_T ) );
-                *aOriginSegmentIndex = n;
+                *aOriginSegmentIndex = line.PointCount() - 1;
                 originSet = true;
             }
-
-            n += segIdxIncrement;
         }
 
         prev_seg = li;
@@ -1068,9 +1083,13 @@ void NODE::FixupVirtualVias()
         for( const auto& lnk : joint.second.LinkList() )
         {
             if( lnk.item->OfKind( ITEM::VIA_T ) )
+            {
                 n_vias++;
+            }
             else if( lnk.item->OfKind( ITEM::SOLID_T ) )
+            {
                 n_solid++;
+            }
             else if( const auto t = dyn_cast<PNS::SEGMENT*>( lnk.item ) )
             {
                 int w = t->Width();
@@ -1117,7 +1136,7 @@ JOINT* NODE::FindJoint( const VECTOR2I& aPos, int aLayer, int aNet )
     }
 
     if( f == end )
-        return NULL;
+        return nullptr;
 
     while( f != end )
     {
@@ -1127,7 +1146,7 @@ JOINT* NODE::FindJoint( const VECTOR2I& aPos, int aLayer, int aNet )
         ++f;
     }
 
-    return NULL;
+    return nullptr;
 }
 
 
@@ -1372,7 +1391,7 @@ void NODE::KillChildren()
 }
 
 
-void NODE::AllItemsInNet( int aNet, std::set<ITEM*>& aItems, int aKindMask)
+void NODE::AllItemsInNet( int aNet, std::set<ITEM*>& aItems, int aKindMask )
 {
     INDEX::NET_ITEMS_LIST* l_cur = m_index->GetItemsForNet( aNet );
 
@@ -1552,7 +1571,7 @@ ITEM *NODE::FindItemByParent( const BOARD_ITEM* aParent )
         }
     }
 
-    return NULL;
+    return nullptr;
 }
 
 }

@@ -42,7 +42,7 @@
 #include <core/arraydim.h>
 #include <core/kicad_algo.h>
 #include <connectivity/connectivity_data.h>
-#include <kicad_string.h>
+#include <string_utils.h>
 #include <pgm_base.h>
 #include <pcbnew_settings.h>
 #include <project.h>
@@ -198,6 +198,7 @@ void BOARD::IncrementTimeStamp()
         m_InsideCourtyardCache.clear();
         m_InsideFCourtyardCache.clear();
         m_InsideBCourtyardCache.clear();
+        m_LayerExpressionCache.clear();
     }
 
     m_CopperZoneRTrees.clear();
@@ -1385,85 +1386,6 @@ FOOTPRINT* BOARD::FindFootprintByPath( const KIID_PATH& aPath ) const
 }
 
 
-// The pad count for each netcode, stored in a buffer for a fast access.
-// This is needed by the sort function sortNetsByNodes()
-static std::vector<int> padCountListByNet;
-
-
-// Sort nets by decreasing pad count.
-// For same pad count, sort by alphabetic names
-static bool sortNetsByNodes( const NETINFO_ITEM* a, const NETINFO_ITEM* b )
-{
-    int countA = padCountListByNet[ a->GetNetCode() ];
-    int countB = padCountListByNet[ b->GetNetCode() ];
-
-    if( countA == countB )
-        return a->GetNetname() < b->GetNetname();
-    else
-        return countB < countA;
-}
-
-
-// Sort nets by alphabetic names
-static bool sortNetsByNames( const NETINFO_ITEM* a, const NETINFO_ITEM* b )
-{
-    return a->GetNetname() < b->GetNetname();
-}
-
-
-int BOARD::SortedNetnamesList( wxArrayString& aNames, bool aSortbyPadsCount )
-{
-    if( m_NetInfo.GetNetCount() == 0 )
-        return 0;
-
-    // Build the list
-    std::vector <NETINFO_ITEM*> netBuffer;
-
-    netBuffer.reserve( m_NetInfo.GetNetCount() );
-    int max_netcode = 0;
-
-    for( NETINFO_ITEM* net : m_NetInfo )
-    {
-        int netcode = net->GetNetCode();
-
-        if( netcode > 0 && net->IsCurrent() )
-        {
-            netBuffer.push_back( net );
-            max_netcode = std::max( netcode, max_netcode);
-        }
-    }
-
-    // sort the list
-    if( aSortbyPadsCount )
-    {
-        // Build the pad count by net:
-        padCountListByNet.clear();
-        std::vector<PAD*> pads = GetPads();
-
-        padCountListByNet.assign( max_netcode + 1, 0 );
-
-        for( PAD* pad : pads )
-        {
-            int netCode = pad->GetNetCode();
-
-            if( netCode >= 0 )
-                padCountListByNet[ netCode ]++;
-        }
-
-        sort( netBuffer.begin(), netBuffer.end(), sortNetsByNodes );
-    }
-    else
-    {
-        sort( netBuffer.begin(), netBuffer.end(), sortNetsByNames );
-    }
-
-    for( NETINFO_ITEM* net : netBuffer )
-        aNames.Add( UnescapeString( net->GetNetname() ) );
-
-    return netBuffer.size();
-}
-
-
 std::vector<wxString> BOARD::GetNetClassAssignmentCandidates() const
 {
     std::vector<wxString> names;
@@ -2217,7 +2139,7 @@ BOARD::GroupLegalOpsField BOARD::GroupLegalOps( const PCB_SELECTION& selection )
         if( item->Type() == PCB_GROUP_T )
             hasGroup = true;
 
-        if( item->GetParent() && item->GetParent()->Type() == PCB_GROUP_T )
+        if( static_cast<BOARD_ITEM*>( item )->GetParentGroup() )
             hasMember = true;
     }
 

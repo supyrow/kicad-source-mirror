@@ -28,8 +28,9 @@
 #include <connectivity/connectivity_data.h>
 #include <board_commit.h>
 #include <board_design_settings.h>
-#include <widgets/progress_reporter.h>
+#include <progress_reporter.h>
 #include <widgets/infobar.h>
+#include <widgets/wx_progress_reporters.h>
 #include <wx/event.h>
 #include <wx/hyperlink.h>
 #include <tool/tool_manager.h>
@@ -39,7 +40,8 @@
 
 
 ZONE_FILLER_TOOL::ZONE_FILLER_TOOL() :
-    PCB_TOOL_BASE( "pcbnew.ZoneFiller" )
+    PCB_TOOL_BASE( "pcbnew.ZoneFiller" ),
+    m_fillInProgress( false )
 {
 }
 
@@ -56,22 +58,29 @@ void ZONE_FILLER_TOOL::Reset( RESET_REASON aReason )
 
 void ZONE_FILLER_TOOL::CheckAllZones( wxWindow* aCaller, PROGRESS_REPORTER* aReporter )
 {
-    if( !getEditFrame<PCB_EDIT_FRAME>()->m_ZoneFillsDirty )
+    if( !getEditFrame<PCB_EDIT_FRAME>()->m_ZoneFillsDirty || m_fillInProgress )
         return;
+
+    m_fillInProgress = true;
 
     std::vector<ZONE*> toFill;
 
     for( ZONE* zone : board()->Zones() )
         toFill.push_back(zone);
 
-    BOARD_COMMIT commit( this );
-
-    ZONE_FILLER filler( frame()->GetBoard(), &commit );
+    BOARD_COMMIT                          commit( this );
+    std::unique_ptr<WX_PROGRESS_REPORTER> reporter;
+    ZONE_FILLER                           filler( frame()->GetBoard(), &commit );
 
     if( aReporter )
+    {
         filler.SetProgressReporter( aReporter );
+    }
     else
-        filler.InstallNewProgressReporter( aCaller, _( "Checking Zones" ), 4 );
+    {
+        reporter = std::make_unique<WX_PROGRESS_REPORTER>( aCaller, _( "Checking Zones" ), 4 );
+        filler.SetProgressReporter( reporter.get() );
+    }
 
     std::lock_guard<KISPINLOCK> lock( board()->GetConnectivity()->GetLock() );
 
@@ -86,6 +95,7 @@ void ZONE_FILLER_TOOL::CheckAllZones( wxWindow* aCaller, PROGRESS_REPORTER* aRep
     }
 
     canvas()->Refresh();
+    m_fillInProgress = false;
 }
 
 
@@ -99,15 +109,21 @@ void ZONE_FILLER_TOOL::singleShotRefocus( wxIdleEvent& )
 void ZONE_FILLER_TOOL::FillAllZones( wxWindow* aCaller, PROGRESS_REPORTER* aReporter )
 {
     PCB_EDIT_FRAME*    frame = getEditFrame<PCB_EDIT_FRAME>();
-    BOARD_COMMIT       commit( this );
     std::vector<ZONE*> toFill;
+
+    if( m_fillInProgress )
+        return;
+
+    m_fillInProgress = true;
 
     for( ZONE* zone : board()->Zones() )
         toFill.push_back( zone );
 
     board()->IncrementTimeStamp();    // Clear caches
 
-    ZONE_FILLER filler( board(), &commit );
+    BOARD_COMMIT                          commit( this );
+    std::unique_ptr<WX_PROGRESS_REPORTER> reporter;
+    ZONE_FILLER                           filler( board(), &commit );
 
     if( !board()->GetDesignSettings().m_DRCEngine->RulesValid() )
     {
@@ -117,7 +133,7 @@ void ZONE_FILLER_TOOL::FillAllZones( wxWindow* aCaller, PROGRESS_REPORTER* aRepo
 
         button->Bind( wxEVT_COMMAND_HYPERLINK,
                       std::function<void( wxHyperlinkEvent& aEvent )>(
-                              [&]( wxHyperlinkEvent& aEvent )
+                              [frame]( wxHyperlinkEvent& aEvent )
                               {
                                   frame->ShowBoardSetupDialog( _( "Rules" ) );
                               } ) );
@@ -130,9 +146,14 @@ void ZONE_FILLER_TOOL::FillAllZones( wxWindow* aCaller, PROGRESS_REPORTER* aRepo
     }
 
     if( aReporter )
+    {
         filler.SetProgressReporter( aReporter );
+    }
     else
-        filler.InstallNewProgressReporter( aCaller, _( "Fill All Zones" ), 3 );
+    {
+        reporter = std::make_unique<WX_PROGRESS_REPORTER>( aCaller, _( "Fill All Zones" ), 3 );
+        filler.SetProgressReporter( reporter.get() );
+    }
 
     std::lock_guard<KISPINLOCK> lock( board()->GetConnectivity()->GetLock() );
 
@@ -150,6 +171,7 @@ void ZONE_FILLER_TOOL::FillAllZones( wxWindow* aCaller, PROGRESS_REPORTER* aRepo
         frame->UpdateUserInterface();
 
     canvas()->Refresh();
+    m_fillInProgress = false;
 
     // wxWidgets has keyboard focus issues after the progress reporter.  Re-setting the focus
     // here doesn't work, so we delay it to an idle event.
@@ -159,9 +181,15 @@ void ZONE_FILLER_TOOL::FillAllZones( wxWindow* aCaller, PROGRESS_REPORTER* aRepo
 
 int ZONE_FILLER_TOOL::ZoneFill( const TOOL_EVENT& aEvent )
 {
-    std::vector<ZONE*> toFill;
+    if( m_fillInProgress )
+    {
+        wxBell();
+        return -1;
+    }
 
-    BOARD_COMMIT commit( this );
+    m_fillInProgress = true;
+
+    std::vector<ZONE*> toFill;
 
     if( ZONE* passedZone = aEvent.Parameter<ZONE*>() )
     {
@@ -176,8 +204,12 @@ int ZONE_FILLER_TOOL::ZoneFill( const TOOL_EVENT& aEvent )
         }
     }
 
-    ZONE_FILLER filler( board(), &commit );
-    filler.InstallNewProgressReporter( frame(), _( "Fill Zone" ), 4 );
+    BOARD_COMMIT                          commit( this );
+    std::unique_ptr<WX_PROGRESS_REPORTER> reporter;
+    ZONE_FILLER                           filler( board(), &commit );
+
+    reporter = std::make_unique<WX_PROGRESS_REPORTER>( frame(), _( "Fill Zone" ), 4 );
+    filler.SetProgressReporter( reporter.get() );
 
     std::lock_guard<KISPINLOCK> lock( board()->GetConnectivity()->GetLock() );
 
@@ -187,6 +219,7 @@ int ZONE_FILLER_TOOL::ZoneFill( const TOOL_EVENT& aEvent )
         commit.Revert();
 
     canvas()->Refresh();
+    m_fillInProgress = false;
     return 0;
 }
 

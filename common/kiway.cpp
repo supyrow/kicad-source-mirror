@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2014 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
- * Copyright (C) 2014-2020 KiCad Developers, see CHANGELOG.TXT for contributors.
+ * Copyright (C) 2014-2021 KiCad Developers, see CHANGELOG.TXT for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -52,15 +52,14 @@ KIWAY::KIWAY( PGM_BASE* aProgram, int aCtlBits, wxFrame* aTop ):
 {
     SetTop( aTop );     // hook player_destroy_handler() into aTop.
 
-
-    // Prepare the room to store the frame names, once they will be created
-    // with FRAME_T type as index in this table.
-    // (note this is a list of frame names, but a non empty entry
-    // does not mean the frame still exists. It means only the frame was created
-    // at least once. It can be destroyed after. These entries are not cleared.
-    // the purpose is just to allow a call to wxWindow::FindWindowByName(), from
-    // a FRAME_T frame type
-    m_playerFrameName.Add( wxEmptyString, KIWAY_PLAYER_COUNT );
+    // Set the array of all known frame window IDs to empty = wxID_NONE,
+    // once they are be created, they are added with FRAME_T as index to this array.
+    // Note: A non empty entry does not mean the frame still exists.
+    //   It means only the frame was created at least once. It can be destroyed after.
+    //   These entries are not cleared automatically on window closing. The purpose is just
+    //   to allow a call to wxWindow::FindWindowById() using a FRAME_T frame type
+    for( int n = 0; n < KIWAY_PLAYER_COUNT; n++ )
+        m_playerFrameId[n] = wxID_NONE;
 }
 
 
@@ -84,12 +83,16 @@ void KIWAY::SetTop( wxFrame* aTop )
 #if 0
     if( m_top )
     {
-        m_top->Disconnect( wxEVT_DESTROY, wxWindowDestroyEventHandler( KIWAY::player_destroy_handler ), NULL, this );
+        m_top->Disconnect( wxEVT_DESTROY,
+                           wxWindowDestroyEventHandler( KIWAY::player_destroy_handler ),
+                           nullptr, this );
     }
 
     if( aTop )
     {
-        aTop->Connect( wxEVT_DESTROY, wxWindowDestroyEventHandler( KIWAY::player_destroy_handler ), NULL, this );
+        aTop->Connect( wxEVT_DESTROY,
+                       wxWindowDestroyEventHandler( KIWAY::player_destroy_handler ),
+                       nullptr, this );
     }
 #endif
 
@@ -189,7 +192,7 @@ PROJECT& KIWAY::Prj() const
 }
 
 
-KIFACE*  KIWAY::KiFACE( FACE_T aFaceId, bool doLoad )
+KIFACE* KIWAY::KiFACE( FACE_T aFaceId, bool doLoad )
 {
     // Since this will be called from python, cannot assume that code will
     // not pass a bad aFaceId.
@@ -199,7 +202,7 @@ KIFACE*  KIWAY::KiFACE( FACE_T aFaceId, bool doLoad )
         // way it gets some explanatory text.
 
         wxASSERT_MSG( 0, wxT( "caller has a bug, passed a bad aFaceId" ) );
-        return NULL;
+        return nullptr;
     }
 
     // return the previously loaded KIFACE, if it was.
@@ -209,7 +212,7 @@ KIFACE*  KIWAY::KiFACE( FACE_T aFaceId, bool doLoad )
     wxString msg;
 
     // DSO with KIFACE has not been loaded yet, does caller want to load it?
-    if( doLoad  )
+    if( doLoad )
     {
         wxString dname = dso_search_path( aFaceId );
 
@@ -228,7 +231,7 @@ KIFACE*  KIWAY::KiFACE( FACE_T aFaceId, bool doLoad )
 
         wxDynamicLibrary dso;
 
-        void*   addr = NULL;
+        void*   addr = nullptr;
 
         // For some reason wxDynamicLibrary::Load() crashes in some languages
         // (chinese for instance) when loading the dynamic library.
@@ -250,17 +253,15 @@ KIFACE*  KIWAY::KiFACE( FACE_T aFaceId, bool doLoad )
             // here and catching it in the KiCad launcher resolves the crash issue.  See bug
             // report https://bugs.launchpad.net/kicad/+bug/1577786.
 
-            msg.Printf( _( "Failed to load kiface library \"%s\"." ),
-                        dname );
+            msg.Printf( _( "Failed to load kiface library '%s'." ), dname );
             THROW_IO_ERROR( msg );
         }
-        else if( ( addr = dso.GetSymbol( wxT( KIFACE_INSTANCE_NAME_AND_VERSION ) ) ) == NULL )
+        else if( ( addr = dso.GetSymbol( wxT( KIFACE_INSTANCE_NAME_AND_VERSION ) ) ) == nullptr )
         {
             // Failure: error reporting UI was done via wxLogSysError().
             // No further reporting required here.  Assume the same thing applies here as
             // above with the Load() call.  This has not been tested.
-            msg.Printf( _( "Could not read instance name and version symbol from kiface "
-                           "library \"%s\"." ),
+            msg.Printf( _( "Could not read instance name and version from kiface library '%s'." ),
                         dname );
             THROW_IO_ERROR( msg );
         }
@@ -293,9 +294,8 @@ KIFACE*  KIWAY::KiFACE( FACE_T aFaceId, bool doLoad )
         // to exist, and we did not find one.  If we do not find one, this is an
         // installation bug.
 
-        msg = wxString::Format( _(
-            "Fatal Installation Bug. File:\n"
-            "\"%s\"\ncould not be loaded\n" ), dname );
+        msg = wxString::Format( _( "Fatal Installation Bug. File:\n"
+                                   "\"%s\"\ncould not be loaded\n" ), dname );
 
         if( ! wxFileExists( dname ) )
             msg << _( "It is missing.\n" );
@@ -313,7 +313,7 @@ KIFACE*  KIWAY::KiFACE( FACE_T aFaceId, bool doLoad )
         THROW_IO_ERROR( msg );
     }
 
-    return NULL;
+    return nullptr;
 }
 
 
@@ -363,10 +363,19 @@ KIWAY::FACE_T KIWAY::KifaceType( FRAME_T aFrameType )
 
 KIWAY_PLAYER* KIWAY::GetPlayerFrame( FRAME_T aFrameType )
 {
-    if( m_playerFrameName[aFrameType].IsEmpty() )
-        return NULL;
+    wxWindowID storedId = m_playerFrameId[aFrameType];
 
-    return static_cast<KIWAY_PLAYER*>( wxWindow::FindWindowByName( m_playerFrameName[aFrameType] ) );
+    if( storedId == wxID_NONE )
+        return nullptr;
+
+    wxWindow* frame = wxWindow::FindWindowById( storedId );
+
+    // Since wxWindow::FindWindow*() is not cheap (especially if the window does not exist),
+    // clear invalid entries to save CPU on repeated calls that do not lead to frame creation
+    if( !frame )
+        m_playerFrameId[aFrameType].compare_exchange_strong( storedId, wxID_NONE );
+
+    return static_cast<KIWAY_PLAYER*>( frame );
 }
 
 
@@ -405,20 +414,20 @@ KIWAY_PLAYER* KIWAY::Player( FRAME_T aFrameType, bool doCreate, wxTopLevelWindow
                                                         // were passed to KIFACE::OnKifaceStart()
                                             );
 
-            m_playerFrameName[aFrameType] = frame->GetName();
+            m_playerFrameId[aFrameType].store( frame->GetId() );
             return frame;
         }
         catch( const IO_ERROR& ioe )
         {
-            DisplayErrorMessage( nullptr, _( "Error loading editor" ), ioe.What() );
+            DisplayErrorMessage( nullptr, _( "Error loading editor." ), ioe.What() );
         }
         catch( const std::exception& e)
         {
-            DisplayErrorMessage( nullptr, _( "Error loading editor" ), e.what() );
+            DisplayErrorMessage( nullptr, _( "Error loading editor." ), e.what() );
         }
         catch( ... )
         {
-            DisplayErrorMessage( nullptr, _( "Error loading editor" ) );
+            DisplayErrorMessage( nullptr, _( "Error loading editor." ) );
         }
     }
 
@@ -441,7 +450,7 @@ bool KIWAY::PlayerClose( FRAME_T aFrameType, bool doForce )
 
     KIWAY_PLAYER* frame =  GetPlayerFrame( aFrameType );
 
-    if( frame == NULL ) // Already closed
+    if( frame == nullptr ) // Already closed
         return true;
 
     if( frame->NonUserClose( doForce ) )
@@ -464,7 +473,8 @@ bool KIWAY::PlayersClose( bool doForce )
 }
 
 
-void KIWAY::ExpressMail( FRAME_T aDestination, MAIL_T aCommand, std::string& aPayload, wxWindow* aSource )
+void KIWAY::ExpressMail( FRAME_T aDestination, MAIL_T aCommand, std::string& aPayload,
+                         wxWindow* aSource )
 {
     KIWAY_EXPRESS   mail( aDestination, aCommand, aPayload, aSource );
 

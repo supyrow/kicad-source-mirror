@@ -39,7 +39,7 @@ enum PCB_DRC_CODE {
     DRCE_TEXT_ON_EDGECUTS,               // text or dimension on Edge.Cuts layer
     DRCE_CLEARANCE,                      // items are too close together
     DRCE_TRACKS_CROSSING,                // tracks are crossing
-    DRCE_COPPER_EDGE_CLEARANCE,          // a copper item is too close to the board edge
+    DRCE_EDGE_CLEARANCE,                 // a copper item is too close to the board edge
     DRCE_ZONES_INTERSECT,                // copper area outlines intersect
     DRCE_ZONE_HAS_EMPTY_NET,             // copper area has a net but no pads in nets, which is suspicious
     DRCE_DANGLING_VIA,                   // via which isn't connected to anything
@@ -48,7 +48,7 @@ enum PCB_DRC_CODE {
     DRCE_DRILLED_HOLES_COLOCATED,        // two holes at the same location
     DRCE_HOLE_CLEARANCE,                 //
     DRCE_TRACK_WIDTH,                    // Track width is too small or too large
-    DRCE_ANNULAR_WIDTH,                  // Via size and drill leave annulus too small or too large
+    DRCE_ANNULAR_WIDTH,                  // Via size and drill leave annular ring too small
     DRCE_DRILL_OUT_OF_RANGE,             // Too small via or pad drill
     DRCE_VIA_DIAMETER,                   // Via diameter checks (min/max)
     DRCE_PADSTACK,                       // something is wrong with a pad or via stackup
@@ -107,6 +107,8 @@ public:
     void SetViolatingRule ( DRC_RULE *aRule ) { m_violatingRule = aRule; }
     DRC_RULE* GetViolatingRule() const { return m_violatingRule; }
 
+    wxString GetViolatingRuleDesc() const override;
+
     void SetViolatingTest( DRC_TEST_PROVIDER *aProvider ) { m_violatingTest = aProvider; }
     DRC_TEST_PROVIDER* GetViolatingTest() const { return m_violatingTest; }
 
@@ -116,6 +118,7 @@ private:
         m_errorCode   = aErrorCode;
         m_errorTitle  = aTitle;
         m_settingsKey = aSettingsKey;
+        m_parent      = nullptr;
     }
 
     /// A list of all DRC_ITEM types which are valid error codes
@@ -133,7 +136,7 @@ private:
     static DRC_ITEM textOnEdgeCuts;
     static DRC_ITEM clearance;
     static DRC_ITEM tracksCrossing;
-    static DRC_ITEM copperEdgeClearance;
+    static DRC_ITEM edgeClearance;
     static DRC_ITEM zonesIntersect;
     static DRC_ITEM zoneHasEmptyNet;
     static DRC_ITEM viaDangling;

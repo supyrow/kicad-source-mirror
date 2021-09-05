@@ -2,8 +2,8 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2018 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 2008-2016 Wayne Stambaugh <stambaughw@verizon.net>
- * Copyright (C) 1992-2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2008-2016 Wayne Stambaugh <stambaughw@gmail.com>
+ * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -52,7 +52,7 @@ class BOARD_CONNECTED_ITEM;
 class COLOR_SETTINGS;
 class FOOTPRINT;
 class PAD;
-class EDA_3D_VIEWER;
+class EDA_3D_VIEWER_FRAME;
 class GENERAL_COLLECTOR;
 class GENERAL_COLLECTORS_GUIDE;
 class BOARD_DESIGN_SETTINGS;
@@ -81,7 +81,7 @@ public:
     /**
      * @return a reference to the child 3D viewer frame, when exists, or NULL
      */
-    EDA_3D_VIEWER* Get3DViewerFrame();
+    EDA_3D_VIEWER_FRAME* Get3DViewerFrame();
 
     /**
      * Update the 3D view, if the viewer is opened by this frame.
@@ -170,7 +170,7 @@ public:
 
     PCBNEW_SETTINGS& Settings() { return *m_settings; }
 
-    void SetDrawBgColor( COLOR4D aColor ) override;
+    void SetDrawBgColor( const COLOR4D& aColor ) override;
 
     /**
      * Display options control the way tracks, vias, outlines and other things are shown
@@ -231,7 +231,7 @@ public:
      *
      * If it does not exist, it is created.  If it exists, it is brought to the foreground.
      */
-    EDA_3D_VIEWER* CreateAndShow3D_Frame();
+    EDA_3D_VIEWER_FRAME* CreateAndShow3D_Frame();
 
     /**
      * @return global configuration options.
@@ -332,7 +332,8 @@ public:
      * @param aItemsList is the list of items modified by the command to undo.
      * @param aTypeCommand is the command type (see enum #UNDO_REDO)
      */
-    virtual void SaveCopyInUndoList( const PICKED_ITEMS_LIST& aItemsList, UNDO_REDO aTypeCommand ) = 0;
+    virtual void SaveCopyInUndoList( const PICKED_ITEMS_LIST& aItemsList,
+                                     UNDO_REDO aTypeCommand ) = 0;
 
 
     /**
@@ -350,15 +351,8 @@ public:
 
     virtual void SwitchLayer( wxDC* DC, PCB_LAYER_ID layer );
 
-    virtual void SetActiveLayer( PCB_LAYER_ID aLayer )
-    {
-        GetScreen()->m_Active_Layer = aLayer;
-    }
-
-    virtual PCB_LAYER_ID GetActiveLayer() const
-    {
-        return GetScreen()->m_Active_Layer;
-    }
+    virtual void SetActiveLayer( PCB_LAYER_ID aLayer ) { GetScreen()->m_Active_Layer = aLayer; }
+    virtual PCB_LAYER_ID GetActiveLayer() const { return GetScreen()->m_Active_Layer; }
 
     SEVERITY GetSeverity( int aErrorCode ) const override;
 
@@ -395,6 +389,7 @@ public:
     virtual bool GetAutoZoom() { return false; }
 
 protected:
+    bool canCloseWindow( wxCloseEvent& aCloseEvent ) override;
 
     /**
      * Attempts to load \a aFootprintId from the footprint library table.
@@ -407,12 +402,13 @@ protected:
      */
     FOOTPRINT* loadFootprint( const LIB_ID& aFootprintId );
 
+    virtual void unitsChangeRefresh() override;
+
+protected:
     BOARD*                  m_pcb;
     PCB_DISPLAY_OPTIONS     m_displayOptions;
     PCB_ORIGIN_TRANSFORMS   m_originTransforms;
     PCBNEW_SETTINGS*        m_settings; // No ownership, just a shortcut
-
-    virtual void unitsChangeRefresh() override;
 };
 
 #endif  // PCB_BASE_FRAME_H

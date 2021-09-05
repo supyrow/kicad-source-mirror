@@ -36,6 +36,7 @@
 
 #include <wx/choicdlg.h>
 #include <wx/treebook.h>
+#include <eda_list_dialog.h>
 
 
 // some define to choose how copper layers widgets are shown
@@ -132,12 +133,13 @@ PANEL_SETUP_LAYERS::PANEL_SETUP_LAYERS( PAGED_DIALOG* aParent, PCB_EDIT_FRAME* a
 
 PANEL_SETUP_LAYERS_CTLs PANEL_SETUP_LAYERS::getCTLs( LAYER_NUM aLayerNumber )
 {
-#define RETURN_COPPER( x )   return PANEL_SETUP_LAYERS_CTLs( x##Name, x##CheckBox, x##Choice )
-#define RETURN_AUX( x )      return PANEL_SETUP_LAYERS_CTLs( x##Name, x##CheckBox, x##StaticText )
+#define RETURN_COPPER( x )    return PANEL_SETUP_LAYERS_CTLs( x##Name, x##CheckBox, x##Choice )
+#define RETURN_AUX( x )       return PANEL_SETUP_LAYERS_CTLs( x##Name, x##CheckBox, x##StaticText )
+#define RETURN_MANDATORY( x ) return PANEL_SETUP_LAYERS_CTLs( x##Name, nullptr, x##StaticText )
 
     switch( aLayerNumber )
     {
-    case F_CrtYd:               RETURN_AUX( m_CrtYdFront );
+    case F_CrtYd:               RETURN_MANDATORY( m_CrtYdFront );
     case F_Fab:                 RETURN_AUX( m_FabFront );
     case F_Adhes:               RETURN_AUX( m_AdhesFront );
     case F_Paste:               RETURN_AUX( m_SoldPFront );
@@ -183,10 +185,10 @@ PANEL_SETUP_LAYERS_CTLs PANEL_SETUP_LAYERS::getCTLs( LAYER_NUM aLayerNumber )
     case B_Paste:               RETURN_AUX( m_SoldPBack );
     case B_Adhes:               RETURN_AUX( m_AdhesBack );
     case B_Fab:                 RETURN_AUX( m_FabBack );
-    case B_CrtYd:               RETURN_AUX( m_CrtYdBack );
+    case B_CrtYd:               RETURN_MANDATORY( m_CrtYdBack );
 
-    case Edge_Cuts:             RETURN_AUX( m_PCBEdges );
-    case Margin:                RETURN_AUX( m_Margin );
+    case Edge_Cuts:             RETURN_MANDATORY( m_PCBEdges );
+    case Margin:                RETURN_MANDATORY( m_Margin );
     case Eco2_User:             RETURN_AUX( m_Eco2 );
     case Eco1_User:             RETURN_AUX( m_Eco1 );
     case Cmts_User:             RETURN_AUX( m_Comments );
@@ -271,6 +273,9 @@ void PANEL_SETUP_LAYERS::setUserDefinedLayerCheckBoxes()
         // This code hides inactive copper layers, or redisplays hidden layers which are now needed.
         PANEL_SETUP_LAYERS_CTLs ctl = getCTLs( layer );
 
+        // All user-defined layers should have a checkbox
+        wxASSERT( ctl.checkbox );
+
         ctl.name->Show( state );
         ctl.checkbox->Show( state );
         ctl.choice->Show( state );
@@ -343,7 +348,7 @@ LSET PANEL_SETUP_LAYERS::GetUILayerMask()
         PCB_LAYER_ID layer = *seq;
         wxCheckBox*  ctl = getCheckBox( layer );
 
-        if( ctl->GetValue() )
+        if( !ctl || ctl->GetValue() )
             layerMaskResult.set( layer );
     }
 
@@ -354,6 +359,9 @@ LSET PANEL_SETUP_LAYERS::GetUILayerMask()
 void PANEL_SETUP_LAYERS::setLayerCheckBox( LAYER_NUM aLayer, bool isChecked )
 {
     PANEL_SETUP_LAYERS_CTLs ctl = getCTLs( aLayer );
+
+    if( !ctl.checkbox )
+        return;
 
     ctl.checkbox->SetValue( isChecked );
 }
@@ -381,6 +389,9 @@ void PANEL_SETUP_LAYERS::setCopperLayerCheckBoxes( int copperCount )
 #ifdef HIDE_INACTIVE_LAYERS
         // This code hides inactive copper layers, or redisplays hidden layers which are now needed.
         PANEL_SETUP_LAYERS_CTLs ctl = getCTLs( layer );
+
+        // Inner layers should have a checkbox
+        wxASSERT( ctl.checkbox );
 
         ctl.name->Show( state );
         ctl.checkbox->Show( state );
@@ -420,19 +431,6 @@ void PANEL_SETUP_LAYERS::DenyChangeCheckBox( wxCommandEvent& event )
                     _( "Use the Physical Stackup page to change the number of copper layers." ) );
 
             copper->SetValue( true );
-            return;
-        }
-    }
-
-    for( int layer : { F_CrtYd, B_CrtYd, Edge_Cuts, Margin } )
-    {
-        wxCheckBox* mandatory = getCheckBox( layer );
-
-        if( source == mandatory )
-        {
-            msg.Printf( _( "The %s layer is mandatory." ), GetLayerName( layer ) );
-            DisplayError( this, msg );
-            mandatory->SetValue( true );
             return;
         }
     }
@@ -655,7 +653,7 @@ bool PANEL_SETUP_LAYERS::testLayerNames()
 
         if( hasOneOf( name, badchars ) )
         {
-            auto msg = wxString::Format(_( "\"%s\" are forbidden in layer names." ), badchars );
+            wxString msg = wxString::Format(_( "%s are forbidden in layer names." ), badchars );
             m_parentDialog->SetError( msg, this, ctl );
             return false;
         }
@@ -670,7 +668,7 @@ bool PANEL_SETUP_LAYERS::testLayerNames()
         {
             if( name == existingName )
             {
-                auto msg = wxString::Format(_( "Layer name \"%s\" is already in use." ), name );
+                wxString msg = wxString::Format(_( "Layer name '%s' already in use." ), name );
                 m_parentDialog->SetError( msg, this, ctl );
                 return false;
             }
@@ -790,20 +788,44 @@ bool PANEL_SETUP_LAYERS::CheckCopperLayerCount( BOARD* aWorkingBoard, BOARD* aIm
 
 void PANEL_SETUP_LAYERS::addUserDefinedLayer( wxCommandEvent& aEvent )
 {
-    LSEQ seq;
-    wxArrayString availableUserDefinedLayers = getAvailableUserDefinedLayers();
+    wxArrayString headers;
+    headers.Add( _( "Layers" ) );
 
-    wxCHECK( !availableUserDefinedLayers.IsEmpty(), /* void */ );
+    // Build the available user-defined layers list:
+    std::vector<wxArrayString> list;
 
-    wxSingleChoiceDialog dlg( this, _( "Select user defined layer to add to board layer set" ),
-            _( "Select Layer" ), availableUserDefinedLayers );
+    for( LSEQ seq = LSET::UserDefinedLayers().Seq();  seq;  ++seq )
+    {
+        wxCheckBox* checkBox = getCheckBox( *seq );
 
-    if( dlg.ShowModal() == wxID_CANCEL || dlg.GetStringSelection().IsEmpty() )
+        if( checkBox && checkBox->IsShown() )
+            continue;
+
+        wxArrayString available_user_layer;
+        available_user_layer.Add( LayerName( *seq ) );
+
+        list.emplace_back( available_user_layer );
+    }
+
+    if( list.empty() )
+    {
+        DisplayErrorMessage( m_parentDialog,
+                             _( "All user-defined layers have already been added." ) );
         return;
+    }
+
+    EDA_LIST_DIALOG dlg( m_parentDialog, _( "Add User-defined Layer" ), headers, list );
+    dlg.SetListLabel( _( "Select layer to add:" ) );
+    dlg.HideFilter();
+
+    if( dlg.ShowModal() == wxID_CANCEL || dlg.GetTextSelection().IsEmpty() )
+        return;
+
+    LSEQ seq;
 
     for( seq = LSET::UserDefinedLayers().Seq();  seq;  ++seq )
     {
-        if( LayerName( *seq ) == dlg.GetStringSelection() )
+        if( LayerName( *seq ) == dlg.GetTextSelection() )
             break;
     }
 
@@ -814,6 +836,9 @@ void PANEL_SETUP_LAYERS::addUserDefinedLayer( wxCommandEvent& aEvent )
     m_enabledLayers |= newLayer;
 
     PANEL_SETUP_LAYERS_CTLs ctl = getCTLs( *seq );
+
+    // All user-defined layers should have a checkbox
+    wxASSERT( ctl.checkbox );
 
     wxTextCtrl* textCtrl = dynamic_cast<wxTextCtrl*>( ctl.name );
 
@@ -830,27 +855,3 @@ void PANEL_SETUP_LAYERS::addUserDefinedLayer( wxCommandEvent& aEvent )
 }
 
 
-void PANEL_SETUP_LAYERS::onUpdateAddUserDefinedLayer( wxUpdateUIEvent& event )
-{
-    wxArrayString availableUserDefinedLayers = getAvailableUserDefinedLayers();
-
-    event.Enable( !availableUserDefinedLayers.IsEmpty() );
-}
-
-
-wxArrayString PANEL_SETUP_LAYERS::getAvailableUserDefinedLayers()
-{
-    wxArrayString availableUserDefinedLayers;
-
-    for( LSEQ seq = LSET::UserDefinedLayers().Seq();  seq;  ++seq )
-    {
-        wxCheckBox* checkBox = getCheckBox( *seq );
-
-        if( checkBox && checkBox->IsShown() )
-            continue;
-
-        availableUserDefinedLayers.Add( LayerName( *seq ) );
-    }
-
-    return availableUserDefinedLayers;
-}

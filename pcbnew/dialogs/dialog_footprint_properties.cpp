@@ -24,7 +24,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
-#include <3d_viewer/eda_3d_viewer.h>
+#include <3d_viewer/eda_3d_viewer_frame.h>
 #include <bitmaps.h>
 #include <board_commit.h>
 #include <board_design_settings.h>
@@ -41,8 +41,10 @@
 #include <widgets/wx_grid.h>
 #include <settings/settings_manager.h>
 
+#include <panel_fp_properties_3d_model.h>
+
 #include "3d_cache/dialogs/3d_cache_dialogs.h"
-#include "3d_cache/dialogs/panel_prev_3d.h"
+#include "3d_cache/dialogs/panel_preview_3d_model.h"
 
 #include <dialog_footprint_properties.h>
 
@@ -52,19 +54,24 @@ int DIALOG_FOOTPRINT_PROPERTIES::m_page = 0;     // remember the last open page 
 
 DIALOG_FOOTPRINT_PROPERTIES::DIALOG_FOOTPRINT_PROPERTIES( PCB_EDIT_FRAME* aParent,
                                                           FOOTPRINT* aFootprint ) :
-    DIALOG_FOOTPRINT_PROPERTIES_BASE( aParent ),
-    m_posX( aParent, m_XPosLabel, m_ModPositionX, m_XPosUnit ),
-    m_posY( aParent, m_YPosLabel, m_ModPositionY, m_YPosUnit ),
-    m_OrientValidator( 3, &m_OrientValue ),
-    m_netClearance( aParent, m_NetClearanceLabel, m_NetClearanceCtrl, m_NetClearanceUnits ),
-    m_solderMask( aParent, m_SolderMaskMarginLabel, m_SolderMaskMarginCtrl, m_SolderMaskMarginUnits ),
-    m_solderPaste( aParent, m_SolderPasteMarginLabel, m_SolderPasteMarginCtrl, m_SolderPasteMarginUnits ),
-    m_initialFocus( true ),
-    m_inSelect( false )
+        DIALOG_FOOTPRINT_PROPERTIES_BASE( aParent ),
+        m_frame( aParent ),
+        m_footprint( aFootprint ),
+        m_posX( aParent, m_XPosLabel, m_ModPositionX, m_XPosUnit ),
+        m_posY( aParent, m_YPosLabel, m_ModPositionY, m_YPosUnit ),
+        m_orientValidator( 3, &m_orientValue ),
+        m_netClearance( aParent, m_NetClearanceLabel, m_NetClearanceCtrl, m_NetClearanceUnits ),
+        m_solderMask( aParent, m_SolderMaskMarginLabel, m_SolderMaskMarginCtrl,
+                      m_SolderMaskMarginUnits ),
+        m_solderPaste( aParent, m_SolderPasteMarginLabel, m_SolderPasteMarginCtrl,
+                       m_SolderPasteMarginUnits ),
+        m_solderPasteRatio( aParent, m_PasteMarginRatioLabel, m_PasteMarginRatioCtrl,
+                            m_PasteMarginRatioUnits ),
+        m_returnValue( FP_PROPS_CANCEL )
 {
-    m_frame     = aParent;
-    m_footprint = aFootprint;
-    m_returnValue = FP_PROPS_CANCEL;
+    // Create the 3D models page
+    m_3dPanel = new PANEL_FP_PROPERTIES_3D_MODEL( m_frame, m_footprint, this, m_NoteBook );
+    m_NoteBook->AddPage( m_3dPanel, _("3D Models"), false );
 
     // Configure display origin transforms
     m_posX.SetCoordType( ORIGIN_TRANSFORMS::ABS_X_COORD );
@@ -79,6 +86,7 @@ DIALOG_FOOTPRINT_PROPERTIES::DIALOG_FOOTPRINT_PROPERTIES( PCB_EDIT_FRAME* aParen
     m_delayedFocusGrid = nullptr;
     m_delayedFocusRow = -1;
     m_delayedFocusColumn = -1;
+    m_initialFocus = false;
 
     // Give an icon
     wxIcon  icon;
@@ -87,51 +95,21 @@ DIALOG_FOOTPRINT_PROPERTIES::DIALOG_FOOTPRINT_PROPERTIES( PCB_EDIT_FRAME* aParen
 
     // Give a bit more room for combobox editors
     m_itemsGrid->SetDefaultRowSize( m_itemsGrid->GetDefaultRowSize() + 4 );
-    m_modelsGrid->SetDefaultRowSize( m_modelsGrid->GetDefaultRowSize() + 4 );
 
     m_itemsGrid->SetTable( m_texts );
     m_itemsGrid->PushEventHandler( new GRID_TRICKS( m_itemsGrid ) );
-    m_modelsGrid->PushEventHandler( new GRID_TRICKS( m_modelsGrid ) );
 
     PCBNEW_SETTINGS* cfg = m_frame->GetPcbNewSettings();
 
     // Show/hide text item columns according to the user's preference
     m_itemsGrid->ShowHideColumns( cfg->m_FootprintTextShownColumns );
 
-    // Set up the 3D models grid
-    // Path selector
-    if( cfg->m_lastFootprint3dDir.IsEmpty() )
-    {
-        wxGetEnv( KICAD6_3DMODEL_DIR, &cfg->m_lastFootprint3dDir );
-    }
-
-    wxGridCellAttr* attr = new wxGridCellAttr;
-    attr->SetEditor( new GRID_CELL_PATH_EDITOR( this, m_modelsGrid, &cfg->m_lastFootprint3dDir,
-                                                "*.*", true, Prj().GetProjectPath() ) );
-    m_modelsGrid->SetColAttr( 0, attr );
-
-    // Show checkbox
-    attr = new wxGridCellAttr;
-    attr->SetRenderer( new wxGridCellBoolRenderer() );
-    attr->SetReadOnly();    // not really; we delegate interactivity to GRID_TRICKS
-    attr->SetAlignment( wxALIGN_CENTER, wxALIGN_CENTER );
-    m_modelsGrid->SetColAttr( 1, attr );
-    m_modelsGrid->SetWindowStyleFlag( m_modelsGrid->GetWindowStyle() & ~wxHSCROLL );
-    m_modelsGrid->SetSelectionMode( wxGrid::wxGridSelectRows );
-
-    m_OrientValidator.SetRange( -360.0, 360.0 );
-    m_OrientValueCtrl->SetValidator( m_OrientValidator );
-    m_OrientValidator.SetWindow( m_OrientValueCtrl );
-
-    aParent->Prj().Get3DCacheManager()->GetResolver()->SetProgramBase( &Pgm() );
-
-    m_PreviewPane = new PANEL_PREV_3D( m_Panel3D, m_frame, m_footprint, &m_shapes3D_list );
-
-    bLowerSizer3D->Add( m_PreviewPane, 1, wxEXPAND, 5 );
+    m_orientValidator.SetRange( -360.0, 360.0 );
+    m_OrientValueCtrl->SetValidator( m_orientValidator );
+    m_orientValidator.SetWindow( m_OrientValueCtrl );
 
     // Set font size for items showing long strings:
-    wxFont infoFont = wxSystemSettings::GetFont( wxSYS_DEFAULT_GUI_FONT );
-    infoFont.SetSymbolicSize( wxFONTSIZE_SMALL );
+    wxFont infoFont = KIUI::GetInfoFont();
 #if __WXMAC__
     m_allow90Label->SetFont( infoFont );
     m_allow180Label->SetFont( infoFont );
@@ -154,25 +132,23 @@ DIALOG_FOOTPRINT_PROPERTIES::DIALOG_FOOTPRINT_PROPERTIES( PCB_EDIT_FRAME* aParen
         m_delayedFocusRow = 0;
         m_delayedFocusColumn = 0;
     }
-    else if ( m_page == 1 )
-        SetInitialFocus( m_NetClearanceCtrl );
-    else
+    else if( m_page == 1 )
     {
-        m_delayedFocusGrid = m_modelsGrid;
-        m_delayedFocusRow = 0;
-        m_delayedFocusColumn = 0;
+        SetInitialFocus( m_NetClearanceCtrl );
     }
+
+    m_solderPaste.SetNegativeZero();
+
+    m_solderPasteRatio.SetUnits( EDA_UNITS::PERCENT );
+    m_solderPasteRatio.SetNegativeZero();
 
     m_sdbSizerStdButtonsOK->SetDefault();
 
-    m_OrientValue = 0;
+    m_orientValue = 0;
 
     // Configure button logos
     m_bpAdd->SetBitmap( KiBitmap( BITMAPS::small_plus ) );
     m_bpDelete->SetBitmap( KiBitmap( BITMAPS::small_trash ) );
-    m_buttonAdd->SetBitmap( KiBitmap( BITMAPS::small_plus ) );
-    m_buttonBrowse->SetBitmap( KiBitmap( BITMAPS::small_folder ) );
-    m_buttonRemove->SetBitmap( KiBitmap( BITMAPS::small_trash ) );
 
     finishDialogSettings();
 }
@@ -188,7 +164,6 @@ DIALOG_FOOTPRINT_PROPERTIES::~DIALOG_FOOTPRINT_PROPERTIES()
 
     // Delete the GRID_TRICKS.
     m_itemsGrid->PopEventHandler( true );
-    m_modelsGrid->PopEventHandler( true );
 
     // free the memory used by all models, otherwise models which were
     // browsed but not used would consume memory
@@ -197,8 +172,6 @@ DIALOG_FOOTPRINT_PROPERTIES::~DIALOG_FOOTPRINT_PROPERTIES()
     // the GL canvas has to be visible before it is destroyed
     m_page = m_NoteBook->GetSelection();
     m_NoteBook->SetSelection( 1 );
-
-    delete m_PreviewPane;
 }
 
 
@@ -245,13 +218,13 @@ void DIALOG_FOOTPRINT_PROPERTIES::ChangeFootprint( wxCommandEvent&  )
 void DIALOG_FOOTPRINT_PROPERTIES::FootprintOrientEvent( wxCommandEvent&  )
 {
     if( m_Orient0->GetValue() )
-        m_OrientValue = 0.0;
+        m_orientValue = 0.0;
     else if( m_Orient90->GetValue() )
-        m_OrientValue = 90.0;
+        m_orientValue = 90.0;
     else if( m_Orient270->GetValue() )
-        m_OrientValue = 270.0;
+        m_orientValue = 270.0;
     else if( m_Orient180->GetValue() )
-        m_OrientValue = 180.0;
+        m_orientValue = 180.0;
 
     updateOrientationControl();
 }
@@ -285,11 +258,11 @@ bool DIALOG_FOOTPRINT_PROPERTIES::TransferDataToWindow()
     if( !m_PanelGeneral->TransferDataToWindow() )
         return false;
 
-    if( !m_Panel3D->TransferDataToWindow() )
+    // Add the models to the panel
+    if( !m_3dPanel->TransferDataToWindow() )
         return false;
 
     // Footprint Texts
-
     m_texts->push_back( m_footprint->Reference() );
     m_texts->push_back( m_footprint->Value() );
 
@@ -312,15 +285,15 @@ bool DIALOG_FOOTPRINT_PROPERTIES::TransferDataToWindow()
 
     m_BoardSideCtrl->SetSelection( (m_footprint->GetLayer() == B_Cu) ? 1 : 0 );
 
-    m_OrientValue = m_footprint->GetOrientation() / 10.0;
+    m_orientValue = m_footprint->GetOrientation() / 10.0;
 
-    if( m_OrientValue == 0.0 )
+    if( m_orientValue == 0.0 )
         m_Orient0->SetValue( true );
-    else if( m_OrientValue == 90.0 || m_OrientValue == -270.0 )
+    else if( m_orientValue == 90.0 || m_orientValue == -270.0 )
         m_Orient90->SetValue( true );
-    else if( m_OrientValue == 270.0 || m_OrientValue == -90.0 )
+    else if( m_orientValue == 270.0 || m_orientValue == -90.0 )
         m_Orient270->SetValue( true );
-    else if( m_OrientValue == 180.0 || m_OrientValue == -180.0 )
+    else if( m_orientValue == 180.0 || m_orientValue == -180.0 )
         m_Orient180->SetValue( true );
     else
         m_OrientOther->SetValue( true );
@@ -355,21 +328,7 @@ bool DIALOG_FOOTPRINT_PROPERTIES::TransferDataToWindow()
     m_netClearance.SetValue( m_footprint->GetLocalClearance() );
     m_solderMask.SetValue( m_footprint->GetLocalSolderMaskMargin() );
     m_solderPaste.SetValue( m_footprint->GetLocalSolderPasteMargin() );
-
-    // Prefer "-0" to "0" for normally negative values
-    if( m_footprint->GetLocalSolderPasteMargin() == 0 )
-        m_SolderPasteMarginCtrl->SetValue( wxT( "-" ) + m_SolderPasteMarginCtrl->GetValue() );
-
-    // Add solder paste margin ratio in percent
-    // for the usual default value 0.0, display -0.0 (or -0,0 in some countries)
-    wxString msg;
-    msg.Printf( wxT( "%f" ), m_footprint->GetLocalSolderPasteMarginRatio() * 100.0 );
-
-    if( m_footprint->GetLocalSolderPasteMarginRatio() == 0.0 &&
-        msg[0] == '0')  // Sometimes Printf adds a sign if the value is very small (0.0)
-        m_SolderPasteMarginRatioCtrl->SetValue( wxT("-") + msg );
-    else
-        m_SolderPasteMarginRatioCtrl->SetValue( msg );
+    m_solderPasteRatio.SetDoubleValue( m_footprint->GetLocalSolderPasteMarginRatio() * 100.0 );
 
     switch( m_footprint->GetZoneConnection() )
     {
@@ -379,30 +338,6 @@ bool DIALOG_FOOTPRINT_PROPERTIES::TransferDataToWindow()
     case ZONE_CONNECTION::THERMAL:   m_ZoneConnectionChoice->SetSelection( 2 ); break;
     case ZONE_CONNECTION::NONE:      m_ZoneConnectionChoice->SetSelection( 3 ); break;
     }
-
-    // 3D Settings
-    m_shapes3D_list.clear();
-    m_modelsGrid->DeleteRows( 0, m_modelsGrid->GetNumberRows() );
-
-    wxString origPath, alias, shortPath;
-    FILENAME_RESOLVER* res = Prj().Get3DCacheManager()->GetResolver();
-
-    for( const FP_3DMODEL& model : m_footprint->Models() )
-    {
-        m_shapes3D_list.push_back( model );
-        origPath = model.m_Filename;
-
-        if( res && res->SplitAlias( origPath, alias, shortPath ) )
-            origPath = alias + wxT( ":" ) + shortPath;
-
-        m_modelsGrid->AppendRows( 1 );
-        int row = m_modelsGrid->GetNumberRows() - 1;
-        m_modelsGrid->SetCellValue( row, 0, origPath );
-        m_modelsGrid->SetCellValue( row, 1, model.m_Show ? wxT( "1" ) : wxT( "0" ) );
-    }
-
-    select3DModel( 0 );   // will clamp idx within bounds
-    m_PreviewPane->UpdateDummyFootprint();
 
     // Show the footprint's FPID.
     m_tcLibraryID->SetValue( m_footprint->GetFPID().Format() );
@@ -430,191 +365,11 @@ bool DIALOG_FOOTPRINT_PROPERTIES::TransferDataToWindow()
     }
 
     m_itemsGrid->SetRowLabelSize( m_itemsGrid->GetVisibleWidth( -1, false, true, true ) );
-    m_modelsGrid->SetColSize( 1, m_modelsGrid->GetVisibleWidth( 1, true, false, false ) );
 
     Layout();
     adjustGridColumns( m_itemsGrid->GetRect().GetWidth() );
 
     return true;
-}
-
-
-void DIALOG_FOOTPRINT_PROPERTIES::select3DModel( int aModelIdx )
-{
-    m_inSelect = true;
-
-    aModelIdx = std::max( 0, aModelIdx );
-    aModelIdx = std::min( aModelIdx, m_modelsGrid->GetNumberRows() - 1 );
-
-    if( m_modelsGrid->GetNumberRows() )
-    {
-        m_modelsGrid->SelectRow( aModelIdx );
-        m_modelsGrid->SetGridCursor( aModelIdx, 0 );
-    }
-
-    m_PreviewPane->SetSelectedModel( aModelIdx );
-
-    m_inSelect = false;
-}
-
-
-void DIALOG_FOOTPRINT_PROPERTIES::On3DModelSelected( wxGridEvent& aEvent )
-{
-    if( !m_inSelect )
-        select3DModel( aEvent.GetRow() );
-}
-
-
-void DIALOG_FOOTPRINT_PROPERTIES::On3DModelCellChanged( wxGridEvent& aEvent )
-{
-    if( aEvent.GetCol() == 0 )
-    {
-        bool               hasAlias = false;
-        FILENAME_RESOLVER* res = Prj().Get3DCacheManager()->GetResolver();
-        wxString           filename = m_modelsGrid->GetCellValue( aEvent.GetRow(), 0 );
-
-        filename.Replace( "\n", "" );
-        filename.Replace( "\r", "" );
-        filename.Replace( "\t", "" );
-
-        if( filename.empty() || !res->ValidateFileName( filename, hasAlias ) )
-        {
-            m_delayedErrorMessage = wxString::Format( _( "Invalid filename: %s" ), filename );
-            m_delayedFocusGrid = m_modelsGrid;
-            m_delayedFocusRow = aEvent.GetRow();
-            m_delayedFocusColumn = aEvent.GetCol();
-            aEvent.Veto();
-        }
-
-        // if the user has specified an alias in the name then prepend ':'
-        if( hasAlias )
-            filename.insert( 0, wxT( ":" ) );
-
-#ifdef __WINDOWS__
-        // In Kicad files, filenames and paths are stored using Unix notation
-        filename.Replace( wxT( "\\" ), wxT( "/" ) );
-#endif
-
-        m_shapes3D_list[ aEvent.GetRow() ].m_Filename = filename;
-        m_modelsGrid->SetCellValue( aEvent.GetRow(), 0, filename );
-    }
-    else if( aEvent.GetCol() == 1 )
-    {
-        wxString showValue = m_modelsGrid->GetCellValue( aEvent.GetRow(), 1 );
-
-        m_shapes3D_list[ aEvent.GetRow() ].m_Show = ( showValue == wxT( "1" ) );
-    }
-
-    m_PreviewPane->UpdateDummyFootprint();
-}
-
-
-void DIALOG_FOOTPRINT_PROPERTIES::OnRemove3DModel( wxCommandEvent&  )
-{
-    m_modelsGrid->CommitPendingChanges( true /* quiet mode */ );
-
-    int idx = m_modelsGrid->GetGridCursorRow();
-
-    if( idx >= 0 && m_modelsGrid->GetNumberRows() && !m_shapes3D_list.empty() )
-    {
-        m_shapes3D_list.erase( m_shapes3D_list.begin() + idx );
-        m_modelsGrid->DeleteRows( idx, 1 );
-
-        select3DModel( idx );       // will clamp idx within bounds
-        m_PreviewPane->UpdateDummyFootprint();
-    }
-}
-
-
-void DIALOG_FOOTPRINT_PROPERTIES::OnAdd3DModel( wxCommandEvent&  )
-{
-    if( !m_modelsGrid->CommitPendingChanges() )
-        return;
-
-    int selected = m_modelsGrid->GetGridCursorRow();
-
-    PROJECT&   prj = Prj();
-    FP_3DMODEL model;
-
-    wxString initialpath = prj.GetRString( PROJECT::VIEWER_3D_PATH );
-    wxString sidx = prj.GetRString( PROJECT::VIEWER_3D_FILTER_INDEX );
-    int filter = 0;
-
-    // If the PROJECT::VIEWER_3D_PATH hasn't been set yet, use the KICAD6_3DMODEL_DIR environment
-    // variable and fall back to the project path if necessary.
-    if( initialpath.IsEmpty() )
-    {
-        if( !wxGetEnv( "KICAD6_3DMODEL_DIR", &initialpath ) || initialpath.IsEmpty() )
-            initialpath = prj.GetProjectPath();
-    }
-
-    if( !sidx.empty() )
-    {
-        long tmp;
-        sidx.ToLong( &tmp );
-
-        if( tmp > 0 && tmp <= INT_MAX )
-            filter = (int) tmp;
-    }
-
-    if( !S3D::Select3DModel( this, Prj().Get3DCacheManager(), initialpath, filter, &model )
-        || model.m_Filename.empty() )
-    {
-        select3DModel( selected );
-        return;
-    }
-
-    prj.SetRString( PROJECT::VIEWER_3D_PATH, initialpath );
-    sidx = wxString::Format( wxT( "%i" ), filter );
-    prj.SetRString( PROJECT::VIEWER_3D_FILTER_INDEX, sidx );
-    FILENAME_RESOLVER* res = Prj().Get3DCacheManager()->GetResolver();
-    wxString alias;
-    wxString shortPath;
-    wxString filename = model.m_Filename;
-
-    if( res && res->SplitAlias( filename, alias, shortPath ) )
-        filename = alias + wxT( ":" ) + shortPath;
-
-#ifdef __WINDOWS__
-    // In KiCad files, filenames and paths are stored using Unix notation
-    model.m_Filename.Replace( "\\", "/" );
-#endif
-
-    model.m_Show = true;
-    m_shapes3D_list.push_back( model );
-
-    int idx = m_modelsGrid->GetNumberRows();
-    m_modelsGrid->AppendRows( 1 );
-    m_modelsGrid->SetCellValue( idx, 0, filename );
-    m_modelsGrid->SetCellValue( idx, 1, wxT( "1" ) );
-
-    select3DModel( idx );
-    m_PreviewPane->UpdateDummyFootprint();
-}
-
-
-void DIALOG_FOOTPRINT_PROPERTIES::OnAdd3DRow( wxCommandEvent&  )
-{
-    if( !m_modelsGrid->CommitPendingChanges() )
-        return;
-
-    FP_3DMODEL model;
-
-    model.m_Show = true;
-    m_shapes3D_list.push_back( model );
-
-    int row = m_modelsGrid->GetNumberRows();
-    m_modelsGrid->AppendRows( 1 );
-    m_modelsGrid->SetCellValue( row, 1, wxT( "1" ) );
-
-    select3DModel( row );
-
-    m_modelsGrid->SetFocus();
-    m_modelsGrid->MakeCellVisible( row, 0 );
-    m_modelsGrid->SetGridCursor( row, 0 );
-
-    m_modelsGrid->EnableCellEditControl( true );
-    m_modelsGrid->ShowCellEditControl();
 }
 
 
@@ -660,7 +415,9 @@ bool DIALOG_FOOTPRINT_PROPERTIES::TransferDataFromWindow()
     if( !m_itemsGrid->CommitPendingChanges() )
         return false;
 
-    if( !m_modelsGrid->CommitPendingChanges() )
+    // This only commits the editor, model updating is done below so it is inside
+    // the commit
+    if( !m_3dPanel->TransferDataFromWindow() )
         return false;
 
     auto view = m_frame->GetCanvas()->GetView();
@@ -699,20 +456,7 @@ bool DIALOG_FOOTPRINT_PROPERTIES::TransferDataFromWindow()
     m_footprint->SetLocalClearance( m_netClearance.GetValue() );
     m_footprint->SetLocalSolderMaskMargin( m_solderMask.GetValue() );
     m_footprint->SetLocalSolderPasteMargin( m_solderPaste.GetValue() );
-
-    double dtmp = 0.0;
-    wxString msg = m_SolderPasteMarginRatioCtrl->GetValue();
-    msg.ToDouble( &dtmp );
-
-    // A -50% margin ratio means no paste on a pad, the ratio must be >= -50%
-    if( dtmp < -50.0 )
-        dtmp = -50.0;
-    // A margin ratio is always <= 0
-    // 0 means use full pad copper area
-    if( dtmp > 0.0 )
-        dtmp = 0.0;
-
-    m_footprint->SetLocalSolderPasteMarginRatio( dtmp / 100 );
+    m_footprint->SetLocalSolderPasteMarginRatio( m_solderPasteRatio.GetDoubleValue() / 100.0 );
 
     switch( m_ZoneConnectionChoice->GetSelection() )
     {
@@ -753,9 +497,9 @@ bool DIALOG_FOOTPRINT_PROPERTIES::TransferDataFromWindow()
 
     // Now, set orientation.  Must be done after other changes because rotation changes field
     // positions on board (so that relative positions are held constant)
-    m_OrientValidator.TransferFromWindow();
+    m_orientValidator.TransferFromWindow();
 
-    double orient = m_OrientValue * 10;
+    double orient = m_orientValue * 10;
 
     if( m_footprint->GetOrientation() != orient )
         m_footprint->Rotate( m_footprint->GetPosition(), orient - m_footprint->GetOrientation() );
@@ -773,9 +517,11 @@ bool DIALOG_FOOTPRINT_PROPERTIES::TransferDataFromWindow()
     if( change_layer )
         m_footprint->Flip( m_footprint->GetPosition(), m_frame->Settings().m_FlipLeftRight );
 
-    std::list<FP_3DMODEL>* draw3D = &m_footprint->Models();
-    draw3D->clear();
-    draw3D->insert( draw3D->end(), m_shapes3D_list.begin(), m_shapes3D_list.end() );
+    // Copy the models from the panel to the footprint
+    std::vector<FP_3DMODEL>& panelList = m_3dPanel->GetModelList();
+    std::list<FP_3DMODEL>*   fpList    = &m_footprint->Models();
+    fpList->clear();
+    fpList->insert( fpList->end(), panelList.begin(), panelList.end() );
 
     // This is a simple edit, we must create an undo entry
     if( m_footprint->GetEditFlags() == 0 )    // i.e. not edited, or moved
@@ -849,18 +595,10 @@ void DIALOG_FOOTPRINT_PROPERTIES::OnDeleteField( wxCommandEvent&  )
 }
 
 
-void DIALOG_FOOTPRINT_PROPERTIES::Cfg3DPath( wxCommandEvent&  )
-{
-    if( S3D::Configure3DPaths( this, Prj().Get3DCacheManager()->GetResolver() ) )
-        m_PreviewPane->UpdateDummyFootprint();
-}
-
-
 void DIALOG_FOOTPRINT_PROPERTIES::adjustGridColumns( int aWidth )
 {
     // Account for scroll bars
     int itemsWidth = aWidth - ( m_itemsGrid->GetSize().x - m_itemsGrid->GetClientSize().x );
-    int modelsWidth = aWidth - ( m_modelsGrid->GetSize().x - m_modelsGrid->GetClientSize().x );
 
     itemsWidth -= m_itemsGrid->GetRowLabelSize();
 
@@ -873,13 +611,14 @@ void DIALOG_FOOTPRINT_PROPERTIES::adjustGridColumns( int aWidth )
                 m_itemsGrid->GetVisibleWidth( 0, true, false, false ) ) );
     }
 
-    m_modelsGrid->SetColSize( 0, modelsWidth - m_modelsGrid->GetColSize( 1 ) - 6 );
+    // Update the width of the 3D panel
+    m_3dPanel->AdjustGridColumnWidths( aWidth );
 }
 
 
 void DIALOG_FOOTPRINT_PROPERTIES::OnUpdateUI( wxUpdateUIEvent&  )
 {
-    if( !m_itemsGrid->IsCellEditControlShown() && !m_modelsGrid->IsCellEditControlShown() )
+    if( !m_itemsGrid->IsCellEditControlShown() )
         adjustGridColumns( m_itemsGrid->GetRect().GetWidth() );
 
     // Handle a grid error.  This is delayed to OnUpdateUI so that we can change focus
@@ -929,8 +668,6 @@ void DIALOG_FOOTPRINT_PROPERTIES::OnUpdateUI( wxUpdateUIEvent&  )
         }
         m_initialFocus = false;
     }
-
-    m_buttonRemove->Enable( m_modelsGrid->GetNumberRows() > 0 );
 }
 
 
@@ -967,5 +704,5 @@ void DIALOG_FOOTPRINT_PROPERTIES::OnPageChange( wxNotebookEvent& aEvent )
 
 void DIALOG_FOOTPRINT_PROPERTIES::updateOrientationControl()
 {
-    KIUI::ValidatorTransferToWindowWithoutEvents( m_OrientValidator );
+    KIUI::ValidatorTransferToWindowWithoutEvents( m_orientValidator );
 }

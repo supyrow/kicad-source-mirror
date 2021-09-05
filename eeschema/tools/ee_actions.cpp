@@ -24,7 +24,7 @@
 
 #include <bitmaps.h>
 #include <core/typeinfo.h>
-#include <layers_id_colors_and_visibility.h>
+#include <layer_ids.h>
 #include <sch_line_wire_bus_tool.h>
 #include <tools/ee_actions.h>
 #include <tool/tool_action.h>
@@ -335,7 +335,7 @@ TOOL_ACTION EE_ACTIONS::importSheetPin( "eeschema.InteractiveDrawing.importSheet
 
 TOOL_ACTION EE_ACTIONS::placeGlobalLabel( "eeschema.InteractiveDrawing.placeGlobalLabel",
         AS_GLOBAL,
-        MD_CTRL + 'H', LEGACY_HK_NAME( "Add Global Label" ),
+        MD_CTRL + 'L', LEGACY_HK_NAME( "Add Global Label" ),
         _( "Add Global Label" ), _( "Add a global label" ),
         BITMAPS::add_glabel, AF_ACTIVATE );
 

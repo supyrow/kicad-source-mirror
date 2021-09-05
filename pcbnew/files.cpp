@@ -25,11 +25,10 @@
 
 #include <confirm.h>
 #include <core/arraydim.h>
-#include <kicad_string.h>
 #include <gestfich.h>
 #include <pcb_edit_frame.h>
 #include <board_design_settings.h>
-#include <3d_viewer/eda_3d_viewer.h>
+#include <3d_viewer/eda_3d_viewer_frame.h>
 #include <widgets/msgpanel.h>
 #include <fp_lib_table.h>
 #include <kiface_i.h>
@@ -48,6 +47,7 @@
 #include <kiplatform/app.h>
 #include <widgets/appearance_controls.h>
 #include <widgets/infobar.h>
+#include <widgets/wx_progress_reporters.h>
 #include <settings/settings_manager.h>
 #include <paths.h>
 #include <project/project_file.h>
@@ -56,7 +56,6 @@
 #include <plugins/cadstar/cadstar_pcb_archive_plugin.h>
 #include <plugins/kicad/kicad_plugin.h>
 #include <dialogs/dialog_imported_layers.h>
-#include <tool/tool_manager.h>
 #include <tools/pcb_actions.h>
 #include "footprint_info_impl.h"
 #include <wx_filename.h>  // For ::ResolvePossibleSymlinks()
@@ -198,7 +197,9 @@ bool AskLoadBoardFileName( PCB_EDIT_FRAME* aParent, int* aCtl, wxString* aFileNa
         return true;
     }
     else
+    {
         return false;
+    }
 }
 
 
@@ -211,7 +212,7 @@ public:
     {
         m_cbCreateProject = new wxCheckBox( this, wxID_ANY,
                                             _( "Create a new project for this board" ) );
-        m_cbCreateProject->SetValue( false );
+        m_cbCreateProject->SetValue( true );
         m_cbCreateProject->SetToolTip( _( "Creating a project will enable features such as "
                                           "design rules, net classes, and layer presets" ) );
 
@@ -344,12 +345,12 @@ bool PCB_EDIT_FRAME::Files_io_from_id( int id )
 
         if( !fn.FileExists() )
         {
-            msg.Printf( _( "Recovery file \"%s\" not found." ), fn.GetFullPath() );
+            msg.Printf( _( "Recovery file '%s' not found." ), fn.GetFullPath() );
             DisplayInfoMessage( this, msg );
             return false;
         }
 
-        msg.Printf( _( "OK to load recovery file \"%s\"" ), fn.GetFullPath() );
+        msg.Printf( _( "OK to load recovery file '%s'?" ), fn.GetFullPath() );
 
         if( !IsOK( this, msg ) )
             return false;
@@ -557,28 +558,29 @@ bool PCB_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
     // This is for python:
     if( aFileSet.size() != 1 )
     {
-        UTF8 msg = StrPrintf( "Pcbnew:%s() takes only a single filename", __func__ );
+        UTF8 msg = StrPrintf( "Pcbnew:%s() takes a single filename", __func__ );
         DisplayError( this, msg );
         return false;
     }
 
-    wxString fullFileName( aFileSet[0] );
+    wxString   fullFileName( aFileSet[0] );
+    wxFileName wx_filename( fullFileName );
+    wxString   msg;
 
     if( Kiface().IsSingle() )
-    {
         KIPLATFORM::APP::RegisterApplicationRestart( fullFileName );
-    }
 
     // We insist on caller sending us an absolute path, if it does not, we say it's a bug.
-    wxASSERT_MSG( wxFileName( fullFileName ).IsAbsolute(), wxT( "Path is not absolute!" ) );
+    wxASSERT_MSG( wx_filename.IsAbsolute(), wxT( "Path is not absolute!" ) );
 
     std::unique_ptr<wxSingleInstanceChecker> lockFile = ::LockFile( fullFileName );
 
-    if( !lockFile )
+    if( !lockFile || lockFile->IsAnotherRunning() )
     {
-        wxString msg = wxString::Format( _( "PCB file \"%s\" is already open." ), fullFileName );
-        DisplayError( this, msg );
-        return false;
+        msg.Printf( _( "PCB '%s' is already open." ), wx_filename.GetFullName() );
+
+        if( !OverrideLock( this, msg ) )
+            return false;
     }
 
     if( IsContentModified() )
@@ -602,18 +604,17 @@ bool PCB_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
     if( is_new && !( aCtl & KICTL_CREATE ) )
     {
         // notify user that fullFileName does not exist, ask if user wants to create it.
-        wxString ask = wxString::Format( _( "PCB '%s' does not exist. Do you wish to create it?" ),
-                                         fullFileName );
-        if( !IsOK( this, ask ) )
+        msg.Printf( _( "PCB '%s' does not exist. Do you wish to create it?" ), fullFileName );
+
+        if( !IsOK( this, msg ) )
             return false;
     }
 
     // Get rid of any existing warnings about the old board
     GetInfoBar()->Dismiss();
 
-    // Loading a complex project and build data can be time
-    // consuming, so display a busy cursor
-    wxBusyCursor dummy;
+    WX_PROGRESS_REPORTER progressReporter( this, is_new ? _( "Creating PCB" )
+                                                        : _( "Loading PCB" ), 1 );
 
     // No save prompt (we already prompted above), and only reset to a new blank board if new
     Clear_Pcb( false, !is_new );
@@ -660,17 +661,16 @@ bool PCB_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
     }
     else
     {
-        BOARD* loadedBoard = nullptr;   // it will be set to non-NULL if loaded OK
-
+        BOARD*           loadedBoard = nullptr;   // it will be set to non-NULL if loaded OK
         PLUGIN::RELEASER pi( IO_MGR::PluginFind( pluginType ) );
 
-        LAYER_REMAPPABLE_PLUGIN* layerRemappable =
+        LAYER_REMAPPABLE_PLUGIN* layerRemappablePlugin =
             dynamic_cast< LAYER_REMAPPABLE_PLUGIN* >( (PLUGIN*) pi );
-        if ( layerRemappable )
+
+        if( layerRemappablePlugin )
         {
-            using namespace std::placeholders;
-            layerRemappable->RegisterLayerMappingCallback(
-                    std::bind( DIALOG_IMPORTED_LAYERS::GetMapModal, this, _1 ) );
+            layerRemappablePlugin->RegisterLayerMappingCallback(
+                    std::bind( DIALOG_IMPORTED_LAYERS::GetMapModal, this, std::placeholders::_1 ) );
         }
 
         // This will rename the file if there is an autosave and the user want to recover
@@ -696,19 +696,27 @@ bool PCB_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
             unsigned startTime = GetRunningMicroSecs();
 #endif
 
-            loadedBoard = pi->Load( fullFileName, NULL, &props, &Prj() );
+            loadedBoard = pi->Load( fullFileName, nullptr, &props, &Prj(), &progressReporter );
 
 #if USE_INSTRUMENTATION
             unsigned stopTime = GetRunningMicroSecs();
             printf( "PLUGIN::Load(): %u usecs\n", stopTime - startTime );
 #endif
         }
+        catch( const FUTURE_FORMAT_ERROR& ffe )
+        {
+            msg.Printf( _( "Error loading PCB '%s'." ), fullFileName );
+            progressReporter.Hide();
+            DisplayErrorMessage( this, msg, ffe.Problem() );
+
+            failedLoad = true;
+        }
         catch( const IO_ERROR& ioe )
         {
             if( ioe.Problem() != wxT( "CANCEL" ) )
             {
-                wxString msg = wxString::Format( _( "Error loading board file:\n%s" ),
-                                                 fullFileName );
+                msg.Printf( _( "Error loading PCB '%s'." ), fullFileName );
+                progressReporter.Hide();
                 DisplayErrorMessage( this, msg, ioe.What() );
             }
 
@@ -716,8 +724,9 @@ bool PCB_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
         }
         catch( const std::bad_alloc& )
         {
-            wxString msg = wxString::Format( _( "Memory exhausted loading board file:\n%s" ), fullFileName );
-            DisplayErrorMessage( this, msg );
+            msg.Printf( _( "Memory exhausted loading PCB '%s'" ), fullFileName );
+            progressReporter.Hide();
+            DisplayErrorMessage( this, msg, wxEmptyString );
 
             failedLoad = true;
         }
@@ -733,9 +742,7 @@ bool PCB_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
         SetBoard( loadedBoard );
 
         if( GFootprintList.GetCount() == 0 )
-        {
             GFootprintList.ReadCacheFromFile( Prj().GetProjectPath() + "fp-info-cache" );
-        }
 
         if( loadedBoard->m_LegacyDesignSettingsLoaded )
         {
@@ -804,7 +811,7 @@ bool PCB_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
             // The footprints are saved in a new .pretty library.
             // If this library already exists, all previous footprints will be deleted
             std::vector<FOOTPRINT*> loadedFootprints = pi->GetImportedCachedLibraryFootprints();
-            wxString                newLibPath = CreateNewLibrary( libNickName );
+            wxString                newLibPath = CreateNewProjectLibrary( libNickName );
 
             // Only create the new library if CreateNewLibrary succeeded (note that this fails if
             // the library already exists and the user aborts after seeing the warning message
@@ -826,11 +833,10 @@ bool PCB_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
                     }
                     catch( const IO_ERROR& ioe )
                     {
-                        wxLogError( wxString::Format( _( "Error occurred when saving footprint "
-                                                         "'%s' to the project specific footprint "
-                                                         "library: %s" ),
-                                                         footprint->GetFPID().GetUniStringLibItemName(),
-                                                         ioe.What() ) );
+                        wxLogError( _( "Error saving footprint %s to project specific library." )
+                                    + wxS( "\n%s" ),
+                                    footprint->GetFPID().GetUniStringLibItemName(),
+                                    ioe.What() );
                     }
                 }
 
@@ -856,9 +862,9 @@ bool PCB_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
                 }
                 catch( const IO_ERROR& ioe )
                 {
-                    wxLogError( wxString::Format( _( "Error occurred saving the project specific "
-                                                     "footprint library table: %s" ),
-                                                     ioe.What() ) );
+                    wxLogError( _( "Error saving project specific footprint library table." )
+                                + wxS( "\n%s" ),
+                                ioe.What() );
                 }
 
                 // Update footprint LIB_IDs to point to the just imported library
@@ -906,7 +912,7 @@ bool PCB_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
     onBoardLoaded();
 
     // Refresh the 3D view, if any
-    EDA_3D_VIEWER* draw3DFrame = Get3DViewerFrame();
+    EDA_3D_VIEWER_FRAME* draw3DFrame = Get3DViewerFrame();
 
     if( draw3DFrame )
         draw3DFrame->NewDisplay();
@@ -948,7 +954,7 @@ bool PCB_EDIT_FRAME::SavePcbFile( const wxString& aFileName, bool addToHistory,
 
     if( !IsWritable( pcbFileName ) )
     {
-        wxString msg = wxString::Format( _( "No access rights to write to file \"%s\"" ),
+        wxString msg = wxString::Format( _( "Insufficient permissions to write file '%s'." ),
                                          pcbFileName.GetFullPath() );
 
         DisplayError( this, msg );
@@ -1003,7 +1009,7 @@ bool PCB_EDIT_FRAME::SavePcbFile( const wxString& aFileName, bool addToHistory,
 
         wxASSERT( tempFile.IsAbsolute() );
 
-        pi->Save( tempFile.GetFullPath(), GetBoard(), NULL );
+        pi->Save( tempFile.GetFullPath(), GetBoard(), nullptr );
     }
     catch( const IO_ERROR& ioe )
     {
@@ -1024,12 +1030,12 @@ bool PCB_EDIT_FRAME::SavePcbFile( const wxString& aFileName, bool addToHistory,
     // If save succeeded, replace the original with what we just wrote
     if( !wxRenameFile( tempFile.GetFullPath(), pcbFileName.GetFullPath() ) )
     {
-        DisplayError( this, wxString::Format( _( "Error saving board file \"%s\".\n"
-                                                 "Failed to rename temporary file \"%s\"" ),
+        DisplayError( this, wxString::Format( _( "Error saving board file '%s'.\n"
+                                                 "Failed to rename temporary file '%s." ),
                                               pcbFileName.GetFullPath(),
                                               tempFile.GetFullPath() ) );
 
-        lowerTxt.Printf( _( "Failed to rename temporary file \"%s\"" ),
+        lowerTxt.Printf( _( "Failed to rename temporary file '%s'." ),
                          tempFile.GetFullPath() );
 
         SetMsgPanel( upperTxt, lowerTxt );
@@ -1067,7 +1073,8 @@ bool PCB_EDIT_FRAME::SavePcbFile( const wxString& aFileName, bool addToHistory,
     SetStatusText( lowerTxt, 0 );
 
     // Get rid of the old version conversion warning, or any other dismissable warning :)
-    m_infoBar->DismissOutdatedSave();
+    if( m_infoBar->GetMessageType() == WX_INFOBAR::MESSAGE_TYPE::OUTDATED_SAVE )
+        m_infoBar->Dismiss();
 
     if( m_infoBar->IsShown() && m_infoBar->HasCloseButton() )
         m_infoBar->Dismiss();
@@ -1087,7 +1094,7 @@ bool PCB_EDIT_FRAME::SavePcbCopy( const wxString& aFileName, bool aCreateProject
 
     if( !IsWritable( pcbFileName ) )
     {
-        DisplayError( this, wxString::Format( _( "No access rights to write to file '%s'." ),
+        DisplayError( this, wxString::Format( _( "Insufficient permissions to write file '%s'." ),
                                               pcbFileName.GetFullPath() ) );
         return false;
     }
@@ -1104,7 +1111,7 @@ bool PCB_EDIT_FRAME::SavePcbCopy( const wxString& aFileName, bool aCreateProject
 
         wxASSERT( pcbFileName.IsAbsolute() );
 
-        pi->Save( pcbFileName.GetFullPath(), GetBoard(), NULL );
+        pi->Save( pcbFileName.GetFullPath(), GetBoard(), nullptr );
     }
     catch( const IO_ERROR& ioe )
     {

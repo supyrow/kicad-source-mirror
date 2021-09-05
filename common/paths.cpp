@@ -126,6 +126,15 @@ wxString PATHS::GetDefaultUser3DModelsPath()
     return tmp.GetPath();
 }
 
+wxString PATHS::GetDefault3rdPartyPath()
+{
+    wxFileName tmp;
+    getUserDocumentPath( tmp );
+
+    tmp.AppendDir( "3rdparty" );
+
+    return tmp.GetPath();
+}
 
 wxString PATHS::GetDefaultUserProjectsPath()
 {
@@ -153,6 +162,8 @@ wxString PATHS::GetStockDataPath( bool aRespectRunFromBuildDir )
         fn.RemoveLastDir();
         fn.RemoveLastDir();
         path = fn.GetPath();
+#elif defined( __WXMSW__ )
+        path = getWindowsKiCadRoot();
 #else
         path = Pgm().GetExecutablePath() + wxT( ".." );
 #endif
@@ -162,7 +173,7 @@ wxString PATHS::GetStockDataPath( bool aRespectRunFromBuildDir )
 #if defined( __WXMAC__ )
         path = GetOSXKicadDataDir();
 #elif defined( __WXMSW__ )
-        path = Pgm().GetExecutablePath() + wxT( "../share/kicad" );
+        path = getWindowsKiCadRoot() + wxT( "share/kicad" );
 #else
         path = wxString::FromUTF8Unchecked( KICAD_DATA );
 #endif
@@ -238,6 +249,17 @@ wxString PATHS::GetStockPlugins3DPath()
 }
 
 
+wxString PATHS::GetStockDemosPath()
+{
+    wxFileName fn;
+
+    fn.AssignDir( PATHS::GetStockDataPath( false ) );
+    fn.AppendDir( wxT( "demos" ) );
+
+    return fn.GetPathWithSep();
+}
+
+
 wxString PATHS::GetUserCachePath()
 {
     wxFileName tmp;
@@ -257,7 +279,7 @@ wxString PATHS::GetDocumentationPath()
 #if defined( __WXMAC__ )
     path = GetOSXKicadDataDir();
 #elif defined( __WXMSW__ )
-    path = Pgm().GetExecutablePath() + "../share/doc/kicad";
+    path = getWindowsKiCadRoot() + "share/doc/kicad";
 #else
     path = wxString::FromUTF8Unchecked( KICAD_DOCS );
 #endif
@@ -296,6 +318,7 @@ void PATHS::EnsureUserPathsExist()
     EnsurePathExists( GetDefaultUserSymbolsPath() );
     EnsurePathExists( GetDefaultUserFootprintsPath() );
     EnsurePathExists( GetDefaultUser3DModelsPath() );
+    EnsurePathExists( GetDefault3rdPartyPath() );
 }
 
 
@@ -329,12 +352,15 @@ wxString PATHS::GetOSXKicadDataDir()
 
     // This must be mapped to main bundle for everything but kicad.app
     const wxArrayString dirs = ddir.GetDirs();
-    if( dirs[dirs.GetCount() - 3].Lower() != wxT( "kicad.app" ) )
+
+    // Check if we are the main kicad binary.  in this case, the path will be
+    //     /path/to/bundlename.app/Contents/SharedSupport
+    // If we are an aux binary, the path will be something like
+    //     /path/to/bundlename.app/Contents/Applications/<standalone>.app/Contents/SharedSupport
+    if( dirs.GetCount() >= 6 &&
+        dirs[dirs.GetCount() - 4] == wxT( "Applications" ) &&
+        dirs[dirs.GetCount() - 6].Lower().EndsWith( wxT( "app" ) ) )
     {
-        // Bundle structure resp. current path is
-        //   kicad.app/Contents/Applications/<standalone>.app/Contents/SharedSupport
-        // and will be mapped to
-        //   kicad.app/Contents/SharedSupprt
         ddir.RemoveLastDir();
         ddir.RemoveLastDir();
         ddir.RemoveLastDir();
@@ -343,5 +369,16 @@ wxString PATHS::GetOSXKicadDataDir()
     }
 
     return ddir.GetPath();
+}
+#endif
+
+
+#ifdef __WXWINDOWS__
+wxString PATHS::getWindowsKiCadRoot()
+{
+    wxFileName root( Pgm().GetExecutablePath() + "/../" );
+    root.Normalize();
+
+    return root.GetPathWithSep();
 }
 #endif

@@ -149,7 +149,8 @@ MODEL_3D::MODEL_3D( const S3DMODEL& a3DModel, MATERIAL_MODE aMaterialMode )
         auto& mesh_group = mesh_groups[mesh.m_MaterialIdx];
         auto& material = m_materials[mesh.m_MaterialIdx];
 
-        if( material.IsTransparent() )
+        if( material.IsTransparent()
+                && m_materialMode != MATERIAL_MODE::DIFFUSE_ONLY )
             m_have_transparent_meshes = true;
          else
             m_have_opaque_meshes = true;
@@ -492,7 +493,7 @@ void MODEL_3D::DrawBbox() const
                     reinterpret_cast<const void*>( offsetof( VERTEX, m_color ) ) );
 
     glDrawElements( GL_LINES, bbox_idx_count, m_bbox_index_buffer_type,
-                    reinterpret_cast<const void*>( NULL ) );
+                    reinterpret_cast<const void*>( 0 ) );
 }
 
 

@@ -27,14 +27,14 @@
 #include <bitmaps.h>
 #include <general.h>
 #include <geometry/shape_line_chain.h>
-#include <gr_text.h>
-#include <kicad_string.h>
-#include <plotter.h>
+#include <string_utils.h>
+#include <plotters/plotter.h>
 #include <sch_draw_panel.h>
 #include <sch_edit_frame.h>
 #include <sch_sheet.h>
 #include <sch_sheet_pin.h>
 #include <sch_painter.h>
+#include <schematic.h>
 #include <trigo.h>
 
 
@@ -75,8 +75,8 @@ void SCH_SHEET_PIN::Print( const RENDER_SETTINGS* aSettings, const wxPoint& aOff
 void SCH_SHEET_PIN::SwapData( SCH_ITEM* aItem )
 {
     wxCHECK_RET( aItem->Type() == SCH_SHEET_PIN_T,
-            wxString::Format( wxT( "SCH_SHEET_PIN object cannot swap data with %s object." ),
-                    aItem->GetClass() ) );
+                 wxString::Format( wxT( "SCH_SHEET_PIN object cannot swap data with %s object." ),
+                                   aItem->GetClass() ) );
 
     SCH_SHEET_PIN* pin = ( SCH_SHEET_PIN* ) aItem;
     SCH_TEXT::SwapData( (SCH_TEXT*) pin );
@@ -97,7 +97,10 @@ bool SCH_SHEET_PIN::operator==( const SCH_SHEET_PIN* aPin ) const
 
 int SCH_SHEET_PIN::GetPenWidth() const
 {
-    return 1;
+    if( Schematic() )
+        return Schematic()->Settings().m_DefaultLineWidth;
+
+    return Mils2iu( DEFAULT_LINE_WIDTH_MILS );
 }
 
 
@@ -157,7 +160,7 @@ void SCH_SHEET_PIN::ConstrainOnEdge( wxPoint Pos )
 {
     SCH_SHEET* sheet = GetParent();
 
-    if( sheet == NULL )
+    if( sheet == nullptr )
         return;
 
     int leftSide  = sheet->m_pos.x;

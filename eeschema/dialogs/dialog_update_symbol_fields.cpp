@@ -25,6 +25,7 @@
 #include <lib_symbol.h>
 #include <symbol_edit_frame.h>
 #include <template_fieldnames.h>
+#include <string_utils.h>
 
 
 bool g_removeExtraLibFields      = false;
@@ -44,7 +45,7 @@ DIALOG_UPDATE_SYMBOL_FIELDS::DIALOG_UPDATE_SYMBOL_FIELDS( SYMBOL_EDIT_FRAME* aPa
     wxASSERT( aParent );
     wxASSERT( aSymbol );
 
-    m_parentSymbolReadOnly->SetValue( m_symbol->GetParent().lock()->GetName() );
+    m_parentSymbolReadOnly->SetValue( UnescapeString( m_symbol->GetParent().lock()->GetName() ) );
 
     for( int i = 0; i < MANDATORY_FIELDS; ++i )
     {
@@ -216,7 +217,7 @@ void DIALOG_UPDATE_SYMBOL_FIELDS::onOkButtonClicked( wxCommandEvent& aEvent )
 
     m_editFrame->RebuildView();
     m_editFrame->OnModify();
-    EndModal( wxID_OK );
+    wxPostEvent( this, wxCommandEvent( wxEVT_COMMAND_BUTTON_CLICKED, wxID_OK ) );
 }
 
 

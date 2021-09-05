@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2012 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 1992-2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -88,7 +88,7 @@ static inline long parseInt( const wxString& aValue, double aScalar )
     aValue.ToCDouble(&value);
     if( value == std::numeric_limits<double>::max() ) // conversion really failed
     {
-        THROW_IO_ERROR( wxString::Format( _( "Cannot convert \"%s\" to an integer" ),
+        THROW_IO_ERROR( wxString::Format( _( "Cannot convert '%s' to an integer." ),
                                           aValue.GetData() ) );
         return 0;
     }
@@ -98,8 +98,7 @@ static inline long parseInt( const wxString& aValue, double aScalar )
 
 
 /**
- * GPCB_FPL_CACHE_ITEM
- * is helper class for creating a footprint library cache.
+ * helper class for creating a footprint library cache.
  *
  * The new footprint library design is a file path of individual footprint files
  * that contain a single footprint per file.  This class is a helper only for the
@@ -108,14 +107,15 @@ static inline long parseInt( const wxString& aValue, double aScalar )
  */
 class GPCB_FPL_CACHE_ITEM
 {
-    WX_FILENAME m_filename; ///< The full file name and path of the footprint to cache.
-    std::unique_ptr<FOOTPRINT> m_footprint;
-
 public:
     GPCB_FPL_CACHE_ITEM( FOOTPRINT* aFootprint, const WX_FILENAME& aFileName );
 
     WX_FILENAME  GetFileName() const  { return m_filename; }
     FOOTPRINT*      GetFootprint() const { return m_footprint.get(); }
+
+private:
+    WX_FILENAME m_filename;       ///< The full file name and path of the footprint to cache.
+    std::unique_ptr<FOOTPRINT> m_footprint;
 };
 
 
@@ -131,47 +131,6 @@ typedef boost::ptr_map< std::string, GPCB_FPL_CACHE_ITEM >  FOOTPRINT_MAP;
 
 class GPCB_FPL_CACHE
 {
-    GPCB_PLUGIN*    m_owner;            ///< Plugin object that owns the cache.
-    wxFileName      m_lib_path;         ///< The path of the library.
-    FOOTPRINT_MAP   m_footprints;       ///< Map of footprint file name to FOOTPRINT*.
-
-    bool            m_cache_dirty;      ///< Stored separately because it's expensive to check
-                                        ///< m_cache_timestamp against all the files.
-    long long       m_cache_timestamp;  ///< A hash of the timestamps for all the footprint
-                                        ///< files.
-
-    FOOTPRINT* parseFOOTPRINT( LINE_READER* aLineReader );
-
-    /**
-     * Function testFlags
-     * tests \a aFlag for \a aMask or \a aName.
-     * @param aFlag = List of flags to test against: can be a bit field flag or a list name flag
-     * a bit field flag is an hexadecimal value: Ox00020000
-     * a list name flag is a string list of flags, comma separated like square,option1
-     * @param aMask = flag list to test
-     * @param aName = flag name to find in list
-     * @return true if found
-     */
-    bool testFlags( const wxString& aFlag, long aMask, const wxChar* aName );
-
-    /**
-     * Function parseParameters
-     * extracts parameters and tokens from \a aLineReader and adds them to \a aParameterList.
-     *
-     * Delimiter characters are:
-     * [ ] ( )  Begin and end of parameter list and units indicator
-     * " is a string delimiter
-     * space is the param separator
-     * The first word is the keyword
-     * the second item is one of ( or [
-     * other are parameters (number or delimited string)
-     * last parameter is ) or ]
-     *
-     * @param aParameterList This list of parameters parsed.
-     * @param aLineReader    The line reader object to parse.
-     */
-    void parseParameters( wxArrayString& aParameterList, LINE_READER* aLineReader );
-
 public:
     GPCB_FPL_CACHE( GPCB_PLUGIN* aOwner, const wxString& aLibraryPath );
 
@@ -190,18 +149,58 @@ public:
     void Remove( const wxString& aFootprintName );
 
     /**
-     * Function GetTimestamp
      * Generate a timestamp representing all source files in the cache (including the
      * parent directory).
+     *
      * Timestamps should not be considered ordered.  They either match or they don't.
      */
     static long long GetTimestamp( const wxString& aLibPath );
 
     /**
-     * Function IsModified
      * Return true if the cache is not up-to-date.
      */
     bool IsModified();
+
+private:
+    FOOTPRINT* parseFOOTPRINT( LINE_READER* aLineReader );
+
+    /**
+     * Test \a aFlag for \a aMask or \a aName.
+     *
+     * @param aFlag is a list of flags to test against: can be a bit field flag or a list name flag
+     *              a bit field flag is an hexadecimal value: Ox00020000 a list name flag is a
+     *              string list of flags, comma separated like square,option1.
+     * @param aMask is the flag list to test.
+     * @param aName is the flag name to find in list.
+     * @return true if found.
+     */
+    bool testFlags( const wxString& aFlag, long aMask, const wxChar* aName );
+
+    /**
+     * Extract parameters and tokens from \a aLineReader and adds them to \a aParameterList.
+     *
+     * Delimiter characters are:
+     * [ ] ( )  Begin and end of parameter list and units indicator
+     * " is a string delimiter
+     * space is the param separator
+     * The first word is the keyword
+     * the second item is one of ( or [
+     * other are parameters (number or delimited string)
+     * last parameter is ) or ]
+     *
+     * @param aParameterList This list of parameters parsed.
+     * @param aLineReader The line reader object to parse.
+     */
+    void parseParameters( wxArrayString& aParameterList, LINE_READER* aLineReader );
+
+    GPCB_PLUGIN*    m_owner;            ///< Plugin object that owns the cache.
+    wxFileName      m_lib_path;         ///< The path of the library.
+    FOOTPRINT_MAP   m_footprints;       ///< Map of footprint file name to FOOTPRINT*.
+
+    bool            m_cache_dirty;      ///< Stored separately because it's expensive to check
+                                        ///< m_cache_timestamp against all the files.
+    long long       m_cache_timestamp;  ///< A hash of the timestamps for all the footprint
+                                        ///< files.
 };
 
 
@@ -226,7 +225,7 @@ void GPCB_FPL_CACHE::Load()
 
     if( !dir.IsOpened() )
     {
-        THROW_IO_ERROR( wxString::Format( _( "footprint library path \"%s\" does not exist" ),
+        THROW_IO_ERROR( wxString::Format( _( "Footprint library '%s' not found." ),
                                           m_lib_path.GetPath().GetData() ) );
     }
 
@@ -280,7 +279,7 @@ void GPCB_FPL_CACHE::Remove( const wxString& aFootprintName )
 
     if( it == m_footprints.end() )
     {
-        THROW_IO_ERROR( wxString::Format( _( "library \"%s\" has no footprint \"%s\" to delete" ),
+        THROW_IO_ERROR( wxString::Format( _( "Library '%s' has no footprint '%s'." ),
                                           m_lib_path.GetPath().GetData(),
                                           aFootprintName.GetData() ) );
     }
@@ -317,14 +316,15 @@ FOOTPRINT* GPCB_FPL_CACHE::parseFOOTPRINT( LINE_READER* aLineReader )
     #define NEW_GPCB_UNIT_CONV ( 0.01*IU_PER_MILS )
 
     int                        paramCnt;
-    double                     conv_unit = NEW_GPCB_UNIT_CONV; // GPCB unit = 0.01 mils and Pcbnew 0.1
+
+    // GPCB unit = 0.01 mils and Pcbnew 0.1.
+    double                     conv_unit = NEW_GPCB_UNIT_CONV;
     wxPoint                    textPos;
     wxString                   msg;
     wxArrayString              parameters;
     std::unique_ptr<FOOTPRINT> footprint = std::make_unique<FOOTPRINT>( nullptr );
 
-
-    if( aLineReader->ReadLine() == NULL )
+    if( aLineReader->ReadLine() == nullptr )
     {
         msg = aLineReader->GetSource() + ": empty file";
         THROW_IO_ERROR( msg );
@@ -344,7 +344,7 @@ FOOTPRINT* GPCB_FPL_CACHE::parseFOOTPRINT( LINE_READER* aLineReader )
 
     if( parameters[0].CmpNoCase( wxT( "Element" ) ) != 0 )
     {
-        msg.Printf( _( "unknown token \"%s\"" ), parameters[0] );
+        msg.Printf( _( "Unknown token '%s'" ), parameters[0] );
         THROW_PARSE_ERROR( msg, aLineReader->GetSource(), (const char *)aLineReader,
                            aLineReader->LineNumber(), 0 );
     }
@@ -374,6 +374,7 @@ FOOTPRINT* GPCB_FPL_CACHE::parseFOOTPRINT( LINE_READER* aLineReader )
     // Read value
     if( paramCnt > 10 )
         footprint->SetValue( parameters[5] );
+
     // With gEDA/pcb, value is meaningful after instantiation, only, so it's
     // often empty in bare footprints.
     if( footprint->Value().GetText().IsEmpty() )
@@ -449,8 +450,8 @@ FOOTPRINT* GPCB_FPL_CACHE::parseFOOTPRINT( LINE_READER* aLineReader )
                 conv_unit = NEW_GPCB_UNIT_CONV;
         }
 
-        wxLogTrace(
-                traceGedaPcbPlugin, wxT( "%s parameter count = %d." ), parameters[0], paramCnt );
+        wxLogTrace( traceGedaPcbPlugin, wxT( "%s parameter count = %d." ),
+                    parameters[0], paramCnt );
 
         // Parse a line with format: ElementLine [X1 Y1 X2 Y2 Thickness]
         if( parameters[0].CmpNoCase( wxT( "ElementLine" ) ) == 0 )
@@ -464,7 +465,7 @@ FOOTPRINT* GPCB_FPL_CACHE::parseFOOTPRINT( LINE_READER* aLineReader )
 
             FP_SHAPE* shape = new FP_SHAPE( footprint.get() );
             shape->SetLayer( F_SilkS );
-            shape->SetShape( PCB_SHAPE_TYPE::SEGMENT );
+            shape->SetShape( SHAPE_T::SEGMENT );
             shape->SetStart0( wxPoint( parseInt( parameters[2], conv_unit ),
                                        parseInt( parameters[3], conv_unit ) ) );
             shape->SetEnd0( wxPoint( parseInt( parameters[4], conv_unit ),
@@ -488,7 +489,7 @@ FOOTPRINT* GPCB_FPL_CACHE::parseFOOTPRINT( LINE_READER* aLineReader )
             // Pcbnew does know ellipse so we must have Width = Height
             FP_SHAPE* shape = new FP_SHAPE( footprint.get() );
             shape->SetLayer( F_SilkS );
-            shape->SetShape( PCB_SHAPE_TYPE::ARC );
+            shape->SetShape( SHAPE_T::ARC );
             footprint->Add( shape );
 
             // for and arc: ibuf[3] = ibuf[4]. Pcbnew does not know ellipses
@@ -508,7 +509,7 @@ FOOTPRINT* GPCB_FPL_CACHE::parseFOOTPRINT( LINE_READER* aLineReader )
 
             // Geda PCB does not support circles.
             if( sweep_angle == -3600.0 )
-                shape->SetShape( PCB_SHAPE_TYPE::CIRCLE );
+                shape->SetShape( SHAPE_T::CIRCLE );
 
             // Angle value is clockwise in gpcb and Pcbnew.
             shape->SetAngle( sweep_angle );
@@ -557,7 +558,7 @@ FOOTPRINT* GPCB_FPL_CACHE::parseFOOTPRINT( LINE_READER* aLineReader )
             // and set to the pin name of the netlist on instantiation. Many gEDA
             // bare footprints use identical strings for name and number, so this
             // can be a bit confusing.
-            pad->SetName( parameters[paramCnt-3] );
+            pad->SetNumber( parameters[paramCnt-3] );
 
             int x1 = parseInt( parameters[2], conv_unit );
             int x2 = parseInt( parameters[4], conv_unit );
@@ -590,8 +591,7 @@ FOOTPRINT* GPCB_FPL_CACHE::parseFOOTPRINT( LINE_READER* aLineReader )
 
             wxPoint padPos( (x1 + x2) / 2, (y1 + y2) / 2 );
 
-            pad->SetSize( wxSize( KiROUND( EuclideanNorm( delta ) ) + width,
-                                  width ) );
+            pad->SetSize( wxSize( KiROUND( EuclideanNorm( delta ) ) + width, width ) );
 
             // Set the relative position before adjusting the absolute position
             pad->SetPos0( padPos );
@@ -640,7 +640,7 @@ FOOTPRINT* GPCB_FPL_CACHE::parseFOOTPRINT( LINE_READER* aLineReader )
             // Pcbnew pad name is used for electrical connection calculations.
             // Accordingly it should be mapped to gEDA's pin/pad number,
             // which is used for the same purpose.
-            pad->SetName( parameters[paramCnt-3] );
+            pad->SetNumber( parameters[paramCnt-3] );
 
             wxPoint padPos( parseInt( parameters[2], conv_unit ),
                             parseInt( parameters[3], conv_unit ) );
@@ -874,7 +874,7 @@ void GPCB_PLUGIN::FootprintEnumerate( wxArrayString& aFootprintNames, const wxSt
             return;
         else
         {
-            THROW_IO_ERROR( wxString::Format( _( "footprint library path \"%s\" does not exist" ),
+            THROW_IO_ERROR( wxString::Format( _( "Footprint library '%s' not found." ),
                                               aLibraryPath ) );
         }
     }
@@ -960,7 +960,7 @@ void GPCB_PLUGIN::FootprintDelete( const wxString& aLibraryPath, const wxString&
 
     if( !m_cache->IsWritable() )
     {
-        THROW_IO_ERROR( wxString::Format( _( "Library \"%s\" is read only" ),
+        THROW_IO_ERROR( wxString::Format( _( "Library '%s' is read only." ),
                                           aLibraryPath.GetData() ) );
     }
 
@@ -979,7 +979,7 @@ bool GPCB_PLUGIN::FootprintLibDelete( const wxString& aLibraryPath, const PROPER
 
     if( !fn.IsDirWritable() )
     {
-        THROW_IO_ERROR( wxString::Format( _( "user does not have permission to delete directory \"%s\"" ),
+        THROW_IO_ERROR( wxString::Format( _( "Insufficient permissions to delete folder '%s'." ),
                                           aLibraryPath.GetData() ) );
     }
 
@@ -987,7 +987,7 @@ bool GPCB_PLUGIN::FootprintLibDelete( const wxString& aLibraryPath, const PROPER
 
     if( dir.HasSubDirs() )
     {
-        THROW_IO_ERROR( wxString::Format( _( "library directory \"%s\" has unexpected sub-directories" ),
+        THROW_IO_ERROR( wxString::Format( _( "Library folder '%s' has unexpected sub-folders." ),
                                           aLibraryPath.GetData() ) );
     }
 
@@ -1006,8 +1006,9 @@ bool GPCB_PLUGIN::FootprintLibDelete( const wxString& aLibraryPath, const PROPER
 
             if( tmp.GetExt() != KiCadFootprintFileExtension )
             {
-                THROW_IO_ERROR( wxString::Format( _( "unexpected file \"%s\" was found in library path \"%s\"" ),
-                                                  files[i].GetData(), aLibraryPath.GetData() ) );
+                THROW_IO_ERROR( wxString::Format( _( "Unexpected file '%s' found in library '%s'." ),
+                                                  files[i].GetData(),
+                                                  aLibraryPath.GetData() ) );
             }
         }
 
@@ -1024,7 +1025,7 @@ bool GPCB_PLUGIN::FootprintLibDelete( const wxString& aLibraryPath, const PROPER
     // we don't want that.  we want bare metal portability with no UI here.
     if( !wxRmdir( aLibraryPath ) )
     {
-        THROW_IO_ERROR( wxString::Format( _( "footprint library \"%s\" cannot be deleted" ),
+        THROW_IO_ERROR( wxString::Format( _( "Footprint library '%s' cannot be deleted." ),
                                           aLibraryPath.GetData() ) );
     }
 

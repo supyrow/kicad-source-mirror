@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2019 Jean_Pierre Charras <jp.charras at wanadoo.fr>
- * Copyright (C) 1992-2019 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -27,12 +27,10 @@
 
 #include <vector>
 
-#include <plotter.h>
-#include <plotters_specific.h>
-#include <kicad_string.h>
+#include <plotters/plotter_gerber.h>
+#include <string_utils.h>
 #include <locale_io.h>
 #include <macros.h>
-#include <pcb_edit_frame.h>
 
 #include <board.h>
 #include <board_design_settings.h>
@@ -86,6 +84,7 @@ int PLACEFILE_GERBER_WRITER::CreatePlaceFile( wxString& aFullFilename, PCB_LAYER
     // Add the standard X2 header, without FileFunction
     AddGerberX2Header( &plotter, m_pcb );
     plotter.SetViewport( m_offset, IU_PER_MILS/10, /* scale */ 1.0, /* mirror */false );
+
     // has meaning only for gerber plotter. Must be called only after SetViewport
     plotter.SetGerberCoordinatesFormat( 6 );
     plotter.SetCreator( wxT( "PCBNEW" ) );
@@ -113,10 +112,10 @@ int PLACEFILE_GERBER_WRITER::CreatePlaceFile( wxString& aFullFilename, PCB_LAYER
     // Some tools in P&P files have the type and size defined.
     // they are position flash (round), pad1 flash (diamond), other pads flash (round)
     // and component outline thickness (polyline)
-    int flash_position_shape_diam = Millimeter2iu( 0.3 );   // defined size for position shape (circle)
-    int pad1_mark_size = Millimeter2iu( 0.36 );             // defined size for pad 1 position (diamond)
-    int other_pads_mark_size = 0;                           // defined size for position shape (circle)
-    int line_thickness = Millimeter2iu( 0.1 );              // defined size for component outlines
+    int flash_position_shape_diam = Millimeter2iu( 0.3 ); // defined size for position shape (circle)
+    int pad1_mark_size = Millimeter2iu( 0.36 );           // defined size for pad 1 position (diamond)
+    int other_pads_mark_size = 0;                         // defined size for position shape (circle)
+    int line_thickness = Millimeter2iu( 0.1 );            // defined size for component outlines
 
     brd_plotter.SetLayerSet( LSET( aLayer ) );
     int cmp_count = 0;
@@ -183,10 +182,10 @@ int PLACEFILE_GERBER_WRITER::CreatePlaceFile( wxString& aFullFilename, PCB_LAYER
 
         if( ( footprint->GetFlags() & checkFlag ) == 0 )
         {
-            gbr_metadata.SetApertureAttrib( GBR_APERTURE_METADATA::GBR_APERTURE_ATTRIB_CMP_COURTYARD );
+            gbr_metadata.SetApertureAttrib(
+                    GBR_APERTURE_METADATA::GBR_APERTURE_ATTRIB_CMP_COURTYARD );
 
-            const SHAPE_POLY_SET& courtyard = onBack ? footprint->GetPolyCourtyardBack()
-                                                     : footprint->GetPolyCourtyardFront();
+            const SHAPE_POLY_SET& courtyard = footprint->GetPolyCourtyard( aLayer );
 
             for( int ii = 0; ii < courtyard.OutlineCount(); ii++ )
             {
@@ -196,13 +195,15 @@ int PLACEFILE_GERBER_WRITER::CreatePlaceFile( wxString& aFullFilename, PCB_LAYER
                     continue;
 
                 useFpPadsBbox = false;
-                plotter.PLOTTER::PlotPoly( poly, FILL_TYPE::NO_FILL, line_thickness, &gbr_metadata );
+                plotter.PLOTTER::PlotPoly( poly, FILL_TYPE::NO_FILL, line_thickness,
+                                           &gbr_metadata );
             }
         }
 
         if( useFpPadsBbox )
         {
-            gbr_metadata.SetApertureAttrib( GBR_APERTURE_METADATA::GBR_APERTURE_ATTRIB_CMP_FOOTPRINT );
+            gbr_metadata.SetApertureAttrib(
+                    GBR_APERTURE_METADATA::GBR_APERTURE_ATTRIB_CMP_FOOTPRINT );
 
             // bbox of fp pads, pos 0, rot 0, non flipped
             EDA_RECT bbox = footprint->GetFpPadsLocalBbox();
@@ -234,7 +235,7 @@ int PLACEFILE_GERBER_WRITER::CreatePlaceFile( wxString& aFullFilename, PCB_LAYER
                 gbr_metadata.SetApertureAttrib(
                         GBR_APERTURE_METADATA::GBR_APERTURE_ATTRIB_PAD1_POSITION );
 
-                gbr_metadata.SetPadName( pad1->GetName(), allowUtf8, true );
+                gbr_metadata.SetPadName( pad1->GetNumber(), allowUtf8, true );
 
                 gbr_metadata.SetPadPinFunction( pad1->GetPinFunction(), allowUtf8, true );
 
@@ -275,7 +276,7 @@ int PLACEFILE_GERBER_WRITER::CreatePlaceFile( wxString& aFullFilename, PCB_LAYER
                 if( !pad->IsOnLayer( aLayer ) )
                     continue;
 
-                gbr_metadata.SetPadName( pad->GetName(), allowUtf8, true );
+                gbr_metadata.SetPadName( pad->GetNumber(), allowUtf8, true );
 
                 gbr_metadata.SetPadPinFunction( pad->GetPinFunction(), allowUtf8, true );
 
@@ -310,7 +311,6 @@ int PLACEFILE_GERBER_WRITER::CreatePlaceFile( wxString& aFullFilename, PCB_LAYER
         }
     }
 
-
     plotter.EndPlot();
 
     return cmp_count;
@@ -319,8 +319,8 @@ int PLACEFILE_GERBER_WRITER::CreatePlaceFile( wxString& aFullFilename, PCB_LAYER
 
 double PLACEFILE_GERBER_WRITER::mapRotationAngle( double aAngle )
 {
-    // convert a kicad footprint orientation to gerber rotation, depending on the layer
-    // Currently, same notation as kicad
+    // Convert a KiCad footprint orientation to gerber rotation, depending on the layer
+    // Currently, same notation as KiCad.
     return aAngle;
 }
 
@@ -336,7 +336,7 @@ void PLACEFILE_GERBER_WRITER::findPads1( std::vector<PAD*>& aPadList, FOOTPRINT*
         if( !pad->IsOnLayer( m_layer ) )
             continue;
 
-        if( pad->GetName() == "1" || pad->GetName() == "A1")
+        if( pad->GetNumber() == "1" || pad->GetNumber() == "A1")
             aPadList.push_back( pad );
     }
 }

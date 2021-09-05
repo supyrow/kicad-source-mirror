@@ -23,7 +23,7 @@
 #include <bitmaps.h>
 #include <board.h>
 #include <board_design_settings.h>
-#include <dialog_helpers.h>
+#include <eda_list_dialog.h>
 #include <footprint_edit_frame.h>
 #include <menus_helpers.h>
 #include <pcb_display_options.h>
@@ -371,6 +371,7 @@ static std::set<int> s_allowedInFpEditor =
             LAYER_PADS_TH,
             LAYER_MOD_VALUES,
             LAYER_MOD_REFERENCES,
+            LAYER_MOD_TEXT_FR,
             LAYER_MOD_TEXT_INVISIBLE,
             LAYER_GRID
         };
@@ -1851,10 +1852,26 @@ void APPEARANCE_CONTROLS::onObjectVisibilityChanged( GAL_LAYER_ID aLayer, bool i
     case LAYER_MOD_TEXT_FR:
         // Because Footprint Text is a meta-control that also can disable values/references,
         // drag them along here so that the user is less likely to be confused.
-        onObjectVisibilityChanged( LAYER_MOD_REFERENCES, isVisible, false );
-        onObjectVisibilityChanged( LAYER_MOD_VALUES, isVisible, false );
-        m_objectSettingsMap[LAYER_MOD_REFERENCES]->ctl_visibility->SetValue( isVisible );
-        m_objectSettingsMap[LAYER_MOD_VALUES]->ctl_visibility->SetValue( isVisible );
+        if( isFinal )
+        {
+            // Should only trigger when you actually click the Footprint Text button
+            // Otherwise it goes into infinite recursive loop with the following case section
+            onObjectVisibilityChanged( LAYER_MOD_REFERENCES, isVisible, false );
+            onObjectVisibilityChanged( LAYER_MOD_VALUES, isVisible, false );
+            m_objectSettingsMap[LAYER_MOD_REFERENCES]->ctl_visibility->SetValue( isVisible );
+            m_objectSettingsMap[LAYER_MOD_VALUES]->ctl_visibility->SetValue( isVisible );
+        }
+        break;
+
+    case LAYER_MOD_REFERENCES:
+    case LAYER_MOD_VALUES:
+        // In case that user changes Footprint Value/References when the Footprint Text
+        // meta-control is disabled, we should put it back on.
+        if( isVisible )
+        {
+            onObjectVisibilityChanged( LAYER_MOD_TEXT_FR, isVisible, false );
+            m_objectSettingsMap[LAYER_MOD_TEXT_FR]->ctl_visibility->SetValue( isVisible );
+        }
         break;
 
     default:
@@ -2359,7 +2376,7 @@ void APPEARANCE_CONTROLS::onLayerPresetChanged( wxCommandEvent& aEvent )
             }
         }
 
-        EDA_LIST_DIALOG dlg( m_frame, _( "Delete Preset" ), headers, items, wxEmptyString );
+        EDA_LIST_DIALOG dlg( m_frame, _( "Delete Preset" ), headers, items );
         dlg.SetListLabel( _( "Select preset:" ) );
 
         if( dlg.ShowModal() == wxID_OK )

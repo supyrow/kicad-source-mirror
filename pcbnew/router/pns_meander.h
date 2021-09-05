@@ -42,6 +42,7 @@ enum MEANDER_TYPE {
         MT_CHECK_START,     // try fitting a start type, but don't produce a line
         MT_CHECK_FINISH,    // try fitting a finish type, but don't produce a line
         MT_CORNER,          // line corner
+        MT_ARC,             // arc corner
         MT_EMPTY            // no meander (straight line)
 };
 
@@ -74,22 +75,31 @@ public:
 
     ///< Minimum meandering amplitude.
     int m_minAmplitude;
+
     ///< Maximum meandering amplitude.
     int m_maxAmplitude;
+
     ///< Meandering period/spacing (see dialog picture for explanation).
     int m_spacing;
+
     ///< Amplitude/spacing adjustment step.
     int m_step;
+
     ///< Length PadToDie.
     int m_lenPadToDie;
+
     ///< Desired length of the tuned line/diff pair (this is in nm, so allow more than board width).
     long long int m_targetLength;
+
     ///< Type of corners for the meandered line.
     MEANDER_STYLE m_cornerStyle;
+
     ///< Rounding percentage (0 - 100).
     int m_cornerRadiusPercentage;
+
     ///< Allowable tuning error.
     int m_lengthTolerance;
+
     ///< Target skew value for diff pair de-skewing.
     int m_targetSkew;
 };
@@ -117,7 +127,7 @@ public:
         m_amplitude = 0;
         m_side = false;
         m_baseIndex = 0;
-        m_currentTarget = NULL;
+        m_currentTarget = nullptr;
         m_meanCornerRadius = 0;
     }
 
@@ -168,7 +178,16 @@ public:
      * @param aP1 corner point of the 1st line.
      * @param aP2 corner point of the 2nd line (if m_dual == true).
      */
-    void MakeCorner( VECTOR2I aP1, VECTOR2I aP2 = VECTOR2I( 0, 0 ) );
+    void MakeCorner( const VECTOR2I& aP1, const VECTOR2I& aP2 = VECTOR2I( 0, 0 ) );
+
+    /**
+     * Create a dummy meander shape representing an arc corner. Allows representing existing
+     * arc tracks so they can be reconstructed after length tuning.
+     *
+     * @param aArc1 Arc shape on the 1st line.
+     * @param aArc2 Arc shape on the 2nd line (if m_dual == true).
+     */
+    void MakeArc( const SHAPE_ARC& aArc1, const SHAPE_ARC& aArc2 = SHAPE_ARC() );
 
     /**
      * Change the amplitude of the meander shape to aAmpl and recalculates the resulting
@@ -295,11 +314,11 @@ private:
     void uShape( int aSides, int aCorner, int aTop );
 
     ///< Generate a 90-degree circular arc.
-    SHAPE_LINE_CHAIN makeMiterShape( VECTOR2D aP, VECTOR2D aDir, bool aSide );
+    SHAPE_LINE_CHAIN makeMiterShape( const VECTOR2D& aP, const VECTOR2D& aDir, bool aSide );
 
     ///< Produce a meander shape of given type.
-    SHAPE_LINE_CHAIN genMeanderShape( VECTOR2D aP, VECTOR2D aDir, bool aSide, MEANDER_TYPE aType,
-                                      int aAmpl, int aBaselineOffset = 0 );
+    SHAPE_LINE_CHAIN genMeanderShape( const VECTOR2D& aP, const VECTOR2D& aDir, bool aSide,
+                                      MEANDER_TYPE aType, int aAmpl, int aBaselineOffset = 0 );
 
     ///< Recalculate the clipped baseline after the parameters of the meander have been changed.
     void updateBaseSegment();
@@ -369,7 +388,7 @@ public:
     MEANDERED_LINE()
     {
         // Do not leave uninitialized members, and keep static analyzer quiet:
-        m_placer = NULL;
+        m_placer = nullptr;
         m_dual = false;
         m_width = 0;
         m_baselineOffset = 0;
@@ -401,6 +420,33 @@ public:
      * @param aB corner point of the 2nd line (if m_dual == true).
      */
     void AddCorner( const VECTOR2I& aA, const VECTOR2I& aB = VECTOR2I( 0, 0 ) );
+
+    /**
+     * Create a dummy meander shape representing an arc corner.  Allows representing existing
+     * arc tracks so they can be reconstructed after length tuning.
+     *
+     * @param aArc1 Arc shape on the 1st line.
+     * @param aArc2 Arc shape on the 2nd line (if m_dual == true).
+     */
+    void AddArc( const SHAPE_ARC& aArc1, const SHAPE_ARC& aArc2 = SHAPE_ARC() );
+
+    /**
+     * Create a dummy meander shape representing an arc corner.  Allows representing existing
+     * arc tracks so they can be reconstructed after length tuning.
+     *
+     * @param aArc1 Arc shape on the 1st line.
+     * @param aPt2 corner point of the 2nd line (if m_dual == true).
+     */
+    void AddArcAndPt( const SHAPE_ARC& aArc1, const VECTOR2I& aPt2 );
+
+    /**
+     * Create a dummy meander shape representing an arc corner.  Allows representing existing
+     * arc tracks so they can be reconstructed after length tuning.
+     *
+     * @param aPt1 corner point of the 1st line.
+     * @param aArc2 Arc shape on the 2nd line (if m_dual == true).
+     */
+    void AddPtAndArc( const VECTOR2I& aPt1, const SHAPE_ARC& aArc2 );
 
     /**
      * Add a new meander shape to the meandered line.

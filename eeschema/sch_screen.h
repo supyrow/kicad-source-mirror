@@ -38,7 +38,7 @@
 #include <core/typeinfo.h>
 #include <kiid.h>
 #include <kiway_holder.h>
-#include <layers_id_colors_and_visibility.h>
+#include <layer_ids.h>
 #include <marker_base.h>
 #include <page_info.h>
 #include <template_fieldnames.h>
@@ -99,6 +99,14 @@ public:
 
     SCHEMATIC* Schematic() const;
 
+    /**
+     * Gets the full RTree, usually for iterating.
+     * N.B. The iteration order of the RTree is not readily apparent and will change
+     * if/when you add or move items and the RTree is re-balanced.  Any exposure of the
+     * RTree contents to the user MUST be sorted before being presented.  See SCH_SEXPR_PLUGIN::Format
+     * or SCH_EDITOR_CONTROL::nextMatch for examples.
+     * @return Complete RTree of the screen's items
+     */
     EE_RTREE& Items() { return m_rtree; }
     const EE_RTREE& Items() const { return m_rtree; }
 
@@ -224,8 +232,6 @@ public:
      * with the local project library symbols.
      */
     void UpdateLocalLibSymbolLinks();
-
-    void SwapSymbolLinks( const SCH_SYMBOL* aOriginalSymbol, const SCH_SYMBOL* aNewSymbol );
 
     /**
      * Print all the items in the screen to \a aDC.
@@ -500,7 +506,7 @@ private:
     wxPoint     m_aux_origin;               // Origin used for drill & place files by Pcbnew.
     EE_RTREE    m_rtree;
 
-    int         m_modification_sync;        // Inequality with PART_LIBS::GetModificationHash()
+    int         m_modification_sync;        // Inequality with SYMBOL_LIBS::GetModificationHash()
                                             // will trigger ResolveAll().
 
     bool        m_zoomInitialized;          // Set to true once the zoom value is initialized with
@@ -612,6 +618,8 @@ public:
      *                      messages into.
      */
     void UpdateSymbolLinks( REPORTER* aReporter = nullptr );
+
+    void ClearEditFlags();
 
     /**
      * Test all of the schematic symbols to see if all #LIB_ID objects library nickname is not

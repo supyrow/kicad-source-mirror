@@ -28,7 +28,7 @@
 #include <board_item_container.h>
 #include <common.h> // Needed for stl hash extensions
 #include <convert_drawsegment_list_to_polygon.h> // for OUTLINE_ERROR_HANDLER
-#include <layers_id_colors_and_visibility.h>
+#include <layer_ids.h>
 #include <netinfo.h>
 #include <pcb_item_containers.h>
 #include <pcb_plot_params.h>
@@ -211,7 +211,7 @@ public:
 
     void IncrementTimeStamp();
 
-    int GetTimeStamp() { return m_timeStamp; }
+    int GetTimeStamp() const { return m_timeStamp; }
 
     /**
      * Find out if the board is being used to hold a single footprint for editing/viewing.
@@ -779,14 +779,6 @@ public:
     FOOTPRINT* FindFootprintByPath( const KIID_PATH& aPath ) const;
 
     /**
-     * @param aNames An array string to fill with net names.
-     * @param aSortbyPadsCount  set to true to sort by active pads count, false = no sort (i.e.
-     *                          leave the sort by net names).
-     * @return net names count.
-     */
-    int SortedNetnamesList( wxArrayString& aNames, bool aSortbyPadsCount );
-
-    /**
      * Return a list of name candidates for netclass assignment.
      *
      * Tokens may appear more than once if they were harvested from hierarchical nets
@@ -1092,6 +1084,7 @@ public:
     std::map< std::pair<BOARD_ITEM*, BOARD_ITEM*>, bool > m_InsideFCourtyardCache;
     std::map< std::pair<BOARD_ITEM*, BOARD_ITEM*>, bool > m_InsideBCourtyardCache;
     std::map< std::pair<BOARD_ITEM*, BOARD_ITEM*>, bool > m_InsideAreaCache;
+    std::map< wxString, LSET >                            m_LayerExpressionCache;
 
     std::map< ZONE*, std::unique_ptr<DRC_RTREE> >         m_CopperZoneRTrees;
 

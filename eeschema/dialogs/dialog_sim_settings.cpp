@@ -100,7 +100,6 @@ DIALOG_SIM_SETTINGS::DIALOG_SIM_SETTINGS( wxWindow* aParent,
 
     m_sdbSizerOK->SetDefault();
     updateNetlistOpts();
-
 }
 
 wxString DIALOG_SIM_SETTINGS::evaluateDCControls( wxChoice* aDcSource, wxTextCtrl* aDcStart,
@@ -224,7 +223,7 @@ bool DIALOG_SIM_SETTINGS::TransferDataFromWindow()
     }
     else if( page == m_pgNoise )        // Noise analysis
     {
-        const NETLIST_EXPORTER_PSPICE::NET_INDEX_MAP& netMap = m_exporter->GetNetIndexMap();
+        const std::map<wxString, int>& netMap = m_exporter->GetNetIndexMap();
 
         if( empty( m_noiseMeas ) || empty( m_noiseSrc ) || empty( m_noisePointsNumber )
                 || empty( m_noiseFreqStart ) || empty( m_noiseFreqStop ) )
@@ -298,11 +297,12 @@ bool DIALOG_SIM_SETTINGS::TransferDataFromWindow()
     }
 
     if( previousSimCommand != m_simCommand )
-    {
         m_simCommand.Trim();
-    }
 
     updateNetlistOpts();
+
+    m_settings->SetFixPassiveVals( m_netlistOpts & NET_ADJUST_PASSIVE_VALS );
+    m_settings->SetFixIncludePaths( m_netlistOpts & NET_ADJUST_INCLUDE_PATHS );
 
     return true;
 }
@@ -313,6 +313,10 @@ bool DIALOG_SIM_SETTINGS::TransferDataToWindow()
     /// @todo one day it could interpret the sim command and fill out appropriate fields.
     if( empty( m_customTxt ) )
         loadDirectives();
+
+    m_fixPassiveVals->SetValue( m_settings->GetFixPassiveVals() );
+    m_fixIncludePaths->SetValue( m_settings->GetFixIncludePaths() );
+    updateNetlistOpts();
 
     NGSPICE_SIMULATOR_SETTINGS* ngspiceSettings =
             dynamic_cast<NGSPICE_SIMULATOR_SETTINGS*>( m_settings.get() );
@@ -388,8 +392,8 @@ void DIALOG_SIM_SETTINGS::updateDCSources( wxChar aType, wxChoice* aSource )
 {
     wxString prevSelection;
 
-    if( aSource->GetCount() )
-        aSource->GetString( aSource->GetSelection() );
+    if( !aSource->IsEmpty() )
+        prevSelection = aSource->GetString( aSource->GetSelection() );
 
     std::vector<wxString> sourcesList;
     bool                  enableSrcSelection = true;

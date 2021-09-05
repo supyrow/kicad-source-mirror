@@ -13,6 +13,11 @@ include_directories(
     ${INC_AFTER}
     )
 
+if ( KICAD_PCM )
+    add_definitions( -DPCM )
+    add_subdirectory( pcm )
+    include_directories( ./pcm )
+endif ( KICAD_PCM )
 
 set( KICAD_SRCS
     dialogs/dialog_template_selector_base.cpp
@@ -49,7 +54,7 @@ if( APPLE )
         MACOSX_PACKAGE_LOCATION Resources
         )
     set( MACOSX_BUNDLE_ICON_FILE kicad.icns )
-    set( MACOSX_BUNDLE_GUI_IDENTIFIER org.kicad-pcb.kicad )
+    set( MACOSX_BUNDLE_GUI_IDENTIFIER org.kicad.kicad )
     set( MACOSX_BUNDLE_NAME kicad )
 endif()
 
@@ -91,15 +96,25 @@ else()
         )
 endif()
 
+if( KICAD_PCM )
+    target_link_libraries( kicad pcm )
+endif()
+
 install( TARGETS kicad
     DESTINATION ${KICAD_BIN}
     COMPONENT binary
     )
+
+if( KICAD_WIN32_INSTALL_PDBS )
+    # Get the PDBs to copy over for MSVC
+    install(FILES $<TARGET_PDB_FILE:kicad> DESTINATION ${KICAD_BIN})
+endif()
+
 if( APPLE )
     # "install( CODE ... )" will launch its own CMake, so no variables from
     # this CMake instance are accessible... use helper to transfer
     set( SCRIPTING_HELPER "1" )
-    
+
     if( KICAD_SPICE )
         set( SPICE_HELPER "1" )
     else()

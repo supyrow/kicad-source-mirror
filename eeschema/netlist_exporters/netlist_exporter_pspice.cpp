@@ -31,11 +31,12 @@
 #include <search_stack.h>
 
 #include <connection_graph.h>
-#include <kicad_string.h>
+#include <string_utils.h>
 #include <sch_edit_frame.h>
 #include <sch_reference_list.h>
 #include <env_paths.h>
 #include <pgm_base.h>
+#include <common.h>
 
 #include <wx/tokenzr.h>
 #include <wx/regex.h>
@@ -94,25 +95,27 @@ bool NETLIST_EXPORTER_PSPICE::Format( OUTPUTFORMATTER* aFormatter, unsigned aCtl
     aFormatter->Print( 0, ".title %s\n", TO_UTF8( m_title ) );
 
     // Write .include directives
-    for( const wxString& lib : m_libraries )
+    for( const wxString& curr_lib : m_libraries )
     {
+        // First, expand env vars, if any
+        wxString libname = ExpandEnvVarSubstitutions( curr_lib, &m_schematic->Prj() );
         wxString full_path;
 
         if( ( aCtl & NET_ADJUST_INCLUDE_PATHS ) )
         {
             // Look for the library in known search locations
-            full_path = ResolveFile( lib, &Pgm().GetLocalEnvVariables(), &m_schematic->Prj() );
+            full_path = ResolveFile( libname, &Pgm().GetLocalEnvVariables(), &m_schematic->Prj() );
 
             if( full_path.IsEmpty() )
             {
                 DisplayError( nullptr, wxString::Format( _( "Could not find library file %s." ),
-                                                         lib ) );
-                full_path = lib;
+                                                         libname ) );
+                full_path = libname;
             }
         }
         else
         {
-            full_path = lib;    // just use the unaltered path
+            full_path = libname;    // just use the unaltered path
         }
 
         aFormatter->Print( 0, ".include \"%s\"\n", TO_UTF8( full_path ) );
@@ -242,8 +245,8 @@ wxString NETLIST_EXPORTER_PSPICE::GetSpiceFieldDefVal( SPICE_FIELD aField, SCH_S
         wxString nodeSeq;
         std::vector<LIB_PIN*> pins;
 
-        wxCHECK( aSymbol->GetPartRef(), wxString() );
-        aSymbol->GetPartRef()->GetPins( pins );
+        wxCHECK( aSymbol->GetLibSymbolRef(), wxString() );
+        aSymbol->GetLibSymbolRef()->GetPins( pins );
 
         for( LIB_PIN* pin : pins )
             nodeSeq += pin->GetNumber() + " ";
@@ -266,11 +269,9 @@ wxString NETLIST_EXPORTER_PSPICE::GetSpiceFieldDefVal( SPICE_FIELD aField, SCH_S
 
 bool NETLIST_EXPORTER_PSPICE::ProcessNetlist( unsigned aCtl )
 {
-    const wxString      delimiters( "{:,; }" );
-
-    SCH_SHEET_LIST      sheetList = m_schematic->GetSheets();
-    // Set of reference names, to check for duplication
-    std::set<wxString>  refNames;
+    const wxString     delimiters( "{:,; }" );
+    SCH_SHEET_LIST     sheetList = m_schematic->GetSheets();
+    std::set<wxString> refNames;       // Set of reference names, to check for duplication
 
     m_netMap.clear();
     m_netMap["GND"] = 0;        // 0 is reserved for "GND"
@@ -327,7 +328,7 @@ bool NETLIST_EXPORTER_PSPICE::ProcessNetlist( unsigned aCtl )
             // Store pin information
             for( const PIN_INFO& pin : m_sortedSymbolPinList )
             {
-                    // Create net mapping
+                // Create net mapping
                 spiceItem.m_pins.push_back( pin.netName );
                 pinNames.Add( pin.num );
 
@@ -455,7 +456,7 @@ void NETLIST_EXPORTER_PSPICE::UpdateDirectives( unsigned aCtl )
 
                 // Mark directive as started or continued in case it is a multi-line one
                 directiveStarted = line.StartsWith( '.' )
-                    || ( directiveStarted && line.StartsWith( '+' ) );
+                                        || ( directiveStarted && line.StartsWith( '+' ) );
             }
         }
     }
@@ -465,9 +466,7 @@ void NETLIST_EXPORTER_PSPICE::UpdateDirectives( unsigned aCtl )
 void NETLIST_EXPORTER_PSPICE::writeDirectives( OUTPUTFORMATTER* aFormatter, unsigned aCtl ) const
 {
     for( const wxString& dir : m_directives )
-    {
         aFormatter->Print( 0, "%s\n", TO_UTF8( dir ) );
-    }
 }
 
 

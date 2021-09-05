@@ -24,7 +24,7 @@
 
 #include <wx/clipbrd.h>
 #include <wx/log.h>
-#include <kicad_string.h>
+#include <string_utils.h>
 #include <dialogs/html_messagebox.h>
 
 
@@ -50,19 +50,6 @@ HTML_MESSAGE_BOX::~HTML_MESSAGE_BOX()
     // Prevent wxWidgets bug which fails to release when closing the window on an <esc>.
     if( m_htmlWindow->HasCapture() )
         m_htmlWindow->ReleaseMouse();
-}
-
-
-void HTML_MESSAGE_BOX::OnOKButtonClick( wxCommandEvent& event )
-{
-    // the dialog can be shown quasi-model, modal, or not modeless.
-    // therefore, use the right way to close it.
-    if( IsQuasiModal() )
-        EndQuasiModal( wxID_OK );
-    else if( IsModal() )
-        EndModal( wxID_OK );
-    else
-        Destroy();
 }
 
 

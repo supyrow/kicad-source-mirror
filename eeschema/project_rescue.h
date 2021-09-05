@@ -82,7 +82,7 @@ public:
      * Get the part that can be loaded from the project cache, if possible, or
      * else NULL.
      */
-    virtual LIB_SYMBOL* GetCacheCandidate() const { return NULL; }
+    virtual LIB_SYMBOL* GetCacheCandidate() const { return nullptr; }
 
     /**
      * Get the part the would be loaded from the libraries, if possible, or else
@@ -138,7 +138,7 @@ public:
     RESCUE_CASE_CANDIDATE( const wxString& aRequestedName, const wxString& aNewName,
                            LIB_SYMBOL* aLibCandidate, int aUnit = 0, int aConvert = 0 );
 
-    RESCUE_CASE_CANDIDATE() { m_lib_candidate = NULL; }
+    RESCUE_CASE_CANDIDATE() { m_lib_candidate = nullptr; }
 
     virtual wxString GetActionDescription() const override;
 
@@ -258,7 +258,7 @@ public:
      */
     virtual void FindCandidates() = 0;
 
-    virtual void AddPart( LIB_SYMBOL* aNewSymbol ) = 0;
+    virtual void AddSymbol( LIB_SYMBOL* aNewSymbol ) = 0;
 
     /**
      * Display a dialog to allow the user to select rescues.
@@ -350,10 +350,10 @@ public:
 
     virtual bool WriteRescueLibrary( wxWindow *aParent ) override;
 
-    virtual void AddPart( LIB_SYMBOL* aNewSymbol ) override;
+    virtual void AddSymbol( LIB_SYMBOL* aNewSymbol ) override;
 
 private:
-    std::unique_ptr<PART_LIB> m_rescue_lib;
+    std::unique_ptr<SYMBOL_LIB> m_rescue_lib;
 };
 
 
@@ -376,7 +376,7 @@ public:
 
     virtual bool WriteRescueLibrary( wxWindow* aParent ) override;
 
-    virtual void AddPart( LIB_SYMBOL* aNewSymbol ) override;
+    virtual void AddSymbol( LIB_SYMBOL* aNewSymbol ) override;
 
 private:
     SCH_PLUGIN::SCH_PLUGIN_RELEASER m_pi;

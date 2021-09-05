@@ -194,7 +194,7 @@ public:
      * @param aParserContext PARSER_CONTEXT in which to store the values of the found fields
      * @return
      */
-    static wxString ParseTextFields( wxString aTextString, PARSER_CONTEXT* aParserContext );
+    static wxString ParseTextFields( const wxString& aTextString, PARSER_CONTEXT* aParserContext );
 
 
     struct PARSER
@@ -1367,6 +1367,13 @@ public:
      */
     static std::vector<CUTOUT> ParseAllChildCutouts(
             XNODE* aNode, PARSER_CONTEXT* aContext, bool aTestAllChildNodes = false );
+
+    /**
+     * @brief Convert a string with CADSTAR overbar characters to equivalent in KiCad
+     * @param aCadstarString Input string
+     * @return KiCad string with overbar characters
+    */
+    static wxString HandleTextOverbar( wxString aCadstarString );
 
     /**
      * Corrects the position of a text element that had NO_ALIGNMENT in CADSTAR. Assumes that the

@@ -25,7 +25,7 @@
 #include <filehistory.h>
 #include <config_params.h>
 #include <eda_draw_frame.h>
-#include <layers_id_colors_and_visibility.h>
+#include <layer_ids.h>
 #include <gerbview.h>
 #include <convert_to_biu.h>
 #include <gbr_layout.h>
@@ -155,10 +155,10 @@ public:
      */
     COLOR4D GetVisibleElementColor( int aLayerID );
 
-    void SetVisibleElementColor( int aLayerID, COLOR4D aColor );
+    void SetVisibleElementColor( int aLayerID, const COLOR4D& aColor );
 
     COLOR4D GetLayerColor( int aLayer ) const;
-    void SetLayerColor( int aLayer, COLOR4D aColor );
+    void SetLayerColor( int aLayer, const COLOR4D& aColor );
 
     /**
      * This is usually the background color, but can be another color in order to see
@@ -297,15 +297,15 @@ public:
     bool unarchiveFiles( const wxString& aFullFileName, REPORTER* aReporter = nullptr );
 
     /**
-     * Load a photoplot (Gerber) file or many files.
+     * Load a given Gerber file or selected file(s), if the filename is empty.
      *
-     * @param aFileName - void string or file name with full path to open or empty string to
-     *                    open a new file. In this case one one file is loaded
-     *                    if void string: user will be prompted for filename(s)
+     * @param aFileName - file name with full path to open or empty string.
+     *                    if empty string: a dialog will be opened to select one or
+     *                    a set of files
      * @return true if file was opened successfully.
      */
     bool LoadGerberFiles( const wxString& aFileName );
-    bool Read_GERBER_File( const wxString&   GERBER_FullFileName );
+    bool Read_GERBER_File( const wxString& GERBER_FullFileName );
 
     /**
      * Load a drill (EXCELLON) file or many files.
@@ -344,6 +344,12 @@ public:
     void Erase_Current_DrawLayer( bool query );
 
     void SortLayersByX2Attributes();
+
+    /**
+     * Update each layers' differential option. Needed when diff mode changes or the active layer
+     * changes (due to changing rendering order) which matters for diff mode but not otherwise.
+     */
+    void UpdateDiffLayers();
 
     /**
      * Update the display options and refreshes the view as needed.
@@ -448,7 +454,7 @@ public:
      * @return new layer value (NB_PCB_LAYERS when "(Deselect)" radiobutton selected),
      *                         or -1 if canceled
      */
-    int SelectPCBLayer( int aDefaultLayer, int aCopperLayerCount, wxString aGerberName );
+    int SelectPCBLayer( int aDefaultLayer, int aCopperLayerCount, const wxString& aGerberName );
 
     /**
      * @return the color of the grid
@@ -456,7 +462,7 @@ public:
     COLOR4D GetGridColor() override;
 
     ///< @copydoc EDA_DRAW_FRAME::SetGridColor()
-    virtual void SetGridColor( COLOR4D aColor ) override;
+    virtual void SetGridColor( const COLOR4D& aColor ) override;
 
     const BOX2I GetDocumentExtents( bool aIncludeAllVisible = true ) const override
     {

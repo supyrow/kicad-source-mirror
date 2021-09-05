@@ -27,13 +27,9 @@
  * @brief Functions to create drill files in gerber X2 format.
  */
 
-#include <vector>
-
-#include <plotter.h>
-#include <plotters_specific.h>
-#include <kicad_string.h>
+#include <plotters/plotter_gerber.h>
+#include <string_utils.h>
 #include <locale_io.h>
-#include <pcb_edit_frame.h>
 #include <board.h>
 #include <footprint.h>
 #include <pcb_track.h>
@@ -84,8 +80,9 @@ void GERBER_WRITER::CreateDrillandMapFilesSet( const wxString& aPlotDirectory, b
 
         // The file is created if it has holes, or if it is the non plated drill file
         // to be sure the NPTH file is up to date in separate files mode.
-        // Also a PTH drill/map file is always created, to be sure at least one plated hole drill file
-        // is created (do not create any PTH drill file can be seen as not working drill generator).
+        // Also a PTH drill/map file is always created, to be sure at least one plated hole drill
+        // file is created (do not create any PTH drill file can be seen as not working drill
+        // generator).
         if( getHolesCount() > 0 || doing_npth || pair == DRILL_LAYER_PAIR( F_Cu, B_Cu ) )
         {
             fn = getDrillFileName( pair, doing_npth, false );
@@ -101,17 +98,18 @@ void GERBER_WRITER::CreateDrillandMapFilesSet( const wxString& aPlotDirectory, b
                 {
                     if( aReporter )
                     {
-                        msg.Printf( _( "** Unable to create %s **\n" ), fullFilename );
-                        aReporter->Report( msg );
+                        msg.Printf( _( "Failed to create file '%s'." ), fullFilename );
+                        aReporter->Report( msg, RPT_SEVERITY_ERROR );
                     }
+
                     break;
                 }
                 else
                 {
                     if( aReporter )
                     {
-                        msg.Printf( _( "Create file %s\n" ), fullFilename );
-                        aReporter->Report( msg );
+                        msg.Printf( _( "Created file '%s'." ), fullFilename );
+                        aReporter->Report( msg, RPT_SEVERITY_INFO );
                     }
                 }
 
@@ -123,10 +121,12 @@ void GERBER_WRITER::CreateDrillandMapFilesSet( const wxString& aPlotDirectory, b
         CreateMapFilesSet( aPlotDirectory, aReporter );
 }
 
+
 #if !FLASH_OVAL_HOLE
 // A helper class to transform an oblong hole to a segment
 static void convertOblong2Segment( wxSize aSize, double aOrient, wxPoint& aStart, wxPoint& aEnd );
 #endif
+
 
 int GERBER_WRITER::createDrillFile( wxString& aFullFilename, bool aIsNpth,
                                     DRILL_LAYER_PAIR aLayerPair )
@@ -145,6 +145,7 @@ int GERBER_WRITER::createDrillFile( wxString& aFullFilename, bool aIsNpth,
     // Add the standard X2 header, without FileFunction
     AddGerberX2Header( &plotter, m_pcb );
     plotter.SetViewport( m_offset, IU_PER_MILS/10, /* scale */ 1.0, /* mirror */false );
+
     // has meaning only for gerber plotter. Must be called only after SetViewport
     plotter.SetGerberCoordinatesFormat( 6 );
     plotter.SetCreator( wxT( "PCBNEW" ) );
@@ -189,7 +190,7 @@ int GERBER_WRITER::createDrillFile( wxString& aFullFilename, bool aIsNpth,
             if( !last_item_is_via )
             {
                 // be sure the current object attribute is cleared for vias
-                plotter.EndBlock( NULL );
+                plotter.EndBlock( nullptr );
             }
 
             last_item_is_via = true;
@@ -200,15 +201,20 @@ int GERBER_WRITER::createDrillFile( wxString& aFullFilename, bool aIsNpth,
             const PAD* pad = dyn_cast<const PAD*>( hole_descr.m_ItemParent );
 
             if( pad->GetProperty() == PAD_PROP::CASTELLATED )
-                gbr_metadata.SetApertureAttrib( GBR_APERTURE_METADATA::GBR_APERTURE_ATTRIB_CASTELLATEDDRILL );
+            {
+                gbr_metadata.SetApertureAttrib(
+                        GBR_APERTURE_METADATA::GBR_APERTURE_ATTRIB_CASTELLATEDDRILL );
+            }
             else
             {
-                // Good practice of oblong pad holes (slots) is to use a specific aperture for routing, not used
-                // in drill commands
+                // Good practice of oblong pad holes (slots) is to use a specific aperture for
+                // routing, not used in drill commands.
                 if( hole_descr.m_Hole_Shape )
-                    gbr_metadata.SetApertureAttrib( GBR_APERTURE_METADATA::GBR_APERTURE_ATTRIB_CMP_OBLONG_DRILL );
+                    gbr_metadata.SetApertureAttrib(
+                            GBR_APERTURE_METADATA::GBR_APERTURE_ATTRIB_CMP_OBLONG_DRILL );
                 else
-                    gbr_metadata.SetApertureAttrib( GBR_APERTURE_METADATA::GBR_APERTURE_ATTRIB_CMP_DRILL );
+                    gbr_metadata.SetApertureAttrib(
+                            GBR_APERTURE_METADATA::GBR_APERTURE_ATTRIB_CMP_DRILL );
             }
 
             // Add object attribute: component reference to pads (mainly useful for users)
@@ -220,23 +226,21 @@ int GERBER_WRITER::createDrillFile( wxString& aFullFilename, bool aIsNpth,
 
         if( hole_descr.m_Hole_Shape )
         {
-            #if FLASH_OVAL_HOLE     // set to 1 to use flashed oblong holes,
+#if FLASH_OVAL_HOLE     // set to 1 to use flashed oblong holes,
                                     // 0 to draw them as a line.
             plotter.FlashPadOval( hole_pos, hole_descr.m_Hole_Size,
                                   hole_descr.m_Hole_Orient, FILLED, &gbr_metadata );
-            #else
+#else
             // Use routing for oblong hole (Slots)
             wxPoint start, end;
-            convertOblong2Segment( hole_descr.m_Hole_Size,
-                                   hole_descr.m_Hole_Orient, start, end );
+            convertOblong2Segment( hole_descr.m_Hole_Size, hole_descr.m_Hole_Orient, start, end );
             int width = std::min( hole_descr.m_Hole_Size.x, hole_descr.m_Hole_Size.y );
 
             if ( width == 0 )
                 continue;
 
-            plotter.ThickSegment( start+hole_pos, end+hole_pos,
-                                  width, FILLED, &gbr_metadata );
-            #endif
+            plotter.ThickSegment( start+hole_pos, end+hole_pos, width, FILLED, &gbr_metadata );
+#endif
         }
         else
         {
@@ -279,6 +283,7 @@ void convertOblong2Segment( wxSize aSize, double aOrient, wxPoint& aStart, wxPoi
     aEnd = wxPoint( cx, cy );
 }
 #endif
+
 
 void GERBER_WRITER::SetFormat( int aRightDigits )
 {

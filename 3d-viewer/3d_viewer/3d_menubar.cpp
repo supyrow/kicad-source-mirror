@@ -26,18 +26,18 @@
 
 #include <bitmaps.h>
 #include <tool/conditional_menu.h>
-#include <eda_3d_viewer.h>
+#include <eda_3d_viewer_frame.h>
 #include <menus_helpers.h>
 #include <3d_viewer_id.h>
-#include <3d_viewer/tools/3d_actions.h>
+#include <3d_viewer/tools/eda_3d_actions.h>
 #include <tool/tool_manager.h>
 #include <tool/common_control.h>
 #include <widgets/wx_menubar.h>
 
 
-void EDA_3D_VIEWER::CreateMenuBar()
+void EDA_3D_VIEWER_FRAME::CreateMenuBar()
 {
-    wxLogTrace( m_logTrace, "EDA_3D_VIEWER::CreateMenuBar" );
+    wxLogTrace( m_logTrace, "EDA_3D_VIEWER_FRAME::CreateMenuBar" );
 
     COMMON_CONTROL* tool    = m_toolManager->GetTool<COMMON_CONTROL>();
     WX_MENUBAR*     menuBar = new WX_MENUBAR();
@@ -118,7 +118,14 @@ void EDA_3D_VIEWER::CreateMenuBar()
 
     prefsMenu->AppendSeparator();
 
-    prefsMenu->Add( EDA_3D_ACTIONS::showAxis, ACTION_MENU::CHECK );
+    prefsMenu->Add( EDA_3D_ACTIONS::showTHT,     ACTION_MENU::CHECK );
+    prefsMenu->Add( EDA_3D_ACTIONS::showSMD,     ACTION_MENU::CHECK );
+    prefsMenu->Add( EDA_3D_ACTIONS::showVirtual, ACTION_MENU::CHECK );
+
+    prefsMenu->AppendSeparator();
+
+    prefsMenu->Add( EDA_3D_ACTIONS::showAxis,    ACTION_MENU::CHECK );
+    prefsMenu->Add( EDA_3D_ACTIONS::showBBoxes,  ACTION_MENU::CHECK );
 
     // Grid submenu
     ACTION_MENU* gridSubmenu = new ACTION_MENU( false, tool );

@@ -1,10 +1,15 @@
 #pragma once
+
+// This must be kept first for MSVC 2015.
+// Do not remove the empty line between the #includes.
 #include <pybind11/pybind11.h>
+
 #include <pybind11/eval.h>
 
 #if defined(_MSC_VER) && _MSC_VER < 1910
 // We get some really long type names here which causes MSVC 2015 to emit warnings
-#  pragma warning(disable: 4503) // warning C4503: decorated name length exceeded, name was truncated
+#    pragma warning(                                                                              \
+        disable : 4503) // warning C4503: decorated name length exceeded, name was truncated
 #endif
 
 namespace py = pybind11;
@@ -64,7 +69,7 @@ PYBIND11_NAMESPACE_BEGIN(pybind11)
 PYBIND11_NAMESPACE_BEGIN(detail)
 template<> class type_caster<RValueCaster> {
 public:
-    PYBIND11_TYPE_CASTER(RValueCaster, _("RValueCaster"));
+    PYBIND11_TYPE_CASTER(RValueCaster, _x("RValueCaster"));
     static handle cast(RValueCaster &&, return_value_policy, handle) { return py::str("rvalue").release(); }
     static handle cast(const RValueCaster &, return_value_policy, handle) { return py::str("lvalue").release(); }
 };

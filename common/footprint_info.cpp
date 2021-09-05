@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2011 Jean-Pierre Charras, <jp.charras@wanadoo.fr>
  * Copyright (C) 2013-2016 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
- * Copyright (C) 1992-2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -31,19 +31,19 @@
 #include <footprint_info.h>
 #include <fp_lib_table.h>
 #include <dialogs/html_messagebox.h>
-#include <kicad_string.h>
+#include <string_utils.h>
 #include <kiface_ids.h>
 #include <kiway.h>
 #include <lib_id.h>
 #include <thread>
 #include <utility>
-
+#include <kiface_i.h>
 
 FOOTPRINT_INFO* FOOTPRINT_LIST::GetFootprintInfo( const wxString& aLibNickname,
                                                   const wxString& aFootprintName )
 {
     if( aFootprintName.IsEmpty() )
-        return NULL;
+        return nullptr;
 
     for( std::unique_ptr<FOOTPRINT_INFO>& fp : m_list )
     {
@@ -51,19 +51,19 @@ FOOTPRINT_INFO* FOOTPRINT_LIST::GetFootprintInfo( const wxString& aLibNickname,
             return fp.get();
     }
 
-    return NULL;
+    return nullptr;
 }
 
 
 FOOTPRINT_INFO* FOOTPRINT_LIST::GetFootprintInfo( const wxString& aFootprintName )
 {
     if( aFootprintName.IsEmpty() )
-        return NULL;
+        return nullptr;
 
     LIB_ID fpid;
 
-    wxCHECK_MSG( fpid.Parse( aFootprintName ) < 0, NULL,
-                 wxString::Format( wxT( "\"%s\" is not a valid LIB_ID." ), aFootprintName ) );
+    wxCHECK_MSG( fpid.Parse( aFootprintName ) < 0, nullptr,
+                 wxString::Format( wxT( "'%s' is not a valid LIB_ID." ), aFootprintName ) );
 
     return GetFootprintInfo( fpid.GetLibNickname(), fpid.GetLibItemName() );
 }
@@ -123,9 +123,13 @@ static FOOTPRINT_LIST* get_instance_from_id( KIWAY& aKiway, int aId )
 
     try
     {
-        KIFACE* kiface = aKiway.KiFACE( KIWAY::FACE_PCB );
+        ptr = Kiface().IfaceOrAddress( aId );
 
-        ptr = kiface->IfaceOrAddress( aId );
+        if( !ptr )
+        {
+            KIFACE* kiface = aKiway.KiFACE( KIWAY::FACE_PCB );
+            ptr = kiface->IfaceOrAddress( aId );
+        }
 
         return static_cast<FOOTPRINT_LIST*>( ptr );
     }

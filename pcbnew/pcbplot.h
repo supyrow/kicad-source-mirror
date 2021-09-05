@@ -29,7 +29,7 @@
 #ifndef PCBPLOT_H_
 #define PCBPLOT_H_
 
-#include <layers_id_colors_and_visibility.h>
+#include <layer_ids.h>
 #include <pad_shapes.h>
 #include <pcb_plot_params.h>
 #include <settings/color_settings.h>
@@ -84,7 +84,7 @@ public:
     void SetLayerSet( LSET aLayerMask ) { m_layerMask = aLayerMask; }
     void PlotFootprintGraphicItems( const FOOTPRINT* aFootprint );
     void PlotFootprintGraphicItem( const FP_SHAPE* aShape );
-    void PlotFootprintTextItem( const FP_TEXT* aText, COLOR4D aColor );
+    void PlotFootprintTextItem( const FP_TEXT* aText, const COLOR4D& aColor );
 
     /*
      * Reference, Value, and other fields are plotted only if the corresponding option is enabled.
@@ -104,7 +104,7 @@ public:
      * Unlike other items, a pad had not a specific color and be drawn as a non filled item
      * although the plot mode is filled color and plot mode are needed by this function.
      */
-    void PlotPad( const PAD* aPad, COLOR4D aColor, OUTLINE_MODE aPlotMode );
+    void PlotPad( const PAD* aPad, const COLOR4D& aColor, OUTLINE_MODE aPlotMode );
 
     /**
      * Plot items like text and graphics but not tracks and footprints.
@@ -136,7 +136,7 @@ private:
      * It compensate and clamp the drill mark size depending on the current plot options.
      */
     void plotOneDrillMark( PAD_DRILL_SHAPE_T aDrillShape, const wxPoint& aDrillPos,
-                           wxSize aDrillSize, const wxSize& aPadSize,
+                           const wxSize& aDrillSize, const wxSize& aPadSize,
                            double aOrientation, int aSmallDrill );
 
     PLOTTER*    m_plotter;

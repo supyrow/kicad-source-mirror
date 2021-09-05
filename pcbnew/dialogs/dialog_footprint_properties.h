@@ -35,8 +35,7 @@
 
 
 class PCB_EDIT_FRAME;
-class PANEL_PREV_3D;
-
+class PANEL_FP_PROPERTIES_3D_MODEL;
 
 class DIALOG_FOOTPRINT_PROPERTIES: public DIALOG_FOOTPRINT_PROPERTIES_BASE
 {
@@ -65,18 +64,12 @@ public:
 
 private:
     // virtual event functions
-    void On3DModelSelected( wxGridEvent&  ) override;
-    void On3DModelCellChanged( wxGridEvent& aEvent ) override;
-    void OnRemove3DModel( wxCommandEvent&  ) override;
-    void OnAdd3DModel( wxCommandEvent&  ) override;
-    void OnAdd3DRow( wxCommandEvent&  ) override;
     void EditFootprint( wxCommandEvent&  ) override;
     void EditLibraryFootprint( wxCommandEvent&  ) override;
     void UpdateFootprint( wxCommandEvent&  ) override;
     void ChangeFootprint( wxCommandEvent&  ) override;
     void FootprintOrientEvent( wxCommandEvent&  ) override;
     void OnOtherOrientation( wxCommandEvent& aEvent ) override;
-    void Cfg3DPath( wxCommandEvent&  ) override;
     void OnGridSize( wxSizeEvent& aEvent ) override;
     void OnAddField( wxCommandEvent&  ) override;
     void OnDeleteField( wxCommandEvent&  ) override;
@@ -93,6 +86,7 @@ private:
      */
     void updateOrientationControl();
 
+private:
     PCB_EDIT_FRAME*                  m_frame;
     FOOTPRINT*                       m_footprint;
 
@@ -101,15 +95,13 @@ private:
     FP_TEXT_GRID_TABLE*              m_texts;
     UNIT_BINDER                      m_posX;
     UNIT_BINDER                      m_posY;
-    wxFloatingPointValidator<double> m_OrientValidator;
-    double                           m_OrientValue;
+    wxFloatingPointValidator<double> m_orientValidator;
+    double                           m_orientValue;
 
     UNIT_BINDER                      m_netClearance;
     UNIT_BINDER                      m_solderMask;
     UNIT_BINDER                      m_solderPaste;
-
-    std::vector<FP_3DMODEL>          m_shapes3D_list;
-    PANEL_PREV_3D*                   m_PreviewPane;
+    UNIT_BINDER                      m_solderPasteRatio;
 
     wxString                         m_delayedErrorMessage;
     wxGrid*                          m_delayedFocusGrid;
@@ -117,9 +109,10 @@ private:
     int                              m_delayedFocusColumn;
     bool                             m_initialFocus;
 
-    bool                             m_inSelect;
     std::vector<bool>                m_macHack;
     enum FP_PROPS_RETVALUE           m_returnValue; // the option that closed the dialog
+
+    PANEL_FP_PROPERTIES_3D_MODEL*    m_3dPanel;
 };
 
 

@@ -123,11 +123,15 @@ public:
     bool IsFlipped() const;
 
     /**
-     * Set the pad name (sometimes called pad number, although it can be an array reference
-     * like AA12).
+     * Set the pad number (note that it can be alphanumeric, such as the array reference "AA12").
      */
-    void SetName( const wxString& aName ) { m_name = aName; }
-    const wxString& GetName() const { return m_name; }
+    void SetNumber( const wxString& aNumber ) { m_number = aNumber; }
+    const wxString& GetNumber() const { return m_number; }
+
+    /**
+     * Indicates whether or not the pad can have a number.  (NPTH and SMD aperture pads can not.)
+     */
+    bool CanHaveNumber() const;
 
     /**
      * Set the pad function (pin name in schematic)
@@ -148,7 +152,7 @@ public:
     bool SameLogicalPadAs( const PAD* other ) const
     {
         // hide tricks behind sensible API
-        return GetParent() == other->GetParent() && m_name == other->m_name;
+        return GetParent() == other->GetParent() && m_number == other->m_number;
     }
 
     /**
@@ -278,13 +282,12 @@ public:
      * @note The results are relative to the pad position, orientation 0.
      *
      * @param aMergedPolygon will store the final polygon
-     * @param aLayer is the layer to take in account, as the exact shape can depend on the layer
      * @param aErrorLoc is used when a circle (or arc) is approximated by segments
      *  = ERROR_INSIDE to build a polygon inside the arc/circle (usual shape to raw/plot)
      *  = ERROR_OUIDE to build a polygon outside the arc/circle
      * (for instance when building a clearance area)
      */
-    void MergePrimitivesAsPolygon( SHAPE_POLY_SET* aMergedPolygon, PCB_LAYER_ID aLayer,
+    void MergePrimitivesAsPolygon( SHAPE_POLY_SET* aMergedPolygon,
                                    ERROR_LOC aErrorLoc = ERROR_INSIDE ) const;
 
     /**
@@ -667,17 +670,17 @@ public:
 
 
 private:
-    void addPadPrimitivesToPolygon( SHAPE_POLY_SET* aMergedPolygon, PCB_LAYER_ID aLayer,
-                                    int aError, ERROR_LOC aErrorLoc ) const;
+    void addPadPrimitivesToPolygon( SHAPE_POLY_SET* aMergedPolygon, int aError,
+                                    ERROR_LOC aErrorLoc ) const;
 
 private:
-    wxString      m_name;               // Pad name (pin number in schematic)
+    wxString      m_number;             // Pad name (pin number in schematic)
     wxString      m_pinFunction;        // Pin name in schematic
     wxString      m_pinType;            // Pin electrical type in schematic
 
     wxPoint       m_pos;                // Pad Position on board
 
-    PAD_SHAPE   m_padShape;           // Shape: PAD_SHAPE::CIRCLE, PAD_SHAPE::RECT,
+    PAD_SHAPE     m_padShape;           // Shape: PAD_SHAPE::CIRCLE, PAD_SHAPE::RECT,
                                         //   PAD_SHAPE::OVAL, PAD_SHAPE::TRAPEZOID,
                                         //   PAD_SHAPE::ROUNDRECT, PAD_SHAPE_POLYGON
     /*
@@ -719,8 +722,8 @@ private:
                                             //   size, default 0.25
     int               m_chamferPositions;   // The positions of the chamfers (at orient 0)
 
-    PAD_SHAPE       m_anchorPadShape;     // For custom shaped pads: shape of pad anchor,
-                                          //   PAD_SHAPE::RECT, PAD_SHAPE::CIRCLE
+    PAD_SHAPE         m_anchorPadShape;     // For custom shaped pads: shape of pad anchor,
+                                            //   PAD_SHAPE::RECT, PAD_SHAPE::CIRCLE
 
     /*
      * Most of the time the hole is the center of the shape (m_Offset = 0). But some designers
@@ -743,7 +746,7 @@ private:
 
     PAD_ATTRIB  m_attribute;        // PAD_ATTRIB_NORMAL, PAD_ATTRIB::SMD, PAD_ATTRIB::CONN,
                                     //   PAD_ATTRIB::NPTH
-    PAD_PROP  m_property;         // Property in fab files (BGA, FIDUCIAL, TESTPOINT, etc.)
+    PAD_PROP    m_property;         // Property in fab files (BGA, FIDUCIAL, TESTPOINT, etc.)
 
     double      m_orient;           // in 1/10 degrees
 

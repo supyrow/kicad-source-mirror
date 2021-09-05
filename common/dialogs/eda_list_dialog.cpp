@@ -23,30 +23,31 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
-#include <dialog_helpers.h>
+#include <eda_list_dialog.h>
 #include <eda_draw_frame.h>
-#include <kicad_string.h>
+#include <string_utils.h>
 #include <macros.h>
 
 
-// wxWidgets spends *far* too long calcuating column widths (most of it, believe it or
+// wxWidgets spends *far* too long calculating column widths (most of it, believe it or
 // not, in repeatedly creating/destroying a wxDC to do the measurement in).
 // Use default column widths instead.
+static int DEFAULT_SINGLE_COL_WIDTH = 260;
 static int DEFAULT_COL_WIDTHS[] = { 200, 600 };
 
 
 
-EDA_LIST_DIALOG::EDA_LIST_DIALOG( EDA_DRAW_FRAME* aParent, const wxString& aTitle,
+EDA_LIST_DIALOG::EDA_LIST_DIALOG( wxWindow* aParent, const wxString& aTitle,
                                   const wxArrayString& aItemHeaders,
                                   const std::vector<wxArrayString>& aItemList,
-                                  const wxString& aSelection ) :
+                                  const wxString& aPreselectText ) :
     EDA_LIST_DIALOG_BASE( aParent, wxID_ANY, aTitle )
 {
     m_itemsList = &aItemList;
 
     m_filterBox->SetHint( _( "Filter" ) );
 
-    initDialog( aItemHeaders, aSelection );
+    initDialog( aItemHeaders, aPreselectText );
 
     // DIALOG_SHIM needs a unique hash_key because classname is not sufficient
     // because so many dialogs share this same class, with different numbers of
@@ -65,10 +66,18 @@ EDA_LIST_DIALOG::EDA_LIST_DIALOG( EDA_DRAW_FRAME* aParent, const wxString& aTitl
 
 void EDA_LIST_DIALOG::initDialog( const wxArrayString& aItemHeaders, const wxString& aSelection )
 {
-    for( unsigned i = 0; i < aItemHeaders.Count(); i++ )
+    if( aItemHeaders.Count() == 1 )
     {
-        m_listBox->InsertColumn( i, aItemHeaders.Item( i ),
-                                 wxLIST_FORMAT_LEFT, DEFAULT_COL_WIDTHS[ i ] );
+        m_listBox->InsertColumn( 0, aItemHeaders.Item( 0 ), wxLIST_FORMAT_LEFT,
+                                 DEFAULT_SINGLE_COL_WIDTH );
+    }
+    else
+    {
+        for( unsigned i = 0; i < aItemHeaders.Count(); i++ )
+        {
+            m_listBox->InsertColumn( i, aItemHeaders.Item( i ), wxLIST_FORMAT_LEFT,
+                                     DEFAULT_COL_WIDTHS[ i ] );
+        }
     }
 
     InsertItems( *m_itemsList, 0 );
@@ -103,6 +112,12 @@ void EDA_LIST_DIALOG::SetOKLabel( const wxString& aLabel )
 }
 
 
+void EDA_LIST_DIALOG::HideFilter()
+{
+    m_filterBox->Hide();
+}
+
+
 void EDA_LIST_DIALOG::textChangeInFilterBox( wxCommandEvent& event )
 {
     wxString filter;
@@ -121,6 +136,12 @@ void EDA_LIST_DIALOG::textChangeInFilterBox( wxCommandEvent& event )
     }
 
     sortList();
+}
+
+
+long EDA_LIST_DIALOG::GetSelection()
+{
+    return m_listBox->GetNextItem( -1, wxLIST_NEXT_ALL, wxLIST_STATE_SELECTED );
 }
 
 
@@ -194,11 +215,12 @@ void EDA_LIST_DIALOG::InsertItems( const std::vector< wxArrayString >& itemList,
 
 void EDA_LIST_DIALOG::onListItemActivated( wxListEvent& event )
 {
-    EndModal( wxID_OK );
+    wxPostEvent( this, wxCommandEvent( wxEVT_COMMAND_BUTTON_CLICKED, wxID_OK ) );
 }
 
 
-/* Sort alphabetically, case insensitive.
+/*
+ * Sort alphabetically, case insensitive.
  */
 static int wxCALLBACK myCompareFunction( wxIntPtr aItem1, wxIntPtr aItem2,
                                          wxIntPtr WXUNUSED( aSortData ) )

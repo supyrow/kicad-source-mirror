@@ -34,19 +34,18 @@
 #include <wx/menu.h>
 #include <common.h>     // for ExpandTextVars
 #include <eda_item.h>
-#include <gr_text.h>
 #include <sch_edit_frame.h>
-#include <plotter.h>
+#include <plotters/plotter.h>
 #include <bitmaps.h>
 #include <core/mirror.h>
 #include <kiway.h>
 #include <general.h>
-#include <class_library.h>
+#include <symbol_library.h>
 #include <sch_symbol.h>
 #include <sch_field.h>
 #include <schematic.h>
 #include <settings/color_settings.h>
-#include <kicad_string.h>
+#include <string_utils.h>
 #include <trace_helpers.h>
 #include <trigo.h>
 #include <eeschema_id.h>
@@ -145,14 +144,13 @@ wxString SCH_FIELD::GetShownText( int aDepth ) const
             };
 
     PROJECT*  project = nullptr;
-    bool      processTextVars = false;
-    wxString  text = EDA_TEXT::GetShownText( &processTextVars );
+    wxString  text = EDA_TEXT::GetShownText();
 
     if( text == "~" )    // Legacy placeholder for empty string
     {
         text = "";
     }
-    else if( processTextVars )
+    else if( HasTextVars() )
     {
         if( Schematic() )
             project = &Schematic()->Prj();
@@ -254,7 +252,7 @@ void SCH_FIELD::ImportValues( const LIB_FIELD& aSource )
 
 void SCH_FIELD::SwapData( SCH_ITEM* aItem )
 {
-    wxCHECK_RET( (aItem != NULL) && (aItem->Type() == SCH_FIELD_T),
+    wxCHECK_RET( ( aItem != nullptr ) && ( aItem->Type() == SCH_FIELD_T ),
                  wxT( "Cannot swap field data with invalid item." ) );
 
     SCH_FIELD* item = (SCH_FIELD*) aItem;
@@ -378,7 +376,7 @@ bool SCH_FIELD::IsReplaceable() const
 
         if( m_id == VALUE_FIELD )
         {
-            if( parentSymbol->GetPartRef() && parentSymbol->GetPartRef()->IsPower() )
+            if( parentSymbol->GetLibSymbolRef() && parentSymbol->GetLibSymbolRef()->IsPower() )
                 return false;
         }
     }
@@ -475,9 +473,7 @@ void SCH_FIELD::Rotate( const wxPoint& aCenter )
 
 wxString SCH_FIELD::GetSelectMenuText( EDA_UNITS aUnits ) const
 {
-    return wxString::Format( "%s '%s'",
-                             GetName(),
-                             ShortenedShownText() );
+    return wxString::Format( "%s '%s'", GetName(), ShortenedShownText() );
 }
 
 

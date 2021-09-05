@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2009-2016 Jean-Pierre Charras, jean-pierre.charras at wanadoo.fr
- * Copyright (C) 1992-2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -26,12 +26,14 @@
 #include <board.h>
 #include <board_design_settings.h>
 #include <pcb_track.h>
+#include <pcb_group.h>
 #include <connectivity/connectivity_data.h>
 #include <pcb_layer_box_selector.h>
 #include <tool/tool_manager.h>
 #include <tools/pcb_selection_tool.h>
 #include <tools/global_edit_tool.h>
 #include "dialog_global_edit_tracks_and_vias_base.h"
+
 
 // Columns of netclasses grid
 enum {
@@ -127,15 +129,15 @@ DIALOG_GLOBAL_EDIT_TRACKS_AND_VIAS::DIALOG_GLOBAL_EDIT_TRACKS_AND_VIAS( PCB_EDIT
     m_layerBox->SetUndefinedLayerName( INDETERMINATE_ACTION );
     m_layerBox->Resync();
 
-    wxFont infoFont = wxSystemSettings::GetFont( wxSYS_DEFAULT_GUI_FONT );
-    infoFont.SetSymbolicSize( wxFONTSIZE_SMALL );
-    m_netclassGrid->SetDefaultCellFont( infoFont );
+    m_netclassGrid->SetDefaultCellFont( KIUI::GetInfoFont() );
     buildNetclassesGrid();
 
     m_netclassGrid->SetCellHighlightPenWidth( 0 );
     m_sdbSizerOK->SetDefault();
 
-    m_netFilter->Connect( NET_SELECTED, wxCommandEventHandler( DIALOG_GLOBAL_EDIT_TRACKS_AND_VIAS::OnNetFilterSelect ), NULL, this );
+    m_netFilter->Connect( NET_SELECTED,
+                          wxCommandEventHandler( DIALOG_GLOBAL_EDIT_TRACKS_AND_VIAS::OnNetFilterSelect ),
+                          nullptr, this );
 
     finishDialogSettings();
 }
@@ -153,7 +155,9 @@ DIALOG_GLOBAL_EDIT_TRACKS_AND_VIAS::~DIALOG_GLOBAL_EDIT_TRACKS_AND_VIAS()
     g_layerFilter = m_layerFilter->GetLayerSelection();
     g_filterSelected = m_selectedItemsFilter->GetValue();
 
-    m_netFilter->Disconnect( NET_SELECTED, wxCommandEventHandler( DIALOG_GLOBAL_EDIT_TRACKS_AND_VIAS::OnNetFilterSelect ), NULL, this );
+    m_netFilter->Disconnect( NET_SELECTED,
+                             wxCommandEventHandler( DIALOG_GLOBAL_EDIT_TRACKS_AND_VIAS::OnNetFilterSelect ),
+                             nullptr, this );
 
     delete[] m_originalColWidths;
 }
@@ -212,6 +216,7 @@ void DIALOG_GLOBAL_EDIT_TRACKS_AND_VIAS::buildNetclassesGrid()
     SET_NETCLASS_VALUE( 1, GRID_uVIADRILL, defaultNetclass->GetuViaDrill() );
 
     int row = 2;
+
     for( const auto& netclass : netclasses )
     {
         m_netclassGrid->SetCellValue( row, GRID_NAME, netclass.first );
@@ -239,7 +244,7 @@ bool DIALOG_GLOBAL_EDIT_TRACKS_AND_VIAS::TransferDataToWindow()
     else if( item )
         m_netclassFilter->SetStringSelection( item->GetNet()->GetNetClassName() );
 
-    if( g_filterByNet && m_brd->FindNet( g_netFilter ) != NULL )
+    if( g_filterByNet && m_brd->FindNet( g_netFilter ) != nullptr )
     {
         m_netFilter->SetSelectedNet( g_netFilter );
         m_netFilterOpt->SetValue( true );
@@ -323,6 +328,20 @@ void DIALOG_GLOBAL_EDIT_TRACKS_AND_VIAS::processItem( PICKED_ITEMS_LIST* aUndoLi
 
 void DIALOG_GLOBAL_EDIT_TRACKS_AND_VIAS::visitItem( PICKED_ITEMS_LIST* aUndoList, PCB_TRACK* aItem )
 {
+    if( m_selectedItemsFilter->GetValue() )
+    {
+        if( !aItem->IsSelected() )
+        {
+            PCB_GROUP* group = aItem->GetParentGroup();
+
+            while( group && !group->IsSelected() )
+                group = group->GetParentGroup();
+
+            if( !group )
+                return;
+        }
+    }
+
     if( m_selectedItemsFilter->GetValue() && !m_selection.Contains( aItem ) )
         return;
 

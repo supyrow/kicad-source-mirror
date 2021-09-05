@@ -38,6 +38,7 @@
 #include <settings/settings_manager.h>
 #include <widgets/infobar.h>
 #include <widgets/resettable_panel.h>
+#include <widgets/wx_progress_reporters.h>
 #include <wildcards_and_files_ext.h>
 
 #include "dialog_board_setup.h"
@@ -46,6 +47,7 @@
 #include <wx/treebook.h>
 
 using std::placeholders::_1;
+
 
 DIALOG_BOARD_SETUP::DIALOG_BOARD_SETUP( PCB_EDIT_FRAME* aFrame ) :
         PAGED_DIALOG( aFrame, _( "Board Setup" ), false,
@@ -86,9 +88,11 @@ DIALOG_BOARD_SETUP::DIALOG_BOARD_SETUP( PCB_EDIT_FRAME* aFrame ) :
      */
     m_treebook->AddSubPage( m_layers,  _( "Board Editor Layers" ) );
     m_layerSetupPage = 1;
+
     m_treebook->AddSubPage( m_physicalStackup,  _( "Physical Stackup" ) );
     // Change this value if m_physicalStackup is not the page 2 of m_treebook
     m_physicalStackupPage = 2;  // The page number (from 0) to select the m_physicalStackup panel
+
     m_treebook->AddSubPage( m_boardFinish, _( "Board Finish" ) );
     m_treebook->AddSubPage( m_maskAndPaste,  _( "Solder Mask/Paste" ) );
 
@@ -106,9 +110,12 @@ DIALOG_BOARD_SETUP::DIALOG_BOARD_SETUP( PCB_EDIT_FRAME* aFrame ) :
     for( size_t i = 0; i < m_treebook->GetPageCount(); ++i )
    	    m_macHack.push_back( true );
 
+    m_treebook->SetMinSize( wxSize( -1, 480 ) );
+
 	// Connect Events
 	m_treebook->Connect( wxEVT_TREEBOOK_PAGE_CHANGED,
-                         wxBookCtrlEventHandler( DIALOG_BOARD_SETUP::OnPageChange ), NULL, this );
+                         wxBookCtrlEventHandler( DIALOG_BOARD_SETUP::OnPageChange ),
+                         nullptr, this );
 
     finishDialogSettings();
 }
@@ -117,7 +124,8 @@ DIALOG_BOARD_SETUP::DIALOG_BOARD_SETUP( PCB_EDIT_FRAME* aFrame ) :
 DIALOG_BOARD_SETUP::~DIALOG_BOARD_SETUP()
 {
 	m_treebook->Disconnect( wxEVT_TREEBOOK_PAGE_CHANGED,
-                         wxBookCtrlEventHandler( DIALOG_BOARD_SETUP::OnPageChange ), NULL, this );
+                            wxBookCtrlEventHandler( DIALOG_BOARD_SETUP::OnPageChange ),
+                            nullptr, this );
 }
 
 
@@ -157,7 +165,6 @@ void DIALOG_BOARD_SETUP::OnPageChange( wxBookCtrlEvent& event )
 }
 
 
-// Run Import Settings... action
 void DIALOG_BOARD_SETUP::OnAuxiliaryAction( wxCommandEvent& event )
 {
     DIALOG_IMPORT_SETTINGS importDlg( this, m_frame );
@@ -192,7 +199,10 @@ void DIALOG_BOARD_SETUP::OnAuxiliaryAction( wxCommandEvent& event )
 
     try
     {
-        otherBoard = pi->Load( boardFn.GetFullPath(), nullptr, nullptr );
+        WX_PROGRESS_REPORTER progressReporter( this, _( "Loading PCB" ), 1 );
+
+        otherBoard = pi->Load( boardFn.GetFullPath(), nullptr, nullptr, nullptr,
+                               &progressReporter );
 
         if( importDlg.m_LayersOpt->GetValue() )
         {

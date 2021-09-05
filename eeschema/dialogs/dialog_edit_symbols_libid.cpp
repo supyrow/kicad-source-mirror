@@ -30,7 +30,6 @@
 
 #include <confirm.h>
 #include <sch_edit_frame.h>
-#include <sch_draw_panel.h>
 #include <sch_symbol.h>
 #include <sch_reference_list.h>
 #include <schematic.h>
@@ -44,6 +43,8 @@
 #include <wx/dcclient.h>
 #include <grid_tricks.h>
 #include <widgets/grid_text_button_helpers.h>
+#include <string_utils.h>
+
 
 #define COL_REFS 0
 #define COL_CURR_LIBID 1
@@ -242,10 +243,10 @@ int GRIDCELL_AUTOWRAP_STRINGRENDERER::GetHeight( wxDC& aDC, wxGrid* aGrid, int a
 /**
  * A helper to handle symbols to edit.
  */
-class SYM_CANDIDATE
+class SYMBOL_CANDIDATE
 {
 public:
-    SYM_CANDIDATE( SCH_SYMBOL* aSymbol )
+    SYMBOL_CANDIDATE( SCH_SYMBOL* aSymbol )
     {
         m_Symbol = aSymbol;
         m_InitialLibId = m_Symbol->GetLibId().Format();
@@ -258,12 +259,6 @@ public:
     wxString GetStringLibId()
     {
         return m_Symbol->GetLibId().GetUniStringLibId();
-    }
-
-    // Return a string containing the reference of the symbol.
-    wxString GetSchematicReference()
-    {
-        return m_Reference;
     }
 
     SCH_SYMBOL* m_Symbol;       // the schematic symbol
@@ -344,7 +339,7 @@ private:
     bool             m_isModified;          // set to true if the schematic is modified
     std::vector<int> m_OrphansRowIndexes;   // list of rows containing orphan lib_id
 
-    std::vector<SYM_CANDIDATE> m_symbols;
+    std::vector<SYMBOL_CANDIDATE>     m_symbols;
 
     GRIDCELL_AUTOWRAP_STRINGRENDERER* m_autoWrapRenderer;
 };
@@ -373,7 +368,7 @@ DIALOG_EDIT_SYMBOLS_LIBID::~DIALOG_EDIT_SYMBOLS_LIBID()
 
 
 // A sort compare function to sort symbols list by LIB_ID and then reference.
-static bool sort_by_libid( const SYM_CANDIDATE& candidate1, const SYM_CANDIDATE& candidate2 )
+static bool sort_by_libid( const SYMBOL_CANDIDATE& candidate1, const SYMBOL_CANDIDATE& candidate2 )
 {
     if( candidate1.m_Symbol->GetLibId() == candidate2.m_Symbol->GetLibId() )
         return candidate1.m_Reference.Cmp( candidate2.m_Reference ) < 0;
@@ -385,7 +380,7 @@ static bool sort_by_libid( const SYM_CANDIDATE& candidate1, const SYM_CANDIDATE&
 void DIALOG_EDIT_SYMBOLS_LIBID::initDlg()
 {
     // Clear the FormBuilder rows
-    m_grid->DeleteRows( 0, m_grid->GetNumberRows() );
+    m_grid->ClearRows();
 
     m_isModified = false;
 
@@ -404,7 +399,7 @@ void DIALOG_EDIT_SYMBOLS_LIBID::initDlg()
     for( unsigned ii = 0; ii < references.GetCount(); ii++ )
     {
         SCH_REFERENCE& item = references[ii];
-        SYM_CANDIDATE candidate( item.GetSymbol() );
+        SYMBOL_CANDIDATE candidate( item.GetSymbol() );
         candidate.m_Screen = item.GetSheetPath().LastScreen();
         SCH_SHEET_PATH sheetpath = item.GetSheetPath();
         candidate.m_Reference = candidate.m_Symbol->GetRef( &sheetpath );
@@ -426,7 +421,7 @@ void DIALOG_EDIT_SYMBOLS_LIBID::initDlg()
     wxString last_ref;
     bool mark_cell = m_symbols.front().m_IsOrphan;
 
-    for( auto& symbol : m_symbols )
+    for( SYMBOL_CANDIDATE& symbol : m_symbols )
     {
         wxString str_libid = symbol.GetStringLibId();
 
@@ -441,18 +436,18 @@ void DIALOG_EDIT_SYMBOLS_LIBID::initDlg()
             refs.Empty();
             row++;
         }
-        else if( symbol.GetSchematicReference() == last_ref )
+        else if( symbol.m_Reference == last_ref )
         {
             symbol.m_Row = row;
             continue;
         }
 
-        last_ref = symbol.GetSchematicReference();
+        last_ref = symbol.m_Reference;
 
         if( !refs.IsEmpty() )
             refs += wxT( ", " );
 
-        refs += symbol.GetSchematicReference();
+        refs += symbol.m_Reference;
         symbol.m_Row = row;
     }
 
@@ -474,7 +469,7 @@ SCH_EDIT_FRAME* DIALOG_EDIT_SYMBOLS_LIBID::GetParent()
 
 
 void DIALOG_EDIT_SYMBOLS_LIBID::AddRowToGrid( bool aMarkRow, const wxString& aReferences,
-                                                 const wxString& aStrLibId )
+                                              const wxString& aStrLibId )
 {
     int row = m_grid->GetNumberRows();
 
@@ -483,10 +478,10 @@ void DIALOG_EDIT_SYMBOLS_LIBID::AddRowToGrid( bool aMarkRow, const wxString& aRe
 
     m_grid->AppendRows( 1 );
 
-    m_grid->SetCellValue( row, COL_REFS, aReferences );
+    m_grid->SetCellValue( row, COL_REFS, UnescapeString( aReferences ) );
     m_grid->SetReadOnly( row, COL_REFS );
 
-    m_grid->SetCellValue( row, COL_CURR_LIBID, aStrLibId );
+    m_grid->SetCellValue( row, COL_CURR_LIBID, UnescapeString( aStrLibId ) );
     m_grid->SetReadOnly( row, COL_CURR_LIBID );
 
     if( aMarkRow ) // A symbol is not existing in libraries: mark the cell
@@ -506,8 +501,22 @@ void DIALOG_EDIT_SYMBOLS_LIBID::AddRowToGrid( bool aMarkRow, const wxString& aRe
 
     // set new libid column browse button
     wxGridCellAttr* attr = new wxGridCellAttr;
-    attr->SetEditor( new GRID_CELL_SYMBOL_ID_EDITOR( this, aStrLibId ) );
+    attr->SetEditor( new GRID_CELL_SYMBOL_ID_EDITOR( this, UnescapeString( aStrLibId ) ) );
     m_grid->SetAttr( row, COL_NEW_LIBID, attr );
+}
+
+
+wxString getLibIdValue( const WX_GRID* aGrid, int aRow, int aCol )
+{
+    wxString rawValue = aGrid->GetCellValue( aRow, aCol );
+
+    if( rawValue.IsEmpty() )
+        return rawValue;
+
+    wxString itemName;
+    wxString libName = rawValue.BeforeFirst( ':', &itemName );
+
+    return EscapeString( libName, CTX_LIBID ) + ':' + EscapeString( itemName, CTX_LIBID );
 }
 
 
@@ -520,7 +529,7 @@ bool DIALOG_EDIT_SYMBOLS_LIBID::validateLibIds()
 
     for( int row = 0; row <= row_max; row++ )
     {
-        wxString new_libid = m_grid->GetCellValue( row, COL_NEW_LIBID );
+        wxString new_libid = getLibIdValue( m_grid, row, COL_NEW_LIBID );
 
         if( new_libid.IsEmpty() )
             continue;
@@ -532,7 +541,7 @@ bool DIALOG_EDIT_SYMBOLS_LIBID::validateLibIds()
         if( !id.IsValid() )
         {
             wxString msg;
-            msg.Printf( _( "Symbol library identifier \"%s\" is not valid." ), new_libid );
+            msg.Printf( _( "Symbol library identifier %s is not valid." ), new_libid );
             wxMessageBox( msg );
 
             m_grid->SetFocus();
@@ -562,7 +571,7 @@ void DIALOG_EDIT_SYMBOLS_LIBID::onCellBrowseLib( wxGridEvent& event )
 
 void DIALOG_EDIT_SYMBOLS_LIBID::onClickOrphansButton( wxCommandEvent& event )
 {
-    std::vector< wxString > libs = Prj().SchSymbolLibTable()->GetLogicalLibs();
+    std::vector<wxString> libs = Prj().SchSymbolLibTable()->GetLogicalLibs();
     wxArrayString aliasNames;
     wxArrayString candidateSymbNames;
 
@@ -571,12 +580,12 @@ void DIALOG_EDIT_SYMBOLS_LIBID::onClickOrphansButton( wxCommandEvent& event )
     // Try to find a candidate for non existing symbols in any loaded library
     for( int orphanRow : m_OrphansRowIndexes )
     {
-        wxString orphanLibid = m_grid->GetCellValue( orphanRow, COL_CURR_LIBID );
+        wxString orphanLibid = getLibIdValue( m_grid, orphanRow, COL_CURR_LIBID );
         int grid_row_idx = orphanRow; //row index in m_grid for the current item
 
         LIB_ID curr_libid;
         curr_libid.Parse( orphanLibid, true );
-        wxString symbName = curr_libid.GetLibItemName();
+        wxString symbolName = curr_libid.GetLibItemName();
 
         // number of full LIB_ID candidates (because we search for a symbol name
         // inside all available libraries, perhaps the same symbol name can be found
@@ -585,7 +594,7 @@ void DIALOG_EDIT_SYMBOLS_LIBID::onClickOrphansButton( wxCommandEvent& event )
         candidateSymbNames.Clear();
 
         // now try to find a candidate
-        for( auto &lib : libs )
+        for( const wxString &lib : libs )
         {
             aliasNames.Clear();
 
@@ -599,25 +608,25 @@ void DIALOG_EDIT_SYMBOLS_LIBID::onClickOrphansButton( wxCommandEvent& event )
                 continue;
 
             // Find a symbol name in symbols inside this library:
-            int index = aliasNames.Index( symbName );
+            int index = aliasNames.Index( symbolName );
 
             if( index != wxNOT_FOUND )
             {
                 // a candidate is found!
                 libIdCandidateCount++;
-                wxString newLibid = lib + ':' + symbName;
+                wxString newLibid = lib + ':' + symbolName;
 
                 // Uses the first found. Most of time, it is alone.
                 // Others will be stored in a candidate list
                 if( libIdCandidateCount <= 1 )
                 {
-                    m_grid->SetCellValue( grid_row_idx, COL_NEW_LIBID, newLibid );
+                    m_grid->SetCellValue( grid_row_idx, COL_NEW_LIBID, UnescapeString( newLibid ) );
                     candidateSymbNames.Add( m_grid->GetCellValue( grid_row_idx, COL_NEW_LIBID ) );
                     fixesCount++;
                 }
                 else    // Store other candidates for later selection
                 {
-                    candidateSymbNames.Add( newLibid );
+                    candidateSymbNames.Add( UnescapeString( newLibid ) );
                 }
             }
         }
@@ -633,8 +642,9 @@ void DIALOG_EDIT_SYMBOLS_LIBID::onClickOrphansButton( wxCommandEvent& event )
                         m_grid->GetCellValue( grid_row_idx, COL_CURR_LIBID ) );
 
             wxSingleChoiceDialog dlg ( this, msg,
-                wxString::Format( _( "Candidates count %d " ), libIdCandidateCount ),
-                candidateSymbNames );
+                                       wxString::Format( _( "Candidates count %d " ),
+                                                         libIdCandidateCount ),
+                                       candidateSymbNames );
 
             if( dlg.ShowModal() == wxID_OK )
                 m_grid->SetCellValue( grid_row_idx, COL_NEW_LIBID, dlg.GetStringSelection() );
@@ -648,7 +658,9 @@ void DIALOG_EDIT_SYMBOLS_LIBID::onClickOrphansButton( wxCommandEvent& event )
                                         (unsigned) m_OrphansRowIndexes.size() - fixesCount ) );
     }
     else
+    {
         wxMessageBox( wxString::Format( _( "All %u link(s) resolved" ), fixesCount ) );
+    }
 }
 
 
@@ -657,20 +669,20 @@ bool DIALOG_EDIT_SYMBOLS_LIBID::setLibIdByBrowser( int aRow )
 #if 0
     // Use dialog symbol selector to choose a symbol
     SCH_BASE_FRAME::HISTORY_LIST dummy;
-    SCH_BASE_FRAME::PICKED_SYMBOL sel = m_frame->SelectComponentFromLibrary( NULL, dummy, true,
+    SCH_BASE_FRAME::PICKED_SYMBOL sel = m_frame->SelectComponentFromLibrary( nullptr, dummy, true,
                                                                              0, 0, false );
 #else
     // Use library viewer to choose a symbol
     LIB_ID preselected;
-    wxString current = m_grid->GetCellValue( aRow, COL_NEW_LIBID );
+    wxString current = getLibIdValue( m_grid, aRow, COL_NEW_LIBID );
 
     if( current.IsEmpty() )
-        current = m_grid->GetCellValue( aRow, COL_CURR_LIBID );
+        current = getLibIdValue( m_grid, aRow, COL_CURR_LIBID );
 
     if( !current.IsEmpty() )
         preselected.Parse( current, true );
 
-    PICKED_SYMBOL sel = GetParent()->PickSymbolFromLibBrowser( this, NULL, preselected, 0, 0 );
+    PICKED_SYMBOL sel = GetParent()->PickSymbolFromLibBrowser( this, nullptr, preselected, 0, 0 );
 #endif
 
     if( sel.LibId.empty() )     // command aborted
@@ -685,7 +697,7 @@ bool DIALOG_EDIT_SYMBOLS_LIBID::setLibIdByBrowser( int aRow )
     wxString new_libid;
     new_libid = sel.LibId.Format();
 
-    m_grid->SetCellValue( aRow, COL_NEW_LIBID, new_libid );
+    m_grid->SetCellValue( aRow, COL_NEW_LIBID, UnescapeString( new_libid ) );
 
     return true;
 }
@@ -696,20 +708,25 @@ bool DIALOG_EDIT_SYMBOLS_LIBID::TransferDataFromWindow()
     if( !validateLibIds() )
         return false;
 
+    auto getName = []( const LIB_ID& aLibId )
+            {
+                return UnescapeString( aLibId.GetLibItemName().wx_str() );
+            };
+
     int row_max = m_grid->GetNumberRows() - 1;
 
     for( int row = 0; row <= row_max; row++ )
     {
-        wxString new_libid = m_grid->GetCellValue( row, COL_NEW_LIBID );
+        wxString new_libid = getLibIdValue( m_grid, row, COL_NEW_LIBID );
 
-        if( new_libid.IsEmpty() || new_libid == m_grid->GetCellValue( row, COL_CURR_LIBID ) )
+        if( new_libid.IsEmpty() || new_libid == getLibIdValue( m_grid, row, COL_CURR_LIBID ) )
             continue;
 
         // A new lib id is found and was already validated.
         LIB_ID id;
         id.Parse( new_libid, true );
 
-        for( SYM_CANDIDATE& candidate : m_symbols )
+        for( SYMBOL_CANDIDATE& candidate : m_symbols )
         {
             if( candidate.m_Row != row )
                 continue;
@@ -724,7 +741,7 @@ bool DIALOG_EDIT_SYMBOLS_LIBID::TransferDataFromWindow()
             {
                 wxString msg;
 
-                msg.Printf( _( "Error occurred loading symbol %s from library %s.\n\n%s" ),
+                msg.Printf( _( "Error loading symbol %s from library %s.\n\n%s" ),
                             id.GetLibItemName().wx_str(),
                             id.GetLibNickname().wx_str(),
                             ioe.What() );
@@ -743,8 +760,8 @@ bool DIALOG_EDIT_SYMBOLS_LIBID::TransferDataFromWindow()
             SCH_FIELD* value = candidate.m_Symbol->GetField( VALUE_FIELD );
 
             // If value is a proxy for the itemName then make sure it gets updated
-            if( candidate.m_Symbol->GetLibId().GetLibItemName().wx_str() == value->GetText() )
-                candidate.m_Symbol->SetValue( id.GetLibItemName().wx_str() );
+            if( getName( candidate.m_Symbol->GetLibId() ) == value->GetText() )
+                candidate.m_Symbol->SetValue( getName( id ) );
 
             candidate.m_Symbol->SetLibId( id );
             candidate.m_Symbol->SetLibSymbol( symbol->Flatten().release() );
@@ -758,7 +775,7 @@ bool DIALOG_EDIT_SYMBOLS_LIBID::TransferDataFromWindow()
                                                   false, /* update ref */
                                                   false, /* update other fields */
                                                   false, /* reset ref */
-                                                  true /* reset other fields */ );
+                                                  true   /* reset other fields */ );
             }
         }
     }
@@ -823,8 +840,8 @@ bool InvokeDialogEditSymbolsLibId( SCH_EDIT_FRAME* aCaller )
     // quasimodal mode for the quasimodal frame support to work.  So don't use
     // the QUASIMODAL macros here.
     DIALOG_EDIT_SYMBOLS_LIBID dlg( aCaller );
-    // DO NOT use ShowModal() here, otherwise the library browser will not work
-    // properly.
+
+    // DO NOT use ShowModal() here, otherwise the library browser will not work properly.
     dlg.ShowQuasiModal();
 
     return dlg.IsSchematicModified();

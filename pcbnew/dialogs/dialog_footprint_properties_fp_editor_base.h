@@ -83,21 +83,13 @@ class DIALOG_FOOTPRINT_PROPERTIES_FP_EDITOR_BASE : public DIALOG_SHIM
 		wxStaticText* m_SolderPasteMarginLabel;
 		wxTextCtrl* m_SolderPasteMarginCtrl;
 		wxStaticText* m_SolderPasteMarginUnits;
-		wxStaticText* m_staticTextRatio;
-		TEXT_CTRL_EVAL* m_SolderPasteMarginRatioCtrl;
-		wxStaticText* m_SolderPasteRatioMarginUnits;
+		wxStaticText* m_PasteMarginRatioLabel;
+		TEXT_CTRL_EVAL* m_PasteMarginRatioCtrl;
+		wxStaticText* m_PasteMarginRatioUnits;
 		wxStaticText* m_staticTextInfoCopper;
 		wxStaticText* m_staticTextInfoPaste;
 		wxStaticText* m_staticText16;
 		wxChoice* m_ZoneConnectionChoice;
-		wxPanel* m_Panel3D;
-		wxBoxSizer* bSizerMain3D;
-		WX_GRID* m_modelsGrid;
-		wxBitmapButton* m_button3DShapeAdd;
-		wxBitmapButton* m_button3DShapeBrowse;
-		wxBitmapButton* m_button3DShapeRemove;
-		wxButton* m_buttonConfig3DPaths;
-		wxBoxSizer* bLowerSizer3D;
 		wxStdDialogButtonSizer* m_sdbSizerStdButtons;
 		wxButton* m_sdbSizerStdButtonsOK;
 		wxButton* m_sdbSizerStdButtonsCancel;
@@ -109,12 +101,6 @@ class DIALOG_FOOTPRINT_PROPERTIES_FP_EDITOR_BASE : public DIALOG_SHIM
 		virtual void OnAddField( wxCommandEvent& event ) { event.Skip(); }
 		virtual void OnDeleteField( wxCommandEvent& event ) { event.Skip(); }
 		virtual void OnFootprintNameText( wxCommandEvent& event ) { event.Skip(); }
-		virtual void On3DModelCellChanged( wxGridEvent& event ) { event.Skip(); }
-		virtual void On3DModelSelected( wxGridEvent& event ) { event.Skip(); }
-		virtual void OnAdd3DRow( wxCommandEvent& event ) { event.Skip(); }
-		virtual void OnAdd3DModel( wxCommandEvent& event ) { event.Skip(); }
-		virtual void OnRemove3DModel( wxCommandEvent& event ) { event.Skip(); }
-		virtual void Cfg3DPath( wxCommandEvent& event ) { event.Skip(); }
 
 
 	public:

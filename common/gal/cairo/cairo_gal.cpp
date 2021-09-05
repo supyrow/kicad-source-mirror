@@ -277,7 +277,8 @@ void CAIRO_GAL_BASE::DrawSegment( const VECTOR2D& aStartPoint, const VECTOR2D& a
         cairo_move_to( m_currentContext, pa1.x, pa1.y );
         cairo_line_to( m_currentContext, pb1.x, pb1.y );
 
-        cairo_arc( m_currentContext, pb.x, pb.y, rb, lineAngle - M_PI / 2.0, lineAngle + M_PI / 2.0 );
+        cairo_arc( m_currentContext, pb.x, pb.y, rb, lineAngle - M_PI / 2.0,
+                   lineAngle + M_PI / 2.0 );
         cairo_arc( m_currentContext, pa.x, pa.y, rb, lineAngle + M_PI / 2.0,
                    lineAngle + 3.0 * M_PI / 2.0 );
 
@@ -424,7 +425,7 @@ void CAIRO_GAL_BASE::DrawRectangle( const VECTOR2D& aStartPoint, const VECTOR2D&
 }
 
 
-void CAIRO_GAL_BASE::DrawPolygon( const SHAPE_POLY_SET& aPolySet )
+void CAIRO_GAL_BASE::DrawPolygon( const SHAPE_POLY_SET& aPolySet, bool aStrokeTriangulation )
 {
     for( int i = 0; i < aPolySet.OutlineCount(); ++i )
         drawPoly( aPolySet.COutline( i ) );
@@ -811,7 +812,8 @@ void CAIRO_GAL_BASE::DrawGroup( int aGroupNumber )
             double x = 1.0, y = 1.0;
             cairo_device_to_user_distance( m_currentContext, &x, &y );
             double minWidth = std::min( fabs( x ), fabs( y ) );
-            cairo_set_line_width( m_currentContext, std::max( it->m_Argument.DblArg[0], minWidth ) );
+            cairo_set_line_width( m_currentContext,
+                                  std::max( it->m_Argument.DblArg[0], minWidth ) );
             break;
         }
 
@@ -920,6 +922,32 @@ void CAIRO_GAL_BASE::ClearCache()
 void CAIRO_GAL_BASE::SetNegativeDrawMode( bool aSetting )
 {
     cairo_set_operator( m_currentContext, aSetting ? CAIRO_OPERATOR_CLEAR : CAIRO_OPERATOR_OVER );
+}
+
+
+void CAIRO_GAL::StartDiffLayer()
+{
+    SetTarget( TARGET_TEMP );
+    ClearTarget( TARGET_TEMP );
+}
+
+
+void CAIRO_GAL::EndDiffLayer()
+{
+    m_compositor->DrawBuffer( m_tempBuffer, m_mainBuffer, CAIRO_OPERATOR_ADD );
+}
+
+
+void CAIRO_GAL::StartNegativesLayer()
+{
+    SetTarget( TARGET_TEMP );
+    ClearTarget( TARGET_TEMP );
+}
+
+
+void CAIRO_GAL::EndNegativesLayer()
+{
+    m_compositor->DrawBuffer( m_tempBuffer, m_mainBuffer, CAIRO_OPERATOR_OVER );
 }
 
 
@@ -1067,8 +1095,8 @@ void CAIRO_GAL_BASE::storePath()
         {
             if( m_isFillEnabled )
             {
-                cairo_set_source_rgba( m_currentContext, m_fillColor.r, m_fillColor.g, m_fillColor.b,
-                                       m_fillColor.a );
+                cairo_set_source_rgba( m_currentContext, m_fillColor.r, m_fillColor.g,
+                                       m_fillColor.b, m_fillColor.a );
                 cairo_fill_preserve( m_currentContext );
             }
 
@@ -1220,6 +1248,7 @@ CAIRO_GAL::CAIRO_GAL( GAL_DISPLAY_OPTIONS& aDisplayOptions, wxWindow* aParent,
     // Initialise compositing state
     m_mainBuffer = 0;
     m_overlayBuffer = 0;
+    m_tempBuffer = 0;
     m_validCompositor = false;
     SetTarget( TARGET_NONCACHED );
 
@@ -1231,7 +1260,7 @@ CAIRO_GAL::CAIRO_GAL( GAL_DISPLAY_OPTIONS& aDisplayOptions, wxWindow* aParent,
     m_paintListener = aPaintListener;
 
     // Connect the native cursor handler
-    Connect( wxEVT_SET_CURSOR, wxSetCursorEventHandler( CAIRO_GAL::onSetNativeCursor ), NULL,
+    Connect( wxEVT_SET_CURSOR, wxSetCursorEventHandler( CAIRO_GAL::onSetNativeCursor ), nullptr,
              this );
 
     // Connecting the event handlers
@@ -1302,8 +1331,8 @@ void CAIRO_GAL::endDrawing()
             pixman_image_create_bits( PIXMAN_a8r8g8b8, m_screenSize.x, m_screenSize.y,
                                       (uint32_t*) m_bitmapBuffer, m_wxBufferWidth * 4 );
 
-    pixman_image_composite( PIXMAN_OP_SRC, srcImg, NULL, dstImg, 0, 0, 0, 0, 0, 0, m_screenSize.x,
-                            m_screenSize.y );
+    pixman_image_composite( PIXMAN_OP_SRC, srcImg, nullptr, dstImg, 0, 0, 0, 0, 0, 0,
+                            m_screenSize.x, m_screenSize.y );
 
     // Free allocated memory
     pixman_image_unref( srcImg );
@@ -1389,6 +1418,7 @@ void CAIRO_GAL::SetTarget( RENDER_TARGET aTarget )
     case TARGET_CACHED:
     case TARGET_NONCACHED: m_compositor->SetBuffer( m_mainBuffer );    break;
     case TARGET_OVERLAY:   m_compositor->SetBuffer( m_overlayBuffer ); break;
+    case TARGET_TEMP:      m_compositor->SetBuffer( m_tempBuffer );    break;
     }
 
     m_currentTarget = aTarget;
@@ -1413,6 +1443,7 @@ void CAIRO_GAL::ClearTarget( RENDER_TARGET aTarget )
     case TARGET_CACHED:
     case TARGET_NONCACHED: m_compositor->SetBuffer( m_mainBuffer );    break;
     case TARGET_OVERLAY:   m_compositor->SetBuffer( m_overlayBuffer ); break;
+    case TARGET_TEMP:      m_compositor->SetBuffer( m_tempBuffer );    break;
     }
 
     m_compositor->ClearBuffer( COLOR4D::BLACK );
@@ -1496,6 +1527,7 @@ void CAIRO_GAL::setCompositor()
     // Prepare buffers
     m_mainBuffer = m_compositor->CreateBuffer();
     m_overlayBuffer = m_compositor->CreateBuffer();
+    m_tempBuffer = m_compositor->CreateBuffer();
 
     m_validCompositor = true;
 }
@@ -1519,7 +1551,8 @@ bool CAIRO_GAL::updatedGalDisplayOptions( const GAL_DISPLAY_OPTIONS& aOptions )
 {
     bool refresh = false;
 
-    if( m_validCompositor && aOptions.cairo_antialiasing_mode != m_compositor->GetAntialiasingMode() )
+    if( m_validCompositor &&
+        aOptions.cairo_antialiasing_mode != m_compositor->GetAntialiasingMode() )
     {
         m_compositor->SetAntialiasingMode( m_options.cairo_antialiasing_mode );
         m_validCompositor = false;

@@ -79,7 +79,7 @@ using namespace KIGFX::BUILTIN_FONT;
 static void      InitTesselatorCallbacks( GLUtesselator* aTesselator );
 static const int glAttributes[] = { WX_GL_RGBA, WX_GL_DOUBLEBUFFER, WX_GL_DEPTH_SIZE, 8, 0 };
 
-wxGLContext* OPENGL_GAL::m_glMainContext = NULL;
+wxGLContext* OPENGL_GAL::m_glMainContext = nullptr;
 int          OPENGL_GAL::m_instanceCounter = 0;
 GLuint       OPENGL_GAL::g_fontTexture = 0;
 bool         OPENGL_GAL::m_isBitmapFontLoaded = false;
@@ -210,7 +210,7 @@ OPENGL_GAL::OPENGL_GAL( GAL_DISPLAY_OPTIONS& aDisplayOptions, wxWindow* aParent,
         m_isContextLocked( false ),
         m_lockClientCookie( 0 )
 {
-    if( m_glMainContext == NULL )
+    if( m_glMainContext == nullptr )
     {
         m_glMainContext = GL_CONTEXT_MANAGER::Get().CreateCtx( this );
 
@@ -237,7 +237,7 @@ OPENGL_GAL::OPENGL_GAL( GAL_DISPLAY_OPTIONS& aDisplayOptions, wxWindow* aParent,
     m_groupCounter = 0;
 
     // Connect the native cursor handler
-    Connect( wxEVT_SET_CURSOR, wxSetCursorEventHandler( OPENGL_GAL::onSetNativeCursor ), NULL,
+    Connect( wxEVT_SET_CURSOR, wxSetCursorEventHandler( OPENGL_GAL::onSetNativeCursor ), nullptr,
              this );
 
     // Connecting the event handlers
@@ -325,7 +325,7 @@ OPENGL_GAL::~OPENGL_GAL()
 
         GL_CONTEXT_MANAGER::Get().UnlockCtx( m_glMainContext );
         GL_CONTEXT_MANAGER::Get().DestroyCtx( m_glMainContext );
-        m_glMainContext = NULL;
+        m_glMainContext = nullptr;
     }
 }
 
@@ -334,8 +334,8 @@ wxString OPENGL_GAL::CheckFeatures( GAL_DISPLAY_OPTIONS& aOptions )
 {
     wxString retVal = wxEmptyString;
 
-    wxFrame* testFrame = new wxFrame( NULL, wxID_ANY, wxT( "" ), wxDefaultPosition, wxSize( 1, 1 ),
-                                      wxFRAME_TOOL_WINDOW | wxNO_BORDER );
+    wxFrame* testFrame = new wxFrame( nullptr, wxID_ANY, wxT( "" ), wxDefaultPosition,
+                                      wxSize( 1, 1 ), wxFRAME_TOOL_WINDOW | wxNO_BORDER );
 
     KIGFX::OPENGL_GAL* opengl_gal = nullptr;
 
@@ -372,6 +372,8 @@ void OPENGL_GAL::PostPaint( wxPaintEvent& aEvent )
 
 bool OPENGL_GAL::updatedGalDisplayOptions( const GAL_DISPLAY_OPTIONS& aOptions )
 {
+    GAL_CONTEXT_LOCKER lock( this );
+
     bool refresh = false;
 
     if( m_options.gl_antialiasing_mode != m_compositor->GetAntialiasingMode() )
@@ -407,7 +409,8 @@ double OPENGL_GAL::getWorldPixelSize() const
 VECTOR2D OPENGL_GAL::getScreenPixelSize() const
 {
     double sf = GetScaleFactor();
-    return VECTOR2D( 2.0 / (double) ( m_screenSize.x * sf ), 2.0 / (double) ( m_screenSize.y * sf ) );
+    return VECTOR2D( 2.0 / (double) ( m_screenSize.x * sf ), 2.0 /
+                     (double) ( m_screenSize.y * sf ) );
 }
 
 
@@ -449,6 +452,7 @@ void OPENGL_GAL::beginDrawing()
             wxLogVerbose( "Could not create a framebuffer for overlays.\n" );
             m_overlayBuffer = 0;
         }
+
         m_isFramebufferInitialized = true;
     }
 
@@ -1066,7 +1070,8 @@ void OPENGL_GAL::DrawPolygon( const VECTOR2D aPointList[], int aListSize )
 }
 
 
-void OPENGL_GAL::drawTriangulatedPolyset( const SHAPE_POLY_SET& aPolySet )
+void OPENGL_GAL::drawTriangulatedPolyset( const SHAPE_POLY_SET& aPolySet,
+                                          bool aStrokeTriangulation )
 {
     m_currentManager->Shader( SHADER_NONE );
     m_currentManager->Color( m_fillColor.r, m_fillColor.g, m_fillColor.b, m_fillColor.a );
@@ -1103,11 +1108,16 @@ void OPENGL_GAL::drawTriangulatedPolyset( const SHAPE_POLY_SET& aPolySet )
 
     if( ADVANCED_CFG::GetCfg().m_DrawTriangulationOutlines )
     {
+        aStrokeTriangulation = true;
+        SetStrokeColor( COLOR4D( 0.0, 1.0, 0.2, 1.0 ) );
+    }
+
+    if( aStrokeTriangulation )
+    {
         COLOR4D oldStrokeColor = m_strokeColor;
         double  oldLayerDepth = m_layerDepth;
 
         SetLayerDepth( m_layerDepth - 1 );
-        SetStrokeColor( COLOR4D( 0.0, 1.0, 0.2, 1.0 ) );
 
         for( unsigned int j = 0; j < aPolySet.TriangulatedPolyCount(); ++j )
         {
@@ -1129,11 +1139,11 @@ void OPENGL_GAL::drawTriangulatedPolyset( const SHAPE_POLY_SET& aPolySet )
 }
 
 
-void OPENGL_GAL::DrawPolygon( const SHAPE_POLY_SET& aPolySet )
+void OPENGL_GAL::DrawPolygon( const SHAPE_POLY_SET& aPolySet, bool aStrokeTriangulation )
 {
     if( aPolySet.IsTriangulationUpToDate() )
     {
-        drawTriangulatedPolyset( aPolySet );
+        drawTriangulatedPolyset( aPolySet, aStrokeTriangulation );
         return;
     }
 
@@ -1729,6 +1739,20 @@ bool OPENGL_GAL::HasTarget( RENDER_TARGET aTarget )
 }
 
 
+void OPENGL_GAL::StartDiffLayer()
+{
+    m_currentManager->EndDrawing();
+}
+
+
+void OPENGL_GAL::EndDiffLayer()
+{
+    glBlendFunc( GL_SRC_ALPHA, GL_ONE );
+    m_currentManager->EndDrawing();
+    glBlendFunc( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA );
+}
+
+
 bool OPENGL_GAL::SetNativeCursorStyle( KICURSOR aCursor )
 {
     // Store the current cursor type and get the wxCursor for it
@@ -2032,7 +2056,7 @@ void OPENGL_GAL::drawBitmapOverbar( double aLength, double aHeight )
 
     Save();
 
-    Translate( VECTOR2D( -aLength, -aHeight - 1.5 * H ) );
+    Translate( VECTOR2D( -aLength, -aHeight ) );
 
     m_currentManager->Reserve( 6 );
     m_currentManager->Color( m_strokeColor.r, m_strokeColor.g, m_strokeColor.b, m_strokeColor.a );
@@ -2054,7 +2078,6 @@ void OPENGL_GAL::drawBitmapOverbar( double aLength, double aHeight )
 std::pair<VECTOR2D, float> OPENGL_GAL::computeBitmapTextSize( const UTF8& aText ) const
 {
     static const FONT_GLYPH_TYPE* defaultGlyph = LookupGlyph( '(' ); // for strange chars
-    static const FONT_GLYPH_TYPE* lineGlyph = LookupGlyph( '_' );    // for overbar thickness
 
     VECTOR2D textSize( 0, 0 );
     float    commonOffset = std::numeric_limits<float>::max();
@@ -2101,15 +2124,7 @@ std::pair<VECTOR2D, float> OPENGL_GAL::computeBitmapTextSize( const UTF8& aText 
         }
 
         if( glyph )
-        {
             textSize.x += glyph->advance;
-
-            if( overbarDepth != -1 )
-            {
-                const float H = lineGlyph->maxy - lineGlyph->miny;
-                textSize.y = std::max<float>( textSize.y, charHeight + 1.5 * H );
-            }
-        }
     }
 
     textSize.y = std::max<float>( textSize.y, charHeight );
@@ -2199,7 +2214,7 @@ void OPENGL_GAL::init()
     if( !m_glPrivContext )
         throw std::runtime_error( "Could not create a private OpenGL context" );
 
-    if( m_tesselator == NULL )
+    if( m_tesselator == nullptr )
         throw std::runtime_error( "Could not create the m_tesselator" );
     // End initialization checks
 
@@ -2331,6 +2346,7 @@ inline double round_to_half_pixel( double f, double r )
 {
     return ( ceil( f / r ) - 0.5 ) * r;
 }
+
 
 void OPENGL_GAL::ComputeWorldScreenMatrix()
 {

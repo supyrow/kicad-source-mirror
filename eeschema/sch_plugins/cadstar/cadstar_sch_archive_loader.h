@@ -28,9 +28,9 @@
 
 #include <sch_plugins/cadstar/cadstar_sch_archive_parser.h>
 
-#include <layers_id_colors_and_visibility.h> // SCH_LAYER_ID
-#include <plotter.h>                         // PLOT_DASH_TYPE
-#include <pin_type.h>                        // ELECTRICAL_PINTYPE
+#include <layer_ids.h>          // SCH_LAYER_ID
+#include <plotters/plotter.h>   // PLOT_DASH_TYPE
+#include <pin_type.h>           // ELECTRICAL_PINTYPE
 #include <sch_io_mgr.h>
 #include <wx/filename.h>
 
@@ -52,6 +52,9 @@ class SCHEMATIC;
 class CADSTAR_SCH_ARCHIVE_LOADER : public CADSTAR_SCH_ARCHIVE_PARSER
 {
 public:
+    // Size of tiny net labels when none present in original design
+    const int SMALL_LABEL_SIZE = KiROUND( (double) SCH_IU_PER_MM * 0.4 );
+
     explicit CADSTAR_SCH_ARCHIVE_LOADER( wxString aFilename, REPORTER* aReporter )
             : CADSTAR_SCH_ARCHIVE_PARSER( aFilename )
     {
@@ -121,8 +124,8 @@ private:
     void loadTextVariables();
 
     //Helper Functions for loading sheets
-    void loadSheetAndChildSheets( LAYER_ID aCadstarSheetID, wxPoint aPosition, wxSize aSheetSize,
-            const SCH_SHEET_PATH& aParentSheet );
+    void loadSheetAndChildSheets( LAYER_ID aCadstarSheetID, const wxPoint& aPosition,
+                                  wxSize aSheetSize, const SCH_SHEET_PATH& aParentSheet );
 
     void loadChildSheets( LAYER_ID aCadstarSheetID, const SCH_SHEET_PATH& aSheet );
 
@@ -137,7 +140,8 @@ private:
             const GATE_ID& aGateID, LIB_SYMBOL* aSymbol );
 
     void loadLibrarySymbolShapeVertices( const std::vector<VERTEX>& aCadstarVertices,
-            wxPoint aSymbolOrigin, LIB_SYMBOL* aSymbol, int aGateNumber );
+                                         wxPoint aSymbolOrigin, LIB_SYMBOL* aSymbol,
+                                         int aGateNumber, int aLineThickness );
 
     void applyToLibraryFieldAttribute( const ATTRIBUTE_LOCATION& aCadstarAttrLoc,
             wxPoint aSymbolOrigin, LIB_FIELD* aKiCadField );
@@ -195,6 +199,7 @@ private:
     PART           getPart( const PART_ID& aCadstarPartID );
     ROUTECODE      getRouteCode( const ROUTECODE_ID& aCadstarRouteCodeID );
     TEXTCODE       getTextCode( const TEXTCODE_ID& aCadstarTextCodeID );
+    int            getTextHeightFromTextCode( const TEXTCODE_ID& aCadstarTextCodeID );
     wxString       getAttributeName( const ATTRIBUTE_ID& aCadstarAttributeID );
 
     PART::DEFINITION::PIN getPartDefinitionPin(
@@ -218,9 +223,9 @@ private:
 
     std::pair<wxPoint, wxSize> getFigureExtentsKiCad( const FIGURE& aCadstarFigure );
 
-    wxPoint getKiCadPoint( wxPoint aCadstarPoint );
+    wxPoint getKiCadPoint( const wxPoint& aCadstarPoint );
 
-    wxPoint getKiCadLibraryPoint( wxPoint aCadstarPoint, wxPoint aCadstarCentre );
+    wxPoint getKiCadLibraryPoint( const wxPoint& aCadstarPoint, const wxPoint& aCadstarCentre );
 
     wxPoint applyTransform( const wxPoint& aPoint, const wxPoint& aMoveVector = { 0, 0 },
             const double& aRotationAngleDeciDeg = 0.0, const double& aScalingFactor = 1.0,
@@ -281,14 +286,14 @@ private:
      * @param aPoint
      * @return Angle in decidegrees of the polar representation of the point, scaled 0..360
      */
-    double getPolarAngle( wxPoint aPoint );
+    double getPolarAngle( const wxPoint& aPoint );
 
     /**
      * @brief
      * @param aPoint
      * @return Radius of polar representation of the point
      */
-    double getPolarRadius( wxPoint aPoint );
+    double getPolarRadius( const wxPoint& aPoint );
 
 }; // CADSTAR_SCH_ARCHIVE_LOADER
 

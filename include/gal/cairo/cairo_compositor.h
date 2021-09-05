@@ -71,6 +71,15 @@ public:
     /// @copydoc COMPOSITOR::ClearBuffer()
     virtual void ClearBuffer( const COLOR4D& aColor ) override;
 
+    /**
+     * Paints source to destination using the cairo operator. Useful for differential mode.
+     *
+     * @param aSourceHandle Source buffer to paint
+     * @param aDestHandle Destination buffer to paint on to
+     * @param op Painting operation
+     */
+    void DrawBuffer( unsigned int aSourceHandle, unsigned int aDestHandle, cairo_operator_t op );
+
     /// @copydoc COMPOSITOR::DrawBuffer()
     virtual void DrawBuffer( unsigned int aBufferHandle ) override;
 
@@ -118,12 +127,12 @@ protected:
     }
 
     typedef uint32_t* BitmapPtr;
-    typedef struct
+    struct CAIRO_BUFFER
     {
         cairo_t*            context;        ///< Main texture handle
         cairo_surface_t*    surface;        ///< Point to which an image from texture is attached
         BitmapPtr           bitmap;         ///< Pixel storage
-    } CAIRO_BUFFER;
+    };
 
     unsigned int            m_current;      ///< Currently used buffer handle
     typedef std::deque<CAIRO_BUFFER> CAIRO_BUFFERS;

@@ -4,8 +4,8 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2013 Wayne Stambaugh <stambaughw@verizon.net>
- * Copyright (C) 1992-2015 KiCad Developers, see change_log.txt for contributors.
+ * Copyright (C) 2013 Wayne Stambaugh <stambaughw@gmail.com>
+ * Copyright (C) 2013-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -42,72 +42,81 @@ REPORTER& REPORTER::Report( const char* aText, SEVERITY aSeverity )
 
 REPORTER& WX_TEXT_CTRL_REPORTER::Report( const wxString& aText, SEVERITY aSeverity )
 {
-    wxCHECK_MSG( m_textCtrl != NULL, *this,
+    wxCHECK_MSG( m_textCtrl != nullptr, *this,
                  wxT( "No wxTextCtrl object defined in WX_TEXT_CTRL_REPORTER." ) );
 
-    m_textCtrl->AppendText( aText );
+    m_textCtrl->AppendText( aText + wxS( "\n" ) );
     return *this;
 }
+
 
 bool WX_TEXT_CTRL_REPORTER::HasMessage() const
 {
     return !m_textCtrl->IsEmpty();
 }
 
+
 REPORTER& WX_STRING_REPORTER::Report( const wxString& aText, SEVERITY aSeverity )
 {
-    wxCHECK_MSG( m_string != NULL, *this,
+    wxCHECK_MSG( m_string != nullptr, *this,
                  wxT( "No wxString object defined in WX_STRING_REPORTER." ) );
 
-    *m_string << aText;
+    *m_string << aText << wxS( "\n" );
     return *this;
 }
+
 
 bool WX_STRING_REPORTER::HasMessage() const
 {
     return !m_string->IsEmpty();
 }
 
+
 REPORTER& WX_HTML_PANEL_REPORTER::Report( const wxString& aText, SEVERITY aSeverity )
 {
-    wxCHECK_MSG( m_panel != NULL, *this,
+    wxCHECK_MSG( m_panel != nullptr, *this,
                  wxT( "No WX_HTML_REPORT_PANEL object defined in WX_HTML_PANEL_REPORTER." ) );
 
     m_panel->Report( aText, aSeverity );
     return *this;
 }
 
+
 REPORTER& WX_HTML_PANEL_REPORTER::ReportTail( const wxString& aText, SEVERITY aSeverity )
 {
-    wxCHECK_MSG( m_panel != NULL, *this,
+    wxCHECK_MSG( m_panel != nullptr, *this,
                  wxT( "No WX_HTML_REPORT_PANEL object defined in WX_HTML_PANEL_REPORTER." ) );
 
     m_panel->Report( aText, aSeverity, LOC_TAIL );
     return *this;
 }
 
+
 REPORTER& WX_HTML_PANEL_REPORTER::ReportHead( const wxString& aText, SEVERITY aSeverity )
 {
-    wxCHECK_MSG( m_panel != NULL, *this,
+    wxCHECK_MSG( m_panel != nullptr, *this,
                  wxT( "No WX_HTML_REPORT_PANEL object defined in WX_HTML_PANEL_REPORTER." ) );
 
     m_panel->Report( aText, aSeverity, LOC_HEAD );
     return *this;
 }
 
+
 bool WX_HTML_PANEL_REPORTER::HasMessage() const
 {
     return m_panel->Count( RPT_SEVERITY_ERROR | RPT_SEVERITY_WARNING ) > 0;
 }
+
 
 REPORTER& NULL_REPORTER::Report( const wxString& aText, SEVERITY aSeverity )
 {
     return *this;
 }
 
+
 REPORTER& NULL_REPORTER::GetInstance()
 {
-    static REPORTER* s_nullReporter = NULL;
+    static REPORTER* s_nullReporter = nullptr;
 
     if( !s_nullReporter )
         s_nullReporter = new NULL_REPORTER();
@@ -182,6 +191,7 @@ REPORTER& STATUSBAR_REPORTER::Report( const wxString& aText, SEVERITY aSeverity 
     return *this;
 }
 
+
 bool STATUSBAR_REPORTER::HasMessage() const
 {
     if( m_statusBar )
@@ -191,9 +201,14 @@ bool STATUSBAR_REPORTER::HasMessage() const
 }
 
 
+INFOBAR_REPORTER::~INFOBAR_REPORTER()
+{
+}
+
+
 REPORTER& INFOBAR_REPORTER::Report( const wxString& aText, SEVERITY aSeverity )
 {
-    m_message    = aText;
+    m_message.reset( new wxString( aText ) );
     m_severity   = aSeverity;
     m_messageSet = true;
 
@@ -203,7 +218,7 @@ REPORTER& INFOBAR_REPORTER::Report( const wxString& aText, SEVERITY aSeverity )
 
 bool INFOBAR_REPORTER::HasMessage() const
 {
-    return !m_message.IsEmpty();
+    return m_message && !m_message->IsEmpty();
 }
 
 
@@ -230,11 +245,11 @@ void INFOBAR_REPORTER::Finalize()
         case RPT_SEVERITY_IGNORE:    icon = wxICON_INFORMATION; break;
     }
 
-    if( m_message.EndsWith( "\n" ) )
-        m_message = m_message.Left( m_message.Length() - 1 );
+    if( m_message->EndsWith( "\n" ) )
+        *m_message = m_message->Left( m_message->Length() - 1 );
 
     if( HasMessage() )
-        m_infoBar->QueueShowMessage( m_message, icon );
+        m_infoBar->QueueShowMessage( *m_message, icon );
     else
         m_infoBar->QueueDismiss();
 }

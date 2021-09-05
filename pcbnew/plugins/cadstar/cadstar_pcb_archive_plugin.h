@@ -29,7 +29,7 @@
 
 
 #include <io_mgr.h>
-#include <layers_id_colors_and_visibility.h> // PCB_LAYER_ID
+#include <layer_ids.h> // PCB_LAYER_ID
 #include <plugins/common/plugin_common_layer_mapping.h>
 
 
@@ -39,7 +39,8 @@ public:
     const wxString PluginName() const override;
 
     BOARD* Load( const wxString& aFileName, BOARD* aAppendToMe,
-                 const PROPERTIES* aProperties = nullptr, PROJECT* aProject = nullptr ) override;
+                 const PROPERTIES* aProperties = nullptr, PROJECT* aProject = nullptr,
+                 PROGRESS_REPORTER* aProgressReporter = nullptr ) override;
 
     const wxString GetFileExtension() const override;
 

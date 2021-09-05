@@ -141,6 +141,12 @@ static const wxChar MaxTrackLengthToKeep[] = wxT( "MaxTrackLengthToKeep" );
 static const wxChar StrokeTriangulation[] = wxT( "StrokeTriangulation" );
 
 /**
+ * When true, a third zone-display-mode is included which strokes the filled areas and fracture
+ * boundaries.
+ */
+static const wxChar ExtraZoneDisplayModes[] = wxT( "ExtraZoneDisplayModes" );
+
+/**
  * Absolute minimum pen width to send to the plotter.  PDF seems happy enough with 0.0212mm
  * (which equates to 1px @ 1200dpi).
  */
@@ -161,6 +167,12 @@ static const wxChar HotkeysDumper[] = wxT( "HotkeysDumper" );
 static const wxChar DrawBoundingBoxes[] = wxT( "DrawBoundingBoxes" );
 
 static const wxChar ShowPcbnewExportNetlist[] = wxT( "ShowPcbnewExportNetlist" );
+
+static const wxChar Skip3DModelFileCache[] = wxT( "Skip3DModelFileCache" );
+
+static const wxChar Skip3DModelMemoryCache[] = wxT( "Skip3DModelMemoryCache" );
+
+static const wxChar HideVersionFromTitle[] = wxT( "HideVersionFromTitle" );
 
 } // namespace KEYS
 
@@ -246,6 +258,7 @@ ADVANCED_CFG::ADVANCED_CFG()
     m_DrawArcCenterMaxAngle     = 50.0;
     m_MaxTangentAngleDeviation  = 1.0;
     m_MaxTrackLengthToKeep      = 0.0001;
+    m_ExtraZoneDisplayModes     = false;
     m_DrawTriangulationOutlines = false;
 
     m_ExtraClearance            = 0.0001;
@@ -264,6 +277,9 @@ ADVANCED_CFG::ADVANCED_CFG()
     m_HotkeysDumper             = false;
     m_DrawBoundingBoxes         = false;
     m_ShowPcbnewExportNetlist   = false;
+    m_Skip3DModelFileCache      = false;
+    m_Skip3DModelMemoryCache    = false;
+    m_HideVersionFromTitle      = false;
 
     loadFromConfigFile();
 }
@@ -340,6 +356,9 @@ void ADVANCED_CFG::loadSettings( wxConfigBase& aCfg )
     configParams.push_back( new PARAM_CFG_DOUBLE( true, AC_KEYS::MaxTrackLengthToKeep,
                                                   &m_MaxTrackLengthToKeep, 0.0005, 0.0, 1.0 ) );
 
+    configParams.push_back( new PARAM_CFG_BOOL( true, AC_KEYS::ExtraZoneDisplayModes,
+                                                &m_ExtraZoneDisplayModes, false ) );
+
     configParams.push_back( new PARAM_CFG_BOOL( true, AC_KEYS::StrokeTriangulation,
                                                 &m_DrawTriangulationOutlines, false ) );
 
@@ -363,6 +382,15 @@ void ADVANCED_CFG::loadSettings( wxConfigBase& aCfg )
 
     configParams.push_back( new PARAM_CFG_BOOL( true, AC_KEYS::ShowPcbnewExportNetlist,
                                                 &m_ShowPcbnewExportNetlist, false ) );
+
+    configParams.push_back( new PARAM_CFG_BOOL( true, AC_KEYS::Skip3DModelFileCache,
+                                                &m_Skip3DModelFileCache, false ) );
+
+    configParams.push_back( new PARAM_CFG_BOOL( true, AC_KEYS::Skip3DModelMemoryCache,
+                                                &m_Skip3DModelMemoryCache, false ) );
+
+    configParams.push_back( new PARAM_CFG_BOOL( true, AC_KEYS::HideVersionFromTitle,
+                                                &m_HideVersionFromTitle, false ) );
 
     wxConfigLoadSetups( &aCfg, configParams );
 

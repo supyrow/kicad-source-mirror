@@ -23,7 +23,7 @@
 #include <core/wx_stl_compat.h>
 #include <symbol_async_loader.h>
 #include <symbol_lib_table.h>
-#include <widgets/progress_reporter.h>
+#include <progress_reporter.h>
 
 
 SYMBOL_ASYNC_LOADER::SYMBOL_ASYNC_LOADER( const std::vector<wxString>& aNicknames,
@@ -131,7 +131,7 @@ std::vector<SYMBOL_ASYNC_LOADER::LOADED_PAIR> SYMBOL_ASYNC_LOADER::worker()
         }
 
         if( m_reporter )
-            m_reporter->AdvancePhase( wxString::Format( _( "Loading library \"%s\"" ), nickname ) );
+            m_reporter->AdvancePhase( wxString::Format( _( "Loading library %s..." ), nickname ) );
     }
 
     return ret;

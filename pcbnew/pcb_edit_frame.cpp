@@ -25,7 +25,7 @@
 #include <kiway.h>
 #include <pgm_base.h>
 #include <pcb_edit_frame.h>
-#include <3d_viewer/eda_3d_viewer.h>
+#include <3d_viewer/eda_3d_viewer_frame.h>
 #include <fp_lib_table.h>
 #include <bitmaps.h>
 #include <confirm.h>
@@ -35,6 +35,7 @@
 #include <pcb_layer_box_selector.h>
 #include <footprint_edit_frame.h>
 #include <dialog_plot.h>
+#include <dialog_find.h>
 #include <dialog_footprint_properties.h>
 #include <dialogs/dialog_exchange_footprints.h>
 #include <dialog_board_setup.h>
@@ -99,6 +100,7 @@
 #include <widgets/appearance_controls.h>
 #include <widgets/infobar.h>
 #include <widgets/panel_selection_filter.h>
+#include <widgets/wx_aui_utils.h>
 #include <kiplatform/app.h>
 
 #include <action_plugin.h>
@@ -172,13 +174,13 @@ END_EVENT_TABLE()
 PCB_EDIT_FRAME::PCB_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
     PCB_BASE_EDIT_FRAME( aKiway, aParent, FRAME_PCB_EDITOR, wxT( "PCB Editor" ), wxDefaultPosition,
                          wxDefaultSize, KICAD_DEFAULT_DRAWFRAME_STYLE, PCB_EDIT_FRAME_NAME ),
-    m_exportNetlistAction( nullptr )
+    m_exportNetlistAction( nullptr ), m_findDialog( nullptr )
 {
     m_maximizeByDefault = true;
     m_showBorderAndTitleBlock = true;   // true to display sheet references
-    m_SelTrackWidthBox = NULL;
-    m_SelViaSizeBox = NULL;
-    m_SelLayerBox = NULL;
+    m_SelTrackWidthBox = nullptr;
+    m_SelViaSizeBox = nullptr;
+    m_SelLayerBox = nullptr;
     m_show_layer_manager_tools = true;
     m_hasAutoSave = true;
 
@@ -292,17 +294,7 @@ PCB_EDIT_FRAME::PCB_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
         if( settings->m_AuiPanels.right_panel_width > 0 )
         {
             wxAuiPaneInfo& layersManager = m_auimgr.GetPane( "LayersManager" );
-
-            // wxAUI hack: force width by setting MinSize() and then Fixed()
-            // thanks to ZenJu http://trac.wxwidgets.org/ticket/13180
-            layersManager.MinSize( settings->m_AuiPanels.right_panel_width, -1 );
-            layersManager.Fixed();
-            m_auimgr.Update();
-
-            // now make it resizable again
-            layersManager.MinSize( 180, -1 );
-            layersManager.Resizable();
-            m_auimgr.Update();
+            SetAuiPaneSize( m_auimgr, layersManager, settings->m_AuiPanels.right_panel_width, -1 );
         }
 
         m_appearancePanel->SetTabIndex( settings->m_AuiPanels.appearance_panel_tab );
@@ -429,7 +421,7 @@ void PCB_EDIT_FRAME::SetPageSettings( const PAGE_INFO& aPageSettings )
 
     BASE_SCREEN* screen = GetScreen();
 
-    if( screen != NULL )
+    if( screen != nullptr )
     {
         drawingSheet->SetPageNumber(TO_UTF8( screen->GetPageNumber() ) );
         drawingSheet->SetSheetCount( screen->GetPageCount() );
@@ -551,19 +543,8 @@ void PCB_EDIT_FRAME::setupUIConditions()
     mgr->SetConditions( PCB_ACTIONS::viaDisplayMode, CHECK( !cond.ViaFillDisplay() ) );
     mgr->SetConditions( PCB_ACTIONS::trackDisplayMode, CHECK( !cond.TrackFillDisplay() ) );
 
-    auto pythonConsoleCond =
-        [] ( const SELECTION& )
-        {
-            if( SCRIPTING::IsWxAvailable() )
-            {
-                wxWindow* console = PCB_EDIT_FRAME::findPythonConsole();
-                return console && console->IsShown();
-            }
-
-            return false;
-        };
-
-    mgr->SetConditions( PCB_ACTIONS::showPythonConsole,  CHECK( pythonConsoleCond ) );
+    if( SCRIPTING::IsWxAvailable() )
+        mgr->SetConditions( PCB_ACTIONS::showPythonConsole, CHECK( cond.ScriptingConsoleVisible() ) );
 
     auto enableZoneControlConition =
         [this] ( const SELECTION& )
@@ -572,12 +553,14 @@ void PCB_EDIT_FRAME::setupUIConditions()
                     && GetDisplayOptions().m_ZoneOpacity > 0.0;
         };
 
-    mgr->SetConditions( PCB_ACTIONS::zoneDisplayEnable,
+    mgr->SetConditions( PCB_ACTIONS::zoneDisplayFilled,
                         ENABLE( enableZoneControlConition ).Check( cond.ZoneDisplayMode( ZONE_DISPLAY_MODE::SHOW_FILLED ) ) );
-    mgr->SetConditions( PCB_ACTIONS::zoneDisplayDisable,
+    mgr->SetConditions( PCB_ACTIONS::zoneDisplayOutline,
                         ENABLE( enableZoneControlConition ).Check( cond.ZoneDisplayMode( ZONE_DISPLAY_MODE::SHOW_ZONE_OUTLINE ) ) );
-    mgr->SetConditions( PCB_ACTIONS::zoneDisplayOutlines,
-                        ENABLE( enableZoneControlConition ).Check( cond.ZoneDisplayMode( ZONE_DISPLAY_MODE::SHOW_FILLED_OUTLINE ) ) );
+    mgr->SetConditions( PCB_ACTIONS::zoneDisplayFractured,
+                        ENABLE( enableZoneControlConition ).Check( cond.ZoneDisplayMode( ZONE_DISPLAY_MODE::SHOW_FRACTURE_BORDERS ) ) );
+    mgr->SetConditions( PCB_ACTIONS::zoneDisplayTriangulated,
+                        ENABLE( enableZoneControlConition ).Check( cond.ZoneDisplayMode( ZONE_DISPLAY_MODE::SHOW_TRIANGULATION ) ) );
 
     auto enableBoardSetupCondition =
         [this] ( const SELECTION& )
@@ -840,7 +823,7 @@ bool PCB_EDIT_FRAME::canCloseWindow( wxCloseEvent& aEvent )
     if( open_dlg )
         open_dlg->Close( true );
 
-    return true;
+    return PCB_BASE_EDIT_FRAME::canCloseWindow( aEvent );
 }
 
 
@@ -1005,7 +988,7 @@ COLOR4D PCB_EDIT_FRAME::GetGridColor()
 }
 
 
-void PCB_EDIT_FRAME::SetGridColor( COLOR4D aColor )
+void PCB_EDIT_FRAME::SetGridColor( const COLOR4D& aColor )
 {
 
     GetColorSettings()->SetColor( LAYER_GRID, aColor );
@@ -1079,6 +1062,21 @@ void PCB_EDIT_FRAME::SetActiveLayer( PCB_LAYER_ID aLayer )
 
 void PCB_EDIT_FRAME::onBoardLoaded()
 {
+    // JEY TODO: move this global to the board
+    ENUM_MAP<PCB_LAYER_ID>& layerEnum = ENUM_MAP<PCB_LAYER_ID>::Instance();
+
+    layerEnum.Choices().Clear();
+    layerEnum.Undefined( UNDEFINED_LAYER );
+
+    for( LSEQ seq = LSET::AllLayersMask().Seq(); seq; ++seq )
+    {
+        // Canonical name
+        layerEnum.Map( *seq, LSET::Name( *seq ) );
+
+        // User name
+        layerEnum.Map( *seq, GetBoard()->GetLayerName( *seq ) );
+    }
+
     DRC_TOOL* drcTool = m_toolManager->GetTool<DRC_TOOL>();
 
     try
@@ -1243,11 +1241,22 @@ void PCB_EDIT_FRAME::UpdateTitle()
     else
         unsaved = true;
 
-    SetTitle( wxString::Format( wxT( "%s%s %s%s\u2014 " ) + _( "PCB Editor" ),
-                                IsContentModified() ? "*" : "",
-                                fn.GetName(),
-                                readOnly ? _( "[Read Only]" ) + wxS( " " ) : "",
-                                unsaved ? _( "[Unsaved]" ) + wxS( " " ) : "" ) );
+    wxString title;
+
+    if( IsContentModified() )
+        title = wxT( "*" );
+
+    title += fn.GetName();
+
+    if( readOnly )
+        title += wxS( " " ) + _( "[Read Only]" );
+
+    if( unsaved )
+        title += wxS( " " ) + _( "[Unsaved]" );
+
+    title += wxT( " \u2014 " ) + _( "PCB Editor" );
+
+    SetTitle( title );
 }
 
 
@@ -1279,6 +1288,7 @@ void PCB_EDIT_FRAME::UpdateUserInterface()
     {
         // Canonical name
         layerEnum.Map( *seq, LSET::Name( *seq ) );
+
         // User name
         layerEnum.Map( *seq, GetBoard()->GetLayerName( *seq ) );
     }
@@ -1299,6 +1309,32 @@ void PCB_EDIT_FRAME::SwitchCanvas( EDA_DRAW_PANEL_GAL::GAL_TYPE aCanvasType )
 {
     // switches currently used canvas (Cairo / OpenGL).
     PCB_BASE_FRAME::SwitchCanvas( aCanvasType );
+}
+
+
+void PCB_EDIT_FRAME::ShowFindDialog()
+{
+    if( !m_findDialog )
+    {
+        m_findDialog = new DIALOG_FIND( this );
+        m_findDialog->SetCallback( std::bind( &PCB_SELECTION_TOOL::FindItem,
+                                              m_toolManager->GetTool<PCB_SELECTION_TOOL>(), _1 ) );
+    }
+
+    m_findDialog->Show( true );
+}
+
+
+void PCB_EDIT_FRAME::FindNext()
+{
+    if( !m_findDialog )
+    {
+        m_findDialog = new DIALOG_FIND( this );
+        m_findDialog->SetCallback( std::bind( &PCB_SELECTION_TOOL::FindItem,
+                                              m_toolManager->GetTool<PCB_SELECTION_TOOL>(), _1 ) );
+    }
+
+    m_findDialog->FindNext();
 }
 
 
@@ -1415,10 +1451,16 @@ bool PCB_EDIT_FRAME::FetchNetlistFromSchematic( NETLIST& aNetlist,
         KICAD_NETLIST_READER netlistReader( lineReader, &aNetlist );
         netlistReader.LoadNetlist();
     }
-    catch( const IO_ERROR& )
+    catch( const IO_ERROR& e )
     {
         Raise();
-        assert( false ); // should never happen
+
+        // Do not translate extra_info strings.  These are for developers
+        wxString extra_info = e.Problem() + " : " + e.What() + " at " + e.Where();
+
+        DisplayErrorMessage( this, _( "Received an error while reading netlist.  Please "
+                                      "report this issue to the KiCad team using the menu "
+                                      "Help->Report Bug."), extra_info );
         return false;
     }
 
@@ -1474,7 +1516,7 @@ void PCB_EDIT_FRAME::RunEeschema()
             }
             catch( const IO_ERROR& err )
             {
-                wxMessageBox( _( "Eeschema failed to load:\n" ) + err.What(),
+                wxMessageBox( _( "Eeschema failed to load." ) + wxS( "\n" ) + err.What(),
                               _( "KiCad Error" ), wxOK | wxICON_ERROR, this );
                 return;
             }
@@ -1511,7 +1553,7 @@ void PCB_EDIT_FRAME::PythonSyncEnvironmentVariables()
     for( auto& var : vars )
         UpdatePythonEnvVar( var.first, var.second.GetValue() );
 
-    // Because the env vars can de modified by the python scripts (rewritten in UTF8),
+    // Because the env vars can be modified by the python scripts (rewritten in UTF8),
     // regenerate them (in Unicode) for our normal environment
     for( auto& var : vars )
         wxSetEnv( var.first, var.second.GetValue() );
@@ -1532,14 +1574,24 @@ void PCB_EDIT_FRAME::PythonSyncProjectName()
 
 void PCB_EDIT_FRAME::ShowFootprintPropertiesDialog( FOOTPRINT* aFootprint )
 {
-    if( aFootprint == NULL )
+    if( aFootprint == nullptr )
         return;
 
-    DIALOG_FOOTPRINT_PROPERTIES dlg( this, aFootprint );
+    DIALOG_FOOTPRINT_PROPERTIES::FP_PROPS_RETVALUE retvalue;
 
-    // We use quasi modal to allow displaying help dialogs.
-    dlg.ShowQuasiModal();
-    DIALOG_FOOTPRINT_PROPERTIES::FP_PROPS_RETVALUE retvalue = dlg.GetReturnValue();
+    /*
+     * Make sure dlg is destroyed before GetCanvas->Refresh is called
+     * later or the refresh will try to modify its properties since
+     * they share a GL context.
+     */
+    {
+        DIALOG_FOOTPRINT_PROPERTIES dlg( this, aFootprint );
+
+        // We use quasi modal to allow displaying help dialogs.
+        dlg.ShowQuasiModal();
+        retvalue = dlg.GetReturnValue();
+    }
+
     /*
      * retvalue =
      *   FP_PROPS_UPDATE_FP to show Update Footprints dialog
@@ -1609,7 +1661,9 @@ void PCB_EDIT_FRAME::CommonSettingsChanged( bool aEnvVarsChanged, bool aTextVars
     try
     {
         drcTool->GetDRCEngine()->InitEngine( GetDesignRulesPath() );
-        infobar->Hide();
+
+        if( infobar->GetMessageType() == WX_INFOBAR::MESSAGE_TYPE::DRC_RULES_ERROR )
+            infobar->Dismiss();
     }
     catch( PARSE_ERROR& )
     {
@@ -1625,7 +1679,8 @@ void PCB_EDIT_FRAME::CommonSettingsChanged( bool aEnvVarsChanged, bool aTextVars
         infobar->RemoveAllButtons();
         infobar->AddButton( button );
         infobar->AddCloseButton();
-        infobar->ShowMessage( _( "Could not compile custom design rules." ), wxICON_ERROR );
+        infobar->ShowMessage( _( "Could not compile custom design rules." ), wxICON_ERROR,
+                              WX_INFOBAR::MESSAGE_TYPE::DRC_RULES_ERROR );
     }
 
     // Update the environment variables in the Python interpreter

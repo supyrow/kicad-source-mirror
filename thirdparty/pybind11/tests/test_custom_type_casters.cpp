@@ -18,7 +18,7 @@ class ArgAlwaysConverts { };
 namespace pybind11 { namespace detail {
 template <> struct type_caster<ArgInspector1> {
 public:
-    PYBIND11_TYPE_CASTER(ArgInspector1, _("ArgInspector1"));
+    PYBIND11_TYPE_CASTER(ArgInspector1, _x("ArgInspector1"));
 
     bool load(handle src, bool convert) {
         value.arg = "loading ArgInspector1 argument " +
@@ -33,7 +33,7 @@ public:
 };
 template <> struct type_caster<ArgInspector2> {
 public:
-    PYBIND11_TYPE_CASTER(ArgInspector2, _("ArgInspector2"));
+    PYBIND11_TYPE_CASTER(ArgInspector2, _x("ArgInspector2"));
 
     bool load(handle src, bool convert) {
         value.arg = "loading ArgInspector2 argument " +
@@ -48,7 +48,7 @@ public:
 };
 template <> struct type_caster<ArgAlwaysConverts> {
 public:
-    PYBIND11_TYPE_CASTER(ArgAlwaysConverts, _("ArgAlwaysConverts"));
+    PYBIND11_TYPE_CASTER(ArgAlwaysConverts, _x("ArgAlwaysConverts"));
 
     bool load(handle, bool convert) {
         return convert;
@@ -67,13 +67,16 @@ public:
     DestructionTester() { print_default_created(this); }
     ~DestructionTester() { print_destroyed(this); }
     DestructionTester(const DestructionTester &) { print_copy_created(this); }
-    DestructionTester(DestructionTester &&) { print_move_created(this); }
+    DestructionTester(DestructionTester &&) noexcept { print_move_created(this); }
     DestructionTester &operator=(const DestructionTester &) { print_copy_assigned(this); return *this; }
-    DestructionTester &operator=(DestructionTester &&) { print_move_assigned(this); return *this; }
+    DestructionTester &operator=(DestructionTester &&) noexcept {
+        print_move_assigned(this);
+        return *this;
+    }
 };
 namespace pybind11 { namespace detail {
 template <> struct type_caster<DestructionTester> {
-    PYBIND11_TYPE_CASTER(DestructionTester, _("DestructionTester"));
+    PYBIND11_TYPE_CASTER(DestructionTester, _x("DestructionTester"));
     bool load(handle, bool) { return true; }
 
     static handle cast(const DestructionTester &, return_value_policy, handle) {
@@ -94,7 +97,11 @@ TEST_SUBMODULE(custom_type_casters, m) {
     class ArgInspector {
     public:
         ArgInspector1 f(ArgInspector1 a, ArgAlwaysConverts) { return a; }
-        std::string g(ArgInspector1 a, const ArgInspector1 &b, int c, ArgInspector2 *d, ArgAlwaysConverts) {
+        std::string g(const ArgInspector1 &a,
+                      const ArgInspector1 &b,
+                      int c,
+                      ArgInspector2 *d,
+                      ArgAlwaysConverts) {
             return a.arg + "\n" + b.arg + "\n" + std::to_string(c) + "\n" + d->arg;
         }
         static ArgInspector2 h(ArgInspector2 a, ArgAlwaysConverts) { return a; }
@@ -106,8 +113,14 @@ TEST_SUBMODULE(custom_type_casters, m) {
         .def("g", &ArgInspector::g, "a"_a.noconvert(), "b"_a, "c"_a.noconvert()=13, "d"_a=ArgInspector2(), py::arg() = ArgAlwaysConverts())
         .def_static("h", &ArgInspector::h, py::arg{}.noconvert(), py::arg() = ArgAlwaysConverts())
         ;
-    m.def("arg_inspect_func", [](ArgInspector2 a, ArgInspector1 b, ArgAlwaysConverts) { return a.arg + "\n" + b.arg; },
-            py::arg{}.noconvert(false), py::arg_v(nullptr, ArgInspector1()).noconvert(true), py::arg() = ArgAlwaysConverts());
+    m.def(
+        "arg_inspect_func",
+        [](const ArgInspector2 &a, const ArgInspector1 &b, ArgAlwaysConverts) {
+            return a.arg + "\n" + b.arg;
+        },
+        py::arg{}.noconvert(false),
+        py::arg_v(nullptr, ArgInspector1()).noconvert(true),
+        py::arg() = ArgAlwaysConverts());
 
     m.def("floats_preferred", [](double f) { return 0.5 * f; }, "f"_a);
     m.def("floats_only", [](double f) { return 0.5 * f; }, "f"_a.noconvert());

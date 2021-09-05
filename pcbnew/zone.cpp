@@ -34,7 +34,7 @@
 #include <board_design_settings.h>
 #include <pad.h>
 #include <zone.h>
-#include <kicad_string.h>
+#include <string_utils.h>
 #include <math_for_graphics.h>
 #include <settings/color_settings.h>
 #include <settings/settings_manager.h>
@@ -196,7 +196,7 @@ bool ZONE::UnFill()
         pair.second.RemoveAllContours();
     }
 
-    for( std::pair<const PCB_LAYER_ID, ZONE_SEGMENT_FILL>& pair : m_FillSegmList )
+    for( std::pair<const PCB_LAYER_ID, std::vector<SEG> >& pair : m_FillSegmList )
     {
         change |= !pair.second.empty();
         pair.second.clear();
@@ -399,8 +399,8 @@ void ZONE::BuildHashValue( PCB_LAYER_ID aLayer )
 
 bool ZONE::HitTest( const wxPoint& aPosition, int aAccuracy ) const
 {
-    // Normally accuracy is zoom-relative, but for the generic HitTest we just use
-    // a fixed (small) value.
+    // When looking for an "exact" hit aAccuracy will be 0 which works poorly for very thin
+    // lines.  Give it a floor.
     int accuracy = std::max( aAccuracy, Millimeter2iu( 0.1 ) );
 
     return HitTestForCorner( aPosition, accuracy * 2 ) || HitTestForEdge( aPosition, accuracy );
@@ -668,8 +668,6 @@ void ZONE::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>&
 }
 
 
-/* Geometric transforms: */
-
 void ZONE::Move( const wxPoint& offset )
 {
     /* move outlines */
@@ -680,7 +678,7 @@ void ZONE::Move( const wxPoint& offset )
     for( std::pair<const PCB_LAYER_ID, SHAPE_POLY_SET>& pair : m_FilledPolysList )
         pair.second.Move( offset );
 
-    for( std::pair<const PCB_LAYER_ID, ZONE_SEGMENT_FILL>& pair : m_FillSegmList )
+    for( std::pair<const PCB_LAYER_ID, std::vector<SEG> >& pair : m_FillSegmList )
     {
         for( SEG& seg : pair.second )
         {
@@ -717,7 +715,7 @@ void ZONE::Rotate( const wxPoint& aCentre, double aAngle )
     for( std::pair<const PCB_LAYER_ID, SHAPE_POLY_SET>& pair : m_FilledPolysList )
         pair.second.Rotate( aAngle, VECTOR2I( aCentre ) );
 
-    for( std::pair<const PCB_LAYER_ID, ZONE_SEGMENT_FILL>& pair : m_FillSegmList )
+    for( std::pair<const PCB_LAYER_ID, std::vector<SEG> >& pair : m_FillSegmList )
     {
         for( SEG& seg : pair.second )
         {
@@ -754,7 +752,7 @@ void ZONE::Mirror( const wxPoint& aMirrorRef, bool aMirrorLeftRight )
     for( std::pair<const PCB_LAYER_ID, SHAPE_POLY_SET>& pair : m_FilledPolysList )
         pair.second.Mirror( aMirrorLeftRight, !aMirrorLeftRight, VECTOR2I( aMirrorRef ) );
 
-    for( std::pair<const PCB_LAYER_ID, ZONE_SEGMENT_FILL>& pair : m_FillSegmList )
+    for( std::pair<const PCB_LAYER_ID, std::vector<SEG> >& pair : m_FillSegmList )
     {
         for( SEG& seg : pair.second )
         {
@@ -775,7 +773,7 @@ void ZONE::Mirror( const wxPoint& aMirrorRef, bool aMirrorLeftRight )
 
 ZONE_CONNECTION ZONE::GetPadConnection( PAD* aPad, wxString* aSource ) const
 {
-    if( aPad == NULL || aPad->GetEffectiveZoneConnection() == ZONE_CONNECTION::INHERITED )
+    if( aPad == nullptr || aPad->GetEffectiveZoneConnection() == ZONE_CONNECTION::INHERITED )
     {
         if( aSource )
             *aSource = _( "zone" );
@@ -1014,27 +1012,25 @@ void ZONE::HatchBorder()
         // Iterate through all vertices
         for( auto iterator = m_Poly->IterateSegmentsWithHoles(); iterator; iterator++ )
         {
-            double  x, y;
-            bool    ok;
+            double x, y;
+            bool   ok;
 
             SEG segment = *iterator;
 
-            ok = FindLineSegmentIntersection( a, slope,
-                                              segment.A.x, segment.A.y,
-                                              segment.B.x, segment.B.y,
-                                              x, y );
+            ok = FindLineSegmentIntersection( a, slope, segment.A.x, segment.A.y, segment.B.x,
+                                              segment.B.y, x, y );
 
-              if( ok )
-              {
-                  VECTOR2I point( KiROUND( x ), KiROUND( y ) );
-                  pointbuffer.push_back( point );
-              }
+            if( ok )
+            {
+                VECTOR2I point( KiROUND( x ), KiROUND( y ) );
+                pointbuffer.push_back( point );
+            }
 
-              if( pointbuffer.size() >= MAXPTS )    // overflow
-              {
-                  wxASSERT( 0 );
-                  break;
-              }
+            if( pointbuffer.size() >= MAXPTS ) // overflow
+            {
+                wxASSERT( 0 );
+                break;
+            }
         }
 
         // ensure we have found an even intersection points count
@@ -1173,16 +1169,21 @@ bool ZONE::BuildSmoothedPoly( SHAPE_POLY_SET& aSmoothedPoly, PCB_LAYER_ID aLayer
     if( GetNumCorners() <= 2 )  // malformed zone. polygon calculations will not like it ...
         return false;
 
+    // Processing of arc shapes in zones is not yet supported because Clipper can't do boolean
+    // operations on them.  The poly outline must be flattened first.
+    SHAPE_POLY_SET flattened = *m_Poly;
+    flattened.ClearArcs();
+
     if( GetIsRuleArea() )
     {
         // We like keepouts just the way they are....
-        aSmoothedPoly = *m_Poly;
+        aSmoothedPoly = flattened;
         return true;
     }
 
-    BOARD* board = GetBoard();
-    int    maxError = ARC_HIGH_DEF;
-    bool   keepExternalFillets = false;
+    const BOARD* board = GetBoard();
+    int          maxError = ARC_HIGH_DEF;
+    bool         keepExternalFillets = false;
 
     if( board )
     {
@@ -1214,24 +1215,28 @@ bool ZONE::BuildSmoothedPoly( SHAPE_POLY_SET& aSmoothedPoly, PCB_LAYER_ID aLayer
     std::vector<ZONE*> interactingZones;
     GetInteractingZones( aLayer, &interactingZones );
 
-    SHAPE_POLY_SET* maxExtents = m_Poly;
+    SHAPE_POLY_SET* maxExtents = &flattened;
     SHAPE_POLY_SET  withFillets;
 
-    aSmoothedPoly = *m_Poly;
+    aSmoothedPoly = flattened;
 
     // Should external fillets (that is, those applied to concave corners) be kept?  While it
     // seems safer to never have copper extend outside the zone outline, 5.1.x and prior did
     // indeed fill them so we leave the mode available.
     if( keepExternalFillets )
     {
-        withFillets = *m_Poly;
+        withFillets = flattened;
         smooth( withFillets );
-        withFillets.BooleanAdd( *m_Poly, SHAPE_POLY_SET::PM_FAST );
+        withFillets.BooleanAdd( flattened, SHAPE_POLY_SET::PM_FAST );
         maxExtents = &withFillets;
     }
 
     for( ZONE* zone : interactingZones )
-        aSmoothedPoly.BooleanAdd( *zone->Outline(), SHAPE_POLY_SET::PM_FAST );
+    {
+        SHAPE_POLY_SET flattened_outline = *zone->Outline();
+        flattened_outline.ClearArcs();
+        aSmoothedPoly.BooleanAdd( flattened_outline, SHAPE_POLY_SET::PM_FAST );
+    }
 
     if( aBoardOutline )
     {
@@ -1289,8 +1294,8 @@ void ZONE::TransformSmoothedOutlineToPolygon( SHAPE_POLY_SET& aCornerBuffer, int
     // holes are linked to the main outline, so only one polygon is created.
     if( aClearance )
     {
-        BOARD* board = GetBoard();
-        int maxError = ARC_HIGH_DEF;
+        const BOARD* board = GetBoard();
+        int          maxError = ARC_HIGH_DEF;
 
         if( board )
             maxError = board->GetDesignSettings().m_MaxError;
@@ -1318,9 +1323,6 @@ bool ZONE::KeepoutAll() const
 }
 
 
-//
-/********* FP_ZONE **************/
-//
 FP_ZONE::FP_ZONE( BOARD_ITEM_CONTAINER* aParent ) :
         ZONE( aParent, true )
 {

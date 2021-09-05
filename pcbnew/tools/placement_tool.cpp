@@ -2,6 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2014-2016 CERN
+ * Copyright (C) 2021 KiCad Developers, see AUTHORS.txt for contributors.
  * @author Maciej Suminski <maciej.suminski@cern.ch>
  *
  * This program is free software; you can redistribute it and/or
@@ -39,8 +40,10 @@
 
 
 ALIGN_DISTRIBUTE_TOOL::ALIGN_DISTRIBUTE_TOOL() :
-    TOOL_INTERACTIVE( "pcbnew.Placement" ), m_selectionTool( NULL ), m_placementMenu( NULL ),
-    m_frame( NULL )
+    TOOL_INTERACTIVE( "pcbnew.Placement" ),
+    m_selectionTool( nullptr ),
+    m_placementMenu( nullptr ),
+    m_frame( nullptr )
 {
 }
 
@@ -161,12 +164,12 @@ size_t ALIGN_DISTRIBUTE_TOOL::GetSelections( ALIGNMENT_RECTS& aItemsToAlign,
     {
         BOARD_ITEM* boardItem = static_cast<BOARD_ITEM*>( item );
 
-        if( boardItem->IsLocked() )
+        // We do not lock items in the footprint editor
+        if( boardItem->IsLocked() && m_frame->IsType( FRAME_PCB_EDITOR ) )
         {
             // Locking a pad but not the footprint means that we align the footprint using
             // the pad position.  So we test for footprint locking here
-            if( m_frame->IsType( FRAME_PCB_EDITOR ) && boardItem->Type() == PCB_PAD_T
-                    && !boardItem->GetParent()->IsLocked() )
+            if( boardItem->Type() == PCB_PAD_T && !boardItem->GetParent()->IsLocked() )
             {
                 itemsToAlign.push_back( boardItem );
             }
@@ -751,6 +754,8 @@ void ALIGN_DISTRIBUTE_TOOL::setTransitions()
     Go( &ALIGN_DISTRIBUTE_TOOL::AlignCenterX,           PCB_ACTIONS::alignCenterX.MakeEvent() );
     Go( &ALIGN_DISTRIBUTE_TOOL::AlignCenterY,           PCB_ACTIONS::alignCenterY.MakeEvent() );
 
-    Go( &ALIGN_DISTRIBUTE_TOOL::DistributeHorizontally, PCB_ACTIONS::distributeHorizontally.MakeEvent() );
-    Go( &ALIGN_DISTRIBUTE_TOOL::DistributeVertically,   PCB_ACTIONS::distributeVertically.MakeEvent() );
+    Go( &ALIGN_DISTRIBUTE_TOOL::DistributeHorizontally,
+        PCB_ACTIONS::distributeHorizontally.MakeEvent() );
+    Go( &ALIGN_DISTRIBUTE_TOOL::DistributeVertically,
+        PCB_ACTIONS::distributeVertically.MakeEvent() );
 }

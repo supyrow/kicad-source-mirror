@@ -24,7 +24,7 @@
 
 #include <base_units.h>
 #include <bitmaps.h>
-#include <class_library.h>
+#include <symbol_library.h>
 #include <confirm.h>
 #include <connection_graph.h>
 #include <dialogs/dialog_schematic_find.h>
@@ -34,7 +34,7 @@
 #include <hierarch.h>
 #include <dialogs/html_messagebox.h>
 #include <invoke_sch_dialog.h>
-#include <kicad_string.h>
+#include <string_utils.h>
 #include <kiface_i.h>
 #include <kiplatform/app.h>
 #include <kiway.h>
@@ -45,6 +45,7 @@
 #include <project.h>
 #include <project/project_file.h>
 #include <project/net_settings.h>
+#include <python_scripting.h>
 #include <sch_edit_frame.h>
 #include <sch_painter.h>
 #include <sch_sheet.h>
@@ -94,8 +95,6 @@ static void add_search_paths( SEARCH_STACK* aDst, const SEARCH_STACK& aSrc, int 
 }
 
 
-//-----<SCH "data on demand" functions>-------------------------------------------
-
 SEARCH_STACK* PROJECT::SchSearchS()
 {
     SEARCH_STACK* ss = (SEARCH_STACK*) GetElem( PROJECT::ELEM_SCH_SEARCH_STACK );
@@ -117,7 +116,7 @@ SEARCH_STACK* PROJECT::SchSearchS()
 
         try
         {
-            PART_LIBS::LibNamesAndPaths( this, false, &libDir );
+            SYMBOL_LIBS::LibNamesAndPaths( this, false, &libDir );
         }
         catch( const IO_ERROR& )
         {
@@ -145,18 +144,18 @@ SEARCH_STACK* PROJECT::SchSearchS()
 }
 
 
-PART_LIBS* PROJECT::SchLibs()
+SYMBOL_LIBS* PROJECT::SchLibs()
 {
-    PART_LIBS* libs = (PART_LIBS*) GetElem( PROJECT::ELEM_SCH_PART_LIBS );
+    SYMBOL_LIBS* libs = (SYMBOL_LIBS*) GetElem( PROJECT::ELEM_SCH_SYMBOL_LIBS );
 
-    wxASSERT( !libs || libs->Type() == PART_LIBS_T );
+    wxASSERT( !libs || libs->Type() == SYMBOL_LIBS_T );
 
     if( !libs )
     {
-        libs = new PART_LIBS();
+        libs = new SYMBOL_LIBS();
 
-        // Make PROJECT the new PART_LIBS owner.
-        SetElem( PROJECT::ELEM_SCH_PART_LIBS, libs );
+        // Make PROJECT the new SYMBOL_LIBS owner.
+        SetElem( PROJECT::ELEM_SCH_SYMBOL_LIBS, libs );
 
         try
         {
@@ -188,8 +187,6 @@ PART_LIBS* PROJECT::SchLibs()
 
     return libs;
 }
-
-//-----</SCH "data on demand" functions>------------------------------------------
 
 
 BEGIN_EVENT_TABLE( SCH_EDIT_FRAME, EDA_DRAW_FRAME )
@@ -241,11 +238,8 @@ SCH_EDIT_FRAME::SCH_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
 
     LoadSettings( eeconfig() );
 
-    // Also links the schematic to the loaded project
+    // NB: also links the schematic to the loaded project
     CreateScreens();
-
-    // After schematic has been linked to project, SCHEMATIC_SETTINGS works
-    m_defaults = &m_schematic->Settings();
 
     setupTools();
     setupUIConditions();
@@ -325,7 +319,7 @@ SCH_EDIT_FRAME::~SCH_EDIT_FRAME()
 
     delete m_item_to_repeat;        // we own the cloned object, see this->SaveCopyForRepeatItem()
 
-    SetScreen( NULL );
+    SetScreen( nullptr );
 
     delete m_schematic;
     m_schematic = nullptr;
@@ -392,7 +386,8 @@ void SCH_EDIT_FRAME::setupUIConditions()
 
     mgr->SetConditions( ACTIONS::toggleGrid,          CHECK( cond.GridVisible() ) );
     mgr->SetConditions( ACTIONS::toggleCursorStyle,   CHECK( cond.FullscreenCursor() ) );
-    mgr->SetConditions( ACTIONS::millimetersUnits,    CHECK( cond.Units( EDA_UNITS::MILLIMETRES ) ) );
+    mgr->SetConditions( ACTIONS::millimetersUnits,
+                        CHECK( cond.Units( EDA_UNITS::MILLIMETRES ) ) );
     mgr->SetConditions( ACTIONS::inchesUnits,         CHECK( cond.Units( EDA_UNITS::INCHES ) ) );
     mgr->SetConditions( ACTIONS::milsUnits,           CHECK( cond.Units( EDA_UNITS::MILS ) ) );
 
@@ -409,8 +404,14 @@ void SCH_EDIT_FRAME::setupUIConditions()
     mgr->SetConditions( EE_ACTIONS::mirrorH,          ENABLE( hasElements ) );
     mgr->SetConditions( EE_ACTIONS::mirrorV,          ENABLE( hasElements ) );
 
-    mgr->SetConditions( ACTIONS::zoomTool,            CHECK( cond.CurrentTool( ACTIONS::zoomTool ) ) );
-    mgr->SetConditions( ACTIONS::selectionTool,       CHECK( cond.CurrentTool( ACTIONS::selectionTool ) ) );
+    mgr->SetConditions( ACTIONS::zoomTool,
+                        CHECK( cond.CurrentTool( ACTIONS::zoomTool ) ) );
+    mgr->SetConditions( ACTIONS::selectionTool,
+                        CHECK( cond.CurrentTool( ACTIONS::selectionTool ) ) );
+
+    if( SCRIPTING::IsWxAvailable() )
+        mgr->SetConditions( EE_ACTIONS::showPythonConsole,
+                            CHECK( cond.ScriptingConsoleVisible() ) );
 
     auto showHiddenPinsCond =
         [this] ( const SELECTION& )
@@ -482,6 +483,7 @@ void SCH_EDIT_FRAME::SaveCopyForRepeatItem( const SCH_ITEM* aItem )
         delete m_item_to_repeat;
 
         m_item_to_repeat = (SCH_ITEM*) aItem->Clone();
+
         // Clone() preserves the flags, we want 'em cleared.
         m_item_to_repeat->ClearFlags();
     }
@@ -514,7 +516,7 @@ void SCH_EDIT_FRAME::SetSheetNumberAndCount()
         sheet_number++;                          // Not found, increment before this current path
     }
 
-    for( screen = s_list.GetFirst(); screen != NULL; screen = s_list.GetNext() )
+    for( screen = s_list.GetFirst(); screen != nullptr; screen = s_list.GetNext() )
         screen->SetPageCount( sheet_count );
 
     GetCurrentSheet().SetVirtualPageNumber( sheet_number );
@@ -550,8 +552,6 @@ void SCH_EDIT_FRAME::CreateScreens()
 
     m_schematic->SetRoot( new SCH_SHEET( m_schematic ) );
 
-    m_defaults = &m_schematic->Settings();
-
     SCH_SCREEN* rootScreen = new SCH_SCREEN( m_schematic );
     m_schematic->Root().SetScreen( rootScreen );
     SetScreen( Schematic().RootScreen() );
@@ -565,7 +565,7 @@ void SCH_EDIT_FRAME::CreateScreens()
     m_schematic->Root().AddInstance( rootSheetPath.Path() );
     m_schematic->Root().SetPageNumber( rootSheetPath, wxT( "1" ) );
 
-    if( GetScreen() == NULL )
+    if( GetScreen() == nullptr )
     {
         SCH_SCREEN* screen = new SCH_SCREEN( m_schematic );
         SetScreen( screen );
@@ -649,7 +649,7 @@ bool SCH_EDIT_FRAME::canCloseWindow( wxCloseEvent& aEvent )
     if( sheetlist.IsModified() )
     {
         wxFileName fileName = Schematic().RootScreen()->GetFileName();
-        wxString msg = _( "Save changes to \"%s\" before closing?" );
+        wxString msg = _( "Save changes to '%s' before closing?" );
 
         if( !HandleUnsavedChanges( this, wxString::Format( msg, fileName.GetFullName() ),
                                    [&]()->bool { return SaveProject(); } ) )
@@ -672,7 +672,7 @@ void SCH_EDIT_FRAME::doCloseWindow()
 
     RecordERCExclusions();
 
-    // Close the find dialog and preserve it's setting if it is displayed.
+    // Close the find dialog and preserve its setting if it is displayed.
     if( m_findReplaceDialog )
     {
         m_findStringHistoryList = m_findReplaceDialog->GetFindEntries();
@@ -691,7 +691,7 @@ void SCH_EDIT_FRAME::doCloseWindow()
     SCH_SCREENS screens( Schematic().Root() );
     wxFileName fn;
 
-    for( SCH_SCREEN* screen = screens.GetFirst(); screen != NULL; screen = screens.GetNext() )
+    for( SCH_SCREEN* screen = screens.GetFirst(); screen != nullptr; screen = screens.GetNext() )
     {
         fn = Prj().AbsolutePath( screen->GetFileName() );
 
@@ -788,21 +788,6 @@ void SCH_EDIT_FRAME::OnModify()
     if( ADVANCED_CFG::GetCfg().m_RealTimeConnectivity && CONNECTION_GRAPH::m_allowRealTime )
         RecalculateConnections( NO_CLEANUP );
 
-    GetCanvas()->GetView()->UpdateAllItemsConditionally( KIGFX::REPAINT,
-            []( KIGFX::VIEW_ITEM* aItem )
-            {
-                SCH_ITEM* item = dynamic_cast<SCH_ITEM*>( aItem );
-                SCH_CONNECTION* connection = item ? item->Connection() : nullptr;
-
-                if( connection && connection->HasDriverChanged() )
-                {
-                    connection->ClearDriverChanged();
-                    return true;
-                }
-
-                return false;
-            } );
-
     GetCanvas()->Refresh();
     UpdateHierarchyNavigator();
 
@@ -843,18 +828,6 @@ void SCH_EDIT_FRAME::OnUpdatePCB( wxCommandEvent& event )
 
     std::string payload;
     Kiway().ExpressMail( FRAME_PCB_EDITOR, MAIL_PCB_UPDATE, payload, this );
-}
-
-
-wxFindReplaceData* SCH_EDIT_FRAME::GetFindReplaceData()
-{
-    if( m_findReplaceDialog && m_findReplaceDialog->IsVisible()
-            && !m_findReplaceData->GetFindString().IsEmpty() )
-    {
-        return m_findReplaceData;
-    }
-
-    return nullptr;
 }
 
 
@@ -958,7 +931,7 @@ void SCH_EDIT_FRAME::NewProject()
         if( create_me.FileExists() )
         {
             wxString msg;
-            msg.Printf( _( "Schematic file \"%s\" already exists." ), create_me.GetFullName() );
+            msg.Printf( _( "Schematic file '%s' already exists." ), create_me.GetFullName() );
             DisplayError( this, msg );
             return ;
         }
@@ -1156,7 +1129,7 @@ static void inheritNetclass( const SCH_SHEET_PATH& aSheetPath, SCH_TEXT* aItem )
 void SCH_EDIT_FRAME::AddItemToScreenAndUndoList( SCH_SCREEN* aScreen, SCH_ITEM* aItem,
                                                  bool aUndoAppend )
 {
-    wxCHECK_RET( aItem != NULL, wxT( "Cannot add null item to list." ) );
+    wxCHECK_RET( aItem != nullptr, wxT( "Cannot add null item to list." ) );
 
     SCH_SHEET*  parentSheet = nullptr;
     SCH_SYMBOL* parentSymbol = nullptr;
@@ -1249,11 +1222,7 @@ void SCH_EDIT_FRAME::UpdateTitle()
 {
     wxString title;
 
-    if( GetScreen()->GetFileName().IsEmpty() )
-    {
-        title = _( "[no file]" ) + wxT( " \u2014 " ) + _( "Schematic Editor" );
-    }
-    else
+    if( !GetScreen()->GetFileName().IsEmpty() )
     {
         wxFileName fn( Prj().AbsolutePath( GetScreen()->GetFileName() ) );
         bool       readOnly = false;
@@ -1264,13 +1233,24 @@ void SCH_EDIT_FRAME::UpdateTitle()
         else
             unsaved = true;
 
-        title.Printf( wxT( "%s%s [%s] %s%s\u2014 " ) + _( "Schematic Editor" ),
-                      IsContentModified() ? "*" : "",
-                      fn.GetName(),
-                      GetCurrentSheet().PathHumanReadable( false ),
-                      readOnly ? _( "[Read Only]" ) + wxS( " " ) : "",
-                      unsaved ? _( "[Unsaved]" ) + wxS( " " ) : "" );
+        if( IsContentModified() )
+            title = wxT( "*" );
+
+        title += fn.GetName();
+        title += wxString::Format( wxT( " [%s]" ), GetCurrentSheet().PathHumanReadable( false ) );
+
+        if( readOnly )
+            title += wxS( " " ) + _( "[Read Only]" );
+
+        if( unsaved )
+            title += wxS( " " ) +  _( "[Unsaved]" );
     }
+    else
+    {
+        title = _( "[no schematic loaded]" );
+    }
+
+    title += wxT( " \u2014 " ) + _( "Schematic Editor" );
 
     SetTitle( title );
 }
@@ -1285,6 +1265,13 @@ void SCH_EDIT_FRAME::initScreenZoom()
 
 void SCH_EDIT_FRAME::RecalculateConnections( SCH_CLEANUP_FLAGS aCleanupFlags )
 {
+    const SCH_CONNECTION* highlight       = GetHighlightedConnection();
+    SCH_ITEM*             highlightedItem = highlight ? highlight->Parent() : nullptr;
+    SCH_SHEET_PATH highlightPath;
+
+    if( highlight )
+        highlightPath = highlight->Sheet();
+
     SCHEMATIC_SETTINGS& settings = Schematic().Settings();
     SCH_SHEET_LIST      list = Schematic().GetSheets();
 #ifdef PROFILE
@@ -1317,6 +1304,29 @@ void SCH_EDIT_FRAME::RecalculateConnections( SCH_CLEANUP_FLAGS aCleanupFlags )
             };
 
     Schematic().ConnectionGraph()->Recalculate( list, true, &changeHandler );
+
+    GetCanvas()->GetView()->UpdateAllItemsConditionally( KIGFX::REPAINT,
+            []( KIGFX::VIEW_ITEM* aItem )
+            {
+                SCH_ITEM* item = dynamic_cast<SCH_ITEM*>( aItem );
+                SCH_CONNECTION* connection = item ? item->Connection() : nullptr;
+
+                if( connection && connection->HasDriverChanged() )
+                {
+                    connection->ClearDriverChanged();
+                    return true;
+                }
+
+                EDA_TEXT* text = dynamic_cast<EDA_TEXT*>( aItem );
+
+                if( text && text->HasTextVars() )
+                    return true;
+
+                return false;
+            } );
+
+    if( highlightedItem )
+        SetHighlightedConnection( highlightedItem->Connection( &highlightPath ) );
 }
 
 
@@ -1330,7 +1340,7 @@ void SCH_EDIT_FRAME::RecomputeIntersheetRefs()
     std::vector<wxString> pageNumbers;
 
     /* Iterate over screens */
-    for( SCH_SCREEN* screen = screens.GetFirst(); screen != NULL; screen = screens.GetNext() )
+    for( SCH_SCREEN* screen = screens.GetFirst(); screen != nullptr; screen = screens.GetNext() )
     {
         pageNumbers.clear();
 

@@ -192,8 +192,8 @@ void GERBER_FILE_IMAGE::ResetDefaultValues()
     m_Offset.x = 0;
     m_Offset.y = 0;                                 // Coord Offset, from OF command
     m_Scale.x  = m_Scale.y = 1.0;                   // scale (A and B) this layer
-    m_MirrorA  = false;                             // true: miror / axe A (default = X)
-    m_MirrorB  = false;                             // true: miror / axe B (default = Y)
+    m_MirrorA  = false;                             // true: mirror / axe A (default = X)
+    m_MirrorB  = false;                             // true: mirror / axe B (default = Y)
     m_SwapAxis = false;                             // false if A = X, B = Y; true if A =Y, B = Y
     m_Has_DCode = false;                            // true = DCodes in file
                                                     // false = no DCode-> perhaps deprecated RS274D file
@@ -203,7 +203,7 @@ void GERBER_FILE_IMAGE::ResetDefaultValues()
     m_FmtLen.x   = m_FmtLen.y = 3 + 4;              // Initialize default format len = 3+4
 
     m_Iterpolation = GERB_INTERPOL_LINEAR_1X;       // Linear, 90 arc, Circ.
-    m_360Arc_enbl  = false;                         // 360 deg circular
+    m_360Arc_enbl  = true;                          // 360 deg circular mode (G75) selected as default
                                                     // interpolation disable
     m_AsArcG74G75Cmd = false;                       // false until a G74 or G75 command is found
     m_Current_Tool = 0;                             // Current Dcode selected

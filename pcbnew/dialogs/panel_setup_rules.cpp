@@ -29,7 +29,7 @@
 #include <board.h>
 #include <board_design_settings.h>
 #include <project.h>
-#include <kicad_string.h>
+#include <string_utils.h>
 #include <tool/tool_manager.h>
 #include <panel_setup_rules.h>
 #include <wx_html_report_box.h>
@@ -38,7 +38,6 @@
 #include <scintilla_tricks.h>
 #include <drc/drc_rule_parser.h>
 #include <tools/drc_tool.h>
-#include <dialog_helpers.h>
 
 PANEL_SETUP_RULES::PANEL_SETUP_RULES( PAGED_DIALOG* aParent, PCB_EDIT_FRAME* aFrame ) :
         PANEL_SETUP_RULES_BASE( aParent->GetTreebook() ),
@@ -47,13 +46,11 @@ PANEL_SETUP_RULES::PANEL_SETUP_RULES( PAGED_DIALOG* aParent, PCB_EDIT_FRAME* aFr
         m_scintillaTricks( nullptr ),
         m_helpWindow( nullptr )
 {
-    m_scintillaTricks = new SCINTILLA_TRICKS( m_textEditor, wxT( "()" ) );
-
-    int    size = wxNORMAL_FONT->GetPointSize();
-    wxFont fixedFont( size, wxFONTFAMILY_TELETYPE, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL );
-
-    for( size_t i = 0; i < wxSTC_STYLE_MAX; ++i )
-        m_textEditor->StyleSetFont( i, fixedFont );
+    m_scintillaTricks = new SCINTILLA_TRICKS( m_textEditor, wxT( "()" ), false,
+            [this]()
+            {
+                wxPostEvent( m_Parent, wxCommandEvent( wxEVT_COMMAND_BUTTON_CLICKED, wxID_OK ) );
+            } );
 
     m_netClassRegex.Compile( "NetClass\\s*[!=]=\\s*$", wxRE_ADVANCED );
     m_netNameRegex.Compile( "NetName\\s*[!=]=\\s*$", wxRE_ADVANCED );
@@ -245,7 +242,7 @@ void PANEL_SETUP_RULES::onScintillaCharAdded( wxStyledTextEvent &aEvent )
         }
         else if( sexprs.top() == "constraint" )
         {
-            tokens = "annulus_width "
+            tokens = "annular_width "
                      "clearance "
                      "courtyard_clearance "
                      "diff_pair_gap "
@@ -253,13 +250,14 @@ void PANEL_SETUP_RULES::onScintillaCharAdded( wxStyledTextEvent &aEvent )
                      "disallow "
                      "edge_clearance "
                      "length "
-                     "hole "
                      "hole_clearance "
+                     "hole_size "
                      "hole_to_hole "
                      "silk_clearance "
                      "skew "
                      "track_width "
-                     "via_count ";
+                     "via_count "
+                     "via_diameter";
         }
         else if( sexprs.top() == "disallow"
               || sexprs.top() == "buried_via"

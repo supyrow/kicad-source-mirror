@@ -148,6 +148,9 @@ void BOARD_ADAPTER::createLayers( REPORTER* aStatusReporter )
     m_holeCount                = 0;
     m_averageHoleDiameter      = 0;
 
+    if( !m_board )
+        return;
+
     // Prepare track list, convert in a vector. Calc statistic for the holes
     std::vector<const PCB_TRACK*> trackList;
     trackList.clear();
@@ -683,19 +686,24 @@ void BOARD_ADAPTER::createLayers( REPORTER* aStatusReporter )
         if( aStatusReporter )
             aStatusReporter->Report( _( "Create zones" ) );
 
-        std::vector<std::pair<const ZONE*, PCB_LAYER_ID>> zones;
+        std::vector<std::pair<ZONE*, PCB_LAYER_ID>> zones;
+        std::unordered_map<PCB_LAYER_ID, std::unique_ptr<std::mutex>> layer_lock;
 
         for( ZONE* zone : m_board->Zones() )
         {
             for( PCB_LAYER_ID layer : zone->GetLayerSet().Seq() )
+            {
                 zones.emplace_back( std::make_pair( zone, layer ) );
+                layer_lock.emplace( layer, std::make_unique<std::mutex>() );
+            }
         }
 
         // Add zones objects
         std::atomic<size_t> nextZone( 0 );
         std::atomic<size_t> threadsFinished( 0 );
 
-        size_t parallelThreadCount = std::max<size_t>( std::thread::hardware_concurrency(), 2 );
+        size_t parallelThreadCount = std::min<size_t>( zones.size(),
+                std::max<size_t>( std::thread::hardware_concurrency(), 2 ) );
 
         for( size_t ii = 0; ii < parallelThreadCount; ++ii )
         {
@@ -705,7 +713,7 @@ void BOARD_ADAPTER::createLayers( REPORTER* aStatusReporter )
                             areaId < zones.size();
                             areaId = nextZone.fetch_add( 1 ) )
                 {
-                    const ZONE* zone = zones[areaId].first;
+                    ZONE* zone = zones[areaId].first;
 
                     if( zone == nullptr )
                         break;
@@ -713,9 +721,22 @@ void BOARD_ADAPTER::createLayers( REPORTER* aStatusReporter )
                     PCB_LAYER_ID layer = zones[areaId].second;
 
                     auto layerContainer = m_layerMap.find( layer );
+                    auto layerPolyContainer = m_layers_poly.find( layer );
 
                     if( layerContainer != m_layerMap.end() )
+                    {
                         addSolidAreasShapes( zone, layerContainer->second, layer );
+                    }
+
+                    if( GetFlag( FL_RENDER_OPENGL_COPPER_THICKNESS )
+                      && ( m_renderEngine == RENDER_ENGINE::OPENGL_LEGACY )
+                      && layerPolyContainer != m_layers_poly.end() )
+                    {
+                        auto mut_it = layer_lock.find( layer );
+
+                        std::lock_guard< std::mutex > lock( *( mut_it->second ) );
+                        zone->TransformSolidAreasShapesToPolygon( layer, *layerPolyContainer->second );
+                    }
                 }
 
                 threadsFinished++;
@@ -727,25 +748,6 @@ void BOARD_ADAPTER::createLayers( REPORTER* aStatusReporter )
         while( threadsFinished < parallelThreadCount )
             std::this_thread::sleep_for( std::chrono::milliseconds( 10 ) );
 
-    }
-
-    if( GetFlag( FL_ZONE ) && GetFlag( FL_RENDER_OPENGL_COPPER_THICKNESS )
-      && ( m_renderEngine == RENDER_ENGINE::OPENGL_LEGACY ) )
-    {
-        // Add copper zones
-        for( ZONE* zone : m_board->Zones() )
-        {
-            if( zone == nullptr )
-                break;
-
-            for( PCB_LAYER_ID layer : zone->GetLayerSet().Seq() )
-            {
-                auto layerContainer = m_layers_poly.find( layer );
-
-                if( layerContainer != m_layers_poly.end() )
-                    zone->TransformSolidAreasShapesToPolygon( layer, *layerContainer->second );
-            }
-        }
     }
 
     // Simplify layer polygons
@@ -760,14 +762,20 @@ void BOARD_ADAPTER::createLayers( REPORTER* aStatusReporter )
         {
             if( m_frontPlatedPadPolys && ( m_layers_poly.find( F_Cu ) != m_layers_poly.end() ) )
             {
+                if( aStatusReporter )
+                    aStatusReporter->Report( _( "Simplifying polygons on F_Cu" ) );
+
                 SHAPE_POLY_SET *layerPoly_F_Cu = m_layers_poly[F_Cu];
                 layerPoly_F_Cu->BooleanSubtract( *m_frontPlatedPadPolys, SHAPE_POLY_SET::PM_FAST );
 
-                m_frontPlatedPadPolys->Simplify( SHAPE_POLY_SET::PM_FAST );
+                 m_frontPlatedPadPolys->Simplify( SHAPE_POLY_SET::PM_FAST );
             }
 
             if( m_backPlatedPadPolys && ( m_layers_poly.find( B_Cu ) != m_layers_poly.end() ) )
             {
+                if( aStatusReporter )
+                    aStatusReporter->Report( _( "Simplifying polygons on B_Cu" ) );
+
                 SHAPE_POLY_SET *layerPoly_B_Cu = m_layers_poly[B_Cu];
                 layerPoly_B_Cu->BooleanSubtract( *m_backPlatedPadPolys, SHAPE_POLY_SET::PM_FAST );
 
@@ -794,6 +802,11 @@ void BOARD_ADAPTER::createLayers( REPORTER* aStatusReporter )
 
         if( selected_layer_id.size() > 0 )
         {
+            if( aStatusReporter )
+                aStatusReporter->Report( wxString::Format(
+                                         _( "Simplifying %d copper layers" ),
+                                         (int)selected_layer_id.size() ) );
+
             std::atomic<size_t> nextItem( 0 );
             std::atomic<size_t> threadsFinished( 0 );
 
@@ -890,6 +903,10 @@ void BOARD_ADAPTER::createLayers( REPORTER* aStatusReporter )
 
         if( !Is3dLayerEnabled( curr_layer_id ) )
             continue;
+
+        if( aStatusReporter )
+            aStatusReporter->Report( wxString::Format(
+                                     _( "Build Tech layer %d" ), (int)curr_layer_id ) );
 
         BVH_CONTAINER_2D *layerContainer = new BVH_CONTAINER_2D;
         m_layerMap[curr_layer_id] = layerContainer;

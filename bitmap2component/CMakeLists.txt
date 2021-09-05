@@ -40,7 +40,7 @@ if( APPLE )
         MACOSX_PACKAGE_LOCATION Resources
         )
     set( MACOSX_BUNDLE_ICON_FILE bitmap2component.icns )
-    set( MACOSX_BUNDLE_GUI_IDENTIFIER org.kicad-pcb.kicad )
+    set( MACOSX_BUNDLE_GUI_IDENTIFIER org.kicad.kicad )
     set( MACOSX_BUNDLE_NAME bitmap2component )
 endif()
 
@@ -85,6 +85,10 @@ else()
         )
 endif()
 
+if( KICAD_WIN32_INSTALL_PDBS )
+    # Get the PDBs to copy over for MSVC
+    install(FILES $<TARGET_PDB_FILE:bitmap2component> DESTINATION ${KICAD_BIN})
+endif()
 
 if( false )     # linker map with cross reference
     set_target_properties( bitmap2component PROPERTIES

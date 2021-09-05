@@ -25,12 +25,12 @@
 #define PANEL_3D_COLORS_H
 
 #include "panel_3D_colors_base.h"
-#include <3d_viewer/eda_3d_viewer.h>
+#include <3d_viewer/eda_3d_viewer_frame.h>
 
 class PANEL_3D_COLORS : public PANEL_3D_COLORS_BASE
 {
 public:
-    explicit PANEL_3D_COLORS( EDA_3D_VIEWER* aFrame, wxWindow* aParent );
+    explicit PANEL_3D_COLORS( EDA_3D_VIEWER_FRAME* aFrame, wxWindow* aParent );
 
     /// Automatically called when clicking on the OK button
     bool TransferDataFromWindow() override;
@@ -38,16 +38,8 @@ public:
     /// Automatically called after creating the dialog
     bool TransferDataToWindow() override;
 
-    void OnLoadColorsFromBoardStackup( wxCommandEvent& event ) override;
-
 private:
-    BOARD_ADAPTER&     m_settings;
-
-    CUSTOM_COLORS_LIST m_silkscreenColors;
-    CUSTOM_COLORS_LIST m_maskColors;
-    CUSTOM_COLORS_LIST m_pasteColors;
-    CUSTOM_COLORS_LIST m_finishColors;
-    CUSTOM_COLORS_LIST m_boardColors;
+    BOARD_ADAPTER& m_boardAdapter;
 };
 
 

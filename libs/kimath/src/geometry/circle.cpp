@@ -185,6 +185,15 @@ CIRCLE& CIRCLE::ConstructFromTanTanPt( const SEG& aLineA, const SEG& aLineB, con
 }
 
 
+bool CIRCLE::Contains( const VECTOR2I& aP ) const
+{
+    int distance = ( aP - Center ).EuclideanNorm();
+
+    return distance <= ( (int64_t) Radius + SHAPE::MIN_PRECISION_IU )
+           && distance >= ( (int64_t) Radius - SHAPE::MIN_PRECISION_IU );
+}
+
+
 VECTOR2I CIRCLE::NearestPoint( const VECTOR2I& aP ) const
 {
     VECTOR2I vec = aP - Center;
@@ -199,6 +208,8 @@ VECTOR2I CIRCLE::NearestPoint( const VECTOR2I& aP ) const
 
 std::vector<VECTOR2I> CIRCLE::Intersect( const CIRCLE& aCircle ) const
 {
+    // From https://mathworld.wolfram.com/Circle-CircleIntersection.html
+    //
     // Simplify the problem:
     // Let this circle be centered at (0,0), with radius r1
     // Let aCircle be centered at (d, 0), with radius r2
@@ -225,8 +236,11 @@ std::vector<VECTOR2I> CIRCLE::Intersect( const CIRCLE& aCircle ) const
     int64_t  r1 = Radius;
     int64_t  r2 = aCircle.Radius;
 
-    if( d > ( r1 + r2 ) || d == 0 )
+    if( d > ( r1 + r2 ) || ( d < ( std::abs( r1 - r2 ) ) ) )
         return retval; //circles do not intersect
+
+    if( d == 0 )
+        return retval; // circles are co-centered. Don't return intersection points
 
     // Equation (3)
     int64_t x = ( ( d * d ) + ( r1 * r1 ) - ( r2 * r2 ) ) / ( int64_t( 2 ) * d );
@@ -263,20 +277,8 @@ std::vector<VECTOR2I> CIRCLE::Intersect( const SEG& aSeg ) const
 
     for( VECTOR2I& intersection : IntersectLine( aSeg ) )
     {
-        VECTOR2I delta = aSeg.B - aSeg.A;
-
-        if( delta.x > delta.y )
-        {
-            if( intersection.x >= std::min( aSeg.A.x, aSeg.B.x )
-            && intersection.x <= std::max( aSeg.A.x, aSeg.B.x ) )
-                retval.push_back( intersection );
-        }
-        else
-        {
-            if( intersection.y >= std::min( aSeg.A.y, aSeg.B.y )
-            && intersection.y <= std::max( aSeg.A.y, aSeg.B.y ) )
-                retval.push_back( intersection );
-        }
+        if( aSeg.Contains( intersection ) )
+            retval.push_back( intersection );
     }
 
     return retval;

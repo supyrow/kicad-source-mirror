@@ -28,7 +28,7 @@
 #include <tools/symbol_editor_pin_tool.h>
 #include <bitmaps.h>
 #include <lib_text.h>
-#include <dialogs/dialog_lib_edit_text.h>
+#include <dialogs/dialog_lib_text_properties.h>
 #include <lib_arc.h>
 #include <lib_circle.h>
 #include <lib_polyline.h>
@@ -36,7 +36,7 @@
 #include <pgm_base.h>
 #include <symbol_editor/symbol_editor_settings.h>
 #include <settings/settings_manager.h>
-#include <kicad_string.h>
+#include <string_utils.h>
 
 static void* g_lastPinWeakPtr;
 
@@ -148,7 +148,7 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::TwoClickPlace( const TOOL_EVENT& aEvent )
         }
         else if( evt->IsClick( BUT_LEFT ) || evt->IsDblClick( BUT_LEFT ) )
         {
-            LIB_SYMBOL* symbol = m_frame->GetCurPart();
+            LIB_SYMBOL* symbol = m_frame->GetCurSymbol();
 
             if( !symbol )
                 continue;
@@ -175,7 +175,7 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::TwoClickPlace( const TOOL_EVENT& aEvent )
                                                Mils2iu( settings->m_Defaults.text_size ) ) );
                     text->SetTextAngle( m_lastTextAngle );
 
-                    DIALOG_LIB_EDIT_TEXT dlg( m_frame, text );
+                    DIALOG_LIB_TEXT_PROPERTIES dlg( m_frame, text );
 
                     if( dlg.ShowModal() != wxID_OK || NoPrintableChars( text->GetText() ) )
                         delete text;
@@ -253,6 +253,8 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::TwoClickPlace( const TOOL_EVENT& aEvent )
         getViewControls()->CaptureCursor( item != nullptr );
     }
 
+    getViewControls()->SetAutoPan( false );
+    getViewControls()->CaptureCursor( false );
     m_frame->GetCanvas()->SetCurrentCursor( KICURSOR::ARROW );
     return 0;
 }
@@ -274,7 +276,7 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::DrawShape( const TOOL_EVENT& aEvent )
     m_frame->PushTool( tool );
     Activate();
 
-    LIB_SYMBOL* symbol = m_frame->GetCurPart();
+    LIB_SYMBOL* symbol = m_frame->GetCurSymbol();
     LIB_ITEM* item = nullptr;
 
     // Prime the pump
@@ -414,6 +416,8 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::DrawShape( const TOOL_EVENT& aEvent )
         getViewControls()->CaptureCursor( item != nullptr );
     }
 
+    getViewControls()->SetAutoPan( false );
+    getViewControls()->CaptureCursor( false );
     m_frame->GetCanvas()->SetCurrentCursor( KICURSOR::ARROW );
     return 0;
 }
@@ -453,7 +457,7 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::PlaceAnchor( const TOOL_EVENT& aEvent )
         }
         else if( evt->IsClick( BUT_LEFT ) || evt->IsDblClick( BUT_LEFT ) )
         {
-            LIB_SYMBOL* symbol = m_frame->GetCurPart();
+            LIB_SYMBOL* symbol = m_frame->GetCurSymbol();
 
             if( !symbol )
                 continue;
@@ -489,7 +493,7 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::PlaceAnchor( const TOOL_EVENT& aEvent )
 int SYMBOL_EDITOR_DRAWING_TOOLS::RepeatDrawItem( const TOOL_EVENT& aEvent )
 {
     SYMBOL_EDITOR_PIN_TOOL* pinTool = m_toolMgr->GetTool<SYMBOL_EDITOR_PIN_TOOL>();
-    LIB_SYMBOL*   symbol = m_frame->GetCurPart();
+    LIB_SYMBOL*   symbol = m_frame->GetCurSymbol();
     LIB_PIN*      sourcePin = nullptr;
 
     if( !symbol )

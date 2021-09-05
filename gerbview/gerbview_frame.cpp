@@ -55,6 +55,7 @@
 #include <widgets/paged_dialog.h>
 #include <dialogs/panel_gerbview_settings.h>
 #include <dialogs/panel_gerbview_display_options.h>
+#include <dialogs/panel_gerbview_excellon_settings.h>
 #include <panel_hotkeys_editor.h>
 #include <wx/wupdlock.h>
 #include <wx/treebook.h>
@@ -67,14 +68,14 @@
 
 GERBVIEW_FRAME::GERBVIEW_FRAME( KIWAY* aKiway, wxWindow* aParent )
         : EDA_DRAW_FRAME( aKiway, aParent, FRAME_GERBER, wxT( "GerbView" ), wxDefaultPosition,
-                wxDefaultSize, KICAD_DEFAULT_DRAWFRAME_STYLE, GERBVIEW_FRAME_NAME ),
+                          wxDefaultSize, KICAD_DEFAULT_DRAWFRAME_STYLE, GERBVIEW_FRAME_NAME ),
           m_TextInfo( nullptr ),
           m_zipFileHistory( DEFAULT_FILE_HISTORY_SIZE, ID_GERBVIEW_ZIP_FILE1,
-                  ID_GERBVIEW_ZIP_FILE_LIST_CLEAR, _( "Clear Recent Zip Files" ) ),
+                            ID_GERBVIEW_ZIP_FILE_LIST_CLEAR, _( "Clear Recent Zip Files" ) ),
           m_drillFileHistory( DEFAULT_FILE_HISTORY_SIZE, ID_GERBVIEW_DRILL_FILE1,
-                  ID_GERBVIEW_DRILL_FILE_LIST_CLEAR, _( "Clear Recent Drill Files" ) ),
+                              ID_GERBVIEW_DRILL_FILE_LIST_CLEAR, _( "Clear Recent Drill Files" ) ),
           m_jobFileHistory( DEFAULT_FILE_HISTORY_SIZE, ID_GERBVIEW_JOB_FILE1,
-                  ID_GERBVIEW_JOB_FILE_LIST_CLEAR, _( "Clear Recent Job Files" ) ),
+                            ID_GERBVIEW_JOB_FILE_LIST_CLEAR, _( "Clear Recent Job Files" ) ),
           m_activeLayer( 0 )
 {
     m_maximizeByDefault = true;
@@ -136,7 +137,8 @@ GERBVIEW_FRAME::GERBVIEW_FRAME( KIWAY* aKiway, wxWindow* aParent )
     m_LayersManager = new GERBER_LAYER_WIDGET( this, GetCanvas() );
 
     // Update the minimum string length in the layer panel with the length of the last default layer
-    wxString lyrName = GetImagesList()->GetDisplayName( GetImagesList()->ImagesMaxCount(), false, true );
+    wxString lyrName = GetImagesList()->GetDisplayName( GetImagesList()->ImagesMaxCount(),
+                                                        false, true );
     m_LayersManager->SetSmallestLayerString( lyrName );
 
     // LoadSettings() *after* creating m_LayersManager, because LoadSettings()
@@ -202,6 +204,9 @@ GERBVIEW_FRAME::GERBVIEW_FRAME( KIWAY* aKiway, wxWindow* aParent )
 
 GERBVIEW_FRAME::~GERBVIEW_FRAME()
 {
+    // Ensure m_canvasType is up to date, to save it in config
+    m_canvasType = GetCanvas()->GetBackend();
+
     // Shutdown all running tools
     if( m_toolManager )
         m_toolManager->ShutdownAllTools();
@@ -325,7 +330,8 @@ void GERBVIEW_FRAME::LoadSettings( APP_SETTINGS_BASE* aCfg )
     GERBVIEW_SETTINGS* cfg = dynamic_cast<GERBVIEW_SETTINGS*>( aCfg );
     wxCHECK( cfg, /*void*/ );
 
-    SetElementVisibility( LAYER_GERBVIEW_DRAWINGSHEET, cfg->m_Appearance.show_border_and_titleblock );
+    SetElementVisibility( LAYER_GERBVIEW_DRAWINGSHEET,
+                          cfg->m_Appearance.show_border_and_titleblock );
 
     PAGE_INFO pageInfo( wxT( "GERBER" ) );
     pageInfo.SetType( cfg->m_Appearance.page_type );
@@ -410,11 +416,13 @@ void GERBVIEW_FRAME::SetElementVisibility( int aLayerID, bool aNewState )
             // GetLayerPolarity() returns true for negative items
             return ( item && item->GetLayerPolarity() );
         } );
+
         break;
     }
 
     case LAYER_GERBVIEW_DRAWINGSHEET:
         m_showBorderAndTitleBlock = aNewState;
+
         // NOTE: LAYER_DRAWINGSHEET always used for visibility, but the layer manager passes
         // LAYER_GERBVIEW_DRAWINGSHEET because of independent color control
         GetCanvas()->GetView()->SetLayerVisible( LAYER_DRAWINGSHEET, aNewState );
@@ -465,7 +473,7 @@ int GERBVIEW_FRAME::getNextAvailableLayer( int aLayer ) const
     {
         const GERBER_FILE_IMAGE* gerber = GetGbrImage( layer );
 
-        if( gerber == NULL )    // this graphic layer is available: use it
+        if( gerber == nullptr )    // this graphic layer is available: use it
             return layer;
 
         ++layer;                // try next graphic layer
@@ -501,7 +509,7 @@ void GERBVIEW_FRAME::syncLayerBox( bool aRebuildLayerBox )
     {
         updateDCodeSelectBox();
         m_DCodeSelector->SetDCodeSelection( dcodeSelected );
-        m_DCodeSelector->Enable( gerber != NULL );
+        m_DCodeSelector->Enable( gerber != nullptr );
     }
 }
 
@@ -526,6 +534,38 @@ void GERBVIEW_FRAME::SortLayersByX2Attributes()
     GetCanvas()->Refresh();
 }
 
+void GERBVIEW_FRAME::UpdateDiffLayers()
+{
+    auto target = GetCanvas()->GetBackend() == GERBVIEW_DRAW_PANEL_GAL::GAL_TYPE::GAL_TYPE_OPENGL
+                          ? KIGFX::TARGET_CACHED
+                          : KIGFX::TARGET_NONCACHED;
+    auto view = GetCanvas()->GetView();
+
+    int lastVisibleLayer = -1;
+    for( int i = 0; i < GERBER_DRAWLAYERS_COUNT; i++ )
+    {
+        view->SetLayerDiff( GERBER_DRAW_LAYER( i ), m_DisplayOptions.m_DiffMode );
+        // Caching doesn't work with layered rendering of diff'd layers
+        view->SetLayerTarget( GERBER_DRAW_LAYER( i ),
+                              m_DisplayOptions.m_DiffMode ? KIGFX::TARGET_NONCACHED : target );
+        //We want the last visible layer, but deprioritize the active layer unless it's the only layer
+        if( ( lastVisibleLayer == -1 )
+            || ( view->IsLayerVisible( GERBER_DRAW_LAYER( i ) ) && i != GetActiveLayer() ) )
+            lastVisibleLayer = i;
+    }
+
+    //We don't want to diff the last visible layer onto the background, etc.
+    if( lastVisibleLayer != -1 )
+    {
+        view->SetLayerTarget( GERBER_DRAW_LAYER( lastVisibleLayer ), target );
+        view->SetLayerDiff( GERBER_DRAW_LAYER( lastVisibleLayer ), false );
+    }
+
+    view->RecacheAllItems();
+    view->MarkDirty();
+    view->UpdateAllItems( KIGFX::ALL );
+}
+
 
 void GERBVIEW_FRAME::UpdateDisplayOptions( const GBR_DISPLAY_OPTIONS& aOptions )
 {
@@ -535,12 +575,16 @@ void GERBVIEW_FRAME::UpdateDisplayOptions( const GBR_DISPLAY_OPTIONS& aOptions )
                               aOptions.m_DisplayLinesFill );
     bool update_polygons =  ( m_DisplayOptions.m_DisplayPolygonsFill !=
                               aOptions.m_DisplayPolygonsFill );
+    bool update_diff_mode = ( m_DisplayOptions.m_DiffMode != aOptions.m_DiffMode );
+
+    auto view = GetCanvas()->GetView();
 
     m_DisplayOptions = aOptions;
 
     applyDisplaySettingsToGAL();
 
-    auto view = GetCanvas()->GetView();
+    if( update_diff_mode )
+        UpdateDiffLayers();
 
     if( update_flashed )
     {
@@ -600,7 +644,7 @@ void GERBVIEW_FRAME::UpdateTitleAndInfo()
     GERBER_FILE_IMAGE* gerber = GetGbrImage( GetActiveLayer() );
 
     // Display the gerber filename
-    if( gerber == NULL )
+    if( gerber == nullptr )
     {
         SetTitle( _("Gerber Viewer") );
 
@@ -618,13 +662,15 @@ void GERBVIEW_FRAME::UpdateTitleAndInfo()
     }
     else
     {
-        wxString title;
+        wxString   title;
         wxFileName filename( gerber->m_FileName );
 
-        title.Printf( wxT( "%s%s \u2014 " ) + _( "Gerber Viewer" ),
-                      filename.GetFullName(),
-                      gerber->m_IsX2_file ? wxS( " " ) + _( "(with X2 attributes)" )
-                                          : wxString( wxEmptyString ) );
+        title = filename.GetFullName();
+
+        if( gerber->m_IsX2_file )
+            title += wxS( " " ) + _( "(with X2 attributes)" );
+
+        title += wxT( " \u2014 " ) + _( "Gerber Viewer" );
         SetTitle( title );
 
         gerber->DisplayImageInfo( this );
@@ -668,7 +714,8 @@ bool GERBVIEW_FRAME::IsElementVisible( int aLayerID ) const
     case LAYER_GERBVIEW_BACKGROUND:   return true;
 
     default:
-        wxFAIL_MSG( wxString::Format( "GERBVIEW_FRAME::IsElementVisible(): bad arg %d", aLayerID ) );
+        wxFAIL_MSG( wxString::Format( "GERBVIEW_FRAME::IsElementVisible(): bad arg %d",
+                                      aLayerID ) );
     }
 
     return true;
@@ -745,7 +792,7 @@ void GERBVIEW_FRAME::SetGridVisibility( bool aVisible )
 }
 
 
-void GERBVIEW_FRAME::SetVisibleElementColor( int aLayerID, COLOR4D aColor )
+void GERBVIEW_FRAME::SetVisibleElementColor( int aLayerID, const COLOR4D& aColor )
 {
     COLOR_SETTINGS* settings = Pgm().GetSettingsManager().GetColorSettings();
 
@@ -758,6 +805,7 @@ void GERBVIEW_FRAME::SetVisibleElementColor( int aLayerID, COLOR4D aColor )
 
     case LAYER_GERBVIEW_DRAWINGSHEET:
         settings->SetColor( LAYER_GERBVIEW_DRAWINGSHEET, aColor );
+
         // LAYER_DRAWINGSHEET color is also used to draw the drawing-sheet
         // FIX ME: why LAYER_DRAWINGSHEET must be set, although LAYER_GERBVIEW_DRAWINGSHEET
         // is used to initialize the drawing-sheet color layer.
@@ -796,7 +844,7 @@ COLOR4D GERBVIEW_FRAME::GetLayerColor( int aLayer ) const
 }
 
 
-void GERBVIEW_FRAME::SetLayerColor( int aLayer, COLOR4D aColor )
+void GERBVIEW_FRAME::SetLayerColor( int aLayer, const COLOR4D& aColor )
 {
     Pgm().GetSettingsManager().GetColorSettings()->SetColor( aLayer, aColor );
     applyDisplaySettingsToGAL();
@@ -806,6 +854,9 @@ void GERBVIEW_FRAME::SetLayerColor( int aLayer, COLOR4D aColor )
 void GERBVIEW_FRAME::SetActiveLayer( int aLayer, bool doLayerWidgetUpdate )
 {
     m_activeLayer = aLayer;
+
+    if( m_DisplayOptions.m_DiffMode )
+        UpdateDiffLayers();
 
     if( doLayerWidgetUpdate )
         m_LayersManager->SelectLayer( aLayer );
@@ -881,7 +932,7 @@ COLOR4D GERBVIEW_FRAME::GetGridColor()
 }
 
 
-void GERBVIEW_FRAME::SetGridColor( COLOR4D aColor )
+void GERBVIEW_FRAME::SetGridColor( const COLOR4D& aColor )
 {
     Pgm().GetSettingsManager().GetColorSettings()->SetColor( LAYER_GRID, aColor );
     GetCanvas()->GetGAL()->SetGridColor( aColor );
@@ -889,9 +940,6 @@ void GERBVIEW_FRAME::SetGridColor( COLOR4D aColor )
 }
 
 
-/*
- * Display the grid status.
- */
 void GERBVIEW_FRAME::DisplayGridMsg()
 {
     wxString line;
@@ -1007,8 +1055,11 @@ void GERBVIEW_FRAME::InstallPreferences( PAGED_DIALOG* aParent,
     wxTreebook* book = aParent->GetTreebook();
 
     book->AddPage( new wxPanel( book ), _( "GerbView" ) );
-    book->AddSubPage( new PANEL_GERBVIEW_DISPLAY_OPTIONS( this, book ), _( "Display Options" ) );
+    book->AddSubPage( new PANEL_GERBVIEW_DISPLAY_OPTIONS( this, book ),
+                      _( "Display Options" ) );
     book->AddSubPage( new PANEL_GERBVIEW_SETTINGS( this, book ), _( "Editing Options" ) );
+    book->AddSubPage( new PANEL_GERBVIEW_EXCELLON_SETTINGS( this, book ),
+                      _( "Excellon Options" ) );
 
     aHotkeysPanel->AddHotKeys( GetToolManager() );
 }

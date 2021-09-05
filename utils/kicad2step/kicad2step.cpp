@@ -2,7 +2,7 @@
  * This program source code file is part of kicad2mcad
  *
  * Copyright (C) 2016 Cirilo Bernardo <cirilo.bernardo@gmail.com>
- * Copyright (C) 2016-2018 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2016-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -42,30 +42,34 @@ class KICAD2STEP_FRAME;
 class KICAD2MCAD_APP : public wxApp
 {
 public:
-    KICAD2MCAD_APP() : wxApp(), m_frame( nullptr ), m_Panel( nullptr )
+    KICAD2MCAD_APP() :
+        wxApp(),
+        m_Panel( nullptr ),
+        m_frame( nullptr )
     {}
+
     virtual bool OnInit() override;
     virtual int OnRun() override;
     virtual void OnInitCmdLine(wxCmdLineParser& parser) override;
     virtual bool OnCmdLineParsed(wxCmdLineParser& parser) override;
 
-private:
-    KICAD2STEP_FRAME * m_frame;
-    KICAD2MCAD_PRMS m_params;
-
-public:
     PANEL_KICAD2STEP* m_Panel;
+
+private:
+    KICAD2STEP_FRAME* m_frame;
+    KICAD2MCAD_PRMS m_params;
 };
 
-wxIMPLEMENT_APP(KICAD2MCAD_APP);
+
+wxIMPLEMENT_APP( KICAD2MCAD_APP );
+
 
 class KICAD2STEP_FRAME : public KICAD2STEP_FRAME_BASE
 {
 public:
-    KICAD2STEP_FRAME(const wxString& title);
-
-private:
+    KICAD2STEP_FRAME( const wxString& title );
 };
+
 
 KICAD2MCAD_PRMS::KICAD2MCAD_PRMS()
 {
@@ -91,38 +95,40 @@ void ReportMessage( const wxString& aMessage )
 }
 
 
-static const wxCmdLineEntryDesc cmdLineDesc[] =
-    {
-        { wxCMD_LINE_PARAM, NULL, NULL, _( "pcb_filename" ).mb_str(),
-            wxCMD_LINE_VAL_STRING, wxCMD_LINE_OPTION_MANDATORY },
-        { wxCMD_LINE_OPTION, "o", "output-filename", _( "output filename" ).mb_str(),
-            wxCMD_LINE_VAL_STRING, wxCMD_LINE_PARAM_OPTIONAL },
+static const wxCmdLineEntryDesc cmdLineDesc[] = {
+    { wxCMD_LINE_PARAM, NULL, NULL, _( "pcb_filename" ).mb_str(), wxCMD_LINE_VAL_STRING,
+      wxCMD_LINE_OPTION_MANDATORY },
+    { wxCMD_LINE_OPTION, "o", "output-filename", _( "output filename" ).mb_str(),
+      wxCMD_LINE_VAL_STRING, wxCMD_LINE_PARAM_OPTIONAL },
+
 #ifdef SUPPORTS_IGES
-        { wxCMD_LINE_SWITCH, "fmt-iges", NULL, _("IGES output (default STEP)").mb_str(),
-            wxCMD_LINE_VAL_NONE, wxCMD_LINE_PARAM_OPTIONAL },
+    { wxCMD_LINE_SWITCH, "fmt-iges", NULL, _( "IGES output (default STEP)" ).mb_str(),
+      wxCMD_LINE_VAL_NONE, wxCMD_LINE_PARAM_OPTIONAL },
 #endif
-        { wxCMD_LINE_SWITCH, "f", "force", _( "overwrite output file" ).mb_str(),
-            wxCMD_LINE_VAL_NONE, wxCMD_LINE_PARAM_OPTIONAL },
-        { wxCMD_LINE_SWITCH, NULL, "drill-origin", _( "Use Drill Origin for output origin" ).mb_str(),
-            wxCMD_LINE_VAL_NONE, wxCMD_LINE_PARAM_OPTIONAL },
-        { wxCMD_LINE_SWITCH, NULL, "grid-origin", _( "Use Grid Origin for output origin" ).mb_str(),
-            wxCMD_LINE_VAL_NONE, wxCMD_LINE_PARAM_OPTIONAL },
-        { wxCMD_LINE_OPTION, NULL, "user-origin",
-            _( "User-specified output origin ex. 1x1in, 1x1inch, 25.4x25.4mm (default mm)" ).mb_str(),
-            wxCMD_LINE_VAL_STRING, wxCMD_LINE_PARAM_OPTIONAL },
-        { wxCMD_LINE_SWITCH, NULL, "no-virtual",
-            _( "Exclude 3D models for components with 'virtual' attribute" ).mb_str(),
-            wxCMD_LINE_VAL_NONE, wxCMD_LINE_PARAM_OPTIONAL },
-        { wxCMD_LINE_SWITCH, NULL, "subst-models",
-            _( "Substitute STEP or IGS models with the same name in place of VRML models" ).mb_str(),
-            wxCMD_LINE_VAL_NONE, wxCMD_LINE_PARAM_OPTIONAL },
-        { wxCMD_LINE_OPTION, NULL, "min-distance",
-            _( "Minimum distance between points to treat them as separate ones (default 0.01 mm)" ).mb_str(),
-            wxCMD_LINE_VAL_STRING, wxCMD_LINE_PARAM_OPTIONAL },
-        { wxCMD_LINE_SWITCH, "h", NULL, _( "display this message" ).mb_str(),
-            wxCMD_LINE_VAL_NONE, wxCMD_LINE_OPTION_HELP },
-        { wxCMD_LINE_NONE, nullptr, nullptr, nullptr, wxCMD_LINE_VAL_NONE, 0 }
-    };
+
+    { wxCMD_LINE_SWITCH, "f", "force", _( "overwrite output file" ).mb_str(), wxCMD_LINE_VAL_NONE,
+      wxCMD_LINE_PARAM_OPTIONAL },
+    { wxCMD_LINE_SWITCH, NULL, "drill-origin", _( "Use Drill Origin for output origin" ).mb_str(),
+      wxCMD_LINE_VAL_NONE, wxCMD_LINE_PARAM_OPTIONAL },
+    { wxCMD_LINE_SWITCH, NULL, "grid-origin", _( "Use Grid Origin for output origin" ).mb_str(),
+      wxCMD_LINE_VAL_NONE, wxCMD_LINE_PARAM_OPTIONAL },
+    { wxCMD_LINE_OPTION, NULL, "user-origin",
+      _( "User-specified output origin ex. 1x1in, 1x1inch, 25.4x25.4mm (default mm)" ).mb_str(),
+      wxCMD_LINE_VAL_STRING, wxCMD_LINE_PARAM_OPTIONAL },
+    { wxCMD_LINE_SWITCH, NULL, "no-virtual",
+      _( "Exclude 3D models for components with 'virtual' attribute" ).mb_str(),
+      wxCMD_LINE_VAL_NONE, wxCMD_LINE_PARAM_OPTIONAL },
+    { wxCMD_LINE_SWITCH, NULL, "subst-models",
+      _( "Substitute STEP or IGS models with the same name in place of VRML models" ).mb_str(),
+      wxCMD_LINE_VAL_NONE, wxCMD_LINE_PARAM_OPTIONAL },
+    { wxCMD_LINE_OPTION, NULL, "min-distance",
+      _( "Minimum distance between points to treat them as separate ones (default 0.01 mm)" )
+              .mb_str(),
+      wxCMD_LINE_VAL_STRING, wxCMD_LINE_PARAM_OPTIONAL },
+    { wxCMD_LINE_SWITCH, "h", NULL, _( "display this message" ).mb_str(), wxCMD_LINE_VAL_NONE,
+      wxCMD_LINE_OPTION_HELP },
+    { wxCMD_LINE_NONE, nullptr, nullptr, nullptr, wxCMD_LINE_VAL_NONE, 0 }
+};
 
 
 bool KICAD2MCAD_APP::OnInit()
@@ -153,8 +159,8 @@ int KICAD2MCAD_APP::OnRun()
 }
 
 
-KICAD2STEP_FRAME::KICAD2STEP_FRAME(const wxString& title)
-       : KICAD2STEP_FRAME_BASE(NULL, wxID_ANY, title)
+KICAD2STEP_FRAME::KICAD2STEP_FRAME( const wxString& title ) :
+        KICAD2STEP_FRAME_BASE( NULL, wxID_ANY, title )
 {
 }
 
@@ -163,19 +169,18 @@ void KICAD2MCAD_APP::OnInitCmdLine( wxCmdLineParser& parser )
 {
     parser.SetDesc( cmdLineDesc );
     parser.SetSwitchChars( "-" );
-    return;
 }
 
 
-PANEL_KICAD2STEP::PANEL_KICAD2STEP( wxWindow* parent, wxWindowID id,
-                  const wxPoint& pos, const wxSize& size, long style ):
-                wxPanel( parent, id, pos, size, style )
+PANEL_KICAD2STEP::PANEL_KICAD2STEP( wxWindow* parent, wxWindowID id, const wxPoint& pos,
+                                    const wxSize& size, long style ) :
+        wxPanel( parent, id, pos, size, style )
 {
 	wxBoxSizer* bSizer = new wxBoxSizer( wxVERTICAL );
 
-	m_tcMessages = new wxTextCtrl( this, wxID_ANY, wxEmptyString,
-                                   wxDefaultPosition, wxDefaultSize, wxTE_MULTILINE|wxTE_READONLY );
-	bSizer->Add( m_tcMessages, 1, wxALL|wxEXPAND, 5 );
+	m_tcMessages = new wxTextCtrl( this, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize,
+                                   wxTE_MULTILINE | wxTE_READONLY );
+	bSizer->Add( m_tcMessages, 1, wxALL | wxEXPAND, 5 );
 
 	SetSizer( bSizer );
 	Layout();
@@ -192,10 +197,10 @@ void PANEL_KICAD2STEP::AppendMessage( const wxString& aMessage )
 
 bool KICAD2MCAD_APP::OnCmdLineParsed( wxCmdLineParser& parser )
 {
-    #ifdef SUPPORTS_IGES
+#ifdef SUPPORTS_IGES
       if( parser.Found( "fmt-iges" ) )
         m_fmtIGES = true;
-    #endif
+#endif
 
     if( parser.Found( "f" ) )
         m_params.m_overwrite = true;
@@ -261,7 +266,6 @@ bool KICAD2MCAD_APP::OnCmdLineParsed( wxCmdLineParser& parser )
         }
     }
 
-
     if( parser.Found( "min-distance", &tstr ) )
     {
         std::istringstream istr;
@@ -315,20 +319,21 @@ bool KICAD2MCAD_APP::OnCmdLineParsed( wxCmdLineParser& parser )
 class STREAMBUF_SWAPPER
 {
 public:
-    STREAMBUF_SWAPPER( std::ostream & orig, std::ostream & replacement )
-        : m_buf( orig.rdbuf() ), m_str( orig )
+    STREAMBUF_SWAPPER( std::ostream& orig, std::ostream& replacement ) :
+            m_buf( orig.rdbuf() ),
+            m_str( orig )
     {
         orig.rdbuf( replacement.rdbuf() );
     }
 
     ~STREAMBUF_SWAPPER()
     {
-        m_str.rdbuf( m_buf);
+        m_str.rdbuf( m_buf );
     }
 
 private:
-    std::streambuf * m_buf;
-    std::ostream & m_str;
+    std::streambuf* m_buf;
+    std::ostream& m_str;
 };
 
 
@@ -338,7 +343,7 @@ int PANEL_KICAD2STEP::RunConverter()
 
     if( !fname.FileExists() )
     {
-        wxMessageBox( wxString::Format( "No such file: %s", m_params.m_filename ) );
+        wxMessageBox( wxString::Format( _( "No such file: %s" ), m_params.m_filename ) );
         return -1;
     }
 
@@ -361,8 +366,8 @@ int PANEL_KICAD2STEP::RunConverter()
 
     if( out_fname.FileExists() && !m_params.m_overwrite )
     {
-        ReportMessage( "** Output already exists.\n"
-                      "Enable the force overwrite flag to overwrite it." );
+        ReportMessage( _( "** Output already exists. Export aborted. **\n"
+                          "Enable the force overwrite flag to overwrite it." ) );
 
         return -1;
     }
@@ -372,14 +377,14 @@ int PANEL_KICAD2STEP::RunConverter()
 
     pcb.SetOrigin( m_params.m_xOrigin, m_params.m_yOrigin );
     pcb.SetMinDistance( m_params.m_minDistance );
-    ReportMessage( wxString::Format( "Read: %s\n", m_params.m_filename ) );
+    ReportMessage( wxString::Format( _( "Read file: '%s'\n" ), m_params.m_filename ) );
 
     // create the new streams to "redirect" cout and cerr output to
     // msgs_from_opencascade and errors_from_opencascade
     std::ostringstream msgs_from_opencascade;
     std::ostringstream errors_from_opencascade;
-    STREAMBUF_SWAPPER swapper_cout(std::cout, msgs_from_opencascade);
-    STREAMBUF_SWAPPER swapper_cerr(std::cerr, errors_from_opencascade);
+    STREAMBUF_SWAPPER  swapper_cout( std::cout, msgs_from_opencascade );
+    STREAMBUF_SWAPPER  swapper_cerr( std::cerr, errors_from_opencascade );
 
     if( pcb.ReadFile( m_params.m_filename ) )
     {
@@ -393,44 +398,40 @@ int PANEL_KICAD2STEP::RunConverter()
 
         try
         {
-            ReportMessage( "Build STEP data\n" );
+            ReportMessage( _( "Build STEP data\n" ) );
 
             res = pcb.ComposePCB( m_params.m_includeVirtual, m_params.m_substModels );
 
             if( !res )
             {
-                ReportMessage( "\n**Error building STEP board model. Abort export **\n" );
+                ReportMessage( _( "\n** Error building STEP board model. Export aborted. **\n" ) );
                 return -1;
             }
 
-            ReportMessage( "Write STEP file\n" );
+            ReportMessage( _( "Write STEP file\n" ) );
 
-        #ifdef SUPPORTS_IGES
+#ifdef SUPPORTS_IGES
             if( m_fmtIGES )
                 res = pcb.WriteIGES( outfile );
             else
-        #endif
+#endif
                 res = pcb.WriteSTEP( outfile );
 
             if( !res )
             {
-                ReportMessage( "\nError Write STEP file\n" );
+                ReportMessage( _( "\n** Error writing STEP file. **\n" ) );
                 return -1;
             }
         }
         catch( const Standard_Failure& e )
         {
-            wxString err = e.GetMessageString();
-            wxMessageBox( err, "Export Error" );
-
-            ReportMessage( wxString::Format( "\nExport Error: %s\n", err ) );
-            ReportMessage( "\n*** Abort export ***\n" );
+            ReportMessage( e.GetMessageString() );
+            ReportMessage( _( "\n** Error exporting STEP file. Export aborted. **\n" ) );
             return -1;
         }
         catch( ... )
         {
-            wxMessageBox( "(no exception information)", "Unknown error" );
-            ReportMessage( "\nUnknown error\n*** Abort export ***\n" );
+            ReportMessage( _( "\n** Error exporting STEP file. Export aborted. **\n" ) );
             return -1;
         }
     }
@@ -439,7 +440,7 @@ int PANEL_KICAD2STEP::RunConverter()
     msgs << msgs_from_opencascade.str();
     ReportMessage( msgs );
 
-    ReportMessage( wxString::Format( "\nStep file %s created\n\n", outfile ) );
+    ReportMessage( wxString::Format( _( "\nSTEP file '%s' created.\n" ), outfile ) );
 
     errs << errors_from_opencascade.str();
     ReportMessage( errs );
@@ -451,16 +452,14 @@ int PANEL_KICAD2STEP::RunConverter()
     if( !errs.IsEmpty() )    // Any troubles?
     {
         if( !success )
-            msg = "Unable to create STEP file.\n"
-                  "Check that the board has a valid outline and models.";
+        {
+            msg = _( "Unable to create STEP file.\n"
+                     "Check that the board has a valid outline and models." );
+        }
         else
         {
-            msg = "STEP file has been created, but there are warnings.";
+            msg = _( "STEP file has been created, but there are warnings." );
         }
-    }
-    else    // No error messages: the file is expected OK
-    {
-        msg.Printf( "STEP file:\n%s\nhas been created successfully.", outfile );
     }
 
     ReportMessage( msg );

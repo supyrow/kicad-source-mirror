@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 1992-2018 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -23,7 +23,7 @@
 
 
 #include <kiface_i.h>
-#include <plotter.h>
+#include <plotters/plotter.h>
 #include <confirm.h>
 #include <pcb_edit_frame.h>
 #include <pcbnew_settings.h>
@@ -32,7 +32,7 @@
 #include <gerber_jobfile_writer.h>
 #include <reporter.h>
 #include <wildcards_and_files_ext.h>
-#include <layers_id_colors_and_visibility.h>
+#include <layer_ids.h>
 #include <locale_io.h>
 #include <bitmaps.h>
 #include <board.h>
@@ -395,7 +395,7 @@ void DIALOG_PLOT::OnOutputDirectoryBrowseClicked( wxCommandEvent& event )
     // Test if making the path relative is possible before asking the user if they want to do it
     if( relPathTest.MakeRelativeTo( defaultPath ) )
     {
-        msg.Printf( _( "Do you want to use a path relative to\n\"%s\"" ), defaultPath );
+        msg.Printf( _( "Do you want to use a path relative to\n'%s'?" ), defaultPath );
 
         wxMessageDialog dialog( this, msg, _( "Plot Output Directory" ),
                                 wxYES_NO | wxICON_QUESTION | wxYES_DEFAULT );
@@ -411,8 +411,13 @@ void DIALOG_PLOT::OnOutputDirectoryBrowseClicked( wxCommandEvent& event )
 PLOT_FORMAT DIALOG_PLOT::getPlotFormat()
 {
     // plot format id's are ordered like displayed in m_plotFormatOpt
-    static const PLOT_FORMAT plotFmt[] = { PLOT_FORMAT::GERBER, PLOT_FORMAT::POST, PLOT_FORMAT::SVG,
-        PLOT_FORMAT::DXF, PLOT_FORMAT::HPGL, PLOT_FORMAT::PDF };
+    static const PLOT_FORMAT plotFmt[] = {
+            PLOT_FORMAT::GERBER,
+            PLOT_FORMAT::POST,
+            PLOT_FORMAT::SVG,
+            PLOT_FORMAT::DXF,
+            PLOT_FORMAT::HPGL,
+            PLOT_FORMAT::PDF };
 
     return plotFmt[m_plotFormatOpt->GetSelection()];
 }
@@ -807,7 +812,7 @@ void DIALOG_PLOT::Plot( wxCommandEvent& event )
     if( !EnsureFileDirectoryExists( &outputDir, boardFilename, &reporter ) )
     {
         wxString msg;
-        msg.Printf( _( "Could not write plot files to folder \"%s\"." ), outputDir.GetPath() );
+        msg.Printf( _( "Could not write plot files to folder '%s'." ), outputDir.GetPath() );
         DisplayError( this, msg );
         return;
     }
@@ -899,12 +904,12 @@ void DIALOG_PLOT::Plot( wxCommandEvent& event )
             delete plotter->RenderSettings();
             delete plotter;
 
-            msg.Printf( _( "Plot file \"%s\" created." ), fn.GetFullPath() );
+            msg.Printf( _( "Plotted to '%s'." ), fn.GetFullPath() );
             reporter.Report( msg, RPT_SEVERITY_ACTION );
         }
         else
         {
-            msg.Printf( _( "Unable to create file \"%s\"." ), fn.GetFullPath() );
+            msg.Printf( _( "Failed to create file '%s'." ), fn.GetFullPath() );
             reporter.Report( msg, RPT_SEVERITY_ERROR );
         }
 

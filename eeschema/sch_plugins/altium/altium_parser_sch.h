@@ -88,7 +88,8 @@ enum class ALTIUM_SCH_RECORD
     RECORD_46           = 46,
     RECORD_47           = 47,
     RECORD_48           = 48,
-    RECORD_209          = 209,
+    NOTE                = 209,
+    COMPILE_MASK        = 211,
     RECORD_215          = 215,
     RECORD_216          = 216,
     RECORD_217          = 217,
@@ -99,10 +100,10 @@ enum class ALTIUM_SCH_RECORD
 
 enum class ASCH_RECORD_ORIENTATION
 {
-    RIGHTWARDS = 0,
-    UPWARDS    = 1,
-    LEFTWARDS  = 2,
-    DOWNWARDS  = 3
+    RIGHTWARDS = 0, // 0
+    UPWARDS    = 1, // 90
+    LEFTWARDS  = 2, // 180
+    DOWNWARDS  = 3  // 270
 };
 
 
@@ -121,7 +122,7 @@ struct ASCH_SYMBOL
     int displaymodecount;
     int displaymode;
 
-    explicit ASCH_SYMBOL( const std::map<wxString, wxString>& aProperties );
+    explicit ASCH_SYMBOL( const std::map<wxString, wxString>& aProps );
 };
 
 
@@ -216,7 +217,7 @@ struct ASCH_PIN
     bool showPinName;
     bool showDesignator;
 
-    explicit ASCH_PIN( const std::map<wxString, wxString>& aProperties );
+    explicit ASCH_PIN( const std::map<wxString, wxString>& aProps );
 };
 
 
@@ -236,6 +237,14 @@ enum class ASCH_LABEL_JUSTIFICATION
 };
 
 
+enum class ASCH_TEXT_FRAME_ALIGNMENT
+{
+    LEFT    = 1,
+    CENTER  = 2,
+    RIGHT   = 3
+};
+
+
 struct ASCH_LABEL
 {
     int ownerindex;
@@ -249,8 +258,36 @@ struct ASCH_LABEL
     bool isMirrored;
 
     ASCH_LABEL_JUSTIFICATION justification;
+    ASCH_RECORD_ORIENTATION  orientation;
 
-    explicit ASCH_LABEL( const std::map<wxString, wxString>& aProperties );
+    explicit ASCH_LABEL( const std::map<wxString, wxString>& aProps );
+};
+
+
+struct ASCH_TEXT_FRAME
+{
+    wxPoint location;
+    wxSize  size;
+
+    wxString text;
+
+    int  fontId;
+    bool isWordWrapped;
+    bool border;
+    int  textMargin;
+    int  areaColor;
+
+    ASCH_TEXT_FRAME_ALIGNMENT alignment;
+
+    explicit ASCH_TEXT_FRAME( const std::map<wxString, wxString>& aProps );
+};
+
+
+struct ASCH_NOTE : ASCH_TEXT_FRAME
+{
+    wxString author;
+
+    explicit ASCH_NOTE( const std::map<wxString, wxString>& aProperties );
 };
 
 
@@ -264,7 +301,7 @@ struct ASCH_BEZIER
 
     int lineWidth;
 
-    explicit ASCH_BEZIER( const std::map<wxString, wxString>& aProperties );
+    explicit ASCH_BEZIER( const std::map<wxString, wxString>& aProps );
 };
 
 
@@ -289,7 +326,7 @@ struct ASCH_POLYLINE
 
     ASCH_POLYLINE_LINESTYLE linestyle;
 
-    explicit ASCH_POLYLINE( const std::map<wxString, wxString>& aProperties );
+    explicit ASCH_POLYLINE( const std::map<wxString, wxString>& aProps );
 };
 
 
@@ -307,7 +344,7 @@ struct ASCH_POLYGON
     int color;
     int areacolor;
 
-    explicit ASCH_POLYGON( const std::map<wxString, wxString>& aProperties );
+    explicit ASCH_POLYGON( const std::map<wxString, wxString>& aProps );
 };
 
 
@@ -329,7 +366,7 @@ struct ASCH_ROUND_RECTANGLE
     int color;
     int areacolor;
 
-    explicit ASCH_ROUND_RECTANGLE( const std::map<wxString, wxString>& aProperties );
+    explicit ASCH_ROUND_RECTANGLE( const std::map<wxString, wxString>& aProps );
 };
 
 
@@ -346,7 +383,7 @@ struct ASCH_ARC
 
     int lineWidth;
 
-    explicit ASCH_ARC( const std::map<wxString, wxString>& aProperties );
+    explicit ASCH_ARC( const std::map<wxString, wxString>& aProps );
 };
 
 
@@ -361,7 +398,7 @@ struct ASCH_LINE
 
     int lineWidth;
 
-    explicit ASCH_LINE( const std::map<wxString, wxString>& aProperties );
+    explicit ASCH_LINE( const std::map<wxString, wxString>& aProps );
 };
 
 
@@ -381,7 +418,7 @@ struct ASCH_RECTANGLE
     int color;
     int areacolor;
 
-    explicit ASCH_RECTANGLE( const std::map<wxString, wxString>& aProperties );
+    explicit ASCH_RECTANGLE( const std::map<wxString, wxString>& aProps );
 };
 
 
@@ -395,7 +432,7 @@ struct ASCH_SHEET_SYMBOL
     int color;
     int areacolor;
 
-    explicit ASCH_SHEET_SYMBOL( const std::map<wxString, wxString>& aProperties );
+    explicit ASCH_SHEET_SYMBOL( const std::map<wxString, wxString>& aProps );
 };
 
 
@@ -443,7 +480,7 @@ struct ASCH_SHEET_ENTRY
 
     wxString name;
 
-    explicit ASCH_SHEET_ENTRY( const std::map<wxString, wxString>& aProperties );
+    explicit ASCH_SHEET_ENTRY( const std::map<wxString, wxString>& aProps );
 };
 
 
@@ -476,7 +513,7 @@ struct ASCH_POWER_PORT
     ASCH_RECORD_ORIENTATION orientation;
     ASCH_POWER_PORT_STYLE   style;
 
-    explicit ASCH_POWER_PORT( const std::map<wxString, wxString>& aProperties );
+    explicit ASCH_POWER_PORT( const std::map<wxString, wxString>& aProps );
 };
 
 
@@ -485,6 +522,7 @@ struct ASCH_PORT
     int ownerpartid;
 
     wxString name;
+    wxString harnessType;
 
     wxPoint location;
     int     width;
@@ -493,7 +531,7 @@ struct ASCH_PORT
     ASCH_PORT_IOTYPE iotype;
     ASCH_PORT_STYLE  style;
 
-    explicit ASCH_PORT( const std::map<wxString, wxString>& aProperties );
+    explicit ASCH_PORT( const std::map<wxString, wxString>& aProps );
 };
 
 
@@ -504,7 +542,7 @@ struct ASCH_NO_ERC
     bool isActive;
     bool supressAll;
 
-    explicit ASCH_NO_ERC( const std::map<wxString, wxString>& aProperties );
+    explicit ASCH_NO_ERC( const std::map<wxString, wxString>& aProps );
 };
 
 
@@ -516,7 +554,7 @@ struct ASCH_NET_LABEL
 
     ASCH_RECORD_ORIENTATION orientation;
 
-    explicit ASCH_NET_LABEL( const std::map<wxString, wxString>& aProperties );
+    explicit ASCH_NET_LABEL( const std::map<wxString, wxString>& aProps );
 };
 
 
@@ -527,7 +565,7 @@ struct ASCH_BUS
 
     std::vector<wxPoint> points;
 
-    explicit ASCH_BUS( const std::map<wxString, wxString>& aProperties );
+    explicit ASCH_BUS( const std::map<wxString, wxString>& aProps );
 };
 
 
@@ -538,7 +576,7 @@ struct ASCH_WIRE
 
     std::vector<wxPoint> points;
 
-    explicit ASCH_WIRE( const std::map<wxString, wxString>& aProperties );
+    explicit ASCH_WIRE( const std::map<wxString, wxString>& aProps );
 };
 
 
@@ -548,7 +586,7 @@ struct ASCH_JUNCTION
 
     wxPoint location;
 
-    explicit ASCH_JUNCTION( const std::map<wxString, wxString>& aProperties );
+    explicit ASCH_JUNCTION( const std::map<wxString, wxString>& aProps );
 };
 
 
@@ -564,7 +602,7 @@ struct ASCH_IMAGE
     bool embedimage;
     bool keepaspect;
 
-    explicit ASCH_IMAGE( const std::map<wxString, wxString>& aProperties );
+    explicit ASCH_IMAGE( const std::map<wxString, wxString>& aProps );
 };
 
 
@@ -579,7 +617,7 @@ struct ASCH_SHEET_FONT
     bool bold;
     bool underline;
 
-    explicit ASCH_SHEET_FONT( const std::map<wxString, wxString>& aProperties, int aId );
+    explicit ASCH_SHEET_FONT( const std::map<wxString, wxString>& aProps, int aId );
 };
 
 
@@ -624,7 +662,7 @@ struct ASCH_SHEET
     ASCH_SHEET_SIZE                 sheetSize;
     ASCH_SHEET_WORKSPACEORIENTATION sheetOrientation;
 
-    explicit ASCH_SHEET( const std::map<wxString, wxString>& aProperties );
+    explicit ASCH_SHEET( const std::map<wxString, wxString>& aProps );
 };
 
 
@@ -640,7 +678,7 @@ struct ASCH_SHEET_NAME
 
     bool isHidden;
 
-    explicit ASCH_SHEET_NAME( const std::map<wxString, wxString>& aProperties );
+    explicit ASCH_SHEET_NAME( const std::map<wxString, wxString>& aProps );
 };
 
 
@@ -656,7 +694,7 @@ struct ASCH_FILE_NAME
 
     bool isHidden;
 
-    explicit ASCH_FILE_NAME( const std::map<wxString, wxString>& aProperties );
+    explicit ASCH_FILE_NAME( const std::map<wxString, wxString>& aProps );
 };
 
 
@@ -668,10 +706,32 @@ struct ASCH_DESIGNATOR
     wxString name;
     wxString text;
 
-    ASCH_RECORD_ORIENTATION orientation;
-    wxPoint location;
+    ASCH_RECORD_ORIENTATION  orientation;
+    ASCH_LABEL_JUSTIFICATION justification;
+    wxPoint                  location;
 
-    explicit ASCH_DESIGNATOR( const std::map<wxString, wxString>& aProperties );
+    explicit ASCH_DESIGNATOR( const std::map<wxString, wxString>& aProps );
+};
+
+
+struct ASCH_IMPLEMENTATION
+{
+    int ownerindex;
+
+    wxString name;
+    wxString type;
+    wxString libname;
+
+    bool isCurrent;
+
+    explicit ASCH_IMPLEMENTATION( const std::map<wxString, wxString>& aProps );
+};
+
+
+struct ASCH_IMPLEMENTATION_LIST
+{
+    int ownerindex;
+    explicit ASCH_IMPLEMENTATION_LIST( const std::map<wxString, wxString>& aProps );
 };
 
 
@@ -680,7 +740,7 @@ struct ASCH_BUS_ENTRY
     wxPoint location;
     wxPoint corner;
 
-    explicit ASCH_BUS_ENTRY( const std::map<wxString, wxString>& aProperties );
+    explicit ASCH_BUS_ENTRY( const std::map<wxString, wxString>& aProps );
 };
 
 
@@ -689,8 +749,9 @@ struct ASCH_PARAMETER
     int ownerindex;
     int ownerpartid;
 
-    wxPoint                 location;
-    ASCH_RECORD_ORIENTATION orientation;
+    wxPoint                  location;
+    ASCH_LABEL_JUSTIFICATION justification;
+    ASCH_RECORD_ORIENTATION  orientation;
 
     wxString name;
     wxString text;
@@ -699,7 +760,7 @@ struct ASCH_PARAMETER
     bool isMirrored;
     bool isShowName;
 
-    explicit ASCH_PARAMETER( const std::map<wxString, wxString>& aProperties );
+    explicit ASCH_PARAMETER( const std::map<wxString, wxString>& aProps );
 };
 
 #endif //ALTIUM_PARSER_SCH_H

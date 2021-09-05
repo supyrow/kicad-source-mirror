@@ -28,15 +28,15 @@
 #include <grid_tricks.h>
 #include <confirm.h>
 #include <kiface_i.h>
-#include <pin_number.h>
-#include <kicad_string.h>
+#include <pin_numbers.h>
+#include <string_utils.h>
 #include <menus_helpers.h>
 #include <widgets/grid_icon_text_helpers.h>
 #include <widgets/grid_combobox.h>
 #include <widgets/wx_grid.h>
 #include <settings/settings_manager.h>
 #include <ee_collectors.h>
-#include <class_library.h>
+#include <symbol_library.h>
 #include <fields_grid_table.h>
 #include <sch_edit_frame.h>
 #include <sch_reference_list.h>
@@ -248,7 +248,7 @@ public:
         case COL_NUMBER:
         case COL_BASE_NAME:
         case COL_ALT_NAME:
-            res = cmp( PinNumbers::Compare( lhStr, rhStr ), 0 );
+            res = cmp( PIN_NUMBERS::Compare( lhStr, rhStr ), 0 );
             break;
         case COL_TYPE:
         case COL_SHAPE:
@@ -282,12 +282,12 @@ DIALOG_SYMBOL_PROPERTIES::DIALOG_SYMBOL_PROPERTIES( SCH_EDIT_FRAME* aParent,
         m_dataModel( nullptr )
 {
     m_symbol = aSymbol;
-    m_part = m_symbol->GetPartRef().get();
+    m_part = m_symbol->GetLibSymbolRef().get();
 
-    // GetPartRef() now points to the cached part in the schematic, which should always be
+    // GetLibSymbolRef() now points to the cached part in the schematic, which should always be
     // there for usual cases, but can be null when opening old schematics not storing the part
     // so we need to handle m_part == nullptr
-    wxASSERT( m_part );
+    // wxASSERT( m_part );
 
     m_fields = new FIELDS_GRID_TABLE<SCH_FIELD>( this, aParent, m_fieldsGrid, m_part );
 
@@ -317,7 +317,7 @@ DIALOG_SYMBOL_PROPERTIES::DIALOG_SYMBOL_PROPERTIES( SCH_EDIT_FRAME* aParent,
     m_fieldsGrid->PushEventHandler( new FIELDS_GRID_TRICKS( m_fieldsGrid, this ) );
 
     // Show/hide columns according to user's preference
-    auto cfg = dynamic_cast<EESCHEMA_SETTINGS*>( Kiface().KifaceSettings() );
+    EESCHEMA_SETTINGS* cfg = dynamic_cast<EESCHEMA_SETTINGS*>( Kiface().KifaceSettings() );
 
     if( cfg )
     {
@@ -331,8 +331,8 @@ DIALOG_SYMBOL_PROPERTIES::DIALOG_SYMBOL_PROPERTIES( SCH_EDIT_FRAME* aParent,
         // free-form alternate assignments as well.  (We won't know how to map the alternates
         // back and forth when the conversion is changed.)
         m_pinTablePage->Disable();
-        m_pinTablePage->SetToolTip(
-                _( "Alternate pin assignments are not available for DeMorgan symbols." ) );
+        m_pinTablePage->SetToolTip( _( "Alternate pin assignments are not available for DeMorgan "
+                                       "symbols." ) );
     }
     else
     {
@@ -374,7 +374,7 @@ DIALOG_SYMBOL_PROPERTIES::DIALOG_SYMBOL_PROPERTIES( SCH_EDIT_FRAME* aParent,
 
 DIALOG_SYMBOL_PROPERTIES::~DIALOG_SYMBOL_PROPERTIES()
 {
-    auto cfg = dynamic_cast<EESCHEMA_SETTINGS*>( Kiface().KifaceSettings() );
+    EESCHEMA_SETTINGS* cfg = dynamic_cast<EESCHEMA_SETTINGS*>( Kiface().KifaceSettings() );
 
     if( cfg )
         cfg->m_Appearance.edit_component_visible_columns = m_fieldsGrid->GetShownColumns();
@@ -497,7 +497,7 @@ bool DIALOG_SYMBOL_PROPERTIES::TransferDataToWindow()
     }
 
     // Set the symbol's library name.
-    m_tcLibraryID->SetLabelText( m_symbol->GetLibId().Format() );
+    m_tcLibraryID->SetValue( UnescapeString( m_symbol->GetLibId().Format() ) );
 
     Layout();
 
@@ -659,7 +659,7 @@ bool DIALOG_SYMBOL_PROPERTIES::TransferDataFromWindow()
     for( unsigned i = 0;  i < m_fields->size();  ++i )
         m_fields->at( i ).Offset( m_symbol->GetPosition() );
 
-    LIB_SYMBOL* entry = GetParent()->GetLibPart( m_symbol->GetLibId() );
+    LIB_SYMBOL* entry = GetParent()->GetLibSymbol( m_symbol->GetLibId() );
 
     if( entry && entry->IsPower() )
         m_fields->at( VALUE_FIELD ).SetText( m_symbol->GetLibId().GetLibItemName() );
@@ -781,7 +781,7 @@ void DIALOG_SYMBOL_PROPERTIES::OnGridCellChanging( wxGridEvent& event )
 
             if( newName.CmpNoCase( m_fieldsGrid->GetCellValue( i, FDC_NAME ) ) == 0 )
             {
-                DisplayError( this, wxString::Format( _( "The name '%s' is already in use." ),
+                DisplayError( this, wxString::Format( _( "Field name '%s' already in use." ),
                                                       newName ) );
                 event.Veto();
                 m_delayedFocusRow = event.GetRow();
@@ -1048,7 +1048,7 @@ void DIALOG_SYMBOL_PROPERTIES::OnUpdateUI( wxUpdateUIEvent& event )
 
 void DIALOG_SYMBOL_PROPERTIES::OnSizeGrid( wxSizeEvent& event )
 {
-    auto new_size = event.GetSize().GetX();
+    int new_size = event.GetSize().GetX();
 
     if( m_width != new_size )
     {

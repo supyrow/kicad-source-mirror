@@ -163,9 +163,8 @@ PCB_TRACK* SPECCTRA_DB::makeTRACK( PATH* aPath, int aPointIndex, int aNetcode )
 
     if( layerNdx == -1 )
     {
-        wxString layerName = FROM_UTF8( aPath->layer_id.c_str() );
-        THROW_IO_ERROR(
-                wxString::Format( _( "Session file uses invalid layer id \"%s\"" ), layerName ) );
+        THROW_IO_ERROR( wxString::Format( _( "Session file uses invalid layer id '%s'." ),
+                                          FROM_UTF8( aPath->layer_id.c_str() ) ) );
     }
 
     PCB_TRACK* track = new PCB_TRACK( m_sessionBoard );
@@ -221,9 +220,12 @@ PCB_VIA* SPECCTRA_DB::makeVIA( PADSTACK* aPadstack, const POINT& aPoint, int aNe
     {
         shape = (SHAPE*) (*aPadstack)[0];
         DSN_T type = shape->shape->Type();
+
         if( type != T_circle )
-            THROW_IO_ERROR(
-                    wxString::Format( _( "Unsupported via shape: %s" ), GetTokenString( type ) ) );
+        {
+            THROW_IO_ERROR( wxString::Format( _( "Unsupported via shape: %s." ),
+                                              GetTokenString( type ) ) );
+        }
 
         CIRCLE* circle = (CIRCLE*) shape->shape;
         int viaDiam = scale( circle->diameter, m_routeResolution );
@@ -496,8 +498,8 @@ void SPECCTRA_DB::FromSESSION( BOARD* aBoard )
                 // wire_via to text and put that text into the exception.
                 wxString psid( FROM_UTF8( wire_via->GetPadstackId().c_str() ) );
 
-                THROW_IO_ERROR( wxString::Format(
-                        _( "A wire_via references a missing padstack \"%s\"" ), psid ) );
+                THROW_IO_ERROR( wxString::Format( _( "A wire_via refers to missing padstack '%s'." ),
+                                                  psid ) );
             }
 
             NETCLASSPTR netclass = aBoard->GetDesignSettings().GetNetClasses().GetDefault();

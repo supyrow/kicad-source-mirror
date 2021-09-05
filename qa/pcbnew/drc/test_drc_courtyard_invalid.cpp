@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2018 KiCad Developers, see CHANGELOG.TXT for contributors.
+ * Copyright (C) 2018-2021 KiCad Developers, see CHANGELOG.TXT for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -240,6 +240,12 @@ static bool InvalidMatchesExpected( BOARD& aBoard, const PCB_MARKER& aMarker,
     if( reporter->GetAuxItemID() != niluuid )
     {
         BOOST_WARN_MESSAGE( false, "Expected no auxiliary item for invalid courtyard DRC." );
+        return false;
+    }
+
+    if( item_a == nullptr )
+    {
+        BOOST_ERROR( "Could not get board DRC item." );
         return false;
     }
 

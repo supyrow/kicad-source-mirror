@@ -33,7 +33,8 @@
 #include <gerber_file_image_list.h>
 #include <excellon_image.h>
 #include <wildcards_and_files_ext.h>
-#include <widgets/progress_reporter.h>
+#include <view/view.h>
+#include <widgets/wx_progress_reporters.h>
 #include "widgets/gerbview_layer_widget.h"
 
 // HTML Messages used more than one time:
@@ -141,18 +142,18 @@ bool GERBVIEW_FRAME::LoadGerberFiles( const wxString& aFullFileName )
         filetypes << wxT("|");
 
         /* Special gerber filetypes */
-        filetypes += _( "Top layer (*.GTL)|*.GTL;*.gtl|" );
-        filetypes += _( "Bottom layer (*.GBL)|*.GBL;*.gbl|" );
-        filetypes += _( "Bottom solder resist (*.GBS)|*.GBS;*.gbs|" );
-        filetypes += _( "Top solder resist (*.GTS)|*.GTS;*.gts|" );
-        filetypes += _( "Bottom overlay (*.GBO)|*.GBO;*.gbo|" );
-        filetypes += _( "Top overlay (*.GTO)|*.GTO;*.gto|" );
-        filetypes += _( "Bottom paste (*.GBP)|*.GBP;*.gbp|" );
-        filetypes += _( "Top paste (*.GTP)|*.GTP;*.gtp|" );
-        filetypes += _( "Keep-out layer (*.GKO)|*.GKO;*.gko|" );
-        filetypes += _( "Mechanical layers (*.GMx)|*.GM1;*.gm1;*.GM2;*.gm2;*.GM3;*.gm3|" );
-        filetypes += _( "Top Pad Master (*.GPT)|*.GPT;*.gpt|" );
-        filetypes += _( "Bottom Pad Master (*.GPB)|*.GPB;*.gpb|" );
+        filetypes += _( "Top layer" ) + AddFileExtListToFilter( { "GTL" } );
+        filetypes += _( "Bottom layer" ) + AddFileExtListToFilter( { "GBL" } );
+        filetypes += _( "Bottom solder resist" ) + AddFileExtListToFilter( { "GBS" } );
+        filetypes += _( "Top solder resist" ) + AddFileExtListToFilter( { "GTS" } );
+        filetypes += _( "Bottom overlay" ) + AddFileExtListToFilter( { "GBO" } );
+        filetypes += _( "Top overlay" ) + AddFileExtListToFilter( { "GTO" } );
+        filetypes += _( "Bottom paste" ) + AddFileExtListToFilter( { "GBP" } );
+        filetypes += _( "Top paste" ) + AddFileExtListToFilter( { "GTP" } );
+        filetypes += _( "Keep-out layer" ) + AddFileExtListToFilter( { "GKO" } );
+        filetypes += _( "Mechanical layers" ) + AddFileExtListToFilter( { "GM1", "GM2", "GM3", "GM4", "GM5", "GM6", "GM7", "GM8", "GM9" } );
+        filetypes += _( "Top Pad Master" ) + AddFileExtListToFilter( { "GPT" } );
+        filetypes += _( "Bottom Pad Master" ) + AddFileExtListToFilter( { "GPB" } );
 
         // All filetypes
         filetypes += AllFilesWildcard();
@@ -193,7 +194,17 @@ bool GERBVIEW_FRAME::LoadGerberFiles( const wxString& aFullFileName )
     // Set the busy cursor
     wxBusyCursor wait;
 
-    return LoadListOfGerberAndDrillFiles( currentPath, filenamesList );
+    bool isFirstFile = GetImagesList()->GetLoadedImageCount() == 0;
+
+    bool success = LoadListOfGerberAndDrillFiles( currentPath, filenamesList );
+
+    // Auto zoom is only applied if there is only one file loaded
+    if( isFirstFile )
+    {
+        Zoom_Automatique( false );
+    }
+
+    return success;
 }
 
 
@@ -239,15 +250,20 @@ bool GERBVIEW_FRAME::LoadListOfGerberAndDrillFiles( const wxString& aPath,
         if( !progress && ( aFilenameList.GetCount() > 1 ) )
         {
             progress = std::make_unique<WX_PROGRESS_REPORTER>( this,
-                            _( "Loading Gerber files..." ), 1, false );
+                                                               _( "Loading Gerber files..." ), 1,
+                                                               false );
             progress->SetMaxProgress( aFilenameList.GetCount() - 1 );
-            progress->Report( wxString::Format( _("Loading %u/%zu %s" ), ii+1,
-                                            aFilenameList.GetCount(), m_lastFileName ) );
+            progress->Report( wxString::Format( _("Loading %u/%zu %s..." ),
+                                                ii+1,
+                                                aFilenameList.GetCount(),
+                                                m_lastFileName ) );
         }
         else if( progress )
         {
-            progress->Report( wxString::Format( _("Loading %u/%zu %s" ), ii+1,
-                                            aFilenameList.GetCount(), m_lastFileName ) );
+            progress->Report( wxString::Format( _("Loading %u/%zu %s..." ),
+                                                ii+1,
+                                                aFilenameList.GetCount(),
+                                                m_lastFileName ) );
             progress->KeepRefreshing();
         }
 
@@ -277,6 +293,9 @@ bool GERBVIEW_FRAME::LoadListOfGerberAndDrillFiles( const wxString& aPath,
                 else if( Read_GERBER_File( filename.GetFullPath() ) )
                 {
                     UpdateFileHistory( m_lastFileName );
+
+                    GetCanvas()->GetView()->SetLayerHasNegatives(
+                            GERBER_DRAW_LAYER( layer ), GetGbrImage( layer )->HasNegativeItems() );
 
                     layer = getNextAvailableLayer( layer );
 
@@ -323,8 +342,6 @@ bool GERBVIEW_FRAME::LoadListOfGerberAndDrillFiles( const wxString& aPath,
     }
 
     SetVisibleLayers( visibility );
-
-    Zoom_Automatique( false );
 
     // Synchronize layers tools with actual active layer:
     ReFillLayerWidget();
@@ -463,7 +480,7 @@ bool GERBVIEW_FRAME::unarchiveFiles( const wxString& aFullFileName, REPORTER* aR
     {
         if( aReporter )
         {
-            msg.Printf( _( "Zip file \"%s\" cannot be opened" ), aFullFileName );
+            msg.Printf( _( "Zip file '%s' cannot be opened." ), aFullFileName );
             aReporter->Report( msg, RPT_SEVERITY_ERROR );
         }
 
@@ -505,7 +522,7 @@ bool GERBVIEW_FRAME::unarchiveFiles( const wxString& aFullFileName, REPORTER* aR
         {
             if( aReporter )
             {
-                msg.Printf( _( "Info: skip file \"%s\" (unknown type)\n" ), entry->GetName() );
+                msg.Printf( _( "Skipped file '%s' (unknown type).\n" ), entry->GetName() );
                 aReporter->Report( msg, RPT_SEVERITY_WARNING );
             }
 
@@ -517,7 +534,7 @@ bool GERBVIEW_FRAME::unarchiveFiles( const wxString& aFullFileName, REPORTER* aR
             //We cannot read a gerber job file as a gerber plot file: skip it
             if( aReporter )
             {
-                msg.Printf( _( "Info: skip file \"%s\" (gerber job file)\n" ), entry->GetName() );
+                msg.Printf( _( "Skipped file '%s' (gerber job file).\n" ), entry->GetName() );
                 aReporter->Report( msg, RPT_SEVERITY_WARNING );
             }
 
@@ -558,7 +575,7 @@ bool GERBVIEW_FRAME::unarchiveFiles( const wxString& aFullFileName, REPORTER* aR
 
                 if( aReporter )
                 {
-                    msg.Printf( _( "<b>Unable to create temporary file \"%s\"</b>\n"),
+                    msg.Printf( _( "<b>Unable to create temporary file '%s'.</b>\n"),
                                 unzipped_tempfile );
                     aReporter->Report( msg, RPT_SEVERITY_ERROR );
                 }
@@ -571,6 +588,10 @@ bool GERBVIEW_FRAME::unarchiveFiles( const wxString& aFullFileName, REPORTER* aR
         {
             // Read gerber files: each file is loaded on a new GerbView layer
             read_ok = Read_GERBER_File( unzipped_tempfile );
+
+            if( read_ok )
+                GetCanvas()->GetView()->SetLayerHasNegatives(
+                        GERBER_DRAW_LAYER( layer ), GetGbrImage( layer )->HasNegativeItems() );
         }
         else // if( curr_ext == "drl" )
         {

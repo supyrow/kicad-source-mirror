@@ -32,7 +32,7 @@
 #include <bom_plugins.h>
 #include <confirm.h>
 #include <dialog_bom_base.h>
-#include <dialog_helpers.h>
+#include <string_utils.h>
 #include <eeschema_settings.h>
 #include <gestfich.h>
 #include <dialogs/html_messagebox.h>
@@ -55,7 +55,7 @@ wxString s_bomHelpInfo =
 
 // BOM "plugins" are not actually plugins. They are external tools
 // (scripts or executables) called by this dialog.
-typedef std::vector<BOM_GENERATOR_HANDLER::PTR> BOM_GENERATOR_ARRAY;
+typedef std::vector< std::unique_ptr<BOM_GENERATOR_HANDLER> > BOM_GENERATOR_ARRAY;
 
 
 // The main dialog frame to run scripts to build bom
@@ -388,7 +388,7 @@ void DIALOG_BOM::OnAddGenerator( wxCommandEvent& event )
     // Verify if it does not exists
     if( pluginExists( name ) )
     {
-        wxMessageBox( wxString::Format( _( "Nickname \"%s\" already in use." ), name ) );
+        wxMessageBox( wxString::Format( _( "Nickname '%s' already in use." ), name ) );
         return;
     }
 
@@ -417,9 +417,9 @@ wxString DIALOG_BOM::chooseGenerator()
     if( lastPath.IsEmpty() )
         lastPath = PATHS::GetUserPluginsPath();
 
-    wxString fullFileName = EDA_FILE_SELECTOR( _( "Generator files:" ), lastPath, wxEmptyString,
-                                               wxEmptyString, wxFileSelectorDefaultWildcardStr,
-                                               this, wxFD_OPEN, true );
+    wxString fullFileName = wxFileSelector( _( "Generator File" ), lastPath, wxEmptyString,
+                                            wxEmptyString, wxFileSelectorDefaultWildcardStr,
+                                            wxFD_OPEN, this );
 
     return fullFileName;
 }

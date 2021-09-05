@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2004-2015 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2008-2015 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 1992-2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -195,13 +195,13 @@ public:
     /**
      * Set the default language without reference to any preferences.  Can be used to set
      * the language for dialogs that show before preferences are loaded
-     * @param aErrMsg String to return the error messsage(s) in
+     * @param aErrMsg String to return the error message(s) in
      * @return false if the language could not be set
      */
     bool SetDefaultLanguage( wxString& aErrMsg );
 
     /**
-     * Set in .m_language_id member the wxWidgets language identifier ID fromthe KiCad
+     * Set in .m_language_id member the wxWidgets language identifier ID from the KiCad
      * menu id (internal menu identifier).
      *
      * @param menu_id The KiCad menuitem id (returned by Menu Event, when clicking on a
@@ -269,9 +269,11 @@ public:
      * @note Do not initialize anything relating to DSOs or projects.
      *
      * @param aHeadless If true, run in headless mode (e.g. for unit tests)
+     * @param aSkipPyInit If true, do not init python stuff.
+     * Useful in application that do not use python, to disable python dependency at run time
      * @return true if success, false if failure and program is to terminate.
      */
-    bool InitPgm( bool aHeadless = false );
+    bool InitPgm( bool aHeadless = false, bool aSkipPyInit = false );
 
     // The PGM_* classes can have difficulties at termination if they
     // are not destroyed soon enough.  Relying on a static destructor can be
@@ -308,9 +310,6 @@ protected:
 
     std::unique_ptr<SCRIPTING> m_python_scripting;
 
-    /// prevents multiple instances of a program from being run at the same time.
-    wxSingleInstanceChecker* m_pgm_checker;
-
     /// full path to this program
     wxString        m_bin_dir;
 
@@ -329,9 +328,6 @@ protected:
     /// The file name of the the program selected for browsing pdf files.
     wxString        m_pdf_browser;
     wxString        m_editor_name;
-
-    /// Flag to indicate if the environment variable overwrite warning dialog should be shown.
-    bool            m_show_env_var_dialog;
 
 };
 

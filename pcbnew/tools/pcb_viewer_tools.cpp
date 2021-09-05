@@ -21,7 +21,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
-#include <3d_viewer/eda_3d_viewer.h>
+#include <3d_viewer/eda_3d_viewer_frame.h>
 #include <kiplatform/ui.h>
 #include <pcb_base_frame.h>
 #include <pcbnew_settings.h>
@@ -62,17 +62,19 @@ void PCB_VIEWER_TOOLS::Reset( RESET_REASON aReason )
 
 int PCB_VIEWER_TOOLS::Show3DViewer( const TOOL_EVENT& aEvent )
 {
-    EDA_3D_VIEWER* draw3DFrame = frame()->CreateAndShow3D_Frame();
+    EDA_3D_VIEWER_FRAME* draw3DFrame = frame()->CreateAndShow3D_Frame();
 
     if( frame()->IsType( FRAME_FOOTPRINT_VIEWER )
      || frame()->IsType( FRAME_FOOTPRINT_VIEWER_MODAL )
      || frame()->IsType( FRAME_FOOTPRINT_WIZARD ) )
     {
-        frame()->Update3DView( true, true );
-
         // A stronger version of Raise() which promotes the window to its parent's level.
         KIPLATFORM::UI::ReparentQuasiModal( draw3DFrame );
     }
+
+    // And load or update the current board
+    frame()->Update3DView( true, true );
+
     return 0;
 }
 

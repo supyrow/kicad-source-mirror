@@ -25,13 +25,10 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
-#include <eda_base_frame.h>
-#include <fill_type.h>
-#include <plotters_specific.h>
+#include <plotters/plotter_dxf.h>
 #include <macros.h>
-#include <kicad_string.h>
+#include <string_utils.h>
 #include <convert_basic_shapes_to_polygon.h>
-#include <render_settings.h>
 #include <trigo.h>
 
 /**
@@ -391,7 +388,7 @@ bool DXF_PLOTTER::EndPlot()
            "  0\n"
            "EOF\n", m_outputFile );
     fclose( m_outputFile );
-    m_outputFile = NULL;
+    m_outputFile = nullptr;
 
     return true;
 }
@@ -493,7 +490,7 @@ void DXF_PLOTTER::PlotPoly( const std::vector<wxPoint>& aCornerList,
         MoveTo( aCornerList[0] );
 
         for( unsigned ii = 1; ii < aCornerList.size(); ii++ )
-            ThickSegment( aCornerList[ii-1], aCornerList[ii], aWidth, FILLED, NULL );
+            ThickSegment( aCornerList[ii-1], aCornerList[ii], aWidth, FILLED, nullptr );
 
         return;
     }
@@ -623,9 +620,6 @@ void DXF_PLOTTER::ThickSegment( const wxPoint& aStart, const wxPoint& aEnd, int 
 }
 
 
-/* Plot an arc in DXF format
- * Filling is not supported
- */
 void DXF_PLOTTER::Arc( const wxPoint& centre, double StAngle, double EndAngle, int radius,
                        FILL_TYPE fill, int width )
 {
@@ -754,7 +748,7 @@ void DXF_PLOTTER::FlashPadRoundRect( const wxPoint& aPadPos, const wxSize& aSize
 {
     SHAPE_POLY_SET outline;
     TransformRoundChamferedRectToPolygon( outline, aPadPos, aSize, aOrient, aCornerRadius,
-                                          0.0, 0, GetPlotterArcHighDef(), ERROR_INSIDE );
+                                          0.0, 0, 0, GetPlotterArcHighDef(), ERROR_INSIDE );
 
     // TransformRoundRectToPolygon creates only one convex polygon
     SHAPE_LINE_CHAIN& poly = outline.Outline( 0 );

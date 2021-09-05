@@ -45,7 +45,7 @@ class PROPERTIES;
 class SELECTION;
 class SCH_LEGACY_PLUGIN_CACHE;
 class LIB_SYMBOL;
-class PART_LIB;
+class SYMBOL_LIB;
 class BUS_ALIAS;
 
 
@@ -80,6 +80,11 @@ public:
     const wxString GetLibraryFileExtension() const override
     {
         return wxT( "lib" );
+    }
+
+    void SetProgressReporter( PROGRESS_REPORTER* aReporter ) override
+    {
+        m_progressReporter = aReporter;
     }
 
     /**
@@ -118,7 +123,7 @@ public:
                              const wxString&   aLibraryPath,
                              const PROPERTIES* aProperties = nullptr ) override;
     LIB_SYMBOL* LoadSymbol( const wxString& aLibraryPath, const wxString& aAliasName,
-                           const PROPERTIES* aProperties = nullptr ) override;
+                            const PROPERTIES* aProperties = nullptr ) override;
     void SaveSymbol( const wxString& aLibraryPath, const LIB_SYMBOL* aSymbol,
                      const PROPERTIES* aProperties = nullptr ) override;
     void DeleteSymbol( const wxString& aLibraryPath, const wxString& aSymbolName,
@@ -140,6 +145,7 @@ public:
     static void FormatPart( LIB_SYMBOL* aSymbol, OUTPUTFORMATTER& aFormatter );
 
 private:
+    void checkpoint();
     void loadHierarchy( SCH_SHEET* aSheet );
     void loadHeader( LINE_READER& aReader, SCH_SCREEN* aScreen );
     void loadPageSettings( LINE_READER& aReader, SCH_SCREEN* aScreen );
@@ -170,17 +176,21 @@ private:
     bool isBuffering( const PROPERTIES* aProperties );
 
 protected:
-    int                  m_version;    ///< Version of file being loaded.
+    int                      m_version;          ///< Version of file being loaded.
 
-    /** For throwing exceptions or errors on partial schematic loads. */
-    wxString             m_error;
+    wxString                 m_error;            ///< For throwing exceptions or errors on partial
+                                                 ///<  schematic loads.
+    PROGRESS_REPORTER*       m_progressReporter; ///< optional; may be nullptr
+    LINE_READER*             m_lineReader;       ///< for progress reporting
+    unsigned                 m_lastProgressLine;
+    unsigned                 m_lineCount;        ///< for progress reporting
 
-    wxString             m_path;       ///< Root project path for loading child sheets.
-    std::stack<wxString> m_currentPath;///< Stack to maintain nested sheet paths
-    SCH_SHEET*           m_rootSheet;  ///< The root sheet of the schematic being loaded..
-    OUTPUTFORMATTER*     m_out;        ///< The output formatter for saving SCH_SCREEN objects.
+    wxString                 m_path;             ///< Root project path for loading child sheets.
+    std::stack<wxString>     m_currentPath;      ///< Stack to maintain nested sheet paths
+    SCH_SHEET*               m_rootSheet;        ///< The root sheet of the schematic being loaded.
+    OUTPUTFORMATTER*         m_out;              ///< The formatter for saving SCH_SCREEN objects.
     SCH_LEGACY_PLUGIN_CACHE* m_cache;
-    SCHEMATIC*          m_schematic;   ///< Passed to Load(), the schematic object being loaded
+    SCHEMATIC*               m_schematic;
 
     /// initialize PLUGIN like a constructor would.
     void init( SCHEMATIC* aSchematic, const PROPERTIES* aProperties = nullptr );

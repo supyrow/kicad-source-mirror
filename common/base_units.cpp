@@ -36,7 +36,7 @@
 
 #include <base_units.h>
 #include <common.h>
-#include <kicad_string.h>
+#include <string_utils.h>
 #include <math/util.h>      // for KiROUND
 #include <macros.h>
 #include <title_block.h>
@@ -98,6 +98,7 @@ double To_User_Unit( EDA_UNITS aUnit, double aValue )
  * but not in dialogs, because 4 digits only
  * could truncate the actual value
  */
+
 
 // A lower-precision (for readability) version of StringFromValue()
 wxString MessageTextFromValue( EDA_UNITS aUnits, int aValue, bool aAddUnitLabel,
@@ -494,7 +495,7 @@ std::string FormatInternalUnits( int aValue )
         len = snprintf( buf, sizeof(buf), "%.10f", engUnits );
 
         // Make sure snprintf() didn't fail and the locale numeric separator is correct.
-        wxCHECK( len >= 0 && len < 50 && strchr( buf, ',' ) == NULL, std::string( "" ) );
+        wxCHECK( len >= 0 && len < 50 && strchr( buf, ',' ) == nullptr, std::string( "" ) );
 
         while( --len > 0 && buf[len] == '0' )
             buf[len] = '\0';
@@ -509,7 +510,7 @@ std::string FormatInternalUnits( int aValue )
         len = snprintf( buf, sizeof(buf), "%.10g", engUnits );
 
         // Make sure snprintf() didn't fail and the locale numeric separator is correct.
-        wxCHECK( len >= 0 && len < 50 && strchr( buf, ',' ) == NULL , std::string( "" ) );
+        wxCHECK( len >= 0 && len < 50 && strchr( buf, ',' ) == nullptr , std::string( "" ) );
     }
 
     return std::string( buf, len );

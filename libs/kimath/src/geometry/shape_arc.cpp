@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2017 CERN
- * Copyright (C) 2019-2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2019-2021 KiCad Developers, see AUTHORS.txt for contributors.
  * @author Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  *
  * This program is free software; you can redistribute it and/or
@@ -23,11 +23,21 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
+#include <core/kicad_algo.h>
+#include <geometry/circle.h>
 #include <geometry/geometry_utils.h>
 #include <geometry/seg.h>               // for SEG
 #include <geometry/shape_arc.h>
 #include <geometry/shape_line_chain.h>
 #include <trigo.h>
+
+
+std::ostream& operator<<( std::ostream& aStream, const SHAPE_ARC& aArc )
+{
+    aStream << "Arc( P0=" << aArc.GetP0() << " P1=" << aArc.GetP1() << " Mid=" << aArc.GetArcMid()
+            << " Width=" << aArc.GetWidth() << " )";
+    return aStream;
+}
 
 
 SHAPE_ARC::SHAPE_ARC( const VECTOR2I& aArcCenter, const VECTOR2I& aArcStartPoint,
@@ -188,6 +198,34 @@ SHAPE_ARC& SHAPE_ARC::ConstructFromStartEndAngle( const VECTOR2I& aStart, const 
 }
 
 
+SHAPE_ARC& SHAPE_ARC::ConstructFromStartEndCenter( const VECTOR2I& aStart, const VECTOR2I& aEnd,
+                                                   const VECTOR2I& aCenter, bool aClockwise,
+                                                   double aWidth )
+{
+    VECTOR2I startLine = aStart - aCenter;
+    VECTOR2I endLine = aEnd - aCenter;
+
+    double startangle = NormalizeAnglePos(RAD2DECIDEG( startLine.Angle() ));
+    double endangle = NormalizeAnglePos(RAD2DECIDEG( endLine.Angle() ));
+    double angle = endangle - startangle;
+
+    if( aClockwise )
+        angle = NormalizeAngleNeg( angle );
+    else
+        angle = NormalizeAnglePos( angle );
+
+    m_start = aStart;
+    m_end = aEnd;
+    m_mid = aStart;
+
+    RotatePoint( m_mid, aCenter, -angle / 2.0 );
+
+    update_bbox();
+
+    return *this;
+}
+
+
 bool SHAPE_ARC::Collide( const SEG& aSeg, int aClearance, int* aActual, VECTOR2I* aLocation ) const
 {
     if( aSeg.A == aSeg.B )
@@ -260,6 +298,43 @@ bool SHAPE_ARC::Collide( const SEG& aSeg, int aClearance, int* aActual, VECTOR2I
 }
 
 
+int SHAPE_ARC::IntersectLine( const SEG& aSeg, std::vector<VECTOR2I>* aIpsBuffer ) const
+{
+    CIRCLE circ( GetCenter(), GetRadius() );
+
+    std::vector<VECTOR2I> intersections = circ.IntersectLine( aSeg );
+
+    size_t originalSize = aIpsBuffer->size();
+
+    for( const VECTOR2I& intersection : intersections )
+    {
+        if( sliceContainsPoint( intersection ) )
+            aIpsBuffer->push_back( intersection );
+    }
+
+    return aIpsBuffer->size() - originalSize;
+}
+
+
+int SHAPE_ARC::Intersect( const SHAPE_ARC& aArc, std::vector<VECTOR2I>* aIpsBuffer ) const
+{
+    CIRCLE thiscirc( GetCenter(), GetRadius() );
+    CIRCLE othercirc( aArc.GetCenter(), aArc.GetRadius() );
+
+    std::vector<VECTOR2I> intersections = thiscirc.Intersect( othercirc );
+
+    size_t originalSize = aIpsBuffer->size();
+
+    for( const VECTOR2I& intersection : intersections )
+    {
+        if( sliceContainsPoint( intersection ) && aArc.sliceContainsPoint( intersection ) )
+            aIpsBuffer->push_back( intersection );
+    }
+
+    return aIpsBuffer->size() - originalSize;
+}
+
+
 void SHAPE_ARC::update_bbox()
 {
     std::vector<VECTOR2I> points;
@@ -310,6 +385,12 @@ const BOX2I SHAPE_ARC::BBox( int aClearance ) const
         bbox.Inflate( aClearance );
 
     return bbox;
+}
+
+
+bool SHAPE_ARC::IsClockwise() const
+{
+    return GetCentralAngle() < 0;
 }
 
 
@@ -414,25 +495,43 @@ double SHAPE_ARC::GetRadius() const
 }
 
 
-const SHAPE_LINE_CHAIN SHAPE_ARC::ConvertToPolyline( double aAccuracy ) const
+const SHAPE_LINE_CHAIN SHAPE_ARC::ConvertToPolyline( double aAccuracy,
+                                                     double* aEffectiveAccuracy ) const
 {
     SHAPE_LINE_CHAIN rv;
-    double r = GetRadius();
-    double sa = GetStartAngle();
-    auto   c = GetCenter();
-    double ca = GetCentralAngle();
+    double r    = GetRadius();
+    double sa   = GetStartAngle();
+    VECTOR2I c  = GetCenter();
+    double ca   = GetCentralAngle();
 
     int n;
 
-    if( r < aAccuracy )
+    // To calculate the arc to segment count, use the external radius instead of the radius.
+    // for a arc with small radius and large width, the difference can be significant
+    double external_radius = r+(m_width/2);
+    double effectiveAccuracy;
+
+    if( external_radius < aAccuracy/2 )     // Should be a very rare case
+    {
+        // In this case, the arc is approximated by one segment, with a effective error
+        // between -aAccuracy/2 and +aAccuracy/2, as expected.
         n = 0;
+        effectiveAccuracy = external_radius;
+    }
     else
-        n = GetArcToSegmentCount( r, aAccuracy, ca );
+    {
+        double arc_angle = std::abs( ca );
+        n = GetArcToSegmentCount( external_radius, aAccuracy, arc_angle );
+
+        // Recalculate the effective error of approximation, that can be < aAccuracy
+        int seg360 = n * 360.0 / arc_angle;
+        effectiveAccuracy = CircleToEndSegmentDeltaRadius( external_radius, seg360 );
+    }
 
     // Split the error on either side of the arc.  Since we want the start and end points
     // to be exactly on the arc, the first and last segments need to be shorter to stay within
     // the error band (since segments normally start 1/2 the error band outside the arc).
-    r += aAccuracy / 2;
+    r += effectiveAccuracy / 2;
     n = n * 2;
 
     rv.Append( m_start );
@@ -451,6 +550,9 @@ const SHAPE_LINE_CHAIN SHAPE_ARC::ConvertToPolyline( double aAccuracy ) const
     }
 
     rv.Append( m_end );
+
+    if( aEffectiveAccuracy )
+        *aEffectiveAccuracy = effectiveAccuracy;
 
     return rv;
 }
@@ -522,4 +624,26 @@ void SHAPE_ARC::Reverse()
 SHAPE_ARC SHAPE_ARC::Reversed() const
 {
     return SHAPE_ARC( m_end, m_mid, m_start, m_width );
+}
+
+
+bool SHAPE_ARC::sliceContainsPoint( const VECTOR2I& p ) const
+{
+    VECTOR2I center = GetCenter();
+    double   phi = 180.0 / M_PI * atan2( p.y - center.y, p.x - center.x );
+    double   ca = GetCentralAngle();
+    double   sa = GetStartAngle();
+    double   ea;
+
+    if( ca >= 0 )
+    {
+        ea = sa + ca;
+    }
+    else
+    {
+        ea = sa;
+        sa += ca;
+    }
+
+    return alg::within_wrapped_range( phi, sa, ea, 360.0 );
 }

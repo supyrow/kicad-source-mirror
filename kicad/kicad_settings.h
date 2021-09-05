@@ -27,7 +27,6 @@
 class KICAD_SETTINGS : public APP_SETTINGS_BASE
 {
 public:
-
     KICAD_SETTINGS();
 
     virtual ~KICAD_SETTINGS() {}
@@ -38,8 +37,12 @@ public:
 
     std::vector<wxString> m_OpenProjects;
 
-protected:
+#ifdef PCM
+    std::vector<std::pair<wxString, wxString>> m_PcmRepositories;
+    wxString                                   m_PcmLastDownloadDir;
+#endif
 
+protected:
     virtual std::string getLegacyFrameName() const override { return "KicadFrame"; }
 };
 

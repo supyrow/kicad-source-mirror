@@ -55,7 +55,7 @@
 S3D_PLUGIN_MANAGER::S3D_PLUGIN_MANAGER()
 {
     // create the initial file filter list entry
-    m_FileFilters.push_back( _( "All Files (*.*)|*.*" ) );
+    m_FileFilters.push_back( _( "All Files" ) + wxT( " (*.*)|*.*" ) );
 
     // discover and load plugins
     loadPlugins();
@@ -406,18 +406,25 @@ std::list< wxString > const* S3D_PLUGIN_MANAGER::GetFileFilters( void ) const no
 SCENEGRAPH* S3D_PLUGIN_MANAGER::Load3DModel( const wxString& aFileName, std::string& aPluginInfo )
 {
     wxFileName raw( aFileName );
-    wxString ext = raw.GetExt();
+    wxString ext_to_find = raw.GetExt();
 
 #ifdef _WIN32
     // note: plugins only have a lowercase filter within Windows; including an uppercase
     // filter will result in duplicate file entries and should be avoided.
-    ext.LowerCase();
+    ext_to_find.MakeLower();
 #endif
+
+    // .gz files are compressed versions that may have additional information in the previous extension
+    if( ext_to_find == "gz" )
+    {
+        wxFileName second( raw.GetName() );
+        ext_to_find = second.GetExt() + ".gz";
+    }
 
     std::pair < std::multimap< const wxString, KICAD_PLUGIN_LDR_3D* >::iterator,
         std::multimap< const wxString, KICAD_PLUGIN_LDR_3D* >::iterator > items;
 
-    items = m_ExtMap.equal_range( ext );
+    items = m_ExtMap.equal_range( ext_to_find );
     std::multimap< const wxString, KICAD_PLUGIN_LDR_3D* >::iterator sL = items.first;
 
     while( sL != items.second )

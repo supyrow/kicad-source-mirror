@@ -22,6 +22,7 @@
  */
 
 #include "altium_parser.h"
+#include "altium_parser_utils.h"
 
 #include <compoundfilereader.h>
 #include <ki_exception.h>
@@ -29,14 +30,16 @@
 #include <sstream>
 #include <utf.h>
 #include <wx/log.h>
+#include <wx/translation.h>
 
-const CFB::COMPOUND_FILE_ENTRY* FindStream(
-        const CFB::CompoundFileReader& aReader, const char* aStreamName )
+const CFB::COMPOUND_FILE_ENTRY* FindStream( const CFB::CompoundFileReader& aReader,
+                                            const char* aStreamName )
 {
     const CFB::COMPOUND_FILE_ENTRY* ret = nullptr;
     aReader.EnumFiles( aReader.GetRootEntry(), -1,
             [&]( const CFB::COMPOUND_FILE_ENTRY* aEntry, const CFB::utf16string& aU16dir,
-                    int level ) -> void {
+                 int level ) -> void
+            {
                 if( aReader.IsStream( aEntry ) )
                 {
                     std::string name = UTF16ToUTF8( aEntry->name );
@@ -63,8 +66,8 @@ const CFB::COMPOUND_FILE_ENTRY* FindStream(
 }
 
 
-ALTIUM_PARSER::ALTIUM_PARSER(
-        const CFB::CompoundFileReader& aReader, const CFB::COMPOUND_FILE_ENTRY* aEntry )
+ALTIUM_PARSER::ALTIUM_PARSER( const CFB::CompoundFileReader& aReader,
+                              const CFB::COMPOUND_FILE_ENTRY* aEntry )
 {
     m_subrecord_end = nullptr;
     m_size          = static_cast<size_t>( aEntry->size );
@@ -92,6 +95,7 @@ std::map<wxString, wxString> ALTIUM_PARSER::ReadProperties()
     std::map<wxString, wxString> kv;
 
     uint32_t length = Read<uint32_t>();
+
     if( length > GetRemainingBytes() )
     {
         m_error = true;
@@ -106,10 +110,11 @@ std::map<wxString, wxString> ALTIUM_PARSER::ReadProperties()
     // There is one case by kliment where Board6 ends with "|NEARDISTANCE=1000mi".
     // Both the 'l' and the null-byte are missing, which looks like Altium swallowed two bytes.
     bool hasNullByte = m_pos[length - 1] == '\0';
+
     if( !hasNullByte )
     {
-        wxLogError( "For Altium import, we assumes a null byte at the end of a list of properties. "
-                    "Because this is missing, imported data might be malformed or missing." );
+        wxLogError( _( "Missing null byte at end of property list. Imported data might be "
+                       "malformed or missing." ) );
     }
 
     // we use std::string because std::string can handle NULL-bytes
@@ -118,6 +123,7 @@ std::map<wxString, wxString> ALTIUM_PARSER::ReadProperties()
     m_pos += length;
 
     std::size_t token_end = 0;
+
     while( token_end < str.size() && token_end != std::string::npos )
     {
         std::size_t token_start = str.find( '|', token_end );
@@ -140,10 +146,28 @@ std::map<wxString, wxString> ALTIUM_PARSER::ReadProperties()
         // convert the strings to wxStrings, since we use them everywhere
         // value can have non-ASCII characters, so we convert them from LATIN1/ISO8859-1
         wxString key( keyS.c_str(), wxConvISO8859_1 );
-        wxString value( valueS.c_str(), wxConvISO8859_1 );
-
         // Altium stores keys either in Upper, or in CamelCase. Lets unify it.
-        kv.insert( { key.Trim( false ).Trim( true ).MakeUpper(), value.Trim() } );
+        wxString canonicalKey = key.Trim( false ).Trim( true ).MakeUpper();
+        // If the key starts with '%UTF8%' we have to parse the value using UTF8
+        wxString value;
+
+        if( canonicalKey.StartsWith( "%UTF8%" ) )
+            value = wxString( valueS.c_str(), wxConvUTF8 );
+        else
+            value = wxString( valueS.c_str(), wxConvISO8859_1 );
+
+        // Breathless hack because I haven't a clue what the story is here (but this character
+        // appears in a lot of radial dimensions and is rendered by Altium as a space).
+        value.Replace( wxT( "ÿ" ), wxT( " " ) );
+
+        if( canonicalKey == wxT( "DESIGNATOR" )
+                || canonicalKey == wxT( "NAME" )
+                || canonicalKey == wxT( "TEXT" ) )
+        {
+            value = AltiumPropertyToKiCadString( value.Trim() );
+        }
+
+        kv.insert( { canonicalKey, value.Trim() } );
     }
 
     return kv;
@@ -156,8 +180,9 @@ int32_t ALTIUM_PARSER::ConvertToKicadUnit( const double aValue )
 
     int32_t iu = KiROUND( Clamp<double>( -int_limit, aValue, int_limit ) * 2.54 );
 
-    // Altium stores metric units up to 0.001mm (1000nm) in accuracy. This code fixes rounding errors.
-    // Because imperial units > 0.01mil are always even, this workaround should never trigger for them.
+    // Altium stores metric units up to 0.001mm (1000nm) in accuracy. This code fixes rounding
+    // errors. Because imperial units > 0.01mil are always even, this workaround should never
+    // trigger for them.
     switch( iu % 1000 )
     {
     case 1:
@@ -172,22 +197,21 @@ int32_t ALTIUM_PARSER::ConvertToKicadUnit( const double aValue )
 }
 
 
-int ALTIUM_PARSER::PropertiesReadInt(
-        const std::map<wxString, wxString>& aProperties, const wxString& aKey, int aDefault )
+int ALTIUM_PARSER::ReadInt( const std::map<wxString, wxString>& aProps, const wxString& aKey,
+                            int aDefault )
 {
-    const std::map<wxString, wxString>::const_iterator& value = aProperties.find( aKey );
-    return value == aProperties.end() ? aDefault : wxAtoi( value->second );
+    const std::map<wxString, wxString>::const_iterator& value = aProps.find( aKey );
+    return value == aProps.end() ? aDefault : wxAtoi( value->second );
 }
 
 
-double ALTIUM_PARSER::PropertiesReadDouble(
-        const std::map<wxString, wxString>& aProperties, const wxString& aKey, double aDefault )
+double ALTIUM_PARSER::ReadDouble( const std::map<wxString, wxString>& aProps, const wxString& aKey,
+                                  double aDefault )
 {
-    const std::map<wxString, wxString>::const_iterator& value = aProperties.find( aKey );
-    if( value == aProperties.end() )
-    {
+    const std::map<wxString, wxString>::const_iterator& value = aProps.find( aKey );
+
+    if( value == aProps.end() )
         return aDefault;
-    }
 
     // Locale independent str -> double conversation
     std::istringstream istr( (const char*) value->second.mb_str() );
@@ -198,41 +222,56 @@ double ALTIUM_PARSER::PropertiesReadDouble(
     return doubleValue;
 }
 
-bool ALTIUM_PARSER::PropertiesReadBool(
-        const std::map<wxString, wxString>& aProperties, const wxString& aKey, bool aDefault )
+
+bool ALTIUM_PARSER::ReadBool( const std::map<wxString, wxString>& aProps, const wxString& aKey,
+                              bool aDefault )
 {
-    const std::map<wxString, wxString>::const_iterator& value = aProperties.find( aKey );
-    if( value == aProperties.end() )
+    const std::map<wxString, wxString>::const_iterator& value = aProps.find( aKey );
+
+    if( value == aProps.end() )
         return aDefault;
     else
         return value->second == "T" || value->second == "TRUE";
 }
 
-int32_t ALTIUM_PARSER::PropertiesReadKicadUnit( const std::map<wxString, wxString>& aProperties,
-        const wxString& aKey, const wxString& aDefault )
+
+int32_t ALTIUM_PARSER::ReadKicadUnit( const std::map<wxString, wxString>& aProps,
+                                      const wxString& aKey, const wxString& aDefault )
 {
-    const wxString& value = PropertiesReadString( aProperties, aKey, aDefault );
+    const wxString& value = ReadString( aProps, aKey, aDefault );
 
     wxString prefix;
+
     if( !value.EndsWith( "mil", &prefix ) )
     {
-        wxLogError( wxString::Format( "Unit '%s' does not end with mil", value ) );
+        wxLogError( _( "Unit '%s' does not end with 'mil'." ), value );
         return 0;
     }
 
     double mils;
+
     if( !prefix.ToCDouble( &mils ) )
     {
-        wxLogError( wxString::Format( "Cannot convert '%s' into double", prefix ) );
+        wxLogError( _( "Cannot convert '%s' to double." ), prefix );
         return 0;
     }
 
     return ConvertToKicadUnit( mils * 10000 );
 }
 
-wxString ALTIUM_PARSER::PropertiesReadString( const std::map<wxString, wxString>& aProperties,
-        const wxString& aKey, const wxString& aDefault )
+
+wxString ALTIUM_PARSER::ReadString( const std::map<wxString, wxString>& aProps,
+                                    const wxString& aKey, const wxString& aDefault )
 {
-    const std::map<wxString, wxString>::const_iterator& value = aProperties.find( aKey );
-    return value == aProperties.end() ? aDefault : value->second;
+    const auto& utf8Value = aProps.find( wxString( "%UTF8%" ) + aKey );
+
+    if( utf8Value != aProps.end() )
+        return utf8Value->second;
+
+    const auto& value = aProps.find( aKey );
+
+    if( value != aProps.end() )
+        return value->second;
+
+    return aDefault;
 }

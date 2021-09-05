@@ -2,7 +2,7 @@
  * This program source code file is part of KICAD, a free EDA CAD application.
  *
  * Copyright (C) 2014-2017 CERN
- * Copyright (C) 2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2020-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * @author Maciej Suminski <maciej.suminski@cern.ch>
  *
@@ -28,7 +28,7 @@
 #define EDIT_POINTS_H_
 
 #include <eda_item.h>
-#include <layers_id_colors_and_visibility.h>
+#include <layer_ids.h>
 
 #include <list>
 #include <deque>
@@ -156,7 +156,7 @@ public:
      */
     inline bool IsConstrained() const
     {
-        return m_constraint != NULL;
+        return m_constraint != nullptr;
     }
 
     /**

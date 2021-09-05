@@ -32,6 +32,7 @@
 #include <build_version.h>
 #include <board.h>
 #include <board_design_settings.h>
+#include <convert_basic_shapes_to_polygon.h>
 #include <fp_shape.h>
 #include <footprint.h>
 #include <pad.h>
@@ -249,7 +250,7 @@ void PCB_EDIT_FRAME::ExportToGenCAD( wxCommandEvent& aEvent )
 
     if( !file )
     {
-        DisplayError( this, wxString::Format( _( "Unable to create \"%s\"" ),
+        DisplayError( this, wxString::Format( _( "Failed to create file '%s'." ),
                                               optionsDialog.GetFileName() ) );
         return;
     }
@@ -288,7 +289,7 @@ void PCB_EDIT_FRAME::ExportToGenCAD( wxCommandEvent& aEvent )
 
         if( footprint->GetLayer() == B_Cu )
         {
-            footprint->Flip( footprint->GetPosition(), Settings().m_FlipLeftRight );
+            footprint->Flip( footprint->GetPosition(), false );
             footprint->SetFlag( 1 );
         }
     }
@@ -322,7 +323,7 @@ void PCB_EDIT_FRAME::ExportToGenCAD( wxCommandEvent& aEvent )
     {
         if( footprint->GetFlag() )
         {
-            footprint->Flip( footprint->GetPosition(), Settings().m_FlipLeftRight );
+            footprint->Flip( footprint->GetPosition(), false );
             footprint->SetFlag( 0 );
         }
     }
@@ -464,12 +465,12 @@ static void CreatePadsShapesSection( FILE* aFile, BOARD* aPcb )
         case PAD_SHAPE::OVAL:
             {
                 const wxSize& size = pad->GetSize();
-                int radius;
+                int radius = std::min( size.x, size.y ) / 2;
 
                 if( pad->GetShape() == PAD_SHAPE::ROUNDRECT )
+                {
                     radius = pad->GetRoundRectCornerRadius();
-                else
-                    radius = std::min( size.x, size.y ) / 2;
+                }
 
                 int lineX = size.x / 2 - radius;
                 int lineY = size.y / 2 - radius;
@@ -482,7 +483,6 @@ static void CreatePadsShapesSection( FILE* aFile, BOARD* aPcb )
                         ( -off.y - lineY ) / SCALE_FACTOR, ( off.x - lineX ) / SCALE_FACTOR,
                         ( -off.y - lineY - radius ) / SCALE_FACTOR,
                         ( off.x - lineX ) / SCALE_FACTOR, ( -off.y - lineY ) / SCALE_FACTOR );
-
                 // bottom line
                 if( lineX > 0 )
                 {
@@ -573,12 +573,43 @@ static void CreatePadsShapesSection( FILE* aFile, BOARD* aPcb )
             }
             break;
 
+        case PAD_SHAPE::CHAMFERED_RECT:
+        {
+            fprintf( aFile, " POLYGON %g\n", pad->GetDrillSize().x / SCALE_FACTOR );
+
+            SHAPE_POLY_SET outline;
+            int            maxError = aPcb->GetDesignSettings().m_MaxError;
+
+            TransformRoundChamferedRectToPolygon( outline, pad->GetPosition(), pad->GetSize(),
+                    pad->GetOrientation(), pad->GetRoundRectCornerRadius(),
+                    pad->GetChamferRectRatio(), pad->GetChamferPositions(), 0, maxError,
+                    ERROR_INSIDE );
+
+            for( int jj = 0; jj < outline.OutlineCount(); ++jj )
+            {
+                const SHAPE_LINE_CHAIN& poly = outline.COutline( jj );
+                int pointCount = poly.PointCount();
+
+                for( int ii = 0; ii < pointCount; ii++ )
+                {
+                    int next = ( ii + 1 ) % pointCount;
+                    fprintf( aFile, "LINE %g %g %g %g\n",
+                            ( off.x + poly.CPoint( ii ).x ) / SCALE_FACTOR,
+                            ( -off.y - poly.CPoint( ii ).y ) / SCALE_FACTOR,
+                            ( off.x + poly.CPoint( next ).x ) / SCALE_FACTOR,
+                            ( -off.y - poly.CPoint( next ).y ) / SCALE_FACTOR );
+                }
+            }
+
+            break;
+        }
+
         case PAD_SHAPE::CUSTOM:
             {
                 fprintf( aFile, " POLYGON %g\n", pad->GetDrillSize().x / SCALE_FACTOR );
 
                 SHAPE_POLY_SET outline;
-                pad->MergePrimitivesAsPolygon( &outline, UNDEFINED_LAYER );
+                pad->MergePrimitivesAsPolygon( &outline );
 
                 for( int jj = 0; jj < outline.OutlineCount(); ++jj )
                 {
@@ -762,7 +793,7 @@ static void CreateShapesSection( FILE* aFile, BOARD* aPcb )
              * all pads need to be marked as TOP to use the padstack information correctly.
              */
             layer = "TOP";
-            pinname = pad->GetName();
+            pinname = pad->GetNumber();
 
             if( pinname.IsEmpty() )
                 pinname = wxT( "none" );
@@ -913,7 +944,7 @@ static void CreateSignalsSection( FILE* aFile, BOARD* aPcb )
 
                 msg.Printf( wxT( "NODE \"%s\" \"%s\"" ),
                             escapeString( footprint->GetReference() ),
-                            escapeString( pad->GetName() ) );
+                            escapeString( pad->GetNumber() ) );
 
                 fputs( TO_UTF8( msg ), aFile );
                 fputs( "\n", aFile );
@@ -1179,60 +1210,61 @@ static void FootprintWriteShape( FILE* aFile, FOOTPRINT* aFootprint, const wxStr
             {
                 switch( shape->GetShape() )
                 {
-                case PCB_SHAPE_TYPE::SEGMENT:
+                case SHAPE_T::SEGMENT:
                     fprintf( aFile, "LINE %g %g %g %g\n",
-                             shape->m_Start0.x / SCALE_FACTOR,
-                             -shape->m_Start0.y / SCALE_FACTOR,
-                             shape->m_End0.x / SCALE_FACTOR,
-                             -shape->m_End0.y / SCALE_FACTOR );
+                             shape->GetStart0().x / SCALE_FACTOR,
+                             -shape->GetStart0().y / SCALE_FACTOR,
+                             shape->GetEnd0().x / SCALE_FACTOR,
+                             -shape->GetEnd0().y / SCALE_FACTOR );
                     break;
 
-                case PCB_SHAPE_TYPE::RECT:
+                case SHAPE_T::RECT:
                 {
                     fprintf( aFile, "LINE %g %g %g %g\n",
-                             shape->m_Start0.x / SCALE_FACTOR,
-                             -shape->m_Start0.y / SCALE_FACTOR,
-                             shape->m_End0.x / SCALE_FACTOR,
-                             -shape->m_Start0.y / SCALE_FACTOR );
+                             shape->GetStart0().x / SCALE_FACTOR,
+                             -shape->GetStart0().y / SCALE_FACTOR,
+                             shape->GetEnd0().x / SCALE_FACTOR,
+                             -shape->GetStart0().y / SCALE_FACTOR );
                     fprintf( aFile, "LINE %g %g %g %g\n",
-                             shape->m_End0.x / SCALE_FACTOR,
-                             -shape->m_Start0.y / SCALE_FACTOR,
-                             shape->m_End0.x / SCALE_FACTOR,
-                             -shape->m_End0.y / SCALE_FACTOR );
+                             shape->GetEnd0().x / SCALE_FACTOR,
+                             -shape->GetStart0().y / SCALE_FACTOR,
+                             shape->GetEnd0().x / SCALE_FACTOR,
+                             -shape->GetEnd0().y / SCALE_FACTOR );
                     fprintf( aFile, "LINE %g %g %g %g\n",
-                             shape->m_End0.x / SCALE_FACTOR,
-                             -shape->m_End0.y / SCALE_FACTOR,
-                             shape->m_Start0.x / SCALE_FACTOR,
-                             -shape->m_End0.y / SCALE_FACTOR );
+                             shape->GetEnd0().x / SCALE_FACTOR,
+                             -shape->GetEnd0().y / SCALE_FACTOR,
+                             shape->GetStart0().x / SCALE_FACTOR,
+                             -shape->GetEnd0().y / SCALE_FACTOR );
                     fprintf( aFile, "LINE %g %g %g %g\n",
-                             shape->m_Start0.x / SCALE_FACTOR,
-                             -shape->m_End0.y / SCALE_FACTOR,
-                             shape->m_Start0.x / SCALE_FACTOR,
-                             -shape->m_Start0.y / SCALE_FACTOR );
+                             shape->GetStart0().x / SCALE_FACTOR,
+                             -shape->GetEnd0().y / SCALE_FACTOR,
+                             shape->GetStart0().x / SCALE_FACTOR,
+                             -shape->GetStart0().y / SCALE_FACTOR );
                 }
                     break;
 
-                case PCB_SHAPE_TYPE::CIRCLE:
+                case SHAPE_T::CIRCLE:
                 {
-                    int radius = KiROUND( GetLineLength( shape->m_End0, shape->m_Start0 ) );
+                    int radius = KiROUND( GetLineLength( shape->GetEnd0(), shape->GetStart0() ) );
+
                     fprintf( aFile, "CIRCLE %g %g %g\n",
-                             shape->m_Start0.x / SCALE_FACTOR,
-                             -shape->m_Start0.y / SCALE_FACTOR,
+                             shape->GetStart0().x / SCALE_FACTOR,
+                             -shape->GetStart0().y / SCALE_FACTOR,
                              radius / SCALE_FACTOR );
                     break;
                 }
 
-                case PCB_SHAPE_TYPE::ARC:
+                case SHAPE_T::ARC:
                 {
                     int arcendx, arcendy;
-                    arcendx = shape->m_End0.x - shape->m_Start0.x;
-                    arcendy = shape->m_End0.y - shape->m_Start0.y;
+                    arcendx = shape->GetEnd0().x - shape->GetStart0().x;
+                    arcendy = shape->GetEnd0().y - shape->GetStart0().y;
                     RotatePoint( &arcendx, &arcendy, -shape->GetAngle() );
                     arcendx += shape->GetStart0().x;
                     arcendy += shape->GetStart0().y;
 
                     fprintf( aFile, "ARC %g %g %g %g %g %g\n",
-                             shape->m_End0.x / SCALE_FACTOR,
+                             shape->GetEnd0().x / SCALE_FACTOR,
                              -shape->GetEnd0().y / SCALE_FACTOR,
                              arcendx / SCALE_FACTOR,
                              -arcendy / SCALE_FACTOR,
@@ -1241,7 +1273,7 @@ static void FootprintWriteShape( FILE* aFile, FOOTPRINT* aFootprint, const wxStr
                     break;
                 }
 
-                case PCB_SHAPE_TYPE::POLYGON:
+                case SHAPE_T::POLY:
                     // Not exported (TODO)
                     break;
 

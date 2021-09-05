@@ -24,7 +24,7 @@
  */
 
 #include <algorithm>
-#include <class_library.h>
+#include <symbol_library.h>
 #include <confirm.h>
 #include <eeschema_id.h>
 #include <general.h>
@@ -116,7 +116,7 @@ PICKED_SYMBOL SCH_BASE_FRAME::PickSymbolFromLibTree( const SCHLIB_FILTER* aFilte
 
         adapter->AssignIntrinsicRanks();
 
-        if( aFilter->GetFilterPowerParts() )
+        if( aFilter->GetFilterPowerSymbols() )
             adapter->SetFilter( SYMBOL_TREE_MODEL_ADAPTER::SYM_FILTER_POWER );
     }
 
@@ -124,14 +124,15 @@ PICKED_SYMBOL SCH_BASE_FRAME::PickSymbolFromLibTree( const SCHLIB_FILTER* aFilte
 
     for( const PICKED_SYMBOL& i : aHistoryList )
     {
-        LIB_SYMBOL* symbol = GetLibPart( i.LibId );
+        LIB_SYMBOL* symbol = GetLibSymbol( i.LibId );
 
         // This can be null, for example when a symbol has been deleted from a library
         if( symbol )
             history_list.push_back( symbol );
     }
 
-    adapter->DoAddLibrary( "-- " + _( "Recently Used" ) + " --", wxEmptyString, history_list, true );
+    adapter->DoAddLibrary( "-- " + _( "Recently Used" ) + " --", wxEmptyString, history_list,
+                           true );
 
     if( !aHistoryList.empty() )
         adapter->SetPreselectNode( aHistoryList[0].LibId, aHistoryList[0].Unit );
@@ -196,7 +197,7 @@ PICKED_SYMBOL SCH_BASE_FRAME::PickSymbolFromLibTree( const SCHLIB_FILTER* aFilte
 
 void SCH_EDIT_FRAME::SelectUnit( SCH_SYMBOL* aSymbol, int aUnit )
 {
-    LIB_SYMBOL* symbol = GetLibPart( aSymbol->GetLibId() );
+    LIB_SYMBOL* symbol = GetLibSymbol( aSymbol->GetLibId() );
 
     if( !symbol )
         return;
@@ -235,17 +236,18 @@ void SCH_EDIT_FRAME::SelectUnit( SCH_SYMBOL* aSymbol, int aUnit )
 
 void SCH_EDIT_FRAME::ConvertPart( SCH_SYMBOL* aSymbol )
 {
-    if( !aSymbol || !aSymbol->GetPartRef() )
+    if( !aSymbol || !aSymbol->GetLibSymbolRef() )
         return;
 
     wxString msg;
 
-    if( !aSymbol->GetPartRef()->HasConversion() )
+    if( !aSymbol->GetLibSymbolRef()->HasConversion() )
     {
-        LIB_ID id = aSymbol->GetPartRef()->GetLibId();
+        LIB_ID id = aSymbol->GetLibSymbolRef()->GetLibId();
 
-        msg.Printf( _( "No alternate body style found for symbol \"%s\" in library \"%s\"." ),
-                    id.GetLibItemName().wx_str(), id.GetLibNickname().wx_str() );
+        msg.Printf( _( "No alternate body style found for symbol '%s' in library '%s'." ),
+                    id.GetLibItemName().wx_str(),
+                    id.GetLibNickname().wx_str() );
         DisplayError( this,  msg );
         return;
     }

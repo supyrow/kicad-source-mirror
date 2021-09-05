@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2013 CERN
- * Copyright (C) 2016-2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2016-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * @author Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  *
@@ -69,7 +69,7 @@ public:
         m_type( aType ),
         m_toolId( aId ),
         m_toolName( aName ),
-        m_toolMgr( NULL ) {};
+        m_toolMgr( nullptr ) {};
 
     virtual ~TOOL_BASE() {};
 
@@ -183,7 +183,7 @@ protected:
     template <typename T>
     T* getEditFrame() const
     {
-#if !defined( QA_TEST )   // Dynamic casts give the linker a siezure in the test framework
+#if !defined( QA_TEST )   // Dynamic casts give the linker a seizure in the test framework
         wxASSERT( dynamic_cast<T*>( getToolHolderInt() ) );
 #endif
         return static_cast<T*>( getToolHolderInt() );
@@ -196,7 +196,7 @@ protected:
     T* getModel() const
     {
         EDA_ITEM* m = getModelInt();
-#if !defined( QA_TEST )   // Dynamic casts give the linker a siezure in the test framework
+#if !defined( QA_TEST )   // Dynamic casts give the linker a seizure in the test framework
         wxASSERT( dynamic_cast<T*>( m ) );
 #endif
         return static_cast<T*>( m );

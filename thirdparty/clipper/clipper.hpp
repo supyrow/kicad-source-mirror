@@ -41,7 +41,7 @@
 // #define use_int32
 
 // use_xyz: adds a Z member to IntPoint. Adds a minor cost to perfomance.
-// #define use_xyz
+#define use_xyz
 
 // use_lines: Enables line clipping. Adds a very minor cost to performance.
 #define use_lines
@@ -49,6 +49,7 @@
 // use_deprecated: Enables temporary support for the obsolete functions
 // #define use_deprecated
 
+#include <functional>
 #include <vector>
 #include <list>
 #include <set>
@@ -142,8 +143,8 @@ struct DoublePoint
 // ------------------------------------------------------------------------------
 
 #ifdef use_xyz
-typedef void (* ZFillCallback)( IntPoint& e1bot, IntPoint& e1top, IntPoint& e2bot, IntPoint& e2top,
-        IntPoint& pt );
+typedef std::function<void( IntPoint& e1bot, IntPoint& e1top, IntPoint& e2bot, IntPoint& e2top,
+                            IntPoint& pt )> ZFillCallback;
 #endif
 
 enum InitOptions

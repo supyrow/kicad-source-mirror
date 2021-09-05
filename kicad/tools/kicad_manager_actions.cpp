@@ -46,6 +46,12 @@ TOOL_ACTION KICAD_MANAGER_ACTIONS::newFromTemplate( "kicad.Control.newFromTempla
         MD_CTRL + 'T', LEGACY_HK_NAME( "New Project From Template" ),
         _( "New Project from Template..." ), _( "Create new project from template" ) );
 
+TOOL_ACTION KICAD_MANAGER_ACTIONS::openDemoProject( "kicad.Control.openDemoProject",
+        AS_GLOBAL,
+        0, LEGACY_HK_NAME( "Open Demo Project" ),
+        _( "Open Demo Project..." ), _( "Open a demo project" ),
+        BITMAPS::directory_open );
+
 TOOL_ACTION KICAD_MANAGER_ACTIONS::openProject( "kicad.Control.openProject",
         AS_GLOBAL,
         MD_CTRL + 'O', LEGACY_HK_NAME( "Open Project" ),
@@ -104,6 +110,14 @@ TOOL_ACTION KICAD_MANAGER_ACTIONS::editDrawingSheet( "kicad.Control.editDrawingS
         MD_CTRL + 'Y', LEGACY_HK_NAME( "Run PlEditor" ),
         _( "Drawing Sheet Editor" ), _( "Edit drawing sheet borders and title block" ),
         BITMAPS::icon_pagelayout_editor_24 );
+
+#ifdef PCM
+TOOL_ACTION KICAD_MANAGER_ACTIONS::showPluginManager( "kicad.Control.pluginContentManager",
+        AS_GLOBAL,
+        MD_CTRL + 'M', "",
+        _( "Plugin and Content Manager" ), _( "Run Plugin and Content Manager" ),
+        BITMAPS::icon_pcm_24 );
+#endif
 
 TOOL_ACTION KICAD_MANAGER_ACTIONS::openTextEditor( "kicad.Control.openTextEditor",
         AS_GLOBAL,

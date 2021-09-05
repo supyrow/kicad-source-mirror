@@ -33,6 +33,7 @@ class KICAD_MANAGER_ACTIONS : public ACTIONS
 public:
     static TOOL_ACTION newProject;
     static TOOL_ACTION newFromTemplate;
+    static TOOL_ACTION openDemoProject;
     static TOOL_ACTION openProject;
     static TOOL_ACTION closeProject;
 
@@ -45,6 +46,9 @@ public:
     static TOOL_ACTION showCalculator;
     static TOOL_ACTION editDrawingSheet;
     static TOOL_ACTION openTextEditor;
+#ifdef PCM
+    static TOOL_ACTION showPluginManager;
+#endif
 
     static TOOL_ACTION editOtherSch;
     static TOOL_ACTION editOtherPCB;

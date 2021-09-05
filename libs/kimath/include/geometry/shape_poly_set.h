@@ -183,7 +183,7 @@ public:
      * SHAPE_POLY_SET object: the polygon index, the contour index relative to the polygon and
      * the vertex index relative the contour.
      */
-    typedef struct VERTEX_INDEX
+    struct VERTEX_INDEX
     {
         int m_polygon;   /*!< m_polygon is the index of the polygon. */
         int m_contour;   /*!< m_contour is the index of the contour relative to the polygon. */
@@ -195,7 +195,7 @@ public:
             m_vertex(-1)
         {
         }
-    } VERTEX_INDEX;
+    };
 
     /**
      * Base class for iterating over all vertices in a given SHAPE_POLY_SET.
@@ -550,6 +550,15 @@ public:
     ///< Return the area of this poly set
     double Area();
 
+    ///< Count the number of arc shapes present
+    int ArcCount() const;
+
+    ///< Appends all the arcs in this polyset to \a aArcBuffer
+    void GetArcs( std::vector<SHAPE_ARC>& aArcBuffer ) const;
+
+    ///< Removes all arc references from all the outlines and holes in the polyset
+    void ClearArcs();
+
     ///< Appends a vertex at the end of the given outline/hole (default: the last outline)
     /**
      * Add a new vertex to the contour indexed by \p aOutline and \p aHole (defaults to the
@@ -572,13 +581,23 @@ public:
     void Append( const VECTOR2I& aP, int aOutline = -1, int aHole = -1 );
 
     /**
+     * Append a new arc to the contour indexed by \p aOutline and \p aHole (defaults to the
+     * outline of the last polygon).
+     * @param aArc      The arc to be inserted
+     * @param aOutline  Index of the polygon
+     * @param aHole     Index of the hole (-1 for the main outline)
+     * @return the number of points in the arc (including the interpolated points from the arc)
+     */
+    int Append( SHAPE_ARC& aArc, int aOutline = -1, int aHole = -1 );
+
+    /**
      * Adds a vertex in the globally indexed position \a aGlobalIndex.
      *
      * @param aGlobalIndex is the global index of the position in which the new vertex will be
      *                     inserted.
      * @param aNewVertex   is the new inserted vertex.
      */
-    void InsertVertex( int aGlobalIndex, VECTOR2I aNewVertex );
+    void InsertVertex( int aGlobalIndex, const VECTOR2I& aNewVertex );
 
     ///< Return the index-th vertex in a given hole outline within a given outline
     const VECTOR2I& CVertex( int aIndex, int aOutline, int aHole ) const;
@@ -1328,7 +1347,9 @@ public:
 private:
     void fractureSingle( POLYGON& paths );
     void unfractureSingle ( POLYGON& path );
-    void importTree( ClipperLib::PolyTree* tree );
+    void importTree( ClipperLib::PolyTree*               tree,
+                     const std::vector<CLIPPER_Z_VALUE>& aZValueBuffer,
+                     const std::vector<SHAPE_ARC>&       aArcBuffe );
 
     /**
      * This is the engine to execute all polygon boolean transforms (AND, OR, ... and polygon

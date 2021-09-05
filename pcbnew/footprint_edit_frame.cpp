@@ -32,7 +32,7 @@
 #include "tools/pcb_point_editor.h"
 #include "tools/pcb_selection_tool.h"
 #include <python/scripting/pcb_scripting_tool.h>
-#include <3d_viewer/eda_3d_viewer.h>
+#include <3d_viewer/eda_3d_viewer_frame.h>
 #include <bitmaps.h>
 #include <board.h>
 #include <footprint.h>
@@ -75,7 +75,7 @@
 #include <widgets/lib_tree.h>
 #include <widgets/paged_dialog.h>
 #include <widgets/panel_selection_filter.h>
-#include <widgets/progress_reporter.h>
+#include <widgets/wx_progress_reporters.h>
 #include <wildcards_and_files_ext.h>
 #include <wx/filedlg.h>
 #include <wx/treebook.h>
@@ -118,7 +118,7 @@ FOOTPRINT_EDIT_FRAME::FOOTPRINT_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent,
     m_canvasType = aBackend;
     m_aboutTitle = _( "KiCad Footprint Editor" );
     m_selLayerBox = nullptr;
-    m_settings = nullptr;
+    m_editorSettings = nullptr;
 
     // Give an icon
     wxIcon icon;
@@ -255,13 +255,13 @@ FOOTPRINT_EDIT_FRAME::FOOTPRINT_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent,
 
     FinishAUIInitialization();
 
-    if( m_settings->m_LibWidth > 0 )
+    if( m_editorSettings->m_LibWidth > 0 )
     {
         wxAuiPaneInfo& treePane = m_auimgr.GetPane( "Footprints" );
 
         // wxAUI hack: force width by setting MinSize() and then Fixed()
         // thanks to ZenJu http://trac.wxwidgets.org/ticket/13180
-        treePane.MinSize( m_settings->m_LibWidth, -1 );
+        treePane.MinSize( m_editorSettings->m_LibWidth, -1 );
         treePane.Fixed();
         m_auimgr.Update();
 
@@ -461,6 +461,9 @@ void FOOTPRINT_EDIT_FRAME::AddFootprintToBoard( FOOTPRINT* aFootprint )
     m_footprintNameWhenLoaded = aFootprint->GetFPID().GetLibItemName();
 
     PCB_BASE_EDIT_FRAME::AddFootprintToBoard( aFootprint );
+    // Ensure item UUIDs are valide
+    // ("old" footprints can have null uuids that create issues in fp editor)
+    aFootprint->FixUuids();
 
     if( IsCurrentFPFromBoard() )
     {
@@ -505,17 +508,17 @@ void FOOTPRINT_EDIT_FRAME::SetPlotSettings( const PCB_PLOT_PARAMS& aSettings )
 
 FOOTPRINT_EDITOR_SETTINGS* FOOTPRINT_EDIT_FRAME::GetSettings()
 {
-    if( !m_settings )
-        m_settings = Pgm().GetSettingsManager().GetAppSettings<FOOTPRINT_EDITOR_SETTINGS>();
+    if( !m_editorSettings )
+        m_editorSettings = Pgm().GetSettingsManager().GetAppSettings<FOOTPRINT_EDITOR_SETTINGS>();
 
-    return m_settings;
+    return m_editorSettings;
 }
 
 
 APP_SETTINGS_BASE* FOOTPRINT_EDIT_FRAME::config() const
 {
-    return m_settings ? m_settings
-                      : Pgm().GetSettingsManager().GetAppSettings<FOOTPRINT_EDITOR_SETTINGS>();
+    return m_editorSettings ? m_editorSettings
+                            : Pgm().GetSettingsManager().GetAppSettings<FOOTPRINT_EDITOR_SETTINGS>();
 }
 
 
@@ -612,14 +615,15 @@ bool FOOTPRINT_EDIT_FRAME::canCloseWindow( wxCloseEvent& aEvent )
     if( IsContentModified() )
     {
         // Shutdown blocks must be determined and vetoed as early as possible
-        if( KIPLATFORM::APP::SupportsShutdownBlockReason() && aEvent.GetId() == wxEVT_QUERY_END_SESSION )
+        if( KIPLATFORM::APP::SupportsShutdownBlockReason() &&
+            aEvent.GetId() == wxEVT_QUERY_END_SESSION )
         {
             aEvent.Veto();
             return false;
         }
 
         wxString footprintName = GetBoard()->GetFirstFootprint()->GetFPID().GetLibItemName();
-        wxString msg = _( "Save changes to \"%s\" before closing?" );
+        wxString msg = _( "Save changes to '%s' before closing?" );
 
         if( !HandleUnsavedChanges( this, wxString::Format( msg, footprintName ),
                                    [&]() -> bool
@@ -632,14 +636,14 @@ bool FOOTPRINT_EDIT_FRAME::canCloseWindow( wxCloseEvent& aEvent )
         }
     }
 
-    return true;
+    return PCB_BASE_EDIT_FRAME::canCloseWindow( aEvent );
 }
 
 
 void FOOTPRINT_EDIT_FRAME::doCloseWindow()
 {
     // No more vetos
-    GetCanvas()->SetEventDispatcher( NULL );
+    GetCanvas()->SetEventDispatcher( nullptr );
     GetCanvas()->StopDrawing();
 
     // Do not show the layer manager during closing to avoid flicker
@@ -677,7 +681,7 @@ void FOOTPRINT_EDIT_FRAME::OnUpdateLoadFootprintFromBoard( wxUpdateUIEvent& aEve
 {
     PCB_EDIT_FRAME* frame = (PCB_EDIT_FRAME*) Kiway().Player( FRAME_PCB_EDITOR, false );
 
-    aEvent.Enable( frame && frame->GetBoard()->GetFirstFootprint() != NULL );
+    aEvent.Enable( frame && frame->GetBoard()->GetFirstFootprint() != nullptr );
 }
 
 
@@ -756,11 +760,12 @@ void FOOTPRINT_EDIT_FRAME::UpdateTitle()
 
     if( IsCurrentFPFromBoard() )
     {
-        title = wxString::Format( _( "%s%s [from %s.%s]" ) + wxT( " \u2014 " ),
-                                  IsContentModified() ? "*" : "",
-                                  footprint->GetReference(),
-                                  Prj().GetProjectName(),
-                                  PcbFileExtension );
+        if( IsContentModified() )
+            title = wxT( "*" );
+
+        title += footprint->GetReference();
+        title += wxS( " " ) + wxString::Format( _( "[from %s]" ),
+                                                Prj().GetProjectName() + "." + PcbFileExtension );
     }
     else if( fpid.IsValid() )
     {
@@ -774,21 +779,29 @@ void FOOTPRINT_EDIT_FRAME::UpdateTitle()
         }
 
         // Note: don't used GetLoadedFPID(); footprint name may have been edited
-        title += wxString::Format( wxT( "%s%s %s\u2014 " ),
-                                   IsContentModified() ? "*" : "",
-                                   FROM_UTF8( footprint->GetFPID().Format().c_str() ),
-                                   writable ? "" : _( "[Read Only]" ) + wxS( " " ) );
+        if( IsContentModified() )
+            title = wxT( "*" );
+
+        title += FROM_UTF8( footprint->GetFPID().Format().c_str() );
+
+        if( !writable )
+            title += wxS( " " ) + _( "[Read Only]" );
     }
     else if( !fpid.GetLibItemName().empty() )
     {
         // Note: don't used GetLoadedFPID(); footprint name may have been edited
-        title += wxString::Format( wxT( "%s%s %s \u2014 " ),
-                                   IsContentModified() ? "*" : "",
-                                   FROM_UTF8( footprint->GetFPID().GetLibItemName().c_str() ),
-                                   _( "[Unsaved]" ) );
+        if( IsContentModified() )
+            title = wxT( "*" );
+
+        title += FROM_UTF8( footprint->GetFPID().GetLibItemName().c_str() );
+        title += wxS( " " ) + _( "[Unsaved]" );
+    }
+    else
+    {
+        title = _( "[no footprint loaded]" );
     }
 
-    title += _( "Footprint Editor" );
+    title += wxT( " \u2014 " ) + _( "Footprint Editor" );
 
     SetTitle( title );
 }
@@ -818,7 +831,7 @@ void FOOTPRINT_EDIT_FRAME::initLibraryTree()
     if( GFootprintList.GetCount() == 0 )
         GFootprintList.ReadCacheFromFile( Prj().GetProjectPath() + "fp-info-cache" );
 
-    GFootprintList.ReadFootprintFiles( fpTable, NULL, &progressReporter );
+    GFootprintList.ReadFootprintFiles( fpTable, nullptr, &progressReporter );
     progressReporter.Show( false );
 
     if( GFootprintList.GetErrorCount() )
@@ -842,12 +855,12 @@ void FOOTPRINT_EDIT_FRAME::SyncLibraryTree( bool aProgress )
     if( aProgress )
     {
         WX_PROGRESS_REPORTER progressReporter( this, _( "Updating Footprint Libraries" ), 2 );
-        GFootprintList.ReadFootprintFiles( fpTable, NULL, &progressReporter );
+        GFootprintList.ReadFootprintFiles( fpTable, nullptr, &progressReporter );
         progressReporter.Show( false );
     }
     else
     {
-        GFootprintList.ReadFootprintFiles( fpTable, NULL, NULL );
+        GFootprintList.ReadFootprintFiles( fpTable, nullptr, nullptr );
     }
 
     // Sync the LIB_TREE to the FOOTPRINT_INFO list

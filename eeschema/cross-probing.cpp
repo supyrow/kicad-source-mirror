@@ -30,7 +30,7 @@
 #include <sch_symbol.h>
 #include <schematic.h>
 #include <reporter.h>
-#include <kicad_string.h>
+#include <string_utils.h>
 #include <netlist_exporters/netlist_exporter_kicad.h>
 #include <project/project_file.h>
 #include <project/net_settings.h>
@@ -431,10 +431,10 @@ std::string FormatProbeItem( EDA_ITEM* aItem, SCH_SYMBOL* aSymbol )
             SCH_PIN* pin = (SCH_PIN*) aItem;
             aSymbol = pin->GetParentSymbol();
 
-            if( !pin->GetNumber().IsEmpty() )
+            if( !pin->GetShownNumber().IsEmpty() )
             {
                 return StrPrintf( "$PIN: \"%s\" $PART: \"%s\"",
-                                  TO_UTF8( pin->GetNumber() ),
+                                  TO_UTF8( pin->GetShownNumber() ),
                                   TO_UTF8( aSymbol->GetField( REFERENCE_FIELD )->GetText() ) );
             }
             else

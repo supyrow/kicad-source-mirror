@@ -2,6 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2016 Cirilo Bernardo <cirilo.bernardo@gmail.com>
+ * Copyright (C) 2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -37,7 +38,6 @@ WRL1SHAPEHINTS::WRL1SHAPEHINTS( NAMEREGISTER* aDictionary ) : WRL1NODE( aDiction
     m_order = WRL1_ORDER::ORD_UNKNOWN;
     m_Type = WRL1NODES::WRL1_SHAPEHINTS;
     m_crease = 0.733f; // approx 42 degrees; this is larger than VRML spec.
-    return;
 }
 
 
@@ -49,105 +49,54 @@ WRL1SHAPEHINTS::WRL1SHAPEHINTS( NAMEREGISTER* aDictionary, WRL1NODE* aParent ) :
     m_crease = 0.733f; // approx 42 degrees; this is larger than VRML spec.
     m_Parent = aParent;
 
-    if( NULL != m_Parent )
+    if( nullptr != m_Parent )
         m_Parent->AddChildNode( this );
-
-    return;
 }
 
 
 WRL1SHAPEHINTS::~WRL1SHAPEHINTS()
 {
-    #if defined( DEBUG_VRML1 ) && ( DEBUG_VRML1 > 2 )
-    wxLogTrace( MASK_VRML, " * [INFO] Destroying ShapeHints node\n" );
-    #endif
-
-    return;
+    wxLogTrace( traceVrmlPlugin, " * [INFO] Destroying ShapeHints node." );
 }
 
 
 bool WRL1SHAPEHINTS::AddRefNode( WRL1NODE* aNode )
 {
     // this node may not own or reference any other node
-
-    #ifdef DEBUG_VRML1
-    do {
-        std::ostringstream ostr;
-        ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-        ostr << " * [BUG] AddRefNode is not applicable";
-        wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-    } while( 0 );
-    #endif
-
-    return false;
+    wxCHECK_MSG( false, false, wxT( "AddRefNode is not applicable." ) );
 }
 
 
 bool WRL1SHAPEHINTS::AddChildNode( WRL1NODE* aNode )
 {
     // this node may not own or reference any other node
-
-    #ifdef DEBUG_VRML1
-    do {
-        std::ostringstream ostr;
-        ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-        ostr << " * [BUG] AddChildNode is not applicable";
-        wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-    } while( 0 );
-    #endif
-
-    return false;
+    wxCHECK_MSG( false, false, wxT( "AddChildNode is not applicable." ) );
 }
 
 
 bool WRL1SHAPEHINTS::Read( WRLPROC& proc, WRL1BASE* aTopNode )
 {
-    if( NULL == aTopNode )
-    {
-        #ifdef DEBUG_VRML1
-        do {
-            std::ostringstream ostr;
-            ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-            ostr << " * [BUG] aTopNode is NULL";
-            wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-        } while( 0 );
-        #endif
-
-        return false;
-    }
-
-    size_t line, column;
-    proc.GetFilePosData( line, column );
+    wxCHECK_MSG( aTopNode, false, wxT( "Invalid top node." ) );
 
     char tok = proc.Peek();
 
     if( proc.eof() )
     {
-        #if defined( DEBUG_VRML1 ) && ( DEBUG_VRML1 > 1 )
-        do {
-            std::ostringstream ostr;
-            ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-            ostr << " * [INFO] bad file format; unexpected eof at line ";
-            ostr << line << ", column " << column;
-            wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-        } while( 0 );
-        #endif
+        wxLogTrace( traceVrmlPlugin, wxT( "%s:%s:%d\n"
+                                          " * [INFO] bad file format; unexpected eof %s." ),
+                    __FILE__, __FUNCTION__, __LINE__, proc.GetFilePosition() );
 
         return false;
     }
 
     if( '{' != tok )
     {
-        #if defined( DEBUG_VRML1 ) && ( DEBUG_VRML1 > 1 )
-        do {
-            std::ostringstream ostr;
-            ostr << proc.GetError() << "\n";
-            ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-            ostr << " * [INFO] bad file format; expecting '{' but got '" << tok;
-            ostr << "' at line " << line << ", column " << column;
-            wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-        } while( 0 );
-        #endif
+        wxLogTrace( traceVrmlPlugin,
+                    wxT( "%s:%s:%d\n"
+                         " * [INFO] bad file format; expecting '{' but got '%s' %s.\n"
+                         "%s" ),
+                    __FILE__, __FUNCTION__, __LINE__, tok, proc.GetFilePosition(),
+                    proc.GetError() );
 
         return false;
     }
@@ -165,14 +114,9 @@ bool WRL1SHAPEHINTS::Read( WRLPROC& proc, WRL1BASE* aTopNode )
 
         if( !proc.ReadName( glob ) )
         {
-            #if defined( DEBUG_VRML1 ) && ( DEBUG_VRML1 > 1 )
-            do {
-                std::ostringstream ostr;
-                ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-                ostr << proc.GetError();
-                wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-            } while( 0 );
-            #endif
+            wxLogTrace( traceVrmlPlugin, wxT( "%s:%s:%d\n"
+                                              "%s" ),
+                        __FILE__, __FUNCTION__, __LINE__ , proc.GetError() );
 
             return false;
         }
@@ -187,36 +131,33 @@ bool WRL1SHAPEHINTS::Read( WRLPROC& proc, WRL1BASE* aTopNode )
         {
             if( !proc.ReadName( glob ) )
             {
-                #if defined( DEBUG_VRML1 ) && ( DEBUG_VRML1 > 1 )
-                do {
-                    std::ostringstream ostr;
-                    ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-                    ostr << proc.GetError();
-                    wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-                } while( 0 );
-                #endif
+                wxLogTrace( traceVrmlPlugin, wxT( "%s:%s:%d\n"
+                                                  "%s" ),
+                            __FILE__, __FUNCTION__, __LINE__ , proc.GetError() );
 
                 return false;
             }
 
             if( !glob.compare( "UNKNOWN_ORDERING" ) )
+            {
                 m_order = WRL1_ORDER::ORD_UNKNOWN;
+            }
             else if( !glob.compare( "CLOCKWISE" ) )
+            {
                 m_order = WRL1_ORDER::ORD_CLOCKWISE;
+            }
             else if( !glob.compare( "COUNTERCLOCKWISE" ) )
+            {
                 m_order = WRL1_ORDER::ORD_CCW;
+            }
             else
             {
-                #if defined( DEBUG_VRML1 ) && ( DEBUG_VRML1 > 1 )
-                do {
-                    std::ostringstream ostr;
-                    ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-                    ostr << " * [INFO] bad ShapeHints at line " << line << ", column ";
-                    ostr << column << " (invalid value '" << glob << "')\n";
-                    ostr << " * [INFO] file: '" << proc.GetFileName() << "'";
-                    wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-                } while( 0 );
-                #endif
+                wxLogTrace( traceVrmlPlugin,
+                            wxT( "%s:%s:%d\n"
+                                 " * [INFO] bad ShapeHints %s (invalid value '%s')\n"
+                                 " * [INFO] file: '%s'" ),
+                            __FILE__, __FUNCTION__, __LINE__, proc.GetFilePosition(), glob,
+                            proc.GetFileName() );
 
                 return false;
             }
@@ -225,14 +166,9 @@ bool WRL1SHAPEHINTS::Read( WRLPROC& proc, WRL1BASE* aTopNode )
         {
             if( !proc.ReadName( glob ) )
             {
-                #if defined( DEBUG_VRML1 ) && ( DEBUG_VRML1 > 1 )
-                do {
-                    std::ostringstream ostr;
-                    ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-                    ostr << proc.GetError();
-                    wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-                } while( 0 );
-                #endif
+                wxLogTrace( traceVrmlPlugin, wxT( "%s:%s:%d\n"
+                                                  "%s" ),
+                            __FILE__, __FUNCTION__, __LINE__ , proc.GetError() );
 
                 return false;
             }
@@ -245,14 +181,9 @@ bool WRL1SHAPEHINTS::Read( WRLPROC& proc, WRL1BASE* aTopNode )
         {
             if( !proc.ReadName( glob ) )
             {
-                #if defined( DEBUG_VRML1 ) && ( DEBUG_VRML1 > 1 )
-                do {
-                    std::ostringstream ostr;
-                    ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-                    ostr << proc.GetError();
-                    wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-                } while( 0 );
-                #endif
+                wxLogTrace( traceVrmlPlugin, wxT( "%s:%s:%d\n"
+                                                  "%s" ),
+                            __FILE__, __FUNCTION__, __LINE__ , proc.GetError() );
 
                 return false;
             }
@@ -267,14 +198,9 @@ bool WRL1SHAPEHINTS::Read( WRLPROC& proc, WRL1BASE* aTopNode )
 
             if( !proc.ReadSFFloat( tmp ) )
             {
-                #if defined( DEBUG_VRML1 ) && ( DEBUG_VRML1 > 1 )
-                do {
-                    std::ostringstream ostr;
-                    ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-                    ostr << proc.GetError();
-                    wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-                } while( 0 );
-                #endif
+                wxLogTrace( traceVrmlPlugin, wxT( "%s:%s:%d\n"
+                                                  "%s" ),
+                            __FILE__, __FUNCTION__, __LINE__ , proc.GetError() );
 
                 return false;
             }
@@ -288,16 +214,12 @@ bool WRL1SHAPEHINTS::Read( WRLPROC& proc, WRL1BASE* aTopNode )
         }
         else
         {
-            #if defined( DEBUG_VRML1 ) && ( DEBUG_VRML1 > 1 )
-            do {
-                std::ostringstream ostr;
-                ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-                ostr << " * [INFO] bad ShapeHints at line " << line << ", column ";
-                ostr << column << " (unexpected keyword '" << glob << "')\n";
-                ostr << " * [INFO] file: '" << proc.GetFileName() << "'";
-                wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-            } while( 0 );
-            #endif
+                wxLogTrace( traceVrmlPlugin,
+                            wxT( "%s:%s:%d\n"
+                                 " * [INFO] bad ShapeHints %s (unexpected keyword '%s')\n"
+                                 " * [INFO] file: '%s'" ),
+                            __FILE__, __FUNCTION__, __LINE__, proc.GetFilePosition(), glob,
+                            proc.GetFileName() );
 
             return false;
         }
@@ -311,15 +233,7 @@ SGNODE* WRL1SHAPEHINTS::TranslateToSG( SGNODE* aParent, WRL1STATUS* sp )
 {
     // note: this is not fully implemented since it is unlikely we shall
     // ever make use of the fields shapeType, faceType, and creaseAngle
-
-    if( NULL == sp )
-    {
-        #if defined( DEBUG_VRML1 ) && ( DEBUG_VRML1 > 1 )
-        wxLogTrace( MASK_VRML, " * [INFO] bad model: no base data given\n" );
-        #endif
-
-        return NULL;
-    }
+    wxCHECK_MSG( sp, nullptr, wxT( "Invalid base data." ) );
 
     sp->order = m_order;
     sp->creaseLimit = cosf(m_crease);
@@ -327,5 +241,5 @@ SGNODE* WRL1SHAPEHINTS::TranslateToSG( SGNODE* aParent, WRL1STATUS* sp )
     if( sp->creaseLimit < 0.0 )
         sp->creaseLimit = 0.0;
 
-    return NULL;
+    return nullptr;
 }

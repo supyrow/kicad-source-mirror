@@ -32,7 +32,7 @@
 #include <lib_polyline.h>
 #include <lib_text.h>
 #include <macros.h>
-#include <kicad_string.h>
+#include <string_utils.h>
 #include <sch_bus_entry.h>
 #include <sch_edit_frame.h> //SYMBOL_ORIENTATION_T
 #include <sch_io_mgr.h>
@@ -79,7 +79,7 @@ void CADSTAR_SCH_ARCHIVE_LOADER::Load( SCHEMATIC* aSchematic, SCH_SHEET* aRootSh
                 (double) maxDesignSizekicad / SCH_IU_PER_MM ) );
     }
 
-    // Assume the centre at 0,0 since we are going to be translating the design afterwards anyway
+    // Assume the center at 0,0 since we are going to be translating the design afterwards anyway
     m_designCenter = { 0, 0 };
 
     m_schematic       = aSchematic;
@@ -124,7 +124,7 @@ void CADSTAR_SCH_ARCHIVE_LOADER::Load( SCHEMATIC* aSchematic, SCH_SHEET* aRootSh
     }
 
 
-    // For all sheets, centre all elements and re calculate the page size:
+    // For all sheets, center all elements and re calculate the page size:
     for( std::pair<LAYER_ID, SCH_SHEET*> sheetPair : m_sheetMap )
     {
         SCH_SHEET* sheet = sheetPair.second;
@@ -195,7 +195,6 @@ void CADSTAR_SCH_ARCHIVE_LOADER::Load( SCHEMATIC* aSchematic, SCH_SHEET* aRootSh
 
         // Set the new sheet size.
         sheet->GetScreen()->SetPageSettings( pageInfo );
-
 
         wxSize  pageSizeIU = sheet->GetScreen()->GetPageSettings().GetSizeIU();
         wxPoint sheetcentre( pageSizeIU.x / 2, pageSizeIU.y / 2 );
@@ -337,7 +336,8 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadPartsLibrary()
         if( part.Definition.GateSymbols.size() == 0 )
             continue;
 
-        LIB_SYMBOL* kiPart = new LIB_SYMBOL( part.Name );
+        wxString    escapedPartName = EscapeString( part.Name, CTX_LIBID );
+        LIB_SYMBOL* kiPart = new LIB_SYMBOL( escapedPartName );
 
         kiPart->SetUnitCount( part.Definition.GateSymbols.size() );
         bool ok = true;
@@ -428,7 +428,7 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadSchematicSymbolInstances()
             }
 
             LIB_SYMBOL* scaledPart = getScaledLibPart( kiPart, sym.ScaleRatioNumerator,
-                                                     sym.ScaleRatioDenominator );
+                                                       sym.ScaleRatioDenominator );
 
             double      symOrientDeciDeg = 0.0;
             SCH_SYMBOL* symbol = loadSchematicSymbol( sym, *scaledPart, symOrientDeciDeg );
@@ -535,7 +535,7 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadSchematicSymbolInstances()
 
                 // Name of the net that the symbol instance in CADSTAR refers to:
                 wxString symbolInstanceNetName = sym.SymbolVariant.Reference;
-                symbolInstanceNetName = LIB_ID::FixIllegalChars( symbolInstanceNetName );
+                symbolInstanceNetName = EscapeString( symbolInstanceNetName, CTX_LIBID );
 
                 // Name of the symbol we will use for saving the part in KiCad
                 // Note: In CADSTAR all power symbols will start have the reference name be
@@ -612,8 +612,18 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadSchematicSymbolInstances()
 
                 SCH_GLOBALLABEL* netLabel = new SCH_GLOBALLABEL;
                 netLabel->SetPosition( getKiCadPoint( sym.Origin + terminalPosOffset ) );
-                netLabel->SetText( "YOU SHOULDN'T SEE THIS TEXT - PLEASE REPORT THIS BUG" );
+                netLabel->SetText( "***UNKNOWN NET****" ); // This should be later updated when we load the netlist
                 netLabel->SetTextSize( wxSize( Mils2iu( 50 ), Mils2iu( 50 ) ) );
+
+                SYMDEF_SCM symbolDef = Library.SymbolDefinitions.at( sym.SymdefID );
+
+                if( symbolDef.TextLocations.count( LINK_ORIGIN_ATTRID ) )
+                {
+                    TEXT_LOCATION linkOrigin = symbolDef.TextLocations.at( LINK_ORIGIN_ATTRID );
+                    applyTextSettings( netLabel, linkOrigin.TextCodeID, linkOrigin.Alignment,
+                                       linkOrigin.Justification );
+                }
+
                 netLabel->SetLabelSpinStyle( getSpinStyle( sym.OrientAngle, sym.Mirror ) );
 
                 if( libSymDef.Alternate.Lower().Contains( "in" ) )
@@ -681,7 +691,10 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadBusses()
             m_busesMap.insert( { bus.ID, kiBusAlias } );
 
             SCH_LABEL* label = new SCH_LABEL();
-            label->SetText( wxT( "{" ) + bus.Name + wxT( "}" ) );
+
+            wxString busname = HandleTextOverbar( bus.Name );
+
+            label->SetText( wxT( "{" ) + busname + wxT( "}" ) );
             label->SetVisible( true );
             screen->Append( label );
 
@@ -731,6 +744,9 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadBusses()
                                    bus.BusLabel.Alignment,
                                    bus.BusLabel.Justification );
 
+                // Re-set bus name as it might have been "double-escaped" after applyTextSettings
+                label->SetText( wxT( "{" ) + busname + wxT( "}" ) );
+
                 // Note orientation of the bus label will be determined in loadNets
                 // (the position of the wire will determine how best to place the bus label)
             }
@@ -751,6 +767,7 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadNets()
         if( netName.IsEmpty() )
             netName = wxString::Format( "$%ld", net.SignalNum );
 
+        netName = HandleTextOverbar( netName );
 
         for( std::pair<NETELEMENT_ID, NET_SCH::SYM_TERM> terminalPair : net.Terminals )
         {
@@ -806,7 +823,7 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadNets()
         {
             SCH_HIERLABEL* label = getHierarchicalLabel( blockPair.first );
 
-            if(label)
+            if( label )
                 label->SetText( netName );
         }
 
@@ -846,28 +863,34 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadNets()
             }
             else
             {
-                const int smallText = KiROUND( (double) SCH_IU_PER_MM * 0.4 );
-                label->SetTextSize( wxSize( smallText, smallText ) );
+                label->SetTextSize( wxSize( SMALL_LABEL_SIZE, SMALL_LABEL_SIZE ) );
             }
 
             netlabels.insert( { busTerm.ID, label } );
             m_sheetMap.at( bus.LayerID )->GetScreen()->Append( label );
         }
 
-
         for( std::pair<NETELEMENT_ID, NET_SCH::DANGLER> danglerPair : net.Danglers )
         {
             NET_SCH::DANGLER dangler = danglerPair.second;
 
             SCH_LABEL* label = new SCH_LABEL();
-            label->SetText( netName );
             label->SetPosition( getKiCadPoint( dangler.Position ) );
             label->SetVisible( true );
+
+            if( dangler.HasNetLabel )
+            {
+                applyTextSettings( label,
+                                   dangler.NetLabel.TextCodeID,
+                                   dangler.NetLabel.Alignment,
+                                   dangler.NetLabel.Justification );
+            }
+
+            label->SetText( netName ); // set text after applying settings to avoid double-escaping
             netlabels.insert( { dangler.ID, label } );
 
             m_sheetMap.at( dangler.LayerID )->GetScreen()->Append( label );
         }
-
 
         for( NET_SCH::CONNECTION_SCH conn : net.Connections )
         {
@@ -952,8 +975,8 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadNets()
                         }
                         else
                         {
-                            // The block terminal is either inside or on the shape edge. Lets use the
-                            // first interection point
+                            // The block terminal is either inside or on the shape edge. Lets use
+                            // the first intersection point.
                             VECTOR2I intsctPt   = wireToSheetIntersects.at( 0 ).p;
                             int      intsctIndx = wireChain.FindSegment( intsctPt );
                             wxASSERT_MSG( intsctIndx != -1, "Can't find intersecting segment" );
@@ -1112,7 +1135,7 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadDocumentationSymbols()
             FIGURE fig = figPair.second;
 
             loadFigure( fig, docSym.LayerID, LAYER_NOTES, moveVector, rotationAngle, scalingFactor,
-                    centreOfTransform, mirrorInvert );
+                        centreOfTransform, mirrorInvert );
         }
 
         for( std::pair<TEXT_ID, TEXT> textPair : docSymDef.Texts )
@@ -1214,12 +1237,15 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadSymDefIntoLibrary( const SYMDEF_ID& aSymdef
     for( std::pair<FIGURE_ID, FIGURE> figPair : symbol.Figures )
     {
         FIGURE fig = figPair.second;
+        int    lineThickness = getLineThickness( fig.LineCodeID );
 
-        loadLibrarySymbolShapeVertices( fig.Shape.Vertices, symbol.Origin, aSymbol, gateNumber );
+        loadLibrarySymbolShapeVertices( fig.Shape.Vertices, symbol.Origin, aSymbol, gateNumber,
+                                            lineThickness );
 
         for( CUTOUT c : fig.Shape.Cutouts )
         {
-            loadLibrarySymbolShapeVertices( c.Vertices, symbol.Origin, aSymbol, gateNumber );
+            loadLibrarySymbolShapeVertices( c.Vertices, symbol.Origin, aSymbol, gateNumber,
+                                            lineThickness );
         }
     }
 
@@ -1236,8 +1262,8 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadSymDefIntoLibrary( const SYMDEF_ID& aSymdef
         {
             PART::DEFINITION::PIN csPin = getPartDefinitionPin( *aCadstarPart, aGateID, term.ID );
 
-            pinName = csPin.Label;
-            pinNum  = csPin.Name;
+            pinName = HandleTextOverbar( csPin.Label );
+            pinNum = HandleTextOverbar( csPin.Name );
 
             if( pinNum.IsEmpty() )
             {
@@ -1265,6 +1291,24 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadSymDefIntoLibrary( const SYMDEF_ID& aSymdef
         pin->SetUnit( gateNumber );
         pin->SetNumber( pinNum );
         pin->SetName( pinName );
+
+        int pinNumberHeight = getTextHeightFromTextCode( wxT( "TC0" ) ); // TC0 is the default CADSTAR text size for name/number
+        int pinNameHeight = getTextHeightFromTextCode( wxT( "TC0" ) );
+
+        if( symbol.PinNumberLocations.count( term.ID ) )
+        {
+            PIN_NUM_LABEL_LOC pinNumLocation = symbol.PinNumberLocations.at( term.ID );
+            pinNumberHeight = getTextHeightFromTextCode( pinNumLocation.TextCodeID );
+        }
+
+        if( symbol.PinLabelLocations.count( term.ID ) )
+        {
+            PIN_NUM_LABEL_LOC pinNameLocation = symbol.PinLabelLocations.at( term.ID );
+            pinNameHeight = getTextHeightFromTextCode( pinNameLocation.TextCodeID );
+        }
+
+        pin->SetNumberTextSize( pinNumberHeight );
+        pin->SetNameTextSize( pinNameHeight );
 
         if( aSymbol->IsPower() )
         {
@@ -1463,7 +1507,8 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadSymDefIntoLibrary( const SYMDEF_ID& aSymdef
             };
 
         // Load all attributes in the Part Definition
-        for( std::pair<ATTRIBUTE_ID, ATTRIBUTE_VALUE> attr : aCadstarPart->Definition.AttributeValues )
+        for( std::pair<ATTRIBUTE_ID,
+             ATTRIBUTE_VALUE> attr : aCadstarPart->Definition.AttributeValues )
         {
             ATTRIBUTE_VALUE attrVal = attr.second;
             loadLibraryField( attrVal );
@@ -1499,7 +1544,7 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadSymDefIntoLibrary( const SYMDEF_ID& aSymdef
 
 void CADSTAR_SCH_ARCHIVE_LOADER::loadLibrarySymbolShapeVertices(
         const std::vector<VERTEX>& aCadstarVertices, wxPoint aSymbolOrigin, LIB_SYMBOL* aSymbol,
-        int aGateNumber )
+        int aGateNumber, int aLineThickness )
 {
     const VERTEX* prev = &aCadstarVertices.at( 0 );
     const VERTEX* cur;
@@ -1563,6 +1608,7 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadLibrarySymbolShapeVertices(
         }
 
         segment->SetUnit( aGateNumber );
+        segment->SetWidth( aLineThickness );
         aSymbol->AddDrawItem( segment );
 
         prev = cur;
@@ -1655,7 +1701,8 @@ SCH_SYMBOL* CADSTAR_SCH_ARCHIVE_LOADER::loadSchematicSymbol( const SYMBOL& aCads
         for( auto& term : termNumMap )
         {
             wxString pinNum = term.second;
-            pinNumToLibPinMap.insert( { pinNum, symbol->GetPartRef()->GetPin( term.second ) } );
+            pinNumToLibPinMap.insert( { pinNum,
+                    symbol->GetLibSymbolRef()->GetPin( term.second ) } );
         }
 
         auto replacePinNumber = [&]( wxString aOldPinNum, wxString aNewPinNum )
@@ -1664,7 +1711,7 @@ SCH_SYMBOL* CADSTAR_SCH_ARCHIVE_LOADER::loadSchematicSymbol( const SYMBOL& aCads
                                         return;
 
                                     LIB_PIN* libpin = pinNumToLibPinMap.at( aOldPinNum );
-                                    libpin->SetNumber( aNewPinNum );
+                                    libpin->SetNumber( HandleTextOverbar( aNewPinNum ) );
                                 };
 
         //Older versions of Cadstar used pin numbers
@@ -1948,7 +1995,8 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadShapeVertices( const std::vector<VERTEX>& a
             else
                 arcAngleDeciDeg = NormalizeAngleNeg( arcAngleDeciDeg );
 
-            SHAPE_ARC tempArc( VECTOR2I(centerPoint), VECTOR2I(startPoint), arcAngleDeciDeg / 10.0 );
+            SHAPE_ARC tempArc( VECTOR2I(centerPoint), VECTOR2I(startPoint),
+                               arcAngleDeciDeg / 10.0 );
             SHAPE_LINE_CHAIN arcSegments = tempArc.ConvertToPolyline( Millimeter2iu( 0.1 ) );
 
             // Load the arc as a series of piece-wise segments
@@ -1958,17 +2006,17 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadShapeVertices( const std::vector<VERTEX>& a
                 wxPoint segStart = (wxPoint) arcSegments.Segment( jj ).A;
                 wxPoint segEnd   = (wxPoint) arcSegments.Segment( jj ).B;
 
-                loadGraphicStaightSegment( segStart, segEnd, aCadstarLineCodeID,
-                        aCadstarSheetID, aKiCadSchLayerID, aMoveVector, aRotationAngleDeciDeg,
-                        aScalingFactor, aTransformCentre, aMirrorInvert );
+                loadGraphicStaightSegment( segStart, segEnd, aCadstarLineCodeID, aCadstarSheetID,
+                                           aKiCadSchLayerID, aMoveVector, aRotationAngleDeciDeg,
+                                           aScalingFactor, aTransformCentre, aMirrorInvert );
             }
         }
             break;
 
         case VERTEX_TYPE::POINT:
             loadGraphicStaightSegment( startPoint, endPoint, aCadstarLineCodeID, aCadstarSheetID,
-                    aKiCadSchLayerID, aMoveVector, aRotationAngleDeciDeg, aScalingFactor,
-                    aTransformCentre, aMirrorInvert );
+                                       aKiCadSchLayerID, aMoveVector, aRotationAngleDeciDeg,
+                                       aScalingFactor, aTransformCentre, aMirrorInvert );
             break;
 
         default:
@@ -1987,20 +2035,20 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadFigure( const FIGURE& aCadstarFigure,
         const double& aScalingFactor, const wxPoint& aTransformCentre, const bool& aMirrorInvert )
 {
     loadShapeVertices( aCadstarFigure.Shape.Vertices, aCadstarFigure.LineCodeID,
-            aCadstarSheetIDOverride, aKiCadSchLayerID, aMoveVector, aRotationAngleDeciDeg,
-            aScalingFactor, aTransformCentre, aMirrorInvert );
+                       aCadstarSheetIDOverride, aKiCadSchLayerID, aMoveVector,
+                       aRotationAngleDeciDeg, aScalingFactor, aTransformCentre, aMirrorInvert );
 
     for( CUTOUT cutout : aCadstarFigure.Shape.Cutouts )
     {
         loadShapeVertices( cutout.Vertices, aCadstarFigure.LineCodeID, aCadstarSheetIDOverride,
-                aKiCadSchLayerID, aMoveVector, aRotationAngleDeciDeg, aScalingFactor,
-                aTransformCentre, aMirrorInvert );
+                           aKiCadSchLayerID, aMoveVector, aRotationAngleDeciDeg, aScalingFactor,
+                           aTransformCentre, aMirrorInvert );
     }
 }
 
 
 void CADSTAR_SCH_ARCHIVE_LOADER::loadSheetAndChildSheets(
-        LAYER_ID aCadstarSheetID, wxPoint aPosition, wxSize aSheetSize,
+        LAYER_ID aCadstarSheetID, const wxPoint& aPosition, wxSize aSheetSize,
         const SCH_SHEET_PATH& aParentSheet )
 {
     wxCHECK_MSG( m_sheetMap.find( aCadstarSheetID ) == m_sheetMap.end(), ,
@@ -2038,7 +2086,7 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadSheetAndChildSheets(
     wxString pageNumStr = wxString::Format( "%d", getSheetNumber( aCadstarSheetID ) );
     sheet->SetPageNumber( instance, pageNumStr );
 
-    sheet->AutoplaceFields( /* aScreen */ NULL, /* aManual */ false );
+    sheet->AutoplaceFields( /* aScreen */ nullptr, /* aManual */ false );
 
     m_sheetMap.insert( { aCadstarSheetID, sheet } );
 
@@ -2046,8 +2094,8 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadSheetAndChildSheets(
 }
 
 
-void CADSTAR_SCH_ARCHIVE_LOADER::loadChildSheets(
-        LAYER_ID aCadstarSheetID, const SCH_SHEET_PATH& aSheet )
+void CADSTAR_SCH_ARCHIVE_LOADER::loadChildSheets( LAYER_ID aCadstarSheetID,
+                                                  const SCH_SHEET_PATH& aSheet )
 {
     wxCHECK_MSG( m_sheetMap.find( aCadstarSheetID ) != m_sheetMap.end(), ,
             "FIXME! Parent sheet should be loaded before attempting to load subsheets" );
@@ -2226,6 +2274,7 @@ CADSTAR_SCH_ARCHIVE_LOADER::SYMDEF_ID CADSTAR_SCH_ARCHIVE_LOADER::getSymDefFromN
     return SYMDEF_ID();
 }
 
+
 bool CADSTAR_SCH_ARCHIVE_LOADER::isAttributeVisible( const ATTRIBUTE_ID& aCadstarAttributeID )
 {
     // Use CADSTAR visibility settings to determine if an attribute is visible
@@ -2252,7 +2301,7 @@ PLOT_DASH_TYPE CADSTAR_SCH_ARCHIVE_LOADER::getLineStyle( const LINECODE_ID& aCad
 {
     wxCHECK( Assignments.Codedefs.LineCodes.find( aCadstarLineCodeID )
                      != Assignments.Codedefs.LineCodes.end(),
-            PLOT_DASH_TYPE::SOLID );
+             PLOT_DASH_TYPE::SOLID );
 
     // clang-format off
     switch( Assignments.Codedefs.LineCodes.at( aCadstarLineCodeID ).Style )
@@ -2275,9 +2324,17 @@ CADSTAR_SCH_ARCHIVE_LOADER::TEXTCODE CADSTAR_SCH_ARCHIVE_LOADER::getTextCode(
 {
     wxCHECK( Assignments.Codedefs.TextCodes.find( aCadstarTextCodeID )
                      != Assignments.Codedefs.TextCodes.end(),
-            TEXTCODE() );
+             TEXTCODE() );
 
     return Assignments.Codedefs.TextCodes.at( aCadstarTextCodeID );
+}
+
+
+int CADSTAR_SCH_ARCHIVE_LOADER::getTextHeightFromTextCode( const TEXTCODE_ID& aCadstarTextCodeID )
+{
+    TEXTCODE txtCode = getTextCode( aCadstarTextCodeID );
+
+    return KiROUND( (double) getKiCadLength( txtCode.Height ) * TXT_HEIGHT_RATIO );
 }
 
 
@@ -2285,7 +2342,7 @@ wxString CADSTAR_SCH_ARCHIVE_LOADER::getAttributeName( const ATTRIBUTE_ID& aCads
 {
     wxCHECK( Assignments.Codedefs.AttributeNames.find( aCadstarAttributeID )
                      != Assignments.Codedefs.AttributeNames.end(),
-            wxEmptyString );
+             wxEmptyString );
 
     return Assignments.Codedefs.AttributeNames.at( aCadstarAttributeID ).Name;
 }
@@ -2305,7 +2362,7 @@ CADSTAR_SCH_ARCHIVE_LOADER::ROUTECODE CADSTAR_SCH_ARCHIVE_LOADER::getRouteCode(
 {
     wxCHECK( Assignments.Codedefs.RouteCodes.find( aCadstarRouteCodeID )
                      != Assignments.Codedefs.RouteCodes.end(),
-            ROUTECODE() );
+             ROUTECODE() );
 
     return Assignments.Codedefs.RouteCodes.at( aCadstarRouteCodeID );
 }
@@ -2355,8 +2412,8 @@ int CADSTAR_SCH_ARCHIVE_LOADER::getKiCadUnitNumberFromGate( const GATE_ID& aCads
 }
 
 
-LABEL_SPIN_STYLE CADSTAR_SCH_ARCHIVE_LOADER::getSpinStyle(
-        const long long& aCadstarOrientation, bool aMirror )
+LABEL_SPIN_STYLE CADSTAR_SCH_ARCHIVE_LOADER::getSpinStyle( const long long& aCadstarOrientation,
+                                                           bool aMirror )
 {
     double           orientationDeciDegree = getAngleTenthDegree( aCadstarOrientation );
     LABEL_SPIN_STYLE spinStyle             = getSpinStyleDeciDeg( orientationDeciDegree );
@@ -2401,14 +2458,17 @@ CADSTAR_SCH_ARCHIVE_LOADER::mirrorX( const ALIGNMENT& aCadstarAlignment )
     case ALIGNMENT::BOTTOMLEFT:    return ALIGNMENT::BOTTOMRIGHT;
     case ALIGNMENT::CENTERLEFT:    return ALIGNMENT::CENTERRIGHT;
     case ALIGNMENT::TOPLEFT:       return ALIGNMENT::TOPRIGHT;
+
     //Change right to left:
     case ALIGNMENT::BOTTOMRIGHT:   return ALIGNMENT::BOTTOMLEFT;
     case ALIGNMENT::CENTERRIGHT:   return ALIGNMENT::CENTERLEFT;
     case ALIGNMENT::TOPRIGHT:      return ALIGNMENT::TOPLEFT;
+
     // Center alignment does not mirror:
     case ALIGNMENT::BOTTOMCENTER:
     case ALIGNMENT::CENTERCENTER:
     case ALIGNMENT::TOPCENTER:     return aCadstarAlignment;
+
     // Shouldn't be here
     default: wxFAIL_MSG( "Unknown Cadstar Alignment" ); return aCadstarAlignment;
     }
@@ -2430,6 +2490,7 @@ CADSTAR_SCH_ARCHIVE_LOADER::rotate180( const ALIGNMENT& aCadstarAlignment )
     case ALIGNMENT::CENTERLEFT:    return ALIGNMENT::CENTERRIGHT;
     case ALIGNMENT::CENTERCENTER:  return ALIGNMENT::CENTERCENTER;
     case ALIGNMENT::CENTERRIGHT:   return ALIGNMENT::CENTERLEFT;
+
     // Shouldn't be here
     default: wxFAIL_MSG( "Unknown Cadstar Alignment" ); return aCadstarAlignment;
     }
@@ -2443,18 +2504,16 @@ void CADSTAR_SCH_ARCHIVE_LOADER::applyTextSettings( EDA_TEXT*            aKiCadT
                                                     const long long      aCadstarOrientAngle,
                                                     bool                 aMirrored )
 {
-    // Justification ignored for now as not supported in eeschema, but leaving this code in
+    // Justification ignored for now as not supported in Eeschema, but leaving this code in
     // place for future upgrades.
-    // TODO update this when eeschema supports justification independent of anchor position.
+    // TODO update this when Eeschema supports justification independent of anchor position.
 
     TEXTCODE textCode = getTextCode( aCadstarTextCodeID );
     int      textHeight = KiROUND( (double) getKiCadLength( textCode.Height ) * TXT_HEIGHT_RATIO );
     int      textWidth = getKiCadLength( textCode.Width );
 
-    // In Cadstar the overbar token is "'" whereas in KiCad it is "~"
-    wxString escapedText = aKiCadTextItem->GetText();
-    escapedText.Replace( wxT( "~" ), wxT( "~~" ) );
-    escapedText.Replace( wxT( "'" ), wxT( "~" ) );
+    // Ensure we have no Cadstar overbar characters
+    wxString escapedText = HandleTextOverbar( aKiCadTextItem->GetText() );
     aKiCadTextItem->SetText( escapedText );
 
     // The width is zero for all non-cadstar fonts. Using a width equal to 2/3 the height seems
@@ -2611,6 +2670,7 @@ void CADSTAR_SCH_ARCHIVE_LOADER::applyTextSettings( EDA_TEXT*            aKiCadT
         return;
     }
 }
+
 
 SCH_TEXT* CADSTAR_SCH_ARCHIVE_LOADER::getKiCadSchText( const TEXT& aCadstarTextElement )
 {
@@ -2801,8 +2861,7 @@ void CADSTAR_SCH_ARCHIVE_LOADER::fixUpLibraryPins( LIB_SYMBOL* aSymbolToFix, int
 }
 
 
-std::pair<wxPoint, wxSize>
-CADSTAR_SCH_ARCHIVE_LOADER::getFigureExtentsKiCad(
+std::pair<wxPoint, wxSize> CADSTAR_SCH_ARCHIVE_LOADER::getFigureExtentsKiCad(
         const FIGURE& aCadstarFigure )
 {
     wxPoint upperLeft( Assignments.Settings.DesignLimit.x, 0 );
@@ -2850,7 +2909,7 @@ CADSTAR_SCH_ARCHIVE_LOADER::getFigureExtentsKiCad(
 }
 
 
-wxPoint CADSTAR_SCH_ARCHIVE_LOADER::getKiCadPoint( wxPoint aCadstarPoint )
+wxPoint CADSTAR_SCH_ARCHIVE_LOADER::getKiCadPoint( const wxPoint& aCadstarPoint )
 {
     wxPoint retval;
 
@@ -2861,8 +2920,8 @@ wxPoint CADSTAR_SCH_ARCHIVE_LOADER::getKiCadPoint( wxPoint aCadstarPoint )
 }
 
 
-wxPoint CADSTAR_SCH_ARCHIVE_LOADER::getKiCadLibraryPoint(
-        wxPoint aCadstarPoint, wxPoint aCadstarCentre )
+wxPoint CADSTAR_SCH_ARCHIVE_LOADER::getKiCadLibraryPoint( const wxPoint& aCadstarPoint,
+                                                          const wxPoint& aCadstarCentre )
 {
     wxPoint retval;
 
@@ -2907,13 +2966,13 @@ wxPoint CADSTAR_SCH_ARCHIVE_LOADER::applyTransform( const wxPoint& aPoint,
 }
 
 
-double CADSTAR_SCH_ARCHIVE_LOADER::getPolarAngle( wxPoint aPoint )
+double CADSTAR_SCH_ARCHIVE_LOADER::getPolarAngle( const wxPoint& aPoint )
 {
     return NormalizeAnglePos( ArcTangente( aPoint.y, aPoint.x ) );
 }
 
 
-double CADSTAR_SCH_ARCHIVE_LOADER::getPolarRadius( wxPoint aPoint )
+double CADSTAR_SCH_ARCHIVE_LOADER::getPolarRadius( const wxPoint& aPoint )
 {
     return sqrt(
             ( (double) aPoint.x * (double) aPoint.x ) + ( (double) aPoint.y * (double) aPoint.y ) );

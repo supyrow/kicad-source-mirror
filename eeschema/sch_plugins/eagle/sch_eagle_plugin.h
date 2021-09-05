@@ -50,7 +50,7 @@ class SCH_FIELD;
 class PROPERTIES;
 class SCH_EAGLE_PLUGIN_CACHE;
 class LIB_SYMBOL;
-class PART_LIB;
+class SYMBOL_LIB;
 class LIB_CIRCLE;
 class LIB_FIELD;
 class LIB_RECTANGLE;
@@ -60,14 +60,14 @@ class LIB_TEXT;
 class wxXmlNode;
 
 
-typedef struct EAGLE_LIBRARY
+struct EAGLE_LIBRARY
 {
     wxString name;
     boost::ptr_map<wxString, LIB_SYMBOL> KiCadSymbols;
     std::unordered_map<wxString, wxXmlNode*> SymbolNodes;
     std::unordered_map<wxString, int> GateUnit;
     std::unordered_map<wxString, wxString> package;
-} EAGLE_LIBRARY;
+};
 
 typedef boost::ptr_map<wxString, EPART> EPART_LIST;
 
@@ -87,6 +87,11 @@ public:
 
     void SetReporter( REPORTER* aReporter ) override { m_reporter = aReporter; }
 
+    void SetProgressReporter( PROGRESS_REPORTER* aReporter ) override
+    {
+        m_progressReporter = aReporter;
+    }
+
     const wxString GetFileExtension() const override;
 
     const wxString GetLibraryFileExtension() const override;
@@ -99,8 +104,9 @@ public:
 
     bool CheckHeader( const wxString& aFileName ) override;
 
-
 private:
+    void checkpoint();
+
     void loadDrawing( wxXmlNode* aDrawingNode );
     void loadLayerDefs( wxXmlNode* aLayers );
     void loadSchematic( wxXmlNode* aSchematicNode );
@@ -120,15 +126,15 @@ private:
     SCH_LAYER_ID kiCadLayer( int aEagleLayer );
 
     std::pair<VECTOR2I, const SEG*> findNearestLinePoint( const wxPoint& aPoint,
-            const std::vector<SEG>& aLines ) const;
+                                                          const std::vector<SEG>& aLines ) const;
 
-    void                loadSegments( wxXmlNode* aSegmentsNode, const wxString& aNetName,
-                                      const wxString& aNetClass );
-    SCH_LINE*           loadWire( wxXmlNode* aWireNode );
-    SCH_TEXT*           loadLabel( wxXmlNode* aLabelNode, const wxString& aNetName );
-    SCH_JUNCTION*       loadJunction( wxXmlNode* aJunction );
-    SCH_TEXT*           loadPlainText( wxXmlNode* aSchText );
-    void                loadFrame( wxXmlNode* aFrameNode, std::vector<SCH_LINE*>& aLines );
+    void            loadSegments( wxXmlNode* aSegmentsNode, const wxString& aNetName,
+                                  const wxString& aNetClass );
+    SCH_LINE*       loadWire( wxXmlNode* aWireNode );
+    SCH_TEXT*       loadLabel( wxXmlNode* aLabelNode, const wxString& aNetName );
+    SCH_JUNCTION*   loadJunction( wxXmlNode* aJunction );
+    SCH_TEXT*       loadPlainText( wxXmlNode* aSchText );
+    void            loadFrame( wxXmlNode* aFrameNode, std::vector<SCH_LINE*>& aLines );
 
     bool            loadSymbol( wxXmlNode* aSymbolNode, std::unique_ptr<LIB_SYMBOL>& aSymbol,
                                 EDEVICE* aDevice, int aGateNumber, const wxString& aGateName );
@@ -184,16 +190,6 @@ private:
 
     bool netHasPowerDriver( SCH_LINE* aLine, const wxString& aNetName ) const;
 
-    /**
-     * Fix invalid characters in Eagle symbol names.
-     *
-     * It changes invalid characters to underscores.
-     *
-     * @param aName is the symbol name to be fixed.
-     * @return Fixed symbol name.
-     */
-    static wxString fixSymbolName( const wxString& aName );
-
     // Describe missing units containing pins creating implicit connections
     // (named power pins in Eagle).
     struct EAGLE_MISSING_CMP
@@ -228,8 +224,13 @@ private:
     EPART_MAP                         m_partlist;
     std::map<wxString, EAGLE_LIBRARY> m_eagleLibs;
 
-    SCH_PLUGIN::SCH_PLUGIN_RELEASER   m_pi;         ///< Plugin to create the KiCad symbol library.
-    std::unique_ptr< PROPERTIES >     m_properties; ///< Library plugin properties.
+    SCH_PLUGIN::SCH_PLUGIN_RELEASER   m_pi;                ///< PI to create KiCad symbol library.
+    std::unique_ptr< PROPERTIES >     m_properties;        ///< Library plugin properties.
+
+    PROGRESS_REPORTER*                m_progressReporter;  ///< optional; may be nullptr
+    unsigned                          m_doneCount;
+    unsigned                          m_lastProgressCount;
+    unsigned                          m_totalCount;        ///< for progress reporting
 
     std::map<wxString, int>           m_netCounts;
     std::map<int, SCH_LAYER_ID>       m_layerMap;
@@ -239,14 +240,14 @@ private:
     std::vector<VECTOR2I> m_wireIntersections;
 
     ///< Wires and labels of a single connection (segment in Eagle nomenclature)
-    typedef struct SEG_DESC_STRUCT
+    struct SEG_DESC
     {
         ///< Test if a particular label is attached to any of the stored segments
         const SEG* LabelAttached( const SCH_TEXT* aLabel ) const;
 
         std::vector<SCH_TEXT*> labels;
         std::vector<SEG> segs;
-    } SEG_DESC;
+    };
 
     ///< Segments representing wires for intersection checking
     std::vector<SEG_DESC> m_segments;

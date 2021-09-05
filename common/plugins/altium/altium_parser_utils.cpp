@@ -24,16 +24,15 @@
 
 #include "altium_parser_utils.h"
 
-#include <kicad_string.h>
+#include <string_utils.h>
 #include <lib_id.h>
 
 
-LIB_ID AltiumToKiCadLibID( wxString aLibName, wxString aLibReference )
+LIB_ID AltiumToKiCadLibID( const wxString& aLibName, const wxString& aLibReference )
 {
-    ReplaceIllegalFileNameChars( aLibName, '_' );
-    ReplaceIllegalFileNameChars( aLibReference, '_' );
+    wxString libReference = EscapeString( aLibReference, CTX_LIBID );
 
-    wxString key = !aLibName.empty() ? ( aLibName + ":" + aLibReference ) : aLibReference;
+    wxString key = !aLibName.empty() ? ( aLibName + ":" + libReference ) : libReference;
 
     LIB_ID libId;
     libId.Parse( key, true );
@@ -41,9 +40,46 @@ LIB_ID AltiumToKiCadLibID( wxString aLibName, wxString aLibReference )
     return libId;
 }
 
+
+wxString AltiumPropertyToKiCadString( const wxString& aString )
+{
+    wxString converted;
+    bool     inOverbar = false;
+
+    for( wxString::const_iterator chIt = aString.begin(); chIt != aString.end(); ++chIt )
+    {
+        wxString::const_iterator lookahead = chIt + 1;
+
+        if( lookahead != aString.end() && *lookahead == '\\' )
+        {
+            if( !inOverbar )
+            {
+                converted += "~{";
+                inOverbar = true;
+            }
+
+            converted += *chIt;
+            chIt = lookahead;
+        }
+        else
+        {
+            if( inOverbar )
+            {
+                converted += "}";
+                inOverbar = false;
+            }
+
+            converted += *chIt;
+        }
+    }
+
+    return converted;
+}
+
+
 // https://www.altium.com/documentation/altium-designer/sch-obj-textstringtext-string-ad#!special-strings
-wxString AltiumSpecialStringsToKiCadVariables( const wxString&              aString,
-                                               const altium_override_map_t& aOverride )
+wxString AltiumSpecialStringsToKiCadVariables( const wxString&                     aString,
+                                               const std::map<wxString, wxString>& aOverrides )
 {
     if( aString.IsEmpty() || aString.at( 0 ) != '=' )
     {
@@ -64,6 +100,7 @@ wxString AltiumSpecialStringsToKiCadVariables( const wxString&              aStr
         {
             size_t text_start = escaping_start + 1;
             size_t escaping_end = aString.find( "'", text_start );
+
             if( escaping_end == wxString::npos )
             {
                 escaping_end = aString.size();
@@ -75,20 +112,25 @@ wxString AltiumSpecialStringsToKiCadVariables( const wxString&              aStr
         }
         else
         {
-            wxString specialString = aString.substr( start, delimiter - start ).Trim( true );
+            wxString specialString = aString.substr( start, delimiter - start ).Trim().Trim( false );
+
+            if( specialString.StartsWith( "\"" ) && specialString.EndsWith( "\"" ) )
+                specialString = specialString.Mid( 1, specialString.Length() - 2 );
 
             if( !specialString.IsEmpty() )
             {
-                auto variableOverride = aOverride.find( specialString );
-                if( variableOverride == aOverride.end() )
-                {
-                    result += wxString::Format( wxT( "${%s}" ), specialString );
-                }
-                else
-                {
-                    result += variableOverride->second;
-                }
+                // Note: Altium variable references are case-insensitive.  KiCad matches
+                // case-senstive OR to all-upper-case, so make the references all-upper-case.
+                specialString.UpperCase();
+
+                auto overrideIt = aOverrides.find( specialString );
+
+                if( overrideIt != aOverrides.end() )
+                    specialString = overrideIt->second;
+
+                result += wxString::Format( wxT( "${%s}" ), specialString );
             }
+
             start = delimiter + 1;
         }
     } while( delimiter != wxString::npos );

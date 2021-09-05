@@ -2,6 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2015-2016 Cirilo Bernardo <cirilo.bernardo@gmail.com>
+ * Copyright (C) 2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -34,8 +35,6 @@ WRL2SWITCH::WRL2SWITCH() : WRL2NODE()
 {
     m_Type = WRL2NODES::WRL2_SWITCH;
     whichChoice = -1;
-
-    return;
 }
 
 
@@ -45,26 +44,17 @@ WRL2SWITCH::WRL2SWITCH( WRL2NODE* aParent ) : WRL2NODE()
     m_Parent = aParent;
     whichChoice = -1;
 
-    if( NULL != m_Parent )
+    if( nullptr != m_Parent )
         m_Parent->AddChildNode( this );
-
-    return;
 }
 
 
 WRL2SWITCH::~WRL2SWITCH()
 {
-    #if defined( DEBUG_VRML2 ) && ( DEBUG_VRML2 > 2 )
-    do {
-        std::ostringstream ostr;
-        ostr << " * [INFO] Destroying Switch with " << m_Children.size();
-        ostr << " children, " << m_Refs.size() << " references and ";
-        ostr << m_BackPointers.size() << " backpointers";
-        wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-    } while( 0 );
-    #endif
-
-    return;
+    wxLogTrace( traceVrmlPlugin,
+                wxT( " * [INFO] Destroying Switch node with %zu children, %zu"
+                     "references, and %zu back pointers." ),
+                m_Children.size(), m_Refs.size(), m_BackPointers.size() );
 }
 
 
@@ -75,7 +65,6 @@ bool WRL2SWITCH::isDangling( void )
 }
 
 
-// functions inherited from WRL2NODE
 bool WRL2SWITCH::Read( WRLPROC& proc, WRL2BASE* aTopNode )
 {
     /*
@@ -87,52 +76,25 @@ bool WRL2SWITCH::Read( WRLPROC& proc, WRL2BASE* aTopNode )
      * }
      */
 
-    if( NULL == aTopNode )
-    {
-        #ifdef DEBUG_VRML2
-        do {
-            std::ostringstream ostr;
-            ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-            ostr << " * [BUG] aTopNode is NULL";
-            wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-        } while( 0 );
-        #endif
-
-        return false;
-    }
-
-    size_t line, column;
-    proc.GetFilePosData( line, column );
+    wxCHECK_MSG( aTopNode, false, wxT( "Invalid top node." ) );
 
     char tok = proc.Peek();
 
     if( proc.eof() )
     {
-        #if defined( DEBUG_VRML2 ) && ( DEBUG_VRML2 > 1 )
-        do {
-            std::ostringstream ostr;
-            ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-            ostr << " * [INFO] bad file format; unexpected eof at line ";
-            ostr << line << ", column " << column;
-            wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-        } while( 0 );
-        #endif
+        wxLogTrace( traceVrmlPlugin, wxT( "%s:%s:%d\n"
+                                          " * [INFO] bad file format; unexpected eof %s." ),
+                    __FILE__, __FUNCTION__, __LINE__, proc.GetFilePosition() );
 
         return false;
     }
 
     if( '{' != tok )
     {
-        #if defined( DEBUG_VRML2 ) && ( DEBUG_VRML2 > 1 )
-        do {
-            std::ostringstream ostr;
-            ostr << proc.GetError() << "\n";
-            ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-            ostr << " * [INFO] bad file format; expecting '{' but got '" << tok;
-            ostr  << "' at line " << line << ", column " << column;
-            wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-        } while( 0 );
-        #endif
+        wxLogTrace( traceVrmlPlugin,
+                    wxT( "%s:%s:%d\n"
+                         " * [INFO] bad file format; expecting '{' but got '%s' %s." ),
+                    __FILE__, __FUNCTION__, __LINE__, tok, proc.GetFilePosition() );
 
         return false;
     }
@@ -150,14 +112,9 @@ bool WRL2SWITCH::Read( WRLPROC& proc, WRL2BASE* aTopNode )
 
         if( !proc.ReadName( glob ) )
         {
-            #if defined( DEBUG_VRML2 ) && ( DEBUG_VRML2 > 1 )
-            do {
-                std::ostringstream ostr;
-                ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-                ostr << proc.GetError();
-                wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-            } while( 0 );
-            #endif
+            wxLogTrace( traceVrmlPlugin, wxT( "%s:%s:%d\n"
+                                              "%s" ),
+                        __FILE__, __FUNCTION__, __LINE__ , proc.GetError() );
 
             return false;
         }
@@ -165,24 +122,16 @@ bool WRL2SWITCH::Read( WRLPROC& proc, WRL2BASE* aTopNode )
         // expecting one of:
         // choice
         // whichChoice
-
-        proc.GetFilePosData( line, column );
-
         if( !glob.compare( "whichChoice" ) )
         {
             if( !proc.ReadSFInt( whichChoice ) )
             {
-                #if defined( DEBUG_VRML2 ) && ( DEBUG_VRML2 > 1 )
-                do {
-                    std::ostringstream ostr;
-                    ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-                    ostr << " * [INFO] invalid whichChoice at line " << line << ", column ";
-                    ostr << column << "\n";
-                    ostr << " * [INFO] file: '" << proc.GetFileName() << "'\n";
-                    ostr << " * [INFO] message: '" << proc.GetError() << "'";
-                    wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-                } while( 0 );
-                #endif
+                wxLogTrace( traceVrmlPlugin, wxT( "%s:%s:%d\n"
+                                                  " * [INFO] invalid whichChoice %s\n"
+                                                  " * [INFO] file: '%s'\n"
+                                                  "%s" ),
+                            __FILE__, __FUNCTION__, __LINE__, proc.GetFilePosition(),
+                            proc.GetFileName(), proc.GetError() );
 
                 return false;
             }
@@ -194,16 +143,12 @@ bool WRL2SWITCH::Read( WRLPROC& proc, WRL2BASE* aTopNode )
         }
         else
         {
-            #if defined( DEBUG_VRML2 ) && ( DEBUG_VRML2 > 1 )
-            do {
-                std::ostringstream ostr;
-                ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-                ostr << " * [INFO] bad Switch at line " << line << ", column ";
-                ostr << column << "\n";
-                ostr << " * [INFO] file: '" << proc.GetFileName() << "'";
-                wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-            } while( 0 );
-            #endif
+            wxLogTrace( traceVrmlPlugin,
+                        wxT( "%s:%s:%d\n"
+                             " * [INFO] invalid Switch %s.\n"
+                             " * [INFO] file: '%s'\n" ),
+                        __FILE__, __FUNCTION__, __LINE__, proc.GetFilePosition(),
+                        proc.GetFileName() );
 
             return false;
         }
@@ -215,31 +160,19 @@ bool WRL2SWITCH::Read( WRLPROC& proc, WRL2BASE* aTopNode )
 
 bool WRL2SWITCH::AddRefNode( WRL2NODE* aNode )
 {
-    if( NULL == aNode )
-    {
-        #ifdef DEBUG_VRML2
-        do {
-            std::ostringstream ostr;
-            ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-            ostr << " * [BUG] NULL passed as node pointer";
-            wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-        } while( 0 );
-        #endif
-
-        return false;
-    }
+    wxCHECK_MSG( aNode, false, wxT( "Invalid node." ) );
 
     // take possession if the node is dangling WRL2_SHAPE
     if( WRL2NODES::WRL2_SHAPE == aNode->GetNodeType() && aNode->isDangling() )
     {
         WRL2NODE* np = aNode->GetParent();
 
-        if( NULL != np )
+        if( nullptr != np )
             aNode->SetParent( this );
 
         if( !WRL2NODE::AddChildNode( aNode ) )
         {
-            aNode->SetParent( NULL );
+            aNode->SetParent( nullptr );
             return false;
         }
     }
@@ -253,27 +186,18 @@ bool WRL2SWITCH::AddRefNode( WRL2NODE* aNode )
 
 bool WRL2SWITCH::readChildren( WRLPROC& proc, WRL2BASE* aTopNode )
 {
-    size_t line, column;
-    proc.GetFilePosData( line, column );
-
     char tok = proc.Peek();
 
     if( proc.eof() )
     {
-        #if defined( DEBUG_VRML2 ) && ( DEBUG_VRML2 > 1 )
-        do {
-            std::ostringstream ostr;
-            ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-            ostr << " * [INFO] bad file format; unexpected eof at line ";
-            ostr << line << ", column " << column;
-            wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-        } while( 0 );
-        #endif
+        wxLogTrace( traceVrmlPlugin, wxT( "%s:%s:%d\n"
+                                          " * [INFO] bad file format; unexpected eof %s." ),
+                    __FILE__, __FUNCTION__, __LINE__, proc.GetFilePosition() );
 
         return false;
     }
 
-    WRL2NODE* child = NULL;
+    WRL2NODE* child = nullptr;
 
     if( '[' != tok )
     {
@@ -281,7 +205,7 @@ bool WRL2SWITCH::readChildren( WRLPROC& proc, WRL2BASE* aTopNode )
         if( !aTopNode->ReadNode( proc, this, &child ) )
             return false;
 
-        if( NULL != child )
+        if( nullptr != child )
             choices.push_back( child );
 
         if( proc.Peek() == ',' )
@@ -303,7 +227,7 @@ bool WRL2SWITCH::readChildren( WRLPROC& proc, WRL2BASE* aTopNode )
         if( !aTopNode->ReadNode( proc, this, &child ) )
             return false;
 
-        if( NULL != child )
+        if( nullptr != child )
             choices.push_back( child );
 
         if( proc.Peek() == ',' )
@@ -317,54 +241,31 @@ bool WRL2SWITCH::readChildren( WRLPROC& proc, WRL2BASE* aTopNode )
 
 SGNODE* WRL2SWITCH::TranslateToSG( SGNODE* aParent )
 {
-    #if defined( DEBUG_VRML2 ) && ( DEBUG_VRML2 > 2 )
-    do {
-        std::ostringstream ostr;
-        ostr << " * [INFO] Translating Switch with " << m_Children.size();
-        ostr << " children, " << m_Refs.size() << " references and ";
-        ostr << m_BackPointers.size() << " backpointers";
-        wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-    } while( 0 );
-    #endif
+    wxLogTrace( traceVrmlPlugin,
+                wxT( " * [INFO] Translating Switch with %zu children, %zu references, and"
+                     "%zu back pointers." ),
+                m_Children.size(), m_Refs.size(), m_BackPointers.size() );
 
     if( choices.empty() )
     {
-        #if defined( DEBUG_VRML2 ) && ( DEBUG_VRML2 > 2 )
-        wxLogTrace( MASK_VRML, " * [INFO] Switch translation: no choices\n" );
-        #endif
+        wxLogTrace( traceVrmlPlugin, " * [INFO] Switch translation: no choices." );
 
-        return NULL;
+        return nullptr;
     }
 
     S3D::SGTYPES ptype = S3D::GetSGNodeType( aParent );
 
-    if( NULL != aParent && ptype != S3D::SGTYPE_TRANSFORM )
-    {
-        #ifdef DEBUG_VRML2
-        do {
-            std::ostringstream ostr;
-            ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-            ostr << " * [BUG] Switch does not have a Transform parent (parent ID: ";
-            ostr << ptype << ")";
-            wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-        } while( 0 );
-        #endif
-
-        return NULL;
-    }
+    wxCHECK_MSG( aParent && ( ptype == S3D::SGTYPE_TRANSFORM ), nullptr,
+                 wxString::Format( wxT( "Switch does not have a Transform parent (parent "
+                                        "ID: %d)." ), ptype ) );
 
     if( whichChoice < 0 || whichChoice >= (int)choices.size() )
     {
-        #if defined( DEBUG_VRML2 ) && ( DEBUG_VRML2 > 2 )
-        do {
-            std::ostringstream ostr;
-            ostr << " * [INFO] Switch translation: no choice (choices = ";
-            ostr << choices.size() << "), whichChoice = " << whichChoice;
-            wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-        } while( 0 );
-        #endif
+        wxLogTrace( traceVrmlPlugin,
+                    wxT( " * [INFO] Switch translation: no choice (choices = %zu), "
+                         "whichChoice = %d." ), choices.size(), whichChoice );
 
-        return NULL;
+        return nullptr;
     }
 
     WRL2NODES type = choices[whichChoice]->GetNodeType();
@@ -378,7 +279,7 @@ SGNODE* WRL2SWITCH::TranslateToSG( SGNODE* aParent )
         break;
 
     default:
-        return NULL;
+        return nullptr;
     }
 
     return choices[whichChoice]->TranslateToSG( aParent );

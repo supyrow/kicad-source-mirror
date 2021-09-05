@@ -51,7 +51,7 @@ class TITLE_BLOCK;
 class SYMBOL_VIEWER_FRAME;
 class SYMBOL_EDIT_FRAME;
 class LIB_SYMBOL;
-class PART_LIB;
+class SYMBOL_LIB;
 class SCHLIB_FILTER;
 class LIB_ID;
 class SYMBOL_LIB_TABLE;
@@ -72,9 +72,9 @@ class SYMBOL_EDITOR_SETTINGS;
  *
  * @return The symbol found in the library or NULL if the symbol was not found.
  */
-LIB_SYMBOL* SchGetLibPart( const LIB_ID& aLibId, SYMBOL_LIB_TABLE* aLibTable,
-                           PART_LIB* aCacheLib = NULL, wxWindow* aParent = NULL,
-                         bool aShowErrorMsg = false );
+LIB_SYMBOL* SchGetLibSymbol( const LIB_ID& aLibId, SYMBOL_LIB_TABLE* aLibTable,
+                             SYMBOL_LIB* aCacheLib = nullptr, wxWindow* aParent = nullptr,
+                             bool aShowErrorMsg = false );
 
 /**
  * A shim class between EDA_DRAW_FRAME and several derived classes:
@@ -109,11 +109,6 @@ public:
     void SaveSettings( APP_SETTINGS_BASE* aCfg ) override;
 
     KIGFX::SCH_RENDER_SETTINGS* GetRenderSettings();
-
-    SCHEMATIC_SETTINGS& GetDefaults()
-    {
-        return *m_defaults;
-    }
 
     COLOR4D GetDrawBgColor() const override;
 
@@ -177,10 +172,8 @@ public:
      * @param aShowErrorMessage set to true to show any error messages.
      * @return The symbol found in the library or NULL if the symbol was not found.
      */
-    LIB_SYMBOL* GetLibPart( const LIB_ID& aLibId, bool aUseCacheLib = false,
-                            bool aShowErrorMsg = false );
-
-    LIB_SYMBOL* GetFlattenedLibPart( const LIB_ID& aLibId, bool aShowErrorMsg = false );
+    LIB_SYMBOL* GetLibSymbol( const LIB_ID& aLibId, bool aUseCacheLib = false,
+                              bool aShowErrorMsg = false );
 
     /**
      * Call the library viewer to select symbol to import into schematic.
@@ -260,9 +253,6 @@ protected:
     /// These are only used by symbol_editor.  Eeschema should be using the one inside
     /// the SCHEMATIC.
     SCHEMATIC_SETTINGS  m_base_frame_defaults;
-
-    SCHEMATIC_SETTINGS* m_defaults;
-
 };
 
 #endif // SCH_BASE_FRAME_H_

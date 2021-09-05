@@ -24,12 +24,12 @@
 
 #include "panel_3D_display_options.h"
 #include <3d_canvas/board_adapter.h>
-#include <3d_viewer/eda_3d_viewer.h>
-#include <3d_viewer/tools/3d_controller.h>
+#include <3d_viewer/eda_3d_viewer_frame.h>
+#include <3d_viewer/tools/eda_3d_controller.h>
 #include <tool/tool_manager.h>
 
 
-PANEL_3D_DISPLAY_OPTIONS::PANEL_3D_DISPLAY_OPTIONS( EDA_3D_VIEWER* aFrame, wxWindow* aParent ) :
+PANEL_3D_DISPLAY_OPTIONS::PANEL_3D_DISPLAY_OPTIONS( EDA_3D_VIEWER_FRAME* aFrame, wxWindow* aParent ) :
         PANEL_3D_DISPLAY_OPTIONS_BASE( aParent ),
         m_frame( aFrame ),
         m_settings( aFrame->GetAdapter() ),
@@ -52,10 +52,6 @@ bool PANEL_3D_DISPLAY_OPTIONS::TransferDataToWindow()
     m_checkBoxBoardBody->SetValue( m_settings.GetFlag( FL_SHOW_BOARD_BODY ) );
     m_checkBoxAreas->SetValue( m_settings.GetFlag( FL_ZONE ) );
 
-    m_checkBox3DshapesTH->SetValue( m_settings.GetFlag( FL_FP_ATTRIBUTES_NORMAL ) );
-    m_checkBox3DshapesSMD->SetValue( m_settings.GetFlag( FL_FP_ATTRIBUTES_NORMAL_INSERT ) );
-    m_checkBox3DshapesVirtual->SetValue( m_settings.GetFlag( FL_FP_ATTRIBUTES_VIRTUAL ) );
-
     m_checkBoxSilkscreen->SetValue( m_settings.GetFlag( FL_SILKSCREEN ) );
     m_checkBoxSolderMask->SetValue( m_settings.GetFlag( FL_SOLDERMASK ) );
     m_checkBoxSolderpaste->SetValue( m_settings.GetFlag( FL_SOLDERPASTE ) );
@@ -76,10 +72,10 @@ bool PANEL_3D_DISPLAY_OPTIONS::TransferDataToWindow()
     }
 
     // Camera Options
-    m_checkBoxEnableAnimation->SetValue( m_canvas->AnimationEnabledGet() );
-    m_sliderAnimationSpeed->SetValue( m_canvas->MovingSpeedMultiplierGet() );
-    m_staticAnimationSpeed->Enable( m_canvas->AnimationEnabledGet() );
-    m_sliderAnimationSpeed->Enable( m_canvas->AnimationEnabledGet() );
+    m_checkBoxEnableAnimation->SetValue( m_canvas->GetAnimationEnabled() );
+    m_sliderAnimationSpeed->SetValue( m_canvas->GetMovingSpeedMultiplier() );
+    m_staticAnimationSpeed->Enable( m_canvas->GetAnimationEnabled() );
+    m_sliderAnimationSpeed->Enable( m_canvas->GetAnimationEnabled() );
 
     EDA_3D_CONTROLLER* ctrlTool = m_frame->GetToolManager()->GetTool<EDA_3D_CONTROLLER>();
     m_spinCtrlRotationAngle->SetValue( ctrlTool->GetRotationIncrement() );
@@ -109,11 +105,6 @@ bool PANEL_3D_DISPLAY_OPTIONS::TransferDataFromWindow()
     case 2: m_settings.SetMaterialMode( MATERIAL_MODE::CAD_MODE );     break;
     }
 
-    // Set 3D shapes visibility
-    m_settings.SetFlag( FL_FP_ATTRIBUTES_NORMAL, m_checkBox3DshapesTH->GetValue() );
-    m_settings.SetFlag( FL_FP_ATTRIBUTES_NORMAL_INSERT, m_checkBox3DshapesSMD->GetValue() );
-    m_settings.SetFlag( FL_FP_ATTRIBUTES_VIRTUAL, m_checkBox3DshapesVirtual->GetValue() );
-
     // Set Layer visibility
     m_settings.SetFlag( FL_SILKSCREEN, m_checkBoxSilkscreen->GetValue() );
     m_settings.SetFlag( FL_SOLDERMASK, m_checkBoxSolderMask->GetValue() );
@@ -123,14 +114,13 @@ bool PANEL_3D_DISPLAY_OPTIONS::TransferDataFromWindow()
     m_settings.SetFlag( FL_ECO, m_checkBoxECO->GetValue( ) );
 
     // Camera Options
-    m_canvas->AnimationEnabledSet( m_checkBoxEnableAnimation->GetValue() );
-    m_canvas->MovingSpeedMultiplierSet( m_sliderAnimationSpeed->GetValue() );
+    m_canvas->SetAnimationEnabled( m_checkBoxEnableAnimation->GetValue());
+    m_canvas->SetMovingSpeedMultiplier( m_sliderAnimationSpeed->GetValue());
 
     EDA_3D_CONTROLLER* ctrlTool = m_frame->GetToolManager()->GetTool<EDA_3D_CONTROLLER>();
     ctrlTool->SetRotationIncrement( m_spinCtrlRotationAngle->GetValue() );
 
-    m_frame->NewDisplay();
-    m_canvas->Request_refresh();
+    // The 3D scene will be rebuilt by the caller
 
     return true;
 }

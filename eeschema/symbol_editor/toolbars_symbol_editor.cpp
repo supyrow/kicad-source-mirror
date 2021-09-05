@@ -26,7 +26,6 @@
 #include <eeschema_id.h>
 #include <symbol_edit_frame.h>
 #include <sch_painter.h>
-#include <dialog_helpers.h>
 #include <bitmaps.h>
 #include <symbol_library_manager.h>
 #include <tool/action_toolbar.h>
@@ -124,7 +123,7 @@ void SYMBOL_EDIT_FRAME::ReCreateHToolbar()
     m_mainToolBar->AddScaledSeparator( this );
 
     if( m_unitSelectBox == nullptr )
-        m_unitSelectBox = new wxComboBox( m_mainToolBar, ID_LIBEDIT_SELECT_PART_NUMBER,
+        m_unitSelectBox = new wxComboBox( m_mainToolBar, ID_LIBEDIT_SELECT_UNIT_NUMBER,
                 wxEmptyString, wxDefaultPosition, wxSize( LISTBOX_WIDTH, -1 ), 0,
                 nullptr, wxCB_READONLY );
     m_mainToolBar->AddControl( m_unitSelectBox );

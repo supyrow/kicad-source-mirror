@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 1992-2019 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -25,10 +25,10 @@
 #include <pgm_base.h>
 #include <kiface_i.h>
 #include <confirm.h>
-#include <kicad_string.h>
+#include <string_utils.h>
 #include <macros.h>
 #include <pcb_edit_frame.h>
-#include <dialog_helpers.h>
+#include <eda_list_dialog.h>
 #include <filter_reader.h>
 #include <fp_lib_table.h>
 #include <validators.h>
@@ -246,7 +246,7 @@ FOOTPRINT* FOOTPRINT_EDIT_FRAME::ImportFootprint( const wxString& aName )
 
     if( !fp )
     {
-        wxString msg = wxString::Format( _( "File \"%s\" not found" ), fn.GetFullPath() );
+        wxString msg = wxString::Format( _( "File '%s' not found." ), fn.GetFullPath() );
         DisplayError( this, msg );
         return nullptr;
     }
@@ -258,7 +258,7 @@ FOOTPRINT* FOOTPRINT_EDIT_FRAME::ImportFootprint( const wxString& aName )
 
     if( fileType == IO_MGR::FILE_TYPE_NONE )
     {
-        DisplayError( this, _( "Not a footprint file" ) );
+        DisplayError( this, _( "Not a footprint file." ) );
         return nullptr;
     }
 
@@ -356,7 +356,7 @@ void FOOTPRINT_EDIT_FRAME::ExportFootprint( FOOTPRINT* aFootprint )
 
         if( fp == nullptr )
         {
-            wxMessageBox( wxString::Format( _( "Unable to create or write file \"%s\"" ),
+            wxMessageBox( wxString::Format( _( "Insufficient permissions to write file '%s'." ),
                                             dlg.GetPath() ) );
             return;
         }
@@ -370,29 +370,42 @@ void FOOTPRINT_EDIT_FRAME::ExportFootprint( FOOTPRINT* aFootprint )
         return;
     }
 
-    wxString msg = wxString::Format( _( "Footprint exported to file \"%s\"" ), dlg.GetPath() );
+    wxString msg = wxString::Format( _( "Footprint exported to file '%s'." ), dlg.GetPath() );
     DisplayInfoMessage( this, msg );
+}
+
+
+wxString PCB_BASE_EDIT_FRAME::CreateNewProjectLibrary( const wxString& aLibName,
+                                                       const wxString& aProposedName )
+{
+    return createNewLibrary( aLibName, aProposedName, Prj().PcbFootprintLibs() );
 }
 
 
 wxString PCB_BASE_EDIT_FRAME::CreateNewLibrary( const wxString& aLibName,
                                                 const wxString& aProposedName )
 {
-    // Kicad cannot write legacy format libraries, only .pretty new format
-    // because the legacy format cannot handle current features.
-    // The footprint library is actually a directory
-
     FP_LIB_TABLE* table  = selectLibTable();
 
-    if( table == nullptr )
-    {
-        return wxEmptyString;
-    }
+    return createNewLibrary( aLibName, aProposedName, table );
+}
 
-    wxString initialPath = aProposedName.IsEmpty() ? Prj().GetProjectPath() : aProposedName;
+
+wxString PCB_BASE_EDIT_FRAME::createNewLibrary( const wxString& aLibName,
+                                                const wxString& aProposedName,
+                                                FP_LIB_TABLE* aTable )
+{
+    // Kicad cannot write legacy format libraries, only .pretty new format because the legacy
+    // format cannot handle current features.
+    // The footprint library is actually a directory.
+
+    if( aTable == nullptr )
+        return wxEmptyString;
+
+    wxString   initialPath = aProposedName.IsEmpty() ? Prj().GetProjectPath() : aProposedName;
     wxFileName fn;
     bool       doAdd = false;
-    bool       isGlobal = ( table == &GFootprintTable );
+    bool       isGlobal = ( aTable == &GFootprintTable );
 
     if( aLibName.IsEmpty() )
     {
@@ -438,13 +451,15 @@ wxString PCB_BASE_EDIT_FRAME::CreateNewLibrary( const wxString& aLibName,
             exists   = true;    // no exception was thrown, lib must exist.
         }
         catch( const IO_ERROR& )
-        { }
+        {
+            // best efforts....
+        }
 
         if( exists )
         {
             if( !writable )
             {
-                wxString msg = wxString::Format( _( "Library \"%s\" is read only." ), libPath );
+                wxString msg = wxString::Format( _( "Library %s is read only." ), libPath );
                 ShowInfoBarError( msg );
                 return wxEmptyString;
             }
@@ -471,7 +486,7 @@ wxString PCB_BASE_EDIT_FRAME::CreateNewLibrary( const wxString& aLibName,
     }
 
     if( doAdd )
-        AddLibrary( libPath, table );
+        AddLibrary( libPath, aTable );
 
     return libPath;
 }
@@ -523,15 +538,11 @@ FP_LIB_TABLE* PCB_BASE_EDIT_FRAME::selectLibTable( bool aOptional )
 
 bool PCB_BASE_EDIT_FRAME::AddLibrary( const wxString& aFilename, FP_LIB_TABLE* aTable )
 {
-    if( aTable  == nullptr )
-    {
+    if( aTable == nullptr )
         aTable = selectLibTable();
 
-        if( aTable == nullptr )
-        {
-            return wxEmptyString;
-        }
-    }
+    if( aTable == nullptr )
+        return wxEmptyString;
 
     bool isGlobal = ( aTable == &GFootprintTable );
 
@@ -553,7 +564,6 @@ bool PCB_BASE_EDIT_FRAME::AddLibrary( const wxString& aFilename, FP_LIB_TABLE* a
     if( libName.IsEmpty() )
         return false;
 
-
     wxString type = IO_MGR::ShowType( IO_MGR::GuessPluginTypeFromLibPath( libPath ) );
 
     // try to use path normalized to an environmental variable or project path
@@ -564,17 +574,13 @@ bool PCB_BASE_EDIT_FRAME::AddLibrary( const wxString& aFilename, FP_LIB_TABLE* a
 
     try
     {
-        auto row = new FP_LIB_TABLE_ROW( libName, normalizedPath, type, wxEmptyString );
+        FP_LIB_TABLE_ROW* row = new FP_LIB_TABLE_ROW( libName, normalizedPath, type, wxEmptyString );
         aTable->InsertRow( row );
 
         if( isGlobal )
-        {
             GFootprintTable.Save( FP_LIB_TABLE::GetGlobalTableFileName() );
-        }
         else
-        {
             Prj().PcbFootprintLibs()->Save( Prj().FootprintLibTblName() );
-        }
     }
     catch( const IO_ERROR& ioe )
     {
@@ -680,6 +686,9 @@ void PCB_EDIT_FRAME::ExportFootprintsToLibrary( bool aStoreInNewLib, const wxStr
         if( !nickname )     // Aborted
             return;
 
+        bool map = IsOK( this, wxString::Format( _( "Update footprints on board to refer to %s?" ),
+                                                 nickname ) );
+
         prj.SetRString( PROJECT::PCB_LIB_NICKNAME, nickname );
 
         for( FOOTPRINT* footprint : GetBoard()->Footprints() )
@@ -702,6 +711,13 @@ void PCB_EDIT_FRAME::ExportFootprintsToLibrary( bool aStoreInNewLib, const wxStr
             {
                 DisplayError( this, ioe.What() );
             }
+
+            if( map )
+            {
+                LIB_ID id = footprint->GetFPID();
+                id.SetLibNickname( nickname );
+                footprint->SetFPID( id );
+            }
         }
     }
     else
@@ -715,6 +731,17 @@ void PCB_EDIT_FRAME::ExportFootprintsToLibrary( bool aStoreInNewLib, const wxStr
 
         if( aLibPath )
             *aLibPath = libPath;
+
+        wxString libNickname;
+        bool     map = IsOK( this, _( "Update footprints on board to refer to new library?" ) );
+
+        if( map )
+        {
+            const LIB_TABLE_ROW* row = Prj().PcbFootprintLibs()->FindRowByURI( libPath );
+
+            if( row )
+                libNickname = row->GetNickName();
+        }
 
         IO_MGR::PCB_FILE_T piType = IO_MGR::KICAD_SEXP;
         PLUGIN::RELEASER   pi( IO_MGR::PluginFind( piType ) );
@@ -736,6 +763,13 @@ void PCB_EDIT_FRAME::ExportFootprintsToLibrary( bool aStoreInNewLib, const wxStr
             catch( const IO_ERROR& ioe )
             {
                 DisplayError( this, ioe.What() );
+            }
+
+            if( map )
+            {
+                LIB_ID id = footprint->GetFPID();
+                id.SetLibNickname( libNickname );
+                footprint->SetFPID( id );
             }
         }
     }
@@ -1056,7 +1090,7 @@ bool FOOTPRINT_EDIT_FRAME::RevertFootprint()
 {
     if( GetScreen()->IsContentModified() && m_revertModule )
     {
-        wxString msg = wxString::Format( _( "Revert \"%s\" to last version saved?" ),
+        wxString msg = wxString::Format( _( "Revert '%s' to last version saved?" ),
                                          GetLoadedFPID().GetLibItemName().wx_str() );
 
         if( ConfirmRevertDialog( this, msg ) )

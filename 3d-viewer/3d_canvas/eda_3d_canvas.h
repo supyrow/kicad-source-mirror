@@ -56,7 +56,7 @@ public:
      *  @param aBoard The board.
      *  @param aSettings the settings options to be used by this canvas.
      */
-    EDA_3D_CANVAS( wxWindow* aParent, const int* aAttribList, BOARD* aBoard,
+    EDA_3D_CANVAS( wxWindow* aParent, const int* aAttribList,
                    BOARD_ADAPTER& aSettings, CAMERA& aCamera, S3D_CACHE* a3DCachePointer );
 
     ~EDA_3D_CANVAS();
@@ -97,6 +97,11 @@ public:
     }
 
     /**
+     * @return the current render ( a RENDER_3D_RAYTRACE* or a RENDER_3D_LEGACY* render )
+     */
+    RENDER_3D_BASE* GetCurrentRender() const { return m_3d_render; }
+
+    /**
      * Request to render the current view in Raytracing mode.
      */
     void RenderRaytracingRequest();
@@ -118,34 +123,20 @@ public:
 
     /**
      * Enable or disable camera animation when switching to a pre-defined view.
-     *
-     * @param aAnimationEnabled animation enabled state to set.
      */
-    void AnimationEnabledSet( bool aAnimationEnabled ) { m_animation_enabled = aAnimationEnabled; }
-
-    /**
-     * Return whether camera animation is enabled when switching to a pre-defined view.
-     *
-     * @return true if animation is enabled.
-     */
-    bool AnimationEnabledGet() const { return m_animation_enabled; }
+    void SetAnimationEnabled( bool aEnable ) { m_animation_enabled = aEnable; }
+    bool GetAnimationEnabled() const { return m_animation_enabled; }
 
     /**
      * Set the camera animation moving speed multiplier option.
      *
-     * @param aMovingSpeedMultiplier one of the possible integer options: [1,2,3,4,5].
+     * @param aMultiplier one of the possible integer options: [1,2,3,4,5].
      */
-    void MovingSpeedMultiplierSet( int aMovingSpeedMultiplier )
-    {
-        m_moving_speed_multiplier = aMovingSpeedMultiplier;
-    }
+    void SetMovingSpeedMultiplier( int aMultiplier ) { m_moving_speed_multiplier = aMultiplier; }
+    int GetMovingSpeedMultiplier() const { return m_moving_speed_multiplier; }
 
-    /**
-     * Return the current camera animation moving speed multiplier option.
-     *
-     * @return current moving speed multiplier option, one of [1,2,3,4,5].
-     */
-    int MovingSpeedMultiplierGet() const { return m_moving_speed_multiplier; }
+    int GetProjectionMode() const { return (int) m_camera.GetProjection(); };
+    void SetProjectionMode( int aMode ) { m_camera.SetProjection( (PROJECTION_TYPE) aMode ); }
 
     /**
      * Notify that the render engine was changed.
@@ -284,7 +275,6 @@ private:
     bool                   m_opengl_supports_raytracing;
     bool                   m_render_raytracing_was_requested;
 
-    CONTAINER_3D           m_3DShapes_container;      // Holds 3D shapes from footprints
     ACCELERATOR_3D*        m_accelerator3DShapes;    // used for mouse over searching
 
     BOARD_ITEM*            m_currentRollOverItem;

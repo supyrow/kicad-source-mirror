@@ -60,7 +60,7 @@ SELECTION_CONDITION EE_CONDITIONS::SingleSymbol = []( const SELECTION& aSel )
         SCH_SYMBOL* symbol = dynamic_cast<SCH_SYMBOL*>( aSel.Front() );
 
         if( symbol )
-            return !symbol->GetPartRef() || !symbol->GetPartRef()->IsPower();
+            return !symbol->GetLibSymbolRef() || !symbol->GetLibSymbolRef()->IsPower();
     }
 
     return false;
@@ -80,7 +80,7 @@ SELECTION_CONDITION EE_CONDITIONS::SingleDeMorganSymbol = []( const SELECTION& a
         SCH_SYMBOL* symbol = dynamic_cast<SCH_SYMBOL*>( aSel.Front() );
 
         if( symbol )
-            return symbol->GetPartRef() && symbol->GetPartRef()->HasConversion();
+            return symbol->GetLibSymbolRef() && symbol->GetLibSymbolRef()->HasConversion();
     }
 
     return false;
@@ -94,7 +94,7 @@ SELECTION_CONDITION EE_CONDITIONS::SingleMultiUnitSymbol = []( const SELECTION& 
         SCH_SYMBOL* symbol = dynamic_cast<SCH_SYMBOL*>( aSel.Front() );
 
         if( symbol )
-            return symbol->GetPartRef() && symbol->GetPartRef()->GetUnitCount() >= 2;
+            return symbol->GetLibSymbolRef() && symbol->GetLibSymbolRef()->GetUnitCount() >= 2;
     }
 
     return false;
@@ -184,10 +184,11 @@ bool EE_SELECTION_TOOL::Init()
                         && editFrame->GetCurrentSheet().Last() != &editFrame->Schematic().Root();
             };
 
-    auto havePartCondition =
+    auto haveSymbolCondition =
             [&]( const SELECTION& sel )
             {
-                return m_isSymbolEditor && static_cast<SYMBOL_EDIT_FRAME*>( m_frame )->GetCurPart();
+                return m_isSymbolEditor &&
+                       static_cast<SYMBOL_EDIT_FRAME*>( m_frame )->GetCurSymbol();
             };
 
     auto& menu = m_menu.GetMenu();
@@ -219,8 +220,10 @@ bool EE_SELECTION_TOOL::Init()
     menu.AddItem( EE_ACTIONS::editPageNumber,     schEditSheetPageNumberCondition, 250 );
 
     menu.AddSeparator( 400 );
-    menu.AddItem( EE_ACTIONS::symbolProperties,   havePartCondition && EE_CONDITIONS::Empty, 400 );
-    menu.AddItem( EE_ACTIONS::pinTable,           havePartCondition && EE_CONDITIONS::Empty, 400 );
+    menu.AddItem( EE_ACTIONS::symbolProperties,
+                  haveSymbolCondition && EE_CONDITIONS::Empty, 400 );
+    menu.AddItem( EE_ACTIONS::pinTable,
+                  haveSymbolCondition && EE_CONDITIONS::Empty, 400 );
 
     menu.AddSeparator( 1000 );
     m_frame->AddStandardSubMenus( m_menu );
@@ -307,6 +310,13 @@ const KICAD_T movableSymbolItems[] =
     LIB_POLYLINE_T,
     LIB_BEZIER_T,
     LIB_PIN_T,
+    LIB_FIELD_T,
+    EOT
+};
+
+
+const KICAD_T movableSymbolAliasItems[] =
+{
     LIB_FIELD_T,
     EOT
 };
@@ -549,29 +559,26 @@ int EE_SELECTION_TOOL::Main( const TOOL_EVENT& aEvent )
             }
             else
             {
-                // selection is empty? try to start dragging the item under the point where drag
-                // started
-                if( m_isSymbolEditor && m_selection.Empty() )
-                    m_selection = RequestSelection( movableSymbolItems );
-                else if( m_selection.Empty() )
+                if( m_isSymbolEditor )
+                {
+                    if( static_cast<SYMBOL_EDIT_FRAME*>( m_frame )->IsSymbolAlias() )
+                        m_selection = RequestSelection( movableSymbolAliasItems );
+                    else
+                        m_selection = RequestSelection( movableSymbolItems );
+                }
+                else
+                {
                     m_selection = RequestSelection( movableSchematicItems );
+                }
 
                 // Check if dragging has started within any of selected items bounding box
                 if( selectionContains( evt->Position() ) )
                 {
                     // Yes -> run the move tool and wait till it finishes
                     if( m_isSymbolEditor )
-                    {
-                        SYMBOL_EDIT_FRAME* libFrame = dynamic_cast<SYMBOL_EDIT_FRAME*>( m_frame );
-
-                        // Cannot move any derived symbol elements for now.
-                        if( libFrame && libFrame->GetCurPart() && libFrame->GetCurPart()->IsRoot() )
-                            m_toolMgr->InvokeTool( "eeschema.SymbolMoveTool" );
-                    }
+                        m_toolMgr->InvokeTool( "eeschema.SymbolMoveTool" );
                     else
-                    {
                         m_toolMgr->InvokeTool( "eeschema.InteractiveMove" );
-                    }
                 }
                 else
                 {
@@ -772,7 +779,7 @@ bool EE_SELECTION_TOOL::CollectHits( EE_COLLECTOR& aCollector, const VECTOR2I& a
 
     if( m_isSymbolEditor )
     {
-        LIB_SYMBOL* symbol = static_cast<SYMBOL_EDIT_FRAME*>( m_frame )->GetCurPart();
+        LIB_SYMBOL* symbol = static_cast<SYMBOL_EDIT_FRAME*>( m_frame )->GetCurSymbol();
 
         if( !symbol )
             return false;
@@ -1077,7 +1084,11 @@ void EE_SELECTION_TOOL::GuessSelectionCandidates( EE_COLLECTOR& collector, const
 
     for( EDA_ITEM* item : collector )
     {
-        int dist = EuclideanNorm( item->GetBoundingBox().GetCenter() - (wxPoint) aPos );
+        int dist = EuclideanNorm( item->GetBoundingBox().GetCenter() - wxPoint( aPos ) );
+
+        // For wires, if we hit one of the endpoints, consider that perfect
+        if( item->Type() == SCH_LINE_T && ( item->GetFlags() & ( STARTPOINT | ENDPOINT ) ) )
+            dist = 0;
 
         if( dist < closestDist )
         {
@@ -1508,7 +1519,7 @@ void EE_SELECTION_TOOL::RebuildSelection()
 
     if( m_isSymbolEditor )
     {
-        LIB_SYMBOL* start = static_cast<SYMBOL_EDIT_FRAME*>( m_frame )->GetCurPart();
+        LIB_SYMBOL* start = static_cast<SYMBOL_EDIT_FRAME*>( m_frame )->GetCurSymbol();
 
         for( LIB_ITEM& item : start->GetDrawItems() )
         {

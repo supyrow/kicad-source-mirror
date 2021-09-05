@@ -39,7 +39,7 @@
 #include <eda_item.h>
 #include <bitmaps.h>
 #include <core/typeinfo.h>
-#include <layers_id_colors_and_visibility.h>
+#include <layer_ids.h>
 #include <math/vector2d.h>
 #include <advanced_config.h>
 #include <tool/actions.h>
@@ -358,16 +358,18 @@ int SCH_LINE_WIRE_BUS_TOOL::UnfoldBus( const TOOL_EVENT& aEvent )
 }
 
 
-SCH_LINE* SCH_LINE_WIRE_BUS_TOOL::doUnfoldBus( const wxString& aNet, wxPoint aPos )
+SCH_LINE* SCH_LINE_WIRE_BUS_TOOL::doUnfoldBus( const wxString& aNet, const wxPoint& aPos )
 {
     SCHEMATIC_SETTINGS& cfg = getModel<SCHEMATIC>()->Settings();
 
+    wxPoint pos = aPos;
+
     if( aPos == wxDefaultPosition )
-        aPos = static_cast<wxPoint>( getViewControls()->GetCursorPosition() );
+        pos = static_cast<wxPoint>( getViewControls()->GetCursorPosition() );
 
     m_toolMgr->RunAction( EE_ACTIONS::clearSelection, true );
 
-    m_busUnfold.entry = new SCH_BUS_WIRE_ENTRY( aPos );
+    m_busUnfold.entry = new SCH_BUS_WIRE_ENTRY( pos );
     m_busUnfold.entry->SetParent( m_frame->GetScreen() );
     m_frame->AddToScreen( m_busUnfold.entry, m_frame->GetScreen() );
 
@@ -378,7 +380,7 @@ SCH_LINE* SCH_LINE_WIRE_BUS_TOOL::doUnfoldBus( const wxString& aNet, wxPoint aPo
     m_busUnfold.label->SetFlags( IS_NEW | IS_MOVING );
 
     m_busUnfold.in_progress = true;
-    m_busUnfold.origin = aPos;
+    m_busUnfold.origin = pos;
     m_busUnfold.net_name = aNet;
 
     getViewControls()->SetCrossHairCursorPosition( m_busUnfold.entry->GetEnd(), false );
@@ -756,10 +758,9 @@ int SCH_LINE_WIRE_BUS_TOOL::doDrawSegments( const std::string& aTool, int aType,
                 segment = doUnfoldBus( net, contextMenuPos );
             }
         }
-        else if( evt->IsAction( &ACTIONS::doDelete ) )
+        else if( evt->IsAction( &ACTIONS::doDelete ) && ( segment || m_busUnfold.in_progress ) )
         {
-            if( segment || m_busUnfold.in_progress )
-                cleanup();
+            cleanup();
         }
         else
         {
@@ -771,6 +772,8 @@ int SCH_LINE_WIRE_BUS_TOOL::doDrawSegments( const std::string& aTool, int aType,
         controls->CaptureCursor( segment != nullptr );
     }
 
+    controls->SetAutoPan( false );
+    controls->CaptureCursor( false );
     m_frame->GetCanvas()->SetCurrentCursor( KICURSOR::ARROW );
     controls->ForceCursorPosition( false );
     return 0;

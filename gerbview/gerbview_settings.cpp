@@ -1,7 +1,7 @@
 /*
 * This program source code file is part of KiCad, a free EDA CAD application.
 *
-* Copyright (C) 2020 KiCad Developers, see AUTHORS.txt for contributors.
+* Copyright (C) 2021 KiCad Developers, see AUTHORS.txt for contributors.
 *
 * This program is free software; you can redistribute it and/or
 * modify it under the terms of the GNU General Public License
@@ -22,7 +22,7 @@
 */
 
 #include <gerbview_settings.h>
-#include <layers_id_colors_and_visibility.h>
+#include <layer_ids.h>
 #include <pgm_base.h>
 #include <settings/common_settings.h>
 #include <settings/json_settings_internals.h>
@@ -67,6 +67,24 @@ GERBVIEW_SETTINGS::GERBVIEW_SETTINGS() :
 
     m_params.emplace_back( new PARAM<int>( "gerber_to_pcb_copperlayers_count",
             &m_BoardLayersCount, 2 ) );
+
+    m_params.emplace_back( new PARAM<bool>( "excellon_defaults.unit_mm",
+            &m_ExcellonDefaults.m_UnitsMM, false ) );
+
+    m_params.emplace_back( new PARAM<bool>( "excellon_defaults.lz_format",
+            &m_ExcellonDefaults.m_LeadingZero, true ) );
+
+    m_params.emplace_back( new PARAM<int>( "excellon_defaults.mm_integer_len",
+            &m_ExcellonDefaults.m_MmIntegerLen, FMT_INTEGER_MM, 2 , 6 ) );
+
+    m_params.emplace_back( new PARAM<int>( "excellon_defaults.mm_mantissa_len",
+            &m_ExcellonDefaults.m_MmMantissaLen, FMT_MANTISSA_MM, 2 , 6 ) );
+
+    m_params.emplace_back( new PARAM<int>( "excellon_defaults.inch_integer_len",
+            &m_ExcellonDefaults.m_InchIntegerLen, FMT_INTEGER_INCH, 2 , 6 ) );
+
+    m_params.emplace_back( new PARAM<int>( "excellon_defaults.inch_mantissa_len",
+            &m_ExcellonDefaults.m_InchMantissaLen, FMT_MANTISSA_INCH, 2 , 6 ) );
 }
 
 
@@ -111,7 +129,7 @@ bool GERBVIEW_SETTINGS::MigrateFromLegacy( wxConfigBase* aCfg )
         wxString key;
         int value = 0;
 
-        At( "gerber_to_pcb_layers" ) = nlohmann::json::array();
+        Set( "gerber_to_pcb_layers", nlohmann::json::array() );
 
         for( int i = 0; i < GERBER_DRAWLAYERS_COUNT; i++ )
         {

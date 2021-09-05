@@ -34,7 +34,7 @@
 #include <dialogs/panel_setup_netclasses.h>
 #include <tool/tool_manager.h>
 #include <widgets/wx_grid.h>
-#include <kicad_string.h>
+#include <string_utils.h>
 #include <widgets/grid_color_swatch_helpers.h>
 #include <widgets/grid_icon_text_helpers.h>
 #include <widgets/grid_text_helpers.h>
@@ -135,6 +135,8 @@ PANEL_SETUP_NETCLASSES::PANEL_SETUP_NETCLASSES( PAGED_DIALOG* aParent, NETCLASSE
         attr->SetRenderer( new GRID_CELL_ICON_TEXT_RENDERER( g_lineStyleIcons, g_lineStyleNames ) );
         attr->SetEditor( new GRID_CELL_ICON_TEXT_POPUP( g_lineStyleIcons, g_lineStyleNames ) );
         m_netclassGrid->SetColAttr( GRID_LINESTYLE, attr );
+
+        m_colorDefaultHelpText->SetFont( KIUI::GetInfoFont() );
     }
     else
     {
@@ -143,6 +145,8 @@ PANEL_SETUP_NETCLASSES::PANEL_SETUP_NETCLASSES( PAGED_DIALOG* aParent, NETCLASSE
             m_netclassGrid->HideCol( i );
             m_originalColWidths[ i ] = 0;
         }
+
+        m_colorDefaultHelpText->Hide();
     }
 
     // Be sure the column labels are readable
@@ -174,7 +178,7 @@ PANEL_SETUP_NETCLASSES::PANEL_SETUP_NETCLASSES( PAGED_DIALOG* aParent, NETCLASSE
     // wxFormBuilder doesn't include this event...
     m_netclassGrid->Connect( wxEVT_GRID_CELL_CHANGING,
                              wxGridEventHandler( PANEL_SETUP_NETCLASSES::OnNetclassGridCellChanging ),
-                             NULL, this );
+                             nullptr, this );
 
     // Handle tooltips for grid
     m_netclassGrid->GetGridColLabelWindow()->Bind( wxEVT_MOTION,
@@ -200,7 +204,7 @@ PANEL_SETUP_NETCLASSES::~PANEL_SETUP_NETCLASSES()
 
     m_netclassGrid->Disconnect( wxEVT_GRID_CELL_CHANGING,
                                 wxGridEventHandler( PANEL_SETUP_NETCLASSES::OnNetclassGridCellChanging ),
-                                NULL, this );
+                                nullptr, this );
 }
 
 
@@ -237,9 +241,7 @@ bool PANEL_SETUP_NETCLASSES::TransferDataToWindow()
     for( const wxString& candidate : m_netNames )
         netToNetclassMap[ candidate ] = wxEmptyString;
 
-    if( m_netclassGrid->GetNumberRows() )
-        m_netclassGrid->DeleteRows( 0, m_netclassGrid->GetNumberRows() );
-
+    m_netclassGrid->ClearRows();
     m_netclassGrid->AppendRows((int) m_netclasses->GetCount() + 1 ); // + 1 for default netclass
 
     // enter the Default NETCLASS.
@@ -268,8 +270,7 @@ bool PANEL_SETUP_NETCLASSES::TransferDataToWindow()
         }
     }
 
-    if( m_membershipGrid->GetNumberRows() )
-        m_membershipGrid->DeleteRows( 0, m_membershipGrid->GetNumberRows() );
+    m_membershipGrid->ClearRows();
 
     // add currently-assigned and candidate netnames to membership lists
     for( const std::pair<const wxString, wxString>& ii : netToNetclassMap )
@@ -369,7 +370,8 @@ bool PANEL_SETUP_NETCLASSES::TransferDataFromWindow()
     // Copy other NetClasses:
     for( int row = 1; row < m_netclassGrid->GetNumberRows();  ++row )
     {
-        NETCLASSPTR nc = std::make_shared<NETCLASS>( m_netclassGrid->GetCellValue( row, GRID_NAME ) );
+        NETCLASSPTR nc = std::make_shared<NETCLASS>( m_netclassGrid->GetCellValue( row,
+                                                                                   GRID_NAME ) );
 
         if( m_netclasses->Add( nc ) )
             gridRowToNetclass( m_Parent->GetUserUnits(), m_netclassGrid, row, nc );
@@ -394,12 +396,15 @@ bool PANEL_SETUP_NETCLASSES::TransferDataFromWindow()
 }
 
 
-bool PANEL_SETUP_NETCLASSES::validateNetclassName( int aRow, wxString aName, bool focusFirst )
+bool PANEL_SETUP_NETCLASSES::validateNetclassName( int aRow, const wxString& aName,
+                                                   bool focusFirst )
 {
-    aName.Trim( true );
-    aName.Trim( false );
+    wxString tmp = aName;
 
-    if( aName.IsEmpty() )
+    tmp.Trim( true );
+    tmp.Trim( false );
+
+    if( tmp.IsEmpty() )
     {
         wxString msg =  _( "Netclass must have a name." );
         m_Parent->SetError( msg, this, m_netclassGrid, aRow, GRID_NAME );
@@ -408,7 +413,7 @@ bool PANEL_SETUP_NETCLASSES::validateNetclassName( int aRow, wxString aName, boo
 
     for( int ii = 0; ii < m_netclassGrid->GetNumberRows(); ii++ )
     {
-        if( ii != aRow && m_netclassGrid->GetCellValue( ii, GRID_NAME ).CmpNoCase( aName ) == 0 )
+        if( ii != aRow && m_netclassGrid->GetCellValue( ii, GRID_NAME ).CmpNoCase( tmp ) == 0 )
         {
             wxString msg = _( "Netclass name already in use." );
             m_Parent->SetError( msg, this, m_netclassGrid, focusFirst ? aRow : ii, GRID_NAME );
@@ -601,7 +606,7 @@ void PANEL_SETUP_NETCLASSES::onmembershipPanelSize( wxSizeEvent& event )
     int c_row = m_membershipGrid->GetGridCursorRow();
     int c_col = m_membershipGrid->GetGridCursorCol();
 
-    if( c_row >= 0 && c_col == 1 )    // this means the class name choice widget is selected (opened)
+    if( c_row >= 0 && c_col == 1 )  // this means the class name choice widget is selected (opened)
         m_membershipGrid->SetGridCursor( c_row, 0 );    // Close it
 
     event.Skip();

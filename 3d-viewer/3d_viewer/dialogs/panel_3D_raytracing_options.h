@@ -26,12 +26,12 @@
 #define PANEL_3D_RAYTRACING_OPTIONS_H
 
 #include "panel_3D_raytracing_options_base.h"
-#include <3d_viewer/eda_3d_viewer.h>
+#include <3d_viewer/eda_3d_viewer_frame.h>
 
 class PANEL_3D_RAYTRACING_OPTIONS : public PANEL_3D_RAYTRACING_OPTIONS_BASE
 {
 public:
-    explicit PANEL_3D_RAYTRACING_OPTIONS( EDA_3D_VIEWER* aFrame, wxWindow* aParent );
+    explicit PANEL_3D_RAYTRACING_OPTIONS( EDA_3D_VIEWER_FRAME* aFrame, wxWindow* aParent );
 
     void ResetPanel() override;
 

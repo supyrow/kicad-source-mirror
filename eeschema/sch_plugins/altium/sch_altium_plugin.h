@@ -115,6 +115,8 @@ private:
     void ParseComponent( int aIndex, const std::map<wxString, wxString>& aProperties );
     void ParsePin( const std::map<wxString, wxString>& aProperties );
     void ParseLabel( const std::map<wxString, wxString>& aProperties );
+    void ParseTextFrame( const std::map<wxString, wxString>& aProperties );
+    void ParseNote( const std::map<wxString, wxString>& aProperties );
     void ParseBezier( const std::map<wxString, wxString>& aProperties );
     void ParsePolyline( const std::map<wxString, wxString>& aProperties );
     void ParsePolygon( const std::map<wxString, wxString>& aProperties );
@@ -138,6 +140,8 @@ private:
     void ParseDesignator( const std::map<wxString, wxString>& aProperties );
     void ParseBusEntry( const std::map<wxString, wxString>& aProperties );
     void ParseParameter( const std::map<wxString, wxString>& aProperties );
+    void ParseImplementationList( int aIndex, const std::map<wxString, wxString>& aProperties );
+    void ParseImplementation( const std::map<wxString, wxString>& aProperties );
 
 private:
     REPORTER*                       m_reporter;          // current reporter for warnings/errors
@@ -155,14 +159,15 @@ private:
 
     wxPoint                         m_sheetOffset;
     std::unique_ptr<ASCH_SHEET>     m_altiumSheet;
-    std::map<int, SCH_SYMBOL*>      m_components;
+    std::map<int, SCH_SYMBOL*>      m_symbols;
     std::map<int, SCH_SHEET*>       m_sheets;
-    std::map<int, LIB_SYMBOL*>      m_symbols;           // every component has its unique symbol
+    std::map<int, LIB_SYMBOL*>      m_libSymbols;        // every symbol has its unique lib_symbol
 
     std::map<wxString, LIB_SYMBOL*> m_powerSymbols;
     std::vector<ASCH_STORAGE_FILE>  m_altiumStorage;
 
     std::map<int, ASCH_SYMBOL>      m_altiumComponents;
+    std::map<int, int>              m_altiumImplementationList;
     std::vector<ASCH_PORT>          m_altiumPortsCurrentSheet; // we require all connections first
 };
 

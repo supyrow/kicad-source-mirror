@@ -32,7 +32,7 @@
 #include <sch_edit_frame.h>
 #include <sch_sheet_path.h>
 #include <schematic.h>
-#include <kicad_string.h>
+#include <string_utils.h>
 #include <kiface_i.h>
 #include <wildcards_and_files_ext.h>
 #include <connection_graph.h>
@@ -531,7 +531,7 @@ void BACK_ANNOTATE::processNetNameChange( const wxString& aRef, SCH_PIN* aPin,
 
         msg.Printf( _( "Change %s pin %s net label from '%s' to '%s'." ),
                     aRef,
-                    aPin->GetNumber(),
+                    aPin->GetShownNumber(),
                     aOldName,
                     aNewName );
 
@@ -554,15 +554,19 @@ void BACK_ANNOTATE::processNetNameChange( const wxString& aRef, SCH_PIN* aPin,
 
         if( schPin->IsPowerConnection() )
         {
-            msg.Printf( _( "Net %s cannot be changed to '%s' because it is driven by a power "
-                           "pin." ), aOldName, aNewName );
+            msg.Printf( _( "Net %s cannot be changed to %s because it is driven by a power pin." ),
+                        aOldName,
+                        aNewName );
 
             m_reporter.ReportHead( msg, RPT_SEVERITY_ERROR );
             break;
         }
 
         ++m_changesCount;
-        msg.Printf( _( "Add label '%s' to %s pin %s net." ), aNewName, aRef, aPin->GetNumber() );
+        msg.Printf( _( "Add label '%s' to %s pin %s net." ),
+                    aNewName,
+                    aRef,
+                    aPin->GetShownNumber() );
 
         if( !m_dryRun )
         {

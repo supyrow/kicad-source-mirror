@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2012 Jean-Pierre Charras, jean-pierre.charras@ujf-grenoble.fr
  * Copyright (C) 2012 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
- * Copyright (C) 1992-2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -26,44 +26,67 @@
 #include <pybind11/pybind11.h>
 
 #include <wx/debug.h>
+#include <wx/msgdlg.h>
 #include <i18n_utility.h>
 #include <board.h>
-#include <string>
-#include <wx/msgdlg.h>
+#include <pcb_group.h>
 
 
-wxString BOARD_ITEM::ShowShape( PCB_SHAPE_TYPE aShape )
+wxString BOARD_ITEM::ShowShape( SHAPE_T aShape )
 {
     switch( aShape )
     {
-    case PCB_SHAPE_TYPE::SEGMENT: return _( "Line" );
-    case PCB_SHAPE_TYPE::RECT:    return _( "Rect" );
-    case PCB_SHAPE_TYPE::ARC:     return _( "Arc" );
-    case PCB_SHAPE_TYPE::CIRCLE:  return _( "Circle" );
-    case PCB_SHAPE_TYPE::CURVE:   return _( "Bezier Curve" );
-    case PCB_SHAPE_TYPE::POLYGON: return _( "Polygon" );
-    default:                      return wxT( "??" );
+    case SHAPE_T::SEGMENT: return _( "Line" );
+    case SHAPE_T::RECT:    return _( "Rect" );
+    case SHAPE_T::ARC:     return _( "Arc" );
+    case SHAPE_T::CIRCLE:  return _( "Circle" );
+    case SHAPE_T::BEZIER:  return _( "Bezier Curve" );
+    case SHAPE_T::POLY:    return _( "Polygon" );
+    default:               return wxT( "??" );
     }
 }
 
 
-BOARD* BOARD_ITEM::GetBoard() const
+const BOARD* BOARD_ITEM::GetBoard() const
 {
     if( Type() == PCB_T )
-        return (BOARD*) this;
+        return static_cast<const BOARD*>( this );
 
     BOARD_ITEM* parent = GetParent();
 
     if( parent )
         return parent->GetBoard();
 
-    return NULL;
+    return nullptr;
+}
+
+
+BOARD* BOARD_ITEM::GetBoard()
+{
+    if( Type() == PCB_T )
+        return static_cast<BOARD*>( this );
+
+    BOARD_ITEM* parent = GetParent();
+
+    if( parent )
+        return parent->GetBoard();
+
+    return nullptr;
+}
+
+
+bool BOARD_ITEM::IsLocked() const
+{
+    if( GetParentGroup() )
+        return GetParentGroup()->IsLocked();
+
+    return GetState( LOCKED );
 }
 
 
 wxString BOARD_ITEM::GetLayerName() const
 {
-    BOARD*  board = GetBoard();
+    const BOARD* board = GetBoard();
 
     if( board )
         return board->GetLayerName( m_layer );
@@ -75,8 +98,8 @@ wxString BOARD_ITEM::GetLayerName() const
 
 wxString BOARD_ITEM::layerMaskDescribe() const
 {
-    BOARD* board = GetBoard();
-    LSET   layers = GetLayerSet();
+    const BOARD* board = GetBoard();
+    LSET         layers = GetLayerSet();
 
     // Try to be smart and useful.  Check all copper first.
     if( layers[F_Cu] && layers[B_Cu] )
@@ -135,7 +158,8 @@ void BOARD_ITEM::TransformShapeWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBu
                                                        int aError, ERROR_LOC aErrorLoc,
                                                        bool ignoreLineWidth ) const
 {
-    wxASSERT_MSG( false, "Called TransformShapeWithClearanceToPolygon() on unsupported BOARD_ITEM." );
+    wxASSERT_MSG( false,
+                  "Called TransformShapeWithClearanceToPolygon() on unsupported BOARD_ITEM." );
 };
 
 
@@ -147,7 +171,7 @@ bool BOARD_ITEM::ptr_cmp::operator() ( const BOARD_ITEM* a, const BOARD_ITEM* b 
     if( a->GetLayer() != b->GetLayer() )
         return a->GetLayer() < b->GetLayer();
 
-    if( a->m_Uuid != b->m_Uuid )    // shopuld be always the case foer valid boards
+    if( a->m_Uuid != b->m_Uuid )    // should be always the case for valid boards
         return a->m_Uuid < b->m_Uuid;
 
     return a < b;

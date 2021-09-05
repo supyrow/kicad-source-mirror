@@ -30,7 +30,7 @@
 #ifndef PCB_CALLBACKS_H_
 #define PCB_CALLBACKS_H_
 
-#include <layers_id_colors_and_visibility.h>
+#include <layer_ids.h>
 
 class wxString;
 
@@ -41,12 +41,12 @@ enum LAYER_TYPE_T
     LAYER_TYPE_PLANE
 };
 
-typedef struct _TLAYER
+struct TLAYER
 {
     PCB_LAYER_ID  KiCadLayer;
     LAYER_TYPE_T  layerType;
     wxString      netNameRef;
-} TLAYER;
+};
 
 namespace PCAD2KICAD
 {

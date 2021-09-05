@@ -27,7 +27,7 @@
 
 
 #include <eda_item.h>
-#include <layers_id_colors_and_visibility.h>
+#include <layer_ids.h>
 #include <trace_helpers.h>
 
 #include <view/view.h>
@@ -265,8 +265,8 @@ VIEW::VIEW( bool aIsDynamic ) :
     m_scale( 4.0 ),
     m_minScale( 0.2 ), m_maxScale( 50000.0 ),
     m_mirrorX( false ), m_mirrorY( false ),
-    m_painter( NULL ),
-    m_gal( NULL ),
+    m_painter( nullptr ),
+    m_gal( nullptr ),
     m_dynamic( aIsDynamic ),
     m_useDrawPriority( false ),
     m_nextDrawPriority( 0 ),
@@ -281,7 +281,6 @@ VIEW::VIEW( bool aIsDynamic ) :
     double size = coord_limits::max() - coord_limits::epsilon();
     m_boundary.SetOrigin( pos, pos );
     m_boundary.SetSize( size, size );
-    SetPrintMode( 0 );
 
     m_allItems.reset( new std::vector<VIEW_ITEM*> );
     m_allItems->reserve( 32768 );
@@ -303,6 +302,8 @@ VIEW::VIEW( bool aIsDynamic ) :
         m_layers[ii].renderingOrder = ii;
         m_layers[ii].visible        = true;
         m_layers[ii].displayOnly    = false;
+        m_layers[ii].diffLayer      = false;
+        m_layers[ii].hasNegatives   = false;
         m_layers[ii].target         = TARGET_CACHED;
     }
 
@@ -996,10 +997,24 @@ void VIEW::redrawRect( const BOX2I& aRect )
 
             m_gal->SetTarget( l->target );
             m_gal->SetLayerDepth( l->renderingOrder );
+
+            // Differential layer also work for the negatives, since both special layer types
+            // will composite on separate layers (at least in Cairo)
+            if( l->diffLayer )
+                m_gal->StartDiffLayer();
+            else if( l->hasNegatives )
+                m_gal->StartNegativesLayer();
+
+
             l->items->Query( aRect, drawFunc );
 
             if( m_useDrawPriority )
                 drawFunc.deferredDraw();
+
+            if( l->diffLayer )
+                m_gal->EndDiffLayer();
+            else if( l->hasNegatives )
+                m_gal->EndNegativesLayer();
         }
     }
 }
@@ -1139,14 +1154,13 @@ void VIEW::Redraw()
     // The view rtree uses integer positions.  Large screens can overflow
     // this size so in this case, simply set the rectangle to the full rtree
     if( rect.GetWidth() > std::numeric_limits<int>::max() ||
-            rect.GetHeight() > std::numeric_limits<int>::max() )
+        rect.GetHeight() > std::numeric_limits<int>::max() )
         recti.SetMaximum();
 
     redrawRect( recti );
+
     // All targets were redrawn, so nothing is dirty
-    markTargetClean( TARGET_CACHED );
-    markTargetClean( TARGET_NONCACHED );
-    markTargetClean( TARGET_OVERLAY );
+    MarkClean();
 
 #ifdef KICAD_GAL_PROFILE
     totalRealTime.Stop();

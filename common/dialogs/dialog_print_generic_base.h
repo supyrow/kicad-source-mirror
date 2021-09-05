@@ -69,13 +69,13 @@ class DIALOG_PRINT_GENERIC_BASE : public DIALOG_SHIM
 		virtual void onSetCustomScale( wxCommandEvent& event ) { event.Skip(); }
 		virtual void onPageSetup( wxCommandEvent& event ) { event.Skip(); }
 		virtual void onPrintPreview( wxCommandEvent& event ) { event.Skip(); }
-		virtual void onCloseButton( wxCommandEvent& event ) { event.Skip(); }
+		virtual void onCancelButtonClick( wxCommandEvent& event ) { event.Skip(); }
 		virtual void onPrintButtonClick( wxCommandEvent& event ) { event.Skip(); }
 
 
 	public:
 
-		DIALOG_PRINT_GENERIC_BASE( wxWindow* parent, wxWindowID id = wxID_ANY, const wxString& title = _("Print"), const wxPoint& pos = wxDefaultPosition, const wxSize& size = wxSize( 410,476 ), long style = wxDEFAULT_DIALOG_STYLE|wxRESIZE_BORDER );
+		DIALOG_PRINT_GENERIC_BASE( wxWindow* parent, wxWindowID id = wxID_ANY, const wxString& title = _("Print"), const wxPoint& pos = wxDefaultPosition, const wxSize& size = wxSize( -1,-1 ), long style = wxDEFAULT_DIALOG_STYLE|wxRESIZE_BORDER );
 		~DIALOG_PRINT_GENERIC_BASE();
 
 };

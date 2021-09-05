@@ -25,61 +25,78 @@
 #include <sim/sim_workbook.h>
 
 
-SIM_WORKBOOK::SIM_WORKBOOK() :
-    m_flagModified( false )
+SIM_WORKBOOK::SIM_WORKBOOK() : wxAuiNotebook()
 {
+    m_modified = false;
 }
 
 
-void SIM_WORKBOOK::Clear()
+SIM_WORKBOOK::SIM_WORKBOOK( wxWindow* aParent, wxWindowID aId, const wxPoint& aPos, const wxSize&
+        aSize, long aStyle ) : wxAuiNotebook( aParent, aId, aPos, aSize, aStyle )
 {
-    m_plots.clear();
+    m_modified = false;
 }
 
 
-void SIM_WORKBOOK::AddPlotPanel( SIM_PANEL_BASE* aPlotPanel )
+bool SIM_WORKBOOK::AddPage( wxWindow* page, const wxString& caption, bool select, const wxBitmap& bitmap )
 {
-    wxASSERT( m_plots.count( aPlotPanel ) == 0 );
-    m_plots[aPlotPanel] = PLOT_INFO();
-
-    m_flagModified = true;
+    bool res = wxAuiNotebook::AddPage( page, caption, select, bitmap );
+    setModified( res );
+    return res;
 }
 
 
-void SIM_WORKBOOK::RemovePlotPanel( SIM_PANEL_BASE* aPlotPanel )
+bool SIM_WORKBOOK::AddPage( wxWindow* page, const wxString& text, bool select, int imageId )
 {
-    wxASSERT( m_plots.count( aPlotPanel ) == 1 );
-    m_plots.erase( aPlotPanel );
-
-    m_flagModified = true;
+    bool res = wxAuiNotebook::AddPage( page, text, select, imageId );
+    setModified( res );
+    return res;
 }
 
 
-std::vector<const SIM_PANEL_BASE*> SIM_WORKBOOK::GetSortedPlotPanels() const
+bool SIM_WORKBOOK::DeleteAllPages()
 {
-    std::vector<const SIM_PANEL_BASE*> plotPanels;
-
-    for( const auto& plot : m_plots )
-        plotPanels.push_back( plot.first );
-
-    std::sort( plotPanels.begin(), plotPanels.end(),
-    [&]( const SIM_PANEL_BASE*& a, const SIM_PANEL_BASE*& b )
-    {
-        return m_plots.at( a ).pos < m_plots.at( b ).pos;
-    });
-
-    return plotPanels;
+    bool res = wxAuiNotebook::DeleteAllPages();
+    setModified( res );
+    return res;
 }
 
 
-void SIM_WORKBOOK::AddTrace( const SIM_PANEL_BASE* aPlotPanel, const wxString& aName )
+bool SIM_WORKBOOK::DeletePage( size_t page )
 {
-    m_flagModified = true;
+    bool res = wxAuiNotebook::DeletePage( page );
+    setModified( res );
+    return res;
 }
 
 
-void SIM_WORKBOOK::RemoveTrace( const SIM_PANEL_BASE* aPlotPanel, const wxString& aName )
+bool SIM_WORKBOOK::AddTrace( SIM_PLOT_PANEL* aPlotPanel, const wxString& aName, int aPoints, const
+        double* aX, const double* aY, SIM_PLOT_TYPE aType, const wxString& aParam )
 {
-    m_flagModified = true;
+    bool res = aPlotPanel->addTrace( aName, aPoints, aX, aY, aType, aParam );
+    setModified( res );
+    return res;
 }
 
+
+bool SIM_WORKBOOK::DeleteTrace( SIM_PLOT_PANEL* aPlotPanel, const wxString& aName )
+{
+    bool res = aPlotPanel->deleteTrace( aName );
+    setModified( res );
+    return res;
+}
+
+void SIM_WORKBOOK::ClrModified()
+{
+    m_modified = false;
+    wxPostEvent( GetParent(), wxCommandEvent( EVT_WORKBOOK_CLR_MODIFIED ) );
+}
+
+void SIM_WORKBOOK::setModified( bool value )
+{
+    m_modified = value;
+    wxPostEvent( GetParent(), wxCommandEvent( EVT_WORKBOOK_MODIFIED ) );
+}
+
+wxDEFINE_EVENT( EVT_WORKBOOK_MODIFIED, wxCommandEvent );
+wxDEFINE_EVENT( EVT_WORKBOOK_CLR_MODIFIED, wxCommandEvent );

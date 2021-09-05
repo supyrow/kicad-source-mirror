@@ -141,21 +141,14 @@ public:
     virtual wxString GetShownText( int aDepth = 0 ) const { return m_shown_text; }
 
     /**
-     * A version of GetShownText() which also indicates whether or not the text needs
-     * to be processed for text variables.
-     *
-     * @param processTextVars [out]
-     */
-    wxString GetShownText( bool* processTextVars ) const
-    {
-        *processTextVars = m_shown_text_has_text_var_refs;
-        return m_shown_text;
-    }
-
-    /**
      * Returns a shortened version (max 15 characters) of the shown text
      */
     wxString ShortenedShownText() const;
+
+    /**
+     * Indicates the ShownText has text var references which need to be processed.
+     */
+    bool HasTextVars() const { return m_shown_text_has_text_var_refs; }
 
     virtual void SetText( const wxString& aText );
 
@@ -189,8 +182,8 @@ public:
     void SetBold( bool aBold )                  { m_e.Bit( TE_BOLD, aBold); }
     bool IsBold() const                         { return m_e.Bit( TE_BOLD ); }
 
-    void SetVisible( bool aVisible )            { m_e.Bit( TE_VISIBLE, aVisible ); }
-    bool IsVisible() const                      { return m_e.Bit( TE_VISIBLE ); }
+    virtual void SetVisible( bool aVisible )    { m_e.Bit( TE_VISIBLE, aVisible ); }
+    virtual bool IsVisible() const              { return m_e.Bit( TE_VISIBLE ); }
 
     void SetMirrored( bool isMirrored )         { m_e.Bit( TE_MIRROR, isMirrored ); }
     bool IsMirrored() const                     { return m_e.Bit( TE_MIRROR ); }
@@ -273,7 +266,7 @@ public:
      * @param aDisplay_mode #FILLED or #SKETCH.
      */
     void Print( const RENDER_SETTINGS* aSettings, const wxPoint& aOffset,
-                COLOR4D aColor, OUTLINE_MODE aDisplay_mode = FILLED );
+                const COLOR4D& aColor, OUTLINE_MODE aDisplay_mode = FILLED );
 
     /**
      * Convert the text shape to a list of segment.

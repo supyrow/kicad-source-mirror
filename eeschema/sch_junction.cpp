@@ -29,7 +29,7 @@
 #include <sch_draw_panel.h>
 #include <trigo.h>
 #include <common.h>
-#include <plotter.h>
+#include <plotters/plotter.h>
 #include <bitmaps.h>
 #include <core/mirror.h>
 #include <geometry/shape_rect.h>
@@ -40,7 +40,7 @@
 #include <settings/color_settings.h>
 
 SCH_JUNCTION::SCH_JUNCTION( const wxPoint& aPosition, int aDiameter, SCH_LAYER_ID aLayer ) :
-    SCH_ITEM( NULL, SCH_JUNCTION_T )
+    SCH_ITEM( nullptr, SCH_JUNCTION_T )
 {
     m_pos   = aPosition;
     m_color = COLOR4D::UNSPECIFIED;
@@ -57,7 +57,7 @@ EDA_ITEM* SCH_JUNCTION::Clone() const
 
 void SCH_JUNCTION::SwapData( SCH_ITEM* aItem )
 {
-    wxCHECK_RET( (aItem != NULL) && (aItem->Type() == SCH_JUNCTION_T),
+    wxCHECK_RET( ( aItem != nullptr ) && ( aItem->Type() == SCH_JUNCTION_T ),
                  wxT( "Cannot swap junction data with invalid item." ) );
 
     SCH_JUNCTION* item = (SCH_JUNCTION*) aItem;
@@ -119,7 +119,8 @@ void SCH_JUNCTION::Print( const RENDER_SETTINGS* aSettings, const wxPoint& aOffs
 
     SHAPE_CIRCLE circle = getEffectiveShape();
 
-    GRFilledCircle( NULL, DC, (wxPoint) circle.GetCenter() + aOffset, circle.GetRadius(), color );
+    GRFilledCircle( nullptr, DC, (wxPoint) circle.GetCenter() + aOffset, circle.GetRadius(),
+                    color );
 }
 
 
@@ -180,7 +181,7 @@ COLOR4D SCH_JUNCTION::GetJunctionColor() const
 }
 
 
-int SCH_JUNCTION::GetDiameter() const
+int SCH_JUNCTION::GetEffectiveDiameter() const
 {
     return getEffectiveShape().GetRadius() * 2;
 }
@@ -234,7 +235,7 @@ void SCH_JUNCTION::Plot( PLOTTER* aPlotter ) const
 
     aPlotter->SetColor( color );
 
-    aPlotter->Circle( m_pos, GetDiameter(), FILL_TYPE::FILLED_SHAPE );
+    aPlotter->Circle( m_pos, GetEffectiveDiameter(), FILL_TYPE::FILLED_SHAPE );
 }
 
 

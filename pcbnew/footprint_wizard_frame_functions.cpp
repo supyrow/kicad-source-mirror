@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2012 Miguel Angel Ajo Pelayo, miguelangel@nbee.es
  * Copyright (C) 2018 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 2004-2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2004-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -24,22 +24,19 @@
  */
 
 #include <pcb_edit_frame.h>
-#include <dialog_helpers.h>
-
 #include <board.h>
 #include <footprint.h>
-
 #include <pcbnew.h>
 #include <pcbnew_id.h>
-#include "footprint_wizard_frame.h"
 #include <wildcards_and_files_ext.h>
 #include <dialogs/dialog_footprint_wizard_list.h>
 #include <base_units.h>
 #include <widgets/wx_grid.h>
 #include <wx/listbox.h>
 #include <wx/msgdlg.h>
-
 #include <tool/tool_manager.h>
+#include "footprint_wizard_frame.h"
+
 
 void FOOTPRINT_WIZARD_FRAME::Process_Special_Functions( wxCommandEvent& event )
 {
@@ -70,8 +67,8 @@ void FOOTPRINT_WIZARD_FRAME::Process_Special_Functions( wxCommandEvent& event )
 
     default:
         wxFAIL_MSG( wxString::Format(
-                            "FOOTPRINT_WIZARD_FRAME::Process_Special_Functions error: id = %d",
-                            event.GetId() ) );
+                "FOOTPRINT_WIZARD_FRAME::Process_Special_Functions error: id = %d",
+                event.GetId() ) );
         break;
     }
 }
@@ -134,14 +131,14 @@ void FOOTPRINT_WIZARD_FRAME::DisplayBuildMessage( wxString& aMessage )
 FOOTPRINT_WIZARD* FOOTPRINT_WIZARD_FRAME::GetMyWizard()
 {
     if( m_wizardName.Length() == 0 )
-        return NULL;
+        return nullptr;
 
     FOOTPRINT_WIZARD* footprintWizard = FOOTPRINT_WIZARD_LIST::GetWizard( m_wizardName );
 
     if( !footprintWizard )
     {
         wxMessageBox( _( "Couldn't reload footprint wizard" ) );
-        return NULL;
+        return nullptr;
     }
 
     return footprintWizard;
@@ -161,7 +158,7 @@ FOOTPRINT* FOOTPRINT_WIZARD_FRAME::GetBuiltFootprint()
         return footprint;
     }
 
-    return NULL;
+    return nullptr;
 }
 
 
@@ -205,7 +202,7 @@ void FOOTPRINT_WIZARD_FRAME::DefaultParameters( wxCommandEvent& event )
 {
     FOOTPRINT_WIZARD* footprintWizard = GetMyWizard();
 
-    if ( footprintWizard == NULL )
+    if ( footprintWizard == nullptr )
         return;
 
     footprintWizard->ResetParameters();
@@ -216,9 +213,11 @@ void FOOTPRINT_WIZARD_FRAME::DefaultParameters( wxCommandEvent& event )
     DisplayWizardInfos();
 }
 
+
 // This is a flag to avoid reentering of ParametersUpdated
 // that can happen in some cases
 static bool lock_update_prms = false;
+
 
 void FOOTPRINT_WIZARD_FRAME::ParametersUpdated( wxGridEvent& event )
 {

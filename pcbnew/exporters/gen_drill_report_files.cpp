@@ -7,7 +7,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 1992-2017 Jean_Pierre Charras <jp.charras at wanadoo.fr>
- * Copyright (C) 1992-2017 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -27,12 +27,13 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
-#include <plotter.h>
-#include <plotters_specific.h>
+#include <plotters/plotter_dxf.h>
+#include <plotters/plotter_hpgl.h>
+#include <plotters/plotter_gerber.h>
+#include <plotters/plotters_pslike.h>
 #include <eda_item.h>
-#include <gr_text.h>
 #include <confirm.h>
-#include <kicad_string.h>
+#include <string_utils.h>
 #include <locale_io.h>
 #include <macros.h>
 #include <math/util.h>      // for KiROUND
@@ -43,6 +44,7 @@
 #include <pcbplot.h>
 #include <gendrill_file_writer_base.h>
 #include <pcb_painter.h>
+
 
 /* Conversion utilities - these will be used often in there... */
 inline double diameter_in_inches( double ius )
@@ -71,10 +73,10 @@ bool GENDRILL_WRITER_BASE::genDrillMapFile( const wxString& aFullFileName, PLOT_
     // for the right holes set (PTH, NPTH, buried/blind vias ...)
 
     double    scale = 1.0;
-    wxPoint   offset;
-    PLOTTER*  plotter = NULL;
+    wxPoint   offset = GetOffset();
+    PLOTTER*  plotter = nullptr;
     PAGE_INFO dummy( PAGE_INFO::A4, false );
-    int  bottom_limit = 0;        // Y coord limit of page. 0 mean do not use
+    int       bottom_limit = 0;        // Y coord limit of page. 0 mean do not use
 
     PCB_PLOT_PARAMS plot_opts; // starts plotting with default options
 
@@ -94,7 +96,6 @@ bool GENDRILL_WRITER_BASE::genDrillMapFile( const wxString& aFullFileName, PLOT_
     switch( aFormat )
     {
     case PLOT_FORMAT::GERBER:
-        offset  = GetOffset();
         plotter = new GERBER_PLOTTER();
         plotter->SetViewport( offset, IU_PER_MILS / 10, scale, false );
         plotter->SetGerberCoordinatesFormat( 5 ); // format x.5 unit = mm
@@ -109,8 +110,7 @@ bool GENDRILL_WRITER_BASE::genDrillMapFile( const wxString& aFullFileName, PLOT_
         plotter->SetPageSettings( page_info );
         plotter->SetViewport( offset, IU_PER_MILS / 10, scale, false );
     }
-    break;
-
+        break;
 
     default:
         wxASSERT( false );
@@ -158,8 +158,8 @@ bool GENDRILL_WRITER_BASE::genDrillMapFile( const wxString& aFullFileName, PLOT_
 
         plotter->SetPageSettings( pageA4 );
         plotter->SetViewport( offset, IU_PER_MILS / 10, scale, false );
+        break;
     }
-    break;
 
     case PLOT_FORMAT::DXF:
     {
@@ -173,8 +173,8 @@ bool GENDRILL_WRITER_BASE::genDrillMapFile( const wxString& aFullFileName, PLOT_
         plotter = dxf_plotter;
         plotter->SetPageSettings( page_info );
         plotter->SetViewport( offset, IU_PER_MILS / 10, scale, false );
+        break;
     }
-    break;
     }
 
     plotter->SetCreator( wxT( "PCBNEW" ) );
@@ -234,6 +234,7 @@ bool GENDRILL_WRITER_BASE::genDrillMapFile( const wxString& aFullFileName, PLOT_
 
     // Print a list of symbols used.
     int    charSize = Millimeter2iu( 2 );  // text size in IUs
+
     // real char scale will be 1/scale, because the global plot scale is scale
     // for scale < 1.0 ( plot bigger actual size)
     // Therefore charScale = 1.0 / scale keep the initial charSize
@@ -251,8 +252,8 @@ bool GENDRILL_WRITER_BASE::genDrillMapFile( const wxString& aFullFileName, PLOT_
     // Plot title  "Info"
     wxString Text = wxT( "Drill Map:" );
     plotter->Text( wxPoint( plotX, plotY ), COLOR4D::UNSPECIFIED, Text, 0,
-            wxSize( KiROUND( charSize * charScale ), KiROUND( charSize * charScale ) ),
-            GR_TEXT_HJUSTIFY_LEFT, GR_TEXT_VJUSTIFY_CENTER, TextWidth, false, false );
+                   wxSize( KiROUND( charSize * charScale ), KiROUND( charSize * charScale ) ),
+                   GR_TEXT_HJUSTIFY_LEFT, GR_TEXT_VJUSTIFY_CENTER, TextWidth, false, false );
 
     // For some formats (PS, PDF SVG) we plot the drill size list on more than one column
     // because the list must be contained inside the printed page
@@ -277,6 +278,7 @@ bool GENDRILL_WRITER_BASE::genDrillMapFile( const wxString& aFullFileName, PLOT_
         }
 
         int plot_diam = KiROUND( tool.m_Diameter );
+
         // For markers plotted with the comment, keep marker size <= text height
         plot_diam = std::min( plot_diam, KiROUND( charSize * charScale ) );
         int x = KiROUND( plotX - textmarginaftersymbol * charScale - plot_diam / 2.0 );
@@ -288,7 +290,7 @@ bool GENDRILL_WRITER_BASE::genDrillMapFile( const wxString& aFullFileName, PLOT_
 
         // List the diameter of each drill in mm and inches.
         sprintf( line, "%3.3fmm / %2.4f\" ", diameter_in_mm( tool.m_Diameter ),
-                diameter_in_inches( tool.m_Diameter ) );
+                 diameter_in_inches( tool.m_Diameter ) );
 
         msg = FROM_UTF8( line );
 
@@ -303,7 +305,7 @@ bool GENDRILL_WRITER_BASE::genDrillMapFile( const wxString& aFullFileName, PLOT_
             sprintf( line, "(%d holes + 1 slot)", tool.m_TotalCount - 1 );
         else // if ( toolm_OvalCount > 1 )
             sprintf( line, "(%d holes + %d slots)", tool.m_TotalCount - tool.m_OvalCount,
-                    tool.m_OvalCount );
+                     tool.m_OvalCount );
 
         msg += FROM_UTF8( line );
 
@@ -311,8 +313,8 @@ bool GENDRILL_WRITER_BASE::genDrillMapFile( const wxString& aFullFileName, PLOT_
             msg += wxT( " (not plated)" );
 
         plotter->Text( wxPoint( plotX, y ), COLOR4D::UNSPECIFIED, msg, 0,
-                wxSize( KiROUND( charSize * charScale ), KiROUND( charSize * charScale ) ),
-                GR_TEXT_HJUSTIFY_LEFT, GR_TEXT_VJUSTIFY_CENTER, TextWidth, false, false );
+                       wxSize( KiROUND( charSize * charScale ), KiROUND( charSize * charScale ) ),
+                       GR_TEXT_HJUSTIFY_LEFT, GR_TEXT_VJUSTIFY_CENTER, TextWidth, false, false );
 
         intervalle = KiROUND( ( ( charSize * charScale ) + TextWidth ) * 1.2 );
 
@@ -360,10 +362,9 @@ bool GENDRILL_WRITER_BASE::GenDrillReportFile( const wxString& aFullFileName )
     for( LSEQ seq = cu.Seq();  seq;  ++seq, ++conventional_layer_num )
     {
         out.Print( 0, "    L%-2d:  %-25s %s\n",
-            conventional_layer_num,
-            TO_UTF8( m_pcb->GetLayerName( *seq ) ),
-            layerName( *seq ).c_str()       // generic layer name
-            );
+                   conventional_layer_num,
+                   TO_UTF8( m_pcb->GetLayerName( *seq ) ),
+                   layerName( *seq ).c_str() );             // generic layer name
     }
 
     out.Print( 0, "\n\n" );
@@ -386,7 +387,7 @@ bool GENDRILL_WRITER_BASE::GenDrillReportFile( const wxString& aFullFileName )
         if( pair == DRILL_LAYER_PAIR( F_Cu, B_Cu ) )
         {
             out.Print( 0, "Drill file '%s' contains\n",
-                TO_UTF8( getDrillFileName( pair, false, m_merge_PTH_NPTH ) ) );
+                       TO_UTF8( getDrillFileName( pair, false, m_merge_PTH_NPTH ) ) );
 
             out.Print( 0, "    plated through holes:\n" );
             out.Print( 0, separator );
@@ -396,13 +397,12 @@ bool GENDRILL_WRITER_BASE::GenDrillReportFile( const wxString& aFullFileName )
         else    // blind/buried
         {
             out.Print( 0, "Drill file '%s' contains\n",
-                TO_UTF8( getDrillFileName( pair, false, m_merge_PTH_NPTH ) ) );
+                       TO_UTF8( getDrillFileName( pair, false, m_merge_PTH_NPTH ) ) );
 
             out.Print( 0, "    holes connecting layer pair: '%s and %s' (%s vias):\n",
-                TO_UTF8( m_pcb->GetLayerName( ToLAYER_ID( pair.first ) ) ),
-                TO_UTF8( m_pcb->GetLayerName( ToLAYER_ID( pair.second ) ) ),
-                pair.first == F_Cu || pair.second == B_Cu ? "blind" : "buried"
-                );
+                       TO_UTF8( m_pcb->GetLayerName( ToLAYER_ID( pair.first ) ) ),
+                       TO_UTF8( m_pcb->GetLayerName( ToLAYER_ID( pair.second ) ) ),
+                       pair.first == F_Cu || pair.second == B_Cu ? "blind" : "buried" );
 
             out.Print( 0, separator );
             totalHoleCount = printToolSummary( out, false );
@@ -455,7 +455,7 @@ bool GENDRILL_WRITER_BASE::plotDrillMarks( PLOTTER* aPlotter )
         if( hole.m_Hole_Shape != 0 )
         {
             wxSize oblong_size = hole.m_Hole_Size;
-            aPlotter->FlashPadOval( pos, oblong_size, hole.m_Hole_Orient, SKETCH, NULL );
+            aPlotter->FlashPadOval( pos, oblong_size, hole.m_Hole_Orient, SKETCH, nullptr );
         }
     }
 
@@ -479,12 +479,11 @@ unsigned GENDRILL_WRITER_BASE::printToolSummary( OUTPUTFORMATTER& out, bool aSum
         if( !aSummaryNPTH && tool.m_Hole_NotPlated )
             continue;
 
-        // List the tool number assigned to each drill,
-        // in mm then in inches.
+        // List the tool number assigned to each drill in mm then in inches.
         int tool_number = ii+1;
         out.Print( 0, "    T%d  %2.3fmm  %2.4f\"  ", tool_number,
-                 diameter_in_mm( tool.m_Diameter ),
-                 diameter_in_inches( tool.m_Diameter ) );
+                   diameter_in_mm( tool.m_Diameter ),
+                   diameter_in_inches( tool.m_Diameter ) );
 
         // Now list how many holes and ovals are associated with each drill.
         if( ( tool.m_TotalCount == 1 ) && ( tool.m_OvalCount == 0 ) )
@@ -496,8 +495,7 @@ unsigned GENDRILL_WRITER_BASE::printToolSummary( OUTPUTFORMATTER& out, bool aSum
         else if( tool.m_OvalCount == 1 )
             out.Print( 0, "(%d holes)  (with 1 slot)\n", tool.m_TotalCount );
         else // tool.m_OvalCount > 1
-            out.Print( 0, "(%d holes)  (with %d slots)\n",
-                     tool.m_TotalCount, tool.m_OvalCount );
+            out.Print( 0, "(%d holes)  (with %d slots)\n", tool.m_TotalCount, tool.m_OvalCount );
 
         totalHoleCount += tool.m_TotalCount;
     }

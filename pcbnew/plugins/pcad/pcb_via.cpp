@@ -29,10 +29,12 @@
 #include <xnode.h>
 
 #include <wx/string.h>
+#include <wx/translation.h>
 
 namespace PCAD2KICAD {
 
-PCB_VIA::PCB_VIA( PCB_CALLBACKS* aCallbacks, BOARD* aBoard ) : PCB_PAD( aCallbacks, aBoard )
+PCB_VIA::PCB_VIA( PCB_CALLBACKS* aCallbacks, BOARD* aBoard ) :
+    PCB_PAD( aCallbacks, aBoard )
 {
     m_objType = wxT( 'V' );
 }
@@ -43,8 +45,7 @@ PCB_VIA::~PCB_VIA()
 }
 
 
-void PCB_VIA::Parse( XNODE*          aNode,
-                     const wxString& aDefaultMeasurementUnit,
+void PCB_VIA::Parse( XNODE* aNode, const wxString& aDefaultUnits,
                      const wxString& aActualConversion )
 {
     XNODE*          lNode, * tNode;
@@ -65,8 +66,10 @@ void PCB_VIA::Parse( XNODE*          aNode,
     lNode = FindNode( aNode, wxT( "pt" ) );
 
     if( lNode )
-        SetPosition( lNode->GetNodeContent(), aDefaultMeasurementUnit,
-                     &m_positionX, &m_positionY, aActualConversion );
+    {
+        SetPosition( lNode->GetNodeContent(), aDefaultUnits, &m_positionX, &m_positionY,
+                     aActualConversion );
+    }
 
     lNode = FindNode( aNode, wxT( "netNameRef" ) );
 
@@ -87,7 +90,7 @@ void PCB_VIA::Parse( XNODE*          aNode,
     lNode   = FindNode( lNode, wxT( "library" ) );
 
     if ( !lNode )
-        THROW_IO_ERROR( wxT( "Unable to find library section" ) );
+        THROW_IO_ERROR( _( "Unable to find library section." ) );
 
     lNode   = FindNode( lNode, wxT( "viaStyleDef" ) );
 
@@ -102,7 +105,7 @@ void PCB_VIA::Parse( XNODE*          aNode,
     }
 
     if ( !lNode )
-        THROW_IO_ERROR( wxString::Format( wxT( "Unable to find viaStyleDef " ) + m_name.text ) );
+        THROW_IO_ERROR( wxString::Format( _( "Unable to find viaStyleDef %s." ), m_name.text ) );
 
     if( lNode )
     {
@@ -110,8 +113,7 @@ void PCB_VIA::Parse( XNODE*          aNode,
         lNode   = FindNode( tNode, wxT( "holeDiam" ) );
 
         if( lNode )
-            SetWidth( lNode->GetNodeContent(), aDefaultMeasurementUnit, &m_Hole,
-                      aActualConversion );
+            SetWidth( lNode->GetNodeContent(), aDefaultUnits, &m_Hole, aActualConversion );
 
         lNode = FindNode( tNode, wxT( "viaShape" ) );
 
@@ -124,7 +126,7 @@ void PCB_VIA::Parse( XNODE*          aNode,
                 if( FindNode( lNode, wxT( "layerNumRef" ) ) )
                 {
                     viaShape = new PCB_VIA_SHAPE( m_callbacks, m_board );
-                    viaShape->Parse( lNode, aDefaultMeasurementUnit, aActualConversion );
+                    viaShape->Parse( lNode, aDefaultUnits, aActualConversion );
                     m_Shapes.Add( viaShape );
                 }
             }

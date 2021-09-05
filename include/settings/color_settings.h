@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2020 Jon Evans <jon@craftyjon.com>
- * Copyright (C) 2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2020-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -58,7 +58,7 @@ public:
      */
     std::vector<COLOR4D> m_Palette;
 
-    explicit COLOR_SETTINGS( wxString aFilename = "user" );
+    explicit COLOR_SETTINGS( const wxString& aFilename = wxT( "user" ) );
 
     virtual ~COLOR_SETTINGS() {}
 
@@ -76,13 +76,16 @@ public:
 
     COLOR4D GetDefaultColor( int aLayer );
 
-    void SetColor( int aLayer, COLOR4D aColor );
+    void SetColor( int aLayer, const COLOR4D& aColor );
 
     const wxString& GetName() const { return m_displayName; }
     void SetName( const wxString& aName ) { m_displayName = aName; }
 
     bool GetOverrideSchItemColors() const { return m_overrideSchItemColors; }
     void SetOverrideSchItemColors( bool aFlag ) { m_overrideSchItemColors = aFlag; }
+
+    bool GetUseBoardStackupColors() const { return m_useBoardStackupColors; }
+    void SetUseBoardStackupColors( bool aFlag ) { m_useBoardStackupColors = aFlag; }
 
     /**
      * Constructs and returns a list of color settings objects based on the built-in color themes.
@@ -101,10 +104,11 @@ private:
     wxString m_displayName;
 
     bool     m_overrideSchItemColors;
+    bool     m_useBoardStackupColors;
 
     /**
      * Map of all layer colors.
-     * The key needs to be a valid layer ID, see layers_id_colors_and_visibility.h
+     * The key needs to be a valid layer ID, see layer_ids.h
      */
     std::unordered_map<int, COLOR4D> m_colors;
 
@@ -149,11 +153,6 @@ public:
     void SetDefault() override
     {
         ( *m_map )[ m_key ] = m_default;
-    }
-
-    bool IsDefault() const override
-    {
-        return ( *m_map )[ m_key ] == m_default;
     }
 
     bool MatchesFile( JSON_SETTINGS* aSettings ) const override

@@ -35,6 +35,7 @@
 #include <wx/grid.h>
 #include <wx/bmpbuttn.h>
 #include <wx/textctrl.h>
+#include <wx/stc/stc.h>
 
 #include <algorithm>
 
@@ -87,6 +88,7 @@ DIALOG_SHIM::DIALOG_SHIM( wxWindow* aParent, wxWindowID id, const wxString& titl
             m_parentFrame( nullptr )
 {
     KIWAY_HOLDER* kiwayHolder = nullptr;
+    m_initialSize = size;
 
     if( aParent )
     {
@@ -255,6 +257,8 @@ bool DIALOG_SHIM::Show( bool show )
                          0 );
             }
         }
+        else if( m_initialSize != wxDefaultSize )
+            SetSize( m_initialSize );
 
         // Be sure that the dialog appears in a visible area
         // (the dialog position might have been stored at the time when it was
@@ -320,9 +324,30 @@ static void selectAllInTextCtrls( wxWindowList& children )
     {
         if( wxTextCtrl* childTextCtrl = dynamic_cast<wxTextCtrl*>( child ) )
         {
-            // Respect an existing selection
-            if( childTextCtrl->GetStringSelection().IsEmpty() )
+            // We don't currently run this on GTK because some window managers don't hide the
+            // selection in non-active controls, and other window managers do the selection
+            // automatically anyway.
+#if defined( __WXMAC__ ) || defined( __WXMSW__ )
+            if( !childTextCtrl->GetStringSelection().IsEmpty() )
+            {
+                // Respect an existing selection
+            }
+            else
+            {
                 childTextCtrl->SelectAll();
+            }
+#endif
+        }
+        else if( wxStyledTextCtrl* scintilla = dynamic_cast<wxStyledTextCtrl*>( child ) )
+        {
+            if( !scintilla->GetSelectedText().IsEmpty() )
+            {
+                // Respect an existing selection
+            }
+            else
+            {
+                scintilla->SelectAll();
+            }
         }
 #ifdef __WXMAC__
         // Temp hack for square (looking) buttons on OSX.  Will likely be made redundant

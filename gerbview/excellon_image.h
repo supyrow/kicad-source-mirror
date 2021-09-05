@@ -25,6 +25,8 @@
 #ifndef EXCELLON_IMAGE_H
 #define EXCELLON_IMAGE_H
 
+struct EXCELLON_DEFAULTS;
+
 
 enum drill_M_code_t {
     DRILL_M_UNKNOWN,
@@ -53,6 +55,8 @@ enum drill_M_code_t {
     DRILL_RESET_CMD,
     DRILL_AUTOMATIC_TOOL_CHANGE,
     DRILL_FMT,
+    DRILL_FORMAT_ALTIUM,
+    DRILL_HEADER_SKIP,
     DRILL_SKIP,
     DRILL_TOOL_INFORMATION,
     DRILL_M_END_LIST                // not used: sentinel
@@ -127,7 +131,8 @@ struct EXCELLON_ROUTE_COORD
  * Handle a drill image.
  *
  * It is derived from #GERBER_FILE_IMAGE because there is a lot of likeness between EXCELLON
- * files and GERBER files.   DCode aperture are also similar to T Codes.
+ * files and GERBER files.
+ * DCode apertures are also similar to T Codes.
  */
 class EXCELLON_IMAGE : public GERBER_FILE_IMAGE
 {
@@ -137,16 +142,16 @@ public: EXCELLON_IMAGE( int layer ) :
         m_State  = READ_HEADER_STATE;
         m_SlotOn = false;
         m_RouteModeOn = false;
+        m_hasFormat = false;
     }
 
 
     ~EXCELLON_IMAGE() {};
 
-    virtual void ResetDefaultValues() override
-    {
-        GERBER_FILE_IMAGE::ResetDefaultValues();
-        SelectUnits( false );
-    }
+    /**
+     * Set all parameters to a default value, before reading a file
+     */
+    virtual void ResetDefaultValues() override;
 
 
     /**
@@ -154,16 +159,25 @@ public: EXCELLON_IMAGE( int layer ) :
      *
      * When the file cannot be loaded, warning and info messages are stored in m_Messages.
      *
-     * @param aFullFileName is the full filename of the Gerber file.
+     * @param aFullFileName is the full filename of the Excellon file.
+     * @param aDefaults is the default values when not found in file.
      * @return true if OK, false if the gerber file was not loaded.
      */
-    bool LoadFile( const wxString& aFullFileName );
+    bool LoadFile( const wxString& aFullFileName, EXCELLON_DEFAULTS* aDefaults );
 
 private:
     bool Execute_HEADER_And_M_Command( char*& text );
     bool Select_Tool( char*& text );
     bool Execute_EXCELLON_G_Command( char*& text );
     bool Execute_Drill_Command( char*& text );
+
+    /**
+     * Read an Altium-specific FILE_FORMAT=X:X attribute that specifies the length
+     * and mantissa of the numbers in the gerber file
+     *
+     * @param aText Text containing format and mantissa
+     */
+    void readFileFormat( char*& aText );
 
     /**
      * Read a tool definition like T1C0.02 or T1F00S00C0.02 or T1C0.02F00S00
@@ -181,20 +195,29 @@ private:
      */
     void FinishRouteCommand();
 
-    void SelectUnits( bool aMetric );
+    /**
+     * Switch unit selection, and the coordinate format (nn:mm) if not yet set
+     */
+    void SelectUnits( bool aMetric, EXCELLON_DEFAULTS* aDefaults );
 
 private:
-    enum excellon_state {
+    enum EXCELLON_STATE {
         READ_HEADER_STATE,          // When we are in this state, we are reading header
         READ_PROGRAM_STATE          // When we are in this state, we are reading drill data
     };
 
-    excellon_state m_State;         // state of excellon file analysis
+    EXCELLON_STATE m_State;         // state of excellon file analysis
     bool           m_SlotOn;        // true during an oblong drill definition
                                     // by G85 (canned slot) command
     bool           m_RouteModeOn;   // true during a route mode (for instance a oval hole) or
                                     // a cutout.
     std::vector<EXCELLON_ROUTE_COORD> m_RoutePositions;  // The list of points in a route mode
+
+    /// Excellon file do not have a format statement to specify the coordinate format
+    /// like nn:mm.
+    /// However Altium files have a comment to specify it (";FILE_FORMET_"
+    /// m_hasFormat is set to true if this comment is found, and coordinate format is known.
+    bool           m_hasFormat;
 };
 
 

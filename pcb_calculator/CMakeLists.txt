@@ -1,3 +1,5 @@
+add_definitions(-DPCB_CALCULATOR_BUILD)
+
 include_directories( BEFORE ${INC_BEFORE} )
 include_directories(
     dialogs
@@ -51,7 +53,7 @@ if( APPLE )
         MACOSX_PACKAGE_LOCATION Resources
         )
     set( MACOSX_BUNDLE_ICON_FILE pcb_calculator.icns )
-    set( MACOSX_BUNDLE_GUI_IDENTIFIER org.kicad-pcb.kicad )
+    set( MACOSX_BUNDLE_GUI_IDENTIFIER org.kicad.kicad )
     set( MACOSX_BUNDLE_NAME pcb_calculator )
 endif()
 
@@ -141,6 +143,12 @@ else()
         DESTINATION ${KICAD_BIN}
         COMPONENT binary
         )
+endif()
+
+if( KICAD_WIN32_INSTALL_PDBS )
+    # Get the PDBs to copy over for MSVC
+    install(FILES $<TARGET_PDB_FILE:pcb_calculator> DESTINATION ${KICAD_BIN})
+    install(FILES $<TARGET_PDB_FILE:pcb_calculator_kiface> DESTINATION ${KICAD_BIN})
 endif()
 
 # auto-generate pcb_calculator_datafile.h and pcb_calculator_datafile_keywords.cpp

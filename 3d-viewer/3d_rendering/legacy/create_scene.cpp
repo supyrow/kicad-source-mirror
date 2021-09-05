@@ -30,6 +30,8 @@
 #include <trigo.h>
 #include <project.h>
 #include <profile.h>        // To use GetRunningMicroSecs or another profiling utility
+#include <eda_3d_canvas.h>
+#include <eda_3d_viewer_frame.h>
 
 
 void RENDER_3D_LEGACY::addObjectTriangles( const FILLED_CIRCLE_2D* aFilledCircle,
@@ -555,6 +557,10 @@ void RENDER_3D_LEGACY::reload( REPORTER* aStatusReporter, REPORTER* aWarningRepo
         if( !m_boardAdapter.Is3dLayerEnabled( layer_id ) )
             continue;
 
+        if( aStatusReporter )
+            aStatusReporter->Report( wxString::Format(
+                                     _( "Load OpenGL layer %d" ), (int)layer_id ) );
+
         const BVH_CONTAINER_2D* container2d = ii.second;
 
         SHAPE_POLY_SET polyListSubtracted;
@@ -641,7 +647,7 @@ void RENDER_3D_LEGACY::reload( REPORTER* aStatusReporter, REPORTER* aWarningRepo
 
     // Load 3D models
     if( aStatusReporter )
-        aStatusReporter->Report( _( "Loading 3D models" ) );
+        aStatusReporter->Report( _( "Loading 3D models..." ) );
 
     load3dModels( aStatusReporter );
 
@@ -721,6 +727,9 @@ void RENDER_3D_LEGACY::generateCylinder( const SFVEC2F& aCenter, float aInnerRad
 
 void RENDER_3D_LEGACY::generateViasAndPads()
 {
+    if( !m_boardAdapter.GetBoard() )
+        return;
+
     const int   platingThickness    = m_boardAdapter.GetHolePlatingThickness();
     const float platingThickness3d  = platingThickness * m_boardAdapter.BiuTo3dUnits();
 
@@ -860,8 +869,29 @@ void RENDER_3D_LEGACY::generateViasAndPads()
 }
 
 
+void RENDER_3D_LEGACY::Load3dModelsIfNeeded()
+{
+    if( m_3dModelMap.size() > 0 )
+        return;
+
+    wxFrame* frame = dynamic_cast<EDA_3D_VIEWER_FRAME*>( m_canvas->GetParent() );
+
+    if( frame )
+    {
+        STATUSBAR_REPORTER activityReporter( frame->GetStatusBar(),
+                                             (int) EDA_3D_VIEWER_STATUSBAR::ACTIVITY );
+        load3dModels( &activityReporter );
+    }
+    else
+        load3dModels( nullptr );
+}
+
+
 void RENDER_3D_LEGACY::load3dModels( REPORTER* aStatusReporter )
 {
+    if( !m_boardAdapter.GetBoard() )
+        return;
+
     if( !m_boardAdapter.GetFlag( FL_FP_ATTRIBUTES_NORMAL )
       && !m_boardAdapter.GetFlag( FL_FP_ATTRIBUTES_NORMAL_INSERT )
       && !m_boardAdapter.GetFlag( FL_FP_ATTRIBUTES_VIRTUAL ) )
@@ -881,9 +911,8 @@ void RENDER_3D_LEGACY::load3dModels( REPORTER* aStatusReporter )
                     // Display the short filename of the 3D model loaded:
                     // (the full name is usually too long to be displayed)
                     wxFileName fn( model.m_Filename );
-                    wxString msg;
-                    msg.Printf( _( "Loading %s" ), fn.GetFullName() );
-                    aStatusReporter->Report( msg );
+                    aStatusReporter->Report( wxString::Format( _( "Loading %s..." ),
+                                                               fn.GetFullName() ) );
                 }
 
                 // Check if the model is not present in our cache map

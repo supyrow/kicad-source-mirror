@@ -35,7 +35,7 @@
     Board edge clearance test. Checks all items for their mechanical clearances against the board
     edge.
     Errors generated:
-    - DRCE_COPPER_EDGE_CLEARANCE
+    - DRCE_EDGE_CLEARANCE
 
     TODO:
     - separate holes to edge check
@@ -109,6 +109,7 @@ bool DRC_TEST_PROVIDER_EDGE_CLEARANCE::testAgainstEdge( BOARD_ITEM* item, SHAPE*
         drce->SetViolatingRule( constraint.GetParentRule() );
 
         reportViolation( drce, (wxPoint) pos );
+        return false;       // don't report violations with multiple edges; one is enough
     }
 
     return true;
@@ -117,7 +118,7 @@ bool DRC_TEST_PROVIDER_EDGE_CLEARANCE::testAgainstEdge( BOARD_ITEM* item, SHAPE*
 
 bool DRC_TEST_PROVIDER_EDGE_CLEARANCE::Run()
 {
-    if( !m_drcEngine->IsErrorLimitExceeded( DRCE_COPPER_EDGE_CLEARANCE ) )
+    if( !m_drcEngine->IsErrorLimitExceeded( DRCE_EDGE_CLEARANCE ) )
     {
         if( !reportPhase( _( "Checking copper to board edge clearances..." ) ) )
             return false;    // DRC cancelled
@@ -151,38 +152,39 @@ bool DRC_TEST_PROVIDER_EDGE_CLEARANCE::Run()
             {
                 PCB_SHAPE* shape = static_cast<PCB_SHAPE*>( item );
 
-                if( shape->GetShape() == PCB_SHAPE_TYPE::RECT )
+                if( shape->GetShape() == SHAPE_T::RECT )
                 {
-                    // A single rectangle for the board would make the RTree useless, so
-                    // convert to 4 edges
+                    // A single rectangle for the board would make the RTree useless, so convert
+                    // to 4 edges
                     edges.emplace_back( static_cast<PCB_SHAPE*>( shape->Clone() ) );
-                    edges.back()->SetShape( PCB_SHAPE_TYPE::SEGMENT );
+                    edges.back()->SetShape( SHAPE_T::SEGMENT );
                     edges.back()->SetEndX( shape->GetStartX() );
                     edges.back()->SetWidth( 0 );
                     edges.emplace_back( static_cast<PCB_SHAPE*>( shape->Clone() ) );
-                    edges.back()->SetShape( PCB_SHAPE_TYPE::SEGMENT );
+                    edges.back()->SetShape( SHAPE_T::SEGMENT );
                     edges.back()->SetEndY( shape->GetStartY() );
                     edges.back()->SetWidth( 0 );
                     edges.emplace_back( static_cast<PCB_SHAPE*>( shape->Clone() ) );
-                    edges.back()->SetShape( PCB_SHAPE_TYPE::SEGMENT );
+                    edges.back()->SetShape( SHAPE_T::SEGMENT );
                     edges.back()->SetStartX( shape->GetEndX() );
                     edges.back()->SetWidth( 0 );
                     edges.emplace_back( static_cast<PCB_SHAPE*>( shape->Clone() ) );
-                    edges.back()->SetShape( PCB_SHAPE_TYPE::SEGMENT );
+                    edges.back()->SetShape( SHAPE_T::SEGMENT );
                     edges.back()->SetStartY( shape->GetEndY() );
                     edges.back()->SetWidth( 0 );
                     return true;
                 }
-                else if( shape->GetShape() == PCB_SHAPE_TYPE::POLYGON )
+                else if( shape->GetShape() == SHAPE_T::POLY )
                 {
-                    // Same for polygons
+                    // A single polygon for the board would make the RTree useless, so convert
+                    // to n edges.
                     SHAPE_LINE_CHAIN poly = shape->GetPolyShape().Outline( 0 );
 
                     for( size_t ii = 0; ii < poly.GetSegmentCount(); ++ii )
                     {
                         SEG seg = poly.CSegment( ii );
                         edges.emplace_back( static_cast<PCB_SHAPE*>( shape->Clone() ) );
-                        edges.back()->SetShape( PCB_SHAPE_TYPE::SEGMENT );
+                        edges.back()->SetShape( SHAPE_T::SEGMENT );
                         edges.back()->SetStart((wxPoint) seg.A );
                         edges.back()->SetEnd((wxPoint) seg.B );
                         edges.back()->SetWidth( 0 );
@@ -205,7 +207,7 @@ bool DRC_TEST_PROVIDER_EDGE_CLEARANCE::Run()
 
     forEachGeometryItem( { PCB_SHAPE_T, PCB_FP_SHAPE_T }, LSET( 2, Edge_Cuts, Margin ),
                          queryBoardOutlineItems );
-    forEachGeometryItem( s_allBasicItemsButZones, LSET::AllCuMask(), queryBoardGeometryItems );
+    forEachGeometryItem( s_allBasicItemsButZones, LSET::AllLayersMask(), queryBoardGeometryItems );
 
     for( const std::unique_ptr<PCB_SHAPE>& edge : edges )
     {
@@ -228,7 +230,7 @@ bool DRC_TEST_PROVIDER_EDGE_CLEARANCE::Run()
 
     for( BOARD_ITEM* item : boardItems )
     {
-        bool testCopper = !m_drcEngine->IsErrorLimitExceeded( DRCE_COPPER_EDGE_CLEARANCE );
+        bool testCopper = !m_drcEngine->IsErrorLimitExceeded( DRCE_EDGE_CLEARANCE );
         bool testSilk = !m_drcEngine->IsErrorLimitExceeded( DRCE_SILK_MASK_CLEARANCE );
 
         if( !testCopper && !testSilk )
@@ -248,21 +250,28 @@ bool DRC_TEST_PROVIDER_EDGE_CLEARANCE::Run()
                         {
                             return testAgainstEdge( item, itemShape.get(), edge,
                                                     EDGE_CLEARANCE_CONSTRAINT,
-                                                    DRCE_COPPER_EDGE_CLEARANCE );
+                                                    DRCE_EDGE_CLEARANCE );
                         },
                         m_largestClearance );
             }
 
             if( testSilk && ( item->GetLayer() == F_SilkS || item->GetLayer() == B_SilkS ) )
             {
-                edgesTree.QueryColliding( item, UNDEFINED_LAYER, testLayer, nullptr,
+                if( edgesTree.QueryColliding( item, UNDEFINED_LAYER, testLayer, nullptr,
                         [&]( BOARD_ITEM* edge ) -> bool
                         {
                             return testAgainstEdge( item, itemShape.get(), edge,
                                                     SILK_CLEARANCE_CONSTRAINT,
                                                     DRCE_SILK_MASK_CLEARANCE );
                         },
-                        m_largestClearance );
+                        m_largestClearance ) )
+                {
+                    // violations reported during QueryColliding
+                }
+                else
+                {
+                    // TODO: check postion being outside board boundary
+                }
             }
         }
     }

@@ -112,12 +112,11 @@ PAGED_DIALOG::PAGED_DIALOG( wxWindow* aParent, const wxString& aTitle, bool aSho
     }
 
     m_treebook->Connect( wxEVT_TREEBOOK_PAGE_CHANGED,
-                         wxBookCtrlEventHandler( PAGED_DIALOG::OnPageChange ), NULL, this );
+                         wxBookCtrlEventHandler( PAGED_DIALOG::OnPageChange ), nullptr, this );
     Connect( wxEVT_UPDATE_UI, wxUpdateUIEventHandler( PAGED_DIALOG::OnUpdateUI ), nullptr, this );
 }
 
 
-// Finish initialization after the bookctrl pages have been added.
 void PAGED_DIALOG::finishInitialization()
 {
     for( size_t i = 0; i < m_treebook->GetPageCount(); ++i )
@@ -184,7 +183,7 @@ PAGED_DIALOG::~PAGED_DIALOG()
     }
 
     m_treebook->Disconnect( wxEVT_TREEBOOK_PAGE_CHANGED,
-                            wxBookCtrlEventHandler( PAGED_DIALOG::OnPageChange ), NULL, this );
+                            wxBookCtrlEventHandler( PAGED_DIALOG::OnPageChange ), nullptr, this );
     Disconnect( wxEVT_UPDATE_UI, wxUpdateUIEventHandler( PAGED_DIALOG::OnUpdateUI ),
                 nullptr, this );
 }
@@ -360,16 +359,19 @@ void PAGED_DIALOG::OnPageChange( wxBookCtrlEvent& event )
 {
     size_t page = event.GetSelection();
 
-    // Enable the reset button only if the page is resettable
+    // Enable the reset button only if the page is re-settable
     if( m_resetButton )
     {
         if( auto panel = dynamic_cast<RESETTABLE_PANEL*>( m_treebook->GetPage( page ) ) )
         {
+            m_resetButton->SetLabel( wxString::Format( _( "Reset %s to Defaults" ),
+                                                       m_treebook->GetPageText( page ) ) );
             m_resetButton->SetToolTip( panel->GetResetTooltip() );
             m_resetButton->Enable( true );
         }
         else
         {
+            m_resetButton->SetLabel( _( "Reset to Defaults" ) );
             m_resetButton->SetToolTip( wxString() );
             m_resetButton->Enable( false );
         }

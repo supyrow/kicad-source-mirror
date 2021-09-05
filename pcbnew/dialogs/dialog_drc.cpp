@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2018 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2009-2016 Dick Hollenbeck, dick@softplc.com
- * Copyright (C) 2004-2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2004-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -39,16 +39,17 @@
 #include <wx/wupdlock.h>
 #include <widgets/appearance_controls.h>
 #include <widgets/ui_common.h>
-#include <widgets/progress_reporter.h>
+#include <widgets/progress_reporter_base.h>
 #include <dialogs/wx_html_report_box.h>
 #include <dialogs/panel_setup_rules_base.h>
 #include <tools/drc_tool.h>
+#include <tools/zone_filler_tool.h>
 #include <tools/board_inspection_tool.h>
 #include <kiplatform/ui.h>
 
 DIALOG_DRC::DIALOG_DRC( PCB_EDIT_FRAME* aEditorFrame, wxWindow* aParent ) :
         DIALOG_DRC_BASE( aParent ),
-        PROGRESS_REPORTER( 1 ),
+        PROGRESS_REPORTER_BASE( 1 ),
         m_running( false ),
         m_cancelled( false ),
         m_drcRun( false ),
@@ -152,8 +153,6 @@ void DIALOG_DRC::initValues()
 }
 
 
-// PROGRESS_REPORTER calls
-
 bool DIALOG_DRC::updateUI()
 {
     double cur = (double) m_progress.load() / m_maxProgress;
@@ -168,7 +167,7 @@ bool DIALOG_DRC::updateUI()
 
 void DIALOG_DRC::AdvancePhase( const wxString& aMessage )
 {
-    PROGRESS_REPORTER::AdvancePhase( aMessage );
+    PROGRESS_REPORTER_BASE::AdvancePhase( aMessage );
     SetCurrentProgress( 0.0 );
 
     m_messages->Report( aMessage );
@@ -190,16 +189,24 @@ void DIALOG_DRC::syncCheckboxes()
 
 void DIALOG_DRC::OnErrorLinkClicked( wxHtmlLinkEvent& event )
 {
-    m_frame->ShowBoardSetupDialog( _( "Rules" ) );
+    m_frame->ShowBoardSetupDialog( _( "Custom Rules" ) );
 }
 
 
 void DIALOG_DRC::OnRunDRCClick( wxCommandEvent& aEvent )
 {
-    DRC_TOOL* drcTool = m_frame->GetToolManager()->GetTool<DRC_TOOL>();
-    bool      refillZones            = m_cbRefillZones->GetValue();
-    bool      reportAllTrackErrors   = m_cbReportAllTrackErrors->GetValue();
-    bool      testFootprints         = m_cbTestFootprints->GetValue();
+    TOOL_MANAGER*     toolMgr              = m_frame->GetToolManager();
+    DRC_TOOL*         drcTool              = toolMgr->GetTool<DRC_TOOL>();
+    ZONE_FILLER_TOOL* zoneFillerTool       = toolMgr->GetTool<ZONE_FILLER_TOOL>();
+    bool              refillZones          = m_cbRefillZones->GetValue();
+    bool              reportAllTrackErrors = m_cbReportAllTrackErrors->GetValue();
+    bool              testFootprints       = m_cbTestFootprints->GetValue();
+
+    if( zoneFillerTool->IsBusy() )
+    {
+        wxBell();
+        return;
+    }
 
     // This is not the time to have stale or buggy rules.  Ensure they're up-to-date
     // and that they at least parse.
@@ -445,7 +452,7 @@ void DIALOG_DRC::OnDRCItemRClick( wxDataViewEvent& aEvent )
     }
 
     if( rcItem->GetErrorCode() == DRCE_CLEARANCE
-            || rcItem->GetErrorCode() == DRCE_COPPER_EDGE_CLEARANCE )
+            || rcItem->GetErrorCode() == DRCE_EDGE_CLEARANCE )
     {
         menu.Append( 3, _( "Run clearance resolution tool..." ) );
     }
@@ -493,8 +500,9 @@ void DIALOG_DRC::OnDRCItemRClick( wxDataViewEvent& aEvent )
             static_cast<RC_TREE_MODEL*>( aEvent.GetModel() )->ValueChanged( node );
             modified = true;
         }
-    }
+
         break;
+    }
 
     case 2:
     {
@@ -513,8 +521,9 @@ void DIALOG_DRC::OnDRCItemRClick( wxDataViewEvent& aEvent )
 
             modified = true;
         }
-    }
+
         break;
+    }
 
     case 3:
     {
@@ -522,8 +531,8 @@ void DIALOG_DRC::OnDRCItemRClick( wxDataViewEvent& aEvent )
         BOARD_INSPECTION_TOOL* inspectionTool = toolMgr->GetTool<BOARD_INSPECTION_TOOL>();
 
         inspectionTool->InspectDRCError( node->m_RcItem );
-    }
         break;
+    }
 
     case 4:
         bds().m_DRCSeverities[ rcItem->GetErrorCode() ] = RPT_SEVERITY_ERROR;
@@ -573,8 +582,8 @@ void DIALOG_DRC::OnDRCItemRClick( wxDataViewEvent& aEvent )
         // Rebuild model and view
         static_cast<RC_TREE_MODEL*>( aEvent.GetModel() )->SetProvider( m_markersProvider );
         modified = true;
-    }
         break;
+    }
 
     case 7:
         m_frame->ShowBoardSetupDialog( _( "Violation Severity" ) );
@@ -654,7 +663,7 @@ void DIALOG_DRC::OnSaveReport( wxCommandEvent& aEvent )
     }
     else
     {
-        DisplayError( this, wxString::Format( _( "Unable to create report file '%s'<br>" ),
+        DisplayError( this, wxString::Format( _( "Failed to create file '%s'." ),
                                               fn.GetFullPath() ) );
     }
 }
@@ -777,7 +786,7 @@ bool DIALOG_DRC::writeReport( const wxString& aFullFileName )
 {
     FILE* fp = wxFopen( aFullFileName, wxT( "w" ) );
 
-    if( fp == NULL )
+    if( fp == nullptr )
         return false;
 
     std::map<KIID, EDA_ITEM*> itemMap;
@@ -950,7 +959,9 @@ void DIALOG_DRC::updateDisplayedCounts()
         m_Notebook->SetPageText( 1, msg );
 
         if( m_footprintTestsRun )
+        {
             msg.sprintf( m_footprintsTitleTemplate, numFootprints );
+        }
         else
         {
             msg = m_footprintsTitleTemplate;

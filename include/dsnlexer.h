@@ -2,7 +2,7 @@
  * This program source code file is part of KICAD, a free EDA CAD application.
  *
  * Copyright (C) 2007-2010 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
- * Copyright (C) 2007-2020 Kicad Developers, see change_log.txt for contributors.
+ * Copyright (C) 2007-2021 Kicad Developers, see change_log.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -127,9 +127,16 @@ public:
      *  #STRING_LINE_READER or #FILE_LINE_READER.  No ownership is taken.
      */
     DSNLEXER( const KEYWORD* aKeywordTable, unsigned aKeywordCount,
-              LINE_READER* aLineReader = NULL );
+              LINE_READER* aLineReader = nullptr );
 
     virtual ~DSNLEXER();
+
+    /**
+     * Reinit variables used during parsing, to ensure od states are not used in a new parsing
+     * must be called before parsing a new file after parsing an old file to avoid
+     * starting with some variables in a non initial state
+     */
+    void InitParserState();
 
     /**
      * Usable only for DSN lexers which share the same #LINE_READER.

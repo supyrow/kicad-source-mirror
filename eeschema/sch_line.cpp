@@ -25,7 +25,7 @@
 #include <bitmaps.h>
 #include <core/mirror.h>
 #include <sch_painter.h>
-#include <plotter.h>
+#include <plotters/plotter.h>
 #include <sch_line.h>
 #include <sch_edit_frame.h>
 #include <settings/color_settings.h>
@@ -36,7 +36,7 @@
 #include <board_item.h>
 
 SCH_LINE::SCH_LINE( const wxPoint& pos, int layer ) :
-    SCH_ITEM( NULL, SCH_LINE_T )
+    SCH_ITEM( nullptr, SCH_LINE_T )
 {
     m_start           = pos;
     m_end             = pos;
@@ -47,9 +47,9 @@ SCH_LINE::SCH_LINE( const wxPoint& pos, int layer ) :
 
     switch( layer )
     {
-    default: m_layer = LAYER_NOTES; break;
+    default:         m_layer = LAYER_NOTES; break;
     case LAYER_WIRE: m_layer = LAYER_WIRE;  break;
-    case LAYER_BUS: m_layer = LAYER_BUS;   break;
+    case LAYER_BUS:  m_layer = LAYER_BUS;   break;
     }
 }
 
@@ -287,7 +287,7 @@ int SCH_LINE::GetPenWidth() const
         if( Schematic() )
             return Schematic()->Settings().m_DefaultLineWidth;
 
-        return DEFAULT_LINE_THICKNESS;
+        return Mils2iu( DEFAULT_LINE_WIDTH_MILS );
 
     case LAYER_WIRE:
         if( m_stroke.GetWidth() > 0 )
@@ -299,7 +299,7 @@ int SCH_LINE::GetPenWidth() const
         if( Schematic() )
             return Schematic()->Settings().m_DefaultWireThickness;
 
-        return DEFAULT_WIRE_THICKNESS;
+        return Mils2iu( DEFAULT_WIRE_WIDTH_MILS );
 
     case LAYER_BUS:
         if( m_stroke.GetWidth() > 0 )
@@ -311,7 +311,7 @@ int SCH_LINE::GetPenWidth() const
         if( Schematic() )
             return Schematic()->Settings().m_DefaultBusThickness;
 
-        return DEFAULT_BUS_THICKNESS;
+        return Mils2iu( DEFAULT_BUS_WIDTH_MILS );
     }
 }
 
@@ -439,7 +439,7 @@ int SCH_LINE::GetReverseAngleFrom( const wxPoint& aPoint ) const
 
 bool SCH_LINE::IsParallel( const SCH_LINE* aLine ) const
 {
-    wxCHECK_MSG( aLine != NULL && aLine->Type() == SCH_LINE_T, false,
+    wxCHECK_MSG( aLine != nullptr && aLine->Type() == SCH_LINE_T, false,
                  wxT( "Cannot test line segment for overlap." ) );
 
     wxPoint firstSeg   = m_end - m_start;
@@ -460,7 +460,7 @@ SCH_LINE* SCH_LINE::MergeOverlap( SCH_SCREEN* aScreen, SCH_LINE* aLine, bool aCh
         return lhs.x < rhs.x;
     };
 
-    wxCHECK_MSG( aLine != NULL && aLine->Type() == SCH_LINE_T, NULL,
+    wxCHECK_MSG( aLine != nullptr && aLine->Type() == SCH_LINE_T, nullptr,
                  wxT( "Cannot test line segment for overlap." ) );
 
     if( this == aLine || GetLayer() != aLine->GetLayer() )

@@ -2,7 +2,7 @@
  * KiRouter - a push-and-(sometimes-)shove PCB router
  *
  * Copyright (C) 2013-2015 CERN
- * Copyright (C) 2016 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2016-2021 KiCad Developers, see AUTHORS.txt for contributors.
  * Author: Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  *
  * This program is free software: you can redistribute it and/or modify it
@@ -34,10 +34,10 @@ namespace PNS {
 MEANDER_PLACER::MEANDER_PLACER( ROUTER* aRouter ) :
     MEANDER_PLACER_BASE( aRouter )
 {
-    m_currentNode = NULL;
+    m_currentNode = nullptr;
 
     // Init temporary variables (do not leave uninitialized members)
-    m_initialSegment = NULL;
+    m_initialSegment = nullptr;
     m_lastLength = 0;
     m_lastStatus = TOO_SHORT;
 }
@@ -122,12 +122,20 @@ bool MEANDER_PLACER::doMove( const VECTOR2I& aP, ITEM* aEndItem, long long int a
     m_result.SetWidth( m_originLine.Width() );
     m_result.SetBaselineOffset( 0 );
 
-    const std::vector<ssize_t>& tunedShapes = tuned.CShapes();
-
     for( int i = 0; i < tuned.SegmentCount(); i++ )
     {
-        if( tunedShapes[i] >= 0 )
+        if( tuned.IsArcSegment( i ) )
+        {
+            ssize_t arcIndex = tuned.ArcIndex( i );
+            m_result.AddArc( tuned.Arc( arcIndex ) );
+            i = tuned.NextShape( i );
+
+            // NextShape will return -1 if last shape
+            if( i < 0 )
+                i = tuned.SegmentCount();
+
             continue;
+        }
 
         const SEG s = tuned.CSegment( i );
         m_result.AddCorner( s.A );
@@ -170,7 +178,8 @@ bool MEANDER_PLACER::doMove( const VECTOR2I& aP, ITEM* aEndItem, long long int a
 
         m_lastLength += tuned.Length();
 
-        int comp = compareWithTolerance( m_lastLength - aTargetLength, 0, m_settings.m_lengthTolerance );
+        int comp = compareWithTolerance( m_lastLength - aTargetLength, 0,
+                                         m_settings.m_lengthTolerance );
 
         if( comp > 0 )
             m_lastStatus = TOO_LONG;
@@ -221,7 +230,7 @@ bool MEANDER_PLACER::CommitPlacement()
     if( m_currentNode )
         Router()->CommitRouting( m_currentNode );
 
-    m_currentNode = NULL;
+    m_currentNode = nullptr;
     return true;
 }
 

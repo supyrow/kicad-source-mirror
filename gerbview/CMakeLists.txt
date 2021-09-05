@@ -18,6 +18,8 @@ include_directories(
 set( DIALOGS_SRCS
     dialogs/panel_gerbview_display_options.cpp
     dialogs/panel_gerbview_display_options_base.cpp
+    dialogs/panel_gerbview_excellon_settings.cpp
+    dialogs/panel_gerbview_excellon_settings_base.cpp
     dialogs/panel_gerbview_settings.cpp
     dialogs/panel_gerbview_settings_base.cpp
     dialogs/dialog_layers_select_to_pcb.cpp
@@ -96,7 +98,7 @@ if( APPLE )
         MACOSX_PACKAGE_LOCATION Resources
         )
     set( MACOSX_BUNDLE_ICON_FILE gerbview.icns )
-    set( MACOSX_BUNDLE_GUI_IDENTIFIER org.kicad-pcb.kicad )
+    set( MACOSX_BUNDLE_GUI_IDENTIFIER org.kicad.kicad )
     set( MACOSX_BUNDLE_NAME gerbview )
 endif()
 
@@ -210,4 +212,11 @@ else()
         DESTINATION ${KICAD_BIN}
         COMPONENT binary
         )
+endif()
+
+
+if( KICAD_WIN32_INSTALL_PDBS )
+    # Get the PDBs to copy over for MSVC
+    install(FILES $<TARGET_PDB_FILE:gerbview> DESTINATION ${KICAD_BIN})
+    install(FILES $<TARGET_PDB_FILE:gerbview_kiface> DESTINATION ${KICAD_BIN})
 endif()

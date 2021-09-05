@@ -27,7 +27,7 @@
 #include <core/typeinfo.h>
 #include <core/optional.h>
 #include <core/minoptmax.h>
-#include <layers_id_colors_and_visibility.h>
+#include <layer_ids.h>
 #include <netclass.h>
 #include <libeval_compiler/libeval_compiler.h>
 #include <wx/intl.h>
@@ -124,6 +124,8 @@ class DRC_CONSTRAINT
 
     void SetParentRule( DRC_RULE *aParentRule ) { m_parentRule = aParentRule; }
     DRC_RULE* GetParentRule() const { return m_parentRule; }
+
+    void SetName( const wxString& aName ) { m_name = aName; }
 
     wxString GetName() const
     {

@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2019-2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2019-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -36,14 +36,15 @@
 #include <pcbnew/drc/drc_rule_parser.h>
 #include <pcbnew/drc/drc_test_provider.h>
 #include <pcbnew/pcb_expr_evaluator.h>
+#include <board_design_settings.h>
 
-#include <kicad_string.h>
+#include <string_utils.h>
 
 #include <connectivity/connectivity_data.h>
 #include <connectivity/connectivity_algo.h>
 
 #include <reporter.h>
-#include <widgets/progress_reporter.h>
+#include <widgets/progress_reporter_base.h>
 
 #include <project.h>
 #include <settings/settings_manager.h>
@@ -55,7 +56,7 @@
 
 #include "drc_proto.h"
 
-PROJECT_CONTEXT loadKicadProject( wxString filename, OPT<wxString> rulesFilePath )
+PROJECT_CONTEXT loadKicadProject( const wxString& filename, OPT<wxString> rulesFilePath )
 {
    PROJECT_CONTEXT rv;
 
@@ -70,8 +71,6 @@ PROJECT_CONTEXT loadKicadProject( wxString filename, OPT<wxString> rulesFilePath
     brdName.SetExt( KiCadPcbFileExtension );
     schName.SetExt( KiCadSchematicFileExtension );
     ruleFileName.SetExt( DesignRulesFileExtension );
-
-
 
     brdName.MakeAbsolute();
     schName.MakeAbsolute();
@@ -88,8 +87,7 @@ PROJECT_CONTEXT loadKicadProject( wxString filename, OPT<wxString> rulesFilePath
     if( rulesFilePath )
         rv.rulesFilePath = *rulesFilePath;
     else
-    rv.rulesFilePath = ruleFileName.GetFullPath();
-
+        rv.rulesFilePath = ruleFileName.GetFullPath();
 
     if( wxFileExists( schName.GetFullPath() ) )
     {

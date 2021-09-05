@@ -44,7 +44,7 @@ class array; // Forward declaration
 
 PYBIND11_NAMESPACE_BEGIN(detail)
 
-template <> struct handle_type_name<array> { static constexpr auto name = _("numpy.ndarray"); };
+template <> struct handle_type_name<array> { static constexpr auto name = _x("numpy.ndarray"); };
 
 template <typename type, typename SFINAE = void> struct npy_format_descriptor;
 
@@ -164,10 +164,10 @@ struct npy_api {
             NPY_ULONG_, NPY_ULONGLONG_, NPY_UINT_),
     };
 
-    typedef struct {
+    struct PyArray_Dims {
         Py_intptr_t *ptr;
         int len;
-    } PyArray_Dims;
+    };
 
     static npy_api& get() {
         static npy_api api = lookup();
@@ -287,7 +287,7 @@ template <typename T> struct array_info_scalar {
     using type = T;
     static constexpr bool is_array = false;
     static constexpr bool is_empty = false;
-    static constexpr auto extents = _("");
+    static constexpr auto extents = _x("");
     static void append_extents(list& /* shape */) { }
 };
 // Computes underlying type and a comma-separated list of extents for array
@@ -306,8 +306,8 @@ template <typename T, size_t N> struct array_info<std::array<T, N>> {
         array_info<T>::append_extents(shape);
     }
 
-    static constexpr auto extents = _<array_info<T>::is_array>(
-        concat(_<N>(), array_info<T>::extents), _<N>()
+    static constexpr auto extents = _x<array_info<T>::is_array>(
+        concat(_x<N>(), array_info<T>::extents), _x<N>()
     );
 };
 // For numpy we have special handling for arrays of characters, so we don't include
@@ -319,14 +319,13 @@ template <typename T> using remove_all_extents_t = typename array_info<T>::type;
 
 template <typename T> using is_pod_struct = all_of<
     std::is_standard_layout<T>,     // since we're accessing directly in memory we need a standard layout type
-#if !defined(__GNUG__) || defined(_LIBCPP_VERSION) || defined(_GLIBCXX_USE_CXX11_ABI)
-    // _GLIBCXX_USE_CXX11_ABI indicates that we're using libstdc++ from GCC 5 or newer, independent
-    // of the actual compiler (Clang can also use libstdc++, but it always defines __GNUC__ == 4).
-    std::is_trivially_copyable<T>,
-#else
-    // GCC 4 doesn't implement is_trivially_copyable, so approximate it
+#if defined(__GLIBCXX__) && (__GLIBCXX__ < 20150422 || __GLIBCXX__ == 20150623 || __GLIBCXX__ == 20150626 || __GLIBCXX__ == 20160803)
+    // libstdc++ < 5 (including versions 4.8.5, 4.9.3 and 4.9.4 which were released after 5)
+    // don't implement is_trivially_copyable, so approximate it
     std::is_trivially_destructible<T>,
     satisfies_any_of<T, std::has_trivial_copy_constructor, std::has_trivial_copy_assign>,
+#else
+    std::is_trivially_copyable<T>,
 #endif
     satisfies_none_of<T, std::is_reference, std::is_array, is_std_array, std::is_arithmetic, is_complex, std::is_enum>
 >;
@@ -466,7 +465,9 @@ public:
     explicit dtype(const buffer_info &info) {
         dtype descr(_dtype_from_pep3118()(PYBIND11_STR_TYPE(info.format)));
         // If info.itemsize == 0, use the value calculated from the format string
-        m_ptr = descr.strip_padding(info.itemsize ? info.itemsize : descr.itemsize()).release().ptr();
+        m_ptr = descr.strip_padding(info.itemsize != 0 ? info.itemsize : descr.itemsize())
+                    .release()
+                    .ptr();
     }
 
     explicit dtype(const std::string &format) {
@@ -487,7 +488,7 @@ public:
     /// This is essentially the same as calling numpy.dtype(args) in Python.
     static dtype from_args(object args) {
         PyObject *ptr = nullptr;
-        if (!detail::npy_api::get().PyArray_DescrConverter_(args.ptr(), &ptr) || !ptr)
+        if ((detail::npy_api::get().PyArray_DescrConverter_(args.ptr(), &ptr) == 0) || !ptr)
             throw error_already_set();
         return reinterpret_steal<dtype>(ptr);
     }
@@ -543,7 +544,7 @@ private:
             auto name = spec[0].cast<pybind11::str>();
             auto format = spec[1].cast<tuple>()[0].cast<dtype>();
             auto offset = spec[1].cast<tuple>()[1].cast<pybind11::int_>();
-            if (!len(name) && format.kind() == 'V')
+            if ((len(name) == 0u) && format.kind() == 'V')
                 continue;
             field_descriptors.push_back({(PYBIND11_STR_TYPE) name, format.strip_padding(format.itemsize()), offset});
         }
@@ -873,11 +874,12 @@ public:
         : array(std::move(shape), std::move(strides), ptr, base) { }
 
     explicit array_t(ShapeContainer shape, const T *ptr = nullptr, handle base = handle())
-        : array_t(private_ctor{}, std::move(shape),
-                ExtraFlags & f_style
-                ? detail::f_strides(*shape, itemsize())
-                : detail::c_strides(*shape, itemsize()),
-                ptr, base) { }
+        : array_t(private_ctor{},
+                  std::move(shape),
+                  (ExtraFlags & f_style) != 0 ? detail::f_strides(*shape, itemsize())
+                                              : detail::c_strides(*shape, itemsize()),
+                  ptr,
+                  base) {}
 
     explicit array_t(ssize_t count, const T *ptr = nullptr, handle base = handle())
         : array({count}, {}, ptr, base) { }
@@ -988,7 +990,7 @@ template <typename T>
 struct format_descriptor<T, detail::enable_if_t<detail::array_info<T>::is_array>> {
     static std::string format() {
         using namespace detail;
-        static constexpr auto extents = _("(") + array_info<T>::extents + _(")");
+        static constexpr auto extents = _x("(") + array_info<T>::extents + _x(")");
         return extents.text + format_descriptor<remove_all_extents_t<T>>::format();
     }
 };
@@ -1023,23 +1025,28 @@ struct npy_format_descriptor_name;
 
 template <typename T>
 struct npy_format_descriptor_name<T, enable_if_t<std::is_integral<T>::value>> {
-    static constexpr auto name = _<std::is_same<T, bool>::value>(
-        _("bool"), _<std::is_signed<T>::value>("numpy.int", "numpy.uint") + _<sizeof(T)*8>()
+    static constexpr auto name = _x<std::is_same<T, bool>::value>(
+        _x("bool"), _x<std::is_signed<T>::value>("numpy.int", "numpy.uint") + _x<sizeof(T)*8>()
     );
 };
 
 template <typename T>
 struct npy_format_descriptor_name<T, enable_if_t<std::is_floating_point<T>::value>> {
-    static constexpr auto name = _<std::is_same<T, float>::value || std::is_same<T, double>::value>(
-        _("numpy.float") + _<sizeof(T)*8>(), _("numpy.longdouble")
+    static constexpr auto name = _x<std::is_same<T, float>::value
+                                   || std::is_same<T, const float>::value
+                                   || std::is_same<T, double>::value
+                                   || std::is_same<T, const double>::value>(
+        _x("numpy.float") + _x<sizeof(T)*8>(), _x("numpy.longdouble")
     );
 };
 
 template <typename T>
 struct npy_format_descriptor_name<T, enable_if_t<is_complex<T>::value>> {
-    static constexpr auto name = _<std::is_same<typename T::value_type, float>::value
-                                   || std::is_same<typename T::value_type, double>::value>(
-        _("numpy.complex") + _<sizeof(typename T::value_type)*16>(), _("numpy.longcomplex")
+    static constexpr auto name = _x<std::is_same<typename T::value_type, float>::value
+                                   || std::is_same<typename T::value_type, const float>::value
+                                   || std::is_same<typename T::value_type, double>::value
+                                   || std::is_same<typename T::value_type, const double>::value>(
+        _x("numpy.complex") + _x<sizeof(typename T::value_type)*16>(), _x("numpy.longcomplex")
     );
 };
 
@@ -1067,7 +1074,7 @@ public:
 };
 
 #define PYBIND11_DECL_CHAR_FMT \
-    static constexpr auto name = _("S") + _<N>(); \
+    static constexpr auto name = _x("S") + _x<N>(); \
     static pybind11::dtype dtype() { return pybind11::dtype(std::string("S") + std::to_string(N)); }
 template <size_t N> struct npy_format_descriptor<char[N]> { PYBIND11_DECL_CHAR_FMT };
 template <size_t N> struct npy_format_descriptor<std::array<char, N>> { PYBIND11_DECL_CHAR_FMT };
@@ -1079,7 +1086,7 @@ private:
 public:
     static_assert(!array_info<T>::is_empty, "Zero-sized arrays are not supported");
 
-    static constexpr auto name = _("(") + array_info<T>::extents + _(")") + base_descr::name;
+    static constexpr auto name = _x("(") + array_info<T>::extents + _x(")") + base_descr::name;
     static pybind11::dtype dtype() {
         list shape;
         array_info<T>::append_extents(shape);
@@ -1287,7 +1294,7 @@ public:
     using value_type = container_type::value_type;
     using size_type = container_type::size_type;
 
-    common_iterator() : p_ptr(0), m_strides() {}
+    common_iterator() : m_strides() {}
 
     common_iterator(void* ptr, const container_type& strides, const container_type& shape)
         : p_ptr(reinterpret_cast<char*>(ptr)), m_strides(strides.size()) {
@@ -1308,7 +1315,7 @@ public:
     }
 
 private:
-    char* p_ptr;
+    char *p_ptr{0};
     container_type m_strides;
 };
 
@@ -1336,9 +1343,8 @@ public:
             if (++m_index[i] != m_shape[i]) {
                 increment_common_iterator(i);
                 break;
-            } else {
-                m_index[i] = 0;
             }
+            m_index[i] = 0;
         }
         return *this;
     }
@@ -1489,8 +1495,7 @@ struct vectorize_returned_array {
     static Type create(broadcast_trivial trivial, const std::vector<ssize_t> &shape) {
         if (trivial == broadcast_trivial::f_trivial)
             return array_t<Return, array::f_style>(shape);
-        else
-            return array_t<Return>(shape);
+        return array_t<Return>(shape);
     }
 
     static Return *mutable_data(Type &array) {
@@ -1663,7 +1668,7 @@ vectorize_extractor(const Func &f, Return (*) (Args ...)) {
 }
 
 template <typename T, int Flags> struct handle_type_name<array_t<T, Flags>> {
-    static constexpr auto name = _("numpy.ndarray[") + npy_format_descriptor<T>::name + _("]");
+    static constexpr auto name = _x("numpy.ndarray[") + npy_format_descriptor<T>::name + _x("]");
 };
 
 PYBIND11_NAMESPACE_END(detail)

@@ -2,6 +2,7 @@
  * KiRouter - a push-and-(sometimes-)shove PCB router
  *
  * Copyright (C) 2013-2020 CERN
+ * Copyright (C) 2021 KiCad Developers, see AUTHORS.txt for contributors.
  * Author: Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  *
  * This program is free software: you can redistribute it and/or modify it
@@ -20,6 +21,7 @@
 
 #include <memory>
 
+#include "pns_arc.h"
 #include "pns_line.h"
 #include "pns_solid.h"
 #include "pns_router.h"
@@ -45,6 +47,8 @@ COMPONENT_DRAGGER::~COMPONENT_DRAGGER()
 
 bool COMPONENT_DRAGGER::Start( const VECTOR2I& aP, ITEM_SET& aPrimitives )
 {
+    assert( m_world );
+
     m_currentNode         = nullptr;
     m_initialDraggedItems = aPrimitives;
     m_p0                  = aP;
@@ -52,12 +56,29 @@ bool COMPONENT_DRAGGER::Start( const VECTOR2I& aP, ITEM_SET& aPrimitives )
     std::unordered_set<LINKED_ITEM*> seenItems;
 
     auto addLinked =
-            [&]( SOLID* aSolid, LINKED_ITEM* aItem, VECTOR2I aOffset = {} )
+            [&]( SOLID* aSolid, JOINT* aJoint, LINKED_ITEM* aItem, VECTOR2I aOffset = {} )
             {
                 if( seenItems.count( aItem ) )
                     return;
 
                 seenItems.insert( aItem );
+
+                // Segments that go directly between two linked pads are special-cased
+                VECTOR2I otherEnd = ( aJoint->Pos() == aItem->Anchor( 0 ) ) ?
+                                    aItem->Anchor( 1 ) : aItem->Anchor( 0 );
+                JOINT* otherJoint = m_world->FindJoint( otherEnd, aItem->Layer(), aItem->Net() );
+
+                if( otherJoint && otherJoint->LinkCount( ITEM::SOLID_T ) )
+                {
+                    for( const ITEM_SET::ENTRY& otherItem : otherJoint->LinkList() )
+                    {
+                        if( aPrimitives.Contains( otherItem.item ) )
+                        {
+                            m_fixedItems.insert( aItem );
+                            return;
+                        }
+                    }
+                }
 
                 int segIndex;
                 DRAGGED_CONNECTION cn;
@@ -65,6 +86,28 @@ bool COMPONENT_DRAGGER::Start( const VECTOR2I& aP, ITEM_SET& aPrimitives )
                 cn.origLine    = m_world->AssembleLine( aItem, &segIndex );
                 cn.attachedPad = aSolid;
                 cn.offset      = aOffset;
+
+                // Lines that go directly between two linked pads are also special-cased
+                const SHAPE_LINE_CHAIN& line = cn.origLine.CLine();
+                JOINT* jA = m_world->FindJoint( line.CPoint( 0 ), aItem->Layer(), aItem->Net() );
+                JOINT* jB = m_world->FindJoint( line.CPoint( -1 ), aItem->Layer(), aItem->Net() );
+
+                wxASSERT( jA == aJoint || jB == aJoint );
+                JOINT* jSearch = ( jA == aJoint ) ? jB : jA;
+
+                if( jSearch && jSearch->LinkCount( ITEM::SOLID_T ) )
+                {
+                    for( const ITEM_SET::ENTRY& otherItem : jSearch->LinkList() )
+                    {
+                        if( aPrimitives.Contains( otherItem.item ) )
+                        {
+                            for( ITEM* item : cn.origLine.Links() )
+                                m_fixedItems.insert( item );
+
+                            return;
+                        }
+                    }
+                }
 
                 m_conns.push_back( cn );
             };
@@ -85,7 +128,7 @@ bool COMPONENT_DRAGGER::Start( const VECTOR2I& aP, ITEM_SET& aPrimitives )
         for( auto link : jt->LinkList() )
         {
             if( link.item->OfKind( ITEM::SEGMENT_T | ITEM::ARC_T ) )
-                addLinked( solid, static_cast<LINKED_ITEM*>( link.item ) );
+                addLinked( solid, jt, static_cast<LINKED_ITEM*>( link.item ) );
         }
 
         std::vector<JOINT*> extraJoints;
@@ -100,7 +143,7 @@ bool COMPONENT_DRAGGER::Start( const VECTOR2I& aP, ITEM_SET& aPrimitives )
                 LINKED_ITEM* li = static_cast<LINKED_ITEM*>( extraJoint->LinkList()[0].item );
 
                 if( li->Collide( solid, nullptr, m_world ) )
-                    addLinked( solid, li, extraJoint->Pos() - solid->Pos() );
+                    addLinked( solid, extraJoint, li, extraJoint->Pos() - solid->Pos() );
             }
         }
     }
@@ -108,8 +151,11 @@ bool COMPONENT_DRAGGER::Start( const VECTOR2I& aP, ITEM_SET& aPrimitives )
     return true;
 }
 
+
 bool COMPONENT_DRAGGER::Drag( const VECTOR2I& aP )
 {
+    assert( m_world );
+
     m_world->KillChildren();
     m_currentNode = m_world->Branch();
 
@@ -138,6 +184,44 @@ bool COMPONENT_DRAGGER::Drag( const VECTOR2I& aP )
         }
     }
 
+    for( ITEM* item : m_fixedItems )
+    {
+        m_currentNode->Remove( item );
+
+        switch( item->Kind() )
+        {
+        case ITEM::SEGMENT_T:
+        {
+            SEGMENT*                 s = static_cast<SEGMENT*>( item );
+            std::unique_ptr<SEGMENT> s_new( s->Clone() );
+
+            SEG orig = s->Seg();
+            s_new->SetEnds( aP - m_p0 + orig.A, aP - m_p0 + orig.B );
+
+            m_draggedItems.Add( s_new.get() );
+            m_currentNode->Add( std::move( s_new ) );
+
+            break;
+        }
+
+        case ITEM::ARC_T:
+        {
+            ARC* a = static_cast<ARC*>( item );
+            std::unique_ptr<ARC> a_new( a->Clone() );
+
+            SHAPE_ARC& arc = a_new->Arc();
+            arc.Move( aP - m_p0 );
+
+            m_draggedItems.Add( a_new.get() );
+            m_currentNode->Add( std::move( a_new ) );
+            break;
+        }
+
+        default:
+            wxFAIL_MSG( "Unexpected item type in COMPONENT_DRAGGER::m_fixedItems" );
+        }
+    }
+
     for( auto& cn : m_conns )
     {
         auto l_new( cn.origLine );
@@ -155,6 +239,7 @@ bool COMPONENT_DRAGGER::Drag( const VECTOR2I& aP )
 
     return true;
 }
+
 
 bool COMPONENT_DRAGGER::FixRoute()
 {
@@ -179,10 +264,12 @@ bool COMPONENT_DRAGGER::FixRoute()
     return false;
 }
 
+
 NODE* COMPONENT_DRAGGER::CurrentNode() const
 {
     return m_currentNode ? m_currentNode : m_world;
 }
+
 
 const ITEM_SET COMPONENT_DRAGGER::Traces()
 {

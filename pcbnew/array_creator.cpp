@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Created on: 11 Mar 2016, author John Beard
- * Copyright (C) 1992-2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2016-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -24,11 +24,10 @@
 
 #include "array_creator.h"
 
-#include <array_pad_name_provider.h>
+#include <array_pad_number_provider.h>
 #include <board_commit.h>
 #include <pcb_group.h>
-#include <pad_naming.h>
-
+#include <pad.h>
 #include <dialogs/dialog_create_array.h>
 
 /**
@@ -64,12 +63,12 @@ void ARRAY_CREATOR::Invoke()
 
     int ret = dialog.ShowModal();
 
-    if( ret != wxID_OK || array_opts == NULL )
+    if( ret != wxID_OK || array_opts == nullptr )
         return;
 
     BOARD_COMMIT commit( &m_parent );
 
-    ARRAY_PAD_NAME_PROVIDER pad_name_provider( fp, *array_opts );
+    ARRAY_PAD_NUMBER_PROVIDER pad_number_provider( fp, *array_opts );
 
     for ( int i = 0; i < m_selection.Size(); ++i )
     {
@@ -108,6 +107,7 @@ void ARRAY_CREATOR::Invoke()
                     case PCB_SHAPE_T:
                     case PCB_TEXT_T:
                     case PCB_TRACE_T:
+                    case PCB_ARC_T:
                     case PCB_VIA_T:
                     case PCB_DIM_ALIGNED_T:
                     case PCB_DIM_CENTER_T:
@@ -184,10 +184,10 @@ void ARRAY_CREATOR::Invoke()
                 {
                     PAD& pad = static_cast<PAD&>( *this_item );
 
-                    if( PAD_NAMING::PadCanHaveName( pad ) )
+                    if( pad.CanHaveNumber() )
                     {
-                        wxString newName = pad_name_provider.GetNextPadName();
-                        pad.SetName( newName );
+                        wxString newNumber = pad_number_provider.GetNextPadNumber();
+                        pad.SetNumber( newNumber );
                     }
                 }
             }

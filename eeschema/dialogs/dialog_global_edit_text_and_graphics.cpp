@@ -23,7 +23,7 @@
 
 #include <connection_graph.h>
 #include <dialog_global_edit_text_and_graphics_base.h>
-#include <kicad_string.h>
+#include <string_utils.h>
 #include <sch_symbol.h>
 #include <sch_connection.h>
 #include <sch_edit_frame.h>
@@ -72,6 +72,7 @@ class DIALOG_GLOBAL_EDIT_TEXT_AND_GRAPHICS : public DIALOG_GLOBAL_EDIT_TEXT_AND_
 
     UNIT_BINDER            m_textSize;
     UNIT_BINDER            m_lineWidth;
+    UNIT_BINDER            m_junctionSize;
 
     bool                   m_appendUndo;
 
@@ -94,14 +95,15 @@ protected:
     bool TransferDataFromWindow() override;
 
     void visitItem( const SCH_SHEET_PATH& aSheetPath, SCH_ITEM* aItem );
-    void processItem( const SCH_SHEET_PATH& aSheetPath, SCH_ITEM* aItem, SCH_ITEM* aParentItem );
+    void processItem( const SCH_SHEET_PATH& aSheetPath, SCH_ITEM* aItem );
 };
 
 
 DIALOG_GLOBAL_EDIT_TEXT_AND_GRAPHICS::DIALOG_GLOBAL_EDIT_TEXT_AND_GRAPHICS( SCH_EDIT_FRAME* parent ) :
         DIALOG_GLOBAL_EDIT_TEXT_AND_GRAPHICS_BASE( parent ),
         m_textSize( parent, m_textSizeLabel, m_textSizeCtrl, m_textSizeUnits, true ),
-        m_lineWidth( parent, m_lineWidthLabel, m_LineWidthCtrl, m_lineWidthUnits, true )
+        m_lineWidth( parent, m_lineWidthLabel, m_LineWidthCtrl, m_lineWidthUnits, true ),
+        m_junctionSize( parent, m_dotSizeLabel, m_dotSizeCtrl, m_dotSizeUnits, true )
 {
     m_parent = parent;
     m_appendUndo = false;
@@ -117,6 +119,8 @@ DIALOG_GLOBAL_EDIT_TEXT_AND_GRAPHICS::DIALOG_GLOBAL_EDIT_TEXT_AND_GRAPHICS( SCH_
     m_colorSwatch->SetDefaultColor( COLOR4D::UNSPECIFIED );
     m_bgColorSwatch->SetSwatchColor( COLOR4D::UNSPECIFIED, false );
     m_bgColorSwatch->SetDefaultColor( COLOR4D::UNSPECIFIED );
+    m_dotColorSwatch->SetSwatchColor( COLOR4D::UNSPECIFIED, false );
+    m_dotColorSwatch->SetDefaultColor( COLOR4D::UNSPECIFIED );
 
     m_sdbSizerButtonsOK->SetDefault();
 
@@ -211,8 +215,10 @@ bool DIALOG_GLOBAL_EDIT_TEXT_AND_GRAPHICS::TransferDataToWindow()
     m_Visible->Set3StateValue( wxCHK_UNDETERMINED );
     m_lineWidth.SetValue( INDETERMINATE_ACTION );
     m_lineStyle->SetStringSelection( INDETERMINATE_ACTION );
+    m_junctionSize.SetValue( INDETERMINATE_ACTION );
     m_setColor->SetValue( false );
     m_setBgColor->SetValue( false );
+    m_setDotColor->SetValue( false );
 
     return true;
 }
@@ -224,18 +230,18 @@ void DIALOG_GLOBAL_EDIT_TEXT_AND_GRAPHICS::OnUpdateUI( wxUpdateUIEvent&  )
 
 
 void DIALOG_GLOBAL_EDIT_TEXT_AND_GRAPHICS::processItem( const SCH_SHEET_PATH& aSheetPath,
-                                                        SCH_ITEM*             aItem,
-                                                        SCH_ITEM* aParentItem = nullptr )
+                                                        SCH_ITEM* aItem )
 {
-    if( m_selectedFilterOpt->GetValue() && !m_selection.Contains( aItem )
-        && ( aParentItem == nullptr || !m_selection.Contains( aParentItem ) ) )
+    if( m_selectedFilterOpt->GetValue() )
     {
-        return;
+        if( !aItem->IsSelected() && ( !aItem->GetParent() || !aItem->GetParent()->IsSelected() ) )
+            return;
     }
 
-    EDA_TEXT* eda_text = dynamic_cast<EDA_TEXT*>( aItem );
-    SCH_TEXT* sch_text = dynamic_cast<SCH_TEXT*>( aItem );
-    SCH_LINE* lineItem = dynamic_cast<SCH_LINE*>( aItem );
+    EDA_TEXT*     eda_text = dynamic_cast<EDA_TEXT*>( aItem );
+    SCH_TEXT*     sch_text = dynamic_cast<SCH_TEXT*>( aItem );
+    SCH_LINE*     lineItem = dynamic_cast<SCH_LINE*>( aItem );
+    SCH_JUNCTION* junction = dynamic_cast<SCH_JUNCTION*>( aItem );
 
     m_parent->SaveCopyInUndoList( aSheetPath.LastScreen(), aItem, UNDO_REDO::CHANGED, m_appendUndo );
     m_appendUndo = true;
@@ -284,6 +290,15 @@ void DIALOG_GLOBAL_EDIT_TEXT_AND_GRAPHICS::processItem( const SCH_SHEET_PATH& aS
         if( m_setColor->GetValue() )
             lineItem->SetLineColor( m_colorSwatch->GetSwatchColor() );
     }
+
+    if( junction )
+    {
+        if( !m_junctionSize.IsIndeterminate() )
+            junction->SetDiameter( m_junctionSize.GetValue() );
+
+        if( m_setDotColor->GetValue() )
+            junction->SetColor( m_dotColorSwatch->GetSwatchColor() );
+    }
 }
 
 void DIALOG_GLOBAL_EDIT_TEXT_AND_GRAPHICS::visitItem( const SCH_SHEET_PATH& aSheetPath,
@@ -315,7 +330,7 @@ void DIALOG_GLOBAL_EDIT_TEXT_AND_GRAPHICS::visitItem( const SCH_SHEET_PATH& aShe
     {
         if( aItem->Type() == SCH_SYMBOL_T )
         {
-            wxString id = static_cast<SCH_SYMBOL*>( aItem )->GetLibId().Format();
+            wxString id = UnescapeString( static_cast<SCH_SYMBOL*>( aItem )->GetLibId().Format() );
 
             if( !WildCompareString( m_symbolFilter->GetValue(), id, false ) )
                 return;
@@ -326,7 +341,7 @@ void DIALOG_GLOBAL_EDIT_TEXT_AND_GRAPHICS::visitItem( const SCH_SHEET_PATH& aShe
     {
         if( aItem->Type() == SCH_SYMBOL_T )
         {
-            bool isPower = static_cast<SCH_SYMBOL*>( aItem )->GetPartRef()->IsPower();
+            bool isPower = static_cast<SCH_SYMBOL*>( aItem )->GetLibSymbolRef()->IsPower();
 
             if( isPower != ( m_typeFilter->GetSelection() == 1 ) )
                 return;
@@ -342,10 +357,10 @@ void DIALOG_GLOBAL_EDIT_TEXT_AND_GRAPHICS::visitItem( const SCH_SHEET_PATH& aShe
         SCH_SYMBOL* symbol = (SCH_SYMBOL*) aItem;
 
         if( m_references->GetValue() )
-            processItem( aSheetPath, symbol->GetField( REFERENCE_FIELD ), aItem );
+            processItem( aSheetPath, symbol->GetField( REFERENCE_FIELD ) );
 
         if( m_values->GetValue() )
-            processItem( aSheetPath, symbol->GetField( VALUE_FIELD ), aItem );
+            processItem( aSheetPath, symbol->GetField( VALUE_FIELD ) );
 
         if( m_otherFields->GetValue() )
         {
@@ -357,7 +372,7 @@ void DIALOG_GLOBAL_EDIT_TEXT_AND_GRAPHICS::visitItem( const SCH_SHEET_PATH& aShe
                 if( !m_fieldnameFilterOpt->GetValue() || m_fieldnameFilter->GetValue().IsEmpty()
                         || WildCompareString( m_fieldnameFilter->GetValue(), fieldName, false ) )
                 {
-                    processItem( aSheetPath, &field, aItem );
+                    processItem( aSheetPath, &field );
                 }
             }
         }
@@ -367,7 +382,7 @@ void DIALOG_GLOBAL_EDIT_TEXT_AND_GRAPHICS::visitItem( const SCH_SHEET_PATH& aShe
         SCH_SHEET* sheet = static_cast<SCH_SHEET*>( aItem );
 
         if( m_sheetTitles->GetValue() )
-            processItem( aSheetPath, &sheet->GetFields()[SHEETNAME], aItem );
+            processItem( aSheetPath, &sheet->GetFields()[SHEETNAME] );
 
         if( m_sheetFields->GetValue() )
         {
@@ -381,7 +396,7 @@ void DIALOG_GLOBAL_EDIT_TEXT_AND_GRAPHICS::visitItem( const SCH_SHEET_PATH& aShe
                 if( !m_fieldnameFilterOpt->GetValue() || m_fieldnameFilter->GetValue().IsEmpty()
                         || WildCompareString( m_fieldnameFilter->GetValue(), fieldName, false ) )
                 {
-                    processItem( aSheetPath, &field, aItem );
+                    processItem( aSheetPath, &field );
                 }
             }
         }
@@ -404,18 +419,14 @@ void DIALOG_GLOBAL_EDIT_TEXT_AND_GRAPHICS::visitItem( const SCH_SHEET_PATH& aShe
 
         for( SCH_ITEM* item : junction->ConnectedItems( aSheetPath ) )
         {
-            if( item->GetLayer() == LAYER_BUS )
+            if( item->GetLayer() == LAYER_BUS && m_buses->GetValue() )
             {
-                if( m_buses->GetValue() && m_setColor->GetValue() )
-                    junction->SetColor( m_colorSwatch->GetSwatchColor() );
-
+                processItem( aSheetPath, aItem );
                 break;
             }
-            else if( item->GetLayer() == LAYER_WIRE )
+            else if( item->GetLayer() == LAYER_WIRE && m_wires->GetValue() )
             {
-                if( m_wires->GetValue() && m_setColor->GetValue() )
-                    junction->SetColor( m_colorSwatch->GetSwatchColor() );
-
+                processItem( aSheetPath, aItem );
                 break;
             }
         }
@@ -441,6 +452,7 @@ bool DIALOG_GLOBAL_EDIT_TEXT_AND_GRAPHICS::TransferDataFromWindow()
         return false;
 
     SCH_SHEET_PATH currentSheet = m_parent->GetCurrentSheet();
+    m_appendUndo = false;
 
     // Go through sheets
     for( const SCH_SHEET_PATH& sheetPath : m_parent->Schematic().GetSheets() )
@@ -450,17 +462,16 @@ bool DIALOG_GLOBAL_EDIT_TEXT_AND_GRAPHICS::TransferDataFromWindow()
         if( screen )
         {
             m_parent->SetCurrentSheet( sheetPath );
-            m_appendUndo = false;
 
             for( SCH_ITEM* item : screen->Items() )
                 visitItem( sheetPath, item );
-
-            if( m_appendUndo )
-            {
-                m_parent->OnModify();
-                m_parent->HardRedraw();
-            }
         }
+    }
+
+    if( m_appendUndo )
+    {
+        m_parent->OnModify();
+        m_parent->HardRedraw();
     }
 
     // Reset the view to where we left the user

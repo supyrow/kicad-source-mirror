@@ -48,7 +48,7 @@ class PROPERTIES;
 class EE_SELECTION;
 class SCH_SEXPR_PLUGIN_CACHE;
 class LIB_SYMBOL;
-class PART_LIB;
+class SYMBOL_LIB;
 class BUS_ALIAS;
 
 /**
@@ -77,6 +77,11 @@ public:
     const wxString GetLibraryFileExtension() const override
     {
         return wxT( "kicad_sym" );
+    }
+
+    void SetProgressReporter( PROGRESS_REPORTER* aReporter ) override
+    {
+        m_progressReporter = aReporter;
     }
 
     /**
@@ -127,9 +132,9 @@ public:
 
     const wxString& GetError() const override { return m_error; }
 
-    static LIB_SYMBOL* ParsePart( LINE_READER& aReader,
-                                  int aVersion = SEXPR_SCHEMATIC_FILE_VERSION );
-    static void FormatPart( LIB_SYMBOL* aPart, OUTPUTFORMATTER& aFormatter );
+    static LIB_SYMBOL* ParseLibSymbol( LINE_READER& aReader,
+                                       int aVersion = SEXPR_SCHEMATIC_FILE_VERSION );
+    static void FormatLibSymbol( LIB_SYMBOL* aPart, OUTPUTFORMATTER& aFormatter );
 
 private:
     void loadHierarchy( SCH_SHEET* aSheet );
@@ -152,16 +157,18 @@ private:
     bool isBuffering( const PROPERTIES* aProperties );
 
 protected:
-    int                  m_version;    ///< Version of file being loaded.
-    int                  m_nextFreeFieldId;
+    int                     m_version;          ///< Version of file being loaded.
+    int                     m_nextFreeFieldId;
 
-    wxString             m_error;      ///< For throwing exceptions or errors on partial loads.
+    wxString                m_error;            ///< For throwing exceptions or errors on partial
+                                                ///<  loads.
+    PROGRESS_REPORTER*      m_progressReporter;
 
-    wxString             m_path;       ///< Root project path for loading child sheets.
-    std::stack<wxString> m_currentPath;///< Stack to maintain nested sheet paths
-    SCH_SHEET*           m_rootSheet;  ///< The root sheet of the schematic being loaded..
-    SCHEMATIC*           m_schematic;  ///< Passed to Load(), the schematic object being loaded
-    OUTPUTFORMATTER*     m_out;        ///< The output formatter for saving SCH_SCREEN objects.
+    wxString                m_path;             ///< Root project path for loading child sheets.
+    std::stack<wxString>    m_currentPath;      ///< Stack to maintain nested sheet paths
+    SCH_SHEET*              m_rootSheet;        ///< The root sheet of the schematic being loaded.
+    SCHEMATIC*              m_schematic;
+    OUTPUTFORMATTER*        m_out;              ///< The formatter for saving SCH_SCREEN objects.
     SCH_SEXPR_PLUGIN_CACHE* m_cache;
 
     /// initialize PLUGIN like a constructor would.

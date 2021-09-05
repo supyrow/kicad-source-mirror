@@ -27,16 +27,12 @@
 
 #include <unordered_map>
 #include <unordered_set>
-#include <vector>
 
 #include <eda_item.h>
-#include <plotter.h>      // for PLOT_DASH_TYPE definition
-
-#include <gal/color4d.h>
+#include <plotters/plotter.h>      // for PLOT_DASH_TYPE definition
 
 #include <default_values.h>
 #include <sch_sheet_path.h>
-#include <render_settings.h>
 #include <netclass.h>
 
 class CONNECTION_GRAPH;
@@ -155,7 +151,7 @@ typedef std::unordered_set<SCH_ITEM*> SCH_ITEM_SET;
 class STROKE_PARAMS
 {
 public:
-    STROKE_PARAMS( int aWidth = Mils2iu( DEFAULT_LINE_THICKNESS ),
+    STROKE_PARAMS( int aWidth = Mils2iu( DEFAULT_LINE_WIDTH_MILS ),
                    PLOT_DASH_TYPE aPlotStyle = PLOT_DASH_TYPE::DEFAULT,
                    const COLOR4D& aColor = COLOR4D::UNSPECIFIED ) :
             m_width( aWidth ),
@@ -181,9 +177,9 @@ public:
     }
 
 private:
-    int m_width;
+    int            m_width;
     PLOT_DASH_TYPE m_plotstyle;
-    COLOR4D m_color;
+    COLOR4D        m_color;
 };
 
 

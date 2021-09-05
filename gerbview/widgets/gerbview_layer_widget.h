@@ -24,10 +24,6 @@
  */
 
 
-/************************************************************/
-/* class_gerber_layer_widget.h : header for the layers manager */
-/************************************************************/
-
 #ifndef GERBER_LAYER_WIDGET_H
 #define GERBER_LAYER_WIDGET_H
 
@@ -46,6 +42,9 @@ public:
      */
     GERBER_LAYER_WIDGET( GERBVIEW_FRAME* aParent, wxWindow* aFocusOwner );
 
+    /**
+     * Rebuild Render for instance after the config is read.
+     */
     void ReFill();
 
     /**
@@ -55,10 +54,10 @@ public:
 
     //-----<implement LAYER_WIDGET abstract callback functions>-----------
     void OnLayerRightClick( wxMenu& aMenu ) override;
-    void OnLayerColorChange( int aLayer, COLOR4D aColor ) override;
+    void OnLayerColorChange( int aLayer, const COLOR4D& aColor ) override;
     bool OnLayerSelect( int aLayer ) override;
     void OnLayerVisible( int aLayer, bool isVisible, bool isFinal ) override;
-    void OnRenderColorChange( int aId, COLOR4D aColor ) override;
+    void OnRenderColorChange( int aId, const COLOR4D& aColor ) override;
     void OnRenderEnable( int aId, bool isEnabled ) override;
 
     /**

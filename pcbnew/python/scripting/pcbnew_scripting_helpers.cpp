@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2012 NBEE Embedded Systems, Miguel Angel Ajo <miguelangel@nbee.es>
- * Copyright (C) 1992-2017 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -41,19 +41,19 @@
 #include <drc/drc_item.h>
 #include <fp_lib_table.h>
 #include <io_mgr.h>
-#include <kicad_string.h>
+#include <string_utils.h>
 #include <macros.h>
 #include <pcbnew_scripting_helpers.h>
 #include <project.h>
 #include <settings/settings_manager.h>
+#include <specctra.h>
 #include <project/project_local_settings.h>
 #include <wildcards_and_files_ext.h>
 #include <locale_io.h>
 #include <wx/app.h>
 
 
-static PCB_EDIT_FRAME* s_PcbEditFrame = NULL;
-
+static PCB_EDIT_FRAME* s_PcbEditFrame = nullptr;
 static SETTINGS_MANAGER* s_SettingsManager = nullptr;
 
 
@@ -62,7 +62,7 @@ BOARD* GetBoard()
     if( s_PcbEditFrame )
         return s_PcbEditFrame->GetBoard();
     else
-        return NULL;
+        return nullptr;
 }
 
 
@@ -74,6 +74,10 @@ void ScriptingSetPcbEditFrame( PCB_EDIT_FRAME* aPcbEditFrame )
 
 BOARD* LoadBoard( wxString& aFileName )
 {
+    // Loading a new board is not possible if running inside KiCad
+    if( s_PcbEditFrame )
+        return nullptr;
+
     if( aFileName.EndsWith( KiCadPcbFileExtension ) )
         return LoadBoard( aFileName, IO_MGR::KICAD_SEXP );
     else if( aFileName.EndsWith( LegacyPcbFileExtension ) )
@@ -88,9 +92,16 @@ SETTINGS_MANAGER* GetSettingsManager()
 {
     if( !s_SettingsManager )
     {
-        // Ensure wx system settings stuff is available
-        static_cast<void>( wxTheApp );
-        s_SettingsManager = new SETTINGS_MANAGER( true );
+        if( s_PcbEditFrame )
+        {
+            s_SettingsManager = s_PcbEditFrame->GetSettingsManager();
+        }
+        else
+        {
+            // Ensure wx system settings stuff is available
+            static_cast<void>( wxTheApp );
+            s_SettingsManager = new SETTINGS_MANAGER( true );
+        }
     }
 
     return s_SettingsManager;
@@ -99,6 +110,10 @@ SETTINGS_MANAGER* GetSettingsManager()
 
 PROJECT* GetDefaultProject()
 {
+    // For some reasons, LoadProject() needs a C locale, so ensure we have the right locale
+    // This is mainly when running QA Python tests
+    LOCALE_IO dummy;
+
     PROJECT* project = GetSettingsManager()->GetProject( "" );
 
     if( !project )
@@ -113,6 +128,9 @@ PROJECT* GetDefaultProject()
 
 BOARD* LoadBoard( wxString& aFileName, IO_MGR::PCB_FILE_T aFormat )
 {
+    // Loading a new board is not possible if running inside KiCad
+    wxASSERT( !s_PcbEditFrame );
+
     wxFileName pro = aFileName;
     pro.SetExt( ProjectFileExtension );
     pro.MakeAbsolute();
@@ -175,6 +193,10 @@ BOARD* LoadBoard( wxString& aFileName, IO_MGR::PCB_FILE_T aFormat )
 
 BOARD* CreateEmptyBoard()
 {
+    // Creating a new board is not possible if running inside KiCad
+    if( s_PcbEditFrame )
+        return nullptr;
+
     BOARD* brd = new BOARD();
 
     brd->SetProject( GetDefaultProject() );
@@ -188,14 +210,21 @@ bool SaveBoard( wxString& aFileName, BOARD* aBoard, IO_MGR::PCB_FILE_T aFormat )
     aBoard->BuildConnectivity();
     aBoard->SynchronizeNetsAndNetClasses();
 
-    IO_MGR::Save( aFormat, aFileName, aBoard, NULL );
+    try
+    {
+        IO_MGR::Save( aFormat, aFileName, aBoard, nullptr );
+    }
+    catch( ... )
+    {
+        return false;
+    }
 
     wxFileName pro = aFileName;
     pro.SetExt( ProjectFileExtension );
     pro.MakeAbsolute();
     wxString projectPath = pro.GetFullPath();
 
-    GetSettingsManager()->SaveProject( pro.GetFullPath() );
+    GetSettingsManager()->SaveProjectAs( pro.GetFullPath() );
 
     return true;
 }
@@ -267,10 +296,24 @@ bool ExportSpecctraDSN( wxString& aFullFilename )
     }
 }
 
-bool ExportVRML( const wxString& aFullFileName, double aMMtoWRMLunit,
-                 bool aExport3DFiles, bool aUseRelativePaths,
-                 const wxString& a3D_Subdir,
-                 double aXRef, double aYRef )
+
+bool ExportSpecctraDSN( BOARD* aBoard, wxString& aFullFilename )
+{
+    try
+    {
+        ExportBoardToSpecctraFile( aBoard, aFullFilename );
+    }
+    catch( ... )
+    {
+        return false;
+    }
+
+    return true;
+}
+
+
+bool ExportVRML( const wxString& aFullFileName, double aMMtoWRMLunit, bool aExport3DFiles,
+                 bool aUseRelativePaths, const wxString& a3D_Subdir, double aXRef, double aYRef )
 {
     if( s_PcbEditFrame )
     {

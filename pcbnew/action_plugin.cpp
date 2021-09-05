@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2017 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2017-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -32,6 +32,7 @@
 #include "action_plugin.h"
 #include "bitmaps.h"
 #include "bitmap_store.h"
+#include <pgm_base.h>
 
 
 ACTION_PLUGIN::~ACTION_PLUGIN()
@@ -67,7 +68,7 @@ ACTION_PLUGIN* ACTION_PLUGINS::GetActionByMenu( int aMenu )
             return m_actionsList[i];
     }
 
-    return NULL;
+    return nullptr;
 }
 
 
@@ -87,7 +88,7 @@ ACTION_PLUGIN* ACTION_PLUGINS::GetActionByButton( int aButton )
             return m_actionsList[i];
     }
 
-    return NULL;
+    return nullptr;
 }
 
 
@@ -107,7 +108,7 @@ ACTION_PLUGIN* ACTION_PLUGINS::GetActionByPath(const wxString& aPath)
         }
     }
 
-    return NULL;
+    return nullptr;
 }
 
 
@@ -125,7 +126,7 @@ ACTION_PLUGIN* ACTION_PLUGINS::GetAction( const wxString& aName )
             return action;
     }
 
-    return NULL;
+    return nullptr;
 }
 
 
@@ -159,19 +160,25 @@ void ACTION_PLUGINS::register_action( ACTION_PLUGIN* aAction )
         }
     }
 
-    // Load icon if supplied
-    wxString icon_file_name = aAction->GetIconFileName( GetBitmapStore()->IsDarkTheme() );
+    wxASSERT( PgmOrNull() );    // PgmOrNull() returning nullptr should never happen,
+                                // but it sometimes happens on msys2 build
 
-    if( !icon_file_name.IsEmpty() )
+    if( PgmOrNull() )           // Hack for msys2. Must be removed when the root cause is fixed
     {
-        {
-            wxLogNull eat_errors;
-            aAction->iconBitmap.LoadFile( icon_file_name, wxBITMAP_TYPE_PNG );
-        }
+        // Load icon if supplied
+        wxString icon_file_name = aAction->GetIconFileName( GetBitmapStore()->IsDarkTheme() );
 
-        if ( !aAction->iconBitmap.IsOk() )
+        if( !icon_file_name.IsEmpty() )
         {
-            wxLogVerbose( "Failed to load icon " + icon_file_name + " for action plugin " );
+            {
+                wxLogNull eat_errors;
+                aAction->iconBitmap.LoadFile( icon_file_name, wxBITMAP_TYPE_PNG );
+            }
+
+            if ( !aAction->iconBitmap.IsOk() )
+            {
+                wxLogVerbose( "Failed to load icon " + icon_file_name + " for action plugin " );
+            }
         }
     }
 
@@ -190,6 +197,7 @@ bool ACTION_PLUGINS::deregister_object( void* aObject )
         if( action->GetObject() == aObject )
         {
             m_actionsList.erase( m_actionsList.begin() + i );
+
             //m_actionsListMenu.erase( m_actionsListMenu.begin() + i );
             delete action;
             return true;

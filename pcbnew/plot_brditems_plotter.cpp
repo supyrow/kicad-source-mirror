@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 1992-2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -25,28 +25,24 @@
 #include <bitset>                             // for bitset, operator&, __bi...
 #include <math.h>                             // for abs
 #include <stddef.h>                           // for NULL, size_t
-#include <vector>                             // for vector, __vector_base<>...
 
 #include <geometry/seg.h>                     // for SEG
 #include <geometry/shape_circle.h>
 #include <geometry/shape_line_chain.h>        // for SHAPE_LINE_CHAIN
 #include <geometry/shape_poly_set.h>          // for SHAPE_POLY_SET, SHAPE_P...
 #include <geometry/shape_segment.h>
-#include <kicad_string.h>
+#include <string_utils.h>
 #include <macros.h>
 #include <math/util.h>                        // for KiROUND, Clamp
 #include <math/vector2d.h>                    // for VECTOR2I
-#include <plotter.h>
-#include <plotters_specific.h>
+#include <plotters/plotter_gerber.h>
 #include <trigo.h>
 
 #include <board_design_settings.h>            // for BOARD_DESIGN_SETTINGS
 #include <core/typeinfo.h>                    // for dyn_cast, PCB_DIMENSION_T
-#include <outline_mode.h>
-#include <gal/color4d.h>                      // for COLOR4D, operator!=
 #include <gbr_metadata.h>
 #include <gbr_netlist_metadata.h>             // for GBR_NETLIST_METADATA
-#include <layers_id_colors_and_visibility.h>  // for LSET, IsCopperLayer
+#include <layer_ids.h>                        // for LSET, IsCopperLayer
 #include <pad_shapes.h>                       // for PAD_ATTRIB::NPTH
 #include <pcbplot.h>
 #include <pcb_plot_params.h>                  // for PCB_PLOT_PARAMS, PCB_PL...
@@ -69,10 +65,6 @@
 #include <wx/gdicmn.h>
 
 
-/* class BRDITEMS_PLOTTER is a helper class to plot board items
- * and a group of board items
- */
-
 COLOR4D BRDITEMS_PLOTTER::getColor( LAYER_NUM aLayer ) const
 {
     COLOR4D color = ColorSettings()->GetColor( aLayer );
@@ -86,7 +78,7 @@ COLOR4D BRDITEMS_PLOTTER::getColor( LAYER_NUM aLayer ) const
 }
 
 
-void BRDITEMS_PLOTTER::PlotPad( const PAD* aPad, COLOR4D aColor, OUTLINE_MODE aPlotMode )
+void BRDITEMS_PLOTTER::PlotPad( const PAD* aPad, const COLOR4D& aColor, OUTLINE_MODE aPlotMode )
 {
     wxPoint shape_pos = aPad->ShapePos();
     GBR_METADATA gbr_metadata;
@@ -105,6 +97,7 @@ void BRDITEMS_PLOTTER::PlotPad( const PAD* aPad, COLOR4D aColor, OUTLINE_MODE aP
     {
         gbr_metadata.SetNetAttribType( GBR_NETINFO_ALL );
         gbr_metadata.SetCopper( true );
+
         // Gives a default attribute, for instance for pads used as tracks in net ties:
         // Connector pads and SMD pads are on external layers
         // if on internal layers, they are certainly used as net tie
@@ -113,9 +106,9 @@ void BRDITEMS_PLOTTER::PlotPad( const PAD* aPad, COLOR4D aColor, OUTLINE_MODE aP
 
         const bool useUTF8 = false;
         const bool useQuoting = false;
-        gbr_metadata.SetPadName( aPad->GetName(), useUTF8, useQuoting );
+        gbr_metadata.SetPadName( aPad->GetNumber(), useUTF8, useQuoting );
 
-        if( !aPad->GetName().IsEmpty() )
+        if( !aPad->GetNumber().IsEmpty() )
             gbr_metadata.SetPadPinFunction( aPad->GetPinFunction(), useUTF8, useQuoting );
 
         gbr_metadata.SetNetName( aPad->GetNetname() );
@@ -123,7 +116,7 @@ void BRDITEMS_PLOTTER::PlotPad( const PAD* aPad, COLOR4D aColor, OUTLINE_MODE aP
         // Some pads are mechanical pads ( through hole or smd )
         // when this is the case, they have no pad name and/or are not plated.
         // In this case gerber files have slightly different attributes.
-        if( aPad->GetAttribute() == PAD_ATTRIB::NPTH || aPad->GetName().IsEmpty() )
+        if( aPad->GetAttribute() == PAD_ATTRIB::NPTH || aPad->GetNumber().IsEmpty() )
             gbr_metadata.m_NetlistMetadata.m_NotInNet = true;
 
         if( !plotOnExternalCopperLayer )
@@ -151,18 +144,21 @@ void BRDITEMS_PLOTTER::PlotPad( const PAD* aPad, COLOR4D aColor, OUTLINE_MODE aP
             break;
 
         case PAD_ATTRIB::PTH :       // Pad through hole, a hole is also expected
-            gbr_metadata.SetApertureAttrib( GBR_APERTURE_METADATA::GBR_APERTURE_ATTRIB_COMPONENTPAD );
+            gbr_metadata.SetApertureAttrib(
+                    GBR_APERTURE_METADATA::GBR_APERTURE_ATTRIB_COMPONENTPAD );
             break;
 
         case PAD_ATTRIB::CONN:       // Connector pads, no solder paste but with solder mask.
             if( plotOnExternalCopperLayer )
-                gbr_metadata.SetApertureAttrib( GBR_APERTURE_METADATA::GBR_APERTURE_ATTRIB_CONNECTORPAD );
+                gbr_metadata.SetApertureAttrib(
+                        GBR_APERTURE_METADATA::GBR_APERTURE_ATTRIB_CONNECTORPAD );
             break;
 
         case PAD_ATTRIB::SMD:        // SMD pads (on external copper layer only)
-                                    // with solder paste and mask
+                                     // with solder paste and mask
             if( plotOnExternalCopperLayer )
-                gbr_metadata.SetApertureAttrib( GBR_APERTURE_METADATA::GBR_APERTURE_ATTRIB_SMDPAD_CUDEF );
+                gbr_metadata.SetApertureAttrib(
+                        GBR_APERTURE_METADATA::GBR_APERTURE_ATTRIB_SMDPAD_CUDEF );
             break;
         }
 
@@ -172,28 +168,34 @@ void BRDITEMS_PLOTTER::PlotPad( const PAD* aPad, COLOR4D aColor, OUTLINE_MODE aP
         {
         case PAD_PROP::BGA:          // Only applicable to outer layers
             if( plotOnExternalCopperLayer )
-                gbr_metadata.SetApertureAttrib( GBR_APERTURE_METADATA::GBR_APERTURE_ATTRIB_BGAPAD_CUDEF );
+                gbr_metadata.SetApertureAttrib(
+                        GBR_APERTURE_METADATA::GBR_APERTURE_ATTRIB_BGAPAD_CUDEF );
             break;
 
         case PAD_PROP::FIDUCIAL_GLBL:
-            gbr_metadata.SetApertureAttrib( GBR_APERTURE_METADATA::GBR_APERTURE_ATTRIB_FIDUCIAL_GLBL );
+            gbr_metadata.SetApertureAttrib(
+                    GBR_APERTURE_METADATA::GBR_APERTURE_ATTRIB_FIDUCIAL_GLBL );
             break;
 
         case PAD_PROP::FIDUCIAL_LOCAL:
-            gbr_metadata.SetApertureAttrib( GBR_APERTURE_METADATA::GBR_APERTURE_ATTRIB_FIDUCIAL_LOCAL );
+            gbr_metadata.SetApertureAttrib(
+                    GBR_APERTURE_METADATA::GBR_APERTURE_ATTRIB_FIDUCIAL_LOCAL );
             break;
 
         case PAD_PROP::TESTPOINT:    // Only applicable to outer layers
             if( plotOnExternalCopperLayer )
-                gbr_metadata.SetApertureAttrib( GBR_APERTURE_METADATA::GBR_APERTURE_ATTRIB_TESTPOINT );
+                gbr_metadata.SetApertureAttrib(
+                        GBR_APERTURE_METADATA::GBR_APERTURE_ATTRIB_TESTPOINT );
             break;
 
         case PAD_PROP::HEATSINK:
-            gbr_metadata.SetApertureAttrib( GBR_APERTURE_METADATA::GBR_APERTURE_ATTRIB_HEATSINKPAD );
+            gbr_metadata.SetApertureAttrib(
+                    GBR_APERTURE_METADATA::GBR_APERTURE_ATTRIB_HEATSINKPAD );
             break;
 
         case PAD_PROP::CASTELLATED:
-            gbr_metadata.SetApertureAttrib( GBR_APERTURE_METADATA::GBR_APERTURE_ATTRIB_CASTELLATEDPAD );
+            gbr_metadata.SetApertureAttrib(
+                    GBR_APERTURE_METADATA::GBR_APERTURE_ATTRIB_CASTELLATEDPAD );
             break;
 
         case PAD_PROP::NONE:
@@ -243,7 +245,8 @@ void BRDITEMS_PLOTTER::PlotPad( const PAD* aPad, COLOR4D aColor, OUTLINE_MODE aP
         // (i.e. for a pad at pos 0,0, rot 0.0). Needed to use aperture macros,
         // to be able to create a pattern common to all trapezoid pads having the same shape
         wxPoint coord[4];
-        // Order is lower left, lower right, upper right, upper left
+
+        // Order is lower left, lower right, upper right, upper left.
         wxSize half_size = aPad->GetSize()/2;
         wxSize trap_delta = aPad->GetDelta()/2;
 
@@ -268,6 +271,7 @@ void BRDITEMS_PLOTTER::PlotPad( const PAD* aPad, COLOR4D aColor, OUTLINE_MODE aP
                                     aPad->GetOrientation(), aPlotMode, &gbr_metadata );
             break;
         }
+
         KI_FALLTHROUGH;
 
     default:
@@ -336,7 +340,6 @@ void BRDITEMS_PLOTTER::PlotFootprintTextItems( const FOOTPRINT* aFootprint )
 }
 
 
-// plot items like text and graphics, but not tracks and footprints
 void BRDITEMS_PLOTTER::PlotBoardGraphicItems()
 {
     for( BOARD_ITEM* item : m_board->Drawings() )
@@ -368,12 +371,15 @@ void BRDITEMS_PLOTTER::PlotBoardGraphicItems()
     }
 }
 
-void BRDITEMS_PLOTTER::PlotFootprintTextItem( const FP_TEXT* aTextMod, COLOR4D aColor )
-{
-    if( aColor == COLOR4D::WHITE )
-        aColor = COLOR4D( LIGHTGRAY );
 
-    m_plotter->SetColor( aColor );
+void BRDITEMS_PLOTTER::PlotFootprintTextItem( const FP_TEXT* aTextMod, const COLOR4D& aColor )
+{
+    COLOR4D color = aColor;
+
+    if( aColor == COLOR4D::WHITE )
+        color = COLOR4D( LIGHTGRAY );
+
+    m_plotter->SetColor( color );
 
     // calculate some text parameters :
     wxSize  size      = aTextMod->GetTextSize();
@@ -433,7 +439,7 @@ void BRDITEMS_PLOTTER::PlotDimension( const PCB_DIMENSION_BASE* aDim )
         {
             const SEG& seg = static_cast<const SHAPE_SEGMENT*>( shape.get() )->GetSeg();
 
-            draw.SetShape( PCB_SHAPE_TYPE::SEGMENT );
+            draw.SetShape( SHAPE_T::SEGMENT );
             draw.SetStart( wxPoint( seg.A ) );
             draw.SetEnd( wxPoint( seg.B ) );
 
@@ -446,7 +452,7 @@ void BRDITEMS_PLOTTER::PlotDimension( const PCB_DIMENSION_BASE* aDim )
             wxPoint start( shape->Centre() );
             int radius = static_cast<const SHAPE_CIRCLE*>( shape.get() )->GetRadius();
 
-            draw.SetShape( PCB_SHAPE_TYPE::CIRCLE );
+            draw.SetShape( SHAPE_T::CIRCLE );
             draw.SetFilled( false );
             draw.SetStart( start );
             draw.SetEnd( wxPoint( start.x + radius, start.y ) );
@@ -473,7 +479,7 @@ void BRDITEMS_PLOTTER::PlotPcbTarget( const PCB_TARGET* aMire )
 
     PCB_SHAPE draw;
 
-    draw.SetShape( PCB_SHAPE_TYPE::CIRCLE );
+    draw.SetShape( SHAPE_T::CIRCLE );
     draw.SetFilled( false );
     draw.SetWidth( aMire->GetWidth() );
     draw.SetLayer( aMire->GetLayer() );
@@ -488,7 +494,7 @@ void BRDITEMS_PLOTTER::PlotPcbTarget( const PCB_TARGET* aMire )
 
     PlotPcbShape( &draw );
 
-    draw.SetShape( PCB_SHAPE_TYPE::SEGMENT );
+    draw.SetShape( SHAPE_T::SEGMENT );
 
     radius = aMire->GetSize() / 2;
     dx1    = radius;
@@ -516,7 +522,6 @@ void BRDITEMS_PLOTTER::PlotPcbTarget( const PCB_TARGET* aMire )
 }
 
 
-// Plot footprints graphic items (outlines)
 void BRDITEMS_PLOTTER::PlotFootprintGraphicItems( const FOOTPRINT* aFootprint )
 {
     for( const BOARD_ITEM* item : aFootprint->GraphicalItems() )
@@ -529,7 +534,6 @@ void BRDITEMS_PLOTTER::PlotFootprintGraphicItems( const FOOTPRINT* aFootprint )
 }
 
 
-//* Plot a graphic item (outline) relative to a footprint
 void BRDITEMS_PLOTTER::PlotFootprintGraphicItem( const FP_SHAPE* aShape )
 {
     if( aShape->Type() != PCB_FP_SHAPE_T )
@@ -563,11 +567,11 @@ void BRDITEMS_PLOTTER::PlotFootprintGraphicItem( const FP_SHAPE* aShape )
 
     switch( aShape->GetShape() )
     {
-    case PCB_SHAPE_TYPE::SEGMENT:
+    case SHAPE_T::SEGMENT:
         m_plotter->ThickSegment( pos, end, thickness, GetPlotMode(), &gbr_metadata );
         break;
 
-    case PCB_SHAPE_TYPE::RECT:
+    case SHAPE_T::RECT:
     {
         std::vector<wxPoint> pts = aShape->GetRectCorners();
 
@@ -591,7 +595,7 @@ void BRDITEMS_PLOTTER::PlotFootprintGraphicItem( const FP_SHAPE* aShape )
     }
         break;
 
-    case PCB_SHAPE_TYPE::CIRCLE:
+    case SHAPE_T::CIRCLE:
         radius = KiROUND( GetLineLength( end, pos ) );
 
         if( aShape->IsFilled() )
@@ -601,7 +605,7 @@ void BRDITEMS_PLOTTER::PlotFootprintGraphicItem( const FP_SHAPE* aShape )
 
         break;
 
-    case PCB_SHAPE_TYPE::ARC:
+    case SHAPE_T::ARC:
     {
         radius = KiROUND( GetLineLength( end, pos ) );
         double startAngle  = ArcTangente( end.y - pos.y, end.x - pos.x );
@@ -620,7 +624,7 @@ void BRDITEMS_PLOTTER::PlotFootprintGraphicItem( const FP_SHAPE* aShape )
     }
         break;
 
-    case PCB_SHAPE_TYPE::POLYGON:
+    case SHAPE_T::POLY:
         if( aShape->IsPolyShapeValid() )
         {
             const std::vector<wxPoint> &polyPoints = aShape->BuildPolyPointsList();
@@ -676,11 +680,12 @@ void BRDITEMS_PLOTTER::PlotFootprintGraphicItem( const FP_SHAPE* aShape )
                 }
             }
         }
+
         break;
 
-    case PCB_SHAPE_TYPE::CURVE:
-        m_plotter->BezierCurve( aShape->GetStart(), aShape->GetBezControl1(),
-                                aShape->GetBezControl2(), aShape->GetEnd(), 0, thickness );
+    case SHAPE_T::BEZIER:
+        m_plotter->BezierCurve( aShape->GetStart(), aShape->GetBezierC1(),
+                                aShape->GetBezierC2(), aShape->GetEnd(), 0, thickness );
         break;
 
     default:
@@ -690,7 +695,6 @@ void BRDITEMS_PLOTTER::PlotFootprintGraphicItem( const FP_SHAPE* aShape )
 }
 
 
-// Plot a PCB Text, i.e. a text found on a copper or technical layer
 void BRDITEMS_PLOTTER::PlotPcbText( const PCB_TEXT* aText )
 {
     wxString shownText( aText->GetShownText() );
@@ -770,7 +774,8 @@ void BRDITEMS_PLOTTER::PlotFilledAreas( const ZONE* aZone, const SHAPE_POLY_SET&
         // be set as conductor
         if( aZone->GetNetname().IsEmpty() )
         {
-            gbr_metadata.SetApertureAttrib( GBR_APERTURE_METADATA::GBR_APERTURE_ATTRIB_NONCONDUCTOR );
+            gbr_metadata.SetApertureAttrib(
+                    GBR_APERTURE_METADATA::GBR_APERTURE_ATTRIB_NONCONDUCTOR );
         }
         else
         {
@@ -805,10 +810,21 @@ void BRDITEMS_PLOTTER::PlotFilledAreas( const ZONE* aZone, const SHAPE_POLY_SET&
                 {
                     m_plotter->PlotPoly( outline, FILL_TYPE::NO_FILL,
                                          outline_thickness, &gbr_metadata );
+
+                    // Ensure the outline is closed:
+                    int last_idx = outline.PointCount() - 1;
+
+                    if( outline.CPoint( 0 ) != outline.CPoint( last_idx ) )
+                    {
+                        m_plotter->ThickSegment( wxPoint( outline.CPoint( 0 ) ),
+                                                 wxPoint( outline.CPoint( last_idx ) ),
+                                                 outline_thickness,
+                                                 GetPlotMode(), &gbr_metadata );
+                    }
                 }
 
-                static_cast<GERBER_PLOTTER*>( m_plotter )->PlotGerberRegion(
-                                                    outline, &gbr_metadata );
+                static_cast<GERBER_PLOTTER*>( m_plotter )->PlotGerberRegion( outline,
+                                                                             &gbr_metadata );
             }
             else
             {
@@ -820,10 +836,21 @@ void BRDITEMS_PLOTTER::PlotFilledAreas( const ZONE* aZone, const SHAPE_POLY_SET&
         {
             if( outline_thickness )
             {
-                for( int jj = 1; jj < outline.PointCount(); jj++ )
+                int last_idx = outline.PointCount() - 1;
+
+                for( int jj = 1; jj <= last_idx; jj++ )
                 {
                     m_plotter->ThickSegment( wxPoint( outline.CPoint( jj - 1) ),
                                              wxPoint( outline.CPoint( jj ) ),
+                                             outline_thickness,
+                                             GetPlotMode(), &gbr_metadata );
+                }
+
+                // Ensure the outline is closed:
+                if( outline.CPoint( 0 ) != outline.CPoint( last_idx ) )
+                {
+                    m_plotter->ThickSegment( wxPoint( outline.CPoint( 0 ) ),
+                                             wxPoint( outline.CPoint( last_idx ) ),
                                              outline_thickness,
                                              GetPlotMode(), &gbr_metadata );
                 }
@@ -837,8 +864,6 @@ void BRDITEMS_PLOTTER::PlotFilledAreas( const ZONE* aZone, const SHAPE_POLY_SET&
 }
 
 
-/* Plot items type PCB_SHAPE on layers allowed by aLayerMask
- */
 void BRDITEMS_PLOTTER::PlotPcbShape( const PCB_SHAPE* aShape )
 {
     if( !m_layerMask[aShape->GetLayer()] )
@@ -867,11 +892,11 @@ void BRDITEMS_PLOTTER::PlotPcbShape( const PCB_SHAPE* aShape )
 
     switch( aShape->GetShape() )
     {
-    case PCB_SHAPE_TYPE::SEGMENT:
+    case SHAPE_T::SEGMENT:
         m_plotter->ThickSegment( start, end, thickness, GetPlotMode(), &gbr_metadata );
         break;
 
-    case PCB_SHAPE_TYPE::CIRCLE:
+    case SHAPE_T::CIRCLE:
         radius = KiROUND( GetLineLength( end, start ) );
 
         if( aShape->IsFilled() )
@@ -881,7 +906,7 @@ void BRDITEMS_PLOTTER::PlotPcbShape( const PCB_SHAPE* aShape )
 
         break;
 
-    case PCB_SHAPE_TYPE::ARC:
+    case SHAPE_T::ARC:
         radius = KiROUND( GetLineLength( end, start ) );
         StAngle  = ArcTangente( end.y - start.y, end.x - start.x );
         EndAngle = StAngle + aShape->GetAngle();
@@ -898,12 +923,12 @@ void BRDITEMS_PLOTTER::PlotPcbShape( const PCB_SHAPE* aShape )
         }
         break;
 
-    case PCB_SHAPE_TYPE::CURVE:
-        m_plotter->BezierCurve( aShape->GetStart(), aShape->GetBezControl1(),
-                                aShape->GetBezControl2(), aShape->GetEnd(), 0, thickness );
+    case SHAPE_T::BEZIER:
+        m_plotter->BezierCurve( aShape->GetStart(), aShape->GetBezierC1(),
+                                aShape->GetBezierC2(), aShape->GetEnd(), 0, thickness );
         break;
 
-    case PCB_SHAPE_TYPE::POLYGON:
+    case SHAPE_T::POLY:
         if( aShape->IsPolyShapeValid() )
         {
             if( sketch || thickness > 0 )
@@ -919,6 +944,7 @@ void BRDITEMS_PLOTTER::PlotPcbShape( const PCB_SHAPE* aShape )
             if( !sketch && aShape->IsFilled() )
             {
                 m_plotter->SetCurrentLineWidth( thickness, &gbr_metadata );
+
                 // Draw the polygon: only one polygon is expected
                 // However we provide a multi polygon shape drawing
                 // ( for the future or to show a non expected shape )
@@ -936,7 +962,7 @@ void BRDITEMS_PLOTTER::PlotPcbShape( const PCB_SHAPE* aShape )
         }
         break;
 
-    case PCB_SHAPE_TYPE::RECT:
+    case SHAPE_T::RECT:
     {
         std::vector<wxPoint> pts = aShape->GetRectCorners();
 
@@ -957,8 +983,9 @@ void BRDITEMS_PLOTTER::PlotPcbShape( const PCB_SHAPE* aShape )
 
             m_plotter->PlotPoly( poly, FILL_TYPE::FILLED_SHAPE, -1, &gbr_metadata );
         }
-    }
+
         break;
+    }
 
     default:
         wxASSERT_MSG( false, "Unhandled PCB_SHAPE shape" );
@@ -967,30 +994,29 @@ void BRDITEMS_PLOTTER::PlotPcbShape( const PCB_SHAPE* aShape )
 }
 
 
-/** Helper function to plot a single drill mark. It compensate and clamp
- *   the drill mark size depending on the current plot options
- */
-void BRDITEMS_PLOTTER::plotOneDrillMark( PAD_DRILL_SHAPE_T aDrillShape, const wxPoint &aDrillPos,
-                                         wxSize aDrillSize, const wxSize &aPadSize,
+void BRDITEMS_PLOTTER::plotOneDrillMark( PAD_DRILL_SHAPE_T aDrillShape, const wxPoint& aDrillPos,
+                                         const wxSize& aDrillSize, const wxSize& aPadSize,
                                          double aOrientation, int aSmallDrill )
 {
+    wxSize drillSize = aDrillSize;
+
     // Small drill marks have no significance when applied to slots
     if( aSmallDrill && aDrillShape == PAD_DRILL_SHAPE_CIRCLE )
-        aDrillSize.x = std::min( aSmallDrill, aDrillSize.x );
+        drillSize.x = std::min( aSmallDrill, drillSize.x );
 
     // Round holes only have x diameter, slots have both
-    aDrillSize.x -= getFineWidthAdj();
-    aDrillSize.x = Clamp( 1, aDrillSize.x, aPadSize.x - 1 );
+    drillSize.x -= getFineWidthAdj();
+    drillSize.x = Clamp( 1, drillSize.x, aPadSize.x - 1 );
 
     if( aDrillShape == PAD_DRILL_SHAPE_OBLONG )
     {
-        aDrillSize.y -= getFineWidthAdj();
-        aDrillSize.y = Clamp( 1, aDrillSize.y, aPadSize.y - 1 );
-        m_plotter->FlashPadOval( aDrillPos, aDrillSize, aOrientation, GetPlotMode(), NULL );
+        drillSize.y -= getFineWidthAdj();
+        drillSize.y = Clamp( 1, drillSize.y, aPadSize.y - 1 );
+        m_plotter->FlashPadOval( aDrillPos, drillSize, aOrientation, GetPlotMode(), nullptr );
     }
     else
     {
-        m_plotter->FlashPadCircle( aDrillPos, aDrillSize.x, GetPlotMode(), NULL );
+        m_plotter->FlashPadCircle( aDrillPos, drillSize.x, GetPlotMode(), nullptr );
     }
 }
 

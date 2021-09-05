@@ -23,7 +23,7 @@
 
 #include <pcb_dimension.h>
 #include <pcb_track.h>
-#include <layers_id_colors_and_visibility.h>
+#include <layer_ids.h>
 #include <kiface_i.h>
 #include <pad.h>
 #include <board_design_settings.h>
@@ -141,7 +141,7 @@ BOARD_DESIGN_SETTINGS::BOARD_DESIGN_SETTINGS( JSON_SETTINGS* aParent, const std:
 
     m_MinClearance        = Millimeter2iu( DEFAULT_MINCLEARANCE );
     m_TrackMinWidth       = Millimeter2iu( DEFAULT_TRACKMINWIDTH );
-    m_ViasMinAnnulus      = Millimeter2iu( DEFAULT_VIASMINSIZE - DEFAULT_MINTHROUGHDRILL ) / 2;
+    m_ViasMinAnnularWidth = Millimeter2iu( DEFAULT_VIASMINSIZE - DEFAULT_MINTHROUGHDRILL ) / 2;
     m_ViasMinSize         = Millimeter2iu( DEFAULT_VIASMINSIZE );
     m_MinThroughDrill     = Millimeter2iu( DEFAULT_MINTHROUGHDRILL );
     m_MicroViasMinSize    = Millimeter2iu( DEFAULT_MICROVIASMINSIZE );
@@ -167,6 +167,9 @@ BOARD_DESIGN_SETTINGS::BOARD_DESIGN_SETTINGS( JSON_SETTINGS* aParent, const std:
     m_DRCSeverities[ DRCE_DUPLICATE_FOOTPRINT ] = RPT_SEVERITY_WARNING;
     m_DRCSeverities[ DRCE_EXTRA_FOOTPRINT ] = RPT_SEVERITY_WARNING;
     m_DRCSeverities[ DRCE_NET_CONFLICT ] = RPT_SEVERITY_WARNING;
+
+    m_DRCSeverities[ DRCE_OVERLAPPING_SILK ] = RPT_SEVERITY_WARNING;
+    m_DRCSeverities[ DRCE_SILK_MASK_CLEARANCE ] = RPT_SEVERITY_WARNING;
 
     m_MaxError = ARC_HIGH_DEF;
     m_ZoneFillVersion = 6;                      // Use new algo by default to fill zones
@@ -216,9 +219,9 @@ BOARD_DESIGN_SETTINGS::BOARD_DESIGN_SETTINGS( JSON_SETTINGS* aParent, const std:
             Millimeter2iu( DEFAULT_TRACKMINWIDTH ), Millimeter2iu( 0.01 ), Millimeter2iu( 25.0 ),
             MM_PER_IU ) );
 
-    m_params.emplace_back( new PARAM_SCALED<int>( "rules.min_via_annular_width", &m_ViasMinAnnulus,
-            Millimeter2iu( DEFAULT_VIASMINSIZE ), Millimeter2iu( 0.01 ), Millimeter2iu( 25.0 ),
-            MM_PER_IU ) );
+    m_params.emplace_back( new PARAM_SCALED<int>( "rules.min_via_annular_width",
+            &m_ViasMinAnnularWidth, Millimeter2iu( DEFAULT_VIASMINSIZE ), Millimeter2iu( 0.01 ),
+            Millimeter2iu( 25.0 ), MM_PER_IU ) );
 
     m_params.emplace_back( new PARAM_SCALED<int>( "rules.min_via_diameter", &m_ViasMinSize,
             Millimeter2iu( DEFAULT_VIASMINSIZE ), Millimeter2iu( 0.01 ), Millimeter2iu( 25.0 ),
@@ -678,7 +681,7 @@ void BOARD_DESIGN_SETTINGS::initFromOther( const BOARD_DESIGN_SETTINGS& aOther )
     m_UseConnectedTrackWidth = aOther.m_UseConnectedTrackWidth;
     m_MinClearance           = aOther.m_MinClearance;
     m_TrackMinWidth          = aOther.m_TrackMinWidth;
-    m_ViasMinAnnulus         = aOther.m_ViasMinAnnulus;
+    m_ViasMinAnnularWidth    = aOther.m_ViasMinAnnularWidth;
     m_ViasMinSize            = aOther.m_ViasMinSize;
     m_MinThroughDrill        = aOther.m_MinThroughDrill;
     m_MicroViasMinSize       = aOther.m_MicroViasMinSize;

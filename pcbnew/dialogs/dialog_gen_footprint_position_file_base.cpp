@@ -45,7 +45,7 @@ DIALOG_GEN_FOOTPRINT_POSITION_BASE::DIALOG_GEN_FOOTPRINT_POSITION_BASE( wxWindow
 	wxBoxSizer* bSizerMiddle;
 	bSizerMiddle = new wxBoxSizer( wxHORIZONTAL );
 
-	wxString m_rbFormatChoices[] = { _("ASCII"), _("CSV"), _("Gerber (very experimental)") };
+	wxString m_rbFormatChoices[] = { _("ASCII"), _("CSV"), _("Gerber (experimental)") };
 	int m_rbFormatNChoices = sizeof( m_rbFormatChoices ) / sizeof( wxString );
 	m_rbFormat = new wxRadioBox( this, wxID_ANY, _("Format"), wxDefaultPosition, wxDefaultSize, m_rbFormatNChoices, m_rbFormatChoices, 1, wxRA_SPECIFY_COLS );
 	m_rbFormat->SetSelection( 2 );
@@ -71,11 +71,17 @@ DIALOG_GEN_FOOTPRINT_POSITION_BASE::DIALOG_GEN_FOOTPRINT_POSITION_BASE( wxWindow
 	wxBoxSizer* bSizerLower;
 	bSizerLower = new wxBoxSizer( wxVERTICAL );
 
+	m_onlySMD = new wxCheckBox( this, wxID_ANY, _("Include only SMD footprints"), wxDefaultPosition, wxDefaultSize, 0 );
+	bSizerLower->Add( m_onlySMD, 0, wxALL, 5 );
+
 	m_excludeTH = new wxCheckBox( this, wxID_ANY, _("Exclude all footprints with through hole pads"), wxDefaultPosition, wxDefaultSize, 0 );
-	bSizerLower->Add( m_excludeTH, 0, wxALL, 5 );
+	bSizerLower->Add( m_excludeTH, 0, wxBOTTOM|wxRIGHT|wxLEFT, 5 );
 
 	m_cbIncludeBoardEdge = new wxCheckBox( this, wxID_ANY, _("Include board edge layer"), wxDefaultPosition, wxDefaultSize, 0 );
 	bSizerLower->Add( m_cbIncludeBoardEdge, 0, wxBOTTOM|wxRIGHT|wxLEFT, 5 );
+
+	m_useDrillPlaceOrigin = new wxCheckBox( this, wxID_ANY, _("Use drill/place file origin"), wxDefaultPosition, wxDefaultSize, 0 );
+	bSizerLower->Add( m_useDrillPlaceOrigin, 0, wxBOTTOM|wxRIGHT|wxLEFT, 5 );
 
 	m_messagesPanel = new WX_HTML_REPORT_PANEL( this, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxTAB_TRAVERSAL );
 	m_messagesPanel->SetMinSize( wxSize( 350,300 ) );
@@ -109,6 +115,7 @@ DIALOG_GEN_FOOTPRINT_POSITION_BASE::DIALOG_GEN_FOOTPRINT_POSITION_BASE( wxWindow
 	m_rbFormat->Connect( wxEVT_COMMAND_RADIOBOX_SELECTED, wxCommandEventHandler( DIALOG_GEN_FOOTPRINT_POSITION_BASE::onSelectFormat ), NULL, this );
 	m_radioBoxUnits->Connect( wxEVT_UPDATE_UI, wxUpdateUIEventHandler( DIALOG_GEN_FOOTPRINT_POSITION_BASE::onUpdateUIUnits ), NULL, this );
 	m_radioBoxFilesCount->Connect( wxEVT_UPDATE_UI, wxUpdateUIEventHandler( DIALOG_GEN_FOOTPRINT_POSITION_BASE::onUpdateUIFileOpt ), NULL, this );
+	m_onlySMD->Connect( wxEVT_UPDATE_UI, wxUpdateUIEventHandler( DIALOG_GEN_FOOTPRINT_POSITION_BASE::onUpdateUIOnlySMD ), NULL, this );
 	m_excludeTH->Connect( wxEVT_UPDATE_UI, wxUpdateUIEventHandler( DIALOG_GEN_FOOTPRINT_POSITION_BASE::onUpdateUIExcludeTH ), NULL, this );
 	m_cbIncludeBoardEdge->Connect( wxEVT_UPDATE_UI, wxUpdateUIEventHandler( DIALOG_GEN_FOOTPRINT_POSITION_BASE::onUpdateUIincludeBoardEdge ), NULL, this );
 	m_sdbSizerOK->Connect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( DIALOG_GEN_FOOTPRINT_POSITION_BASE::OnGenerate ), NULL, this );
@@ -121,6 +128,7 @@ DIALOG_GEN_FOOTPRINT_POSITION_BASE::~DIALOG_GEN_FOOTPRINT_POSITION_BASE()
 	m_rbFormat->Disconnect( wxEVT_COMMAND_RADIOBOX_SELECTED, wxCommandEventHandler( DIALOG_GEN_FOOTPRINT_POSITION_BASE::onSelectFormat ), NULL, this );
 	m_radioBoxUnits->Disconnect( wxEVT_UPDATE_UI, wxUpdateUIEventHandler( DIALOG_GEN_FOOTPRINT_POSITION_BASE::onUpdateUIUnits ), NULL, this );
 	m_radioBoxFilesCount->Disconnect( wxEVT_UPDATE_UI, wxUpdateUIEventHandler( DIALOG_GEN_FOOTPRINT_POSITION_BASE::onUpdateUIFileOpt ), NULL, this );
+	m_onlySMD->Disconnect( wxEVT_UPDATE_UI, wxUpdateUIEventHandler( DIALOG_GEN_FOOTPRINT_POSITION_BASE::onUpdateUIOnlySMD ), NULL, this );
 	m_excludeTH->Disconnect( wxEVT_UPDATE_UI, wxUpdateUIEventHandler( DIALOG_GEN_FOOTPRINT_POSITION_BASE::onUpdateUIExcludeTH ), NULL, this );
 	m_cbIncludeBoardEdge->Disconnect( wxEVT_UPDATE_UI, wxUpdateUIEventHandler( DIALOG_GEN_FOOTPRINT_POSITION_BASE::onUpdateUIincludeBoardEdge ), NULL, this );
 	m_sdbSizerOK->Disconnect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( DIALOG_GEN_FOOTPRINT_POSITION_BASE::OnGenerate ), NULL, this );

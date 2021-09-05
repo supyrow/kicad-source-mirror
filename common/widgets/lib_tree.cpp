@@ -30,8 +30,10 @@
 #include <wx/html/htmlwin.h>
 #include <tool/tool_interactive.h>
 #include <tool/tool_manager.h>
+#include <wx/srchctrl.h>
 #include <wx/settings.h>
 #include <wx/statbmp.h>
+#include <wx/timer.h>
 
 
 LIB_TREE::LIB_TREE( wxWindow* aParent, LIB_TABLE* aLibTable,
@@ -44,29 +46,42 @@ LIB_TREE::LIB_TREE( wxWindow* aParent, LIB_TABLE* aLibTable,
       m_query_ctrl( nullptr ),
       m_details_ctrl( nullptr )
 {
-    auto sizer = new wxBoxSizer( wxVERTICAL );
+    wxBoxSizer* sizer = new wxBoxSizer( wxVERTICAL );
 
     // Search text control
     if( aWidgets & SEARCH )
     {
-        auto search_sizer = new wxBoxSizer( wxHORIZONTAL );
+        wxBoxSizer* search_sizer = new wxBoxSizer( wxHORIZONTAL );
 
-        m_query_ctrl = new wxTextCtrl( this, wxID_ANY, wxEmptyString, wxDefaultPosition,
-                                       wxDefaultSize, wxTE_PROCESS_ENTER );
+        m_query_ctrl = new wxSearchCtrl( this, wxID_ANY, wxEmptyString, wxDefaultPosition,
+                                         wxDefaultSize );
 
-// Additional visual cue for GTK, which hides the placeholder text on focus
+        m_query_ctrl->ShowCancelButton( true );
+
 #ifdef __WXGTK__
-        auto bitmap = new wxStaticBitmap( this, wxID_ANY, wxArtProvider::GetBitmap( wxART_FIND, wxART_FRAME_ICON ) );
-
-        search_sizer->Add( bitmap, 0, wxALIGN_CENTER | wxRIGHT, 5 );
+        // wxSearchCtrl vertical height is not calculated correctly on some GTK setups
+        // See https://gitlab.com/kicad/code/kicad/-/issues/9019
+        m_query_ctrl->SetMinSize( wxSize( -1, GetTextExtent( wxT( "qb" ) ).y + 10 ) );
 #endif
+
+        m_debounceTimer = new wxTimer( this );
+
         search_sizer->Add( m_query_ctrl, 1, wxEXPAND, 5 );
 
         sizer->Add( search_sizer, 0, wxEXPAND, 5 );
 
         m_query_ctrl->Bind( wxEVT_TEXT, &LIB_TREE::onQueryText, this );
+
+#if wxCHECK_VERSION( 3, 1, 1 )
+        m_query_ctrl->Bind( wxEVT_SEARCH, &LIB_TREE::onQueryEnter, this );
+#else
         m_query_ctrl->Bind( wxEVT_TEXT_ENTER, &LIB_TREE::onQueryEnter, this );
+#endif
+
         m_query_ctrl->Bind( wxEVT_CHAR_HOOK, &LIB_TREE::onQueryCharHook, this );
+
+
+        Bind( wxEVT_TIMER, &LIB_TREE::onDebounceTimer, this, m_debounceTimer->GetId() );
     }
 
     // Tree control
@@ -112,7 +127,7 @@ LIB_TREE::LIB_TREE( wxWindow* aParent, LIB_TABLE* aLibTable,
     // handler will intermittently fire.
     if( m_query_ctrl )
     {
-        m_query_ctrl->SetHint( _( "Filter" ) );
+        m_query_ctrl->SetDescriptiveText( _( "Filter" ) );
         m_query_ctrl->SetFocus();
         m_query_ctrl->SetValue( wxEmptyString );
 
@@ -140,6 +155,9 @@ LIB_TREE::LIB_TREE( wxWindow* aParent, LIB_TABLE* aLibTable,
 
 LIB_TREE::~LIB_TREE()
 {
+    // Stop the timer during destruction early to avoid potential race conditions (that do happen)
+    m_debounceTimer->Stop();
+
     // Save the column widths to the config file
     m_adapter->SaveColWidths();
 
@@ -149,14 +167,10 @@ LIB_TREE::~LIB_TREE()
 
 LIB_ID LIB_TREE::GetSelectedLibId( int* aUnit ) const
 {
-    auto sel = m_tree_ctrl->GetSelection();
+    wxDataViewItem sel = m_tree_ctrl->GetSelection();
 
     if( !sel )
-    {
-        LIB_ID emptyId;
-
-        return emptyId;
-    }
+        return LIB_ID();
 
     if( aUnit )
         *aUnit = m_adapter->GetUnitFor( sel );
@@ -167,7 +181,7 @@ LIB_ID LIB_TREE::GetSelectedLibId( int* aUnit ) const
 
 LIB_TREE_NODE* LIB_TREE::GetCurrentTreeNode() const
 {
-    auto sel = m_tree_ctrl->GetSelection();
+    wxDataViewItem sel = m_tree_ctrl->GetSelection();
 
     if( !sel )
         return nullptr;
@@ -319,7 +333,7 @@ void LIB_TREE::setState( const STATE& aState )
 
 void LIB_TREE::onQueryText( wxCommandEvent& aEvent )
 {
-    Regenerate( false );
+    m_debounceTimer->StartOnce( 200 );
 
     // Required to avoid interaction with SetHint()
     // See documentation for wxTextEntry::SetHint
@@ -331,6 +345,12 @@ void LIB_TREE::onQueryEnter( wxCommandEvent& aEvent )
 {
     if( GetSelectedLibId().IsValid() )
         postSelectEvent();
+}
+
+
+void LIB_TREE::onDebounceTimer( wxTimerEvent& aEvent )
+{
+    Regenerate( false );
 }
 
 

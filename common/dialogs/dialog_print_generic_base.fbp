@@ -45,7 +45,7 @@
             <property name="minimum_size">-1,-1</property>
             <property name="name">DIALOG_PRINT_GENERIC_BASE</property>
             <property name="pos"></property>
-            <property name="size">410,476</property>
+            <property name="size">-1,-1</property>
             <property name="style">wxDEFAULT_DIALOG_STYLE|wxRESIZE_BORDER</property>
             <property name="subclass">DIALOG_SHIM; dialog_shim.h</property>
             <property name="title">Print</property>
@@ -71,7 +71,7 @@
                         <object class="sizeritem" expanded="1">
                             <property name="border">5</property>
                             <property name="flag">wxEXPAND</property>
-                            <property name="proportion">1</property>
+                            <property name="proportion">0</property>
                             <object class="wxBoxSizer" expanded="1">
                                 <property name="minimum_size"></property>
                                 <property name="name">bRightCol</property>
@@ -769,7 +769,7 @@
                                 <property name="name">m_sdbSizer1</property>
                                 <property name="permission">protected</property>
                                 <event name="OnApplyButtonClick">onPrintPreview</event>
-                                <event name="OnCancelButtonClick">onCloseButton</event>
+                                <event name="OnCancelButtonClick">onCancelButtonClick</event>
                                 <event name="OnOKButtonClick">onPrintButtonClick</event>
                             </object>
                         </object>

@@ -19,7 +19,7 @@
  */
 
 #include <generate_alias_info.h>
-#include <kicad_string.h>
+#include <string_utils.h>
 #include <template_fieldnames.h>
 #include <lib_symbol.h>
 #include <symbol_lib_table.h>
@@ -78,11 +78,10 @@ public:
         }
         catch( const IO_ERROR& ioe )
         {
-            wxLogError( wxString::Format( _( "Error occurred loading symbol %s from library %s."
-                                             "\n\n%s" ),
-                                          m_lib_id.GetLibItemName().wx_str(),
-                                          m_lib_id.GetLibNickname().wx_str(),
-                                          ioe.What() ) );
+            wxLogError( _( "Error loading symbol %s from library '%s'." ) + wxS( "\n%s" ),
+                        m_lib_id.GetLibItemName().wx_str(),
+                        m_lib_id.GetLibNickname().wx_str(),
+                        ioe.What() );
             return;
         }
 
@@ -107,7 +106,7 @@ public:
 protected:
     void SetHtmlName()
     {
-        m_html.Replace( "__NAME__", EscapeHTML( m_symbol->GetName() ) );
+        m_html.Replace( "__NAME__", EscapeHTML( UnescapeString( m_symbol->GetName() ) ) );
     }
 
 
@@ -131,7 +130,7 @@ protected:
             }
 
             m_html.Replace( "__ALIASOF__", wxString::Format(  AliasOfFormat,
-                                                              EscapeHTML( root_name ),
+                                                              EscapeHTML( UnescapeString( root_name ) ),
                                                               EscapeHTML( root_desc ) ) );
         }
     }

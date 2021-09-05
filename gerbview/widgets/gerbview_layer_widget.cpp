@@ -42,13 +42,6 @@
 #include "gerbview_layer_widget.h"
 #include "dcode_selection_box.h"
 
-/*
- * GERBER_LAYER_WIDGET
- * is here to implement the abstract functions of LAYER_WIDGET so they
- * may be tied into the GERBVIEW_FRAME's data and so we can add a popup
- * menu which is specific to Pcbnew's needs.
- */
-
 
 GERBER_LAYER_WIDGET::GERBER_LAYER_WIDGET( GERBVIEW_FRAME* aParent, wxWindow* aFocusOwner ) :
     LAYER_WIDGET( aParent, aFocusOwner ),
@@ -61,17 +54,17 @@ GERBER_LAYER_WIDGET::GERBER_LAYER_WIDGET( GERBVIEW_FRAME* aParent, wxWindow* aFo
     // Update default tabs labels for GerbView
     SetLayersManagerTabsText( );
 
-    //-----<Popup menu>-------------------------------------------------
     // handle the popup menu over the layer window.
     m_LayerScrolledWindow->Connect( wxEVT_RIGHT_DOWN,
-        wxMouseEventHandler( GERBER_LAYER_WIDGET::onRightDownLayers ), NULL, this );
+                                    wxMouseEventHandler( GERBER_LAYER_WIDGET::onRightDownLayers ),
+                                    nullptr, this );
 
     // since Popupmenu() calls this->ProcessEvent() we must call this->Connect()
     // and not m_LayerScrolledWindow->Connect()
-    Connect( ID_LAYER_MANAGER_START, ID_LAYER_MANAGER_END,
-        wxEVT_COMMAND_MENU_SELECTED,
-        wxCommandEventHandler( GERBER_LAYER_WIDGET::onPopupSelection ), NULL, this );
+    Connect( ID_LAYER_MANAGER_START, ID_LAYER_MANAGER_END, wxEVT_COMMAND_MENU_SELECTED,
+             wxCommandEventHandler( GERBER_LAYER_WIDGET::onPopupSelection ), nullptr, this );
 }
+
 
 GERBER_FILE_IMAGE_LIST* GERBER_LAYER_WIDGET::GetImagesList()
 {
@@ -79,16 +72,12 @@ GERBER_FILE_IMAGE_LIST* GERBER_LAYER_WIDGET::GetImagesList()
 }
 
 
-void GERBER_LAYER_WIDGET::SetLayersManagerTabsText( )
+void GERBER_LAYER_WIDGET::SetLayersManagerTabsText()
 {
-    m_notebook->SetPageText(0, _("Layers") );
-    m_notebook->SetPageText(1, _("Items") );
+    m_notebook->SetPageText( 0, _( "Layers" ) );
+    m_notebook->SetPageText( 1, _( "Items" ) );
 }
 
-/**
- * Function ReFillRender
- * Rebuild Render for instance after the config is read
- */
 void GERBER_LAYER_WIDGET::ReFillRender()
 {
     ClearRenderRows();
@@ -101,16 +90,20 @@ void GERBER_LAYER_WIDGET::ReFillRender()
 
 #define RR  LAYER_WIDGET::ROW   // Render Row abbreviation to reduce source width
 
-             // text                 id                         color     tooltip                 checked
-        RR( _( "DCodes" ),           LAYER_DCODES,                WHITE,    _( "Show DCodes identification" ) ),
-        RR( _( "Negative Objects" ), LAYER_NEGATIVE_OBJECTS,      DARKGRAY, _( "Show negative objects in this color" ) ),
+        RR( _( "DCodes" ),           LAYER_DCODES,                WHITE,
+            _( "Show DCodes identification" ) ),
+        RR( _( "Negative Objects" ), LAYER_NEGATIVE_OBJECTS,      DARKGRAY,
+            _( "Show negative objects in this color" ) ),
         RR(),
-        RR( _( "Grid" ),             LAYER_GERBVIEW_GRID,         WHITE,    _( "Show the (x,y) grid dots" ) ),
-        RR( _( "Drawing Sheet" ),    LAYER_GERBVIEW_DRAWINGSHEET, DARKRED,  _( "Show drawing sheet border and title block") ),
-        RR( _( "Background" ),       LAYER_GERBVIEW_BACKGROUND,   BLACK,    _( "PCB Background" ), true, false )
+        RR( _( "Grid" ),             LAYER_GERBVIEW_GRID,         WHITE,
+            _( "Show the (x,y) grid dots" ) ),
+        RR( _( "Drawing Sheet" ),    LAYER_GERBVIEW_DRAWINGSHEET, DARKRED,
+            _( "Show drawing sheet border and title block") ),
+        RR( _( "Background" ),       LAYER_GERBVIEW_BACKGROUND,   BLACK,
+            _( "PCB Background" ), true, false )
     };
 
-    for( unsigned row=0;  row<arrayDim(renderRows);  ++row )
+    for( unsigned row = 0; row < arrayDim( renderRows ); ++row )
     {
         if( renderRows[row].color != COLOR4D::UNSPECIFIED )       // does this row show a color?
             renderRows[row].color = m_frame->GetVisibleElementColor( renderRows[row].id );
@@ -155,6 +148,7 @@ void GERBER_LAYER_WIDGET::onRightDownLayers( wxMouseEvent& event )
 
     passOnFocus();
 }
+
 
 void GERBER_LAYER_WIDGET::onPopupSelection( wxCommandEvent& event )
 {
@@ -206,8 +200,7 @@ bool  GERBER_LAYER_WIDGET::OnLayerSelected()
     if( !m_alwaysShowActiveLayer )
         return false;
 
-    // postprocess after active layer selection
-    // ensure active layer visible
+    // postprocess after active layer selection ensure active layer visible
     wxCommandEvent event;
     event.SetId( ID_ALWAYS_SHOW_NO_LAYERS_BUT_ACTIVE );
     onPopupSelection( event );
@@ -224,7 +217,8 @@ void GERBER_LAYER_WIDGET::ReFill()
         int      aRow = findLayerRow( layer );
         bool     visible = true;
         COLOR4D  color = m_frame->GetLayerColor( GERBER_DRAW_LAYER( layer ) );
-        wxString msg = GetImagesList()->GetDisplayName( layer, /* include layer number */ false,
+        wxString msg = GetImagesList()->GetDisplayName( layer,
+                                                        /* include layer number */ false,
                                                         /* Get the full name */ true );
 
         if( m_frame->GetCanvas() )
@@ -233,7 +227,10 @@ void GERBER_LAYER_WIDGET::ReFill()
             visible = m_frame->IsLayerVisible( layer );
 
         if( aRow >= 0 )
+        {
             updateLayerRow( findLayerRow( layer ), msg );
+            SetLayerVisible( layer, visible );
+        }
         else
             AppendLayerRow( LAYER_WIDGET::ROW( msg, layer, color, wxEmptyString, visible, true ) );
     }
@@ -242,7 +239,6 @@ void GERBER_LAYER_WIDGET::ReFill()
     Thaw();
 }
 
-//-----<LAYER_WIDGET callbacks>-------------------------------------------
 
 void GERBER_LAYER_WIDGET::OnLayerRightClick( wxMenu& aMenu )
 {
@@ -250,7 +246,7 @@ void GERBER_LAYER_WIDGET::OnLayerRightClick( wxMenu& aMenu )
 }
 
 
-void GERBER_LAYER_WIDGET::OnLayerColorChange( int aLayer, COLOR4D aColor )
+void GERBER_LAYER_WIDGET::OnLayerColorChange( int aLayer, const COLOR4D& aColor )
 {
     // NOTE: Active layer in GerbView is stored as 0-indexed, but layer color is
     //       stored according to the GERBER_DRAW_LAYER() offset.
@@ -305,7 +301,7 @@ void GERBER_LAYER_WIDGET::OnLayerVisible( int aLayer, bool isVisible, bool isFin
 }
 
 
-void GERBER_LAYER_WIDGET::OnRenderColorChange( int aId, COLOR4D aColor )
+void GERBER_LAYER_WIDGET::OnRenderColorChange( int aId, const COLOR4D& aColor )
 {
     m_frame->SetVisibleElementColor( aId, aColor );
 
@@ -332,20 +328,16 @@ void GERBER_LAYER_WIDGET::OnRenderEnable( int aId, bool isEnabled )
             m_frame->GetCanvas()->GetView()->MarkTargetDirty( KIGFX::TARGET_NONCACHED );
         }
         else
+        {
             m_frame->GetCanvas()->GetView()->SetLayerVisible( aId, isEnabled );
+        }
     }
 
     m_frame->GetCanvas()->Refresh();
 }
 
-//-----</LAYER_WIDGET callbacks>------------------------------------------
 
-/*
- * Virtual Function useAlternateBitmap
- * return true if bitmaps shown in Render layer list
- * must be alternate bitmap (when a gerber image is loaded), or false to use "normal" bitmap
- */
-bool GERBER_LAYER_WIDGET::useAlternateBitmap(int aRow)
+bool GERBER_LAYER_WIDGET::useAlternateBitmap( int aRow )
 {
-    return GetImagesList()->GetGbrImage( aRow ) != NULL;
+    return GetImagesList()->GetGbrImage( aRow ) != nullptr;
 }

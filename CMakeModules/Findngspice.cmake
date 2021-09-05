@@ -51,7 +51,6 @@ if( PKG_CONFIG_FOUND )
     endif()
 endif()
 
-
 find_path( NGSPICE_INCLUDE_DIR ngspice/sharedspice.h
     PATHS
         ${NGSPICE_ROOT_DIR}
@@ -65,7 +64,13 @@ find_path( NGSPICE_INCLUDE_DIR ngspice/sharedspice.h
         share/ngspice/include/ngspice
 )
 
-find_library( NGSPICE_LIBRARY ngspice
+if( UNIX )
+    set( NGSPICE_LIB_NAME libngspice.so.0 CACHE STRING "Optionally versioned name of the shared library" )
+else()
+    set( NGSPICE_LIB_NAME ngspice CACHE STRING "Optionally versioned name of the shared library" )
+endif()
+
+find_library( NGSPICE_LIBRARY ${NGSPICE_LIB_NAME}
     PATHS
         ${NGSPICE_ROOT_DIR}
         $ENV{NGSPICE_ROOT_DIR}
@@ -91,7 +96,7 @@ if( NOT NGSPICE_BUILD_VERSION )
             share/ngspice/include/ngspice
         )
 
-    if( NOT NGSPICE_CONFIG_H-NOTFOUND )
+    if( NOT ${NGSPICE_CONFIG_H} STREQUAL "NGSPICE_CONFIG_H-NOTFOUND" )
         message( STATUS "ngspice configuration file ${NGSPICE_CONFIG_H} found." )
         set( NGSPICE_HAVE_CONFIG_H "1" CACHE STRING "ngspice/config.h header found." )
     endif()
@@ -148,5 +153,5 @@ mark_as_advanced(
     NGSPICE_LIBRARY
     NGSPICE_DLL
     NGSPICE_BUILD_VERSION
-    NGSPIC_HAVE_CONFIG_H
+    NGSPICE_HAVE_CONFIG_H
 )

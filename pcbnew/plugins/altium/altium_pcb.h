@@ -25,7 +25,7 @@
 #define ALTIUM_PCB_H
 
 #include <functional>
-#include <layers_id_colors_and_visibility.h>
+#include <layer_ids.h>
 #include <vector>
 
 #include <altium_parser_pcb.h>
@@ -85,6 +85,8 @@ class BOARD;
 class PCB_SHAPE;
 class FOOTPRINT;
 class ZONE;
+class PCB_DIMENSION_BASE;
+class PROGRESS_REPORTER;
 
 
 /**
@@ -92,10 +94,11 @@ class ZONE;
  *
  * @param aBoard board the pcb should be appended to
  * @param aFileName file name of board file
+ * @param aProgressReporter report import progress, might be a nullptr.
  * @param aFileMapping mapping how altium stream names are mapped
  */
-void ParseAltiumPcb( BOARD* aBoard, const wxString& aFileName,
-        const std::map<ALTIUM_PCB_DIR, std::string>& aFileMapping );
+void ParseAltiumPcb( BOARD* aBoard, const wxString& aFileName, PROGRESS_REPORTER* aProgressReporter,
+                     const std::map<ALTIUM_PCB_DIR, std::string>& aFileMapping );
 
 
 namespace CFB
@@ -114,13 +117,15 @@ typedef std::function<void( const CFB::CompoundFileReader&, const CFB::COMPOUND_
 class ALTIUM_PCB
 {
 public:
-    explicit ALTIUM_PCB( BOARD* aBoard );
+    explicit ALTIUM_PCB( BOARD* aBoard, PROGRESS_REPORTER* aProgressReporter );
     ~ALTIUM_PCB();
 
-    void Parse( const CFB::CompoundFileReader&           aReader,
-            const std::map<ALTIUM_PCB_DIR, std::string>& aFileMapping );
+    void Parse( const CFB::CompoundFileReader&               aReader,
+                const std::map<ALTIUM_PCB_DIR, std::string>& aFileMapping );
 
 private:
+    void checkpoint();
+
     PCB_LAYER_ID  GetKicadLayer( ALTIUM_LAYER aAltiumLayer ) const;
     int           GetNetCode( uint16_t aId ) const;
     const ARULE6* GetRule( ALTIUM_RULE_KIND aKind, const wxString& aName ) const;
@@ -139,7 +144,7 @@ private:
     void ParseDimensions6Data(
             const CFB::CompoundFileReader& aReader, const CFB::COMPOUND_FILE_ENTRY* aEntry );
     void ParseModelsData( const CFB::CompoundFileReader& aReader,
-            const CFB::COMPOUND_FILE_ENTRY* aEntry, const wxString aRootDir );
+            const CFB::COMPOUND_FILE_ENTRY* aEntry, const wxString& aRootDir );
     void ParseNets6Data(
             const CFB::CompoundFileReader& aReader, const CFB::COMPOUND_FILE_ENTRY* aEntry );
     void ParsePolygons6Data(
@@ -171,6 +176,7 @@ private:
 
     // Helper Functions
     void HelperParseDimensions6Linear( const ADIMENSION6& aElem );
+    void HelperParseDimensions6Radial( const ADIMENSION6& aElem );
     void HelperParseDimensions6Leader( const ADIMENSION6& aElem );
     void HelperParseDimensions6Datum( const ADIMENSION6& aElem );
     void HelperParseDimensions6Center( const ADIMENSION6& aElem );
@@ -185,12 +191,18 @@ private:
     BOARD*                               m_board;
     std::vector<FOOTPRINT*>              m_components;
     std::vector<ZONE*>                   m_polygons;
+    std::vector<PCB_DIMENSION_BASE*>     m_radialDimensions;
     std::map<wxString, wxString>         m_models;
     size_t                               m_num_nets;
     std::map<ALTIUM_LAYER, PCB_LAYER_ID> m_layermap; // used to correctly map copper layers
     std::map<ALTIUM_RULE_KIND, std::vector<ARULE6>> m_rules;
 
     std::map<ALTIUM_LAYER, ZONE*>        m_outer_plane;
+
+    PROGRESS_REPORTER* m_progressReporter; ///< optional; may be nullptr
+    unsigned           m_doneCount;
+    unsigned           m_lastProgressCount;
+    unsigned           m_totalCount; ///< for progress reporting
 
     /// Altium stores pour order across all layers
     int m_highest_pour_index;

@@ -33,7 +33,7 @@
 #include <convert_to_biu.h>                      // IU_PER_MM
 #include <core/wx_stl_compat.h>
 #include <hashtables.h>
-#include <layers_id_colors_and_visibility.h>     // PCB_LAYER_ID
+#include <layer_ids.h>     // PCB_LAYER_ID
 #include <pcb_lexer.h>
 #include <kiid.h>
 
@@ -59,7 +59,9 @@ class PCB_TARGET;
 class PCB_VIA;
 class ZONE;
 class FP_3DMODEL;
+class SHAPE_LINE_CHAIN;
 struct LAYER;
+class PROGRESS_REPORTER;
 
 
 /**
@@ -72,7 +74,11 @@ public:
     PCB_PARSER( LINE_READER* aReader = nullptr ) :
         PCB_LEXER( aReader ),
         m_board( nullptr ),
-        m_resetKIIDs( false )
+        m_resetKIIDs( false ),
+        m_progressReporter( nullptr ),
+        m_lineReader( nullptr ),
+        m_lastProgressLine( 0 ),
+        m_lineCount( 0 )
     {
         init();
     }
@@ -99,6 +105,15 @@ public:
 
         if( aBoard != nullptr )
             m_resetKIIDs = true;
+    }
+
+    void SetProgressReporter( PROGRESS_REPORTER* aProgressReporter, const LINE_READER* aLineReader,
+                              unsigned aLineCount )
+    {
+        m_progressReporter = aProgressReporter;
+        m_lineReader = aLineReader;
+        m_lastProgressLine = 0;
+        m_lineCount = aLineCount;
     }
 
     BOARD_ITEM* Parse();
@@ -154,6 +169,8 @@ private:
      */
     void init();
 
+    void checkpoint();
+
     /**
      * Create a mapping from the (short-lived) bug where layer names were translated.
      *
@@ -194,7 +211,7 @@ private:
 
     FP_TEXT*            parseFP_TEXT();
     FP_SHAPE*           parseFP_SHAPE();
-    PAD*                parsePAD( FOOTPRINT* aParent = NULL );
+    PAD*                parsePAD( FOOTPRINT* aParent = nullptr );
 
     // Parse only the (option ...) inside a pad description
     bool                parsePAD_option( PAD* aPad );
@@ -256,6 +273,15 @@ private:
     std::pair<wxString, wxString> parseProperty();
 
     /**
+     * Parses possible outline points and stores them into \p aPoly.  This accepts points
+     * for DRAWSEGMENT polygons, EDGEMODULE polygons and ZONE_CONTAINER polygons.  Points
+     * and arcs are added to the most recent outline
+     *
+     * @param aPoly polygon container to add points and arcs
+     */
+    void parseOutlinePoints( SHAPE_LINE_CHAIN& aPoly );
+
+    /**
      * Parse the common settings for any object derived from #EDA_TEXT.
      *
      * @param aText A point to the #EDA_TEXT object to save the parsed settings into.
@@ -296,7 +322,7 @@ private:
 
     inline int parseInt()
     {
-        return (int)strtol( CurText(), NULL, 10 );
+        return (int)strtol( CurText(), nullptr, 10 );
     }
 
     inline int parseInt( const char* aExpected )
@@ -308,7 +334,7 @@ private:
     inline long parseHex()
     {
         NextTok();
-        return strtol( CurText(), NULL, 16 );
+        return strtol( CurText(), nullptr, 16 );
     }
 
     bool parseBool();
@@ -342,17 +368,23 @@ private:
 
     bool                m_showLegacyZoneWarning;
 
+    PROGRESS_REPORTER*  m_progressReporter;  ///< optional; may be nullptr
+    const LINE_READER*  m_lineReader;        ///< for progress reporting
+    unsigned            m_lastProgressLine;
+    unsigned            m_lineCount;         ///< for progress reporting
+
     // Group membership info refers to other Uuids in the file.
     // We don't want to rely on group declarations being last in the file, so
     // we store info about the group declarations here during parsing and then resolve
     // them into BOARD_ITEM* after we've parsed the rest of the file.
-    typedef struct
+    struct GROUP_INFO
     {
         BOARD_ITEM*       parent;
         wxString          name;
+        bool              locked;
         KIID              uuid;
         std::vector<KIID> memberUuids;
-    } GROUP_INFO;
+    };
 
     std::vector<GROUP_INFO> m_groupInfos;
 };

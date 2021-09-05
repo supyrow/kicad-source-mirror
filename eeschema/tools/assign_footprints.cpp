@@ -24,7 +24,7 @@
  */
 
 #include <confirm.h>
-#include <kicad_string.h>
+#include <string_utils.h>
 #include <kiface_i.h>
 #include <sch_edit_frame.h>
 #include <wildcards_and_files_ext.h>
@@ -129,7 +129,7 @@ bool SCH_EDITOR_CONTROL::processCmpToFootprintLinkFile( const wxString& aFullFil
 
     FILE* cmpFile = wxFopen( aFullFilename, wxT( "rt" ) );
 
-    if( cmpFile == NULL )
+    if( cmpFile == nullptr )
         return false;
 
     // cmpFileReader dtor will close cmpFile
@@ -230,7 +230,7 @@ int SCH_EDITOR_CONTROL::ImportFPAssignments( const TOOL_EVENT& aEvent )
 
     if( !processCmpToFootprintLinkFile( filename, forceVisibility, visibilityState ) )
     {
-        wxString msg = wxString::Format( _( "Failed to open symbol-footprint link file \"%s\"" ),
+        wxString msg = wxString::Format( _( "Failed to open symbol-footprint link file '%s'." ),
                                          filename.GetData() );
 
         DisplayError( m_frame, msg );

@@ -31,6 +31,7 @@
 #include <sch_symbol.h>
 #include <widgets/grid_text_button_helpers.h>
 #include <widgets/wx_grid.h>
+#include <string_utils.h>
 
 #ifdef KICAD_SPICE
 #include <dialog_spice_model.h>
@@ -84,7 +85,7 @@ DIALOG_LIB_SYMBOL_PROPERTIES::DIALOG_LIB_SYMBOL_PROPERTIES( SYMBOL_EDIT_FRAME* a
     m_deleteFilterButton->SetBitmap( KiBitmap( BITMAPS::small_trash ) );
     m_editFilterButton->SetBitmap( KiBitmap( BITMAPS::small_edit ) );
 
-    if( aParent->IsSymbolFromLegacyLibrary() )
+    if( aParent->IsSymbolFromLegacyLibrary() && !aParent->IsSymbolFromSchematic() )
     {
         m_stdSizerButtonCancel->SetDefault();
         m_stdSizerButtonOK->SetLabel( _( "Read Only" ) );
@@ -102,7 +103,7 @@ DIALOG_LIB_SYMBOL_PROPERTIES::DIALOG_LIB_SYMBOL_PROPERTIES( SYMBOL_EDIT_FRAME* a
     // wxFormBuilder doesn't include this event...
     m_grid->Connect( wxEVT_GRID_CELL_CHANGING,
                      wxGridEventHandler( DIALOG_LIB_SYMBOL_PROPERTIES::OnGridCellChanging ),
-                     NULL, this );
+                     nullptr, this );
 
     if( m_lastLayout != DIALOG_LIB_SYMBOL_PROPERTIES::NONE )
     {
@@ -136,7 +137,7 @@ DIALOG_LIB_SYMBOL_PROPERTIES::~DIALOG_LIB_SYMBOL_PROPERTIES()
 
     m_grid->Disconnect( wxEVT_GRID_CELL_CHANGING,
                         wxGridEventHandler( DIALOG_LIB_SYMBOL_PROPERTIES::OnGridCellChanging ),
-                        NULL, this );
+                        nullptr, this );
 
     // Delete the GRID_TRICKS.
     m_grid->PopEventHandler( true );
@@ -165,12 +166,13 @@ bool DIALOG_LIB_SYMBOL_PROPERTIES::TransferDataToWindow()
     m_grid->ProcessTableMessage( msg );
     adjustGridColumns( m_grid->GetRect().GetWidth() );
 
-    m_SymbolNameCtrl->ChangeValue( m_libEntry->GetName() );
+    m_SymbolNameCtrl->ChangeValue( UnescapeString( m_libEntry->GetName() ) );
 
     m_DescCtrl->ChangeValue( m_libEntry->GetDescription() );
     m_KeywordCtrl->ChangeValue( m_libEntry->GetKeyWords() );
     m_SelNumberOfUnits->SetValue( m_libEntry->GetUnitCount() );
-    m_OptionPartsInterchangeable->SetValue( !m_libEntry->UnitsLocked() || m_libEntry->GetUnitCount() == 1 );
+    m_OptionPartsInterchangeable->SetValue( !m_libEntry->UnitsLocked() ||
+                                            m_libEntry->GetUnitCount() == 1 );
     m_AsConvertButt->SetValue( m_libEntry->HasConversion() );
     m_OptionPower->SetValue( m_libEntry->IsPower() );
     m_excludeFromBomCheckBox->SetValue( !m_libEntry->GetIncludeInBom() );
@@ -196,11 +198,11 @@ bool DIALOG_LIB_SYMBOL_PROPERTIES::TransferDataToWindow()
         m_Parent->GetLibManager().GetRootSymbolNames( libName, rootSymbolNames );
         m_inheritanceSelectCombo->Append( rootSymbolNames );
 
-        PART_SPTR rootPart = m_libEntry->GetParent().lock();
+        LIB_SYMBOL_SPTR rootSymbol = m_libEntry->GetParent().lock();
 
-        wxCHECK( rootPart, false );
+        wxCHECK( rootSymbol, false );
 
-        wxString parentName = rootPart->GetName();
+        wxString parentName = UnescapeString( rootSymbol->GetName() );
         int selection = m_inheritanceSelectCombo->FindString( parentName );
 
         wxCHECK( selection != wxNOT_FOUND, false );
@@ -307,12 +309,13 @@ bool DIALOG_LIB_SYMBOL_PROPERTIES::TransferDataFromWindow()
     {
         wxString libName = m_Parent->GetCurLib();
 
-        if( m_Parent->GetLibManager().PartExists( newName, libName ) )
+        if( m_Parent->GetLibManager().SymbolExists( newName, libName ) )
         {
             wxString msg;
 
             msg.Printf( _( "The name '%s' conflicts with an existing entry in the library '%s'." ),
-                        newName, libName );
+                        UnescapeString( newName ),
+                        libName );
             DisplayErrorMessage( this, msg );
             return false;
         }
@@ -339,7 +342,7 @@ bool DIALOG_LIB_SYMBOL_PROPERTIES::TransferDataFromWindow()
     // Update the parent for inherited symbols
     if( m_libEntry->IsAlias() )
     {
-        wxString parentName = m_inheritanceSelectCombo->GetValue();
+        wxString parentName = EscapeString( m_inheritanceSelectCombo->GetValue(), CTX_LIBID );
 
         // The parentName was verified to be non-empty in the Validator
         wxString libName = m_Parent->GetCurLib();
@@ -435,7 +438,9 @@ void DIALOG_LIB_SYMBOL_PROPERTIES::OnGridCellChanging( wxGridEvent& event )
         }
     }
     else if( event.GetRow() == VALUE_FIELD && event.GetCol() == FDC_VALUE )
+    {
         m_SymbolNameCtrl->ChangeValue( event.GetString() );
+    }
 
     editor->DecRef();
 }
@@ -559,7 +564,9 @@ void DIALOG_LIB_SYMBOL_PROPERTIES::OnMoveDown( wxCommandEvent& event )
         m_grid->MakeCellVisible( m_grid->GetGridCursorRow(), m_grid->GetGridCursorCol() );
     }
     else
+    {
         wxBell();
+    }
 }
 
 
@@ -592,7 +599,7 @@ void DIALOG_LIB_SYMBOL_PROPERTIES::OnEditSpiceModel( wxCommandEvent& event )
 }
 
 
-void DIALOG_LIB_SYMBOL_PROPERTIES::OnFilterDClick( wxMouseEvent& event)
+void DIALOG_LIB_SYMBOL_PROPERTIES::OnFilterDClick( wxMouseEvent& event )
 {
     int idx = m_FootprintFilterListBox->HitTest( event.GetPosition() );
     wxCommandEvent dummy;

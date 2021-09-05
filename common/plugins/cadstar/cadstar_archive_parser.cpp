@@ -31,6 +31,7 @@
 #include <eda_item.h>
 #include <eda_text.h>
 #include <macros.h>
+#include <string_utils.h>
 #include <trigo.h>
 
 // Ratio derived from CADSTAR default font. See doxygen comment in cadstar_archive_parser.h
@@ -738,7 +739,8 @@ void CADSTAR_ARCHIVE_PARSER::SETTINGS::Parse( XNODE* aNode, PARSER_CONTEXT* aCon
 }
 
 
-wxString CADSTAR_ARCHIVE_PARSER::ParseTextFields( wxString aTextString, PARSER_CONTEXT* aContext )
+wxString CADSTAR_ARCHIVE_PARSER::ParseTextFields( const wxString& aTextString,
+                                                  PARSER_CONTEXT* aContext )
 {
     static const std::map<TEXT_FIELD_NAME, wxString> txtTokens =
     {
@@ -763,7 +765,6 @@ wxString CADSTAR_ARCHIVE_PARSER::ParseTextFields( wxString aTextString, PARSER_C
         { TEXT_FIELD_NAME::UNITS_FULL,          wxT( "UNITS FULL" ) },
         { TEXT_FIELD_NAME::HYPERLINK,           wxT( "HYPERLINK" ) }
     };
-
 
     wxString remainingStr = aTextString;
     wxString returnStr;
@@ -1000,14 +1001,16 @@ CADSTAR_ARCHIVE_PARSER::READABILITY CADSTAR_ARCHIVE_PARSER::ParseReadability( XN
 }
 
 
-void CADSTAR_ARCHIVE_PARSER::ATTRIBUTE_LOCATION::ParseIdentifiers( XNODE* aNode, PARSER_CONTEXT* aContext )
+void CADSTAR_ARCHIVE_PARSER::ATTRIBUTE_LOCATION::ParseIdentifiers( XNODE* aNode,
+                                                                   PARSER_CONTEXT* aContext )
 {
     TextCodeID = GetXmlAttributeIDString( aNode, 0 );
     LayerID    = GetXmlAttributeIDString( aNode, 1 );
 }
 
 
-bool CADSTAR_ARCHIVE_PARSER::ATTRIBUTE_LOCATION::ParseSubNode( XNODE* aChildNode, PARSER_CONTEXT* aContext )
+bool CADSTAR_ARCHIVE_PARSER::ATTRIBUTE_LOCATION::ParseSubNode( XNODE* aChildNode,
+                                                               PARSER_CONTEXT* aContext )
 {
     wxString cNodeName = aChildNode->GetName();
 
@@ -1758,7 +1761,8 @@ void CADSTAR_ARCHIVE_PARSER::PART::PART_PIN::Parse( XNODE* aNode, PARSER_CONTEXT
 }
 
 
-void CADSTAR_ARCHIVE_PARSER::PART::DEFINITION::PIN_EQUIVALENCE::Parse( XNODE* aNode, PARSER_CONTEXT* aContext )
+void CADSTAR_ARCHIVE_PARSER::PART::DEFINITION::PIN_EQUIVALENCE::Parse( XNODE* aNode,
+                                                                       PARSER_CONTEXT* aContext )
 {
     wxASSERT( aNode->GetName() == wxT( "PINEQUIVALENCE" ) );
 
@@ -1781,7 +1785,8 @@ void CADSTAR_ARCHIVE_PARSER::PART::DEFINITION::PIN_EQUIVALENCE::Parse( XNODE* aN
 }
 
 
-void CADSTAR_ARCHIVE_PARSER::PART::DEFINITION::SWAP_GATE::Parse( XNODE* aNode, PARSER_CONTEXT* aContext )
+void CADSTAR_ARCHIVE_PARSER::PART::DEFINITION::SWAP_GATE::Parse( XNODE* aNode,
+                                                                 PARSER_CONTEXT* aContext )
 {
     wxASSERT( aNode->GetName() == wxT( "SWAPGATE" ) );
 
@@ -1804,7 +1809,8 @@ void CADSTAR_ARCHIVE_PARSER::PART::DEFINITION::SWAP_GATE::Parse( XNODE* aNode, P
 }
 
 
-void CADSTAR_ARCHIVE_PARSER::PART::DEFINITION::SWAP_GROUP::Parse( XNODE* aNode, PARSER_CONTEXT* aContext )
+void CADSTAR_ARCHIVE_PARSER::PART::DEFINITION::SWAP_GROUP::Parse( XNODE* aNode,
+                                                                  PARSER_CONTEXT* aContext )
 {
     wxASSERT( aNode->GetName() == wxT( "SWAPGROUP" ) );
 
@@ -1961,7 +1967,8 @@ void CADSTAR_ARCHIVE_PARSER::PARTS::Parse( XNODE* aNode, PARSER_CONTEXT* aContex
 }
 
 
-void CADSTAR_ARCHIVE_PARSER::NET::JUNCTION::ParseIdentifiers( XNODE* aNode, PARSER_CONTEXT* aContext )
+void CADSTAR_ARCHIVE_PARSER::NET::JUNCTION::ParseIdentifiers( XNODE* aNode,
+                                                              PARSER_CONTEXT* aContext )
 {
     wxASSERT( aNode->GetName() == wxT( "JPT" ) );
 
@@ -1970,7 +1977,8 @@ void CADSTAR_ARCHIVE_PARSER::NET::JUNCTION::ParseIdentifiers( XNODE* aNode, PARS
 }
 
 
-bool CADSTAR_ARCHIVE_PARSER::NET::JUNCTION::ParseSubNode( XNODE* aChildNode, PARSER_CONTEXT* aContext )
+bool CADSTAR_ARCHIVE_PARSER::NET::JUNCTION::ParseSubNode( XNODE* aChildNode,
+                                                          PARSER_CONTEXT* aContext )
 {
     wxString cNodeName = aChildNode->GetName();
 
@@ -2004,7 +2012,8 @@ void CADSTAR_ARCHIVE_PARSER::NET::JUNCTION::Parse( XNODE* aNode, PARSER_CONTEXT*
 }
 
 
-void CADSTAR_ARCHIVE_PARSER::NET::CONNECTION::ParseIdentifiers( XNODE* aNode, PARSER_CONTEXT* aContext )
+void CADSTAR_ARCHIVE_PARSER::NET::CONNECTION::ParseIdentifiers( XNODE* aNode,
+                                                                PARSER_CONTEXT* aContext )
 {
     wxASSERT( aNode->GetName() == wxT( "CONN" ) );
 
@@ -2014,7 +2023,8 @@ void CADSTAR_ARCHIVE_PARSER::NET::CONNECTION::ParseIdentifiers( XNODE* aNode, PA
 }
 
 
-bool CADSTAR_ARCHIVE_PARSER::NET::CONNECTION::ParseSubNode( XNODE* aChildNode, PARSER_CONTEXT* aContext )
+bool CADSTAR_ARCHIVE_PARSER::NET::CONNECTION::ParseSubNode( XNODE* aChildNode,
+                                                            PARSER_CONTEXT* aContext )
 {
     wxString cNodeName = aChildNode->GetName();
 
@@ -2302,11 +2312,11 @@ void CADSTAR_ARCHIVE_PARSER::InsertAttributeAtEnd( XNODE* aNode, wxString aValue
 }
 
 
-XNODE* CADSTAR_ARCHIVE_PARSER::LoadArchiveFile(
-        const wxString& aFileName, const wxString& aFileTypeIdentifier )
+XNODE* CADSTAR_ARCHIVE_PARSER::LoadArchiveFile( const wxString& aFileName,
+                                                const wxString& aFileTypeIdentifier )
 {
     KEYWORD   emptyKeywords[1] = {};
-    XNODE *   iNode = NULL, *cNode = NULL;
+    XNODE *   iNode = nullptr, *cNode = nullptr;
     int       tok;
     bool      cadstarFileCheckDone = false;
     wxString  str;
@@ -2371,7 +2381,7 @@ XNODE* CADSTAR_ARCHIVE_PARSER::LoadArchiveFile(
     }
 
     // Not enough closing brackets
-    if( iNode != NULL )
+    if( iNode != nullptr )
         THROW_IO_ERROR( _( "The selected file is not valid or might be corrupt!" ) );
 
     // Throw if no data was parsed
@@ -2380,7 +2390,7 @@ XNODE* CADSTAR_ARCHIVE_PARSER::LoadArchiveFile(
     else
         THROW_IO_ERROR( _( "The selected file is not valid or might be corrupt!" ) );
 
-    return NULL;
+    return nullptr;
 }
 
 
@@ -2390,8 +2400,8 @@ bool CADSTAR_ARCHIVE_PARSER::IsValidAttribute( wxXmlAttribute* aAttribute )
 }
 
 
-wxString CADSTAR_ARCHIVE_PARSER::GetXmlAttributeIDString(
-        XNODE* aNode, unsigned int aID, bool aIsRequired )
+wxString CADSTAR_ARCHIVE_PARSER::GetXmlAttributeIDString( XNODE* aNode, unsigned int aID,
+                                                          bool aIsRequired )
 {
     wxString attrName, retVal;
     attrName = "attr";
@@ -2409,8 +2419,8 @@ wxString CADSTAR_ARCHIVE_PARSER::GetXmlAttributeIDString(
 }
 
 
-long CADSTAR_ARCHIVE_PARSER::GetXmlAttributeIDLong(
-        XNODE* aNode, unsigned int aID, bool aIsRequired )
+long CADSTAR_ARCHIVE_PARSER::GetXmlAttributeIDLong( XNODE* aNode, unsigned int aID,
+                                                    bool aIsRequired )
 {
     long retVal;
     bool success = GetXmlAttributeIDString( aNode, aID, aIsRequired ).ToLong( &retVal );
@@ -2441,8 +2451,8 @@ void CADSTAR_ARCHIVE_PARSER::CheckNoNextNodes( XNODE* aNode )
 }
 
 
-void CADSTAR_ARCHIVE_PARSER::ParseChildEValue(
-        XNODE* aNode, PARSER_CONTEXT* aContext, EVALUE& aValueToParse )
+void CADSTAR_ARCHIVE_PARSER::ParseChildEValue( XNODE* aNode, PARSER_CONTEXT* aContext,
+                                               EVALUE& aValueToParse )
 {
     if( aNode->GetChildren()->GetName() == wxT( "E" ) )
         aValueToParse.Parse( aNode->GetChildren(), aContext );
@@ -2534,6 +2544,16 @@ std::vector<CADSTAR_ARCHIVE_PARSER::CUTOUT> CADSTAR_ARCHIVE_PARSER::ParseAllChil
     }
 
     return retVal;
+}
+
+
+wxString CADSTAR_ARCHIVE_PARSER::HandleTextOverbar( wxString aCadstarString )
+{
+    wxString escapedText = aCadstarString;
+
+    escapedText.Replace( wxT( "'" ), wxT( "~" ) );
+
+    return ConvertToNewOverbarNotation( escapedText );
 }
 
 

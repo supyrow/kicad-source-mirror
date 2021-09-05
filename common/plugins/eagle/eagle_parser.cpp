@@ -27,7 +27,7 @@
 
 #include <plugins/eagle/eagle_parser.h>
 
-#include <kicad_string.h>
+#include <string_utils.h>
 #include <richio.h>
 #include <wx/log.h>
 
@@ -41,10 +41,9 @@ wxString escapeName( const wxString& aNetName )
 {
     wxString ret( aNetName );
 
-    ret.Replace( "~", "~~" );
     ret.Replace( "!", "~" );
 
-    return ret;
+    return ConvertToNewOverbarNotation( ret );
 }
 
 
@@ -195,7 +194,7 @@ EROT Convert<EROT>( const wxString& aRot )
                             + 1                        // skip leading 'R'
                             + int( value.spin )       // skip optional leading 'S'
                             + int( value.mirror ),    // skip optional leading 'M'
-                            NULL );
+                            nullptr );
 
     return value;
 }

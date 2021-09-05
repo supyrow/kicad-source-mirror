@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2013 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2013 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 1992-2019 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -19,20 +19,22 @@
  * with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <wx/wupdlock.h>
+#include <wx/stattext.h>
+
 #include <gerbview.h>
 #include <gerbview_frame.h>
 #include <bitmaps.h>
 #include <gerbview_id.h>
 #include <gerber_file_image.h>
 #include <gerber_file_image_list.h>
-#include <dialog_helpers.h>
-#include <kicad_string.h>
-#include <wx/wupdlock.h>
+#include <string_utils.h>
 #include <tool/actions.h>
 #include <tool/action_toolbar.h>
 #include <tools/gerbview_actions.h>
 #include "widgets/gbr_layer_box_selector.h"
 #include "widgets/dcode_selection_box.h"
+
 
 void GERBVIEW_FRAME::ReCreateHToolbar()
 {
@@ -50,7 +52,8 @@ void GERBVIEW_FRAME::ReCreateHToolbar()
     else
     {
         m_mainToolBar = new ACTION_TOOLBAR( this, ID_H_TOOLBAR, wxDefaultPosition, wxDefaultSize,
-                                            KICAD_AUI_TB_STYLE | wxAUI_TB_HORZ_LAYOUT | wxAUI_TB_HORIZONTAL );
+                                            KICAD_AUI_TB_STYLE | wxAUI_TB_HORZ_LAYOUT |
+                                            wxAUI_TB_HORIZONTAL );
         m_mainToolBar->SetAuiManager( &m_auimgr );
     }
 
@@ -76,7 +79,7 @@ void GERBVIEW_FRAME::ReCreateHToolbar()
     if( !m_SelLayerBox )
         m_SelLayerBox = new GBR_LAYER_BOX_SELECTOR( m_mainToolBar,
                                                     ID_TOOLBARH_GERBVIEW_SELECT_ACTIVE_LAYER,
-                                                    wxDefaultPosition, wxDefaultSize, 0, NULL );
+                                                    wxDefaultPosition, wxDefaultSize, 0, nullptr );
 
     m_SelLayerBox->Resync();
     m_mainToolBar->AddControl( m_SelLayerBox );
@@ -149,8 +152,8 @@ void GERBVIEW_FRAME::ReCreateAuxiliaryToolbar()
     if( !m_apertText )
         m_apertText = new wxStaticText( m_auxiliaryToolBar, wxID_ANY, _( "Attr:" ) );
 
-    m_SelAperAttributesBox->SetToolTip( _("Highlight items with this aperture attribute") );
-    m_apertText->SetLabel( _( "Attr:" ) );     // can change when changing the language
+    m_SelAperAttributesBox->SetToolTip( _( "Highlight items with this aperture attribute" ) );
+    m_apertText->SetLabel( _( "Attr:" ) ); // can change when changing the language
     m_auxiliaryToolBar->AddControl( m_apertText );
     m_auxiliaryToolBar->AddControl( m_SelAperAttributesBox );
     m_auxiliaryToolBar->AddSpacer( 5 );
@@ -219,7 +222,8 @@ void GERBVIEW_FRAME::ReCreateOptToolbar()
     }
     else
     {
-        m_optionsToolBar = new ACTION_TOOLBAR( this, ID_OPT_TOOLBAR, wxDefaultPosition, wxDefaultSize,
+        m_optionsToolBar = new ACTION_TOOLBAR( this, ID_OPT_TOOLBAR, wxDefaultPosition,
+                                               wxDefaultSize,
                                                KICAD_AUI_TB_STYLE | wxAUI_TB_VERTICAL );
         m_optionsToolBar->SetAuiManager( &m_auimgr );
     }
@@ -278,6 +282,7 @@ void GERBVIEW_FRAME::UpdateToolbarControlSizes()
 
 #define NO_SELECTION_STRING _("<No selection>")
 
+
 void GERBVIEW_FRAME::updateDCodeSelectBox()
 {
     m_DCodeSelector->Clear();
@@ -305,30 +310,30 @@ void GERBVIEW_FRAME::updateDCodeSelectBox()
 
     switch( GetUserUnits() )
     {
-        case EDA_UNITS::MILLIMETRES:
-            scale = IU_PER_MM;
-            units = "mm";
-            break;
+    case EDA_UNITS::MILLIMETRES:
+        scale = IU_PER_MM;
+        units = "mm";
+        break;
 
-        case EDA_UNITS::INCHES:
-            scale = IU_PER_MILS * 1000;
-            units = "in";
-            break;
+    case EDA_UNITS::INCHES:
+        scale = IU_PER_MILS * 1000;
+        units = "in";
+        break;
 
-        case EDA_UNITS::MILS:
-            scale = IU_PER_MILS;
-            units = "mil";
-            break;
+    case EDA_UNITS::MILS:
+        scale = IU_PER_MILS;
+        units = "mil";
+        break;
 
-        default:
-            wxASSERT_MSG( false, "Invalid units" );
+    default:
+        wxASSERT_MSG( false, "Invalid units" );
     }
 
     for( int ii = 0; ii < TOOLS_MAX_COUNT; ii++ )
     {
         D_CODE* dcode = gerber->GetDCODE( ii + FIRST_DCODE );
 
-        if( dcode == NULL )
+        if( dcode == nullptr )
             continue;
 
         if( !dcode->m_InUse && !dcode->m_Defined )
@@ -369,7 +374,7 @@ void GERBVIEW_FRAME::updateComponentListSelectBox()
     {
         GERBER_FILE_IMAGE* gerber = GetImagesList()->GetGbrImage( layer );
 
-        if( gerber == NULL )    // Graphic layer not yet used
+        if( gerber == nullptr )    // Graphic layer not yet used
             continue;
 
         full_list.insert( gerber->m_ComponentsList.begin(), gerber->m_ComponentsList.end() );
@@ -397,7 +402,7 @@ void GERBVIEW_FRAME::updateNetnameListSelectBox()
     {
         GERBER_FILE_IMAGE* gerber = GetImagesList()->GetGbrImage( layer );
 
-        if( gerber == NULL )    // Graphic layer not yet used
+        if( gerber == nullptr )    // Graphic layer not yet used
             continue;
 
         full_list.insert( gerber->m_NetnamesList.begin(), gerber->m_NetnamesList.end() );
@@ -425,7 +430,7 @@ void GERBVIEW_FRAME::updateAperAttributesSelectBox()
     {
         GERBER_FILE_IMAGE* gerber = GetImagesList()->GetGbrImage( layer );
 
-        if( gerber == NULL )    // Graphic layer not yet used
+        if( gerber == nullptr )    // Graphic layer not yet used
             continue;
 
         if( gerber->GetDcodesCount() == 0 )
@@ -435,7 +440,7 @@ void GERBVIEW_FRAME::updateAperAttributesSelectBox()
         {
             D_CODE* aperture = gerber->GetDCODE( ii + FIRST_DCODE );
 
-            if( aperture == NULL )
+            if( aperture == nullptr )
                 continue;
 
             if( !aperture->m_InUse && !aperture->m_Defined )
@@ -490,7 +495,7 @@ void GERBVIEW_FRAME::OnUpdateSelectDCode( wxUpdateUIEvent& aEvent )
     GERBER_FILE_IMAGE* gerber = GetGbrImage( layer );
     int selected = ( gerber ) ? gerber->m_Selected_Tool : 0;
 
-    aEvent.Enable( gerber != NULL );
+    aEvent.Enable( gerber != nullptr );
 
     if( m_DCodeSelector->GetSelectedDCodeId() != selected )
     {

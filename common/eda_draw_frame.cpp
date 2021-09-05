@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2004-2017 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2008 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 2004-2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2004-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -84,20 +84,20 @@ EDA_DRAW_FRAME::EDA_DRAW_FRAME( KIWAY* aKiway, wxWindow* aParent, FRAME_T aFrame
     KIWAY_PLAYER( aKiway, aParent, aFrameType, aTitle, aPos, aSize, aStyle, aFrameName )
 {
     m_socketServer        = nullptr;
-    m_mainToolBar         = NULL;
-    m_drawToolBar         = NULL;
-    m_optionsToolBar      = NULL;
-    m_auxiliaryToolBar    = NULL;
-    m_gridSelectBox       = NULL;
-    m_zoomSelectBox       = NULL;
+    m_mainToolBar         = nullptr;
+    m_drawToolBar         = nullptr;
+    m_optionsToolBar      = nullptr;
+    m_auxiliaryToolBar    = nullptr;
+    m_gridSelectBox       = nullptr;
+    m_zoomSelectBox       = nullptr;
     m_firstRunDialogSetting = 0;
     m_undoRedoCountMax    = DEFAULT_MAX_UNDO_ITEMS;
 
     m_canvasType          = EDA_DRAW_PANEL_GAL::GAL_TYPE_NONE;
-    m_canvas              = NULL;
-    m_toolDispatcher      = NULL;
-    m_messagePanel        = NULL;
-    m_currentScreen       = NULL;
+    m_canvas              = nullptr;
+    m_toolDispatcher      = nullptr;
+    m_messagePanel        = nullptr;
+    m_currentScreen       = nullptr;
     m_showBorderAndTitleBlock = false;  // true to display reference sheet.
     m_gridColor           = COLOR4D( DARKGRAY );   // Default grid color
     m_showPageLimits      = false;
@@ -155,6 +155,15 @@ EDA_DRAW_FRAME::EDA_DRAW_FRAME( KIWAY* aKiway, wxWindow* aParent, FRAME_T aFrame
                                          wxSize( m_frameSize.x, m_msgFrameHeight ) );
 
     m_messagePanel->SetBackgroundColour( COLOR4D( LIGHTGRAY ).ToColour() );
+
+#if wxCHECK_VERSION( 3, 1, 3 )
+    Bind( wxEVT_DPI_CHANGED,
+          [&]( wxDPIChangedEvent& )
+          {
+              wxMoveEvent dummy;
+              OnMove( dummy );
+          } );
+#endif
 }
 
 
@@ -176,7 +185,7 @@ EDA_DRAW_FRAME::~EDA_DRAW_FRAME()
     delete m_canvas;
 
     delete m_currentScreen;
-    m_currentScreen = NULL;
+    m_currentScreen = nullptr;
 
     delete m_findReplaceData;
 
@@ -196,7 +205,7 @@ bool EDA_DRAW_FRAME::LockFile( const wxString& aFileName )
 {
     m_file_checker = ::LockFile( aFileName );
 
-    return bool( m_file_checker );
+    return m_file_checker && !m_file_checker->IsAnotherRunning();
 }
 
 
@@ -225,7 +234,13 @@ void EDA_DRAW_FRAME::ScriptingConsoleEnableDisable()
     }
 
     frame->Show( !frame->IsVisible() );
+}
 
+
+bool EDA_DRAW_FRAME::IsScriptingConsoleVisible()
+{
+    KIWAY_PLAYER* frame = Kiway().Player( FRAME_PYTHON, false );
+    return frame && frame->IsVisible();
 }
 
 
@@ -277,7 +292,7 @@ void EDA_DRAW_FRAME::UpdateGridSelectBox()
     UpdateStatusBar();
     DisplayUnitsMsg();
 
-    if( m_gridSelectBox == NULL )
+    if( m_gridSelectBox == nullptr )
         return;
 
     // Update grid values with the current units setting.
@@ -300,7 +315,7 @@ void EDA_DRAW_FRAME::OnUpdateSelectGrid( wxUpdateUIEvent& aEvent )
 {
     // No need to update the grid select box if it doesn't exist or the grid setting change
     // was made using the select box.
-    if( m_gridSelectBox == NULL )
+    if( m_gridSelectBox == nullptr )
         return;
 
     int idx = config()->m_Window.grid.last_size_idx;
@@ -317,9 +332,6 @@ void EDA_DRAW_FRAME::PrintPage( const RENDER_SETTINGS* aSettings )
 }
 
 
-/*
- * Respond to selections in the toolbar grid popup
- */
 void EDA_DRAW_FRAME::OnSelectGrid( wxCommandEvent& event )
 {
     wxCHECK_RET( m_gridSelectBox, "m_gridSelectBox uninitialized" );
@@ -396,7 +408,7 @@ void EDA_DRAW_FRAME::SetGridVisibility( bool aVisible )
 
 void EDA_DRAW_FRAME::UpdateZoomSelectBox()
 {
-    if( m_zoomSelectBox == NULL )
+    if( m_zoomSelectBox == nullptr )
         return;
 
     double zoom = m_canvas->GetGAL()->GetZoomFactor();
@@ -419,7 +431,7 @@ void EDA_DRAW_FRAME::UpdateZoomSelectBox()
 
 void EDA_DRAW_FRAME::OnUpdateSelectZoom( wxUpdateUIEvent& aEvent )
 {
-    if( m_zoomSelectBox == NULL || m_zoomSelectBox->GetParent() == NULL )
+    if( m_zoomSelectBox == nullptr || m_zoomSelectBox->GetParent() == nullptr )
         return;
 
     int current = 0;    // display Auto if no match found
@@ -441,9 +453,6 @@ void EDA_DRAW_FRAME::OnUpdateSelectZoom( wxUpdateUIEvent& aEvent )
 }
 
 
-/*
- * Respond to selections in the toolbar zoom popup
- */
 void EDA_DRAW_FRAME::OnSelectZoom( wxCommandEvent& event )
 {
     wxCHECK_RET( m_zoomSelectBox, "m_zoomSelectBox uninitialized" );
@@ -507,7 +516,8 @@ void EDA_DRAW_FRAME::DisplayGridMsg()
     wxString line;
 
     line.Printf( "grid %s",
-                 MessageTextFromValue( GetUserUnits(), GetCanvas()->GetGAL()->GetGridSize().x, false ) );
+                 MessageTextFromValue( GetUserUnits(), GetCanvas()->GetGAL()->GetGridSize().x,
+                                       false ) );
 
     SetStatusText( line, 4 );
 }
@@ -531,6 +541,8 @@ void EDA_DRAW_FRAME::DisplayUnitsMsg()
 
 void EDA_DRAW_FRAME::OnSize( wxSizeEvent& SizeEv )
 {
+    EDA_BASE_FRAME::OnSize( SizeEv );
+
     m_frameSize = GetClientSize( );
 
     SizeEv.Skip();
@@ -654,8 +666,8 @@ void EDA_DRAW_FRAME::SetMsgPanel( const MSG_PANEL_ITEMS& aList )
 }
 
 
-void EDA_DRAW_FRAME::SetMsgPanel(
-        const wxString& aTextUpper, const wxString& aTextLower, int aPadding )
+void EDA_DRAW_FRAME::SetMsgPanel( const wxString& aTextUpper, const wxString& aTextLower,
+                                  int aPadding )
 {
     if( m_messagePanel )
     {
@@ -825,7 +837,8 @@ wxWindow* findDialog( wxWindowList& aList )
         if( dynamic_cast<DIALOG_SHIM*>( window ) )
             return window;
     }
-    return NULL;
+
+    return nullptr;
 }
 
 
@@ -859,7 +872,7 @@ void EDA_DRAW_FRAME::FocusOnLocation( const wxPoint& aPos )
         if( dialog )
         {
             BOX2D dialogRect( GetCanvas()->ScreenToClient( dialog->GetScreenPosition() ),
-                               dialog->GetSize() );
+                              dialog->GetSize() );
             GetCanvas()->GetView()->SetCenter( aPos, dialogRect );
         }
         else
@@ -871,6 +884,7 @@ void EDA_DRAW_FRAME::FocusOnLocation( const wxPoint& aPos )
 
 
 static const wxString productName = wxT( "KiCad E.D.A.  " );
+
 
 void PrintDrawingSheet( const RENDER_SETTINGS* aSettings, const PAGE_INFO& aPageInfo,
                         const wxString& aFullSheetName, const wxString& aFileName,

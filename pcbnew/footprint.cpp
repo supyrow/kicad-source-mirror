@@ -29,7 +29,7 @@
 #include <refdes_utils.h>
 #include <bitmaps.h>
 #include <unordered_set>
-#include <kicad_string.h>
+#include <string_utils.h>
 #include <pcb_edit_frame.h>
 #include <board.h>
 #include <board_design_settings.h>
@@ -168,7 +168,10 @@ FOOTPRINT::FOOTPRINT( const FOOTPRINT& aFootprint ) :
         newGroup->GetItems().clear();
 
         for( BOARD_ITEM* member : group->GetItems() )
-            newGroup->AddItem( ptrMap[ member ] );
+        {
+            if( ptrMap.count( member ) )
+                newGroup->AddItem( ptrMap[ member ] );
+        }
     }
 
     // Copy auxiliary data: 3D_Drawings info
@@ -218,6 +221,44 @@ FOOTPRINT::~FOOTPRINT()
         delete d;
 
     m_drawings.clear();
+}
+
+
+bool FOOTPRINT::FixUuids()
+{
+    // replace null UUIDs if any by a valid uuid
+    std::vector< BOARD_ITEM* > item_list;
+
+    item_list.push_back( m_reference );
+    item_list.push_back( m_value );
+
+    for( PAD* pad : m_pads )
+        item_list.push_back( pad );
+
+    for( BOARD_ITEM* gr_item : m_drawings )
+        item_list.push_back( gr_item );
+
+    // Note: one cannot fix null UUIDs inside the group, but it should not happen
+    // because null uuids can be found in old footprints, therefore without group
+    for( PCB_GROUP* group : m_fp_groups )
+        item_list.push_back( group );
+
+    // Probably notneeded, because old fp do not have zones. But just in case.
+    for( FP_ZONE* zone : m_fp_zones )
+        item_list.push_back( zone );
+
+    bool changed = false;
+
+    for( BOARD_ITEM* item : item_list )
+    {
+        if( item->m_Uuid == niluuid )
+        {
+            const_cast<KIID&>( item->m_Uuid ) = KIID();
+            changed = true;
+        }
+    }
+
+    return changed;
 }
 
 
@@ -475,7 +516,7 @@ void FOOTPRINT::Add( BOARD_ITEM* aBoardItem, ADD_MODE aMode )
     {
     case PCB_FP_TEXT_T:
         // Only user text can be added this way.
-        assert( static_cast<FP_TEXT*>( aBoardItem )->GetType() == FP_TEXT::TEXT_is_DIVERS );
+        wxASSERT( static_cast<FP_TEXT*>( aBoardItem )->GetType() == FP_TEXT::TEXT_is_DIVERS );
         KI_FALLTHROUGH;
 
     case PCB_FP_SHAPE_T:
@@ -640,7 +681,7 @@ const EDA_RECT FOOTPRINT::GetBoundingBox() const
 
 const EDA_RECT FOOTPRINT::GetBoundingBox( bool aIncludeText, bool aIncludeInvisibleText ) const
 {
-    BOARD* board = GetBoard();
+    const BOARD* board = GetBoard();
 
     if( board )
     {
@@ -679,9 +720,10 @@ const EDA_RECT FOOTPRINT::GetBoundingBox( bool aIncludeText, bool aIncludeInvisi
     for( FP_ZONE* zone : m_fp_zones )
         area.Merge( zone->GetBoundingBox() );
 
-    // Groups do not contribute to the rect, only their members
+    bool noDrawItems = ( m_drawings.empty() && m_pads.empty() && m_fp_zones.empty() );
 
-    if( aIncludeText )
+    // Groups do not contribute to the rect, only their members
+    if( aIncludeText || noDrawItems )
     {
         for( BOARD_ITEM* item : m_drawings )
         {
@@ -710,16 +752,18 @@ const EDA_RECT FOOTPRINT::GetBoundingBox( bool aIncludeText, bool aIncludeInvisi
         }
 
 
-        if( ( m_value->IsVisible() && valueLayerIsVisible ) || aIncludeInvisibleText )
+        if( ( m_value->IsVisible() && valueLayerIsVisible )
+          || aIncludeInvisibleText || noDrawItems )
             area.Merge( m_value->GetBoundingBox() );
 
-        if( ( m_reference->IsVisible() && refLayerIsVisible ) || aIncludeInvisibleText )
+        if( ( m_reference->IsVisible() && refLayerIsVisible )
+          || aIncludeInvisibleText || noDrawItems )
             area.Merge( m_reference->GetBoundingBox() );
     }
 
     if( board )
     {
-        if( aIncludeText && aIncludeInvisibleText )
+        if( ( aIncludeText && aIncludeInvisibleText ) || noDrawItems )
         {
             m_boundingBoxCacheTimeStamp = board->GetTimeStamp();
             m_cachedBoundingBox = area;
@@ -742,7 +786,7 @@ const EDA_RECT FOOTPRINT::GetBoundingBox( bool aIncludeText, bool aIncludeInvisi
 
 SHAPE_POLY_SET FOOTPRINT::GetBoundingHull() const
 {
-    BOARD* board = GetBoard();
+    const BOARD* board = GetBoard();
 
     if( board )
     {
@@ -790,9 +834,10 @@ SHAPE_POLY_SET FOOTPRINT::GetBoundingHull() const
     if( rawPolys.OutlineCount() == 0 )
     {
         // generate a small dummy rectangular outline around the anchor
-        const int halfsize = Millimeter2iu( 0.02 );
+        const int halfsize = Millimeter2iu( 1.0 );
 
         rawPolys.NewOutline();
+
         // add a square:
         rawPolys.Append( GetPosition().x - halfsize,  GetPosition().y - halfsize );
         rawPolys.Append( GetPosition().x + halfsize,  GetPosition().y - halfsize );
@@ -924,12 +969,18 @@ bool FOOTPRINT::HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy )
     arect.Inflate( aAccuracy );
 
     if( aContained )
+    {
         return arect.Contains( GetBoundingBox( false, false ) );
+    }
     else
     {
         // If the rect does not intersect the bounding box, skip any tests
         if( !aRect.Intersects( GetBoundingBox( false, false ) ) )
             return false;
+
+        // The empty footprint dummy rectangle intersects the selection area.
+        if( m_pads.empty() && m_fp_zones.empty() && m_drawings.empty() )
+            return GetBoundingBox( true, false ).Intersects( arect );
 
         // Determine if any elements in the FOOTPRINT intersect the rect
         for( PAD* pad : m_pads )
@@ -958,11 +1009,19 @@ bool FOOTPRINT::HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy )
 }
 
 
-PAD* FOOTPRINT::FindPadByName( const wxString& aPadName ) const
+PAD* FOOTPRINT::FindPadByNumber( const wxString& aPadNumber, PAD* aSearchAfterMe ) const
 {
+    bool can_select = aSearchAfterMe ? false : true;
+
     for( PAD* pad : m_pads )
     {
-        if( pad->GetName() == aPadName )
+        if( !can_select && pad == aSearchAfterMe )
+        {
+            can_select = true;
+            continue;
+        }
+
+        if( can_select && pad->GetNumber() == aPadNumber )
             return pad;
     }
 
@@ -1026,7 +1085,7 @@ unsigned FOOTPRINT::GetPadCount( INCLUDE_NPTH_T aIncludeNPTH ) const
 
 unsigned FOOTPRINT::GetUniquePadCount( INCLUDE_NPTH_T aIncludeNPTH ) const
 {
-    std::set<wxString> usedNames;
+    std::set<wxString> usedNumbers;
 
     // Create a set of used pad numbers
     for( PAD* pad : m_pads )
@@ -1038,22 +1097,20 @@ unsigned FOOTPRINT::GetUniquePadCount( INCLUDE_NPTH_T aIncludeNPTH ) const
 
         // Skip pads with no name, because they are usually "mechanical"
         // pads, not "electrical" pads
-        if( pad->GetName().IsEmpty() )
+        if( pad->GetNumber().IsEmpty() )
             continue;
 
         if( !aIncludeNPTH )
         {
             // skip NPTH
             if( pad->GetAttribute() == PAD_ATTRIB::NPTH )
-            {
                 continue;
-            }
         }
 
-        usedNames.insert( pad->GetName() );
+        usedNumbers.insert( pad->GetNumber() );
     }
 
-    return usedNames.size();
+    return usedNumbers.size();
 }
 
 
@@ -1298,7 +1355,7 @@ const BOX2I FOOTPRINT::ViewBBox() const
 
     // Add the Clearance shape size: (shape around the pads when the clearance is shown.  Not
     // optimized, but the draw cost is small (perhaps smaller than optimization).
-    BOARD* board = GetBoard();
+    const BOARD* board = GetBoard();
 
     if( board )
     {
@@ -1701,20 +1758,20 @@ BOARD_ITEM* FOOTPRINT::DuplicateItem( const BOARD_ITEM* aItem, bool aAddToFootpr
 }
 
 
-wxString FOOTPRINT::GetNextPadName( const wxString& aLastPadName ) const
+wxString FOOTPRINT::GetNextPadNumber( const wxString& aLastPadNumber ) const
 {
-    std::set<wxString> usedNames;
+    std::set<wxString> usedNumbers;
 
     // Create a set of used pad numbers
     for( PAD* pad : m_pads )
-        usedNames.insert( pad->GetName() );
+        usedNumbers.insert( pad->GetNumber() );
 
-    // Pad names aren't technically reference designators, but the formatting is close enough
+    // Pad numbers aren't technically reference designators, but the formatting is close enough
     // for these to give us what we need.
-    wxString prefix = UTIL::GetRefDesPrefix( aLastPadName );
-    int      num = GetTrailingInt( aLastPadName );
+    wxString prefix = UTIL::GetRefDesPrefix( aLastPadNumber );
+    int      num = GetTrailingInt( aLastPadNumber );
 
-    while( usedNames.count( wxString::Format( "%s%d", prefix, num ) ) )
+    while( usedNumbers.count( wxString::Format( "%s%d", prefix, num ) ) )
         num++;
 
     return wxString::Format( "%s%d", prefix, num );
@@ -1795,14 +1852,14 @@ double FOOTPRINT::GetCoverageArea( const BOARD_ITEM* aItem, const GENERAL_COLLEC
 
         switch( shape->GetShape() )
         {
-        case PCB_SHAPE_TYPE::SEGMENT:
-        case PCB_SHAPE_TYPE::ARC:
-        case PCB_SHAPE_TYPE::CURVE:
+        case SHAPE_T::SEGMENT:
+        case SHAPE_T::ARC:
+        case SHAPE_T::BEZIER:
             return shape->GetWidth() * shape->GetWidth();
 
-        case PCB_SHAPE_TYPE::RECT:
-        case PCB_SHAPE_TYPE::CIRCLE:
-        case PCB_SHAPE_TYPE::POLYGON:
+        case SHAPE_T::RECT:
+        case SHAPE_T::CIRCLE:
+        case SHAPE_T::POLY:
         {
             if( !shape->IsFilled() )
                 return shape->GetWidth() * shape->GetWidth();
@@ -1989,7 +2046,7 @@ void FOOTPRINT::BuildPolyCourtyards( OUTLINE_ERROR_HANDLER* aErrorHandler )
 
 void FOOTPRINT::SwapData( BOARD_ITEM* aImage )
 {
-    assert( aImage->Type() == PCB_FOOTPRINT_T );
+    wxASSERT( aImage->Type() == PCB_FOOTPRINT_T );
 
     std::swap( *((FOOTPRINT*) this), *((FOOTPRINT*) aImage) );
 }
@@ -2034,8 +2091,8 @@ bool FOOTPRINT::cmp_drawings::operator()( const BOARD_ITEM* aFirst,
 
 bool FOOTPRINT::cmp_pads::operator()( const PAD* aFirst, const PAD* aSecond ) const
 {
-    if( aFirst->GetName() != aSecond->GetName() )
-        return StrNumCmp( aFirst->GetName(), aSecond->GetName() ) < 0;
+    if( aFirst->GetNumber() != aSecond->GetNumber() )
+        return StrNumCmp( aFirst->GetNumber(), aSecond->GetNumber() ) < 0;
 
     if( aFirst->m_Uuid != aSecond->m_Uuid ) // shopuld be always the case foer valid boards
         return aFirst->m_Uuid < aSecond->m_Uuid;
@@ -2087,14 +2144,18 @@ static struct FOOTPRINT_DESC
         propMgr.AddProperty( new PROPERTY<FOOTPRINT, int>( _HKI( "Solderpaste Margin Override" ),
                     &FOOTPRINT::SetLocalSolderPasteMargin, &FOOTPRINT::GetLocalSolderPasteMargin,
                     PROPERTY_DISPLAY::DISTANCE ) );
-        propMgr.AddProperty( new PROPERTY<FOOTPRINT, double>( _HKI( "Solderpaste Margin Ratio Override" ),
-                    &FOOTPRINT::SetLocalSolderPasteMarginRatio, &FOOTPRINT::GetLocalSolderPasteMarginRatio ) );
+        propMgr.AddProperty( new PROPERTY<FOOTPRINT,
+                             double>( _HKI( "Solderpaste Margin Ratio Override" ),
+                                      &FOOTPRINT::SetLocalSolderPasteMarginRatio,
+                                      &FOOTPRINT::GetLocalSolderPasteMarginRatio ) );
         propMgr.AddProperty( new PROPERTY<FOOTPRINT, int>( _HKI( "Thermal Relief Width" ),
-                    &FOOTPRINT::SetThermalWidth, &FOOTPRINT::GetThermalWidth,
-                    PROPERTY_DISPLAY::DISTANCE ) );
+                                                           &FOOTPRINT::SetThermalWidth,
+                                                           &FOOTPRINT::GetThermalWidth,
+                                                           PROPERTY_DISPLAY::DISTANCE ) );
         propMgr.AddProperty( new PROPERTY<FOOTPRINT, int>( _HKI( "Thermal Relief Gap" ),
-                    &FOOTPRINT::SetThermalGap, &FOOTPRINT::GetThermalGap,
-                    PROPERTY_DISPLAY::DISTANCE ) );
+                                                           &FOOTPRINT::SetThermalGap,
+                                                           &FOOTPRINT::GetThermalGap,
+                                                           PROPERTY_DISPLAY::DISTANCE ) );
         // TODO zone connection, FPID?
     }
 } _FOOTPRINT_DESC;

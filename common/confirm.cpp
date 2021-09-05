@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2007 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 1992-2019 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -151,13 +151,36 @@ long KIDIALOG::getStyle( KD_TYPE aType )
 }
 
 
-int UnsavedChangesDialog( wxWindow* parent, wxString aMessage, bool* aApplyToAll )
+bool OverrideLock( wxWindow* aParent, const wxString& aMessage )
+{
+#ifdef __APPLE__
+    // wxMessageDialog gets the button spacing wrong on Mac so we have to use wxRichMessageDialog.
+    // Note that its warning icon is more like wxMessageDialog's error icon, so we use it instead
+    // of wxICON_ERROR.
+    wxRichMessageDialog dlg( aParent, aMessage, _( "File Open Error" ),
+                             wxYES_NO | wxICON_WARNING | wxCENTER );
+    dlg.SetExtendedMessage( _( "Interleaved saves may produce very unexpected results." )
+                                + wxS( "\n" ) );
+    dlg.SetYesNoLabels( _( "OK" ), _( "Open Anyway" ) );
+#else
+    wxMessageDialog dlg( aParent, aMessage, _( "File Open Error" ),
+                         wxYES_NO | wxICON_ERROR | wxCENTER );
+    dlg.SetExtendedMessage( _( "Interleaved saves may produce very unexpected results." ) );
+    dlg.SetYesNoLabels( _( "OK" ), _( "Open Anyway" ) );
+#endif
+
+    return dlg.ShowModal() == wxID_NO;
+}
+
+
+int UnsavedChangesDialog( wxWindow* parent, const wxString& aMessage, bool* aApplyToAll )
 {
     static bool s_apply_to_all = false;
 
-    wxRichMessageDialog dlg( parent, aMessage, wxEmptyString,
+    wxRichMessageDialog dlg( parent, aMessage, _( "Save Changes?" ),
                              wxYES_NO | wxCANCEL | wxYES_DEFAULT | wxICON_WARNING | wxCENTER );
-    dlg.SetExtendedMessage( _( "If you don't save, all your changes will be permanently lost." ) );
+    dlg.SetExtendedMessage( _( "If you don't save, all your changes will be permanently lost." )
+                                + wxS( "\n" ) );
     dlg.SetYesNoLabels( _( "Save" ), _( "Discard Changes" ) );
 
     if( aApplyToAll )
@@ -179,10 +202,11 @@ int UnsavedChangesDialog( wxWindow* parent, wxString aMessage, bool* aApplyToAll
 int UnsavedChangesDialog( wxWindow* parent, const wxString& aMessage )
 {
 #ifdef __APPLE__
-    // wxWidgets gets the button order wrong on Mac so use the other dialog.
+    // wxMessageDialog gets the button order (and spacing) wrong on Mac so we have to use
+    // wxRichMessageDialog.
     return UnsavedChangesDialog( parent, aMessage, nullptr );
 #else
-    wxMessageDialog dlg( parent, aMessage, wxEmptyString,
+    wxMessageDialog dlg( parent, aMessage, _( "Save Changes?" ),
                          wxYES_NO | wxCANCEL | wxYES_DEFAULT | wxICON_WARNING | wxCENTER );
     dlg.SetExtendedMessage( _( "If you don't save, all your changes will be permanently lost." ) );
     dlg.SetYesNoLabels( _( "Save" ), _( "Discard Changes" ) );
@@ -218,19 +242,14 @@ bool HandleUnsavedChanges( wxWindow* aParent, const wxString& aMessage,
 
 
 int OKOrCancelDialog( wxWindow* aParent, const wxString& aWarning, const wxString& aMessage,
-                      wxString aDetailedMessage, wxString aOKLabel, wxString aCancelLabel,
-                      bool* aApplyToAll )
+                      const wxString& aDetailedMessage, const wxString& aOKLabel,
+                      const wxString& aCancelLabel, bool* aApplyToAll )
 {
     wxRichMessageDialog dlg( aParent, aMessage, aWarning,
                              wxOK | wxCANCEL | wxOK_DEFAULT | wxICON_WARNING | wxCENTER );
 
-    if( aOKLabel.IsEmpty() )
-        aOKLabel = _( "OK" );
-
-    if( aCancelLabel.IsEmpty() )
-        aCancelLabel = _( "Cancel" );
-
-    dlg.SetOKCancelLabels( aOKLabel, aCancelLabel );
+    dlg.SetOKCancelLabels( ( aOKLabel.IsEmpty() ) ? _( "OK" ) : aOKLabel,
+                           ( aCancelLabel.IsEmpty() ) ?  _( "Cancel" ) : aCancelLabel );
 
     if( !aDetailedMessage.IsEmpty() )
         dlg.SetExtendedMessage( aDetailedMessage );
@@ -279,14 +298,14 @@ void DisplayErrorMessage( wxWindow* aParent, const wxString& aText, const wxStri
 
 void DisplayInfoMessage( wxWindow* aParent, const wxString& aMessage, const wxString& aExtraInfo )
 {
-    wxRichMessageDialog* dlg;
-    int                  icon = wxICON_INFORMATION;
+    wxMessageDialog* dlg;
+    int              icon = wxICON_INFORMATION;
 
-    dlg = new wxRichMessageDialog( aParent, aMessage, _( "Info" ),
-                                   wxOK | wxCENTRE | wxRESIZE_BORDER | icon | wxSTAY_ON_TOP );
+    dlg = new wxMessageDialog( aParent, aMessage, _( "Information" ),
+                               wxOK | wxCENTRE | wxRESIZE_BORDER | icon | wxSTAY_ON_TOP );
 
     if( !aExtraInfo.IsEmpty() )
-        dlg->ShowDetailedText( aExtraInfo );
+        dlg->SetExtendedMessage( aExtraInfo );
 
     dlg->ShowModal();
     dlg->Destroy();

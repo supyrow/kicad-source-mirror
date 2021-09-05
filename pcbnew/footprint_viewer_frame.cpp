@@ -2,8 +2,8 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2012-2015 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 2008-2016 Wayne Stambaugh <stambaughw@verizon.net>
- * Copyright (C) 2004-2019 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2008-2016 Wayne Stambaugh <stambaughw@gmail.com>
+ * Copyright (C) 2004-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -23,13 +23,12 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
-#include <3d_viewer/eda_3d_viewer.h>
+#include <3d_viewer/eda_3d_viewer_frame.h>
 #include <bitmaps.h>
 #include <board_commit.h>
 #include <board.h>
 #include <footprint.h>
 #include <confirm.h>
-#include <dialog_helpers.h>
 #include <eda_pattern_match.h>
 #include <footprint_info.h>
 #include <footprint_viewer_frame.h>
@@ -57,6 +56,7 @@
 #include <tools/pcb_selection_tool.h>
 #include <wildcards_and_files_ext.h>
 #include <wx/listbox.h>
+#include <wx/srchctrl.h>
 #include <wx/tokenzr.h>
 
 using namespace std::placeholders;
@@ -137,13 +137,13 @@ FOOTPRINT_VIEWER_FRAME::FOOTPRINT_VIEWER_FRAME( KIWAY* aKiway, wxWindow* aParent
     wxPanel* libPanel = new wxPanel( this );
     wxSizer* libSizer = new wxBoxSizer( wxVERTICAL );
 
-    m_libFilter = new wxTextCtrl( libPanel, ID_MODVIEW_LIB_FILTER, wxEmptyString,
+    m_libFilter = new wxSearchCtrl( libPanel, ID_MODVIEW_LIB_FILTER, wxEmptyString,
                                   wxDefaultPosition, wxDefaultSize, wxTE_PROCESS_ENTER );
-    m_libFilter->SetHint( _( "Filter" ) );
+    m_libFilter->SetDescriptiveText( _( "Filter" ) );
     libSizer->Add( m_libFilter, 0, wxEXPAND, 5 );
 
     m_libList = new wxListBox( libPanel, ID_MODVIEW_LIB_LIST, wxDefaultPosition, wxDefaultSize,
-                               0, NULL, wxLB_HSCROLL | wxNO_BORDER );
+                               0, nullptr, wxLB_HSCROLL | wxNO_BORDER );
     libSizer->Add( m_libList, 1, wxEXPAND, 5 );
 
     libPanel->SetSizer( libSizer );
@@ -152,17 +152,24 @@ FOOTPRINT_VIEWER_FRAME::FOOTPRINT_VIEWER_FRAME( KIWAY* aKiway, wxWindow* aParent
     wxPanel* fpPanel = new wxPanel( this );
     wxSizer* fpSizer = new wxBoxSizer( wxVERTICAL );
 
-    m_fpFilter = new wxTextCtrl( fpPanel, ID_MODVIEW_FOOTPRINT_FILTER, wxEmptyString,
+    m_fpFilter = new wxSearchCtrl( fpPanel, ID_MODVIEW_FOOTPRINT_FILTER, wxEmptyString,
                                  wxDefaultPosition, wxDefaultSize, wxTE_PROCESS_ENTER );
-    m_fpFilter->SetHint( _( "Filter" ) );
+    m_fpFilter->SetDescriptiveText( _( "Filter" ) );
     m_fpFilter->SetToolTip(
             _( "Filter on footprint name, keywords, description and pad count.\n"
                "Search terms are separated by spaces.  All search terms must match.\n"
                "A term which is a number will also match against the pad count." ) );
     fpSizer->Add( m_fpFilter, 0, wxEXPAND, 5 );
 
+#ifdef __WXGTK__
+    // wxSearchCtrl vertical height is not calculated correctly on some GTK setups
+    // See https://gitlab.com/kicad/code/kicad/-/issues/9019
+    m_libFilter->SetMinSize( wxSize( -1, GetTextExtent( wxT( "qb" ) ).y + 10 ) );
+    m_fpFilter->SetMinSize( wxSize( -1, GetTextExtent( wxT( "qb" ) ).y + 10 ) );
+#endif
+
     m_fpList = new wxListBox( fpPanel, ID_MODVIEW_FOOTPRINT_LIST, wxDefaultPosition, wxDefaultSize,
-                              0, NULL, wxLB_HSCROLL | wxNO_BORDER );
+                              0, nullptr, wxLB_HSCROLL | wxNO_BORDER );
     fpSizer->Add( m_fpList, 1, wxEXPAND, 5 );
 
     fpPanel->SetSizer( fpSizer );
@@ -311,14 +318,18 @@ void FOOTPRINT_VIEWER_FRAME::setupUIConditions()
 
     mgr->SetConditions( ACTIONS::toggleGrid,             CHECK( cond.GridVisible() ) );
     mgr->SetConditions( ACTIONS::toggleCursorStyle,      CHECK( cond.FullscreenCursor() ) );
-    mgr->SetConditions( ACTIONS::millimetersUnits,       CHECK( cond.Units( EDA_UNITS::MILLIMETRES ) ) );
+    mgr->SetConditions( ACTIONS::millimetersUnits,
+                        CHECK( cond.Units( EDA_UNITS::MILLIMETRES ) ) );
     mgr->SetConditions( ACTIONS::inchesUnits,            CHECK( cond.Units( EDA_UNITS::INCHES ) ) );
     mgr->SetConditions( ACTIONS::milsUnits,              CHECK( cond.Units( EDA_UNITS::MILS ) ) );
 
 
-    mgr->SetConditions( ACTIONS::zoomTool,               CHECK( cond.CurrentTool( ACTIONS::zoomTool ) ) );
-    mgr->SetConditions( ACTIONS::measureTool,            CHECK( cond.CurrentTool( ACTIONS::measureTool ) ) );
-    mgr->SetConditions( ACTIONS::selectionTool,          CHECK( cond.CurrentTool( ACTIONS::selectionTool ) ) );
+    mgr->SetConditions( ACTIONS::zoomTool,
+                        CHECK( cond.CurrentTool( ACTIONS::zoomTool ) ) );
+    mgr->SetConditions( ACTIONS::measureTool,
+                        CHECK( cond.CurrentTool( ACTIONS::measureTool ) ) );
+    mgr->SetConditions( ACTIONS::selectionTool,
+                        CHECK( cond.CurrentTool( ACTIONS::selectionTool ) ) );
 
     mgr->SetConditions( PCB_ACTIONS::showPadNumbers,     CHECK( cond.PadNumbersDisplay() ) );
     mgr->SetConditions( PCB_ACTIONS::padDisplayMode,     CHECK( !cond.PadFillDisplay() ) );
@@ -357,7 +368,9 @@ void FOOTPRINT_VIEWER_FRAME::doCloseWindow()
         // window to be destroyed by the caller of KIWAY_PLAYER::ShowModal()
     }
     else
+    {
         Destroy();
+    }
 }
 
 
@@ -440,7 +453,7 @@ void FOOTPRINT_VIEWER_FRAME::ReCreateFootprintList()
 
     wxString nickname = getCurNickname();
 
-    fp_info_list->ReadFootprintFiles( Prj().PcbFootprintLibs(), !nickname ? NULL : &nickname );
+    fp_info_list->ReadFootprintFiles( Prj().PcbFootprintLibs(), !nickname ? nullptr : &nickname );
 
     if( fp_info_list->GetErrorCount() )
     {
@@ -497,7 +510,9 @@ void FOOTPRINT_VIEWER_FRAME::ReCreateFootprintList()
             ClickOnFootprintList( dummy );
         }
         else
+        {
             setCurFootprintName( wxEmptyString );
+        }
     }
     else
     {
@@ -531,31 +546,17 @@ void FOOTPRINT_VIEWER_FRAME::OnCharHook( wxKeyEvent& aEvent )
 {
     if( aEvent.GetKeyCode() == WXK_UP )
     {
-        wxWindow* focused = FindFocus();
-
         if( m_libFilter->HasFocus() || m_libList->HasFocus() )
             selectPrev( m_libList );
         else
             selectPrev( m_fpList );
-
-        // Need to reset the focus after selection due to GTK mouse-refresh
-        // that captures the mouse into the canvas to update scrollbars
-        if( focused )
-            focused->SetFocus();
     }
     else if( aEvent.GetKeyCode() == WXK_DOWN )
     {
-        wxWindow* focused = FindFocus();
-
         if( m_libFilter->HasFocus() || m_libList->HasFocus() )
             selectNext( m_libList );
         else
             selectNext( m_fpList );
-
-        // Need to reset the focus after selection due to GTK mouse-refresh
-        // that captures the mouse into the canvas to update scrollbars
-        if( focused )
-            focused->SetFocus();
     }
     else if( aEvent.GetKeyCode() == WXK_TAB && m_libFilter->HasFocus() )
     {
@@ -577,7 +578,9 @@ void FOOTPRINT_VIEWER_FRAME::OnCharHook( wxKeyEvent& aEvent )
         AddFootprintToPCB( dummy );
     }
     else
+    {
         aEvent.Skip();
+    }
 }
 
 
@@ -631,22 +634,10 @@ void FOOTPRINT_VIEWER_FRAME::ClickOnLibList( wxCommandEvent& aEvent )
     if( getCurNickname() == name )
         return;
 
-    bool filterFocus = m_libFilter->HasFocus();
-
     setCurNickname( name );
 
     ReCreateFootprintList();
     UpdateTitle();
-
-    // The m_libList has now the focus, in order to be able to use arrow keys
-    // to navigate inside the list.
-    // the gal canvas must not steal the focus to allow navigation
-    GetCanvas()->SetStealsFocus( false );
-
-    if( filterFocus )
-        m_libFilter->SetFocus();
-    else
-        m_libList->SetFocus();
 }
 
 
@@ -659,8 +650,6 @@ void FOOTPRINT_VIEWER_FRAME::ClickOnFootprintList( wxCommandEvent& aEvent )
 
     if( ii < 0 )
         return;
-
-    bool filterFocus = m_fpFilter->HasFocus();
 
     wxString name = m_fpList->GetString( ii );
 
@@ -683,11 +672,10 @@ void FOOTPRINT_VIEWER_FRAME::ClickOnFootprintList( wxCommandEvent& aEvent )
         }
         catch( const IO_ERROR& ioe )
         {
-            wxString msg = wxString::Format( _( "Could not load footprint '%s' from library '%s'."
-                                                "\n\n%s" ),
-                                             getCurFootprintName(),
-                                             getCurNickname(),
-                                             ioe.Problem() );
+            wxString msg =
+                    wxString::Format( _( "Could not load footprint '%s' from library '%s'."
+                                         "\n\n%s" ),
+                                      getCurFootprintName(), getCurNickname(), ioe.Problem() );
             DisplayError( this, msg );
         }
 
@@ -698,16 +686,6 @@ void FOOTPRINT_VIEWER_FRAME::ClickOnFootprintList( wxCommandEvent& aEvent )
         GetCanvas()->Refresh();
         Update3DView( true, true );
     }
-
-    // The m_fpList has now the focus, in order to be able to use arrow keys
-    // to navigate inside the list.
-    // the gal canvas must not steal the focus to allow navigation
-    GetCanvas()->SetStealsFocus( false );
-
-    if( filterFocus )
-        m_fpFilter->SetFocus();
-    else
-        m_fpList->SetFocus();
 }
 
 
@@ -735,7 +713,7 @@ void FOOTPRINT_VIEWER_FRAME::AddFootprintToPCB( wxCommandEvent& aEvent )
     {
         PCB_EDIT_FRAME* pcbframe = (PCB_EDIT_FRAME*) Kiway().Player( FRAME_PCB_EDITOR, false );
 
-        if( pcbframe == NULL )      // happens when the board editor is not active (or closed)
+        if( pcbframe == nullptr )      // happens when the board editor is not active (or closed)
         {
             DisplayErrorMessage( this, _( "No board currently open." ) );
             return;
@@ -763,7 +741,7 @@ void FOOTPRINT_VIEWER_FRAME::AddFootprintToPCB( wxCommandEvent& aEvent )
         // (Can be stored flipped if the lib is an archive built from a board)
         if( newFootprint->IsFlipped() )
             newFootprint->Flip( newFootprint->GetPosition(),
-                    pcbframe->Settings().m_FlipLeftRight );
+                                pcbframe->Settings().m_FlipLeftRight );
 
         KIGFX::VIEW_CONTROLS* viewControls = pcbframe->GetCanvas()->GetViewControls();
         VECTOR2D              cursorPos = viewControls->GetCursorPosition();
@@ -977,8 +955,7 @@ bool FOOTPRINT_VIEWER_FRAME::ShowModal( wxString* aFootprint, wxWindow* aParent 
 
 void FOOTPRINT_VIEWER_FRAME::Update3DView( bool aMarkDirty, bool aRefresh, const wxString* aTitle )
 {
-    wxString title = wxString::Format( _( "3D Viewer" ) + wxT( " \u2014 %s" ),
-                                       getCurFootprintName() );
+    wxString title = _( "3D Viewer" ) + wxT( " \u2014 " ) + getCurFootprintName();
     PCB_BASE_FRAME::Update3DView( aMarkDirty, aRefresh, &title );
 }
 
@@ -1013,16 +990,19 @@ void FOOTPRINT_VIEWER_FRAME::UpdateTitle()
     wxString title;
     wxString path;
 
-    title.Printf( getCurNickname().IsEmpty() ? _( "no library selected" ) : getCurNickname() );
-
-    // Now, add the full path, for info
     if( !getCurNickname().IsEmpty() )
     {
+        title = getCurNickname();
+
         FP_LIB_TABLE* libtable = Prj().PcbFootprintLibs();
         const LIB_TABLE_ROW* row = libtable->FindRow( getCurNickname() );
 
         if( row )
-            title << L" \u2014 " << row->GetFullURI( true );
+            title += wxT( " \u2014 " ) + row->GetFullURI( true );
+    }
+    else
+    {
+        title = _( "[no library selected]" );
     }
 
     title += wxT( " \u2014 " ) + _( "Footprint Library Browser" );

@@ -84,24 +84,20 @@ public:
     MODE GetDrawingMode() const;
 
     /**
-     * Function DrawBoardCharacteristics()
      */
-    std::vector<BOARD_ITEM*> DrawBoardCharacteristics( wxPoint origin, PCB_LAYER_ID aLayer,
+    std::vector<BOARD_ITEM*> DrawBoardCharacteristics( const wxPoint& origin, PCB_LAYER_ID aLayer,
                                                        bool aDrawNow, wxPoint* tablesize );
 
     /**
-     * Function DrawSpecificationStackup()
      */
-    std::vector<BOARD_ITEM*> DrawSpecificationStackup( wxPoint origin, PCB_LAYER_ID aLayer,
+    std::vector<BOARD_ITEM*> DrawSpecificationStackup( const wxPoint& origin, PCB_LAYER_ID aLayer,
                                                        bool aDrawNow, wxPoint* tablesize );
 
     /**
-     * Function PlaceCharacteristics()
      */
     int PlaceCharacteristics( const TOOL_EVENT& aEvent );
 
     /**
-     * Function PlaceStackup()
      */
     int PlaceStackup( const TOOL_EVENT& aEvent );
 
@@ -185,7 +181,8 @@ public:
      * @param aItems BOARD_ITEMs to add to the board.
      * @param aPreview BOARD_ITEMs only used during placement / preview.
      * @param aLayers   Set of allowed destination when asking the user.
-     *                  If set to NULL, the user is not asked and all BOARD_ITEMs remain on their layers.
+     *                  If set to NULL, the user is not asked and all BOARD_ITEMs remain on
+     *                  their layers.
      */
     int InteractivePlaceWithPreview( const TOOL_EVENT& aEvent,
                                      std::vector<BOARD_ITEM*>& aItems,
@@ -269,6 +266,7 @@ private:
     BOARD*                    m_board;
     PCB_BASE_EDIT_FRAME*      m_frame;
     MODE                      m_mode;
+    bool                      m_inDrawingTool;     // Re-entrancy guard
 
     unsigned int              m_lineWidth;         // Current line width for multi-segment drawing
     static const unsigned int WIDTH_STEP;          // Amount of width change for one -/+ key press

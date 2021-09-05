@@ -36,9 +36,6 @@ class PANEL_3D_DISPLAY_OPTIONS_BASE : public wxPanel
 	private:
 
 	protected:
-		wxCheckBox* m_checkBox3DshapesTH;
-		wxCheckBox* m_checkBox3DshapesSMD;
-		wxCheckBox* m_checkBox3DshapesVirtual;
 		wxCheckBox* m_checkBoxSilkscreen;
 		wxCheckBox* m_checkBoxSolderMask;
 		wxCheckBox* m_checkBoxSolderpaste;

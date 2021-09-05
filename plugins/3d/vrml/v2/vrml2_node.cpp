@@ -2,6 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2015-2016 Cirilo Bernardo <cirilo.bernardo@gmail.com>
+ * Copyright (C) 2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -44,8 +45,8 @@ static NODEMAP nodenames;
 
 WRL2NODE::WRL2NODE()
 {
-    m_sgNode = NULL;
-    m_Parent = NULL;
+    m_sgNode = nullptr;
+    m_Parent = nullptr;
     m_Type = WRL2NODES::WRL2_END;
 
     if( badNames.empty() )
@@ -79,7 +80,8 @@ WRL2NODE::WRL2NODE()
         nodenames.insert( NODEITEM( "ColorInterpolator", WRL2NODES::WRL2_COLORINTERPOLATOR ) );
         nodenames.insert( NODEITEM( "Cone", WRL2NODES::WRL2_CONE ) );
         nodenames.insert( NODEITEM( "Coordinate", WRL2NODES::WRL2_COORDINATE ) );
-        nodenames.insert( NODEITEM( "CoordinateInterpolator", WRL2NODES::WRL2_COORDINATEINTERPOLATOR ) );
+        nodenames.insert( NODEITEM( "CoordinateInterpolator",
+                                    WRL2NODES::WRL2_COORDINATEINTERPOLATOR ) );
         nodenames.insert( NODEITEM( "Cylinder", WRL2NODES::WRL2_CYLINDER ) );
         nodenames.insert( NODEITEM( "CylinderSensor", WRL2NODES::WRL2_CYLINDERSENSOR ) );
         nodenames.insert( NODEITEM( "DirectionalLight", WRL2NODES::WRL2_DIRECTIONALLIGHT ) );
@@ -98,12 +100,14 @@ WRL2NODE::WRL2NODE()
         nodenames.insert( NODEITEM( "NavigationInfo", WRL2NODES::WRL2_NAVIGATIONINFO ) );
         nodenames.insert( NODEITEM( "Normal", WRL2NODES::WRL2_NORMAL ) );
         nodenames.insert( NODEITEM( "NormalInterpolator", WRL2NODES::WRL2_NORMALINTERPOLATOR ) );
-        nodenames.insert( NODEITEM( "OrientationInterpolator", WRL2NODES::WRL2_ORIENTATIONINTERPOLATOR ) );
+        nodenames.insert( NODEITEM( "OrientationInterpolator",
+                                    WRL2NODES::WRL2_ORIENTATIONINTERPOLATOR ) );
         nodenames.insert( NODEITEM( "PixelTexture", WRL2NODES::WRL2_PIXELTEXTURE ) );
         nodenames.insert( NODEITEM( "PlaneSensor", WRL2NODES::WRL2_PLANESENSOR ) );
         nodenames.insert( NODEITEM( "PointLight", WRL2NODES::WRL2_POINTLIGHT ) );
         nodenames.insert( NODEITEM( "PointSet", WRL2NODES::WRL2_POINTSET ) );
-        nodenames.insert( NODEITEM( "PositionInterpolator", WRL2NODES::WRL2_POSITIONINTERPOLATOR ) );
+        nodenames.insert( NODEITEM( "PositionInterpolator",
+                                    WRL2NODES::WRL2_POSITIONINTERPOLATOR ) );
         nodenames.insert( NODEITEM( "ProximitySensor", WRL2NODES::WRL2_PROXIMITYSENSOR ) );
         nodenames.insert( NODEITEM( "ScalarInterpolator", WRL2NODES::WRL2_SCALARINTERPOLATOR ) );
         nodenames.insert( NODEITEM( "Script", WRL2NODES::WRL2_SCRIPT ) );
@@ -123,8 +127,6 @@ WRL2NODE::WRL2NODE()
         nodenames.insert( NODEITEM( "VisibilitySensor", WRL2NODES::WRL2_VISIBILITYSENSOR ) );
         nodenames.insert( NODEITEM( "WorldInfo", WRL2NODES::WRL2_WORLDINFO ) );
     }
-
-    return;
 }
 
 
@@ -157,13 +159,12 @@ WRL2NODE::~WRL2NODE()
 
     while( sC != eC )
     {
-        (*sC)->SetParent( NULL, false );
+        (*sC)->SetParent( nullptr, false );
         delete *sC;
         ++sC;
     }
 
     m_Children.clear();
-    return;
 }
 
 
@@ -180,8 +181,6 @@ void WRL2NODE::addNodeRef( WRL2NODE* aNode )
         return;
 
     m_BackPointers.push_back( aNode );
-
-    return;
 }
 
 
@@ -196,16 +195,9 @@ void WRL2NODE::delNodeRef( WRL2NODE* aNode )
         return;
     }
 
-    #ifdef DEBUG_VRML2
-    do {
-        std::ostringstream ostr;
-        ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-        ostr << " * [BUG] delNodeRef() did not find its target";
-        wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-    } while( 0 );
-    #endif
-
-    return;
+    wxLogTrace( traceVrmlPlugin, wxT( "%s:%s:%d\n"
+                                      " * [BUG] delNodeRef() did not find its target." ),
+                __FILE__, __FUNCTION__, __LINE__ );
 }
 
 
@@ -236,14 +228,10 @@ bool WRL2NODE::SetName( const std::string& aName )
 
     if( item != badNames.end() )
     {
-        #if defined( DEBUG_VRML2 ) && ( DEBUG_VRML2 > 1 )
-        do {
-            std::ostringstream ostr;
-            ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-            ostr << " * [INFO] invalid node name '" << *item << "' (matches restricted word)";
-            wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-        } while( 0 );
-        #endif
+        wxLogTrace( traceVrmlPlugin,
+                    wxT( "%s:%s:%d\n"
+                         " * [INFO] invalid node name '%s' (matches restricted word)" ),
+                    __FILE__, __FUNCTION__, __LINE__, *item );
 
         return false;
     }
@@ -251,14 +239,9 @@ bool WRL2NODE::SetName( const std::string& aName )
 
     if( isdigit( aName[0] ) )
     {
-        #if defined( DEBUG_VRML2 ) && ( DEBUG_VRML2 > 1 )
-        do {
-            std::ostringstream ostr;
-            ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-            ostr << " * [INFO] invalid node name '" << *item << "' (begins with digit)";
-            wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-        } while( 0 );
-        #endif
+        wxLogTrace( traceVrmlPlugin, wxT( "%s:%s:%d\n"
+                                          " * [INFO] invalid node name '%s' (begins with digit)" ),
+                    __FILE__, __FUNCTION__, __LINE__, aName );
 
         return false;
     }
@@ -273,15 +256,10 @@ bool WRL2NODE::SetName( const std::string& aName )
     if( std::string::npos != aName.find_first_of( BAD_CHARS1 )
         || std::string::npos != aName.find_first_of( BAD_CHARS2 ) )
     {
-        #if defined( DEBUG_VRML2 ) && ( DEBUG_VRML2 > 1 )
-        do {
-            std::ostringstream ostr;
-            ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-            ostr << " * [INFO] invalid node name '" << aName;
-            ostr << "' (contains invalid character)";
-            wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-        } while( 0 );
-        #endif
+        wxLogTrace( traceVrmlPlugin,
+                    wxT( "%s:%s:%d\n"
+                         " * [INFO] invalid node name '%s' (contains invalid character)" ),
+                    __FILE__, __FUNCTION__, __LINE__, aName );
 
         return false;
     }
@@ -327,7 +305,7 @@ std::string WRL2NODE::GetError( void )
 WRL2NODE* WRL2NODE::FindNode( const std::string& aNodeName, const WRL2NODE *aCaller )
 {
     if( aNodeName.empty() )
-        return NULL;
+        return nullptr;
 
     if( !m_Name.compare( aNodeName ) )
         return this;
@@ -335,7 +313,7 @@ WRL2NODE* WRL2NODE::FindNode( const std::string& aNodeName, const WRL2NODE *aCal
     std::list< WRL2NODE* >::iterator sLA = m_Children.begin();
     std::list< WRL2NODE* >::iterator eLA = m_Children.end();
 
-    WRL2NODE* psg = NULL;
+    WRL2NODE* psg = nullptr;
 
     while( sLA != eLA )
     {
@@ -343,17 +321,18 @@ WRL2NODE* WRL2NODE::FindNode( const std::string& aNodeName, const WRL2NODE *aCal
         {
             psg = (*sLA)->FindNode( aNodeName, this );
 
-            if( NULL != psg)
+            if( nullptr != psg )
                 return psg;
 
         }
+
         ++sLA;
     }
 
-    if( NULL != m_Parent && aCaller != m_Parent )
+    if( nullptr != m_Parent && aCaller != m_Parent )
         return m_Parent->FindNode( aNodeName, this );
 
-    return NULL;
+    return nullptr;
 }
 
 
@@ -362,12 +341,12 @@ bool WRL2NODE::SetParent( WRL2NODE* aParent, bool doUnlink )
     if( aParent == m_Parent )
         return true;
 
-    if( NULL != m_Parent && doUnlink )
+    if( nullptr != m_Parent && doUnlink )
         m_Parent->unlinkChildNode( this );
 
     m_Parent = aParent;
 
-    if( NULL != m_Parent )
+    if( nullptr != m_Parent )
         m_Parent->AddChildNode( this );
 
     return true;
@@ -376,22 +355,10 @@ bool WRL2NODE::SetParent( WRL2NODE* aParent, bool doUnlink )
 
 bool WRL2NODE::AddChildNode( WRL2NODE* aNode )
 {
-    if( aNode == NULL )
-        return false;
+    wxCHECK_MSG( aNode, false, wxT( "Invalid node pointer." )  );
+    wxCHECK_MSG( aNode->GetNodeType() != WRL2NODES::WRL2_BASE, false,
+                 wxT( "Attempting to add a base node to another node." ) );
 
-    if( aNode->GetNodeType() == WRL2NODES::WRL2_BASE )
-    {
-        #ifdef DEBUG_VRML2
-        do {
-            std::ostringstream ostr;
-            ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-            ostr << " * [BUG] attempting to add a base node to another node";
-            wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-        } while( 0 );
-        #endif
-
-        return false;
-    }
 
     std::list< WRL2NODE* >::iterator sC = m_Children.begin();
     std::list< WRL2NODE* >::iterator eC = m_Children.end();
@@ -415,33 +382,9 @@ bool WRL2NODE::AddChildNode( WRL2NODE* aNode )
 
 bool WRL2NODE::AddRefNode( WRL2NODE* aNode )
 {
-    if( NULL == aNode )
-    {
-        #ifdef DEBUG_VRML2
-        do {
-            std::ostringstream ostr;
-            ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-            ostr << " * [BUG] NULL passed as node pointer";
-            wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-        } while( 0 );
-        #endif
-
-        return false;
-    }
-
-    if( aNode->GetNodeType() == WRL2NODES::WRL2_BASE )
-    {
-        #ifdef DEBUG_VRML2
-        do {
-            std::ostringstream ostr;
-            ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-            ostr << " * [BUG] attempting to add a base node ref to another base node";
-            wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-        } while( 0 );
-        #endif
-
-        return false;
-    }
+    wxCHECK_MSG( aNode, false, wxT( "Invalid node pointer." )  );
+    wxCHECK_MSG( aNode->GetNodeType() != WRL2NODES::WRL2_BASE, false,
+                 wxT( "Attempt to add a base node reference to another base node" ) );
 
     std::list< WRL2NODE* >::iterator sR = m_Refs.begin();
     std::list< WRL2NODE* >::iterator eR = m_Refs.end();
@@ -476,8 +419,6 @@ void WRL2NODE::unlinkChildNode( const WRL2NODE* aNode )
 
         ++sL;
     }
-
-    return;
 }
 
 
@@ -496,6 +437,4 @@ void WRL2NODE::unlinkRefNode( const WRL2NODE* aNode )
 
         ++sL;
     }
-
-    return;
 }

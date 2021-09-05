@@ -10,8 +10,8 @@ if( KICAD_SPICE )
     set( INC_AFTER ${INC_AFTER} ${NGSPICE_INCLUDE_DIR} )
 
     # Find out the exact libngspice file name
-    get_filename_component( NGSPICE_DLL_REALPATH "${NGSPICE_DLL}" REALPATH )
-    get_filename_component( NGSPICE_DLL_FILE "${NGSPICE_DLL_REALPATH}" NAME )
+    get_filename_component( NGSPICE_DLL_ABSPATH "${NGSPICE_DLL}" ABSOLUTE )
+    get_filename_component( NGSPICE_DLL_FILE "${NGSPICE_DLL_ABSPATH}" NAME )
 
     set_property( SOURCE sim/ngspice.cpp
         APPEND PROPERTY COMPILE_DEFINITIONS
@@ -51,8 +51,6 @@ set( EESCHEMA_DLGS
     dialogs/dialog_bom.cpp
     dialogs/dialog_bom_base.cpp
     dialogs/dialog_bus_manager.cpp
-    dialogs/dialog_fields_editor_global.cpp
-    dialogs/dialog_fields_editor_global_base.cpp
     dialogs/dialog_change_symbols.cpp
     dialogs/dialog_change_symbols_base.cpp
     dialogs/dialog_choose_symbol.cpp
@@ -60,11 +58,7 @@ set( EESCHEMA_DLGS
     dialogs/dialog_lib_symbol_properties_base.cpp
     dialogs/dialog_edit_symbols_libid.cpp
     dialogs/dialog_edit_symbols_libid_base.cpp
-    dialogs/dialog_edit_label.cpp
-    dialogs/dialog_edit_label_base.cpp
-    dialogs/dialog_edit_line_style.cpp
-    dialogs/dialog_edit_line_style_base.cpp
-    dialogs/dialog_edit_one_field.cpp
+    dialogs/dialog_field_properties.cpp
     dialogs/dialog_eeschema_page_settings.cpp
     dialogs/dialog_erc.cpp
     dialogs/dialog_erc_base.cpp
@@ -73,14 +67,16 @@ set( EESCHEMA_DLGS
     dialogs/dialog_global_edit_text_and_graphics_base.cpp
     dialogs/dialog_junction_props.cpp
     dialogs/dialog_junction_props_base.cpp
-    dialogs/dialog_lib_edit_draw_item.cpp
-    dialogs/dialog_lib_edit_draw_item_base.cpp
     dialogs/dialog_lib_edit_pin_table.cpp
     dialogs/dialog_lib_edit_pin_table_base.cpp
-    dialogs/dialog_lib_edit_text.cpp
-    dialogs/dialog_lib_edit_text_base.cpp
+    dialogs/dialog_lib_text_properties.cpp
+    dialogs/dialog_lib_text_properties_base.cpp
     dialogs/dialog_lib_new_symbol.cpp
     dialogs/dialog_lib_new_symbol_base.cpp
+    dialogs/dialog_lib_shape_properties.cpp
+    dialogs/dialog_lib_shape_properties_base.cpp
+    dialogs/dialog_line_wire_bus_properties.cpp
+    dialogs/dialog_line_wire_bus_properties_base.cpp
     dialogs/dialog_migrate_buses.cpp
     dialogs/dialog_migrate_buses_base.cpp
     dialogs/dialog_netlist.cpp
@@ -102,10 +98,14 @@ set( EESCHEMA_DLGS
     dialogs/dialog_schematic_find.cpp
     dialogs/dialog_schematic_find_base.cpp
     dialogs/dialog_schematic_setup.cpp
+    dialogs/dialog_symbol_fields_table.cpp
+    dialogs/dialog_symbol_fields_table_base.cpp
     dialogs/dialog_symbol_properties.cpp
     dialogs/dialog_symbol_properties_base.cpp
     dialogs/dialog_symbol_remap.cpp
     dialogs/dialog_symbol_remap_base.cpp
+    dialogs/dialog_text_and_label_properties.cpp
+    dialogs/dialog_text_and_label_properties_base.cpp
     dialogs/dialog_update_from_pcb.cpp
     dialogs/dialog_update_from_pcb_base.cpp
     dialogs/dialog_update_symbol_fields.cpp
@@ -163,7 +163,6 @@ set( EESCHEMA_SRCS
     autoplace_fields.cpp
     bus_alias.cpp
     bus-wire-junction.cpp
-    class_library.cpp
     cmp_library_lexer.cpp
     component_references_lister.cpp
     connection_graph.cpp
@@ -191,7 +190,7 @@ set( EESCHEMA_SRCS
     symbol_viewer_frame.cpp
     libarch.cpp
     menubar.cpp
-    pin_number.cpp
+    pin_numbers.cpp
     pin_type.cpp
     sch_draw_panel.cpp
     project_rescue.cpp
@@ -228,6 +227,7 @@ set( EESCHEMA_SRCS
     sheet.cpp
     symbol_async_loader.cpp
     symbol_lib_table.cpp
+    symbol_library.cpp
     symbol_tree_model_adapter.cpp
     symbol_tree_synchronizing_adapter.cpp
     toolbars_symbol_viewer.cpp
@@ -354,7 +354,7 @@ if( APPLE )
         MACOSX_PACKAGE_LOCATION Resources
         )
     set( MACOSX_BUNDLE_ICON_FILE eeschema.icns )
-    set( MACOSX_BUNDLE_GUI_IDENTIFIER org.kicad-pcb.kicad )
+    set( MACOSX_BUNDLE_GUI_IDENTIFIER org.kicad.kicad )
     set( MACOSX_BUNDLE_NAME eeschema )
 endif()
 
@@ -492,6 +492,13 @@ else()
         DESTINATION ${KICAD_BIN}
         COMPONENT binary
         )
+endif()
+
+
+if( KICAD_WIN32_INSTALL_PDBS )
+    # Get the PDBs to copy over for MSVC
+    install(FILES $<TARGET_PDB_FILE:eeschema> DESTINATION ${KICAD_BIN})
+    install(FILES $<TARGET_PDB_FILE:eeschema_kiface> DESTINATION ${KICAD_BIN})
 endif()
 
 # auto-generate cmp_library_lexer.h and cmp_library_keywords.cpp for the component

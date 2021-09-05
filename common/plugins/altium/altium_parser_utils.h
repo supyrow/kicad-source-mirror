@@ -27,25 +27,16 @@
 
 #include <map>
 
-#include <kicad_string.h>
+#include <string_utils.h>
 #include <lib_id.h>
 
 #include <iostream>
 
-struct CASE_INSENSITIVE_COMPARATOR
-{
-    bool operator()( const wxString& s1, const wxString& s2 ) const
-    {
-        // Altium variables are case insensitive.
-        return s1.CmpNoCase( s2 ) < 0;
-    }
-};
+LIB_ID AltiumToKiCadLibID( const wxString& aLibName, const wxString& aLibReference );
 
-typedef std::map<wxString, wxString, CASE_INSENSITIVE_COMPARATOR> altium_override_map_t;
+wxString AltiumPropertyToKiCadString( const wxString& aString );
 
-LIB_ID AltiumToKiCadLibID( wxString aLibName, wxString aLibReference );
-
-wxString AltiumSpecialStringsToKiCadVariables( const wxString&              aString,
-                                               const altium_override_map_t& aOverride );
+wxString AltiumSpecialStringsToKiCadVariables( const wxString&                     aString,
+                                               const std::map<wxString, wxString>& aOverrides );
 
 #endif //ALTIUM_PARSER_UTILS_H

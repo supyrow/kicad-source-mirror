@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2016 Wayne Stambaugh, stambaughw@gmail.com
- * Copyright (C) 2016-2021 KiCad Developers, see change_log.txt for contributors.
+ * Copyright (C) 2016-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -51,7 +51,7 @@
 class SCH_FIELD_VALIDATOR : public wxTextValidator
 {
 public:
-    SCH_FIELD_VALIDATOR( bool aIsLibEditor, int aFieldId, wxString* aValue = NULL );
+    SCH_FIELD_VALIDATOR( bool aIsLibEditor, int aFieldId, wxString* aValue = nullptr );
 
     SCH_FIELD_VALIDATOR( const SCH_FIELD_VALIDATOR& aValidator );
 
@@ -78,7 +78,7 @@ private:
 class SCH_NETNAME_VALIDATOR : public NETNAME_VALIDATOR
 {
 public:
-    SCH_NETNAME_VALIDATOR( wxString *aVal = nullptr ) :
+    SCH_NETNAME_VALIDATOR( wxString* aVal = nullptr ) :
             NETNAME_VALIDATOR( aVal )
     { }
 
@@ -90,9 +90,14 @@ public:
             NETNAME_VALIDATOR( aValidator )
     { }
 
+    virtual wxObject* Clone() const override { return new SCH_NETNAME_VALIDATOR( *this ); }
+
 protected:
     /// @return the error message if the contents of \a aVal are invalid.
     wxString IsValid( const wxString& aVal ) const override;
+
+private:
+    static wxRegEx m_busGroupRegex;
 };
 
 #endif // _SCH_VALIDATORS_H_

@@ -28,7 +28,7 @@
 #include <sch_item.h>
 
 #include <bezier_curves.h>
-#include <class_library.h>
+#include <symbol_library.h>
 #include <connection_graph.h>
 #include <gal/graphics_abstraction_layer.h>
 #include <geometry/geometry_utils.h>
@@ -44,7 +44,7 @@
 #include <lib_rectangle.h>
 #include <lib_text.h>
 #include <math/util.h>
-#include <plotter.h>
+#include <plotters/plotter.h>
 #include <sch_bitmap.h>
 #include <sch_bus_entry.h>
 #include <sch_symbol.h>
@@ -63,6 +63,7 @@
 #include <kiface_i.h>
 #include <default_values.h>
 #include <advanced_config.h>
+#include <string_utils.h>
 #include "sch_painter.h"
 
 namespace KIGFX
@@ -78,13 +79,14 @@ SCH_RENDER_SETTINGS::SCH_RENDER_SETTINGS() :
         m_ShowGraphicsDisabled( false ),
         m_ShowUmbilicals( true ),
         m_OverrideItemColors( false ),
-        m_TextOffsetRatio( 0.08 ),
-        m_DefaultWireThickness( DEFAULT_WIRE_THICKNESS * IU_PER_MILS ),
-        m_DefaultBusThickness( DEFAULT_BUS_THICKNESS * IU_PER_MILS ),
+        m_LabelSizeRatio( DEFAULT_LABEL_SIZE_RATIO ),
+        m_TextOffsetRatio( DEFAULT_TEXT_OFFSET_RATIO ),
+        m_DefaultWireThickness( DEFAULT_WIRE_WIDTH_MILS * IU_PER_MILS ),
+        m_DefaultBusThickness( DEFAULT_BUS_WIDTH_MILS * IU_PER_MILS ),
         m_PinSymbolSize( DEFAULT_TEXT_SIZE * IU_PER_MILS / 2 ),
         m_JunctionSize( DEFAULT_JUNCTION_DIAM * IU_PER_MILS )
 {
-    SetDefaultPenWidth( DEFAULT_LINE_THICKNESS * IU_PER_MILS );
+    SetDefaultPenWidth( DEFAULT_LINE_WIDTH_MILS * IU_PER_MILS );
 
     m_minPenWidth = ADVANCED_CFG::GetCfg().m_MinPlotPenWidth * IU_PER_MM;
 }
@@ -339,7 +341,7 @@ COLOR4D SCH_PAINTER::getRenderColor( const EDA_ITEM* aItem, int aLayer, bool aDr
 
 float SCH_PAINTER::getLineWidth( const LIB_ITEM* aItem, bool aDrawingShadows ) const
 {
-    float width = (float) std::max( aItem->GetPenWidth(), m_schSettings.GetDefaultPenWidth() );
+    float width = (float) aItem->GetEffectivePenWidth( &m_schSettings );
 
     if( aItem->IsSelected() && aDrawingShadows )
         width += getShadowWidth();
@@ -493,7 +495,7 @@ bool SCH_PAINTER::setDeviceColors( const LIB_ITEM* aItem, int aLayer )
         m_gal->SetIsFill( aItem->GetFillMode() == FILL_TYPE::FILLED_SHAPE );
         m_gal->SetFillColor( getRenderColor( aItem, LAYER_DEVICE, false ) );
 
-        if( aItem->GetPenWidth() > 0 || aItem->GetFillMode() == FILL_TYPE::NO_FILL )
+        if( aItem->GetPenWidth() >= 0 || aItem->GetFillMode() == FILL_TYPE::NO_FILL )
         {
             m_gal->SetIsStroke( true );
             m_gal->SetLineWidth( getLineWidth( aItem, false ) );
@@ -672,7 +674,7 @@ void SCH_PAINTER::draw( const LIB_FIELD *aField, int aLayer )
 
         double orient = aField->GetTextAngleRadians();
 
-        strokeText( aField->GetText(), pos, orient );
+        strokeText( UnescapeString( aField->GetText() ), pos, orient );
     }
 
     // Draw the umbilical line
@@ -1214,7 +1216,7 @@ void SCH_PAINTER::draw( const SCH_JUNCTION *aJct, int aLayer )
 
     COLOR4D color = getRenderColor( aJct, aJct->GetLayer(), drawingShadows );
 
-    int junctionSize = aJct->GetDiameter() / 2;
+    int junctionSize = aJct->GetEffectiveDiameter() / 2;
 
     if( junctionSize > 1 )
     {
@@ -1445,7 +1447,8 @@ void SCH_PAINTER::draw( SCH_SYMBOL* aSymbol, int aLayer )
     int convert = aSymbol->GetConvert();
 
     // Use dummy symbol if the actual couldn't be found (or couldn't be locked).
-    LIB_SYMBOL* originalSymbol = aSymbol->GetPartRef() ? aSymbol->GetPartRef().get() : dummy();
+    LIB_SYMBOL* originalSymbol = aSymbol->GetLibSymbolRef() ?
+                                 aSymbol->GetLibSymbolRef().get() : dummy();
     LIB_PINS  originalPins;
     originalSymbol->GetPins( originalPins, unit, convert );
 

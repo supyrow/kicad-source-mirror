@@ -31,6 +31,16 @@ PROJECT_LOCAL_SETTINGS::PROJECT_LOCAL_SETTINGS( PROJECT* aProject, const wxStrin
         JSON_SETTINGS( aFilename, SETTINGS_LOC::PROJECT, projectLocalSettingsVersion,
                        /* aCreateIfMissing = */ true, /* aCreateIfDefault = */ false,
                        /* aWriteFile = */ true ),
+        m_ActiveLayer( UNDEFINED_LAYER ),
+        m_ContrastModeDisplay( HIGH_CONTRAST_MODE::NORMAL ),
+        m_NetColorMode( NET_COLOR_MODE::RATSNEST ),
+        m_RatsnestMode( RATSNEST_MODE::ALL ),
+        m_AutoTrackWidth( true ),
+        m_ZoneDisplayMode( ZONE_DISPLAY_MODE::SHOW_FILLED ),
+        m_TrackOpacity( 1.0 ),
+        m_ViaOpacity( 1.0 ),
+        m_PadOpacity( 1.0 ),
+        m_ZoneOpacity( 0.6 ),
         m_SelectionFilter(),
         m_project( aProject )
 {
@@ -162,7 +172,7 @@ PROJECT_LOCAL_SETTINGS::PROJECT_LOCAL_SETTINGS( PROJECT* aProject, const wxStrin
     m_params.emplace_back( new PARAM_ENUM<ZONE_DISPLAY_MODE>( "board.zone_display_mode",
                            &m_ZoneDisplayMode,
                            ZONE_DISPLAY_MODE::SHOW_FILLED, ZONE_DISPLAY_MODE::SHOW_FILLED,
-                           ZONE_DISPLAY_MODE::SHOW_FILLED_OUTLINE ) );
+                           ZONE_DISPLAY_MODE::SHOW_TRIANGULATION ) );
 
     m_params.emplace_back( new PARAM_LAMBDA<nlohmann::json>( "project.files",
             [&]() -> nlohmann::json
@@ -361,6 +371,13 @@ void PROJECT_LOCAL_SETTINGS::SaveFileState( const wxString& aFileName,
     {
         PROJECT_FILE_STATE fileState;
         fileState.fileName = aFileName;
+        fileState.open = false;
+        fileState.window.maximized = false;
+        fileState.window.size_x = -1;
+        fileState.window.size_y = -1;
+        fileState.window.pos_x = -1;
+        fileState.window.pos_y = -1;
+        fileState.window.display = 0;
 
         m_files.push_back( fileState );
 

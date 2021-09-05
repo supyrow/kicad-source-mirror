@@ -134,6 +134,12 @@ public:
     bool m_DrawTriangulationOutlines;
 
     /**
+     * When true, adds zone-diaplay-modes for stroking the zone fracture boundaries and the zone
+     * triangulation.
+     */
+    bool m_ExtraZoneDisplayModes;
+
+    /**
      * Sets an absolute minimum pen width for plotting.  Some formats (PDF, for example) don't
      * like ultra-thin lines.  Units are mm.
      */
@@ -169,6 +175,25 @@ public:
      * Enable exporting board editor netlist to a file for troubleshooting purposes.
      */
     bool m_ShowPcbnewExportNetlist;
+
+    /**
+     * Skip reading/writing 3d model file caches
+     * This does not prevent the models from being cached in memory meaning reopening the 3d viewer
+     * in the same project session will not reload model data from disk again.
+     */
+    bool m_Skip3DModelFileCache;
+
+    /**
+     * Skip reading/writing 3d model memory caches
+     * This ensures 3d models are always reloaded from disk even if we previously opened the 3d viewer.
+     */
+    bool m_Skip3DModelMemoryCache;
+
+    /**
+     * Hides the build version from the KiCad manager frame title.
+     * Useful for making screenshots/videos of KiCad without pinning to a specific version.
+     */
+    bool m_HideVersionFromTitle;
 
 private:
     ADVANCED_CFG();

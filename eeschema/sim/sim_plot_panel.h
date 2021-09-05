@@ -175,10 +175,13 @@ private:
 
 class SIM_PLOT_PANEL : public SIM_PANEL_BASE
 {
+    friend class SIM_WORKBOOK;
+
 public:
-    SIM_PLOT_PANEL( wxString aCommand, wxWindow* parent, SIM_PLOT_FRAME* aMainFrame, wxWindowID id,
-                    const wxPoint& pos = wxDefaultPosition, const wxSize& size = wxDefaultSize,
-                    long style = 0, const wxString& name = wxPanelNameStr );
+    SIM_PLOT_PANEL( const wxString& aCommand, wxWindow* parent, SIM_PLOT_FRAME* aMainFrame,
+                    wxWindowID id, const wxPoint& pos = wxDefaultPosition,
+                    const wxSize& size = wxDefaultSize, long style = 0,
+                    const wxString& name = wxPanelNameStr );
 
     virtual ~SIM_PLOT_PANEL();
 
@@ -203,13 +206,6 @@ public:
         return m_axis_y2 ? m_axis_y2->GetName() : "";
     }
 
-    bool AddTrace( const wxString& aName, int aPoints, const double* aX, const double* aY,
-                   SIM_PLOT_TYPE aType, const wxString& aParam );
-
-    bool DeleteTrace( const wxString& aName );
-
-    void DeleteAllTraces();
-
     bool TraceShown( const wxString& aName ) const
     {
         return m_traces.count( aName ) > 0;
@@ -224,7 +220,7 @@ public:
     {
         auto trace = m_traces.find( aName );
 
-        return trace == m_traces.end() ? NULL : trace->second;
+        return trace == m_traces.end() ? nullptr : trace->second;
     }
 
     void ShowGrid( bool aEnable )
@@ -275,10 +271,10 @@ public:
     ///< Returns true if the trace has cursor shown.
     bool HasCursorEnabled( const wxString& aName ) const;
 
-    ///< Toggles cursor for a particular trace.
+    ///< Toggle cursor for a particular trace.
     void EnableCursor( const wxString& aName, bool aEnable );
 
-    ///< Resets scale ranges to fit the current traces
+    ///< Reset scale ranges to fit the current traces.
     void ResetScales();
 
     ///< Update trace line style
@@ -292,6 +288,14 @@ public:
     {
         return m_plotWin;
     }
+
+protected:
+    bool addTrace( const wxString& aName, int aPoints, const double* aX, const double* aY,
+                   SIM_PLOT_TYPE aType, const wxString& aParam );
+
+    bool deleteTrace( const wxString& aName );
+
+    void deleteAllTraces();
 
 private:
     ///< @brief Construct the plot axes for DC simulation plot.

@@ -26,7 +26,7 @@
 #ifndef PLACEFILE_GERBER_WRITER_H
 #define PLACEFILE_GERBER_WRITER_H
 
-#include <layers_id_colors_and_visibility.h>
+#include <layer_ids.h>
 #include <wx/gdicmn.h>
 
 class BOARD;
@@ -34,7 +34,7 @@ class FOOTPRINT;
 class PAD;
 
 /**
- * PLACEFILE_GERBER_WRITER is a class mainly used to create Gerber drill files.
+ * Used to create Gerber drill files.
  */
 class PLACEFILE_GERBER_WRITER
 {
@@ -53,7 +53,7 @@ public:
      *
      * @param aOffset is the drill coordinates offset.
      */
-    void SetOptions( wxPoint aOffset )
+    void SetOptions( const wxPoint& aOffset )
     {
         m_offset = aOffset;
     }

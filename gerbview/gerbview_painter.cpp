@@ -66,9 +66,6 @@ void GERBVIEW_RENDER_SETTINGS::LoadColors( const COLOR_SETTINGS* aSettings )
         if( baseColor == COLOR4D::UNSPECIFIED )
             baseColor = aSettings->m_Palette[ ( palette_idx++ ) % palette_size ];
 
-        if( m_diffMode )
-            baseColor.a = 0.75;
-
         m_layerColors[i] = baseColor;
         m_layerColorsHi[i] = baseColor.Brightened( 0.5 );
         m_layerColorsSel[i] = baseColor.Brightened( 0.8 );
@@ -103,6 +100,15 @@ void GERBVIEW_RENDER_SETTINGS::LoadDisplayOptions( const GBR_DISPLAY_OPTIONS& aO
     update();
 }
 
+
+void GERBVIEW_RENDER_SETTINGS::ClearHighlightSelections()
+{
+    // Clear all highlight selections (dcode, net, component, attribute selection)
+    m_componentHighlightString.Empty();
+    m_netHighlightString.Empty();
+    m_attributeHighlightString.Empty();
+    m_dcodeHighlightValue = -1;
+}
 
 COLOR4D GERBVIEW_RENDER_SETTINGS::GetColor( const VIEW_ITEM* aItem, int aLayer ) const
 {
@@ -249,7 +255,7 @@ void GERBVIEW_PAINTER::draw( /*const*/ GERBER_DRAW_ITEM* aItem, int aLayer )
     if( aItem->IsBrightened() )
         color = COLOR4D( 0.0, 1.0, 0.0, 0.75 );
 
-    m_gal->SetNegativeDrawMode( isNegative );
+    m_gal->SetNegativeDrawMode( isNegative && ! m_gerbviewSettings.IsShowNegativeItems() );
     m_gal->SetStrokeColor( color );
     m_gal->SetFillColor( color );
     m_gal->SetIsFill( isFilled );
@@ -272,30 +278,31 @@ void GERBVIEW_PAINTER::draw( /*const*/ GERBER_DRAW_ITEM* aItem, int aLayer )
         if( !isFilled )
             m_gal->SetLineWidth( m_gerbviewSettings.m_outlineWidth );
 
-        std::vector<VECTOR2I> pts = aItem->m_Polygon.COutline( 0 ).CPoints();
+        if( aItem->m_AbsolutePolygon.OutlineCount() == 0 )
+        {
+            std::vector<VECTOR2I> pts = aItem->m_Polygon.COutline( 0 ).CPoints();
 
-        for( auto& pt : pts )
-            pt = aItem->GetABPosition( pt );
+            for( auto& pt : pts )
+                pt = aItem->GetABPosition( pt );
 
-
-        SHAPE_POLY_SET   absolutePolygon;
-        SHAPE_LINE_CHAIN chain( pts );
-        chain.SetClosed( true );
-        absolutePolygon.AddOutline( chain );
+            SHAPE_LINE_CHAIN chain( pts );
+            chain.SetClosed( true );
+            aItem->m_AbsolutePolygon.AddOutline( chain );
+        }
 
         // Degenerated polygons (having < 3 points) are drawn as lines
         // to avoid issues in draw polygon functions
-        if( !isFilled || absolutePolygon.COutline( 0 ).PointCount() < 3 )
-            m_gal->DrawPolyline( absolutePolygon.COutline( 0 ) );
+        if( !isFilled || aItem->m_AbsolutePolygon.COutline( 0 ).PointCount() < 3 )
+            m_gal->DrawPolyline( aItem->m_AbsolutePolygon.COutline( 0 ) );
         else
         {
             // On Opengl, a not convex filled polygon is usually drawn by using triangles as primitives.
             // CacheTriangulation() can create basic triangle primitives to draw the polygon solid shape
             // on Opengl
-            if( m_gal->IsOpenGlEngine() )
-                absolutePolygon.CacheTriangulation();
+            if( m_gal->IsOpenGlEngine() && !aItem->m_AbsolutePolygon.IsTriangulationUpToDate() )
+                aItem->m_AbsolutePolygon.CacheTriangulation();
 
-            m_gal->DrawPolygon( absolutePolygon );
+            m_gal->DrawPolygon( aItem->m_AbsolutePolygon );
         }
 
         break;
@@ -416,6 +423,7 @@ void GERBVIEW_PAINTER::draw( /*const*/ GERBER_DRAW_ITEM* aItem, int aLayer )
         wxASSERT_MSG( false, "GERBER_DRAW_ITEM shape is unknown!" );
         break;
     }
+    m_gal->SetNegativeDrawMode( false );
 
     // Enable for bounding box debugging
     #if 0

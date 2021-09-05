@@ -48,8 +48,8 @@ public:
     SCH_REFERENCE() :
             m_sheetPath()
     {
-        m_rootSymbol      = NULL;
-        m_libPart         = NULL;
+        m_rootSymbol      = nullptr;
+        m_libPart         = nullptr;
         m_unit            = 0;
         m_isNew           = false;
         m_numRef          = 0;
@@ -104,7 +104,7 @@ public:
     const char* GetRefStr() const { return m_ref.c_str(); }
 
     ///< Return reference name with unit altogether
-    wxString GetFullRef()
+    wxString GetFullRef() const
     {
         if( GetSymbol()->GetUnitCount() > 1 )
             return GetRef() + LIB_SYMBOL::SubReference( GetUnit() );

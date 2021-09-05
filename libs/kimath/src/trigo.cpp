@@ -58,8 +58,8 @@ bool IsPointOnSegment( const wxPoint& aSegStart, const wxPoint& aSegEnd,
 
 
 // Returns true if the segment 1 intersected the segment 2.
-bool SegmentIntersectsSegment( const wxPoint &a_p1_l1, const wxPoint &a_p2_l1,
-                               const wxPoint &a_p1_l2, const wxPoint &a_p2_l2,
+bool SegmentIntersectsSegment( const wxPoint& a_p1_l1, const wxPoint& a_p2_l1,
+                               const wxPoint& a_p1_l2, const wxPoint& a_p2_l2,
                                wxPoint* aIntersectionPoint )
 {
 
@@ -126,7 +126,8 @@ bool SegmentIntersectsSegment( const wxPoint &a_p1_l1, const wxPoint &a_p2_l1,
 }
 
 
-bool TestSegmentHit( const wxPoint &aRefPoint, wxPoint aStart, wxPoint aEnd, int aDist )
+bool TestSegmentHit( const wxPoint& aRefPoint, const wxPoint& aStart, const wxPoint& aEnd,
+                     int aDist )
 {
     int xmin = aStart.x;
     int xmax = aEnd.x;
@@ -358,28 +359,31 @@ void RotatePoint( double* pX, double* pY, double angle )
 }
 
 
-const wxPoint GetArcCenter( VECTOR2I aStart, VECTOR2I aEnd, double aAngle )
+const wxPoint GetArcCenter( const VECTOR2I& aStart, const VECTOR2I& aEnd, double aAngle )
 {
+    VECTOR2I start = aStart;
+    VECTOR2I end = aEnd;
+
     if( aAngle < 0 )
     {
-        std::swap( aStart, aEnd );
+        std::swap( start, end );
         aAngle = abs( aAngle );
     }
 
     if( aAngle > 180 )
     {
-        std::swap( aStart, aEnd );
+        std::swap( start, end );
         aAngle = 360 - aAngle;
     }
 
-    int chord = ( aStart - aEnd ).EuclideanNorm();
+    int chord = ( start - end ).EuclideanNorm();
     int r = ( chord / 2 ) / sin( aAngle * M_PI / 360.0 );
 
-    VECTOR2I vec = aEnd - aStart;
+    VECTOR2I vec = end - start;
     vec = vec.Resize( r );
     vec = vec.Rotate( ( 180.0 - aAngle ) * M_PI / 360.0 );
 
-    return (wxPoint) ( aStart + vec );
+    return (wxPoint) ( start + vec );
 }
 
 

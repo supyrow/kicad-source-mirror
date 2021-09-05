@@ -33,7 +33,7 @@
 #include <pcb_dimension.h>
 #include <footprint.h>
 #include <fp_shape.h>
-#include <kicad_string.h>
+#include <string_utils.h>
 #include <kiface_i.h>
 #include <locale_io.h>
 #include <macros.h>
@@ -47,6 +47,7 @@
 #include <plugins/kicad/pcb_parser.h>
 #include <trace_helpers.h>
 #include <pcb_track.h>
+#include <progress_reporter.h>
 #include <wildcards_and_files_ext.h>
 #include <wx/dir.h>
 #include <wx/log.h>
@@ -168,13 +169,13 @@ void FP_CACHE::Save( FOOTPRINT* aFootprint )
 
     if( !m_lib_path.DirExists() && !m_lib_path.Mkdir() )
     {
-        THROW_IO_ERROR( wxString::Format( _( "Cannot create footprint library path \"%s\"" ),
+        THROW_IO_ERROR( wxString::Format( _( "Cannot create footprint library '%s'." ),
                                           m_lib_raw_path ) );
     }
 
     if( !m_lib_path.IsDirWritable() )
     {
-        THROW_IO_ERROR( wxString::Format( _( "Footprint library path \"%s\" is read only" ),
+        THROW_IO_ERROR( wxString::Format( _( "Footprint library '%s' is read only." ),
                                           m_lib_raw_path ) );
     }
 
@@ -194,7 +195,7 @@ void FP_CACHE::Save( FOOTPRINT* aFootprint )
         // Allow file output stream to go out of scope to close the file stream before
         // renaming the file.
         {
-            wxLogTrace( traceKicadPcbPlugin, wxT( "Creating temporary library file %s" ),
+            wxLogTrace( traceKicadPcbPlugin, wxT( "Creating temporary library file '%s'." ),
                     tempFileName );
 
             FILE_OUTPUTFORMATTER formatter( tempFileName );
@@ -212,9 +213,9 @@ void FP_CACHE::Save( FOOTPRINT* aFootprint )
 
         if( !wxRenameFile( tempFileName, fn.GetFullPath() ) )
         {
-            wxString msg = wxString::Format(
-                    _( "Cannot rename temporary file \"%s\" to footprint library file \"%s\"" ),
-                    tempFileName, fn.GetFullPath() );
+            wxString msg = wxString::Format( _( "Cannot rename temporary file '%s' to '%s'" ),
+                                             tempFileName,
+                                             fn.GetFullPath() );
             THROW_IO_ERROR( msg );
         }
 #endif
@@ -238,8 +239,7 @@ void FP_CACHE::Load()
 
     if( !dir.IsOpened() )
     {
-        wxString msg = wxString::Format( _( "Footprint library path '%s' does not exist "
-                                            "(or is not a directory)." ),
+        wxString msg = wxString::Format( _( "Footprint library '%s' not found." ),
                                          m_lib_raw_path );
         THROW_IO_ERROR( msg );
     }
@@ -265,6 +265,8 @@ void FP_CACHE::Load()
                 FILE_LINE_READER    reader( fn.GetFullPath() );
 
                 m_owner->m_parser->SetLineReader( &reader );
+                // Ensure a previous parsing does not interacts with the new parsing:
+                m_owner->m_parser->InitParserState();
 
                 FOOTPRINT* footprint = (FOOTPRINT*) m_owner->m_parser->Parse();
                 wxString   fpName = fn.GetName();
@@ -295,7 +297,7 @@ void FP_CACHE::Remove( const wxString& aFootprintName )
 
     if( it == m_footprints.end() )
     {
-        wxString msg = wxString::Format( _( "library \"%s\" has no footprint \"%s\" to delete" ),
+        wxString msg = wxString::Format( _( "Library '%s' has no footprint '%s'." ),
                                          m_lib_raw_path,
                                          aFootprintName );
         THROW_IO_ERROR( msg );
@@ -727,12 +729,16 @@ void PCB_IO::format( const PCB_DIMENSION_BASE* aDimension, int aNestLevel ) cons
                   FormatInternalUnits( aDimension->GetEnd().y ).c_str() );
 
     if( aligned )
+    {
         m_out->Print( aNestLevel+1, "(height %s)\n",
                       FormatInternalUnits( aligned->GetHeight() ).c_str() );
+    }
 
     if( ortho )
+    {
         m_out->Print( aNestLevel+1, "(orientation %d)\n",
                       static_cast<int>( ortho->GetOrientation() ) );
+    }
 
     if( !center )
     {
@@ -792,7 +798,7 @@ void PCB_IO::format( const PCB_SHAPE* aShape, int aNestLevel ) const
 
     switch( aShape->GetShape() )
     {
-    case PCB_SHAPE_TYPE::SEGMENT: // Line
+    case SHAPE_T::SEGMENT:
         m_out->Print( aNestLevel, "(gr_line%s (start %s) (end %s)",
                      locked.c_str(),
                       FormatInternalUnits( aShape->GetStart() ).c_str(),
@@ -803,21 +809,21 @@ void PCB_IO::format( const PCB_SHAPE* aShape, int aNestLevel ) const
 
         break;
 
-    case PCB_SHAPE_TYPE::RECT: // Rectangle
+    case SHAPE_T::RECT:
         m_out->Print( aNestLevel, "(gr_rect%s (start %s) (end %s)",
                       locked.c_str(),
                       FormatInternalUnits( aShape->GetStart() ).c_str(),
                       FormatInternalUnits( aShape->GetEnd() ).c_str() );
         break;
 
-    case PCB_SHAPE_TYPE::CIRCLE: // Circle
+    case SHAPE_T::CIRCLE:
         m_out->Print( aNestLevel, "(gr_circle%s (center %s) (end %s)",
                       locked.c_str(),
                       FormatInternalUnits( aShape->GetStart() ).c_str(),
                       FormatInternalUnits( aShape->GetEnd() ).c_str() );
         break;
 
-    case PCB_SHAPE_TYPE::ARC: // Arc
+    case SHAPE_T::ARC:
         m_out->Print( aNestLevel, "(gr_arc%s (start %s) (end %s) (angle %s)",
                       locked.c_str(),
                       FormatInternalUnits( aShape->GetStart() ).c_str(),
@@ -825,33 +831,61 @@ void PCB_IO::format( const PCB_SHAPE* aShape, int aNestLevel ) const
                       FormatAngle( aShape->GetAngle() ).c_str() );
         break;
 
-    case PCB_SHAPE_TYPE::POLYGON: // Polygon
+    case SHAPE_T::POLY:
         if( aShape->IsPolyShapeValid() )
         {
             const SHAPE_POLY_SET& poly = aShape->GetPolyShape();
             const SHAPE_LINE_CHAIN& outline = poly.Outline( 0 );
-            const int pointsCount = outline.PointCount();
 
-            m_out->Print( aNestLevel, "(gr_poly%s (pts\n",
-                          locked.c_str() );
+            m_out->Print( aNestLevel, "(gr_poly%s\n", locked.c_str() );
+            m_out->Print( aNestLevel+1, "(pts\n" );
 
-            for( int ii = 0; ii < pointsCount; ++ii )
+            bool need_newline = false;
+
+            for( int ii = 0; ii < outline.PointCount();  ++ii )
             {
                 int nestLevel = 0;
 
-                if( ii && ( !( ii%4 ) || !ADVANCED_CFG::GetCfg().m_CompactSave ) )
+                if( !( ii % 4 ) || !ADVANCED_CFG::GetCfg().m_CompactSave )
                 {
                     // newline every 4 pts.
-                    nestLevel = aNestLevel + 1;
+                    nestLevel = aNestLevel + 2;
                     m_out->Print( 0, "\n" );
+                    need_newline = false;
                 }
 
-                m_out->Print( nestLevel, "%s(xy %s)",
-                              nestLevel ? "" : " ",
-                              FormatInternalUnits( outline.CPoint( ii ) ).c_str() );
+                int ind = outline.ArcIndex( ii );
+
+                if( ind < 0 )
+                {
+                    m_out->Print( nestLevel, "%s(xy %s)",
+                                  nestLevel ? "" : " ",
+                                  FormatInternalUnits( outline.CPoint( ii ) ).c_str() );
+                    need_newline = true;
+                }
+                else
+                {
+                    const SHAPE_ARC& arc = outline.Arc( ind );
+                    m_out->Print( nestLevel, "%s(arc (start %s) (mid %s) (end %s))",
+                                  nestLevel ? "" : " ",
+                                  FormatInternalUnits( arc.GetP0() ).c_str(),
+                                  FormatInternalUnits( arc.GetArcMid() ).c_str(),
+                                  FormatInternalUnits( arc.GetP1() ).c_str() );
+                    need_newline = true;
+
+                    do
+                    {
+                        ++ii;
+                    } while( ii < outline.PointCount() && outline.ArcIndex( ii ) == ind );
+
+                    --ii;
+                }
             }
 
-            m_out->Print( 0, ")" );
+            if( need_newline )
+                m_out->Print( 0, "\n" );
+
+            m_out->Print( aNestLevel+1, ")" );
         }
         else
         {
@@ -861,18 +895,18 @@ void PCB_IO::format( const PCB_SHAPE* aShape, int aNestLevel ) const
 
         break;
 
-    case PCB_SHAPE_TYPE::CURVE: // Bezier curve
+    case SHAPE_T::BEZIER:
         m_out->Print( aNestLevel, "(gr_curve%s (pts (xy %s) (xy %s) (xy %s) (xy %s))",
                       locked.c_str(),
                       FormatInternalUnits( aShape->GetStart() ).c_str(),
-                      FormatInternalUnits( aShape->GetBezControl1() ).c_str(),
-                      FormatInternalUnits( aShape->GetBezControl2() ).c_str(),
+                      FormatInternalUnits( aShape->GetBezierC1() ).c_str(),
+                      FormatInternalUnits( aShape->GetBezierC2() ).c_str(),
                       FormatInternalUnits( aShape->GetEnd() ).c_str() );
         break;
 
     default:
         wxFAIL_MSG( "PCB_IO::format cannot format unknown PCB_SHAPE shape:"
-                    + PCB_SHAPE_TYPE_T_asString( aShape->GetShape()) );
+                    + SHAPE_T_asString( aShape->GetShape()) );
         return;
     };
 
@@ -881,9 +915,9 @@ void PCB_IO::format( const PCB_SHAPE* aShape, int aNestLevel ) const
     m_out->Print( 0, " (width %s)", FormatInternalUnits( aShape->GetWidth() ).c_str() );
 
     // The filled flag represents if a solid fill is present on circles, rectangles and polygons
-    if( ( aShape->GetShape() == PCB_SHAPE_TYPE::POLYGON )
-        || ( aShape->GetShape() == PCB_SHAPE_TYPE::RECT )
-        || ( aShape->GetShape() == PCB_SHAPE_TYPE::CIRCLE ) )
+    if( ( aShape->GetShape() == SHAPE_T::POLY )
+        || ( aShape->GetShape() == SHAPE_T::RECT )
+        || ( aShape->GetShape() == SHAPE_T::CIRCLE ) )
     {
         if( aShape->IsFilled() )
             m_out->Print( 0, " (fill solid)" );
@@ -903,28 +937,28 @@ void PCB_IO::format( const FP_SHAPE* aFPShape, int aNestLevel ) const
 
     switch( aFPShape->GetShape() )
     {
-    case PCB_SHAPE_TYPE::SEGMENT: // Line
+    case SHAPE_T::SEGMENT:
         m_out->Print( aNestLevel, "(fp_line%s (start %s) (end %s)",
                       locked.c_str(),
                       FormatInternalUnits( aFPShape->GetStart0() ).c_str(),
                       FormatInternalUnits( aFPShape->GetEnd0() ).c_str() );
         break;
 
-    case PCB_SHAPE_TYPE::RECT: // Rectangle
+    case SHAPE_T::RECT:
         m_out->Print( aNestLevel, "(fp_rect%s (start %s) (end %s)",
                       locked.c_str(),
                       FormatInternalUnits( aFPShape->GetStart0() ).c_str(),
                       FormatInternalUnits( aFPShape->GetEnd0() ).c_str() );
         break;
 
-    case PCB_SHAPE_TYPE::CIRCLE: // Circle
+    case SHAPE_T::CIRCLE:
         m_out->Print( aNestLevel, "(fp_circle%s (center %s) (end %s)",
                       locked.c_str(),
                       FormatInternalUnits( aFPShape->GetStart0() ).c_str(),
                       FormatInternalUnits( aFPShape->GetEnd0() ).c_str() );
         break;
 
-    case PCB_SHAPE_TYPE::ARC: // Arc
+    case SHAPE_T::ARC:
         m_out->Print( aNestLevel, "(fp_arc%s (start %s) (end %s) (angle %s)",
                       locked.c_str(),
                       FormatInternalUnits( aFPShape->GetStart0() ).c_str(),
@@ -932,33 +966,61 @@ void PCB_IO::format( const FP_SHAPE* aFPShape, int aNestLevel ) const
                       FormatAngle( aFPShape->GetAngle() ).c_str() );
         break;
 
-    case PCB_SHAPE_TYPE::POLYGON: // Polygonal segment
+    case SHAPE_T::POLY:
         if( aFPShape->IsPolyShapeValid() )
         {
             const SHAPE_POLY_SET& poly = aFPShape->GetPolyShape();
             const SHAPE_LINE_CHAIN& outline = poly.Outline( 0 );
-            int pointsCount = outline.PointCount();
 
             m_out->Print( aNestLevel, "(fp_poly%s (pts",
                           locked.c_str() );
 
-            for( int ii = 0; ii < pointsCount; ++ii )
+            bool need_newline = false;
+
+            for( int ii = 0; ii < outline.PointCount();  ++ii )
             {
                 int nestLevel = 0;
 
-                if( ii && ( !( ii%4 ) || !ADVANCED_CFG::GetCfg().m_CompactSave ) )
+                if( !( ii % 4 ) || !ADVANCED_CFG::GetCfg().m_CompactSave )
                 {
                     // newline every 4 pts.
-                    nestLevel = aNestLevel + 1;
                     m_out->Print( 0, "\n" );
+                    need_newline = false;
+                    nestLevel = aNestLevel + 2;
                 }
 
-                m_out->Print( nestLevel, "%s(xy %s)",
-                              nestLevel ? "" : " ",
-                              FormatInternalUnits( outline.CPoint( ii ) ).c_str() );
+                int ind = outline.ArcIndex( ii );
+
+                if( ind < 0 )
+                {
+                    m_out->Print( nestLevel, "%s(xy %s)",
+                                  nestLevel ? "" : " ",
+                                  FormatInternalUnits( outline.CPoint( ii ) ).c_str() );
+                    need_newline = true;
+                }
+                else
+                {
+                    auto& arc = outline.Arc( ind );
+                    m_out->Print( nestLevel, "%s(arc (start %s) (mid %s) (end %s))",
+                                  nestLevel ? "" : " ",
+                                  FormatInternalUnits( arc.GetP0() ).c_str(),
+                                  FormatInternalUnits( arc.GetArcMid() ).c_str(),
+                                  FormatInternalUnits( arc.GetP1() ).c_str() );
+                    need_newline = true;
+
+                    do
+                    {
+                        ++ii;
+                    } while( ii < outline.PointCount() && outline.ArcIndex( ii ) == ind );
+
+                    --ii;
+                }
             }
 
-            m_out->Print( 0, ")" );
+            if( need_newline )
+                m_out->Print( 0, "\n" );
+
+            m_out->Print( aNestLevel + 1, ")" );
         }
         else
         {
@@ -967,18 +1029,18 @@ void PCB_IO::format( const FP_SHAPE* aFPShape, int aNestLevel ) const
         }
         break;
 
-    case PCB_SHAPE_TYPE::CURVE: // Bezier curve
+    case SHAPE_T::BEZIER:
         m_out->Print( aNestLevel, "(fp_curve%s (pts (xy %s) (xy %s) (xy %s) (xy %s))",
                       locked.c_str(),
                       FormatInternalUnits( aFPShape->GetStart0() ).c_str(),
-                      FormatInternalUnits( aFPShape->GetBezier0_C1() ).c_str(),
-                      FormatInternalUnits( aFPShape->GetBezier0_C2() ).c_str(),
+                      FormatInternalUnits( aFPShape->GetBezierC1_0() ).c_str(),
+                      FormatInternalUnits( aFPShape->GetBezierC2_0() ).c_str(),
                       FormatInternalUnits( aFPShape->GetEnd0() ).c_str() );
         break;
 
     default:
         wxFAIL_MSG( "PCB_IO::format cannot format unknown FP_SHAPE shape:"
-                    + PCB_SHAPE_TYPE_T_asString( aFPShape->GetShape() ) );
+                    + SHAPE_T_asString( aFPShape->GetShape()) );
         return;
     };
 
@@ -987,9 +1049,9 @@ void PCB_IO::format( const FP_SHAPE* aFPShape, int aNestLevel ) const
     m_out->Print( 0, " (width %s)", FormatInternalUnits( aFPShape->GetWidth() ).c_str() );
 
     // The filled flag represents if a solid fill is present on circles, rectangles and polygons
-    if( ( aFPShape->GetShape() == PCB_SHAPE_TYPE::POLYGON )
-        || ( aFPShape->GetShape() == PCB_SHAPE_TYPE::RECT )
-        || ( aFPShape->GetShape() == PCB_SHAPE_TYPE::CIRCLE ) )
+    if( ( aFPShape->GetShape() == SHAPE_T::POLY )
+        || ( aFPShape->GetShape() == SHAPE_T::RECT )
+        || ( aFPShape->GetShape() == SHAPE_T::CIRCLE ) )
     {
         if( aFPShape->IsFilled() )
             m_out->Print( 0, " (fill solid)" );
@@ -1038,7 +1100,7 @@ void PCB_IO::format( const FOOTPRINT* aFootprint, int aNestLevel ) const
 
     if( m_ctl & CTL_OMIT_LIBNAME )
         m_out->Print( aNestLevel, "(footprint %s",
-                      m_out->Quotes( aFootprint->GetFPID().GetLibItemNameAndRev() ).c_str() );
+                      m_out->Quotes( aFootprint->GetFPID().GetLibItemName() ).c_str() );
     else
         m_out->Print( aNestLevel, "(footprint %s",
                       m_out->Quotes( aFootprint->GetFPID().Format() ).c_str() );
@@ -1355,7 +1417,7 @@ void PCB_IO::format( const PAD* aPad, int aNestLevel ) const
     }
 
     m_out->Print( aNestLevel, "(pad %s %s %s",
-                  m_out->Quotew( aPad->GetName() ).c_str(),
+                  m_out->Quotew( aPad->GetNumber() ).c_str(),
                   type,
                   shape );
 
@@ -1502,10 +1564,10 @@ void PCB_IO::format( const PAD* aPad, int aNestLevel ) const
                    FormatInternalUnits( aPad->GetLocalClearance() ).c_str() );
     }
 
-    if( aPad->GetEffectiveZoneConnection() != ZONE_CONNECTION::INHERITED )
+    if( aPad->GetZoneConnection() != ZONE_CONNECTION::INHERITED )
     {
         StrPrintf( &output, " (zone_connect %d)",
-                   static_cast<int>( aPad->GetEffectiveZoneConnection() ) );
+                   static_cast<int>( aPad->GetZoneConnection() ) );
     }
 
     if( aPad->GetThermalSpokeWidth() != 0 )
@@ -1561,67 +1623,94 @@ void PCB_IO::format( const PAD* aPad, int aNestLevel ) const
 
             switch( primitive->GetShape() )
             {
-            case PCB_SHAPE_TYPE::SEGMENT: // usual segment : line with rounded ends
+            case SHAPE_T::SEGMENT:
                 m_out->Print( nested_level, "(gr_line (start %s) (end %s)",
                               FormatInternalUnits( primitive->GetStart() ).c_str(),
                               FormatInternalUnits( primitive->GetEnd() ).c_str() );
                 break;
 
-            case PCB_SHAPE_TYPE::RECT:
+            case SHAPE_T::RECT:
                 m_out->Print( nested_level, "(gr_rect (start %s) (end %s)",
                               FormatInternalUnits( primitive->GetStart() ).c_str(),
                               FormatInternalUnits( primitive->GetEnd() ).c_str() );
                 break;
 
-            case PCB_SHAPE_TYPE::ARC: // Arc with rounded ends
+            case SHAPE_T::ARC:
                 m_out->Print( nested_level, "(gr_arc (start %s) (end %s) (angle %s)",
                               FormatInternalUnits( primitive->GetStart() ).c_str(),
                               FormatInternalUnits( primitive->GetEnd() ).c_str(),
                               FormatAngle( primitive->GetAngle() ).c_str() );
                 break;
 
-            case PCB_SHAPE_TYPE::CIRCLE: //  ring or circle (circle if width == 0
+            case SHAPE_T::CIRCLE:
                 m_out->Print( nested_level, "(gr_circle (center %s) (end %s)",
                               FormatInternalUnits( primitive->GetStart() ).c_str(),
                               FormatInternalUnits( primitive->GetEnd() ).c_str() );
                 break;
 
-            case PCB_SHAPE_TYPE::CURVE: //  Bezier Curve
+            case SHAPE_T::BEZIER:
                 m_out->Print( nested_level, "(gr_curve (pts (xy %s) (xy %s) (xy %s) (xy %s))",
                               FormatInternalUnits( primitive->GetStart() ).c_str(),
-                              FormatInternalUnits( primitive->GetBezControl1() ).c_str(),
-                              FormatInternalUnits( primitive->GetBezControl2() ).c_str(),
+                              FormatInternalUnits( primitive->GetBezierC1() ).c_str(),
+                              FormatInternalUnits( primitive->GetBezierC2() ).c_str(),
                               FormatInternalUnits( primitive->GetEnd() ).c_str() );
                 break;
 
-            case PCB_SHAPE_TYPE::POLYGON: // polygon
-                if( primitive->GetPolyShape().COutline( 0 ).CPoints().size() < 2 )
-                    break;      // Malformed polygon.
-
-            {
-                m_out->Print( nested_level, "(gr_poly (pts\n");
-
-                // Write the polygon corners coordinates:
-                int newLine = 0;
-
-                for( const VECTOR2I &pt : primitive->GetPolyShape().COutline( 0 ).CPoints() )
+            case SHAPE_T::POLY:
+                if( primitive->IsPolyShapeValid() )
                 {
-                    if( newLine == 0 )
-                        m_out->Print( nested_level+1, "(xy %s)",
-                                      FormatInternalUnits( (wxPoint) pt ).c_str() );
-                    else
-                        m_out->Print( 0, " (xy %s)",
-                                      FormatInternalUnits( (wxPoint) pt ).c_str() );
+                    const SHAPE_POLY_SET& poly = primitive->GetPolyShape();
+                    const SHAPE_LINE_CHAIN& outline = poly.Outline( 0 );
 
-                    if( ++newLine > 4 || !ADVANCED_CFG::GetCfg().m_CompactSave )
+                    m_out->Print( nested_level, "(gr_poly (pts" );
+
+                    bool need_newline = false;
+
+                    for( int ii = 0; ii < outline.PointCount();  ++ii )
                     {
-                        newLine = 0;
-                        m_out->Print( 0, "\n" );
-                    }
-                }
+                        nested_level = 0;
 
-                m_out->Print( newLine ? 0 : nested_level, ")" );
-            }
+                        if( !( ii % 4 ) || !ADVANCED_CFG::GetCfg().m_CompactSave )
+                        {
+                            // newline every 4 pts.
+                            m_out->Print( 0, "\n" );
+                            need_newline = false;
+                            nested_level = aNestLevel + 4;
+                        }
+
+                        int ind = outline.ArcIndex( ii );
+
+                        if( ind < 0 )
+                        {
+                            m_out->Print( nested_level, "%s(xy %s)",
+                                          nested_level ? "" : " ",
+                                          FormatInternalUnits( outline.CPoint( ii ) ).c_str() );
+                            need_newline = true;
+                        }
+                        else
+                        {
+                            const SHAPE_ARC& arc = outline.Arc( ind );
+                            m_out->Print( nested_level, "%s(arc (start %s) (mid %s) (end %s))",
+                                          nested_level ? "" : " ",
+                                          FormatInternalUnits( arc.GetP0() ).c_str(),
+                                          FormatInternalUnits( arc.GetArcMid() ).c_str(),
+                                          FormatInternalUnits( arc.GetP1() ).c_str() );
+                            need_newline = true;
+
+                            do
+                            {
+                                ++ii;
+                            } while( ii < outline.PointCount() && outline.ArcIndex( ii ) == ind );
+
+                            --ii;
+                        }
+                    }
+
+                    if( need_newline )
+                        m_out->Print( 0, "\n" );
+
+                    m_out->Print( aNestLevel + 3, ")" );
+                }
                 break;
 
             default:
@@ -1664,7 +1753,8 @@ void PCB_IO::format( const PCB_TEXT* aText, int aNestLevel ) const
 
     m_out->Print( 0, "\n" );
 
-    aText->EDA_TEXT::Format( m_out, aNestLevel, m_ctl );
+    // PCB_TEXTS are never hidden, so always omit "hide" attribute
+    aText->EDA_TEXT::Format( m_out, aNestLevel, m_ctl | CTL_OMIT_HIDE );
 
     m_out->Print( aNestLevel, ")\n" );
 }
@@ -1676,8 +1766,9 @@ void PCB_IO::format( const PCB_GROUP* aGroup, int aNestLevel ) const
     if( aGroup->GetItems().empty() )
         return;
 
-    m_out->Print( aNestLevel, "(group %s (id %s)\n",
+    m_out->Print( aNestLevel, "(group %s%s (id %s)\n",
                               m_out->Quotew( aGroup->GetName() ).c_str(),
+                              aGroup->IsLocked() ? " locked" : "",
                               TO_UTF8( aGroup->m_Uuid.AsString() ) );
 
     m_out->Print( aNestLevel + 1, "(members\n" );
@@ -2019,63 +2110,62 @@ void PCB_IO::format( const ZONE* aZone, int aNestLevel ) const
 
     m_out->Print( 0, ")\n" );
 
-    int newLine = 0;
-
     if( aZone->GetNumCorners() )
     {
-        bool new_polygon = true;
-        bool is_closed   = false;
+        SHAPE_POLY_SET::POLYGON poly = aZone->Outline()->Polygon(0);
 
-        for( auto iterator = aZone->CIterateWithHoles(); iterator; ++iterator )
+        for( auto& chain : poly )
         {
-            if( new_polygon )
-            {
-                newLine = 0;
-                m_out->Print( aNestLevel + 1, "(polygon\n" );
-                m_out->Print( aNestLevel + 2, "(pts\n" );
-                new_polygon = false;
-                is_closed = false;
-            }
+            m_out->Print( aNestLevel + 1, "(polygon\n" );
+            m_out->Print( aNestLevel + 2, "(pts" );
 
-            if( newLine == 0 )
-                m_out->Print( aNestLevel + 3, "(xy %s %s)",
-                              FormatInternalUnits( iterator->x ).c_str(),
-                              FormatInternalUnits( iterator->y ).c_str() );
-            else
-                m_out->Print( 0, " (xy %s %s)",
-                              FormatInternalUnits( iterator->x ).c_str(),
-                              FormatInternalUnits( iterator->y ).c_str() );
+            bool need_newline = true;
 
-            if( newLine < 4 && ADVANCED_CFG::GetCfg().m_CompactSave )
+            for( int ii = 0; ii < chain.PointCount(); ++ii )
             {
-                newLine += 1;
-            }
-            else
-            {
-                newLine = 0;
-                m_out->Print( 0, "\n" );
-            }
+                int nestLevel = 0;
 
-            if( iterator.IsEndContour() )
-            {
-                is_closed = true;
-
-                if( newLine != 0 )
+                if( !( ii % 4 ) || !ADVANCED_CFG::GetCfg().m_CompactSave )   // newline every 4 pts
+                {
                     m_out->Print( 0, "\n" );
+                    need_newline = false;
+                    nestLevel = aNestLevel + 3;
+                }
 
-                m_out->Print( aNestLevel + 2, ")\n" );
-                m_out->Print( aNestLevel + 1, ")\n" );
-                new_polygon = true;
+                int ind = chain.ArcIndex( ii );
+
+                if( ind < 0 )
+                {
+                    m_out->Print( nestLevel, "%s(xy %s)",
+                                  nestLevel ? "" : " ",
+                                  FormatInternalUnits( chain.CPoint( ii ) ).c_str() );
+                    need_newline = true;
+                }
+                else
+                {
+                    auto& arc = chain.Arc( ind );
+                    m_out->Print( nestLevel, "%s(arc (start %s) (mid %s) (end %s))",
+                                  nestLevel ? "" : " ",
+                                  FormatInternalUnits( arc.GetP0() ).c_str(),
+                                  FormatInternalUnits( arc.GetArcMid() ).c_str(),
+                                  FormatInternalUnits( arc.GetP1() ).c_str() );
+                    need_newline = true;
+
+                    do
+                    {
+                        ++ii;
+                    } while( ii < chain.PointCount() && chain.ArcIndex( ii ) == ind );
+
+                    --ii;
+                }
             }
-        }
 
-        if( !is_closed )    // Should not happen, but...
-        {
-            if( newLine != 0 )
+            if( need_newline )
                 m_out->Print( 0, "\n" );
 
             m_out->Print( aNestLevel + 2, ")\n" );
             m_out->Print( aNestLevel + 1, ")\n" );
+
         }
     }
 
@@ -2083,69 +2173,70 @@ void PCB_IO::format( const ZONE* aZone, int aNestLevel ) const
     for( PCB_LAYER_ID layer : aZone->GetLayerSet().Seq() )
     {
         const SHAPE_POLY_SET& fv = aZone->GetFilledPolysList( layer );
-        newLine                  = 0;
 
-        if( !fv.IsEmpty() )
+        for( int ii = 0; ii < fv.OutlineCount(); ++ii )
         {
-            int  poly_index  = 0;
-            bool new_polygon = true;
-            bool is_closed   = false;
+            m_out->Print( aNestLevel + 1, "(filled_polygon\n" );
+            m_out->Print( aNestLevel + 2, "(layer %s)\n",
+                          m_out->Quotew( LSET::Name( layer ) ).c_str() );
 
-            for( auto it = fv.CIterate(); it; ++it )
+            if( aZone->IsIsland( layer, ii ) )
+                m_out->Print( aNestLevel + 2, "(island)\n" );
+
+            m_out->Print( aNestLevel + 2, "(pts" );
+
+            const SHAPE_LINE_CHAIN& chain = fv.COutline( ii );
+
+            bool need_newline = true;
+
+            for( int jj = 0; jj < chain.PointCount(); ++jj )
             {
-                if( new_polygon )
+                int nestLevel = 0;
+
+                if( !( jj%4 ) || !ADVANCED_CFG::GetCfg().m_CompactSave )   // newline every 4 pts
                 {
-                    newLine = 0;
-                    m_out->Print( aNestLevel + 1, "(filled_polygon\n" );
-                    m_out->Print( aNestLevel + 2, "(layer %s)\n",
-                                  m_out->Quotew( LSET::Name( layer ) ).c_str() );
-
-                    if( aZone->IsIsland( layer, poly_index ) )
-                        m_out->Print( aNestLevel + 2, "(island)\n" );
-
-                    m_out->Print( aNestLevel + 2, "(pts\n" );
-                    new_polygon = false;
-                    is_closed   = false;
-                    poly_index++;
-                }
-
-                if( newLine == 0 )
-                    m_out->Print( aNestLevel + 3, "(xy %s %s)",
-                            FormatInternalUnits( it->x ).c_str(),
-                            FormatInternalUnits( it->y ).c_str() );
-                else
-                    m_out->Print( 0, " (xy %s %s)", FormatInternalUnits( it->x ).c_str(),
-                            FormatInternalUnits( it->y ).c_str() );
-
-                if( newLine < 4 && ADVANCED_CFG::GetCfg().m_CompactSave )
-                {
-                    newLine += 1;
-                }
-                else
-                {
-                    newLine = 0;
                     m_out->Print( 0, "\n" );
+                    need_newline = false;
+                    nestLevel = aNestLevel + 3;
                 }
 
-                if( it.IsEndContour() )
+                int ind = chain.ArcIndex( jj );
+
+                if( ind < 0 )
                 {
-                    is_closed = true;
+                    m_out->Print( nestLevel, "%s(xy %s)",
+                                  nestLevel ? "" : " ",
+                                  FormatInternalUnits( chain.CPoint( jj ) ).c_str() );
+                    need_newline = true;
+                }
+                else
+                {
+                    auto& arc = chain.Arc( ind );
+                    m_out->Print( nestLevel, "%s(arc (start %s) (mid %s) (end %s))",
+                                  nestLevel ? "" : " ",
+                                  FormatInternalUnits( arc.GetP0() ).c_str(),
+                                  FormatInternalUnits( arc.GetArcMid() ).c_str(),
+                                  FormatInternalUnits( arc.GetP1() ).c_str() );
+                    need_newline = true;
 
-                    if( newLine != 0 )
-                        m_out->Print( 0, "\n" );
+                    do
+                    {
+                        ++jj;
+                    } while( jj < chain.PointCount() && chain.ArcIndex( jj ) == ind );
 
-                    m_out->Print( aNestLevel + 2, ")\n" );
-                    m_out->Print( aNestLevel + 1, ")\n" );
-                    new_polygon = true;
+                    --jj;
                 }
             }
 
-            if( !is_closed ) // Should not happen, but...
-                m_out->Print( aNestLevel + 1, ")\n" );
+            if( need_newline )
+                m_out->Print( 0, "\n" );
+
+            m_out->Print( aNestLevel+2, ")\n" );
+            m_out->Print( aNestLevel+1, ")\n" );
         }
 
         // Save the filling segments list
-        const auto& segs = aZone->FillSegments( layer );
+        const std::vector<SEG>& segs = aZone->FillSegments( layer );
 
         if( segs.size() )
         {
@@ -2153,11 +2244,11 @@ void PCB_IO::format( const ZONE* aZone, int aNestLevel ) const
             m_out->Print( aNestLevel + 2, "(layer %s)\n",
                           TO_UTF8( BOARD::GetStandardLayerName( layer ) ) );
 
-            for( ZONE_SEGMENT_FILL::const_iterator it = segs.begin(); it != segs.end(); ++it )
+            for( const SEG& seg : segs )
             {
                 m_out->Print( aNestLevel + 2, "(pts (xy %s) (xy %s))\n",
-                              FormatInternalUnits( wxPoint( it->A ) ).c_str(),
-                              FormatInternalUnits( wxPoint( it->B ) ).c_str() );
+                              FormatInternalUnits( wxPoint( seg.A ) ).c_str(),
+                              FormatInternalUnits( wxPoint( seg.B ) ).c_str() );
             }
 
             m_out->Print( aNestLevel + 1, ")\n" );
@@ -2188,11 +2279,26 @@ PCB_IO::~PCB_IO()
 
 
 BOARD* PCB_IO::Load( const wxString& aFileName, BOARD* aAppendToMe, const PROPERTIES* aProperties,
-                     PROJECT* aProject )
+                     PROJECT* aProject, PROGRESS_REPORTER* aProgressReporter )
 {
     FILE_LINE_READER reader( aFileName );
 
-    BOARD* board = DoLoad( reader, aAppendToMe, aProperties );
+    unsigned lineCount = 0;
+
+    if( aProgressReporter )
+    {
+        aProgressReporter->Report( wxString::Format( _( "Loading %s..." ), aFileName ) );
+
+        if( !aProgressReporter->KeepRefreshing() )
+            THROW_IO_ERROR( _( "Open cancelled by user." ) );
+
+        while( reader.ReadLine() )
+            lineCount++;
+
+        reader.Rewind();
+    }
+
+    BOARD* board = DoLoad( reader, aAppendToMe, aProperties, aProgressReporter, lineCount );
 
     // Give the filename to the board if it's new
     if( !aAppendToMe )
@@ -2202,12 +2308,14 @@ BOARD* PCB_IO::Load( const wxString& aFileName, BOARD* aAppendToMe, const PROPER
 }
 
 
-BOARD* PCB_IO::DoLoad( LINE_READER& aReader, BOARD* aAppendToMe, const PROPERTIES* aProperties )
+BOARD* PCB_IO::DoLoad( LINE_READER& aReader, BOARD* aAppendToMe, const PROPERTIES* aProperties,
+                       PROGRESS_REPORTER* aProgressReporter, unsigned aLineCount)
 {
     init( aProperties );
 
     m_parser->SetLineReader( &aReader );
     m_parser->SetBoard( aAppendToMe );
+    m_parser->SetProgressReporter( aProgressReporter, &aReader, aLineCount );
 
     BOARD* board;
 
@@ -2231,9 +2339,8 @@ BOARD* PCB_IO::DoLoad( LINE_READER& aReader, BOARD* aAppendToMe, const PROPERTIE
     if( !board )
     {
         // The parser loaded something that was valid, but wasn't a board.
-        THROW_PARSE_ERROR( _( "this file does not contain a PCB" ),
-                m_parser->CurSource(), m_parser->CurLine(),
-                m_parser->CurLineNumber(), m_parser->CurOffset() );
+        THROW_PARSE_ERROR( _( "This file does not contain a PCB." ), m_parser->CurSource(),
+                           m_parser->CurLine(), m_parser->CurLineNumber(), m_parser->CurOffset() );
     }
 
     return board;
@@ -2382,7 +2489,7 @@ void PCB_IO::FootprintSave( const wxString& aLibraryPath, const FOOTPRINT* aFoot
     {
         if( !m_cache->Exists() )
         {
-            const wxString msg = wxString::Format( _( "Library \"%s\" does not exist.\n"
+            const wxString msg = wxString::Format( _( "Library '%s' does not exist.\n"
                                                       "Would you like to create it?"),
                                                       aLibraryPath );
 
@@ -2394,7 +2501,7 @@ void PCB_IO::FootprintSave( const wxString& aLibraryPath, const FOOTPRINT* aFoot
         }
         else
         {
-            wxString msg = wxString::Format( _( "Library \"%s\" is read only" ), aLibraryPath );
+            wxString msg = wxString::Format( _( "Library '%s' is read only." ), aLibraryPath );
             THROW_IO_ERROR( msg );
         }
     }
@@ -2412,13 +2519,13 @@ void PCB_IO::FootprintSave( const wxString& aLibraryPath, const FOOTPRINT* aFoot
 
     if( !fn.IsOk() )
     {
-        THROW_IO_ERROR( wxString::Format( _( "Footprint file name \"%s\" is not valid." ),
+        THROW_IO_ERROR( wxString::Format( _( "Footprint file name '%s' is not valid." ),
                                           fn.GetFullPath() ) );
     }
 
     if( fn.FileExists() && !fn.IsFileWritable() )
     {
-        THROW_IO_ERROR( wxString::Format( _( "No write permissions to delete file \"%s\"" ),
+        THROW_IO_ERROR( wxString::Format( _( "Insufficient permissions to delete '%s'." ),
                                           fn.GetFullPath() ) );
     }
 
@@ -2470,7 +2577,7 @@ void PCB_IO::FootprintDelete( const wxString& aLibraryPath, const wxString& aFoo
 
     if( !m_cache->IsWritable() )
     {
-        THROW_IO_ERROR( wxString::Format( _( "Library \"%s\" is read only." ),
+        THROW_IO_ERROR( wxString::Format( _( "Library '%s' is read only." ),
                                           aLibraryPath.GetData() ) );
     }
 
@@ -2489,7 +2596,7 @@ void PCB_IO::FootprintLibCreate( const wxString& aLibraryPath, const PROPERTIES*
 {
     if( wxDir::Exists( aLibraryPath ) )
     {
-        THROW_IO_ERROR( wxString::Format( _( "Cannot overwrite library path \"%s\"." ),
+        THROW_IO_ERROR( wxString::Format( _( "Cannot overwrite library path '%s'." ),
                                           aLibraryPath.GetData() ) );
     }
 
@@ -2514,8 +2621,7 @@ bool PCB_IO::FootprintLibDelete( const wxString& aLibraryPath, const PROPERTIES*
 
     if( !fn.IsDirWritable() )
     {
-        THROW_IO_ERROR( wxString::Format( _( "User does not have permission to delete directory "
-                                             "\"%s\"." ),
+        THROW_IO_ERROR( wxString::Format( _( "Insufficient permissions to delete folder '%s'." ),
                                           aLibraryPath.GetData() ) );
     }
 
@@ -2523,8 +2629,7 @@ bool PCB_IO::FootprintLibDelete( const wxString& aLibraryPath, const PROPERTIES*
 
     if( dir.HasSubDirs() )
     {
-        THROW_IO_ERROR( wxString::Format( _( "Library directory \"%s\" has unexpected "
-                                             "sub-directories." ),
+        THROW_IO_ERROR( wxString::Format( _( "Library folder '%s' has unexpected sub-folders." ),
                                           aLibraryPath.GetData() ) );
     }
 
@@ -2543,9 +2648,10 @@ bool PCB_IO::FootprintLibDelete( const wxString& aLibraryPath, const PROPERTIES*
 
             if( tmp.GetExt() != KiCadFootprintFileExtension )
             {
-                THROW_IO_ERROR( wxString::Format( _( "Unexpected file \"%s\" was found in "
-                                                     "library path \"%s\"." ),
-                                                  files[i].GetData(), aLibraryPath.GetData() ) );
+                THROW_IO_ERROR( wxString::Format( _( "Unexpected file '%s' found in library "
+                                                     "path '%s'." ),
+                                                  files[i].GetData(),
+                                                  aLibraryPath.GetData() ) );
             }
         }
 
@@ -2553,14 +2659,14 @@ bool PCB_IO::FootprintLibDelete( const wxString& aLibraryPath, const PROPERTIES*
             wxRemoveFile( files[i] );
     }
 
-    wxLogTrace( traceKicadPcbPlugin, wxT( "Removing footprint library \"%s\"." ),
+    wxLogTrace( traceKicadPcbPlugin, wxT( "Removing footprint library '%s'." ),
                 aLibraryPath.GetData() );
 
     // Some of the more elaborate wxRemoveFile() crap puts up its own wxLog dialog
     // we don't want that.  we want bare metal portability with no UI here.
     if( !wxRmdir( aLibraryPath ) )
     {
-        THROW_IO_ERROR( wxString::Format( _( "Footprint library \"%s\" cannot be deleted." ),
+        THROW_IO_ERROR( wxString::Format( _( "Footprint library '%s' cannot be deleted." ),
                                           aLibraryPath.GetData() ) );
     }
 

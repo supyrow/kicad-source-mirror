@@ -35,12 +35,13 @@
 #include <vector>
 
 #include <wx/aui/aui.h>
-#include <layers_id_colors_and_visibility.h>
+#include <layer_ids.h>
 #include <frame_type.h>
 #include <hotkeys_basic.h>
 #include <kiway_holder.h>
 #include <tool/tools_holder.h>
 #include <widgets/ui_common.h>
+#include <widgets/infobar.h>
 #include <undo_redo_container.h>
 #include <eda_units.h>
 
@@ -78,7 +79,6 @@ class FILE_HISTORY;
 class SETTINGS_MANAGER;
 class SEARCH_STACK;
 class APP_SETTINGS_BASE;
-class WX_INFOBAR;
 struct WINDOW_SETTINGS;
 struct WINDOW_STATE;
 
@@ -195,6 +195,8 @@ public:
         aEvent.Skip();
     }
 
+    virtual void OnSize( wxSizeEvent& aEvent );
+
     void OnMaximize( wxMaximizeEvent& aEvent );
 
     void SetAutoSaveInterval( int aInterval );
@@ -240,7 +242,8 @@ public:
      * @param aErrorMsg is the message to display.
      * @param aShowCloseButton true to show a close button on the right of the #WX_INFOBAR.
      */
-    void ShowInfoBarError( const wxString& aErrorMsg, bool aShowCloseButton = false );
+    void ShowInfoBarError( const wxString& aErrorMsg, bool aShowCloseButton = false,
+                           WX_INFOBAR::MESSAGE_TYPE aType = WX_INFOBAR::MESSAGE_TYPE::GENERIC );
 
     /**
      * Show the #WX_INFOBAR displayed on the top of the canvas with a message and an error
@@ -489,7 +492,7 @@ public:
     /**
      * Redraw the menus and what not in current language.
      */
-    virtual void ShowChangedLanguage();
+    void ShowChangedLanguage() override;
 
     /**
      * Notification event that some of the common (suite-wide) settings have changed.
@@ -646,6 +649,8 @@ protected:
      */
     void initExitKey();
 
+    void ensureWindowIsOnScreen();
+
     DECLARE_EVENT_TABLE()
 
 private:
@@ -682,6 +687,7 @@ protected:
     wxPoint         m_framePos;
     wxSize          m_frameSize;
     bool            m_maximizeByDefault;
+    int             m_displayIndex;
 
     // These contain the frame size and position for when it is not maximized
     wxPoint         m_normalFramePos;
@@ -743,7 +749,7 @@ protected:
  * around.
  *
  * Each panel has rows, starting at 0. Each row has positions starting at 0. Each item in a panel
- * can have it's row and position set.
+ * can have its row and position set.
  *
  * Eventually panels will be movable. Each initialization function sets up the panel for this,
  * then after a //==// break has additional calls to anchor toolbars in a way that matches

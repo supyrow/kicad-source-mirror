@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2012 NBEE Embedded Systems, Miguel Angel Ajo <miguelangel@nbee.es>
- * Copyright (C) 1992-2019 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -24,7 +24,7 @@
 
 /**
  * @file python_scripting.cpp
- * @brief methods to add scripting capabilities inside pcbnew
+ * @brief methods to add scripting capabilities inside Pcbnew
  */
 
 #include <python_scripting.h>
@@ -38,7 +38,7 @@
 #include <gal/color4d.h>
 #include <gestfich.h>
 #include <trace_helpers.h>
-#include <kicad_string.h>
+#include <string_utils.h>
 #include <macros.h>
 
 #include <kiface_ids.h>
@@ -53,23 +53,31 @@
 #include <config.h>
 
 
-
 SCRIPTING::SCRIPTING()
 {
     scriptingSetup();
 
     pybind11::initialize_interpreter();
 
-    // Save the current Python thread state and release the
-    // Global Interpreter Lock.
+    // Save the current Python thread state and release the Global Interpreter Lock.
     m_python_thread_state = PyEval_SaveThread();
 }
+
 
 SCRIPTING::~SCRIPTING()
 {
     PyEval_RestoreThread( m_python_thread_state );
-    pybind11::finalize_interpreter();
+
+    try
+    {
+        pybind11::finalize_interpreter();
+    }
+    catch( const std::runtime_error& exc )
+    {
+        wxLogError( wxT( "Run time error '%s' occurred closing Python scripting" ), exc.what() );
+    }
 }
+
 
 bool SCRIPTING::IsWxAvailable()
 {
@@ -79,6 +87,7 @@ bool SCRIPTING::IsWxAvailable()
     return false;
 #endif
 }
+
 
 bool SCRIPTING::IsModuleLoaded( std::string& aModule )
 {
@@ -97,15 +106,17 @@ if modulename in sys.modules:
     return locals["loaded"].cast<bool>();
 }
 
+
 bool SCRIPTING::scriptingSetup()
 {
 #if defined( __WINDOWS__ )
 
-    #ifdef _MSC_VER
-    // Under vcpkg/msvc, we need to explicitly set the python home
-    // or else it'll start consuming system python registry keys and the like instead
-    // We are going to follow the "unix" layout for the msvc/vcpkg distributions so exes in /root/bin
-    // And the python lib in /root/lib/python3(/Lib,/DLLs)
+  #ifdef _MSC_VER
+    // Under vcpkg/msvc, we need to explicitly set the python home or else it'll start consuming
+    // system python registry keys and the like instead of the Python distributed with KiCad.
+    // We are going to follow the "unix" layout for the msvc/vcpkg distributions so executable
+    // files are in the /root/bin path and the Python library files are in the
+    // /root/lib/python3(/Lib,/DLLs) path(s).
     wxFileName pyHome;
 
     pyHome.Assign( Pgm().GetExecutablePath() );
@@ -113,11 +124,11 @@ bool SCRIPTING::scriptingSetup()
     pyHome.Normalize();
 
     // MUST be called before Py_Initialize so it will to create valid default lib paths
-    if( !wxGetEnv( wxT( "KICAD_RUN_FROM_BUILD_DIR" ), nullptr ) )
+    if( !wxGetEnv( wxT( "KICAD_USE_EXTERNAL_PYTHONHOME" ), nullptr ) )
     {
         Py_SetPythonHome( pyHome.GetFullPath().c_str() );
     }
-    #else
+  #else
     // Intended for msys2 but we could probably use the msvc equivalent code too
     // If our python.exe (in kicad/bin) exists, force our kicad python environment
     wxString kipython = FindKicadFile( "python.exe" );
@@ -142,8 +153,7 @@ bool SCRIPTING::scriptingSetup()
         kipython << wxT( ";" ) << ppath;
         wxSetEnv( wxT( "PATH" ), kipython );
     }
-    #endif
-
+  #endif
 #elif defined( __WXMAC__ )
 
     // Add default paths to PYTHONPATH
@@ -153,7 +163,7 @@ bool SCRIPTING::scriptingSetup()
     pypath += PATHS::GetOSXKicadDataDir() + wxT( "/scripting" );
 
     // $(KICAD_PATH)/scripting/plugins is always added in kicadplugins.i
-    if( wxGetenv("KICAD_PATH") != NULL )
+    if( wxGetenv("KICAD_PATH") != nullptr )
     {
         pypath += wxT( ":" ) + wxString( wxGetenv("KICAD_PATH") );
     }
@@ -163,7 +173,7 @@ bool SCRIPTING::scriptingSetup()
     pypath += wxT( ":" ) + Pgm().GetExecutablePath() + wxT( OSX_BUNDLE_PYTHON_SITE_PACKAGES_DIR );
 
     // Original content of $PYTHONPATH
-    if( wxGetenv( wxT( "PYTHONPATH" ) ) != NULL )
+    if( wxGetenv( wxT( "PYTHONPATH" ) ) != nullptr )
     {
         pypath = wxString( wxGetenv( wxT( "PYTHONPATH" ) ) ) + wxT( ":" ) + pypath;
     }
@@ -178,13 +188,12 @@ bool SCRIPTING::scriptingSetup()
 
     // set $PYTHONHOME
     wxSetEnv( "PYTHONHOME", pyhome );
-
 #else
     wxString pypath;
 
     if( wxGetEnv( wxT( "KICAD_RUN_FROM_BUILD_DIR" ), nullptr ) )
     {
-        // When running from build dir, python module gets built next to pcbnew binary
+        // When running from build dir, python module gets built next to Pcbnew binary
         pypath = Pgm().GetExecutablePath() + wxT( "../pcbnew" );
     }
     else
@@ -200,19 +209,19 @@ bool SCRIPTING::scriptingSetup()
 
 #endif
 
-    wxFileName path( PyPluginsPath( true ) + wxT("/") );
+    wxFileName path( PyPluginsPath( SCRIPTING::PATH_TYPE::USER ) + wxT( "/" ) );
 
     // Ensure the user plugin path exists, and create it if not.
     // However, if it cannot be created, this is not a fatal error.
     if( !path.DirExists() && !path.Mkdir( wxS_DIR_DEFAULT, wxPATH_MKDIR_FULL ) )
-        wxLogError( "Warning: could not create user scripting path %s", path.GetPath() );
+        wxLogError( _( "Could not create user scripting path %s." ), path.GetPath() );
 
     return true;
 }
 
 
 /**
- * Run a python method from the pcbnew module.
+ * Run a python method from the Pcbnew module.
  *
  * @param aMethodName is the name of the method (like "pcbnew.myfunction" )
  * @param aNames will contain the returned string
@@ -246,13 +255,13 @@ static void RunPythonMethodWithReturnedString( const char* aMethodName, wxString
     if( pobj )
     {
         PyObject* str = PyDict_GetItemString(localDict, "result" );
-        const char* str_res = NULL;
+        const char* str_res = nullptr;
 
         if(str)
         {
             PyObject* temp_bytes = PyUnicode_AsEncodedString( str, "UTF-8", "strict" );
 
-            if( temp_bytes != NULL )
+            if( temp_bytes != nullptr )
             {
                 str_res = PyBytes_AS_STRING( temp_bytes );
                 aNames = FROM_UTF8( str_res );
@@ -260,7 +269,7 @@ static void RunPythonMethodWithReturnedString( const char* aMethodName, wxString
             }
             else
             {
-                wxLogMessage( "cannot encode unicode python string" );
+                wxLogMessage( "cannot encode Unicode python string" );
             }
         }
         else
@@ -302,7 +311,7 @@ void UpdatePythonEnvVar( const wxString& aVar, const wxString& aValue )
 {
     char cmd[1024];
 
-    // Ensure the interpreter is initialized before we try to interact with it
+    // Ensure the interpreter is initialized before we try to interact with it.
     if( !Py_IsInitialized() )
         return;
 
@@ -313,7 +322,7 @@ void UpdatePythonEnvVar( const wxString& aVar, const wxString& aValue )
     wxString escapedVal = PyEscapeString( aValue );
 
     snprintf( cmd, sizeof( cmd ),
-              "# coding=utf-8\n"      // The values could potentially be UTF8
+              "# coding=utf-8\n"      // The values could potentially be UTF8.
               "import os\n"
               "os.environ[\"%s\"]=\"%s\"\n",
               TO_UTF8( escapedVar ),
@@ -324,7 +333,7 @@ void UpdatePythonEnvVar( const wxString& aVar, const wxString& aValue )
     int retv = PyRun_SimpleString( cmd );
 
     if( retv != 0 )
-        wxLogError( "Python error %d occurred running command:\n\n`%s`", retv, cmd );
+        wxLogError( "Python error %d running command:\n\n`%s`", retv, cmd );
 }
 
 
@@ -335,10 +344,10 @@ wxString PyStringToWx( PyObject* aString )
     if( !aString )
         return ret;
 
-    const char* str_res = NULL;
+    const char* str_res = nullptr;
     PyObject* temp_bytes = PyUnicode_AsEncodedString( aString, "UTF-8", "strict" );
 
-    if( temp_bytes != NULL )
+    if( temp_bytes != nullptr )
     {
         str_res = PyBytes_AS_STRING( temp_bytes );
         ret = FROM_UTF8( str_res );
@@ -346,7 +355,7 @@ wxString PyStringToWx( PyObject* aString )
     }
     else
     {
-        wxLogMessage( "cannot encode unicode python string" );
+        wxLogMessage( "cannot encode Unicode python string" );
     }
 
     return ret;
@@ -368,10 +377,10 @@ wxArrayString PyArrayStringToWx( PyObject* aArrayString )
 
         if( element )
         {
-            const char* str_res = NULL;
+            const char* str_res = nullptr;
             PyObject* temp_bytes = PyUnicode_AsEncodedString( element, "UTF-8", "strict" );
 
-            if( temp_bytes != NULL )
+            if( temp_bytes != nullptr )
             {
                 str_res = PyBytes_AS_STRING( temp_bytes );
                 ret.Add( FROM_UTF8( str_res ), 1 );
@@ -379,7 +388,7 @@ wxArrayString PyArrayStringToWx( PyObject* aArrayString )
             }
             else
             {
-                wxLogMessage( "cannot encode unicode python string" );
+                wxLogMessage( "cannot encode Unicode python string" );
             }
         }
     }
@@ -403,7 +412,7 @@ wxString PyErrStringWithTraceback()
 
     PyErr_NormalizeException( &type, &value, &traceback );
 
-    if( traceback == NULL )
+    if( traceback == nullptr )
     {
         traceback = Py_None;
         Py_INCREF( traceback );
@@ -443,18 +452,29 @@ wxString PyErrStringWithTraceback()
 /**
  * Find the Python scripting path.
  */
-wxString SCRIPTING::PyScriptingPath( bool aUserPath )
+wxString SCRIPTING::PyScriptingPath( PATH_TYPE aPathType )
 {
     wxString path;
 
     //@todo This should this be a user configurable variable eg KISCRIPT?
-    if( aUserPath )
+    switch( aPathType )
     {
-        path = PATHS::GetUserScriptingPath();
-    }
-    else
-    {
+    case STOCK:
         path = PATHS::GetStockScriptingPath();
+        break;
+    case USER:
+        path = PATHS::GetUserScriptingPath();
+        break;
+    case THIRDPARTY:
+        const ENV_VAR_MAP& env = Pgm().GetLocalEnvVariables();
+        auto               it = env.find( "KICAD6_3RD_PARTY" );
+
+        if( it != env.end() && !it->second.GetValue().IsEmpty() )
+            path = it->second.GetValue();
+        else
+            path = PATHS::GetDefault3rdPartyPath();
+
+        break;
     }
 
     wxFileName scriptPath( path );
@@ -470,9 +490,9 @@ wxString SCRIPTING::PyScriptingPath( bool aUserPath )
 }
 
 
-wxString SCRIPTING::PyPluginsPath( bool aUserPath )
+wxString SCRIPTING::PyPluginsPath( PATH_TYPE aPathType )
 {
     // Note we are using unix path separator, because window separator sometimes
     // creates issues when passing a command string to a python method by PyRun_SimpleString
-    return PyScriptingPath( aUserPath ) + '/' + "plugins";
+    return PyScriptingPath( aPathType ) + '/' + "plugins";
 }

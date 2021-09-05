@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////
-// C++ code generated with wxFormBuilder (version 3.9.0 Mar  8 2021)
+// C++ code generated with wxFormBuilder (version Oct 26 2018)
 // http://www.wxformbuilder.org/
 //
 // PLEASE DO *NOT* EDIT THIS FILE!
@@ -47,6 +47,9 @@ class PANEL_SETUP_FORMATTING_BASE : public wxPanel
 		wxStaticText* m_textOffsetRatioLabel;
 		wxTextCtrl* m_textOffsetRatioCtrl;
 		wxStaticText* m_offsetRatioUnits;
+		wxStaticText* m_labelSizeRatioLabel;
+		wxTextCtrl* m_labelSizeRatioCtrl;
+		wxStaticText* m_labelSizeRatioUnits;
 		wxStaticText* m_lineWidthLabel;
 		wxTextCtrl* m_lineWidthCtrl;
 		wxStaticText* m_lineWidthUnits;
@@ -64,7 +67,7 @@ class PANEL_SETUP_FORMATTING_BASE : public wxPanel
 		wxStaticText* m_suffixLabel;
 		wxTextCtrl* m_suffixCtrl;
 
-		// Virtual event handlers, override them in your derived class
+		// Virtual event handlers, overide them in your derived class
 		virtual void onCheckBoxIref( wxCommandEvent& event ) { event.Skip(); }
 
 

@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2019 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 2009-2019 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2009-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -23,13 +23,10 @@
  */
 
 
-/**
- * @file dielectric_material.cpp
- */
-
 #include "stackup_predefined_prms.h"
 #include "dielectric_material.h"
 #include <core/arraydim.h>
+#include <string_utils.h>               // for Double2Str()
 
 
 // A list of available substrate material
@@ -40,39 +37,40 @@
 // DO NOT translate them, as they are proper noun
 static DIELECTRIC_SUBSTRATE substrateMaterial[]  =
 {
-    { NotSpecifiedPrm(), 0.0, 0.0 },    // Not specified, not in .gbrjob
-    { "FR4", 4.5, 0.02 },               // used in .gbrjob file
-    { "FR408-HR", 3.69, 0.0091 },       // used in .gbrjob file
-    { "Polyimide", 1.0, 0.0 },          // used in .gbrjob file
-    { "Polyolefin", 1.0, 0.0 },         // used in .gbrjob file
-    { "Al", 8.7, 0.001 },               // used in .gbrjob file
-    { "PTFE", 2.1, 0.0002 },            // used in .gbrjob file
-    { "Teflon", 2.1, 0.0002 },          // used in .gbrjob file
-    { "Ceramic", 1.0, 0.0 }             // used in .gbrjob file
-                                        // Other names are free
+    { NotSpecifiedPrm(), 0.0,  0.0    },    // Not specified, not in .gbrjob
+    { "FR4",             4.5,  0.02   },    // used in .gbrjob file
+    { "FR408-HR",        3.69, 0.0091 },    // used in .gbrjob file
+    { "Polyimide",       3.2,  0.004  },    // used in .gbrjob file
+    { "Kapton",          3.2,  0.004  },    // used in .gbrjob file
+    { "Polyolefin",      1.0,  0.0    },    // used in .gbrjob file
+    { "Al",              8.7,  0.001  },    // used in .gbrjob file
+    { "PTFE",            2.1,  0.0002 },    // used in .gbrjob file
+    { "Teflon",          2.1,  0.0002 },    // used in .gbrjob file
+    { "Ceramic",         1.0,  0.0    }     // used in .gbrjob file
+                                            // Other names are free
 };
 
 static DIELECTRIC_SUBSTRATE solderMaskMaterial[]  =
 {
     { NotSpecifiedPrm(), DEFAULT_EPSILON_R_SOLDERMASK, 0.0 },   // Not specified, not in .gbrjob
-    { "Epoxy", DEFAULT_EPSILON_R_SOLDERMASK, 0.0 },             // Epoxy Liquid material (usual)
-    { "Liquid Ink", DEFAULT_EPSILON_R_SOLDERMASK, 0.0 },        // Liquid Ink Photoimageable
-    { "Dry Film", DEFAULT_EPSILON_R_SOLDERMASK, 0.0 }           // Dry Film Photoimageable
+    { "Epoxy",           DEFAULT_EPSILON_R_SOLDERMASK, 0.0 },   // Epoxy Liquid material (usual)
+    { "Liquid Ink",      DEFAULT_EPSILON_R_SOLDERMASK, 0.0 },   // Liquid Ink Photoimageable
+    { "Dry Film",        DEFAULT_EPSILON_R_SOLDERMASK, 0.0 }    // Dry Film Photoimageable
 };
 
 static DIELECTRIC_SUBSTRATE silkscreenMaterial[]  =
 {
-    { NotSpecifiedPrm(), DEFAULT_EPSILON_R_SILKSCREEN, 0.0 },       // Not specified, not in .gbrjob
-    { "Liquid Photo", DEFAULT_EPSILON_R_SILKSCREEN, 0.0 },          // Liquid Ink Photoimageable
-    { "Direct Printing", DEFAULT_EPSILON_R_SILKSCREEN, 0.0 }        // Direct Legend Printing
+    { NotSpecifiedPrm(), DEFAULT_EPSILON_R_SILKSCREEN, 0.0 },   // Not specified, not in .gbrjob
+    { "Liquid Photo",    DEFAULT_EPSILON_R_SILKSCREEN, 0.0 },   // Liquid Ink Photoimageable
+    { "Direct Printing", DEFAULT_EPSILON_R_SILKSCREEN, 0.0 }    // Direct Legend Printing
 };
 
 
 wxString DIELECTRIC_SUBSTRATE::FormatEpsilonR()
 {
     // return a wxString to print/display Epsilon R
-    wxString txt;
-    txt.Printf( "%.1f", m_EpsilonR );
+    // note: we do not want scientific notation
+    wxString txt = Double2Str( m_EpsilonR );
     return txt;
 }
 
@@ -80,8 +78,8 @@ wxString DIELECTRIC_SUBSTRATE::FormatEpsilonR()
 wxString DIELECTRIC_SUBSTRATE::FormatLossTangent()
 {
     // return a wxString to print/display Loss Tangent
-    wxString txt;
-    txt.Printf( "%g", m_LossTangent );
+    // note: we do not want scientific notation
+    wxString txt = Double2Str( m_LossTangent );
     return txt;
 }
 
@@ -134,14 +132,16 @@ int DIELECTRIC_SUBSTRATE_LIST::FindSubstrate( DIELECTRIC_SUBSTRATE* aItem )
 {
     // Find a item matching aItem. The comparison is for the name case insensitive
     int idx = 0;
+
     for( DIELECTRIC_SUBSTRATE& item : m_substrateList )
     {
 
         if( item.m_EpsilonR == aItem->m_EpsilonR &&
             item.m_LossTangent == aItem->m_LossTangent &&
-            item.m_Name.CmpNoCase( aItem->m_Name ) == 0
-            )
+            item.m_Name.CmpNoCase( aItem->m_Name ) == 0 )
+        {
             return idx;
+        }
 
         ++idx;
     }
@@ -154,14 +154,16 @@ int DIELECTRIC_SUBSTRATE_LIST::FindSubstrate( const wxString& aName, double aEps
 {
     // Find a item matching parameters
     int idx = 0;
+
     for( DIELECTRIC_SUBSTRATE& item : m_substrateList )
     {
 
         if( item.m_EpsilonR == aEpsilonR &&
             item.m_LossTangent == aLossTg &&
-            item.m_Name.CmpNoCase( aName ) == 0
-            )
+            item.m_Name.CmpNoCase( aName ) == 0 )
+        {
             return idx;
+        }
 
         ++idx;
     }

@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 1992-2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
  * @author Jon Evans <jon@craftyjon.com>
  *
  * This program is free software; you can redistribute it and/or
@@ -23,35 +23,37 @@
  */
 
 #include <bitmaps.h>
-#include <board_commit.h>
 #include <board.h>
+#include <board_commit.h>
 #include <board_design_settings.h>
-#include <pcb_shape.h>
-#include <fp_shape.h>
-#include <pcb_track.h>
-#include <zone.h>
 #include <collectors.h>
 #include <confirm.h>
+#include <convert_basic_shapes_to_polygon.h>
+#include <footprint_edit_frame.h>
+#include <fp_shape.h>
+#include <geometry/shape_compound.h>
 #include <menus_helpers.h>
 #include <pcb_edit_frame.h>
-#include <footprint_edit_frame.h>
-#include <trigo.h>
+#include <pcb_shape.h>
+#include <pcb_track.h>
 #include <tool/tool_manager.h>
 #include <tools/edit_tool.h>
 #include <tools/pcb_actions.h>
 #include <tools/pcb_selection_tool.h>
-#include <convert_basic_shapes_to_polygon.h>
+#include <trigo.h>
+#include <zone.h>
 
 #include "convert_tool.h"
 
 
 CONVERT_TOOL::CONVERT_TOOL() :
     TOOL_INTERACTIVE( "pcbnew.Convert" ),
-    m_selectionTool( NULL ),
-    m_menu( NULL ),
-    m_frame( NULL )
+    m_selectionTool( nullptr ),
+    m_menu( nullptr ),
+    m_frame( nullptr )
 {
 }
+
 
 CONVERT_TOOL::~CONVERT_TOOL()
 {
@@ -71,33 +73,34 @@ bool CONVERT_TOOL::Init()
     // Create a context menu and make it available through selection tool
     m_menu = new CONDITIONAL_MENU( this );
     m_menu->SetIcon( BITMAPS::convert );
-    m_menu->SetTitle( _( "Convert" ) );
+    m_menu->SetTitle( _( "Create from Selection" ) );
 
-    static KICAD_T convertableTracks[] = { PCB_TRACE_T, PCB_ARC_T, EOT };
+    static KICAD_T convertibleTracks[] = { PCB_TRACE_T, PCB_ARC_T, EOT };
     static KICAD_T zones[]  = { PCB_ZONE_T, PCB_FP_ZONE_T, EOT };
 
-    auto graphicLines = P_S_C::OnlyGraphicShapeTypes( { PCB_SHAPE_TYPE::SEGMENT, PCB_SHAPE_TYPE::RECT,
-                                            PCB_SHAPE_TYPE::CIRCLE } )
+    auto graphicLines = P_S_C::OnlyGraphicShapeTypes( { SHAPE_T::SEGMENT,
+                                                        SHAPE_T::RECT,
+                                                        SHAPE_T::CIRCLE,
+                                                        SHAPE_T::ARC } )
                                 && P_S_C::SameLayer();
 
-    auto trackLines   = S_C::MoreThan( 1 ) && S_C::OnlyTypes( convertableTracks )
+    auto trackLines   = S_C::MoreThan( 1 ) && S_C::OnlyTypes( convertibleTracks )
                                 && P_S_C::SameLayer();
 
     auto anyLines     = graphicLines || trackLines;
-
     auto anyPolys     = S_C::OnlyTypes( zones )
-                    || P_S_C::OnlyGraphicShapeTypes(
-                            { PCB_SHAPE_TYPE::POLYGON, PCB_SHAPE_TYPE::RECT } );
+                            || P_S_C::OnlyGraphicShapeTypes( { SHAPE_T::POLY, SHAPE_T::RECT } );
 
     auto lineToArc = S_C::Count( 1 )
-                     && ( P_S_C::OnlyGraphicShapeTypes( { PCB_SHAPE_TYPE::SEGMENT } )
-                                                    || S_C::OnlyType( PCB_TRACE_T ) );
+                         && ( P_S_C::OnlyGraphicShapeTypes( { SHAPE_T::SEGMENT } )
+                                || S_C::OnlyType( PCB_TRACE_T ) );
 
-    auto showConvert = anyPolys || anyLines || lineToArc;
+    auto showConvert       = anyPolys || anyLines || lineToArc;
+    auto canCreatePolyType = anyLines || anyPolys;
 
-    m_menu->AddItem( PCB_ACTIONS::convertToPoly, anyLines );
-    m_menu->AddItem( PCB_ACTIONS::convertToZone, anyLines );
-    m_menu->AddItem( PCB_ACTIONS::convertToKeepout, anyLines );
+    m_menu->AddItem( PCB_ACTIONS::convertToPoly, canCreatePolyType );
+    m_menu->AddItem( PCB_ACTIONS::convertToZone, canCreatePolyType );
+    m_menu->AddItem( PCB_ACTIONS::convertToKeepout, canCreatePolyType );
     m_menu->AddItem( PCB_ACTIONS::convertToLines, anyPolys );
 
     // Currently the code exists, but tracks are not really existing in footprints
@@ -114,7 +117,7 @@ bool CONVERT_TOOL::Init()
 }
 
 
-int CONVERT_TOOL::LinesToPoly( const TOOL_EVENT& aEvent )
+int CONVERT_TOOL::CreatePolys( const TOOL_EVENT& aEvent )
 {
     FOOTPRINT* parentFootprint = nullptr;
 
@@ -131,10 +134,11 @@ int CONVERT_TOOL::LinesToPoly( const TOOL_EVENT& aEvent )
                     case PCB_FP_SHAPE_T:
                         switch( static_cast<PCB_SHAPE*>( item )->GetShape() )
                         {
-                        case PCB_SHAPE_TYPE::SEGMENT:
-                        case PCB_SHAPE_TYPE::RECT:
-                        case PCB_SHAPE_TYPE::CIRCLE:
-                        // case S_ARC: // Not yet
+                        case SHAPE_T::SEGMENT:
+                        case SHAPE_T::RECT:
+                        case SHAPE_T::CIRCLE:
+                        case SHAPE_T::ARC:
+                        case SHAPE_T::POLY:
                             break;
 
                         default:
@@ -144,7 +148,11 @@ int CONVERT_TOOL::LinesToPoly( const TOOL_EVENT& aEvent )
                         break;
 
                     case PCB_TRACE_T:
-                    // case PCB_ARC_T: // Not yet
+                    case PCB_ARC_T:
+                        break;
+
+                    case PCB_ZONE_T:
+                    case PCB_FP_ZONE_T:
                         break;
 
                     default:
@@ -156,16 +164,14 @@ int CONVERT_TOOL::LinesToPoly( const TOOL_EVENT& aEvent )
     if( selection.Empty() )
         return 0;
 
-    // TODO(JE) From a context menu, the selection condition enforces that the items are on
-    // a single layer.  But, you can still trigger this with items on multiple layer selected.
-    // Technically we should make this work if each contiguous poly shares a layer
-    PCB_LAYER_ID destLayer = static_cast<BOARD_ITEM*>( selection.Front() )->GetLayer();
-
-    SHAPE_POLY_SET polySet = makePolysFromSegs( selection.GetItems() );
+    PCB_LAYER_ID   destLayer = m_frame->GetActiveLayer();
+    SHAPE_POLY_SET polySet   = makePolysFromSegs( selection.GetItems() );
 
     polySet.Append( makePolysFromRects( selection.GetItems() ) );
 
     polySet.Append( makePolysFromCircles( selection.GetItems() ) );
+
+    polySet.Append( extractPolygons( selection.GetItems() ) );
 
     if( polySet.IsEmpty() )
         return 0;
@@ -189,7 +195,7 @@ int CONVERT_TOOL::LinesToPoly( const TOOL_EVENT& aEvent )
         {
             PCB_SHAPE* graphic = isFootprint ? new FP_SHAPE( parentFootprint ) : new PCB_SHAPE;
 
-            graphic->SetShape( PCB_SHAPE_TYPE::POLYGON );
+            graphic->SetShape( SHAPE_T::POLY );
             graphic->SetFilled( false );
             graphic->SetWidth( poly.Outline( 0 ).Width() );
             graphic->SetLayer( destLayer );
@@ -207,10 +213,15 @@ int CONVERT_TOOL::LinesToPoly( const TOOL_EVENT& aEvent )
         BOARD_ITEM_CONTAINER* parent   = frame->GetModel();
         ZONE_SETTINGS         zoneInfo = frame->GetZoneSettings();
 
+        bool nonCopper = IsNonCopperLayer( destLayer );
+        zoneInfo.m_Layers.reset().set( destLayer );
+
         int ret;
 
         if( aEvent.IsAction( &PCB_ACTIONS::convertToKeepout ) )
             ret = InvokeRuleAreaEditor( frame, &zoneInfo );
+        else if( nonCopper )
+            ret = InvokeNonCopperZonesEditor( frame, &zoneInfo );
         else
             ret = InvokeCopperZonesEditor( frame, &zoneInfo );
 
@@ -238,19 +249,43 @@ int CONVERT_TOOL::LinesToPoly( const TOOL_EVENT& aEvent )
 
 SHAPE_POLY_SET CONVERT_TOOL::makePolysFromSegs( const std::deque<EDA_ITEM*>& aItems )
 {
+    // TODO: This code has a somewhat-similar purpose to ConvertOutlineToPolygon but is slightly
+    // different, so this remains a separate algorithm.  It might be nice to analyze the dfiferences
+    // in requirements and refactor this.
+    const int chainingEpsilon = Millimeter2iu( 0.02 );
+
     SHAPE_POLY_SET poly;
 
-    std::map<VECTOR2I, std::vector<EDA_ITEM*>> connections;
+    // Stores pairs of (anchor, item) where anchor == 0 -> SEG.A, anchor == 1 -> SEG.B
+    std::map<VECTOR2I, std::vector<std::pair<int, EDA_ITEM*>>> connections;
     std::set<EDA_ITEM*> used;
     std::deque<EDA_ITEM*> toCheck;
+
+    auto closeEnough =
+            []( VECTOR2I aLeft, VECTOR2I aRight, unsigned aLimit )
+            {
+                return ( aLeft - aRight ).SquaredEuclideanNorm() <= SEG::Square( aLimit );
+            };
+
+    auto findInsertionPoint =
+            [&]( VECTOR2I aPoint ) -> VECTOR2I
+            {
+                for( const auto& candidatePair : connections )
+                {
+                    if( closeEnough( aPoint, candidatePair.first, chainingEpsilon ) )
+                        return candidatePair.first;
+                }
+
+                return aPoint;
+            };
 
     for( EDA_ITEM* item : aItems )
     {
         if( OPT<SEG> seg = getStartEndPoints( item, nullptr ) )
         {
             toCheck.push_back( item );
-            connections[seg->A].emplace_back( item );
-            connections[seg->B].emplace_back( item );
+            connections[findInsertionPoint( seg->A )].emplace_back( std::make_pair( 0, item ) );
+            connections[findInsertionPoint( seg->B )].emplace_back( std::make_pair( 1, item ) );
         }
     }
 
@@ -262,67 +297,111 @@ SHAPE_POLY_SET CONVERT_TOOL::makePolysFromSegs( const std::deque<EDA_ITEM*>& aIt
         if( used.count( candidate ) )
             continue;
 
-        int      width = -1;
-        OPT<SEG> seg = getStartEndPoints( candidate, &width );
-        wxASSERT( seg );
+        int width = -1;
+        SHAPE_LINE_CHAIN outline;
 
-        SHAPE_LINE_CHAIN     outline;
-        std::deque<VECTOR2I> points;
+        auto insert =
+                [&]( EDA_ITEM* aItem, VECTOR2I aAnchor, bool aDirection )
+                {
+                    if( aItem->Type() == PCB_ARC_T ||
+                        ( aItem->Type() == PCB_SHAPE_T &&
+                          static_cast<PCB_SHAPE*>( aItem )->GetShape() == SHAPE_T::ARC ) )
+                    {
+                        SHAPE_ARC arc;
+
+                        if( aItem->Type() == PCB_ARC_T )
+                        {
+                            std::shared_ptr<SHAPE> es =
+                                    static_cast<PCB_ARC*>( aItem )->GetEffectiveShape();
+                            arc = *static_cast<SHAPE_ARC*>( es.get() );
+                        }
+                        else
+                        {
+                            PCB_SHAPE* ps = static_cast<PCB_SHAPE*>( aItem );
+                            arc = SHAPE_ARC( ps->GetArcStart(), ps->GetArcMid(), ps->GetArcEnd(),
+                                             ps->GetWidth() );
+                        }
+
+                        if( aDirection )
+                            outline.Append( aAnchor == arc.GetP0() ? arc : arc.Reversed() );
+                        else
+                            outline.Insert( 0, aAnchor == arc.GetP0() ? arc : arc.Reversed() );
+                    }
+                    else
+                    {
+                        OPT<SEG> nextSeg = getStartEndPoints( aItem, &width );
+                        wxASSERT( nextSeg );
+
+                        VECTOR2I& point = ( aAnchor == nextSeg->A ) ? nextSeg->B : nextSeg->A;
+
+                        if( aDirection )
+                            outline.Append( point );
+                        else
+                            outline.Insert( 0, point );
+                    }
+                };
 
         // aDirection == true for walking "right" and appending to the end of points
         // false for walking "left" and prepending to the beginning
-        std::function<void( EDA_ITEM*, bool )> process =
-                [&]( EDA_ITEM* aItem, bool aDirection )
+        std::function<void( EDA_ITEM*, VECTOR2I, bool )> process =
+                [&]( EDA_ITEM* aItem, VECTOR2I aAnchor, bool aDirection )
                 {
                     if( used.count( aItem ) )
                         return;
 
                     used.insert( aItem );
 
-                    OPT<SEG> nextSeg = getStartEndPoints( aItem, &width );
-                    wxASSERT( nextSeg );
+                    insert( aItem, aAnchor, aDirection );
 
-                    // The reference point, i.e. last added point in the direction we're headed
-                    VECTOR2I& ref = aDirection ? points.back() : points.front();
+                    OPT<SEG> anchors = getStartEndPoints( aItem, &width );
+                    wxASSERT( anchors );
 
-                    // The next point, i.e. the other point on this segment
-                    VECTOR2I& next = ( ref == nextSeg->A ) ? nextSeg->B : nextSeg->A;
+                    VECTOR2I nextAnchor = ( aAnchor == anchors->A ) ? anchors->B : anchors->A;
 
-                    if( aDirection )
-                        points.push_back( next );
-                    else
-                        points.push_front( next );
+                    for( std::pair<int, EDA_ITEM*> pair : connections[nextAnchor] )
+                    {
+                        if( pair.second == aItem )
+                            continue;
 
-                    for( EDA_ITEM* neighbor : connections[next] )
-                        process( neighbor, aDirection );
+                        process( pair.second, nextAnchor, aDirection );
+                    }
                 };
 
-        // Start with just one point and walk one direction
-        points.push_back( seg->A );
-        process( candidate, true );
+        OPT<SEG> anchors = getStartEndPoints( candidate, &width );
+        wxASSERT( anchors );
+
+        // Start with the first object and walk "right"
+        // Note if the first object is an arc, we don't need to insert its first point here, the
+        // whole arc will be inserted at anchor B inside process()
+        if( !( candidate->Type() == PCB_ARC_T ||
+               ( candidate->Type() == PCB_SHAPE_T &&
+                 static_cast<PCB_SHAPE*>( candidate )->GetShape() == SHAPE_T::ARC ) ) )
+        {
+            insert( candidate, anchors->A, true );
+        }
+
+        process( candidate, anchors->B, true );
 
         // check for any candidates on the "left"
         EDA_ITEM* left = nullptr;
 
-        for( EDA_ITEM* possibleLeft : connections[seg->A] )
+        for( std::pair<int, EDA_ITEM*> possibleLeft : connections[anchors->A] )
         {
-            if( possibleLeft != candidate )
+            if( possibleLeft.second != candidate )
             {
-                left = possibleLeft;
+                left = possibleLeft.second;
                 break;
             }
         }
 
         if( left )
-            process( left, false );
+            process( left, anchors->A, false );
 
-        if( points.size() < 3 )
+        if( outline.PointCount() < 3 )
             continue;
 
-        for( const VECTOR2I& point : points )
-            outline.Append( point );
-
         outline.SetClosed( true );
+        outline.Simplify();
 
         if( width >= 0 )
             outline.SetWidth( width );
@@ -345,7 +424,7 @@ SHAPE_POLY_SET CONVERT_TOOL::makePolysFromRects( const std::deque<EDA_ITEM*>& aI
 
         PCB_SHAPE* graphic = static_cast<PCB_SHAPE*>( item );
 
-        if( graphic->GetShape() != PCB_SHAPE_TYPE::RECT )
+        if( graphic->GetShape() != SHAPE_T::RECT )
             continue;
 
         SHAPE_LINE_CHAIN outline;
@@ -378,7 +457,7 @@ SHAPE_POLY_SET CONVERT_TOOL::makePolysFromCircles( const std::deque<EDA_ITEM*>& 
 
         PCB_SHAPE* graphic = static_cast<PCB_SHAPE*>( item );
 
-        if( graphic->GetShape() != PCB_SHAPE_TYPE::CIRCLE )
+        if( graphic->GetShape() != SHAPE_T::CIRCLE )
             continue;
 
         BOARD_DESIGN_SETTINGS& bds = graphic->GetBoard()->GetDesignSettings();
@@ -394,7 +473,42 @@ SHAPE_POLY_SET CONVERT_TOOL::makePolysFromCircles( const std::deque<EDA_ITEM*>& 
 }
 
 
-int CONVERT_TOOL::PolyToLines( const TOOL_EVENT& aEvent )
+SHAPE_POLY_SET CONVERT_TOOL::extractPolygons( const std::deque<EDA_ITEM*>& aItems )
+{
+    SHAPE_POLY_SET poly;
+
+    for( EDA_ITEM* item : aItems )
+    {
+        switch( item->Type() )
+        {
+        case PCB_SHAPE_T:
+            switch( static_cast<PCB_SHAPE*>( item )->GetShape() )
+            {
+            case SHAPE_T::POLY:
+                poly.Append( static_cast<PCB_SHAPE*>( item )->GetPolyShape() );
+                break;
+
+            default:
+                continue;
+            }
+
+            break;
+
+        case PCB_ZONE_T:
+        case PCB_FP_ZONE_T:
+            poly.Append( *static_cast<ZONE*>( item )->Outline() );
+            break;
+
+        default:
+            continue;
+        }
+    }
+
+    return poly;
+}
+
+
+int CONVERT_TOOL::CreateLines( const TOOL_EVENT& aEvent )
 {
     auto& selection = m_selectionTool->RequestSelection(
             []( const VECTOR2I& aPt, GENERAL_COLLECTOR& aCollector, PCB_SELECTION_TOOL* sTool )
@@ -409,10 +523,10 @@ int CONVERT_TOOL::PolyToLines( const TOOL_EVENT& aEvent )
                     case PCB_FP_SHAPE_T:
                         switch( static_cast<PCB_SHAPE*>( item )->GetShape() )
                         {
-                        case PCB_SHAPE_TYPE::POLYGON:
+                        case SHAPE_T::POLY:
                             break;
 
-                        case PCB_SHAPE_TYPE::RECT:
+                        case SHAPE_T::RECT:
                             break;
 
                         default:
@@ -451,11 +565,11 @@ int CONVERT_TOOL::PolyToLines( const TOOL_EVENT& aEvent )
                 {
                     PCB_SHAPE* graphic = static_cast<PCB_SHAPE*>( aItem );
 
-                    if( graphic->GetShape() == PCB_SHAPE_TYPE::POLYGON )
+                    if( graphic->GetShape() == SHAPE_T::POLY )
                     {
                         set = graphic->GetPolyShape();
                     }
-                    else if( graphic->GetShape() == PCB_SHAPE_TYPE::RECT )
+                    else if( graphic->GetShape() == SHAPE_T::RECT )
                     {
                         SHAPE_LINE_CHAIN outline;
                         VECTOR2I start( graphic->GetStart() );
@@ -501,17 +615,17 @@ int CONVERT_TOOL::PolyToLines( const TOOL_EVENT& aEvent )
                 return segs;
             };
 
-    BOARD_COMMIT commit( m_frame );
-    FOOTPRINT_EDIT_FRAME* fpEditor = dynamic_cast<FOOTPRINT_EDIT_FRAME*>( m_frame );
-
-    FOOTPRINT* footprint = nullptr;
+    BOARD_COMMIT          commit( m_frame );
+    FOOTPRINT_EDIT_FRAME* fpEditor    = dynamic_cast<FOOTPRINT_EDIT_FRAME*>( m_frame );
+    FOOTPRINT*            footprint   = nullptr;
+    PCB_LAYER_ID          targetLayer = m_frame->GetActiveLayer();
+    PCB_LAYER_ID          copperLayer = UNSELECTED_LAYER;
 
     if( fpEditor )
         footprint = fpEditor->GetBoard()->GetFirstFootprint();
 
     for( EDA_ITEM* item : selection )
     {
-        PCB_LAYER_ID     layer   = static_cast<BOARD_ITEM*>( item )->GetLayer();
         SHAPE_POLY_SET   polySet = getPolySet( item );
         std::vector<SEG> segs    = getSegList( polySet );
 
@@ -521,9 +635,9 @@ int CONVERT_TOOL::PolyToLines( const TOOL_EVENT& aEvent )
             {
                 if( fpEditor )
                 {
-                    FP_SHAPE* graphic = new FP_SHAPE( footprint, PCB_SHAPE_TYPE::SEGMENT );
+                    FP_SHAPE* graphic = new FP_SHAPE( footprint, SHAPE_T::SEGMENT );
 
-                    graphic->SetLayer( layer );
+                    graphic->SetLayer( targetLayer );
                     graphic->SetStart( wxPoint( seg.A ) );
                     graphic->SetStart0( wxPoint( seg.A ) );
                     graphic->SetEnd( wxPoint( seg.B ) );
@@ -534,8 +648,8 @@ int CONVERT_TOOL::PolyToLines( const TOOL_EVENT& aEvent )
                 {
                     PCB_SHAPE* graphic = new PCB_SHAPE;
 
-                    graphic->SetShape( PCB_SHAPE_TYPE::SEGMENT );
-                    graphic->SetLayer( layer );
+                    graphic->SetShape( SHAPE_T::SEGMENT );
+                    graphic->SetLayer( targetLayer );
                     graphic->SetStart( wxPoint( seg.A ) );
                     graphic->SetEnd( wxPoint( seg.B ) );
                     commit.Add( graphic );
@@ -547,8 +661,16 @@ int CONVERT_TOOL::PolyToLines( const TOOL_EVENT& aEvent )
             PCB_BASE_EDIT_FRAME*  frame  = getEditFrame<PCB_BASE_EDIT_FRAME>();
             BOARD_ITEM_CONTAINER* parent = frame->GetModel();
 
-            if( !IsCopperLayer( layer ) )
-                layer = frame->SelectOneLayer( F_Cu, LSET::AllNonCuMask() );
+            if( !IsCopperLayer( targetLayer ) )
+            {
+                if( copperLayer == UNSELECTED_LAYER )
+                    copperLayer = frame->SelectOneLayer( F_Cu, LSET::AllNonCuMask() );
+
+                if( copperLayer == UNDEFINED_LAYER )    // User canceled
+                    continue;
+
+                targetLayer = copperLayer;
+            }
 
             // I am really unsure converting a polygon to "tracks" (i.e. segments on
             // copper layers) make sense for footprints, but anyway this code exists
@@ -557,8 +679,8 @@ int CONVERT_TOOL::PolyToLines( const TOOL_EVENT& aEvent )
                 // Creating segments on copper layer
                 for( SEG& seg : segs )
                 {
-                    FP_SHAPE* graphic = new FP_SHAPE( footprint, PCB_SHAPE_TYPE::SEGMENT );
-                    graphic->SetLayer( layer );
+                    FP_SHAPE* graphic = new FP_SHAPE( footprint, SHAPE_T::SEGMENT );
+                    graphic->SetLayer( targetLayer );
                     graphic->SetStart( wxPoint( seg.A ) );
                     graphic->SetStart0( wxPoint( seg.A ) );
                     graphic->SetEnd( wxPoint( seg.B ) );
@@ -573,7 +695,7 @@ int CONVERT_TOOL::PolyToLines( const TOOL_EVENT& aEvent )
                 {
                     PCB_TRACK* track = new PCB_TRACK( parent );
 
-                    track->SetLayer( layer );
+                    track->SetLayer( targetLayer );
                     track->SetStart( wxPoint( seg.A ) );
                     track->SetEnd( wxPoint( seg.B ) );
                     commit.Add( track );
@@ -645,7 +767,7 @@ int CONVERT_TOOL::SegmentToArc( const TOOL_EVENT& aEvent )
 
         VECTOR2I center = GetArcCenter( start, mid, end );
 
-        arc->SetShape( PCB_SHAPE_TYPE::ARC );
+        arc->SetShape( SHAPE_T::ARC );
         arc->SetFilled( false );
         arc->SetLayer( layer );
         arc->SetWidth( line->GetWidth() );
@@ -690,8 +812,16 @@ OPT<SEG> CONVERT_TOOL::getStartEndPoints( EDA_ITEM* aItem, int* aWidth )
         if( aWidth )
             *aWidth = line->GetWidth();
 
-        return boost::make_optional<SEG>( { VECTOR2I( line->GetStart() ),
-                                            VECTOR2I( line->GetEnd() ) } );
+        if( line->GetShape() == SHAPE_T::SEGMENT )
+        {
+            return boost::make_optional<SEG>( { VECTOR2I( line->GetStart() ),
+                                                VECTOR2I( line->GetEnd() ) } );
+        }
+        else
+        {
+            return boost::make_optional<SEG>( { VECTOR2I( line->GetArcStart() ),
+                                                VECTOR2I( line->GetArcEnd() ) } );
+        }
     }
 
     case PCB_TRACE_T:
@@ -724,10 +854,10 @@ OPT<SEG> CONVERT_TOOL::getStartEndPoints( EDA_ITEM* aItem, int* aWidth )
 
 void CONVERT_TOOL::setTransitions()
 {
-    Go( &CONVERT_TOOL::LinesToPoly,    PCB_ACTIONS::convertToPoly.MakeEvent() );
-    Go( &CONVERT_TOOL::LinesToPoly,    PCB_ACTIONS::convertToZone.MakeEvent() );
-    Go( &CONVERT_TOOL::LinesToPoly,    PCB_ACTIONS::convertToKeepout.MakeEvent() );
-    Go( &CONVERT_TOOL::PolyToLines,    PCB_ACTIONS::convertToLines.MakeEvent() );
-    Go( &CONVERT_TOOL::PolyToLines,    PCB_ACTIONS::convertToTracks.MakeEvent() );
+    Go( &CONVERT_TOOL::CreatePolys,    PCB_ACTIONS::convertToPoly.MakeEvent() );
+    Go( &CONVERT_TOOL::CreatePolys,    PCB_ACTIONS::convertToZone.MakeEvent() );
+    Go( &CONVERT_TOOL::CreatePolys,    PCB_ACTIONS::convertToKeepout.MakeEvent() );
+    Go( &CONVERT_TOOL::CreateLines,    PCB_ACTIONS::convertToLines.MakeEvent() );
+    Go( &CONVERT_TOOL::CreateLines,    PCB_ACTIONS::convertToTracks.MakeEvent() );
     Go( &CONVERT_TOOL::SegmentToArc,   PCB_ACTIONS::convertToArc.MakeEvent() );
 }

@@ -24,17 +24,15 @@
 
 /**
  * @file PS_plotter.cpp
- * @brief Kicad: specialized plotter for PS files format
+ * @brief KiCad: specialized plotter for PS files format
  */
 
-#include <eda_base_frame.h>
 #include <convert_basic_shapes_to_polygon.h>
 #include <macros.h>
 #include <math/util.h>      // for KiROUND
-#include <render_settings.h>
 #include <trigo.h>
 
-#include "plotters_pslike.h"
+#include <plotters/plotters_pslike.h>
 
 
 /* Forward declaration of the font width metrics
@@ -77,8 +75,10 @@ void PSLIKE_PLOTTER::SetColor( const COLOR4D& color )
          * holes in white on pads in black
          */
         double k = 1; // White
+
         if( color != COLOR4D::WHITE )
             k = 0;
+
         if( m_negativeMode )
             emitSetRGBColor( 1 - k, 1 - k, 1 - k );
         else
@@ -189,6 +189,7 @@ void PSLIKE_PLOTTER::FlashPadRect( const wxPoint& aPadPos, const wxSize& aSize,
               GetCurrentLineWidth() );
 }
 
+
 void PSLIKE_PLOTTER::FlashPadRoundRect( const wxPoint& aPadPos, const wxSize& aSize,
                                         int aCornerRadius, double aOrient,
                                         OUTLINE_MODE aTraceMode, void* aData )
@@ -204,15 +205,16 @@ void PSLIKE_PLOTTER::FlashPadRoundRect( const wxPoint& aPadPos, const wxSize& aS
         SetCurrentLineWidth( USE_DEFAULT_LINE_WIDTH );
         size.x -= GetCurrentLineWidth();
         size.y -= GetCurrentLineWidth();
-        aCornerRadius -= GetCurrentLineWidth()/2;
+        aCornerRadius -= GetCurrentLineWidth() / 2;
     }
 
 
     SHAPE_POLY_SET outline;
     TransformRoundChamferedRectToPolygon( outline, aPadPos, size, aOrient, aCornerRadius,
-                                          0.0, 0, GetPlotterArcHighDef(), ERROR_INSIDE );
+                                          0.0, 0, 0, GetPlotterArcHighDef(), ERROR_INSIDE );
 
     std::vector< wxPoint > cornerList;
+
     // TransformRoundRectToPolygon creates only one convex polygon
     SHAPE_LINE_CHAIN& poly = outline.Outline( 0 );
     cornerList.reserve( poly.PointCount() );
@@ -226,6 +228,7 @@ void PSLIKE_PLOTTER::FlashPadRoundRect( const wxPoint& aPadPos, const wxSize& aS
     PlotPoly( cornerList, ( aTraceMode == FILLED ) ? FILL_TYPE::FILLED_SHAPE : FILL_TYPE::NO_FILL,
               GetCurrentLineWidth() );
 }
+
 
 void PSLIKE_PLOTTER::FlashPadCustom( const wxPoint& aPadPos, const wxSize& aSize,
                                      double aOrient, SHAPE_POLY_SET* aPolygons,
@@ -263,6 +266,7 @@ void PSLIKE_PLOTTER::FlashPadCustom( const wxPoint& aPadPos, const wxSize& aSize
     }
 }
 
+
 void PSLIKE_PLOTTER::FlashPadTrapez( const wxPoint& aPadPos, const wxPoint *aCorners,
                                      double aPadOrient, OUTLINE_MODE aTraceMode, void* aData )
 {
@@ -280,6 +284,7 @@ void PSLIKE_PLOTTER::FlashPadTrapez( const wxPoint& aPadPos, const wxPoint *aCor
     {
         SetCurrentLineWidth( USE_DEFAULT_LINE_WIDTH );
         int w = GetCurrentLineWidth();
+
         // offset polygon by w
         // coord[0] is assumed the lower left
         // coord[1] is assumed the upper left
@@ -333,10 +338,11 @@ std::string PSLIKE_PLOTTER::encodeStringForPlotter( const wxString& aUnicode )
         {
             switch (ch)
             {
-                // The ~ shouldn't reach the outside
+            // The ~ shouldn't reach the outside
             case '~':
                 break;
-                // These characters must be escaped
+
+            // These characters must be escaped
             case '(':
             case ')':
             case '\\':
@@ -366,15 +372,15 @@ int PSLIKE_PLOTTER::returnPostscriptTextWidth( const wxString& aText, int aXSize
     for( unsigned i = 0; i < aText.length(); i++ )
     {
         wchar_t AsciiCode = aText[i];
-        // Skip the negation marks and untabled points
+
+        // Skip the negation marks and untabled points.
         if( AsciiCode != '~' && AsciiCode < 256 )
         {
             tally += width_table[AsciiCode];
         }
     }
 
-    // Widths are proportional to height, but height is enlarged by a
-    // scaling factor
+    // Widths are proportional to height, but height is enlarged by a scaling factor.
     return KiROUND( aXSize * tally / postscriptTextAscent );
 }
 
@@ -392,6 +398,7 @@ void PSLIKE_PLOTTER::postscriptOverlinePositions( const wxString& aText, int aXS
     for( unsigned i = 0; i < aText.length(); i++ )
     {
         wchar_t AsciiCode = aText[i];
+
         // Skip the negation marks and untabled points
         if( AsciiCode != '~' && AsciiCode < 256 )
         {
@@ -419,6 +426,7 @@ void PS_PLOTTER::SetViewport( const wxPoint& aOffset, double aIusPerDecimil,
     m_plotScale = aScale;
     m_IUsPerDecimil = aIusPerDecimil;
     m_iuPerDeviceUnit = 1.0 / aIusPerDecimil;
+
     /* Compute the paper size in IUs */
     m_paperSize = m_pageInfo.GetSizeMils();
     m_paperSize.x *= 10.0 * aIusPerDecimil;
@@ -674,6 +682,7 @@ void PS_PLOTTER::PlotImage( const wxImage& aImage, const wxPoint& aPos, double a
     // Locate lower-left corner of image
     DPOINT start_dev = userToDeviceCoordinates( start );
     fprintf( m_outputFile, "%g %g translate\n", start_dev.x, start_dev.y );
+
     // Map image size to device
     DPOINT end_dev = userToDeviceCoordinates( end );
     fprintf( m_outputFile, "%g %g scale\n",
@@ -681,8 +690,10 @@ void PS_PLOTTER::PlotImage( const wxImage& aImage, const wxPoint& aPos, double a
 
     // Dimensions of source image (in pixels
     fprintf( m_outputFile, "%d %d 8", pix_size.x, pix_size.y );
+
     //  Map unit square to source
     fprintf( m_outputFile, " [%d 0 0 %d 0 %d]\n", pix_size.x, -pix_size.y , pix_size.y);
+
     // include image data in ps file
     fprintf( m_outputFile, "{currentfile pix readhexstring pop}\n" );
 

@@ -2,6 +2,7 @@
  * This program source code file is part of KICAD, a free EDA CAD application.
  *
  * Copyright (C) 2014 CERN
+ * Copyright (C) 2021 KiCad Developers, see AUTHORS.txt for contributors.
  * @author Maciej Suminski <maciej.suminski@cern.ch>
  *
  * This program is free software; you can redistribute it and/or
@@ -31,6 +32,8 @@
 #include <common.h>
 
 #include <utility>
+#include <geometry/geometry_utils.h>
+
 
 void EC_VERTICAL::Apply( EDIT_POINT& aHandle )
 {
@@ -50,13 +53,8 @@ void EC_HORIZONTAL::Apply( EDIT_POINT& aHandle )
 
 void EC_45DEGREE::Apply( EDIT_POINT& aHandle )
 {
-    // Current line vector
     VECTOR2I lineVector( aHandle.GetPosition() - m_constrainer.GetPosition() );
-    double angle = lineVector.Angle();
-
-    // Find the closest angle, which is a multiple of 45 degrees
-    double newAngle = KiROUND( angle / ( M_PI / 4.0 ) ) * M_PI / 4.0;
-    VECTOR2I newLineVector = lineVector.Rotate( newAngle - angle );
+    VECTOR2I newLineVector = GetVectorSnapped45( lineVector );
 
     aHandle.SetPosition( m_constrainer.GetPosition() + newLineVector );
 }
@@ -96,7 +94,7 @@ void EC_CIRCLE::Apply( EDIT_POINT& aHandle )
 
 EC_CONVERGING::EC_CONVERGING( EDIT_LINE& aLine, EDIT_POINTS& aPoints ) :
     EDIT_CONSTRAINT<EDIT_LINE>( aLine ),
-    m_colinearConstraint( NULL ), m_editPoints( aPoints )
+    m_colinearConstraint( nullptr ), m_editPoints( aPoints )
 {
     // Dragged segment endings
     EDIT_POINT& origin = aLine.GetOrigin();

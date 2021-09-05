@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2014-2015 CERN
- * Copyright (C) 2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2020-2021 KiCad Developers, see AUTHORS.txt for contributors.
  * Author: Maciej Suminski <maciej.suminski@cern.ch>
  *
  * This program is free software; you can redistribute it and/or
@@ -33,7 +33,9 @@
 
 #include "widgets/unit_binder.h"
 
+
 wxDEFINE_EVENT( DELAY_FOCUS, wxCommandEvent );
+
 
 UNIT_BINDER::UNIT_BINDER( EDA_DRAW_FRAME* aParent, wxStaticText* aLabel, wxWindow* aValueCtrl,
                           wxStaticText* aUnitLabel, bool allowEval ) :
@@ -41,13 +43,14 @@ UNIT_BINDER::UNIT_BINDER( EDA_DRAW_FRAME* aParent, wxStaticText* aLabel, wxWindo
         m_label( aLabel ),
         m_valueCtrl( aValueCtrl ),
         m_unitLabel( aUnitLabel ),
+        m_negativeZero( false ),
+        m_dataType( EDA_DATA_TYPE::DISTANCE ),
+        m_precision( 0 ),
         m_eval( aParent->GetUserUnits() ),
         m_originTransforms( aParent->GetOriginTransforms() ),
         m_coordType( ORIGIN_TRANSFORMS::NOT_A_COORD )
 {
     m_units     = aParent->GetUserUnits();
-    m_dataType  = EDA_DATA_TYPE::DISTANCE;
-    m_precision = 0;
     m_allowEval = allowEval && dynamic_cast<wxTextEntry*>( m_valueCtrl );
     m_needsEval = false;
     m_selStart  = 0;
@@ -58,23 +61,31 @@ UNIT_BINDER::UNIT_BINDER( EDA_DRAW_FRAME* aParent, wxStaticText* aLabel, wxWindo
     if( textEntry )
     {
         // Use ChangeValue() instead of SetValue() so we don't generate events.
-        textEntry->ChangeValue( wxT( "0" ) );
+        if( m_negativeZero )
+            textEntry->ChangeValue( wxT( "-0" ) );
+        else
+            textEntry->ChangeValue( wxT( "0" ) );
     }
 
     if( m_unitLabel )
         m_unitLabel->SetLabel( GetAbbreviatedUnitsLabel( m_units, m_dataType ) );
 
-    m_valueCtrl->Connect( wxEVT_SET_FOCUS, wxFocusEventHandler( UNIT_BINDER::onSetFocus ), NULL, this );
-    m_valueCtrl->Connect( wxEVT_KILL_FOCUS, wxFocusEventHandler( UNIT_BINDER::onKillFocus ), NULL, this );
-    Connect( DELAY_FOCUS, wxCommandEventHandler( UNIT_BINDER::delayedFocusHandler ), NULL, this );
+    m_valueCtrl->Connect( wxEVT_SET_FOCUS, wxFocusEventHandler( UNIT_BINDER::onSetFocus ),
+                          nullptr, this );
+    m_valueCtrl->Connect( wxEVT_KILL_FOCUS, wxFocusEventHandler( UNIT_BINDER::onKillFocus ),
+                          nullptr, this );
+    Connect( DELAY_FOCUS, wxCommandEventHandler( UNIT_BINDER::delayedFocusHandler ), nullptr,
+             this );
 
-    m_frame->Connect( UNITS_CHANGED, wxCommandEventHandler( UNIT_BINDER::onUnitsChanged ), nullptr, this );
+    m_frame->Connect( UNITS_CHANGED, wxCommandEventHandler( UNIT_BINDER::onUnitsChanged ),
+                      nullptr, this );
 }
 
 
 UNIT_BINDER::~UNIT_BINDER()
 {
-    m_frame->Disconnect( UNITS_CHANGED, wxCommandEventHandler( UNIT_BINDER::onUnitsChanged ), nullptr, this );
+    m_frame->Disconnect( UNITS_CHANGED, wxCommandEventHandler( UNIT_BINDER::onUnitsChanged ),
+                         nullptr, this );
 }
 
 
@@ -122,7 +133,7 @@ void UNIT_BINDER::onSetFocus( wxFocusEvent& aEvent )
     {
         wxString oldStr = m_eval.OriginalText();
 
-        if( oldStr.length() )
+        if( oldStr.length() && oldStr != textEntry->GetValue() )
         {
             textEntry->SetValue( oldStr );
             textEntry->SetSelection( m_selStart, m_selEnd );
@@ -208,6 +219,7 @@ bool UNIT_BINDER::Validate( double aMin, double aMax, EDA_UNITS aUnits )
                                            StringFromValue( m_units, val_min_iu, true ) );
 
         textEntry->SelectAll();
+
         // Don't focus directly; we might be inside a KillFocus event handler
         wxPostEvent( this, wxCommandEvent( DELAY_FOCUS ) );
 
@@ -222,6 +234,7 @@ bool UNIT_BINDER::Validate( double aMin, double aMax, EDA_UNITS aUnits )
                                            StringFromValue( m_units, val_max_iu, true ) );
 
         textEntry->SelectAll();
+
         // Don't focus directly; we might be inside a KillFocus event handler
         wxPostEvent( this, wxCommandEvent( DELAY_FOCUS ) );
 
@@ -236,7 +249,11 @@ void UNIT_BINDER::SetValue( int aValue )
 {
     double value = aValue;
     double displayValue = m_originTransforms.ToDisplay( value, m_coordType );
-    SetValue( StringFromValue( m_units, displayValue, false, m_dataType ) );
+
+    if( displayValue == 0 && m_negativeZero )
+        SetValue( wxT( "-" ) + StringFromValue( m_units, displayValue, false, m_dataType ) );
+    else
+        SetValue( StringFromValue( m_units, displayValue, false, m_dataType ) );
 }
 
 
@@ -244,11 +261,15 @@ void UNIT_BINDER::SetDoubleValue( double aValue )
 {
     double displayValue = m_originTransforms.ToDisplay( aValue, m_coordType );
     displayValue = setPrecision( displayValue, false );
-    SetValue( StringFromValue( m_units, displayValue, false, m_dataType ) );
+
+    if( displayValue == 0 && m_negativeZero )
+        SetValue( wxT( "-" ) + StringFromValue( m_units, displayValue, false, m_dataType ) );
+    else
+        SetValue( StringFromValue( m_units, displayValue, false, m_dataType ) );
 }
 
 
-void UNIT_BINDER::SetValue( wxString aValue )
+void UNIT_BINDER::SetValue( const wxString& aValue )
 {
     wxTextEntry*  textEntry = dynamic_cast<wxTextEntry*>( m_valueCtrl );
     wxStaticText* staticText = dynamic_cast<wxStaticText*>( m_valueCtrl );
@@ -270,7 +291,23 @@ void UNIT_BINDER::ChangeValue( int aValue )
 {
     double value = aValue;
     double displayValue = m_originTransforms.ToDisplay( value, m_coordType );
-    ChangeValue( StringFromValue( m_units, displayValue, false ) );
+
+    if( displayValue == 0 && m_negativeZero )
+        ChangeValue( wxT( "-" ) + StringFromValue( m_units, displayValue, false ) );
+    else
+        ChangeValue( StringFromValue( m_units, displayValue, false ) );
+}
+
+
+void UNIT_BINDER::ChangeDoubleValue( double aValue )
+{
+    double displayValue = m_originTransforms.ToDisplay( aValue, m_coordType );
+    displayValue = setPrecision( displayValue, false );
+
+    if( displayValue == 0 && m_negativeZero )
+        ChangeValue( wxT( "-" ) + StringFromValue( m_units, displayValue, false, m_dataType ) );
+    else
+        ChangeValue( StringFromValue( m_units, displayValue, false, m_dataType ) );
 }
 
 
@@ -306,9 +343,13 @@ long long int UNIT_BINDER::GetValue()
             value = textEntry->GetValue();
     }
     else if( staticText )
+    {
         value = staticText->GetLabel();
+    }
     else
+    {
         return 0;
+    }
 
     long long int displayValue = ValueFromString( m_units, value, m_dataType );
     return m_originTransforms.FromDisplay( displayValue, m_coordType );

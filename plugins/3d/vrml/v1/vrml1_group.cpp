@@ -2,6 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2015-2016 Cirilo Bernardo <cirilo.bernardo@gmail.com>
+ * Copyright (C) 2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -39,7 +40,6 @@
 WRL1GROUP::WRL1GROUP( NAMEREGISTER* aDictionary ) : WRL1NODE( aDictionary )
 {
     m_Type = WRL1NODES::WRL1_GROUP;
-    return;
 }
 
 
@@ -49,78 +49,49 @@ WRL1GROUP::WRL1GROUP( NAMEREGISTER* aDictionary, WRL1NODE* aParent ) :
     m_Type = WRL1NODES::WRL1_GROUP;
     m_Parent = aParent;
 
-    if( NULL != m_Parent )
+    if( nullptr != m_Parent )
         m_Parent->AddChildNode( this );
-
-    return;
 }
 
 
 WRL1GROUP::~WRL1GROUP()
 {
-    #if defined( DEBUG_VRML1 ) && ( DEBUG_VRML1 > 2 )
-    do {
-        std::ostringstream ostr;
-        ostr << " * [INFO] Destroying Group with " << m_Children.size();
-        ostr << " children, " << m_Refs.size() << " references and ";
-        ostr << m_BackPointers.size() << " backpointers";
-        wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-    } while( 0 );
-    #endif
-
-    return;
+    wxLogTrace( traceVrmlPlugin,
+                wxT( " * [INFO] Destroying Group with %zu children, %zu references, and %zu "
+                     "back pointers." ),
+                m_Children.size(), m_Refs.size(), m_BackPointers.size() );
 }
 
 
-// functions inherited from WRL1NODE
 bool WRL1GROUP::Read( WRLPROC& proc, WRL1BASE* aTopNode )
 {
-    if( NULL == aTopNode )
+    if( nullptr == aTopNode )
     {
-        #ifdef DEBUG_VRML1
-        do {
-            std::ostringstream ostr;
-            ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-            ostr << " * [BUG] aTopNode is NULL";
-            wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-        } while( 0 );
-        #endif
+        wxLogTrace( traceVrmlPlugin, wxT( "%s:%s:%d\n"
+                                          " * [BUG] aTopNode is NULL" ),
+                    __FILE__, __FUNCTION__, __LINE__ );
 
         return false;
     }
-
-    size_t line, column;
-    proc.GetFilePosData( line, column );
 
     char tok = proc.Peek();
 
     if( proc.eof() )
     {
-        #if defined( DEBUG_VRML1 ) && ( DEBUG_VRML1 > 1 )
-        do {
-            std::ostringstream ostr;
-            ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-            ostr << " * [INFO] bad file format; unexpected eof at line ";
-            ostr << line << ", column " << column;
-            wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-        } while( 0 );
-        #endif
+        wxLogTrace( traceVrmlPlugin,
+                    wxT( "%s:%s:%d\n"
+                         " * [INFO] bad file format; unexpected eof %s." ),
+                    __FILE__, __FUNCTION__, __LINE__, proc.GetFilePosition() );
 
         return false;
     }
 
     if( '{' != tok )
     {
-        #if defined( DEBUG_VRML1 ) && ( DEBUG_VRML1 > 1 )
-        do {
-            std::ostringstream ostr;
-            ostr << proc.GetError() << "\n";
-            ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-            ostr << " * [INFO] bad file format; expecting '{' but got '" << tok;
-            ostr << "' at line " << line << ", column " << column;
-            wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-        } while( 0 );
-        #endif
+        wxLogTrace( traceVrmlPlugin,
+                    wxT( "%s:%s:%d\n"
+                         " * [INFO] bad file format; expecting '{' but got '%s' %s." ),
+                    __FILE__, __FUNCTION__, __LINE__, tok, proc.GetFilePosition() );
 
         return false;
     }
@@ -135,19 +106,12 @@ bool WRL1GROUP::Read( WRLPROC& proc, WRL1BASE* aTopNode )
             break;
         }
 
-        proc.GetFilePosData( line, column );
-
-        if( !aTopNode->ReadNode( proc, this, NULL ) )
+        if( !aTopNode->ReadNode( proc, this, nullptr ) )
         {
-            #if defined( DEBUG_VRML1 ) && ( DEBUG_VRML1 > 1 )
-            do {
-                std::ostringstream ostr;
-                ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-                ostr << " * [INFO] bad file format; unexpected eof at line ";
-                ostr << line << ", column " << column;
-                wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-            } while( 0 );
-            #endif
+            wxLogTrace( traceVrmlPlugin,
+                        wxT( "%s:%s:%d\n"
+                             " * [INFO] bad file format; unexpected eof %s." ),
+                        __FILE__, __FUNCTION__, __LINE__, proc.GetFilePosition() );
 
             return false;
         }
@@ -163,43 +127,25 @@ bool WRL1GROUP::Read( WRLPROC& proc, WRL1BASE* aTopNode )
 
 SGNODE* WRL1GROUP::TranslateToSG( SGNODE* aParent, WRL1STATUS* sp )
 {
-    #if defined( DEBUG_VRML1 ) && ( DEBUG_VRML1 > 2 )
-    do {
-        std::ostringstream ostr;
-        ostr << " * [INFO] Translating Group with " << m_Children.size();
-        ostr << " children, " << m_Refs.size() << " references and ";
-        ostr << m_BackPointers.size() << " backpointers (total ";
-        ostr << m_Items.size() << " items)";
-        wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-    } while( 0 );
-    #endif
+    wxCHECK_MSG( m_Parent, nullptr, wxT( "Group has no parent." ) );
 
-    if( !m_Parent )
-    {
-        #ifdef DEBUG
-        do {
-            std::ostringstream ostr;
-            ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-            ostr << " * [BUG] Group has no parent";
-            wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-        } while( 0 );
-        #endif
-
-        return NULL;
-    }
+    wxLogTrace( traceVrmlPlugin,
+                wxT( " * [INFO] Translating Group with %zu children, %zu references, %zu back "
+                     "pointers, and %zu items." ),
+                m_Children.size(), m_Refs.size(), m_BackPointers.size(), m_Items.size() );
 
     if( WRL1NODES::WRL1_BASE != m_Parent->GetNodeType() )
     {
-        if( NULL == sp )
+        if( nullptr == sp )
         {
-            #if defined( DEBUG_VRML1 ) && ( DEBUG_VRML1 > 1 )
-            wxLogTrace( MASK_VRML, " * [INFO] bad model: no base data given\n" );
-            #endif
+            /// @todo Determine if this is a bug or can actually happen parsing a VRML file.
+            ///       If it's a bug, this should be an assertion not a trace.
+            wxLogTrace( traceVrmlPlugin, " * [INFO] bad model: no base data given." );
 
-            return NULL;
+            return nullptr;
         }
     }
-    else if( NULL == sp )
+    else if( nullptr == sp )
     {
         m_current.Init();
         sp = &m_current;
@@ -207,20 +153,10 @@ SGNODE* WRL1GROUP::TranslateToSG( SGNODE* aParent, WRL1STATUS* sp )
 
     S3D::SGTYPES ptype = S3D::GetSGNodeType( aParent );
 
-    if( NULL != aParent && ptype != S3D::SGTYPE_TRANSFORM )
-    {
-        #ifdef DEBUG_VRML1
-        do {
-            std::ostringstream ostr;
-            ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-            ostr << " * [BUG] Group does not have a Transform parent (parent ID: ";
-            ostr << ptype << ")";
-            wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-        } while( 0 );
-        #endif
-
-        return NULL;
-    }
+    wxCHECK_MSG( nullptr == aParent && ptype == S3D::SGTYPE_TRANSFORM, nullptr,
+                 wxString::Format(
+                         wxT(" * [BUG] Group does not have a Transform parent (parent ID: %d" ),
+                         ptype ) );
 
     IFSG_TRANSFORM txNode( aParent );
     bool hasContent = false;
@@ -232,7 +168,7 @@ SGNODE* WRL1GROUP::TranslateToSG( SGNODE* aParent, WRL1STATUS* sp )
 
     while( sI != eI )
     {
-        if( NULL != (*sI)->TranslateToSG( node, sp ) )
+        if( nullptr != (*sI)->TranslateToSG( node, sp ) )
             hasContent = true;
 
         ++sI;
@@ -241,7 +177,7 @@ SGNODE* WRL1GROUP::TranslateToSG( SGNODE* aParent, WRL1STATUS* sp )
     if( !hasContent )
     {
         txNode.Destroy();
-        return NULL;
+        return nullptr;
     }
 
     return node;

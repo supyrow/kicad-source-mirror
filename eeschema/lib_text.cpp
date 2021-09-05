@@ -27,8 +27,7 @@
 
 #include <common.h>
 #include <sch_draw_panel.h>
-#include <plotter.h>
-#include <gr_text.h>
+#include <plotters/plotter.h>
 #include <trigo.h>
 #include <base_units.h>
 #include <widgets/msgpanel.h>
@@ -265,7 +264,7 @@ void LIB_TEXT::Rotate( const wxPoint& center, bool aRotateCCW )
 void LIB_TEXT::Plot( PLOTTER* plotter, const wxPoint& offset, bool fill,
                      const TRANSFORM& aTransform ) const
 {
-    wxASSERT( plotter != NULL );
+    wxASSERT( plotter != nullptr );
 
     EDA_RECT bBox = GetBoundingBox();
     // convert coordinates from draw Y axis to symbol_editor Y axis

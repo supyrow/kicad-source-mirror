@@ -85,7 +85,7 @@ DIALOG_PRINT_GENERIC_BASE::DIALOG_PRINT_GENERIC_BASE( wxWindow* parent, wxWindow
 	bRightCol->Add( bScaleSizer, 0, wxALL|wxEXPAND, 5 );
 
 
-	m_bUpperSizer->Add( bRightCol, 1, wxEXPAND, 5 );
+	m_bUpperSizer->Add( bRightCol, 0, wxEXPAND, 5 );
 
 
 	bMainSizer->Add( m_bUpperSizer, 1, wxEXPAND|wxALL, 5 );
@@ -118,6 +118,7 @@ DIALOG_PRINT_GENERIC_BASE::DIALOG_PRINT_GENERIC_BASE( wxWindow* parent, wxWindow
 
 	this->SetSizer( bMainSizer );
 	this->Layout();
+	bMainSizer->Fit( this );
 
 	this->Centre( wxBOTH );
 
@@ -126,7 +127,7 @@ DIALOG_PRINT_GENERIC_BASE::DIALOG_PRINT_GENERIC_BASE( wxWindow* parent, wxWindow
 	m_scaleCustomText->Connect( wxEVT_COMMAND_TEXT_UPDATED, wxCommandEventHandler( DIALOG_PRINT_GENERIC_BASE::onSetCustomScale ), NULL, this );
 	m_buttonOption->Connect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( DIALOG_PRINT_GENERIC_BASE::onPageSetup ), NULL, this );
 	m_sdbSizer1Apply->Connect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( DIALOG_PRINT_GENERIC_BASE::onPrintPreview ), NULL, this );
-	m_sdbSizer1Cancel->Connect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( DIALOG_PRINT_GENERIC_BASE::onCloseButton ), NULL, this );
+	m_sdbSizer1Cancel->Connect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( DIALOG_PRINT_GENERIC_BASE::onCancelButtonClick ), NULL, this );
 	m_sdbSizer1OK->Connect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( DIALOG_PRINT_GENERIC_BASE::onPrintButtonClick ), NULL, this );
 }
 
@@ -137,7 +138,7 @@ DIALOG_PRINT_GENERIC_BASE::~DIALOG_PRINT_GENERIC_BASE()
 	m_scaleCustomText->Disconnect( wxEVT_COMMAND_TEXT_UPDATED, wxCommandEventHandler( DIALOG_PRINT_GENERIC_BASE::onSetCustomScale ), NULL, this );
 	m_buttonOption->Disconnect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( DIALOG_PRINT_GENERIC_BASE::onPageSetup ), NULL, this );
 	m_sdbSizer1Apply->Disconnect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( DIALOG_PRINT_GENERIC_BASE::onPrintPreview ), NULL, this );
-	m_sdbSizer1Cancel->Disconnect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( DIALOG_PRINT_GENERIC_BASE::onCloseButton ), NULL, this );
+	m_sdbSizer1Cancel->Disconnect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( DIALOG_PRINT_GENERIC_BASE::onCancelButtonClick ), NULL, this );
 	m_sdbSizer1OK->Disconnect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( DIALOG_PRINT_GENERIC_BASE::onPrintButtonClick ), NULL, this );
 
 }

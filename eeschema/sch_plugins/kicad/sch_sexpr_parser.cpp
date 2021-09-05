@@ -41,7 +41,7 @@
 #include <lib_rectangle.h>
 #include <lib_text.h>
 #include <math/util.h>                           // KiROUND, Clamp
-#include <kicad_string.h>
+#include <string_utils.h>
 #include <sch_bitmap.h>
 #include <sch_bus_entry.h>
 #include <sch_symbol.h>
@@ -55,18 +55,46 @@
 #include <sch_plugins/kicad/sch_sexpr_parser.h>
 #include <template_fieldnames.h>
 #include <trigo.h>
+#include <progress_reporter.h>
 
 
 using namespace TSCHEMATIC_T;
 
 
-SCH_SEXPR_PARSER::SCH_SEXPR_PARSER( LINE_READER* aLineReader ) :
+SCH_SEXPR_PARSER::SCH_SEXPR_PARSER( LINE_READER* aLineReader, PROGRESS_REPORTER* aProgressReporter,
+                                    unsigned aLineCount ) :
     SCHEMATIC_LEXER( aLineReader ),
     m_requiredVersion( 0 ),
     m_fieldId( 0 ),
     m_unit( 1 ),
-    m_convert( 1 )
+    m_convert( 1 ),
+    m_progressReporter( aProgressReporter ),
+    m_lineReader( aLineReader ),
+    m_lastProgressLine( 0 ),
+    m_lineCount( aLineCount )
 {
+}
+
+
+void SCH_SEXPR_PARSER::checkpoint()
+{
+    const unsigned PROGRESS_DELTA = 250;
+
+    if( m_progressReporter )
+    {
+        unsigned curLine = m_lineReader->LineNumber();
+
+        if( curLine > m_lastProgressLine + PROGRESS_DELTA )
+        {
+            m_progressReporter->SetCurrentProgress( ( (double) curLine )
+                                                            / std::max( 1U, m_lineCount ) );
+
+            if( !m_progressReporter->KeepRefreshing() )
+                THROW_IO_ERROR( ( "Open cancelled by user." ) );
+
+            m_lastProgressLine = curLine;
+        }
+    }
 }
 
 
@@ -82,12 +110,6 @@ bool SCH_SEXPR_PARSER::parseBool()
         Expecting( "yes or no" );
 
     return false;
-}
-
-
-bool SCH_SEXPR_PARSER::IsTooRecent() const
-{
-    return m_requiredVersion && m_requiredVersion > SEXPR_SYMBOL_LIB_FILE_VERSION;
 }
 
 
@@ -144,9 +166,8 @@ LIB_SYMBOL* SCH_SEXPR_PARSER::ParseSymbol( LIB_SYMBOL_MAP& aSymbolLibMap, int aF
 
     if( !IsSymbol( token ) )
     {
-        error.Printf( _( "Invalid symbol name in\nfile: \"%s\"\nline: %d\noffset: %d" ),
-                      CurSource().c_str(), CurLineNumber(), CurOffset() );
-        THROW_IO_ERROR( error );
+        THROW_PARSE_ERROR( _( "Invalid symbol name" ), CurSource(), CurLine(), CurLineNumber(),
+                           CurOffset() );
     }
 
     name = FromUTF8();
@@ -155,9 +176,8 @@ LIB_SYMBOL* SCH_SEXPR_PARSER::ParseSymbol( LIB_SYMBOL_MAP& aSymbolLibMap, int aF
 
     if( id.Parse( name ) >= 0 )
     {
-        error.Printf( _( "Invalid library identifier in\nfile: \"%s\"\nline: %d\noffset: %d" ),
-                      CurSource().c_str(), CurLineNumber(), CurOffset() );
-        THROW_IO_ERROR( error );
+        THROW_PARSE_ERROR( _( "Invalid library identifier" ), CurSource(), CurLine(),
+                           CurLineNumber(), CurOffset() );
     }
 
     m_symbolName = id.GetLibItemName().wx_str();
@@ -228,10 +248,8 @@ LIB_SYMBOL* SCH_SEXPR_PARSER::ParseSymbol( LIB_SYMBOL_MAP& aSymbolLibMap, int aF
 
             if( !IsSymbol( token ) )
             {
-                error.Printf(
-                    _( "Invalid symbol extends name in\nfile: \"%s\"\nline: %d\noffset: %d" ),
-                    CurSource().c_str(), CurLineNumber(), CurOffset() );
-                THROW_IO_ERROR( error );
+                THROW_PARSE_ERROR( _( "Invalid parent symbol name" ), CurSource(), CurLine(),
+                                   CurLineNumber(), CurOffset() );
             }
 
             name = FromUTF8();
@@ -239,10 +257,8 @@ LIB_SYMBOL* SCH_SEXPR_PARSER::ParseSymbol( LIB_SYMBOL_MAP& aSymbolLibMap, int aF
 
             if( it == aSymbolLibMap.end() )
             {
-                error.Printf(
-                    _( "No parent for extended symbol %s in\nfile: \"%s\"\nline: %d\noffset: %d" ),
-                    name.c_str(), CurSource().c_str(), CurLineNumber(), CurOffset() );
-                THROW_IO_ERROR( error );
+                error.Printf( _( "No parent for extended symbol %s" ), name.c_str() );
+                THROW_PARSE_ERROR( error, CurSource(), CurLine(), CurLineNumber(), CurOffset() );
             }
 
             symbol->SetParent( it->second );
@@ -256,21 +272,16 @@ LIB_SYMBOL* SCH_SEXPR_PARSER::ParseSymbol( LIB_SYMBOL_MAP& aSymbolLibMap, int aF
 
             if( !IsSymbol( token ) )
             {
-                error.Printf(
-                    _( "Invalid symbol unit name in\nfile: \"%s\"\nline: %d\noffset: %d" ),
-                    CurSource().c_str(), CurLineNumber(), CurOffset() );
-                THROW_IO_ERROR( error );
+                THROW_PARSE_ERROR( _( "Invalid symbol unit name" ), CurSource(), CurLine(),
+                                   CurLineNumber(), CurOffset() );
             }
 
             name = FromUTF8();
 
             if( !name.StartsWith( m_symbolName ) )
             {
-                error.Printf(
-                    _( "Invalid symbol unit name prefix %s in\nfile: \"%s\"\n"
-                       "line: %d\noffset: %d" ),
-                    name.c_str(), CurSource().c_str(), CurLineNumber(), CurOffset() );
-                THROW_IO_ERROR( error );
+                error.Printf( _( "Invalid symbol unit name prefix %s" ), name.c_str() );
+                THROW_PARSE_ERROR( error, CurSource(), CurLine(), CurLineNumber(), CurOffset() );
             }
 
             name = name.Right( name.Length() - m_symbolName.Length() - 1 );
@@ -279,29 +290,22 @@ LIB_SYMBOL* SCH_SEXPR_PARSER::ParseSymbol( LIB_SYMBOL_MAP& aSymbolLibMap, int aF
 
             if( tokenizer.CountTokens() != 2 )
             {
-                error.Printf(
-                    _( "Invalid symbol unit name suffix %s in\nfile: \"%s\"\n"
-                       "line: %d\noffset: %d" ),
-                    name.c_str(), CurSource().c_str(), CurLineNumber(), CurOffset() );
-                THROW_IO_ERROR( error );
+                error.Printf( _( "Invalid symbol unit name suffix %s" ), name.c_str() );
+                THROW_PARSE_ERROR( error, CurSource(), CurLine(), CurLineNumber(), CurOffset() );
             }
 
             if( !tokenizer.GetNextToken().ToLong( &tmp ) )
             {
-                error.Printf(
-                    _( "Invalid symbol unit number %s in\nfile: \"%s\"\nline: %d\noffset: %d" ),
-                    name.c_str(), CurSource().c_str(), CurLineNumber(), CurOffset() );
-                THROW_IO_ERROR( error );
+                error.Printf( _( "Invalid symbol unit number %s" ), name.c_str() );
+                THROW_PARSE_ERROR( error, CurSource(), CurLine(), CurLineNumber(), CurOffset() );
             }
 
             m_unit = static_cast<int>( tmp );
 
             if( !tokenizer.GetNextToken().ToLong( &tmp ) )
             {
-                error.Printf(
-                    _( "Invalid symbol convert number %s in\nfile: \"%s\"\nline: %d\noffset: %d" ),
-                    name.c_str(), CurSource().c_str(), CurLineNumber(), CurOffset() );
-                THROW_IO_ERROR( error );
+                error.Printf( _( "Invalid symbol convert number %s" ), name.c_str() );
+                THROW_PARSE_ERROR( error, CurSource(), CurLine(), CurLineNumber(), CurOffset() );
             }
 
             m_convert = static_cast<int>( tmp );
@@ -417,16 +421,12 @@ LIB_ITEM* SCH_SEXPR_PARSER::ParseDrawItem()
 double SCH_SEXPR_PARSER::parseDouble()
 {
     char* tmp;
-    wxString error;
 
     // In case the file got saved with the wrong locale.
-    if( strchr( CurText(), ',' ) != NULL )
+    if( strchr( CurText(), ',' ) != nullptr )
     {
-        error.Printf( _( "Floating point number with incorrect local in\nfile: \"%s\"\n"
-                         "line: %d\noffset: %d" ),
-                      CurSource().c_str(), CurLineNumber(), CurOffset() );
-
-        THROW_IO_ERROR( error );
+        THROW_PARSE_ERROR( _( "Floating point number with incorrect locale" ), CurSource(),
+                           CurLine(), CurLineNumber(), CurOffset() );
     }
 
     errno = 0;
@@ -435,18 +435,14 @@ double SCH_SEXPR_PARSER::parseDouble()
 
     if( errno )
     {
-        error.Printf( _( "Invalid floating point number in\nfile: \"%s\"\nline: %d\noffset: %d" ),
-                      CurSource().c_str(), CurLineNumber(), CurOffset() );
-
-        THROW_IO_ERROR( error );
+        THROW_PARSE_ERROR( _( "Invalid floating point number" ), CurSource(), CurLine(),
+                           CurLineNumber(), CurOffset() );
     }
 
     if( CurText() == tmp )
     {
-        error.Printf( _( "Missing floating point number in\nfile: \"%s\"\nline: %d\noffset: %d" ),
-                      CurSource().c_str(), CurLineNumber(), CurOffset() );
-
-        THROW_IO_ERROR( error );
+        THROW_PARSE_ERROR( _( "Missing floating point number" ), CurSource(), CurLine(),
+                           CurLineNumber(), CurOffset() );
     }
 
     return fval;
@@ -481,7 +477,7 @@ void SCH_SEXPR_PARSER::parseStroke( STROKE_PARAMS& aStroke )
     wxCHECK_RET( CurTok() == T_stroke,
                  wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as a stroke." ) );
 
-    aStroke.SetWidth( Mils2iu( DEFAULT_LINE_THICKNESS ) );
+    aStroke.SetWidth( Mils2iu( DEFAULT_LINE_WIDTH_MILS ) );
     aStroke.SetPlotStyle( PLOT_DASH_TYPE::DEFAULT );
     aStroke.SetColor( COLOR4D::UNSPECIFIED );
 
@@ -597,14 +593,14 @@ void SCH_SEXPR_PARSER::parseFill( FILL_PARAMS& aFill )
 }
 
 
-void SCH_SEXPR_PARSER::parseEDA_TEXT( EDA_TEXT* aText )
+void SCH_SEXPR_PARSER::parseEDA_TEXT( EDA_TEXT* aText, bool aConvertOverbarSyntax )
 {
     wxCHECK_RET( aText && CurTok() == T_effects,
                  wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as EDA_TEXT." ) );
 
-    // In version 20210606 the notation for overbars was changed from `~...~` to `~{...}`. We need to convert
-    // the old syntax to the new one.
-    if( m_requiredVersion < 20210606 )
+    // In version 20210606 the notation for overbars was changed from `~...~` to `~{...}`.
+    // We need to convert the old syntax to the new one.
+    if( aConvertOverbarSyntax && m_requiredVersion < 20210606 )
         aText->SetText( ConvertToNewOverbarNotation( aText->GetText() ) );
 
     T token;
@@ -693,6 +689,10 @@ void SCH_SEXPR_PARSER::parseHeader( TSCHEMATIC_T::T aHeaderType, int aFileVersio
     if( tok == T_version )
     {
         m_requiredVersion = parseInt( FromUTF8().mb_str( wxConvUTF8 ) );
+
+        if( m_requiredVersion > aFileVersion )
+            throw FUTURE_FORMAT_ERROR( FromUTF8() );
+
         NeedRIGHT();
 
         // Skip the host name and host build version information.
@@ -746,11 +746,8 @@ void SCH_SEXPR_PARSER::parsePinNames( std::unique_ptr<LIB_SYMBOL>& aSymbol )
     }
     else if( token != T_RIGHT )
     {
-        error.Printf( _( "Invalid symbol names definition in\nfile: '%s'\nline: %d\noffset: %d" ),
-                      CurSource().c_str(),
-                      CurLineNumber(),
-                      CurOffset() );
-        THROW_IO_ERROR( error );
+        THROW_PARSE_ERROR( _( "Invalid pin names definition" ), CurSource(), CurLine(),
+                           CurLineNumber(), CurOffset() );
     }
 }
 
@@ -771,22 +768,16 @@ LIB_FIELD* SCH_SEXPR_PARSER::parseProperty( std::unique_ptr<LIB_SYMBOL>& aSymbol
 
     if( !IsSymbol( token ) )
     {
-        error.Printf( _( "Invalid property name in\nfile: '%s'\nline: %d\noffset: %d" ),
-                      CurSource().c_str(),
-                      CurLineNumber(),
-                      CurOffset() );
-        THROW_IO_ERROR( error );
+        THROW_PARSE_ERROR( _( "Invalid property name" ), CurSource(), CurLine(), CurLineNumber(),
+                           CurOffset() );
     }
 
     name = FromUTF8();
 
     if( name.IsEmpty() )
     {
-        error.Printf( _( "Empty property name in\nfile: '%s'\nline: %d\noffset: %d" ),
-                      CurSource().c_str(),
-                      CurLineNumber(),
-                      CurOffset() );
-        THROW_IO_ERROR( error );
+        THROW_PARSE_ERROR( _( "Empty property name" ), CurSource(), CurLine(), CurLineNumber(),
+                           CurOffset() );
     }
 
     field->SetName( name );
@@ -794,11 +785,8 @@ LIB_FIELD* SCH_SEXPR_PARSER::parseProperty( std::unique_ptr<LIB_SYMBOL>& aSymbol
 
     if( !IsSymbol( token ) )
     {
-        error.Printf( _( "Invalid property value in\nfile: '%s'\nline: %d\noffset: %d" ),
-                      CurSource().c_str(),
-                      CurLineNumber(),
-                      CurOffset() );
-        THROW_IO_ERROR( error );
+        THROW_PARSE_ERROR( _( "Invalid property value" ), CurSource(), CurLine(), CurLineNumber(),
+                           CurOffset() );
     }
 
     // Empty property values are valid.
@@ -827,7 +815,7 @@ LIB_FIELD* SCH_SEXPR_PARSER::parseProperty( std::unique_ptr<LIB_SYMBOL>& aSymbol
             break;
 
         case T_effects:
-            parseEDA_TEXT( static_cast<EDA_TEXT*>( field.get() ) );
+            parseEDA_TEXT( static_cast<EDA_TEXT*>( field.get() ), field->GetId() == VALUE_FIELD );
             break;
 
         default:
@@ -863,7 +851,10 @@ LIB_FIELD* SCH_SEXPR_PARSER::parseProperty( std::unique_ptr<LIB_SYMBOL>& aSymbol
         wxStringTokenizer tokenizer( value );
 
         while( tokenizer.HasMoreTokens() )
-            filters.Add( tokenizer.GetNextToken() );
+        {
+            wxString curr_token = UnescapeString( tokenizer.GetNextToken() );
+            filters.Add( curr_token );
+        }
 
         aSymbol->SetFPFilters( filters );
         return nullptr;
@@ -1106,7 +1097,8 @@ LIB_BEZIER* SCH_SEXPR_PARSER::parseBezier()
 LIB_CIRCLE* SCH_SEXPR_PARSER::parseCircle()
 {
     wxCHECK_MSG( CurTok() == T_circle, nullptr,
-                 wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as a circle token." ) );
+                 wxT( "Cannot parse " ) + GetTokenString( CurTok() ) +
+                 wxT( " as a circle token." ) );
 
     T token;
     FILL_PARAMS fill;
@@ -1281,12 +1273,15 @@ LIB_PIN* SCH_SEXPR_PARSER::parsePin()
 
             if( !IsSymbol( token ) )
             {
-                error.Printf( _( "Invalid pin name in\nfile: \"%s\"\nline: %d\noffset: %d" ),
-                              CurSource().c_str(), CurLineNumber(), CurOffset() );
-                THROW_IO_ERROR( error );
+                THROW_PARSE_ERROR( _( "Invalid pin name" ), CurSource(), CurLine(), CurLineNumber(),
+                                   CurOffset() );
             }
 
-            pin->SetName( FromUTF8() );
+            if( m_requiredVersion < 20210606 )
+                pin->SetName( ConvertToNewOverbarNotation( FromUTF8() ) );
+            else
+                pin->SetName( FromUTF8() );
+
             token = NextTok();
 
             if( token != T_RIGHT )
@@ -1299,7 +1294,7 @@ LIB_PIN* SCH_SEXPR_PARSER::parsePin()
                     // so duplicate parsing is not required.
                     EDA_TEXT text;
 
-                    parseEDA_TEXT( &text );
+                    parseEDA_TEXT( &text, true );
                     pin->SetNameTextSize( text.GetTextHeight() );
                     NeedRIGHT();
                 }
@@ -1316,9 +1311,8 @@ LIB_PIN* SCH_SEXPR_PARSER::parsePin()
 
             if( !IsSymbol( token ) )
             {
-                error.Printf( _( "Invalid pin number in\nfile: \"%s\"\nline: %d\noffset: %d" ),
-                              CurSource().c_str(), CurLineNumber(), CurOffset() );
-                THROW_IO_ERROR( error );
+                THROW_PARSE_ERROR( _( "Invalid pin number" ), CurSource(), CurLine(),
+                                   CurLineNumber(), CurOffset() );
             }
 
             pin->SetNumber( FromUTF8() );
@@ -1334,7 +1328,7 @@ LIB_PIN* SCH_SEXPR_PARSER::parsePin()
                     // so duplicate parsing is not required.
                     EDA_TEXT text;
 
-                    parseEDA_TEXT( &text );
+                    parseEDA_TEXT( &text, false );
                     pin->SetNumberTextSize( text.GetTextHeight() );
                     NeedRIGHT();
                 }
@@ -1354,9 +1348,8 @@ LIB_PIN* SCH_SEXPR_PARSER::parsePin()
 
             if( !IsSymbol( token ) )
             {
-                error.Printf( _( "Invalid alternate pin name in\nfile: \"%s\"\nline: %d\noffset: %d" ),
-                              CurSource().c_str(), CurLineNumber(), CurOffset() );
-                THROW_IO_ERROR( error );
+                THROW_PARSE_ERROR( _( "Invalid alternate pin name" ), CurSource(), CurLine(),
+                                   CurLineNumber(), CurOffset() );
             }
 
             alt.m_Name = FromUTF8();
@@ -1450,7 +1443,8 @@ LIB_POLYLINE* SCH_SEXPR_PARSER::parsePolyLine()
 LIB_RECTANGLE* SCH_SEXPR_PARSER::parseRectangle()
 {
     wxCHECK_MSG( CurTok() == T_rectangle, nullptr,
-                 wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as a rectangle token." ) );
+                 wxT( "Cannot parse " ) + GetTokenString( CurTok() ) +
+                 wxT( " as a rectangle token." ) );
 
     T token;
     FILL_PARAMS fill;
@@ -1511,7 +1505,6 @@ LIB_TEXT* SCH_SEXPR_PARSER::parseText()
 
     T token;
     wxString tmp;
-    wxString error;
     std::unique_ptr<LIB_TEXT> text = std::make_unique<LIB_TEXT>( nullptr );
 
     text->SetUnit( m_unit );
@@ -1520,9 +1513,8 @@ LIB_TEXT* SCH_SEXPR_PARSER::parseText()
 
     if( !IsSymbol( token ) )
     {
-        error.Printf( _( "Invalid text string in\nfile: \"%s\"\nline: %d\noffset: %d" ),
-                      CurSource().c_str(), CurLineNumber(), CurOffset() );
-        THROW_IO_ERROR( error );
+        THROW_PARSE_ERROR( _( "Invalid text string" ), CurSource(), CurLine(), CurLineNumber(),
+                           CurOffset() );
     }
 
     text->SetText( FromUTF8() );
@@ -1543,7 +1535,7 @@ LIB_TEXT* SCH_SEXPR_PARSER::parseText()
             break;
 
         case T_effects:
-            parseEDA_TEXT( static_cast<EDA_TEXT*>( text.get() ) );
+            parseEDA_TEXT( static_cast<EDA_TEXT*>( text.get() ), true );
             break;
 
         default:
@@ -1568,9 +1560,8 @@ void SCH_SEXPR_PARSER::parsePAGE_INFO( PAGE_INFO& aPageInfo )
 
     if( !aPageInfo.SetType( pageType ) )
     {
-        wxString err;
-        err.Printf( _( "Page type \"%s\" is not valid " ), FromUTF8() );
-        THROW_PARSE_ERROR( err, CurSource(), CurLine(), CurLineNumber(), CurOffset() );
+        THROW_PARSE_ERROR( _( "Invalid page type" ), CurSource(), CurLine(), CurLineNumber(),
+                           CurOffset() );
     }
 
     if( pageType == PAGE_INFO::Custom )
@@ -1697,9 +1688,8 @@ void SCH_SEXPR_PARSER::parseTITLE_BLOCK( TITLE_BLOCK& aTitleBlock )
                 break;
 
             default:
-                wxString err;
-                err.Printf( wxT( "%d is not a valid title block comment number" ), commentNumber );
-                THROW_PARSE_ERROR( err, CurSource(), CurLine(), CurLineNumber(), CurOffset() );
+                THROW_PARSE_ERROR( _( "Invalid title block comment number" ), CurSource(),
+                                   CurLine(), CurLineNumber(), CurOffset() );
             }
 
             break;
@@ -1720,41 +1710,35 @@ SCH_FIELD* SCH_SEXPR_PARSER::parseSchField( SCH_ITEM* aParent )
                  wxT( "Cannot parse " ) + GetTokenString( CurTok() ) +
                  wxT( " as a property token." ) );
 
-    wxString error;
-    wxString name;
-    wxString value;
-
     T token = NextTok();
 
     if( !IsSymbol( token ) )
     {
-        error.Printf( _( "Invalid property name in\nfile: \"%s\"\nline: %d\noffset: %d" ),
-                      CurSource().c_str(), CurLineNumber(), CurOffset() );
-        THROW_IO_ERROR( error );
+        THROW_PARSE_ERROR( _( "Invalid property name" ), CurSource(), CurLine(), CurLineNumber(),
+                           CurOffset() );
     }
 
-    name = FromUTF8();
+    wxString name = FromUTF8();
 
     if( name.IsEmpty() )
     {
-        error.Printf( _( "Empty property name in\nfile: \"%s\"\nline: %d\noffset: %d" ),
-                      CurSource().c_str(), CurLineNumber(), CurOffset() );
-        THROW_IO_ERROR( error );
+        THROW_PARSE_ERROR( _( "Empty property name" ), CurSource(), CurLine(), CurLineNumber(),
+                           CurOffset() );
     }
 
     token = NextTok();
 
     if( !IsSymbol( token ) )
     {
-        error.Printf( _( "Invalid property value in\nfile: \"%s\"\nline: %d\noffset: %d" ),
-                      CurSource().c_str(), CurLineNumber(), CurOffset() );
-        THROW_IO_ERROR( error );
+        THROW_PARSE_ERROR( _( "Invalid property value" ), CurSource(), CurLine(), CurLineNumber(),
+                           CurOffset() );
     }
 
     // Empty property values are valid.
-    value = FromUTF8();
+    wxString value = FromUTF8();
 
-    std::unique_ptr<SCH_FIELD> field = std::make_unique<SCH_FIELD>( wxDefaultPosition, -1, aParent, name );
+    std::unique_ptr<SCH_FIELD> field = std::make_unique<SCH_FIELD>( wxDefaultPosition, -1,
+                                                                    aParent, name );
 
     field->SetText( value );
     field->SetVisible( true );
@@ -1780,7 +1764,7 @@ SCH_FIELD* SCH_SEXPR_PARSER::parseSchField( SCH_ITEM* aParent )
             break;
 
         case T_effects:
-            parseEDA_TEXT( static_cast<EDA_TEXT*>( field.get() ) );
+            parseEDA_TEXT( static_cast<EDA_TEXT*>( field.get() ), field->GetId() == VALUE_FIELD );
             break;
 
         default:
@@ -1799,29 +1783,23 @@ SCH_SHEET_PIN* SCH_SEXPR_PARSER::parseSchSheetPin( SCH_SHEET* aSheet )
                  wxT( "Cannot parse " ) + GetTokenString( CurTok() ) +
                  wxT( " as a sheet pin token." ) );
 
-    wxString error;
-    wxString name;
-    wxString shape;
-
     T token = NextTok();
 
     if( !IsSymbol( token ) )
     {
-        error.Printf( _( "Invalid sheet pin name in\nfile: \"%s\"\nline: %d\noffset: %d" ),
-                      CurSource().c_str(), CurLineNumber(), CurOffset() );
-        THROW_IO_ERROR( error );
+        THROW_PARSE_ERROR( _( "Invalid sheet pin name" ), CurSource(), CurLine(), CurLineNumber(),
+                           CurOffset() );
     }
 
-    name = FromUTF8();
+    wxString name = FromUTF8();
 
     if( name.IsEmpty() )
     {
-        error.Printf( _( "Empty sheet pin name in\nfile: \"%s\"\nline: %d\noffset: %d" ),
-                      CurSource().c_str(), CurLineNumber(), CurOffset() );
-        THROW_IO_ERROR( error );
+        THROW_PARSE_ERROR( _( "Empty sheet pin name" ), CurSource(), CurLine(), CurLineNumber(),
+                           CurOffset() );
     }
 
-    std::unique_ptr<SCH_SHEET_PIN> sheetPin = std::make_unique<SCH_SHEET_PIN>( aSheet, wxPoint( 0, 0 ), name );
+    auto sheetPin = std::make_unique<SCH_SHEET_PIN>( aSheet, wxPoint( 0, 0 ), name );
 
     token = NextTok();
 
@@ -1867,7 +1845,7 @@ SCH_SHEET_PIN* SCH_SEXPR_PARSER::parseSchSheetPin( SCH_SHEET* aSheet )
         }
 
         case T_effects:
-            parseEDA_TEXT( static_cast<EDA_TEXT*>( sheetPin.get() ) );
+            parseEDA_TEXT( static_cast<EDA_TEXT*>( sheetPin.get() ), true );
             break;
 
         case T_uuid:
@@ -2086,6 +2064,8 @@ void SCH_SEXPR_PARSER::ParseSchematic( SCH_SHEET* aSheet, bool aIsCopyableOnly, 
 
         token = NextTok();
 
+        checkpoint();
+
         if( !aIsCopyableOnly && token == T_page && m_requiredVersion <= 20200506 )
             token = T_paper;
 
@@ -2238,7 +2218,6 @@ SCH_SYMBOL* SCH_SEXPR_PARSER::parseSchematicSymbol()
 
     T token;
     wxString tmp;
-    wxString error;
     wxString libName;
     SCH_FIELD* field;
     std::unique_ptr<SCH_SYMBOL> symbol = std::make_unique<SCH_SYMBOL>();
@@ -2267,10 +2246,8 @@ SCH_SYMBOL* SCH_SEXPR_PARSER::parseSchematicSymbol()
 
             if( !IsSymbol( token ) )
             {
-                error.Printf( _( "Invalid symbol library name in\nfile: \"%s\"\n"
-                                 "line: %d\noffset: %d" ),
-                              CurSource().c_str(), CurLineNumber(), CurOffset() );
-                THROW_IO_ERROR( error );
+                THROW_PARSE_ERROR( _( "Invalid symbol library name" ), CurSource(), CurLine(),
+                                   CurLineNumber(), CurOffset() );
             }
 
             libName = FromUTF8();
@@ -2289,10 +2266,8 @@ SCH_SYMBOL* SCH_SEXPR_PARSER::parseSchematicSymbol()
 
             if( libId.Parse( FromUTF8() ) >= 0 )
             {
-                error.Printf( _( "Invalid symbol library ID in\nfile: \"%s\"\nline: %d\n"
-                                 "offset: %d" ),
-                        CurSource(), CurLineNumber(), CurOffset() );
-                THROW_IO_ERROR( error );
+                THROW_PARSE_ERROR( _( "Invalid symbol library ID" ), CurSource(), CurLine(),
+                                   CurLineNumber(), CurOffset() );
             }
 
             symbol->SetLibId( libId );
@@ -2361,7 +2336,7 @@ SCH_SYMBOL* SCH_SEXPR_PARSER::parseSchematicSymbol()
             break;
 
         case T_property:
-            // The field parent symbol must be set and it's orientation must be set before
+            // The field parent symbol must be set and its orientation must be set before
             // the field positions are set.
             field = parseSchField( symbol.get() );
 
@@ -2938,7 +2913,7 @@ SCH_TEXT* SCH_SEXPR_PARSER::parseSchText()
             break;
 
         case T_effects:
-            parseEDA_TEXT( static_cast<EDA_TEXT*>( text.get() ) );
+            parseEDA_TEXT( static_cast<EDA_TEXT*>( text.get() ), true );
 
             // Spin style is defined differently for graphical text (#SCH_TEXT) objects.
             if( text->Type() == SCH_TEXT_T )
@@ -3009,10 +2984,19 @@ void SCH_SEXPR_PARSER::parseBusAlias( SCH_SCREEN* aScreen )
     wxCHECK( aScreen, /* void */ );
 
     T token;
-    auto busAlias = std::make_shared<BUS_ALIAS>( aScreen );
+    std::shared_ptr<BUS_ALIAS> busAlias = std::make_shared<BUS_ALIAS>( aScreen );
+    wxString alias;
+    wxString member;
 
     NeedSYMBOL();
-    busAlias->SetName( FromUTF8() );
+
+    alias = FromUTF8();
+
+    if( m_requiredVersion < 20210621 )
+        alias = ConvertToNewOverbarNotation( alias );
+
+    busAlias->SetName( alias );
+
     NeedLEFT();
     token = NextTok();
 
@@ -3026,7 +3010,13 @@ void SCH_SEXPR_PARSER::parseBusAlias( SCH_SCREEN* aScreen )
         if( !IsSymbol( token ) )
             Expecting( "quoted string" );
 
-        busAlias->AddMember( FromUTF8() );
+        member = FromUTF8();
+
+        if( m_requiredVersion < 20210621 )
+            member = ConvertToNewOverbarNotation( member );
+
+        busAlias->AddMember( member );
+
         token = NextTok();
     }
 

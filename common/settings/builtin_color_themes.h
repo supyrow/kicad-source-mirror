@@ -85,8 +85,6 @@ static const std::map<int, COLOR4D> s_defaultTheme =
             { LAYER_GRID,                   CSS_COLOR( 132, 132, 132, 1 ) },
             { LAYER_GRID_AXES,              CSS_COLOR( 194, 194, 194, 1 ) },
             { LAYER_NO_CONNECTS,            CSS_COLOR( 0,   0,   132, 1 ) },
-            { LAYER_PAD_BK,                 CSS_COLOR( 77,  127, 196, 1 ) },
-            { LAYER_PAD_FR,                 CSS_COLOR( 200, 52,  52,  1 ) },
             { LAYER_PAD_PLATEDHOLES,        CSS_COLOR( 194, 194, 0, 1 ) },
             { LAYER_PADS_TH,                CSS_COLOR( 227, 183, 46,  1 ) },
             { LAYER_NON_PLATEDHOLES,        CSS_COLOR( 26,  196, 210, 1 ) },
@@ -165,7 +163,8 @@ static const std::map<int, COLOR4D> s_defaultTheme =
             { LAYER_3D_COPPER,              COLOR4D( 0.7, 0.61, 0.0, 1.0 ) },
             { LAYER_3D_SILKSCREEN_BOTTOM,   COLOR4D( 0.9, 0.9, 0.9, 1.0 ) },
             { LAYER_3D_SILKSCREEN_TOP,      COLOR4D( 0.9, 0.9, 0.9, 1.0 ) },
-            { LAYER_3D_SOLDERMASK,          COLOR4D( 0.08, 0.2, 0.14, 0.83 ) },
+            { LAYER_3D_SOLDERMASK_BOTTOM,   COLOR4D( 0.08, 0.2, 0.14, 0.83 ) },
+            { LAYER_3D_SOLDERMASK_TOP,      COLOR4D( 0.08, 0.2, 0.14, 0.83 ) },
             { LAYER_3D_SOLDERPASTE,         COLOR4D( 0.5, 0.5, 0.5, 1.0 ) }
         };
 
@@ -230,8 +229,6 @@ static const std::map<int, COLOR4D> s_classicTheme =
             { LAYER_GRID,                   COLOR4D( DARKGRAY ) },
             { LAYER_GRID_AXES,              COLOR4D( BLUE ) },
             { LAYER_NO_CONNECTS,            COLOR4D( BLUE ) },
-            { LAYER_PAD_BK,                 COLOR4D( GREEN ) },
-            { LAYER_PAD_FR,                 COLOR4D( RED ) },
             { LAYER_PAD_PLATEDHOLES,        COLOR4D( YELLOW ) },
             { LAYER_PADS_TH,                COLOR4D( YELLOW ) },
             { LAYER_NON_PLATEDHOLES,        COLOR4D( YELLOW ) },
@@ -310,7 +307,8 @@ static const std::map<int, COLOR4D> s_classicTheme =
             { LAYER_3D_COPPER,              COLOR4D( 0.7, 0.61, 0.0, 1.0 ) },
             { LAYER_3D_SILKSCREEN_BOTTOM,   COLOR4D( 0.9, 0.9, 0.9, 1.0 ) },
             { LAYER_3D_SILKSCREEN_TOP,      COLOR4D( 0.9, 0.9, 0.9, 1.0 ) },
-            { LAYER_3D_SOLDERMASK,          COLOR4D( 0.08, 0.2, 0.14, 0.83 ) },
+            { LAYER_3D_SOLDERMASK_BOTTOM,   COLOR4D( 0.08, 0.2, 0.14, 0.83 ) },
+            { LAYER_3D_SOLDERMASK_TOP,      COLOR4D( 0.08, 0.2, 0.14, 0.83 ) },
             { LAYER_3D_SOLDERPASTE,         COLOR4D( 0.5, 0.5, 0.5, 1.0 ) }
         };
 

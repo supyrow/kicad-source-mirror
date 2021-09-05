@@ -2,7 +2,7 @@
  * This program source code file is part of KICAD, a free EDA CAD application.
  *
  * Copyright (C) 1992-2010 jean-pierre.charras
- * Copyright (C) 1992-2021 Kicad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -439,7 +439,7 @@ bool BM2CMP_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, int 
 
     m_Greyscale_Bitmap = wxBitmap( m_Greyscale_Image );
     m_NB_Image  = m_Greyscale_Image;
-    Binarize( (double) m_sliderThreshold->GetValue()/m_sliderThreshold->GetMax() );
+    Binarize( (double) m_sliderThreshold->GetValue() / m_sliderThreshold->GetMax() );
 
     m_buttonExportFile->Enable( true );
     m_buttonExportClipboard->Enable( true );
@@ -526,7 +526,7 @@ void BM2CMP_FRAME::OnSizeChangeX( wxCommandEvent& event )
             if( getUnitFromSelection() == EDA_UNITS::UNSCALED )
             {
                 // for units in DPI, keeping aspect ratio cannot use m_AspectRatioLocked.
-                // just rescale the other dpi
+                // just re-scale the other dpi
                 double ratio = new_size / m_outputSizeX.GetOutputSize();
                 calculatedY = m_outputSizeY.GetOutputSize() * ratio;
             }
@@ -555,7 +555,7 @@ void BM2CMP_FRAME::OnSizeChangeY( wxCommandEvent& event )
             if( getUnitFromSelection() == EDA_UNITS::UNSCALED )
             {
                 // for units in DPI, keeping aspect ratio cannot use m_AspectRatioLocked.
-                // just rescale the other dpi
+                // just re-scale the other dpi
                 double ratio = new_size / m_outputSizeX.GetOutputSize();
                 calculatedX = m_outputSizeX.GetOutputSize() * ratio;
             }
@@ -671,6 +671,7 @@ void BM2CMP_FRAME::OnThresholdChange( wxScrollEvent& event )
 void BM2CMP_FRAME::OnExportToFile( wxCommandEvent& event )
 {
     m_exportToClipboard = false;
+
     // choices of m_rbOutputFormat are expected to be in same order as
     // OUTPUT_FMT_ID. See bitmap2component.h
     OUTPUT_FMT_ID format = (OUTPUT_FMT_ID) m_rbOutputFormat->GetSelection();
@@ -681,6 +682,7 @@ void BM2CMP_FRAME::OnExportToFile( wxCommandEvent& event )
 void BM2CMP_FRAME::OnExportToClipboard( wxCommandEvent& event )
 {
     m_exportToClipboard = true;
+
     // choices of m_rbOutputFormat are expected to be in same order as
     // OUTPUT_FMT_ID. See bitmap2component.h
     OUTPUT_FMT_ID format = (OUTPUT_FMT_ID) m_rbOutputFormat->GetSelection();
@@ -691,7 +693,7 @@ void BM2CMP_FRAME::OnExportToClipboard( wxCommandEvent& event )
     wxLogNull doNotLog; // disable logging of failed clipboard actions
 
     // Write buffer to the clipboard
-    if (wxTheClipboard->Open())
+    if( wxTheClipboard->Open() )
     {
         // This data objects are held by the clipboard,
         // so do not delete them in the app.
@@ -700,7 +702,9 @@ void BM2CMP_FRAME::OnExportToClipboard( wxCommandEvent& event )
         wxTheClipboard->Close();
     }
     else
+    {
         wxMessageBox( _( "Unable to export to the Clipboard") );
+    }
 }
 
 
@@ -720,7 +724,7 @@ void BM2CMP_FRAME::exportBitmap( OUTPUT_FMT_ID aFormat )
         exportPostScriptFormat();
         break;
 
-    case KICAD_LOGO:
+    case KICAD_WKS_LOGO:
         OnExportLogo();
         break;
     }
@@ -749,16 +753,16 @@ void BM2CMP_FRAME::OnExportLogo()
     FILE*    outfile;
     outfile = wxFopen( m_ConvertedFileName, wxT( "w" ) );
 
-    if( outfile == NULL )
+    if( outfile == nullptr )
     {
         wxString msg;
-        msg.Printf( _( "File \"%s\" could not be created." ), m_ConvertedFileName );
+        msg.Printf( _( "File '%s' could not be created." ), m_ConvertedFileName );
         wxMessageBox( msg );
         return;
     }
 
     std::string buffer;
-    ExportToBuffer( buffer, KICAD_LOGO );
+    ExportToBuffer( buffer, KICAD_WKS_LOGO );
     fputs( buffer.c_str(), outfile );
     fclose( outfile );
 }
@@ -789,10 +793,10 @@ void BM2CMP_FRAME::exportPostScriptFormat()
     FILE*    outfile;
     outfile = wxFopen( m_ConvertedFileName, wxT( "w" ) );
 
-    if( outfile == NULL )
+    if( outfile == nullptr )
     {
         wxString msg;
-        msg.Printf( _( "File \"%s\" could not be created." ), m_ConvertedFileName );
+        msg.Printf( _( "File '%s' could not be created." ), m_ConvertedFileName );
         wxMessageBox( msg );
         return;
     }
@@ -814,7 +818,7 @@ void BM2CMP_FRAME::exportEeschemaFormat()
 
     wxFileDialog fileDlg( this, _( "Create Symbol Library" ),
                           path, wxEmptyString,
-                          LegacySymbolLibFileWildcard(),
+                          KiCadSymbolLibFileWildcard(),
                           wxFD_SAVE | wxFD_OVERWRITE_PROMPT );
 
     int          diag = fileDlg.ShowModal();
@@ -823,15 +827,15 @@ void BM2CMP_FRAME::exportEeschemaFormat()
         return;
 
     fn = fileDlg.GetPath();
-    fn.SetExt( LegacySymbolLibFileExtension );
+    fn.SetExt( KiCadSymbolLibFileExtension );
     m_ConvertedFileName = fn.GetFullPath();
 
     FILE*    outfile = wxFopen( m_ConvertedFileName, wxT( "w" ) );
 
-    if( outfile == NULL )
+    if( outfile == nullptr )
     {
         wxString msg;
-        msg.Printf( _( "File \"%s\" could not be created." ), m_ConvertedFileName );
+        msg.Printf( _( "File '%s' could not be created." ), m_ConvertedFileName );
         wxMessageBox( msg );
         return;
     }
@@ -867,10 +871,10 @@ void BM2CMP_FRAME::exportPcbnewFormat()
 
     FILE* outfile = wxFopen( m_ConvertedFileName, wxT( "w" ) );
 
-    if( outfile == NULL )
+    if( outfile == nullptr )
     {
         wxString msg;
-        msg.Printf( _( "File \"%s\" could not be created." ), m_ConvertedFileName );
+        msg.Printf( _( "File '%s' could not be created." ), m_ConvertedFileName );
         wxMessageBox( msg );
         return;
     }
@@ -917,7 +921,7 @@ void BM2CMP_FRAME::ExportToBuffer( std::string& aOutput, OUTPUT_FMT_ID aFormat )
 
     BITMAPCONV_INFO converter( aOutput );
     converter.ConvertBitmap( potrace_bitmap, aFormat, m_outputSizeX.GetOutputDPI(),
-            m_outputSizeY.GetOutputDPI(), modLayer );
+                             m_outputSizeY.GetOutputDPI(), modLayer );
 
     if( !converter.GetErrorMessages().empty() )
         wxMessageBox( converter.GetErrorMessages().c_str(), _( "Errors" ) );

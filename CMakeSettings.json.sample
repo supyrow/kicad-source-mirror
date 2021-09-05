@@ -37,26 +37,6 @@
           "type": "STRING"
         },
         {
-          "name": "KICAD_SCRIPTING",
-          "value": "OFF",
-          "type": "STRING"
-        },
-        {
-          "name": "KICAD_SCRIPTING_PYTHON3",
-          "value": "OFF",
-          "type": "STRING"
-        },
-        {
-          "name": "KICAD_SCRIPTING_WXPYTHON",
-          "value": "OFF",
-          "type": "STRING"
-        },
-        {
-          "name": "KICAD_SCRIPTING_MODULES",
-          "value": "OFF",
-          "type": "STRING"
-        },
-        {
           "name": "KICAD_USE_OCE",
           "value": "OFF",
           "type": "STRING"
@@ -69,11 +49,6 @@
         {
           "name": "KICAD_BUILD_QA_TESTS",
           "value": "False",
-          "type": "BOOL"
-        },
-        {
-          "name": "KICAD_SCRIPTING_WXPYTHON_PHOENIX",
-          "value": "OFF",
           "type": "BOOL"
         },
         {
@@ -101,26 +76,6 @@
           "type": "STRING"
         },
         {
-          "name": "KICAD_SCRIPTING",
-          "value": "OFF",
-          "type": "STRING"
-        },
-        {
-          "name": "KICAD_SCRIPTING_PYTHON3",
-          "value": "OFF",
-          "type": "STRING"
-        },
-        {
-          "name": "KICAD_SCRIPTING_WXPYTHON",
-          "value": "OFF",
-          "type": "STRING"
-        },
-        {
-          "name": "KICAD_SCRIPTING_MODULES",
-          "value": "OFF",
-          "type": "STRING"
-        },
-        {
           "name": "KICAD_USE_OCE",
           "value": "OFF",
           "type": "STRING"
@@ -136,14 +91,9 @@
           "type": "BOOL"
         },
         {
-          "name": "KICAD_SCRIPTING_WXPYTHON_PHOENIX",
-          "value": "OFF",
+          "name": "KICAD_WIN32_DPI_AWARE",
+          "value": "ON",
           "type": "BOOL"
-        },
-        {
-              "name": "KICAD_WIN32_DPI_AWARE",
-              "value": "ON",
-              "type": "BOOL"
         }
       ],
       "cmakeToolchain": "${env.VcPkgDir}/scripts/buildsystems/vcpkg.cmake"
@@ -165,26 +115,6 @@
           "type": "STRING"
         },
         {
-          "name": "KICAD_SCRIPTING",
-          "value": "OFF",
-          "type": "STRING"
-        },
-        {
-          "name": "KICAD_SCRIPTING_PYTHON3",
-          "value": "OFF",
-          "type": "STRING"
-        },
-        {
-          "name": "KICAD_SCRIPTING_WXPYTHON",
-          "value": "OFF",
-          "type": "STRING"
-        },
-        {
-          "name": "KICAD_SCRIPTING_MODULES",
-          "value": "OFF",
-          "type": "STRING"
-        },
-        {
           "name": "KICAD_USE_OCE",
           "value": "OFF",
           "type": "STRING"
@@ -197,11 +127,6 @@
         {
           "name": "KICAD_BUILD_QA_TESTS",
           "value": "False",
-          "type": "BOOL"
-        },
-        {
-          "name": "KICAD_SCRIPTING_WXPYTHON_PHOENIX",
-          "value": "OFF",
           "type": "BOOL"
         },
         {
@@ -229,26 +154,6 @@
           "type": "STRING"
         },
         {
-          "name": "KICAD_SCRIPTING",
-          "value": "OFF",
-          "type": "STRING"
-        },
-        {
-          "name": "KICAD_SCRIPTING_PYTHON3",
-          "value": "OFF",
-          "type": "STRING"
-        },
-        {
-          "name": "KICAD_SCRIPTING_WXPYTHON",
-          "value": "OFF",
-          "type": "STRING"
-        },
-        {
-          "name": "KICAD_SCRIPTING_MODULES",
-          "value": "OFF",
-          "type": "STRING"
-        },
-        {
           "name": "KICAD_USE_OCE",
           "value": "OFF",
           "type": "STRING"
@@ -261,11 +166,6 @@
         {
           "name": "KICAD_BUILD_QA_TESTS",
           "value": "False",
-          "type": "BOOL"
-        },
-        {
-          "name": "KICAD_SCRIPTING_WXPYTHON_PHOENIX",
-          "value": "OFF",
           "type": "BOOL"
         },
         {
@@ -303,26 +203,6 @@
           "type": "STRING"
         },
         {
-          "name": "KICAD_SCRIPTING",
-          "value": "OFF",
-          "type": "STRING"
-        },
-        {
-          "name": "KICAD_SCRIPTING_PYTHON3",
-          "value": "OFF",
-          "type": "STRING"
-        },
-        {
-          "name": "KICAD_SCRIPTING_WXPYTHON",
-          "value": "OFF",
-          "type": "STRING"
-        },
-        {
-          "name": "KICAD_SCRIPTING_MODULES",
-          "value": "OFF",
-          "type": "STRING"
-        },
-        {
           "name": "KICAD_USE_OCE",
           "value": "ON",
           "type": "STRING"
@@ -335,11 +215,6 @@
         {
           "name": "KICAD_BUILD_QA_TESTS",
           "value": "False",
-          "type": "BOOL"
-        },
-        {
-          "name": "KICAD_SCRIPTING_WXPYTHON_PHOENIX",
-          "value": "OFF",
           "type": "BOOL"
         },
         {

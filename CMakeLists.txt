@@ -49,7 +49,7 @@ cmake_dependent_option( BUILD_SMALL_DEBUG_FILES "In debug build: create smaller 
 #
 # KiCad build options should be added below.
 #
-# If you add a new build option, please add it's state to the
+# If you add a new build option, please add its state to the
 # OnCopyVersionInfo() function in common/dialog_about/dialog_about.cpp
 # so that build option settings can be included in bug reports.
 #
@@ -60,12 +60,12 @@ option( KICAD_SCRIPTING_WXPYTHON
 mark_as_advanced( KICAD_SCRIPTING_WXPYTHON )
 
 option( KICAD_USE_OCE
-    "Build tools and plugins related to OpenCascade Community Edition (default ON)"
-    ON )
+    "Build tools and plugins related to OpenCascade Community Edition (default OFF)"
+    OFF )
 
 option( KICAD_USE_OCC
-    "Build tools and plugins related to OpenCascade Technology (overrides KICAD_USE_OCE, default OFF)"
-    OFF )
+    "Build tools and plugins related to OpenCascade Technology (overrides KICAD_USE_OCE, default ON)"
+    ON )
 
 option( KICAD_INSTALL_DEMOS
     "Install KiCad demos and examples (default ON)"
@@ -138,9 +138,24 @@ option( KICAD_DRC_PROTO
     "Build the DRC prototype QA tool"
     OFF )
 
+option( KICAD_BUILD_PNS_DEBUG_TOOL
+    "Build the P&S debugging/playground QA tool"
+    OFF )
+
 option( KICAD_GAL_PROFILE
     "Enable profiling info for GAL"
     OFF )
+
+option( KICAD_PCM
+    "Build Plugin and Content Manager"
+    OFF )
+
+cmake_dependent_option( KICAD_WIN32_INSTALL_PDBS
+    "Installs debug pdb to the bin folder, DO NOT USE (NOR REQUIRED) FOR DEBUGGING THE SOURCE ON MSVC. This is purely for release building.
+    MSVC can find the PDBs without this."
+    OFF "WIN32"
+    OFF )
+
 
 # Global setting: exports are explicit
 set( CMAKE_CXX_VISIBILITY_PRESET "hidden" )
@@ -776,7 +791,7 @@ include_directories( BEFORE SYSTEM ${PYBIND11_INCLUDE_DIR} )
 set( PythonInterp_FIND_VERSION 3.6 )
 set( PythonLibs_FIND_VERSION 3.6 )
 
-find_package( PythonInterp )
+find_package( PythonInterp ${PythonInterp_FIND_VERSION} )
 
 check_find_package_result( PYTHONINTERP_FOUND "Python Interpreter" )
 
@@ -871,7 +886,7 @@ set( wxWidgets_REQ_VERSION ${WXPYTHON_WXVERSION} )
 # See line 49 of CMakeModules/FindwxWidgets.cmake
 set( wxWidgets_CONFIG_OPTIONS ${wxWidgets_CONFIG_OPTIONS} --static=no )
 
-find_package( wxWidgets ${wxWidgets_REQ_VERSION} COMPONENTS gl aui adv html core net base propgrid xml stc REQUIRED )
+find_package( wxWidgets ${wxWidgets_REQ_VERSION} COMPONENTS gl aui adv html core net base propgrid xml stc richtext REQUIRED )
 
 # Include wxWidgets macros.
 include( ${wxWidgets_USE_FILE} )

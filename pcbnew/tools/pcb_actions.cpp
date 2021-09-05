@@ -27,12 +27,11 @@
 #include "tool/tool_event.h"
 #include <pcbnew_id.h>
 #include <bitmaps.h>
-#include <layers_id_colors_and_visibility.h>
+#include <layer_ids.h>
 #include <microwave/microwave_tool.h>
 #include <tool/tool_manager.h>
 #include <router/pns_router.h>
 #include <router/pns_routing_settings.h>
-
 
 // Actions, being statically-defined, require specialized I18N handling.  We continue to
 // use the _() macro so that string harvesting by the I18N framework doesn't have to be
@@ -46,32 +45,32 @@
 //
 TOOL_ACTION PCB_ACTIONS::convertToPoly( "pcbnew.Convert.convertToPoly",
         AS_GLOBAL, 0, "",
-        _( "Convert to Polygon" ), _( "Creates a graphic polygon from the selection" ),
+        _( "Create Polygon from Selection" ), _( "Creates a graphic polygon from the selection" ),
         BITMAPS::add_graphical_polygon );
 
 TOOL_ACTION PCB_ACTIONS::convertToZone( "pcbnew.Convert.convertToZone",
         AS_GLOBAL, 0, "",
-        _( "Convert to Zone" ), _( "Creates a copper zone from the selection" ),
+        _( "Create Zone from Selection" ), _( "Creates a copper zone from the selection" ),
         BITMAPS::add_zone );
 
 TOOL_ACTION PCB_ACTIONS::convertToKeepout( "pcbnew.Convert.convertToKeepout",
         AS_GLOBAL, 0, "",
-        _( "Convert to Rule Area" ), _( "Creates a rule area from the selection" ),
+        _( "Create Rule Area from Selection" ), _( "Creates a rule area from the selection" ),
         BITMAPS::add_keepout_area );
 
 TOOL_ACTION PCB_ACTIONS::convertToLines( "pcbnew.Convert.convertToLines",
         AS_GLOBAL, 0, "",
-        _( "Convert to Lines" ), _( "Creates graphic lines from the selection" ),
+        _( "Create Lines from Selection" ), _( "Creates graphic lines from the selection" ),
         BITMAPS::add_line );
 
 TOOL_ACTION PCB_ACTIONS::convertToArc( "pcbnew.Convert.convertToArc",
         AS_GLOBAL, 0, "",
-        _( "Convert to Arc" ), _( "Converts selected line segment to an arc" ),
+        _( "Create Arc from Selection" ), _( "Creates an arc from the selected line segment" ),
         BITMAPS::add_arc );
 
 TOOL_ACTION PCB_ACTIONS::convertToTracks( "pcbnew.Convert.convertToTracks",
         AS_GLOBAL, 0, "",
-        _( "Convert to Tracks" ), _( "Converts selected graphic lines to tracks" ),
+        _( "Create Tracks from Selection" ), _( "Creates tracks from the selected graphic lines" ),
         BITMAPS::add_tracks );
 
 
@@ -273,7 +272,7 @@ TOOL_ACTION PCB_ACTIONS::duplicateIncrement( "pcbnew.InteractiveEdit.duplicateIn
 
 TOOL_ACTION PCB_ACTIONS::moveExact( "pcbnew.InteractiveEdit.moveExact",
         AS_GLOBAL,
-        MD_CTRL + 'M', LEGACY_HK_NAME( "Move Item Exactly" ),
+        MD_SHIFT + 'M', LEGACY_HK_NAME( "Move Item Exactly" ),
         _( "Move Exactly..." ), _( "Moves the selected item(s) by an exact amount" ),
         BITMAPS::move_exactly );
 
@@ -830,26 +829,31 @@ TOOL_ACTION PCB_ACTIONS::zoomFootprintAutomatically( "pcbnew.Control.zoomFootpri
         _( "Automatically zoom to fit" ), _( "Zoom to fit when changing footprint" ),
         BITMAPS::zoom_auto_fit_in_page );
 
-TOOL_ACTION PCB_ACTIONS::zoneDisplayEnable( "pcbnew.Control.zoneDisplayEnable",
+TOOL_ACTION PCB_ACTIONS::zoneDisplayFilled( "pcbnew.Control.zoneDisplayEnable",
         AS_GLOBAL, 0, "",
-        _( "Fill Zones" ), _( "Show filled areas of zones" ),
+        _( "Draw Zone Fills" ), _( "Show filled areas of zones" ),
         BITMAPS::show_zone );
 
-TOOL_ACTION PCB_ACTIONS::zoneDisplayDisable( "pcbnew.Control.zoneDisplayDisable",
+TOOL_ACTION PCB_ACTIONS::zoneDisplayOutline( "pcbnew.Control.zoneDisplayDisable",
         AS_GLOBAL, 0, "",
-        _( "Wireframe Zones" ), _( "Show only zone boundaries" ),
+        _( "Draw Zone Outlines" ), _( "Show only zone boundaries" ),
         BITMAPS::show_zone_disable );
 
-TOOL_ACTION PCB_ACTIONS::zoneDisplayOutlines( "pcbnew.Control.zoneDisplayOutlines",
+TOOL_ACTION PCB_ACTIONS::zoneDisplayFractured( "pcbnew.Control.zoneDisplayOutlines",
         AS_GLOBAL, 0, "",
-        _( "Sketch Zones" ), _( "Show solid areas of zones in outline mode" ),
+        _( "Draw Zone Fill Fracture Borders" ), "",
         BITMAPS::show_zone_outline_only );
+
+TOOL_ACTION PCB_ACTIONS::zoneDisplayTriangulated( "pcbnew.Control.zoneDisplayTesselation",
+        AS_GLOBAL, 0, "",
+        _( "Draw Zone Fill Triangulation" ), "",
+        BITMAPS::show_zone_triangulation );
 
 TOOL_ACTION PCB_ACTIONS::zoneDisplayToggle( "pcbnew.Control.zoneDisplayToggle",
         AS_GLOBAL,
         'A', "",
         _( "Toggle Zone Display" ),
-        _( "Cycle between showing filled zones, wireframed zones and sketched zones" ),
+        _( "Cycle between showing zone fills and just their outlines" ),
         BITMAPS::show_zone );
 
 
@@ -1117,15 +1121,15 @@ TOOL_ACTION PCB_ACTIONS::alignRight( "pcbnew.AlignAndDistribute.alignRight",
         _( "Align to Right" ),
         _( "Aligns selected items to the right edge" ), BITMAPS::align_items_right );
 
-TOOL_ACTION PCB_ACTIONS::alignCenterX( "pcbnew.AlignAndDistribute.alignCenterX",
-        AS_GLOBAL, 0, "",
-        _( "Align to Vertical Center" ),
-        _( "Aligns selected items to the vertical center" ), BITMAPS::align_items_middle );
+TOOL_ACTION PCB_ACTIONS::alignCenterY( "pcbnew.AlignAndDistribute.alignCenterY", AS_GLOBAL, 0, "",
+                                       _( "Align to Vertical Center" ),
+                                       _( "Aligns selected items to the vertical center" ),
+                                       BITMAPS::align_items_center );
 
-TOOL_ACTION PCB_ACTIONS::alignCenterY( "pcbnew.AlignAndDistribute.alignCenterY",
-        AS_GLOBAL, 0, "",
-        _( "Align to Horizontal Center" ),
-        _( "Aligns selected items to the horizontal center" ), BITMAPS::align_items_center );
+TOOL_ACTION PCB_ACTIONS::alignCenterX( "pcbnew.AlignAndDistribute.alignCenterX", AS_GLOBAL, 0, "",
+                                       _( "Align to Horizontal Center" ),
+                                       _( "Aligns selected items to the horizontal center" ),
+                                       BITMAPS::align_items_middle );
 
 TOOL_ACTION PCB_ACTIONS::distributeHorizontally( "pcbnew.AlignAndDistribute.distributeHorizontally",
         AS_GLOBAL, 0, "",
@@ -1245,24 +1249,24 @@ TOOL_ACTION PCB_ACTIONS::filterSelection( "pcbnew.InteractiveSelection.FilterSel
 //
 TOOL_ACTION PCB_ACTIONS::zoneFill( "pcbnew.ZoneFiller.zoneFill",
         AS_GLOBAL, 0, "",
-        _( "Fill" ), _( "Fill zone(s)" ),
+        _( "Fill Zone" ), _( "Update copper fill of selected zone(s)" ),
         BITMAPS::fill_zone );
 
 TOOL_ACTION PCB_ACTIONS::zoneFillAll( "pcbnew.ZoneFiller.zoneFillAll",
         AS_GLOBAL,
         'B', LEGACY_HK_NAME( "Fill or Refill All Zones" ),
-        _( "Fill All" ), _( "Fill all zones" ),
+        _( "Fill All Zones" ), _( "Update copper fill of all zones" ),
         BITMAPS::fill_zone );
 
 TOOL_ACTION PCB_ACTIONS::zoneUnfill( "pcbnew.ZoneFiller.zoneUnfill",
         AS_GLOBAL, 0, "",
-        _( "Unfill" ), _( "Unfill zone(s)" ),
+        _( "Unfill Zone" ), _( "Remove copper fill from selected zone(s)" ),
         BITMAPS::zone_unfill );
 
 TOOL_ACTION PCB_ACTIONS::zoneUnfillAll( "pcbnew.ZoneFiller.zoneUnfillAll",
         AS_GLOBAL,
         MD_CTRL + 'B', LEGACY_HK_NAME( "Remove Filled Areas in All Zones" ),
-        _( "Unfill All" ), _( "Unfill all zones" ),
+        _( "Unfill All Zones" ), _( "Remove copper fill from all zones" ),
         BITMAPS::zone_unfill );
 
 
@@ -1348,6 +1352,12 @@ TOOL_ACTION PCB_ACTIONS::routerTuneDiffPairSkew( "pcbnew.LengthTuner.TuneDiffPai
 
 TOOL_ACTION PCB_ACTIONS::routerInlineDrag( "pcbnew.InteractiveRouter.InlineDrag",
         AS_CONTEXT );
+
+TOOL_ACTION PCB_ACTIONS::routerUndoLastSegment( "pcbnew.InteractiveRouter.UndoLastSegment",
+        AS_CONTEXT,
+        WXK_BACK, "",
+        _( "Undo Last Segment" ),  _( "Walks the current track back one segment." ),
+        BITMAPS::checked_ok );
 
 TOOL_ACTION PCB_ACTIONS::inlineBreakTrack( "pcbnew.InteractiveRouter.InlineBreakTrack",
         AS_GLOBAL, 0, "",

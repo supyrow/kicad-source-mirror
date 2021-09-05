@@ -49,12 +49,12 @@
 #include <wx/hyperlink.h>
 #include <erc_item.h>
 #include <eeschema_settings.h>
-#include <kicad_string.h>
+#include <string_utils.h>
 #include <kiplatform/ui.h>
 
 DIALOG_ERC::DIALOG_ERC( SCH_EDIT_FRAME* parent ) :
         DIALOG_ERC_BASE( parent ),
-        PROGRESS_REPORTER( 1 ),
+        PROGRESS_REPORTER_BASE( 1 ),
         m_parent( parent ),
         m_running( false ),
         m_ercRun( false ),
@@ -143,7 +143,7 @@ bool DIALOG_ERC::updateUI()
 void DIALOG_ERC::AdvancePhase( const wxString& aMessage )
 {
     // Will also call Report( aMessage ):
-    PROGRESS_REPORTER::AdvancePhase( aMessage );
+    PROGRESS_REPORTER_BASE::AdvancePhase( aMessage );
     SetCurrentProgress( 0.0 );
 }
 
@@ -752,12 +752,12 @@ void DIALOG_ERC::OnSaveReport( wxCommandEvent& aEvent )
 
     if( writeReport( fn.GetFullPath() ) )
     {
-        m_messages->Report( wxString::Format( _( "Report file '%s' created\n" ),
+        m_messages->Report( wxString::Format( _( "Report file '%s' created." ),
                                               fn.GetFullPath() ) );
     }
     else
     {
-        DisplayError( this, wxString::Format( _( "Unable to create report file '%s'" ),
+        DisplayError( this, wxString::Format( _( "Failed to create file '%s'." ),
                                               fn.GetFullPath() ) );
     }
 }

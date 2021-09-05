@@ -3,8 +3,8 @@
  *
  * Copyright (C) 2019 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2013 Dick Hollenbeck, dick@softplc.com
- * Copyright (C) 2008-2013 Wayne Stambaugh <stambaughw@verizon.net>
- * Copyright (C) 1992-2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2008-2013 Wayne Stambaugh <stambaughw@gmail.com>
+ * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -66,6 +66,7 @@ static PAD_SHAPE code_shape[] =
     PAD_SHAPE::CUSTOM           // choice = PAD_SHAPE::CUSTOM_RECT_ANCHOR
 };
 
+
 // the ordered index of the pad shape wxChoice in dialog.
 // keep it consistent with code_shape[] and dialog strings
 enum CODE_CHOICE
@@ -81,6 +82,7 @@ enum CODE_CHOICE
     CHOICE_SHAPE_CUSTOM_RECT_ANCHOR
 };
 
+
 static PAD_ATTRIB code_type[] =
 {
     PAD_ATTRIB::PTH,
@@ -91,12 +93,14 @@ static PAD_ATTRIB code_type[] =
                                     // only on tech layers (usually only on paste layer
 };
 
-// Thse define have the same value as the m_PadType wxChoice GetSelected() return value
+
+// These define have the same value as the m_PadType wxChoice GetSelected() return value
 #define PTH_DLG_TYPE 0
 #define SMD_DLG_TYPE 1
 #define CONN_DLG_TYPE 2
 #define NPTH_DLG_TYPE 3
 #define APERTURE_DLG_TYPE 4
+
 
 void PCB_BASE_FRAME::ShowPadPropertiesDialog( PAD* aPad )
 {
@@ -111,33 +115,41 @@ void PCB_BASE_FRAME::ShowPadPropertiesDialog( PAD* aPad )
             PAD_TOOL* padTools = m_toolManager->GetTool<PAD_TOOL>();
 
             if( padTools )
-                padTools->SetLastPadName( aPad->GetName() );
+                padTools->SetLastPadNumber( aPad->GetNumber() );
         }
     }
 }
 
 
 DIALOG_PAD_PROPERTIES::DIALOG_PAD_PROPERTIES( PCB_BASE_FRAME* aParent, PAD* aPad ) :
-    DIALOG_PAD_PROPERTIES_BASE( aParent ),
-    m_parent( aParent ),
-    m_canUpdate( false ),
-    m_posX( aParent, m_posXLabel, m_posXCtrl, m_posXUnits ),
-    m_posY( aParent, m_posYLabel, m_posYCtrl, m_posYUnits ),
-    m_sizeX( aParent, m_sizeXLabel, m_sizeXCtrl, m_sizeXUnits ),
-    m_sizeY( aParent, m_sizeYLabel, m_sizeYCtrl, m_sizeYUnits ),
-    m_offsetX( aParent, m_offsetXLabel, m_offsetXCtrl, m_offsetXUnits ),
-    m_offsetY( aParent, m_offsetYLabel, m_offsetYCtrl, m_offsetYUnits ),
-    m_padToDie( aParent, m_padToDieLabel, m_padToDieCtrl, m_padToDieUnits ),
-    m_trapDelta( aParent, m_trapDeltaLabel, m_trapDeltaCtrl, m_trapDeltaUnits ),
-    m_cornerRadius( aParent, m_cornerRadiusLabel, m_tcCornerRadius, m_cornerRadiusUnits ),
-    m_holeX( aParent, m_holeXLabel, m_holeXCtrl, m_holeXUnits ),
-    m_holeY( aParent, m_holeYLabel, m_holeYCtrl, m_holeYUnits ),
-    m_OrientValidator( 3, &m_OrientValue ),
-    m_clearance( aParent, m_clearanceLabel, m_clearanceCtrl, m_clearanceUnits ),
-    m_maskClearance( aParent, m_maskClearanceLabel, m_maskClearanceCtrl, m_maskClearanceUnits ),
-    m_pasteClearance( aParent, m_pasteClearanceLabel, m_pasteClearanceCtrl, m_pasteClearanceUnits ),
-    m_spokeWidth( aParent, m_spokeWidthLabel, m_spokeWidthCtrl, m_spokeWidthUnits ),
-    m_thermalGap( aParent, m_thermalGapLabel, m_thermalGapCtrl, m_thermalGapUnits )
+        DIALOG_PAD_PROPERTIES_BASE( aParent ),
+        m_parent( aParent ),
+        m_canUpdate( false ),
+        m_posX( aParent, m_posXLabel, m_posXCtrl, m_posXUnits ),
+        m_posY( aParent, m_posYLabel, m_posYCtrl, m_posYUnits ),
+        m_sizeX( aParent, m_sizeXLabel, m_sizeXCtrl, m_sizeXUnits ),
+        m_sizeY( aParent, m_sizeYLabel, m_sizeYCtrl, m_sizeYUnits ),
+        m_offsetX( aParent, m_offsetXLabel, m_offsetXCtrl, m_offsetXUnits ),
+        m_offsetY( aParent, m_offsetYLabel, m_offsetYCtrl, m_offsetYUnits ),
+        m_padToDie( aParent, m_padToDieLabel, m_padToDieCtrl, m_padToDieUnits ),
+        m_trapDelta( aParent, m_trapDeltaLabel, m_trapDeltaCtrl, m_trapDeltaUnits ),
+        m_cornerRadius( aParent, m_cornerRadiusLabel, m_cornerRadiusCtrl, m_cornerRadiusUnits ),
+        m_cornerRatio( aParent, m_cornerRatioLabel, m_cornerRatioCtrl, m_cornerRatioUnits ),
+        m_chamferRatio( aParent, m_chamferRatioLabel, m_chamferRatioCtrl, m_chamferRatioUnits ),
+        m_mixedCornerRatio( aParent, m_mixedCornerRatioLabel, m_mixedCornerRatioCtrl,
+                            m_mixedCornerRatioUnits ),
+        m_mixedChamferRatio( aParent, m_mixedChamferRatioLabel, m_mixedChamferRatioCtrl,
+                             m_mixedChamferRatioUnits ),
+        m_holeX( aParent, m_holeXLabel, m_holeXCtrl, m_holeXUnits ),
+        m_holeY( aParent, m_holeYLabel, m_holeYCtrl, m_holeYUnits ),
+        m_OrientValidator( 3, &m_OrientValue ),
+        m_clearance( aParent, m_clearanceLabel, m_clearanceCtrl, m_clearanceUnits ),
+        m_maskMargin( aParent, m_maskMarginLabel, m_maskMarginCtrl, m_maskMarginUnits ),
+        m_pasteMargin( aParent, m_pasteMarginLabel, m_pasteMarginCtrl, m_pasteMarginUnits ),
+        m_pasteMarginRatio( aParent, m_pasteMarginRatioLabel, m_pasteMarginRatioCtrl,
+                            m_pasteMarginRatioUnits ),
+        m_spokeWidth( aParent, m_spokeWidthLabel, m_spokeWidthCtrl, m_spokeWidthUnits ),
+        m_thermalGap( aParent, m_thermalGapLabel, m_thermalGapCtrl, m_thermalGapUnits )
 {
     SetName( PAD_PROPERTIES_DLG_NAME );
     m_isFpEditor = dynamic_cast<FOOTPRINT_EDIT_FRAME*>( aParent ) != nullptr;
@@ -164,7 +176,7 @@ DIALOG_PAD_PROPERTIES::DIALOG_PAD_PROPERTIES( PCB_BASE_FRAME* aParent, PAD* aPad
     m_nonCopperWarningIcon->SetBitmap( KiBitmap( BITMAPS::dialog_warning ) );
 
     m_padMaster  = m_parent->GetDesignSettings().m_Pad_Master.get();
-    m_dummyPad   = new PAD( (FOOTPRINT*) NULL );
+    m_dummyPad   = new PAD( (FOOTPRINT*) nullptr );
 
     if( aPad )
     {
@@ -181,10 +193,19 @@ DIALOG_PAD_PROPERTIES::DIALOG_PAD_PROPERTIES( PCB_BASE_FRAME* aParent, PAD* aPad
     if( !m_dummyPad->GetParent() )
         m_dummyPad->SetParent( m_board );
 
+    m_cornerRatio.SetUnits( EDA_UNITS::PERCENT );
+    m_chamferRatio.SetUnits( EDA_UNITS::PERCENT );
+    m_mixedCornerRatio.SetUnits( EDA_UNITS::PERCENT );
+    m_mixedChamferRatio.SetUnits( EDA_UNITS::PERCENT );
+
+    m_pasteMargin.SetNegativeZero();
+
+    m_pasteMarginRatio.SetUnits( EDA_UNITS::PERCENT );
+    m_pasteMarginRatio.SetNegativeZero();
+
     initValues();
 
-    wxFont infoFont = wxSystemSettings::GetFont( wxSYS_DEFAULT_GUI_FONT );
-    infoFont.SetSymbolicSize( wxFONTSIZE_SMALL );
+    wxFont infoFont = KIUI::GetInfoFont();
     m_copperLayersLabel->SetFont( infoFont );
     m_techLayersLabel->SetFont( infoFont );
     m_parentInfo->SetFont( infoFont );
@@ -210,7 +231,9 @@ DIALOG_PAD_PROPERTIES::DIALOG_PAD_PROPERTIES( PCB_BASE_FRAME* aParent, PAD* aPad
     m_sdbSizerOK->SetDefault();
     m_canUpdate = true;
 
-    m_PadNetSelector->Connect( NET_SELECTED, wxCommandEventHandler( DIALOG_PAD_PROPERTIES::OnValuesChanged ), NULL, this );
+    m_PadNetSelector->Connect( NET_SELECTED,
+                               wxCommandEventHandler( DIALOG_PAD_PROPERTIES::OnValuesChanged ),
+                               nullptr, this );
 
     // Now all widgets have the size fixed, call FinishDialogSettings
     finishDialogSettings();
@@ -222,14 +245,17 @@ DIALOG_PAD_PROPERTIES::DIALOG_PAD_PROPERTIES( PCB_BASE_FRAME* aParent, PAD* aPad
 
 DIALOG_PAD_PROPERTIES::~DIALOG_PAD_PROPERTIES()
 {
-    m_PadNetSelector->Disconnect( NET_SELECTED, wxCommandEventHandler( DIALOG_PAD_PROPERTIES::OnValuesChanged ), NULL, this );
+    m_PadNetSelector->Disconnect( NET_SELECTED,
+                                  wxCommandEventHandler( DIALOG_PAD_PROPERTIES::OnValuesChanged ),
+                                  nullptr, this );
 
     delete m_dummyPad;
     delete m_axisOrigin;
 }
 
 
-bool DIALOG_PAD_PROPERTIES::m_sketchPreview = false;   // Stores the pad draw option during a session
+// Store the pad draw option during a session.
+bool DIALOG_PAD_PROPERTIES::m_sketchPreview = false;
 
 
 void DIALOG_PAD_PROPERTIES::OnInitDialog( wxInitDialogEvent& event )
@@ -309,6 +335,7 @@ void DIALOG_PAD_PROPERTIES::prepareCanvas()
     // gives a non null grid size (0.001mm) because GAL layer does not like a 0 size grid:
     double gridsize = 0.001 * IU_PER_MM;
     view->GetGAL()->SetGridSize( VECTOR2D( gridsize, gridsize ) );
+
     // And do not show the grid:
     view->GetGAL()->SetGridVisibility( false );
     view->Add( m_dummyPad );
@@ -321,16 +348,13 @@ void DIALOG_PAD_PROPERTIES::prepareCanvas()
 
 void DIALOG_PAD_PROPERTIES::updateRoundRectCornerValues()
 {
-    // Note: use m_tcCornerSizeRatio->ChangeValue() to avoid generating a wxEVT_TEXT event
+    // Note: use ChangeValue() to avoid generating a wxEVT_TEXT event
 
-    wxString ratio = wxString::Format( "%.1f", m_dummyPad->GetRoundRectRadiusRatio() * 100 );
-    m_tcCornerSizeRatio->ChangeValue( ratio );
-    m_tcMixedCornerSizeRatio->ChangeValue( ratio );
-    m_cornerRadius.ChangeValue( m_dummyPad->GetRoundRectCornerRadius() );
+    m_cornerRatio.ChangeDoubleValue( m_dummyPad->GetRoundRectRadiusRatio() * 100.0 );
+    m_mixedCornerRatio.ChangeDoubleValue( m_dummyPad->GetRoundRectRadiusRatio() * 100.0 );
 
-    ratio = wxString::Format( "%.1f", m_dummyPad->GetChamferRectRatio() * 100 );
-    m_tcChamferRatio->ChangeValue( ratio );
-    m_tcMixedChamferRatio->ChangeValue( ratio );
+    m_chamferRatio.ChangeDoubleValue( m_dummyPad->GetChamferRectRatio() * 100.0 );
+    m_mixedChamferRatio.ChangeDoubleValue( m_dummyPad->GetChamferRectRatio() * 100.0 );
 }
 
 
@@ -338,22 +362,18 @@ void DIALOG_PAD_PROPERTIES::onCornerRadiusChange( wxCommandEvent& event )
 {
     if( m_dummyPad->GetShape() != PAD_SHAPE::ROUNDRECT &&
         m_dummyPad->GetShape() != PAD_SHAPE::CHAMFERED_RECT )
-        return;
-
-    double rrRadius = m_cornerRadius.GetValue();
-
-    if( rrRadius < 0.0 )
     {
-        rrRadius = 0.0;
-        m_tcCornerRadius->ChangeValue( wxString::Format( "%.1f", rrRadius ) );
+        return;
     }
 
-    transferDataToPad( m_dummyPad );
-    m_dummyPad->SetRoundRectCornerRadius( rrRadius );
+    if( m_cornerRadius.GetValue() < 0 )
+        m_cornerRadiusCtrl->ChangeValue( "0" );
 
-    auto ratio = wxString::Format( "%.1f", m_dummyPad->GetRoundRectRadiusRatio() * 100 );
-    m_tcCornerSizeRatio->ChangeValue( ratio );
-    m_tcMixedCornerSizeRatio->ChangeValue( ratio );
+    transferDataToPad( m_dummyPad );
+    m_dummyPad->SetRoundRectCornerRadius( m_cornerRadius.GetValue() );
+
+    m_cornerRatio.ChangeDoubleValue( m_dummyPad->GetRoundRectRadiusRatio() * 100.0 );
+    m_mixedCornerRatio.ChangeDoubleValue( m_dummyPad->GetRoundRectRadiusRatio() * 100.0 );
 
     redraw();
 }
@@ -371,7 +391,7 @@ void DIALOG_PAD_PROPERTIES::onCornerSizePercentChange( wxCommandEvent& event )
     wxString  value = event.GetString();
     bool      changed = false;
 
-    if( ctrl == m_tcCornerSizeRatio || ctrl == m_tcMixedCornerSizeRatio )
+    if( ctrl == m_cornerRatioCtrl || ctrl == m_mixedCornerRatioCtrl )
     {
         double ratioPercent;
 
@@ -380,29 +400,24 @@ void DIALOG_PAD_PROPERTIES::onCornerSizePercentChange( wxCommandEvent& event )
             // Clamp ratioPercent to acceptable value (0.0 to 50.0)
             if( ratioPercent < 0.0 )
             {
-                ratioPercent = 0.0;
-                value.Printf( "%.1f", ratioPercent );
-                m_tcCornerSizeRatio->ChangeValue( value );
-                m_tcMixedCornerSizeRatio->ChangeValue( value );
+                m_cornerRatio.SetDoubleValue( 0.0 );
+                m_mixedCornerRatio.SetDoubleValue( 0.0 );
             }
-
-            if( ratioPercent > 50.0 )
+            else if( ratioPercent > 50.0 )
             {
-                ratioPercent = 0.5;
-                value.Printf( "%.1f", ratioPercent*100.0 );
-                m_tcCornerSizeRatio->ChangeValue( value );
-                m_tcMixedCornerSizeRatio->ChangeValue( value );
+                m_cornerRatio.SetDoubleValue( 50.0 );
+                m_mixedCornerRatio.SetDoubleValue( 50.0 );
             }
 
-            if( ctrl == m_tcCornerSizeRatio )
-                m_tcMixedCornerSizeRatio->ChangeValue( value );
+            if( ctrl == m_cornerRatioCtrl )
+                m_mixedCornerRatioCtrl->ChangeValue( value );
             else
-                m_tcCornerSizeRatio->ChangeValue( value );
+                m_cornerRatioCtrl->ChangeValue( value );
 
             changed = true;
         }
     }
-    else if( ctrl == m_tcChamferRatio || ctrl == m_tcMixedChamferRatio )
+    else if( ctrl == m_chamferRatioCtrl || ctrl == m_mixedChamferRatioCtrl )
     {
         double ratioPercent;
 
@@ -411,24 +426,19 @@ void DIALOG_PAD_PROPERTIES::onCornerSizePercentChange( wxCommandEvent& event )
             // Clamp ratioPercent to acceptable value (0.0 to 50.0)
             if( ratioPercent < 0.0 )
             {
-                ratioPercent = 0.0;
-                value.Printf( "%.1f", ratioPercent );
-                m_tcChamferRatio->ChangeValue( value );
-                m_tcMixedChamferRatio->ChangeValue( value );
+                m_chamferRatio.SetDoubleValue( 0.0 );
+                m_mixedChamferRatio.SetDoubleValue( 0.0 );
             }
-
-            if( ratioPercent > 50.0 )
+            else if( ratioPercent > 50.0 )
             {
-                ratioPercent = 0.5;
-                value.Printf( "%.1f", ratioPercent*100.0 );
-                m_tcChamferRatio->ChangeValue( value );
-                m_tcMixedChamferRatio->ChangeValue( value );
+                m_chamferRatio.SetDoubleValue( 50.0 );
+                m_mixedChamferRatio.SetDoubleValue( 50.0 );
             }
 
-            if( ctrl == m_tcChamferRatio )
-                m_tcMixedChamferRatio->ChangeValue( value );
+            if( ctrl == m_chamferRatioCtrl )
+                m_mixedChamferRatioCtrl->ChangeValue( value );
             else
-                m_tcChamferRatio->ChangeValue( value );
+                m_chamferRatioCtrl->ChangeValue( value );
 
             changed = true;
         }
@@ -505,7 +515,7 @@ void DIALOG_PAD_PROPERTIES::initValues()
 
     m_FlippedWarningSizer->Show( m_isFlipped );
 
-    m_PadNumCtrl->SetValue( m_dummyPad->GetName() );
+    m_PadNumCtrl->SetValue( m_dummyPad->GetNumber() );
     m_PadNetSelector->SetSelectedNetcode( m_dummyPad->GetNetCode() );
 
     // Display current pad parameters units:
@@ -537,22 +547,11 @@ void DIALOG_PAD_PROPERTIES::initValues()
     m_padToDie.ChangeValue( m_dummyPad->GetPadToDieLength() );
 
     m_clearance.ChangeValue( m_dummyPad->GetLocalClearance() );
-    m_maskClearance.ChangeValue( m_dummyPad->GetLocalSolderMaskMargin() );
+    m_maskMargin.ChangeValue( m_dummyPad->GetLocalSolderMaskMargin() );
     m_spokeWidth.ChangeValue( m_dummyPad->GetThermalSpokeWidth() );
     m_thermalGap.ChangeValue( m_dummyPad->GetThermalGap() );
-    m_pasteClearance.ChangeValue( m_dummyPad->GetLocalSolderPasteMargin() );
-
-    // Prefer "-0" to "0" for normally negative values
-    if( m_dummyPad->GetLocalSolderPasteMargin() == 0 )
-        m_pasteClearanceCtrl->ChangeValue( wxT( "-" ) + m_pasteClearanceCtrl->GetValue() );
-
-    msg.Printf( wxT( "%f" ), m_dummyPad->GetLocalSolderPasteMarginRatio() * 100.0 );
-
-    if( m_dummyPad->GetLocalSolderPasteMarginRatio() == 0.0 && msg[0] == '0' )
-        // Sometimes Printf adds a sign if the value is small
-        m_SolderPasteMarginRatioCtrl->ChangeValue( wxT( "-" ) + msg );
-    else
-        m_SolderPasteMarginRatioCtrl->ChangeValue( msg );
+    m_pasteMargin.ChangeValue( m_dummyPad->GetLocalSolderPasteMargin() );
+    m_pasteMarginRatio.ChangeDoubleValue( m_dummyPad->GetLocalSolderPasteMarginRatio() * 100.0 );
 
     switch( m_dummyPad->GetZoneConnection() )
     {
@@ -692,40 +691,43 @@ void DIALOG_PAD_PROPERTIES::displayPrimitivesList()
         for( wxString& s : bs_info )
             s.Empty();
 
-        bs_info[4] = _( "width" ) + wxS( " " )+ MessageTextFromValue( m_units, primitive->GetWidth() );
+        bs_info[4] = _( "width" ) + wxS( " " )+ MessageTextFromValue( m_units,
+                                                                      primitive->GetWidth() );
 
         switch( primitive->GetShape() )
         {
-        case PCB_SHAPE_TYPE::SEGMENT: // usual segment : line with rounded ends
+        case SHAPE_T::SEGMENT:
             bs_info[0] = _( "Segment" );
             bs_info[1] = _( "from" ) + wxS( " " )+ formatCoord( m_units, primitive->GetStart() );
             bs_info[2] = _( "to" ) + wxS( " " )+  formatCoord( m_units, primitive->GetEnd() );
             break;
 
-        case PCB_SHAPE_TYPE::CURVE: // Bezier segment
+        case SHAPE_T::BEZIER:
             bs_info[0] = _( "Bezier" );
             bs_info[1] = _( "from" ) + wxS( " " )+ formatCoord( m_units, primitive->GetStart() );
             bs_info[2] = _( "to" ) + wxS( " " )+  formatCoord( m_units, primitive->GetEnd() );
             break;
 
-        case PCB_SHAPE_TYPE::ARC: // Arc with rounded ends
+        case SHAPE_T::ARC:
             bs_info[0] = _( "Arc" );
             bs_info[1] = _( "center" ) + wxS( " " )+ formatCoord( m_units, primitive->GetCenter() );
-            bs_info[2] = _( "start" ) + wxS( " " )+ formatCoord( m_units, primitive->GetArcStart() );
+            bs_info[2] = _( "start" ) + wxS( " " )+ formatCoord( m_units,
+                                                                 primitive->GetArcStart() );
             bs_info[3] = _( "angle" ) + wxS( " " )+ FormatAngle( primitive->GetAngle() );
             break;
 
-        case PCB_SHAPE_TYPE::CIRCLE: //  ring or circle
+        case SHAPE_T::CIRCLE:
             if( primitive->GetWidth() )
                 bs_info[0] = _( "ring" );
             else
                 bs_info[0] = _( "circle" );
 
             bs_info[1] = formatCoord( m_units, primitive->GetStart() );
-            bs_info[2] = _( "radius" ) + wxS( " " )+ MessageTextFromValue( m_units, primitive->GetRadius() );
+            bs_info[2] = _( "radius" ) + wxS( " " )+ MessageTextFromValue( m_units,
+                                                                           primitive->GetRadius() );
             break;
 
-        case PCB_SHAPE_TYPE::POLYGON: // polygon
+        case SHAPE_T::POLY:
             bs_info[0] = "Polygon";
             bs_info[1] = wxString::Format( _( "corners count %d" ),
                                            (int) primitive->GetPolyShape().Outline( 0 ).PointCount() );
@@ -747,6 +749,7 @@ void DIALOG_PAD_PROPERTIES::displayPrimitivesList()
     for( unsigned ii = 0; ii < 5; ++ii )
         m_listCtrlPrimitives->SetColumnWidth( ii, wxLIST_AUTOSIZE );
 }
+
 
 void DIALOG_PAD_PROPERTIES::OnResize( wxSizeEvent& event )
 {
@@ -777,7 +780,6 @@ void DIALOG_PAD_PROPERTIES::onChangePadMode( wxCommandEvent& event )
 }
 
 
-
 void DIALOG_PAD_PROPERTIES::OnPadShapeSelection( wxCommandEvent& event )
 {
     switch( m_PadShapeSelector->GetSelection() )
@@ -798,9 +800,10 @@ void DIALOG_PAD_PROPERTIES::OnPadShapeSelection( wxCommandEvent& event )
 
         // A reasonable default (from  IPC-7351C)
         if( m_dummyPad->GetRoundRectRadiusRatio() == 0.0 )
-            m_tcCornerSizeRatio->ChangeValue( "25" );
-    }
+            m_cornerRatio.ChangeValue( 25 );
+
         break;
+    }
 
     case CHOICE_SHAPE_CHAMFERED_RECT:
         m_shapePropsBook->SetSelection( 3 );
@@ -810,8 +813,7 @@ void DIALOG_PAD_PROPERTIES::OnPadShapeSelection( wxCommandEvent& event )
             m_dummyPad->SetChamferRectRatio( 0.2 );
 
         // Ensure the displayed value is up to date:
-        m_tcChamferRatio->ChangeValue( wxString::Format( "%.1f",
-                                       m_dummyPad->GetChamferRectRatio() * 100 ) );
+        m_chamferRatio.ChangeDoubleValue( m_dummyPad->GetChamferRectRatio() * 100.0 );
 
         // A reasonable default is one corner chamfered (usual for some SMD pads).
         if( !m_cbTopLeft->GetValue() && !m_cbTopRight->GetValue()
@@ -822,6 +824,7 @@ void DIALOG_PAD_PROPERTIES::OnPadShapeSelection( wxCommandEvent& event )
             m_cbBottomLeft->SetValue( false );
             m_cbBottomRight->SetValue( false );
         }
+
         break;
 
     case CHOICE_SHAPE_CHAMFERED_ROUNDED_RECT:
@@ -839,10 +842,8 @@ void DIALOG_PAD_PROPERTIES::OnPadShapeSelection( wxCommandEvent& event )
         }
 
         // Ensure the displayed values are up to date:
-        m_tcMixedChamferRatio->ChangeValue( wxString::Format( "%.1f",
-                                            m_dummyPad->GetChamferRectRatio() * 100 ) );
-        m_tcMixedCornerSizeRatio->ChangeValue( wxString::Format( "%.1f",
-                                               m_dummyPad->GetRoundRectRadiusRatio() * 100 ) );
+        m_mixedChamferRatio.ChangeDoubleValue( m_dummyPad->GetChamferRectRatio() * 100.0 );
+        m_mixedCornerRatio.ChangeDoubleValue( m_dummyPad->GetRoundRectRadiusRatio() * 100.0 );
         break;
 
     case CHOICE_SHAPE_CUSTOM_CIRC_ANCHOR:     // PAD_SHAPE::CUSTOM, circular anchor
@@ -980,7 +981,7 @@ void DIALOG_PAD_PROPERTIES::PadTypeSelected( wxCommandEvent& event )
     }
     else if( m_PadNumCtrl->GetValue().IsEmpty() && m_currentPad )
     {
-        m_PadNumCtrl->ChangeValue( m_currentPad->GetName() );
+        m_PadNumCtrl->ChangeValue( m_currentPad->GetNumber() );
         m_PadNetSelector->SetSelectedNetcode( m_currentPad->GetNetCode() );
     }
 
@@ -1198,7 +1199,6 @@ void DIALOG_PAD_PROPERTIES::OnSetCopperLayers( wxCommandEvent& event )
 }
 
 
-// Called when select/deselect a layer.
 void DIALOG_PAD_PROPERTIES::OnSetLayers( wxCommandEvent& event )
 {
     transferDataToPad( m_dummyPad );
@@ -1206,7 +1206,6 @@ void DIALOG_PAD_PROPERTIES::OnSetLayers( wxCommandEvent& event )
 }
 
 
-// test if all values are acceptable for the pad
 bool DIALOG_PAD_PROPERTIES::padValuesOK()
 {
     bool error = transferDataToPad( m_dummyPad );
@@ -1293,7 +1292,7 @@ bool DIALOG_PAD_PROPERTIES::padValuesOK()
 
     // Some pads need a positive solder paste clearance (mainly for BGA with small pads)
     // However, a positive value can create issues if the resulting shape is too big.
-    // (like a solder paste creating a solder paste area on a neighbour pad or on the solder mask)
+    // (like a solder paste creating a solder paste area on a neighbor pad or on the solder mask)
     // So we could ask for user to confirm the choice
     // For now we just check for disappearing paste
     wxSize paste_size;
@@ -1389,28 +1388,19 @@ bool DIALOG_PAD_PROPERTIES::padValuesOK()
     if( m_dummyPad->GetShape() == PAD_SHAPE::ROUNDRECT ||
         m_dummyPad->GetShape() == PAD_SHAPE::CHAMFERED_RECT )
     {
-        wxASSERT( m_tcCornerSizeRatio->GetValue() == m_tcMixedCornerSizeRatio->GetValue() );
-        wxString value = m_tcCornerSizeRatio->GetValue();
-        double rrRadiusRatioPercent;
+        wxASSERT( m_cornerRatio.GetValue() == m_mixedCornerRatio.GetValue() );
 
-        if( !value.ToDouble( &rrRadiusRatioPercent ) )
-        {
-            error_msgs.Add( _( "Error: Corner size not a number." ) );
-        }
-        else
-        {
-            if( rrRadiusRatioPercent < 0.0 )
-                error_msgs.Add( _( "Error: Negative corner size." ) );
-            else if( rrRadiusRatioPercent > 50.0 )
-                warning_msgs.Add( _( "Warning: Corner size will make pad circular." ) );
-        }
+        if( m_cornerRatio.GetDoubleValue() < 0.0 )
+            error_msgs.Add( _( "Error: Negative corner size." ) );
+        else if( m_cornerRatio.GetDoubleValue() > 50.0 )
+            warning_msgs.Add( _( "Warning: Corner size will make pad circular." ) );
     }
 
     // PADSTACKS TODO: this will need to check each layer in the pad...
     if( m_dummyPad->GetShape() == PAD_SHAPE::CUSTOM )
     {
         SHAPE_POLY_SET mergedPolygon;
-        m_dummyPad->MergePrimitivesAsPolygon( &mergedPolygon, UNDEFINED_LAYER );
+        m_dummyPad->MergePrimitivesAsPolygon( &mergedPolygon );
 
         if( mergedPolygon.OutlineCount() > 1 )
             error_msgs.Add( _( "Error: Custom pad shape must resolve to a single polygon." ) );
@@ -1542,6 +1532,7 @@ bool DIALOG_PAD_PROPERTIES::TransferDataFromWindow()
         return false;
 
     transferDataToPad( m_padMaster );
+
     // m_padMaster is a pattern: ensure there is no net for this pad:
     m_padMaster->SetNetCode( NETINFO_LIST::UNCONNECTED );
 
@@ -1592,7 +1583,7 @@ bool DIALOG_PAD_PROPERTIES::TransferDataFromWindow()
     m_currentPad->SetRemoveUnconnected( m_padMaster->GetRemoveUnconnected() );
     m_currentPad->SetKeepTopBottom( m_padMaster->GetKeepTopBottom() );
 
-    m_currentPad->SetName( m_padMaster->GetName() );
+    m_currentPad->SetNumber( m_padMaster->GetNumber() );
 
     int padNetcode = NETINFO_LIST::UNCONNECTED;
 
@@ -1610,7 +1601,7 @@ bool DIALOG_PAD_PROPERTIES::TransferDataFromWindow()
     m_currentPad->SetRoundRectRadiusRatio( m_padMaster->GetRoundRectRadiusRatio() );
     m_currentPad->SetChamferRectRatio( m_padMaster->GetChamferRectRatio() );
     m_currentPad->SetChamferPositions( m_padMaster->GetChamferPositions() );
-    m_currentPad->SetZoneConnection( m_padMaster->GetEffectiveZoneConnection() );
+    m_currentPad->SetZoneConnection( m_padMaster->GetZoneConnection() );
 
     // rounded rect pads with radius ratio = 0 are in fact rect pads.
     // So set the right shape (and perhaps issues with a radius = 0)
@@ -1703,15 +1694,11 @@ bool DIALOG_PAD_PROPERTIES::transferDataToPad( PAD* aPad )
 
     // Read pad clearances values:
     aPad->SetLocalClearance( m_clearance.GetValue() );
-    aPad->SetLocalSolderMaskMargin( m_maskClearance.GetValue() );
-    aPad->SetLocalSolderPasteMargin( m_pasteClearance.GetValue() );
+    aPad->SetLocalSolderMaskMargin( m_maskMargin.GetValue() );
+    aPad->SetLocalSolderPasteMargin( m_pasteMargin.GetValue() );
+    aPad->SetLocalSolderPasteMarginRatio( m_pasteMarginRatio.GetDoubleValue() / 100.0 );
     aPad->SetThermalSpokeWidth( m_spokeWidth.GetValue() );
     aPad->SetThermalGap( m_thermalGap.GetValue() );
-
-    double dtmp = 0.0;
-    msg = m_SolderPasteMarginRatioCtrl->GetValue();
-    msg.ToDouble( &dtmp );
-    aPad->SetLocalSolderPasteMarginRatio( dtmp / 100 );
 
     switch( m_ZoneConnectionChoice->GetSelection() )
     {
@@ -1792,7 +1779,7 @@ bool DIALOG_PAD_PROPERTIES::transferDataToPad( PAD* aPad )
         aPad->SetPadToDieLength( 0 );
 
     aPad->SetOrientation( m_OrientValue * 10.0 );
-    aPad->SetName( m_PadNumCtrl->GetValue() );
+    aPad->SetNumber( m_PadNumCtrl->GetValue() );
     aPad->SetNetCode( m_PadNetSelector->GetSelectedNetcode() );
 
     int chamfers = 0;
@@ -1861,7 +1848,7 @@ bool DIALOG_PAD_PROPERTIES::transferDataToPad( PAD* aPad )
     case PAD_ATTRIB::NPTH:
         // Mechanical purpose only:
         // no net name, no pad name allowed
-        aPad->SetName( wxEmptyString );
+        aPad->SetNumber( wxEmptyString );
         aPad->SetNetCode( NETINFO_LIST::UNCONNECTED );
         break;
 
@@ -1872,30 +1859,18 @@ bool DIALOG_PAD_PROPERTIES::transferDataToPad( PAD* aPad )
 
     if( aPad->GetShape() == PAD_SHAPE::ROUNDRECT )
     {
-        double ratioPercent;
-
-        m_tcCornerSizeRatio->GetValue().ToDouble( &ratioPercent );
-        aPad->SetRoundRectRadiusRatio( ratioPercent / 100.0 );
+        aPad->SetRoundRectRadiusRatio( m_cornerRatio.GetDoubleValue() / 100.0 );
     }
-
-    if( aPad->GetShape() == PAD_SHAPE::CHAMFERED_RECT )
+    else if( aPad->GetShape() == PAD_SHAPE::CHAMFERED_RECT )
     {
         if( m_PadShapeSelector->GetSelection() == CHOICE_SHAPE_CHAMFERED_ROUNDED_RECT )
         {
-            double ratioPercent;
-
-            m_tcMixedCornerSizeRatio->GetValue().ToDouble( &ratioPercent );
-            aPad->SetRoundRectRadiusRatio( ratioPercent / 100.0 );
-
-            m_tcMixedChamferRatio->GetValue().ToDouble( &ratioPercent );
-            aPad->SetChamferRectRatio( ratioPercent / 100.0 );
+            aPad->SetChamferRectRatio( m_mixedChamferRatio.GetDoubleValue() / 100.0 );
+            aPad->SetRoundRectRadiusRatio( m_mixedCornerRatio.GetDoubleValue() / 100.0 );
         }
         else    // Choice is CHOICE_SHAPE_CHAMFERED_RECT, no rounded corner
         {
-            double ratioPercent;
-
-            m_tcChamferRatio->GetValue().ToDouble( &ratioPercent );
-            aPad->SetChamferRectRatio( ratioPercent / 100.0 );
+            aPad->SetChamferRectRatio( m_chamferRatio.GetDoubleValue() / 100.0 );
             aPad->SetRoundRectRadiusRatio( 0 );
         }
     }
@@ -2036,8 +2011,8 @@ void DIALOG_PAD_PROPERTIES::OnValuesChanged( wxCommandEvent& event )
     if( m_canUpdate )
     {
         transferDataToPad( m_dummyPad );
-        // If the pad size has changed, update the displayed values
-        // for rounded rect pads
+
+        // If the pad size has changed, update the displayed values for rounded rect pads.
         updateRoundRectCornerValues();
 
         redraw();
@@ -2056,7 +2031,7 @@ void DIALOG_PAD_PROPERTIES::editPrimitive()
 
     std::shared_ptr<PCB_SHAPE>& shape = m_primitives[select];
 
-    if( shape->GetShape() == PCB_SHAPE_TYPE::POLYGON )
+    if( shape->GetShape() == SHAPE_T::POLY )
     {
         DIALOG_PAD_PRIMITIVE_POLY_PROPS dlg( this, m_parent, shape.get() );
 
@@ -2094,20 +2069,18 @@ void DIALOG_PAD_PROPERTIES::OnPrimitiveSelection( wxListEvent& event )
 }
 
 
-/// Called on a double click on the basic shapes list
 void DIALOG_PAD_PROPERTIES::onPrimitiveDClick( wxMouseEvent& event )
 {
     editPrimitive();
 }
 
 
-// Called on a click on basic shapes list panel button
 void DIALOG_PAD_PROPERTIES::onEditPrimitive( wxCommandEvent& event )
 {
     editPrimitive();
 }
 
-// Called on a click on basic shapes list panel button
+
 void DIALOG_PAD_PROPERTIES::onDeletePrimitive( wxCommandEvent& event )
 {
     long select = m_listCtrlPrimitives->GetFirstSelected();
@@ -2154,16 +2127,15 @@ void DIALOG_PAD_PROPERTIES::onAddPrimitive( wxCommandEvent& event )
     if( type == -1 )
         return;
 
-    PCB_SHAPE_TYPE listtype[] = { PCB_SHAPE_TYPE::SEGMENT, PCB_SHAPE_TYPE::ARC,
-                                  PCB_SHAPE_TYPE::CURVE, PCB_SHAPE_TYPE::CIRCLE,
-                                  PCB_SHAPE_TYPE::POLYGON };
+    SHAPE_T listtype[] = { SHAPE_T::SEGMENT, SHAPE_T::ARC, SHAPE_T::BEZIER, SHAPE_T::CIRCLE,
+                           SHAPE_T::POLY };
 
     PCB_SHAPE* primitive = new PCB_SHAPE();
     primitive->SetShape( listtype[type] );
     primitive->SetWidth( m_board->GetDesignSettings().GetLineThickness( F_Cu ) );
     primitive->SetFilled( true );
 
-    if( listtype[type] == PCB_SHAPE_TYPE::POLYGON )
+    if( listtype[type] == SHAPE_T::POLY )
     {
         DIALOG_PAD_PRIMITIVE_POLY_PROPS dlg( this, m_parent, primitive );
 

@@ -44,7 +44,7 @@
 #include <schematic.h>
 #include <sch_plugins/kicad/sch_sexpr_plugin.h>
 #include <sch_screen.h>
-#include <class_library.h>
+#include <symbol_library.h>
 #include <lib_arc.h>
 #include <lib_bezier.h>
 #include <lib_circle.h>
@@ -59,8 +59,9 @@
 #include <sch_plugins/kicad/sch_sexpr_parser.h>
 #include <symbol_lib_table.h>  // for PropPowerSymsOnly definition.
 #include <ee_selection.h>
-#include <kicad_string.h>
+#include <string_utils.h>
 #include <wx_filename.h>       // for ::ResolvePossibleSymlinks()
+#include <progress_reporter.h>
 
 
 using namespace TSCHEMATIC_T;
@@ -365,9 +366,10 @@ public:
 };
 
 
-SCH_SEXPR_PLUGIN::SCH_SEXPR_PLUGIN()
+SCH_SEXPR_PLUGIN::SCH_SEXPR_PLUGIN() :
+    m_progressReporter( nullptr )
 {
-    init( NULL );
+    init( nullptr );
 }
 
 
@@ -386,6 +388,7 @@ void SCH_SEXPR_PLUGIN::init( SCHEMATIC* aSchematic, const PROPERTIES* aPropertie
     m_out             = nullptr;
     m_nextFreeFieldId = 100; // number arbitrarily > MANDATORY_FIELDS or SHEET_MANDATORY_FIELDS
 }
+
 
 SCH_SHEET* SCH_SEXPR_PLUGIN::Load( const wxString& aFileName, SCHEMATIC* aSchematic,
                                    SCH_SHEET* aAppendToMe, const PROPERTIES* aProperties )
@@ -428,7 +431,7 @@ SCH_SHEET* SCH_SEXPR_PLUGIN::Load( const wxString& aFileName, SCHEMATIC* aSchema
     m_currentPath.push( m_path );
     init( aSchematic, aProperties );
 
-    if( aAppendToMe == NULL )
+    if( aAppendToMe == nullptr )
     {
         // Clean up any allocated memory if an exception occurs loading the schematic.
         std::unique_ptr<SCH_SHEET> newSheet = std::make_unique<SCH_SHEET>( aSchematic );
@@ -466,7 +469,7 @@ SCH_SHEET* SCH_SEXPR_PLUGIN::Load( const wxString& aFileName, SCHEMATIC* aSchema
 
 void SCH_SEXPR_PLUGIN::loadHierarchy( SCH_SHEET* aSheet )
 {
-    SCH_SCREEN* screen = NULL;
+    SCH_SCREEN* screen = nullptr;
 
     if( !aSheet->GetScreen() )
     {
@@ -481,10 +484,10 @@ void SCH_SEXPR_PLUGIN::loadHierarchy( SCH_SHEET* aSheet )
         // Save the current path so that it gets restored when descending and ascending the
         // sheet hierarchy which allows for sheet schematic files to be nested in folders
         // relative to the last path a schematic was loaded from.
-        wxLogTrace( traceSchLegacyPlugin, "Saving path    \"%s\"", m_currentPath.top() );
+        wxLogTrace( traceSchLegacyPlugin, "Saving path    '%s'", m_currentPath.top() );
         m_currentPath.push( fileName.GetPath() );
-        wxLogTrace( traceSchLegacyPlugin, "Current path   \"%s\"", m_currentPath.top() );
-        wxLogTrace( traceSchLegacyPlugin, "Loading        \"%s\"", fileName.GetFullPath() );
+        wxLogTrace( traceSchLegacyPlugin, "Current path   '%s'", m_currentPath.top() );
+        wxLogTrace( traceSchLegacyPlugin, "Loading        '%s'", fileName.GetFullPath() );
 
         m_rootSheet->SearchHierarchy( fileName.GetFullPath(), &screen );
 
@@ -507,7 +510,7 @@ void SCH_SEXPR_PLUGIN::loadHierarchy( SCH_SHEET* aSheet )
             {
                 // If there is a problem loading the root sheet, there is no recovery.
                 if( aSheet == m_rootSheet )
-                    throw( ioe );
+                    throw;
 
                 // For all subsheets, queue up the error message for the caller.
                 if( !m_error.IsEmpty() )
@@ -518,10 +521,10 @@ void SCH_SEXPR_PLUGIN::loadHierarchy( SCH_SHEET* aSheet )
 
             // This was moved out of the try{} block so that any sheets definitionsthat
             // the plugin fully parsed before the exception was raised will be loaded.
-            for( auto aItem : aSheet->GetScreen()->Items().OfType( SCH_SHEET_T ) )
+            for( SCH_ITEM* aItem : aSheet->GetScreen()->Items().OfType( SCH_SHEET_T ) )
             {
                 wxCHECK2( aItem->Type() == SCH_SHEET_T, /* do nothing */ );
-                auto sheet = static_cast<SCH_SHEET*>( aItem );
+                SCH_SHEET* sheet = static_cast<SCH_SHEET*>( aItem );
 
                 // Recursion starts here.
                 loadHierarchy( sheet );
@@ -538,7 +541,22 @@ void SCH_SEXPR_PLUGIN::loadFile( const wxString& aFileName, SCH_SHEET* aSheet )
 {
     FILE_LINE_READER reader( aFileName );
 
-    SCH_SEXPR_PARSER parser( &reader );
+    size_t lineCount = 0;
+
+    if( m_progressReporter )
+    {
+        m_progressReporter->Report( wxString::Format( _( "Loading %s..." ), aFileName ) );
+
+        if( !m_progressReporter->KeepRefreshing() )
+            THROW_IO_ERROR( ( "Open cancelled by user." ) );
+
+        while( reader.ReadLine() )
+            lineCount++;
+
+        reader.Rewind();
+    }
+
+    SCH_SEXPR_PARSER parser( &reader, m_progressReporter, lineCount );
 
     parser.ParseSchematic( aSheet );
 }
@@ -558,7 +576,7 @@ void SCH_SEXPR_PLUGIN::LoadContent( LINE_READER& aReader, SCH_SHEET* aSheet, int
 void SCH_SEXPR_PLUGIN::Save( const wxString& aFileName, SCH_SHEET* aSheet, SCHEMATIC* aSchematic,
                              const PROPERTIES* aProperties )
 {
-    wxCHECK_RET( aSheet != NULL, "NULL SCH_SHEET object." );
+    wxCHECK_RET( aSheet != nullptr, "NULL SCH_SHEET object." );
     wxCHECK_RET( !aFileName.IsEmpty(), "No schematic file name defined." );
 
     LOCALE_IO   toggle;     // toggles on, then off, the C locale, to write floating point values.
@@ -581,8 +599,8 @@ void SCH_SEXPR_PLUGIN::Save( const wxString& aFileName, SCH_SHEET* aSheet, SCHEM
 
 void SCH_SEXPR_PLUGIN::Format( SCH_SHEET* aSheet )
 {
-    wxCHECK_RET( aSheet != NULL, "NULL SCH_SHEET* object." );
-    wxCHECK_RET( m_schematic != NULL, "NULL SCHEMATIC* object." );
+    wxCHECK_RET( aSheet != nullptr, "NULL SCH_SHEET* object." );
+    wxCHECK_RET( m_schematic != nullptr, "NULL SCHEMATIC* object." );
 
     SCH_SCREEN* screen = aSheet->GetScreen();
 
@@ -1033,7 +1051,7 @@ void SCH_SEXPR_PLUGIN::saveBitmap( SCH_BITMAP* aBitmap, int aNestLevel )
 
     const wxImage* image = aBitmap->GetImage()->GetImageData();
 
-    wxCHECK_RET( image != NULL, "wxImage* is NULL" );
+    wxCHECK_RET( image != nullptr, "wxImage* is NULL" );
 
     m_out->Print( aNestLevel, "(image (at %s %s)",
                   FormatInternalUnits( aBitmap->GetPosition().x ).c_str(),
@@ -1288,7 +1306,7 @@ void SCH_SEXPR_PLUGIN::saveText( SCH_TEXT* aText, int aNestLevel )
 
 void SCH_SEXPR_PLUGIN::saveBusAlias( std::shared_ptr<BUS_ALIAS> aAlias, int aNestLevel )
 {
-    wxCHECK_RET( aAlias != NULL, "BUS_ALIAS* is NULL" );
+    wxCHECK_RET( aAlias != nullptr, "BUS_ALIAS* is NULL" );
 
     wxString members;
 
@@ -1416,17 +1434,17 @@ bool SCH_SEXPR_PLUGIN_CACHE::IsFileChanged() const
 
 LIB_SYMBOL* SCH_SEXPR_PLUGIN_CACHE::removeSymbol( LIB_SYMBOL* aSymbol )
 {
-    wxCHECK_MSG( aSymbol != NULL, NULL, "NULL pointer cannot be removed from library." );
+    wxCHECK_MSG( aSymbol != nullptr, nullptr, "NULL pointer cannot be removed from library." );
 
-    LIB_SYMBOL* firstChild = NULL;
+    LIB_SYMBOL* firstChild = nullptr;
     LIB_SYMBOL_MAP::iterator it = m_symbols.find( aSymbol->GetName() );
 
     if( it == m_symbols.end() )
-        return NULL;
+        return nullptr;
 
     // If the entry pointer doesn't match the name it is mapped to in the library, we
     // have done something terribly wrong.
-    wxCHECK_MSG( *it->second == aSymbol, NULL,
+    wxCHECK_MSG( *it->second == aSymbol, nullptr,
                  "Pointer mismatch while attempting to remove alias entry <" + aSymbol->GetName() +
                  "> from library cache <" + m_libFileName.GetName() + ">." );
 
@@ -1481,7 +1499,7 @@ LIB_SYMBOL* SCH_SEXPR_PLUGIN_CACHE::removeSymbol( LIB_SYMBOL* aSymbol )
 
 void SCH_SEXPR_PLUGIN_CACHE::AddSymbol( const LIB_SYMBOL* aSymbol )
 {
-    // aSymbol is cloned in PART_LIB::AddPart().  The cache takes ownership of aSymbol.
+    // aSymbol is cloned in SYMBOL_LIB::AddSymbol().  The cache takes ownership of aSymbol.
     wxString name = aSymbol->GetName();
     LIB_SYMBOL_MAP::iterator it = m_symbols.find( name );
 
@@ -1500,19 +1518,19 @@ void SCH_SEXPR_PLUGIN_CACHE::Load()
 {
     if( !m_libFileName.FileExists() )
     {
-        THROW_IO_ERROR( wxString::Format( _( "Library file \"%s\" not found." ),
+        THROW_IO_ERROR( wxString::Format( _( "Library file '%s' not found." ),
                                           m_libFileName.GetFullPath() ) );
     }
 
     wxCHECK_RET( m_libFileName.IsAbsolute(),
                  wxString::Format( "Cannot use relative file paths in sexpr plugin to "
-                                   "open library \"%s\".", m_libFileName.GetFullPath() ) );
+                                   "open library '%s'.", m_libFileName.GetFullPath() ) );
 
     // The current locale must use period as the decimal point.
     wxCHECK2( wxLocale::GetInfo( wxLOCALE_DECIMAL_POINT, wxLOCALE_CAT_NUMBER ) == ".",
               LOCALE_IO toggle );
 
-    wxLogTrace( traceSchLegacyPlugin, "Loading sexpr symbol library file \"%s\"",
+    wxLogTrace( traceSchLegacyPlugin, "Loading sexpr symbol library file '%s'",
                 m_libFileName.GetFullPath() );
 
     FILE_LINE_READER reader( m_libFileName.GetFullPath() );
@@ -1656,9 +1674,9 @@ void SCH_SEXPR_PLUGIN_CACHE::SaveSymbol( LIB_SYMBOL* aSymbol, OUTPUTFORMATTER& a
         saveDcmInfoAsFields( aSymbol, aFormatter, nextFreeFieldId, aNestLevel );
 
         // Save the draw items grouped by units.
-        std::vector<PART_UNITS> units = aSymbol->GetUnitDrawItems();
+        std::vector<LIB_SYMBOL_UNITS> units = aSymbol->GetUnitDrawItems();
         std::sort( units.begin(), units.end(),
-                   []( const PART_UNITS& a, const PART_UNITS& b )
+                   []( const LIB_SYMBOL_UNITS& a, const LIB_SYMBOL_UNITS& b )
                    {
                         if( a.m_unit == b.m_unit )
                             return a.m_convert < b.m_convert;
@@ -1732,10 +1750,13 @@ void SCH_SEXPR_PLUGIN_CACHE::saveDcmInfoAsFields( LIB_SYMBOL* aSymbol, OUTPUTFOR
 
         for( auto filter : fpFilters )
         {
+            // Spaces are not handled in fp filter names so escape spaces if any
+            wxString curr_filter = EscapeString( filter, ESCAPE_CONTEXT::CTX_NO_SPACE );
+
             if( tmp.IsEmpty() )
-                tmp = filter;
+                tmp = curr_filter;
             else
-                tmp += " " + filter;
+                tmp += " " + curr_filter;
         }
 
         LIB_FIELD description( -1, wxString( "ki_fp_filters" ) );
@@ -1926,8 +1947,7 @@ void SCH_SEXPR_PLUGIN_CACHE::saveField( LIB_FIELD* aField, OUTPUTFORMATTER& aFor
 }
 
 
-void SCH_SEXPR_PLUGIN_CACHE::savePin( LIB_PIN* aPin,
-                                      OUTPUTFORMATTER& aFormatter,
+void SCH_SEXPR_PLUGIN_CACHE::savePin( LIB_PIN* aPin, OUTPUTFORMATTER& aFormatter,
                                       int aNestLevel )
 {
     wxCHECK_RET( aPin && aPin->Type() == LIB_PIN_T, "Invalid LIB_PIN object." );
@@ -1971,8 +1991,7 @@ void SCH_SEXPR_PLUGIN_CACHE::savePin( LIB_PIN* aPin,
 }
 
 
-void SCH_SEXPR_PLUGIN_CACHE::savePolyLine( LIB_POLYLINE* aPolyLine,
-                                           OUTPUTFORMATTER& aFormatter,
+void SCH_SEXPR_PLUGIN_CACHE::savePolyLine( LIB_POLYLINE* aPolyLine, OUTPUTFORMATTER& aFormatter,
                                            int aNestLevel )
 {
     wxCHECK_RET( aPolyLine && aPolyLine->Type() == LIB_POLYLINE_T, "Invalid LIB_POLYLINE object." );
@@ -2069,7 +2088,7 @@ void SCH_SEXPR_PLUGIN_CACHE::DeleteSymbol( const wxString& aSymbolName )
     {
         LIB_SYMBOL* rootSymbol = symbol;
 
-        // Remove the root symbol and all it's children.
+        // Remove the root symbol and all its children.
         m_symbols.erase( it );
 
         LIB_SYMBOL_MAP::iterator it1 = m_symbols.begin();
@@ -2110,10 +2129,10 @@ void SCH_SEXPR_PLUGIN::cacheLib( const wxString& aLibraryFileName, const PROPERT
         delete m_cache;
         m_cache = new SCH_SEXPR_PLUGIN_CACHE( aLibraryFileName );
 
-        // Because m_cache is rebuilt, increment PART_LIBS::s_modify_generation
+        // Because m_cache is rebuilt, increment SYMBOL_LIBS::s_modify_generation
         // to modify the hash value that indicate symbol to symbol links
         // must be updated.
-        PART_LIBS::IncrementModifyGeneration();
+        SYMBOL_LIBS::IncrementModifyGeneration();
 
         if( !isBuffering( aProperties ) )
             m_cache->Load();
@@ -2228,9 +2247,8 @@ void SCH_SEXPR_PLUGIN::CreateSymbolLib( const wxString& aLibraryPath,
 {
     if( wxFileExists( aLibraryPath ) )
     {
-        THROW_IO_ERROR( wxString::Format(
-            _( "symbol library \"%s\" already exists, cannot create a new library" ),
-            aLibraryPath.GetData() ) );
+        THROW_IO_ERROR( wxString::Format( _( "Symbol library '%s' already exists." ),
+                                          aLibraryPath.GetData() ) );
     }
 
     LOCALE_IO toggle;
@@ -2255,7 +2273,7 @@ bool SCH_SEXPR_PLUGIN::DeleteSymbolLib( const wxString& aLibraryPath,
     // we don't want that.  we want bare metal portability with no UI here.
     if( wxRemove( aLibraryPath ) )
     {
-        THROW_IO_ERROR( wxString::Format( _( "library \"%s\" cannot be deleted" ),
+        THROW_IO_ERROR( wxString::Format( _( "Symbol library '%s' cannot be deleted." ),
                                           aLibraryPath.GetData() ) );
     }
 
@@ -2311,7 +2329,7 @@ bool SCH_SEXPR_PLUGIN::IsSymbolLibWritable( const wxString& aLibraryPath )
 }
 
 
-LIB_SYMBOL* SCH_SEXPR_PLUGIN::ParsePart( LINE_READER& aReader, int aFileVersion )
+LIB_SYMBOL* SCH_SEXPR_PLUGIN::ParseLibSymbol( LINE_READER& aReader, int aFileVersion )
 {
     LOCALE_IO toggle;     // toggles on, then off, the C locale.
     LIB_SYMBOL_MAP map;
@@ -2324,7 +2342,7 @@ LIB_SYMBOL* SCH_SEXPR_PLUGIN::ParsePart( LINE_READER& aReader, int aFileVersion 
 }
 
 
-void SCH_SEXPR_PLUGIN::FormatPart( LIB_SYMBOL* symbol, OUTPUTFORMATTER & formatter )
+void SCH_SEXPR_PLUGIN::FormatLibSymbol( LIB_SYMBOL* symbol, OUTPUTFORMATTER & formatter )
 {
 
     LOCALE_IO toggle;     // toggles on, then off, the C locale.

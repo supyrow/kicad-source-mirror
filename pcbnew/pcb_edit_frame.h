@@ -40,6 +40,7 @@ class PCB_TARGET;
 class PCB_GROUP;
 class PCB_DIMENSION_BASE;
 class DRC;
+class DIALOG_FIND;
 class DIALOG_PLOT;
 class ZONE;
 class GENERAL_COLLECTOR;
@@ -121,6 +122,16 @@ public:
     void KiwayMailIn( KIWAY_EXPRESS& aEvent ) override;
 
     /**
+     * Show the Find dialog.
+     */
+    void ShowFindDialog();
+
+    /**
+     * Find the next item using our existing search parameters.
+     */
+    void FindNext();
+
+    /**
      * Open a dialog frame to create plot and drill files relative to the current board.
      */
     void ToPlotter( int aID );
@@ -148,9 +159,9 @@ public:
     COLOR4D GetGridColor() override;
 
     /**
-     * @param aColor the new color of the grid.
+     * @param[in] aColor the new color of the grid.
      */
-    void SetGridColor( COLOR4D aColor ) override;
+    void SetGridColor( const COLOR4D& aColor ) override;
 
     // Configurations:
     void Process_Config( wxCommandEvent& event );
@@ -282,17 +293,19 @@ public:
      *
      * @param aFullFileName the full file name of the file to create.
      * @param aUnitsMM false to use inches, true to use mm in coordinates.
-     * @param aForceSmdItems true to force all footprints with smd pads in list,
-     *                       false to put only footprints with option "INSERT" in list
+     * @param aOnlySMD true to force only footprints flagged smd to be in the list
+     * @param aNoTHItems true to include only footprints with no TH pads no matter
+     *                   the footprint flag
      * @param aTopSide true to list footprints on front (top) side.
      * @param aBottomSide true to list footprints on back (bottom) side, if \a aTopSide and
      *                    \a aTopSide are true, list footprints on both sides.
      * @param aFormatCSV true to use a comma separated file (CSV) format; default = false
+     * @param aUseAuxOrigin true to use auxiliary axis as an origin for the position data
      * @return the number of footprints found on aSide side or -1 if the file could not be created.
      */
-    int DoGenFootprintsPositionFile( const wxString& aFullFileName, bool aUnitsMM,
-                                     bool aForceSmdItems, bool aTopSide, bool aBottomSide,
-                                     bool aFormatCSV = false );
+    int DoGenFootprintsPositionFile( const wxString& aFullFileName, bool aUnitsMM, bool aOnlySMD,
+                                     bool aNoTHItems, bool aTopSide, bool aBottomSide,
+                                     bool aFormatCSV, bool aUseAuxOrigin );
 
     /**
      * Call #DoGenFootprintsReport to create a footprint report file
@@ -412,7 +425,7 @@ public:
      *                 \a aStoreInNewLib as true.
      */
     void ExportFootprintsToLibrary( bool aStoreInNewLib, const wxString& aLibName = wxEmptyString,
-                                    wxString* aLibPath = NULL );
+                                    wxString* aLibPath = nullptr );
 
     /**
      * Create a BOM file from the current loaded board.
@@ -581,7 +594,7 @@ public:
      * @param aReporter is a #REPORTER object to display messages.
      * @return true if the netlist was read successfully.
      */
-    bool ReadNetlistFromFile( const wxString &aFilename, NETLIST& aNetlist, REPORTER& aReporter );
+    bool ReadNetlistFromFile( const wxString& aFilename, NETLIST& aNetlist, REPORTER& aReporter );
 
     /**
      * Called after netlist is updated.
@@ -707,25 +720,6 @@ protected:
      */
     void OnActionPluginButton( wxCommandEvent& aEvent );
 
-
-    /**
-     * Has meaning only if KICAD_SCRIPTING_WXPYTHON option is not defined.
-     *
-     * @return the frame name identifier for the python console frame.
-     */
-    static const wxChar * pythonConsoleNameId()
-    {
-        return wxT( "PythonConsole" );
-    }
-
-    /**
-     * @return a pointer to the python console frame, or NULL if not exist
-     */
-    static wxWindow * findPythonConsole()
-    {
-       return FindWindowByName( pythonConsoleNameId() );
-    }
-
     /**
      * Update the state of the GUI after a new board is loaded or created.
      */
@@ -784,6 +778,8 @@ private:
      * option.
      */
     TOOL_ACTION* m_exportNetlistAction;
+
+    DIALOG_FIND* m_findDialog;
 };
 
 #endif  // __PCB_EDIT_FRAME_H__

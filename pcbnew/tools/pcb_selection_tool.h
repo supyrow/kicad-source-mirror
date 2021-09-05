@@ -123,6 +123,14 @@ public:
     void UnbrightenItem( BOARD_ITEM* aItem );
 
     /**
+     * Handle finding an item. Does not do the actual searching, is called
+     * by the find dialog.
+     *
+     * @param aItem Item that was found and needs to be handled.
+     */
+    void FindItem( BOARD_ITEM* aItem );
+
+    /**
      * Take necessary action mark an item as selected.
      *
      * @param aItem is an item to be selected.
@@ -220,8 +228,8 @@ private:
      * @return True if an item was selected, false otherwise.
      */
     bool selectPoint( const VECTOR2I& aWhere, bool aOnDrag = false,
-                      bool* aSelectionCancelledFlag = NULL,
-                      CLIENT_SELECTION_FILTER aClientFilter = NULL );
+                      bool* aSelectionCancelledFlag = nullptr,
+                      CLIENT_SELECTION_FILTER aClientFilter = nullptr );
 
     /**
      * Select an item under the cursor unless there is something already selected or
@@ -232,7 +240,7 @@ private:
      * @return true if eventually there is an item selected, false otherwise.
      */
     bool selectCursor( bool aForceSelect = false,
-                       CLIENT_SELECTION_FILTER aClientFilter = NULL );
+                       CLIENT_SELECTION_FILTER aClientFilter = nullptr );
 
     /**
      * Handle drawing a selection box that allows one to select many items at the same time.
@@ -304,12 +312,6 @@ private:
     ///< Select all footprints belonging to same hierarchical sheet as the selected footprint
     ///< (same sheet path).
     int selectSameSheet( const TOOL_EVENT& aEvent );
-
-    ///< Find dialog callback.
-    void findCallback( BOARD_ITEM* aItem );
-
-    ///< Find an item.
-    int find( const TOOL_EVENT& aEvent );
 
     ///< Invoke filter dialog and modify current selection
     int filterSelection( const TOOL_EVENT& aEvent );

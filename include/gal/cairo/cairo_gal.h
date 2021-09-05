@@ -104,7 +104,7 @@ public:
         drawPoly( aPointList, aListSize );
     }
 
-    void DrawPolygon( const SHAPE_POLY_SET& aPolySet ) override;
+    void DrawPolygon( const SHAPE_POLY_SET& aPolySet, bool aStrokeTriangulation = false ) override;
     void DrawPolygon( const SHAPE_LINE_CHAIN& aPolySet ) override;
 
     /// @copydoc GAL::DrawCurve()
@@ -310,7 +310,7 @@ protected:
     };
 
     /// Type definition for an graphics group element
-    typedef struct
+    struct GROUP_ELEMENT
     {
         GRAPHICS_COMMAND m_Command;                 ///< Command to execute
         union {
@@ -319,7 +319,7 @@ protected:
             int    IntArg = 0;                      ///< An int argument
         }                m_Argument;
         cairo_path_t*    m_CairoPath = nullptr;     ///< Pointer to a Cairo path
-    } GROUP_ELEMENT;
+    };
 
     typedef std::deque<GROUP_ELEMENT> GROUP;        ///< A graphic group type definition
 
@@ -388,6 +388,18 @@ public:
     RENDER_TARGET GetTarget() const override;
 
     void ClearTarget( RENDER_TARGET aTarget ) override;
+
+    /// @copydoc GAL::StartDiffLayer()
+    void StartDiffLayer() override;
+
+    /// @copydoc GAL::EndDiffLayer()
+    void EndDiffLayer() override;
+
+    /// @copydoc GAL::StartNegativesLayer()
+    void StartNegativesLayer() override;
+
+    /// @copydoc GAL::EndNegativesLayer()
+    void EndNegativesLayer() override;
 
     /**
      * Post an event to m_paint_listener.
@@ -461,6 +473,8 @@ protected:
     std::shared_ptr<CAIRO_COMPOSITOR> m_compositor;  ///< Object for layers compositing
     unsigned int        m_mainBuffer;          ///< Handle to the main buffer
     unsigned int        m_overlayBuffer;       ///< Handle to the overlay buffer
+    unsigned int        m_tempBuffer;          ///< Handle to the temp buffer
+    unsigned int        m_savedBuffer;         ///< Handle to buffer to restore after rendering to temp buffer
     RENDER_TARGET       m_currentTarget;       ///< Current rendering target
     bool                m_validCompositor;     ///< Compositor initialization flag
 

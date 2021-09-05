@@ -187,20 +187,23 @@ public:
     VALUE() :
         m_type( VT_UNDEFINED ),
         m_valueDbl( 0 ),
-        m_stringIsWildcard( false )
+        m_stringIsWildcard( false ),
+        m_isDeferredDbl( false )
     {};
 
     VALUE( const wxString& aStr, bool aIsWildcard = false ) :
         m_type( VT_STRING ),
         m_valueDbl( 0 ),
         m_valueStr( aStr ),
-        m_stringIsWildcard( aIsWildcard )
+        m_stringIsWildcard( aIsWildcard ),
+        m_isDeferredDbl( false )
     {};
 
     VALUE( const double aVal ) :
         m_type( VT_NUMERIC ),
         m_valueDbl( aVal ),
-        m_stringIsWildcard( false )
+        m_stringIsWildcard( false ),
+        m_isDeferredDbl( false )
     {};
 
     virtual ~VALUE()
@@ -208,6 +211,12 @@ public:
 
     virtual double AsDouble() const
     {
+        if( m_isDeferredDbl )
+        {
+            m_valueDbl = m_lambdaDbl();
+            m_isDeferredDbl = false;
+        }
+
         return m_valueDbl;
     }
 
@@ -216,10 +225,10 @@ public:
         return m_valueStr;
     }
 
-    virtual bool EqualTo( const VALUE* b ) const;
+    virtual bool EqualTo( CONTEXT* aCtx, const VALUE* b ) const;
 
     // NB: this is not an inverse of EqualTo as they both return false for undefined values.
-    virtual bool NotEqualTo( const VALUE* b ) const;
+    virtual bool NotEqualTo( CONTEXT* aCtx, const VALUE* b ) const;
 
     VAR_TYPE_T GetType() const { return m_type; };
 
@@ -227,6 +236,13 @@ public:
     {
         m_type = VT_NUMERIC;
         m_valueDbl = aValue;
+    }
+
+    void SetDeferredEval( std::function<double()> aLambda )
+    {
+        m_type = VT_NUMERIC;
+        m_lambdaDbl = aLambda;
+        m_isDeferredDbl = true;
     }
 
     void Set( const wxString& aValue )
@@ -245,10 +261,13 @@ public:
     }
 
 private:
-    VAR_TYPE_T  m_type;
-    double      m_valueDbl;
-    wxString    m_valueStr;
-    bool        m_stringIsWildcard;
+    VAR_TYPE_T     m_type;
+    mutable double m_valueDbl;
+    wxString       m_valueStr;
+    bool           m_stringIsWildcard;
+
+    mutable bool            m_isDeferredDbl;
+    std::function<double()> m_lambdaDbl;
 };
 
 class VAR_REF
@@ -274,15 +293,12 @@ public:
 
     virtual ~CONTEXT()
     {
-        for( VALUE* value : m_ownedValues )
-            delete value;
     }
 
     VALUE* AllocValue()
     {
-        VALUE* value = new VALUE();
-        m_ownedValues.push_back( value );
-        return value;
+        m_ownedValues.emplace_back();
+        return &m_ownedValues.back();
     }
 
     void Push( VALUE* v )
@@ -316,7 +332,7 @@ public:
     void ReportError( const wxString& aErrorMsg );
 
 private:
-    std::vector<VALUE*> m_ownedValues;
+    std::vector<VALUE>  m_ownedValues;
     VALUE*              m_stack[100];       // std::stack not performant enough
     int                 m_stackPtr;
 

@@ -27,7 +27,7 @@
 
 #include <wx/bmpcbox.h>
 #include <gal/color4d.h>
-#include <layers_id_colors_and_visibility.h>
+#include <layer_ids.h>
 
 using KIGFX::COLOR4D;
 
@@ -46,7 +46,8 @@ public:
     bool SetLayersHotkeys( bool value );
 
     // Fill the layer bitmap aLayerbmp with the layer color
-    static void DrawColorSwatch( wxBitmap& aLayerbmp, COLOR4D aBackground, COLOR4D aColor );
+    static void DrawColorSwatch( wxBitmap& aLayerbmp, const COLOR4D& aBackground,
+                                 const COLOR4D& aColor );
 
 protected:
     // Return a color index from the layer id
@@ -71,7 +72,7 @@ public:
     LAYER_BOX_SELECTOR( wxWindow* parent, wxWindowID id,
                         const wxPoint& pos = wxDefaultPosition,
                         const wxSize& size = wxDefaultSize,
-                        int n = 0, const wxString choices[] = NULL );
+                        int n = 0, const wxString choices[] = nullptr );
 
     LAYER_BOX_SELECTOR( wxWindow* parent, wxWindowID id,
                         const wxPoint& pos, const wxSize& size,

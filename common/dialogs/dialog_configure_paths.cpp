@@ -2,7 +2,7 @@
  * This program source code file is part of KICAD, a free EDA CAD application.
  *
  * Copyright (C) 2015 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 2015-2018 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2015-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -71,7 +71,7 @@ DIALOG_CONFIGURE_PATHS::DIALOG_CONFIGURE_PATHS( wxWindow* aParent, FILENAME_RESO
     m_btnMoveUp->SetBitmap( KiBitmap( BITMAPS::small_up ) );
     m_btnMoveDown->SetBitmap( KiBitmap( BITMAPS::small_down ) );
 
-    m_EnvVars->DeleteRows( 0, m_EnvVars->GetNumberRows() );
+    m_EnvVars->ClearRows();
     m_EnvVars->AppendCols( 1 );     // for the isExternal flags
     m_EnvVars->HideCol( TV_FLAG_COL );
     m_EnvVars->UseNativeColHeader( true );
@@ -96,7 +96,7 @@ DIALOG_CONFIGURE_PATHS::DIALOG_CONFIGURE_PATHS( wxWindow* aParent, FILENAME_RESO
 
     if( m_resolver )
     {
-        m_SearchPaths->DeleteRows( 0, m_SearchPaths->GetNumberRows() );
+        m_SearchPaths->ClearRows();
         m_SearchPaths->UseNativeColHeader( true );
 
         // prohibit these characters in the alias names: []{}()%~<>"='`;:.,&?/\|$
@@ -110,8 +110,12 @@ DIALOG_CONFIGURE_PATHS::DIALOG_CONFIGURE_PATHS( wxWindow* aParent, FILENAME_RESO
     m_sdbSizerOK->SetDefault();
 
     // wxFormBuilder doesn't include this event...
-    m_EnvVars->Connect( wxEVT_GRID_CELL_CHANGING, wxGridEventHandler( DIALOG_CONFIGURE_PATHS::OnGridCellChanging ), NULL, this );
-    m_SearchPaths->Connect( wxEVT_GRID_CELL_CHANGING, wxGridEventHandler( DIALOG_CONFIGURE_PATHS::OnGridCellChanging ), NULL, this );
+    m_EnvVars->Connect( wxEVT_GRID_CELL_CHANGING,
+                        wxGridEventHandler( DIALOG_CONFIGURE_PATHS::OnGridCellChanging ),
+                        nullptr, this );
+    m_SearchPaths->Connect( wxEVT_GRID_CELL_CHANGING,
+                            wxGridEventHandler( DIALOG_CONFIGURE_PATHS::OnGridCellChanging ),
+                            nullptr, this );
 
     GetSizer()->SetSizeHints( this );
     Centre();
@@ -127,8 +131,12 @@ DIALOG_CONFIGURE_PATHS::~DIALOG_CONFIGURE_PATHS()
     if( m_helpDialog )
         m_helpDialog->Destroy();
 
-    m_EnvVars->Disconnect( wxEVT_GRID_CELL_CHANGING, wxGridEventHandler( DIALOG_CONFIGURE_PATHS::OnGridCellChanging ), NULL, this );
-    m_SearchPaths->Disconnect( wxEVT_GRID_CELL_CHANGING, wxGridEventHandler( DIALOG_CONFIGURE_PATHS::OnGridCellChanging ), NULL, this );
+    m_EnvVars->Disconnect( wxEVT_GRID_CELL_CHANGING,
+                           wxGridEventHandler( DIALOG_CONFIGURE_PATHS::OnGridCellChanging ),
+                           nullptr, this );
+    m_SearchPaths->Disconnect( wxEVT_GRID_CELL_CHANGING,
+                               wxGridEventHandler( DIALOG_CONFIGURE_PATHS::OnGridCellChanging ),
+                               nullptr, this );
 }
 
 
@@ -185,7 +193,7 @@ void DIALOG_CONFIGURE_PATHS::AppendEnvVar( const wxString& aName, const wxString
     wxGridCellTextEditor* nameTextEditor = new GRID_CELL_TEXT_EDITOR();
     nameTextEditor->SetValidator( ENV_VAR_NAME_VALIDATOR() );
     nameCellAttr->SetEditor( nameTextEditor );
-    nameCellAttr->SetReadOnly( IsEnvVarImmutable( aName ) );
+    nameCellAttr->SetReadOnly( ENV_VAR::IsEnvVarImmutable( aName ) );
     nameCellAttr->DecRef();
 
     m_EnvVars->SetCellValue( i, TV_VALUE_COL, aPath );
@@ -200,7 +208,7 @@ void DIALOG_CONFIGURE_PATHS::AppendEnvVar( const wxString& aName, const wxString
 
 
 void DIALOG_CONFIGURE_PATHS::AppendSearchPath( const wxString& aName, const wxString& aPath,
-                                          const wxString& aDescription )
+                                               const wxString& aDescription )
 {
     int i = m_SearchPaths->GetNumberRows();
 
@@ -330,6 +338,7 @@ void DIALOG_CONFIGURE_PATHS::OnGridCellChanging( wxGridEvent& event )
             else
                 m_errorMsg = _( "3D search path cannot be empty." );
         }
+
         m_errorGrid = dynamic_cast<wxGrid*>( event.GetEventObject() );
         m_errorRow = row;
         m_errorCol = col;
@@ -339,7 +348,8 @@ void DIALOG_CONFIGURE_PATHS::OnGridCellChanging( wxGridEvent& event )
 
     if( grid == m_EnvVars )
     {
-        if( col == TV_VALUE_COL && m_EnvVars->GetCellValue( row, TV_FLAG_COL ).Length() )
+        if( col == TV_VALUE_COL && m_EnvVars->GetCellValue( row, TV_FLAG_COL ).Length()
+                && !Pgm().GetCommonSettings()->m_DoNotShowAgain.env_var_overwrite_warning )
         {
             wxString msg1 = _( "This path was defined  externally to the running process and\n"
                                "will only be temporarily overwritten." );
@@ -352,18 +362,23 @@ void DIALOG_CONFIGURE_PATHS::OnGridCellChanging( wxGridEvent& event )
             dlg.ShowDetailedText( msg2 );
             dlg.DoNotShowCheckbox( __FILE__, __LINE__ );
             dlg.ShowModal();
+
+            if( dlg.DoNotShowAgain() )
+                Pgm().GetCommonSettings()->m_DoNotShowAgain.env_var_overwrite_warning = true;
         }
         else if( col == TV_NAME_COL && m_EnvVars->GetCellValue( row, TV_NAME_COL ) != text )
         {
-            if( text == PROJECT_VAR_NAME )    // This env var name is reserved and cannot be added here:
+            // This env var name is reserved and cannot be added here.
+            if( text == PROJECT_VAR_NAME )
             {
-                wxMessageBox( wxString::Format(
-                              _( "The name %s is reserved, and cannot be used here" ),
+                wxMessageBox( wxString::Format( _( "The name %s is reserved, and cannot be used." ),
                               PROJECT_VAR_NAME ) );
                 event.Veto();
             }
             else    // Changing name; clear external flag
+            {
                 m_EnvVars->SetCellValue( row, TV_FLAG_COL, wxEmptyString );
+            }
         }
     }
 }
@@ -405,7 +420,7 @@ void DIALOG_CONFIGURE_PATHS::OnRemoveEnvVar( wxCommandEvent& event )
 
     if( curRow < 0 || m_EnvVars->GetNumberRows() <= curRow )
         return;
-    else if( IsEnvVarImmutable( m_EnvVars->GetCellValue( curRow, TV_NAME_COL ) ) )
+    else if( ENV_VAR::IsEnvVarImmutable( m_EnvVars->GetCellValue( curRow, TV_NAME_COL ) ) )
     {
         wxBell();
         return;
@@ -432,7 +447,8 @@ void DIALOG_CONFIGURE_PATHS::OnDeleteSearchPath( wxCommandEvent& event )
     // if there are still rows in grid, make previous row visible
     if( m_SearchPaths->GetNumberRows() )
     {
-        m_SearchPaths->MakeCellVisible( std::max( 0, curRow-1 ), m_SearchPaths->GetGridCursorCol() );
+        m_SearchPaths->MakeCellVisible( std::max( 0, curRow-1 ),
+                                        m_SearchPaths->GetGridCursorCol() );
         m_SearchPaths->SetGridCursor( std::max( 0, curRow-1 ), m_SearchPaths->GetGridCursorCol() );
     }
 }
@@ -458,7 +474,9 @@ void DIALOG_CONFIGURE_PATHS::OnSearchPathMoveUp( wxCommandEvent& event )
         m_SearchPaths->SetGridCursor( prevRow, m_SearchPaths->GetGridCursorCol() );
     }
     else
+    {
         wxBell();
+    }
 }
 
 
@@ -482,7 +500,9 @@ void DIALOG_CONFIGURE_PATHS::OnSearchPathMoveDown( wxCommandEvent& event )
         m_SearchPaths->SetGridCursor( nextRow, m_SearchPaths->GetGridCursorCol() );
     }
     else
+    {
         wxBell();
+    }
 }
 
 
@@ -495,6 +515,7 @@ void DIALOG_CONFIGURE_PATHS::OnGridCellRightClick( wxGridEvent& aEvent )
         wxMenu menu;
 
         AddMenuItem( &menu, 1, _( "File Browser..." ), KiBitmap( BITMAPS::small_folder ) );
+
         if( GetPopupMenuSelectionFromUser( menu ) == 1 )
         {
             wxDirDialog dlg( nullptr, _( "Select Path" ), m_curdir,
@@ -525,13 +546,16 @@ void DIALOG_CONFIGURE_PATHS::OnUpdateUI( wxUpdateUIEvent& event )
         width = m_SearchPaths->GetClientRect().GetWidth();
 
         m_SearchPaths->AutoSizeColumn( SP_ALIAS_COL );
-        m_SearchPaths->SetColSize( SP_ALIAS_COL, std::max( m_SearchPaths->GetColSize( SP_ALIAS_COL ), 120 ) );
+        m_SearchPaths->SetColSize( SP_ALIAS_COL,
+                                   std::max( m_SearchPaths->GetColSize( SP_ALIAS_COL ), 120 ) );
 
         m_SearchPaths->AutoSizeColumn( SP_PATH_COL );
-        m_SearchPaths->SetColSize( SP_PATH_COL, std::max( m_SearchPaths->GetColSize( SP_PATH_COL ), 300 ) );
+        m_SearchPaths->SetColSize( SP_PATH_COL,
+                                   std::max( m_SearchPaths->GetColSize( SP_PATH_COL ), 300 ) );
 
-        m_SearchPaths->SetColSize( SP_DESC_COL, width - ( m_SearchPaths->GetColSize( SP_ALIAS_COL )
-                                                          + m_SearchPaths->GetColSize( SP_PATH_COL ) ) );
+        m_SearchPaths->SetColSize( SP_DESC_COL, width -
+                                   ( m_SearchPaths->GetColSize( SP_ALIAS_COL ) +
+                                     m_SearchPaths->GetColSize( SP_PATH_COL ) ) );
         m_gridWidth = m_EnvVars->GetSize().GetX();
         m_gridWidthsDirty = false;
     }
@@ -586,11 +610,11 @@ void DIALOG_CONFIGURE_PATHS::OnHelp( wxCommandEvent& event )
               "will only accept upper case letters, digits, and the underscore characters." );
     msg << "</b>";
 
-    for( const auto& var: GetPredefinedEnvVars() )
+    for( const auto& var : ENV_VAR::GetPredefinedEnvVars() )
     {
         msg << "<br><br><b>" << var << "</b>";
 
-        const auto desc = LookUpEnvVarHelp( var );
+        const auto desc = ENV_VAR::LookUpEnvVarHelp( var );
 
         if( desc.size() > 0 )
             msg << ": " << desc;

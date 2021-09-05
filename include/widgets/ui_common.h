@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2018 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2018-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -26,7 +26,9 @@
 #ifndef UI_COMMON_H
 #define UI_COMMON_H
 
+#include "report_severity.h"      // enum SEVERITY
 #include <wx/string.h>
+#include <wx/font.h>
 
 class wxSize;
 class wxTextCtrl;
@@ -48,6 +50,10 @@ int GetStdMargin();
  */
 wxSize GetTextSize( const wxString& aSingleLine, wxWindow* aWindow );
 
+wxFont GetMonospacedUIFont();
+
+wxFont GetInfoFont();
+
 /**
  * Set the minimum pixel width on a text control in order to make a text
  * string be fully visible within it.
@@ -60,9 +66,9 @@ wxSize GetTextSize( const wxString& aSingleLine, wxWindow* aWindow );
  * @param aString the text that is used in sizing the control's pixel width.
  * If NULL, then
  *   the text already within the control is used.
- * @return bool - true if the \a aCtrl had its size changed, else false.
+ * @return true if the \a aCtrl had its size changed, else false.
  */
-bool EnsureTextCtrlWidth( wxTextCtrl* aCtrl, const wxString* aString = NULL );
+bool EnsureTextCtrlWidth( wxTextCtrl* aCtrl, const wxString* aString = nullptr );
 
 /**
  * Select the number (or "?") in a reference for ease of editing.
@@ -70,25 +76,24 @@ bool EnsureTextCtrlWidth( wxTextCtrl* aCtrl, const wxString* aString = NULL );
 void SelectReferenceNumber( wxTextEntry* aTextEntry );
 
 /**
- * Checks if a input control has focus
+ * Check if a input control has focus.
+ *
+ * @param aFocus Control that has focus, if null, wxWidgets will be queried
  */
-bool IsInputControlFocused();
+bool IsInputControlFocused( wxWindow* aFocus = nullptr );
+
+/**
+ * Check if a input control has focus.
+ *
+ * @param aFocus Control that test if editable
+ * @return True if control is input and editable OR control is not a input. False if control is
+ *         input and not editable.
+ */
+bool IsInputControlEditable( wxWindow* aControl );
 
 bool IsModalDialogFocused();
 
 }
-
-// Note: On windows, SEVERITY_ERROR collides with a system declaration,
-// so we used RPT_SEVERITY _xxx instead of SEVERITY _xxx
-enum SEVERITY {
-    RPT_SEVERITY_UNDEFINED = 0x00,
-    RPT_SEVERITY_INFO      = 0x01,
-    RPT_SEVERITY_EXCLUSION = 0x02,
-    RPT_SEVERITY_ACTION    = 0x04,
-    RPT_SEVERITY_WARNING   = 0x08,
-    RPT_SEVERITY_ERROR     = 0x10,
-    RPT_SEVERITY_IGNORE    = 0x20
-};
 
 SEVERITY SeverityFromString( const wxString& aSeverity );
 

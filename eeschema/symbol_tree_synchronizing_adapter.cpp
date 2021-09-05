@@ -27,6 +27,7 @@
 #include <symbol_library_manager.h>
 #include <symbol_lib_table.h>
 #include <tools/symbol_editor_control.h>
+#include <string_utils.h>
 
 
 wxObjectDataPtr<LIB_TREE_MODEL_ADAPTER>
@@ -158,10 +159,10 @@ void SYMBOL_TREE_SYNCHRONIZING_ADAPTER::updateLibrary( LIB_TREE_NODE_LIB& aLibNo
         for( auto nodeIt = aLibNode.m_Children.begin(); nodeIt != aLibNode.m_Children.end(); /**/ )
         {
             auto aliasIt = std::find_if( aliases.begin(), aliases.end(),
-                                         [&] ( const LIB_SYMBOL* a )
-                                         {
-                                             return a->GetName() == (*nodeIt)->m_Name;
-                                         } );
+                    [&] ( const LIB_SYMBOL* a )
+                    {
+                        return a->GetName() == (*nodeIt)->m_LibId.GetLibItemName();
+                    } );
 
             if( aliasIt != aliases.end() )
             {
@@ -213,13 +214,13 @@ void SYMBOL_TREE_SYNCHRONIZING_ADAPTER::GetValue( wxVariant& aVariant, wxDataVie
     switch( aCol )
     {
     case 0:
-        if( m_frame->GetCurPart() && m_frame->GetCurPart()->GetLibId() == node->m_LibId )
-            node->m_Name = m_frame->GetCurPart()->GetLibId().GetLibItemName();
+        if( m_frame->GetCurSymbol() && m_frame->GetCurSymbol()->GetLibId() == node->m_LibId )
+            node->m_Name = m_frame->GetCurSymbol()->GetLibId().GetLibItemName();
 
         if( node->m_Pinned )
-            aVariant = GetPinningSymbol() + node->m_Name;
+            aVariant = GetPinningSymbol() + UnescapeString( node->m_Name );
         else
-            aVariant = node->m_Name;
+            aVariant = UnescapeString( node->m_Name );
 
         // mark modified items with an asterisk
         if( node->m_Type == LIB_TREE_NODE::LIB )
@@ -229,16 +230,16 @@ void SYMBOL_TREE_SYNCHRONIZING_ADAPTER::GetValue( wxVariant& aVariant, wxDataVie
         }
         else if( node->m_Type == LIB_TREE_NODE::LIBID )
         {
-            if( m_libMgr->IsPartModified( node->m_Name, node->m_Parent->m_Name ) )
+            if( m_libMgr->IsSymbolModified( node->m_Name, node->m_Parent->m_Name ) )
                 aVariant = aVariant.GetString() + " *";
         }
 
         break;
 
     case 1:
-        if( m_frame->GetCurPart() && m_frame->GetCurPart()->GetLibId() == node->m_LibId )
+        if( m_frame->GetCurSymbol() && m_frame->GetCurSymbol()->GetLibId() == node->m_LibId )
         {
-            node->m_Desc = m_frame->GetCurPart()->GetDescription();
+            node->m_Desc = m_frame->GetCurSymbol()->GetDescription();
         }
         else if( node->m_Type == LIB_TREE_NODE::LIB )
         {
@@ -287,7 +288,7 @@ bool SYMBOL_TREE_SYNCHRONIZING_ADAPTER::GetAttr( wxDataViewItem const& aItem, un
     if( aCol != 0 )
         return false;
 
-    LIB_SYMBOL* curSymbol = m_frame->GetCurPart();
+    LIB_SYMBOL* curSymbol = m_frame->GetCurSymbol();
 
     switch( node->m_Type )
     {
@@ -311,7 +312,7 @@ bool SYMBOL_TREE_SYNCHRONIZING_ADAPTER::GetAttr( wxDataViewItem const& aItem, un
 
     case LIB_TREE_NODE::LIBID:
         // mark modified part with bold font
-        aAttr.SetBold( m_libMgr->IsPartModified( node->m_Name, node->m_Parent->m_Name ) );
+        aAttr.SetBold( m_libMgr->IsSymbolModified( node->m_Name, node->m_Parent->m_Name ) );
 
         // mark aliases with italic font
         aAttr.SetItalic( !node->m_IsRoot );

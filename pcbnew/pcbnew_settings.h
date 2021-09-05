@@ -104,6 +104,8 @@ public:
         double origin_x;
         double origin_y;
         bool   no_virtual;
+        bool   replace_models;
+        bool   overwrite_file;
     };
 
     struct DIALOG_EXPORT_SVG
@@ -175,6 +177,7 @@ public:
         int  file_options;
         int  file_format;
         bool include_board_edge;
+        bool use_aux_origin;
     };
 
     struct DIALOG_PLOT
@@ -217,7 +220,6 @@ public:
     struct ZONES
     {
         int         hatching_style;
-        wxString    net_filter;
         int         net_sort_mode;
         double      clearance;
         double      min_thickness;

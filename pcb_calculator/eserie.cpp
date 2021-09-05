@@ -19,12 +19,9 @@
  * with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <vector>
 #include <array>
-#include <iostream>
-#include <string>
 
-#include <dialog_helpers.h>
+#include <string_utils.h>
 #include "class_regulator_data.h"
 #include "pcb_calculator_frame.h"
 
@@ -138,7 +135,7 @@ void eserie::NewCalc( void )
         i.e_use = false;                // no combinations and no results are available
 
     for( r_data& i : luts[m_series])
-        i.e_use = true;                 // all selecte E-values available
+        i.e_use = true;                 // all selected E-values available
 }
 
 

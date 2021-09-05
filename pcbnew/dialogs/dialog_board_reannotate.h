@@ -29,7 +29,7 @@
 #include <board.h>
 #include <footprint.h>
 #include <dialogs/dialog_board_reannotate_base.h>
-#include <layers_id_colors_and_visibility.h>
+#include <layer_ids.h>
 #include <netlist_reader/pcb_netlist.h>
 #include <pcb_base_frame.h>
 #include <pcb_edit_frame.h>
@@ -92,7 +92,8 @@ struct RefDesInfo
 struct RefDesTypeStr
 {
     wxString     RefDesType;
-    unsigned int RefDesCount;
+    unsigned int LastUsedRefDes;
+    std::set<unsigned int> UnavailableRefs;
 };
 
 
@@ -143,7 +144,7 @@ private:
     void FilterBackPrefix( wxCommandEvent& event ) override;
 
     /// Break report into strings separated by \n and sent to the reporter.
-    void ShowReport( wxString aMessage, SEVERITY aSeverity );
+    void ShowReport( const wxString& aMessage, SEVERITY aSeverity );
 
 	/// Create a list of the footprints and their coordinates.
     void LogFootprints( const wxString& aMessage, const std::vector<RefDesInfo>& aFootprints );
@@ -159,9 +160,12 @@ private:
     /// @return true if success, false if errors
     bool BuildFootprintList( std::vector<RefDesInfo>& aBadRefDes );
 
+    /// Build list of unavailable references. E.g. unselected footprints or locked footprints.
+    void BuildUnavailableRefsList();
+
     /// Scan through the footprint arrays and create the from -> to array.
     void BuildChangeArray( std::vector<RefDesInfo>& aFootprints, unsigned int aStartRefDes,
-                           wxString aPrefix, bool aRemovePrefix,
+                           const wxString& aPrefix, bool aRemovePrefix,
                            std::vector<RefDesInfo>& aBadRefDes );
 
     /// @return the new reference for this footprint.
@@ -179,6 +183,10 @@ private:
 
     /// Check to make sure the prefix (if there is one) is properly constructed.
     void FilterPrefix( wxTextCtrl* aPrefix );
+
+    /// Get the structure representing the information currently held for aRefDesPrefix or create one
+    /// if it doesn't exist
+    RefDesTypeStr* GetOrBuildRefDesInfo( const wxString& aRefDesPrefix, unsigned int aStartRefDes = 0 );
 
     PCB_EDIT_FRAME*  m_frame;
     FOOTPRINTS       m_footprints;

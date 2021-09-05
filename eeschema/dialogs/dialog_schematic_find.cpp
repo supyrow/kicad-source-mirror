@@ -68,8 +68,6 @@ DIALOG_SCH_FIND::DIALOG_SCH_FIND( SCH_EDIT_FRAME* aParent, wxFindReplaceData* aD
     m_buttonFind->SetDefault();
     SetInitialFocus( m_comboFind );
 
-    SetPosition( aPosition );
-
     // Adjust the height of the dialog to prevent controls from being hidden when
     // switching between the find and find/replace modes of the dialog.  This ignores
     // the users preferred height if any of the controls would be hidden.
@@ -298,6 +296,12 @@ void DIALOG_SCH_FIND::SetFindEntries( const wxArrayString& aEntries )
 {
     m_comboFind->Append( aEntries );
 
+    while( m_comboFind->GetCount() > 10 )
+    {
+        m_frame->GetFindHistoryList().pop_back();
+        m_comboFind->Delete( 9 );
+    }
+
     if( m_comboFind->GetCount() )
     {
         m_comboFind->SetSelection( 0 );
@@ -309,6 +313,12 @@ void DIALOG_SCH_FIND::SetFindEntries( const wxArrayString& aEntries )
 void DIALOG_SCH_FIND::SetReplaceEntries( const wxArrayString& aEntries )
 {
     m_comboReplace->Append( aEntries );
+
+    while( m_comboReplace->GetCount() > 10 )
+    {
+        m_frame->GetFindHistoryList().pop_back();
+        m_comboReplace->Delete( 9 );
+    }
 
     if( m_comboReplace->GetCount() )
     {

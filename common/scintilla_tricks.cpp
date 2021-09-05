@@ -22,7 +22,7 @@
  */
 
 
-#include <kicad_string.h>
+#include <string_utils.h>
 #include <scintilla_tricks.h>
 #include <wx/stc/stc.h>
 #include <gal/color4d.h>
@@ -32,16 +32,32 @@
 #include <wx/settings.h>
 #include <confirm.h>
 
-SCINTILLA_TRICKS::SCINTILLA_TRICKS( wxStyledTextCtrl* aScintilla, const wxString& aBraces ) :
+SCINTILLA_TRICKS::SCINTILLA_TRICKS( wxStyledTextCtrl* aScintilla, const wxString& aBraces,
+                                    bool aSingleLine, std::function<void()> aReturnCallback ) :
         m_te( aScintilla ),
         m_braces( aBraces ),
         m_lastCaretPos( -1 ),
-        m_suppressAutocomplete( false )
+        m_suppressAutocomplete( false ),
+        m_singleLine( aSingleLine ),
+        m_returnCallback( aReturnCallback )
 {
     // A hack which causes Scintilla to auto-size the text editor canvas
     // See: https://github.com/jacobslusser/ScintillaNET/issues/216
     m_te->SetScrollWidth( 1 );
     m_te->SetScrollWidthTracking( true );
+
+    if( !m_singleLine )
+    {
+        // Set a monospace font with a tab width of 4.  This is the closest we can get to having
+        // Scintilla mimic the stroke font's tab positioning.
+        wxFont fixedFont = KIUI::GetMonospacedUIFont();
+
+        for( size_t i = 0; i < wxSTC_STYLE_MAX; ++i )
+            m_te->StyleSetFont( i, fixedFont );
+
+        m_te->StyleClearAll();    // Addresses a bug in wx3.0 where styles are not correctly set
+        m_te->SetTabWidth( 4 );
+    }
 
     // Set up the brace highlighting
     wxColour highlight = wxSystemSettings::GetColour( wxSYS_COLOUR_HIGHLIGHT );
@@ -111,7 +127,11 @@ void SCINTILLA_TRICKS::onCharHook( wxKeyEvent& aEvent )
     if( !isalpha( aEvent.GetKeyCode() ) )
         m_suppressAutocomplete = false;
 
-    if( ConvertSmartQuotesAndDashes( &c ) )
+    if( aEvent.GetKeyCode() == WXK_RETURN && ( m_singleLine || aEvent.ShiftDown() ) )
+    {
+        m_returnCallback();
+    }
+    else if( ConvertSmartQuotesAndDashes( &c ) )
     {
         m_te->AddText( c );
     }
@@ -188,10 +208,11 @@ void SCINTILLA_TRICKS::onCharHook( wxKeyEvent& aEvent )
     }
     else if( aEvent.GetKeyCode() == WXK_DELETE )
     {
+        if( m_te->GetSelectionEnd() == m_te->GetSelectionStart() )
+            m_te->CharRightExtend();
+
         if( m_te->GetSelectionEnd() > m_te->GetSelectionStart() )
             m_te->DeleteBack();
-        else
-            m_te->DeleteRange( m_te->GetSelectionStart(), 1 );
     }
     else if( aEvent.GetKeyCode() == WXK_ESCAPE )
     {
@@ -227,6 +248,16 @@ void SCINTILLA_TRICKS::onCharHook( wxKeyEvent& aEvent )
 
         m_te->EndUndoAction();
     }
+#ifdef __WXMAC__
+    else if( aEvent.GetModifiers() == wxMOD_RAW_CONTROL && aEvent.GetKeyCode() == 'A' )
+    {
+        m_te->LineEndWrap();
+    }
+    else if( aEvent.GetModifiers() == wxMOD_RAW_CONTROL && aEvent.GetKeyCode() == 'E' )
+    {
+        m_te->HomeWrap();
+    }
+#endif
     else
     {
         aEvent.Skip();

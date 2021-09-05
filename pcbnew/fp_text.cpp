@@ -32,7 +32,7 @@
 #include <footprint.h>
 #include <settings/settings_manager.h>
 #include <trigo.h>
-#include <kicad_string.h>
+#include <string_utils.h>
 #include <painter.h>
 #include <geometry/shape_compound.h>
 
@@ -429,10 +429,9 @@ wxString FP_TEXT::GetShownText( int aDepth ) const
                 return board->ResolveTextVar( token, aDepth + 1 );
             };
 
-    bool     processTextVars = false;
-    wxString text = EDA_TEXT::GetShownText( &processTextVars );
+    wxString text = EDA_TEXT::GetShownText();
 
-    if( processTextVars )
+    if( HasTextVars() )
     {
         PROJECT* project = nullptr;
 

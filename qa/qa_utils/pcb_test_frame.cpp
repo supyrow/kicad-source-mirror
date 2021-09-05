@@ -2,6 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2013-2017 CERN
+ * Copyright (C) 2021 KiCad Developers, see AUTHORS.txt for contributors.
  * @author Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  *
  * This program is free software; you can redistribute it and/or
@@ -34,7 +35,7 @@
 #include <pgm_base.h>
 #include <settings/settings_manager.h>
 #include <settings/color_settings.h>
-#include <layers_id_colors_and_visibility.h>
+#include <layer_ids.h>
 
 #include <gal/graphics_abstraction_layer.h>
 #include <view/view.h>
@@ -46,8 +47,8 @@
 #include <pad.h>
 #include <footprint.h>
 #include <board.h>
-#include <track.h>
 
+#include <pcb_track.h>
 #include <pcb_painter.h>
 #include <pcb_edit_frame.h>
 
@@ -68,8 +69,8 @@
 #include "pcb_test_frame.h"
 
 
-
 using namespace KIGFX;
+
 
 void PCB_TEST_FRAME_BASE::SetBoard( std::shared_ptr<BOARD> b )
 {
@@ -80,9 +81,8 @@ void PCB_TEST_FRAME_BASE::SetBoard( std::shared_ptr<BOARD> b )
     m_galPanel->UpdateColors();
 
 #ifdef USE_TOOL_MANAGER
-
     m_toolManager->SetEnvironment( m_board.get(), m_galPanel->GetView(),
-            m_galPanel->GetViewControls(), nullptr );
+                                   m_galPanel->GetViewControls(), nullptr );
 
     m_toolManager->ResetTools( TOOL_BASE::MODEL_RELOAD );
 #endif
@@ -96,14 +96,11 @@ BOARD* PCB_TEST_FRAME_BASE::LoadAndDisplayBoard( const std::string& filename )
 
     try
     {
-        brd = pi->Load( wxString( filename.c_str() ), NULL, NULL );
+        brd = pi->Load( wxString( filename.c_str() ), nullptr, nullptr );
     }
     catch( const IO_ERROR& ioe )
     {
-        wxString msg = wxString::Format( _( "Error loading board.\n%s" ),
-                ioe.Problem() );
-
-        printf( "%s\n", (const char*) msg.mb_str() );
+        wxPrintf( "Board Loading Error: '%s'\n", ioe.Problem() );
         return nullptr;
     }
 
@@ -112,16 +109,19 @@ BOARD* PCB_TEST_FRAME_BASE::LoadAndDisplayBoard( const std::string& filename )
     return brd;
 }
 
+
 class TEST_ACTIONS : public ACTIONS
 {
 };
 
+
 void PCB_TEST_FRAME_BASE::createView( wxWindow *aParent, PCB_DRAW_PANEL_GAL::GAL_TYPE aGalType )
 {
-    m_displayOptions.gl_antialiasing_mode = KIGFX::OPENGL_ANTIALIASING_MODE::NONE; //SUPERSAMPLING_X4;
+    // SUPERSAMPLING_X4;
+    m_displayOptions.gl_antialiasing_mode = KIGFX::OPENGL_ANTIALIASING_MODE::NONE;
 
-    m_galPanel = std::make_shared<PCB_DRAW_PANEL_GAL>( aParent, -1, wxPoint( 0,
-                            0 ), wxDefaultSize, m_displayOptions, aGalType );
+    m_galPanel = std::make_shared<PCB_DRAW_PANEL_GAL>( aParent, -1, wxPoint( 0, 0 ),
+                                                       wxDefaultSize, m_displayOptions, aGalType );
     m_galPanel->UpdateColors();
 
     m_galPanel->SetEvtHandlerEnabled( true );
@@ -137,14 +137,14 @@ void PCB_TEST_FRAME_BASE::createView( wxWindow *aParent, PCB_DRAW_PANEL_GAL::GAL
     gal->SetGridOrigin( VECTOR2D( 0.0, 0.0 ) );
 
     //m_galPanel->Connect( wxEVT_MOTION,
-            //wxMouseEventHandler( PCB_TEST_FRAME::OnMotion ), NULL, this );
+    //wxMouseEventHandler( PCB_TEST_FRAME::OnMotion ), nullptr, this );
 
     m_galPanel->GetViewControls()->ShowCursor( true );
 
 #ifdef USE_TOOL_MANAGER
     m_toolManager = std::make_unique<TOOL_MANAGER>( );
     m_toolManager->SetEnvironment( m_board.get(), m_galPanel->GetView(),
-            m_galPanel->GetViewControls(), nullptr );
+                                   m_galPanel->GetViewControls(), nullptr );
 
     m_pcbActions = std::make_unique<TEST_ACTIONS>( );
     m_toolDispatcher = std::make_unique<TOOL_DISPATCHER>( m_toolManager.get() );
@@ -159,6 +159,7 @@ void PCB_TEST_FRAME_BASE::createView( wxWindow *aParent, PCB_DRAW_PANEL_GAL::GAL
     //SetBoard( std::make_shared<BOARD>( new BOARD ));
 }
 
+
 PCB_TEST_FRAME_BASE::PCB_TEST_FRAME_BASE()
 {
 }
@@ -168,6 +169,7 @@ PCB_TEST_FRAME_BASE::~PCB_TEST_FRAME_BASE()
 {
 
 }
+
 
 void PCB_TEST_FRAME_BASE::LoadSettings()
 {

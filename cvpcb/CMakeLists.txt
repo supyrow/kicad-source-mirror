@@ -27,6 +27,7 @@ set( CVPCB_DIALOGS
 set( CVPCB_SRCS
     ${CMAKE_SOURCE_DIR}/common/base_units.cpp
     ${CMAKE_SOURCE_DIR}/pcbnew/board_stackup_manager/stackup_predefined_prms.cpp
+    ${CMAKE_SOURCE_DIR}/pcbnew/footprint_info_impl.cpp
     auto_associate.cpp
     components_listbox.cpp
     display_footprints_frame.cpp
@@ -105,4 +106,9 @@ else()
         DESTINATION ${KICAD_BIN}
         COMPONENT binary
         )
+endif()
+
+if( KICAD_WIN32_INSTALL_PDBS )
+    # Get the PDBs to copy over for MSVC
+    install(FILES $<TARGET_PDB_FILE:cvpcb_kiface> DESTINATION ${KICAD_BIN})
 endif()

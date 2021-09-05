@@ -1,7 +1,7 @@
 /*
 * This program source code file is part of KiCad, a free EDA CAD application.
 *
-* Copyright (C) 2020 KiCad Developers, see AUTHORS.txt for contributors.
+* Copyright (C) 2020-2021 KiCad Developers, see AUTHORS.txt for contributors.
 *
 * This program is free software; you can redistribute it and/or
 * modify it under the terms of the GNU General Public License
@@ -25,7 +25,7 @@
 
 #include <dialogs/dialog_bom_cfg_lexer.h>
 #include <eeschema_settings.h>
-#include <layers_id_colors_and_visibility.h>
+#include <layer_ids.h>
 #include <symbol_editor_settings.h>
 #include <macros.h>
 #include <pgm_base.h>
@@ -120,7 +120,7 @@ EESCHEMA_SETTINGS::EESCHEMA_SETTINGS() :
             &m_AutoplaceFields.align_to_grid, true ) );
 
     m_params.emplace_back( new PARAM<int>( "drawing.default_bus_thickness",
-            &m_Drawing.default_bus_thickness, DEFAULT_BUS_THICKNESS ) );
+            &m_Drawing.default_bus_thickness, DEFAULT_BUS_WIDTH_MILS ) );
 
     m_params.emplace_back( new PARAM<int>( "drawing.default_junction_size",
             &m_Drawing.default_junction_size, DEFAULT_JUNCTION_DIAM ) );
@@ -128,11 +128,11 @@ EESCHEMA_SETTINGS::EESCHEMA_SETTINGS() :
     m_params.emplace_back( new PARAM<int>( "drawing.pin_symbol_size",
             &m_Drawing.pin_symbol_size, DEFAULT_TEXT_SIZE / 2 ) );
 
-    m_params.emplace_back(
-            new PARAM<double>( "drawing.text_offset_ratio", &m_Drawing.text_offset_ratio, 0.08 ) );
+    m_params.emplace_back( new PARAM<double>( "drawing.text_offset_ratio",
+            &m_Drawing.text_offset_ratio, 0.08 ) );
 
     m_params.emplace_back( new PARAM<int>( "drawing.default_line_thickness",
-            &m_Drawing.default_line_thickness, DEFAULT_LINE_THICKNESS ) );
+            &m_Drawing.default_line_thickness, DEFAULT_LINE_WIDTH_MILS ) );
 
     m_params.emplace_back( new PARAM<int>( "drawing.default_repeat_offset_x",
             &m_Drawing.default_repeat_offset_x, 0 ) );
@@ -141,10 +141,10 @@ EESCHEMA_SETTINGS::EESCHEMA_SETTINGS() :
             &m_Drawing.default_repeat_offset_y, 100 ) );
 
     m_params.emplace_back( new PARAM<int>( "drawing.default_wire_thickness",
-            &m_Drawing.default_wire_thickness, DEFAULT_WIRE_THICKNESS ) );
+            &m_Drawing.default_wire_thickness, DEFAULT_WIRE_WIDTH_MILS ) );
 
-    m_params.emplace_back( new PARAM<int>(
-            "drawing.default_text_size", &m_Drawing.default_text_size, DEFAULT_TEXT_SIZE ) );
+    m_params.emplace_back( new PARAM<int>( "drawing.default_text_size",
+            &m_Drawing.default_text_size, DEFAULT_TEXT_SIZE ) );
 
     m_params.emplace_back( new PARAM<wxString>( "drawing.field_names",
             &m_Drawing.field_names, "" ) );
@@ -166,9 +166,6 @@ EESCHEMA_SETTINGS::EESCHEMA_SETTINGS() :
 
     m_params.emplace_back( new PARAM_LIST<double>( "drawing.junction_size_mult_list",
             &m_Drawing.junction_size_mult_list, { 0.0, 1.7, 4.0, 6.0, 9.0, 12.0 } ) );
-
-    m_params.emplace_back(new PARAM <double>( "drawing.junction_size_mult",
-            &m_Drawing.junction_size_mult, 4.0 ) );
 
     m_params.emplace_back(new PARAM <int>( "drawing.junction_size_choice",
             &m_Drawing.junction_size_choice, 3 ) );
@@ -586,7 +583,10 @@ bool EESCHEMA_SETTINGS::MigrateFromLegacy( wxConfigBase* aCfg )
     ret &= fromLegacy<bool>( aCfg, "RescueNeverShow",     "system.never_show_rescue_dialog" );
 
     // Legacy version stored this setting in eeschema, so move it to common if it exists
-    aCfg->Read( "MoveWarpsCursor", &Pgm().GetCommonSettings()->m_Input.warp_mouse_on_move );
+    bool tmp;
+
+    if( aCfg->Read( "MoveWarpsCursor", &tmp ) )
+        Pgm().GetCommonSettings()->m_Input.warp_mouse_on_move = tmp;
 
     COLOR_SETTINGS* cs = Pgm().GetSettingsManager().GetMigratedColorSettings();
 

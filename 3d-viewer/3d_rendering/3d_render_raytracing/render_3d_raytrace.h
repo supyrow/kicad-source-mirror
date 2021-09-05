@@ -59,7 +59,7 @@ typedef enum
 class RENDER_3D_RAYTRACE : public RENDER_3D_BASE
 {
 public:
-    explicit RENDER_3D_RAYTRACE( BOARD_ADAPTER& aAdapter, CAMERA& aCamera );
+    explicit RENDER_3D_RAYTRACE( EDA_3D_CANVAS* aCanvas, BOARD_ADAPTER& aAdapter, CAMERA& aCamera );
 
     ~RENDER_3D_RAYTRACE();
 
@@ -116,7 +116,7 @@ private:
     void addPadsAndVias();
     void insertHole( const PCB_VIA* aVia );
     void insertHole( const PAD* aPad );
-    void loadModels( CONTAINER_3D& aDstContainer, bool aSkipMaterialInformation );
+    void load3DModels( CONTAINER_3D& aDstContainer, bool aSkipMaterialInformation );
     void addModels( CONTAINER_3D& aDstContainer, const S3DMODEL* a3DModel,
                     const glm::mat4& aModelMatrix, float aFPOpacity,
                     bool aSkipMaterialInformation, BOARD_ITEM* aBoardItem );
@@ -161,7 +161,7 @@ private:
 
     POST_SHADER_SSAO m_postShaderSsao;
 
-    LIGHT_SOURCES m_lights;
+    std::list<LIGHT*> m_lights;
 
     DIRECTIONAL_LIGHT* m_cameraLight;
 

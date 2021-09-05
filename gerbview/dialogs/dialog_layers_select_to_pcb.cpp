@@ -6,7 +6,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 1992-2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -34,14 +34,15 @@
 #include <gerbview_id.h>
 #include <gerbview_settings.h>
 #include <kiface_i.h>
-#include <layers_id_colors_and_visibility.h>
+#include <layer_ids.h>
 
 #include <dialogs/dialog_layers_select_to_pcb.h>
 
 #include <wx/msgdlg.h>
 
-// Imported function
+
 extern const wxString GetPCBDefaultLayerName( LAYER_NUM aLayerNumber );
+
 
 enum swap_layer_id {
     ID_LAYERS_MAP_DIALOG = ID_GERBER_END_LIST,
@@ -49,12 +50,6 @@ enum swap_layer_id {
     ID_TEXT_0 = ID_BUTTON_0 + GERBER_DRAWLAYERS_COUNT
 };
 
-
-/*
- * This dialog shows the gerber files loaded, and allows user to choose:
- *   what gerber file and what board layer are used
- *   the number of copper layers
- */
 
 int LAYERS_MAP_DIALOG::m_exportBoardCopperLayersCount = 2;
 
@@ -108,7 +103,7 @@ void LAYERS_MAP_DIALOG::initDialog()
 
     for( unsigned ii = 0; ii < GERBER_DRAWLAYERS_COUNT; ++ii )
     {
-        if( images->GetGbrImage( ii ) == NULL )
+        if( images->GetGbrImage( ii ) == nullptr )
             break;
 
         m_buttonTable[m_gerberActiveLayersCount] = ii;
@@ -209,11 +204,10 @@ void LAYERS_MAP_DIALOG::initDialog()
         m_layersList[ii] = text;
     }
 
-    // If the user has never stored any Gerber to Kicad layer mapping,
+    // If the user has never stored any Gerber to KiCad layer mapping,
     // then disable the button to retrieve it
     if( config->m_GerberToPcbLayerMapping.size() == 0 )
         m_buttonRetrieve->Enable( false );
-
 
     std::vector<int> gerber2KicadMapping;
 
@@ -256,9 +250,7 @@ void LAYERS_MAP_DIALOG::initDialog()
     }
 }
 
-/* Ensure m_exportBoardCopperLayersCount = 2 to BOARD_COPPER_LAYERS_MAX_COUNT
- * and it is an even value because Boards have always an even layer count
- */
+
 void LAYERS_MAP_DIALOG::normalizeBrdLayersCount()
 {
     if( ( m_exportBoardCopperLayersCount & 1 ) )
@@ -272,23 +264,20 @@ void LAYERS_MAP_DIALOG::normalizeBrdLayersCount()
 
 }
 
-/*
- * Called when user change the current board copper layers count
- */
+
 void LAYERS_MAP_DIALOG::OnBrdLayersCountSelection( wxCommandEvent& event )
 {
     int id = event.GetSelection();
-    m_exportBoardCopperLayersCount = (id+1) * 2;
+    m_exportBoardCopperLayersCount = ( id + 1 ) * 2;
 }
 
-/*
- * reset pcb layers selection to the default value
- */
+
 void LAYERS_MAP_DIALOG::OnResetClick( wxCommandEvent& event )
 {
     wxString  msg;
     int       ii;
     LAYER_NUM layer;
+
     for( ii = 0, layer = 0; ii < m_gerberActiveLayersCount; ii++, ++layer )
     {
         m_layersLookUpTable[ii] = UNSELECTED_LAYER;
@@ -299,8 +288,6 @@ void LAYERS_MAP_DIALOG::OnResetClick( wxCommandEvent& event )
 }
 
 
-/* Stores the current layers selection in config
- */
 void LAYERS_MAP_DIALOG::OnStoreSetup( wxCommandEvent& event )
 {
     auto config = static_cast<GERBVIEW_SETTINGS*>( Kiface().KifaceSettings() );
@@ -317,6 +304,7 @@ void LAYERS_MAP_DIALOG::OnStoreSetup( wxCommandEvent& event )
     // due to no previously stored choices.
     m_buttonRetrieve->Enable( true );
 }
+
 
 void LAYERS_MAP_DIALOG::OnGetSetup( wxCommandEvent& event )
 {
@@ -340,6 +328,7 @@ void LAYERS_MAP_DIALOG::OnGetSetup( wxCommandEvent& event )
     for( int ii = 0; ii < m_gerberActiveLayersCount; ii++ )
     {
         LAYER_NUM layer = m_layersLookUpTable[ii];
+
         if( layer == UNSELECTED_LAYER )
         {
             m_layersList[ii]->SetLabel( _( "Do not export" ) );
@@ -358,6 +347,7 @@ void LAYERS_MAP_DIALOG::OnGetSetup( wxCommandEvent& event )
     }
 }
 
+
 void LAYERS_MAP_DIALOG::OnSelectLayer( wxCommandEvent& event )
 {
     int ii;
@@ -366,7 +356,7 @@ void LAYERS_MAP_DIALOG::OnSelectLayer( wxCommandEvent& event )
 
     if( (ii < 0) || (ii >= GERBER_DRAWLAYERS_COUNT) )
     {
-        wxFAIL_MSG( wxT("Bad layer id") );
+        wxFAIL_MSG( wxT( "Bad layer id" ) );
         return;
     }
 
@@ -377,6 +367,7 @@ void LAYERS_MAP_DIALOG::OnSelectLayer( wxCommandEvent& event )
 
     // Get file name of Gerber loaded on this layer
     wxFileName fn( m_Parent->GetGerberLayout()->GetImagesList()->GetGbrImage( ii )->m_FileName );
+
     // Surround it with quotes to make it stand out on the dialog title bar
     wxString layerName = "\"" + fn.GetFullName() + "\"";
 
@@ -418,34 +409,35 @@ void LAYERS_MAP_DIALOG::OnSelectLayer( wxCommandEvent& event )
 }
 
 
-void LAYERS_MAP_DIALOG::OnOkClick( wxCommandEvent& event )
+bool LAYERS_MAP_DIALOG::TransferDataFromWindow()
 {
-    /* Make some test about copper layers:
-     * Board must have enough copper layers to handle selected internal layers
-     */
+    if( !wxDialog::TransferDataFromWindow() )
+        return false;
+
+    // Board must have enough copper layers to handle selected internal layers.
     normalizeBrdLayersCount();
 
     int inner_layer_max = 0;
+
     for( int ii = 0; ii < GERBER_DRAWLAYERS_COUNT; ++ii )
     {
-            if( m_layersLookUpTable[ii] < F_Cu )
-            {
-                if( m_layersLookUpTable[ii ] > inner_layer_max )
-                    inner_layer_max = m_layersLookUpTable[ii];
-            }
+        if( m_layersLookUpTable[ii] < F_Cu )
+        {
+            if( m_layersLookUpTable[ii ] > inner_layer_max )
+                inner_layer_max = m_layersLookUpTable[ii];
+        }
     }
 
-    // inner_layer_max must be less than  (or equal to) the number of
-    // internal copper layers
+    // inner_layer_max must be less than (or equal to the number of internal copper layers
     // internal copper layers = m_exportBoardCopperLayersCount-2
     if( inner_layer_max > m_exportBoardCopperLayersCount-2 )
     {
-        wxMessageBox(
-        _("Exported board does not have enough copper layers to handle selected inner layers") );
-        return;
+        wxMessageBox( _("Exported board does not have enough copper layers to handle selected "
+                        "inner layers") );
+        return false;
     }
 
-    EndModal( wxID_OK );
+    return true;
 }
 
 
@@ -577,6 +569,7 @@ int LAYERS_MAP_DIALOG::findNumAltiumGerbersLoaded( std::vector<int>& aGerber2Kic
     return numAltiumMatches;
 }
 
+
 int LAYERS_MAP_DIALOG::findNumKiCadGerbersLoaded( std::vector<int>& aGerber2KicadMapping )
 {
     // The next comment preserves initializer formatting below it
@@ -698,6 +691,7 @@ int LAYERS_MAP_DIALOG::findNumKiCadGerbersLoaded( std::vector<int>& aGerber2Kica
     return numKicadMatches;
 }
 
+
 int LAYERS_MAP_DIALOG::findNumX2GerbersLoaded( std::vector<int>& aGerber2KicadMapping )
 {
     // The next comment preserves initializer formatting below it
@@ -802,7 +796,6 @@ int LAYERS_MAP_DIALOG::findNumX2GerbersLoaded( std::vector<int>& aGerber2KicadMa
                     // Create strings like "TopSolderMask" or "BotPaste" for non-copper layers
                     mapThis << x2->GetBrdLayerId() << x2->GetFileType();
                 }
-
 
                 // Check if the string we've isolated matches any known X2 layer names
                 it = kicadLayers.find( mapThis );

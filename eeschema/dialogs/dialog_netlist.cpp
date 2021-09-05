@@ -181,12 +181,9 @@ public:
     const wxString GetGeneratorTitle()  { return m_textCtrlName->GetValue(); }
     const wxString GetGeneratorTCommandLine() { return m_textCtrlCommand->GetValue(); }
 
-private:
-    /**
-     * Validate info relative to a new netlist plugin
-     */
-    void OnOKClick( wxCommandEvent& event ) override;
+    bool TransferDataFromWindow() override;
 
+private:
     /*
      * Browse plugin files, and set m_CommandStringCtrl field
      */
@@ -210,16 +207,15 @@ BEGIN_EVENT_TABLE( NETLIST_DIALOG, NETLIST_DIALOG_BASE )
 END_EVENT_TABLE()
 
 
-
 NETLIST_PAGE_DIALOG::NETLIST_PAGE_DIALOG( wxNotebook* parent, const wxString& title,
                                           NETLIST_TYPE_ID id_NetType ) :
         wxPanel( parent, -1, wxDefaultPosition, wxDefaultSize, wxTAB_TRAVERSAL )
 {
     m_IdNetType           = id_NetType;
     m_pageNetFmtName      = title;
-    m_CommandStringCtrl   = NULL;
-    m_TitleStringCtrl     = NULL;
-    m_AdjustPassiveValues = NULL;
+    m_CommandStringCtrl   = nullptr;
+    m_TitleStringCtrl     = nullptr;
+    m_AdjustPassiveValues = nullptr;
 
     wxString netfmtName = static_cast<NETLIST_DIALOG*>( parent->GetParent() )->m_DefaultNetFmtName;
 
@@ -243,7 +239,6 @@ NETLIST_PAGE_DIALOG::NETLIST_PAGE_DIALOG( wxNotebook* parent, const wxString& ti
 }
 
 
-
 NETLIST_DIALOG::NETLIST_DIALOG( SCH_EDIT_FRAME* parent ) :
     NETLIST_DIALOG_BASE( parent )
 {
@@ -254,7 +249,7 @@ NETLIST_DIALOG::NETLIST_DIALOG( SCH_EDIT_FRAME* parent ) :
     m_DefaultNetFmtName = settings.m_NetFormatName;
 
     for( NETLIST_PAGE_DIALOG*& page : m_PanelNetType)
-        page = NULL;
+        page = nullptr;
 
     // Add notebook pages:
     m_PanelNetType[PANELPCBNEW] = new NETLIST_PAGE_DIALOG( m_NoteBook, wxT( "KiCad" ),
@@ -334,7 +329,7 @@ void NETLIST_DIALOG::InstallPageSpice()
     wxStaticText* spice_label = new wxStaticText( page, -1, _( "External simulator command:" ) );
     spice_label->SetToolTip( _( "Enter the command line to run spice\n"
                                 "Usually <path to spice binary> %I\n"
-                                "%I will be replaced by the actual spice netlist name") );
+                                "%I will be replaced by the actual spice netlist name" ) );
     page->m_LowBoxSizer->Add( spice_label, 0, wxGROW | wxLEFT | wxRIGHT | wxBOTTOM, 5 );
 
     page->m_CommandStringCtrl = new wxTextCtrl( page, -1, simulatorCommand,
@@ -381,8 +376,8 @@ void NETLIST_DIALOG::InstallCustomPages()
 }
 
 
-NETLIST_PAGE_DIALOG* NETLIST_DIALOG::AddOneCustomPage( const wxString & aTitle,
-                                                       const wxString & aCommandString,
+NETLIST_PAGE_DIALOG* NETLIST_DIALOG::AddOneCustomPage( const wxString& aTitle,
+                                                       const wxString& aCommandString,
                                                        NETLIST_TYPE_ID aNetTypeId )
 {
     NETLIST_PAGE_DIALOG* currPage = new NETLIST_PAGE_DIALOG( m_NoteBook, aTitle, aNetTypeId );
@@ -415,7 +410,7 @@ void NETLIST_DIALOG::OnNetlistTypeSelection( wxNotebookEvent& event )
 {
     NETLIST_PAGE_DIALOG* currPage = (NETLIST_PAGE_DIALOG*) m_NoteBook->GetCurrentPage();
 
-    if( currPage == NULL )
+    if( currPage == nullptr )
         return;
 
     m_DefaultNetFmtName = currPage->GetPageNetFmtName();
@@ -476,15 +471,9 @@ bool NETLIST_DIALOG::TransferDataFromWindow()
 
     default:    // custom, NET_TYPE_CUSTOM1 and greater
     {
-        wxString command = currPage->m_CommandStringCtrl->GetValue();
-        wxRegEx extRE( wxT( ".*\\.([[:alnum:]][[:alnum:]][[:alnum:]][[:alnum:]]?)\\.xslt?\".*" ) );
-
-        if( extRE.Matches( command ) )
-            fileExt = extRE.GetMatch( command, 1 );
-
-        title.Printf( _( "%s Export" ), currPage->m_TitleStringCtrl->GetValue().GetData() );
-    }
+        title.Printf( _( "%s Export" ), currPage->m_TitleStringCtrl->GetValue() );
         break;
+    }
     }
 
     fn.SetExt( fileExt );
@@ -496,7 +485,7 @@ bool NETLIST_DIALOG::TransferDataFromWindow()
     wxString fullname = fn.GetFullName();
     wxString path     = fn.GetPath();
 
-    // fullname does not and should not include the path, per wx docs.
+    // full name does not and should not include the path, per wx docs.
     wxFileDialog dlg( this, title, path, fullname, fileWildcard, wxFD_SAVE );
 
     if( dlg.ShowModal() == wxID_CANCEL )
@@ -578,7 +567,7 @@ void NETLIST_DIALOG::WriteCurrentNetlistSetup()
         {
             NETLIST_PAGE_DIALOG* currPage = m_PanelNetType[ii + PANELCUSTOMBASE];
 
-            if( currPage == NULL )
+            if( currPage == nullptr )
                 break;
 
             wxString title = currPage->m_TitleStringCtrl->GetValue();
@@ -586,9 +575,9 @@ void NETLIST_DIALOG::WriteCurrentNetlistSetup()
             if( title.IsEmpty() )
                 continue;
 
-            cfg->m_NetlistPanel.custom_command_titles.emplace_back( title.ToStdString() );
+            cfg->m_NetlistPanel.custom_command_titles.emplace_back( title );
             cfg->m_NetlistPanel.custom_command_paths.emplace_back(
-                    currPage->m_CommandStringCtrl->GetValue().ToStdString() );
+                    currPage->m_CommandStringCtrl->GetValue() );
         }
     }
 }
@@ -603,7 +592,11 @@ void NETLIST_DIALOG::OnDelGenerator( wxCommandEvent& event )
     m_DefaultNetFmtName = m_PanelNetType[PANELPCBNEW]->GetPageNetFmtName();
 
     WriteCurrentNetlistSetup();
-    EndModal( NET_PLUGIN_CHANGE );
+
+    if( IsQuasiModal() )
+        EndQuasiModal( NET_PLUGIN_CHANGE );
+    else
+        EndDialog( NET_PLUGIN_CHANGE );
 }
 
 
@@ -626,7 +619,7 @@ void NETLIST_DIALOG::OnAddGenerator( wxCommandEvent& event )
         netTypeId = PANELCUSTOMBASE + ii;
         currPage = m_PanelNetType[ii + PANELCUSTOMBASE];
 
-        if( currPage == NULL )
+        if( currPage == nullptr )
             break;
 
         if( currPage->GetPageNetFmtName() == title )
@@ -641,8 +634,10 @@ void NETLIST_DIALOG::OnAddGenerator( wxCommandEvent& event )
     m_PanelNetType[netTypeId] = currPage;
     WriteCurrentNetlistSetup();
 
-    // Close and reopen dialog to rebuild the dialog after changes
-    EndModal( NET_PLUGIN_CHANGE );
+    if( IsQuasiModal() )
+        EndQuasiModal( NET_PLUGIN_CHANGE );
+    else
+        EndDialog( NET_PLUGIN_CHANGE );
 }
 
 
@@ -655,21 +650,24 @@ NETLIST_DIALOG_ADD_GENERATOR::NETLIST_DIALOG_ADD_GENERATOR( NETLIST_DIALOG* pare
 }
 
 
-void NETLIST_DIALOG_ADD_GENERATOR::OnOKClick( wxCommandEvent& event )
+bool NETLIST_DIALOG_ADD_GENERATOR::TransferDataFromWindow()
 {
+    if( !wxDialog::TransferDataFromWindow() )
+        return false;
+
     if( m_textCtrlCommand->GetValue() == wxEmptyString )
     {
-        wxMessageBox( _( "Error. You must provide a command String" ) );
-        return;
+        wxMessageBox( _( "You must provide a netlist generator command string" ) );
+        return false;
     }
 
     if( m_textCtrlName->GetValue() == wxEmptyString )
     {
-        wxMessageBox( _( "Error. You must provide a Title" ) );
-        return;
+        wxMessageBox( _( "You must provide a netlist generator title" ) );
+        return false;
     }
 
-    EndModal( wxID_OK );
+    return true;
 }
 
 
@@ -682,9 +680,11 @@ void NETLIST_DIALOG_ADD_GENERATOR::OnBrowseGenerators( wxCommandEvent& event )
 #else
     Path = PATHS::GetOSXKicadDataDir() + wxT( "/plugins" );
 #endif
-    FullFileName = EDA_FILE_SELECTOR( _( "Generator files:" ), Path, FullFileName,
-                                      wxEmptyString, wxFileSelectorDefaultWildcardStr,
-                                      this, wxFD_OPEN, true );
+
+    FullFileName = wxFileSelector( _( "Generator File" ), Path, FullFileName,
+                                   wxEmptyString, wxFileSelectorDefaultWildcardStr,
+                                   wxFD_OPEN, this );
+
     if( FullFileName.IsEmpty() )
         return;
 
@@ -694,22 +694,21 @@ void NETLIST_DIALOG_ADD_GENERATOR::OnBrowseGenerators( wxCommandEvent& event )
     wxFileName fn( FullFileName );
     wxString ext = fn.GetExt();
 
-    if( ext == wxT("xsl" ) )
-        cmdLine.Printf(wxT("xsltproc -o \"%%O\" \"%s\" \"%%I\""), FullFileName );
-    else if( ext == wxT("exe" ) || ext.IsEmpty() )
-        cmdLine.Printf(wxT("\"%s\" > \"%%O\" < \"%%I\""), FullFileName );
-    else if( ext == wxT("py" ) || ext.IsEmpty() )
-        cmdLine.Printf(wxT("python \"%s\" \"%%I\" \"%%O\""), FullFileName );
+    if( ext == wxT( "xsl" ) )
+        cmdLine.Printf( wxT( "xsltproc -o \"%%O\" \"%s\" \"%%I\"" ), FullFileName );
+    else if( ext == wxT( "exe" ) || ext.IsEmpty() )
+        cmdLine.Printf( wxT( "\"%s\" > \"%%O\" < \"%%I\"" ), FullFileName );
+    else if( ext == wxT( "py" ) || ext.IsEmpty() )
+        cmdLine.Printf( wxT( "python \"%s\" \"%%I\" \"%%O\"" ), FullFileName );
     else
-        cmdLine.Printf(wxT("\"%s\""), FullFileName );
+        cmdLine.Printf( wxT( "\"%s\"" ), FullFileName );
 
     m_textCtrlCommand->SetValue( cmdLine );
 
-    /* Get a title for this page */
-    wxString title = m_textCtrlName->GetValue();
-
-    if( title.IsEmpty() )
-        wxMessageBox( _( "Do not forget to choose a title for this netlist control page" ) );
+    // We need a title for this panel
+    // Propose a default value if empty ( i.e. the short filename of the script)
+    if( m_textCtrlName->GetValue().IsEmpty() )
+        m_textCtrlName->SetValue( fn.GetName() );
 }
 
 

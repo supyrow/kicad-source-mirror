@@ -60,10 +60,15 @@ WX_INFOBAR::WX_INFOBAR( wxWindow* aParent, wxAuiManager* aMgr, wxWindowID aWinid
         SetBackgroundColour( wxColour( 28, 27, 20 ) );
     else
         SetBackgroundColour( wxColour( 255, 249, 189 ) );
-#endif
 
+    // Infobar is broken on Mac without the effects
     SetShowHideEffects( wxSHOW_EFFECT_ROLL_TO_BOTTOM, wxSHOW_EFFECT_ROLL_TO_TOP );
     SetEffectDuration( 300 );
+#else
+    // Infobar freezes canvas on Windows with the effect, and GTK looks bad with it
+    SetShowHideEffects( wxSHOW_EFFECT_NONE, wxSHOW_EFFECT_NONE );
+#endif
+
 
     // The infobar seems to start too small, so increase its height
     int sx, sy;
@@ -120,7 +125,8 @@ void WX_INFOBAR::QueueDismiss()
 }
 
 
-void WX_INFOBAR::ShowMessageFor( const wxString& aMessage, int aTime, int aFlags )
+void WX_INFOBAR::ShowMessageFor( const wxString& aMessage, int aTime, int aFlags,
+                                 MESSAGE_TYPE aType )
 {
     // Don't do anything if we requested the UI update
     if( m_updateLock )
@@ -128,6 +134,8 @@ void WX_INFOBAR::ShowMessageFor( const wxString& aMessage, int aTime, int aFlags
 
     m_showTime = aTime;
     ShowMessage( aMessage, aFlags );
+
+    m_type = aType;
 }
 
 
@@ -161,15 +169,6 @@ void WX_INFOBAR::ShowMessage( const wxString& aMessage, int aFlags, MESSAGE_TYPE
     ShowMessage( aMessage, aFlags );
 
     m_type = aType;
-}
-
-
-void WX_INFOBAR::DismissOutdatedSave()
-{
-    if( m_updateLock || m_type != MESSAGE_TYPE::OUTDATED_SAVE )
-        return;
-
-    Dismiss();
 }
 
 

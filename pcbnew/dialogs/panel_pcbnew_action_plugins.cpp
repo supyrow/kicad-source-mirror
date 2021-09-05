@@ -172,8 +172,7 @@ bool PANEL_PCBNEW_ACTION_PLUGINS::TransferDataToWindow()
 {
     m_grid->Freeze();
 
-    if( m_grid->GetNumberRows() != 0 )
-        m_grid->DeleteRows( 0, m_grid->GetNumberRows() );
+    m_grid->ClearRows();
 
     const auto& orderedPlugins = m_frame->GetOrderedActionPlugins();
     m_grid->AppendRows( orderedPlugins.size() );
@@ -235,7 +234,7 @@ bool PANEL_PCBNEW_ACTION_PLUGINS::TransferDataToWindow()
 
 void PANEL_PCBNEW_ACTION_PLUGINS::OnOpenDirectoryButtonClick( wxCommandEvent& event )
 {
-    m_frame->GetToolManager()->RunAction( PCB_ACTIONS::pluginsShowFolder );
+    m_frame->GetToolManager()->RunAction( PCB_ACTIONS::pluginsShowFolder, true );
 }
 
 void PANEL_PCBNEW_ACTION_PLUGINS::OnShowErrorsButtonClick( wxCommandEvent& event )

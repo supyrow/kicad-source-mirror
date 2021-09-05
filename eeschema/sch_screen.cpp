@@ -34,16 +34,16 @@
 #include <eda_item.h>
 #include <eda_rect.h>
 #include <id.h>
-#include <kicad_string.h>
+#include <string_utils.h>
 #include <kiway.h>
-#include <plotter.h>
+#include <plotters/plotter.h>
 #include <project.h>
 #include <reporter.h>
 #include <sch_draw_panel.h>
 #include <sch_edit_frame.h>
 #include <sch_item.h>
 
-#include <class_library.h>
+#include <symbol_library.h>
 #include <connection_graph.h>
 #include <lib_pin.h>
 #include <sch_symbol.h>
@@ -152,16 +152,16 @@ void SCH_SCREEN::Append( SCH_ITEM* aItem )
         {
             SCH_SYMBOL* symbol = static_cast<SCH_SYMBOL*>( aItem );
 
-            if( symbol->GetPartRef() )
+            if( symbol->GetLibSymbolRef() )
             {
-                symbol->GetPartRef()->GetDrawItems().sort();
+                symbol->GetLibSymbolRef()->GetDrawItems().sort();
 
                 auto it = m_libSymbols.find( symbol->GetSchSymbolLibraryName() );
 
                 if( it == m_libSymbols.end() || !it->second )
                 {
                     m_libSymbols[symbol->GetSchSymbolLibraryName()] =
-                            new LIB_SYMBOL( *symbol->GetPartRef() );
+                            new LIB_SYMBOL( *symbol->GetLibSymbolRef() );
                 }
                 else
                 {
@@ -173,21 +173,32 @@ void SCH_SCREEN::Append( SCH_ITEM* aItem )
 
                     foundSymbol->GetDrawItems().sort();
 
-                    if( *foundSymbol != *symbol->GetPartRef() )
+                    if( *foundSymbol != *symbol->GetLibSymbolRef() )
                     {
                         int cnt = 1;
                         wxString newName;
 
-                        newName.Printf( "%s_%d", symbol->GetLibId().Format().wx_str(), cnt );
+                        newName.Printf( "%s_%d", symbol->GetLibId().GetUniStringLibItemName(),
+                                        cnt );
 
                         while( m_libSymbols.find( newName ) != m_libSymbols.end() )
                         {
                             cnt += 1;
-                            newName.Printf( "%s_%d", symbol->GetLibId().Format().wx_str(), cnt );
+                            newName.Printf( "%s_%d", symbol->GetLibId().GetUniStringLibItemName(),
+                                            cnt );
                         }
 
+                        // Update the schematic symbol library link as this symbol only exists
+                        // in the schematic.
                         symbol->SetSchSymbolLibraryName( newName );
-                        m_libSymbols[newName] = new LIB_SYMBOL( *symbol->GetPartRef() );
+
+                        LIB_SYMBOL* newLibSymbol = new LIB_SYMBOL( *symbol->GetLibSymbolRef() );
+                        LIB_ID newLibId( wxEmptyString, newName );
+
+                        newLibSymbol->SetLibId( newLibId );
+                        newLibSymbol->SetName( newName );
+                        symbol->SetLibSymbol( newLibSymbol->Flatten().release() );
+                        m_libSymbols[newName] = newLibSymbol;
                     }
                 }
             }
@@ -203,7 +214,7 @@ void SCH_SCREEN::Append( SCH_SCREEN* aScreen )
 {
     wxCHECK_RET( aScreen, "Invalid screen object." );
 
-    // No need to descend the hierarchy.  Once the top level screen is copied, all of it's
+    // No need to descend the hierarchy.  Once the top level screen is copied, all of its
     // children are copied as well.
     for( auto aItem : aScreen->m_rtree )
         Append( aItem );
@@ -371,7 +382,7 @@ std::set<SCH_ITEM*> SCH_SCREEN::MarkConnections( SCH_LINE* aSegment )
             SCH_LINE* line = static_cast<SCH_LINE*>( item );
 
             if( ( test_item->IsEndPoint( line->GetStartPoint() )
-                        && !GetPin( line->GetStartPoint(), NULL, true ) )
+                        && !GetPin( line->GetStartPoint(), nullptr, true ) )
              || ( test_item->IsEndPoint( line->GetEndPoint() )
                         && !GetPin( line->GetEndPoint(), nullptr, true ) ) )
             {
@@ -509,7 +520,7 @@ bool SCH_SCREEN::IsTerminalPoint( const wxPoint& aPosition, int aLayer ) const
         if( GetItem( aPosition, 1, SCH_JUNCTION_T ) )
             return true;
 
-        if( GetPin( aPosition, NULL, true ) )
+        if( GetPin( aPosition, nullptr, true ) )
             return true;
 
         if( GetWire( aPosition ) )
@@ -545,7 +556,7 @@ void SCH_SCREEN::UpdateSymbolLinks( REPORTER* aReporter )
     SYMBOL_LIB_TABLE* libs = Schematic()->Prj().SchSymbolLibTable();
 
     // This will be a nullptr if an s-expression schematic is loaded.
-    PART_LIBS* legacyLibs = Schematic()->Prj().SchLibs();
+    SYMBOL_LIBS* legacyLibs = Schematic()->Prj().SchLibs();
 
     for( auto item : Items().OfType( SCH_SYMBOL_T ) )
         symbols.push_back( static_cast<SCH_SYMBOL*>( item ) );
@@ -557,7 +568,7 @@ void SCH_SCREEN::UpdateSymbolLinks( REPORTER* aReporter )
     // Clear all existing symbol links.
     clearLibSymbols();
 
-    for( auto symbol : symbols )
+    for( SCH_SYMBOL* symbol : symbols )
     {
         LIB_SYMBOL* tmp = nullptr;
         libSymbol.reset();
@@ -569,11 +580,10 @@ void SCH_SCREEN::UpdateSymbolLinks( REPORTER* aReporter )
         {
             if( aReporter )
             {
-                msg.Printf( _( "Setting schematic symbol '%s %s' library identifier "
-                               "to '%s'. " ),
+                msg.Printf( _( "Setting schematic symbol '%s %s' library identifier to '%s'." ),
                             symbol->GetField( REFERENCE_FIELD )->GetText(),
                             symbol->GetField( VALUE_FIELD )->GetText(),
-                            symbol->GetLibId().Format().wx_str() );
+                            UnescapeString( symbol->GetLibId().Format() ) );
                 aReporter->ReportTail( msg, RPT_SEVERITY_INFO );
             }
 
@@ -586,9 +596,9 @@ void SCH_SCREEN::UpdateSymbolLinks( REPORTER* aReporter )
         {
             if( aReporter )
             {
-                msg.Printf( _( "Schematic symbol reference '%s' library identifier is not "
-                               "valid.  Unable to link library symbol." ),
-                            symbol->GetLibId().Format().wx_str() );
+                msg.Printf( _( "Schematic symbol reference '%s' library identifier is not valid. "
+                               "Unable to link library symbol." ),
+                            UnescapeString( symbol->GetLibId().Format() ) );
                 aReporter->ReportTail( msg, RPT_SEVERITY_WARNING );
             }
 
@@ -602,8 +612,8 @@ void SCH_SCREEN::UpdateSymbolLinks( REPORTER* aReporter )
         {
             if( aReporter )
             {
-                msg.Printf( _( "Symbol library '%s' not found and no fallback cache "
-                               "library available.  Unable to link library symbol." ),
+                msg.Printf( _( "Symbol library '%s' not found and no fallback cache library "
+                               "available.  Unable to link library symbol." ),
                             symbol->GetLibId().GetLibNickname().wx_str() );
                 aReporter->ReportTail( msg, RPT_SEVERITY_WARNING );
             }
@@ -622,7 +632,7 @@ void SCH_SCREEN::UpdateSymbolLinks( REPORTER* aReporter )
                 if( aReporter )
                 {
                     msg.Printf( _( "I/O error %s resolving library symbol %s" ), ioe.What(),
-                                symbol->GetLibId().Format().wx_str() );
+                                UnescapeString( symbol->GetLibId().Format() ) );
                     aReporter->ReportTail( msg, RPT_SEVERITY_ERROR );
                 }
             }
@@ -630,7 +640,7 @@ void SCH_SCREEN::UpdateSymbolLinks( REPORTER* aReporter )
 
         if( !tmp && legacyLibs && legacyLibs->GetLibraryCount() )
         {
-            PART_LIB& legacyCacheLib = legacyLibs->at( 0 );
+            SYMBOL_LIB& legacyCacheLib = legacyLibs->at( 0 );
 
             // It better be the cache library.
             wxCHECK2( legacyCacheLib.IsCache(), continue );
@@ -644,11 +654,11 @@ void SCH_SCREEN::UpdateSymbolLinks( REPORTER* aReporter )
                 msg.Printf( _( "Falling back to cache to set symbol '%s:%s' link '%s'." ),
                             symbol->GetField( REFERENCE_FIELD )->GetText(),
                             symbol->GetField( VALUE_FIELD )->GetText(),
-                            id );
+                            UnescapeString( id ) );
                 aReporter->ReportTail( msg, RPT_SEVERITY_WARNING );
             }
 
-            tmp = legacyCacheLib.FindPart( id );
+            tmp = legacyCacheLib.FindSymbol( id );
         }
 
         if( tmp )
@@ -665,7 +675,7 @@ void SCH_SCREEN::UpdateSymbolLinks( REPORTER* aReporter )
                 msg.Printf( _( "Setting schematic symbol '%s %s' library identifier to '%s'." ),
                             symbol->GetField( REFERENCE_FIELD )->GetText(),
                             symbol->GetField( VALUE_FIELD )->GetText(),
-                            symbol->GetLibId().Format().wx_str() );
+                            UnescapeString( symbol->GetLibId().Format() ) );
                 aReporter->ReportTail( msg, RPT_SEVERITY_INFO );
             }
         }
@@ -713,16 +723,6 @@ void SCH_SCREEN::UpdateLocalLibSymbolLinks()
 
         m_rtree.insert( symbol );
     }
-}
-
-
-void SCH_SCREEN::SwapSymbolLinks( const SCH_SYMBOL* aOriginalSymbol, const SCH_SYMBOL* aNewSymbol )
-{
-    wxCHECK( aOriginalSymbol && aNewSymbol /* && m_rtree.contains( aOriginalSymbol, true ) */,
-             /* void */ );
-
-    if( aOriginalSymbol->GetSchSymbolLibraryName() == aNewSymbol->GetSchSymbolLibraryName() )
-        return;
 }
 
 
@@ -832,8 +832,8 @@ void SCH_SCREEN::ClearDrawingState()
 LIB_PIN* SCH_SCREEN::GetPin( const wxPoint& aPosition, SCH_SYMBOL** aSymbol,
                              bool aEndPointOnly ) const
 {
-    SCH_SYMBOL*  candidate = NULL;
-    LIB_PIN*     pin = NULL;
+    SCH_SYMBOL*  candidate = nullptr;
+    LIB_PIN*     pin = nullptr;
 
     for( SCH_ITEM* item : Items().Overlapping( SCH_SYMBOL_T, aPosition ) )
     {
@@ -841,13 +841,13 @@ LIB_PIN* SCH_SCREEN::GetPin( const wxPoint& aPosition, SCH_SYMBOL** aSymbol,
 
         if( aEndPointOnly )
         {
-            pin = NULL;
+            pin = nullptr;
 
-            if( !candidate->GetPartRef() )
+            if( !candidate->GetLibSymbolRef() )
                 continue;
 
-            for( pin = candidate->GetPartRef()->GetNextPin(); pin;
-                 pin = candidate->GetPartRef()->GetNextPin( pin ) )
+            for( pin = candidate->GetLibSymbolRef()->GetNextPin(); pin;
+                 pin = candidate->GetLibSymbolRef()->GetNextPin( pin ) )
             {
                 // Skip items not used for this part.
                 if( candidate->GetUnit() && pin->GetUnit() &&
@@ -962,7 +962,13 @@ void SCH_SCREEN::GetSheets( std::vector<SCH_ITEM*>* aItems ) const
             []( EDA_ITEM* a, EDA_ITEM* b ) -> bool
             {
                 if( a->GetPosition().x == b->GetPosition().x )
+                {
+                    // Ensure deterministic sort
+                    if( a->GetPosition().y == b->GetPosition().y )
+                        return a->m_Uuid < b->m_Uuid;
+
                     return a->GetPosition().y < b->GetPosition().y;
+                }
                 else
                     return a->GetPosition().x < b->GetPosition().x;
             } );
@@ -1021,7 +1027,7 @@ SCH_LINE* SCH_SCREEN::GetLine( const wxPoint& aPosition, int aAccuracy, int aLay
         }
     }
 
-    return NULL;
+    return nullptr;
 }
 
 
@@ -1044,7 +1050,7 @@ SCH_TEXT* SCH_SCREEN::GetLabel( const wxPoint& aPosition, int aAccuracy ) const
         }
     }
 
-    return NULL;
+    return nullptr;
 }
 
 
@@ -1105,7 +1111,7 @@ SCH_SCREEN* SCH_SCREENS::GetFirst()
     if( m_screens.size() > 0 )
         return m_screens[0];
 
-    return NULL;
+    return nullptr;
 }
 
 
@@ -1123,7 +1129,7 @@ SCH_SCREEN* SCH_SCREENS::GetScreen( unsigned int aIndex ) const
     if( aIndex < m_screens.size() )
         return m_screens[ aIndex ];
 
-    return NULL;
+    return nullptr;
 }
 
 
@@ -1132,13 +1138,13 @@ SCH_SHEET* SCH_SCREENS::GetSheet( unsigned int aIndex ) const
     if( aIndex < m_sheets.size() )
         return m_sheets[ aIndex ];
 
-    return NULL;
+    return nullptr;
 }
 
 
 void SCH_SCREENS::addScreenToList( SCH_SCREEN* aScreen, SCH_SHEET* aSheet )
 {
-    if( aScreen == NULL )
+    if( aScreen == nullptr )
         return;
 
     for( const SCH_SCREEN* screen : m_screens )
@@ -1246,6 +1252,16 @@ int SCH_SCREENS::ReplaceDuplicateTimeStamps()
 }
 
 
+void SCH_SCREENS::ClearEditFlags()
+{
+    for( SCH_SCREEN* screen = GetFirst(); screen; screen = GetNext() )
+    {
+        for( SCH_ITEM* item : screen->Items() )
+            item->ClearEditFlags();
+    }
+}
+
+
 void SCH_SCREENS::DeleteMarker( SCH_MARKER* aMarker )
 {
     for( SCH_SCREEN* screen = GetFirst(); screen; screen = GetNext() )
@@ -1325,7 +1341,7 @@ bool SCH_SCREENS::HasNoFullyDefinedLibIds()
 
     for( screen = GetFirst(); screen; screen = GetNext() )
     {
-        for( auto item : screen->Items().OfType( SCH_SYMBOL_T ) )
+        for( SCH_ITEM* item : screen->Items().OfType( SCH_SYMBOL_T ) )
         {
             cnt++;
             SCH_SYMBOL* symbol = static_cast<SCH_SYMBOL*>( item );

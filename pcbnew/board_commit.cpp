@@ -24,7 +24,6 @@
 
 #include <board.h>
 #include <footprint.h>
-#include <pcb_edit_frame.h>
 #include <pcb_group.h>
 #include <tool/tool_manager.h>
 #include <tools/pcb_selection_tool.h>
@@ -36,6 +35,14 @@
 
 #include <functional>
 using namespace std::placeholders;
+
+
+BOARD_COMMIT::BOARD_COMMIT( TOOL_MANAGER* aToolMgr ) :
+        m_toolMgr( aToolMgr ),
+        m_isFootprintEditor( false ),
+        m_resolveNetConflicts( false )
+{
+}
 
 
 BOARD_COMMIT::BOARD_COMMIT( PCB_TOOL_BASE* aTool ) :
@@ -93,7 +100,7 @@ void BOARD_COMMIT::Push( const wxString& aMessage, bool aCreateUndoEntry, bool a
     PICKED_ITEMS_LIST   undoList;
     KIGFX::VIEW*        view = m_toolMgr->GetView();
     BOARD*              board = (BOARD*) m_toolMgr->GetModel();
-    PCB_BASE_FRAME*     frame = (PCB_BASE_FRAME*) m_toolMgr->GetToolHolder();
+    PCB_BASE_FRAME*     frame = dynamic_cast<PCB_BASE_FRAME*>( m_toolMgr->GetToolHolder() );
     auto                connectivity = board->GetConnectivity();
     std::set<EDA_ITEM*> savedModules;
     PCB_SELECTION_TOOL* selTool = m_toolMgr->GetTool<PCB_SELECTION_TOOL>();
@@ -131,7 +138,7 @@ void BOARD_COMMIT::Push( const wxString& aMessage, bool aCreateUndoEntry, bool a
                 wxASSERT( ent.m_item->Type() == PCB_FOOTPRINT_T );
                 wxASSERT( ent.m_copy->Type() == PCB_FOOTPRINT_T );
 
-                if( aCreateUndoEntry )
+                if( aCreateUndoEntry && frame )
                 {
                     ITEM_PICKER itemWrapper( nullptr, ent.m_item, UNDO_REDO::CHANGED );
                     itemWrapper.SetLink( ent.m_copy );
@@ -178,7 +185,7 @@ void BOARD_COMMIT::Push( const wxString& aMessage, bool aCreateUndoEntry, bool a
                     }
                 }
 
-                if( boardItem->Type() != PCB_NETINFO_T )
+                if( view && boardItem->Type() != PCB_NETINFO_T )
                     view->Add( boardItem );
 
                 break;
@@ -221,7 +228,8 @@ void BOARD_COMMIT::Push( const wxString& aMessage, bool aCreateUndoEntry, bool a
                     if( parentGroup && !( parentGroup->GetFlags() & STRUCT_DELETED ) )
                         parentGroup->RemoveItem( boardItem );
 
-                    view->Remove( boardItem );
+                    if( view )
+                        view->Remove( boardItem );
 
                     if( !( changeFlags & CHT_DONE ) )
                     {
@@ -245,7 +253,8 @@ void BOARD_COMMIT::Push( const wxString& aMessage, bool aCreateUndoEntry, bool a
                 case PCB_TARGET_T:           // a target (graphic item)
                 case PCB_MARKER_T:           // a marker used to show something
                 case PCB_ZONE_T:
-                    view->Remove( boardItem );
+                    if( view )
+                        view->Remove( boardItem );
 
                     if( !( changeFlags & CHT_DONE ) )
                     {
@@ -261,7 +270,10 @@ void BOARD_COMMIT::Push( const wxString& aMessage, bool aCreateUndoEntry, bool a
                     wxASSERT( !m_isFootprintEditor );
 
                     FOOTPRINT* footprint = static_cast<FOOTPRINT*>( boardItem );
-                    view->Remove( footprint );
+
+                    if( view )
+                        view->Remove( footprint );
+
                     footprint->ClearFlags();
 
                     if( !( changeFlags & CHT_DONE ) )
@@ -273,7 +285,8 @@ void BOARD_COMMIT::Push( const wxString& aMessage, bool aCreateUndoEntry, bool a
                 break;
 
                 case PCB_GROUP_T:
-                    view->Remove( boardItem );
+                    if( view )
+                        view->Remove( boardItem );
 
                     if( !( changeFlags & CHT_DONE ) )
                     {
@@ -315,15 +328,19 @@ void BOARD_COMMIT::Push( const wxString& aMessage, bool aCreateUndoEntry, bool a
                     connectivity->MarkItemNetAsDirty( static_cast<BOARD_ITEM*>( ent.m_copy ) );
 
                 connectivity->Update( boardItem );
-                view->Update( boardItem );
 
-                if( m_isFootprintEditor )
+                if( view )
                 {
-                    static_cast<FOOTPRINT*>( boardItem )->RunOnChildren(
-                            [&]( BOARD_ITEM* aChild )
-                            {
-                                view->Update( aChild );
-                            });
+                    view->Update( boardItem );
+
+                    if( m_isFootprintEditor )
+                    {
+                        static_cast<FOOTPRINT*>( boardItem )->RunOnChildren(
+                                [&]( BOARD_ITEM* aChild )
+                                {
+                                    view->Update( aChild );
+                                });
+                    }
                 }
 
                 itemsChanged.push_back( boardItem );
@@ -359,7 +376,9 @@ void BOARD_COMMIT::Push( const wxString& aMessage, bool aCreateUndoEntry, bool a
 
         connectivity->RecalculateRatsnest( this );
         connectivity->ClearDynamicRatsnest();
-        frame->GetCanvas()->RedrawRatsnest();
+
+        if( frame )
+            frame->GetCanvas()->RedrawRatsnest();
 
         if( m_changes.size() > num_changes )
         {
@@ -370,7 +389,7 @@ void BOARD_COMMIT::Push( const wxString& aMessage, bool aCreateUndoEntry, bool a
                 // This should only be modifications from the connectivity algo
                 wxASSERT( ( ent.m_type & CHT_TYPE ) == CHT_MODIFY );
 
-                auto boardItem = static_cast<BOARD_ITEM*>( ent.m_item );
+                BOARD_ITEM* boardItem = static_cast<BOARD_ITEM*>( ent.m_item );
 
                 if( aCreateUndoEntry )
                 {
@@ -384,12 +403,13 @@ void BOARD_COMMIT::Push( const wxString& aMessage, bool aCreateUndoEntry, bool a
                     delete ent.m_copy;
                 }
 
-                view->Update( boardItem );
+                if( view )
+                    view->Update( boardItem );
             }
         }
     }
 
-    if( !m_isFootprintEditor && aCreateUndoEntry )
+    if( !m_isFootprintEditor && aCreateUndoEntry && frame )
         frame->SaveCopyInUndoList( undoList, UNDO_REDO::UNSPECIFIED );
 
     m_toolMgr->PostEvent( { TC_MESSAGE, TA_MODEL_CHANGE, AS_GLOBAL } );
@@ -397,10 +417,13 @@ void BOARD_COMMIT::Push( const wxString& aMessage, bool aCreateUndoEntry, bool a
     if( itemsDeselected )
         m_toolMgr->PostEvent( EVENTS::UnselectedEvent );
 
-    if( aSetDirtyBit )
-        frame->OnModify();
-    else
-        frame->Update3DView( true, frame->GetDisplayOptions().m_Live3DRefresh );
+    if( frame )
+    {
+        if( aSetDirtyBit )
+            frame->OnModify();
+        else
+            frame->Update3DView( true, frame->GetDisplayOptions().m_Live3DRefresh );
+    }
 
     clear();
 }

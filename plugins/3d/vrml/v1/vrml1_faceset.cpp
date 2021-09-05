@@ -2,6 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2016 Cirilo Bernardo <cirilo.bernardo@gmail.com>
+ * Copyright (C) 2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -37,8 +38,6 @@
 WRL1FACESET::WRL1FACESET( NAMEREGISTER* aDictionary ) : WRL1NODE( aDictionary )
 {
     m_Type = WRL1NODES::WRL1_INDEXEDFACESET;
-
-    return;
 }
 
 
@@ -48,97 +47,53 @@ WRL1FACESET::WRL1FACESET( NAMEREGISTER* aDictionary, WRL1NODE* aParent ) :
     m_Type = WRL1NODES::WRL1_INDEXEDFACESET;
     m_Parent = aParent;
 
-    if( NULL != m_Parent )
+    if( nullptr != m_Parent )
         m_Parent->AddChildNode( this );
-
-    return;
 }
 
 
 WRL1FACESET::~WRL1FACESET()
 {
-    #if defined( DEBUG_VRML1 ) && ( DEBUG_VRML1 > 2 )
-    do {
-        std::ostringstream ostr;
-        ostr << " * [INFO] Destroying IndexedFaceSet with " << m_Children.size();
-        ostr << " children, " << m_Refs.size() << " references and ";
-        ostr << m_BackPointers.size() << " backpointers";
-        wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-    } while( 0 );
-    #endif
-
-    return;
+    wxLogTrace( traceVrmlPlugin, wxT( " * [INFO] Destroying IndexedFaceSet with %zu children, "
+                                      "%zu references, and %zu back pointers." ),
+                m_Children.size(), m_Refs.size(), m_BackPointers.size() );
 }
 
 
 bool WRL1FACESET::AddRefNode( WRL1NODE* aNode )
 {
     // this node may not own or reference any other node
-
-    #ifdef DEBUG_VRML1
-    do {
-        std::ostringstream ostr;
-        ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-        ostr << " * [BUG] AddRefNode is not applicable";
-        wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-    } while( 0 );
-    #endif
-
-    return false;
+    wxCHECK_MSG( false, false, wxT( "AddRefNode is not applicable." ) );
 }
 
 
 bool WRL1FACESET::AddChildNode( WRL1NODE* aNode )
 {
     // this node may not own or reference any other node
-
-    #ifdef DEBUG_VRML1
-    do {
-        std::ostringstream ostr;
-        ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-        ostr << " * [BUG] AddChildNode is not applicable";
-        wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-    } while( 0 );
-    #endif
-
-    return false;
+    wxCHECK_MSG( false, false, wxT( "AddChildNode is not applicable." ) );
 }
 
 
 bool WRL1FACESET::Read( WRLPROC& proc, WRL1BASE* aTopNode )
 {
-    size_t line, column;
-    proc.GetFilePosData( line, column );
-
     char tok = proc.Peek();
 
     if( proc.eof() )
     {
-        #if defined( DEBUG_VRML1 ) && ( DEBUG_VRML1 > 1 )
-        do {
-            std::ostringstream ostr;
-            ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-            ostr << " * [INFO] bad file format; unexpected eof at line ";
-            ostr << line << ", column " << column;
-            wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-        } while( 0 );
-        #endif
+        wxLogTrace( traceVrmlPlugin,
+                    wxT( "%s:%s:%d\n"
+                         " * [INFO] bad file format; unexpected eof %s." ),
+                    __FILE__, __FUNCTION__, __LINE__, proc.GetFilePosition() );
 
         return false;
     }
 
     if( '{' != tok )
     {
-        #if defined( DEBUG_VRML1 ) && ( DEBUG_VRML1 > 1 )
-        do {
-            std::ostringstream ostr;
-            ostr << proc.GetError() << "\n";
-            ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-            ostr << " * [INFO] bad file format; expecting '{' but got '" << tok;
-            ostr << "' at line " << line << ", column " << column;
-            wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-        } while( 0 );
-        #endif
+        wxLogTrace( traceVrmlPlugin,
+                    wxT( "%s:%s:%d\n"
+                         " * [INFO] bad file format; expecting '{' but got '%s' %s." ),
+                    __FILE__, __FUNCTION__, __LINE__, tok, proc.GetFilePosition() );
 
         return false;
     }
@@ -156,14 +111,8 @@ bool WRL1FACESET::Read( WRLPROC& proc, WRL1BASE* aTopNode )
 
         if( !proc.ReadName( glob ) )
         {
-            #if defined( DEBUG_VRML1 ) && ( DEBUG_VRML1 > 1 )
-            do {
-                std::ostringstream ostr;
-                ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-                ostr << proc.GetError();
-                wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-            } while( 0 );
-            #endif
+            wxLogTrace( traceVrmlPlugin, wxT( "%s:%s:%d\n%s" ),
+                        __FILE__, __FUNCTION__, __LINE__, proc.GetError() );
 
             return false;
         }
@@ -172,23 +121,17 @@ bool WRL1FACESET::Read( WRLPROC& proc, WRL1BASE* aTopNode )
         // coordIndex[]
         // materialIndex[]
 
-        proc.GetFilePosData( line, column );
-
         if( !glob.compare( "coordIndex" ) )
         {
             if( !proc.ReadMFInt( coordIndex ) )
             {
-                #if defined( DEBUG_VRML1 ) && ( DEBUG_VRML1 > 1 )
-                do {
-                    std::ostringstream ostr;
-                    ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-                    ostr << " * [INFO] invalid coordIndex at line " << line << ", column ";
-                    ostr << column << "\n";
-                    ostr << " * [INFO] file: '" << proc.GetFileName() << "'\n";
-                    ostr << " * [INFO] message: '" << proc.GetError();
-                    wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-                } while( 0 );
-                #endif
+                wxLogTrace( traceVrmlPlugin,
+                            wxT( "%s:%s:%d\n"
+                                 " * [INFO] invalid coordIndex %s.\n"
+                                 " * [INFO] file: '%s'\n"
+                                 "%s" ),
+                            __FILE__, __FUNCTION__, __LINE__, proc.GetFilePosition(),
+                            proc.GetFileName(), proc.GetError() );
 
                 return false;
             }
@@ -197,17 +140,13 @@ bool WRL1FACESET::Read( WRLPROC& proc, WRL1BASE* aTopNode )
         {
             if( !proc.ReadMFInt( matIndex ) )
             {
-                #if defined( DEBUG_VRML1 ) && ( DEBUG_VRML1 > 1 )
-                do {
-                    std::ostringstream ostr;
-                    ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-                    ostr << " * [INFO] invalid materialIndex at line " << line << ", column ";
-                    ostr << column << "\n";
-                    ostr << " * [INFO] file: '" << proc.GetFileName() << "'\n";
-                    ostr << " * [INFO] message: '" << proc.GetError();
-                    wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-                } while( 0 );
-                #endif
+                wxLogTrace( traceVrmlPlugin,
+                            wxT( "%s:%s:%d\n"
+                                 " * [INFO] invalid materialIndex %s.\n"
+                                 " * [INFO] file: '%s'\n"
+                                 "%s" ),
+                            __FILE__, __FUNCTION__, __LINE__, proc.GetFilePosition(),
+                            proc.GetFileName(), proc.GetError() );
 
                 return false;
             }
@@ -216,17 +155,13 @@ bool WRL1FACESET::Read( WRLPROC& proc, WRL1BASE* aTopNode )
         {
             if( !proc.ReadMFInt( normIndex ) )
             {
-                #if defined( DEBUG_VRML1 ) && ( DEBUG_VRML1 > 1 )
-                do {
-                    std::ostringstream ostr;
-                    ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-                    ostr << " * [INFO] invalid normalIndex at line " << line << ", column ";
-                    ostr << column << "\n";
-                    ostr << " * [INFO] file: '" << proc.GetFileName() << "'\n";
-                    ostr << " * [INFO] message: '" << proc.GetError();
-                    wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-                } while( 0 );
-                #endif
+                wxLogTrace( traceVrmlPlugin,
+                            wxT( "%s:%s:%d\n"
+                                 " * [INFO] invalid normalIndex %s\n"
+                                 " * [INFO] file: '%s'\n"
+                                 "%s" ),
+                            __FILE__, __FUNCTION__, __LINE__, proc.GetFilePosition(),
+                            proc.GetFileName(), proc.GetError() );
 
                 return false;
             }
@@ -235,33 +170,25 @@ bool WRL1FACESET::Read( WRLPROC& proc, WRL1BASE* aTopNode )
         {
             if( !proc.ReadMFInt( texIndex ) )
             {
-                #if defined( DEBUG_VRML1 ) && ( DEBUG_VRML1 > 1 )
-                do {
-                    std::ostringstream ostr;
-                    ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-                    ostr << " * [INFO] invalid textureCoordIndex at line " << line << ", column ";
-                    ostr << column << "\n";
-                    ostr << " * [INFO] file: '" << proc.GetFileName() << "'\n";
-                    ostr << " * [INFO] message: '" << proc.GetError();
-                    wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-                } while( 0 );
-                #endif
+                wxLogTrace( traceVrmlPlugin,
+                            wxT( "%s:%s:%d\n"
+                                 " * [INFO] invalid textureCoordIndex %s.\n"
+                                 " * [INFO] file: '%s'\n"
+                                 "%s" ),
+                            __FILE__, __FUNCTION__, __LINE__, proc.GetFilePosition(),
+                            proc.GetFileName(), proc.GetError() );
 
                 return false;
             }
         }
         else
         {
-            #if defined( DEBUG_VRML1 ) && ( DEBUG_VRML1 > 1 )
-            do {
-                std::ostringstream ostr;
-                ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
-                ostr << " * [INFO] bad IndexedFaceSet at line " << line << ", column ";
-                ostr << column << "\n";
-                ostr << " * [INFO] file: '" << proc.GetFileName() << "'";
-                wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-            } while( 0 );
-            #endif
+            wxLogTrace( traceVrmlPlugin,
+                        wxT( "%s:%s:%d\n"
+                             " * [INFO] invalid IndexedFaceSet %s.\n"
+                             " * [INFO] file: '%s'" ),
+                        __FILE__, __FUNCTION__, __LINE__, proc.GetFilePosition(),
+                        proc.GetFileName() );
 
             return false;
         }
@@ -276,44 +203,35 @@ SGNODE* WRL1FACESET::TranslateToSG( SGNODE* aParent, WRL1STATUS* sp )
     // note: m_sgNode is unused because we cannot manage everything
     // with a single reused transform due to the fact that VRML1
     // may use a MatrixTransformation entity which is impossible to
-    // decompose into Rotate,Scale,Transform via an anlytic expression.
+    // decompose into Rotate,Scale,Transform via an analytic expression.
     if( !m_Parent )
     {
-        #if defined( DEBUG_VRML1 ) && ( DEBUG_VRML1 > 1 )
-        wxLogTrace( MASK_VRML, " * [INFO] bad model: no parent node\n" );
-        #endif
+        wxLogTrace( traceVrmlPlugin, " * [INFO] bad model: no parent node." );
 
-        return NULL;
+        return nullptr;
     }
     else
     {
-        if( NULL == sp )
+        if( nullptr == sp )
         {
-            #if defined( DEBUG_VRML1 ) && ( DEBUG_VRML1 > 1 )
-            wxLogTrace( MASK_VRML, " * [INFO] bad model: no base data given\n" );
-            #endif
+            wxLogTrace( traceVrmlPlugin, " * [INFO] bad model: no base data given." );
 
-            return NULL;
+            return nullptr;
         }
     }
 
     m_current = *sp;
 
-    if( NULL == m_current.coord || NULL == m_current.mat )
+    if( nullptr == m_current.coord )
     {
-        #if defined( DEBUG_VRML1 ) && ( DEBUG_VRML1 > 1 )
-        if( NULL == m_current.coord )
-        {
-            wxLogTrace( MASK_VRML, " * [INFO] bad model: no vertex set\n" );
-        }
+        wxLogTrace( traceVrmlPlugin, " * [INFO] bad model: no vertex set." );
+        return nullptr;
+    }
 
-        if( NULL == m_current.mat )
-        {
-            wxLogTrace( MASK_VRML, " * [INFO] bad model: no material set\n" );
-        }
-        #endif
-
-        return NULL;
+    if( nullptr == m_current.mat )
+    {
+        wxLogTrace( traceVrmlPlugin, " * [INFO] bad model: no material set." );
+        return nullptr;
     }
 
     WRLVEC3F* pcoords;
@@ -324,20 +242,15 @@ SGNODE* WRL1FACESET::TranslateToSG( SGNODE* aParent, WRL1STATUS* sp )
 
     if( coordsize < 3 || vsize < 3 )
     {
-        #if defined( DEBUG_VRML1 ) && ( DEBUG_VRML1 > 1 )
-        do {
-            std::ostringstream ostr;
-            ostr << " * [INFO] bad model: coordsize, indexsize = " << coordsize;
-            ostr << ", " << vsize;
-            wxLogTrace( MASK_VRML, "%s\n", ostr.str().c_str() );
-        } while( 0 );
-        #endif
+        wxLogTrace( traceVrmlPlugin,
+                    wxT( " * [INFO] bad model: coordsize = %zu, indexsize = %zu" ),
+                    coordsize, vsize );
 
-        return NULL;
+        return nullptr;
     }
 
     // 1. create the vertex/normals/colors lists
-    SGNODE* sgcolor = NULL;
+    SGNODE* sgcolor = nullptr;
     WRL1_BINDING mbind = m_current.matbind;
     size_t matSize = matIndex.size();
 
@@ -352,9 +265,8 @@ SGNODE* WRL1FACESET::TranslateToSG( SGNODE* aParent, WRL1STATUS* sp )
 
         if( matIndex.empty() )
         {
-            #if defined( DEBUG_VRML1 ) && ( DEBUG_VRML1 > 1 )
-            wxLogTrace( MASK_VRML, " * [INFO] bad model: per face indexed but no indices\n" );
-            #endif
+            wxLogTrace( traceVrmlPlugin,
+                        wxT( " * [INFO] bad model: per face indexed but no indices" ) );
 
             // support bad models by temporarily switching bindings
             mbind = WRL1_BINDING::BIND_OVERALL;
@@ -373,7 +285,7 @@ SGNODE* WRL1FACESET::TranslateToSG( SGNODE* aParent, WRL1STATUS* sp )
     // copy the data into FACET structures
 
     SHAPE   lShape;
-    FACET*  fp = NULL;
+    FACET*  fp = nullptr;
     size_t  iCoord;
     int     idx;        // coordinate index
     size_t  cidx = 0;   // color index
@@ -388,10 +300,10 @@ SGNODE* WRL1FACESET::TranslateToSG( SGNODE* aParent, WRL1STATUS* sp )
 
             if( idx < 0 )
             {
-                if( NULL != fp )
+                if( nullptr != fp )
                 {
                     if( fp->HasMinPoints() )
-                        fp = NULL;
+                        fp = nullptr;
                     else
                         fp->Init();
                 }
@@ -403,7 +315,7 @@ SGNODE* WRL1FACESET::TranslateToSG( SGNODE* aParent, WRL1STATUS* sp )
             if( idx >= (int)coordsize )
                 continue;
 
-            if( NULL == fp )
+            if( nullptr == fp )
                 fp = lShape.NewFacet();
 
             // push the vertex value and index
@@ -425,10 +337,10 @@ SGNODE* WRL1FACESET::TranslateToSG( SGNODE* aParent, WRL1STATUS* sp )
 
             if( idx < 0 )
             {
-                if( NULL != fp )
+                if( nullptr != fp )
                 {
                     if( fp->HasMinPoints() )
-                        fp = NULL;
+                        fp = nullptr;
                     else
                         fp->Init();
                 }
@@ -444,7 +356,7 @@ SGNODE* WRL1FACESET::TranslateToSG( SGNODE* aParent, WRL1STATUS* sp )
             if( idx >= (int)coordsize )
                 continue;
 
-            if( NULL == fp )
+            if( nullptr == fp )
                 fp = lShape.NewFacet();
 
             // push the vertex value and index
@@ -476,6 +388,7 @@ SGNODE* WRL1FACESET::TranslateToSG( SGNODE* aParent, WRL1STATUS* sp )
                 break;
 
             case WRL1_BINDING::BIND_PER_FACE_INDEXED:
+
                 if( !fp->HasColors() )
                 {
                     if( cidx >= matSize )

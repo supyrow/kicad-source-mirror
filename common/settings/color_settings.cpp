@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2020 Jon Evans <jon@craftyjon.com>
- * Copyright (C) 2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -18,7 +18,7 @@
  * with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <layers_id_colors_and_visibility.h>
+#include <layer_ids.h>
 #include <pgm_base.h>
 #include <settings/color_settings.h>
 #include <settings/json_settings_internals.h>
@@ -30,12 +30,13 @@
 
 
 ///! Update the schema version whenever a migration is required
-const int colorsSchemaVersion = 2;
+const int colorsSchemaVersion = 3;
 
 
-COLOR_SETTINGS::COLOR_SETTINGS( wxString aFilename ) :
+COLOR_SETTINGS::COLOR_SETTINGS( const wxString& aFilename ) :
         JSON_SETTINGS( std::move( aFilename ), SETTINGS_LOC::COLORS, colorsSchemaVersion ),
-        m_overrideSchItemColors( false )
+        m_overrideSchItemColors( false ),
+        m_useBoardStackupColors( true )
 {
 
     m_params.emplace_back( new PARAM<wxString>( "meta.name", &m_displayName, "KiCad Default" ) );
@@ -62,6 +63,9 @@ COLOR_SETTINGS::COLOR_SETTINGS( wxString aFilename ) :
 
     m_params.emplace_back( new PARAM<bool>( "schematic.override_item_colors",
                                             &m_overrideSchItemColors, false ) );
+
+    m_params.emplace_back( new PARAM<bool>( "3d_viewer.use_board_stackup_colors",
+                                            &m_useBoardStackupColors, true ) );
 
 #define CLR( x, y ) \
     wxASSERT( s_defaultTheme.count( y ) ); \
@@ -133,8 +137,6 @@ COLOR_SETTINGS::COLOR_SETTINGS( wxString aFilename ) :
     CLR( "board.grid",                     LAYER_GRID               );
     CLR( "board.grid_axes",                LAYER_GRID_AXES          );
     CLR( "board.no_connect",               LAYER_NO_CONNECTS        );
-    CLR( "board.pad_back",                 LAYER_PAD_BK             );
-    CLR( "board.pad_front",                LAYER_PAD_FR             );
     CLR( "board.pad_plated_hole",          LAYER_PAD_PLATEDHOLES    );
     CLR( "board.pad_through_hole",         LAYER_PADS_TH            );
     CLR( "board.plated_hole",              LAYER_NON_PLATEDHOLES    );
@@ -213,7 +215,8 @@ COLOR_SETTINGS::COLOR_SETTINGS( wxString aFilename ) :
     CLR( "3d_viewer.copper",            LAYER_3D_COPPER            );
     CLR( "3d_viewer.silkscreen_bottom", LAYER_3D_SILKSCREEN_BOTTOM );
     CLR( "3d_viewer.silkscreen_top",    LAYER_3D_SILKSCREEN_TOP    );
-    CLR( "3d_viewer.soldermask",        LAYER_3D_SOLDERMASK        );
+    CLR( "3d_viewer.soldermask_bottom", LAYER_3D_SOLDERMASK_BOTTOM );
+    CLR( "3d_viewer.soldermask_top",    LAYER_3D_SOLDERMASK_TOP    );
     CLR( "3d_viewer.solderpaste",       LAYER_3D_SOLDERPASTE       );
 
     registerMigration( 0, 1, std::bind( &COLOR_SETTINGS::migrateSchema0to1, this ) );
@@ -225,6 +228,26 @@ COLOR_SETTINGS::COLOR_SETTINGS( wxString aFilename ) :
                 nlohmann::json::json_pointer ptr( "/board/via_hole");
 
                 ( *m_internals )[ptr] = COLOR4D( 0.5, 0.4, 0, 0.8 ).ToWxString( wxC2S_CSS_SYNTAX );
+
+                return true;
+            } );
+
+    registerMigration( 2, 3,
+            [&]()
+            {
+                // We don't support opacity in some 3D colors but some versions of 5.99 let
+                // you set it.
+
+                for( std::string path : { "3d_viewer.background_top",
+                                          "3d_viewer.background_bottom",
+                                          "3d_viewer.copper",
+                                          "3d_viewer.silkscreen_top",
+                                          "3d_viewer.silkscreen_bottom",
+                                          "3d_viewer.solderpaste" } )
+                {
+                    if( OPT<COLOR4D> optval = Get<COLOR4D>( path ) )
+                        Set( path, optval->WithAlpha( 1.0 ) );
+                }
 
                 return true;
             } );
@@ -252,6 +275,7 @@ void COLOR_SETTINGS::initFromOther( const COLOR_SETTINGS& aOther )
 {
     m_displayName           = aOther.m_displayName;
     m_overrideSchItemColors = aOther.m_overrideSchItemColors;
+    m_useBoardStackupColors = aOther.m_useBoardStackupColors;
     m_colors                = aOther.m_colors;
     m_defaultColors         = aOther.m_defaultColors;
     m_writeFile             = aOther.m_writeFile;
@@ -298,7 +322,7 @@ bool COLOR_SETTINGS::migrateSchema0to1()
     COLOR_SETTINGS* fpsettings = m_manager->AddNewColorSettings( filename );
 
     // Start out with a clone
-    fpsettings->Set( "", At( "" ) );
+    fpsettings->m_internals->CloneFrom( *m_internals );
 
     // Footprint editor now just looks at the "board" namespace
     fpsettings->Set( "board", fpsettings->At( "fpedit" ) );
@@ -348,7 +372,7 @@ COLOR4D COLOR_SETTINGS::GetDefaultColor( int aLayer )
 }
 
 
-void COLOR_SETTINGS::SetColor( int aLayer, COLOR4D aColor )
+void COLOR_SETTINGS::SetColor( int aLayer, const COLOR4D& aColor )
 {
     m_colors[ aLayer ] = aColor;
 }
