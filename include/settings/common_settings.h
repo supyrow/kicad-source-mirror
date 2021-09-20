@@ -53,6 +53,7 @@ public:
         int        icon_scale;
         ICON_THEME icon_theme;
         bool       use_icons_in_menus;
+        bool       apply_icon_scale_to_fonts;
     };
 
     struct AUTO_BACKUP
@@ -108,7 +109,7 @@ public:
     struct SYSTEM
     {
         int autosave_interval;
-        wxString editor_name;
+        wxString text_editor;
         int file_history_size;
         wxString language;
         wxString pdf_viewer_name;

@@ -332,8 +332,6 @@ int EDIT_TOOL::DragArcTrack( const TOOL_EVENT& aEvent )
     if( selection.Size() != 1 || selection.Front()->Type() != PCB_ARC_T )
         return 0;
 
-    Activate();
-
     PCB_ARC* theArc = static_cast<PCB_ARC*>( selection.Front() );
     double   arcAngleDegrees = std::abs( theArc->GetAngle() ) / 10.0;
 
@@ -347,10 +345,12 @@ int EDIT_TOOL::DragArcTrack( const TOOL_EVENT& aEvent )
 
     KIGFX::VIEW_CONTROLS* controls = getViewControls();
 
+    Activate();
+    // Must be done after Activate() so that it gets set into the correct context
     controls->ShowCursor( true );
     controls->SetAutoPan( true );
-    bool restore_state = false;
 
+    bool     restore_state = false;
     VECTOR2I arcCenter = theArc->GetCenter();
     SEG      tanStart = SEG( arcCenter, theArc->GetStart() ).PerpendicularSeg( theArc->GetStart() );
     SEG      tanEnd = SEG( arcCenter, theArc->GetEnd() ).PerpendicularSeg( theArc->GetEnd() );
@@ -802,7 +802,9 @@ int EDIT_TOOL::doMoveSelection( TOOL_EVENT aEvent, bool aPickReference )
 
     std::string tool = aEvent.GetCommandStr().get();
     editFrame->PushTool( tool );
+
     Activate();
+    // Must be done after Activate() so that it gets set into the correct context
     controls->ShowCursor( true );
     controls->SetAutoPan( true );
 
@@ -838,6 +840,7 @@ int EDIT_TOOL::doMoveSelection( TOOL_EVENT aEvent, bool aPickReference )
     }
 
     bool        restore_state = false;
+    VECTOR2I    originalPos;
     VECTOR2I    totalMovement;
     PCB_GRID_HELPER grid( m_toolMgr, editFrame->GetMagneticItemsSettings() );
     TOOL_EVENT* evt = &aEvent;
@@ -883,6 +886,15 @@ int EDIT_TOOL::doMoveSelection( TOOL_EVENT aEvent, bool aPickReference )
                         m_cursor.y = prevPos.y;
                     else if( action == ACTIONS::CURSOR_UP || action == ACTIONS::CURSOR_DOWN )
                         m_cursor.x = prevPos.x;
+                }
+
+                if( !selection.HasReferencePoint() )
+                    originalPos = m_cursor;
+
+                if( Is45Limited() )
+                {
+                    VECTOR2I moveVector = m_cursor - originalPos;
+                    m_cursor = originalPos + GetVectorSnapped45( moveVector );
                 }
 
                 controls->ForceCursorPosition( true, m_cursor );
@@ -965,6 +977,12 @@ int EDIT_TOOL::doMoveSelection( TOOL_EVENT aEvent, bool aPickReference )
                     // start moving with the reference point attached to the cursor
                     grid.SetAuxAxes( false );
 
+                    if( Is45Limited() )
+                    {
+                        VECTOR2I moveVector = m_cursor - originalPos;
+                        m_cursor = originalPos + GetVectorSnapped45( moveVector );
+                    }
+
                     movement = m_cursor - selection.GetReferencePoint();
 
                     // Drag items to the current cursor position
@@ -1005,6 +1023,9 @@ int EDIT_TOOL::doMoveSelection( TOOL_EVENT aEvent, bool aPickReference )
                         selection.SetReferencePoint( m_cursor );
                         grid.SetAuxAxes( true, m_cursor );
                     }
+
+                    originalPos = m_cursor;
+
                 }
 
                 controls->SetCursorPosition( m_cursor, false );

@@ -250,11 +250,11 @@ int SCH_EDITOR_CONTROL::UpdateFind( const TOOL_EVENT& aEvent )
     auto visit =
             [&]( EDA_ITEM* aItem, SCH_SHEET_PATH* aSheet )
             {
-                // We may get triggered when the dialog is not opened due to binding SelectedItemsModified
-                // we also get triggered when the find dialog is closed....so we need to double check the dialog is open
-
-                if( m_frame->m_findReplaceDialog != nullptr 
-                    && !data.GetFindString().IsEmpty() 
+                // We may get triggered when the dialog is not opened due to binding
+                // SelectedItemsModified we also get triggered when the find dialog is
+                // closed....so we need to double check the dialog is open.
+                if( m_frame->m_findReplaceDialog != nullptr
+                    && !data.GetFindString().IsEmpty()
                     && aItem->Matches( data, aSheet ) )
                 {
                     aItem->SetForceVisible( true );
@@ -441,7 +441,8 @@ int SCH_EDITOR_CONTROL::FindNext( const TOOL_EVENT& aEvent )
             }
         }
 
-        std::sort( paths.begin(), paths.end(), [] ( const SCH_SHEET_PATH* lhs, const SCH_SHEET_PATH* rhs ) -> bool
+        std::sort( paths.begin(), paths.end(), [] ( const SCH_SHEET_PATH* lhs,
+                                                    const SCH_SHEET_PATH* rhs ) -> bool
                 {
                     int retval = lhs->ComparePageNumAndName( *rhs );
 
@@ -475,13 +476,11 @@ int SCH_EDITOR_CONTROL::FindNext( const TOOL_EVENT& aEvent )
                 screen->TestDanglingEnds();
 
                 m_frame->SetScreen( screen );
+                m_frame->UpdateHierarchyNavigator();
                 UpdateFind( ACTIONS::updateFind.MakeEvent() );
 
                 break;
             }
-
-            if( item )
-                break;
         }
     }
 
@@ -984,8 +983,7 @@ int SCH_EDITOR_CONTROL::AssignNetclass( const TOOL_EVENT& aEvent )
         }
         else if( conn->IsBus() && conn->Members().size() == 0 )
         {
-            m_frame->ShowInfoBarError( _( "Bus must have at least one member to assign a netclass "
-                                          "to members." ) );
+            m_frame->ShowInfoBarError( _( "Bus has no members to assign netclass to." ) );
             highlightNet( m_toolMgr, CLEAR );
             return 0;
         }
@@ -994,9 +992,17 @@ int SCH_EDITOR_CONTROL::AssignNetclass( const TOOL_EVENT& aEvent )
 
         if( conn->IsBus() )
         {
-            for( auto& m : conn->Members() )
+            for( const std::shared_ptr<SCH_CONNECTION>& member : conn->Members() )
             {
-                netNames.Add( m->Name() );
+                if( member->IsBus() )
+                {
+                    for( const std::shared_ptr<SCH_CONNECTION>& subMember : member->Members() )
+                        netNames.Add( subMember->Name() );
+                }
+                else
+                {
+                    netNames.Add( member->Name() );
+                }
             }
         }
         else
@@ -1016,7 +1022,7 @@ int SCH_EDITOR_CONTROL::AssignNetclass( const TOOL_EVENT& aEvent )
         defaultItem.Add( _( "Default" ) );
         items.emplace_back( defaultItem );
 
-        for( const auto& ii : netSettings.m_NetClasses )
+        for( const std::pair<const wxString, NETCLASSPTR>& ii : netSettings.m_NetClasses )
         {
             wxArrayString item;
             item.Add( ii.first );
@@ -1030,7 +1036,7 @@ int SCH_EDITOR_CONTROL::AssignNetclass( const TOOL_EVENT& aEvent )
         {
             netclassName = dlg.GetTextSelection();
 
-            for( auto& netName : netNames )
+            for( const wxString& netName : netNames )
             {
                 // Remove from old netclass membership list
                 if( netSettings.m_NetClassAssignments.count( netName ) )
@@ -1049,7 +1055,6 @@ int SCH_EDITOR_CONTROL::AssignNetclass( const TOOL_EVENT& aEvent )
                     newNetclass->Add( netName );
 
                 netSettings.m_NetClassAssignments[netName] = netclassName;
-                netSettings.ResolveNetClassAssignments();
             }
         }
     }
@@ -2094,7 +2099,6 @@ void SCH_EDITOR_CONTROL::setTransitions()
     Go( &SCH_EDITOR_CONTROL::HighlightNetCursor,    EE_ACTIONS::highlightNetTool.MakeEvent() );
     Go( &SCH_EDITOR_CONTROL::UpdateNetHighlighting, EVENTS::SelectedItemsModified );
     Go( &SCH_EDITOR_CONTROL::UpdateNetHighlighting, EE_ACTIONS::updateNetHighlighting.MakeEvent() );
-    Go( &SCH_EDITOR_CONTROL::ClearHighlight,        ACTIONS::cancelInteractive.MakeEvent() );
 
     Go( &SCH_EDITOR_CONTROL::AssignNetclass,        EE_ACTIONS::assignNetclass.MakeEvent() );
 

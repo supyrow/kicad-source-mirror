@@ -775,9 +775,12 @@ static void compose_quat( double q1[4], double q2[4], double qr[4] )
 
 void EXPORTER_PCB_VRML::ExportVrmlFootprint( FOOTPRINT* aFootprint, std::ostream* aOutputFile )
 {
-    wxCHECK( aFootprint && aOutputFile, /* void */ );
-
-    auto old_precision = aOutputFile->precision();
+    // Note: if m_UseInlineModelsInBrdfile is false, the 3D footprint shape is copied to
+    // the vrml board file, and aOutputFile is not used (can be nullptr)
+    // if m_UseInlineModelsInBrdfile is true, the 3D footprint shape is copied to
+    // aOutputFile (with the suitable rotation/translation/scale transform, and the vrml board
+    // file contains only the filename of 3D shapes to add to the full vrml scene
+    wxCHECK( aFootprint, /* void */ );
 
     // Export pad holes
     for( PAD* pad : aFootprint->Pads() )
@@ -793,6 +796,12 @@ void EXPORTER_PCB_VRML::ExportVrmlFootprint( FOOTPRINT* aFootprint, std::ostream
 
     while( sM != eM )
     {
+        if( !sM->m_Show )
+        {
+            ++sM;
+            continue;
+        }
+
         SGNODE* mod3d = (SGNODE*) m_Cache3Dmodels->Load( sM->m_Filename );
 
         if( nullptr == mod3d )
@@ -853,6 +862,11 @@ void EXPORTER_PCB_VRML::ExportVrmlFootprint( FOOTPRINT* aFootprint, std::ostream
 
         if( m_UseInlineModelsInBrdfile )
         {
+            wxCHECK( aOutputFile, /* void */ );
+
+            int old_precision = aOutputFile->precision();
+            aOutputFile->precision( m_precision );
+
             wxFileName srcFile = m_Cache3Dmodels->GetResolver()->ResolvePath( sM->m_Filename );
             wxFileName dstFile;
             dstFile.SetPath( m_Subdir3DFpModels );
@@ -893,11 +907,11 @@ void EXPORTER_PCB_VRML::ExportVrmlFootprint( FOOTPRINT* aFootprint, std::ostream
             // only write a rotation if it is >= 0.1 deg
             if( std::abs( rot[3] ) > 0.0001745 )
             {
-                (*aOutputFile) << "  rotation " << aOutputFile->precision( 5 );
+                (*aOutputFile) << "  rotation ";
                 (*aOutputFile) << rot[0] << " " << rot[1] << " " << rot[2] << " " << rot[3] << "\n";
             }
 
-            (*aOutputFile) << "  translation " << aOutputFile->precision( m_precision );
+            (*aOutputFile) << "  translation ";
             (*aOutputFile) << trans.x << " ";
             (*aOutputFile) << trans.y << " ";
             (*aOutputFile) << trans.z << "\n";
@@ -922,6 +936,8 @@ void EXPORTER_PCB_VRML::ExportVrmlFootprint( FOOTPRINT* aFootprint, std::ostream
             fn.Replace( "\\", "/" );
             (*aOutputFile) << TO_UTF8( fn ) << "\"\n    } ]\n";
             (*aOutputFile) << "  }\n";
+
+            aOutputFile->precision( old_precision );
         }
         else
         {
@@ -948,8 +964,6 @@ void EXPORTER_PCB_VRML::ExportVrmlFootprint( FOOTPRINT* aFootprint, std::ostream
 
         ++sM;
     }
-
-    aOutputFile->precision( old_precision );
 }
 
 

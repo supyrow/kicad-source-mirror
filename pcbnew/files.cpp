@@ -31,7 +31,7 @@
 #include <3d_viewer/eda_3d_viewer_frame.h>
 #include <widgets/msgpanel.h>
 #include <fp_lib_table.h>
-#include <kiface_i.h>
+#include <kiface_base.h>
 #include <macros.h>
 #include <trace_helpers.h>
 #include <lockfile.cpp>
@@ -739,6 +739,11 @@ bool PCB_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
             return false;
         }
 
+        // This fixes a focus issue after the progress reporter is done on GTK.  It shouldn't
+        // cause any issues on macOS and Windows.  If it does, it will have to be conditionally
+        // compiled.
+        Raise();
+
         SetBoard( loadedBoard );
 
         if( GFootprintList.GetCount() == 0 )
@@ -748,7 +753,7 @@ bool PCB_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
         {
             Prj().SetReadOnly( false );
 
-            Prj().GetProjectFile().NetSettings().ResolveNetClassAssignments( true );
+            Prj().GetProjectFile().NetSettings().RebuildNetClassAssignments();
 
             // Before we had a copper edge clearance setting, the edge line widths could be used
             // as a kludge to control them.  So if there's no setting then infer it from the
@@ -1143,7 +1148,7 @@ bool PCB_EDIT_FRAME::SavePcbCopy( const wxString& aFileName, bool aCreateProject
                                               rulesFile.GetFullPath() ) );
     }
 
-    DisplayInfoMessage( this, wxString::Format( _( "Board copied to:\n\"%s\"" ),
+    DisplayInfoMessage( this, wxString::Format( _( "Board copied to:\n%s" ),
                                                 pcbFileName.GetFullPath() ) );
 
     return true;

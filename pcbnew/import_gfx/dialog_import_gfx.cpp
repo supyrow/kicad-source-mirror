@@ -22,10 +22,10 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
-#include <dialogs/html_messagebox.h>
+#include <dialogs/html_message_box.h>
 
 #include "dialog_import_gfx.h"
-#include <kiface_i.h>
+#include <kiface_base.h>
 #include <locale_io.h>
 #include <pcb_layer_box_selector.h>
 #include <wildcards_and_files_ext.h>

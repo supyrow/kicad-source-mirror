@@ -24,43 +24,48 @@
  */
 
 #include "drawing_tool.h"
-#include "pcb_actions.h"
-#include <pcb_edit_frame.h>
-#include <confirm.h>
+
+
+#include <dialogs/dialog_text_properties.h>
+#include <dialogs/dialog_track_via_size.h>
+#include <geometry/geometry_utils.h>
+#include <geometry/shape_segment.h>
 #include <import_gfx/dialog_import_gfx.h>
-#include <view/view.h>
+#include <preview_items/two_point_assistant.h>
+#include <preview_items/two_point_geom_manager.h>
+#include <ratsnest/ratsnest_data.h>
+#include <router/router_tool.h>
 #include <tool/tool_manager.h>
+#include <tools/pcb_actions.h>
+#include <tools/pcb_editor_conditions.h>
 #include <tools/pcb_grid_helper.h>
 #include <tools/pcb_selection_tool.h>
 #include <tools/tool_event_utils.h>
 #include <tools/zone_create_helper.h>
+#include <view/view.h>
 #include <widgets/appearance_controls.h>
-#include <router/router_tool.h>
-#include <geometry/geometry_utils.h>
-#include <geometry/shape_segment.h>
-#include <board_commit.h>
-#include <scoped_set_reset.h>
+#include <widgets/infobar.h>
+
 #include <bitmaps.h>
-#include <painter.h>
-#include <status_popup.h>
-#include <dialogs/dialog_text_properties.h>
-#include <preview_items/arc_assistant.h>
 #include <board.h>
+#include <board_commit.h>
+#include <board_design_settings.h>
+#include <confirm.h>
+#include <footprint.h>
 #include <fp_shape.h>
+#include <macros.h>
+#include <painter.h>
+#include <pcb_edit_frame.h>
 #include <pcb_group.h>
 #include <pcb_text.h>
 #include <pcb_dimension.h>
-#include <zone.h>
-#include <footprint.h>
-#include <preview_items/two_point_assistant.h>
-#include <preview_items/two_point_geom_manager.h>
-#include <ratsnest/ratsnest_data.h>
 #include <pcbnew_id.h>
-#include <dialogs/dialog_track_via_size.h>
+#include <preview_items/arc_assistant.h>
+#include <scoped_set_reset.h>
+#include <status_popup.h>
 #include <string_utils.h>
-#include <macros.h>
-#include <widgets/infobar.h>
-#include <board_design_settings.h>
+#include <zone.h>
+
 
 using SCOPED_DRAW_MODE = SCOPED_SET_RESET<DRAWING_TOOL::MODE>;
 
@@ -207,6 +212,7 @@ bool DRAWING_TOOL::Init()
     ctxMenu.AddItem( PCB_ACTIONS::closeOutline,    canCloseOutline, 200 );
     ctxMenu.AddItem( PCB_ACTIONS::deleteLastPoint, canUndoPoint, 200 );
 
+    ctxMenu.AddCheckItem( PCB_ACTIONS::toggle45, SELECTION_CONDITIONS::ShowAlways, 250 );
     ctxMenu.AddSeparator( 500 );
 
     std::shared_ptr<VIA_SIZE_MENU> viaSizeMenu = std::make_shared<VIA_SIZE_MENU>();
@@ -478,19 +484,20 @@ int DRAWING_TOOL::PlaceText( const TOOL_EVENT& aEvent )
             };
 
     m_toolMgr->RunAction( PCB_ACTIONS::selectionClear, true );
-    m_controls->ShowCursor( true );
-    // do not capture or auto-pan until we start placing some text
 
     std::string tool = aEvent.GetCommandStr().get();
     m_frame->PushTool( tool );
+
     Activate();
+    // Must be done after Activate() so that it gets set into the correct context
+    m_controls->ShowCursor( true );
+    // do not capture or auto-pan until we start placing some text
+    // Set initial cursor
+    setCursor();
 
     // Prime the pump
     if( !aEvent.IsReactivate() )
         m_toolMgr->RunAction( ACTIONS::cursorClick );
-
-    // Set initial cursor
-    setCursor();
 
     // Main loop: keep receiving events
     while( TOOL_EVENT* evt = Wait() )
@@ -732,20 +739,21 @@ int DRAWING_TOOL::DrawDimension( const TOOL_EVENT& aEvent )
             };
 
     m_toolMgr->RunAction( PCB_ACTIONS::selectionClear, true );
-    m_controls->ShowCursor( true );
 
     std::string tool = aEvent.GetCommandStr().get();
     m_frame->PushTool( tool );
+
     Activate();
+    // Must be done after Activate() so that it gets set into the correct context
+    m_controls->ShowCursor( true );
+    // Set initial cursor
+    setCursor();
 
     // Prime the pump
     m_toolMgr->RunAction( ACTIONS::refreshPreview );
 
     if( aEvent.HasPosition() )
         m_toolMgr->PrimeTool( aEvent.Position() );
-
-    // Set initial cursor
-    setCursor();
 
     // Main loop: keep receiving events
     while( TOOL_EVENT* evt = Wait() )
@@ -897,7 +905,7 @@ int DRAWING_TOOL::DrawDimension( const TOOL_EVENT& aEvent )
                 dimension->SetEnd( (wxPoint) cursorPos );
                 dimension->Update();
 
-                if( !!evt->Modifier( MD_SHIFT ) || dimension->Type() == PCB_DIM_CENTER_T )
+                if( Is45Limited() || dimension->Type() == PCB_DIM_CENTER_T )
                     constrainDimension( dimension );
 
                 // Dimensions that have origin and end in the same spot are not valid
@@ -978,7 +986,7 @@ int DRAWING_TOOL::DrawDimension( const TOOL_EVENT& aEvent )
 
                 dimension->Update();
 
-                if( !!evt->Modifier( MD_SHIFT ) || dimension->Type() == PCB_DIM_CENTER_T )
+                if( Is45Limited() || dimension->Type() == PCB_DIM_CENTER_T )
                     constrainDimension( dimension );
 
                 break;
@@ -1203,8 +1211,21 @@ int DRAWING_TOOL::PlaceImportedGraphics( const TOOL_EVENT& aEvent )
     m_toolMgr->RunAction( PCB_ACTIONS::selectionClear, true );
     m_toolMgr->RunAction( PCB_ACTIONS::selectItems, true, &selectedItems );
 
+    std::string tool = aEvent.GetCommandStr().get();
+    m_frame->PushTool( tool );
+
+    auto setCursor =
+            [&]()
+            {
+                m_frame->GetCanvas()->SetCurrentCursor( KICURSOR::MOVING );
+            };
+
+    Activate();
+    // Must be done after Activate() so that it gets set into the correct context
     m_controls->ShowCursor( true );
     m_controls->ForceCursorPosition( false );
+    // Set initial cursor
+    setCursor();
 
     SCOPED_DRAW_MODE scopedDrawMode( m_mode, MODE::DXF );
 
@@ -1216,19 +1237,6 @@ int DRAWING_TOOL::PlaceImportedGraphics( const TOOL_EVENT& aEvent )
         item->Move( (wxPoint) delta );
 
     m_view->Update( &preview );
-
-    std::string tool = aEvent.GetCommandStr().get();
-    m_frame->PushTool( tool );
-    Activate();
-
-    auto setCursor =
-            [&]()
-            {
-                m_frame->GetCanvas()->SetCurrentCursor( KICURSOR::MOVING );
-            };
-
-    // Set initial cursor
-    setCursor();
 
     // Main loop: keep receiving events
     while( TOOL_EVENT* evt = Wait() )
@@ -1299,14 +1307,10 @@ int DRAWING_TOOL::SetAnchor( const TOOL_EVENT& aEvent )
     SCOPED_DRAW_MODE scopedDrawMode( m_mode, MODE::ANCHOR );
     PCB_GRID_HELPER  grid( m_toolMgr, m_frame->GetMagneticItemsSettings() );
 
+    m_toolMgr->RunAction( PCB_ACTIONS::selectionClear, true );
+
     std::string tool = aEvent.GetCommandStr().get();
     m_frame->PushTool( tool );
-    Activate();
-
-    m_toolMgr->RunAction( PCB_ACTIONS::selectionClear, true );
-    m_controls->ShowCursor( true );
-    m_controls->SetAutoPan( true );
-    m_controls->CaptureCursor( false );
 
     auto setCursor =
             [&]()
@@ -1314,6 +1318,11 @@ int DRAWING_TOOL::SetAnchor( const TOOL_EVENT& aEvent )
                 m_frame->GetCanvas()->SetCurrentCursor( KICURSOR::BULLSEYE );
             };
 
+    Activate();
+    // Must be done after Activate() so that it gets set into the correct context
+    m_controls->ShowCursor( true );
+    m_controls->SetAutoPan( true );
+    m_controls->CaptureCursor( false );
     // Set initial cursor
     setCursor();
 
@@ -1367,8 +1376,8 @@ int DRAWING_TOOL::SetAnchor( const TOOL_EVENT& aEvent )
 
 int DRAWING_TOOL::ToggleLine45degMode( const TOOL_EVENT& toolEvent )
 {
-    m_frame->Settings().m_Use45DegreeGraphicSegments =
-            !m_frame->Settings().m_Use45DegreeGraphicSegments;
+    m_frame->Settings().m_Use45DegreeLimit =
+            !m_frame->Settings().m_Use45DegreeLimit;
 
     return 0;
 }
@@ -1416,8 +1425,6 @@ bool DRAWING_TOOL::drawSegment( const std::string& aTool, PCB_SHAPE** aGraphic,
     m_view->Add( &preview );
     m_view->Add( &twoPointAsst );
 
-    m_controls->ShowCursor( true );
-
     bool     started = false;
     bool     cancelled = false;
     bool     isLocalOriginSet = ( m_frame->GetScreen()->m_LocalOrigin != VECTOR2D( 0, 0 ) );
@@ -1441,14 +1448,15 @@ bool DRAWING_TOOL::drawSegment( const std::string& aTool, PCB_SHAPE** aGraphic,
                     m_frame->GetScreen()->m_LocalOrigin = VECTOR2D( 0, 0 );
             };
 
+    m_controls->ShowCursor( true );
+    // Set initial cursor
+    setCursor();
+
     // Prime the pump
     m_toolMgr->RunAction( ACTIONS::refreshPreview );
 
     if( aStartingPoint )
         m_toolMgr->RunAction( ACTIONS::cursorClick );
-
-    // Set initial cursor
-    setCursor();
 
     // Main loop: keep receiving events
     while( TOOL_EVENT* evt = Wait() )
@@ -1462,12 +1470,6 @@ bool DRAWING_TOOL::drawSegment( const std::string& aTool, PCB_SHAPE** aGraphic,
         grid.SetUseGrid( getView()->GetGAL()->GetGridSnapping() && !evt->DisableGridSnapping() );
         cursorPos = grid.BestSnapAnchor( m_controls->GetMousePosition(), drawingLayer );
         m_controls->ForceCursorPosition( true, cursorPos );
-
-        // 45 degree angle constraint enabled with an option and toggled with Ctrl
-        bool limit45 = frame()->Settings().m_Use45DegreeGraphicSegments;
-
-        if( evt->Modifier( MD_SHIFT ) )
-            limit45 = !limit45;
 
         if( evt->IsCancelInteractive() )
         {
@@ -1633,9 +1635,7 @@ bool DRAWING_TOOL::drawSegment( const std::string& aTool, PCB_SHAPE** aGraphic,
         else if( evt->IsMotion() )
         {
             // 45 degree lines
-            if( started
-                && ( ( limit45 && shape == SHAPE_T::SEGMENT )
-                     || ( evt->Modifier( MD_SHIFT ) && shape == SHAPE_T::RECT ) ) )
+            if( started && Is45Limited() )
             {
                 const VECTOR2I lineVector( cursorPos - VECTOR2I( twoPointManager.GetOrigin() ) );
 
@@ -1745,12 +1745,6 @@ bool DRAWING_TOOL::drawArc( const std::string& aTool, PCB_SHAPE** aGraphic, bool
     m_view->Add( &arcAsst );
     PCB_GRID_HELPER grid( m_toolMgr, m_frame->GetMagneticItemsSettings() );
 
-    m_controls->ShowCursor( true );
-
-    bool firstPoint = false;
-    bool cancelled = false;
-
-    // Set initial cursor
     auto setCursor =
             [&]()
             {
@@ -1765,13 +1759,18 @@ bool DRAWING_TOOL::drawArc( const std::string& aTool, PCB_SHAPE** aGraphic, bool
                 *aGraphic = nullptr;
             };
 
+    m_controls->ShowCursor( true );
+    // Set initial cursor
+    setCursor();
+
+    bool firstPoint = false;
+    bool cancelled = false;
+
     // Prime the pump
     m_toolMgr->RunAction( ACTIONS::refreshPreview );
 
     if( aImmediateMode )
         m_toolMgr->RunAction( ACTIONS::cursorClick );
-
-    setCursor();
 
     // Main loop: keep receiving events
     while( TOOL_EVENT* evt = Wait() )
@@ -1860,7 +1859,7 @@ bool DRAWING_TOOL::drawArc( const std::string& aTool, PCB_SHAPE** aGraphic, bool
         else if( evt->IsMotion() )
         {
             // set angle snap
-            arcManager.SetAngleSnap( evt->Modifier( MD_SHIFT ) );
+            arcManager.SetAngleSnap( Is45Limited() );
 
             // update, but don't step the manager state
             arcManager.AddPoint( cursorPos, false );
@@ -2046,24 +2045,20 @@ int DRAWING_TOOL::DrawZone( const TOOL_EVENT& aEvent )
     else
         params.m_layer = m_frame->GetActiveLayer();
 
-    ZONE_CREATE_HELPER zoneTool( *this, params );
-
-    // the geometry manager which handles the zone geometry, and
-    // hands the calculated points over to the zone creator tool
+    ZONE_CREATE_HELPER   zoneTool( *this, params );
+    // the geometry manager which handles the zone geometry, and hands the calculated points
+    // over to the zone creator tool
     POLYGON_GEOM_MANAGER polyGeomMgr( zoneTool );
-    bool constrainAngle = false;
+    bool                 constrainAngle = false;
+    bool                 started     = false;
+    PCB_GRID_HELPER      grid( m_toolMgr, m_frame->GetMagneticItemsSettings() );
+    STATUS_TEXT_POPUP    status( m_frame );
+
+    status.SetTextColor( wxColour( 255, 0, 0 ) );
+    status.SetText( _( "Self-intersecting polygons are not allowed" ) );
 
     std::string tool = aEvent.GetCommandStr().get();
     m_frame->PushTool( tool );
-    Activate();    // register for events
-
-    m_controls->ShowCursor( true );
-
-    bool    started     = false;
-    PCB_GRID_HELPER grid( m_toolMgr, m_frame->GetMagneticItemsSettings() );
-    STATUS_TEXT_POPUP status( m_frame );
-    status.SetTextColor( wxColour( 255, 0, 0 ) );
-    status.SetText( _( "Self-intersecting polygons are not allowed" ) );
 
     auto setCursor =
             [&]()
@@ -2081,12 +2076,15 @@ int DRAWING_TOOL::DrawZone( const TOOL_EVENT& aEvent )
                 m_controls->CaptureCursor( false );
             };
 
+    Activate();
+    // Must be done after Activate() so that it gets set into the correct context
+    m_controls->ShowCursor( true );
+    // Set initial cursor
+    setCursor();
+
     // Prime the pump
     if( aEvent.HasPosition() )
         m_toolMgr->PrimeTool( aEvent.Position() );
-
-    // Set initial cursor
-    setCursor();
 
     // Main loop: keep receiving events
     while( TOOL_EVENT* evt = Wait() )
@@ -2102,7 +2100,7 @@ int DRAWING_TOOL::DrawZone( const TOOL_EVENT& aEvent )
 
         m_controls->ForceCursorPosition( true, cursorPos );
 
-        if( ( sourceZone && sourceZone->GetHV45() ) || constrainAngle || evt->Modifier( MD_SHIFT ) )
+        if( ( sourceZone && sourceZone->GetHV45() ) || constrainAngle || Is45Limited() )
             polyGeomMgr.SetLeaderMode( POLYGON_GEOM_MANAGER::LEADER_MODE::DEG45 );
         else
             polyGeomMgr.SetLeaderMode( POLYGON_GEOM_MANAGER::LEADER_MODE::DIRECT );
@@ -2265,6 +2263,9 @@ int DRAWING_TOOL::DrawZone( const TOOL_EVENT& aEvent )
 
 int DRAWING_TOOL::DrawVia( const TOOL_EVENT& aEvent )
 {
+    if( m_isFootprintEditor )
+        return 0;
+
     struct VIA_PLACER : public INTERACTIVE_PLACER_BASE
     {
         PCB_BASE_EDIT_FRAME*        m_frame;
@@ -2701,5 +2702,5 @@ void DRAWING_TOOL::setTransitions()
     Go( &DRAWING_TOOL::PlaceText,             PCB_ACTIONS::placeText.MakeEvent() );
     Go( &DRAWING_TOOL::PlaceImportedGraphics, PCB_ACTIONS::placeImportedGraphics.MakeEvent() );
     Go( &DRAWING_TOOL::SetAnchor,             PCB_ACTIONS::setAnchor.MakeEvent() );
-    Go( &DRAWING_TOOL::ToggleLine45degMode,   PCB_ACTIONS::toggleLine45degMode.MakeEvent() );
+    Go( &DRAWING_TOOL::ToggleLine45degMode,   PCB_ACTIONS::toggle45.MakeEvent() );
 }

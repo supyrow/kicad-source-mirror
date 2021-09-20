@@ -163,9 +163,6 @@ public:
     static TOOL_ACTION deleteLastPoint;
     static TOOL_ACTION closeOutline;
 
-    /// Toggle 45 degree line drawing mode
-    static TOOL_ACTION toggleLine45degMode;
-
     /// Increase width of currently drawn line
     static TOOL_ACTION incWidth;
 
@@ -249,7 +246,6 @@ public:
     static TOOL_ACTION zoneDisplayTriangulated;
     static TOOL_ACTION zoneDisplayToggle;
     static TOOL_ACTION showPadNumbers;
-    static TOOL_ACTION zoomFootprintAutomatically;
 
     // Layer control
     static TOOL_ACTION layerTop;
@@ -418,6 +414,8 @@ public:
     static TOOL_ACTION microwaveCreateFunctionShape;
 
     static TOOL_ACTION microwaveCreateLine;
+
+    static TOOL_ACTION toggle45;
 
     // Locking
     static TOOL_ACTION toggleLock;

@@ -26,6 +26,8 @@
 #include <drc/drc_item.h>
 #include <drc/drc_rule.h>
 #include <drc/drc_test_provider.h>
+#include <pad.h>
+#include <pcb_track.h>
 
 #include <drawing_sheet/ds_draw_item.h>
 #include <drawing_sheet/ds_proxy_view_item.h>
@@ -132,27 +134,67 @@ void DRC_TEST_PROVIDER_MISC::testDisabledLayers()
     auto checkDisabledLayers =
             [&]( BOARD_ITEM* item ) -> bool
             {
-                LSET refLayers ( item->GetLayer() );
+                PCB_LAYER_ID badLayer = UNDEFINED_LAYER;
 
-                if( ( disabledLayers & refLayers ).any() )
+                if( item->Type() == PCB_PAD_T )
+                {
+                    PAD* pad = static_cast<PAD*>( item );
+
+                    if( pad->GetAttribute() == PAD_ATTRIB::SMD
+                            || pad->GetAttribute() == PAD_ATTRIB::CONN )
+                    {
+                        if( disabledLayers.test( item->GetLayer() ) )
+                            badLayer = item->GetLayer();
+                    }
+                    else
+                    {
+                        // Through hole pad is on whatever layers there are.
+                    }
+                }
+                else if( item->Type() == PCB_VIA_T )
+                {
+                    PCB_VIA* via = static_cast<PCB_VIA*>( item );
+                    PCB_LAYER_ID top;
+                    PCB_LAYER_ID bottom;
+
+                    via->LayerPair( &top, &bottom );
+
+                    if( disabledLayers.test( top ) )
+                        badLayer = top;
+                    else if( disabledLayers.test( bottom ) )
+                        badLayer = bottom;
+                }
+                else if( item->Type() == PCB_FP_ZONE_T )
+                {
+                    // Footprint zones just get a top/bottom/inner setting, so they're on
+                    // whatever inner layers there are.
+                }
+                else
+                {
+                    LSET badLayers = disabledLayers & item->GetLayerSet();
+
+                    if( badLayers.any() )
+                        badLayer = badLayers.Seq().front();
+                }
+
+                if( badLayer != UNDEFINED_LAYER )
                 {
                     std::shared_ptr<DRC_ITEM>drcItem = DRC_ITEM::Create( DRCE_DISABLED_LAYER_ITEM );
 
-                    m_msg.Printf( _( "(layer %s)" ),
-                                  item->GetLayerName() );
+                    m_msg.Printf( _( "(layer %s)" ), LayerName( badLayer ) );
 
                     drcItem->SetErrorMessage( drcItem->GetErrorText() + wxS( " " ) + m_msg );
                     drcItem->SetItems( item );
 
                     reportViolation( drcItem, item->GetPosition() );
                 }
+
                 return true;
             };
 
-    // fixme: what about graphical items?
-    forEachGeometryItem( { PCB_TRACE_T, PCB_ARC_T, PCB_VIA_T, PCB_ZONE_T, PCB_PAD_T },
-                           LSET::AllLayersMask(), checkDisabledLayers );
+    forEachGeometryItem( s_allBasicItems, LSET::AllLayersMask(), checkDisabledLayers );
 }
+
 
 void DRC_TEST_PROVIDER_MISC::testTextVars()
 {

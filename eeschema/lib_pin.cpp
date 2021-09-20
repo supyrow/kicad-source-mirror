@@ -31,6 +31,7 @@
 #include <settings/settings_manager.h>
 #include <symbol_editor/symbol_editor_settings.h>
 #include <trigo.h>
+#include <string_utils.h>
 #include "sch_painter.h"
 
 // small margin in internal units between the pin text and the pin line
@@ -1022,7 +1023,7 @@ void LIB_PIN::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, MSG_PANEL_ITEMS& aList )
 {
     LIB_ITEM::GetMsgPanelInfo( aFrame, aList );
 
-    aList.push_back( MSG_PANEL_ITEM( _( "Name" ), GetShownName() ) );
+    aList.push_back( MSG_PANEL_ITEM( _( "Name" ), UnescapeString( GetShownName() ) ) );
     aList.push_back( MSG_PANEL_ITEM( _( "Number" ), GetShownNumber() ) );
     aList.push_back( MSG_PANEL_ITEM( _( "Type" ), ElectricalPinTypeGetText( m_type ) ) );
     aList.push_back( MSG_PANEL_ITEM( _( "Style" ), PinShapeGetText( m_shape ) ) );
@@ -1093,7 +1094,7 @@ const EDA_RECT LIB_PIN::GetBoundingBox( bool aIncludeInvisibles, bool aPinOnly )
     // calculate top left corner position
     // for the default pin orientation (PIN_RIGHT)
     begin.y = std::max( minsizeV, numberTextHeight + Mils2iu( PIN_TEXT_MARGIN ) );
-    begin.x = std::min( -TARGET_PIN_RADIUS, m_length - (numberTextLength / 2) );
+    begin.x = std::min( 0, m_length - (numberTextLength / 2) );
 
     // calculate bottom right corner position and adjust top left corner position
     int nameTextLength = 0;
@@ -1112,14 +1113,14 @@ const EDA_RECT LIB_PIN::GetBoundingBox( bool aIncludeInvisibles, bool aPinOnly )
 
     if( nameTextOffset )        // for values > 0, pin name is inside the body
     {
-        end.x = m_length + nameTextLength + TARGET_PIN_RADIUS;
+        end.x = m_length + nameTextLength;
         end.y = std::min( -minsizeV, -nameTextHeight / 2 );
     }
     else        // if value == 0:
                 // pin name is outside the body, and above the pin line
                 // pin num is below the pin line
     {
-        end.x   = std::max( m_length + TARGET_PIN_RADIUS, nameTextLength );
+        end.x   = std::max( m_length, nameTextLength );
         end.y   = -begin.y;
         begin.y = std::max( minsizeV, nameTextHeight );
     }
@@ -1178,15 +1179,15 @@ wxString LIB_PIN::GetSelectMenuText( EDA_UNITS aUnits ) const
     if( !m_name.IsEmpty() )
     {
         return wxString::Format( _( "Pin %s [%s, %s, %s]" ),
-                                 m_number,
-                                 m_name,
+                                 GetShownNumber(),
+                                 UnescapeString( GetShownName() ),
                                  GetElectricalTypeName(),
                                  PinShapeGetText( m_shape ) );
     }
     else
     {
         return wxString::Format( _( "Pin %s [%s, %s]" ),
-                                 m_number,
+                                 GetShownNumber(),
                                  GetElectricalTypeName(),
                                  PinShapeGetText( m_shape ) );
     }

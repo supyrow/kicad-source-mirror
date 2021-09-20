@@ -27,7 +27,7 @@
 #include <confirm.h>
 #include <eda_dde.h>
 #include <fp_lib_table.h>
-#include <kiface_i.h>
+#include <kiface_base.h>
 #include <kiplatform/app.h>
 #include <kiway_express.h>
 #include <macros.h>
@@ -132,9 +132,9 @@ CVPCB_MAINFRAME::CVPCB_MAINFRAME( KIWAY* aKiway, wxWindow* aParent ) :
     wxStaticLine* staticline1 = new wxStaticLine( bottomPanel );
     panelSizer->Add( staticline1, 0, wxEXPAND, 5 );
 
-    m_statusLine1->SetFont( KIUI::GetInfoFont() );
-    m_statusLine2->SetFont( KIUI::GetInfoFont() );
-    m_statusLine3->SetFont( KIUI::GetInfoFont() );
+    m_statusLine1->SetFont( KIUI::GetStatusFont( this ) );
+    m_statusLine2->SetFont( KIUI::GetStatusFont( this ) );
+    m_statusLine3->SetFont( KIUI::GetStatusFont( this ) );
 
     // Add buttons:
     auto buttonsSizer = new wxBoxSizer( wxHORIZONTAL );

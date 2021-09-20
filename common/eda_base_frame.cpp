@@ -31,7 +31,7 @@
 #include <eda_dde.h>
 #include <filehistory.h>
 #include <id.h>
-#include <kiface_i.h>
+#include <kiface_base.h>
 #include <menus_helpers.h>
 #include <panel_hotkeys_editor.h>
 #include <paths.h>
@@ -452,7 +452,8 @@ void EDA_BASE_FRAME::AddStandardHelpMenu( wxMenuBar* aMenuBar )
     helpMenu->AppendSeparator();
     helpMenu->Add( _( "&About KiCad" ), "", wxID_ABOUT, BITMAPS::about );
 
-    aMenuBar->Append( helpMenu, _( "&Help" ) );
+    // Trailing space keeps OSX from hijacking our menu (and disabling everything in it).
+    aMenuBar->Append( helpMenu, _( "&Help" ) + wxS( " " ) );
 }
 
 
@@ -480,10 +481,8 @@ void EDA_BASE_FRAME::CommonSettingsChanged( bool aEnvVarsChanged, bool aTextVars
         m_fileHistory->SetMaxFiles( (unsigned) std::max( 0, historySize ) );
     }
 
-    if( GetBitmapStore()->ThemeChanged() )
-    {
-        ThemeChanged();
-    }
+    GetBitmapStore()->ThemeChanged();
+    ThemeChanged();
 
     if( GetMenuBar() )
     {
@@ -1235,8 +1234,8 @@ wxSize EDA_BASE_FRAME::GetWindowSize()
 void EDA_BASE_FRAME::HandleSystemColorChange()
 {
     // Update the icon theme when the system theme changes and update the toolbars
-    if( GetBitmapStore()->ThemeChanged() )
-        ThemeChanged();
+    GetBitmapStore()->ThemeChanged();
+    ThemeChanged();
 
     // This isn't handled by ThemeChanged()
     if( GetMenuBar() )
@@ -1256,3 +1255,17 @@ void EDA_BASE_FRAME::onSystemColorChange( wxSysColourChangedEvent& aEvent )
     // Skip the change event to ensure the rest of the window controls get it
     aEvent.Skip();
 }
+
+
+#ifdef _WIN32
+WXLRESULT EDA_BASE_FRAME::MSWWindowProc( WXUINT message, WXWPARAM wParam, WXLPARAM lParam )
+{
+    // This will help avoid the menu keeping focus when the alt key is released
+    // You can still trigger accelerators as long as you hold down alt
+    if( message == WM_SYSCOMMAND )
+        if( wParam == SC_KEYMENU && ( lParam >> 16 ) <= 0 )
+            return 0;
+
+    return wxFrame::MSWWindowProc( message, wParam, lParam );
+}
+#endif

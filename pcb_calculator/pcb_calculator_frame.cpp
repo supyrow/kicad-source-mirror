@@ -20,7 +20,7 @@
 #include <wx/msgdlg.h>
 #include <bitmaps.h>
 #include <geometry/shape_poly_set.h>
-#include <kiface_i.h>
+#include <kiface_base.h>
 #include "attenuators/attenuator_classes.h"
 #include "class_regulator_data.h"
 #include "pcb_calculator_frame.h"
@@ -74,7 +74,7 @@ PCB_CALCULATOR_FRAME::PCB_CALCULATOR_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
     m_attenuator_list.push_back( new ATTENUATOR_SPLITTER() );
     m_currAttenuator = m_attenuator_list[0];
 
-    m_staticTextAttMsg->SetFont( KIUI::GetInfoFont() );
+    m_staticTextAttMsg->SetFont( KIUI::GetInfoFont( this ).Italic() );
 
     m_IadjUnitLabel->SetLabel( wxT( "µA" ) );
 

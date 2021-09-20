@@ -33,6 +33,7 @@
 #include <lib_item.h>
 #include <symbol_viewer_frame.h>
 #include <math/util.h>
+#include <geometry/shape_rect.h>
 #include <menus_helpers.h>
 #include <painter.h>
 #include <preview_items/selection_area.h>
@@ -107,11 +108,6 @@ SELECTION_CONDITION EE_CONDITIONS::SingleMultiUnitSymbol = []( const SELECTION& 
 EE_SELECTION_TOOL::EE_SELECTION_TOOL() :
         TOOL_INTERACTIVE( "eeschema.InteractiveSelection" ),
         m_frame( nullptr ),
-        m_additive( false ),
-        m_subtractive( false ),
-        m_exclusive_or( false ),
-        m_multiple( false ),
-        m_skip_heuristics( false ),
         m_nonModifiedCursor( KICURSOR::ARROW ),
         m_isSymbolEditor( false ),
         m_isSymbolViewer( false ),
@@ -228,6 +224,9 @@ bool EE_SELECTION_TOOL::Init()
     menu.AddSeparator( 1000 );
     m_frame->AddStandardSubMenus( m_menu );
 
+    m_disambiguateTimer.SetOwner( this );
+    Connect( wxEVT_TIMER, wxTimerEventHandler( EE_SELECTION_TOOL::onDisambiguationExpire ), nullptr, this );
+
     return true;
 }
 
@@ -322,55 +321,6 @@ const KICAD_T movableSymbolAliasItems[] =
 };
 
 
-void EE_SELECTION_TOOL::setModifiersState( bool aShiftState, bool aCtrlState, bool aAltState )
-{
-    // Set the configuration of m_additive, m_subtractive, m_exclusive_or
-    // from the state of modifier keys SHIFT, CTRL, ALT and the OS
-
-    // on left click, a selection is made, depending on modifiers ALT, SHIFT, CTRL:
-    // Due to the fact ALT key modifier cannot be used freely on Windows and Linux,
-    // actions are different on OSX and others OS
-    // Especially, ALT key cannot be used to force showing the full selection choice
-    // context menu (the menu is immediately closed on Windows )
-    //
-    // No modifier = select items and deselect previous selection
-    // ALT (on OSX) = skip heuristic and show full selection choice
-    // ALT (on others) = exclusive OR of selected items (inverse selection)
-    //
-    // CTRL/CMD (on OSX) = exclusive OR of selected items (inverse selection)
-    // CTRL (on others) = skip heuristic and show full selection choice
-    //
-    // SHIFT = add selected items to the current selection
-    //
-    // CTRL/CMD+SHIFT (on OSX) = remove selected items to the current selection
-    // CTRL+SHIFT (on others) = unused (can be used for a new action)
-    //
-    // CTRL/CMT+ALT (on OSX) = unused (can be used for a new action)
-    // CTRL+ALT (on others) = do nothing (same as no modifier)
-    //
-    // SHIFT+ALT (on OSX) =  do nothing (same as no modifier)
-    // SHIFT+ALT (on others) = remove selected items to the current selection
-
-#ifdef __WXOSX_MAC__
-    m_subtractive     = aCtrlState && aShiftState && !aAltState;
-    m_additive        = aShiftState && !aCtrlState && !aAltState;
-    m_exclusive_or    = aCtrlState && !aShiftState && !aAltState;
-    m_skip_heuristics = aAltState && !aShiftState && !aCtrlState;
-
-#else
-    m_subtractive  = aShiftState && !aCtrlState && aAltState;
-    m_additive     = aShiftState && !aCtrlState && !aAltState;
-    m_exclusive_or = !aShiftState && !aCtrlState && aAltState;
-
-    // Is the user requesting that the selection list include all possible
-    // items without removing less likely selection candidates
-    // Cannot use the Alt key on windows or the disambiguation context menu is immediately
-    // dismissed rendering it useless.
-    m_skip_heuristics = aCtrlState && !aShiftState && !aAltState;
-#endif
-}
-
-
 int EE_SELECTION_TOOL::Main( const TOOL_EVENT& aEvent )
 {
     m_frame->GetCanvas()->SetCurrentCursor( KICURSOR::ARROW );
@@ -394,9 +344,29 @@ int EE_SELECTION_TOOL::Main( const TOOL_EVENT& aEvent )
         MOUSE_DRAG_ACTION drag_action = m_frame->GetDragAction();
         EE_GRID_HELPER grid( m_toolMgr );
 
-        // Single click? Select single object
-        if( evt->IsClick( BUT_LEFT ) )
+        if( evt->IsMouseDown( BUT_LEFT ) )
         {
+            // Avoid triggering when running under other tools
+            if( m_frame->ToolStackIsEmpty() )
+            {
+                m_originalCursor = m_toolMgr->GetMousePosition();
+                m_disambiguateTimer.StartOnce( 500 );
+            }
+        }
+        // Single click? Select single object
+        else if( evt->IsClick( BUT_LEFT ) )
+        {
+            // If the timer has stopped, then we have already run the disambiguate routine
+            // and we don't want to register an extra click here
+            if( !m_disambiguateTimer.IsRunning() )
+            {
+                evt->SetPassEvent();
+                continue;
+            }
+
+            m_disambiguateTimer.Stop();
+
+
             if( SCH_EDIT_FRAME* schframe = dynamic_cast<SCH_EDIT_FRAME*>( m_frame ) )
                 schframe->FocusOnItem( nullptr );
 
@@ -468,6 +438,8 @@ int EE_SELECTION_TOOL::Main( const TOOL_EVENT& aEvent )
         }
         else if( evt->IsClick( BUT_RIGHT ) )
         {
+            m_disambiguateTimer.Stop();
+
             // right click? if there is any object - show the context menu
             bool selectionCancelled = false;
 
@@ -513,6 +485,8 @@ int EE_SELECTION_TOOL::Main( const TOOL_EVENT& aEvent )
         }
         else if( evt->IsDblClick( BUT_LEFT ) )
         {
+            m_disambiguateTimer.Stop();
+
             // double click? Display the properties window
             if( SCH_EDIT_FRAME* schframe = dynamic_cast<SCH_EDIT_FRAME*>( m_frame ) )
                 schframe->FocusOnItem( nullptr );
@@ -529,6 +503,8 @@ int EE_SELECTION_TOOL::Main( const TOOL_EVENT& aEvent )
         }
         else if( evt->IsDblClick( BUT_MIDDLE ) )
         {
+            m_disambiguateTimer.Stop();
+
             // Middle double click?  Do zoom to fit or zoom to objects
             if( evt->Modifier( MD_CTRL ) ) // Is CTRL key down?
                 m_toolMgr->RunAction( ACTIONS::zoomFitObjects, true );
@@ -537,6 +513,8 @@ int EE_SELECTION_TOOL::Main( const TOOL_EVENT& aEvent )
         }
         else if( evt->IsDrag( BUT_LEFT ) )
         {
+            m_disambiguateTimer.Stop();
+
             // Is another tool already moving a new object?  Don't allow a drag start
             if( !m_selection.Empty() && m_selection[0]->HasFlag( IS_NEW | IS_MOVING ) )
             {
@@ -589,6 +567,8 @@ int EE_SELECTION_TOOL::Main( const TOOL_EVENT& aEvent )
         }
         else if( evt->Category() == TC_COMMAND && evt->Action() == TA_CHOICE_MENU_CHOICE )
         {
+            m_disambiguateTimer.Stop();
+
             // context sub-menu selection?  Handle unit selection or bus unfolding
             if( evt->GetCommandId().get() >= ID_POPUP_SCH_SELECT_UNIT_CMP
                 && evt->GetCommandId().get() <= ID_POPUP_SCH_SELECT_UNIT_SYM_MAX )
@@ -609,6 +589,8 @@ int EE_SELECTION_TOOL::Main( const TOOL_EVENT& aEvent )
         }
         else if( evt->IsCancelInteractive() )
         {
+            m_disambiguateTimer.Stop();
+
             if( SCH_EDIT_FRAME* schframe = dynamic_cast<SCH_EDIT_FRAME*>( m_frame ) )
                 schframe->FocusOnItem( nullptr );
 
@@ -628,7 +610,7 @@ int EE_SELECTION_TOOL::Main( const TOOL_EVENT& aEvent )
 
             // We are checking if we should display a pencil when hovering over anchors
             // for "auto starting" wires when clicked
-            if( CollectHits( collector, evt->Position()) )
+            if( CollectHits( collector, evt->Position() ) )
             {
                 narrowSelection( collector, evt->Position(), false );
 
@@ -738,10 +720,34 @@ int EE_SELECTION_TOOL::Main( const TOOL_EVENT& aEvent )
         }
     }
 
+    m_disambiguateTimer.Stop();
+
     // Shutting down; clear the selection
     m_selection.Clear();
 
     return 0;
+}
+
+
+int EE_SELECTION_TOOL::disambiguateCursor( const TOOL_EVENT& aEvent )
+{
+    VECTOR2I pos = m_toolMgr->GetMousePosition();
+
+    if( pos != m_originalCursor )
+        return 0;
+
+    m_skip_heuristics = true;
+    SelectPoint( pos, EE_COLLECTOR::AllItems, nullptr, &m_canceledMenu, false, m_additive,
+            m_subtractive, m_exclusive_or );
+    m_skip_heuristics = false;
+
+    return 0;
+}
+
+
+void EE_SELECTION_TOOL::onDisambiguationExpire( wxTimerEvent& aEvent )
+{
+    m_toolMgr->ProcessEvent( EVENTS::DisambiguatePoint );
 }
 
 
@@ -775,7 +781,9 @@ EE_SELECTION& EE_SELECTION_TOOL::GetSelection()
 bool EE_SELECTION_TOOL::CollectHits( EE_COLLECTOR& aCollector, const VECTOR2I& aWhere,
                                      const KICAD_T* aFilterList )
 {
-    aCollector.m_Threshold = KiROUND( getView()->ToWorld( HITTEST_THRESHOLD_PIXELS ) );
+    int pixelThreshold = KiROUND( getView()->ToWorld( HITTEST_THRESHOLD_PIXELS ) );
+    int gridThreshold = KiROUND( getView()->GetGAL()->GetGridSize().EuclideanNorm() );
+    aCollector.m_Threshold = std::max( pixelThreshold, gridThreshold );
 
     if( m_isSymbolEditor )
     {
@@ -802,7 +810,7 @@ void EE_SELECTION_TOOL::narrowSelection( EE_COLLECTOR& collector, const VECTOR2I
 {
     for( int i = collector.GetCount() - 1; i >= 0; --i )
     {
-        if( !Selectable( collector[i] ) )
+        if( !Selectable( collector[i], &aWhere ) )
         {
             collector.Remove( i );
             continue;
@@ -846,8 +854,11 @@ bool EE_SELECTION_TOOL::selectPoint( EE_COLLECTOR& aCollector, EDA_ITEM** aItem,
     // If still more than one item we're going to have to ask the user.
     if( aCollector.GetCount() > 1 )
     {
-        // Must call selectionMenu via RunAction() to avoid event-loop contention
-        m_toolMgr->RunAction( EE_ACTIONS::selectionMenu, true, &aCollector );
+        // Try to call selectionMenu via RunAction() to avoid event-loop contention
+        // But it we cannot handle the event, then we don't have an active tool loop, so
+        // handle it directly.
+        if( !m_toolMgr->RunAction( EE_ACTIONS::selectionMenu, true, &aCollector ) )
+            doSelectionMenu( &aCollector );
 
         if( aCollector.m_MenuCancelled )
         {
@@ -964,21 +975,18 @@ int EE_SELECTION_TOOL::SelectAll( const TOOL_EVENT& aEvent )
 
 void EE_SELECTION_TOOL::GuessSelectionCandidates( EE_COLLECTOR& collector, const VECTOR2I& aPos )
 {
-    // There are certain parent/child and enclosure combinations that can be handled
-    // automatically.
-
     // Prefer exact hits to sloppy ones
-    int exactHits = 0;
+    std::set<EDA_ITEM*> exactHits;
 
     for( int i = collector.GetCount() - 1; i >= 0; --i )
     {
         EDA_ITEM* item = collector[ i ];
 
         if( item->HitTest( (wxPoint) aPos, 0 ) )
-            exactHits++;
+            exactHits.insert( item );
     }
 
-    if( exactHits > 0 && exactHits < collector.GetCount() )
+    if( exactHits.size() > 0 && exactHits.size() < (unsigned) collector.GetCount() )
     {
         for( int i = collector.GetCount() - 1; i >= 0; --i )
         {
@@ -987,69 +995,6 @@ void EE_SELECTION_TOOL::GuessSelectionCandidates( EE_COLLECTOR& collector, const
             if( !item->HitTest( (wxPoint) aPos, 0 ) )
                 collector.Transfer( item );
         }
-    }
-
-    // Prefer a non-sheet to a sheet
-    for( int i = 0; collector.GetCount() == 2 && i < 2; ++i )
-    {
-        EDA_ITEM* item = collector[ i ];
-        EDA_ITEM* other = collector[ ( i + 1 ) % 2 ];
-
-        if( item->Type() != SCH_SHEET_T && other->Type() == SCH_SHEET_T )
-            collector.Transfer( other );
-    }
-
-    // Prefer a symbol to a pin or the opposite, when both a symbol and a pin are selected
-    // We need to be able to select only a pin:
-    // - to display its characteristics (especially if an ERC is attached to the pin)
-    // - for cross probing, to select the corresponding pad.
-    // Note also the case happens only in schematic editor. In symbol editor, the symbol
-    // itself is never selected
-    for( int i = 0; collector.GetCount() == 2 && i < 2; ++i )
-    {
-        SCH_ITEM* item  = collector[i];
-        SCH_ITEM* other = collector[( i + 1 ) % 2];
-
-        if( item->Type() == SCH_SYMBOL_T && other->Type() == SCH_PIN_T )
-        {
-            // Make sure we aren't clicking on the pin anchor itself, only the rest of the
-            // pin should select the symbol with this setting
-            // To avoid conflict with the auto-start wires option
-            EE_GRID_HELPER grid( m_toolMgr );
-            wxPoint        cursorPos = wxPoint( grid.BestSnapAnchor( aPos, LAYER_CONNECTABLE,
-                                                                     nullptr ) );
-
-            if( !m_isSymbolEditor
-                    && m_frame->eeconfig()->m_Selection.select_pin_selects_symbol
-                    && !other->IsPointClickableAnchor( cursorPos ) )
-            {
-                collector.Transfer( other );
-            }
-            else
-            {
-                collector.Transfer( item );
-            }
-        }
-    }
-
-    // Prefer things that are generally smaller than a symbol to a symbol
-    const std::set<KICAD_T> preferred =
-            {
-                SCH_FIELD_T,
-                SCH_LINE_T,
-                SCH_BUS_WIRE_ENTRY_T,
-                SCH_NO_CONNECT_T,
-                SCH_JUNCTION_T,
-                SCH_MARKER_T
-            };
-
-    for( int i = 0; collector.GetCount() == 2 && i < 2; ++i )
-    {
-        EDA_ITEM* item = collector[ i ];
-        EDA_ITEM* other = collector[ ( i + 1 ) % 2 ];
-
-        if( preferred.count( item->Type() ) && other->Type() == SCH_SYMBOL_T )
-            collector.Transfer( other );
     }
 
     // No need for multiple wires at a single point; if there's a junction select that;
@@ -1076,15 +1021,27 @@ void EE_SELECTION_TOOL::GuessSelectionCandidates( EE_COLLECTOR& collector, const
         }
     }
 
-    // Construct a tight box (1/2 height and width) around the center of the closest item.
-    // All items which exist at least partly outside this box have sufficient other areas
-    // for selection and can be dropped.
+    // Find the closest item.  (Note that at this point all hits are either exact or non-exact.)
     EDA_ITEM* closest = nullptr;
     int       closestDist = INT_MAX;
 
     for( EDA_ITEM* item : collector )
     {
-        int dist = EuclideanNorm( item->GetBoundingBox().GetCenter() - wxPoint( aPos ) );
+        EDA_RECT bbox = item->GetBoundingBox();
+        int      dist;
+
+        if( exactHits.count( item ) )
+        {
+            dist = EuclideanNorm( bbox.GetCenter() - (wxPoint) aPos );
+        }
+        else
+        {
+            SHAPE_RECT rect( bbox.GetPosition(), bbox.GetWidth(), bbox.GetHeight() );
+            rect.Collide( SEG( aPos, aPos ), collector.m_Threshold, &dist );
+        }
+
+        if( item->IsType( EE_COLLECTOR::FieldOwners ) )
+            dist += INT_MAX / 4;
 
         // For wires, if we hit one of the endpoints, consider that perfect
         if( item->Type() == SCH_LINE_T && ( item->GetFlags() & ( STARTPOINT | ENDPOINT ) ) )
@@ -1097,6 +1054,9 @@ void EE_SELECTION_TOOL::GuessSelectionCandidates( EE_COLLECTOR& collector, const
         }
     }
 
+    // Construct a tight box (1/2 height and width) around the center of the closest item.
+    // All items which exist at least partly outside this box have sufficient other areas
+    // for selection and can be dropped.
     if( closest ) // Don't try and get a tight bbox if nothing is near the mouse pointer
     {
         EDA_RECT tightBox = closest->GetBoundingBox();
@@ -1196,15 +1156,15 @@ bool EE_SELECTION_TOOL::selectMultiple()
 
         if( evt->IsDrag( BUT_LEFT ) )
         {
-            if( !m_additive && !m_subtractive && !m_exclusive_or )
+            if( !m_drag_additive && !m_drag_subtractive )
                 ClearSelection();
 
             // Start drawing a selection box
             area.SetOrigin( evt->DragOrigin() );
             area.SetEnd( evt->Position() );
-            area.SetAdditive( m_additive );
-            area.SetSubtractive( m_subtractive );
-            area.SetExclusiveOr( m_exclusive_or );
+            area.SetAdditive( m_drag_additive );
+            area.SetSubtractive( m_drag_subtractive );
+            area.SetExclusiveOr( false );
 
             view->SetVisible( &area, true );
             view->Update( &area );
@@ -1342,10 +1302,11 @@ EDA_ITEM* EE_SELECTION_TOOL::GetNode( VECTOR2I aPosition )
     EE_COLLECTOR collector;
 
     //TODO(snh): Reimplement after exposing KNN interface
-    int thresholdMax = KiROUND(
-            m_toolMgr->GetView()->GetGAL()->GetGridSize().EuclideanNorm() );
+    int pixelThreshold = KiROUND( getView()->ToWorld( HITTEST_THRESHOLD_PIXELS ) );
+    int gridThreshold = KiROUND( getView()->GetGAL()->GetGridSize().EuclideanNorm() );
+    int thresholdMax = std::max( pixelThreshold, gridThreshold );
 
-    for( int threshold : { 0, thresholdMax/2, thresholdMax } )
+    for( int threshold : { 0, thresholdMax/4, thresholdMax/2, thresholdMax } )
     {
         collector.m_Threshold = threshold;
         collector.Collect( m_frame->GetScreen(), nodeTypes, (wxPoint) aPosition );
@@ -1716,7 +1677,8 @@ bool EE_SELECTION_TOOL::doSelectionMenu( EE_COLLECTOR* aCollector )
 }
 
 
-bool EE_SELECTION_TOOL::Selectable( const EDA_ITEM* aItem, bool checkVisibilityOnly ) const
+bool EE_SELECTION_TOOL::Selectable( const EDA_ITEM* aItem, const VECTOR2I* aPos,
+                                    bool checkVisibilityOnly ) const
 {
     // NOTE: in the future this is where Eeschema layer/itemtype visibility will be handled
 
@@ -1730,14 +1692,33 @@ bool EE_SELECTION_TOOL::Selectable( const EDA_ITEM* aItem, bool checkVisibilityO
     switch( aItem->Type() )
     {
     case SCH_PIN_T:
-        if( !static_cast<const SCH_PIN*>( aItem )->IsVisible() && !m_frame->GetShowAllPins() )
+    {
+        const SCH_PIN* pin = static_cast<const SCH_PIN*>( aItem );
+
+        if( !pin->IsVisible() && !m_frame->GetShowAllPins() )
             return false;
+
+        if( m_frame->eeconfig()->m_Selection.select_pin_selects_symbol )
+        {
+            // Pin anchors have to be allowed for auto-starting wires.
+            if( aPos )
+            {
+                EE_GRID_HELPER grid( m_toolMgr );
+                VECTOR2I       cursorPos = grid.BestSnapAnchor( *aPos, LAYER_CONNECTABLE, nullptr );
+
+                if( pin->IsPointClickableAnchor( (wxPoint) cursorPos ) )
+                    return true;
+            }
+
+            return false;
+        }
+    }
         break;
 
     case LIB_SYMBOL_T:    // In symbol_editor we do not want to select the symbol itself.
         return false;
 
-    case LIB_FIELD_T:   // LIB_FIELD object can always be edited.
+    case LIB_FIELD_T:     // LIB_FIELD object can always be edited.
         break;
 
     case LIB_ARC_T:
@@ -1747,7 +1728,6 @@ bool EE_SELECTION_TOOL::Selectable( const EDA_ITEM* aItem, bool checkVisibilityO
     case LIB_POLYLINE_T:
     case LIB_BEZIER_T:
     case LIB_PIN_T:
-    {
         if( symEditFrame )
         {
             LIB_ITEM* lib_item = (LIB_ITEM*) aItem;
@@ -1760,7 +1740,6 @@ bool EE_SELECTION_TOOL::Selectable( const EDA_ITEM* aItem, bool checkVisibilityO
         }
 
         break;
-    }
 
     case SCH_MARKER_T:  // Always selectable
         return true;
@@ -1904,6 +1883,8 @@ void EE_SELECTION_TOOL::setTransitions()
     Go( &EE_SELECTION_TOOL::SelectionMenu,       EE_ACTIONS::selectionMenu.MakeEvent() );
 
     Go( &EE_SELECTION_TOOL::SelectAll,           EE_ACTIONS::selectAll.MakeEvent() );
+
+    Go( &EE_SELECTION_TOOL::disambiguateCursor,  EVENTS::DisambiguatePoint );
 }
 
 

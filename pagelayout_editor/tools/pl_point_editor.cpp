@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2019 CERN
- * Copyright (C) 2019 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2019-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -29,20 +29,14 @@ using namespace std::placeholders;
 #include <tool/actions.h>
 #include <view/view_controls.h>
 #include <gal/graphics_abstraction_layer.h>
-#include <geometry/seg.h>
 #include <confirm.h>
-
 #include <bitmaps.h>
 #include <status_popup.h>
 #include <drawing_sheet/ds_draw_item.h>
 #include <drawing_sheet/ds_data_item.h>
-#include <progress_reporter.h>
-
 #include "pl_editor_frame.h"
-#include "pl_editor_id.h"
 #include "pl_point_editor.h"
 #include "properties_frame.h"
-#include "tools/pl_actions.h"
 #include "tools/pl_selection_tool.h"
 
 // Few constants to avoid using bare numbers for point indices
@@ -81,6 +75,12 @@ public:
             DS_DRAW_ITEM_RECT* rect = static_cast<DS_DRAW_ITEM_RECT*>( aItem );
             wxPoint            topLeft = rect->GetStart();
             wxPoint            botRight = rect->GetEnd();
+
+            if( topLeft.y > botRight.y )
+                std::swap( topLeft.y, botRight.y );
+
+            if( topLeft.x > botRight.x )
+                std::swap( topLeft.x, botRight.x );
 
             points->AddPoint( (VECTOR2I) topLeft );
             points->AddPoint( VECTOR2I( botRight.x, topLeft.y ) );
@@ -135,17 +135,11 @@ void PL_POINT_EDITOR::updateEditedPoint( const TOOL_EVENT& aEvent )
     EDIT_POINT* point = m_editedPoint;
 
     if( aEvent.IsMotion() )
-    {
         point = m_editPoints->FindPoint( aEvent.Position(), getView() );
-    }
     else if( aEvent.IsDrag( BUT_LEFT ) )
-    {
         point = m_editPoints->FindPoint( aEvent.DragOrigin(), getView() );
-    }
     else
-    {
         point = m_editPoints->FindPoint( getViewControls()->GetCursorPosition(), getView() );
-    }
 
     if( m_editedPoint != point )
         setEditedPoint( point );
@@ -156,24 +150,20 @@ int PL_POINT_EDITOR::Main( const TOOL_EVENT& aEvent )
 {
     static KICAD_T pointTypes[] = { WSG_LINE_T, WSG_RECT_T, EOT };
 
-    if( !m_selectionTool )
-        return 0;
-
-    const PL_SELECTION& selection = m_selectionTool->GetSelection();
+    KIGFX::VIEW_CONTROLS* controls = getViewControls();
+    const PL_SELECTION&   selection = m_selectionTool->GetSelection();
 
     if( selection.Size() != 1 || !selection.Front()->IsType( pointTypes ) )
         return 0;
 
+    EDA_ITEM* item = (EDA_ITEM*) selection.Front();
+
     // Wait till drawing tool is done
-    if( selection.Front()->IsNew() )
+    if( item->IsNew() )
         return 0;
 
     Activate();
-
-    KIGFX::VIEW_CONTROLS* controls = getViewControls();
-    KIGFX::VIEW*          view = getView();
-    EDA_ITEM*             item = (EDA_ITEM*) selection.Front();
-
+    // Must be done after Activate() so that it gets set into the correct context
     controls->ShowCursor( true );
 
     m_editPoints = EDIT_POINTS_FACTORY::Make( item );
@@ -181,7 +171,7 @@ int PL_POINT_EDITOR::Main( const TOOL_EVENT& aEvent )
     if( !m_editPoints )
         return 0;
 
-    view->Add( m_editPoints.get() );
+    getView()->Add( m_editPoints.get() );
     setEditedPoint( nullptr );
     updateEditedPoint( aEvent );
     bool inDrag = false;
@@ -245,7 +235,7 @@ int PL_POINT_EDITOR::Main( const TOOL_EVENT& aEvent )
 
     if( m_editPoints )
     {
-        view->Remove( m_editPoints.get() );
+        getView()->Remove( m_editPoints.get() );
 
         if( modified )
             m_frame->OnModify();
@@ -319,10 +309,9 @@ void PL_POINT_EDITOR::updateItem() const
 
     DS_DATA_ITEM* dataItem = static_cast<DS_DRAW_ITEM_BASE*>( item )->GetPeer();
 
-    // the current item is perhaps not the main item if we have a set of
-    // repeated items.
-    // So we change the coordinate references in dataItem using move vectors
-    // of the start and end points that are the same for each repeated item
+    // The current item is perhaps not the main item if we have a set of repeated items.
+    // So we change the coordinate references in dataItem using move vectors of the start and
+    // end points that are the same for each repeated item.
 
     switch( item->Type() )
     {
@@ -361,17 +350,39 @@ void PL_POINT_EDITOR::updateItem() const
         pinEditedCorner( getEditedPointIndex(), Mils2iu( 1 ), Mils2iu( 1 ),
                          topLeft, topRight, botLeft, botRight );
 
-        wxPoint move_startpoint = (wxPoint) topLeft - rect->GetStart();
-        wxPoint move_endpoint = (wxPoint) botRight - rect->GetEnd();
+        wxPoint start_delta, end_delta;
 
-        dataItem->MoveStartPointToUi( dataItem->GetStartPosUi() + move_startpoint );
-        dataItem->MoveEndPointToUi( dataItem->GetEndPosUi() + move_endpoint );
+        if( rect->GetStart().y > rect->GetEnd().y )
+        {
+            start_delta.y = botRight.y - rect->GetStart().y;
+            end_delta.y = topLeft.y - rect->GetEnd().y;
+        }
+        else
+        {
+            start_delta.y = topLeft.y - rect->GetStart().y;
+            end_delta.y = botRight.y - rect->GetEnd().y;
+        }
+
+        if( rect->GetStart().x > rect->GetEnd().x )
+        {
+            start_delta.x = botRight.x - rect->GetStart().x;
+            end_delta.x = topLeft.x - rect->GetEnd().x;
+        }
+        else
+        {
+            start_delta.x = topLeft.x - rect->GetStart().x;
+            end_delta.x = botRight.x - rect->GetEnd().x;
+        }
+
+        dataItem->MoveStartPointToUi( dataItem->GetStartPosUi() + start_delta );
+        dataItem->MoveEndPointToUi( dataItem->GetEndPosUi() + end_delta );
+
         for( DS_DRAW_ITEM_BASE* draw_item : dataItem->GetDrawItems() )
         {
             DS_DRAW_ITEM_RECT* draw_rect = static_cast<DS_DRAW_ITEM_RECT*>( draw_item );
 
-            draw_rect->SetStart( draw_rect->GetStart() + move_startpoint );
-            draw_rect->SetEnd( draw_rect->GetEnd() + move_endpoint );
+            draw_rect->SetStart( draw_rect->GetStart() + start_delta );
+            draw_rect->SetEnd( draw_rect->GetEnd() + end_delta );
             getView()->Update( draw_item );
         }
 
@@ -417,6 +428,12 @@ void PL_POINT_EDITOR::updatePoints()
         DS_DRAW_ITEM_RECT* rect = static_cast<DS_DRAW_ITEM_RECT*>( item );
         wxPoint            topLeft = rect->GetPosition();
         wxPoint            botRight = rect->GetEnd();
+
+        if( topLeft.y > botRight.y )
+            std::swap( topLeft.y, botRight.y );
+
+        if( topLeft.x > botRight.x )
+            std::swap( topLeft.x, botRight.x );
 
         m_editPoints->Point( RECT_TOPLEFT ).SetPosition( (VECTOR2I) topLeft );
         m_editPoints->Point( RECT_TOPRIGHT ).SetPosition( VECTOR2I( botRight.x, topLeft.y ) );

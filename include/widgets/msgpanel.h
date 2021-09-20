@@ -113,7 +113,7 @@ public:
      *
      * This takes into consideration the system gui font, wxSYS_DEFAULT_GUI_FONT.
      */
-    static int GetRequiredHeight();
+    static int GetRequiredHeight( wxWindow* aWindow );
 
     void OnPaint( wxPaintEvent& aEvent );
     void EraseMsgBox();
@@ -160,11 +160,6 @@ protected:
     void showItem( wxDC& dc, const MSG_PANEL_ITEM& aItem );
 
     void erase( wxDC* DC );
-
-    /**
-     * Compute the height and width of a 'W' in the system font.
-     */
-    static wxSize computeFontSize();
 
     /**
      * Calculate the width and height of a text string using the system UI font.

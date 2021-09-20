@@ -33,6 +33,7 @@
 #include <sexpr/sexpr.h>
 
 #include <wx/log.h>
+#include <wx/filename.h>
 
 #include <iostream>
 #include <limits>
@@ -46,6 +47,8 @@ KICADFOOTPRINT::KICADFOOTPRINT( KICADPCB* aParent )
     m_parent = aParent;
     m_side = LAYER_NONE;
     m_rotation = 0.0;
+    m_smd = false;
+    m_tht = false;
     m_virtual = false;
 
     return;
@@ -142,6 +145,9 @@ bool KICADFOOTPRINT::Read( SEXPR::SEXPR* aEntry )
             else if( symname == "model" )
                 result = parseModel( child );
         }
+
+        if( !m_smd && !m_tht )
+            m_virtual = true;
 
         return result;
     }
@@ -281,7 +287,11 @@ bool KICADFOOTPRINT::parseAttribute( SEXPR::SEXPR* data )
     else if( child->IsString() )
         text = child->GetString();
 
-    if( text == "virtual" )
+    if( text == "smd" )
+        m_smd = true;
+    else if( text == "through_hole" )
+        m_tht = true;
+    else if( text == "virtual" )
         m_virtual = true;
 
     return true;
@@ -418,20 +428,36 @@ bool KICADFOOTPRINT::ComposePCB( class PCBMODEL* aPCB, S3D_RESOLVER* resolver,
     for( KICADMODEL* i : m_models )
     {
         wxString mname = wxString::FromUTF8Unchecked( i->m_modelname.c_str() );
-        std::string fname( resolver->ResolvePath( mname ).ToUTF8() );
+
+        if( mname.empty() )
+            continue;
+
+        mname = resolver->ResolvePath( mname );
+
+        if( !wxFileName::FileExists( mname ) )
+        {
+            ReportMessage( wxString::Format( "Could not add 3D model to %s.\n"
+                                             "File not found: %s\n",
+                                             m_refdes,
+                                             mname ) );
+            continue;
+        }
+
+        std::string fname( mname.ToUTF8() );
 
         try
         {
             if( aPCB->AddComponent( fname, m_refdes, LAYER_BOTTOM == m_side ? true : false,
-                newpos, m_rotation, i->m_offset, i->m_rotation, i->m_scale, aSubstituteModels ) )
+                                    newpos, m_rotation, i->m_offset, i->m_rotation, i->m_scale,
+                                    aSubstituteModels ) )
             {
                 hasdata = true;
             }
         }
         catch( const Standard_Failure& e)
         {
-            ReportMessage( wxString::Format( "could not add component %s\n"
-                                             "Open CASCADE error: %s\n ",
+            ReportMessage( wxString::Format( "Could not add 3D model to %s.\n"
+                                             "OpenCASCADE error: %s\n",
                                              m_refdes, 
                                              e.GetMessageString() ) );
         }

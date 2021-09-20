@@ -892,14 +892,14 @@ void SCH_LINE::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, MSG_PANEL_ITEMS& aList )
 
     aList.push_back( MSG_PANEL_ITEM( _( "Line Style" ), msg ) );
 
-    SCH_EDIT_FRAME* frame = dynamic_cast<SCH_EDIT_FRAME*>( aFrame );
+    SCH_CONNECTION* conn = dynamic_cast<SCH_EDIT_FRAME*>( aFrame ) ? Connection() : nullptr;
 
-    if( frame )
+    if( conn )
     {
-        if( SCH_CONNECTION* conn = Connection() )
-        {
-            conn->AppendInfoToMsgPanel( aList );
+        conn->AppendInfoToMsgPanel( aList );
 
+        if( !conn->IsBus() )
+        {
             NET_SETTINGS& netSettings = Schematic()->Prj().GetProjectFile().NetSettings();
             wxString netname = conn->Name();
             wxString netclassName = netSettings.m_NetClasses.GetDefaultPtr()->GetName();

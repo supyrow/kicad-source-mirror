@@ -28,9 +28,11 @@
 #include <footprint.h>
 #include <pcb_draw_panel_gal.h>
 #include <pcbnew_settings.h>
-#include "pcb_selection_tool.h"
-#include "pcb_actions.h"
-#include "tool_event_utils.h"
+
+#include <tools/pcb_grid_helper.h>
+#include <tools/pcb_selection_tool.h>
+#include <tools/pcb_actions.h>
+#include <tools/tool_event_utils.h>
 
 void PCB_TOOL_BASE::doInteractiveItemPlacement( const std::string& aTool,
                                                 INTERACTIVE_PLACER_BASE* aPlacer,
@@ -40,14 +42,17 @@ void PCB_TOOL_BASE::doInteractiveItemPlacement( const std::string& aTool,
     std::unique_ptr<BOARD_ITEM> newItem;
 
     frame()->PushTool( aTool );
-    Activate();
 
     BOARD_COMMIT commit( frame() );
 
     GetManager()->RunAction( PCB_ACTIONS::selectionClear, true );
 
-    // do not capture or auto-pan until we start placing an item
+    Activate();
+    // Must be done after Activate() so that it gets set into the correct context
     controls()->ShowCursor( true );
+    // do not capture or auto-pan until we start placing an item
+
+    PCB_GRID_HELPER grid( m_toolMgr, frame()->GetMagneticItemsSettings() );
 
     // Add a VIEW_GROUP that serves as a preview for the new item
     PCB_SELECTION preview;
@@ -98,7 +103,10 @@ void PCB_TOOL_BASE::doInteractiveItemPlacement( const std::string& aTool,
     {
         setCursor();
 
-        VECTOR2I cursorPos = controls()->GetCursorPosition();
+        grid.SetSnap( false ); // Interactive placement tools need to set their own item snaps
+        grid.SetUseGrid( getView()->GetGAL()->GetGridSnapping() && !evt->DisableGridSnapping() );
+        VECTOR2I cursorPos = grid.BestSnapAnchor( controls()->GetMousePosition(), nullptr );
+
         aPlacer->m_modifiers = evt->Modifier();
 
         auto cleanup =
@@ -318,6 +326,12 @@ PCB_SELECTION& PCB_TOOL_BASE::selection()
 }
 
 
+bool PCB_TOOL_BASE::Is45Limited() const
+{
+    return frame()->Settings().m_Use45DegreeLimit;
+}
+
+
 void INTERACTIVE_PLACER_BASE::SnapItem( BOARD_ITEM *aItem )
 {
     // Base implementation performs no snapping
@@ -329,3 +343,4 @@ bool INTERACTIVE_PLACER_BASE::PlaceItem( BOARD_ITEM *aItem, BOARD_COMMIT& aCommi
     aCommit.Add( aItem );
     return true;
 }
+

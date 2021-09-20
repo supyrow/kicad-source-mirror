@@ -311,9 +311,10 @@ COLOR4D PCB_RENDER_SETTINGS::GetColor( const VIEW_ITEM* aItem, int aLayer ) cons
         }
 
         if( netColor == COLOR4D::UNSPECIFIED )
+        {
             netColor = color;
-
-        if( selected )
+        }
+        else if( selected )
         {
             // Selection brightening overrides highlighting
             netColor.Brighten( m_selectFactor );
@@ -414,13 +415,15 @@ COLOR4D PCB_RENDER_SETTINGS::GetColor( const VIEW_ITEM* aItem, int aLayer ) cons
     else if( item->Type() == PCB_ZONE_T || item->Type() == PCB_FP_ZONE_T )
         color.a *= m_zoneOpacity;
 
-    // No special modificators enabled
+    // No special modifiers enabled
     return color;
 }
 
 
 PCB_PAINTER::PCB_PAINTER( GAL* aGal ) :
-    PAINTER( aGal )
+    PAINTER( aGal ),
+    m_maxError( ARC_HIGH_DEF ),
+    m_holePlatingThickness( 0 )
 {
 }
 
@@ -457,10 +460,22 @@ int PCB_PAINTER::getDrillSize( const PCB_VIA* aVia ) const
 
 bool PCB_PAINTER::Draw( const VIEW_ITEM* aItem, int aLayer )
 {
-    const EDA_ITEM* item = dynamic_cast<const EDA_ITEM*>( aItem );
+    const BOARD_ITEM* item = dynamic_cast<const BOARD_ITEM*>( aItem );
 
     if( !item )
         return false;
+
+    if( const BOARD* board = item->GetBoard() )
+    {
+        BOARD_DESIGN_SETTINGS& bds = board->GetDesignSettings();
+        m_maxError = bds.m_MaxError;
+        m_holePlatingThickness = bds.GetHolePlatingThickness();
+    }
+    else
+    {
+        m_maxError = ARC_HIGH_DEF;
+        m_holePlatingThickness = 0;
+    }
 
     // the "cast" applied in here clarifies which overloaded draw() is called
     switch( item->Type() )
@@ -683,7 +698,7 @@ void PCB_PAINTER::draw( const PCB_ARC* aArc, int aLayer )
         m_gal->SetIsFill( not outline_mode );
         m_gal->SetLineWidth( m_pcbSettings.m_outlineWidth );
 
-        m_gal->DrawArcSegment( center, radius, start_angle, start_angle + angle, width );
+        m_gal->DrawArcSegment( center, radius, start_angle, start_angle + angle, width, m_maxError );
     }
 
     // Clearance lines
@@ -700,7 +715,7 @@ void PCB_PAINTER::draw( const PCB_ARC* aArc, int aLayer )
         m_gal->SetStrokeColor( color );
 
         m_gal->DrawArcSegment( center, radius, start_angle, start_angle + angle,
-                               width + clearance * 2 );
+                               width + clearance * 2, m_maxError );
     }
 
 // Debug only: enable this code only to test the TransformArcToPolygon function
@@ -708,10 +723,9 @@ void PCB_PAINTER::draw( const PCB_ARC* aArc, int aLayer )
 // arcs on F_Cu are approximated with ERROR_INSIDE, others with ERROR_OUTSIDE
 #if 0
     SHAPE_POLY_SET cornerBuffer;
-    int error_value = aArc->GetBoard()->GetDesignSettings().m_MaxError;
     ERROR_LOC errorloc = aLayer == F_Cu ? ERROR_LOC::ERROR_INSIDE : ERROR_LOC::ERROR_OUTSIDE;
-    TransformArcToPolygon( cornerBuffer, aArc->GetStart(), aArc->GetMid(),
-                           aArc->GetEnd(), width, error_value, errorloc );
+    TransformArcToPolygon( cornerBuffer, aArc->GetStart(), aArc->GetMid(), aArc->GetEnd(), width,
+                           m_maxError, errorloc );
     m_gal->SetLineWidth( m_pcbSettings.m_outlineWidth );
     m_gal->SetIsFill( false );
     m_gal->SetIsStroke( true );
@@ -722,30 +736,23 @@ void PCB_PAINTER::draw( const PCB_ARC* aArc, int aLayer )
 // Debug only: enable this code only to test the SHAPE_ARC::ConvertToPolyline function
 // and display the polyline created by it.
 #if 0
-    int error_value2 = aArc->GetBoard()->GetDesignSettings().m_MaxError;
-    SHAPE_ARC arc( aArc->GetCenter(), aArc->GetStart(),
-                   aArc->GetAngle() / 10.0, aArc->GetWidth() );
-    SHAPE_LINE_CHAIN arcSpine = arc.ConvertToPolyline( error_value2 );
+    SHAPE_ARC arc( aArc->GetCenter(), aArc->GetStart(), aArc->GetAngle() / 10.0, aArc->GetWidth() );
+    SHAPE_LINE_CHAIN arcSpine = arc.ConvertToPolyline( m_maxError );
     m_gal->SetLineWidth( m_pcbSettings.m_outlineWidth );
     m_gal->SetIsFill( false );
     m_gal->SetIsStroke( true );
     m_gal->SetStrokeColor( COLOR4D( 0.3, 0.2, 0.5, 1.0 ) );
 
     for( int idx = 1; idx < arcSpine.PointCount(); idx++ )
-    {
-        m_gal->DrawSegment( arcSpine.CPoint( idx-1 ), arcSpine.CPoint( idx ),
-                            aArc->GetWidth() );
-    };
+        m_gal->DrawSegment( arcSpine.CPoint( idx-1 ), arcSpine.CPoint( idx ), aArc->GetWidth() );
 #endif
 }
 
 
 void PCB_PAINTER::draw( const PCB_VIA* aVia, int aLayer )
 {
-    const BOARD*           board = aVia->GetBoard();
-    BOARD_DESIGN_SETTINGS& bds = board->GetDesignSettings();
-    COLOR4D                color = m_pcbSettings.GetColor( aVia, aLayer );
-    VECTOR2D               center( aVia->GetStart() );
+    COLOR4D  color = m_pcbSettings.GetColor( aVia, aLayer );
+    VECTOR2D center( aVia->GetStart() );
 
     if( color == COLOR4D::CLEAR )
         return;
@@ -779,7 +786,7 @@ void PCB_PAINTER::draw( const PCB_VIA* aVia, int aLayer )
         wxString netname = UnescapeString( aVia->GetShortNetname() );
 
         // approximate the size of net name text:
-        double tsize = 1.5 * size / PrintableCharCount( netname );
+        double tsize = 1.5 * size / std::max( PrintableCharCount( netname ), 1 );
         tsize = std::min( tsize, size );
 
         // Use a smaller text size to handle interline, pen size..
@@ -796,14 +803,12 @@ void PCB_PAINTER::draw( const PCB_VIA* aVia, int aLayer )
     }
     else if( aLayer == LAYER_VIA_HOLEWALLS )
     {
-        int platingThickness = bds.GetHolePlatingThickness();
-
         m_gal->SetIsFill( false );
         m_gal->SetIsStroke( true );
         m_gal->SetStrokeColor( color );
-        m_gal->SetLineWidth( platingThickness );
+        m_gal->SetLineWidth( m_holePlatingThickness );
 
-        m_gal->DrawCircle( center, ( getDrillSize( aVia ) + platingThickness ) / 2.0 );
+        m_gal->DrawCircle( center, ( getDrillSize( aVia ) + m_holePlatingThickness ) / 2.0 );
 
         return;
     }
@@ -884,7 +889,7 @@ void PCB_PAINTER::draw( const PCB_VIA* aVia, int aLayer )
         if( aVia->FlashLayer( activeLayer ) )
             radius = aVia->GetWidth() / 2.0;
         else
-            radius = getDrillSize( aVia ) / 2.0 + bds.GetHolePlatingThickness();
+            radius = getDrillSize( aVia ) / 2.0 + m_holePlatingThickness;
 
         m_gal->SetLineWidth( m_pcbSettings.m_outlineWidth );
         m_gal->SetIsFill( false );
@@ -897,8 +902,6 @@ void PCB_PAINTER::draw( const PCB_VIA* aVia, int aLayer )
 
 void PCB_PAINTER::draw( const PAD* aPad, int aLayer )
 {
-    const BOARD*           board = aPad->GetBoard();
-    BOARD_DESIGN_SETTINGS& bds = board->GetDesignSettings();
     COLOR4D                color = m_pcbSettings.GetColor( aPad, aLayer );
 
     if( IsNetnameLayer( aLayer ) )
@@ -975,7 +978,7 @@ void PCB_PAINTER::draw( const PAD* aPad, int aLayer )
                     netname = "*";
 
                 // approximate the size of net name text:
-                double tsize = 1.5 * padsize.x / PrintableCharCount( netname );
+                double tsize = 1.5 * padsize.x / std::max( PrintableCharCount( netname ), 1 );
                 tsize = std::min( tsize, size );
 
                 // Use a smaller text size to handle interline, pen size...
@@ -993,7 +996,7 @@ void PCB_PAINTER::draw( const PAD* aPad, int aLayer )
                 textpos.y = -textpos.y;
 
                 // approximate the size of the pad number text:
-                double tsize = 1.5 * padsize.x / PrintableCharCount( padNumber );
+                double tsize = 1.5 * padsize.x / std::max( PrintableCharCount( padNumber ), 1 );
                 tsize = std::min( tsize, size );
 
                 // Use a smaller text size to handle interline, pen size...
@@ -1013,15 +1016,13 @@ void PCB_PAINTER::draw( const PAD* aPad, int aLayer )
     }
     else if( aLayer == LAYER_PAD_HOLEWALLS )
     {
-        int platingThickness = bds.GetHolePlatingThickness();
-
         m_gal->SetIsFill( false );
         m_gal->SetIsStroke( true );
-        m_gal->SetLineWidth( platingThickness );
+        m_gal->SetLineWidth( m_holePlatingThickness );
         m_gal->SetStrokeColor( color );
 
         const SHAPE_SEGMENT* seg = aPad->GetEffectiveHoleShape();
-        int                  holeSize = seg->GetWidth() + platingThickness;
+        int                  holeSize = seg->GetWidth() + m_holePlatingThickness;
 
         if( seg->GetSeg().A == seg->GetSeg().B )    // Circular hole
             m_gal->DrawCircle( seg->GetSeg().A, holeSize / 2 );
@@ -1081,7 +1082,7 @@ void PCB_PAINTER::draw( const PAD* aPad, int aLayer )
         std::unique_ptr<PAD>            dummyPad;
         std::shared_ptr<SHAPE_COMPOUND> shapes;
 
-        // Drawing components of compound shapes in outline mode produces a mess. 
+        // Drawing components of compound shapes in outline mode produces a mess.
         bool simpleShapes = !m_pcbSettings.m_sketchMode[LAYER_PADS_TH];
 
         if( simpleShapes )
@@ -1223,8 +1224,7 @@ void PCB_PAINTER::draw( const PAD* aPad, int aLayer )
 
                     if( margin.x < 0 )  // The poly shape must be deflated
                     {
-                        int maxError = bds.m_MaxError;
-                        int numSegs = GetArcToSegmentCount( -margin.x, maxError, 360.0 );
+                        int numSegs = GetArcToSegmentCount( -margin.x, m_maxError, 360.0 );
                         SHAPE_POLY_SET outline;
                         outline.NewOutline();
 
@@ -1264,7 +1264,7 @@ void PCB_PAINTER::draw( const PAD* aPad, int aLayer )
             // This is expensive.  Avoid if possible.
             SHAPE_POLY_SET polySet;
             aPad->TransformShapeWithClearanceToPolygon( polySet, ToLAYER_ID( aLayer ), margin.x,
-                                                        bds.m_MaxError, ERROR_INSIDE );
+                                                        m_maxError, ERROR_INSIDE );
             m_gal->DrawPolygon( polySet );
         }
     }
@@ -1318,14 +1318,13 @@ void PCB_PAINTER::draw( const PAD* aPad, int aLayer )
 
                     // Use ERROR_INSIDE because it avoids Clipper and is therefore much faster.
                     aPad->TransformShapeWithClearanceToPolygon( polySet, ToLAYER_ID( aLayer ),
-                                                                clearance,
-                                                                bds.m_MaxError, ERROR_INSIDE );
+                                                                clearance, m_maxError, ERROR_INSIDE );
                     m_gal->DrawPolygon( polySet );
                 }
             }
             else if( aPad->GetEffectiveHoleShape() && clearance > 0 )
             {
-                clearance += bds.GetHolePlatingThickness();
+                clearance += m_holePlatingThickness;
 
                 const SHAPE_SEGMENT* seg = aPad->GetEffectiveHoleShape();
                 m_gal->DrawSegment( seg->GetSeg().A, seg->GetSeg().B,
@@ -1416,7 +1415,7 @@ void PCB_PAINTER::draw( const PCB_SHAPE* aShape, int aLayer )
             m_gal->DrawArcSegment( start, aShape->GetRadius(),
                     DECIDEG2RAD( aShape->GetArcAngleStart() ),
                     DECIDEG2RAD( aShape->GetArcAngleStart() + aShape->GetAngle() ), // Change this
-                    thickness );
+                    thickness, m_maxError );
         }
         else
         {
@@ -1426,7 +1425,7 @@ void PCB_PAINTER::draw( const PCB_SHAPE* aShape, int aLayer )
             m_gal->DrawArcSegment( start, aShape->GetRadius(),
                     DECIDEG2RAD( aShape->GetArcAngleStart() ),
                     DECIDEG2RAD( aShape->GetArcAngleStart() + aShape->GetAngle() ), // Change this
-                    thickness );
+                    thickness, m_maxError );
         }
         break;
 
@@ -1638,6 +1637,8 @@ void PCB_PAINTER::draw( const PCB_GROUP* aGroup, int aLayer )
         }
         else
         {
+            // Neither selected nor entered; draw nothing at the group level (ie: only draw
+            // its members)
             return;
         }
 
@@ -1656,6 +1657,9 @@ void PCB_PAINTER::draw( const PCB_GROUP* aGroup, int aLayer )
         m_gal->DrawLine( topLeft + height, topLeft );
 
         wxString name = aGroup->GetName();
+
+        if( name.IsEmpty() )
+            return;
 
         int ptSize = 12;
         int scaledSize = abs( KiROUND( m_gal->GetScreenWorldMatrix().GetScale().x * ptSize ) );

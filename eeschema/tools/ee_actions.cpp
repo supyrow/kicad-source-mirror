@@ -375,7 +375,7 @@ TOOL_ACTION EE_ACTIONS::rotateCW( "eeschema.InteractiveEdit.rotateCW",
 TOOL_ACTION EE_ACTIONS::rotateCCW( "eeschema.InteractiveEdit.rotateCCW",
         AS_GLOBAL,
         'R', LEGACY_HK_NAME( "Rotate Item" ),
-        _( "Rotate" ), _( "Rotates selected item(s) counter-clockwise" ),
+        _( "Rotate Counterclockwise" ), _( "Rotates selected item(s) counter-clockwise" ),
         BITMAPS::rotate_ccw );
 
 TOOL_ACTION EE_ACTIONS::mirrorV( "eeschema.InteractiveEdit.mirrorV",
@@ -534,7 +534,8 @@ TOOL_ACTION EE_ACTIONS::highlightNet( "eeschema.EditorControl.highlightNet",
         BITMAPS::net_highlight_schematic );
 
 TOOL_ACTION EE_ACTIONS::clearHighlight( "eeschema.EditorControl.clearHighlight",
-        AS_GLOBAL );
+        AS_GLOBAL, '~', "",
+        _( "Clear Net Highlighting" ), _( "Clear any existing net highlighting" ) );
 
 TOOL_ACTION EE_ACTIONS::updateNetHighlighting( "eeschema.EditorControl.updateNetHighlighting",
         AS_GLOBAL );

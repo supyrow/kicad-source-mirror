@@ -32,10 +32,10 @@
 #include <executable_names.h>
 #include <gestfich.h>
 #include <hierarch.h>
-#include <dialogs/html_messagebox.h>
+#include <dialogs/html_message_box.h>
 #include <invoke_sch_dialog.h>
 #include <string_utils.h>
-#include <kiface_i.h>
+#include <kiface_base.h>
 #include <kiplatform/app.h>
 #include <kiway.h>
 #include <symbol_edit_frame.h>
@@ -980,7 +980,7 @@ void SCH_EDIT_FRAME::OnOpenPcbnew( wxCommandEvent& event )
         if( Kiface().IsSingle() )
         {
             wxString filename = QuoteFullPath( boardfn );
-            ExecuteFile( this, PCBNEW_EXE, filename );
+            ExecuteFile( PCBNEW_EXE, filename );
         }
         else
         {
@@ -1006,7 +1006,7 @@ void SCH_EDIT_FRAME::OnOpenPcbnew( wxCommandEvent& event )
     {
         // If we are running inside a project, it should be impossible for this case to happen
         wxASSERT( Kiface().IsSingle() );
-        ExecuteFile( this, PCBNEW_EXE );
+        ExecuteFile( PCBNEW_EXE );
     }
 }
 
@@ -1366,15 +1366,23 @@ void SCH_EDIT_FRAME::RecomputeIntersheetRefs()
 
     bool show = Schematic().Settings().m_IntersheetRefsShow;
 
-    /* Refresh all global labels */
-    for( EDA_ITEM* item : GetScreen()->Items().OfType( SCH_GLOBAL_LABEL_T ) )
-    {
-        SCH_GLOBALLABEL* global = static_cast<SCH_GLOBALLABEL*>( item );
+    // Refresh all global labels.  Note that we have to collect them first as the
+    // SCH_SCREEN::Update() call is going to invalidate the RTree iterator.
 
-        global->GetIntersheetRefs()->SetVisible( show );
+    std::vector<SCH_GLOBALLABEL*> globalLabels;
+
+    for( EDA_ITEM* item : GetScreen()->Items().OfType( SCH_GLOBAL_LABEL_T ) )
+        globalLabels.push_back( static_cast<SCH_GLOBALLABEL*>( item ) );
+
+    for( SCH_GLOBALLABEL* globalLabel : globalLabels )
+    {
+        globalLabel->GetIntersheetRefs()->SetVisible( show );
 
         if( show )
-            GetCanvas()->GetView()->Update( global );
+        {
+            GetScreen()->Update( globalLabel );
+            GetCanvas()->GetView()->Update( globalLabel );
+        }
     }
 }
 

@@ -32,6 +32,7 @@
 #include <wx/textdlg.h>
 
 #include <bitmaps.h>
+#include <bitmap_store.h>
 #include <gestfich.h>
 #include <macros.h>
 #include <menus_helpers.h>
@@ -146,6 +147,9 @@ PROJECT_TREE_PANE::PROJECT_TREE_PANE( KICAD_MANAGER_FRAME* parent ) :
     Connect( wxEVT_FSWATCHER,
              wxFileSystemWatcherEventHandler( PROJECT_TREE_PANE::onFileSystemEvent ) );
 
+    Bind( wxEVT_SYS_COLOUR_CHANGED,
+          wxSysColourChangedEventHandler( PROJECT_TREE_PANE::onThemeChanged ), this );
+
     /*
      * Filtering is now inverted: the filters are actually used to _enable_ support
      * for a given file type.
@@ -226,7 +230,7 @@ void PROJECT_TREE_PANE::onOpenDirectory( wxCommandEvent& event )
         // Not needed on 3.1.4, but needed in 3.0 versions
         // Moreover, on Linux, on 3.1.4 wx version, adding quotes breaks
         // wxLaunchDefaultApplication
-        AddDelimiterString( curr_dir );
+        QuoteString( curr_dir );
     #endif
 
         wxLaunchDefaultApplication( curr_dir );
@@ -813,10 +817,13 @@ void PROJECT_TREE_PANE::onRight( wxTreeEvent& Event )
 
 void PROJECT_TREE_PANE::onOpenSelectedFileWithTextEditor( wxCommandEvent& event )
 {
-    wxString editorname = Pgm().GetEditorName();
+    wxString editorname = Pgm().GetTextEditor();
 
     if( editorname.IsEmpty() )
+    {
+        wxMessageBox( _( "No text editor selected in KiCad.  Please choose one." ) );
         return;
+    }
 
     std::vector<PROJECT_TREE_ITEM*> tree_data = GetSelectedData();
 
@@ -825,7 +832,7 @@ void PROJECT_TREE_PANE::onOpenSelectedFileWithTextEditor( wxCommandEvent& event 
     for( PROJECT_TREE_ITEM* item_data : tree_data )
     {
         wxString fullFileName = item_data->GetFileName();
-        AddDelimiterString( fullFileName );
+        QuoteString( fullFileName );
 
         if( !files.IsEmpty() )
             files += " ";
@@ -833,7 +840,7 @@ void PROJECT_TREE_PANE::onOpenSelectedFileWithTextEditor( wxCommandEvent& event 
         files += fullFileName;
     }
 
-    ExecuteFile( this, editorname, files );
+    ExecuteFile( editorname, files );
 }
 
 
@@ -1297,7 +1304,19 @@ void PROJECT_TREE_PANE::EmptyTreePrj()
 }
 
 
+void PROJECT_TREE_PANE::onThemeChanged( wxSysColourChangedEvent &aEvent )
+{
+    GetBitmapStore()->ThemeChanged();
+    m_TreeProject->LoadIcons();
+    m_TreeProject->Refresh();
+
+    aEvent.Skip();
+}
+
+
 void KICAD_MANAGER_FRAME::OnChangeWatchedPaths( wxCommandEvent& aEvent )
 {
     m_leftWin->FileWatcherReset();
 }
+
+

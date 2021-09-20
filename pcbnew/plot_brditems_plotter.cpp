@@ -627,25 +627,21 @@ void BRDITEMS_PLOTTER::PlotFootprintGraphicItem( const FP_SHAPE* aShape )
     case SHAPE_T::POLY:
         if( aShape->IsPolyShapeValid() )
         {
-            const std::vector<wxPoint> &polyPoints = aShape->BuildPolyPointsList();
+            std::vector<wxPoint> cornerList;
+            aShape->DupPolyPointsList( cornerList );
 
             // We must compute board coordinates from m_PolyList which are relative to the parent
             // position at orientation 0
             const FOOTPRINT *parentFootprint = aShape->GetParentFootprint();
 
-            std::vector<wxPoint> cornerList;
-
-            cornerList.reserve( polyPoints.size() );
-
-            for( wxPoint corner : polyPoints )
+            if( parentFootprint )
             {
-                if( parentFootprint )
+                for( unsigned ii = 0; ii < cornerList.size(); ++ii )
                 {
-                    RotatePoint( &corner, parentFootprint->GetOrientation() );
-                    corner += parentFootprint->GetPosition();
+                    wxPoint* corner = &cornerList[ii];
+                    RotatePoint( corner, parentFootprint->GetOrientation() );
+                    *corner += parentFootprint->GetPosition();
                 }
-
-                cornerList.push_back( corner );
             }
 
             if( sketch || thickness > 0 )

@@ -158,7 +158,7 @@ set( COMMON_DLG_SRCS
     dialogs/dialog_color_picker_base.cpp
     dialogs/dialog_configure_paths.cpp
     dialogs/dialog_configure_paths_base.cpp
-    dialogs/dialog_display_info_HTML_base.cpp
+    dialogs/dialog_display_html_text_base.cpp
     dialogs/dialog_edit_library_tables.cpp
     dialogs/dialog_global_lib_table_config.cpp
     dialogs/dialog_global_lib_table_config_base.cpp
@@ -186,7 +186,7 @@ set( COMMON_DLG_SRCS
     dialogs/eda_list_dialog_base.cpp
     dialogs/eda_view_switcher.cpp
     dialogs/eda_view_switcher_base.cpp
-    dialogs/html_messagebox.cpp
+    dialogs/html_message_box.cpp
     dialogs/panel_color_settings_base.cpp
     dialogs/panel_color_settings.cpp
     dialogs/panel_common_settings.cpp
@@ -347,7 +347,7 @@ set( COMMON_SRCS
     grid_tricks.cpp
     hotkey_store.cpp
     hotkeys_basic.cpp
-    kiface_i.cpp
+    kiface_base.cpp
     kiid.cpp
     kiway.cpp
     kiway_express.cpp
@@ -437,6 +437,7 @@ set( COMMON_SRCS
     tool/grid_menu.cpp
     tool/picker_tool.cpp
     tool/selection.cpp
+    tool/selection_tool.cpp
     tool/selection_conditions.cpp
     tool/tool_action.cpp
     tool/tool_base.cpp

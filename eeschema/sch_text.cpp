@@ -42,7 +42,7 @@
 #include <default_values.h>
 #include <wx/debug.h>
 #include <wx/log.h>
-#include <dialogs/html_messagebox.h>
+#include <dialogs/html_message_box.h>
 #include <project/project_file.h>
 #include <project/net_settings.h>
 #include <core/mirror.h>
@@ -791,14 +791,14 @@ void SCH_TEXT::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, MSG_PANEL_ITEMS& aList )
     msg = MessageTextFromValue( aFrame->GetUserUnits(), GetTextWidth() );
     aList.push_back( MSG_PANEL_ITEM( _( "Size" ), msg ) );
 
-    SCH_EDIT_FRAME* frame = dynamic_cast<SCH_EDIT_FRAME*>( aFrame );
+    SCH_CONNECTION* conn = dynamic_cast<SCH_EDIT_FRAME*>( aFrame ) ? Connection() : nullptr;
 
-    if( frame )
+    if( conn )
     {
-        if( SCH_CONNECTION* conn = Connection() )
-        {
-            conn->AppendInfoToMsgPanel( aList );
+        conn->AppendInfoToMsgPanel( aList );
 
+        if( !conn->IsBus() )
+        {
             NET_SETTINGS& netSettings = Schematic()->Prj().GetProjectFile().NetSettings();
             const wxString& netname = conn->Name( true );
 
@@ -1477,6 +1477,58 @@ BITMAPS SCH_GLOBALLABEL::GetMenuImage() const
 }
 
 
+bool SCH_GLOBALLABEL::HitTest( const wxPoint& aPosition, int aAccuracy ) const
+{
+    EDA_RECT bbox = GetBoundingBoxBase();
+    bbox.Inflate( aAccuracy );
+
+    if( !bbox.Contains( aPosition ) )
+    {
+        if( Schematic() && Schematic()->Settings().m_IntersheetRefsShow )
+        {
+            bbox = m_intersheetRefsField.GetBoundingBox();
+            bbox.Inflate( aAccuracy );
+
+            return bbox.Contains( aPosition );
+        }
+
+        return false;
+    }
+
+    return true;
+}
+
+
+bool SCH_GLOBALLABEL::HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy ) const
+{
+    EDA_RECT bbox = GetBoundingBoxBase();
+
+    if( aContained )
+    {
+        if( Schematic() && Schematic()->Settings().m_IntersheetRefsShow )
+            bbox.Merge( m_intersheetRefsField.GetBoundingBox() );
+
+        bbox.Inflate( aAccuracy );
+        return aRect.Contains( bbox );
+    }
+
+    bbox.Inflate( aAccuracy );
+
+    if( aRect.Intersects( bbox ) )
+        return true;
+
+    if( Schematic() && Schematic()->Settings().m_IntersheetRefsShow )
+    {
+        bbox = m_intersheetRefsField.GetBoundingBox();
+        bbox.Inflate( aAccuracy );
+
+        return aRect.Intersects( bbox );
+    }
+
+    return false;
+}
+
+
 SCH_HIERLABEL::SCH_HIERLABEL( const wxPoint& pos, const wxString& text, KICAD_T aType )
         : SCH_TEXT( pos, text, aType )
 {
@@ -1676,7 +1728,7 @@ HTML_MESSAGE_BOX* SCH_TEXT::ShowSyntaxHelp( wxWindow* aParentWindow )
 #include "sch_text_help_md.h"
      ;
 
-    HTML_MESSAGE_BOX* dlg = new HTML_MESSAGE_BOX( nullptr, _( "Syntax Help" ) );
+    HTML_MESSAGE_BOX* dlg = new HTML_MESSAGE_BOX( nullptr, aParentWindow, _( "Syntax Help" ) );
     wxSize            sz( 320, 320 );
 
     dlg->SetMinSize( dlg->ConvertDialogToPixels( sz ) );
@@ -1684,7 +1736,7 @@ HTML_MESSAGE_BOX* SCH_TEXT::ShowSyntaxHelp( wxWindow* aParentWindow )
 
     wxString html_txt;
     ConvertMarkdown2Html( wxGetTranslation( msg ), html_txt );
-    dlg->m_htmlWindow->AppendToPage( html_txt );
+    dlg->AddHTML_Text( html_txt );
     dlg->ShowModeless();
 
     return dlg;

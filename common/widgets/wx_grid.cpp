@@ -21,11 +21,10 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
-#include <wx/settings.h>
 #include <wx/tokenzr.h>
 #include <wx/dc.h>
 #include <widgets/wx_grid.h>
-
+#include <widgets/ui_common.h>
 #include <algorithm>
 
 
@@ -38,6 +37,9 @@ WX_GRID::WX_GRID( wxWindow *parent, wxWindowID id, const wxPoint& pos, const wxS
         m_weOwnTable( false )
 {
     SetDefaultCellOverflow( false );
+
+    // Make sure the GUI font scales properly on GTK
+    SetDefaultCellFont( KIUI::GetControlFont( this ) );
 }
 
 
@@ -56,10 +58,13 @@ void WX_GRID::SetColLabelSize( int aHeight )
         return;
     }
 
-    // correct wxFormBuilder height for large fonts
-    wxFont guiFont = wxSystemSettings::GetFont( wxSYS_DEFAULT_GUI_FONT );
-    int minHeight = guiFont.GetPixelSize().y + 2 * MIN_GRIDCELL_MARGIN;
+    wxFont headingFont = KIUI::GetControlFont( this ).Bold();
 
+    // Make sure the GUI font scales properly on GTK
+    SetLabelFont( headingFont );
+
+    // Correct wxFormBuilder height for large fonts
+    int minHeight = headingFont.GetPixelSize().y + 2 * MIN_GRIDCELL_MARGIN;
     wxGrid::SetColLabelSize( std::max( aHeight, minHeight ) );
 }
 
@@ -167,6 +172,9 @@ void WX_GRID::DrawColLabel( wxDC& dc, int col )
     dc.DrawRectangle(rect);
 
     rend.DrawBorder( *this, dc, rect );
+
+    // Make sure fonts get scaled correctly on GTK HiDPI monitors
+    dc.SetFont( GetLabelFont() );
 
     int hAlign, vAlign;
     GetColLabelAlignment( &hAlign, &vAlign );
@@ -287,6 +295,7 @@ void WX_GRID::EnsureColLabelsVisible()
     // TODO: use a better way to evaluate the text size, for bold font
     int line_height = int( GetTextExtent( "Mj" ).y * 1.1 ) + 3;
     int row_height = GetColLabelSize();
+    int initial_row_height = row_height;
 
     // Headers can be multiline. Fix the Column Label Height to show the full header
     // However GetTextExtent does not work on multiline strings,
@@ -303,5 +312,8 @@ void WX_GRID::EnsureColLabelsVisible()
         }
     }
 
-    SetColLabelSize( row_height );
+    // Update the column label size, but only if needed, to avoid generating useless
+    // and perhaps annoying UI events when the size does not change
+    if( initial_row_height != row_height )
+        SetColLabelSize( row_height );
 }

@@ -416,6 +416,7 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
         return 0;
 
     Activate();
+    // Must be done after Activate() so that it gets set into the correct context
     getViewControls()->ShowCursor( true );
 
     PCB_GRID_HELPER grid( m_toolMgr, editFrame->GetMagneticItemsSettings() );
@@ -516,9 +517,7 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
             }
 
             // The alternative constraint limits to 45 degrees
-            bool enableAltConstraint = !!evt->Modifier( MD_SHIFT );
-
-            if( enableAltConstraint )
+            if( Is45Limited() )
                 m_altConstraint->Apply();
             else
                 m_editedPoint->ApplyConstraint();
@@ -1598,7 +1597,8 @@ void PCB_POINT_EDITOR::updatePoints()
 
         case SHAPE_T::POLY:
         {
-            const auto& points = shape->BuildPolyPointsList();
+            std::vector<wxPoint> points;
+            shape->DupPolyPointsList( points );
 
             if( m_editPoints->PointsSize() != (unsigned) points.size() )
             {

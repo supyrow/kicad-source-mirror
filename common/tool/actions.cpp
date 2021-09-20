@@ -88,8 +88,7 @@ TOOL_ACTION ACTIONS::saveAll( "common.Control.saveAll",
 TOOL_ACTION ACTIONS::revert( "common.Control.revert",
         AS_GLOBAL,
         0, "",
-        _( "Revert" ), _( "Throw away changes" ),
-        BITMAPS::undo );
+        _( "Revert" ), _( "Throw away changes" ) );
 
 TOOL_ACTION ACTIONS::pageSettings( "common.Control.pageSettings",
         AS_GLOBAL,
@@ -664,4 +663,6 @@ const TOOL_EVENT EVENTS::SelectedItemsModified( TC_MESSAGE, TA_ACTION, "common.I
 const TOOL_EVENT EVENTS::SelectedItemsMoved( TC_MESSAGE, TA_ACTION, "common.Interactive.moved" );
 const TOOL_EVENT EVENTS::InhibitSelectionEditing( TC_MESSAGE, TA_ACTION, "common.Interactive.inhibit" );
 const TOOL_EVENT EVENTS::UninhibitSelectionEditing( TC_MESSAGE, TA_ACTION, "common.Interactive.uninhibit" );
+
+const TOOL_EVENT EVENTS::DisambiguatePoint( TC_MESSAGE, TA_ACTION, "common.Interactive.disambiguate" );
 

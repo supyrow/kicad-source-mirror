@@ -514,9 +514,11 @@ int SCH_LINE_WIRE_BUS_TOOL::doDrawSegments( const std::string& aTool, int aType,
                 m_view->ShowPreview( false );
             };
 
-    controls->ShowCursor( true );
-
     Activate();
+    // Must be done after Activate() so that it gets set into the correct context
+    controls->ShowCursor( true );
+    // Set initial cursor
+    setCursor();
 
     // Add the new label to the selection so the rotate command operates on it
     if( m_busUnfold.label )
@@ -525,9 +527,6 @@ int SCH_LINE_WIRE_BUS_TOOL::doDrawSegments( const std::string& aTool, int aType,
     // Continue the existing wires if we've started (usually by immediate action preference)
     if( !m_wires.empty() )
         segment = m_wires.back();
-
-    // Set initial cursor
-    setCursor();
 
     wxPoint contextMenuPos;
 
@@ -756,6 +755,18 @@ int SCH_LINE_WIRE_BUS_TOOL::doDrawSegments( const std::string& aTool, int aType,
                 aType = LAYER_WIRE;
                 wxString net = *evt->Parameter<wxString*>();
                 segment = doUnfoldBus( net, contextMenuPos );
+            }
+        }
+        else if( evt->IsAction( &EE_ACTIONS::rotateCW ) || evt->IsAction( &EE_ACTIONS::rotateCCW ) )
+        {
+            if( m_busUnfold.in_progress )
+            {
+                m_busUnfold.label->Rotate90( evt->IsAction( &EE_ACTIONS::rotateCW ) );
+                m_toolMgr->RunAction( ACTIONS::refreshPreview );
+            }
+            else
+            {
+                wxBell();
             }
         }
         else if( evt->IsAction( &ACTIONS::doDelete ) && ( segment || m_busUnfold.in_progress ) )

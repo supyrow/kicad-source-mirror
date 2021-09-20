@@ -167,7 +167,6 @@ public:
         bool update_footprints;
         bool delete_shorting_tracks;
         bool delete_extra_footprints;
-        bool delete_single_pad_nets;
         bool associate_by_ref_sch;
     };
 
@@ -275,8 +274,8 @@ public:
 
     TRACK_DRAG_ACTION m_TrackDragAction;
 
-    bool m_Use45DegreeGraphicSegments;   // True to constraint graphic lines to horizontal,
-    // vertical and 45º
+    bool m_Use45DegreeLimit;             // True to constrain tool actions to horizontal,
+                                         // vertical and 45º
     bool m_FlipLeftRight;                // True: Flip footprints across Y axis
     // False: Flip footprints across X axis
 
@@ -297,9 +296,7 @@ public:
 
     std::unique_ptr<PNS::ROUTING_SETTINGS> m_PnsSettings;
 
-    bool m_FootprintViewerAutoZoom;     ///< Should the footprint viewer auto zoom on select
-
-    double m_FootprintViewerZoom;       ///< The last zoom level in the footprint viewer
+    double m_FootprintViewerZoom;       ///< The last zoom level used (0 for auto)
 
     wxString m_lastFootprintLibDir;
 

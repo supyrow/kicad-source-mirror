@@ -149,15 +149,10 @@ wxString NET_GRID_TABLE::GetTypeName( int aRow, int aCol )
 {
     switch( aCol )
     {
-    case COL_COLOR:
-        return wxT( "COLOR4D" );
-
-    case COL_VISIBILITY:
-        return wxGRID_VALUE_BOOL;
-
-    case COL_LABEL:
-    default:
-        return wxGRID_VALUE_STRING;
+    case COL_COLOR:      return wxT( "COLOR4D" );
+    case COL_VISIBILITY: return wxGRID_VALUE_BOOL;
+    case COL_LABEL:      return wxGRID_VALUE_STRING;
+    default:             return wxGRID_VALUE_STRING;
     }
 }
 
@@ -428,6 +423,15 @@ APPEARANCE_CONTROLS::APPEARANCE_CONTROLS( PCB_BASE_FRAME* aParent, wxWindow* aFo
     m_windowObjects->SetSizer( m_objectsOuterSizer );
     m_windowObjects->SetScrollRate( 0, 5 );
     m_windowObjects->Bind( wxEVT_SET_FOCUS, &APPEARANCE_CONTROLS::OnSetFocus, this );
+
+    wxFont infoFont = KIUI::GetInfoFont( this );
+    m_staticTextNets->SetFont( infoFont );
+    m_staticTextNetClasses->SetFont( infoFont );
+    m_panelLayers->SetFont( infoFont );
+    m_windowLayers->SetFont( infoFont );
+    m_windowObjects->SetFont( infoFont );
+    m_presetsLabel->SetFont( infoFont );
+    m_presetsHotkey->SetFont( infoFont );
 
     createControls();
 
@@ -855,11 +859,9 @@ void APPEARANCE_CONTROLS::OnNetGridRightClick( wxGridEvent& event )
     menu.Append( new wxMenuItem( &menu, ID_SHOW_ALL_NETS,
                                  _( "Show All Nets" ), wxEmptyString, wxITEM_NORMAL ) );
     menu.Append( new wxMenuItem( &menu, ID_HIDE_OTHER_NETS,
-                                 _( "Hide All Other Nets" ), wxEmptyString,
-                                 wxITEM_NORMAL ) );
+                                 _( "Hide All Other Nets" ), wxEmptyString, wxITEM_NORMAL ) );
 
-    menu.Bind( wxEVT_COMMAND_MENU_SELECTED,
-               &APPEARANCE_CONTROLS::onNetContextMenu, this );
+    menu.Bind( wxEVT_COMMAND_MENU_SELECTED, &APPEARANCE_CONTROLS::onNetContextMenu, this );
 
     PopupMenu( &menu );
 }
@@ -893,10 +895,14 @@ void APPEARANCE_CONTROLS::OnNetGridMouseEvent( wxMouseEvent& aEvent )
         wxString tip;
 
         if( cell.GetCol() == NET_GRID_TABLE::COL_VISIBILITY )
+        {
             tip.Printf( showOrHide, name );
+        }
         else if( cell.GetCol() == NET_GRID_TABLE::COL_COLOR )
+        {
             tip = _( "Double click (or middle click) to change color; "
                      "right click for more actions" );
+        }
 
         m_netsGrid->GetGridWindow()->SetToolTip( tip );
     }
@@ -985,58 +991,49 @@ bool APPEARANCE_CONTROLS::doesBoardItemNeedRebuild( std::vector<BOARD_ITEM*>& aB
                                     return a->Type() == PCB_NETINFO_T;
                                 } );
 
-
     return rebuild;
 }
 
 
-void APPEARANCE_CONTROLS::OnBoardItemAdded( BOARD& aBoard, BOARD_ITEM* aBoardItem )
+void APPEARANCE_CONTROLS::OnBoardItemAdded( BOARD& aBoard, BOARD_ITEM* aItem )
 {
-    if( doesBoardItemNeedRebuild( aBoardItem ) )
+    if( doesBoardItemNeedRebuild( aItem ) )
         handleBoardItemsChanged();
 }
 
 
-void APPEARANCE_CONTROLS::OnBoardItemsAdded( BOARD& aBoard, std::vector<BOARD_ITEM*>& aBoardItems )
+void APPEARANCE_CONTROLS::OnBoardItemsAdded( BOARD& aBoard, std::vector<BOARD_ITEM*>& aItems )
 {
-    if( doesBoardItemNeedRebuild( aBoardItems ) )
-    {
-        handleBoardItemsChanged();
-    }
-}
-
-
-void APPEARANCE_CONTROLS::OnBoardItemRemoved( BOARD& aBoard, BOARD_ITEM* aBoardItem )
-{
-    if( doesBoardItemNeedRebuild( aBoardItem ) )
+    if( doesBoardItemNeedRebuild( aItems ) )
         handleBoardItemsChanged();
 }
 
 
-void APPEARANCE_CONTROLS::OnBoardItemsRemoved(
-        BOARD& aBoard, std::vector<BOARD_ITEM*>& aBoardItems )
+void APPEARANCE_CONTROLS::OnBoardItemRemoved( BOARD& aBoard, BOARD_ITEM* aItem )
 {
-    if( doesBoardItemNeedRebuild( aBoardItems ) )
-    {
-        handleBoardItemsChanged();
-    }
-}
-
-
-void APPEARANCE_CONTROLS::OnBoardItemChanged( BOARD& aBoard, BOARD_ITEM* aBoardItem )
-{
-    if( doesBoardItemNeedRebuild( aBoardItem ) )
+    if( doesBoardItemNeedRebuild( aItem ) )
         handleBoardItemsChanged();
 }
 
 
-void APPEARANCE_CONTROLS::OnBoardItemsChanged(
-        BOARD& aBoard, std::vector<BOARD_ITEM*>& aBoardItems )
+void APPEARANCE_CONTROLS::OnBoardItemsRemoved( BOARD& aBoard, std::vector<BOARD_ITEM*>& aItems )
 {
-    if( doesBoardItemNeedRebuild( aBoardItems ) )
-    {
+    if( doesBoardItemNeedRebuild( aItems ) )
         handleBoardItemsChanged();
-    }
+}
+
+
+void APPEARANCE_CONTROLS::OnBoardItemChanged( BOARD& aBoard, BOARD_ITEM* aItem )
+{
+    if( doesBoardItemNeedRebuild( aItem ) )
+        handleBoardItemsChanged();
+}
+
+
+void APPEARANCE_CONTROLS::OnBoardItemsChanged( BOARD& aBoard, std::vector<BOARD_ITEM*>& aItems )
+{
+    if( doesBoardItemNeedRebuild( aItems ) )
+        handleBoardItemsChanged();
 }
 
 
@@ -1287,9 +1284,11 @@ std::vector<LAYER_PRESET> APPEARANCE_CONTROLS::GetUserLayerPresets() const
 {
     std::vector<LAYER_PRESET> ret;
 
-    for( const auto& pair : m_layerPresets )
+    for( const std::pair<const wxString, LAYER_PRESET>& pair : m_layerPresets )
+    {
         if( !pair.second.readOnly )
             ret.emplace_back( pair.second );
+    }
 
     return ret;
 }
@@ -1362,10 +1361,9 @@ void APPEARANCE_CONTROLS::rebuildLayers()
     LSET enabled = board->GetEnabledLayers();
     LSET visible = getVisibleLayers();
 
-    COLOR_SETTINGS* theme      = m_frame->GetColorSettings();
-    COLOR4D         bgColor    = theme->GetColor( LAYER_PCB_BACKGROUND );
-    bool            firstLayer = true;
-    bool            readOnly   = theme->IsReadOnly();
+    COLOR_SETTINGS* theme    = m_frame->GetColorSettings();
+    COLOR4D         bgColor  = theme->GetColor( LAYER_PCB_BACKGROUND );
+    bool            readOnly = theme->IsReadOnly();
 
 #ifdef __WXMAC__
     wxSizerItem* m_windowLayersSizerItem = m_panelLayersSizer->GetItem( m_windowLayers );
@@ -1410,17 +1408,14 @@ void APPEARANCE_CONTROLS::rebuildLayers()
                 label->Wrap( -1 );
                 label->SetToolTip( aSetting->tooltip );
 
-                int topMargin = firstLayer ? 2 : 1;
-                firstLayer = false;
-
                 sizer->AddSpacer( 1 );
-                sizer->Add( indicator, 0, wxALIGN_CENTER_VERTICAL | wxTOP, topMargin );
+                sizer->Add( indicator, 0, wxALIGN_CENTER_VERTICAL | wxTOP, 2 );
                 sizer->AddSpacer( 5 );
-                sizer->Add( swatch, 0, wxALIGN_CENTER_VERTICAL | wxTOP, topMargin );
+                sizer->Add( swatch, 0, wxALIGN_CENTER_VERTICAL | wxTOP, 2 );
                 sizer->AddSpacer( 6 );
-                sizer->Add( btn_visible, 0, wxALIGN_CENTER_VERTICAL | wxTOP, topMargin );
+                sizer->Add( btn_visible, 0, wxALIGN_CENTER_VERTICAL | wxTOP, 2 );
                 sizer->AddSpacer( 5 );
-                sizer->Add( label, 1, wxALIGN_CENTER_VERTICAL | wxTOP, topMargin );
+                sizer->Add( label, 1, wxALIGN_CENTER_VERTICAL | wxTOP, 2 );
 
                 m_layersOuterSizer->Add( panel, 0, wxEXPAND, 0 );
 
@@ -1981,7 +1976,7 @@ void APPEARANCE_CONTROLS::rebuildObjects()
                                                      wxDefaultPosition, wxDefaultSize,
                                                      wxSL_HORIZONTAL );
 #ifdef __WXMAC__
-                    slider->SetMinSize( wxSize( 80, 22 ) );
+                    slider->SetMinSize( wxSize( 80, 16 ) );
 #else
                     slider->SetMinSize( wxSize( 80, -1 ) );
 #endif
@@ -2013,7 +2008,9 @@ void APPEARANCE_CONTROLS::rebuildObjects()
 
                 aSetting->ctl_text = label;
                 m_objectsOuterSizer->Add( sizer, 0, wxEXPAND | wxLEFT | wxRIGHT, 5 );
-                m_objectsOuterSizer->AddSpacer( 1 );
+
+                if( !aSetting->can_control_opacity )
+                    m_objectsOuterSizer->AddSpacer( 2 );
             };
 
     for( const APPEARANCE_SETTING& s_setting : s_objectSettings )
@@ -2035,7 +2032,7 @@ void APPEARANCE_CONTROLS::rebuildObjects()
 
             if( setting->can_control_opacity )
             {
-                int width = m_windowObjects->GetTextExtent( setting->label ).x;
+                int width = m_windowObjects->GetTextExtent( setting->label ).x + 5;
                 labelWidth = std::max( labelWidth, width );
             }
 
@@ -2134,9 +2131,10 @@ void APPEARANCE_CONTROLS::rebuildNets()
                 if( isDefaultClass )
                     setting->ctl_color->Hide();
 
-                setting->ctl_visibility =
-                        new BITMAP_TOGGLE( setting->ctl_panel, aId, KiBitmap( BITMAPS::visibility ),
-                                           KiBitmap( BITMAPS::visibility_off ), true );
+                setting->ctl_visibility = new BITMAP_TOGGLE( setting->ctl_panel, aId,
+                                                             KiBitmap( BITMAPS::visibility ),
+                                                             KiBitmap( BITMAPS::visibility_off ),
+                                                             true );
 
                 wxString tip;
                 tip.Printf( _( "Show or hide ratsnest for nets in %s" ), name );
@@ -2154,7 +2152,7 @@ void APPEARANCE_CONTROLS::rebuildNets()
                 sizer->Add( setting->ctl_text,       1, flags,                                  5 );
 
                 m_netclassOuterSizer->Add( setting->ctl_panel, 0, wxEXPAND, 5 );
-                m_netclassOuterSizer->AddSpacer( 1 );
+                m_netclassOuterSizer->AddSpacer( 2 );
 
                 setting->ctl_visibility->Bind( TOGGLE_CHANGED,
                                                &APPEARANCE_CONTROLS::onNetclassVisibilityChanged,
@@ -2337,8 +2335,10 @@ void APPEARANCE_CONTROLS::onLayerPresetChanged( wxCommandEvent& aEvent )
         bool exists = m_layerPresets.count( name );
 
         if( !exists )
+        {
             m_layerPresets[name] = LAYER_PRESET( name, getVisibleLayers(),
                                                  getVisibleObjects(), UNSELECTED_LAYER );
+        }
 
         LAYER_PRESET* preset = &m_layerPresets[name];
         m_currentPreset      = preset;

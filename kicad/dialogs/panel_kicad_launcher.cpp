@@ -18,6 +18,7 @@
  */
 
 #include <bitmaps.h>
+#include <bitmap_store.h>
 #include <kicad_manager_frame.h>
 #include <tool/tool_manager.h>
 #include <tools/kicad_manager_actions.h>
@@ -32,6 +33,9 @@ PANEL_KICAD_LAUNCHER::PANEL_KICAD_LAUNCHER( wxWindow* aParent ) :
 {
     m_toolManager = static_cast<KICAD_MANAGER_FRAME*>( aParent )->GetToolManager();
     CreateLaunchers();
+
+    Bind( wxEVT_SYS_COLOUR_CHANGED,
+          wxSysColourChangedEventHandler( PANEL_KICAD_LAUNCHER::onThemeChanged ), this );
 }
 
 
@@ -104,43 +108,54 @@ void PANEL_KICAD_LAUNCHER::CreateLaunchers()
         };
 
     addLauncher( KICAD_MANAGER_ACTIONS::editSchematic,
-                 KiBitmap( BITMAPS::icon_eeschema, 48 ),
+                 KiScaledBitmap( BITMAPS::icon_eeschema, this, 48, true ),
                  _( "Edit the project schematic" ) );
 
     addLauncher( KICAD_MANAGER_ACTIONS::editSymbols,
-                 KiBitmap( BITMAPS::icon_libedit, 48 ),
+                 KiScaledBitmap( BITMAPS::icon_libedit, this, 48, true ),
                  _( "Edit global and/or project schematic symbol libraries" ) );
 
     addLauncher( KICAD_MANAGER_ACTIONS::editPCB,
-                 KiBitmap( BITMAPS::icon_pcbnew, 48 ),
+                 KiScaledBitmap( BITMAPS::icon_pcbnew, this, 48, true ),
                  _( "Edit the project PCB design" ) );
 
     addLauncher( KICAD_MANAGER_ACTIONS::editFootprints,
-                 KiBitmap( BITMAPS::icon_modedit, 48 ),
+                 KiScaledBitmap( BITMAPS::icon_modedit, this, 48, true ),
                  _( "Edit global and/or project PCB footprint libraries" ) );
 
     addLauncher( KICAD_MANAGER_ACTIONS::viewGerbers,
-                 KiBitmap( BITMAPS::icon_gerbview, 48 ),
+                 KiScaledBitmap( BITMAPS::icon_gerbview, this, 48, true ),
                  _( "Preview Gerber files" ) );
 
     addLauncher( KICAD_MANAGER_ACTIONS::convertImage,
-                 KiBitmap( BITMAPS::icon_bitmap2component, 48 ),
+                 KiScaledBitmap( BITMAPS::icon_bitmap2component, this, 48, true ),
                  _( "Convert bitmap images to schematic symbols or PCB footprints" ) );
 
     addLauncher( KICAD_MANAGER_ACTIONS::showCalculator,
-                 KiBitmap( BITMAPS::icon_pcbcalculator, 48 ),
+                 KiScaledBitmap( BITMAPS::icon_pcbcalculator, this, 48, true ),
                  _( "Show tools for calculating resistance, current capacity, etc." ) );
 
     addLauncher( KICAD_MANAGER_ACTIONS::editDrawingSheet,
-                 KiBitmap( BITMAPS::icon_pagelayout_editor, 48 ),
+                 KiScaledBitmap( BITMAPS::icon_pagelayout_editor, this, 48, true ),
                  _( "Edit drawing sheet borders and title blocks for use in schematics and PCB "
                     "designs" ) );
 
 #ifdef PCM
     addLauncher( KICAD_MANAGER_ACTIONS::showPluginManager,
-                 KiBitmap( BITMAPS::icon_pcm, 48 ),
+                 KiScaledBitmap( BITMAPS::icon_pcm, this, 48, true ),
                  _( "Manage downloadable packages from KiCad and 3rd party repositories" ) );
 #endif
 
     Layout();
 }
+
+
+void PANEL_KICAD_LAUNCHER::onThemeChanged( wxSysColourChangedEvent &aEvent )
+{
+    GetBitmapStore()->ThemeChanged();
+    CreateLaunchers();
+
+    aEvent.Skip();
+}
+
+

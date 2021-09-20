@@ -85,14 +85,6 @@ template<class T> void Flip( T& aValue )
 }
 
 
-int PCB_VIEWER_TOOLS::ZoomAutomatically( const TOOL_EVENT& aEvent )
-{
-    frame()->SetAutoZoom( !frame()->GetAutoZoom() );
-
-    return 0;
-}
-
-
 int PCB_VIEWER_TOOLS::ShowPadNumbers( const TOOL_EVENT& aEvent )
 {
     auto opts = displayOptions();
@@ -194,6 +186,9 @@ int PCB_VIEWER_TOOLS::TextOutlines( const TOOL_EVENT& aEvent )
 }
 
 
+using KIGFX::PREVIEW::TWO_POINT_GEOMETRY_MANAGER;
+
+
 int PCB_VIEWER_TOOLS::MeasureTool( const TOOL_EVENT& aEvent )
 {
     if( IsFootprintFrame() && !frame()->GetModel() )
@@ -207,23 +202,15 @@ int PCB_VIEWER_TOOLS::MeasureTool( const TOOL_EVENT& aEvent )
 
     std::string tool = aEvent.GetCommandStr().get();
     frame()->PushTool( tool );
-    Activate();
 
-    KIGFX::PREVIEW::TWO_POINT_GEOMETRY_MANAGER twoPtMgr;
-
+    TWO_POINT_GEOMETRY_MANAGER twoPtMgr;
+    PCB_GRID_HELPER            grid( m_toolMgr, frame()->GetMagneticItemsSettings() );
+    bool                       originSet = false;
     EDA_UNITS                  units = frame()->GetUserUnits();
     KIGFX::PREVIEW::RULER_ITEM ruler( twoPtMgr, units );
 
     view.Add( &ruler );
     view.SetVisible( &ruler, false );
-
-    PCB_GRID_HELPER grid( m_toolMgr, frame()->GetMagneticItemsSettings() );
-
-    bool originSet = false;
-
-    controls.ShowCursor( true );
-    controls.SetAutoPan( false );
-    controls.CaptureCursor( false );
 
     auto setCursor =
             [&]()
@@ -231,6 +218,20 @@ int PCB_VIEWER_TOOLS::MeasureTool( const TOOL_EVENT& aEvent )
                 frame()->GetCanvas()->SetCurrentCursor( KICURSOR::MEASURE );
             };
 
+    auto cleanup =
+            [&] ()
+            {
+                view.SetVisible( &ruler, false );
+                controls.SetAutoPan( false );
+                controls.CaptureCursor( false );
+                originSet = false;
+            };
+
+    Activate();
+    // Must be done after Activate() so that it gets set into the correct context
+    controls.ShowCursor( true );
+    controls.SetAutoPan( false );
+    controls.CaptureCursor( false );
     // Set initial cursor
     setCursor();
 
@@ -242,20 +243,11 @@ int PCB_VIEWER_TOOLS::MeasureTool( const TOOL_EVENT& aEvent )
         const VECTOR2I cursorPos = grid.BestSnapAnchor( controls.GetMousePosition(), nullptr );
         controls.ForceCursorPosition(true, cursorPos );
 
-        auto clearRuler =
-                [&] ()
-                {
-                    view.SetVisible( &ruler, false );
-                    controls.SetAutoPan( false );
-                    controls.CaptureCursor( false );
-                    originSet = false;
-                };
-
         if( evt->IsCancelInteractive() )
         {
             if( originSet )
             {
-                clearRuler();
+                cleanup();
             }
             else
             {
@@ -266,7 +258,7 @@ int PCB_VIEWER_TOOLS::MeasureTool( const TOOL_EVENT& aEvent )
         else if( evt->IsActivate() )
         {
             if( originSet )
-                clearRuler();
+                cleanup();
 
             if( evt->IsMoveTool() )
             {
@@ -301,7 +293,7 @@ int PCB_VIEWER_TOOLS::MeasureTool( const TOOL_EVENT& aEvent )
         // move or drag when origin set updates rules
         else if( originSet && ( evt->IsMotion() || evt->IsDrag( BUT_LEFT ) ) )
         {
-            twoPtMgr.SetAngleSnap( evt->Modifier( MD_SHIFT ) );
+            twoPtMgr.SetAngleSnap( frame()->Settings().m_Use45DegreeLimit );
             twoPtMgr.SetEnd( cursorPos );
 
             view.SetVisible( &ruler, true );
@@ -347,7 +339,6 @@ void PCB_VIEWER_TOOLS::setTransitions()
     Go( &PCB_VIEWER_TOOLS::PadDisplayMode,    PCB_ACTIONS::padDisplayMode.MakeEvent() );
     Go( &PCB_VIEWER_TOOLS::GraphicOutlines,   PCB_ACTIONS::graphicsOutlines.MakeEvent() );
     Go( &PCB_VIEWER_TOOLS::TextOutlines,      PCB_ACTIONS::textOutlines.MakeEvent() );
-    Go( &PCB_VIEWER_TOOLS::ZoomAutomatically, PCB_ACTIONS::zoomFootprintAutomatically.MakeEvent() );
 
     Go( &PCB_VIEWER_TOOLS::MeasureTool,       ACTIONS::measureTool.MakeEvent() );
 }

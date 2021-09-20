@@ -41,7 +41,6 @@
 #include <dialog_gendrill.h>
 #include <wildcards_and_files_ext.h>
 #include <reporter.h>
-#include <wx/stdpaths.h>
 #include <wx/msgdlg.h>
 #include <wx/dirdlg.h>
 #include <wx/filedlg.h>
@@ -217,7 +216,9 @@ void DIALOG_GENDRILL::onFileFormatSelection( wxCommandEvent& event )
     m_radioBoxOvalHoleMode->Enable( enbl_Excellon );
 
     if( enbl_Excellon )
+    {
         UpdatePrecisionOptions();
+    }
     else
     {
         m_staticTextPrecision->Enable( true );
@@ -310,8 +311,10 @@ void DIALOG_GENDRILL::OnOutputDirectoryBrowseClicked( wxCommandEvent& event )
     if( dialog.ShowModal() == wxID_YES )
     {
         if( !dirName.MakeRelativeTo( defaultPath ) )
+        {
             wxMessageBox( _( "Cannot make path relative (target volume different from file volume)!" ),
                           _( "Plot Output Directory" ), wxOK | wxICON_ERROR );
+        }
     }
 
     m_outputDirectoryName->SetValue( dirName.GetFullPath() );

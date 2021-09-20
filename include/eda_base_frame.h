@@ -682,7 +682,14 @@ private:
      */
     virtual bool IsModal() const { return false; }
 
-protected:
+#ifdef _WIN32
+    /**
+     * Windows specific override of the wxWidgets message handler for a window
+     */
+    WXLRESULT MSWWindowProc( WXUINT message, WXWPARAM wParam, WXLPARAM lParam ) override;
+#endif
+
+ protected:
     FRAME_T         m_ident;                // Id Type (pcb, schematic, library..)
     wxPoint         m_framePos;
     wxSize          m_frameSize;

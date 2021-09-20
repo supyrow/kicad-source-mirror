@@ -33,7 +33,7 @@
 #include <sch_symbol.h>
 #include <sch_reference_list.h>
 #include <schematic.h>
-#include <dialogs/html_messagebox.h>
+#include <dialogs/html_message_box.h>
 #include <dialog_text_and_label_properties.h>
 #include <string_utils.h>
 #include <tool/actions.h>
@@ -116,10 +116,8 @@ DIALOG_TEXT_AND_LABEL_PROPERTIES::DIALOG_TEXT_AND_LABEL_PROPERTIES( SCH_EDIT_FRA
 
     if( m_CurrentText->Type() == SCH_GLOBAL_LABEL_T )
     {
-        wxFont infoFont = KIUI::GetInfoFont();
-        infoFont.SetSymbolicSize( wxFONTSIZE_X_SMALL );
-        m_note1->SetFont( infoFont );
-        m_note2->SetFont( infoFont );
+        m_note1->SetFont( KIUI::GetInfoFont( this ).Italic() );
+        m_note2->SetFont( KIUI::GetInfoFont( this ).Italic() );
     }
     else
     {
@@ -363,18 +361,23 @@ bool DIALOG_TEXT_AND_LABEL_PROPERTIES::TransferDataFromWindow()
         m_CurrentText->SetShape( (PINSHEETLABEL_SHAPE) m_TextShape->GetSelection() );
 
     int style = m_TextStyle->GetSelection();
+    bool wantItalic = ( style & 1 ) > 0;
+    bool wantBold = (style & 2 ) > 0;
 
-    m_CurrentText->SetItalic( ( style & 1 ) );
+    m_CurrentText->SetItalic( wantItalic );
 
-    if( ( style & 2 ) && !m_CurrentText->IsBold() )
+    if( wantBold != m_CurrentText->IsBold() )
     {
-        m_CurrentText->SetBold( true );
-        m_CurrentText->SetTextThickness( GetPenSizeForBold( m_CurrentText->GetTextWidth() ) );
-    }
-    else if( m_CurrentText->IsBold() )
-    {
-        m_CurrentText->SetBold( false );
-        m_CurrentText->SetTextThickness( 0 ); // Use default pen width
+        if( wantBold )
+        {
+            m_CurrentText->SetBold( true );
+            m_CurrentText->SetTextThickness( GetPenSizeForBold( m_CurrentText->GetTextWidth() ) );
+        }
+        else
+        {
+            m_CurrentText->SetBold( false );
+            m_CurrentText->SetTextThickness( 0 ); // Use default pen width
+        }
     }
 
     m_Parent->UpdateItem( m_CurrentText );

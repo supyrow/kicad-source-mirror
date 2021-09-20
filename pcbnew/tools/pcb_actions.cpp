@@ -109,13 +109,13 @@ TOOL_ACTION PCB_ACTIONS::placeCharacteristics( "pcbnew.InteractiveDrawing.placeC
         AS_GLOBAL, 0,  LEGACY_HK_NAME( "Add Board Characteristics" ),
         _( "Add Board Characteristics" ),
         _( "Add a board characteristics table on a graphic layer" ),
-        BITMAPS::config, AF_ACTIVATE );
+        BITMAPS::INVALID_BITMAP, AF_ACTIVATE );
 
 TOOL_ACTION PCB_ACTIONS::placeStackup( "pcbnew.InteractiveDrawing.placeStackup", AS_GLOBAL, 0,
         LEGACY_HK_NAME( "Add Stackup Table" ),
         _( "Add Stackup Table" ),
         _( "Add a board stackup table on a graphic layer" ),
-        BITMAPS::layers_manager, AF_ACTIVATE );
+        BITMAPS::INVALID_BITMAP, AF_ACTIVATE );
 
 TOOL_ACTION PCB_ACTIONS::placeText( "pcbnew.InteractiveDrawing.text",
         AS_GLOBAL,
@@ -216,11 +216,6 @@ TOOL_ACTION PCB_ACTIONS::closeOutline( "pcbnew.InteractiveDrawing.closeOutline",
         AS_CONTEXT, 0, "",
         _( "Close Outline" ), _( "Close the in progress outline" ),
         BITMAPS::checked_ok );
-
-TOOL_ACTION PCB_ACTIONS::toggleLine45degMode( "pcbnew.InteractiveDrawing.line45degMode",
-        AS_GLOBAL, 0, "",
-        _( "Limit Lines to 45 deg" ), _( "Limit graphic lines to H, V and 45 degrees" ),
-        BITMAPS::INVALID_BITMAP, AF_NONE );
 
 // DRC
 //
@@ -667,6 +662,11 @@ TOOL_ACTION PCB_ACTIONS::toggleLock( "pcbnew.EditorControl.toggleLock",
         _( "Toggle Lock" ), _( "Lock or unlock selected items" ),
         BITMAPS::lock_unlock );
 
+TOOL_ACTION PCB_ACTIONS::toggle45( "pcbnew.EditorControl.toggle45",
+        AS_GLOBAL, MD_SHIFT + ' ', "",
+        _( "Toggle 45 Limit" ), _( "Limit actions to 45 degrees from the starting point" ),
+        BITMAPS::INVALID_BITMAP );
+
 TOOL_ACTION PCB_ACTIONS::lock( "pcbnew.EditorControl.lock",
         AS_GLOBAL, 0, "",
         _( "Lock" ), _( "Prevent items from being moved and/or resized on the canvas" ),
@@ -823,11 +823,6 @@ TOOL_ACTION PCB_ACTIONS::showPadNumbers( "pcbnew.Control.showPadNumbers",
         AS_GLOBAL, 0, "",
         _( "Show pad numbers" ), _( "Show pad numbers" ),
         BITMAPS::pad_number );
-
-TOOL_ACTION PCB_ACTIONS::zoomFootprintAutomatically( "pcbnew.Control.zoomFootprintAutomatically",
-        AS_GLOBAL, 0, "",
-        _( "Automatically zoom to fit" ), _( "Zoom to fit when changing footprint" ),
-        BITMAPS::zoom_auto_fit_in_page );
 
 TOOL_ACTION PCB_ACTIONS::zoneDisplayFilled( "pcbnew.Control.zoneDisplayEnable",
         AS_GLOBAL, 0, "",
@@ -1095,8 +1090,7 @@ TOOL_ACTION PCB_ACTIONS::repairBoard( "pcbnew.Control.repairBoard",
 TOOL_ACTION PCB_ACTIONS::repairFootprint( "pcbnew.ModuleEditor.repairFootprint",
         AS_GLOBAL, 0, "",
         _( "Repair Footprint" ),
-        _( "Run various diagnostics and attempt to repair footprint" ),
-        BITMAPS::rescue );
+        _( "Run various diagnostics and attempt to repair footprint" ) );
 
 
 // PLACEMENT_TOOL
@@ -1356,8 +1350,7 @@ TOOL_ACTION PCB_ACTIONS::routerInlineDrag( "pcbnew.InteractiveRouter.InlineDrag"
 TOOL_ACTION PCB_ACTIONS::routerUndoLastSegment( "pcbnew.InteractiveRouter.UndoLastSegment",
         AS_CONTEXT,
         WXK_BACK, "",
-        _( "Undo Last Segment" ),  _( "Walks the current track back one segment." ),
-        BITMAPS::checked_ok );
+        _( "Undo Last Segment" ),  _( "Walks the current track back one segment." ) );
 
 TOOL_ACTION PCB_ACTIONS::inlineBreakTrack( "pcbnew.InteractiveRouter.InlineBreakTrack",
         AS_GLOBAL, 0, "",

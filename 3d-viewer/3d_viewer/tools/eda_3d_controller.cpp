@@ -26,7 +26,7 @@
 #include <eda_3d_canvas.h>
 #include <eda_3d_viewer_frame.h>
 #include <id.h>
-#include <kiface_i.h>
+#include <kiface_base.h>
 #include <tools/eda_3d_controller.h>
 #include "eda_3d_actions.h"
 #include <3d_rendering/legacy/render_3d_legacy.h>
@@ -36,8 +36,8 @@ bool EDA_3D_CONTROLLER::Init()
 {
     CONDITIONAL_MENU& ctxMenu = m_menu.GetMenu();
 
-    ctxMenu.AddItem( ACTIONS::zoomIn,             SELECTION_CONDITIONS::ShowAlways );
-    ctxMenu.AddItem( ACTIONS::zoomOut,            SELECTION_CONDITIONS::ShowAlways );
+    ctxMenu.AddItem( ACTIONS::zoomInCenter,       SELECTION_CONDITIONS::ShowAlways );
+    ctxMenu.AddItem( ACTIONS::zoomOutCenter,      SELECTION_CONDITIONS::ShowAlways );
 
     ctxMenu.AddSeparator();
     ctxMenu.AddItem( EDA_3D_ACTIONS::viewTop,     SELECTION_CONDITIONS::ShowAlways );
@@ -346,11 +346,14 @@ void EDA_3D_CONTROLLER::setTransitions()
 
     // Zoom control
     Go( &EDA_3D_CONTROLLER::ZoomRedraw,         ACTIONS::zoomRedraw.MakeEvent() );
-    Go( &EDA_3D_CONTROLLER::ZoomInOut,          ACTIONS::zoomIn.MakeEvent() );
-    Go( &EDA_3D_CONTROLLER::ZoomInOut,          ACTIONS::zoomOut.MakeEvent() );
     Go( &EDA_3D_CONTROLLER::ZoomInOutCenter,    ACTIONS::zoomInCenter.MakeEvent() );
     Go( &EDA_3D_CONTROLLER::ZoomInOutCenter,    ACTIONS::zoomOutCenter.MakeEvent() );
     Go( &EDA_3D_CONTROLLER::ZoomFitScreen,      ACTIONS::zoomFitScreen.MakeEvent() );
+    // zoom in/out at cursor does not exist in 3D viewer but because F1 and F2 keys generate
+    // a zoomIn/zoomOut event, these events must be captured to use these hot keys. The actual
+    // zoom is the same as ZoomInOutCenter
+    Go( &EDA_3D_CONTROLLER::ZoomInOut,          ACTIONS::zoomIn.MakeEvent() );
+    Go( &EDA_3D_CONTROLLER::ZoomInOut,          ACTIONS::zoomOut.MakeEvent() );
 
     // Grid
     Go( &EDA_3D_CONTROLLER::On3DGridSelection,  EDA_3D_ACTIONS::noGrid.MakeEvent() );

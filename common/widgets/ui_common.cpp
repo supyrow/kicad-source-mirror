@@ -33,6 +33,7 @@
 #include <dialog_shim.h>
 #include <pgm_base.h>
 #include <wx/settings.h>
+#include <bitmaps/bitmap_types.h>
 
 int KIUI::GetStdMargin()
 {
@@ -94,18 +95,58 @@ wxFont KIUI::GetMonospacedUIFont()
 }
 
 
-wxFont KIUI::GetInfoFont()
+wxFont getGUIFont( wxWindow* aWindow, int aRelativeSize )
 {
-    wxFont font = wxSystemSettings::GetFont( wxSYS_DEFAULT_GUI_FONT );
-    font.SetSymbolicSize( wxFONTSIZE_SMALL );
+    wxFont font = aWindow->GetFont();
+
+    font.SetPointSize( font.GetPointSize() + aRelativeSize );
+
+    if( Pgm().GetCommonSettings()->m_Appearance.apply_icon_scale_to_fonts )
+    {
+        double icon_scale_fourths;
+
+        if( Pgm().GetCommonSettings()->m_Appearance.icon_scale <= 0 )
+            icon_scale_fourths = KiIconScale( aWindow );
+        else
+            icon_scale_fourths = Pgm().GetCommonSettings()->m_Appearance.icon_scale;
+
+        font.SetPointSize( KiROUND( icon_scale_fourths * font.GetPointSize() / 4.0 ) );
+    }
 
 #ifdef __WXMAC__
     // https://trac.wxwidgets.org/ticket/19210
     if( font.GetFaceName().IsEmpty() )
-        font.SetFaceName( "Lucida Grande" );
+        font.SetFaceName( "San Francisco" );
+    // OSX 10.1 .. 10.9: Lucida Grande
+    // OSX 10.10:        Helvetica Neue
+    // OSX 10.11 .. :    San Francisco
 #endif
 
     return font;
+}
+
+
+wxFont KIUI::GetStatusFont( wxWindow* aWindow )
+{
+#ifdef __WXMAC__
+    int scale = -2;
+#else
+    int scale = 0;
+#endif
+
+    return getGUIFont( aWindow, scale );
+}
+
+
+wxFont KIUI::GetInfoFont( wxWindow* aWindow )
+{
+    return getGUIFont( aWindow, -1 );
+}
+
+
+wxFont KIUI::GetControlFont( wxWindow* aWindow )
+{
+    return getGUIFont( aWindow, 0 );
 }
 
 
@@ -176,14 +217,10 @@ void KIUI::SelectReferenceNumber( wxTextEntry* aTextEntry )
 bool KIUI::IsInputControlFocused( wxWindow* aFocus )
 {
     if( aFocus == nullptr )
-    {
         aFocus = wxWindow::FindFocus();
-    }
 
     if( !aFocus )
-    {
         return false;
-    }
 
     wxTextEntry*      textEntry = dynamic_cast<wxTextEntry*>( aFocus );
     wxStyledTextCtrl* styledText = dynamic_cast<wxStyledTextCtrl*>( aFocus );
@@ -196,20 +233,17 @@ bool KIUI::IsInputControlFocused( wxWindow* aFocus )
     wxSpinCtrlDouble* spinDblCtrl = dynamic_cast<wxSpinCtrlDouble*>( aFocus );
     wxSlider*         sliderCtl = dynamic_cast<wxSlider*>( aFocus );
 
-    // Data view control is annoying, the focus is on a "wxDataViewCtrlMainWindow"
-    // class that is not formerly exported via the header.
-    // However, we can test the parent is wxDataViewCtrl instead
+    // Data view control is annoying, the focus is on a "wxDataViewCtrlMainWindow" class that
+    // is not formerly exported via the header.
     wxDataViewCtrl* dataViewCtrl = nullptr;
 
     wxWindow* parent = aFocus->GetParent();
 
     if( parent )
-    {
         dataViewCtrl = dynamic_cast<wxDataViewCtrl*>( parent );
-    }
 
-    return ( textEntry || styledText || listBox || dataViewCtrl || searchCtrl || dataViewCtrl
-             || checkboxCtrl || choiceCtrl || radioBtn || spinCtrl || spinDblCtrl || sliderCtl );
+    return ( textEntry || styledText || listBox || searchCtrl || checkboxCtrl || choiceCtrl
+                || radioBtn || spinCtrl || spinDblCtrl || sliderCtl || dataViewCtrl );
 }
 
 

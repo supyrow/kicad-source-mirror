@@ -116,23 +116,6 @@ int MICROWAVE_TOOL::drawMicrowaveInductor( const TOOL_EVENT& aEvent )
 
     std::string tool = aEvent.GetCommandStr().get();
     frame.PushTool( tool );
-    Activate();
-
-    TWO_POINT_GEOMETRY_MANAGER tpGeomMgr;
-
-    CENTRELINE_RECT_ITEM previewRect( tpGeomMgr, inductorAreaAspect );
-
-    previewRect.SetFillColor( inductorAreaFill );
-    previewRect.SetStrokeColor( inductorAreaStroke );
-    previewRect.SetLineWidth( inductorAreaStrokeWidth );
-
-    bool originSet = false;
-
-    controls.ShowCursor( true );
-    controls.CaptureCursor( false );
-    controls.SetAutoPan( false );
-
-    view.Add( &previewRect );
 
     auto setCursor =
             [&]()
@@ -140,8 +123,22 @@ int MICROWAVE_TOOL::drawMicrowaveInductor( const TOOL_EVENT& aEvent )
                 frame.GetCanvas()->SetCurrentCursor( KICURSOR::PENCIL );
             };
 
+    Activate();
+    // Must be done after Activate() so that it gets set into the correct context
+    controls.ShowCursor( true );
+    controls.CaptureCursor( false );
+    controls.SetAutoPan( false );
     // Set initial cursor
     setCursor();
+
+    bool                       originSet = false;
+    TWO_POINT_GEOMETRY_MANAGER tpGeomMgr;
+    CENTRELINE_RECT_ITEM       previewRect( tpGeomMgr, inductorAreaAspect );
+
+    previewRect.SetFillColor( inductorAreaFill );
+    previewRect.SetStrokeColor( inductorAreaStroke );
+    previewRect.SetLineWidth( inductorAreaStrokeWidth );
+    view.Add( &previewRect );
 
     while( auto evt = Wait() )
     {
@@ -214,7 +211,7 @@ int MICROWAVE_TOOL::drawMicrowaveInductor( const TOOL_EVENT& aEvent )
         // the end point
         else if( originSet && ( evt->IsMotion() || evt->IsDrag( BUT_LEFT ) ) )
         {
-            tpGeomMgr.SetAngleSnap( evt->Modifier( MD_SHIFT ) );
+            tpGeomMgr.SetAngleSnap( Is45Limited() );
             tpGeomMgr.SetEnd( cursorPos );
 
             view.SetVisible( &previewRect, true );

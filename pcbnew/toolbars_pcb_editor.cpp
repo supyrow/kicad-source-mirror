@@ -30,7 +30,7 @@
 #include <bitmaps.h>
 #include <board.h>
 #include <board_design_settings.h>
-#include <kiface_i.h>
+#include <kiface_base.h>
 #include <macros.h>
 #include <pcb_edit_frame.h>
 #include <pcb_layer_box_selector.h>
@@ -499,7 +499,6 @@ void PCB_EDIT_FRAME::ReCreateVToolbar()
     m_drawToolBar->AddToolContextMenu( PCB_ACTIONS::drawZone, std::move( zoneMenu ) );
 
     std::unique_ptr<ACTION_MENU> lineMenu = std::make_unique<ACTION_MENU>( false, selTool );
-    lineMenu->Add( PCB_ACTIONS::toggleLine45degMode, ACTION_MENU::CHECK );
     m_drawToolBar->AddToolContextMenu( PCB_ACTIONS::drawLine, std::move( lineMenu ) );
 
     m_drawToolBar->KiRealize();

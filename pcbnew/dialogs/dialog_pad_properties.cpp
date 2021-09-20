@@ -36,7 +36,7 @@
 #include <geometry/shape_segment.h>
 #include <dialog_pad_properties.h>
 #include <gal/graphics_abstraction_layer.h>
-#include <dialogs/html_messagebox.h>
+#include <dialogs/html_message_box.h>
 #include <macros.h>
 #include <pad.h>
 #include <pcb_base_frame.h>
@@ -205,7 +205,7 @@ DIALOG_PAD_PROPERTIES::DIALOG_PAD_PROPERTIES( PCB_BASE_FRAME* aParent, PAD* aPad
 
     initValues();
 
-    wxFont infoFont = KIUI::GetInfoFont();
+    wxFont infoFont = KIUI::GetInfoFont( this );
     m_copperLayersLabel->SetFont( infoFont );
     m_techLayersLabel->SetFont( infoFont );
     m_parentInfo->SetFont( infoFont );

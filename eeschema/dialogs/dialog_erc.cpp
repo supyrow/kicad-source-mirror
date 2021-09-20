@@ -28,7 +28,7 @@
 #include <sch_edit_frame.h>
 #include <schematic.h>
 #include <project.h>
-#include <kiface_i.h>
+#include <kiface_base.h>
 #include <bitmaps.h>
 #include <reporter.h>
 #include <wildcards_and_files_ext.h>
@@ -731,7 +731,7 @@ void DIALOG_ERC::deleteAllMarkers( bool aIncludeExclusions )
 
 void DIALOG_ERC::OnSaveReport( wxCommandEvent& aEvent )
 {
-    wxFileName fn( "erc." + ReportFileExtension );
+    wxFileName fn( "ERC." + ReportFileExtension );
 
     wxFileDialog dlg( this, _( "Save Report to File" ), Prj().GetProjectPath(), fn.GetFullName(),
                       ReportFileWildcard(), wxFD_SAVE | wxFD_OVERWRITE_PROMPT );

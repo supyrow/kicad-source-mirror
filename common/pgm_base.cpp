@@ -71,20 +71,22 @@ LANGUAGE_DESCR LanguagesList[] =
 {
     { wxLANGUAGE_DEFAULT,    ID_LANGUAGE_DEFAULT,    _( "Default" ),    false },
     { wxLANGUAGE_INDONESIAN, ID_LANGUAGE_INDONESIAN, wxT( "Bahasa Indonesia" ), true },
-    { wxLANGUAGE_CATALAN,    ID_LANGUAGE_CATALAN,    wxT( "Català" ),   true },
     { wxLANGUAGE_CZECH,      ID_LANGUAGE_CZECH,      wxT( "Čeština" ),  true },
     { wxLANGUAGE_DANISH,     ID_LANGUAGE_DANISH,     wxT( "Dansk" ),    true },
     { wxLANGUAGE_GERMAN,     ID_LANGUAGE_GERMAN,     wxT( "Deutsch" ),  true },
     { wxLANGUAGE_GREEK,      ID_LANGUAGE_GREEK,      wxT( "Ελληνικά" ), true },
     { wxLANGUAGE_ENGLISH,    ID_LANGUAGE_ENGLISH,    wxT( "English" ),  true },
     { wxLANGUAGE_SPANISH,    ID_LANGUAGE_SPANISH,    wxT( "Español" ),  true },
+    { wxLANGUAGE_SPANISH_MEXICAN, ID_LANGUAGE_SPANISH_MEXICAN, wxT( "Español (Latinoamericano)" ),  true },
     { wxLANGUAGE_FRENCH,     ID_LANGUAGE_FRENCH,     wxT( "Français" ), true },
+    { wxLANGUAGE_KOREAN,     ID_LANGUAGE_KOREAN,     wxT( "한국인"),       true },
     { wxLANGUAGE_ITALIAN,    ID_LANGUAGE_ITALIAN,    wxT( "Italiano" ), true },
     { wxLANGUAGE_LITHUANIAN, ID_LANGUAGE_LITHUANIAN, wxT( "Lietuvių" ), true },
     { wxLANGUAGE_HUNGARIAN,  ID_LANGUAGE_HUNGARIAN,  wxT( "Magyar" ),   true },
     { wxLANGUAGE_JAPANESE,   ID_LANGUAGE_JAPANESE,   wxT( "日本語" ),    true },
     { wxLANGUAGE_POLISH,     ID_LANGUAGE_POLISH,     wxT( "Polski" ),   true },
     { wxLANGUAGE_PORTUGUESE, ID_LANGUAGE_PORTUGUESE, wxT( "Português" ),true },
+    { wxLANGUAGE_PORTUGUESE_BRAZILIAN, ID_LANGUAGE_PORTUGUESE_BRAZILIAN, wxT( "Português (Brasil)" ), true },
     { wxLANGUAGE_RUSSIAN,    ID_LANGUAGE_RUSSIAN,    wxT( "Русский" ),  true },
     { wxLANGUAGE_SERBIAN,    ID_LANGUAGE_SERBIAN,    wxT( "Српски"),    true },
     { wxLANGUAGE_FINNISH,    ID_LANGUAGE_FINNISH,    wxT( "Suomi" ),    true },
@@ -133,17 +135,16 @@ wxApp& PGM_BASE::App()
 }
 
 
-void PGM_BASE::SetEditorName( const wxString& aFileName )
+void PGM_BASE::SetTextEditor( const wxString& aFileName )
 {
-    m_editor_name = aFileName;
-    wxASSERT( GetCommonSettings() );
-    GetCommonSettings()->m_System.editor_name = aFileName;
+    m_text_editor = aFileName;
+    GetCommonSettings()->m_System.text_editor = aFileName;
 }
 
 
-const wxString& PGM_BASE::GetEditorName( bool aCanShowFileChooser )
+const wxString& PGM_BASE::GetTextEditor( bool aCanShowFileChooser )
 {
-    wxString editorname = m_editor_name;
+    wxString editorname = m_text_editor;
 
     if( !editorname )
     {
@@ -151,7 +152,7 @@ const wxString& PGM_BASE::GetEditorName( bool aCanShowFileChooser )
         {
             // If there is no EDITOR variable set, try the desktop default
 #ifdef __WXMAC__
-            editorname = "/usr/bin/open";
+            editorname = "/usr/bin/open -e";
 #elif __WXX11__
             editorname = "/usr/bin/xdg-open";
 #endif
@@ -161,19 +162,19 @@ const wxString& PGM_BASE::GetEditorName( bool aCanShowFileChooser )
     // If we still don't have an editor name show a dialog asking the user to select one
     if( !editorname && aCanShowFileChooser )
     {
-        DisplayInfoMessage( nullptr, _( "No default editor found, you must choose it" ) );
+        DisplayInfoMessage( nullptr, _( "No default editor found, you must choose one." ) );
 
         editorname = AskUserForPreferredEditor();
     }
 
-    // If we finally have a new editor name request it to be copied to m_editor_name and
+    // If we finally have a new editor name request it to be copied to m_text_editor and
     // saved to the preferences file.
     if( !editorname.IsEmpty() )
-        SetEditorName( editorname );
+        SetTextEditor( editorname );
 
-    // m_editor_name already has the same value that editorname, or empty if no editor was
+    // m_text_editor already has the same value that editorname, or empty if no editor was
     // found/chosen.
-    return m_editor_name;
+    return m_text_editor;
 }
 
 
@@ -342,7 +343,7 @@ bool PGM_BASE::setExecutablePath()
 
 void PGM_BASE::loadCommonSettings()
 {
-    m_editor_name = GetCommonSettings()->m_System.editor_name;
+    m_text_editor = GetCommonSettings()->m_System.text_editor;
 
     for( const std::pair<wxString, ENV_VAR_ITEM> it : GetCommonSettings()->m_Env.vars )
     {

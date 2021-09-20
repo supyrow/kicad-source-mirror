@@ -239,6 +239,8 @@ class PCB_CALCULATOR_FRAME_BASE : public KIWAY_PLAYER
 		wxStaticText* m_Message6;
 		wxStaticText* m_left_message7;
 		wxStaticText* m_Message7;
+		wxStaticText* m_left_message8;
+		wxStaticText* m_Message8;
 		wxButton* m_buttonTransLineReset;
 		wxPanel* m_panelViaSize;
 		wxStaticText* m_staticTextHoleDia;

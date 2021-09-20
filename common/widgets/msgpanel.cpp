@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2004 Jean-Pierre Charras, jaen-pierre.charras@gipsa-lab.inpg.com
  * Copyright (C) 2011 Wayne Stambaugh <stambaughw@verizon.net>
- * Copyright (C) 1992-2011 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -23,17 +23,14 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
-/**
- * @file msgpanel.cpp
- * @brief Message panel implementation file.
- */
-
 #include <widgets/msgpanel.h>
 
 #include <wx/dcscreen.h>
 #include <wx/dcclient.h>
 #include <wx/settings.h>
 #include <wx/toplevel.h>
+
+#include <widgets/ui_common.h>
 
 
 BEGIN_EVENT_TABLE( EDA_MSG_PANEL, wxPanel )
@@ -46,7 +43,7 @@ EDA_MSG_PANEL::EDA_MSG_PANEL( wxWindow* aParent, int aId,
                               long style, const wxString &name ) :
     wxPanel( aParent, aId, aPosition, aSize, style, name )
 {
-    SetFont( wxSystemSettings::GetFont( wxSYS_DEFAULT_GUI_FONT ) );
+    SetFont( KIUI::GetStatusFont( this ) );
     SetBackgroundColour( wxSystemSettings::GetColour( wxSYS_COLOUR_BTNFACE ) );
 
     // informs wx not to paint the background itself as we will paint it later in erase()
@@ -54,7 +51,7 @@ EDA_MSG_PANEL::EDA_MSG_PANEL( wxWindow* aParent, int aId,
 
     m_last_x = 0;
 
-    m_fontSize = computeFontSize();
+    m_fontSize = GetTextExtent( wxT( "W" ) );
 }
 
 
@@ -63,38 +60,16 @@ EDA_MSG_PANEL::~EDA_MSG_PANEL()
 }
 
 
-wxSize EDA_MSG_PANEL::computeFontSize()
+int EDA_MSG_PANEL::GetRequiredHeight( wxWindow* aWindow )
 {
-    // Get size of the wxSYS_DEFAULT_GUI_FONT
     wxSize     fontSizeInPixels;
-
     wxScreenDC dc;
 
-    dc.SetFont( wxSystemSettings::GetFont( wxSYS_DEFAULT_GUI_FONT ) );
+    dc.SetFont( KIUI::GetControlFont( aWindow ) );
     dc.GetTextExtent( wxT( "W" ), &fontSizeInPixels.x, &fontSizeInPixels.y );
 
-    return fontSizeInPixels;
-}
-
-
-int EDA_MSG_PANEL::GetRequiredHeight()
-{
     // make space for two rows of text plus a number of pixels between them.
-    return 2 * computeFontSize().y + 0;
-}
-
-
-wxSize EDA_MSG_PANEL::computeTextSize( const wxString& aText ) const
-{
-    // Get size of the wxSYS_DEFAULT_GUI_FONT
-    wxSize     textSizeInPixels;
-
-    wxScreenDC dc;
-
-    dc.SetFont( wxSystemSettings::GetFont( wxSYS_DEFAULT_GUI_FONT ) );
-    dc.GetTextExtent( aText, &textSizeInPixels.x, &textSizeInPixels.y );
-
-    return textSizeInPixels;
+    return 2 * fontSizeInPixels.y + 0;
 }
 
 
@@ -107,7 +82,7 @@ void EDA_MSG_PANEL::OnPaint( wxPaintEvent& aEvent )
     dc.SetBackground( wxSystemSettings::GetColour( wxSYS_COLOUR_BTNFACE ) );
     dc.SetBackgroundMode( wxSOLID );
     dc.SetTextBackground( wxSystemSettings::GetColour( wxSYS_COLOUR_BTNFACE ) );
-    dc.SetFont( wxSystemSettings::GetFont( wxSYS_DEFAULT_GUI_FONT ) );
+    dc.SetFont( KIUI::GetControlFont( this ) );
 
     for( const MSG_PANEL_ITEM& item : m_Items )
         showItem( dc, item );
@@ -140,7 +115,7 @@ void EDA_MSG_PANEL::AppendMessage( const wxString& aUpperText, const wxString& a
     item.m_UpperText = aUpperText;
     item.m_LowerText = aLowerText;
     m_Items.push_back( item );
-    m_last_x += computeTextSize( text ).x;
+    m_last_x += GetTextExtent( text ).x;
 
     // Add an extra space between texts for a better look:
     m_last_x += m_fontSize.x;

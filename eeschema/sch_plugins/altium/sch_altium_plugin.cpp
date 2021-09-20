@@ -1063,9 +1063,28 @@ void SCH_ALTIUM_PLUGIN::ParseBezier( const std::map<wxString, wxString>& aProper
 
                 line->SetWidth( elem.lineWidth );
             }
+            else if( i + 3 == elem.points.size() )
+            {
+                // TODO: special case of a single line with an extra point?
+                // I haven't a clue what this is all about, but the sample document we have in
+                // https://gitlab.com/kicad/code/kicad/-/issues/8974 responds best by treating it
+                // as another single line special case.
+                LIB_POLYLINE* line = new LIB_POLYLINE( libSymbolIt->second );
+                libSymbolIt->second->AddDrawItem( line );
+
+                line->SetUnit( elem.ownerpartid );
+
+                for( size_t j = i; j < elem.points.size() && j < i + 2; j++ )
+                {
+                    line->AddPoint( GetRelativePosition( elem.points.at( j ) + m_sheetOffset,
+                                                         symbol ) );
+                }
+
+                line->SetWidth( elem.lineWidth );
+            }
             else
             {
-                // Bezier always has maximum of 4 control points
+                // Bezier must have exactly 4 control points
                 LIB_BEZIER* bezier = new LIB_BEZIER( libSymbolIt->second );
                 libSymbolIt->second->AddDrawItem( bezier );
 
@@ -1473,8 +1492,8 @@ void SCH_ALTIUM_PLUGIN::ParseRectangle( const std::map<wxString, wxString>& aPro
 }
 
 
-void SCH_ALTIUM_PLUGIN::ParseSheetSymbol( int aIndex, const std::map<wxString,
-                                          wxString>& aProperties )
+void SCH_ALTIUM_PLUGIN::ParseSheetSymbol( int aIndex,
+                                          const std::map<wxString, wxString>& aProperties )
 {
     ASCH_SHEET_SYMBOL elem( aProperties );
 

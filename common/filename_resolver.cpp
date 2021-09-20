@@ -2,6 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2015-2020 Cirilo Bernardo <cirilo.bernardo@gmail.com>
+ * Copyright (C) 2015-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -256,45 +257,31 @@ wxString FILENAME_RESOLVER::ResolvePath( const wxString& aFileName )
     tname.Replace( wxT( "/" ), wxT( "\\" ) );
     #endif
 
-    // Note: variable expansion must be performed using a threadsafe
-    // wrapper for the getenv() system call. If we allow the
-    // wxFileName::Normalize() routine to perform expansion then
-    // we will have a race condition since wxWidgets does not assure
-    // a threadsafe wrapper for getenv().
+    // Note: variable expansion must preferably be performed via a threadsafe wrapper for the
+    // getenv() system call. If we allow the wxFileName::Normalize() routine to perform expansion
+    // then we will have a race condition since wxWidgets does not assure a threadsafe wrapper
+    // for getenv().
     tname = ExpandEnvVarSubstitutions( tname, m_project );
 
     wxFileName tmpFN( tname );
 
-    // in the case of absolute filenames we don't store a map item
-    if( !aFileName.StartsWith( "${" ) && !aFileName.StartsWith( "$(" )
-        && !aFileName.StartsWith( ":" ) && tmpFN.IsAbsolute() )
-    {
-        tmpFN.Normalize();
-
-        if( tmpFN.FileExists() )
-            return tmpFN.GetFullPath();
-
-        return wxEmptyString;
-    }
-
-    // this case covers full paths, leading expanded vars, and paths
-    // relative to the current working directory (which is not necessarily
-    // the current project directory)
+    // this case covers full paths, leading expanded vars, and paths relative to the current
+    // working directory (which is not necessarily the current project directory)
     if( tmpFN.FileExists() )
     {
         tmpFN.Normalize();
         tname = tmpFN.GetFullPath();
 
-        // special case: if a path begins with ${ENV_VAR} but is not in the
-        // resolver's path list then add it.
+        // special case: if a path begins with ${ENV_VAR} but is not in the resolver's path list
+        // then add it.
         if( aFileName.StartsWith( "${" ) || aFileName.StartsWith( "$(" ) )
             checkEnvVarPath( aFileName );
 
         return tname;
     }
 
-    // if a path begins with ${ENV_VAR}/$(ENV_VAR) and is not resolved then the
-    // file either does not exist or the ENV_VAR is not defined
+    // if a path begins with ${ENV_VAR}/$(ENV_VAR) and is not resolved then the file either does
+    // not exist or the ENV_VAR is not defined
     if( aFileName.StartsWith( "${" ) || aFileName.StartsWith( "$(" ) )
     {
         if( !( m_errflags & ERRFLG_ENVPATH ) )
@@ -314,19 +301,14 @@ wxString FILENAME_RESOLVER::ResolvePath( const wxString& aFileName )
     // a. an aliased shortened name or
     // b. cannot be determined
 
-    std::list< SEARCH_PATH >::const_iterator sPL = m_paths.begin();
-    std::list< SEARCH_PATH >::const_iterator ePL = m_paths.end();
-
     // check the path relative to the current project directory;
-    // note: this is not necessarily the same as the current working
-    // directory, which has already been checked. This case accounts
-    // for partial paths which do not contain ${KIPRJMOD}.
-    // This check is performed before checking the path relative to
-    // ${KICAD6_3DMODEL_DIR} so that users can potentially override a model
-    // within ${KICAD6_3DMODEL_DIR}
-    if( !sPL->m_Pathexp.empty() && !tname.StartsWith( ":" ) )
+    // NB: this is not necessarily the same as the current working directory, which has already
+    // been checked. This case accounts for partial paths which do not contain ${KIPRJMOD}.
+    // This check is performed before checking the path relative to ${KICAD6_3DMODEL_DIR} so that
+    // users can potentially override a model within ${KICAD6_3DMODEL_DIR}
+    if( !m_paths.begin()->m_Pathexp.empty() && !tname.StartsWith( ":" ) )
     {
-        tmpFN.Assign( sPL->m_Pathexp, "" );
+        tmpFN.Assign( m_paths.begin()->m_Pathexp, "" );
         wxString fullPath = tmpFN.GetPathWithSep() + tname;
 
         fullPath = ExpandEnvVarSubstitutions( fullPath, m_project );
@@ -359,10 +341,6 @@ wxString FILENAME_RESOLVER::ResolvePath( const wxString& aFileName )
 
     }
 
-    // ${ENV_VAR} paths have already been checked; skip them
-    while( sPL != ePL && ( sPL->m_Alias.StartsWith( "${" ) || sPL->m_Alias.StartsWith( "$(" ) ) )
-        ++sPL;
-
     // at this point the filename must contain an alias or else it is invalid
     wxString alias;         // the alias portion of the short filename
     wxString relpath;       // the path relative to the alias
@@ -371,8 +349,8 @@ wxString FILENAME_RESOLVER::ResolvePath( const wxString& aFileName )
     {
         if( !( m_errflags & ERRFLG_RELPATH ) )
         {
-            // this can happen if the file was intended to be relative to
-            // ${KICAD6_3DMODEL_DIR} but ${KICAD6_3DMODEL_DIR} not set or incorrect.
+            // this can happen if the file was intended to be relative to ${KICAD6_3DMODEL_DIR}
+            // but ${KICAD6_3DMODEL_DIR} is not set or is incorrect.
             m_errflags |= ERRFLG_RELPATH;
             wxString errmsg = "[3D File Resolver] No such path";
             errmsg.append( "\n" );
@@ -384,11 +362,15 @@ wxString FILENAME_RESOLVER::ResolvePath( const wxString& aFileName )
         return wxEmptyString;
     }
 
-    while( sPL != ePL )
+    for( const SEARCH_PATH& path : m_paths )
     {
-        if( !sPL->m_Alias.Cmp( alias ) && !sPL->m_Pathexp.empty() )
+        // ${ENV_VAR} paths have already been checked; skip them
+        if( path.m_Alias.StartsWith( "${" ) || path.m_Alias.StartsWith( "$(" ) )
+            continue;
+
+        if( !path.m_Alias.Cmp( alias ) && !path.m_Pathexp.empty() )
         {
-            wxFileName fpath( wxFileName::DirName( sPL->m_Pathexp ) );
+            wxFileName fpath( wxFileName::DirName( path.m_Pathexp ) );
             wxString fullPath = fpath.GetPathWithSep() + relpath;
 
             fullPath = ExpandEnvVarSubstitutions( fullPath, m_project );
@@ -403,8 +385,6 @@ wxString FILENAME_RESOLVER::ResolvePath( const wxString& aFileName )
                 return tname;
             }
         }
-
-        ++sPL;
     }
 
     if( !( m_errflags & ERRFLG_ALIAS ) )
@@ -655,7 +635,7 @@ bool FILENAME_RESOLVER::WritePathList( const wxString& aDir, const wxString& aFi
         cfgFile << "\"" << tstr.size() << ":" << tstr << "\",";
 
         if( aResolvePaths )
-            tstr = ResolvePath( sPL->m_Pathvar ).ToUTF8();
+            tstr = ExpandEnvVarSubstitutions( sPL->m_Pathvar, m_project ).ToUTF8();
         else
             tstr = sPL->m_Pathvar.ToUTF8();
 
@@ -845,18 +825,20 @@ bool FILENAME_RESOLVER::SplitAlias( const wxString& aFileName,
     anAlias.clear();
     aRelPath.clear();
 
-    if( !aFileName.StartsWith( wxT( ":" ) ) )
-        return false;
+    size_t searchStart = 0;
 
-    size_t tagpos = aFileName.find( wxT( ":" ), 1 );
+    if( aFileName.StartsWith( wxT( ":" ) ) )
+        searchStart = 1;
 
-    if( wxString::npos == tagpos || 1 == tagpos )
+    size_t tagpos = aFileName.find( wxT( ":" ), searchStart );
+
+    if( tagpos == wxString::npos || tagpos == searchStart )
         return false;
 
     if( tagpos + 1 >= aFileName.length() )
         return false;
 
-    anAlias = aFileName.substr( 1, tagpos - 1 );
+    anAlias = aFileName.substr( searchStart, tagpos - searchStart );
     aRelPath = aFileName.substr( tagpos + 1 );
 
     return true;
@@ -971,46 +953,83 @@ bool FILENAME_RESOLVER::ValidateFileName( const wxString& aFileName, bool& hasAl
         return false;
 
     wxString filename = aFileName;
-    size_t pos0 = aFileName.find( ':' );
+    wxString lpath;
+    size_t aliasStart = aFileName.StartsWith( ':' ) ? 1 : 0;
+    size_t aliasEnd = aFileName.find( ':', aliasStart );
 
     // ensure that the file separators suit the current platform
-    #ifdef __WINDOWS__
+#ifdef __WINDOWS__
     filename.Replace( wxT( "/" ), wxT( "\\" ) );
 
     // if we see the :\ pattern then it must be a drive designator
-    if( pos0 != wxString::npos )
+    if( aliasEnd != wxString::npos )
     {
         size_t pos1 = filename.find( wxT( ":\\" ) );
 
-        if( pos1 != wxString::npos && ( pos1 != pos0 || pos1 != 1 ) )
+        if( pos1 != wxString::npos && ( pos1 != aliasEnd || pos1 != 1 ) )
             return false;
 
         // if we have a drive designator then we have no alias
         if( pos1 != wxString::npos )
-            pos0 = wxString::npos;
+            aliasEnd = wxString::npos;
     }
-    #else
+#else
     filename.Replace( wxT( "\\" ), wxT( "/" ) );
-    #endif
+#endif
 
     // names may not end with ':'
-    if( pos0 == aFileName.length() -1 )
+    if( aliasEnd == aFileName.length() -1 )
         return false;
 
-    if( pos0 != wxString::npos )
+    if( aliasEnd != wxString::npos )
     {
         // ensure the alias component is not empty
-        if( pos0 == 0 )
+        if( aliasEnd == aliasStart )
             return false;
 
-        wxString lpath = filename.substr( 0, pos0 );
+        lpath = filename.substr( aliasStart, aliasEnd );
 
         // check the alias for restricted characters
         if( wxString::npos != lpath.find_first_of( wxT( "{}[]()%~<>\"='`;:.,&?/\\|$" ) ) )
             return false;
 
         hasAlias = true;
+        lpath = aFileName.substr( aliasEnd + 1 );
     }
+    else
+    {
+        lpath = aFileName;
+
+        // in the case of ${ENV_VAR}|$(ENV_VAR)/path, strip the
+        // environment string before testing
+        aliasEnd = wxString::npos;
+
+        if( aFileName.StartsWith( "${" ) )
+            aliasEnd = aFileName.find( '}' );
+        else if( aFileName.StartsWith( "$(" ) )
+            aliasEnd = aFileName.find( ')' );
+
+        if( aliasEnd != wxString::npos )
+            lpath = aFileName.substr( aliasEnd + 1 );
+
+    }
+
+    // Test for forbidden chars in filenames. Should be wxFileName::GetForbiddenChars()
+    // On MSW, the list returned by wxFileName::GetForbiddenChars() contains separators
+    // '\'and '/' used here because lpath can be a full path.
+    // So remove separators
+    wxString lpath_no_sep = lpath;
+#ifdef __WINDOWS__
+    lpath_no_sep.Replace( "/", " " );
+    lpath_no_sep.Replace( "\\", " " );
+
+    // A disk identifier is allowed, and therefore remove its separator
+    if( lpath_no_sep.Length() > 1 && lpath_no_sep[1] == ':' )
+        lpath_no_sep[1] = ' ';
+#endif
+
+    if( wxString::npos != lpath_no_sep.find_first_of( wxFileName::GetForbiddenChars() ) )
+        return false;
 
     return true;
 }

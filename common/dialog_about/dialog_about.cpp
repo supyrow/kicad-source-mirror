@@ -42,7 +42,7 @@
  */
 #include <bitmaps.h>
 #include <build_version.h>
-#include <dialogs/html_messagebox.h>
+#include <dialogs/html_message_box.h>
 #include <tool/tool_manager.h>
 
 #include "dialog_about.h"
@@ -262,9 +262,7 @@ void DIALOG_ABOUT::createNotebookPageByCategory( wxNotebook* aParent, const wxSt
             wxStaticText* m_staticText1 = new wxStaticText( m_scrolledWindow1, wxID_ANY,
                                                             contributor->GetCategory() + wxT( ":" ),
                                                             wxDefaultPosition, wxDefaultSize, 0 );
-            m_staticText1->SetFont( wxFont( -1, wxFONTFAMILY_DEFAULT, wxFONTSTYLE_NORMAL,
-                                            wxFONTWEIGHT_BOLD, false,
-                                            wxEmptyString ) ); // bold font
+            m_staticText1->SetFont( m_staticText1->GetFont().Bold() );
             m_staticText1->Wrap( -1 );
             fgSizer1->Add( m_staticText1, 0, wxALIGN_LEFT|wxBOTTOM|wxEXPAND, 2 );
 

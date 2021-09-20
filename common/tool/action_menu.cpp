@@ -28,7 +28,7 @@
 #include <eda_base_frame.h>
 #include <functional>
 #include <id.h>
-#include <kiface_i.h>
+#include <kiface_base.h>
 #include <menus_helpers.h>
 #include <tool/action_menu.h>
 #include <tool/actions.h>
@@ -218,7 +218,7 @@ void ACTION_MENU::AddClose( const wxString& aAppname )
 }
 
 
-void ACTION_MENU::AddQuitOrClose( KIFACE_I* aKiface, wxString aAppname )
+void ACTION_MENU::AddQuitOrClose( KIFACE_BASE* aKiface, wxString aAppname )
 {
     if( !aKiface || aKiface->IsSingle() ) // not when under a project mgr
     {
@@ -252,20 +252,13 @@ void ACTION_MENU::Clear()
 
 bool ACTION_MENU::HasEnabledItems() const
 {
-    bool hasEnabled = false;
-
-    auto& items = GetMenuItems();
-
-    for( auto item : items )
+    for( wxMenuItem* item : GetMenuItems() )
     {
         if( item->IsEnabled() && !item->IsSeparator() )
-        {
-            hasEnabled = true;
-            break;
-        }
+            return true;
     }
 
-    return hasEnabled;
+    return false;
 }
 
 
@@ -339,13 +332,13 @@ void ACTION_MENU::updateHotKeys()
 {
     TOOL_MANAGER* toolMgr = getToolManager();
 
-    for( auto& ii : m_toolActions )
+    for( std::pair<const int, const TOOL_ACTION*>& ii : m_toolActions )
     {
         int                id = ii.first;
         const TOOL_ACTION& action = *ii.second;
         int                key = toolMgr->GetHotKey( action ) & ~MD_MODIFIER_MASK;
 
-        if( key )
+        if( key > 0 )
         {
             int mod = toolMgr->GetHotKey( action ) & MD_MODIFIER_MASK;
             int flags = 0;
