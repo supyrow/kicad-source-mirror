@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2016 Cirilo Bernardo <cirilo.bernardo@gmail.com>
- * Copyright (C) 2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2020-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -32,8 +32,6 @@
 #include <sexpr/sexpr_parser.h>
 
 #include <wx/filename.h>
-#include <wx/log.h>
-#include <wx/stdpaths.h>
 #include <wx/wxcrtvararg.h>
 
 #include <memory>
@@ -58,10 +56,10 @@ KICADPCB::KICADPCB( const wxString& aPcbName )
 
 KICADPCB::~KICADPCB()
 {
-    for( auto i : m_footprints )
+    for( KICADFOOTPRINT* i : m_footprints )
         delete i;
 
-    for( auto i : m_curves )
+    for( KICADCURVE* i : m_curves )
         delete i;
 
     delete m_pcb_model;
@@ -89,7 +87,6 @@ bool KICADPCB::ReadFile( const wxString& aFileName )
 
     fname.Normalize();
     m_filename = fname.GetFullPath();
-    m_resolver.SetProjectDir( fname.GetPath() );
 
     try
     {
@@ -220,8 +217,7 @@ bool KICADPCB::parseGeneral( SEXPR::SEXPR* data )
             return false;
         }
 
-        // at the moment only the thickness is of interest in
-        // the general section
+        // at the moment only the thickness is of interest in the general section
         if( child->GetChild( 0 )->GetSymbol() != "thickness" )
             continue;
 
@@ -289,21 +285,20 @@ bool KICADPCB::parseSetup( SEXPR::SEXPR* data )
 
         if( !child->IsList() )
         {
-            ReportMessage( wxString::Format(
-                           "corrupt PCB file (line %d)\n", child->GetLineNumber() ) );
+            ReportMessage( wxString::Format( "corrupt PCB file (line %d)\n",
+                                             child->GetLineNumber() ) );
             return false;
         }
 
-        // at the moment only the Grid and Drill origins are of interest in
-        // the setup section
+        // at the moment only the Grid and Drill origins are of interest in the setup section
         if( child->GetChild( 0 )->GetSymbol() == "grid_origin" )
         {
             if( child->GetNumberOfChildren() != 3 )
             {
-                ReportMessage( wxString::Format(
-                               "corrupt PCB file (line %d): grid_origin has %d children "
-                               "(expected: 3)\n",
-                               child->GetLineNumber(), child->GetNumberOfChildren() ) );
+                ReportMessage( wxString::Format( "corrupt PCB file (line %d): grid_origin has "
+                                                 "%d children (expected: 3)\n",
+                                                 child->GetLineNumber(),
+                                                 child->GetNumberOfChildren() ) );
                 return false;
             }
 
@@ -315,10 +310,10 @@ bool KICADPCB::parseSetup( SEXPR::SEXPR* data )
         {
             if( child->GetNumberOfChildren() != 3 )
             {
-                ReportMessage( wxString::Format(
-                               "corrupt PCB file (line %d)m: aux_axis_origin has %d children "
-                               "(expected: 3)\n",
-                               child->GetLineNumber(), child->GetNumberOfChildren() ) );
+                ReportMessage( wxString::Format( "corrupt PCB file (line %d): aux_axis_origin has"
+                                                 " %d children (expected: 3)\n",
+                                                 child->GetLineNumber(),
+                                                 child->GetNumberOfChildren() ) );
                 return false;
             }
 

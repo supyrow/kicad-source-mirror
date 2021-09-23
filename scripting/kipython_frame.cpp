@@ -54,6 +54,11 @@ sys.path.append( stock_path )
 
     // Execute the code to make the makeWindow function we defined above
     PyRun_SimpleString( pcbnew_pyshell_one_step.str().c_str() );
+
+    /// For unknown reasons, some mac builds don't automatically layout the Python window until resized
+    /// so force the fit here
+    Layout();
+    Fit();
 }
 
 
@@ -83,8 +88,6 @@ KIPYTHON_FRAME::KIPYTHON_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
             KIWAY_PLAYER( aKiway, aParent, FRAME_PYTHON, wxT( "KiPython" ), wxDefaultPosition,
                     wxDefaultSize, KICAD_DEFAULT_DRAWFRAME_STYLE, wxT( "KiPython" ) )
 {
-    m_stdio = 0;
-
     CallAfter( [&](){ SetupPythonEditor(); } );
 
     redirectStdio();
@@ -93,8 +96,4 @@ KIPYTHON_FRAME::KIPYTHON_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
 
 KIPYTHON_FRAME::~KIPYTHON_FRAME()
 {
-    wxWindow* stdio_window = wxWindow::FindWindowById( m_stdio );
-
-    if( stdio_window )
-        stdio_window->Close( true );
 }

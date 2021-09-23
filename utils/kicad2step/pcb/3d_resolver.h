@@ -114,23 +114,15 @@ public:
     bool Set3DConfigDir( const wxString& aConfigDir );
 
     /**
-     * Set the current KiCad project directory as the first entry in the model path list.
-     *
-     * @param aProjDir is the current project directory.
-     * @param flgChanged, if specified, is set to true if the directory actually changed.
-     * @return true if the call succeeds.
-     */
-    bool SetProjectDir( const wxString& aProjDir, bool* flgChanged = NULL );
-    wxString GetProjectDir( void );
-
-    /**
      * Determine the full path of the given file name.
      *
      * In the future remote files may be supported, in which case it is best to require a full
      * URI in which case #ResolvePath should check that the URI conforms to RFC-2396 and related
      * documents and copies \a aFileName into the resolved name if the URI is valid.
+     *
+     * If the file is not found, \a aSearchedPaths will contain the paths that were searched.
      */
-    wxString ResolvePath( const wxString& aFileName );
+    wxString ResolvePath( const wxString& aFileName, std::vector<wxString>& aSearchedPaths );
 
     /**
      * Produce a relative path based on the existing search directories or returns the same path
@@ -197,7 +189,6 @@ private:
 
     wxString expandVars( const wxString& aPath );
 
-    wxString m_ConfigDir;             ///< 3D configuration directory.
     std::list< SEARCH_PATH > m_Paths; ///< List of base search paths.
 
     ///< Mapping of (short) file names to resolved names.

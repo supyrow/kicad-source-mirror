@@ -526,10 +526,11 @@ void ROUTER_TOOL::saveRouterDebugLog()
     FILE *f = fopen( fname_log.GetFullPath().c_str(), "wb" );
 
     // save base router configuration (mode, etc.)
-    fprintf(f, "config %d %d %d\n",
+    fprintf(f, "config %d %d %d %d\n",
         m_router->Settings().Mode(),
         m_router->Settings().RemoveLoops() ? 1 : 0,
-        m_router->Settings().GetFixAllSegments() ? 1 : 0
+        m_router->Settings().GetFixAllSegments() ? 1 : 0,
+        m_router->Settings().GetCornerMode()
      );
 
     const auto& events = logger->GetEvents();
@@ -1563,13 +1564,26 @@ int ROUTER_TOOL::InlineDrag( const TOOL_EVENT& aEvent )
     if( selection.Size() != 1 )
         return 0;
 
-    const BOARD_ITEM* item = static_cast<const BOARD_ITEM*>( selection.Front() );
+    BOARD_ITEM* item = static_cast<BOARD_ITEM*>( selection.Front() );
 
     if( item->Type() != PCB_TRACE_T
          && item->Type() != PCB_VIA_T
          && item->Type() != PCB_FOOTPRINT_T )
     {
         return 0;
+    }
+
+    // If we overrode locks, we want to clear the flag from the source item before SyncWorld is
+    // called so that virtual vias are not generated for the (now unlocked) track segment.  Note in
+    // this case the lock can't be reliably re-applied, because there is no guarantee that the end
+    // state of the drag results in the same number of segments so it's not clear which segment to
+    // apply the lock state to.
+    bool wasLocked = false;
+
+    if( item->IsLocked() )
+    {
+        wasLocked = true;
+        item->SetLocked( false );
     }
 
     Activate();
@@ -1642,7 +1656,12 @@ int ROUTER_TOOL::InlineDrag( const TOOL_EVENT& aEvent )
     bool dragStarted = m_router->StartDragging( p, itemsToDrag, dragMode );
 
     if( !dragStarted )
+    {
+        if( wasLocked )
+            item->SetLocked( true );
+
         return 0;
+    }
 
     m_gridHelper->SetAuxAxes( true, p );
     controls()->ShowCursor( true );
@@ -1676,6 +1695,9 @@ int ROUTER_TOOL::InlineDrag( const TOOL_EVENT& aEvent )
 
         if( evt->IsCancelInteractive() )
         {
+            if( wasLocked )
+                item->SetLocked( true );
+
             break;
         }
         else if( evt->IsMotion() || evt->IsDrag( BUT_LEFT ) )

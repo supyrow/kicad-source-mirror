@@ -27,43 +27,48 @@ from .kicad_pyeditor import KiCadEditorNotebookFrame
 from .kicad_pyeditor import KiCadEditorNotebook
 
 class KiCadPyShell(KiCadEditorNotebookFrame):
-    isPcbframe = False      # is True only if the board editor is open,
-                            # i.e. if Pcbnew application exists
-
     def __init__(self, parent):
-        KiCadEditorNotebookFrame.__init__(self, parent)
-
         # Search if a pcbnew frame is open, because import pcbnew can be made only if it exists.
         # frame names are "SchematicFrame" and "PcbFrame"
+        #
+        # Note we must do this before the KiCadEditorNotebookFrame __init__ call because it ends up calling _setup back on us
         frame = wx.FindWindowByName( "PcbFrame" )
 
-        if frame is not None:
-            isPcbframe = True
+        self.isPcbframe = frame is not None
+
+        KiCadEditorNotebookFrame.__init__(self, parent)
 
     def _setup_startup(self):
-        """Initialise the startup script."""
-        # Create filename for startup script.
-        self.startup_file = os.path.join(self.config_dir,
-                                         "PyShell_pcbnew_startup.py")
-        self.execStartupScript = True
+        if self.config_dir != "":
+            """Initialise the startup script."""
+            # Create filename for startup script.
+            self.startup_file = os.path.join(self.config_dir,
+                                             "PyShell_pcbnew_startup.py")
+            self.execStartupScript = True
 
-        # Check if startup script exists
-        if not os.path.isfile(self.startup_file):
-            # Not, so create a default.
-            default_startup = open(self.startup_file, 'w')
-            # provide the content for the default startup file.
-            default_startup.write(
-                "### DEFAULT STARTUP FILE FOR KiCad Python Shell\n" +
-                "# Enter any Python code you would like to execute when" +
-                " the PCBNEW python shell first runs.\n" +
-                "\n" +
-                "# For example, uncomment the following lines to import the current board\n" +
-                "\n" +
-                "# import pcbnew\n" +
-                "# import eeschema\n" +
-                "# board = pcbnew.GetBoard()\n" +
-                "# sch = eeschema.GetSchematic()\n")
-            default_startup.close()
+            # Check if startup script exists
+            if not os.path.isfile(self.startup_file):
+                # Not, so try to create a default.
+                try:
+                    default_startup = open(self.startup_file, 'w')
+                    # provide the content for the default startup file.
+                    default_startup.write(
+                        "### DEFAULT STARTUP FILE FOR KiCad Python Shell\n" +
+                        "# Enter any Python code you would like to execute when" +
+                        " the PCBNEW python shell first runs.\n" +
+                        "\n" +
+                        "# For example, uncomment the following lines to import the current board\n" +
+                        "\n" +
+                        "# import pcbnew\n" +
+                        "# import eeschema\n" +
+                        "# board = pcbnew.GetBoard()\n" +
+                        "# sch = eeschema.GetSchematic()\n")
+                    default_startup.close()
+                except:
+                    pass
+        else:
+            self.startup_file = ""
+            self.execStartupScript = False
 
     def _setup(self):
         """
@@ -112,6 +117,7 @@ class KiCadPyShell(KiCadEditorNotebookFrame):
                                  startupScript=self.startup_file,
                                  execStartupScript=self.execStartupScript)
 
+        self.crust._CheckShouldSplit()
         self.shell = self.crust.shell
         # Override the filling so that status messages go to the status bar.
         self.crust.filling.tree.setStatusText = self.parent.SetStatusText

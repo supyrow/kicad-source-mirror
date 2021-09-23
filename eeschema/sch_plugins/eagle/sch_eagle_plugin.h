@@ -116,7 +116,7 @@ private:
     void countNets( wxXmlNode* aSchematicNode );
 
     /// Move any labels on the wire to the new end point of the wire.
-    void moveLabels( SCH_ITEM* aWire, const wxPoint& aNewEndPoint );
+    void moveLabels( SCH_LINE* aWire, const wxPoint& aNewEndPoint );
 
     /// This function finds best way to place a bus entry symbol for when an Eagle wire segment
     /// ends on an Eagle bus segment.
@@ -234,6 +234,8 @@ private:
 
     std::map<wxString, int>           m_netCounts;
     std::map<int, SCH_LAYER_ID>       m_layerMap;
+    std::map<wxString, wxString>      m_powerPorts;        ///< map from symbol reference to global
+                                                           ///< label equivalent
 
     ///< Wire intersection points, used for quick checks whether placing a net label in a particular
     ///< place would short two nets.

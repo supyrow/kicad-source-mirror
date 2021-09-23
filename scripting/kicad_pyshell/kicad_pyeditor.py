@@ -90,18 +90,12 @@ class KiCadPyFrame():
         self.findData = wx.FindReplaceData()
         self.findData.SetFlags(wx.FR_DOWN)
 
-        self.parent.Bind(wx.EVT_CLOSE, self.OnClose)
         self.parent.Bind(wx.EVT_ICONIZE, self.OnIconize)
 
 
     def OnIconize(self, event):
         """Event handler for Iconize."""
         self.iconized = event.Iconized()
-
-
-    def OnClose(self, event):
-        """Event handler for closing."""
-        self.parent.Destroy()
 
 
     def __createMenus(self):
@@ -710,7 +704,8 @@ class KiCadEditorFrame(KiCadPyFrame):
         self._defaultText = title
         self._statusText = self._defaultText
         self.parent.SetStatusText(self._statusText)
-        self.parent.Bind(wx.EVT_IDLE, self.OnIdle)
+        self.parent.Bind( wx.EVT_IDLE, self.OnIdle )
+        self.parent.Bind( wx.EVT_CLOSE, self.OnClose )
         self._setup()
 
     def _setup(self):
@@ -733,7 +728,9 @@ class KiCadEditorFrame(KiCadPyFrame):
                 if cancel and event.CanVeto():
                     event.Veto()
                     return
-        self.parent.Destroy()
+
+        self.parent.Hide()
+        pass
 
     def OnIdle(self, event):
         """Event handler for idle time."""
@@ -923,7 +920,12 @@ class KiCadEditorNotebookFrame(KiCadEditorFrame):
                 place the stdout into the editor window """
             import pydoc, sys
             self._keep_stdin = sys.stdin
-            pydoc.pager = pydoc.plainpager
+
+            """getline will crash unexpectedly, so we don't support it
+                and bold fonts wreak havoc on our output, so strip them as well"""
+            pydoc.getpager = lambda: pydoc.plainpager
+            pydoc.Helper.getline = lambda self, prompt: None
+            pydoc.TextDoc.use_bold = lambda self, text: text
 
             dispatcher.connect(receiver=self._editorChange,
                                signal='EditorChange', sender=self.notebook)
