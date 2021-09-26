@@ -245,6 +245,13 @@ public:
         return GetKeywords().StartsWith( wxT( "net tie" ) );
     }
 
+    /**
+     * Returns the most likely attribute based on pads
+     * Either FP_THROUGH_HOLE/FP_SMD/OTHER(0)
+     * @return 0/FP_SMD/FP_THROUGH_HOLE
+     */
+    int GetLikelyAttribute() const;
+
     void Move( const wxPoint& aMoveVector ) override;
 
     void Rotate( const wxPoint& aRotCentre, double aAngle ) override;
@@ -334,6 +341,18 @@ public:
     void SetLastEditTime( timestamp_t aTime ) { m_lastEditTime = aTime; }
     void SetLastEditTime() { m_lastEditTime = time( nullptr ); }
     timestamp_t GetLastEditTime() const { return m_lastEditTime; }
+
+    /**
+     * Test if footprint attributes for type (SMD/Through hole/Other) match the expected
+     * type based on the pads in the footprint.
+     * Footprints with plated through-hole pads should usually be marked through hole even if they also
+     * have SMD because they might not be auto-placed.  Exceptions to this might be shielded connectors
+     * Otherwise, footprints with SMD pads should be marked SMD
+     * Footprints with no connecting pads should be marked "Other"
+     *
+     * @param aErrorHandler callback to handle the error messages generated
+     */
+    void CheckFootprintAttributes( const std::function<void( const wxString& msg )>* aErrorHandler );
 
     /**
      * Generate pads shapes on layer \a aLayer as polygons and adds these polygons to
@@ -530,6 +549,12 @@ public:
      * @return the next available pad number
      */
     wxString GetNextPadNumber( const wxString& aLastPadName ) const;
+
+    /**
+     * Get the type of footprint
+     * @return "SMD"/"Through hole"/"Other" based on attributes
+     */
+    wxString GetTypeName() const;
 
     double GetArea( int aPadding = 0 ) const;
 

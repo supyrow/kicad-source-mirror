@@ -377,7 +377,7 @@ int EE_SELECTION_TOOL::Main( const TOOL_EVENT& aEvent )
             // Collect items at the clicked location (doesn't select them yet)
             if( CollectHits( collector, evt->Position()) )
             {
-                narrowSelection( collector, evt->Position(), false );
+                narrowSelection( collector, evt->Position(), false, false );
 
                 if( collector.GetCount() == 1 && !m_isSymbolEditor && !modifier_enabled )
                 {
@@ -613,7 +613,7 @@ int EE_SELECTION_TOOL::Main( const TOOL_EVENT& aEvent )
             // for "auto starting" wires when clicked
             if( CollectHits( collector, evt->Position() ) )
             {
-                narrowSelection( collector, evt->Position(), false );
+                narrowSelection( collector, evt->Position(), false, false );
 
                 if( collector.GetCount() == 1 && !modifier_enabled )
                 {
@@ -807,7 +807,7 @@ bool EE_SELECTION_TOOL::CollectHits( EE_COLLECTOR& aCollector, const VECTOR2I& a
 
 
 void EE_SELECTION_TOOL::narrowSelection( EE_COLLECTOR& collector, const VECTOR2I& aWhere,
-                                         bool aCheckLocked )
+                                         bool aCheckLocked, bool aSelectPoints )
 {
     for( int i = collector.GetCount() - 1; i >= 0; --i )
     {
@@ -824,7 +824,7 @@ void EE_SELECTION_TOOL::narrowSelection( EE_COLLECTOR& collector, const VECTOR2I
         }
 
         // SelectPoint, unlike other selection routines, can select line ends
-        if( collector[i]->Type() == SCH_LINE_T )
+        if( aSelectPoints && collector[i]->Type() == SCH_LINE_T )
         {
             SCH_LINE* line = (SCH_LINE*) collector[i];
             line->ClearFlags( STARTPOINT | ENDPOINT );
@@ -925,7 +925,7 @@ bool EE_SELECTION_TOOL::SelectPoint( const VECTOR2I& aWhere, const KICAD_T* aFil
     if( !CollectHits( collector, aWhere, aFilterList ) )
         return false;
 
-    narrowSelection( collector, aWhere, aCheckLocked );
+    narrowSelection( collector, aWhere, aCheckLocked, true );
 
     return selectPoint( collector, aItem, aSelectionCancelledFlag, aAdd, aSubtract, aExclusiveOr );
 }
@@ -1023,13 +1023,16 @@ void EE_SELECTION_TOOL::GuessSelectionCandidates( EE_COLLECTOR& collector, const
 
         if( exactHits.count( item ) )
         {
-            wxPoint       pos( aPos );
-            SCH_LINE*     line = dynamic_cast<SCH_LINE*>( item );
-            SCH_JUNCTION* junction = dynamic_cast<SCH_JUNCTION*>( item );
+            if( item->Type() == SCH_PIN_T || item->Type() == SCH_JUNCTION_T )
+            {
+                closest = item;
+                break;
+            }
 
-            if( junction )
-                dist = 0;   // Hits *inside* a junction dot should select the dot
-            else if( line )
+            wxPoint   pos( aPos );
+            SCH_LINE* line = dynamic_cast<SCH_LINE*>( item );
+
+            if( line )
                 dist = DistanceLinePoint( line->GetStartPoint(), line->GetEndPoint(), pos );
             else
                 dist = EuclideanNorm( bbox.GetCenter() - pos ) * 2;

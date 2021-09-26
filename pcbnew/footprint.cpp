@@ -650,6 +650,48 @@ double FOOTPRINT::GetArea( int aPadding ) const
 }
 
 
+int FOOTPRINT::GetLikelyAttribute() const
+{
+    int smd_count = 0;
+    int tht_count = 0;
+
+    for( PAD* pad : m_pads )
+    {
+        switch( pad->GetAttribute() )
+        {
+        case PAD_ATTRIB::PTH:
+            tht_count++;
+            break;
+        case PAD_ATTRIB::SMD:
+            smd_count++;
+            break;
+        default:
+            break;
+        }
+    }
+
+    if( tht_count > 0 )
+        return FP_THROUGH_HOLE;
+
+    if( smd_count > 0 )
+        return FP_SMD;
+
+    return 0;
+}
+
+
+wxString FOOTPRINT::GetTypeName() const
+{
+    if( ( m_attributes & FP_SMD ) == FP_SMD )
+        return _( "SMD" );
+
+    if( ( m_attributes & FP_THROUGH_HOLE ) == FP_THROUGH_HOLE )
+        return _( "Through hole" );
+
+    return _( "Other" );
+}
+
+
 EDA_RECT FOOTPRINT::GetFpPadsLocalBbox() const
 {
     EDA_RECT area;
@@ -2026,6 +2068,38 @@ void FOOTPRINT::BuildPolyCourtyards( OUTLINE_ERROR_HANDLER* aErrorHandler )
     else
     {
         SetFlags( MALFORMED_B_COURTYARD );
+    }
+}
+
+
+void FOOTPRINT::CheckFootprintAttributes( const std::function<void( const wxString& msg )>* aErrorHandler )
+{
+
+    int      likelyAttr = GetLikelyAttribute();
+    int      setAttr = ( GetAttributes() & ( FP_SMD | FP_THROUGH_HOLE ) );
+
+    // This is only valid if the footprint doesn't have FP_SMD and FP_THROUGH_HOLE set
+    // Which is, unfortunately, possible in theory but not in the UI (I think)
+    if( aErrorHandler && likelyAttr != setAttr )
+    {
+        wxString msg;
+
+        if( likelyAttr == FP_THROUGH_HOLE )
+        {
+            msg.Printf( _( "Expected \"Through hole\" type but set to \"%s\"" ), GetTypeName() );
+        }
+        else if( likelyAttr == FP_SMD )
+        {
+            msg.Printf( _( "Expected \"SMD\" type but set to \"%s\"" ), GetTypeName() );
+        }
+        else
+        {
+            msg.Printf( _( "Expected \"Other\" type but set to \"%s\"" ), GetTypeName() );
+        }
+
+        msg = "(" + msg + ")";
+
+        (*aErrorHandler)( msg );
     }
 }
 

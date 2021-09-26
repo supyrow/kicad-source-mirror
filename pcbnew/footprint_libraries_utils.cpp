@@ -1116,19 +1116,35 @@ bool FOOTPRINT_EDIT_FRAME::RevertFootprint()
 }
 
 
-FOOTPRINT* PCB_BASE_FRAME::CreateNewFootprint( const wxString& aFootprintName )
+FOOTPRINT* PCB_BASE_FRAME::CreateNewFootprint( const wxString& aFootprintName, bool aQuiet )
 {
     wxString footprintName = aFootprintName;
 
+    // Static to store user preference for a session
+    static int footprintType = 1;
+
     // Ask for the new footprint name
-    if( footprintName.IsEmpty() )
+    if( footprintName.IsEmpty() && !aQuiet )
     {
         WX_TEXT_ENTRY_DIALOG dlg( this, _( "Enter footprint name:" ), _( "New Footprint" ),
-                                  footprintName );
+                                  footprintName, _( "Footprint type:" ),
+                                  { _( "Through hole" ), _( "SMD" ), _( "Other" ) }, footprintType );
         dlg.SetTextValidator( FOOTPRINT_NAME_VALIDATOR( &footprintName ) );
 
         if( dlg.ShowModal() != wxID_OK )
             return nullptr;    //Aborted by user
+
+        switch( dlg.GetChoice() )
+        {
+        case 0:
+            footprintType = FP_THROUGH_HOLE;
+            break;
+        case 1:
+            footprintType = FP_SMD;
+            break;
+        default:
+            footprintType = 0;
+        }
     }
 
     footprintName.Trim( true );
@@ -1136,7 +1152,9 @@ FOOTPRINT* PCB_BASE_FRAME::CreateNewFootprint( const wxString& aFootprintName )
 
     if( footprintName.IsEmpty() )
     {
-        DisplayInfoMessage( this, _( "No footprint name defined." ) );
+        if( !aQuiet )
+            DisplayInfoMessage( this, _( "No footprint name defined." ) );
+
         return nullptr;
     }
 
@@ -1148,6 +1166,8 @@ FOOTPRINT* PCB_BASE_FRAME::CreateNewFootprint( const wxString& aFootprintName )
 
     // Update its name in lib
     footprint->SetFPID( LIB_ID( wxEmptyString, footprintName ) );
+
+    footprint->SetAttributes( footprintType );
 
     PCB_LAYER_ID txt_layer;
     wxPoint default_pos;
