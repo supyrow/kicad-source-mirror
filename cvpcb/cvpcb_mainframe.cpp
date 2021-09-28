@@ -507,6 +507,27 @@ void CVPCB_MAINFRAME::RedoAssociation()
 }
 
 
+wxString CVPCB_MAINFRAME::formatSymbolDesc( int idx, const wxString& aReference,
+                                            const wxString& aValue, const wxString& aFootprint )
+{
+    // Work around a bug in wxString::Format with double-byte chars (and double-quote, for some
+    // reason).
+    wxString desc = wxString::Format( wxT( "%3d " ), idx );
+
+    for( int ii = aReference.Length(); ii < 8; ++ii )
+        desc += wxS( " " );
+
+    desc += aReference + wxT( " - " );
+
+    for( int ii = aValue.Length(); ii < 16; ++ii )
+        desc += wxS( " " );
+
+    desc += aValue + wxT( " : " ) + aFootprint;
+
+    return desc;
+}
+
+
 void CVPCB_MAINFRAME::AssociateFootprint( const CVPCB_ASSOCIATION& aAssociation,
                                           bool aNewEntry, bool aAddUndoItem )
 {
@@ -544,8 +565,7 @@ void CVPCB_MAINFRAME::AssociateFootprint( const CVPCB_ASSOCIATION& aAssociation,
             candidate->SetFPID( fpid );
 
             // create the new symbol description and set it
-            wxString description = wxString::Format( CMP_FORMAT,
-                                                     idx + 1,
+            wxString description = formatSymbolDesc( idx + 1,
                                                      candidate->GetReference(),
                                                      candidate->GetValue(),
                                                      candidate->GetFPID().Format().wx_str() );
@@ -901,29 +921,28 @@ void CVPCB_MAINFRAME::BuildSymbolsListBox()
 
     if( m_symbolsListBox == nullptr )
     {
-        m_symbolsListBox = new COMPONENTS_LISTBOX( this, ID_CVPCB_COMPONENT_LIST );
+        m_symbolsListBox = new SYMBOLS_LISTBOX( this, ID_CVPCB_COMPONENT_LIST );
         m_symbolsListBox->SetFont( KIUI::GetMonospacedUIFont() );
     }
 
-    m_symbolsListBox->m_ComponentList.Clear();
+    m_symbolsListBox->m_SymbolList.Clear();
 
     for( unsigned i = 0;  i < m_netlist.GetCount();  i++ )
     {
         symbol = m_netlist.GetComponent( i );
 
-        msg.Printf( CMP_FORMAT,
-                    m_symbolsListBox->GetCount() + 1,
-                    symbol->GetReference(),
-                    symbol->GetValue(),
-                    symbol->GetFPID().Format().wx_str() );
-        m_symbolsListBox->m_ComponentList.Add( msg );
+        msg = formatSymbolDesc( m_symbolsListBox->GetCount() + 1,
+                                symbol->GetReference(),
+                                symbol->GetValue(),
+                                symbol->GetFPID().Format().wx_str() );
+        m_symbolsListBox->m_SymbolList.Add( msg );
     }
 
-    if( m_symbolsListBox->m_ComponentList.Count() )
+    if( m_symbolsListBox->m_SymbolList.Count() )
     {
-        m_symbolsListBox->SetItemCount( m_symbolsListBox->m_ComponentList.Count() );
+        m_symbolsListBox->SetItemCount( m_symbolsListBox->m_SymbolList.Count() );
         m_symbolsListBox->SetSelection( 0, true );
-        m_symbolsListBox->RefreshItems( 0L, m_symbolsListBox->m_ComponentList.Count() - 1 );
+        m_symbolsListBox->RefreshItems( 0L, m_symbolsListBox->m_SymbolList.Count() - 1 );
         m_symbolsListBox->UpdateWidth();
     }
 }

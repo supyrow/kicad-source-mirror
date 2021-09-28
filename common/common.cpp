@@ -33,7 +33,6 @@
 #include <wx/config.h>
 #include <wx/log.h>
 #include <wx/msgdlg.h>
-#include <wx/process.h>
 #include <wx/stdpaths.h>
 #include <wx/url.h>
 #include <wx/utils.h>
@@ -41,12 +40,6 @@
 #ifdef _WIN32
 #include <Windows.h>
 #endif
-
-
-int ProcessExecute( const wxString& aCommandLine, int aFlags, wxProcess *callback )
-{
-    return (int) wxExecute( aCommandLine, aFlags, callback );
-}
 
 
 enum Bracket
@@ -266,11 +259,6 @@ wxString KIwxExpandEnvVars( const wxString& str, const PROJECT* aProject )
             strResult += str_n;
         }
     }
-
-#ifndef __WINDOWS__
-    if( strResult.StartsWith( "~" ) )
-        strResult.Replace( "~", wxGetHomeDir(), false );
-#endif // __WINDOWS__
 
     return strResult;
 }

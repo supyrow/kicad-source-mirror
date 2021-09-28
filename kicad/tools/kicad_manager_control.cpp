@@ -24,6 +24,7 @@
 #include <kiway.h>
 #include <kicad_manager_frame.h>
 #include <confirm.h>
+#include <settings/settings_manager.h>
 #include <tool/selection.h>
 #include <tool/tool_event.h>
 #include <tools/kicad_manager_actions.h>
@@ -465,7 +466,8 @@ public:
         wxString   destDirPath = destDir.GetPathWithSep();
         wxUniChar  pathSep = wxFileName::GetPathSeparator();
 
-        if( destDirPath.StartsWith( m_projectDirPath + pathSep ) )
+        if( destDirPath.StartsWith( m_projectDirPath + pathSep )
+                || destDirPath.StartsWith( m_projectDirPath + PROJECT_BACKUPS_DIR_SUFFIX ) )
         {
             destDirPath.Replace( m_projectDirPath, m_newProjectDirPath, false );
             destDir.SetPath( destDirPath );
@@ -742,7 +744,7 @@ private:
 int KICAD_MANAGER_CONTROL::Execute( const TOOL_EVENT& aEvent )
 {
     wxString execFile;
-    wxString params;
+    wxString param;
 
     if( aEvent.IsAction( &KICAD_MANAGER_ACTIONS::viewGerbers ) )
         execFile = GERBVIEW_EXE;
@@ -773,26 +775,21 @@ int KICAD_MANAGER_CONTROL::Execute( const TOOL_EVENT& aEvent )
         return 0;
 
     if( aEvent.Parameter<wxString*>() )
-        params = *aEvent.Parameter<wxString*>();
-    else if( ( aEvent.IsAction( &KICAD_MANAGER_ACTIONS::viewGerbers ) )
-           && m_frame->IsProjectActive() )
-        params = m_frame->Prj().GetProjectPath();
-
-    if( !params.empty() )
-        QuoteString( params );
+        param = *aEvent.Parameter<wxString*>();
+    else if( aEvent.IsAction( &KICAD_MANAGER_ACTIONS::viewGerbers ) && m_frame->IsProjectActive() )
+        param = m_frame->Prj().GetProjectPath();
 
     TERMINATE_HANDLER* callback = new TERMINATE_HANDLER( execFile );
 
-    long pid = ExecuteFile( execFile, params, callback );
+    long pid = ExecuteFile( execFile, param, callback );
 
     if( pid > 0 )
     {
-        wxString msg = wxString::Format( _( "%s %s opened [pid=%ld]\n" ), execFile, params, pid );
+        wxString msg = wxString::Format( _( "%s %s opened [pid=%ld]\n" ), execFile, param, pid );
         m_frame->PrintMsg( msg );
 
 #ifdef __WXMAC__
-        msg.Printf( "osascript -e 'activate application \"%s\"' ", execFile );
-        ProcessExecute( msg );
+        wxExecute( wxString::Format( "osascript -e 'activate application \"%s\"' ", execFile ) );
 #endif
     }
     else

@@ -1243,6 +1243,12 @@ PNS::PNS_MODE ROUTER_TOOL::GetRouterMode()
 }
 
 
+bool ROUTER_TOOL::RoutingInProgress()
+{
+    return m_router->RoutingInProgress();
+}
+
+
 void ROUTER_TOOL::breakTrack()
 {
     if( m_startItem && m_startItem->OfKind( PNS::ITEM::SEGMENT_T ) )
@@ -1293,7 +1299,8 @@ int ROUTER_TOOL::MainLoop( const TOOL_EVENT& aEvent )
     // Main loop: keep receiving events
     while( TOOL_EVENT* evt = Wait() )
     {
-        setCursor();
+        if( !evt->IsDrag() )
+            setCursor();
 
         if( evt->IsCancelInteractive() )
         {
@@ -1913,7 +1920,7 @@ void ROUTER_TOOL::updateMessagePanel()
         return;
     }
 
-    MSG_PANEL_ITEMS items;
+    std::vector<MSG_PANEL_ITEM> items;
     PNS::SIZES_SETTINGS sizes( m_router->Sizes() );
     PNS::RULE_RESOLVER* resolver   = m_iface->GetRuleResolver();
     bool                isDiffPair = m_router->Mode() == PNS::ROUTER_MODE::PNS_MODE_ROUTE_DIFF_PAIR;

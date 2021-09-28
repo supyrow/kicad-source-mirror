@@ -258,7 +258,7 @@ int PCB_SELECTION_TOOL::Main( const TOOL_EVENT& aEvent )
         ROUTER_TOOL* router = m_toolMgr->GetTool<ROUTER_TOOL>();
 
         // If the router tool is active, don't override
-        if( router && router->IsToolActive() )
+        if( router && router->IsToolActive() && router->RoutingInProgress() )
         {
             evt->SetPassEvent();
         }
@@ -687,10 +687,10 @@ bool PCB_SELECTION_TOOL::selectPoint( const VECTOR2I& aWhere, bool aOnDrag,
     if( aClientFilter )
         aClientFilter( aWhere, collector, this );
 
+    FilterCollectorForHierarchy( collector, false );
+
     // Apply the stateful filter
     FilterCollectedItems( collector, false );
-
-    FilterCollectorForHierarchy( collector, false );
 
     // Apply some ugly heuristics to avoid disambiguation menus whenever possible
     if( collector.GetCount() > 1 && !m_skip_heuristics )
@@ -902,13 +902,8 @@ bool PCB_SELECTION_TOOL::selectMultiple()
 
 int PCB_SELECTION_TOOL::disambiguateCursor( const TOOL_EVENT& aEvent )
 {
-    VECTOR2I pos = m_toolMgr->GetMousePosition();
-
-    if( pos != m_originalCursor )
-        return 0;
-
     m_skip_heuristics = true;
-    selectPoint( pos, false, &m_canceledMenu );
+    selectPoint( m_originalCursor, false, &m_canceledMenu );
     m_skip_heuristics = false;
 
     return 0;

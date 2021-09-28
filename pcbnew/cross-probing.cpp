@@ -103,7 +103,7 @@ void PCB_EDIT_FRAME::ExecuteRemoteCommand( const char* cmdline )
         {
             netcode = netinfo->GetNetCode();
 
-            MSG_PANEL_ITEMS items;
+            std::vector<MSG_PANEL_ITEM> items;
             netinfo->GetMsgPanelInfo( this, items );
             SetMsgPanel( items );
         }
@@ -126,7 +126,7 @@ void PCB_EDIT_FRAME::ExecuteRemoteCommand( const char* cmdline )
                 if( first )
                 {
                     // TODO: Once buses are included in netlist, show bus name
-                    MSG_PANEL_ITEMS items;
+                    std::vector<MSG_PANEL_ITEM> items;
                     netinfo->GetMsgPanelInfo( this, items );
                     SetMsgPanel( items );
                     first = false;
@@ -406,7 +406,7 @@ void PCB_EDIT_FRAME::ExecuteRemoteCommand( const char* cmdline )
 #endif // ifndef DEFAULT_PCBNEW_CODE
         }
 
-        view->SetCenter( bbox.Centre() );
+        FocusOnLocation( (wxPoint) bbox.Centre() );
     }
 
     view->UpdateAllLayersColor();
