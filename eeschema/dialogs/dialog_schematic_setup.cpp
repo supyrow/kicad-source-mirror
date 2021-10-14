@@ -31,7 +31,6 @@
 #include <project/project_file.h>
 #include <project/net_settings.h>
 #include <settings/settings_manager.h>
-#include <widgets/infobar.h>
 #include "dialog_schematic_setup.h"
 #include "panel_eeschema_template_fieldnames.h"
 #include <wx/treebook.h>
@@ -84,13 +83,13 @@ DIALOG_SCHEMATIC_SETUP::DIALOG_SCHEMATIC_SETUP( SCH_EDIT_FRAME* aFrame ) :
                          wxBookCtrlEventHandler( DIALOG_SCHEMATIC_SETUP::OnPageChange ), nullptr,
                          this );
 
+	finishDialogSettings();
+
     if( Prj().IsReadOnly() )
     {
-        m_infoBar->ShowMessage( _( "Project is missing or read-only. Changes will not be saved." ),
-                                wxICON_WARNING );
+        m_infoBar->ShowMessage( _( "Project is missing or read-only. Settings will not be "
+                                   "editable." ), wxICON_WARNING );
     }
-
-    finishDialogSettings();
 }
 
 
@@ -105,6 +104,9 @@ DIALOG_SCHEMATIC_SETUP::~DIALOG_SCHEMATIC_SETUP()
 void DIALOG_SCHEMATIC_SETUP::OnPageChange( wxBookCtrlEvent& event )
 {
     int page = event.GetSelection();
+
+    if( Prj().IsReadOnly() )
+        KIUI::Disable( m_treebook->GetPage( page ) );
 
     // Enable the reset button only if the page is resettable
     if( m_resetButton )

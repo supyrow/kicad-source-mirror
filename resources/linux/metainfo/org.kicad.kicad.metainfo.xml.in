@@ -33,10 +33,11 @@
         <keyword>KiCad</keyword>
         <keyword>EDA</keyword>
         <keyword>PCB</keyword>
-        <keyword>Schema</keyword>
+        <keyword>Schematic</keyword>
+        <keyword>Circuit board</keyword>
+        <keyword>Gerber</keyword>
         <keyword>PcbNew</keyword>
         <keyword>Eeschema</keyword>
-        <keyword>Gerber</keyword>
     </keywords>
 
     <categories>
@@ -55,30 +56,30 @@
     <screenshots>
         <screenshot type="default">
             <caption>KiCad Main Window</caption>
-            <image width="1034" height="610">https://kicad.org/img/screenshots/appstream/kicad_6.png</image>
+            <image width="1034" height="610">https://www.kicad.org/img/screenshots/appstream/kicad_6.png</image>
         </screenshot>
 
         <screenshot>
             <caption>KiCad Schematic Editor</caption>
-            <image width="1600" height="900">https://kicad.org/img/screenshots/appstream/eeschema_6.png</image>
+            <image width="1600" height="900">https://www.kicad.org/img/screenshots/appstream/eeschema_6.png</image>
         </screenshot>
 
         <screenshot>
             <caption>KiCad PCB Layout Editor</caption>
-            <image width="1600" height="900">https://kicad.org/img/screenshots/appstream/pcbnew_6.png</image>
+            <image width="1600" height="900">https://www.kicad.org/img/screenshots/appstream/pcbnew_6.png</image>
         </screenshot>
 
         <screenshot>
             <caption>KiCad 3D Viewer</caption>
-            <image width="1600" height="900">https://kicad.org/img/screenshots/appstream/3dviewer_6.png</image>
+            <image width="1600" height="900">https://www.kicad.org/img/screenshots/appstream/3dviewer_6.png</image>
         </screenshot>
     </screenshots>
 
-    <url type="homepage">https://kicad.org/</url>
-    <url type="bugtracker">https://kicad.org/help/report-an-issue/</url>
-    <url type="help">https://docs.kicad.org/</url>
+    <url type="homepage">https://www.kicad.org/</url>
+    <url type="bugtracker">https://go.kicad.org/issue</url>
+    <url type="help">https://go.kicad.org/docs/6</url>
     <url type="donation">https://go.kicad.org/donate</url>
-    <url type="translate">https://hosted.weblate.org/projects/kicad/</url>
+    <url type="translate">https://go.kicad.org/translate</url>
 
     <update_contact>kicad-developers@lists.launchpad.net</update_contact>
     <developer_name>The KiCad Developers</developer_name>

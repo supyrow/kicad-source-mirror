@@ -29,6 +29,7 @@
 #include <set>
 #include <vector>
 #include <bitset>
+#include <stdexcept>
 #include <wx/string.h>
 
 
@@ -358,6 +359,7 @@ enum SCH_LAYER_ID: int
     LAYER_SCHEMATIC_DRAWINGSHEET,
     LAYER_BUS_JUNCTION,
     LAYER_SCHEMATIC_AUX_ITEMS,
+    LAYER_SCHEMATIC_ANCHOR,
 
     SCH_LAYER_ID_END
 };
@@ -572,7 +574,14 @@ public:
      */
     bool Contains( PCB_LAYER_ID aLayer )
     {
-        return test( aLayer );
+        try
+        {
+            return test( aLayer );
+        }
+        catch( std::out_of_range& )
+        {
+            return false;
+        }
     }
 
     /**

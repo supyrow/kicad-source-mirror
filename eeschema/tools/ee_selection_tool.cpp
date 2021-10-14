@@ -50,6 +50,7 @@
 #include <tool/tool_event.h>
 #include <tool/tool_manager.h>
 #include <tools/ee_grid_helper.h>
+#include <tools/ee_point_editor.h>
 #include <tools/sch_line_wire_bus_tool.h>
 #include <trigo.h>
 #include <view/view.h>
@@ -348,7 +349,9 @@ int EE_SELECTION_TOOL::Main( const TOOL_EVENT& aEvent )
         if( evt->IsMouseDown( BUT_LEFT ) )
         {
             // Avoid triggering when running under other tools
-            if( m_frame->ToolStackIsEmpty() )
+            EE_POINT_EDITOR *pt_tool = m_toolMgr->GetTool<EE_POINT_EDITOR>();
+
+            if( m_frame->ToolStackIsEmpty() && pt_tool && !pt_tool->HasPoint() )
             {
                 m_originalCursor = m_toolMgr->GetMousePosition();
                 m_disambiguateTimer.StartOnce( 500 );
@@ -385,7 +388,10 @@ int EE_SELECTION_TOOL::Main( const TOOL_EVENT& aEvent )
                     VECTOR2I snappedCursorPos = grid.BestSnapAnchor( evt->Position(),
                                                                      LAYER_CONNECTABLE, nullptr );
 
+                    EE_POINT_EDITOR *pt_tool = m_toolMgr->GetTool<EE_POINT_EDITOR>();
+
                     if( m_frame->eeconfig()->m_Drawing.auto_start_wires
+                            && pt_tool && !pt_tool->HasPoint()
                             && collector[0]->IsPointClickableAnchor( (wxPoint) snappedCursorPos ) )
                     {
                         OPT_TOOL_EVENT newEvt;
@@ -611,6 +617,8 @@ int EE_SELECTION_TOOL::Main( const TOOL_EVENT& aEvent )
 
             // We are checking if we should display a pencil when hovering over anchors
             // for "auto starting" wires when clicked
+            getViewControls()->ForceCursorPosition( false );
+
             if( CollectHits( collector, evt->Position() ) )
             {
                 narrowSelection( collector, evt->Position(), false, false );
@@ -620,7 +628,10 @@ int EE_SELECTION_TOOL::Main( const TOOL_EVENT& aEvent )
                     VECTOR2I snappedCursorPos = grid.BestSnapAnchor( evt->Position(),
                                                                      LAYER_CONNECTABLE, nullptr );
 
+                    EE_POINT_EDITOR *pt_tool = m_toolMgr->GetTool<EE_POINT_EDITOR>();
+
                     if( m_frame->eeconfig()->m_Drawing.auto_start_wires
+                            && pt_tool && !pt_tool->HasPoint()
                             && collector[0]->IsPointClickableAnchor( (wxPoint) snappedCursorPos ) )
                     {
                         SCH_CONNECTION* connection = collector[0]->Connection();
@@ -649,10 +660,6 @@ int EE_SELECTION_TOOL::Main( const TOOL_EVENT& aEvent )
                         rolloverItem = collector[0]->m_Uuid;
                     }
                 }
-            }
-            else
-            {
-                getViewControls()->ForceCursorPosition( false );
             }
         }
         else

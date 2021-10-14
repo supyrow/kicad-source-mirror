@@ -343,20 +343,20 @@ void SCH_LINE::Print( const RENDER_SETTINGS* aSettings, const wxPoint& offset )
         clip.Normalize();
 
         double theta = atan2( end.y - start.y, end.x - start.x );
-        double strokes[] = { 1.0, DASH_GAP_LEN( penWidth ), 1.0, DASH_GAP_LEN( penWidth ) };
+        double strokes[] = { 1.0, dash_gap_len( penWidth ), 1.0, dash_gap_len( penWidth ) };
 
         switch( lineStyle )
         {
         default:
         case PLOT_DASH_TYPE::DASH:
-            strokes[0] = strokes[2] = DASH_MARK_LEN( penWidth );
+            strokes[0] = strokes[2] = dash_mark_len( penWidth );
             break;
         case PLOT_DASH_TYPE::DOT:
-            strokes[0] = strokes[2] = DOT_MARK_LEN( penWidth );
+            strokes[0] = strokes[2] = dot_mark_len( penWidth );
             break;
         case PLOT_DASH_TYPE::DASHDOT:
-            strokes[0] = DASH_MARK_LEN( penWidth );
-            strokes[2] = DOT_MARK_LEN( penWidth );
+            strokes[0] = dash_mark_len( penWidth );
+            strokes[2] = dot_mark_len( penWidth );
             break;
         }
 
@@ -881,14 +881,14 @@ void SCH_LINE::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_IT
     default:         msg = _( "Graphical" ); break;
     }
 
-    aList.push_back( MSG_PANEL_ITEM( _( "Line Type" ), msg ) );
+    aList.emplace_back( _( "Line Type" ), msg );
 
     if( GetLineStyle() != GetEffectiveLineStyle() )
         msg = _( "from netclass" );
     else
         msg = GetLineStyleName( GetLineStyle() );
 
-    aList.push_back( MSG_PANEL_ITEM( _( "Line Style" ), msg ) );
+    aList.emplace_back( _( "Line Style" ), msg );
 
     SCH_CONNECTION* conn = dynamic_cast<SCH_EDIT_FRAME*>( aFrame ) ? Connection() : nullptr;
 
@@ -905,7 +905,7 @@ void SCH_LINE::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_IT
             if( netSettings.m_NetClassAssignments.count( netname ) )
                 netclassName = netSettings.m_NetClassAssignments[ netname ];
 
-            aList.push_back( MSG_PANEL_ITEM( _( "Assigned Netclass" ), netclassName ) );
+            aList.emplace_back( _( "Assigned Netclass" ), netclassName );
         }
     }
 }

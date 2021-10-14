@@ -60,6 +60,7 @@ DIALOG_DRC::DIALOG_DRC( PCB_EDIT_FRAME* aEditorFrame, wxWindow* aParent ) :
         m_unconnectedTreeModel( nullptr ),
         m_footprintWarningsProvider( nullptr ),
         m_footprintWarningsTreeModel( nullptr ),
+        m_centerMarkerOnIdle( nullptr ),
         m_severities( RPT_SEVERITY_ERROR | RPT_SEVERITY_WARNING )
 {
     SetName( DIALOG_DRC_WINDOW_NAME ); // Set a window name to be able to find it
@@ -395,7 +396,15 @@ void DIALOG_DRC::OnDRCItemSelected( wxDataViewEvent& aEvent )
         if( board->GetVisibleLayers().test( principalLayer ) )
             m_frame->SetActiveLayer( principalLayer );
 
-        m_frame->FocusOnItem( item, principalLayer );
+        if( m_centerMarkerOnIdle )
+        {
+            // we already came from a cross-probe of the marker in the document; don't go
+            // around in circles
+        }
+        else
+        {
+            m_frame->FocusOnItem( item, principalLayer );
+        }
     }
 
     aEvent.Skip();
@@ -740,6 +749,29 @@ void DIALOG_DRC::NextMarker()
         case 2: m_footprintWarningsTreeModel->NextMarker(); break;
         }
     }
+}
+
+
+void DIALOG_DRC::SelectMarker( const PCB_MARKER* aMarker )
+{
+    if( m_Notebook->IsShown() )
+    {
+        m_Notebook->SetSelection( 0 );
+        m_markersTreeModel->SelectMarker( aMarker );
+
+        // wxWidgets on some platforms fails to correctly ensure that a selected item is
+        // visible, so we have to do it in a separate idle event.
+        m_centerMarkerOnIdle = aMarker;
+        Bind( wxEVT_IDLE, &DIALOG_DRC::centerMarkerIdleHandler, this );
+    }
+}
+
+
+void DIALOG_DRC::centerMarkerIdleHandler( wxIdleEvent& aEvent )
+{
+    m_markersTreeModel->CenterMarker( m_centerMarkerOnIdle );
+    m_centerMarkerOnIdle = nullptr;
+    Unbind( wxEVT_IDLE, &DIALOG_DRC::centerMarkerIdleHandler, this );
 }
 
 

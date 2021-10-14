@@ -20,12 +20,30 @@
 
 #include <wx/msgdlg.h>
 
-#include "class_regulator_data.h"
-#include "pcb_calculator_frame.h"
+#include <calculator_panels/panel_regulator.h>
+#include <class_regulator_data.h>
+#include <pcb_calculator_frame.h>
 #include "dialog_regulator_form.h"
 
 
 extern double DoubleFromString( const wxString& TextValue );
+
+DIALOG_REGULATOR_FORM::DIALOG_REGULATOR_FORM( PANEL_REGULATOR* parent, const wxString& aRegName ) :
+        DIALOG_REGULATOR_FORM_BASE( parent )
+{
+    m_textCtrlName->SetValue( aRegName );
+    m_textCtrlName->Enable( aRegName.IsEmpty() );
+    UpdateDialog();
+
+    m_sdbSizerOK->SetDefault();
+
+    // Now all widgets have the size fixed, call FinishDialogSettings
+    finishDialogSettings();
+}
+
+DIALOG_REGULATOR_FORM::~DIALOG_REGULATOR_FORM()
+{
+}
 
 
 bool DIALOG_REGULATOR_FORM::TransferDataFromWindow()

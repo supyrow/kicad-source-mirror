@@ -1828,21 +1828,19 @@ int EDIT_TOOL::Remove( const TOOL_EVENT& aEvent )
             }
         }
 
+        // in "alternative" mode, deletion is not just a simple list of selected items,
+        // it removes whole tracks, not just segments
+        if( isAlt && ( selectionCopy.HasType( PCB_TRACE_T ) || selectionCopy.HasType( PCB_VIA_T ) ) )
+        {
+            m_toolMgr->RunAction( PCB_ACTIONS::selectConnection, true );
+
+        }
+
         selectionCopy = m_selectionTool->RequestSelection(
                 []( const VECTOR2I& aPt, GENERAL_COLLECTOR& aCollector, PCB_SELECTION_TOOL* sTool )
                 {
                 },
                 true /* prompt user regarding locked items */ );
-    }
-
-    bool isHover = selectionCopy.IsHover();
-
-    // in "alternative" mode, deletion is not just a simple list of selected items,
-    // it removes whole tracks, not just segments
-    if( isAlt && isHover
-            && ( selectionCopy.HasType( PCB_TRACE_T ) || selectionCopy.HasType( PCB_VIA_T ) ) )
-    {
-        m_toolMgr->RunAction( PCB_ACTIONS::selectConnection, true );
     }
 
     // As we are about to remove items, they have to be removed from the selection first
@@ -2048,6 +2046,9 @@ int EDIT_TOOL::MoveExact( const TOOL_EVENT& aEvent )
 
         // Make sure the rotation is from the right reference point
         selCenter += translation;
+
+        if( !frame()->GetDisplayOptions().m_DisplayInvertYAxis )
+            rotation *= -1.0;
 
         // When editing footprints, all items have the same parent
         if( IsFootprintEditor() )
@@ -2344,6 +2345,9 @@ bool EDIT_TOOL::pickReferencePoint( const wxString& aTooltip, const wxString& aS
 
     m_statusPopup->SetText( aTooltip );
 
+    /// This allow the option of snapping in the tool
+    picker->SetSnapping( true );
+
     picker->SetClickHandler(
             [&]( const VECTOR2D& aPoint ) -> bool
             {
@@ -2455,7 +2459,10 @@ int EDIT_TOOL::copyToClipboard( const TOOL_EVENT& aEvent )
                                      _( "Selection copied" ),
                                      _( "Copy canceled" ),
                                      refPoint ) )
+            {
+                frame()->PopTool( tool );
                 return 0;
+            }
         }
         else
         {

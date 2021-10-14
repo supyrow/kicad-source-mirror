@@ -23,6 +23,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
+#include <ignore.h>
 #include <macros.h>
 #include <trace_helpers.h>
 
@@ -67,6 +68,9 @@ struct TOOL_DISPATCHER::BUTTON_STATE
 
     ///< Point where dragging has started (in world coordinates).
     VECTOR2D dragOrigin;
+
+    ///< Point where dragging has started (in screen coordinates).
+    VECTOR2D dragOriginScreen;
 
     ///< Point where click event has occurred.
     VECTOR2D downPosition;
@@ -191,7 +195,10 @@ bool TOOL_DISPATCHER::handleMouseButton( wxEvent& aEvent, int aIndex, bool aMoti
         st->downTimestamp = wxGetLocalTimeMillis();
 
         if( !st->pressed )      // save the drag origin on the first click only
+        {
             st->dragOrigin = m_lastMousePos;
+            st->dragOriginScreen = m_lastMousePosScreen;
+        }
 
         st->downPosition = m_lastMousePos;
         st->pressed = true;
@@ -223,12 +230,12 @@ bool TOOL_DISPATCHER::handleMouseButton( wxEvent& aEvent, int aIndex, bool aMoti
 #ifdef __WXMAC__
             if( wxGetLocalTimeMillis() - st->downTimestamp > DragTimeThreshold )
                 st->dragging = true;
-#else
-            VECTOR2D offset = getView()->ToScreen( m_lastMousePos - st->dragOrigin, false );
+#endif
+            VECTOR2D offset = m_lastMousePosScreen - st->dragOriginScreen;
 
             if( abs( offset.x ) > m_sysDragMinX || abs( offset.y ) > m_sysDragMinY )
                 st->dragging = true;
-#endif
+
         }
 
         if( st->dragging )
@@ -378,7 +385,7 @@ OPT<TOOL_EVENT> TOOL_DISPATCHER::GetToolEvent( wxKeyEvent* aKeyEvent, bool* keyI
 #ifdef __APPLE__
         if( unicode_key >= 'A' && unicode_key <= 'Z' && key >= WXK_CONTROL_A && key <= WXK_CONTROL_Z )
 #else
-        (void) unicode_key; //not used: avoid compil warning
+        ignore_unused( unicode_key );
 
         if( key >= WXK_CONTROL_A && key <= WXK_CONTROL_Z )
 #endif
@@ -480,6 +487,7 @@ void TOOL_DISPATCHER::DispatchWxEvent( wxEvent& aEvent )
         if( m_toolMgr->GetViewControls() )
         {
             pos = m_toolMgr->GetViewControls()->GetMousePosition();
+            m_lastMousePosScreen = m_toolMgr->GetViewControls()->GetMousePosition( false );
 
             if( pos != m_lastMousePos )
             {

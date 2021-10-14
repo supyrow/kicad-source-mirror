@@ -392,9 +392,10 @@ protected:
                     lastPath = NormalizePath( dlg.GetDirectory(), &Pgm().GetLocalEnvVariables(),
                                               m_normalizeBasePath );
                 }
-
-                if( relPath.IsEmpty() )
+                else
+                {
                     relPath = filePath;
+                }
 
                 SetValue( relPath );
 
@@ -420,9 +421,10 @@ protected:
                     relPath = NormalizePath( filePath, &Pgm().GetLocalEnvVariables(),
                                              m_normalizeBasePath );
                 }
-
-                if( relPath.IsEmpty() )
+                else
+                {
                     relPath = filePath;
+                }
 
                 SetValue( relPath );
 

@@ -28,12 +28,14 @@
 #include <cmath>
 #include <kiface_base.h>
 
+#include <calculator_panels/panel_track_width.h>
+#include <pcb_calculator_settings.h>
 #include <string_utils.h>
-#include "class_regulator_data.h"
-#include "pcb_calculator_frame.h"
-#include "pcb_calculator_settings.h"
-#include "units_scales.h"
+#include <units_scales.h>
 
+#include <widgets/unit_selector.h>
+
+#include <i18n_utility.h>   // For _HKI definition
 wxString tracks_width_versus_current_formula =
 #include "tracks_width_versus_current_formula.h"
 
@@ -42,45 +44,66 @@ extern double DoubleFromString( const wxString& TextValue );
 // The IPC2221 formula used to calculate track width is valid only for copper material
 const double copper_resistivity = 1.72e-8;
 
-void PCB_CALCULATOR_FRAME::writeTrackWidthConfig()
-{
-    // Save current parameters values in config.
-    auto cfg = static_cast<PCB_CALCULATOR_SETTINGS*>( Kiface().KifaceSettings() );
 
-    cfg->m_TrackWidth.current                   = m_TrackCurrentValue->GetValue();
-    cfg->m_TrackWidth.delta_tc                  = m_TrackDeltaTValue->GetValue();
-    cfg->m_TrackWidth.track_len                 = m_TrackLengthValue->GetValue();
-    cfg->m_TrackWidth.track_len_units           = m_TW_CuLength_choiceUnit->GetSelection();
-    cfg->m_TrackWidth.resistivity               = m_TWResistivity->GetValue();
-    cfg->m_TrackWidth.ext_track_width           = m_ExtTrackWidthValue->GetValue();
-    cfg->m_TrackWidth.ext_track_width_units     = m_TW_ExtTrackWidth_choiceUnit->GetSelection();
-    cfg->m_TrackWidth.ext_track_thickness       = m_ExtTrackThicknessValue->GetValue();
-    cfg->m_TrackWidth.ext_track_thickness_units = m_ExtTrackThicknessUnit->GetSelection();
-    cfg->m_TrackWidth.int_track_width           = m_IntTrackWidthValue->GetValue();
-    cfg->m_TrackWidth.int_track_width_units     = m_TW_IntTrackWidth_choiceUnit->GetSelection();
-    cfg->m_TrackWidth.int_track_thickness       = m_IntTrackThicknessValue->GetValue();
-    cfg->m_TrackWidth.int_track_thickness_units = m_IntTrackThicknessUnit->GetSelection();
+PANEL_TRACK_WIDTH::PANEL_TRACK_WIDTH( wxWindow* parent, wxWindowID id,
+                                const wxPoint& pos, const wxSize& size,
+                                long style, const wxString& name ) :
+        PANEL_TRACK_WIDTH_BASE( parent, id, pos, size, style, name ),
+        m_TWMode( TW_MASTER_CURRENT ),
+        m_TWNested( false )
+{
+    m_trackTempUnits->SetLabel( wxT( "°C" ) );
+    m_resistivityUnits->SetLabel( wxT( "Ω•m" ) );
+
+    m_extTrackResUnits->SetLabel( wxT( "Ω" ) );
+    m_intTrackResUnits->SetLabel( wxT( "Ω" ) );
+
+    // Needed on wxWidgets 3.0 to ensure sizers are correctly set
+    GetSizer()->SetSizeHints( this );
 }
 
 
-void PCB_CALCULATOR_FRAME::OnTWParametersChanged( wxCommandEvent& event )
+PANEL_TRACK_WIDTH::~PANEL_TRACK_WIDTH()
+{
+}
+
+
+void PANEL_TRACK_WIDTH::ThemeChanged()
+{
+    m_htmlWinFormulas->ThemeChanged();
+}
+
+
+void PANEL_TRACK_WIDTH::SaveSettings( PCB_CALCULATOR_SETTINGS* aCfg )
+{
+    aCfg->m_TrackWidth.current                   = m_TrackCurrentValue->GetValue();
+    aCfg->m_TrackWidth.delta_tc                  = m_TrackDeltaTValue->GetValue();
+    aCfg->m_TrackWidth.track_len                 = m_TrackLengthValue->GetValue();
+    aCfg->m_TrackWidth.track_len_units           = m_TW_CuLength_choiceUnit->GetSelection();
+    aCfg->m_TrackWidth.resistivity               = m_TWResistivity->GetValue();
+    aCfg->m_TrackWidth.ext_track_width           = m_ExtTrackWidthValue->GetValue();
+    aCfg->m_TrackWidth.ext_track_width_units     = m_TW_ExtTrackWidth_choiceUnit->GetSelection();
+    aCfg->m_TrackWidth.ext_track_thickness       = m_ExtTrackThicknessValue->GetValue();
+    aCfg->m_TrackWidth.ext_track_thickness_units = m_ExtTrackThicknessUnit->GetSelection();
+    aCfg->m_TrackWidth.int_track_width           = m_IntTrackWidthValue->GetValue();
+    aCfg->m_TrackWidth.int_track_width_units     = m_TW_IntTrackWidth_choiceUnit->GetSelection();
+    aCfg->m_TrackWidth.int_track_thickness       = m_IntTrackThicknessValue->GetValue();
+    aCfg->m_TrackWidth.int_track_thickness_units = m_IntTrackThicknessUnit->GetSelection();
+}
+
+
+void PANEL_TRACK_WIDTH::OnTWParametersChanged( wxCommandEvent& event )
 {
     switch(m_TWMode)
     {
-    case TW_MASTER_CURRENT:
-        OnTWCalculateFromCurrent( event );
-        break;
-    case TW_MASTER_EXT_WIDTH:
-        OnTWCalculateFromExtWidth( event );
-        break;
-    case TW_MASTER_INT_WIDTH:
-        OnTWCalculateFromIntWidth( event );
-        break;
+    case TW_MASTER_CURRENT:   OnTWCalculateFromCurrent( event );   break;
+    case TW_MASTER_EXT_WIDTH: OnTWCalculateFromExtWidth( event );  break;
+    case TW_MASTER_INT_WIDTH: OnTWCalculateFromIntWidth( event );  break;
     }
 }
 
 
-void PCB_CALCULATOR_FRAME::OnTWCalculateFromCurrent( wxCommandEvent& event )
+void PANEL_TRACK_WIDTH::OnTWCalculateFromCurrent( wxCommandEvent& event )
 {
     // Setting the calculated values generates further events. Stop them.
     if( m_TWNested )
@@ -120,7 +143,7 @@ void PCB_CALCULATOR_FRAME::OnTWCalculateFromCurrent( wxCommandEvent& event )
 }
 
 
-void PCB_CALCULATOR_FRAME::OnTWCalculateFromExtWidth( wxCommandEvent& event )
+void PANEL_TRACK_WIDTH::OnTWCalculateFromExtWidth( wxCommandEvent& event )
 {
     // Setting the calculated values generates further events. Stop them.
     if( m_TWNested )
@@ -164,7 +187,7 @@ void PCB_CALCULATOR_FRAME::OnTWCalculateFromExtWidth( wxCommandEvent& event )
 }
 
 
-void PCB_CALCULATOR_FRAME::OnTWCalculateFromIntWidth( wxCommandEvent& event )
+void PANEL_TRACK_WIDTH::OnTWCalculateFromIntWidth( wxCommandEvent& event )
 {
     // Setting the calculated values generates further events. Stop them.
     if( m_TWNested )
@@ -209,27 +232,31 @@ void PCB_CALCULATOR_FRAME::OnTWCalculateFromIntWidth( wxCommandEvent& event )
 }
 
 
-void PCB_CALCULATOR_FRAME::OnTWResetButtonClick( wxCommandEvent& event )
+void PANEL_TRACK_WIDTH::OnTWResetButtonClick( wxCommandEvent& event )
 {
-    // a wxString:Format( "%g", xx) is used to use local separator in floats
+    // Note: a wxString:Format( "%g", xx) is used to use local separator in floats
+
+    // Init main parameters:
     m_TrackCurrentValue->SetValue( wxString::Format( "%g", 1.0 ) );
     m_TrackDeltaTValue->SetValue( wxString::Format( "%g", 10.0 ) );
     m_TrackLengthValue->SetValue( wxString::Format( "%g", 20.0 ) );
     m_TW_CuLength_choiceUnit->SetSelection( 0 );
     m_TWResistivity->SetValue( wxString::Format( "%g", copper_resistivity ) );
-    m_ExtTrackWidthValue->SetValue( wxString::Format( "%g", 0.2 ) );
+
+    // m_ExtTrackWidthValue is not reinitialized: it will be calculated from previous parameters
     m_TW_ExtTrackWidth_choiceUnit->SetSelection( 0 );
     m_ExtTrackThicknessValue->SetValue( wxString::Format( "%g", 0.035 ) );
     m_ExtTrackThicknessUnit->SetSelection( 0 );
-    m_IntTrackWidthValue->SetValue( wxString::Format( "%g", 0.2 ) );
+
+    // m_IntTrackWidthValue is not reinitialized: it will be calculated from previous parameters
     m_TW_IntTrackWidth_choiceUnit->SetSelection( 0 );
     m_IntTrackThicknessValue->SetValue( wxString::Format( "%g", 0.035 ) );
     m_IntTrackThicknessUnit->SetSelection( 0 );
 }
 
 
-void PCB_CALCULATOR_FRAME::TWDisplayValues( double aCurrent, double aExtWidth,
-        double aIntWidth, double aExtThickness, double aIntThickness )
+void PANEL_TRACK_WIDTH::TWDisplayValues( double aCurrent, double aExtWidth, double aIntWidth,
+                                         double aExtThickness, double aIntThickness )
 {
     wxString msg;
 
@@ -302,13 +329,13 @@ void PCB_CALCULATOR_FRAME::TWDisplayValues( double aCurrent, double aExtWidth,
 }
 
 
-void PCB_CALCULATOR_FRAME::TWUpdateModeDisplay()
+void PANEL_TRACK_WIDTH::TWUpdateModeDisplay()
 {
     wxFont labelfont;
     wxFont controlfont;
 
     // Set the font weight of the current.
-    labelfont = m_staticTextCurrent->GetFont();
+    labelfont   = m_staticTextCurrent->GetFont();
     controlfont = m_TrackCurrentValue->GetFont();
 
     if( m_TWMode == TW_MASTER_CURRENT )
@@ -326,7 +353,7 @@ void PCB_CALCULATOR_FRAME::TWUpdateModeDisplay()
     m_TrackCurrentValue->SetFont( controlfont );
 
     // Set the font weight of the external track width.
-    labelfont = m_staticTextExtWidth->GetFont();
+    labelfont   = m_staticTextExtWidth->GetFont();
     controlfont = m_ExtTrackWidthValue->GetFont();
 
     if( m_TWMode == TW_MASTER_EXT_WIDTH )
@@ -344,7 +371,7 @@ void PCB_CALCULATOR_FRAME::TWUpdateModeDisplay()
     m_ExtTrackWidthValue->SetFont( controlfont );
 
     // Set the font weight of the internal track width.
-    labelfont = m_staticTextIntWidth->GetFont();
+    labelfont   = m_staticTextIntWidth->GetFont();
     controlfont = m_IntTrackWidthValue->GetFont();
 
     if( m_TWMode == TW_MASTER_INT_WIDTH )
@@ -363,8 +390,7 @@ void PCB_CALCULATOR_FRAME::TWUpdateModeDisplay()
 
     // Text sizes have changed when the font weight was changes
     // So, run the page layout to reflect the changes
-    wxWindow* page = m_Notebook->GetPage ( 1 );
-    page->GetSizer()->Layout();
+    GetSizer()->Layout();
 }
 
 /* calculate track width for external or internal layers
@@ -375,8 +401,8 @@ void PCB_CALCULATOR_FRAME::TWUpdateModeDisplay()
  * and dT = temperature rise in degree C
  * Of course we want to know trackWidth
  */
-double PCB_CALCULATOR_FRAME::TWCalculateWidth( double aCurrent, double aThickness, double aDeltaT_C,
-                                          bool aUseInternalLayer )
+double PANEL_TRACK_WIDTH::TWCalculateWidth( double aCurrent, double aThickness, double aDeltaT_C,
+                                            bool aUseInternalLayer )
 {
     // Appropriate scale for requested layer.
     double scale = aUseInternalLayer ? 0.024 : 0.048;
@@ -386,8 +412,7 @@ double PCB_CALCULATOR_FRAME::TWCalculateWidth( double aCurrent, double aThicknes
 
     /* formula is Imax = scale * dT^0.44 * A^0.725
      * or
-     * log(Imax) = log(scale) + 0.44*log(dT)
-     *      +(0.725*(log(aThickness) + log(trackWidth))
+     * log(Imax) = log(scale) + 0.44*log(dT) +(0.725*(log(aThickness) + log(trackWidth))
      * log(trackWidth) * 0.725 = log(Imax) - log(scale) - 0.44*log(dT) - 0.725*log(aThickness)
      */
     double dtmp = log( aCurrent ) - log( scale ) - 0.44 * log( aDeltaT_C ) - 0.725 * log( aThickness );
@@ -399,8 +424,8 @@ double PCB_CALCULATOR_FRAME::TWCalculateWidth( double aCurrent, double aThicknes
 }
 
 
-double PCB_CALCULATOR_FRAME::TWCalculateCurrent( double aWidth, double aThickness, double aDeltaT_C,
-                                                 bool aUseInternalLayer )
+double PANEL_TRACK_WIDTH::TWCalculateCurrent( double aWidth, double aThickness, double aDeltaT_C,
+                                              bool aUseInternalLayer )
 {
     // Appropriate scale for requested layer.
     double scale = aUseInternalLayer ? 0.024 : 0.048;
@@ -409,13 +434,14 @@ double PCB_CALCULATOR_FRAME::TWCalculateCurrent( double aWidth, double aThicknes
     aThickness /= UNIT_MIL;
     aWidth     /= UNIT_MIL;
 
-    double area = aThickness * aWidth;
+    double area    = aThickness * aWidth;
     double current = scale * pow( aDeltaT_C, 0.44 ) * pow( area, 0.725 );
+
     return current;
 }
 
 
-void PCB_CALCULATOR_FRAME::initTrackWidthPanel()
+void PANEL_TRACK_WIDTH::LoadSettings( PCB_CALCULATOR_SETTINGS* aCfg )
 {
     wxString msg;
 
@@ -423,25 +449,23 @@ void PCB_CALCULATOR_FRAME::initTrackWidthPanel()
     m_TWNested = true;
 
     // Read parameter values.
-    auto cfg = static_cast<PCB_CALCULATOR_SETTINGS*>( Kiface().KifaceSettings() );
-
-    m_TrackCurrentValue->SetValue( cfg->m_TrackWidth.current );
-    m_TrackDeltaTValue->SetValue( cfg->m_TrackWidth.delta_tc );
-    m_TrackLengthValue->SetValue( cfg->m_TrackWidth.track_len );
-    m_TW_CuLength_choiceUnit->SetSelection( cfg->m_TrackWidth.track_len_units );
+    m_TrackCurrentValue->SetValue( aCfg->m_TrackWidth.current );
+    m_TrackDeltaTValue->SetValue( aCfg->m_TrackWidth.delta_tc );
+    m_TrackLengthValue->SetValue( aCfg->m_TrackWidth.track_len );
+    m_TW_CuLength_choiceUnit->SetSelection( aCfg->m_TrackWidth.track_len_units );
 #if 0   // the IPC formula is valid for copper traces, so we do not currently adjust the resistivity
-    m_TWResistivity->SetValue( cfg->m_TrackWidth.resistivity );
+    m_TWResistivity->SetValue( aCfg->m_TrackWidth.resistivity );
 #else
     m_TWResistivity->SetValue( wxString::Format( "%g", copper_resistivity ) );
 #endif
-    m_ExtTrackWidthValue->SetValue( cfg->m_TrackWidth.ext_track_width );
-    m_TW_ExtTrackWidth_choiceUnit->SetSelection( cfg->m_TrackWidth.ext_track_width_units );
-    m_ExtTrackThicknessValue->SetValue( cfg->m_TrackWidth.ext_track_thickness );
-    m_ExtTrackThicknessUnit->SetSelection( cfg->m_TrackWidth.ext_track_thickness_units );
-    m_IntTrackWidthValue->SetValue( cfg->m_TrackWidth.int_track_width );
-    m_TW_IntTrackWidth_choiceUnit->SetSelection( cfg->m_TrackWidth.int_track_width_units );
-    m_IntTrackThicknessValue->SetValue( cfg->m_TrackWidth.int_track_thickness );
-    m_IntTrackThicknessUnit->SetSelection( cfg->m_TrackWidth.int_track_thickness_units );
+    m_ExtTrackWidthValue->SetValue( aCfg->m_TrackWidth.ext_track_width );
+    m_TW_ExtTrackWidth_choiceUnit->SetSelection( aCfg->m_TrackWidth.ext_track_width_units );
+    m_ExtTrackThicknessValue->SetValue( aCfg->m_TrackWidth.ext_track_thickness );
+    m_ExtTrackThicknessUnit->SetSelection( aCfg->m_TrackWidth.ext_track_thickness_units );
+    m_IntTrackWidthValue->SetValue( aCfg->m_TrackWidth.int_track_width );
+    m_TW_IntTrackWidth_choiceUnit->SetSelection( aCfg->m_TrackWidth.int_track_width_units );
+    m_IntTrackThicknessValue->SetValue( aCfg->m_TrackWidth.int_track_thickness );
+    m_IntTrackThicknessUnit->SetSelection( aCfg->m_TrackWidth.int_track_thickness_units );
 
     if( tracks_width_versus_current_formula.StartsWith( "<!" ) )
         m_htmlWinFormulas->SetPage( tracks_width_versus_current_formula );
@@ -457,6 +481,7 @@ void PCB_CALCULATOR_FRAME::initTrackWidthPanel()
 
     // Enable calculations and perform the initial one.
     m_TWNested = false;
+
     wxCommandEvent dummy;
     OnTWParametersChanged( dummy );
 }

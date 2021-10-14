@@ -448,6 +448,8 @@ private:
     ///< the library that is currently modified.
     wxString getTargetLib() const;
 
+    void centerItemIdleHandler( wxIdleEvent& aEvent );
+
     /*
      * Return true when the operation has succeeded (all requested libraries have been saved
      * or none was selected and confirmed by OK).
@@ -525,7 +527,7 @@ public:
 
 private:
     ///< Helper screen used when no symbol is loaded
-    SCH_SCREEN* m_dummyScreen;
+    SCH_SCREEN*             m_dummyScreen;
 
     LIB_SYMBOL*             m_symbol;            // a symbol I own, it is not in any library, but a
                                                  // copy could be.
@@ -535,21 +537,19 @@ private:
     SYMBOL_LIBRARY_MANAGER* m_libMgr;            // manager taking care of temporary modifications
     SYMBOL_EDITOR_SETTINGS* m_settings;          // Handle to the settings
 
+    LIB_ID                  m_centerItemOnIdle;
+
     // The unit number to edit and show
-    int m_unit;
+    int         m_unit;
 
     // Show the normal shape ( m_convert <= 1 ) or the converted shape ( m_convert > 1 )
-    int m_convert;
+    int         m_convert;
 
     ///< Flag if the symbol being edited was loaded directly from a schematic.
-    bool m_isSymbolFromSchematic;
+    bool        m_isSymbolFromSchematic;
 
-    /**
-     * The reference of the symbol.
-     *
-     * @note This is only valid when the current symbol was loaded from the schematic.
-     */
-    wxString m_reference;
+     ///< RefDes of the symbol (only valid if symbol was loaded from schematic)
+    wxString    m_reference;
 
     // True to force DeMorgan/normal tools selection enabled.
     // They are enabled when the loaded symbol has graphic items for converted shape

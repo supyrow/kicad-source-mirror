@@ -205,8 +205,11 @@ void CADSTAR_PCB_ARCHIVE_LOADER::initStackupItem( const LAYER&          aCadstar
         //TODO add Resistivity when KiCad supports it
     }
 
-    aKiCadItem->SetLayerName( aCadstarLayer.Name );
-    aKiCadItem->SetThickness( getKiCadLength( aCadstarLayer.Thickness ), aDielectricSublayer );
+    if( !aCadstarLayer.Name.IsEmpty() )
+        aKiCadItem->SetLayerName( aCadstarLayer.Name );
+
+    if( aCadstarLayer.Thickness != 0 )
+        aKiCadItem->SetThickness( getKiCadLength( aCadstarLayer.Thickness ), aDielectricSublayer );
 }
 
 
@@ -256,18 +259,18 @@ void CADSTAR_PCB_ARCHIVE_LOADER::loadBoardStackup()
     if( currentBlock.IsInitialised() )
         cadstarBoardStackup.push_back( currentBlock );
 
-    int totalCopperLayers = cadstarBoardStackup.size();
+    m_numCopperLayers = cadstarBoardStackup.size();
 
     // Special case: last layer in the stackup is a construction layer, we need to use B.Cu as a
     // dummy layer
     if( cadstarBoardStackup.back().ConstructionLayers.size() > 0 )
     {
         cadstarBoardStackup.push_back( LAYER_BLOCK() ); //Add dummy layer at the end
-        ++totalCopperLayers;
+        ++m_numCopperLayers;
     }
 
     // Make sure it is an even number of layers (KiCad doesn't yet support unbalanced stack-ups)
-    if( ( totalCopperLayers % 2 ) != 0 )
+    if( ( m_numCopperLayers % 2 ) != 0 )
     {
         LAYER_BLOCK bottomLayer = cadstarBoardStackup.back();
         cadstarBoardStackup.pop_back();
@@ -294,19 +297,20 @@ void CADSTAR_PCB_ARCHIVE_LOADER::loadBoardStackup()
         cadstarBoardStackup.push_back( secondToLastLayer );
         cadstarBoardStackup.push_back( dummyLayer );
         cadstarBoardStackup.push_back( bottomLayer );
-        ++totalCopperLayers;
+        ++m_numCopperLayers;
     }
 
-    wxASSERT( totalCopperLayers == cadstarBoardStackup.size() );
+    wxASSERT( m_numCopperLayers == cadstarBoardStackup.size() );
     wxASSERT( cadstarBoardStackup.back().ConstructionLayers.size() == 0 );
 
     // Create a new stackup from default stackup list
-    BOARD_STACKUP& stackup = m_board->GetDesignSettings().GetStackupDescriptor();
+    BOARD_DESIGN_SETTINGS& boardDesignSettings = m_board->GetDesignSettings();
+    BOARD_STACKUP&         stackup = boardDesignSettings.GetStackupDescriptor();
     stackup.RemoveAll();
     m_board->SetEnabledLayers( LSET::AllLayersMask() );
     m_board->SetVisibleLayers( LSET::AllLayersMask() );
-    m_board->SetCopperLayerCount( totalCopperLayers );
-    stackup.BuildDefaultStackupList( &m_board->GetDesignSettings(), totalCopperLayers );
+    m_board->SetCopperLayerCount( m_numCopperLayers );
+    stackup.BuildDefaultStackupList( &m_board->GetDesignSettings(), m_numCopperLayers );
 
     size_t stackIndex = 0;
 
@@ -357,11 +361,13 @@ void CADSTAR_PCB_ARCHIVE_LOADER::loadBoardStackup()
             LAYER_BLOCK layerBlock = cadstarBoardStackup.at( stackIndex );
             LAYER_BLOCK layerBlockBelow = cadstarBoardStackup.at( stackIndex + 1 );
 
-            // We should have made sure all layer blocks have at least one construction layer
-            wxASSERT( layerBlock.ConstructionLayers.size() > 0 );
+            if( layerBlock.ConstructionLayers.size() == 0 )
+            {
+                ++stackIndex;
+                continue; // Older cadstar designs have no construction layers - use KiCad defaults
+            }
 
             int dielectricId = stackIndex + 1;
-            // item->SetBrdLayerId();
             item->SetDielectricLayerId( dielectricId );
 
             //Prepreg or core?
@@ -423,6 +429,10 @@ void CADSTAR_PCB_ARCHIVE_LOADER::loadBoardStackup()
             ++stackIndex;
         }
     }
+
+    int thickness = stackup.BuildBoardThicknessFromStackup();
+    boardDesignSettings.SetBoardThickness( thickness );
+    boardDesignSettings.m_HasStackup = true;
 
     int numElecAndPowerLayers = 0;
 
@@ -644,7 +654,7 @@ void CADSTAR_PCB_ARCHIVE_LOADER::loadDesignRules()
     ds.m_ViasMinAnnularWidth = ds.m_TrackMinWidth / 2; // Not specified, assumed half track width
     ds.m_MinThroughDrill = PCB_IU_PER_MM * 0.0508; // CADSTAR does not specify a minimum hole size
                                                    // so set to minimum permitted in KiCad (2 mils)
-    ds.m_HoleClearance = ds.m_CopperEdgeClearance; // Not specified, assumed same as edge
+    ds.m_HoleClearance = 0; // Testing suggests cadstar might not have a copper-to-hole clearance
 
     auto applyNetClassRule = [&]( wxString aID, NETCLASS* aNetClassPtr,
                                      void ( NETCLASS::*aFunc )( int ) ) {
@@ -656,8 +666,6 @@ void CADSTAR_PCB_ARCHIVE_LOADER::loadDesignRules()
     };
 
     applyNetClassRule( "T_T", ds.GetDefault(), &::NETCLASS::SetClearance );
-
-    m_board->m_LegacyNetclassesLoaded = true;
 
     wxLogWarning( _( "KiCad design rules are different from CADSTAR ones. Only the compatible "
                      "design rules were imported. It is recommended that you review the design "
@@ -674,6 +682,26 @@ void CADSTAR_PCB_ARCHIVE_LOADER::loadComponentLibrary()
         wxString   fpName = component.ReferenceName + ( ( component.Alternate.size() > 0 ) ?
                                               ( wxT( " (" ) + component.Alternate + wxT( ")" ) ) :
                                               wxT( "" ) );
+
+        // Check that we are not loading a documentation symbol.
+        // Documentation symbols in CADSTAR are graphical "footprints" that can be assigned
+        // to any layer. The definition in the library assigns all elements to an undefined layer.
+        LAYER_ID componentLayer;
+
+        if( component.Figures.size() > 0 )
+        {
+            FIGURE firstFigure = component.Figures.begin()->second;
+            componentLayer = firstFigure.LayerID;
+        }
+        else if( component.Texts.size() > 0 )
+        {
+            TEXT firstText = component.Texts.begin()->second;
+            componentLayer = firstText.LayerID;
+        }
+
+        if( !componentLayer.IsEmpty() && getLayerType( componentLayer ) == LAYER_TYPE::NOLAYER )
+            continue; // don't process documentation symbols
+
         FOOTPRINT* footprint = new FOOTPRINT( m_board );
         footprint->SetPosition( getKiCadPoint( component.Origin ) );
 
@@ -779,28 +807,13 @@ void CADSTAR_PCB_ARCHIVE_LOADER::loadLibraryCoppers( const SYMDEF_PCB& aComponen
             m_librarycopperpads[aComponent.ID][anchorPad.ID].push_back( aFootprint->Pads().size() );
             totalCopperPads++;
 
-            // Now renumber all the associated pads if they are PCB Only
-            int numRenames = 0;
+            // Now renumber all the associated pads
             COMPONENT_PAD associatedPad;
 
             for( PAD_ID padID : compCopper.AssociatedPadIDs )
             {
-                associatedPad = aComponent.ComponentPads.at( padID );
-
-                if( associatedPad.PCBonlyPad )
-                {
-                    PAD* assocPad = getPadReference( aFootprint, padID );
-                    assocPad->SetNumber( pad->GetNumber() );
-                    ++numRenames;
-                }
-            }
-
-            if( numRenames < compCopper.AssociatedPadIDs.size() - 1 )
-            {
-                // This is an older design of thermal pad. The schematic will
-                // have multiple pins for the same pad, so lets use the
-                // "allow thermal pads" hack
-                aFootprint->SetKeywords( wxT( "allow thermal pads" ) );
+                PAD* assocPad = getPadReference( aFootprint, padID );
+                assocPad->SetNumber( pad->GetNumber() );
             }
         }
         else
@@ -823,8 +836,8 @@ void CADSTAR_PCB_ARCHIVE_LOADER::loadLibraryAreas( const SYMDEF_PCB& aComponent,
 
         if( area.NoVias || area.NoTracks )
         {
-            ZONE* zone = getZoneFromCadstarShape( area.Shape, getLineThickness( area.LineCodeID ),
-                                                  aFootprint );
+            int   lineThickness = 0; // CADSTAR areas only use the line width for display purpose
+            ZONE* zone = getZoneFromCadstarShape( area.Shape, lineThickness, aFootprint );
 
             aFootprint->Add( zone, ADD_MODE::APPEND );
 
@@ -954,9 +967,19 @@ PAD* CADSTAR_PCB_ARCHIVE_LOADER::getKiCadPad( const COMPONENT_PAD& aCadstarPad, 
 
     pad->SetLayerSet( padLayerSet );
 
-    pad->SetNumber( aCadstarPad.Identifier.IsEmpty() ?
-                          wxString::Format( wxT( "%ld" ), aCadstarPad.ID ) :
-                          aCadstarPad.Identifier );
+    if( aCadstarPad.PCBonlyPad )
+    {
+        // PCB Only pads in CADSTAR do not have a representation in the schematic - they are
+        // purely mechanical pads that have no net associated with them. Make the pad name
+        // empty to avoid warnings when importing from the schematic
+        pad->SetNumber( wxT( "" ) );
+    }
+    else
+    {
+        pad->SetNumber( aCadstarPad.Identifier.IsEmpty()
+                                ? wxString::Format( wxT( "%ld" ), aCadstarPad.ID )
+                                : aCadstarPad.Identifier );
+    }
 
     if( csPadcode.Shape.Size == 0 )
     {
@@ -1524,8 +1547,8 @@ void CADSTAR_PCB_ARCHIVE_LOADER::loadAreas()
 
         if( area.NoVias || area.NoTracks || area.Keepout || area.Routing )
         {
-            ZONE* zone = getZoneFromCadstarShape( area.Shape, getLineThickness( area.LineCodeID ),
-                                                  m_board );
+            int   lineThickness = 0; // CADSTAR areas only use the line width for display purpose
+            ZONE* zone = getZoneFromCadstarShape( area.Shape, lineThickness, m_board );
 
             m_board->Add( zone, ADD_MODE::APPEND );
 
@@ -1830,19 +1853,10 @@ void CADSTAR_PCB_ARCHIVE_LOADER::loadTemplates()
 
         zone->SetMinIslandArea( minIslandArea );
 
-        // In cadstar zone clearance is in addition to the design rule "copper to copper"
+        // In cadstar zone clearance is in addition to the global clearance.
+        // TODO: need to create custom rules for individual items: zone to pad, zone to track, etc.
         int clearance = getKiCadLength( csTemplate.Pouring.AdditionalIsolation );
-
-        if( Assignments.Codedefs.SpacingCodes.find( wxT( "C_C" ) )
-            != Assignments.Codedefs.SpacingCodes.end() )
-        {
-            int copperToCopper = Assignments.Codedefs.SpacingCodes.at( wxT( "C_C" ) ).Spacing;
-            clearance += getKiCadLength( copperToCopper );
-        }
-        else
-        {
-            clearance += m_board->GetDesignSettings().m_MinClearance;
-        }
+        clearance += m_board->GetDesignSettings().m_MinClearance;
 
         zone->SetLocalClearance( clearance );
 
@@ -1879,24 +1893,29 @@ void CADSTAR_PCB_ARCHIVE_LOADER::loadTemplates()
 
         // Cadstar supports having a spoke width thinner than the minimum thickness of the zone, but
         // this is not permitted in KiCad. We load it as solid fill instead.
-        if( csTemplate.Pouring.ThermalReliefOnPads && reliefWidth > 0 && spokeWidth > minThickness )
+        if( csTemplate.Pouring.ThermalReliefOnPads && reliefWidth > 0 )
         {
+            if( spokeWidth < minThickness )
+            {
+                wxLogWarning( wxString::Format(
+                        _( "The CADSTAR template '%s' has thermal reliefs in the original design "
+                           "but the spoke width (%.2f mm) is thinner than the minimum thickness of "
+                           "the zone (%.2f mm). KiCad requires the minimum thickness of the zone "
+                           "to be preserved. Therefore the minimum thickness has been applied as "
+                           "the new spoke width and will be applied next time the zones are "
+                           "filled." ),
+                        csTemplate.Name, (double) getKiCadLength( spokeWidth ) / 1E6,
+                        (double) getKiCadLength( minThickness ) / 1E6 ) );
+
+                spokeWidth = minThickness;
+            }
+
             zone->SetThermalReliefGap( reliefWidth );
             zone->SetThermalReliefSpokeWidth( spokeWidth );
             zone->SetPadConnection( ZONE_CONNECTION::THERMAL );
         }
         else
         {
-            if( csTemplate.Pouring.ThermalReliefOnPads && spokeWidth > minThickness )
-            {
-                wxLogWarning( wxString::Format(
-                        _( "The CADSTAR template '%s' has thermal reliefs in the original design "
-                           "but there is no KiCad equivalent to the original CADSTAR settings. "
-                           "Solid fill has been applied instead. When the template is re-filled "
-                           "the thermal reliefs will be removed." ),
-                        csTemplate.Name ) );
-            }
-
             zone->SetPadConnection( ZONE_CONNECTION::FULL );
         }
 
@@ -1996,6 +2015,7 @@ void CADSTAR_PCB_ARCHIVE_LOADER::loadCoppers()
                                                 ERROR_LOC::ERROR_INSIDE );
                     }
 
+                    poly.ClearArcs();
                     rawPolys.BooleanAdd( poly, SHAPE_POLY_SET::PM_STRICTLY_SIMPLE );
                 }
 
@@ -2003,6 +2023,7 @@ void CADSTAR_PCB_ARCHIVE_LOADER::loadCoppers()
             else
             {
                 rawPolys = getPolySetFromCadstarShape( csCopper.Shape, -1 );
+                rawPolys.ClearArcs();
                 rawPolys.Inflate( copperWidth / 2, 32 );
             }
 
@@ -2038,7 +2059,7 @@ void CADSTAR_PCB_ARCHIVE_LOADER::loadCoppers()
 
 
         if( csCopper.Shape.Type == SHAPE_TYPE::OPENSHAPE
-                || csCopper.Shape.Type == SHAPE_TYPE::OUTLINE )
+            || csCopper.Shape.Type == SHAPE_TYPE::OUTLINE )
         {
             std::vector<PCB_SHAPE*> outlineShapes = getShapesFromVertices( csCopper.Shape.Vertices );
 
@@ -2180,7 +2201,8 @@ void CADSTAR_PCB_ARCHIVE_LOADER::loadNets()
 
         // For junction points we need to find out the biggest size of the other routes connecting
         // at the junction in order to correctly apply the same "route offset" operation that the
-        // CADSTAR post processor applies when generating Manufacturing output
+        // CADSTAR post processor applies when generating Manufacturing output. The only exception
+        // is if there is just a single route at the junction point, we use that route width
         auto getJunctionSize =
             [&]( NETELEMENT_ID aJptNetElemId, const NET_PCB::CONNECTION_PCB& aConnectionToIgnore ) -> int
             {
@@ -2193,7 +2215,9 @@ void CADSTAR_PCB_ARCHIVE_LOADER::loadNets()
 
                     if( connection.StartNode == aConnectionToIgnore.StartNode
                         && connection.EndNode == aConnectionToIgnore.EndNode )
+                    {
                         continue;
+                    }
 
                     if( connection.StartNode == aJptNetElemId )
                     {
@@ -2205,6 +2229,18 @@ void CADSTAR_PCB_ARCHIVE_LOADER::loadNets()
                         int s = getKiCadLength( connection.Route.RouteVertices.back().RouteWidth );
                         jptsize = std::max( jptsize, s );
                     }
+                }
+
+                if( jptsize == 0 )
+                {
+                    // aConnectionToIgnore is actually the only one that has a route, so lets use that
+                    // to determine junction size
+                    NET_PCB::ROUTE_VERTEX vertex = aConnectionToIgnore.Route.RouteVertices.front();
+
+                    if( aConnectionToIgnore.EndNode == aJptNetElemId )
+                        vertex = aConnectionToIgnore.Route.RouteVertices.back();
+
+                    jptsize = getKiCadLength( vertex.RouteWidth );
                 }
 
                 return jptsize;
@@ -2904,6 +2940,8 @@ SHAPE_POLY_SET CADSTAR_PCB_ARCHIVE_LOADER::getPolySetFromCadstarShape( const SHA
             delete shape;
     }
 
+    polySet.ClearArcs();
+
     if( aLineThickness > 0 )
         polySet.Inflate( aLineThickness / 2, 32,
                          SHAPE_POLY_SET::CORNER_STRATEGY::ROUND_ALL_CORNERS );
@@ -3061,6 +3099,8 @@ std::vector<PCB_TRACK*> CADSTAR_PCB_ARCHIVE_LOADER::makeTracksFromShapes(
 
         if( aNet != nullptr )
             track->SetNet( aNet );
+        else
+            track->SetNetCode( -1 );
 
         track->SetLocked( shape->IsLocked() );
 
@@ -3355,6 +3395,18 @@ wxString CADSTAR_PCB_ARCHIVE_LOADER::getAttributeValue( const ATTRIBUTE_ID& aCad
             wxEmptyString );
 
     return aCadstarAttributeMap.at( aCadstarAttributeID ).Value;
+}
+
+
+CADSTAR_PCB_ARCHIVE_LOADER::LAYER_TYPE
+CADSTAR_PCB_ARCHIVE_LOADER::getLayerType( const LAYER_ID aCadstarLayerID )
+{
+    if( Assignments.Layerdefs.Layers.find( aCadstarLayerID ) != Assignments.Layerdefs.Layers.end() )
+    {
+        return Assignments.Layerdefs.Layers.at( aCadstarLayerID ).Type;
+    }
+
+    return LAYER_TYPE::UNDEFINED;
 }
 
 
@@ -3734,7 +3786,9 @@ double CADSTAR_PCB_ARCHIVE_LOADER::getPolarAngle( const wxPoint& aPoint )
 NETINFO_ITEM* CADSTAR_PCB_ARCHIVE_LOADER::getKiCadNet( const NET_ID& aCadstarNetID )
 {
     if( aCadstarNetID.IsEmpty() )
+    {
         return nullptr;
+    }
     else if( m_netMap.find( aCadstarNetID ) != m_netMap.end() )
     {
         return m_netMap.at( aCadstarNetID );
@@ -3789,22 +3843,46 @@ NETINFO_ITEM* CADSTAR_PCB_ARCHIVE_LOADER::getKiCadNet( const NET_ID& aCadstarNet
         }
 
         NETINFO_ITEM* netInfo = new NETINFO_ITEM( m_board, newName, ++m_numNets );
-        m_board->Add( netInfo, ADD_MODE::APPEND );
+        NETCLASSPTR   netclass;
 
-        if( m_netClassMap.find( csNet.RouteCodeID ) != m_netClassMap.end() )
+         std::tuple<ROUTECODE_ID, NETCLASS_ID, SPACING_CLASS_ID> key = { csNet.RouteCodeID,
+                                                                        csNet.NetClassID,
+                                                                        csNet.SpacingClassID };
+
+        if( m_netClassMap.find( key ) != m_netClassMap.end() )
         {
-            NETCLASSPTR netclass = m_netClassMap.at( csNet.RouteCodeID );
-            netInfo->SetNetClass( netclass );
+            netclass = m_netClassMap.at( key );
         }
         else
         {
-            ROUTECODE   rc = getRouteCode( csNet.RouteCodeID );
-            NETCLASSPTR netclass( new NETCLASS( rc.Name ) );
+            wxString  netClassName;
+
+
+            ROUTECODE rc = getRouteCode( csNet.RouteCodeID );
+            netClassName += wxT( "Route code: " ) + rc.Name;
+
+            if( !csNet.NetClassID.IsEmpty() )
+            {
+                CADSTAR_NETCLASS nc = Assignments.Codedefs.NetClasses.at( csNet.NetClassID );
+                netClassName += wxT( " | Net class: " ) + nc.Name;
+            }
+
+            if( !csNet.SpacingClassID.IsEmpty() )
+            {
+                SPCCLASSNAME sp = Assignments.Codedefs.SpacingClassNames.at( csNet.SpacingClassID );
+                netClassName += wxT( " | Spacing class: " ) + sp.Name;
+            }
+
+            netclass.reset( new NETCLASS( *m_board->GetDesignSettings().GetDefault() ) );
+            netclass->SetName( netClassName );
+            m_board->GetDesignSettings().GetNetClasses().Add( netclass );
             netclass->SetTrackWidth( getKiCadLength( rc.OptimalWidth ) );
-            netInfo->SetNetClass( netclass );
-            m_netClassMap.insert( { csNet.RouteCodeID, netclass } );
+            m_netClassMap.insert( { key, netclass } );
         }
 
+        netclass->Add( newName );
+        netInfo->SetNetClass( netclass );
+        m_board->Add( netInfo, ADD_MODE::APPEND );
         m_netMap.insert( { aCadstarNetID, netInfo } );
         return netInfo;
     }
@@ -3816,7 +3894,7 @@ NETINFO_ITEM* CADSTAR_PCB_ARCHIVE_LOADER::getKiCadNet( const NET_ID& aCadstarNet
 PCB_LAYER_ID CADSTAR_PCB_ARCHIVE_LOADER::getKiCadCopperLayerID( unsigned int aLayerNum,
                                                                 bool aDetectMaxLayer )
 {
-    if( aDetectMaxLayer && aLayerNum == Assignments.Technology.MaxPhysicalLayer )
+    if( aDetectMaxLayer && aLayerNum == m_numCopperLayers )
         return PCB_LAYER_ID::B_Cu;
 
     switch( aLayerNum )
@@ -3884,12 +3962,11 @@ bool CADSTAR_PCB_ARCHIVE_LOADER::isLayerSet( const LAYER_ID& aCadstarLayerID )
 
 PCB_LAYER_ID CADSTAR_PCB_ARCHIVE_LOADER::getKiCadLayer( const LAYER_ID& aCadstarLayerID )
 {
-    if( Assignments.Layerdefs.Layers.find( aCadstarLayerID ) != Assignments.Layerdefs.Layers.end() )
+    if( getLayerType( aCadstarLayerID ) == LAYER_TYPE::NOLAYER )
     {
-        if( Assignments.Layerdefs.Layers.at( aCadstarLayerID ).Type == LAYER_TYPE::NOLAYER )
-            //The "no layer" is common for CADSTAR documentation symbols
-            //map it to undefined layer for later processing
-            return PCB_LAYER_ID::UNDEFINED_LAYER;
+        //The "no layer" is common for CADSTAR documentation symbols
+        //map it to undefined layer for later processing
+        return PCB_LAYER_ID::UNDEFINED_LAYER;
     }
 
     wxCHECK( m_layermap.find( aCadstarLayerID ) != m_layermap.end(),
@@ -3901,19 +3978,21 @@ PCB_LAYER_ID CADSTAR_PCB_ARCHIVE_LOADER::getKiCadLayer( const LAYER_ID& aCadstar
 
 LSET CADSTAR_PCB_ARCHIVE_LOADER::getKiCadLayerSet( const LAYER_ID& aCadstarLayerID )
 {
-    LAYER& layer = Assignments.Layerdefs.Layers.at( aCadstarLayerID );
+    LAYER_TYPE layerType = getLayerType( aCadstarLayerID );
 
-    switch( layer.Type )
+    switch( layerType )
     {
     case LAYER_TYPE::ALLDOC:
         return LSET( 4, PCB_LAYER_ID::Dwgs_User, PCB_LAYER_ID::Cmts_User, PCB_LAYER_ID::Eco1_User,
                 PCB_LAYER_ID::Eco2_User );
 
     case LAYER_TYPE::ALLELEC:
-        return LSET::AllCuMask();
+        return LSET::AllCuMask( m_numCopperLayers );
 
     case LAYER_TYPE::ALLLAYER:
-        return LSET::AllLayersMask();
+        return LSET::AllLayersMask()
+               ^ ( LSET::AllCuMask( m_numCopperLayers ) ^ LSET::AllCuMask( MAX_CU_LAYERS ) )
+               ^ ( LSET( PCB_LAYER_ID::Rescue ) );
 
     default:
         return LSET( getKiCadLayer( aCadstarLayerID ) );

@@ -9,18 +9,29 @@ include_directories(
 
 set( PCB_CALCULATOR_SRCS
     eserie.cpp
-    attenuators.cpp
-    board_classes_values.cpp
-    colorcode.cpp
     common_data.cpp
-    electrical_spacing_values.cpp
     params_read_write.cpp
     pcb_calculator_frame.cpp
     pcb_calculator_settings.cpp
     datafile_read_write.cpp
-    regulators_funct.cpp
-    tracks_width_versus_current.cpp
-    via.cpp
+    calculator_panels/panel_attenuators.cpp
+    calculator_panels/panel_attenuators_base.cpp
+    calculator_panels/panel_board_class.cpp
+    calculator_panels/panel_board_class_base.cpp
+    calculator_panels/panel_color_code.cpp
+    calculator_panels/panel_color_code_base.cpp
+    calculator_panels/panel_electrical_spacing.cpp
+    calculator_panels/panel_electrical_spacing_base.cpp
+    calculator_panels/panel_eserie.cpp
+    calculator_panels/panel_eserie_base.cpp
+    calculator_panels/panel_regulator.cpp
+    calculator_panels/panel_regulator_base.cpp
+    calculator_panels/panel_track_width.cpp
+    calculator_panels/panel_track_width_base.cpp
+    calculator_panels/panel_transline.cpp
+    calculator_panels/panel_transline_base.cpp
+    calculator_panels/panel_via_size.cpp
+    calculator_panels/panel_via_size_base.cpp
     transline_ident.cpp
     widgets/unit_selector.cpp
     transline/transline.cpp
@@ -33,7 +44,6 @@ set( PCB_CALCULATOR_SRCS
     transline/twistedpair.cpp
     transline_dlg_funct.cpp
     attenuators/attenuator_classes.cpp
-    dialogs/pcb_calculator_frame_base.cpp
     dialogs/dialog_regulator_form_base.cpp
     dialogs/dialog_regulator_form.cpp
     ../common/env_vars.cpp      # needed on MSW to avoid a link issue (a symbol not found)

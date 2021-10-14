@@ -3,7 +3,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2014 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
- * Copyright (C) 2016 KiCad Developers, see CHANGELOG.TXT for contributors.
+ * Copyright (C) 2016 KiCad Developers, see AUTHORS.TXT for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -23,6 +23,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
+#include <ignore.h>
 #include <kiway.h>
 #include <kiway_holder.h>
 #include <project.h>
@@ -47,11 +48,11 @@ void KIWAY_HOLDER::SetKiway( wxWindow* aDest, KIWAY* aKiway )
     if( !strcmp( typeid(aDest).name(), "DIALOG_EDIT_LIBENTRY_FIELDS_IN_LIB" ) )
     {
         int breakhere=1;
-        (void) breakhere;
+        ignore_unused( breakhere );
     }
 #endif
 
-    (void) aDest;
+    ignore_unused( aDest );
 
     m_kiway = aKiway;
 }

@@ -26,9 +26,11 @@
 #define TRANSLINE_IDENT_H
 
 #include <vector>
-#include <wx/bitmap.h>
 
 #include "transline/transline.h"
+
+// Forward declare the bitmaps enum from bitmaps/bitmap_list.h
+enum class BITMAPS : unsigned int;
 
 // An enum to handle muwave shapes:
 enum TRANSLINE_TYPE_ID {
@@ -74,17 +76,17 @@ public:
     double ToUserUnit();
     double FromUserUnit();
 
-    PRM_TYPE m_Type;            // Type of parameter: substr, physical, elect
-    PRMS_ID  m_Id;              // Id of parameter ( link to transline functions )
-    std::string m_KeyWord;      // keyword for this parameter in json config file in ASCII7 only
-    wxString m_DlgLabel;        // name for this parameter in dialog (usually translated
-    wxString m_ToolTip;         // Tool tip for this parameter in dialog
-    double   m_Value;           // Value for this parameter in dialog
-    double   m_NormalizedValue; // actual value for this parameter
-    bool     m_ConvUnit;        // true if an unit selector must be used
-    void*    m_ValueCtrl;       // The text ctrl containing the value in dialog
-    void*    m_UnitCtrl;        // The UNIT_SELECTOR containing the unit in dialog
-    int      m_UnitSelection;   // last selection for units
+    PRM_TYPE    m_Type;            // Type of parameter: substr, physical, elect
+    PRMS_ID     m_Id;              // Id of parameter ( link to transline functions )
+    std::string m_KeyWord;         // keyword for this parameter in json config file in ASCII7 only
+    wxString    m_DlgLabel;        // name for this parameter in dialog (usually translated
+    wxString    m_ToolTip;         // Tool tip for this parameter in dialog
+    double      m_Value;           // Value for this parameter in dialog
+    double      m_NormalizedValue; // actual value for this parameter
+    bool        m_ConvUnit;        // true if an unit selector must be used
+    void*       m_ValueCtrl;       // The text ctrl containing the value in dialog
+    void*       m_UnitCtrl;        // The UNIT_SELECTOR containing the unit in dialog
+    int         m_UnitSelection;   // last selection for units
 };
 
 
@@ -126,7 +128,7 @@ public:
 
 public:
     enum TRANSLINE_TYPE_ID m_Type;              // The type of transline handled
-    wxBitmap *             m_Icon;              // An icon to display in dialogs
+    BITMAPS                m_BitmapName;        // The name of the bitmap to display in dialogs
     TRANSLINE*             m_TLine;             // The TRANSLINE itself
     wxArrayString          m_Messages;          // messages for results
 
@@ -134,7 +136,7 @@ public:
     bool m_HasPrmSelection;
 
 private:
-    std::vector <TRANSLINE_PRM*> m_prms_List;
+    std::vector<TRANSLINE_PRM*> m_prms_List;
 };
 
 #endif      //  TRANSLINE_IDENT_H

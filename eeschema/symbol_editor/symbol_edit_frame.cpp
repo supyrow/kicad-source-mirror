@@ -137,6 +137,7 @@ SYMBOL_EDIT_FRAME::SYMBOL_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
     GetCanvas()->GetViewControls()->SetCrossHairCursorPosition( VECTOR2D( 0, 0 ), false );
 
     GetRenderSettings()->LoadColors( GetColorSettings() );
+    GetRenderSettings()->m_IsSymbolEditor = true;
     GetCanvas()->GetGAL()->SetAxesColor( m_colorSettings->GetColor( LAYER_SCHEMATIC_GRID_AXES ) );
 
     setupTools();
@@ -1372,9 +1373,6 @@ bool SYMBOL_EDIT_FRAME::addLibTableEntry( const wxString& aLibFile, TABLE_SCOPE 
         normalizedPath = NormalizePath( aLibFile, &envVars, wxEmptyString );
     }
 
-    if( normalizedPath.IsEmpty() )
-        normalizedPath = aLibFile;
-
     row->SetFullURI( normalizedPath );
 
     wxCHECK( libTable->InsertRow( row ), false );
@@ -1427,9 +1425,6 @@ bool SYMBOL_EDIT_FRAME::replaceLibTableEntry( const wxString& aLibNickname,
         projectPath = Prj().GetProjectPath();
 
     wxString normalizedPath = NormalizePath( aLibFile, &envVars, projectPath );
-
-    if( normalizedPath.IsEmpty() )
-        normalizedPath = aLibFile;
 
     row->SetFullURI( normalizedPath );
     row->SetType( "KiCad" );

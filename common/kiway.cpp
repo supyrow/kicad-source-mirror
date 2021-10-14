@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2014 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
- * Copyright (C) 2014-2021 KiCad Developers, see CHANGELOG.TXT for contributors.
+ * Copyright (C) 2014-2021 KiCad Developers, see AUTHORS.TXT for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -24,6 +24,7 @@
 
 #include <cstring>
 
+#include <ignore.h>
 #include <macros.h>
 #include <kiway.h>
 #include <kiway_player.h>
@@ -280,7 +281,7 @@ KIFACE* KIWAY::KiFACE( FACE_T aFaceId, bool doLoad )
             if( kiface->OnKifaceStart( m_program, m_ctl ) )
             {
                 // Tell dso's wxDynamicLibrary destructor not to Unload() the program image.
-                (void) dso.Detach();
+                ignore_unused( dso.Detach() );
 
                 return m_kiface[aFaceId] = kiface;
             }

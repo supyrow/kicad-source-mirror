@@ -18,48 +18,79 @@
  * with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-/**
- * @file regulators_funct.cpp
- * Contains the partial functions of PCB_CALCULATOR_FRAME related to regulators
- */
 
-
-#include <macros.h>
+//#include <macros.h>
 
 #include <wx/choicdlg.h>
 #include <wx/filedlg.h>
 #include <wx/msgdlg.h>
 
-#include "class_regulator_data.h"
-#include "pcb_calculator_frame.h"
-#include "pcb_calculator_settings.h"
-
-#include "dialogs/dialog_regulator_form.h"
+#include <bitmaps.h>
+#include <calculator_panels/panel_regulator.h>
+#include <class_regulator_data.h>
+#include <dialogs/dialog_regulator_form.h>
+#include <pcb_calculator_settings.h>
 
 extern double DoubleFromString( const wxString& TextValue );
 
+// extension of pcb_calculator data filename:
+static const wxString DataFileNameExt( wxT( "pcbcalc" ) );
 
-void PCB_CALCULATOR_FRAME::OnRegulatorCalcButtonClick( wxCommandEvent& event )
+
+PANEL_REGULATOR::PANEL_REGULATOR( wxWindow* parent, wxWindowID id,
+                                  const wxPoint& pos, const wxSize& size,
+                                  long style, const wxString& name ) :
+        PANEL_REGULATOR_BASE( parent, id, pos, size, style, name ),
+        m_RegulatorListChanged( false )
+{
+    m_IadjUnitLabel->SetLabel( wxT( "µA" ) );
+    m_r1Units->SetLabel( wxT( "kΩ" ) );
+    m_r2Units->SetLabel( wxT( "kΩ" ) );
+
+    m_bitmapRegul3pins->SetBitmap( KiBitmap( BITMAPS::regul_3pins ) );
+    m_bitmapRegul4pins->SetBitmap( KiBitmap( BITMAPS::regul ) );
+
+    m_choiceRegulatorSelector->Append( m_RegulatorList.GetRegList() );
+    SelectLastSelectedRegulator();
+
+    // Needed on wxWidgets 3.0 to ensure sizers are correctly set
+    GetSizer()->SetSizeHints( this );
+}
+
+PANEL_REGULATOR::~PANEL_REGULATOR()
+{
+}
+
+
+void PANEL_REGULATOR::ThemeChanged()
+{
+    // Update the bitmaps
+    m_bitmapRegul3pins->SetBitmap( KiBitmap( BITMAPS::regul_3pins ) );
+    m_bitmapRegul4pins->SetBitmap( KiBitmap( BITMAPS::regul ) );
+}
+
+
+void PANEL_REGULATOR::OnRegulatorCalcButtonClick( wxCommandEvent& event )
 {
     RegulatorsSolve();
 }
 
 
-void PCB_CALCULATOR_FRAME::OnRegulatorResetButtonClick( wxCommandEvent& event )
+void PANEL_REGULATOR::OnRegulatorResetButtonClick( wxCommandEvent& event )
 {
     m_RegulR1Value->SetValue( wxT( "10" ) );
     m_RegulR2Value->SetValue( wxT( "10" ) );
     m_RegulVrefValue->SetValue( wxT( "3" ) );
     m_RegulVoutValue->SetValue( wxT( "12" ) );
     m_choiceRegType->SetSelection( 0 );
-    m_rbRegulR1->SetValue( 1 );
-    m_rbRegulR2->SetValue( 0 );
-    m_rbRegulVout->SetValue( 0 );
+    m_rbRegulR1->SetValue( true );
+    m_rbRegulR2->SetValue( false );
+    m_rbRegulVout->SetValue( false );
     RegulatorPageUpdate();
 }
 
 
-void PCB_CALCULATOR_FRAME::RegulatorPageUpdate()
+void PANEL_REGULATOR::RegulatorPageUpdate()
 {
     switch( m_choiceRegType->GetSelection() )
     {
@@ -80,27 +111,27 @@ void PCB_CALCULATOR_FRAME::RegulatorPageUpdate()
     }
 
     // The new icon size must be taken in account
-    m_panelRegulators->GetSizer()->Layout();
+    GetSizer()->Layout();
 
     // Enable/disable buttons:
     bool enbl = m_choiceRegulatorSelector->GetCount() > 0;
     m_buttonEditItem->Enable( enbl );
     m_buttonRemoveItem->Enable( enbl );
 
-    m_panelRegulators->Refresh();
+    Refresh();
 }
 
 
-void PCB_CALCULATOR_FRAME::OnRegulTypeSelection( wxCommandEvent& event )
+void PANEL_REGULATOR::OnRegulTypeSelection( wxCommandEvent& event )
 {
     RegulatorPageUpdate();
 }
 
 
-void PCB_CALCULATOR_FRAME::OnRegulatorSelection( wxCommandEvent& event )
+void PANEL_REGULATOR::OnRegulatorSelection( wxCommandEvent& event )
 {
-    wxString name = m_choiceRegulatorSelector->GetStringSelection();
-    REGULATOR_DATA * item = m_RegulatorList.GetReg( name );
+    wxString        name = m_choiceRegulatorSelector->GetStringSelection();
+    REGULATOR_DATA* item = m_RegulatorList.GetReg( name );
 
     if( item )
     {
@@ -119,7 +150,7 @@ void PCB_CALCULATOR_FRAME::OnRegulatorSelection( wxCommandEvent& event )
 }
 
 
-void PCB_CALCULATOR_FRAME::OnDataFileSelection( wxCommandEvent& event )
+void PANEL_REGULATOR::OnDataFileSelection( wxCommandEvent& event )
 {
     wxString fullfilename = GetDataFilename();
 
@@ -127,10 +158,10 @@ void PCB_CALCULATOR_FRAME::OnDataFileSelection( wxCommandEvent& event )
     wildcard.Printf( _("PCB Calculator data file" ) + wxT( " (*.%s)|*.%s"),
                      DataFileNameExt, DataFileNameExt );
 
-    wxFileDialog dlg( m_panelRegulators, _("Select PCB Calculator Data File"),
+    wxFileDialog dlg( this, _("Select PCB Calculator Data File"),
                       wxEmptyString, fullfilename, wildcard, wxFD_OPEN );
 
-    if (dlg.ShowModal() == wxID_CANCEL)
+    if( dlg.ShowModal() == wxID_CANCEL )
         return;
 
     fullfilename = dlg.GetPath();
@@ -144,7 +175,9 @@ void PCB_CALCULATOR_FRAME::OnDataFileSelection( wxCommandEvent& event )
     {
         if( wxMessageBox( _( "Do you want to load this file and replace current regulator list?" ) )
             != wxID_OK )
+        {
             return;
+        }
     }
 
     if( ReadDataFile() )
@@ -163,7 +196,7 @@ void PCB_CALCULATOR_FRAME::OnDataFileSelection( wxCommandEvent& event )
 }
 
 
-void PCB_CALCULATOR_FRAME::OnAddRegulator( wxCommandEvent& event )
+void PANEL_REGULATOR::OnAddRegulator( wxCommandEvent& event )
 {
     DIALOG_REGULATOR_FORM dlg( this, wxEmptyString );
 
@@ -191,10 +224,10 @@ void PCB_CALCULATOR_FRAME::OnAddRegulator( wxCommandEvent& event )
 }
 
 
-void PCB_CALCULATOR_FRAME::OnEditRegulator( wxCommandEvent& event )
+void PANEL_REGULATOR::OnEditRegulator( wxCommandEvent& event )
 {
     wxString name = m_choiceRegulatorSelector->GetStringSelection();
-    REGULATOR_DATA * item  = m_RegulatorList.GetReg( name );
+    REGULATOR_DATA* item  = m_RegulatorList.GetReg( name );
 
     if( item == nullptr )
         return;
@@ -206,7 +239,7 @@ void PCB_CALCULATOR_FRAME::OnEditRegulator( wxCommandEvent& event )
     if( dlg.ShowModal() != wxID_OK )
         return;
 
-    REGULATOR_DATA * new_item = dlg.BuildRegulatorFromData();
+    REGULATOR_DATA* new_item = dlg.BuildRegulatorFromData();
     m_RegulatorList.Replace( new_item );
 
     m_RegulatorListChanged = true;
@@ -215,7 +248,7 @@ void PCB_CALCULATOR_FRAME::OnEditRegulator( wxCommandEvent& event )
 }
 
 
-void PCB_CALCULATOR_FRAME::OnRemoveRegulator( wxCommandEvent& event )
+void PANEL_REGULATOR::OnRemoveRegulator( wxCommandEvent& event )
 {
     wxString name = wxGetSingleChoice( _("Remove Regulator"), wxEmptyString,
                                        m_RegulatorList.GetRegList() );
@@ -234,7 +267,7 @@ void PCB_CALCULATOR_FRAME::OnRemoveRegulator( wxCommandEvent& event )
 }
 
 
-void PCB_CALCULATOR_FRAME::SelectLastSelectedRegulator()
+void PANEL_REGULATOR::SelectLastSelectedRegulator()
 {
     // Find last selected in regulator list:
     int idx = -1;
@@ -257,7 +290,7 @@ void PCB_CALCULATOR_FRAME::SelectLastSelectedRegulator()
 }
 
 
-void PCB_CALCULATOR_FRAME::RegulatorsSolve()
+void PANEL_REGULATOR::RegulatorsSolve()
 {
     int id;
 
@@ -290,14 +323,14 @@ void PCB_CALCULATOR_FRAME::RegulatorsSolve()
     int r2scale = 1000;
 
     // Read values from panel:
-    txt = m_RegulR1Value->GetValue();
-    r1 = DoubleFromString(txt) * r1scale;
-    txt = m_RegulR2Value->GetValue();
-    r2 = DoubleFromString(txt) * r2scale;
-    txt = m_RegulVrefValue->GetValue();
-    vref = DoubleFromString(txt);
-    txt = m_RegulVoutValue->GetValue();
-    vout = DoubleFromString(txt);
+    txt  = m_RegulR1Value->GetValue();
+    r1   = DoubleFromString( txt ) * r1scale;
+    txt  = m_RegulR2Value->GetValue();
+    r2   = DoubleFromString( txt ) * r2scale;
+    txt  = m_RegulVrefValue->GetValue();
+    vref = DoubleFromString( txt );
+    txt  = m_RegulVoutValue->GetValue();
+    vout = DoubleFromString( txt );
 
     // Some tests:
     if( vout < vref && id != 2 )
@@ -323,7 +356,7 @@ void PCB_CALCULATOR_FRAME::RegulatorsSolve()
     {
         // 3 terminal regulator
         txt = m_RegulIadjValue->GetValue();
-        double iadj = DoubleFromString(txt);
+        double iadj = DoubleFromString( txt );
 
         // iadj is given in micro amp, so convert it in amp.
         iadj /= 1000000;
@@ -366,7 +399,7 @@ void PCB_CALCULATOR_FRAME::RegulatorsSolve()
 }
 
 
-void PCB_CALCULATOR_FRAME::Regulators_WriteConfig( PCB_CALCULATOR_SETTINGS* aCfg )
+void PANEL_REGULATOR::Regulators_WriteConfig( PCB_CALCULATOR_SETTINGS* aCfg )
 {
     // Save current parameter values in config.
     aCfg->m_Regulators.r1 = m_RegulR1Value->GetValue();
@@ -378,10 +411,7 @@ void PCB_CALCULATOR_FRAME::Regulators_WriteConfig( PCB_CALCULATOR_SETTINGS* aCfg
     aCfg->m_Regulators.type = m_choiceRegType->GetSelection();
 
     // Store the parameter selection that was recently calculated (R1, R2 or Vout)
-    wxRadioButton * regprms[3] =
-    {
-        m_rbRegulR1, m_rbRegulR2, m_rbRegulVout
-    };
+    wxRadioButton* regprms[3] = { m_rbRegulR1, m_rbRegulR2, m_rbRegulVout };
 
     for( int ii = 0; ii < 3; ii++ )
     {
@@ -390,5 +420,58 @@ void PCB_CALCULATOR_FRAME::Regulators_WriteConfig( PCB_CALCULATOR_SETTINGS* aCfg
             aCfg->m_Regulators.last_param = ii;
             break;
         }
+    }
+}
+
+
+void PANEL_REGULATOR::LoadSettings( PCB_CALCULATOR_SETTINGS* aCfg )
+{
+    m_RegulR1Value->SetValue( aCfg->m_Regulators.r1 );
+    m_RegulR2Value->SetValue( aCfg->m_Regulators.r2 );
+    m_RegulVrefValue->SetValue( aCfg->m_Regulators.vref );
+    m_RegulVoutValue->SetValue( aCfg->m_Regulators.vout );
+    SetDataFilename( aCfg->m_Regulators.data_file );
+    m_lastSelectedRegulatorName = aCfg->m_Regulators.selected_regulator;
+    m_choiceRegType->SetSelection( aCfg->m_Regulators.type );
+
+    wxRadioButton* regprms[3] = { m_rbRegulR1, m_rbRegulR2, m_rbRegulVout };
+
+    if( aCfg->m_Regulators.last_param >= 3 )
+        aCfg->m_Regulators.last_param = 0;
+
+    for( int ii = 0; ii < 3; ii++ )
+        regprms[ii]->SetValue( aCfg->m_Regulators.last_param == ii );
+
+}
+
+
+void PANEL_REGULATOR::SaveSettings( PCB_CALCULATOR_SETTINGS *aCfg )
+{
+    // TODO: This was empty for some reason, should we actually save settings here?
+}
+
+
+const wxString PANEL_REGULATOR::GetDataFilename()
+{
+    if( m_regulators_fileNameCtrl->GetValue().IsEmpty() )
+        return wxEmptyString;
+
+    wxFileName fn( m_regulators_fileNameCtrl->GetValue() );
+    fn.SetExt( DataFileNameExt );
+    return fn.GetFullPath();
+}
+
+
+void PANEL_REGULATOR::SetDataFilename( const wxString& aFilename )
+{
+    if( aFilename.IsEmpty() )
+    {
+        m_regulators_fileNameCtrl->SetValue( wxEmptyString );
+    }
+    else
+    {
+        wxFileName fn( aFilename );
+        fn.SetExt( DataFileNameExt );
+        m_regulators_fileNameCtrl->SetValue( fn.GetFullPath() );
     }
 }

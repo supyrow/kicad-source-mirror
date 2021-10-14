@@ -244,20 +244,20 @@ void SCH_BUS_ENTRY_BASE::Print( const RENDER_SETTINGS* aSettings, const wxPoint&
         clip.Normalize();
 
         double theta = atan2( end.y - start.y, end.x - start.x );
-        double strokes[] = { 1.0, DASH_GAP_LEN( penWidth ), 1.0, DASH_GAP_LEN( penWidth ) };
+        double strokes[] = { 1.0, dash_gap_len( penWidth ), 1.0, dash_gap_len( penWidth ) };
 
         switch( GetStrokeStyle() )
         {
         default:
         case PLOT_DASH_TYPE::DASH:
-            strokes[0] = strokes[2] = DASH_MARK_LEN( penWidth );
+            strokes[0] = strokes[2] = dash_mark_len( penWidth );
             break;
         case PLOT_DASH_TYPE::DOT:
-            strokes[0] = strokes[2] = DOT_MARK_LEN( penWidth );
+            strokes[0] = strokes[2] = dot_mark_len( penWidth );
             break;
         case PLOT_DASH_TYPE::DASHDOT:
-            strokes[0] = DASH_MARK_LEN( penWidth );
-            strokes[2] = DOT_MARK_LEN( penWidth );
+            strokes[0] = dash_mark_len( penWidth );
+            strokes[2] = dot_mark_len( penWidth );
             break;
         }
 
@@ -490,7 +490,7 @@ void SCH_BUS_ENTRY_BASE::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame,
     case LAYER_BUS:  msg = _( "Bus" );  break;
     }
 
-    aList.push_back( MSG_PANEL_ITEM( _( "Bus Entry Type" ), msg ) );
+    aList.emplace_back( _( "Bus Entry Type" ), msg );
 
     SCH_CONNECTION* conn = dynamic_cast<SCH_EDIT_FRAME*>( aFrame ) ? Connection() : nullptr;
 
@@ -507,7 +507,7 @@ void SCH_BUS_ENTRY_BASE::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame,
             if( netSettings.m_NetClassAssignments.count( netname ) )
                 netclassName = netSettings.m_NetClassAssignments[ netname ];
 
-            aList.push_back( MSG_PANEL_ITEM( _( "Assigned Netclass" ), netclassName ) );
+            aList.emplace_back( _( "Assigned Netclass" ), netclassName );
         }
     }
 }

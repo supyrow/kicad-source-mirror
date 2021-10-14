@@ -25,7 +25,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
-#include <algorithm>
 #include <limits.h>          // for INT_MAX
 #include <math.h>            // for hypot
 #include <map>
@@ -173,6 +172,9 @@ void SHAPE_LINE_CHAIN::splitArc( ssize_t aPtIndex, bool aCoincident )
         aPtIndex += m_shapes.size();
 
     if( !IsSharedPt( aPtIndex ) && IsArcStart( aPtIndex ) )
+        return; // Nothing to do
+
+    if( !IsPtOnArc( aPtIndex ) )
         return; // Nothing to do
 
     wxCHECK_MSG( aPtIndex < static_cast<ssize_t>( m_shapes.size() ), /* void */,
@@ -1050,15 +1052,26 @@ void SHAPE_LINE_CHAIN::Append( const SHAPE_LINE_CHAIN& aOtherLine )
 
 void SHAPE_LINE_CHAIN::Append( const SHAPE_ARC& aArc )
 {
-    SHAPE_LINE_CHAIN chain = aArc.ConvertToPolyline();
+    SEG startToEnd( aArc.GetP0(), aArc.GetP1() );
 
-    // @todo should the below 4 LOC be moved to SHAPE_ARC::ConvertToPolyline ?
-    chain.m_arcs.push_back( aArc );
+    if( startToEnd.Distance( aArc.GetArcMid() ) < 1 )
+    {
+        // Not really a valid arc. Add as a straight line segment instead
+        Append( aArc.GetP0() );
+        Append( aArc.GetP1() );
+    }
+    else
+    {
+        SHAPE_LINE_CHAIN chain = aArc.ConvertToPolyline();
 
-    for( auto& sh : chain.m_shapes )
-        sh.first = 0;
+        // @todo should the below 4 LOC be moved to SHAPE_ARC::ConvertToPolyline ?
+        chain.m_arcs.push_back( aArc );
 
-    Append( chain );
+        for( auto& sh : chain.m_shapes )
+            sh.first = 0;
+
+        Append( chain );
+    }
 
     assert( m_shapes.size() == m_points.size() );
 }

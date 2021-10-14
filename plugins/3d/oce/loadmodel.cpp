@@ -20,6 +20,9 @@
  * or you may search the http://www.gnu.org website for the version 2 license,
  * or you may write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
+ *
+ *
+ * Some code lifted from FreeCAD, copyright (c) 2018 Zheng, Lei (realthunder) under GPLv2
  */
 
 #include <iostream>
@@ -30,6 +33,7 @@
 #include <map>
 #include <vector>
 #include <wx/filename.h>
+#include <wx/log.h>
 #include <wx/stdpaths.h>
 #include <wx/string.h>
 #include <wx/utils.h>
@@ -73,12 +77,15 @@
 
 #include <TDF_LabelSequence.hxx>
 #include <TDF_ChildIterator.hxx>
+#include <TDF_Tool.hxx>
+#include <TDataStd_Name.hxx>
 
 #include "plugins/3dapi/ifsg_all.h"
 
 
 // log mask for wxLogTrace
 #define MASK_OCE "PLUGIN_OCE"
+//#define DUMP_LABELS
 
 // precision for mesh creation; 0.07 should be good enough for ECAD viewing
 #define USER_PREC (0.14)
@@ -96,12 +103,8 @@ typedef std::pair< std::string, std::vector< SGNODE* > > NODEITEM;
 
 struct DATA;
 
-bool processNode( const TopoDS_Shape& shape, DATA& data, SGNODE* parent,
-                  std::vector< SGNODE* >* items );
-
-
-bool processComp( const TopoDS_Shape& shape, DATA& data, SGNODE* parent,
-                  std::vector< SGNODE* >* items );
+bool processLabel( const TDF_Label& aLabel, DATA& aData, SGNODE* aParent,
+                  std::vector< SGNODE* >* aItems );
 
 
 bool processFace( const TopoDS_Face& face, DATA& data, SGNODE* parent,
@@ -311,42 +314,167 @@ FormatType fileType( const char* aFileName )
 }
 
 
-void getTag( TDF_Label& label, std::string& aTag )
+/**
+ * Gets the absolute tag string for a given label in the form of ##:##:##:##
+ *
+ * @param aLabel is the label to get the string for
+ * @param aTag is the resulting tag string based by reference
+ */
+void getTag( const TDF_Label& aLabel, std::string& aTag )
 {
-    if( label.IsNull() )
+    std::ostringstream ostr;
+
+    if( aLabel.IsNull() )
+    {
+        wxLogTrace( MASK_OCE, "Null label passed to getTag" );
+        return;
+    }
+
+    TColStd_ListOfInteger tagList;
+    TDF_Tool::TagList( aLabel, tagList );
+
+    for( TColStd_ListOfInteger::Iterator it( tagList ); it.More(); it.Next() )
+    {
+        ostr << it.Value();
+        ostr << ":";
+    }
+
+    aTag = ostr.str();
+    aTag.pop_back();    // kill the last colon
+}
+
+
+#ifdef DUMP_LABELS
+static wxString getLabelName( const TDF_Label& aLabel )
+{
+    wxString txt;
+    Handle( TDataStd_Name ) name;
+    if( !aLabel.IsNull() && aLabel.FindAttribute( TDataStd_Name::GetID(), name ) )
+    {
+        TCollection_ExtendedString extstr = name->Get();
+        char*                      str = new char[extstr.LengthOfCString() + 1];
+        extstr.ToUTF8CString( str );
+
+        txt = wxString::FromUTF8( str );
+        delete[] str;
+        txt = txt.Trim();
+    }
+    return txt;
+}
+
+
+/**
+ * Gets a string for a given TopAbs_ShapeEnum element
+ *
+ * @param aShape enum value to convert
+ */
+std::string getShapeName( TopAbs_ShapeEnum aShape )
+{
+    switch( aShape )
+    {
+    case TopAbs_COMPOUND: return "COMPOUND";
+    case TopAbs_COMPSOLID: return "COMPSOLID";
+    case TopAbs_SOLID: return "SOLID";
+    case TopAbs_SHELL: return "SHELL";
+    case TopAbs_FACE: return "FACE";
+    case TopAbs_WIRE: return "WIRE";
+    case TopAbs_EDGE: return "EDGE";
+    case TopAbs_VERTEX: return "VERTEX";
+    case TopAbs_SHAPE: return "SHAPE";
+    }
+
+    return "UNKNOWN";
+}
+
+static int colorFloatToDecimal( float aVal )
+{
+    return aVal * 255;
+}
+
+
+static inline std::ostream& operator<<( std::ostream& aOStream, const Quantity_ColorRGBA& aColor )
+{
+    Quantity_Color rgb = aColor.GetRGB();
+
+    return aOStream << "rgba(" << colorFloatToDecimal( rgb.Red() ) << ","
+                    << colorFloatToDecimal( rgb.Green() ) << ","
+                    << colorFloatToDecimal( rgb.Blue() ) << ","
+                    << colorFloatToDecimal( aColor.Alpha() )
+                    << ")";
+}
+
+
+/**
+ * Gets a string for a given TopAbs_ShapeEnum element
+ *
+ * @param aLabel Label to convert
+ * @param aShapeTool Handle to shape tool being used
+ * @param aColorTool Handle to color tool being used
+ * @param aPregMsg Any prefixed message to insert (used for indentation in dump)
+ */
+static void printLabel( TDF_Label aLabel, Handle( XCAFDoc_ShapeTool ) aShapeTool,
+                        Handle( XCAFDoc_ColorTool ) aColorTool, const char* aPreMsg = nullptr )
+{
+    if( aLabel.IsNull() )
         return;
 
-    std::string rtag;   // tag in reverse
-    aTag.clear();
-    int id = label.Tag();
-    std::ostringstream ostr;
-    ostr << id;
-    rtag = ostr.str();
-    ostr.str( "" );
-    ostr.clear();
+    if( !aPreMsg )
+        aPreMsg = "Label: ";
 
-    TDF_Label nlab = label.Father();
+    TCollection_AsciiString entry;
+    TDF_Tool::Entry( aLabel, entry );
+    std::ostringstream ss;
+    ss << aPreMsg << entry << ", " << getLabelName( aLabel )
+       << ( aShapeTool->IsShape( aLabel ) ? ", shape" : "" )
+       << ( aShapeTool->IsTopLevel( aLabel ) ? ", topLevel" : "" )
+       << ( aShapeTool->IsFree( aLabel ) ? ", free" : "" )
+       << ( aShapeTool->IsAssembly( aLabel ) ? ", assembly" : "" )
+       << ( aShapeTool->IsSimpleShape( aLabel ) ? ", simple" : "" )
+       << ( aShapeTool->IsCompound( aLabel ) ? ", compound" : "" )
+       << ( aShapeTool->IsReference( aLabel ) ? ", reference" : "" )
+       << ( aShapeTool->IsComponent( aLabel ) ? ", component" : "" )
+       << ( aShapeTool->IsSubShape( aLabel ) ? ", subshape" : "" );
 
-    while( !nlab.IsNull() )
+    if( aShapeTool->IsSubShape( aLabel ) )
     {
-        rtag.append( 1, ':' );
-        id = nlab.Tag();
-        ostr << id;
-        rtag.append( ostr.str() );
-        ostr.str( "" );
-        ostr.clear();
-        nlab = nlab.Father();
-    };
-
-    std::string::reverse_iterator bI = rtag.rbegin();
-    std::string::reverse_iterator eI = rtag.rend();
-
-    while( bI != eI )
-    {
-        aTag.append( 1, *bI );
-        ++bI;
+        auto shape = aShapeTool->GetShape( aLabel );
+        if( !shape.IsNull() )
+            ss << ", " << getShapeName( shape.ShapeType() );
     }
+
+    if( aShapeTool->IsShape( aLabel ) )
+    {
+        Quantity_ColorRGBA c;
+        if( aColorTool->GetColor( aLabel, XCAFDoc_ColorGen, c ) )
+            ss << ", gc: " << c;
+        if( aColorTool->GetColor( aLabel, XCAFDoc_ColorSurf, c ) )
+            ss << ", sc: " << c;
+        if( aColorTool->GetColor( aLabel, XCAFDoc_ColorCurv, c ) )
+            ss << ", cc: " << c;
+    }
+
+    wxLogTrace( MASK_OCE, ss.str().c_str() );
 }
+
+
+/**
+ * Dumps a label and the entire tree underneath it
+ *
+ * @param aLabel Label to convert
+ * @param aShapeTool Handle to shape tool being used
+ * @param aColorTool Handle to color tool being used
+ * @param aDepth Indentation level to offset labels (used recursively by dumpLabels)
+ */
+static void dumpLabels( TDF_Label aLabel, Handle( XCAFDoc_ShapeTool ) aShapeTool,
+                        Handle( XCAFDoc_ColorTool ) aColorTool, int aDepth = 0 )
+{
+    std::string indent( aDepth * 2, ' ' );
+    printLabel( aLabel, aShapeTool, aColorTool, indent.c_str() );
+    TDF_ChildIterator it;
+    for( it.Initialize( aLabel ); it.More(); it.Next() )
+        dumpLabels( it.Value(), aShapeTool, aColorTool, aDepth + 1 );
+}
+#endif
 
 
 bool getColor( DATA& data, TDF_Label label, Quantity_Color& color )
@@ -424,6 +552,8 @@ bool readIGES( Handle( TDocStd_Document ) & m_doc, const char* fname )
 
 bool readSTEP( Handle(TDocStd_Document)& m_doc, const char* fname )
 {
+    wxLogTrace( MASK_OCE, "Reading step file %s", fname );
+
     STEPCAFControl_Reader reader;
     IFSelect_ReturnStatus stat  = reader.ReadFile( fname );
 
@@ -566,27 +696,30 @@ SCENEGRAPH* LoadModel( char const* filename )
     data.m_assy = XCAFDoc_DocumentTool::ShapeTool( data.m_doc->Main() );
     data.m_color = XCAFDoc_DocumentTool::ColorTool( data.m_doc->Main() );
 
+    #ifdef DUMP_LABELS
+    dumpLabels( data.m_doc->Main(), data.m_assy, data.m_color );
+    #endif
+
     // retrieve all free shapes
     TDF_LabelSequence frshapes;
     data.m_assy->GetFreeShapes( frshapes );
 
-    int nshapes = frshapes.Length();
-    int id = 1;
     bool ret = false;
 
     // create the top level SG node
     IFSG_TRANSFORM topNode( true );
     data.scene = topNode.GetRawPtr();
 
-    while( id <= nshapes )
+    for( Standard_Integer i = 1; i <= frshapes.Length(); i++ )
     {
-        TopoDS_Shape shape = data.m_assy->GetShape( frshapes.Value( id ) );
+        const TDF_Label& label = frshapes.Value( i );
 
-        if ( !shape.IsNull() && processNode( shape, data, data.scene, nullptr ) )
-            ret = true;
-
-        ++id;
-    };
+        if( data.m_color->IsVisible( label ) )
+        {
+            if( processLabel( label, data, data.scene, nullptr ) )
+                ret = true;
+        }
+    }
 
     if( !ret )
         return nullptr;
@@ -624,6 +757,7 @@ bool processShell( const TopoDS_Shape& shape, DATA& data, SGNODE* parent,
     TopoDS_Iterator it;
     bool ret = false;
 
+    wxLogTrace( MASK_OCE, "Processing shell" );
     for( it.Initialize( shape, false, false ); it.More(); it.Next() )
     {
         const TopoDS_Face& face = TopoDS::Face( it.Value() );
@@ -644,6 +778,8 @@ bool processSolid( const TopoDS_Shape& shape, DATA& data, SGNODE* parent,
     std::string partID;
     Quantity_Color col;
     Quantity_Color* lcolor = nullptr;
+
+    wxLogTrace( MASK_OCE, "Processing solid" );
 
     // Search the whole model first to make sure something exists (may or may not have color)
     if( !data.m_assy->Search( shape, label ) )
@@ -705,20 +841,8 @@ bool processSolid( const TopoDS_Shape& shape, DATA& data, SGNODE* parent,
     TopoDS_Iterator it;
     IFSG_TRANSFORM childNode( parent );
     SGNODE* pptr = childNode.GetRawPtr();
-    const TopLoc_Location& loc = shape.Location();
     bool ret = false;
 
-    if( !loc.IsIdentity() )
-    {
-        gp_Trsf T = loc.Transformation();
-        gp_XYZ coord = T.TranslationPart();
-        childNode.SetTranslation( SGPOINT( coord.X(), coord.Y(), coord.Z() ) );
-        gp_XYZ axis;
-        Standard_Real angle;
-
-        if( T.GetRotation( axis, angle ) )
-            childNode.SetRotation( SGVECTOR( axis.X(), axis.Y(), axis.Z() ), angle );
-    }
 
     std::vector< SGNODE* >* component = nullptr;
 
@@ -740,75 +864,14 @@ bool processSolid( const TopoDS_Shape& shape, DATA& data, SGNODE* parent,
     {
         const TopoDS_Shape& subShape = it.Value();
 
-        if( processShell( subShape, data, pptr, &itemList, lcolor ) )
-            ret = true;
-    }
-
-    if( !ret )
-        childNode.Destroy();
-    else if( nullptr != items )
-        items->push_back( pptr );
-
-    return ret;
-}
-
-
-bool processComp( const TopoDS_Shape& shape, DATA& data, SGNODE* parent,
-                  std::vector< SGNODE* >* items )
-{
-    TopoDS_Iterator it;
-    IFSG_TRANSFORM childNode( parent );
-    SGNODE* pptr = childNode.GetRawPtr();
-    const TopLoc_Location& loc = shape.Location();
-    bool ret = false;
-
-    if( !loc.IsIdentity() )
-    {
-        gp_Trsf T = loc.Transformation();
-        gp_XYZ coord = T.TranslationPart();
-        childNode.SetTranslation( SGPOINT( coord.X(), coord.Y(), coord.Z() ) );
-        gp_XYZ axis;
-        Standard_Real angle;
-
-        if( T.GetRotation( axis, angle ) )
-            childNode.SetRotation( SGVECTOR( axis.X(), axis.Y(), axis.Z() ), angle );
-    }
-
-    for( it.Initialize( shape, false, false ); it.More(); it.Next() )
-    {
-        const TopoDS_Shape& subShape = it.Value();
-        TopAbs_ShapeEnum stype = subShape.ShapeType();
-        data.hasSolid = false;
-
-        switch( stype )
+        if( subShape.ShapeType() == TopAbs_SHELL )
         {
-        case TopAbs_COMPOUND:
-        case TopAbs_COMPSOLID:
-            if( processComp( subShape, data, pptr, items ) )
+            if( processShell( subShape, data, pptr, &itemList, lcolor ) )
                 ret = true;
-
-            break;
-
-        case TopAbs_SOLID:
-            if( processSolid( subShape, data, pptr, items ) )
-                ret = true;
-
-            break;
-
-        case TopAbs_SHELL:
-            if( processShell( subShape, data, pptr, items, nullptr ) )
-                ret = true;
-
-            break;
-
-        case TopAbs_FACE:
-            if( processFace( TopoDS::Face( subShape ), data, pptr, items, nullptr ) )
-                ret = true;
-
-            break;
-
-        default:
-            break;
+        }
+        else
+        {
+            wxLogTrace( MASK_OCE, "Unsupported subshape in solid" );
         }
     }
 
@@ -821,42 +884,109 @@ bool processComp( const TopoDS_Shape& shape, DATA& data, SGNODE* parent,
 }
 
 
-bool processNode( const TopoDS_Shape& shape, DATA& data, SGNODE* parent,
-    std::vector< SGNODE* >* items )
+bool processLabel( const TDF_Label& aLabel, DATA& aData, SGNODE* aParent,
+                   std::vector<SGNODE*>* aItems )
 {
+    int labelTag = static_cast<int>( aLabel.Tag() );
+    wxLogTrace( MASK_OCE, "Processing label %d", labelTag );
+
+    TopoDS_Shape originalShape;
+    TDF_Label shapeLabel = aLabel;
+
+    if( !aData.m_assy->GetShape( shapeLabel, originalShape ) )
+    {
+        return false;
+    }
+
+    TopoDS_Shape shape = originalShape;
+
+    if( aData.m_assy->IsReference( aLabel ) )
+    {
+        wxLogTrace( MASK_OCE, "Label %d is ref, trying to pull up referred label", labelTag );
+
+        if( !aData.m_assy->GetReferredShape( aLabel, shapeLabel ) )
+        {
+            return false;
+        }
+
+        labelTag = static_cast<int>( shapeLabel.Tag() );
+        wxLogTrace( MASK_OCE, "Label %d referred", labelTag );
+
+        if( !aData.m_assy->GetShape( shapeLabel, shape ) )
+        {
+            return false;
+        }
+    }
+
+    // Now let's see if the original label has a location
+    // Labels can be used to place copies of other labels at a specific location
+    IFSG_TRANSFORM         childNode( aParent );
+    SGNODE*                pptr = childNode.GetRawPtr();
+    const TopLoc_Location& loc = originalShape.Location();
+
+    if( !loc.IsIdentity() )
+    {
+        wxLogTrace( MASK_OCE, "Label %d has location", static_cast<int>( aLabel.Tag() ) );
+        gp_Trsf T = loc.Transformation();
+        gp_XYZ  coord = T.TranslationPart();
+        childNode.SetTranslation( SGPOINT( coord.X(), coord.Y(), coord.Z() ) );
+        wxLogTrace( MASK_OCE, "Translation %f, %f, %f", coord.X(), coord.Y(), coord.Z() );
+        gp_XYZ        axis;
+        Standard_Real angle;
+
+        if( T.GetRotation( axis, angle ) )
+        {
+            childNode.SetRotation( SGVECTOR( axis.X(), axis.Y(), axis.Z() ), angle );
+            wxLogTrace( MASK_OCE, "Rotation %f, %f, %f, angle %f", axis.X(), axis.Y(), axis.Z(),
+                        angle );
+        }
+    }
+
     TopAbs_ShapeEnum stype = shape.ShapeType();
-    bool ret = false;
-    data.hasSolid = false;
+    bool             ret = false;
+    aData.hasSolid = false;
 
     switch( stype )
     {
     case TopAbs_COMPOUND:
     case TopAbs_COMPSOLID:
-        if( processComp( shape, data, parent, items ) )
-            ret = true;
-
+        ret = true;
         break;
 
     case TopAbs_SOLID:
-        if( processSolid( shape, data, parent, items ) )
+        if( processSolid( shape, aData, pptr, aItems ) )
             ret = true;
 
         break;
 
     case TopAbs_SHELL:
-        if( processShell( shape, data, parent, items, nullptr ) )
+        if( processShell( shape, aData, pptr, aItems, nullptr ) )
             ret = true;
 
         break;
 
     case TopAbs_FACE:
-        if( processFace( TopoDS::Face( shape ), data, parent, items, nullptr ) )
+        if( processFace( TopoDS::Face( shape ), aData, pptr, aItems, nullptr ) )
             ret = true;
 
         break;
 
     default:
         break;
+    }
+
+    if( nullptr != aItems )
+        aItems->push_back( pptr );
+
+    if( shapeLabel.HasChild() )
+    {
+        wxLogTrace( MASK_OCE, "Label %d has children", labelTag );
+        TDF_ChildIterator it;
+        for( it.Initialize( shapeLabel ); it.More(); it.Next() )
+        {
+            if( processLabel( it.Value(), aData, pptr, aItems ) )
+                ret = true;
+        }
     }
 
     return ret;

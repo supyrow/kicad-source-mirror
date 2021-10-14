@@ -23,7 +23,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
-#include <algorithm>
+#include <core/kicad_algo.h>
 #include <symbol_library.h>
 #include <confirm.h>
 #include <eeschema_id.h>
@@ -181,12 +181,10 @@ PICKED_SYMBOL SCH_BASE_FRAME::PickSymbolFromLibTree( const SCHLIB_FILTER* aFilte
 
     if( sel.LibId.IsValid() )
     {
-        aHistoryList.erase( std::remove_if( aHistoryList.begin(), aHistoryList.end(),
-                                            [ &sel ]( PICKED_SYMBOL const& i )
-                                            {
-                                                return i.LibId == sel.LibId;
-                                            } ),
-                            aHistoryList.end() );
+        alg::delete_if( aHistoryList, [&sel]( PICKED_SYMBOL const& i )
+                                      {
+                                          return i.LibId == sel.LibId;
+                                      } );
 
         aHistoryList.insert( aHistoryList.begin(), sel );
     }
@@ -228,7 +226,7 @@ void SCH_EDIT_FRAME::SelectUnit( SCH_SYMBOL* aSymbol, int aUnit )
 
         TestDanglingEnds();
 
-        UpdateItem( aSymbol );
+        UpdateItem( aSymbol, false, true );
         OnModify();
     }
 }
@@ -272,6 +270,6 @@ void SCH_EDIT_FRAME::ConvertPart( SCH_SYMBOL* aSymbol )
     if( aSymbol->IsSelected() )
         m_toolManager->RunAction( EE_ACTIONS::addItemToSel, true, aSymbol );
 
-    UpdateItem( aSymbol );
+    UpdateItem( aSymbol, false, true );
     OnModify();
 }

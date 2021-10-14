@@ -35,6 +35,7 @@
 #include <dialogs/dialog_text_entry.h>
 #include <tool/tool_manager.h>
 #include <tools/pcb_actions.h>
+#include <tools/board_editor_control.h>
 #include <board.h>
 #include <footprint.h>
 #include <board_commit.h>
@@ -569,9 +570,6 @@ bool PCB_BASE_EDIT_FRAME::AddLibrary( const wxString& aFilename, FP_LIB_TABLE* a
     // try to use path normalized to an environmental variable or project path
     wxString normalizedPath = NormalizePath( libPath, &Pgm().GetLocalEnvVariables(), &Prj() );
 
-    if( normalizedPath.IsEmpty() )
-        normalizedPath = libPath;
-
     try
     {
         FP_LIB_TABLE_ROW* row = new FP_LIB_TABLE_ROW( libName, normalizedPath, type, wxEmptyString );
@@ -869,6 +867,7 @@ bool FOOTPRINT_EDIT_FRAME::SaveFootprintToBoard( bool aAddNew )
     // update footprint in the current board,
     // not just add it to the board with total disregard for the netlist...
     PCB_EDIT_FRAME* pcbframe = (PCB_EDIT_FRAME*) Kiway().Player( FRAME_PCB_EDITOR, false );
+    TOOL_MANAGER*   toolMgr = pcbframe->GetToolManager();
 
     if( pcbframe == nullptr )       // happens when the board editor is not active (or closed)
     {
@@ -902,8 +901,14 @@ bool FOOTPRINT_EDIT_FRAME::SaveFootprintToBoard( bool aAddNew )
         return false;
     }
 
+    if( aAddNew && toolMgr->GetTool<BOARD_EDITOR_CONTROL>()->PlacingFootprint() )
+    {
+        DisplayError( this, _( "Previous footprint placement still in progress." ) );
+        return false;
+    }
+
     m_toolManager->RunAction( PCB_ACTIONS::selectionClear, true );
-    pcbframe->GetToolManager()->RunAction( PCB_ACTIONS::selectionClear, true );
+    toolMgr->RunAction( PCB_ACTIONS::selectionClear, true );
     BOARD_COMMIT commit( pcbframe );
 
     // Create a copy for the board, first using Clone() to keep existing Uuids, and then either
@@ -950,7 +955,7 @@ bool FOOTPRINT_EDIT_FRAME::SaveFootprintToBoard( bool aAddNew )
         commit.Push( wxT( "Insert footprint" ) );
 
         pcbframe->Raise();
-        pcbframe->GetToolManager()->RunAction( PCB_ACTIONS::placeFootprint, true, newFootprint );
+        toolMgr->RunAction( PCB_ACTIONS::placeFootprint, true, newFootprint );
     }
 
     newFootprint->ClearFlags();
@@ -1122,6 +1127,7 @@ FOOTPRINT* PCB_BASE_FRAME::CreateNewFootprint( const wxString& aFootprintName, b
 
     // Static to store user preference for a session
     static int footprintType = 1;
+    int footprintTranslated = FP_SMD;
 
     // Ask for the new footprint name
     if( footprintName.IsEmpty() && !aQuiet )
@@ -1134,16 +1140,18 @@ FOOTPRINT* PCB_BASE_FRAME::CreateNewFootprint( const wxString& aFootprintName, b
         if( dlg.ShowModal() != wxID_OK )
             return nullptr;    //Aborted by user
 
-        switch( dlg.GetChoice() )
+        footprintType = dlg.GetChoice();
+
+        switch( footprintType )
         {
         case 0:
-            footprintType = FP_THROUGH_HOLE;
+            footprintTranslated = FP_THROUGH_HOLE;
             break;
         case 1:
-            footprintType = FP_SMD;
+            footprintTranslated = FP_SMD;
             break;
         default:
-            footprintType = 0;
+            footprintTranslated = 0;
         }
     }
 
@@ -1167,7 +1175,7 @@ FOOTPRINT* PCB_BASE_FRAME::CreateNewFootprint( const wxString& aFootprintName, b
     // Update its name in lib
     footprint->SetFPID( LIB_ID( wxEmptyString, footprintName ) );
 
-    footprint->SetAttributes( footprintType );
+    footprint->SetAttributes( footprintTranslated );
 
     PCB_LAYER_ID txt_layer;
     wxPoint default_pos;

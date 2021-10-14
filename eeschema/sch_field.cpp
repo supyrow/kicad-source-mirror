@@ -37,6 +37,7 @@
 #include <sch_edit_frame.h>
 #include <plotters/plotter.h>
 #include <bitmaps.h>
+#include <core/kicad_algo.h>
 #include <core/mirror.h>
 #include <kiway.h>
 #include <general.h>
@@ -51,7 +52,6 @@
 #include <eeschema_id.h>
 #include <tool/tool_manager.h>
 #include <tools/ee_actions.h>
-
 
 SCH_FIELD::SCH_FIELD( const wxPoint& aPos, int aFieldId, SCH_ITEM* aParent,
                       const wxString& aName ) :
@@ -481,19 +481,17 @@ void SCH_FIELD::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_I
 {
     wxString msg;
 
-    aList.push_back( MSG_PANEL_ITEM( _( "Symbol Field" ), GetName() ) );
+    aList.emplace_back( _( "Symbol Field" ), GetName() );
 
     // Don't use GetShownText() here; we want to show the user the variable references
-    aList.push_back( MSG_PANEL_ITEM( _( "Text" ), UnescapeString( GetText() ) ) );
+    aList.emplace_back( _( "Text" ), UnescapeString( GetText() ) );
 
-    msg = IsVisible() ? _( "Yes" ) : _( "No" );
-    aList.push_back( MSG_PANEL_ITEM( _( "Visible" ), msg ) );
+    aList.emplace_back( _( "Visible" ), IsVisible() ? _( "Yes" ) : _( "No" ) );
 
-    msg = GetTextStyleName();
-    aList.push_back( MSG_PANEL_ITEM( _( "Style" ), msg ) );
+    aList.emplace_back( _( "Style" ), GetTextStyleName() );
 
-    msg = MessageTextFromValue( aFrame->GetUserUnits(), GetTextWidth() );
-    aList.push_back( MSG_PANEL_ITEM( _( "Text Size" ), msg ) );
+    aList.emplace_back( _( "Text Size" ), MessageTextFromValue( aFrame->GetUserUnits(),
+                                                                GetTextWidth() ) );
 
     switch ( GetHorizJustify() )
     {
@@ -502,7 +500,7 @@ void SCH_FIELD::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_I
     case GR_TEXT_HJUSTIFY_RIGHT:  msg = _( "Right" );  break;
     }
 
-    aList.push_back( MSG_PANEL_ITEM( _( "H Justification" ), msg ) );
+    aList.emplace_back( _( "H Justification" ), msg );
 
     switch ( GetVertJustify() )
     {
@@ -511,7 +509,7 @@ void SCH_FIELD::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_I
     case GR_TEXT_VJUSTIFY_BOTTOM: msg = _( "Bottom" ); break;
     }
 
-    aList.push_back( MSG_PANEL_ITEM( _( "V Justification" ), msg ) );
+    aList.emplace_back( _( "V Justification" ), msg );
 }
 
 
@@ -533,18 +531,20 @@ void SCH_FIELD::DoHypertextMenu( EDA_DRAW_FRAME* aFrame )
             std::vector<wxString>        pageListCopy;
 
             pageListCopy.insert( pageListCopy.end(), it->second.begin(), it->second.end() );
-            std::sort( pageListCopy.begin(), pageListCopy.end() );
-
             if( !Schematic()->Settings().m_IntersheetRefsListOwnPage )
             {
                 wxString currentPage = Schematic()->CurrentSheet().GetPageNumber();
-                pageListCopy.erase( std::remove( pageListCopy.begin(),
-                                                 pageListCopy.end(),
-                                                 currentPage ), pageListCopy.end() );
+                alg::delete_matching( pageListCopy, currentPage );
 
                 if( pageListCopy.empty() )
                     return;
             }
+
+            std::sort( pageListCopy.begin(), pageListCopy.end(),
+                       []( const wxString& a, const wxString& b ) -> bool
+                       {
+                           return StrNumCmp( a, b, true ) < 0;
+                       } );
 
             for( const SCH_SHEET_PATH& sheet : Schematic()->GetSheets() )
             {

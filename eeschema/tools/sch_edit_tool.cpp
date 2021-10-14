@@ -66,7 +66,6 @@
 #include <symbol_editor_settings.h>
 #include <dialogs/dialog_text_and_label_properties.h>
 #include <core/kicad_algo.h>
-//#include <wx/filedlg.h>
 #include <wx/textdlg.h>
 
 
@@ -552,7 +551,7 @@ int SCH_EDIT_TOOL::Rotate( const TOOL_EVENT& aEvent )
         }
 
         connections = head->IsConnectable();
-        m_frame->UpdateItem( head );
+        m_frame->UpdateItem( head, false, true );
     }
     else
     {
@@ -628,7 +627,7 @@ int SCH_EDIT_TOOL::Rotate( const TOOL_EVENT& aEvent )
         }
 
         connections |= item->IsConnectable();
-        m_frame->UpdateItem( item );
+        m_frame->UpdateItem( item, false, true );
         updateItem( item, true );
     }
 
@@ -761,7 +760,7 @@ int SCH_EDIT_TOOL::Mirror( const TOOL_EVENT& aEvent )
         }
 
         connections = item->IsConnectable();
-        m_frame->UpdateItem( item );
+        m_frame->UpdateItem( item, false, true );
     }
     else if( selection.GetSize() > 1 )
     {
@@ -816,7 +815,7 @@ int SCH_EDIT_TOOL::Mirror( const TOOL_EVENT& aEvent )
             }
 
             connections |= item->IsConnectable();
-            m_frame->UpdateItem( item );
+            m_frame->UpdateItem( item, false, true );
         }
     }
 
@@ -1135,7 +1134,7 @@ void SCH_EDIT_TOOL::editFieldText( SCH_FIELD* aField )
     if( m_frame->eeconfig()->m_AutoplaceFields.enable || parentType == SCH_SHEET_T )
         static_cast<SCH_ITEM*>( aField->GetParent() )->AutoAutoplaceFields( m_frame->GetScreen() );
 
-    m_frame->UpdateItem( aField );
+    m_frame->UpdateItem( aField, false, true );
     m_frame->OnModify();
 
     // This must go after OnModify() so that the connectivity graph will have been updated.
@@ -1325,6 +1324,19 @@ int SCH_EDIT_TOOL::Properties( const TOOL_EVENT& aEvent )
         break;
     }
 
+    auto doTextAndLabelProps =
+            [&]( SCH_TEXT* aText )
+            {
+                DIALOG_TEXT_AND_LABEL_PROPERTIES dlg( m_frame, aText );
+
+                // Must be quasi modal for syntax help
+                if( dlg.ShowQuasiModal() == wxID_OK )
+                {
+                    m_toolMgr->PostEvent( EVENTS::SelectedItemsModified );
+                    m_frame->OnModify();
+                }
+            };
+
     switch( item->Type() )
     {
     case SCH_SYMBOL_T:
@@ -1435,24 +1447,18 @@ int SCH_EDIT_TOOL::Properties( const TOOL_EVENT& aEvent )
     case SCH_LABEL_T:
     case SCH_GLOBAL_LABEL_T:
     case SCH_HIER_LABEL_T:
-    {
-        SCH_TEXT*                        text = static_cast<SCH_TEXT*>( item );
-        DIALOG_TEXT_AND_LABEL_PROPERTIES dlg( m_frame, text );
-
-        // Must be quasi modal for syntax help
-        if( dlg.ShowQuasiModal() == wxID_OK )
-        {
-            m_toolMgr->PostEvent( EVENTS::SelectedItemsModified );
-            m_frame->OnModify();
-        }
-    }
+        doTextAndLabelProps( static_cast<SCH_TEXT*>( item ) );
         break;
 
     case SCH_FIELD_T:
     {
         SCH_FIELD* field = static_cast<SCH_FIELD*>( item );
+        EDA_ITEM*  parent = field->GetParent();
 
-        editFieldText( field );
+        if( parent->Type() == SCH_GLOBAL_LABEL_T )
+            doTextAndLabelProps( static_cast<SCH_TEXT*>( parent ) );
+        else
+            editFieldText( field );
 
         if( !field->IsVisible() )
             clearSelection = true;

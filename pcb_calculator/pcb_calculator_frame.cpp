@@ -17,117 +17,85 @@
  * You should have received a copy of the GNU General Public License along
  * with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+#include <wx/menu.h>
 #include <wx/msgdlg.h>
+#include <wx/notebook.h>
+#include <wx/sizer.h>
+
+#include <typeinfo>
+
 #include <bitmaps.h>
+#include <bitmap_store.h>
 #include <geometry/shape_poly_set.h>
 #include <kiface_base.h>
-#include "attenuators/attenuator_classes.h"
-#include "class_regulator_data.h"
-#include "pcb_calculator_frame.h"
-#include "pcb_calculator_settings.h"
 
+#include <attenuators/attenuator_classes.h>
+#include <pcb_calculator_frame.h>
+#include <pcb_calculator_settings.h>
 
-// extension of pcb_calculator data filename:
-const wxString DataFileNameExt( wxT( "pcbcalc" ) );
+#include <calculator_panels/panel_attenuators.h>
+#include <calculator_panels/panel_board_class.h>
+#include <calculator_panels/panel_color_code.h>
+#include <calculator_panels/panel_electrical_spacing.h>
+#include <calculator_panels/panel_eserie.h>
+#include <calculator_panels/panel_regulator.h>
+#include <calculator_panels/panel_track_width.h>
+#include <calculator_panels/panel_transline.h>
+#include <calculator_panels/panel_via_size.h>
 
 
 PCB_CALCULATOR_FRAME::PCB_CALCULATOR_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
-    PCB_CALCULATOR_FRAME_BASE( aParent ),
+    KIWAY_PLAYER( aParent, wxID_ANY,
+                 _( "PCB Calculator"  ), // Window title
+                 wxDefaultPosition,
+                 wxSize( 646,361 ), // Default size
+                 wxDEFAULT_FRAME_STYLE | wxRESIZE_BORDER | wxFULL_REPAINT_ON_RESIZE | wxTAB_TRAVERSAL,
+                 wxT( "pcb_calculator" ) ), // Window name
     m_lastNotebookPage( -1 ),
     m_macHack( true )
 {
-    m_bpButtonCalcAtt->SetBitmap( KiBitmap( BITMAPS::small_down ) );
-    m_bpButtonAnalyze->SetBitmap( KiBitmap( BITMAPS::small_down ) );
-    m_bpButtonSynthetize->SetBitmap( KiBitmap( BITMAPS::small_up ) );
-
-    SetKiway( this, aKiway );
-    m_currTransLine     = nullptr;
-    m_currTransLineType = DEFAULT_TYPE;
-    m_currAttenuator    = nullptr;
-    m_RegulatorListChanged = false;
-    m_TWMode = TW_MASTER_CURRENT;
-    m_TWNested = false;
-
     SHAPE_POLY_SET dummy;   // A ugly trick to force the linker to include
                             // some methods in code and avoid link errors
 
-    // Populate transline list ordered like in dialog menu list
-    const static TRANSLINE_TYPE_ID tltype_list[8] =
-    {
-        MICROSTRIP_TYPE,
-        CPW_TYPE,
-        GROUNDED_CPW_TYPE,
-        RECTWAVEGUIDE_TYPE,
-        COAX_TYPE,
-        C_MICROSTRIP_TYPE,
-        STRIPLINE_TYPE,
-        TWISTEDPAIR_TYPE
-    };
+    SetKiway( this, aKiway );
 
-    for( int ii = 0; ii < 8; ii++ )
-        m_transline_list.push_back( new TRANSLINE_IDENT( tltype_list[ii] ) );
+    SetSizeHints( wxDefaultSize, wxDefaultSize );
 
-    // Populate attenuator list ordered like in dialog menu list
-    m_attenuator_list.push_back( new ATTENUATOR_PI() );
-    m_attenuator_list.push_back( new ATTENUATOR_TEE() );
-    m_attenuator_list.push_back( new ATTENUATOR_BRIDGE() );
-    m_attenuator_list.push_back( new ATTENUATOR_SPLITTER() );
-    m_currAttenuator = m_attenuator_list[0];
+    m_menubar = new wxMenuBar( 0 );
+    SetMenuBar( m_menubar );
 
-    m_staticTextAttMsg->SetFont( KIUI::GetInfoFont( this ).Italic() );
+    m_mainSizer = new wxBoxSizer( wxVERTICAL );
+    m_notebook  = new wxNotebook( this, wxID_ANY, wxDefaultPosition, wxDefaultSize, 0 );
 
-    m_IadjUnitLabel->SetLabel( wxT( "µA" ) );
+    m_mainSizer->Add( m_notebook, 1, wxEXPAND, 5 );
 
-    m_attZinUnit->SetLabel( wxT( "Ω" ) );
-    m_attZoutUnit->SetLabel( wxT( "Ω" ) );
-    m_attR1Unit->SetLabel( wxT( "Ω" ) );
-    m_attR2Unit->SetLabel( wxT( "Ω" ) );
-    m_attR3Unit->SetLabel( wxT( "Ω" ) );
+    SetSizer( m_mainSizer );
+    Layout();
+    Centre( wxBOTH );
 
-    m_r1Units->SetLabel( wxT( "kΩ" ) );
-    m_r2Units->SetLabel( wxT( "kΩ" ) );
-
-    m_reqResUnits->SetLabel( wxT( "kΩ" ) );
-    m_exclude1Units->SetLabel( wxT( "kΩ" ) );
-    m_exclude2Units->SetLabel( wxT( "kΩ" ) );
-
-    m_EpsilonR_label->SetLabel( wxT( "εr" ) );
-
-    m_trackTempUnits->SetLabel( wxT( "°C" ) );
-    m_resistivityUnits->SetLabel( wxT( "Ω•m" ) );
-
-    m_viaResistivityUnits->SetLabel( wxT( "Ω•m" ) );
-
-    m_viaTempUnits->SetLabel( wxT( "°C" ) );
-    m_viaResUnits->SetLabel( wxT( "Ω" ) );
-    m_viaThermalResUnits->SetLabel( wxT( "°C/W" ) );
-    m_viaReactanceUnits->SetLabel( wxT( "Ω" ) );
-
-    m_extTrackResUnits->SetLabel( wxT( "Ω" ) );
-    m_intTrackResUnits->SetLabel( wxT( "Ω" ) );
+    AddCalculator( new PANEL_REGULATOR( m_notebook, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxTAB_TRAVERSAL ),
+                   _( "Regulators" ) );
+    AddCalculator( new PANEL_ATTENUATORS( m_notebook, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxTAB_TRAVERSAL ),
+                   _( "RF Attenuators" ) );
+    AddCalculator( new PANEL_E_SERIE( m_notebook, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxTAB_TRAVERSAL ),
+                   _( "E-Series" ) );
+    AddCalculator( new PANEL_COLOR_CODE( m_notebook, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxTAB_TRAVERSAL ),
+                   _( "Color Code" ) );
+    AddCalculator( new PANEL_TRANSLINE( m_notebook, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxTAB_TRAVERSAL ),
+                   _( "TransLine ") );
+    AddCalculator( new PANEL_VIA_SIZE( m_notebook, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxTAB_TRAVERSAL ),
+                   _( "Via Size" ) );
+    AddCalculator( new PANEL_TRACK_WIDTH( m_notebook, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxTAB_TRAVERSAL ),
+                   _( "Track Width" ) );
+    AddCalculator( new PANEL_ELECTRICAL_SPACING( m_notebook, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxTAB_TRAVERSAL ),
+                   _( "Electrical Spacing" ) );
+    AddCalculator( new PANEL_BOARD_CLASS( m_notebook, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxTAB_TRAVERSAL ),
+                   _("Board Classes") );
 
     LoadSettings( config() );
 
-    ReadDataFile();
-
-    TranslineTypeSelection( m_currTransLineType );
-    m_TranslineSelection->SetSelection( m_currTransLineType );
-
-    initTrackWidthPanel();
-    initColorCodePanel();
-    initViaSizePanel();
-    initESeriesPanel();
-
-    SetAttenuator( m_AttenuatorsSelection->GetSelection() );
-
-    ToleranceSelection( m_rbToleranceSelection->GetSelection() );
-
-    BoardClassesUpdateData( m_BoardClassesUnitsSelector->GetUnitScale() );
-
-    ElectricalSpacingUpdateData( m_ElectricalSpacingUnitsSelector->GetUnitScale() );
-
-    m_choiceRegulatorSelector->Append( m_RegulatorList.GetRegList() );
-    SelectLastSelectedRegulator();
+    if( PANEL_REGULATOR* regPanel = GetCalculator<PANEL_REGULATOR>() )
+        regPanel->ReadDataFile();
 
     // Give an icon
     wxIcon icon;
@@ -142,10 +110,6 @@ PCB_CALCULATOR_FRAME::PCB_CALCULATOR_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
 
     SetIcons( icon_bundle );
 
-    // Autosize the row label column to be sure label are not truncated
-    m_gridClassesValuesDisplay->SetRowLabelSize( wxGRID_AUTOSIZE );
-    m_gridElectricalSpacingValues->SetRowLabelSize( wxGRID_AUTOSIZE );
-
     GetSizer()->SetSizeHints( this );
 
     // Set previous size and position
@@ -153,91 +117,114 @@ PCB_CALCULATOR_FRAME::PCB_CALCULATOR_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
 
     if( m_framePos == wxDefaultPosition )
         Centre();
+
+    // Connect Events
+    Bind( wxEVT_CLOSE_WINDOW, wxCloseEventHandler( PCB_CALCULATOR_FRAME::OnClosePcbCalc ), this );
+    Bind( wxEVT_UPDATE_UI,    wxUpdateUIEventHandler( PCB_CALCULATOR_FRAME::OnUpdateUI ),  this );
+
+    Bind( wxEVT_SYS_COLOUR_CHANGED,
+          wxSysColourChangedEventHandler( PCB_CALCULATOR_FRAME::onThemeChanged ), this );
 }
 
 
 PCB_CALCULATOR_FRAME::~PCB_CALCULATOR_FRAME()
 {
-    for( unsigned ii = 0; ii < m_transline_list.size(); ii++ )
-        delete m_transline_list[ii];
-
-    for( unsigned ii = 0; ii < m_attenuator_list.size(); ii++ )
-        delete m_attenuator_list[ii];
-
-    delete m_ccValueNamesBitmap;
-    delete m_ccValuesBitmap;
-    delete m_ccMultipliersBitmap;
-    delete m_ccTolerancesBitmap;
-
     // This needed for OSX: avoids further OnDraw processing after this destructor and before
     // the native window is destroyed
     this->Freeze();
 }
 
 
+void PCB_CALCULATOR_FRAME::AddCalculator( CALCULATOR_PANEL *aPanel, const wxString& panelUIName )
+{
+    // Update internal structures
+    m_panels.push_back( aPanel );
+    m_panelTypes[ typeid( *aPanel ).hash_code() ] = aPanel;
+
+    m_notebook->AddPage( aPanel, panelUIName, false );
+}
+
+
+void PCB_CALCULATOR_FRAME::onThemeChanged( wxSysColourChangedEvent& aEvent )
+{
+    // Force the bitmaps to refresh
+    GetBitmapStore()->ThemeChanged();
+
+    // Update the panels
+    for( auto& panel : m_panels )
+        panel->ThemeChanged();
+
+    aEvent.Skip();
+}
+
+
 void PCB_CALCULATOR_FRAME::OnUpdateUI( wxUpdateUIEvent& event )
 {
-    if( m_Notebook->GetSelection() != m_lastNotebookPage )
+    if( m_notebook->GetSelection() != m_lastNotebookPage )
     {
         // Kick all the things that wxWidgets can't seem to redraw on its own.
         // This is getting seriously ridiculous....
+        PANEL_TRANSLINE*          translinePanel   = GetCalculator<PANEL_TRANSLINE>();
+        PANEL_ATTENUATORS*        attenPanel       = GetCalculator<PANEL_ATTENUATORS>();
+        PANEL_VIA_SIZE*           viaSizePanel     = GetCalculator<PANEL_VIA_SIZE>();
+        PANEL_REGULATOR*          regulPanel       = GetCalculator<PANEL_REGULATOR>();
+        PANEL_ELECTRICAL_SPACING* elecSpacingPanel = GetCalculator<PANEL_ELECTRICAL_SPACING>();
 
-        wxCommandEvent event2( wxEVT_RADIOBUTTON );
-        event2.SetEventObject( m_TranslineSelection );
-        event2.SetInt( m_currTransLineType );
-        m_TranslineSelection->Command( event2 );
+        wxASSERT( translinePanel );
+        wxASSERT( attenPanel );
+        wxASSERT( viaSizePanel );
+        wxASSERT( regulPanel );
+        wxASSERT( elecSpacingPanel );
 
-        for( int i = 0; i < m_attenuator_list.size(); ++i )
         {
-            if( m_attenuator_list[i] == m_currAttenuator )
+            wxCommandEvent event2( wxEVT_RADIOBUTTON );
+            event2.SetEventObject( translinePanel->GetTranslineSelector() );
+            event2.SetInt( translinePanel->GetCurrTransLineType() );
+
+            translinePanel->GetTranslineSelector()->Command( event2 );
+        }
+
+        for( int i = 0; i < attenPanel->m_AttenuatorList.size(); ++i )
+        {
+            if( attenPanel->m_AttenuatorList[i] == attenPanel->m_CurrAttenuator )
             {
-                event2.SetEventObject( m_AttenuatorsSelection );
+                wxCommandEvent event2( wxEVT_RADIOBUTTON );
+                event2.SetEventObject( attenPanel->GetAttenuatorsSelector() );
                 event2.SetInt( i );
-                m_AttenuatorsSelection->Command( event2 );
+
+                attenPanel->GetAttenuatorsSelector()->Command( event2 );
                 break;
             }
         }
 
-        ToleranceSelection( m_rbToleranceSelection->GetSelection() );
-
-       	m_viaBitmap->SetBitmap( KiBitmap( BITMAPS::viacalc ) );
-       	m_panelViaSize->Layout();
-
-        m_attenuatorBitmap->SetBitmap( *m_currAttenuator->m_SchBitMap );
-       	m_bitmapRegul3pins->SetBitmap( KiBitmap( BITMAPS::regul_3pins ) );
-       	m_bitmapRegul4pins->SetBitmap( KiBitmap( BITMAPS::regul ) );
-       	m_panelRegulators->Layout();
-
-       	m_attenuatorBitmap->GetParent()->Layout();
-       	m_attenuatorBitmap->GetParent()->Refresh();
-
-        m_panelESeriesHelp->Refresh();
-        m_htmlWinFormulas->Refresh();
+        attenPanel->UpdateUI();
+   	    viaSizePanel->Layout();
+  	    regulPanel->Layout();
 
         // Until it's shown on screen the above won't work; but doing it anyway at least keeps
         // putting new OnUpdateUI events into the queue until it *is* shown on screen.
-        if( m_Notebook->IsShownOnScreen() )
+        if( m_notebook->IsShownOnScreen() )
         {
             // Work around an OSX bug where the wxGrid children don't get placed correctly until
             // the first resize event.
 #ifdef __WXMAC__
             if( m_macHack )
             {
-                wxSize pageSize = m_panelElectricalSpacing->GetSize();
+                wxSize pageSize = elecSpacingPanel->GetSize();
 
                 pageSize.x -= 100;
-                m_panelElectricalSpacing->SetSize( pageSize );
-                m_panelElectricalSpacing->Layout();
+                elecSpacingPanel->SetSize( pageSize );
+                elecSpacingPanel->Layout();
 
                 pageSize.x += 100;
-                m_panelElectricalSpacing->SetSize( pageSize );
-                m_panelElectricalSpacing->Layout();
+                elecSpacingPanel->SetSize( pageSize );
+                elecSpacingPanel->Layout();
 
                 m_macHack = false;
             }
 #endif
 
-            m_lastNotebookPage = m_Notebook->GetSelection();
+            m_lastNotebookPage = m_notebook->GetSelection();
         }
     }
 }
@@ -245,12 +232,16 @@ void PCB_CALCULATOR_FRAME::OnUpdateUI( wxUpdateUIEvent& event )
 
 void PCB_CALCULATOR_FRAME::OnClosePcbCalc( wxCloseEvent& event )
 {
-    if( m_RegulatorListChanged )
+    PANEL_REGULATOR* regPanel = GetCalculator<PANEL_REGULATOR>();
+
+    wxASSERT( regPanel );
+
+    if( regPanel->m_RegulatorListChanged )
     {
         wxString msg;
         wxString title = _( "Write Data Failed" );
 
-        if( GetDataFilename().IsEmpty() )
+        if( regPanel->GetDataFilename().IsEmpty() )
         {
             msg = _( "No data filename to save modifications.\n"
                      "Do you want to exit and abandon your changes?" );
@@ -260,11 +251,11 @@ void PCB_CALCULATOR_FRAME::OnClosePcbCalc( wxCloseEvent& event )
         }
         else
         {
-            if( !WriteDataFile() )
+            if( !regPanel->WriteDataFile() )
             {
                 msg.Printf( _( "Unable to write file '%s'\n"
                                "Do you want to exit and abandon your changes?"),
-                            GetDataFilename() );
+                            regPanel->GetDataFilename() );
 
                 if( wxMessageBox( msg, title, wxYES_NO | wxICON_ERROR ) == wxNO )
                     return;
@@ -285,38 +276,10 @@ void PCB_CALCULATOR_FRAME::LoadSettings( APP_SETTINGS_BASE* aCfg )
 
     PCB_CALCULATOR_SETTINGS* cfg = static_cast<PCB_CALCULATOR_SETTINGS*>( aCfg );
 
-    m_currTransLineType = static_cast<TRANSLINE_TYPE_ID>( cfg->m_TransLine.type );
-    m_Notebook->ChangeSelection( cfg->m_LastPage );
-    m_rbToleranceSelection->SetSelection( cfg->m_ColorCodeTolerance );
-    m_AttenuatorsSelection->SetSelection( cfg->m_Attenuators.type );
-    m_BoardClassesUnitsSelector->SetSelection( cfg->m_BoardClassUnits );
+    m_notebook->ChangeSelection( cfg->m_LastPage );
 
-    // Regul panel config:
-    m_RegulR1Value->SetValue( cfg->m_Regulators.r1 );
-    m_RegulR2Value->SetValue( cfg->m_Regulators.r2 );
-    m_RegulVrefValue->SetValue( cfg->m_Regulators.vref );
-    m_RegulVoutValue->SetValue( cfg->m_Regulators.vout );
-    SetDataFilename( cfg->m_Regulators.data_file );
-    m_lastSelectedRegulatorName = cfg->m_Regulators.selected_regulator;
-    m_choiceRegType->SetSelection( cfg->m_Regulators.type );
-
-    wxRadioButton* regprms[3] = { m_rbRegulR1, m_rbRegulR2, m_rbRegulVout };
-
-    if( cfg->m_Regulators.last_param >= 3 )
-        cfg->m_Regulators.last_param = 0;
-
-    for( int ii = 0; ii < 3; ii++ )
-        regprms[ii]->SetValue( cfg->m_Regulators.last_param == ii );
-
-    // Electrical panel config
-    m_ElectricalSpacingUnitsSelector->SetSelection( cfg->m_Electrical.spacing_units );
-    m_ElectricalSpacingVoltage->SetValue( cfg->m_Electrical.spacing_voltage );
-
-    for( TRANSLINE_IDENT* transline : m_transline_list )
-        transline->ReadConfig();
-
-    for( ATTENUATOR* attenuator : m_attenuator_list )
-        attenuator->ReadConfig();
+    for( auto& panel : m_panels )
+        panel->LoadSettings( cfg );
 }
 
 
@@ -332,71 +295,10 @@ void PCB_CALCULATOR_FRAME::SaveSettings( APP_SETTINGS_BASE* aCfg )
 
     if( cfg )
     {
-        cfg->m_LastPage = m_Notebook->GetSelection();
-        cfg->m_TransLine.type = m_currTransLineType;
-        cfg->m_Attenuators.type = m_AttenuatorsSelection->GetSelection();
-        cfg->m_ColorCodeTolerance = m_rbToleranceSelection->GetSelection();
-        cfg->m_BoardClassUnits = m_BoardClassesUnitsSelector->GetSelection();
+        cfg->m_LastPage = m_notebook->GetSelection();
 
-        cfg->m_Electrical.spacing_units = m_ElectricalSpacingUnitsSelector->GetSelection();
-        cfg->m_Electrical.spacing_voltage = m_ElectricalSpacingVoltage->GetValue();
-
-        Regulators_WriteConfig( cfg );
+        for( auto& panel : m_panels )
+            panel->SaveSettings( cfg );
     }
 
-    writeTrackWidthConfig();
-
-    writeViaSizeConfig();
-
-    for( unsigned ii = 0; ii < m_transline_list.size(); ii++ )
-        m_transline_list[ii]->WriteConfig();
-
-    for( unsigned ii = 0; ii < m_attenuator_list.size(); ii++ )
-        m_attenuator_list[ii]->WriteConfig();
-}
-
-
-void PCB_CALCULATOR_FRAME::OnTranslineAnalyse( wxCommandEvent& event )
-{
-    if( m_currTransLine )
-    {
-        TransfDlgDataToTranslineParams();
-        m_currTransLine->analyze();
-    }
-}
-
-
-void PCB_CALCULATOR_FRAME::OnTranslineSynthetize( wxCommandEvent& event )
-{
-    if( m_currTransLine )
-    {
-        TransfDlgDataToTranslineParams();
-        m_currTransLine->synthesize();
-    }
-}
-
-
-const wxString PCB_CALCULATOR_FRAME::GetDataFilename()
-{
-    if( m_regulators_fileNameCtrl->GetValue().IsEmpty() )
-        return wxEmptyString;
-
-    wxFileName fn( m_regulators_fileNameCtrl->GetValue() );
-    fn.SetExt( DataFileNameExt );
-    return fn.GetFullPath();
-}
-
-
-void PCB_CALCULATOR_FRAME::SetDataFilename( const wxString& aFilename )
-{
-    if( aFilename.IsEmpty() )
-    {
-        m_regulators_fileNameCtrl->SetValue( wxEmptyString );
-    }
-    else
-    {
-        wxFileName fn( aFilename );
-        fn.SetExt( DataFileNameExt );
-        m_regulators_fileNameCtrl->SetValue( fn.GetFullPath() );
-    }
 }

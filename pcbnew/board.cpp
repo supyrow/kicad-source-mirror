@@ -25,7 +25,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
-#include <algorithm>
 #include <iterator>
 #include <drc/drc_rtree.h>
 #include <pcb_base_frame.h>
@@ -744,45 +743,25 @@ void BOARD::Remove( BOARD_ITEM* aBoardItem, REMOVE_MODE aRemoveMode )
     }
 
     case PCB_MARKER_T:
-        m_markers.erase( std::remove_if( m_markers.begin(), m_markers.end(),
-                                         [aBoardItem]( BOARD_ITEM* aItem )
-                                         {
-                                             return aItem == aBoardItem;
-                                         } ) );
+        alg::delete_matching( m_markers, aBoardItem );
         break;
 
     case PCB_GROUP_T:
-        m_groups.erase( std::remove_if( m_groups.begin(), m_groups.end(),
-                                        [aBoardItem]( BOARD_ITEM* aItem )
-                                        {
-                                            return aItem == aBoardItem;
-                                        } ) );
+        alg::delete_matching( m_groups, aBoardItem );
         break;
 
     case PCB_ZONE_T:
-        m_zones.erase( std::remove_if( m_zones.begin(), m_zones.end(),
-                                       [aBoardItem]( BOARD_ITEM* aItem )
-                                       {
-                                           return aItem == aBoardItem;
-                                       } ) );
+        alg::delete_matching( m_zones, aBoardItem );
         break;
 
     case PCB_FOOTPRINT_T:
-        m_footprints.erase( std::remove_if( m_footprints.begin(), m_footprints.end(),
-                                            [aBoardItem]( BOARD_ITEM* aItem )
-                                            {
-                                                return aItem == aBoardItem;
-                                            } ) );
+        alg::delete_matching( m_footprints, aBoardItem );
         break;
 
     case PCB_TRACE_T:
     case PCB_ARC_T:
     case PCB_VIA_T:
-        m_tracks.erase( std::remove_if( m_tracks.begin(), m_tracks.end(),
-                                        [aBoardItem]( BOARD_ITEM* aItem )
-                                        {
-                                            return aItem == aBoardItem;
-                                        } ) );
+        alg::delete_matching( m_tracks, aBoardItem );
         break;
 
     case PCB_DIM_ALIGNED_T:
@@ -792,11 +771,7 @@ void BOARD::Remove( BOARD_ITEM* aBoardItem, REMOVE_MODE aRemoveMode )
     case PCB_SHAPE_T:
     case PCB_TEXT_T:
     case PCB_TARGET_T:
-        m_drawings.erase( std::remove_if( m_drawings.begin(), m_drawings.end(),
-                                          [aBoardItem](BOARD_ITEM* aItem)
-                                          {
-                                              return aItem == aBoardItem;
-                                          } ) );
+        alg::delete_matching( m_drawings, aBoardItem );
         break;
 
     // other types may use linked list
@@ -1165,35 +1140,39 @@ EDA_RECT BOARD::ComputeBoundingBox( bool aBoardEdgesOnly ) const
 
 void BOARD::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList )
 {
-    wxString txt;
-    int      viasCount = 0;
-    int      trackSegmentsCount = 0;
+    int           padCount = 0;
+    int           viaCount = 0;
+    int           trackSegmentCount = 0;
+    std::set<int> netCodes;
+    int           unconnected = GetConnectivity()->GetUnconnectedCount();
 
     for( PCB_TRACK* item : m_tracks )
     {
         if( item->Type() == PCB_VIA_T )
-            viasCount++;
+            viaCount++;
         else
-            trackSegmentsCount++;
+            trackSegmentCount++;
+
+        if( item->GetNetCode() > 0 )
+            netCodes.insert( item->GetNetCode() );
     }
 
-    txt.Printf( wxT( "%d" ), GetPadCount() );
-    aList.emplace_back( _( "Pads" ), txt );
+    for( FOOTPRINT* footprint : Footprints() )
+    {
+        for( PAD* pad : footprint->Pads() )
+        {
+            padCount++;
 
-    txt.Printf( wxT( "%d" ), viasCount );
-    aList.emplace_back( _( "Vias" ), txt );
+            if( pad->GetNetCode() > 0 )
+                netCodes.insert( pad->GetNetCode() );
+        }
+    }
 
-    txt.Printf( wxT( "%d" ), trackSegmentsCount );
-    aList.emplace_back( _( "Track Segments" ), txt );
-
-    txt.Printf( wxT( "%d" ), GetNodesCount() );
-    aList.emplace_back( _( "Nodes" ), txt );
-
-    txt.Printf( wxT( "%d" ), m_NetInfo.GetNetCount() - 1 /* Don't include "No Net" in count */ );
-    aList.emplace_back( _( "Nets" ), txt );
-
-    txt.Printf( wxT( "%d" ), GetConnectivity()->GetUnconnectedCount() );
-    aList.emplace_back( _( "Unrouted" ), txt );
+    aList.emplace_back( _( "Pads" ), wxString::Format( "%d", padCount ) );
+    aList.emplace_back( _( "Vias" ), wxString::Format( "%d", viaCount ) );
+    aList.emplace_back( _( "Track Segments" ), wxString::Format( "%d", trackSegmentCount ) );
+    aList.emplace_back( _( "Nets" ), wxString::Format( "%d", (int) netCodes.size() ) );
+    aList.emplace_back( _( "Unrouted" ), wxString::Format( "%d", unconnected ) );
 }
 
 
@@ -1922,17 +1901,6 @@ const std::vector<PAD*> BOARD::GetPads() const
     }
 
     return allPads;
-}
-
-
-unsigned BOARD::GetPadCount() const
-{
-    unsigned retval = 0;
-
-    for( FOOTPRINT* footprint : Footprints() )
-        retval += footprint->Pads().size();
-
-    return retval;
 }
 
 

@@ -26,8 +26,8 @@
 #include <wx/msgdlg.h>
 
 #include <build_version.h>
+#include <calculator_panels/panel_regulator.h>
 #include <class_regulator_data.h>
-#include <common.h>
 #include <datafile_read_write.h>
 #include <string_utils.h>
 #include <locale_io.h>
@@ -46,7 +46,7 @@ static const char* getTokenName( T aTok )
 }
 
 
-bool PCB_CALCULATOR_FRAME::ReadDataFile()
+bool PANEL_REGULATOR::ReadDataFile()
 {
     FILE* file = wxFopen( GetDataFilename(), wxT( "rt" ) );
 
@@ -54,9 +54,9 @@ bool PCB_CALCULATOR_FRAME::ReadDataFile()
         return false;
 
     // Switch the locale to standard C (needed to read/write floating point numbers)
-    LOCALE_IO   toggle;
+    LOCALE_IO toggle;
 
-    PCB_CALCULATOR_DATAFILE * datafile = new PCB_CALCULATOR_DATAFILE( &m_RegulatorList );
+    PCB_CALCULATOR_DATAFILE* datafile = new PCB_CALCULATOR_DATAFILE( &m_RegulatorList );
 
    // dataReader dtor will close file
     FILE_LINE_READER dataReader( file, GetDataFilename() );
@@ -79,22 +79,26 @@ bool PCB_CALCULATOR_FRAME::ReadDataFile()
         return false;
     }
 
+    m_choiceRegulatorSelector->Clear();
+    m_choiceRegulatorSelector->Append( m_RegulatorList.GetRegList() );
+    SelectLastSelectedRegulator();
+
     delete datafile;
 
     return true;
 }
 
 
-bool PCB_CALCULATOR_FRAME::WriteDataFile()
+bool PANEL_REGULATOR::WriteDataFile()
 {
     // Switch the locale to standard C (needed to read/write floating point numbers)
-    LOCALE_IO   toggle;
+    LOCALE_IO toggle;
 
     auto datafile = std::make_unique<PCB_CALCULATOR_DATAFILE>( &m_RegulatorList );
 
     try
     {
-        FILE_OUTPUTFORMATTER    formatter( GetDataFilename() );
+        FILE_OUTPUTFORMATTER formatter( GetDataFilename() );
 
         int nestlevel = datafile->WriteHeader( &formatter );
 
@@ -145,9 +149,8 @@ void PCB_CALCULATOR_DATAFILE::Format( OUTPUTFORMATTER* aFormatter,
     // Write regulators list:
     aFormatter->Print( aNestLevel++, "(%s\n", getTokenName( T_regulators ) );
 
-    for( unsigned ii = 0; ii < m_list->m_List.size(); ii++ )
+    for( REGULATOR_DATA* item : m_list->m_List )
     {
-        REGULATOR_DATA * item = m_list->m_List[ii];
         aFormatter->Print( aNestLevel, "(%s %s\n", getTokenName( T_regulator ),
                            aFormatter->Quotew(item->m_Name ).c_str() );
         aFormatter->Print( aNestLevel+1, "(%s %g)\n", getTokenName( T_reg_vref ),

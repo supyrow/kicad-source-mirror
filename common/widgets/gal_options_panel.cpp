@@ -30,6 +30,7 @@
 #include <wx/stattext.h>
 #include <wx/statbox.h>
 
+#include <ignore.h>
 #include <widgets/gal_options_panel.h>
 #include <eda_draw_frame.h>
 
@@ -219,7 +220,7 @@ bool GAL_OPTIONS_PANEL::TransferDataToWindow()
     else
         m_renderingEngine->SetSelection( 1 );
 #else
-    (void) m_drawFrame;  // Quiet unused variable warning
+    ignore_unused( m_drawFrame );
 #endif
 
     m_gridSnapOptions->SetSelection( UTIL::GetConfigForVal( gridSnapConfigVals,

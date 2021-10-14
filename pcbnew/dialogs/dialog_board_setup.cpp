@@ -36,7 +36,6 @@
 #include <project.h>
 #include <project/project_file.h>
 #include <settings/settings_manager.h>
-#include <widgets/infobar.h>
 #include <widgets/resettable_panel.h>
 #include <widgets/wx_progress_reporters.h>
 #include <wildcards_and_files_ext.h>
@@ -114,44 +113,41 @@ DIALOG_BOARD_SETUP::DIALOG_BOARD_SETUP( PCB_EDIT_FRAME* aFrame ) :
 
 	// Connect Events
 	m_treebook->Connect( wxEVT_TREEBOOK_PAGE_CHANGED,
-                         wxBookCtrlEventHandler( DIALOG_BOARD_SETUP::OnPageChange ),
-                         nullptr, this );
+                         wxBookCtrlEventHandler( DIALOG_BOARD_SETUP::OnPageChange ), nullptr,
+                         this );
 
     finishDialogSettings();
+
+    if( Prj().IsReadOnly() )
+    {
+        m_infoBar->ShowMessage( _( "Project is missing or read-only. Some settings will not "
+                                   "be editable." ), wxICON_WARNING );
+    }
 }
 
 
 DIALOG_BOARD_SETUP::~DIALOG_BOARD_SETUP()
 {
 	m_treebook->Disconnect( wxEVT_TREEBOOK_PAGE_CHANGED,
-                            wxBookCtrlEventHandler( DIALOG_BOARD_SETUP::OnPageChange ),
-                            nullptr, this );
+                            wxBookCtrlEventHandler( DIALOG_BOARD_SETUP::OnPageChange ), nullptr,
+                            this );
 }
 
 
 void DIALOG_BOARD_SETUP::OnPageChange( wxBookCtrlEvent& event )
 {
-    if( event.GetSelection() == m_physicalStackupPage )
-    {
+    int page = event.GetSelection();
+
+    if( page == m_physicalStackupPage )
         m_physicalStackup->OnLayersOptionsChanged( m_layers->GetUILayerMask() );
-        m_infoBar->Dismiss();
-    }
-    else if( event.GetSelection() == m_layerSetupPage )
-    {
+    else if( page == m_layerSetupPage )
         m_layers->SyncCopperLayers( m_physicalStackup->GetCopperLayerCount() );
-        m_infoBar->Dismiss();
-    }
     else if( Prj().IsReadOnly() )
-    {
-        m_infoBar->ShowMessage(
-                _( "Project is missing or read-only. Changes will not be saved." ) );
-    }
+        KIUI::Disable( m_treebook->GetPage( page ) );
 
 #ifdef __WXMAC__
     // Work around an OSX bug where the wxGrid children don't get placed correctly until
     // the first resize event
-    int page = event.GetSelection();
-
     if( m_macHack[ page ] )
     {
         wxSize pageSize = m_treebook->GetPage( page )->GetSize();
@@ -242,8 +238,14 @@ void DIALOG_BOARD_SETUP::OnAuxiliaryAction( wxCommandEvent& event )
     {
         otherBoard->SetProject( otherPrj );
 
+        // If layers options are imported, import also the stackup
+        // layers options and stackup are linked, so they cannot be imported
+        // separately, and stackup can be imported only after layers options
         if( importDlg.m_LayersOpt->GetValue() )
+        {
             m_layers->ImportSettingsFrom( otherBoard );
+            m_physicalStackup->ImportSettingsFrom( otherBoard );
+        }
 
         if( importDlg.m_TextAndGraphicsOpt->GetValue() )
             m_textAndGraphics->ImportSettingsFrom( otherBoard );
@@ -259,18 +261,6 @@ void DIALOG_BOARD_SETUP::OnAuxiliaryAction( wxCommandEvent& event )
 
         if( importDlg.m_MaskAndPasteOpt->GetValue() )
             m_maskAndPaste->ImportSettingsFrom( otherBoard );
-
-        // If layers options are imported, import also the stackup
-        // layers options and stackup are linked, so they cannot be imported
-        // separately, and stackup can be imported only after layers options
-        //
-        // Note also currently only the list of enabled layers can be imported, because
-        // we import settings from a .pro project file, not the settings inside
-        // a board, and info only living in the board is not imported.
-        // TODO: Add import of physical settings now that we are actually loading the board here
-
-        if( importDlg.m_LayersOpt->GetValue() )
-            m_physicalStackup->ImportSettingsFrom( otherBoard );
 
         if( importDlg.m_SeveritiesOpt->GetValue() )
             m_severities->ImportSettingsFrom( otherBoard->GetDesignSettings().m_DRCSeverities );

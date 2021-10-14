@@ -18,14 +18,9 @@
  * with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-extern double DoubleFromString( const wxString& TextValue );
-
-/**
- * If BENCHMARK is defined, any 4R E12 calculations will print its execution time to console
- * My Hasswell Enthusiast reports 225 mSec what are reproducible within plusminus 2 percent
- */
-
-//#define BENCHMARK
+#include <array>
+#include <vector>
+#include <string>
 
 /**
  * E-Values derived from a geometric sequence formula by Charles Renard were already
@@ -114,13 +109,14 @@ enum             { S2R, S3R, S4R };
                  { true, "560K", 560000 },\
                  { true, "820K", 820000 }
 
-struct r_data {
-                  bool        e_use;
-                  std::string e_name;
-                  double      e_value;
-              };
+struct R_DATA
+{
+    bool        e_use;
+    std::string e_name;
+    double      e_value;
+};
 
-class eserie
+class E_SERIE
 {
 public:
     /**
@@ -134,12 +130,12 @@ public:
     /**
      *  initialize next calculation and erase results from previous calculation
      */
-    void NewCalc( void );
+    void NewCalc();
 
     /**
      * called on calculate button to execute all the 2R, 3R and 4R calculations
      */
-    void Calculate( void );
+    void Calculate();
 
     /**
      * Interface for CheckBox, RadioButton, RequriedResistor and calculated Results
@@ -147,7 +143,7 @@ public:
     void SetSeries( uint32_t aSeries ) { m_series = aSeries; }
     void SetRequiredValue( double aValue ) { m_required_value = aValue; }
 
-    std::array<r_data,S4R+1> get_rslt( void ) { return m_results; }
+    std::array<R_DATA,S4R+1> GetResults() { return m_results; }
 
 private:
     /**
@@ -156,7 +152,7 @@ private:
      * Pre-calculated value combinations are saved in intermediate look up table m_cmb_lut
      * @return is the number of found combinations what also depends from exclude values
     */
-    uint32_t combine2( void );
+    uint32_t combine2();
 
     /**
      * Search for closest two component solution
@@ -192,7 +188,7 @@ private:
      * and      R1|(R2|R3) become R1|R2|R3
      * while    R1+(R2|R3) or (R1+R2)|R3) remains untouched
      */
-    void strip3( void );
+    void strip3();
 
     /*
      * Strip redundant braces from four component result
@@ -201,22 +197,24 @@ private:
      * and      (R1|R2)|(R2|R3) become R1|R2|R3|R4
      * while    (R1+R2)|(R3+R4) remains untouched
      */
-    void strip4( void );
+    void strip4();
 
 private:
-    std::vector<std::vector<r_data>> luts {
-                                              { E1_VAL },
-                                              { E1_VAL, E3_ADD },
-                                              { E1_VAL, E3_ADD, E6_ADD },
-                                              { E1_VAL, E3_ADD, E6_ADD, E12_ADD }
-                                          };
+    std::vector<std::vector<R_DATA>> m_luts
+    {
+        { E1_VAL },
+        { E1_VAL, E3_ADD },
+        { E1_VAL, E3_ADD, E6_ADD },
+        { E1_VAL, E3_ADD, E6_ADD, E12_ADD }
+    };
+
     /*
      * TODO: Manual array size calculation is dangerous. Unlike legacy ANSI-C Arrays
      * std::array can not drop length param by providing aggregate init list up
      * to C++17. Reserved array size should be 2*E12² of std::vector primary list.
      * Exceeding memory limit 7442 will crash the calculator without any warnings !
      * Compare to previous MAX_COMB macro for legacy ANSI-C array automatic solution
-     * #define E12_SIZE sizeof ( e12_lut ) / sizeof ( r_data )
+     * #define E12_SIZE sizeof ( e12_lut ) / sizeof ( R_DATA )
      *  #define MAX_COMB (2 * E12_SIZE * E12_SIZE)
      * 2 component combinations including redundant swappable terms are for the moment
      * 72 combinations for E1
@@ -225,11 +223,11 @@ private:
      * 7442 combinations for E12
      */
 
-#define MAX_CMB 7442			// maximum combinations for E12
+#define MAX_CMB 7442        // maximum combinations for E12
 
-    std::array<r_data, MAX_CMB> m_cmb_lut;	            // intermediate 2R combinations
-    std::array<r_data, S4R+1>   m_results;	            // 2R, 3R and 4R results
-    uint32_t                    m_series = E6;		    // Radio Button State
+    std::array<R_DATA, MAX_CMB> m_cmb_lut;              // intermediate 2R combinations
+    std::array<R_DATA, S4R+1>   m_results;              // 2R, 3R and 4R results
+    uint32_t                    m_series = E6;          // Radio Button State
     uint32_t                    m_enable_4R = false;    // Check Box 4R enable
-    double                      m_required_value =0.0;	// required Resistor
+    double                      m_required_value = 0.0;	// required Resistor
 };

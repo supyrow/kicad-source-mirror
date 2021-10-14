@@ -33,6 +33,7 @@
 #include <gestfich.h>
 #include <hierarch.h>
 #include <dialogs/html_message_box.h>
+#include <ignore.h>
 #include <invoke_sch_dialog.h>
 #include <string_utils.h>
 #include <kiface_base.h>
@@ -374,7 +375,8 @@ void SCH_EDIT_FRAME::setupUIConditions()
     auto hasElements =
             [ this ] ( const SELECTION& aSel )
             {
-                return !GetScreen()->Items().empty() || !SELECTION_CONDITIONS::Idle( aSel );
+                return GetScreen() &&
+                        ( !GetScreen()->Items().empty() || !SELECTION_CONDITIONS::Idle( aSel ) );
             };
 
 #define ENABLE( x ) ACTION_CONDITIONS().Enable( x )
@@ -422,7 +424,8 @@ void SCH_EDIT_FRAME::setupUIConditions()
     auto forceHVCond =
         [this] ( const SELECTION& )
         {
-            return eeconfig()->m_Drawing.hv_lines_only;
+            EESCHEMA_SETTINGS* cfg = eeconfig();
+            return cfg && cfg->m_Drawing.hv_lines_only;
         };
 
     auto remapSymbolsCondition =
@@ -652,7 +655,10 @@ bool SCH_EDIT_FRAME::canCloseWindow( wxCloseEvent& aEvent )
         wxString msg = _( "Save changes to '%s' before closing?" );
 
         if( !HandleUnsavedChanges( this, wxString::Format( msg, fileName.GetFullName() ),
-                                   [&]()->bool { return SaveProject(); } ) )
+                                   [&]() -> bool
+                                   {
+                                       return SaveProject();
+                                   } ) )
         {
             return false;
         }
@@ -698,9 +704,15 @@ void SCH_EDIT_FRAME::doCloseWindow()
         // Auto save file name is the normal file name prepended with GetAutoSaveFilePrefix().
         fn.SetName( GetAutoSaveFilePrefix() + fn.GetName() );
 
-        if( fn.FileExists() && fn.IsFileWritable() )
+        if( fn.IsFileWritable() )
             wxRemoveFile( fn.GetFullPath() );
     }
+
+    wxFileName tmpFn = Prj().GetProjectFullName();
+    wxFileName autoSaveFileName( tmpFn.GetPath(), getAutoSaveFileName() );
+
+    if( autoSaveFileName.IsFileWritable() )
+        wxRemoveFile( autoSaveFileName.GetFullPath() );
 
     sheetlist.ClearModifyStatus();
 
@@ -750,7 +762,7 @@ void SCH_EDIT_FRAME::ResolveERCExclusions()
     for( SCH_MARKER* marker : Schematic().ResolveERCExclusions() )
     {
         SCH_SHEET_PATH errorPath;
-        (void) sheetList.GetItem( marker->GetRCItem()->GetMainItemID(), &errorPath );
+        ignore_unused( sheetList.GetItem( marker->GetRCItem()->GetMainItemID(), &errorPath ) );
 
         if( errorPath.LastScreen() )
             errorPath.LastScreen()->Append( marker );
@@ -979,8 +991,7 @@ void SCH_EDIT_FRAME::OnOpenPcbnew( wxCommandEvent& event )
 
         if( Kiface().IsSingle() )
         {
-            wxString filename = QuoteFullPath( boardfn );
-            ExecuteFile( PCBNEW_EXE, filename );
+            ExecuteFile( PCBNEW_EXE, boardfn.GetFullPath() );
         }
         else
         {
@@ -1557,7 +1568,7 @@ bool SCH_EDIT_FRAME::IsContentModified() const
 bool SCH_EDIT_FRAME::GetShowAllPins() const
 {
     EESCHEMA_SETTINGS* cfg = eeconfig();
-    return cfg->m_Appearance.show_hidden_pins;
+    return cfg && cfg->m_Appearance.show_hidden_pins;
 }
 
 

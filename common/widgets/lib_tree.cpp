@@ -27,7 +27,6 @@
 #include <wxdataviewctrl_helpers.h>
 #include <wx/artprov.h>
 #include <wx/sizer.h>
-#include <wx/html/htmlwin.h>
 #include <tool/tool_interactive.h>
 #include <tool/tool_manager.h>
 #include <wx/srchctrl.h>
@@ -37,14 +36,12 @@
 
 
 LIB_TREE::LIB_TREE( wxWindow* aParent, LIB_TABLE* aLibTable,
-                    wxObjectDataPtr<LIB_TREE_MODEL_ADAPTER>& aAdapter,
-                    WIDGETS aWidgets, wxHtmlWindow* aDetails )
-    : wxPanel( aParent, wxID_ANY, wxDefaultPosition, wxDefaultSize,
-               wxWANTS_CHARS | wxTAB_TRAVERSAL | wxNO_BORDER ),
-      m_lib_table( aLibTable ),
-      m_adapter( aAdapter ),
-      m_query_ctrl( nullptr ),
-      m_details_ctrl( nullptr )
+                    wxObjectDataPtr<LIB_TREE_MODEL_ADAPTER>& aAdapter, WIDGETS aWidgets,
+                    HTML_WINDOW* aDetails ) :
+        wxPanel( aParent, wxID_ANY, wxDefaultPosition, wxDefaultSize,
+                 wxWANTS_CHARS | wxTAB_TRAVERSAL | wxNO_BORDER ),
+        m_lib_table( aLibTable ), m_adapter( aAdapter ), m_query_ctrl( nullptr ),
+        m_details_ctrl( nullptr )
 {
     wxBoxSizer* sizer = new wxBoxSizer( wxVERTICAL );
 
@@ -101,9 +98,9 @@ LIB_TREE::LIB_TREE( wxWindow* aParent, LIB_TABLE* aLibTable,
         {
             wxPoint html_size = ConvertDialogToPixels( wxPoint( 80, 80 ) );
 
-            m_details_ctrl = new wxHtmlWindow( this, wxID_ANY, wxDefaultPosition,
-                                               wxSize( html_size.x, html_size.y ),
-                                               wxHW_SCROLLBAR_AUTO );
+            m_details_ctrl =
+                    new HTML_WINDOW( this, wxID_ANY, wxDefaultPosition,
+                                     wxSize( html_size.x, html_size.y ), wxHW_SCROLLBAR_AUTO );
 
             sizer->Add( m_details_ctrl, 2, wxTOP | wxEXPAND, 5 );
         }
@@ -271,8 +268,49 @@ void LIB_TREE::selectIfValid( const wxDataViewItem& aTreeId )
 
 void LIB_TREE::centerIfValid( const wxDataViewItem& aTreeId )
 {
+    /*
+     * This doesn't actually center because the wxWidgets API is poorly suited to that (and
+     * it might be too noisy as well).
+     *
+     * It does try to keep the given item a bit off the top or bottom of the window.
+     */
+
     if( aTreeId.IsOk() )
+    {
+        LIB_TREE_NODE* node = m_adapter->GetTreeNodeFor( aTreeId );
+        LIB_TREE_NODE* parent = node->m_Parent;
+        LIB_TREE_NODE* grandParent = parent ? parent->m_Parent : nullptr;
+
+        if( parent )
+        {
+            wxDataViewItemArray siblings;
+            m_adapter->GetChildren( wxDataViewItem( parent ), siblings );
+
+            int idx = siblings.Index( aTreeId );
+
+            if( idx + 5 < (int) siblings.GetCount() )
+            {
+                m_tree_ctrl->EnsureVisible( siblings.Item( idx + 5 ) );
+            }
+            else if( grandParent )
+            {
+                wxDataViewItemArray parentsSiblings;
+                m_adapter->GetChildren( wxDataViewItem( grandParent ), parentsSiblings );
+
+                int p_idx = parentsSiblings.Index( wxDataViewItem( parent ) );
+
+                if( p_idx + 1 < (int) parentsSiblings.GetCount() )
+                    m_tree_ctrl->EnsureVisible( parentsSiblings.Item( p_idx + 1 ) );
+            }
+
+            if( idx - 5 >= 0 )
+                m_tree_ctrl->EnsureVisible( siblings.Item( idx - 5 ) );
+            else
+                m_tree_ctrl->EnsureVisible( wxDataViewItem( parent ) );
+        }
+
         m_tree_ctrl->EnsureVisible( aTreeId );
+    }
 }
 
 
@@ -303,7 +341,7 @@ LIB_TREE::STATE LIB_TREE::getState() const
     wxDataViewItemArray items;
     m_adapter->GetChildren( wxDataViewItem( nullptr ), items );
 
-    for( const auto& item : items )
+    for( const wxDataViewItem& item : items )
     {
         if( m_tree_ctrl->IsExpanded( item ) )
             state.expanded.push_back( item );
@@ -319,7 +357,7 @@ void LIB_TREE::setState( const STATE& aState )
 {
     m_tree_ctrl->Freeze();
 
-    for( const auto& item : aState.expanded )
+    for( const wxDataViewItem& item : aState.expanded )
         m_tree_ctrl->Expand( item );
 
     // wxDataViewCtrl cannot be frozen when a selection
@@ -432,20 +470,10 @@ void LIB_TREE::onPreselect( wxCommandEvent& aEvent )
         int unit = 0;
         LIB_ID id = GetSelectedLibId( &unit );
 
-        wxString htmlColor = GetBackgroundColour().GetAsString( wxC2S_HTML_SYNTAX );
-        wxString textColor = GetForegroundColour().GetAsString( wxC2S_HTML_SYNTAX );
-        wxString linkColor = wxSystemSettings::GetColour( wxSYS_COLOUR_HOTLIGHT )
-                                     .GetAsString( wxC2S_HTML_SYNTAX );
-
-        wxString html = wxString::Format( wxT( "<html><body bgcolor='%s' text='%s' link='%s'>" ),
-                                          htmlColor, textColor, linkColor );
-
         if( id.IsValid() )
-            html.Append( m_adapter->GenerateInfo( id, unit ) );
-
-        html.Append( wxT( "</body></html>" ) );
-
-        m_details_ctrl->SetPage( html );
+            m_details_ctrl->SetPage( m_adapter->GenerateInfo( id, unit ) );
+        else
+            m_details_ctrl->SetPage( wxEmptyString );
     }
 
     aEvent.Skip();
