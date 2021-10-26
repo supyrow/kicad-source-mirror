@@ -86,6 +86,8 @@ class DIALOG_SYMBOL_PROPERTIES_BASE : public DIALOG_SHIM
 		virtual void OnMoveUp( wxCommandEvent& event ) { event.Skip(); }
 		virtual void OnMoveDown( wxCommandEvent& event ) { event.Skip(); }
 		virtual void OnDeleteField( wxCommandEvent& event ) { event.Skip(); }
+		virtual void OnChoice( wxCommandEvent& event ) { event.Skip(); }
+		virtual void OnCheckBox( wxCommandEvent& event ) { event.Skip(); }
 		virtual void OnUpdateSymbol( wxCommandEvent& event ) { event.Skip(); }
 		virtual void OnExchangeSymbol( wxCommandEvent& event ) { event.Skip(); }
 		virtual void OnEditSymbol( wxCommandEvent& event ) { event.Skip(); }

@@ -177,6 +177,7 @@ BOARD_EDITOR_CONTROL::BOARD_EDITOR_CONTROL() :
     PCB_TOOL_BASE( "pcbnew.EditorControl" ),
     m_frame( nullptr ),
     m_inPlaceFootprint( false ),
+    m_placingFootprint( false ),
     m_inPlaceTarget( false )
 {
     m_placeOrigin = std::make_unique<KIGFX::ORIGIN_VIEWITEM>( KIGFX::COLOR4D( 0.8, 0.0, 0.0, 1.0 ),
@@ -1472,7 +1473,10 @@ int BOARD_EDITOR_CONTROL::EditFpInFpEditor( const TOOL_EVENT& aEvent )
 
     auto editor = (FOOTPRINT_EDIT_FRAME*) editFrame->Kiway().Player( FRAME_FOOTPRINT_EDITOR, true );
 
-    editor->LoadFootprintFromBoard( fp );
+    if( aEvent.IsAction( &PCB_ACTIONS::editFpInFpEditor ) )
+        editor->LoadFootprintFromBoard( fp );
+    else if( aEvent.IsAction( &PCB_ACTIONS::editLibFpInFpEditor ) )
+        editor->LoadFootprintFromLibrary( fp->GetFPID() );
 
     editor->Show( true );
     editor->Raise();        // Iconize( false );
@@ -1564,6 +1568,7 @@ void BOARD_EDITOR_CONTROL::setTransitions()
     Go( &BOARD_EDITOR_CONTROL::DrillOrigin,            PCB_ACTIONS::drillOrigin.MakeEvent() );
 
     Go( &BOARD_EDITOR_CONTROL::EditFpInFpEditor,       PCB_ACTIONS::editFpInFpEditor.MakeEvent() );
+    Go( &BOARD_EDITOR_CONTROL::EditFpInFpEditor,       PCB_ACTIONS::editLibFpInFpEditor.MakeEvent() );
 
     // Other
     Go( &BOARD_EDITOR_CONTROL::ToggleLockSelected,     PCB_ACTIONS::toggleLock.MakeEvent() );

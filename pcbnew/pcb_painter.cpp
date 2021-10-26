@@ -554,13 +554,17 @@ bool PCB_PAINTER::Draw( const VIEW_ITEM* aItem, int aLayer )
         m_gal->SetIsStroke( true );
 
         if( item->Type() == PCB_FOOTPRINT_T )
+        {
             m_gal->SetStrokeColor( item->IsSelected() ? COLOR4D( 1.0, 0.2, 0.2, 1 ) :
                                    COLOR4D( MAGENTA ) );
+        }
         else
+        {
             m_gal->SetStrokeColor( item->IsSelected() ? COLOR4D( 1.0, 0.2, 0.2, 1 ) :
-                                   COLOR4D( 0.2, 0.2, 0.2, 1 ) );
+                                   COLOR4D( 0.4, 0.4, 0.4, 1 ) );
+        }
 
-        m_gal->SetLineWidth( 1.5 / m_gal->GetWorldScale() );
+        m_gal->SetLineWidth( 1 );
         m_gal->DrawRectangle( box.GetOrigin(), box.GetEnd() );
 
         if( item->Type() == PCB_FOOTPRINT_T )
@@ -1340,8 +1344,6 @@ void PCB_PAINTER::draw( const PCB_SHAPE* aShape, int aLayer )
     const COLOR4D& color = m_pcbSettings.GetColor( aShape, aShape->GetLayer() );
     bool           sketch = m_pcbSettings.m_sketchGraphics;
     int            thickness = getLineThickness( aShape->GetWidth() );
-    VECTOR2D       start( aShape->GetStart() );
-    VECTOR2D       end( aShape->GetEnd() );
 
     if( sketch )
     {
@@ -1358,14 +1360,14 @@ void PCB_PAINTER::draw( const PCB_SHAPE* aShape, int aLayer )
     case SHAPE_T::SEGMENT:
         if( sketch )
         {
-            m_gal->DrawSegment( start, end, thickness );
+            m_gal->DrawSegment( aShape->GetStart(), aShape->GetEnd(), thickness );
         }
         else
         {
             m_gal->SetIsFill( true );
             m_gal->SetIsStroke( false );
 
-            m_gal->DrawSegment( start, end, thickness );
+            m_gal->DrawSegment( aShape->GetStart(), aShape->GetEnd(), thickness );
         }
 
         break;
@@ -1410,30 +1412,34 @@ void PCB_PAINTER::draw( const PCB_SHAPE* aShape, int aLayer )
     }
 
     case SHAPE_T::ARC:
+    {
+        double startAngle;
+        double endAngle;
+        aShape->CalcArcAngles( startAngle, endAngle );
+
         if( sketch )
         {
-            m_gal->DrawArcSegment( start, aShape->GetRadius(),
-                    DECIDEG2RAD( aShape->GetArcAngleStart() ),
-                    DECIDEG2RAD( aShape->GetArcAngleStart() + aShape->GetAngle() ), // Change this
-                    thickness, m_maxError );
+            m_gal->DrawArcSegment( aShape->GetCenter(), aShape->GetRadius(),
+                                   DEG2RAD( startAngle ), DEG2RAD( endAngle ), thickness,
+                                   m_maxError );
         }
         else
         {
             m_gal->SetIsFill( true );
             m_gal->SetIsStroke( false );
 
-            m_gal->DrawArcSegment( start, aShape->GetRadius(),
-                    DECIDEG2RAD( aShape->GetArcAngleStart() ),
-                    DECIDEG2RAD( aShape->GetArcAngleStart() + aShape->GetAngle() ), // Change this
-                    thickness, m_maxError );
+            m_gal->DrawArcSegment( aShape->GetCenter(), aShape->GetRadius(),
+                                   DEG2RAD( startAngle ), DEG2RAD( endAngle ), thickness,
+                                   m_maxError );
         }
         break;
+    }
 
     case SHAPE_T::CIRCLE:
         if( sketch )
         {
-            m_gal->DrawCircle( start, aShape->GetRadius() - thickness / 2 );
-            m_gal->DrawCircle( start, aShape->GetRadius() + thickness / 2 );
+            m_gal->DrawCircle( aShape->GetStart(), aShape->GetRadius() - thickness / 2 );
+            m_gal->DrawCircle( aShape->GetStart(), aShape->GetRadius() + thickness / 2 );
         }
         else
         {
@@ -1441,7 +1447,7 @@ void PCB_PAINTER::draw( const PCB_SHAPE* aShape, int aLayer )
             m_gal->SetIsStroke( thickness > 0 );
             m_gal->SetLineWidth( thickness );
 
-            m_gal->DrawCircle( start, aShape->GetRadius() );
+            m_gal->DrawCircle( aShape->GetStart(), aShape->GetRadius() );
         }
         break;
 

@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2015-2016 Mario Luzeiro <mrluzeiro@ua.pt>
- * Copyright (C) 1992-2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -29,8 +29,8 @@
 #include "../common_ogl/ogl_utils.h"
 #include "eda_3d_canvas.h"
 #include <eda_3d_viewer_frame.h>
-#include <3d_rendering/3d_render_raytracing/render_3d_raytrace.h>
-#include <3d_rendering/legacy/render_3d_legacy.h>
+#include <3d_rendering/raytracing/render_3d_raytrace.h>
+#include <3d_rendering/opengl/render_3d_opengl.h>
 #include <3d_viewer_id.h>
 #include <board.h>
 #include <reporter.h>
@@ -127,15 +127,15 @@ EDA_3D_CANVAS::EDA_3D_CANVAS( wxWindow* aParent, const int* aAttribList,
     m_is_currently_painting.clear();
 
     m_3d_render_raytracing = new RENDER_3D_RAYTRACE( this, m_boardAdapter, m_camera );
-    m_3d_render_ogl_legacy = new RENDER_3D_LEGACY( this, m_boardAdapter, m_camera );
+    m_3d_render_opengl = new RENDER_3D_OPENGL( this, m_boardAdapter, m_camera );
 
     wxASSERT( m_3d_render_raytracing != nullptr );
-    wxASSERT( m_3d_render_ogl_legacy != nullptr );
+    wxASSERT( m_3d_render_opengl != nullptr );
 
     auto busy_indicator_factory = []() { return std::make_unique<WX_BUSY_INDICATOR>(); };
 
     m_3d_render_raytracing->SetBusyIndicatorFactory( busy_indicator_factory );
-    m_3d_render_ogl_legacy->SetBusyIndicatorFactory( busy_indicator_factory );
+    m_3d_render_opengl->SetBusyIndicatorFactory( busy_indicator_factory );
 
     RenderEngineChanged();
 
@@ -185,8 +185,8 @@ void EDA_3D_CANVAS::releaseOpenGL()
         delete m_3d_render_raytracing;
         m_3d_render_raytracing = nullptr;
 
-        delete m_3d_render_ogl_legacy;
-        m_3d_render_ogl_legacy = nullptr;
+        delete m_3d_render_opengl;
+        m_3d_render_opengl = nullptr;
 
         // This is just a copy of a pointer, can safely be set to NULL.
         m_3d_render = nullptr;
@@ -430,13 +430,13 @@ void EDA_3D_CANVAS::DoRePaint()
     // Don't attend to ray trace if OpenGL doesn't support it.
     if( !m_opengl_supports_raytracing )
     {
-        m_3d_render = m_3d_render_ogl_legacy;
+        m_3d_render = m_3d_render_opengl;
         m_render_raytracing_was_requested = false;
-        m_boardAdapter.SetRenderEngine( RENDER_ENGINE::OPENGL_LEGACY );
+        m_boardAdapter.SetRenderEngine( RENDER_ENGINE::OPENGL );
     }
 
     // Check if a raytacing was requested and need to switch to raytracing mode
-    if( m_boardAdapter.GetRenderEngine() == RENDER_ENGINE::OPENGL_LEGACY )
+    if( m_boardAdapter.GetRenderEngine() == RENDER_ENGINE::OPENGL )
     {
         const bool was_camera_changed = m_camera.ParametersChanged();
 
@@ -447,7 +447,7 @@ void EDA_3D_CANVAS::DoRePaint()
           && m_render_raytracing_was_requested )
         {
             m_render_raytracing_was_requested = false;
-            m_3d_render = m_3d_render_ogl_legacy;
+            m_3d_render = m_3d_render_opengl;
         }
     }
 
@@ -483,18 +483,25 @@ void EDA_3D_CANVAS::DoRePaint()
         {
             m_3d_render->SetCurWindowSize( clientSize );
 
-            bool reloadRaytracingForIntersectionCalculations = false;
+            bool reloadRaytracingForCalculations = false;
 
-            if( ( m_boardAdapter.GetRenderEngine() == RENDER_ENGINE::OPENGL_LEGACY )
-              && m_3d_render_ogl_legacy->IsReloadRequestPending() )
+            if( m_boardAdapter.GetRenderEngine() == RENDER_ENGINE::OPENGL
+                    && m_3d_render_opengl->IsReloadRequestPending() )
             {
-                reloadRaytracingForIntersectionCalculations = true;
+                reloadRaytracingForCalculations = true;
             }
 
             requested_redraw = m_3d_render->Redraw( m_mouse_was_moved || m_camera_is_moving,
                                                     &activityReporter, &warningReporter );
 
-            if( reloadRaytracingForIntersectionCalculations )
+            // Raytracer renderer is responsible for some features also used by the OpenGL
+            // renderer.
+            // FIXME: Presumably because raytracing renderer reload is called only after current
+            // renderer redraw, the old zoom value stays for a single frame. This is ugly, but only
+            // cosmetic, so I'm not fixing that for now: I don't know how to do this without
+            // reloading twice (maybe it's not too bad of an idea?) or doing a complicated
+            // refactor.
+            if( reloadRaytracingForCalculations )
                 m_3d_render_raytracing->Reload( nullptr, nullptr, true );
         }
         catch( std::runtime_error& )
@@ -510,7 +517,7 @@ void EDA_3D_CANVAS::DoRePaint()
 
     if( m_render_pivot )
     {
-        const float scale = glm::min( m_camera.ZoomGet(), 1.0f );
+        const float scale = glm::min( m_camera.GetZoom(), 1.0f );
         render_pivot( curtime_delta_s, scale * scale );
     }
 
@@ -584,7 +591,7 @@ void EDA_3D_CANVAS::OnMouseWheel( wxMouseEvent& event )
     if( m_camera_is_moving )
         return;
 
-    float delta_move = m_delta_move_step_factor * m_camera.ZoomGet();
+    float delta_move = m_delta_move_step_factor * m_camera.GetZoom();
 
     if( m_boardAdapter.GetFlag( FL_MOUSEWHEEL_PANNING ) )
         delta_move *= 0.01f * event.GetWheelRotation();
@@ -692,8 +699,7 @@ void EDA_3D_CANVAS::OnMouseMove( wxMouseEvent& event )
 
     m_camera.SetCurMousePosition( nativePosition );
 
-    if( !event.Dragging() &&
-        ( m_boardAdapter.GetRenderEngine() == RENDER_ENGINE::OPENGL_LEGACY ) )
+    if( !event.Dragging() && m_boardAdapter.GetRenderEngine() == RENDER_ENGINE::OPENGL )
     {
         STATUSBAR_REPORTER reporter( m_parentStatusBar,
                                      static_cast<int>( EDA_3D_VIEWER_STATUSBAR::HOVERED_ITEM ) );
@@ -706,7 +712,7 @@ void EDA_3D_CANVAS::OnMouseMove( wxMouseEvent& event )
         {
             if( rollOverItem != m_currentRollOverItem )
             {
-                m_3d_render_ogl_legacy->SetCurrentRollOverItem( rollOverItem );
+                m_3d_render_opengl->SetCurrentRollOverItem( rollOverItem );
                 m_currentRollOverItem = rollOverItem;
 
                 Request_refresh();
@@ -771,10 +777,9 @@ void EDA_3D_CANVAS::OnMouseMove( wxMouseEvent& event )
         }
         else
         {
-            if( ( m_currentRollOverItem != nullptr ) &&
-                ( m_boardAdapter.GetRenderEngine() == RENDER_ENGINE::OPENGL_LEGACY ) )
+            if( m_currentRollOverItem && m_boardAdapter.GetRenderEngine() == RENDER_ENGINE::OPENGL )
             {
-                m_3d_render_ogl_legacy->SetCurrentRollOverItem( nullptr );
+                m_3d_render_opengl->SetCurrentRollOverItem( nullptr );
                 Request_refresh();
 
                 reporter.Report( "" );
@@ -947,7 +952,7 @@ bool EDA_3D_CANVAS::SetView3D( int aKeycode )
     if( m_camera_is_moving )
         return false;
 
-    const float delta_move = m_delta_move_step_factor * m_camera.ZoomGet();
+    const float delta_move = m_delta_move_step_factor * m_camera.GetZoom();
     const float arrow_moving_time_speed = 8.0f;
     bool handled = false;
 
@@ -989,7 +994,7 @@ bool EDA_3D_CANVAS::SetView3D( int aKeycode )
         m_camera.SetInterpolateMode( CAMERA_INTERPOLATION::BEZIER );
         m_camera.SetT0_and_T1_current_T();
         m_camera.Reset_T1();
-        request_start_moving_camera( glm::min( glm::max( m_camera.ZoomGet(), 1/1.26f ), 1.26f ) );
+        request_start_moving_camera( glm::min( glm::max( m_camera.GetZoom(), 1 / 1.26f ), 1.26f ) );
         return true;
 
     case WXK_END:
@@ -1025,7 +1030,7 @@ bool EDA_3D_CANVAS::SetView3D( int aKeycode )
         m_camera.SetInterpolateMode( CAMERA_INTERPOLATION::BEZIER );
         m_camera.SetT0_and_T1_current_T();
         m_camera.Reset_T1();
-        request_start_moving_camera( glm::min( glm::max( m_camera.ZoomGet(), 0.5f ), 1.125f ) );
+        request_start_moving_camera( glm::min( glm::max( m_camera.GetZoom(), 0.5f ), 1.125f ) );
         return true;
 
     case ID_VIEW3D_RIGHT:
@@ -1071,7 +1076,7 @@ bool EDA_3D_CANVAS::SetView3D( int aKeycode )
         m_camera.SetInterpolateMode( CAMERA_INTERPOLATION::BEZIER );
         m_camera.SetT0_and_T1_current_T();
         m_camera.Reset_T1();
-        request_start_moving_camera( glm::min( glm::max( m_camera.ZoomGet(), 0.5f ), 1.125f ) );
+        request_start_moving_camera( glm::min( glm::max( m_camera.GetZoom(), 0.5f ), 1.125f ) );
         return true;
 
     case ID_VIEW3D_BOTTOM:
@@ -1079,7 +1084,7 @@ bool EDA_3D_CANVAS::SetView3D( int aKeycode )
         m_camera.SetT0_and_T1_current_T();
         m_camera.Reset_T1();
         m_camera.RotateY_T1( glm::radians( 179.999f ) );    // Rotation = 180 - epsilon
-        request_start_moving_camera( glm::min( glm::max( m_camera.ZoomGet(), 0.5f ), 1.125f ) );
+        request_start_moving_camera( glm::min( glm::max( m_camera.GetZoom(), 0.5f ), 1.125f ) );
         return true;
 
     case ID_VIEW3D_FLIP:
@@ -1108,9 +1113,9 @@ void EDA_3D_CANVAS::RenderEngineChanged()
 {
     switch( m_boardAdapter.GetRenderEngine() )
     {
-    case RENDER_ENGINE::OPENGL_LEGACY: m_3d_render = m_3d_render_ogl_legacy; break;
-    case RENDER_ENGINE::RAYTRACING:    m_3d_render = m_3d_render_raytracing; break;
-    default:                           m_3d_render = nullptr;                break;
+    case RENDER_ENGINE::OPENGL:     m_3d_render = m_3d_render_opengl;     break;
+    case RENDER_ENGINE::RAYTRACING: m_3d_render = m_3d_render_raytracing; break;
+    default:                        m_3d_render = nullptr;                break;
     }
 
     if( m_3d_render )

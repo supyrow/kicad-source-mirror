@@ -2385,25 +2385,60 @@ PCB_SHAPE* PCB_PARSER::parsePCB_SHAPE()
 
         token = NextTok();
 
-        // the start keyword actually gives the arc center
-        // Allows also T_center for future change
-        if( token != T_start && token != T_center )
-            Expecting( T_start );
+        if( m_requiredVersion <= LEGACY_ARC_FORMATTING )
+        {
+            // In legacy files the start keyword actually gives the arc center...
+            if( token != T_start )
+                Expecting( T_start );
 
-        pt.x = parseBoardUnits( "X coordinate" );
-        pt.y = parseBoardUnits( "Y coordinate" );
-        shape->SetCenter( pt );
-        NeedRIGHT();
-        NeedLEFT();
-        token = NextTok();
+            pt.x = parseBoardUnits( "X coordinate" );
+            pt.y = parseBoardUnits( "Y coordinate" );
+            shape->SetCenter( pt );
+            NeedRIGHT();
+            NeedLEFT();
+            token = NextTok();
 
-        if( token != T_end )    // the end keyword actually gives the starting point of the arc
-            Expecting( T_end );
+            // ... and the end keyword gives the start point of the arc
+            if( token != T_end )
+                Expecting( T_end );
 
-        pt.x = parseBoardUnits( "X coordinate" );
-        pt.y = parseBoardUnits( "Y coordinate" );
-        shape->SetArcStart( pt );
-        NeedRIGHT();
+            pt.x = parseBoardUnits( "X coordinate" );
+            pt.y = parseBoardUnits( "Y coordinate" );
+            shape->SetStart( pt );
+            NeedRIGHT();
+        }
+        else
+        {
+            wxPoint arc_start, arc_mid, arc_end;
+
+            if( token != T_start )
+                Expecting( T_start );
+
+            arc_start.x = parseBoardUnits( "X coordinate" );
+            arc_start.y = parseBoardUnits( "Y coordinate" );
+            NeedRIGHT();
+            NeedLEFT();
+            token = NextTok();
+
+            if( token != T_mid )
+                Expecting( T_mid );
+
+            arc_mid.x = parseBoardUnits( "X coordinate" );
+            arc_mid.y = parseBoardUnits( "Y coordinate" );
+            NeedRIGHT();
+            NeedLEFT();
+            token = NextTok();
+
+            if( token != T_end )
+                Expecting( T_end );
+
+            arc_end.x = parseBoardUnits( "X coordinate" );
+            arc_end.y = parseBoardUnits( "Y coordinate" );
+            NeedRIGHT();
+
+            shape->SetArcGeometry( arc_start, arc_mid, arc_end );
+        }
+
         break;
 
     case T_gr_circle:
@@ -2426,7 +2461,7 @@ PCB_SHAPE* PCB_PARSER::parsePCB_SHAPE()
 
         pt.x = parseBoardUnits( "X coordinate" );
         pt.y = parseBoardUnits( "Y coordinate" );
-        shape->SetCenter( pt );
+        shape->SetStart( pt );
         NeedRIGHT();
         NeedLEFT();
 
@@ -2570,7 +2605,8 @@ PCB_SHAPE* PCB_PARSER::parsePCB_SHAPE()
         Expecting( "gr_arc, gr_circle, gr_curve, gr_line, gr_poly, or gp_rect" );
     }
 
-    bool foundFill = false;
+    bool   foundFill = false;
+    double angle;
 
     for( token = NextTok();  token != T_RIGHT;  token = NextTok() )
     {
@@ -2582,8 +2618,20 @@ PCB_SHAPE* PCB_PARSER::parsePCB_SHAPE()
         switch( token )
         {
         case T_angle:
-            shape->SetAngle( parseDouble( "segment angle" ) * 10.0 );
-            NeedRIGHT();
+            if( m_requiredVersion <= LEGACY_ARC_FORMATTING )
+            {
+                angle = parseAngle( "arc angle" );
+
+                if( shape->GetShape() == SHAPE_T::ARC )
+                    shape->SetArcAngleAndEnd( angle, true );
+
+                NeedRIGHT();
+            }
+            else
+            {
+                Unexpected( T_angle );
+            }
+
             break;
 
         case T_layer:
@@ -2702,7 +2750,7 @@ PCB_TEXT* PCB_PARSER::parsePCB_TEXT()
 
     if( token == T_NUMBER )
     {
-        text->SetTextAngle( parseDouble() * 10.0 );
+        text->SetTextAngle( parseAngle() );
         NeedRIGHT();
     }
     else if( token != T_RIGHT )
@@ -3267,7 +3315,7 @@ FOOTPRINT* PCB_PARSER::parseFOOTPRINT_unchecked( wxArrayString* aInitialComments
 
             if( token == T_NUMBER )
             {
-                footprint->SetOrientation( parseDouble() * 10.0 );
+                footprint->SetOrientation( parseAngle() );
                 NeedRIGHT();
             }
             else if( token != T_RIGHT )
@@ -3415,24 +3463,6 @@ FOOTPRINT* PCB_PARSER::parseFOOTPRINT_unchecked( wxArrayString* aInitialComments
         }
 
         case T_fp_arc:
-        {
-            FP_SHAPE* shape = parseFP_SHAPE();
-
-            // Drop 0 and NaN angles as these can corrupt/crash the schematic
-            if( std::isnormal( shape->GetAngle() ) )
-            {
-                shape->SetParent( footprint.get() );
-                shape->SetDrawCoord();
-                footprint->Add( shape, ADD_MODE::APPEND );
-            }
-            else
-            {
-                delete shape;
-            }
-
-            break;
-        }
-
         case T_fp_circle:
         case T_fp_curve:
         case T_fp_rect:
@@ -3569,7 +3599,7 @@ FP_TEXT* PCB_PARSER::parseFP_TEXT()
 
     if( CurTok() == T_NUMBER )
     {
-        text->SetTextAngle( parseDouble() * 10.0 );
+        text->SetTextAngle( parseAngle() );
         NextTok();
     }
 
@@ -3647,35 +3677,68 @@ FP_SHAPE* PCB_PARSER::parseFP_SHAPE()
 
         token = NextTok();
 
-        // the start keyword actually gives the arc center
-        // Allows also T_center for future change
-        if( token != T_start && token != T_center )
-            Expecting( T_start );
+        if( m_requiredVersion <= LEGACY_ARC_FORMATTING )
+        {
+            // In legacy files the start keyword actually gives the arc center...
+            if( token != T_start )
+                Expecting( T_start );
 
-        pt.x = parseBoardUnits( "X coordinate" );
-        pt.y = parseBoardUnits( "Y coordinate" );
-        shape->SetStart0( pt );
-        NeedRIGHT();
-        NeedLEFT();
-        token = NextTok();
+            pt.x = parseBoardUnits( "X coordinate" );
+            pt.y = parseBoardUnits( "Y coordinate" );
+            shape->SetCenter0( pt );
+            NeedRIGHT();
+            NeedLEFT();
+            token = NextTok();
 
-        if( token != T_end )    // end keyword actually gives the starting point of the arc
-            Expecting( T_end );
+            // ... and the end keyword gives the start point of the arc
+            if( token != T_end )
+                Expecting( T_end );
 
-        pt.x = parseBoardUnits( "X coordinate" );
-        pt.y = parseBoardUnits( "Y coordinate" );
-        shape->SetEnd0( pt );
-        NeedRIGHT();
-        NeedLEFT();
-        token = NextTok();
+            pt.x = parseBoardUnits( "X coordinate" );
+            pt.y = parseBoardUnits( "Y coordinate" );
+            shape->SetStart0( pt );
+            NeedRIGHT();
+            NeedLEFT();
+            token = NextTok();
 
-        if( token != T_angle )
-            Expecting( T_angle );
+            if( token != T_angle )
+                Expecting( T_angle );
 
-        // Setting angle will set m_thirdPoint0, so must be done after setting
-        // m_start0 and m_end0
-        shape->SetAngle( parseDouble( "segment angle" ) * 10.0 );
-        NeedRIGHT();
+            shape->SetArcAngleAndEnd0( parseAngle( "segment angle" ), true );
+            NeedRIGHT();
+        }
+        else
+        {
+            wxPoint arc_start, arc_mid, arc_end;
+
+            if( token != T_start )
+                Expecting( T_start );
+
+            arc_start.x = parseBoardUnits( "X coordinate" );
+            arc_start.y = parseBoardUnits( "Y coordinate" );
+            NeedRIGHT();
+            NeedLEFT();
+            token = NextTok();
+
+            if( token != T_mid )
+                Expecting( T_mid );
+
+            arc_mid.x = parseBoardUnits( "X coordinate" );
+            arc_mid.y = parseBoardUnits( "Y coordinate" );
+            NeedRIGHT();
+            NeedLEFT();
+            token = NextTok();
+
+            if( token != T_end )
+                Expecting( T_end );
+
+            arc_end.x = parseBoardUnits( "X coordinate" );
+            arc_end.y = parseBoardUnits( "Y coordinate" );
+            NeedRIGHT();
+
+            shape->SetArcGeometry0( arc_start, arc_mid, arc_end );
+        }
+
         break;
 
     case T_fp_circle:
@@ -4050,7 +4113,7 @@ PAD* PCB_PARSER::parsePAD( FOOTPRINT* aParent )
 
             if( token == T_NUMBER )
             {
-                pad->SetOrientation( parseDouble() * 10.0 );
+                pad->SetOrientation( parseAngle() );
                 NeedRIGHT();
             }
             else if( token != T_RIGHT )
@@ -4346,8 +4409,8 @@ PAD* PCB_PARSER::parsePAD( FOOTPRINT* aParent )
                 {
                 case T_gr_arc:
                     dummyShape = parsePCB_SHAPE();
-                    pad->AddPrimitiveArc( dummyShape->GetCenter(), dummyShape->GetArcStart(),
-                                          dummyShape->GetAngle(), dummyShape->GetWidth() );
+                    pad->AddPrimitiveArc( dummyShape->GetCenter(), dummyShape->GetStart(),
+                                          dummyShape->GetArcAngle(), dummyShape->GetWidth() );
                     break;
 
                 case T_gr_line:

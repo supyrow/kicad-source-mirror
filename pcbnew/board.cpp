@@ -38,6 +38,8 @@
 #include <pcb_marker.h>
 #include <pcb_group.h>
 #include <pcb_target.h>
+#include <pcb_shape.h>
+#include <pcb_text.h>
 #include <core/arraydim.h>
 #include <core/kicad_algo.h>
 #include <connectivity/connectivity_data.h>
@@ -50,7 +52,7 @@
 #include <project/project_local_settings.h>
 #include <ratsnest/ratsnest_data.h>
 #include <tool/selection_conditions.h>
-#include <convert_drawsegment_list_to_polygon.h>
+#include <convert_shape_list_to_polygon.h>
 #include <wx/log.h>
 
 // This is an odd place for this, but CvPcb won't link if it's in board_item.cpp like I first
@@ -2120,3 +2122,124 @@ BOARD::GroupLegalOpsField BOARD::GroupLegalOps( const PCB_SELECTION& selection )
 
     return legalOps;
 }
+
+
+bool BOARD::cmp_items::operator() ( const BOARD_ITEM* a, const BOARD_ITEM* b ) const
+{
+    if( a->Type() != b->Type() )
+        return a->Type() < b->Type();
+
+    if( a->GetLayer() != b->GetLayer() )
+        return a->GetLayer() < b->GetLayer();
+
+    if( a->GetPosition().x != b->GetPosition().x )
+        return a->GetPosition().x < b->GetPosition().x;
+
+    if( a->GetPosition().y != b->GetPosition().y )
+        return a->GetPosition().y < b->GetPosition().y;
+
+    if( a->m_Uuid != b->m_Uuid )    // shopuld be always the case foer valid boards
+        return a->m_Uuid < b->m_Uuid;
+
+    return a < b;
+}
+
+
+bool BOARD::cmp_drawings::operator()( const BOARD_ITEM* aFirst,
+                                      const BOARD_ITEM* aSecond ) const
+{
+    if( aFirst->Type() != aSecond->Type() )
+        return aFirst->Type() < aSecond->Type();
+
+    if( aFirst->GetLayer() != aSecond->GetLayer() )
+        return aFirst->GetLayer() < aSecond->GetLayer();
+
+    if( aFirst->Type() == PCB_SHAPE_T )
+    {
+        const PCB_SHAPE* shape = static_cast<const PCB_SHAPE*>( aFirst );
+        const PCB_SHAPE* other = static_cast<const PCB_SHAPE*>( aSecond );
+        return shape->Compare( other );
+    }
+    else if( aFirst->Type() == PCB_TEXT_T )
+    {
+        const PCB_TEXT* text = static_cast<const PCB_TEXT*>( aFirst );
+        const PCB_TEXT* other = static_cast<const PCB_TEXT*>( aSecond );
+        return text->Compare( other );
+    }
+
+    return aFirst->m_Uuid < aSecond->m_Uuid;
+}
+
+
+void BOARD::ConvertBrdLayerToPolygonalContours( PCB_LAYER_ID aLayer,
+                                                SHAPE_POLY_SET& aOutlines ) const
+{
+    int maxError = GetDesignSettings().m_MaxError;
+
+    // convert tracks and vias:
+    for( const PCB_TRACK* track : m_tracks )
+    {
+        if( !track->IsOnLayer( aLayer ) )
+            continue;
+
+        track->TransformShapeWithClearanceToPolygon( aOutlines, aLayer, 0, maxError,
+                                                     ERROR_INSIDE );
+    }
+
+    // convert pads and other copper items in footprints
+    for( const FOOTPRINT* footprint : m_footprints )
+    {
+        footprint->TransformPadsWithClearanceToPolygon( aOutlines, aLayer, 0, maxError,
+                                                        ERROR_INSIDE );
+
+        // Micro-wave footprints may have items on copper layers
+        footprint->TransformFPShapesWithClearanceToPolygon( aOutlines, aLayer, 0, maxError,
+                                                            ERROR_INSIDE,
+                                                            true, /* include text */
+                                                            true  /* include shapes */ );
+
+        for( const ZONE* zone : footprint->Zones() )
+        {
+            if( zone->GetLayerSet().test( aLayer ) )
+                zone->TransformSolidAreasShapesToPolygon( aLayer, aOutlines );
+        }
+    }
+
+    // convert copper zones
+    for( const ZONE* zone : Zones() )
+    {
+        if( zone->GetLayerSet().test( aLayer ) )
+            zone->TransformSolidAreasShapesToPolygon( aLayer, aOutlines );
+    }
+
+    // convert graphic items on copper layers (texts)
+    for( const BOARD_ITEM* item : m_drawings )
+    {
+        if( !item->IsOnLayer( aLayer ) )
+            continue;
+
+        switch( item->Type() )
+        {
+        case PCB_SHAPE_T:
+        {
+            const PCB_SHAPE* shape = static_cast<const PCB_SHAPE*>( item );
+            shape->TransformShapeWithClearanceToPolygon( aOutlines, aLayer, 0, maxError,
+                                                         ERROR_INSIDE );
+            break;
+        }
+
+        case PCB_TEXT_T:
+        {
+            const PCB_TEXT* text = static_cast<const PCB_TEXT*>( item );
+            text->TransformTextShapeWithClearanceToPolygon( aOutlines, aLayer, 0, maxError,
+                                                            ERROR_INSIDE );
+            break;
+        }
+
+        default:
+            break;
+        }
+    }
+}
+
+

@@ -234,6 +234,13 @@ TOOL_ACTION PCB_ACTIONS::editFpInFpEditor( "pcbnew.EditorControl.EditFpInFpEdito
         _( "Opens the selected footprint in the Footprint Editor" ),
         BITMAPS::module_editor );
 
+TOOL_ACTION PCB_ACTIONS::editLibFpInFpEditor( "pcbnew.EditorControl.EditLibFpInFpEditor",
+        AS_GLOBAL,
+        MD_CTRL + MD_SHIFT + 'E', "",
+        _( "Edit Library Footprint..." ),
+        _( "Opens the selected footprint in the Footprint Editor" ),
+        BITMAPS::module_editor );
+
 TOOL_ACTION PCB_ACTIONS::getAndPlace( "pcbnew.InteractiveEdit.FindMove",
         AS_GLOBAL,
         'T', LEGACY_HK_NAME( "Get and Move Footprint" ),
@@ -663,8 +670,10 @@ TOOL_ACTION PCB_ACTIONS::toggleLock( "pcbnew.EditorControl.toggleLock",
         BITMAPS::lock_unlock );
 
 TOOL_ACTION PCB_ACTIONS::toggle45( "pcbnew.EditorControl.toggle45",
-        AS_GLOBAL, MD_SHIFT + ' ', "",
-        _( "Toggle 45 Limit" ), _( "Limit actions to 45 degrees from the starting point" ),
+        AS_GLOBAL,
+        MD_SHIFT + ' ', "",
+        _( "Constrain to H, V, 45" ),
+        _( "Limit actions to horizontal, vertical, or 45 degrees from the starting point" ),
         BITMAPS::INVALID_BITMAP );
 
 TOOL_ACTION PCB_ACTIONS::lock( "pcbnew.EditorControl.lock",
@@ -708,7 +717,8 @@ TOOL_ACTION PCB_ACTIONS::appendBoard( "pcbnew.EditorControl.appendBoard",
         BITMAPS::add_board );
 
 TOOL_ACTION PCB_ACTIONS::highlightNet( "pcbnew.EditorControl.highlightNet",
-        AS_GLOBAL, 0, "", _( "Highlight Net" ), _( "Highlight the selected net" ),
+        AS_GLOBAL, 0, "",
+        _( "Highlight Net" ), _( "Highlight the selected net" ),
         BITMAPS::net_highlight );
 
 TOOL_ACTION PCB_ACTIONS::toggleLastNetHighlight( "pcbnew.EditorControl.toggleLastNetHighlight",
@@ -716,11 +726,13 @@ TOOL_ACTION PCB_ACTIONS::toggleLastNetHighlight( "pcbnew.EditorControl.toggleLas
         _( "Toggle Last Net Highlight" ), _( "Toggle between last two highlighted nets" ) );
 
 TOOL_ACTION PCB_ACTIONS::clearHighlight( "pcbnew.EditorControl.clearHighlight",
-        AS_GLOBAL, '~', "",
+        AS_GLOBAL,
+        '~', "",
         _( "Clear Net Highlighting" ), _( "Clear any existing net highlighting" ) );
 
 TOOL_ACTION PCB_ACTIONS::toggleNetHighlight( "pcbnew.EditorControl.toggleNetHighlight",
-        AS_GLOBAL, MD_CTRL + '`', "",
+        AS_GLOBAL,
+        MD_CTRL + '`', "",
         _( "Toggle Net Highlight" ), _( "Toggle net highlighting" ),
         BITMAPS::net_highlight );
 
@@ -734,11 +746,13 @@ TOOL_ACTION PCB_ACTIONS::highlightNetSelection( "pcbnew.EditorControl.highlightN
 TOOL_ACTION PCB_ACTIONS::highlightItem( "pcbnew.EditorControl.highlightItem",
         AS_GLOBAL );
 
-TOOL_ACTION PCB_ACTIONS::hideNet( "pcbnew.EditorControl.hideNet", AS_GLOBAL, 0, "",
+TOOL_ACTION PCB_ACTIONS::hideNet( "pcbnew.EditorControl.hideNet",
+        AS_GLOBAL, 0, "",
         _( "Hide Net" ), _( "Hide the ratsnest for the selected net" ),
         BITMAPS::hide_ratsnest );
 
-TOOL_ACTION PCB_ACTIONS::showNet( "pcbnew.EditorControl.showNet", AS_GLOBAL, 0, "",
+TOOL_ACTION PCB_ACTIONS::showNet( "pcbnew.EditorControl.showNet",
+        AS_GLOBAL, 0, "",
         _( "Show Net" ), _( "Show the ratsnest for the selected net" ),
         BITMAPS::show_ratsnest );
 

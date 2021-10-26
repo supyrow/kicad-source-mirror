@@ -177,14 +177,10 @@ set( EESCHEMA_SRCS
     generate_alias_info.cpp
     getpart.cpp
     hierarch.cpp
-    lib_arc.cpp
-    lib_bezier.cpp
-    lib_circle.cpp
+    lib_shape.cpp
     lib_item.cpp
     lib_field.cpp
     lib_pin.cpp
-    lib_polyline.cpp
-    lib_rectangle.cpp
     lib_symbol.cpp
     lib_text.cpp
     symbol_viewer_frame.cpp
@@ -274,6 +270,7 @@ set( EESCHEMA_COMMON_SRCS
     ${CMAKE_SOURCE_DIR}/common/base_screen.cpp
     ${CMAKE_SOURCE_DIR}/common/base_units.cpp
     ${CMAKE_SOURCE_DIR}/common/eda_text.cpp
+    ${CMAKE_SOURCE_DIR}/common/eda_shape.cpp
     ${CMAKE_SOURCE_DIR}/common/page_info.cpp
     )
 
@@ -474,10 +471,12 @@ if( APPLE )
 
     if( KICAD_SPICE )
         # bundle libngspice and codemodels
-        get_filename_component( REAL_LIBNGSPICE ${NGSPICE_LIBRARY} REALPATH )
-        get_filename_component( LIBNGSPICE_PATH ${REAL_LIBNGSPICE} DIRECTORY )
-        install( FILES "${REAL_LIBNGSPICE}"
-                 DESTINATION "${OSX_BUNDLE_INSTALL_PLUGIN_DIR}/sim" )
+        get_filename_component( ABS_LIBNGSPICE ${NGSPICE_LIBRARY} ABSOLUTE )
+        get_filename_component( LIBNGSPICE_PATH ${ABS_LIBNGSPICE} DIRECTORY )
+
+        install( DIRECTORY "${LIBNGSPICE_PATH}/"
+                DESTINATION "${OSX_BUNDLE_INSTALL_PLUGIN_DIR}/sim"
+                FILES_MATCHING PATTERN "*.dylib")
         install( DIRECTORY "${LIBNGSPICE_PATH}/ngspice"
                  DESTINATION "${OSX_BUNDLE_INSTALL_PLUGIN_DIR}/sim" )
     endif()

@@ -304,12 +304,8 @@ const KICAD_T movableSchematicItems[] =
 
 const KICAD_T movableSymbolItems[] =
 {
-    LIB_ARC_T,
-    LIB_CIRCLE_T,
+    LIB_SHAPE_T,
     LIB_TEXT_T,
-    LIB_RECTANGLE_T,
-    LIB_POLYLINE_T,
-    LIB_BEZIER_T,
     LIB_PIN_T,
     LIB_FIELD_T,
     EOT
@@ -1090,9 +1086,12 @@ EE_SELECTION& EE_SELECTION_TOOL::RequestSelection( const KICAD_T aFilterList[] )
     }
     else        // Trim an existing selection by aFilterList
     {
+        bool isMoving = false;
+
         for( int i = (int) m_selection.GetSize() - 1; i >= 0; --i )
         {
             EDA_ITEM* item = (EDA_ITEM*) m_selection.GetItem( i );
+            isMoving = static_cast<SCH_ITEM*>( item )->IsMoving();
 
             if( !item->IsType( aFilterList ) )
             {
@@ -1100,9 +1099,10 @@ EE_SELECTION& EE_SELECTION_TOOL::RequestSelection( const KICAD_T aFilterList[] )
                 m_toolMgr->ProcessEvent( EVENTS::UnselectedEvent );
             }
         }
-    }
 
-    updateReferencePoint();
+        if( !isMoving )
+            updateReferencePoint();
+    }
 
     return m_selection;
 }
@@ -1722,12 +1722,8 @@ bool EE_SELECTION_TOOL::Selectable( const EDA_ITEM* aItem, const VECTOR2I* aPos,
     case LIB_FIELD_T:     // LIB_FIELD object can always be edited.
         break;
 
-    case LIB_ARC_T:
-    case LIB_CIRCLE_T:
+    case LIB_SHAPE_T:
     case LIB_TEXT_T:
-    case LIB_RECTANGLE_T:
-    case LIB_POLYLINE_T:
-    case LIB_BEZIER_T:
     case LIB_PIN_T:
         if( symEditFrame )
         {

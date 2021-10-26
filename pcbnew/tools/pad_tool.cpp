@@ -23,11 +23,10 @@
 
 
 #include "pad_tool.h"
+#include <macros.h>
 #include <class_draw_panel_gal.h>
 #include <view/view_controls.h>
-#include <view/view.h>
 #include <tool/tool_manager.h>
-#include <bitmaps.h>
 #include <board_design_settings.h>
 #include <board_item.h>
 #include <footprint.h>
@@ -44,7 +43,6 @@
 
 PAD_TOOL::PAD_TOOL() :
         PCB_TOOL_BASE( "pcbnew.PadTool" ),
-        m_padCopied( false ),
         m_wasHighContrast( false ),
         m_editPad( niluuid )
 {}
@@ -59,7 +57,6 @@ void PAD_TOOL::Reset( RESET_REASON aReason )
     if( aReason == MODEL_RELOAD )
         m_lastPadNumber = wxT( "1" );
 
-    m_padCopied = false;
     m_editPad = niluuid;
 }
 
@@ -163,7 +160,6 @@ int PAD_TOOL::copyPadSettings( const TOOL_EVENT& aEvent )
         {
             const PAD& selPad = static_cast<const PAD&>( *item );
             frame()->GetDesignSettings().m_Pad_Master->ImportSettingsFrom( selPad );
-            m_padCopied = true;
         }
     }
 
@@ -480,17 +476,27 @@ int PAD_TOOL::PlacePad( const TOOL_EVENT& aEvent )
         std::unique_ptr<BOARD_ITEM> CreateItem() override
         {
             PAD* pad = new PAD( m_board->GetFirstFootprint() );
+            PAD* master = m_frame->GetDesignSettings().m_Pad_Master.get();
 
-            pad->ImportSettingsFrom( *(m_frame->GetDesignSettings().m_Pad_Master.get()) );
+            pad->ImportSettingsFrom( *master );
 
-            // If the user has set the footprint type to SMD, we assume that they would like to place
-            // SMD pads
-            if( m_board->GetFirstFootprint()->GetAttributes() & FP_SMD )
+            // If the footprint type and master pad type directly conflict then make some
+            // adjustments.  Otherwise assume the user set what they wanted.
+            if( ( m_board->GetFirstFootprint()->GetAttributes() & FP_SMD )
+                    && master->GetAttribute() == PAD_ATTRIB::PTH )
             {
                 pad->SetAttribute( PAD_ATTRIB::SMD );
                 pad->SetShape( PAD_SHAPE::ROUNDRECT );
                 pad->SetSizeX( 1.5 * pad->GetSizeY() );
                 pad->SetLayerSet( PAD::SMDMask() );
+            }
+            else if( ( m_board->GetFirstFootprint()->GetAttributes() & FP_THROUGH_HOLE )
+                    && master->GetAttribute() == PAD_ATTRIB::SMD )
+            {
+                pad->SetAttribute( PAD_ATTRIB::PTH );
+                pad->SetShape( PAD_SHAPE::CIRCLE );
+                pad->SetSize( wxSize( pad->GetSizeX(), pad->GetSizeX() ) );
+                pad->SetLayerSet( PAD::PTHMask() );
             }
 
             if( pad->CanHaveNumber() )
@@ -612,12 +618,37 @@ PCB_LAYER_ID PAD_TOOL::explodePad( PAD* aPad )
             shape->SetShape( primitive->GetShape() );
             shape->SetFilled( primitive->IsFilled() );
             shape->SetWidth( primitive->GetWidth() );
-            shape->SetStart( primitive->GetStart() );
-            shape->SetEnd( primitive->GetEnd() );
-            shape->SetBezierC1( primitive->GetBezierC1());
-            shape->SetBezierC2( primitive->GetBezierC2());
-            shape->SetAngle( primitive->GetAngle() );
-            shape->SetPolyShape( primitive->GetPolyShape() );
+
+            switch( shape->GetShape() )
+            {
+            case SHAPE_T::SEGMENT:
+            case SHAPE_T::RECT:
+            case SHAPE_T::CIRCLE:
+                shape->SetStart( primitive->GetStart() );
+                shape->SetEnd( primitive->GetEnd() );
+                break;
+
+            case SHAPE_T::ARC:
+                shape->SetStart( primitive->GetStart() );
+                shape->SetEnd( primitive->GetEnd() );
+                shape->SetCenter( primitive->GetCenter() );
+                break;
+
+            case SHAPE_T::BEZIER:
+                shape->SetStart( primitive->GetStart() );
+                shape->SetEnd( primitive->GetEnd() );
+                shape->SetBezierC1( primitive->GetBezierC1() );
+                shape->SetBezierC2( primitive->GetBezierC2() );
+                break;
+
+            case SHAPE_T::POLY:
+                shape->SetPolyShape( primitive->GetPolyShape() );
+                break;
+
+            default:
+                UNIMPLEMENTED_FOR( shape->SHAPE_T_asString() );
+            }
+
             shape->SetLocalCoord();
             shape->Move( aPad->GetPosition() );
             shape->Rotate( aPad->GetPosition(), aPad->GetOrientation() );
@@ -705,8 +736,7 @@ void PAD_TOOL::recombinePad( PAD* aPad )
 
             aPad->SetOffset( wxPoint( 0, 0 ) );
 
-            PCB_SHAPE* shape = new PCB_SHAPE;
-            shape->SetShape( SHAPE_T::POLY );
+            PCB_SHAPE* shape = new PCB_SHAPE( nullptr, SHAPE_T::POLY );
             shape->SetFilled( true );
             shape->SetWidth( 0 );
             shape->SetPolyShape( existingOutline );
@@ -725,12 +755,37 @@ void PAD_TOOL::recombinePad( PAD* aPad )
         pcbShape->SetShape( fpShape->GetShape() );
         pcbShape->SetFilled( fpShape->IsFilled() );
         pcbShape->SetWidth( fpShape->GetWidth() );
-        pcbShape->SetStart( fpShape->GetStart() );
-        pcbShape->SetEnd( fpShape->GetEnd() );
-        pcbShape->SetBezierC1( fpShape->GetBezierC1());
-        pcbShape->SetBezierC2( fpShape->GetBezierC2());
-        pcbShape->SetAngle( fpShape->GetAngle() );
-        pcbShape->SetPolyShape( fpShape->GetPolyShape() );
+
+
+        switch( pcbShape->GetShape() )
+        {
+        case SHAPE_T::SEGMENT:
+        case SHAPE_T::RECT:
+        case SHAPE_T::CIRCLE:
+            pcbShape->SetStart( fpShape->GetStart() );
+            pcbShape->SetEnd( fpShape->GetEnd() );
+            break;
+
+        case SHAPE_T::ARC:
+            pcbShape->SetStart( fpShape->GetStart() );
+            pcbShape->SetEnd( fpShape->GetEnd() );
+            pcbShape->SetCenter( fpShape->GetCenter() );
+            break;
+
+        case SHAPE_T::BEZIER:
+            pcbShape->SetStart( fpShape->GetStart() );
+            pcbShape->SetEnd( fpShape->GetEnd() );
+            pcbShape->SetBezierC1( fpShape->GetBezierC1() );
+            pcbShape->SetBezierC2( fpShape->GetBezierC2() );
+            break;
+
+        case SHAPE_T::POLY:
+            pcbShape->SetPolyShape( fpShape->GetPolyShape() );
+            break;
+
+        default:
+            UNIMPLEMENTED_FOR( pcbShape->SHAPE_T_asString() );
+        }
 
         pcbShape->Move( - aPad->GetPosition() );
         pcbShape->Rotate( wxPoint( 0, 0 ), - aPad->GetOrientation() );

@@ -28,23 +28,9 @@
 #include <wx/debug.h>
 #include <wx/msgdlg.h>
 #include <i18n_utility.h>
+#include <macros.h>
 #include <board.h>
 #include <pcb_group.h>
-
-
-wxString BOARD_ITEM::ShowShape( SHAPE_T aShape )
-{
-    switch( aShape )
-    {
-    case SHAPE_T::SEGMENT: return _( "Line" );
-    case SHAPE_T::RECT:    return _( "Rect" );
-    case SHAPE_T::ARC:     return _( "Arc" );
-    case SHAPE_T::CIRCLE:  return _( "Circle" );
-    case SHAPE_T::BEZIER:  return _( "Bezier Curve" );
-    case SHAPE_T::POLY:    return _( "Polygon" );
-    default:               return wxT( "??" );
-    }
-}
 
 
 const BOARD* BOARD_ITEM::GetBoard() const
@@ -182,7 +168,7 @@ std::shared_ptr<SHAPE> BOARD_ITEM::GetEffectiveShape( PCB_LAYER_ID aLayer ) cons
 {
     std::shared_ptr<SHAPE> shape;
 
-    wxFAIL_MSG( "GetEffectiveShape() not implemented for " + GetClass() );
+    UNIMPLEMENTED_FOR( GetClass() );
 
     return shape;
 }

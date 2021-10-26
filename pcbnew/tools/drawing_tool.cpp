@@ -25,7 +25,8 @@
 
 #include "drawing_tool.h"
 
-
+#include <pgm_base.h>
+#include <settings/settings_manager.h>
 #include <dialogs/dialog_text_properties.h>
 #include <dialogs/dialog_track_via_size.h>
 #include <geometry/geometry_utils.h>
@@ -239,12 +240,31 @@ void DRAWING_TOOL::Reset( RESET_REASON aReason )
     m_controls = getViewControls();
     m_board = getModel<BOARD>();
     m_frame = getEditFrame<PCB_BASE_EDIT_FRAME>();
+
+    updateStatusBar();
 }
 
 
 DRAWING_TOOL::MODE DRAWING_TOOL::GetDrawingMode() const
 {
     return m_mode;
+}
+
+
+void DRAWING_TOOL::updateStatusBar() const
+{
+    if( m_frame )
+    {
+        bool constrained;
+
+        if( m_frame->IsType( FRAME_PCB_EDITOR ) )
+            constrained = m_frame->Settings().m_PcbUse45DegreeLimit;
+        else
+            constrained = m_frame->Settings().m_FpeditUse45DegreeLimit;
+
+        m_frame->DisplayConstraintsMsg(
+                constrained ? _( "Constrain to H, V, 45" ) : wxString( "" ) );
+    }
 }
 
 
@@ -1381,6 +1401,8 @@ int DRAWING_TOOL::ToggleLine45degMode( const TOOL_EVENT& toolEvent )
     else
         m_frame->Settings().m_FpeditUse45DegreeLimit = !m_frame->Settings().m_FpeditUse45DegreeLimit;
 
+    updateStatusBar();
+
     return 0;
 }
 
@@ -1418,7 +1440,7 @@ bool DRAWING_TOOL::drawSegment( const std::string& aTool, PCB_SHAPE** aGraphic,
     KIGFX::PREVIEW::TWO_POINT_GEOMETRY_MANAGER twoPointManager;
 
     // drawing assistant overlay
-    // TODO: workaround because PCB_SHAPE_TYPE_T is not visible from commons.
+    // TODO: workaround because EDA_SHAPE_TYPE_T is not visible from commons.
     KIGFX::PREVIEW::GEOM_SHAPE geomShape( static_cast<KIGFX::PREVIEW::GEOM_SHAPE>( shape ) );
     KIGFX::PREVIEW::TWO_POINT_ASSISTANT twoPointAsst( twoPointManager, userUnits, geomShape );
 
@@ -1612,8 +1634,7 @@ bool DRAWING_TOOL::drawSegment( const std::string& aTool, PCB_SHAPE** aGraphic,
 
                     // If the user clicks on an existing snap point from a drawsegment
                     //  we finish the segment as they are likely closing a path
-                    if( snapItem
-                        && ( shape == SHAPE_T::RECT || graphic->GetLength() > 0.0 ) )
+                    if( snapItem && ( shape == SHAPE_T::RECT || graphic->GetLength() > 0.0 ) )
                     {
                         commit.Add( graphic );
                         commit.Push( _( "Draw a line segment" ) );
@@ -1714,17 +1735,14 @@ bool DRAWING_TOOL::drawSegment( const std::string& aTool, PCB_SHAPE** aGraphic,
 static void updateArcFromConstructionMgr( const KIGFX::PREVIEW::ARC_GEOM_MANAGER& aMgr,
                                           PCB_SHAPE& aArc )
 {
-    auto vec = aMgr.GetOrigin();
+    VECTOR2I vec = aMgr.GetOrigin();
 
-    aArc.SetCenter( { vec.x, vec.y } );
+    aArc.SetCenter( (wxPoint) vec );
 
     vec = aMgr.GetStartRadiusEnd();
-    aArc.SetArcStart( { vec.x, vec.y } );
-
-    aArc.SetAngle( RAD2DECIDEG( -aMgr.GetSubtended() ) );
-
+    aArc.SetStart( (wxPoint) vec );
     vec = aMgr.GetEndRadiusEnd();
-    aArc.SetArcEnd( { vec.x, vec.y } );
+    aArc.SetEnd( (wxPoint) vec );
 }
 
 
@@ -1893,7 +1911,7 @@ bool DRAWING_TOOL::drawArc( const std::string& aTool, PCB_SHAPE** aGraphic, bool
         {
             if( arcManager.GetStep() == KIGFX::PREVIEW::ARC_GEOM_MANAGER::SET_START )
             {
-                graphic->SetAngle( 900, true );
+                graphic->SetArcAngleAndEnd( 900 );
                 frame()->OnEditItemRequest( graphic );
                 m_view->Update( &preview );
                 frame()->SetMsgPanel( graphic );

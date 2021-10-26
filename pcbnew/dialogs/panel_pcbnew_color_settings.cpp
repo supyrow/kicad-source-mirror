@@ -361,8 +361,8 @@ std::set<int> g_excludedLayers =
             LAYER_MOD_VALUES,
             LAYER_MOD_REFERENCES,
             LAYER_TRACKS,
-            LAYER_MOD_TEXT_FR,
-            LAYER_MOD_TEXT_BK,
+            LAYER_MOD_TEXT,
+            LAYER_MOD_TEXT + 1,     // where LAYER_MOD_TEXT_BK used to be
             LAYER_PAD_PLATEDHOLES,
             LAYER_PAD_HOLEWALLS,
             LAYER_GP_OVERLAY,

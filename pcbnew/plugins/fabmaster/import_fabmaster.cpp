@@ -2117,26 +2117,18 @@ bool FABMASTER::loadFootprints( BOARD* aBoard )
 
                         FP_SHAPE* arc = new FP_SHAPE( fp, SHAPE_T::ARC );
 
-                        if( src->mirror )
-                        {
-                            arc->SetLayer( FlipLayer( layer ) );
-                            arc->SetCenter( wxPoint( lsrc->center_x, 2 * src->y - lsrc->center_y ) );
-                            arc->SetArcStart( wxPoint( lsrc->end_x, 2 * src->y - lsrc->end_y ) );
-                            arc->SetAngle( lsrc->result.GetCentralAngle() * 10.0 );
-                        }
-                        else
-                        {
-                            arc->SetLayer( layer );
-                            arc->SetCenter( wxPoint( lsrc->center_x, lsrc->center_y ) );
-                            arc->SetArcStart( wxPoint( lsrc->end_x, lsrc->end_y ) );
-                            arc->SetAngle( -lsrc->result.GetCentralAngle() * 10.0 );
-                        }
-
+                        arc->SetLayer( layer );
+                        arc->SetArcGeometry( (wxPoint) lsrc->result.GetP0(),
+                                             (wxPoint) lsrc->result.GetArcMid(),
+                                             (wxPoint) lsrc->result.GetP1() );
                         arc->SetWidth( lsrc->width );
                         arc->SetLocalCoord();
 
                         if( lsrc->width == 0 )
                             arc->SetWidth( ds.GetLineThickness( arc->GetLayer() ) );
+
+                        if( src->mirror )
+                            arc->Flip( arc->GetCenter(), false );
 
                         fp->Add( arc, ADD_MODE::APPEND );
                         break;
@@ -2683,8 +2675,11 @@ bool FABMASTER::loadZone( BOARD* aBoard, const std::unique_ptr<FABMASTER::TRACE>
         zone->SetIsRuleArea( true );
         zone->SetDoNotAllowVias( true );
     }
+    else
+    {
+        zone->SetPriority( 50 );
+    }
 
-    zone->SetPriority( 50 );
     zone->SetLocalClearance( 0 );
     zone->SetPadConnection( ZONE_CONNECTION::FULL );
 
@@ -2755,8 +2750,7 @@ bool FABMASTER::loadOutline( BOARD* aBoard, const std::unique_ptr<FABMASTER::TRA
         {
             const GRAPHIC_LINE* src = static_cast<const GRAPHIC_LINE*>( seg.get() );
 
-            PCB_SHAPE*     line = new PCB_SHAPE( aBoard );
-            line->SetShape( SHAPE_T::SEGMENT );
+            PCB_SHAPE*     line = new PCB_SHAPE( aBoard, SHAPE_T::SEGMENT );
             line->SetLayer( layer );
             line->SetStart( wxPoint( src->start_x, src->start_y ) );
             line->SetEnd( wxPoint( src->end_x, src->end_y ) );
@@ -2772,12 +2766,11 @@ bool FABMASTER::loadOutline( BOARD* aBoard, const std::unique_ptr<FABMASTER::TRA
         {
             const GRAPHIC_ARC* src = static_cast<const GRAPHIC_ARC*>( seg.get() );
 
-            PCB_SHAPE* arc = new PCB_SHAPE( aBoard );
-            arc->SetShape( SHAPE_T::ARC );
+            PCB_SHAPE* arc = new PCB_SHAPE( aBoard, SHAPE_T::ARC );
             arc->SetLayer( layer );
-            arc->SetCenter( wxPoint( src->center_x, src->center_y ) );
-            arc->SetArcStart( wxPoint( src->start_x, src->start_y ) );
-            arc->SetAngle( src->result.GetCentralAngle() * 10.0 );
+            arc->SetArcGeometry( (wxPoint) src->result.GetP0(),
+                                 (wxPoint) src->result.GetArcMid(),
+                                 (wxPoint) src->result.GetP1() );
             arc->SetWidth( src->width );
 
             if( arc->GetWidth() == 0 )
@@ -2791,8 +2784,7 @@ bool FABMASTER::loadOutline( BOARD* aBoard, const std::unique_ptr<FABMASTER::TRA
             const GRAPHIC_RECTANGLE *src =
                     static_cast<const GRAPHIC_RECTANGLE*>( seg.get() );
 
-            PCB_SHAPE* rect = new PCB_SHAPE( aBoard );
-            rect->SetShape( SHAPE_T::RECT );
+            PCB_SHAPE* rect = new PCB_SHAPE( aBoard, SHAPE_T::RECT );
             rect->SetLayer( layer );
             rect->SetStart( wxPoint( src->start_x, src->start_y ) );
             rect->SetEnd( wxPoint( src->end_x, src->end_y ) );
@@ -2803,8 +2795,7 @@ bool FABMASTER::loadOutline( BOARD* aBoard, const std::unique_ptr<FABMASTER::TRA
         }
         case GR_SHAPE_TEXT:
         {
-            const GRAPHIC_TEXT *src =
-                    static_cast<const GRAPHIC_TEXT*>( seg.get() );
+            const GRAPHIC_TEXT *src = static_cast<const GRAPHIC_TEXT*>( seg.get() );
 
             PCB_TEXT* txt = new PCB_TEXT( aBoard );
             txt->SetLayer( layer );
@@ -2856,9 +2847,7 @@ bool FABMASTER::loadGraphics( BOARD* aBoard )
                 if( poly_outline.OutlineCount() < 1 || poly_outline.COutline( 0 ).PointCount() < 3 )
                     continue;
 
-                PCB_SHAPE* new_poly = new PCB_SHAPE( aBoard );
-
-                new_poly->SetShape( SHAPE_T::POLY );
+                PCB_SHAPE* new_poly = new PCB_SHAPE( aBoard, SHAPE_T::POLY );
                 new_poly->SetLayer( layer );
                 new_poly->SetPolyShape( poly_outline );
                 new_poly->SetWidth( 0 );
@@ -2879,8 +2868,7 @@ bool FABMASTER::loadGraphics( BOARD* aBoard )
             {
                 const GRAPHIC_LINE* src = static_cast<const GRAPHIC_LINE*>( seg.get() );
 
-                PCB_SHAPE*     line = new PCB_SHAPE( aBoard );
-                line->SetShape( SHAPE_T::SEGMENT );
+                PCB_SHAPE*     line = new PCB_SHAPE( aBoard, SHAPE_T::SEGMENT );
                 line->SetLayer( layer );
                 line->SetStart( wxPoint( src->start_x, src->start_y ) );
                 line->SetEnd( wxPoint( src->end_x, src->end_y ) );
@@ -2893,12 +2881,11 @@ bool FABMASTER::loadGraphics( BOARD* aBoard )
             {
                 const GRAPHIC_ARC* src = static_cast<const GRAPHIC_ARC*>( seg.get() );
 
-                PCB_SHAPE* arc = new PCB_SHAPE( aBoard );
-                arc->SetShape( SHAPE_T::ARC );
+                PCB_SHAPE* arc = new PCB_SHAPE( aBoard, SHAPE_T::ARC );
                 arc->SetLayer( layer );
-                arc->SetCenter( wxPoint( src->center_x, src->center_y ) );
-                arc->SetArcStart( wxPoint( src->start_x, src->start_y ) );
-                arc->SetAngle( src->result.GetCentralAngle() * 10.0 );
+                arc->SetArcGeometry( (wxPoint) src->result.GetP0(),
+                                     (wxPoint) src->result.GetArcMid(),
+                                     (wxPoint) src->result.GetP1() );
                 arc->SetWidth( src->width );
 
                 aBoard->Add( arc, ADD_MODE::APPEND );
@@ -2909,8 +2896,7 @@ bool FABMASTER::loadGraphics( BOARD* aBoard )
                 const GRAPHIC_RECTANGLE *src =
                         static_cast<const GRAPHIC_RECTANGLE*>( seg.get() );
 
-                PCB_SHAPE* rect = new PCB_SHAPE( aBoard );
-                rect->SetShape( SHAPE_T::RECT );
+                PCB_SHAPE* rect = new PCB_SHAPE( aBoard, SHAPE_T::RECT );
                 rect->SetLayer( layer );
                 rect->SetStart( wxPoint( src->start_x, src->start_y ) );
                 rect->SetEnd( wxPoint( src->end_x, src->end_y ) );
@@ -2951,7 +2937,8 @@ bool FABMASTER::orderZones( BOARD* aBoard )
     std::vector<ZONE*> zones = aBoard->Zones();
 
     std::sort( zones.begin(), zones.end(),
-            [&]( const ZONE* a, const ZONE* b ) {
+            [&]( const ZONE* a, const ZONE* b )
+            {
                 if( a->GetLayer() == b->GetLayer() )
                     return a->GetBoundingBox().GetArea() > b->GetBoundingBox().GetArea();
 
@@ -2963,6 +2950,10 @@ bool FABMASTER::orderZones( BOARD* aBoard )
 
     for( ZONE* zone : zones )
     {
+        /// Rule areas do not have priorities
+        if( zone->GetIsRuleArea() )
+            continue;
+
         if( zone->GetLayer() != layer )
         {
             layer = zone->GetLayer();
@@ -3003,13 +2994,9 @@ bool FABMASTER::LoadBoard( BOARD* aBoard, PROGRESS_REPORTER* aProgressReporter )
         checkpoint();
 
         if( track->lclass == "ETCH" )
-        {
             loadEtch( aBoard, track);
-        }
         else if( track->layer == "OUTLINE" )
-        {
             loadOutline( aBoard, track );
-        }
     }
 
     orderZones( aBoard );

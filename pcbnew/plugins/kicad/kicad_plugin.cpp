@@ -265,8 +265,11 @@ void FP_CACHE::Load()
                 FILE_LINE_READER    reader( fn.GetFullPath() );
 
                 m_owner->m_parser->SetLineReader( &reader );
-                // Ensure a previous parsing does not interacts with the new parsing:
+
+                // For better or worse (mostly worse), the parser is a long-lived object.
+                // Make sure we start with a fresh state.
                 m_owner->m_parser->InitParserState();
+                m_owner->m_parser->SetBoard( nullptr );     // calls PCB_PARSER::init()
 
                 FOOTPRINT* footprint = (FOOTPRINT*) m_owner->m_parser->Parse();
                 wxString   fpName = fn.GetName();
@@ -803,10 +806,6 @@ void PCB_IO::format( const PCB_SHAPE* aShape, int aNestLevel ) const
                      locked.c_str(),
                       FormatInternalUnits( aShape->GetStart() ).c_str(),
                       FormatInternalUnits( aShape->GetEnd() ).c_str() );
-
-        if( aShape->GetAngle() != 0.0 )
-            m_out->Print( 0, " (angle %s)", FormatAngle( aShape->GetAngle() ).c_str() );
-
         break;
 
     case SHAPE_T::RECT:
@@ -824,11 +823,11 @@ void PCB_IO::format( const PCB_SHAPE* aShape, int aNestLevel ) const
         break;
 
     case SHAPE_T::ARC:
-        m_out->Print( aNestLevel, "(gr_arc%s (start %s) (end %s) (angle %s)",
+        m_out->Print( aNestLevel, "(gr_arc%s (start %s) (mid %s) (end %s)",
                       locked.c_str(),
                       FormatInternalUnits( aShape->GetStart() ).c_str(),
-                      FormatInternalUnits( aShape->GetEnd() ).c_str(),
-                      FormatAngle( aShape->GetAngle() ).c_str() );
+                      FormatInternalUnits( aShape->GetArcMid() ).c_str(),
+                      FormatInternalUnits( aShape->GetEnd() ).c_str() );
         break;
 
     case SHAPE_T::POLY:
@@ -905,8 +904,7 @@ void PCB_IO::format( const PCB_SHAPE* aShape, int aNestLevel ) const
         break;
 
     default:
-        wxFAIL_MSG( "PCB_IO::format cannot format unknown PCB_SHAPE shape:"
-                    + SHAPE_T_asString( aShape->GetShape()) );
+        UNIMPLEMENTED_FOR( aShape->SHAPE_T_asString() );
         return;
     };
 
@@ -959,11 +957,11 @@ void PCB_IO::format( const FP_SHAPE* aFPShape, int aNestLevel ) const
         break;
 
     case SHAPE_T::ARC:
-        m_out->Print( aNestLevel, "(fp_arc%s (start %s) (end %s) (angle %s)",
+        m_out->Print( aNestLevel, "(fp_arc%s (start %s) (mid %s) (end %s)",
                       locked.c_str(),
                       FormatInternalUnits( aFPShape->GetStart0() ).c_str(),
-                      FormatInternalUnits( aFPShape->GetEnd0() ).c_str(),
-                      FormatAngle( aFPShape->GetAngle() ).c_str() );
+                      FormatInternalUnits( aFPShape->GetArcMid0() ).c_str(),
+                      FormatInternalUnits( aFPShape->GetEnd0() ).c_str() );
         break;
 
     case SHAPE_T::POLY:
@@ -1039,8 +1037,7 @@ void PCB_IO::format( const FP_SHAPE* aFPShape, int aNestLevel ) const
         break;
 
     default:
-        wxFAIL_MSG( "PCB_IO::format cannot format unknown FP_SHAPE shape:"
-                    + SHAPE_T_asString( aFPShape->GetShape()) );
+        wxFAIL_MSG( "PCB_IO::format not implemented for " + aFPShape->SHAPE_T_asString() );
         return;
     };
 
@@ -1636,10 +1633,10 @@ void PCB_IO::format( const PAD* aPad, int aNestLevel ) const
                 break;
 
             case SHAPE_T::ARC:
-                m_out->Print( nested_level, "(gr_arc (start %s) (end %s) (angle %s)",
+                m_out->Print( aNestLevel, "(gr_arc (start %s) (mid %s) (end %s)",
                               FormatInternalUnits( primitive->GetStart() ).c_str(),
-                              FormatInternalUnits( primitive->GetEnd() ).c_str(),
-                              FormatAngle( primitive->GetAngle() ).c_str() );
+                              FormatInternalUnits( primitive->GetArcMid() ).c_str(),
+                              FormatInternalUnits( primitive->GetEnd() ).c_str() );
                 break;
 
             case SHAPE_T::CIRCLE:

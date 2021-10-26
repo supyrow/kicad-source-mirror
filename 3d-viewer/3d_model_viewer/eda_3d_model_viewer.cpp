@@ -28,9 +28,9 @@
  */
 
 #include <iostream>
-#include "3d_rendering/legacy/3d_model.h"
+#include "3d_rendering/opengl/3d_model.h"
 #include "eda_3d_model_viewer.h"
-#include "../3d_rendering/legacy/ogl_legacy_utils.h"
+#include "../3d_rendering/opengl/opengl_utils.h"
 #include "../3d_cache/3d_cache.h"
 #include <wx/dcclient.h>
 #include <base_units.h>
@@ -86,7 +86,7 @@ EDA_3D_MODEL_VIEWER::EDA_3D_MODEL_VIEWER( wxWindow* aParent, const int* aAttribL
                                           S3D_CACHE* aCacheManager ) :
         HIDPI_GL_CANVAS( aParent, wxID_ANY, aAttribList, wxDefaultPosition, wxDefaultSize,
                          wxFULL_REPAINT_ON_RESIZE ),
-        m_trackBallCamera( RANGE_SCALE_3D * 2.0f, 0.38f ),
+        m_trackBallCamera( RANGE_SCALE_3D * 4.0f ),
         m_cacheManager( aCacheManager )
 {
     wxLogTrace( m_logTrace, wxT( "EDA_3D_MODEL_VIEWER::EDA_3D_MODEL_VIEWER" ) );

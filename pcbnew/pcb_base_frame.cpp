@@ -591,8 +591,8 @@ GENERAL_COLLECTORS_GUIDE PCB_BASE_FRAME::GetCollectorsGuide()
 
     // account for the globals
     guide.SetIgnoreMTextsMarkedNoShow( ! m_pcb->IsElementVisible( LAYER_MOD_TEXT_INVISIBLE ) );
-    guide.SetIgnoreMTextsOnBack( ! m_pcb->IsElementVisible( LAYER_MOD_TEXT_BK ) );
-    guide.SetIgnoreMTextsOnFront( ! m_pcb->IsElementVisible( LAYER_MOD_TEXT_FR ) );
+    guide.SetIgnoreMTextsOnBack( ! m_pcb->IsElementVisible( LAYER_MOD_TEXT ) );
+    guide.SetIgnoreMTextsOnFront( ! m_pcb->IsElementVisible( LAYER_MOD_TEXT ) );
     guide.SetIgnoreModulesOnBack( ! m_pcb->IsElementVisible( LAYER_MOD_BK ) );
     guide.SetIgnoreModulesOnFront( ! m_pcb->IsElementVisible( LAYER_MOD_FR ) );
     guide.SetIgnorePadsOnBack( ! m_pcb->IsElementVisible( LAYER_PAD_BK ) );
@@ -611,11 +611,12 @@ GENERAL_COLLECTORS_GUIDE PCB_BASE_FRAME::GetCollectorsGuide()
 
 void PCB_BASE_FRAME::DisplayGridMsg()
 {
+    VECTOR2D gridSize = GetCanvas()->GetGAL()->GetGridSize();
     wxString line;
 
     line.Printf( "grid X %s  Y %s",
-                 MessageTextFromValue( m_userUnits, GetCanvas()->GetGAL()->GetGridSize().x ),
-                 MessageTextFromValue( m_userUnits, GetCanvas()->GetGAL()->GetGridSize().y ) );
+                 MessageTextFromValue( m_userUnits, gridSize.x, false ),
+                 MessageTextFromValue( m_userUnits, gridSize.y, false ) );
 
     SetStatusText( line, 4 );
 }

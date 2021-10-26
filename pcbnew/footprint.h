@@ -36,7 +36,7 @@
 #include <list>
 
 #include <zones.h>
-#include <convert_drawsegment_list_to_polygon.h>
+#include <convert_shape_list_to_polygon.h>
 #include <pcb_item_containers.h>
 #include <fp_text.h>
 #include <functional>
@@ -353,6 +353,20 @@ public:
      * @param aErrorHandler callback to handle the error messages generated
      */
     void CheckFootprintAttributes( const std::function<void( const wxString& msg )>* aErrorHandler );
+
+    /**
+     * Test if footprint attributes for type (SMD/Through hole/Other) match the expected
+     * type based on the pads in the footprint.
+     * Footprints with plated through-hole pads should usually be marked through hole even if they also
+     * have SMD because they might not be auto-placed.  Exceptions to this might be shielded connectors
+     * Otherwise, footprints with SMD pads should be marked SMD
+     * Footprints with no connecting pads should be marked "Other"
+     *
+     * @param aErrorHandler callback to handle the error messages generated
+     */
+    void CheckFootprintTHPadNoHoles( const std::function
+                                     <void( const wxString& msg, const wxPoint& position )>*
+                                     aErrorHandler );
 
     /**
      * Generate pads shapes on layer \a aLayer as polygons and adds these polygons to

@@ -769,6 +769,7 @@
                                                                     <property name="window_extra_style"></property>
                                                                     <property name="window_name"></property>
                                                                     <property name="window_style"></property>
+                                                                    <event name="OnChoice">OnChoice</event>
                                                                 </object>
                                                             </object>
                                                             <object class="gbsizeritem" expanded="1">
@@ -836,6 +837,7 @@
                                                                     <property name="window_extra_style"></property>
                                                                     <property name="window_name"></property>
                                                                     <property name="window_style"></property>
+                                                                    <event name="OnCheckBox">OnCheckBox</event>
                                                                 </object>
                                                             </object>
                                                             <object class="gbsizeritem" expanded="1">
@@ -967,6 +969,7 @@
                                                                     <property name="window_extra_style"></property>
                                                                     <property name="window_name"></property>
                                                                     <property name="window_style"></property>
+                                                                    <event name="OnChoice">OnChoice</event>
                                                                 </object>
                                                             </object>
                                                             <object class="gbsizeritem" expanded="1">
@@ -1098,6 +1101,7 @@
                                                                     <property name="window_extra_style"></property>
                                                                     <property name="window_name"></property>
                                                                     <property name="window_style"></property>
+                                                                    <event name="OnChoice">OnChoice</event>
                                                                 </object>
                                                             </object>
                                                         </object>
@@ -1187,6 +1191,7 @@
                                                                     <property name="window_extra_style"></property>
                                                                     <property name="window_name"></property>
                                                                     <property name="window_style"></property>
+                                                                    <event name="OnCheckBox">OnCheckBox</event>
                                                                 </object>
                                                             </object>
                                                             <object class="sizeritem" expanded="0">
@@ -1251,6 +1256,7 @@
                                                                     <property name="window_extra_style"></property>
                                                                     <property name="window_name"></property>
                                                                     <property name="window_style"></property>
+                                                                    <event name="OnCheckBox">OnCheckBox</event>
                                                                 </object>
                                                             </object>
                                                         </object>
@@ -1329,6 +1335,7 @@
                                                                     <property name="window_extra_style"></property>
                                                                     <property name="window_name"></property>
                                                                     <property name="window_style"></property>
+                                                                    <event name="OnCheckBox">OnCheckBox</event>
                                                                 </object>
                                                             </object>
                                                             <object class="sizeritem" expanded="1">
@@ -1393,6 +1400,7 @@
                                                                     <property name="window_extra_style"></property>
                                                                     <property name="window_name"></property>
                                                                     <property name="window_style"></property>
+                                                                    <event name="OnCheckBox">OnCheckBox</event>
                                                                 </object>
                                                             </object>
                                                         </object>
@@ -1902,7 +1910,7 @@
                                 <property name="permission">none</property>
                                 <object class="sizeritem" expanded="1">
                                     <property name="border">2</property>
-                                    <property name="flag">wxALIGN_CENTER_VERTICAL|wxBOTTOM|wxLEFT</property>
+                                    <property name="flag">wxALIGN_CENTER_VERTICAL|wxLEFT</property>
                                     <property name="proportion">0</property>
                                     <object class="wxStaticText" expanded="1">
                                         <property name="BottomDockable">1</property>

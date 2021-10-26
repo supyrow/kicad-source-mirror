@@ -262,13 +262,6 @@ bool EDIT_TOOL::invokeInlineRouter( int aDragMode )
 }
 
 
-bool EDIT_TOOL::isInteractiveDragEnabled() const
-{
-    ROUTER_TOOL* router = m_toolMgr->GetTool<ROUTER_TOOL>();
-
-    return router && router->Router()->Settings().InlineDragEnabled();
-}
-
 
 bool EDIT_TOOL::isRouterActive() const
 {
@@ -280,6 +273,9 @@ bool EDIT_TOOL::isRouterActive() const
 
 int EDIT_TOOL::Drag( const TOOL_EVENT& aEvent )
 {
+    if( m_toolMgr->GetTool<ROUTER_TOOL>()->IsToolActive() )
+        return false; // don't drag when router is already active
+
     int mode = PNS::DM_ANY;
 
     if( aEvent.IsAction( &PCB_ACTIONS::dragFreeAngle ) )
@@ -555,7 +551,7 @@ int EDIT_TOOL::DragArcTrack( const TOOL_EVENT& aEvent )
         VECTOR2I newCenter = circlehelper.Center;
         VECTOR2I newStart = cSegTanStart.LineProject( newCenter );
         VECTOR2I newEnd = cSegTanEnd.LineProject( newCenter );
-        VECTOR2I newMid = GetArcMid( newStart, newEnd, newCenter );
+        VECTOR2I newMid = CalcArcMid( newStart, newEnd, newCenter );
 
         // Update objects
         theArc->SetStart( (wxPoint) newStart );
@@ -931,7 +927,7 @@ int EDIT_TOOL::doMoveSelection( TOOL_EVENT aEvent, bool aPickReference )
                 // Prepare to start dragging
                 if( !( evt->IsAction( &PCB_ACTIONS::move )
                        || evt->IsAction( &PCB_ACTIONS::moveWithReference ) )
-                    && isInteractiveDragEnabled() )
+                    && ( editFrame->Settings().m_TrackDragAction != TRACK_DRAG_ACTION::MOVE ) )
                 {
                     if( invokeInlineRouter( PNS::DM_ANY ) )
                         break;
@@ -2280,7 +2276,7 @@ int EDIT_TOOL::CreateArray( const TOOL_EVENT& aEvent )
 
     // we have a selection to work on now, so start the tool process
     PCB_BASE_FRAME* editFrame = getEditFrame<PCB_BASE_FRAME>();
-    ARRAY_CREATOR   array_creator( *editFrame, m_isFootprintEditor, selection );
+    ARRAY_CREATOR   array_creator( *editFrame, m_isFootprintEditor, selection, m_toolMgr );
     array_creator.Invoke();
 
     return 0;

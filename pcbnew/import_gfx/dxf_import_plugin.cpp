@@ -379,7 +379,13 @@ void DXF_IMPORT_PLUGIN::addVertex( const DL_VertexData& aData )
         return;     // Error
 
     DXF_IMPORT_LAYER* layer     = getImportLayer( attributes.getLayer() );
-    double            lineWidth = lineWeightToWidth( attributes.getWidth(), layer );
+    double lineWidth = lineWeightToWidth( attributes.getWidth(), layer );
+
+    /* support for per-vertex-encoded linewidth (Cadence uses it) */
+    if( aData.startWidth > 0.0 )
+        lineWidth = aData.startWidth;
+    else if ( aData.endWidth > 0.0 )
+        lineWidth = aData.endWidth;
 
     const DL_VertexData* vertex = &aData;
 
@@ -1201,7 +1207,7 @@ void DXF_IMPORT_PLUGIN::addPoint( const DL_PointData& aData )
 
 
 void DXF_IMPORT_PLUGIN::insertLine( const VECTOR2D& aSegStart,
-                                    const VECTOR2D& aSegEnd, int aWidth )
+                                    const VECTOR2D& aSegEnd, double aWidth )
 {
     VECTOR2D origin( SCALE_FACTOR( aSegStart.x ), SCALE_FACTOR( aSegStart.y ) );
     VECTOR2D end( SCALE_FACTOR( aSegEnd.x ), SCALE_FACTOR( aSegEnd.y ) );
@@ -1216,7 +1222,7 @@ void DXF_IMPORT_PLUGIN::insertLine( const VECTOR2D& aSegStart,
 
 
 void DXF_IMPORT_PLUGIN::insertArc( const VECTOR2D& aSegStart, const VECTOR2D& aSegEnd,
-                                   double aBulge, int aWidth )
+                                   double aBulge, double aWidth )
 {
     VECTOR2D segment_startpoint( SCALE_FACTOR( aSegStart.x ), SCALE_FACTOR( aSegStart.y ) );
     VECTOR2D segment_endpoint( SCALE_FACTOR( aSegEnd.x ), SCALE_FACTOR( aSegEnd.y ) );
@@ -1297,7 +1303,7 @@ void DXF_IMPORT_PLUGIN::insertArc( const VECTOR2D& aSegStart, const VECTOR2D& aS
 
 #include "tinysplinecpp.h"
 
-void DXF_IMPORT_PLUGIN::insertSpline( int aWidth )
+void DXF_IMPORT_PLUGIN::insertSpline( double aWidth )
 {
     #if 0   // Debug only
     wxLogMessage("spl deg %d kn %d ctr %d fit %d",

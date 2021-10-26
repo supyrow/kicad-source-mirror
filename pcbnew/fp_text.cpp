@@ -400,10 +400,7 @@ double FP_TEXT::ViewGetLOD( int aLayer, KIGFX::VIEW* aView ) const
     if( IsParentFlipped() && !aView->IsLayerVisible( LAYER_MOD_BK ) )
         return HIDE;
 
-    if( IsFrontLayer( m_layer ) && !aView->IsLayerVisible( LAYER_MOD_TEXT_FR ) )
-        return HIDE;
-
-    if( IsBackLayer( m_layer ) && !aView->IsLayerVisible( LAYER_MOD_TEXT_BK ) )
+    if( !aView->IsLayerVisible( LAYER_MOD_TEXT ) )
         return HIDE;
 
     // Other layers are shown without any conditions
@@ -449,6 +446,44 @@ wxString FP_TEXT::GetShownText( int aDepth ) const
 std::shared_ptr<SHAPE> FP_TEXT::GetEffectiveShape( PCB_LAYER_ID aLayer ) const
 {
     return GetEffectiveTextShape();
+}
+
+
+void FP_TEXT::TransformTextShapeWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuffer,
+                                                        PCB_LAYER_ID aLayer, int aClearance,
+                                                        int aError, ERROR_LOC aErrorLoc ) const
+{
+    struct TSEGM_2_POLY_PRMS prms;
+
+    prms.m_cornerBuffer = &aCornerBuffer;
+    prms.m_textWidth  = GetEffectiveTextPenWidth() + ( 2 * aClearance );
+    prms.m_error = aError;
+    wxSize size = GetTextSize();
+    int  penWidth = GetEffectiveTextPenWidth();
+
+    if( IsMirrored() )
+        size.x = -size.x;
+
+    GRText( nullptr, GetTextPos(), BLACK, GetShownText(), GetDrawRotation(), size,
+            GetHorizJustify(), GetVertJustify(), penWidth, IsItalic(), IsBold(),
+            addTextSegmToPoly, &prms );
+}
+
+
+void FP_TEXT::TransformShapeWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuffer,
+                                                    PCB_LAYER_ID aLayer, int aClearance,
+                                                    int aError, ERROR_LOC aErrorLoc,
+                                                    bool aIgnoreLineWidth ) const
+{
+    SHAPE_POLY_SET buffer;
+    EDA_TEXT::TransformBoundingBoxWithClearanceToPolygon( &buffer, aClearance );
+
+    const FOOTPRINT* parentFootprint = static_cast<const FOOTPRINT*>( m_parent );
+
+    if( parentFootprint )
+        buffer.Rotate( DECIDEG2RAD( GetDrawRotation() ), GetTextPos() );
+
+    aCornerBuffer.Append( buffer );
 }
 
 

@@ -47,21 +47,22 @@ inline void normalise2PI( float& aAngle )
 const wxChar *CAMERA::m_logTrace = wxT( "KI_TRACE_CAMERA" );
 
 
-#define MIN_ZOOM 0.10f
-#define MAX_ZOOM 1.25f
+#define DEFAULT_MIN_ZOOM 0.10f
+#define DEFAULT_MAX_ZOOM 1.20f
 
 
-CAMERA::CAMERA( float aRangeScale, float aDefaultZoom )
+CAMERA::CAMERA( float aInitialDistance )
 {
     wxLogTrace( m_logTrace, wxT( "CAMERA::CAMERA" ) );
 
-    m_range_scale           = aRangeScale;
-    m_default_zoom          = aDefaultZoom;
-    m_camera_pos_init       = SFVEC3F( 0.0f, 0.0f, -(aRangeScale * 2.0f ) );
+    m_camera_pos_init       = SFVEC3F( 0.0f, 0.0f, -aInitialDistance );
     m_board_lookat_pos_init = SFVEC3F( 0.0f );
     m_windowSize            = SFVEC2I( 0, 0 );
     m_projectionType        = PROJECTION_TYPE::PERSPECTIVE;
     m_interpolation_mode    = CAMERA_INTERPOLATION::BEZIER;
+
+    m_minZoom = DEFAULT_MIN_ZOOM;
+    m_maxZoom = DEFAULT_MAX_ZOOM;
 
     Reset();
 }
@@ -76,9 +77,9 @@ void CAMERA::Reset()
     m_rotationMatrixAux    = glm::mat4( 1.0f );
     m_lastPosition         = wxPoint( 0, 0 );
 
-    m_zoom                 = m_default_zoom;
-    m_zoom_t0              = m_default_zoom;
-    m_zoom_t1              = m_default_zoom;
+    m_zoom                 = 1.0f;
+    m_zoom_t0              = 1.0f;
+    m_zoom_t1              = 1.0f;
     m_camera_pos           = m_camera_pos_init;
     m_camera_pos_t0        = m_camera_pos_init;
     m_camera_pos_t1        = m_camera_pos_init;
@@ -102,7 +103,7 @@ void CAMERA::Reset()
 void CAMERA::Reset_T1()
 {
     m_camera_pos_t1        = m_camera_pos_init;
-    m_zoom_t1              = m_default_zoom;
+    m_zoom_t1              = 1.0f;
     m_rotate_aux_t1        = SFVEC3F( 0.0f );
     m_lookat_pos_t1        = m_board_lookat_pos_init;
 
@@ -117,6 +118,21 @@ void CAMERA::Reset_T1()
 
     if( m_rotate_aux_t0.z > M_PI )
         m_rotate_aux_t1.z = static_cast<float>( 2.0f * M_PI );
+}
+
+
+void CAMERA::zoomChanged()
+{
+    if( m_zoom < m_minZoom )
+        m_zoom = m_minZoom;
+
+    if( m_zoom > m_maxZoom )
+        m_zoom = m_maxZoom;
+
+    m_camera_pos.z = m_camera_pos_init.z * m_zoom;
+
+    updateViewMatrix();
+    rebuildProjection();
 }
 
 
@@ -161,9 +177,7 @@ void CAMERA::rebuildProjection()
         return;
 
     m_frustum.ratio = (float) m_windowSize.x / (float)m_windowSize.y;
-
-    // Consider that we can render double the length multiplied by the 2/sqrt(2)
-    m_frustum.farD = glm::length( m_camera_pos_init ) * 2.0f * ( 2.0f * sqrtf( 2.0f ) );
+    m_frustum.farD = glm::length( m_camera_pos_init ) * m_maxZoom * 2.0f;
 
     switch( m_projectionType )
     {
@@ -386,6 +400,12 @@ const glm::mat4& CAMERA::GetProjectionMatrixInv() const
 }
 
 
+float CAMERA::GetCameraMinDimension() const
+{
+    return -m_camera_pos_init.z * m_frustum.tang;
+}
+
+
 void CAMERA::ResetXYpos()
 {
     m_parametersChanged = true;
@@ -461,50 +481,38 @@ void CAMERA::ZoomReset()
 
 bool CAMERA::Zoom( float aFactor )
 {
-    if( ( m_zoom == MIN_ZOOM && aFactor > 1 ) || ( m_zoom == MAX_ZOOM && aFactor < 1 )
-      || aFactor == 1 )
+    if( ( m_zoom == m_minZoom && aFactor > 1 ) || ( m_zoom == m_maxZoom && aFactor < 1 )
+        || aFactor == 1 )
+    {
         return false;
+    }
 
     m_zoom /= aFactor;
 
-    if( m_zoom <= MIN_ZOOM )
-        m_zoom = MIN_ZOOM;
-
-    if( m_zoom >= MAX_ZOOM )
-        m_zoom = MAX_ZOOM;
-
-    m_camera_pos.z = m_camera_pos_init.z * m_zoom;
-
-    updateViewMatrix();
-    rebuildProjection();
-
+    zoomChanged();
     return true;
 }
 
 
 bool CAMERA::Zoom_T1( float aFactor )
 {
-    if( ( m_zoom == MIN_ZOOM && aFactor > 1 ) || ( m_zoom == MAX_ZOOM && aFactor < 1 )
-      || aFactor == 1 )
+    if( ( m_zoom == m_minZoom && aFactor > 1 ) || ( m_zoom == m_maxZoom && aFactor < 1 )
+        || aFactor == 1 )
+    {
         return false;
+    }
 
     m_zoom_t1 = m_zoom / aFactor;
 
-    if( m_zoom_t1 < MIN_ZOOM )
-        m_zoom_t1 = MIN_ZOOM;
+    if( m_zoom_t1 < m_minZoom )
+        m_zoom_t1 = m_minZoom;
 
-    if( m_zoom_t1 > MAX_ZOOM )
-        m_zoom_t1 = MAX_ZOOM;
+    if( m_zoom_t1 > m_maxZoom )
+        m_zoom_t1 = m_maxZoom;
 
     m_camera_pos_t1.z = m_camera_pos_init.z * m_zoom_t1;
 
     return true;
-}
-
-
-float CAMERA::ZoomGet() const
-{
-    return m_zoom;
 }
 
 

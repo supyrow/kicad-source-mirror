@@ -440,7 +440,6 @@ void DIALOG_BOM::OnEditGenerator( wxCommandEvent& event )
         return;
     }
 
-    QuoteString( pluginFile );
     wxString editorname = Pgm().GetTextEditor();
 
     if( !editorname.IsEmpty() )
@@ -458,7 +457,7 @@ void DIALOG_BOM::OnHelp( wxCommandEvent& event )
         return;
     }
 
-    m_helpWindow = new HTML_MESSAGE_BOX( nullptr, this, _( "Bill of Material Generation Help" ) );
+    m_helpWindow = new HTML_MESSAGE_BOX( nullptr, _( "Bill of Material Generation Help" ) );
     m_helpWindow->SetDialogSizeInDU( 500, 350 );
 
     wxString html_txt;
