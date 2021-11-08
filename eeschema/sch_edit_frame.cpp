@@ -1214,7 +1214,7 @@ void SCH_EDIT_FRAME::AddItemToScreenAndUndoList( SCH_SCREEN* aScreen, SCH_ITEM* 
             for( auto j = i + 1; j != pts.end(); j++ )
                 TrimWire( *i, *j );
 
-            if( aScreen->IsJunctionNeeded( *i, true ) )
+            if( aScreen->IsExplicitJunctionNeeded( *i ) )
                 AddJunction( aScreen, *i, true, false );
         }
 
@@ -1426,7 +1426,9 @@ void SCH_EDIT_FRAME::ShowAllIntersheetRefs( bool aShow )
 void SCH_EDIT_FRAME::CommonSettingsChanged( bool aEnvVarsChanged, bool aTextVarsChanged )
 {
     SCHEMATIC_SETTINGS& settings = Schematic().Settings();
+
     SCH_BASE_FRAME::CommonSettingsChanged( aEnvVarsChanged, aTextVarsChanged );
+    settings.m_JunctionSize = GetSchematicJunctionSize();
 
     ShowAllIntersheetRefs( settings.m_IntersheetRefsShow );
 

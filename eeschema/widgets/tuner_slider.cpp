@@ -185,8 +185,7 @@ void TUNER_SLIDER::onClose( wxCommandEvent& event )
 
 void TUNER_SLIDER::onSave( wxCommandEvent& event )
 {
-    /// @todo it will crash when component is removed; completely remove m_symbol
-    m_symbol->GetField( VALUE_FIELD )->SetText( m_value.ToOrigString() );
+    m_frame->UpdateTunerValue( m_symbol, m_value.ToOrigString() );
 }
 
 
@@ -202,24 +201,28 @@ void TUNER_SLIDER::onSliderChanged( wxScrollEvent& event )
 void TUNER_SLIDER::onMaxKillFocus( wxFocusEvent& event )
 {
     updateMax();
+    event.Skip();       // Mandatory in wxFocusEvent
 }
 
 
 void TUNER_SLIDER::onValueKillFocus( wxFocusEvent& event )
 {
     updateValue();
+    event.Skip();       // Mandatory in wxFocusEvent
 }
 
 
 void TUNER_SLIDER::onMinKillFocus( wxFocusEvent& event )
 {
     updateMin();
+    event.Skip();       // Mandatory in wxFocusEvent
 }
 
 
 void TUNER_SLIDER::onMaxTextEnter( wxCommandEvent& event )
 {
     updateMax();
+    event.Skip();       // Mandatory in wxFocusEvent
 }
 
 

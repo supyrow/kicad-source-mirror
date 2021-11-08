@@ -109,7 +109,7 @@ DIALOG_PAD_PROPERTIES_BASE::DIALOG_PAD_PROPERTIES_BASE( wxWindow* parent, wxWind
 	wxString m_PadShapeSelectorChoices[] = { _("Circular"), _("Oval"), _("Rectangular"), _("Trapezoidal"), _("Rounded rectangle"), _("Chamfered rectangle"), _("Chamfered with other corners rounded"), _("Custom (circular base)"), _("Custom (rectangular base)") };
 	int m_PadShapeSelectorNChoices = sizeof( m_PadShapeSelectorChoices ) / sizeof( wxString );
 	m_PadShapeSelector = new wxChoice( m_panelGeneral, wxID_ANY, wxDefaultPosition, wxDefaultSize, m_PadShapeSelectorNChoices, m_PadShapeSelectorChoices, 0 );
-	m_PadShapeSelector->SetSelection( 0 );
+	m_PadShapeSelector->SetSelection( 2 );
 	bSizerShape->Add( m_PadShapeSelector, 1, wxEXPAND|wxBOTTOM|wxRIGHT|wxLEFT, 5 );
 
 
@@ -337,12 +337,13 @@ DIALOG_PAD_PROPERTIES_BASE::DIALOG_PAD_PROPERTIES_BASE( wxWindow* parent, wxWind
 	m_PadOrientText->Wrap( -1 );
 	gbSizerPadOrientation->Add( m_PadOrientText, wxGBPosition( 1, 0 ), wxGBSpan( 1, 1 ), wxALIGN_CENTER_VERTICAL|wxRIGHT|wxLEFT, 5 );
 
-	m_orientation = new wxComboBox( m_panelGeneral, wxID_ANY, wxEmptyString, wxDefaultPosition, wxSize( 100,-1 ), 0, NULL, 0 );
-	m_orientation->Append( _("0") );
-	m_orientation->Append( _("90") );
-	m_orientation->Append( _("-90") );
-	m_orientation->Append( _("180") );
-	gbSizerPadOrientation->Add( m_orientation, wxGBPosition( 1, 1 ), wxGBSpan( 1, 1 ), wxALIGN_CENTER_VERTICAL|wxEXPAND, 5 );
+	m_cb_padrotation = new wxComboBox( m_panelGeneral, wxID_ANY, _("0"), wxDefaultPosition, wxSize( 100,-1 ), 0, NULL, 0 );
+	m_cb_padrotation->Append( _("0") );
+	m_cb_padrotation->Append( _("90") );
+	m_cb_padrotation->Append( _("-90") );
+	m_cb_padrotation->Append( _("180") );
+	m_cb_padrotation->SetSelection( 0 );
+	gbSizerPadOrientation->Add( m_cb_padrotation, wxGBPosition( 1, 1 ), wxGBSpan( 1, 1 ), wxALIGN_CENTER_VERTICAL|wxEXPAND, 5 );
 
 	m_orientationUnits = new wxStaticText( m_panelGeneral, wxID_ANY, _("deg"), wxDefaultPosition, wxDefaultSize, 0 );
 	m_orientationUnits->Wrap( -1 );
@@ -355,7 +356,7 @@ DIALOG_PAD_PROPERTIES_BASE::DIALOG_PAD_PROPERTIES_BASE( wxWindow* parent, wxWind
 	m_LeftBoxSizer->Add( 0, 0, 1, wxEXPAND, 5 );
 
 	m_staticline6 = new wxStaticLine( m_panelGeneral, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxLI_HORIZONTAL );
-	m_LeftBoxSizer->Add( m_staticline6, 0, wxEXPAND|wxBOTTOM, 5 );
+	m_LeftBoxSizer->Add( m_staticline6, 0, wxBOTTOM|wxEXPAND|wxTOP, 5 );
 
 	wxGridBagSizer* gbSizerHole;
 	gbSizerHole = new wxGridBagSizer( 4, 0 );
@@ -369,7 +370,7 @@ DIALOG_PAD_PROPERTIES_BASE::DIALOG_PAD_PROPERTIES_BASE( wxWindow* parent, wxWind
 	wxString m_holeShapeCtrlChoices[] = { _("Circular"), _("Oval") };
 	int m_holeShapeCtrlNChoices = sizeof( m_holeShapeCtrlChoices ) / sizeof( wxString );
 	m_holeShapeCtrl = new wxChoice( m_panelGeneral, wxID_ANY, wxDefaultPosition, wxDefaultSize, m_holeShapeCtrlNChoices, m_holeShapeCtrlChoices, 0 );
-	m_holeShapeCtrl->SetSelection( 0 );
+	m_holeShapeCtrl->SetSelection( 1 );
 	gbSizerHole->Add( m_holeShapeCtrl, wxGBPosition( 0, 1 ), wxGBSpan( 1, 5 ), wxEXPAND|wxRIGHT, 5 );
 
 	m_holeXLabel = new wxStaticText( m_panelGeneral, wxID_ANY, _("Hole size X:"), wxDefaultPosition, wxDefaultSize, 0 );
@@ -583,23 +584,15 @@ DIALOG_PAD_PROPERTIES_BASE::DIALOG_PAD_PROPERTIES_BASE( wxWindow* parent, wxWind
 	wxStaticText* m_staticTextHint;
 	m_staticTextHint = new wxStaticText( sbClearancesSizer->GetStaticBox(), wxID_ANY, _("Set values to 0 to use parent footprint or netclass values."), wxDefaultPosition, wxDefaultSize, 0 );
 	m_staticTextHint->Wrap( -1 );
-	sbClearancesSizer->Add( m_staticTextHint, 0, wxRIGHT, 10 );
+	sbClearancesSizer->Add( m_staticTextHint, 0, wxLEFT|wxRIGHT, 5 );
 
 	m_staticTextInfoPosValue = new wxStaticText( sbClearancesSizer->GetStaticBox(), wxID_ANY, _("Positive clearance means area bigger than the pad (usual for mask clearance)."), wxDefaultPosition, wxDefaultSize, 0 );
 	m_staticTextInfoPosValue->Wrap( -1 );
-	sbClearancesSizer->Add( m_staticTextInfoPosValue, 0, wxTOP|wxRIGHT, 10 );
+	sbClearancesSizer->Add( m_staticTextInfoPosValue, 0, wxLEFT|wxRIGHT|wxTOP, 5 );
 
 	m_staticTextInfoNegVal = new wxStaticText( sbClearancesSizer->GetStaticBox(), wxID_ANY, _("Negative clearance means area smaller than the pad (usual for paste clearance)."), wxDefaultPosition, wxDefaultSize, 0 );
 	m_staticTextInfoNegVal->Wrap( -1 );
-	sbClearancesSizer->Add( m_staticTextInfoNegVal, 0, wxBOTTOM|wxRIGHT, 10 );
-
-	m_staticTextInfoPosValue = new wxStaticText( sbClearancesSizer->GetStaticBox(), wxID_ANY, _("Positive clearance means area bigger than the pad (usual for mask clearance)."), wxDefaultPosition, wxDefaultSize, 0 );
-	m_staticTextInfoPosValue->Wrap( -1 );
-	sbClearancesSizer->Add( m_staticTextInfoPosValue, 0, wxTOP|wxRIGHT, 10 );
-
-	m_staticTextInfoNegVal = new wxStaticText( sbClearancesSizer->GetStaticBox(), wxID_ANY, _("Negative clearance means area smaller than the pad (usual for paste clearance)."), wxDefaultPosition, wxDefaultSize, 0 );
-	m_staticTextInfoNegVal->Wrap( -1 );
-	sbClearancesSizer->Add( m_staticTextInfoNegVal, 0, wxBOTTOM|wxRIGHT, 10 );
+	sbClearancesSizer->Add( m_staticTextInfoNegVal, 0, wxBOTTOM|wxLEFT|wxRIGHT, 5 );
 
 	wxFlexGridSizer* fgClearancesGridSizer;
 	fgClearancesGridSizer = new wxFlexGridSizer( 4, 3, 0, 0 );
@@ -611,7 +604,7 @@ DIALOG_PAD_PROPERTIES_BASE::DIALOG_PAD_PROPERTIES_BASE( wxWindow* parent, wxWind
 	m_clearanceLabel->Wrap( -1 );
 	m_clearanceLabel->SetToolTip( _("This is the local net clearance for this pad.\nIf 0, the footprint local value or the Netclass value is used.") );
 
-	fgClearancesGridSizer->Add( m_clearanceLabel, 0, wxALIGN_CENTER_VERTICAL, 5 );
+	fgClearancesGridSizer->Add( m_clearanceLabel, 0, wxALIGN_CENTER_VERTICAL|wxLEFT, 5 );
 
 	m_clearanceCtrl = new wxTextCtrl( sbClearancesSizer->GetStaticBox(), wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, 0 );
 	fgClearancesGridSizer->Add( m_clearanceCtrl, 0, wxEXPAND|wxTOP|wxLEFT, 5 );
@@ -624,7 +617,7 @@ DIALOG_PAD_PROPERTIES_BASE::DIALOG_PAD_PROPERTIES_BASE( wxWindow* parent, wxWind
 	m_maskMarginLabel->Wrap( -1 );
 	m_maskMarginLabel->SetToolTip( _("This is the local clearance between this pad and the solder mask.\nIf 0, the footprint local value or the global value is used.") );
 
-	fgClearancesGridSizer->Add( m_maskMarginLabel, 0, wxALIGN_CENTER_VERTICAL|wxTOP, 5 );
+	fgClearancesGridSizer->Add( m_maskMarginLabel, 0, wxALIGN_CENTER_VERTICAL|wxLEFT|wxTOP, 5 );
 
 	m_maskMarginCtrl = new wxTextCtrl( sbClearancesSizer->GetStaticBox(), wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, 0 );
 	fgClearancesGridSizer->Add( m_maskMarginCtrl, 0, wxEXPAND|wxLEFT|wxTOP, 5 );
@@ -637,7 +630,7 @@ DIALOG_PAD_PROPERTIES_BASE::DIALOG_PAD_PROPERTIES_BASE( wxWindow* parent, wxWind
 	m_pasteMarginLabel->Wrap( -1 );
 	m_pasteMarginLabel->SetToolTip( _("This is the local clearance between this pad and the solder paste.\nIf 0, the footprint value or the global value is used.\nThe final clearance value is the sum of this value and the clearance value ratio.\nA negative value means a smaller mask size than pad size.") );
 
-	fgClearancesGridSizer->Add( m_pasteMarginLabel, 0, wxALIGN_CENTER_VERTICAL|wxTOP, 5 );
+	fgClearancesGridSizer->Add( m_pasteMarginLabel, 0, wxALIGN_CENTER_VERTICAL|wxLEFT|wxTOP, 5 );
 
 	m_pasteMarginCtrl = new wxTextCtrl( sbClearancesSizer->GetStaticBox(), wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, 0 );
 	fgClearancesGridSizer->Add( m_pasteMarginCtrl, 0, wxEXPAND|wxLEFT|wxTOP, 5 );
@@ -650,7 +643,7 @@ DIALOG_PAD_PROPERTIES_BASE::DIALOG_PAD_PROPERTIES_BASE( wxWindow* parent, wxWind
 	m_pasteMarginRatioLabel->Wrap( -1 );
 	m_pasteMarginRatioLabel->SetToolTip( _("This is the local clearance ratio in percent between this pad and the solder paste.\nA value of 10 means the clearance value is 10 percent of the pad size.\nIf 0, the footprint value or the global value is used.\nThe final clearance value is the sum of this value and the clearance value.\nA negative value means a smaller mask size than pad size.") );
 
-	fgClearancesGridSizer->Add( m_pasteMarginRatioLabel, 0, wxALIGN_CENTER_VERTICAL|wxTOP|wxBOTTOM, 5 );
+	fgClearancesGridSizer->Add( m_pasteMarginRatioLabel, 0, wxALIGN_CENTER_VERTICAL|wxBOTTOM|wxLEFT|wxTOP, 5 );
 
 	m_pasteMarginRatioCtrl = new TEXT_CTRL_EVAL( sbClearancesSizer->GetStaticBox(), wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, 0 );
 	fgClearancesGridSizer->Add( m_pasteMarginRatioCtrl, 0, wxBOTTOM|wxEXPAND|wxLEFT|wxTOP, 5 );
@@ -670,11 +663,11 @@ DIALOG_PAD_PROPERTIES_BASE::DIALOG_PAD_PROPERTIES_BASE( wxWindow* parent, wxWind
 
 	m_nonCopperNote = new wxStaticText( notePanel, wxID_ANY, _("Note: solder mask and paste values are used only for pads on copper layers."), wxDefaultPosition, wxDefaultSize, 0 );
 	m_nonCopperNote->Wrap( -1 );
-	bNoteSizer->Add( m_nonCopperNote, 0, wxTOP|wxRIGHT, 5 );
+	bNoteSizer->Add( m_nonCopperNote, 0, wxLEFT|wxRIGHT|wxTOP, 5 );
 
 	m_staticTextInfoPaste = new wxStaticText( notePanel, wxID_ANY, _("Note: solder paste clearances (absolute and relative) are added to determine the final clearance."), wxDefaultPosition, wxDefaultSize, 0 );
 	m_staticTextInfoPaste->Wrap( -1 );
-	bNoteSizer->Add( m_staticTextInfoPaste, 0, wxBOTTOM|wxRIGHT, 5 );
+	bNoteSizer->Add( m_staticTextInfoPaste, 0, wxBOTTOM|wxLEFT|wxRIGHT, 5 );
 
 
 	notePanel->SetSizer( bNoteSizer );
@@ -717,7 +710,7 @@ DIALOG_PAD_PROPERTIES_BASE::DIALOG_PAD_PROPERTIES_BASE( wxWindow* parent, wxWind
 
 	m_staticText40 = new wxStaticText( m_sbSizerZonesSettings->GetStaticBox(), wxID_ANY, _("Pad connection:"), wxDefaultPosition, wxDefaultSize, 0 );
 	m_staticText40->Wrap( -1 );
-	fgSizerCopperZonesOpts->Add( m_staticText40, 0, wxALIGN_CENTER_VERTICAL, 5 );
+	fgSizerCopperZonesOpts->Add( m_staticText40, 0, wxALIGN_CENTER_VERTICAL|wxLEFT, 5 );
 
 	wxString m_ZoneConnectionChoiceChoices[] = { _("From parent footprint"), _("Solid"), _("Thermal relief"), _("None") };
 	int m_ZoneConnectionChoiceNChoices = sizeof( m_ZoneConnectionChoiceChoices ) / sizeof( wxString );
@@ -730,7 +723,7 @@ DIALOG_PAD_PROPERTIES_BASE::DIALOG_PAD_PROPERTIES_BASE( wxWindow* parent, wxWind
 
 	m_spokeWidthLabel = new wxStaticText( m_sbSizerZonesSettings->GetStaticBox(), wxID_ANY, _("Thermal relief spoke width:"), wxDefaultPosition, wxDefaultSize, 0 );
 	m_spokeWidthLabel->Wrap( -1 );
-	fgSizerCopperZonesOpts->Add( m_spokeWidthLabel, 0, wxALIGN_CENTER_VERTICAL|wxTOP, 5 );
+	fgSizerCopperZonesOpts->Add( m_spokeWidthLabel, 0, wxALIGN_CENTER_VERTICAL|wxLEFT|wxTOP, 5 );
 
 	m_spokeWidthCtrl = new wxTextCtrl( m_sbSizerZonesSettings->GetStaticBox(), wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, 0 );
 	fgSizerCopperZonesOpts->Add( m_spokeWidthCtrl, 0, wxEXPAND|wxLEFT|wxTOP|wxALIGN_CENTER_VERTICAL, 5 );
@@ -741,7 +734,7 @@ DIALOG_PAD_PROPERTIES_BASE::DIALOG_PAD_PROPERTIES_BASE( wxWindow* parent, wxWind
 
 	m_thermalGapLabel = new wxStaticText( m_sbSizerZonesSettings->GetStaticBox(), wxID_ANY, _("Thermal relief gap:"), wxDefaultPosition, wxDefaultSize, 0 );
 	m_thermalGapLabel->Wrap( -1 );
-	fgSizerCopperZonesOpts->Add( m_thermalGapLabel, 0, wxALIGN_CENTER_VERTICAL|wxTOP, 5 );
+	fgSizerCopperZonesOpts->Add( m_thermalGapLabel, 0, wxALIGN_CENTER_VERTICAL|wxLEFT|wxTOP, 5 );
 
 	m_thermalGapCtrl = new wxTextCtrl( m_sbSizerZonesSettings->GetStaticBox(), wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, 0 );
 	fgSizerCopperZonesOpts->Add( m_thermalGapCtrl, 0, wxEXPAND|wxTOP|wxLEFT|wxALIGN_CENTER_VERTICAL, 5 );
@@ -752,7 +745,7 @@ DIALOG_PAD_PROPERTIES_BASE::DIALOG_PAD_PROPERTIES_BASE( wxWindow* parent, wxWind
 
 	m_staticTextcps = new wxStaticText( m_sbSizerZonesSettings->GetStaticBox(), wxID_ANY, _("Custom pad shape in zone:"), wxDefaultPosition, wxDefaultSize, 0 );
 	m_staticTextcps->Wrap( -1 );
-	fgSizerCopperZonesOpts->Add( m_staticTextcps, 0, wxALIGN_CENTER_VERTICAL|wxTOP|wxBOTTOM|wxRIGHT, 5 );
+	fgSizerCopperZonesOpts->Add( m_staticTextcps, 0, wxALIGN_CENTER_VERTICAL|wxBOTTOM|wxLEFT|wxRIGHT|wxTOP, 5 );
 
 	wxString m_ZoneCustomPadShapeChoices[] = { _("Use pad shape"), _("Use pad convex hull") };
 	int m_ZoneCustomPadShapeNChoices = sizeof( m_ZoneCustomPadShapeChoices ) / sizeof( wxString );
@@ -1013,8 +1006,8 @@ DIALOG_PAD_PROPERTIES_BASE::DIALOG_PAD_PROPERTIES_BASE( wxWindow* parent, wxWind
 	m_mixedCornerRatioCtrl->Connect( wxEVT_COMMAND_TEXT_UPDATED, wxCommandEventHandler( DIALOG_PAD_PROPERTIES_BASE::onCornerSizePercentChange ), NULL, this );
 	m_sizeXCtrl->Connect( wxEVT_COMMAND_TEXT_UPDATED, wxCommandEventHandler( DIALOG_PAD_PROPERTIES_BASE::OnValuesChanged ), NULL, this );
 	m_sizeYCtrl->Connect( wxEVT_COMMAND_TEXT_UPDATED, wxCommandEventHandler( DIALOG_PAD_PROPERTIES_BASE::OnValuesChanged ), NULL, this );
-	m_orientation->Connect( wxEVT_COMMAND_COMBOBOX_SELECTED, wxCommandEventHandler( DIALOG_PAD_PROPERTIES_BASE::PadOrientEvent ), NULL, this );
-	m_orientation->Connect( wxEVT_COMMAND_TEXT_UPDATED, wxCommandEventHandler( DIALOG_PAD_PROPERTIES_BASE::PadOrientEvent ), NULL, this );
+	m_cb_padrotation->Connect( wxEVT_COMMAND_COMBOBOX_SELECTED, wxCommandEventHandler( DIALOG_PAD_PROPERTIES_BASE::PadOrientEvent ), NULL, this );
+	m_cb_padrotation->Connect( wxEVT_COMMAND_TEXT_UPDATED, wxCommandEventHandler( DIALOG_PAD_PROPERTIES_BASE::PadOrientEvent ), NULL, this );
 	m_holeShapeCtrl->Connect( wxEVT_COMMAND_CHOICE_SELECTED, wxCommandEventHandler( DIALOG_PAD_PROPERTIES_BASE::OnDrillShapeSelected ), NULL, this );
 	m_holeXCtrl->Connect( wxEVT_COMMAND_TEXT_UPDATED, wxCommandEventHandler( DIALOG_PAD_PROPERTIES_BASE::OnValuesChanged ), NULL, this );
 	m_holeYCtrl->Connect( wxEVT_COMMAND_TEXT_UPDATED, wxCommandEventHandler( DIALOG_PAD_PROPERTIES_BASE::OnValuesChanged ), NULL, this );
@@ -1073,8 +1066,8 @@ DIALOG_PAD_PROPERTIES_BASE::~DIALOG_PAD_PROPERTIES_BASE()
 	m_mixedCornerRatioCtrl->Disconnect( wxEVT_COMMAND_TEXT_UPDATED, wxCommandEventHandler( DIALOG_PAD_PROPERTIES_BASE::onCornerSizePercentChange ), NULL, this );
 	m_sizeXCtrl->Disconnect( wxEVT_COMMAND_TEXT_UPDATED, wxCommandEventHandler( DIALOG_PAD_PROPERTIES_BASE::OnValuesChanged ), NULL, this );
 	m_sizeYCtrl->Disconnect( wxEVT_COMMAND_TEXT_UPDATED, wxCommandEventHandler( DIALOG_PAD_PROPERTIES_BASE::OnValuesChanged ), NULL, this );
-	m_orientation->Disconnect( wxEVT_COMMAND_COMBOBOX_SELECTED, wxCommandEventHandler( DIALOG_PAD_PROPERTIES_BASE::PadOrientEvent ), NULL, this );
-	m_orientation->Disconnect( wxEVT_COMMAND_TEXT_UPDATED, wxCommandEventHandler( DIALOG_PAD_PROPERTIES_BASE::PadOrientEvent ), NULL, this );
+	m_cb_padrotation->Disconnect( wxEVT_COMMAND_COMBOBOX_SELECTED, wxCommandEventHandler( DIALOG_PAD_PROPERTIES_BASE::PadOrientEvent ), NULL, this );
+	m_cb_padrotation->Disconnect( wxEVT_COMMAND_TEXT_UPDATED, wxCommandEventHandler( DIALOG_PAD_PROPERTIES_BASE::PadOrientEvent ), NULL, this );
 	m_holeShapeCtrl->Disconnect( wxEVT_COMMAND_CHOICE_SELECTED, wxCommandEventHandler( DIALOG_PAD_PROPERTIES_BASE::OnDrillShapeSelected ), NULL, this );
 	m_holeXCtrl->Disconnect( wxEVT_COMMAND_TEXT_UPDATED, wxCommandEventHandler( DIALOG_PAD_PROPERTIES_BASE::OnValuesChanged ), NULL, this );
 	m_holeYCtrl->Disconnect( wxEVT_COMMAND_TEXT_UPDATED, wxCommandEventHandler( DIALOG_PAD_PROPERTIES_BASE::OnValuesChanged ), NULL, this );

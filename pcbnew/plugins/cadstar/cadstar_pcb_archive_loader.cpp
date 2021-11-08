@@ -443,6 +443,14 @@ void CADSTAR_PCB_ARCHIVE_LOADER::loadBoardStackup()
 
             ++stackIndex;
         }
+        else if( item->GetType() == BOARD_STACKUP_ITEM_TYPE::BS_ITEM_TYPE_SILKSCREEN )
+        {
+            item->SetColor( "White" );
+        }
+        else if( item->GetType() == BOARD_STACKUP_ITEM_TYPE::BS_ITEM_TYPE_SOLDERMASK )
+        {
+            item->SetColor( "Green" );
+        }
     }
 
     int thickness = stackup.BuildBoardThicknessFromStackup();
@@ -2509,9 +2517,6 @@ void CADSTAR_PCB_ARCHIVE_LOADER::drawCadstarText( const TEXT& aCadstarText,
 
     txt->SetTextAngle( getAngleTenthDegree( aCadstarText.OrientAngle ) + aRotationAngle );
 
-    if( aCadstarText.Mirror != aMirrorInvert ) // If mirroring, invert angle to match CADSTAR
-        txt->SetTextAngle( -txt->GetTextAngle() );
-
     txt->SetMirrored( aCadstarText.Mirror );
 
     TEXTCODE tc = getTextCode( aCadstarText.TextCodeID );
@@ -2943,8 +2948,10 @@ SHAPE_POLY_SET CADSTAR_PCB_ARCHIVE_LOADER::getPolySetFromCadstarShape( const SHA
     polySet.ClearArcs();
 
     if( aLineThickness > 0 )
+    {
         polySet.Inflate( aLineThickness / 2, 32,
                          SHAPE_POLY_SET::CORNER_STRATEGY::ROUND_ALL_CORNERS );
+    }
 
 #ifdef DEBUG
     for( int i = 0; i < polySet.OutlineCount(); ++i )
@@ -2976,11 +2983,19 @@ SHAPE_LINE_CHAIN CADSTAR_PCB_ARCHIVE_LOADER::getLineChainFromShapes( const std::
             {
                 FP_SHAPE* fp_shape = (FP_SHAPE*) shape;
                 SHAPE_ARC arc( fp_shape->GetCenter0(), fp_shape->GetStart0(), fp_shape->GetArcAngle() / 10.0 );
+
+                if( shape->EndsSwapped() )
+                    arc.Reverse();
+
                 lineChain.Append( arc );
             }
             else
             {
                 SHAPE_ARC arc( shape->GetCenter(), shape->GetStart(), shape->GetArcAngle() / 10.0 );
+
+                if( shape->EndsSwapped() )
+                    arc.Reverse();
+
                 lineChain.Append( arc );
             }
         }

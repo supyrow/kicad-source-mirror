@@ -2,7 +2,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: KiCad\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2021-10-25 06:24-0700\n"
+"POT-Creation-Date: 2021-11-05 06:01-0700\n"
 "PO-Revision-Date: 2018-07-15 17:07+0200\n"
 "Last-Translator: Simon Richter <Simon.Richter@hogyros.de>\n"
 "Language-Team: Simon Richter <Simon.Richter@hogyros.de>\n"
@@ -2431,13 +2431,13 @@ msgstr "Insufficient permissions to folder '%s'."
 msgid ""
 "Well this is potentially embarrassing!\n"
 "It appears that the last time you were editing the file\n"
-"\"%s\"\n"
+"%s\n"
 "it was not saved properly.  Do you wish to restore the last saved edits you "
 "made?"
 msgstr ""
 "Well this is potentially embarrassing!\n"
 "It appears that the last time you were editing the file\n"
-"“%s”\n"
+"%s\n"
 "it was not saved properly.  Do you wish to restore the last saved edits you "
 "made?"
 
@@ -3640,8 +3640,8 @@ msgstr "Cut selected item(s) to clipboard"
 msgid "Copy selected item(s) to clipboard"
 msgstr "Copy selected item(s) to clipboard"
 
-msgid "Paste items(s) from clipboard"
-msgstr "Paste items(s) from clipboard"
+msgid "Paste item(s) from clipboard"
+msgstr "Paste item(s) from clipboard"
 
 msgid "Select all items on screen"
 msgstr "Select all items on screen"
@@ -6012,8 +6012,8 @@ msgstr ""
 "elements.  Uncheck this option when all symbol units are identical except\n"
 "for pin numbers."
 
-msgid "Create symbol with alternate body style (DeMorgan)"
-msgstr "Create symbol with alternate body style (DeMorgan)"
+msgid "Create symbol with alternate body style (De Morgan)"
+msgstr "Create symbol with alternate body style (De Morgan)"
 
 msgid "Create symbol as power symbol"
 msgstr "Create symbol as power symbol"
@@ -6054,8 +6054,8 @@ msgstr "Fill Style"
 msgid "Common to all &units in symbol"
 msgstr "Common to all &units in symbol"
 
-msgid "Common to all body &styles (DeMorgan)"
-msgstr "Common to all body &styles (DeMorgan)"
+msgid "Common to all body &styles (De Morgan)"
+msgstr "Common to all body &styles (De Morgan)"
 
 msgid "Drawing Properties"
 msgstr "Drawing Properties"
@@ -6072,11 +6072,8 @@ msgstr "Aliased symbol must have a parent selected"
 msgid "Delete extra units from symbol?"
 msgstr "Delete extra units from symbol?"
 
-msgid "Add new pins for alternate body style (DeMorgan) to symbol?"
-msgstr "Add new pins for alternate body style (DeMorgan) to symbol?"
-
-msgid "Delete alternate body style (DeMorgan) draw items from symbol?"
-msgstr "Delete alternate body style (DeMorgan) draw items from symbol?"
+msgid "Delete alternate body style (De Morgan) from symbol?"
+msgstr "Delete alternate body style (De Morgan) from symbol?"
 
 #, c-format
 msgid "The name '%s' conflicts with an existing entry in the library '%s'."
@@ -6152,8 +6149,8 @@ msgstr ""
 "derived from another symbols or they stand alone as\n"
 "root symbols."
 
-msgid "Has alternate body style (DeMorgan)"
-msgstr "Has alternate body style (DeMorgan)"
+msgid "Has alternate body style (De Morgan)"
+msgstr "Has alternate body style (De Morgan)"
 
 msgid "Check this option if the symbol has an alternate body style (De Morgan)"
 msgstr ""
@@ -6425,8 +6422,8 @@ msgstr ""
 "Similar pins at the same location will be edited. Pin number of other pins "
 "will be not modified"
 
-msgid "Alternate pin assignments are not available for DeMorgan symbols."
-msgstr "Alternate pin assignments are not available for DeMorgan symbols."
+msgid "Alternate pin assignments are not available for De Morgan symbols."
+msgstr "Alternate pin assignments are not available for De Morgan symbols."
 
 msgid "This symbol only has one unit. This control has no effect."
 msgstr "This symbol only has one unit. This control has no effect."
@@ -7548,8 +7545,8 @@ msgid "Field must have a name."
 msgstr "Field must have a name."
 
 #, c-format
-msgid "Field name \"%s\" already in use."
-msgstr "Field name “%s” already in use."
+msgid "Field name '%s' already in use."
+msgstr "Field name '%s' already in use."
 
 msgid "Group symbols"
 msgstr "Group symbols"
@@ -7569,15 +7566,11 @@ msgstr "Base Name"
 msgid "Alternate Assignment"
 msgstr "Alternate Assignment"
 
-#, c-format
-msgid "Field name '%s' already in use."
-msgstr "Field name '%s' already in use."
-
 msgid "Unit:"
 msgstr "Unit:"
 
-msgid "Alternate symbol (DeMorgan)"
-msgstr "Alternate symbol (DeMorgan)"
+msgid "Alternate symbol (De Morgan)"
+msgstr "Alternate symbol (De Morgan)"
 
 msgid ""
 "Use the alternate shape of this symbol.\n"
@@ -11262,23 +11255,23 @@ msgstr "Assign Netclass..."
 msgid "Assign a netclass to the net of the selected wire"
 msgstr "Assign a netclass to the net of the selected wire"
 
-msgid "DeMorgan Conversion"
-msgstr "DeMorgan Conversion"
+msgid "De Morgan Conversion"
+msgstr "De Morgan Conversion"
 
-msgid "Switch between DeMorgan representations"
-msgstr "Switch between DeMorgan representations"
+msgid "Switch between De Morgan representations"
+msgstr "Switch between De Morgan representations"
 
-msgid "DeMorgan Standard"
-msgstr "DeMorgan Standard"
+msgid "De Morgan Standard"
+msgstr "De Morgan Standard"
 
-msgid "Switch to standard DeMorgan representation"
-msgstr "Switch to standard DeMorgan representation"
+msgid "Switch to standard De Morgan representation"
+msgstr "Switch to standard De Morgan representation"
 
-msgid "DeMorgan Alternate"
-msgstr "DeMorgan Alternate"
+msgid "De Morgan Alternate"
+msgstr "De Morgan Alternate"
 
-msgid "Switch to alternate DeMorgan representation"
-msgstr "Switch to alternate DeMorgan representation"
+msgid "Switch to alternate De Morgan representation"
+msgstr "Switch to alternate De Morgan representation"
 
 msgid "Change to Label"
 msgstr "Change to Label"
@@ -11364,8 +11357,11 @@ msgstr "Highlight wires and pins of a net"
 msgid "Edit with Symbol Editor"
 msgstr "Edit with Symbol Editor"
 
-msgid "Open the symbol editor to edit the symbol"
-msgstr "Open the symbol editor to edit the symbol"
+msgid "Open the selected symbol in the Symbol Editor"
+msgstr "Open the selected symbol in the Symbol Editor"
+
+msgid "Open the library symbol in the Symbol Editor"
+msgstr "Open the library symbol in the Symbol Editor"
 
 msgid "Edit Symbol Fields..."
 msgstr "Edit Symbol Fields..."
@@ -12499,16 +12495,16 @@ msgid "Highlight"
 msgstr "Highlight"
 
 #, c-format
-msgid "Highlight Items of Component \"%s\""
-msgstr "Highlight Items of Component “%s”"
+msgid "Highlight Items of Component '%s'"
+msgstr "Highlight Items of Component '%s'"
 
 #, c-format
-msgid "Highlight Items of Net \"%s\""
-msgstr "Highlight Items of Net “%s”"
+msgid "Highlight Items of Net '%s'"
+msgstr "Highlight Items of Net '%s'"
 
 #, c-format
-msgid "Highlight Aperture Type \"%s\""
-msgstr "Highlight Aperture Type “%s”"
+msgid "Highlight Aperture Type '%s'"
+msgstr "Highlight Aperture Type '%s'"
 
 #, c-format
 msgid "Highlight DCode D%d"
@@ -12667,10 +12663,10 @@ msgstr "Unzip Project"
 #, c-format
 msgid ""
 "\n"
-"Open \"%s\"\n"
+"Open '%s'\n"
 msgstr ""
 "\n"
-"Open “%s”\n"
+"Open '%s'\n"
 
 msgid "Target Directory"
 msgstr "Target Directory"
@@ -12747,8 +12743,8 @@ msgid "Restoring session"
 msgstr "Restoring session"
 
 #, c-format
-msgid "Restoring \"%s\""
-msgstr "Restoring \"%s\""
+msgid "Restoring '%s'"
+msgstr "Restoring '%s'"
 
 msgid "Clear Recent Projects"
 msgstr "Clear Recent Projects"
@@ -13242,8 +13238,8 @@ msgid "Print the contents of the file"
 msgstr "Print the contents of the file"
 
 #, c-format
-msgid "Change filename: \"%s\""
-msgstr "Change filename: “%s”"
+msgid "Change filename: '%s'"
+msgstr "Change filename: '%s'"
 
 msgid "Change filename"
 msgstr "Change filename"
@@ -13766,9 +13762,9 @@ msgid ""
 "___Z<sub>out</sub>___ is desired output impedance in &#x2126;<br>\n"
 "___Z<sub>0</sub> = Z<sub>in</sub> = Z<sub>out</sub>___\n"
 "\n"
-"___L = 10<sup>a/20</up>___\n"
-"___R<sub>1</sub> = Z<sub>0</sub> &middot; (L&minus;1)___<br>\n"
-"___R<sub>2</sub> = Z<sub>0</sub> / (L&minus;1)___\n"
+"___L = 10<sup>a/20</sup>___<br>\n"
+"___R1 = Z<sub>0</sub> &middot; (L&minus;1)___<br>\n"
+"___R2 = Z<sub>0</sub> / (L&minus;1)___\n"
 msgstr ""
 "### Bridged Tee Attenuator\n"
 "___a___ is attenuation in dB<br>\n"
@@ -13776,9 +13772,9 @@ msgstr ""
 "___Z<sub>out</sub>___ is desired output impedance in &#x2126;<br>\n"
 "___Z<sub>0</sub> = Z<sub>in</sub> = Z<sub>out</sub>___\n"
 "\n"
-"___L = 10<sup>a/20</up>___\n"
-"___R<sub>1</sub> = Z<sub>0</sub> &middot; (L&minus;1)___<br>\n"
-"___R<sub>2</sub> = Z<sub>0</sub> / (L&minus;1)___\n"
+"___L = 10<sup>a/20</sup>___<br>\n"
+"___R1 = Z<sub>0</sub> &middot; (L&minus;1)___<br>\n"
+"___R2 = Z<sub>0</sub> / (L&minus;1)___\n"
 
 msgid ""
 "### Pi Attenuator\n"
@@ -13788,10 +13784,10 @@ msgid ""
 "\n"
 "___L = 10<sup>a/20</sup>___<br>\n"
 "___A = (L+1) / (L&minus;1)___<br><br>\n"
-"___R<sub>2</sub> = (L&minus;1) / 2&middot;&radic;(Z<sub>in</sub> &middot; "
-"Z<sub>out</sub> / L)___<br>\n"
-"___R<sub>1</sub> = 1 / (A/Z<sub>in</sub> &minus; 1/R<sub>2</sub>)___<br>\n"
-"___R<sub>3</sub> = 1 / (A/Z<sub>out</sub> &minus; 1/R<sub>2</sub>)___\n"
+"___R2 = (L&minus;1) / 2&middot;&radic;(Z<sub>in</sub> &middot; Z<sub>out</"
+"sub> / L)___<br>\n"
+"___R1 = 1 / (A/Z<sub>in</sub> &minus; 1/R2)___<br>\n"
+"___R3 = 1 / (A/Z<sub>out</sub> &minus; 1/R2)___\n"
 msgstr ""
 "### Pi Attenuator\n"
 "___a___ is attenuation in dB<br>\n"
@@ -13800,10 +13796,10 @@ msgstr ""
 "\n"
 "___L = 10<sup>a/20</sup>___<br>\n"
 "___A = (L+1) / (L&minus;1)___<br><br>\n"
-"___R<sub>2</sub> = (L&minus;1) / 2&middot;&radic;(Z<sub>in</sub> &middot; "
-"Z<sub>out</sub> / L)___<br>\n"
-"___R<sub>1</sub> = 1 / (A/Z<sub>in</sub> &minus; 1/R<sub>2</sub>)___<br>\n"
-"___R<sub>3</sub> = 1 / (A/Z<sub>out</sub> &minus; 1/R<sub>2</sub>)___\n"
+"___R2 = (L&minus;1) / 2&middot;&radic;(Z<sub>in</sub> &middot; Z<sub>out</"
+"sub> / L)___<br>\n"
+"___R1 = 1 / (A/Z<sub>in</sub> &minus; 1/R2)___<br>\n"
+"___R3 = 1 / (A/Z<sub>out</sub> &minus; 1/R2)___\n"
 
 msgid ""
 "### Split Attenuator\n"
@@ -13812,7 +13808,7 @@ msgid ""
 "___Z<sub>out</sub>___ is desired output impedance in &#x2126;  \n"
 "___Z<sub>0</sub> = Z<sub>in</sub> = Z<sub>out</sub>___\n"
 "\n"
-"___R<sub>1</sub> = R<sub>2</sub> = R<sub>3</sub> = Z<sub>0</sub>/3___\n"
+"___R1 = R2 = R3 = Z<sub>0</sub>/3___\n"
 msgstr ""
 "### Split Attenuator\n"
 "Attenuation is 6 dB  \n"
@@ -13820,7 +13816,7 @@ msgstr ""
 "___Z<sub>out</sub>___ is desired output impedance in &#x2126;  \n"
 "___Z<sub>0</sub> = Z<sub>in</sub> = Z<sub>out</sub>___\n"
 "\n"
-"___R<sub>1</sub> = R<sub>2</sub> = R<sub>3</sub> = Z<sub>0</sub>/3___\n"
+"___R1 = R2 = R3 = Z<sub>0</sub>/3___\n"
 
 msgid ""
 "### Tee Attenuator\n"
@@ -13829,11 +13825,11 @@ msgid ""
 "___Z<sub>out</sub>___ is desired output impedance in &#x2126;<br>\n"
 "\n"
 "___L = 10<sup>a/20</sup>___<br>\n"
-"___A = (L+1) / (L&minus;1)___<br>\n"
-"___R<sub>2</sub> = 2&middot;&radic;(L &middot; Z<sub>in</sub> &middot; "
-"Z<sub>out</sub>) / (L&minus;1)___<br>\n"
-"___R<sub>1</sub> = Z<sub>in</sub> &middot; A &minus; R<sub>2</sub>___<br>\n"
-"___R<sub>3</sub> = Z<sub>out</sub> &middot; A &minus; R<sub>2</sub>___\n"
+"___A = (L+1) / (L&minus;1)___<br><br>\n"
+"___R2 = 2&middot;&radic;(L &middot; Z<sub>in</sub> &middot; Z<sub>out</"
+"sub>) / (L&minus;1)___<br>\n"
+"___R1 = Z<sub>in</sub> &middot; A &minus; R2___<br>\n"
+"___R3 = Z<sub>out</sub> &middot; A &minus; R2___\n"
 msgstr ""
 "### Tee Attenuator\n"
 "___a___ is attenuation in dB<br>\n"
@@ -13841,18 +13837,18 @@ msgstr ""
 "___Z<sub>out</sub>___ is desired output impedance in &#x2126;<br>\n"
 "\n"
 "___L = 10<sup>a/20</sup>___<br>\n"
-"___A = (L+1) / (L&minus;1)___<br>\n"
-"___R<sub>2</sub> = 2&middot;&radic;(L &middot; Z<sub>in</sub> &middot; "
-"Z<sub>out</sub>) / (L&minus;1)___<br>\n"
-"___R<sub>1</sub> = Z<sub>in</sub> &middot; A &minus; R<sub>2</sub>___<br>\n"
-"___R<sub>3</sub> = Z<sub>out</sub> &middot; A &minus; R<sub>2</sub>___\n"
+"___A = (L+1) / (L&minus;1)___<br><br>\n"
+"___R2 = 2&middot;&radic;(L &middot; Z<sub>in</sub> &middot; Z<sub>out</"
+"sub>) / (L&minus;1)___<br>\n"
+"___R1 = Z<sub>in</sub> &middot; A &minus; R2___<br>\n"
+"___R3 = Z<sub>out</sub> &middot; A &minus; R2___\n"
 
 #, c-format
 msgid "Attenuation more than %f dB"
 msgstr "Attenuation more than %f dB"
 
-msgid "PI"
-msgstr "PI"
+msgid "Pi"
+msgstr "Pi"
 
 msgid "Tee"
 msgstr "Tee"
@@ -16188,6 +16184,22 @@ msgstr "Pad Numbering:"
 msgid "Circular Array"
 msgstr "Circular Array"
 
+msgid "Footprint Annotation"
+msgstr "Footprint Annotation"
+
+msgid "Keep existing reference designators"
+msgstr "Keep existing reference designators"
+
+msgid "Assign unique reference designators"
+msgstr "Assign unique reference designators"
+
+msgid ""
+"This can conflict with reference designators in the schematic that have not "
+"yet been synchronized with the board."
+msgstr ""
+"This can conflict with reference designators in the schematic that have not "
+"yet been synchronized with the board."
+
 msgid "Create Array"
 msgstr "Create Array"
 
@@ -16767,6 +16779,9 @@ msgstr "Use paths for model files in board VRML file relative to the VRML file"
 
 msgid "VRML Export Options"
 msgstr "VRML Export Options"
+
+msgid "All items"
+msgstr "All items"
 
 msgid "Include &footprints"
 msgstr "Include &footprints"
@@ -18450,6 +18465,9 @@ msgstr "Warning: Scale option set to a very large value"
 msgid "Plot format:"
 msgstr "Plot format:"
 
+msgid "Include Layers"
+msgstr "Include Layers"
+
 msgid "Plot border and title block"
 msgstr "Plot border and title block"
 
@@ -18471,8 +18489,8 @@ msgstr "Plot Edge.Cuts on all layers"
 msgid "Do not plot the contents of the PCB edge layer on any other layers."
 msgstr "Do not plot the contents of the PCB edge layer on any other layers."
 
-msgid "Sketch pads on fab layers"
-msgstr "Sketch pads on fab layers"
+msgid "Sketch pads on fabrication layers"
+msgstr "Sketch pads on fabrication layers"
 
 msgid "Include pad outlines on F.Fab and B.Fab layers when plotting"
 msgstr "Include pad outlines on F.Fab and B.Fab layers when plotting"
@@ -18527,15 +18545,15 @@ msgstr "Negative plot"
 msgid "Check zone fills before plotting"
 msgstr "Check zone fills before plotting"
 
-msgid "Global solder mask min width and/or margin are not set to 0. "
-msgstr "Global solder mask min width and/or margin are not set to 0. "
+msgid "Global solder mask minimum width and/or margin are not set to 0. "
+msgstr "Global solder mask minimum width and/or margin are not set to 0. "
 
 msgid ""
-"Most board houses expect 0 and use their constraints, especially for solder "
-"mask min width."
+"Most board manufacturers expect 0 and use their own constraints for solder "
+"mask minimum width."
 msgstr ""
-"Most board houses expect 0 and use their constraints, especially for solder "
-"mask min width."
+"Most board manufacturers expect 0 and use their own constraints for solder "
+"mask minimum width."
 
 msgid "Board setup"
 msgstr "Board setup"
@@ -18600,15 +18618,15 @@ msgstr "Include netlist attributes"
 
 msgid ""
 "Include netlist metadata and aperture attributes in Gerber files.\n"
-"In X1 format, they are comments.\n"
+"They are comments in the X1 format.\n"
 "Used to check connectivity in CAM tools and Gerber viewers."
 msgstr ""
 "Include netlist metadata and aperture attributes in Gerber files.\n"
-"In X1 format, they are comments.\n"
+"They are comments in the X1 format.\n"
 "Used to check connectivity in CAM tools and Gerber viewers."
 
-msgid "Disable aperture macros (non recommended)"
-msgstr "Disable aperture macros (non recommended)"
+msgid "Disable aperture macros (not recommended)"
+msgstr "Disable aperture macros (not recommended)"
 
 msgid ""
 "Disable aperture macros in Gerber files\n"
@@ -18663,8 +18681,8 @@ msgstr "Plot graphic items using their contours"
 msgid "Uncheck to plot graphic items using their center lines"
 msgstr "Uncheck to plot graphic items using their center lines"
 
-msgid "Use KiCad font to plot texts"
-msgstr "Use KiCad font to plot texts"
+msgid "Use KiCad font to plot text"
+msgstr "Use KiCad font to plot text"
 
 msgid ""
 "Check to use KiCad stroke font\n"
@@ -18998,6 +19016,29 @@ msgstr "Small mark"
 msgid "Real drill"
 msgstr "Real drill"
 
+msgid "Select Manufacturer"
+msgstr "Select Manufacturer"
+
+#, c-format
+msgid "from %s"
+msgstr "from %s"
+
+#, c-format
+msgid "Details: %s"
+msgstr "Details: %s"
+
+msgid "Send project directly"
+msgstr "Send project directly"
+
+msgid "Sends production files to manufacturer from KiCad"
+msgstr "Sends production files to manufacturer from KiCad"
+
+msgid "Produce PCB"
+msgstr "Produce PCB"
+
+msgid "Send PCB for production"
+msgstr "Send PCB for production"
+
 msgid "Change Pads on Current Footprint"
 msgstr "Change Pads on Current Footprint"
 
@@ -19096,6 +19137,12 @@ msgstr "X"
 
 msgid "Target Properties"
 msgstr "Target Properties"
+
+msgid "Footprint Reference Properties"
+msgstr "Footprint Reference Properties"
+
+msgid "Footprint Value Properties"
+msgstr "Footprint Value Properties"
 
 msgid "Footprint Text Properties"
 msgstr "Footprint Text Properties"
@@ -19327,11 +19374,11 @@ msgid "Track && Via Clearances"
 msgstr "Track && Via Clearances"
 
 msgid ""
-"Show or hide the track and via clearance area. If \"New track\" is selected, "
-"track clearance area is shown only when creating the track."
+"Show clearance outlines around tracks, and optionally the via clearance "
+"around the end of the track while routing."
 msgstr ""
-"Show or hide the track and via clearance area. If “New track” is selected, "
-"track clearance area is shown only when creating the track."
+"Show clearance outlines around tracks, and optionally the via clearance "
+"around the end of the track while routing."
 
 msgid "Show pad clearance"
 msgstr "Show pad clearance"
@@ -20114,11 +20161,11 @@ msgid "User9"
 msgstr "User9"
 
 msgid ""
-"Use your board house's recommendations for solder mask clearance and minimum "
-"web width."
+"Use your board manufacturer's recommendations for solder mask clearance and "
+"minimum web width."
 msgstr ""
-"Use your board house's recommendations for solder mask clearance and minimum "
-"web width."
+"Use your board manufacturer's recommendations for solder mask clearance and "
+"minimum web width."
 
 msgid "If none are provided, setting the values to zero is suggested."
 msgstr "If none are provided, setting the values to zero is suggested."
@@ -21752,15 +21799,9 @@ msgstr "no wizard selected"
 msgid "Couldn't reload footprint wizard"
 msgstr "Couldn't reload footprint wizard"
 
-msgid "<invalid>"
-msgstr "<invalid>"
-
 #, c-format
 msgid "%s on %s"
 msgstr "%s on %s"
-
-msgid "Ref."
-msgstr "Ref."
 
 msgid "Display"
 msgstr "Display"
@@ -22413,20 +22454,20 @@ msgid "Conn"
 msgstr "Conn"
 
 #, c-format
-msgid "Pad of %s on %s"
-msgstr "Pad of %s on %s"
-
-#, c-format
-msgid "Through hole pad of %s"
-msgstr "Through hole pad of %s"
-
-#, c-format
 msgid "Pad %s of %s on %s"
 msgstr "Pad %s of %s on %s"
 
 #, c-format
 msgid "Through hole pad %s of %s"
 msgstr "Through hole pad %s of %s"
+
+#, c-format
+msgid "Pad %s %s of %s on %s"
+msgstr "Pad %s %s of %s on %s"
+
+#, c-format
+msgid "Through hole pad %s %s of %s"
+msgstr "Through hole pad %s %s of %s"
 
 msgid "Edge connector"
 msgstr "Edge connector"
@@ -23720,8 +23761,8 @@ msgid "Exception on python action plugin code"
 msgstr "Exception on python action plugin code"
 
 #, c-format
-msgid "Method \"%s\" not found, or not callable"
-msgstr "Method “%s” not found, or not callable"
+msgid "Method '%s' not found, or not callable"
+msgstr "Method '%s' not found, or not callable"
 
 msgid "Unknown Method"
 msgstr "Unknown Method"
@@ -23894,8 +23935,8 @@ msgstr "Stops laying the current track."
 msgid "Auto-finish Track"
 msgstr "Auto-finish Track"
 
-msgid "Automagically finishes laying the current track."
-msgstr "Automagically finishes laying the current track."
+msgid "Automatically finishes laying the current track."
+msgstr "Automatically finishes laying the current track."
 
 msgid "Place Through Via"
 msgstr "Place Through Via"
@@ -23958,8 +23999,9 @@ msgstr "Switches posture of the currently routed track."
 msgid "Track Corner Mode"
 msgstr "Track Corner Mode"
 
-msgid "Switches between sharp and rounded corners when routing tracks."
-msgstr "Switches between sharp and rounded corners when routing tracks."
+msgid "Switches between sharp/rounded and 45°/90° corners when routing tracks."
+msgstr ""
+"Switches between sharp/rounded and 45°/90° corners when routing tracks."
 
 msgid "Select Track/Via Width"
 msgstr "Select Track/Via Width"
@@ -24058,6 +24100,9 @@ msgid ""
 msgstr ""
 "Microvias must first be enabled in Board Setup > Design Rules > Constraints."
 
+msgid "Blind/buried via need 2 different layers."
+msgstr "Blind/buried via need 2 different layers."
+
 msgid "Tracks on Copper layers only."
 msgstr "Tracks on Copper layers only."
 
@@ -24087,6 +24132,24 @@ msgstr "Routing Track"
 
 msgid "(no net)"
 msgstr "(no net)"
+
+msgid "Free-angle"
+msgstr "Free-angle"
+
+msgid "45-degree"
+msgstr "45-degree"
+
+msgid "45-degree rounded"
+msgstr "45-degree rounded"
+
+msgid "90-degree"
+msgstr "90-degree"
+
+msgid "90-degree rounded"
+msgstr "90-degree rounded"
+
+msgid "Corner Style"
+msgstr "Corner Style"
 
 #, c-format
 msgid "Track Width: %s"
@@ -25718,6 +25781,12 @@ msgstr "Router Walkaround Mode"
 msgid "Switch router to walkaround mode"
 msgstr "Switch router to walkaround mode"
 
+msgid "Cycle Router Mode"
+msgstr "Cycle Router Mode"
+
+msgid "Cycle router to the next mode"
+msgstr "Cycle router to the next mode"
+
 msgid "Set Layer Pair..."
 msgstr "Set Layer Pair..."
 
@@ -26271,9 +26340,6 @@ msgstr "Layer presets"
 msgid "Only %s"
 msgstr "Only %s"
 
-msgid "All items"
-msgstr "All items"
-
 msgid "Locked items"
 msgstr "Locked items"
 
@@ -26482,6 +26548,277 @@ msgstr "KiCad Schematic"
 
 msgid "KiCad Printed Circuit Board"
 msgstr "KiCad Printed Circuit Board"
+
+#, c-format
+#~ msgid ""
+#~ "Well this is potentially embarrassing!\n"
+#~ "It appears that the last time you were editing the file\n"
+#~ "\"%s\"\n"
+#~ "it was not saved properly.  Do you wish to restore the last saved edits "
+#~ "you made?"
+#~ msgstr ""
+#~ "Well this is potentially embarrassing!\n"
+#~ "It appears that the last time you were editing the file\n"
+#~ "“%s”\n"
+#~ "it was not saved properly.  Do you wish to restore the last saved edits "
+#~ "you made?"
+
+#, c-format
+#~ msgid "Field name \"%s\" already in use."
+#~ msgstr "Field name “%s” already in use."
+
+#, c-format
+#~ msgid "Highlight Items of Component \"%s\""
+#~ msgstr "Highlight Items of Component “%s”"
+
+#, c-format
+#~ msgid "Highlight Items of Net \"%s\""
+#~ msgstr "Highlight Items of Net “%s”"
+
+#, c-format
+#~ msgid "Highlight Aperture Type \"%s\""
+#~ msgstr "Highlight Aperture Type “%s”"
+
+#, c-format
+#~ msgid ""
+#~ "\n"
+#~ "Open \"%s\"\n"
+#~ msgstr ""
+#~ "\n"
+#~ "Open “%s”\n"
+
+#, c-format
+#~ msgid "Restoring \"%s\""
+#~ msgstr "Restoring \"%s\""
+
+#, c-format
+#~ msgid "Change filename: \"%s\""
+#~ msgstr "Change filename: “%s”"
+
+#~ msgid ""
+#~ "### Bridged Tee Attenuator\n"
+#~ "___a___ is attenuation in dB<br>\n"
+#~ "___Z<sub>in</sub>___ is desired input impedance in &#x2126;<br>\n"
+#~ "___Z<sub>out</sub>___ is desired output impedance in &#x2126;<br>\n"
+#~ "___Z<sub>0</sub> = Z<sub>in</sub> = Z<sub>out</sub>___\n"
+#~ "\n"
+#~ "___L = 10<sup>a/20</up>___<br>\n"
+#~ "___R1 = Z<sub>0</sub> &middot; (L&minus;1)___<br>\n"
+#~ "___R2 = Z<sub>0</sub> / (L&minus;1)___\n"
+#~ msgstr ""
+#~ "### Bridged Tee Attenuator\n"
+#~ "___a___ is attenuation in dB<br>\n"
+#~ "___Z<sub>in</sub>___ is desired input impedance in &#x2126;<br>\n"
+#~ "___Z<sub>out</sub>___ is desired output impedance in &#x2126;<br>\n"
+#~ "___Z<sub>0</sub> = Z<sub>in</sub> = Z<sub>out</sub>___\n"
+#~ "\n"
+#~ "___L = 10<sup>a/20</up>___<br>\n"
+#~ "___R1 = Z<sub>0</sub> &middot; (L&minus;1)___<br>\n"
+#~ "___R2 = Z<sub>0</sub> / (L&minus;1)___\n"
+
+#, c-format
+#~ msgid "Method \"%s\" not found, or not callable"
+#~ msgstr "Method “%s” not found, or not callable"
+
+#~ msgid "Paste items(s) from clipboard"
+#~ msgstr "Paste items(s) from clipboard"
+
+#~ msgid "Create symbol with alternate body style (DeMorgan)"
+#~ msgstr "Create symbol with alternate body style (DeMorgan)"
+
+#~ msgid "Common to all body &styles (DeMorgan)"
+#~ msgstr "Common to all body &styles (DeMorgan)"
+
+#~ msgid "Add new pins for alternate body style (DeMorgan) to symbol?"
+#~ msgstr "Add new pins for alternate body style (DeMorgan) to symbol?"
+
+#~ msgid "Delete alternate body style (DeMorgan) draw items from symbol?"
+#~ msgstr "Delete alternate body style (DeMorgan) draw items from symbol?"
+
+#~ msgid "Has alternate body style (DeMorgan)"
+#~ msgstr "Has alternate body style (DeMorgan)"
+
+#~ msgid "Alternate pin assignments are not available for DeMorgan symbols."
+#~ msgstr "Alternate pin assignments are not available for DeMorgan symbols."
+
+#~ msgid "Alternate symbol (DeMorgan)"
+#~ msgstr "Alternate symbol (DeMorgan)"
+
+#~ msgid "DeMorgan Conversion"
+#~ msgstr "DeMorgan Conversion"
+
+#~ msgid "Switch between DeMorgan representations"
+#~ msgstr "Switch between DeMorgan representations"
+
+#~ msgid "DeMorgan Standard"
+#~ msgstr "DeMorgan Standard"
+
+#~ msgid "Switch to standard DeMorgan representation"
+#~ msgstr "Switch to standard DeMorgan representation"
+
+#~ msgid "DeMorgan Alternate"
+#~ msgstr "DeMorgan Alternate"
+
+#~ msgid "Switch to alternate DeMorgan representation"
+#~ msgstr "Switch to alternate DeMorgan representation"
+
+#~ msgid ""
+#~ "### Bridged Tee Attenuator\n"
+#~ "___a___ is attenuation in dB<br>\n"
+#~ "___Z<sub>in</sub>___ is desired input impedance in &#x2126;<br>\n"
+#~ "___Z<sub>out</sub>___ is desired output impedance in &#x2126;<br>\n"
+#~ "___Z<sub>0</sub> = Z<sub>in</sub> = Z<sub>out</sub>___\n"
+#~ "\n"
+#~ "___L = 10<sup>a/20</up>___\n"
+#~ "___R<sub>1</sub> = Z<sub>0</sub> &middot; (L&minus;1)___<br>\n"
+#~ "___R<sub>2</sub> = Z<sub>0</sub> / (L&minus;1)___\n"
+#~ msgstr ""
+#~ "### Bridged Tee Attenuator\n"
+#~ "___a___ is attenuation in dB<br>\n"
+#~ "___Z<sub>in</sub>___ is desired input impedance in &#x2126;<br>\n"
+#~ "___Z<sub>out</sub>___ is desired output impedance in &#x2126;<br>\n"
+#~ "___Z<sub>0</sub> = Z<sub>in</sub> = Z<sub>out</sub>___\n"
+#~ "\n"
+#~ "___L = 10<sup>a/20</up>___\n"
+#~ "___R<sub>1</sub> = Z<sub>0</sub> &middot; (L&minus;1)___<br>\n"
+#~ "___R<sub>2</sub> = Z<sub>0</sub> / (L&minus;1)___\n"
+
+#~ msgid ""
+#~ "### Pi Attenuator\n"
+#~ "___a___ is attenuation in dB<br>\n"
+#~ "___Z<sub>in</sub>___ is desired input impedance in &#x2126;<br>\n"
+#~ "___Z<sub>out</sub>___ is desired output impedance in &#x2126;<br>\n"
+#~ "\n"
+#~ "___L = 10<sup>a/20</sup>___<br>\n"
+#~ "___A = (L+1) / (L&minus;1)___<br><br>\n"
+#~ "___R<sub>2</sub> = (L&minus;1) / 2&middot;&radic;(Z<sub>in</sub> &middot; "
+#~ "Z<sub>out</sub> / L)___<br>\n"
+#~ "___R<sub>1</sub> = 1 / (A/Z<sub>in</sub> &minus; 1/R<sub>2</sub>)___<br>\n"
+#~ "___R<sub>3</sub> = 1 / (A/Z<sub>out</sub> &minus; 1/R<sub>2</sub>)___\n"
+#~ msgstr ""
+#~ "### Pi Attenuator\n"
+#~ "___a___ is attenuation in dB<br>\n"
+#~ "___Z<sub>in</sub>___ is desired input impedance in &#x2126;<br>\n"
+#~ "___Z<sub>out</sub>___ is desired output impedance in &#x2126;<br>\n"
+#~ "\n"
+#~ "___L = 10<sup>a/20</sup>___<br>\n"
+#~ "___A = (L+1) / (L&minus;1)___<br><br>\n"
+#~ "___R<sub>2</sub> = (L&minus;1) / 2&middot;&radic;(Z<sub>in</sub> &middot; "
+#~ "Z<sub>out</sub> / L)___<br>\n"
+#~ "___R<sub>1</sub> = 1 / (A/Z<sub>in</sub> &minus; 1/R<sub>2</sub>)___<br>\n"
+#~ "___R<sub>3</sub> = 1 / (A/Z<sub>out</sub> &minus; 1/R<sub>2</sub>)___\n"
+
+#~ msgid ""
+#~ "### Split Attenuator\n"
+#~ "Attenuation is 6 dB  \n"
+#~ "___Z<sub>in</sub>___ is desired input impedance in &#x2126;  \n"
+#~ "___Z<sub>out</sub>___ is desired output impedance in &#x2126;  \n"
+#~ "___Z<sub>0</sub> = Z<sub>in</sub> = Z<sub>out</sub>___\n"
+#~ "\n"
+#~ "___R<sub>1</sub> = R<sub>2</sub> = R<sub>3</sub> = Z<sub>0</sub>/3___\n"
+#~ msgstr ""
+#~ "### Split Attenuator\n"
+#~ "Attenuation is 6 dB  \n"
+#~ "___Z<sub>in</sub>___ is desired input impedance in &#x2126;  \n"
+#~ "___Z<sub>out</sub>___ is desired output impedance in &#x2126;  \n"
+#~ "___Z<sub>0</sub> = Z<sub>in</sub> = Z<sub>out</sub>___\n"
+#~ "\n"
+#~ "___R<sub>1</sub> = R<sub>2</sub> = R<sub>3</sub> = Z<sub>0</sub>/3___\n"
+
+#~ msgid ""
+#~ "### Tee Attenuator\n"
+#~ "___a___ is attenuation in dB<br>\n"
+#~ "___Z<sub>in</sub>___ is desired input impedance in &#x2126;<br>\n"
+#~ "___Z<sub>out</sub>___ is desired output impedance in &#x2126;<br>\n"
+#~ "\n"
+#~ "___L = 10<sup>a/20</sup>___<br>\n"
+#~ "___A = (L+1) / (L&minus;1)___<br>\n"
+#~ "___R<sub>2</sub> = 2&middot;&radic;(L &middot; Z<sub>in</sub> &middot; "
+#~ "Z<sub>out</sub>) / (L&minus;1)___<br>\n"
+#~ "___R<sub>1</sub> = Z<sub>in</sub> &middot; A &minus; R<sub>2</"
+#~ "sub>___<br>\n"
+#~ "___R<sub>3</sub> = Z<sub>out</sub> &middot; A &minus; R<sub>2</sub>___\n"
+#~ msgstr ""
+#~ "### Tee Attenuator\n"
+#~ "___a___ is attenuation in dB<br>\n"
+#~ "___Z<sub>in</sub>___ is desired input impedance in &#x2126;<br>\n"
+#~ "___Z<sub>out</sub>___ is desired output impedance in &#x2126;<br>\n"
+#~ "\n"
+#~ "___L = 10<sup>a/20</sup>___<br>\n"
+#~ "___A = (L+1) / (L&minus;1)___<br>\n"
+#~ "___R<sub>2</sub> = 2&middot;&radic;(L &middot; Z<sub>in</sub> &middot; "
+#~ "Z<sub>out</sub>) / (L&minus;1)___<br>\n"
+#~ "___R<sub>1</sub> = Z<sub>in</sub> &middot; A &minus; R<sub>2</"
+#~ "sub>___<br>\n"
+#~ "___R<sub>3</sub> = Z<sub>out</sub> &middot; A &minus; R<sub>2</sub>___\n"
+
+#~ msgid "PI"
+#~ msgstr "PI"
+
+#~ msgid ""
+#~ "Show or hide the track and via clearance area. If \"New track\" is "
+#~ "selected, track clearance area is shown only when creating the track."
+#~ msgstr ""
+#~ "Show or hide the track and via clearance area. If “New track” is "
+#~ "selected, track clearance area is shown only when creating the track."
+
+#~ msgid ""
+#~ "Use your board house's recommendations for solder mask clearance and "
+#~ "minimum web width."
+#~ msgstr ""
+#~ "Use your board house's recommendations for solder mask clearance and "
+#~ "minimum web width."
+
+#~ msgid "<invalid>"
+#~ msgstr "<invalid>"
+
+#~ msgid "Ref."
+#~ msgstr "Ref."
+
+#, c-format
+#~ msgid "Pad of %s on %s"
+#~ msgstr "Pad of %s on %s"
+
+#, c-format
+#~ msgid "Through hole pad of %s"
+#~ msgstr "Through hole pad of %s"
+
+#~ msgid "Automagically finishes laying the current track."
+#~ msgstr "Automagically finishes laying the current track."
+
+#~ msgid "Switches between sharp and rounded corners when routing tracks."
+#~ msgstr "Switches between sharp and rounded corners when routing tracks."
+
+#~ msgid "Open the symbol editor to edit the symbol"
+#~ msgstr "Open the symbol editor to edit the symbol"
+
+#~ msgid "Sketch pads on fab layers"
+#~ msgstr "Sketch pads on fab layers"
+
+#~ msgid "Global solder mask min width and/or margin are not set to 0. "
+#~ msgstr "Global solder mask min width and/or margin are not set to 0. "
+
+#~ msgid ""
+#~ "Most board houses expect 0 and use their constraints, especially for "
+#~ "solder mask min width."
+#~ msgstr ""
+#~ "Most board houses expect 0 and use their constraints, especially for "
+#~ "solder mask min width."
+
+#~ msgid ""
+#~ "Include netlist metadata and aperture attributes in Gerber files.\n"
+#~ "In X1 format, they are comments.\n"
+#~ "Used to check connectivity in CAM tools and Gerber viewers."
+#~ msgstr ""
+#~ "Include netlist metadata and aperture attributes in Gerber files.\n"
+#~ "In X1 format, they are comments.\n"
+#~ "Used to check connectivity in CAM tools and Gerber viewers."
+
+#~ msgid "Disable aperture macros (non recommended)"
+#~ msgstr "Disable aperture macros (non recommended)"
+
+#~ msgid "Use KiCad font to plot texts"
+#~ msgstr "Use KiCad font to plot texts"
 
 #~ msgid "Footprint text front"
 #~ msgstr "Footprint text front"

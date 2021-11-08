@@ -1467,7 +1467,7 @@ void SCH_SYMBOL::MirrorVertically( int aCenter )
 
     SetOrientation( SYM_MIRROR_X );
     MIRROR( m_pos.y, aCenter );
-    dy -= m_pos.y;     // dy,0 is the move vector for this transform
+    dy -= m_pos.y;     // 0,dy is the move vector for this transform
 
     for( SCH_FIELD& field : m_fields )
     {
@@ -1783,7 +1783,7 @@ SCH_SYMBOL& SCH_SYMBOL::operator=( const SCH_ITEM& aItem )
 
 bool SCH_SYMBOL::HitTest( const wxPoint& aPosition, int aAccuracy ) const
 {
-    EDA_RECT bBox = GetBodyBoundingBox();
+    EDA_RECT bBox = GetBoundingBox();
     bBox.Inflate( aAccuracy );
 
     if( bBox.Contains( aPosition ) )

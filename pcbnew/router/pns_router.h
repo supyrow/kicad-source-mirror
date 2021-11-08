@@ -148,6 +148,7 @@ public:
     void UndoLastSegment();
     void CommitRouting();
     void StopRouting();
+    void AbortRouting();
     void ClearViewDecorations();
 
     NODE* GetWorld() const { return m_world.get(); }
@@ -159,7 +160,7 @@ public:
     void ToggleViaPlacement();
     void SetOrthoMode( bool aEnable );
 
-    void ToggleRounded();
+    void ToggleCornerMode();
 
     int GetCurrentLayer() const;
     const std::vector<int> GetCurrentNets() const;

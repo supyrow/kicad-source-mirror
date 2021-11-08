@@ -155,7 +155,8 @@ public:
             switch( aCol )
             {
             case COL_NUMBER:
-                pin->SetNumber( aValue );
+                if( pins.size() == 1 )
+                    pin->SetNumber( aValue );
                 break;
 
             case COL_NAME:
@@ -398,7 +399,7 @@ private:
         }
         else
         {
-            wxFAIL_MSG( wxString::Format( "string \"%s\" can't be converted to boolean "
+            wxFAIL_MSG( wxString::Format( "string '%s' can't be converted to boolean "
                                           "correctly, it will have been perceived as FALSE",
                                           aValue ) );
             return false;

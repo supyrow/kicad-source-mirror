@@ -124,7 +124,7 @@ class DIALOG_PAD_PROPERTIES_BASE : public DIALOG_SHIM
 		wxTextCtrl* m_sizeYCtrl;
 		wxStaticText* m_sizeYUnits;
 		wxStaticText* m_PadOrientText;
-		wxComboBox* m_orientation;
+		wxComboBox* m_cb_padrotation;
 		wxStaticText* m_orientationUnits;
 		wxStaticLine* m_staticline6;
 		wxStaticText* m_holeShapeLabel;

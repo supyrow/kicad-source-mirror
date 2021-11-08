@@ -450,17 +450,17 @@ TOOL_ACTION EE_ACTIONS::assignNetclass( "eeschema.InteractiveEdit.assignNetclass
 
 TOOL_ACTION EE_ACTIONS::toggleDeMorgan( "eeschema.InteractiveEdit.toggleDeMorgan",
         AS_GLOBAL, 0, "",
-        _( "DeMorgan Conversion" ), _( "Switch between DeMorgan representations" ),
+        _( "De Morgan Conversion" ), _( "Switch between De Morgan representations" ),
         BITMAPS::morgan2 );
 
 TOOL_ACTION EE_ACTIONS::showDeMorganStandard( "eeschema.InteractiveEdit.showDeMorganStandard",
         AS_GLOBAL, 0, "",
-        _( "DeMorgan Standard" ), _( "Switch to standard DeMorgan representation" ),
+        _( "De Morgan Standard" ), _( "Switch to standard De Morgan representation" ),
         BITMAPS::morgan1 );
 
 TOOL_ACTION EE_ACTIONS::showDeMorganAlternate( "eeschema.InteractiveEdit.showDeMorganAlternate",
         AS_GLOBAL, 0, "",
-        _( "DeMorgan Alternate" ), _( "Switch to alternate DeMorgan representation" ),
+        _( "De Morgan Alternate" ), _( "Switch to alternate De Morgan representation" ),
         BITMAPS::morgan2 );
 
 TOOL_ACTION EE_ACTIONS::toLabel( "eeschema.InteractiveEdit.toLabel",
@@ -548,7 +548,13 @@ TOOL_ACTION EE_ACTIONS::highlightNetTool( "eeschema.EditorControl.highlightNetTo
 TOOL_ACTION EE_ACTIONS::editWithLibEdit( "eeschema.EditorControl.editWithSymbolEditor",
         AS_GLOBAL,
         MD_CTRL + 'E', LEGACY_HK_NAME( "Edit with Symbol Editor" ),
-        _( "Edit with Symbol Editor" ), _( "Open the symbol editor to edit the symbol" ),
+        _( "Edit with Symbol Editor" ), _( "Open the selected symbol in the Symbol Editor" ),
+        BITMAPS::libedit );
+
+TOOL_ACTION EE_ACTIONS::editLibSymbolWithLibEdit( "eeschema.EditorControl.editLibSymbolWithSymbolEditor",
+        AS_GLOBAL,
+        MD_CTRL + MD_SHIFT + 'E', "",
+        _( "Edit Library Symbol..." ), _( "Open the library symbol in the Symbol Editor" ),
         BITMAPS::libedit );
 
 TOOL_ACTION EE_ACTIONS::editSymbolFields( "eeschema.EditorControl.editSymbolFields",

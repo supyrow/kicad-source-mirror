@@ -400,9 +400,54 @@ std::set<SCH_ITEM*> SCH_SCREEN::MarkConnections( SCH_LINE* aSegment )
 }
 
 
-bool SCH_SCREEN::IsJunctionNeeded( const wxPoint& aPosition, bool aNew ) const
+bool SCH_SCREEN::IsJunction( const wxPoint& aPosition ) const
+{
+    bool hasExplicitJunction;
+    bool hasBusEntry;
+    bool isJunction = doIsJunction( aPosition, false, &hasExplicitJunction, &hasBusEntry );
+
+    return isJunction;
+}
+
+
+bool SCH_SCREEN::IsExplicitJunction( const wxPoint& aPosition ) const
+{
+    bool hasExplicitJunction;
+    bool hasBusEntry;
+    bool isJunction = doIsJunction( aPosition, false, &hasExplicitJunction, &hasBusEntry );
+
+    return isJunction && !hasBusEntry;
+}
+
+
+bool SCH_SCREEN::IsExplicitJunctionNeeded( const wxPoint& aPosition ) const
+{
+    bool hasExplicitJunction;
+    bool hasBusEntry;
+    bool isJunction = doIsJunction( aPosition, false, &hasExplicitJunction, &hasBusEntry );
+
+    return isJunction && !hasBusEntry && !hasExplicitJunction;
+}
+
+
+bool SCH_SCREEN::IsExplicitJunctionAllowed( const wxPoint& aPosition ) const
+{
+    bool hasExplicitJunction;
+    bool hasBusEntry;
+    bool isJunction = doIsJunction( aPosition, true, &hasExplicitJunction, &hasBusEntry );
+
+    return isJunction && !hasBusEntry;
+}
+
+
+
+bool SCH_SCREEN::doIsJunction( const wxPoint& aPosition, bool aBreakCrossings,
+                             bool* aHasExplicitJunctionDot, bool* aHasBusEntry ) const
 {
     enum layers { WIRES = 0, BUSES };
+
+    *aHasExplicitJunctionDot = false;
+    *aHasBusEntry = false;
 
     bool                          breakLines[ 2 ] = { false };
     std::unordered_set<int>       exitAngles[ 2 ];
@@ -419,8 +464,8 @@ bool SCH_SCREEN::IsJunctionNeeded( const wxPoint& aPosition, bool aNew ) const
         switch( item->Type() )
         {
         case SCH_JUNCTION_T:
-            if( aNew && item->HitTest( aPosition, -1 ) )
-                return false;
+            if( item->HitTest( aPosition, -1 ) )
+                *aHasExplicitJunctionDot = true;
 
             break;
 
@@ -445,6 +490,9 @@ bool SCH_SCREEN::IsJunctionNeeded( const wxPoint& aPosition, bool aNew ) const
             }
             else if( line->HitTest( aPosition, -1 ) )
             {
+                if( aBreakCrossings )
+                    breakLines[ layer ] = true;
+
                 // Defer any line midpoints until we know whether or not we're breaking them
                 midPointLines[ layer ].push_back( line );
             }
@@ -452,6 +500,17 @@ bool SCH_SCREEN::IsJunctionNeeded( const wxPoint& aPosition, bool aNew ) const
             break;
 
         case SCH_BUS_WIRE_ENTRY_T:
+            if( item->IsConnected( aPosition ) )
+            {
+                breakLines[ BUSES ] = true;
+                exitAngles[ BUSES ].insert( uniqueAngle++ );
+                breakLines[ WIRES ] = true;
+                exitAngles[ WIRES ].insert( uniqueAngle++ );
+                *aHasBusEntry = true;
+            }
+
+            break;
+
         case SCH_SYMBOL_T:
         case SCH_SHEET_T:
             if( item->IsConnected( aPosition ) )

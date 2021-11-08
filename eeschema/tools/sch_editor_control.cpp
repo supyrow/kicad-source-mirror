@@ -1319,18 +1319,24 @@ int SCH_EDITOR_CONTROL::Undo( const TOOL_EVENT& aEvent )
     // Inform tools that undo command was issued
     m_toolMgr->ProcessEvent( { TC_MESSAGE, TA_UNDO_REDO_PRE, AS_GLOBAL } );
 
-    /* Get the old list */
+    // Get the old list
     PICKED_ITEMS_LIST* List = m_frame->PopCommandFromUndoList();
     size_t num_undos = m_frame->m_undoList.m_CommandsList.size();
 
-    /* Undo the command */
+    // The cleanup routines normally run after an operation and so attempt to append their
+    // undo items onto the operation's list.  However, in this case that's going be the list
+    // under us, which we don't want, so we push a dummy list onto the stack.
+    PICKED_ITEMS_LIST* dummy = new PICKED_ITEMS_LIST();
+    m_frame->PushCommandToUndoList( dummy );
+
     m_frame->PutDataInPreviousState( List );
 
     m_frame->SetSheetNumberAndCount();
     m_frame->TestDanglingEnds();
     m_frame->OnPageSettingsChange();
 
-    // If we modified anything during cleanup we don't want it going on the undolist
+    // The cleanup routines *should* have appended to our dummy list, but just to be doubly
+    // sure pop any other new lists off the stack as well
     while( m_frame->m_undoList.m_CommandsList.size() > num_undos )
         delete m_frame->PopCommandFromUndoList();
 
@@ -1924,6 +1930,7 @@ int SCH_EDITOR_CONTROL::Paste( const TOOL_EVENT& aEvent )
         SCH_ITEM* item = (SCH_ITEM*) selection.GetTopLeftItem();
 
         selection.SetReferencePoint( item->GetPosition() );
+
         m_toolMgr->RunAction( EE_ACTIONS::move, false );
     }
 
@@ -1948,7 +1955,20 @@ int SCH_EDITOR_CONTROL::EditWithSymbolEditor( const TOOL_EVENT& aEvent )
     symbolEditor = (SYMBOL_EDIT_FRAME*) m_frame->Kiway().Player( FRAME_SCH_SYMBOL_EDITOR, false );
 
     if( symbolEditor )
-        symbolEditor->LoadSymbolFromSchematic( symbol );
+    {
+        if( aEvent.IsAction( &EE_ACTIONS::editWithLibEdit ) )
+            symbolEditor->LoadSymbolFromSchematic( symbol );
+        else if( aEvent.IsAction( &EE_ACTIONS::editLibSymbolWithLibEdit ) )
+        {
+            symbolEditor->LoadSymbol( symbol->GetLibId(), symbol->GetUnit(), symbol->GetConvert() );
+
+            if( !symbolEditor->IsSymbolTreeShown() )
+            {
+                wxCommandEvent evt;
+                symbolEditor->OnToggleSymbolTree( evt );
+            }
+        }
+    }
 
     return 0;
 }
@@ -2184,6 +2204,7 @@ void SCH_EDITOR_CONTROL::setTransitions()
     Go( &SCH_EDITOR_CONTROL::Duplicate,             ACTIONS::duplicate.MakeEvent() );
 
     Go( &SCH_EDITOR_CONTROL::EditWithSymbolEditor,  EE_ACTIONS::editWithLibEdit.MakeEvent() );
+    Go( &SCH_EDITOR_CONTROL::EditWithSymbolEditor,  EE_ACTIONS::editLibSymbolWithLibEdit.MakeEvent() );
     Go( &SCH_EDITOR_CONTROL::ShowCvpcb,             EE_ACTIONS::assignFootprints.MakeEvent() );
     Go( &SCH_EDITOR_CONTROL::ImportFPAssignments,   EE_ACTIONS::importFPAssignments.MakeEvent() );
     Go( &SCH_EDITOR_CONTROL::Annotate,              EE_ACTIONS::annotate.MakeEvent() );

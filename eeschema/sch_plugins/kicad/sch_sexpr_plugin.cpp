@@ -255,14 +255,9 @@ static const char* getTextTypeToken( KICAD_T aType )
 /**
  * Write stroke definition to \a aFormatter.
  *
- * This only writes the stroke definition if \a aWidth, \a aStyle and \a aColor are
- * not the default setting or are not defined.
- *
  * @param aFormatter A pointer to the #OUTPUTFORMATTER object to write to.
  * @param aNestLevel The nest level to indent the stroke definition.
- * @param aWidth The stroke line width in internal units.
- * @param aStyle The stroke line style.
- * @param aColor The stroke line color.
+ * @param aStroke The stroke width, line-style and color.
  */
 static void formatStroke( OUTPUTFORMATTER* aFormatter, int aNestLevel,
                           const STROKE_PARAMS& aStroke )
@@ -310,11 +305,10 @@ static void formatCircle( OUTPUTFORMATTER* aFormatter, int aNestLevel, EDA_SHAPE
                           const STROKE_PARAMS& aStroke, FILL_T aFillMode, const COLOR4D& aFillColor,
                           KIID aUuid = niluuid )
 {
-    aFormatter->Print( aNestLevel, "(circle (center %s %s) (radius %s) (stroke (width %s)) ",
+    aFormatter->Print( aNestLevel, "(circle (center %s %s) (radius %s) ",
                        FormatInternalUnits( aCircle->GetStart().x ).c_str(),
                        FormatInternalUnits( aCircle->GetStart().y ).c_str(),
-                       FormatInternalUnits( aCircle->GetRadius() ).c_str(),
-                       FormatInternalUnits( aCircle->GetWidth() ).c_str() );
+                       FormatInternalUnits( aCircle->GetRadius() ).c_str() );
 
     formatStroke( aFormatter, aNestLevel + 1, aStroke );
     aFormatter->Print( 0, "\n" );
@@ -770,10 +764,14 @@ void SCH_SEXPR_PLUGIN::Format( SCH_SHEET* aSheet )
     }
 
     // Enforce item ordering
-    auto cmp = []( const SCH_ITEM* a, const SCH_ITEM* b )
-               {
-                   return *a < *b;
-               };
+    auto cmp =
+            []( const SCH_ITEM* a, const SCH_ITEM* b )
+            {
+                if( a->Type() != b->Type() )
+                    return a->Type() < b->Type();
+
+                return a->m_Uuid < b->m_Uuid;
+            };
 
     std::multiset<SCH_ITEM*, decltype( cmp )> save_map( cmp );
 
@@ -790,9 +788,11 @@ void SCH_SEXPR_PLUGIN::Format( SCH_SHEET* aSheet )
             itemType = item->Type();
 
             if( itemType != SCH_SYMBOL_T
-              && itemType != SCH_JUNCTION_T
-              && itemType != SCH_SHEET_T )
+                    && itemType != SCH_JUNCTION_T
+                    && itemType != SCH_SHEET_T )
+            {
                 m_out->Print( 0, "\n" );
+            }
         }
 
         switch( item->Type() )
@@ -1807,9 +1807,9 @@ void SCH_SEXPR_PLUGIN_CACHE::SaveSymbol( LIB_SYMBOL* aSymbol, OUTPUTFORMATTER& a
         saveDcmInfoAsFields( aSymbol, aFormatter, nextFreeFieldId, aNestLevel );
 
         // Save the draw items grouped by units.
-        std::vector<LIB_SYMBOL_UNITS> units = aSymbol->GetUnitDrawItems();
+        std::vector<LIB_SYMBOL_UNIT> units = aSymbol->GetUnitDrawItems();
         std::sort( units.begin(), units.end(),
-                   []( const LIB_SYMBOL_UNITS& a, const LIB_SYMBOL_UNITS& b )
+                   []( const LIB_SYMBOL_UNIT& a, const LIB_SYMBOL_UNIT& b )
                    {
                         if( a.m_unit == b.m_unit )
                             return a.m_convert < b.m_convert;
@@ -1826,7 +1826,19 @@ void SCH_SEXPR_PLUGIN_CACHE::SaveSymbol( LIB_SYMBOL* aSymbol, OUTPUTFORMATTER& a
             aFormatter.Print( aNestLevel + 1, "(symbol %s_%d_%d\"\n",
                               name.c_str(), unit.m_unit, unit.m_convert );
 
-            for( auto item : unit.m_items )
+            // Enforce item ordering
+            auto cmp =
+                    []( const LIB_ITEM* a, const LIB_ITEM* b )
+                    {
+                        return *a < *b;
+                    };
+
+            std::multiset<LIB_ITEM*, decltype( cmp )> save_map( cmp );
+
+            for( LIB_ITEM* item : unit.m_items )
+                save_map.insert( item );
+
+            for( LIB_ITEM* item : save_map )
                 saveSymbolDrawItem( item, aFormatter, aNestLevel + 2 );
 
             aFormatter.Print( aNestLevel + 1, ")\n" );

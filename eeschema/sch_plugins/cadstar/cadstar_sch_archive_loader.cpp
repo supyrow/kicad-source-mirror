@@ -173,6 +173,16 @@ void CADSTAR_SCH_ARCHIVE_LOADER::Load( SCHEMATIC* aSchematic, SCH_SHEET* aRootSh
                         bbox.Merge( field.GetBoundingBox() );
                 }
             }
+            else if( item->Type() == SCH_TEXT_T )
+            {
+                SCH_TEXT* txtItem = static_cast<SCH_TEXT*>( item );
+                wxString  txt = txtItem->GetText();
+
+                if( txt.Contains( "${" ) )
+                    continue; // We can't calculate bounding box of text items with variables
+                else
+                    bbox = txtItem->GetBoundingBox();
+            }
             else
             {
                 bbox = item->GetBoundingBox();
@@ -237,7 +247,7 @@ void CADSTAR_SCH_ARCHIVE_LOADER::Load( SCHEMATIC* aSchematic, SCH_SHEET* aRootSh
 
         for( SCH_ITEM* item : allItems )
         {
-            item->SetPosition( item->GetPosition() + translation );
+            item->Move( translation );
             item->ClearFlags();
             sheet->GetScreen()->Update( item );
         }
@@ -663,7 +673,12 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadSchematicSymbolInstances()
                 else
                     netLabel->SetShape( PINSHEETLABEL_SHAPE::PS_UNSPECIFIED );
 
-                m_sheetMap.at( sym.LayerID )->GetScreen()->Append( netLabel );
+                SCH_SCREEN* screen = m_sheetMap.at( sym.LayerID )->GetScreen();
+
+                // autoplace intersheet refs
+                netLabel->AutoplaceFields( screen, false );
+
+                screen->Append( netLabel );
                 m_globalLabelsMap.insert( { sym.ID, netLabel } );
             }
             else
@@ -685,7 +700,9 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadSchematicSymbolInstances()
             wxString symbolName = sym.ComponentRef.Designator;
 
             if( symbolName.empty() )
-                symbolName = wxString::Format( "ID: %s", sym.ID);
+                symbolName = wxString::Format( "ID: %s", sym.ID );
+            else
+                symbolName += sym.GateID;
 
             m_reporter->Report( wxString::Format( _( "Symbol '%s' is scaled in the original "
                                                      "CADSTAR schematic but this is not supported "
@@ -824,6 +841,16 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadNets()
             else if( m_globalLabelsMap.find( netTerm.SymbolID ) != m_globalLabelsMap.end() )
             {
                 m_globalLabelsMap.at( netTerm.SymbolID )->SetText( netName );
+
+                LAYER_ID sheet = Schematic.Symbols.at( netTerm.SymbolID ).LayerID;
+
+                if( m_sheetMap.count( sheet ) )
+                {
+                    SCH_SCREEN* screen = m_sheetMap.at( sheet )->GetScreen();
+
+                    // autoplace intersheet refs again since we've changed the name
+                    m_globalLabelsMap.at( netTerm.SymbolID )->AutoplaceFields( screen, false );
+                }
             }
             else if( !net.Name.IsEmpty() && Schematic.Symbols.count( netTerm.SymbolID )
                      && netTerm.HasNetLabel )
@@ -1800,20 +1827,15 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadSymbolFieldAttribute(
 
     if( aIsMirrored )
     {
-        // In KiCad, the angle of the symbol instance affects the position of the symbol
-        // fields because there is a distinction on x-axis and y-axis mirroring
-        double angleDeciDeg = NormalizeAnglePos( aComponentOrientationDeciDeg );
-        int    quadrant = KiROUND( angleDeciDeg / 900.0 );
-        quadrant %= 4;
+        // We need to change the aligment when the symbol is mirrored based on the text orientation
+        // To ensure the anchor point is the same in KiCad.
 
-        switch( quadrant )
-        {
-        case 1:
-        case 3: alignment = rotate180( alignment ); KI_FALLTHROUGH;
-        case 0:
-        case 2: alignment = mirrorX( alignment ); break;
-        default: wxFAIL_MSG( "unknown quadrant" ); break;
-        }
+        int textIsVertical = KiROUND( textAngle / 900.0 ) % 2;
+
+        if( textIsVertical )
+            alignment = rotate180( alignment );
+
+        alignment = mirrorX( alignment );
     }
 
     applyTextSettings( aKiCadField,
@@ -2201,6 +2223,8 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadChildSheets( LAYER_ID aCadstarSheetID,
 
             if( block.HasBlockLabel )
             {
+                //@todo use below code when KiCad supports multi-line fields
+                /*
                 // Add the block label as a separate field
                 SCH_FIELD blockNameField( getKiCadPoint( block.BlockLabel.Position ), 2,
                         loadedSheet, wxString( "Block name" ) );
@@ -2214,7 +2238,23 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadChildSheets( LAYER_ID aCadstarSheetID,
                                     block.BlockLabel.OrientAngle,
                                     block.BlockLabel.Mirror );
 
-                fields.push_back( blockNameField );
+                fields.push_back( blockNameField );*/
+
+                // For now as as a text item (supports multi-line properly)
+                SCH_TEXT* kiTxt = new SCH_TEXT();
+
+                kiTxt->SetParent( m_schematic );
+                kiTxt->SetPosition( getKiCadPoint( block.BlockLabel.Position ) );
+                kiTxt->SetText( block.Name );
+
+                applyTextSettings( kiTxt,
+                                    block.BlockLabel.TextCodeID,
+                                    block.BlockLabel.Alignment,
+                                    block.BlockLabel.Justification,
+                                    block.BlockLabel.OrientAngle,
+                                    block.BlockLabel.Mirror );
+
+                loadItemOntoKiCadSheet( aCadstarSheetID, kiTxt );
             }
 
             loadedSheet->SetFields( fields );
@@ -2822,9 +2862,14 @@ LIB_SYMBOL* CADSTAR_SCH_ARCHIVE_LOADER::getScaledLibPart( const LIB_SYMBOL* aSym
 
 void CADSTAR_SCH_ARCHIVE_LOADER::fixUpLibraryPins( LIB_SYMBOL* aSymbolToFix, int aGateNumber )
 {
-    // Store a list of segments that are not connected to other segments and are vertical or
-    // horizontal.
-    std::map<VECTOR2I, SHAPE_LINE_CHAIN> uniqueSegments;
+    auto compLambda = []( const VECTOR2I& aA, const VECTOR2I& aB )
+    {
+        return LexicographicalCompare( aA, aB ) < 0;
+    };
+
+    // Store a list of vertical or horizontal segments in the symbol
+    // Note: Need the custom comparison function to ensure the map is sorted correctly
+    std::map<VECTOR2I, SHAPE_LINE_CHAIN, decltype( compLambda )> uniqueSegments( compLambda );
 
     LIB_ITEMS_CONTAINER::ITERATOR shapeIt = aSymbolToFix->GetDrawItems().begin( LIB_SHAPE_T );
 
@@ -2838,35 +2883,20 @@ void CADSTAR_SCH_ARCHIVE_LOADER::fixUpLibraryPins( LIB_SYMBOL* aSymbolToFix, int
         if( shape.GetShape() != SHAPE_T::POLY )
             continue;
 
-        SHAPE_LINE_CHAIN& poly = shape.GetPolyShape().Outline( 0 );
-        bool              isUnique = true;
-
-        auto removeSegment =
-                [&]( SHAPE_LINE_CHAIN aLineToRemove )
-                {
-                    uniqueSegments.erase( aLineToRemove.CPoint( 0 ) );
-                    uniqueSegments.erase( aLineToRemove.CPoint( 1 ) );
-                    isUnique = false;
-                };
+        SHAPE_LINE_CHAIN poly = shape.GetPolyShape().Outline( 0 );
 
         if( poly.GetPointCount() == 2 )
         {
-            const VECTOR2I& pt0 = poly.CPoint( 0 );
-            const VECTOR2I& pt1 = poly.CPoint( 1 );
+            VECTOR2I pt0 = poly.CPoint( 0 );
+            VECTOR2I pt1 = poly.CPoint( 1 );
 
-            if( uniqueSegments.count( pt0 ) )
-                removeSegment( uniqueSegments.at( pt0 ) );
-
-            if( uniqueSegments.count( pt1 ) )
-                removeSegment( uniqueSegments.at( pt1 ) );
-
-            if( isUnique && pt0 != pt1 )
+            if( pt0 != pt1 && uniqueSegments.count( pt0 ) == 0 && uniqueSegments.count( pt1 ) == 0 )
             {
                 // we are only interested in vertical or horizontal segments
                 if( pt0.x == pt1.x || pt0.y == pt1.y )
                 {
-                    uniqueSegments.insert( { poly.CPoint( 0 ), poly } );
-                    uniqueSegments.insert( { poly.CPoint( 1 ), poly } );
+                    uniqueSegments.insert( { pt0, poly } );
+                    uniqueSegments.insert( { pt1, poly } );
                 }
             }
         }
