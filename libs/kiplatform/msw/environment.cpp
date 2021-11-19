@@ -23,11 +23,13 @@
 #include <wx/filename.h>
 #include <wx/stdpaths.h>
 #include <wx/string.h>
+#include <wx/tokenzr.h>
 #include <wx/app.h>
 
 #include <Windows.h>
 #include <shellapi.h>
 #include <shlwapi.h>
+#include <winhttp.h>
 
 
 void KIPLATFORM::ENV::Init()
@@ -115,4 +117,144 @@ wxString KIPLATFORM::ENV::GetUserCachePath()
     wxStandardPaths::Get().UseAppInfo( wxStandardPaths::AppInfo_None );
 
     return wxStandardPaths::Get().GetUserLocalDataDir();
+}
+
+
+bool KIPLATFORM::ENV::GetSystemProxyConfig( const wxString& aURL, PROXY_CONFIG& aCfg )
+{
+    // Original source from Microsoft sample (public domain)
+    // https://github.com/microsoft/Windows-classic-samples/blob/main/Samples/WinhttpProxy/cpp/GetProxy.cpp#L844
+    bool                                 autoProxyDetect = false;
+    WINHTTP_CURRENT_USER_IE_PROXY_CONFIG ieProxyConfig = { 0 };
+    WINHTTP_AUTOPROXY_OPTIONS            autoProxyOptions = { 0 };
+    WINHTTP_PROXY_INFO                   autoProxyInfo = { 0 };
+    HINTERNET                            proxyResolveSession = NULL;
+    bool                                 success = false;
+
+    if( WinHttpGetIEProxyConfigForCurrentUser( &ieProxyConfig ) )
+    {
+        // welcome to the wonderful world of IE
+        // we use the ie config simply to handle it off to the other win32 api
+        if( ieProxyConfig.fAutoDetect )
+        {
+            autoProxyDetect = true;
+        }
+
+        if( ieProxyConfig.lpszAutoConfigUrl != NULL )
+        {
+            autoProxyDetect = true;
+            autoProxyOptions.lpszAutoConfigUrl = ieProxyConfig.lpszAutoConfigUrl;
+        }
+    }
+    else if( GetLastError() == ERROR_FILE_NOT_FOUND )
+    {
+        // this is the only error code where we want to continue attempting to find a proxy
+        autoProxyDetect = true;
+    }
+
+    if( autoProxyDetect )
+    {
+        proxyResolveSession =
+                WinHttpOpen( NULL, WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME,
+                             WINHTTP_NO_PROXY_BYPASS, WINHTTP_FLAG_ASYNC );
+
+        if( proxyResolveSession )
+        {
+            // either we use the ie url or we set the auto detect mode
+            if( autoProxyOptions.lpszAutoConfigUrl != NULL )
+            {
+                autoProxyOptions.dwFlags = WINHTTP_AUTOPROXY_CONFIG_URL;
+            }
+            else
+            {
+                autoProxyOptions.dwFlags = WINHTTP_AUTOPROXY_AUTO_DETECT;
+                autoProxyOptions.dwAutoDetectFlags =
+                        WINHTTP_AUTO_DETECT_TYPE_DHCP | WINHTTP_AUTO_DETECT_TYPE_DNS_A;
+            }
+
+            // dont do auto logon at first, this allows windows to use an cache
+            // per https://docs.microsoft.com/en-us/windows/win32/winhttp/autoproxy-cache
+            autoProxyOptions.fAutoLogonIfChallenged = FALSE;
+
+            autoProxyDetect = WinHttpGetProxyForUrl( proxyResolveSession, aURL.c_str(),
+                                                     &autoProxyOptions, &autoProxyInfo );
+
+            if( !autoProxyDetect && GetLastError() == ERROR_WINHTTP_LOGIN_FAILURE )
+            {
+                autoProxyOptions.fAutoLogonIfChallenged = TRUE;
+
+                // try again with auto login now
+                autoProxyDetect = WinHttpGetProxyForUrl( proxyResolveSession, aURL.c_str(),
+                                                         &autoProxyOptions, &autoProxyInfo );
+            }
+
+            WinHttpCloseHandle( proxyResolveSession );
+        }
+
+    }
+
+    if( autoProxyDetect )
+    {
+        if( autoProxyInfo.dwAccessType == WINHTTP_ACCESS_TYPE_NAMED_PROXY )
+        {
+            // autoProxyInfo will return a list of proxies that are semicolon delimited
+            // todo...maybe figure out better selection logic
+            wxString          proxyList = autoProxyInfo.lpszProxy;
+            wxStringTokenizer tokenizer( proxyList, ";" );
+
+            if( tokenizer.HasMoreTokens() )
+            {
+                aCfg.host = tokenizer.GetNextToken();
+            }
+
+            success = true;
+        }
+    }
+    else
+    {
+        if( ieProxyConfig.lpszProxy != NULL )
+        {
+            // ie proxy configs may return : or :: for an empty proxy
+
+            aCfg.host = ieProxyConfig.lpszProxy;
+
+            if(aCfg.host != ":" && aCfg.host != "::")
+            {
+                success = true;
+            }
+        }
+    }
+
+    // We have to clean up the strings the win32 api returned
+    if( autoProxyInfo.lpszProxy )
+    {
+        GlobalFree( autoProxyInfo.lpszProxy );
+        autoProxyInfo.lpszProxy = NULL;
+    }
+
+    if( autoProxyInfo.lpszProxyBypass )
+    {
+        GlobalFree( autoProxyInfo.lpszProxyBypass );
+        autoProxyInfo.lpszProxyBypass = NULL;
+    }
+
+    if( ieProxyConfig.lpszAutoConfigUrl != NULL )
+    {
+        GlobalFree( ieProxyConfig.lpszAutoConfigUrl );
+        ieProxyConfig.lpszAutoConfigUrl = NULL;
+    }
+
+    if( ieProxyConfig.lpszProxy != NULL )
+    {
+        GlobalFree( ieProxyConfig.lpszProxy );
+        ieProxyConfig.lpszProxy = NULL;
+    }
+
+    if( ieProxyConfig.lpszProxyBypass != NULL )
+    {
+        GlobalFree( ieProxyConfig.lpszProxyBypass );
+        ieProxyConfig.lpszProxyBypass = NULL;
+    }
+
+    return success;
 }

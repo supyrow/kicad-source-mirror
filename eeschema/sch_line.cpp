@@ -280,7 +280,7 @@ void SCH_LINE::SetLineWidth( const int aSize )
 
 int SCH_LINE::GetPenWidth() const
 {
-    NETCLASSPTR netclass = NetClass();
+    NETCLASSPTR netclass;
 
     switch ( m_layer )
     {
@@ -297,11 +297,13 @@ int SCH_LINE::GetPenWidth() const
         if( m_stroke.GetWidth() > 0 )
             return m_stroke.GetWidth();
 
+        netclass = NetClass();
+
+        if( !netclass && Schematic() )
+            netclass = Schematic()->Prj().GetProjectFile().NetSettings().m_NetClasses.GetDefault();
+
         if( netclass )
             return netclass->GetWireWidth();
-
-        if( Schematic() )
-            return Schematic()->Settings().m_DefaultWireThickness;
 
         return Mils2iu( DEFAULT_WIRE_WIDTH_MILS );
 
@@ -309,11 +311,13 @@ int SCH_LINE::GetPenWidth() const
         if( m_stroke.GetWidth() > 0 )
             return m_stroke.GetWidth();
 
+        netclass = NetClass();
+
+        if( !netclass && Schematic() )
+            netclass = Schematic()->Prj().GetProjectFile().NetSettings().m_NetClasses.GetDefault();
+
         if( netclass )
             return netclass->GetBusWidth();
-
-        if( Schematic() )
-            return Schematic()->Settings().m_DefaultBusThickness;
 
         return Mils2iu( DEFAULT_BUS_WIDTH_MILS );
     }
@@ -833,25 +837,13 @@ bool SCH_LINE::doIsConnected( const wxPoint& aPosition ) const
 void SCH_LINE::Plot( PLOTTER* aPlotter ) const
 {
     auto*   settings = static_cast<KIGFX::SCH_RENDER_SETTINGS*>( aPlotter->RenderSettings() );
-    int     penWidth;
+    int     penWidth = std::max( GetPenWidth(), settings->GetMinPenWidth() );
     COLOR4D color = GetLineColor();
 
     if( color == COLOR4D::UNSPECIFIED )
         color = settings->GetLayerColor( GetLayer() );
 
     aPlotter->SetColor( color );
-
-    switch( m_layer )
-    {
-    case LAYER_WIRE: penWidth = settings->m_DefaultWireThickness; break;
-    case LAYER_BUS:  penWidth = settings->m_DefaultBusThickness;  break;
-    default:         penWidth = GetPenWidth();                    break;
-    }
-
-    if( m_stroke.GetWidth() != 0 )
-        penWidth = m_stroke.GetWidth();
-
-    penWidth = std::max( penWidth, settings->GetMinPenWidth() );
 
     aPlotter->SetCurrentLineWidth( penWidth );
     aPlotter->SetDash( GetEffectiveLineStyle() );

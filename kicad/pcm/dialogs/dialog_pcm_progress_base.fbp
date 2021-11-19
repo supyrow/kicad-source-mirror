@@ -45,10 +45,10 @@
             <property name="minimum_size">400,300</property>
             <property name="name">DIALOG_PCM_PROGRESS_BASE</property>
             <property name="pos"></property>
-            <property name="size">500,500</property>
+            <property name="size">600,500</property>
             <property name="style">wxCAPTION</property>
             <property name="subclass">; ; forward_declare</property>
-            <property name="title">Applying package changes</property>
+            <property name="title">Applying Package Changes</property>
             <property name="tooltip"></property>
             <property name="window_extra_style"></property>
             <property name="window_name"></property>
@@ -115,7 +115,7 @@
                         <property name="window_style">wxTAB_TRAVERSAL</property>
                         <object class="wxStaticBoxSizer" expanded="1">
                             <property name="id">wxID_ANY</property>
-                            <property name="label">Download progress</property>
+                            <property name="label">Download Progress</property>
                             <property name="minimum_size"></property>
                             <property name="name">sbSizer1</property>
                             <property name="orient">wxVERTICAL</property>
@@ -123,7 +123,7 @@
                             <property name="permission">none</property>
                             <object class="sizeritem" expanded="1">
                                 <property name="border">5</property>
-                                <property name="flag">wxALL</property>
+                                <property name="flag">wxBOTTOM|wxRIGHT|wxLEFT</property>
                                 <property name="proportion">0</property>
                                 <object class="wxStaticText" expanded="1">
                                     <property name="BottomDockable">1</property>
@@ -184,7 +184,7 @@
                             </object>
                             <object class="sizeritem" expanded="1">
                                 <property name="border">5</property>
-                                <property name="flag">wxALL|wxEXPAND</property>
+                                <property name="flag">wxEXPAND|wxBOTTOM|wxRIGHT|wxLEFT</property>
                                 <property name="proportion">1</property>
                                 <object class="wxGauge" expanded="1">
                                     <property name="BottomDockable">1</property>
@@ -315,7 +315,7 @@
                                 <property name="proportion">0</property>
                                 <object class="wxStaticBoxSizer" expanded="1">
                                     <property name="id">wxID_ANY</property>
-                                    <property name="label">Overall progress</property>
+                                    <property name="label">Overall Progress</property>
                                     <property name="minimum_size"></property>
                                     <property name="name">sbSizer2</property>
                                     <property name="orient">wxVERTICAL</property>
@@ -323,7 +323,7 @@
                                     <property name="permission">none</property>
                                     <object class="sizeritem" expanded="1">
                                         <property name="border">5</property>
-                                        <property name="flag">wxALL|wxEXPAND</property>
+                                        <property name="flag">wxEXPAND|wxBOTTOM|wxRIGHT|wxLEFT</property>
                                         <property name="proportion">1</property>
                                         <object class="wxGauge" expanded="1">
                                             <property name="BottomDockable">1</property>
@@ -389,7 +389,7 @@
                             </object>
                             <object class="sizeritem" expanded="1">
                                 <property name="border">5</property>
-                                <property name="flag">wxEXPAND</property>
+                                <property name="flag">wxEXPAND|wxTOP</property>
                                 <property name="proportion">1</property>
                                 <object class="wxStaticBoxSizer" expanded="1">
                                     <property name="id">wxID_ANY</property>
@@ -401,7 +401,7 @@
                                     <property name="permission">none</property>
                                     <object class="sizeritem" expanded="1">
                                         <property name="border">5</property>
-                                        <property name="flag">wxALL|wxEXPAND</property>
+                                        <property name="flag">wxEXPAND|wxBOTTOM|wxRIGHT</property>
                                         <property name="proportion">1</property>
                                         <object class="wxHtmlWindow" expanded="1">
                                             <property name="BottomDockable">1</property>
@@ -447,14 +447,14 @@
                                             <property name="pos"></property>
                                             <property name="resize">Resizable</property>
                                             <property name="show">1</property>
-                                            <property name="size">-1,200</property>
+                                            <property name="size">-1,-1</property>
                                             <property name="style">wxHW_SCROLLBAR_AUTO</property>
                                             <property name="subclass">WX_HTML_REPORT_BOX; dialogs/wx_html_report_box.h; Not forward_declare</property>
                                             <property name="toolbar_pane">0</property>
                                             <property name="tooltip"></property>
                                             <property name="window_extra_style"></property>
                                             <property name="window_name"></property>
-                                            <property name="window_style"></property>
+                                            <property name="window_style">wxHSCROLL|wxVSCROLL</property>
                                         </object>
                                     </object>
                                 </object>
@@ -549,6 +549,16 @@
                                             <property name="window_name"></property>
                                             <property name="window_style"></property>
                                             <event name="OnButtonClick">OnCancelClicked</event>
+                                        </object>
+                                    </object>
+                                    <object class="sizeritem" expanded="1">
+                                        <property name="border">5</property>
+                                        <property name="flag">wxEXPAND</property>
+                                        <property name="proportion">0</property>
+                                        <object class="spacer" expanded="1">
+                                            <property name="height">0</property>
+                                            <property name="permission">protected</property>
+                                            <property name="width">20</property>
                                         </object>
                                     </object>
                                     <object class="sizeritem" expanded="1">

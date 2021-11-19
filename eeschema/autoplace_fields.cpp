@@ -57,7 +57,6 @@
 #include <sch_symbol.h>
 #include <sch_line.h>
 #include <lib_pin.h>
-#include <sch_draw_panel.h>
 #include <kiface_base.h>
 #include <vector>
 #include <algorithm>
@@ -101,13 +100,13 @@ public:
 
     struct SIDE_AND_NPINS
     {
-        SIDE side;
+        SIDE     side;
         unsigned pins;
     };
 
     struct SIDE_AND_COLL
     {
-        SIDE side;
+        SIDE      side;
         COLLISION collision;
     };
 
@@ -129,7 +128,7 @@ public:
             m_align_to_grid = cfg->m_AutoplaceFields.align_to_grid;
         }
 
-        m_symbol_bbox = m_symbol->GetBodyAndPinsBoundingBox();
+        m_symbol_bbox = m_symbol->GetBodyBoundingBox();
         m_fbox_size = computeFBoxSize( /* aDynamic */ true );
 
         m_is_power_symbol = !m_symbol->IsInNetlist();
@@ -145,10 +144,11 @@ public:
      */
     void DoAutoplace( bool aManual )
     {
-        bool     force_wire_spacing = false;
-        SIDE     field_side = chooseSideForFields( aManual );
-        wxPoint  fbox_pos = fieldBoxPlacement( field_side );
-        EDA_RECT field_box( fbox_pos, m_fbox_size );
+        bool            force_wire_spacing = false;
+        SIDE_AND_NPINS  sideandpins = chooseSideForFields( aManual );
+        SIDE            field_side = sideandpins.side;
+        wxPoint         fbox_pos = fieldBoxPlacement( sideandpins );
+        EDA_RECT        field_box( fbox_pos, m_fbox_size );
 
         if( aManual )
             force_wire_spacing = fitFieldsBetweenWires( &field_box, field_side );
@@ -161,7 +161,19 @@ public:
             SCH_FIELD* field = m_fields[field_idx];
 
             if( m_allow_rejustify )
-                justifyField( field, field_side );
+            {
+                if( sideandpins.pins > 0 )
+                {
+                    if( field_side == SIDE_TOP || field_side == SIDE_BOTTOM )
+                        justifyField( field, SIDE_RIGHT );
+                    else
+                        justifyField( field, SIDE_TOP );
+                }
+                else
+                {
+                    justifyField( field, field_side );
+                }
+            }
 
             wxPoint pos( fieldHorizPlacement( field, field_box ),
                          fieldVertPlacement( field, field_box, &last_y_coord, !force_wire_spacing ) );
@@ -263,7 +275,7 @@ protected:
     {
         wxCHECK_RET( m_screen, "getPossibleCollisions() with null m_screen" );
 
-        for( SCH_ITEM* item : m_screen->Items().Overlapping( m_symbol->GetBoundingBox() ) )
+        for( SCH_ITEM* item : m_screen->Items().Overlapping( m_symbol->GetBodyAndPinsBoundingBox() ) )
         {
             if( SCH_SYMBOL* candidate = dynamic_cast<SCH_SYMBOL*>( item ) )
             {
@@ -384,7 +396,11 @@ protected:
         // Iterate over all sides and find the ones that collide
         for( SIDE side : sides )
         {
-            EDA_RECT box( fieldBoxPlacement( side ), m_fbox_size );
+            SIDE_AND_NPINS sideandpins;
+            sideandpins.side = side;
+            sideandpins.pins = pinsOnSide( side );
+
+            EDA_RECT box( fieldBoxPlacement( sideandpins ), m_fbox_size );
 
             COLLISION collision = COLLIDE_NONE;
 
@@ -461,7 +477,7 @@ protected:
      * @param aAvoidCollisions - if true, pick last the sides where the label will collide
      *      with other items.
      */
-    SIDE chooseSideForFields( bool aAvoidCollisions )
+    SIDE_AND_NPINS chooseSideForFields( bool aAvoidCollisions )
     {
         std::vector<SIDE_AND_NPINS> sides = getPreferredSides();
 
@@ -477,7 +493,7 @@ protected:
 
         for( SIDE_AND_NPINS& each_side : sides | boost::adaptors::reversed )
         {
-            if( !each_side.pins ) return each_side.side;
+            if( !each_side.pins ) return each_side;
         }
 
         for( SIDE_AND_NPINS& each_side : sides )
@@ -489,7 +505,7 @@ protected:
             }
         }
 
-        return side.side;
+        return side;
     }
 
     /**
@@ -509,24 +525,55 @@ protected:
     /**
      * Return the position of the field bounding box.
      */
-    wxPoint fieldBoxPlacement( SIDE aFieldSide )
+    wxPoint fieldBoxPlacement( SIDE_AND_NPINS aFieldSideAndPins )
     {
         wxPoint fbox_center = m_symbol_bbox.Centre();
         int     offs_x = ( m_symbol_bbox.GetWidth() + m_fbox_size.GetWidth() ) / 2;
         int     offs_y = ( m_symbol_bbox.GetHeight() + m_fbox_size.GetHeight() ) / 2;
 
-        if( aFieldSide.x != 0 )
+        if( aFieldSideAndPins.side.x != 0 )
             offs_x += HPADDING;
-        else if( aFieldSide.y != 0 )
+        else if( aFieldSideAndPins.side.y != 0 )
             offs_y += VPADDING;
 
-        fbox_center.x += aFieldSide.x * offs_x;
-        fbox_center.y += aFieldSide.y * offs_y;
+        fbox_center.x += aFieldSideAndPins.side.x * offs_x;
+        fbox_center.y += aFieldSideAndPins.side.y * offs_y;
 
-        wxPoint fbox_pos( fbox_center.x - m_fbox_size.GetWidth() / 2,
-                          fbox_center.y - m_fbox_size.GetHeight() / 2 );
+        int     x = fbox_center.x - ( m_fbox_size.GetWidth() / 2 );
+        int     y = fbox_center.y - ( m_fbox_size.GetHeight() / 2 );
 
-        return fbox_pos;
+        auto getPinsBox =
+                [&]( const wxPoint& aSide )
+                {
+                    EDA_RECT pinsBox;
+
+                    for( SCH_PIN* each_pin : m_symbol->GetPins() )
+                    {
+                        if( !each_pin->IsVisible() && !m_is_power_symbol )
+                            continue;
+
+                        if( getPinSide( each_pin ) == aSide )
+                            pinsBox.Merge( each_pin->GetBoundingBox() );
+                    }
+
+                    return pinsBox;
+                };
+
+        if( aFieldSideAndPins.pins > 0 )
+        {
+            EDA_RECT pinsBox = getPinsBox( aFieldSideAndPins.side );
+
+            if( aFieldSideAndPins.side == SIDE_TOP || aFieldSideAndPins.side == SIDE_BOTTOM )
+            {
+                x = pinsBox.GetRight() + ( HPADDING * 2 );
+            }
+            else if( aFieldSideAndPins.side == SIDE_RIGHT || aFieldSideAndPins.side == SIDE_LEFT )
+            {
+                y = pinsBox.GetTop() - ( m_fbox_size.GetHeight() + ( VPADDING * 2 ) );
+            }
+        }
+
+        return wxPoint( x, y );
     }
 
     /**

@@ -42,6 +42,8 @@
 #include <core/kicad_algo.h>
 #include <paths.h>
 #include <launch_ext.h>
+#include <wx/dcclient.h>
+#include <wx/settings.h>
 
 #include "project_tree_item.h"
 #include "project_tree.h"
@@ -128,9 +130,9 @@ BEGIN_EVENT_TABLE( PROJECT_TREE_PANE, wxSashLayoutWindow )
     EVT_MENU( ID_PROJECT_NEWDIR, PROJECT_TREE_PANE::onCreateNewDirectory )
     EVT_MENU( ID_PROJECT_OPEN_DIR, PROJECT_TREE_PANE::onOpenDirectory )
     EVT_MENU( ID_PROJECT_DELETE, PROJECT_TREE_PANE::onDeleteFile )
-    EVT_MENU( ID_PROJECT_PRINT, PROJECT_TREE_PANE::onPrintFile )
     EVT_MENU( ID_PROJECT_RENAME, PROJECT_TREE_PANE::onRenameFile )
     EVT_IDLE( PROJECT_TREE_PANE::onIdle )
+    EVT_PAINT( PROJECT_TREE_PANE::onPaint )
 END_EVENT_TABLE()
 
 
@@ -617,7 +619,6 @@ void PROJECT_TREE_PANE::onRight( wxTreeEvent& Event )
     bool can_edit = true;
     bool can_rename = true;
     bool can_delete = true;
-    bool can_print = true;
 
     if( selection.size() == 0 )
         return;
@@ -628,7 +629,6 @@ void PROJECT_TREE_PANE::onRight( wxTreeEvent& Event )
         can_switch_to_project = false;
         can_create_new_directory = false;
         can_rename = false;
-        can_print = false;
     }
 
     for( PROJECT_TREE_ITEM* item : selection )
@@ -639,9 +639,11 @@ void PROJECT_TREE_PANE::onRight( wxTreeEvent& Event )
             can_switch_to_project = false;
             can_edit = false;
             can_rename = false;
-            can_print = false;
             continue;
         }
+
+        can_delete = item->CanDelete();
+        can_rename = item->CanRename();
 
         wxString full_file_name = item->GetFileName();
 
@@ -650,12 +652,10 @@ void PROJECT_TREE_PANE::onRight( wxTreeEvent& Event )
         case TREE_FILE_TYPE::LEGACY_PROJECT:
         case TREE_FILE_TYPE::JSON_PROJECT:
             can_rename = false;
-            can_print = false;
 
             if( item->GetId() == m_TreeProject->GetRootItem() )
             {
                 can_switch_to_project = false;
-                can_delete = false;
             }
             else
             {
@@ -667,17 +667,12 @@ void PROJECT_TREE_PANE::onRight( wxTreeEvent& Event )
         case TREE_FILE_TYPE::DIRECTORY:
             can_switch_to_project = false;
             can_edit = false;
-            can_rename = false;
-            can_print = false;
             break;
 
         default:
             can_switch_to_project = false;
             can_create_new_directory = false;
             can_open_this_directory = false;
-
-            if( !CanPrintFile( full_file_name ) )
-                can_print = false;
 
             break;
         }
@@ -781,19 +776,6 @@ void PROJECT_TREE_PANE::onRight( wxTreeEvent& Event )
 #endif
     }
 
-    if( can_print )
-    {
-        popup_menu.AppendSeparator();
-        AddMenuItem( &popup_menu, ID_PROJECT_PRINT,
-
-#ifdef __APPLE__
-                     _( "Print..." ),
-#else
-                     _( "Print" ),
-#endif
-                     _( "Print the contents of the file" ), KiBitmap( BITMAPS::print_button ) );
-    }
-
     if( popup_menu.GetMenuItemCount() > 0 )
         PopupMenu( &popup_menu );
 }
@@ -832,15 +814,6 @@ void PROJECT_TREE_PANE::onDeleteFile( wxCommandEvent& event )
 
     for( PROJECT_TREE_ITEM* item_data : tree_data )
         item_data->Delete();
-}
-
-
-void PROJECT_TREE_PANE::onPrintFile( wxCommandEvent& event )
-{
-    std::vector<PROJECT_TREE_ITEM*> tree_data = GetSelectedData();
-
-    for( PROJECT_TREE_ITEM* item_data : tree_data )
-        item_data->Print();
 }
 
 
@@ -1293,6 +1266,19 @@ void PROJECT_TREE_PANE::onThemeChanged( wxSysColourChangedEvent &aEvent )
     m_TreeProject->Refresh();
 
     aEvent.Skip();
+}
+
+
+void PROJECT_TREE_PANE::onPaint( wxPaintEvent& event )
+{
+    wxRect    rect( wxPoint( 0, 0 ), GetClientSize() );
+    wxPaintDC dc( this );
+
+    dc.SetBrush( wxSystemSettings::GetColour( wxSYS_COLOUR_FRAMEBK ) );
+    dc.SetPen( wxPen( wxSystemSettings::GetColour( wxSYS_COLOUR_ACTIVEBORDER ), 1 ) );
+
+    dc.DrawLine( rect.GetLeft(), rect.GetTop(), rect.GetLeft(), rect.GetBottom() );
+    dc.DrawLine( rect.GetRight(), rect.GetTop(), rect.GetRight(), rect.GetBottom() );
 }
 
 

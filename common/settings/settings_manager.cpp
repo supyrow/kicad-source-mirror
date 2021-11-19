@@ -249,11 +249,12 @@ public:
 };
 
 
-COLOR_SETTINGS* SETTINGS_MANAGER::registerColorSettings( const wxString& aName )
+COLOR_SETTINGS* SETTINGS_MANAGER::registerColorSettings( const wxString& aName, bool aAbsolutePath )
 {
     if( !m_color_settings.count( aName ) )
     {
-        COLOR_SETTINGS* colorSettings = RegisterSettings( new COLOR_SETTINGS( aName ) );
+        COLOR_SETTINGS* colorSettings = RegisterSettings( new COLOR_SETTINGS( aName,
+                                                                              aAbsolutePath ) );
         m_color_settings[aName] = colorSettings;
     }
 
@@ -303,27 +304,25 @@ void SETTINGS_MANAGER::loadAllColorSettings()
     wxDir third_party_colors_dir( third_party_path.GetFullPath() );
     wxString color_settings_path = GetColorSettingsPath();
 
-    JSON_DIR_TRAVERSER copier(
-            [&]( const wxFileName& aFilename )
-            {
-                wxFileName new_file( color_settings_path, aFilename.GetFullName() );
-
-                if( !new_file.Exists() )
-                    wxCopyFile( aFilename.GetFullPath(), new_file.GetFullPath());
-            } );
-
     // Search for and load any other settings
     JSON_DIR_TRAVERSER loader( [&]( const wxFileName& aFilename )
                                {
                                    registerColorSettings( aFilename.GetName() );
                                } );
 
+    JSON_DIR_TRAVERSER thirdPartyLoader(
+            [&]( const wxFileName& aFilename )
+            {
+                COLOR_SETTINGS* settings = registerColorSettings( aFilename.GetFullPath(), true );
+                settings->SetReadOnly( true );
+            } );
+
     wxDir colors_dir( color_settings_path );
 
     if( colors_dir.IsOpened() )
     {
         if( third_party_colors_dir.IsOpened() )
-           third_party_colors_dir.Traverse( copier );
+           third_party_colors_dir.Traverse( thirdPartyLoader );
 
         colors_dir.Traverse( loader );
     }
@@ -527,6 +526,32 @@ bool SETTINGS_MANAGER::MigrateIfNeeded()
 
     if( !traverser.GetErrors().empty() )
         DisplayErrorMessage( nullptr, traverser.GetErrors() );
+
+    // Remove any library configuration if we didn't choose to import
+    if( !m_migrateLibraryTables )
+    {
+        COMMON_SETTINGS common;
+        wxString        path = GetPathForSettingsFile( &common );
+        common.LoadFromFile( path );
+
+        const std::vector<wxString> libKeys = {
+            wxT( "KICAD6_SYMBOL_DIR" ),
+            wxT( "KICAD6_3DMODEL_DIR" ),
+            wxT( "KICAD6_FOOTPRINT_DIR" ),
+            wxT( "KICAD6_TEMPLATE_DIR" ), // Stores the default library table to be copied
+
+            // Deprecated keys
+            wxT( "KICAD_PTEMPLATES" ),
+            wxT( "KISYS3DMOD" ),
+            wxT( "KISYSMOD" ),
+            wxT( "KICAD_SYMBOL_DIR" ),
+        };
+
+        for( const wxString& key : libKeys )
+            common.m_Env.vars.erase( key );
+
+        common.SaveToFile( path  );
+    }
 
     return true;
 }
@@ -1086,7 +1111,7 @@ bool SETTINGS_MANAGER::BackupProject( REPORTER& aReporter ) const
 
     if( !target.IsDirWritable() )
     {
-        wxLogTrace( traceSettings, "Backup directory %s is not writeable", target.GetPath() );
+        wxLogTrace( traceSettings, "Backup directory %s is not writable", target.GetPath() );
         return false;
     }
 
@@ -1149,7 +1174,7 @@ bool SETTINGS_MANAGER::TriggerBackupIfNeeded( REPORTER& aReporter ) const
 
     wxFileName projectPath( Prj().GetProjectPath() );
 
-    // Skip backup if project path isn't valid or writeable
+    // Skip backup if project path isn't valid or writable
     if( !projectPath.IsOk() || !projectPath.Exists() || !projectPath.IsDirWritable() )
         return true;
 

@@ -32,6 +32,7 @@
 
 #include "pcbnew_scripting_helpers.h"
 
+#include <tool/tool_manager.h>
 #include <action_plugin.h>
 #include <board.h>
 #include <board_design_settings.h>
@@ -185,6 +186,34 @@ BOARD* LoadBoard( wxString& aFileName, IO_MGR::PCB_FILE_T aFormat )
         brd->BuildListOfNets();
         brd->SynchronizeNetsAndNetClasses();
     }
+
+    return brd;
+}
+
+
+BOARD* NewBoard( wxString& aFileName )
+{
+    wxFileName boardFn = aFileName;
+    wxFileName proFn   = aFileName;
+    proFn.SetExt( ProjectFileExtension );
+    proFn.MakeAbsolute();
+
+    wxString projectPath = proFn.GetFullPath();
+
+    // Ensure the "C" locale is temporary set, before reading any file
+    // It also avoids wxWidgets alerts about locale issues, later, when using Python 3
+    LOCALE_IO dummy;
+
+    GetSettingsManager()->LoadProject( projectPath, false );
+    PROJECT* project = GetSettingsManager()->GetProject( projectPath );
+
+    BOARD* brd = new BOARD();
+
+    brd->SetProject( project );
+    BOARD_DESIGN_SETTINGS& bds = brd->GetDesignSettings();
+    bds.m_DRCEngine            = std::make_shared<DRC_ENGINE>( brd, &bds );
+
+    SaveBoard( aFileName, brd );
 
     return brd;
 }
@@ -358,12 +387,27 @@ void Refresh()
 {
     if( s_PcbEditFrame )
     {
-        auto board = s_PcbEditFrame->GetBoard();
+        TOOL_MANAGER*       toolMgr = s_PcbEditFrame->GetToolManager();
+        BOARD*              board = s_PcbEditFrame->GetBoard();
+        PCB_DRAW_PANEL_GAL* canvas = s_PcbEditFrame->GetCanvas();
+
+        canvas->SyncLayersVisibility( board );
+
+        canvas->GetView()->Clear();
+        canvas->GetView()->InitPreview();
+        canvas->GetGAL()->SetGridOrigin( VECTOR2D( board->GetDesignSettings().GetGridOrigin() ) );
+        canvas->DisplayBoard( board );
+
+        // allow tools to re-add their view items (selection previews, grids, etc.)
+        if( toolMgr )
+            toolMgr->ResetTools( TOOL_BASE::GAL_SWITCH );
+
+        // reload the drawing-sheet
+        s_PcbEditFrame->SetPageSettings( board->GetPageSettings() );
+
         board->BuildConnectivity();
 
-        // Re-init everything: this is the easy way to do that
-        s_PcbEditFrame->ActivateGalCanvas();
-        s_PcbEditFrame->GetCanvas()->Refresh();
+        canvas->Refresh();
     }
 }
 

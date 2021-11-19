@@ -1413,6 +1413,7 @@ bool LINE_PLACER::FixRoute( const VECTOR2I& aP, ITEM* aEndItem, bool aForceFinis
     }
     else
     {
+        m_shove->AddLockedSpringbackNode( m_lastNode );
         m_placementCorrect = true;
         m_idle = true;
     }
@@ -1468,6 +1469,13 @@ bool LINE_PLACER::HasPlacedAnything() const
 
 bool LINE_PLACER::CommitPlacement()
 {
+    if( Settings().Mode() == PNS::RM_Shove || Settings().Mode() == PNS::RM_Smart )
+    {
+        m_shove->RewindToLastLockedNode();
+        m_lastNode = m_shove->CurrentNode();
+        m_lastNode->KillChildren();
+    }
+
     if( m_lastNode )
         Router()->CommitRouting( m_lastNode );
 

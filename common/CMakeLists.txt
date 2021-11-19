@@ -242,7 +242,9 @@ set( COMMON_WIDGET_SRCS
     widgets/wx_busy_indicator.cpp
     widgets/wx_ellipsized_static_text.cpp
     widgets/wx_grid.cpp
+    widgets/wx_panel.cpp
     widgets/wx_progress_reporters.cpp
+    widgets/wx_splitter_window.cpp
     )
 
 set( COMMON_DRAWING_SHEET_SRCS

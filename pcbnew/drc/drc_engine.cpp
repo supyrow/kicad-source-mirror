@@ -424,17 +424,12 @@ void DRC_ENGINE::loadImplicitRules()
         wxString name = zone->GetZoneName();
 
         if( name.IsEmpty() )
-        {
             rule = createImplicitRule( _( "keepout area" ) );
-            name = zone->m_Uuid.AsString();
-        }
         else
-        {
             rule = createImplicitRule( wxString::Format( _( "keepout area '%s'" ), name ) );
-        }
 
         rule->m_Condition = new DRC_RULE_CONDITION( wxString::Format( "A.insideArea('%s')",
-                                                                      name ) );
+                                                                      zone->m_Uuid.AsString() ) );
 
         rule->m_LayerCondition = zone->GetLayerSet();
 
@@ -1056,7 +1051,7 @@ DRC_CONSTRAINT DRC_ENGINE::EvalRules( DRC_CONSTRAINT_T aConstraintType, const BO
                     }
                     else
                     {
-                        REPORT( wxString::Format( _( "Checking rule condition '%s'." ),
+                        REPORT( wxString::Format( _( "Checking rule condition \"%s\"." ),
                                                   EscapeHTML( c->condition->GetExpression() ) ) )
                     }
 

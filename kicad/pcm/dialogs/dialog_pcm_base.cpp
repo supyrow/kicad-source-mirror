@@ -13,7 +13,7 @@
 
 DIALOG_PCM_BASE::DIALOG_PCM_BASE( wxWindow* parent, wxWindowID id, const wxString& title, const wxPoint& pos, const wxSize& size, long style ) : DIALOG_SHIM( parent, id, title, pos, size, style )
 {
-	this->SetSizeHints( wxSize( 650,500 ), wxDefaultSize );
+	this->SetSizeHints( wxSize( 940,550 ), wxDefaultSize );
 
 	wxBoxSizer* m_MainSizer;
 	m_MainSizer = new wxBoxSizer( wxVERTICAL );
@@ -38,17 +38,19 @@ DIALOG_PCM_BASE::DIALOG_PCM_BASE( wxWindow* parent, wxWindowID id, const wxStrin
 	bSizer6->Add( m_buttonManage, 0, wxALL, 5 );
 
 
-	bSizer4->Add( bSizer6, 0, wxEXPAND, 5 );
+	bSizer4->Add( bSizer6, 0, wxEXPAND|wxRIGHT|wxLEFT, 5 );
 
 	m_contentNotebook = new wxNotebook( m_panelRepository, wxID_ANY, wxDefaultPosition, wxDefaultSize, 0 );
+	m_contentNotebook->SetMinSize( wxSize( 900,400 ) );
 
-	bSizer4->Add( m_contentNotebook, 1, wxEXPAND | wxALL, 5 );
+
+	bSizer4->Add( m_contentNotebook, 1, wxEXPAND|wxBOTTOM|wxRIGHT|wxLEFT, 3 );
 
 
 	m_panelRepository->SetSizer( bSizer4 );
 	m_panelRepository->Layout();
 	bSizer4->Fit( m_panelRepository );
-	m_dialogNotebook->AddPage( m_panelRepository, _("Repository (%d)"), false );
+	m_dialogNotebook->AddPage( m_panelRepository, _("Repository (%d)"), true );
 	m_panelInstalledHolder = new wxPanel( m_dialogNotebook, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxTAB_TRAVERSAL );
 	wxBoxSizer* bSizer7;
 	bSizer7 = new wxBoxSizer( wxVERTICAL );
@@ -60,7 +62,6 @@ DIALOG_PCM_BASE::DIALOG_PCM_BASE( wxWindow* parent, wxWindowID id, const wxStrin
 	m_dialogNotebook->AddPage( m_panelInstalledHolder, _("Installed (%d)"), false );
 	m_panelPending = new wxPanel( m_dialogNotebook, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxTAB_TRAVERSAL );
 	m_panelPending->SetForegroundColour( wxSystemSettings::GetColour( wxSYS_COLOUR_WINDOW ) );
-	m_panelPending->SetBackgroundColour( wxSystemSettings::GetColour( wxSYS_COLOUR_WINDOW ) );
 
 	wxBoxSizer* bSizer8;
 	bSizer8 = new wxBoxSizer( wxVERTICAL );
@@ -75,10 +76,13 @@ DIALOG_PCM_BASE::DIALOG_PCM_BASE( wxWindow* parent, wxWindowID id, const wxStrin
 	m_gridPendingActions->SetMargins( 0, 0 );
 
 	// Columns
-	m_gridPendingActions->AutoSizeColumns();
+	m_gridPendingActions->SetColSize( 0, 100 );
+	m_gridPendingActions->SetColSize( 1, 200 );
+	m_gridPendingActions->SetColSize( 2, 80 );
+	m_gridPendingActions->SetColSize( 3, 200 );
 	m_gridPendingActions->EnableDragColMove( false );
 	m_gridPendingActions->EnableDragColSize( true );
-	m_gridPendingActions->SetColLabelSize( 30 );
+	m_gridPendingActions->SetColLabelSize( 22 );
 	m_gridPendingActions->SetColLabelValue( 0, _("Action") );
 	m_gridPendingActions->SetColLabelValue( 1, _("Package") );
 	m_gridPendingActions->SetColLabelValue( 2, _("Version") );
@@ -94,7 +98,7 @@ DIALOG_PCM_BASE::DIALOG_PCM_BASE( wxWindow* parent, wxWindowID id, const wxStrin
 
 	// Cell Defaults
 	m_gridPendingActions->SetDefaultCellAlignment( wxALIGN_LEFT, wxALIGN_TOP );
-	bSizer8->Add( m_gridPendingActions, 1, wxALL|wxEXPAND, 5 );
+	bSizer8->Add( m_gridPendingActions, 1, wxEXPAND|wxALL, 5 );
 
 	wxBoxSizer* bSizer9;
 	bSizer9 = new wxBoxSizer( wxHORIZONTAL );
@@ -102,7 +106,7 @@ DIALOG_PCM_BASE::DIALOG_PCM_BASE( wxWindow* parent, wxWindowID id, const wxStrin
 	m_discardActionButton = new wxBitmapButton( m_panelPending, wxID_ANY, wxNullBitmap, wxDefaultPosition, wxDefaultSize, wxBU_AUTODRAW|0 );
 	m_discardActionButton->SetToolTip( _("Discard action") );
 
-	bSizer9->Add( m_discardActionButton, 0, wxLEFT|wxRIGHT, 5 );
+	bSizer9->Add( m_discardActionButton, 0, wxBOTTOM|wxRIGHT|wxLEFT, 5 );
 
 
 	bSizer9->Add( 0, 0, 1, wxEXPAND, 5 );
@@ -114,9 +118,9 @@ DIALOG_PCM_BASE::DIALOG_PCM_BASE( wxWindow* parent, wxWindowID id, const wxStrin
 	m_panelPending->SetSizer( bSizer8 );
 	m_panelPending->Layout();
 	bSizer8->Fit( m_panelPending );
-	m_dialogNotebook->AddPage( m_panelPending, _("Pending (%d)"), true );
+	m_dialogNotebook->AddPage( m_panelPending, _("Pending (%d)"), false );
 
-	m_TopSizer->Add( m_dialogNotebook, 1, wxEXPAND | wxALL, 5 );
+	m_TopSizer->Add( m_dialogNotebook, 1, wxEXPAND|wxTOP|wxRIGHT|wxLEFT, 5 );
 
 
 	m_MainSizer->Add( m_TopSizer, 1, wxEXPAND, 5 );
@@ -125,29 +129,32 @@ DIALOG_PCM_BASE::DIALOG_PCM_BASE( wxWindow* parent, wxWindowID id, const wxStrin
 	m_BottomSizer = new wxBoxSizer( wxHORIZONTAL );
 
 	m_refreshButton = new wxButton( this, wxID_ANY, _("Refresh"), wxDefaultPosition, wxDefaultSize, 0 );
-	m_BottomSizer->Add( m_refreshButton, 0, wxALL, 5 );
+	m_BottomSizer->Add( m_refreshButton, 0, wxALIGN_CENTER_VERTICAL|wxALL, 5 );
+
+	m_installLocalButton = new wxButton( this, wxID_ANY, _("Install from File..."), wxDefaultPosition, wxDefaultSize, 0 );
+	m_BottomSizer->Add( m_installLocalButton, 0, wxALIGN_CENTER_VERTICAL|wxALL, 5 );
 
 
-	m_BottomSizer->Add( 0, 0, 1, wxEXPAND, 5 );
+	m_BottomSizer->Add( 0, 0, 1, 0, 5 );
 
-	m_installLocalButton = new wxButton( this, wxID_ANY, _("Install from file..."), wxDefaultPosition, wxDefaultSize, 0 );
-	m_BottomSizer->Add( m_installLocalButton, 0, wxALL, 5 );
+	m_sdbSizer1 = new wxStdDialogButtonSizer();
+	m_sdbSizer1OK = new wxButton( this, wxID_OK );
+	m_sdbSizer1->AddButton( m_sdbSizer1OK );
+	m_sdbSizer1Apply = new wxButton( this, wxID_APPLY );
+	m_sdbSizer1->AddButton( m_sdbSizer1Apply );
+	m_sdbSizer1Cancel = new wxButton( this, wxID_CANCEL );
+	m_sdbSizer1->AddButton( m_sdbSizer1Cancel );
+	m_sdbSizer1->Realize();
 
-	m_applyButton = new wxButton( this, wxID_ANY, _("Apply changes"), wxDefaultPosition, wxDefaultSize, 0 );
-	m_BottomSizer->Add( m_applyButton, 0, wxALL, 5 );
-
-	m_discardButton = new wxButton( this, wxID_ANY, _("Discard changes"), wxDefaultPosition, wxDefaultSize, 0 );
-	m_BottomSizer->Add( m_discardButton, 0, wxALL, 5 );
-
-	m_closeButton = new wxButton( this, wxID_CANCEL, _("Close"), wxDefaultPosition, wxDefaultSize, 0 );
-	m_BottomSizer->Add( m_closeButton, 0, wxALL, 5 );
+	m_BottomSizer->Add( m_sdbSizer1, 0, wxALL|wxALIGN_CENTER_VERTICAL, 5 );
 
 
-	m_MainSizer->Add( m_BottomSizer, 0, wxEXPAND, 5 );
+	m_MainSizer->Add( m_BottomSizer, 0, wxEXPAND|wxLEFT, 5 );
 
 
 	this->SetSizer( m_MainSizer );
 	this->Layout();
+	m_MainSizer->Fit( this );
 
 	this->Centre( wxBOTH );
 
@@ -158,9 +165,9 @@ DIALOG_PCM_BASE::DIALOG_PCM_BASE( wxWindow* parent, wxWindowID id, const wxStrin
 	m_discardActionButton->Connect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( DIALOG_PCM_BASE::OnDiscardActionClicked ), NULL, this );
 	m_refreshButton->Connect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( DIALOG_PCM_BASE::OnRefreshClicked ), NULL, this );
 	m_installLocalButton->Connect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( DIALOG_PCM_BASE::OnInstallFromFileClicked ), NULL, this );
-	m_applyButton->Connect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( DIALOG_PCM_BASE::OnApplyChangesClicked ), NULL, this );
-	m_discardButton->Connect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( DIALOG_PCM_BASE::OnDiscardChangesClicked ), NULL, this );
-	m_closeButton->Connect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( DIALOG_PCM_BASE::OnCloseClicked ), NULL, this );
+	m_sdbSizer1Apply->Connect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( DIALOG_PCM_BASE::OnApplyChangesClicked ), NULL, this );
+	m_sdbSizer1Cancel->Connect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( DIALOG_PCM_BASE::OnDiscardChangesClicked ), NULL, this );
+	m_sdbSizer1OK->Connect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( DIALOG_PCM_BASE::OnCloseClicked ), NULL, this );
 }
 
 DIALOG_PCM_BASE::~DIALOG_PCM_BASE()
@@ -172,8 +179,8 @@ DIALOG_PCM_BASE::~DIALOG_PCM_BASE()
 	m_discardActionButton->Disconnect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( DIALOG_PCM_BASE::OnDiscardActionClicked ), NULL, this );
 	m_refreshButton->Disconnect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( DIALOG_PCM_BASE::OnRefreshClicked ), NULL, this );
 	m_installLocalButton->Disconnect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( DIALOG_PCM_BASE::OnInstallFromFileClicked ), NULL, this );
-	m_applyButton->Disconnect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( DIALOG_PCM_BASE::OnApplyChangesClicked ), NULL, this );
-	m_discardButton->Disconnect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( DIALOG_PCM_BASE::OnDiscardChangesClicked ), NULL, this );
-	m_closeButton->Disconnect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( DIALOG_PCM_BASE::OnCloseClicked ), NULL, this );
+	m_sdbSizer1Apply->Disconnect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( DIALOG_PCM_BASE::OnApplyChangesClicked ), NULL, this );
+	m_sdbSizer1Cancel->Disconnect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( DIALOG_PCM_BASE::OnDiscardChangesClicked ), NULL, this );
+	m_sdbSizer1OK->Disconnect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( DIALOG_PCM_BASE::OnCloseClicked ), NULL, this );
 
 }

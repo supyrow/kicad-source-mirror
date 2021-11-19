@@ -25,6 +25,7 @@
 #include <kicad_manager_frame.h>
 #include <confirm.h>
 #include <project/project_file.h>
+#include <project/project_local_settings.h>
 #include <settings/settings_manager.h>
 #include <tool/selection.h>
 #include <tool/tool_event.h>
@@ -295,8 +296,9 @@ int KICAD_MANAGER_CONTROL::NewFromTemplate( const TOOL_EVENT& aEvent )
 
 int KICAD_MANAGER_CONTROL::openProject( const wxString& aDefaultDir )
 {
-    wxString wildcard = AllProjectFilesWildcard() + "|" + ProjectFileWildcard() + "|"
-                        + LegacyProjectFileWildcard();
+    wxString wildcard = AllProjectFilesWildcard()
+                        + "|" + ProjectFileWildcard()
+                        + "|" + LegacyProjectFileWildcard();
 
     wxFileDialog dlg( m_frame, _( "Open Existing Project" ), aDefaultDir, wxEmptyString, wildcard,
                       wxFD_OPEN | wxFD_FILE_MUST_EXIST );
@@ -363,7 +365,9 @@ public:
         wxString   ext = destFile.GetExt();
         bool       atRoot = destFile.GetPath() == m_projectDirPath;
 
-        if( ext == LegacyProjectFileExtension || ext == ProjectFileExtension )
+        if( ext == LegacyProjectFileExtension
+                || ext == ProjectFileExtension
+                || ext == ProjectLocalSettingsFileExtension )
         {
             wxString destPath = destFile.GetPath();
 
@@ -377,7 +381,7 @@ public:
             {
                 destFile.SetName( m_newProjectName );
 
-                if( atRoot )
+                if( atRoot && ext != ProjectLocalSettingsFileExtension )
                     m_newProjectFile = destFile;
             }
 
@@ -386,10 +390,17 @@ public:
                 // All paths in the settings file are relative so we can just do a straight copy
                 KiCopyFile( aSrcFilePath, destFile.GetFullPath(), m_errors );
             }
-            else
+            else if( ext == ProjectFileExtension )
             {
                 PROJECT_FILE projectFile( aSrcFilePath );
+                projectFile.LoadFromFile();
                 projectFile.SaveAs( destFile.GetPath(), destFile.GetName() );
+            }
+            else if( ext == ProjectLocalSettingsFileExtension )
+            {
+                PROJECT_LOCAL_SETTINGS projectLocalSettings( nullptr, aSrcFilePath );
+                projectLocalSettings.LoadFromFile();
+                projectLocalSettings.SaveAs( destFile.GetPath(), destFile.GetName() );
             }
         }
         else if( ext == KiCadSchematicFileExtension
@@ -531,6 +542,9 @@ int KICAD_MANAGER_CONTROL::SaveProjectAs( const TOOL_EVENT& aEvent )
     wxString     currentProjectName = Prj().GetProjectName();
 
     wxString     default_dir = m_frame->GetMruPath();
+
+    Prj().GetProjectFile().SaveToFile( currentProjectDirPath );
+    Prj().GetLocalSettings().SaveToFile( currentProjectDirPath );
 
     if( default_dir == currentProjectDirPath
             || default_dir == currentProjectDirPath + wxFileName::GetPathSeparator() )

@@ -35,9 +35,10 @@ struct PACKAGE_VIEW_DATA
     wxString          repository_id;
     wxString          repository_name;
     wxString          current_version;
-    PACKAGE_VIEW_DATA( const PCM_PACKAGE aPackage ) : package( std::move( aPackage ) ){};
+    PACKAGE_VIEW_DATA( const PCM_PACKAGE aPackage ) :
+            package( std::move( aPackage ) ), bitmap( nullptr ), state( PPS_INSTALLED ){};
     PACKAGE_VIEW_DATA( const PCM_INSTALLATION_ENTRY& aEntry ) :
-            package( std::move( aEntry.package ) )
+            package( std::move( aEntry.package ) ), bitmap( nullptr )
     {
         state = PPS_INSTALLED;
         repository_id = aEntry.repository_id;
@@ -74,14 +75,20 @@ public:
 
     void OnSize( wxSizeEvent& event ) override;
 
+    ///< Get preferred version. If criteria are not met, return wxEmptyString
+    wxString GetPreferredVersion() const;
+
     const PACKAGE_VIEW_DATA& GetPackageData() const { return m_data; };
 
 private:
-    void                  OnPaint( wxPaintEvent& event ) override;
+    void OnPaint( wxPaintEvent& event ) override;
+
+private:
     std::function<void()> m_selectCallback;
     bool                  m_selected = false;
     const ActionCallback& m_actionCallback;
     PACKAGE_VIEW_DATA     m_data;
+    int                   m_minHeight;
 };
 
 

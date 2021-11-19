@@ -499,15 +499,23 @@ void PCB_IO::formatSetup( const BOARD* aBoard, int aNestLevel ) const
         m_out->Print( aNestLevel+1, "(pad_to_paste_clearance_ratio %s)\n",
                       Double2Str( dsnSettings.m_SolderPasteMarginRatio ).c_str() );
 
-    if( dsnSettings.m_AuxOrigin != wxPoint( 0, 0 ) )
-        m_out->Print( aNestLevel+1, "(aux_axis_origin %s %s)\n",
-                      FormatInternalUnits( dsnSettings.m_AuxOrigin.x ).c_str(),
-                      FormatInternalUnits( dsnSettings.m_AuxOrigin.y ).c_str() );
+    wxPoint origin = dsnSettings.GetAuxOrigin();
 
-    if( dsnSettings.m_GridOrigin != wxPoint( 0, 0 ) )
+    if( origin != wxPoint( 0, 0 ) )
+    {
+        m_out->Print( aNestLevel+1, "(aux_axis_origin %s %s)\n",
+                      FormatInternalUnits( origin.x ).c_str(),
+                      FormatInternalUnits( origin.y ).c_str() );
+    }
+
+    origin = dsnSettings.GetGridOrigin();
+
+    if( origin != wxPoint( 0, 0 ) )
+    {
         m_out->Print( aNestLevel+1, "(grid_origin %s %s)\n",
-                      FormatInternalUnits( dsnSettings.m_GridOrigin.x ).c_str(),
-                      FormatInternalUnits( dsnSettings.m_GridOrigin.y ).c_str() );
+                      FormatInternalUnits( origin.x ).c_str(),
+                      FormatInternalUnits( origin.y ).c_str() );
+    }
 
     aBoard->GetPlotOptions().Format( m_out, aNestLevel+1 );
 
@@ -1103,7 +1111,7 @@ void PCB_IO::format( const FOOTPRINT* aFootprint, int aNestLevel ) const
                       m_out->Quotes( aFootprint->GetFPID().Format() ).c_str() );
 
     if( !( m_ctl & CTL_OMIT_FOOTPRINT_VERSION ) )
-        m_out->Print( 0, " (version %d) (generator pcbnew)", SEXPR_BOARD_FILE_VERSION );
+        m_out->Print( 0, " (version %d) (generator pcbnew)\n ", SEXPR_BOARD_FILE_VERSION );
 
     if( aFootprint->IsLocked() )
         m_out->Print( 0, " locked" );

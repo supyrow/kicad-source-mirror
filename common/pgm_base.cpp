@@ -89,8 +89,9 @@ LANGUAGE_DESCR LanguagesList[] =
     { wxLANGUAGE_PORTUGUESE, ID_LANGUAGE_PORTUGUESE, wxT( "Português" ),true },
     { wxLANGUAGE_PORTUGUESE_BRAZILIAN, ID_LANGUAGE_PORTUGUESE_BRAZILIAN, wxT( "Português (Brasil)" ), true },
     { wxLANGUAGE_RUSSIAN,    ID_LANGUAGE_RUSSIAN,    wxT( "Русский" ),  true },
-    { wxLANGUAGE_SERBIAN,    ID_LANGUAGE_SERBIAN,    wxT( "Српски"),    true },
+    { wxLANGUAGE_SERBIAN,    ID_LANGUAGE_SERBIAN,    wxT( "Српски" ),   true },
     { wxLANGUAGE_FINNISH,    ID_LANGUAGE_FINNISH,    wxT( "Suomi" ),    true },
+    { wxLANGUAGE_SWEDISH,    ID_LANGUAGE_SWEDISH,    wxT( "Svenska" ),  true },
     { wxLANGUAGE_VIETNAMESE, ID_LANGUAGE_VIETNAMESE, wxT( "Tiếng Việt" ), true },
     { wxLANGUAGE_TURKISH,    ID_LANGUAGE_TURKISH,    wxT( "Türkçe" ),   true },
     { wxLANGUAGE_CHINESE_SIMPLIFIED, ID_LANGUAGE_CHINESE_SIMPLIFIED,
@@ -107,6 +108,7 @@ PGM_BASE::PGM_BASE()
 {
     m_locale = nullptr;
     m_Printing = false;
+    m_Quitting = false;
     m_ModalDialogCount = 0;
 
     setLanguageId( wxLANGUAGE_DEFAULT );
@@ -288,11 +290,6 @@ bool PGM_BASE::InitPgm( bool aHeadless, bool aSkipPyInit )
     if( !aSkipPyInit )
         m_python_scripting = std::make_unique<SCRIPTING>();
 
-#ifdef __WXMAC__
-    // Always show filters on Open dialog to be able to choose plugin
-    wxSystemOptions::SetOption( wxOSX_FILEDIALOG_ALWAYS_SHOW_TYPES, 1 );
-#endif
-
     // TODO(JE): Remove this if apps are refactored to not assume Prj() always works
     // Need to create a project early for now (it can have an empty path for the moment)
     GetSettingsManager().LoadProject( "" );
@@ -416,7 +413,9 @@ bool PGM_BASE::SetLanguage( wxString& aErrMsg, bool first_time )
     delete m_locale;
     m_locale = new wxLocale;
 
-    if( !m_locale->Init( m_language_id ) )
+    // don't use wxLOCALE_LOAD_DEFAULT flag so that Init() doesn't return
+    // false just because it failed to load wxstd catalog
+    if( !m_locale->Init( m_language_id, wxLOCALE_DONT_LOAD_DEFAULT ) )
     {
         wxLogTrace( traceLocale, "This language is not supported by the system." );
 
@@ -424,7 +423,7 @@ bool PGM_BASE::SetLanguage( wxString& aErrMsg, bool first_time )
         delete m_locale;
 
         m_locale = new wxLocale;
-        m_locale->Init();
+        m_locale->Init( wxLANGUAGE_DEFAULT, wxLOCALE_DONT_LOAD_DEFAULT);
 
         aErrMsg = _( "This language is not supported by the operating system." );
         return false;
@@ -475,7 +474,7 @@ bool PGM_BASE::SetLanguage( wxString& aErrMsg, bool first_time )
         delete m_locale;
 
         m_locale = new wxLocale;
-        m_locale->Init();
+        m_locale->Init( wxLANGUAGE_DEFAULT, wxLOCALE_DONT_LOAD_DEFAULT);
 
         aErrMsg = _( "The KiCad language file for this language is not installed." );
         return false;

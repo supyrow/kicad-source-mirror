@@ -429,6 +429,7 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
     updateEditedPoint( aEvent );
     m_refill = false;
     bool inDrag = false;
+    bool lock45 = false;
 
     BOARD_COMMIT commit( editFrame );
     LSET snapLayers = item->GetLayerSet();
@@ -524,7 +525,7 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
             }
 
             // The alternative constraint limits to 45 degrees
-            if( Is45Limited() )
+            if( lock45 )
                 m_altConstraint->Apply();
             else
                 m_editedPoint->ApplyConstraint();
@@ -569,6 +570,11 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
             frame()->UndoRedoBlock( false );
 
             m_refill = true;
+        }
+        else if( evt->IsAction( &PCB_ACTIONS::toggle45 ) )
+        {
+            lock45 = !lock45;
+            evt->SetPassEvent( false );
         }
         else if( evt->IsCancelInteractive() || evt->IsActivate() )
         {
@@ -1631,10 +1637,8 @@ void PCB_POINT_EDITOR::updatePoints()
             }
             else if( target == 1 )
             {
-                VECTOR2I vec = m_editPoints->Point( 0 ).GetPosition() - shapePos;
-                vec.Resize( halfSize.x );
-
-                m_editPoints->Point( 0 ).SetPosition( vec + shapePos );
+                shapePos.x += halfSize.x;
+                m_editPoints->Point( 0 ).SetPosition( shapePos );
             }
         }
             break;
@@ -2188,12 +2192,12 @@ int PCB_POINT_EDITOR::changeEditMethod( const TOOL_EVENT& aEvent )
 void PCB_POINT_EDITOR::setTransitions()
 {
     Go( &PCB_POINT_EDITOR::OnSelectionChange, ACTIONS::activatePointEditor.MakeEvent() );
-    Go( &PCB_POINT_EDITOR::addCorner, PCB_ACTIONS::pointEditorAddCorner.MakeEvent() );
-    Go( &PCB_POINT_EDITOR::removeCorner, PCB_ACTIONS::pointEditorRemoveCorner.MakeEvent() );
+    Go( &PCB_POINT_EDITOR::addCorner,         PCB_ACTIONS::pointEditorAddCorner.MakeEvent() );
+    Go( &PCB_POINT_EDITOR::removeCorner,      PCB_ACTIONS::pointEditorRemoveCorner.MakeEvent() );
     Go( &PCB_POINT_EDITOR::modifiedSelection, EVENTS::SelectedItemsModified );
     Go( &PCB_POINT_EDITOR::OnSelectionChange, EVENTS::SelectedEvent );
     Go( &PCB_POINT_EDITOR::OnSelectionChange, EVENTS::UnselectedEvent );
-    Go( &PCB_POINT_EDITOR::changeEditMethod, ACTIONS::changeEditMethod.MakeEvent() );
+    Go( &PCB_POINT_EDITOR::changeEditMethod,  ACTIONS::changeEditMethod.MakeEvent() );
     Go( &PCB_POINT_EDITOR::OnSelectionChange, EVENTS::InhibitSelectionEditing );
     Go( &PCB_POINT_EDITOR::OnSelectionChange, EVENTS::UninhibitSelectionEditing );
 }

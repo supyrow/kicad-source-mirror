@@ -167,7 +167,7 @@ KICAD_MANAGER_FRAME::KICAD_MANAGER_FRAME( wxWindow* parent, const wxString& titl
     // A trick is to use MinSize() to set the required pane width,
     // and after give a reasonable MinSize value
     m_auimgr.AddPane( m_leftWin, EDA_PANE().Palette().Name( "ProjectTree" ).Left().Layer( 1 )
-                      .Caption( _( "Project Files" ) ).PaneBorder( true )
+                      .Caption( _( "Project Files" ) ).PaneBorder( false )
                       .MinSize( m_leftWinWidth, -1 ).BestSize( m_leftWinWidth, -1 ) );
 
     m_auimgr.AddPane( m_launcher, EDA_PANE().Canvas().Name( "Launcher" ).Center()
@@ -360,6 +360,9 @@ bool KICAD_MANAGER_FRAME::canCloseWindow( wxCloseEvent& aEvent )
     // If any of them cancel then we need to cancel closing the KICAD_MANAGER_FRAME.
     if( CloseProject( true ) )
     {
+        // Don't propagate event to frames which have already been closed
+        aEvent.StopPropagation();
+
         return true;
     }
     else
@@ -431,6 +434,8 @@ bool KICAD_MANAGER_FRAME::CloseProject( bool aSave )
     SetStatusText( "" );
 
     m_leftWin->EmptyTreePrj();
+
+    Pgm().m_Quitting = true;
 
     return true;
 }

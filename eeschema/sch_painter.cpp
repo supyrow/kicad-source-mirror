@@ -78,8 +78,6 @@ SCH_RENDER_SETTINGS::SCH_RENDER_SETTINGS() :
         m_OverrideItemColors( false ),
         m_LabelSizeRatio( DEFAULT_LABEL_SIZE_RATIO ),
         m_TextOffsetRatio( DEFAULT_TEXT_OFFSET_RATIO ),
-        m_DefaultWireThickness( DEFAULT_WIRE_WIDTH_MILS * IU_PER_MILS ),
-        m_DefaultBusThickness( DEFAULT_BUS_WIDTH_MILS * IU_PER_MILS ),
         m_PinSymbolSize( DEFAULT_TEXT_SIZE * IU_PER_MILS / 2 ),
         m_JunctionSize( DEFAULT_JUNCTION_DIAM * IU_PER_MILS )
 {
@@ -345,7 +343,7 @@ float SCH_PAINTER::getLineWidth( const LIB_ITEM* aItem, bool aDrawingShadows ) c
 
 float SCH_PAINTER::getLineWidth( const SCH_ITEM* aItem, bool aDrawingShadows ) const
 {
-    wxCHECK( aItem, static_cast<float>( m_schSettings.m_DefaultWireThickness ) );
+    wxCHECK( aItem, static_cast<float>( Mils2iu( DEFAULT_WIRE_WIDTH_MILS ) ) );
 
     float width = (float) aItem->GetPenWidth();
 
@@ -533,13 +531,6 @@ bool SCH_PAINTER::setDeviceColors( const LIB_ITEM* aItem, int aLayer )
 }
 
 
-void SCH_PAINTER::fillIfSelection( int aLayer )
-{
-    if( aLayer == LAYER_SELECTION_SHADOWS && eeconfig()->m_Selection.fill_shapes )
-        m_gal->SetIsFill( true );
-}
-
-
 void SCH_PAINTER::draw( const LIB_SHAPE *aShape, int aLayer )
 {
     if( !isUnitAndConversionShown( aShape ) )
@@ -547,17 +538,26 @@ void SCH_PAINTER::draw( const LIB_SHAPE *aShape, int aLayer )
 
     if( setDeviceColors( aShape, aLayer ) )
     {
-        fillIfSelection( aLayer );
+        if( aLayer == LAYER_SELECTION_SHADOWS && eeconfig()->m_Selection.fill_shapes )
+        {
+            // Consider a NAND gate.  We have no idea which side of the arc is "inside" so
+            // we can't reliably fill.
+
+            if( aShape->GetShape() == SHAPE_T::ARC )
+                m_gal->SetIsFill( aShape->IsFilled() );
+            else
+                m_gal->SetIsFill( true );
+        }
 
         switch( aShape->GetShape() )
         {
         case SHAPE_T::ARC:
         {
-           int startAngle;
-           int endAngle;
+            int startAngle;
+            int endAngle;
             aShape->CalcArcAngles( startAngle, endAngle );
 
-           TRANSFORM().MapAngles( &startAngle, &endAngle );
+            TRANSFORM().MapAngles( &startAngle, &endAngle );
 
             m_gal->DrawArc( mapCoords( aShape->GetCenter() ), aShape->GetRadius(),
                             DECIDEG2RAD( startAngle ), DECIDEG2RAD( endAngle ) );
@@ -581,7 +581,6 @@ void SCH_PAINTER::draw( const LIB_SHAPE *aShape, int aLayer )
             for( const VECTOR2I& pt : poly.CPoints() )
                 mappedPts.push_back( mapCoords( (wxPoint) pt ) );
 
-            fillIfSelection( aLayer );
             m_gal->DrawPolygon( mappedPts );
         }
             break;

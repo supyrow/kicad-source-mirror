@@ -19,13 +19,15 @@
  */
 
 #include <wx/dcclient.h>
+#include <math/util.h>
 
 #include "panel_package.h"
 
 PANEL_PACKAGE::PANEL_PACKAGE( wxWindow* parent, const ActionCallback& aCallback,
                               const PACKAGE_VIEW_DATA& aData ) :
         PANEL_PACKAGE_BASE( parent ),
-        m_actionCallback( aCallback ), m_data( aData )
+        m_actionCallback( aCallback ),
+        m_data( aData )
 {
     // Propagate clicks on static elements to the panel handler.
     m_name->Connect( wxEVT_LEFT_DOWN, wxMouseEventHandler( PANEL_PACKAGE::OnClick ), NULL, this );
@@ -45,10 +47,10 @@ PANEL_PACKAGE::PANEL_PACKAGE( wxWindow* parent, const ActionCallback& aCallback,
     // Set min width to 0 otherwise wxStaticLabel really doesn't want to shrink on resize
     m_desc->SetMinSize( wxSize( 0, -1 ) );
 
-    Layout();
+    m_minHeight = GetMinHeight();
 
-    m_desc->SetLabel( m_data.package.description );
-    m_desc->Wrap( m_desc->GetClientSize().GetWidth() );
+    wxSizeEvent dummy;
+    OnSize( dummy );
 
     SetState( m_data.state );
 }
@@ -57,8 +59,19 @@ PANEL_PACKAGE::PANEL_PACKAGE( wxWindow* parent, const ActionCallback& aCallback,
 void PANEL_PACKAGE::OnSize( wxSizeEvent& event )
 {
     Layout();
+
+    int    nameLineHeight = m_name->GetTextExtent( "X" ).GetHeight();
+    double descLineHeight = m_desc->GetTextExtent( "X" ).GetHeight() * 1.2 /* leading */;
+
     m_desc->SetLabel( m_data.package.description );
-    m_desc->Wrap( m_desc->GetClientSize().GetWidth() );
+    m_desc->Wrap( m_desc->GetClientSize().GetWidth() - 10 );
+    descLineHeight = wxSplit( m_desc->GetLabel(), '\n' ).size() * descLineHeight;
+
+    wxSize minSize = GetMinSize();
+    minSize.y = std::max( nameLineHeight + KiROUND( descLineHeight ) + 15, m_minHeight );
+    SetMinSize( minSize );
+
+    Layout();
 }
 
 
@@ -98,28 +111,14 @@ void PANEL_PACKAGE::SetState( PCM_PACKAGE_STATE aState )
 
 void PANEL_PACKAGE::OnButtonClicked( wxCommandEvent& event )
 {
-    // Versions are already presorted in descending order
     if( m_data.state == PPS_AVAILABLE )
     {
-        // Find last stable compatible version
-        auto ver_it = std::find_if( m_data.package.versions.begin(), m_data.package.versions.end(),
-                                    []( const PACKAGE_VERSION& ver )
-                                    {
-                                        return ver.compatible && ver.status == PVS_STABLE;
-                                    } );
+        wxString version = GetPreferredVersion();
 
-        // If not found then find any compatible version
-        if( ver_it == m_data.package.versions.end() )
-            ver_it = std::find_if( m_data.package.versions.begin(), m_data.package.versions.end(),
-                                   []( const PACKAGE_VERSION& ver )
-                                   {
-                                       return ver.compatible;
-                                   } );
+        if( version.IsEmpty() )
+            return;
 
-        if( ver_it == m_data.package.versions.end() )
-            return; // Shouldn't happen
-
-        m_actionCallback( m_data, PPA_INSTALL, ver_it->version );
+        m_actionCallback( m_data, PPA_INSTALL, version );
     }
     else
     {
@@ -142,17 +141,18 @@ void PANEL_PACKAGE::OnClick( wxMouseEvent& event )
 
 void PANEL_PACKAGE::OnPaint( wxPaintEvent& event )
 {
+    wxRect    rect( wxPoint( 1, 1 ), GetClientSize() - wxSize( 1, 1 ) );
     wxPaintDC dc( this );
     dc.SetBrush( wxSystemSettings::GetColour( wxSYS_COLOUR_FRAMEBK ) );
     dc.SetPen( wxPen( wxSystemSettings::GetColour( wxSYS_COLOUR_ACTIVEBORDER ), 1 ) );
 
     if( m_selected )
-        dc.SetPen( wxPen( *wxBLACK, 3 ) );
+    {
+        rect.Deflate( 1 );
+        dc.SetPen( wxPen( wxSystemSettings::GetColour( wxSYS_COLOUR_HOTLIGHT ), 3 ) );
+    }
 
-    dc.DrawRectangle( wxPoint( 0, 0 ), GetClientSize() );
-
-    if( !m_selected )
-        dc.DrawLine( 0, 0, GetClientSize().GetX(), 0 );
+    dc.DrawRectangle( rect );
 }
 
 
@@ -161,3 +161,33 @@ void PANEL_PACKAGE::SetSelected( bool aSelected )
     m_selected = aSelected;
     Refresh();
 }
+
+
+wxString PANEL_PACKAGE::GetPreferredVersion() const
+{
+    // Versions are already presorted in descending order
+
+    // Find last stable compatible version
+    auto ver_it = std::find_if( m_data.package.versions.begin(), m_data.package.versions.end(),
+                                []( const PACKAGE_VERSION& ver )
+                                {
+                                    return ver.compatible && ver.status == PVS_STABLE;
+                                } );
+
+    // If not found then find any compatible version
+    if( ver_it == m_data.package.versions.end() )
+    {
+        ver_it = std::find_if( m_data.package.versions.begin(), m_data.package.versions.end(),
+                               []( const PACKAGE_VERSION& ver )
+                               {
+                                   return ver.compatible;
+                               } );
+    }
+
+    if( ver_it == m_data.package.versions.end() )
+        return wxEmptyString; // Shouldn't happen
+
+    return ver_it->version;
+}
+
+

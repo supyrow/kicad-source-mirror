@@ -19,11 +19,15 @@
  */
 
 #include "panel_packages_view.h"
-#include "bitmaps.h"
-#include "grid_tricks.h"
-#include "kicad_settings.h"
-#include "pgm_base.h"
-#include "settings/settings_manager.h"
+#include <grid_tricks.h>
+#include <kicad_settings.h>
+#include <pgm_base.h>
+#include <settings/settings_manager.h>
+#include <settings/common_settings.h>
+#include <widgets/wx_splitter_window.h>
+#include <widgets/wx_panel.h>
+#include <string_utils.h>
+#include <html_window.h>
 
 #include <cmath>
 #include <fstream>
@@ -49,7 +53,26 @@ PANEL_PACKAGES_VIEW::PANEL_PACKAGES_VIEW( wxWindow*                             
         PANEL_PACKAGES_VIEW_BASE( parent ),
         m_pcm( aPcm )
 {
-    m_searchBitmap->SetBitmap( KiBitmap( BITMAPS::find, 24 ) );
+    // Replace wxFormBuilder's sash initializer with one which will respect m_initialSashPos.
+    m_splitter1->Disconnect( wxEVT_IDLE,
+                             wxIdleEventHandler( PANEL_PACKAGES_VIEW_BASE::m_splitter1OnIdle ),
+                             NULL, this );
+    m_splitter1->Connect( wxEVT_IDLE, wxIdleEventHandler( PANEL_PACKAGES_VIEW::SetSashOnIdle ),
+                          NULL, this );
+
+    m_splitter1->SetPaneMinimums( 350, 450 );
+
+#ifdef __WXGTK__
+    // wxSearchCtrl vertical height is not calculated correctly on some GTK setups
+    // See https://gitlab.com/kicad/code/kicad/-/issues/9019
+    m_searchCtrl->SetMinSize( wxSize( -1, GetTextExtent( wxT( "qb" ) ).y + 10 ) );
+#endif
+
+    m_searchCtrl->Bind( wxEVT_TEXT, &PANEL_PACKAGES_VIEW::OnSearchTextChanged, this );
+    m_searchCtrl->SetDescriptiveText( _( "Filter" ) );
+
+    m_panelList->SetBorders( false, true, false, false );
+
     m_gridVersions->PushEventHandler( new GRID_TRICKS( m_gridVersions ) );
 
     for( int col = 0; col < m_gridVersions->GetNumberCols(); col++ )
@@ -59,21 +82,18 @@ PANEL_PACKAGES_VIEW::PANEL_PACKAGES_VIEW( wxWindow*                             
 
         // Set the minimal width to the column label size.
         m_gridVersions->SetColMinimalWidth( col, headingWidth );
-        m_gridVersions->SetColSize( col,
-                                    m_gridVersions->GetVisibleWidth( col, true, true, false ) );
+        m_gridVersions->SetColSize( col, m_gridVersions->GetVisibleWidth( col, true, true,
+                                                                          false ) );
     }
 
-    m_infoText->SetBackgroundColour( wxStaticText::GetClassDefaultAttributes().colBg );
+    // Most likely should be changed to wxGridSelectNone once WxWidgets>=3.1.5 is mandatory.
+    m_gridVersions->SetSelectionMode( WX_GRID::wxGridSelectRows );
 
-    // Try to disable the caret on platforms that show it even in read-only controls
-    m_infoText->Bind( wxEVT_SET_FOCUS,
-                      [&]( wxFocusEvent& event )
-                      {
-                          wxCaret* caret = m_infoText->GetCaret();
-
-                          if( caret )
-                              caret->Hide();
-                      } );
+    wxColor background = wxStaticText::GetClassDefaultAttributes().colBg;
+    m_panelList->SetBackgroundColour( background );
+    m_packageListWindow->SetBackgroundColour( background );
+    m_infoScrollWindow->SetBackgroundColour( background );
+    m_infoScrollWindow->EnableScrolling( false, true );
 
     ClearData();
 }
@@ -81,6 +101,9 @@ PANEL_PACKAGES_VIEW::PANEL_PACKAGES_VIEW( wxWindow*                             
 
 PANEL_PACKAGES_VIEW::~PANEL_PACKAGES_VIEW()
 {
+    COMMON_SETTINGS* cfg = Pgm().GetCommonSettings();
+    cfg->m_PackageManager.sash_pos = m_splitter1->GetSashPosition();
+
     m_gridVersions->PopEventHandler( true );
 }
 
@@ -136,29 +159,66 @@ void PANEL_PACKAGES_VIEW::setPackageDetails( const PACKAGE_VIEW_DATA& aPackageDa
     const PCM_PACKAGE& package = aPackageData.package;
 
     // Details
-    m_infoText->Clear();
+    wxString details;
 
-    m_infoText->BeginParagraphSpacing( 0, 30 );
-    m_infoText->WriteText( package.description_full );
-    m_infoText->Newline();
-    m_infoText->EndParagraphSpacing();
+    details << "<h5>" + package.name + "</h5>";
 
-    m_infoText->BeginFontSize( floor( m_infoText->GetDefaultStyle().GetFontSize() * 1.1 ) );
-    m_infoText->WriteText( _( "Metadata" ) );
-    m_infoText->Newline();
-    m_infoText->EndFontSize();
+    auto format_desc =
+            []( const wxString& text ) -> wxString
+            {
+                wxString result;
+                bool     inURL = false;
+                wxString url;
 
-    m_infoText->BeginParagraphSpacing( 0, 10 );
-    m_infoText->BeginSymbolBullet( wxString::FromUTF8( u8"\u25CF" ), 30, 40 );
-    m_infoText->WriteText(
-            wxString::Format( _( "Package identifier: %s\n" ), package.identifier ) );
-    m_infoText->WriteText( wxString::Format( _( "License: %s\n" ), package.license ) );
+                for( unsigned i = 0; i < text.length(); ++i )
+                {
+                    wxUniChar c = text[i];
+
+                    if( inURL )
+                    {
+                        if( c == ' ' )
+                        {
+                            result += wxString::Format( "<a href='%s'>%s</a>", url, url );
+                            inURL = false;
+
+                            result += c;
+                        }
+                        else
+                        {
+                            url += c;
+                        }
+                    }
+                    else if( text.Mid( i, 5 ) == "http:" || text.Mid( i, 6 ) == "https:" )
+                    {
+                        url = c;
+                        inURL = true;
+                    }
+                    else if( c == '\n' )
+                    {
+                        result += "</p><p>";
+                    }
+                    else
+                    {
+                        result += c;
+                    }
+                }
+
+                return result;
+            };
+
+    wxString desc = package.description_full;
+    details << "<p>" + format_desc( desc ) + "</p>";
+
+    details << "<p><b>" + _( "Metadata" ) + "</b></p>";
+    details << "<ul>";
+    details << "<li>" + _( "Package identifier: " ) + package.identifier + "</li>";
+    details << "<li>" + _( "License: " ) + package.license + "</li>";
 
     if( package.tags.size() > 0 )
     {
         wxString tags_str;
 
-        for( const wxString& tag : package.tags )
+        for( const std::string& tag : package.tags )
         {
             if( !tags_str.IsEmpty() )
                 tags_str += ", ";
@@ -166,20 +226,33 @@ void PANEL_PACKAGES_VIEW::setPackageDetails( const PACKAGE_VIEW_DATA& aPackageDa
             tags_str += tag;
         }
 
-        m_infoText->WriteText( wxString::Format( _( "Tags: %s\n" ), tags_str ) );
+        details << "<li>" + _( "Tags: " ) + tags_str + "</li>";
     }
 
-    const auto write_contact = [&]( const wxString& type, const PCM_CONTACT& contact )
-    {
-        m_infoText->WriteText( wxString::Format( "%s: %s\n", type, contact.name ) );
+    auto format_entry =
+            []( const std::pair<const std::string, wxString>& entry ) -> wxString
+            {
+                wxString name = entry.first;
+                wxString url = EscapeHTML( entry.second );
 
-        m_infoText->BeginLeftIndent( 60, 40 );
+                if( name == "email" )
+                    return wxString::Format( "<a href='mailto:%s'>%s</a>", url, url );
+                else if( url.StartsWith( "http:" ) || url.StartsWith( "https:" ) )
+                    return wxString::Format( "<a href='%s'>%s</a>", url, url );
+                else
+                    return entry.second;
+            };
 
-        for( const auto& entry : contact.contact )
-            m_infoText->WriteText( wxString::Format( "%s: %s\n", entry.first, entry.second ) );
+    auto write_contact =
+            [&]( const wxString& type, const PCM_CONTACT& contact )
+            {
+                details << "<li>" + type + ": " + contact.name + "<ul>";
 
-        m_infoText->EndLeftIndent();
-    };
+                for( const std::pair<const std::string, wxString>& entry : contact.contact )
+                    details << "<li>" + entry.first + ": " + format_entry( entry ) + "</li>";
+
+                details << "</ul>";
+            };
 
     write_contact( _( "Author" ), package.author );
 
@@ -188,21 +261,20 @@ void PANEL_PACKAGES_VIEW::setPackageDetails( const PACKAGE_VIEW_DATA& aPackageDa
 
     if( package.resources.size() > 0 )
     {
-        m_infoText->WriteText( _( "Resources" ) );
-        m_infoText->Newline();
+        details << "<li>" + _( "Resources" ) + "<ul>";
 
-        m_infoText->BeginLeftIndent( 60, 40 );
+        for( const std::pair<const std::string, wxString>& entry : package.resources )
+            details << "<li>" + entry.first + wxS( ": " ) + format_entry( entry ) + "</li>";
 
-        for( const auto& entry : package.resources )
-        {
-            m_infoText->WriteText( wxString::Format( "%s: %s\n", entry.first, entry.second ) );
-        }
-
-        m_infoText->EndLeftIndent();
+        details << "</ul>";
     }
 
-    m_infoText->EndSymbolBullet();
-    m_infoText->EndParagraphSpacing();
+    details << "</ul>";
+
+    m_infoText->SetPage( details );
+
+    wxSizeEvent dummy;
+    OnSizeInfoBox( dummy );
 
     // Versions table
     m_gridVersions->Freeze();
@@ -248,23 +320,56 @@ void PANEL_PACKAGES_VIEW::setPackageDetails( const PACKAGE_VIEW_DATA& aPackageDa
     for( int col = 0; col < m_gridVersions->GetNumberCols(); col++ )
     {
         // Set the width to see the full contents
-        m_gridVersions->SetColSize( col,
-                                    m_gridVersions->GetVisibleWidth( col, true, true, false ) );
+        m_gridVersions->SetColSize( col, m_gridVersions->GetVisibleWidth( col, true, true,
+                                                                          false ) );
+    }
+
+    if( m_gridVersions->GetNumberRows() >= 1 )
+    {
+        wxString version = m_currentSelected->GetPreferredVersion();
+
+        if( !version.IsEmpty() )
+        {
+            for( int i = 0; i < m_gridVersions->GetNumberRows(); i++ )
+            {
+                if( m_gridVersions->GetCellValue( i, COL_VERSION ) == version )
+                {
+                    std::cout << "auto select row: " << i << std::endl;
+                    m_gridVersions->SelectRow( i );
+                    break;
+                }
+            }
+        }
+        else
+        {
+            // Fall back to first row.
+            m_gridVersions->SelectRow( 0 );
+        }
     }
 
     m_gridVersions->Thaw();
 
-    if( aPackageData.state == PPS_AVAILABLE || aPackageData.state == PPS_UNAVAILABLE )
-        m_buttonInstall->Enable();
-    else
-        m_buttonInstall->Disable();
+    updateDetailsButtons();
+
+    m_infoText->Show( true );
+    m_sizerVersions->Show( true );
+    m_sizerVersions->Layout();
+
+    wxSize size = m_infoScrollWindow->GetTargetWindow()->GetBestVirtualSize();
+    m_infoScrollWindow->SetVirtualSize( size );
 }
 
 
 void PANEL_PACKAGES_VIEW::unsetPackageDetails()
 {
-    m_infoText->ChangeValue( _( "Pick a package on the left panel to view it's description." ) );
+    m_infoText->SetPage( wxEmptyString );
+    m_infoText->Show( false );
+    m_sizerVersions->Show( false );
 
+    wxSize size = m_infoScrollWindow->GetTargetWindow()->GetBestVirtualSize();
+    m_infoScrollWindow->SetVirtualSize( size );
+
+    // Clean up grid just so we don't keep stale info around (it's already been hidden).
     m_gridVersions->Freeze();
 
     if( m_gridVersions->GetNumberRows() > 0 )
@@ -291,6 +396,29 @@ wxString PANEL_PACKAGES_VIEW::toHumanReadableSize( const boost::optional<uint64_
 }
 
 
+bool PANEL_PACKAGES_VIEW::canDownload() const
+{
+    if( !m_currentSelected )
+        return false;
+
+    return m_gridVersions->GetNumberRows() == 1 || m_gridVersions->GetSelectedRows().size() == 1;
+}
+
+
+bool PANEL_PACKAGES_VIEW::canInstall() const
+{
+    if( !m_currentSelected )
+        return false;
+
+    const PACKAGE_VIEW_DATA& packageData = m_currentSelected->GetPackageData();
+
+    if( packageData.state != PPS_AVAILABLE && packageData.state != PPS_UNAVAILABLE )
+        return false;
+
+    return m_gridVersions->GetNumberRows() == 1 || m_gridVersions->GetSelectedRows().size() == 1;
+}
+
+
 void PANEL_PACKAGES_VIEW::SetPackageState( const wxString&         aPackageId,
                                            const PCM_PACKAGE_STATE aState ) const
 {
@@ -313,20 +441,25 @@ void PANEL_PACKAGES_VIEW::OnVersionsCellClicked( wxGridEvent& event )
 {
     m_gridVersions->ClearSelection();
     m_gridVersions->SelectRow( event.GetRow() );
+
+    updateDetailsButtons();
 }
 
 
 void PANEL_PACKAGES_VIEW::OnDownloadVersionClicked( wxCommandEvent& event )
 {
-    const auto rows = m_gridVersions->GetSelectedRows();
-
-    if( !m_currentSelected || rows.size() != 1 )
+    if( !canDownload() )
     {
         wxBell();
         return;
     }
 
-    wxString           version = m_gridVersions->GetCellValue( rows[0], COL_VERSION );
+    if( m_gridVersions->GetNumberRows() == 1 )
+        m_gridVersions->SelectRow( 0 );
+
+    const wxArrayInt selectedRows = m_gridVersions->GetSelectedRows();
+
+    wxString           version = m_gridVersions->GetCellValue( selectedRows[0], COL_VERSION );
     const PCM_PACKAGE& package = m_currentSelected->GetPackageData().package;
 
     auto ver_it = std::find_if( package.versions.begin(), package.versions.end(),
@@ -396,15 +529,18 @@ void PANEL_PACKAGES_VIEW::OnDownloadVersionClicked( wxCommandEvent& event )
 
 void PANEL_PACKAGES_VIEW::OnInstallVersionClicked( wxCommandEvent& event )
 {
-    const auto rows = m_gridVersions->GetSelectedRows();
-
-    if( m_currentSelected && rows.size() != 1 )
+    if( !canInstall() )
     {
         wxBell();
         return;
     }
 
-    wxString           version = m_gridVersions->GetCellValue( rows[0], COL_VERSION );
+    if( m_gridVersions->GetNumberRows() == 1 )
+        m_gridVersions->SelectRow( 0 );
+
+    const wxArrayInt selectedRows = m_gridVersions->GetSelectedRows();
+
+    wxString           version = m_gridVersions->GetCellValue( selectedRows[0], COL_VERSION );
     const PCM_PACKAGE& package = m_currentSelected->GetPackageData().package;
 
     auto ver_it = std::find_if( package.versions.begin(), package.versions.end(),
@@ -435,6 +571,8 @@ void PANEL_PACKAGES_VIEW::OnShowAllVersionsClicked( wxCommandEvent& event )
         wxMouseEvent dummy;
         m_currentSelected->OnClick( dummy );
     }
+
+    updateDetailsButtons();
 }
 
 
@@ -484,7 +622,7 @@ void PANEL_PACKAGES_VIEW::updatePackageList()
     wxSizer* sizer = m_packageListWindow->GetSizer();
     sizer->Clear( false ); // Don't delete panels
 
-    for( const auto& pair : package_ranks )
+    for( const std::pair<int, int>& pair : package_ranks )
     {
         PANEL_PACKAGE* panel = m_packagePanels[m_packageInitialOrder[pair.second]];
 
@@ -499,7 +637,59 @@ void PANEL_PACKAGES_VIEW::updatePackageList()
         }
     }
 
-    sizer->FitInside( m_packageListWindow );
+    m_packageListWindow->FitInside();
     m_packageListWindow->SetScrollRate( 0, 15 );
-    m_packageListWindow->Layout();
+    m_packageListWindow->SendSizeEvent( wxSEND_EVENT_POST );
+}
+
+
+void PANEL_PACKAGES_VIEW::updateDetailsButtons()
+{
+    m_buttonDownload->Enable( canDownload() );
+    m_buttonInstall->Enable( canInstall() );
+}
+
+
+void PANEL_PACKAGES_VIEW::OnSizeInfoBox( wxSizeEvent& aEvent )
+{
+    wxSize infoSize = m_infoText->GetParent()->GetClientSize();
+    infoSize.x -= 8;
+    m_infoText->SetMinSize( infoSize );
+    m_infoText->SetMaxSize( infoSize );
+    m_infoText->SetSize( infoSize );
+    m_infoText->Layout();
+
+    infoSize.y = m_infoText->GetInternalRepresentation()->GetHeight() + 12;
+    m_infoText->SetMinSize( infoSize );
+    m_infoText->SetMaxSize( infoSize );
+    m_infoText->SetSize( infoSize );
+    m_infoText->Layout();
+
+    Refresh();
+}
+
+
+void PANEL_PACKAGES_VIEW::OnURLClicked( wxHtmlLinkEvent& aEvent )
+{
+    const wxHtmlLinkInfo& info = aEvent.GetLinkInfo();
+    ::wxLaunchDefaultBrowser( info.GetHref() );
+}
+
+
+void PANEL_PACKAGES_VIEW::OnInfoMouseWheel( wxMouseEvent& event )
+{
+    // Transfer scrolling from the info window to its parent scroll window
+    m_infoScrollWindow->HandleOnMouseWheel( event );
+}
+
+
+void PANEL_PACKAGES_VIEW::SetSashOnIdle( wxIdleEvent& aEvent )
+{
+    COMMON_SETTINGS* cfg = Pgm().GetCommonSettings();
+    m_splitter1->SetSashPosition( cfg->m_PackageManager.sash_pos );
+
+    m_packageListWindow->FitInside();
+
+	m_splitter1->Disconnect( wxEVT_IDLE, wxIdleEventHandler( PANEL_PACKAGES_VIEW::SetSashOnIdle ),
+                             NULL, this );
 }

@@ -119,12 +119,6 @@ private:
     void onDeleteFile( wxCommandEvent& event );
 
     /**
-     * Function onDeleteFile
-     * Print the selected file or directory in the tree project
-     */
-    void onPrintFile( wxCommandEvent& event );
-
-    /**
      * Function onRenameFile
      * Rename the selected file or directory in the tree project
      */
@@ -153,7 +147,12 @@ private:
      * Idle event handler, used process the selected items at a point in time
      * when all other events have been consumed
      */
-    void onIdle( wxIdleEvent &aEvent );
+    void onIdle( wxIdleEvent& aEvent );
+
+    /**
+     * We don't have uniform borders so we have to draw them ourselves.
+     */
+    void onPaint( wxPaintEvent& aEvent );
 
     /**
      * Shutdown the file watcher.  Used when closing to prevent post-free access into the project

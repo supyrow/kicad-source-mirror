@@ -224,8 +224,6 @@ void LIB_SHAPE::print( const RENDER_SETTINGS* aSettings, const wxPoint& aOffset,
     wxPoint  pt1 = aTransform.TransformCoordinate( m_start ) + aOffset;
     wxPoint  pt2 = aTransform.TransformCoordinate( m_end ) + aOffset;
     wxPoint  c;
-    int      t1;
-    int      t2;
     COLOR4D  color = aSettings->GetLayerColor( LAYER_DEVICE );
     COLOR4D  fillColor = color;
 
@@ -254,13 +252,12 @@ void LIB_SHAPE::print( const RENDER_SETTINGS* aSettings, const wxPoint& aOffset,
     {
         c = aTransform.TransformCoordinate( getCenter() ) + aOffset;
 
+        int t1, t2;
+
         CalcArcAngles( t1, t2 );
 
         if( NormalizeAngle180( t1 - t2 ) > 0 )
-        {
             std::swap( pt1, pt2 );
-            std::swap( t1, t2 );
-        }
     }
 
     if( forceNoFill || GetFillType() == FILL_T::NO_FILL )
@@ -270,7 +267,7 @@ void LIB_SHAPE::print( const RENDER_SETTINGS* aSettings, const wxPoint& aOffset,
         switch( GetShape() )
         {
         case SHAPE_T::ARC:
-            GRArc1( nullptr, DC, pt1.x, pt1.y, pt2.x, pt2.y, c.x, c.y, penWidth, color );
+            GRArc1( nullptr, DC, pt1, pt2, c, penWidth, color );
             break;
 
         case SHAPE_T::CIRCLE:
@@ -301,8 +298,12 @@ void LIB_SHAPE::print( const RENDER_SETTINGS* aSettings, const wxPoint& aOffset,
         switch( GetShape() )
         {
         case SHAPE_T::ARC:
-            GRFilledArc( nullptr, DC, c.x, c.y, -t2, -t1, GetRadius(), penWidth, color,
-                         fillColor );
+            // If we stroke in GRFilledArc it will stroke the two radials too, so we have to
+            // fill and stroke separately
+
+            GRFilledArc1( nullptr, DC, pt1, pt2, c, 0, fillColor, fillColor );
+
+            GRArc1( nullptr, DC, pt1, pt2, c, penWidth, color );
             break;
 
         case SHAPE_T::CIRCLE:
@@ -314,11 +315,17 @@ void LIB_SHAPE::print( const RENDER_SETTINGS* aSettings, const wxPoint& aOffset,
             break;
 
         case SHAPE_T::POLY:
-            GRPoly( nullptr, DC, ptCount, buffer, true, penWidth, color, fillColor );
+            if( penWidth > 0 )
+                GRPoly( nullptr, DC, ptCount, buffer, true, penWidth, color, fillColor );
+            else
+                GRPoly( nullptr, DC, ptCount, buffer, true, 0, fillColor, fillColor );
             break;
 
         case SHAPE_T::BEZIER:
-            GRPoly( nullptr, DC, ptCount, buffer, true, penWidth, color, fillColor );
+            if( penWidth > 0 )
+                GRPoly( nullptr, DC, ptCount, buffer, true, penWidth, color, fillColor );
+            else
+                GRPoly( nullptr, DC, ptCount, buffer, true, 0, fillColor, fillColor );
             break;
 
         default:

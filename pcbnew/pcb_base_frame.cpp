@@ -284,7 +284,16 @@ void PCB_BASE_FRAME::FocusOnItem( BOARD_ITEM* aItem, PCB_LAYER_ID aLayer )
             SHAPE_POLY_SET dialogPoly( BOX2D( view->ToWorld( dialogPos, true ),
                                               view->ToWorld( dialog->GetSize(), false ) ) );
 
-            viewportPoly.BooleanSubtract( dialogPoly, SHAPE_POLY_SET::PM_FAST );
+            try
+            {
+                viewportPoly.BooleanSubtract( dialogPoly, SHAPE_POLY_SET::PM_FAST );
+            }
+            catch( const ClipperLib::clipperException& exc )
+            {
+                // This may be overkill and could be an assertion but we are more likely to find
+                // any clipper errors this way.
+                wxLogError( wxT( "Clipper library exception '%s' occurred." ), exc.what() );
+            }
         }
 
         SHAPE_POLY_SET itemPoly, clippedPoly;
@@ -295,7 +304,17 @@ void PCB_BASE_FRAME::FocusOnItem( BOARD_ITEM* aItem, PCB_LAYER_ID aLayer )
         switch( aItem->Type() )
         {
         case     PCB_FOOTPRINT_T:
-            itemPoly = static_cast<FOOTPRINT*>( aItem )->GetBoundingHull();
+            try
+            {
+                itemPoly = static_cast<FOOTPRINT*>( aItem )->GetBoundingHull();
+            }
+            catch( const ClipperLib::clipperException& exc )
+            {
+                // This may be overkill and could be an assertion but we are more likely to find
+                // any clipper errors this way.
+                wxLogError( wxT( "Clipper library exception '%s' occurred." ), exc.what() );
+            }
+
             break;
 
         case     PCB_PAD_T:
@@ -324,12 +343,22 @@ void PCB_BASE_FRAME::FocusOnItem( BOARD_ITEM* aItem, PCB_LAYER_ID aLayer )
             itemPoly.Append( item_bbox.GetOrigin() );
             itemPoly.Append( item_bbox.GetOrigin() + VECTOR2I( item_bbox.GetWidth(), 0 ) );
             itemPoly.Append( item_bbox.GetOrigin() + VECTOR2I( 0, item_bbox.GetHeight() ) );
-            itemPoly.Append( item_bbox.GetOrigin() + VECTOR2I( item_bbox.GetWidth(), item_bbox.GetHeight() ) );
+            itemPoly.Append( item_bbox.GetOrigin() + VECTOR2I( item_bbox.GetWidth(),
+                                                               item_bbox.GetHeight() ) );
             break;
         }
         }
 
-        clippedPoly.BooleanIntersection( itemPoly, viewportPoly, SHAPE_POLY_SET::PM_FAST );
+        try
+        {
+            clippedPoly.BooleanIntersection( itemPoly, viewportPoly, SHAPE_POLY_SET::PM_FAST );
+        }
+        catch( const ClipperLib::clipperException& exc )
+        {
+            // This may be overkill and could be an assertion but we are more likely to find
+            // any clipper errors this way.
+            wxLogError( wxT( "Clipper library exception '%s' occurred." ), exc.what() );
+        }
 
         if( !clippedPoly.IsEmpty() )
             itemPoly = clippedPoly;
@@ -380,19 +409,19 @@ const wxSize PCB_BASE_FRAME::GetPageSizeIU() const
 
 const wxPoint& PCB_BASE_FRAME::GetGridOrigin() const
 {
-    return m_pcb->GetDesignSettings().m_GridOrigin;
+    return m_pcb->GetDesignSettings().GetGridOrigin();
 }
 
 
 void PCB_BASE_FRAME::SetGridOrigin( const wxPoint& aPoint )
 {
-    m_pcb->GetDesignSettings().m_GridOrigin = aPoint;
+    m_pcb->GetDesignSettings().SetGridOrigin( aPoint );
 }
 
 
 const wxPoint& PCB_BASE_FRAME::GetAuxOrigin() const
 {
-    return m_pcb->GetDesignSettings().m_AuxOrigin;
+    return m_pcb->GetDesignSettings().GetAuxOrigin();
 }
 
 
@@ -809,24 +838,23 @@ void PCB_BASE_FRAME::ActivateGalCanvas()
     EDA_DRAW_FRAME::ActivateGalCanvas();
 
     EDA_DRAW_PANEL_GAL* canvas = GetCanvas();
+    KIGFX::VIEW*        view = canvas->GetView();
 
     if( m_toolManager )
     {
-        m_toolManager->SetEnvironment( m_pcb, GetCanvas()->GetView(),
-                                       GetCanvas()->GetViewControls(), config(), this );
+        m_toolManager->SetEnvironment( m_pcb, view, canvas->GetViewControls(), config(), this );
+
+        m_toolManager->ResetTools( TOOL_BASE::GAL_SWITCH );
     }
 
-    if( m_toolManager )
-        m_toolManager->ResetTools( TOOL_BASE::GAL_SWITCH );
+    KIGFX::PCB_PAINTER*         painter = static_cast<KIGFX::PCB_PAINTER*>( view->GetPainter() );
+    KIGFX::PCB_RENDER_SETTINGS* settings = painter->GetSettings();
+    const PCB_DISPLAY_OPTIONS&  displ_opts = GetDisplayOptions();
 
-    // Transfer latest current display options from legacy to GAL canvas:
-    auto painter = static_cast<KIGFX::PCB_PAINTER*>( canvas->GetView()->GetPainter() );
-    auto settings = painter->GetSettings();
-    auto displ_opts = GetDisplayOptions();
     settings->LoadDisplayOptions( displ_opts, ShowPageLimits() );
     settings->LoadColors( GetColorSettings() );
 
-    canvas->GetView()->RecacheAllItems();
+    view->RecacheAllItems();
     canvas->SetEventDispatcher( m_toolDispatcher );
     canvas->StartDrawing();
 }

@@ -845,6 +845,7 @@ int EDIT_TOOL::doMoveSelection( TOOL_EVENT aEvent, bool aPickReference )
     TOOL_EVENT* evt = &aEvent;
     VECTOR2I    prevPos;
 
+    bool lock45          = false;
     bool eatFirstMouseUp = true;
     bool hasRedrawn3D    = false;
     bool allowRedraw3D   = editFrame->GetDisplayOptions().m_Live3DRefresh;
@@ -890,7 +891,7 @@ int EDIT_TOOL::doMoveSelection( TOOL_EVENT aEvent, bool aPickReference )
                 if( !selection.HasReferencePoint() )
                     originalPos = m_cursor;
 
-                if( Is45Limited() )
+                if( lock45 )
                 {
                     VECTOR2I moveVector = m_cursor - originalPos;
                     m_cursor = originalPos + GetVectorSnapped45( moveVector );
@@ -976,7 +977,7 @@ int EDIT_TOOL::doMoveSelection( TOOL_EVENT aEvent, bool aPickReference )
                     // start moving with the reference point attached to the cursor
                     grid.SetAuxAxes( false );
 
-                    if( Is45Limited() )
+                    if( lock45 )
                     {
                         VECTOR2I moveVector = m_cursor - originalPos;
                         m_cursor = originalPos + GetVectorSnapped45( moveVector );
@@ -1090,6 +1091,11 @@ int EDIT_TOOL::doMoveSelection( TOOL_EVENT aEvent, bool aPickReference )
             }
 
             break; // finish
+        }
+        else if( evt->IsAction( &PCB_ACTIONS::toggle45 ) )
+        {
+            lock45 = !lock45;
+            evt->SetPassEvent( false );
         }
         else
         {
@@ -2087,7 +2093,7 @@ int EDIT_TOOL::MoveExact( const TOOL_EVENT& aEvent )
                 item->Rotate( (wxPoint) frame()->GetScreen()->m_LocalOrigin, rotation );
                 break;
             case ROTATE_AROUND_AUX_ORIGIN:
-                item->Rotate( board()->GetDesignSettings().m_AuxOrigin, rotation );
+                item->Rotate( board()->GetDesignSettings().GetAuxOrigin(), rotation );
                 break;
             }
 

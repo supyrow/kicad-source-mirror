@@ -627,6 +627,66 @@ BOOST_AUTO_TEST_CASE( CollidePt )
 }
 
 
+
+
+
+struct ARC_SEG_COLLIDE_CASE
+{
+    std::string         m_ctx_name;
+    ARC_CENTRE_PT_ANGLE m_geom;
+    int                 m_arc_clearance;
+    SEG                 m_seg;
+    bool                m_exp_result;
+    int                 m_exp_distance;
+};
+
+
+static const std::vector<ARC_SEG_COLLIDE_CASE> arc_seg_collide_cases = {
+    { "0   deg    ", { { 0, 0 }, { 100, 0 }, 270.0 }, 0, { { 100, 0 }, { 50, 0 } }, true, 0 },
+    { "90  deg    ", { { 0, 0 }, { 100, 0 }, 270.0 }, 0, { { 0, 100 }, { 0, 50 } }, true, 0 },
+    { "180 deg    ", { { 0, 0 }, { 100, 0 }, 270.0 }, 0, { { -100, 0 }, { -50, 0 } }, true, 0 },
+    { "270 deg    ", { { 0, 0 }, { 100, 0 }, 270.0 }, 0, { { 0, -100 }, { 0, -50 } }, true, 0 },
+    { "45  deg    ", { { 0, 0 }, { 100, 0 }, 270.0 }, 0, { { 71, 71 }, { 35, 35 } }, true, 0 },
+    { "-45 deg    ", { { 0, 0 }, { 100, 0 }, 270.0 }, 0, { { 71, -71 }, { 35, -35 } }, false, -1 },
+};
+
+
+BOOST_AUTO_TEST_CASE( CollideSeg )
+{
+    for( const auto& c : arc_seg_collide_cases )
+    {
+        BOOST_TEST_CONTEXT( c.m_ctx_name )
+        {
+            SHAPE_ARC arc( c.m_geom.m_center_point, c.m_geom.m_start_point,
+                           c.m_geom.m_center_angle );
+
+            // Test a zero width arc (distance should equal the clearance)
+            BOOST_TEST_CONTEXT( "Test Clearance" )
+            {
+                int dist = -1;
+                BOOST_CHECK_EQUAL( arc.Collide( c.m_seg, c.m_arc_clearance, &dist ),
+                                   c.m_exp_result );
+                BOOST_CHECK_EQUAL( dist, c.m_exp_distance );
+            }
+
+            // Test by changing the width of the arc (distance should equal zero)
+            BOOST_TEST_CONTEXT( "Test Width" )
+            {
+                int dist = -1;
+                arc.SetWidth( c.m_arc_clearance * 2 );
+                BOOST_CHECK_EQUAL( arc.Collide( c.m_seg, 0, &dist ), c.m_exp_result );
+
+                if( c.m_exp_result )
+                    BOOST_CHECK_EQUAL( dist, 0 );
+                else
+                    BOOST_CHECK_EQUAL( dist, -1 );
+            }
+        }
+    }
+}
+
+
+
 struct ARC_DATA_MM
 {
     // Coordinates and dimensions in millimeters
@@ -742,14 +802,70 @@ BOOST_AUTO_TEST_CASE( CollideArc )
             SHAPE_ARC arc1( c.m_arc1.GenerateArc() );
             SHAPE_ARC arc2( c.m_arc2.GenerateArc() );
 
+
+            SHAPE_LINE_CHAIN arc1_slc( c.m_arc1.GenerateArc() );
+            arc1_slc.SetWidth( 0 );
+
+            SHAPE_LINE_CHAIN arc2_slc( c.m_arc2.GenerateArc() );
+            arc2_slc.SetWidth( 0 );
+
             int      actual = 0;
             VECTOR2I location;
 
-            bool result = arc1.Collide( &arc2, PcbMm2iu( c.m_clearance ), &actual, &location );
+            SHAPE* arc1_sh = &arc1;
+            SHAPE* arc2_sh = &arc2;
+            SHAPE* arc1_slc_sh = &arc1_slc;
+            SHAPE* arc2_slc_sh = &arc2_slc;
 
-            BOOST_CHECK_EQUAL( result, c.m_exp_result );
+            bool result_arc_to_arc =
+                    arc1_sh->Collide( arc2_sh, PcbMm2iu( c.m_clearance ), &actual, &location );
+
+            // For arc to chain collisions, we need to re-calculate the clearances because the
+            // SHAPE_LINE_CHAIN is zero width
+            int clearance = PcbMm2iu( c.m_clearance ) + ( arc2.GetWidth() / 2 );
+
+            bool result_arc_to_chain =
+                    arc1_sh->Collide( arc2_slc_sh, clearance, &actual, &location );
+
+            clearance = PcbMm2iu( c.m_clearance ) + ( arc1.GetWidth() / 2 );
+            bool result_chain_to_arc =
+                    arc1_slc_sh->Collide( arc2_sh, clearance, &actual, &location );
+
+            clearance = clearance + ( arc2.GetWidth() / 2 );
+            bool result_chain_to_chain =
+                    arc1_slc_sh->Collide( arc2_slc_sh, clearance, &actual, &location );
+
+            BOOST_CHECK_EQUAL( result_arc_to_arc, c.m_exp_result );
+            BOOST_CHECK_EQUAL( result_arc_to_chain, c.m_exp_result );
+            BOOST_CHECK_EQUAL( result_chain_to_arc, c.m_exp_result );
+            BOOST_CHECK_EQUAL( result_chain_to_chain, c.m_exp_result );
         }
     }
+}
+
+
+BOOST_AUTO_TEST_CASE( CollideArcToShapeLineChain )
+{
+    SHAPE_ARC arc( VECTOR2I( 206000000, 140110000 ), VECTOR2I( 201574617, 139229737 ),
+                   VECTOR2I( 197822958, 136722959 ), 250000 );
+
+    SHAPE_LINE_CHAIN lc( { VECTOR2I( 159600000, 142500000 ), VECTOR2I( 159600000, 142600000 ),
+                           VECTOR2I( 166400000, 135800000 ), VECTOR2I( 166400000, 111600000 ),
+                           VECTOR2I( 190576804, 111600000 ), VECTOR2I( 192242284, 113265480 ),
+                           VECTOR2I( 192255720, 113265480 ), VECTOR2I( 203682188, 124691948 ),
+                           VECTOR2I( 203682188, 140332188 ), VECTOR2I( 206000000, 142650000 ) },
+                         false );
+
+
+
+    SHAPE* arc_sh = &arc;
+    SHAPE* lc_sh = &lc;
+
+    BOOST_CHECK_EQUAL( arc_sh->Collide( &lc, 100000 ), true );
+    BOOST_CHECK_EQUAL( lc_sh->Collide( &arc, 100000 ), true );
+
+    SEG seg( VECTOR2I( 203682188, 124691948 ), VECTOR2I( 203682188, 140332188 ) );
+    BOOST_CHECK_EQUAL( arc.Collide( seg, 0 ), true );
 }
 
 
@@ -788,9 +904,9 @@ BOOST_AUTO_TEST_CASE( CollideArcToPolygonApproximation )
     int      actual = 0;
     VECTOR2I location;
 
-    int tol = SHAPE_ARC::MIN_PRECISION_IU;
+    int clearanceReduced = clearance - polygonApproximationError;
 
-    BOOST_CHECK_EQUAL( zoneFill.Collide( &arc, clearance - tol, &actual, &location ), false );
+    BOOST_CHECK_EQUAL( zoneFill.Collide( &arc, clearanceReduced, &actual, &location ), false );
 
     BOOST_CHECK_EQUAL( zoneFill.Collide( &arc, clearance * 2, &actual, &location ), true );
 

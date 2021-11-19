@@ -1116,9 +1116,6 @@ bool processFace( const TopoDS_Face& face, DATA& data, SGNODE* parent,
     else
         S3D::AddSGNodeRef( vshape.GetRawPtr(), ocolor );
 
-    const TColgp_Array1OfPnt&    arrPolyNodes = triangulation->Nodes();
-    const Poly_Array1OfTriangle& arrTriangles = triangulation->Triangles();
-
     std::vector< SGPOINT > vertices;
     std::vector< int > indices;
     std::vector< int > indices2;
@@ -1126,14 +1123,14 @@ bool processFace( const TopoDS_Face& face, DATA& data, SGNODE* parent,
 
     for( int i = 1; i <= triangulation->NbNodes(); i++ )
     {
-        gp_XYZ v( arrPolyNodes(i).Coord() );
+        gp_XYZ v( triangulation->Node(i).Coord() );
         vertices.emplace_back( v.X(), v.Y(), v.Z() );
     }
 
     for( int i = 1; i <= triangulation->NbTriangles(); i++ )
     {
         int a, b, c;
-        arrTriangles( i ).Get( a, b, c );
+        triangulation->Triangle(i).Get(a, b, c);
         a--;
 
         if( reverse )

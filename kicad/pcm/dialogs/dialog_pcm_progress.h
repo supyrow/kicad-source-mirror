@@ -25,6 +25,7 @@
 #include "dialog_pcm_progress_base.h"
 #include "reporter.h"
 #include <atomic>
+#include <widgets/progress_reporter_base.h>
 #if wxCHECK_VERSION( 3, 1, 0 )
 #include <wx/appprogress.h>
 #endif
@@ -35,11 +36,8 @@
  *
  * This dialog is designed to work with PCM_TASK_MANAGER's threading system.
  * Some of it's methods are safe to call from a non-UI thread.
- *
- * SetOverallProgress(), SetOverallProgressPhases() and AdvanceOverallProgressPhase()
- * are meant to be called from the same thread.
  */
-class DIALOG_PCM_PROGRESS : public DIALOG_PCM_PROGRESS_BASE
+class DIALOG_PCM_PROGRESS : public DIALOG_PCM_PROGRESS_BASE, public PROGRESS_REPORTER_BASE
 {
 protected:
     // Handlers for DIALOG_PCM_PROGRESS_BASE events.
@@ -50,35 +48,37 @@ public:
     /** Constructor */
     DIALOG_PCM_PROGRESS( wxWindow* parent, bool aShowDownloadSection = true );
 
-    ///< Thread safe. Adds a message to detailed report window.
+    ///< Safe to call from non-UI thread. Adds a message to detailed report window.
     void Report( const wxString& aText, SEVERITY aSeverity = RPT_SEVERITY_UNDEFINED );
 
-    ///< Thread safe. Sets current download progress gauge and text.
+    ///< Safe to call from non-UI thread. Sets the download progress of the current zip entry.
     void SetDownloadProgress( uint64_t aDownloaded, uint64_t aTotal );
 
-    ///< Safe to call from non-UI thread. Sets current overall progress gauge.
-    void SetOverallProgress( uint64_t aProgress, uint64_t aTotal );
+    ///< Safe to call from non-UI thread. Sets the download prgress of the current package.
+    void SetPackageProgress( uint64_t aProgress, uint64_t aTotal );
 
-    ///< Safe to call from non-UI thread. Sets number of phases for overall progress gauge.
-    void SetOverallProgressPhases( int aPhases );
+    ///< Safe to call from non-UI thread. Advances to the next package.
+    void AdvancePhase() override;
 
-    ///< Safe to call from non-UI thread. Increments current phase by one.
-    void AdvanceOverallProgressPhase();
-
-    ///< Thread safe. Updates download text.
-    void SetDownloadsFinished();
-
-    ///< Thread safe. Disables cancel button, enables close button.
+    ///< Safe to call from non-UI thread. Disables cancel button, enables close button.
     void SetFinished();
 
-    ///< Thread safe. Return true if cancel was clicked.
-    bool IsCancelled();
+private:
+    bool updateUI() override;
+
+    static uint64_t toKb( uint64_t aValue );
 
 private:
-    static uint64_t  toKb( uint64_t aValue );
-    int              m_currentPhase;
-    int              m_overallPhases;
-    std::atomic_bool m_cancelled;
+    std::atomic_int64_t  m_downloaded;
+    std::atomic_int64_t  m_downloadTotal;
+
+    std::atomic_int64_t  m_currentProgress;
+    std::atomic_int64_t  m_currentProgressTotal;
+
+    std::atomic_bool     m_finished;
+
+    std::vector< std::pair<wxString, SEVERITY> > m_reports;
+
 #if wxCHECK_VERSION( 3, 1, 0 )
     wxAppProgressIndicator m_appProgressIndicator;
 #endif

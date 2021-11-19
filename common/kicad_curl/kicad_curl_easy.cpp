@@ -38,6 +38,7 @@
 #include <build_version.h>
 #include <ki_exception.h>   // THROW_IO_ERROR
 #include <kiplatform/app.h>
+#include <kiplatform/environment.h>
 #include <pgm_base.h>
 
 
@@ -120,7 +121,7 @@ KICAD_CURL_EASY::KICAD_CURL_EASY() : m_headers( nullptr )
     wxPlatformInfo platformInfo;
     wxString application( Pgm().App().GetAppName() );
     wxString version( GetBuildVersion() );
-    wxString platform = "(" + wxGetOsDescription() + ";" + platformInfo.GetArchName();
+    wxString platform = "(" + wxGetOsDescription() + ";" + GetPlatformGetBitnessName();
 
 #if defined( KICAD_BUILD_ARCH_X64 )
     platform << ";64-bit";
@@ -202,6 +203,26 @@ bool KICAD_CURL_EASY::SetURL( const std::string& aURL )
 {
     if( setOption<const char*>( CURLOPT_URL, aURL.c_str() ) == CURLE_OK )
     {
+        KIPLATFORM::ENV::PROXY_CONFIG cfg;
+
+        // Unforunately on Windows land, proxies can be configured depending on destination url
+        // So we also check and set any proxy config here
+        if( KIPLATFORM::ENV::GetSystemProxyConfig( aURL, cfg ) )
+        {
+            curl_easy_setopt( m_CURL, CURLOPT_PROXY, static_cast<const char*>( cfg.host.c_str() ) );
+            if( !cfg.username.empty() )
+            {
+                curl_easy_setopt( m_CURL, CURLOPT_PROXYUSERNAME,
+                                  static_cast<const char*>( cfg.username.c_str() ) );
+            }
+
+            if( !cfg.password.empty() )
+            {
+                curl_easy_setopt( m_CURL, CURLOPT_PROXYPASSWORD,
+                                  static_cast<const char*>( cfg.password.c_str() ) );
+            }
+        }
+
         return true;
     }
 

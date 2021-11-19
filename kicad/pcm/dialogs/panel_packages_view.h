@@ -39,7 +39,7 @@ public:
     ~PANEL_PACKAGES_VIEW();
 
     /**
-     * @brief Recreates package panels and displays daya
+     * @brief Recreates package panels and displays data
      *
      * @param aPackageData list of package view data
      * @param aCallback (un)install button callback
@@ -70,11 +70,25 @@ public:
     void OnShowAllVersionsClicked( wxCommandEvent& event ) override;
 
     ///< Ranks packages for entered search term and rearranges/hides panels according to their rank
-    void OnSearchTextChanged( wxCommandEvent& event ) override;
+    void OnSearchTextChanged( wxCommandEvent& event );
+
+    void OnSizeInfoBox( wxSizeEvent& aEvent ) override;
+
+    ///< Respond to a URL in the info window
+    void OnURLClicked( wxHtmlLinkEvent& event ) override;
+
+    ///< Respond to scrolling over the window
+    void OnInfoMouseWheel( wxMouseEvent& event ) override;
+
+    ///< Replacement of wxFormBuilder's ill-advised m_splitter1OnIdle
+    void SetSashOnIdle( wxIdleEvent& );
 
 private:
     ///< Updates package listing according to search term
     void updatePackageList();
+
+    ///< Updates buttons below the package details: Download and Install
+    void updateDetailsButtons();
 
     ///< Updates details panel
     void setPackageDetails( const PACKAGE_VIEW_DATA& aPackageData );
@@ -85,6 +99,13 @@ private:
     ///< Bytes to Kb/Mb/Gb string or "-" if absent
     wxString toHumanReadableSize( const boost::optional<uint64_t> size ) const;
 
+    ///< Returns true if it the download operation can be performed
+    bool canDownload() const;
+
+    ///< Returns true if the install operation can be performed
+    bool canInstall() const;
+
+private:
     ActionCallback                               m_actionCallback;
     std::unordered_map<wxString, PANEL_PACKAGE*> m_packagePanels;
     std::vector<wxString>                        m_packageInitialOrder;

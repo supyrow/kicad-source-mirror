@@ -196,7 +196,7 @@ void BOARD_EDITOR_CONTROL::Reset( RESET_REASON aReason )
 
     if( aReason == MODEL_RELOAD || aReason == GAL_SWITCH )
     {
-        m_placeOrigin->SetPosition( getModel<BOARD>()->GetDesignSettings().m_AuxOrigin );
+        m_placeOrigin->SetPosition( getModel<BOARD>()->GetDesignSettings().GetAuxOrigin() );
         getView()->Remove( m_placeOrigin.get() );
         getView()->Add( m_placeOrigin.get() );
     }
@@ -706,8 +706,11 @@ int BOARD_EDITOR_CONTROL::TrackWidthInc( const TOOL_EVENT& aEvent )
             {
                 PCB_TRACK* track = static_cast<PCB_TRACK*>( item );
 
-                for( int candidate : designSettings.m_TrackWidthList )
+                // Note: skip first entry which is the current netclass value
+                for( int i = 1; i < (int) designSettings.m_TrackWidthList.size(); ++i )
                 {
+                    int candidate = designSettings.m_TrackWidthList[ i ];
+
                     if( candidate > track->GetWidth() )
                     {
                         commit.Modify( track );
@@ -772,7 +775,8 @@ int BOARD_EDITOR_CONTROL::TrackWidthDec( const TOOL_EVENT& aEvent )
             {
                 PCB_TRACK* track = static_cast<PCB_TRACK*>( item );
 
-                for( int i = designSettings.m_TrackWidthList.size() - 1; i >= 0; --i )
+                // Note: skip first entry which is the current netclass value
+                for( int i = designSettings.m_TrackWidthList.size() - 1; i >= 1; --i )
                 {
                     int candidate = designSettings.m_TrackWidthList[ i ];
 
@@ -1491,7 +1495,7 @@ int BOARD_EDITOR_CONTROL::EditFpInFpEditor( const TOOL_EVENT& aEvent )
 void BOARD_EDITOR_CONTROL::DoSetDrillOrigin( KIGFX::VIEW* aView, PCB_BASE_FRAME* aFrame,
                                              EDA_ITEM* originViewItem, const VECTOR2D& aPosition )
 {
-    aFrame->GetDesignSettings().m_AuxOrigin = (wxPoint) aPosition;
+    aFrame->GetDesignSettings().SetAuxOrigin( wxPoint( aPosition ) );
     originViewItem->SetPosition( (wxPoint) aPosition );
     aView->MarkDirty();
     aFrame->OnModify();

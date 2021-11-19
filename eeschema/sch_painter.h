@@ -119,8 +119,6 @@ public:
     double m_TextOffsetRatio;        // Proportion of font size to offset text above/below
                                      // wires, buses, etc.
 
-    int    m_DefaultWireThickness;
-    int    m_DefaultBusThickness;
     int    m_PinSymbolSize;
     int    m_JunctionSize;
 };
@@ -186,7 +184,6 @@ private:
     float getTextThickness( const LIB_TEXT* aItem, bool aDrawingShadows ) const;
 
     bool setDeviceColors( const LIB_ITEM* aItem, int aLayer );
-    void fillIfSelection( int aLayer );
 
     void triLine ( const VECTOR2D &a, const VECTOR2D &b, const VECTOR2D &c );
     void strokeText( const wxString& aText, const VECTOR2D& aPosition, double aRotationAngle );

@@ -327,7 +327,18 @@ SCH_EDIT_FRAME::~SCH_EDIT_FRAME()
 
     // Close the project if we are standalone, so it gets cleaned up properly
     if( Kiface().IsSingle() )
-        GetSettingsManager()->UnloadProject( &Prj(), false );
+    {
+        try
+        {
+            GetSettingsManager()->UnloadProject( &Prj(), false );
+        }
+        catch( const nlohmann::detail::type_error& exc )
+        {
+            // This may be overkill and could be an assertion but we are more likely to
+            // find any settings manager errors this way.
+            wxLogError( wxT( "Settings exception '%s' occurred." ), exc.what() );
+        }
+    }
 }
 
 
@@ -960,9 +971,9 @@ void SCH_EDIT_FRAME::NewProject()
 void SCH_EDIT_FRAME::LoadProject()
 {
     wxString pro_dir = m_mruPath;
-    wxString wildcards = KiCadSchematicFileWildcard();
-
-    wildcards += "|" + LegacySchematicFileWildcard();
+    wxString wildcards = AllSchematicFilesWildcard()
+                            + "|" + KiCadSchematicFileWildcard()
+                            + "|" + LegacySchematicFileWildcard();
 
     wxFileDialog dlg( this, _( "Open Schematic" ), pro_dir, wxEmptyString,
                       wildcards, wxFD_OPEN | wxFD_FILE_MUST_EXIST );
@@ -1633,29 +1644,16 @@ void SCH_EDIT_FRAME::onSize( wxSizeEvent& aEvent )
 }
 
 
-void SCH_EDIT_FRAME::SaveSymbolToSchematic( const LIB_SYMBOL& aSymbol )
+void SCH_EDIT_FRAME::SaveSymbolToSchematic( const LIB_SYMBOL& aSymbol,
+                                            const KIID& aSchematicSymbolUUID )
 {
     wxString msg;
     bool appendToUndo = false;
 
-    wxCHECK( m_toolManager, /* void */ );
+    SCH_SHEET_PATH sheetPath;
+    SCH_ITEM*      item = Schematic().GetSheets().GetItem( aSchematicSymbolUUID, &sheetPath );
 
-    EE_SELECTION_TOOL* selectionTool = m_toolManager->GetTool<EE_SELECTION_TOOL>();
-
-    wxCHECK( selectionTool, /* void */ );
-
-    EE_SELECTION& selection = selectionTool->RequestSelection( EE_COLLECTOR::SymbolsOnly );
-
-    if( selection.Empty() )
-        return;
-
-    SCH_SCREEN* currentScreen = GetScreen();
-
-    wxCHECK( currentScreen, /* void */ );
-
-    // This should work for multiple selections of the same symbol even though the editor
-    // only works for a single symbol selection.
-    for( EDA_ITEM* item : selection )
+    if( item )
     {
         SCH_SYMBOL* symbol = dynamic_cast<SCH_SYMBOL*>( item );
 
@@ -1663,11 +1661,11 @@ void SCH_EDIT_FRAME::SaveSymbolToSchematic( const LIB_SYMBOL& aSymbol )
 
         // This needs to be done before the LIB_SYMBOL is changed to prevent stale library
         // symbols in the schematic file.
-        currentScreen->Remove( symbol );
+        sheetPath.LastScreen()->Remove( symbol );
 
         if( !symbol->IsNew() )
         {
-            SaveCopyInUndoList( currentScreen, symbol, UNDO_REDO::CHANGED, appendToUndo );
+            SaveCopyInUndoList( sheetPath.LastScreen(), symbol, UNDO_REDO::CHANGED, appendToUndo );
             appendToUndo = true;
         }
 
@@ -1679,13 +1677,9 @@ void SCH_EDIT_FRAME::SaveSymbolToSchematic( const LIB_SYMBOL& aSymbol )
                               false, /* reset ref */
                               false /* reset other fields */ );
 
-        currentScreen->Append( symbol );
-        selectionTool->SelectHighlightItem( symbol );
+        sheetPath.LastScreen()->Append( symbol );
         GetCanvas()->GetView()->Update( symbol );
     }
-
-    if( selection.IsHover() )
-        m_toolManager->RunAction( EE_ACTIONS::clearSelection, true );
 
     GetCanvas()->Refresh();
     OnModify();
