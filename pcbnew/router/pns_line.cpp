@@ -576,10 +576,26 @@ const LINE LINE::ClipToNearestObstacle( NODE* aNode ) const
         if( obs )
         {
             l.RemoveVia();
-            int p = l.Line().Split( obs->m_ipFirst );
-            l.Line().Remove( p + 1, -1 );
-        } else
+            VECTOR2I collisionPoint = obs->m_ipFirst;
+            int segIdx = l.Line().NearestSegment( collisionPoint );
+
+            if( l.Line().IsArcSegment( segIdx ) )
+            {
+                // Don't clip at arcs, start again
+                l.Line().Clear();
+            }
+            else
+            {
+                SEG nearestSegment = l.Line().CSegment( segIdx );
+                VECTOR2I nearestPt = nearestSegment.NearestPoint( collisionPoint );
+                int      p = l.Line().Split( nearestPt );
+                l.Line().Remove( p + 1, -1 );
+            }
+        }
+        else
+        {
             break;
+        }
     }
 
     if( i == IterationLimit )
@@ -1079,12 +1095,11 @@ void LINE::ClipVertexRange( int aStart, int aEnd )
      */
     int firstLink = 0;
     int lastLink  = std::max( 0, static_cast<int>( m_links.size() ) - 1 );
-    int arcIdx    = -1;
     int linkIdx   = 0;
 
     int numPoints = static_cast<int>( m_line.PointCount() );
 
-    for( int i = 0; i < m_line.PointCount(); i = m_line.NextShape( i ) )
+    for( int i = 0; i >= 0 && i < m_line.PointCount(); i = m_line.NextShape( i ) )
     {
         if( i <= aStart )
             firstLink = linkIdx;

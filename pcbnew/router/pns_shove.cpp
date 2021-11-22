@@ -159,6 +159,7 @@ void SHOVE::sanityCheck( LINE* aOld, LINE* aNew )
 SHOVE::SHOVE( NODE* aWorld, ROUTER* aRouter ) :
     ALGO_BASE( aRouter )
 {
+    m_optFlagDisableMask = 0;
     m_forceClearance = -1;
     m_root = aWorld;
     m_currentNode = aWorld;
@@ -436,7 +437,14 @@ SHOVE::SHOVE_STATUS SHOVE::ShoveObstacleLine( const LINE& aCurLine, const LINE& 
         for( int i = 0; i < currentLineSegmentCount; i++ )
         {
             SEGMENT seg( aCurLine, aCurLine.CSegment( i ) );
-            SHAPE_LINE_CHAIN hull = seg.Hull( clearance, obstacleLineWidth, aObstacleLine.Layer() );
+            int     extra = 0;
+
+            // Arcs need additional clearance to ensure the hulls are always bigger than the arc
+            if( aCurLine.CLine().IsArcSegment( i ) )
+                extra = SHAPE_ARC::DefaultAccuracyForPCB();
+
+            SHAPE_LINE_CHAIN hull =
+                    seg.Hull( clearance + extra, obstacleLineWidth, aObstacleLine.Layer() );
 
             hulls.push_back( hull );
         }
@@ -1752,7 +1760,8 @@ void SHOVE::runOptimizer( NODE* aNode )
     if( Settings().SmartPads() )
         optFlags |= OPTIMIZER::SMART_PADS;
 
-    optimizer.SetEffortLevel( optFlags );
+
+    optimizer.SetEffortLevel( optFlags & ~m_optFlagDisableMask );
     optimizer.SetCollisionMask( ITEM::ANY_T );
 
     for( int pass = 0; pass < n_passes; pass++ )
@@ -1864,6 +1873,12 @@ void SHOVE::UnlockSpringbackNode( NODE* aNode )
 
         iter++;
     }
+}
+
+
+void SHOVE::DisablePostShoveOptimizations( int aMask )
+{
+    m_optFlagDisableMask = aMask;
 }
 
 }
