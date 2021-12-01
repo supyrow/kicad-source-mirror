@@ -47,6 +47,7 @@
 #include <sch_junction.h>
 #include <sch_sheet.h>
 #include <sch_sheet_pin.h>
+#include <lib_shape.h>
 #include <schematic.h>
 #include <tool/tool_event.h>
 #include <tool/tool_manager.h>
@@ -57,7 +58,6 @@
 #include <view/view.h>
 #include <view/view_controls.h>
 #include <wx/log.h>
-
 
 SELECTION_CONDITION EE_CONDITIONS::SingleSymbol = []( const SELECTION& aSel )
 {
@@ -631,6 +631,7 @@ int EE_SELECTION_TOOL::Main( const TOOL_EVENT& aEvent )
 
                     if( m_frame->eeconfig()->m_Drawing.auto_start_wires
                             && pt_tool && !pt_tool->HasPoint()
+                            && !collector[0]->IsConnectivityDirty()
                             && collector[0]->IsPointClickableAnchor( (wxPoint) snappedCursorPos ) )
                     {
                         SCH_CONNECTION* connection = collector[0]->Connection();
@@ -784,7 +785,7 @@ bool EE_SELECTION_TOOL::CollectHits( EE_COLLECTOR& aCollector, const VECTOR2I& a
                                      const KICAD_T* aFilterList )
 {
     int pixelThreshold = KiROUND( getView()->ToWorld( HITTEST_THRESHOLD_PIXELS ) );
-    int gridThreshold = KiROUND( getView()->GetGAL()->GetGridSize().EuclideanNorm() );
+    int gridThreshold = KiROUND( getView()->GetGAL()->GetGridSize().EuclideanNorm() / 2 );
     aCollector.m_Threshold = std::max( pixelThreshold, gridThreshold );
 
     if( m_isSymbolEditor )
@@ -985,15 +986,16 @@ void EE_SELECTION_TOOL::GuessSelectionCandidates( EE_COLLECTOR& collector, const
 
     for( int i = collector.GetCount() - 1; i >= 0; --i )
     {
-        EDA_ITEM* item = collector[ i ];
-        SCH_LINE* line = dynamic_cast<SCH_LINE*>( item );
+        EDA_ITEM*  item = collector[ i ];
+        SCH_LINE*  line = dynamic_cast<SCH_LINE*>( item );
+        LIB_SHAPE* shape = dynamic_cast<LIB_SHAPE*>( item );
 
         // Lines are hard to hit.  Give them a bit more slop to still be considered "exact".
 
-        if( line )
+        if( line || ( shape && shape->GetShape() == SHAPE_T::POLY ) )
         {
-            if( line->HitTest( (wxPoint) aPos, Mils2iu( DANGLING_SYMBOL_SIZE ) ) )
-                exactHits.insert( line );
+            if( item->HitTest( (wxPoint) aPos, Mils2iu( DANGLING_SYMBOL_SIZE ) ) )
+                exactHits.insert( item );
         }
         else
         {
@@ -1015,7 +1017,8 @@ void EE_SELECTION_TOOL::GuessSelectionCandidates( EE_COLLECTOR& collector, const
 
     // Find the closest item.  (Note that at this point all hits are either exact or non-exact.)
     wxPoint   pos( aPos );
-    SEG       poss( aPos, aPos );
+    SEG       poss( m_isSymbolEditor ? mapCoords( pos ) : pos,
+                    m_isSymbolEditor ? mapCoords( pos ) : pos );
     EDA_ITEM* closest = nullptr;
     int       closestDist = INT_MAX / 2;
 

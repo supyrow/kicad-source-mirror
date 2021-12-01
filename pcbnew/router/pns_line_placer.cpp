@@ -1143,7 +1143,7 @@ bool LINE_PLACER::Start( const VECTOR2I& aP, ITEM* aStartItem )
 
     NODE *n;
 
-    if ( Settings().Mode() == PNS::RM_Shove || Settings().Mode() == PNS::RM_Smart )
+    if ( Settings().Mode() == PNS::RM_Shove )
         n = m_shove->CurrentNode();
     else
         n = m_currentNode;
@@ -1222,7 +1222,7 @@ bool LINE_PLACER::Move( const VECTOR2I& aP, ITEM* aEndItem )
 
     if( reachesEnd
             && eiDepth >= 0
-            && aEndItem && latestNode->Depth() > eiDepth
+            && aEndItem && latestNode->Depth() >= eiDepth
             && current.SegmentCount() )
     {
         SplitAdjacentSegments( m_lastNode, aEndItem, current.CPoint( -1 ) );
@@ -1452,7 +1452,7 @@ bool LINE_PLACER::UnfixRoute()
     m_shove->RewindSpringbackTo( m_currentNode );
     m_shove->UnlockSpringbackNode( m_currentNode );
 
-    if( Settings().Mode() == PNS::RM_Shove || Settings().Mode() == PNS::RM_Smart )
+    if( Settings().Mode() == PNS::RM_Shove )
     {
         m_currentNode = m_shove->CurrentNode();
         m_currentNode->KillChildren();
@@ -1472,7 +1472,7 @@ bool LINE_PLACER::HasPlacedAnything() const
 
 bool LINE_PLACER::CommitPlacement()
 {
-    if( Settings().Mode() == PNS::RM_Shove || Settings().Mode() == PNS::RM_Smart )
+    if( Settings().Mode() == PNS::RM_Shove )
     {
         m_shove->RewindToLastLockedNode();
         m_lastNode = m_shove->CurrentNode();
@@ -1563,8 +1563,18 @@ void LINE_PLACER::simplifyNewLine( NODE* aNode, LINKED_ITEM* aLatest )
 
                 for( ITEM* neighbor : aJoint->Links() )
                 {
-                    if( neighbor == aItem || !neighbor->LayersOverlap( aItem ) )
+                    if( neighbor == aItem
+                        || !neighbor->OfKind( ITEM::SEGMENT_T | ITEM::ARC_T )
+                        || !neighbor->LayersOverlap( aItem ) )
+                    {
                         continue;
+                    }
+
+                    if( static_cast<SEGMENT*>( neighbor )->Width()
+                            != static_cast<SEGMENT*>( aItem )->Width() )
+                    {
+                        continue;
+                    }
 
                     const SEG& testSeg = static_cast<SEGMENT*>( neighbor )->Seg();
 

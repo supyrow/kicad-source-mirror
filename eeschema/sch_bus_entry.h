@@ -51,6 +51,18 @@ public:
 
     ~SCH_BUS_ENTRY_BASE() { }
 
+    void SetLastResolvedState( const SCH_ITEM* aItem ) override
+    {
+        const SCH_BUS_ENTRY_BASE* aEntry = dynamic_cast<const SCH_BUS_ENTRY_BASE*>( aItem );
+
+        if( aEntry )
+        {
+            m_lastResolvedWidth = aEntry->m_lastResolvedWidth;
+            m_lastResolvedLineStyle = aEntry->m_lastResolvedLineStyle;
+            m_lastResolvedColor = aEntry->m_lastResolvedColor;
+        }
+    }
+
     /**
      * Return true for items which are moved with the anchor point at mouse cursor
      *  and false for items moved with no reference to anchor
@@ -123,6 +135,13 @@ protected:
     bool          m_isDanglingStart;
     bool          m_isDanglingEnd;
     STROKE_PARAMS m_stroke;
+
+    // If real-time connectivity gets disabled (due to being too slow on a particular
+    // design), we can no longer rely on getting the NetClass to find netclass-specific
+    // linestyles, linewidths and colors.
+    mutable PLOT_DASH_TYPE   m_lastResolvedLineStyle;
+    mutable int              m_lastResolvedWidth;
+    mutable COLOR4D          m_lastResolvedColor;
 };
 
 /**

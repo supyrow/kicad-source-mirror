@@ -93,6 +93,18 @@ public:
     wxPoint GetEndPoint() const { return m_end; }
     void SetEndPoint( const wxPoint& aPosition ) { m_end = aPosition; }
 
+    void SetLastResolvedState( const SCH_ITEM* aItem ) override
+    {
+        const SCH_LINE* aLine = dynamic_cast<const SCH_LINE*>( aItem );
+
+        if( aLine )
+        {
+            m_lastResolvedLineStyle = aLine->m_lastResolvedLineStyle;
+            m_lastResolvedWidth = aLine->m_lastResolvedWidth;
+            m_lastResolvedColor = aLine->m_lastResolvedColor;
+        }
+    }
+
     PLOT_DASH_TYPE GetDefaultStyle() const;
 
     void           SetLineStyle( const PLOT_DASH_TYPE aStyle );
@@ -204,6 +216,8 @@ public:
 
     std::vector<wxPoint> GetConnectionPoints() const override;
 
+    bool ConnectionPropagatesTo( const EDA_ITEM* aItem ) const override;
+
     void GetSelectedPoints( std::vector< wxPoint >& aPoints ) const;
 
     bool CanConnect( const SCH_ITEM* aItem ) const override;
@@ -267,6 +281,13 @@ private:
     wxPoint m_start;            ///< Line start point
     wxPoint m_end;              ///< Line end point
     STROKE_PARAMS m_stroke;     ///< Line stroke properties.
+
+    // If real-time connectivity gets disabled (due to being too slow on a particular
+    // design), we can no longer rely on getting the NetClass to find netclass-specific
+    // linestyles, linewidths and colors.
+    mutable PLOT_DASH_TYPE   m_lastResolvedLineStyle;
+    mutable int              m_lastResolvedWidth;
+    mutable COLOR4D          m_lastResolvedColor;
 };
 
 

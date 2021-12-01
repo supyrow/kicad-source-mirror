@@ -54,7 +54,7 @@
 #include <project/project_local_settings.h>
 #include <project/net_settings.h>
 #include <plugins/cadstar/cadstar_pcb_archive_plugin.h>
-#include <plugins/kicad/kicad_plugin.h>
+#include <plugins/kicad/pcb_plugin.h>
 #include <dialogs/dialog_imported_layers.h>
 #include <tools/pcb_actions.h>
 #include "footprint_info_impl.h"
@@ -747,7 +747,8 @@ bool PCB_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
         // compiled.
         Raise();
 
-        SetBoard( loadedBoard );
+        // Skip (possibly expensive) connectivity build here; we build it below after load
+        SetBoard( loadedBoard, false, &progressReporter );
 
         if( GFootprintList.GetCount() == 0 )
             GFootprintList.ReadCacheFromFile( Prj().GetProjectPath() + "fp-info-cache" );
@@ -910,8 +911,8 @@ bool PCB_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
         UpdateFileHistory( GetBoard()->GetFileName() );
 
     // Rebuild list of nets (full ratsnest rebuild)
-    GetBoard()->BuildConnectivity();
-    Compile_Ratsnest( true );
+    progressReporter.Report( _( "Updating nets" ) );
+    GetBoard()->BuildConnectivity( &progressReporter );
 
     // Load project settings after setting up board; some of them depend on the nets list
     LoadProjectSettings();

@@ -490,6 +490,13 @@ void ROUTER::markViolations( NODE* aNode, ITEM_SET& aCurrent, NODE::ITEM_VECTOR&
                             removeOriginal = false;
                         }
                     }
+
+                    if( itemToMark->IsCompoundShapePrimitive() )
+                    {
+                        // We're only highlighting one (or more) of several primitives so we
+                        // don't want all the other parts of the object to disappear
+                        removeOriginal = false;
+                    }
                 }
 
                 m_iface->DisplayItem( tmp.get(), clearance );
@@ -548,6 +555,7 @@ void ROUTER::updateView( NODE* aNode, ITEM_SET& aCurrent, bool aDragging )
 
     for( ITEM* item : added )
     {
+        GetRuleResolver()->ClearCacheForItem( item );
         int clearance = GetRuleResolver()->Clearance( item, nullptr );
         m_iface->DisplayItem( item, clearance, aDragging );
     }

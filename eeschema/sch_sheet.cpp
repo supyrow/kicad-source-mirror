@@ -42,21 +42,35 @@
 #include <pgm_base.h>
 #include <wx/log.h>
 
+#define SHEET_NAME_CANONICAL "Sheet name"
+#define SHEET_FILE_CANONICAL "Sheet file"
+#define USER_FIELD_CANONICAL "Field%d"
 
-const wxString SCH_SHEET::GetDefaultFieldName( int aFieldNdx )
+
+const wxString SCH_SHEET::GetDefaultFieldName( int aFieldNdx, bool aTranslated )
 {
     static void* locale = nullptr;
     static wxString sheetnameDefault;
     static wxString sheetfilenameDefault;
     static wxString userFieldDefault;
 
+    if( !aTranslated )
+    {
+        switch( aFieldNdx )
+        {
+        case  SHEETNAME:     return SHEET_NAME_CANONICAL;
+        case  SHEETFILENAME: return SHEET_FILE_CANONICAL;
+        default:             return wxString::Format( USER_FIELD_CANONICAL, aFieldNdx );
+        }
+    }
+
     // Fetching translations can take a surprising amount of time when loading libraries,
     // so only do it when necessary.
     if( Pgm().GetLocale() != locale )
     {
-        sheetnameDefault     = _( "Sheet name" );
-        sheetfilenameDefault = _( "Sheet file" );
-        userFieldDefault     = _( "Field%d" );
+        sheetnameDefault     = _( SHEET_NAME_CANONICAL );
+        sheetfilenameDefault = _( SHEET_FILE_CANONICAL );
+        userFieldDefault     = _( USER_FIELD_CANONICAL );
         locale = Pgm().GetLocale();
     }
 
@@ -70,17 +84,18 @@ const wxString SCH_SHEET::GetDefaultFieldName( int aFieldNdx )
 }
 
 
-SCH_SHEET::SCH_SHEET( EDA_ITEM* aParent, const wxPoint& pos ) :
-    SCH_ITEM( aParent, SCH_SHEET_T )
+SCH_SHEET::SCH_SHEET( EDA_ITEM* aParent, const wxPoint& aPos, wxSize aSize,
+                      FIELDS_AUTOPLACED aAutoplaceFields ) :
+        SCH_ITEM( aParent, SCH_SHEET_T )
 {
     m_layer = LAYER_SHEET;
-    m_pos = pos;
-    m_size = wxSize( Mils2iu( MIN_SHEET_WIDTH ), Mils2iu( MIN_SHEET_HEIGHT ) );
+    m_pos = aPos;
+    m_size = aSize;
     m_screen = nullptr;
 
     for( int i = 0; i < SHEET_MANDATORY_FIELDS; ++i )
     {
-        m_fields.emplace_back( pos, i, this, GetDefaultFieldName( i ) );
+        m_fields.emplace_back( aPos, i, this, GetDefaultFieldName( i ) );
         m_fields.back().SetVisible( true );
 
         if( i == SHEETNAME )
@@ -91,7 +106,8 @@ SCH_SHEET::SCH_SHEET( EDA_ITEM* aParent, const wxPoint& pos ) :
             m_fields.back().SetLayer( LAYER_SHEETFIELDS );
     }
 
-    m_fieldsAutoplaced = FIELDS_AUTOPLACED_AUTO;
+    m_fieldsAutoplaced = aAutoplaceFields;
+    AutoAutoplaceFields( nullptr );
 
     m_borderWidth = 0;
     m_borderColor = COLOR4D::UNSPECIFIED;
@@ -122,7 +138,7 @@ SCH_SHEET::SCH_SHEET( const SCH_SHEET& aSheet ) :
     m_borderWidth = aSheet.m_borderWidth;
     m_borderColor = aSheet.m_borderColor;
     m_backgroundColor = aSheet.m_backgroundColor;
-    m_instances = aSheet.m_instances;
+    m_pageNumber = aSheet.m_pageNumber;
 
     if( m_screen )
         m_screen->IncRefCount();
@@ -240,7 +256,7 @@ bool SCH_SHEET::ResolveTextVar( wxString* token, int aDepth ) const
         {
             if( sheet.Last() == this )   // Current sheet path found
             {
-                *token = wxString::Format( "%s", sheet.GetPageNumber() );
+                *token = wxString::Format( "%s", sheet.Last()->GetPageNumber() );
                 return true;
             }
         }
@@ -292,7 +308,7 @@ void SCH_SHEET::SwapData( SCH_ITEM* aItem )
     std::swap( m_borderWidth, sheet->m_borderWidth );
     std::swap( m_borderColor, sheet->m_borderColor );
     std::swap( m_backgroundColor, sheet->m_backgroundColor );
-    std::swap( m_instances, sheet->m_instances );
+    std::swap( m_pageNumber, sheet->m_pageNumber );
 }
 
 
@@ -355,7 +371,7 @@ bool SCH_SHEET::IsVerticalOrientation() const
 
     for( SCH_SHEET_PIN* pin : m_pins )
     {
-        switch( pin->GetEdge() )
+        switch( pin->GetSide() )
         {
         case SHEET_SIDE::LEFT:   leftRight++; break;
         case SHEET_SIDE::RIGHT:  leftRight++; break;
@@ -408,7 +424,7 @@ int SCH_SHEET::GetMinWidth( bool aFromLeft ) const
 
     for( size_t i = 0; i < m_pins.size();  i++ )
     {
-        SHEET_SIDE edge = m_pins[i]->GetEdge();
+        SHEET_SIDE edge = m_pins[i]->GetSide();
 
         if( edge == SHEET_SIDE::TOP || edge == SHEET_SIDE::BOTTOM )
         {
@@ -442,7 +458,7 @@ int SCH_SHEET::GetMinHeight( bool aFromTop ) const
 
     for( size_t i = 0; i < m_pins.size();  i++ )
     {
-        SHEET_SIDE edge = m_pins[i]->GetEdge();
+        SHEET_SIDE edge = m_pins[i]->GetSide();
 
         if( edge == SHEET_SIDE::RIGHT || edge == SHEET_SIDE::LEFT )
         {
@@ -1080,8 +1096,7 @@ SCH_SHEET& SCH_SHEET::operator=( const SCH_ITEM& aItem )
             m_pins.back()->SetParent( this );
         }
 
-        for( const SCH_SHEET_INSTANCE& instance : sheet->m_instances )
-            m_instances.emplace_back( instance );
+        m_pageNumber = sheet->m_pageNumber;
     }
 
     return *this;
@@ -1105,60 +1120,15 @@ bool SCH_SHEET::operator <( const SCH_ITEM& aItem ) const
 }
 
 
-bool SCH_SHEET::AddInstance( const KIID_PATH& aSheetPath )
+wxString SCH_SHEET::GetPageNumber() const
 {
-    // a empty sheet path is illegal:
-    wxCHECK( aSheetPath.size() > 0, false );
-
-    wxString path;
-
-    for( const SCH_SHEET_INSTANCE& instance : m_instances )
-    {
-        // if aSheetPath is found, nothing to do:
-        if( instance.m_Path == aSheetPath )
-            return false;
-    }
-
-    SCH_SHEET_INSTANCE instance;
-
-    instance.m_Path = aSheetPath;
-
-    // This entry does not exist: add it with an empty page number.
-    m_instances.emplace_back( instance );
-    return true;
+    return m_pageNumber;
 }
 
 
-wxString SCH_SHEET::GetPageNumber( const SCH_SHEET_PATH& aInstance ) const
+void SCH_SHEET::SetPageNumber( const wxString& aPageNumber )
 {
-    wxString pageNumber;
-    KIID_PATH path = aInstance.Path();
-
-    for( const SCH_SHEET_INSTANCE& instance : m_instances )
-    {
-        if( instance.m_Path == path )
-        {
-            pageNumber = instance.m_PageNumber;
-            break;
-        }
-    }
-
-    return pageNumber;
-}
-
-
-void SCH_SHEET::SetPageNumber( const SCH_SHEET_PATH& aInstance, const wxString& aPageNumber )
-{
-    KIID_PATH path = aInstance.Path();
-
-    for( SCH_SHEET_INSTANCE& instance : m_instances )
-    {
-        if( instance.m_Path == path )
-        {
-            instance.m_PageNumber = aPageNumber;
-            break;
-        }
-    }
+    m_pageNumber = aPageNumber;
 }
 
 

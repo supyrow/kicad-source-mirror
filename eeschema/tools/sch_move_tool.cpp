@@ -431,13 +431,6 @@ int SCH_MOVE_TOOL::Main( const TOOL_EVENT& aEvent )
             chain_commands = true;
             break;
         }
-        else if( evt->IsAction( &EE_ACTIONS::rotateCW )
-                || evt->IsAction( &EE_ACTIONS::rotateCCW )
-                || evt->IsAction( &EE_ACTIONS::mirrorH )
-                || evt->IsAction( &EE_ACTIONS::mirrorV ) )
-        {
-            evt->SetPassEvent();
-        }
         else if( evt->Action() == TA_CHOICE_MENU_CHOICE )
         {
             if( evt->GetCommandId().get() >= ID_POPUP_SCH_SELECT_UNIT_CMP
@@ -841,6 +834,7 @@ int SCH_MOVE_TOOL::AlignElements( const TOOL_EVENT& aEvent )
             {
                 EDA_ITEMS drag_items{ item };
                 line->ClearFlags();
+                line->SetFlags( SELECTED );
                 line->SetFlags( flags[ii] );
                 getConnectedDragItems( line, pts[ii], drag_items );
                 std::set<EDA_ITEM*> unique_items( drag_items.begin(), drag_items.end() );

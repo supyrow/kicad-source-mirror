@@ -16,8 +16,8 @@ msgstr ""
 "Project-Id-Version: KiCad_zh_CN_Master_v0.0.32\n"
 "Report-Msgid-Bugs-To: \n"
 "POT-Creation-Date: 2021-11-16 10:40-0800\n"
-"PO-Revision-Date: 2021-11-21 21:17+0000\n"
-"Last-Translator: Rigo Ligo <rigoligo03@gmail.com>\n"
+"PO-Revision-Date: 2021-11-26 21:26+0000\n"
+"Last-Translator: taotieren <admin@taotieren.com>\n"
 "Language-Team: Chinese (Simplified) <https://hosted.weblate.org/projects/"
 "kicad/master-source/zh_Hans/>\n"
 "Language: zh_CN\n"
@@ -65,7 +65,7 @@ msgstr "创建导线和过孔"
 
 #: 3d-viewer/3d_canvas/create_layer_items.cpp:683
 msgid "Create zones"
-msgstr "创建覆铜"
+msgstr "创建敷铜"
 
 #: 3d-viewer/3d_canvas/create_layer_items.cpp:752
 msgid "Simplifying copper layers polygons"
@@ -527,7 +527,7 @@ msgstr "显示 3D 轴线"
 
 #: 3d-viewer/3d_viewer/tools/eda_3d_actions.cpp:250
 msgid "Toggle zone display"
-msgstr "切换覆铜显示"
+msgstr "切换敷铜显示"
 
 #: 3d-viewer/3d_viewer/tools/eda_3d_actions.cpp:255
 msgid "Toggle adhesive display"
@@ -701,7 +701,7 @@ msgstr "显示电路板"
 
 #: 3d-viewer/dialogs/panel_3D_display_options_base.cpp:82
 msgid "Show filled areas in zones"
-msgstr "显示覆铜中的填充区域"
+msgstr "显示敷铜中的填充区域"
 
 #: 3d-viewer/dialogs/panel_3D_display_options_base.cpp:85
 msgid "Use bare copper color for unplated copper"
@@ -1507,11 +1507,11 @@ msgstr "仍要打开"
 
 #: common/confirm.cpp:180 common/confirm.cpp:217
 msgid "Save Changes?"
-msgstr "保存更改吗？"
+msgstr "保存变更吗？"
 
 #: common/confirm.cpp:182 common/confirm.cpp:219
 msgid "If you don't save, all your changes will be permanently lost."
-msgstr "如果不保存，所有更改将永久丢失。"
+msgstr "如果不保存，所有变更将永久丢失。"
 
 #: common/confirm.cpp:184 common/confirm.cpp:220 common/tool/actions.cpp:67
 #: eeschema/sim/sim_plot_frame_base.cpp:29
@@ -1524,7 +1524,7 @@ msgstr "保存"
 #: common/confirm.cpp:184 common/confirm.cpp:220
 #: kicad/pcm/dialogs/dialog_pcm.cpp:132
 msgid "Discard Changes"
-msgstr "放弃更改"
+msgstr "放弃变更"
 
 #: common/confirm.cpp:187 common/confirm.cpp:266
 msgid "Apply to all"
@@ -1532,7 +1532,7 @@ msgstr "应用于全部"
 
 #: common/confirm.cpp:232
 msgid "Your current changes will be permanently lost."
-msgstr "你当前的更改将永久丢失。"
+msgstr "你当前的变更将永久丢失。"
 
 #: common/confirm.cpp:233 common/tool/actions.cpp:91
 msgid "Revert"
@@ -3163,11 +3163,11 @@ msgstr "输入筛选文字"
 
 #: common/dialogs/panel_hotkeys_editor.cpp:126
 msgid "Undo All Changes"
-msgstr "撤销所有更改"
+msgstr "撤销所有变更"
 
 #: common/dialogs/panel_hotkeys_editor.cpp:127
 msgid "Undo all changes made so far in this dialog"
-msgstr "在此对话框中撤消到目前为止所做的所有更改"
+msgstr "在此对话框中撤消到目前为止所做的所有变更"
 
 #: common/dialogs/panel_hotkeys_editor.cpp:135
 msgid "Import Hotkeys..."
@@ -4019,7 +4019,7 @@ msgstr "图形"
 #: common/eda_item.cpp:321 common/eda_item.cpp:330
 #: pcbnew/tools/board_inspection_tool.cpp:381
 msgid "Zone"
-msgstr "覆铜"
+msgstr "敷铜"
 
 #: common/eda_item.cpp:322 pcbnew/pcb_track.cpp:659
 msgid "Track"
@@ -5609,7 +5609,7 @@ msgstr "打开现有文档"
 
 #: common/tool/actions.cpp:67
 msgid "Save changes"
-msgstr "保存更改"
+msgstr "保存变更"
 
 #: common/tool/actions.cpp:73 eeschema/sim/sim_plot_frame_base.cpp:33
 #: eeschema/tools/ee_actions.cpp:138
@@ -5634,11 +5634,11 @@ msgstr "保存所有"
 
 #: common/tool/actions.cpp:85
 msgid "Save all changes"
-msgstr "保存所有更改"
+msgstr "保存所有变更"
 
 #: common/tool/actions.cpp:91
 msgid "Throw away changes"
-msgstr "放弃更改"
+msgstr "放弃变更"
 
 #: common/tool/actions.cpp:96
 msgid "Page Settings..."
@@ -6488,7 +6488,7 @@ msgstr "编辑..."
 
 #: common/widgets/widget_hotkey_list.cpp:393
 msgid "Undo Changes"
-msgstr "撤销更改"
+msgstr "撤销变更"
 
 #: common/widgets/widget_hotkey_list.cpp:394
 msgid "Clear Assigned Hotkey"
@@ -6837,11 +6837,11 @@ msgstr "应用，保存原理图并继续"
 
 #: cvpcb/cvpcb_mainframe.cpp:212
 msgid "Symbol to footprint changes are unsaved"
-msgstr "封装更改的符号未保存"
+msgstr "封装变更的符号未保存"
 
 #: cvpcb/cvpcb_mainframe.cpp:386
 msgid "Symbol to Footprint links have been modified. Save changes?"
-msgstr "符号和封装关联已经更改。保存更改吗?"
+msgstr "符号和封装关联已经变更。保存变更吗?"
 
 #: cvpcb/cvpcb_mainframe.cpp:548 cvpcb/tools/cvpcb_association_tool.cpp:207
 #, c-format
@@ -7989,19 +7989,19 @@ msgstr "更新原理图中的所有符号"
 
 #: eeschema/dialogs/dialog_change_symbols_base.cpp:30
 msgid "Update selected symbol(s)"
-msgstr "更新已选符号 (s)"
+msgstr "更新已选中的符号"
 
 #: eeschema/dialogs/dialog_change_symbols_base.cpp:33
 msgid "Update symbols matching reference designator:"
-msgstr "更新符号匹配的位号："
+msgstr "更新这些位号对应的符号："
 
 #: eeschema/dialogs/dialog_change_symbols_base.cpp:39
 msgid "Update symbols matching value:"
-msgstr "更新符号匹配值："
+msgstr "更新具有这些值的符号："
 
 #: eeschema/dialogs/dialog_change_symbols_base.cpp:45
 msgid "Update symbols matching library identifier:"
-msgstr "更新符号匹配的库标识："
+msgstr "更新这些库标识对应的符号："
 
 #: eeschema/dialogs/dialog_change_symbols_base.cpp:72
 msgid "New library identifier:"
@@ -8715,7 +8715,7 @@ msgstr "只读"
 #: eeschema/dialogs/dialog_lib_edit_pin_table.cpp:756
 #: eeschema/dialogs/dialog_symbol_fields_table.cpp:1204
 msgid "Save changes?"
-msgstr "保存更改吗？"
+msgstr "保存变更吗？"
 
 #: eeschema/dialogs/dialog_lib_edit_pin_table_base.cpp:86
 msgid "Group by name"
@@ -9840,11 +9840,10 @@ msgid ""
 "\n"
 "The following changes are recommended to update the project."
 msgstr ""
-"这个原理图是使用旧的符号库完成的，这可能会破坏原理图。一些符号可能需要重新链"
-"接到一个不同的符号名称，一些符号可能需要被“恢复”（复制或重命名）到一个新的"
-"库。\n"
+"这个原理图是使用旧的符号库完成的，这可能会破坏原理图。一些符号可能需要重新链接到一个不同的符号名称，一些符号可能需要被“恢复”（复制或重命名）到一个新的库"
+"。\n"
 "\n"
-"建议进行以下更改以更新工程。"
+"建议进行以下变更以更新工程。"
 
 #: eeschema/dialogs/dialog_rescue_each.cpp:110
 msgid "Accept"
@@ -9879,9 +9878,9 @@ msgid ""
 "and the tool can be activated manually from the \"Tools\" menu."
 msgstr ""
 "确定不再显示恢复助手工具吗?\n"
-"不会做任何更改。\n"
+"不会做任何变更。\n"
 "\n"
-"该设置可以从“符号库”对话框进行更改，\n"
+"该设置可以从“符号库”对话框进行变更，\n"
 "并且可以从 “工具” 菜单手动激活该工具。"
 
 #: eeschema/dialogs/dialog_rescue_each.cpp:297
@@ -11261,10 +11260,9 @@ msgid ""
 "to skip this step, you will be responsible for manually remapping the "
 "symbols."
 msgstr ""
-"此原理图当前使用工程符号库表查找加载库符号的方法。 KiCad 将尝试映射现有符号以"
-"使用新的符号库表。 重新映射将更改某些工程文件, 原理图可能与旧版本的 KiCad 不"
-"兼容。 如果需要还原任何更改, 则所有更改的文件都将备份到项目文件夹中的  "
-"\"remap_backup \" 文件夹中。 如果选择跳过此步骤, 你将负责手动重新映射符号。"
+"此原理图当前使用工程符号库表查找加载库符号的方法。 KiCad 将尝试映射现有符号以使用新的符号库表。 重新映射将变更某些工程文件, "
+"原理图可能与旧版本的 KiCad 不兼容。 如果需要还原任何变更, 则所有变更的文件都将备份到项目文件夹中的  \"remap_backup \" "
+"文件夹中。 如果选择跳过此步骤, 你将负责手动重新映射符号。"
 
 #: eeschema/dialogs/dialog_symbol_remap.cpp:206
 #, c-format
@@ -12091,7 +12089,7 @@ msgid ""
 "modified."
 msgstr ""
 "已对一个或多个符号库进行了修改。\n"
-"必须先保存或丢弃更改,然后才能修改符号库表。"
+"必须先保存或丢弃变更,然后才能修改符号库表。"
 
 #: eeschema/dialogs/panel_sym_lib_table.cpp:1052
 msgid "Symbol Libraries"
@@ -12441,7 +12439,7 @@ msgstr "加载原理图"
 
 #: eeschema/files-io.cpp:227
 msgid "Schematic file changes are unsaved"
-msgstr "原理图文件更改未保存"
+msgstr "原理图文件变更未保存"
 
 #: eeschema/files-io.cpp:264
 msgid ""
@@ -12510,9 +12508,8 @@ msgid ""
 "missing symbols, either manual recovery of the schematic or recovery of the "
 "symbol cache library file and reloading the schematic is required."
 msgstr ""
-"在某些情况下，这可能会导致原理图损坏。 如果原理图在打开时没有丢失的符号，请在"
-"进行任何更改之前立即保存它，以防止数据丢失。 如果缺少符号，则需要手动恢复原理"
-"图或恢复符号缓存库文件并重新加载原理图。"
+"在某些情况下，这可能会导致原理图损坏。 如果原理图在打开时没有丢失的符号，请在进行任何变更之前立即保存它，以防止数据丢失。 "
+"如果缺少符号，则需要手动恢复原理图或恢复符号缓存库文件并重新加载原理图。"
 
 #: eeschema/files-io.cpp:407
 msgid "Load Without Cache File"
@@ -12642,7 +12639,7 @@ msgstr "导入原理图"
 
 #: eeschema/files-io.cpp:1260
 msgid "The current schematic has been modified.  Save changes?"
-msgstr "当前原理图已被修改。是否保存更改？"
+msgstr "当前原理图已被修改。是否保存变更？"
 
 #: eeschema/files-io.cpp:1346
 msgid ""
@@ -13153,7 +13150,7 @@ msgstr "新原理图文件未保存"
 #: pcbnew/footprint_edit_frame.cpp:666 pcbnew/pcb_edit_frame.cpp:819
 #, c-format
 msgid "Save changes to '%s' before closing?"
-msgstr "是否在关闭前将更改保存到 '%s'？"
+msgstr "是否在关闭前将变更保存到 '%s'？"
 
 #: eeschema/sch_edit_frame.cpp:826
 msgid ""
@@ -14366,9 +14363,7 @@ msgid ""
 "The sheet changes cannot be made because the destination sheet already has "
 "the sheet '%s' or one of its subsheets as a parent somewhere in the "
 "schematic hierarchy."
-msgstr ""
-"该图页无法被更改，因为目标图页已经将图页 \"%s\" 或其中一个子图页作为层次结构"
-"中某处的父级图页。"
+msgstr "该图页无法被变更，因为目标图页已经将图页 \"%s\" 或其中一个子图页作为层次结构中某处的父级图页。"
 
 #: eeschema/sheet.cpp:84
 #, c-format
@@ -14805,11 +14800,11 @@ msgstr "库"
 
 #: eeschema/symbol_editor/symbol_edit_frame.cpp:226
 msgid "Library changes are unsaved"
-msgstr "库更改未保存"
+msgstr "库变更未保存"
 
 #: eeschema/symbol_editor/symbol_edit_frame.cpp:517
 msgid "Save changes to schematic before closing?"
-msgstr "是否在关闭前保存对原理图的更改？"
+msgstr "是否在关闭前保存对原理图的变更？"
 
 #: eeschema/symbol_editor/symbol_edit_frame.cpp:566
 #: eeschema/tools/sch_edit_tool.cpp:117
@@ -15013,7 +15008,7 @@ msgstr "选择符号库"
 
 #: eeschema/symbol_editor/symbol_editor.cpp:263
 msgid "The current symbol has been modified.  Save changes?"
-msgstr "当前符号已被修改。是否保存更改？"
+msgstr "当前符号已被修改。是否保存变更？"
 
 #: eeschema/symbol_editor/symbol_editor.cpp:431
 msgid "This new symbol has no name and cannot be created."
@@ -15143,7 +15138,7 @@ msgstr "将库 \"%s\" 另存为…"
 #: eeschema/symbol_editor/symbol_editor.cpp:1079
 #, c-format
 msgid "Failed to save changes to symbol library file '%s'."
-msgstr "无法将更改保存到符号库文件 '%s'。"
+msgstr "无法将变更保存到符号库文件 '%s'。"
 
 #: eeschema/symbol_editor/symbol_editor.cpp:1081
 msgid "Error Saving Library"
@@ -15530,7 +15525,7 @@ msgstr "更新符号字段..."
 
 #: eeschema/tools/ee_actions.cpp:173
 msgid "Update symbol to match changes made in parent symbol"
-msgstr "更新符号以匹配父符号中所做的任何更改"
+msgstr "更新符号以匹配父符号中所做的任何变更"
 
 #: eeschema/tools/ee_actions.cpp:178
 msgid "Add Symbol to Schematic"
@@ -15579,7 +15574,7 @@ msgid ""
 "Enabled by default for multiunit parts with interchangeable units."
 msgstr ""
 "同步引脚编辑模式\n"
-"启用后将所有更改（引脚编号除外）传播到其他单元。\n"
+"启用后将所有变更（引脚编号除外）传播到其他单元。\n"
 "默认情况下启用具有可互换单元的多单元元件。"
 
 #: eeschema/tools/ee_actions.cpp:220
@@ -15863,7 +15858,7 @@ msgstr "从库更新符号..."
 
 #: eeschema/tools/ee_actions.cpp:432
 msgid "Update symbols to include any changes from the library"
-msgstr "更新符号以包含库中的任何更改"
+msgstr "更新符号以包含库中的任何变更"
 
 #: eeschema/tools/ee_actions.cpp:438
 msgid "Assign a different symbol from the library"
@@ -15875,7 +15870,7 @@ msgstr "更新符号..."
 
 #: eeschema/tools/ee_actions.cpp:444
 msgid "Update symbol to include any changes from the library"
-msgstr "更新符号以包含库中的任何更改"
+msgstr "更新符号以包含库中的任何变更"
 
 #: eeschema/tools/ee_actions.cpp:449
 msgid "Assign Netclass..."
@@ -18032,13 +18027,13 @@ msgstr "卸载"
 
 #: kicad/pcm/dialogs/dialog_pcm.cpp:133
 msgid "Apply Changes"
-msgstr "应用更改"
+msgstr "应用变更"
 
 #: kicad/pcm/dialogs/dialog_pcm.cpp:171
 msgid ""
 "Are you sure you want to close the package manager and discard pending "
 "changes?"
-msgstr "您确定要关闭包管理器并放弃挂起的更改吗？"
+msgstr "您确定要关闭包管理器并放弃挂起的变更吗？"
 
 #: kicad/pcm/dialogs/dialog_pcm.cpp:173
 #: kicad/tools/kicad_manager_actions.cpp:117
@@ -18119,7 +18114,7 @@ msgstr "详情"
 
 #: kicad/pcm/dialogs/dialog_pcm_progress_base.h:58
 msgid "Applying Package Changes"
-msgstr "应用包更改"
+msgstr "应用插件包变更"
 
 #: kicad/pcm/dialogs/panel_package.cpp:97
 msgid "Pending install"
@@ -18535,11 +18530,11 @@ msgstr "修改文件名称"
 
 #: kicad/project_tree_pane.cpp:1151
 msgid "Network path: not monitoring folder changes"
-msgstr "网络路径：不监视文件夹更改"
+msgstr "网络路径：不监视文件夹变更"
 
 #: kicad/project_tree_pane.cpp:1156
 msgid "Local path: monitoring folder changes"
-msgstr "本地路径：监视文件夹更改"
+msgstr "本地路径：监视文件夹变更"
 
 #: kicad/tools/kicad_manager_actions.cpp:41
 msgid "New Project..."
@@ -19033,7 +19028,7 @@ msgstr "图纸文件"
 
 #: pagelayout_editor/files.cpp:61 pagelayout_editor/files.cpp:105
 msgid "The current drawing sheet has been modified. Save changes?"
-msgstr "当前图纸已被修改。保存更改？"
+msgstr "当前图纸已被修改。保存变更？"
 
 #: pagelayout_editor/files.cpp:77
 #, c-format
@@ -19116,7 +19111,7 @@ msgstr "新图纸文件未保存"
 
 #: pagelayout_editor/pl_editor_frame.cpp:913
 msgid "Drawing sheet changes are unsaved"
-msgstr "图纸更改未保存"
+msgstr "图纸变更未保存"
 
 #: pagelayout_editor/pl_editor_layout.cpp:62
 msgid "Page Width"
@@ -19235,7 +19230,6 @@ msgid "Error writing objects to clipboard"
 msgstr "将对象写入剪贴板时出错"
 
 #: pcb_calculator/attenuators/bridget_tee_formula.h:2
-#, fuzzy
 msgid ""
 "### Bridged Tee Attenuator\n"
 "___a___ is attenuation in dB<br>\n"
@@ -19247,16 +19241,17 @@ msgid ""
 "___R1 = Z<sub>0</sub> &middot; (L&minus;1)___<br>\n"
 "___R2 = Z<sub>0</sub> / (L&minus;1)___\n"
 msgstr ""
-"### 分离式衰减器\n"
-"#### 衰减是 6dB\n"
-"___Z<sub>in</sub>___ 期望的输入阻抗 &#x2126;<br>\n"
-"___Z<sub>out</sub>___ 期望的输出阻抗 &#x2126;<br>\n"
-"___Z<sub>in</sub> = Z<sub>out</sub>___\n"
+"### 桥形衰减器\n"
+"___a___ 为衰减量（单位为 dB ）<br>\n"
+"___Z<sub>in</sub>___ 为期望的输入阻抗（单位为 &#x2126; ）<br>\n"
+"___Z<sub>out</sub>___ 为期望的输出阻抗（单位为 &#x2126; ）<br>\n"
+"___Z<sub>0</sub> = Z<sub>in</sub> = Z<sub>out</sub>___\n"
 "\n"
-"___R1 = R2 = R3 = Z<sub>out</sub>/3___\n"
+"___L = 10<sup>a/20</sup>___<br>\n"
+"___R1 = Z<sub>0</sub> &middot; (L&minus;1)___<br>\n"
+"___R2 = Z<sub>0</sub> / (L&minus;1)___\n"
 
 #: pcb_calculator/attenuators/pi_formula.h:2
-#, fuzzy
 msgid ""
 "### Pi Attenuator\n"
 "___a___ is attenuation in dB<br>\n"
@@ -19270,17 +19265,17 @@ msgid ""
 "___R1 = 1 / (A/Z<sub>in</sub> &minus; 1/R2)___<br>\n"
 "___R3 = 1 / (A/Z<sub>out</sub> &minus; 1/R2)___\n"
 msgstr ""
-"### T 形衰减器\n"
-"__Zin__ 期望的输入阻抗 &#x2126;<br>\n"
-"__Zout__ 期望的输出阻抗<br>\n"
-"__Zin = Zout__<br><br>\n"
+"### &#960; 型衰减器\n"
+"___a___ 为衰减（单位为 dB ）<br>\n"
+"___Z<sub>in</sub>___ 为期望的输入阻抗（单位为 &#x2126; ）<br>\n"
+"___Z<sub>out</sub>___ 为期望的输出阻抗（单位为 &#x2126; ）<br>\n"
 "\n"
-"* __a__ 衰减（以 dB 表示）\n"
-"* __L = 10<sup>a/20</sup>__ （损失）\n"
-"* ___A = (L + 1)/(L - 1)___<br><br>\n"
-"* ___R2 = 2&radic;(L \\* Z<sub>in</sub> \\* Z<sub>out</sub> )/(L - 1)___\n"
-"* ___R1 = Z<sub>in</sub> \\* A - R2___\n"
-"* ___R3 = Z<sub>out</sub> \\* A - R2___\n"
+"___L = 10<sup>a/20</sup>___<br>\n"
+"___A = (L+1) / (L&minus;1)___<br><br>\n"
+"___R2 = (L&minus;1) / 2&middot;&radic;(Z<sub>in</sub> &middot; Z<sub>out</"
+"sub> / L)___<br>\n"
+"___R1 = 1 / (A/Z<sub>in</sub> &minus; 1/R2)___<br>\n"
+"___R3 = 1 / (A/Z<sub>out</sub> &minus; 1/R2)___\n"
 
 #: pcb_calculator/attenuators/splitter_formula.h:2
 msgid ""
@@ -19293,15 +19288,14 @@ msgid ""
 "___R1 = R2 = R3 = Z<sub>0</sub>/3___\n"
 msgstr ""
 "### 分离式衰减器\n"
-"衰减是 6dB\n"
-"___Z<sub>in</sub>___ 期望的输入阻抗 in &#x2126;\n"
-"___Z<sub>out</sub>___ 期望的输出阻抗 in&#x2126;\n"
+"衰减为 6dB\n"
+"___Z<sub>in</sub>___ 为期望的输入阻抗（单位为 &#x2126;）\n"
+"___Z<sub>out</sub>___ 为期望的输出阻抗（单位为 &#x2126;）\n"
 "___Z<sub>0</sub> = Z<sub>in</sub>= Z<sub>out</sub>___\n"
 "\n"
 "___R1 = R2 = R3 = Z<sub>0</sub>/3___\n"
 
 #: pcb_calculator/attenuators/tee_formula.h:2
-#, fuzzy
 msgid ""
 "### Tee Attenuator\n"
 "___a___ is attenuation in dB<br>\n"
@@ -19315,17 +19309,17 @@ msgid ""
 "___R1 = Z<sub>in</sub> &middot; A &minus; R2___<br>\n"
 "___R3 = Z<sub>out</sub> &middot; A &minus; R2___\n"
 msgstr ""
-"### T 形衰减器\n"
-"__Zin__ 期望的输入阻抗 &#x2126;<br>\n"
-"__Zout__ 期望的输出阻抗<br>\n"
-"__Zin = Zout__<br><br>\n"
+"### T 型衰减器\n"
+"___a___ 为衰减（单位为 dB ）<br>\n"
+"___Z<sub>in</sub>___ 为期望的输入阻抗（单位为 &#x2126; ）<br>\n"
+"___Z<sub>out</sub>___ 为期望的输出阻抗（单位为 &#x2126; ）<br>\n"
 "\n"
-"* __a__ 衰减（以 dB 表示）\n"
-"* __L = 10<sup>a/20</sup>__ （损失）\n"
-"* ___A = (L + 1)/(L - 1)___<br><br>\n"
-"* ___R2 = 2&radic;(L \\* Z<sub>in</sub> \\* Z<sub>out</sub> )/(L - 1)___\n"
-"* ___R1 = Z<sub>in</sub> \\* A - R2___\n"
-"* ___R3 = Z<sub>out</sub> \\* A - R2___\n"
+"___L = 10<sup>a/20</sup>___<br>\n"
+"___A = (L+1) / (L&minus;1)___<br><br>\n"
+"___R2 = 2&middot;&radic;(L &middot; Z<sub>in</sub> &middot; Z<sub>out</sub>) "
+"/ (L&minus;1)___<br>\n"
+"___R1 = Z<sub>in</sub> &middot; A &minus; R2___<br>\n"
+"___R3 = Z<sub>out</sub> &middot; A &minus; R2___\n"
 
 #: pcb_calculator/calculator_panels/panel_attenuators.cpp:215
 #, c-format
@@ -20061,7 +20055,7 @@ msgid ""
 msgstr ""
 "警告：\n"
 "过孔焊盘直径 >= 间隙过孔直径。\n"
-"无法计算一些参数，因覆铜区内有一个过孔。"
+"无法计算一些参数，因敷铜区内有一个过孔。"
 
 #: pcb_calculator/calculator_panels/panel_via_size_base.cpp:260
 msgid "Thermal resistance:"
@@ -20165,7 +20159,6 @@ msgid "Not worth using"
 msgstr "不值得使用"
 
 #: pcb_calculator/eserie_help.h:2
-#, fuzzy
 msgid ""
 "E-series are defined in IEC 60063.\n"
 "\n"
@@ -20193,22 +20186,23 @@ msgid ""
 "\tR1 | R2 |...| Rn\tresistors in parallel\n"
 "\tR1 + (R2|R3)...\t\tany combination of the above\n"
 msgstr ""
-"在 IEC (国际电工委员会) 60063 中定义的 E 系列是一种被\n"
-"广泛接受的电子元器件首选编号系统。可用值在对数刻度\n"
-"上近似等距。\n"
+"E 系列是在 IEC (国际电工委员会) 60063 中定义的。\n"
 "\n"
-"\tE12: 1.0  1.2  1.5  1.8  2.2  2.7  3.3  3.9  4.7  5.6  6.8  8.2\n"
-"\tE6:  1.0   -   1.5   -   2.2   -   3.3   -   4.7   -   6.8   -\n"
-"\tE3:  1.0   -    -    -   2.2   -    -    -   4.7   -    -    -\n"
-"\tE1:  1.0   -    -    -    -    -    -    -    -    -    -    -\n"
+"可用值在对数刻度上近似等距。\n"
 "\n"
-"此计算器查找标准 E 系列元件的组合来\n"
-"创建任意值。您可以输入所需的电阻，范围从0.0025 到 4000 kΩ。\n"
-"给出的解决方案使用多达 4 个元件。\n"
+"\tE24(5%):  1.0 1.1 1.2 1.3 1.5 1.6 1.8 2.0 2.2 2.4 2.7 3.0 3.3 3.6 3.9 4.3 "
+"4.7 5.1 5.6 6.2 6.8 7.5 8.2 9.1\n"
+"\tE12(10%): 1.0 1.2 1.5 1.8 2.2 2.7 3.3 3.9 4.7 5.6 6.8 8.2\n"
+"\tE6(20%):  1.0  -  1.5  -  2.2  -  3.3  -  4.7  -  6.8  -\n"
+"\tE3(50%):  1.0  -   -   -  2.2  -   -   -  4.7  -   -   -\n"
+"\tE1     :  1.0  -   -   -   -   -   -   -   -   -   -   -\n"
 "\n"
-"默认情况下，请求值总是被排除在解决方案集之外。也可以指定将最多两个额外的值排"
-"除在解决方案之外，前提是\n"
-"这些组件值不可用。\n"
+"- 这个计算器可以查找标准 E 系列 (在 10 Ω 和 1 MΩ 之间) 的组合以创建任意的数值。\n"
+"- 您可以输入0.0025 到 4000 kΩ之间所需的电阻。\n"
+"- 给出了最多使用 4 个元件的解决方案。\n"
+"\n"
+"所要求的值总是被排除在解决方案集之外。<br>\n"
+"如果出现元件可用性问题，最多可以排除两个额外的值。\n"
 "\n"
 "解决方案依照下列格式提供：\n"
 "\n"
@@ -20259,7 +20253,7 @@ msgid ""
 "Do you want to exit and abandon your changes?"
 msgstr ""
 "没有要保存修改的数据文件名。\n"
-"是否要退出并放弃更改？"
+"是否要退出并放弃变更？"
 
 #: pcb_calculator/pcb_calculator_frame.cpp:256
 #, c-format
@@ -20268,10 +20262,9 @@ msgid ""
 "Do you want to exit and abandon your changes?"
 msgstr ""
 "无法写入文件 \"%s\"\n"
-"是否要退出并放弃修改？"
+"是否要退出并放弃变更？"
 
 #: pcb_calculator/tracks_width_versus_current_formula.h:2
-#, fuzzy
 msgid ""
 "If you specify the maximum current, then the trace widths will be calculated "
 "to suit.\n"
@@ -20298,21 +20291,21 @@ msgid ""
 msgstr ""
 "如果你指定最大电流，则会计算相应的布线宽度。\n"
 "\n"
-"如果你指定其中一个布线宽度，则将计算它可以处理的最大电流。然后将计算另外的同"
-"样处理此电流的布线宽度。\n"
+"如果你指定其中一个布线宽度，则将计算它可以处理的最大电流。然后将计算另外的同样处理此电流的布线宽度。\n"
 "\n"
 "控制值以粗体显示。\n"
 "\n"
-"计算适用于最大 35A（外部）或 17.5A（内部）的电流、最多 100 摄氏度的气温上升和"
-"最多 400mil（10mm）的宽度。\n"
+"计算适用于最大 35A（外部）或 17.5A（内部）的电流、高达 100 °C的温升和最多 400mil（10mm）的宽度。\n"
 "\n"
 "来自 IPC 2221的该公式，为\n"
-"<center>__I = K * dT<sup>0.44</sup> * (W*H)<sup>0.725</sup>__</center>\n"
+"<center>___I = K &sdot; &Delta;T<sup>0.44</sup> &sdot; (W &sdot; H)<sup>0."
+"725</sup>___</center>  \n"
 "其中： \n"
-"__I__ = 最大电流（单位：安培） \n"
-"__dt__ = 环境温度温升（单位：摄氏度） \n"
-"__W，H__ = 布线的宽度和厚度 （单位：密耳）\n"
-"__K__ = 0.024 用于内部布线，0.048 用于外部布线\n"
+"__I__ = 最大电流（单位：A 安培） \n"
+"__&Delta;T__ = 环境温度温升（单位：°C 摄氏度） \n"
+"__W__ = 布线的宽度 （单位：mil 密耳）\n"
+"__H__ = 布线的厚度 （单位：mil 密耳）\n"
+"__K__ = 0.024 用于内部布线，0.048 用于外部布线  \n"
 
 #: pcb_calculator/transline_dlg_funct.cpp:140
 msgid "Dielectric Loss Factor"
@@ -21141,7 +21134,7 @@ msgstr "供应商和参考"
 
 #: pcbnew/cleanup_item.cpp:46 pcbnew/zone_filler.cpp:95
 msgid "Checking zone fills..."
-msgstr "检查覆铜填充..."
+msgstr "检查敷铜填充..."
 
 #: pcbnew/cleanup_item.cpp:47
 msgid "Remove track shorting two nets"
@@ -21258,7 +21251,7 @@ msgstr "PCB 已重新批注成功"
 msgid ""
 "PCB annotation changes should be synchronized with schematic using the "
 "\"Update Schematic from PCB\" tool."
-msgstr "应使用\"从 PCB 更新原理图\"工具对 PCB 注释和原理图进行同步。"
+msgstr "应使用\"从 PCB 更新原理图\"工具对 PCB 注释和原理图进行同步变更。"
 
 #: pcbnew/dialogs/dialog_board_reannotate.cpp:313
 #, c-format
@@ -22093,15 +22086,15 @@ msgstr "通过焊盘数进行网络分类"
 
 #: pcbnew/dialogs/dialog_copper_zones_base.cpp:95
 msgid "Zone name:"
-msgstr "覆铜名称："
+msgstr "敷铜名称："
 
 #: pcbnew/dialogs/dialog_copper_zones_base.cpp:97
 msgid "A unique name for this zone to identify it for DRC"
-msgstr "此覆铜的唯一名称，用于在 DRC 中对其进行标识"
+msgstr "此敷铜的唯一名称，用于在 DRC 中对其进行标识"
 
 #: pcbnew/dialogs/dialog_copper_zones_base.cpp:104
 msgid "Zone priority level:"
-msgstr "覆铜优先级："
+msgstr "敷铜优先级："
 
 #: pcbnew/dialogs/dialog_copper_zones_base.cpp:106
 msgid ""
@@ -22111,9 +22104,9 @@ msgid ""
 "* If its priority is higher, its outlines are removed from the other zone.\n"
 "* If its priority is equal, a DRC error is set."
 msgstr ""
-"覆铜按优先级填充，级别 3 优先级高于级别 2。\n"
-"当覆铜位于另一个覆铜内时：\n"
-"* 如果优先级较高，则其轮廓将从其他覆铜中删除。\n"
+"敷铜按优先级填充，级别 3 优先级高于级别 2。\n"
+"当敷铜位于另一个敷铜内时：\n"
+"* 如果优先级较高，则其轮廓将从其他敷铜中删除。\n"
 "* 如果其优先级相等，则设置 DRC 错误。"
 
 #: pcbnew/dialogs/dialog_copper_zones_base.cpp:127
@@ -22235,17 +22228,17 @@ msgstr "实心填充"
 #: pcbnew/dialogs/dialog_copper_zones_base.cpp:276
 #: pcbnew/dialogs/dialog_non_copper_zones_properties_base.cpp:120
 msgid "Hatch pattern"
-msgstr "阴影图案"
+msgstr "网状图案"
 
 #: pcbnew/dialogs/dialog_copper_zones_base.cpp:293
 #: pcbnew/dialogs/dialog_non_copper_zones_properties_base.cpp:140
 msgid "Hatch width:"
-msgstr "阴影宽度："
+msgstr "网格宽度："
 
 #: pcbnew/dialogs/dialog_copper_zones_base.cpp:304
 #: pcbnew/dialogs/dialog_non_copper_zones_properties_base.cpp:151
 msgid "Hatch gap:"
-msgstr "阴影间隙："
+msgstr "网格间隙："
 
 #: pcbnew/dialogs/dialog_copper_zones_base.cpp:315
 #: pcbnew/dialogs/dialog_non_copper_zones_properties_base.cpp:162
@@ -22305,17 +22298,17 @@ msgstr "小于此的孤铜将被移除"
 
 #: pcbnew/dialogs/dialog_copper_zones_base.cpp:381
 msgid "Export Settings to Other Zones"
-msgstr "导出设置到其他覆铜"
+msgstr "导出设置到其他敷铜"
 
 #: pcbnew/dialogs/dialog_copper_zones_base.cpp:382
 msgid ""
 "Export this zone setup (excluding layer and net selection) to all other "
 "copper zones."
-msgstr "导出该覆铜设置 (除层和网络选择) 到所有其它覆铜区。"
+msgstr "导出该敷铜设置 (除层和网络选择) 到所有其它敷铜区。"
 
 #: pcbnew/dialogs/dialog_copper_zones_base.h:139
 msgid "Copper Zone Properties"
-msgstr "覆铜区属性"
+msgstr "敷铜区属性"
 
 #: pcbnew/dialogs/dialog_create_array.cpp:134
 msgid "Numerals (0,1,2,...,9,10)"
@@ -22875,7 +22868,7 @@ msgstr "不运行"
 
 #: pcbnew/dialogs/dialog_drc_base.cpp:27
 msgid "Refill all zones before performing DRC"
-msgstr "在执行 DRC 之前重新填充所有覆铜"
+msgstr "在执行 DRC 之前重新填充所有敷铜"
 
 #: pcbnew/dialogs/dialog_drc_base.cpp:30
 msgid "Report all errors for each track"
@@ -22989,8 +22982,7 @@ msgid ""
 "or the user made changes to the library footprint and wants to propagate "
 "them back to the PCB."
 msgstr ""
-"更新/重置字符串：在两种情况下，这些描述需要涉及：用户对PCB的封装进行覆盖，并"
-"希望将其删除；或者用户对库的封装进行了更改，并希望将其传播回PCB。"
+"更新/重置字符串：在两种情况下，这些描述需要涉及：用户对 PCB 的封装进行覆盖，并希望将其删除；或者用户对库的封装进行了变更，并希望将其传播回PCB。"
 
 #: pcbnew/dialogs/dialog_exchange_footprints.cpp:375
 #, c-format
@@ -23395,7 +23387,7 @@ msgstr "包含过孔 (&V)"
 
 #: pcbnew/dialogs/dialog_filter_selection_base.cpp:51
 msgid "Include &zones"
-msgstr "包含覆铜 (&Z)"
+msgstr "包含敷铜 (&Z)"
 
 #: pcbnew/dialogs/dialog_filter_selection_base.h:59
 msgid "Filter Selected Items"
@@ -23752,17 +23744,17 @@ msgstr "注意：添加焊膏间隙（绝对和相对）以确定最终间隙。
 #: pcbnew/dialogs/dialog_footprint_properties_fp_editor_base.cpp:300
 #: pcbnew/dialogs/dialog_pad_properties_base.cpp:703
 msgid "Connection to Copper Zones"
-msgstr "连接到覆铜区"
+msgstr "连接到敷铜区"
 
 #: pcbnew/dialogs/dialog_footprint_properties_base.cpp:402
 #: pcbnew/dialogs/dialog_footprint_properties_fp_editor_base.cpp:302
 msgid "Pad connection to zones:"
-msgstr "焊盘连接到覆铜："
+msgstr "焊盘连接到敷铜："
 
 #: pcbnew/dialogs/dialog_footprint_properties_base.cpp:406
 #: pcbnew/dialogs/dialog_footprint_properties_fp_editor_base.cpp:306
 msgid "Use zone setting"
-msgstr "使用覆铜设置"
+msgstr "使用敷铜设置"
 
 #: pcbnew/dialogs/dialog_footprint_properties_base.cpp:406
 #: pcbnew/dialogs/dialog_footprint_properties_fp_editor_base.cpp:306
@@ -24230,7 +24222,7 @@ msgstr "删除项"
 #: pcbnew/widgets/appearance_controls.cpp:338
 #: pcbnew/widgets/panel_selection_filter_base.cpp:53
 msgid "Zones"
-msgstr "覆铜"
+msgstr "敷铜"
 
 #: pcbnew/dialogs/dialog_global_deletion_base.cpp:31
 msgid "Board outlines"
@@ -24848,7 +24840,7 @@ msgstr "网表文件不存在。"
 #: pcbnew/dialogs/dialog_netlist.cpp:153
 #: pcbnew/dialogs/dialog_update_pcb.cpp:138
 msgid "Changes Applied to PCB"
-msgstr "更改已应用于 PCB"
+msgstr "变更已应用于 PCB"
 
 #: pcbnew/dialogs/dialog_netlist.cpp:219
 #, c-format
@@ -24914,7 +24906,7 @@ msgstr "程度"
 
 #: pcbnew/dialogs/dialog_non_copper_zones_properties_base.h:84
 msgid "Non Copper Zones Properties"
-msgstr "非覆铜区属性"
+msgstr "非敷铜区属性"
 
 #: pcbnew/dialogs/dialog_pad_basicshapes_properties.cpp:136
 msgid "Ring"
@@ -25497,7 +25489,7 @@ msgstr "防散热导线宽度："
 
 #: pcbnew/dialogs/dialog_pad_properties_base.cpp:746
 msgid "Custom pad shape in zone:"
-msgstr "覆铜中的自定义焊盘形状："
+msgstr "敷铜中的自定义焊盘形状："
 
 #: pcbnew/dialogs/dialog_pad_properties_base.cpp:750
 msgid "Use pad shape"
@@ -25722,7 +25714,7 @@ msgstr "负片绘制"
 
 #: pcbnew/dialogs/dialog_plot_base.cpp:149
 msgid "Check zone fills before plotting"
-msgstr "在绘制之前检查覆铜填充"
+msgstr "在绘制之前检查敷铜填充"
 
 #: pcbnew/dialogs/dialog_plot_base.cpp:169
 msgid "Global solder mask minimum width and/or margin are not set to 0. "
@@ -26398,7 +26390,7 @@ msgstr "禁止敷铜"
 
 #: pcbnew/dialogs/dialog_rule_area_properties_base.cpp:64
 msgid "Zones will not fill copper into this area"
-msgstr "覆铜时不会将铜填充到该区域以内"
+msgstr "敷铜时不会将铜填充到该区域以内"
 
 #: pcbnew/dialogs/dialog_rule_area_properties_base.cpp:68
 msgid "Keep out footprints"
@@ -26553,7 +26545,7 @@ msgstr "通过网自动更新"
 msgid ""
 "Automatically change the net of this via when the pads or zones it touches "
 "are changed"
-msgstr "当它接触的焊盘或覆铜更改时自动更改这个过孔的网络"
+msgstr "当它接触的焊盘或敷铜更改时自动更改这个过孔的网络"
 
 #: pcbnew/dialogs/dialog_track_via_properties_base.cpp:60
 msgid "Start point X:"
@@ -26703,9 +26695,7 @@ msgid ""
 "Normally footprints on the board should be changed to match footprint "
 "assignment changes made in the schematic. Uncheck this only if you don't "
 "want to change existing footprints on the board."
-msgstr ""
-"通常应更改线路板上的封装，以匹配原理图中所做的封装关联更改。仅当您不想更改线"
-"路板上的现有封装时，才取消选中此选项。"
+msgstr "通常应变更线路板上的封装，以匹配原理图中所做的封装关联变更。仅当您不想变更线路板上的现有封装时，才取消选中此选项。"
 
 #: pcbnew/dialogs/dialog_update_pcb_base.h:53
 msgid "Update PCB from Schematic"
@@ -27153,11 +27143,11 @@ msgstr ""
 #: pcbnew/dialogs/panel_setup_constraints_base.cpp:86
 #, c-format
 msgid "Note: zone filling can be slow when < %s."
-msgstr "注：< %s 时覆铜填充可能会变慢。"
+msgstr "注：< %s 时敷铜填充可能会变慢。"
 
 #: pcbnew/dialogs/panel_setup_constraints_base.cpp:98
 msgid "Zone fill strategy"
-msgstr "覆铜填充策略"
+msgstr "敷铜填充策略"
 
 #: pcbnew/dialogs/panel_setup_constraints_base.cpp:111
 msgid "Mimic legacy behavior"
@@ -27179,11 +27169,11 @@ msgstr "平滑多边形 (最佳性能)"
 msgid ""
 "Better performance, exact export fidelity, and more complete filling near "
 "higher-priority zones."
-msgstr "更好的性能、精确的导出保真度，以及在较高优先级覆铜附近更完整的填充。"
+msgstr "更好的性能、精确的导出保真度，以及在较高优先级敷铜附近更完整的填充。"
 
 #: pcbnew/dialogs/panel_setup_constraints_base.cpp:134
 msgid "Allow fillets outside zone outline"
-msgstr "允许圆角超出覆铜轮廓"
+msgstr "允许圆角超出敷铜轮廓"
 
 #: pcbnew/dialogs/panel_setup_constraints_base.cpp:149
 msgid "Length tuning"
@@ -28030,7 +28020,7 @@ msgstr "注意：添加锡膏间隙（绝对和相对）以确定最终间隙。
 
 #: pcbnew/dialogs/panel_setup_rules.cpp:86
 msgid "Cancel Changes?"
-msgstr "取消更改吗？"
+msgstr "取消变更吗？"
 
 #: pcbnew/dialogs/panel_setup_rules.cpp:422
 msgid "DRC rules"
@@ -28054,7 +28044,6 @@ msgid "Check rule syntax"
 msgstr "检查规则语法"
 
 #: pcbnew/dialogs/panel_setup_rules_help_md.h:2
-#, fuzzy
 msgid ""
 "### Top-level Clauses\n"
 "\n"
@@ -28263,83 +28252,121 @@ msgid ""
 "        (constraint clearance (min \"1.5mm\"))\n"
 "        (condition \"A.inDiffPair('*') && !AB.isCoupledDiffPair()\"))\n"
 msgstr ""
+"### Top-level Clauses\n"
 "### 顶层语句\n"
 "\n"
-"    版本语句：(version <版本号>)\n"
+"    (version <number>)\n"
+"#    版本语句：(version <版本号>)\n"
 "\n"
 "\n"
-"    规则语句：(rule <规则名> <规则语句> ...)\n"
+"    (rule <rule_name> <rule_clause> ...)\n"
+"#    规则语句：(rule <规则名> <规则语句> ...)\n"
 "\n"
 "\n"
 "<br><br>\n"
 "\n"
+"### Rule Clauses\n"
 "### 规则语句\n"
 "\n"
-"    约束语句：(constraint <约束类型> ...)\n"
+"    (constraint <constraint_type> ...)\n"
+"#    约束语句：(constraint <约束类型> ...)\n"
 "\n"
-"    条件语句：(condition \"<条件表达式>\")\n"
+"    (condition \"<expression>\")\n"
+"#    条件语句：(condition \"<条件表达式>\")\n"
 "\n"
-"    层语句：(layer \"<层名>\")\n"
+"    (layer \"<layer_name>\")\n"
+"#    层语句：(layer \"<层名>\")\n"
 "\n"
 "\n"
 "<br><br>\n"
 "\n"
+"### Constraint Types\n"
 "### 约束类型\n"
 "\n"
-" * annular_width （孔铜环宽度）\n"
-" * clearance （间隙）\n"
-" * courtyard_clearance （封装外框之间的间隙）\n"
-" * diff\\_pair\\_gap （差分对间隙）\n"
+" * annular\\_width\n"
+"# （孔铜环宽度）\n"
+" * clearance\n"
+"# （间隙）\n"
+" * courtyard_clearance\n"
+"# （封装外框之间的间隙）\n"
+" * diff\\_pair\\_gap\n"
+"# （差分对间隙）\n"
 " * diff\\_pair\\_uncoupled\n"
-" * disallow （不允许）\n"
-" * edge_clearance （与板边的间隙）\n"
-" * length （长度）\n"
-" * hole （孔）\n"
-" * hole_clearance （与孔的间隙）\n"
-" * silk_clearance （与丝印的间隙）\n"
-" * skew （偏移）\n"
-" * track_width （线宽）\n"
-" * via_count （过孔个数）\n"
+"# （对布线从该对中的另一个极性布线解耦的距离）\n"
+" * disallow\n"
+"# （不允许）\n"
+" * edge\\_clearance\n"
+"# （与板边的间隙）\n"
+" * length\n"
+"# （长度）\n"
+" * hole\n"
+"# （通孔）\n"
+" * hole\\_clearance\n"
+"# （与通孔的间隙）\n"
+" * silk\\_clearance\n"
+"# （与丝印的间隙）\n"
+" * skew\n"
+"# （总偏差）\n"
+" * track\\_width\n"
+"# （布线线宽）\n"
+" * via\\_count\n"
+"# （过孔个数）\n"
 "\n"
 "\n"
 "<br><br>\n"
 "\n"
+"### Item Types\n"
 "### 电路板元素类型\n"
 "\n"
-" * buried_via （埋孔）\n"
-" * graphic （图形）\n"
-" * hole （通孔）\n"
-" * micro_via （微孔）\n"
-" * pad （焊盘）\n"
-" * text （文字）\n"
-" * track （布线）\n"
-" * via （过孔）\n"
-" * zone （区域）\n"
+" * buried_via\n"
+"# （埋孔）\n"
+" * graphic\n"
+"# （图形）\n"
+" * hole\n"
+"# （通孔）\n"
+" * micro_via\n"
+"# （微孔）\n"
+" * pad\n"
+"# （焊盘）\n"
+" * text\n"
+"# （文本）\n"
+" * track\n"
+"# （布线）\n"
+" * via\n"
+"# （过孔）\n"
+" * zone\n"
+"# （敷铜）\n"
 "\n"
 "<br>\n"
 "\n"
+"### Examples\n"
 "### 范例\n"
 "\n"
 "    (version 1)\n"
 "\n"
-"    (rule 高压间距\n"
+"    (rule HV\n"
+"#    (rule 高压间距\n"
 "       (constraint clearance (min 1.5mm))\n"
 "       (condition \"A.NetClass == 'HV'\"))\n"
 "\n"
 "\n"
-"    (rule 外层高压间距\n"
+"    (rule HV\n"
+"#    (rule 外层高压间距\n"
 "       (layer outer)\n"
 "       (constraint clearance (min 1.5mm))\n"
 "       (condition \"A.NetClass == 'HV'\"))\n"
 "\n"
 "\n"
-"    (rule 高压之间间距\n"
+"    (rule HV_HV\n"
+"#    (rule 高压之间间距\n"
+"       # wider clearance between HV tracks\n"
 "       # 高压线路之间间距应该更大\n"
 "       (constraint clearance (min \"1.5mm + 2.0mm\"))\n"
 "       (condition \"A.NetClass == 'HV' && B.NetClass == 'HV'\"))\n"
 "\n"
 "\n"
-"    (rule 无护罩高压线路\n"
+"    (rule HV_unshielded\n"
+"#    (rule 无护罩高压线路\n"
 "       (constraint clearance (min 2mm))\n"
 "       (condition \"A.NetClass == 'HV' && !A.insideArea('Shield*')\"))\n"
 "<br><br>\n"
@@ -28355,12 +28382,14 @@ msgstr ""
 "使用 Ctrl+/ 来对选中的行添加或取消注释。\n"
 "<br><br><br>\n"
 "\n"
+"### Expression functions\n"
 "### 表达式函数\n"
 "\n"
 "函数的参数均支持简单的通配符（`*` 和 `?`）。\n"
 "<br><br>\n"
 "\n"
-"    A.insideCourtyard('<封装标号>')\n"
+"    A.insideCourtyard('<footprint_refdes>')\n"
+"#    A.insideCourtyard('<封装位号>')\n"
 "若 `A` 的任何部分落在指定封装的主要外框中，则为真。\n"
 "<br><br>\n"
 "\n"
@@ -28373,14 +28402,15 @@ msgstr ""
 "<br><br>\n"
 "\n"
 "    A.insideArea('<zone_name>')\n"
-"若 `A` 的任何部分落在指定区域中，则为真。\n"
+"若 `A` 的任何部分落在指定敷铜中，则为真。\n"
 "<br><br>\n"
 "\n"
 "    A.isPlated()\n"
 "若 `A` 含/是铜孔，则为真。\n"
 "<br><br>\n"
 "\n"
-"    A.inDiffPair('<网络名>')\n"
+"    A.inDiffPair('<net_name>')\n"
+"#    A.inDiffPair('<网络名>')\n"
 "若 `A` 含有指定差分对的网络，则为真。\n"
 "`<网络名>` 是指定差分对的基础名称。例如， `inDiffPair('CLK')`\n"
 "matches items in the `CLK_P` and `CLK_N` nets.\n"
@@ -28390,11 +28420,13 @@ msgstr ""
 "若 `A` 和 `B` 分别具有同一差分对的两个网络，则为真。\n"
 "<br><br>\n"
 "\n"
-"    A.memberOf('<组名>')\n"
+"    A.memberOf('<group_name>')\n"
+"#    A.memberOf('<组名>')\n"
 "若 `A` 是指定组中的成员，则为真。组内嵌套的组也包括在内。\n"
 "<br><br>\n"
 "\n"
-"    A.existsOnLayer('<层名>')\n"
+"    A.existsOnLayer('<layer_name>')\n"
+"#    A.existsOnLayer('<层名>')\n"
 "若 `A` 在指定的层中，则为真。层名可以是“电路板设置 >\n"
 "电路板编辑图层”菜单中指定的名称，也可以是内部最简名称\n"
 "（如 `F.Cu`）。\n"
@@ -28407,62 +28439,76 @@ msgstr ""
 "\n"
 "### 更多的范例\n"
 "\n"
-"    (rule \"禁止铜区\"\n"
+"    (rule \"copper keepout\"\n"
+"#    (rule \"禁止铜区\"\n"
 "       (constraint disallow track via zone)\n"
 "       (condition \"A.insideArea('zone3')\"))\n"
 "\n"
 "\n"
-"    (rule \"BGA 加粗\"\n"
+"    (rule \"BGA neckdown\"\n"
+"#    (rule \"BGA 加粗\"\n"
 "       (constraint track_width (min 0.2mm) (opt 0.25mm))\n"
 "       (constraint clearance (min 0.05mm) (opt 0.08mm))\n"
 "       (condition \"A.insideCourtyard('U3')\"))\n"
 "\n"
 "\n"
+"    # prevent silk over tented vias\n"
 "    # 禁止盖油过孔上印字\n"
 "    (rule silk_over_via\n"
 "       (constraint silk_clearance (min 0.2mm))\n"
 "       (condition \"A.Type == '*Text' && B.Type == 'Via'\"))\n"
 "\n"
 "\n"
-"    (rule \"不同网络的过孔的间距\"  \n"
+"    (rule \"Distance between Vias of Different Nets\"  \n"
+"#    (rule \"不同网络的过孔的间距\"  \n"
 "        (constraint hole_to_hole (min 0.254mm))\n"
 "        (condition \"A.Type =='Via' && B.Type =='Via' && A.Net != B.Net\"))\n"
 "\n"
-"    (rule \"不同网络的焊盘的间距\"  \n"
+"    (rule \"Clearance between Pads of Different Nets\"  \n"
+"#    (rule \"不同网络的焊盘的间距\"  \n"
 "        (constraint clearance (min 3.0mm))\n"
 "        (condition \"A.Type =='Pad' && B.Type =='Pad' && A.Net != B.Net\"))\n"
 "\n"
 "\n"
-"    (rule \"过孔到焊盘的间距\"  \n"
+"    (rule \"Via Hole to Track Clearance\"  \n"
+"#    (rule \"过孔到焊盘的间距\"  \n"
 "        (constraint hole_clearance (min 0.254mm))\n"
 "        (condition \"A.Type =='Via' && B.Type =='Track'\"))\n"
 "    \n"
-"    (rule \"焊盘到导线的间距\"  \n"
+"    (rule \"Pad to Track Clearance\"  \n"
+"#    (rule \"焊盘到导线的间距\"  \n"
 "        (constraint clearance (min 0.2mm))\n"
 "        (condition \"A.Type =='Pad' && B.Type =='Track'\"))\n"
 "\n"
 "\n"
-"    (rule \"1mm宽开槽周围的间距\"\n"
+"    (rule \"clearance-to-1mm-cutout\"\n"
+"#    (rule \"1mm宽开槽周围的间距\"\n"
 "        (constraint clearance (min 0.8mm))\n"
 "        (condition \"A.Layer=='Edge.Cuts' && A.Thickness == 1.0mm\"))\n"
 "\n"
 "\n"
-"    (rule \"最大机械孔孔径\"  \n"
+"    (rule \"Max Drill Hole Size Mechanical\"  \n"
+"#    (rule \"最大机械孔孔径\"  \n"
 "        (constraint hole (max 6.3mm))\n"
 "        (condition \"A.Pad_Type == 'NPTH, mechanical'\"))\n"
 "    \n"
-"    (rule \"最大铜孔孔径\"  \n"
+"    (rule \"Max Drill Hole Size PTH\"  \n"
+"#    (rule \"最大铜孔孔径\"  \n"
 "        (constraint hole (max 6.35mm))\n"
 "        (condition \"A.Pad_Type == 'Through-hole'\"))\n"
 "\n"
 "\n"
+"    # Specify an optimal gap for a particular diff-pair\n"
 "    # 给单独的差分对设置最优（opt）间距\n"
-"    (rule \"CLK信号间距\"\n"
+"    (rule \"dp clock gap\"\n"
+"#    (rule \"差分对信号间距\"\n"
 "        (constraint diff_pair_gap (opt \"0.8mm\"))\n"
 "        (condition \"A.inDiffPair('CLK') && AB.isCoupledDiffPair()\"))\n"
 "\n"
+"    # Specify a larger clearance around any diff-pair\n"
 "    # 给任意差分对周围扩大间距\n"
-"    (rule \"差分对外间距\"\n"
+"    (rule \"dp clearance\"\n"
+"#    (rule \"差分对外间距\"\n"
 "        (constraint clearance (min \"1.5mm\"))\n"
 "        (condition \"A.inDiffPair('*') && !AB.isCoupledDiffPair()\"))\n"
 
@@ -28589,7 +28635,7 @@ msgstr "添加禁布区 '%s'"
 
 #: pcbnew/drc/drc_engine.cpp:694
 msgid "Tessellating copper zones..."
-msgstr "细分覆铜区..."
+msgstr "细分敷铜区..."
 
 #: pcbnew/drc/drc_engine.cpp:795 pcbnew/drc/drc_engine.cpp:810
 #, c-format
@@ -28747,11 +28793,11 @@ msgstr "电路板边缘间隙违规"
 
 #: pcbnew/drc/drc_item.cpp:78
 msgid "Copper areas intersect"
-msgstr "覆铜区交叉"
+msgstr "敷铜区交叉"
 
 #: pcbnew/drc/drc_item.cpp:82
 msgid "Copper zone net has no pads"
-msgstr "覆铜区没有焊盘连接"
+msgstr "敷铜区没有焊盘连接"
 
 #: pcbnew/drc/drc_item.cpp:86
 msgid "Via is not connected or connected on only one layer"
@@ -29013,7 +29059,7 @@ msgstr "(%s 最大环形宽度 %s；实际 %s)"
 
 #: pcbnew/drc/drc_test_provider_connectivity.cpp:75
 msgid "Checking pad, via and zone connections..."
-msgstr "正在检查焊盘、过孔和覆铜连接..."
+msgstr "正在检查焊盘、过孔和敷铜连接..."
 
 #: pcbnew/drc/drc_test_provider_connectivity.cpp:149
 msgid "Checking net connections..."
@@ -29041,11 +29087,11 @@ msgstr "正在检查焊盘..."
 
 #: pcbnew/drc/drc_test_provider_copper_clearance.cpp:241
 msgid "Checking copper zone clearances..."
-msgstr "正在检查覆铜区间隙..."
+msgstr "正在检查敷铜区间隙..."
 
 #: pcbnew/drc/drc_test_provider_copper_clearance.cpp:248
 msgid "Checking zones..."
-msgstr "正在检查覆铜..."
+msgstr "正在检查敷铜..."
 
 #: pcbnew/drc/drc_test_provider_copper_clearance.cpp:311
 #: pcbnew/drc/drc_test_provider_copper_clearance.cpp:358
@@ -29272,12 +29318,12 @@ msgstr "(%s 最大直径 %s; 实际 %s)"
 
 #: pcbnew/edit_zone_helpers.cpp:86 pcbnew/edit_zone_helpers.cpp:152
 msgid "Modify zone properties"
-msgstr "修改覆铜属性"
+msgstr "修改敷铜属性"
 
 #: pcbnew/edit_zone_helpers.cpp:137
 #, c-format
 msgid "Refill %d Zones"
-msgstr "重新填充 %d 覆铜"
+msgstr "重新填充 %d 敷铜"
 
 #: pcbnew/exporters/export_d356.cpp:376
 msgid "Export D-356 Test File"
@@ -29434,7 +29480,7 @@ msgstr "确定加载恢复文件 \"%s\" 吗？"
 #: pcbnew/files.cpp:376
 #, c-format
 msgid "Current board will be closed, save changes to '%s' before continuing?"
-msgstr "当前电路板将被关闭，是否在继续之前保存对 \"%s\" 的更改？"
+msgstr "当前电路板将被关闭，是否在继续之前保存对 \"%s\" 的变更？"
 
 #: pcbnew/files.cpp:390
 msgid "Current Board will be closed. Continue?"
@@ -29447,10 +29493,8 @@ msgid ""
 "This may result in different fills from previous KiCad versions which used "
 "the line thicknesses of the board boundary on the Edge Cuts layer."
 msgstr ""
-"如果此电路板上的覆铜被重新填充，将应用铜边缘间隙设置 （见电路板配置 > 设计规"
-"则 >限制）。\n"
-"这可能导致来自先前 KiCad 版本的不同填充，这些版本会将电路板边缘的线粗细用于 "
-"Edge Cuts 层。"
+"如果此电路板上的敷铜被重新填充，将应用铜边缘间隙设置 （见电路板配置 > 设计规则 >限制）。\n"
+"这可能导致来自先前 KiCad 版本的不同填充，这些版本会将电路板边缘的线粗细用于 Edge Cuts 层。"
 
 #: pcbnew/files.cpp:549
 msgid "Edge Clearance Warning"
@@ -29463,7 +29507,7 @@ msgstr "PCB \"%s\" 已经打开。"
 
 #: pcbnew/files.cpp:588
 msgid "The current PCB has been modified.  Save changes?"
-msgstr "当前 PCB 已被修改。是否保存更改？"
+msgstr "当前 PCB 已被修改。是否保存变更？"
 
 #: pcbnew/files.cpp:610
 #, c-format
@@ -29654,7 +29698,7 @@ msgstr "选择筛选器"
 
 #: pcbnew/footprint_edit_frame.cpp:299
 msgid "Footprint changes are unsaved"
-msgstr "封装更改未保存"
+msgstr "封装变更未保存"
 
 #: pcbnew/footprint_edit_frame.cpp:506
 #, c-format
@@ -29684,7 +29728,7 @@ msgstr "封装图像文件名称"
 
 #: pcbnew/footprint_editor_utils.cpp:220
 msgid "Edit Zone"
-msgstr "编辑覆铜"
+msgstr "编辑敷铜"
 
 #: pcbnew/footprint_editor_utils.cpp:294
 #, c-format
@@ -30090,7 +30134,7 @@ msgstr "当前电路板将丢失，此操作无法撤消。继续吗？"
 
 #: pcbnew/initpcb.cpp:109 pcbnew/tools/footprint_editor_control.cpp:189
 msgid "The current footprint has been modified.  Save changes?"
-msgstr "当前封装已被修改。是否保存更改？"
+msgstr "当前封装已被修改。是否保存变更？"
 
 #: pcbnew/io_mgr.cpp:89
 #, c-format
@@ -30529,32 +30573,32 @@ msgstr "过孔连接到未知网络 (%s)。"
 #: pcbnew/netlist_reader/board_netlist_updater.cpp:704
 #, c-format
 msgid "Reconnect copper zone '%s' from %s to %s."
-msgstr "将覆铜区 '%s' 从 %s 重新连接到 %s。"
+msgstr "将敷铜区 '%s' 从 %s 重新连接到 %s。"
 
 #: pcbnew/netlist_reader/board_netlist_updater.cpp:711
 #, c-format
 msgid "Reconnect copper zone from %s to %s."
-msgstr "将覆铜区 %s 重新连接到 %s。"
+msgstr "将敷铜区 %s 重新连接到 %s。"
 
 #: pcbnew/netlist_reader/board_netlist_updater.cpp:732
 #, c-format
 msgid "Reconnected copper zone '%s' from %s to %s."
-msgstr "将覆铜区 '%s' 从 %s 重新连接到了 %s。"
+msgstr "将敷铜区 '%s' 从 %s 重新连接到了 %s。"
 
 #: pcbnew/netlist_reader/board_netlist_updater.cpp:739
 #, c-format
 msgid "Reconnected copper zone from %s to %s."
-msgstr "将覆铜区从 %s 重新连接到了 %s。"
+msgstr "将敷铜区从 %s 重新连接到了 %s。"
 
 #: pcbnew/netlist_reader/board_netlist_updater.cpp:752
 #, c-format
 msgid "Copper zone '%s' has no pads connected."
-msgstr "覆铜区 '%s' 没有与之连接的焊盘。"
+msgstr "敷铜区 '%s' 没有与之连接的焊盘。"
 
 #: pcbnew/netlist_reader/board_netlist_updater.cpp:760
 #, c-format
 msgid "Copper zone on layer %s at (%s, %s) has no pads connected."
-msgstr "坐标 (%s, %s) 层 %s 上的覆铜区没有与之相连的焊盘。"
+msgstr "坐标 (%s, %s) 层 %s 上的敷铜区没有与之相连的焊盘。"
 
 #: pcbnew/netlist_reader/board_netlist_updater.cpp:802
 #, c-format
@@ -30912,7 +30956,7 @@ msgstr "电路板文件是只读的。"
 
 #: pcbnew/pcb_edit_frame.cpp:1147
 msgid "PCB file changes are unsaved"
-msgstr "PCB 文件更改未保存"
+msgstr "PCB 文件变更未保存"
 
 #: pcbnew/pcb_edit_frame.cpp:1416
 msgid "The schematic for this board cannot be found."
@@ -31640,9 +31684,8 @@ msgid ""
 "between these two settings. The setting for disjoint copper has been applied "
 "as the minimum island area of the KiCad Zone."
 msgstr ""
-"CADSTAR 模板 '%s' 具有不同的设置，用于\"保留覆铜 - 不相交\"和\"保留覆铜 - 隔"
-"离\"。KiCad 不区分这两个设置。不相交覆铜的设置已作为 KiCad 覆铜的最小覆铜面积"
-"应用。"
+"CADSTAR 模板 '%s' 具有不同的设置，用于\"保留敷铜 - 不相交\"和\"保留敷铜 - 隔离\"。KiCad 不区分这两个设置。"
+"不相交敷铜的设置已作为 KiCad 敷铜的最小敷铜面积应用。"
 
 #: pcbnew/plugins/cadstar/cadstar_pcb_archive_loader.cpp:1916
 #, c-format
@@ -31673,9 +31716,7 @@ msgid ""
 "The CADSTAR layer '%s' is defined as a power plane layer. However no net "
 "with such name exists. The layer has been loaded but no copper zone was "
 "created."
-msgstr ""
-"CADSTAR 层 '%s' 被定义为电源层。然而，不存在具有该名称的网络。已加载层，但未"
-"创建覆铜区。"
+msgstr "CADSTAR 层 '%s' 被定义为电源层。然而，不存在具有该名称的网络。已加载层，但未创建敷铜区。"
 
 #: pcbnew/plugins/cadstar/cadstar_pcb_archive_loader.cpp:2085
 msgid ""
@@ -31684,9 +31725,8 @@ msgid ""
 "filled, or as a KiCad Track if the shape was an unfilled outline (open or "
 "closed)."
 msgstr ""
-"CADSTAR 设计包含没有直接 KiCad 等价物的铜元素。如果填充的是实体或图案填充，则"
-"它们已导入为 KiCad 覆铜；如果形状是未填充的轮廓(开放或闭合)，则它们将导入为 "
-"KiCad 布线。"
+"CADSTAR 设计包含没有直接 KiCad 等价物的铜元素。如果填充的是实体或图案填充，则它们已导入为 KiCad "
+"敷铜；如果形状是未填充的轮廓(开放或闭合)，则它们将导入为 KiCad 布线。"
 
 #: pcbnew/plugins/cadstar/cadstar_pcb_archive_loader.cpp:2190
 #, c-format
@@ -31922,7 +31962,7 @@ msgstr "无效的令牌计数。预期为 8，但找到了 %zu。"
 #: pcbnew/plugins/fabmaster/import_fabmaster.cpp:1445
 #, c-format
 msgid "Invalid format for record_tag string '%s' in row %zu."
-msgstr "record_tag 字符串 \"%s\" 的无效格式，位于行 %zu。"
+msgstr "record_tag 字符串 '%s' 的无效格式位于行 %zu。"
 
 #: pcbnew/plugins/fabmaster/import_fabmaster.cpp:1416
 #, c-format
@@ -32057,7 +32097,7 @@ msgstr "未知过孔类型 %d"
 #: pcbnew/plugins/kicad/kicad_plugin.cpp:2080
 #, c-format
 msgid "unknown zone corner smoothing type %d"
-msgstr "未知覆铜角平滑类型 %d"
+msgstr "未知敷铜角平滑类型 %d"
 
 #: pcbnew/plugins/kicad/kicad_plugin.cpp:2301
 msgid "Open cancelled by user."
@@ -32250,12 +32290,12 @@ msgid ""
 "Convert zones to polygon fills?"
 msgstr ""
 "不再支持旧段填充模式。\n"
-"是否将覆铜转换为多边形填充？"
+"是否将敷铜转换为多边形填充？"
 
 #: pcbnew/plugins/kicad/pcb_parser.cpp:5078
 #: pcbnew/plugins/legacy/legacy_plugin.cpp:2486
 msgid "Legacy Zone Warning"
-msgstr "旧覆铜警告"
+msgstr "旧敷铜警告"
 
 #: pcbnew/plugins/legacy/legacy_plugin.cpp:596
 #, c-format
@@ -33093,7 +33133,7 @@ msgstr "解锁"
 
 #: pcbnew/tools/board_editor_control.cpp:1457
 msgid "Duplicate zone"
-msgstr "复制覆铜"
+msgstr "复制敷铜"
 
 #: pcbnew/tools/board_inspection_tool.cpp:59
 msgid "Net Tools"
@@ -33149,13 +33189,13 @@ msgstr "区域连接解像度，用于："
 #: pcbnew/tools/board_inspection_tool.cpp:397
 #, c-format
 msgid "Zone thermal relief: %s."
-msgstr "覆铜防散热 (花焊盘)：%s。"
+msgstr "敷铜防散热 (花焊盘)：%s。"
 
 #: pcbnew/tools/board_inspection_tool.cpp:402
 #: pcbnew/tools/board_inspection_tool.cpp:421 pcbnew/zone.cpp:341
 #: pcbnew/zone.cpp:356 pcbnew/zone.cpp:504 pcbnew/zone.cpp:793
 msgid "zone"
-msgstr "覆铜"
+msgstr "敷铜"
 
 #: pcbnew/tools/board_inspection_tool.cpp:404
 #, c-format
@@ -33165,7 +33205,7 @@ msgstr "被 %s 覆盖；防散热：%s。"
 #: pcbnew/tools/board_inspection_tool.cpp:414
 #, c-format
 msgid "Zone clearance: %s."
-msgstr "覆铜间隙：%s。"
+msgstr "敷铜间隙：%s。"
 
 #: pcbnew/tools/board_inspection_tool.cpp:423
 #, c-format
@@ -33288,7 +33328,7 @@ msgstr "将形状转换为多边形"
 
 #: pcbnew/tools/convert_tool.cpp:246
 msgid "Convert shapes to zone"
-msgstr "将形状转换为覆铜"
+msgstr "将形状转换为敷铜"
 
 #: pcbnew/tools/convert_tool.cpp:748
 msgid "Convert polygons to lines"
@@ -33432,7 +33472,7 @@ msgstr "放置过孔"
 
 #: pcbnew/tools/drc_tool.cpp:151
 msgid "Refilling all zones..."
-msgstr "重新填充所有覆铜..."
+msgstr "重新填充所有敷铜..."
 
 #: pcbnew/tools/drc_tool.cpp:160
 msgid "Schematic parity tests require a fully annotated schematic."
@@ -33598,7 +33638,7 @@ msgstr "从所选创建区域"
 
 #: pcbnew/tools/pcb_actions.cpp:53
 msgid "Creates a copper zone from the selection"
-msgstr "从所选内容创建覆铜区"
+msgstr "从所选内容创建敷铜区"
 
 #: pcbnew/tools/pcb_actions.cpp:58
 msgid "Create Rule Area from Selection"
@@ -33710,11 +33750,11 @@ msgstr "添加引线标注"
 
 #: pcbnew/tools/pcb_actions.cpp:155
 msgid "Add Filled Zone"
-msgstr "添加填充覆铜"
+msgstr "添加填充敷铜"
 
 #: pcbnew/tools/pcb_actions.cpp:155
 msgid "Add a filled zone"
-msgstr "添加填充覆铜"
+msgstr "添加填充敷铜"
 
 #: pcbnew/tools/pcb_actions.cpp:161
 msgid "Add Vias"
@@ -33734,19 +33774,19 @@ msgstr "添加规则区域（禁布区）"
 
 #: pcbnew/tools/pcb_actions.cpp:173
 msgid "Add a Zone Cutout"
-msgstr "添加挖空覆铜"
+msgstr "添加挖空敷铜"
 
 #: pcbnew/tools/pcb_actions.cpp:173
 msgid "Add a cutout area of an existing zone"
-msgstr "添加挖空覆铜"
+msgstr "添加挖空敷铜"
 
 #: pcbnew/tools/pcb_actions.cpp:179
 msgid "Add a Similar Zone"
-msgstr "添加相似覆铜"
+msgstr "添加相似敷铜"
 
 #: pcbnew/tools/pcb_actions.cpp:179
 msgid "Add a zone with the same settings as an existing zone"
-msgstr "添加与现有覆铜具有相同设置的覆铜"
+msgstr "添加与现有敷铜具有相同设置的敷铜"
 
 #: pcbnew/tools/pcb_actions.cpp:185
 msgid "Import Graphics..."
@@ -33980,7 +34020,7 @@ msgstr "更新封装..."
 
 #: pcbnew/tools/pcb_actions.cpp:405
 msgid "Update footprint to include any changes from the library"
-msgstr "更新封装以包含来自库的任何更改"
+msgstr "更新封装以包含来自库的任何变更"
 
 #: pcbnew/tools/pcb_actions.cpp:410
 msgid "Update Footprints from Library..."
@@ -33988,7 +34028,7 @@ msgstr "从库中更新封装..."
 
 #: pcbnew/tools/pcb_actions.cpp:411
 msgid "Update footprints to include any changes from the library"
-msgstr "更新封装以包含来自库的任何更改"
+msgstr "更新封装以包含来自库的任何变更"
 
 #: pcbnew/tools/pcb_actions.cpp:416
 msgid "Remove Unused Pads..."
@@ -34289,19 +34329,19 @@ msgstr "将过孔尺寸更改为上一个预定义尺寸"
 
 #: pcbnew/tools/pcb_actions.cpp:642
 msgid "Merge Zones"
-msgstr "合并覆铜"
+msgstr "合并敷铜"
 
 #: pcbnew/tools/pcb_actions.cpp:642
 msgid "Merge zones"
-msgstr "合并覆铜"
+msgstr "合并敷铜"
 
 #: pcbnew/tools/pcb_actions.cpp:646
 msgid "Duplicate Zone onto Layer..."
-msgstr "重复覆铜到层..."
+msgstr "重复敷铜到层..."
 
 #: pcbnew/tools/pcb_actions.cpp:646
 msgid "Duplicate zone outline onto a different layer"
-msgstr "复制覆铜轮廓到不同的层上"
+msgstr "复制敷铜轮廓到不同的层上"
 
 #: pcbnew/tools/pcb_actions.cpp:651
 msgid "Add Layer Alignment Target"
@@ -34548,7 +34588,7 @@ msgstr "绘制区域填充"
 
 #: pcbnew/tools/pcb_actions.cpp:853
 msgid "Show filled areas of zones"
-msgstr "显示覆铜的填充区域"
+msgstr "显示敷铜的填充区域"
 
 #: pcbnew/tools/pcb_actions.cpp:858
 msgid "Draw Zone Outlines"
@@ -34556,7 +34596,7 @@ msgstr "绘制区域轮廓"
 
 #: pcbnew/tools/pcb_actions.cpp:858
 msgid "Show only zone boundaries"
-msgstr "仅显示覆铜边界"
+msgstr "仅显示敷铜边界"
 
 #: pcbnew/tools/pcb_actions.cpp:863
 msgid "Draw Zone Fill Fracture Borders"
@@ -34568,7 +34608,7 @@ msgstr "绘制区域填充三角剖分"
 
 #: pcbnew/tools/pcb_actions.cpp:874
 msgid "Toggle Zone Display"
-msgstr "切换覆铜显示"
+msgstr "切换敷铜显示"
 
 #: pcbnew/tools/pcb_actions.cpp:875
 msgid "Cycle between showing zone fills and just their outlines"
@@ -34903,7 +34943,7 @@ msgstr "按类型从选区删除项目"
 
 #: pcbnew/tools/pcb_actions.cpp:1270 pcbnew/tools/zone_filler_tool.cpp:211
 msgid "Fill Zone"
-msgstr "填充覆铜"
+msgstr "填充敷铜"
 
 #: pcbnew/tools/pcb_actions.cpp:1270
 msgid "Update copper fill of selected zone(s)"
@@ -34911,15 +34951,15 @@ msgstr "更新所选区域的铜填充"
 
 #: pcbnew/tools/pcb_actions.cpp:1276 pcbnew/tools/zone_filler_tool.cpp:154
 msgid "Fill All Zones"
-msgstr "填充所有覆铜"
+msgstr "填充所有敷铜"
 
 #: pcbnew/tools/pcb_actions.cpp:1276
 msgid "Update copper fill of all zones"
-msgstr "取消所有区域的覆铜"
+msgstr "取消所有区域的敷铜"
 
 #: pcbnew/tools/pcb_actions.cpp:1281 pcbnew/tools/zone_filler_tool.cpp:249
 msgid "Unfill Zone"
-msgstr "取消填充覆铜"
+msgstr "取消填充敷铜"
 
 #: pcbnew/tools/pcb_actions.cpp:1281
 msgid "Remove copper fill from selected zone(s)"
@@ -34931,7 +34971,7 @@ msgstr "取消填充所有区域"
 
 #: pcbnew/tools/pcb_actions.cpp:1287
 msgid "Remove copper fill from all zones"
-msgstr "从所有区域移除覆铜"
+msgstr "从所有区域移除敷铜"
 
 #: pcbnew/tools/pcb_actions.cpp:1295
 msgid "Place Selected Footprints"
@@ -35102,7 +35142,7 @@ msgstr "拖动拐角"
 
 #: pcbnew/tools/pcb_point_editor.cpp:2051
 msgid "Add a zone corner"
-msgstr "添加覆铜拐角"
+msgstr "添加敷铜拐角"
 
 #: pcbnew/tools/pcb_point_editor.cpp:2088
 msgid "Split segment"
@@ -35110,7 +35150,7 @@ msgstr "分割线段"
 
 #: pcbnew/tools/pcb_point_editor.cpp:2159
 msgid "Remove a zone/polygon corner"
-msgstr "删除覆铜或多边形的拐角"
+msgstr "删除敷铜或多边形的拐角"
 
 #: pcbnew/tools/pcb_selection_tool.cpp:73
 msgid "Select"
@@ -35162,11 +35202,11 @@ msgstr "单击位号项..."
 
 #: pcbnew/tools/zone_create_helper.cpp:176
 msgid "Add a zone cutout"
-msgstr "添加挖空覆铜"
+msgstr "添加挖空敷铜"
 
 #: pcbnew/tools/zone_create_helper.cpp:215
 msgid "Add a zone"
-msgstr "添加覆铜"
+msgstr "添加敷铜"
 
 #: pcbnew/tools/zone_create_helper.cpp:246
 msgid "Add a graphical polygon"
@@ -35174,12 +35214,12 @@ msgstr "添加多边形图形"
 
 #: pcbnew/tools/zone_filler_tool.cpp:81
 msgid "Checking Zones"
-msgstr "检查覆铜"
+msgstr "检查敷铜"
 
 #: pcbnew/tools/zone_filler_tool.cpp:89 pcbnew/tools/zone_filler_tool.cpp:162
 #: pcbnew/tools/zone_filler_tool.cpp:217
 msgid "Fill Zone(s)"
-msgstr "填充覆铜"
+msgstr "填充敷铜"
 
 #: pcbnew/tools/zone_filler_tool.cpp:131
 msgid "Show DRC rules"
@@ -35191,7 +35231,7 @@ msgstr "规则"
 
 #: pcbnew/tools/zone_filler_tool.cpp:144
 msgid "Zone fills may be inaccurate.  DRC rules contain errors."
-msgstr "覆铜填充可能不准确。DRC 规则包含错误。"
+msgstr "敷铜填充可能不准确。DRC 规则包含错误。"
 
 #: pcbnew/undo_redo.cpp:537
 msgid "Incomplete undo/redo operation: some items not found"
@@ -35211,7 +35251,7 @@ msgstr "显示所有焊盘"
 
 #: pcbnew/widgets/appearance_controls.cpp:338
 msgid "Show copper zones"
-msgstr "显示覆铜区"
+msgstr "显示敷铜区"
 
 #: pcbnew/widgets/appearance_controls.cpp:340
 msgid "Footprints Front"
@@ -35767,11 +35807,11 @@ msgstr "规则区域"
 
 #: pcbnew/zone.cpp:558
 msgid "Copper Zone"
-msgstr "覆铜区"
+msgstr "敷铜区"
 
 #: pcbnew/zone.cpp:560
 msgid "Non-copper Zone"
-msgstr "非覆铜区"
+msgstr "非敷铜区"
 
 #: pcbnew/zone.cpp:565
 msgid "Cutout"
@@ -35791,7 +35831,7 @@ msgstr "无焊盘"
 
 #: pcbnew/zone.cpp:583
 msgid "No copper zones"
-msgstr "无覆铜区"
+msgstr "无敷铜区"
 
 #: pcbnew/zone.cpp:586
 msgid "No footprints"
@@ -35834,7 +35874,7 @@ msgstr "%s 上的规则区域挖空"
 #: pcbnew/zone.cpp:892
 #, c-format
 msgid "Zone Cutout on %s"
-msgstr "%s 上的覆铜挖空"
+msgstr "%s 上的敷铜挖空"
 
 #: pcbnew/zone.cpp:897
 #, c-format
@@ -35844,7 +35884,7 @@ msgstr "%s上的规则区域"
 #: pcbnew/zone.cpp:899
 #, c-format
 msgid "Zone %s on %s"
-msgstr "%s 上的覆铜%s"
+msgstr "%s 上的敷铜%s"
 
 #: pcbnew/zone.cpp:1464
 msgid "Inherited"
@@ -35860,7 +35900,7 @@ msgstr "焊盘连接"
 
 #: pcbnew/zone_filler.cpp:96
 msgid "Building zone fills..."
-msgstr "构造覆铜填充..."
+msgstr "构造敷铜填充..."
 
 #: pcbnew/zone_filler.cpp:302
 msgid "Removing isolated copper islands..."
@@ -35868,15 +35908,15 @@ msgstr "正在移除孤立的铜岛..."
 
 #: pcbnew/zone_filler.cpp:415
 msgid "Zone fills are out-of-date. Refill?"
-msgstr "覆铜填充已失效，重新填充？"
+msgstr "敷铜填充已失效，重新填充？"
 
 #: pcbnew/zone_filler.cpp:417
 msgid "Refill"
-msgstr "重新覆铜"
+msgstr "重新敷铜"
 
 #: pcbnew/zone_filler.cpp:417
 msgid "Continue without Refill"
-msgstr "取消覆铜"
+msgstr "取消敷铜"
 
 #: pcbnew/zone_filler.cpp:428
 msgid "Performing polygon fills..."

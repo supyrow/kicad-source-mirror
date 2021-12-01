@@ -88,6 +88,8 @@ public:
 
     int ClearanceEpsilon() const { return m_clearanceEpsilon; }
 
+    void ClearCacheForItem( const PNS::ITEM* aItem ) override;
+
 private:
     int holeRadius( const PNS::ITEM* aItem ) const;
 
@@ -291,6 +293,12 @@ bool PNS_PCBNEW_RULE_RESOLVER::QueryConstraint( PNS::CONSTRAINT_TYPE aType,
         default:
             return false;
     }
+}
+
+
+void PNS_PCBNEW_RULE_RESOLVER::ClearCacheForItem( const PNS::ITEM* aItem )
+{
+    m_clearanceCache.erase( std::make_pair( aItem, nullptr ) );
 }
 
 
@@ -913,19 +921,6 @@ std::unique_ptr<PNS::SOLID> PNS_KICAD_IFACE_BASE::syncPad( PAD* aPad )
 
     std::unique_ptr<PNS::SOLID> solid = std::make_unique<PNS::SOLID>();
 
-    if( aPad->GetDrillSize().x > 0 )
-    {
-        SHAPE_SEGMENT* slot = (SHAPE_SEGMENT*) aPad->GetEffectiveHoleShape()->Clone();
-
-        if( aPad->GetAttribute() != PAD_ATTRIB::NPTH )
-        {
-            BOARD_DESIGN_SETTINGS& bds = m_board->GetDesignSettings();
-            slot->SetWidth( slot->GetWidth() + bds.GetHolePlatingThickness() * 2 );
-        }
-
-        solid->SetHole( slot );
-    }
-
     if( aPad->GetAttribute() == PAD_ATTRIB::NPTH )
         solid->SetRoutable( false );
 
@@ -945,6 +940,18 @@ std::unique_ptr<PNS::SOLID> PNS_KICAD_IFACE_BASE::syncPad( PAD* aPad )
     solid->SetPos( VECTOR2I( c.x - offset.x, c.y - offset.y ) );
     solid->SetOffset( VECTOR2I( offset.x, offset.y ) );
 
+    if( aPad->GetDrillSize().x > 0 )
+    {
+        SHAPE_SEGMENT* slot = (SHAPE_SEGMENT*) aPad->GetEffectiveHoleShape()->Clone();
+
+        if( aPad->GetAttribute() != PAD_ATTRIB::NPTH )
+        {
+            BOARD_DESIGN_SETTINGS& bds = m_board->GetDesignSettings();
+            slot->SetWidth( slot->GetWidth() + bds.GetHolePlatingThickness() * 2 );
+        }
+
+        solid->SetHole( slot );
+    }
 
     auto shapes = std::dynamic_pointer_cast<SHAPE_COMPOUND>( aPad->GetEffectiveShape() );
 
@@ -1101,6 +1108,7 @@ bool PNS_KICAD_IFACE_BASE::syncZone( PNS::NODE* aWorld, ZONE* aZone, SHAPE_POLY_
                 solid->SetNet( -1 );
                 solid->SetParent( aZone );
                 solid->SetShape( triShape );
+                solid->SetIsCompoundShapePrimitive();
                 solid->SetRoutable( false );
 
                 aWorld->Add( std::move( solid ) );
@@ -1133,6 +1141,7 @@ bool PNS_KICAD_IFACE_BASE::syncTextItem( PNS::NODE* aWorld, EDA_TEXT* aText, PCB
         solid->SetNet( -1 );
         solid->SetParent( dynamic_cast<BOARD_ITEM*>( aText ) );
         solid->SetShape( new SHAPE_SEGMENT( start, end, textWidth ) );
+        solid->SetIsCompoundShapePrimitive();
         solid->SetRoutable( false );
 
         aWorld->Add( std::move( solid ) );
@@ -1172,7 +1181,9 @@ bool PNS_KICAD_IFACE_BASE::syncGraphicalItem( PNS::NODE* aWorld, PCB_SHAPE* aIte
         if( aItem->GetShape() == SHAPE_T::POLY && aItem->IsFilled() )
             return false;
 
-        for( SHAPE* shape : aItem->MakeEffectiveShapes() )
+        std::vector<SHAPE*> shapes = aItem->MakeEffectiveShapes();
+
+        for( SHAPE* shape : shapes )
         {
             std::unique_ptr<PNS::SOLID> solid = std::make_unique<PNS::SOLID>();
 
@@ -1194,7 +1205,11 @@ bool PNS_KICAD_IFACE_BASE::syncGraphicalItem( PNS::NODE* aWorld, PCB_SHAPE* aIte
 
             solid->SetNet( -1 );
             solid->SetParent( aItem );
-            solid->SetShape( shape );
+            solid->SetShape( shape );       // takes ownership
+
+            if( shapes.size() > 1 )
+                solid->SetIsCompoundShapePrimitive();
+
             solid->SetRoutable( false );
 
             aWorld->Add( std::move( solid ) );
@@ -1647,7 +1662,7 @@ void PNS_KICAD_IFACE::AddItem( PNS::ITEM* aItem )
 
 void PNS_KICAD_IFACE::Commit()
 {
-    std::set<FOOTPRINT*> processedMods;
+    std::set<FOOTPRINT*> processedFootprints;
 
     EraseView();
 
@@ -1659,10 +1674,10 @@ void PNS_KICAD_IFACE::Commit()
         VECTOR2I p_orig = footprint->GetPosition();
         VECTOR2I p_new = p_orig + offset;
 
-        if( processedMods.find( footprint ) != processedMods.end() )
+        if( processedFootprints.find( footprint ) != processedFootprints.end() )
             continue;
 
-        processedMods.insert( footprint );
+        processedFootprints.insert( footprint );
         m_commit->Modify( footprint );
         footprint->SetPosition( wxPoint( p_new.x, p_new.y ) );
     }

@@ -165,7 +165,7 @@ bool DIALOG_SHEET_PROPERTIES::TransferDataToWindow()
 
     instance.push_back( m_sheet );
 
-    wxString nextPageNumber = m_sheet->GetPageNumber( instance );
+    wxString nextPageNumber = m_sheet->GetPageNumber();
 
     m_pageNumberTextCtrl->ChangeValue( nextPageNumber );
 
@@ -373,10 +373,7 @@ bool DIALOG_SHEET_PROPERTIES::TransferDataFromWindow()
 
     instance.push_back( m_sheet );
 
-    if( m_sheet->IsNew() )
-        m_sheet->AddInstance( instance.Path() );
-
-    m_sheet->SetPageNumber( instance, m_pageNumberTextCtrl->GetValue() );
+    m_sheet->SetPageNumber( m_pageNumberTextCtrl->GetValue() );
 
     m_frame->TestDanglingEnds();
 
@@ -445,6 +442,7 @@ bool DIALOG_SHEET_PROPERTIES::onSheetFilenameChanged( const wxString& aNewFilena
     bool restoreSheet = false;
     bool isExistingSheet = false;
     SCH_SCREEN* useScreen = nullptr;
+    SCH_SCREEN* oldScreen = nullptr;
 
     // Search for a schematic file having the same filename already in use in the hierarchy
     // or on disk, in order to reuse it.
@@ -575,6 +573,7 @@ bool DIALOG_SHEET_PROPERTIES::onSheetFilenameChanged( const wxString& aNewFilena
             // the screen reference counting in complex hierarchies.
             if( m_sheet->GetScreenCount() > 1 )
             {
+                oldScreen = m_sheet->GetScreen();
                 m_sheet->SetScreen( nullptr );
                 loadFromFile = true;
             }
@@ -617,7 +616,13 @@ bool DIALOG_SHEET_PROPERTIES::onSheetFilenameChanged( const wxString& aNewFilena
           || m_frame->CheckSheetForRecursion( m_sheet, &currentSheet ) )
         {
             if( restoreSheet )
+            {
+                // If we cleared the previous screen, restore it before returning to the user
+                if( oldScreen )
+                    m_sheet->SetScreen( oldScreen );
+
                 currentSheet.LastScreen()->Append( m_sheet );
+            }
 
             return false;
         }
@@ -784,7 +789,10 @@ void DIALOG_SHEET_PROPERTIES::AdjustGridColumns( int aWidth )
     for( int i = 2; i < m_grid->GetNumberCols(); i++ )
         fixedColsWidth += m_grid->GetColSize( i );
 
-    m_grid->SetColSize( 1, aWidth - fixedColsWidth );
+    int colSize = std::max( aWidth - fixedColsWidth, -1 );
+    colSize = ( colSize == 0 ) ? -1 : colSize; // don't hide the column!
+
+    m_grid->SetColSize( 1, colSize );
 }
 
 

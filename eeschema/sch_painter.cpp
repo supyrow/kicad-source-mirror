@@ -1326,7 +1326,10 @@ void SCH_PAINTER::draw( const SCH_TEXT *aText, int aLayer )
 
     if( m_schematic )
     {
-        SCH_CONNECTION* conn = aText->Connection();
+        SCH_CONNECTION* conn = nullptr;
+
+        if( !aText->IsConnectivityDirty() )
+            conn = aText->Connection();
 
         if( conn && conn->IsBus() )
             color = getRenderColor( aText, LAYER_BUS, drawingShadows );
@@ -1642,7 +1645,10 @@ void SCH_PAINTER::draw( SCH_HIERLABEL *aLabel, int aLayer )
 
     if( m_schematic )
     {
-        SCH_CONNECTION* conn = aLabel->Connection();
+        SCH_CONNECTION* conn = nullptr;
+
+        if( !aLabel->IsConnectivityDirty() )
+            conn = aLabel->Connection();
 
         if( conn && conn->IsBus() )
             color = getRenderColor( aLabel, LAYER_BUS, drawingShadows );
@@ -1689,7 +1695,7 @@ void SCH_PAINTER::draw( const SCH_SHEET *aSheet, int aLayer )
             wxPoint offset_pos = initial_pos;
 
             // For aesthetic reasons, the SHEET_PIN is drawn with a small offset of width / 2
-            switch( sheetPin->GetEdge() )
+            switch( sheetPin->GetSide() )
             {
             case SHEET_SIDE::TOP: offset_pos.y += KiROUND( width / 2.0 ); break;
             case SHEET_SIDE::BOTTOM: offset_pos.y -= KiROUND( width / 2.0 ); break;

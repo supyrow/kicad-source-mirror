@@ -56,7 +56,7 @@
 #include <atomic>
 
 
-#include <../pcbnew/plugins/kicad/kicad_plugin.h>   // for SEXPR_BOARD_FILE_VERSION def
+#include <../pcbnew/plugins/kicad/pcb_plugin.h>   // for SEXPR_BOARD_FILE_VERSION def
 
 
 #ifdef __WXMAC__
@@ -188,7 +188,7 @@ KICAD_MANAGER_FRAME::KICAD_MANAGER_FRAME( wxWindow* parent, const wxString& titl
     if( ADVANCED_CFG::GetCfg().m_HideVersionFromTitle )
         SetTitle( wxT( "KiCad" ) );
     else
-        SetTitle( wxString( "KiCad " ) + GetBuildVersion() );
+        SetTitle( wxString( "KiCad " ) + GetMajorMinorVersion() );
 
     // Do not let the messages window have initial focus
     m_leftWin->SetFocus();

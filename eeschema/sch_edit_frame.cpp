@@ -46,6 +46,7 @@
 #include <project.h>
 #include <project/project_file.h>
 #include <project/net_settings.h>
+#include <dialog_erc.h>
 #include <python_scripting.h>
 #include <sch_edit_frame.h>
 #include <sch_painter.h>
@@ -310,6 +311,12 @@ SCH_EDIT_FRAME::~SCH_EDIT_FRAME()
     // Ensure m_canvasType is up to date, to save it in config
     m_canvasType = GetCanvas()->GetBackend();
 
+    // Close modeless dialogs
+    wxWindow* open_dlg = wxWindow::FindWindowByName( DIALOG_ERC_WINDOW_NAME );
+
+    if( open_dlg )
+        open_dlg->Close( true );
+
     // Shutdown all running tools
     if( m_toolManager )
     {
@@ -535,7 +542,7 @@ void SCH_EDIT_FRAME::SetSheetNumberAndCount()
 
     GetCurrentSheet().SetVirtualPageNumber( sheet_number );
     GetScreen()->SetVirtualPageNumber( sheet_number );
-    GetScreen()->SetPageNumber( GetCurrentSheet().GetPageNumber() );
+    GetScreen()->SetPageNumber( Schematic().CurrentSheet().Last()->GetPageNumber() );
 }
 
 
@@ -576,8 +583,7 @@ void SCH_EDIT_FRAME::CreateScreens()
     SCH_SHEET_PATH rootSheetPath;
     rootSheetPath.push_back( &m_schematic->Root() );
     m_schematic->RootScreen()->SetPageNumber( wxT( "1" ) );
-    m_schematic->Root().AddInstance( rootSheetPath.Path() );
-    m_schematic->Root().SetPageNumber( rootSheetPath, wxT( "1" ) );
+    m_schematic->Root().SetPageNumber( wxT( "1" ) );
 
     if( GetScreen() == nullptr )
     {
@@ -674,6 +680,13 @@ bool SCH_EDIT_FRAME::canCloseWindow( wxCloseEvent& aEvent )
             return false;
         }
     }
+
+    // Close modeless dialogs.  They're trouble when they get destroyed after the frame and/or
+    // board.
+    wxWindow* open_dlg = wxWindow::FindWindowByName( DIALOG_ERC_WINDOW_NAME );
+
+    if( open_dlg )
+        open_dlg->Close( true );
 
     return true;
 }
@@ -783,6 +796,12 @@ void SCH_EDIT_FRAME::ResolveERCExclusions()
 }
 
 
+SEVERITY SCH_EDIT_FRAME::GetSeverity( int aErrorCode ) const
+{
+    return Schematic().ErcSettings().GetSeverity( aErrorCode );
+}
+
+
 wxString SCH_EDIT_FRAME::GetUniqueFilenameForCurrentSheet()
 {
     // Filename is rootSheetName-sheetName-...-sheetName
@@ -810,6 +829,8 @@ void SCH_EDIT_FRAME::OnModify()
 
     if( ADVANCED_CFG::GetCfg().m_RealTimeConnectivity && CONNECTION_GRAPH::m_allowRealTime )
         RecalculateConnections( NO_CLEANUP );
+    else
+        GetScreen()->SetConnectivityDirty();
 
     GetCanvas()->Refresh();
     UpdateHierarchyNavigator();
@@ -1374,7 +1395,7 @@ void SCH_EDIT_FRAME::RecomputeIntersheetRefs()
         for( const SCH_SHEET_PATH& sheet : Schematic().GetSheets() )
         {
             if( sheet.LastScreen() == screen )
-                pageNumbers.push_back( sheet.GetPageNumber() );
+                pageNumbers.push_back( sheet.Last()->GetPageNumber() );
         }
 
         for( SCH_ITEM* item : screen->Items() )

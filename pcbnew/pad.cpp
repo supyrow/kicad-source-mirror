@@ -105,18 +105,8 @@ PAD::PAD( FOOTPRINT* parent ) :
 PAD::PAD( const PAD& aOther ) :
     BOARD_CONNECTED_ITEM( aOther.GetParent(), PCB_PAD_T )
 {
-    BOARD_CONNECTED_ITEM::operator=( aOther );
+    PAD::operator=( aOther );
 
-    ImportSettingsFrom( aOther );
-    SetPadToDieLength( aOther.GetPadToDieLength() );
-    SetPosition( aOther.GetPosition() );
-    SetPos0( aOther.GetPos0() );
-    SetNumber( aOther.GetNumber() );
-    SetPinFunction( aOther.GetPinFunction() );
-    SetSubRatsnest( aOther.GetSubRatsnest() );
-    m_effectiveBoundingRadius = aOther.m_effectiveBoundingRadius;
-    m_removeUnconnectedLayer = aOther.m_removeUnconnectedLayer;
-    m_keepTopBottomLayer = aOther.m_keepTopBottomLayer;
     const_cast<KIID&>( m_Uuid ) = aOther.m_Uuid;
 }
 
@@ -130,6 +120,7 @@ PAD& PAD::operator=( const PAD &aOther )
     SetPosition( aOther.GetPosition() );
     SetPos0( aOther.GetPos0() );
     SetNumber( aOther.GetNumber() );
+    SetPinType( aOther.GetPinType() );
     SetPinFunction( aOther.GetPinFunction() );
     SetSubRatsnest( aOther.GetSubRatsnest() );
     m_effectiveBoundingRadius = aOther.m_effectiveBoundingRadius;
@@ -487,9 +478,8 @@ void PAD::BuildEffectiveShapes( PCB_LAYER_ID aLayer ) const
     m_effectiveHoleShape = std::make_shared<SHAPE_SEGMENT>( m_pos - half_len, m_pos + half_len,
                                                             half_width * 2 );
     bbox = m_effectiveHoleShape->BBox();
-    m_effectiveBoundingBox.Merge(
-            EDA_RECT( (wxPoint) bbox.GetPosition(),
-                    wxSize( bbox.GetWidth(), bbox.GetHeight() ) ) );
+    m_effectiveBoundingBox.Merge( EDA_RECT( (wxPoint) bbox.GetPosition(),
+                                            wxSize( bbox.GetWidth(), bbox.GetHeight() ) ) );
 
     // All done
     m_shapesDirty = false;
@@ -1032,48 +1022,67 @@ bool PAD::HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy ) const
 }
 
 
-int PAD::Compare( const PAD* padref, const PAD* padcmp )
+int PAD::Compare( const PAD* aPadRef, const PAD* aPadCmp )
 {
     int diff;
 
-    if( ( diff = static_cast<int>( padref->GetShape() ) -
-          static_cast<int>( padcmp->GetShape() ) ) != 0 )
+    if( ( diff = static_cast<int>( aPadRef->GetShape() ) -
+          static_cast<int>( aPadCmp->GetShape() ) ) != 0 )
         return diff;
 
-    if( ( diff = padref->GetDrillShape() - padcmp->GetDrillShape() ) != 0)
+    if( ( diff = static_cast<int>( aPadRef->m_attribute ) -
+          static_cast<int>( aPadCmp->m_attribute ) ) != 0 )
         return diff;
 
-    if( ( diff = padref->m_drill.x - padcmp->m_drill.x ) != 0 )
+    if( ( diff = aPadRef->m_drillShape - aPadCmp->m_drillShape ) != 0 )
         return diff;
 
-    if( ( diff = padref->m_drill.y - padcmp->m_drill.y ) != 0 )
+    if( ( diff = aPadRef->m_drill.x - aPadCmp->m_drill.x ) != 0 )
         return diff;
 
-    if( ( diff = padref->m_size.x - padcmp->m_size.x ) != 0 )
+    if( ( diff = aPadRef->m_drill.y - aPadCmp->m_drill.y ) != 0 )
         return diff;
 
-    if( ( diff = padref->m_size.y - padcmp->m_size.y ) != 0 )
+    if( ( diff = aPadRef->m_size.x - aPadCmp->m_size.x ) != 0 )
         return diff;
 
-    if( ( diff = padref->m_offset.x - padcmp->m_offset.x ) != 0 )
+    if( ( diff = aPadRef->m_size.y - aPadCmp->m_size.y ) != 0 )
         return diff;
 
-    if( ( diff = padref->m_offset.y - padcmp->m_offset.y ) != 0 )
+    if( ( diff = aPadRef->m_offset.x - aPadCmp->m_offset.x ) != 0 )
         return diff;
 
-    if( ( diff = padref->m_deltaSize.x - padcmp->m_deltaSize.x ) != 0 )
+    if( ( diff = aPadRef->m_offset.y - aPadCmp->m_offset.y ) != 0 )
         return diff;
 
-    if( ( diff = padref->m_deltaSize.y - padcmp->m_deltaSize.y ) != 0 )
+    if( ( diff = aPadRef->m_deltaSize.x - aPadCmp->m_deltaSize.x ) != 0 )
         return diff;
 
-    // TODO: test custom shapes
+    if( ( diff = aPadRef->m_deltaSize.y - aPadCmp->m_deltaSize.y ) != 0 )
+        return diff;
+
+    if( ( diff = aPadRef->m_roundedCornerScale - aPadCmp->m_roundedCornerScale ) != 0 )
+        return diff;
+
+    if( ( diff = aPadRef->m_chamferPositions - aPadCmp->m_chamferPositions ) != 0 )
+        return diff;
+
+    if( ( diff = aPadRef->m_chamferScale - aPadCmp->m_chamferScale ) != 0 )
+        return diff;
+
+    if( ( diff = static_cast<int>( aPadRef->m_editPrimitives.size() ) -
+          static_cast<int>( aPadCmp->m_editPrimitives.size() ) ) != 0 )
+        return diff;
+
+    // @todo: Compare custom pad primitives for pads that have the same number of primitives
+    //        here.  Currently there is no compare function for PCB_SHAPE objects.
 
     // Dick: specctra_export needs this
     // Lorenzo: gencad also needs it to implement padstacks!
 
 #if __cplusplus >= 201103L
-    long long d = padref->m_layerMask.to_ullong() - padcmp->m_layerMask.to_ullong();
+    long long d = aPadRef->m_layerMask.to_ullong() - aPadCmp->m_layerMask.to_ullong();
+
     if( d < 0 )
         return -1;
     else if( d > 0 )
@@ -1082,8 +1091,8 @@ int PAD::Compare( const PAD* padref, const PAD* padcmp )
     return 0;
 #else
     // these strings are not typically constructed, since we don't get here often.
-    std::string s1 = padref->m_layerMask.to_string();
-    std::string s2 = padcmp->m_layerMask.to_string();
+    std::string s1 = aPadRef->m_layerMask.to_string();
+    std::string s2 = aPadCmp->m_layerMask.to_string();
     return s1.compare( s2 );
 #endif
 }
@@ -1461,7 +1470,7 @@ void PAD::SwapData( BOARD_ITEM* aImage )
 {
     assert( aImage->Type() == PCB_PAD_T );
 
-    std::swap( *((FOOTPRINT*) this), *((FOOTPRINT*) aImage) );
+    std::swap( *((PAD*) this), *((PAD*) aImage) );
 }
 
 

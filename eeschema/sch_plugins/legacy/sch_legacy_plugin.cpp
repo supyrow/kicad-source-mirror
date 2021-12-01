@@ -1091,10 +1091,10 @@ SCH_SHEET* SCH_LEGACY_PLUGIN::loadSheet( LINE_READER& aReader )
 
                 switch( parseChar( aReader, line, &line ) )
                 {
-                case 'R': sheetPin->SetEdge( SHEET_SIDE::RIGHT ); break;
-                case 'T': sheetPin->SetEdge( SHEET_SIDE::TOP ); break;
-                case 'B': sheetPin->SetEdge( SHEET_SIDE::BOTTOM ); break;
-                case 'L': sheetPin->SetEdge( SHEET_SIDE::LEFT ); break;
+                case 'R': sheetPin->SetSide( SHEET_SIDE::RIGHT ); break;
+                case 'T': sheetPin->SetSide( SHEET_SIDE::TOP ); break;
+                case 'B': sheetPin->SetSide( SHEET_SIDE::BOTTOM ); break;
+                case 'L': sheetPin->SetSide( SHEET_SIDE::LEFT ); break;
                 default:
                     SCH_PARSE_ERROR( "invalid sheet pin side", aReader, line );
                 }
@@ -1186,9 +1186,13 @@ SCH_BITMAP* SCH_LEGACY_PLUGIN::loadBitmap( LINE_READER& aReader )
                 // Read PNG data, stored in hexadecimal,
                 // each byte = 2 hexadecimal digits and a space between 2 bytes
                 // and put it in memory stream buffer
+                // Note:
+                // Some old files created bu the V4 schematic versions have a extra
+                // "$EndBitmap" at the end of the hexadecimal data. (Probably due to
+                // a bug). So discard it
                 int len = strlen( line );
 
-                for( ; len > 0 && !isspace( *line ); len -= 3, line += 3 )
+                for( ; len > 0 && !isspace( *line ) && '$' != *line; len -= 3, line += 3 )
                 {
                     int value = 0;
 
@@ -2255,7 +2259,7 @@ void SCH_LEGACY_PLUGIN::saveSheet( SCH_SHEET* aSheet )
         if( pin->GetText().IsEmpty() )
             break;
 
-        switch( pin->GetEdge() )
+        switch( pin->GetSide() )
         {
         default:
         case SHEET_SIDE::LEFT: side = 'L'; break;

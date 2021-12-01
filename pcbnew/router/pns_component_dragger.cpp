@@ -117,13 +117,14 @@ bool COMPONENT_DRAGGER::Start( const VECTOR2I& aP, ITEM_SET& aPrimitives )
         if( item.item->Kind() != ITEM::SOLID_T )
             continue;
 
-        if( ! item.item->IsRoutable() )
-            continue;
-
-        auto solid = static_cast<SOLID*>( item.item );
-        auto jt    = m_world->FindJoint( solid->Pos(), solid );
+        SOLID* solid = static_cast<SOLID*>( item.item );
 
         m_solids.insert( solid );
+
+        if( !item.item->IsRoutable() )
+            continue;
+
+        JOINT* jt = m_world->FindJoint( solid->Pos(), solid );
 
         for( auto link : jt->LinkList() )
         {
@@ -159,22 +160,24 @@ bool COMPONENT_DRAGGER::Drag( const VECTOR2I& aP )
     m_world->KillChildren();
     m_currentNode = m_world->Branch();
 
-    for( auto item : m_initialDraggedItems.Items() )
+    for( const ITEM_SET::ENTRY& item : m_initialDraggedItems.Items() )
         m_currentNode->Remove( item );
 
     m_draggedItems.Clear();
 
-    for( auto item : m_solids )
+    for( SOLID* s : m_solids )
     {
-        SOLID*                 s      = static_cast<SOLID*>( item );
-        auto                   p_next = aP - m_p0 + s->Pos();
+        VECTOR2I               p_next = aP - m_p0 + s->Pos();
         std::unique_ptr<SOLID> snew( static_cast<SOLID*>( s->Clone() ) );
         snew->SetPos( p_next );
 
         m_draggedItems.Add( snew.get() );
         m_currentNode->Add( std::move( snew ) );
 
-        for( auto& l : m_conns )
+        if( !s->IsRoutable() )
+            continue;
+
+        for( DRAGGED_CONNECTION& l : m_conns )
         {
             if( l.attachedPad == s )
             {
@@ -222,9 +225,9 @@ bool COMPONENT_DRAGGER::Drag( const VECTOR2I& aP )
         }
     }
 
-    for( auto& cn : m_conns )
+    for( COMPONENT_DRAGGER::DRAGGED_CONNECTION& cn : m_conns )
     {
-        auto l_new( cn.origLine );
+        LINE l_new( cn.origLine );
         l_new.Unmark();
         l_new.ClearLinks();
         l_new.DragCorner( cn.p_next, cn.origLine.CLine().Find( cn.p_orig ) );
@@ -232,7 +235,7 @@ bool COMPONENT_DRAGGER::Drag( const VECTOR2I& aP )
         PNS_DBG( Dbg(), AddLine, l_new.CLine(), BLUE, 100000, "cdrag-new-fanout" );
         m_draggedItems.Add( l_new );
 
-        auto l_orig( cn.origLine );
+        LINE l_orig( cn.origLine );
         m_currentNode->Remove( l_orig );
         m_currentNode->Add( l_new );
     }
@@ -247,18 +250,11 @@ bool COMPONENT_DRAGGER::FixRoute()
 
     if( node )
     {
-        bool ok;
-
-        if( Settings().AllowDRCViolations() )
-            ok = true;
-        else
-            ok = !node->CheckColliding( m_draggedItems );
-
-        if( !ok )
-            return false;
-
-        Router()->CommitRouting( node );
-        return true;
+        if( Settings().AllowDRCViolations() || !node->CheckColliding( m_draggedItems ) )
+        {
+            Router()->CommitRouting( node );
+            return true;
+        }
     }
 
     return false;

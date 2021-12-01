@@ -54,7 +54,9 @@ enum  SHEET_FIELD_TYPE
 class SCH_SHEET : public SCH_ITEM
 {
 public:
-    SCH_SHEET( EDA_ITEM* aParent = nullptr, const wxPoint& pos = wxPoint( 0, 0 ) );
+    SCH_SHEET( EDA_ITEM* aParent = nullptr, const wxPoint& aPos = wxPoint( 0, 0 ),
+               wxSize aSize = wxSize( Mils2iu( MIN_SHEET_WIDTH ), Mils2iu( MIN_SHEET_HEIGHT ) ),
+               FIELDS_AUTOPLACED aAutoplaceFields = FIELDS_AUTOPLACED_AUTO );
 
     /**
      * Copy \a aSheet into a new object.  All sheet pins are copied as is except and
@@ -388,36 +390,18 @@ public:
     EDA_ITEM* Clone() const override;
 
     /**
-     * @return the list of #SCH_SHEET_INSTANCE objects for this sheet.
+     * Return the sheet page number.
+     *
+     * @return the page number for the sheet.
      */
-    const std::vector<SCH_SHEET_INSTANCE> GetInstances() const;
+    wxString GetPageNumber() const;
 
     /**
-     * Add a new instance \a aSheetPath to the instance list.
+     * Set the page number for the sheet.
      *
-     * If \a aSheetPath  does not already exist, it is added to the list.  If already exists
-     * in the list, do nothing.  Sheet instances allow for the sharing in complex hierarchies
-     * which allows for per instance data such as page number for sheets to stored.
-     *
-     * @param[in] aInstance is the #KIID_PATH of the sheet instance to the instance list.
-     * @return false if the instance already exists, true if the instance was added.
+     * @param[in] aPageNumber is the new page number for the sheet.
      */
-    bool AddInstance( const KIID_PATH& aInstance );
-
-    /**
-     * Return the sheet page number for \a aInstance.
-     *
-     * @return the page number for the requested sheet instance.
-     */
-    wxString GetPageNumber( const SCH_SHEET_PATH& aInstance ) const;
-
-    /**
-     * Set the page number for the sheet instance \a aInstance.
-     *
-     * @param[in] aInstance is the hierarchical path of the sheet.
-     * @param[in] aReference is the new page number for the sheet.
-     */
-    void SetPageNumber( const SCH_SHEET_PATH& aInstance, const wxString& aPageNumber );
+    void SetPageNumber( const wxString& aPageNumber );
 
     /**
      * Compares page numbers of schematic sheets.
@@ -430,7 +414,7 @@ public:
     void Show( int nestLevel, std::ostream& os ) const override;
 #endif
 
-    static const wxString GetDefaultFieldName( int aFieldNdx );
+    static const wxString GetDefaultFieldName( int aFieldNdx, bool aTranslated = true );
 
 protected:
     /**
@@ -459,7 +443,7 @@ private:
     KIGFX::COLOR4D              m_borderColor;
     KIGFX::COLOR4D              m_backgroundColor;
 
-    std::vector<SCH_SHEET_INSTANCE> m_instances;
+    wxString                    m_pageNumber;
 };
 
 

@@ -28,6 +28,7 @@ include_directories(
     ${CMAKE_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/pcbnew
+    ${CMAKE_SOURCE_DIR}/qa/qa_utils
     ${INC_AFTER}
     )
 
@@ -53,6 +54,7 @@ set( QA_EESCHEMA_SRCS
     test_eagle_plugin.cpp
     test_lib_part.cpp
     test_netlists.cpp
+    test_ee_item.cpp
     test_sch_pin.cpp
     test_sch_rtree.cpp
     test_sch_sheet.cpp

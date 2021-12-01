@@ -505,7 +505,7 @@ int SCH_EDIT_TOOL::Rotate( const TOOL_EVENT& aEvent )
             SCH_SHEET*     sheet = pin->GetParent();
 
             for( int i = 0; clockwise ? i < 3 : i < 1; ++i )
-                pin->Rotate( sheet->GetBoundingBox().GetCenter() );
+                pin->Rotate( sheet->GetBodyBoundingBox().GetCenter() );
 
             break;
         }
@@ -606,7 +606,7 @@ int SCH_EDIT_TOOL::Rotate( const TOOL_EVENT& aEvent )
                     SCH_SHEET_PIN* pin = static_cast<SCH_SHEET_PIN*>( item );
                     SCH_SHEET*     sheet = pin->GetParent();
 
-                    pin->Rotate( sheet->GetBoundingBox().GetCenter() );
+                    pin->Rotate( sheet->GetBodyBoundingBox().GetCenter() );
                 }
             }
             else if( item->Type() == SCH_FIELD_T )
@@ -875,36 +875,20 @@ int SCH_EDIT_TOOL::RepeatDrawItem( const TOOL_EVENT& aEvent )
     }
     else
     {
-        if( m_isSymbolEditor )
+        EESCHEMA_SETTINGS* cfg = Pgm().GetSettingsManager().GetAppSettings<EESCHEMA_SETTINGS>();
+
+        if( dynamic_cast<SCH_TEXT*>( newItem ) )
         {
-            auto* cfg = Pgm().GetSettingsManager().GetAppSettings<SYMBOL_EDITOR_SETTINGS>();
+            SCH_TEXT* text = static_cast<SCH_TEXT*>( newItem );
 
-            if( dynamic_cast<SCH_TEXT*>( newItem ) )
-            {
-                SCH_TEXT* text = static_cast<SCH_TEXT*>( newItem );
-                text->IncrementLabel( cfg->m_Repeat.label_delta );
-            }
+            // If incrementing tries to go below zero, tell user why the value is repeated
 
-            newItem->Move( wxPoint( Mils2iu( cfg->m_Repeat.x_step ),
-                                    Mils2iu( cfg->m_Repeat.y_step ) ) );
+            if( !text->IncrementLabel( cfg->m_Drawing.repeat_label_increment ) )
+                m_frame->ShowInfoBarWarning( _( "Label value cannot go below zero" ), true );
         }
-        else
-        {
-            EESCHEMA_SETTINGS* cfg = Pgm().GetSettingsManager().GetAppSettings<EESCHEMA_SETTINGS>();
 
-            if( dynamic_cast<SCH_TEXT*>( newItem ) )
-            {
-                SCH_TEXT* text = static_cast<SCH_TEXT*>( newItem );
-
-                // If incrementing tries to go below zero, tell user why the value is repeated
-
-                if( !text->IncrementLabel( cfg->m_Drawing.repeat_label_increment ) )
-                    m_frame->ShowInfoBarWarning( _( "Label value cannot go below zero" ), true );
-            }
-
-            newItem->Move( wxPoint( Mils2iu( cfg->m_Drawing.default_repeat_offset_x ),
-                                    Mils2iu( cfg->m_Drawing.default_repeat_offset_y ) ) );
-        }
+        newItem->Move( wxPoint( Mils2iu( cfg->m_Drawing.default_repeat_offset_x ),
+                                Mils2iu( cfg->m_Drawing.default_repeat_offset_y ) ) );
     }
 
     newItem->SetFlags( IS_NEW );
@@ -1206,26 +1190,40 @@ int SCH_EDIT_TOOL::EditField( const TOOL_EVENT& aEvent )
 
 int SCH_EDIT_TOOL::AutoplaceFields( const TOOL_EVENT& aEvent )
 {
-    EE_SELECTION& selection = m_selectionTool->RequestSelection( EE_COLLECTOR::FieldOwners );
+    EE_SELECTION& selection = m_selectionTool->RequestSelection( rotatableItems );
 
     if( selection.Empty() )
         return 0;
 
-    for( EDA_ITEM* item : selection )
+    SCH_ITEM* head = static_cast<SCH_ITEM*>( selection.Front() );
+    bool      moving = head && head->IsMoving();
+
+    for( unsigned ii = 0; ii < selection.GetSize(); ii++ )
     {
-        SCH_ITEM* sch_item = static_cast<SCH_ITEM*>( item );
+        SCH_ITEM* sch_item = static_cast<SCH_ITEM*>( selection.GetItem( ii ) );
 
-        if( !sch_item->IsNew() )
-            saveCopyInUndoList( sch_item, UNDO_REDO::CHANGED );
+        if( !moving && !sch_item->IsNew() )
+            saveCopyInUndoList( sch_item, UNDO_REDO::CHANGED, ii > 0 );
 
-        sch_item->AutoplaceFields( m_frame->GetScreen(), /* aManual */ true );
+        if( sch_item->IsType( EE_COLLECTOR::FieldOwners ) )
+            sch_item->AutoplaceFields( m_frame->GetScreen(), /* aManual */ true );
+
         updateItem( sch_item, true );
     }
 
-    m_frame->OnModify();
+    m_toolMgr->PostEvent( EVENTS::SelectedItemsModified );
 
-    if( selection.IsHover() )
-        m_toolMgr->RunAction( EE_ACTIONS::clearSelection, true );
+    if( moving )
+    {
+        m_toolMgr->RunAction( ACTIONS::refreshPreview );
+    }
+    else
+    {
+        if( selection.IsHover() )
+            m_toolMgr->RunAction( EE_ACTIONS::clearSelection, true );
+
+        m_frame->OnModify();
+    }
 
     return 0;
 }
@@ -1769,7 +1767,7 @@ int SCH_EDIT_TOOL::EditPageNumber( const TOOL_EVENT& aEvent )
 
     wxString msg;
     wxString sheetPath = instance.PathHumanReadable( false );
-    wxString pageNumber = instance.GetPageNumber();
+    wxString pageNumber = instance.Last()->GetPageNumber();
 
     msg.Printf( _( "Enter page number for sheet path%s" ),
                 ( sheetPath.Length() > 20 ) ? "\n" + sheetPath : " " + sheetPath );
@@ -1778,12 +1776,12 @@ int SCH_EDIT_TOOL::EditPageNumber( const TOOL_EVENT& aEvent )
 
     dlg.SetTextValidator( wxFILTER_ALPHANUMERIC );  // No white space.
 
-    if( dlg.ShowModal() == wxID_CANCEL || dlg.GetValue() == instance.GetPageNumber() )
+    if( dlg.ShowModal() == wxID_CANCEL || dlg.GetValue() == instance.Last()->GetPageNumber() )
         return 0;
 
     m_frame->SaveCopyInUndoList( screen, sheet, UNDO_REDO::CHANGED, false );
 
-    instance.SetPageNumber( dlg.GetValue() );
+    instance.Last()->SetPageNumber( dlg.GetValue() );
 
     if( instance == m_frame->GetCurrentSheet() )
     {

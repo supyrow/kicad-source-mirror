@@ -180,8 +180,7 @@ SCH_SHEET* SCH_ALTIUM_PLUGIN::Load( const wxString& aFileName, SCHEMATIC* aSchem
         SCH_SHEET_PATH sheetpath;
         sheetpath.push_back( m_rootSheet );
 
-        m_rootSheet->AddInstance( sheetpath.Path() );
-        m_rootSheet->SetPageNumber( sheetpath, "#" );   // We'll update later if we find a
+        m_rootSheet->SetPageNumber( "#" );              // We'll update later if we find a
                                                         // pageNumber record for it
     }
 
@@ -1520,9 +1519,7 @@ void SCH_ALTIUM_PLUGIN::ParseSheetSymbol( int aIndex,
     m_rootSheet->LocatePathOfScreen( m_currentSheet->GetScreen(), &sheetpath );
     sheetpath.push_back( sheet );
 
-    sheet->AddInstance( sheetpath.Path() );
-    sheet->SetPageNumber( sheetpath, "#" );   // We'll update later if we find a pageNumber
-                                              // record for it
+    sheet->SetPageNumber( "#" );   // We'll update later if we find a pageNumber record for it.
 
     m_sheets.insert( { aIndex, sheet } );
 }
@@ -1559,22 +1556,22 @@ void SCH_ALTIUM_PLUGIN::ParseSheetEntry( const std::map<wxString, wxString>& aPr
     case ASCH_SHEET_ENTRY_SIDE::LEFT:
         sheetPin->SetPosition( { pos.x, pos.y + elem.distanceFromTop } );
         sheetPin->SetLabelSpinStyle( LABEL_SPIN_STYLE::LEFT );
-        sheetPin->SetEdge( SHEET_SIDE::LEFT );
+        sheetPin->SetSide( SHEET_SIDE::LEFT );
         break;
     case ASCH_SHEET_ENTRY_SIDE::RIGHT:
         sheetPin->SetPosition( { pos.x + size.x, pos.y + elem.distanceFromTop } );
         sheetPin->SetLabelSpinStyle( LABEL_SPIN_STYLE::RIGHT );
-        sheetPin->SetEdge( SHEET_SIDE::RIGHT );
+        sheetPin->SetSide( SHEET_SIDE::RIGHT );
         break;
     case ASCH_SHEET_ENTRY_SIDE::TOP:
         sheetPin->SetPosition( { pos.x + elem.distanceFromTop, pos.y } );
         sheetPin->SetLabelSpinStyle( LABEL_SPIN_STYLE::UP );
-        sheetPin->SetEdge( SHEET_SIDE::TOP );
+        sheetPin->SetSide( SHEET_SIDE::TOP );
         break;
     case ASCH_SHEET_ENTRY_SIDE::BOTTOM:
         sheetPin->SetPosition( { pos.x + elem.distanceFromTop, pos.y + size.y } );
         sheetPin->SetLabelSpinStyle( LABEL_SPIN_STYLE::BOTTOM );
-        sheetPin->SetEdge( SHEET_SIDE::BOTTOM );
+        sheetPin->SetSide( SHEET_SIDE::BOTTOM );
         break;
     }
 
@@ -2343,7 +2340,7 @@ void SCH_ALTIUM_PLUGIN::ParseParameter( const std::map<wxString, wxString>& aPro
             SCH_SHEET_PATH sheetpath;
             m_rootSheet->LocatePathOfScreen( m_currentSheet->GetScreen(), &sheetpath );
 
-            m_rootSheet->SetPageNumber( sheetpath, elem.text );
+            sheetpath.Last()->SetPageNumber( elem.text );
         }
         else if( paramName == "TITLE" )
         {

@@ -218,7 +218,7 @@ void SCH_PIN::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITE
     aList.emplace_back( symbol->GetRef( currentSheet ), symbol->GetValue( currentSheet, true ) );
 
 #if defined(DEBUG)
-    if( dynamic_cast<SCH_EDIT_FRAME*>( aFrame ) )
+    if( !IsConnectivityDirty() && dynamic_cast<SCH_EDIT_FRAME*>( aFrame ) )
     {
         SCH_CONNECTION* conn = Connection();
 
@@ -311,6 +311,12 @@ bool SCH_PIN::HitTest( const wxPoint& aPosition, int aAccuracy ) const
 
     EDA_RECT rect = GetBoundingBox();
     return rect.Inflate( aAccuracy ).Contains( aPosition );
+}
+
+
+EDA_ITEM* SCH_PIN::Clone() const
+{
+    return new SCH_PIN( *this );
 }
 
 

@@ -59,7 +59,10 @@ bool IncrementLabelMember( wxString& name, int aIncrement )
 
     wxString suffix;
     wxString digits;
-    int      ii = name.Len() - 1;
+    wxString outputFormat;
+    wxString outputNumber;
+    int      ii     = name.Len() - 1;
+    int      dCount = 0;
 
     while( ii >= 0 && !wxIsdigit( name.GetChar( ii ) ) )
     {
@@ -71,6 +74,7 @@ bool IncrementLabelMember( wxString& name, int aIncrement )
     {
         digits = name.GetChar( ii ) + digits;
         ii--;
+        dCount++;
     }
 
     if( digits.IsEmpty() )
@@ -87,7 +91,11 @@ bool IncrementLabelMember( wxString& name, int aIncrement )
         if( number > -1 )
         {
             name.Remove( ii + 1 );
-            name << number << suffix;
+            //write out a format string with correct number of leading zeroes
+            outputFormat.Printf( "%%0%dd", dCount );
+            //write out the number using the format string
+            outputNumber.Printf( outputFormat, number );
+            name << outputNumber << suffix;
             return true;
         }
     }
@@ -209,12 +217,12 @@ SCH_TEXT::SCH_TEXT( const wxPoint& pos, const wxString& text, KICAD_T aType ) :
         EDA_TEXT( text ),
         m_shape( PINSHEETLABEL_SHAPE::PS_INPUT ),
         m_isDangling( false ),
-        m_connectionType( CONNECTION_TYPE::NONE ),
-        m_spin_style( LABEL_SPIN_STYLE::LEFT )
+        m_connectionType( CONNECTION_TYPE::NONE )
 {
     m_layer = LAYER_NOTES;
 
     SetTextPos( pos );
+    SetLabelSpinStyle( LABEL_SPIN_STYLE::LEFT );
     SetMultilineAllowed( true );
 }
 
@@ -784,7 +792,10 @@ void SCH_TEXT::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_IT
 
     aList.emplace_back( _( "Justification" ), msg );
 
-    SCH_CONNECTION* conn = dynamic_cast<SCH_EDIT_FRAME*>( aFrame ) ? Connection() : nullptr;
+    SCH_CONNECTION* conn = nullptr;
+
+    if( !IsConnectivityDirty() && dynamic_cast<SCH_EDIT_FRAME*>( aFrame ) )
+        conn = Connection();
 
     if( conn )
     {
@@ -1260,7 +1271,7 @@ bool SCH_GLOBALLABEL::ResolveTextVar( wxString* token, int aDepth ) const
 
             if( !settings.m_IntersheetRefsListOwnPage )
             {
-                wxString currentPage = Schematic()->CurrentSheet().GetPageNumber();
+                wxString currentPage = Schematic()->CurrentSheet().Last()->GetPageNumber();
                 alg::delete_matching( pageListCopy, currentPage );
             }
 

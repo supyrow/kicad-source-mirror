@@ -1151,7 +1151,7 @@ void SCH_SEXPR_PLUGIN::saveField( SCH_FIELD* aField, int aNestLevel )
     else if( aField->GetParent()->Type() == SCH_SHEET_T )
     {
         if( aField->GetId() >= 0 && aField->GetId() < SHEET_MANDATORY_FIELDS )
-            fieldName = SCH_SHEET::GetDefaultFieldName( aField->GetId() );
+            fieldName = SCH_SHEET::GetDefaultFieldName( aField->GetId(), false );
     }
 
     if( aField->GetId() == -1 /* undefined ID */ )
@@ -1279,7 +1279,7 @@ void SCH_SEXPR_PLUGIN::saveSheet( SCH_SHEET* aSheet, int aNestLevel )
                       getSheetPinShapeToken( pin->GetShape() ),
                       FormatInternalUnits( pin->GetPosition().x ).c_str(),
                       FormatInternalUnits( pin->GetPosition().y ).c_str(),
-                      FormatAngle( getSheetPinAngle( pin->GetEdge() ) * 10.0 ).c_str() );
+                      FormatAngle( getSheetPinAngle( pin->GetSide() ) * 10.0 ).c_str() );
 
         pin->Format( m_out, aNestLevel + 1, 0 );
 
@@ -1296,7 +1296,7 @@ void SCH_SEXPR_PLUGIN::saveJunction( SCH_JUNCTION* aJunction, int aNestLevel )
 {
     wxCHECK_RET( aJunction != nullptr && m_out != nullptr, "" );
 
-    m_out->Print( aNestLevel, "(junction (at %s %s) (diameter %s) (color %d %d %d %s))\n",
+    m_out->Print( aNestLevel, "(junction (at %s %s) (diameter %s) (color %d %d %d %s)\n",
                   FormatInternalUnits( aJunction->GetPosition().x ).c_str(),
                   FormatInternalUnits( aJunction->GetPosition().y ).c_str(),
                   FormatInternalUnits( aJunction->GetDiameter() ).c_str(),
@@ -1304,6 +1304,10 @@ void SCH_SEXPR_PLUGIN::saveJunction( SCH_JUNCTION* aJunction, int aNestLevel )
                   KiROUND( aJunction->GetColor().g * 255.0 ),
                   KiROUND( aJunction->GetColor().b * 255.0 ),
                   Double2Str( aJunction->GetColor().a ).c_str() );
+
+    m_out->Print( aNestLevel + 1, "(uuid %s)\n", TO_UTF8( aJunction->m_Uuid.AsString() ) );
+
+    m_out->Print( aNestLevel, ")\n" );
 }
 
 

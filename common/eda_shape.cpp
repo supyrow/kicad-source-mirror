@@ -647,7 +647,7 @@ const EDA_RECT EDA_SHAPE::getBoundingBox() const
         break;
     }
 
-    bbox.Inflate( m_width / 2 );
+    bbox.Inflate( std::max( 0, m_width / 2 ) );
     bbox.Normalize();
 
     return bbox;
@@ -1423,8 +1423,11 @@ void EDA_SHAPE::SwapShape( EDA_SHAPE* aImage )
 
 int EDA_SHAPE::Compare( const EDA_SHAPE* aOther ) const
 {
+#define EPSILON 2       // Should be enough for rounding errors on calculated items
+
 #define TEST( a, b ) { if( a != b ) return a - b; }
-#define TEST_PT( a, b ) { TEST( a.x, b.x ); TEST( a.y, b.y ); }
+#define TEST_E( a, b ) { if( abs( a - b ) > EPSILON ) return a - b; }
+#define TEST_PT( a, b ) { TEST_E( a.x, b.x ); TEST_E( a.y, b.y ); }
 
     TEST_PT( m_start, aOther->m_start );
     TEST_PT( m_end, aOther->m_end );
@@ -1448,7 +1451,7 @@ int EDA_SHAPE::Compare( const EDA_SHAPE* aOther ) const
             TEST_PT( m_poly.CVertex( ii ), aOther->m_poly.CVertex( ii ) );
     }
 
-    TEST( m_width, aOther->m_width );
+    TEST_E( m_width, aOther->m_width );
     TEST( (int) m_fill, (int) aOther->m_fill );
 
     return 0;
