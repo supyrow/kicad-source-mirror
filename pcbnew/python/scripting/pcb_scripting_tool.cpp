@@ -67,9 +67,9 @@ bool SCRIPTING_TOOL::Init()
         PyObject* sys_mod = PyImport_GetModuleDict();
         PyDict_SetItemString( sys_mod, "_pcbnew", mod );
         Py_DECREF( mod );
-    }
 
-    callLoadPlugins();
+        callLoadPlugins();
+    }
 
     return true;
 }
@@ -93,6 +93,8 @@ int SCRIPTING_TOOL::reloadPlugins( const TOOL_EVENT& aEvent )
         frame()->ReCreateMenuBar();
         // Recreate top toolbar to add action plugin buttons
         frame()->ReCreateHToolbar();
+        // Post a size event to force resizing toolbar by the AUI manager:
+        frame()->PostSizeEvent();
     }
 
     return 0;

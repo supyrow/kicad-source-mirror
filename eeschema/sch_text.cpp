@@ -556,7 +556,7 @@ const EDA_RECT SCH_TEXT::GetBoundingBox() const
 {
     EDA_RECT rect = GetTextBox();
 
-    if( GetTextAngle() != 0 )      // Rotate rect
+    if( GetTextAngle() != 0 ) // Rotate rect.
     {
         wxPoint pos = rect.GetOrigin();
         wxPoint end = rect.GetEnd();

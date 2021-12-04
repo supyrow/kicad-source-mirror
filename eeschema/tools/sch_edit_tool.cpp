@@ -544,7 +544,7 @@ int SCH_EDIT_TOOL::Rotate( const TOOL_EVENT& aEvent )
         case SCH_SHEET_T:
         {
             SCH_SHEET* sheet = static_cast<SCH_SHEET*>( head );
-            rotPoint = m_frame->GetNearestGridPosition( sheet->GetRotationCenter() );
+            rotPoint = m_frame->GetNearestHalfGridPosition( sheet->GetRotationCenter() );
 
             // Rotate the sheet on itself. Sheets do not have an anchor point.
             for( int i = 0; clockwise ? i < 3 : i < 1; ++i )
@@ -565,7 +565,7 @@ int SCH_EDIT_TOOL::Rotate( const TOOL_EVENT& aEvent )
         if( moving && selection.HasReferencePoint() )
             rotPoint = (wxPoint) selection.GetReferencePoint();
         else
-            rotPoint = m_frame->GetNearestGridPosition( (wxPoint) selection.GetCenter() );
+            rotPoint = m_frame->GetNearestHalfGridPosition( (wxPoint) selection.GetCenter() );
     }
 
     for( unsigned ii = 0; ii < selection.GetSize(); ii++ )
@@ -800,21 +800,6 @@ int SCH_EDIT_TOOL::Mirror( const TOOL_EVENT& aEvent )
                     else
                         pin->MirrorHorizontally( sheet->GetBoundingBox().GetCenter().x );
                 }
-            }
-            else if( item->Type() == SCH_TEXT_T || item->Type() == SCH_LABEL_T )
-            {
-                /// Text and Labels are aligned to their bottom right corners and we don't flip the
-                /// alignment corner, so we need to offset this in the vertical direction
-
-                wxPoint textMirrorPoint = mirrorPoint;
-
-                textMirrorPoint.y += item->GetBoundingBox().GetHeight() / 2;
-                textMirrorPoint = m_frame->GetNearestHalfGridPosition( textMirrorPoint );
-
-                if( vertical )
-                    item->MirrorVertically( textMirrorPoint.y );
-                else
-                    item->MirrorHorizontally( textMirrorPoint.x );
             }
             else
             {
