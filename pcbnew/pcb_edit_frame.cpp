@@ -102,6 +102,8 @@
 #include <widgets/panel_selection_filter.h>
 #include <widgets/wx_aui_utils.h>
 #include <kiplatform/app.h>
+#include <profile.h>
+#include <view/wx_view_controls.h>
 
 #include <action_plugin.h>
 #include "../scripting/python_scripting.h"
@@ -172,7 +174,7 @@ END_EVENT_TABLE()
 
 
 PCB_EDIT_FRAME::PCB_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
-    PCB_BASE_EDIT_FRAME( aKiway, aParent, FRAME_PCB_EDITOR, wxT( "PCB Editor" ), wxDefaultPosition,
+    PCB_BASE_EDIT_FRAME( aKiway, aParent, FRAME_PCB_EDITOR, _( "PCB Editor" ), wxDefaultPosition,
                          wxDefaultSize, KICAD_DEFAULT_DRAWFRAME_STYLE, PCB_EDIT_FRAME_NAME ),
     m_exportNetlistAction( nullptr ), m_findDialog( nullptr )
 {
@@ -314,6 +316,9 @@ PCB_EDIT_FRAME::PCB_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
     PythonSyncEnvironmentVariables();
     PythonSyncProjectName();
 
+    // Sync action plugins in case they changed since the last time the frame opened
+    GetToolManager()->RunAction( PCB_ACTIONS::pluginsReload, true );
+
     GetCanvas()->SwitchBackend( m_canvasType );
     ActivateGalCanvas();
 
@@ -363,6 +368,27 @@ PCB_EDIT_FRAME::PCB_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
                    // Ensure the controls on the toolbars all are correctly sized
                     UpdateToolbarControlSizes();
                } );
+
+    if( ADVANCED_CFG::GetCfg().m_ShowEventCounters )
+    {
+        m_eventCounterTimer = new wxTimer( this );
+
+        Bind( wxEVT_TIMER,
+                [&]( wxTimerEvent& aEvent )
+                {
+                    GetCanvas()->m_PaintEventCounter->Show();
+                    GetCanvas()->m_PaintEventCounter->Reset();
+
+                    KIGFX::WX_VIEW_CONTROLS* vc =
+                            static_cast<KIGFX::WX_VIEW_CONTROLS*>( GetCanvas()->GetViewControls() );
+                    vc->m_MotionEventCounter->Show();
+                    vc->m_MotionEventCounter->Reset();
+
+                },
+                m_eventCounterTimer->GetId() );
+
+        m_eventCounterTimer->Start( 1000 );
+    }
 }
 
 

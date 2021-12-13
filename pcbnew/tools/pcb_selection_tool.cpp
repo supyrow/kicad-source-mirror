@@ -770,6 +770,19 @@ bool PCB_SELECTION_TOOL::selectCursor( bool aForceSelect, CLIENT_SELECTION_FILTE
 }
 
 
+// Some navigation actions are allowed in selectMultiple
+const TOOL_ACTION* allowedActions[] = { &ACTIONS::panUp,          &ACTIONS::panDown,
+                                        &ACTIONS::panLeft,        &ACTIONS::panRight,
+                                        &ACTIONS::cursorUp,       &ACTIONS::cursorDown,
+                                        &ACTIONS::cursorLeft,     &ACTIONS::cursorRight,
+                                        &ACTIONS::cursorUpFast,   &ACTIONS::cursorDownFast,
+                                        &ACTIONS::cursorLeftFast, &ACTIONS::cursorRightFast,
+                                        &ACTIONS::zoomIn,         &ACTIONS::zoomOut,
+                                        &ACTIONS::zoomInCenter,   &ACTIONS::zoomOutCenter,
+                                        &ACTIONS::zoomCenter,     &ACTIONS::zoomFitScreen,
+                                        &ACTIONS::zoomFitObjects, nullptr };
+
+
 bool PCB_SELECTION_TOOL::selectMultiple()
 {
     bool cancelled = false;     // Was the tool cancelled while it was running?
@@ -885,6 +898,16 @@ bool PCB_SELECTION_TOOL::selectMultiple()
                 m_toolMgr->ProcessEvent( EVENTS::UnselectedEvent );
 
             break;  // Stop waiting for events
+        }
+
+        // Allow some actions for navigation
+        for( int i = 0; allowedActions[i]; ++i )
+        {
+            if( evt->IsAction( allowedActions[i] ) )
+            {
+                evt->SetPassEvent();
+                break;
+            }
         }
     }
 
@@ -1206,7 +1229,7 @@ void PCB_SELECTION_TOOL::selectConnectedTracks( BOARD_CONNECTED_ITEM& aStartItem
         {
             wxPoint      pt = activePts[i].first;
             PCB_LAYER_ID layer = activePts[i].second;
-            size_t       pt_count = padMap.count( pt ) * 2 + viaMap.count( pt );
+            size_t       pt_count = 0;
 
             for( PCB_TRACK* track : trackMap[pt] )
             {
@@ -1214,15 +1237,23 @@ void PCB_SELECTION_TOOL::selectConnectedTracks( BOARD_CONNECTED_ITEM& aStartItem
                     pt_count++;
             }
 
-            if( pt_count > 2 && aStopCondition == STOP_AT_JUNCTION )
+            if( aStopCondition == STOP_AT_JUNCTION )
             {
-                activePts.erase( activePts.begin() + i );
-                continue;
+                if( pt_count > 2
+                        || ( viaMap.count( pt ) && layer != ALL_LAYERS )
+                        || ( padMap.count( pt ) && layer != ALL_LAYERS ) )
+                {
+                    activePts.erase( activePts.begin() + i );
+                    continue;
+                }
             }
-            else if( padMap.count( pt ) && aStopCondition == STOP_AT_PAD )
+            else if( aStopCondition == STOP_AT_PAD )
             {
-                activePts.erase( activePts.begin() + i );
-                continue;
+                if( padMap.count( pt ) )
+                {
+                    activePts.erase( activePts.begin() + i );
+                    continue;
+                }
             }
 
             if( padMap.count( pt ) )
@@ -2429,7 +2460,7 @@ void PCB_SELECTION_TOOL::GuessSelectionCandidates( GENERAL_COLLECTOR& aCollector
     std::set<BOARD_ITEM*> rejected;
     wxPoint               where( aWhere.x, aWhere.y );
 
-    PCB_LAYER_ID activeLayer = (PCB_LAYER_ID) view()->GetTopLayer();
+    PCB_LAYER_ID activeLayer = m_frame->GetActiveLayer();
     LSET         silkLayers( 2, B_SilkS, F_SilkS );
 
     if( silkLayers[activeLayer] )
@@ -2652,6 +2683,43 @@ void PCB_SELECTION_TOOL::FilterCollectorForHierarchy( GENERAL_COLLECTOR& aCollec
     {
         if( !aCollector.HasItem( item ) )
             aCollector.Append( item );
+    }
+}
+
+
+void PCB_SELECTION_TOOL::FilterCollectorForFreePads( GENERAL_COLLECTOR& aCollector ) const
+{
+    std::set<BOARD_ITEM*> to_add;
+
+    // Iterate from the back so we don't have to worry about removals.
+    for( int i = aCollector.GetCount() - 1; i >= 0; --i )
+    {
+        BOARD_ITEM* item = aCollector[i];
+
+        if( !IsFootprintEditor() && item->Type() == PCB_PAD_T
+            && !frame()->Settings().m_AllowFreePads )
+        {
+            if( !aCollector.HasItem( item->GetParent() ) )
+                to_add.insert( item->GetParent() );
+
+            aCollector.Remove( item );
+        }
+    }
+
+    for( BOARD_ITEM* item : to_add )
+        aCollector.Append( item );
+}
+
+
+void PCB_SELECTION_TOOL::FilterCollectorForMarkers( GENERAL_COLLECTOR& aCollector ) const
+{
+    // Iterate from the back so we don't have to worry about removals.
+    for( int i = aCollector.GetCount() - 1; i >= 0; --i )
+    {
+        BOARD_ITEM* item = aCollector[i];
+
+        if( item->Type() == PCB_MARKER_T )
+            aCollector.Remove( item );
     }
 }
 

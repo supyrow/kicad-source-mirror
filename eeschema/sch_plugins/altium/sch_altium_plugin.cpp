@@ -177,10 +177,13 @@ SCH_SHEET* SCH_ALTIUM_PLUGIN::Load( const wxString& aFileName, SCHEMATIC* aSchem
         m_rootSheet = new SCH_SHEET( aSchematic );
         m_rootSheet->SetFileName( fileName.GetFullPath() );
 
+        aSchematic->SetRoot( m_rootSheet );
+
         SCH_SHEET_PATH sheetpath;
         sheetpath.push_back( m_rootSheet );
 
-        m_rootSheet->SetPageNumber( "#" );              // We'll update later if we find a
+        m_rootSheet->AddInstance( sheetpath );
+        m_rootSheet->SetPageNumber( sheetpath, "#" );   // We'll update later if we find a
                                                         // pageNumber record for it
     }
 
@@ -1519,7 +1522,9 @@ void SCH_ALTIUM_PLUGIN::ParseSheetSymbol( int aIndex,
     m_rootSheet->LocatePathOfScreen( m_currentSheet->GetScreen(), &sheetpath );
     sheetpath.push_back( sheet );
 
-    sheet->SetPageNumber( "#" );   // We'll update later if we find a pageNumber record for it.
+    sheet->AddInstance( sheetpath );
+    sheet->SetPageNumber( sheetpath, "#" );   // We'll update later if we find a pageNumber
+                                              // record for it
 
     m_sheets.insert( { aIndex, sheet } );
 }
@@ -2340,7 +2345,7 @@ void SCH_ALTIUM_PLUGIN::ParseParameter( const std::map<wxString, wxString>& aPro
             SCH_SHEET_PATH sheetpath;
             m_rootSheet->LocatePathOfScreen( m_currentSheet->GetScreen(), &sheetpath );
 
-            sheetpath.Last()->SetPageNumber( elem.text );
+            m_rootSheet->SetPageNumber( sheetpath, elem.text );
         }
         else if( paramName == "TITLE" )
         {

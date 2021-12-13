@@ -237,13 +237,13 @@ bool SHAPE_ARC::Collide( const SEG& aSeg, int aClearance, int* aActual, VECTOR2I
     // Possible points of the collision are:
     // 1. Intersetion of the segment with the full circle
     // 2. Closest point on the segment to the center of the circle
-    // 3. End points of the segment
+    // 3. Closest point on the segment to the end points of the arc
 
     std::vector<VECTOR2I> candidatePts = circle.Intersect( aSeg );
 
     candidatePts.push_back( aSeg.NearestPoint( center ) );
-    candidatePts.push_back( aSeg.A );
-    candidatePts.push_back( aSeg.B );
+    candidatePts.push_back( aSeg.NearestPoint( m_start ) );
+    candidatePts.push_back( aSeg.NearestPoint( m_end ) );
 
     for( const VECTOR2I& candidate : candidatePts )
     {

@@ -183,6 +183,15 @@ public:
 
     int GetVirtualPageNumber() const { return m_virtualPageNumber; }
 
+    /**
+     * Set the sheet instance user definable page number.
+     *
+     * @note User definable page numbers can be any string devoid of white space characters.
+     */
+    void SetPageNumber( const wxString& aPageNumber );
+
+    wxString GetPageNumber() const;
+
     const SCH_SHEET* GetSheet( unsigned aIndex ) const
     {
         SCH_SHEET* retv = nullptr;
@@ -192,6 +201,8 @@ public:
 
         return retv;
     }
+
+    bool IsFullPath() const;
 
     /**
      * Compare if this is the same sheet path as \a aSheetPathToTest.
@@ -554,6 +565,11 @@ public:
 
     std::vector<KIID_PATH> GetPaths() const;
 
+    /**
+     * Fetch the instance information for all of the sheets in the hiearchy.
+     *
+     * @return all of the sheet instance data for the hierarchy.
+     */
     std::vector<SCH_SHEET_INSTANCE> GetSheetInstances() const;
 
     /**

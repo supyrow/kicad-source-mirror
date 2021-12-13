@@ -71,6 +71,8 @@ EDA_DRAW_PANEL_GAL::EDA_DRAW_PANEL_GAL( wxWindow* aParentWindow, wxWindowID aWin
     m_parent = aParentWindow;
     m_MouseCapturedLost = false;
 
+    m_PaintEventCounter = std::make_unique<PROF_COUNTER>( "Draw panel paint events" );
+
     SetLayoutDirection( wxLayout_LeftToRight );
 
     m_edaFrame = dynamic_cast<EDA_DRAW_FRAME*>( m_parent );
@@ -190,17 +192,19 @@ void EDA_DRAW_PANEL_GAL::DoRePaint()
     if( m_drawing )
         return;
 
+    ( *m_PaintEventCounter )++;
+
     wxASSERT( m_painter );
 
     m_drawing = true;
     KIGFX::RENDER_SETTINGS* settings =
             static_cast<KIGFX::RENDER_SETTINGS*>( m_painter->GetSettings() );
 
-    PROF_COUNTER cntUpd("view-upd-items");
-    PROF_COUNTER cntTotal("view-total");
-    PROF_COUNTER cntCtx("view-context-create");
-    PROF_COUNTER cntCtxDestroy("view-context-destroy");
-    PROF_COUNTER cntRedraw("view-redraw-rects");
+    PROF_TIMER cntUpd("view-upd-items");
+    PROF_TIMER cntTotal("view-total");
+    PROF_TIMER cntCtx("view-context-create");
+    PROF_TIMER cntCtxDestroy("view-context-destroy");
+    PROF_TIMER cntRedraw("view-redraw-rects");
 
     bool isDirty = false;
 

@@ -137,6 +137,8 @@ void PAGED_DIALOG::finishInitialization()
     m_treebook->Layout();
 
     finishDialogSettings();
+
+	Centre( wxBOTH );
 }
 
 
@@ -350,8 +352,10 @@ void PAGED_DIALOG::OnUpdateUI( wxUpdateUIEvent& event )
     {
         unsigned next = m_treebook->GetSelection() + 1;
 
+        // Use ChangeSelection() here because SetSelection() generates page change events which
+        // creates an infinite wxUpdateUIEvent loop.
         if( next < m_treebook->GetPageCount() )
-            m_treebook->SetSelection( next );
+            m_treebook->ChangeSelection( next );
     }
 }
 

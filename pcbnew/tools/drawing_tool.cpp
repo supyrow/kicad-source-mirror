@@ -482,6 +482,8 @@ int DRAWING_TOOL::PlaceText( const TOOL_EVENT& aEvent )
     BOARD_COMMIT                 commit( m_frame );
     SCOPED_DRAW_MODE             scopedDrawMode( m_mode, MODE::TEXT );
 
+    bool resetCursor = aEvent.HasPosition(); // Detect if activated from a hotkey.
+
     auto cleanup =
             [&]()
             {
@@ -639,7 +641,6 @@ int DRAWING_TOOL::PlaceText( const TOOL_EVENT& aEvent )
                         m_frame->GetCanvas()->Refresh();
                     }
 
-                    m_controls->WarpCursor( text->GetPosition(), true );
                     m_toolMgr->RunAction( PCB_ACTIONS::selectItem, true, text );
                     m_view->Update( &selection() );
 
@@ -662,6 +663,14 @@ int DRAWING_TOOL::PlaceText( const TOOL_EVENT& aEvent )
             }
 
             m_controls->ForceCursorPosition( false );
+
+            // Reset cursor to the position before the dialog opened if activated from hotkey
+            if( resetCursor )
+                m_controls->SetCursorPosition( cursorPos, false );
+
+            // Other events must be from hotkeys or mouse clicks, so always reset cursor
+            resetCursor = true;
+
             m_controls->ShowCursor( true );
             m_controls->CaptureCursor( text != nullptr );
             m_controls->SetAutoPan( text != nullptr );
@@ -2555,6 +2564,7 @@ int DRAWING_TOOL::DrawVia( const TOOL_EVENT& aEvent )
             PCB_VIA*   via = static_cast<PCB_VIA*>( aItem );
             wxPoint    position = via->GetPosition();
             PCB_TRACK* track = findTrack( via );
+            PAD*       pad = findPad( via );
 
             if( track )
             {
@@ -2562,6 +2572,12 @@ int DRAWING_TOOL::DrawVia( const TOOL_EVENT& aEvent )
                 VECTOR2I snap = m_gridHelper.AlignToSegment( position, trackSeg );
 
                 aItem->SetPosition( (wxPoint) snap );
+            }
+            else if( pad && m_gridHelper.GetSnap()
+                     && m_frame->GetMagneticItemsSettings()->pads
+                                == MAGNETIC_OPTIONS::CAPTURE_ALWAYS )
+            {
+                aItem->SetPosition( pad->GetPosition() );
             }
         }
 

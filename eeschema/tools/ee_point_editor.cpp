@@ -841,7 +841,7 @@ bool EE_POINT_EDITOR::addCornerCondition( const SELECTION& )
     VECTOR2I cursorPos = getViewControls()->GetCursorPosition();
     double   threshold = getView()->ToWorld( EDIT_POINT::POINT_SIZE );
 
-    return shape->HitTest( mapCoords( cursorPos ), (int) threshold );
+    return shape->HitTest( (wxPoint) cursorPos, (int) threshold );
 }
 
 
@@ -870,10 +870,13 @@ int EE_POINT_EDITOR::addCorner( const TOOL_EVENT& aEvent )
         }
     }
 
-    poly.Insert( closestLineStart, pos );
+    saveItemsToUndo();
+    poly.Insert( closestLineStart + 1, pos );
 
     updateItem( shape, true );
     updatePoints();
+
+    m_frame->OnModify();
 
     return 0;
 }
@@ -890,10 +893,13 @@ int EE_POINT_EDITOR::removeCorner( const TOOL_EVENT& aEvent )
     if( poly.GetPointCount() < 3 )
         return 0;
 
+    saveItemsToUndo();
     poly.Remove( getEditedPointIndex() );
 
     updateItem( shape, true );
     updatePoints();
+
+    m_frame->OnModify();
 
     return 0;
 }

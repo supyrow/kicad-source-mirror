@@ -737,8 +737,13 @@ int SCH_PAINTER::externalPinDecoSize( const LIB_PIN &aPin )
 
 
 // Draw the target (an open circle) for a pin which has no connection or is being moved.
-void SCH_PAINTER::drawPinDanglingSymbol( const VECTOR2I& aPos, bool aDrawingShadows )
+void SCH_PAINTER::drawPinDanglingSymbol( const VECTOR2I& aPos, const COLOR4D& aColor,
+                                         bool aDrawingShadows )
 {
+    // Dangling symbols must be drawn in a slightly different colour so they can be seen when
+    // they overlap with a junction dot.
+    m_gal->SetStrokeColor( aColor.Brightened( 0.3 ) );
+
     m_gal->SetIsFill( false );
     m_gal->SetIsStroke( true );
     m_gal->SetLineWidth( aDrawingShadows ? getShadowWidth()
@@ -754,7 +759,8 @@ void SCH_PAINTER::draw( LIB_PIN *aPin, int aLayer )
         return;
 
     bool drawingShadows = aLayer == LAYER_SELECTION_SHADOWS;
-    bool dangling = m_schSettings.m_IsSymbolEditor || aPin->HasFlag( IS_DANGLING );
+    bool drawingDangling = aLayer == LAYER_DANGLING;
+    bool isDangling = m_schSettings.m_IsSymbolEditor || aPin->HasFlag( IS_DANGLING );
 
     if( drawingShadows && !aPin->IsSelected() )
         return;
@@ -770,11 +776,19 @@ void SCH_PAINTER::draw( LIB_PIN *aPin, int aLayer )
         }
         else
         {
-            if( dangling && aPin->IsPowerConnection() )
-                drawPinDanglingSymbol( pos, drawingShadows );
+            if( drawingDangling && isDangling && aPin->IsPowerConnection() )
+                drawPinDanglingSymbol( pos, color, drawingShadows );
 
             return;
         }
+    }
+
+    if( drawingDangling )
+    {
+        if( isDangling )
+            drawPinDanglingSymbol( pos, color, drawingShadows );
+
+        return;
     }
 
     VECTOR2I p0;
@@ -828,8 +842,6 @@ void SCH_PAINTER::draw( LIB_PIN *aPin, int aLayer )
                          pos + VECTOR2D(  1,  1 ) * TARGET_PIN_RADIUS );
         m_gal->DrawLine( pos + VECTOR2D(  1, -1 ) * TARGET_PIN_RADIUS ,
                          pos + VECTOR2D( -1,  1 ) * TARGET_PIN_RADIUS );
-
-        aPin->ClearFlags( IS_DANGLING ); // PIN_NC pin type is always not connected and dangling.
     }
     else
     {
@@ -933,10 +945,6 @@ void SCH_PAINTER::draw( LIB_PIN *aPin, int aLayer )
         }
     }
 
-
-    if( dangling )
-        drawPinDanglingSymbol( pos, drawingShadows );
-
     LIB_SYMBOL* libEntry = aPin->GetParent();
 
     // Draw the labels
@@ -1010,7 +1018,7 @@ void SCH_PAINTER::draw( LIB_PIN *aPin, int aLayer )
     float aboveOffset   = Mils2iu( PIN_TEXT_MARGIN )     + ( thickness[ABOVE] + penWidth ) / 2.0;
     float belowOffset   = Mils2iu( PIN_TEXT_MARGIN )     + ( thickness[BELOW] + penWidth ) / 2.0;
 
-    if( dangling )
+    if( isDangling )
         outsideOffset += TARGET_PIN_RADIUS / 2.0;
 
     if( drawingShadows )
@@ -1190,11 +1198,15 @@ void SCH_PAINTER::draw( LIB_PIN *aPin, int aLayer )
 
 // Draw the target (an open square) for a wire or label which has no connection or is
 // being moved.
-void SCH_PAINTER::drawDanglingSymbol( const wxPoint& aPos, int aWidth, bool aDrawingShadows )
+void SCH_PAINTER::drawDanglingSymbol( const wxPoint& aPos, const COLOR4D& aColor, int aWidth,
+                                      bool aDrawingShadows )
 {
     wxPoint radius( aWidth + Mils2iu( DANGLING_SYMBOL_SIZE / 2 ),
                     aWidth + Mils2iu( DANGLING_SYMBOL_SIZE / 2 ) );
 
+    // Dangling symbols must be drawn in a slightly different colour so they can be seen when
+    // they overlap with a junction dot.
+    m_gal->SetStrokeColor( aColor.Brightened( 0.3 ) );
     m_gal->SetIsStroke( true );
     m_gal->SetIsFill( false );
     m_gal->SetLineWidth( aDrawingShadows ? getShadowWidth()
@@ -1230,6 +1242,7 @@ void SCH_PAINTER::draw( const SCH_JUNCTION *aJct, int aLayer )
 void SCH_PAINTER::draw( const SCH_LINE *aLine, int aLayer )
 {
     bool drawingShadows = aLayer == LAYER_SELECTION_SHADOWS;
+    bool drawingDangling = aLayer == LAYER_DANGLING;
 
     if( drawingShadows && !aLine->IsSelected() )
         return;
@@ -1237,6 +1250,23 @@ void SCH_PAINTER::draw( const SCH_LINE *aLine, int aLayer )
     COLOR4D        color = getRenderColor( aLine, aLine->GetLayer(), drawingShadows );
     float          width = getLineWidth( aLine, drawingShadows );
     PLOT_DASH_TYPE lineStyle = aLine->GetEffectiveLineStyle();
+
+    if( drawingDangling )
+    {
+        if( aLine->IsStartDangling() && aLine->IsWire() )
+        {
+            drawDanglingSymbol( aLine->GetStartPoint(), color,
+                                getLineWidth( aLine, drawingShadows ), drawingShadows );
+        }
+
+        if( aLine->IsEndDangling() && aLine->IsWire() )
+        {
+            drawDanglingSymbol( aLine->GetEndPoint(), color,
+                                getLineWidth( aLine, drawingShadows ), drawingShadows );
+        }
+
+        return;
+    }
 
     m_gal->SetIsStroke( true );
     m_gal->SetStrokeColor( color );
@@ -1291,24 +1321,13 @@ void SCH_PAINTER::draw( const SCH_LINE *aLine, int aLayer )
             start = next;
         }
     }
-
-    if( aLine->IsStartDangling() && aLine->IsWire() )
-    {
-        drawDanglingSymbol( aLine->GetStartPoint(), getLineWidth( aLine, drawingShadows ),
-                            drawingShadows );
-    }
-
-    if( aLine->IsEndDangling() && aLine->IsWire() )
-    {
-        drawDanglingSymbol( aLine->GetEndPoint(), getLineWidth( aLine, drawingShadows ),
-                            drawingShadows );
-    }
 }
 
 
 void SCH_PAINTER::draw( const SCH_TEXT *aText, int aLayer )
 {
     bool drawingShadows = aLayer == LAYER_SELECTION_SHADOWS;
+    bool drawingDangling = aLayer == LAYER_DANGLING;
 
     if( drawingShadows && !aText->IsSelected() )
         return;
@@ -1343,12 +1362,21 @@ void SCH_PAINTER::draw( const SCH_TEXT *aText, int aLayer )
             return;
     }
 
+    if( drawingDangling )
+    {
+        if( aText->IsDangling() )
+        {
+            drawDanglingSymbol( aText->GetTextPos(), color, Mils2iu( DANGLING_SYMBOL_SIZE / 2 ),
+                                drawingShadows );
+        }
+
+        return;
+    }
+
     m_gal->SetIsFill( false );
     m_gal->SetIsStroke( true );
     m_gal->SetLineWidth( getTextThickness( aText, drawingShadows ) );
     m_gal->SetStrokeColor( color );
-    m_gal->SetTextAttributes( aText );
-    m_gal->SetFontUnderlined( false );
 
     VECTOR2D text_offset = aText->GetTextPos() + aText->GetSchematicTextOffset( &m_schSettings );
     wxString shownText( aText->GetShownText() );
@@ -1379,15 +1407,11 @@ void SCH_PAINTER::draw( const SCH_TEXT *aText, int aLayer )
 
     if( !shownText.IsEmpty() )
     {
+        m_gal->SetTextAttributes( aText );
+        m_gal->SetFontUnderlined( false );
+
         strokeText( shownText, text_offset, aText->GetTextAngleRadians() );
     }
-
-    if( aText->IsDangling() )
-    {
-        drawDanglingSymbol( aText->GetTextPos(), Mils2iu( DANGLING_SYMBOL_SIZE / 2 ),
-                            drawingShadows );
-    }
-
 }
 
 
@@ -1616,7 +1640,8 @@ void SCH_PAINTER::draw( SCH_GLOBALLABEL *aLabel, int aLayer )
         // On Cairo the graphic shape is filled by the background before drawing the text.
         // However if the text is selected, it is draw twice: first on LAYER_SELECTION_SHADOWS
         // and second on the text layer.  The second must not erase the first drawing.
-        bool fillBg = ( aLayer == LAYER_SELECTION_SHADOWS ) || !aLabel->IsSelected();
+        bool fillBg = ( ( aLayer == LAYER_SELECTION_SHADOWS ) || !aLabel->IsSelected() )
+                       && aLayer != LAYER_DANGLING;
         m_gal->SetIsFill( fillBg );
         m_gal->SetFillColor( m_schSettings.GetLayerColor( LAYER_SCHEMATIC_BACKGROUND ) );
         m_gal->SetIsStroke( true );
@@ -1766,6 +1791,7 @@ void SCH_PAINTER::draw( const SCH_BUS_ENTRY_BASE *aEntry, int aLayer )
     SCH_LAYER_ID layer = aEntry->Type() == SCH_BUS_WIRE_ENTRY_T ? LAYER_WIRE : LAYER_BUS;
     SCH_LINE     line( wxPoint(), layer );
     bool         drawingShadows = aLayer == LAYER_SELECTION_SHADOWS;
+    bool         drawingDangling = aLayer == LAYER_DANGLING;
 
     if( drawingShadows && !aEntry->IsSelected() )
         return;
@@ -1785,25 +1811,31 @@ void SCH_PAINTER::draw( const SCH_BUS_ENTRY_BASE *aEntry, int aLayer )
     if( aEntry->Type() == SCH_BUS_BUS_ENTRY_T )
         color = getRenderColor( aEntry, LAYER_BUS, drawingShadows );
 
-    line.SetLineColor( color );
-    line.SetLineStyle( aEntry->GetStrokeStyle() );
-
-    draw( &line, aLayer );
-
-    m_gal->SetIsFill( false );
-    m_gal->SetIsStroke( true );
-    m_gal->SetLineWidth( drawingShadows ? getShadowWidth() : 1.0F );
-
-    if( aEntry->IsDanglingStart() )
+    if( drawingDangling )
     {
-        m_gal->DrawCircle( aEntry->GetPosition(),
-                           aEntry->GetPenWidth() + ( TARGET_BUSENTRY_RADIUS / 2 ) );
+        m_gal->SetIsFill( false );
+        m_gal->SetIsStroke( true );
+        m_gal->SetStrokeColor( color.Brightened( 0.3 ) );
+        m_gal->SetLineWidth( m_schSettings.GetDanglineSymbolThickness() );
+
+        if( aEntry->IsDanglingStart() )
+        {
+            m_gal->DrawCircle( aEntry->GetPosition(),
+                               aEntry->GetPenWidth() + ( TARGET_BUSENTRY_RADIUS / 2 ) );
+        }
+
+        if( aEntry->IsDanglingEnd() )
+        {
+            m_gal->DrawCircle( aEntry->GetEnd(),
+                               aEntry->GetPenWidth() + ( TARGET_BUSENTRY_RADIUS / 2 ) );
+        }
     }
-
-    if( aEntry->IsDanglingEnd() )
+    else
     {
-        m_gal->DrawCircle( aEntry->GetEnd(),
-                           aEntry->GetPenWidth() + ( TARGET_BUSENTRY_RADIUS / 2 ) );
+        line.SetLineColor( color );
+        line.SetLineStyle( aEntry->GetStrokeStyle() );
+
+        draw( &line, aLayer );
     }
 }
 

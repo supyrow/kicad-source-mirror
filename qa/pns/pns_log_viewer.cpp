@@ -440,7 +440,7 @@ static BOARD* loadBoard( const std::string& filename )
     {
         brd = pi->Load( wxString( filename.c_str() ), nullptr, nullptr );
     }
-    catch( const IO_ERROR& ioe )
+    catch( const IO_ERROR& )
     {
         return nullptr;
     }
@@ -814,7 +814,7 @@ int render_perftest_main_func( int argc, char* argv[] )
         return 0;
     }
 
-    PROF_COUNTER cnt("load-board");
+    PROF_TIMER             cnt("load-board");
     std::shared_ptr<BOARD> brd ( loadBoard( argv[1] ) );
     cnt.Stop();
 

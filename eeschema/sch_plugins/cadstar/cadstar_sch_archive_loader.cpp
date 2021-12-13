@@ -103,25 +103,25 @@ void CADSTAR_SCH_ARCHIVE_LOADER::Load( SCHEMATIC* aSchematic, SCH_SHEET* aRootSh
 
     loadTextVariables(); // Load text variables right at the start to ensure bounding box
                          // calculations work correctly for text items
-        checkPoint(); // Step 1
+    checkPoint(); // Step 1
     loadSheets();
-        checkPoint(); // Step 2
+    checkPoint(); // Step 2
     loadHierarchicalSheetPins();
-        checkPoint(); // Step 3
+    checkPoint(); // Step 3
     loadPartsLibrary();
-        checkPoint(); // Step 4, Subdivided into extra steps
+    checkPoint(); // Step 4, Subdivided into extra steps
     loadSchematicSymbolInstances();
-        checkPoint(); // Step 5
+    checkPoint(); // Step 5
     loadBusses();
-        checkPoint(); // Step 6
+    checkPoint(); // Step 6
     loadNets();
-        checkPoint(); // Step 7
+    checkPoint(); // Step 7
     loadFigures();
-        checkPoint(); // Step 8
+    checkPoint(); // Step 8
     loadTexts();
-        checkPoint(); // Step 9
+    checkPoint(); // Step 9
     loadDocumentationSymbols();
-        checkPoint(); // Step 10
+    checkPoint(); // Step 10
 
     if( Schematic.VariantHierarchy.Variants.size() > 0 )
     {
@@ -265,7 +265,8 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadSheets()
     const std::vector<LAYER_ID>& orphanSheets = findOrphanSheets();
     SCH_SHEET_PATH               rootPath;
     rootPath.push_back( m_rootSheet );
-    m_rootSheet->SetPageNumber( wxT( "1" ) );
+    m_rootSheet->AddInstance( rootPath );
+    m_rootSheet->SetPageNumber( rootPath, wxT( "1" ) );
 
     if( orphanSheets.size() > 1 )
     {
@@ -2148,9 +2149,10 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadSheetAndChildSheets(
     sheet->GetScreen()->SetFileName( fn.GetFullPath() );
     aParentSheet.Last()->GetScreen()->Append( sheet );
     instance.push_back( sheet );
+    sheet->AddInstance( instance );
 
     wxString pageNumStr = wxString::Format( "%d", getSheetNumber( aCadstarSheetID ) );
-    sheet->SetPageNumber( pageNumStr );
+    sheet->SetPageNumber( instance, pageNumStr );
 
     sheet->AutoplaceFields( /* aScreen */ nullptr, /* aManual */ false );
 

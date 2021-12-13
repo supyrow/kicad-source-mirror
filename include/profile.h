@@ -31,6 +31,7 @@
 #ifndef TPROFILE_H
 #define TPROFILE_H
 
+#include <atomic>
 #include <chrono>
 #include <string>
 #include <iostream>
@@ -42,7 +43,7 @@
  * It allows the calculation of the elapsed time (in milliseconds) between
  * its creation (or the last call to Start() ) and the last call to Stop()
  */
-class PROF_COUNTER
+class PROF_TIMER
 {
 public:
     /**
@@ -51,7 +52,7 @@ public:
      * @param aName a string that will be printed in message.
      * @param aAutostart true (default) to immediately start the timer
      */
-    PROF_COUNTER( const std::string& aName, bool aAutostart = true ) :
+    PROF_TIMER( const std::string& aName, bool aAutostart = true ) :
         m_name( aName ), m_running( false )
     {
         if( aAutostart )
@@ -63,7 +64,7 @@ public:
      *
      * The counter is started and the string to print in message is left empty.
      */
-    PROF_COUNTER()
+    PROF_TIMER()
     {
         Start();
     }
@@ -177,7 +178,7 @@ private:
  *
  * DURATION duration; // select a duration type as needed
  * {
- *     SCOPED_PROF_COUNTER<DURATION> timer( duration );
+ *     SCOPED_PROF_TIMER<DURATION> timer( duration );
  *     timed_activity();
  * }
  * // duration is now the time timed activity took
@@ -186,14 +187,14 @@ private:
  * omit the <DURATION>.
  */
 template <typename DURATION>
-class SCOPED_PROF_COUNTER
+class SCOPED_PROF_TIMER : public PROF_TIMER
 {
 public:
-    SCOPED_PROF_COUNTER( DURATION& aDuration ) : m_counter(), m_duration( aDuration )
+    SCOPED_PROF_TIMER( DURATION& aDuration ) : PROF_TIMER(), m_duration( aDuration )
     {
     }
 
-    ~SCOPED_PROF_COUNTER()
+    ~SCOPED_PROF_TIMER()
     {
         // update the output
         m_duration = m_counter.SinceStart<DURATION>();
@@ -201,7 +202,7 @@ public:
 
 private:
     ///< The counter to use to do the profiling
-    PROF_COUNTER m_counter;
+    PROF_TIMER m_counter;
 
     ///< The duration to update at the end of the scope
     DURATION& m_duration;
@@ -209,12 +210,54 @@ private:
 
 
 /**
- * An alternate way to calculate an elapset time (in microsecondes) to class PROF_COUNTER
+ * An alternate way to calculate an elapsed time (in microsecondes) to class PROF_COUNTER
  *
  * @return an ever increasing indication of elapsed microseconds.  Use this by computing
  *         differences between two calls.
  * @author Dick Hollenbeck
  */
 unsigned GetRunningMicroSecs();
+
+
+/**
+ * A thread-safe event counter
+ */
+class PROF_COUNTER
+{
+public:
+    PROF_COUNTER( const std::string& aName ) :
+            m_name( aName ),
+            m_count( 0 )
+    {
+    }
+
+    unsigned long long Count() const
+    {
+        return m_count.load();
+    }
+
+    void Reset()
+    {
+        m_count.store( 0 );
+    }
+
+    unsigned long long operator++( int )
+    {
+        return m_count++;
+    }
+
+    void Show( std::ostream& aStream = std::cerr )
+    {
+        if( m_name.size() )
+            aStream << m_name << ": ";
+
+        aStream << m_count.load();
+        aStream << std::endl;
+    }
+
+private:
+    std::string        m_name;
+    std::atomic_ullong m_count;
+};
 
 #endif  // TPROFILE_H

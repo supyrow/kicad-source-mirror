@@ -358,7 +358,7 @@ public:
     virtual wxDirTraverseResult OnFile( const wxString& aSrcFilePath ) override
     {
         // Recursion guard for a Save As to a location inside the source project.
-        if( aSrcFilePath.StartsWith( m_newProjectDirPath ) )
+        if( aSrcFilePath.StartsWith( m_newProjectDirPath + wxFileName::GetPathSeparator() ) )
             return wxDIR_CONTINUE;
 
         wxFileName destFile( aSrcFilePath );
@@ -657,6 +657,8 @@ int KICAD_MANAGER_CONTROL::ShowPlayer( const TOOL_EVENT& aEvent )
     // Prevent multiple KIWAY_PLAYER loading at one time
     if( !m_loading.try_lock() )
         return -1;
+
+    wxBusyCursor dummy;
 
     const std::lock_guard<std::mutex> lock( m_loading, std::adopt_lock );
 

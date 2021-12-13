@@ -64,6 +64,8 @@ public:
     wxString GetAlt() const { return m_alt; }
     void SetAlt( const wxString& aAlt ) { m_alt = aAlt; }
 
+    void ViewGetLayers( int aLayers[], int& aCount ) const override;
+
     wxString GetSelectMenuText( EDA_UNITS aUnits ) const override;
     void GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList ) override;
 
@@ -86,7 +88,14 @@ public:
 
     bool IsConnectable() const override { return true; }
 
-    bool IsDangling() const override { return m_isDangling; }
+    bool IsDangling() const override
+    {
+        if( GetType() == ELECTRICAL_PINTYPE::PT_NC || GetType() == ELECTRICAL_PINTYPE::PT_NIC )
+            return false;
+
+        return m_isDangling;
+    }
+
     void SetIsDangling( bool isDangling ) { m_isDangling = isDangling; }
 
     bool IsPointClickableAnchor( const wxPoint& aPos ) const override

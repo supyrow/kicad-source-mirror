@@ -232,6 +232,8 @@ public:
 
     std::vector<wxPoint> GetConnectionPoints() const override;
 
+    void ViewGetLayers( int aLayers[], int& aCount ) const override;
+
     wxString GetSelectMenuText( EDA_UNITS aUnits ) const override;
 
     BITMAPS GetMenuImage() const override;

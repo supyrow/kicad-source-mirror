@@ -126,7 +126,7 @@ bool SCHEMATIC::ResolveTextVar( wxString* token, int aDepth ) const
     {
         if( token->IsSameAs( wxT( "#" ) ) )
         {
-            *token = CurrentSheet().Last()->GetPageNumber();
+            *token = CurrentSheet().GetPageNumber();
             return true;
         }
         else if( token->IsSameAs( wxT( "##" ) ) )
@@ -398,7 +398,6 @@ SCH_SHEET_LIST& SCHEMATIC::GetFullHierarchy() const
 
     hierarchy.clear();
     hierarchy.BuildSheetList( m_rootSheet, false );
-    hierarchy.SortByPageNumbers();
 
     return hierarchy;
 }
