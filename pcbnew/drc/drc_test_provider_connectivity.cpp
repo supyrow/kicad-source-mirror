@@ -149,7 +149,6 @@ bool DRC_TEST_PROVIDER_CONNECTIVITY::Run()
     if( !reportPhase( _( "Checking net connections..." ) ) )
         return false;   // DRC cancelled
 
-    connectivity->RecalculateRatsnest();
     std::vector<CN_EDGE> edges;
     connectivity->GetUnconnectedEdges( edges );
 

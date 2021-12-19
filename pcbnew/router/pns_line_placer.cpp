@@ -762,6 +762,12 @@ bool LINE_PLACER::rhShoveOnly( const VECTOR2I& aP, LINE& aNewHead )
         return false;
     }
 
+    if( m_endItem )
+    {
+        // Make sure the springback algorithm won't erase the NODE that owns m_endItem.
+        m_shove->SetSpringbackDoNotTouchNode( m_endItem->Owner() );
+    }
+
     SHOVE::SHOVE_STATUS status = m_shove->ShoveLines( l );
 
     m_currentNode = m_shove->CurrentNode();
@@ -1079,6 +1085,9 @@ bool LINE_PLACER::SetLayer( int aLayer )
             || ( m_startItem->OfKind( ITEM::SOLID_T ) && m_startItem->Layers().Overlaps( aLayer ) ) )
     {
         m_currentLayer = aLayer;
+        m_p_start = m_currentStart;
+        m_direction = m_initial_direction;
+        m_mouseTrailTracer.Clear();
         m_head.Line().Clear();
         m_tail.Line().Clear();
         m_last_head.Line().Clear();
@@ -1105,6 +1114,7 @@ bool LINE_PLACER::Start( const VECTOR2I& aP, ITEM* aStartItem )
     m_placingVia = false;
     m_chainedPlacement = false;
     m_fixedTail.Clear();
+    m_endItem = nullptr;
 
     setInitialDirection( Settings().InitialDirection() );
 
@@ -1207,6 +1217,8 @@ bool LINE_PLACER::Move( const VECTOR2I& aP, ITEM* aEndItem )
         delete m_lastNode;
         m_lastNode = nullptr;
     }
+
+    m_endItem = aEndItem;
 
     bool reachesEnd = route( p );
 

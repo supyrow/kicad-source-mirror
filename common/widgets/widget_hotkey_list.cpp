@@ -199,8 +199,12 @@ protected:
 
     void OnKeyUp( wxKeyEvent& aEvent )
     {
-        /// This needs to occur in KeyUp, so that we don't pass the event back to pcbnew
-        wxPostEvent( this, wxCommandEvent( wxEVT_COMMAND_BUTTON_CLICKED, wxID_OK ) );
+        // If dialog opened using Enter key, prevent closing when releasing Enter.
+        if( m_event.GetEventType() != wxEVT_NULL )
+        {
+            /// This needs to occur in KeyUp, so that we don't pass the event back to pcbnew
+            wxPostEvent( this, wxCommandEvent( wxEVT_COMMAND_BUTTON_CLICKED, wxID_OK ) );
+        }
     }
 
 private:
@@ -475,7 +479,12 @@ WIDGET_HOTKEY_LIST::WIDGET_HOTKEY_LIST( wxWindow* aParent, HOTKEY_STORE& aHotkey
 
     dv->GetColumn( 0 )->SetMinWidth( dv->GetMainWindow()->GetTextExtent( command_header ).x + pad );
     dv->GetColumn( 1 )->SetMinWidth( dv->GetMainWindow()->GetTextExtent( longKey ).x + pad );
-#endif
+
+    CallAfter( [&]()
+               {
+                   GetDataView()->Update();
+               } );
+    #endif
 
     std::vector<wxString> reserved_keys =
     {

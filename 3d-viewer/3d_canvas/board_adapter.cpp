@@ -561,7 +561,7 @@ void BOARD_ADAPTER::InitSettings( REPORTER* aStatusReporter, REPORTER* aWarningR
                 {
                     if( aColorName.StartsWith( "#" ) )
                     {
-                        return KIGFX::COLOR4D( wxColour( aColorName ) );
+                        return KIGFX::COLOR4D( aColorName );
                     }
                     else
                     {
