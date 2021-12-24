@@ -57,8 +57,6 @@ SCH_PREVIEW_PANEL::SCH_PREVIEW_PANEL( wxWindow* aParentWindow, wxWindowID aWindo
     auto* renderSettings = static_cast<KIGFX::SCH_RENDER_SETTINGS*>( m_painter->GetSettings() );
     renderSettings->LoadColors( Pgm().GetSettingsManager().GetColorSettings() );
     renderSettings->m_ShowPinsElectricalType = false;
-    renderSettings->m_ShowHiddenText = false;
-    renderSettings->m_ShowHiddenPins = false;
     renderSettings->m_TextOffsetRatio = 0.35;
 
     m_view->SetPainter( m_painter.get() );
@@ -99,9 +97,9 @@ void SCH_PREVIEW_PANEL::OnShow()
 
 void SCH_PREVIEW_PANEL::setDefaultLayerOrder()
 {
-    for( LAYER_NUM i = 0; (unsigned) i < sizeof( SCH_LAYER_ORDER ) / sizeof( LAYER_NUM ); ++i )
+    for( int i = 0; (unsigned) i < sizeof( SCH_LAYER_ORDER ) / sizeof( int ); ++i )
     {
-        LAYER_NUM layer = SCH_LAYER_ORDER[i];
+        int layer = SCH_LAYER_ORDER[i];
         wxASSERT( layer < KIGFX::VIEW::VIEW_MAX_LAYERS );
 
         m_view->SetLayerOrder( layer, i );

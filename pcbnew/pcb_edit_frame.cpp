@@ -104,6 +104,7 @@
 #include <kiplatform/app.h>
 #include <profile.h>
 #include <view/wx_view_controls.h>
+#include <footprint_viewer_frame.h>
 
 #include <action_plugin.h>
 #include "../scripting/python_scripting.h"
@@ -176,7 +177,8 @@ END_EVENT_TABLE()
 PCB_EDIT_FRAME::PCB_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
     PCB_BASE_EDIT_FRAME( aKiway, aParent, FRAME_PCB_EDITOR, _( "PCB Editor" ), wxDefaultPosition,
                          wxDefaultSize, KICAD_DEFAULT_DRAWFRAME_STYLE, PCB_EDIT_FRAME_NAME ),
-    m_exportNetlistAction( nullptr ), m_findDialog( nullptr )
+    m_exportNetlistAction( nullptr ),
+    m_findDialog( nullptr )
 {
     m_maximizeByDefault = true;
     m_showBorderAndTitleBlock = true;   // true to display sheet references
@@ -184,7 +186,7 @@ PCB_EDIT_FRAME::PCB_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
     m_SelViaSizeBox = nullptr;
     m_SelLayerBox = nullptr;
     m_show_layer_manager_tools = true;
-    m_hasAutoSave = true;
+    m_supportsAutoSave = true;
 
     // We don't know what state board was in when it was last saved, so we have to
     // assume dirty
@@ -307,6 +309,22 @@ PCB_EDIT_FRAME::PCB_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
     // This is used temporarily to fix a client size issue on GTK that causes zoom to fit
     // to calculate the wrong zoom size.  See PCB_EDIT_FRAME::onSize().
     Bind( wxEVT_SIZE, &PCB_EDIT_FRAME::onSize, this );
+
+    // Redraw netnames (so that they fall within the current viewport) after the viewport
+    // has stopped changing.  Redrawing them without the timer moves them smoothly with scrolling,
+    // making it look like the tracks are being dragged -- which we don't want.
+    m_redrawNetnamesTimer.SetOwner( this );
+    Connect( wxEVT_TIMER, wxTimerEventHandler( PCB_EDIT_FRAME::redrawNetnames ), nullptr, this );
+
+    Bind( wxEVT_IDLE,
+            [this]( wxIdleEvent& aEvent )
+            {
+                if( GetCanvas()->GetView()->GetViewport() != m_lastViewport )
+                {
+                    m_lastViewport = GetCanvas()->GetView()->GetViewport();
+                    m_redrawNetnamesTimer.StartOnce( 100 );
+                }
+            } );
 
     resolveCanvasType();
 
@@ -434,6 +452,20 @@ void PCB_EDIT_FRAME::SetBoard( BOARD* aBoard, bool aBuildConnectivity,
 BOARD_ITEM_CONTAINER* PCB_EDIT_FRAME::GetModel() const
 {
     return m_pcb;
+}
+
+
+void PCB_EDIT_FRAME::redrawNetnames( wxTimerEvent& aEvent )
+{
+    KIGFX::VIEW* view = GetCanvas()->GetView();
+
+    for( PCB_TRACK* track : GetBoard()->Tracks() )
+    {
+        if( track->ViewGetLOD( GetNetnameLayer( track->GetLayer() ), view ) < view->GetScale() )
+            view->Update( track, KIGFX::REPAINT );
+    }
+
+    GetCanvas()->Refresh();
 }
 
 
@@ -772,6 +804,7 @@ void PCB_EDIT_FRAME::setupUIConditions()
     CURRENT_EDIT_TOOL( PCB_ACTIONS::drawAlignedDimension );
     CURRENT_EDIT_TOOL( PCB_ACTIONS::drawOrthogonalDimension );
     CURRENT_EDIT_TOOL( PCB_ACTIONS::drawCenterDimension );
+    CURRENT_EDIT_TOOL( PCB_ACTIONS::drawRadialDimension );
     CURRENT_EDIT_TOOL( PCB_ACTIONS::drawLeader );
     CURRENT_EDIT_TOOL( PCB_ACTIONS::placeTarget );
     CURRENT_EDIT_TOOL( PCB_ACTIONS::drillOrigin );
@@ -807,7 +840,7 @@ void PCB_EDIT_FRAME::RecordDRCExclusions()
 
     for( PCB_MARKER* marker : GetBoard()->Markers() )
     {
-        if( marker->IsExcluded() )
+        if( marker->GetSeverity() == RPT_SEVERITY_EXCLUSION )
             bds.m_DrcExclusions.insert( marker->Serialize() );
     }
 }
@@ -824,7 +857,7 @@ void PCB_EDIT_FRAME::ResolveDRCExclusions()
 
     for( PCB_MARKER* marker : GetBoard()->Markers() )
     {
-        if( marker->IsExcluded() )
+        if( marker->GetSeverity() == RPT_SEVERITY_EXCLUSION )
         {
             GetCanvas()->GetView()->Remove( marker );
             GetCanvas()->GetView()->Add( marker );
@@ -840,6 +873,34 @@ bool PCB_EDIT_FRAME::canCloseWindow( wxCloseEvent& aEvent )
             && IsContentModified() )
     {
         return false;
+    }
+
+    if( Kiface().IsSingle() )
+    {
+        auto* fpEditor = (FOOTPRINT_EDIT_FRAME*) Kiway().Player( FRAME_FOOTPRINT_EDITOR, false );
+
+        if( fpEditor && !fpEditor->Close() )   // Can close footprint editor?
+            return false;
+
+        auto* fpViewer = (FOOTPRINT_VIEWER_FRAME*) Kiway().Player( FRAME_FOOTPRINT_VIEWER, false );
+
+        if( fpViewer && !fpViewer->Close() )   // Can close footprint viewer?
+            return false;
+
+        fpViewer = (FOOTPRINT_VIEWER_FRAME*) Kiway().Player( FRAME_FOOTPRINT_VIEWER_MODAL, false );
+
+        if( fpViewer && !fpViewer->Close() )   // Can close modal footprint viewer?
+            return false;
+    }
+    else
+    {
+        auto* fpEditor = (FOOTPRINT_EDIT_FRAME*) Kiway().Player( FRAME_FOOTPRINT_EDITOR, false );
+
+        if( fpEditor && fpEditor->IsCurrentFPFromBoard() )
+        {
+            if( !fpEditor->CanCloseFPFromBoard( true ) )
+                return false;
+        }
     }
 
     if( IsContentModified() )
@@ -998,7 +1059,6 @@ void PCB_EDIT_FRAME::LoadSettings( APP_SETTINGS_BASE* aCfg )
     {
         m_rotationAngle            = cfg->m_RotationAngle;
         m_show_layer_manager_tools = cfg->m_AuiPanels.show_layer_manager;
-        m_showPageLimits           = cfg->m_ShowPageLimits;
     }
 }
 
@@ -1016,11 +1076,7 @@ void PCB_EDIT_FRAME::SaveSettings( APP_SETTINGS_BASE* aCfg )
         cfg->m_AuiPanels.show_layer_manager   = m_show_layer_manager_tools;
         cfg->m_AuiPanels.right_panel_width    = m_appearancePanel->GetSize().x;
         cfg->m_AuiPanels.appearance_panel_tab = m_appearancePanel->GetTabIndex();
-        cfg->m_ShowPageLimits                 = m_showPageLimits;
     }
-
-    if( GetSettingsManager() )
-        GetSettingsManager()->SaveColorSettings( GetColorSettings(), "board" );
 }
 
 
@@ -1695,7 +1751,17 @@ void PCB_EDIT_FRAME::CommonSettingsChanged( bool aEnvVarsChanged, bool aTextVars
 
     GetAppearancePanel()->OnColorThemeChanged();
 
-    // Netclass definitions could have changed, either by us or by Eeschema
+    auto* painter = static_cast<KIGFX::PCB_PAINTER*>( GetCanvas()->GetView()->GetPainter() );
+    auto* renderSettings = painter->GetSettings();
+    renderSettings->LoadDisplayOptions( GetDisplayOptions() );
+    SetElementVisibility( LAYER_NO_CONNECTS, GetDisplayOptions().m_DisplayPadNoConnects );
+    SetElementVisibility( LAYER_RATSNEST, GetDisplayOptions().m_ShowGlobalRatsnest );
+
+    auto cfg = Pgm().GetSettingsManager().GetAppSettings<PCBNEW_SETTINGS>();
+    GetGalDisplayOptions().ReadWindowSettings( cfg->m_Window );
+
+    // Netclass definitions could have changed, either by us or by Eeschema, so we need to
+    // recompile the implicit rules
     DRC_TOOL*   drcTool = m_toolManager->GetTool<DRC_TOOL>();
     WX_INFOBAR* infobar = GetInfoBar();
 
@@ -1723,6 +1789,15 @@ void PCB_EDIT_FRAME::CommonSettingsChanged( bool aEnvVarsChanged, bool aTextVars
         infobar->ShowMessage( _( "Could not compile custom design rules." ), wxICON_ERROR,
                               WX_INFOBAR::MESSAGE_TYPE::DRC_RULES_ERROR );
     }
+
+    GetCanvas()->GetView()->UpdateAllItemsConditionally( KIGFX::REPAINT,
+            []( KIGFX::VIEW_ITEM* aItem ) -> bool
+            {
+                return dynamic_cast<RATSNEST_VIEW_ITEM*>( aItem );
+            } );
+
+    GetCanvas()->GetView()->MarkTargetDirty( KIGFX::TARGET_NONCACHED );
+    GetCanvas()->ForceRefresh();
 
     // Update the environment variables in the Python interpreter
     if( aEnvVarsChanged )

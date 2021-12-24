@@ -200,7 +200,6 @@ public:
     }
 
     int GetThermalReliefSpokeWidth() const { return m_thermalReliefSpokeWidth; }
-    int GetThermalReliefSpokeWidth( PAD* aPad, wxString* aSource = nullptr ) const;
 
     /**
      * Compute the area currently occupied by the zone fill.
@@ -237,7 +236,6 @@ public:
     bool NeedRefill() const { return m_needRefill; }
     void SetNeedRefill( bool aNeedRefill ) { m_needRefill = aNeedRefill; }
 
-    ZONE_CONNECTION GetPadConnection( PAD* aPad, wxString* aSource = nullptr ) const;
     ZONE_CONNECTION GetPadConnection() const { return m_PadConnection; }
     void SetPadConnection( ZONE_CONNECTION aPadConnection ) { m_PadConnection = aPadConnection; }
 
@@ -636,6 +634,12 @@ public:
     {
         wxASSERT( m_FilledPolysList.count( aLayer ) );
         return m_FilledPolysList.at( aLayer );
+    }
+
+    SHAPE_POLY_SET* GetFill( PCB_LAYER_ID aLayer )
+    {
+        wxASSERT( m_FilledPolysList.count( aLayer ) );
+        return &m_FilledPolysList.at( aLayer );
     }
 
     /**

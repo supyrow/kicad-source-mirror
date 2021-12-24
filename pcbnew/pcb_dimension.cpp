@@ -27,7 +27,6 @@
 #include <bitmaps.h>
 #include <pcb_edit_frame.h>
 #include <base_units.h>
-#include <board.h>
 #include <convert_basic_shapes_to_polygon.h>
 #include <pcb_dimension.h>
 #include <pcb_text.h>
@@ -37,7 +36,6 @@
 #include <settings/color_settings.h>
 #include <settings/settings_manager.h>
 #include <trigo.h>
-#include <i18n_utility.h>
 
 
 PCB_DIMENSION_BASE::PCB_DIMENSION_BASE( BOARD_ITEM* aParent, KICAD_T aType ) :
@@ -159,15 +157,10 @@ DIM_UNITS_MODE PCB_DIMENSION_BASE::GetUnitsMode() const
     {
         switch( m_units )
         {
-        case EDA_UNITS::MILLIMETRES:
-            return DIM_UNITS_MODE::MILLIMETRES;
-
-        case EDA_UNITS::MILS:
-            return DIM_UNITS_MODE::MILS;
-
         default:
-        case EDA_UNITS::INCHES:
-            return DIM_UNITS_MODE::INCHES;
+        case EDA_UNITS::INCHES:      return DIM_UNITS_MODE::INCHES;
+        case EDA_UNITS::MILLIMETRES: return DIM_UNITS_MODE::MILLIMETRES;
+        case EDA_UNITS::MILS:        return DIM_UNITS_MODE::MILS;
         }
     }
 }
@@ -179,21 +172,10 @@ void PCB_DIMENSION_BASE::SetUnitsMode( DIM_UNITS_MODE aMode )
 
     switch( aMode )
     {
-    case DIM_UNITS_MODE::INCHES:
-        m_units = EDA_UNITS::INCHES;
-        break;
-
-    case DIM_UNITS_MODE::MILS:
-        m_units = EDA_UNITS::MILS;
-        break;
-
-    case DIM_UNITS_MODE::MILLIMETRES:
-        m_units = EDA_UNITS::MILLIMETRES;
-        break;
-
-    case DIM_UNITS_MODE::AUTOMATIC:
-        m_autoUnits = true;
-        break;
+    case DIM_UNITS_MODE::INCHES:      m_units = EDA_UNITS::INCHES;      break;
+    case DIM_UNITS_MODE::MILS:        m_units = EDA_UNITS::MILS;        break;
+    case DIM_UNITS_MODE::MILLIMETRES: m_units = EDA_UNITS::MILLIMETRES; break;
+    case DIM_UNITS_MODE::AUTOMATIC:   m_autoUnits = true;               break;
     }
 }
 
@@ -319,12 +301,12 @@ void PCB_DIMENSION_BASE::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame,
     EDA_UNITS units;
 
     GetUnits( units );
-    aList.emplace_back( _( "Units" ), GetAbbreviatedUnitsLabel( units ) );
+    aList.emplace_back( _( "Units" ), GetAbbreviatedUnitsLabel( units ).Trim( false ) );
 
     ORIGIN_TRANSFORMS originTransforms = aFrame->GetOriginTransforms();
     units = aFrame->GetUserUnits();
 
-    if( Type() == PCB_DIM_CENTER_T )
+    if( Type() == PCB_DIM_CENTER_T || Type() == PCB_FP_DIM_CENTER_T )
     {
         wxPoint startCoord = originTransforms.ToDisplayAbs( GetStart() );
         wxString start = wxString::Format( "@(%s, %s)",
@@ -553,7 +535,7 @@ EDA_ITEM* PCB_DIM_ALIGNED::Clone() const
 
 void PCB_DIM_ALIGNED::SwapData( BOARD_ITEM* aImage )
 {
-    assert( aImage->Type() == PCB_DIM_ALIGNED_T );
+    wxASSERT( aImage->Type() == Type() );
 
     m_shapes.clear();
     static_cast<PCB_DIM_ALIGNED*>( aImage )->m_shapes.clear();
@@ -720,8 +702,8 @@ void PCB_DIM_ALIGNED::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_P
 }
 
 
-PCB_DIM_ORTHOGONAL::PCB_DIM_ORTHOGONAL( BOARD_ITEM* aParent ) :
-        PCB_DIM_ALIGNED( aParent, PCB_DIM_ORTHOGONAL_T )
+PCB_DIM_ORTHOGONAL::PCB_DIM_ORTHOGONAL( BOARD_ITEM* aParent, bool aInFP ) :
+        PCB_DIM_ALIGNED( aParent, aInFP ? PCB_FP_DIM_ORTHOGONAL_T : PCB_DIM_ORTHOGONAL_T )
 {
     // To preserve look of old dimensions, initialize extension height based on default arrow length
     m_extensionHeight = static_cast<int>( m_arrowLength * std::sin( DEG2RAD( s_arrowAngle ) ) );
@@ -737,7 +719,7 @@ EDA_ITEM* PCB_DIM_ORTHOGONAL::Clone() const
 
 void PCB_DIM_ORTHOGONAL::SwapData( BOARD_ITEM* aImage )
 {
-    assert( aImage->Type() == PCB_DIM_ORTHOGONAL_T );
+    wxASSERT( aImage->Type() == Type() );
 
     m_shapes.clear();
     static_cast<PCB_DIM_ORTHOGONAL*>( aImage )->m_shapes.clear();
@@ -950,13 +932,15 @@ void PCB_DIM_ORTHOGONAL::Rotate( const wxPoint& aRotCentre, double aAngle )
 }
 
 
-PCB_DIM_LEADER::PCB_DIM_LEADER( BOARD_ITEM* aParent ) :
-        PCB_DIMENSION_BASE( aParent, PCB_DIM_LEADER_T ),
-        m_textFrame( DIM_TEXT_FRAME::NONE )
+PCB_DIM_LEADER::PCB_DIM_LEADER( BOARD_ITEM* aParent, bool aInFP ) :
+        PCB_DIMENSION_BASE( aParent, aInFP ? PCB_FP_DIM_LEADER_T : PCB_DIM_LEADER_T ),
+        m_textBorder( DIM_TEXT_BORDER::NONE )
 {
     m_unitsFormat         = DIM_UNITS_FORMAT::NO_SUFFIX;
     m_overrideTextEnabled = true;
     m_keepTextAligned     = false;
+
+    SetText( _( "Leader" ) );
 }
 
 
@@ -968,9 +952,14 @@ EDA_ITEM* PCB_DIM_LEADER::Clone() const
 
 void PCB_DIM_LEADER::SwapData( BOARD_ITEM* aImage )
 {
-    assert( aImage->Type() == PCB_DIM_LEADER_T );
+    wxASSERT( aImage->Type() == Type() );
+
+    m_shapes.clear();
+    static_cast<PCB_DIM_LEADER*>( aImage )->m_shapes.clear();
 
     std::swap( *static_cast<PCB_DIM_LEADER*>( this ), *static_cast<PCB_DIM_LEADER*>( aImage ) );
+
+    Update();
 }
 
 
@@ -1008,7 +997,7 @@ void PCB_DIM_LEADER::updateGeometry()
     OPT_VECTOR2I arrowSegEnd = boost::make_optional( false, VECTOR2I() );;
     OPT_VECTOR2I textSegEnd = boost::make_optional( false, VECTOR2I() );
 
-    if( m_textFrame == DIM_TEXT_FRAME::CIRCLE )
+    if( m_textBorder == DIM_TEXT_BORDER::CIRCLE )
     {
         double penWidth = m_text.GetEffectiveTextPenWidth() / 2.0;
         double radius = ( textBox.GetWidth() / 2.0 ) - penWidth;
@@ -1035,16 +1024,16 @@ void PCB_DIM_LEADER::updateGeometry()
     double arrowRotNeg = firstLine.Angle() - DEG2RAD( s_arrowAngle );
 
     m_shapes.emplace_back( new SHAPE_SEGMENT( start,
-                                              start + wxPoint( arrowEnd.Rotate( arrowRotPos ) ) ) );
+                                              start + (wxPoint) arrowEnd.Rotate( arrowRotPos ) ) );
     m_shapes.emplace_back( new SHAPE_SEGMENT( start,
-                                              start + wxPoint( arrowEnd.Rotate( arrowRotNeg ) ) ) );
+                                              start + (wxPoint) arrowEnd.Rotate( arrowRotNeg ) ) );
 
 
     if( !GetText().IsEmpty() )
     {
-        switch( m_textFrame )
+        switch( m_textBorder )
         {
-        case DIM_TEXT_FRAME::RECTANGLE:
+        case DIM_TEXT_BORDER::RECTANGLE:
         {
             for( SHAPE_POLY_SET::SEGMENT_ITERATOR seg = polyBox.IterateSegments(); seg; seg++ )
                 m_shapes.emplace_back( new SHAPE_SEGMENT( *seg ) );
@@ -1052,7 +1041,7 @@ void PCB_DIM_LEADER::updateGeometry()
             break;
         }
 
-        case DIM_TEXT_FRAME::CIRCLE:
+        case DIM_TEXT_BORDER::CIRCLE:
         {
             double penWidth = m_text.GetEffectiveTextPenWidth() / 2.0;
             double radius   = ( textBox.GetWidth() / 2.0 ) - penWidth;
@@ -1091,8 +1080,140 @@ void PCB_DIM_LEADER::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PA
 }
 
 
-PCB_DIM_CENTER::PCB_DIM_CENTER( BOARD_ITEM* aParent ) :
-        PCB_DIMENSION_BASE( aParent, PCB_DIM_CENTER_T )
+PCB_DIM_RADIAL::PCB_DIM_RADIAL( BOARD_ITEM* aParent, bool aInFP ) :
+        PCB_DIMENSION_BASE( aParent, aInFP ? PCB_FP_DIM_RADIAL_T : PCB_DIM_RADIAL_T )
+{
+    m_unitsFormat         = DIM_UNITS_FORMAT::NO_SUFFIX;
+    m_overrideTextEnabled = false;
+    m_keepTextAligned     = true;
+    m_isDiameter          = false;
+    m_prefix              = "R ";
+    m_leaderLength        = m_arrowLength * 3;
+}
+
+
+EDA_ITEM* PCB_DIM_RADIAL::Clone() const
+{
+    return new PCB_DIM_RADIAL( *this );
+}
+
+
+void PCB_DIM_RADIAL::SwapData( BOARD_ITEM* aImage )
+{
+    wxASSERT( aImage->Type() == Type() );
+
+    m_shapes.clear();
+    static_cast<PCB_DIM_RADIAL*>( aImage )->m_shapes.clear();
+
+    std::swap( *static_cast<PCB_DIM_RADIAL*>( this ), *static_cast<PCB_DIM_RADIAL*>( aImage ) );
+
+    Update();
+}
+
+
+BITMAPS PCB_DIM_RADIAL::GetMenuImage() const
+{
+    return BITMAPS::add_radial_dimension;
+}
+
+
+wxPoint PCB_DIM_RADIAL::GetKnee() const
+{
+    VECTOR2I radial( m_end - m_start );
+
+    return m_end + (wxPoint) radial.Resize( m_leaderLength );
+}
+
+
+void PCB_DIM_RADIAL::updateText()
+{
+    if( m_keepTextAligned )
+    {
+        VECTOR2I textLine( Text().GetPosition() - GetKnee() );
+        double   textAngle = 3600 - RAD2DECIDEG( textLine.Angle() );
+
+        NORMALIZE_ANGLE_POS( textAngle );
+
+        if( textAngle > 900 && textAngle <= 2700 )
+            textAngle -= 1800;
+
+        // Round to nearest degree
+        m_text.SetTextAngle( KiROUND( textAngle / 10 ) * 10 );
+    }
+
+    PCB_DIMENSION_BASE::updateText();
+}
+
+
+void PCB_DIM_RADIAL::updateGeometry()
+{
+    m_shapes.clear();
+
+    VECTOR2I center( m_start );
+    VECTOR2I centerArm( 0, m_arrowLength );
+
+    m_shapes.emplace_back( new SHAPE_SEGMENT( center - centerArm, center + centerArm ) );
+
+    centerArm = centerArm.Rotate( DEG2RAD( 90 ) );
+
+    m_shapes.emplace_back( new SHAPE_SEGMENT( center - centerArm, center + centerArm ) );
+
+    VECTOR2I radius( m_end - m_start );
+
+    if( m_isDiameter )
+        m_measuredValue = KiROUND( radius.EuclideanNorm() * 2 );
+    else
+        m_measuredValue = KiROUND( radius.EuclideanNorm() );
+
+    updateText();
+
+    // Now that we have the text updated, we can determine how to draw the second line
+    // First we need to create an appropriate bounding polygon to collide with
+    EDA_RECT textBox = m_text.GetTextBox().Inflate( m_text.GetTextWidth() / 2,
+                                                    m_text.GetEffectiveTextPenWidth() );
+
+    SHAPE_POLY_SET polyBox;
+    polyBox.NewOutline();
+    polyBox.Append( textBox.GetOrigin() );
+    polyBox.Append( textBox.GetOrigin().x, textBox.GetEnd().y );
+    polyBox.Append( textBox.GetEnd() );
+    polyBox.Append( textBox.GetEnd().x, textBox.GetOrigin().y );
+    polyBox.Rotate( -m_text.GetTextAngleRadians(), textBox.GetCenter() );
+
+    VECTOR2I radial( m_end - m_start );
+    radial = radial.Resize( m_leaderLength );
+
+    SEG arrowSeg( m_end, m_end + (wxPoint) radial );
+    SEG textSeg( arrowSeg.B, m_text.GetPosition() );
+
+    OPT_VECTOR2I arrowSegEnd = segPolyIntersection( polyBox, arrowSeg );
+    OPT_VECTOR2I textSegEnd = segPolyIntersection( polyBox, textSeg );
+
+    if( arrowSegEnd )
+        arrowSeg.B = arrowSegEnd.get();
+
+    if( textSegEnd )
+        textSeg.B = textSegEnd.get();
+
+    m_shapes.emplace_back( new SHAPE_SEGMENT( arrowSeg ) );
+
+    // Add arrows
+    VECTOR2I arrowEnd( m_arrowLength, 0 );
+
+    double arrowRotPos = radial.Angle() + DEG2RAD( s_arrowAngle );
+    double arrowRotNeg = radial.Angle() - DEG2RAD( s_arrowAngle );
+
+    m_shapes.emplace_back( new SHAPE_SEGMENT( m_end,
+                                              m_end + (wxPoint) arrowEnd.Rotate( arrowRotPos ) ) );
+    m_shapes.emplace_back( new SHAPE_SEGMENT( m_end,
+                                              m_end + (wxPoint) arrowEnd.Rotate( arrowRotNeg ) ) );
+
+    m_shapes.emplace_back( new SHAPE_SEGMENT( textSeg ) );
+}
+
+
+PCB_DIM_CENTER::PCB_DIM_CENTER( BOARD_ITEM* aParent, bool aInFP ) :
+        PCB_DIMENSION_BASE( aParent, aInFP ? PCB_FP_DIM_CENTER_T : PCB_DIM_CENTER_T )
 {
     m_unitsFormat         = DIM_UNITS_FORMAT::NO_SUFFIX;
     m_overrideTextEnabled = true;
@@ -1107,7 +1228,7 @@ EDA_ITEM* PCB_DIM_CENTER::Clone() const
 
 void PCB_DIM_CENTER::SwapData( BOARD_ITEM* aImage )
 {
-    assert( aImage->Type() == PCB_DIM_CENTER_T );
+    wxASSERT( aImage->Type() == Type() );
 
     std::swap( *static_cast<PCB_DIM_CENTER*>( this ), *static_cast<PCB_DIM_CENTER*>( aImage ) );
 }

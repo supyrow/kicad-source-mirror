@@ -59,6 +59,8 @@
 #include "cleanup_item.h"
 #include <zoom_defines.h>
 
+using KIGFX::RENDER_SETTINGS;
+using KIGFX::PCB_RENDER_SETTINGS;
 
 wxDEFINE_EVENT( BOARD_CHANGED, wxCommandEvent );
 
@@ -166,6 +168,17 @@ void PCB_BASE_FRAME::SetBoard( BOARD* aBoard, PROGRESS_REPORTER* aReporter )
     {
         delete m_pcb;
         m_pcb = aBoard;
+
+        if( GetBoard() && GetCanvas() )
+        {
+            RENDER_SETTINGS* rs = GetCanvas()->GetView()->GetPainter()->GetSettings();
+
+            if( rs )
+            {
+                rs->SetDashLengthRatio( GetBoard()->GetPlotOptions().GetDashedLineDashRatio() );
+                rs->SetGapLengthRatio( GetBoard()->GetPlotOptions().GetDashedLineGapRatio() );
+            }
+        }
 
         wxCommandEvent e( BOARD_CHANGED );
         ProcessEventLocally( e );
@@ -331,11 +344,16 @@ void PCB_BASE_FRAME::FocusOnItem( BOARD_ITEM* aItem, PCB_LAYER_ID aLayer )
         case PCB_FP_ZONE_T:
         case PCB_TRACE_T:
         case PCB_ARC_T:
-        case PCB_DIMENSION_T:
         case PCB_DIM_ALIGNED_T:
         case PCB_DIM_LEADER_T:
         case PCB_DIM_CENTER_T:
+        case PCB_DIM_RADIAL_T:
         case PCB_DIM_ORTHOGONAL_T:
+        case PCB_FP_DIM_ALIGNED_T:
+        case PCB_FP_DIM_LEADER_T:
+        case PCB_FP_DIM_CENTER_T:
+        case PCB_FP_DIM_RADIAL_T:
+        case PCB_FP_DIM_ORTHOGONAL_T:
         case PCB_ZONE_T:
             aItem->TransformShapeWithClearanceToPolygon( itemPoly, aLayer, 0, Millimeter2iu( 0.1 ),
                                                          ERROR_INSIDE );
@@ -384,6 +402,29 @@ void PCB_BASE_FRAME::FocusOnItem( BOARD_ITEM* aItem, PCB_LAYER_ID aLayer )
         FocusOnLocation( focusPt );
 
         GetCanvas()->Refresh();
+    }
+}
+
+
+void PCB_BASE_FRAME::HideSolderMask()
+{
+    KIGFX::PCB_VIEW* view = GetCanvas()->GetView();
+
+    if( view && GetBoard()->m_SolderMask && view->HasItem( GetBoard()->m_SolderMask ) )
+        view->Remove( GetBoard()->m_SolderMask );
+}
+
+
+void PCB_BASE_FRAME::ShowSolderMask()
+{
+    KIGFX::PCB_VIEW* view = GetCanvas()->GetView();
+
+    if( view && GetBoard()->m_SolderMask )
+    {
+        if( view->HasItem( GetBoard()->m_SolderMask ) )
+            view->Remove( GetBoard()->m_SolderMask );
+
+        view->Add( GetBoard()->m_SolderMask );
     }
 }
 
@@ -753,7 +794,6 @@ void PCB_BASE_FRAME::LoadSettings( APP_SETTINGS_BASE* aCfg )
         {
             rs->SetHighlightFactor( aCfg->m_Graphics.highlight_factor );
             rs->SetSelectFactor( aCfg->m_Graphics.select_factor );
-            rs->SetHighContrastFactor( aCfg->m_Graphics.high_contrast_factor );
         }
     }
 }
@@ -808,7 +848,11 @@ void PCB_BASE_FRAME::CommonSettingsChanged( bool aEnvVarsChanged, bool aTextVars
 {
     EDA_DRAW_FRAME::CommonSettingsChanged( aEnvVarsChanged, aTextVarsChanged );
 
-    GetCanvas()->GetView()->GetPainter()->GetSettings()->LoadColors( GetColorSettings() );
+    RENDER_SETTINGS*     settings = GetCanvas()->GetView()->GetPainter()->GetSettings();
+    PCB_RENDER_SETTINGS* renderSettings = static_cast<KIGFX::PCB_RENDER_SETTINGS*>( settings );
+
+    renderSettings->LoadColors( GetColorSettings( true ) );
+    renderSettings->LoadDisplayOptions( GetDisplayOptions() );
     GetCanvas()->GetView()->UpdateAllItems( KIGFX::COLOR );
 
     RecreateToolbars();
@@ -856,7 +900,7 @@ void PCB_BASE_FRAME::ActivateGalCanvas()
     KIGFX::PCB_RENDER_SETTINGS* settings = painter->GetSettings();
     const PCB_DISPLAY_OPTIONS&  displ_opts = GetDisplayOptions();
 
-    settings->LoadDisplayOptions( displ_opts, ShowPageLimits() );
+    settings->LoadDisplayOptions( displ_opts );
     settings->LoadColors( GetColorSettings() );
 
     view->RecacheAllItems();

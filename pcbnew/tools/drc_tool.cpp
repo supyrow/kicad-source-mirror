@@ -22,7 +22,6 @@
  */
 
 #include <pcb_edit_frame.h>
-#include <bitmaps.h>
 #include <tool/tool_manager.h>
 #include <tools/pcb_actions.h>
 #include <tools/pcb_tool_base.h>
@@ -32,10 +31,11 @@
 #include <kiface_base.h>
 #include <dialog_drc.h>
 #include <board_commit.h>
+#include <zone.h>
 #include <board_design_settings.h>
 #include <progress_reporter.h>
 #include <drc/drc_engine.h>
-#include <drc/drc_results_provider.h>
+#include <drc/drc_item.h>
 #include <netlist_reader/pcb_netlist.h>
 
 DRC_TOOL::DRC_TOOL() :
@@ -174,22 +174,8 @@ void DRC_TOOL::RunTests( PROGRESS_REPORTER* aProgressReporter, bool aRefillZones
     m_drcEngine->SetViolationHandler(
             [&]( const std::shared_ptr<DRC_ITEM>& aItem, wxPoint aPos )
             {
-                if(    aItem->GetErrorCode() == DRCE_MISSING_FOOTPRINT
-                    || aItem->GetErrorCode() == DRCE_DUPLICATE_FOOTPRINT
-                    || aItem->GetErrorCode() == DRCE_EXTRA_FOOTPRINT
-                    || aItem->GetErrorCode() == DRCE_NET_CONFLICT )
-                {
-                    m_footprints.push_back( aItem );
-                }
-                else if( aItem->GetErrorCode() == DRCE_UNCONNECTED_ITEMS )
-                {
-                    m_unconnected.push_back( aItem );
-                }
-                else
-                {
-                    PCB_MARKER* marker = new PCB_MARKER( aItem, aPos );
-                    commit.Add( marker );
-                }
+                PCB_MARKER* marker = new PCB_MARKER( aItem, aPos );
+                commit.Add( marker );
             } );
 
     m_drcEngine->RunTests( m_editFrame->GetUserUnits(), aReportAllTrackErrors, aTestFootprints );
@@ -209,6 +195,8 @@ void DRC_TOOL::RunTests( PROGRESS_REPORTER* aProgressReporter, bool aRefillZones
 
     m_drcRunning = false;
 
+    m_editFrame->ShowSolderMask();
+
     // update the m_drcDialog listboxes
     updatePointers();
 }
@@ -221,13 +209,14 @@ void DRC_TOOL::updatePointers()
 
     m_editFrame->ResolveDRCExclusions();
 
-    if( m_drcDialog )  // Use diag list boxes only in DRC_TOOL dialog
+    if( m_drcDialog )  // Use dialog list boxes only in DRC_TOOL dialog
     {
-        m_drcDialog->SetMarkersProvider( new BOARD_DRC_ITEMS_PROVIDER( m_pcb ) );
-        m_drcDialog->SetUnconnectedProvider( new RATSNEST_DRC_ITEMS_PROVIDER( m_editFrame,
-                                                                              &m_unconnected ) );
-        m_drcDialog->SetFootprintsProvider( new VECTOR_DRC_ITEMS_PROVIDER( m_editFrame,
-                                                                           &m_footprints ) );
+        m_drcDialog->SetMarkersProvider( new DRC_ITEMS_PROVIDER( m_pcb,
+                                                                 MARKER_BASE::MARKER_DRC ) );
+        m_drcDialog->SetRatsnestProvider( new DRC_ITEMS_PROVIDER( m_pcb,
+                                                                  MARKER_BASE::MARKER_RATSNEST ) );
+        m_drcDialog->SetFootprintsProvider( new DRC_ITEMS_PROVIDER( m_pcb,
+                                                                    MARKER_BASE::MARKER_PARITY ) );
     }
 }
 

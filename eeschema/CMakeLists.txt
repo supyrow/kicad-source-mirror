@@ -67,6 +67,8 @@ set( EESCHEMA_DLGS
     dialogs/dialog_global_edit_text_and_graphics_base.cpp
     dialogs/dialog_junction_props.cpp
     dialogs/dialog_junction_props_base.cpp
+    dialogs/dialog_label_properties.cpp
+    dialogs/dialog_label_properties_base.cpp
     dialogs/dialog_lib_edit_pin_table.cpp
     dialogs/dialog_lib_edit_pin_table_base.cpp
     dialogs/dialog_lib_text_properties.cpp
@@ -91,6 +93,8 @@ set( EESCHEMA_DLGS
     dialogs/dialog_rescue_each_base.cpp
     dialogs/dialog_sch_import_settings.cpp
     dialogs/dialog_sch_import_settings_base.cpp
+    dialogs/dialog_shape_properties.cpp
+    dialogs/dialog_shape_properties_base.cpp
     dialogs/dialog_sheet_pin_properties.cpp
     dialogs/dialog_sheet_pin_properties_base.cpp
     dialogs/dialog_sheet_properties.cpp
@@ -104,15 +108,15 @@ set( EESCHEMA_DLGS
     dialogs/dialog_symbol_properties_base.cpp
     dialogs/dialog_symbol_remap.cpp
     dialogs/dialog_symbol_remap_base.cpp
-    dialogs/dialog_text_and_label_properties.cpp
-    dialogs/dialog_text_and_label_properties_base.cpp
+    dialogs/dialog_text_properties.cpp
+    dialogs/dialog_text_properties_base.cpp
     dialogs/dialog_update_from_pcb.cpp
     dialogs/dialog_update_from_pcb_base.cpp
     dialogs/dialog_update_symbol_fields.cpp
     dialogs/dialog_update_symbol_fields_base.cpp
     dialogs/panel_eeschema_color_settings.cpp
-    dialogs/panel_eeschema_template_fieldnames.cpp
-    dialogs/panel_eeschema_template_fieldnames_base.cpp
+    dialogs/panel_template_fieldnames.cpp
+    dialogs/panel_template_fieldnames_base.cpp
     dialogs/panel_eeschema_display_options.cpp
     dialogs/panel_eeschema_display_options_base.cpp
     dialogs/panel_eeschema_editing_options.cpp
@@ -121,6 +125,7 @@ set( EESCHEMA_DLGS
     dialogs/panel_setup_formatting_base.cpp
     dialogs/panel_setup_pinmap.cpp
     dialogs/panel_setup_pinmap_base.cpp
+    dialogs/panel_sym_display_options.cpp
     dialogs/panel_sym_editing_options.cpp
     dialogs/panel_sym_editing_options_base.cpp
     dialogs/panel_sym_color_settings.cpp
@@ -183,7 +188,6 @@ set( EESCHEMA_SRCS
     lib_pin.cpp
     lib_symbol.cpp
     lib_text.cpp
-    symbol_viewer_frame.cpp
     libarch.cpp
     menubar.cpp
     pin_numbers.cpp
@@ -210,6 +214,7 @@ set( EESCHEMA_SRCS
     sch_screen.cpp
     sch_plugins/kicad/sch_sexpr_parser.cpp
     sch_plugins/kicad/sch_sexpr_plugin.cpp
+    sch_shape.cpp
     sch_sheet.cpp
     sch_sheet_path.cpp
     sch_sheet_pin.cpp
@@ -226,6 +231,7 @@ set( EESCHEMA_SRCS
     symbol_library.cpp
     symbol_tree_model_adapter.cpp
     symbol_tree_synchronizing_adapter.cpp
+    symbol_viewer_frame.cpp
     toolbars_symbol_viewer.cpp
     toolbars_sch_editor.cpp
     transform.cpp

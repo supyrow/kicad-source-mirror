@@ -50,6 +50,8 @@ SCHEMATIC_SETTINGS::SCHEMATIC_SETTINGS( JSON_SETTINGS* aParent, const std::strin
         m_IntersheetRefsFormatShort( false ),
         m_IntersheetRefsPrefix( DEFAULT_IREF_PREFIX ),
         m_IntersheetRefsSuffix( DEFAULT_IREF_SUFFIX ),
+        m_DashedLineDashRatio( 5.0 ),
+        m_DashedLineGapRatio( 3.0 ),
         m_SpiceAdjustPassiveValues( false ),
         m_NgspiceSimulatorSettings( nullptr )
 {
@@ -89,6 +91,12 @@ SCHEMATIC_SETTINGS::SCHEMATIC_SETTINGS( JSON_SETTINGS* aParent, const std::strin
     m_params.emplace_back( new PARAM<wxString>( "drawing.intersheets_ref_suffix",
             &m_IntersheetRefsSuffix, defaultIntersheetsRefSuffix ) );
 
+    m_params.emplace_back( new PARAM<double>( "drawing.dashed_lines_dash_length_ratio",
+            &m_DashedLineDashRatio, 5.0 ) );
+
+    m_params.emplace_back( new PARAM<double>( "drawing.dashed_lines_gap_length_ratio",
+            &m_DashedLineGapRatio, 3.0 ) );
+
     m_params.emplace_back( new PARAM_SCALED<int>( "drawing.default_line_thickness",
             &m_DefaultLineWidth, Mils2iu( defaultLineThickness ), Mils2iu( 5 ), Mils2iu( 1000 ),
             1 / IU_PER_MILS ) );
@@ -104,7 +112,7 @@ SCHEMATIC_SETTINGS::SCHEMATIC_SETTINGS( JSON_SETTINGS* aParent, const std::strin
             &m_LabelSizeRatio, DEFAULT_LABEL_SIZE_RATIO, 0.0, 2.0 ) );
 
     m_params.emplace_back( new PARAM_SCALED<int>( "drawing.pin_symbol_size",
-            &m_PinSymbolSize, Mils2iu( defaultPinSymbolSize ), Mils2iu( 5 ), Mils2iu( 1000 ),
+            &m_PinSymbolSize, Mils2iu( defaultPinSymbolSize ), Mils2iu( 0 ), Mils2iu( 1000 ),
             1 / IU_PER_MILS ) );
 
     // m_JunctionSize is only a run-time cache of the calculated size.  Do not save it.

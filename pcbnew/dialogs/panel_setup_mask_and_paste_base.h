@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////
-// C++ code generated with wxFormBuilder (version 3.10.0-4761b0c5)
+// C++ code generated with wxFormBuilder (version Oct 26 2018)
 // http://www.wxformbuilder.org/
 //
 // PLEASE DO *NOT* EDIT THIS FILE!
@@ -23,6 +23,8 @@
 #include <wx/sizer.h>
 #include <wx/statline.h>
 #include <wx/textctrl.h>
+#include <wx/checkbox.h>
+#include <wx/gbsizer.h>
 #include <wx/panel.h>
 
 ///////////////////////////////////////////////////////////////////////////
@@ -45,6 +47,11 @@ class PANEL_SETUP_MASK_AND_PASTE_BASE : public wxPanel
 		wxStaticText* m_maskMinWidthLabel;
 		wxTextCtrl* m_maskMinWidthCtrl;
 		wxStaticText* m_maskMinWidthUnits;
+		wxStaticText* m_maskToCopperClearanceLabel;
+		wxTextCtrl* m_maskToCopperClearanceCtrl;
+		wxStaticText* m_maskToCopperClearanceUnits;
+		wxCheckBox* m_allowBridges;
+		wxCheckBox* m_tentVias;
 		wxStaticText* m_pasteMarginLabel;
 		wxTextCtrl* m_pasteMarginCtrl;
 		wxStaticText* m_pasteMarginUnits;
@@ -56,7 +63,6 @@ class PANEL_SETUP_MASK_AND_PASTE_BASE : public wxPanel
 	public:
 
 		PANEL_SETUP_MASK_AND_PASTE_BASE( wxWindow* parent, wxWindowID id = wxID_ANY, const wxPoint& pos = wxDefaultPosition, const wxSize& size = wxSize( -1,-1 ), long style = wxTAB_TRAVERSAL, const wxString& name = wxEmptyString );
-
 		~PANEL_SETUP_MASK_AND_PASTE_BASE();
 
 };

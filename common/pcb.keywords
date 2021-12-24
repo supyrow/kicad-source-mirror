@@ -28,6 +28,8 @@ add_net
 addsublayer
 aligned
 allowed
+allow_missing_courtyard
+allow_soldermask_bridges
 anchor
 angle
 arc
@@ -157,6 +159,7 @@ last_trace_width
 layer
 layers
 leader
+leader_length
 left
 linear
 links
@@ -207,6 +210,7 @@ pad_prop_fiducial_glob
 pad_prop_castellated
 pad_prop_testpoint
 pad_prop_heatsink
+private_layers
 property
 page
 paper
@@ -225,6 +229,7 @@ prefix
 primitives
 priority
 pts
+radial
 radius
 rev
 rect
@@ -253,6 +258,7 @@ solid
 stackup
 start
 status
+stroke
 style
 suffix
 suppress_zeroes
@@ -265,6 +271,7 @@ text_frame
 text_position_mode
 thermal_width
 thermal_gap
+thermal_bridge_angle
 thermal_bridge_width
 thickness
 through_hole

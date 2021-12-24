@@ -35,14 +35,18 @@ class EESCHEMA_SETTINGS : public APP_SETTINGS_BASE
 public:
     struct APPEARANCE
     {
-        wxString edit_component_visible_columns;
+        wxString edit_symbol_visible_columns;
         wxString edit_sheet_visible_columns;
+        wxString edit_label_visible_columns;
         int  erc_severities;
         bool footprint_preview;
         bool navigator_stays_open;
         bool print_sheet_reference;
         bool show_hidden_pins;
         bool show_hidden_fields;
+        bool show_erc_warnings;
+        bool show_erc_errors;
+        bool show_erc_exclusions;
         bool show_illegal_symbol_lib_dialog;
         bool show_page_limits;
         bool show_sexpr_file_convert_warning;
@@ -118,7 +122,8 @@ public:
 
     struct SELECTION
     {
-        int  thickness;
+        int  selection_thickness;
+        int  highlight_thickness;
         bool draw_selected_children;
         bool fill_shapes;
         bool select_pin_selects_symbol;

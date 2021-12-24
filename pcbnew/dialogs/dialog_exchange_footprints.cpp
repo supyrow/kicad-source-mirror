@@ -155,16 +155,10 @@ DIALOG_EXCHANGE_FOOTPRINTS::DIALOG_EXCHANGE_FOOTPRINTS( PCB_EDIT_FRAME* aParent,
     // because the update and change versions of this dialog have different controls.
     m_hash_key = TO_UTF8( GetTitle() );
 
-    // Ensure m_closeButton (with id = wxID_CANCEL) has the right label
-    // (to fix automatic renaming of button label )
-    m_sdbSizerCancel->SetLabel( _( "Close" ) );
+    wxString okLabel = m_updateMode ? _( "Update" ) : _( "Change" );
 
-    if( m_updateMode )
-        m_sdbSizerOK->SetLabel( _( "Update" ) );
-    else
-        m_sdbSizerOK->SetLabel( _( "Change" ) );
-
-    m_sdbSizerOK->SetDefault();
+    SetupStandardButtons( { { wxID_OK,     okLabel      },
+                            { wxID_CANCEL, _( "Close" ) } } );
 
     // Now all widgets have the size fixed, call FinishDialogSettings
     finishDialogSettings();
@@ -307,11 +301,10 @@ void DIALOG_EXCHANGE_FOOTPRINTS::OnOKClicked( wxCommandEvent& event )
     m_MessageWindow->Clear();
     m_MessageWindow->Flush( false );
 
-    if( processMatchingFootprints() )
-    {
-        m_parent->Compile_Ratsnest( true );
-        m_parent->GetCanvas()->Refresh();
-    }
+    processMatchingFootprints();
+
+    m_parent->Compile_Ratsnest( true );
+    m_parent->GetCanvas()->Refresh();
 
     m_MessageWindow->Flush( false );
 
@@ -319,21 +312,20 @@ void DIALOG_EXCHANGE_FOOTPRINTS::OnOKClicked( wxCommandEvent& event )
 }
 
 
-bool DIALOG_EXCHANGE_FOOTPRINTS::processMatchingFootprints()
+void DIALOG_EXCHANGE_FOOTPRINTS::processMatchingFootprints()
 {
-    bool     change = false;
     LIB_ID   newFPID;
     wxString value;
 
     if( m_parent->GetBoard()->Footprints().empty() )
-        return false;
+        return;
 
     if( !m_updateMode )
     {
         newFPID.Parse( m_newID->GetValue() );
 
         if( !newFPID.IsValid() )
-            return false;
+            return;
     }
 
     /*
@@ -349,22 +341,14 @@ bool DIALOG_EXCHANGE_FOOTPRINTS::processMatchingFootprints()
             continue;
 
         if( m_updateMode )
-        {
-            if( processFootprint( footprint, footprint->GetFPID() ) )
-                change = true;
-        }
+            processFootprint( footprint, footprint->GetFPID() );
         else
-        {
-            if( processFootprint( footprint, newFPID ) )
-                change = true;
-        }
+            processFootprint( footprint, newFPID );
     }
-
-    return change;
 }
 
 
-bool DIALOG_EXCHANGE_FOOTPRINTS::processFootprint( FOOTPRINT* aFootprint, const LIB_ID& aNewFPID )
+void DIALOG_EXCHANGE_FOOTPRINTS::processFootprint( FOOTPRINT* aFootprint, const LIB_ID& aNewFPID )
 {
     LIB_ID    oldFPID = aFootprint->GetFPID();
     wxString  msg;
@@ -372,14 +356,13 @@ bool DIALOG_EXCHANGE_FOOTPRINTS::processFootprint( FOOTPRINT* aFootprint, const 
     // Load new footprint.
     if( m_updateMode )
     {
-        msg.Printf( _( "Update footprint %s from '%s' to '%s'" ),
+        msg.Printf( _( "Updated footprint %s (%s)" ) + wxS( ": " ),
                     aFootprint->GetReference(),
-                    oldFPID.Format().c_str(),
-                    aNewFPID.Format().c_str() );
+                    oldFPID.Format().c_str() );
     }
     else
     {
-        msg.Printf( _( "Change footprint %s from '%s' to '%s'" ),
+        msg.Printf( _( "Changed footprint %s from '%s' to '%s'" ) + wxS( ": " ),
                     aFootprint->GetReference(),
                     oldFPID.Format().c_str(),
                     aNewFPID.Format().c_str() );
@@ -389,10 +372,20 @@ bool DIALOG_EXCHANGE_FOOTPRINTS::processFootprint( FOOTPRINT* aFootprint, const 
 
     if( !newFootprint )
     {
-        msg << ": " << _( "*** footprint not found ***" );
+        msg += _( "*** library footprint not found ***" );
         m_MessageWindow->Report( msg, RPT_SEVERITY_ERROR );
-        return false;
+        return;
     }
+
+    if( m_updateMode && !aFootprint->FootprintNeedsUpdate( newFootprint ) )
+    {
+        msg += _( ": (no changes)" );
+        m_MessageWindow->Report( msg, RPT_SEVERITY_INFO );
+        return;
+    }
+
+    msg += _( ": OK" );
+    m_MessageWindow->Report( msg, RPT_SEVERITY_ACTION );
 
     m_parent->ExchangeFootprint( aFootprint, newFootprint, m_commit,
                                  m_removeExtraBox->GetValue(),
@@ -404,10 +397,7 @@ bool DIALOG_EXCHANGE_FOOTPRINTS::processFootprint( FOOTPRINT* aFootprint, const 
     if( aFootprint == m_currentFootprint )
         m_currentFootprint = newFootprint;
 
-    msg += ": OK";
-    m_MessageWindow->Report( msg, RPT_SEVERITY_ACTION );
-
-    return true;
+    return;
 }
 
 

@@ -52,7 +52,7 @@
 #include <template_fieldnames.h>
 #include <trigo.h>
 #include <progress_reporter.h>
-
+#include <sch_shape.h>
 
 using namespace TSCHEMATIC_T;
 
@@ -489,67 +489,11 @@ int SCH_SEXPR_PARSER::parseInternalUnits( const char* aExpected )
 
 void SCH_SEXPR_PARSER::parseStroke( STROKE_PARAMS& aStroke )
 {
-    wxCHECK_RET( CurTok() == T_stroke,
-                 wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as a stroke." ) );
+    STROKE_PARAMS_PARSER strokeParser( reader, IU_PER_MM );
+    strokeParser.SyncLineReaderWith( *this );
 
-    aStroke.SetWidth( Mils2iu( DEFAULT_LINE_WIDTH_MILS ) );
-    aStroke.SetPlotStyle( PLOT_DASH_TYPE::DEFAULT );
-    aStroke.SetColor( COLOR4D::UNSPECIFIED );
-
-    T token;
-
-    for( token = NextTok();  token != T_RIGHT;  token = NextTok() )
-    {
-        if( token != T_LEFT )
-            Expecting( T_LEFT );
-
-        token = NextTok();
-
-        switch( token )
-        {
-        case T_width:
-            aStroke.SetWidth( parseInternalUnits( "stroke width" ) );
-            NeedRIGHT();
-            break;
-
-        case T_type:
-        {
-            token = NextTok();
-
-            switch( token )
-            {
-            case T_dash:      aStroke.SetPlotStyle( PLOT_DASH_TYPE::DASH );      break;
-            case T_dot:       aStroke.SetPlotStyle( PLOT_DASH_TYPE::DOT );       break;
-            case T_dash_dot:  aStroke.SetPlotStyle( PLOT_DASH_TYPE::DASHDOT );   break;
-            case T_solid:     aStroke.SetPlotStyle( PLOT_DASH_TYPE::SOLID );     break;
-            case T_default:   aStroke.SetPlotStyle( PLOT_DASH_TYPE::DEFAULT );   break;
-            default:
-                Expecting( "solid, dash, dash_dot, dot or default" );
-            }
-
-            NeedRIGHT();
-            break;
-        }
-
-        case T_color:
-        {
-            COLOR4D color;
-
-            color.r = parseInt( "red" ) / 255.0;
-            color.g = parseInt( "green" ) / 255.0;
-            color.b = parseInt( "blue" ) / 255.0;
-            color.a = Clamp( parseDouble( "alpha" ), 0.0, 1.0 );
-
-            aStroke.SetColor( color );
-            NeedRIGHT();
-            break;
-        }
-
-        default:
-            Expecting( "width, type, or color" );
-        }
-
-    }
+    strokeParser.ParseStroke( aStroke );
+    SyncLineReaderWith( strokeParser );
 }
 
 
@@ -580,7 +524,8 @@ void SCH_SEXPR_PARSER::parseFill( FILL_PARAMS& aFill )
             case T_none:       aFill.m_FillType = FILL_T::NO_FILL;                  break;
             case T_outline:    aFill.m_FillType = FILL_T::FILLED_SHAPE;             break;
             case T_background: aFill.m_FillType = FILL_T::FILLED_WITH_BG_BODYCOLOR; break;
-            default:           Expecting( "none, outline, or background" );
+            case T_color:      aFill.m_FillType = FILL_T::FILLED_WITH_COLOR;        break;
+            default:           Expecting( "none, outline, color or background" );
             }
 
             NeedRIGHT();
@@ -1008,12 +953,13 @@ LIB_SHAPE* SCH_SEXPR_PARSER::parseArc()
 
         case T_stroke:
             parseStroke( stroke );
-            arc->SetWidth( stroke.GetWidth() );
+            arc->SetStroke( stroke );
             break;
 
         case T_fill:
             parseFill( fill );
             arc->SetFillMode( fill.m_FillType );
+            arc->SetFillColor( fill.m_Color );
             break;
 
         default:
@@ -1107,12 +1053,13 @@ LIB_SHAPE* SCH_SEXPR_PARSER::parseBezier()
 
         case T_stroke:
             parseStroke( stroke );
-            bezier->SetWidth( stroke.GetWidth() );
+            bezier->SetStroke( stroke );
             break;
 
         case T_fill:
             parseFill( fill );
             bezier->SetFillMode( fill.m_FillType );
+            bezier->SetFillColor( fill.m_Color );
             break;
 
         default:
@@ -1163,12 +1110,13 @@ LIB_SHAPE* SCH_SEXPR_PARSER::parseCircle()
 
         case T_stroke:
             parseStroke( stroke );
-            circle->SetWidth( stroke.GetWidth() );
+            circle->SetStroke( stroke );
             break;
 
         case T_fill:
             parseFill( fill );
             circle->SetFillMode( fill.m_FillType );
+            circle->SetFillColor( fill.m_Color );
             break;
 
         default:
@@ -1435,12 +1383,13 @@ LIB_SHAPE* SCH_SEXPR_PARSER::parsePolyLine()
 
         case T_stroke:
             parseStroke( stroke );
-            poly->SetWidth( stroke.GetWidth() );
+            poly->SetStroke( stroke );
             break;
 
         case T_fill:
             parseFill( fill );
             poly->SetFillMode( fill.m_FillType );
+            poly->SetFillColor( fill.m_Color );
             break;
 
         default:
@@ -1486,12 +1435,13 @@ LIB_SHAPE* SCH_SEXPR_PARSER::parseRectangle()
 
         case T_stroke:
             parseStroke( stroke );
-            rectangle->SetWidth( stroke.GetWidth() );
+            rectangle->SetStroke( stroke );
             break;
 
         case T_fill:
             parseFill( fill );
             rectangle->SetFillMode( fill.m_FillType );
+            rectangle->SetFillColor( fill.m_Color );
             break;
 
         default:
@@ -1807,11 +1757,11 @@ SCH_SHEET_PIN* SCH_SEXPR_PARSER::parseSchSheetPin( SCH_SHEET* aSheet )
 
     switch( token )
     {
-    case T_input:          sheetPin->SetShape( PINSHEETLABEL_SHAPE::PS_INPUT );        break;
-    case T_output:         sheetPin->SetShape( PINSHEETLABEL_SHAPE::PS_OUTPUT );       break;
-    case T_bidirectional:  sheetPin->SetShape( PINSHEETLABEL_SHAPE::PS_BIDI );         break;
-    case T_tri_state:      sheetPin->SetShape( PINSHEETLABEL_SHAPE::PS_TRISTATE );     break;
-    case T_passive:        sheetPin->SetShape( PINSHEETLABEL_SHAPE::PS_UNSPECIFIED );  break;
+    case T_input:          sheetPin->SetShape( LABEL_FLAG_SHAPE::L_INPUT );        break;
+    case T_output:         sheetPin->SetShape( LABEL_FLAG_SHAPE::L_OUTPUT );       break;
+    case T_bidirectional:  sheetPin->SetShape( LABEL_FLAG_SHAPE::L_BIDI );         break;
+    case T_tri_state:      sheetPin->SetShape( LABEL_FLAG_SHAPE::L_TRISTATE );     break;
+    case T_passive:        sheetPin->SetShape( LABEL_FLAG_SHAPE::L_UNSPECIFIED );  break;
     default:
         Expecting( "input, output, bidirectional, tri_state, or passive" );
     }
@@ -2170,10 +2120,27 @@ void SCH_SEXPR_PARSER::ParseSchematic( SCH_SHEET* aSheet, bool aIsCopyableOnly, 
             screen->Append( static_cast<SCH_ITEM*>( parseLine() ) );
             break;
 
+        case T_arc:
+            screen->Append( static_cast<SCH_ITEM*>( parseSchArc() ) );
+            break;
+
+        case T_circle:
+            screen->Append( static_cast<SCH_ITEM*>( parseSchCircle() ) );
+            break;
+
+        case T_rectangle:
+            screen->Append( static_cast<SCH_ITEM*>( parseSchRectangle() ) );
+            break;
+
+        case T_bezier:
+            screen->Append( static_cast<SCH_ITEM*>( parseSchBezier() ) );
+            break;
+
         case T_text:
         case T_label:
         case T_global_label:
         case T_hierarchical_label:
+        case T_netclass_flag:
             screen->Append( static_cast<SCH_ITEM*>( parseSchText() ) );
             break;
 
@@ -2194,8 +2161,8 @@ void SCH_SEXPR_PARSER::ParseSchematic( SCH_SHEET* aSheet, bool aIsCopyableOnly, 
 
         default:
             Expecting( "symbol, paper, page, title_block, bitmap, sheet, junction, no_connect, "
-                       "bus_entry, line, bus, text, label, global_label, hierarchical_label, "
-                       "symbol_instances, or bus_alias" );
+                       "bus_entry, line, bus, text, label, class_label, global_label, "
+                       "hierarchical_label, symbol_instances, or bus_alias" );
         }
     }
 
@@ -2837,6 +2804,320 @@ SCH_LINE* SCH_SEXPR_PARSER::parseLine()
 }
 
 
+SCH_SHAPE* SCH_SEXPR_PARSER::parseSchArc()
+{
+    wxCHECK_MSG( CurTok() == T_arc, nullptr,
+                 wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as an arc." ) );
+
+    T token;
+    wxPoint startPoint;
+    wxPoint midPoint;
+    wxPoint endPoint;
+    wxPoint pos;
+    int startAngle;
+    int endAngle;
+    STROKE_PARAMS stroke( Mils2iu( DEFAULT_LINE_WIDTH_MILS ), PLOT_DASH_TYPE::DEFAULT );
+    FILL_PARAMS fill;
+    bool hasMidPoint = false;
+    bool hasAngles = false;
+    std::unique_ptr<SCH_SHAPE> arc = std::make_unique<SCH_SHAPE>( SHAPE_T::ARC );
+
+    for( token = NextTok();  token != T_RIGHT;  token = NextTok() )
+    {
+        if( token != T_LEFT )
+            Expecting( T_LEFT );
+
+        token = NextTok();
+
+        switch( token )
+        {
+        case T_start:
+            startPoint = parseXY();
+            NeedRIGHT();
+            break;
+
+        case T_mid:
+            midPoint = parseXY();
+            NeedRIGHT();
+            hasMidPoint = true;
+            break;
+
+        case T_end:
+            endPoint = parseXY();
+            NeedRIGHT();
+            break;
+
+        case T_radius:
+            for( token = NextTok();  token != T_RIGHT;  token = NextTok() )
+            {
+                if( token != T_LEFT )
+                    Expecting( T_LEFT );
+
+                token = NextTok();
+
+                switch( token )
+                {
+                case T_at:
+                    pos = parseXY();
+                    NeedRIGHT();
+                    break;
+
+                case T_length:
+                    parseInternalUnits( "radius length" );
+                    NeedRIGHT();
+                    break;
+
+                case T_angles:
+                {
+                    startAngle = KiROUND( parseDouble( "start radius angle" ) * 10.0 );
+                    endAngle = KiROUND( parseDouble( "end radius angle" ) * 10.0 );
+                    NORMALIZE_ANGLE_POS( startAngle );
+                    NORMALIZE_ANGLE_POS( endAngle );
+                    NeedRIGHT();
+                    hasAngles = true;
+                    break;
+                }
+
+                default:
+                    Expecting( "at, length, or angle" );
+                }
+            }
+
+            break;
+
+        case T_stroke:
+            parseStroke( stroke );
+            arc->SetStroke( stroke );
+            break;
+
+        case T_fill:
+            parseFill( fill );
+            arc->SetFillMode( fill.m_FillType );
+            arc->SetFillColor( fill.m_Color );
+            break;
+
+        case T_uuid:
+            NeedSYMBOL();
+            const_cast<KIID&>( arc->m_Uuid ) = KIID( FromUTF8() );
+            NeedRIGHT();
+            break;
+
+        default:
+            Expecting( "start, mid, end, radius, stroke, fill or uuid" );
+        }
+    }
+
+    arc->SetStart( startPoint );
+    arc->SetEnd( endPoint );
+
+    if( hasMidPoint )
+    {
+        VECTOR2I center = CalcArcCenter( arc->GetStart(), midPoint, arc->GetEnd() );
+
+        arc->SetCenter( (wxPoint) center );
+    }
+    else if( hasAngles )
+    {
+        arc->SetCenter( pos );
+        /**
+         * This accounts for an oddity in the old library format, where the symbol is overdefined.
+         * The previous draw (based on wxwidgets) used start point and end point and always drew
+         * counter-clockwise.  The new GAL draw takes center, radius and start/end angles.  All of
+         * these points were stored in the file, so we need to mimic the swapping of start/end
+         * points rather than using the stored angles in order to properly map edge cases.
+         */
+        if( !TRANSFORM().MapAngles( &startAngle, &endAngle ) )
+        {
+            wxPoint temp = arc->GetStart();
+            arc->SetStart( arc->GetEnd() );
+            arc->SetEnd( temp );
+        }
+    }
+    else
+        wxFAIL_MSG( "Setting arc without either midpoint or angles not implemented." );
+
+    return arc.release();
+}
+
+
+SCH_SHAPE* SCH_SEXPR_PARSER::parseSchCircle()
+{
+    wxCHECK_MSG( CurTok() == T_circle, nullptr,
+                 wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as a circle." ) );
+
+    T token;
+    wxPoint center;
+    int radius;
+    STROKE_PARAMS stroke( Mils2iu( DEFAULT_LINE_WIDTH_MILS ), PLOT_DASH_TYPE::DEFAULT );
+    FILL_PARAMS fill;
+    std::unique_ptr<SCH_SHAPE> circle = std::make_unique<SCH_SHAPE>( SHAPE_T::CIRCLE );
+
+    for( token = NextTok();  token != T_RIGHT;  token = NextTok() )
+    {
+        if( token != T_LEFT )
+            Expecting( T_LEFT );
+
+        token = NextTok();
+
+        switch( token )
+        {
+        case T_center:
+            center = parseXY();
+            NeedRIGHT();
+            break;
+
+        case T_radius:
+            radius = parseInternalUnits( "radius length" );
+            NeedRIGHT();
+            break;
+
+        case T_stroke:
+            parseStroke( stroke );
+            circle->SetStroke( stroke );
+            break;
+
+        case T_fill:
+            parseFill( fill );
+            circle->SetFillMode( fill.m_FillType );
+            circle->SetFillColor( fill.m_Color );
+            break;
+
+        case T_uuid:
+            NeedSYMBOL();
+            const_cast<KIID&>( circle->m_Uuid ) = KIID( FromUTF8() );
+            NeedRIGHT();
+            break;
+
+        default:
+            Expecting( "center, radius, stroke, fill or uuid" );
+        }
+    }
+
+    circle->SetCenter( center );
+    circle->SetEnd( wxPoint( center.x + radius, center.y ) );
+
+    return circle.release();
+}
+
+
+SCH_SHAPE* SCH_SEXPR_PARSER::parseSchRectangle()
+{
+    wxCHECK_MSG( CurTok() == T_rectangle, nullptr,
+                 wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as a rectangle." ) );
+
+    T token;
+    STROKE_PARAMS stroke( Mils2iu( DEFAULT_LINE_WIDTH_MILS ), PLOT_DASH_TYPE::DEFAULT );
+    FILL_PARAMS fill;
+    std::unique_ptr<SCH_SHAPE> rectangle = std::make_unique<SCH_SHAPE>( SHAPE_T::RECT );
+
+    for( token = NextTok();  token != T_RIGHT;  token = NextTok() )
+    {
+        if( token != T_LEFT )
+            Expecting( T_LEFT );
+
+        token = NextTok();
+
+        switch( token )
+        {
+        case T_start:
+            rectangle->SetPosition( parseXY() );
+            NeedRIGHT();
+            break;
+
+        case T_end:
+            rectangle->SetEnd( parseXY() );
+            NeedRIGHT();
+            break;
+
+        case T_stroke:
+            parseStroke( stroke );
+            rectangle->SetStroke( stroke );
+            break;
+
+        case T_fill:
+            parseFill( fill );
+            rectangle->SetFillMode( fill.m_FillType );
+            rectangle->SetFillColor( fill.m_Color );
+            break;
+
+        case T_uuid:
+            NeedSYMBOL();
+            const_cast<KIID&>( rectangle->m_Uuid ) = KIID( FromUTF8() );
+            NeedRIGHT();
+            break;
+
+        default:
+            Expecting( "start, end, stroke, fill or uuid" );
+        }
+    }
+
+    return rectangle.release();
+}
+
+
+SCH_SHAPE* SCH_SEXPR_PARSER::parseSchBezier()
+{
+    wxCHECK_MSG( CurTok() == T_bezier, nullptr,
+                 wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as a bezier." ) );
+
+    T token;
+    STROKE_PARAMS stroke( Mils2iu( DEFAULT_LINE_WIDTH_MILS ), PLOT_DASH_TYPE::DEFAULT );
+    FILL_PARAMS fill;
+    std::unique_ptr<SCH_SHAPE> bezier = std::make_unique<SCH_SHAPE>( SHAPE_T::BEZIER );
+
+    for( token = NextTok();  token != T_RIGHT;  token = NextTok() )
+    {
+        if( token != T_LEFT )
+            Expecting( T_LEFT );
+
+        token = NextTok();
+
+        switch( token )
+        {
+        case T_pts:
+            for( token = NextTok();  token != T_RIGHT;  token = NextTok() )
+            {
+                if( token != T_LEFT )
+                    Expecting( T_LEFT );
+
+                token = NextTok();
+
+                if( token != T_xy )
+                    Expecting( "xy" );
+
+                bezier->AddPoint( parseXY() );
+
+                NeedRIGHT();
+            }
+
+            break;
+
+        case T_stroke:
+            parseStroke( stroke );
+            bezier->SetStroke( stroke );
+            break;
+
+        case T_fill:
+            parseFill( fill );
+            bezier->SetFillMode( fill.m_FillType );
+            bezier->SetFillColor( fill.m_Color );
+            break;
+
+        case T_uuid:
+            NeedSYMBOL();
+            const_cast<KIID&>( bezier->m_Uuid ) = KIID( FromUTF8() );
+            NeedRIGHT();
+            break;
+
+        default:
+            Expecting( "pts, stroke, fill or uuid" );
+        }
+    }
+
+    return bezier.release();
+}
+
+
 SCH_TEXT* SCH_SEXPR_PARSER::parseSchText()
 {
     T token;
@@ -2848,9 +3129,14 @@ SCH_TEXT* SCH_SEXPR_PARSER::parseSchText()
     case T_label:               text = std::make_unique<SCH_LABEL>();         break;
     case T_global_label:        text = std::make_unique<SCH_GLOBALLABEL>();   break;
     case T_hierarchical_label:  text = std::make_unique<SCH_HIERLABEL>();     break;
+    case T_netclass_flag:       text = std::make_unique<SCH_NETCLASS_FLAG>(); break;
     default:
         wxCHECK_MSG( false, nullptr, "Cannot parse " + GetTokenString( CurTok() ) + " as text." );
     }
+
+    // Clear any auto-created fields; we want what's in the file and only what's in the file
+    if( text->Type() != SCH_TEXT_T )
+        static_cast<SCH_LABEL_BASE*>( text.get() )->GetFields().clear();
 
     // We'll reset this if we find a fields_autoplaced token
     text->ClearFieldsAutoplaced();
@@ -2894,16 +3180,33 @@ SCH_TEXT* SCH_SEXPR_PARSER::parseSchText()
 
             switch( token )
             {
-            case T_input:          text->SetShape( PINSHEETLABEL_SHAPE::PS_INPUT );        break;
-            case T_output:         text->SetShape( PINSHEETLABEL_SHAPE::PS_OUTPUT );       break;
-            case T_bidirectional:  text->SetShape( PINSHEETLABEL_SHAPE::PS_BIDI );         break;
-            case T_tri_state:      text->SetShape( PINSHEETLABEL_SHAPE::PS_TRISTATE );     break;
-            case T_passive:        text->SetShape( PINSHEETLABEL_SHAPE::PS_UNSPECIFIED );  break;
+            case T_input:          text->SetShape( LABEL_FLAG_SHAPE::L_INPUT );        break;
+            case T_output:         text->SetShape( LABEL_FLAG_SHAPE::L_OUTPUT );       break;
+            case T_bidirectional:  text->SetShape( LABEL_FLAG_SHAPE::L_BIDI );         break;
+            case T_tri_state:      text->SetShape( LABEL_FLAG_SHAPE::L_TRISTATE );     break;
+            case T_passive:        text->SetShape( LABEL_FLAG_SHAPE::L_UNSPECIFIED );  break;
+            case T_dot:            text->SetShape( LABEL_FLAG_SHAPE::F_DOT );          break;
+            case T_round:          text->SetShape( LABEL_FLAG_SHAPE::F_ROUND );        break;
+            case T_diamond:        text->SetShape( LABEL_FLAG_SHAPE::F_DIAMOND );      break;
+            case T_rectangle:      text->SetShape( LABEL_FLAG_SHAPE::F_RECTANGLE );    break;
             default:
-                Expecting( "input, output, bidirectional, tri_state, or passive" );
+                Expecting( "input, output, bidirectional, tri_state, passive, dot, round, diamond"
+                           "or rectangle" );
             }
 
             NeedRIGHT();
+            break;
+
+        case T_length:
+        {
+            if( text->Type() != SCH_NETCLASS_FLAG_T )
+                Unexpected( T_length );
+
+            SCH_NETCLASS_FLAG* label = static_cast<SCH_NETCLASS_FLAG*>( text.get() );
+
+            label->SetPinLength( parseInternalUnits( "pin length" ) );
+            NeedRIGHT();
+        }
             break;
 
         case T_fields_autoplaced:
@@ -2939,7 +3242,7 @@ SCH_TEXT* SCH_SEXPR_PARSER::parseSchText()
             if( text->Type() == SCH_GLOBAL_LABEL_T )
             {
                 SCH_GLOBALLABEL* label = static_cast<SCH_GLOBALLABEL*>( text.get() );
-                SCH_FIELD*       field = label->GetIntersheetRefs();
+                SCH_FIELD*       field = &label->GetFields()[0];
 
                 field->SetTextPos( parseXY() );
                 NeedRIGHT();
@@ -2955,22 +3258,27 @@ SCH_TEXT* SCH_SEXPR_PARSER::parseSchText()
             break;
 
         case T_property:
-            if( text->Type() == SCH_GLOBAL_LABEL_T )
-            {
-                SCH_GLOBALLABEL* label = static_cast<SCH_GLOBALLABEL*>( text.get() );
-                SCH_FIELD*       field = parseSchField( label );
+        {
+            if( text->Type() == SCH_TEXT_T )
+                Unexpected( T_property );
 
-                field->SetLayer( LAYER_GLOBLABEL );
-                label->SetIntersheetRefs( *field );
+            SCH_FIELD* field = parseSchField( text.get() );
 
-                delete field;
-            }
+            static_cast<SCH_LABEL_BASE*>( text.get() )->GetFields().emplace_back( *field );
+
+            delete field;
             break;
+        }
 
         default:
             Expecting( "at, shape, iref, uuid or effects" );
         }
     }
+
+    SCH_LABEL_BASE* label = dynamic_cast<SCH_LABEL_BASE*>( text.get() );
+
+    if( label && label->GetFields().empty() )
+        label->SetFieldsAutoplaced();
 
     return text.release();
 }

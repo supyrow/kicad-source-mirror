@@ -78,6 +78,8 @@ public:
      */
     bool HasLibModifications() const;
 
+    bool CanCloseSymbolFromSchematic( bool doClose );
+
     /**
      * The nickname of the current library being edited and empty string if none.
      */
@@ -198,7 +200,7 @@ public:
 
     APP_SETTINGS_BASE* config() const override;
 
-    COLOR_SETTINGS* GetColorSettings() const override;
+    COLOR_SETTINGS* GetColorSettings( bool aForceRefresh = false ) const override;
 
     /**
      * Trigger the wxCloseEvent, which is handled by the function given to EVT_CLOSE() macro:
@@ -307,11 +309,6 @@ public:
      * Redisplay the library tree.  Used after changing modified states, descriptions, etc.
      */
     void RefreshLibraryTree();
-
-    /**
-     * Allow the symbol editor to install its preferences panel into the preferences dialog.
-     */
-    void InstallPreferences( PAGED_DIALOG* aParent, PANEL_HOTKEYS_EDITOR* aHotkeysPanel ) override;
 
     /**
      * Called after the preferences dialog is run.

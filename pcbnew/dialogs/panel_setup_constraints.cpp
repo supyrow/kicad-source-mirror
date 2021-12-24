@@ -46,12 +46,18 @@ PANEL_SETUP_CONSTRAINTS::PANEL_SETUP_CONSTRAINTS( PAGED_DIALOG* aParent, PCB_EDI
         m_holeClearance( aFrame, m_HoleClearanceLabel, m_HoleClearanceCtrl, m_HoleClearanceUnits ),
         m_edgeClearance( aFrame, m_EdgeClearanceLabel, m_EdgeClearanceCtrl, m_EdgeClearanceUnits ),
         m_silkClearance( aFrame, m_silkClearanceLabel, m_silkClearanceCtrl, m_silkClearanceUnits ),
+        m_minTextHeight( aFrame, m_textHeightLabel, m_textHeightCtrl, m_textHeightUnits ),
+        m_minTextThickness( aFrame, m_textThicknessLabel, m_textThicknessCtrl, m_textThicknessUnits ),
         m_maxError( aFrame, m_maxErrorTitle, m_maxErrorCtrl, m_maxErrorUnits )
 {
     m_Frame = aFrame;
     m_BrdSettings = &m_Frame->GetBoard()->GetDesignSettings();
 
     m_stCircleToPolyWarning->SetFont( KIUI::GetInfoFont( this ) );
+
+    wxSize ctrlSize = m_minResolvedSpokeCountCtrl->GetSize();
+    ctrlSize.x = KIUI::GetTextSize( wxT( "XXX" ), m_minResolvedSpokeCountCtrl ).x;
+    m_minResolvedSpokeCountCtrl->SetSize( ctrlSize );
 }
 
 
@@ -71,6 +77,7 @@ bool PANEL_SETUP_CONSTRAINTS::TransferDataToWindow()
     m_rbOutlinePolygonFastest->SetValue( m_BrdSettings->m_ZoneFillVersion == 6 );
     m_rbOutlinePolygonBestQ->SetValue( m_BrdSettings->m_ZoneFillVersion == 5 );
     m_allowExternalFilletsOpt->SetValue( m_BrdSettings->m_ZoneKeepExternalFillets );
+    m_minResolvedSpokeCountCtrl->SetValue( m_BrdSettings->m_MinResolvedSpokes );
 
     m_minClearance.SetValue( m_BrdSettings->m_MinClearance );
     m_trackMinWidth.SetValue( m_BrdSettings->m_TrackMinWidth );
@@ -86,6 +93,8 @@ bool PANEL_SETUP_CONSTRAINTS::TransferDataToWindow()
     m_uviaMinDrill.SetValue( m_BrdSettings->m_MicroViasMinDrill );
 
     m_silkClearance.SetValue( m_BrdSettings->m_SilkClearance );
+    m_minTextHeight.SetValue( m_BrdSettings->m_MinSilkTextHeight );
+    m_minTextThickness.SetValue( m_BrdSettings->m_MinSilkTextThickness );
 
     return true;
 }
@@ -129,21 +138,24 @@ bool PANEL_SETUP_CONSTRAINTS::TransferDataFromWindow()
 
     m_BrdSettings->m_ZoneFillVersion = m_rbOutlinePolygonFastest->GetValue() ? 6 : 5;
     m_BrdSettings->m_ZoneKeepExternalFillets = m_allowExternalFilletsOpt->GetValue();
+    m_BrdSettings->m_MinResolvedSpokes = m_minResolvedSpokeCountCtrl->GetValue();
 
     m_BrdSettings->m_MinClearance = m_minClearance.GetValue();
     m_BrdSettings->m_TrackMinWidth = m_trackMinWidth.GetValue();
     m_BrdSettings->m_ViasMinAnnularWidth = m_viaMinAnnulus.GetValue();
     m_BrdSettings->m_ViasMinSize = m_viaMinSize.GetValue();
     m_BrdSettings->m_HoleClearance = m_holeClearance.GetValue();
-    m_BrdSettings->SetCopperEdgeClearance( m_edgeClearance.GetValue() );
+    m_BrdSettings->m_CopperEdgeClearance = m_edgeClearance.GetValue();
 
     m_BrdSettings->m_MinThroughDrill = m_throughHoleMin.GetValue();
-    m_BrdSettings->SetMinHoleSeparation( m_holeToHoleMin.GetValue() );
+    m_BrdSettings->m_HoleToHoleMin = m_holeToHoleMin.GetValue();
 
     m_BrdSettings->m_MicroViasMinSize = m_uviaMinSize.GetValue();
     m_BrdSettings->m_MicroViasMinDrill = m_uviaMinDrill.GetValue();
 
     m_BrdSettings->m_SilkClearance = m_silkClearance.GetValue();
+    m_BrdSettings->m_MinSilkTextHeight = m_minTextHeight.GetValue();
+    m_BrdSettings->m_MinSilkTextThickness = m_minTextThickness.GetValue();
 
     return true;
 }
@@ -160,6 +172,7 @@ bool PANEL_SETUP_CONSTRAINTS::Show( bool aShow )
         // first then the icons will be blank unless they're set here.
         m_bitmapZoneFillOpt->SetBitmap( KiBitmap( BITMAPS::show_zone ) );
         m_filletBitmap->SetBitmap( KiBitmap( BITMAPS::zone_fillet ) );
+        m_spokeBitmap->SetBitmap( KiBitmap( BITMAPS::thermal_spokes ) );
         m_bitmapClearance->SetBitmap( KiBitmap( BITMAPS::ps_diff_pair_gap ) );
         m_bitmapMinTrackWidth->SetBitmap( KiBitmap( BITMAPS::width_track ) );
         m_bitmapMinViaAnnulus->SetBitmap( KiBitmap( BITMAPS::via_annulus ) );

@@ -33,6 +33,7 @@
 #include <drc/drc_rule.h>
 #include <drc/drc_rule_condition.h>
 #include <drc/drc_test_provider.h>
+#include <drc/drc_item.h>
 #include <footprint.h>
 #include <pad.h>
 #include <pcb_track.h>
@@ -40,7 +41,12 @@
 #include <geometry/shape.h>
 #include <geometry/shape_segment.h>
 #include <geometry/shape_null.h>
-#include <convert_basic_shapes_to_polygon.h>
+
+
+// wxListBox's performance degrades horrifically with very large datasets.  It's not clear
+// they're useful to the user anyway.
+#define ERROR_LIMIT_MAX 199
+
 
 void drcPrintDebugMessage( int level, const wxString& msg, const char *function, int line )
 {
@@ -73,7 +79,7 @@ DRC_ENGINE::DRC_ENGINE( BOARD* aBoard, BOARD_DESIGN_SETTINGS *aSettings ) :
     m_errorLimits.resize( DRCE_LAST + 1 );
 
     for( int ii = DRCE_FIRST; ii <= DRCE_LAST; ++ii )
-        m_errorLimits[ ii ] = INT_MAX;
+        m_errorLimits[ ii ] = ERROR_LIMIT_MAX;
 }
 
 
@@ -172,11 +178,26 @@ void DRC_ENGINE::loadImplicitRules()
     diffPairGapConstraint.Value().SetMin( bds.m_MinClearance );
     rule->AddConstraint( diffPairGapConstraint );
 
+    rule = createImplicitRule( _( "default" ) );
+
+    DRC_CONSTRAINT thermalSpokeCountConstraint( MIN_RESOLVED_SPOKES_CONSTRAINT );
+    thermalSpokeCountConstraint.Value().SetMin( bds.m_MinResolvedSpokes );
+    rule->AddConstraint( thermalSpokeCountConstraint );
+
     rule = createImplicitRule( _( "board setup constraints silk" ) );
     rule->m_LayerCondition = LSET( 2, F_SilkS, B_SilkS );
+
     DRC_CONSTRAINT silkClearanceConstraint( SILK_CLEARANCE_CONSTRAINT );
     silkClearanceConstraint.Value().SetMin( bds.m_SilkClearance );
     rule->AddConstraint( silkClearanceConstraint );
+
+    DRC_CONSTRAINT silkTextHeightConstraint( TEXT_HEIGHT_CONSTRAINT );
+    silkTextHeightConstraint.Value().SetMin( bds.m_MinSilkTextHeight );
+    rule->AddConstraint( silkTextHeightConstraint );
+
+    DRC_CONSTRAINT silkTextThicknessConstraint( TEXT_THICKNESS_CONSTRAINT );
+    silkTextThicknessConstraint.Value().SetMin( bds.m_MinSilkTextThickness );
+    rule->AddConstraint( silkTextThicknessConstraint );
 
     rule = createImplicitRule( _( "board setup constraints hole" ) );
     DRC_CONSTRAINT holeClearanceConstraint( HOLE_CLEARANCE_CONSTRAINT );
@@ -460,68 +481,6 @@ void DRC_ENGINE::loadImplicitRules()
 }
 
 
-static wxString formatConstraint( const DRC_CONSTRAINT& constraint )
-{
-    struct FORMATTER
-    {
-        DRC_CONSTRAINT_T type;
-        wxString         name;
-        std::function<wxString(const DRC_CONSTRAINT&)> formatter;
-    };
-
-    auto formatMinMax =
-            []( const DRC_CONSTRAINT& c ) -> wxString
-            {
-                wxString str;
-                const auto value = c.GetValue();
-
-                if ( value.HasMin() )
-                    str += wxString::Format( " min: %d", value.Min() );
-
-                if ( value.HasOpt() )
-                    str += wxString::Format( " opt: %d", value.Opt() );
-
-                if ( value.HasMax() )
-                    str += wxString::Format( " max: %d", value.Max() );
-
-                return str;
-            };
-
-    std::vector<FORMATTER> formats =
-    {
-        { CLEARANCE_CONSTRAINT,           "clearance",           formatMinMax },
-        { HOLE_CLEARANCE_CONSTRAINT,      "hole_clearance",      formatMinMax },
-        { HOLE_TO_HOLE_CONSTRAINT,        "hole_to_hole",        formatMinMax },
-        { EDGE_CLEARANCE_CONSTRAINT,      "edge_clearance",      formatMinMax },
-        { HOLE_SIZE_CONSTRAINT,           "hole_size",           formatMinMax },
-        { COURTYARD_CLEARANCE_CONSTRAINT, "courtyard_clearance", formatMinMax },
-        { SILK_CLEARANCE_CONSTRAINT,      "silk_clearance",      formatMinMax },
-        { TRACK_WIDTH_CONSTRAINT,         "track_width",         formatMinMax },
-        { ANNULAR_WIDTH_CONSTRAINT,       "annular_width",       formatMinMax },
-        { DISALLOW_CONSTRAINT,            "disallow",            nullptr },
-        { VIA_DIAMETER_CONSTRAINT,        "via_diameter",        formatMinMax },
-        { LENGTH_CONSTRAINT,              "length",              formatMinMax },
-        { SKEW_CONSTRAINT,                "skew",                formatMinMax },
-        { VIA_COUNT_CONSTRAINT,           "via_count",           formatMinMax }
-    };
-
-    for( FORMATTER& fmt : formats )
-    {
-        if( fmt.type == constraint.m_Type )
-        {
-            wxString rv = fmt.name + " ";
-
-            if( fmt.formatter )
-                rv += fmt.formatter( constraint );
-
-            return rv;
-        }
-    }
-
-    return "?";
-}
-
-
 void DRC_ENGINE::loadRules( const wxFileName& aPath )
 {
     if( aPath.FileExists() )
@@ -547,72 +506,30 @@ void DRC_ENGINE::loadRules( const wxFileName& aPath )
 
 void DRC_ENGINE::compileRules()
 {
-    ReportAux( wxString::Format( "Compiling Rules (%d rules): ",
-                                 (int) m_rules.size() ) );
+    ReportAux( wxString::Format( "Compiling Rules (%d rules): ", (int) m_rules.size() ) );
 
-    for( DRC_TEST_PROVIDER* provider : m_testProviders )
+    for( DRC_RULE* rule : m_rules )
     {
-        ReportAux( wxString::Format( "- Provider: '%s': ", provider->GetName() ) );
-        drc_dbg( 7, "do prov %s", provider->GetName() );
+        DRC_RULE_CONDITION* condition = nullptr;
 
-        for( DRC_CONSTRAINT_T id : provider->GetConstraintTypes() )
+        if( rule->m_Condition && !rule->m_Condition->GetExpression().IsEmpty() )
         {
-            drc_dbg( 7, "do id %d", id );
+            condition = rule->m_Condition;
+            condition->Compile( nullptr );
+        }
 
-            if( m_constraintMap.find( id ) == m_constraintMap.end() )
-                m_constraintMap[ id ] = new std::vector<DRC_ENGINE_CONSTRAINT*>();
+        for( const DRC_CONSTRAINT& constraint : rule->m_Constraints )
+        {
+            if( !m_constraintMap.count( constraint.m_Type ) )
+                m_constraintMap[ constraint.m_Type ] = new std::vector<DRC_ENGINE_CONSTRAINT*>();
 
-            for( DRC_RULE* rule : m_rules )
-            {
-                DRC_RULE_CONDITION* condition = nullptr;
-                bool compileOk = false;
-                std::vector<DRC_CONSTRAINT> matchingConstraints;
-                drc_dbg( 7, "Scan provider %s, rule %s",  provider->GetName(), rule->m_Name );
+            DRC_ENGINE_CONSTRAINT* engineConstraint = new DRC_ENGINE_CONSTRAINT;
 
-                if( rule->m_Condition && !rule->m_Condition->GetExpression().IsEmpty() )
-                {
-                    condition = rule->m_Condition;
-                    compileOk = condition->Compile( nullptr, 0, 0 ); // fixme
-                }
-
-                for( const DRC_CONSTRAINT& constraint : rule->m_Constraints )
-                {
-                    drc_dbg(7, "scan constraint id %d\n", constraint.m_Type );
-
-                    if( constraint.m_Type != id )
-                        continue;
-
-                    DRC_ENGINE_CONSTRAINT* rcons = new DRC_ENGINE_CONSTRAINT;
-
-                    rcons->layerTest = rule->m_LayerCondition;
-                    rcons->condition = condition;
-
-                    matchingConstraints.push_back( constraint );
-
-                    rcons->constraint = constraint;
-                    rcons->parentRule = rule;
-                    m_constraintMap[ id ]->push_back( rcons );
-                }
-
-                if( !matchingConstraints.empty() )
-                {
-                    ReportAux( wxString::Format( "   |- Rule: '%s' ",
-                                                 rule->m_Name ) );
-
-                    if( condition )
-                    {
-                        ReportAux( wxString::Format( "       |- condition: '%s' compile: %s",
-                                                     condition->GetExpression(),
-                                                     compileOk ? "OK" : "ERROR" ) );
-                    }
-
-                    for (const DRC_CONSTRAINT& constraint : matchingConstraints )
-                    {
-                        ReportAux( wxString::Format( "       |- constraint: %s",
-                                                     formatConstraint( constraint ) ) );
-                    }
-                }
-            }
+            engineConstraint->layerTest = rule->m_LayerCondition;
+            engineConstraint->condition = condition;
+            engineConstraint->constraint = constraint;
+            engineConstraint->parentRule = rule;
+            m_constraintMap[ constraint.m_Type ]->push_back( engineConstraint );
         }
     }
 }
@@ -668,7 +585,7 @@ void DRC_ENGINE::InitEngine( const wxFileName& aRulePath )
     }
 
     for( int ii = DRCE_FIRST; ii < DRCE_LAST; ++ii )
-        m_errorLimits[ ii ] = INT_MAX;
+        m_errorLimits[ ii ] = ERROR_LIMIT_MAX;
 
     m_rulesValid = true;
 }
@@ -686,7 +603,7 @@ void DRC_ENGINE::RunTests( EDA_UNITS aUnits, bool aReportAllTrackErrors, bool aT
         if( m_designSettings->Ignore( ii ) )
             m_errorLimits[ ii ] = 0;
         else
-            m_errorLimits[ ii ] = INT_MAX;
+            m_errorLimits[ ii ] = ERROR_LIMIT_MAX;
     }
 
     m_board->IncrementTimeStamp();      // Invalidate all caches
@@ -703,7 +620,7 @@ void DRC_ENGINE::RunTests( EDA_UNITS aUnits, bool aReportAllTrackErrors, bool aT
         zone->CacheBoundingBox();
         zone->CacheTriangulation();
 
-        if( !zone->GetIsRuleArea() )
+        if( ( zone->GetLayerSet() & LSET::AllCuMask() ).any() && !zone->GetIsRuleArea() )
             copperZones.push_back( zone );
     }
 
@@ -714,7 +631,7 @@ void DRC_ENGINE::RunTests( EDA_UNITS aUnits, bool aReportAllTrackErrors, bool aT
             zone->CacheBoundingBox();
             zone->CacheTriangulation();
 
-            if( !zone->GetIsRuleArea() )
+            if( ( zone->GetLayerSet() & LSET::AllCuMask() ).any() && !zone->GetIsRuleArea() )
                 copperZones.push_back( zone );
         }
 
@@ -744,11 +661,6 @@ void DRC_ENGINE::RunTests( EDA_UNITS aUnits, bool aReportAllTrackErrors, bool aT
 
     for( DRC_TEST_PROVIDER* provider : m_testProviders )
     {
-        if( !provider->IsEnabled() )
-            continue;
-
-        drc_dbg( 0, "Running test provider: '%s'\n", provider->GetName() );
-
         ReportAux( wxString::Format( "Run DRC provider: '%s'", provider->GetName() ) );
 
         if( !provider->Run() )
@@ -757,13 +669,48 @@ void DRC_ENGINE::RunTests( EDA_UNITS aUnits, bool aReportAllTrackErrors, bool aT
 }
 
 
+#define REPORT( s ) { if( aReporter ) { aReporter->Report( s ); } }
+#define UNITS aReporter ? aReporter->GetUnits() : EDA_UNITS::MILLIMETRES
+#define REPORT_VALUE( v ) MessageTextFromValue( UNITS, v )
+
+DRC_CONSTRAINT DRC_ENGINE::EvalZoneConnection( const BOARD_ITEM* a, const BOARD_ITEM* b,
+                                               PCB_LAYER_ID aLayer, REPORTER* aReporter )
+{
+    DRC_CONSTRAINT constraint = EvalRules( ZONE_CONNECTION_CONSTRAINT, a, b, aLayer, aReporter );
+
+    REPORT( "" )
+    REPORT( wxString::Format( _( "Resolved zone connection type: %s." ),
+                              EscapeHTML( PrintZoneConnection( constraint.m_ZoneConnection ) ) ) )
+
+    if( constraint.m_ZoneConnection == ZONE_CONNECTION::THT_THERMAL )
+    {
+        const PAD* pad = nullptr;
+
+        if( a->Type() == PCB_PAD_T )
+            pad = static_cast<const PAD*>( a );
+        else if( b->Type() == PCB_PAD_T )
+            pad = static_cast<const PAD*>( b );
+
+        if( pad && pad->GetAttribute() == PAD_ATTRIB::PTH )
+        {
+            constraint.m_ZoneConnection = ZONE_CONNECTION::THERMAL;
+        }
+        else
+        {
+            REPORT( wxString::Format( _( "Pad is not a through hole pad; connection will be: %s." ),
+                                      EscapeHTML( PrintZoneConnection( ZONE_CONNECTION::FULL ) ) ) )
+            constraint.m_ZoneConnection = ZONE_CONNECTION::FULL;
+        }
+    }
+
+    return constraint;
+}
+
+
 DRC_CONSTRAINT DRC_ENGINE::EvalRules( DRC_CONSTRAINT_T aConstraintType, const BOARD_ITEM* a,
                                       const BOARD_ITEM* b, PCB_LAYER_ID aLayer,
                                       REPORTER* aReporter )
 {
-#define REPORT( s ) { if( aReporter ) { aReporter->Report( s ); } }
-#define UNITS aReporter ? aReporter->GetUnits() : EDA_UNITS::MILLIMETRES
-#define REPORT_VALUE( v ) MessageTextFromValue( UNITS, v )
     /*
      * NOTE: all string manipulation MUST BE KEPT INSIDE the REPORT macro.  It absolutely
      * kills performance when running bulk DRC tests (where aReporter is nullptr).
@@ -776,6 +723,24 @@ DRC_CONSTRAINT DRC_ENGINE::EvalRules( DRC_CONSTRAINT_T aConstraintType, const BO
 
     bool a_is_non_copper = a && ( !a->IsOnCopperLayer() || isKeepoutZone( a, false ) );
     bool b_is_non_copper = b && ( !b->IsOnCopperLayer() || isKeepoutZone( b, false ) );
+
+    const PAD*  pad  = nullptr;
+    const ZONE* zone = nullptr;
+
+    if( aConstraintType == ZONE_CONNECTION_CONSTRAINT
+     || aConstraintType == THERMAL_RELIEF_GAP_CONSTRAINT
+     || aConstraintType == THERMAL_SPOKE_WIDTH_CONSTRAINT )
+    {
+        if( a && a->Type() == PCB_PAD_T )
+            pad = static_cast<const PAD*>( a );
+        else if( a && ( a->Type() == PCB_ZONE_T || a->Type() == PCB_FP_ZONE_T ) )
+            zone = static_cast<const ZONE*>( a );
+
+        if( b && b->Type() == PCB_PAD_T )
+            pad = static_cast<const PAD*>( b );
+        else if( b && ( b->Type() == PCB_ZONE_T || b->Type() == PCB_FP_ZONE_T ) )
+            zone = static_cast<const ZONE*>( b );
+    }
 
     DRC_CONSTRAINT constraint;
     constraint.m_Type = aConstraintType;
@@ -848,6 +813,76 @@ DRC_CONSTRAINT DRC_ENGINE::EvalRules( DRC_CONSTRAINT_T aConstraintType, const BO
             return constraint;
         }
     }
+    else if( aConstraintType == ZONE_CONNECTION_CONSTRAINT )
+    {
+        if( pad && pad->GetLocalZoneConnectionOverride( nullptr ) != ZONE_CONNECTION::INHERITED )
+        {
+            ZONE_CONNECTION override = pad->GetLocalZoneConnectionOverride( &m_msg );
+
+            REPORT( "" )
+            REPORT( wxString::Format( _( "Local override on %s; zone connection: %s." ),
+                                      EscapeHTML( pad->GetSelectMenuText( UNITS ) ),
+                                      EscapeHTML( PrintZoneConnection( override ) ) ) )
+
+            constraint.SetName( m_msg );
+            constraint.m_ZoneConnection = override;
+            return constraint;
+        }
+    }
+    else if( aConstraintType == THERMAL_RELIEF_GAP_CONSTRAINT )
+    {
+        if( pad && pad->GetLocalThermalGapOverride( nullptr ) > 0 )
+        {
+            int override = pad->GetLocalThermalGapOverride( &m_msg );
+
+            REPORT( "" )
+            REPORT( wxString::Format( _( "Local override on %s; thermal relief gap: %s." ),
+                                      EscapeHTML( pad->GetSelectMenuText( UNITS ) ),
+                                      EscapeHTML( REPORT_VALUE( override ) ) ) )
+
+            constraint.SetName( m_msg );
+            constraint.m_Value.SetMin( override );
+            return constraint;
+        }
+    }
+    else if( aConstraintType == THERMAL_SPOKE_WIDTH_CONSTRAINT )
+    {
+        if( pad && pad->GetLocalSpokeWidthOverride( nullptr ) > 0 )
+        {
+            int override = pad->GetLocalSpokeWidthOverride( &m_msg );
+
+            REPORT( "" )
+            REPORT( wxString::Format( _( "Local override on %s; thermal spoke width: %s." ),
+                                      EscapeHTML( pad->GetSelectMenuText( UNITS ) ),
+                                      EscapeHTML( REPORT_VALUE( override ) ) ) )
+
+            if( zone && zone->GetMinThickness() > override )
+            {
+                override = zone->GetMinThickness();
+
+                REPORT( "" )
+                REPORT( wxString::Format( _( "Zone %s min thickness: %s." ),
+                                          EscapeHTML( zone->GetSelectMenuText( UNITS ) ),
+                                          EscapeHTML( REPORT_VALUE( override ) ) ) )
+            }
+
+            constraint.SetName( m_msg );
+            constraint.m_Value.SetMin( override );
+            return constraint;
+        }
+    }
+
+    auto testAssertion =
+            [&]( const DRC_ENGINE_CONSTRAINT* c )
+            {
+                REPORT( wxString::Format( _( "Checking assertion \"%s\"." ),
+                                          EscapeHTML( c->constraint.m_Test->GetExpression() ) ) )
+
+                if( c->constraint.m_Test->EvaluateFor( a, b, aLayer, aReporter ) )
+                    REPORT( _( "Assertion passed." ) )
+                else
+                    REPORT( EscapeHTML( _( "--> Assertion failed. <--" ) ) )
+            };
 
     auto processConstraint =
             [&]( const DRC_ENGINE_CONSTRAINT* c ) -> bool
@@ -874,6 +909,8 @@ DRC_CONSTRAINT DRC_ENGINE::EvalRules( DRC_CONSTRAINT_T aConstraintType, const BO
                 case TRACK_WIDTH_CONSTRAINT:
                 case ANNULAR_WIDTH_CONSTRAINT:
                 case VIA_DIAMETER_CONSTRAINT:
+                case TEXT_HEIGHT_CONSTRAINT:
+                case TEXT_THICKNESS_CONSTRAINT:
                 {
                     if( aReporter )
                     {
@@ -1003,8 +1040,7 @@ DRC_CONSTRAINT DRC_ENGINE::EvalRules( DRC_CONSTRAINT_T aConstraintType, const BO
                         }
                         else if( c->parentRule )
                         {
-                            REPORT( wxString::Format( _( "Rule layer '%s' not matched; rule "
-                                                         "ignored." ),
+                            REPORT( wxString::Format( _( "Rule layer '%s' not matched; rule ignored." ),
                                                       EscapeHTML( c->parentRule->m_LayerSource ) ) )
                         }
                         else
@@ -1037,8 +1073,22 @@ DRC_CONSTRAINT DRC_ENGINE::EvalRules( DRC_CONSTRAINT_T aConstraintType, const BO
 
                 if( !c->condition || c->condition->GetExpression().IsEmpty() )
                 {
-                    REPORT( implicit ? _( "Unconditional constraint applied." )
-                                     : _( "Unconditional rule applied." ) );
+                    if( aReporter )
+                    {
+                        if( implicit )
+                        {
+                            REPORT( _( "Unconditional constraint applied." ) )
+                        }
+                        else if( constraint.m_Type == ASSERTION_CONSTRAINT )
+                        {
+                            REPORT( _( "Unconditional rule applied." ) )
+                            testAssertion( c );
+                        }
+                        else
+                        {
+                            REPORT( _( "Unconditional rule applied; overrides previous constraints." ) )
+                        }
+                    }
 
                     constraint = c->constraint;
                     return true;
@@ -1057,8 +1107,22 @@ DRC_CONSTRAINT DRC_ENGINE::EvalRules( DRC_CONSTRAINT_T aConstraintType, const BO
 
                     if( c->condition->EvaluateFor( a, b, aLayer, aReporter ) )
                     {
-                        REPORT( implicit ? _( "Constraint applied." )
-                                         : _( "Rule applied; overrides previous constraints." ) )
+                        if( aReporter )
+                        {
+                            if( implicit )
+                            {
+                                REPORT( _( "Constraint applied." ) )
+                            }
+                            else if( constraint.m_Type == ASSERTION_CONSTRAINT )
+                            {
+                                REPORT( _( "Rule applied." ) )
+                                testAssertion( c );
+                            }
+                            else
+                            {
+                                REPORT( _( "Rule applied; overrides previous constraints." ) )
+                            }
+                        }
 
                         if( c->constraint.m_Value.HasMin() )
                             constraint.m_Value.SetMin( c->constraint.m_Value.Min() );
@@ -1073,6 +1137,8 @@ DRC_CONSTRAINT DRC_ENGINE::EvalRules( DRC_CONSTRAINT_T aConstraintType, const BO
                         // masked them down to aItem's type -- so we're really only looking for a
                         // boolean here.
                         constraint.m_DisallowFlags = c->constraint.m_DisallowFlags;
+
+                        constraint.m_ZoneConnection = c->constraint.m_ZoneConnection;
 
                         constraint.SetParentRule( c->constraint.GetParentRule() );
 
@@ -1138,6 +1204,72 @@ DRC_CONSTRAINT DRC_ENGINE::EvalRules( DRC_CONSTRAINT_T aConstraintType, const BO
             return constraint;
         }
     }
+    else if( aConstraintType == ZONE_CONNECTION_CONSTRAINT )
+    {
+        if( pad && pad->GetParent() )
+        {
+            FOOTPRINT*      footprint = static_cast<FOOTPRINT*>( pad->GetParent() );
+            ZONE_CONNECTION local = footprint->GetZoneConnection();
+
+            if( local != ZONE_CONNECTION::INHERITED )
+            {
+                REPORT( "" )
+                REPORT( wxString::Format( _( "Footprint %s zone connection: %s." ),
+                                          EscapeHTML( footprint->GetSelectMenuText( UNITS ) ),
+                                          EscapeHTML( PrintZoneConnection( local ) ) ) )
+
+                constraint.SetName( _( "footprint" ) );
+                constraint.m_ZoneConnection = local;
+                return constraint;
+            }
+        }
+
+        if( zone )
+        {
+            ZONE_CONNECTION local = zone->GetPadConnection();
+
+            REPORT( "" )
+            REPORT( wxString::Format( _( "Zone %s pad connection: %s." ),
+                                      EscapeHTML( zone->GetSelectMenuText( UNITS ) ),
+                                      EscapeHTML( PrintZoneConnection( local ) ) ) )
+
+            constraint.SetName( _( "zone" ) );
+            constraint.m_ZoneConnection = local;
+            return constraint;
+        }
+    }
+    else if( aConstraintType == THERMAL_RELIEF_GAP_CONSTRAINT )
+    {
+        if( zone )
+        {
+            int local = zone->GetThermalReliefSpokeWidth();
+
+            REPORT( "" )
+            REPORT( wxString::Format( _( "Zone %s thermal relief gap: %s." ),
+                                      EscapeHTML( zone->GetSelectMenuText( UNITS ) ),
+                                      EscapeHTML( REPORT_VALUE( local ) ) ) )
+
+            constraint.SetName( _( "zone" ) );
+            constraint.m_Value.SetMin( local );
+            return constraint;
+        }
+    }
+    else if( aConstraintType == THERMAL_SPOKE_WIDTH_CONSTRAINT )
+    {
+        if( zone )
+        {
+            int local = zone->GetThermalReliefSpokeWidth();
+
+            REPORT( "" )
+            REPORT( wxString::Format( _( "Zone %s thermal spoke width: %s." ),
+                                      EscapeHTML( zone->GetSelectMenuText( UNITS ) ),
+                                      EscapeHTML( REPORT_VALUE( local ) ) ) )
+
+            constraint.SetName( _( "zone" ) );
+            constraint.m_Value.SetMin( local );
+            return constraint;
+        }
+    }
 
     if( !constraint.GetParentRule() )
     {
@@ -1146,11 +1278,82 @@ DRC_CONSTRAINT DRC_ENGINE::EvalRules( DRC_CONSTRAINT_T aConstraintType, const BO
     }
 
     return constraint;
+}
+
+
+void DRC_ENGINE::ProcessAssertions( const BOARD_ITEM* a,
+                                    std::function<void( const DRC_CONSTRAINT* )> aFailureHandler,
+                                    REPORTER* aReporter )
+{
+    /*
+     * NOTE: all string manipulation MUST BE KEPT INSIDE the REPORT macro.  It absolutely
+     * kills performance when running bulk DRC tests (where aReporter is nullptr).
+     */
+
+    auto testAssertion =
+            [&]( const DRC_ENGINE_CONSTRAINT* c )
+            {
+                REPORT( wxString::Format( _( "Checking rule assertion \"%s\"." ),
+                                          EscapeHTML( c->constraint.m_Test->GetExpression() ) ) )
+
+                if( c->constraint.m_Test->EvaluateFor( a, nullptr, a->GetLayer(), aReporter ) )
+                {
+                    REPORT( _( "Assertion passed." ) )
+                }
+                else
+                {
+                    REPORT( EscapeHTML( _( "--> Assertion failed. <--" ) ) )
+                    aFailureHandler( &c->constraint );
+                }
+            };
+
+    auto processConstraint =
+            [&]( const DRC_ENGINE_CONSTRAINT* c )
+            {
+                REPORT( "" )
+                REPORT( wxString::Format( _( "Checking %s." ), c->constraint.GetName() ) )
+
+                if( !( a->GetLayerSet() & c->layerTest ).any() )
+                {
+                    REPORT( wxString::Format( _( "Rule layer '%s' not matched; rule ignored." ),
+                                              EscapeHTML( c->parentRule->m_LayerSource ) ) )
+                }
+
+                if( !c->condition || c->condition->GetExpression().IsEmpty() )
+                {
+                    REPORT( _( "Unconditional rule applied." ) )
+                    testAssertion( c );
+                }
+                else
+                {
+                    REPORT( wxString::Format( _( "Checking rule condition \"%s\"." ),
+                                              EscapeHTML( c->condition->GetExpression() ) ) )
+
+                    if( c->condition->EvaluateFor( a, nullptr, a->GetLayer(), aReporter ) )
+                    {
+                        REPORT( _( "Rule applied." ) )
+                        testAssertion( c );
+                    }
+                    else
+                    {
+                        REPORT( _( "Condition not satisfied; rule ignored." ) )
+                    }
+                }
+            };
+
+    if( m_constraintMap.count( ASSERTION_CONSTRAINT ) )
+    {
+        std::vector<DRC_ENGINE_CONSTRAINT*>* ruleset = m_constraintMap[ ASSERTION_CONSTRAINT ];
+
+        for( int ii = 0; ii < (int) ruleset->size(); ++ii )
+            processConstraint( ruleset->at( ii ) );
+    }
+}
+
 
 #undef REPORT
 #undef UNITS
 #undef REPORT_VALUE
-}
 
 
 bool DRC_ENGINE::IsErrorLimitExceeded( int error_code )

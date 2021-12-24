@@ -67,8 +67,7 @@ PCBNEW_SETTINGS::PCBNEW_SETTINGS()
           m_FootprintWizard(),
           m_Display(),
           m_TrackDragAction( TRACK_DRAG_ACTION::DRAG ),
-          m_PcbUse45DegreeLimit( false ),
-          m_FpeditUse45DegreeLimit( false ),
+          m_Use45DegreeLimit( false ),
           m_FlipLeftRight( false ),
           m_PolarCoords( false ),
           m_RotationAngle( 900 ),
@@ -125,10 +124,7 @@ PCBNEW_SETTINGS::PCBNEW_SETTINGS()
             static_cast<int>( TRACK_DRAG_ACTION::DRAG ) ) );
 
     m_params.emplace_back( new PARAM<bool>( "editing.pcb_use_45_degree_limit",
-            &m_PcbUse45DegreeLimit, false ) );
-
-    m_params.emplace_back( new PARAM<bool>( "editing.fp_use_45_degree_limit",
-            &m_FpeditUse45DegreeLimit, false ) );
+            &m_Use45DegreeLimit, false ) );
 
     m_params.emplace_back( new PARAM<bool>( "editing.auto_fill_zones",
             &m_AutoRefillZones, true ) );
@@ -177,7 +173,7 @@ PCBNEW_SETTINGS::PCBNEW_SETTINGS()
 
     m_params.emplace_back( new PARAM<int>( "pcb_display.track_clearance_mode",
             reinterpret_cast<int*>( &m_Display.m_ShowTrackClearanceMode ),
-            PCB_DISPLAY_OPTIONS::SHOW_TRACK_CLEARANCE_WITH_VIA_WHILE_ROUTING ) );
+            SHOW_TRACK_CLEARANCE_WITH_VIA_WHILE_ROUTING ) );
 
     m_params.emplace_back( new PARAM<bool>( "pcb_display.track_fill",
             &m_Display.m_DisplayPcbTrackFill, true ) );
@@ -411,6 +407,9 @@ PCBNEW_SETTINGS::PCBNEW_SETTINGS()
 
     m_params.emplace_back( new PARAM<int>( "plot.all_layers_on_one_page",
             &m_Plot.all_layers_on_one_page, 1 ) );
+
+    m_params.emplace_back( new PARAM<bool>( "plot.edgecut_on_all_layers",
+            &m_Plot.edgecut_on_all_layers, true ) );
 
     m_params.emplace_back( new PARAM<int>( "plot.pads_drill_mode",
             &m_Plot.pads_drill_mode, 2 ) );

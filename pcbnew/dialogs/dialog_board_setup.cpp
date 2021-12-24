@@ -58,6 +58,7 @@ DIALOG_BOARD_SETUP::DIALOG_BOARD_SETUP( PCB_EDIT_FRAME* aFrame ) :
 
     m_layers = new PANEL_SETUP_LAYERS( this, aFrame );
     m_textAndGraphics = new PANEL_SETUP_TEXT_AND_GRAPHICS( this, aFrame );
+    m_formatting = new PANEL_SETUP_FORMATTING( this, aFrame );
     m_constraints = new PANEL_SETUP_CONSTRAINTS( this, aFrame );
     m_rules = new PANEL_SETUP_RULES( this, aFrame );
     m_tracksAndVias = new PANEL_SETUP_TRACKS_AND_VIAS( this, aFrame, m_constraints );
@@ -68,7 +69,7 @@ DIALOG_BOARD_SETUP::DIALOG_BOARD_SETUP( PCB_EDIT_FRAME* aFrame ) :
     m_severities = new PANEL_SETUP_SEVERITIES( this, DRC_ITEM::GetItemsWithSeverities(),
                                                bds.m_DRCSeverities );
 
-    m_netclasses = new PANEL_SETUP_NETCLASSES( this, &bds.GetNetClasses(),
+    m_netclasses = new PANEL_SETUP_NETCLASSES( this, aFrame, &bds.GetNetClasses(),
                                                board->GetNetClassAssignmentCandidates(), false );
 
     m_textVars = new PANEL_TEXT_VARIABLES( m_treebook, &Prj() );
@@ -99,6 +100,7 @@ DIALOG_BOARD_SETUP::DIALOG_BOARD_SETUP( PCB_EDIT_FRAME* aFrame ) :
 
     m_treebook->AddPage( new wxPanel( this ),  _( "Text & Graphics" ) );
     m_treebook->AddSubPage( m_textAndGraphics,  _( "Defaults" ) );
+    m_treebook->AddSubPage( m_formatting, _( "Fomatting" ) );
     m_treebook->AddSubPage( m_textVars, _( "Text Variables" ) );
 
     m_treebook->AddPage( new wxPanel( this ),  _( "Design Rules" ) );
@@ -109,7 +111,10 @@ DIALOG_BOARD_SETUP::DIALOG_BOARD_SETUP( PCB_EDIT_FRAME* aFrame ) :
     m_treebook->AddSubPage( m_severities, _( "Violation Severity" ) );
 
     for( size_t i = 0; i < m_treebook->GetPageCount(); ++i )
+    {
+        m_treebook->ExpandNode( i );
    	    m_macHack.push_back( true );
+    }
 
     m_treebook->SetMinSize( wxSize( -1, 480 ) );
 
@@ -251,10 +256,14 @@ void DIALOG_BOARD_SETUP::OnAuxiliaryAction( wxCommandEvent& event )
         {
             m_layers->ImportSettingsFrom( otherBoard );
             m_physicalStackup->ImportSettingsFrom( otherBoard );
+            m_boardFinish->ImportSettingsFrom( otherBoard );
         }
 
         if( importDlg.m_TextAndGraphicsOpt->GetValue() )
             m_textAndGraphics->ImportSettingsFrom( otherBoard );
+
+        if( importDlg.m_FormattingOpt->GetValue() )
+            m_formatting->ImportSettingsFrom( otherBoard );
 
         if( importDlg.m_ConstraintsOpt->GetValue() )
             m_constraints->ImportSettingsFrom( otherBoard );

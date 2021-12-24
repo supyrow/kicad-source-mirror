@@ -175,7 +175,7 @@ public:
     ///< @copydoc PCB_BASE_FRAME::SetBoard()
     virtual void SetBoard( BOARD* aBoard, PROGRESS_REPORTER* aReporter = nullptr ) override;
 
-    COLOR_SETTINGS* GetColorSettings() const override;
+    COLOR_SETTINGS* GetColorSettings( bool aForceRefresh = false ) const override;
 
     /* full undo redo management : */
 
@@ -205,11 +205,6 @@ public:
     wxString GetDesignRulesPath();
 
     APPEARANCE_CONTROLS* GetAppearancePanel() { return m_appearancePanel; }
-
-    /**
-     * Notify the frame that the layer Alpha is being changed
-     */
-    virtual void OnLayerAlphaChanged();
 
 protected:
     /**

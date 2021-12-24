@@ -52,7 +52,9 @@ public:
     enum TYPEMARKER {
         MARKER_UNSPEC,
         MARKER_ERC,
-        MARKER_PCB,
+        MARKER_DRC,
+        MARKER_RATSNEST,
+        MARKER_PARITY,
         MARKER_SIMUL
     };
 
@@ -64,6 +66,7 @@ public:
      * The scaling factor to convert polygonal shape coordinates to internal units.
      */
     int MarkerScale() const { return m_scalingFactor; }
+    void SetMarkerScale( int aScale ) { m_scalingFactor = aScale; }
 
     /**
      * Return the shape polygon in internal units in a #SHAPE_LINE_CHAIN the coordinates
@@ -93,6 +96,8 @@ public:
 
     bool IsExcluded() const { return m_excluded; }
     void SetExcluded( bool aExcluded ) { m_excluded = aExcluded; }
+
+    virtual SEVERITY GetSeverity() const { return RPT_SEVERITY_UNDEFINED; }
 
     /**
      * @return the #RC_ITEM held within this marker so that its interface may be used.

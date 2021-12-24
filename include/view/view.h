@@ -143,6 +143,11 @@ public:
     bool IsVisible( const VIEW_ITEM* aItem ) const;
 
     /**
+     * Indicates whether or not the given item has been added to the view.
+     */
+    bool HasItem( const VIEW_ITEM* aItem ) const;
+
+    /**
      * For dynamic VIEWs, inform the associated VIEW that the graphical representation of
      * this item has changed. For static views calling has no effect.
      *
@@ -446,6 +451,9 @@ public:
         }
     }
 
+    /**
+     * Set a layer display-only (ie: to be rendered but not returned by hit test queries).
+     */
     inline void SetLayerDisplayOnly( int aLayer, bool aDisplayOnly = true )
     {
         wxCHECK( aLayer < (int) m_layers.size(), /*void*/ );

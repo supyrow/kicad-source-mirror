@@ -141,8 +141,6 @@ SYMBOL_VIEWER_FRAME::SYMBOL_VIEWER_FRAME( KIWAY* aKiway, wxWindow* aParent, FRAM
     GetRenderSettings()->LoadColors( GetColorSettings() );
     GetCanvas()->GetGAL()->SetAxesColor( m_colorSettings->GetColor( LAYER_SCHEMATIC_GRID_AXES ) );
 
-    GetRenderSettings()->m_ShowHiddenText = true;
-    GetRenderSettings()->m_ShowHiddenPins = true;
     GetRenderSettings()->SetDefaultPenWidth( DEFAULT_LINE_WIDTH_MILS * IU_PER_MILS );
 
     setupTools();
@@ -740,8 +738,12 @@ void SYMBOL_VIEWER_FRAME::CommonSettingsChanged( bool aEnvVarsChanged, bool aTex
 {
     SCH_BASE_FRAME::CommonSettingsChanged( aEnvVarsChanged, aTextVarsChanged );
 
+    auto cfg = Pgm().GetSettingsManager().GetAppSettings<EESCHEMA_SETTINGS>();
+    GetGalDisplayOptions().ReadWindowSettings( cfg->m_LibViewPanel.window );
+
     GetCanvas()->GetGAL()->SetAxesColor( m_colorSettings->GetColor( LAYER_SCHEMATIC_GRID_AXES ) );
     GetCanvas()->GetGAL()->DrawGrid();
+    GetCanvas()->ForceRefresh();
 
     if( aEnvVarsChanged )
         ReCreateLibList();

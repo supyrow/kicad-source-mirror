@@ -409,6 +409,7 @@ void PCB_EDIT_FRAME::ReCreateVToolbar()
                                            { &PCB_ACTIONS::drawAlignedDimension,
                                              &PCB_ACTIONS::drawOrthogonalDimension,
                                              &PCB_ACTIONS::drawCenterDimension,
+                                             &PCB_ACTIONS::drawRadialDimension,
                                              &PCB_ACTIONS::drawLeader } );
     }
 
@@ -621,10 +622,7 @@ static wxString ComboBoxUnits( EDA_UNITS aUnits, double aValue, bool aIncludeLab
     text.Printf( format, To_User_Unit( aUnits, aValue ) );
 
     if( aIncludeLabel )
-    {
-        text += " ";
         text += GetAbbreviatedUnitsLabel( aUnits, EDA_DATA_TYPE::DISTANCE );
-    }
 
     return text;
 }

@@ -100,7 +100,6 @@ EDA_DRAW_FRAME::EDA_DRAW_FRAME( KIWAY* aKiway, wxWindow* aParent, FRAME_T aFrame
     m_currentScreen       = nullptr;
     m_showBorderAndTitleBlock = false;  // true to display reference sheet.
     m_gridColor           = COLOR4D( DARKGRAY );   // Default grid color
-    m_showPageLimits      = false;
     m_drawBgColor         = COLOR4D( BLACK );   // the background color of the draw canvas:
                                                 // BLACK for Pcbnew, BLACK or WHITE for Eeschema
     m_colorSettings       = nullptr;
@@ -267,11 +266,20 @@ void EDA_DRAW_FRAME::unitsChangeRefresh()
 
 void EDA_DRAW_FRAME::ToggleUserUnits()
 {
-    SetUserUnits( m_userUnits == EDA_UNITS::INCHES ? EDA_UNITS::MILLIMETRES : EDA_UNITS::INCHES );
-    unitsChangeRefresh();
+    if( m_toolManager->GetTool<COMMON_TOOLS>() )
+    {
+        TOOL_EVENT dummy;
+        m_toolManager->GetTool<COMMON_TOOLS>()->ToggleUnits( dummy );
+    }
+    else
+    {
+        SetUserUnits( m_userUnits == EDA_UNITS::INCHES ? EDA_UNITS::MILLIMETRES
+                                                       : EDA_UNITS::INCHES );
+        unitsChangeRefresh();
 
-    wxCommandEvent e( UNITS_CHANGED );
-    ProcessEventLocally( e );
+        wxCommandEvent e( UNITS_CHANGED );
+        ProcessEventLocally( e );
+    }
 }
 
 
@@ -282,11 +290,33 @@ void EDA_DRAW_FRAME::CommonSettingsChanged( bool aEnvVarsChanged, bool aTextVars
     COMMON_SETTINGS*      settings = Pgm().GetCommonSettings();
     KIGFX::VIEW_CONTROLS* viewControls = GetCanvas()->GetViewControls();
 
-    SetAutoSaveInterval( settings->m_System.autosave_interval );
+    if( m_supportsAutoSave && m_autoSaveTimer->IsRunning() )
+    {
+        if( GetAutoSaveInterval() > 0 )
+        {
+            m_autoSaveTimer->Start( GetAutoSaveInterval() * 1000, wxTIMER_ONE_SHOT );
+        }
+        else
+        {
+            m_autoSaveTimer->Stop();
+            m_autoSaveState = false;
+        }
+    }
 
     viewControls->LoadSettings();
 
     m_galDisplayOptions.ReadCommonConfig( *settings, this );
+
+#ifndef __WXMAC__
+    EDA_DRAW_PANEL_GAL::GAL_TYPE canvasType = EDA_DRAW_PANEL_GAL::GAL_TYPE_NONE;
+    APP_SETTINGS_BASE* cfg = Kiface().KifaceSettings();
+
+    if( cfg )
+        canvasType = static_cast<EDA_DRAW_PANEL_GAL::GAL_TYPE>( cfg->m_Graphics.canvas_type );
+
+    if( canvasType != GetCanvas()->GetBackend() )
+        GetCanvas()->SwitchBackend( canvasType );
+#endif
 
     // Notify all tools the preferences have changed
     if( m_toolManager )
@@ -1041,9 +1071,9 @@ void EDA_DRAW_FRAME::RecreateToolbars()
 }
 
 
-COLOR_SETTINGS* EDA_DRAW_FRAME::GetColorSettings() const
+COLOR_SETTINGS* EDA_DRAW_FRAME::GetColorSettings( bool aForceRefresh ) const
 {
-    if( !m_colorSettings )
+    if( !m_colorSettings || aForceRefresh )
     {
         COLOR_SETTINGS* colorSettings = Pgm().GetSettingsManager().GetColorSettings();
 

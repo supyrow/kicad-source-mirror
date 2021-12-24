@@ -40,7 +40,6 @@
 #include <eeschema_settings.h>
 #include <math/box2.h>
 #include <sch_base_frame.h>
-#include <sch_text.h> // enum PINSHEETLABEL_SHAPE
 #include <template_fieldnames.h>
 
 class STATUS_TEXT_POPUP;
@@ -783,11 +782,6 @@ public:
      * Generate the connection data for the entire schematic hierarchy.
      */
     void RecalculateConnections( SCH_CLEANUP_FLAGS aCleanupFlags );
-
-    /**
-     * Allow Eeschema to install its preferences panels into the preferences dialog.
-     */
-    void InstallPreferences( PAGED_DIALOG* aParent, PANEL_HOTKEYS_EDITOR* aHotkeysPanel ) override;
 
     /**
      * Called after the preferences dialog is run.

@@ -55,6 +55,9 @@
 #include <progress_reporter.h>
 
 
+constexpr double BOLD_FACTOR = 1.75;    // CSS font-weight-normal is 400; bold is 700
+
+
 void ParseAltiumPcb( BOARD* aBoard, const wxString& aFileName, PROGRESS_REPORTER* aProgressReporter,
                      const std::map<ALTIUM_PCB_DIR, std::string>& aFileMapping )
 {
@@ -561,7 +564,7 @@ void ALTIUM_PCB::Parse( const CFB::CompoundFileReader& aReader,
     // the dimension record.  (Yes, there is a REFERENCE0OBJECTID, but it doesn't point to the
     // dimensioned object.)  We attempt to plug this gap by finding a colocated arc or circle
     // and using its radius.  If there are more than one such arcs/circles, well, :shrug:.
-    for( PCB_DIMENSION_BASE* dim : m_radialDimensions )
+    for( PCB_DIM_RADIAL* dim : m_radialDimensions )
     {
         int radius = 0;
 
@@ -599,17 +602,16 @@ void ALTIUM_PCB::Parse( const CFB::CompoundFileReader& aReader,
             }
         }
 
-        // Force a measured value, calculate the value text, and then stick it into the override
-        // text (since leaders don't have calculated text).
-        dim->SetMeasuredValue( radius );
-        dim->SetText( dim->GetPrefix() + dim->GetValueText() + dim->GetSuffix() );
-        dim->SetPrefix( wxEmptyString );
-        dim->SetSuffix( wxEmptyString );
-
-        // Move the leader line start to the radius point
+        // Move the radius point onto the circumference
         VECTOR2I radialLine = dim->GetEnd() - dim->GetStart();
-        radialLine = radialLine.Resize( radius );
-        dim->SetStart( dim->GetStart() + (wxPoint) radialLine );
+        int      totalLength = radialLine.EuclideanNorm();
+
+        // Enforce a minimum on the radialLine else we won't have enough precision to get the
+        // angle from it.
+        radialLine = radialLine.Resize( std::max( radius, 2 ) );
+        dim->SetEnd( dim->GetStart() + (wxPoint) radialLine );
+        dim->SetLeaderLength( totalLength - radius );
+        dim->Update();
     }
 
     // center board
@@ -651,34 +653,32 @@ int ALTIUM_PCB::GetNetCode( uint16_t aId ) const
 const ARULE6* ALTIUM_PCB::GetRule( ALTIUM_RULE_KIND aKind, const wxString& aName ) const
 {
     const auto rules = m_rules.find( aKind );
+
     if( rules == m_rules.end() )
-    {
         return nullptr;
-    }
+
     for( const ARULE6& rule : rules->second )
     {
         if( rule.name == aName )
-        {
             return &rule;
-        }
     }
+
     return nullptr;
 }
 
 const ARULE6* ALTIUM_PCB::GetRuleDefault( ALTIUM_RULE_KIND aKind ) const
 {
     const auto rules = m_rules.find( aKind );
+
     if( rules == m_rules.end() )
-    {
         return nullptr;
-    }
+
     for( const ARULE6& rule : rules->second )
     {
         if( rule.scope1expr == "All" && rule.scope2expr == "All" )
-        {
             return &rule;
-        }
     }
+
     return nullptr;
 }
 
@@ -713,18 +713,21 @@ void ALTIUM_PCB::ParseBoard6Data( const CFB::CompoundFileReader& aReader,
     ABOARD6 elem( reader );
 
     if( reader.GetRemainingBytes() != 0 )
-    {
         THROW_IO_ERROR( "Board6 stream is not fully parsed" );
-    }
 
     m_board->GetDesignSettings().SetAuxOrigin( elem.sheetpos );
     m_board->GetDesignSettings().SetGridOrigin( elem.sheetpos );
 
     // read layercount from stackup, because LAYERSETSCOUNT is not always correct?!
     size_t layercount = 0;
-    for( size_t i                                = static_cast<size_t>( ALTIUM_LAYER::TOP_LAYER );
-            i < elem.stackup.size() && i != 0; i = elem.stackup[i - 1].nextId, layercount++ )
-        ;
+    size_t layer = static_cast<size_t>( ALTIUM_LAYER::TOP_LAYER );
+
+    while( layer < elem.stackup.size() && layer != 0 )
+    {
+        layer = elem.stackup[ layer - 1 ].nextId;
+        layercount++;
+    }
+
     size_t kicadLayercount = ( layercount % 2 == 0 ) ? layercount : layercount + 1;
     m_board->SetCopperLayerCount( kicadLayercount );
 
@@ -848,6 +851,9 @@ void ALTIUM_PCB::HelperCreateBoardOutline( const std::vector<ALTIUM_VERTICE>& aV
     if( !aVertices.empty() )
     {
         const ALTIUM_VERTICE* last = &aVertices.at( 0 );
+        STROKE_PARAMS         stroke( m_board->GetDesignSettings().GetLineThickness( Edge_Cuts ),
+                                      PLOT_DASH_TYPE::SOLID );
+
         for( size_t i = 0; i < aVertices.size(); i++ )
         {
             const ALTIUM_VERTICE* cur = &aVertices.at( ( i + 1 ) % aVertices.size() );
@@ -855,7 +861,7 @@ void ALTIUM_PCB::HelperCreateBoardOutline( const std::vector<ALTIUM_VERTICE>& aV
             PCB_SHAPE* shape = new PCB_SHAPE( m_board );
             m_board->Add( shape, ADD_MODE::APPEND );
 
-            shape->SetWidth( m_board->GetDesignSettings().GetLineThickness( Edge_Cuts ) );
+            shape->SetStroke( stroke );
             shape->SetLayer( Edge_Cuts );
 
             if( !last->isRound && !cur->isRound )
@@ -868,11 +874,11 @@ void ALTIUM_PCB::HelperCreateBoardOutline( const std::vector<ALTIUM_VERTICE>& aV
             {
                 shape->SetShape( SHAPE_T::ARC );
 
-                double  includedAngle  = cur->endangle - cur->startangle;
-                double  startradiant   = DEG2RAD( cur->startangle );
-                wxPoint arcStartOffset = wxPoint( KiROUND( std::cos( startradiant ) * cur->radius ),
-                                                 -KiROUND( std::sin( startradiant ) * cur->radius ) );
-                wxPoint arcStart       = cur->center + arcStartOffset;
+                double  includedAngle = cur->endangle - cur->startangle;
+                double  startAngle    = DEG2RAD( cur->endangle );
+                wxPoint startOffset   = wxPoint( KiROUND( std::cos( startAngle ) * cur->radius ),
+                                                 -KiROUND( std::sin( startAngle ) * cur->radius ) );
+                wxPoint arcStart      = cur->center + startOffset;
 
                 shape->SetCenter( cur->center );
                 shape->SetStart( arcStart );
@@ -880,14 +886,14 @@ void ALTIUM_PCB::HelperCreateBoardOutline( const std::vector<ALTIUM_VERTICE>& aV
 
                 if( !last->isRound )
                 {
-                    double  endradiant   = DEG2RAD( cur->endangle );
-                    wxPoint arcEndOffset = wxPoint( KiROUND( std::cos( endradiant ) * cur->radius ),
-                                                   -KiROUND( std::sin( endradiant ) * cur->radius ) );
-                    wxPoint arcEnd       = cur->center + arcEndOffset;
+                    double  endAngle  = DEG2RAD( cur->endangle );
+                    wxPoint endOffset = wxPoint( KiROUND( std::cos( endAngle ) * cur->radius ),
+                                                 -KiROUND( std::sin( endAngle ) * cur->radius ) );
+                    wxPoint arcEnd    = cur->center + endOffset;
 
                     PCB_SHAPE* shape2 = new PCB_SHAPE( m_board, SHAPE_T::SEGMENT );
                     m_board->Add( shape2, ADD_MODE::APPEND );
-                    shape2->SetWidth( m_board->GetDesignSettings().GetLineThickness( Edge_Cuts ) );
+                    shape2->SetStroke( stroke );
                     shape2->SetLayer( Edge_Cuts );
                     shape2->SetStart( last->position );
 
@@ -896,9 +902,9 @@ void ALTIUM_PCB::HelperCreateBoardOutline( const std::vector<ALTIUM_VERTICE>& aV
                     double lineLengthEnd   = GetLineLength( last->position, arcEnd );
 
                     if( lineLengthStart > lineLengthEnd )
-                        shape2->SetEnd( cur->center + arcEndOffset );
+                        shape2->SetEnd( cur->center + endOffset );
                     else
-                        shape2->SetEnd( cur->center + arcStartOffset );
+                        shape2->SetEnd( cur->center + startOffset );
                 }
             }
             last = cur;
@@ -938,9 +944,7 @@ void ALTIUM_PCB::ParseClasses6Data( const CFB::CompoundFileReader& aReader,
     }
 
     if( reader.GetRemainingBytes() != 0 )
-    {
         THROW_IO_ERROR( "Classes6 stream is not fully parsed" );
-    }
 
     m_board->m_LegacyNetclassesLoaded = true;
 }
@@ -986,9 +990,7 @@ void ALTIUM_PCB::ParseComponents6Data( const CFB::CompoundFileReader& aReader,
     }
 
     if( reader.GetRemainingBytes() != 0 )
-    {
         THROW_IO_ERROR( "Components6 stream is not fully parsed" );
-    }
 }
 
 
@@ -1081,7 +1083,7 @@ void ALTIUM_PCB::HelperParseDimensions6Linear( const ADIMENSION6& aElem )
     wxPoint referencePoint0 = aElem.referencePoint.at( 0 );
     wxPoint referencePoint1 = aElem.referencePoint.at( 1 );
 
-    PCB_DIM_ALIGNED* dimension = new PCB_DIM_ALIGNED( m_board );
+    PCB_DIM_ALIGNED* dimension = new PCB_DIM_ALIGNED( m_board, PCB_DIM_ALIGNED_T );
     m_board->Add( dimension, ADD_MODE::APPEND );
 
     dimension->SetPrecision( aElem.textprecision );
@@ -1128,8 +1130,14 @@ void ALTIUM_PCB::HelperParseDimensions6Linear( const ADIMENSION6& aElem )
 
     dimension->Text().SetTextThickness( aElem.textlinewidth );
     dimension->Text().SetTextSize( wxSize( aElem.textheight, aElem.textheight ) );
-    dimension->Text().SetBold( aElem.textbold );
     dimension->Text().SetItalic( aElem.textitalic );
+
+#if 0  // we don't currently support bold; map to thicker text
+    dimension->Text().SetBold( aElem.textbold );
+#else
+    if( aElem.textbold )
+        dimension->Text().SetTextThickness( dimension->Text().GetTextThickness() * BOLD_FACTOR );
+#endif
 
     switch( aElem.textunit )
     {
@@ -1167,10 +1175,7 @@ void ALTIUM_PCB::HelperParseDimensions6Radial(const ADIMENSION6 &aElem)
     wxPoint referencePoint0 = aElem.referencePoint.at( 0 );
     wxPoint referencePoint1 = aElem.referencePoint.at( 1 );
 
-    //
-    // We don't have radial dimensions yet so fake it with a leader:
-
-    PCB_DIM_LEADER* dimension = new PCB_DIM_LEADER( m_board );
+    PCB_DIM_RADIAL* dimension = new PCB_DIM_RADIAL( m_board );
     m_board->Add( dimension, ADD_MODE::APPEND );
     m_radialDimensions.push_back( dimension );
 
@@ -1179,6 +1184,7 @@ void ALTIUM_PCB::HelperParseDimensions6Radial(const ADIMENSION6 &aElem)
     dimension->SetStart( referencePoint0 );
     dimension->SetEnd( aElem.xy1 );
     dimension->SetLineThickness( aElem.linewidth );
+    dimension->SetKeepTextAligned( false );
 
     dimension->SetPrefix( aElem.textprefix );
 
@@ -1211,8 +1217,17 @@ void ALTIUM_PCB::HelperParseDimensions6Radial(const ADIMENSION6 &aElem)
     dimension->Text().SetPosition( aElem.textPoint.at( 0 ) );
     dimension->Text().SetTextThickness( aElem.textlinewidth );
     dimension->Text().SetTextSize( wxSize( aElem.textheight, aElem.textheight ) );
-    dimension->Text().SetBold( aElem.textbold );
     dimension->Text().SetItalic( aElem.textitalic );
+
+#if 0  // we don't currently support bold; map to thicker text
+    dimension->Text().SetBold( aElem.textbold );
+#else
+    if( aElem.textbold )
+        dimension->Text().SetTextThickness( dimension->Text().GetTextThickness() * BOLD_FACTOR );
+#endif
+
+    // It's unclear exactly how Altium figures it's text positioning, but this gets us reasonably
+    // close.
     dimension->Text().SetVertJustify( EDA_TEXT_VJUSTIFY_T::GR_TEXT_VJUSTIFY_BOTTOM );
     dimension->Text().SetHorizJustify( EDA_TEXT_HJUSTIFY_T::GR_TEXT_HJUSTIFY_LEFT );
 
@@ -1245,7 +1260,7 @@ void ALTIUM_PCB::HelperParseDimensions6Leader( const ADIMENSION6& aElem )
             PCB_SHAPE* shape = new PCB_SHAPE( m_board, SHAPE_T::SEGMENT );
             m_board->Add( shape, ADD_MODE::APPEND );
             shape->SetLayer( klayer );
-            shape->SetWidth( aElem.linewidth );
+            shape->SetStroke( STROKE_PARAMS( aElem.linewidth, PLOT_DASH_TYPE::SOLID ) );
             shape->SetStart( last );
             shape->SetEnd( aElem.referencePoint.at( i ) );
             last = aElem.referencePoint.at( i );
@@ -1265,7 +1280,7 @@ void ALTIUM_PCB::HelperParseDimensions6Leader( const ADIMENSION6& aElem )
                 PCB_SHAPE* shape1 = new PCB_SHAPE( m_board, SHAPE_T::SEGMENT );
                 m_board->Add( shape1, ADD_MODE::APPEND );
                 shape1->SetLayer( klayer );
-                shape1->SetWidth( aElem.linewidth );
+                shape1->SetStroke( STROKE_PARAMS( aElem.linewidth, PLOT_DASH_TYPE::SOLID ) );
                 shape1->SetStart( referencePoint0 );
                 shape1->SetEnd( referencePoint0 + arrVec );
 
@@ -1274,7 +1289,7 @@ void ALTIUM_PCB::HelperParseDimensions6Leader( const ADIMENSION6& aElem )
                 PCB_SHAPE* shape2 = new PCB_SHAPE( m_board, SHAPE_T::SEGMENT );
                 m_board->Add( shape2, ADD_MODE::APPEND );
                 shape2->SetLayer( klayer );
-                shape2->SetWidth( aElem.linewidth );
+                shape2->SetStroke( STROKE_PARAMS( aElem.linewidth, PLOT_DASH_TYPE::SOLID ) );
                 shape2->SetStart( referencePoint0 );
                 shape2->SetEnd( referencePoint0 + arrVec );
             }
@@ -1316,7 +1331,7 @@ void ALTIUM_PCB::HelperParseDimensions6Datum( const ADIMENSION6& aElem )
         PCB_SHAPE* shape = new PCB_SHAPE( m_board, SHAPE_T::SEGMENT );
         m_board->Add( shape, ADD_MODE::APPEND );
         shape->SetLayer( klayer );
-        shape->SetWidth( aElem.linewidth );
+        shape->SetStroke( STROKE_PARAMS( aElem.linewidth, PLOT_DASH_TYPE::SOLID ) );
         shape->SetStart( aElem.referencePoint.at( i ) );
         // shape->SetEnd( /* TODO: seems to be based on TEXTY */ );
     }
@@ -1795,7 +1810,7 @@ void ALTIUM_PCB::ParseShapeBasedRegions6Data( const CFB::CompoundFileReader& aRe
                 m_board->Add( shape, ADD_MODE::APPEND );
                 shape->SetFilled( true );
                 shape->SetLayer( klayer );
-                shape->SetWidth( 0 );
+                shape->SetStroke( STROKE_PARAMS( 0 ) );
 
                 shape->SetPolyShape( linechain );
             }
@@ -1907,6 +1922,34 @@ void ALTIUM_PCB::ParseArcs6Data( const CFB::CompoundFileReader& aReader,
     if( m_progressReporter )
         m_progressReporter->Report( _( "Loading arcs..." ) );
 
+    auto setupShape =
+            [&]( AARC6& elem, PCB_LAYER_ID layer, PCB_SHAPE& shape )
+            {
+                shape.SetLayer( layer );
+                shape.SetStroke( STROKE_PARAMS( elem.width, PLOT_DASH_TYPE::SOLID ) );
+
+                if( elem.startangle == 0. && elem.endangle == 360. )
+                {
+                    // TODO: other variants to define circle?
+                    shape.SetShape( SHAPE_T::CIRCLE );
+                    shape.SetStart( elem.center );
+                    shape.SetEnd( elem.center - wxPoint( 0, elem.radius ) );
+                    return;
+                }
+
+                shape.SetShape( SHAPE_T::ARC );
+
+                double includedAngle = elem.endangle - elem.startangle;
+                double startAngle    = DEG2RAD( elem.endangle );
+
+                wxPoint startOffset = wxPoint( KiROUND( std::cos( startAngle ) * elem.radius ),
+                                               -KiROUND( std::sin( startAngle ) * elem.radius ) );
+
+                shape.SetCenter( elem.center );
+                shape.SetStart( elem.center + startOffset );
+                shape.SetArcAngleAndEnd( NormalizeAngleDegreesPos( includedAngle ) * 10.0, true );
+            };
+
     ALTIUM_PARSER reader( aReader, aEntry );
 
     while( reader.GetRemainingBytes() >= 4 /* TODO: use Header section of file */ )
@@ -1926,27 +1969,7 @@ void ALTIUM_PCB::ParseArcs6Data( const CFB::CompoundFileReader& aReader,
         if( elem.is_keepout || IsAltiumLayerAPlane( elem.layer ) )
         {
             PCB_SHAPE shape( nullptr ); // just a helper to get the graphic
-            shape.SetWidth( elem.width );
-
-            if( elem.startangle == 0. && elem.endangle == 360. )
-            { // TODO: other variants to define circle?
-                shape.SetShape( SHAPE_T::CIRCLE );
-                shape.SetStart( elem.center );
-                shape.SetEnd( elem.center - wxPoint( 0, elem.radius ) );
-            }
-            else
-            {
-                shape.SetShape( SHAPE_T::ARC );
-
-                double  includedAngle  = elem.endangle - elem.startangle;
-                double  startradiant   = DEG2RAD( elem.startangle );
-                wxPoint arcStartOffset = wxPoint( KiROUND( std::cos( startradiant ) * elem.radius ),
-                                                 -KiROUND( std::sin( startradiant ) * elem.radius ) );
-
-                shape.SetCenter( elem.center );
-                shape.SetStart( elem.center + arcStartOffset );
-                shape.SetArcAngleAndEnd( -NormalizeAngleDegreesPos( includedAngle ) * 10.0, true );
-            }
+            setupShape( elem, klayer, shape );
 
             ZONE* zone = new ZONE( m_board );
             m_board->Add( zone, ADD_MODE::APPEND );
@@ -1966,8 +1989,6 @@ void ALTIUM_PCB::ParseArcs6Data( const CFB::CompoundFileReader& aReader,
             }
             else
             {
-                PCB_LAYER_ID klayer = GetKicadLayer( elem.layer );
-
                 if( klayer == UNDEFINED_LAYER )
                 {
                     wxLogWarning( _( "Arc keepout found on an Altium layer (%d) with no KiCad "
@@ -2031,37 +2052,15 @@ void ALTIUM_PCB::ParseArcs6Data( const CFB::CompoundFileReader& aReader,
         else
         {
             PCB_SHAPE* shape = HelperCreateAndAddShape( elem.component );
-            shape->SetWidth( elem.width );
-            shape->SetLayer( klayer );
 
-            if( elem.startangle == 0. && elem.endangle == 360. )
-            { // TODO: other variants to define circle?
-                shape->SetShape( SHAPE_T::CIRCLE );
-                shape->SetStart( elem.center );
-                shape->SetEnd( elem.center - wxPoint( 0, elem.radius ) );
-            }
-            else
-            {
-                shape->SetShape( SHAPE_T::ARC );
-
-                double  includedAngle  = elem.endangle - elem.startangle;
-                double  startradiant   = DEG2RAD( elem.startangle );
-                wxPoint arcStartOffset = wxPoint( KiROUND( std::cos( startradiant ) * elem.radius ),
-                                                  -KiROUND( std::sin( startradiant ) * elem.radius ) );
-
-                shape->SetCenter( elem.center );
-                shape->SetStart( elem.center + arcStartOffset );
-                shape->SetArcAngleAndEnd( -NormalizeAngleDegreesPos( includedAngle ) * 10.0, true );
-            }
+            setupShape( elem, klayer, *shape );
 
             HelperShapeSetLocalCoord( shape, elem.component );
         }
     }
 
     if( reader.GetRemainingBytes() != 0 )
-    {
         THROW_IO_ERROR( "Arcs6 stream is not fully parsed" );
-    }
 }
 
 
@@ -2329,7 +2328,7 @@ void ALTIUM_PCB::HelperParsePad6NonCopper( const APAD6& aElem )
         shape->SetShape( SHAPE_T::POLY );
         shape->SetFilled( true );
         shape->SetLayer( klayer );
-        shape->SetWidth( 0 );
+        shape->SetStroke( STROKE_PARAMS( 0 ) );
 
         shape->SetPolyPoints( { aElem.position + wxPoint( aElem.topsize.x / 2, aElem.topsize.y / 2 ),
                                 aElem.position + wxPoint( aElem.topsize.x / 2, -aElem.topsize.y / 2 ),
@@ -2353,7 +2352,7 @@ void ALTIUM_PCB::HelperParsePad6NonCopper( const APAD6& aElem )
 
             PCB_SHAPE* shape = HelperCreateAndAddShape( aElem.component );
             shape->SetLayer( klayer );
-            shape->SetWidth( offset * 2 );
+            shape->SetStroke( STROKE_PARAMS( offset * 2, PLOT_DASH_TYPE::SOLID ) );
 
             if( cornerradius < 100 )
             {
@@ -2376,7 +2375,7 @@ void ALTIUM_PCB::HelperParsePad6NonCopper( const APAD6& aElem )
                 shape->SetFilled( true );
                 shape->SetStart( aElem.position );
                 shape->SetEnd( aElem.position - wxPoint( 0, aElem.topsize.x / 4 ) );
-                shape->SetWidth( aElem.topsize.x / 2 );
+                shape->SetStroke( STROKE_PARAMS( aElem.topsize.x / 2, PLOT_DASH_TYPE::SOLID ) );
             }
             else if( aElem.topsize.x < aElem.topsize.y )
             {
@@ -2409,7 +2408,7 @@ void ALTIUM_PCB::HelperParsePad6NonCopper( const APAD6& aElem )
             shape->SetLayer( klayer );
             shape->SetStart( aElem.position );
             shape->SetEnd( aElem.position - wxPoint( 0, aElem.topsize.x / 4 ) );
-            shape->SetWidth( aElem.topsize.x / 2 );
+            shape->SetStroke( STROKE_PARAMS( aElem.topsize.x / 2, PLOT_DASH_TYPE::SOLID ) );
             HelperShapeSetLocalCoord( shape, aElem.component );
         }
         else
@@ -2418,7 +2417,8 @@ void ALTIUM_PCB::HelperParsePad6NonCopper( const APAD6& aElem )
             PCB_SHAPE* shape = HelperCreateAndAddShape( aElem.component );
             shape->SetShape( SHAPE_T::SEGMENT );
             shape->SetLayer( klayer );
-            shape->SetWidth( std::min( aElem.topsize.x, aElem.topsize.y ) );
+            shape->SetStroke( STROKE_PARAMS( std::min( aElem.topsize.x, aElem.topsize.y ),
+                                                       PLOT_DASH_TYPE::SOLID ) );
 
             if( aElem.topsize.x < aElem.topsize.y )
             {
@@ -2447,7 +2447,7 @@ void ALTIUM_PCB::HelperParsePad6NonCopper( const APAD6& aElem )
         shape->SetShape( SHAPE_T::POLY );
         shape->SetFilled( true );
         shape->SetLayer( klayer );
-        shape->SetWidth( 0 );
+        shape->SetStroke( STROKE_PARAMS( 0 ) );
 
         wxPoint p11 = aElem.position + wxPoint( aElem.topsize.x / 2, aElem.topsize.y / 2 );
         wxPoint p12 = aElem.position + wxPoint( aElem.topsize.x / 2, -aElem.topsize.y / 2 );
@@ -2564,7 +2564,7 @@ void ALTIUM_PCB::ParseTracks6Data( const CFB::CompoundFileReader& aReader,
             PCB_SHAPE shape( nullptr, SHAPE_T::SEGMENT );
             shape.SetStart( elem.start );
             shape.SetEnd( elem.end );
-            shape.SetWidth( elem.width );
+            shape.SetStroke( STROKE_PARAMS( elem.width, PLOT_DASH_TYPE::SOLID ) );
 
             ZONE* zone = new ZONE( m_board );
             m_board->Add( zone, ADD_MODE::APPEND );
@@ -2612,7 +2612,7 @@ void ALTIUM_PCB::ParseTracks6Data( const CFB::CompoundFileReader& aReader,
             klayer = Eco1_User;
         }
 
-        if( klayer >= F_Cu && klayer <= B_Cu )
+        if( IsCopperLayer( klayer ) )
         {
             PCB_TRACK* track = new PCB_TRACK( m_board );
             m_board->Add( track, ADD_MODE::APPEND );
@@ -2629,7 +2629,7 @@ void ALTIUM_PCB::ParseTracks6Data( const CFB::CompoundFileReader& aReader,
             shape->SetShape( SHAPE_T::SEGMENT );
             shape->SetStart( elem.start );
             shape->SetEnd( elem.end );
-            shape->SetWidth( elem.width );
+            shape->SetStroke( STROKE_PARAMS( elem.width, PLOT_DASH_TYPE::SOLID ) );
             shape->SetLayer( klayer );
             HelperShapeSetLocalCoord( shape, elem.component );
         }
@@ -2915,7 +2915,7 @@ void ALTIUM_PCB::ParseFills6Data( const CFB::CompoundFileReader& aReader,
             m_board->Add( shape, ADD_MODE::APPEND );
             shape->SetFilled( true );
             shape->SetLayer( klayer );
-            shape->SetWidth( 0 );
+            shape->SetStroke( STROKE_PARAMS( 0 ) );
 
             shape->SetPolyPoints( { p11, p12, p22, p21 } );
 

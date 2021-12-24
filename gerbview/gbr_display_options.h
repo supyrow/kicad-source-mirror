@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2012-2016 Jean-Pierre Charras  jp.charras at wanadoo.fr
- * Copyright (C) 1992-2016 KiCad Developers, see change_log.txt for contributors.
+ * Copyright (C) 1992-2021 KiCad Developers, see change_log.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -22,14 +22,10 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
-/**
- * @file gbr_display_options.h
- * @brief Class GBR_DISPLAY_OPTIONS is a helper class to handle display options
- * (filling modes and afew other options
- */
+#ifndef GBR_DISPLAY_OPTIONS_H
+#define GBR_DISPLAY_OPTIONS_H
 
-#ifndef CLASS_GBR_DISPLAY_OPTIONS_H
-#define CLASS_GBR_DISPLAY_OPTIONS_H
+using KIGFX::COLOR4D;
 
 /**
  * @note Some of these parameters are used only for printing, some others only
@@ -42,18 +38,14 @@ public:
     bool    m_DisplayFlashedItemsFill;  ///< Option to draw flashed items (filled/sketch)
     bool    m_DisplayLinesFill;         ///< Option to draw line items (filled/sketch)
     bool    m_DisplayPolygonsFill;      ///< Option to draw polygons (filled/sketch)
-    bool    m_DisplayDCodes;            ///< Option to show dcode values on items drawn with a dcode tool
     bool    m_DisplayPageLimits;
-    bool    m_DisplayNegativeObjects;   ///< Option to draw negative objects in a specific color
     bool    m_IsPrinting;               ///< true when printing a page, false when drawing on screen
-    bool    m_ForceBlackAndWhite;       ///< Option print in black and white (not used in draw mode
     bool    m_DiffMode;                 ///< Display layers in diff mode
     bool    m_HighContrastMode;         ///< High contrast mode (dim un-highlighted objects)
     bool    m_FlipGerberView;           ///< Display as a mirror image
     COLOR4D m_NegativeDrawColor;        ///< The color used to draw negative objects, usually the
                                         ///< background color, but not always, when negative objects
                                         ///< must be visible
-    COLOR4D m_BgDrawColor;              ///< The background color
 
 public:
     GBR_DISPLAY_OPTIONS()
@@ -61,17 +53,13 @@ public:
         m_DisplayFlashedItemsFill = true;
         m_DisplayLinesFill = true;
         m_DisplayPolygonsFill = true;
-        m_DisplayDCodes = false;
         m_DisplayPageLimits = false;
         m_IsPrinting = false;
-        m_DisplayNegativeObjects = false;
-        m_ForceBlackAndWhite = false;
         m_NegativeDrawColor = COLOR4D( DARKGRAY );
-        m_BgDrawColor = COLOR4D::BLACK;
         m_DiffMode = false;
         m_HighContrastMode = false;
         m_FlipGerberView = false;
     }
 };
 
-#endif    // #ifndef CLASS_GBR_DISPLAY_OPTIONS_H
+#endif    // GBR_DISPLAY_OPTIONS_H

@@ -881,7 +881,8 @@ DIALOG_NET_INSPECTOR::DIALOG_NET_INSPECTOR( PCB_EDIT_FRAME* aParent,
     m_renameNet->SetBitmap( KiBitmap( BITMAPS::small_edit ) );
     m_deleteNet->SetBitmap( KiBitmap( BITMAPS::small_trash ) );
 
-    m_sdbSizerOK->SetDefault();
+    SetupStandardButtons();
+
     m_renameNet->Disable();
     m_deleteNet->Disable();
 
@@ -1385,6 +1386,7 @@ unsigned int DIALOG_NET_INSPECTOR::calculateViaLength( const PCB_TRACK* aTrack )
     else
     {
         int dielectricLayers = bds.GetCopperLayerCount() - 1;
+        // FIXME: not all dielectric layers are the same thickness!
         int layerThickness = bds.GetBoardThickness() / dielectricLayers;
         int effectiveBottomLayer;
 

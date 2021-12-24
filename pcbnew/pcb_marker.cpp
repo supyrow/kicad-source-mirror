@@ -40,7 +40,7 @@
 
 
 /// Factor to convert the maker unit shape to internal units:
-#define SCALING_FACTOR  Millimeter2iu( 0.075 )
+#define SCALING_FACTOR  Millimeter2iu( 0.1625 )
 
 
 
@@ -49,7 +49,27 @@ PCB_MARKER::PCB_MARKER( std::shared_ptr<RC_ITEM> aItem, const wxPoint& aPosition
     MARKER_BASE( SCALING_FACTOR, aItem )
 {
     if( m_rcItem )
+    {
         m_rcItem->SetParent( this );
+
+        switch( m_rcItem->GetErrorCode() )
+        {
+        case DRCE_UNCONNECTED_ITEMS:
+            SetMarkerType( MARKER_BASE::MARKER_RATSNEST );
+            break;
+
+        case DRCE_MISSING_FOOTPRINT:
+        case DRCE_DUPLICATE_FOOTPRINT:
+        case DRCE_EXTRA_FOOTPRINT:
+        case DRCE_NET_CONFLICT:
+            SetMarkerType( MARKER_BASE::MARKER_PARITY );
+            break;
+
+        default:
+            SetMarkerType( MARKER_BASE::MARKER_DRC );
+            break;
+        }
+    }
 
     m_Pos = aPosition;
 }
@@ -93,6 +113,8 @@ void PCB_MARKER::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_
 {
     aList.emplace_back( _( "Type" ), _( "Marker" ) );
     aList.emplace_back( _( "Violation" ), m_rcItem->GetErrorMessage() );
+    aList.emplace_back( _( "Severity" ), GetSeverity() == RPT_SEVERITY_ERROR ? _( "Error" )
+                                                                             : _( "Warning" ) );
 
     wxString  mainText;
     wxString  auxText;
@@ -149,51 +171,51 @@ BITMAPS PCB_MARKER::GetMenuImage() const
 }
 
 
+SEVERITY PCB_MARKER::GetSeverity() const
+{
+    if( IsExcluded() )
+        return RPT_SEVERITY_EXCLUSION;
+
+    DRC_ITEM* item = static_cast<DRC_ITEM*>( m_rcItem.get() );
+    DRC_RULE* rule = item->GetViolatingRule();
+
+    if( rule && rule->m_Severity != RPT_SEVERITY_UNDEFINED )
+        return rule->m_Severity;
+
+    return GetBoard()->GetDesignSettings().GetSeverity( item->GetErrorCode() );
+}
+
+
 void PCB_MARKER::ViewGetLayers( int aLayers[], int& aCount ) const
 {
+    if( GetMarkerType() == MARKER_RATSNEST )
+    {
+        aCount = 0;
+        return;
+    }
+
     aCount = 2;
 
     aLayers[1] = LAYER_MARKER_SHADOWS;
 
-    if( IsExcluded() )
-    {
-        aLayers[0] = LAYER_DRC_EXCLUSION;
-        return;
-    }
-
-    BOARD_ITEM_CONTAINER* ancestor = GetParent();
-
-    while( ancestor->GetParent() )
-        ancestor = ancestor->GetParent();
-
-    BOARD* board = static_cast<BOARD*>( ancestor );
-
-    switch( board->GetDesignSettings().GetSeverity( m_rcItem->GetErrorCode() ) )
+    switch( GetSeverity() )
     {
     default:
-    case SEVERITY::RPT_SEVERITY_ERROR:   aLayers[0] = LAYER_DRC_ERROR;   break;
-    case SEVERITY::RPT_SEVERITY_WARNING: aLayers[0] = LAYER_DRC_WARNING; break;
+    case SEVERITY::RPT_SEVERITY_ERROR:     aLayers[0] = LAYER_DRC_ERROR;     break;
+    case SEVERITY::RPT_SEVERITY_WARNING:   aLayers[0] = LAYER_DRC_WARNING;   break;
+    case SEVERITY::RPT_SEVERITY_EXCLUSION: aLayers[0] = LAYER_DRC_EXCLUSION; break;
     }
 }
 
 
 GAL_LAYER_ID PCB_MARKER::GetColorLayer() const
 {
-    if( IsExcluded() )
-        return LAYER_DRC_EXCLUSION;
-
-    BOARD_ITEM_CONTAINER* ancestor = GetParent();
-
-    while( ancestor->GetParent() )
-        ancestor = ancestor->GetParent();
-
-    BOARD* board = static_cast<BOARD*>( ancestor );
-
-    switch( board->GetDesignSettings().GetSeverity( m_rcItem->GetErrorCode() ) )
+    switch( GetSeverity() )
     {
     default:
-    case SEVERITY::RPT_SEVERITY_ERROR:   return LAYER_DRC_ERROR;
-    case SEVERITY::RPT_SEVERITY_WARNING: return LAYER_DRC_WARNING;
+    case SEVERITY::RPT_SEVERITY_ERROR:     return LAYER_DRC_ERROR;
+    case SEVERITY::RPT_SEVERITY_WARNING:   return LAYER_DRC_WARNING;
+    case SEVERITY::RPT_SEVERITY_EXCLUSION: return LAYER_DRC_EXCLUSION;
     }
 }
 
@@ -202,6 +224,12 @@ KIGFX::COLOR4D PCB_MARKER::getColor() const
 {
     COLOR_SETTINGS* colors = Pgm().GetSettingsManager().GetColorSettings();
     return colors->GetColor( GetColorLayer() );
+}
+
+
+void PCB_MARKER::SetZoom( double aZoomFactor )
+{
+    SetMarkerScale( SCALING_FACTOR * aZoomFactor );
 }
 
 

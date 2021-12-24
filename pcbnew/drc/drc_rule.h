@@ -29,8 +29,10 @@
 #include <core/minoptmax.h>
 #include <layer_ids.h>
 #include <netclass.h>
+#include <zones.h>
 #include <libeval_compiler/libeval_compiler.h>
 #include <wx/intl.h>
+#include <widgets/report_severity.h>
 
 class BOARD_ITEM;
 class PCB_EXPR_UCODE;
@@ -48,8 +50,14 @@ enum DRC_CONSTRAINT_T
     HOLE_SIZE_CONSTRAINT,
     COURTYARD_CLEARANCE_CONSTRAINT,
     SILK_CLEARANCE_CONSTRAINT,
+    TEXT_HEIGHT_CONSTRAINT,
+    TEXT_THICKNESS_CONSTRAINT,
     TRACK_WIDTH_CONSTRAINT,
     ANNULAR_WIDTH_CONSTRAINT,
+    ZONE_CONNECTION_CONSTRAINT,
+    THERMAL_RELIEF_GAP_CONSTRAINT,
+    THERMAL_SPOKE_WIDTH_CONSTRAINT,
+    MIN_RESOLVED_SPOKES_CONSTRAINT,
     DISALLOW_CONSTRAINT,
     VIA_DIAMETER_CONSTRAINT,
     LENGTH_CONSTRAINT,
@@ -57,7 +65,10 @@ enum DRC_CONSTRAINT_T
     DIFF_PAIR_GAP_CONSTRAINT,
     DIFF_PAIR_MAX_UNCOUPLED_CONSTRAINT,
     DIFF_PAIR_INTRA_SKEW_CONSTRAINT,
-    VIA_COUNT_CONSTRAINT
+    VIA_COUNT_CONSTRAINT,
+    MECHANICAL_CLEARANCE_CONSTRAINT,
+    MECHANICAL_HOLE_CLEARANCE_CONSTRAINT,
+    ASSERTION_CONSTRAINT
 };
 
 
@@ -80,6 +91,8 @@ class DRC_RULE
 {
 public:
     DRC_RULE();
+    DRC_RULE( const wxString& aName );
+
     virtual ~DRC_RULE();
 
     virtual bool AppliesTo( const BOARD_ITEM* a, const BOARD_ITEM* b = nullptr ) const
@@ -98,6 +111,7 @@ public:
     LSET                        m_LayerCondition;
     DRC_RULE_CONDITION*         m_Condition;
     std::vector<DRC_CONSTRAINT> m_Constraints;
+    SEVERITY                    m_Severity;
 };
 
 
@@ -109,6 +123,8 @@ class DRC_CONSTRAINT
             m_Type( aType ),
             m_Value(),
             m_DisallowFlags( 0 ),
+            m_ZoneConnection( ZONE_CONNECTION::INHERITED ),
+            m_Test( nullptr ),
             m_name( aName ),
             m_parentRule( nullptr )
     {
@@ -140,14 +156,24 @@ class DRC_CONSTRAINT
         return m_name;
     }
 
+    SEVERITY GetSeverity() const
+    {
+        if( m_parentRule )
+            return m_parentRule->m_Severity;
+        else
+            return RPT_SEVERITY_UNDEFINED;
+    }
+
 public:
-    DRC_CONSTRAINT_T  m_Type;
-    MINOPTMAX<int>    m_Value;
-    int               m_DisallowFlags;
+    DRC_CONSTRAINT_T    m_Type;
+    MINOPTMAX<int>      m_Value;
+    int                 m_DisallowFlags;
+    ZONE_CONNECTION     m_ZoneConnection;
+    DRC_RULE_CONDITION* m_Test;
 
 private:
-    wxString          m_name;          // For just-in-time constraints
-    DRC_RULE*         m_parentRule;    // For constraints found in rules
+    wxString            m_name;          // For just-in-time constraints
+    DRC_RULE*           m_parentRule;    // For constraints found in rules
 };
 
 

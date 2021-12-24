@@ -179,7 +179,7 @@ static wxString interpret_text( const wxString& aText )
 }
 
 
-static void setKeepoutSettingsToZone( ZONE* aZone, LAYER_NUM aLayer )
+static void setKeepoutSettingsToZone( ZONE* aZone, int aLayer )
 {
     if( aLayer == EAGLE_LAYER::TRESTRICT || aLayer == EAGLE_LAYER::BRESTRICT )
     {
@@ -730,7 +730,7 @@ void EAGLE_PLUGIN::loadPlain( wxXmlNode* aGraphics )
                 }
 
                 shape->SetLayer( layer );
-                shape->SetWidth( width );
+                shape->SetStroke( STROKE_PARAMS( width, PLOT_DASH_TYPE::SOLID ) );
             }
 
             m_xpath->pop();
@@ -912,7 +912,7 @@ void EAGLE_PLUGIN::loadPlain( wxXmlNode* aGraphics )
                     shape->SetLayer( layer );
                     shape->SetStart( wxPoint( kicad_x( c.x ), kicad_y( c.y ) ) );
                     shape->SetEnd( wxPoint( kicad_x( c.x ) + radius, kicad_y( c.y ) ) );
-                    shape->SetWidth( width );
+                    shape->SetStroke( STROKE_PARAMS( width, PLOT_DASH_TYPE::SOLID ) );
                 }
             }
 
@@ -988,7 +988,7 @@ void EAGLE_PLUGIN::loadPlain( wxXmlNode* aGraphics )
             if( layer != UNDEFINED_LAYER )
             {
                 const BOARD_DESIGN_SETTINGS& designSettings = m_board->GetDesignSettings();
-                PCB_DIM_ALIGNED* dimension = new PCB_DIM_ALIGNED( m_board );
+                PCB_DIM_ALIGNED* dimension = new PCB_DIM_ALIGNED( m_board, PCB_DIM_ALIGNED_T );
                 m_board->Add( dimension, ADD_MODE::APPEND );
 
                 if( d.dimensionType )
@@ -1804,7 +1804,7 @@ void EAGLE_PLUGIN::packageWire( FOOTPRINT* aFootprint, wxXmlNode* aTree ) const
     }
 
     dwg->SetLayer( layer );
-    dwg->SetWidth( width );
+    dwg->SetStroke( STROKE_PARAMS( width, PLOT_DASH_TYPE::SOLID ) );
     dwg->SetDrawCoord();
 
     aFootprint->Add( dwg );
@@ -2076,7 +2076,7 @@ void EAGLE_PLUGIN::packageRectangle( FOOTPRINT* aFootprint, wxXmlNode* aTree ) c
         aFootprint->Add( dwg );
 
         dwg->SetLayer( layer );
-        dwg->SetWidth( 0 );
+        dwg->SetStroke( STROKE_PARAMS( 0 ) );
         dwg->SetFilled( true );
 
         std::vector<wxPoint> pts;
@@ -2189,7 +2189,7 @@ void EAGLE_PLUGIN::packagePolygon( FOOTPRINT* aFootprint, wxXmlNode* aTree ) con
 
         aFootprint->Add( dwg );
 
-        dwg->SetWidth( 0 ); // it's filled, no need for boundary width
+        dwg->SetStroke( STROKE_PARAMS( 0 ) );
         dwg->SetFilled( true );
         dwg->SetLayer( layer );
 
@@ -2269,7 +2269,7 @@ void EAGLE_PLUGIN::packageCircle( FOOTPRINT* aFootprint, wxXmlNode* aTree ) cons
         }
 
         aFootprint->Add( gr );
-        gr->SetWidth( width );
+        gr->SetStroke( STROKE_PARAMS( width, PLOT_DASH_TYPE::SOLID ) );
 
         switch( (int) layer )
         {

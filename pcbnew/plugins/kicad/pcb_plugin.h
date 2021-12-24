@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2012 CERN.
- * Copyright (C) 1992-2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -102,7 +102,13 @@ class PCB_TEXT;
 //#define SEXPR_BOARD_FILE_VERSION    20210722  // Reading/writing group locked flags
 //#define SEXPR_BOARD_FILE_VERSION    20210824  // Opacity in 3D colors
 //#define SEXPR_BOARD_FILE_VERSION    20210925  // Locked flag for fp_text
-#define SEXPR_BOARD_FILE_VERSION      20211014  // Arc formatting
+//#define SEXPR_BOARD_FILE_VERSION    20211014  // Arc formatting
+//#define SEXPR_BOARD_FILE_VERSION    20211226  // Add radial dimension
+//#define SEXPR_BOARD_FILE_VERSION    20211227  // Add thermal relief spoke angle overrides
+//#define SEXPR_BOARD_FILE_VERSION    20211228  // Add allow_soldermask_bridges footprint attribute
+//#define SEXPR_BOARD_FILE_VERSION    20211229  // Stroke formatting
+//#define SEXPR_BOARD_FILE_VERSION    20211230  // Dimensions in footprints
+#define SEXPR_BOARD_FILE_VERSION      20221231  // Private footprint layers
 
 #define BOARD_FILE_HOST_VERSION       20200825  ///< Earlier files than this include the host tag
 #define LEGACY_ARC_FORMATTING         20210925  ///< These were the last to use old arc formatting
@@ -293,7 +299,6 @@ protected:
     STRING_FORMATTER    m_sf;
     OUTPUTFORMATTER*    m_out;      ///< output any Format()s to this, no ownership
     int                 m_ctl;
-    PCB_PARSER*         m_parser;
     NETINFO_MAPPING*    m_mapping;  ///< mapping for net codes, so only not empty net codes
                                     ///< are stored with consecutive integers as net codes
 };

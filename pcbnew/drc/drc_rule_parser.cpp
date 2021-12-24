@@ -23,6 +23,7 @@
 
 
 #include <board.h>
+#include <zones.h>
 #include <drc/drc_rule_parser.h>
 #include <drc/drc_rule_condition.h>
 #include <drc_rules_lexer.h>
@@ -225,6 +226,10 @@ DRC_RULE* DRC_RULES_PARSER::parseDRC_RULE()
             rule->m_LayerCondition = parseLayer();
             break;
 
+        case T_severity:
+            rule->m_Severity = parseSeverity();
+            break;
+
         case T_EOF:
             reportError( _( "Incomplete statement." ) );
             return rule;
@@ -255,15 +260,18 @@ void DRC_RULES_PARSER::parseConstraint( DRC_RULE* aRule )
     if( (int) token == DSN_RIGHT || token == T_EOF )
     {
         msg.Printf( _( "Missing constraint type.|  Expected %s." ),
-                    "clearance, hole_clearance, edge_clearance, hole, hole_to_hole, "
-                    "courtyard_clearance, silk_clearance, track_width, annular_width, via_diameter, "
-                    "disallow, length, skew, via_count, diff_pair_gap or diff_pair_uncoupled" );
+                    "assertion, clearance, hole_clearance, edge_clearance, mechanical_clearance, "
+                    "mechanical_hole_clearance, courtyard_clearance, silk_clearance, hole_size, "
+                    "hole_to_hole, track_width, annular_width, via_diameter, disallow, "
+                    "zone_connection, thermal_relief_gap, thermal_spoke_width, min_resolved_spokes, "
+                    "length, skew, via_count, diff_pair_gap or diff_pair_uncoupled" );
         reportError( msg );
         return;
     }
 
     switch( token )
     {
+    case T_assertion:                 c.m_Type = ASSERTION_CONSTRAINT;                 break;
     case T_clearance:                 c.m_Type = CLEARANCE_CONSTRAINT;                 break;
     case T_hole_clearance:            c.m_Type = HOLE_CLEARANCE_CONSTRAINT;            break;
     case T_edge_clearance:            c.m_Type = EDGE_CLEARANCE_CONSTRAINT;            break;
@@ -272,20 +280,30 @@ void DRC_RULES_PARSER::parseConstraint( DRC_RULE* aRule )
     case T_hole_to_hole:              c.m_Type = HOLE_TO_HOLE_CONSTRAINT;              break;
     case T_courtyard_clearance:       c.m_Type = COURTYARD_CLEARANCE_CONSTRAINT;       break;
     case T_silk_clearance:            c.m_Type = SILK_CLEARANCE_CONSTRAINT;            break;
+    case T_text_height:               c.m_Type = TEXT_HEIGHT_CONSTRAINT;               break;
+    case T_text_thickness:            c.m_Type = TEXT_THICKNESS_CONSTRAINT;            break;
     case T_track_width:               c.m_Type = TRACK_WIDTH_CONSTRAINT;               break;
     case T_annular_width:             c.m_Type = ANNULAR_WIDTH_CONSTRAINT;             break;
     case T_via_diameter:              c.m_Type = VIA_DIAMETER_CONSTRAINT;              break;
+    case T_zone_connection:           c.m_Type = ZONE_CONNECTION_CONSTRAINT;           break;
+    case T_thermal_relief_gap:        c.m_Type = THERMAL_RELIEF_GAP_CONSTRAINT;        break;
+    case T_thermal_spoke_width:       c.m_Type = THERMAL_SPOKE_WIDTH_CONSTRAINT;       break;
+    case T_min_resolved_spokes:       c.m_Type = MIN_RESOLVED_SPOKES_CONSTRAINT;       break;
     case T_disallow:                  c.m_Type = DISALLOW_CONSTRAINT;                  break;
     case T_length:                    c.m_Type = LENGTH_CONSTRAINT;                    break;
     case T_skew:                      c.m_Type = SKEW_CONSTRAINT;                      break;
     case T_via_count:                 c.m_Type = VIA_COUNT_CONSTRAINT;                 break;
     case T_diff_pair_gap:             c.m_Type = DIFF_PAIR_GAP_CONSTRAINT;             break;
     case T_diff_pair_uncoupled:       c.m_Type = DIFF_PAIR_MAX_UNCOUPLED_CONSTRAINT;   break;
+    case T_mechanical_clearance:      c.m_Type = MECHANICAL_CLEARANCE_CONSTRAINT;      break;
+    case T_mechanical_hole_clearance: c.m_Type = MECHANICAL_HOLE_CLEARANCE_CONSTRAINT; break;
     default:
         msg.Printf( _( "Unrecognized item '%s'.| Expected %s." ), FromUTF8(),
-                    "clearance, hole_clearance, edge_clearance, hole_size, hole_to_hole, "
-                    "courtyard_clearance, silk_clearance, track_width, annular_width, via_diameter, "
-                    "disallow, length, skew, diff_pair_gap or diff_pair_uncoupled." );
+                    "assertion, clearance, hole_clearance, edge_clearance, mechanical_clearance, "
+                    "mechanical_hole_clearance, courtyard_clearance, silk_clearance, hole_size, "
+                    "hole_to_hole, track_width, annular_width, disallow, zone_connection, "
+                    "thermal_relief_gap, thermal_spoke_width, min_resolved_spokes, length, skew, "
+                    "via_count, via_diameter, diff_pair_gap or diff_pair_uncoupled" );
         reportError( msg );
     }
 
@@ -330,6 +348,94 @@ void DRC_RULES_PARSER::parseConstraint( DRC_RULE* aRule )
 
         if( (int) CurTok() != DSN_RIGHT )
             reportError( _( "Missing ')'." ) );
+
+        aRule->AddConstraint( c );
+        return;
+    }
+    else if( c.m_Type == ZONE_CONNECTION_CONSTRAINT )
+    {
+        token = NextTok();
+
+        if( (int) token == DSN_STRING )
+            token = GetCurStrAsToken();
+
+        switch( token )
+        {
+        case T_solid:           c.m_ZoneConnection = ZONE_CONNECTION::FULL;    break;
+        case T_thermal_reliefs: c.m_ZoneConnection = ZONE_CONNECTION::THERMAL; break;
+        case T_none:            c.m_ZoneConnection = ZONE_CONNECTION::NONE;    break;
+
+        case T_EOF:
+            reportError( _( "Missing ')'." ) );
+            return;
+
+        default:
+            msg.Printf( _( "Unrecognized item '%s'.| Expected %s." ), FromUTF8(),
+                        "solid, thermal_reliefs or none." );
+            reportError( msg );
+            break;
+        }
+
+        if( (int) NextTok() != DSN_RIGHT )
+            reportError( _( "Missing ')'." ) );
+
+        aRule->AddConstraint( c );
+        return;
+    }
+    else if( c.m_Type == MIN_RESOLVED_SPOKES_CONSTRAINT )
+    {
+        // We don't use a min/max/opt structure here for two reasons:
+        //
+        // 1) The min/max/opt parser can't handle unitless numbers, and if we make it handle
+        //    them then it will no longer catch the more common case of forgetting to add a unit
+        //    and getting an ineffective rule because the distances are in nanometers.
+        //
+        // 2) Min/max/opt gives a strong implication that you could specify the optimal number
+        //    of spokes.  We don't want to open that door because the spoke generator is highly
+        //    optimized around being able to "cheat" off of a cartesian coordinate system.
+
+        token = NextTok();
+
+        if( (int) token == DSN_NUMBER )
+        {
+            value = (int) strtol( CurText(), nullptr, 10 );
+            c.m_Value.SetMin( value );
+        }
+        else
+        {
+            reportError( _( "Expecting number." ) );
+            parseUnknown();
+        }
+
+        if( (int) NextTok() != DSN_RIGHT )
+            reportError( _( "Missing ')'." ) );
+
+        aRule->AddConstraint( c );
+        return;
+    }
+    else if( c.m_Type == ASSERTION_CONSTRAINT )
+    {
+        token = NextTok();
+
+        if( (int) token == DSN_RIGHT )
+            reportError( _( "Missing assertion expression." ) );
+
+        if( IsSymbol( token ) )
+        {
+            c.m_Test = new DRC_RULE_CONDITION( FromUTF8() );
+            c.m_Test->Compile( m_reporter, CurLineNumber(), CurOffset() );
+        }
+        else
+        {
+            msg.Printf( _( "Unrecognized item '%s'.| Expected quoted expression." ), FromUTF8() );
+            reportError( msg );
+        }
+
+        if( (int) NextTok() != DSN_RIGHT )
+        {
+            reportError( wxString::Format( _( "Unrecognized item '%s'." ), FromUTF8() ) );
+            parseUnknown();
+        }
 
         aRule->AddConstraint( c );
         return;
@@ -498,6 +604,41 @@ LSET DRC_RULES_PARSER::parseLayer()
         reportError( wxString::Format( _( "Unrecognized item '%s'." ), FromUTF8() ) );
         parseUnknown();
     }
+
+    return retVal;
+}
+
+
+SEVERITY DRC_RULES_PARSER::parseSeverity()
+{
+    SEVERITY retVal = RPT_SEVERITY_UNDEFINED;
+    wxString msg;
+
+    T token = NextTok();
+
+    if( (int) token == DSN_RIGHT || token == T_EOF )
+    {
+        reportError( _( "Missing severity name." ) );
+        return RPT_SEVERITY_UNDEFINED;
+    }
+
+    switch( token )
+    {
+    case T_ignore:    retVal = RPT_SEVERITY_IGNORE;    break;
+    case T_warning:   retVal = RPT_SEVERITY_WARNING;   break;
+    case T_error:     retVal = RPT_SEVERITY_ERROR;     break;
+    case T_exclusion: retVal = RPT_SEVERITY_EXCLUSION; break;
+
+    default:
+        msg.Printf( _( "Unrecognized item '%s'.| Expected %s." ),
+                    FromUTF8(),
+                    "ignore, warning, error or exclusion" );
+        reportError( msg );
+        parseUnknown();
+    }
+
+    if( (int) NextTok() != DSN_RIGHT )
+        reportError( _( "Missing ')'." ) );
 
     return retVal;
 }

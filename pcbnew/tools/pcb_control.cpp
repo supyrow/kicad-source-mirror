@@ -364,8 +364,8 @@ int PCB_CONTROL::LayerNext( const TOOL_EVENT& aEvent )
 {
     PCB_BASE_FRAME* editFrame  = m_frame;
     BOARD*          brd        = board();
-    LAYER_NUM       layer      = editFrame->GetActiveLayer();
-    LAYER_NUM       startLayer = layer;
+    int             layer      = editFrame->GetActiveLayer();
+    int             startLayer = layer;
 
     if( layer < F_Cu || layer > B_Cu )
         return 0;
@@ -390,8 +390,8 @@ int PCB_CONTROL::LayerPrev( const TOOL_EVENT& aEvent )
 {
     PCB_BASE_FRAME* editFrame  = m_frame;
     BOARD*          brd        = board();
-    LAYER_NUM       layer      = editFrame->GetActiveLayer();
-    LAYER_NUM       startLayer = layer;
+    int             layer      = editFrame->GetActiveLayer();
+    int             startLayer = layer;
 
     if( layer < F_Cu || layer > B_Cu )
         return 0;
@@ -418,7 +418,7 @@ int PCB_CONTROL::LayerPrev( const TOOL_EVENT& aEvent )
 
 int PCB_CONTROL::LayerToggle( const TOOL_EVENT& aEvent )
 {
-    LAYER_NUM currentLayer = m_frame->GetActiveLayer();
+    int         currentLayer = m_frame->GetActiveLayer();
     PCB_SCREEN* screen = m_frame->GetScreen();
 
     if( currentLayer == screen->m_Route_Layer_TOP )
@@ -440,7 +440,7 @@ int PCB_CONTROL::LayerToggle( const TOOL_EVENT& aEvent )
 int PCB_CONTROL::LayerAlphaInc( const TOOL_EVENT& aEvent )
 {
     COLOR_SETTINGS* settings = m_frame->GetColorSettings();
-    LAYER_NUM       currentLayer = m_frame->GetActiveLayer();
+    int             currentLayer = m_frame->GetActiveLayer();
     KIGFX::COLOR4D  currentColor = settings->GetColor( currentLayer );
 
     if( currentColor.a <= ALPHA_MAX - ALPHA_STEP )
@@ -455,8 +455,6 @@ int PCB_CONTROL::LayerAlphaInc( const TOOL_EVENT& aEvent )
 
         if( IsCopperLayer( currentLayer ) )
             view->UpdateLayerColor( ZONE_LAYER_FOR( currentLayer ) );
-
-        static_cast<PCB_BASE_EDIT_FRAME*>( m_frame )->OnLayerAlphaChanged();
     }
     else
     {
@@ -470,7 +468,7 @@ int PCB_CONTROL::LayerAlphaInc( const TOOL_EVENT& aEvent )
 int PCB_CONTROL::LayerAlphaDec( const TOOL_EVENT& aEvent )
 {
     COLOR_SETTINGS* settings = m_frame->GetColorSettings();
-    LAYER_NUM       currentLayer = m_frame->GetActiveLayer();
+    int             currentLayer = m_frame->GetActiveLayer();
     KIGFX::COLOR4D  currentColor = settings->GetColor( currentLayer );
 
     if( currentColor.a >= ALPHA_MIN + ALPHA_STEP )
@@ -485,8 +483,6 @@ int PCB_CONTROL::LayerAlphaDec( const TOOL_EVENT& aEvent )
 
         if( IsCopperLayer( currentLayer ) )
             view->UpdateLayerColor( ZONE_LAYER_FOR( currentLayer ) );
-
-        static_cast<PCB_BASE_EDIT_FRAME*>( m_frame )->OnLayerAlphaChanged();
     }
     else
     {
@@ -981,6 +977,14 @@ int PCB_CONTROL::placeBoardItems( std::vector<BOARD_ITEM*>& aItems, bool aIsNew,
     std::vector<BOARD_ITEM*> itemsToSel;
     itemsToSel.reserve( aItems.size() );
 
+    auto updateDimensionUnits =
+            [this]( PCB_DIMENSION_BASE* dimension )
+            {
+                // Dimensions need to have their units updated if they are automatic
+                if( dimension->GetUnitsMode() == DIM_UNITS_MODE::AUTOMATIC )
+                    dimension->SetUnits( frame()->GetUserUnits() );
+            };
+
     for( BOARD_ITEM* item : aItems )
     {
         if( aIsNew )
@@ -992,32 +996,23 @@ int PCB_CONTROL::placeBoardItems( std::vector<BOARD_ITEM*>& aItems, bool aIsNew,
         }
 
         // Update item attributes if needed
-        switch( item->Type() )
+        if( BaseType( item->Type() ) == PCB_DIMENSION_T )
         {
-        case PCB_DIMENSION_T:
-        case PCB_DIM_ALIGNED_T:
-        case PCB_DIM_CENTER_T:
-        case PCB_DIM_ORTHOGONAL_T:
-        case PCB_DIM_LEADER_T:
-        {
-            // Dimensions need to have their units updated if they are automatic
-            PCB_DIMENSION_BASE* dim = static_cast<PCB_DIMENSION_BASE*>( item );
-
-            if( dim->GetUnitsMode() == DIM_UNITS_MODE::AUTOMATIC )
-                dim->SetUnits( frame()->GetUserUnits() );
-
-            break;
+            updateDimensionUnits( static_cast<PCB_DIMENSION_BASE*>( item ) );
         }
+        else if( item->Type() == PCB_FOOTPRINT_T )
+        {
+            FOOTPRINT* footprint = static_cast<FOOTPRINT*>( item );
 
-        case PCB_FOOTPRINT_T:
             // Update the footprint path with the new KIID path if the footprint is new
             if( aIsNew )
-                static_cast<FOOTPRINT*>( item )->SetPath( KIID_PATH() );
+                footprint->SetPath( KIID_PATH() );
 
-            break;
-
-        default:
-            break;
+            for( BOARD_ITEM* dwg : footprint->GraphicalItems() )
+            {
+                if( BaseType( dwg->Type() ) == PCB_DIMENSION_T )
+                    updateDimensionUnits( static_cast<PCB_DIMENSION_BASE*>( item ) );
+            }
         }
 
         // We only need to add the items that aren't inside a group currently selected

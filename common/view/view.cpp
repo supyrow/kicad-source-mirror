@@ -961,18 +961,18 @@ struct VIEW::DRAW_ITEM_VISITOR
         if( reverseDrawOrder )
         {
             std::sort( drawItems.begin(), drawItems.end(),
-                       []( VIEW_ITEM* a, VIEW_ITEM* b ) -> bool
-                       {
-                           return b->viewPrivData()->m_drawPriority < a->viewPrivData()->m_drawPriority;
-                       });
+                    []( VIEW_ITEM* a, VIEW_ITEM* b ) -> bool
+                    {
+                        return b->viewPrivData()->m_drawPriority < a->viewPrivData()->m_drawPriority;
+                    } );
         }
         else
         {
             std::sort( drawItems.begin(), drawItems.end(),
-                       []( VIEW_ITEM* a, VIEW_ITEM* b ) -> bool
-                       {
-                           return a->viewPrivData()->m_drawPriority < b->viewPrivData()->m_drawPriority;
-                       });
+                    []( VIEW_ITEM* a, VIEW_ITEM* b ) -> bool
+                    {
+                        return a->viewPrivData()->m_drawPriority < b->viewPrivData()->m_drawPriority;
+                    } );
         }
 
         for( VIEW_ITEM* item : drawItems )
@@ -1564,6 +1564,14 @@ bool VIEW::IsVisible( const VIEW_ITEM* aItem ) const
     const VIEW_ITEM_DATA* viewData = aItem->viewPrivData();
 
     return viewData && ( viewData->m_flags & VISIBLE );
+}
+
+
+bool VIEW::HasItem( const VIEW_ITEM* aItem ) const
+{
+    const VIEW_ITEM_DATA* viewData = aItem->viewPrivData();
+
+    return viewData && viewData->m_view == this;
 }
 
 

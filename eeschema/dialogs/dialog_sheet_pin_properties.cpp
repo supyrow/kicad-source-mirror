@@ -54,7 +54,7 @@ DIALOG_SHEET_PIN_PROPERTIES::DIALOG_SHEET_PIN_PROPERTIES( SCH_EDIT_FRAME* parent
 
     m_choiceConnectionType->SetSelection( 0 );
     SetInitialFocus( m_comboName );
-    m_sdbSizerOK->SetDefault();
+    SetupStandardButtons();
 
     // Set invalid label characters list:
     SCH_NETNAME_VALIDATOR validator( true );
@@ -122,7 +122,7 @@ bool DIALOG_SHEET_PIN_PROPERTIES::TransferDataFromWindow()
     // and expects text width = text height
     m_sheetPin->SetTextSize( wxSize( m_textSize.GetValue(), m_textSize.GetValue() ) );
 
-    auto shape = static_cast<PINSHEETLABEL_SHAPE>( m_choiceConnectionType->GetCurrentSelection() );
+    auto shape = static_cast<LABEL_FLAG_SHAPE>( m_choiceConnectionType->GetCurrentSelection() );
     m_sheetPin->SetShape( shape );
 
     m_frame->UpdateItem( m_sheetPin, false, true );

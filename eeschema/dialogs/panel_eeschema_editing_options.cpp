@@ -22,20 +22,18 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
-#include <sch_edit_frame.h>
+#include <pgm_base.h>
 #include <settings/settings_manager.h>
 #include <settings/color_settings.h>
-#include <painter.h>
 #include <eeschema_settings.h>
 #include "panel_eeschema_editing_options.h"
 
 
-PANEL_EESCHEMA_EDITING_OPTIONS::PANEL_EESCHEMA_EDITING_OPTIONS( SCH_EDIT_FRAME* aFrame,
-                                                                wxWindow* aWindow ) :
+PANEL_EESCHEMA_EDITING_OPTIONS::PANEL_EESCHEMA_EDITING_OPTIONS( wxWindow* aWindow,
+                                                                EDA_BASE_FRAME* aUnitsProvider ) :
         PANEL_EESCHEMA_EDITING_OPTIONS_BASE( aWindow ),
-        m_frame( aFrame ),
-        m_hPitch( aFrame, m_hPitchLabel, m_hPitchCtrl, m_hPitchUnits ),
-        m_vPitch( aFrame, m_vPitchLabel, m_vPitchCtrl, m_vPitchUnits )
+        m_hPitch( aUnitsProvider, m_hPitchLabel, m_hPitchCtrl, m_hPitchUnits ),
+        m_vPitch( aUnitsProvider, m_vPitchLabel, m_vPitchCtrl, m_vPitchUnits )
 {
     // Make the color swatch show "Clear Color" instead
     m_borderColorSwatch->SetDefaultColor( COLOR4D::UNSPECIFIED );
@@ -49,35 +47,43 @@ PANEL_EESCHEMA_EDITING_OPTIONS::PANEL_EESCHEMA_EDITING_OPTIONS( SCH_EDIT_FRAME* 
 }
 
 
-bool PANEL_EESCHEMA_EDITING_OPTIONS::TransferDataToWindow()
+void PANEL_EESCHEMA_EDITING_OPTIONS::loadEEschemaSettings( EESCHEMA_SETTINGS* aCfg )
 {
-    EESCHEMA_SETTINGS* cfg = m_frame->eeconfig();
+    m_hPitch.SetValue( Mils2iu( aCfg->m_Drawing.default_repeat_offset_x ) );
+    m_vPitch.SetValue( Mils2iu( aCfg->m_Drawing.default_repeat_offset_y ) );
+    m_spinLabelRepeatStep->SetValue( aCfg->m_Drawing.repeat_label_increment );
 
-    m_hPitch.SetValue( Mils2iu( cfg->m_Drawing.default_repeat_offset_x ) );
-    m_vPitch.SetValue( Mils2iu( cfg->m_Drawing.default_repeat_offset_y ) );
-    m_spinLabelRepeatStep->SetValue( cfg->m_Drawing.repeat_label_increment );
-
-    COLOR_SETTINGS* settings = m_frame->GetColorSettings();
-    COLOR4D         schematicBackground = settings->GetColor( LAYER_SCHEMATIC_BACKGROUND );
+    SETTINGS_MANAGER& mgr = Pgm().GetSettingsManager();
+    COLOR_SETTINGS*   settings = mgr.GetColorSettings();
+    COLOR4D           schematicBackground = settings->GetColor( LAYER_SCHEMATIC_BACKGROUND );
 
     m_borderColorSwatch->SetSwatchBackground( schematicBackground );
-    m_borderColorSwatch->SetSwatchColor( cfg->m_Drawing.default_sheet_border_color, false );
+    m_borderColorSwatch->SetSwatchColor( aCfg->m_Drawing.default_sheet_border_color, false );
 
     m_backgroundColorSwatch->SetSwatchBackground( schematicBackground );
-    m_backgroundColorSwatch->SetSwatchColor( cfg->m_Drawing.default_sheet_background_color, false );
+    m_backgroundColorSwatch->SetSwatchColor( aCfg->m_Drawing.default_sheet_background_color, false );
 
-    m_checkHVOrientation->SetValue( cfg->m_Drawing.hv_lines_only );
-    m_footprintPreview->SetValue( cfg->m_Appearance.footprint_preview );
-    m_navigatorStaysOpen->SetValue( cfg->m_Appearance.navigator_stays_open );
+    m_checkHVOrientation->SetValue( aCfg->m_Drawing.hv_lines_only );
+    m_footprintPreview->SetValue( aCfg->m_Appearance.footprint_preview );
+    m_navigatorStaysOpen->SetValue( aCfg->m_Appearance.navigator_stays_open );
 
-    m_checkAutoplaceFields->SetValue( cfg->m_AutoplaceFields.enable );
-    m_checkAutoplaceJustify->SetValue( cfg->m_AutoplaceFields.allow_rejustify );
-    m_checkAutoplaceAlign->SetValue( cfg->m_AutoplaceFields.align_to_grid );
+    m_checkAutoplaceFields->SetValue( aCfg->m_AutoplaceFields.enable );
+    m_checkAutoplaceJustify->SetValue( aCfg->m_AutoplaceFields.allow_rejustify );
+    m_checkAutoplaceAlign->SetValue( aCfg->m_AutoplaceFields.align_to_grid );
 
-    m_mouseDragIsDrag->SetValue( !cfg->m_Input.drag_is_move );
-    m_cbPinSelectionOpt->SetValue( cfg->m_Selection.select_pin_selects_symbol );
+    m_mouseDragIsDrag->SetValue( !aCfg->m_Input.drag_is_move );
+    m_cbPinSelectionOpt->SetValue( aCfg->m_Selection.select_pin_selects_symbol );
 
-    m_cbAutoStartWires->SetValue( cfg->m_Drawing.auto_start_wires );
+    m_cbAutoStartWires->SetValue( aCfg->m_Drawing.auto_start_wires );
+}
+
+
+bool PANEL_EESCHEMA_EDITING_OPTIONS::TransferDataToWindow()
+{
+    SETTINGS_MANAGER&  mgr = Pgm().GetSettingsManager();
+    EESCHEMA_SETTINGS* cfg = mgr.GetAppSettings<EESCHEMA_SETTINGS>();
+
+    loadEEschemaSettings( cfg );
 
     return true;
 }
@@ -85,7 +91,8 @@ bool PANEL_EESCHEMA_EDITING_OPTIONS::TransferDataToWindow()
 
 bool PANEL_EESCHEMA_EDITING_OPTIONS::TransferDataFromWindow()
 {
-    EESCHEMA_SETTINGS* cfg = m_frame->eeconfig();
+    SETTINGS_MANAGER&  mgr = Pgm().GetSettingsManager();
+    EESCHEMA_SETTINGS* cfg = mgr.GetAppSettings<EESCHEMA_SETTINGS>();
 
     cfg->m_Drawing.default_sheet_border_color = m_borderColorSwatch->GetSwatchColor();
     cfg->m_Drawing.default_sheet_background_color = m_backgroundColorSwatch->GetSwatchColor();
@@ -107,9 +114,16 @@ bool PANEL_EESCHEMA_EDITING_OPTIONS::TransferDataFromWindow()
 
     cfg->m_Drawing.auto_start_wires = m_cbAutoStartWires->GetValue();
 
-    m_frame->SaveProjectSettings();
-
     return true;
+}
+
+
+void PANEL_EESCHEMA_EDITING_OPTIONS::ResetPanel()
+{
+    EESCHEMA_SETTINGS cfg;
+    cfg.Load();             // Loading without a file will init to defaults
+
+    loadEEschemaSettings( &cfg );
 }
 
 

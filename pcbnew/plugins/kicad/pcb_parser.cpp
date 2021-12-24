@@ -76,7 +76,7 @@ void PCB_PARSER::init()
     // Add untranslated default (i.e. English) layernames.
     // Some may be overridden later if parsing a board rather than a footprint.
     // The English name will survive if parsing only a footprint.
-    for( LAYER_NUM layer = 0;  layer < PCB_LAYER_ID_COUNT;  ++layer )
+    for( int layer = 0;  layer < PCB_LAYER_ID_COUNT;  ++layer )
     {
         std::string untranslated = TO_UTF8( wxString( LSET::Name( PCB_LAYER_ID( layer ) ) ) );
 
@@ -114,7 +114,7 @@ void PCB_PARSER::checkpoint()
     if( m_progressReporter )
     {
         TIME_PT curTime = CLOCK::now();
-        unsigned curLine = m_lineReader->LineNumber();
+        unsigned curLine = reader->LineNumber();
         auto delta = std::chrono::duration_cast<TIMEOUT>( curTime - m_lastProgressTime );
 
         if( delta > std::chrono::milliseconds( 100 ) )
@@ -781,7 +781,7 @@ BOARD* PCB_PARSER::parseBOARD_unchecked()
             break;
 
         case T_dimension:
-            item = parseDIMENSION();
+            item = parseDIMENSION( m_board, false );
             m_board->Add( item, ADD_MODE::BULK_APPEND );
             bulkAddedItems.push_back( item );
             break;
@@ -1269,7 +1269,7 @@ void PCB_PARSER::parseLayer( LAYER* aLayer )
         Expecting( T_LEFT );
 
     // this layer_num is not used, we DO depend on LAYER_T however.
-    LAYER_NUM layer_num = parseInt( "layer index" );
+    int layer_num = parseInt( "layer index" );
 
     NeedSYMBOLorNUMBER();
     name = CurText();
@@ -2024,7 +2024,7 @@ void PCB_PARSER::parseSetup()
         }
 
         case T_pad_to_mask_clearance:
-            designSettings.m_SolderMaskMargin = parseBoardUnits( T_pad_to_mask_clearance );
+            designSettings.m_SolderMaskExpansion = parseBoardUnits( T_pad_to_mask_clearance );
             NeedRIGHT();
             break;
 
@@ -2366,6 +2366,7 @@ PCB_SHAPE* PCB_PARSER::parsePCB_SHAPE()
 
     T token;
     wxPoint pt;
+    STROKE_PARAMS stroke( 0, PLOT_DASH_TYPE::SOLID );
     std::unique_ptr<PCB_SHAPE> shape = std::make_unique<PCB_SHAPE>( nullptr );
 
     switch( CurTok() )
@@ -2572,7 +2573,6 @@ PCB_SHAPE* PCB_PARSER::parsePCB_SHAPE()
     case T_gr_poly:
     {
         shape->SetShape( SHAPE_T::POLY );
-        shape->SetWidth( 0 ); // this is the default value. will be (perhaps) modified later
         shape->SetPolyPoints( {} );
 
         SHAPE_LINE_CHAIN& outline = shape->GetPolyShape().Outline( 0 );
@@ -2639,10 +2639,20 @@ PCB_SHAPE* PCB_PARSER::parsePCB_SHAPE()
             NeedRIGHT();
             break;
 
-        case T_width:
-            shape->SetWidth( parseBoardUnits( T_width ) );
+        case T_width:       // legacy token
+            stroke.SetWidth( parseBoardUnits( T_width ) );
             NeedRIGHT();
             break;
+
+        case T_stroke:
+        {
+            STROKE_PARAMS_PARSER strokeParser( reader, IU_PER_MM );
+            strokeParser.SyncLineReaderWith( *this );
+
+            strokeParser.ParseStroke( stroke );
+            SyncLineReaderWith( strokeParser );
+            break;
+        }
 
         case T_tstamp:
             NextTok();
@@ -2699,7 +2709,7 @@ PCB_SHAPE* PCB_PARSER::parsePCB_SHAPE()
     {
         // Legacy versions didn't have a filled flag but allowed some shapes to indicate they
         // should be filled by specifying a 0 stroke-width.
-        if( shape->GetWidth() == 0
+        if( stroke.GetWidth() == 0
             && ( shape->GetShape() == SHAPE_T::RECT || shape->GetShape() == SHAPE_T::CIRCLE ) )
         {
             shape->SetFilled( true );
@@ -2713,10 +2723,12 @@ PCB_SHAPE* PCB_PARSER::parsePCB_SHAPE()
 
     // Only filled shapes may have a zero line-width.  This is not permitted in KiCad but some
     // external tools can generate invalid files.
-    if( shape->GetWidth() <= 0 && !shape->IsFilled() )
+    if( stroke.GetWidth() <= 0 && !shape->IsFilled() )
     {
-        shape->SetWidth( Millimeter2iu( DEFAULT_LINE_WIDTH ) );
+        stroke.SetWidth( Millimeter2iu( DEFAULT_LINE_WIDTH ) );
     }
+
+    shape->SetStroke( stroke );
 
     return shape.release();
 }
@@ -2791,7 +2803,7 @@ PCB_TEXT* PCB_PARSER::parsePCB_TEXT()
 }
 
 
-PCB_DIMENSION_BASE* PCB_PARSER::parseDIMENSION()
+PCB_DIMENSION_BASE* PCB_PARSER::parseDIMENSION( BOARD_ITEM* aParent, bool aInFP )
 {
     wxCHECK_MSG( CurTok() == T_dimension, nullptr,
                  wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as DIMENSION." ) );
@@ -2820,7 +2832,8 @@ PCB_DIMENSION_BASE* PCB_PARSER::parseDIMENSION()
     if( token == T_width )
     {
         isLegacyDimension = true;
-        dimension = std::make_unique<PCB_DIM_ALIGNED>( nullptr );
+        dimension = std::make_unique<PCB_DIM_ALIGNED>( aParent, aInFP ? PCB_FP_DIM_ALIGNED_T
+                                                                      : PCB_DIM_ALIGNED_T );
         dimension->SetLineThickness( parseBoardUnits( "dimension width value" ) );
         NeedRIGHT();
     }
@@ -2832,19 +2845,24 @@ PCB_DIMENSION_BASE* PCB_PARSER::parseDIMENSION()
         switch( NextTok() )
         {
         case T_aligned:
-            dimension = std::make_unique<PCB_DIM_ALIGNED>( nullptr );
+            dimension = std::make_unique<PCB_DIM_ALIGNED>( aParent, aInFP ? PCB_FP_DIM_ALIGNED_T
+                                                                          : PCB_DIM_ALIGNED_T );
             break;
 
         case T_orthogonal:
-            dimension = std::make_unique<PCB_DIM_ORTHOGONAL>( nullptr );
+            dimension = std::make_unique<PCB_DIM_ORTHOGONAL>( aParent, aInFP );
             break;
 
         case T_leader:
-            dimension = std::make_unique<PCB_DIM_LEADER>( nullptr );
+            dimension = std::make_unique<PCB_DIM_LEADER>( aParent, aInFP );
             break;
 
         case T_center:
-            dimension = std::make_unique<PCB_DIM_CENTER>( nullptr );
+            dimension = std::make_unique<PCB_DIM_CENTER>( aParent, aInFP );
+            break;
+
+        case T_radial:
+            dimension = std::make_unique<PCB_DIM_RADIAL>( aParent, aInFP );
             break;
 
         default:
@@ -2913,19 +2931,33 @@ PCB_DIMENSION_BASE* PCB_PARSER::parseDIMENSION()
 
         case T_height:
         {
-            wxCHECK_MSG( dimension->Type() == PCB_DIM_ALIGNED_T ||
-                         dimension->Type() == PCB_DIM_ORTHOGONAL_T, nullptr,
-                         wxT( "Invalid height token" ) );
+            wxCHECK_MSG( dimension->Type() == PCB_DIM_ALIGNED_T
+                            || dimension->Type() == PCB_DIM_ORTHOGONAL_T
+                            || dimension->Type() == PCB_FP_DIM_ALIGNED_T
+                            || dimension->Type() == PCB_FP_DIM_ORTHOGONAL_T,
+                         nullptr, wxT( "Invalid height token" ) );
             PCB_DIM_ALIGNED* aligned = static_cast<PCB_DIM_ALIGNED*>( dimension.get() );
             aligned->SetHeight( parseBoardUnits( "dimension height value" ) );
             NeedRIGHT();
             break;
         }
 
+        case T_leader_length:
+        {
+            wxCHECK_MSG( dimension->Type() == PCB_DIM_RADIAL_T
+                            || dimension->Type() == PCB_FP_DIM_RADIAL_T,
+                         nullptr, wxT( "Invalid leader_length token" ) );
+            PCB_DIM_RADIAL* radial = static_cast<PCB_DIM_RADIAL*>( dimension.get() );
+            radial->SetLeaderLength( parseBoardUnits( "dimension leader length value" ) );
+            NeedRIGHT();
+            break;
+        }
+
         case T_orientation:
         {
-            wxCHECK_MSG( dimension->Type() == PCB_DIM_ORTHOGONAL_T, nullptr,
-                         wxT( "Invalid orientation token" ) );
+            wxCHECK_MSG( dimension->Type() == PCB_DIM_ORTHOGONAL_T
+                            || dimension->Type() == PCB_FP_DIM_ORTHOGONAL_T,
+                         nullptr, wxT( "Invalid orientation token" ) );
             PCB_DIM_ORTHOGONAL* ortho = static_cast<PCB_DIM_ORTHOGONAL*>( dimension.get() );
 
             int orientation = parseInt( "orthogonal dimension orientation" );
@@ -3055,7 +3087,7 @@ PCB_DIMENSION_BASE* PCB_PARSER::parseDIMENSION()
 
                     int textFrame = parseInt( "dimension text frame mode" );
                     textFrame = std::max( 0, std::min( 3, textFrame ) );
-                    leader->SetTextFrame( static_cast<DIM_TEXT_FRAME>( textFrame ) );
+                    leader->SetTextBorder( static_cast<DIM_TEXT_BORDER>( textFrame ));
                     NeedRIGHT();
                     break;
                 }
@@ -3348,14 +3380,28 @@ FOOTPRINT* PCB_PARSER::parseFOOTPRINT_unchecked( wxArrayString* aInitialComments
             break;
 
         case T_autoplace_cost90:
-            footprint->SetPlacementCost90( parseInt( "auto place cost at 90 degrees" ) );
+        case T_autoplace_cost180:
+            parseInt( "legacy auto-place cost" );
             NeedRIGHT();
             break;
 
-        case T_autoplace_cost180:
-            footprint->SetPlacementCost180( parseInt( "auto place cost at 180 degrees" ) );
-            NeedRIGHT();
+        case T_private_layers:
+        {
+            LSET privateLayers;
+
+            for( token = NextTok(); token != T_RIGHT; token = NextTok() )
+            {
+                auto it = m_layerIndices.find( CurStr() );
+
+                if( it != m_layerIndices.end() )
+                    privateLayers.set( it->second );
+                else
+                    Expecting( "layer name" );
+            }
+
+            footprint->SetPrivateLayers( privateLayers );
             break;
+        }
 
         case T_solder_mask_margin:
             footprint->SetLocalSolderMaskMargin( parseBoardUnits( "local solder mask margin "
@@ -3364,14 +3410,14 @@ FOOTPRINT* PCB_PARSER::parseFOOTPRINT_unchecked( wxArrayString* aInitialComments
             break;
 
         case T_solder_paste_margin:
-            footprint->SetLocalSolderPasteMargin(
-                    parseBoardUnits( "local solder paste margin value" ) );
+            footprint->SetLocalSolderPasteMargin( parseBoardUnits( "local solder paste margin "
+                                                                   "value" ) );
             NeedRIGHT();
             break;
 
         case T_solder_paste_ratio:
-            footprint->SetLocalSolderPasteMarginRatio(
-                    parseDouble( "local solder paste margin ratio value" ) );
+            footprint->SetLocalSolderPasteMarginRatio( parseDouble( "local solder paste margin "
+                                                                    "ratio value" ) );
             NeedRIGHT();
             break;
 
@@ -3386,12 +3432,9 @@ FOOTPRINT* PCB_PARSER::parseFOOTPRINT_unchecked( wxArrayString* aInitialComments
             break;
 
         case T_thermal_width:
-            footprint->SetThermalWidth( parseBoardUnits( "thermal width value" ) );
-            NeedRIGHT();
-            break;
-
         case T_thermal_gap:
-            footprint->SetThermalGap( parseBoardUnits( "thermal gap value" ) );
+            // Interestingly, these have never been exposed in the GUI
+            parseBoardUnits( token );
             NeedRIGHT();
             break;
 
@@ -3424,9 +3467,16 @@ FOOTPRINT* PCB_PARSER::parseFOOTPRINT_unchecked( wxArrayString* aInitialComments
                     attributes |= FP_EXCLUDE_FROM_BOM;
                     break;
 
+                case T_allow_missing_courtyard:
+                    attributes |= FP_ALLOW_MISSING_COURTYARD;
+
+                case T_allow_soldermask_bridges:
+                    attributes |= FP_ALLOW_SOLDERMASK_BRIDGES;
+                    break;
+
                 default:
-                    Expecting( "through_hole, smd, virtual, board_only, exclude_from_pos_files "
-                               "or exclude_from_bom" );
+                    Expecting( "through_hole, smd, virtual, board_only, exclude_from_pos_files, "
+                               "exclude_from_bom or allow_solder_mask_bridges" );
                 }
             }
 
@@ -3476,6 +3526,13 @@ FOOTPRINT* PCB_PARSER::parseFOOTPRINT_unchecked( wxArrayString* aInitialComments
             break;
         }
 
+        case T_dimension:
+        {
+            PCB_DIMENSION_BASE* dimension = parseDIMENSION( footprint.get(), true );
+            footprint->Add( dimension, ADD_MODE::APPEND );
+            break;
+        }
+
         case T_pad:
         {
             PAD* pad = parsePAD( footprint.get() );
@@ -3510,7 +3567,7 @@ FOOTPRINT* PCB_PARSER::parseFOOTPRINT_unchecked( wxArrayString* aInitialComments
             Expecting( "locked, placed, tedit, tstamp, at, descr, tags, path, "
                        "autoplace_cost90, autoplace_cost180, solder_mask_margin, "
                        "solder_paste_margin, solder_paste_ratio, clearance, "
-                       "zone_connect, thermal_width, thermal_gap, attr, fp_text, "
+                       "zone_connect, thermal_gap, attr, fp_text, "
                        "fp_arc, fp_circle, fp_curve, fp_line, fp_poly, fp_rect, pad, "
                        "zone, group, generator, version or model" );
         }
@@ -3656,6 +3713,7 @@ FP_SHAPE* PCB_PARSER::parseFP_SHAPE()
                  wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as FP_SHAPE." ) );
 
     wxPoint pt;
+    STROKE_PARAMS stroke( 0, PLOT_DASH_TYPE::SOLID );
     T token;
 
     std::unique_ptr<FP_SHAPE> shape = std::make_unique<FP_SHAPE>( nullptr );
@@ -3918,10 +3976,20 @@ FP_SHAPE* PCB_PARSER::parseFP_SHAPE()
             NeedRIGHT();
             break;
 
-        case T_width:
-            shape->SetWidth( parseBoardUnits( T_width ) );
+        case T_width:       // legacy token
+            stroke.SetWidth( parseBoardUnits( T_width ) );
             NeedRIGHT();
             break;
+
+        case T_stroke:
+        {
+            STROKE_PARAMS_PARSER strokeParser( reader, IU_PER_MM );
+            strokeParser.SyncLineReaderWith( *this );
+
+            strokeParser.ParseStroke( stroke );
+            SyncLineReaderWith( strokeParser );
+            break;
+        }
 
         case T_tstamp:
             NextTok();
@@ -3978,7 +4046,7 @@ FP_SHAPE* PCB_PARSER::parseFP_SHAPE()
     {
         // Legacy versions didn't have a filled flag but allowed some shapes to indicate they
         // should be filled by specifying a 0 stroke-width.
-        if( shape->GetWidth() == 0
+        if( stroke.GetWidth() == 0
             && ( shape->GetShape() == SHAPE_T::RECT || shape->GetShape() == SHAPE_T::CIRCLE ) )
         {
             shape->SetFilled( true );
@@ -3992,10 +4060,12 @@ FP_SHAPE* PCB_PARSER::parseFP_SHAPE()
 
     // Only filled shapes may have a zero line-width.  This is not permitted in KiCad but some
     // external tools can generate invalid files.
-    if( shape->GetWidth() <= 0 && !shape->IsFilled() )
+    if( stroke.GetWidth() <= 0 && !shape->IsFilled() )
     {
-        shape->SetWidth( Millimeter2iu( DEFAULT_LINE_WIDTH ) );
+        stroke.SetWidth( Millimeter2iu( DEFAULT_LINE_WIDTH ) );
     }
+
+    shape->SetStroke( stroke );
 
     return shape.release();
 }
@@ -4082,6 +4152,13 @@ PAD* PCB_PARSER::parsePAD( FOOTPRINT* aParent )
     default:
         Expecting( "circle, rectangle, roundrect, oval, trapezoid or custom" );
     }
+
+    if( pad->GetShape() == PAD_SHAPE::CIRCLE )
+        pad->SetThermalSpokeAngle( 450 );
+    else if( pad->GetShape() == PAD_SHAPE::CUSTOM && pad->GetAnchorPadShape() == PAD_SHAPE::CIRCLE )
+        pad->SetThermalSpokeAngle( 450 );
+    else
+        pad->SetThermalSpokeAngle( 900 );
 
     for( token = NextTok();  token != T_RIGHT;  token = NextTok() )
     {
@@ -4270,13 +4347,20 @@ PAD* PCB_PARSER::parsePAD( FOOTPRINT* aParent )
             NeedRIGHT();
             break;
 
-        case T_thermal_width:
-            pad->SetThermalSpokeWidth( parseBoardUnits( T_thermal_width ) );
+        case T_thermal_width:       // legacy token
+        case T_thermal_bridge_width:
+            pad->SetThermalSpokeWidth( parseBoardUnits( token ) );
             NeedRIGHT();
             break;
 
+        case T_thermal_bridge_angle:
+            pad->SetThermalSpokeAngle( parseAngle( "thermal spoke angle value" ) );
+            NeedRIGHT();
+            break;
+
+
         case T_thermal_gap:
-            pad->SetThermalGap( parseBoardUnits( T_thermal_gap ) );
+            pad->SetThermalGap( parseBoardUnits( "thermal relief gap value" ) );
             NeedRIGHT();
             break;
 

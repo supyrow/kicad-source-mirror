@@ -110,6 +110,7 @@ void FOOTPRINT_EDIT_FRAME::ReCreateMenuBar()
     editMenu->Add( ACTIONS::selectAll );
 
     editMenu->AppendSeparator();
+    editMenu->Add( PCB_ACTIONS::editTextAndGraphics );
     editMenu->Add( PCB_ACTIONS::defaultPadProperties );
 
 
@@ -176,15 +177,22 @@ void FOOTPRINT_EDIT_FRAME::ReCreateMenuBar()
     ACTION_MENU* placeMenu = new ACTION_MENU( false, selTool );
 
     placeMenu->Add( PCB_ACTIONS::placePad );
+    placeMenu->Add( PCB_ACTIONS::drawRuleArea );
 
     placeMenu->AppendSeparator();
-    placeMenu->Add( PCB_ACTIONS::placeText );
     placeMenu->Add( PCB_ACTIONS::drawLine );
     placeMenu->Add( PCB_ACTIONS::drawArc );
     placeMenu->Add( PCB_ACTIONS::drawRectangle );
     placeMenu->Add( PCB_ACTIONS::drawCircle );
     placeMenu->Add( PCB_ACTIONS::drawPolygon );
-    placeMenu->Add( PCB_ACTIONS::drawRuleArea );
+    placeMenu->Add( PCB_ACTIONS::placeText );
+
+    placeMenu->AppendSeparator();
+    placeMenu->Add( PCB_ACTIONS::drawAlignedDimension );
+    placeMenu->Add( PCB_ACTIONS::drawOrthogonalDimension );
+    placeMenu->Add( PCB_ACTIONS::drawCenterDimension );
+    placeMenu->Add( PCB_ACTIONS::drawRadialDimension );
+    placeMenu->Add( PCB_ACTIONS::drawLeader );
 
     placeMenu->AppendSeparator();
     placeMenu->Add( PCB_ACTIONS::setAnchor );

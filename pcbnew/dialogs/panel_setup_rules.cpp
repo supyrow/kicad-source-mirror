@@ -275,7 +275,8 @@ void PANEL_SETUP_RULES::onScintillaCharAdded( wxStyledTextEvent &aEvent )
         {
             tokens = "condition|"
                      "constraint|"
-                     "layer";
+                     "layer|"
+                     "severity";
         }
         else if( sexprs.top() == "constraint" )
         {
@@ -291,6 +292,7 @@ void PANEL_SETUP_RULES::onScintillaCharAdded( wxStyledTextEvent &aEvent )
         else if( sexprs.top() == "constraint" )
         {
             tokens = "annular_width|"
+                     "assertion|"
                      "clearance|"
                      "courtyard_clearance|"
                      "diff_pair_gap|"
@@ -301,11 +303,19 @@ void PANEL_SETUP_RULES::onScintillaCharAdded( wxStyledTextEvent &aEvent )
                      "hole_clearance|"
                      "hole_size|"
                      "hole_to_hole|"
+                     "mechanical_clearance|"
+                     "mechanical_hole_clearance|"
+                     "min_resolved_spokes|"
                      "silk_clearance|"
                      "skew|"
+                     "text_height|"
+                     "text_thickness|"
+                     "thermal_relief_gap|"
+                     "thermal_spoke_width|"
                      "track_width|"
                      "via_count|"
-                     "via_diameter";
+                     "via_diameter|"
+                     "zone_connection";
         }
         else if( sexprs.top() == "disallow" || isDisallowToken( sexprs.top() ) )
         {
@@ -319,6 +329,14 @@ void PANEL_SETUP_RULES::onScintillaCharAdded( wxStyledTextEvent &aEvent )
                      "via|"
                      "zone";
         }
+        else if( sexprs.top() == "zone_connection" )
+        {
+            tokens = "none|solid|thermal_relief";
+        }
+        else if( sexprs.top() == "min_resolved_spokes" )
+        {
+            tokens = "0|1|2|3|4";
+        }
         else if( sexprs.top() == "layer" )
         {
             tokens = "inner|outer|\"x\"";
@@ -328,7 +346,13 @@ void PANEL_SETUP_RULES::onScintillaCharAdded( wxStyledTextEvent &aEvent )
             tokens = "warning|error|ignore|exclusion";
         }
     }
-    else if( context == STRING && !sexprs.empty() && sexprs.top() == "condition" )
+    else if( context == SEXPR_STRING && !sexprs.empty()
+            && ( sexprs.top() == "condition" || sexprs.top() == "assertion" ) )
+    {
+        m_textEditor->AddText( "\"" );
+    }
+    else if( context == STRING && !sexprs.empty()
+            && ( sexprs.top() == "condition" || sexprs.top() == "assertion" ) )
     {
         if( expr_context == STRUCT_REF )
         {

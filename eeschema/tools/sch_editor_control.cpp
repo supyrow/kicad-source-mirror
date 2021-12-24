@@ -734,8 +734,8 @@ void SCH_EDITOR_CONTROL::doCrossProbeSchToPcb( const TOOL_EVENT& aEvent, bool aF
 
 #ifdef KICAD_SPICE
 
-static KICAD_T wires[] = { SCH_LINE_LOCATE_WIRE_T, EOT };
-static KICAD_T wiresAndPins[] = { SCH_LINE_LOCATE_WIRE_T, SCH_PIN_T, SCH_SHEET_PIN_T, EOT };
+static KICAD_T wires[] = { SCH_ITEM_LOCATE_WIRE_T, EOT };
+static KICAD_T wiresAndPins[] = { SCH_ITEM_LOCATE_WIRE_T, SCH_PIN_T, SCH_SHEET_PIN_T, EOT };
 static KICAD_T fieldsAndSymbols[] = { SCH_SYMBOL_T, SCH_FIELD_T, EOT };
 
 #define HITTEST_THRESHOLD_PIXELS 5
@@ -2130,9 +2130,6 @@ int SCH_EDITOR_CONTROL::ToggleHiddenPins( const TOOL_EVENT& aEvent )
     EESCHEMA_SETTINGS* cfg = m_frame->eeconfig();
     cfg->m_Appearance.show_hidden_pins = !cfg->m_Appearance.show_hidden_pins;
 
-    KIGFX::SCH_PAINTER* painter = static_cast<KIGFX::SCH_PAINTER*>( getView()->GetPainter() );
-    painter->GetSettings()->m_ShowHiddenPins = m_frame->GetShowAllPins();
-
     getView()->UpdateAllItems( KIGFX::REPAINT );
     m_frame->GetCanvas()->Refresh();
 
@@ -2145,10 +2142,43 @@ int SCH_EDITOR_CONTROL::ToggleHiddenFields( const TOOL_EVENT& aEvent )
     EESCHEMA_SETTINGS* cfg = m_frame->eeconfig();
     cfg->m_Appearance.show_hidden_fields = !cfg->m_Appearance.show_hidden_fields;
 
-    KIGFX::SCH_PAINTER* painter = static_cast<KIGFX::SCH_PAINTER*>( getView()->GetPainter() );
-    painter->GetSettings()->m_ShowHiddenText = cfg->m_Appearance.show_hidden_fields;
-
     getView()->UpdateAllItems( KIGFX::REPAINT );
+    m_frame->GetCanvas()->Refresh();
+
+    return 0;
+}
+
+
+int SCH_EDITOR_CONTROL::ToggleERCWarnings( const TOOL_EVENT& aEvent )
+{
+    EESCHEMA_SETTINGS* cfg = m_frame->eeconfig();
+    cfg->m_Appearance.show_erc_warnings = !cfg->m_Appearance.show_erc_warnings;
+
+    getView()->SetLayerVisible( LAYER_ERC_WARN, cfg->m_Appearance.show_erc_warnings );
+    m_frame->GetCanvas()->Refresh();
+
+    return 0;
+}
+
+
+int SCH_EDITOR_CONTROL::ToggleERCErrors( const TOOL_EVENT& aEvent )
+{
+    EESCHEMA_SETTINGS* cfg = m_frame->eeconfig();
+    cfg->m_Appearance.show_erc_errors = !cfg->m_Appearance.show_erc_errors;
+
+    getView()->SetLayerVisible( LAYER_ERC_ERR, cfg->m_Appearance.show_erc_errors );
+    m_frame->GetCanvas()->Refresh();
+
+    return 0;
+}
+
+
+int SCH_EDITOR_CONTROL::ToggleERCExclusions( const TOOL_EVENT& aEvent )
+{
+    EESCHEMA_SETTINGS* cfg = m_frame->eeconfig();
+    cfg->m_Appearance.show_erc_exclusions = !cfg->m_Appearance.show_erc_exclusions;
+
+    getView()->SetLayerVisible( LAYER_ERC_EXCLUSION, cfg->m_Appearance.show_erc_exclusions );
     m_frame->GetCanvas()->Refresh();
 
     return 0;
@@ -2333,6 +2363,9 @@ void SCH_EDITOR_CONTROL::setTransitions()
 
     Go( &SCH_EDITOR_CONTROL::ToggleHiddenPins,      EE_ACTIONS::toggleHiddenPins.MakeEvent() );
     Go( &SCH_EDITOR_CONTROL::ToggleHiddenFields,    EE_ACTIONS::toggleHiddenFields.MakeEvent() );
+    Go( &SCH_EDITOR_CONTROL::ToggleERCWarnings,     EE_ACTIONS::toggleERCWarnings.MakeEvent() );
+    Go( &SCH_EDITOR_CONTROL::ToggleERCErrors,       EE_ACTIONS::toggleERCErrors.MakeEvent() );
+    Go( &SCH_EDITOR_CONTROL::ToggleERCExclusions,   EE_ACTIONS::toggleERCExclusions.MakeEvent() );
     Go( &SCH_EDITOR_CONTROL::ToggleForceHV,         EE_ACTIONS::toggleForceHV.MakeEvent() );
 
     Go( &SCH_EDITOR_CONTROL::TogglePythonConsole,   EE_ACTIONS::showPythonConsole.MakeEvent() );

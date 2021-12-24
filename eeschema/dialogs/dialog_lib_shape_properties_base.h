@@ -10,6 +10,8 @@
 #include <wx/artprov.h>
 #include <wx/xrc/xmlres.h>
 #include <wx/intl.h>
+class COLOR_SWATCH;
+
 #include "dialog_shim.h"
 #include <wx/string.h>
 #include <wx/stattext.h>
@@ -19,7 +21,9 @@
 #include <wx/settings.h>
 #include <wx/textctrl.h>
 #include <wx/sizer.h>
-#include <wx/radiobox.h>
+#include <wx/radiobut.h>
+#include <wx/gbsizer.h>
+#include <wx/statbox.h>
 #include <wx/checkbox.h>
 #include <wx/statline.h>
 #include <wx/button.h>
@@ -32,20 +36,41 @@
 ///////////////////////////////////////////////////////////////////////////////
 class DIALOG_LIB_SHAPE_PROPERTIES_BASE : public DIALOG_SHIM
 {
+	DECLARE_EVENT_TABLE()
 	private:
 
+		// Private event handlers
+		void _wxFB_onFill( wxCommandEvent& event ){ onFill( event ); }
+
+
 	protected:
+		enum
+		{
+			NO_FILL = 1000,
+			FILLED_SHAPE,
+			FILLED_WITH_BG_BODYCOLOR,
+			FILLED_WITH_COLOR
+		};
+
 		wxStaticText* m_widthLabel;
 		wxTextCtrl* m_widthCtrl;
 		wxStaticText* m_widthUnits;
 		wxStaticText* m_helpLabel;
-		wxRadioBox* m_fillCtrl;
+		wxRadioButton* m_rbFillNone;
+		wxRadioButton* m_rbFillOutline;
+		wxRadioButton* m_rbFillBackground;
+		wxRadioButton* m_rbFillCustom;
+		COLOR_SWATCH* m_colorSwatch;
 		wxCheckBox* m_checkApplyToAllUnits;
 		wxCheckBox* m_checkApplyToAllConversions;
 		wxStaticLine* m_staticline;
 		wxStdDialogButtonSizer* m_sdbSizer;
 		wxButton* m_sdbSizerOK;
 		wxButton* m_sdbSizerCancel;
+
+		// Virtual event handlers, overide them in your derived class
+		virtual void onFill( wxCommandEvent& event ) { event.Skip(); }
+
 
 	public:
 

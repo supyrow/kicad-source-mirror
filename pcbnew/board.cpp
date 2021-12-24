@@ -75,7 +75,7 @@ BOARD::BOARD() :
     // we have not loaded a board yet, assume latest until then.
     m_fileFormatVersionAtLoad = LEGACY_BOARD_FILE_VERSION;
 
-    for( LAYER_NUM layer = 0; layer < PCB_LAYER_ID_COUNT; ++layer )
+    for( int layer = 0; layer < PCB_LAYER_ID_COUNT; ++layer )
     {
         m_layers[layer].m_name = GetStandardLayerName( ToLAYER_ID( layer ) );
 
@@ -84,6 +84,18 @@ BOARD::BOARD() :
         else
             m_layers[layer].m_type = LT_UNDEFINED;
     }
+
+    m_SolderMask = new ZONE( this );
+    m_SolderMask->SetLayerSet( LSET().set( F_Mask ).set( B_Mask ) );
+    m_SolderMask->SetOutline( new SHAPE_POLY_SET() );
+    int infinity = ( std::numeric_limits<int>::max() / 2 ) - Millimeter2iu( 1 );
+    m_SolderMask->Outline()->NewOutline();
+    m_SolderMask->Outline()->Append( VECTOR2I( -infinity, -infinity ) );
+    m_SolderMask->Outline()->Append( VECTOR2I( -infinity, +infinity ) );
+    m_SolderMask->Outline()->Append( VECTOR2I( +infinity, +infinity ) );
+    m_SolderMask->Outline()->Append( VECTOR2I( +infinity, -infinity ) );
+    m_SolderMask->SetMinThickness( 0 );
+    m_SolderMask->SetFillVersion( 6 );
 
     BOARD_DESIGN_SETTINGS& bds = GetDesignSettings();
 
@@ -111,6 +123,8 @@ BOARD::~BOARD()
         delete zone;
 
     m_zones.clear();
+
+    delete m_SolderMask;
 
     for( FOOTPRINT* footprint : m_footprints )
         delete footprint;
@@ -207,13 +221,27 @@ void BOARD::IncrementTimeStamp()
 
 std::vector<PCB_MARKER*> BOARD::ResolveDRCExclusions()
 {
+    std::shared_ptr<CONNECTIVITY_DATA> conn = GetConnectivity();
+
+    auto setExcluded =
+            [&conn]( PCB_MARKER* aMarker )
+            {
+                if( aMarker->GetMarkerType() == MARKER_BASE::MARKER_RATSNEST )
+                {
+                    const std::shared_ptr<RC_ITEM>& rcItem = aMarker->GetRCItem();
+                    conn->AddExclusion( rcItem->GetMainItemID(), rcItem->GetAuxItemID() );
+                }
+
+                aMarker->SetExcluded( true );
+            };
+
     for( PCB_MARKER* marker : GetBoard()->Markers() )
     {
         auto i = m_designSettings->m_DrcExclusions.find( marker->Serialize() );
 
         if( i != m_designSettings->m_DrcExclusions.end() )
         {
-            marker->SetExcluded( true );
+            setExcluded( marker );
             m_designSettings->m_DrcExclusions.erase( i );
         }
     }
@@ -226,7 +254,7 @@ std::vector<PCB_MARKER*> BOARD::ResolveDRCExclusions()
 
         if( marker )
         {
-            marker->SetExcluded( true );
+            setExcluded( marker );
             newMarkers.push_back( marker );
         }
     }
@@ -275,15 +303,12 @@ void BOARD::Move( const wxPoint& aMoveVector )        // overload
         PCB_DIM_ALIGNED_T,
         PCB_DIM_ORTHOGONAL_T,
         PCB_DIM_CENTER_T,
+        PCB_DIM_RADIAL_T,
         PCB_DIM_LEADER_T,
         PCB_TARGET_T,
         PCB_VIA_T,
         PCB_TRACE_T,
         PCB_ARC_T,
-        //        PCB_PAD_T,            Can't be at board level
-        //        PCB_FP_TEXT_T,        Can't be at board level
-        //        PCB_FP_SHAPE_T,       Can't be at board level
-        //        PCB_FP_ZONE_T,        Can't be at board level
         PCB_FOOTPRINT_T,
         PCB_ZONE_T,
         EOT
@@ -339,17 +364,15 @@ bool BOARD::SetLayerDescr( PCB_LAYER_ID aIndex, const LAYER& aLayer )
 
 const PCB_LAYER_ID BOARD::GetLayerID( const wxString& aLayerName ) const
 {
-
     // Check the BOARD physical layer names.
-    for( LAYER_NUM layer = 0; layer < PCB_LAYER_ID_COUNT; ++layer )
+    for( int layer = 0; layer < PCB_LAYER_ID_COUNT; ++layer )
     {
-        if ( ( m_layers[ layer ].m_name == aLayerName )
-                || ( m_layers[ layer ].m_userName == aLayerName ) )
+        if ( m_layers[ layer ].m_name == aLayerName || m_layers[ layer ].m_userName == aLayerName )
             return ToLAYER_ID( layer );
     }
 
     // Otherwise fall back to the system standard layer names for virtual layers.
-    for( LAYER_NUM layer = 0; layer < PCB_LAYER_ID_COUNT; ++layer )
+    for( int layer = 0; layer < PCB_LAYER_ID_COUNT; ++layer )
     {
         if( GetStandardLayerName( ToLAYER_ID( layer ) ) == aLayerName )
             return ToLAYER_ID( layer );
@@ -398,8 +421,6 @@ LAYER_T BOARD::GetLayerType( PCB_LAYER_ID aLayer ) const
     if( !IsCopperLayer( aLayer ) )
         return LT_SIGNAL;
 
-    //@@IMB: The original test was broken due to the discontinuity
-    // in the layer sequence.
     if( IsLayerEnabled( aLayer ) )
         return m_layers[aLayer].m_type;
 
@@ -412,8 +433,6 @@ bool BOARD::SetLayerType( PCB_LAYER_ID aLayer, LAYER_T aLayerType )
     if( !IsCopperLayer( aLayer ) )
         return false;
 
-    //@@IMB: The original test was broken due to the discontinuity
-    // in the layer sequence.
     if( IsLayerEnabled( aLayer ) )
     {
         m_layers[aLayer].m_type = aLayerType;
@@ -573,15 +592,9 @@ bool BOARD::IsFootprintLayerVisible( PCB_LAYER_ID aLayer ) const
 {
     switch( aLayer )
     {
-    case F_Cu:
-        return IsElementVisible( LAYER_MOD_FR );
-
-    case B_Cu:
-        return IsElementVisible( LAYER_MOD_BK );
-
-    default:
-        wxFAIL_MSG( wxT( "BOARD::IsModuleLayerVisible() param error: bad layer" ) );
-        return true;
+    case F_Cu: return IsElementVisible( LAYER_MOD_FR );
+    case B_Cu: return IsElementVisible( LAYER_MOD_BK );
+    default:   wxFAIL_MSG( wxT( "BOARD::IsModuleLayerVisible(): bad layer" ) ); return true;
     }
 }
 
@@ -662,6 +675,7 @@ void BOARD::Add( BOARD_ITEM* aBoardItem, ADD_MODE aMode )
 
     case PCB_DIM_ALIGNED_T:
     case PCB_DIM_CENTER_T:
+    case PCB_DIM_RADIAL_T:
     case PCB_DIM_ORTHOGONAL_T:
     case PCB_DIM_LEADER_T:
     case PCB_SHAPE_T:
@@ -768,6 +782,7 @@ void BOARD::Remove( BOARD_ITEM* aBoardItem, REMOVE_MODE aRemoveMode )
 
     case PCB_DIM_ALIGNED_T:
     case PCB_DIM_CENTER_T:
+    case PCB_DIM_RADIAL_T:
     case PCB_DIM_ORTHOGONAL_T:
     case PCB_DIM_LEADER_T:
     case PCB_SHAPE_T:
@@ -818,8 +833,8 @@ void BOARD::DeleteMARKERs( bool aWarningsAndErrors, bool aExclusions )
 
     for( PCB_MARKER* marker : m_markers )
     {
-        if( ( marker->IsExcluded() && aExclusions )
-                || ( !marker->IsExcluded() && aWarningsAndErrors ) )
+        if( ( marker->GetSeverity() == RPT_SEVERITY_EXCLUSION && aExclusions )
+                || ( marker->GetSeverity() != RPT_SEVERITY_EXCLUSION && aWarningsAndErrors ) )
         {
             delete marker;
         }
@@ -1211,6 +1226,11 @@ SEARCH_RESULT BOARD::Visit( INSPECTOR inspector, void* testData, const KICAD_T s
         case PCB_PAD_T:
         case PCB_FP_TEXT_T:
         case PCB_FP_SHAPE_T:
+        case PCB_FP_DIM_ALIGNED_T:
+        case PCB_FP_DIM_LEADER_T:
+        case PCB_FP_DIM_CENTER_T:
+        case PCB_FP_DIM_RADIAL_T:
+        case PCB_FP_DIM_ORTHOGONAL_T:
         case PCB_FP_ZONE_T:
 
             // this calls FOOTPRINT::Visit() on each footprint.
@@ -1225,6 +1245,11 @@ SEARCH_RESULT BOARD::Visit( INSPECTOR inspector, void* testData, const KICAD_T s
                 case PCB_PAD_T:
                 case PCB_FP_TEXT_T:
                 case PCB_FP_SHAPE_T:
+                case PCB_FP_DIM_ALIGNED_T:
+                case PCB_FP_DIM_LEADER_T:
+                case PCB_FP_DIM_CENTER_T:
+                case PCB_FP_DIM_RADIAL_T:
+                case PCB_FP_DIM_ORTHOGONAL_T:
                 case PCB_FP_ZONE_T:
                     continue;
 
@@ -1241,6 +1266,7 @@ SEARCH_RESULT BOARD::Visit( INSPECTOR inspector, void* testData, const KICAD_T s
         case PCB_TEXT_T:
         case PCB_DIM_ALIGNED_T:
         case PCB_DIM_CENTER_T:
+        case PCB_DIM_RADIAL_T:
         case PCB_DIM_ORTHOGONAL_T:
         case PCB_DIM_LEADER_T:
         case PCB_TARGET_T:
@@ -1255,6 +1281,7 @@ SEARCH_RESULT BOARD::Visit( INSPECTOR inspector, void* testData, const KICAD_T s
                 case PCB_TEXT_T:
                 case PCB_DIM_ALIGNED_T:
                 case PCB_DIM_CENTER_T:
+                case PCB_DIM_RADIAL_T:
                 case PCB_DIM_ORTHOGONAL_T:
                 case PCB_DIM_LEADER_T:
                 case PCB_TARGET_T:

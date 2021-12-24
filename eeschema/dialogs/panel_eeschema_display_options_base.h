@@ -10,6 +10,7 @@
 #include <wx/artprov.h>
 #include <wx/xrc/xmlres.h>
 #include <wx/intl.h>
+#include "widgets/resettable_panel.h"
 #include <wx/sizer.h>
 #include <wx/gdicmn.h>
 #include <wx/string.h>
@@ -20,6 +21,7 @@
 #include <wx/statbox.h>
 #include <wx/stattext.h>
 #include <wx/spinctrl.h>
+#include <wx/gbsizer.h>
 #include <wx/panel.h>
 
 ///////////////////////////////////////////////////////////////////////////
@@ -27,7 +29,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 /// Class PANEL_EESCHEMA_DISPLAY_OPTIONS_BASE
 ///////////////////////////////////////////////////////////////////////////////
-class PANEL_EESCHEMA_DISPLAY_OPTIONS_BASE : public wxPanel
+class PANEL_EESCHEMA_DISPLAY_OPTIONS_BASE : public RESETTABLE_PANEL
 {
 	private:
 
@@ -35,6 +37,9 @@ class PANEL_EESCHEMA_DISPLAY_OPTIONS_BASE : public wxPanel
 		wxBoxSizer* m_galOptionsSizer;
 		wxCheckBox* m_checkShowHiddenPins;
 		wxCheckBox* m_checkShowHiddenFields;
+		wxCheckBox* m_checkShowERCErrors;
+		wxCheckBox* m_checkShowERCWarnings;
+		wxCheckBox* m_checkShowERCExclusions;
 		wxCheckBox* m_checkPageLimits;
 		wxCheckBox* m_checkSelTextBox;
 		wxCheckBox* m_checkSelDrawChildItems;
@@ -42,6 +47,8 @@ class PANEL_EESCHEMA_DISPLAY_OPTIONS_BASE : public wxPanel
 		wxStaticText* m_selWidthLabel;
 		wxSpinCtrlDouble* m_selWidthCtrl;
 		wxStaticText* m_highlightColorNote;
+		wxStaticText* m_highlightWidthLabel;
+		wxSpinCtrlDouble* m_highlightWidthCtrl;
 		wxCheckBox* m_checkCrossProbeCenter;
 		wxCheckBox* m_checkCrossProbeZoom;
 		wxCheckBox* m_checkCrossProbeAutoHighlight;

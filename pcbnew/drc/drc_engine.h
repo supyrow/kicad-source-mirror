@@ -143,12 +143,18 @@ public:
      */
     void RunTests( EDA_UNITS aUnits,  bool aReportAllTrackErrors, bool aTestFootprints );
 
-
     bool IsErrorLimitExceeded( int error_code );
 
     DRC_CONSTRAINT EvalRules( DRC_CONSTRAINT_T aConstraintType, const BOARD_ITEM* a,
                               const BOARD_ITEM* b, PCB_LAYER_ID aLayer,
                               REPORTER* aReporter = nullptr );
+
+    DRC_CONSTRAINT EvalZoneConnection( const BOARD_ITEM* a, const BOARD_ITEM* b,
+                                       PCB_LAYER_ID aLayer, REPORTER* aReporter = nullptr );
+
+    void ProcessAssertions( const BOARD_ITEM* a,
+                            std::function<void( const DRC_CONSTRAINT* )> aFailureHandler,
+                            REPORTER* aReporter = nullptr );
 
     bool HasRulesForConstraintType( DRC_CONSTRAINT_T constraintID );
 
@@ -165,7 +171,7 @@ public:
 
     bool QueryWorstConstraint( DRC_CONSTRAINT_T aRuleId, DRC_CONSTRAINT& aConstraint );
 
-    std::vector<DRC_TEST_PROVIDER* > GetTestProviders() const { return m_testProviders; };
+    std::vector<DRC_TEST_PROVIDER*> GetTestProviders() const { return m_testProviders; };
 
     DRC_TEST_PROVIDER* GetTestProvider( const wxString& name ) const;
 

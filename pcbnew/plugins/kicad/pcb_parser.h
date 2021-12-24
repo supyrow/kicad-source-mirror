@@ -72,50 +72,19 @@ class PROGRESS_REPORTER;
 class PCB_PARSER : public PCB_LEXER
 {
 public:
-    PCB_PARSER( LINE_READER* aReader = nullptr ) :
+    PCB_PARSER( LINE_READER* aReader, BOARD* aBoard = nullptr,
+                PROGRESS_REPORTER* aProgressReporter = nullptr, unsigned aLineCount = 0 ) :
         PCB_LEXER( aReader ),
-        m_board( nullptr ),
-        m_resetKIIDs( false ),
-        m_progressReporter( nullptr ),
-        m_lineReader( nullptr ),
+        m_board( aBoard ),
+        m_resetKIIDs( aBoard != nullptr ),
+        m_progressReporter( aProgressReporter ),
         m_lastProgressTime( std::chrono::steady_clock::now() ),
-        m_lineCount( 0 )
+        m_lineCount( aLineCount )
     {
         init();
     }
 
     // ~PCB_PARSER() {}
-
-    /**
-     * Set @a aLineReader into the parser, and returns the previous one, if any.
-     *
-     * @param aReader is what to read from for tokens, no ownership is received.
-     * @return LINE_READER* - previous LINE_READER or NULL if none.
-     */
-    LINE_READER* SetLineReader( LINE_READER* aReader )
-    {
-        LINE_READER* ret = PopReader();
-        PushReader( aReader );
-        return ret;
-    }
-
-    void SetBoard( BOARD* aBoard )
-    {
-        init();
-        m_board = aBoard;
-
-        if( aBoard != nullptr )
-            m_resetKIIDs = true;
-    }
-
-    void SetProgressReporter( PROGRESS_REPORTER* aProgressReporter, const LINE_READER* aLineReader,
-                              unsigned aLineCount )
-    {
-        m_progressReporter = aProgressReporter;
-        m_lineReader = aLineReader;
-        m_lastProgressTime = std::chrono::steady_clock::now();
-        m_lineCount = aLineCount;
-    }
 
     BOARD_ITEM* Parse();
 
@@ -205,7 +174,7 @@ private:
 
     PCB_SHAPE*          parsePCB_SHAPE();
     PCB_TEXT*           parsePCB_TEXT();
-    PCB_DIMENSION_BASE* parseDIMENSION();
+    PCB_DIMENSION_BASE* parseDIMENSION( BOARD_ITEM* aParent, bool aInFP );
 
     // Parse a footprint, but do not replace PARSE_ERROR with FUTURE_FORMAT_ERROR automatically.
     FOOTPRINT*          parseFOOTPRINT_unchecked( wxArrayString* aInitialComments = nullptr );
@@ -389,7 +358,6 @@ private:
     bool                m_showLegacyZoneWarning;
 
     PROGRESS_REPORTER*  m_progressReporter;  ///< optional; may be nullptr
-    const LINE_READER*  m_lineReader;        ///< for progress reporting
     TIME_PT             m_lastProgressTime;  ///< for progress reporting
     unsigned            m_lineCount;         ///< for progress reporting
 

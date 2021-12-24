@@ -36,18 +36,38 @@ RENDER_SETTINGS::RENDER_SETTINGS() :
     m_selectFactor          = 0.5f;
     m_highlightEnabled      = false;
     m_hiContrastEnabled     = false;
-    m_hiContrastFactor      = 0.2f; //TODO: Make this user-configurable
+    m_hiContrastFactor      = 0.2f;
     m_outlineWidth          = 1;
     m_drawingSheetLineWidth = 100000;
     m_defaultPenWidth       = 0;
     m_minPenWidth           = 0;
-    m_showPageLimits        = false;
     m_isPrinting            = false;
 }
 
 
 RENDER_SETTINGS::~RENDER_SETTINGS()
 {
+}
+
+
+constexpr double visualCorrection = 0.8;
+
+
+double RENDER_SETTINGS::GetDashLength( int aLineWidth ) const
+{
+    return std::max( m_dashLengthRatio - visualCorrection, 1.0 ) * aLineWidth;
+}
+
+
+double RENDER_SETTINGS::GetDotLength( int aLineWidth ) const
+{
+    return ( 1.0 - visualCorrection ) * aLineWidth;
+}
+
+
+double RENDER_SETTINGS::GetGapLength( int aLineWidth ) const
+{
+    return std::max( m_gapLengthRatio + visualCorrection, 1.0 ) * aLineWidth;
 }
 
 

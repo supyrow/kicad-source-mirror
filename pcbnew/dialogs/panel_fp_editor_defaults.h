@@ -21,17 +21,21 @@
 #define PANEL_FP_EDITOR_DEFAULTS_H
 
 #include <panel_fp_editor_defaults_base.h>
-#include <board_design_settings.h>
-#include <widgets/unit_binder.h>
 
-class FOOTPRINT_EDIT_FRAME;
+class PAGED_DIALOG;
+class FOOTPRINT_EDITOR_SETTINGS;
 
 
 class PANEL_FP_EDITOR_DEFAULTS : public PANEL_FP_EDITOR_DEFAULTS_BASE
 {
 public:
-    PANEL_FP_EDITOR_DEFAULTS( FOOTPRINT_EDIT_FRAME* aFrame, PAGED_DIALOG* aParent );
+    PANEL_FP_EDITOR_DEFAULTS( wxWindow* aParent, EDA_BASE_FRAME* aUnitsProvider );
     ~PANEL_FP_EDITOR_DEFAULTS() override;
+
+    bool TransferDataToWindow() override;
+    bool TransferDataFromWindow() override;
+
+    void ResetPanel() override;
 
 private:
     virtual void OnAddTextItem( wxCommandEvent& event ) override;
@@ -43,13 +47,12 @@ private:
 
     bool validateData();
 
-    bool TransferDataToWindow() override;
-    bool TransferDataFromWindow() override;
+    void loadFPSettings( FOOTPRINT_EDITOR_SETTINGS* aCfg );
 
-    BOARD_DESIGN_SETTINGS   m_brdSettings;
-    FOOTPRINT_EDIT_FRAME*   m_frame;
-    PAGED_DIALOG*           m_parent;
-    bool                    m_firstShow = true;
+private:
+    EDA_UNITS     m_units = EDA_UNITS::MILLIMETRES;
+    PAGED_DIALOG* m_parent;
+    bool          m_firstShow = true;
 };
 
 

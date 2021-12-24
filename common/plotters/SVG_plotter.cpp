@@ -238,10 +238,8 @@ void SVG_PLOTTER::setSVGPlotStyle( bool aIsGroup, const std::string& aExtraStyle
     {
     case FILL_T::NO_FILL:                  fputs( "fill-opacity:0.0; ", m_outputFile ); break;
     case FILL_T::FILLED_SHAPE:             fputs( "fill-opacity:1.0; ", m_outputFile ); break;
-    case FILL_T::FILLED_WITH_BG_BODYCOLOR: fputs( "fill-opacity:0.6; ", m_outputFile ); break;
-    case FILL_T::FILLED_WITH_COLOR:
-        UNIMPLEMENTED_FOR( "FILLED_WITH_COLOR"  );
-        break;
+    case FILL_T::FILLED_WITH_BG_BODYCOLOR:
+    case FILL_T::FILLED_WITH_COLOR:        fputs( "fill-opacity:0.6; ", m_outputFile ); break;
     }
 
     double pen_w = userToDeviceSize( GetCurrentLineWidth() );
@@ -257,14 +255,22 @@ void SVG_PLOTTER::setSVGPlotStyle( bool aIsGroup, const std::string& aExtraStyle
     switch( m_dashed )
     {
     case PLOT_DASH_TYPE::DASH:
-        fprintf( m_outputFile, "stroke-dasharray:%f,%f;", GetDashMarkLenIU(), GetDashGapLenIU() );
+        fprintf( m_outputFile, "stroke-dasharray:%f,%f;",
+                 GetDashMarkLenIU(), GetDashGapLenIU() );
         break;
     case PLOT_DASH_TYPE::DOT:
-        fprintf( m_outputFile, "stroke-dasharray:%f,%f;", GetDotMarkLenIU(), GetDashGapLenIU() );
+        fprintf( m_outputFile, "stroke-dasharray:%f,%f;",
+                 GetDotMarkLenIU(), GetDashGapLenIU() );
         break;
     case PLOT_DASH_TYPE::DASHDOT:
         fprintf( m_outputFile, "stroke-dasharray:%f,%f,%f,%f;",
                  GetDashMarkLenIU(), GetDashGapLenIU(),
+                 GetDotMarkLenIU(), GetDashGapLenIU() );
+        break;
+    case PLOT_DASH_TYPE::DASHDOTDOT:
+        fprintf( m_outputFile, "stroke-dasharray:%f,%f,%f,%f,%f,%f;",
+                 GetDashMarkLenIU(), GetDashGapLenIU(),
+                 GetDotMarkLenIU(), GetDashGapLenIU(),
                  GetDotMarkLenIU(), GetDashGapLenIU() );
         break;
     case PLOT_DASH_TYPE::DEFAULT:
@@ -568,11 +574,8 @@ void SVG_PLOTTER::PlotPoly( const std::vector<wxPoint>& aCornerList, FILL_T aFil
 
     case FILL_T::FILLED_WITH_BG_BODYCOLOR:
     case FILL_T::FILLED_SHAPE:
-        setSVGPlotStyle( false, "fill-rule:evenodd;" );
-        break;
-
     case FILL_T::FILLED_WITH_COLOR:
-        wxFAIL_MSG( "FILLED_WITH_COLOR not implemented"  );
+        setSVGPlotStyle( false, "fill-rule:evenodd;" );
         break;
     }
 

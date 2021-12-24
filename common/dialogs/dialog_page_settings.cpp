@@ -111,6 +111,8 @@ DIALOG_PAGES_SETTINGS::DIALOG_PAGES_SETTINGS( EDA_DRAW_FRAME* aParent, double aI
         m_staticTextTitleBlock->SetLabel( _( "Title Block" ) );
     }
 
+    SetupStandardButtons();
+
     Centre();
 }
 
@@ -197,8 +199,6 @@ bool DIALOG_PAGES_SETTINGS::TransferDataToWindow()
 
     GetSizer()->SetSizeHints( this );
 
-    // Make the OK button the default.
-    m_sdbSizerOK->SetDefault();
     m_initialized = true;
 
     return true;
@@ -542,8 +542,7 @@ bool DIALOG_PAGES_SETTINGS::SavePageSettings()
 
     if( !success )
     {
-        wxASSERT_MSG( false,
-                      _( "the translation for paper size must preserve original spellings" ) );
+        wxFAIL_MSG( "The translation for paper size must preserve original spellings" );
         m_pageInfo.SetType( PAGE_INFO::A4 );
     }
 

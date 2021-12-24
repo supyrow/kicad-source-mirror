@@ -65,12 +65,14 @@ enum INCLUDE_NPTH_T
  */
 enum FOOTPRINT_ATTR_T
 {
-    FP_THROUGH_HOLE           = 0x0001,
-    FP_SMD                    = 0x0002,
-    FP_EXCLUDE_FROM_POS_FILES = 0x0004,
-    FP_EXCLUDE_FROM_BOM       = 0x0008,
-    FP_BOARD_ONLY             = 0x0010,   // Footprint has no corresponding symbol
-    FP_JUST_ADDED             = 0x0020    // Footprint just added by netlist update
+    FP_THROUGH_HOLE             = 0x0001,
+    FP_SMD                      = 0x0002,
+    FP_EXCLUDE_FROM_POS_FILES   = 0x0004,
+    FP_EXCLUDE_FROM_BOM         = 0x0008,
+    FP_BOARD_ONLY               = 0x0010,   // Footprint has no corresponding symbol
+    FP_JUST_ADDED               = 0x0020,   // Footprint just added by netlist update
+    FP_ALLOW_SOLDERMASK_BRIDGES = 0x0040,
+    FP_ALLOW_MISSING_COURTYARD  = 0x0080
 };
 
 class FP_3DMODEL
@@ -119,6 +121,9 @@ public:
     {
         return aItem && aItem->Type() == PCB_FOOTPRINT_T;
     }
+
+    LSET GetPrivateLayers() const { return m_privateLayers; }
+    void SetPrivateLayers( LSET aLayers ) { m_privateLayers = aLayers; }
 
     ///< @copydoc BOARD_ITEM_CONTAINER::Add()
     void Add( BOARD_ITEM* aItem, ADD_MODE aMode = ADD_MODE::INSERT ) override;
@@ -180,8 +185,8 @@ public:
 
     bool HasThroughHolePads() const;
 
-    std::list<FP_3DMODEL>& Models()             { return m_3D_Drawings; }
-    const std::list<FP_3DMODEL>& Models() const { return m_3D_Drawings; }
+    std::vector<FP_3DMODEL>& Models()             { return m_3D_Drawings; }
+    const std::vector<FP_3DMODEL>& Models() const { return m_3D_Drawings; }
 
     void SetPosition( const wxPoint& aPos ) override;
     wxPoint GetPosition() const override { return m_pos; }
@@ -226,12 +231,6 @@ public:
 
     void SetZoneConnection( ZONE_CONNECTION aType ) { m_zoneConnection = aType; }
     ZONE_CONNECTION GetZoneConnection() const { return m_zoneConnection; }
-
-    void SetThermalWidth( int aWidth ) { m_thermalWidth = aWidth; }
-    int GetThermalWidth() const { return m_thermalWidth; }
-
-    void SetThermalGap( int aGap ) { m_thermalGap = aGap; }
-    int GetThermalGap() const { return m_thermalGap; }
 
     int GetAttributes() const { return m_attributes; }
     void SetAttributes( int aAttributes ) { m_attributes = aAttributes; }
@@ -576,12 +575,6 @@ public:
     KIID GetLink() const { return m_link; }
     void SetLink( const KIID& aLink ) { m_link = aLink; }
 
-    int GetPlacementCost180() const { return m_rot180Cost; }
-    void SetPlacementCost180( int aCost )   { m_rot180Cost = aCost; }
-
-    int GetPlacementCost90() const { return m_rot90Cost; }
-    void SetPlacementCost90( int aCost )    { m_rot90Cost = aCost; }
-
     BOARD_ITEM* Duplicate() const override;
 
     /**
@@ -656,6 +649,11 @@ public:
     static const wxChar* StringLibNameInvalidChars( bool aUserReadable );
 
     /**
+     * Return true if a board footprint differs from the library version.
+     */
+    bool FootprintNeedsUpdate( const FOOTPRINT* aLibFootprint );
+
+    /**
      * Take ownership of caller's heap allocated aInitialComments block.
      *
      * The comments are single line strings already containing the s-expression comments with
@@ -715,12 +713,17 @@ public:
 
     struct cmp_drawings
     {
-        bool operator()( const BOARD_ITEM* aFirst, const BOARD_ITEM* aSecond ) const;
+        bool operator()( const BOARD_ITEM* itemA, const BOARD_ITEM* itemB ) const;
     };
 
     struct cmp_pads
     {
         bool operator()( const PAD* aFirst, const PAD* aSecond ) const;
+    };
+
+    struct cmp_zones
+    {
+        bool operator()( const FP_ZONE* aFirst, const FP_ZONE* aSecond ) const;
     };
 
 
@@ -762,8 +765,6 @@ private:
     mutable int            m_hullCacheTimeStamp;
 
     ZONE_CONNECTION m_zoneConnection;
-    int             m_thermalWidth;
-    int             m_thermalGap;
     int             m_localClearance;
     int             m_localSolderMaskMargin;       // Solder mask margin
     int             m_localSolderPasteMargin;      // Solder paste margin absolute value
@@ -775,10 +776,9 @@ private:
     timestamp_t     m_lastEditTime;
     int             m_arflag;            // Use to trace ratsnest and auto routing.
     KIID            m_link;              // Temporary logical link used during editing
-    int             m_rot90Cost;         // Horizontal automatic placement cost ( 0..10 ).
-    int             m_rot180Cost;        // Vertical automatic placement cost ( 0..10 ).
+    LSET            m_privateLayers;     // Layers visible only in the footprint editor
 
-    std::list<FP_3DMODEL>         m_3D_Drawings;       // Linked list of 3D models.
+    std::vector<FP_3DMODEL>       m_3D_Drawings;       // 3D models.
     std::map<wxString, wxString>  m_properties;
     wxArrayString*                m_initial_comments;  // s-expression comments in the footprint,
                                                        // lazily allocated only if needed for speed

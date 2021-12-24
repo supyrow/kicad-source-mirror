@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2007 Dick Hollenbeck, dick@softplc.com
- * Copyright (C) 2015-2020 KiCad Developers, see change_log.txt for contributors.
+ * Copyright (C) 2015-2021 KiCad Developers, see change_log.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -28,6 +28,7 @@
 #include <drc/drc_item.h>
 #include <drc/drc_rule.h>
 #include <board.h>
+#include <pcb_marker.h>
 
 
 // These, being statically-defined, require specialized I18N handling.  We continue to
@@ -41,9 +42,10 @@
 
 
 DRC_ITEM DRC_ITEM::heading_electrical( 0, _( "Electrical" ), "" );
-DRC_ITEM DRC_ITEM::heading_DFM( 0, _( "Design For Manufacturing" ), "" );
+DRC_ITEM DRC_ITEM::heading_DFM( 0, _( "Design for Manufacturing" ), "" );
 DRC_ITEM DRC_ITEM::heading_schematic_parity( 0, _( "Schematic Parity" ), "" );
 DRC_ITEM DRC_ITEM::heading_signal_integrity( 0, _( "Signal Integrity" ), "" );
+DRC_ITEM DRC_ITEM::heading_readability( 0, _( "Readability" ), "" );
 DRC_ITEM DRC_ITEM::heading_misc( 0, _( "Miscellaneous" ), "" );
 
 DRC_ITEM DRC_ITEM::unconnectedItems( DRCE_UNCONNECTED_ITEMS,
@@ -75,12 +77,16 @@ DRC_ITEM DRC_ITEM::edgeClearance( DRCE_EDGE_CLEARANCE,
         wxT( "copper_edge_clearance" ) );
 
 DRC_ITEM DRC_ITEM::zonesIntersect( DRCE_ZONES_INTERSECT,
-       _( "Copper areas intersect" ),
-       wxT( "zones_intersect" ) );
+        _( "Copper areas intersect" ),
+        wxT( "zones_intersect" ) );
 
 DRC_ITEM DRC_ITEM::zoneHasEmptyNet( DRCE_ZONE_HAS_EMPTY_NET,
         _( "Copper zone net has no pads" ),
         wxT( "zone_has_empty_net" ) );
+
+DRC_ITEM DRC_ITEM::starvedThermal( DRCE_STARVED_THERMAL,
+        _( "Thermal relief connection to zone incomplete" ),
+        wxT( "starved_thermal" ) );
 
 DRC_ITEM DRC_ITEM::viaDangling( DRCE_DANGLING_VIA,
         _( "Via is not connected or connected on only one layer" ),
@@ -170,17 +176,41 @@ DRC_ITEM DRC_ITEM::netConflict( DRCE_NET_CONFLICT,
         _( "Pad net doesn't match schematic" ),
         wxT( "net_conflict" ) );
 
+DRC_ITEM DRC_ITEM::libFootprintIssues( DRCE_LIB_FOOTPRINT_ISSUES,
+        _( "Library footprint issue" ),
+        wxT( "lib_footprint_issues" ) );
+
 DRC_ITEM DRC_ITEM::unresolvedVariable( DRCE_UNRESOLVED_VARIABLE,
         _( "Unresolved text variable" ),
         wxT( "unresolved_variable" ) );
 
-DRC_ITEM DRC_ITEM::silkMaskClearance( DRCE_SILK_MASK_CLEARANCE,
+DRC_ITEM DRC_ITEM::assertionFailure( DRCE_ASSERTION_FAILURE,
+        _( "Assertion failure" ),
+        wxT( "assertion_failure" ) );
+
+DRC_ITEM DRC_ITEM::copperSliver( DRCE_COPPER_SLIVER,
+        _( "Copper sliver" ),
+        wxT( "copper_sliver" ) );
+
+DRC_ITEM DRC_ITEM::solderMaskBridge( DRCE_SOLDERMASK_BRIDGE,
+        _( "Solder mask aperture bridges items with different nets" ),
+        wxT( "solder_mask_bridge" ) );
+
+DRC_ITEM DRC_ITEM::silkClearance( DRCE_SILK_CLEARANCE,
         _( "Silkscreen clipped by solder mask" ),
         wxT( "silk_over_copper" ) );
 
 DRC_ITEM DRC_ITEM::silkOverlaps( DRCE_OVERLAPPING_SILK,
         _( "Silkscreen overlap" ),
         wxT( "silk_overlap" ) );
+
+DRC_ITEM DRC_ITEM::textHeightOutOfRange( DRCE_TEXT_HEIGHT,
+        _( "Text height out of range" ),
+        wxT( "text_height" ) );
+
+DRC_ITEM DRC_ITEM::textThicknessOutOfRange( DRCE_TEXT_THICKNESS,
+        _( "Text thickness out of range" ),
+        wxT( "text_thickness" ) );
 
 DRC_ITEM DRC_ITEM::lengthOutOfRange( DRCE_LENGTH_OUT_OF_RANGE,
         _( "Trace length out of range" ),
@@ -218,6 +248,7 @@ std::vector<std::reference_wrapper<RC_ITEM>> DRC_ITEM::allItemTypes( {
             DRC_ITEM::clearance,
             DRC_ITEM::viaDangling,
             DRC_ITEM::trackDangling,
+            DRC_ITEM::starvedThermal,
 
             DRC_ITEM::heading_DFM,
             DRC_ITEM::edgeClearance,
@@ -231,6 +262,8 @@ std::vector<std::reference_wrapper<RC_ITEM>> DRC_ITEM::allItemTypes( {
             DRC_ITEM::missingCourtyard,
             DRC_ITEM::malformedCourtyard,
             DRC_ITEM::invalidOutline,
+            DRC_ITEM::copperSliver,
+            DRC_ITEM::solderMaskBridge,
 
             DRC_ITEM::heading_schematic_parity,
             DRC_ITEM::duplicateFootprints,
@@ -246,10 +279,14 @@ std::vector<std::reference_wrapper<RC_ITEM>> DRC_ITEM::allItemTypes( {
             DRC_ITEM::diffPairGapOutOfRange,
             DRC_ITEM::diffPairUncoupledLengthTooLong,
 
+            DRC_ITEM::heading_readability,
+            DRC_ITEM::silkOverlaps,
+            DRC_ITEM::silkClearance,
+            DRC_ITEM::textHeightOutOfRange,
+            DRC_ITEM::textThicknessOutOfRange,
+
             DRC_ITEM::heading_misc,
             DRC_ITEM::itemsNotAllowed,
-            DRC_ITEM::silkOverlaps,
-            DRC_ITEM::silkMaskClearance,
             DRC_ITEM::zonesIntersect,
             DRC_ITEM::zoneHasEmptyNet,
             DRC_ITEM::padstack,
@@ -259,6 +296,7 @@ std::vector<std::reference_wrapper<RC_ITEM>> DRC_ITEM::allItemTypes( {
             DRC_ITEM::unresolvedVariable,
 
             DRC_ITEM::footprintTypeMismatch,
+            DRC_ITEM::libFootprintIssues,
             DRC_ITEM::footprintTHPadhasNoHole
         } );
 
@@ -276,6 +314,7 @@ std::shared_ptr<DRC_ITEM> DRC_ITEM::Create( int aErrorCode )
     case DRCE_EDGE_CLEARANCE:           return std::make_shared<DRC_ITEM>( edgeClearance );
     case DRCE_ZONES_INTERSECT:          return std::make_shared<DRC_ITEM>( zonesIntersect );
     case DRCE_ZONE_HAS_EMPTY_NET:       return std::make_shared<DRC_ITEM>( zoneHasEmptyNet );
+    case DRCE_STARVED_THERMAL:          return std::make_shared<DRC_ITEM>( starvedThermal );
     case DRCE_DANGLING_VIA:             return std::make_shared<DRC_ITEM>( viaDangling );
     case DRCE_DANGLING_TRACK:           return std::make_shared<DRC_ITEM>( trackDangling );
     case DRCE_DRILLED_HOLES_TOO_CLOSE:  return std::make_shared<DRC_ITEM>( holeNearHole );
@@ -298,9 +337,15 @@ std::shared_ptr<DRC_ITEM> DRC_ITEM::Create( int aErrorCode )
     case DRCE_DUPLICATE_FOOTPRINT:      return std::make_shared<DRC_ITEM>( duplicateFootprints );
     case DRCE_NET_CONFLICT:             return std::make_shared<DRC_ITEM>( netConflict );
     case DRCE_EXTRA_FOOTPRINT:          return std::make_shared<DRC_ITEM>( extraFootprint );
+    case DRCE_LIB_FOOTPRINT_ISSUES:     return std::make_shared<DRC_ITEM>( libFootprintIssues );
     case DRCE_UNRESOLVED_VARIABLE:      return std::make_shared<DRC_ITEM>( unresolvedVariable );
+    case DRCE_ASSERTION_FAILURE:        return std::make_shared<DRC_ITEM>( assertionFailure );
+    case DRCE_COPPER_SLIVER:            return std::make_shared<DRC_ITEM>( copperSliver );
     case DRCE_OVERLAPPING_SILK:         return std::make_shared<DRC_ITEM>( silkOverlaps );
-    case DRCE_SILK_MASK_CLEARANCE:      return std::make_shared<DRC_ITEM>( silkMaskClearance );
+    case DRCE_SILK_CLEARANCE:           return std::make_shared<DRC_ITEM>( silkClearance );
+    case DRCE_SOLDERMASK_BRIDGE:        return std::make_shared<DRC_ITEM>( solderMaskBridge );
+    case DRCE_TEXT_HEIGHT:              return std::make_shared<DRC_ITEM>( textHeightOutOfRange );
+    case DRCE_TEXT_THICKNESS:           return std::make_shared<DRC_ITEM>( textThicknessOutOfRange );
     case DRCE_LENGTH_OUT_OF_RANGE:      return std::make_shared<DRC_ITEM>( lengthOutOfRange );
     case DRCE_SKEW_OUT_OF_RANGE:        return std::make_shared<DRC_ITEM>( skewOutOfRange );
     case DRCE_TOO_MANY_VIAS:            return std::make_shared<DRC_ITEM>( tooManyVias );
@@ -333,6 +378,69 @@ wxString DRC_ITEM::GetViolatingRuleDesc() const
     if( m_violatingRule )
         return wxString::Format( _( "Rule: %s" ), m_violatingRule->m_Name );
     else
-        return _("Local override" );
+        return _( "Local override" );
 }
 
+
+void DRC_ITEMS_PROVIDER::SetSeverities( int aSeverities )
+{
+    m_severities = aSeverities;
+
+    m_filteredMarkers.clear();
+
+    for( PCB_MARKER* marker : m_board->Markers() )
+    {
+        if( marker->GetMarkerType() != m_markerType )
+            continue;
+
+        if( marker->GetSeverity() & m_severities )
+            m_filteredMarkers.push_back( marker );
+    }
+}
+
+
+int DRC_ITEMS_PROVIDER::GetCount( int aSeverity ) const
+{
+    if( aSeverity < 0 )
+        return m_filteredMarkers.size();
+
+    int count = 0;
+
+    for( PCB_MARKER* marker : m_board->Markers() )
+    {
+        if( marker->GetMarkerType() != m_markerType )
+            continue;
+
+        if( marker->GetSeverity() == aSeverity )
+            count++;
+    }
+
+    return count;
+}
+
+
+std::shared_ptr<RC_ITEM> DRC_ITEMS_PROVIDER::GetItem( int aIndex ) const
+{
+    PCB_MARKER* marker = m_filteredMarkers[ aIndex ];
+
+    return marker ? marker->GetRCItem() : nullptr;
+}
+
+
+void DRC_ITEMS_PROVIDER::DeleteItem( int aIndex, bool aDeep )
+{
+    PCB_MARKER* marker = m_filteredMarkers[ aIndex ];
+    m_filteredMarkers.erase( m_filteredMarkers.begin() + aIndex );
+
+    if( aDeep )
+        m_board->Delete( marker );
+}
+
+
+void DRC_ITEMS_PROVIDER::DeleteAllItems( bool aIncludeExclusions, bool aDeep )
+{
+    // Filtered list was already handled through DeleteItem() by the tree control
+
+    if( aDeep )
+        m_board->DeleteMARKERs( true, aIncludeExclusions );
+}

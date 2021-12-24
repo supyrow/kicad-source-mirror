@@ -89,25 +89,6 @@ public:
     virtual const wxString GetName() const;
     virtual const wxString GetDescription() const;
 
-    virtual std::set<DRC_CONSTRAINT_T> GetConstraintTypes() const = 0;
-
-    virtual int GetNumPhases() const = 0;
-
-    virtual bool IsRuleDriven() const
-    {
-        return m_isRuleDriven;
-    }
-
-    bool IsEnabled() const
-    {
-        return m_enabled;
-    }
-
-    void Enable( bool aEnable )
-    {
-        m_enabled = aEnable;
-    }
-
 protected:
     int forEachGeometryItem( const std::vector<KICAD_T>& aTypes, LSET aLayers,
                              const std::function<bool(BOARD_ITEM*)>& aFunc );
@@ -131,7 +112,6 @@ protected:
     DRC_ENGINE* m_drcEngine;
     std::unordered_map<const DRC_RULE*, int> m_stats;
     bool        m_isRuleDriven = true;
-    bool        m_enabled = true;
 
     wxString    m_msg;  // Allocating strings gets expensive enough to want to avoid it
 };

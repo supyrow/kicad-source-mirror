@@ -5,9 +5,18 @@
 // PLEASE DO *NOT* EDIT THIS FILE!
 ///////////////////////////////////////////////////////////////////////////
 
+#include "widgets/color_swatch.h"
+
 #include "dialog_lib_shape_properties_base.h"
 
 ///////////////////////////////////////////////////////////////////////////
+
+BEGIN_EVENT_TABLE( DIALOG_LIB_SHAPE_PROPERTIES_BASE, DIALOG_SHIM )
+	EVT_RADIOBUTTON( NO_FILL, DIALOG_LIB_SHAPE_PROPERTIES_BASE::_wxFB_onFill )
+	EVT_RADIOBUTTON( FILLED_SHAPE, DIALOG_LIB_SHAPE_PROPERTIES_BASE::_wxFB_onFill )
+	EVT_RADIOBUTTON( FILLED_WITH_BG_BODYCOLOR, DIALOG_LIB_SHAPE_PROPERTIES_BASE::_wxFB_onFill )
+	EVT_RADIOBUTTON( FILLED_WITH_COLOR, DIALOG_LIB_SHAPE_PROPERTIES_BASE::_wxFB_onFill )
+END_EVENT_TABLE()
 
 DIALOG_LIB_SHAPE_PROPERTIES_BASE::DIALOG_LIB_SHAPE_PROPERTIES_BASE( wxWindow* parent, wxWindowID id, const wxString& title, const wxPoint& pos, const wxSize& size, long style ) : DIALOG_SHIM( parent, id, title, pos, size, style )
 {
@@ -36,15 +45,38 @@ DIALOG_LIB_SHAPE_PROPERTIES_BASE::DIALOG_LIB_SHAPE_PROPERTIES_BASE( wxWindow* pa
 
 	dlgBorderSizer->Add( bSizerLineWidth, 0, wxEXPAND, 5 );
 
-	m_helpLabel = new wxStaticText( this, wxID_ANY, _("Set to 0 to use default values"), wxDefaultPosition, wxDefaultSize, 0 );
+	m_helpLabel = new wxStaticText( this, wxID_ANY, _("Set width to 0 to use Schematic default symbol line width."), wxDefaultPosition, wxDefaultSize, 0 );
 	m_helpLabel->Wrap( 333 );
 	dlgBorderSizer->Add( m_helpLabel, 0, wxALL, 5 );
 
-	wxString m_fillCtrlChoices[] = { _("Do not fill"), _("Fill with body outline color"), _("Fill with body background color") };
-	int m_fillCtrlNChoices = sizeof( m_fillCtrlChoices ) / sizeof( wxString );
-	m_fillCtrl = new wxRadioBox( this, wxID_ANY, _("Fill Style"), wxDefaultPosition, wxDefaultSize, m_fillCtrlNChoices, m_fillCtrlChoices, 1, wxRA_SPECIFY_COLS );
-	m_fillCtrl->SetSelection( 0 );
-	dlgBorderSizer->Add( m_fillCtrl, 0, wxEXPAND|wxTOP|wxBOTTOM, 10 );
+	wxStaticBoxSizer* bSizerFill;
+	bSizerFill = new wxStaticBoxSizer( new wxStaticBox( this, wxID_ANY, _("Fill Style") ), wxVERTICAL );
+
+	wxGridBagSizer* gbSizer1;
+	gbSizer1 = new wxGridBagSizer( 3, 0 );
+	gbSizer1->SetFlexibleDirection( wxBOTH );
+	gbSizer1->SetNonFlexibleGrowMode( wxFLEX_GROWMODE_SPECIFIED );
+
+	m_rbFillNone = new wxRadioButton( bSizerFill->GetStaticBox(), NO_FILL, _("Do not fill"), wxDefaultPosition, wxDefaultSize, wxRB_GROUP );
+	gbSizer1->Add( m_rbFillNone, wxGBPosition( 0, 0 ), wxGBSpan( 1, 2 ), wxALIGN_CENTER_VERTICAL, 5 );
+
+	m_rbFillOutline = new wxRadioButton( bSizerFill->GetStaticBox(), FILLED_SHAPE, _("Fill with body outline color"), wxDefaultPosition, wxDefaultSize, 0 );
+	gbSizer1->Add( m_rbFillOutline, wxGBPosition( 1, 0 ), wxGBSpan( 1, 2 ), wxALIGN_CENTER_VERTICAL, 5 );
+
+	m_rbFillBackground = new wxRadioButton( bSizerFill->GetStaticBox(), FILLED_WITH_BG_BODYCOLOR, _("Fill with body background color"), wxDefaultPosition, wxDefaultSize, 0 );
+	gbSizer1->Add( m_rbFillBackground, wxGBPosition( 2, 0 ), wxGBSpan( 1, 2 ), wxALIGN_CENTER_VERTICAL, 5 );
+
+	m_rbFillCustom = new wxRadioButton( bSizerFill->GetStaticBox(), FILLED_WITH_COLOR, _("Fill with:"), wxDefaultPosition, wxDefaultSize, 0 );
+	gbSizer1->Add( m_rbFillCustom, wxGBPosition( 3, 0 ), wxGBSpan( 1, 1 ), wxALIGN_CENTER_VERTICAL, 5 );
+
+	m_colorSwatch = new COLOR_SWATCH( bSizerFill->GetStaticBox(), FILLED_WITH_COLOR, wxDefaultPosition, wxDefaultSize, 0 );
+	gbSizer1->Add( m_colorSwatch, wxGBPosition( 3, 1 ), wxGBSpan( 1, 1 ), wxALIGN_CENTER_VERTICAL|wxRIGHT|wxLEFT, 5 );
+
+
+	bSizerFill->Add( gbSizer1, 1, wxEXPAND|wxBOTTOM, 5 );
+
+
+	dlgBorderSizer->Add( bSizerFill, 0, wxEXPAND|wxTOP|wxBOTTOM, 5 );
 
 	m_checkApplyToAllUnits = new wxCheckBox( this, wxID_ANY, _("Common to all &units in symbol"), wxDefaultPosition, wxDefaultSize, 0 );
 	dlgBorderSizer->Add( m_checkApplyToAllUnits, 0, wxALL, 3 );

@@ -203,8 +203,16 @@ public:
     int GetMinPenWidth() const { return m_minPenWidth; }
     void SetMinPenWidth( int aWidth ) { m_minPenWidth = aWidth; }
 
-    bool GetShowPageLimits() const { return m_showPageLimits; }
-    void SetShowPageLimits( bool aDraw ) { m_showPageLimits = aDraw; }
+    double GetDashLengthRatio() const { return m_dashLengthRatio; }
+    void SetDashLengthRatio( double aRatio ) { m_dashLengthRatio = aRatio; }
+    double GetDashLength( int aLineWidth ) const;
+    double GetDotLength( int aLineWidth ) const;
+
+    double GetGapLengthRatio() const { return m_gapLengthRatio; }
+    void SetGapLengthRatio( double aRatio ) { m_gapLengthRatio = aRatio; }
+    double GetGapLength( int aLineWidth ) const;
+
+    virtual bool GetShowPageLimits() const { return true; }
 
     bool IsPrinting() const { return m_isPrinting; }
     void SetIsPrinting( bool isPrinting ) { m_isPrinting = isPrinting; }
@@ -269,7 +277,6 @@ public:
 
     void SetHighlightFactor( float aFactor ) { m_highlightFactor = aFactor; }
     void SetSelectFactor( float aFactor ) { m_selectFactor = aFactor; }
-    void SetHighContrastFactor( float aFactor ) { m_hiContrastFactor = aFactor; }
 
     // TODO: these can go away once the drawing sheet is moved to Cairo-based printing
     wxDC* GetPrintDC() const { return m_printDC; }
@@ -309,7 +316,9 @@ protected:
     int           m_defaultPenWidth;
     int           m_minPenWidth;          // Some clients (such as PDF) don't like ultra-thin
                                           // lines.  This sets an absolute minimum.
-    bool          m_showPageLimits;
+    double        m_dashLengthRatio;
+    double        m_gapLengthRatio;
+
     bool          m_isPrinting;
 
     wxDC*         m_printDC;              // This can go away once the drawing sheet is moved to

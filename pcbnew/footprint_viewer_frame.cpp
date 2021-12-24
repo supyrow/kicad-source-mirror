@@ -196,7 +196,7 @@ FOOTPRINT_VIEWER_FRAME::FOOTPRINT_VIEWER_FRAME( KIWAY* aKiway, wxWindow* aParent
 
     // Don't show the default board solder mask clearance in the footprint viewer.  Only the
     // footprint or pad clearance setting should be shown if it is not 0.
-    GetBoard()->GetDesignSettings().m_SolderMaskMargin = 0;
+    GetBoard()->GetDesignSettings().m_SolderMaskExpansion = 0;
 
     // Ensure all layers and items are visible:
     GetBoard()->SetVisibleAlls();
@@ -809,7 +809,7 @@ WINDOW_SETTINGS* FOOTPRINT_VIEWER_FRAME::GetWindowSettings( APP_SETTINGS_BASE* a
 }
 
 
-COLOR_SETTINGS* FOOTPRINT_VIEWER_FRAME::GetColorSettings() const
+COLOR_SETTINGS* FOOTPRINT_VIEWER_FRAME::GetColorSettings( bool aForceRefresh ) const
 {
     auto* settings = Pgm().GetSettingsManager().GetAppSettings<FOOTPRINT_EDITOR_SETTINGS>();
 
@@ -823,6 +823,8 @@ COLOR_SETTINGS* FOOTPRINT_VIEWER_FRAME::GetColorSettings() const
 void FOOTPRINT_VIEWER_FRAME::CommonSettingsChanged( bool aEnvVarsChanged, bool aTextVarsChanged )
 {
     PCB_BASE_FRAME::CommonSettingsChanged( aEnvVarsChanged, aTextVarsChanged );
+
+    GetCanvas()->ForceRefresh();
 
     if( aEnvVarsChanged )
         ReCreateLibraryList();

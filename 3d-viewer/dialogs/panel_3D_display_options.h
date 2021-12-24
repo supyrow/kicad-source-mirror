@@ -32,22 +32,17 @@
 class PANEL_3D_DISPLAY_OPTIONS : public PANEL_3D_DISPLAY_OPTIONS_BASE
 {
 public:
-    explicit PANEL_3D_DISPLAY_OPTIONS( EDA_3D_VIEWER_FRAME* aFrame, wxWindow* aParent );
+    explicit PANEL_3D_DISPLAY_OPTIONS( wxWindow* aParent );
 
     void OnCheckEnableAnimation( wxCommandEvent& WXUNUSED( event ) ) override;
 
-    /// Automatically called when clicking on the OK button
     bool TransferDataFromWindow() override;
-
-    /// Automatically called after creating the dialog
     bool TransferDataToWindow() override;
 
-    void TransferColorDataToWindow();
+    void ResetPanel() override;
 
 private:
-    EDA_3D_VIEWER_FRAME* m_frame;
-    BOARD_ADAPTER&       m_settings;
-    EDA_3D_CANVAS*       m_canvas;
+    void loadViewSettings( EDA_3D_VIEWER_SETTINGS* aCfg );
 };
 
 

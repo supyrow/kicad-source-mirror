@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2009 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 1992-2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -22,18 +22,18 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
-#include <sch_edit_frame.h>
-#include <sch_painter.h>
+#include <pgm_base.h>
+#include <settings/settings_manager.h>
+#include <eeschema_settings.h>
 #include <panel_eeschema_display_options.h>
 #include <widgets/gal_options_panel.h>
-#include <sch_junction.h>
+#include <widgets/ui_common.h>
 
-PANEL_EESCHEMA_DISPLAY_OPTIONS::PANEL_EESCHEMA_DISPLAY_OPTIONS( SCH_EDIT_FRAME* aFrame,
-                                                                wxWindow* aWindow ) :
-        PANEL_EESCHEMA_DISPLAY_OPTIONS_BASE( aWindow ),
-        m_frame( aFrame )
+PANEL_EESCHEMA_DISPLAY_OPTIONS::PANEL_EESCHEMA_DISPLAY_OPTIONS( wxWindow* aParent,
+                                                                APP_SETTINGS_BASE* aAppSettings ) :
+        PANEL_EESCHEMA_DISPLAY_OPTIONS_BASE( aParent )
 {
-    m_galOptsPanel = new GAL_OPTIONS_PANEL( this, m_frame );
+    m_galOptsPanel = new GAL_OPTIONS_PANEL( this, aAppSettings );
 
     m_galOptionsSizer->Add( m_galOptsPanel, 1, wxEXPAND, 0 );
 
@@ -41,22 +41,33 @@ PANEL_EESCHEMA_DISPLAY_OPTIONS::PANEL_EESCHEMA_DISPLAY_OPTIONS( SCH_EDIT_FRAME* 
 }
 
 
-bool PANEL_EESCHEMA_DISPLAY_OPTIONS::TransferDataToWindow()
+void PANEL_EESCHEMA_DISPLAY_OPTIONS::loadEEschemaSettings( EESCHEMA_SETTINGS* cfg )
 {
-    EESCHEMA_SETTINGS* cfg = m_frame->eeconfig();
-
     m_checkShowHiddenPins->SetValue( cfg->m_Appearance.show_hidden_pins );
     m_checkShowHiddenFields->SetValue( cfg->m_Appearance.show_hidden_fields );
+    m_checkShowERCErrors->SetValue( cfg->m_Appearance.show_erc_errors );
+    m_checkShowERCWarnings->SetValue( cfg->m_Appearance.show_erc_warnings );
+    m_checkShowERCExclusions->SetValue( cfg->m_Appearance.show_erc_exclusions );
     m_checkPageLimits->SetValue( cfg->m_Appearance.show_page_limits );
 
     m_checkSelTextBox->SetValue( cfg->m_Selection.text_as_box );
     m_checkSelDrawChildItems->SetValue( cfg->m_Selection.draw_selected_children );
     m_checkSelFillShapes->SetValue( cfg->m_Selection.fill_shapes );
-    m_selWidthCtrl->SetValue( cfg->m_Selection.thickness );
+    m_selWidthCtrl->SetValue( cfg->m_Selection.selection_thickness );
+    m_highlightWidthCtrl->SetValue( cfg->m_Selection.highlight_thickness );
 
     m_checkCrossProbeCenter->SetValue( cfg->m_CrossProbing.center_on_items );
     m_checkCrossProbeZoom->SetValue( cfg->m_CrossProbing.zoom_to_fit );
     m_checkCrossProbeAutoHighlight->SetValue( cfg->m_CrossProbing.auto_highlight );
+}
+
+
+bool PANEL_EESCHEMA_DISPLAY_OPTIONS::TransferDataToWindow()
+{
+    SETTINGS_MANAGER&  mgr = Pgm().GetSettingsManager();
+    EESCHEMA_SETTINGS* cfg = mgr.GetAppSettings<EESCHEMA_SETTINGS>();
+
+    loadEEschemaSettings( cfg );
 
     m_galOptsPanel->TransferDataToWindow();
 
@@ -66,32 +77,40 @@ bool PANEL_EESCHEMA_DISPLAY_OPTIONS::TransferDataToWindow()
 
 bool PANEL_EESCHEMA_DISPLAY_OPTIONS::TransferDataFromWindow()
 {
-    EESCHEMA_SETTINGS* cfg = m_frame->eeconfig();
+    SETTINGS_MANAGER&  mgr = Pgm().GetSettingsManager();
+    EESCHEMA_SETTINGS* cfg = mgr.GetAppSettings<EESCHEMA_SETTINGS>();
 
     cfg->m_Appearance.show_hidden_pins = m_checkShowHiddenPins->GetValue();
     cfg->m_Appearance.show_hidden_fields = m_checkShowHiddenFields->GetValue();
+    cfg->m_Appearance.show_erc_warnings = m_checkShowERCWarnings->GetValue();
+    cfg->m_Appearance.show_erc_errors = m_checkShowERCErrors->GetValue();
+    cfg->m_Appearance.show_erc_exclusions = m_checkShowERCExclusions->GetValue();
     cfg->m_Appearance.show_page_limits = m_checkPageLimits->GetValue();
 
     cfg->m_Selection.text_as_box = m_checkSelTextBox->GetValue();
     cfg->m_Selection.draw_selected_children = m_checkSelDrawChildItems->GetValue();
     cfg->m_Selection.fill_shapes = m_checkSelFillShapes->GetValue();
-    cfg->m_Selection.thickness = KiROUND( m_selWidthCtrl->GetValue() );
+    cfg->m_Selection.selection_thickness = KiROUND( m_selWidthCtrl->GetValue() );
+    cfg->m_Selection.highlight_thickness = KiROUND( m_highlightWidthCtrl->GetValue() );
 
     cfg->m_CrossProbing.center_on_items = m_checkCrossProbeCenter->GetValue();
     cfg->m_CrossProbing.zoom_to_fit     = m_checkCrossProbeZoom->GetValue();
     cfg->m_CrossProbing.auto_highlight  = m_checkCrossProbeAutoHighlight->GetValue();
 
-    // Update canvas
-    m_frame->GetRenderSettings()->m_ShowHiddenPins = m_checkShowHiddenPins->GetValue();
-    m_frame->GetRenderSettings()->m_ShowHiddenText = m_checkShowHiddenFields->GetValue();
-    m_frame->GetRenderSettings()->SetShowPageLimits( cfg->m_Appearance.show_page_limits );
-    m_frame->GetCanvas()->GetView()->MarkDirty();
-    m_frame->GetCanvas()->GetView()->UpdateAllItems( KIGFX::REPAINT );
-    m_frame->GetCanvas()->Refresh();
-
     m_galOptsPanel->TransferDataFromWindow();
 
     return true;
+}
+
+
+void PANEL_EESCHEMA_DISPLAY_OPTIONS::ResetPanel()
+{
+    EESCHEMA_SETTINGS cfg;
+    cfg.Load();             // Loading without a file will init to defaults
+
+    loadEEschemaSettings( &cfg );
+
+    m_galOptsPanel->ResetPanel( &cfg );
 }
 
 

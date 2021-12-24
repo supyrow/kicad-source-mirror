@@ -37,10 +37,6 @@
 #include <board.h>
 #include <footprint.h>
 #include <confirm.h>
-#include <dialogs/panel_fp_editor_color_settings.h>
-#include <dialogs/panel_fp_editor_defaults.h>
-#include <dialogs/panel_display_options.h>
-#include <dialogs/panel_edit_options.h>
 #include <footprint_edit_frame.h>
 #include <footprint_editor_settings.h>
 #include <footprint_info_impl.h>
@@ -51,7 +47,6 @@
 #include <kiplatform/app.h>
 #include <kiway.h>
 #include <macros.h>
-#include <panel_hotkeys_editor.h>
 #include <pcb_draw_panel_gal.h>
 #include <pcb_edit_frame.h>
 #include <pcbnew.h>
@@ -71,14 +66,11 @@
 #include <tools/group_tool.h>
 #include <tools/position_relative_tool.h>
 #include <widgets/appearance_controls.h>
-#include <widgets/infobar.h>
 #include <widgets/lib_tree.h>
-#include <widgets/paged_dialog.h>
 #include <widgets/panel_selection_filter.h>
 #include <widgets/wx_progress_reporters.h>
 #include <wildcards_and_files_ext.h>
 #include <wx/filedlg.h>
-#include <wx/treebook.h>
 #include <widgets/wx_aui_utils.h>
 
 BEGIN_EVENT_TABLE( FOOTPRINT_EDIT_FRAME, PCB_BASE_FRAME )
@@ -148,9 +140,9 @@ FOOTPRINT_EDIT_FRAME::FOOTPRINT_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
     // pad specific clearance will be shown.
     GetBoard()->GetDesignSettings().GetDefault()->SetClearance( 0 );
 
-    // Don't show the default board solder mask clearance in the footprint editor.  Only the
-    // footprint or pad clearance setting should be shown if it is not 0.
-    GetBoard()->GetDesignSettings().m_SolderMaskMargin = 0;
+    // Don't show the default board solder mask expansion in the footprint editor.  Only the
+    // footprint or pad mask expansions settings should be shown.
+    GetBoard()->GetDesignSettings().m_SolderMaskExpansion = 0;
 
     // restore the last footprint from the project, if any
     restoreLastFootprint();
@@ -592,12 +584,10 @@ void FOOTPRINT_EDIT_FRAME::SaveSettings( APP_SETTINGS_BASE* aCfg )
     cfg->m_AuiPanels.show_layer_manager   = m_show_layer_manager_tools;
     cfg->m_AuiPanels.right_panel_width    = m_appearancePanel->GetSize().x;
     cfg->m_AuiPanels.appearance_panel_tab = m_appearancePanel->GetTabIndex();
-
-    GetSettingsManager()->SaveColorSettings( GetColorSettings(), "board" );
 }
 
 
-COLOR_SETTINGS* FOOTPRINT_EDIT_FRAME::GetColorSettings() const
+COLOR_SETTINGS* FOOTPRINT_EDIT_FRAME::GetColorSettings( bool aForceRefresh ) const
 {
     wxString currentTheme = GetFootprintEditorSettings()->m_ColorTheme;
     return Pgm().GetSettingsManager().GetColorSettings( currentTheme );
@@ -649,6 +639,34 @@ const BOX2I FOOTPRINT_EDIT_FRAME::GetDocumentExtents( bool aIncludeAllVisible ) 
 }
 
 
+bool FOOTPRINT_EDIT_FRAME::CanCloseFPFromBoard( bool doClose )
+{
+    if( IsContentModified() )
+    {
+        wxString footprintName = GetBoard()->GetFirstFootprint()->GetReference();
+        wxString msg = _( "Save changes to '%s' before closing?" );
+
+        if( !HandleUnsavedChanges( this, wxString::Format( msg, footprintName ),
+                                   [&]() -> bool
+                                   {
+                                       return SaveFootprint( GetBoard()->GetFirstFootprint() );
+                                   } ) )
+        {
+            return false;
+        }
+    }
+
+    if( doClose )
+    {
+        GetInfoBar()->ShowMessageFor( wxEmptyString, 1 );
+        Clear_Pcb( false );
+        UpdateTitle();
+    }
+
+    return true;
+}
+
+
 bool FOOTPRINT_EDIT_FRAME::canCloseWindow( wxCloseEvent& aEvent )
 {
     if( IsContentModified() )
@@ -662,6 +680,10 @@ bool FOOTPRINT_EDIT_FRAME::canCloseWindow( wxCloseEvent& aEvent )
         }
 
         wxString footprintName = GetBoard()->GetFirstFootprint()->GetFPID().GetLibItemName();
+
+        if( IsCurrentFPFromBoard() )
+            footprintName = GetBoard()->GetFirstFootprint()->GetReference();
+
         wxString msg = _( "Save changes to '%s' before closing?" );
 
         if( !HandleUnsavedChanges( this, wxString::Format( msg, footprintName ),
@@ -956,21 +978,6 @@ void FOOTPRINT_EDIT_FRAME::OnDisplayOptionsChanged()
 }
 
 
-void FOOTPRINT_EDIT_FRAME::InstallPreferences( PAGED_DIALOG* aParent,
-                                               PANEL_HOTKEYS_EDITOR* aHotkeysPanel )
-{
-    wxTreebook* book = aParent->GetTreebook();
-
-    book->AddPage( new wxPanel( book ), _( "Footprint Editor" ) );
-    book->AddSubPage( new PANEL_DISPLAY_OPTIONS( this, aParent ), _( "Display Options" ) );
-    book->AddSubPage( new PANEL_EDIT_OPTIONS( this, aParent ), _( "Editing Options" ) );
-    book->AddSubPage( new PANEL_FP_EDITOR_COLOR_SETTINGS( this, book ), _( "Colors" ) );
-    book->AddSubPage( new PANEL_FP_EDITOR_DEFAULTS( this, aParent ), _( "Default Values" ) );
-
-    aHotkeysPanel->AddHotKeys( GetToolManager() );
-}
-
-
 void FOOTPRINT_EDIT_FRAME::setupTools()
 {
     // Create the manager and dispatcher & route draw panel events to the dispatcher
@@ -1088,10 +1095,6 @@ void FOOTPRINT_EDIT_FRAME::setupUIConditions()
     mgr->SetConditions( ACTIONS::zoomTool,               CHECK( cond.CurrentTool( ACTIONS::zoomTool ) ) );
     mgr->SetConditions( ACTIONS::selectionTool,          CHECK( cond.CurrentTool( ACTIONS::selectionTool ) ) );
 
-    mgr->SetConditions( PCB_ACTIONS::checkFootprint,     ENABLE( cond.HasItems() ) );
-    mgr->SetConditions( PCB_ACTIONS::repairFootprint,    ENABLE( cond.HasItems() ) );
-
-
     auto highContrastCond =
             [this]( const SELECTION& )
             {
@@ -1123,9 +1126,13 @@ void FOOTPRINT_EDIT_FRAME::setupUIConditions()
 
     mgr->SetConditions( ACTIONS::print,                     ENABLE( haveFootprintCond ) );
     mgr->SetConditions( PCB_ACTIONS::exportFootprint,       ENABLE( haveFootprintCond ) );
-    mgr->SetConditions( PCB_ACTIONS::footprintProperties,   ENABLE( haveFootprintCond ) );
-    mgr->SetConditions( PCB_ACTIONS::cleanupGraphics,       ENABLE( haveFootprintCond ) );
     mgr->SetConditions( PCB_ACTIONS::placeImportedGraphics, ENABLE( haveFootprintCond ) );
+
+    mgr->SetConditions( PCB_ACTIONS::footprintProperties,   ENABLE( haveFootprintCond ) );
+    mgr->SetConditions( PCB_ACTIONS::editTextAndGraphics,   ENABLE( haveFootprintCond ) );
+    mgr->SetConditions( PCB_ACTIONS::checkFootprint,        ENABLE( haveFootprintCond ) );
+    mgr->SetConditions( PCB_ACTIONS::repairFootprint,       ENABLE( haveFootprintCond ) );
+    mgr->SetConditions( PCB_ACTIONS::cleanupGraphics,       ENABLE( haveFootprintCond ) );
 
 
 // Only enable a tool if the part is edtable
@@ -1142,6 +1149,11 @@ void FOOTPRINT_EDIT_FRAME::setupUIConditions()
     CURRENT_EDIT_TOOL( PCB_ACTIONS::drawPolygon );
     CURRENT_EDIT_TOOL( PCB_ACTIONS::drawRuleArea );
     CURRENT_EDIT_TOOL( PCB_ACTIONS::placeText );
+    CURRENT_EDIT_TOOL( PCB_ACTIONS::drawAlignedDimension );
+    CURRENT_EDIT_TOOL( PCB_ACTIONS::drawOrthogonalDimension );
+    CURRENT_EDIT_TOOL( PCB_ACTIONS::drawCenterDimension );
+    CURRENT_EDIT_TOOL( PCB_ACTIONS::drawRadialDimension );
+    CURRENT_EDIT_TOOL( PCB_ACTIONS::drawLeader );
     CURRENT_EDIT_TOOL( PCB_ACTIONS::setAnchor );
     CURRENT_EDIT_TOOL( PCB_ACTIONS::gridSetOrigin );
 
@@ -1169,7 +1181,11 @@ void FOOTPRINT_EDIT_FRAME::CommonSettingsChanged( bool aEnvVarsChanged, bool aTe
 {
     PCB_BASE_EDIT_FRAME::CommonSettingsChanged( aEnvVarsChanged, aTextVarsChanged );
 
+    auto cfg = Pgm().GetSettingsManager().GetAppSettings<FOOTPRINT_EDITOR_SETTINGS>();
+    GetGalDisplayOptions().ReadWindowSettings( cfg->m_Window );
+
     GetCanvas()->GetView()->UpdateAllLayersColor();
+    GetCanvas()->GetView()->MarkTargetDirty( KIGFX::TARGET_NONCACHED );
     GetCanvas()->ForceRefresh();
 
     UpdateUserInterface();

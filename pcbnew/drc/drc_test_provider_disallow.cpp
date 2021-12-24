@@ -58,10 +58,6 @@ public:
     {
         return "Tests for disallowed items (e.g. keepouts)";
     }
-
-    virtual std::set<DRC_CONSTRAINT_T> GetConstraintTypes() const override;
-
-    int GetNumPhases() const override;
 };
 
 
@@ -82,7 +78,7 @@ bool DRC_TEST_PROVIDER_DISALLOW::Run()
                 auto constraint = m_drcEngine->EvalRules( DISALLOW_CONSTRAINT, item, nullptr,
                                                           UNDEFINED_LAYER );
 
-                if( constraint.m_DisallowFlags )
+                if( constraint.m_DisallowFlags && constraint.GetSeverity() != RPT_SEVERITY_IGNORE )
                 {
                     std::shared_ptr<DRC_ITEM> drcItem = DRC_ITEM::Create( DRCE_ALLOWED_ITEMS );
 
@@ -103,22 +99,11 @@ bool DRC_TEST_PROVIDER_DISALLOW::Run()
                 if( !m_drcEngine->IsErrorLimitExceeded( DRCE_TEXT_ON_EDGECUTS )
                         && item->GetLayer() == Edge_Cuts )
                 {
-                    switch( item->Type() )
-                    {
-                    case PCB_TEXT_T:
-                    case PCB_DIM_ALIGNED_T:
-                    case PCB_DIM_CENTER_T:
-                    case PCB_DIM_ORTHOGONAL_T:
-                    case PCB_DIM_LEADER_T:
+                    if( item->Type() == PCB_TEXT_T || BaseType( item->Type() ) == PCB_DIMENSION_T )
                     {
                         std::shared_ptr<DRC_ITEM> drc = DRC_ITEM::Create( DRCE_TEXT_ON_EDGECUTS );
                         drc->SetItems( item );
                         reportViolation( drc, item->GetPosition() );
-                    }
-                        break;
-
-                    default:
-                        break;
                     }
                 }
 
@@ -166,18 +151,6 @@ bool DRC_TEST_PROVIDER_DISALLOW::Run()
     reportRuleStatistics();
 
     return true;
-}
-
-
-int DRC_TEST_PROVIDER_DISALLOW::GetNumPhases() const
-{
-    return 1;
-}
-
-
-std::set<DRC_CONSTRAINT_T> DRC_TEST_PROVIDER_DISALLOW::GetConstraintTypes() const
-{
-    return { DISALLOW_CONSTRAINT };
 }
 
 

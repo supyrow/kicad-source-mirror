@@ -151,6 +151,9 @@ BOARD_DESIGN_SETTINGS::BOARD_DESIGN_SETTINGS( JSON_SETTINGS* aParent, const std:
     m_HoleClearance       = Millimeter2iu( DEFAULT_HOLECLEARANCE );
     m_HoleToHoleMin       = Millimeter2iu( DEFAULT_HOLETOHOLEMIN );
     m_SilkClearance       = Millimeter2iu( DEFAULT_SILKCLEARANCE );
+    m_MinResolvedSpokes   = DEFAULT_MINRESOLVEDSPOKES;
+    m_MinSilkTextHeight   = Millimeter2iu( DEFAULT_SILK_TEXT_SIZE * 0.8 );
+    m_MinSilkTextThickness= Millimeter2iu( DEFAULT_SILK_TEXT_WIDTH * 0.8 );
 
     for( int errorCode = DRCE_FIRST; errorCode <= DRCE_LAST; ++errorCode )
         m_DRCSeverities[ errorCode ] = RPT_SEVERITY_ERROR;
@@ -164,13 +167,17 @@ BOARD_DESIGN_SETTINGS::BOARD_DESIGN_SETTINGS( JSON_SETTINGS* aParent, const std:
     m_DRCSeverities[ DRCE_DANGLING_TRACK ] = RPT_SEVERITY_WARNING;
     m_DRCSeverities[ DRCE_DANGLING_VIA ] = RPT_SEVERITY_WARNING;
 
+    m_DRCSeverities[ DRCE_COPPER_SLIVER ] = RPT_SEVERITY_WARNING;
+
     m_DRCSeverities[ DRCE_MISSING_FOOTPRINT ] = RPT_SEVERITY_WARNING;
     m_DRCSeverities[ DRCE_DUPLICATE_FOOTPRINT ] = RPT_SEVERITY_WARNING;
     m_DRCSeverities[ DRCE_EXTRA_FOOTPRINT ] = RPT_SEVERITY_WARNING;
     m_DRCSeverities[ DRCE_NET_CONFLICT ] = RPT_SEVERITY_WARNING;
 
     m_DRCSeverities[ DRCE_OVERLAPPING_SILK ] = RPT_SEVERITY_WARNING;
-    m_DRCSeverities[ DRCE_SILK_MASK_CLEARANCE ] = RPT_SEVERITY_WARNING;
+    m_DRCSeverities[ DRCE_SILK_CLEARANCE ] = RPT_SEVERITY_WARNING;
+    m_DRCSeverities[ DRCE_TEXT_HEIGHT ] = RPT_SEVERITY_WARNING;
+    m_DRCSeverities[ DRCE_TEXT_THICKNESS ] = RPT_SEVERITY_WARNING;
 
     m_MaxError = ARC_HIGH_DEF;
     m_ZoneFillVersion = 6;                      // Use new algo by default to fill zones
@@ -179,8 +186,9 @@ BOARD_DESIGN_SETTINGS::BOARD_DESIGN_SETTINGS( JSON_SETTINGS* aParent, const std:
     m_UseHeightForLengthCalcs = true;
 
     // Global mask margins:
-    m_SolderMaskMargin  = Millimeter2iu( DEFAULT_SOLDERMASK_CLEARANCE );
+    m_SolderMaskExpansion = Millimeter2iu( DEFAULT_SOLDERMASK_EXPANSION );
     m_SolderMaskMinWidth = Millimeter2iu( DEFAULT_SOLDERMASK_MIN_WIDTH );
+    m_SolderMaskToCopperClearance = Millimeter2iu( DEFAULT_SOLDERMASK_TO_COPPER_CLEARANCE );
 
     // Solder paste margin absolute value
     m_SolderPasteMargin = Millimeter2iu( DEFAULT_SOLDERPASTE_CLEARANCE );
@@ -212,45 +220,56 @@ BOARD_DESIGN_SETTINGS::BOARD_DESIGN_SETTINGS( JSON_SETTINGS* aParent, const std:
     m_params.emplace_back( new PARAM<bool>( "rules.use_height_for_length_calcs",
             &m_UseHeightForLengthCalcs, true ) );
 
-    m_params.emplace_back( new PARAM_SCALED<int>( "rules.min_clearance", &m_MinClearance,
-            Millimeter2iu( DEFAULT_MINCLEARANCE ), Millimeter2iu( 0.01 ), Millimeter2iu( 25.0 ),
-            MM_PER_IU ) );
+    m_params.emplace_back( new PARAM_SCALED<int>( "rules.min_clearance",
+            &m_MinClearance, Millimeter2iu( DEFAULT_MINCLEARANCE ),
+            Millimeter2iu( 0.01 ), Millimeter2iu( 25.0 ), MM_PER_IU ) );
 
-    m_params.emplace_back( new PARAM_SCALED<int>( "rules.min_track_width", &m_TrackMinWidth,
-            Millimeter2iu( DEFAULT_TRACKMINWIDTH ), Millimeter2iu( 0.01 ), Millimeter2iu( 25.0 ),
-            MM_PER_IU ) );
+    m_params.emplace_back( new PARAM_SCALED<int>( "rules.min_track_width",
+            &m_TrackMinWidth, Millimeter2iu( DEFAULT_TRACKMINWIDTH ),
+            Millimeter2iu( 0.01 ), Millimeter2iu( 25.0 ), MM_PER_IU ) );
 
     m_params.emplace_back( new PARAM_SCALED<int>( "rules.min_via_annular_width",
-            &m_ViasMinAnnularWidth, Millimeter2iu( DEFAULT_VIASMINSIZE ), Millimeter2iu( 0.01 ),
-            Millimeter2iu( 25.0 ), MM_PER_IU ) );
+            &m_ViasMinAnnularWidth, Millimeter2iu( DEFAULT_VIASMINSIZE ),
+            Millimeter2iu( 0.01 ), Millimeter2iu( 25.0 ), MM_PER_IU ) );
 
-    m_params.emplace_back( new PARAM_SCALED<int>( "rules.min_via_diameter", &m_ViasMinSize,
-            Millimeter2iu( DEFAULT_VIASMINSIZE ), Millimeter2iu( 0.01 ), Millimeter2iu( 25.0 ),
-            MM_PER_IU ) );
+    m_params.emplace_back( new PARAM_SCALED<int>( "rules.min_via_diameter",
+            &m_ViasMinSize, Millimeter2iu( DEFAULT_VIASMINSIZE ),
+            Millimeter2iu( 0.01 ), Millimeter2iu( 25.0 ), MM_PER_IU ) );
 
     m_params.emplace_back( new PARAM_SCALED<int>( "rules.min_through_hole_diameter",
-            &m_MinThroughDrill, Millimeter2iu( DEFAULT_MINTHROUGHDRILL ), Millimeter2iu( 0.01 ),
-            Millimeter2iu( 25.0 ), MM_PER_IU ) );
+            &m_MinThroughDrill, Millimeter2iu( DEFAULT_MINTHROUGHDRILL ),
+            Millimeter2iu( 0.01 ), Millimeter2iu( 25.0 ), MM_PER_IU ) );
 
     m_params.emplace_back( new PARAM_SCALED<int>( "rules.min_microvia_diameter",
-            &m_MicroViasMinSize, Millimeter2iu( DEFAULT_MICROVIASMINSIZE ), Millimeter2iu( 0.01 ),
-            Millimeter2iu( 10.0 ), MM_PER_IU ) );
+            &m_MicroViasMinSize, Millimeter2iu( DEFAULT_MICROVIASMINSIZE ),
+            Millimeter2iu( 0.01 ), Millimeter2iu( 10.0 ), MM_PER_IU ) );
 
-    m_params.emplace_back( new PARAM_SCALED<int>( "rules.min_microvia_drill", &m_MicroViasMinDrill,
-            Millimeter2iu( DEFAULT_MICROVIASMINDRILL ), Millimeter2iu( 0.01 ),
-            Millimeter2iu( 10.0 ), MM_PER_IU ) );
+    m_params.emplace_back( new PARAM_SCALED<int>( "rules.min_microvia_drill",
+            &m_MicroViasMinDrill, Millimeter2iu( DEFAULT_MICROVIASMINDRILL ),
+            Millimeter2iu( 0.01 ), Millimeter2iu( 10.0 ), MM_PER_IU ) );
 
-    m_params.emplace_back( new PARAM_SCALED<int>( "rules.min_hole_to_hole", &m_HoleToHoleMin,
-            Millimeter2iu( DEFAULT_HOLETOHOLEMIN ), Millimeter2iu( 0.00 ), Millimeter2iu( 10.0 ),
-            MM_PER_IU ) );
+    m_params.emplace_back( new PARAM_SCALED<int>( "rules.min_hole_to_hole",
+            &m_HoleToHoleMin, Millimeter2iu( DEFAULT_HOLETOHOLEMIN ),
+            Millimeter2iu( 0.00 ), Millimeter2iu( 10.0 ), MM_PER_IU ) );
 
-    m_params.emplace_back( new PARAM_SCALED<int>( "rules.min_hole_clearance", &m_HoleClearance,
-            Millimeter2iu( DEFAULT_HOLECLEARANCE ), Millimeter2iu( 0.00 ), Millimeter2iu( 100.0 ),
-            MM_PER_IU ) );
+    m_params.emplace_back( new PARAM_SCALED<int>( "rules.min_hole_clearance",
+            &m_HoleClearance, Millimeter2iu( DEFAULT_HOLECLEARANCE ),
+            Millimeter2iu( 0.00 ), Millimeter2iu( 100.0 ), MM_PER_IU ) );
 
-    m_params.emplace_back( new PARAM_SCALED<int>( "rules.min_silk_clearance", &m_SilkClearance,
-            Millimeter2iu( DEFAULT_SILKCLEARANCE ), Millimeter2iu( 0.00 ), Millimeter2iu( 100.0 ),
-            MM_PER_IU ) );
+    m_params.emplace_back( new PARAM_SCALED<int>( "rules.min_silk_clearance",
+            &m_SilkClearance, Millimeter2iu( DEFAULT_SILKCLEARANCE ),
+            Millimeter2iu( 0.00 ), Millimeter2iu( 100.0 ), MM_PER_IU ) );
+
+    m_params.emplace_back( new PARAM<int>( "rules.min_resolved_spokes",
+            &m_MinResolvedSpokes, DEFAULT_MINRESOLVEDSPOKES, 0, 4 ) );
+
+    m_params.emplace_back( new PARAM_SCALED<int>( "rules.min_text_height",
+            &m_MinSilkTextHeight, Millimeter2iu( DEFAULT_SILK_TEXT_SIZE * 0.8 ),
+            Millimeter2iu( 0.00 ), Millimeter2iu( 100.0 ), MM_PER_IU ) );
+
+    m_params.emplace_back( new PARAM_SCALED<int>( "rules.min_text_thickness",
+            &m_MinSilkTextThickness, Millimeter2iu( DEFAULT_SILK_TEXT_WIDTH * 0.8 ),
+            Millimeter2iu( 0.00 ), Millimeter2iu( 25.0 ), MM_PER_IU ) );
 
     // Note: a clearance of -0.01 is a flag indicating we should use the legacy (pre-6.0) method
     // based on the edge cut thicknesses.
@@ -591,8 +610,12 @@ BOARD_DESIGN_SETTINGS::BOARD_DESIGN_SETTINGS( JSON_SETTINGS* aParent, const std:
                 }
             }, {} ) );
 
-    m_params.emplace_back( new PARAM_SCALED<int>( "rules.max_error", &m_MaxError, ARC_HIGH_DEF,
-            Millimeter2iu( 0.0001 ), Millimeter2iu( 1.0 ), MM_PER_IU ) );
+    m_params.emplace_back( new PARAM_SCALED<int>( "rules.max_error",
+            &m_MaxError, ARC_HIGH_DEF, Millimeter2iu( 0.0001 ), Millimeter2iu( 1.0 ), MM_PER_IU ) );
+
+    m_params.emplace_back( new PARAM_SCALED<int>( "rules.solder_mask_to_copper_clearance",
+            &m_SolderMaskToCopperClearance, Millimeter2iu( DEFAULT_SOLDERMASK_TO_COPPER_CLEARANCE ),
+            Millimeter2iu( 0.0 ), Millimeter2iu( 25.0 ), MM_PER_IU ) );
 
     // TODO: replace with zones_fill_version parameter and migrate zones_use_no_outline?
     m_params.emplace_back( new PARAM_LAMBDA<bool>( "zones_use_no_outline",
@@ -618,7 +641,7 @@ BOARD_DESIGN_SETTINGS::BOARD_DESIGN_SETTINGS( JSON_SETTINGS* aParent, const std:
                 // The parameters are removed, so we just have to manually load them here and
                 // they will get saved with the board
                 if( OPT<double> optval = Get<double>( "rules.solder_mask_clearance" ) )
-                    m_SolderMaskMargin = static_cast<int>( *optval * IU_PER_MM );
+                    m_SolderMaskExpansion = static_cast<int>( *optval * IU_PER_MM );
 
                 if( OPT<double> optval = Get<double>( "rules.solder_mask_min_width" ) )
                     m_SolderMaskMinWidth = static_cast<int>( *optval * IU_PER_MM );
@@ -691,16 +714,19 @@ void BOARD_DESIGN_SETTINGS::initFromOther( const BOARD_DESIGN_SETTINGS& aOther )
     m_HoleClearance          = aOther.m_HoleClearance;
     m_HoleToHoleMin          = aOther.m_HoleToHoleMin;
     m_SilkClearance          = aOther.m_SilkClearance;
+    m_MinSilkTextHeight      = aOther.m_MinSilkTextHeight;
+    m_MinSilkTextThickness   = aOther.m_MinSilkTextThickness;
     m_DRCSeverities          = aOther.m_DRCSeverities;
     m_DrcExclusions          = aOther.m_DrcExclusions;
     m_ZoneFillVersion        = aOther.m_ZoneFillVersion;
-    m_ZoneKeepExternalFillets= aOther.m_ZoneKeepExternalFillets;
-    m_MaxError               = aOther.m_MaxError;
-    m_SolderMaskMargin       = aOther.m_SolderMaskMargin;
-    m_SolderMaskMinWidth     = aOther.m_SolderMaskMinWidth;
-    m_SolderPasteMargin      = aOther.m_SolderPasteMargin;
-    m_SolderPasteMarginRatio = aOther.m_SolderPasteMarginRatio;
-    m_DefaultFPTextItems     = aOther.m_DefaultFPTextItems;
+    m_ZoneKeepExternalFillets     = aOther.m_ZoneKeepExternalFillets;
+    m_MaxError                    = aOther.m_MaxError;
+    m_SolderMaskExpansion         = aOther.m_SolderMaskExpansion;
+    m_SolderMaskMinWidth          = aOther.m_SolderMaskMinWidth;
+    m_SolderMaskToCopperClearance = aOther.m_SolderMaskToCopperClearance;
+    m_SolderPasteMargin           = aOther.m_SolderPasteMargin;
+    m_SolderPasteMarginRatio      = aOther.m_SolderPasteMarginRatio;
+    m_DefaultFPTextItems          = aOther.m_DefaultFPTextItems;
 
     std::copy( std::begin( aOther.m_LineThickness ), std::end( aOther.m_LineThickness ),
                std::begin( m_LineThickness ) );
@@ -1051,24 +1077,6 @@ int BOARD_DESIGN_SETTINGS::GetCurrentDiffPairViaGap() const
     {
         return m_DiffPairDimensionsList[m_diffPairIndex].m_ViaGap;
     }
-}
-
-
-void BOARD_DESIGN_SETTINGS::SetMinHoleSeparation( int aDistance )
-{
-    m_HoleToHoleMin = aDistance;
-}
-
-
-void BOARD_DESIGN_SETTINGS::SetCopperEdgeClearance( int aDistance )
-{
-    m_CopperEdgeClearance = aDistance;
-}
-
-
-void BOARD_DESIGN_SETTINGS::SetSilkClearance( int aDistance )
-{
-    m_SilkClearance = aDistance;
 }
 
 

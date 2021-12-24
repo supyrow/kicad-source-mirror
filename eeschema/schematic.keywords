@@ -21,12 +21,11 @@ color
 comment
 company
 convert
-dash
-dash_dot
 data
 date
 default
 diameter
+diamond
 dot
 edge_clock_high
 effects
@@ -66,6 +65,7 @@ members
 mid
 mirror
 name
+netclass_flag
 no
 no_connect
 non_logic
@@ -103,12 +103,12 @@ reference
 required
 rev
 right
+round
 scale
 shape
 sheet
 sheet_instances
 size
-solid
 start
 stroke
 symbol
@@ -131,3 +131,4 @@ xy
 x
 y
 yes
+

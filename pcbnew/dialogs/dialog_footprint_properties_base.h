@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////
-// C++ code generated with wxFormBuilder (version 3.10.0-4761b0c)
+// C++ code generated with wxFormBuilder (version Oct 26 2018)
 // http://www.wxformbuilder.org/
 //
 // PLEASE DO *NOT* EDIT THIS FILE!
@@ -29,13 +29,11 @@ class WX_GRID;
 #include <wx/statbox.h>
 #include <wx/stattext.h>
 #include <wx/textctrl.h>
+#include <wx/combobox.h>
 #include <wx/choice.h>
-#include <wx/radiobut.h>
-#include <wx/gbsizer.h>
-#include <wx/radiobox.h>
-#include <wx/slider.h>
 #include <wx/checkbox.h>
 #include <wx/panel.h>
+#include <wx/gbsizer.h>
 #include <wx/notebook.h>
 #include <wx/dialog.h>
 
@@ -64,41 +62,30 @@ class DIALOG_FOOTPRINT_PROPERTIES_BASE : public DIALOG_SHIM
 		wxStaticText* m_YPosLabel;
 		wxTextCtrl* m_ModPositionY;
 		wxStaticText* m_YPosUnit;
+		wxStaticText* m_orientationLabel;
+		wxComboBox* m_orientationCtrl;
 		wxStaticText* m_BoardSideLabel;
 		wxChoice* m_BoardSideCtrl;
-		wxRadioButton* m_Orient0;
-		wxRadioButton* m_Orient90;
-		wxRadioButton* m_Orient270;
-		wxRadioButton* m_Orient180;
-		wxRadioButton* m_OrientOther;
-		wxTextCtrl* m_OrientValueCtrl;
-		wxRadioBox* m_AutoPlaceCtrl;
-		wxStaticBoxSizer* m_sizerAP;
-		wxBoxSizer* m_sizerAllow90;
-		wxStaticText* m_allow90Label;
-		wxSlider* m_CostRot90Ctrl;
-		wxBoxSizer* m_sizerAllow180;
-		wxStaticText* m_allow180Label;
-		wxSlider* m_CostRot180Ctrl;
-		wxButton* m_buttonUpdate;
-		wxButton* m_buttonExchange;
-		wxButton* m_buttonModuleEditor;
-		wxButton* m_button5;
+		wxCheckBox* m_cbLocked;
 		wxStaticText* m_componentTypeLabel;
 		wxChoice* m_componentType;
 		wxCheckBox* m_boardOnly;
 		wxCheckBox* m_excludeFromPosFiles;
 		wxCheckBox* m_excludeFromBOM;
+		wxCheckBox* m_noCourtyards;
+		wxButton* m_buttonUpdate;
+		wxButton* m_buttonExchange;
+		wxButton* m_buttonModuleEditor;
+		wxButton* m_button5;
 		wxPanel* m_PanelClearances;
 		wxStaticText* m_staticTextInfo;
-		wxStaticText* m_staticTextInfoValPos;
-		wxStaticText* m_staticTextInfoValNeg;
 		wxStaticText* m_NetClearanceLabel;
 		wxTextCtrl* m_NetClearanceCtrl;
 		wxStaticText* m_NetClearanceUnits;
 		wxStaticText* m_SolderMaskMarginLabel;
 		wxTextCtrl* m_SolderMaskMarginCtrl;
 		wxStaticText* m_SolderMaskMarginUnits;
+		wxCheckBox* m_allowSolderMaskBridges;
 		wxStaticText* m_SolderPasteMarginLabel;
 		wxTextCtrl* m_SolderPasteMarginCtrl;
 		wxStaticText* m_SolderPasteMarginUnits;
@@ -115,15 +102,13 @@ class DIALOG_FOOTPRINT_PROPERTIES_BASE : public DIALOG_SHIM
 		wxButton* m_sdbSizerStdButtonsOK;
 		wxButton* m_sdbSizerStdButtonsCancel;
 
-		// Virtual event handlers, override them in your derived class
+		// Virtual event handlers, overide them in your derived class
 		virtual void OnInitDlg( wxInitDialogEvent& event ) { event.Skip(); }
 		virtual void OnUpdateUI( wxUpdateUIEvent& event ) { event.Skip(); }
 		virtual void OnPageChange( wxNotebookEvent& event ) { event.Skip(); }
 		virtual void OnGridSize( wxSizeEvent& event ) { event.Skip(); }
 		virtual void OnAddField( wxCommandEvent& event ) { event.Skip(); }
 		virtual void OnDeleteField( wxCommandEvent& event ) { event.Skip(); }
-		virtual void FootprintOrientEvent( wxCommandEvent& event ) { event.Skip(); }
-		virtual void OnOtherOrientation( wxCommandEvent& event ) { event.Skip(); }
 		virtual void UpdateFootprint( wxCommandEvent& event ) { event.Skip(); }
 		virtual void ChangeFootprint( wxCommandEvent& event ) { event.Skip(); }
 		virtual void EditFootprint( wxCommandEvent& event ) { event.Skip(); }
@@ -133,7 +118,6 @@ class DIALOG_FOOTPRINT_PROPERTIES_BASE : public DIALOG_SHIM
 	public:
 
 		DIALOG_FOOTPRINT_PROPERTIES_BASE( wxWindow* parent, wxWindowID id = wxID_ANY, const wxString& title = _("Footprint Properties"), const wxPoint& pos = wxDefaultPosition, const wxSize& size = wxSize( -1,-1 ), long style = wxDEFAULT_DIALOG_STYLE|wxRESIZE_BORDER );
-
 		~DIALOG_FOOTPRINT_PROPERTIES_BASE();
 
 };

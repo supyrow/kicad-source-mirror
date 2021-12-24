@@ -83,11 +83,15 @@ public:
     static TOOL_ACTION placeJunction;
     static TOOL_ACTION placeBusWireEntry;
     static TOOL_ACTION placeLabel;
+    static TOOL_ACTION placeClassLabel;
     static TOOL_ACTION placeGlobalLabel;
     static TOOL_ACTION placeHierLabel;
     static TOOL_ACTION drawSheet;
     static TOOL_ACTION importSheetPin;
     static TOOL_ACTION placeSchematicText;
+    static TOOL_ACTION drawRectangle;
+    static TOOL_ACTION drawCircle;
+    static TOOL_ACTION drawArc;
     static TOOL_ACTION drawLines;
     static TOOL_ACTION placeImage;
     static TOOL_ACTION finishLineWireOrBus;
@@ -99,9 +103,6 @@ public:
     // Symbol Tools
     static TOOL_ACTION placeSymbolPin;
     static TOOL_ACTION placeSymbolText;
-    static TOOL_ACTION drawSymbolRectangle;
-    static TOOL_ACTION drawSymbolCircle;
-    static TOOL_ACTION drawSymbolArc;
     static TOOL_ACTION drawSymbolLines;
     static TOOL_ACTION placeSymbolAnchor;
     static TOOL_ACTION finishDrawing;
@@ -127,6 +128,7 @@ public:
     static TOOL_ACTION showDeMorganAlternate;
     static TOOL_ACTION editSymbolUnit;
     static TOOL_ACTION toLabel;
+    static TOOL_ACTION toCLabel;
     static TOOL_ACTION toHLabel;
     static TOOL_ACTION toGLabel;
     static TOOL_ACTION toText;
@@ -194,6 +196,9 @@ public:
     // Miscellaneous
     static TOOL_ACTION toggleHiddenPins;
     static TOOL_ACTION toggleHiddenFields;
+    static TOOL_ACTION toggleERCWarnings;
+    static TOOL_ACTION toggleERCErrors;
+    static TOOL_ACTION toggleERCExclusions;
     static TOOL_ACTION toggleSyncedPinsMode;
     static TOOL_ACTION restartMove;
     static TOOL_ACTION explicitCrossProbe;

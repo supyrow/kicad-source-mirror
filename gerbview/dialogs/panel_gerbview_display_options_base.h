@@ -10,6 +10,7 @@
 #include <wx/artprov.h>
 #include <wx/xrc/xmlres.h>
 #include <wx/intl.h>
+#include "widgets/resettable_panel.h"
 #include <wx/sizer.h>
 #include <wx/gdicmn.h>
 #include <wx/string.h>
@@ -18,6 +19,7 @@
 #include <wx/colour.h>
 #include <wx/settings.h>
 #include <wx/statbox.h>
+#include <wx/radiobox.h>
 #include <wx/panel.h>
 
 ///////////////////////////////////////////////////////////////////////////
@@ -26,7 +28,7 @@
 ///////////////////////////////////////////////////////////////////////////////
 /// Class PANEL_GERBVIEW_DISPLAY_OPTIONS_BASE
 ///////////////////////////////////////////////////////////////////////////////
-class PANEL_GERBVIEW_DISPLAY_OPTIONS_BASE : public wxPanel
+class PANEL_GERBVIEW_DISPLAY_OPTIONS_BASE : public RESETTABLE_PANEL
 {
 	private:
 
@@ -34,9 +36,11 @@ class PANEL_GERBVIEW_DISPLAY_OPTIONS_BASE : public wxPanel
 		wxBoxSizer* m_UpperSizer;
 		wxBoxSizer* m_galOptionsSizer;
 		wxCheckBox* m_OptDisplayDCodes;
+		wxCheckBox* m_ShowPageLimitsOpt;
 		wxCheckBox* m_OptDisplayFlashedItems;
 		wxCheckBox* m_OptDisplayLines;
 		wxCheckBox* m_OptDisplayPolygons;
+		wxRadioBox* m_PageSize;
 
 	public:
 

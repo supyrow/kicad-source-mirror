@@ -262,16 +262,10 @@ void FP_CACHE::Load()
             // Queue I/O errors so only files that fail to parse don't get loaded.
             try
             {
-                FILE_LINE_READER    reader( fn.GetFullPath() );
+                FILE_LINE_READER reader( fn.GetFullPath() );
+                PCB_PARSER       parser( &reader );
 
-                m_owner->m_parser->SetLineReader( &reader );
-
-                // For better or worse (mostly worse), the parser is a long-lived object.
-                // Make sure we start with a fresh state.
-                m_owner->m_parser->InitParserState();
-                m_owner->m_parser->SetBoard( nullptr );     // calls PCB_PARSER::init()
-
-                FOOTPRINT* footprint = (FOOTPRINT*) m_owner->m_parser->Parse();
+                FOOTPRINT* footprint = (FOOTPRINT*) parser.Parse();
                 wxString   fpName = fn.GetName();
 
                 footprint->SetFPID( LIB_ID( wxEmptyString, fpName ) );
@@ -379,18 +373,17 @@ BOARD_ITEM* PCB_PLUGIN::Parse( const wxString& aClipboardSourceInput )
 {
     std::string input = TO_UTF8( aClipboardSourceInput );
 
-    STRING_LINE_READER  reader( input, wxT( "clipboard" ) );
-
-    m_parser->SetLineReader( &reader );
+    STRING_LINE_READER reader( input, wxT( "clipboard" ) );
+    PCB_PARSER         parser( &reader );
 
     try
     {
-        return m_parser->Parse();
+        return parser.Parse();
     }
     catch( const PARSE_ERROR& parse_error )
     {
-        if( m_parser->IsTooRecent() )
-            throw FUTURE_FORMAT_ERROR( parse_error, m_parser->GetRequiredVersion() );
+        if( parser.IsTooRecent() )
+            throw FUTURE_FORMAT_ERROR( parse_error, parser.GetRequiredVersion() );
         else
             throw;
     }
@@ -409,8 +402,14 @@ void PCB_PLUGIN::Format( const BOARD_ITEM* aItem, int aNestLevel ) const
 
     case PCB_DIM_ALIGNED_T:
     case PCB_DIM_CENTER_T:
+    case PCB_DIM_RADIAL_T:
     case PCB_DIM_ORTHOGONAL_T:
     case PCB_DIM_LEADER_T:
+    case PCB_FP_DIM_ALIGNED_T:
+    case PCB_FP_DIM_CENTER_T:
+    case PCB_FP_DIM_RADIAL_T:
+    case PCB_FP_DIM_ORTHOGONAL_T:
+    case PCB_FP_DIM_LEADER_T:
         format( static_cast<const PCB_DIMENSION_BASE*>( aItem ), aNestLevel );
         break;
 
@@ -485,7 +484,7 @@ void PCB_PLUGIN::formatSetup( const BOARD* aBoard, int aNestLevel ) const
     BOARD_DESIGN_SETTINGS& dsnSettings = aBoard->GetDesignSettings();
 
     m_out->Print( aNestLevel+1, "(pad_to_mask_clearance %s)\n",
-                  FormatInternalUnits( dsnSettings.m_SolderMaskMargin ).c_str() );
+                  FormatInternalUnits( dsnSettings.m_SolderMaskExpansion ).c_str() );
 
     if( dsnSettings.m_SolderMaskMinWidth )
         m_out->Print( aNestLevel+1, "(solder_mask_min_width %s)\n",
@@ -709,6 +708,7 @@ void PCB_PLUGIN::format( const PCB_DIMENSION_BASE* aDimension, int aNestLevel ) 
     const PCB_DIM_ALIGNED*    aligned = dynamic_cast<const PCB_DIM_ALIGNED*>( aDimension );
     const PCB_DIM_ORTHOGONAL* ortho   = dynamic_cast<const PCB_DIM_ORTHOGONAL*>( aDimension );
     const PCB_DIM_CENTER*     center  = dynamic_cast<const PCB_DIM_CENTER*>( aDimension );
+    const PCB_DIM_RADIAL*     radial  = dynamic_cast<const PCB_DIM_RADIAL*>( aDimension );
     const PCB_DIM_LEADER*     leader  = dynamic_cast<const PCB_DIM_LEADER*>( aDimension );
 
     m_out->Print( aNestLevel, "(dimension" );
@@ -716,13 +716,15 @@ void PCB_PLUGIN::format( const PCB_DIMENSION_BASE* aDimension, int aNestLevel ) 
     if( aDimension->IsLocked() )
         m_out->Print( 0, " locked" );
 
-    if( aDimension->Type() == PCB_DIM_ALIGNED_T )
+    if( aligned )
         m_out->Print( 0, " (type aligned)" );
-    else if( aDimension->Type() == PCB_DIM_LEADER_T )
+    else if( leader )
         m_out->Print( 0, " (type leader)" );
-    else if( aDimension->Type() == PCB_DIM_CENTER_T )
+    else if( center )
         m_out->Print( 0, " (type center)" );
-    else if( aDimension->Type() == PCB_DIM_ORTHOGONAL_T )
+    else if( radial )
+        m_out->Print( 0, " (type radial)" );
+    else if( ortho )
         m_out->Print( 0, " (type orthogonal)" );
     else
         wxFAIL_MSG( wxT( "Cannot format unknown dimension type!" ) );
@@ -743,6 +745,12 @@ void PCB_PLUGIN::format( const PCB_DIMENSION_BASE* aDimension, int aNestLevel ) 
     {
         m_out->Print( aNestLevel+1, "(height %s)\n",
                       FormatInternalUnits( aligned->GetHeight() ).c_str() );
+    }
+
+    if( radial )
+    {
+        m_out->Print( aNestLevel+1, "(leader_length %s)\n",
+                      FormatInternalUnits( radial->GetLeaderLength() ).c_str() );
     }
 
     if( ortho )
@@ -789,7 +797,7 @@ void PCB_PLUGIN::format( const PCB_DIMENSION_BASE* aDimension, int aNestLevel ) 
     }
 
     if( leader )
-        m_out->Print( 0, " (text_frame %d)", static_cast<int>( leader->GetTextFrame() ) );
+        m_out->Print( 0, " (text_frame %d)", static_cast<int>( leader->GetTextBorder() ) );
 
     m_out->Print( 0, " (extension_offset %s)",
                   FormatInternalUnits( aDimension->GetExtensionOffset() ).c_str() );
@@ -915,9 +923,9 @@ void PCB_PLUGIN::format( const PCB_SHAPE* aShape, int aNestLevel ) const
         return;
     };
 
-    formatLayer( aShape );
+    m_out->Print( 0, "\n" );
 
-    m_out->Print( 0, " (width %s)", FormatInternalUnits( aShape->GetWidth() ).c_str() );
+    aShape->GetStroke().Format( m_out, aNestLevel + 1 );
 
     // The filled flag represents if a solid fill is present on circles, rectangles and polygons
     if( ( aShape->GetShape() == SHAPE_T::POLY )
@@ -929,6 +937,8 @@ void PCB_PLUGIN::format( const PCB_SHAPE* aShape, int aNestLevel ) const
         else
             m_out->Print( 0, " (fill none)" );
     }
+
+    formatLayer( aShape );
 
     m_out->Print( 0, " (tstamp %s)", TO_UTF8( aShape->m_Uuid.AsString() ) );
 
@@ -1048,9 +1058,9 @@ void PCB_PLUGIN::format( const FP_SHAPE* aFPShape, int aNestLevel ) const
         return;
     };
 
-    formatLayer( aFPShape );
+    m_out->Print( 0, "\n" );
 
-    m_out->Print( 0, " (width %s)", FormatInternalUnits( aFPShape->GetWidth() ).c_str() );
+    aFPShape->GetStroke().Format( m_out, aNestLevel + 1 );
 
     // The filled flag represents if a solid fill is present on circles, rectangles and polygons
     if( ( aFPShape->GetShape() == SHAPE_T::POLY )
@@ -1062,6 +1072,8 @@ void PCB_PLUGIN::format( const FP_SHAPE* aFPShape, int aNestLevel ) const
         else
             m_out->Print( 0, " (fill none)" );
     }
+
+    formatLayer( aFPShape );
 
     m_out->Print( 0, " (tstamp %s)", TO_UTF8( aFPShape->m_Uuid.AsString() ) );
 
@@ -1160,12 +1172,6 @@ void PCB_PLUGIN::format( const FOOTPRINT* aFootprint, int aNestLevel ) const
         m_out->Print( aNestLevel+1, "(path %s)\n",
                       m_out->Quotew( aFootprint->GetPath().AsString() ).c_str() );
 
-    if( aFootprint->GetPlacementCost90() != 0 )
-        m_out->Print( aNestLevel+1, "(autoplace_cost90 %d)\n", aFootprint->GetPlacementCost90() );
-
-    if( aFootprint->GetPlacementCost180() != 0 )
-        m_out->Print( aNestLevel+1, "(autoplace_cost180 %d)\n", aFootprint->GetPlacementCost180() );
-
     if( aFootprint->GetLocalSolderMaskMargin() != 0 )
         m_out->Print( aNestLevel+1, "(solder_mask_margin %s)\n",
                       FormatInternalUnits( aFootprint->GetLocalSolderMaskMargin() ).c_str() );
@@ -1185,14 +1191,6 @@ void PCB_PLUGIN::format( const FOOTPRINT* aFootprint, int aNestLevel ) const
     if( aFootprint->GetZoneConnection() != ZONE_CONNECTION::INHERITED )
         m_out->Print( aNestLevel+1, "(zone_connect %d)\n",
                                     static_cast<int>( aFootprint->GetZoneConnection() ) );
-
-    if( aFootprint->GetThermalWidth() != 0 )
-        m_out->Print( aNestLevel+1, "(thermal_width %s)\n",
-                      FormatInternalUnits( aFootprint->GetThermalWidth() ).c_str() );
-
-    if( aFootprint->GetThermalGap() != 0 )
-        m_out->Print( aNestLevel+1, "(thermal_gap %s)\n",
-                      FormatInternalUnits( aFootprint->GetThermalGap() ).c_str() );
 
     // Attributes
     if( aFootprint->GetAttributes() )
@@ -1214,6 +1212,25 @@ void PCB_PLUGIN::format( const FOOTPRINT* aFootprint, int aNestLevel ) const
         if( aFootprint->GetAttributes() & FP_EXCLUDE_FROM_BOM )
             m_out->Print( 0, " exclude_from_bom" );
 
+        if( aFootprint->GetAttributes() & FP_ALLOW_MISSING_COURTYARD )
+            m_out->Print( 0, " allow_missing_courtyard" );
+
+        if( aFootprint->GetAttributes() & FP_ALLOW_SOLDERMASK_BRIDGES )
+            m_out->Print( 0, " allow_soldermask_bridges" );
+
+        m_out->Print( 0, ")\n" );
+    }
+
+    if( aFootprint->GetPrivateLayers().any() )
+    {
+        m_out->Print( aNestLevel+1, "(private_layers" );
+
+        for( PCB_LAYER_ID layer : aFootprint->GetPrivateLayers().Seq() )
+        {
+            wxString canonicalName( LSET::Name( layer ) );
+            m_out->Print( 0, " \"%s\"", canonicalName.ToStdString().c_str() );
+        }
+
         m_out->Print( 0, ")\n" );
     }
 
@@ -1225,8 +1242,8 @@ void PCB_PLUGIN::format( const FOOTPRINT* aFootprint, int aNestLevel ) const
     std::set<BOARD_ITEM*, FOOTPRINT::cmp_drawings> sorted_drawings(
             aFootprint->GraphicalItems().begin(),
             aFootprint->GraphicalItems().end() );
-    std::set<BOARD_ITEM*, BOARD_ITEM::ptr_cmp> sorted_zones( aFootprint->Zones().begin(),
-                                                             aFootprint->Zones().end() );
+    std::set<FP_ZONE*, FOOTPRINT::cmp_zones> sorted_zones( aFootprint->Zones().begin(),
+                                                           aFootprint->Zones().end() );
     std::set<BOARD_ITEM*, PCB_GROUP::ptr_cmp> sorted_groups( aFootprint->Groups().begin(),
                                                              aFootprint->Groups().end() );
 
@@ -1359,7 +1376,7 @@ void PCB_PLUGIN::formatLayers( LSET aLayerMask, int aNestLevel ) const
     // output any individual layers not handled in wildcard combos above
     wxString layerName;
 
-    for( LAYER_NUM layer = 0; layer < PCB_LAYER_ID_COUNT; ++layer )
+    for( int layer = 0; layer < PCB_LAYER_ID_COUNT; ++layer )
     {
         if( aLayerMask[layer] )
         {
@@ -1576,8 +1593,15 @@ void PCB_PLUGIN::format( const PAD* aPad, int aNestLevel ) const
 
     if( aPad->GetThermalSpokeWidth() != 0 )
     {
-        StrPrintf( &output, " (thermal_width %s)",
+        StrPrintf( &output, " (thermal_bridge_width %s)",
                    FormatInternalUnits( aPad->GetThermalSpokeWidth() ).c_str() );
+    }
+
+    if( ( aPad->GetShape() == PAD_SHAPE::CIRCLE && aPad->GetThermalSpokeAngle() != 450.0 )
+            || ( aPad->GetShape() != PAD_SHAPE::CIRCLE && aPad->GetThermalSpokeAngle() != 900.0 ) )
+    {
+        StrPrintf( &output, " (thermal_bridge_angle %s)",
+                   FormatAngle( aPad->GetThermalSpokeAngle() ).c_str() );
     }
 
     if( aPad->GetThermalGap() != 0 )
@@ -2269,7 +2293,6 @@ void PCB_PLUGIN::format( const ZONE* aZone, int aNestLevel ) const
 PCB_PLUGIN::PCB_PLUGIN( int aControlFlags ) :
     m_cache( nullptr ),
     m_ctl( aControlFlags ),
-    m_parser( new PCB_PARSER() ),
     m_mapping( new NETINFO_MAPPING() )
 {
     init( nullptr );
@@ -2280,7 +2303,6 @@ PCB_PLUGIN::PCB_PLUGIN( int aControlFlags ) :
 PCB_PLUGIN::~PCB_PLUGIN()
 {
     delete m_cache;
-    delete m_parser;
     delete m_mapping;
 }
 
@@ -2320,15 +2342,12 @@ BOARD* PCB_PLUGIN::DoLoad( LINE_READER& aReader, BOARD* aAppendToMe, const PROPE
 {
     init( aProperties );
 
-    m_parser->SetLineReader( &aReader );
-    m_parser->SetBoard( aAppendToMe );
-    m_parser->SetProgressReporter( aProgressReporter, &aReader, aLineCount );
-
-    BOARD* board;
+    PCB_PARSER parser( &aReader, aAppendToMe, aProgressReporter, aLineCount );
+    BOARD*     board;
 
     try
     {
-        board = dynamic_cast<BOARD*>( m_parser->Parse() );
+        board = dynamic_cast<BOARD*>( parser.Parse() );
     }
     catch( const FUTURE_FORMAT_ERROR& )
     {
@@ -2337,8 +2356,8 @@ BOARD* PCB_PLUGIN::DoLoad( LINE_READER& aReader, BOARD* aAppendToMe, const PROPE
     }
     catch( const PARSE_ERROR& parse_error )
     {
-        if( m_parser->IsTooRecent() )
-            throw FUTURE_FORMAT_ERROR( parse_error, m_parser->GetRequiredVersion() );
+        if( parser.IsTooRecent() )
+            throw FUTURE_FORMAT_ERROR( parse_error, parser.GetRequiredVersion() );
         else
             throw;
     }
@@ -2346,8 +2365,8 @@ BOARD* PCB_PLUGIN::DoLoad( LINE_READER& aReader, BOARD* aAppendToMe, const PROPE
     if( !board )
     {
         // The parser loaded something that was valid, but wasn't a board.
-        THROW_PARSE_ERROR( _( "This file does not contain a PCB." ), m_parser->CurSource(),
-                           m_parser->CurLine(), m_parser->CurLineNumber(), m_parser->CurOffset() );
+        THROW_PARSE_ERROR( _( "This file does not contain a PCB." ), parser.CurSource(),
+                           parser.CurLine(), parser.CurLineNumber(), parser.CurOffset() );
     }
 
     return board;

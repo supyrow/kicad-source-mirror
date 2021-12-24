@@ -66,11 +66,13 @@ public:
 
         for( const KICAD_T* p = aScanTypes; *p != EOT; ++p )
         {
-            if( *p == SCH_LINE_LOCATE_WIRE_T && m_layer == LAYER_WIRE )
+            if( *p == SCH_ITEM_LOCATE_WIRE_T && m_layer == LAYER_WIRE )
                 return true;
-            else if ( *p == SCH_LINE_LOCATE_BUS_T && m_layer == LAYER_BUS )
+
+            if ( *p == SCH_ITEM_LOCATE_BUS_T && m_layer == LAYER_BUS )
                 return true;
-            else if ( *p == SCH_LINE_LOCATE_GRAPHIC_LINE_T && m_layer == LAYER_NOTES )
+
+            if ( *p == SCH_ITEM_LOCATE_GRAPHIC_LINE_T && m_layer == LAYER_NOTES )
                 return true;
         }
 
@@ -276,11 +278,11 @@ public:
 private:
     bool doIsConnected( const wxPoint& aPosition ) const override;
 
-    bool    m_startIsDangling;  ///< True if start point is not connected.
-    bool    m_endIsDangling;    ///< True if end point is not connected.
-    wxPoint m_start;            ///< Line start point
-    wxPoint m_end;              ///< Line end point
-    STROKE_PARAMS m_stroke;     ///< Line stroke properties.
+    bool          m_startIsDangling;  ///< True if start point is not connected.
+    bool          m_endIsDangling;    ///< True if end point is not connected.
+    wxPoint       m_start;            ///< Line start point
+    wxPoint       m_end;              ///< Line end point
+    STROKE_PARAMS m_stroke;           ///< Line stroke properties.
 
     // If real-time connectivity gets disabled (due to being too slow on a particular
     // design), we can no longer rely on getting the NetClass to find netclass-specific

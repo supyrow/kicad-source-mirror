@@ -59,6 +59,8 @@ public:
 
     bool IsCurrentFPFromBoard() const;
 
+    bool CanCloseFPFromBoard( bool doClose );
+
     FOOTPRINT_EDITOR_SETTINGS* GetSettings();
 
     APP_SETTINGS_BASE* config() const override;
@@ -73,7 +75,7 @@ public:
     void LoadSettings( APP_SETTINGS_BASE* aCfg ) override;
     void SaveSettings( APP_SETTINGS_BASE* aCfg ) override;
 
-    COLOR_SETTINGS* GetColorSettings() const override;
+    COLOR_SETTINGS* GetColorSettings( bool aForceRefresh = false ) const override;
 
     const BOX2I GetDocumentExtents( bool aIncludeAllVisible = true ) const override;
 
@@ -270,11 +272,6 @@ public:
      * NOT to the user's PCB.
      */
     void AddFootprintToBoard( FOOTPRINT* aFootprint ) override;
-
-    /**
-     * Allow footprint editor to install its preferences panel into the preferences dialog.
-     */
-    void InstallPreferences( PAGED_DIALOG* aParent, PANEL_HOTKEYS_EDITOR* aHotkeysPanel ) override;
 
     /**
      * Update visible items after a language change.

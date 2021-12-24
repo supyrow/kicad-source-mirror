@@ -316,7 +316,13 @@ void SCH_BASE_FRAME::UpdateItem( EDA_ITEM* aItem, bool isAddOrDelete, bool aUpda
             GetCanvas()->GetView()->Update( aItem );
 
         // Some children are drawn from their parents.  Mark them for re-paint.
-        static KICAD_T parentTypes[] = { SCH_SYMBOL_T, SCH_SHEET_T, SCH_GLOBAL_LABEL_T, EOT };
+        static KICAD_T parentTypes[] = { SCH_SYMBOL_T,
+                                         SCH_SHEET_T,
+                                         SCH_LABEL_T,
+                                         SCH_GLOBAL_LABEL_T,
+                                         SCH_HIER_LABEL_T,
+                                         SCH_NETCLASS_FLAG_T,
+                                         EOT };
 
         if( parent && parent->IsType( parentTypes ) )
             GetCanvas()->GetView()->Update( parent, KIGFX::REPAINT );
@@ -418,21 +424,35 @@ void SCH_BASE_FRAME::CommonSettingsChanged( bool aEnvVarsChanged, bool aTextVars
 {
     EDA_DRAW_FRAME::CommonSettingsChanged( aEnvVarsChanged, aTextVarsChanged );
 
-    EESCHEMA_SETTINGS* cfg = Pgm().GetSettingsManager().GetAppSettings<EESCHEMA_SETTINGS>();
-    m_colorSettings = Pgm().GetSettingsManager().GetColorSettings( cfg->m_ColorTheme );
+    COLOR_SETTINGS* colorSettings = GetColorSettings( true );
+
+    GetCanvas()->GetView()->GetPainter()->GetSettings()->LoadColors( colorSettings );
+    GetCanvas()->GetGAL()->SetAxesColor( colorSettings->GetColor( LAYER_SCHEMATIC_GRID_AXES ) );
+    GetCanvas()->GetGAL()->DrawGrid();
 
     GetCanvas()->GetView()->UpdateAllItems( KIGFX::ALL );
-    GetCanvas()->Refresh();
+    GetCanvas()->GetView()->RecacheAllItems();
+    GetCanvas()->GetView()->MarkTargetDirty( KIGFX::TARGET_NONCACHED );
 }
 
 
-COLOR_SETTINGS* SCH_BASE_FRAME::GetColorSettings() const
+COLOR_SETTINGS* SCH_BASE_FRAME::GetColorSettings( bool aForceRefresh ) const
 {
-    if( !m_colorSettings )
+    if( !m_colorSettings || aForceRefresh )
     {
-        SETTINGS_MANAGER&  settingsManager = Pgm().GetSettingsManager();
-        EESCHEMA_SETTINGS* cfg = settingsManager.GetAppSettings<EESCHEMA_SETTINGS>();
-        COLOR_SETTINGS*    colorSettings = settingsManager.GetColorSettings( cfg->m_ColorTheme );
+        SETTINGS_MANAGER&  mgr = Pgm().GetSettingsManager();
+        EESCHEMA_SETTINGS* cfg = mgr.GetAppSettings<EESCHEMA_SETTINGS>();
+        wxString           colorTheme = cfg->m_ColorTheme;
+
+        if( IsType( FRAME_SCH_SYMBOL_EDITOR ) )
+        {
+            SYMBOL_EDITOR_SETTINGS* symCfg = mgr.GetAppSettings<SYMBOL_EDITOR_SETTINGS>();
+
+            if( !symCfg->m_UseEeschemaColorSettings )
+                colorTheme = symCfg->m_ColorTheme;
+        }
+
+        COLOR_SETTINGS* colorSettings = mgr.GetColorSettings( colorTheme );
 
         const_cast<SCH_BASE_FRAME*>( this )->m_colorSettings = colorSettings;
     }

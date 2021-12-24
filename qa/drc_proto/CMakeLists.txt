@@ -44,9 +44,9 @@ add_executable( drc_proto
     ../../pcbnew/drc/drc_test_provider_connectivity.cpp
     ../../pcbnew/drc/drc_test_provider_courtyard_clearance.cpp
     ../../pcbnew/drc/drc_test_provider_via_diameter.cpp
-    ../../pcbnew/drc/drc_test_provider_lvs.cpp
+    ../../pcbnew/drc/drc_test_provider_schematic_parity.cpp
     ../../pcbnew/drc/drc_test_provider_misc.cpp
-    ../../pcbnew/drc/drc_test_provider_silk_to_mask.cpp
+    ../../pcbnew/drc/drc_test_provider_solder_mask.cpp
     ../../pcbnew/drc/drc_test_provider_silk_clearance.cpp
     ../../pcbnew/drc/drc_test_provider_matched_length.cpp
     ../../pcbnew/drc/drc_test_provider_diff_pair_coupling.cpp

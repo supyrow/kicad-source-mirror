@@ -174,22 +174,26 @@ void SCH_EDIT_FRAME::ReCreateMenuBar()
     viewMenu->Add( ACTIONS::zoomRedraw );
 
     viewMenu->AppendSeparator();
-    viewMenu->Add( ACTIONS::toggleGrid,          ACTION_MENU::CHECK );
+    viewMenu->Add( ACTIONS::toggleGrid,             ACTION_MENU::CHECK );
     viewMenu->Add( ACTIONS::gridProperties );
 
     // Units submenu
     ACTION_MENU* unitsSubMenu = new ACTION_MENU( false, selTool );
     unitsSubMenu->SetTitle( _( "&Units" ) );
     unitsSubMenu->SetIcon( BITMAPS::unit_mm );
-    unitsSubMenu->Add( ACTIONS::inchesUnits,      ACTION_MENU::CHECK );
-    unitsSubMenu->Add( ACTIONS::milsUnits,        ACTION_MENU::CHECK );
-    unitsSubMenu->Add( ACTIONS::millimetersUnits, ACTION_MENU::CHECK );
+    unitsSubMenu->Add( ACTIONS::inchesUnits,        ACTION_MENU::CHECK );
+    unitsSubMenu->Add( ACTIONS::milsUnits,          ACTION_MENU::CHECK );
+    unitsSubMenu->Add( ACTIONS::millimetersUnits,   ACTION_MENU::CHECK );
     viewMenu->Add( unitsSubMenu );
 
-    viewMenu->Add( ACTIONS::toggleCursorStyle,   ACTION_MENU::CHECK );
+    viewMenu->Add( ACTIONS::toggleCursorStyle,      ACTION_MENU::CHECK );
 
     viewMenu->AppendSeparator();
-    viewMenu->Add( EE_ACTIONS::toggleHiddenPins, ACTION_MENU::CHECK );
+    viewMenu->Add( EE_ACTIONS::toggleHiddenPins,    ACTION_MENU::CHECK );
+    viewMenu->Add( EE_ACTIONS::toggleHiddenFields,  ACTION_MENU::CHECK );
+    viewMenu->Add( EE_ACTIONS::toggleERCErrors,     ACTION_MENU::CHECK );
+    viewMenu->Add( EE_ACTIONS::toggleERCWarnings,   ACTION_MENU::CHECK );
+    viewMenu->Add( EE_ACTIONS::toggleERCExclusions, ACTION_MENU::CHECK );
 
 #ifdef __APPLE__
     viewMenu->AppendSeparator();
@@ -207,6 +211,7 @@ void SCH_EDIT_FRAME::ReCreateMenuBar()
     placeMenu->Add( EE_ACTIONS::placeNoConnect );
     placeMenu->Add( EE_ACTIONS::placeJunction );
     placeMenu->Add( EE_ACTIONS::placeLabel );
+    placeMenu->Add( EE_ACTIONS::placeClassLabel );
     placeMenu->Add( EE_ACTIONS::placeGlobalLabel );
 
     placeMenu->AppendSeparator();
@@ -215,6 +220,9 @@ void SCH_EDIT_FRAME::ReCreateMenuBar()
     placeMenu->Add( EE_ACTIONS::importSheetPin );
 
     placeMenu->AppendSeparator();
+    placeMenu->Add( EE_ACTIONS::drawRectangle );
+    placeMenu->Add( EE_ACTIONS::drawCircle );
+    placeMenu->Add( EE_ACTIONS::drawArc );
     placeMenu->Add( EE_ACTIONS::drawLines );
     placeMenu->Add( EE_ACTIONS::placeSchematicText );
     placeMenu->Add( EE_ACTIONS::placeImage );

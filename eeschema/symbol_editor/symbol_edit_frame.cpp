@@ -270,11 +270,6 @@ void SYMBOL_EDIT_FRAME::LoadSettings( APP_SETTINGS_BASE* aCfg )
     SCH_BASE_FRAME::LoadSettings( GetSettings() );
 
     GetRenderSettings()->m_ShowPinsElectricalType = m_settings->m_ShowPinElectricalType;
-
-    // Hidden elements must be editable
-    GetRenderSettings()->m_ShowHiddenText = true;
-    GetRenderSettings()->m_ShowHiddenPins = true;
-    GetRenderSettings()->m_ShowUmbilicals = false;
 }
 
 
@@ -297,7 +292,7 @@ APP_SETTINGS_BASE* SYMBOL_EDIT_FRAME::config() const
 }
 
 
-COLOR_SETTINGS* SYMBOL_EDIT_FRAME::GetColorSettings() const
+COLOR_SETTINGS* SYMBOL_EDIT_FRAME::GetColorSettings( bool aForceRefresh ) const
 {
     SETTINGS_MANAGER& mgr = Pgm().GetSettingsManager();
 
@@ -490,9 +485,9 @@ void SYMBOL_EDIT_FRAME::setupUIConditions()
     mgr->SetConditions( ACTIONS::deleteTool,             EDIT_TOOL( ACTIONS::deleteTool ) );
     mgr->SetConditions( EE_ACTIONS::placeSymbolPin,      EDIT_TOOL( EE_ACTIONS::placeSymbolPin ) );
     mgr->SetConditions( EE_ACTIONS::placeSymbolText,     EDIT_TOOL( EE_ACTIONS::placeSymbolText ) );
-    mgr->SetConditions( EE_ACTIONS::drawSymbolRectangle, EDIT_TOOL( EE_ACTIONS::drawSymbolRectangle ) );
-    mgr->SetConditions( EE_ACTIONS::drawSymbolCircle,    EDIT_TOOL( EE_ACTIONS::drawSymbolCircle ) );
-    mgr->SetConditions( EE_ACTIONS::drawSymbolArc,       EDIT_TOOL( EE_ACTIONS::drawSymbolArc ) );
+    mgr->SetConditions( EE_ACTIONS::drawRectangle, EDIT_TOOL( EE_ACTIONS::drawRectangle ) );
+    mgr->SetConditions( EE_ACTIONS::drawCircle, EDIT_TOOL( EE_ACTIONS::drawCircle ) );
+    mgr->SetConditions( EE_ACTIONS::drawArc, EDIT_TOOL( EE_ACTIONS::drawArc ) );
     mgr->SetConditions( EE_ACTIONS::drawSymbolLines,     EDIT_TOOL( EE_ACTIONS::drawSymbolLines ) );
     mgr->SetConditions( EE_ACTIONS::placeSymbolAnchor,   EDIT_TOOL( EE_ACTIONS::placeSymbolAnchor ) );
 
@@ -502,40 +497,56 @@ void SYMBOL_EDIT_FRAME::setupUIConditions()
 }
 
 
-bool SYMBOL_EDIT_FRAME::canCloseWindow( wxCloseEvent& aEvent )
+bool SYMBOL_EDIT_FRAME::CanCloseSymbolFromSchematic( bool doClose )
 {
-    // Shutdown blocks must be determined and vetoed as early as possible
-    if( KIPLATFORM::APP::SupportsShutdownBlockReason() && aEvent.GetId() == wxEVT_QUERY_END_SESSION
-            && IsContentModified() )
-    {
-        return false;
-    }
-
-    if( m_isSymbolFromSchematic && IsContentModified() )
+    if( IsContentModified() )
     {
         SCH_EDIT_FRAME* schframe = (SCH_EDIT_FRAME*) Kiway().Player( FRAME_SCH, false );
+        wxString        msg = _( "Save changes to '%s' before closing?" );
 
-        switch( UnsavedChangesDialog( this,
-                                      _( "Save changes to schematic before closing?" ),
-                                      nullptr ) )
+        switch( UnsavedChangesDialog( this, wxString::Format( msg, m_reference ), nullptr ) )
         {
         case wxID_YES:
             if( schframe && GetCurSymbol() )  // Should be always the case
                 schframe->SaveSymbolToSchematic( *GetCurSymbol(), m_schematicSymbolUUID );
 
-            return true;
+            break;
 
-        case wxID_NO: return true;
+        case wxID_NO:
+            break;
 
         default:
-        case wxID_CANCEL: return false;
+        case wxID_CANCEL:
+            return false;
         }
     }
 
-    if( !saveAllLibraries( true ) )
+    if( doClose )
+    {
+        GetInfoBar()->ShowMessageFor( wxEmptyString, 1 );
+        SetCurSymbol( nullptr, false );
+        updateTitle();
+    }
+
+    return true;
+}
+
+
+bool SYMBOL_EDIT_FRAME::canCloseWindow( wxCloseEvent& aEvent )
+{
+    // Shutdown blocks must be determined and vetoed as early as possible
+    if( KIPLATFORM::APP::SupportsShutdownBlockReason()
+            && aEvent.GetId() == wxEVT_QUERY_END_SESSION
+            && IsContentModified() )
     {
         return false;
     }
+
+    if( m_isSymbolFromSchematic && !CanCloseSymbolFromSchematic( false ) )
+        return false;
+
+    if( !saveAllLibraries( true ) )
+        return false;
 
     return true;
 }
@@ -1086,8 +1097,14 @@ void SYMBOL_EDIT_FRAME::CommonSettingsChanged( bool aEnvVarsChanged, bool aTextV
 {
     SCH_BASE_FRAME::CommonSettingsChanged( aEnvVarsChanged, aTextVarsChanged );
 
-    GetCanvas()->GetGAL()->SetAxesColor( m_colorSettings->GetColor( LAYER_SCHEMATIC_GRID_AXES ) );
-    GetCanvas()->GetGAL()->DrawGrid();
+    SETTINGS_MANAGER*       mgr = GetSettingsManager();
+    SYMBOL_EDITOR_SETTINGS* cfg = mgr->GetAppSettings<SYMBOL_EDITOR_SETTINGS>();
+
+    GetRenderSettings()->m_ShowPinsElectricalType = cfg->m_ShowPinElectricalType;
+
+    GetGalDisplayOptions().ReadWindowSettings( cfg->m_Window );
+
+    GetCanvas()->ForceRefresh();
 
     RecreateToolbars();
 

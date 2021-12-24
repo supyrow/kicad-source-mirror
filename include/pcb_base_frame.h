@@ -163,7 +163,7 @@ public:
      *
      * @return a pointer to the active COLOR_SETTINGS.
      */
-    virtual COLOR_SETTINGS* GetColorSettings() const override
+    virtual COLOR_SETTINGS* GetColorSettings( bool aForceRefresh = false ) const override
     {
         wxFAIL_MSG( "Color settings requested for a PCB_BASE_FRAME that does not override!" );
         return nullptr;
@@ -218,6 +218,9 @@ public:
     EDA_ITEM* GetItem( const KIID& aId ) const override;
 
     void FocusOnItem( BOARD_ITEM* aItem, PCB_LAYER_ID aLayer = UNDEFINED_LAYER );
+
+    void HideSolderMask();
+    void ShowSolderMask();
 
     // General
     virtual void ReCreateOptToolbar() override { }

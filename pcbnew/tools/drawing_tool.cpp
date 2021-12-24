@@ -27,6 +27,8 @@
 
 #include <pgm_base.h>
 #include <settings/settings_manager.h>
+#include <pcbnew_settings.h>
+#include <footprint_editor_settings.h>
 #include <dialogs/dialog_text_properties.h>
 #include <dialogs/dialog_track_via_size.h>
 #include <geometry/geometry_utils.h>
@@ -164,7 +166,8 @@ DRAWING_TOOL::DRAWING_TOOL() :
     m_frame( nullptr ),
     m_mode( MODE::NONE ),
     m_inDrawingTool( false ),
-    m_lineWidth( 1 )
+    m_layer( UNDEFINED_LAYER ),
+    m_stroke( 1, PLOT_DASH_TYPE::DEFAULT, COLOR4D::UNSPECIFIED )
 {
 }
 
@@ -255,12 +258,13 @@ void DRAWING_TOOL::updateStatusBar() const
 {
     if( m_frame )
     {
-        bool constrained;
+        SETTINGS_MANAGER& mgr = Pgm().GetSettingsManager();
+        bool              constrained;
 
         if( m_frame->IsType( FRAME_PCB_EDITOR ) )
-            constrained = m_frame->Settings().m_PcbUse45DegreeLimit;
+            constrained = mgr.GetAppSettings<PCBNEW_SETTINGS>()->m_Use45DegreeLimit;
         else
-            constrained = m_frame->Settings().m_FpeditUse45DegreeLimit;
+            constrained = mgr.GetAppSettings<FOOTPRINT_EDITOR_SETTINGS>()->m_Use45Limit;
 
         m_frame->DisplayConstraintsMsg(
                 constrained ? _( "Constrain to H, V, 45" ) : wxString( "" ) );
@@ -607,8 +611,6 @@ int DRAWING_TOOL::PlaceText( const TOOL_EVENT& aEvent )
                 else
                 {
                     PCB_TEXT* pcbText = new PCB_TEXT( m_frame->GetModel() );
-                    // TODO we have to set IS_NEW, otherwise InstallTextPCB.. creates an
-                    // undo entry :| LEGACY_CLEANUP
                     pcbText->SetFlags( IS_NEW );
 
                     pcbText->SetLayer( layer );
@@ -744,6 +746,7 @@ int DRAWING_TOOL::DrawDimension( const TOOL_EVENT& aEvent )
     PCB_SELECTION          preview;   // A VIEW_GROUP that serves as a preview for the new item(s)
     SCOPED_DRAW_MODE       scopedDrawMode( m_mode, MODE::DIMENSION );
     int                    step = SET_ORIGIN;
+    KICAD_T                t = PCB_DIMENSION_T;
 
     m_view->Add( &preview );
 
@@ -836,17 +839,17 @@ int DRAWING_TOOL::DrawDimension( const TOOL_EVENT& aEvent )
         }
         else if( evt->IsAction( &PCB_ACTIONS::incWidth ) && step != SET_ORIGIN )
         {
-            m_lineWidth += WIDTH_STEP;
-            dimension->SetLineThickness( m_lineWidth );
+            m_stroke.SetWidth( m_stroke.GetWidth() + WIDTH_STEP );
+            dimension->SetLineThickness( m_stroke.GetWidth() );
             m_view->Update( &preview );
             frame()->SetMsgPanel( dimension );
         }
         else if( evt->IsAction( &PCB_ACTIONS::decWidth ) && step != SET_ORIGIN )
         {
-            if( m_lineWidth > WIDTH_STEP )
+            if( (unsigned) m_stroke.GetWidth() > WIDTH_STEP )
             {
-                m_lineWidth -= WIDTH_STEP;
-                dimension->SetLineThickness( m_lineWidth );
+                m_stroke.SetWidth( m_stroke.GetWidth() - WIDTH_STEP );
+                dimension->SetLineThickness( m_stroke.GetWidth() );
                 m_view->Update( &preview );
                 frame()->SetMsgPanel( dimension );
             }
@@ -882,27 +885,36 @@ int DRAWING_TOOL::DrawDimension( const TOOL_EVENT& aEvent )
 
                 if( originalEvent.IsAction( &PCB_ACTIONS::drawAlignedDimension ) )
                 {
-                    dimension = new PCB_DIM_ALIGNED( m_board );
+                    dimension = new PCB_DIM_ALIGNED( m_frame->GetModel(),
+                                                     m_isFootprintEditor ? PCB_FP_DIM_ALIGNED_T
+                                                                         : PCB_DIM_ALIGNED_T );
                     setMeasurementAttributes( dimension );
                 }
                 else if( originalEvent.IsAction( &PCB_ACTIONS::drawOrthogonalDimension ) )
                 {
-                    dimension = new PCB_DIM_ORTHOGONAL( m_board );
+                    dimension = new PCB_DIM_ORTHOGONAL( m_frame->GetModel(), m_isFootprintEditor );
                     setMeasurementAttributes( dimension );
                 }
                 else if( originalEvent.IsAction( &PCB_ACTIONS::drawCenterDimension ) )
                 {
-                    dimension = new PCB_DIM_CENTER( m_board );
+                    dimension = new PCB_DIM_CENTER( m_frame->GetModel(), m_isFootprintEditor );
+                }
+                else if( originalEvent.IsAction( &PCB_ACTIONS::drawRadialDimension ) )
+                {
+                    dimension = new PCB_DIM_RADIAL( m_frame->GetModel(), m_isFootprintEditor );
+                    setMeasurementAttributes( dimension );
                 }
                 else if( originalEvent.IsAction( &PCB_ACTIONS::drawLeader ) )
                 {
-                    dimension = new PCB_DIM_LEADER( m_board );
+                    dimension = new PCB_DIM_LEADER( m_frame->GetModel(), m_isFootprintEditor );
                     dimension->Text().SetPosition( wxPoint( cursorPos ) );
                 }
                 else
                 {
                     wxFAIL_MSG( "Unhandled action in DRAWING_TOOL::DrawDimension" );
                 }
+
+                t = dimension->Type();
 
                 dimension->SetLayer( layer );
                 dimension->Text().SetTextSize( boardSettings.GetTextSize( layer ) );
@@ -930,22 +942,17 @@ int DRAWING_TOOL::DrawDimension( const TOOL_EVENT& aEvent )
             }
 
             case SET_END:
-            {
-                dimension->SetEnd( (wxPoint) cursorPos );
-                dimension->Update();
-
-                if( Is45Limited() || dimension->Type() == PCB_DIM_CENTER_T )
-                    constrainDimension( dimension );
-
                 // Dimensions that have origin and end in the same spot are not valid
                 if( dimension->GetStart() == dimension->GetEnd() )
-                    --step;
-                else if( dimension->Type() == PCB_DIM_LEADER_T )
-                    dimension->SetText( wxT( "?" ) );
-
-                if( dimension->Type() == PCB_DIM_CENTER_T )
                 {
-                    // No separate height/text step
+                    --step;
+                    break;
+                }
+
+                if( t == PCB_DIM_CENTER_T    || t == PCB_DIM_RADIAL_T    || t == PCB_DIM_LEADER_T
+                 || t == PCB_FP_DIM_CENTER_T || t == PCB_FP_DIM_RADIAL_T || t == PCB_FP_DIM_LEADER_T )
+                {
+                    // No separate height step
                     ++step;
                     KI_FALLTHROUGH;
                 }
@@ -953,34 +960,23 @@ int DRAWING_TOOL::DrawDimension( const TOOL_EVENT& aEvent )
                 {
                     break;
                 }
-            }
 
             case SET_HEIGHT:
-                if( dimension->Type() == PCB_DIM_LEADER_T )
+                assert( dimension->GetStart() != dimension->GetEnd() );
+                assert( dimension->GetLineThickness() > 0 );
+
+                preview.Remove( dimension );
+
+                commit.Add( dimension );
+                commit.Push( _( "Draw a dimension" ) );
+
+                if( t == PCB_DIM_LEADER_T || t == PCB_FP_DIM_LEADER_T )
                 {
-                    assert( dimension->GetStart() != dimension->GetEnd() );
-                    assert( dimension->GetLineThickness() > 0 );
-
-                    preview.Remove( dimension );
-
-                    commit.Add( dimension );
-                    commit.Push( _( "Draw a leader" ) );
-
                     // Run the edit immediately to set the leader text
                     m_toolMgr->RunAction( PCB_ACTIONS::properties, true, dimension );
                 }
-                else if( (wxPoint) cursorPos != dimension->GetPosition() )
-                {
-                    assert( dimension->GetStart() != dimension->GetEnd() );
-                    assert( dimension->GetLineThickness() > 0 );
 
-                    preview.Remove( dimension );
-
-                    commit.Add( dimension );
-                    commit.Push( _( "Draw a dimension" ) );
-
-                    m_toolMgr->RunAction( PCB_ACTIONS::selectItem, true, dimension );
-                }
+                m_toolMgr->RunAction( PCB_ACTIONS::selectItem, true, dimension );
 
                 break;
             }
@@ -999,7 +995,10 @@ int DRAWING_TOOL::DrawDimension( const TOOL_EVENT& aEvent )
             case SET_END:
                 dimension->SetEnd( (wxPoint) cursorPos );
 
-                if( dimension->Type() == PCB_DIM_ORTHOGONAL_T )
+                if( Is45Limited() || t == PCB_DIM_CENTER_T || t == PCB_FP_DIM_CENTER_T )
+                    constrainDimension( dimension );
+
+                if( t == PCB_DIM_ORTHOGONAL_T || t == PCB_FP_DIM_ORTHOGONAL_T )
                 {
                     PCB_DIM_ORTHOGONAL* ortho = static_cast<PCB_DIM_ORTHOGONAL*>( dimension );
 
@@ -1012,17 +1011,32 @@ int DRAWING_TOOL::DrawDimension( const TOOL_EVENT& aEvent )
                     ortho->SetOrientation( vert ? PCB_DIM_ORTHOGONAL::DIR::VERTICAL
                                                 : PCB_DIM_ORTHOGONAL::DIR::HORIZONTAL );
                 }
+                else if( t == PCB_DIM_RADIAL_T || t == PCB_FP_DIM_RADIAL_T )
+                {
+                    PCB_DIM_RADIAL* radialDim = static_cast<PCB_DIM_RADIAL*>( dimension );
+                    wxPoint         textOffset( radialDim->GetArrowLength() * 10, 0 );
 
-                dimension->Update();
+                    if( radialDim->GetEnd().x < radialDim->GetStart().x )
+                        textOffset = -textOffset;
 
-                if( Is45Limited() || dimension->Type() == PCB_DIM_CENTER_T )
-                    constrainDimension( dimension );
+                    radialDim->Text().SetPosition( radialDim->GetKnee() + textOffset );
+                    radialDim->Update();
+                }
+                else if( t == PCB_DIM_LEADER_T || t == PCB_FP_DIM_LEADER_T )
+                {
+                    wxPoint textOffset( dimension->GetArrowLength() * 10, 0 );
+
+                    if( dimension->GetEnd().x < dimension->GetStart().x )
+                        textOffset = -textOffset;
+
+                    dimension->Text().SetPosition( dimension->GetEnd() + textOffset );
+                    dimension->Update();
+                }
 
                 break;
 
             case SET_HEIGHT:
-            {
-                if( dimension->Type() == PCB_DIM_ALIGNED_T )
+                if( t == PCB_DIM_ALIGNED_T || t == PCB_FP_DIM_ALIGNED_T )
                 {
                     PCB_DIM_ALIGNED* aligned = static_cast<PCB_DIM_ALIGNED*>( dimension );
 
@@ -1034,40 +1048,31 @@ int DRAWING_TOOL::DrawDimension( const TOOL_EVENT& aEvent )
                     aligned->SetHeight( height );
                     aligned->Update();
                 }
-                else if( dimension->Type() == PCB_DIM_ORTHOGONAL_T )
+                else if( t == PCB_DIM_ORTHOGONAL_T || t == PCB_FP_DIM_ORTHOGONAL_T )
                 {
                     PCB_DIM_ORTHOGONAL* ortho = static_cast<PCB_DIM_ORTHOGONAL*>( dimension );
 
-                    BOX2I    bounds( dimension->GetStart(),
-                                  dimension->GetEnd() - dimension->GetStart() );
-                    VECTOR2I direction( cursorPos - bounds.Centre() );
+                    BOX2I    bbox( dimension->GetStart(),
+                                   dimension->GetEnd() - dimension->GetStart() );
+                    VECTOR2I direction( cursorPos - bbox.Centre() );
                     bool     vert;
 
-                    // Only change the orientation when we move outside the bounds
-                    if( !bounds.Contains( cursorPos ) )
+                    // Only change the orientation when we move outside the bbox
+                    if( !bbox.Contains( cursorPos ) )
                     {
                         // If the dimension is horizontal or vertical, set correct orientation
                         // otherwise, test if we're left/right of the bounding box or above/below it
-                        if( bounds.GetWidth() == 0 )
-                        {
+                        if( bbox.GetWidth() == 0 )
                             vert = true;
-                        }
-                        else if( bounds.GetHeight() == 0 )
-                        {
+                        else if( bbox.GetHeight() == 0 )
                             vert = false;
-                        }
-                        else if( cursorPos.x > bounds.GetLeft() && cursorPos.x < bounds.GetRight() )
-                        {
+                        else if( cursorPos.x > bbox.GetLeft() && cursorPos.x < bbox.GetRight() )
                             vert = false;
-                        }
-                        else if( cursorPos.y > bounds.GetTop() && cursorPos.y < bounds.GetBottom() )
-                        {
+                        else if( cursorPos.y > bbox.GetTop() && cursorPos.y < bbox.GetBottom() )
                             vert = true;
-                        }
                         else
-                        {
                             vert = std::abs( direction.y ) < std::abs( direction.x );
-                        }
+
                         ortho->SetOrientation( vert ? PCB_DIM_ORTHOGONAL::DIR::VERTICAL
                                                     : PCB_DIM_ORTHOGONAL::DIR::HORIZONTAL );
                     }
@@ -1080,16 +1085,8 @@ int DRAWING_TOOL::DrawDimension( const TOOL_EVENT& aEvent )
                     ortho->SetHeight( vert ? heightVector.x : heightVector.y );
                     ortho->Update();
                 }
-                else if( dimension->Type() == PCB_DIM_LEADER_T )
-                {
-                    // Leader: SET_HEIGHT actually sets the text position directly
-                    VECTOR2I lineVector( cursorPos - dimension->GetEnd() );
-                    dimension->Text().SetPosition( wxPoint( VECTOR2I( dimension->GetEnd() ) +
-                                                            GetVectorSnapped45( lineVector ) ) );
-                    dimension->Update();
-                }
-            }
-            break;
+
+                break;
             }
 
             // Show a preview of the item
@@ -1405,14 +1402,20 @@ int DRAWING_TOOL::SetAnchor( const TOOL_EVENT& aEvent )
 
 int DRAWING_TOOL::ToggleLine45degMode( const TOOL_EVENT& toolEvent )
 {
-    if( m_frame->IsType( FRAME_PCB_EDITOR ) )
-        m_frame->Settings().m_PcbUse45DegreeLimit = !m_frame->Settings().m_PcbUse45DegreeLimit;
+#define TOGGLE( a ) a = !a
+
+    SETTINGS_MANAGER& mgr = Pgm().GetSettingsManager();
+
+    if( frame()->IsType( FRAME_PCB_EDITOR ) )
+        TOGGLE( mgr.GetAppSettings<PCBNEW_SETTINGS>()->m_Use45DegreeLimit );
     else
-        m_frame->Settings().m_FpeditUse45DegreeLimit = !m_frame->Settings().m_FpeditUse45DegreeLimit;
+        TOGGLE( mgr.GetAppSettings<FOOTPRINT_EDITOR_SETTINGS>()->m_Use45Limit );
 
     updateStatusBar();
 
     return 0;
+
+#undef TOGGLE
 }
 
 
@@ -1441,9 +1444,14 @@ bool DRAWING_TOOL::drawSegment( const std::string& aTool, PCB_SHAPE** aGraphic,
     EDA_UNITS        userUnits = m_frame->GetUserUnits();
     PCB_GRID_HELPER  grid( m_toolMgr, m_frame->GetMagneticItemsSettings() );
     PCB_SHAPE*&      graphic = *aGraphic;
-    PCB_LAYER_ID     drawingLayer = m_frame->GetActiveLayer();
 
-    m_lineWidth = getSegmentWidth( drawingLayer );
+    if( m_layer != m_frame->GetActiveLayer() )
+    {
+        m_layer = m_frame->GetActiveLayer();
+        m_stroke.SetWidth( getSegmentWidth( m_layer ) );
+        m_stroke.SetPlotStyle( PLOT_DASH_TYPE::DEFAULT );
+        m_stroke.SetColor( COLOR4D::UNSPECIFIED );
+    }
 
     // geometric construction manager
     KIGFX::PREVIEW::TWO_POINT_GEOMETRY_MANAGER twoPointManager;
@@ -1501,7 +1509,7 @@ bool DRAWING_TOOL::drawSegment( const std::string& aTool, PCB_SHAPE** aGraphic,
 
         grid.SetSnap( !evt->Modifier( MD_SHIFT ) );
         grid.SetUseGrid( getView()->GetGAL()->GetGridSnapping() && !evt->DisableGridSnapping() );
-        cursorPos = grid.BestSnapAnchor( m_controls->GetMousePosition(), drawingLayer );
+        cursorPos = grid.BestSnapAnchor( m_controls->GetMousePosition(), m_layer );
         m_controls->ForceCursorPosition( true, cursorPos );
 
         if( evt->IsCancelInteractive() )
@@ -1541,19 +1549,24 @@ bool DRAWING_TOOL::drawSegment( const std::string& aTool, PCB_SHAPE** aGraphic,
         }
         else if( evt->IsAction( &PCB_ACTIONS::layerChanged ) )
         {
-            drawingLayer = m_frame->GetActiveLayer();
-            m_lineWidth = getSegmentWidth( drawingLayer );
+            if( m_layer != m_frame->GetActiveLayer() )
+            {
+                m_layer = m_frame->GetActiveLayer();
+                m_stroke.SetWidth( getSegmentWidth( m_layer ) );
+                m_stroke.SetPlotStyle( PLOT_DASH_TYPE::DEFAULT );
+                m_stroke.SetColor( COLOR4D::UNSPECIFIED );
+            }
 
             if( graphic )
             {
-                if( !m_view->IsLayerVisible( drawingLayer ) )
+                if( !m_view->IsLayerVisible( m_layer ) )
                 {
-                    m_frame->GetAppearancePanel()->SetLayerVisible( drawingLayer, true );
+                    m_frame->GetAppearancePanel()->SetLayerVisible( m_layer, true );
                     m_frame->GetCanvas()->Refresh();
                 }
 
-                graphic->SetLayer( drawingLayer );
-                graphic->SetWidth( m_lineWidth );
+                graphic->SetLayer( m_layer );
+                graphic->SetStroke( m_stroke );
                 m_view->Update( &preview );
                 frame()->SetMsgPanel( graphic );
             }
@@ -1592,13 +1605,11 @@ bool DRAWING_TOOL::drawSegment( const std::string& aTool, PCB_SHAPE** aGraphic,
                     aStartingPoint = NULLOPT;
                 }
 
-                m_lineWidth = getSegmentWidth( drawingLayer );
-
                 // Init the new item attributes
                 graphic->SetShape( static_cast<SHAPE_T>( shape ) );
                 graphic->SetFilled( false );
-                graphic->SetWidth( m_lineWidth );
-                graphic->SetLayer( drawingLayer );
+                graphic->SetStroke( m_stroke );
+                graphic->SetLayer( m_layer );
                 grid.SetSkipPoint( cursorPos );
 
                 twoPointManager.SetOrigin( (wxPoint) cursorPos );
@@ -1612,9 +1623,9 @@ bool DRAWING_TOOL::drawSegment( const std::string& aTool, PCB_SHAPE** aGraphic,
                 m_controls->SetAutoPan( true );
                 m_controls->CaptureCursor( true );
 
-                if( !m_view->IsLayerVisible( drawingLayer ) )
+                if( !m_view->IsLayerVisible( m_layer ) )
                 {
-                    m_frame->GetAppearancePanel()->SetLayerVisible( drawingLayer, true );
+                    m_frame->GetAppearancePanel()->SetLayerVisible( m_layer, true );
                     m_frame->GetCanvas()->Refresh();
                 }
 
@@ -1689,17 +1700,20 @@ bool DRAWING_TOOL::drawSegment( const std::string& aTool, PCB_SHAPE** aGraphic,
         }
         else if( evt->IsAction( &PCB_ACTIONS::incWidth ) )
         {
-            m_lineWidth += WIDTH_STEP;
-            graphic->SetWidth( m_lineWidth );
+            m_stroke.SetWidth( m_stroke.GetWidth() + WIDTH_STEP );
+            graphic->SetStroke( m_stroke );
             m_view->Update( &preview );
             frame()->SetMsgPanel( graphic );
         }
-        else if( evt->IsAction( &PCB_ACTIONS::decWidth ) && ( m_lineWidth > WIDTH_STEP ) )
+        else if( evt->IsAction( &PCB_ACTIONS::decWidth ) )
         {
-            m_lineWidth -= WIDTH_STEP;
-            graphic->SetWidth( m_lineWidth );
-            m_view->Update( &preview );
-            frame()->SetMsgPanel( graphic );
+            if( (unsigned) m_stroke.GetWidth() > WIDTH_STEP )
+            {
+                m_stroke.SetWidth( m_stroke.GetWidth() - WIDTH_STEP );
+                graphic->SetStroke( m_stroke );
+                m_view->Update( &preview );
+                frame()->SetMsgPanel( graphic );
+            }
         }
         else if( evt->IsAction( &ACTIONS::resetLocalCoords ) )
         {
@@ -1759,11 +1773,13 @@ bool DRAWING_TOOL::drawArc( const std::string& aTool, PCB_SHAPE** aGraphic, bool
 {
     PCB_SHAPE*&  graphic = *aGraphic;
 
-    wxCHECK( graphic, 0 );
-
-    PCB_LAYER_ID drawingLayer = m_frame->GetActiveLayer();
-
-    m_lineWidth = getSegmentWidth( drawingLayer );
+    if( m_layer != m_frame->GetActiveLayer() )
+    {
+        m_layer = m_frame->GetActiveLayer();
+        m_stroke.SetWidth( getSegmentWidth( m_layer ) );
+        m_stroke.SetPlotStyle( PLOT_DASH_TYPE::DEFAULT );
+        m_stroke.SetColor( COLOR4D::UNSPECIFIED );
+    }
 
     // Arc geometric construction manager
     KIGFX::PREVIEW::ARC_GEOM_MANAGER arcManager;
@@ -1812,7 +1828,7 @@ bool DRAWING_TOOL::drawArc( const std::string& aTool, PCB_SHAPE** aGraphic, bool
 
         setCursor();
 
-        graphic->SetLayer( drawingLayer );
+        graphic->SetLayer( m_layer );
 
         grid.SetSnap( !evt->Modifier( MD_SHIFT ) );
         grid.SetUseGrid( getView()->GetGAL()->GetGridSnapping() && !evt->DisableGridSnapping() );
@@ -1863,17 +1879,14 @@ bool DRAWING_TOOL::drawArc( const std::string& aTool, PCB_SHAPE** aGraphic, bool
                 m_controls->SetAutoPan( true );
                 m_controls->CaptureCursor( true );
 
-                drawingLayer = m_frame->GetActiveLayer();
-                m_lineWidth = getSegmentWidth( drawingLayer );
-
                 // Init the new item attributes
                 // (non-geometric, those are handled by the manager)
                 graphic->SetShape( SHAPE_T::ARC );
-                graphic->SetWidth( m_lineWidth );
+                graphic->SetStroke( m_stroke );
 
-                if( !m_view->IsLayerVisible( drawingLayer ) )
+                if( !m_view->IsLayerVisible( m_layer ) )
                 {
-                    m_frame->GetAppearancePanel()->SetLayerVisible( drawingLayer, true );
+                    m_frame->GetAppearancePanel()->SetLayerVisible( m_layer, true );
                     m_frame->GetCanvas()->Refresh();
                 }
 
@@ -1898,19 +1911,24 @@ bool DRAWING_TOOL::drawArc( const std::string& aTool, PCB_SHAPE** aGraphic, bool
         }
         else if( evt->IsAction( &PCB_ACTIONS::layerChanged ) )
         {
-            drawingLayer = m_frame->GetActiveLayer();
-            m_lineWidth = getSegmentWidth( drawingLayer );
+            if( m_layer != m_frame->GetActiveLayer() )
+            {
+                m_layer = m_frame->GetActiveLayer();
+                m_stroke.SetWidth( getSegmentWidth( m_layer ) );
+                m_stroke.SetPlotStyle( PLOT_DASH_TYPE::DEFAULT );
+                m_stroke.SetColor( COLOR4D::UNSPECIFIED );
+            }
 
             if( graphic )
             {
-                if( !m_view->IsLayerVisible( drawingLayer ) )
+                if( !m_view->IsLayerVisible( m_layer ) )
                 {
-                    m_frame->GetAppearancePanel()->SetLayerVisible( drawingLayer, true );
+                    m_frame->GetAppearancePanel()->SetLayerVisible( m_layer, true );
                     m_frame->GetCanvas()->Refresh();
                 }
 
-                graphic->SetLayer( drawingLayer );
-                graphic->SetWidth( m_lineWidth );
+                graphic->SetLayer( m_layer );
+                graphic->SetStroke( m_stroke );
                 m_view->Update( &preview );
                 frame()->SetMsgPanel( graphic );
             }
@@ -1947,17 +1965,20 @@ bool DRAWING_TOOL::drawArc( const std::string& aTool, PCB_SHAPE** aGraphic, bool
         }
         else if( evt->IsAction( &PCB_ACTIONS::incWidth ) )
         {
-            m_lineWidth += WIDTH_STEP;
-            graphic->SetWidth( m_lineWidth );
+            m_stroke.SetWidth( m_stroke.GetWidth() + WIDTH_STEP );
+            graphic->SetStroke( m_stroke );
             m_view->Update( &preview );
             frame()->SetMsgPanel( graphic );
         }
-        else if( evt->IsAction( &PCB_ACTIONS::decWidth ) && m_lineWidth > WIDTH_STEP )
+        else if( evt->IsAction( &PCB_ACTIONS::decWidth ) )
         {
-            m_lineWidth -= WIDTH_STEP;
-            graphic->SetWidth( m_lineWidth );
-            m_view->Update( &preview );
-            frame()->SetMsgPanel( graphic );
+            if( (unsigned) m_stroke.GetWidth() > WIDTH_STEP )
+            {
+                m_stroke.SetWidth( m_stroke.GetWidth() - WIDTH_STEP );
+                graphic->SetStroke( m_stroke );
+                m_view->Update( &preview );
+                frame()->SetMsgPanel( graphic );
+            }
         }
         else if( evt->IsAction( &PCB_ACTIONS::arcPosture ) )
         {
@@ -2732,6 +2753,7 @@ void DRAWING_TOOL::setTransitions()
     Go( &DRAWING_TOOL::DrawDimension,         PCB_ACTIONS::drawAlignedDimension.MakeEvent() );
     Go( &DRAWING_TOOL::DrawDimension,         PCB_ACTIONS::drawOrthogonalDimension.MakeEvent() );
     Go( &DRAWING_TOOL::DrawDimension,         PCB_ACTIONS::drawCenterDimension.MakeEvent() );
+    Go( &DRAWING_TOOL::DrawDimension,         PCB_ACTIONS::drawRadialDimension.MakeEvent() );
     Go( &DRAWING_TOOL::DrawDimension,         PCB_ACTIONS::drawLeader.MakeEvent() );
     Go( &DRAWING_TOOL::DrawZone,              PCB_ACTIONS::drawZone.MakeEvent() );
     Go( &DRAWING_TOOL::DrawZone,              PCB_ACTIONS::drawRuleArea.MakeEvent() );

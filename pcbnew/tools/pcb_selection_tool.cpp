@@ -551,9 +551,7 @@ PCB_SELECTION& PCB_SELECTION_TOOL::RequestSelection( CLIENT_SELECTION_FILTER aCl
             DISPOSITION disposition = itemDisposition.second;
 
             if( disposition == BEFORE )
-            {
                 unhighlight( item, SELECTED, &m_selection );
-            }
         }
 
         for( std::pair<EDA_ITEM* const, DISPOSITION> itemDisposition : itemDispositions )
@@ -561,14 +559,10 @@ PCB_SELECTION& PCB_SELECTION_TOOL::RequestSelection( CLIENT_SELECTION_FILTER aCl
             BOARD_ITEM* item = static_cast<BOARD_ITEM*>( itemDisposition.first );
             DISPOSITION disposition = itemDisposition.second;
 
-            if( disposition == AFTER )
-            {
+            // Note that we must re-highlight even previously-highlighted items
+            // (ie: disposition BOTH) in case we removed any of their children.
+            if( disposition == AFTER || disposition == BOTH )
                 highlight( item, SELECTED, &m_selection );
-            }
-            else if( disposition == BOTH )
-            {
-                // nothing to do
-            }
         }
 
         m_frame->GetCanvas()->ForceRefresh();
@@ -1599,8 +1593,14 @@ static bool itemIsIncludedByFilter( const BOARD_ITEM& aItem, const BOARD& aBoard
         case PCB_TARGET_T:
         case PCB_DIM_ALIGNED_T:
         case PCB_DIM_CENTER_T:
+        case PCB_DIM_RADIAL_T:
         case PCB_DIM_ORTHOGONAL_T:
         case PCB_DIM_LEADER_T:
+        case PCB_FP_DIM_ALIGNED_T:
+        case PCB_FP_DIM_CENTER_T:
+        case PCB_FP_DIM_RADIAL_T:
+        case PCB_FP_DIM_ORTHOGONAL_T:
+        case PCB_FP_DIM_LEADER_T:
             if( layer == Edge_Cuts )
                 include = aFilterOptions.includeBoardOutlineLayer;
             else
@@ -1750,8 +1750,14 @@ bool PCB_SELECTION_TOOL::itemPassesFilter( BOARD_ITEM* aItem, bool aMultiSelect 
 
     case PCB_DIM_ALIGNED_T:
     case PCB_DIM_CENTER_T:
+    case PCB_DIM_RADIAL_T:
     case PCB_DIM_ORTHOGONAL_T:
     case PCB_DIM_LEADER_T:
+    case PCB_FP_DIM_ALIGNED_T:
+    case PCB_FP_DIM_CENTER_T:
+    case PCB_FP_DIM_RADIAL_T:
+    case PCB_FP_DIM_ORTHOGONAL_T:
+    case PCB_FP_DIM_LEADER_T:
         if( !m_filter.dimensions )
             return false;
 

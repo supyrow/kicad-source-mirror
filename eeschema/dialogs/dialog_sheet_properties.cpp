@@ -73,7 +73,7 @@ DIALOG_SHEET_PROPERTIES::DIALOG_SHEET_PROPERTIES( SCH_EDIT_FRAME* aParent, SCH_S
     }
 
     wxToolTip::Enable( true );
-    m_stdDialogButtonSizerOK->SetDefault();
+    SetupStandardButtons();
 
     // Configure button logos
     m_bpAdd->SetBitmap( KiBitmap( BITMAPS::small_plus ) );
@@ -354,7 +354,7 @@ bool DIALOG_SHEET_PROPERTIES::TransferDataFromWindow()
     {
         wxPanel temp( this );
         temp.Hide();
-        PANEL_EESCHEMA_COLOR_SETTINGS prefs( m_frame, &temp );
+        PANEL_EESCHEMA_COLOR_SETTINGS prefs( &temp );
         wxString checkboxLabel = prefs.m_optOverrideColors->GetLabel();
 
         KIDIALOG dlg( this, _( "Note: item colors are overridden in the current color theme." ),
@@ -774,7 +774,9 @@ void DIALOG_SHEET_PROPERTIES::OnMoveUp( wxCommandEvent& event )
         m_grid->MakeCellVisible( m_grid->GetGridCursorRow(), m_grid->GetGridCursorCol() );
     }
     else
+    {
         wxBell();
+    }
 }
 
 
@@ -796,7 +798,9 @@ void DIALOG_SHEET_PROPERTIES::OnMoveDown( wxCommandEvent& event )
         m_grid->MakeCellVisible( m_grid->GetGridCursorRow(), m_grid->GetGridCursorCol() );
     }
     else
+    {
         wxBell();
+    }
 }
 
 
@@ -866,7 +870,6 @@ void DIALOG_SHEET_PROPERTIES::OnUpdateUI( wxUpdateUIEvent& event )
         m_grid->MakeCellVisible( m_delayedFocusRow, m_delayedFocusColumn );
         m_grid->SetGridCursor( m_delayedFocusRow, m_delayedFocusColumn );
 
-
         m_grid->EnableCellEditControl( true );
         m_grid->ShowCellEditControl();
 
@@ -878,12 +881,10 @@ void DIALOG_SHEET_PROPERTIES::OnUpdateUI( wxUpdateUIEvent& event )
 
 void DIALOG_SHEET_PROPERTIES::OnSizeGrid( wxSizeEvent& event )
 {
-    auto new_size = event.GetSize().GetX();
+    int new_size = event.GetSize().GetX();
 
     if( m_width != new_size )
-    {
         AdjustGridColumns( new_size );
-    }
 
     // Always propagate for a grid repaint (needed if the height changes, as well as width)
     event.Skip();

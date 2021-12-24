@@ -27,7 +27,7 @@
 #include <tools/pcb_actions.h>
 #include <footprint.h>
 #include <pcb_marker.h>
-#include <drc/drc_results_provider.h>
+#include <drc/drc_item.h>
 #include <footprint_edit_frame.h>
 #include <convert_shape_list_to_polygon.h>
 #include <tools/footprint_editor_control.h>
@@ -45,13 +45,8 @@ DIALOG_FOOTPRINT_CHECKER::DIALOG_FOOTPRINT_CHECKER( FOOTPRINT_EDIT_FRAME* aParen
 
     m_markersTreeModel->SetSeverities( -1 );
 
-    // We use a sdbSizer to get platform-dependent ordering of the action buttons, but
-    // that requires us to correct the button labels here.
-    m_sdbSizerOK->SetLabel( _( "Run Checks" ) );
-    m_sdbSizerCancel->SetLabel( _( "Close" ) );
-
-    m_sdbSizerOK->SetDefault();
-    m_sdbSizer->Layout();
+    SetupStandardButtons( { { wxID_OK,     _( "Run Checks" ) },
+                            { wxID_CANCEL, _( "Close" )      } } );
 
     syncCheckboxes();
 
@@ -96,7 +91,7 @@ void DIALOG_FOOTPRINT_CHECKER::runChecks()
     FOOTPRINT* footprint = board->GetFirstFootprint();
     wxString   msg;
 
-    SetMarkersProvider( new BOARD_DRC_ITEMS_PROVIDER( board ) );
+    SetMarkersProvider( new DRC_ITEMS_PROVIDER( board, MARKER_BASE::MARKER_DRC ) );
 
     deleteAllMarkers();
 
@@ -152,7 +147,7 @@ void DIALOG_FOOTPRINT_CHECKER::runChecks()
     footprint->CheckFootprintTHPadNoHoles( &tstHoleInTHPad );
     m_checksRun = true;
 
-    SetMarkersProvider( new BOARD_DRC_ITEMS_PROVIDER( board ) );
+    SetMarkersProvider( new DRC_ITEMS_PROVIDER( board, MARKER_BASE::MARKER_DRC ) );
 
     refreshEditor();
 }

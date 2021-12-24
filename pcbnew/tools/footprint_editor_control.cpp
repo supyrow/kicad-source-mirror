@@ -43,7 +43,7 @@
 #include <dialogs/dialog_footprint_checker.h>
 #include <footprint_wizard_frame.h>
 #include <kiway.h>
-#include <drc/drc_results_provider.h>
+#include <drc/drc_item.h>
 
 
 FOOTPRINT_EDITOR_CONTROL::FOOTPRINT_EDITOR_CONTROL() :
@@ -505,7 +505,9 @@ int FOOTPRINT_EDITOR_CONTROL::CheckFootprint( const TOOL_EVENT& aEvent )
     }
     else // The dialog is just not visible (because the user has double clicked on an error item)
     {
-        m_checkerDialog->SetMarkersProvider( new BOARD_DRC_ITEMS_PROVIDER( m_frame->GetBoard() ) );
+        m_checkerDialog->SetMarkersProvider(
+                new DRC_ITEMS_PROVIDER( m_frame->GetBoard(), MARKER_BASE::MARKER_DRC ) );
+
         m_checkerDialog->Show( true );
     }
     return 0;
@@ -616,6 +618,7 @@ void FOOTPRINT_EDITOR_CONTROL::setTransitions()
     Go( &FOOTPRINT_EDITOR_CONTROL::ImportFootprint,      PCB_ACTIONS::importFootprint.MakeEvent() );
     Go( &FOOTPRINT_EDITOR_CONTROL::ExportFootprint,      PCB_ACTIONS::exportFootprint.MakeEvent() );
 
+    Go( &FOOTPRINT_EDITOR_CONTROL::EditTextAndGraphics,  PCB_ACTIONS::editTextAndGraphics.MakeEvent() );
     Go( &FOOTPRINT_EDITOR_CONTROL::CleanupGraphics,      PCB_ACTIONS::cleanupGraphics.MakeEvent() );
 
     Go( &FOOTPRINT_EDITOR_CONTROL::CheckFootprint,       PCB_ACTIONS::checkFootprint.MakeEvent() );

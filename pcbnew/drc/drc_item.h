@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2007 Dick Hollenbeck, dick@softplc.com
- * Copyright (C) 2018-2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2018-2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -26,10 +26,13 @@
 #define DRC_ITEM_H
 
 #include <rc_item.h>
+#include <marker_base.h>
 
 class PCB_BASE_FRAME;
 class DRC_RULE;
 class DRC_TEST_PROVIDER;
+class PCB_MARKER;
+class BOARD;
 
 enum PCB_DRC_CODE {
     DRCE_FIRST = 1,
@@ -42,6 +45,7 @@ enum PCB_DRC_CODE {
     DRCE_EDGE_CLEARANCE,                 // a copper item is too close to the board edge
     DRCE_ZONES_INTERSECT,                // copper area outlines intersect
     DRCE_ZONE_HAS_EMPTY_NET,             // copper area has a net but no pads in nets, which is suspicious
+    DRCE_STARVED_THERMAL,                // insufficient number of thermal spokes connected to zone
     DRCE_DANGLING_VIA,                   // via which isn't connected to anything
     DRCE_DANGLING_TRACK,                 // track with at least one end not connected to anything
     DRCE_DRILLED_HOLES_TOO_CLOSE,        // overlapping drilled holes break drill bits
@@ -68,16 +72,25 @@ enum PCB_DRC_CODE {
     DRCE_NET_CONFLICT,                   // pad net doesn't match netlist
 
     DRCE_FOOTPRINT_TYPE_MISMATCH,        // footprint attribute does not match actual pads
+    DRCE_LIB_FOOTPRINT_ISSUES,           // footprint does not match the current library
     DRCE_PAD_TH_WITH_NO_HOLE,            // footprint has Plated Through-Hole with no hole
 
     DRCE_UNRESOLVED_VARIABLE,
-    DRCE_SILK_MASK_CLEARANCE,            // silkscreen clipped by mask (potentially leaving it
+    DRCE_ASSERTION_FAILURE,              // user-defined (custom rule) assertion
+
+    DRCE_COPPER_SLIVER,
+    DRCE_SOLDERMASK_BRIDGE,              // failure to maintain min soldermask web thickness
+                                         //   between copper items with different nets
+
+    DRCE_SILK_CLEARANCE,                 // silkscreen clipped by mask (potentially leaving it
                                          //   over pads, exposed copper, etc.)
+    DRCE_TEXT_HEIGHT,
+    DRCE_TEXT_THICKNESS,
     DRCE_OVERLAPPING_SILK,               // silk to silk clearance error
+
     DRCE_LENGTH_OUT_OF_RANGE,
     DRCE_SKEW_OUT_OF_RANGE,
     DRCE_TOO_MANY_VIAS,
-
     DRCE_DIFF_PAIR_GAP_OUT_OF_RANGE,
     DRCE_DIFF_PAIR_UNCOUPLED_LENGTH_TOO_LONG,
 
@@ -131,6 +144,7 @@ private:
     static DRC_ITEM heading_DFM;
     static DRC_ITEM heading_schematic_parity;
     static DRC_ITEM heading_signal_integrity;
+    static DRC_ITEM heading_readability;
     static DRC_ITEM heading_misc;
 
     static DRC_ITEM unconnectedItems;
@@ -142,6 +156,7 @@ private:
     static DRC_ITEM edgeClearance;
     static DRC_ITEM zonesIntersect;
     static DRC_ITEM zoneHasEmptyNet;
+    static DRC_ITEM starvedThermal;
     static DRC_ITEM viaDangling;
     static DRC_ITEM trackDangling;
     static DRC_ITEM holeNearHole;
@@ -164,9 +179,15 @@ private:
     static DRC_ITEM missingFootprint;
     static DRC_ITEM extraFootprint;
     static DRC_ITEM netConflict;
+    static DRC_ITEM libFootprintIssues;
     static DRC_ITEM unresolvedVariable;
-    static DRC_ITEM silkMaskClearance;
+    static DRC_ITEM assertionFailure;
+    static DRC_ITEM copperSliver;
+    static DRC_ITEM silkClearance;
+    static DRC_ITEM solderMaskBridge;
     static DRC_ITEM silkOverlaps;
+    static DRC_ITEM textHeightOutOfRange;
+    static DRC_ITEM textThicknessOutOfRange;
     static DRC_ITEM lengthOutOfRange;
     static DRC_ITEM skewOutOfRange;
     static DRC_ITEM tooManyVias;
@@ -179,5 +200,35 @@ private:
     DRC_RULE*          m_violatingRule = nullptr;
     DRC_TEST_PROVIDER* m_violatingTest = nullptr;
 };
+
+
+class DRC_ITEMS_PROVIDER : public RC_ITEMS_PROVIDER
+{
+public:
+    DRC_ITEMS_PROVIDER( BOARD* aBoard, MARKER_BASE::TYPEMARKER aMarkerType ) :
+            m_board( aBoard ),
+            m_markerType( aMarkerType ),
+            m_severities( 0 )
+    {
+    }
+
+    void SetSeverities( int aSeverities ) override;
+
+    int GetCount( int aSeverity = -1 ) const override;
+
+    std::shared_ptr<RC_ITEM> GetItem( int aIndex ) const override;
+
+    void DeleteItem( int aIndex, bool aDeep ) override;
+
+    void DeleteAllItems( bool aIncludeExclusions, bool aDeep ) override;
+
+private:
+    BOARD*                   m_board;
+    MARKER_BASE::TYPEMARKER  m_markerType;
+
+    int                      m_severities;
+    std::vector<PCB_MARKER*> m_filteredMarkers;
+};
+
 
 #endif      // DRC_ITEM_H

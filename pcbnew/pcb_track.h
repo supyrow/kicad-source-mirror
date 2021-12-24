@@ -295,8 +295,6 @@ public:
     // @copydoc BOARD_ITEM::GetEffectiveShape
     virtual std::shared_ptr<SHAPE> GetEffectiveShape( PCB_LAYER_ID aLayer = UNDEFINED_LAYER ) const override;
 
-    //TODO(snh): Add GetSelectMenuText() and GetMsgPanelInfoBase()
-
     /**
      * Function GetLength
      * returns the length of the arc track
@@ -351,6 +349,9 @@ public:
 
     VIATYPE GetViaType() const { return m_viaType; }
     void SetViaType( VIATYPE aViaType ) { m_viaType = aViaType; }
+
+    bool IsTented() const;
+    int GetSolderMaskExpansion() const;
 
     bool IsOnLayer( PCB_LAYER_ID aLayer ) const override;
 

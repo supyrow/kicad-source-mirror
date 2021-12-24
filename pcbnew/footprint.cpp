@@ -36,10 +36,10 @@
 #include <fp_shape.h>
 #include <macros.h>
 #include <pad.h>
-#include <pcb_text.h>
 #include <pcb_marker.h>
 #include <pcb_group.h>
 #include <pcb_track.h>
+#include <pcb_dimension.h>
 #include <footprint.h>
 #include <zone.h>
 #include <view/view.h>
@@ -61,16 +61,13 @@ FOOTPRINT::FOOTPRINT( BOARD* parent ) :
     m_orient       = 0;
     m_fpStatus     = FP_PADS_are_LOCKED;
     m_arflag       = 0;
-    m_rot90Cost    = m_rot180Cost = 0;
     m_link         = 0;
     m_lastEditTime = 0;
     m_localClearance              = 0;
     m_localSolderMaskMargin       = 0;
     m_localSolderPasteMargin      = 0;
     m_localSolderPasteMarginRatio = 0.0;
-    m_zoneConnection              = ZONE_CONNECTION::INHERITED; // Use zone setting by default
-    m_thermalWidth = 0;     // Use zone setting by default
-    m_thermalGap = 0;       // Use zone setting by default
+    m_zoneConnection              = ZONE_CONNECTION::INHERITED;
 
     // These are special and mandatory text fields
     m_reference = new FP_TEXT( this, FP_TEXT::TEXT_is_REFERENCE );
@@ -88,8 +85,6 @@ FOOTPRINT::FOOTPRINT( const FOOTPRINT& aFootprint ) :
     m_attributes   = aFootprint.m_attributes;
     m_fpStatus     = aFootprint.m_fpStatus;
     m_orient       = aFootprint.m_orient;
-    m_rot90Cost    = aFootprint.m_rot90Cost;
-    m_rot180Cost   = aFootprint.m_rot180Cost;
     m_lastEditTime = aFootprint.m_lastEditTime;
     m_link         = aFootprint.m_link;
     m_path         = aFootprint.m_path;
@@ -108,8 +103,6 @@ FOOTPRINT::FOOTPRINT( const FOOTPRINT& aFootprint ) :
     m_localSolderPasteMargin         = aFootprint.m_localSolderPasteMargin;
     m_localSolderPasteMarginRatio    = aFootprint.m_localSolderPasteMarginRatio;
     m_zoneConnection                 = aFootprint.m_zoneConnection;
-    m_thermalWidth                   = aFootprint.m_thermalWidth;
-    m_thermalGap                     = aFootprint.m_thermalGap;
 
     std::map<BOARD_ITEM*, BOARD_ITEM*> ptrMap;
 
@@ -174,14 +167,14 @@ FOOTPRINT::FOOTPRINT( const FOOTPRINT& aFootprint ) :
         }
     }
 
-    // Copy auxiliary data: 3D_Drawings info
-    m_3D_Drawings = aFootprint.m_3D_Drawings;
+    // Copy auxiliary data
+    m_3D_Drawings   = aFootprint.m_3D_Drawings;
+    m_doc           = aFootprint.m_doc;
+    m_keywords      = aFootprint.m_keywords;
+    m_properties    = aFootprint.m_properties;
+    m_privateLayers = aFootprint.m_privateLayers;
 
-    m_doc         = aFootprint.m_doc;
-    m_keywords    = aFootprint.m_keywords;
-    m_properties  = aFootprint.m_properties;
-
-    m_arflag = 0;
+    m_arflag        = 0;
 
     m_initial_comments = aFootprint.m_initial_comments ?
                          new wxArrayString( *aFootprint.m_initial_comments ) : nullptr;
@@ -271,8 +264,6 @@ FOOTPRINT& FOOTPRINT::operator=( FOOTPRINT&& aOther )
     m_attributes    = aOther.m_attributes;
     m_fpStatus      = aOther.m_fpStatus;
     m_orient        = aOther.m_orient;
-    m_rot90Cost     = aOther.m_rot90Cost;
-    m_rot180Cost    = aOther.m_rot180Cost;
     m_lastEditTime  = aOther.m_lastEditTime;
     m_link          = aOther.m_link;
     m_path          = aOther.m_path;
@@ -291,8 +282,6 @@ FOOTPRINT& FOOTPRINT::operator=( FOOTPRINT&& aOther )
     m_localSolderPasteMargin         = aOther.m_localSolderPasteMargin;
     m_localSolderPasteMarginRatio    = aOther.m_localSolderPasteMarginRatio;
     m_zoneConnection                 = aOther.m_zoneConnection;
-    m_thermalWidth                   = aOther.m_thermalWidth;
-    m_thermalGap                     = aOther.m_thermalGap;
 
     // Move reference and value
     m_reference = aOther.m_reference;
@@ -341,12 +330,12 @@ FOOTPRINT& FOOTPRINT::operator=( FOOTPRINT&& aOther )
 
     aOther.Groups().clear();
 
-    // Copy auxiliary data: 3D_Drawings info
-    m_3D_Drawings.clear();
-    m_3D_Drawings = aOther.m_3D_Drawings;
-    m_doc         = aOther.m_doc;
-    m_keywords    = aOther.m_keywords;
-    m_properties  = aOther.m_properties;
+    // Copy auxiliary data
+    m_3D_Drawings      = aOther.m_3D_Drawings;
+    m_doc              = aOther.m_doc;
+    m_keywords         = aOther.m_keywords;
+    m_properties       = aOther.m_properties;
+    m_privateLayers    = aOther.m_privateLayers;
 
     m_initial_comments = aOther.m_initial_comments;
 
@@ -371,8 +360,6 @@ FOOTPRINT& FOOTPRINT::operator=( const FOOTPRINT& aOther )
     m_attributes    = aOther.m_attributes;
     m_fpStatus      = aOther.m_fpStatus;
     m_orient        = aOther.m_orient;
-    m_rot90Cost     = aOther.m_rot90Cost;
-    m_rot180Cost    = aOther.m_rot180Cost;
     m_lastEditTime  = aOther.m_lastEditTime;
     m_link          = aOther.m_link;
     m_path          = aOther.m_path;
@@ -391,8 +378,6 @@ FOOTPRINT& FOOTPRINT::operator=( const FOOTPRINT& aOther )
     m_localSolderPasteMargin         = aOther.m_localSolderPasteMargin;
     m_localSolderPasteMarginRatio    = aOther.m_localSolderPasteMarginRatio;
     m_zoneConnection                 = aOther.m_zoneConnection;
-    m_thermalWidth                   = aOther.m_thermalWidth;
-    m_thermalGap                     = aOther.m_thermalGap;
 
     // Copy reference and value
     *m_reference = *aOther.m_reference;
@@ -452,12 +437,12 @@ FOOTPRINT& FOOTPRINT::operator=( const FOOTPRINT& aOther )
         Add( newGroup );
     }
 
-    // Copy auxiliary data: 3D_Drawings info
-    m_3D_Drawings.clear();
-    m_3D_Drawings = aOther.m_3D_Drawings;
-    m_doc         = aOther.m_doc;
-    m_keywords    = aOther.m_keywords;
-    m_properties  = aOther.m_properties;
+    // Copy auxiliary data
+    m_3D_Drawings   = aOther.m_3D_Drawings;
+    m_doc           = aOther.m_doc;
+    m_keywords      = aOther.m_keywords;
+    m_properties    = aOther.m_properties;
+    m_privateLayers = aOther.m_privateLayers;
 
     m_initial_comments = aOther.m_initial_comments ?
                             new wxArrayString( *aOther.m_initial_comments ) : nullptr;
@@ -519,6 +504,11 @@ void FOOTPRINT::Add( BOARD_ITEM* aBoardItem, ADD_MODE aMode )
         wxASSERT( static_cast<FP_TEXT*>( aBoardItem )->GetType() == FP_TEXT::TEXT_is_DIVERS );
         KI_FALLTHROUGH;
 
+    case PCB_FP_DIM_ALIGNED_T:
+    case PCB_FP_DIM_LEADER_T:
+    case PCB_FP_DIM_CENTER_T:
+    case PCB_FP_DIM_RADIAL_T:
+    case PCB_FP_DIM_ORTHOGONAL_T:
     case PCB_FP_SHAPE_T:
         if( aMode == ADD_MODE::APPEND )
             m_drawings.push_back( aBoardItem );
@@ -574,6 +564,11 @@ void FOOTPRINT::Remove( BOARD_ITEM* aBoardItem, REMOVE_MODE aMode )
                 "Please report this bug: Invalid remove operation on required text" );
         KI_FALLTHROUGH;
 
+    case PCB_FP_DIM_ALIGNED_T:
+    case PCB_FP_DIM_CENTER_T:
+    case PCB_FP_DIM_ORTHOGONAL_T:
+    case PCB_FP_DIM_RADIAL_T:
+    case PCB_FP_DIM_LEADER_T:
     case PCB_FP_SHAPE_T:
         for( auto it = m_drawings.begin(); it != m_drawings.end(); ++it )
         {
@@ -742,6 +737,7 @@ const EDA_RECT FOOTPRINT::GetBoundingBox() const
 const EDA_RECT FOOTPRINT::GetBoundingBox( bool aIncludeText, bool aIncludeInvisibleText ) const
 {
     const BOARD* board = GetBoard();
+    bool         isFPEdit = board && board->IsFootprintHolder();
 
     if( board )
     {
@@ -770,7 +766,10 @@ const EDA_RECT FOOTPRINT::GetBoundingBox( bool aIncludeText, bool aIncludeInvisi
 
     for( BOARD_ITEM* item : m_drawings )
     {
-        if( item->Type() == PCB_FP_SHAPE_T )
+        if( !isFPEdit && m_privateLayers.test( item->GetLayer() ) )
+            continue;
+
+        if( item->Type() == PCB_FP_SHAPE_T || BaseType( item->Type() ) == PCB_DIMENSION_T )
             area.Merge( item->GetBoundingBox() );
     }
 
@@ -787,6 +786,9 @@ const EDA_RECT FOOTPRINT::GetBoundingBox( bool aIncludeText, bool aIncludeInvisi
     {
         for( BOARD_ITEM* item : m_drawings )
         {
+            if( !isFPEdit && m_privateLayers.test( item->GetLayer() ) )
+                continue;
+
             if( item->Type() == PCB_FP_TEXT_T )
                 area.Merge( item->GetBoundingBox() );
         }
@@ -813,12 +815,18 @@ const EDA_RECT FOOTPRINT::GetBoundingBox( bool aIncludeText, bool aIncludeInvisi
 
 
         if( ( m_value->IsVisible() && valueLayerIsVisible )
-          || aIncludeInvisibleText || noDrawItems )
+                || aIncludeInvisibleText
+                || noDrawItems )
+        {
             area.Merge( m_value->GetBoundingBox() );
+        }
 
         if( ( m_reference->IsVisible() && refLayerIsVisible )
-          || aIncludeInvisibleText || noDrawItems )
+                || aIncludeInvisibleText
+                || noDrawItems )
+        {
             area.Merge( m_reference->GetBoundingBox() );
+        }
     }
 
     if( board )
@@ -847,6 +855,7 @@ const EDA_RECT FOOTPRINT::GetBoundingBox( bool aIncludeText, bool aIncludeInvisi
 SHAPE_POLY_SET FOOTPRINT::GetBoundingHull() const
 {
     const BOARD* board = GetBoard();
+    bool         isFPEdit = board && board->IsFootprintHolder();
 
     if( board )
     {
@@ -859,7 +868,10 @@ SHAPE_POLY_SET FOOTPRINT::GetBoundingHull() const
 
     for( BOARD_ITEM* item : m_drawings )
     {
-        if( item->Type() == PCB_FP_SHAPE_T )
+        if( !isFPEdit && m_privateLayers.test( item->GetLayer() ) )
+            continue;
+
+        if( item->Type() == PCB_FP_SHAPE_T || BaseType( item->Type() ) == PCB_DIMENSION_T )
         {
             item->TransformShapeWithClearanceToPolygon( rawPolys, UNDEFINED_LAYER, 0, ARC_LOW_DEF,
                                                         ERROR_OUTSIDE );
@@ -1233,6 +1245,11 @@ SEARCH_RESULT FOOTPRINT::Visit( INSPECTOR inspector, void* testData, const KICAD
             // Intentionally fall through since m_Drawings can hold PCB_FP_SHAPE_T also
             KI_FALLTHROUGH;
 
+        case PCB_FP_DIM_ALIGNED_T:
+        case PCB_FP_DIM_LEADER_T:
+        case PCB_FP_DIM_CENTER_T:
+        case PCB_FP_DIM_RADIAL_T:
+        case PCB_FP_DIM_ORTHOGONAL_T:
         case PCB_FP_SHAPE_T:
             result = IterateForward<BOARD_ITEM*>( m_drawings, inspector, testData, p );
 
@@ -1243,6 +1260,11 @@ SEARCH_RESULT FOOTPRINT::Visit( INSPECTOR inspector, void* testData, const KICAD
                 {
                 case PCB_FP_TEXT_T:
                 case PCB_FP_SHAPE_T:
+                case PCB_FP_DIM_ALIGNED_T:
+                case PCB_FP_DIM_LEADER_T:
+                case PCB_FP_DIM_CENTER_T:
+                case PCB_FP_DIM_RADIAL_T:
+                case PCB_FP_DIM_ORTHOGONAL_T:
                     continue;
 
                 default:
@@ -1591,6 +1613,14 @@ void FOOTPRINT::SetPosition( const wxPoint& aPos )
             break;
         }
 
+        case PCB_FP_DIM_ALIGNED_T:
+        case PCB_FP_DIM_CENTER_T:
+        case PCB_FP_DIM_ORTHOGONAL_T:
+        case PCB_FP_DIM_RADIAL_T:
+        case PCB_FP_DIM_LEADER_T:
+            item->Move( delta );
+            break;
+
         default:
             wxMessageBox( wxT( "Draw type undefined." ) );
             break;
@@ -1799,6 +1829,21 @@ BOARD_ITEM* FOOTPRINT::DuplicateItem( const BOARD_ITEM* aItem, bool aAddToFootpr
             Add( new_shape );
 
         new_item = new_shape;
+        break;
+    }
+
+    case PCB_FP_DIM_ALIGNED_T:
+    case PCB_FP_DIM_LEADER_T:
+    case PCB_FP_DIM_CENTER_T:
+    case PCB_FP_DIM_RADIAL_T:
+    case PCB_FP_DIM_ORTHOGONAL_T:
+    {
+        PCB_DIMENSION_BASE* dimension = static_cast<PCB_DIMENSION_BASE*>( aItem->Duplicate() );
+
+        if( aAddToFootprint )
+            Add( dimension );
+
+        new_item = dimension;
         break;
     }
 
@@ -2168,28 +2213,48 @@ bool FOOTPRINT::HasThroughHolePads() const
 }
 
 
-bool FOOTPRINT::cmp_drawings::operator()( const BOARD_ITEM* aFirst,
-                                          const BOARD_ITEM* aSecond ) const
+#define TEST( a, b ) { if( a != b ) return a < b; }
+#define TEST_PT( a, b ) { if( a.x != b.x ) return a.x < b.x; if( a.y != b.y ) return a.y < b.y; }
+
+
+bool FOOTPRINT::cmp_drawings::operator()( const BOARD_ITEM* itemA, const BOARD_ITEM* itemB ) const
 {
-    if( aFirst->Type() != aSecond->Type() )
-        return aFirst->Type() < aSecond->Type();
+    TEST( itemA->Type(), itemB->Type() );
+    TEST( itemA->GetLayer(), itemB->GetLayer() );
 
-    if( aFirst->GetLayer() != aSecond->GetLayer() )
-        return aFirst->GetLayer() < aSecond->GetLayer();
-
-    if( aFirst->Type() == PCB_FP_SHAPE_T )
+    if( itemA->Type() == PCB_FP_SHAPE_T )
     {
-        const FP_SHAPE* dwgA = static_cast<const FP_SHAPE*>( aFirst );
-        const FP_SHAPE* dwgB = static_cast<const FP_SHAPE*>( aSecond );
+        const FP_SHAPE* dwgA = static_cast<const FP_SHAPE*>( itemA );
+        const FP_SHAPE* dwgB = static_cast<const FP_SHAPE*>( itemB );
 
-        if( dwgA->GetShape() != dwgB->GetShape() )
-            return dwgA->GetShape() < dwgB->GetShape();
+        TEST( dwgA->GetShape(), dwgB->GetShape() );
+
+        TEST_PT( dwgA->GetStart0(), dwgB->GetStart0() );
+        TEST_PT( dwgA->GetEnd0(), dwgB->GetEnd0() );
+
+        if( dwgA->GetShape() == SHAPE_T::ARC )
+        {
+            TEST_PT( dwgA->GetCenter0(), dwgB->GetCenter0() );
+        }
+        else if( dwgA->GetShape() == SHAPE_T::BEZIER )
+        {
+            TEST_PT( dwgA->GetBezierC1_0(), dwgB->GetBezierC1_0() );
+            TEST_PT( dwgA->GetBezierC2_0(), dwgB->GetBezierC2_0() );
+        }
+        else if( dwgA->GetShape() == SHAPE_T::POLY )
+        {
+            TEST( dwgA->GetPolyShape().TotalVertices(), dwgB->GetPolyShape().TotalVertices() );
+
+            for( int ii = 0; ii < dwgA->GetPolyShape().TotalVertices(); ++ii )
+                TEST_PT( dwgA->GetPolyShape().CVertex( ii ), dwgB->GetPolyShape().CVertex( ii ) );
+        }
+
+        TEST( dwgA->GetWidth(), dwgB->GetWidth() );
     }
 
-    if( aFirst->m_Uuid != aSecond->m_Uuid ) // shopuld be always the case foer valid boards
-        return aFirst->m_Uuid < aSecond->m_Uuid;
+    TEST( itemA->m_Uuid, itemB->m_Uuid );   // should be always the case for valid boards
 
-    return aFirst < aSecond;
+    return itemA < itemB;
 }
 
 
@@ -2198,11 +2263,33 @@ bool FOOTPRINT::cmp_pads::operator()( const PAD* aFirst, const PAD* aSecond ) co
     if( aFirst->GetNumber() != aSecond->GetNumber() )
         return StrNumCmp( aFirst->GetNumber(), aSecond->GetNumber() ) < 0;
 
-    if( aFirst->m_Uuid != aSecond->m_Uuid ) // shopuld be always the case foer valid boards
-        return aFirst->m_Uuid < aSecond->m_Uuid;
+    TEST_PT( aFirst->GetPos0(), aSecond->GetPos0() );
+    TEST_PT( aFirst->GetSize(), aSecond->GetSize() );
+    TEST( aFirst->GetShape(), aSecond->GetShape() );
+
+    TEST( aFirst->m_Uuid, aSecond->m_Uuid );   // should be always the case for valid boards
 
     return aFirst < aSecond;
 }
+
+
+bool FOOTPRINT::cmp_zones::operator()( const FP_ZONE* aFirst, const FP_ZONE* aSecond ) const
+{
+    TEST( aFirst->GetPriority(), aSecond->GetPriority() );
+    TEST( aFirst->GetLayerSet().Seq(), aSecond->GetLayerSet().Seq() );
+
+    TEST( aFirst->Outline()->TotalVertices(), aSecond->Outline()->TotalVertices() );
+
+    for( int ii = 0; ii < aFirst->Outline()->TotalVertices(); ++ii )
+        TEST_PT( aFirst->Outline()->CVertex( ii ), aSecond->Outline()->CVertex( ii ) );
+
+    TEST( aFirst->m_Uuid, aSecond->m_Uuid );   // should be always the case for valid boards
+
+    return aFirst < aSecond;
+}
+
+
+#undef TEST
 
 
 void FOOTPRINT::TransformPadsWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuffer,
@@ -2261,8 +2348,8 @@ void FOOTPRINT::TransformPadsWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuff
         {
         case F_Mask:
         case B_Mask:
-            clearance.x += pad->GetSolderMaskMargin();
-            clearance.y += pad->GetSolderMaskMargin();
+            clearance.x += pad->GetSolderMaskExpansion();
+            clearance.y += pad->GetSolderMaskExpansion();
             break;
 
         case F_Paste:
@@ -2397,14 +2484,6 @@ static struct FOOTPRINT_DESC
                              double>( _HKI( "Solderpaste Margin Ratio Override" ),
                                       &FOOTPRINT::SetLocalSolderPasteMarginRatio,
                                       &FOOTPRINT::GetLocalSolderPasteMarginRatio ) );
-        propMgr.AddProperty( new PROPERTY<FOOTPRINT, int>( _HKI( "Thermal Relief Width" ),
-                                                           &FOOTPRINT::SetThermalWidth,
-                                                           &FOOTPRINT::GetThermalWidth,
-                                                           PROPERTY_DISPLAY::DISTANCE ) );
-        propMgr.AddProperty( new PROPERTY<FOOTPRINT, int>( _HKI( "Thermal Relief Gap" ),
-                                                           &FOOTPRINT::SetThermalGap,
-                                                           &FOOTPRINT::GetThermalGap,
-                                                           PROPERTY_DISPLAY::DISTANCE ) );
         // TODO zone connection, FPID?
     }
 } _FOOTPRINT_DESC;

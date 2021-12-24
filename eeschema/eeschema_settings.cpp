@@ -73,11 +73,14 @@ EESCHEMA_SETTINGS::EESCHEMA_SETTINGS() :
         m_Simulator(),
         m_RescueNeverShow( false )
 {
-    m_params.emplace_back( new PARAM<wxString>( "appearance.edit_component_visible_columns",
-            &m_Appearance.edit_component_visible_columns, "0 1 2 3 4 5 6 7" ) );
+    m_params.emplace_back( new PARAM<wxString>( "appearance.edit_symbol_visible_columns",
+            &m_Appearance.edit_symbol_visible_columns, "0 1 2 3 4 5 6 7" ) );
 
     m_params.emplace_back( new PARAM<wxString>( "appearance.edit_sheet_visible_columns",
             &m_Appearance.edit_sheet_visible_columns, "0 1 2 3 4 5 6 7" ) );
+
+    m_params.emplace_back( new PARAM<wxString>( "appearance.edit_label_visible_columns",
+            &m_Appearance.edit_label_visible_columns, "0 1 2 3 4 5 6 7" ) );
 
     m_params.emplace_back( new PARAM<int>( "appearance.erc_severities",
             &m_Appearance.erc_severities, RPT_SEVERITY_ERROR | RPT_SEVERITY_WARNING ) );
@@ -96,6 +99,15 @@ EESCHEMA_SETTINGS::EESCHEMA_SETTINGS() :
 
     m_params.emplace_back( new PARAM<bool>( "appearance.show_hidden_fields",
             &m_Appearance.show_hidden_fields, false ) );
+
+    m_params.emplace_back( new PARAM<bool>( "appearance.show_erc_warnings",
+            &m_Appearance.show_erc_warnings, true ) );
+
+    m_params.emplace_back( new PARAM<bool>( "appearance.show_erc_errors",
+            &m_Appearance.show_erc_errors, true ) );
+
+    m_params.emplace_back( new PARAM<bool>( "appearance.show_erc_exclusions",
+            &m_Appearance.show_erc_exclusions, false ) );
 
     m_params.emplace_back( new PARAM<bool>( "appearance.show_illegal_symbol_lib_dialog",
             &m_Appearance.show_illegal_symbol_lib_dialog, true ) );
@@ -174,7 +186,10 @@ EESCHEMA_SETTINGS::EESCHEMA_SETTINGS() :
             &m_Input.drag_is_move, false ) );
 
     m_params.emplace_back( new PARAM<int>( "selection.thickness",
-            &m_Selection.thickness, 3 ) );
+            &m_Selection.selection_thickness, 3 ) );
+
+    m_params.emplace_back( new PARAM<int>( "selection.highlight_thickness",
+            &m_Selection.highlight_thickness, 2 ) );
 
     m_params.emplace_back( new PARAM<bool>( "selection.draw_selected_children",
             &m_Selection.draw_selected_children, true ) );

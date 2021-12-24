@@ -29,6 +29,7 @@ include_directories(
     ./dialogs
     ./autorouter
     ${CMAKE_SOURCE_DIR}/3d-viewer
+    ${CMAKE_SOURCE_DIR}/3d-viewer/dialogs
     ${CMAKE_SOURCE_DIR}/common
     ${CMAKE_SOURCE_DIR}/common/dialogs
     ./exporters
@@ -164,6 +165,8 @@ set( PCBNEW_DIALOGS
     dialogs/panel_pcbnew_display_origin_base.cpp
     dialogs/panel_setup_constraints.cpp
     dialogs/panel_setup_constraints_base.cpp
+    dialogs/panel_setup_formatting.cpp
+    dialogs/panel_setup_formatting_base.cpp
     dialogs/panel_setup_mask_and_paste.cpp
     dialogs/panel_setup_mask_and_paste_base.cpp
     dialogs/panel_setup_layers.cpp
@@ -228,24 +231,28 @@ set( PCBNEW_MICROWAVE_SRCS
     )
 
 set( PCBNEW_DRC_SRCS
-    drc/drc_results_provider.cpp
     drc/drc_test_provider.cpp
     drc/drc_test_provider_annular_width.cpp
     drc/drc_test_provider_disallow.cpp
     drc/drc_test_provider_connectivity.cpp
     drc/drc_test_provider_copper_clearance.cpp
+    drc/drc_test_provider_mechanical_clearance.cpp
     drc/drc_test_provider_courtyard_clearance.cpp
     drc/drc_test_provider_edge_clearance.cpp
     drc/drc_test_provider_hole_to_hole.cpp
     drc/drc_test_provider_hole_size.cpp
-    drc/drc_test_provider_lvs.cpp
+    drc/drc_test_provider_library_parity.cpp
+    drc/drc_test_provider_schematic_parity.cpp
     drc/drc_test_provider_misc.cpp
+    drc/drc_test_provider_text_dims.cpp
     drc/drc_test_provider_track_width.cpp
+    drc/drc_test_provider_zone_connections.cpp
     drc/drc_test_provider_via_diameter.cpp
-    drc/drc_test_provider_silk_to_mask.cpp
+    drc/drc_test_provider_solder_mask.cpp
     drc/drc_test_provider_silk_clearance.cpp
     drc/drc_test_provider_matched_length.cpp
     drc/drc_test_provider_diff_pair_coupling.cpp
+    drc/drc_test_provider_sliver_checker.cpp
     )
 
 set( PCBNEW_NETLIST_SRCS

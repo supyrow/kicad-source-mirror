@@ -60,10 +60,6 @@ public:
         return "Tests sizes of drilled holes (via/pad drills)";
     }
 
-    virtual std::set<DRC_CONSTRAINT_T> GetConstraintTypes() const override;
-
-    int GetNumPhases() const override;
-
 private:
     void checkVia( PCB_VIA* via, bool aExceedMicro, bool aExceedStd );
     void checkPad( PAD* aPad );
@@ -146,6 +142,9 @@ void DRC_TEST_PROVIDER_HOLE_SIZE::checkPad( PAD* aPad )
     bool fail_max = false;
     int  constraintValue;
 
+    if( constraint.GetSeverity() == RPT_SEVERITY_IGNORE )
+        return;
+
     if( constraint.Value().HasMin() && holeMinor < constraint.Value().Min() )
     {
         fail_min        = true;
@@ -211,6 +210,9 @@ void DRC_TEST_PROVIDER_HOLE_SIZE::checkVia( PCB_VIA* via, bool aExceedMicro, boo
     bool fail_max = false;
     int  constraintValue;
 
+    if( constraint.GetSeverity() == RPT_SEVERITY_IGNORE )
+        return;
+
     if( constraint.Value().HasMin() && via->GetDrillValue() < constraint.Value().Min() )
     {
         fail_min        = true;
@@ -248,18 +250,6 @@ void DRC_TEST_PROVIDER_HOLE_SIZE::checkVia( PCB_VIA* via, bool aExceedMicro, boo
 
         reportViolation( drcItem, via->GetPosition() );
     }
-}
-
-
-int DRC_TEST_PROVIDER_HOLE_SIZE::GetNumPhases() const
-{
-    return 2;
-}
-
-
-std::set<DRC_CONSTRAINT_T> DRC_TEST_PROVIDER_HOLE_SIZE::GetConstraintTypes() const
-{
-    return { HOLE_SIZE_CONSTRAINT };
 }
 
 

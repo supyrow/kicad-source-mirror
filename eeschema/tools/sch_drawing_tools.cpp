@@ -46,23 +46,28 @@
 #include <schematic.h>
 #include <symbol_library.h>
 #include <eeschema_settings.h>
-#include <dialogs/dialog_text_and_label_properties.h>
+#include <dialogs/dialog_label_properties.h>
+#include <dialogs/dialog_text_properties.h>
 #include <dialogs/dialog_line_wire_bus_properties.h>
 #include <dialogs/dialog_junction_props.h>
 #include <dialogs/dialog_sheet_pin_properties.h>
 #include <string_utils.h>
 #include <wildcards_and_files_ext.h>
 #include <wx/filedlg.h>
-
+#include <sch_shape.h>
 
 SCH_DRAWING_TOOLS::SCH_DRAWING_TOOLS() :
         EE_TOOL_BASE<SCH_EDIT_FRAME>( "eeschema.InteractiveDrawing" ),
-        m_lastSheetPinType( PINSHEETLABEL_SHAPE::PS_INPUT ),
-        m_lastGlobalLabelShape( PINSHEETLABEL_SHAPE::PS_INPUT ),
+        m_lastSheetPinType( LABEL_FLAG_SHAPE::L_INPUT ),
+        m_lastGlobalLabelShape( LABEL_FLAG_SHAPE::L_INPUT ),
+        m_lastNetClassFlagShape( LABEL_FLAG_SHAPE::F_ROUND ),
         m_lastTextOrientation( LABEL_SPIN_STYLE::RIGHT ),
         m_lastTextBold( false ),
         m_lastTextItalic( false ),
+        m_lastNetClassFlagItalic( true ),
+        m_lastFillStyle( FILL_T::NO_FILL ),
         m_inPlaceSymbol( false ),
+        m_inDrawShape( false ),
         m_inPlaceImage( false ),
         m_inSingleClickPlace( false ),
         m_inTwoClickPlace( false ),
@@ -874,6 +879,11 @@ SCH_TEXT* SCH_DRAWING_TOOLS::createNewText( const VECTOR2I& aPosition, int aType
         textItem = new SCH_LABEL( (wxPoint) aPosition );
         break;
 
+    case LAYER_NETCLASS_REFS:
+        textItem = new SCH_NETCLASS_FLAG( (wxPoint) aPosition );
+        textItem->SetShape( m_lastNetClassFlagShape );
+        break;
+
     case LAYER_HIERLABEL:
         textItem = new SCH_HIERLABEL( (wxPoint) aPosition );
         textItem->SetShape( m_lastGlobalLabelShape );
@@ -882,10 +892,7 @@ SCH_TEXT* SCH_DRAWING_TOOLS::createNewText( const VECTOR2I& aPosition, int aType
     case LAYER_GLOBLABEL:
         textItem = new SCH_GLOBALLABEL( (wxPoint) aPosition );
         textItem->SetShape( m_lastGlobalLabelShape );
-
-        if( settings.m_IntersheetRefsShow )
-            static_cast<SCH_GLOBALLABEL*>( textItem )->GetIntersheetRefs()->SetVisible( true );
-
+        static_cast<SCH_GLOBALLABEL*>( textItem )->GetFields()[0].SetVisible( true );
         break;
 
     default:
@@ -895,26 +902,60 @@ SCH_TEXT* SCH_DRAWING_TOOLS::createNewText( const VECTOR2I& aPosition, int aType
 
     textItem->SetParent( schematic );
     textItem->SetBold( m_lastTextBold );
-    textItem->SetItalic( m_lastTextItalic );
+
+    if( textItem->Type() == SCH_NETCLASS_FLAG_T )
+        textItem->SetItalic( m_lastNetClassFlagItalic );
+    else
+        textItem->SetItalic( m_lastTextItalic );
+
     textItem->SetLabelSpinStyle( m_lastTextOrientation );
     textItem->SetTextSize( wxSize( settings.m_DefaultTextSize, settings.m_DefaultTextSize ) );
     textItem->SetFlags( IS_NEW | IS_MOVING );
 
-    DIALOG_TEXT_AND_LABEL_PROPERTIES dlg( m_frame, textItem );
+    if( aType == LAYER_NOTES )
+    {
+        DIALOG_TEXT_PROPERTIES dlg( m_frame, textItem );
 
-    // Must be quasi modal for syntax help
-    if( dlg.ShowQuasiModal() != wxID_OK || NoPrintableChars( textItem->GetText() ) )
+        // Must be quasi modal for syntax help
+        if( dlg.ShowQuasiModal() != wxID_OK )
+        {
+            delete textItem;
+            return nullptr;
+        }
+    }
+    else
+    {
+        DIALOG_LABEL_PROPERTIES dlg( m_frame, static_cast<SCH_LABEL_BASE*>( textItem ) );
+
+        // Must be quasi modal for syntax help
+        if( dlg.ShowQuasiModal() != wxID_OK )
+        {
+            delete textItem;
+            return nullptr;
+        }
+    }
+
+    wxString text = textItem->GetText();
+
+    if( textItem->Type() != SCH_NETCLASS_FLAG_T && NoPrintableChars( text ) )
     {
         delete textItem;
         return nullptr;
     }
 
     m_lastTextBold = textItem->IsBold();
-    m_lastTextItalic = textItem->IsItalic();
+
+    if( textItem->Type() == SCH_NETCLASS_FLAG_T )
+        m_lastNetClassFlagItalic = textItem->IsItalic();
+    else
+        m_lastTextItalic = textItem->IsItalic();
+
     m_lastTextOrientation = textItem->GetLabelSpinStyle();
 
     if( textItem->Type() == SCH_GLOBAL_LABEL_T || textItem->Type() == SCH_HIER_LABEL_T )
         m_lastGlobalLabelShape = textItem->GetShape();
+    else if( textItem->Type() == SCH_NETCLASS_FLAG_T )
+        m_lastNetClassFlagShape = textItem->GetShape();
 
     return textItem;
 }
@@ -988,6 +1029,7 @@ int SCH_DRAWING_TOOLS::TwoClickPlace( const TOOL_EVENT& aEvent )
     bool isText        = aEvent.IsAction( &EE_ACTIONS::placeSchematicText );
     bool isGlobalLabel = aEvent.IsAction( &EE_ACTIONS::placeGlobalLabel );
     bool isHierLabel   = aEvent.IsAction( &EE_ACTIONS::placeHierLabel );
+    bool isClassLabel  = aEvent.IsAction( &EE_ACTIONS::placeClassLabel );
     bool isNetLabel    = aEvent.IsAction( &EE_ACTIONS::placeLabel );
     bool isSheetPin    = aEvent.IsAction( &EE_ACTIONS::importSheetPin );
     int  snapLayer     = isText ? LAYER_GRAPHICS : LAYER_CONNECTABLE;
@@ -1007,6 +1049,8 @@ int SCH_DRAWING_TOOLS::TwoClickPlace( const TOOL_EVENT& aEvent )
                     m_frame->GetCanvas()->SetCurrentCursor( KICURSOR::LABEL_GLOBAL );
                 else if( isNetLabel )
                     m_frame->GetCanvas()->SetCurrentCursor( KICURSOR::LABEL_NET );
+                else if( isClassLabel )
+                    m_frame->GetCanvas()->SetCurrentCursor( KICURSOR::LABEL_NET );    // JEY TODO: LABEL_CLASS cursor
                 else if( isHierLabel )
                     m_frame->GetCanvas()->SetCurrentCursor( KICURSOR::LABEL_HIER );
                 else
@@ -1041,7 +1085,7 @@ int SCH_DRAWING_TOOLS::TwoClickPlace( const TOOL_EVENT& aEvent )
 
     // Prime the pump if the tool isn't being re-activated
     if( aEvent.HasPosition() || ( !aEvent.IsReactivate()
-            && ( isText || isGlobalLabel || isHierLabel || isNetLabel ) ) )
+            && ( isText || isGlobalLabel || isHierLabel || isClassLabel || isNetLabel ) ) )
     {
         m_toolMgr->RunAction( ACTIONS::cursorClick );
     }
@@ -1122,6 +1166,10 @@ int SCH_DRAWING_TOOLS::TwoClickPlace( const TOOL_EVENT& aEvent )
                 {
                     item = createNewText( cursorPos, LAYER_LOCLABEL );
                 }
+                else if( isClassLabel )
+                {
+                    item = createNewText( cursorPos, LAYER_NETCLASS_REFS );
+                }
                 else if( isSheetPin )
                 {
                     EDA_ITEM*      i;
@@ -1180,8 +1228,7 @@ int SCH_DRAWING_TOOLS::TwoClickPlace( const TOOL_EVENT& aEvent )
             else            // ... and second click places:
             {
                 item->ClearFlags( IS_MOVING );
-                m_frame->AddItemToScreenAndUndoList( m_frame->GetScreen(), (SCH_ITEM*) item,
-                                                     false );
+                m_frame->AddItemToScreenAndUndoList( m_frame->GetScreen(), item, false );
                 item = nullptr;
 
                 m_view->ClearPreview();
@@ -1234,6 +1281,165 @@ int SCH_DRAWING_TOOLS::TwoClickPlace( const TOOL_EVENT& aEvent )
     controls->CaptureCursor( false );
     controls->ForceCursorPosition( false );
     m_frame->GetCanvas()->SetCurrentCursor( KICURSOR::ARROW );
+    return 0;
+}
+
+
+int SCH_DRAWING_TOOLS::DrawShape( const TOOL_EVENT& aEvent )
+{
+    if( m_inDrawShape )
+        return 0;
+    else
+        m_inDrawShape = true;
+
+    SHAPE_T type = aEvent.Parameter<SHAPE_T>();
+
+    // We might be running as the same shape in another co-routine.  Make sure that one
+    // gets whacked.
+    m_toolMgr->DeactivateTool();
+
+    m_toolMgr->RunAction( EE_ACTIONS::clearSelection, true );
+    getViewControls()->ShowCursor( true );
+
+    std::string tool = aEvent.GetCommandStr().get();
+    m_frame->PushTool( tool );
+    Activate();
+
+    SCH_SHAPE* item = nullptr;
+
+    auto setCursor =
+            [&]()
+            {
+                m_frame->GetCanvas()->SetCurrentCursor( KICURSOR::PENCIL );
+            };
+
+    auto cleanup =
+            [&] ()
+            {
+                m_toolMgr->RunAction( EE_ACTIONS::clearSelection, true );
+                m_view->ClearPreview();
+                delete item;
+                item = nullptr;
+            };
+
+    // Prime the pump
+    if( aEvent.HasPosition() )
+        m_toolMgr->RunAction( ACTIONS::cursorClick );
+
+    // Set initial cursor
+    setCursor();
+
+    // Main loop: keep receiving events
+    while( TOOL_EVENT* evt = Wait() )
+    {
+        setCursor();
+
+        VECTOR2I cursorPos = getViewControls()->GetCursorPosition( !evt->DisableGridSnapping() );
+
+        if( evt->IsCancelInteractive() )
+        {
+            if( item )
+            {
+                cleanup();
+            }
+            else
+            {
+                m_frame->PopTool( tool );
+                break;
+            }
+        }
+        else if( evt->IsActivate() )
+        {
+            if( item && evt->IsMoveTool() )
+            {
+                // we're already drawing our own item; ignore the move tool
+                evt->SetPassEvent( false );
+                continue;
+            }
+
+            if( item )
+                cleanup();
+
+            if( evt->IsPointEditor() )
+            {
+                // don't exit (the point editor runs in the background)
+            }
+            else if( evt->IsMoveTool() )
+            {
+                // leave ourselves on the stack so we come back after the move
+                break;
+            }
+            else
+            {
+                m_frame->PopTool( tool );
+                break;
+            }
+        }
+        else if( evt->IsClick( BUT_LEFT ) && !item )
+        {
+            EESCHEMA_SETTINGS* cfg = m_frame->eeconfig();
+
+            m_toolMgr->RunAction( EE_ACTIONS::clearSelection, true );
+
+            int lineWidth = Mils2iu( cfg->m_Drawing.default_line_thickness );
+
+            item = new SCH_SHAPE( type, lineWidth, m_lastFillStyle );
+            item->SetFlags( IS_NEW );
+            item->BeginEdit( (wxPoint) cursorPos );
+
+            m_view->ClearPreview();
+            m_view->AddToPreview( item->Clone() );
+        }
+        else if( item && ( evt->IsClick( BUT_LEFT ) || evt->IsDblClick( BUT_LEFT )
+                        || evt->IsAction( &EE_ACTIONS::finishDrawing ) ) )
+        {
+            if( evt->IsDblClick( BUT_LEFT ) || evt->IsAction( &EE_ACTIONS::finishDrawing )
+                    || !item->ContinueEdit( (wxPoint) cursorPos ) )
+            {
+                item->EndEdit();
+                item->ClearEditFlags();
+                item->SetFlags( IS_NEW );
+
+                m_frame->AddItemToScreenAndUndoList( m_frame->GetScreen(), item, false );
+                m_selectionTool->AddItemToSel( item );
+                item = nullptr;
+
+                m_view->ClearPreview();
+                m_toolMgr->RunAction( ACTIONS::activatePointEditor );
+            }
+        }
+        else if( item && ( evt->IsAction( &ACTIONS::refreshPreview ) || evt->IsMotion() ) )
+        {
+            item->CalcEdit( (wxPoint) cursorPos );
+            m_view->ClearPreview();
+            m_view->AddToPreview( item->Clone() );
+        }
+        else if( evt->IsDblClick( BUT_LEFT ) && !item )
+        {
+            m_toolMgr->RunAction( EE_ACTIONS::properties, true );
+        }
+        else if( evt->IsClick( BUT_RIGHT ) )
+        {
+            // Warp after context menu only if dragging...
+            if( !item )
+                m_toolMgr->VetoContextMenuMouseWarp();
+
+            m_menu.ShowContextMenu( m_selectionTool->GetSelection() );
+        }
+        else
+        {
+            evt->SetPassEvent();
+        }
+
+        // Enable autopanning and cursor capture only when there is a shape being drawn
+        getViewControls()->SetAutoPan( item != nullptr );
+        getViewControls()->CaptureCursor( item != nullptr );
+    }
+
+    getViewControls()->SetAutoPan( false );
+    getViewControls()->CaptureCursor( false );
+    m_frame->GetCanvas()->SetCurrentCursor( KICURSOR::ARROW );
+    m_inDrawShape = false;
     return 0;
 }
 
@@ -1333,8 +1539,7 @@ int SCH_DRAWING_TOOLS::DrawSheet( const TOOL_EVENT& aEvent )
 
             m_toolMgr->RunAction( EE_ACTIONS::clearSelection, true );
 
-            sheet = new SCH_SHEET( m_frame->GetCurrentSheet().Last(),
-                                   static_cast<wxPoint>( cursorPos ) );
+            sheet = new SCH_SHEET( m_frame->GetCurrentSheet().Last(), (wxPoint) cursorPos );
             sheet->SetFlags( IS_NEW | IS_RESIZING );
             sheet->SetScreen( nullptr );
             sheet->SetBorderWidth( Mils2iu( cfg->m_Drawing.default_line_thickness ) );
@@ -1442,11 +1647,15 @@ void SCH_DRAWING_TOOLS::setTransitions()
     Go( &SCH_DRAWING_TOOLS::SingleClickPlace,    EE_ACTIONS::placeJunction.MakeEvent() );
     Go( &SCH_DRAWING_TOOLS::SingleClickPlace,    EE_ACTIONS::placeBusWireEntry.MakeEvent() );
     Go( &SCH_DRAWING_TOOLS::TwoClickPlace,       EE_ACTIONS::placeLabel.MakeEvent() );
+    Go( &SCH_DRAWING_TOOLS::TwoClickPlace,       EE_ACTIONS::placeClassLabel.MakeEvent() );
     Go( &SCH_DRAWING_TOOLS::TwoClickPlace,       EE_ACTIONS::placeHierLabel.MakeEvent() );
     Go( &SCH_DRAWING_TOOLS::TwoClickPlace,       EE_ACTIONS::placeGlobalLabel.MakeEvent() );
     Go( &SCH_DRAWING_TOOLS::DrawSheet,           EE_ACTIONS::drawSheet.MakeEvent() );
     Go( &SCH_DRAWING_TOOLS::TwoClickPlace,       EE_ACTIONS::importSheetPin.MakeEvent() );
     Go( &SCH_DRAWING_TOOLS::SingleClickPlace,    EE_ACTIONS::importSingleSheetPin.MakeEvent() );
     Go( &SCH_DRAWING_TOOLS::TwoClickPlace,       EE_ACTIONS::placeSchematicText.MakeEvent() );
+    Go( &SCH_DRAWING_TOOLS::DrawShape,           EE_ACTIONS::drawRectangle.MakeEvent() );
+    Go( &SCH_DRAWING_TOOLS::DrawShape,           EE_ACTIONS::drawCircle.MakeEvent() );
+    Go( &SCH_DRAWING_TOOLS::DrawShape,           EE_ACTIONS::drawArc.MakeEvent() );
     Go( &SCH_DRAWING_TOOLS::PlaceImage,          EE_ACTIONS::placeImage.MakeEvent() );
 }

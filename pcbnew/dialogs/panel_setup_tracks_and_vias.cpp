@@ -100,7 +100,10 @@ PANEL_SETUP_TRACKS_AND_VIAS::PANEL_SETUP_TRACKS_AND_VIAS( PAGED_DIALOG* aParent,
             curr_grid->SetColSize( col,best_w );
         }
     }
+
+    m_Frame->Bind( UNITS_CHANGED, &PANEL_SETUP_TRACKS_AND_VIAS::onUnitsChanged, this );
 }
+
 
 PANEL_SETUP_TRACKS_AND_VIAS::~PANEL_SETUP_TRACKS_AND_VIAS()
 {
@@ -108,7 +111,26 @@ PANEL_SETUP_TRACKS_AND_VIAS::~PANEL_SETUP_TRACKS_AND_VIAS()
     m_trackWidthsGrid->PopEventHandler( true );
     m_viaSizesGrid->PopEventHandler( true );
     m_diffPairsGrid->PopEventHandler( true );
+
+    m_Frame->Unbind( UNITS_CHANGED, &PANEL_SETUP_TRACKS_AND_VIAS::onUnitsChanged, this );
 }
+
+
+void PANEL_SETUP_TRACKS_AND_VIAS::onUnitsChanged( wxCommandEvent& aEvent )
+{
+    BOARD_DESIGN_SETTINGS  tempBDS( nullptr, "dummy" );
+    BOARD_DESIGN_SETTINGS* saveBDS = m_BrdSettings;
+
+    m_BrdSettings = &tempBDS;       // No, address of stack var does not escape function
+
+    TransferDataFromWindow();
+    TransferDataToWindow();
+
+    m_BrdSettings = saveBDS;
+
+    aEvent.Skip();
+}
+
 
 bool PANEL_SETUP_TRACKS_AND_VIAS::TransferDataToWindow()
 {
@@ -281,7 +303,7 @@ void PANEL_SETUP_TRACKS_AND_VIAS::AppendTrackWidth( const int aWidth )
 
     m_trackWidthsGrid->AppendRows( 1 );
 
-    wxString val = StringFromValue( m_Frame->GetUserUnits(), aWidth );
+    wxString val = StringFromValue( m_Frame->GetUserUnits(), aWidth, true );
     m_trackWidthsGrid->SetCellValue( i, TR_WIDTH_COL, val );
 }
 
@@ -292,12 +314,12 @@ void PANEL_SETUP_TRACKS_AND_VIAS::AppendViaSize( const int aSize, const int aDri
 
     m_viaSizesGrid->AppendRows( 1 );
 
-    wxString val = StringFromValue( m_Frame->GetUserUnits(), aSize );
+    wxString val = StringFromValue( m_Frame->GetUserUnits(), aSize, true );
     m_viaSizesGrid->SetCellValue( i, VIA_SIZE_COL, val );
 
     if( aDrill > 0 )
     {
-        val = StringFromValue( m_Frame->GetUserUnits(), aDrill );
+        val = StringFromValue( m_Frame->GetUserUnits(), aDrill, true );
         m_viaSizesGrid->SetCellValue( i, VIA_DRILL_COL, val );
     }
 }
@@ -310,18 +332,18 @@ void PANEL_SETUP_TRACKS_AND_VIAS::AppendDiffPairs( const int aWidth, const int a
 
     m_diffPairsGrid->AppendRows( 1 );
 
-    wxString val = StringFromValue( m_Frame->GetUserUnits(), aWidth );
+    wxString val = StringFromValue( m_Frame->GetUserUnits(), aWidth, true );
     m_diffPairsGrid->SetCellValue( i, DP_WIDTH_COL, val );
 
     if( aGap > 0 )
     {
-        val = StringFromValue( m_Frame->GetUserUnits(), aGap );
+        val = StringFromValue( m_Frame->GetUserUnits(), aGap, true );
         m_diffPairsGrid->SetCellValue( i, DP_GAP_COL, val );
     }
 
     if( aViaGap > 0 )
     {
-        val = StringFromValue( m_Frame->GetUserUnits(), aViaGap );
+        val = StringFromValue( m_Frame->GetUserUnits(), aViaGap, true );
         m_diffPairsGrid->SetCellValue( i, DP_VIA_GAP_COL, val );
     }
 }

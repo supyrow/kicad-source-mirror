@@ -225,21 +225,6 @@ TOOL_ACTION EE_ACTIONS::placeSymbolText( "eeschema.SymbolDrawing.placeSymbolText
         _( "Add Text" ), _( "Add a text item" ),
         BITMAPS::text, AF_ACTIVATE, (void*) LIB_TEXT_T );
 
-TOOL_ACTION EE_ACTIONS::drawSymbolRectangle( "eeschema.SymbolDrawing.drawSymbolRectangle",
-        AS_GLOBAL, 0, "",
-        _( "Add Rectangle" ), _( "Add a rectangle" ),
-        BITMAPS::add_rectangle, AF_ACTIVATE, (void*) SHAPE_T::RECT );
-
-TOOL_ACTION EE_ACTIONS::drawSymbolCircle( "eeschema.SymbolDrawing.drawSymbolCircle",
-        AS_GLOBAL, 0, "",
-        _( "Add Circle" ), _( "Add a circle" ),
-        BITMAPS::add_circle, AF_ACTIVATE, (void*) SHAPE_T::CIRCLE );
-
-TOOL_ACTION EE_ACTIONS::drawSymbolArc( "eeschema.SymbolDrawing.drawSymbolArc",
-        AS_GLOBAL, 0, "",
-        _( "Add Arc" ), _( "Add an arc" ),
-        BITMAPS::add_arc, AF_ACTIVATE, (void*) SHAPE_T::ARC );
-
 TOOL_ACTION EE_ACTIONS::drawSymbolLines( "eeschema.SymbolDrawing.drawSymbolLines",
         AS_GLOBAL, 0, "",
         _( "Add Lines" ), _( "Add connected graphic lines" ),
@@ -311,6 +296,11 @@ TOOL_ACTION EE_ACTIONS::placeLabel( "eeschema.InteractiveDrawing.placeLabel",
         _( "Add Label" ), _( "Add a net label" ),
         BITMAPS::add_label, AF_ACTIVATE );
 
+TOOL_ACTION EE_ACTIONS::placeClassLabel( "eeschema.InteractiveDrawing.placeClassLabel",
+        AS_GLOBAL, 0, "",
+        _( "Add Net Class Flag" ), _( "Add a net class flag" ),
+        BITMAPS::add_class_flag, AF_ACTIVATE );
+
 TOOL_ACTION EE_ACTIONS::placeHierLabel( "eeschema.InteractiveDrawing.placeHierarchicalLabel",
         AS_GLOBAL,
         'H', LEGACY_HK_NAME( "Add Hierarchical Label" ),
@@ -344,6 +334,21 @@ TOOL_ACTION EE_ACTIONS::placeSchematicText( "eeschema.InteractiveDrawing.placeSc
         'T', LEGACY_HK_NAME( "Add Graphic Text" ),
         _( "Add Text" ), _( "Add text" ),
         BITMAPS::text, AF_ACTIVATE );
+
+TOOL_ACTION EE_ACTIONS::drawRectangle( "eeschema.InteractiveDrawing.drawRectangle",
+        AS_GLOBAL, 0, "",
+        _( "Add Rectangle" ), _( "Add a rectangle" ),
+        BITMAPS::add_rectangle, AF_ACTIVATE, (void*) SHAPE_T::RECT );
+
+TOOL_ACTION EE_ACTIONS::drawCircle( "eeschema.InteractiveDrawing.drawCircle",
+        AS_GLOBAL, 0, "",
+        _( "Add Circle" ), _( "Add a circle" ),
+        BITMAPS::add_circle, AF_ACTIVATE, (void*) SHAPE_T::CIRCLE );
+
+TOOL_ACTION EE_ACTIONS::drawArc( "eeschema.InteractiveDrawing.drawArc",
+        AS_GLOBAL, 0, "",
+        _( "Add Arc" ), _( "Add an arc" ),
+        BITMAPS::add_arc, AF_ACTIVATE, (void*) SHAPE_T::ARC );
 
 TOOL_ACTION EE_ACTIONS::placeImage( "eeschema.InteractiveDrawing.placeImage",
         AS_GLOBAL, 0, "",
@@ -467,6 +472,11 @@ TOOL_ACTION EE_ACTIONS::toLabel( "eeschema.InteractiveEdit.toLabel",
         AS_GLOBAL, 0, "",
         _( "Change to Label" ), _( "Change existing item to a label" ),
         BITMAPS::add_line_label, AF_NONE, (void*) SCH_LABEL_T );
+
+TOOL_ACTION EE_ACTIONS::toCLabel( "eeschema.InteractiveEdit.toCLabel",
+        AS_GLOBAL, 0, "",
+        _( "Change to Net Class Flag" ), _( "Change existing item to a net class flag" ),
+        BITMAPS::add_class_flag, AF_NONE, (void*) SCH_NETCLASS_FLAG_T );
 
 TOOL_ACTION EE_ACTIONS::toHLabel( "eeschema.InteractiveEdit.toHLabel",
         AS_GLOBAL, 0, "",
@@ -644,6 +654,19 @@ TOOL_ACTION EE_ACTIONS::toggleHiddenPins( "eeschema.EditorControl.showHiddenPins
 TOOL_ACTION EE_ACTIONS::toggleHiddenFields( "eeschema.EditorControl.showHiddenFields",
         AS_GLOBAL, 0, "",
         _( "Show Hidden Fields" ), _( "Toggle display of hidden text fields" ) );
+
+TOOL_ACTION EE_ACTIONS::toggleERCWarnings( "eeschema.EditorControl.showERCWarnings",
+        AS_GLOBAL, 0, "",
+        _( "Show ERC Warnings" ), _( "Show markers for electrical rules checker warnings" ) );
+
+TOOL_ACTION EE_ACTIONS::toggleERCErrors( "eeschema.EditorControl.showERCErrors",
+        AS_GLOBAL, 0, "",
+        _( "Show ERC Errors" ), _( "Show markers for electrical rules checker errors" ) );
+
+TOOL_ACTION EE_ACTIONS::toggleERCExclusions( "eeschema.EditorControl.showERCExclusions",
+        AS_GLOBAL, 0, "",
+        _( "Show ERC Exclusions" ),
+        _( "Show markers for excluded electrical rules checker violations" ) );
 
 TOOL_ACTION EE_ACTIONS::toggleForceHV( "eeschema.EditorControl.forceHVLines",
         AS_GLOBAL, 0, "",

@@ -44,6 +44,7 @@
 #include <widgets/infobar.h>
 #include <undo_redo_container.h>
 #include <eda_units.h>
+#include <origin_transforms.h>
 
 // Option for main frames
 #define KICAD_DEFAULT_DRAWFRAME_STYLE wxDEFAULT_FRAME_STYLE | wxWANTS_CHARS
@@ -137,6 +138,12 @@ public:
 
     virtual void ToggleUserUnits() { }
 
+    /**
+     * Return a reference to the default ORIGIN_TRANSFORMS object
+     */
+    virtual ORIGIN_TRANSFORMS& GetOriginTransforms() { return m_originTransforms; }
+
+
     SETTINGS_MANAGER* GetSettingsManager() const { return m_settingsManager; }
 
     virtual SEVERITY GetSeverity( int aErrorCode ) const { return RPT_SEVERITY_UNDEFINED; }
@@ -199,9 +206,7 @@ public:
 
     void OnMaximize( wxMaximizeEvent& aEvent );
 
-    void SetAutoSaveInterval( int aInterval );
-
-    int GetAutoSaveInterval() const { return m_autoSaveInterval; }
+    int GetAutoSaveInterval() const;
 
     bool IsType( FRAME_T aType ) const { return m_ident == aType; }
     FRAME_T GetFrameType() const { return m_ident; }
@@ -289,14 +294,6 @@ public:
      * #KICAD_MANAGER_FRAME.
      */
     virtual APP_SETTINGS_BASE* config() const;
-
-    /**
-     * Allow a frame to load its preference panels (if any) into the preferences dialog.
-     *
-     * @param aParent a paged dialog into which the preference panels should be installed.
-     */
-    virtual void InstallPreferences( PAGED_DIALOG* , PANEL_HOTKEYS_EDITOR* ) { }
-
 
     void LoadWindowState( const wxString& aFileName );
     /**
@@ -715,19 +712,19 @@ private:
 
     FILE_HISTORY*   m_fileHistory;          // The frame's recently opened file list
 
-    bool            m_hasAutoSave;
+    bool            m_supportsAutoSave;
     bool            m_autoSaveState;
-    int             m_autoSaveInterval;     // The auto save interval time in seconds.
     wxTimer*        m_autoSaveTimer;
 
-    int             m_undoRedoCountMax;     // undo/Redo command Max depth
+    int                 m_undoRedoCountMax; // undo/Redo command Max depth
 
     UNDO_REDO_CONTAINER m_undoList;         // Objects list for the undo command (old data)
     UNDO_REDO_CONTAINER m_redoList;         // Objects list for the redo command (old data)
 
-    wxString        m_mruPath;              // Most recently used path.
+    wxString            m_mruPath;          // Most recently used path.
 
-    EDA_UNITS       m_userUnits;
+    EDA_UNITS           m_userUnits;
+    ORIGIN_TRANSFORMS   m_originTransforms; // Default display origin transforms object.
 
     ///< Map containing the UI update handlers registered with wx for each action.
     std::map<int, UIUpdateHandler> m_uiUpdateMap;
@@ -738,7 +735,6 @@ private:
 
     ///< Set by #NonUserClose() to indicate that the user did not request the current close.
     bool            m_isNonUserClose;
-
 };
 
 

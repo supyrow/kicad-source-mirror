@@ -44,9 +44,11 @@ class SCH_JUNCTION;
 class SCH_LABEL;
 class SCH_TEXT;
 class SCH_HIERLABEL;
+class SCH_NETCLASS_FLAG;
 class SCH_GLOBALLABEL;
 class SCH_SHEET;
 class SCH_SHEET_PIN;
+class SCH_SHAPE;
 class SCH_MARKER;
 class SCH_NO_CONNECT;
 class SCH_LINE;
@@ -101,17 +103,17 @@ public:
 
     const COLOR4D& GetCursorColor() override { return m_layerColors[ LAYER_SCHEMATIC_CURSOR ]; }
 
+    bool GetShowPageLimits() const override;
+
+public:
     bool   m_IsSymbolEditor;
 
     int    m_ShowUnit;                // Show all units if 0
     int    m_ShowConvert;             // Show all conversions if 0
 
-    bool   m_ShowHiddenText;
-    bool   m_ShowHiddenPins;
     bool   m_ShowPinsElectricalType;
     bool   m_ShowDisabled;
     bool   m_ShowGraphicsDisabled;
-    bool   m_ShowUmbilicals;
 
     bool   m_OverrideItemColors;
 
@@ -156,9 +158,12 @@ private:
     void draw( SCH_SYMBOL* aSymbol, int aLayer );
     void draw( const SCH_JUNCTION* aJct, int aLayer );
     void draw( const SCH_FIELD* aField, int aLayer );
+    void draw( const SCH_SHAPE* shape, int aLayer );
     void draw( const SCH_TEXT* aText, int aLayer );
-    void draw( SCH_HIERLABEL* aLabel, int aLayer );
-    void draw( SCH_GLOBALLABEL* aLabel, int aLayer );
+    void draw( const SCH_LABEL* aText, int aLayer );
+    void draw( const SCH_NETCLASS_FLAG* aLabel, int aLayer );
+    void draw( const SCH_HIERLABEL* aLabel, int aLayer );
+    void draw( const SCH_GLOBALLABEL* aLabel, int aLayer );
     void draw( const SCH_SHEET* aSheet, int aLayer );
     void draw( const SCH_NO_CONNECT* aNC, int aLayer );
     void draw( const SCH_MARKER* aMarker, int aLayer );
@@ -167,16 +172,16 @@ private:
     void draw( const SCH_BUS_ENTRY_BASE* aEntry, int aLayer );
 
     void drawPinDanglingSymbol( const VECTOR2I& aPos, const COLOR4D& aColor,
-                                bool aDrawingShadows );
+                                bool aDrawingShadows, bool aBrightened );
     void drawDanglingSymbol( const wxPoint& aPos, const COLOR4D& aColor, int aWidth,
-                             bool aDrawingShadows );
+                             bool aDrawingShadows, bool aBrightened );
 
     int internalPinDecoSize( const LIB_PIN &aPin );
     int externalPinDecoSize( const LIB_PIN &aPin );
 
     bool isUnitAndConversionShown( const LIB_ITEM* aItem ) const;
 
-    float getShadowWidth() const;
+    float getShadowWidth( bool aForHighlight ) const;
     COLOR4D getRenderColor( const EDA_ITEM* aItem, int aLayer, bool aDrawingShadows ) const;
     float getLineWidth( const LIB_ITEM* aItem, bool aDrawingShadows ) const;
     float getLineWidth( const SCH_ITEM* aItem, bool aDrawingShadows ) const;

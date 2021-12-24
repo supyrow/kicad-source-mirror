@@ -28,15 +28,16 @@
 #include <tools/ee_selection_tool.h>
 #include <tools/sch_line_wire_bus_tool.h>
 #include <tools/sch_move_tool.h>
+#include <tools/sch_drawing_tools.h>
 #include <widgets/infobar.h>
 #include <ee_actions.h>
 #include <bitmaps.h>
 #include <confirm.h>
 #include <eda_item.h>
-#include <reporter.h>
 #include <string_utils.h>
 #include <sch_item.h>
 #include <sch_symbol.h>
+#include <sch_shape.h>
 #include <sch_sheet.h>
 #include <sch_sheet_pin.h>
 #include <sch_text.h>
@@ -59,16 +60,15 @@
 #include <dialogs/dialog_sheet_pin_properties.h>
 #include <dialogs/dialog_field_properties.h>
 #include <dialogs/dialog_junction_props.h>
-#include "sch_drawing_tools.h"
+#include <dialogs/dialog_shape_properties.h>
+#include <dialogs/dialog_label_properties.h>
+#include <dialogs/dialog_text_properties.h>
 #include <math/util.h>      // for KiROUND
 #include <pgm_base.h>
 #include <settings/settings_manager.h>
 #include <symbol_editor_settings.h>
-#include <dialogs/dialog_text_and_label_properties.h>
 #include <core/kicad_algo.h>
 #include <wx/textdlg.h>
-
-
 
 class SYMBOL_UNIT_MENU : public ACTION_MENU
 {
@@ -178,6 +178,7 @@ bool SCH_EDIT_TOOL::Init()
             [this]( const SELECTION& aSel )
             {
                 return ( m_frame->IsCurrentTool( EE_ACTIONS::placeLabel )
+                      || m_frame->IsCurrentTool( EE_ACTIONS::placeClassLabel )
                       || m_frame->IsCurrentTool( EE_ACTIONS::placeGlobalLabel )
                       || m_frame->IsCurrentTool( EE_ACTIONS::placeHierLabel )
                       || m_frame->IsCurrentTool( EE_ACTIONS::placeSchematicText ) );
@@ -252,6 +253,7 @@ bool SCH_EDIT_TOOL::Init()
                 case SCH_LABEL_T:
                 case SCH_GLOBAL_LABEL_T:
                 case SCH_HIER_LABEL_T:
+                case SCH_NETCLASS_FLAG_T:
                 case SCH_FIELD_T:
                 case SCH_BITMAP_T:
                     return aSel.GetSize() == 1;
@@ -280,23 +282,32 @@ bool SCH_EDIT_TOOL::Init()
                 return false;
             };
 
-    static KICAD_T allLabelTypes[] = { SCH_LABEL_T, SCH_GLOBAL_LABEL_T, SCH_HIER_LABEL_T, SCH_TEXT_T, EOT };
+    static KICAD_T allLabelTypes[] = { SCH_LABEL_T,
+                                       SCH_NETCLASS_FLAG_T,
+                                       SCH_GLOBAL_LABEL_T,
+                                       SCH_HIER_LABEL_T,
+                                       SCH_TEXT_T,
+                                       EOT };
 
-    static KICAD_T toLabelTypes[] = { SCH_GLOBAL_LABEL_T, SCH_HIER_LABEL_T, SCH_TEXT_T, EOT };
+    static KICAD_T toLabelTypes[] = { SCH_NETCLASS_FLAG_T, SCH_GLOBAL_LABEL_T, SCH_HIER_LABEL_T, SCH_TEXT_T, EOT };
     auto toLabelCondition = ( E_C::Count( 1 ) && E_C::OnlyTypes( toLabelTypes ) )
-            || ( E_C::MoreThan( 1 ) && E_C::OnlyTypes( allLabelTypes ) );
+                                || ( E_C::MoreThan( 1 ) && E_C::OnlyTypes( allLabelTypes ) );
 
-    static KICAD_T toHLableTypes[] = { SCH_LABEL_T, SCH_GLOBAL_LABEL_T, SCH_TEXT_T, EOT };
-    auto toHLabelCondition = ( E_C::Count( 1 ) && E_C::OnlyTypes( toHLableTypes ) )
-                    || ( E_C::MoreThan( 1 ) && E_C::OnlyTypes( allLabelTypes ) );
+    static KICAD_T toCLabelTypes[] = { SCH_LABEL_T, SCH_HIER_LABEL_T, SCH_GLOBAL_LABEL_T, SCH_TEXT_T, EOT };
+    auto toCLabelCondition = ( E_C::Count( 1 ) && E_C::OnlyTypes( toCLabelTypes ) )
+                                || ( E_C::MoreThan( 1 ) && E_C::OnlyTypes( allLabelTypes ) );
 
-    static KICAD_T toGLableTypes[] = { SCH_LABEL_T, SCH_HIER_LABEL_T, SCH_TEXT_T, EOT };
-    auto toGLabelCondition = ( E_C::Count( 1 ) && E_C::OnlyTypes( toGLableTypes ) )
-                    || ( E_C::MoreThan( 1 ) && E_C::OnlyTypes( allLabelTypes ) );
+    static KICAD_T toHLabelTypes[] = { SCH_LABEL_T, SCH_NETCLASS_FLAG_T, SCH_GLOBAL_LABEL_T, SCH_TEXT_T, EOT };
+    auto toHLabelCondition = ( E_C::Count( 1 ) && E_C::OnlyTypes( toHLabelTypes ) )
+                                || ( E_C::MoreThan( 1 ) && E_C::OnlyTypes( allLabelTypes ) );
 
-    static KICAD_T toTextTypes[] = { SCH_LABEL_T, SCH_GLOBAL_LABEL_T, SCH_HIER_LABEL_T, EOT };
-    auto toTextlCondition = ( E_C::Count( 1 ) && E_C::OnlyTypes( toTextTypes ) )
-                    || ( E_C::MoreThan( 1 ) && E_C::OnlyTypes( allLabelTypes ) );
+    static KICAD_T toGLabelTypes[] = { SCH_LABEL_T, SCH_NETCLASS_FLAG_T, SCH_HIER_LABEL_T, SCH_TEXT_T, EOT };
+    auto toGLabelCondition = ( E_C::Count( 1 ) && E_C::OnlyTypes( toGLabelTypes ) )
+                                || ( E_C::MoreThan( 1 ) && E_C::OnlyTypes( allLabelTypes ) );
+
+    static KICAD_T toTextTypes[] = { SCH_LABEL_T, SCH_NETCLASS_FLAG_T, SCH_GLOBAL_LABEL_T, SCH_HIER_LABEL_T, EOT };
+    auto toTextCondition = ( E_C::Count( 1 ) && E_C::OnlyTypes( toTextTypes ) )
+                                || ( E_C::MoreThan( 1 ) && E_C::OnlyTypes( allLabelTypes ) );
 
     static KICAD_T entryTypes[] = { SCH_BUS_WIRE_ENTRY_T, SCH_BUS_BUS_ENTRY_T, EOT };
     auto entryCondition = E_C::MoreThan( 0 ) && E_C::OnlyTypes( entryTypes );
@@ -393,9 +404,10 @@ bool SCH_EDIT_TOOL::Init()
     selToolMenu.AddItem( EE_ACTIONS::updateSymbol,     E_C::SingleSymbolOrPower, 200 );
 
     selToolMenu.AddItem( EE_ACTIONS::toLabel,          toLabelCondition, 200 );
+    selToolMenu.AddItem( EE_ACTIONS::toCLabel,         toCLabelCondition, 200 );
     selToolMenu.AddItem( EE_ACTIONS::toHLabel,         toHLabelCondition, 200 );
     selToolMenu.AddItem( EE_ACTIONS::toGLabel,         toGLabelCondition, 200 );
-    selToolMenu.AddItem( EE_ACTIONS::toText,           toTextlCondition, 200 );
+    selToolMenu.AddItem( EE_ACTIONS::toText,           toTextCondition, 200 );
     selToolMenu.AddItem( EE_ACTIONS::cleanupSheetPins, sheetHasUndefinedPins, 250 );
 
     selToolMenu.AddSeparator( 300 );
@@ -415,10 +427,12 @@ bool SCH_EDIT_TOOL::Init()
 
 
 const KICAD_T rotatableItems[] = {
+    SCH_SHAPE_T,
     SCH_TEXT_T,
     SCH_LABEL_T,
     SCH_GLOBAL_LABEL_T,
     SCH_HIER_LABEL_T,
+    SCH_NETCLASS_FLAG_T,
     SCH_FIELD_T,
     SCH_SYMBOL_T,
     SCH_SHEET_PIN_T,
@@ -492,6 +506,7 @@ int SCH_EDIT_TOOL::Rotate( const TOOL_EVENT& aEvent )
         case SCH_LABEL_T:
         case SCH_GLOBAL_LABEL_T:
         case SCH_HIER_LABEL_T:
+        case SCH_NETCLASS_FLAG_T:
         {
             SCH_TEXT* textItem = static_cast<SCH_TEXT*>( head );
             textItem->Rotate90( clockwise );
@@ -533,6 +548,13 @@ int SCH_EDIT_TOOL::Rotate( const TOOL_EVENT& aEvent )
             break;
         }
 
+        case SCH_SHAPE_T:
+            for( int i = 0; clockwise ? i < 1 : i < 3; ++i )
+                head->Rotate( rotPoint );
+
+            break;
+
+
         case SCH_BITMAP_T:
             for( int i = 0; clockwise ? i < 3 : i < 1; ++i )
                 head->Rotate( rotPoint );
@@ -554,7 +576,7 @@ int SCH_EDIT_TOOL::Rotate( const TOOL_EVENT& aEvent )
         }
 
         default:
-            break;
+            UNIMPLEMENTED_FOR( head->GetClass() );
         }
 
         connections = head->IsConnectable();
@@ -701,6 +723,7 @@ int SCH_EDIT_TOOL::Mirror( const TOOL_EVENT& aEvent )
         case SCH_LABEL_T:
         case SCH_GLOBAL_LABEL_T:
         case SCH_HIER_LABEL_T:
+        case SCH_NETCLASS_FLAG_T:
         {
             SCH_TEXT* textItem = static_cast<SCH_TEXT*>( item );
             textItem->MirrorSpinStyle( !vertical );
@@ -744,6 +767,14 @@ int SCH_EDIT_TOOL::Mirror( const TOOL_EVENT& aEvent )
             break;
         }
 
+        case SCH_SHAPE_T:
+            if( vertical )
+                item->MirrorVertically( item->GetPosition().y );
+            else
+                item->MirrorHorizontally( item->GetPosition().x );
+
+            break;
+
         case SCH_BITMAP_T:
             if( vertical )
                 item->MirrorVertically( item->GetPosition().y );
@@ -766,7 +797,7 @@ int SCH_EDIT_TOOL::Mirror( const TOOL_EVENT& aEvent )
             break;
 
         default:
-            break;
+            UNIMPLEMENTED_FOR( item->GetClass() );
         }
 
         connections = item->IsConnectable();
@@ -915,10 +946,12 @@ static KICAD_T deletableItems[] =
     SCH_LINE_T,
     SCH_BUS_BUS_ENTRY_T,
     SCH_BUS_WIRE_ENTRY_T,
+    SCH_SHAPE_T,
     SCH_TEXT_T,
     SCH_LABEL_T,
     SCH_GLOBAL_LABEL_T,
     SCH_HIER_LABEL_T,
+    SCH_NETCLASS_FLAG_T,
     SCH_NO_CONNECT_T,
     SCH_SHEET_T,
     SCH_SHEET_PIN_T,
@@ -1317,19 +1350,6 @@ int SCH_EDIT_TOOL::Properties( const TOOL_EVENT& aEvent )
         break;
     }
 
-    auto doTextAndLabelProps =
-            [&]( SCH_TEXT* aText )
-            {
-                DIALOG_TEXT_AND_LABEL_PROPERTIES dlg( m_frame, aText );
-
-                // Must be quasi modal for syntax help
-                if( dlg.ShowQuasiModal() == wxID_OK )
-                {
-                    m_toolMgr->PostEvent( EVENTS::SelectedItemsModified );
-                    m_frame->OnModify();
-                }
-            };
-
     switch( item->Type() )
     {
     case SCH_SYMBOL_T:
@@ -1437,24 +1457,54 @@ int SCH_EDIT_TOOL::Properties( const TOOL_EVENT& aEvent )
         break;
 
     case SCH_TEXT_T:
+    {
+        DIALOG_TEXT_PROPERTIES dlg( m_frame, static_cast<SCH_TEXT*>( item ) );
+
+        // Must be quasi modal for syntax help
+        if( dlg.ShowQuasiModal() == wxID_OK )
+        {
+            m_toolMgr->PostEvent( EVENTS::SelectedItemsModified );
+            m_frame->OnModify();
+        }
+    }
+        break;
+
     case SCH_LABEL_T:
     case SCH_GLOBAL_LABEL_T:
     case SCH_HIER_LABEL_T:
-        doTextAndLabelProps( static_cast<SCH_TEXT*>( item ) );
+    case SCH_NETCLASS_FLAG_T:
+    {
+        DIALOG_LABEL_PROPERTIES dlg( m_frame, static_cast<SCH_LABEL_BASE*>( item ) );
+
+        // Must be quasi modal for syntax help
+        if( dlg.ShowQuasiModal() == wxID_OK )
+        {
+            m_toolMgr->PostEvent( EVENTS::SelectedItemsModified );
+            m_frame->OnModify();
+        }
+    }
         break;
 
     case SCH_FIELD_T:
     {
         SCH_FIELD* field = static_cast<SCH_FIELD*>( item );
-        EDA_ITEM*  parent = field->GetParent();
 
-        if( parent->Type() == SCH_GLOBAL_LABEL_T )
-            doTextAndLabelProps( static_cast<SCH_TEXT*>( parent ) );
-        else
-            editFieldText( field );
+        editFieldText( field );
 
         if( !field->IsVisible() )
             clearSelection = true;
+    }
+        break;
+
+    case SCH_SHAPE_T:
+    {
+        DIALOG_SHAPE_PROPERTIES dlg( m_frame, static_cast<SCH_SHAPE*>( item ) );
+
+        if( dlg.ShowModal() == wxID_OK )
+        {
+            m_toolMgr->PostEvent( EVENTS::SelectedItemsModified );
+            m_frame->OnModify();
+        }
     }
         break;
 
@@ -1547,7 +1597,12 @@ int SCH_EDIT_TOOL::Properties( const TOOL_EVENT& aEvent )
 int SCH_EDIT_TOOL::ChangeTextType( const TOOL_EVENT& aEvent )
 {
     KICAD_T       convertTo = aEvent.Parameter<KICAD_T>();
-    KICAD_T       allTextTypes[] = { SCH_LABEL_T, SCH_GLOBAL_LABEL_T, SCH_HIER_LABEL_T, SCH_TEXT_T, EOT };
+    KICAD_T       allTextTypes[] = { SCH_LABEL_T,
+                                     SCH_GLOBAL_LABEL_T,
+                                     SCH_HIER_LABEL_T,
+                                     SCH_TEXT_T,
+                                     SCH_NETCLASS_FLAG_T,
+                                     EOT };
     EE_SELECTION  selection = m_selectionTool->RequestSelection( allTextTypes );
 
     for( unsigned int i = 0; i < selection.GetSize(); ++i )
@@ -1576,16 +1631,19 @@ int SCH_EDIT_TOOL::ChangeTextType( const TOOL_EVENT& aEvent )
             if( convertTo != SCH_TEXT_T )
                 txt = EscapeString( txt, CTX_NETNAME );
 
+            std::vector<SCH_FIELD> fields;
+
+            if( text->Type() != SCH_TEXT_T )
+                fields = static_cast<SCH_LABEL_BASE*>( text )->GetFields();
+
             switch( convertTo )
             {
-            case SCH_LABEL_T:        newtext = new SCH_LABEL( position, txt );        break;
-            case SCH_GLOBAL_LABEL_T: newtext = new SCH_GLOBALLABEL( position, txt );  break;
-            case SCH_HIER_LABEL_T:   newtext = new SCH_HIERLABEL( position, txt );    break;
-            case SCH_TEXT_T:         newtext = new SCH_TEXT( position, txt );         break;
-
-            default:
-                wxFAIL_MSG( wxString::Format( "Invalid text type: %d.", convertTo ) );
-                return 0;
+            case SCH_LABEL_T:         newtext = new SCH_LABEL( position, txt );       break;
+            case SCH_GLOBAL_LABEL_T:  newtext = new SCH_GLOBALLABEL( position, txt ); break;
+            case SCH_HIER_LABEL_T:    newtext = new SCH_HIERLABEL( position, txt );   break;
+            case SCH_TEXT_T:          newtext = new SCH_TEXT( position, txt );        break;
+            case SCH_NETCLASS_FLAG_T: newtext = new SCH_NETCLASS_FLAG( position );    break;
+            default:    UNIMPLEMENTED_FOR( wxString::Format( "%d.", convertTo ) );    break;
             }
 
             // Copy the old text item settings to the new one.  Justifications are not copied
@@ -1599,7 +1657,6 @@ int SCH_EDIT_TOOL::ChangeTextType( const TOOL_EVENT& aEvent )
             newtext->SetTextThickness( text->GetTextThickness() );
             newtext->SetItalic( text->IsItalic() );
             newtext->SetBold( text->IsBold() );
-            newtext->SetIsDangling( text->IsDangling() );
 
             if( selected )
                 m_toolMgr->RunAction( EE_ACTIONS::removeItemFromSel, true, text );
@@ -1611,9 +1668,6 @@ int SCH_EDIT_TOOL::ChangeTextType( const TOOL_EVENT& aEvent )
 
                 m_frame->RemoveFromScreen( text, m_frame->GetScreen() );
                 m_frame->AddToScreen( newtext, m_frame->GetScreen() );
-
-                if( convertTo == SCH_GLOBAL_LABEL_T )
-                    static_cast<SCH_GLOBALLABEL*>( newtext )->UpdateIntersheetRefProps();
             }
 
             if( selected )
@@ -1626,10 +1680,7 @@ int SCH_EDIT_TOOL::ChangeTextType( const TOOL_EVENT& aEvent )
             if( convertTo == SCH_TEXT_T )
             {
                 if( newtext->IsDangling() )
-                {
-                    newtext->SetIsDangling( false );
                     getView()->Update( newtext, KIGFX::REPAINT );
-                }
             }
             else
             {

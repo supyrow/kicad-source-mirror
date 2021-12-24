@@ -105,6 +105,7 @@ void BOARD_COMMIT::Push( const wxString& aMessage, bool aCreateUndoEntry, bool a
     std::set<EDA_ITEM*> savedModules;
     PCB_SELECTION_TOOL* selTool = m_toolMgr->GetTool<PCB_SELECTION_TOOL>();
     bool                itemsDeselected = false;
+    bool                solderMaskDirty = false;
 
     std::vector<BOARD_ITEM*> bulkAddedItems;
     std::vector<BOARD_ITEM*> bulkRemovedItems;
@@ -151,6 +152,12 @@ void BOARD_COMMIT::Push( const wxString& aMessage, bool aCreateUndoEntry, bool a
             }
         }
 
+        if( boardItem->Type() == PCB_VIA_T || boardItem->Type() == PCB_FOOTPRINT_T
+                || boardItem->IsOnLayer( F_Mask ) || boardItem->IsOnLayer( B_Mask ) )
+        {
+            solderMaskDirty = true;
+        }
+
         switch( changeType )
         {
             case CHT_ADD:
@@ -168,6 +175,11 @@ void BOARD_COMMIT::Push( const wxString& aMessage, bool aCreateUndoEntry, bool a
                 else if( boardItem->Type() == PCB_PAD_T ||
                          boardItem->Type() == PCB_FP_TEXT_T ||
                          boardItem->Type() == PCB_FP_SHAPE_T ||
+                         boardItem->Type() == PCB_FP_DIM_ALIGNED_T ||
+                         boardItem->Type() == PCB_FP_DIM_LEADER_T ||
+                         boardItem->Type() == PCB_FP_DIM_CENTER_T ||
+                         boardItem->Type() == PCB_FP_DIM_RADIAL_T ||
+                         boardItem->Type() == PCB_FP_DIM_ORTHOGONAL_T ||
                          boardItem->Type() == PCB_FP_ZONE_T )
                 {
                     wxASSERT( boardItem->GetParent() &&
@@ -210,6 +222,11 @@ void BOARD_COMMIT::Push( const wxString& aMessage, bool aCreateUndoEntry, bool a
                 case PCB_PAD_T:
                 case PCB_FP_SHAPE_T:
                 case PCB_FP_TEXT_T:
+                case PCB_FP_DIM_ALIGNED_T:
+                case PCB_FP_DIM_LEADER_T:
+                case PCB_FP_DIM_CENTER_T:
+                case PCB_FP_DIM_RADIAL_T:
+                case PCB_FP_DIM_ORTHOGONAL_T:
                 case PCB_FP_ZONE_T:
                     // This level can only handle footprint children in the footprint editor as
                     // only in that case has the entire footprint (and all its children) already
@@ -248,6 +265,7 @@ void BOARD_COMMIT::Push( const wxString& aMessage, bool aCreateUndoEntry, bool a
                 case PCB_VIA_T:              // a via (like track segment on a copper layer)
                 case PCB_DIM_ALIGNED_T:      // a dimension (graphic item)
                 case PCB_DIM_CENTER_T:
+                case PCB_DIM_RADIAL_T:
                 case PCB_DIM_ORTHOGONAL_T:
                 case PCB_DIM_LEADER_T:       // a leader dimension
                 case PCB_TARGET_T:           // a target (graphic item)
@@ -377,6 +395,9 @@ void BOARD_COMMIT::Push( const wxString& aMessage, bool aCreateUndoEntry, bool a
         connectivity->RecalculateRatsnest( this );
         connectivity->ClearDynamicRatsnest();
 
+        if( frame && solderMaskDirty )
+            frame->HideSolderMask();
+
         if( frame )
             frame->GetCanvas()->RedrawRatsnest();
 
@@ -436,6 +457,11 @@ EDA_ITEM* BOARD_COMMIT::parentObject( EDA_ITEM* aItem ) const
         case PCB_PAD_T:
         case PCB_FP_SHAPE_T:
         case PCB_FP_TEXT_T:
+        case PCB_FP_DIM_ALIGNED_T:
+        case PCB_FP_DIM_LEADER_T:
+        case PCB_FP_DIM_CENTER_T:
+        case PCB_FP_DIM_RADIAL_T:
+        case PCB_FP_DIM_ORTHOGONAL_T:
         case PCB_FP_ZONE_T:
             return aItem->GetParent();
 

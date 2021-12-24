@@ -31,21 +31,15 @@
 class PANEL_3D_RAYTRACING_OPTIONS : public PANEL_3D_RAYTRACING_OPTIONS_BASE
 {
 public:
-    explicit PANEL_3D_RAYTRACING_OPTIONS( EDA_3D_VIEWER_FRAME* aFrame, wxWindow* aParent );
+    explicit PANEL_3D_RAYTRACING_OPTIONS( wxWindow* aParent );
+
+    bool TransferDataFromWindow() override;
+    bool TransferDataToWindow() override;
 
     void ResetPanel() override;
 
-    /// Automatically called when clicking on the OK button
-    bool TransferDataFromWindow() override;
-
-    /// Automatically called after creating the dialog
-    bool TransferDataToWindow() override;
-
-    void TransferColorDataToWindow();
-
 private:
-    BOARD_ADAPTER& m_settings;
-    EDA_3D_CANVAS* m_canvas;
+    void loadSettings( EDA_3D_VIEWER_SETTINGS* aCfg );
 };
 
 

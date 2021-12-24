@@ -33,6 +33,9 @@
 #include <layer_ids.h>
 #include <geometry/convex_hull.h>
 #include <confirm.h>
+#include <tools/pcb_tool_base.h>
+#include <tool/tool_manager.h>
+#include <settings/app_settings.h>
 
 #include <pcb_painter.h>
 
@@ -1046,7 +1049,6 @@ bool PNS_KICAD_IFACE_BASE::syncZone( PNS::NODE* aWorld, ZONE* aZone, SHAPE_POLY_
         return false;
 
     LSET      layers = aZone->GetLayerSet();
-    EDA_UNITS units = EDA_UNITS::MILLIMETRES;       // TODO: get real units
 
     poly = aZone->Outline();
     poly->CacheTriangulation( false );
@@ -1054,7 +1056,7 @@ bool PNS_KICAD_IFACE_BASE::syncZone( PNS::NODE* aWorld, ZONE* aZone, SHAPE_POLY_
     if( !poly->IsTriangulationUpToDate() )
     {
         KIDIALOG dlg( nullptr, wxString::Format( _( "%s is malformed." ),
-                                                 aZone->GetSelectMenuText( units ) ),
+                                                 aZone->GetSelectMenuText( GetUnits() ) ),
                       KIDIALOG::KD_WARNING );
         dlg.ShowDetailedText( wxString::Format( _( "This zone cannot be handled by the router.\n"
                                                    "Please verify it is not a self-intersecting "
@@ -1159,10 +1161,6 @@ bool PNS_KICAD_IFACE_BASE::syncGraphicalItem( PNS::NODE* aWorld, PCB_SHAPE* aIte
             || aItem->GetLayer() == Margin
             || IsCopperLayer( aItem->GetLayer() ) )
     {
-        // TODO: where do we handle filled polygons on copper layers?
-        if( aItem->GetShape() == SHAPE_T::POLY && aItem->IsFilled() )
-            return false;
-
         std::vector<SHAPE*> shapes = aItem->MakeEffectiveShapes();
 
         for( SHAPE* shape : shapes )
@@ -1426,16 +1424,16 @@ void PNS_KICAD_IFACE::DisplayItem( const PNS::ITEM* aItem, int aClearance, bool 
 
         switch( m_dispOptions->m_ShowTrackClearanceMode )
         {
-        case PCB_DISPLAY_OPTIONS::SHOW_TRACK_CLEARANCE_WITH_VIA_ALWAYS:
-        case PCB_DISPLAY_OPTIONS::SHOW_WHILE_ROUTING_OR_DRAGGING:
+        case SHOW_TRACK_CLEARANCE_WITH_VIA_ALWAYS:
+        case SHOW_WHILE_ROUTING_OR_DRAGGING:
             pitem->ShowClearance( aItem->OfKind( tracksOrVias ) );
             break;
 
-        case PCB_DISPLAY_OPTIONS::SHOW_TRACK_CLEARANCE_WITH_VIA_WHILE_ROUTING:
+        case SHOW_TRACK_CLEARANCE_WITH_VIA_WHILE_ROUTING:
             pitem->ShowClearance( aItem->OfKind( tracksOrVias ) && !aEdit );
             break;
 
-        case PCB_DISPLAY_OPTIONS::SHOW_TRACK_CLEARANCE_WHILE_ROUTING:
+        case SHOW_TRACK_CLEARANCE_WHILE_ROUTING:
             pitem->ShowClearance( aItem->OfKind( tracks ) && !aEdit );
             break;
 
@@ -1672,6 +1670,12 @@ void PNS_KICAD_IFACE::Commit()
 }
 
 
+EDA_UNITS PNS_KICAD_IFACE::GetUnits() const
+{
+    return static_cast<EDA_UNITS>( m_tool->GetManager()->GetSettings()->m_System.units );
+}
+
+
 void PNS_KICAD_IFACE::SetView( KIGFX::VIEW* aView )
 {
     wxLogTrace( "PNS", "SetView %p", aView );
@@ -1704,7 +1708,6 @@ void PNS_KICAD_IFACE::SetView( KIGFX::VIEW* aView )
 void PNS_KICAD_IFACE::UpdateNet( int aNetCode )
 {
     wxLogTrace( "PNS", "Update-net %d", aNetCode );
-
 }
 
 

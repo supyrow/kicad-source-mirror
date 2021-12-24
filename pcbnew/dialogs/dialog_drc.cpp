@@ -29,6 +29,8 @@
 #include <kiface_base.h>
 #include <macros.h>
 #include <pad.h>
+#include <drc/drc_item.h>
+#include <connectivity/connectivity_data.h>
 #include <pcb_edit_frame.h>
 #include <pcbnew_settings.h>
 #include <tool/tool_manager.h>
@@ -46,6 +48,12 @@
 #include <tools/zone_filler_tool.h>
 #include <tools/board_inspection_tool.h>
 #include <kiplatform/ui.h>
+
+// wxWidgets spends *far* too long calcuating column widths (most of it, believe it or
+// not, in repeatedly creating/destroying a wxDC to do the measurement in).
+// Use default column widths instead.
+static int DEFAULT_SINGLE_COL_WIDTH = 660;
+
 
 DIALOG_DRC::DIALOG_DRC( PCB_EDIT_FRAME* aEditorFrame, wxWindow* aParent ) :
         DIALOG_DRC_BASE( aParent ),
@@ -65,7 +73,7 @@ DIALOG_DRC::DIALOG_DRC( PCB_EDIT_FRAME* aEditorFrame, wxWindow* aParent ) :
 {
     SetName( DIALOG_DRC_WINDOW_NAME ); // Set a window name to be able to find it
 
-    m_frame    = aEditorFrame;
+    m_frame = aEditorFrame;
     m_currentBoard = m_frame->GetBoard();
 
     m_messages->SetImmediateMode();
@@ -79,15 +87,15 @@ DIALOG_DRC::DIALOG_DRC( PCB_EDIT_FRAME* aEditorFrame, wxWindow* aParent ) :
     m_footprintWarningsTreeModel = new RC_TREE_MODEL( m_frame, m_footprintsDataView );
     m_footprintsDataView->AssociateModel( m_footprintWarningsTreeModel );
 
+    m_ignoredList->InsertColumn( 0, wxEmptyString, wxLIST_FORMAT_LEFT, DEFAULT_SINGLE_COL_WIDTH );
+
+    m_Notebook->SetSelection( 0 );
+
     if( Kiface().IsSingle() )
         m_cbTestFootprints->Hide();
 
-    // We use a sdbSizer here to get the order right, which is platform-dependent
-    m_sdbSizerOK->SetLabel( _( "Run DRC" ) );
-    m_sdbSizerCancel->SetLabel( _( "Close" ) );
-    m_sizerButtons->Layout();
-
-    m_sdbSizerOK->SetDefault();
+    SetupStandardButtons( { { wxID_OK,     _( "Run DRC" ) },
+                            { wxID_CANCEL, _( "Close" )   } } );
 
     initValues();
     syncCheckboxes();
@@ -133,12 +141,12 @@ void DIALOG_DRC::initValues()
     m_markersTitleTemplate     = m_Notebook->GetPageText( 0 );
     m_unconnectedTitleTemplate = m_Notebook->GetPageText( 1 );
     m_footprintsTitleTemplate  = m_Notebook->GetPageText( 2 );
+    m_ignoredTitleTemplate     = m_Notebook->GetPageText( 3 );
 
     auto cfg = m_frame->GetPcbNewSettings();
 
     m_cbRefillZones->SetValue( cfg->m_DrcDialog.refill_zones );
     m_cbReportAllTrackErrors->SetValue( cfg->m_DrcDialog.test_all_track_errors );
-
 
     if( !Kiface().IsSingle() )
         m_cbTestFootprints->SetValue( cfg->m_DrcDialog.test_footprints );
@@ -242,6 +250,18 @@ void DIALOG_DRC::OnRunDRCClick( wxCommandEvent& aEvent )
     m_unconnectedTreeModel->DeleteItems( false, true, true );
     m_footprintWarningsTreeModel->DeleteItems( false, true, true );
 
+    std::vector<std::reference_wrapper<RC_ITEM>> violations = DRC_ITEM::GetItemsWithSeverities();
+    m_ignoredList->DeleteAllItems();
+
+    for( std::reference_wrapper<RC_ITEM>& item : violations )
+    {
+        if( bds().GetSeverity( item.get().GetErrorCode() ) == RPT_SEVERITY_IGNORE )
+        {
+            m_ignoredList->InsertItem( m_ignoredList->GetItemCount(),
+                                       wxT( " • " ) + item.get().GetErrorText() );
+        }
+    }
+
     Raise();
 
     m_runningResultsBook->ChangeSelection( 0 );   // Display the "Tests Running..." tab
@@ -291,7 +311,7 @@ void DIALOG_DRC::SetMarkersProvider( RC_ITEMS_PROVIDER* aProvider )
 }
 
 
-void DIALOG_DRC::SetUnconnectedProvider( class RC_ITEMS_PROVIDER * aProvider )
+void DIALOG_DRC::SetRatsnestProvider( class RC_ITEMS_PROVIDER * aProvider )
 {
     m_unconnectedItemsProvider = aProvider;
     m_unconnectedTreeModel->SetProvider( m_unconnectedItemsProvider );
@@ -421,7 +441,7 @@ void DIALOG_DRC::OnDRCItemDClick( wxDataViewEvent& aEvent )
             Show( false );
     }
 
-    // Do not skip aVent here: this is not useful, and Pcbnew crashes
+    // Do not skip aEvent here: this is not useful, and Pcbnew crashes
     // if skipped (at least on Windows)
 }
 
@@ -433,10 +453,12 @@ void DIALOG_DRC::OnDRCItemRClick( wxDataViewEvent& aEvent )
     if( !node )
         return;
 
-    std::shared_ptr<RC_ITEM>  rcItem = node->m_RcItem;
-    wxString  listName;
-    wxMenu    menu;
-    wxString  msg;
+    std::shared_ptr<RC_ITEM>           rcItem = node->m_RcItem;
+    DRC_ITEM*                          drcItem = static_cast<DRC_ITEM*>( rcItem.get() );
+    std::shared_ptr<CONNECTIVITY_DATA> conn = m_currentBoard->GetConnectivity();
+    wxString                           listName;
+    wxMenu                             menu;
+    wxString                           msg;
 
     switch( bds().m_DRCSeverities[ rcItem->GetErrorCode() ] )
     {
@@ -449,11 +471,25 @@ void DIALOG_DRC::OnDRCItemRClick( wxDataViewEvent& aEvent )
     {
         menu.Append( 1, _( "Remove exclusion for this violation" ),
                      wxString::Format( _( "It will be placed back in the %s list" ), listName ) );
+
+        if( drcItem->GetViolatingRule() && !drcItem->GetViolatingRule()->m_Implicit )
+        {
+            msg.Printf( _( "Remove all exclusions for violations of rule '%s'" ),
+                        drcItem->GetViolatingRule()->m_Name );
+            menu.Append( 11, msg );
+        }
     }
     else
     {
         menu.Append( 2, _( "Exclude this violation" ),
                      wxString::Format( _( "It will be excluded from the %s list" ), listName ) );
+
+        if( drcItem->GetViolatingRule() && !drcItem->GetViolatingRule()->m_Implicit )
+        {
+            msg.Printf( _( "Exclude all violations of rule '%s'" ),
+                        drcItem->GetViolatingRule()->m_Name );
+            menu.Append( 21, msg );
+        }
     }
 
     if( rcItem->GetErrorCode() == DRCE_CLEARANCE
@@ -494,12 +530,19 @@ void DIALOG_DRC::OnDRCItemRClick( wxDataViewEvent& aEvent )
     {
     case 1:
     {
-        PCB_MARKER* marker = dynamic_cast<PCB_MARKER*>( node->m_RcItem->GetParent() );
+        PCB_MARKER* marker = dynamic_cast<PCB_MARKER*>( rcItem->GetParent() );
 
         if( marker )
         {
             marker->SetExcluded( false );
-            m_frame->GetCanvas()->GetView()->Update( marker );
+
+            if( rcItem->GetErrorCode() == DRCE_UNCONNECTED_ITEMS )
+                conn->RemoveExclusion( drcItem->GetMainItemID(), drcItem->GetAuxItemID() );
+
+            if( rcItem->GetErrorCode() == DRCE_UNCONNECTED_ITEMS )
+                m_frame->GetCanvas()->RedrawRatsnest();
+            else
+                m_frame->GetCanvas()->GetView()->Update( marker );
 
             // Update view
             static_cast<RC_TREE_MODEL*>( aEvent.GetModel() )->ValueChanged( node );
@@ -511,12 +554,19 @@ void DIALOG_DRC::OnDRCItemRClick( wxDataViewEvent& aEvent )
 
     case 2:
     {
-        PCB_MARKER* marker = dynamic_cast<PCB_MARKER*>( node->m_RcItem->GetParent() );
+        PCB_MARKER* marker = dynamic_cast<PCB_MARKER*>( rcItem->GetParent() );
 
         if( marker )
         {
             marker->SetExcluded( true );
-            m_frame->GetCanvas()->GetView()->Update( marker );
+
+            if( rcItem->GetErrorCode() == DRCE_UNCONNECTED_ITEMS )
+                conn->AddExclusion( drcItem->GetMainItemID(), drcItem->GetAuxItemID() );
+
+            if( rcItem->GetErrorCode() == DRCE_UNCONNECTED_ITEMS )
+                m_frame->GetCanvas()->RedrawRatsnest();
+            else
+                m_frame->GetCanvas()->GetView()->Update( marker );
 
             // Update view
             if( m_severities & RPT_SEVERITY_EXCLUSION )
@@ -527,6 +577,38 @@ void DIALOG_DRC::OnDRCItemRClick( wxDataViewEvent& aEvent )
             modified = true;
         }
 
+        break;
+    }
+
+    case 11:
+    {
+        for( PCB_MARKER* marker : m_frame->GetBoard()->Markers() )
+        {
+            DRC_ITEM* candidateDrcItem = static_cast<DRC_ITEM*>( marker->GetRCItem().get() );
+
+            if( candidateDrcItem->GetViolatingRule() == drcItem->GetViolatingRule() )
+                marker->SetExcluded( false );
+        }
+
+        // Rebuild model and view
+        static_cast<RC_TREE_MODEL*>( aEvent.GetModel() )->SetProvider( m_markersProvider );
+        modified = true;
+        break;
+    }
+
+    case 21:
+    {
+        for( PCB_MARKER* marker : m_frame->GetBoard()->Markers() )
+        {
+            DRC_ITEM* candidateDrcItem = static_cast<DRC_ITEM*>( marker->GetRCItem().get() );
+
+            if( candidateDrcItem->GetViolatingRule() == drcItem->GetViolatingRule() )
+                marker->SetExcluded( true );
+        }
+
+        // Rebuild model and view
+        static_cast<RC_TREE_MODEL*>( aEvent.GetModel() )->SetProvider( m_markersProvider );
+        modified = true;
         break;
     }
 
@@ -581,8 +663,13 @@ void DIALOG_DRC::OnDRCItemRClick( wxDataViewEvent& aEvent )
                 markers.erase( markers.begin() + i );
             }
             else
+            {
                 ++i;
+            }
         }
+
+        if( rcItem->GetErrorCode() == DRCE_UNCONNECTED_ITEMS )
+            m_frame->GetCanvas()->RedrawRatsnest();
 
         // Rebuild model and view
         static_cast<RC_TREE_MODEL*>( aEvent.GetModel() )->SetProvider( m_markersProvider );
@@ -600,6 +687,21 @@ void DIALOG_DRC::OnDRCItemRClick( wxDataViewEvent& aEvent )
         updateDisplayedCounts();
         refreshEditor();
         m_frame->OnModify();
+    }
+}
+
+
+void DIALOG_DRC::OnIgnoreItemRClick( wxListEvent& event )
+{
+    wxMenu menu;
+
+    menu.Append( 1, _( "Edit ignored violations..." ), _( "Open the Board Setup... dialog" ) );
+
+    switch( GetPopupMenuSelectionFromUser( menu ) )
+    {
+    case 1:
+        m_frame->ShowBoardSetupDialog( _( "Violation Severity" ) );
+        break;
     }
 }
 
@@ -733,6 +835,7 @@ void DIALOG_DRC::PrevMarker()
         case 0: m_markersTreeModel->PrevMarker();           break;
         case 1: m_unconnectedTreeModel->PrevMarker();       break;
         case 2: m_footprintWarningsTreeModel->PrevMarker(); break;
+        case 3:                                             break;
         }
     }
 }
@@ -747,6 +850,7 @@ void DIALOG_DRC::NextMarker()
         case 0: m_markersTreeModel->NextMarker();           break;
         case 1: m_unconnectedTreeModel->NextMarker();       break;
         case 2: m_footprintWarningsTreeModel->NextMarker(); break;
+        case 3:                                             break;
         }
     }
 }
@@ -783,7 +887,7 @@ void DIALOG_DRC::ExcludeMarker()
     RC_TREE_NODE* node = RC_TREE_MODEL::ToNode( m_markerDataView->GetCurrentItem() );
     PCB_MARKER*   marker = dynamic_cast<PCB_MARKER*>( node->m_RcItem->GetParent() );
 
-    if( marker && !marker->IsExcluded() )
+    if( marker && marker->GetSeverity() != RPT_SEVERITY_EXCLUSION )
     {
         marker->SetExcluded( true );
         m_frame->GetCanvas()->GetView()->Update( marker );
@@ -837,7 +941,10 @@ bool DIALOG_DRC::writeReport( const wxString& aFullFileName )
     for( int i = 0; i < count; ++i )
     {
         const std::shared_ptr<RC_ITEM>& item = m_markersProvider->GetItem( i );
-        SEVERITY severity = bds.GetSeverity( item->GetErrorCode() );
+        SEVERITY severity = item->GetParent()->GetSeverity();
+
+        if( severity == RPT_SEVERITY_EXCLUSION )
+            severity = bds.GetSeverity( item->GetErrorCode() );
 
         fprintf( fp, "%s", TO_UTF8( item->ShowReport( units, severity, itemMap ) ) );
     }
@@ -995,7 +1102,11 @@ void DIALOG_DRC::updateDisplayedCounts()
             msg = m_footprintsTitleTemplate;
             msg.Replace( wxT( "%d" ), _( "not run" ) );
         }
+
         m_Notebook->SetPageText( 2, msg );
+
+        msg.sprintf( m_ignoredTitleTemplate, m_ignoredList->GetItemCount() );
+        m_Notebook->SetPageText( 3, msg );
     }
     else
     {
@@ -1010,6 +1121,10 @@ void DIALOG_DRC::updateDisplayedCounts()
         msg = m_footprintsTitleTemplate;
         msg.Replace( wxT( "(%d)" ), wxEmptyString );
         m_Notebook->SetPageText( 2, msg );
+
+        msg = m_ignoredTitleTemplate;
+        msg.Replace( wxT( "(%d)" ), wxEmptyString );
+        m_Notebook->SetPageText( 3, msg );
     }
 
     // Update badges:

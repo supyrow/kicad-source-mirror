@@ -85,27 +85,33 @@ enum KICAD_T
     SCREEN_T, ///< not really an item, used to identify a screen
 
     // Items in pcb
-    PCB_FOOTPRINT_T,        ///< class FOOTPRINT, a footprint
-    PCB_PAD_T,              ///< class PAD, a pad in a footprint
-    PCB_SHAPE_T,            ///< class PCB_SHAPE, a segment not on copper layers
-    PCB_TEXT_T,             ///< class PCB_TEXT, text on a layer
-    PCB_FP_TEXT_T,          ///< class FP_TEXT, text in a footprint
-    PCB_FP_SHAPE_T,         ///< class FP_SHAPE, a footprint edge
-    PCB_FP_ZONE_T,          ///< class ZONE, managed by a footprint
-    PCB_TRACE_T,            ///< class PCB_TRACK, a track segment (segment on a copper layer)
-    PCB_VIA_T,              ///< class PCB_VIA, a via (like a track segment on a copper layer)
-    PCB_ARC_T,              ///< class PCB_ARC, an arc track segment on a copper layer
-    PCB_MARKER_T,           ///< class PCB_MARKER, a marker used to show something
-    PCB_DIMENSION_T,        ///< class PCB_DIMENSION_BASE: abstract dimension meta-type
-    PCB_DIM_ALIGNED_T,      ///< class PCB_DIM_ALIGNED, a linear dimension (graphic item)
-    PCB_DIM_LEADER_T,       ///< class PCB_DIM_LEADER, a leader dimension (graphic item)
-    PCB_DIM_CENTER_T,       ///< class PCB_DIM_CENTER, a center point marking (graphic item)
-    PCB_DIM_ORTHOGONAL_T,   ///< class PCB_DIM_ORTHOGONAL, a linear dimension constrained to x/y
-    PCB_TARGET_T,           ///< class PCB_TARGET, a target (graphic item)
-    PCB_ZONE_T,             ///< class ZONE, a copper pour area
-    PCB_ITEM_LIST_T,        ///< class BOARD_ITEM_LIST, a list of board items
-    PCB_NETINFO_T,          ///< class NETINFO_ITEM, a description of a net
-    PCB_GROUP_T,            ///< class PCB_GROUP, a set of BOARD_ITEMs
+    PCB_FOOTPRINT_T,         ///< class FOOTPRINT, a footprint
+    PCB_PAD_T,               ///< class PAD, a pad in a footprint
+    PCB_SHAPE_T,             ///< class PCB_SHAPE, a segment not on copper layers
+    PCB_TEXT_T,              ///< class PCB_TEXT, text on a layer
+    PCB_FP_TEXT_T,           ///< class FP_TEXT, text in a footprint
+    PCB_FP_SHAPE_T,          ///< class FP_SHAPE, a footprint edge
+    PCB_FP_DIM_ALIGNED_T,    ///< class PCB_DIM_ALIGNED, a linear dimension (graphic item)
+    PCB_FP_DIM_LEADER_T,     ///< class PCB_DIM_LEADER, a leader dimension (graphic item)
+    PCB_FP_DIM_CENTER_T,     ///< class PCB_DIM_CENTER, a center point marking (graphic item)
+    PCB_FP_DIM_RADIAL_T,     ///< class PCB_DIM_RADIAL, a radius or diameter dimension
+    PCB_FP_DIM_ORTHOGONAL_T, ///< class PCB_DIM_ORTHOGONAL, a linear dimension constrained to x/y
+    PCB_FP_ZONE_T,           ///< class ZONE, managed by a footprint
+    PCB_TRACE_T,             ///< class PCB_TRACK, a track segment (segment on a copper layer)
+    PCB_VIA_T,               ///< class PCB_VIA, a via (like a track segment on a copper layer)
+    PCB_ARC_T,               ///< class PCB_ARC, an arc track segment on a copper layer
+    PCB_MARKER_T,            ///< class PCB_MARKER, a marker used to show something
+    PCB_DIMENSION_T,         ///< class PCB_DIMENSION_BASE: abstract dimension meta-type
+    PCB_DIM_ALIGNED_T,       ///< class PCB_DIM_ALIGNED, a linear dimension (graphic item)
+    PCB_DIM_LEADER_T,        ///< class PCB_DIM_LEADER, a leader dimension (graphic item)
+    PCB_DIM_CENTER_T,        ///< class PCB_DIM_CENTER, a center point marking (graphic item)
+    PCB_DIM_RADIAL_T,        ///< class PCB_DIM_RADIAL, a radius or diameter dimension
+    PCB_DIM_ORTHOGONAL_T,    ///< class PCB_DIM_ORTHOGONAL, a linear dimension constrained to x/y
+    PCB_TARGET_T,            ///< class PCB_TARGET, a target (graphic item)
+    PCB_ZONE_T,              ///< class ZONE, a copper pour area
+    PCB_ITEM_LIST_T ,        ///< class BOARD_ITEM_LIST, a list of board items
+    PCB_NETINFO_T,           ///< class NETINFO_ITEM, a description of a net
+    PCB_GROUP_T,             ///< class PCB_GROUP, a set of BOARD_ITEMs
 
     PCB_LOCATE_STDVIA_T,
     PCB_LOCATE_UVIA_T,
@@ -126,11 +132,13 @@ enum KICAD_T
     SCH_BUS_WIRE_ENTRY_T,
     SCH_BUS_BUS_ENTRY_T,
     SCH_LINE_T,
+    SCH_SHAPE_T,
     SCH_BITMAP_T,
     SCH_TEXT_T,
     SCH_LABEL_T,
     SCH_GLOBAL_LABEL_T,
     SCH_HIER_LABEL_T,
+    SCH_NETCLASS_FLAG_T,
     SCH_FIELD_T,
     SCH_SYMBOL_T,
     SCH_SHEET_PIN_T,
@@ -145,12 +153,13 @@ enum KICAD_T
     SCH_FIELD_LOCATE_FOOTPRINT_T,
     SCH_FIELD_LOCATE_DATASHEET_T,
 
-    // Same for picking wires and buses from SCH_LINE_T items
-    SCH_LINE_LOCATE_WIRE_T,
-    SCH_LINE_LOCATE_BUS_T,
-    SCH_LINE_LOCATE_GRAPHIC_LINE_T,
+    // Same for picking wires, buses and graphics from SCH_ITEM_T items
+    SCH_ITEM_LOCATE_WIRE_T,
+    SCH_ITEM_LOCATE_BUS_T,
+    SCH_ITEM_LOCATE_GRAPHIC_LINE_T,
 
-    // Same for picking labels attached to wires and/or buses
+    // Same for picking labels, or labels attached to wires and/or buses
+    SCH_LABEL_LOCATE_ANY_T,
     SCH_LABEL_LOCATE_WIRE_T,
     SCH_LABEL_LOCATE_BUS_T,
 
@@ -223,7 +232,7 @@ enum KICAD_T
  * Return the underlying type of the given type.
  *
  * This is useful for finding the element type given one of the "non-type" types such as
- * SCH_LINE_LOCATE_WIRE_T.
+ * SCH_ITEM_LOCATE_WIRE_T.
  *
  * @param aType Given type to resolve.
  * @return Base type.
@@ -238,11 +247,12 @@ constexpr KICAD_T BaseType( const KICAD_T aType )
     case SCH_FIELD_LOCATE_DATASHEET_T:
         return SCH_FIELD_T;
 
-    case SCH_LINE_LOCATE_WIRE_T:
-    case SCH_LINE_LOCATE_BUS_T:
-    case SCH_LINE_LOCATE_GRAPHIC_LINE_T:
+    case SCH_ITEM_LOCATE_WIRE_T:
+    case SCH_ITEM_LOCATE_BUS_T:
+    case SCH_ITEM_LOCATE_GRAPHIC_LINE_T:
         return SCH_LINE_T;
 
+    case SCH_LABEL_LOCATE_ANY_T:
     case SCH_LABEL_LOCATE_WIRE_T:
     case SCH_LABEL_LOCATE_BUS_T:
         return SCH_LABEL_T;
@@ -257,8 +267,14 @@ constexpr KICAD_T BaseType( const KICAD_T aType )
 
     case PCB_DIM_ALIGNED_T:
     case PCB_DIM_CENTER_T:
+    case PCB_DIM_RADIAL_T:
     case PCB_DIM_ORTHOGONAL_T:
     case PCB_DIM_LEADER_T:
+    case PCB_FP_DIM_ALIGNED_T:
+    case PCB_FP_DIM_CENTER_T:
+    case PCB_FP_DIM_RADIAL_T:
+    case PCB_FP_DIM_ORTHOGONAL_T:
+    case PCB_FP_DIM_LEADER_T:
         return PCB_DIMENSION_T;
 
     default:
@@ -285,10 +301,11 @@ constexpr bool IsInstantiableType( const KICAD_T aType )
     case SCH_FIELD_LOCATE_FOOTPRINT_T:
     case SCH_FIELD_LOCATE_DATASHEET_T:
 
-    case SCH_LINE_LOCATE_WIRE_T:
-    case SCH_LINE_LOCATE_BUS_T:
-    case SCH_LINE_LOCATE_GRAPHIC_LINE_T:
+    case SCH_ITEM_LOCATE_WIRE_T:
+    case SCH_ITEM_LOCATE_BUS_T:
+    case SCH_ITEM_LOCATE_GRAPHIC_LINE_T:
 
+    case SCH_LABEL_LOCATE_ANY_T:
     case SCH_LABEL_LOCATE_WIRE_T:
     case SCH_LABEL_LOCATE_BUS_T:
 
@@ -328,9 +345,11 @@ constexpr bool IsEeschemaType( const KICAD_T aType )
     case SCH_BUS_WIRE_ENTRY_T:
     case SCH_BUS_BUS_ENTRY_T:
     case SCH_LINE_T:
+    case SCH_SHAPE_T:
     case SCH_BITMAP_T:
     case SCH_TEXT_T:
     case SCH_LABEL_T:
+    case SCH_NETCLASS_FLAG_T:
     case SCH_GLOBAL_LABEL_T:
     case SCH_HIER_LABEL_T:
     case SCH_FIELD_T:
@@ -344,10 +363,11 @@ constexpr bool IsEeschemaType( const KICAD_T aType )
     case SCH_FIELD_LOCATE_FOOTPRINT_T:
     case SCH_FIELD_LOCATE_DATASHEET_T:
 
-    case SCH_LINE_LOCATE_WIRE_T:
-    case SCH_LINE_LOCATE_BUS_T:
-    case SCH_LINE_LOCATE_GRAPHIC_LINE_T:
+    case SCH_ITEM_LOCATE_WIRE_T:
+    case SCH_ITEM_LOCATE_BUS_T:
+    case SCH_ITEM_LOCATE_GRAPHIC_LINE_T:
 
+    case SCH_LABEL_LOCATE_ANY_T:
     case SCH_LABEL_LOCATE_WIRE_T:
     case SCH_LABEL_LOCATE_BUS_T:
 
@@ -383,6 +403,10 @@ constexpr bool IsPcbnewType( const KICAD_T aType )
     case PCB_TEXT_T:
     case PCB_FP_TEXT_T:
     case PCB_FP_SHAPE_T:
+    case PCB_FP_DIM_ALIGNED_T:
+    case PCB_FP_DIM_LEADER_T:
+    case PCB_FP_DIM_CENTER_T:
+    case PCB_FP_DIM_ORTHOGONAL_T:
     case PCB_FP_ZONE_T:
     case PCB_TRACE_T:
     case PCB_VIA_T:
@@ -392,6 +416,7 @@ constexpr bool IsPcbnewType( const KICAD_T aType )
     case PCB_DIM_ALIGNED_T:
     case PCB_DIM_LEADER_T:
     case PCB_DIM_CENTER_T:
+    case PCB_DIM_RADIAL_T:
     case PCB_DIM_ORTHOGONAL_T:
     case PCB_TARGET_T:
     case PCB_ZONE_T:

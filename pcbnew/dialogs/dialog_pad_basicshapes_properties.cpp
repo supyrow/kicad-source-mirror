@@ -62,7 +62,7 @@ DIALOG_PAD_PRIMITIVES_PROPERTIES::DIALOG_PAD_PRIMITIVES_PROPERTIES( wxWindow* aP
 
     TransferDataToWindow();
 
-    m_sdbSizerOK->SetDefault();
+    SetupStandardButtons();
 
     finishDialogSettings();
 }
@@ -181,7 +181,10 @@ bool DIALOG_PAD_PRIMITIVES_PROPERTIES::TransferDataFromWindow()
     }
 
     // Transfer data out of the GUI.
-    m_shape->SetWidth( m_thickness.GetValue() );
+    STROKE_PARAMS stroke = m_shape->GetStroke();
+    stroke.SetWidth( m_thickness.GetValue() );
+    m_shape->SetStroke( stroke );
+
     m_shape->SetFilled( m_filledCtrl->GetValue() );
 
     switch( m_shape->GetShape() )
@@ -245,7 +248,8 @@ DIALOG_PAD_PRIMITIVE_POLY_PROPS::DIALOG_PAD_PRIMITIVE_POLY_PROPS( wxWindow* aPar
 
     TransferDataToWindow();
 
-    m_sdbSizerOK->SetDefault();
+    SetupStandardButtons();
+
     GetSizer()->SetSizeHints( this );
 
 	m_gridCornersList->Connect( wxEVT_GRID_CELL_CHANGING,
@@ -295,10 +299,10 @@ bool DIALOG_PAD_PRIMITIVE_POLY_PROPS::TransferDataToWindow()
         msg.Printf( "Corner %d", row+1 );
         m_gridCornersList->SetRowLabelValue( row, msg );
 
-        msg = StringFromValue( GetUserUnits(), m_currPoints[row].x );
+        msg = StringFromValue( GetUserUnits(), m_currPoints[row].x, true );
         m_gridCornersList->SetCellValue( row, 0, msg );
 
-        msg = StringFromValue( GetUserUnits(), m_currPoints[row].y );
+        msg = StringFromValue( GetUserUnits(), m_currPoints[row].y, true );
         m_gridCornersList->SetCellValue( row, 1, msg );
     }
 
@@ -311,7 +315,11 @@ bool DIALOG_PAD_PRIMITIVE_POLY_PROPS::TransferDataFromWindow()
         return false;
 
     m_shape->SetPolyPoints( m_currPoints );
-    m_shape->SetWidth( m_thickness.GetValue() );
+
+    STROKE_PARAMS stroke = m_shape->GetStroke();
+    stroke.SetWidth( m_thickness.GetValue() );
+    m_shape->SetStroke( stroke );
+
     m_shape->SetFilled( m_filledCtrl->GetValue() );
 
     return true;
@@ -563,7 +571,8 @@ DIALOG_PAD_PRIMITIVES_TRANSFORM::DIALOG_PAD_PRIMITIVES_TRANSFORM( wxWindow* aPar
 		m_spinCtrlDuplicateCount->Show( false );
     }
 
-    m_sdbSizerOK->SetDefault();
+    SetupStandardButtons();
+
     GetSizer()->SetSizeHints( this );
 }
 
@@ -616,7 +625,10 @@ void DIALOG_PAD_PRIMITIVES_TRANSFORM::Transform( std::vector<std::shared_ptr<PCB
             }
 
             // Transform parameters common to all shape types (some can be unused)
-            shape->SetWidth( KiROUND( shape->GetWidth() * scale ) );
+            STROKE_PARAMS stroke = shape->GetStroke();
+            stroke.SetWidth( KiROUND( shape->GetWidth() * scale ) );
+            shape->SetStroke( stroke );
+
             shape->Move( currMoveVect );
             shape->Scale( scale );
             shape->Rotate( wxPoint( 0, 0 ), curr_rotation );

@@ -68,10 +68,6 @@ public:
         return "Tests items vs board edge clearance";
     }
 
-    virtual std::set<DRC_CONSTRAINT_T> GetConstraintTypes() const override;
-
-    int GetNumPhases() const override;
-
 private:
     bool testAgainstEdge( BOARD_ITEM* item, SHAPE* itemShape, BOARD_ITEM* other,
                           DRC_CONSTRAINT_T aConstraintType, PCB_DRC_CODE aErrorCode );
@@ -90,26 +86,29 @@ bool DRC_TEST_PROVIDER_EDGE_CLEARANCE::testAgainstEdge( BOARD_ITEM* item, SHAPE*
     int      actual;
     VECTOR2I pos;
 
-    if( minClearance >= 0 && itemShape->Collide( edgeShape.get(), minClearance, &actual, &pos ) )
+    if( constraint.GetSeverity() != RPT_SEVERITY_IGNORE && minClearance >= 0 )
     {
-        std::shared_ptr<DRC_ITEM> drce = DRC_ITEM::Create( aErrorCode );
-
-        // Only report clearance info if there is any; otherwise it's just a straight collision
-        if( minClearance > 0 )
+        if( itemShape->Collide( edgeShape.get(), minClearance, &actual, &pos ) )
         {
-            m_msg.Printf( _( "(%s clearance %s; actual %s)" ),
-                          constraint.GetName(),
-                          MessageTextFromValue( userUnits(), minClearance ),
-                          MessageTextFromValue( userUnits(), actual ) );
+            std::shared_ptr<DRC_ITEM> drce = DRC_ITEM::Create( aErrorCode );
 
-            drce->SetErrorMessage( drce->GetErrorText() + wxS( " " ) + m_msg );
+            // Only report clearance info if there is any; otherwise it's just a straight collision
+            if( minClearance > 0 )
+            {
+                m_msg.Printf( _( "(%s clearance %s; actual %s)" ),
+                              constraint.GetName(),
+                              MessageTextFromValue( userUnits(), minClearance ),
+                              MessageTextFromValue( userUnits(), actual ) );
+
+                drce->SetErrorMessage( drce->GetErrorText() + wxS( " " ) + m_msg );
+            }
+
+            drce->SetItems( edge->m_Uuid, item->m_Uuid );
+            drce->SetViolatingRule( constraint.GetParentRule() );
+
+            reportViolation( drce, (wxPoint) pos );
+            return false;       // don't report violations with multiple edges; one is enough
         }
-
-        drce->SetItems( edge->m_Uuid, item->m_Uuid );
-        drce->SetViolatingRule( constraint.GetParentRule() );
-
-        reportViolation( drce, (wxPoint) pos );
-        return false;       // don't report violations with multiple edges; one is enough
     }
 
     return true;
@@ -123,7 +122,7 @@ bool DRC_TEST_PROVIDER_EDGE_CLEARANCE::Run()
         if( !reportPhase( _( "Checking copper to board edge clearances..." ) ) )
             return false;    // DRC cancelled
     }
-    else if( m_drcEngine->IsErrorLimitExceeded( DRCE_SILK_MASK_CLEARANCE ) )
+    else if( m_drcEngine->IsErrorLimitExceeded( DRCE_SILK_CLEARANCE ) )
     {
         if( !reportPhase( _( "Checking silk to board edge clearances..." ) ) )
             return false;    // DRC cancelled
@@ -150,7 +149,8 @@ bool DRC_TEST_PROVIDER_EDGE_CLEARANCE::Run()
     auto queryBoardOutlineItems =
             [&]( BOARD_ITEM *item ) -> bool
             {
-                PCB_SHAPE* shape = static_cast<PCB_SHAPE*>( item );
+                PCB_SHAPE*    shape = static_cast<PCB_SHAPE*>( item );
+                STROKE_PARAMS stroke( 0 );
 
                 if( shape->GetShape() == SHAPE_T::RECT )
                 {
@@ -159,19 +159,19 @@ bool DRC_TEST_PROVIDER_EDGE_CLEARANCE::Run()
                     edges.emplace_back( static_cast<PCB_SHAPE*>( shape->Clone() ) );
                     edges.back()->SetShape( SHAPE_T::SEGMENT );
                     edges.back()->SetEndX( shape->GetStartX() );
-                    edges.back()->SetWidth( 0 );
+                    edges.back()->SetStroke( stroke );
                     edges.emplace_back( static_cast<PCB_SHAPE*>( shape->Clone() ) );
                     edges.back()->SetShape( SHAPE_T::SEGMENT );
                     edges.back()->SetEndY( shape->GetStartY() );
-                    edges.back()->SetWidth( 0 );
+                    edges.back()->SetStroke( stroke );
                     edges.emplace_back( static_cast<PCB_SHAPE*>( shape->Clone() ) );
                     edges.back()->SetShape( SHAPE_T::SEGMENT );
                     edges.back()->SetStartX( shape->GetEndX() );
-                    edges.back()->SetWidth( 0 );
+                    edges.back()->SetStroke( stroke );
                     edges.emplace_back( static_cast<PCB_SHAPE*>( shape->Clone() ) );
                     edges.back()->SetShape( SHAPE_T::SEGMENT );
                     edges.back()->SetStartY( shape->GetEndY() );
-                    edges.back()->SetWidth( 0 );
+                    edges.back()->SetStroke( stroke );
                     return true;
                 }
                 else if( shape->GetShape() == SHAPE_T::POLY )
@@ -187,12 +187,12 @@ bool DRC_TEST_PROVIDER_EDGE_CLEARANCE::Run()
                         edges.back()->SetShape( SHAPE_T::SEGMENT );
                         edges.back()->SetStart((wxPoint) seg.A );
                         edges.back()->SetEnd((wxPoint) seg.B );
-                        edges.back()->SetWidth( 0 );
+                        edges.back()->SetStroke( stroke );
                     }
                 }
 
                 edges.emplace_back( static_cast<PCB_SHAPE*>( shape->Clone() ) );
-                edges.back()->SetWidth( 0 );
+                edges.back()->SetStroke( stroke );
                 return true;
             };
 
@@ -231,7 +231,7 @@ bool DRC_TEST_PROVIDER_EDGE_CLEARANCE::Run()
     for( BOARD_ITEM* item : boardItems )
     {
         bool testCopper = !m_drcEngine->IsErrorLimitExceeded( DRCE_EDGE_CLEARANCE );
-        bool testSilk = !m_drcEngine->IsErrorLimitExceeded( DRCE_SILK_MASK_CLEARANCE );
+        bool testSilk = !m_drcEngine->IsErrorLimitExceeded( DRCE_SILK_CLEARANCE );
 
         if( !testCopper && !testSilk )
             break;
@@ -262,7 +262,7 @@ bool DRC_TEST_PROVIDER_EDGE_CLEARANCE::Run()
                         {
                             return testAgainstEdge( item, itemShape.get(), edge,
                                                     SILK_CLEARANCE_CONSTRAINT,
-                                                    DRCE_SILK_MASK_CLEARANCE );
+                                                    DRCE_SILK_CLEARANCE );
                         },
                         m_largestClearance ) )
                 {
@@ -279,18 +279,6 @@ bool DRC_TEST_PROVIDER_EDGE_CLEARANCE::Run()
     reportRuleStatistics();
 
     return true;
-}
-
-
-int DRC_TEST_PROVIDER_EDGE_CLEARANCE::GetNumPhases() const
-{
-    return 1;
-}
-
-
-std::set<DRC_CONSTRAINT_T> DRC_TEST_PROVIDER_EDGE_CLEARANCE::GetConstraintTypes() const
-{
-    return { EDGE_CLEARANCE_CONSTRAINT, SILK_CLEARANCE_CONSTRAINT };
 }
 
 

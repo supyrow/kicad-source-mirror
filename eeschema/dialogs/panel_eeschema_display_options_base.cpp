@@ -9,7 +9,7 @@
 
 ///////////////////////////////////////////////////////////////////////////
 
-PANEL_EESCHEMA_DISPLAY_OPTIONS_BASE::PANEL_EESCHEMA_DISPLAY_OPTIONS_BASE( wxWindow* parent, wxWindowID id, const wxPoint& pos, const wxSize& size, long style, const wxString& name ) : wxPanel( parent, id, pos, size, style, name )
+PANEL_EESCHEMA_DISPLAY_OPTIONS_BASE::PANEL_EESCHEMA_DISPLAY_OPTIONS_BASE( wxWindow* parent, wxWindowID id, const wxPoint& pos, const wxSize& size, long style, const wxString& name ) : RESETTABLE_PANEL( parent, id, pos, size, style, name )
 {
 	wxBoxSizer* bPanelSizer;
 	bPanelSizer = new wxBoxSizer( wxHORIZONTAL );
@@ -31,6 +31,15 @@ PANEL_EESCHEMA_DISPLAY_OPTIONS_BASE::PANEL_EESCHEMA_DISPLAY_OPTIONS_BASE( wxWind
 	m_checkShowHiddenFields = new wxCheckBox( sbSizer1->GetStaticBox(), wxID_ANY, _("Show hidden fields"), wxDefaultPosition, wxDefaultSize, 0 );
 	sbSizer1->Add( m_checkShowHiddenFields, 0, wxBOTTOM|wxRIGHT|wxLEFT|wxEXPAND, 5 );
 
+	m_checkShowERCErrors = new wxCheckBox( sbSizer1->GetStaticBox(), wxID_ANY, _("Show ERC errors"), wxDefaultPosition, wxDefaultSize, 0 );
+	sbSizer1->Add( m_checkShowERCErrors, 0, wxBOTTOM|wxRIGHT|wxLEFT, 5 );
+
+	m_checkShowERCWarnings = new wxCheckBox( sbSizer1->GetStaticBox(), wxID_ANY, _("Show ERC warnings"), wxDefaultPosition, wxDefaultSize, 0 );
+	sbSizer1->Add( m_checkShowERCWarnings, 0, wxBOTTOM|wxRIGHT|wxLEFT, 5 );
+
+	m_checkShowERCExclusions = new wxCheckBox( sbSizer1->GetStaticBox(), wxID_ANY, _("Show ERC exclusions"), wxDefaultPosition, wxDefaultSize, 0 );
+	sbSizer1->Add( m_checkShowERCExclusions, 0, wxBOTTOM|wxRIGHT|wxLEFT, 5 );
+
 	m_checkPageLimits = new wxCheckBox( sbSizer1->GetStaticBox(), wxID_ANY, _("Show page limi&ts"), wxDefaultPosition, wxDefaultSize, 0 );
 	m_checkPageLimits->SetValue(true);
 	sbSizer1->Add( m_checkPageLimits, 0, wxEXPAND|wxBOTTOM|wxRIGHT|wxLEFT, 5 );
@@ -39,7 +48,7 @@ PANEL_EESCHEMA_DISPLAY_OPTIONS_BASE::PANEL_EESCHEMA_DISPLAY_OPTIONS_BASE( wxWind
 	bRightColumn->Add( sbSizer1, 0, wxEXPAND|wxTOP, 5 );
 
 	wxStaticBoxSizer* sbSizer3;
-	sbSizer3 = new wxStaticBoxSizer( new wxStaticBox( this, wxID_ANY, _("Selection") ), wxVERTICAL );
+	sbSizer3 = new wxStaticBoxSizer( new wxStaticBox( this, wxID_ANY, _("Selection && Highlighting") ), wxVERTICAL );
 
 	m_checkSelTextBox = new wxCheckBox( sbSizer3->GetStaticBox(), wxID_ANY, _("Draw selected text items as box"), wxDefaultPosition, wxDefaultSize, 0 );
 	sbSizer3->Add( m_checkSelTextBox, 0, wxEXPAND|wxBOTTOM|wxRIGHT|wxLEFT, 5 );
@@ -50,26 +59,34 @@ PANEL_EESCHEMA_DISPLAY_OPTIONS_BASE::PANEL_EESCHEMA_DISPLAY_OPTIONS_BASE( wxWind
 	m_checkSelFillShapes = new wxCheckBox( sbSizer3->GetStaticBox(), wxID_ANY, _("Fill selected shapes"), wxDefaultPosition, wxDefaultSize, 0 );
 	sbSizer3->Add( m_checkSelFillShapes, 0, wxEXPAND|wxBOTTOM|wxRIGHT|wxLEFT, 5 );
 
-	wxFlexGridSizer* fgSizer321;
-	fgSizer321 = new wxFlexGridSizer( 0, 2, 3, 0 );
-	fgSizer321->AddGrowableCol( 1 );
-	fgSizer321->SetFlexibleDirection( wxBOTH );
-	fgSizer321->SetNonFlexibleGrowMode( wxFLEX_GROWMODE_SPECIFIED );
+	wxGridBagSizer* gbSizer1;
+	gbSizer1 = new wxGridBagSizer( 0, 0 );
+	gbSizer1->SetFlexibleDirection( wxBOTH );
+	gbSizer1->SetNonFlexibleGrowMode( wxFLEX_GROWMODE_SPECIFIED );
+	gbSizer1->SetEmptyCellSize( wxSize( -1,10 ) );
 
-	m_selWidthLabel = new wxStaticText( sbSizer3->GetStaticBox(), wxID_ANY, _("&Highlight thickness:"), wxDefaultPosition, wxDefaultSize, 0 );
+	m_selWidthLabel = new wxStaticText( sbSizer3->GetStaticBox(), wxID_ANY, _("Selection thickness:"), wxDefaultPosition, wxDefaultSize, 0 );
 	m_selWidthLabel->Wrap( -1 );
-	fgSizer321->Add( m_selWidthLabel, 0, wxALIGN_CENTER_VERTICAL|wxRIGHT|wxLEFT, 5 );
+	gbSizer1->Add( m_selWidthLabel, wxGBPosition( 0, 0 ), wxGBSpan( 1, 1 ), wxTOP|wxRIGHT|wxLEFT|wxALIGN_CENTER_VERTICAL, 5 );
 
 	m_selWidthCtrl = new wxSpinCtrlDouble( sbSizer3->GetStaticBox(), wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, wxALIGN_RIGHT|wxSP_ARROW_KEYS, 0, 50, 0, 1 );
 	m_selWidthCtrl->SetDigits( 0 );
-	fgSizer321->Add( m_selWidthCtrl, 0, wxALIGN_CENTER_VERTICAL|wxRIGHT, 5 );
+	gbSizer1->Add( m_selWidthCtrl, wxGBPosition( 0, 1 ), wxGBSpan( 1, 1 ), wxTOP|wxRIGHT|wxLEFT|wxALIGN_CENTER_VERTICAL, 5 );
 
-
-	sbSizer3->Add( fgSizer321, 0, wxEXPAND|wxTOP|wxBOTTOM, 5 );
-
-	m_highlightColorNote = new wxStaticText( sbSizer3->GetStaticBox(), wxID_ANY, _("(highlight color can be edited in the \"Colors\" page)"), wxDefaultPosition, wxDefaultSize, 0 );
+	m_highlightColorNote = new wxStaticText( sbSizer3->GetStaticBox(), wxID_ANY, _("(selection color can be edited in the \"Colors\" page)"), wxDefaultPosition, wxDefaultSize, 0 );
 	m_highlightColorNote->Wrap( -1 );
-	sbSizer3->Add( m_highlightColorNote, 0, wxBOTTOM|wxRIGHT|wxLEFT, 5 );
+	gbSizer1->Add( m_highlightColorNote, wxGBPosition( 1, 0 ), wxGBSpan( 1, 2 ), wxALL, 5 );
+
+	m_highlightWidthLabel = new wxStaticText( sbSizer3->GetStaticBox(), wxID_ANY, _("Highlight thickness:"), wxDefaultPosition, wxDefaultSize, 0 );
+	m_highlightWidthLabel->Wrap( -1 );
+	gbSizer1->Add( m_highlightWidthLabel, wxGBPosition( 3, 0 ), wxGBSpan( 1, 1 ), wxALL|wxALIGN_CENTER_VERTICAL, 5 );
+
+	m_highlightWidthCtrl = new wxSpinCtrlDouble( sbSizer3->GetStaticBox(), wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, wxALIGN_RIGHT|wxSP_ARROW_KEYS, 0, 50, 0, 1 );
+	m_highlightWidthCtrl->SetDigits( 0 );
+	gbSizer1->Add( m_highlightWidthCtrl, wxGBPosition( 3, 1 ), wxGBSpan( 1, 1 ), wxALL|wxALIGN_CENTER_VERTICAL, 5 );
+
+
+	sbSizer3->Add( gbSizer1, 1, wxEXPAND, 5 );
 
 
 	bRightColumn->Add( sbSizer3, 0, wxTOP|wxEXPAND, 5 );

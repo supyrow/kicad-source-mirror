@@ -76,7 +76,7 @@ PCB_LAYER_ID DIALOG_IMPORTED_LAYERS::GetSelectedLayerID()
                                                       wxLIST_STATE_SELECTED ) ) == wxNOT_FOUND,
                   "There are more than one KiCad layer selected (unexpected)" );
 
-    for( LAYER_NUM layer = 0; layer < PCB_LAYER_ID_COUNT; ++layer )
+    for( int layer = 0; layer < PCB_LAYER_ID_COUNT; ++layer )
     {
         if( LayerName( ToLAYER_ID( layer ) ) == selectedKiCadLayerName )
             return ToLAYER_ID( layer );
@@ -299,7 +299,7 @@ DIALOG_IMPORTED_LAYERS::DIALOG_IMPORTED_LAYERS( wxWindow* aParent,
     // Auto select the first item to improve ease-of-use
     m_kicad_layers_list->SetItemState( 0, wxLIST_STATE_SELECTED, wxLIST_STATE_SELECTED );
 
-    m_sdbSizerOK->SetDefault();
+    SetupStandardButtons();
 
     Fit();
     finishDialogSettings();

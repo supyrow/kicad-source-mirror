@@ -25,17 +25,10 @@
 
 #include <symbol_library.h>
 #include <confirm.h>
-#include <dialogs/panel_eeschema_color_settings.h>
-#include <dialogs/panel_eeschema_display_options.h>
-#include <dialogs/panel_eeschema_editing_options.h>
-#include <dialogs/panel_eeschema_template_fieldnames.h>
-#include <dialogs/panel_sym_color_settings.h>
-#include <dialogs/panel_sym_editing_options.h>
 #include <dialogs/dialog_schematic_setup.h>
 #include <kiway.h>
 #include <symbol_edit_frame.h>
 #include <dialogs/panel_gal_display_options.h>
-#include <panel_hotkeys_editor.h>
 #include <pgm_base.h>
 #include <project/project_file.h>
 #include <project/net_settings.h>
@@ -45,33 +38,15 @@
 #include <settings/app_settings.h>
 #include <settings/settings_manager.h>
 #include <symbol_lib_table.h>
-#include <widgets/paged_dialog.h>
 #include <wildcards_and_files_ext.h>
 #include <drawing_sheet/ds_data_model.h>
 #include <zoom_defines.h>
-#include <wx/treebook.h>
 
 
 /// Helper for all the old plotting/printing code while it still exists
 COLOR4D GetLayerColor( SCH_LAYER_ID aLayer )
 {
     return Pgm().GetSettingsManager().GetColorSettings()->GetColor( aLayer );
-}
-
-
-void SCH_EDIT_FRAME::InstallPreferences( PAGED_DIALOG* aParent,
-                                         PANEL_HOTKEYS_EDITOR* aHotkeysPanel  )
-{
-    wxTreebook* book = aParent->GetTreebook();
-
-    book->AddPage( new wxPanel( book ), _( "Schematic Editor" ) );
-    book->AddSubPage( new PANEL_EESCHEMA_DISPLAY_OPTIONS( this, book ), _( "Display Options" ) );
-    book->AddSubPage( new PANEL_EESCHEMA_EDITING_OPTIONS( this, book ), _( "Editing Options" ) );
-    book->AddSubPage( new PANEL_EESCHEMA_COLOR_SETTINGS( this, book ), _( "Colors" ) );
-    book->AddSubPage( new PANEL_EESCHEMA_TEMPLATE_FIELDNAMES( this, book, true ),
-                      _( "Field Name Templates" ) );
-
-    aHotkeysPanel->AddHotKeys( GetToolManager() );
 }
 
 
@@ -85,6 +60,9 @@ bool SCH_EDIT_FRAME::LoadProjectSettings()
     GetRenderSettings()->m_TextOffsetRatio = settings.m_TextOffsetRatio;
     GetRenderSettings()->m_PinSymbolSize   = settings.m_PinSymbolSize;
     GetRenderSettings()->m_JunctionSize    = settings.m_JunctionSize;
+
+    GetRenderSettings()->SetDashLengthRatio( settings.m_DashedLineDashRatio );
+    GetRenderSettings()->SetGapLengthRatio( settings.m_DashedLineGapRatio );
 
     // Verify some values, because the config file can be edited by hand, and have bad values:
     LIB_SYMBOL::SetSubpartIdNotation( LIB_SYMBOL::GetSubpartIdSeparator(),
@@ -122,6 +100,9 @@ void SCH_EDIT_FRAME::ShowSchematicSetupDialog( const wxString& aInitialPage )
         GetRenderSettings()->m_TextOffsetRatio = Schematic().Settings().m_TextOffsetRatio;
         GetRenderSettings()->m_PinSymbolSize   = Schematic().Settings().m_PinSymbolSize;
         GetRenderSettings()->m_JunctionSize    = Schematic().Settings().m_JunctionSize;
+
+        GetRenderSettings()->SetDashLengthRatio( Schematic().Settings().m_DashedLineDashRatio );
+        GetRenderSettings()->SetGapLengthRatio( Schematic().Settings().m_DashedLineGapRatio );
 
         GetCanvas()->GetView()->MarkDirty();
         GetCanvas()->GetView()->UpdateAllItems( KIGFX::REPAINT );
@@ -165,18 +146,6 @@ void SCH_EDIT_FRAME::LoadSettings( APP_SETTINGS_BASE* aCfg )
     SCH_BASE_FRAME::LoadSettings( eeconfig() );
 
     GetRenderSettings()->m_ShowPinsElectricalType = false;
-    GetRenderSettings()->m_ShowHiddenText = false;
-    GetRenderSettings()->m_ShowHiddenPins = false;
-    GetRenderSettings()->m_ShowHiddenText = false;
-    GetRenderSettings()->SetShowPageLimits( true );
-    GetRenderSettings()->m_ShowUmbilicals = true;
-
-    if( eeconfig() )
-    {
-        GetRenderSettings()->m_ShowHiddenPins = eeconfig()->m_Appearance.show_hidden_pins;
-        GetRenderSettings()->m_ShowHiddenText = eeconfig()->m_Appearance.show_hidden_fields;
-        GetRenderSettings()->SetShowPageLimits( eeconfig()->m_Appearance.show_page_limits );
-    }
 }
 
 
@@ -233,20 +202,6 @@ void SCH_BASE_FRAME::SaveSettings( APP_SETTINGS_BASE* aCfg )
     wxCHECK_RET( aCfg, "Call to SCH_BASE_FRAME::SaveSettings with null settings" );
 
     EDA_DRAW_FRAME::SaveSettings( aCfg );
-}
-
-
-void SYMBOL_EDIT_FRAME::InstallPreferences( PAGED_DIALOG* aParent,
-                                            PANEL_HOTKEYS_EDITOR* aHotkeysPanel )
-{
-    wxTreebook* book = aParent->GetTreebook();
-
-    book->AddPage( new wxPanel( book ), _( "Symbol Editor" ) );
-    book->AddSubPage( new PANEL_GAL_DISPLAY_OPTIONS( this, aParent ), _( "Display Options" ) );
-    book->AddSubPage( new PANEL_SYM_EDITING_OPTIONS( this, book ), _( "Editing Options" ) );
-    book->AddSubPage( new PANEL_SYM_COLOR_SETTINGS( this, book ), _( "Colors" ) );
-
-    aHotkeysPanel->AddHotKeys( GetToolManager() );
 }
 
 

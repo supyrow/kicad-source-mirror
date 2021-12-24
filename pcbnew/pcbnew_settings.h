@@ -182,6 +182,7 @@ public:
     struct DIALOG_PLOT
     {
         int    all_layers_on_one_page;
+        bool   edgecut_on_all_layers;
         int    pads_drill_mode;
         double fine_scale_x;
         double fine_scale_y;
@@ -274,12 +275,9 @@ public:
 
     TRACK_DRAG_ACTION m_TrackDragAction;
 
-    bool m_PcbUse45DegreeLimit;         // True to constrain tool actions to horizontal,
-                                        // vertical and 45deg in board editor
-    bool m_FpeditUse45DegreeLimit;      // True to constrain tool actions to horizontal,
-                                        // vertical and 45deg in footprint editor
+    bool m_Use45DegreeLimit;            // True to constrain tool actions to horizontal,
+                                        // vertical and 45deg
     bool m_FlipLeftRight;               // True: Flip footprints across Y axis
-    // False: Flip footprints across X axis
 
     bool m_PolarCoords;
 

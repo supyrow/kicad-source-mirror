@@ -228,12 +228,9 @@ public:
     void OnNetVisibilityChanged( int aNetCode, bool aVisibility );
 
     ///< Manually update visibility for a given layer
-    void SetLayerVisible( LAYER_NUM aLayer, bool isVisible );
+    void SetLayerVisible( int aLayer, bool isVisible );
 
     void SetObjectVisible( GAL_LAYER_ID aLayer, bool isVisible = true );
-
-    ///< Update the manual layer alpha overrides.
-    void OnLayerAlphaChanged();
 
     void UpdateDisplayOptions();
 
@@ -258,6 +255,21 @@ public:
     const wxArrayString& GetLayerPresetsMRU()
     {
         return m_presetMRU;
+    }
+
+    ///< Return a list of viewports created by the user.
+    std::vector<VIEWPORT> GetUserViewports() const;
+
+    ///< Update the current viewports from those saved in the project file.
+    void SetUserViewports( std::vector<VIEWPORT>& aPresetList );
+
+    void ApplyViewport( const wxString& aPresetName );
+
+    void ApplyViewport( const VIEWPORT& aPreset );
+
+    const wxArrayString& GetViewportsMRU()
+    {
+        return m_viewportMRU;
     }
 
     void OnColorSwatchChanged( wxCommandEvent& aEvent );
@@ -311,6 +323,8 @@ private:
 
     void syncLayerPresetSelection();
 
+    void rebuildViewportsWidget();
+
     void onLayerLeftClick( wxMouseEvent& aEvent );
 
     void rightClickHandler( wxMouseEvent& aEvent );
@@ -334,6 +348,12 @@ private:
     void onLayerPresetChanged( wxCommandEvent& aEvent ) override;
 
     void doApplyLayerPreset( const LAYER_PRESET& aPreset );
+
+    void updateViewportSelection( const wxString& aName );
+
+    void onViewportChanged( wxCommandEvent& aEvent ) override;
+
+    void doApplyViewport( const VIEWPORT& aViewport );
 
     void onNetclassVisibilityChanged( wxCommandEvent& aEvent );
 
@@ -397,15 +417,14 @@ private:
 
     // TODO(JE) Move preset storage to the PCB_CONTROL tool
 
-    // Storage for all layer presets
     std::map<wxString, LAYER_PRESET> m_layerPresets;
+    LAYER_PRESET*                    m_currentPreset;
+    LAYER_PRESET*                    m_lastSelectedUserPreset;
+    wxArrayString                    m_presetMRU;
 
-    LAYER_PRESET* m_currentPreset;
-
-    /// The last user (non-read-only) preset selected by the user
-    LAYER_PRESET* m_lastSelectedUserPreset;
-
-    wxArrayString m_presetMRU;
+    std::map<wxString, VIEWPORT>     m_viewports;
+    VIEWPORT*                        m_lastSelectedViewport;
+    wxArrayString                    m_viewportMRU;
 
     wxMenu* m_layerContextMenu;
 

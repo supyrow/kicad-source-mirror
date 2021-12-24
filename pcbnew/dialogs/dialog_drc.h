@@ -52,7 +52,7 @@ public:
     void SetFootprintTestsRun() { m_footprintTestsRun = true; }
 
     void SetMarkersProvider( RC_ITEMS_PROVIDER* aProvider );
-    void SetUnconnectedProvider( RC_ITEMS_PROVIDER* aProvider );
+    void SetRatsnestProvider( RC_ITEMS_PROVIDER* aProvider );
     void SetFootprintsProvider( RC_ITEMS_PROVIDER* aProvider );
 
     void PrevMarker();
@@ -78,6 +78,7 @@ private:
     void OnDRCItemSelected( wxDataViewEvent& aEvent ) override;
     void OnDRCItemDClick( wxDataViewEvent& aEvent ) override;
     void OnDRCItemRClick( wxDataViewEvent& aEvent ) override;
+    void OnIgnoreItemRClick( wxListEvent& event ) override;
 
     void OnSeverity( wxCommandEvent& aEvent ) override;
   	void OnSaveReport( wxCommandEvent& aEvent ) override;
@@ -118,6 +119,7 @@ private:
     wxString           m_markersTitleTemplate;
     wxString           m_unconnectedTitleTemplate;
     wxString           m_footprintsTitleTemplate;
+    wxString           m_ignoredTitleTemplate;
 
     RC_ITEMS_PROVIDER* m_markersProvider;
     RC_TREE_MODEL*     m_markersTreeModel;

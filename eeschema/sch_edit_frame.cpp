@@ -220,7 +220,7 @@ SCH_EDIT_FRAME::SCH_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
     m_schematic = new SCHEMATIC( nullptr );
 
     m_showBorderAndTitleBlock = true;   // true to show sheet references
-    m_hasAutoSave = true;
+    m_supportsAutoSave = true;
     m_aboutTitle = _( "KiCad Schematic Editor" );
 
     m_findReplaceDialog = nullptr;
@@ -430,41 +430,75 @@ void SCH_EDIT_FRAME::setupUIConditions()
                         CHECK( cond.CurrentTool( ACTIONS::selectionTool ) ) );
 
     if( SCRIPTING::IsWxAvailable() )
+    {
         mgr->SetConditions( EE_ACTIONS::showPythonConsole,
                             CHECK( cond.ScriptingConsoleVisible() ) );
+    }
 
     auto showHiddenPinsCond =
-        [this] ( const SELECTION& )
-        {
-            return GetShowAllPins();
-        };
+            [this]( const SELECTION& )
+            {
+                return GetShowAllPins();
+            };
+
+    auto showHiddenFieldsCond =
+            [this]( const SELECTION& )
+            {
+                EESCHEMA_SETTINGS* cfg = eeconfig();
+                return cfg && cfg->m_Appearance.show_hidden_fields;
+            };
+
+    auto showERCErrorsCond =
+            [this]( const SELECTION& )
+            {
+                EESCHEMA_SETTINGS* cfg = eeconfig();
+                return cfg && cfg->m_Appearance.show_erc_errors;
+            };
+
+    auto showERCWarningsCond =
+            [this]( const SELECTION& )
+            {
+                EESCHEMA_SETTINGS* cfg = eeconfig();
+                return cfg && cfg->m_Appearance.show_erc_warnings;
+            };
+
+    auto showERCExclusionsCond =
+            [this]( const SELECTION& )
+            {
+                EESCHEMA_SETTINGS* cfg = eeconfig();
+                return cfg && cfg->m_Appearance.show_erc_exclusions;
+            };
 
     auto forceHVCond =
-        [this] ( const SELECTION& )
-        {
-            EESCHEMA_SETTINGS* cfg = eeconfig();
-            return cfg && cfg->m_Drawing.hv_lines_only;
-        };
+            [this]( const SELECTION& )
+            {
+                EESCHEMA_SETTINGS* cfg = eeconfig();
+                return cfg && cfg->m_Drawing.hv_lines_only;
+            };
 
     auto remapSymbolsCondition =
-        [&]( const SELECTION& aSel )
-        {
-            SCH_SCREENS schematic( Schematic().Root() );
+            [&]( const SELECTION& aSel )
+            {
+                SCH_SCREENS schematic( Schematic().Root() );
 
-            // The remapping can only be performed on legacy projects.
-            return schematic.HasNoFullyDefinedLibIds();
-        };
+                // The remapping can only be performed on legacy projects.
+                return schematic.HasNoFullyDefinedLibIds();
+            };
 
     auto belowRootSheetCondition =
-        [this]( const SELECTION& aSel )
-        {
-            return GetCurrentSheet().Last() != &Schematic().Root();
-        };
+            [this]( const SELECTION& aSel )
+            {
+                return GetCurrentSheet().Last() != &Schematic().Root();
+            };
 
-    mgr->SetConditions( EE_ACTIONS::leaveSheet,         ENABLE( belowRootSheetCondition ) );
-    mgr->SetConditions( EE_ACTIONS::remapSymbols,       ENABLE( remapSymbolsCondition ) );
-    mgr->SetConditions( EE_ACTIONS::toggleHiddenPins,   CHECK( showHiddenPinsCond ) );
-    mgr->SetConditions( EE_ACTIONS::toggleForceHV,      CHECK( forceHVCond ) );
+    mgr->SetConditions( EE_ACTIONS::leaveSheet,          ENABLE( belowRootSheetCondition ) );
+    mgr->SetConditions( EE_ACTIONS::remapSymbols,        ENABLE( remapSymbolsCondition ) );
+    mgr->SetConditions( EE_ACTIONS::toggleHiddenPins,    CHECK( showHiddenPinsCond ) );
+    mgr->SetConditions( EE_ACTIONS::toggleHiddenFields,  CHECK( showHiddenFieldsCond ) );
+    mgr->SetConditions( EE_ACTIONS::toggleERCErrors,     CHECK( showERCErrorsCond ) );
+    mgr->SetConditions( EE_ACTIONS::toggleERCWarnings,   CHECK( showERCWarningsCond ) );
+    mgr->SetConditions( EE_ACTIONS::toggleERCExclusions, CHECK( showERCExclusionsCond ) );
+    mgr->SetConditions( EE_ACTIONS::toggleForceHV,       CHECK( forceHVCond ) );
 
 
 #define CURRENT_TOOL( action ) mgr->SetConditions( action, CHECK( cond.CurrentTool( action ) ) )
@@ -479,6 +513,7 @@ void SCH_EDIT_FRAME::setupUIConditions()
     CURRENT_TOOL( EE_ACTIONS::placeNoConnect );
     CURRENT_TOOL( EE_ACTIONS::placeJunction );
     CURRENT_TOOL( EE_ACTIONS::placeLabel );
+    CURRENT_TOOL( EE_ACTIONS::placeClassLabel );
     CURRENT_TOOL( EE_ACTIONS::placeGlobalLabel );
     CURRENT_TOOL( EE_ACTIONS::placeHierLabel );
     CURRENT_TOOL( EE_ACTIONS::drawSheet );
@@ -654,6 +689,16 @@ bool SCH_EDIT_FRAME::canCloseWindow( wxCloseEvent& aEvent )
 
         if( symbolViewer && !symbolViewer->Close() )   // Can close modal symbol viewer?
             return false;
+    }
+    else
+    {
+        auto* symbolEditor = (SYMBOL_EDIT_FRAME*) Kiway().Player( FRAME_SCH_SYMBOL_EDITOR, false );
+
+        if( symbolEditor && symbolEditor->IsSymbolFromSchematic() )
+        {
+            if( !symbolEditor->CanCloseSymbolFromSchematic( true ) )
+                return false;
+        }
     }
 
     SIM_PLOT_FRAME* simFrame = (SIM_PLOT_FRAME*) Kiway().Player( FRAME_SIMULATOR, false );
@@ -1125,6 +1170,9 @@ bool SCH_EDIT_FRAME::isAutoSaveRequired() const
 
 static void inheritNetclass( const SCH_SHEET_PATH& aSheetPath, SCH_TEXT* aItem )
 {
+    if( CONNECTION_SUBGRAPH::GetDriverPriority( aItem ) == CONNECTION_SUBGRAPH::PRIORITY::NONE )
+        return;
+
     // Netclasses are assigned to subgraphs by association with their netname.  However, when
     // a new label is attached to an existing subgraph (with an existing netclass association),
     // the association will be lost as the label will drive its name on to the graph.
@@ -1424,7 +1472,7 @@ void SCH_EDIT_FRAME::RecomputeIntersheetRefs()
 
     for( SCH_GLOBALLABEL* globalLabel : globalLabels )
     {
-        globalLabel->GetIntersheetRefs()->SetVisible( show );
+        globalLabel->GetFields()[0].SetVisible( show );
 
         if( show )
         {
@@ -1440,19 +1488,7 @@ void SCH_EDIT_FRAME::ShowAllIntersheetRefs( bool aShow )
     if( aShow )
         RecomputeIntersheetRefs();
 
-    SCH_SCREENS screens( Schematic().Root() );
-
-    for( SCH_SCREEN* screen = screens.GetFirst(); screen; screen = screens.GetNext() )
-    {
-        for( SCH_ITEM* item : screen->Items().OfType( SCH_GLOBAL_LABEL_T ) )
-        {
-            SCH_GLOBALLABEL* gLabel = (SCH_GLOBALLABEL*)( item );
-            SCH_FIELD*       intersheetRef = gLabel->GetIntersheetRefs();
-
-            intersheetRef->SetVisible( aShow );
-            UpdateItem( intersheetRef, true );
-        }
-    }
+    GetCanvas()->GetView()->SetLayerVisible( LAYER_INTERSHEET_REFS, aShow );
 }
 
 
@@ -1464,6 +1500,16 @@ void SCH_EDIT_FRAME::CommonSettingsChanged( bool aEnvVarsChanged, bool aTextVars
     settings.m_JunctionSize = GetSchematicJunctionSize();
 
     ShowAllIntersheetRefs( settings.m_IntersheetRefsShow );
+
+    EESCHEMA_SETTINGS* cfg = Pgm().GetSettingsManager().GetAppSettings<EESCHEMA_SETTINGS>();
+    GetGalDisplayOptions().ReadWindowSettings( cfg->m_Window );
+
+    KIGFX::VIEW* view = GetCanvas()->GetView();
+    view->SetLayerVisible( LAYER_ERC_ERR, cfg->m_Appearance.show_erc_errors );
+    view->SetLayerVisible( LAYER_ERC_WARN, cfg->m_Appearance.show_erc_warnings );
+    view->SetLayerVisible( LAYER_ERC_EXCLUSION, cfg->m_Appearance.show_erc_exclusions );
+
+    GetCanvas()->ForceRefresh();
 
     RecreateToolbars();
     Layout();

@@ -432,6 +432,7 @@ APPEARANCE_CONTROLS::APPEARANCE_CONTROLS( PCB_BASE_FRAME* aParent, wxWindow* aFo
     m_windowLayers->SetFont( infoFont );
     m_windowObjects->SetFont( infoFont );
     m_presetsLabel->SetFont( infoFont );
+    m_viewportsLabel->SetFont( infoFont );
 
     createControls();
 
@@ -983,6 +984,7 @@ void APPEARANCE_CONTROLS::OnBoardChanged()
     rebuildNets();
     rebuildLayerPresetsWidget();
     syncLayerPresetSelection();
+    rebuildViewportsWidget();
 
     UpdateDisplayOptions();
 
@@ -1133,7 +1135,7 @@ void APPEARANCE_CONTROLS::OnLayerChanged()
 }
 
 
-void APPEARANCE_CONTROLS::SetLayerVisible( LAYER_NUM aLayer, bool isVisible )
+void APPEARANCE_CONTROLS::SetLayerVisible( int aLayer, bool isVisible )
 {
     LSET         visible = getVisibleLayers();
     PCB_LAYER_ID layer   = ToLAYER_ID( aLayer );
@@ -1240,46 +1242,6 @@ GAL_SET APPEARANCE_CONTROLS::getVisibleObjects()
     {
         return m_frame->GetBoard()->GetVisibleElements();
     }
-}
-
-
-void APPEARANCE_CONTROLS::OnLayerAlphaChanged()
-{
-    // TODO(JE) Is this even needed if the layer alphas are getting directly updated?
-    // Maybe we just need the "down" arrow to indicate if the alpha is below 1
-
-#if 0
-    static constexpr double alphaEpsilon = 0.04;
-
-    PCB_LAYER_ID        current = m_frame->GetActiveLayer();
-    COLOR_SETTINGS*     theme   = m_frame->GetColorSettings();
-    KIGFX::PCB_PAINTER* painter =
-            static_cast<KIGFX::PCB_PAINTER*>( m_frame->GetCanvas()->GetView()->GetPainter() );
-    KIGFX::PCB_RENDER_SETTINGS* rs = painter->GetSettings();
-
-    for( APPEARANCE_SETTING& setting : m_layerSettings )
-    {
-        if( !setting.ctl_indicator )
-            continue;
-
-        COLOR4D layerColor  = theme->GetColor( setting.id );
-        COLOR4D screenColor = rs->GetLayerColor( setting.id );
-
-        if( std::abs( screenColor.a - layerColor.a ) > alphaEpsilon )
-        {
-            if( screenColor.a < layerColor.a )
-                setting.ctl_indicator->SetIndicatorState( ROW_ICON_PROVIDER::STATE::DOWN );
-            else
-                setting.ctl_indicator->SetIndicatorState( ROW_ICON_PROVIDER::STATE::UP );
-        }
-        else
-        {
-            setting.ctl_indicator->SetIndicatorState( setting.id == current ?
-                                                      ROW_ICON_PROVIDER::STATE::ON :
-                                                      ROW_ICON_PROVIDER::STATE::OFF );
-        }
-    }
-#endif
 }
 
 
@@ -1391,6 +1353,51 @@ void APPEARANCE_CONTROLS::ApplyLayerPreset( const LAYER_PRESET& aPreset )
 
     updateLayerPresetSelection( aPreset.name );
     doApplyLayerPreset( aPreset );
+}
+
+
+std::vector<VIEWPORT> APPEARANCE_CONTROLS::GetUserViewports() const
+{
+    std::vector<VIEWPORT> ret;
+
+    for( const std::pair<const wxString, VIEWPORT>& pair : m_viewports )
+        ret.emplace_back( pair.second );
+
+    return ret;
+}
+
+
+void APPEARANCE_CONTROLS::SetUserViewports( std::vector<VIEWPORT>& aViewportList )
+{
+    m_viewports.clear();
+
+    for( const VIEWPORT& viewport : aViewportList )
+    {
+        if( m_viewports.count( viewport.name ) )
+            continue;
+
+        m_viewports[viewport.name] = viewport;
+
+        m_viewportMRU.Add( viewport.name );
+    }
+
+    rebuildViewportsWidget();
+}
+
+
+void APPEARANCE_CONTROLS::ApplyViewport( const wxString& aViewportName )
+{
+    updateViewportSelection( aViewportName );
+
+    wxCommandEvent dummy;
+    onViewportChanged( dummy );
+}
+
+
+void APPEARANCE_CONTROLS::ApplyViewport( const VIEWPORT& aViewport )
+{
+    updateViewportSelection( aViewport.name );
+    doApplyViewport( aViewport );
 }
 
 
@@ -1828,7 +1835,7 @@ void APPEARANCE_CONTROLS::syncColorsAndVisibility()
 
     for( std::unique_ptr<APPEARANCE_SETTING>& setting : m_layerSettings )
     {
-        LAYER_NUM layer = setting->id;
+        int layer = setting->id;
 
         if( setting->ctl_visibility )
             setting->ctl_visibility->SetValue( visible[layer] );
@@ -2343,7 +2350,7 @@ void APPEARANCE_CONTROLS::rebuildLayerPresetsWidget()
 
     m_cbLayerPresets->SetSelection( 0 );
 
-    // At least the build in presets should always be present
+    // At least the built-in presets should always be present
     wxASSERT( !m_layerPresets.empty() );
 
     // Default preset: all layers
@@ -2541,11 +2548,149 @@ void APPEARANCE_CONTROLS::doApplyLayerPreset( const LAYER_PRESET& aPreset )
 }
 
 
+void APPEARANCE_CONTROLS::rebuildViewportsWidget()
+{
+    m_cbViewports->Clear();
+
+    for( std::pair<const wxString, VIEWPORT>& pair : m_viewports )
+        m_cbViewports->Append( pair.first, static_cast<void*>( &pair.second ) );
+
+    m_cbViewports->Append( wxT( "-----" ) );
+    m_cbViewports->Append( _( "Save viewport..." ) );
+    m_cbViewports->Append( _( "Delete viewport..." ) );
+
+    m_cbViewports->SetSelection( m_cbViewports->GetCount() - 3 );
+    m_lastSelectedViewport = nullptr;
+}
+
+
+void APPEARANCE_CONTROLS::updateViewportSelection( const wxString& aName )
+{
+    int idx = m_cbViewports->FindString( aName );
+
+    if( idx >= 0 && m_cbViewports->GetSelection() != idx )
+    {
+        m_cbViewports->SetSelection( idx );
+        m_lastSelectedViewport = static_cast<VIEWPORT*>( m_cbViewports->GetClientData( idx ) );
+    }
+    else if( idx < 0 )
+    {
+        m_cbViewports->SetSelection( m_cbViewports->GetCount() - 3 ); // separator
+        m_lastSelectedViewport = nullptr;
+    }
+}
+
+
+void APPEARANCE_CONTROLS::onViewportChanged( wxCommandEvent& aEvent )
+{
+    int count = m_cbViewports->GetCount();
+    int index = m_cbViewports->GetSelection();
+
+    if( index >= 0 && index < count - 3 )
+    {
+        VIEWPORT* viewport = static_cast<VIEWPORT*>( m_cbViewports->GetClientData( index ) );
+
+        if( viewport )
+            doApplyViewport( *viewport );
+
+        if( !viewport->name.IsEmpty() )
+        {
+            m_viewportMRU.Remove( viewport->name );
+            m_viewportMRU.Insert( viewport->name, 0 );
+        }
+    }
+    else if( index == count - 2 )
+    {
+        // Save current state to new preset
+        wxString name;
+
+        wxTextEntryDialog dlg( this, _( "Viewport name:" ), _( "Save Viewport" ), name );
+
+        if( dlg.ShowModal() != wxID_OK )
+        {
+            if( m_lastSelectedViewport )
+                m_cbViewports->SetStringSelection( m_lastSelectedViewport->name );
+            else
+                m_cbViewports->SetSelection( m_cbViewports->GetCount() - 3 );
+
+            return;
+        }
+
+        name = dlg.GetValue();
+        bool exists = m_viewports.count( name );
+
+        if( !exists )
+        {
+            m_viewports[name] = VIEWPORT( name, m_frame->GetCanvas()->GetView()->GetViewport() );
+
+            index = m_cbViewports->Insert( name, index-1, static_cast<void*>( &m_viewports[name] ) );
+        }
+        else
+        {
+            index = m_cbViewports->FindString( name );
+            m_viewportMRU.Remove( name );
+        }
+
+        m_cbViewports->SetSelection( index );
+        m_viewportMRU.Insert( name, 0 );
+
+        return;
+    }
+    else if( index == count - 1 )
+    {
+        // Delete an existing preset
+        wxArrayString headers;
+        std::vector<wxArrayString> items;
+
+        headers.Add( _( "Viewports" ) );
+
+        for( std::pair<const wxString, VIEWPORT>& pair : m_viewports )
+        {
+            wxArrayString item;
+            item.Add( pair.first );
+            items.emplace_back( item );
+        }
+
+        EDA_LIST_DIALOG dlg( m_frame, _( "Delete Viewport" ), headers, items );
+        dlg.SetListLabel( _( "Select viewport:" ) );
+
+        if( dlg.ShowModal() == wxID_OK )
+        {
+            wxString viewportName = dlg.GetTextSelection();
+            int idx = m_cbViewports->FindString( viewportName );
+
+            if( idx != wxNOT_FOUND )
+            {
+                m_layerPresets.erase( viewportName );
+                m_cbViewports->Delete( idx );
+                m_viewportMRU.Remove( viewportName );
+            }
+        }
+
+        if( m_lastSelectedViewport )
+            m_cbViewports->SetStringSelection( m_lastSelectedViewport->name );
+        else
+            m_cbViewports->SetSelection( m_cbViewports->GetCount() - 3 );
+
+        return;
+    }
+
+    passOnFocus();
+}
+
+
+void APPEARANCE_CONTROLS::doApplyViewport( const VIEWPORT& aViewport )
+{
+    m_frame->GetCanvas()->GetView()->SetViewport( aViewport.rect );
+    m_frame->GetCanvas()->Refresh();
+}
+
+
 void APPEARANCE_CONTROLS::OnColorSwatchChanged( wxCommandEvent& aEvent )
 {
     COLOR_SWATCH* swatch   = static_cast<COLOR_SWATCH*>( aEvent.GetEventObject() );
     COLOR4D       newColor = swatch->GetSwatchColor();
-    LAYER_NUM     layer    = swatch->GetId();
+    int           layer    = swatch->GetId();
 
     COLOR_SETTINGS* cs = m_frame->GetColorSettings();
     cs->SetColor( layer, newColor );

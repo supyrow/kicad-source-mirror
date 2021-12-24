@@ -163,20 +163,17 @@ public:
      */
     void SetGridColor( const COLOR4D& aColor ) override;
 
-    // Configurations:
-    void Process_Config( wxCommandEvent& event );
-
     /**
      * Return true if button visibility action plugin setting was set to true
      * or it is unset and plugin defaults to true.
      */
-    bool GetActionPluginButtonVisible( const wxString& aPluginPath, bool aPluginDefault );
+    static bool GetActionPluginButtonVisible( const wxString& aPluginPath, bool aPluginDefault );
 
     /**
      * Return ordered list of plugins in sequence in which they should appear on toolbar or
      * in settings
      */
-    std::vector<ACTION_PLUGIN*> GetOrderedActionPlugins();
+    static std::vector<ACTION_PLUGIN*> GetOrderedActionPlugins();
 
     /**
      * Save changes to the project settings to the project (.pro) file.
@@ -540,6 +537,8 @@ public:
                             bool resetTextEffects = true, bool resetFabricationAttrs = true,
                             bool reset3DModels = true );
 
+    bool FootprintMatchesLibrary();
+
     /**
      * Install the corresponding dialog editor for the given item.
      *
@@ -578,7 +577,6 @@ public:
 
     // Properties dialogs
     void ShowTargetOptionsDialog( PCB_TARGET* aTarget );
-    void ShowDimensionPropertiesDialog( PCB_DIMENSION_BASE* aDimension );
     void InstallNetlistFrame();
 
     /**
@@ -640,11 +638,6 @@ public:
      * access to the file.
      */
     void UpdateTitle();
-
-    /**
-     * Allow Pcbnew to install its preferences panel into the preferences dialog.
-     */
-    void InstallPreferences( PAGED_DIALOG* aParent, PANEL_HOTKEYS_EDITOR* aHotkeysPanel ) override;
 
     /**
      * Called after the preferences dialog is run.
@@ -766,6 +759,8 @@ protected:
 
     int inferLegacyEdgeClearance( BOARD* aBoard );
 
+    void redrawNetnames( wxTimerEvent& aEvent );
+
 public:
     PCB_LAYER_BOX_SELECTOR* m_SelLayerBox;  // a combo box to display and select active layer
 
@@ -791,7 +786,13 @@ private:
 
     DIALOG_FIND* m_findDialog;
 
-    wxTimer* m_eventCounterTimer;
+    /**
+     * Keep track of viewport so that track net labels can be adjusted when it changes.
+     */
+    BOX2D        m_lastViewport;
+    wxTimer      m_redrawNetnamesTimer;
+
+    wxTimer*     m_eventCounterTimer;
 };
 
 #endif  // __PCB_EDIT_FRAME_H__

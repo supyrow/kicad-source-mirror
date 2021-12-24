@@ -533,6 +533,9 @@ public:
 
     void SetZoneSettings( const ZONE_SETTINGS& aSettings ) override;
 
+    bool GetTentVias() const            { return !m_plotOptions.GetPlotViaOnMaskLayer(); }
+    void SetTentVias( bool aFlag )      { m_plotOptions.SetPlotViaOnMaskLayer( !aFlag ); }
+
     const PAGE_INFO& GetPageSettings() const                { return m_paper; }
     void SetPageSettings( const PAGE_INFO& aPageSettings )  { m_paper = aPageSettings; }
 
@@ -1095,6 +1098,8 @@ public:
     std::map< wxString, LSET >                            m_LayerExpressionCache;
 
     std::map< ZONE*, std::unique_ptr<DRC_RTREE> >         m_CopperZoneRTrees;
+
+    ZONE*                                                 m_SolderMask;
 
 private:
     // The default copy constructor & operator= are inadequate,

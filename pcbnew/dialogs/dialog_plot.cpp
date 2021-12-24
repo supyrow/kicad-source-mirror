@@ -63,14 +63,9 @@ DIALOG_PLOT::DIALOG_PLOT( PCB_EDIT_FRAME* aParent ) :
 
     init_Dialog();
 
-    // We use a sdbSizer to get platform-dependent ordering of the action buttons, but
-    // that requires us to correct the button labels here.
-    m_sdbSizer1OK->SetLabel( _( "Plot" ) );
-    m_sdbSizer1Apply->SetLabel( _( "Generate Drill Files..." ) );
-    m_sdbSizer1Cancel->SetLabel( _( "Close" ) );
-    m_sizerButtons->Layout();
-
-    m_sdbSizer1OK->SetDefault();
+    SetupStandardButtons( { { wxID_OK,     _( "Plot" )                    },
+                            { wxID_APPLY,  _( "Generate Drill Files..." ) },
+                            { wxID_CANCEL, _( "Close" )                   } } );
 
     GetSizer()->Fit( this );
     GetSizer()->SetSizeHints( this );
@@ -240,7 +235,7 @@ void DIALOG_PLOT::reInitDialog()
 
     for( PCB_MARKER* marker : m_parent->GetBoard()->Markers() )
     {
-        if( marker->IsExcluded() )
+        if( marker->GetSeverity() == RPT_SEVERITY_EXCLUSION )
             exclusions++;
         else
             knownViolations++;
@@ -261,7 +256,7 @@ void DIALOG_PLOT::reInitDialog()
     const BOARD_DESIGN_SETTINGS& brd_settings = board->GetDesignSettings();
 
     if( getPlotFormat() == PLOT_FORMAT::GERBER &&
-        ( brd_settings.m_SolderMaskMargin || brd_settings.m_SolderMaskMinWidth ) )
+        ( brd_settings.m_SolderMaskExpansion || brd_settings.m_SolderMaskMinWidth ) )
     {
         m_PlotOptionsSizer->Show( m_SizerSolderMaskAlert );
     }
@@ -434,7 +429,7 @@ void DIALOG_PLOT::SetPlotFormat( wxCommandEvent& event )
     const BOARD_DESIGN_SETTINGS& brd_settings = board->GetDesignSettings();
 
     if( getPlotFormat() == PLOT_FORMAT::GERBER
-            && ( brd_settings.m_SolderMaskMargin || brd_settings.m_SolderMaskMinWidth ) )
+            && ( brd_settings.m_SolderMaskExpansion || brd_settings.m_SolderMaskMinWidth ) )
     {
         m_PlotOptionsSizer->Show( m_SizerSolderMaskAlert );
     }
@@ -720,12 +715,10 @@ void DIALOG_PLOT::applyPlotSettings()
                  m_widthAdjustMaxValue ) )
     {
         m_trackWidthCorrection.SetValue( m_PSWidthAdjust );
-        msg.Printf( _( "Width correction constrained. "
-                       "The reasonable width correction value must be in a range of "
-                       " [%s; %s] (%s) for current design rules." ),
-                    StringFromValue( GetUserUnits(), m_widthAdjustMinValue, false ),
-                    StringFromValue( GetUserUnits(), m_widthAdjustMaxValue, false ),
-                    GetAbbreviatedUnitsLabel( GetUserUnits() ) );
+        msg.Printf( _( "Width correction constrained.  The width correction value must be in the"
+                       " range of [%s; %s] for the current design rules." ),
+                    StringFromValue( GetUserUnits(), m_widthAdjustMinValue, true ),
+                    StringFromValue( GetUserUnits(), m_widthAdjustMaxValue, true ) );
         reporter.Report( msg, RPT_SEVERITY_WARNING );
     }
 

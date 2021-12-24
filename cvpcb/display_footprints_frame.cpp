@@ -88,18 +88,19 @@ DISPLAY_FOOTPRINTS_FRAME::DISPLAY_FOOTPRINTS_FRAME( KIWAY* aKiway, wxWindow* aPa
                                                   EDA_DRAW_PANEL_GAL::GAL_FALLBACK );
     SetCanvas( gal_drawPanel );
 
-    // Don't show the default board solder mask clearance.  Only the
-    // footprint or pad clearance setting should be shown if it is not 0.
-    GetBoard()->GetDesignSettings().m_SolderMaskMargin = 0;
+    // Don't show the default board solder mask expansion.  Only the footprint or pad expansion
+    // settings should be shown.
+    GetBoard()->GetDesignSettings().m_SolderMaskExpansion = 0;
 
     LoadSettings( config() );
 
     // Initialize some display options
     auto displ_opts = GetDisplayOptions();
     displ_opts.m_DisplayPadClearance = false;      // Pad clearance has no meaning here
+    displ_opts.m_DisplayPadNoConnects = false;     // Nor do connections
 
     // Track and via clearance has no meaning here.
-    displ_opts.m_ShowTrackClearanceMode = PCB_DISPLAY_OPTIONS::DO_NOT_SHOW_CLEARANCE;
+    displ_opts.m_ShowTrackClearanceMode = DO_NOT_SHOW_CLEARANCE;
     SetDisplayOptions( displ_opts );
 
     // Create the manager and dispatcher & route draw panel events to the dispatcher
@@ -527,7 +528,7 @@ void DISPLAY_FOOTPRINTS_FRAME::UpdateMsgPanel()
 }
 
 
-COLOR_SETTINGS* DISPLAY_FOOTPRINTS_FRAME::GetColorSettings() const
+COLOR_SETTINGS* DISPLAY_FOOTPRINTS_FRAME::GetColorSettings( bool aForceRefresh ) const
 {
     auto* settings = Pgm().GetSettingsManager().GetAppSettings<FOOTPRINT_EDITOR_SETTINGS>();
 

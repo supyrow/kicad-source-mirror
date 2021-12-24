@@ -50,28 +50,24 @@
 #define DEFAULT_COPPER_TEXT_WIDTH     0.30
 #define DEFAULT_TEXT_WIDTH            0.15
 
-#define DEFAULT_DIMENSION_ARROW_LENGTH 50 // mils, for legacy purposes
-#define DEFAULT_DIMENSION_EXTENSION_OFFSET 0.5
+#define DEFAULT_DIMENSION_ARROW_LENGTH         50 // mils, for legacy purposes
+#define DEFAULT_DIMENSION_EXTENSION_OFFSET     0.5
 
 // Board thickness, mainly for 3D view:
-#define DEFAULT_BOARD_THICKNESS_MM    1.6
+#define DEFAULT_BOARD_THICKNESS_MM             1.6
 
-#define DEFAULT_PCB_EDGE_THICKNESS    0.15
+#define DEFAULT_PCB_EDGE_THICKNESS             0.15
 
 // soldermask to pad clearance. The default is 0 because usually board houses
-// create a clearance depending on their fab process:
-// mask material, color, price ...
-#define DEFAULT_SOLDERMASK_CLEARANCE  0.0
+// create a clearance depending on their fab process: mask material, color, price, etc.
+#define DEFAULT_SOLDERMASK_EXPANSION           0.0
 
-// DEFAULT_SOLDERMASK_MIN_WIDTH is only used in Gerber files: soldermask minimum size.
-// Set to 0, because using non 0 value creates an annoying issue in Gerber files:
-// pads are no longer identified as pads (Flashed items or regions)
-// Therefore solder mask min width must be used only in specific cases
-// for instance for home made boards
-#define DEFAULT_SOLDERMASK_MIN_WIDTH  0.0
+#define DEFAULT_SOLDERMASK_TO_COPPER_CLEARANCE 0.0
 
-#define DEFAULT_SOLDERPASTE_CLEARANCE 0.0
-#define DEFAULT_SOLDERPASTE_RATIO     0.0
+#define DEFAULT_SOLDERMASK_MIN_WIDTH           0.0
+
+#define DEFAULT_SOLDERPASTE_CLEARANCE          0.0
+#define DEFAULT_SOLDERPASTE_RATIO              0.0
 
 #define DEFAULT_CUSTOMTRACKWIDTH      0.2
 #define DEFAULT_CUSTOMDPAIRWIDTH      0.125
@@ -91,6 +87,8 @@
 #define LEGACY_COPPEREDGECLEARANCE   -0.01    // A flag to indicate the legacy method (based
                                               // on edge cut line thicknesses) should be used.
 #define DEFAULT_SILKCLEARANCE         0.0
+
+#define DEFAULT_MINRESOLVEDSPOKES     2       // Fewer resolved spokes indicates a starved thermal
 
 #define MINIMUM_ERROR_SIZE_MM         0.001
 #define MAXIMUM_ERROR_SIZE_MM         0.1
@@ -560,27 +558,6 @@ public:
     int GetCurrentDiffPairViaGap() const;
 
     /**
-     * @param aValue The minimum distance between the edges of two holes or 0 to disable
-     * hole-to-hole separation checking.
-     */
-    void SetMinHoleSeparation( int aDistance );
-
-    /**
-     * @param aValue The minimum distance between copper items and board edges.
-     */
-    void SetCopperEdgeClearance( int aDistance );
-
-    /**
-     * Set the minimum distance between silk items to \a aValue.
-     *
-     * @note Compound graphics within a single footprint or on the board are not checked,
-     *       but distances between text and between graphics from different footprints are.
-     *
-     * @param aValue The minimum distance between silk items.
-     */
-    void SetSilkClearance( int aDistance );
-
-    /**
      * Return a bit-mask of all the layers that are enabled.
      *
      * @return the enabled layers in bit-mapped form.
@@ -626,6 +603,10 @@ public:
      */
     void SetCopperLayerCount( int aNewLayerCount );
 
+    /**
+     * The full thickness of the board including copper and masks.
+     * @return
+     */
     inline int GetBoardThickness() const { return m_boardThickness; }
     inline void SetBoardThickness( int aThickness ) { m_boardThickness = aThickness; }
 
@@ -699,7 +680,10 @@ public:
     int        m_CopperEdgeClearance;
     int        m_HoleClearance;             // Hole to copper clearance
     int        m_HoleToHoleMin;             // Min width of web between two drilled holes
-    int        m_SilkClearance;
+    int        m_SilkClearance;             // Min dist between two silk items
+    int        m_MinResolvedSpokes;         // Min spoke count to not be a starved thermal
+    int        m_MinSilkTextHeight;         // Min text height for silkscreen layers
+    int        m_MinSilkTextThickness;      // Min text thickness for silkscreen layers
 
     std::shared_ptr<DRC_ENGINE> m_DRCEngine;
     std::map<int, SEVERITY>     m_DRCSeverities;   // Map from DRCErrorCode to SEVERITY
@@ -729,12 +713,15 @@ public:
     int        m_MaxError;
 
     // Global mask margins:
-    int        m_SolderMaskMargin;          // Solder mask margin
-    int        m_SolderMaskMinWidth;        // Solder mask min width (2 areas closer than this
-                                            // width are merged)
-    int        m_SolderPasteMargin;         // Solder paste margin absolute value
-    double     m_SolderPasteMarginRatio;    // Solder mask margin ratio value of pad size
-                                            // The final margin is the sum of these 2 values
+    int        m_SolderMaskExpansion;         // Solder mask inflation around the pad or via
+    int        m_SolderMaskMinWidth;          // Solder mask min width (2 areas closer than this
+                                              //   width are merged)
+    int        m_SolderMaskToCopperClearance; // Min distance allowed from copper to a mask
+                                              //   aperture of another net
+
+    int        m_SolderPasteMargin;           // Solder paste margin absolute value
+    double     m_SolderPasteMarginRatio;      // Solder mask margin ratio value of pad size
+                                              // The final margin is the sum of these 2 values
 
     // Variables used in footprint editing (default value in item/footprint creation)
     std::vector<TEXT_ITEM_INFO> m_DefaultFPTextItems;

@@ -288,7 +288,7 @@ void PlotStandardLayer( BOARD* aBoard, PLOTTER* aPlotter, LSET aLayerMask,
                 width_adj = itemplotter.getFineWidthAdj();
 
             if( onSolderMaskLayer )
-                margin.x = margin.y = pad->GetSolderMaskMargin();
+                margin.x = margin.y = pad->GetSolderMaskExpansion();
 
             if( onSolderPasteLayer )
                 margin = pad->GetSolderPasteMargin();
@@ -524,9 +524,8 @@ void PlotStandardLayer( BOARD* aBoard, PLOTTER* aPlotter, LSET aLayerMask,
         int via_margin = 0;
         double width_adj = 0;
 
-        // If the current layer is a solder mask, use the global mask clearance for vias
         if( aLayerMask[B_Mask] || aLayerMask[F_Mask] )
-            via_margin = aBoard->GetDesignSettings().m_SolderMaskMargin;
+            via_margin = via->GetSolderMaskExpansion();
 
         if( ( aLayerMask & LSET::AllCuMask() ).any() )
             width_adj = itemplotter.getFineWidthAdj();
@@ -822,30 +821,15 @@ void PlotSolderMaskLayer( BOARD *aBoard, PLOTTER* aPlotter, LSET aLayerMask,
     if( aBoard->GetBoardPolygonOutlines( buffer ) )
         boardOutline = &buffer;
 
-    // We remove 1nm as we expand both sides of the shapes, so allowing for
-    // a strictly greater than or equal comparison in the shape separation (boolean add)
-    // means that we will end up with separate shapes that then are shrunk
+    // We remove 1nm as we expand both sides of the shapes, so allowing for a strictly greater
+    // than or equal comparison in the shape separation (boolean add)
     int inflate = aMinThickness/2 - 1;
 
     BRDITEMS_PLOTTER itemplotter( aPlotter, aBoard, aPlotOpt );
     itemplotter.SetLayerSet( aLayerMask );
 
-    // Plot edge layer and graphic items.
-    // They do not have a solder Mask margin, because they are graphic items
-    // on this layer (like logos), not actually areas around pads.
-
-    itemplotter.PlotBoardGraphicItems();
-
     for( FOOTPRINT* footprint : aBoard->Footprints() )
-    {
         itemplotter.PlotFootprintTextItems( footprint );
-
-        for( BOARD_ITEM* item : footprint->GraphicalItems() )
-        {
-            if( item->Type() == PCB_FP_SHAPE_T && item->GetLayer() == layer )
-                itemplotter.PlotFootprintGraphicItem( (FP_SHAPE*) item );
-        }
-    }
 
     // Build polygons for each pad shape.  The size of the shape on solder mask should be size
     // of pad + clearance around the pad, where clearance = solder mask clearance + extra margin.
@@ -861,13 +845,13 @@ void PlotSolderMaskLayer( BOARD *aBoard, PLOTTER* aPlotter, LSET aLayerMask,
     SHAPE_POLY_SET initialPolys;
 
 #if NEW_ALGO
-    // Generate polygons with arcs inside the shape or exact shape
-    // to minimize shape changes created by arc to segment size correction.
+    // Generate polygons with arcs inside the shape or exact shape to minimize shape changes
+    // created by arc to segment size correction.
     DISABLE_ARC_RADIUS_CORRECTION disabler;
 #endif
     {
-        // Plot pads
-        for( FOOTPRINT* footprint : aBoard->Footprints() )
+        // Plot footprint pads and graphics
+        for( const FOOTPRINT* footprint : aBoard->Footprints() )
         {
             // add shapes with their exact mask layer size in initialPolys
             footprint->TransformPadsWithClearanceToPolygon( initialPolys, layer, 0, maxError,
@@ -875,49 +859,66 @@ void PlotSolderMaskLayer( BOARD *aBoard, PLOTTER* aPlotter, LSET aLayerMask,
             // add shapes inflated by aMinThickness/2 in areas
             footprint->TransformPadsWithClearanceToPolygon( areas, layer, inflate, maxError,
                                                             ERROR_OUTSIDE );
-        }
 
-        // Plot vias on solder masks, if aPlotOpt.GetPlotViaOnMaskLayer() is true,
-        if( aPlotOpt.GetPlotViaOnMaskLayer() )
-        {
-            // The current layer is a solder mask, use the global mask clearance for vias
-            int via_clearance = aBoard->GetDesignSettings().m_SolderMaskMargin;
-            int via_margin = via_clearance + inflate;
-
-            for( PCB_TRACK* track : aBoard->Tracks() )
+            for( const BOARD_ITEM* item : footprint->GraphicalItems() )
             {
-                const PCB_VIA* via = dyn_cast<const PCB_VIA*>( track );
-
-                if( !via )
-                    continue;
-
-                // vias are plotted only if they are on the corresponding external copper layer
-                LSET via_set = via->GetLayerSet();
-
-                if( via_set[B_Cu] )
-                    via_set.set( B_Mask );
-
-                if( via_set[F_Cu] )
-                    via_set.set( F_Mask );
-
-                if( !( via_set & aLayerMask ).any() )
-                    continue;
-
-                // add shapes with their exact mask layer size in initialPolys
-                via->TransformShapeWithClearanceToPolygon( initialPolys, layer, via_clearance,
-                                                           maxError, ERROR_OUTSIDE );
-                // add shapes inflated by aMinThickness/2 in areas
-                via->TransformShapeWithClearanceToPolygon( areas, layer, via_margin, maxError,
-                                                           ERROR_OUTSIDE );
+                if( item->Type() == PCB_FP_SHAPE_T && item->IsOnLayer( layer ) )
+                {
+                    // add shapes with their exact mask layer size in initialPolys
+                    item->TransformShapeWithClearanceToPolygon( initialPolys, layer, 0, maxError,
+                                                                ERROR_OUTSIDE );
+                    // add shapes inflated by aMinThickness/2 in areas
+                    item->TransformShapeWithClearanceToPolygon( areas, layer, inflate, maxError,
+                                                                ERROR_OUTSIDE );
+                }
+                else if( item->Type() == PCB_FP_SHAPE_T && item->IsOnLayer( Edge_Cuts ) )
+                {
+                   itemplotter.PlotFootprintGraphicItem( static_cast<const FP_SHAPE*>( item ) );
+                }
             }
         }
 
+        // Plot (untented) vias
+        for( const PCB_TRACK* track : aBoard->Tracks() )
+        {
+            const PCB_VIA* via = dyn_cast<const PCB_VIA*>( track );
+            int            clearance = via->GetSolderMaskExpansion();
+
+            // Note: IsOnLayer() checks relevant mask layers of untented vias
+            if( !via || !via->IsOnLayer( layer ) )
+                continue;
+
+            // add shapes with their exact mask layer size in initialPolys
+            via->TransformShapeWithClearanceToPolygon( initialPolys, layer, clearance, maxError,
+                                                       ERROR_OUTSIDE );
+            // add shapes inflated by aMinThickness/2 in areas
+            via->TransformShapeWithClearanceToPolygon( areas, layer, clearance + inflate, maxError,
+                                                       ERROR_OUTSIDE );
+        }
+
         // Add filled zone areas.
-#if 0   // Set to 1 if a solder mask margin must be applied to zones on solder mask
-        int zone_margin = aBoard->GetDesignSettings().m_SolderMaskMargin;
+#if 0   // Set to 1 if a solder mask expansion must be applied to zones on solder mask
+        int zone_margin = aBoard->GetDesignSettings().m_SolderMaskExpansion;
 #else
         int zone_margin = 0;
 #endif
+
+        for( const BOARD_ITEM* item : aBoard->Drawings() )
+        {
+            if( item->IsOnLayer( layer ) )
+            {
+                // add shapes with their exact mask layer size in initialPolys
+                item->TransformShapeWithClearanceToPolygon( initialPolys, layer, 0, maxError,
+                                                            ERROR_OUTSIDE );
+                // add shapes inflated by aMinThickness/2 in areas
+                item->TransformShapeWithClearanceToPolygon( areas, layer, inflate, maxError,
+                                                            ERROR_OUTSIDE );
+            }
+            else if( item->IsOnLayer( Edge_Cuts ) )
+            {
+                itemplotter.PlotPcbGraphicItem( item );
+            }
+        }
 
         for( ZONE* zone : aBoard->Zones() )
         {

@@ -25,7 +25,9 @@
 #include <dialog_lib_shape_properties.h>
 #include <symbol_edit_frame.h>
 #include <confirm.h>
-
+#include <lib_shape.h>
+#include <widgets/color_swatch.h>
+#include <sch_painter.h>
 
 DIALOG_LIB_SHAPE_PROPERTIES::DIALOG_LIB_SHAPE_PROPERTIES( SYMBOL_EDIT_FRAME* aParent,
                                                           LIB_ITEM* aItem ) :
@@ -35,12 +37,16 @@ DIALOG_LIB_SHAPE_PROPERTIES::DIALOG_LIB_SHAPE_PROPERTIES( SYMBOL_EDIT_FRAME* aPa
     m_lineWidth( aParent, m_widthLabel, m_widthCtrl, m_widthUnits, true )
 {
     SetTitle( aItem->GetTypeName() + wxT( " " ) + GetTitle() );
-    m_helpLabel->SetFont( KIUI::GetInfoFont( this ) );
+    m_helpLabel->SetFont( KIUI::GetInfoFont( this ).Italic() );
+
+    m_colorSwatch->SetDefaultColor( COLOR4D::UNSPECIFIED );
 
     SetInitialFocus( m_widthCtrl );
 
     // Required under wxGTK if we want to dismiss the dialog with the ESC key
     SetFocus();
+
+    SetupStandardButtons();
 
     if( !aParent->IsSymbolEditable() || aParent->IsSymbolAlias() )
     {
@@ -48,10 +54,8 @@ DIALOG_LIB_SHAPE_PROPERTIES::DIALOG_LIB_SHAPE_PROPERTIES( SYMBOL_EDIT_FRAME* aPa
         m_sdbSizerOK->SetLabel( _( "Read Only" ) );
         m_sdbSizerOK->Enable( false );
     }
-    else
-    {
-        m_sdbSizerOK->SetDefault();
-    }
+
+    m_colorSwatch->Bind( COLOR_SWATCH_CHANGED, &DIALOG_LIB_SHAPE_PROPERTIES::onSwatch, this );
 
     // Now all widgets have the size fixed, call FinishDialogSettings
     finishDialogSettings();
@@ -84,12 +88,73 @@ bool DIALOG_LIB_SHAPE_PROPERTIES::TransferDataToWindow()
 
     m_checkApplyToAllConversions->Enable( enblConvOptStyle );
 
-    if( shape )
-        m_fillCtrl->SetSelection( static_cast<int>( shape->GetFillType() ) - 1 );
+    m_rbFillNone->Enable( shape != nullptr );
+    m_rbFillOutline->Enable( shape != nullptr );
+    m_rbFillBackground->Enable( shape != nullptr );
+    m_rbFillCustom->Enable( shape != nullptr );
+    m_colorSwatch->Enable( shape != nullptr );
 
-    m_fillCtrl->Enable( shape != nullptr );
+    if( shape && shape->GetFillMode() == FILL_T::FILLED_SHAPE )
+    {
+        m_rbFillOutline->SetValue( true );
+
+        COLOR4D color = m_frame->GetRenderSettings()->GetLayerColor( LAYER_DEVICE );
+        m_colorSwatch->SetSwatchColor( color, false );
+    }
+    else if( shape && shape->GetFillMode() == FILL_T::FILLED_WITH_BG_BODYCOLOR )
+    {
+        m_rbFillBackground->SetValue( true );
+
+        COLOR4D color = m_frame->GetRenderSettings()->GetLayerColor( LAYER_DEVICE_BACKGROUND );
+        m_colorSwatch->SetSwatchColor( color, false );
+    }
+    else if( shape && shape->GetFillMode() == FILL_T::FILLED_WITH_COLOR )
+    {
+        m_rbFillCustom->SetValue( true );
+        m_colorSwatch->SetSwatchColor( shape->GetFillColor(), false );
+    }
+    else
+    {
+        m_rbFillNone->SetValue( true );
+        m_colorSwatch->SetSwatchColor( COLOR4D::UNSPECIFIED, false );
+    }
 
     return true;
+}
+
+
+void DIALOG_LIB_SHAPE_PROPERTIES::onFill( wxCommandEvent& event )
+{
+    if( event.GetId() == NO_FILL )
+    {
+        m_rbFillNone->SetValue( true );
+        m_colorSwatch->SetSwatchColor( COLOR4D::UNSPECIFIED, false );
+    }
+    else if( event.GetId() == FILLED_SHAPE )
+    {
+        m_rbFillOutline->SetValue( true );
+
+        COLOR4D color = m_frame->GetRenderSettings()->GetLayerColor( LAYER_DEVICE );
+        m_colorSwatch->SetSwatchColor( color, false );
+    }
+    else if( event.GetId() == FILLED_WITH_BG_BODYCOLOR )
+    {
+        m_rbFillBackground->SetValue( true );
+
+        COLOR4D color = m_frame->GetRenderSettings()->GetLayerColor( LAYER_DEVICE_BACKGROUND );
+        m_colorSwatch->SetSwatchColor( color, false );
+    }
+    else if( event.GetId() == FILLED_WITH_COLOR )
+    {
+        m_rbFillCustom->SetValue( true );
+        m_colorSwatch->GetNewSwatchColor();
+    }
+}
+
+
+void DIALOG_LIB_SHAPE_PROPERTIES::onSwatch( wxCommandEvent& aEvent )
+{
+    m_rbFillCustom->SetValue( true );
 }
 
 
@@ -98,13 +163,25 @@ bool DIALOG_LIB_SHAPE_PROPERTIES::TransferDataFromWindow()
     if( !wxDialog::TransferDataFromWindow() )
         return false;
 
-    EDA_SHAPE*  shape = dynamic_cast<EDA_SHAPE*>( m_item );
+    LIB_SHAPE* shape = dynamic_cast<LIB_SHAPE*>( m_item );
 
     if( shape )
-        shape->SetFillMode( static_cast<FILL_T>( std::max( m_fillCtrl->GetSelection() + 1, 1 ) ) );
+    {
+        if( m_rbFillOutline->GetValue() )
+            shape->SetFillMode( FILL_T::FILLED_SHAPE );
+        else if( m_rbFillBackground->GetValue() )
+            shape->SetFillMode( FILL_T::FILLED_WITH_BG_BODYCOLOR );
+        else if( m_rbFillCustom->GetValue() )
+            shape->SetFillMode( FILL_T::FILLED_WITH_COLOR );
+        else
+            shape->SetFillMode( FILL_T::NO_FILL );
 
-    if( shape )
-        shape->SetWidth( m_lineWidth.GetValue() );
+        shape->SetFillColor( m_colorSwatch->GetSwatchColor() );
+
+        STROKE_PARAMS stroke = shape->GetStroke();
+        stroke.SetWidth( m_lineWidth.GetValue() );
+        shape->SetStroke( stroke );
+    }
 
     if( GetApplyToAllConversions() )
         m_item->SetConvert( 0 );

@@ -65,7 +65,7 @@
 #include <wx/gdicmn.h>
 
 
-COLOR4D BRDITEMS_PLOTTER::getColor( LAYER_NUM aLayer ) const
+COLOR4D BRDITEMS_PLOTTER::getColor( int aLayer ) const
 {
     COLOR4D color = ColorSettings()->GetColor( aLayer );
 
@@ -293,7 +293,7 @@ void BRDITEMS_PLOTTER::PlotPad( const PAD* aPad, const COLOR4D& aColor, OUTLINE_
 void BRDITEMS_PLOTTER::PlotFootprintTextItems( const FOOTPRINT* aFootprint )
 {
     const FP_TEXT* textItem = &aFootprint->Reference();
-    LAYER_NUM textLayer = textItem->GetLayer();
+    int            textLayer = textItem->GetLayer();
 
     // Reference and value are specific items, not in graphic items list
     if( GetPlotReference() && m_layerMask[textLayer]
@@ -326,7 +326,7 @@ void BRDITEMS_PLOTTER::PlotFootprintTextItems( const FOOTPRINT* aFootprint )
         if( textLayer == Edge_Cuts || textLayer >= PCB_LAYER_ID_COUNT )
             continue;
 
-        if( !m_layerMask[textLayer] )
+        if( !m_layerMask[textLayer] || aFootprint->GetPrivateLayers().test( textLayer ) )
             continue;
 
         if( textItem->GetText() == wxT( "${REFERENCE}" ) && !GetPlotReference() )
@@ -340,35 +340,40 @@ void BRDITEMS_PLOTTER::PlotFootprintTextItems( const FOOTPRINT* aFootprint )
 }
 
 
+void BRDITEMS_PLOTTER::PlotPcbGraphicItem( const BOARD_ITEM* item )
+{
+    switch( item->Type() )
+    {
+    case PCB_SHAPE_T:
+        PlotPcbShape( static_cast<const PCB_SHAPE*>( item ) );
+        break;
+
+    case PCB_TEXT_T:
+        PlotPcbText( static_cast<const PCB_TEXT*>( item ) );
+        break;
+
+    case PCB_DIM_ALIGNED_T:
+    case PCB_DIM_CENTER_T:
+    case PCB_DIM_RADIAL_T:
+    case PCB_DIM_ORTHOGONAL_T:
+    case PCB_DIM_LEADER_T:
+        PlotDimension( static_cast<const PCB_DIMENSION_BASE*>( item ) );
+        break;
+
+    case PCB_TARGET_T:
+        PlotPcbTarget( static_cast<const PCB_TARGET*>( item ) );
+        break;
+
+    default:
+        break;
+    }
+}
+
+
 void BRDITEMS_PLOTTER::PlotBoardGraphicItems()
 {
-    for( BOARD_ITEM* item : m_board->Drawings() )
-    {
-        switch( item->Type() )
-        {
-        case PCB_SHAPE_T:
-            PlotPcbShape( (PCB_SHAPE*) item );
-            break;
-
-        case PCB_TEXT_T:
-            PlotPcbText( (PCB_TEXT*) item );
-            break;
-
-        case PCB_DIM_ALIGNED_T:
-        case PCB_DIM_CENTER_T:
-        case PCB_DIM_ORTHOGONAL_T:
-        case PCB_DIM_LEADER_T:
-            PlotDimension( (PCB_DIMENSION_BASE*) item );
-            break;
-
-        case PCB_TARGET_T:
-            PlotPcbTarget( (PCB_TARGET*) item );
-            break;
-
-        default:
-            break;
-        }
-    }
+    for( const BOARD_ITEM* item : m_board->Drawings() )
+        PlotPcbGraphicItem( item );
 }
 
 
@@ -420,7 +425,7 @@ void BRDITEMS_PLOTTER::PlotDimension( const PCB_DIMENSION_BASE* aDim )
 
     PCB_SHAPE draw;
 
-    draw.SetWidth( aDim->GetLineThickness() );
+    draw.SetStroke( STROKE_PARAMS( aDim->GetLineThickness(), PLOT_DASH_TYPE::SOLID ) );
     draw.SetLayer( aDim->GetLayer() );
 
     COLOR4D color = ColorSettings()->GetColor( aDim->GetLayer() );
@@ -481,7 +486,7 @@ void BRDITEMS_PLOTTER::PlotPcbTarget( const PCB_TARGET* aMire )
 
     draw.SetShape( SHAPE_T::CIRCLE );
     draw.SetFilled( false );
-    draw.SetWidth( aMire->GetWidth() );
+    draw.SetStroke( STROKE_PARAMS( aMire->GetWidth(), PLOT_DASH_TYPE::SOLID ) );
     draw.SetLayer( aMire->GetLayer() );
     draw.SetStart( aMire->GetPosition() );
     radius = aMire->GetSize() / 3;
@@ -526,10 +531,23 @@ void BRDITEMS_PLOTTER::PlotFootprintGraphicItems( const FOOTPRINT* aFootprint )
 {
     for( const BOARD_ITEM* item : aFootprint->GraphicalItems() )
     {
-        const FP_SHAPE* shape = dynamic_cast<const FP_SHAPE*>( item );
+        if( aFootprint->GetPrivateLayers().test( item->GetLayer() ) )
+            continue;
 
-        if( shape && m_layerMask[ shape->GetLayer() ] )
-            PlotFootprintGraphicItem( shape );
+        if( item->Type() == PCB_FP_SHAPE_T )
+        {
+            const FP_SHAPE* shape = static_cast<const FP_SHAPE*>( item );
+
+            if( m_layerMask[ shape->GetLayer() ] )
+                PlotFootprintGraphicItem( shape );
+        }
+        else if( BaseType( item->Type() ) == PCB_DIMENSION_T )
+        {
+            const PCB_DIMENSION_BASE* dimension = static_cast<const PCB_DIMENSION_BASE*>( item );
+
+            if( m_layerMask[ dimension->GetLayer() ] )
+                PlotDimension( dimension );
+        }
     }
 }
 
@@ -561,139 +579,160 @@ void BRDITEMS_PLOTTER::PlotFootprintGraphicItem( const FP_SHAPE* aShape )
         gbr_metadata.SetCopper( true );
     }
 
-    int     radius;             // Circle/arc radius.
+    int            radius;             // Circle/arc radius.
+    PLOT_DASH_TYPE lineStyle = aShape->GetStroke().GetPlotStyle();
 
-    switch( aShape->GetShape() )
+    if( lineStyle <= PLOT_DASH_TYPE::FIRST_TYPE )
     {
-    case SHAPE_T::SEGMENT:
-        m_plotter->ThickSegment( aShape->GetStart(), aShape->GetEnd(), thickness, GetPlotMode(),
-                                 &gbr_metadata );
-        break;
-
-    case SHAPE_T::RECT:
-    {
-        std::vector<wxPoint> pts = aShape->GetRectCorners();
-
-        if( sketch || thickness > 0 )
+        switch( aShape->GetShape() )
         {
-            m_plotter->ThickSegment( pts[0], pts[1], thickness, GetPlotMode(), &gbr_metadata );
-            m_plotter->ThickSegment( pts[1], pts[2], thickness, GetPlotMode(), &gbr_metadata );
-            m_plotter->ThickSegment( pts[2], pts[3], thickness, GetPlotMode(), &gbr_metadata );
-            m_plotter->ThickSegment( pts[3], pts[0], thickness, GetPlotMode(), &gbr_metadata );
-        }
-
-        if( !sketch && aShape->IsFilled() )
-        {
-            SHAPE_LINE_CHAIN poly;
-
-            for( const wxPoint& pt : pts )
-                poly.Append( pt );
-
-            m_plotter->PlotPoly( poly, FILL_T::FILLED_SHAPE, -1, &gbr_metadata );
-        }
-    }
-        break;
-
-    case SHAPE_T::CIRCLE:
-        radius = KiROUND( GetLineLength( aShape->GetStart(), aShape->GetEnd() ) );
-
-        if( aShape->IsFilled() )
-        {
-            m_plotter->FilledCircle( aShape->GetStart(), radius * 2 + thickness, GetPlotMode(),
+        case SHAPE_T::SEGMENT:
+            m_plotter->ThickSegment( aShape->GetStart(), aShape->GetEnd(), thickness, GetPlotMode(),
                                      &gbr_metadata );
-        }
-        else
+            break;
+
+        case SHAPE_T::RECT:
         {
-            m_plotter->ThickCircle( aShape->GetStart(), radius * 2, thickness, GetPlotMode(),
-                                    &gbr_metadata );
-        }
-
-        break;
-
-    case SHAPE_T::ARC:
-    {
-        radius = KiROUND( GetLineLength( aShape->GetCenter(), aShape->GetStart() ) );
-        double startAngle  = ArcTangente( aShape->GetStart().y - aShape->GetCenter().y,
-                                          aShape->GetStart().x - aShape->GetCenter().x );
-        double endAngle = startAngle + aShape->GetArcAngle();
-
-        // when startAngle == endAngle ThickArc() doesn't know whether it's 0 deg and 360 deg
-        if( std::abs( aShape->GetArcAngle() ) == 3600.0 )
-        {
-            m_plotter->ThickCircle( aShape->GetCenter(), radius * 2, thickness, GetPlotMode(),
-                                    &gbr_metadata );
-        }
-        else
-        {
-            m_plotter->ThickArc( aShape->GetCenter(), -endAngle, -startAngle, radius, thickness,
-                                 GetPlotMode(), &gbr_metadata );
-        }
-    }
-        break;
-
-    case SHAPE_T::POLY:
-        if( aShape->IsPolyShapeValid() )
-        {
-            std::vector<wxPoint> cornerList;
-            aShape->DupPolyPointsList( cornerList );
-
-            // We must compute board coordinates from m_PolyList which are relative to the parent
-            // position at orientation 0
-            const FOOTPRINT *parentFootprint = aShape->GetParentFootprint();
-
-            if( parentFootprint )
-            {
-                for( unsigned ii = 0; ii < cornerList.size(); ++ii )
-                {
-                    wxPoint* corner = &cornerList[ii];
-                    RotatePoint( corner, parentFootprint->GetOrientation() );
-                    *corner += parentFootprint->GetPosition();
-                }
-            }
+            std::vector<wxPoint> pts = aShape->GetRectCorners();
 
             if( sketch || thickness > 0 )
             {
-                for( size_t i = 1; i < cornerList.size(); i++ )
-                {
-                    m_plotter->ThickSegment( cornerList[i - 1], cornerList[i], thickness,
-                                             GetPlotMode(), &gbr_metadata );
-                }
-
-                m_plotter->ThickSegment( cornerList.back(), cornerList.front(), thickness,
-                                         GetPlotMode(), &gbr_metadata );
-
+                m_plotter->ThickSegment( pts[0], pts[1], thickness, GetPlotMode(), &gbr_metadata );
+                m_plotter->ThickSegment( pts[1], pts[2], thickness, GetPlotMode(), &gbr_metadata );
+                m_plotter->ThickSegment( pts[2], pts[3], thickness, GetPlotMode(), &gbr_metadata );
+                m_plotter->ThickSegment( pts[3], pts[0], thickness, GetPlotMode(), &gbr_metadata );
             }
 
             if( !sketch && aShape->IsFilled() )
             {
-                // This must be simplified and fractured to prevent overlapping polygons
-                // from generating invalid Gerber files
+                SHAPE_LINE_CHAIN poly;
 
-                SHAPE_LINE_CHAIN line( cornerList );
-                SHAPE_POLY_SET tmpPoly;
+                for( const wxPoint& pt : pts )
+                    poly.Append( pt );
 
-                line.SetClosed( true );
-                tmpPoly.AddOutline( line );
-                tmpPoly.Fracture( SHAPE_POLY_SET::PM_FAST );
-
-                for( int jj = 0; jj < tmpPoly.OutlineCount(); ++jj )
-                {
-                    SHAPE_LINE_CHAIN &poly = tmpPoly.Outline( jj );
-                    m_plotter->PlotPoly( poly, FILL_T::FILLED_SHAPE, thickness, &gbr_metadata );
-                }
+                m_plotter->PlotPoly( poly, FILL_T::FILLED_SHAPE, -1, &gbr_metadata );
             }
         }
+            break;
 
-        break;
+        case SHAPE_T::CIRCLE:
+            radius = KiROUND( GetLineLength( aShape->GetStart(), aShape->GetEnd() ) );
 
-    case SHAPE_T::BEZIER:
-        m_plotter->BezierCurve( aShape->GetStart(), aShape->GetBezierC1(),
-                                aShape->GetBezierC2(), aShape->GetEnd(), 0, thickness );
-        break;
+            if( aShape->IsFilled() )
+            {
+                m_plotter->FilledCircle( aShape->GetStart(), radius * 2 + thickness, GetPlotMode(),
+                                         &gbr_metadata );
+            }
+            else
+            {
+                m_plotter->ThickCircle( aShape->GetStart(), radius * 2, thickness, GetPlotMode(),
+                                        &gbr_metadata );
+            }
 
-    default:
-        wxASSERT_MSG( false, "Unhandled FP_SHAPE shape" );
-        break;
+            break;
+
+        case SHAPE_T::ARC:
+        {
+            radius = KiROUND( GetLineLength( aShape->GetCenter(), aShape->GetStart() ) );
+            double startAngle  = ArcTangente( aShape->GetStart().y - aShape->GetCenter().y,
+                                              aShape->GetStart().x - aShape->GetCenter().x );
+            double endAngle = startAngle + aShape->GetArcAngle();
+
+            // when startAngle == endAngle ThickArc() doesn't know whether it's 0 deg and 360 deg
+            if( std::abs( aShape->GetArcAngle() ) == 3600.0 )
+            {
+                m_plotter->ThickCircle( aShape->GetCenter(), radius * 2, thickness, GetPlotMode(),
+                                        &gbr_metadata );
+            }
+            else
+            {
+                m_plotter->ThickArc( aShape->GetCenter(), -endAngle, -startAngle, radius, thickness,
+                                     GetPlotMode(), &gbr_metadata );
+            }
+        }
+            break;
+
+        case SHAPE_T::POLY:
+            if( aShape->IsPolyShapeValid() )
+            {
+                std::vector<wxPoint> cornerList;
+                aShape->DupPolyPointsList( cornerList );
+
+                // We must compute board coordinates from m_PolyList which are relative to the parent
+                // position at orientation 0
+                const FOOTPRINT *parentFootprint = aShape->GetParentFootprint();
+
+                if( parentFootprint )
+                {
+                    for( unsigned ii = 0; ii < cornerList.size(); ++ii )
+                    {
+                        wxPoint* corner = &cornerList[ii];
+                        RotatePoint( corner, parentFootprint->GetOrientation() );
+                        *corner += parentFootprint->GetPosition();
+                    }
+                }
+
+                if( sketch || thickness > 0 )
+                {
+                    for( size_t i = 1; i < cornerList.size(); i++ )
+                    {
+                        m_plotter->ThickSegment( cornerList[i - 1], cornerList[i], thickness,
+                                                 GetPlotMode(), &gbr_metadata );
+                    }
+
+                    m_plotter->ThickSegment( cornerList.back(), cornerList.front(), thickness,
+                                             GetPlotMode(), &gbr_metadata );
+
+                }
+
+                if( !sketch && aShape->IsFilled() )
+                {
+                    // This must be simplified and fractured to prevent overlapping polygons
+                    // from generating invalid Gerber files
+
+                    SHAPE_LINE_CHAIN line( cornerList );
+                    SHAPE_POLY_SET tmpPoly;
+
+                    line.SetClosed( true );
+                    tmpPoly.AddOutline( line );
+                    tmpPoly.Fracture( SHAPE_POLY_SET::PM_FAST );
+
+                    for( int jj = 0; jj < tmpPoly.OutlineCount(); ++jj )
+                    {
+                        SHAPE_LINE_CHAIN &poly = tmpPoly.Outline( jj );
+                        m_plotter->PlotPoly( poly, FILL_T::FILLED_SHAPE, thickness, &gbr_metadata );
+                    }
+                }
+            }
+
+            break;
+
+        case SHAPE_T::BEZIER:
+            m_plotter->BezierCurve( aShape->GetStart(), aShape->GetBezierC1(),
+                                    aShape->GetBezierC2(), aShape->GetEnd(), 0, thickness );
+            break;
+
+        default:
+            wxASSERT_MSG( false, "Unhandled FP_SHAPE shape" );
+            break;
+        }
+    }
+    else
+    {
+        std::vector<SHAPE*> shapes = aShape->MakeEffectiveShapes( true );
+
+        for( SHAPE* shape : shapes )
+        {
+            STROKE_PARAMS::Stroke( shape, lineStyle, thickness, m_plotter->RenderSettings(),
+                                   [&]( const wxPoint& a, const wxPoint& b )
+                                   {
+                                       m_plotter->ThickSegment( a, b, thickness, GetPlotMode(),
+                                                                &gbr_metadata );
+                                   } );
+        }
+
+        for( SHAPE* shape : shapes )
+            delete shape;
     }
 }
 
@@ -871,8 +910,9 @@ void BRDITEMS_PLOTTER::PlotPcbShape( const PCB_SHAPE* aShape )
     if( !m_layerMask[aShape->GetLayer()] )
         return;
 
-    bool    sketch = GetPlotMode() == SKETCH;
-    int     thickness = aShape->GetWidth();
+    bool           sketch = GetPlotMode() == SKETCH;
+    int            thickness = aShape->GetWidth();
+    PLOT_DASH_TYPE lineStyle = aShape->GetStroke().GetPlotStyle();
 
     m_plotter->SetColor( getColor( aShape->GetLayer() ) );
 
@@ -887,113 +927,135 @@ void BRDITEMS_PLOTTER::PlotPcbShape( const PCB_SHAPE* aShape )
         // supported in Pcbnew
         gbr_metadata.SetApertureAttrib( GBR_APERTURE_METADATA::GBR_APERTURE_ATTRIB_NONCONDUCTOR );
 
-    switch( aShape->GetShape() )
+    if( lineStyle <= PLOT_DASH_TYPE::FIRST_TYPE )
     {
-    case SHAPE_T::SEGMENT:
-        m_plotter->ThickSegment( aShape->GetStart(), aShape->GetEnd(), thickness, GetPlotMode(),
-                                 &gbr_metadata );
-        break;
-
-    case SHAPE_T::CIRCLE:
-        if( aShape->IsFilled() )
+        switch( aShape->GetShape() )
         {
-            m_plotter->FilledCircle( aShape->GetStart(), aShape->GetRadius() * 2 + thickness,
-                                     GetPlotMode(), &gbr_metadata );
+        case SHAPE_T::SEGMENT:
+            m_plotter->ThickSegment( aShape->GetStart(), aShape->GetEnd(), thickness, GetPlotMode(),
+                                     &gbr_metadata );
+            break;
+
+        case SHAPE_T::CIRCLE:
+            if( aShape->IsFilled() )
+            {
+                m_plotter->FilledCircle( aShape->GetStart(), aShape->GetRadius() * 2 + thickness,
+                                         GetPlotMode(), &gbr_metadata );
+            }
+            else
+            {
+                m_plotter->ThickCircle( aShape->GetStart(), aShape->GetRadius() * 2, thickness,
+                                        GetPlotMode(), &gbr_metadata );
+            }
+
+            break;
+
+        case SHAPE_T::ARC:
+        {
+            double startAngle  = ArcTangente( aShape->GetStart().y - aShape->GetCenter().y,
+                                              aShape->GetStart().x - aShape->GetCenter().x );
+            double endAngle = startAngle + aShape->GetArcAngle();
+
+            // when startAngle == endAngle ThickArc() doesn't know whether it's 0 deg and 360 deg
+            if( std::abs( aShape->GetArcAngle() ) == 3600.0 )
+            {
+                m_plotter->ThickCircle( aShape->GetCenter(), aShape->GetRadius() * 2, thickness,
+                                        GetPlotMode(), &gbr_metadata );
+            }
+            else
+            {
+                m_plotter->ThickArc( aShape->GetCenter(), -endAngle, -startAngle,
+                                     aShape->GetRadius(), thickness, GetPlotMode(), &gbr_metadata );
+            }
+
+            break;
         }
-        else
+
+        case SHAPE_T::BEZIER:
+            m_plotter->BezierCurve( aShape->GetStart(), aShape->GetBezierC1(),
+                                    aShape->GetBezierC2(), aShape->GetEnd(), 0, thickness );
+            break;
+
+        case SHAPE_T::POLY:
+            if( aShape->IsPolyShapeValid() )
+            {
+                if( sketch || thickness > 0 )
+                {
+                    for( auto it = aShape->GetPolyShape().CIterateSegments( 0 ); it; it++ )
+                    {
+                        auto seg = it.Get();
+                        m_plotter->ThickSegment( wxPoint( seg.A ), wxPoint( seg.B ),
+                                                 thickness, GetPlotMode(), &gbr_metadata );
+                    }
+                }
+
+                if( !sketch && aShape->IsFilled() )
+                {
+                    m_plotter->SetCurrentLineWidth( thickness, &gbr_metadata );
+
+                    // Draw the polygon: only one polygon is expected
+                    // However we provide a multi polygon shape drawing
+                    // ( for the future or to show a non expected shape )
+                    // This must be simplified and fractured to prevent overlapping polygons
+                    // from generating invalid Gerber files
+                    auto tmpPoly = SHAPE_POLY_SET( aShape->GetPolyShape() );
+                    tmpPoly.Fracture( SHAPE_POLY_SET::PM_FAST );
+
+                    for( int jj = 0; jj < tmpPoly.OutlineCount(); ++jj )
+                    {
+                        SHAPE_LINE_CHAIN& poly = tmpPoly.Outline( jj );
+                        m_plotter->PlotPoly( poly, FILL_T::FILLED_SHAPE, thickness, &gbr_metadata );
+                    }
+                }
+            }
+
+            break;
+
+        case SHAPE_T::RECT:
         {
-            m_plotter->ThickCircle( aShape->GetStart(), aShape->GetRadius() * 2, thickness,
-                                    GetPlotMode(), &gbr_metadata );
-        }
+            std::vector<wxPoint> pts = aShape->GetRectCorners();
 
-        break;
-
-    case SHAPE_T::ARC:
-    {
-        double startAngle  = ArcTangente( aShape->GetStart().y - aShape->GetCenter().y,
-                                          aShape->GetStart().x - aShape->GetCenter().x );
-        double endAngle = startAngle + aShape->GetArcAngle();
-
-        // when startAngle == endAngle ThickArc() doesn't know whether it's 0 deg and 360 deg
-        if( std::abs( aShape->GetArcAngle() ) == 3600.0 )
-        {
-            m_plotter->ThickCircle( aShape->GetCenter(), aShape->GetRadius() * 2, thickness,
-                                    GetPlotMode(), &gbr_metadata );
-        }
-        else
-        {
-            m_plotter->ThickArc( aShape->GetCenter(), -endAngle, -startAngle, aShape->GetRadius(),
-                                 thickness, GetPlotMode(), &gbr_metadata );
-        }
-    }
-        break;
-
-    case SHAPE_T::BEZIER:
-        m_plotter->BezierCurve( aShape->GetStart(), aShape->GetBezierC1(),
-                                aShape->GetBezierC2(), aShape->GetEnd(), 0, thickness );
-        break;
-
-    case SHAPE_T::POLY:
-        if( aShape->IsPolyShapeValid() )
-        {
             if( sketch || thickness > 0 )
             {
-                for( auto it = aShape->GetPolyShape().CIterateSegments( 0 ); it; it++ )
-                {
-                    auto seg = it.Get();
-                    m_plotter->ThickSegment( wxPoint( seg.A ), wxPoint( seg.B ),
-                                             thickness, GetPlotMode(), &gbr_metadata );
-                }
+                m_plotter->ThickSegment( pts[0], pts[1], thickness, GetPlotMode(), &gbr_metadata );
+                m_plotter->ThickSegment( pts[1], pts[2], thickness, GetPlotMode(), &gbr_metadata );
+                m_plotter->ThickSegment( pts[2], pts[3], thickness, GetPlotMode(), &gbr_metadata );
+                m_plotter->ThickSegment( pts[3], pts[0], thickness, GetPlotMode(), &gbr_metadata );
             }
 
             if( !sketch && aShape->IsFilled() )
             {
-                m_plotter->SetCurrentLineWidth( thickness, &gbr_metadata );
+                SHAPE_LINE_CHAIN poly;
 
-                // Draw the polygon: only one polygon is expected
-                // However we provide a multi polygon shape drawing
-                // ( for the future or to show a non expected shape )
-                // This must be simplified and fractured to prevent overlapping polygons
-                // from generating invalid Gerber files
-                auto tmpPoly = SHAPE_POLY_SET( aShape->GetPolyShape() );
-                tmpPoly.Fracture( SHAPE_POLY_SET::PM_FAST );
+                for( const wxPoint& pt : pts )
+                    poly.Append( pt );
 
-                for( int jj = 0; jj < tmpPoly.OutlineCount(); ++jj )
-                {
-                    SHAPE_LINE_CHAIN& poly = tmpPoly.Outline( jj );
-                    m_plotter->PlotPoly( poly, FILL_T::FILLED_SHAPE, thickness, &gbr_metadata );
-                }
+                m_plotter->PlotPoly( poly, FILL_T::FILLED_SHAPE, -1, &gbr_metadata );
             }
-        }
-        break;
 
-    case SHAPE_T::RECT:
-    {
-        std::vector<wxPoint> pts = aShape->GetRectCorners();
-
-        if( sketch || thickness > 0 )
-        {
-            m_plotter->ThickSegment( pts[0], pts[1], thickness, GetPlotMode(), &gbr_metadata );
-            m_plotter->ThickSegment( pts[1], pts[2], thickness, GetPlotMode(), &gbr_metadata );
-            m_plotter->ThickSegment( pts[2], pts[3], thickness, GetPlotMode(), &gbr_metadata );
-            m_plotter->ThickSegment( pts[3], pts[0], thickness, GetPlotMode(), &gbr_metadata );
+            break;
         }
 
-        if( !sketch && aShape->IsFilled() )
-        {
-            SHAPE_LINE_CHAIN poly;
-
-            for( const wxPoint& pt : pts )
-                poly.Append( pt );
-
-            m_plotter->PlotPoly( poly, FILL_T::FILLED_SHAPE, -1, &gbr_metadata );
+        default:
+            UNIMPLEMENTED_FOR( aShape->SHAPE_T_asString() );
         }
-
-        break;
     }
+    else
+    {
+        std::vector<SHAPE*> shapes = aShape->MakeEffectiveShapes( true );
 
-    default:
-        UNIMPLEMENTED_FOR( aShape->SHAPE_T_asString() );
+        for( SHAPE* shape : shapes )
+        {
+            STROKE_PARAMS::Stroke( shape, lineStyle, thickness, m_plotter->RenderSettings(),
+                                   [&]( const wxPoint& a, const wxPoint& b )
+                                   {
+                                       m_plotter->ThickSegment( a, b, thickness, GetPlotMode(),
+                                                                &gbr_metadata );
+                                   } );
+        }
+
+        for( SHAPE* shape : shapes )
+            delete shape;
     }
 }
 

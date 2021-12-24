@@ -21,10 +21,13 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
+#include <pgm_base.h>
+#include <settings/settings_manager.h>
+#include <pcbnew_settings.h>
+#include <footprint_editor_settings.h>
 #include <3d_viewer/eda_3d_viewer_frame.h>
 #include <kiplatform/ui.h>
 #include <pcb_base_frame.h>
-#include <pcbnew_settings.h>
 #include <preview_items/ruler_item.h>
 #include <tool/actions.h>
 #include <tools/pcb_grid_helper.h>
@@ -134,7 +137,9 @@ int PCB_VIEWER_TOOLS::GraphicOutlines( const TOOL_EVENT& aEvent )
     {
         for( BOARD_ITEM* item : fp->GraphicalItems() )
         {
-            if( item->Type() == PCB_FP_SHAPE_T )
+            KICAD_T t = item->Type();
+
+            if( t == PCB_FP_SHAPE_T || BaseType( t ) == PCB_DIMENSION_T )
                 view()->Update( item, KIGFX::REPAINT );
         }
     }
@@ -295,10 +300,13 @@ int PCB_VIEWER_TOOLS::MeasureTool( const TOOL_EVENT& aEvent )
         // move or drag when origin set updates rules
         else if( originSet && ( evt->IsMotion() || evt->IsDrag( BUT_LEFT ) ) )
         {
-            bool force45Deg = frame()->Settings().m_PcbUse45DegreeLimit;
+            SETTINGS_MANAGER& mgr = Pgm().GetSettingsManager();
+            bool              force45Deg;
 
-            if( !frame()->IsType( FRAME_PCB_EDITOR ) )
-                force45Deg = frame()->Settings().m_FpeditUse45DegreeLimit;
+            if( frame()->IsType( FRAME_PCB_EDITOR ) )
+                force45Deg = mgr.GetAppSettings<PCBNEW_SETTINGS>()->m_Use45DegreeLimit;
+            else
+                force45Deg = mgr.GetAppSettings<FOOTPRINT_EDITOR_SETTINGS>()->m_Use45Limit;
 
             twoPtMgr.SetAngleSnap( force45Deg );
             twoPtMgr.SetEnd( cursorPos );

@@ -33,6 +33,7 @@
 
 class SCH_BASE_FRAME;
 class DIALOG_SHIM;
+class SCH_LABEL_BASE;
 
 
 class FIELDS_GRID_TRICKS : public GRID_TRICKS
@@ -76,6 +77,8 @@ public:
                        LIB_SYMBOL* aSymbol );
     FIELDS_GRID_TABLE( DIALOG_SHIM* aDialog, SCH_BASE_FRAME* aFrame, WX_GRID* aGrid,
                        SCH_SHEET* aSheet );
+    FIELDS_GRID_TABLE( DIALOG_SHIM* aDialog, SCH_BASE_FRAME* aFrame, WX_GRID* aGrid,
+                       SCH_LABEL_BASE* aLabel );
     ~FIELDS_GRID_TABLE();
 
     int GetNumberRows() override { return (int) this->size(); }
@@ -104,10 +107,11 @@ public:
 protected:
     void initGrid( WX_GRID* aGrid );
 
+    void onUnitsChanged( wxCommandEvent& aEvent );
+
 private:
     SCH_BASE_FRAME* m_frame;
     DIALOG_SHIM*    m_dialog;
-    EDA_UNITS       m_userUnits;
     WX_GRID*        m_grid;
     KICAD_T         m_parentType;
     int             m_mandatoryFieldCount;
@@ -134,6 +138,7 @@ private:
     wxGridCellAttr*       m_vAlignAttr;
     wxGridCellAttr*       m_hAlignAttr;
     wxGridCellAttr*       m_orientationAttr;
+    wxGridCellAttr*       m_netclassAttr;
 };
 
 
