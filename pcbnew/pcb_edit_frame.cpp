@@ -39,7 +39,6 @@
 #include <dialog_footprint_properties.h>
 #include <dialogs/dialog_exchange_footprints.h>
 #include <dialog_board_setup.h>
-#include <convert_to_biu.h>
 #include <invoke_pcb_dialog.h>
 #include <board.h>
 #include <board_design_settings.h>
@@ -90,9 +89,7 @@
 #include <python/scripting/pcb_scripting_tool.h>
 #include <gestfich.h>
 #include <executable_names.h>
-#include <netlist_reader/board_netlist_updater.h>
 #include <netlist_reader/netlist_reader.h>
-#include <netlist_reader/pcb_netlist.h>
 #include <wx/socket.h>
 #include <wx/wupdlock.h>
 #include <dialog_drc.h>     // for DIALOG_DRC_WINDOW_NAME definition
@@ -412,6 +409,13 @@ PCB_EDIT_FRAME::PCB_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
 
 PCB_EDIT_FRAME::~PCB_EDIT_FRAME()
 {
+    if( ADVANCED_CFG::GetCfg().m_ShowEventCounters )
+    {
+        // Stop the timer during destruction early to avoid potential event race conditions (that do happen on windows)
+        m_eventCounterTimer->Stop();
+        delete m_eventCounterTimer;
+    }
+
     // Close modeless dialogs
     wxWindow* open_dlg = wxWindow::FindWindowByName( DIALOG_DRC_WINDOW_NAME );
 
@@ -665,13 +669,13 @@ void PCB_EDIT_FRAME::setupUIConditions()
     auto globalRatsnestCond =
         [this] (const SELECTION& )
         {
-            return GetDisplayOptions().m_ShowGlobalRatsnest;
+            return Settings().m_Display.m_ShowGlobalRatsnest;
         };
 
     auto curvedRatsnestCond =
         [this] (const SELECTION& )
         {
-            return GetDisplayOptions().m_DisplayRatsnestLinesCurved;
+            return Settings().m_Display.m_DisplayRatsnestLinesCurved;
         };
 
     auto netHighlightCond =
@@ -1013,25 +1017,6 @@ void PCB_EDIT_FRAME::ShowBoardSetupDialog( const wxString& aInitialPage )
 
         Kiway().CommonSettingsChanged( false, true );
 
-        const PCB_DISPLAY_OPTIONS& opts = GetDisplayOptions();
-
-        if( opts.m_ShowTrackClearanceMode || opts.m_DisplayPadClearance )
-        {
-            // Update clearance outlines
-            GetCanvas()->GetView()->UpdateAllItemsConditionally( KIGFX::REPAINT,
-                    [&]( KIGFX::VIEW_ITEM* aItem ) -> bool
-                    {
-                        PCB_TRACK* track = dynamic_cast<PCB_TRACK*>( aItem );
-                        PAD*       pad = dynamic_cast<PAD*>( aItem );
-
-                        // PCB_TRACK is the base class of PCB_VIA and PCB_ARC so we don't need
-                        // to check them independently
-
-                        return ( track && opts.m_ShowTrackClearanceMode )
-                                || ( pad && opts.m_DisplayPadClearance );
-                    } );
-        }
-
         GetCanvas()->Refresh();
 
         UpdateUserInterface();
@@ -1123,7 +1108,7 @@ void PCB_EDIT_FRAME::SetActiveLayer( PCB_LAYER_ID aLayer )
                 {
                     // Clearances could be layer-dependent so redraw them when the active layer
                     // is changed
-                    if( GetDisplayOptions().m_DisplayPadClearance )
+                    if( Settings().m_Display.m_DisplayPadClearance )
                     {
                         // Round-corner rects are expensive to draw, but are mostly found on
                         // SMD pads which only need redrawing on an active-to-not-active
@@ -1144,7 +1129,7 @@ void PCB_EDIT_FRAME::SetActiveLayer( PCB_LAYER_ID aLayer )
                 {
                     // Clearances could be layer-dependent so redraw them when the active layer
                     // is changed
-                    if( GetDisplayOptions().m_ShowTrackClearanceMode )
+                    if( Settings().m_Display.m_ShowTrackClearanceMode )
                     {
                         // Tracks aren't particularly expensive to draw, but it's an easy check.
                         return track->IsOnLayer( oldLayer ) || track->IsOnLayer( aLayer );
@@ -1204,7 +1189,7 @@ void PCB_EDIT_FRAME::onBoardLoaded()
     // Sync layer and item visibility
     GetCanvas()->SyncLayersVisibility( m_pcb );
 
-    SetElementVisibility( LAYER_RATSNEST, GetDisplayOptions().m_ShowGlobalRatsnest );
+    SetElementVisibility( LAYER_RATSNEST, Settings().m_Display.m_ShowGlobalRatsnest );
 
     m_appearancePanel->OnBoardChanged();
 
@@ -1307,7 +1292,7 @@ void PCB_EDIT_FRAME::OnModify( )
 {
     PCB_BASE_FRAME::OnModify();
 
-    Update3DView( true, GetDisplayOptions().m_Live3DRefresh );
+    Update3DView( true, Settings().m_Display.m_Live3DRefresh );
 
     if( !GetTitle().StartsWith( "*" ) )
         UpdateTitle();
@@ -1754,8 +1739,8 @@ void PCB_EDIT_FRAME::CommonSettingsChanged( bool aEnvVarsChanged, bool aTextVars
     auto* painter = static_cast<KIGFX::PCB_PAINTER*>( GetCanvas()->GetView()->GetPainter() );
     auto* renderSettings = painter->GetSettings();
     renderSettings->LoadDisplayOptions( GetDisplayOptions() );
-    SetElementVisibility( LAYER_NO_CONNECTS, GetDisplayOptions().m_DisplayPadNoConnects );
-    SetElementVisibility( LAYER_RATSNEST, GetDisplayOptions().m_ShowGlobalRatsnest );
+    SetElementVisibility( LAYER_NO_CONNECTS, Settings().m_Display.m_DisplayPadNoConnects );
+    SetElementVisibility( LAYER_RATSNEST, Settings().m_Display.m_ShowGlobalRatsnest );
 
     auto cfg = Pgm().GetSettingsManager().GetAppSettings<PCBNEW_SETTINGS>();
     GetGalDisplayOptions().ReadWindowSettings( cfg->m_Window );
@@ -1793,7 +1778,9 @@ void PCB_EDIT_FRAME::CommonSettingsChanged( bool aEnvVarsChanged, bool aTextVars
     GetCanvas()->GetView()->UpdateAllItemsConditionally( KIGFX::REPAINT,
             []( KIGFX::VIEW_ITEM* aItem ) -> bool
             {
-                return dynamic_cast<RATSNEST_VIEW_ITEM*>( aItem );
+                return dynamic_cast<RATSNEST_VIEW_ITEM*>( aItem )
+                        || dynamic_cast<PCB_TRACK*>( aItem )
+                        || dynamic_cast<PAD*>( aItem );
             } );
 
     GetCanvas()->GetView()->MarkTargetDirty( KIGFX::TARGET_NONCACHED );

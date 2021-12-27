@@ -60,14 +60,14 @@ private:
     void OnUpdateUI( wxUpdateUIEvent& event ) override;
     void OnInitDlg( wxInitDialogEvent& event ) override;
 
-    void AdjustGridColumns( int aWidth );
+    void AdjustGridColumns();
 
 private:
     SCH_EDIT_FRAME*               m_frame;
     SCH_SHEET*                    m_sheet;
     bool*                         m_clearAnnotationNewItems;
 
-    int                           m_width;
+    wxSize                        m_size;
     int                           m_delayedFocusRow;
     int                           m_delayedFocusColumn;
     wxString                      m_shownColumns;

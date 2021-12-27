@@ -36,6 +36,7 @@
 #include <pcbnew_settings.h>
 #include <pgm_base.h>
 #include <validators.h>
+#include <kiplatform/ui.h>
 #include <widgets/grid_text_button_helpers.h>
 #include <widgets/text_ctrl_eval.h>
 #include <widgets/wx_grid.h>
@@ -155,8 +156,7 @@ DIALOG_FOOTPRINT_PROPERTIES::DIALOG_FOOTPRINT_PROPERTIES( PCB_EDIT_FRAME* aParen
 
 DIALOG_FOOTPRINT_PROPERTIES::~DIALOG_FOOTPRINT_PROPERTIES()
 {
-    m_frame->GetPcbNewSettings()->m_FootprintTextShownColumns =
-                                                    m_itemsGrid->GetShownColumns().ToStdString();
+    m_frame->Settings().m_FootprintTextShownColumns = m_itemsGrid->GetShownColumns().ToStdString();
 
     // Prevents crash bug in wxGrid's d'tor
     m_itemsGrid->DestroyTable( m_texts );
@@ -313,7 +313,7 @@ bool DIALOG_FOOTPRINT_PROPERTIES::TransferDataToWindow()
     m_itemsGrid->SetRowLabelSize( m_itemsGrid->GetVisibleWidth( -1, false, true, true ) );
 
     Layout();
-    adjustGridColumns( m_itemsGrid->GetRect().GetWidth() );
+    adjustGridColumns();
 
     return true;
 }
@@ -554,10 +554,10 @@ void DIALOG_FOOTPRINT_PROPERTIES::OnDeleteField( wxCommandEvent&  )
 }
 
 
-void DIALOG_FOOTPRINT_PROPERTIES::adjustGridColumns( int aWidth )
+void DIALOG_FOOTPRINT_PROPERTIES::adjustGridColumns()
 {
     // Account for scroll bars
-    int itemsWidth = aWidth - ( m_itemsGrid->GetSize().x - m_itemsGrid->GetClientSize().x );
+    int itemsWidth = KIPLATFORM::UI::GetUnobscuredSize( m_itemsGrid ).x;
 
     itemsWidth -= m_itemsGrid->GetRowLabelSize();
 
@@ -571,7 +571,7 @@ void DIALOG_FOOTPRINT_PROPERTIES::adjustGridColumns( int aWidth )
     }
 
     // Update the width of the 3D panel
-    m_3dPanel->AdjustGridColumnWidths( aWidth );
+    m_3dPanel->AdjustGridColumnWidths();
 }
 
 
@@ -581,7 +581,7 @@ void DIALOG_FOOTPRINT_PROPERTIES::OnUpdateUI( wxUpdateUIEvent&  )
         return;
 
     if( !m_itemsGrid->IsCellEditControlShown() )
-        adjustGridColumns( m_itemsGrid->GetRect().GetWidth() );
+        adjustGridColumns();
 
     // Handle a grid error.  This is delayed to OnUpdateUI so that we can change focus
     // even when the original validation was triggered from a killFocus event, and so
@@ -646,7 +646,7 @@ void DIALOG_FOOTPRINT_PROPERTIES::OnGridSize( wxSizeEvent& aEvent )
              m_itemsGrid->SetFocus();
     }
 
-    adjustGridColumns( aEvent.GetSize().GetX() );
+    adjustGridColumns();
 
     aEvent.Skip();
 }

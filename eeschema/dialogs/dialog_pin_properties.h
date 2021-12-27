@@ -68,7 +68,7 @@ public:
     void onUpdateUIInfo( wxUpdateUIEvent& event ) override;
 
 protected:
-    void adjustGridColumns( int aWidth );
+    void adjustGridColumns();
 
 private:
     SYMBOL_EDIT_FRAME*  m_frame;
@@ -89,7 +89,7 @@ private:
     int                 m_delayedFocusColumn;
 
     int                 m_originalColWidths[ COL_COUNT ];
-    int                 m_width;
+    wxSize              m_size;
     bool                m_initialized;
 };
 

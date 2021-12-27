@@ -116,7 +116,7 @@ bool primitivesNeedUpdate( const std::shared_ptr<PCB_SHAPE>& a,
         UNIMPLEMENTED_FOR( a->SHAPE_T_asString() );
     }
 
-    TEST( a->GetWidth(), b->GetWidth() );
+    TEST( a->GetStroke(), b->GetStroke() );
     TEST( a->IsFilled(), b->IsFilled() );
 
     return false;
@@ -219,7 +219,7 @@ bool shapesNeedUpdate( const FP_SHAPE* a, const FP_SHAPE* b )
         UNIMPLEMENTED_FOR( a->SHAPE_T_asString() );
     }
 
-    TEST( a->GetWidth(), b->GetWidth() );
+    TEST( a->GetStroke(), b->GetStroke() );
     TEST( a->IsFilled(), b->IsFilled() );
 
     TEST( a->GetLayer(), b->GetLayer() );
@@ -321,6 +321,13 @@ bool modelsNeedUpdate( const FP_3DMODEL& a, const FP_3DMODEL& b )
 
 bool FOOTPRINT::FootprintNeedsUpdate( const FOOTPRINT* aLibFootprint )
 {
+    if( IsFlipped() )
+    {
+        std::unique_ptr<FOOTPRINT> temp( static_cast<FOOTPRINT*>( Clone() ) );
+        temp->Flip( {0,0}, false );
+        return temp->FootprintNeedsUpdate( aLibFootprint );
+    }
+
     TEST( GetDescription(), aLibFootprint->GetDescription() );
     TEST( GetKeywords(), aLibFootprint->GetKeywords() );
     TEST( GetAttributes(), aLibFootprint->GetAttributes() );
@@ -339,7 +346,7 @@ bool FOOTPRINT::FootprintNeedsUpdate( const FOOTPRINT* aLibFootprint )
     // Currently we punt and ignore all the text items.
 
     // Drawings and pads are also somewhat problematic as there's no gaurantee that they'll be
-    // in the same order in the two footprints.  Rather than builds some sophisticated hashing
+    // in the same order in the two footprints.  Rather than building some sophisticated hashing
     // algorithm we use the footprint sorting functions to attempt to sort them in the same order.
 
     std::set<BOARD_ITEM*, FOOTPRINT::cmp_drawings> aShapes;
@@ -440,7 +447,7 @@ bool DRC_TEST_PROVIDER_LIBRARY_PARITY::Run()
                         libName );
             drcItem->SetErrorMessage( msg );
             drcItem->SetItems( footprint );
-            reportViolation( drcItem, footprint->GetCenter() );
+            reportViolation( drcItem, footprint->GetCenter(), UNDEFINED_LAYER );
 
             continue;
         }
@@ -451,7 +458,7 @@ bool DRC_TEST_PROVIDER_LIBRARY_PARITY::Run()
                         libName );
             drcItem->SetErrorMessage( msg );
             drcItem->SetItems( footprint );
-            reportViolation( drcItem, footprint->GetCenter() );
+            reportViolation( drcItem, footprint->GetCenter(), UNDEFINED_LAYER );
 
             continue;
         }
@@ -485,7 +492,7 @@ bool DRC_TEST_PROVIDER_LIBRARY_PARITY::Run()
                         libName );
             drcItem->SetErrorMessage( msg );
             drcItem->SetItems( footprint );
-            reportViolation( drcItem, footprint->GetCenter() );
+            reportViolation( drcItem, footprint->GetCenter(), UNDEFINED_LAYER );
         }
         else if( footprint->FootprintNeedsUpdate( libFootprint.get() ) )
         {
@@ -495,7 +502,7 @@ bool DRC_TEST_PROVIDER_LIBRARY_PARITY::Run()
                         libName );
             drcItem->SetErrorMessage( msg );
             drcItem->SetItems( footprint );
-            reportViolation( drcItem, footprint->GetCenter() );
+            reportViolation( drcItem, footprint->GetCenter(), UNDEFINED_LAYER );
         }
     }
 
