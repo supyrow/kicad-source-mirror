@@ -25,6 +25,7 @@
 #include <memory>
 
 #include "altium_parser_sch.h"
+#include "sch_shape.h"
 #include <plugins/altium/altium_parser.h>
 #include <plugins/altium/altium_parser_utils.h>
 #include <sch_plugins/altium/sch_altium_plugin.h>
@@ -60,20 +61,67 @@
 #include <wx/wfstream.h>
 #include <trigo.h>
 
-const wxPoint GetRelativePosition( const wxPoint& aPosition, const SCH_SYMBOL* aSymbol )
+static const wxPoint GetRelativePosition( const wxPoint& aPosition, const SCH_SYMBOL* aSymbol )
 {
     TRANSFORM t = aSymbol->GetTransform().InverseTransform();
     return t.TransformCoordinate( aPosition - aSymbol->GetPosition() );
 }
 
 
-COLOR4D GetColorFromInt( int color )
+static COLOR4D GetColorFromInt( int color )
 {
     int red   = color & 0x0000FF;
     int green = ( color & 0x00FF00 ) >> 8;
     int blue  = ( color & 0xFF0000 ) >> 16;
 
     return COLOR4D().FromCSSRGBA( red, green, blue, 1.0 );
+}
+
+
+static PLOT_DASH_TYPE GetPlotDashType( const ASCH_POLYLINE_LINESTYLE linestyle )
+{
+    switch( linestyle )
+    {
+    case ASCH_POLYLINE_LINESTYLE::SOLID: return PLOT_DASH_TYPE::SOLID;
+    case ASCH_POLYLINE_LINESTYLE::DASHED: return PLOT_DASH_TYPE::DASH;
+    case ASCH_POLYLINE_LINESTYLE::DOTTED: return PLOT_DASH_TYPE::DOT;
+    case ASCH_POLYLINE_LINESTYLE::DASH_DOTTED: return PLOT_DASH_TYPE::DASHDOT;
+    default: return PLOT_DASH_TYPE::DEFAULT;
+    }
+}
+
+
+static void SetSchShapeFillAndColor( const ASCH_SHAPE_INTERFACE& elem, SCH_SHAPE* shape )
+{
+    shape->SetStroke( STROKE_PARAMS( elem.lineWidth, PLOT_DASH_TYPE::SOLID ) );
+
+    if( !elem.isSolid )
+    {
+        shape->SetFillMode( FILL_T::NO_FILL );
+    }
+    else
+    {
+        shape->SetFillMode( FILL_T::FILLED_WITH_COLOR );
+        shape->SetFillColor( GetColorFromInt( elem.areacolor ) );
+    }
+}
+
+static void SetLibShapeFillAndColor( const ASCH_SHAPE_INTERFACE& elem, LIB_SHAPE* shape )
+{
+    shape->SetStroke( STROKE_PARAMS( elem.lineWidth, PLOT_DASH_TYPE::SOLID ) );
+
+    if( !elem.isSolid )
+    {
+        shape->SetFillMode( FILL_T::NO_FILL );
+    }
+    else if( elem.color == elem.areacolor )
+    {
+        shape->SetFillMode( FILL_T::FILLED_SHAPE );
+    }
+    else
+    {
+        shape->SetFillMode( FILL_T::FILLED_WITH_BG_BODYCOLOR );
+    }
 }
 
 SCH_ALTIUM_PLUGIN::SCH_ALTIUM_PLUGIN()
@@ -743,8 +791,8 @@ void SCH_ALTIUM_PLUGIN::ParsePin( const std::map<wxString, wxString>& aPropertie
 void SetTextPositioning( EDA_TEXT* text, ASCH_LABEL_JUSTIFICATION justification,
                          ASCH_RECORD_ORIENTATION orientation )
 {
-    int    vjustify, hjustify;
-    double angle = TEXT_ANGLE_HORIZ;
+    int       vjustify, hjustify;
+    EDA_ANGLE angle = EDA_ANGLE::HORIZONTAL;
 
     switch( justification )
     {
@@ -753,17 +801,17 @@ void SetTextPositioning( EDA_TEXT* text, ASCH_LABEL_JUSTIFICATION justification,
     case ASCH_LABEL_JUSTIFICATION::BOTTOM_LEFT:
     case ASCH_LABEL_JUSTIFICATION::BOTTOM_CENTER:
     case ASCH_LABEL_JUSTIFICATION::BOTTOM_RIGHT:
-        vjustify = EDA_TEXT_VJUSTIFY_T::GR_TEXT_VJUSTIFY_BOTTOM;
+        vjustify = GR_TEXT_V_ALIGN_BOTTOM;
         break;
     case ASCH_LABEL_JUSTIFICATION::CENTER_LEFT:
     case ASCH_LABEL_JUSTIFICATION::CENTER_CENTER:
     case ASCH_LABEL_JUSTIFICATION::CENTER_RIGHT:
-        vjustify = EDA_TEXT_VJUSTIFY_T::GR_TEXT_VJUSTIFY_CENTER;
+        vjustify = GR_TEXT_V_ALIGN_CENTER;
         break;
     case ASCH_LABEL_JUSTIFICATION::TOP_LEFT:
     case ASCH_LABEL_JUSTIFICATION::TOP_CENTER:
     case ASCH_LABEL_JUSTIFICATION::TOP_RIGHT:
-        vjustify = EDA_TEXT_VJUSTIFY_T::GR_TEXT_VJUSTIFY_TOP;
+        vjustify = GR_TEXT_V_ALIGN_TOP;
         break;
     }
 
@@ -774,42 +822,42 @@ void SetTextPositioning( EDA_TEXT* text, ASCH_LABEL_JUSTIFICATION justification,
     case ASCH_LABEL_JUSTIFICATION::BOTTOM_LEFT:
     case ASCH_LABEL_JUSTIFICATION::CENTER_LEFT:
     case ASCH_LABEL_JUSTIFICATION::TOP_LEFT:
-        hjustify = EDA_TEXT_HJUSTIFY_T::GR_TEXT_HJUSTIFY_LEFT;
+        hjustify = GR_TEXT_H_ALIGN_LEFT;
         break;
     case ASCH_LABEL_JUSTIFICATION::BOTTOM_CENTER:
     case ASCH_LABEL_JUSTIFICATION::CENTER_CENTER:
     case ASCH_LABEL_JUSTIFICATION::TOP_CENTER:
-        hjustify = EDA_TEXT_HJUSTIFY_T::GR_TEXT_HJUSTIFY_CENTER;
+        hjustify = GR_TEXT_H_ALIGN_CENTER;
         break;
     case ASCH_LABEL_JUSTIFICATION::BOTTOM_RIGHT:
     case ASCH_LABEL_JUSTIFICATION::CENTER_RIGHT:
     case ASCH_LABEL_JUSTIFICATION::TOP_RIGHT:
-        hjustify = EDA_TEXT_HJUSTIFY_T::GR_TEXT_HJUSTIFY_RIGHT;
+        hjustify = GR_TEXT_H_ALIGN_RIGHT;
         break;
     }
 
     switch( orientation )
     {
     case ASCH_RECORD_ORIENTATION::RIGHTWARDS:
-        angle = TEXT_ANGLE_HORIZ;
+        angle = EDA_ANGLE::HORIZONTAL;
         break;
     case ASCH_RECORD_ORIENTATION::LEFTWARDS:
         vjustify *= -1;
         hjustify *= -1;
-        angle = TEXT_ANGLE_HORIZ;
+        angle = EDA_ANGLE::HORIZONTAL;
         break;
     case ASCH_RECORD_ORIENTATION::UPWARDS:
-        angle = TEXT_ANGLE_VERT;
+        angle = EDA_ANGLE::VERTICAL;
         break;
     case ASCH_RECORD_ORIENTATION::DOWNWARDS:
         vjustify *= -1;
         hjustify *= -1;
-        angle = TEXT_ANGLE_VERT;
+        angle = EDA_ANGLE::VERTICAL;
         break;
     }
 
-    text->SetVertJustify( static_cast<EDA_TEXT_VJUSTIFY_T>( vjustify ) );
-    text->SetHorizJustify( static_cast<EDA_TEXT_HJUSTIFY_T>( hjustify ) );
+    text->SetVertJustify( static_cast<GR_TEXT_V_ALIGN_T>( vjustify ) );
+    text->SetHorizJustify( static_cast<GR_TEXT_H_ALIGN_T>( hjustify ) );
     text->SetTextAngle( angle );
 }
 
@@ -993,8 +1041,7 @@ void SCH_ALTIUM_PLUGIN::ParseBezier( const std::map<wxString, wxString>& aProper
                                                SCH_LAYER_ID::LAYER_NOTES );
 
                 line->SetEndPoint( elem.points.at( i + 1 ) + m_sheetOffset );
-                line->SetLineWidth( elem.lineWidth );
-                line->SetLineStyle( PLOT_DASH_TYPE::SOLID );
+                line->SetStroke( STROKE_PARAMS( elem.lineWidth, PLOT_DASH_TYPE::SOLID ) );
 
                 line->SetFlags( IS_NEW );
                 m_currentSheet->GetScreen()->Append( line );
@@ -1006,7 +1053,7 @@ void SCH_ALTIUM_PLUGIN::ParseBezier( const std::map<wxString, wxString>& aProper
                 std::vector<wxPoint> polyPoints;
 
                 for( size_t j = i; j < elem.points.size() && j < i + 4; j++ )
-                    bezierPoints.push_back( elem.points.at( j ) + m_sheetOffset );
+                    bezierPoints.push_back( elem.points.at( j ) );
 
                 BEZIER_POLY converter( bezierPoints );
                 converter.GetPoly( polyPoints );
@@ -1017,7 +1064,7 @@ void SCH_ALTIUM_PLUGIN::ParseBezier( const std::map<wxString, wxString>& aProper
                                                    SCH_LAYER_ID::LAYER_NOTES );
 
                     line->SetEndPoint( polyPoints.at( k + 1 ) + m_sheetOffset );
-                    line->SetLineWidth( elem.lineWidth );
+                    line->SetStroke( STROKE_PARAMS( elem.lineWidth, PLOT_DASH_TYPE::SOLID ) );
 
                     line->SetFlags( IS_NEW );
                     m_currentSheet->GetScreen()->Append( line );
@@ -1115,28 +1162,15 @@ void SCH_ALTIUM_PLUGIN::ParsePolyline( const std::map<wxString, wxString>& aProp
 
     if( elem.ownerpartid == ALTIUM_COMPONENT_NONE )
     {
-        PLOT_DASH_TYPE dashType = PLOT_DASH_TYPE::DEFAULT;
-        switch( elem.linestyle )
-        {
-        default:
-        case ASCH_POLYLINE_LINESTYLE::SOLID:       dashType = PLOT_DASH_TYPE::SOLID;   break;
-        case ASCH_POLYLINE_LINESTYLE::DASHED:      dashType = PLOT_DASH_TYPE::DASH;    break;
-        case ASCH_POLYLINE_LINESTYLE::DOTTED:      dashType = PLOT_DASH_TYPE::DOT;     break;
-        case ASCH_POLYLINE_LINESTYLE::DASH_DOTTED: dashType = PLOT_DASH_TYPE::DASHDOT; break;
-        }
+        SCH_SHAPE* poly = new SCH_SHAPE( SHAPE_T::POLY, SCH_LAYER_ID::LAYER_NOTES );
 
-        for( size_t i = 0; i + 1 < elem.points.size(); i++ )
-        {
-            SCH_LINE* line = new SCH_LINE( elem.points.at( i ) + m_sheetOffset,
-                                           SCH_LAYER_ID::LAYER_NOTES );
+        for( wxPoint& point : elem.points )
+            poly->AddPoint( point + m_sheetOffset );
 
-            line->SetEndPoint( elem.points.at( i + 1 ) + m_sheetOffset );
-            line->SetLineWidth( elem.lineWidth );
-            line->SetLineStyle( dashType );
+        poly->SetStroke( STROKE_PARAMS( elem.lineWidth, GetPlotDashType( elem.linestyle ) ) );
+        poly->SetFlags( IS_NEW );
 
-            line->SetFlags( IS_NEW );
-            m_currentSheet->GetScreen()->Append( line );
-        }
+        m_currentSheet->GetScreen()->Append( poly );
     }
     else
     {
@@ -1163,7 +1197,7 @@ void SCH_ALTIUM_PLUGIN::ParsePolyline( const std::map<wxString, wxString>& aProp
         for( wxPoint& point : elem.points )
             line->AddPoint( GetRelativePosition( point + m_sheetOffset, symbol ) );
 
-        line->SetStroke( STROKE_PARAMS( elem.lineWidth, PLOT_DASH_TYPE::SOLID ) );
+        line->SetStroke( STROKE_PARAMS( elem.lineWidth, GetPlotDashType( elem.linestyle ) ) );
     }
 }
 
@@ -1174,28 +1208,16 @@ void SCH_ALTIUM_PLUGIN::ParsePolygon( const std::map<wxString, wxString>& aPrope
 
     if( elem.ownerpartid == ALTIUM_COMPONENT_NONE )
     {
-        // TODO: we cannot fill this polygon, only draw it for now
-        for( size_t i = 0; i + 1 < elem.points.size(); i++ )
-        {
-            SCH_LINE* line = new SCH_LINE( elem.points.at( i ) + m_sheetOffset,
-                                           SCH_LAYER_ID::LAYER_NOTES );
-            line->SetEndPoint( elem.points.at( i + 1 ) + m_sheetOffset );
-            line->SetLineWidth( elem.lineWidth );
-            line->SetLineStyle( PLOT_DASH_TYPE::SOLID );
+        SCH_SHAPE* poly = new SCH_SHAPE( SHAPE_T::POLY, SCH_LAYER_ID::LAYER_NOTES );
 
-            line->SetFlags( IS_NEW );
-            m_currentSheet->GetScreen()->Append( line );
-        }
+        for( wxPoint& point : elem.points )
+            poly->AddPoint( point + m_sheetOffset );
+        poly->AddPoint( elem.points.front() + m_sheetOffset );
 
-        // close polygon
-        SCH_LINE* line = new SCH_LINE( elem.points.front() + m_sheetOffset,
-                                       SCH_LAYER_ID::LAYER_NOTES );
-        line->SetEndPoint( elem.points.back() + m_sheetOffset );
-        line->SetLineWidth( elem.lineWidth );
-        line->SetLineStyle( PLOT_DASH_TYPE::SOLID );
+        SetSchShapeFillAndColor( elem, poly );
+        poly->SetFlags( IS_NEW );
 
-        line->SetFlags( IS_NEW );
-        m_currentSheet->GetScreen()->Append( line );
+        m_currentSheet->GetScreen()->Append( poly );
     }
     else
     {
@@ -1223,15 +1245,7 @@ void SCH_ALTIUM_PLUGIN::ParsePolygon( const std::map<wxString, wxString>& aPrope
             line->AddPoint( GetRelativePosition( point + m_sheetOffset, symbol ) );
 
         line->AddPoint( GetRelativePosition( elem.points.front() + m_sheetOffset, symbol ) );
-
-        line->SetStroke( STROKE_PARAMS( elem.lineWidth, PLOT_DASH_TYPE::SOLID ) );
-
-        if( !elem.isSolid )
-            line->SetFillMode( FILL_T::NO_FILL );
-        else if( elem.color == elem.areacolor )
-            line->SetFillMode( FILL_T::FILLED_SHAPE );
-        else
-            line->SetFillMode( FILL_T::FILLED_WITH_BG_BODYCOLOR );
+        SetLibShapeFillAndColor( elem, line );
     }
 }
 
@@ -1248,35 +1262,15 @@ void SCH_ALTIUM_PLUGIN::ParseRoundRectangle( const std::map<wxString, wxString>&
         const wxPoint topLeft     = { sheetBottomLeft.x, sheetTopRight.y };
         const wxPoint bottomRight = { sheetTopRight.x, sheetBottomLeft.y };
 
-        // TODO: we cannot fill this rectangle, only draw it for now
         // TODO: misses rounded edges
-        SCH_LINE* lineTop = new SCH_LINE( sheetTopRight, SCH_LAYER_ID::LAYER_NOTES );
-        lineTop->SetEndPoint( topLeft );
-        lineTop->SetLineWidth( elem.lineWidth );
-        lineTop->SetLineStyle( PLOT_DASH_TYPE::SOLID );
-        lineTop->SetFlags( IS_NEW );
-        m_currentSheet->GetScreen()->Append( lineTop );
+        SCH_SHAPE* rect = new SCH_SHAPE( SHAPE_T::RECT, SCH_LAYER_ID::LAYER_NOTES );
 
-        SCH_LINE* lineBottom = new SCH_LINE( sheetBottomLeft, SCH_LAYER_ID::LAYER_NOTES );
-        lineBottom->SetEndPoint( bottomRight );
-        lineBottom->SetLineWidth( elem.lineWidth );
-        lineBottom->SetLineStyle( PLOT_DASH_TYPE::SOLID );
-        lineBottom->SetFlags( IS_NEW );
-        m_currentSheet->GetScreen()->Append( lineBottom );
+        rect->SetPosition( sheetTopRight );
+        rect->SetEnd( sheetBottomLeft );
+        SetSchShapeFillAndColor( elem, rect );
+        rect->SetFlags( IS_NEW );
 
-        SCH_LINE* lineRight = new SCH_LINE( sheetTopRight, SCH_LAYER_ID::LAYER_NOTES );
-        lineRight->SetEndPoint( bottomRight );
-        lineRight->SetLineWidth( elem.lineWidth );
-        lineRight->SetLineStyle( PLOT_DASH_TYPE::SOLID );
-        lineRight->SetFlags( IS_NEW );
-        m_currentSheet->GetScreen()->Append( lineRight );
-
-        SCH_LINE* lineLeft = new SCH_LINE( sheetBottomLeft, SCH_LAYER_ID::LAYER_NOTES );
-        lineLeft->SetEndPoint( topLeft );
-        lineLeft->SetLineWidth( elem.lineWidth );
-        lineLeft->SetLineStyle( PLOT_DASH_TYPE::SOLID );
-        lineLeft->SetFlags( IS_NEW );
-        m_currentSheet->GetScreen()->Append( lineLeft );
+        m_currentSheet->GetScreen()->Append( rect );
     }
     else
     {
@@ -1303,14 +1297,7 @@ void SCH_ALTIUM_PLUGIN::ParseRoundRectangle( const std::map<wxString, wxString>&
 
         rect->SetPosition( GetRelativePosition( elem.topRight + m_sheetOffset, symbol ) );
         rect->SetEnd( GetRelativePosition( elem.bottomLeft + m_sheetOffset, symbol ) );
-        rect->SetStroke( STROKE_PARAMS( elem.lineWidth, PLOT_DASH_TYPE::SOLID ) );
-
-        if( !elem.isSolid )
-            rect->SetFillMode( FILL_T::NO_FILL );
-        else if( elem.color == elem.areacolor )
-            rect->SetFillMode( FILL_T::FILLED_SHAPE );
-        else
-            rect->SetFillMode( FILL_T::FILLED_WITH_BG_BODYCOLOR );
+        SetLibShapeFillAndColor( elem, rect );
     }
 }
 
@@ -1321,8 +1308,34 @@ void SCH_ALTIUM_PLUGIN::ParseArc( const std::map<wxString, wxString>& aPropertie
 
     if( elem.ownerpartid == ALTIUM_COMPONENT_NONE )
     {
-        m_reporter->Report( _( "Arcs on schematic not currently supported." ),
-                            RPT_SEVERITY_ERROR );
+        if( elem.startAngle == 0 && ( elem.endAngle == 0 || elem.endAngle == 360 ) )
+        {
+            SCH_SHAPE* circle = new SCH_SHAPE( SHAPE_T::CIRCLE, SCH_LAYER_ID::LAYER_NOTES );
+
+            circle->SetPosition( elem.center + m_sheetOffset );
+            circle->SetEnd( circle->GetPosition() + wxPoint( elem.radius, 0 ) );
+            circle->SetStroke( STROKE_PARAMS( elem.lineWidth, PLOT_DASH_TYPE::SOLID ) );
+
+            m_currentSheet->GetScreen()->Append( circle );
+        }
+        else
+        {
+            SCH_SHAPE* arc = new SCH_SHAPE( SHAPE_T::ARC, SCH_LAYER_ID::LAYER_NOTES );
+
+            double includedAngle = elem.endAngle - elem.startAngle;
+            double startAngle = DEG2RAD( elem.endAngle );
+
+            wxPoint startOffset = wxPoint( KiROUND( std::cos( startAngle ) * elem.radius ),
+                                           -KiROUND( std::sin( startAngle ) * elem.radius ) );
+
+            arc->SetCenter( elem.center + m_sheetOffset );
+            arc->SetStart( elem.center + startOffset + m_sheetOffset );
+            arc->SetArcAngleAndEnd( NormalizeAngleDegreesPos( includedAngle ) * 10.0, true );
+
+            arc->SetStroke( STROKE_PARAMS( elem.lineWidth, PLOT_DASH_TYPE::SOLID ) );
+
+            m_currentSheet->GetScreen()->Append( arc );
+        }
     }
     else
     {
@@ -1386,8 +1399,7 @@ void SCH_ALTIUM_PLUGIN::ParseLine( const std::map<wxString, wxString>& aProperti
         // close polygon
         SCH_LINE* line = new SCH_LINE( elem.point1 + m_sheetOffset, SCH_LAYER_ID::LAYER_NOTES );
         line->SetEndPoint( elem.point2 + m_sheetOffset );
-        line->SetLineWidth( elem.lineWidth );
-        line->SetLineStyle( PLOT_DASH_TYPE::SOLID ); // TODO?
+        line->SetStroke( STROKE_PARAMS( elem.lineWidth, PLOT_DASH_TYPE::SOLID ) ); // TODO?
 
         line->SetFlags( IS_NEW );
         m_currentSheet->GetScreen()->Append( line );
@@ -1434,34 +1446,14 @@ void SCH_ALTIUM_PLUGIN::ParseRectangle( const std::map<wxString, wxString>& aPro
         const wxPoint topLeft     = { sheetBottomLeft.x, sheetTopRight.y };
         const wxPoint bottomRight = { sheetTopRight.x, sheetBottomLeft.y };
 
-        // TODO: we cannot fill this rectangle, only draw it for now
-        SCH_LINE* lineTop = new SCH_LINE( sheetTopRight, SCH_LAYER_ID::LAYER_NOTES );
-        lineTop->SetEndPoint( topLeft );
-        lineTop->SetLineWidth( elem.lineWidth );
-        lineTop->SetLineStyle( PLOT_DASH_TYPE::SOLID );
-        lineTop->SetFlags( IS_NEW );
-        m_currentSheet->GetScreen()->Append( lineTop );
+        SCH_SHAPE* rect = new SCH_SHAPE( SHAPE_T::RECT, SCH_LAYER_ID::LAYER_NOTES );
 
-        SCH_LINE* lineBottom = new SCH_LINE( sheetBottomLeft, SCH_LAYER_ID::LAYER_NOTES );
-        lineBottom->SetEndPoint( bottomRight );
-        lineBottom->SetLineWidth( elem.lineWidth );
-        lineBottom->SetLineStyle( PLOT_DASH_TYPE::SOLID );
-        lineBottom->SetFlags( IS_NEW );
-        m_currentSheet->GetScreen()->Append( lineBottom );
+        rect->SetPosition( sheetTopRight );
+        rect->SetEnd( sheetBottomLeft );
+        SetSchShapeFillAndColor( elem, rect );
+        rect->SetFlags( IS_NEW );
 
-        SCH_LINE* lineRight = new SCH_LINE( sheetTopRight, SCH_LAYER_ID::LAYER_NOTES );
-        lineRight->SetEndPoint( bottomRight );
-        lineRight->SetLineWidth( elem.lineWidth );
-        lineRight->SetLineStyle( PLOT_DASH_TYPE::SOLID );
-        lineRight->SetFlags( IS_NEW );
-        m_currentSheet->GetScreen()->Append( lineRight );
-
-        SCH_LINE* lineLeft = new SCH_LINE( sheetBottomLeft, SCH_LAYER_ID::LAYER_NOTES );
-        lineLeft->SetEndPoint( topLeft );
-        lineLeft->SetLineWidth( elem.lineWidth );
-        lineLeft->SetLineStyle( PLOT_DASH_TYPE::SOLID );
-        lineLeft->SetFlags( IS_NEW );
-        m_currentSheet->GetScreen()->Append( lineLeft );
+        m_currentSheet->GetScreen()->Append( rect );
     }
     else
     {
@@ -1487,14 +1479,7 @@ void SCH_ALTIUM_PLUGIN::ParseRectangle( const std::map<wxString, wxString>& aPro
 
         rect->SetPosition( GetRelativePosition( sheetTopRight, symbol ) );
         rect->SetEnd( GetRelativePosition( sheetBottomLeft, symbol ) );
-        rect->SetStroke( STROKE_PARAMS( elem.lineWidth, PLOT_DASH_TYPE::SOLID ) );
-
-        if( !elem.isSolid )
-            rect->SetFillMode( FILL_T::NO_FILL );
-        else if( elem.color == elem.areacolor )
-            rect->SetFillMode( FILL_T::FILLED_SHAPE );
-        else
-            rect->SetFillMode( FILL_T::FILLED_WITH_BG_BODYCOLOR );
+        SetLibShapeFillAndColor( elem, rect );
     }
 }
 
@@ -1873,23 +1858,23 @@ void SCH_ALTIUM_PLUGIN::ParsePowerPort( const std::map<wxString, wxString>& aPro
     {
     case ASCH_RECORD_ORIENTATION::RIGHTWARDS:
         symbol->SetOrientation( SYMBOL_ORIENTATION_T::SYM_ORIENT_90 );
-        valueField->SetTextAngle( TEXT_ANGLE_VERT );
-        valueField->SetHorizJustify( EDA_TEXT_HJUSTIFY_T::GR_TEXT_HJUSTIFY_RIGHT );
+        valueField->SetTextAngle( EDA_ANGLE::VERTICAL );
+        valueField->SetHorizJustify( GR_TEXT_H_ALIGN_RIGHT );
         break;
     case ASCH_RECORD_ORIENTATION::UPWARDS:
         symbol->SetOrientation( SYMBOL_ORIENTATION_T::SYM_ORIENT_180 );
-        valueField->SetTextAngle( TEXT_ANGLE_HORIZ );
-        valueField->SetHorizJustify( EDA_TEXT_HJUSTIFY_T::GR_TEXT_HJUSTIFY_CENTER );
+        valueField->SetTextAngle( EDA_ANGLE::HORIZONTAL );
+        valueField->SetHorizJustify( GR_TEXT_H_ALIGN_CENTER );
         break;
     case ASCH_RECORD_ORIENTATION::LEFTWARDS:
         symbol->SetOrientation( SYMBOL_ORIENTATION_T::SYM_ORIENT_270 );
-        valueField->SetTextAngle( TEXT_ANGLE_VERT );
-        valueField->SetHorizJustify( EDA_TEXT_HJUSTIFY_T::GR_TEXT_HJUSTIFY_RIGHT );
+        valueField->SetTextAngle( EDA_ANGLE::VERTICAL );
+        valueField->SetHorizJustify( GR_TEXT_H_ALIGN_RIGHT );
         break;
     case ASCH_RECORD_ORIENTATION::DOWNWARDS:
         symbol->SetOrientation( SYMBOL_ORIENTATION_T::SYM_ORIENT_0 );
-        valueField->SetTextAngle( TEXT_ANGLE_HORIZ );
-        valueField->SetHorizJustify( EDA_TEXT_HJUSTIFY_T::GR_TEXT_HJUSTIFY_CENTER );
+        valueField->SetTextAngle( EDA_ANGLE::HORIZONTAL );
+        valueField->SetHorizJustify( GR_TEXT_H_ALIGN_CENTER );
         break;
     default:
         m_reporter->Report( _( "Pin has unexpected orientation." ), RPT_SEVERITY_WARNING );

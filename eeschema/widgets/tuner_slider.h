@@ -49,9 +49,9 @@ public:
         return m_name->GetLabel();
     }
 
-    const wxString& GetSpiceName() const
+    const std::pair<wxString, bool>& GetSpiceTuningCommand() const
     {
-        return m_spiceName;
+        return m_spiceTuningCommand;
     }
 
     const SPICE_VALUE& GetValue() const
@@ -85,6 +85,7 @@ private:
     void onClose( wxCommandEvent& event ) override;
     void onSave( wxCommandEvent& event ) override;
     void onSliderChanged( wxScrollEvent& event ) override;
+    void onCurveChoice( wxCommandEvent& event ) override;
 
     void onMaxKillFocus( wxFocusEvent& event ) override;
     void onValueKillFocus( wxFocusEvent& event ) override;
@@ -96,7 +97,7 @@ private:
 
     void onSimTimer( wxTimerEvent& event );
 
-    wxString m_spiceName;
+    std::pair<wxString, bool> m_spiceTuningCommand;
 
     ///< Timer that restarts the simulation after the slider value has changed
     wxTimer m_simTimer;

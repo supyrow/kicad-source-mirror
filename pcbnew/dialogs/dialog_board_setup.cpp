@@ -78,7 +78,7 @@ DIALOG_BOARD_SETUP::DIALOG_BOARD_SETUP( PCB_EDIT_FRAME* aFrame ) :
      * WARNING: If you change page names you MUST update calls to ShowBoardSetupDialog().
      */
 
-    m_treebook->AddPage( new wxPanel( this ),  _( "Board Stackup" ) );
+    m_treebook->AddPage( new wxPanel( GetTreebook() ), _( "Board Stackup" ) );
 
     m_currentPage = -1;
 
@@ -92,18 +92,19 @@ DIALOG_BOARD_SETUP::DIALOG_BOARD_SETUP( PCB_EDIT_FRAME* aFrame ) :
     m_layerSetupPage = 1;
 
     m_treebook->AddSubPage( m_physicalStackup,  _( "Physical Stackup" ) );
+
     // Change this value if m_physicalStackup is not the page 2 of m_treebook
     m_physicalStackupPage = 2;  // The page number (from 0) to select the m_physicalStackup panel
 
     m_treebook->AddSubPage( m_boardFinish, _( "Board Finish" ) );
     m_treebook->AddSubPage( m_maskAndPaste,  _( "Solder Mask/Paste" ) );
 
-    m_treebook->AddPage( new wxPanel( this ),  _( "Text & Graphics" ) );
+    m_treebook->AddPage( new wxPanel( GetTreebook() ), _( "Text & Graphics" ) );
     m_treebook->AddSubPage( m_textAndGraphics,  _( "Defaults" ) );
     m_treebook->AddSubPage( m_formatting, _( "Fomatting" ) );
     m_treebook->AddSubPage( m_textVars, _( "Text Variables" ) );
 
-    m_treebook->AddPage( new wxPanel( this ),  _( "Design Rules" ) );
+    m_treebook->AddPage( new wxPanel( GetTreebook() ), _( "Design Rules" ) );
     m_treebook->AddSubPage( m_constraints,  _( "Constraints" ) );
     m_treebook->AddSubPage( m_tracksAndVias, _( "Pre-defined Sizes" ) );
     m_treebook->AddSubPage( m_netclasses,  _( "Net Classes" ) );
@@ -118,11 +119,6 @@ DIALOG_BOARD_SETUP::DIALOG_BOARD_SETUP( PCB_EDIT_FRAME* aFrame ) :
 
     m_treebook->SetMinSize( wxSize( -1, 480 ) );
 
-	// Connect Events
-	m_treebook->Connect( wxEVT_TREEBOOK_PAGE_CHANGED,
-                         wxBookCtrlEventHandler( DIALOG_BOARD_SETUP::OnPageChange ), nullptr,
-                         this );
-
     finishDialogSettings();
 
     if( Prj().IsReadOnly() )
@@ -130,20 +126,23 @@ DIALOG_BOARD_SETUP::DIALOG_BOARD_SETUP( PCB_EDIT_FRAME* aFrame ) :
         m_infoBar->ShowMessage( _( "Project is missing or read-only. Some settings will not "
                                    "be editable." ), wxICON_WARNING );
     }
+
+    wxBookCtrlEvent evt( wxEVT_TREEBOOK_PAGE_CHANGED, wxID_ANY, 0 );
+
+    wxQueueEvent( m_treebook, evt.Clone() );
 }
 
 
 DIALOG_BOARD_SETUP::~DIALOG_BOARD_SETUP()
 {
-	m_treebook->Disconnect( wxEVT_TREEBOOK_PAGE_CHANGED,
-                            wxBookCtrlEventHandler( DIALOG_BOARD_SETUP::OnPageChange ), nullptr,
-                            this );
 }
 
 
-void DIALOG_BOARD_SETUP::OnPageChange( wxBookCtrlEvent& event )
+void DIALOG_BOARD_SETUP::OnPageChanged( wxBookCtrlEvent& aEvent )
 {
-    int page = event.GetSelection();
+    PAGED_DIALOG::OnPageChanged( aEvent );
+
+    int page = aEvent.GetSelection();
 
     // Ensure layer page always gets updated even if we aren't moving towards it
     if( m_currentPage == m_physicalStackupPage )
@@ -155,24 +154,10 @@ void DIALOG_BOARD_SETUP::OnPageChange( wxBookCtrlEvent& event )
         KIUI::Disable( m_treebook->GetPage( page ) );
 
     m_currentPage = page;
-
-#ifdef __WXMAC__
-    // Work around an OSX bug where the wxGrid children don't get placed correctly until
-    // the first resize event
-    if( m_macHack[ page ] )
-    {
-        wxSize pageSize = m_treebook->GetPage( page )->GetSize();
-        pageSize.x -= 1;
-        pageSize.y += 2;
-
-        m_treebook->GetPage( page )->SetSize( pageSize );
-        m_macHack[ page ] = false;
-    }
-#endif
 }
 
 
-void DIALOG_BOARD_SETUP::OnAuxiliaryAction( wxCommandEvent& event )
+void DIALOG_BOARD_SETUP::OnAuxiliaryAction( wxCommandEvent& aEvent )
 {
     DIALOG_IMPORT_SETTINGS importDlg( this, m_frame );
 
@@ -243,7 +228,6 @@ void DIALOG_BOARD_SETUP::OnAuxiliaryAction( wxCommandEvent& event )
 
         return;
     }
-
 
     if( okToProceed )
     {
