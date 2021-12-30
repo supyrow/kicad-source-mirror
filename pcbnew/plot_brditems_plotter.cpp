@@ -62,7 +62,6 @@
 #include <zone.h>
 
 #include <wx/debug.h>                         // for wxASSERT_MSG
-#include <wx/gdicmn.h>
 
 
 COLOR4D BRDITEMS_PLOTTER::getColor( int aLayer ) const
@@ -244,16 +243,16 @@ void BRDITEMS_PLOTTER::PlotPad( const PAD* aPad, const COLOR4D& aColor, OUTLINE_
         // Build the pad polygon in coordinates relative to the pad
         // (i.e. for a pad at pos 0,0, rot 0.0). Needed to use aperture macros,
         // to be able to create a pattern common to all trapezoid pads having the same shape
-        wxPoint coord[4];
+        VECTOR2I coord[4];
 
         // Order is lower left, lower right, upper right, upper left.
-        wxSize half_size = aPad->GetSize()/2;
-        wxSize trap_delta = aPad->GetDelta()/2;
+        VECTOR2I half_size = aPad->GetSize() / 2;
+        VECTOR2I trap_delta = aPad->GetDelta() / 2;
 
-        coord[0] = wxPoint( -half_size.x - trap_delta.y,  half_size.y + trap_delta.x );
-        coord[1] = wxPoint( half_size.x + trap_delta.y,  half_size.y - trap_delta.x );
-        coord[2] = wxPoint( half_size.x - trap_delta.y, -half_size.y + trap_delta.x );
-        coord[3] = wxPoint( -half_size.x + trap_delta.y, -half_size.y - trap_delta.x );
+        coord[0] = VECTOR2I( -half_size.x - trap_delta.y, half_size.y + trap_delta.x );
+        coord[1] = VECTOR2I( half_size.x + trap_delta.y, half_size.y - trap_delta.x );
+        coord[2] = VECTOR2I( half_size.x - trap_delta.y, -half_size.y + trap_delta.x );
+        coord[3] = VECTOR2I( -half_size.x + trap_delta.y, -half_size.y - trap_delta.x );
 
         m_plotter->FlashPadTrapez( shape_pos, coord, aPad->GetOrientation(), aPlotMode,
                                    &gbr_metadata );
@@ -377,7 +376,7 @@ void BRDITEMS_PLOTTER::PlotBoardGraphicItems()
 }
 
 
-void BRDITEMS_PLOTTER::PlotFootprintTextItem( const FP_TEXT* aTextMod, const COLOR4D& aColor )
+void BRDITEMS_PLOTTER::PlotFootprintTextItem( const FP_TEXT* aText, const COLOR4D& aColor )
 {
     COLOR4D color = aColor;
 
@@ -387,11 +386,11 @@ void BRDITEMS_PLOTTER::PlotFootprintTextItem( const FP_TEXT* aTextMod, const COL
     m_plotter->SetColor( color );
 
     // calculate some text parameters :
-    wxSize  size      = aTextMod->GetTextSize();
-    wxPoint pos       = aTextMod->GetTextPos();
-    int     thickness = aTextMod->GetEffectiveTextPenWidth();
+    wxSize  size      = aText->GetTextSize();
+    wxPoint pos       = aText->GetTextPos();
+    int     thickness = aText->GetEffectiveTextPenWidth();
 
-    if( aTextMod->IsMirrored() )
+    if( aText->IsMirrored() )
         size.x = -size.x;  // Text is mirrored
 
     // Non bold texts thickness is clamped at 1/6 char size by the low level draw function.
@@ -402,18 +401,18 @@ void BRDITEMS_PLOTTER::PlotFootprintTextItem( const FP_TEXT* aTextMod, const COL
 
     GBR_METADATA gbr_metadata;
 
-    if( IsCopperLayer( aTextMod->GetLayer() ) )
+    if( IsCopperLayer( aText->GetLayer() ) )
         gbr_metadata.SetApertureAttrib( GBR_APERTURE_METADATA::GBR_APERTURE_ATTRIB_NONCONDUCTOR );
 
     gbr_metadata.SetNetAttribType( GBR_NETLIST_METADATA::GBR_NETINFO_CMP );
-    const FOOTPRINT* parent = static_cast<const FOOTPRINT*> ( aTextMod->GetParent() );
+    const FOOTPRINT* parent = static_cast<const FOOTPRINT*> ( aText->GetParent() );
     gbr_metadata.SetCmpReference( parent->GetReference() );
 
     m_plotter->SetCurrentLineWidth( thickness );
 
-    m_plotter->Text( pos, aColor, aTextMod->GetShownText(), aTextMod->GetDrawRotation(), size,
-                     aTextMod->GetHorizJustify(), aTextMod->GetVertJustify(), thickness,
-                     aTextMod->IsItalic(), allow_bold, false, &gbr_metadata );
+    m_plotter->Text( pos, aColor, aText->GetShownText(), aText->GetDrawRotation(), size,
+                     aText->GetHorizJustify(), aText->GetVertJustify(), thickness,
+                     aText->IsItalic(), allow_bold, false, aText->GetFont(), &gbr_metadata );
 }
 
 
@@ -783,14 +782,16 @@ void BRDITEMS_PLOTTER::PlotPcbText( const PCB_TEXT* aText )
             wxString& txt =  strings_list.Item( ii );
             m_plotter->Text( positions[ii], color, txt, aText->GetTextAngle(), size,
                              aText->GetHorizJustify(), aText->GetVertJustify(), thickness,
-                             aText->IsItalic(), allow_bold, false, &gbr_metadata );
+                             aText->IsItalic(), allow_bold, false, aText->GetFont(),
+                             &gbr_metadata );
         }
     }
     else
     {
         m_plotter->Text( pos, color, shownText, aText->GetTextAngle(), size,
                          aText->GetHorizJustify(), aText->GetVertJustify(), thickness,
-                         aText->IsItalic(), allow_bold, false, &gbr_metadata );
+                         aText->IsItalic(), allow_bold, false, aText->GetFont(),
+                         &gbr_metadata );
     }
 }
 

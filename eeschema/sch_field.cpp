@@ -252,7 +252,7 @@ void SCH_FIELD::Print( const RENDER_SETTINGS* aSettings, const wxPoint& aOffset 
     textpos = GetBoundingBox().Centre() + aOffset;
 
     GRText( DC, textpos, color, GetShownText(), orient, GetTextSize(), GR_TEXT_H_ALIGN_CENTER,
-            GR_TEXT_V_ALIGN_CENTER, penWidth, IsItalic(), IsBold() );
+            GR_TEXT_V_ALIGN_CENTER, penWidth, IsItalic(), IsBold(), GetFont() );
 }
 
 
@@ -325,8 +325,8 @@ const EDA_RECT SCH_FIELD::GetBoundingBox() const
     wxPoint pos = GetTextPos() - origin;
     wxPoint begin = rect.GetOrigin() - origin;
     wxPoint end = rect.GetEnd() - origin;
-    RotatePoint( &begin, pos, GetTextAngle().AsTenthsOfADegree() );
-    RotatePoint( &end, pos, GetTextAngle().AsTenthsOfADegree() );
+    RotatePoint( &begin, pos, GetTextAngle() );
+    RotatePoint( &end, pos, GetTextAngle() );
 
     // Now, apply the symbol transform (mirror/rot)
     TRANSFORM transform;

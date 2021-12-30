@@ -335,7 +335,7 @@ void LIB_TEXT::print( const RENDER_SETTINGS* aSettings, const wxPoint& aOffset, 
     txtpos = aTransform.TransformCoordinate( txtpos ) + aOffset;
 
     GRText( DC, txtpos, color, GetShownText(), orient, GetTextSize(), GR_TEXT_H_ALIGN_CENTER,
-            GR_TEXT_V_ALIGN_CENTER, penWidth, IsItalic(), IsBold() );
+            GR_TEXT_V_ALIGN_CENTER, penWidth, IsItalic(), IsBold(), GetFont() );
 }
 
 
@@ -385,8 +385,8 @@ const EDA_RECT LIB_TEXT::GetBoundingBox() const
     wxPoint orig = rect.GetOrigin();
     wxPoint end  = rect.GetEnd();
 
-    RotatePoint( &orig, GetTextPos(), -GetTextAngle().AsTenthsOfADegree() );
-    RotatePoint( &end,  GetTextPos(), -GetTextAngle().AsTenthsOfADegree() );
+    RotatePoint( &orig, GetTextPos(), -GetTextAngle() );
+    RotatePoint( &end,  GetTextPos(), -GetTextAngle() );
 
     rect.SetOrigin( orig );
     rect.SetEnd( end );

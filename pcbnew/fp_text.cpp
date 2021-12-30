@@ -89,7 +89,7 @@ bool FP_TEXT::TextHitTest( const wxPoint& aPoint, int aAccuracy ) const
 
     rect.Inflate( aAccuracy );
 
-    RotatePoint( &location, GetTextPos(), -GetDrawRotation().AsTenthsOfADegree() );
+    RotatePoint( &location, GetTextPos(), -GetDrawRotation() );
 
     return rect.Contains( location );
 }
@@ -476,7 +476,7 @@ void FP_TEXT::TransformTextShapeWithClearanceToPolygon( SHAPE_POLY_SET& aCornerB
         size.x = -size.x;
 
     GRText( nullptr, GetTextPos(), BLACK, GetShownText(), GetDrawRotation(), size,
-            GetHorizJustify(), GetVertJustify(), penWidth, IsItalic(), IsBold(),
+            GetHorizJustify(), GetVertJustify(), penWidth, IsItalic(), IsBold(), GetFont(),
             addTextSegmToPoly, &prms );
 }
 

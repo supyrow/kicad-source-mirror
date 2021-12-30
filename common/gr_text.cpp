@@ -32,8 +32,8 @@
 #include <gr_basic.h>
 #include <plotters/plotter.h>
 #include <trigo.h>
-#include <base_screen.h>
 #include <math/util.h>          // for KiROUND
+#include <font/font.h>
 
 #include <basic_gal.h>
 
@@ -81,7 +81,7 @@ float Clamp_Text_PenSize( float aPenSize, int aSize, bool aBold )
 }
 
 
-int Clamp_Text_PenSize( int aPenSize, const wxSize& aSize, bool aBold )
+int Clamp_Text_PenSize( int aPenSize, const VECTOR2I& aSize, bool aBold )
 {
     int size = std::min( std::abs( aSize.x ), std::abs( aSize.y ) );
 
@@ -89,7 +89,7 @@ int Clamp_Text_PenSize( int aPenSize, const wxSize& aSize, bool aBold )
 }
 
 
-int GraphicTextWidth( const wxString& aText, const wxSize& aSize, bool aItalic, bool aBold )
+int GraphicTextWidth( const wxString& aText, const VECTOR2I& aSize, bool aItalic, bool aBold )
 {
     basic_gal.SetFontItalic( aItalic );
     basic_gal.SetFontBold( aBold );
@@ -117,6 +117,7 @@ int GraphicTextWidth( const wxString& aText, const wxSize& aSize, bool aItalic, 
  *      Use a value min(aSize.x, aSize.y) / 5 for a bold text.
  *  @param aItalic is the true to simulate an italic font.
  *  @param aBold use true to use a bold font. Useful only with default width value (aWidth = 0).
+ *  @param aFont is the font to use, or nullptr for the KiCad stroke font
  *  @param aCallback( int x0, int y0, int xf, int yf, void* aData ) is a function called
  *                  (if non null) to draw each segment. used to draw 3D texts or for plotting.
  *                  NULL for normal drawings
@@ -125,10 +126,10 @@ int GraphicTextWidth( const wxString& aText, const wxSize& aSize, bool aItalic, 
  *  @param aPlotter is a PLOTTER instance, when this function is used to plot
  *                  the text. NULL to draw this text.
  */
-void GRText( wxDC* aDC, const wxPoint& aPos, const COLOR4D& aColor, const wxString& aText,
-             const EDA_ANGLE& aOrient, const wxSize& aSize, enum GR_TEXT_H_ALIGN_T aH_justify,
+void GRText( wxDC* aDC, const VECTOR2I& aPos, const COLOR4D& aColor, const wxString& aText,
+             const EDA_ANGLE& aOrient, const VECTOR2I& aSize, enum GR_TEXT_H_ALIGN_T aH_justify,
              enum GR_TEXT_V_ALIGN_T aV_justify, int aWidth, bool aItalic, bool aBold,
-             void (* aCallback)( int x0, int y0, int xf, int yf, void* aData ),
+             KIFONT::FONT* aFont, void (* aCallback)( int x0, int y0, int xf, int yf, void* aData ),
              void* aCallbackData, PLOTTER* aPlotter )
 {
     bool fill_mode = true;
@@ -151,7 +152,7 @@ void GRText( wxDC* aDC, const wxPoint& aPos, const COLOR4D& aColor, const wxStri
     dummy.SetHorizJustify( aH_justify );
     dummy.SetVertJustify( aV_justify );
 
-    wxSize size = aSize;
+    wxSize size = wxSize( aSize.x, aSize.y );
     dummy.SetMirrored( size.x < 0 );
 
     if( size.x < 0 )

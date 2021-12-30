@@ -1427,7 +1427,7 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadSymDefIntoLibrary( const SYMDEF_ID& aSymdef
                 EDA_RECT bbox = libtext->GetTextBox( ii, true );
                 wxPoint  linePos = { bbox.GetLeft(), -bbox.GetBottom() };
 
-                RotatePoint( &linePos, libtext->GetTextPos(), -libtext->GetTextAngle().AsTenthsOfADegree() );
+                RotatePoint( &linePos, libtext->GetTextPos(), -libtext->GetTextAngle() );
 
                 LIB_TEXT* line = static_cast<LIB_TEXT*>( libtext->Clone() );
                 line->SetText( strings[ii] );
@@ -1813,9 +1813,10 @@ SCH_SYMBOL* CADSTAR_SCH_ARCHIVE_LOADER::loadSchematicSymbol( const SYMBOL& aCads
 }
 
 
-void CADSTAR_SCH_ARCHIVE_LOADER::loadSymbolFieldAttribute(
-        const ATTRIBUTE_LOCATION& aCadstarAttrLoc, const double& aComponentOrientationDeciDeg,
-        bool aIsMirrored, SCH_FIELD* aKiCadField )
+void CADSTAR_SCH_ARCHIVE_LOADER::loadSymbolFieldAttribute( const ATTRIBUTE_LOCATION& aCadstarAttrLoc,
+                                                           double aComponentOrientationDeciDeg,
+                                                           bool aIsMirrored,
+                                                           SCH_FIELD* aKiCadField )
 {
     aKiCadField->SetPosition( getKiCadPoint( aCadstarAttrLoc.Position ) );
     aKiCadField->SetVisible( true );
@@ -2914,19 +2915,19 @@ void CADSTAR_SCH_ARCHIVE_LOADER::fixUpLibraryPins( LIB_SYMBOL* aSymbolToFix, int
     for( auto& pin : pins )
     {
         auto setPinOrientation =
-            [&]( double aAngleRad )
-            {
-                int oDeg = (int) NormalizeAngle180( RAD2DEG( aAngleRad ) );
+                [&]( double aAngleRad )
+                {
+                    int oDeg = (int) NormalizeAngle180( RAD2DEG( aAngleRad ) );
 
-                if( oDeg >= -45 && oDeg <= 45 )
-                    pin->SetOrientation( 'R' ); // 0 degrees
-                else if( oDeg >= 45 && oDeg <= 135 )
-                    pin->SetOrientation( 'U' ); // 90 degrees
-                else if( oDeg >= 135 || oDeg <= -135 )
-                    pin->SetOrientation( 'L' ); // 180 degrees
-                else
-                    pin->SetOrientation( 'D' ); // -90 degrees
-            };
+                    if( oDeg >= -45 && oDeg <= 45 )
+                        pin->SetOrientation( 'R' ); // 0 degrees
+                    else if( oDeg >= 45 && oDeg <= 135 )
+                        pin->SetOrientation( 'U' ); // 90 degrees
+                    else if( oDeg >= 135 || oDeg <= -135 )
+                        pin->SetOrientation( 'L' ); // 180 degrees
+                    else
+                        pin->SetOrientation( 'D' ); // -90 degrees
+                };
 
         if( uniqueSegments.count( pin->GetPosition() ) )
         {
@@ -2946,8 +2947,8 @@ void CADSTAR_SCH_ARCHIVE_LOADER::fixUpLibraryPins( LIB_SYMBOL* aSymbolToFix, int
 }
 
 
-std::pair<wxPoint, wxSize> CADSTAR_SCH_ARCHIVE_LOADER::getFigureExtentsKiCad(
-        const FIGURE& aCadstarFigure )
+std::pair<wxPoint, wxSize>
+CADSTAR_SCH_ARCHIVE_LOADER::getFigureExtentsKiCad( const FIGURE& aCadstarFigure )
 {
     wxPoint upperLeft( Assignments.Settings.DesignLimit.x, 0 );
     wxPoint lowerRight( 0, Assignments.Settings.DesignLimit.y );

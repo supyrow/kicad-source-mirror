@@ -121,7 +121,7 @@ void LIB_FIELD::print( const RENDER_SETTINGS* aSettings, const wxPoint& aOffset,
     wxString text = aData ? *static_cast<wxString*>( aData ) : GetText();
 
     GRText( DC, text_pos, color, text, GetTextAngle(), GetTextSize(), GetHorizJustify(),
-            GetVertJustify(), penWidth, IsItalic(), IsBold() );
+            GetVertJustify(), penWidth, IsItalic(), IsBold(), GetFont() );
 }
 
 
@@ -352,8 +352,8 @@ const EDA_RECT LIB_FIELD::GetBoundingBox() const
     wxPoint orig = rect.GetOrigin();
     wxPoint end = rect.GetEnd();
 
-    RotatePoint( &orig, GetTextPos(), -GetTextAngle().AsTenthsOfADegree() );
-    RotatePoint( &end, GetTextPos(), -GetTextAngle().AsTenthsOfADegree() );
+    RotatePoint( &orig, GetTextPos(), -GetTextAngle() );
+    RotatePoint( &end, GetTextPos(), -GetTextAngle() );
 
     rect.SetOrigin( orig );
     rect.SetEnd( end );
