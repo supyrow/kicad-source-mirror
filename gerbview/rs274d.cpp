@@ -99,7 +99,7 @@
 void fillFlashedGBRITEM(  GERBER_DRAW_ITEM* aGbrItem,
                           APERTURE_T        aAperture,
                           int               Dcode_index,
-                          const wxPoint&    aPos,
+                          const VECTOR2I&   aPos,
                           wxSize            aSize,
                           bool              aLayerNegative )
 {
@@ -152,8 +152,8 @@ void fillFlashedGBRITEM(  GERBER_DRAW_ITEM* aGbrItem,
  */
 void fillLineGBRITEM(  GERBER_DRAW_ITEM* aGbrItem,
                        int               Dcode_index,
-                       const wxPoint&    aStart,
-                       const wxPoint&    aEnd,
+                       const VECTOR2I&   aStart,
+                       const VECTOR2I&   aEnd,
                        wxSize            aPenSize,
                        bool              aLayerNegative )
 {
@@ -199,11 +199,11 @@ void fillLineGBRITEM(  GERBER_DRAW_ITEM* aGbrItem,
  *                      false when arc is inside one quadrant
  * @param aLayerNegative set to true if the current layer is negative.
  */
-void fillArcGBRITEM( GERBER_DRAW_ITEM* aGbrItem, int Dcode_index, const wxPoint& aStart,
-                     const wxPoint& aEnd, const wxPoint& aRelCenter, wxSize aPenSize,
-                     bool aClockwise, bool aMultiquadrant, bool aLayerNegative  )
+void fillArcGBRITEM( GERBER_DRAW_ITEM* aGbrItem, int Dcode_index, const VECTOR2I& aStart,
+                     const VECTOR2I& aEnd, const VECTOR2I& aRelCenter, wxSize aPenSize,
+                     bool aClockwise, bool aMultiquadrant, bool aLayerNegative )
 {
-    wxPoint center, delta;
+    VECTOR2I center, delta;
 
     aGbrItem->m_Shape = GBR_ARC;
     aGbrItem->m_Size  = aPenSize;
@@ -325,8 +325,8 @@ void fillArcGBRITEM( GERBER_DRAW_ITEM* aGbrItem, int Dcode_index, const wxPoint&
  *                       false when arc is inside one quadrant
  * @param aLayerNegative set to true if the current layer is negative
  */
-static void fillArcPOLY( GERBER_DRAW_ITEM* aGbrItem, const wxPoint& aStart, const wxPoint& aEnd,
-                          const wxPoint& rel_center, bool aClockwise, bool aMultiquadrant,
+static void fillArcPOLY( GERBER_DRAW_ITEM* aGbrItem, const VECTOR2I& aStart, const VECTOR2I& aEnd,
+                         const VECTOR2I& rel_center, bool aClockwise, bool aMultiquadrant,
                           bool aLayerNegative )
 {
     /* in order to calculate arc parameters, we use fillArcGBRITEM
@@ -341,12 +341,12 @@ static void fillArcPOLY( GERBER_DRAW_ITEM* aGbrItem, const wxPoint& aStart, cons
 
     aGbrItem->SetNetAttributes( aGbrItem->m_GerberImageFile->m_NetAttributeDict );
 
-    wxPoint   center;
+    VECTOR2I center;
     center = dummyGbrItem.m_ArcCentre;
 
     // Calculate coordinates relative to arc center;
-    wxPoint start = dummyGbrItem.m_Start - center;
-    wxPoint end   = dummyGbrItem.m_End - center;
+    VECTOR2I start = dummyGbrItem.m_Start - center;
+    VECTOR2I end = dummyGbrItem.m_End - center;
 
     /* Calculate angle arc
      * angles are in 0.1 deg
@@ -379,7 +379,7 @@ static void fillArcPOLY( GERBER_DRAW_ITEM* aGbrItem, const wxPoint& aStart, cons
     for( int ii = 0; ii <= count; ii++ )
     {
         double rot;
-        wxPoint end_arc = start;
+        VECTOR2I end_arc = start;
 
         if( aClockwise )
             rot = ii * increment_angle;              // rot is in 0.1 deg
@@ -387,11 +387,11 @@ static void fillArcPOLY( GERBER_DRAW_ITEM* aGbrItem, const wxPoint& aStart, cons
             rot = ( count - ii ) * increment_angle;  // rot is in 0.1 deg
 
         if( ii < count )
-            RotatePoint( &end_arc, -rot );
+            RotatePoint( end_arc, -rot );
         else    // last point
             end_arc = aClockwise ? end : start;
 
-        aGbrItem->m_Polygon.Append( VECTOR2I( end_arc + center ) );
+        aGbrItem->m_Polygon.Append( end_arc + center );
     }
 }
 

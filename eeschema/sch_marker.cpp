@@ -40,7 +40,7 @@
 #define SCALING_FACTOR  Millimeter2iu( 0.15 )
 
 
-SCH_MARKER::SCH_MARKER( std::shared_ptr<ERC_ITEM> aItem, const wxPoint& aPos ) :
+SCH_MARKER::SCH_MARKER( std::shared_ptr<ERC_ITEM> aItem, const VECTOR2I& aPos ) :
         SCH_ITEM( nullptr, SCH_MARKER_T ),
         MARKER_BASE( SCALING_FACTOR, aItem, MARKER_BASE::MARKER_ERC )
 {
@@ -77,7 +77,7 @@ wxString SCH_MARKER::Serialize() const
 SCH_MARKER* SCH_MARKER::Deserialize( const wxString& data )
 {
     wxArrayString props = wxSplit( data, '|' );
-    wxPoint       markerPos( (int) strtol( props[1].c_str(), nullptr, 10 ),
+    VECTOR2I      markerPos( (int) strtol( props[1].c_str(), nullptr, 10 ),
                              (int) strtol( props[2].c_str(), nullptr, 10 ) );
 
     std::shared_ptr<ERC_ITEM> ercItem = ERC_ITEM::Create( props[0] );
@@ -149,7 +149,7 @@ KIGFX::COLOR4D SCH_MARKER::getColor() const
 }
 
 
-void SCH_MARKER::Print( const RENDER_SETTINGS* aSettings, const wxPoint& aOffset )
+void SCH_MARKER::Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset )
 {
     PrintMarker( aSettings, aOffset );
 }
@@ -179,7 +179,7 @@ BITMAPS SCH_MARKER::GetMenuImage() const
 }
 
 
-void SCH_MARKER::Rotate( const wxPoint& aCenter )
+void SCH_MARKER::Rotate( const VECTOR2I& aCenter )
 {
     // Marker geometry isn't user-editable
 }
@@ -197,7 +197,7 @@ void SCH_MARKER::MirrorHorizontally( int aCenter )
 }
 
 
-bool SCH_MARKER::HitTest( const wxPoint& aPosition, int aAccuracy ) const
+bool SCH_MARKER::HitTest( const VECTOR2I& aPosition, int aAccuracy ) const
 {
     return HitTestMarker( aPosition, aAccuracy );
 }

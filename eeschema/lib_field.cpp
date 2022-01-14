@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2018 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 2004-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2004-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -85,7 +85,7 @@ void LIB_FIELD::Init( int aId )
 
     m_id = aId;
 
-    SetTextAngle( EDA_ANGLE::HORIZONTAL );    // constructor already did this.
+    SetTextAngle( ANGLE_HORIZONTAL );    // constructor already did this.
 
     // Fields in RAM must always have names, because we are trying to get less dependent on
     // field ids and more dependent on names. Plus assumptions are made in the field editors.
@@ -111,21 +111,32 @@ int LIB_FIELD::GetPenWidth() const
 }
 
 
-void LIB_FIELD::print( const RENDER_SETTINGS* aSettings, const wxPoint& aOffset, void* aData,
+KIFONT::FONT* LIB_FIELD::GetDrawFont() const
+{
+    KIFONT::FONT* font = EDA_TEXT::GetFont();
+
+    if( !font )
+        font = KIFONT::FONT::GetFont( GetDefaultFont(), IsBold(), IsItalic() );
+
+    return font;
+}
+
+
+void LIB_FIELD::print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset, void* aData,
                        const TRANSFORM& aTransform )
 {
     wxDC*    DC = aSettings->GetPrintDC();
     COLOR4D  color = aSettings->GetLayerColor( IsVisible() ? GetDefaultLayer() : LAYER_HIDDEN );
     int      penWidth = GetEffectivePenWidth( aSettings );
-    wxPoint  text_pos = aTransform.TransformCoordinate( GetTextPos() ) + aOffset;
+    VECTOR2I text_pos = aTransform.TransformCoordinate( GetTextPos() ) + aOffset;
     wxString text = aData ? *static_cast<wxString*>( aData ) : GetText();
 
-    GRText( DC, text_pos, color, text, GetTextAngle(), GetTextSize(), GetHorizJustify(),
-            GetVertJustify(), penWidth, IsItalic(), IsBold(), GetFont() );
+    GRPrintText( DC, text_pos, color, text, GetTextAngle(), GetTextSize(), GetHorizJustify(),
+                 GetVertJustify(), penWidth, IsItalic(), IsBold(), GetDrawFont() );
 }
 
 
-bool LIB_FIELD::HitTest( const wxPoint& aPosition, int aAccuracy ) const
+bool LIB_FIELD::HitTest( const VECTOR2I& aPosition, int aAccuracy ) const
 {
     // Because HitTest is mainly used to select the field return false if it is empty
     if( GetText().IsEmpty() )
@@ -152,8 +163,8 @@ bool LIB_FIELD::HitTest( const wxPoint& aPosition, int aAccuracy ) const
 
     // The text orientation may need to be flipped if the transformation matrix causes xy axes
     // to be flipped.  This simple algo works only for schematic matrix (rot 90 or/and mirror)
-    bool t1 = ( DefaultTransform.x1 != 0 ) ^ ( GetTextAngle() != EDA_ANGLE::HORIZONTAL );
-    tmp_text.SetTextAngle( t1 ? EDA_ANGLE::HORIZONTAL : EDA_ANGLE::VERTICAL );
+    bool t1 = ( DefaultTransform.x1 != 0 ) ^ ( GetTextAngle() != ANGLE_HORIZONTAL );
+    tmp_text.SetTextAngle( t1 ? ANGLE_HORIZONTAL : ANGLE_VERTICAL );
 
     return tmp_text.TextHitTest( aPosition, aAccuracy );
 }
@@ -236,19 +247,19 @@ int LIB_FIELD::compare( const LIB_ITEM& aOther, LIB_ITEM::COMPARE_FLAGS aCompare
 }
 
 
-void LIB_FIELD::Offset( const wxPoint& aOffset )
+void LIB_FIELD::Offset( const VECTOR2I& aOffset )
 {
     EDA_TEXT::Offset( aOffset );
 }
 
 
-void LIB_FIELD::MoveTo( const wxPoint& newPosition )
+void LIB_FIELD::MoveTo( const VECTOR2I& newPosition )
 {
     EDA_TEXT::SetTextPos( newPosition );
 }
 
 
-void LIB_FIELD::MirrorHorizontal( const wxPoint& center )
+void LIB_FIELD::MirrorHorizontal( const VECTOR2I& center )
 {
     int x = GetTextPos().x;
 
@@ -260,7 +271,7 @@ void LIB_FIELD::MirrorHorizontal( const wxPoint& center )
 }
 
 
-void LIB_FIELD::MirrorVertical( const wxPoint& center )
+void LIB_FIELD::MirrorVertical( const VECTOR2I& center )
 {
     int y = GetTextPos().y;
 
@@ -272,20 +283,19 @@ void LIB_FIELD::MirrorVertical( const wxPoint& center )
 }
 
 
-void LIB_FIELD::Rotate( const wxPoint& center, bool aRotateCCW )
+void LIB_FIELD::Rotate( const VECTOR2I& center, bool aRotateCCW )
 {
     int rot_angle = aRotateCCW ? -900 : 900;
 
-    wxPoint pt = GetTextPos();
-    RotatePoint( &pt, center, rot_angle );
+    VECTOR2I pt = GetTextPos();
+    RotatePoint( pt, center, rot_angle );
     SetTextPos( pt );
 
-    SetTextAngle( GetTextAngle() != EDA_ANGLE::HORIZONTAL ? EDA_ANGLE::HORIZONTAL
-                                                          : EDA_ANGLE::VERTICAL );
+    SetTextAngle( GetTextAngle() != ANGLE_HORIZONTAL ? ANGLE_HORIZONTAL  : ANGLE_VERTICAL );
 }
 
 
-void LIB_FIELD::Plot( PLOTTER* aPlotter, const wxPoint& aOffset, bool aFill,
+void LIB_FIELD::Plot( PLOTTER* aPlotter, const VECTOR2I& aOffset, bool aFill,
                       const TRANSFORM& aTransform ) const
 {
     if( GetText().IsEmpty() )
@@ -297,9 +307,9 @@ void LIB_FIELD::Plot( PLOTTER* aPlotter, const wxPoint& aOffset, bool aFill,
     if( aTransform.y1 )  // Rotate symbol 90 deg.
     {
         if( orient.IsHorizontal() )
-            orient = EDA_ANGLE::VERTICAL;
+            orient = ANGLE_VERTICAL;
         else
-            orient = EDA_ANGLE::HORIZONTAL;
+            orient = ANGLE_HORIZONTAL;
     }
 
     EDA_RECT bbox = GetBoundingBox();
@@ -307,7 +317,7 @@ void LIB_FIELD::Plot( PLOTTER* aPlotter, const wxPoint& aOffset, bool aFill,
 
     GR_TEXT_H_ALIGN_T hjustify = GR_TEXT_H_ALIGN_CENTER;
     GR_TEXT_V_ALIGN_T vjustify = GR_TEXT_V_ALIGN_CENTER;
-    wxPoint textpos = aTransform.TransformCoordinate( bbox.Centre() ) + aOffset;
+    VECTOR2I          textpos = aTransform.TransformCoordinate( bbox.Centre() ) + aOffset;
 
     COLOR4D color;
 
@@ -349,11 +359,11 @@ const EDA_RECT LIB_FIELD::GetBoundingBox() const
     rect.RevertYAxis();
 
     // We are using now a bottom to top Y axis.
-    wxPoint orig = rect.GetOrigin();
-    wxPoint end = rect.GetEnd();
+    VECTOR2I orig = rect.GetOrigin();
+    VECTOR2I end = rect.GetEnd();
 
-    RotatePoint( &orig, GetTextPos(), -GetTextAngle() );
-    RotatePoint( &end, GetTextPos(), -GetTextAngle() );
+    RotatePoint( orig, GetTextPos(), -GetTextAngle() );
+    RotatePoint( end, GetTextPos(), -GetTextAngle() );
 
     rect.SetOrigin( orig );
     rect.SetEnd( end );
@@ -437,13 +447,13 @@ wxString LIB_FIELD::GetSelectMenuText( EDA_UNITS aUnits ) const
 }
 
 
-void LIB_FIELD::BeginEdit( const wxPoint& aPosition )
+void LIB_FIELD::BeginEdit( const VECTOR2I& aPosition )
 {
     SetTextPos( aPosition );
 }
 
 
-void LIB_FIELD::CalcEdit( const wxPoint& aPosition )
+void LIB_FIELD::CalcEdit( const VECTOR2I& aPosition )
 {
     SetTextPos( aPosition );
 }

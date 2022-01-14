@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 1992-2013 Jean-Pierre Charras <jp.charras at wanadoo.fr>.
- * Copyright (C) 1992-2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  *
  * This program is free software; you can redistribute it and/or
@@ -158,7 +158,7 @@ void DS_DRAW_ITEM_BASE::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame,
 
 // ============================ TEXT ==============================
 
-void DS_DRAW_ITEM_TEXT::PrintWsItem( const RENDER_SETTINGS* aSettings, const wxPoint& aOffset )
+void DS_DRAW_ITEM_TEXT::PrintWsItem( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset )
 {
     Print( aSettings, aOffset, aSettings->GetLayerColor( LAYER_DRAWINGSHEET ), FILLED );
 }
@@ -170,7 +170,7 @@ const EDA_RECT DS_DRAW_ITEM_TEXT::GetBoundingBox() const
 }
 
 
-bool DS_DRAW_ITEM_TEXT::HitTest( const wxPoint& aPosition, int aAccuracy ) const
+bool DS_DRAW_ITEM_TEXT::HitTest( const VECTOR2I& aPosition, int aAccuracy ) const
 {
     return EDA_TEXT::TextHitTest( aPosition, aAccuracy );
 }
@@ -189,21 +189,16 @@ wxString DS_DRAW_ITEM_TEXT::GetSelectMenuText( EDA_UNITS aUnits ) const
 }
 
 
-void DS_DRAW_ITEM_TEXT::SetTextAngle( double aAngle )
-{
-    EDA_TEXT::SetTextAngle( NormalizeAngle360Min( aAngle ) );
-}
-
 // ============================ POLYGON =================================
 
 void DS_DRAW_ITEM_POLYPOLYGONS::PrintWsItem( const RENDER_SETTINGS* aSettings,
-                                             const wxPoint& aOffset )
+                                             const VECTOR2I&        aOffset )
 {
     wxDC*   DC = aSettings->GetPrintDC();
     COLOR4D color = aSettings->GetLayerColor( LAYER_DRAWINGSHEET );
     int     penWidth = std::max( GetPenWidth(), aSettings->GetDefaultPenWidth() );
 
-    std::vector<wxPoint> points_moved;
+    std::vector<VECTOR2I> points_moved;
 
     for( int idx = 0; idx < m_Polygons.OutlineCount(); ++idx )
     {
@@ -222,10 +217,10 @@ void DS_DRAW_ITEM_POLYPOLYGONS::PrintWsItem( const RENDER_SETTINGS* aSettings,
 }
 
 
-void DS_DRAW_ITEM_POLYPOLYGONS::SetPosition( const wxPoint& aPos )
+void DS_DRAW_ITEM_POLYPOLYGONS::SetPosition( const VECTOR2I& aPos )
 {
     // Note: m_pos is the anchor point of the shape.
-    wxPoint move_vect = aPos - m_pos;
+    VECTOR2I move_vect = aPos - m_pos;
     m_pos = aPos;
 
     // Move polygon corners to the new position:
@@ -247,7 +242,7 @@ const EDA_RECT DS_DRAW_ITEM_POLYPOLYGONS::GetBoundingBox() const
 }
 
 
-bool DS_DRAW_ITEM_POLYPOLYGONS::HitTest( const wxPoint& aPosition, int aAccuracy ) const
+bool DS_DRAW_ITEM_POLYPOLYGONS::HitTest( const VECTOR2I& aPosition, int aAccuracy ) const
 {
     return m_Polygons.Collide( aPosition, aAccuracy );
 }
@@ -274,7 +269,7 @@ bool DS_DRAW_ITEM_POLYPOLYGONS::HitTest( const EDA_RECT& aRect, bool aContained,
 
         for( int ii = 0; ii < outline.PointCount(); ii++ )
         {
-            wxPoint corner( outline.CPoint( ii ).x, outline.CPoint( ii ).y );
+            VECTOR2I corner( outline.CPoint( ii ).x, outline.CPoint( ii ).y );
 
             // Test if the point is within aRect
             if( sel.Contains( corner ) )
@@ -282,7 +277,7 @@ bool DS_DRAW_ITEM_POLYPOLYGONS::HitTest( const EDA_RECT& aRect, bool aContained,
 
             // Test if this edge intersects aRect
             int ii_next = (ii+1) % outline.PointCount();
-            wxPoint next_corner( outline.CPoint( ii_next ).x, outline.CPoint( ii_next ).y );
+            VECTOR2I next_corner( outline.CPoint( ii_next ).x, outline.CPoint( ii_next ).y );
 
             if( sel.Intersects( corner, next_corner ) )
                 return true;
@@ -301,7 +296,7 @@ wxString DS_DRAW_ITEM_POLYPOLYGONS::GetSelectMenuText( EDA_UNITS aUnits ) const
 
 // ============================ RECT ==============================
 
-void DS_DRAW_ITEM_RECT::PrintWsItem( const RENDER_SETTINGS* aSettings, const wxPoint& aOffset )
+void DS_DRAW_ITEM_RECT::PrintWsItem( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset )
 {
     wxDC*   DC = aSettings->GetPrintDC();
     COLOR4D color = aSettings->GetLayerColor( LAYER_DRAWINGSHEET );
@@ -318,11 +313,11 @@ const EDA_RECT DS_DRAW_ITEM_RECT::GetBoundingBox() const
 }
 
 
-bool DS_DRAW_ITEM_RECT::HitTest( const wxPoint& aPosition, int aAccuracy ) const
+bool DS_DRAW_ITEM_RECT::HitTest( const VECTOR2I& aPosition, int aAccuracy ) const
 {
     int dist = aAccuracy + ( GetPenWidth() / 2 );
-    wxPoint start = GetStart();
-    wxPoint end;
+    VECTOR2I start = GetStart();
+    VECTOR2I end;
     end.x = GetEnd().x;
     end.y = start.y;
 
@@ -400,7 +395,7 @@ wxString DS_DRAW_ITEM_RECT::GetSelectMenuText( EDA_UNITS aUnits ) const
 
 // ============================ LINE ==============================
 
-void DS_DRAW_ITEM_LINE::PrintWsItem( const RENDER_SETTINGS* aSettings, const wxPoint& aOffset )
+void DS_DRAW_ITEM_LINE::PrintWsItem( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset )
 {
     wxDC*   DC = aSettings->GetPrintDC();
     COLOR4D color = aSettings->GetLayerColor( LAYER_DRAWINGSHEET );
@@ -416,7 +411,7 @@ const EDA_RECT DS_DRAW_ITEM_LINE::GetBoundingBox() const
 }
 
 
-bool DS_DRAW_ITEM_LINE::HitTest( const wxPoint& aPosition, int aAccuracy ) const
+bool DS_DRAW_ITEM_LINE::HitTest( const VECTOR2I& aPosition, int aAccuracy ) const
 {
     int mindist = aAccuracy + ( GetPenWidth() / 2 ) + 1;
     return TestSegmentHit( aPosition, GetStart(), GetEnd(), mindist );
@@ -432,7 +427,7 @@ wxString DS_DRAW_ITEM_LINE::GetSelectMenuText( EDA_UNITS aUnits ) const
 
 // ============== BITMAP ================
 
-void DS_DRAW_ITEM_BITMAP::PrintWsItem( const RENDER_SETTINGS* aSettings, const wxPoint& aOffset )
+void DS_DRAW_ITEM_BITMAP::PrintWsItem( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset )
 {
     DS_DATA_ITEM_BITMAP* bitmap = (DS_DATA_ITEM_BITMAP*) GetPeer();
 
@@ -456,7 +451,7 @@ const EDA_RECT DS_DRAW_ITEM_BITMAP::GetBoundingBox() const
 }
 
 
-bool DS_DRAW_ITEM_BITMAP::HitTest( const wxPoint& aPosition, int aAccuracy ) const
+bool DS_DRAW_ITEM_BITMAP::HitTest( const VECTOR2I& aPosition, int aAccuracy ) const
 {
     EDA_RECT bbox = GetBoundingBox();
     bbox.Inflate( aAccuracy );

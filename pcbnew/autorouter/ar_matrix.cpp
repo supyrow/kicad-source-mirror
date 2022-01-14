@@ -5,7 +5,7 @@
  * Copyright (C) 2012 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
  * Copyright (C) 2011 Wayne Stambaugh <stambaughw@verizon.net>
  *
- * Copyright (C) 1992-2020 KiCad Developers, see change_log.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see change_log.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -67,7 +67,7 @@ bool AR_MATRIX::ComputeMatrixSize( const EDA_RECT& aBoundingBox )
     m_BrdBox.SetY( m_BrdBox.GetY() - ( m_BrdBox.GetY() % m_GridRouting ) );
 
     // The boundary box must have its end point on routing grid:
-    wxPoint end = m_BrdBox.GetEnd();
+    VECTOR2I end = m_BrdBox.GetEnd();
 
     end.x -= end.x % m_GridRouting;
     end.x += m_GridRouting;
@@ -345,18 +345,7 @@ void AR_MATRIX::drawSegmentQcq( int ux0, int uy0, int ux1, int uy1, int lg, int 
     dx = ux1 - ux0;
     dy = uy1 - uy0;
 
-    double angle;
-    if( dx )
-    {
-        angle = ArcTangente( dy, dx );
-    }
-    else
-    {
-        angle = 900;
-
-        if( dy < 0 )
-            angle = -900;
-    }
+    EDA_ANGLE angle( VECTOR2I( dx, dy ) );
 
     RotatePoint( &dx, &dy, angle ); // dx = length, dy = 0
 
@@ -789,7 +778,8 @@ void AR_MATRIX::TraceSegmentPcb( PCB_SHAPE* aShape, int aColor, int aMargin,
         int ux1 = aShape->GetStart().x - GetBrdCoordOrigin().x;
         int uy1 = aShape->GetStart().y - GetBrdCoordOrigin().y;
 
-        traceArc( ux0, uy0, ux1, uy1, aShape->GetArcAngle(), half_width, layer, aColor, op_logic );
+        traceArc( ux0, uy0, ux1, uy1, aShape->GetArcAngle().AsTenthsOfADegree(), half_width,
+                  layer, aColor, op_logic );
     }
 }
 
@@ -912,7 +902,7 @@ void AR_MATRIX::CreateKeepOutRectangle(
 void AR_MATRIX::PlacePad( PAD* aPad, int color, int marge, AR_MATRIX::CELL_OP op_logic )
 {
     int     dx, dy;
-    wxPoint shape_pos = aPad->ShapePos();
+    VECTOR2I shape_pos = aPad->ShapePos();
 
     dx = aPad->GetSize().x / 2;
     dx += marge;
@@ -933,10 +923,10 @@ void AR_MATRIX::PlacePad( PAD* aPad, int color, int marge, AR_MATRIX::CELL_OP op
     }
 
     // The pad is a rectangle ( horizontal or vertical )
-    if( int( aPad->GetOrientation() ) % 900 == 0 )
+    if( aPad->GetOrientation().IsCardinal() )
     {
         // Orientation turned 90 deg.
-        if( aPad->GetOrientation() == 900 || aPad->GetOrientation() == 2700 )
+        if( aPad->GetOrientation() == ANGLE_90 || aPad->GetOrientation() == ANGLE_270 )
         {
             std::swap( dx, dy );
         }
@@ -947,6 +937,7 @@ void AR_MATRIX::PlacePad( PAD* aPad, int color, int marge, AR_MATRIX::CELL_OP op
     else
     {
         TraceFilledRectangle( shape_pos.x - dx, shape_pos.y - dy, shape_pos.x + dx,
-                shape_pos.y + dy, aPad->GetOrientation(), aPad->GetLayerSet(), color, op_logic );
+                              shape_pos.y + dy, aPad->GetOrientation().AsTenthsOfADegree(),
+                              aPad->GetLayerSet(), color, op_logic );
     }
 }

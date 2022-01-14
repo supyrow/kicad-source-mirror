@@ -202,7 +202,7 @@ void PCB_BASE_FRAME::AddFootprintToBoard( FOOTPRINT* aFootprint )
 
         // Place it in orientation 0 even if it is not saved with orientation 0 in lib (note that
         // it might be stored in another orientation if the lib is an archive built from a board)
-        aFootprint->SetOrientation( 0 );
+        aFootprint->SetOrientation( ANGLE_0 );
     }
 }
 
@@ -287,7 +287,7 @@ void PCB_BASE_FRAME::FocusOnItem( BOARD_ITEM* aItem, PCB_LAYER_ID aLayer )
         // Focus on the object's location.  Prefer a visible part of the object to its anchor
         // in order to keep from scrolling around.
 
-        wxPoint        focusPt = aItem->GetFocusPosition();
+        VECTOR2I       focusPt = aItem->GetFocusPosition();
         KIGFX::VIEW*   view = GetCanvas()->GetView();
         SHAPE_POLY_SET viewportPoly( view->GetViewport() );
 
@@ -354,10 +354,30 @@ void PCB_BASE_FRAME::FocusOnItem( BOARD_ITEM* aItem, PCB_LAYER_ID aLayer )
         case PCB_FP_DIM_CENTER_T:
         case PCB_FP_DIM_RADIAL_T:
         case PCB_FP_DIM_ORTHOGONAL_T:
-        case PCB_ZONE_T:
             aItem->TransformShapeWithClearanceToPolygon( itemPoly, aLayer, 0, Millimeter2iu( 0.1 ),
                                                          ERROR_INSIDE );
             break;
+
+        case PCB_ZONE_T:
+        {
+            ZONE* zone = static_cast<ZONE*>( aItem );
+            #if 0
+            // Using the filled area shapes to find a Focus point can give good results, but
+            // unfortunately the calculations are highly time consuming, even for not very
+            // large areas (can be easily a few minutes for large areas).
+            // so we used only the zone outline that usually do not have too many vertices.
+            zone->TransformShapeWithClearanceToPolygon( itemPoly, aLayer, 0, Millimeter2iu( 0.1 ),
+                                                        ERROR_INSIDE );
+
+            if( itemPoly.IsEmpty() )
+                itemPoly = *zone->Outline();
+            #else
+            // much faster calculation time when using only the zone outlines
+            itemPoly = *zone->Outline();
+            #endif
+
+            break;
+        }
 
         default:
         {
@@ -396,7 +416,7 @@ void PCB_BASE_FRAME::FocusOnItem( BOARD_ITEM* aItem, PCB_LAYER_ID aLayer )
         while( !itemPoly.IsEmpty() )
         {
             focusPt = (wxPoint) itemPoly.BBox().Centre();
-            itemPoly.Deflate( step, 4 );
+            itemPoly.Deflate( step, 4, SHAPE_POLY_SET::CHAMFER_ACUTE_CORNERS );
         }
 
         FocusOnLocation( focusPt );
@@ -453,27 +473,27 @@ const wxSize PCB_BASE_FRAME::GetPageSizeIU() const
 }
 
 
-const wxPoint& PCB_BASE_FRAME::GetGridOrigin() const
+const VECTOR2I& PCB_BASE_FRAME::GetGridOrigin() const
 {
     return m_pcb->GetDesignSettings().GetGridOrigin();
 }
 
 
-void PCB_BASE_FRAME::SetGridOrigin( const wxPoint& aPoint )
+void PCB_BASE_FRAME::SetGridOrigin( const VECTOR2I& aPoint )
 {
     m_pcb->GetDesignSettings().SetGridOrigin( aPoint );
 }
 
 
-const wxPoint& PCB_BASE_FRAME::GetAuxOrigin() const
+const VECTOR2I& PCB_BASE_FRAME::GetAuxOrigin() const
 {
     return m_pcb->GetDesignSettings().GetAuxOrigin();
 }
 
 
-const wxPoint PCB_BASE_FRAME::GetUserOrigin() const
+const VECTOR2I PCB_BASE_FRAME::GetUserOrigin() const
 {
-    wxPoint origin( 0, 0 );
+    VECTOR2I origin( 0, 0 );
 
     switch( Settings().m_Display.m_DisplayOrigin )
     {

@@ -37,7 +37,6 @@
 
 
 class wxDC;
-class wxPoint;
 class LINE_READER;
 class EDA_DRAW_FRAME;
 class PAD;
@@ -86,13 +85,13 @@ public:
     }
 #endif
 
-    wxPoint GetPosition() const override
+    VECTOR2I GetPosition() const override
     {
-        static wxPoint dummy(0, 0);
+        static VECTOR2I dummy( 0, 0 );
         return dummy;
     }
 
-    void SetPosition( const wxPoint& aPos ) override
+    void SetPosition( const VECTOR2I& aPos ) override
     {
     }
 

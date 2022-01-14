@@ -2155,11 +2155,11 @@ SHAPE_POLY_SET::POLYGON SHAPE_POLY_SET::chamferFilletPolygon( CORNER_MODE aMode,
                     argument = 1;
 
                 double arcAngle = acos( argument );
-                double arcAngleDegrees = arcAngle * 180.0 / M_PI;
-                int    segments = GetArcToSegmentCount( radius, aErrorMax, arcAngleDegrees );
+                int    segments = GetArcToSegmentCount( radius, aErrorMax,
+                                                        EDA_ANGLE( arcAngle, RADIANS_T ) );
 
-                double  deltaAngle  = arcAngle / segments;
-                double  startAngle  = atan2( -ys, xs );
+                double deltaAngle = arcAngle / segments;
+                double startAngle = atan2( -ys, xs );
 
                 // Flip arc for inner corners
                 if( xa * yb - ya * xb <= 0 )
@@ -2523,4 +2523,56 @@ SHAPE_POLY_SET::TRIANGULATED_POLYGON::TRIANGULATED_POLYGON()
 
 SHAPE_POLY_SET::TRIANGULATED_POLYGON::~TRIANGULATED_POLYGON()
 {
+}
+
+
+const SHAPE_POLY_SET
+SHAPE_POLY_SET::BuildPolysetFromOrientedPaths( const std::vector<SHAPE_LINE_CHAIN>& aPaths,
+                                               bool aReverseOrientation, bool aEvenOdd )
+{
+    ClipperLib::Clipper  clipper;
+    ClipperLib::PolyTree tree;
+
+    // fixme: do we need aReverseOrientation?
+
+    for( const SHAPE_LINE_CHAIN& path : aPaths )
+    {
+        ClipperLib::Path lc;
+
+        for( int i = 0; i < path.PointCount(); i++ )
+        {
+            lc.emplace_back( path.CPoint( i ).x, path.CPoint( i ).y );
+        }
+
+        clipper.AddPath( lc, ClipperLib::ptSubject, true );
+    }
+
+    clipper.StrictlySimple( true );
+    clipper.Execute( ClipperLib::ctUnion, tree,
+                     aEvenOdd ? ClipperLib::pftEvenOdd : ClipperLib::pftNonZero,
+                     ClipperLib::pftNonZero );
+    SHAPE_POLY_SET result;
+
+    for( ClipperLib::PolyNode* n = tree.GetFirst(); n; n = n->GetNext() )
+    {
+        if( !n->IsHole() )
+        {
+            int outl = result.NewOutline();
+
+            for( unsigned int i = 0; i < n->Contour.size(); i++ )
+                result.Outline( outl ).Append( n->Contour[i].X, n->Contour[i].Y );
+
+            for( unsigned int i = 0; i < n->Childs.size(); i++ )
+            {
+                int outh = result.NewHole( outl );
+                for( unsigned int j = 0; j < n->Childs[i]->Contour.size(); j++ )
+                {
+                    result.Hole( outl, outh )
+                            .Append( n->Childs[i]->Contour[j].X, n->Childs[i]->Contour[j].Y );
+                }
+            }
+        }
+    }
+
+    return result;
 }

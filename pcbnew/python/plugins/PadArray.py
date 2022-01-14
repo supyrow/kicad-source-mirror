@@ -47,11 +47,11 @@ class PadMaker(object):
         @param rot_degree: the pad rotation, in degrees
         """
         pad = pcbnew.PAD(self.module)
-        pad.SetSize(pcbnew.wxSize(Hsize, Vsize))
+        pad.SetSize(pcbnew.VECTOR2I(Hsize, Vsize))
         pad.SetShape(shape)
         pad.SetAttribute(pcbnew.PAD_ATTRIB_PTH)
         pad.SetLayerSet(pad.PTHMask())
-        pad.SetDrillSize(pcbnew.wxSize(drill, drill))
+        pad.SetDrillSize(pcbnew.VECTOR2I(drill, drill))
         pad.SetOrientation(rot_degree*10)   # rotation is in 0.1 degrees
 
         return pad
@@ -72,11 +72,11 @@ class PadMaker(object):
         @param drill: the drill diameter (equals the NPTH diameter)
         """
         pad = pcbnew.PAD(self.module)
-        pad.SetSize(pcbnew.wxSize(drill, drill))
+        pad.SetSize(pcbnew.VECTOR2I(drill, drill))
         pad.SetShape(pcbnew.PAD_SHAPE_CIRCLE)
         pad.SetAttribute(pcbnew.PAD_ATTRIB_HOLE_NOT_PLATED)
         pad.SetLayerSet(pad.UnplatedHoleMask())
-        pad.SetDrillSize(pcbnew.wxSize(drill, drill))
+        pad.SetDrillSize(pcbnew.VECTOR2I(drill, drill))
         return pad
 
     def SMDPad(self, Vsize, Hsize, shape=pcbnew.PAD_SHAPE_RECT, rot_degree=0):
@@ -89,7 +89,7 @@ class PadMaker(object):
         @param rot_degree: the pad rotation, in degrees
         """
         pad = pcbnew.PAD(self.module)
-        pad.SetSize(pcbnew.wxSize(Hsize, Vsize))
+        pad.SetSize(pcbnew.VECTOR2I(Hsize, Vsize))
         pad.SetShape(shape)
         pad.SetAttribute(pcbnew.PAD_ATTRIB_SMD)
         pad.SetLayerSet(pad.SMDMask())
@@ -203,7 +203,7 @@ class PadGridArray(PadArray):
     A basic grid of pads
     """
 
-    def __init__(self, pad, nx, ny, px, py, centre=pcbnew.wxPoint(0, 0)):
+    def __init__(self, pad, nx, ny, px, py, centre=pcbnew.VECTOR2I(0, 0)):
         """!
         @param pad: the prototypical pad of the array
         @param nx: number of pads in x-direction
@@ -297,7 +297,7 @@ class PadZGridArray(PadArray):
     """
 
     def __init__(self, pad, pad_count, line_count, line_pitch,
-                 pad_pitch, centre=pcbnew.wxPoint(0, 0)):
+                 pad_pitch, centre=pcbnew.VECTOR2I(0, 0)):
         """!
         @param pad: the prototypical pad
         @param pad_count: total pad count
@@ -353,7 +353,7 @@ class PadLineArray(PadGridArray):
     """
 
     def __init__(self, pad, n, pitch, isVertical,
-                 centre=pcbnew.wxPoint(0, 0)):
+                 centre=pcbnew.VECTOR2I(0, 0)):
         """!
         @param pad: the prototypical pad
         @param n: number of pads in array
@@ -374,7 +374,7 @@ class PadCircleArray(PadArray):
     Circular pad array
     """
 
-    def __init__(self, pad, n, r, angle_offset=0, centre=pcbnew.wxPoint(0, 0),
+    def __init__(self, pad, n, r, angle_offset=0, centre=pcbnew.VECTOR2I(0, 0),
                  clockwise=True, padRotationEnable=False, padRotationOffset=0):
         """!
         @param pad: the prototypical pad

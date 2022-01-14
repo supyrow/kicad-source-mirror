@@ -649,6 +649,14 @@ void SCH_EDIT_FRAME::SetCurrentSheet( const SCH_SHEET_PATH& aSheet )
 
 void SCH_EDIT_FRAME::HardRedraw()
 {
+    SCH_SCREEN* screen = GetCurrentSheet().LastScreen();
+
+    for( SCH_ITEM* item : screen->Items() )
+        item->ClearCaches();
+
+    for( std::pair<const wxString, LIB_SYMBOL*>& libSymbol : screen->GetLibSymbols() )
+        libSymbol.second->ClearCaches();
+
     RecalculateConnections( LOCAL_CLEANUP );
 
     FocusOnItem( nullptr );
@@ -1288,7 +1296,7 @@ void SCH_EDIT_FRAME::AddItemToScreenAndUndoList( SCH_SCREEN* aScreen, SCH_ITEM* 
 
     if( !aItem->IsMoving() && aItem->IsConnectable() )
     {
-        std::vector< wxPoint > pts = aItem->GetConnectionPoints();
+        std::vector<VECTOR2I> pts = aItem->GetConnectionPoints();
 
         for( auto i = pts.begin(); i != pts.end(); i++ )
         {
@@ -1508,6 +1516,14 @@ void SCH_EDIT_FRAME::CommonSettingsChanged( bool aEnvVarsChanged, bool aTextVars
     view->SetLayerVisible( LAYER_ERC_ERR, cfg->m_Appearance.show_erc_errors );
     view->SetLayerVisible( LAYER_ERC_WARN, cfg->m_Appearance.show_erc_warnings );
     view->SetLayerVisible( LAYER_ERC_EXCLUSION, cfg->m_Appearance.show_erc_exclusions );
+
+    SCH_SCREEN* screen = GetCurrentSheet().LastScreen();
+
+    for( SCH_ITEM* item : screen->Items() )
+        item->ClearCaches();
+
+    for( std::pair<const wxString, LIB_SYMBOL*>& libSymbol : screen->GetLibSymbols() )
+        libSymbol.second->ClearCaches();
 
     GetCanvas()->ForceRefresh();
 
@@ -1751,4 +1767,13 @@ void SCH_EDIT_FRAME::SaveSymbolToSchematic( const LIB_SYMBOL& aSymbol,
 
     GetCanvas()->Refresh();
     OnModify();
+}
+
+
+void SCH_EDIT_FRAME::UpdateItem( EDA_ITEM* aItem, bool isAddOrDelete, bool aUpdateRtree )
+{
+    SCH_BASE_FRAME::UpdateItem( aItem, isAddOrDelete, aUpdateRtree );
+
+    if( SCH_ITEM* sch_item = dynamic_cast<SCH_ITEM*>( aItem ) )
+        sch_item->ClearCaches();
 }

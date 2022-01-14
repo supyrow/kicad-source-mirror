@@ -73,6 +73,8 @@ protected:
 private:
     SYMBOL_EDIT_FRAME*  m_frame;
     LIB_PIN*            m_pin;
+
+    LIB_SYMBOL*         m_dummyParent;
     LIB_PIN*            m_dummyPin;       // a working copy used to show changes
 
     UNIT_BINDER         m_posX;
@@ -81,7 +83,7 @@ private:
     UNIT_BINDER         m_nameSize;
     UNIT_BINDER         m_numberSize;
 
-    wxPoint             m_origPos;
+    VECTOR2I            m_origPos;
 
     ALT_PIN_DATA_MODEL* m_alternatesDataModel;
 

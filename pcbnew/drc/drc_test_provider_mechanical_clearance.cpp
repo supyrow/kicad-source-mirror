@@ -306,7 +306,7 @@ bool DRC_TEST_PROVIDER_MECHANICAL_CLEARANCE::Run()
 
                                 shape->RebuildBezierToSegmentsPointsList( shape->GetWidth() );
 
-                                for( const wxPoint& pt : shape->GetBezierPoints() )
+                                for( const VECTOR2I& pt : shape->GetBezierPoints() )
                                     asPoly.Append( pt );
 
                                 testShapeLineChain( asPoly, shape->GetWidth(), layer, item, c );
@@ -317,21 +317,35 @@ bool DRC_TEST_PROVIDER_MECHANICAL_CLEARANCE::Run()
                             {
                                 SHAPE_LINE_CHAIN asPoly;
 
-                                wxPoint center = shape->GetCenter();
-                                double  angle  = -shape->GetArcAngle();
-                                double  r      = shape->GetRadius();
-                                int     steps  = GetArcToSegmentCount( r, errorMax, angle / 10.0 );
+                                VECTOR2I  center = shape->GetCenter();
+                                EDA_ANGLE angle  = -shape->GetArcAngle();
+                                double    r      = shape->GetRadius();
+                                int       steps  = GetArcToSegmentCount( r, errorMax, angle );
 
                                 asPoly.Append( shape->GetStart() );
 
                                 for( int step = 1; step <= steps; ++step )
                                 {
-                                    double rotation = ( angle * step ) / steps;
+                                    EDA_ANGLE rotation = ( angle * step ) / steps;
+                                    VECTOR2I  pt = shape->GetStart();
 
-                                    wxPoint pt = shape->GetStart();
-                                    RotatePoint( &pt, center, rotation );
+                                    RotatePoint( pt, center, rotation );
                                     asPoly.Append( pt );
                                 }
+
+                                testShapeLineChain( asPoly, shape->GetWidth(), layer, item, c );
+                                break;
+                            }
+
+                            case SHAPE_T::RECT:
+                            {
+                                SHAPE_LINE_CHAIN asPoly;
+                                std::vector<VECTOR2I> pts = shape->GetRectCorners();
+                                asPoly.Append( pts[0] );
+                                asPoly.Append( pts[1] );
+                                asPoly.Append( pts[2] );
+                                asPoly.Append( pts[3] );
+                                asPoly.SetClosed( true );
 
                                 testShapeLineChain( asPoly, shape->GetWidth(), layer, item, c );
                                 break;
@@ -495,7 +509,7 @@ void DRC_TEST_PROVIDER_MECHANICAL_CLEARANCE::testShapeLineChain( const SHAPE_LIN
         drce->SetItems( aParentItem );
         drce->SetViolatingRule( aConstraint.GetParentRule() );
 
-        reportViolation( drce, (wxPoint) collision.first, aLayer );
+        reportViolation( drce, collision.first, aLayer );
     }
 }
 
@@ -542,7 +556,7 @@ void DRC_TEST_PROVIDER_MECHANICAL_CLEARANCE::testZoneLayer( ZONE* aZone, PCB_LAY
                     drce->SetItems( aZone );
                     drce->SetViolatingRule( aConstraint.GetParentRule() );
 
-                    reportViolation( drce, (wxPoint) pos, aLayer );
+                    reportViolation( drce, pos, aLayer );
                 }
             }
         }
@@ -592,7 +606,7 @@ bool DRC_TEST_PROVIDER_MECHANICAL_CLEARANCE::testItemAgainstItem( BOARD_ITEM* it
             drce->SetItems( item, other );
             drce->SetViolatingRule( constraint.GetParentRule() );
 
-            reportViolation( drce, (wxPoint) pos, layer );
+            reportViolation( drce, pos, layer );
         }
     }
 
@@ -656,7 +670,7 @@ bool DRC_TEST_PROVIDER_MECHANICAL_CLEARANCE::testItemAgainstItem( BOARD_ITEM* it
                 drce->SetItems( item, other );
                 drce->SetViolatingRule( constraint.GetParentRule() );
 
-                reportViolation( drce, (wxPoint) pos, layer );
+                reportViolation( drce, pos, layer );
             }
 
             if( otherHoleShape && otherHoleShape->Collide( itemShape, clearance, &actual, &pos ) )
@@ -672,7 +686,7 @@ bool DRC_TEST_PROVIDER_MECHANICAL_CLEARANCE::testItemAgainstItem( BOARD_ITEM* it
                 drce->SetItems( item, other );
                 drce->SetViolatingRule( constraint.GetParentRule() );
 
-                reportViolation( drce, (wxPoint) pos, layer );
+                reportViolation( drce, pos, layer );
             }
         }
     }
@@ -761,7 +775,7 @@ void DRC_TEST_PROVIDER_MECHANICAL_CLEARANCE::testItemAgainstZones( BOARD_ITEM* a
                     drce->SetItems( aItem, zone );
                     drce->SetViolatingRule( constraint.GetParentRule() );
 
-                    reportViolation( drce, (wxPoint) pos, aLayer );
+                    reportViolation( drce, pos, aLayer );
                 }
             }
 
@@ -807,7 +821,7 @@ void DRC_TEST_PROVIDER_MECHANICAL_CLEARANCE::testItemAgainstZones( BOARD_ITEM* a
                         drce->SetItems( aItem, zone );
                         drce->SetViolatingRule( constraint.GetParentRule() );
 
-                        reportViolation( drce, (wxPoint) pos, aLayer );
+                        reportViolation( drce, pos, aLayer );
                     }
                 }
             }

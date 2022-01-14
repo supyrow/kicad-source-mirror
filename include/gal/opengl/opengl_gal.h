@@ -41,7 +41,6 @@
 #include <gal/hidpi_gl_canvas.h>
 
 #include <unordered_map>
-#include <boost/smart_ptr/shared_array.hpp>
 #include <memory>
 #include <wx/event.h>
 
@@ -140,6 +139,7 @@ public:
 
     /// @copydoc GAL::DrawPolyline()
     void DrawPolyline( const std::deque<VECTOR2D>& aPointList ) override;
+    void DrawPolyline( const std::vector<VECTOR2D>& aPointList ) override;
     void DrawPolyline( const VECTOR2D aPointList[], int aListSize ) override;
     void DrawPolyline( const SHAPE_LINE_CHAIN& aLineChain ) override;
 
@@ -148,6 +148,9 @@ public:
     void DrawPolygon( const VECTOR2D aPointList[], int aListSize ) override;
     void DrawPolygon( const SHAPE_POLY_SET& aPolySet, bool aStrokeTriangulation = false ) override;
     void DrawPolygon( const SHAPE_LINE_CHAIN& aPolySet ) override;
+
+    /// @copydoc GAL::DrawGlyph()
+    virtual void DrawGlyph( const KIFONT::GLYPH& aGlyph, int aNth, int aTotal ) override;
 
     /// @copydoc GAL::DrawCurve()
     void DrawCurve( const VECTOR2D& startPoint, const VECTOR2D& controlPointA,
@@ -158,8 +161,8 @@ public:
     void DrawBitmap( const BITMAP_BASE& aBitmap ) override;
 
     /// @copydoc GAL::BitmapText()
-    void BitmapText( const wxString& aText, const VECTOR2D& aPosition,
-                             double aRotationAngle ) override;
+    void BitmapText( const wxString& aText, const VECTOR2I& aPosition,
+                     const EDA_ANGLE& aAngle ) override;
 
     /// @copydoc GAL::DrawGrid()
     void DrawGrid() override;
@@ -306,7 +309,7 @@ public:
         VERTEX_MANAGER* vboManager;
 
         /// Intersect points, that have to be freed after tessellation
-        std::deque< boost::shared_array<GLdouble> >& intersectPoints;
+        std::deque<std::shared_ptr<GLdouble>>& intersectPoints;
     };
 
 private:
@@ -331,11 +334,13 @@ private:
     VERTEX_MANAGER*         m_cachedManager;    ///< Container for storing cached VERTEX_ITEMs
     VERTEX_MANAGER*         m_nonCachedManager; ///< Container for storing non-cached VERTEX_ITEMs
     VERTEX_MANAGER*         m_overlayManager;   ///< Container for storing overlaid VERTEX_ITEMs
+    VERTEX_MANAGER*         m_tempManager;      ///< Container for storing temp (diff mode) VERTEX_ITEMs
 
     // Framebuffer & compositing
     OPENGL_COMPOSITOR*      m_compositor;       ///< Handles multiple rendering targets
     unsigned int            m_mainBuffer;       ///< Main rendering target
     unsigned int            m_overlayBuffer;    ///< Auxiliary rendering target (for menus etc.)
+    unsigned int            m_tempBuffer;       ///< Temporary rendering target (for diffing etc.)
     RENDER_TARGET           m_currentTarget;    ///< Current rendering target
 
     // Shader
@@ -361,8 +366,8 @@ private:
     std::unique_ptr<GL_BITMAP_CACHE>            m_bitmapCache;
 
     // Polygon tesselation
-    GLUtesselator*                              m_tesselator;
-    std::deque< boost::shared_array<GLdouble> > m_tessIntersects;
+    GLUtesselator*                        m_tesselator;
+    std::deque<std::shared_ptr<GLdouble>> m_tessIntersects;
 
     /// @copydoc GAL::BeginUpdate()
     void beginUpdate() override;

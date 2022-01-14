@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2018 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -29,6 +29,7 @@
 #include <zones.h>
 #include <board_connected_item.h>
 #include <convert_to_biu.h>
+#include <eda_angle.h>
 #include <geometry/shape_poly_set.h>
 #include <geometry/shape_compound.h>
 #include <pad_shapes.h>
@@ -169,13 +170,13 @@ public:
      */
     PAD_SHAPE GetShape() const { return m_padShape; }
 
-    void SetPosition( const wxPoint& aPos ) override
+    void SetPosition( const VECTOR2I& aPos ) override
     {
         m_pos = aPos;
         SetDirty();
     }
 
-    wxPoint GetPosition() const override { return m_pos; }
+    VECTOR2I GetPosition() const override { return m_pos; }
 
     /**
      * @return the shape of the anchor pad shape, for custom shaped pads.
@@ -223,33 +224,33 @@ public:
     void SetY( int y )                          { m_pos.y = y; SetDirty(); }
     void SetX( int x )                          { m_pos.x = x; SetDirty(); }
 
-    void SetPos0( const wxPoint& aPos )         { m_pos0 = aPos; }
-    const wxPoint& GetPos0() const              { return m_pos0; }
+    void SetPos0( const VECTOR2I& aPos )        { m_pos0 = aPos; }
+    const VECTOR2I& GetPos0() const             { return m_pos0; }
 
     void SetY0( int y )                         { m_pos0.y = y; }
     void SetX0( int x )                         { m_pos0.x = x; }
 
-    void SetSize( const wxSize& aSize )         { m_size = aSize; SetDirty(); }
-    const wxSize& GetSize() const               { return m_size; }
+    void SetSize( const VECTOR2I& aSize )       { m_size = aSize; SetDirty(); }
+    const VECTOR2I& GetSize() const             { return m_size; }
     void SetSizeX( const int aX )               { m_size.x = aX; SetDirty(); }
     const int GetSizeX() const                  { return m_size.x; }
     void SetSizeY( const int aY )               { m_size.y = aY; SetDirty(); }
     const int GetSizeY() const                  { return m_size.y; }
 
-    void SetDelta( const wxSize& aSize )        { m_deltaSize = aSize; SetDirty(); }
-    const wxSize& GetDelta() const              { return m_deltaSize; }
+    void SetDelta( const VECTOR2I& aSize )      { m_deltaSize = aSize; SetDirty(); }
+    const VECTOR2I& GetDelta() const            { return m_deltaSize; }
 
-    void SetDrillSize( const wxSize& aSize )    { m_drill = aSize; SetDirty(); }
-    const wxSize& GetDrillSize() const          { return m_drill; }
+    void SetDrillSize( const VECTOR2I& aSize )  { m_drill = aSize; SetDirty(); }
+    const VECTOR2I& GetDrillSize() const        { return m_drill; }
     void SetDrillSizeX( const int aX )          { m_drill.x = aX; SetDirty(); }
     const int GetDrillSizeX() const             { return m_drill.x; }
     void SetDrillSizeY( const int aY )          { m_drill.y = aY; SetDirty(); }
     const int GetDrillSizeY() const             { return m_drill.y; }
 
-    void SetOffset( const wxPoint& aOffset )    { m_offset = aOffset; SetDirty(); }
-    const wxPoint& GetOffset() const            { return m_offset; }
+    void SetOffset( const VECTOR2I& aOffset )    { m_offset = aOffset; SetDirty(); }
+    const VECTOR2I& GetOffset() const            { return m_offset; }
 
-    wxPoint GetCenter() const override          { return GetPosition(); }
+    VECTOR2I GetCenter() const override          { return GetPosition(); }
 
     /**
      * Has meaning only for custom shape pads.
@@ -263,15 +264,15 @@ public:
      *  - a bezier curve
      */
     void AddPrimitivePoly( const SHAPE_POLY_SET& aPoly, int aThickness, bool aFilled );
-    void AddPrimitivePoly( const std::vector<wxPoint>& aPoly, int aThickness, bool aFilled );
-    void AddPrimitiveSegment( const wxPoint& aStart, const wxPoint& aEnd, int aThickness );
-    void AddPrimitiveCircle( const wxPoint& aCenter, int aRadius, int aThickness, bool aFilled );
-    void AddPrimitiveRect( const wxPoint& aStart, const wxPoint& aEnd, int aThickness,
+    void AddPrimitivePoly( const std::vector<VECTOR2I>& aPoly, int aThickness, bool aFilled );
+    void AddPrimitiveSegment( const VECTOR2I& aStart, const VECTOR2I& aEnd, int aThickness );
+    void AddPrimitiveCircle( const VECTOR2I& aCenter, int aRadius, int aThickness, bool aFilled );
+    void AddPrimitiveRect( const VECTOR2I& aStart, const VECTOR2I& aEnd, int aThickness,
                            bool aFilled );
-    void AddPrimitiveArc( const wxPoint& aCenter, const wxPoint& aStart, int aArcAngle,
+    void AddPrimitiveArc( const VECTOR2I& aCenter, const VECTOR2I& aStart, int aArcAngle,
                           int aThickness );
-    void AddPrimitiveCurve( const wxPoint& aStart, const wxPoint& aEnd, const wxPoint& aCtrl1,
-                            const wxPoint& aCtrl2, int aThickness );
+    void AddPrimitiveCurve( const VECTOR2I& aStart, const VECTOR2I& aEnd, const VECTOR2I& aCtrl1,
+                            const VECTOR2I& aCtrl2, int aThickness );
 
 
     bool GetBestAnchorPosition( VECTOR2I& aPos );
@@ -303,7 +304,7 @@ public:
         return m_editPrimitives;
     }
 
-    void Flip( const wxPoint& aCentre, bool aFlipLeftRight ) override;
+    void Flip( const VECTOR2I& VECTOR2I, bool aFlipLeftRight ) override;
 
     /**
      * Flip (mirror) the primitives left to right or top to bottom, around the anchor position
@@ -331,24 +332,25 @@ public:
     /**
      * Set the rotation angle of the pad.
      *
-     * If \a aAngle is outside of 0 - 3600, then it will be normalized.
-     *
-     * @param aAngle in tenths of degrees.
+     * If \a aAngle is outside of 0 - 360, then it will be normalized.
      */
-    void SetOrientation( double aAngle );
+    void SetOrientation( const EDA_ANGLE& aAngle );
+
 
     /**
-     * Set orientation in degrees.
+     * Return the rotation angle of the pad.
      */
-    void SetOrientationDegrees( double aOrientation ) { SetOrientation( aOrientation*10.0 ); }
+    EDA_ANGLE GetOrientation() const { return m_orient; }
 
-    /**
-     * Return the rotation angle of the pad in a variety of units (the basic call returns
-     * tenths of degrees).
-     */
-    double GetOrientation() const { return m_orient; }
-    double GetOrientationDegrees() const   { return m_orient/10.0; }
-    double GetOrientationRadians() const   { return m_orient*M_PI/1800; }
+    // For property system
+    void SetOrientationDegrees( double aOrientation )
+    {
+        SetOrientation( EDA_ANGLE( aOrientation, DEGREES_T ) );
+    }
+    double GetOrientationDegrees() const
+    {
+        return m_orient.AsDegrees();
+    }
 
     void SetDrillShape( PAD_DRILL_SHAPE_T aShape ) { m_drillShape = aShape; m_shapesDirty = true; }
     PAD_DRILL_SHAPE_T GetDrillShape() const     { return m_drillShape; }
@@ -470,7 +472,7 @@ public:
      *
      * @return the margin for the solder mask layer.
     */
-    wxSize GetSolderPasteMargin() const;
+    VECTOR2I GetSolderPasteMargin() const;
 
     void SetZoneConnection( ZONE_CONNECTION aType ) { m_zoneConnection = aType; }
     ZONE_CONNECTION GetZoneConnection() const { return m_zoneConnection; }
@@ -487,12 +489,22 @@ public:
     int GetLocalSpokeWidthOverride( wxString* aSource = nullptr ) const;
 
     /**
-     * The orientation of the thermal spokes (in decidegrees).  450 will produce an X (the
-     * default for circular pads and circular-anchored custom shaped pads), while 900 will
-     * produce a + (the default for all other shapes).
+     * The orientation of the thermal spokes.  45° will produce an X (the default for circular
+     * pads and circular-anchored custom shaped pads), while 90° will produce a + (the default
+     * for all other shapes).
      */
-    void SetThermalSpokeAngle( double aAngle ) { m_thermalSpokeAngle = aAngle; }
-    double GetThermalSpokeAngle() const { return m_thermalSpokeAngle; }
+    void SetThermalSpokeAngle( const EDA_ANGLE& aAngle ) { m_thermalSpokeAngle = aAngle; }
+    EDA_ANGLE GetThermalSpokeAngle() const { return m_thermalSpokeAngle; }
+
+    // For property system
+    void SetThermalSpokeAngleDegrees( double aAngle )
+    {
+        m_thermalSpokeAngle = EDA_ANGLE( aAngle, DEGREES_T );
+    }
+    double GetThermalSpokeAngleDegrees() const
+    {
+        return m_thermalSpokeAngle.AsDegrees();
+    }
 
     void SetThermalGap( int aGap ) { m_thermalGap = aGap; }
     int GetThermalGap() const { return m_thermalGap; }
@@ -507,7 +519,7 @@ public:
     void SetRoundRectCornerRadius( double aRadius );
     int GetRoundRectCornerRadius() const;
 
-    wxPoint ShapePos() const;
+    VECTOR2I ShapePos() const;
 
     /**
      * Has meaning only for rounded rectangle pads.
@@ -582,7 +594,7 @@ public:
      */
     bool FlashLayer( LSET aLayers ) const;
 
-    bool HitTest( const wxPoint& aPosition, int aAccuracy = 0 ) const override;
+    bool HitTest( const VECTOR2I& aPosition, int aAccuracy = 0 ) const override;
     bool HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy = 0 ) const override;
 
     wxString GetClass() const override
@@ -610,14 +622,14 @@ public:
      */
     static int Compare( const PAD* aPadRef, const PAD* aPadCmp );
 
-    void Move( const wxPoint& aMoveVector ) override
+    void Move( const VECTOR2I& aMoveVector ) override
     {
         m_pos += aMoveVector;
         SetLocalCoord();
         SetDirty();
     }
 
-    void Rotate( const wxPoint& aRotCentre, double aAngle ) override;
+    void Rotate( const VECTOR2I& aRotCentre, const EDA_ANGLE& aAngle ) override;
 
     wxString GetSelectMenuText( EDA_UNITS aUnits ) const override;
 
@@ -674,7 +686,7 @@ private:
     wxString      m_pinFunction;        // Pin name in schematic
     wxString      m_pinType;            // Pin electrical type in schematic
 
-    wxPoint       m_pos;                // Pad Position on board
+    VECTOR2I      m_pos; // Pad Position on board
 
     PAD_SHAPE     m_padShape;           // Shape: PAD_SHAPE::CIRCLE, PAD_SHAPE::RECT,
                                         //   PAD_SHAPE::OVAL, PAD_SHAPE::TRAPEZOID,
@@ -707,8 +719,8 @@ private:
     int               m_subRatsnest;        // Variable used to handle subnet (block) number in
                                             //   ratsnest computations
 
-    wxSize            m_drill;              // Drill diameter (x == y) or slot dimensions (x != y)
-    wxSize            m_size;               // X and Y size (relative to orient 0)
+    VECTOR2I          m_drill;              // Drill diameter (x == y) or slot dimensions (x != y)
+    VECTOR2I          m_size;               // X and Y size (relative to orient 0)
 
     PAD_DRILL_SHAPE_T m_drillShape;         // PAD_DRILL_SHAPE_CIRCLE, PAD_DRILL_SHAPE_OBLONG
 
@@ -728,23 +740,23 @@ private:
      * of the pad shape (ie: the copper area around the hole).
      * ShapePos() returns the board shape position according to the offset and the pad rotation.
      */
-    wxPoint     m_offset;
+    VECTOR2I    m_offset;
 
     LSET        m_layerMask;        // Bitwise layer: 1 = copper layer, 15 = cmp,
                                     // 2..14 = internal layers, 16..31 = technical layers
 
-    wxSize      m_deltaSize;        // Delta for PAD_SHAPE::TRAPEZOID; half the delta squeezes
+    VECTOR2I    m_deltaSize;        // Delta for PAD_SHAPE::TRAPEZOID; half the delta squeezes
                                     //   one end and half expands the other.  It is only valid
                                     //   to have a single axis be non-0.
 
-    wxPoint     m_pos0;             // Initial Pad position (i.e. pad position relative to the
+    VECTOR2I    m_pos0;             // Initial Pad position (i.e. pad position relative to the
                                     //   footprint anchor, orientation 0)
 
     PAD_ATTRIB  m_attribute;        // PAD_ATTRIB_NORMAL, PAD_ATTRIB::SMD, PAD_ATTRIB::CONN,
                                     //   PAD_ATTRIB::NPTH
     PAD_PROP    m_property;         // Property in fab files (BGA, FIDUCIAL, TESTPOINT, etc.)
 
-    double      m_orient;           // in 1/10 degrees
+    EDA_ANGLE   m_orient;
 
     int         m_lengthPadToDie;   // Length net from pad to die, inside the package
 
@@ -772,8 +784,8 @@ private:
 
     ZONE_CONNECTION m_zoneConnection;           // No connection, thermal relief, etc.
     int         m_thermalSpokeWidth;            // Thermal spoke width.
-    double      m_thermalSpokeAngle;            // Rotation of the spokes, in deci-degrees.  450
-                                                //   will produce an X, while 900 will produce a +.
+    EDA_ANGLE   m_thermalSpokeAngle;            // Rotation of the spokes.  45° will produce an X,
+                                                //   while 90° will produce a +.
     int         m_thermalGap;
 };
 

@@ -2,7 +2,7 @@
  * This program source code file is part of KICAD, a free EDA CAD application.
  *
  * Copyright (C) 2021 Ola Rinta-Koski
- * Copyright (C) 2021 Kicad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2021-2022 Kicad Developers, see AUTHORS.txt for contributors.
  *
  * Font abstract base class
  *
@@ -33,6 +33,7 @@
 #include <wx/string.h>
 
 #include <utf8.h>
+#include <font/glyph.h>
 #include <font/text_attributes.h>
 
 namespace KIGFX
@@ -105,17 +106,145 @@ public:
     virtual bool IsBold() const { return false; }
     virtual bool IsItalic() const { return false; }
 
+    static FONT* GetFont( const wxString& aFontName = "", bool aBold = false,
+                          bool aItalic = false );
+    static bool  IsStroke( const wxString& aFontName );
+
     const wxString&    Name() const;
     inline const char* NameAsToken() const { return Name().utf8_str().data(); }
 
+    /**
+     * Draw a string.
+     *
+     * @param aGal is the graphics context.
+     * @param aText is the text to be drawn.
+     * @param aPosition is the text position in world coordinates.
+     * @param aCursor is the current text position (for multiple text blocks within a single text
+     *                object, such as a run of superscript characters)
+     * @param aAttrs are the styling attributes of the text, including its rotation
+     */
+    void Draw( KIGFX::GAL* aGal, const UTF8& aText, const VECTOR2I& aPosition,
+               const VECTOR2I& aCursor, const TEXT_ATTRIBUTES& aAttrs ) const;
+
+    void Draw( KIGFX::GAL* aGal, const UTF8& aText, const VECTOR2I& aPosition,
+               const TEXT_ATTRIBUTES& aAttributes ) const
+    {
+        Draw( aGal, aText, aPosition, VECTOR2I( 0, 0 ), aAttributes );
+    }
+
+    /**
+     * Compute the boundary limits of aText (the bounding box of all shapes).
+     *
+     * @return a VECTOR2I giving the width and height of text.
+     */
+    VECTOR2I StringBoundaryLimits( const UTF8& aText, const VECTOR2I& aSize, int aThickness,
+                                   bool aBold, bool aItalic ) const;
+
+    /**
+     * Compute the vertical position of an overbar.  This is the distance between the text
+     * baseline and the overbar.
+     */
+    virtual double ComputeOverbarVerticalPosition( double aGlyphHeight ) const = 0;
+
+    /**
+     * Compute the distance (interline) between 2 lines of text (for multiline texts).  This is
+     * the distance between baselines, not the space between line bounding boxes.
+     */
+    virtual double GetInterline( double aGlyphHeight, double aLineSpacing = 1.0 ) const = 0;
+
+    /**
+     * Convert text string to an array of GLYPHs.
+     *
+     * @param aBBox pointer to a BOX2I that will set to the bounding box, or nullptr
+     * @param aGlyphs storage for the returned GLYPHs
+     * @param aText text to convert to polygon/polyline
+     * @param aSize is the cap-height and em-width of the text
+     * @param aPosition position of text (cursor position before this text)
+     * @param aAngle text angle
+     * @param aMirror is true if text should be drawn mirrored, false otherwise.
+     * @param aOrigin is the point around which the text should be rotated, mirrored, etc.
+     * @param aTextStyle text style flags
+     * @return text cursor position after this text
+     */
+    virtual VECTOR2I GetTextAsGlyphs( BOX2I* aBBox, std::vector<std::unique_ptr<GLYPH>>* aGlyphs,
+                                      const UTF8& aText, const VECTOR2I& aSize,
+                                      const VECTOR2I& aPosition, const EDA_ANGLE& aAngle,
+                                      bool aMirror, const VECTOR2I& aOrigin,
+                                      TEXT_STYLE_FLAGS aTextStyle ) const = 0;
+
 protected:
-    wxString                         m_fontName;         ///< Font name
-    wxString                         m_fontFileName;     ///< Font file name
+    /**
+     * Returns number of lines for a given text.
+     *
+     * @param aText is the text to be checked.
+     * @return unsigned - The number of lines in aText.
+     */
+    inline unsigned linesCount( const UTF8& aText ) const
+    {
+        if( aText.empty() )
+            return 0; // std::count does not work well with empty strings
+        else
+            // aText.end() - 1 is to skip a newline character that is potentially at the end
+            return std::count( aText.begin(), aText.end() - 1, '\n' ) + 1;
+    }
+
+    /**
+     * Draws a single line of text. Multiline texts should be split before using the
+     * function.
+     *
+     * @param aGal is a pointer to the graphics abstraction layer, or nullptr (nothing is drawn)
+     * @param aBBox is an optional pointer to be filled with the bounding box.
+     * @param aText is the text to be drawn.
+     * @param aPosition is text position.
+     * @param aSize is the cap-height and em-width of the text
+     * @param aAngle is text angle.
+     * @param aMirror is true if text should be drawn mirrored, false otherwise.
+     * @param aOrigin is the point around which the text should be rotated, mirrored, etc.
+     * @return new cursor position in non-rotated, non-mirrored coordinates
+     */
+    void drawSingleLineText( KIGFX::GAL* aGal, BOX2I* aBoundingBox, const UTF8& aText,
+                             const VECTOR2I& aPosition, const VECTOR2I& aSize,
+                             const EDA_ANGLE& aAngle, bool aMirror, const VECTOR2I& aOrigin,
+                             bool aItalic ) const;
+
+    /**
+     * Computes the bounding box for a single line of text.
+     * Multiline texts should be split before using the function.
+     *
+     * @param aBBox is an optional pointer to be filled with the bounding box.
+     * @param aText is the text to be drawn.
+     * @param aPosition is text position.
+     * @param aSize is the cap-height and em-width of the text.
+     * @return new cursor position
+     */
+    VECTOR2I boundingBoxSingleLine( BOX2I* aBBox, const UTF8& aText, const VECTOR2I& aPosition,
+                                    const VECTOR2I& aSize, bool aItalic ) const;
+
+    void getLinePositions( const UTF8& aText, const VECTOR2I& aPosition,
+                           wxArrayString& aTextLines, std::vector<VECTOR2I>& aPositions,
+                           std::vector<VECTOR2I>& aExtents, const TEXT_ATTRIBUTES& aAttrs ) const;
+
+    VECTOR2I drawMarkup( BOX2I* aBoundingBox, std::vector<std::unique_ptr<GLYPH>>* aGlyphs,
+                         const UTF8& aText, const VECTOR2I& aPosition, const VECTOR2I& aSize,
+                         const EDA_ANGLE& aAngle, bool aMirror, const VECTOR2I& aOrigin,
+                         TEXT_STYLE_FLAGS aTextStyle ) const;
+
+    ///< Factor that determines the pitch between 2 lines.
+    static constexpr double INTERLINE_PITCH_RATIO = 1.62;   // The golden mean
 
 private:
-    static FONT*                     s_defaultFont;
-    static std::map<wxString, FONT*> s_fontMap;
+    static FONT* getDefaultFont();
+
+protected:
+    wxString     m_fontName;         ///< Font name
+    wxString     m_fontFileName;     ///< Font file name
+
+private:
+    static FONT* s_defaultFont;
+
+    static std::map< std::tuple<wxString, bool, bool>, FONT* > s_fontMap;
 };
+
 } //namespace KIFONT
 
 

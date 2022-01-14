@@ -22,6 +22,9 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
+#include <pgm_base.h>
+#include <settings/settings_manager.h>
+#include <eeschema_settings.h>
 #include <eda_item.h>
 #include <trace_helpers.h>
 #include <sch_item.h>
@@ -37,9 +40,7 @@
 
 
 /* Constructor and destructor for SCH_ITEM */
-/* They are not inline because this creates problems with gcc at linking time
- * in debug mode
- */
+/* They are not inline because this creates problems with gcc at linking time in debug mode */
 
 SCH_ITEM::SCH_ITEM( EDA_ITEM* aParent, KICAD_T aType ) :
     EDA_ITEM( aParent, aType )
@@ -126,7 +127,7 @@ void SCH_ITEM::ViewGetLayers( int aLayers[], int& aCount ) const
 }
 
 
-bool SCH_ITEM::IsConnected( const wxPoint& aPosition ) const
+bool SCH_ITEM::IsConnected( const VECTOR2I& aPosition ) const
 {
     if(( m_flags & STRUCT_DELETED ) || ( m_flags & SKIP_STRUCT ) )
         return false;
@@ -229,6 +230,26 @@ void SCH_ITEM::SwapData( SCH_ITEM* aItem )
 }
 
 
+void SCH_ITEM::ClearCaches()
+{
+    auto clearTextCaches =
+            []( SCH_ITEM* aItem )
+            {
+                EDA_TEXT* text = dynamic_cast<EDA_TEXT*>( aItem );
+
+                if( text )
+                {
+                    text->ClearBoundingBoxCache();
+                    text->ClearRenderCache();
+                }
+            };
+
+    clearTextCaches( this );
+
+    RunOnChildren( clearTextCaches );
+}
+
+
 bool SCH_ITEM::operator < ( const SCH_ITEM& aItem ) const
 {
     if( Type() != aItem.Type() )
@@ -241,6 +262,14 @@ bool SCH_ITEM::operator < ( const SCH_ITEM& aItem ) const
         return GetPosition().y < aItem.GetPosition().y;
 
     return m_Uuid < aItem.m_Uuid;
+}
+
+
+const wxString& SCH_ITEM::GetDefaultFont() const
+{
+    EESCHEMA_SETTINGS* cfg = Pgm().GetSettingsManager().GetAppSettings<EESCHEMA_SETTINGS>();
+
+    return cfg->m_Appearance.default_font;
 }
 
 

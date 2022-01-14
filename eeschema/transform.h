@@ -69,7 +69,7 @@ public:
     * @param aPoint = The position to transform
     * @return The transformed coordinate.
     */
-    wxPoint TransformCoordinate( const wxPoint& aPoint ) const;
+    VECTOR2I TransformCoordinate( const VECTOR2I& aPoint ) const;
 
    /**
     * Calculate a new rect according to the mirror/rotation transform.

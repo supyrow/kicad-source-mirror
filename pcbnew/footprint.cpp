@@ -4,7 +4,7 @@
  * Copyright (C) 2017 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2015 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
  * Copyright (C) 2015 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -58,7 +58,7 @@ FOOTPRINT::FOOTPRINT( BOARD* parent ) :
 {
     m_attributes   = 0;
     m_layer        = F_Cu;
-    m_orient       = 0;
+    m_orient       = ANGLE_0;
     m_fpStatus     = FP_PADS_are_LOCKED;
     m_arflag       = 0;
     m_link         = 0;
@@ -713,13 +713,11 @@ EDA_RECT FOOTPRINT::GetFpPadsLocalBbox() const
     // Create such a image:
     FOOTPRINT dummy( *this );
 
-    dummy.SetPosition( wxPoint( 0, 0 ) );
+    dummy.SetPosition( VECTOR2I( 0, 0 ) );
+    dummy.SetOrientation( ANGLE_0 );
 
     if( dummy.IsFlipped() )
-        dummy.Flip( wxPoint( 0, 0 ) , false );
-
-    if( dummy.GetOrientation() )
-        dummy.SetOrientation( 0 );
+        dummy.Flip( VECTOR2I( 0, 0 ), false );
 
     for( PAD* pad : dummy.Pads() )
         area.Merge( pad->GetBoundingBox() );
@@ -919,13 +917,13 @@ SHAPE_POLY_SET FOOTPRINT::GetBoundingHull() const
         rawPolys.Append( GetPosition().x - halfsize,  GetPosition().y + halfsize );
     }
 
-    std::vector<wxPoint> convex_hull;
+    std::vector<VECTOR2I> convex_hull;
     BuildConvexHull( convex_hull, rawPolys );
 
     m_cachedHull.RemoveAllContours();
     m_cachedHull.NewOutline();
 
-    for( const wxPoint& pt : convex_hull )
+    for( const VECTOR2I& pt : convex_hull )
         m_cachedHull.Append( pt );
 
     if( board )
@@ -988,7 +986,7 @@ void FOOTPRINT::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_I
 
     aList.emplace_back( _( "Status: " ) + status, _( "Attributes:" ) + wxS( " " ) + attrs );
 
-    aList.emplace_back( _( "Rotation" ), wxString::Format( "%.4g", GetOrientationDegrees() ) );
+    aList.emplace_back( _( "Rotation" ), wxString::Format( "%.4g", GetOrientation().AsDegrees() ) );
 
     msg.Printf( _( "Footprint: %s" ), m_fpid.GetUniStringLibId() );
     msg2.Printf( _( "3D-Shape: %s" ), m_3D_Drawings.empty() ? _( "<none>" )
@@ -1024,14 +1022,14 @@ bool FOOTPRINT::IsOnLayer( PCB_LAYER_ID aLayer ) const
 }
 
 
-bool FOOTPRINT::HitTest( const wxPoint& aPosition, int aAccuracy ) const
+bool FOOTPRINT::HitTest( const VECTOR2I& aPosition, int aAccuracy ) const
 {
     EDA_RECT rect = GetBoundingBox( false, false );
     return rect.Inflate( aAccuracy ).Contains( aPosition );
 }
 
 
-bool FOOTPRINT::HitTestAccurate( const wxPoint& aPosition, int aAccuracy ) const
+bool FOOTPRINT::HitTestAccurate( const VECTOR2I& aPosition, int aAccuracy ) const
 {
     return GetBoundingHull().Collide( aPosition, aAccuracy );
 }
@@ -1103,7 +1101,7 @@ PAD* FOOTPRINT::FindPadByNumber( const wxString& aPadNumber, PAD* aSearchAfterMe
 }
 
 
-PAD* FOOTPRINT::GetPad( const wxPoint& aPosition, LSET aLayerMask )
+PAD* FOOTPRINT::GetPad( const VECTOR2I& aPosition, LSET aLayerMask )
 {
     for( PAD* pad : m_pads )
     {
@@ -1125,7 +1123,7 @@ PAD* FOOTPRINT::GetTopLeftPad()
 
     for( PAD* p : m_pads )
     {
-        wxPoint pnt = p->GetPosition(); // GetPosition() returns the center of the pad
+        VECTOR2I pnt = p->GetPosition(); // GetPosition() returns the center of the pad
 
         if( ( pnt.x < topLeftPad->GetPosition().x ) ||
             ( topLeftPad->GetPosition().x == pnt.x && pnt.y < topLeftPad->GetPosition().y ) )
@@ -1477,19 +1475,19 @@ const wxChar* FOOTPRINT::StringLibNameInvalidChars( bool aUserReadable )
 }
 
 
-void FOOTPRINT::Move( const wxPoint& aMoveVector )
+void FOOTPRINT::Move( const VECTOR2I& aMoveVector )
 {
-    wxPoint newpos = m_pos + aMoveVector;
+    VECTOR2I newpos = m_pos + aMoveVector;
     SetPosition( newpos );
 }
 
 
-void FOOTPRINT::Rotate( const wxPoint& aRotCentre, double aAngle )
+void FOOTPRINT::Rotate( const VECTOR2I& aRotCentre, const EDA_ANGLE& aAngle )
 {
-    double  orientation = GetOrientation();
-    double  newOrientation = orientation + aAngle;
-    wxPoint newpos = m_pos;
-    RotatePoint( &newpos, aRotCentre, aAngle );
+    EDA_ANGLE orientation = GetOrientation();
+    EDA_ANGLE newOrientation = orientation + aAngle;
+    VECTOR2I  newpos = m_pos;
+    RotatePoint( newpos, aRotCentre, aAngle );
     SetPosition( newpos );
     SetOrientation( newOrientation );
 
@@ -1509,10 +1507,10 @@ void FOOTPRINT::Rotate( const wxPoint& aRotCentre, double aAngle )
 }
 
 
-void FOOTPRINT::Flip( const wxPoint& aCentre, bool aFlipLeftRight )
+void FOOTPRINT::Flip( const VECTOR2I& aCentre, bool aFlipLeftRight )
 {
     // Move footprint to its final position:
-    wxPoint finalPos = m_pos;
+    VECTOR2I finalPos = m_pos;
 
     // Now Flip the footprint.
     // Flipping a footprint is a specific transform: it is not mirrored like a text.
@@ -1532,8 +1530,7 @@ void FOOTPRINT::Flip( const wxPoint& aCentre, bool aFlipLeftRight )
 
     // Reverse mirror orientation.
     m_orient = -m_orient;
-
-    NORMALIZE_ANGLE_180( m_orient );
+    m_orient.Normalize180();
 
     // Mirror pads to other side of board.
     for( PAD* pad : m_pads )
@@ -1568,7 +1565,7 @@ void FOOTPRINT::Flip( const wxPoint& aCentre, bool aFlipLeftRight )
 
     // Now rotate 180 deg if required
     if( aFlipLeftRight )
-        Rotate( aCentre, 1800.0 );
+        Rotate( aCentre, ANGLE_180 );
 
     m_boundingBoxCacheTimeStamp = 0;
     m_visibleBBoxCacheTimeStamp = 0;
@@ -1580,9 +1577,9 @@ void FOOTPRINT::Flip( const wxPoint& aCentre, bool aFlipLeftRight )
 }
 
 
-void FOOTPRINT::SetPosition( const wxPoint& aPos )
+void FOOTPRINT::SetPosition( const VECTOR2I& aPos )
 {
-    wxPoint delta = aPos - m_pos;
+    VECTOR2I delta = aPos - m_pos;
 
     m_pos += delta;
 
@@ -1634,7 +1631,7 @@ void FOOTPRINT::SetPosition( const wxPoint& aPos )
 }
 
 
-void FOOTPRINT::MoveAnchorPosition( const wxPoint& aMoveVector )
+void FOOTPRINT::MoveAnchorPosition( const VECTOR2I& aMoveVector )
 {
     /* Move the reference point of the footprint
      * the footprints elements (pads, outlines, edges .. ) are moved
@@ -1646,8 +1643,8 @@ void FOOTPRINT::MoveAnchorPosition( const wxPoint& aMoveVector )
 
 
     // Update (move) the relative coordinates relative to the new anchor point.
-    wxPoint moveVector = aMoveVector;
-    RotatePoint( &moveVector, -GetOrientation() );
+    VECTOR2I moveVector = aMoveVector;
+    RotatePoint( moveVector, -GetOrientation() );
 
     // Update of the reference and value.
     m_reference->SetPos0( m_reference->GetPos0() + moveVector );
@@ -1707,13 +1704,12 @@ void FOOTPRINT::MoveAnchorPosition( const wxPoint& aMoveVector )
 }
 
 
-void FOOTPRINT::SetOrientation( double aNewAngle )
+void FOOTPRINT::SetOrientation( const EDA_ANGLE& aNewAngle )
 {
-    double angleChange = aNewAngle - m_orient;  // change in rotation
-
-    NORMALIZE_ANGLE_180( aNewAngle );
+    EDA_ANGLE angleChange = aNewAngle - m_orient;  // change in rotation
 
     m_orient = aNewAngle;
+    m_orient.Normalize180();
 
     for( PAD* pad : m_pads )
     {
@@ -1722,9 +1718,7 @@ void FOOTPRINT::SetOrientation( double aNewAngle )
     }
 
     for( ZONE* zone : m_fp_zones )
-    {
         zone->Rotate( GetPosition(), angleChange );
-    }
 
     // Update of the reference and value.
     m_reference->SetDrawCoord();
@@ -1734,20 +1728,16 @@ void FOOTPRINT::SetOrientation( double aNewAngle )
     for( BOARD_ITEM* item : m_drawings )
     {
         if( item->Type() == PCB_FP_SHAPE_T )
-        {
             static_cast<FP_SHAPE*>( item )->SetDrawCoord();
-        }
         else if( item->Type() == PCB_FP_TEXT_T )
-        {
             static_cast<FP_TEXT*>( item )->SetDrawCoord();
-        }
     }
 
     m_boundingBoxCacheTimeStamp = 0;
     m_visibleBBoxCacheTimeStamp = 0;
     m_textExcludedBBoxCacheTimeStamp = 0;
 
-    m_cachedHull.Rotate( -DECIDEG2RAD( angleChange ), GetPosition() );
+    m_cachedHull.Rotate( - angleChange.AsRadians(), GetPosition() );
 }
 
 
@@ -2169,8 +2159,7 @@ void FOOTPRINT::CheckFootprintAttributes( const std::function<void( const wxStri
 }
 
 void FOOTPRINT::CheckFootprintTHPadNoHoles(
-                const std::function<void( const wxString& msg, const wxPoint& position )>*
-                aErrorHandler )
+        const std::function<void( const wxString& msg, const VECTOR2I& position )>* aErrorHandler )
 {
     if( aErrorHandler == nullptr )
         return;
@@ -2311,7 +2300,7 @@ void FOOTPRINT::TransformPadsWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuff
         // as their hole:
         if( aSkipNPTHPadsWihNoCopper && pad->GetAttribute() == PAD_ATTRIB::NPTH )
         {
-            if( pad->GetDrillSize() == pad->GetSize() && pad->GetOffset() == wxPoint( 0, 0 ) )
+            if( pad->GetDrillSize() == pad->GetSize() && pad->GetOffset() == VECTOR2I( 0, 0 ) )
             {
                 switch( pad->GetShape() )
                 {
@@ -2342,7 +2331,7 @@ void FOOTPRINT::TransformPadsWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuff
         if( aSkipNonPlatedPads && !isPlated )
             continue;
 
-        wxSize clearance( aClearance, aClearance );
+        VECTOR2I clearance( aClearance, aClearance );
 
         switch( aLayer )
         {
@@ -2371,7 +2360,7 @@ void FOOTPRINT::TransformPadsWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuff
         if( ( clearance.x < 0 || clearance.x != clearance.y )
                 && pad->GetShape() != PAD_SHAPE::CUSTOM )
         {
-            wxSize dummySize = pad->GetSize() + clearance + clearance;
+            VECTOR2I dummySize = pad->GetSize() + clearance + clearance;
 
             if( dummySize.x <= 0 || dummySize.y <= 0 )
                 continue;

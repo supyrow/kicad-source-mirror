@@ -37,6 +37,7 @@
 #include <lib_pin.h>
 #include <lib_text.h>
 #include <math/util.h>                           // KiROUND, Clamp
+#include <font/font.h>
 #include <string_utils.h>
 #include <sch_bitmap.h>
 #include <sch_bus_entry.h>
@@ -162,14 +163,13 @@ LIB_SYMBOL* SCH_SEXPR_PARSER::ParseSymbol( LIB_SYMBOL_MAP& aSymbolLibMap, int aF
     wxString name;
     wxString error;
     LIB_ITEM* item;
-    LIB_FIELD* field;
     std::unique_ptr<LIB_SYMBOL> symbol = std::make_unique<LIB_SYMBOL>( wxEmptyString );
-    std::set<int> fieldIDsRead;
 
     m_requiredVersion = aFileVersion;
     symbol->SetUnitCount( 1 );
 
     m_fieldId = MANDATORY_FIELDS;
+    m_fieldIDsRead.clear();
 
     token = NextTok();
 
@@ -232,29 +232,7 @@ LIB_SYMBOL* SCH_SEXPR_PARSER::ParseSymbol( LIB_SYMBOL_MAP& aSymbolLibMap, int aF
             break;
 
         case T_property:
-            field = parseProperty( symbol );
-
-            if( field )
-            {
-                // Due to an bug when in #LIB_SYMBOL::Flatten, duplicate ids slipped through
-                // when writing files.  This section replaces duplicate #LIB_FIELD indices on
-                // load.
-                if( fieldIDsRead.count( field->GetId() ) )
-                {
-                    int nextAvailableId = field->GetId() + 1;
-
-                    while( fieldIDsRead.count( nextAvailableId ) )
-                        nextAvailableId += 1;
-
-                    fieldIDsRead.insert( nextAvailableId );
-                    field->SetId( nextAvailableId );
-                }
-                else if( field )
-                {
-                    fieldIDsRead.insert( field->GetId() );
-                }
-            }
-
+            parseProperty( symbol );
             break;
 
         case T_extends:
@@ -562,7 +540,8 @@ void SCH_SEXPR_PARSER::parseEDA_TEXT( EDA_TEXT* aText, bool aConvertOverbarSynta
     if( aConvertOverbarSyntax && m_requiredVersion < 20210606 )
         aText->SetText( ConvertToNewOverbarNotation( aText->GetText() ) );
 
-    T token;
+    T        token;
+    wxString faceName;
 
     for( token = NextTok(); token != T_RIGHT; token = NextTok() )
     {
@@ -579,6 +558,12 @@ void SCH_SEXPR_PARSER::parseEDA_TEXT( EDA_TEXT* aText, bool aConvertOverbarSynta
 
                 switch( token )
                 {
+                case T_face:
+                    NeedSYMBOL();
+                    faceName = FromUTF8();
+                    NeedRIGHT();
+                    break;
+
                 case T_size:
                 {
                     wxSize sz;
@@ -602,9 +587,20 @@ void SCH_SEXPR_PARSER::parseEDA_TEXT( EDA_TEXT* aText, bool aConvertOverbarSynta
                     aText->SetItalic( true );
                     break;
 
+                case T_line_spacing:
+                    aText->SetLineSpacing( parseDouble( "line spacing" ) );
+                    NeedRIGHT();
+                    break;
+
                 default:
-                    Expecting( "size, bold, or italic" );
+                    Expecting( "face, size, thickness, line_spacing, bold, or italic" );
                 }
+            }
+
+            if( !faceName.IsEmpty() )
+            {
+                aText->SetFont( KIFONT::FONT::GetFont( faceName, aText->IsBold(),
+                                                       aText->IsItalic() ) );
             }
 
             break;
@@ -768,7 +764,7 @@ LIB_FIELD* SCH_SEXPR_PARSER::parseProperty( std::unique_ptr<LIB_SYMBOL>& aSymbol
 
         case T_at:
             field->SetPosition( parseXY() );
-            field->SetTextAngle( static_cast<int>( parseDouble( "text angle" ) * 10.0 ) );
+            field->SetTextAngle( EDA_ANGLE( parseDouble( "text angle" ), DEGREES_T ) );
             NeedRIGHT();
             break;
 
@@ -781,6 +777,19 @@ LIB_FIELD* SCH_SEXPR_PARSER::parseProperty( std::unique_ptr<LIB_SYMBOL>& aSymbol
         }
     }
 
+    // Due to an bug when in #LIB_SYMBOL::Flatten, duplicate ids slipped through
+    // when writing files.  This section replaces duplicate #LIB_FIELD indices on
+    // load.
+    if( m_fieldIDsRead.count( field->GetId() ) )
+    {
+        int nextAvailableId = field->GetId() + 1;
+
+        while( m_fieldIDsRead.count( nextAvailableId ) )
+            nextAvailableId += 1;
+
+        field->SetId( nextAvailableId );
+    }
+
     LIB_FIELD* existingField;
 
     if( field->GetId() < MANDATORY_FIELDS )
@@ -788,6 +797,7 @@ LIB_FIELD* SCH_SEXPR_PARSER::parseProperty( std::unique_ptr<LIB_SYMBOL>& aSymbol
         existingField = aSymbol->GetFieldById( field->GetId() );
 
         *existingField = *field;
+        m_fieldIDsRead.insert( field->GetId() );
         return existingField;
     }
     else if( name == "ki_keywords" )
@@ -853,6 +863,7 @@ LIB_FIELD* SCH_SEXPR_PARSER::parseProperty( std::unique_ptr<LIB_SYMBOL>& aSymbol
         if( !existingField )
         {
             aSymbol->AddDrawItem( field.get(), false );
+            m_fieldIDsRead.insert( field->GetId() );
             return field.release();
         }
         else
@@ -870,15 +881,15 @@ LIB_SHAPE* SCH_SEXPR_PARSER::parseArc()
                  wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as an arc." ) );
 
     T             token;
-    wxPoint       startPoint( 1, 0 );   // Initialize to a non-degenerate arc just for safety
-    wxPoint       midPoint( 1, 1 );
-    wxPoint       endPoint( 0, 1 );
+    VECTOR2I      startPoint( 1, 0 ); // Initialize to a non-degenerate arc just for safety
+    VECTOR2I      midPoint( 1, 1 );
+    VECTOR2I      endPoint( 0, 1 );
     bool          hasMidPoint = false;
     STROKE_PARAMS stroke( Mils2iu( DEFAULT_LINE_WIDTH_MILS ), PLOT_DASH_TYPE::DEFAULT );
     FILL_PARAMS   fill;
 
     // Parameters for legacy format
-    wxPoint       center( 0, 0 );
+    VECTOR2I      center( 0, 0 );
     int           startAngle = 0;
     int           endAngle = 900;
     bool          hasAngles = false;
@@ -972,7 +983,7 @@ LIB_SHAPE* SCH_SEXPR_PARSER::parseArc()
 
     if( hasMidPoint )
     {
-        arc->SetCenter( (wxPoint) CalcArcCenter( arc->GetStart(), midPoint, arc->GetEnd() ) );
+        arc->SetCenter( CalcArcCenter( arc->GetStart(), midPoint, arc->GetEnd() ) );
     }
     else if( hasAngles )
     {
@@ -985,7 +996,7 @@ LIB_SHAPE* SCH_SEXPR_PARSER::parseArc()
          */
         if( !TRANSFORM().MapAngles( &startAngle, &endAngle ) )
         {
-            wxPoint temp = arc->GetStart();
+            VECTOR2I temp = arc->GetStart();
             arc->SetStart( arc->GetEnd() );
             arc->SetEnd( temp );
         }
@@ -1079,7 +1090,7 @@ LIB_SHAPE* SCH_SEXPR_PARSER::parseCircle()
                  wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as a circle." ) );
 
     T             token;
-    wxPoint       center( 0, 0 );
+    VECTOR2I      center( 0, 0 );
     int           radius = 1;     // defaulting to 0 could result in troublesome math....
     STROKE_PARAMS stroke( Mils2iu( DEFAULT_LINE_WIDTH_MILS ), PLOT_DASH_TYPE::DEFAULT );
     FILL_PARAMS   fill;
@@ -1125,7 +1136,7 @@ LIB_SHAPE* SCH_SEXPR_PARSER::parseCircle()
     }
 
     circle->SetCenter( center );
-    circle->SetEnd( wxPoint( center.x + radius, center.y ) );
+    circle->SetEnd( VECTOR2I( center.x + radius, center.y ) );
 
     return circle.release();
 }
@@ -1485,7 +1496,8 @@ LIB_TEXT* SCH_SEXPR_PARSER::parseText()
         {
         case T_at:
             text->SetPosition( parseXY() );
-            text->SetTextAngle( parseDouble( "text angle" ) );
+            // Yes, LIB_TEXT is really decidegrees even though all the others are degrees. :(
+            text->SetTextAngle( EDA_ANGLE( parseDouble( "text angle" ), TENTHS_OF_A_DEGREE_T ) );
             NeedRIGHT();
             break;
 
@@ -1712,7 +1724,7 @@ SCH_FIELD* SCH_SEXPR_PARSER::parseSchField( SCH_ITEM* aParent )
 
         case T_at:
             field->SetPosition( parseXY() );
-            field->SetTextAngle( static_cast<int>( parseDouble( "text angle" ) * 10.0 ) );
+            field->SetTextAngle( EDA_ANGLE( parseDouble( "text angle" ), DEGREES_T ) );
             NeedRIGHT();
             break;
 
@@ -1751,7 +1763,7 @@ SCH_SHEET_PIN* SCH_SEXPR_PARSER::parseSchSheetPin( SCH_SHEET* aSheet )
                            CurOffset() );
     }
 
-    auto sheetPin = std::make_unique<SCH_SHEET_PIN>( aSheet, wxPoint( 0, 0 ), name );
+    auto sheetPin = std::make_unique<SCH_SHEET_PIN>( aSheet, VECTOR2I( 0, 0 ), name );
 
     token = NextTok();
 
@@ -2753,7 +2765,7 @@ SCH_LINE* SCH_SEXPR_PARSER::parseLine()
         wxCHECK_MSG( false, nullptr, "Cannot parse " + GetTokenString( CurTok() ) + " as a line." );
     }
 
-    std::unique_ptr<SCH_LINE> line = std::make_unique<SCH_LINE>( wxPoint(), layer );
+    std::unique_ptr<SCH_LINE> line = std::make_unique<SCH_LINE>( VECTOR2I(), layer );
 
     for( token = NextTok(); token != T_RIGHT; token = NextTok() )
     {
@@ -2810,10 +2822,10 @@ SCH_SHAPE* SCH_SEXPR_PARSER::parseSchArc()
                  wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as an arc." ) );
 
     T             token;
-    wxPoint       startPoint;
-    wxPoint       midPoint;
-    wxPoint       endPoint;
-    wxPoint       pos;
+    VECTOR2I      startPoint;
+    VECTOR2I      midPoint;
+    VECTOR2I      endPoint;
+    VECTOR2I      pos;
     int           startAngle;
     int           endAngle;
     STROKE_PARAMS stroke( Mils2iu( DEFAULT_LINE_WIDTH_MILS ), PLOT_DASH_TYPE::DEFAULT );
@@ -2914,7 +2926,7 @@ SCH_SHAPE* SCH_SEXPR_PARSER::parseSchArc()
     {
         VECTOR2I center = CalcArcCenter( arc->GetStart(), midPoint, arc->GetEnd() );
 
-        arc->SetCenter( (wxPoint) center );
+        arc->SetCenter( center );
     }
     else if( hasAngles )
     {
@@ -2928,7 +2940,7 @@ SCH_SHAPE* SCH_SEXPR_PARSER::parseSchArc()
          */
         if( !TRANSFORM().MapAngles( &startAngle, &endAngle ) )
         {
-            wxPoint temp = arc->GetStart();
+            VECTOR2I temp = arc->GetStart();
             arc->SetStart( arc->GetEnd() );
             arc->SetEnd( temp );
         }
@@ -2946,7 +2958,7 @@ SCH_SHAPE* SCH_SEXPR_PARSER::parseSchCircle()
                  wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as a circle." ) );
 
     T             token;
-    wxPoint       center;
+    VECTOR2I      center;
     int           radius = 0;
     STROKE_PARAMS stroke( Mils2iu( DEFAULT_LINE_WIDTH_MILS ), PLOT_DASH_TYPE::DEFAULT );
     FILL_PARAMS   fill;
@@ -2994,7 +3006,7 @@ SCH_SHAPE* SCH_SEXPR_PARSER::parseSchCircle()
     }
 
     circle->SetCenter( center );
-    circle->SetEnd( wxPoint( center.x + radius, center.y ) );
+    circle->SetEnd( VECTOR2I( center.x + radius, center.y ) );
 
     return circle.release();
 }

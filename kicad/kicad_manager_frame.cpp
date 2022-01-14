@@ -97,10 +97,8 @@ BEGIN_EVENT_TABLE( KICAD_MANAGER_FRAME, EDA_BASE_FRAME )
 END_EVENT_TABLE()
 
 
-#ifdef PCM
 // See below the purpose of this include
 #include <wx/xml/xml.h>
-#endif
 
 KICAD_MANAGER_FRAME::KICAD_MANAGER_FRAME( wxWindow* parent, const wxString& title,
                                           const wxPoint& pos, const wxSize&   size ) :
@@ -114,13 +112,11 @@ KICAD_MANAGER_FRAME::KICAD_MANAGER_FRAME( wxWindow* parent, const wxString& titl
     m_leftWinWidth = 250;       // Default value
     m_aboutTitle = "KiCad";
 
-#ifdef PCM
     // JPC: A very ugly hack to fix an issue on Linux: if the wxbase315u_xml_gcc_custom.so is
     // used **only** in PCM, it is not found in some cases at run time.
     // So just use it in the main module to avoid a not found issue
     // wxbase315u_xml_gcc_custom shared object when launching Kicad
     wxXmlDocument dummy;
-#endif
 
     // Create the status line (bottom of the frame).  Left half is for project name; right half
     // is for Reporter (currently used by archiver/unarchiver).
@@ -413,9 +409,6 @@ bool KICAD_MANAGER_FRAME::CloseProject( bool aSave )
 {
     if( !Kiway().PlayersClose( false ) )
         return false;
-
-    // Give a timeslice for the save-changes? dialog (and for the project to actually close)
-    wxSafeYield();
 
     // Save the project file for the currently loaded project.
     if( m_active_project )

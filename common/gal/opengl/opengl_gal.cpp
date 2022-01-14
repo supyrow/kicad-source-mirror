@@ -204,8 +204,10 @@ OPENGL_GAL::OPENGL_GAL( GAL_DISPLAY_OPTIONS& aDisplayOptions, wxWindow* aParent,
         m_cachedManager( nullptr ),
         m_nonCachedManager( nullptr ),
         m_overlayManager( nullptr ),
+        m_tempManager( nullptr ),
         m_mainBuffer( 0 ),
         m_overlayBuffer( 0 ),
+        m_tempBuffer( 0 ),
         m_isContextLocked( false ),
         m_lockClientCookie( 0 )
 {
@@ -300,6 +302,7 @@ OPENGL_GAL::~OPENGL_GAL()
         delete m_cachedManager;
         delete m_nonCachedManager;
         delete m_overlayManager;
+        delete m_tempManager;
     }
 
     GL_CONTEXT_MANAGER::Get().UnlockCtx( m_glPrivContext );
@@ -442,6 +445,7 @@ void OPENGL_GAL::BeginDrawing()
         // Prepare rendering target buffers
         m_compositor->Initialize();
         m_mainBuffer = m_compositor->CreateBuffer();
+        m_tempBuffer = m_compositor->CreateBuffer();
         try
         {
             m_overlayBuffer = m_compositor->CreateBuffer();
@@ -493,10 +497,12 @@ void OPENGL_GAL::BeginDrawing()
     // Remove all previously stored items
     m_nonCachedManager->Clear();
     m_overlayManager->Clear();
+    m_tempManager->Clear();
 
     m_cachedManager->BeginDrawing();
     m_nonCachedManager->BeginDrawing();
     m_overlayManager->BeginDrawing();
+    m_tempManager->BeginDrawing();
 
     if( !m_isBitmapFontInitialized )
     {
@@ -883,7 +889,7 @@ void OPENGL_GAL::DrawArcSegment( const VECTOR2D& aCenterPoint, double aRadius,
     SWAP( aStartAngle, >, aEndAngle );
 
     // Calculate the seg count to approximate the arc with aMaxError or less
-    int segCount360 = GetArcToSegmentCount( aRadius, aMaxError, 360.0 );
+    int segCount360 = GetArcToSegmentCount( aRadius, aMaxError, FULL_CIRCLE );
     segCount360 = std::max( SEG_PER_CIRCLE_COUNT, segCount360 );
     double alphaIncrement = 2.0 * M_PI / segCount360;
 
@@ -1017,6 +1023,17 @@ void OPENGL_GAL::DrawRectangle( const VECTOR2D& aStartPoint, const VECTOR2D& aEn
 
 
 void OPENGL_GAL::DrawPolyline( const std::deque<VECTOR2D>& aPointList )
+{
+    drawPolyline(
+            [&]( int idx )
+            {
+                return aPointList[idx];
+            },
+            aPointList.size() );
+}
+
+
+void OPENGL_GAL::DrawPolyline( const std::vector<VECTOR2D>& aPointList )
 {
     drawPolyline(
             [&]( int idx )
@@ -1269,12 +1286,12 @@ void OPENGL_GAL::DrawBitmap( const BITMAP_BASE& aBitmap )
 }
 
 
-void OPENGL_GAL::BitmapText( const wxString& aText, const VECTOR2D& aPosition,
-                             double aRotationAngle )
+void OPENGL_GAL::BitmapText( const wxString& aText, const VECTOR2I& aPosition,
+                             const EDA_ANGLE& aAngle )
 {
     // Fallback to generic impl (which uses the stroke font) on cases we don't handle
     if( IsTextMirrored() || aText.Contains( wxT( "^{" ) ) || aText.Contains( wxT( "_{" ) ) )
-        return GAL::BitmapText( aText, aPosition, aRotationAngle );
+        return GAL::BitmapText( aText, aPosition, aAngle );
 
     const UTF8   text( aText );
     VECTOR2D     textSize;
@@ -1289,7 +1306,7 @@ void OPENGL_GAL::BitmapText( const wxString& aText, const VECTOR2D& aPosition,
 
     m_currentManager->Color( m_strokeColor.r, m_strokeColor.g, m_strokeColor.b, m_strokeColor.a );
     m_currentManager->Translate( aPosition.x, aPosition.y, m_layerDepth );
-    m_currentManager->Rotate( aRotationAngle, 0.0f, 0.0f, -1.0f );
+    m_currentManager->Rotate( aAngle.AsRadians(), 0.0f, 0.0f, -1.0f );
 
     double sx = SCALE * ( m_globalFlipX ? -1.0 : 1.0 );
     double sy = SCALE * ( m_globalFlipY ? -1.0 : 1.0 );
@@ -1335,8 +1352,7 @@ void OPENGL_GAL::BitmapText( const wxString& aText, const VECTOR2D& aPosition,
 
     for( UTF8::uni_iter chIt = text.ubegin(), end = text.uend(); chIt < end; ++chIt )
     {
-        wxASSERT_MSG( *chIt != '\n' && *chIt != '\r',
-                wxT( "No support for multiline bitmap text yet" ) );
+        wxASSERT_MSG( *chIt != '\n' && *chIt != '\r', "No support for multiline bitmap text yet" );
 
         if( *chIt == '~' && overbarDepth == -1 )
         {
@@ -1705,6 +1721,7 @@ void OPENGL_GAL::SetTarget( RENDER_TARGET aTarget )
     case TARGET_CACHED:    m_currentManager = m_cachedManager;    break;
     case TARGET_NONCACHED: m_currentManager = m_nonCachedManager; break;
     case TARGET_OVERLAY:   m_currentManager = m_overlayManager;   break;
+    case TARGET_TEMP:      m_currentManager = m_tempManager;      break;
     }
 
     m_currentTarget = aTarget;
@@ -1731,6 +1748,10 @@ void OPENGL_GAL::ClearTarget( RENDER_TARGET aTarget )
         m_compositor->SetBuffer( m_mainBuffer );
         break;
 
+    case TARGET_TEMP:
+        m_compositor->SetBuffer( m_tempBuffer );
+        break;
+
     case TARGET_OVERLAY:
         if( m_overlayBuffer )
             m_compositor->SetBuffer( m_overlayBuffer );
@@ -1752,6 +1773,7 @@ bool OPENGL_GAL::HasTarget( RENDER_TARGET aTarget )
     switch( aTarget )
     {
     default:
+    case TARGET_TEMP:
     case TARGET_CACHED:
     case TARGET_NONCACHED: return true;
     case TARGET_OVERLAY:   return ( m_overlayBuffer != 0 );
@@ -1762,14 +1784,18 @@ bool OPENGL_GAL::HasTarget( RENDER_TARGET aTarget )
 void OPENGL_GAL::StartDiffLayer()
 {
     m_currentManager->EndDrawing();
+    SetTarget( TARGET_TEMP );
+    ClearTarget( TARGET_TEMP );
 }
 
 
 void OPENGL_GAL::EndDiffLayer()
 {
-    glBlendFunc( GL_SRC_ALPHA, GL_ONE );
+    glBlendEquation( GL_MAX );
     m_currentManager->EndDrawing();
-    glBlendFunc( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA );
+    glBlendEquation( GL_FUNC_ADD );
+
+    m_compositor->DrawBuffer( m_tempBuffer, m_mainBuffer );
 }
 
 
@@ -2296,11 +2322,13 @@ void OPENGL_GAL::init()
     m_cachedManager = new VERTEX_MANAGER( true );
     m_nonCachedManager = new VERTEX_MANAGER( false );
     m_overlayManager = new VERTEX_MANAGER( false );
+    m_tempManager = new VERTEX_MANAGER( false );
 
     // Make VBOs use shaders
     m_cachedManager->SetShader( *m_shader );
     m_nonCachedManager->SetShader( *m_shader );
     m_overlayManager->SetShader( *m_shader );
+    m_tempManager->SetShader( *m_shader );
 
     m_isInitialized = true;
 }
@@ -2379,4 +2407,31 @@ void OPENGL_GAL::ComputeWorldScreenMatrix()
     m_lookAtPoint.y = round_to_half_pixel( m_lookAtPoint.y, pixelSize );
 
     GAL::ComputeWorldScreenMatrix();
+}
+
+
+void OPENGL_GAL::DrawGlyph( const KIFONT::GLYPH& aGlyph, int aNth, int aTotal )
+{
+    if( aGlyph.IsStroke() )
+    {
+        const auto& strokeGlyph = static_cast<const KIFONT::STROKE_GLYPH&>( aGlyph );
+
+        for( const std::vector<VECTOR2D>& pointList : strokeGlyph )
+            DrawPolyline( pointList );
+    }
+    else if( aGlyph.IsOutline() )
+    {
+        const auto& outlineGlyph = static_cast<const KIFONT::OUTLINE_GLYPH&>( aGlyph );
+
+        m_currentManager->Shader( SHADER_NONE );
+        m_currentManager->Color( m_fillColor );
+
+        outlineGlyph.Triangulate(
+                [&]( const VECTOR2D& aPt1, const VECTOR2D& aPt2, const VECTOR2D& aPt3 )
+                {
+                    m_currentManager->Vertex( aPt1.x, aPt1.y, m_layerDepth );
+                    m_currentManager->Vertex( aPt2.x, aPt2.y, m_layerDepth );
+                    m_currentManager->Vertex( aPt3.x, aPt3.y, m_layerDepth );
+                } );
+    }
 }

@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2018 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2012 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -59,9 +59,9 @@ using KIGFX::PCB_RENDER_SETTINGS;
 PAD::PAD( FOOTPRINT* parent ) :
     BOARD_CONNECTED_ITEM( parent, PCB_PAD_T )
 {
-    m_size.x = m_size.y   = Mils2iu( 60 );  // Default pad size 60 mils.
-    m_drill.x = m_drill.y = Mils2iu( 30 );  // Default drill size 30 mils.
-    m_orient              = 0;              // Pad rotation in 1/10 degrees.
+    m_size.x = m_size.y   = Mils2iu( 60 );       // Default pad size 60 mils.
+    m_drill.x = m_drill.y = Mils2iu( 30 );       // Default drill size 30 mils.
+    m_orient              = ANGLE_0;
     m_lengthPadToDie      = 0;
 
     if( m_parent && m_parent->Type() == PCB_FOOTPRINT_T )
@@ -87,7 +87,7 @@ PAD::PAD( FOOTPRINT* parent ) :
 
     m_zoneConnection    = ZONE_CONNECTION::INHERITED; // Use parent setting by default
     m_thermalSpokeWidth = 0;                          // Use parent setting by default
-    m_thermalSpokeAngle = 450.0;                      // Default for circular pads
+    m_thermalSpokeAngle = ANGLE_45;                   // Default for circular pads
     m_thermalGap        = 0;                          // Use parent setting by default
 
     m_customShapeClearanceArea = CUST_PAD_SHAPE_IN_ZONE_OUTLINE;
@@ -243,12 +243,12 @@ bool PAD::FlashLayer( int aLayer ) const
     case PAD_ATTRIB::NPTH:
         if( GetShape() == PAD_SHAPE::CIRCLE && GetDrillShape() == PAD_DRILL_SHAPE_CIRCLE )
         {
-            if( GetOffset() == wxPoint( 0, 0 ) && GetDrillSize().x >= GetSize().x )
+            if( GetOffset() == VECTOR2I( 0, 0 ) && GetDrillSize().x >= GetSize().x )
                 return false;
         }
         else if( GetShape() == PAD_SHAPE::OVAL && GetDrillShape() == PAD_DRILL_SHAPE_OBLONG )
         {
-            if( GetOffset() == wxPoint( 0, 0 )
+            if( GetOffset() == VECTOR2I( 0, 0 )
                     && GetDrillSize().x >= GetSize().x && GetDrillSize().y >= GetSize().y )
             {
                 return false;
@@ -355,7 +355,7 @@ void PAD::BuildEffectiveShapes( PCB_LAYER_ID aLayer ) const
                    m_effectiveShape->AddShape( aShape );
                };
 
-    wxPoint shapePos = ShapePos();  // Fetch only once; rotation involves trig
+    VECTOR2I  shapePos = ShapePos(); // Fetch only once; rotation involves trig
     PAD_SHAPE effectiveShape = GetShape();
 
     if( GetShape() == PAD_SHAPE::CUSTOM )
@@ -374,10 +374,10 @@ void PAD::BuildEffectiveShapes( PCB_LAYER_ID aLayer ) const
         }
         else
         {
-            wxSize  half_size = m_size / 2;
+            VECTOR2I half_size = m_size / 2;
             int     half_width = std::min( half_size.x, half_size.y );
-            wxPoint half_len( half_size.x - half_width, half_size.y - half_width );
-            RotatePoint( &half_len, m_orient );
+            VECTOR2I half_len( half_size.x - half_width, half_size.y - half_width );
+            RotatePoint( half_len, m_orient );
             add( new SHAPE_SEGMENT( shapePos - half_len, shapePos + half_len, half_width * 2 ) );
         }
 
@@ -387,13 +387,13 @@ void PAD::BuildEffectiveShapes( PCB_LAYER_ID aLayer ) const
     case PAD_SHAPE::TRAPEZOID:
     case PAD_SHAPE::ROUNDRECT:
     {
-        int     r = ( effectiveShape == PAD_SHAPE::ROUNDRECT ) ? GetRoundRectCornerRadius() : 0;
-        wxPoint half_size( m_size.x / 2, m_size.y / 2 );
-        wxSize  trap_delta( 0, 0 );
+        int      r = ( effectiveShape == PAD_SHAPE::ROUNDRECT ) ? GetRoundRectCornerRadius() : 0;
+        VECTOR2I half_size( m_size.x / 2, m_size.y / 2 );
+        VECTOR2I trap_delta( 0, 0 );
 
         if( r )
         {
-            half_size -= wxPoint( r, r );
+            half_size -= VECTOR2I( r, r );
 
             // Avoid degenerated shapes (0 length segments) that always create issues
             // For roundrect pad very near a circle, use only a circle
@@ -417,7 +417,7 @@ void PAD::BuildEffectiveShapes( PCB_LAYER_ID aLayer ) const
         corners.Append(  half_size.x - trap_delta.y, -half_size.y + trap_delta.x );
         corners.Append( -half_size.x + trap_delta.y, -half_size.y - trap_delta.x );
 
-        corners.Rotate( -DECIDEG2RAD( m_orient ) );
+        corners.Rotate( - m_orient.AsRadians() );
         corners.Move( shapePos );
 
         // GAL renders rectangles faster than 4-point polygons so it's worth checking if our
@@ -462,7 +462,8 @@ void PAD::BuildEffectiveShapes( PCB_LAYER_ID aLayer ) const
     {
         SHAPE_POLY_SET outline;
 
-        TransformRoundChamferedRectToPolygon( outline, shapePos, GetSize(), m_orient,
+        TransformRoundChamferedRectToPolygon( outline, shapePos, GetSize(),
+                                              m_orient.AsTenthsOfADegree(),
                                               GetRoundRectCornerRadius(), GetChamferRectRatio(),
                                               GetChamferPositions(), 0, maxError, ERROR_INSIDE );
 
@@ -482,7 +483,7 @@ void PAD::BuildEffectiveShapes( PCB_LAYER_ID aLayer ) const
         {
             for( SHAPE* shape : primitive->MakeEffectiveShapes() )
             {
-                shape->Rotate( -DECIDEG2RAD( m_orient ) );
+                shape->Rotate( - m_orient.AsRadians() );
                 shape->Move( shapePos );
                 add( shape );
             }
@@ -490,21 +491,19 @@ void PAD::BuildEffectiveShapes( PCB_LAYER_ID aLayer ) const
     }
 
     BOX2I bbox = m_effectiveShape->BBox();
-    m_effectiveBoundingBox = EDA_RECT( (wxPoint) bbox.GetPosition(),
-                                       wxSize( bbox.GetWidth(), bbox.GetHeight() ) );
+    m_effectiveBoundingBox = EDA_RECT( bbox.GetPosition(), VECTOR2I( bbox.GetWidth(), bbox.GetHeight() ) );
 
     // Hole shape
-    wxSize  half_size = m_drill / 2;
-    int     half_width = std::min( half_size.x, half_size.y );
-    wxPoint half_len( half_size.x - half_width, half_size.y - half_width );
+    VECTOR2I half_size = m_drill / 2;
+    int      half_width = std::min( half_size.x, half_size.y );
+    VECTOR2I half_len( half_size.x - half_width, half_size.y - half_width );
 
-    RotatePoint( &half_len, m_orient );
+    RotatePoint( half_len, m_orient );
 
     m_effectiveHoleShape = std::make_shared<SHAPE_SEGMENT>( m_pos - half_len, m_pos + half_len,
                                                             half_width * 2 );
     bbox = m_effectiveHoleShape->BBox();
-    m_effectiveBoundingBox.Merge( EDA_RECT( (wxPoint) bbox.GetPosition(),
-                                            wxSize( bbox.GetWidth(), bbox.GetHeight() ) ) );
+    m_effectiveBoundingBox.Merge( EDA_RECT( bbox.GetPosition(), VECTOR2I( bbox.GetWidth(), bbox.GetHeight() ) ) );
 
     // All done
     m_shapesDirty = false;
@@ -568,9 +567,7 @@ void PAD::SetDrawCoord()
     if( parentFootprint == nullptr )
         return;
 
-    double angle = parentFootprint->GetOrientation();
-
-    RotatePoint( &m_pos.x, &m_pos.y, angle );
+    RotatePoint( &m_pos.x, &m_pos.y, parentFootprint->GetOrientation() );
     m_pos += parentFootprint->GetPosition();
 
     SetDirty();
@@ -597,7 +594,7 @@ void PAD::SetAttribute( PAD_ATTRIB aAttribute )
     m_attribute = aAttribute;
 
     if( aAttribute == PAD_ATTRIB::SMD )
-        m_drill = wxSize( 0, 0 );
+        m_drill = VECTOR2I( 0, 0 );
 
     SetDirty();
 }
@@ -611,16 +608,16 @@ void PAD::SetProperty( PAD_PROP aProperty )
 }
 
 
-void PAD::SetOrientation( double aAngle )
+void PAD::SetOrientation( const EDA_ANGLE& aAngle )
 {
-    NORMALIZE_ANGLE_POS( aAngle );
     m_orient = aAngle;
+    m_orient.Normalize();
 
     SetDirty();
 }
 
 
-void PAD::Flip( const wxPoint& aCentre, bool aFlipLeftRight )
+void PAD::Flip( const VECTOR2I& aCentre, bool aFlipLeftRight )
 {
     if( aFlipLeftRight )
     {
@@ -681,22 +678,22 @@ void PAD::Flip( const wxPoint& aCentre, bool aFlipLeftRight )
 void PAD::FlipPrimitives( bool aFlipLeftRight )
 {
     for( std::shared_ptr<PCB_SHAPE>& primitive : m_editPrimitives )
-        primitive->Flip( wxPoint( 0, 0 ), aFlipLeftRight );
+        primitive->Flip( VECTOR2I( 0, 0 ), aFlipLeftRight );
 
     SetDirty();
 }
 
 
-wxPoint PAD::ShapePos() const
+VECTOR2I PAD::ShapePos() const
 {
     if( m_offset.x == 0 && m_offset.y == 0 )
         return m_pos;
 
-    wxPoint loc_offset = m_offset;
+    VECTOR2I loc_offset = m_offset;
 
-    RotatePoint( &loc_offset, m_orient );
+    RotatePoint( loc_offset, m_orient );
 
-    wxPoint shape_pos = m_pos + loc_offset;
+    VECTOR2I shape_pos = m_pos + loc_offset;
 
     return shape_pos;
 }
@@ -770,7 +767,7 @@ int PAD::GetSolderMaskExpansion() const
 }
 
 
-wxSize PAD::GetSolderPasteMargin() const
+VECTOR2I PAD::GetSolderPasteMargin() const
 {
     // The pad inherits the margin only to calculate a default shape,
     // therefore only if it is also a copper layer.
@@ -779,7 +776,7 @@ wxSize PAD::GetSolderPasteMargin() const
     bool isOnCopperLayer = ( m_layerMask & LSET::AllCuMask() ).any();
 
     if( !isOnCopperLayer )
-        return wxSize( 0, 0 );
+        return VECTOR2I( 0, 0 );
 
     int     margin = m_localSolderPasteMargin;
     double  mratio = m_localSolderPasteMarginRatio;
@@ -805,7 +802,7 @@ wxSize PAD::GetSolderPasteMargin() const
         }
     }
 
-    wxSize pad_margin;
+    VECTOR2I pad_margin;
     pad_margin.x = margin + KiROUND( m_size.x * mratio );
     pad_margin.y = margin + KiROUND( m_size.y * mratio );
 
@@ -961,7 +958,7 @@ void PAD::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& 
 }
 
 
-bool PAD::HitTest( const wxPoint& aPosition, int aAccuracy ) const
+bool PAD::HitTest( const VECTOR2I& aPosition, int aAccuracy ) const
 {
     VECTOR2I delta = aPosition - GetPosition();
     int      boundingRadius = GetBoundingRadius() + aAccuracy;
@@ -998,15 +995,15 @@ bool PAD::HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy ) const
 
         for( int ii = 0; ii < count; ii++ )
         {
-            auto vertex = poly->CVertex( ii );
-            auto vertexNext = poly->CVertex(( ii + 1 ) % count );
+            VECTOR2I vertex = poly->CVertex( ii );
+            VECTOR2I vertexNext = poly->CVertex( ( ii + 1 ) % count );
 
             // Test if the point is within aRect
-            if( arect.Contains( ( wxPoint ) vertex ) )
+            if( arect.Contains( vertex ) )
                 return true;
 
             // Test if this edge intersects aRect
-            if( arect.Intersects( ( wxPoint ) vertex, ( wxPoint ) vertexNext ) )
+            if( arect.Intersects( vertex, vertexNext ) )
                 return true;
         }
 
@@ -1091,11 +1088,12 @@ int PAD::Compare( const PAD* aPadRef, const PAD* aPadCmp )
 }
 
 
-void PAD::Rotate( const wxPoint& aRotCentre, double aAngle )
+void PAD::Rotate( const VECTOR2I& aRotCentre, const EDA_ANGLE& aAngle )
 {
-    RotatePoint( &m_pos, aRotCentre, aAngle );
+    RotatePoint( m_pos, aRotCentre, aAngle );
 
-    m_orient = NormalizeAngle360Min( m_orient + aAngle );
+    m_orient += aAngle;
+    m_orient.Normalize();
 
     SetLocalCoord();
 
@@ -1394,17 +1392,14 @@ void PAD::ImportSettingsFrom( const PAD& aMasterPad )
     SetAttribute( aMasterPad.GetAttribute() );
     SetProperty( aMasterPad.GetProperty() );
 
-    // I am not sure the m_LengthPadToDie must be imported, because this is
-    // a parameter really specific to a given pad (JPC).
-    // So this is currently non imported
+    // I am not sure the m_LengthPadToDie should be imported, because this is a parameter
+    // really specific to a given pad (JPC).
 #if 0
     SetPadToDieLength( aMasterPad.GetPadToDieLength() );
 #endif
 
-    // The pad orientation, for historical reasons is the
-    // pad rotation + parent rotation.
-    // So we have to manage this parent rotation
-    double pad_rot = aMasterPad.GetOrientation();
+    // The pad orientation, for historical reasons is the pad rotation + parent rotation.
+    EDA_ANGLE pad_rot = aMasterPad.GetOrientation();
 
     if( aMasterPad.GetParent() )
         pad_rot -= aMasterPad.GetParent()->GetOrientation();
@@ -1415,7 +1410,7 @@ void PAD::ImportSettingsFrom( const PAD& aMasterPad )
     SetOrientation( pad_rot );
 
     SetSize( aMasterPad.GetSize() );
-    SetDelta( wxSize( 0, 0 ) );
+    SetDelta( VECTOR2I( 0, 0 ) );
     SetOffset( aMasterPad.GetOffset() );
     SetDrillSize( aMasterPad.GetDrillSize() );
     SetDrillShape( aMasterPad.GetDrillShape() );
@@ -1431,7 +1426,7 @@ void PAD::ImportSettingsFrom( const PAD& aMasterPad )
 
     case PAD_SHAPE::CIRCLE:
         // ensure size.y == size.x
-        SetSize( wxSize( GetSize().x, GetSize().x ) );
+        SetSize( VECTOR2I( GetSize().x, GetSize().x ) );
         break;
 
     default:
@@ -1442,9 +1437,8 @@ void PAD::ImportSettingsFrom( const PAD& aMasterPad )
     {
     case PAD_ATTRIB::SMD:
     case PAD_ATTRIB::CONN:
-        // These pads do not have hole (they are expected to be only on one
-        // external copper layer)
-        SetDrillSize( wxSize( 0, 0 ) );
+        // These pads do not have a hole (they are expected to be on one external copper layer)
+        SetDrillSize( VECTOR2I( 0, 0 ) );
         break;
 
     default:
@@ -1476,21 +1470,21 @@ void PAD::SwapData( BOARD_ITEM* aImage )
 {
     assert( aImage->Type() == PCB_PAD_T );
 
-    std::swap( *((PAD*) this), *((PAD*) aImage) );
+    std::swap( *this, *static_cast<PAD*>( aImage ) );
 }
 
 
 bool PAD::TransformHoleWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuffer, int aInflateValue,
                                                int aError, ERROR_LOC aErrorLoc ) const
 {
-    wxSize drillsize = GetDrillSize();
+    VECTOR2I drillsize = GetDrillSize();
 
     if( !drillsize.x || !drillsize.y )
         return false;
 
     const SHAPE_SEGMENT* seg = GetEffectiveHoleShape();
 
-    TransformOvalToPolygon( aCornerBuffer, (wxPoint) seg->GetSeg().A, (wxPoint) seg->GetSeg().B,
+    TransformOvalToPolygon( aCornerBuffer, seg->GetSeg().A, seg->GetSeg().B,
                             seg->GetWidth() + aInflateValue * 2, aError, aErrorLoc );
 
     return true;
@@ -1508,11 +1502,10 @@ void PAD::TransformShapeWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuffer,
     // This minimal value is mainly for very small pads, like SM0402.
     // Most of time pads are using the segment count given by aError value.
     const int pad_min_seg_per_circle_count = 16;
-    double  angle = m_orient;
-    int     dx = m_size.x / 2;
-    int     dy = m_size.y / 2;
+    int       dx = m_size.x / 2;
+    int       dy = m_size.y / 2;
 
-    wxPoint padShapePos = ShapePos();         // Note: for pad having a shape offset,
+    VECTOR2I padShapePos = ShapePos(); // Note: for pad having a shape offset,
                                               // the pad position is NOT the shape position
 
     switch( GetShape() )
@@ -1527,10 +1520,10 @@ void PAD::TransformShapeWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuffer,
         }
         else
         {
-            int     half_width = std::min( dx, dy );
-            wxPoint delta( dx - half_width, dy - half_width );
+            int      half_width = std::min( dx, dy );
+            VECTOR2I delta( dx - half_width, dy - half_width );
 
-            RotatePoint( &delta, angle );
+            RotatePoint( delta, m_orient );
 
             TransformOvalToPolygon( aCornerBuffer, padShapePos - delta, padShapePos + delta,
                                     ( half_width + aClearanceValue ) * 2, aError, aErrorLoc,
@@ -1546,8 +1539,8 @@ void PAD::TransformShapeWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuffer,
         int  ddy = GetShape() == PAD_SHAPE::TRAPEZOID ? m_deltaSize.y / 2 : 0;
 
         SHAPE_POLY_SET outline;
-        TransformTrapezoidToPolygon( outline, padShapePos, m_size, angle, ddx, ddy,
-                                     aClearanceValue, aError, aErrorLoc );
+        TransformTrapezoidToPolygon( outline, padShapePos, m_size, m_orient.AsTenthsOfADegree(),
+                                     ddx, ddy, aClearanceValue, aError, aErrorLoc );
         aCornerBuffer.Append( outline );
         break;
     }
@@ -1558,7 +1551,8 @@ void PAD::TransformShapeWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuffer,
         bool doChamfer = GetShape() == PAD_SHAPE::CHAMFERED_RECT;
 
         SHAPE_POLY_SET outline;
-        TransformRoundChamferedRectToPolygon( outline, padShapePos, m_size, angle,
+        TransformRoundChamferedRectToPolygon( outline, padShapePos, m_size,
+                                              m_orient.AsTenthsOfADegree(),
                                               GetRoundRectCornerRadius(),
                                               doChamfer ? GetChamferRectRatio() : 0,
                                               doChamfer ? GetChamferPositions() : 0,
@@ -1571,12 +1565,12 @@ void PAD::TransformShapeWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuffer,
     {
         SHAPE_POLY_SET outline;
         MergePrimitivesAsPolygon( &outline, aErrorLoc );
-        outline.Rotate( -DECIDEG2RAD( m_orient ) );
+        outline.Rotate( - m_orient.AsRadians() );
         outline.Move( VECTOR2I( m_pos ) );
 
         if( aClearanceValue )
         {
-            int numSegs = std::max( GetArcToSegmentCount( aClearanceValue, aError, 360.0 ),
+            int numSegs = std::max( GetArcToSegmentCount( aClearanceValue, aError, FULL_CIRCLE ),
                                                           pad_min_seg_per_circle_count );
             int clearance = aClearanceValue;
 
@@ -1679,7 +1673,7 @@ static struct PAD_DESC
                     &PAD::SetThermalSpokeWidth, &PAD::GetThermalSpokeWidth,
                     PROPERTY_DISPLAY::DISTANCE ) );
         propMgr.AddProperty( new PROPERTY<PAD, double>( _HKI( "Thermal Relief Spoke Angle" ),
-                    &PAD::SetThermalSpokeAngle, &PAD::GetThermalSpokeAngle,
+                    &PAD::SetThermalSpokeAngleDegrees, &PAD::GetThermalSpokeAngleDegrees,
                     PROPERTY_DISPLAY::DEGREE ) );
         propMgr.AddProperty( new PROPERTY<PAD, int>( _HKI( "Thermal Relief Gap" ),
                     &PAD::SetThermalGap, &PAD::GetThermalGap,

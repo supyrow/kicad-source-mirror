@@ -163,7 +163,7 @@ int PLACEFILE_GERBER_WRITER::CreatePlaceFile( wxString& aFullFilename, PCB_LAYER
 
         gbr_metadata.m_NetlistMetadata.SetExtraData( pnpAttrib.FormatCmpPnPMetadata() );
 
-        wxPoint flash_pos = footprint->GetPosition();
+        VECTOR2I flash_pos = footprint->GetPosition();
 
         plotter.FlashPadCircle( flash_pos, flash_position_shape_diam, FILLED, &gbr_metadata );
         gbr_metadata.m_NetlistMetadata.ClearExtraData();
@@ -218,7 +218,7 @@ int PLACEFILE_GERBER_WRITER::CreatePlaceFile( wxString& aFullFilename, PCB_LAYER
             poly.Append( bbox.GetRight(), y_sign*bbox.GetTop() );
             poly.SetClosed( true );
 
-            poly.Rotate( -footprint->GetOrientationRadians(), VECTOR2I( 0, 0 ) );
+            poly.Rotate( -footprint->GetOrientation().AsRadians(), VECTOR2I( 0, 0 ) );
             poly.Move( footprint->GetPosition() );
             plotter.PLOTTER::PlotPoly( poly, FILL_T::NO_FILL, line_thickness, &gbr_metadata );
         }

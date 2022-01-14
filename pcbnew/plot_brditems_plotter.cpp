@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -79,7 +79,7 @@ COLOR4D BRDITEMS_PLOTTER::getColor( int aLayer ) const
 
 void BRDITEMS_PLOTTER::PlotPad( const PAD* aPad, const COLOR4D& aColor, OUTLINE_MODE aPlotMode )
 {
-    wxPoint shape_pos = aPad->ShapePos();
+    VECTOR2I     shape_pos = aPad->ShapePos();
     GBR_METADATA gbr_metadata;
 
     bool plotOnCopperLayer = ( m_layerMask & LSET::AllCuMask() ).any();
@@ -224,18 +224,21 @@ void BRDITEMS_PLOTTER::PlotPad( const PAD* aPad, const COLOR4D& aColor, OUTLINE_
         break;
 
     case PAD_SHAPE::OVAL:
-        m_plotter->FlashPadOval( shape_pos, aPad->GetSize(), aPad->GetOrientation(), aPlotMode,
+        m_plotter->FlashPadOval( shape_pos, aPad->GetSize(),
+                                 aPad->GetOrientation().AsTenthsOfADegree(), aPlotMode,
                                  &gbr_metadata );
         break;
 
     case PAD_SHAPE::RECT:
-        m_plotter->FlashPadRect( shape_pos, aPad->GetSize(), aPad->GetOrientation(), aPlotMode,
+        m_plotter->FlashPadRect( shape_pos, aPad->GetSize(),
+                                 aPad->GetOrientation().AsTenthsOfADegree(), aPlotMode,
                                  &gbr_metadata );
         break;
 
     case PAD_SHAPE::ROUNDRECT:
         m_plotter->FlashPadRoundRect( shape_pos, aPad->GetSize(), aPad->GetRoundRectCornerRadius(),
-                                      aPad->GetOrientation(), aPlotMode, &gbr_metadata );
+                                      aPad->GetOrientation().AsTenthsOfADegree(), aPlotMode,
+                                      &gbr_metadata );
         break;
 
     case PAD_SHAPE::TRAPEZOID:
@@ -254,8 +257,8 @@ void BRDITEMS_PLOTTER::PlotPad( const PAD* aPad, const COLOR4D& aColor, OUTLINE_
         coord[2] = VECTOR2I( half_size.x - trap_delta.y, -half_size.y + trap_delta.x );
         coord[3] = VECTOR2I( -half_size.x + trap_delta.y, -half_size.y - trap_delta.x );
 
-        m_plotter->FlashPadTrapez( shape_pos, coord, aPad->GetOrientation(), aPlotMode,
-                                   &gbr_metadata );
+        m_plotter->FlashPadTrapez( shape_pos, coord, aPad->GetOrientation().AsTenthsOfADegree(),
+                                   aPlotMode, &gbr_metadata );
     }
         break;
 
@@ -263,11 +266,14 @@ void BRDITEMS_PLOTTER::PlotPad( const PAD* aPad, const COLOR4D& aColor, OUTLINE_
         if( m_plotter->GetPlotterType() == PLOT_FORMAT::GERBER )
         {
             static_cast<GERBER_PLOTTER*>( m_plotter )->FlashPadChamferRoundRect(
-                                    shape_pos, aPad->GetSize(),
-                                    aPad->GetRoundRectCornerRadius(),
-                                    aPad->GetChamferRectRatio(),
-                                    aPad->GetChamferPositions(),
-                                    aPad->GetOrientation(), aPlotMode, &gbr_metadata );
+                                                        shape_pos,
+                                                        aPad->GetSize(),
+                                                        aPad->GetRoundRectCornerRadius(),
+                                                        aPad->GetChamferRectRatio(),
+                                                        aPad->GetChamferPositions(),
+                                                        aPad->GetOrientation().AsTenthsOfADegree(),
+                                                        aPlotMode,
+                                                        &gbr_metadata );
             break;
         }
 
@@ -280,8 +286,9 @@ void BRDITEMS_PLOTTER::PlotPad( const PAD* aPad, const COLOR4D& aColor, OUTLINE_
 
         if( polygons->OutlineCount() )
         {
-            m_plotter->FlashPadCustom( shape_pos, aPad->GetSize(), aPad->GetOrientation(),
-                                       polygons.get(), aPlotMode, &gbr_metadata );
+            m_plotter->FlashPadCustom( shape_pos, aPad->GetSize(),
+                                       aPad->GetOrientation().AsTenthsOfADegree(), polygons.get(),
+                                       aPlotMode, &gbr_metadata );
         }
     }
         break;
@@ -386,8 +393,8 @@ void BRDITEMS_PLOTTER::PlotFootprintTextItem( const FP_TEXT* aText, const COLOR4
     m_plotter->SetColor( color );
 
     // calculate some text parameters :
-    wxSize  size      = aText->GetTextSize();
-    wxPoint pos       = aText->GetTextPos();
+    VECTOR2I size = aText->GetTextSize();
+    VECTOR2I pos = aText->GetTextPos();
     int     thickness = aText->GetEffectiveTextPenWidth();
 
     if( aText->IsMirrored() )
@@ -412,7 +419,7 @@ void BRDITEMS_PLOTTER::PlotFootprintTextItem( const FP_TEXT* aText, const COLOR4
 
     m_plotter->Text( pos, aColor, aText->GetShownText(), aText->GetDrawRotation(), size,
                      aText->GetHorizJustify(), aText->GetVertJustify(), thickness,
-                     aText->IsItalic(), allow_bold, false, aText->GetFont(), &gbr_metadata );
+                     aText->IsItalic(), allow_bold, false, aText->GetDrawFont(), &gbr_metadata );
 }
 
 
@@ -443,8 +450,8 @@ void BRDITEMS_PLOTTER::PlotDimension( const PCB_DIMENSION_BASE* aDim )
             const SEG& seg = static_cast<const SHAPE_SEGMENT*>( shape.get() )->GetSeg();
 
             draw.SetShape( SHAPE_T::SEGMENT );
-            draw.SetStart( wxPoint( seg.A ) );
-            draw.SetEnd( wxPoint( seg.B ) );
+            draw.SetStart(  seg.A );
+            draw.SetEnd( seg.B );
 
             PlotPcbShape( &draw );
             break;
@@ -452,13 +459,13 @@ void BRDITEMS_PLOTTER::PlotDimension( const PCB_DIMENSION_BASE* aDim )
 
         case SH_CIRCLE:
         {
-            wxPoint start( shape->Centre() );
+            VECTOR2I start( shape->Centre() );
             int radius = static_cast<const SHAPE_CIRCLE*>( shape.get() )->GetRadius();
 
             draw.SetShape( SHAPE_T::CIRCLE );
             draw.SetFilled( false );
             draw.SetStart( start );
-            draw.SetEnd( wxPoint( start.x + radius, start.y ) );
+            draw.SetEnd( VECTOR2I( start.x + radius, start.y ) );
 
             PlotPcbShape( &draw );
             break;
@@ -493,7 +500,7 @@ void BRDITEMS_PLOTTER::PlotPcbTarget( const PCB_TARGET* aMire )
         radius = aMire->GetSize() / 2;
 
     // Draw the circle
-    draw.SetEnd( wxPoint( draw.GetStart().x + radius, draw.GetStart().y ) );
+    draw.SetEnd( VECTOR2I( draw.GetStart().x + radius, draw.GetStart().y ) );
 
     PlotPcbShape( &draw );
 
@@ -512,15 +519,15 @@ void BRDITEMS_PLOTTER::PlotPcbTarget( const PCB_TARGET* aMire )
         dy2 = -dy1;
     }
 
-    wxPoint mirePos( aMire->GetPosition() );
+    VECTOR2I mirePos( aMire->GetPosition() );
 
     // Draw the X or + shape:
-    draw.SetStart( wxPoint( mirePos.x - dx1, mirePos.y - dy1 ) );
-    draw.SetEnd(   wxPoint( mirePos.x + dx1, mirePos.y + dy1 ) );
+    draw.SetStart( VECTOR2I( mirePos.x - dx1, mirePos.y - dy1 ) );
+    draw.SetEnd( VECTOR2I( mirePos.x + dx1, mirePos.y + dy1 ) );
     PlotPcbShape( &draw );
 
-    draw.SetStart( wxPoint( mirePos.x - dx2, mirePos.y - dy2 ) );
-    draw.SetEnd(   wxPoint( mirePos.x + dx2, mirePos.y + dy2 ) );
+    draw.SetStart( VECTOR2I( mirePos.x - dx2, mirePos.y - dy2 ) );
+    draw.SetEnd( VECTOR2I( mirePos.x + dx2, mirePos.y + dy2 ) );
     PlotPcbShape( &draw );
 }
 
@@ -591,7 +598,7 @@ void BRDITEMS_PLOTTER::PlotFootprintGraphicItem( const FP_SHAPE* aShape )
 
         case SHAPE_T::RECT:
         {
-            std::vector<wxPoint> pts = aShape->GetRectCorners();
+            std::vector<VECTOR2I> pts = aShape->GetRectCorners();
 
             if( sketch || thickness > 0 )
             {
@@ -605,7 +612,7 @@ void BRDITEMS_PLOTTER::PlotFootprintGraphicItem( const FP_SHAPE* aShape )
             {
                 SHAPE_LINE_CHAIN poly;
 
-                for( const wxPoint& pt : pts )
+                for( const VECTOR2I& pt : pts )
                     poly.Append( pt );
 
                 m_plotter->PlotPoly( poly, FILL_T::FILLED_SHAPE, -1, &gbr_metadata );
@@ -632,19 +639,19 @@ void BRDITEMS_PLOTTER::PlotFootprintGraphicItem( const FP_SHAPE* aShape )
         case SHAPE_T::ARC:
         {
             radius = KiROUND( GetLineLength( aShape->GetCenter(), aShape->GetStart() ) );
-            double startAngle  = ArcTangente( aShape->GetStart().y - aShape->GetCenter().y,
-                                              aShape->GetStart().x - aShape->GetCenter().x );
-            double endAngle = startAngle + aShape->GetArcAngle();
+            EDA_ANGLE startAngle( aShape->GetStart() - aShape->GetCenter() );
+            EDA_ANGLE endAngle = startAngle + aShape->GetArcAngle();
 
             // when startAngle == endAngle ThickArc() doesn't know whether it's 0 deg and 360 deg
-            if( std::abs( aShape->GetArcAngle() ) == 3600.0 )
+            if( std::abs( aShape->GetArcAngle().AsDegrees() ) == 360.0 )
             {
                 m_plotter->ThickCircle( aShape->GetCenter(), radius * 2, thickness, GetPlotMode(),
                                         &gbr_metadata );
             }
             else
             {
-                m_plotter->ThickArc( aShape->GetCenter(), -endAngle, -startAngle, radius, thickness,
+                m_plotter->ThickArc( aShape->GetCenter(), -endAngle.AsTenthsOfADegree(),
+                                     -startAngle.AsTenthsOfADegree(), radius, thickness,
                                      GetPlotMode(), &gbr_metadata );
             }
         }
@@ -653,7 +660,7 @@ void BRDITEMS_PLOTTER::PlotFootprintGraphicItem( const FP_SHAPE* aShape )
         case SHAPE_T::POLY:
             if( aShape->IsPolyShapeValid() )
             {
-                std::vector<wxPoint> cornerList;
+                std::vector<VECTOR2I> cornerList;
                 aShape->DupPolyPointsList( cornerList );
 
                 // We must compute board coordinates from m_PolyList which are relative to the parent
@@ -664,9 +671,8 @@ void BRDITEMS_PLOTTER::PlotFootprintGraphicItem( const FP_SHAPE* aShape )
                 {
                     for( unsigned ii = 0; ii < cornerList.size(); ++ii )
                     {
-                        wxPoint* corner = &cornerList[ii];
-                        RotatePoint( corner, parentFootprint->GetOrientation() );
-                        *corner += parentFootprint->GetPosition();
+                        RotatePoint( cornerList[ii], parentFootprint->GetOrientation() );
+                        cornerList[ii] += parentFootprint->GetPosition();
                     }
                 }
 
@@ -722,7 +728,7 @@ void BRDITEMS_PLOTTER::PlotFootprintGraphicItem( const FP_SHAPE* aShape )
         for( SHAPE* shape : shapes )
         {
             STROKE_PARAMS::Stroke( shape, lineStyle, thickness, m_plotter->RenderSettings(),
-                                   [&]( const wxPoint& a, const wxPoint& b )
+                                   [&]( const VECTOR2I& a, const VECTOR2I& b )
                                    {
                                        m_plotter->ThickSegment( a, b, thickness, GetPlotMode(),
                                                                 &gbr_metadata );
@@ -737,7 +743,8 @@ void BRDITEMS_PLOTTER::PlotFootprintGraphicItem( const FP_SHAPE* aShape )
 
 void BRDITEMS_PLOTTER::PlotPcbText( const PCB_TEXT* aText )
 {
-    wxString shownText( aText->GetShownText() );
+    wxString      shownText( aText->GetShownText() );
+    KIFONT::FONT* font = aText->GetDrawFont();
 
     if( shownText.IsEmpty() )
         return;
@@ -753,8 +760,8 @@ void BRDITEMS_PLOTTER::PlotPcbText( const PCB_TEXT* aText )
     COLOR4D color = getColor( aText->GetLayer() );
     m_plotter->SetColor( color );
 
-    wxSize  size      = aText->GetTextSize();
-    wxPoint pos       = aText->GetTextPos();
+    VECTOR2I size = aText->GetTextSize();
+    VECTOR2I pos = aText->GetTextPos();
     int     thickness = aText->GetEffectiveTextPenWidth();
 
     if( aText->IsMirrored() )
@@ -770,7 +777,7 @@ void BRDITEMS_PLOTTER::PlotPcbText( const PCB_TEXT* aText )
 
     if( aText->IsMultilineAllowed() )
     {
-        std::vector<wxPoint> positions;
+        std::vector<VECTOR2I> positions;
         wxArrayString strings_list;
         wxStringSplit( shownText, strings_list, '\n' );
         positions.reserve(  strings_list.Count() );
@@ -782,16 +789,14 @@ void BRDITEMS_PLOTTER::PlotPcbText( const PCB_TEXT* aText )
             wxString& txt =  strings_list.Item( ii );
             m_plotter->Text( positions[ii], color, txt, aText->GetTextAngle(), size,
                              aText->GetHorizJustify(), aText->GetVertJustify(), thickness,
-                             aText->IsItalic(), allow_bold, false, aText->GetFont(),
-                             &gbr_metadata );
+                             aText->IsItalic(), allow_bold, false, font, &gbr_metadata );
         }
     }
     else
     {
         m_plotter->Text( pos, color, shownText, aText->GetTextAngle(), size,
                          aText->GetHorizJustify(), aText->GetVertJustify(), thickness,
-                         aText->IsItalic(), allow_bold, false, aText->GetFont(),
-                         &gbr_metadata );
+                         aText->IsItalic(), allow_bold, false, font, &gbr_metadata );
     }
 }
 
@@ -857,8 +862,8 @@ void BRDITEMS_PLOTTER::PlotFilledAreas( const ZONE* aZone, const SHAPE_POLY_SET&
 
                     if( outline.CPoint( 0 ) != outline.CPoint( last_idx ) )
                     {
-                        m_plotter->ThickSegment( wxPoint( outline.CPoint( 0 ) ),
-                                                 wxPoint( outline.CPoint( last_idx ) ),
+                        m_plotter->ThickSegment( VECTOR2I( outline.CPoint( 0 ) ),
+                                                 VECTOR2I( outline.CPoint( last_idx ) ),
                                                  outline_thickness, GetPlotMode(), &gbr_metadata );
                     }
                 }
@@ -880,8 +885,8 @@ void BRDITEMS_PLOTTER::PlotFilledAreas( const ZONE* aZone, const SHAPE_POLY_SET&
 
                 for( int jj = 1; jj <= last_idx; jj++ )
                 {
-                    m_plotter->ThickSegment( wxPoint( outline.CPoint( jj - 1) ),
-                                             wxPoint( outline.CPoint( jj ) ),
+                    m_plotter->ThickSegment( VECTOR2I( outline.CPoint( jj - 1 ) ),
+                                             VECTOR2I( outline.CPoint( jj ) ),
                                              outline_thickness,
                                              GetPlotMode(), &gbr_metadata );
                 }
@@ -889,8 +894,8 @@ void BRDITEMS_PLOTTER::PlotFilledAreas( const ZONE* aZone, const SHAPE_POLY_SET&
                 // Ensure the outline is closed:
                 if( outline.CPoint( 0 ) != outline.CPoint( last_idx ) )
                 {
-                    m_plotter->ThickSegment( wxPoint( outline.CPoint( 0 ) ),
-                                             wxPoint( outline.CPoint( last_idx ) ),
+                    m_plotter->ThickSegment( VECTOR2I( outline.CPoint( 0 ) ),
+                                             VECTOR2I( outline.CPoint( last_idx ) ),
                                              outline_thickness,
                                              GetPlotMode(), &gbr_metadata );
                 }
@@ -951,20 +956,20 @@ void BRDITEMS_PLOTTER::PlotPcbShape( const PCB_SHAPE* aShape )
 
         case SHAPE_T::ARC:
         {
-            double startAngle  = ArcTangente( aShape->GetStart().y - aShape->GetCenter().y,
-                                              aShape->GetStart().x - aShape->GetCenter().x );
-            double endAngle = startAngle + aShape->GetArcAngle();
+            EDA_ANGLE startAngle( aShape->GetStart() - aShape->GetCenter() );
+            EDA_ANGLE endAngle = startAngle + aShape->GetArcAngle();
 
             // when startAngle == endAngle ThickArc() doesn't know whether it's 0 deg and 360 deg
-            if( std::abs( aShape->GetArcAngle() ) == 3600.0 )
+            if( std::abs( aShape->GetArcAngle().AsDegrees() ) == 360.0 )
             {
                 m_plotter->ThickCircle( aShape->GetCenter(), aShape->GetRadius() * 2, thickness,
                                         GetPlotMode(), &gbr_metadata );
             }
             else
             {
-                m_plotter->ThickArc( aShape->GetCenter(), -endAngle, -startAngle,
-                                     aShape->GetRadius(), thickness, GetPlotMode(), &gbr_metadata );
+                m_plotter->ThickArc( aShape->GetCenter(), -endAngle.AsTenthsOfADegree(),
+                                     -startAngle.AsTenthsOfADegree(), aShape->GetRadius(),
+                                     thickness, GetPlotMode(), &gbr_metadata );
             }
 
             break;
@@ -983,8 +988,8 @@ void BRDITEMS_PLOTTER::PlotPcbShape( const PCB_SHAPE* aShape )
                     for( auto it = aShape->GetPolyShape().CIterateSegments( 0 ); it; it++ )
                     {
                         auto seg = it.Get();
-                        m_plotter->ThickSegment( wxPoint( seg.A ), wxPoint( seg.B ),
-                                                 thickness, GetPlotMode(), &gbr_metadata );
+                        m_plotter->ThickSegment( seg.A, seg.B, thickness, GetPlotMode(),
+                                                 &gbr_metadata );
                     }
                 }
 
@@ -1012,7 +1017,7 @@ void BRDITEMS_PLOTTER::PlotPcbShape( const PCB_SHAPE* aShape )
 
         case SHAPE_T::RECT:
         {
-            std::vector<wxPoint> pts = aShape->GetRectCorners();
+            std::vector<VECTOR2I> pts = aShape->GetRectCorners();
 
             if( sketch || thickness > 0 )
             {
@@ -1026,7 +1031,7 @@ void BRDITEMS_PLOTTER::PlotPcbShape( const PCB_SHAPE* aShape )
             {
                 SHAPE_LINE_CHAIN poly;
 
-                for( const wxPoint& pt : pts )
+                for( const VECTOR2I& pt : pts )
                     poly.Append( pt );
 
                 m_plotter->PlotPoly( poly, FILL_T::FILLED_SHAPE, -1, &gbr_metadata );
@@ -1046,7 +1051,7 @@ void BRDITEMS_PLOTTER::PlotPcbShape( const PCB_SHAPE* aShape )
         for( SHAPE* shape : shapes )
         {
             STROKE_PARAMS::Stroke( shape, lineStyle, thickness, m_plotter->RenderSettings(),
-                                   [&]( const wxPoint& a, const wxPoint& b )
+                                   [&]( const VECTOR2I& a, const VECTOR2I& b )
                                    {
                                        m_plotter->ThickSegment( a, b, thickness, GetPlotMode(),
                                                                 &gbr_metadata );
@@ -1059,11 +1064,11 @@ void BRDITEMS_PLOTTER::PlotPcbShape( const PCB_SHAPE* aShape )
 }
 
 
-void BRDITEMS_PLOTTER::plotOneDrillMark( PAD_DRILL_SHAPE_T aDrillShape, const wxPoint& aDrillPos,
-                                         const wxSize& aDrillSize, const wxSize& aPadSize,
+void BRDITEMS_PLOTTER::plotOneDrillMark( PAD_DRILL_SHAPE_T aDrillShape, const VECTOR2I& aDrillPos,
+                                         const VECTOR2I& aDrillSize, const VECTOR2I& aPadSize,
                                          double aOrientation, int aSmallDrill )
 {
-    wxSize drillSize = aDrillSize;
+    VECTOR2I drillSize = aDrillSize;
 
     // Small drill marks have no significance when applied to slots
     if( aSmallDrill && aDrillShape == PAD_DRILL_SHAPE_CIRCLE )
@@ -1127,7 +1132,8 @@ void BRDITEMS_PLOTTER::PlotDrillMarks()
                 continue;
 
             plotOneDrillMark( pad->GetDrillShape(), pad->GetPosition(), pad->GetDrillSize(),
-                              pad->GetSize(), pad->GetOrientation(), smallDrill );
+                              pad->GetSize(), pad->GetOrientation().AsTenthsOfADegree(),
+                              smallDrill );
         }
     }
 

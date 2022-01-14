@@ -39,11 +39,11 @@ bool TRANSFORM::operator==( const TRANSFORM& aTransform ) const
 }
 
 
-wxPoint TRANSFORM::TransformCoordinate( const wxPoint& aPoint ) const
+VECTOR2I TRANSFORM::TransformCoordinate( const VECTOR2I& aPoint ) const
 {
-    return wxPoint( ( x1 * aPoint.x ) + ( y1 * aPoint.y ),
-                    ( x2 * aPoint.x ) + ( y2 * aPoint.y ) );
+    return VECTOR2I( ( x1 * aPoint.x ) + ( y1 * aPoint.y ), ( x2 * aPoint.x ) + ( y2 * aPoint.y ) );
 }
+
 
 EDA_RECT TRANSFORM::TransformCoordinate( const EDA_RECT& aRect ) const
 {

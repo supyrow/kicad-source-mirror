@@ -44,8 +44,9 @@
 
 
 
-PCB_MARKER::PCB_MARKER( std::shared_ptr<RC_ITEM> aItem, const wxPoint& aPosition ) :
-    BOARD_ITEM( nullptr, PCB_MARKER_T ),  // parent set during BOARD::Add()
+PCB_MARKER::PCB_MARKER( std::shared_ptr<RC_ITEM> aItem, const VECTOR2I& aPosition,
+                        PCB_LAYER_ID aLayer ) :
+    BOARD_ITEM( nullptr, PCB_MARKER_T, aLayer ),  // parent set during BOARD::Add()
     MARKER_BASE( SCALING_FACTOR, aItem )
 {
     if( m_rcItem )
@@ -78,24 +79,34 @@ PCB_MARKER::PCB_MARKER( std::shared_ptr<RC_ITEM> aItem, const wxPoint& aPosition
 /* destructor */
 PCB_MARKER::~PCB_MARKER()
 {
+    if( m_rcItem )
+        m_rcItem->SetParent( nullptr );
 }
 
 
 wxString PCB_MARKER::Serialize() const
 {
+    wxString lastItem;
+
+    if( m_rcItem->GetErrorCode() == DRCE_COPPER_SLIVER )
+        lastItem = LayerName( m_layer );
+    else
+        lastItem = m_rcItem->GetAuxItemID().AsString();
+
     return wxString::Format( wxT( "%s|%d|%d|%s|%s" ),
                              m_rcItem->GetSettingsKey(),
                              m_Pos.x,
                              m_Pos.y,
                              m_rcItem->GetMainItemID().AsString(),
-                             m_rcItem->GetAuxItemID().AsString() );
+                             lastItem );
 }
 
 
 PCB_MARKER* PCB_MARKER::Deserialize( const wxString& data )
 {
     wxArrayString props = wxSplit( data, '|' );
-    wxPoint       markerPos( (int) strtol( props[1].c_str(), nullptr, 10 ),
+    PCB_LAYER_ID  markerLayer = F_Cu;
+    VECTOR2I      markerPos( (int) strtol( props[1].c_str(), nullptr, 10 ),
                              (int) strtol( props[2].c_str(), nullptr, 10 ) );
 
     std::shared_ptr<DRC_ITEM> drcItem =  DRC_ITEM::Create( props[0] );
@@ -103,9 +114,25 @@ PCB_MARKER* PCB_MARKER::Deserialize( const wxString& data )
     if( !drcItem )
         return nullptr;
 
-    drcItem->SetItems( KIID( props[3] ), KIID( props[4] ) );
+    if( drcItem->GetErrorCode() == DRCE_COPPER_SLIVER )
+    {
+        drcItem->SetItems( KIID( props[3] ) );
 
-    return new PCB_MARKER( drcItem, markerPos );
+        for( int layer = 0; layer < PCB_LAYER_ID_COUNT; ++layer )
+        {
+            if( LayerName( ToLAYER_ID( layer ) ) == props[4] )
+            {
+                markerLayer = ToLAYER_ID( layer );
+                break;
+            }
+        }
+    }
+    else
+    {
+        drcItem->SetItems( KIID( props[3] ), KIID( props[4] ) );
+    }
+
+    return new PCB_MARKER( drcItem, markerPos, markerLayer );
 }
 
 
@@ -137,13 +164,13 @@ void PCB_MARKER::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_
 }
 
 
-void PCB_MARKER::Rotate( const wxPoint& aRotCentre, double aAngle )
+void PCB_MARKER::Rotate( const VECTOR2I& aRotCentre, const EDA_ANGLE& aAngle )
 {
     // Marker geometry isn't user-editable
 }
 
 
-void PCB_MARKER::Flip( const wxPoint& aCentre, bool aFlipLeftRight )
+void PCB_MARKER::Flip( const VECTOR2I& aCentre, bool aFlipLeftRight )
 {
     // Marker geometry isn't user-editable
 }
@@ -237,7 +264,7 @@ const EDA_RECT PCB_MARKER::GetBoundingBox() const
 {
     EDA_RECT bbox = m_shapeBoundingBox;
 
-    wxPoint pos = m_Pos;
+    VECTOR2I pos = m_Pos;
     pos.x += int( bbox.GetOrigin().x * MarkerScale() );
     pos.y += int( bbox.GetOrigin().y * MarkerScale() );
 

@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2014-2017 CERN
- * Copyright (C) 2014-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2014-2022 KiCad Developers, see AUTHORS.txt for contributors.
  * @author Tomasz Włostowski <tomasz.wlostowski@cern.ch>
  *
  * This program is free software: you can redistribute it and/or modify it
@@ -516,12 +516,12 @@ void ZONE_FILLER::addKnockout( PAD* aPad, PCB_LAYER_ID aLayer, int aGap, SHAPE_P
         // the pad shape in zone can be its convex hull or the shape itself
         if( aPad->GetCustomShapeInZoneOpt() == CUST_PAD_SHAPE_IN_ZONE_CONVEXHULL )
         {
-            std::vector<wxPoint> convex_hull;
+            std::vector<VECTOR2I> convex_hull;
             BuildConvexHull( convex_hull, poly );
 
             aHoles.NewOutline();
 
-            for( const wxPoint& pt : convex_hull )
+            for( const VECTOR2I& pt : convex_hull )
                 aHoles.Append( pt );
         }
         else
@@ -607,6 +607,11 @@ void ZONE_FILLER::knockoutThermalReliefs( const ZONE* aZone, PCB_LAYER_ID aLayer
                 aNoConnectionPads.push_back( pad );
                 continue;
             }
+
+            // a teardrop area is always fully connected to its pad
+            // (always equiv to ZONE_CONNECTION::FULL)
+            if( aZone->IsTeardropArea() )
+                continue;
 
             constraint = bds.m_DRCEngine->EvalZoneConnection( pad, aZone, aLayer );
             ZONE_CONNECTION conn = constraint.m_ZoneConnection;
@@ -935,7 +940,7 @@ void ZONE_FILLER::buildCopperItemClearances( const ZONE* aZone, PCB_LAYER_ID aLa
 
         if( otherZone->GetIsRuleArea() )
         {
-            if( otherZone->GetDoNotAllowCopperPour() )
+            if( otherZone->GetDoNotAllowCopperPour() && !aZone->IsTeardropArea() )
                 knockoutZoneClearance( otherZone );
         }
         else
@@ -957,7 +962,7 @@ void ZONE_FILLER::buildCopperItemClearances( const ZONE* aZone, PCB_LAYER_ID aLa
 
             if( otherZone->GetIsRuleArea() )
             {
-                if( otherZone->GetDoNotAllowCopperPour() )
+                if( otherZone->GetDoNotAllowCopperPour() && !aZone->IsTeardropArea() )
                     knockoutZoneClearance( otherZone );
             }
             else
@@ -1000,7 +1005,9 @@ void ZONE_FILLER::subtractHigherPriorityZones( const ZONE* aZone, PCB_LAYER_ID a
         if( otherZone->GetNetCode() == aZone->GetNetCode()
                 && otherZone->GetPriority() > aZone->GetPriority() )
         {
-            knockoutZoneOutline( otherZone );
+            // Do not remove teardrop area: it is not useful and not good
+            if( !otherZone->IsTeardropArea() )
+                knockoutZoneOutline( otherZone );
         }
     }
 
@@ -1011,7 +1018,9 @@ void ZONE_FILLER::subtractHigherPriorityZones( const ZONE* aZone, PCB_LAYER_ID a
             if( otherZone->GetNetCode() == aZone->GetNetCode()
                     && otherZone->GetPriority() > aZone->GetPriority() )
             {
-                knockoutZoneOutline( otherZone );
+                // Do not remove teardrop area: it is not useful and not good
+                if( !otherZone->IsTeardropArea() )
+                    knockoutZoneOutline( otherZone );
             }
         }
     }
@@ -1055,7 +1064,7 @@ bool ZONE_FILLER::computeRawFilledArea( const ZONE* aZone,
     // deflating/inflating.
     int half_min_width = aZone->GetMinThickness() / 2;
     int epsilon = Millimeter2iu( 0.001 );
-    int numSegs = GetArcToSegmentCount( half_min_width, m_maxError, 360.0 );
+    int numSegs = GetArcToSegmentCount( half_min_width, m_maxError, FULL_CIRCLE );
 
     // Solid polygons are deflated and inflated during calculations.  Deflating doesn't cause
     // issues, but inflate is tricky as it can create excessively long and narrow spikes for
@@ -1256,7 +1265,7 @@ bool ZONE_FILLER::fillSingleZone( ZONE* aZone, PCB_LAYER_ID aLayer, SHAPE_POLY_S
         // deflating/inflating.
         int half_min_width = aZone->GetMinThickness() / 2;
         int epsilon = Millimeter2iu( 0.001 );
-        int numSegs = GetArcToSegmentCount( half_min_width, m_maxError, 360.0 );
+        int numSegs = GetArcToSegmentCount( half_min_width, m_maxError, FULL_CIRCLE );
 
         smoothedPoly.Deflate( half_min_width - epsilon, numSegs );
 
@@ -1316,11 +1325,15 @@ void ZONE_FILLER::buildThermalSpokes( const ZONE* aZone, PCB_LAYER_ID aLayer,
         int spoke_w = constraint.GetValue().Opt();
 
         // Spoke width should ideally be smaller than the pad minor axis.
-        spoke_w = std::min( spoke_w, pad->GetSize().x );
-        spoke_w = std::min( spoke_w, pad->GetSize().y );
+        // Otherwise the thermal shape is not really a thermal relief,
+        // and the algo to count the actual number of spokes can fail
+        int spoke_max_allowed_w = std::min( pad->GetSize().x, pad->GetSize().y );
 
         spoke_w = std::max( spoke_w, constraint.Value().Min() );
         spoke_w = std::min( spoke_w, constraint.Value().Max() );
+
+        // ensure the spoke width is smaller than the pad minor size
+        spoke_w = std::min( spoke_w, spoke_max_allowed_w );
 
         // Cannot create stubs having a width < zone min thickness
         if( spoke_w < aZone->GetMinThickness() )
@@ -1337,14 +1350,8 @@ void ZONE_FILLER::buildThermalSpokes( const ZONE* aZone, PCB_LAYER_ID aLayer,
 
         // Thermal spokes consist of segments from the pad center to points just outside
         // the thermal relief.
-        wxPoint shapePos = pad->ShapePos();
-        double  spokesAngle = pad->GetOrientation() + pad->GetThermalSpokeAngle();
-
-        while( spokesAngle >= 900.0 )
-            spokesAngle -= 900.0;
-
-        while( spokesAngle < 0.0 )
-            spokesAngle += 900.0;
+        VECTOR2I  shapePos = pad->ShapePos();
+        EDA_ANGLE spokesAngle = pad->GetThermalSpokeAngle();
 
         // We use the bounding-box to lay out the spokes, but for this to work the
         // bounding box has to be built at the same rotation as the spokes.
@@ -1353,7 +1360,7 @@ void ZONE_FILLER::buildThermalSpokes( const ZONE* aZone, PCB_LAYER_ID aLayer,
         dummy_pad.SetOrientation( spokesAngle );
 
         // Spokes are from center of pad, not from hole
-        dummy_pad.SetPosition( -pad->GetOffset() );
+        dummy_pad.SetPosition( -1*pad->GetOffset() );
 
         BOX2I reliefBB = dummy_pad.GetBoundingBox();
         reliefBB.Inflate( thermalReliefGap + epsilon );
@@ -1396,7 +1403,8 @@ void ZONE_FILLER::buildThermalSpokes( const ZONE* aZone, PCB_LAYER_ID aLayer,
                 break;
             }
 
-            spoke.Rotate( -DECIDEG2RAD( pad->GetOrientation() + spokesAngle ) );
+            // Rotate and move the spokes tho the right position
+            spoke.Rotate( - ( pad->GetOrientation() + spokesAngle ).AsRadians() );
             spoke.Move( shapePos );
 
             spoke.SetClosed( true );

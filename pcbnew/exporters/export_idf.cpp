@@ -1,12 +1,8 @@
-/**
- * @file export_idf.cpp
- */
-
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2013  Cirilo Bernardo
- * Copyright (C) 2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2018-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -138,7 +134,7 @@ static void idf_export_outline( BOARD* aPcb, IDF3_BOARD& aIDFBoard )
             sp.y = -graphic->GetCenter().y * scale + offY;
             ep.x = graphic->GetStart().x * scale + offX;
             ep.y = -graphic->GetStart().y * scale + offY;
-            IDF_SEGMENT* seg = new IDF_SEGMENT( sp, ep, -graphic->GetArcAngle() / 10.0, true );
+            IDF_SEGMENT* seg = new IDF_SEGMENT( sp, ep, -graphic->GetArcAngle().AsDegrees(), true );
 
             if( seg )
                 lines.push_back( seg );
@@ -357,7 +353,7 @@ static void idf_export_footprint( BOARD* aPcb, FOOTPRINT* aFootprint, IDF3_BOARD
                 // NOTE: The orientation of footprints and pads have
                 // the opposite sense due to KiCad drawing on a
                 // screen with a LH coordinate system
-                double angle = pad->GetOrientation() / 10.0;
+                double angle = pad->GetOrientation().AsDegrees();
 
                 // NOTE: Since this code assumes the scenario where
                 // GetDrillSize().y is the length but idf_parser.cpp
@@ -445,7 +441,7 @@ static void idf_export_footprint( BOARD* aPcb, FOOTPRINT* aFootprint, IDF3_BOARD
         if( !outline )
             throw( std::runtime_error( aIDFBoard.GetError() ) );
 
-        double rotz = aFootprint->GetOrientation() / 10.0;
+        double rotz = aFootprint->GetOrientation().AsDegrees();
         double locx = sM->m_Offset.x * 25.4;  // part offsets are in inches
         double locy = sM->m_Offset.y * 25.4;
         double locz = sM->m_Offset.z * 25.4;

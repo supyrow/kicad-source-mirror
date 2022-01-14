@@ -457,7 +457,16 @@ bool WriteDRCReport( BOARD* aBoard, const wxString& aFileName, EDA_UNITS aUnits,
 
     wxFileName fn = aBoard->GetFileName();
     fn.SetExt( DesignRulesFileExtension );
-    wxString drcRulesPath = s_SettingsManager->Prj().AbsolutePath( fn.GetFullName() );
+    PROJECT* prj = nullptr;
+
+    if( aBoard->GetProject() )
+        prj = aBoard->GetProject();
+    else if( s_SettingsManager )
+        prj = &s_SettingsManager->Prj();
+
+    wxCHECK( prj, false );
+
+    wxString drcRulesPath = prj->AbsolutePath( fn.GetFullName() );
 
     try
     {
@@ -475,7 +484,7 @@ bool WriteDRCReport( BOARD* aBoard, const wxString& aFileName, EDA_UNITS aUnits,
     engine->SetProgressReporter( nullptr );
 
     engine->SetViolationHandler(
-            [&]( const std::shared_ptr<DRC_ITEM>& aItem, wxPoint aPos, PCB_LAYER_ID aLayer )
+            [&]( const std::shared_ptr<DRC_ITEM>& aItem, VECTOR2D aPos, PCB_LAYER_ID aLayer )
             {
                 if(    aItem->GetErrorCode() == DRCE_MISSING_FOOTPRINT
                     || aItem->GetErrorCode() == DRCE_DUPLICATE_FOOTPRINT

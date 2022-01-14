@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2016 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 2004-2021 KiCad Developers, see change_log.txt for contributors.
+ * Copyright (C) 2004-2022 KiCad Developers, see change_log.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -30,44 +30,35 @@
 #include <algorithm>          // for max
 #include <stddef.h>           // for NULL
 #include <type_traits>        // for swap
-#include <vector>             // for vector
+#include <vector>
 
-#include <eda_item.h>         // for EDA_ITEM
+#include <eda_item.h>
 #include <base_units.h>
-#include <basic_gal.h>        // for BASIC_GAL, basic_gal
+#include <callback_gal.h>
 #include <convert_to_biu.h>   // for Mils2iu
-#include <convert_basic_shapes_to_polygon.h>
-#include <eda_rect.h>         // for EDA_RECT
+#include <eda_rect.h>
 #include <eda_text.h>         // for EDA_TEXT, TEXT_EFFECTS, GR_TEXT_VJUSTIF...
 #include <gal/color4d.h>      // for COLOR4D, COLOR4D::BLACK
-#include <gal/stroke_font.h>  // for STROKE_FONT
-#include <gr_text.h>          // for GRText
+#include <gr_text.h>
 #include <string_utils.h>     // for UnescapeString
 #include <math/util.h>        // for KiROUND
-#include <math/vector2d.h>    // for VECTOR2D
+#include <math/vector2d.h>
 #include <richio.h>
 #include <render_settings.h>
 #include <trigo.h>            // for RotatePoint
 #include <i18n_utility.h>
 #include <geometry/shape_segment.h>
 #include <geometry/shape_compound.h>
-#include <font/font.h>
+#include <geometry/shape_simple.h>
+#include <font/outline_font.h>
 #include <geometry/shape_poly_set.h>
 
 #include <wx/debug.h>           // for wxASSERT
-#include <wx/string.h>          // wxString, wxArrayString
-#include <wx/gdicmn.h>          // for wxPoint,wxSize
+#include <wx/string.h>
+#include <wx/gdicmn.h>          // for wxPoint, wxSize
 
 class OUTPUTFORMATTER;
 class wxFindReplaceData;
-
-
-void addTextSegmToPoly( int x0, int y0, int xf, int yf, void* aData )
-{
-    TSEGM_2_POLY_PRMS* prm = static_cast<TSEGM_2_POLY_PRMS*>( aData );
-    TransformOvalToPolygon( *prm->m_cornerBuffer, wxPoint( x0, y0 ), wxPoint( xf, yf ),
-                            prm->m_textWidth, prm->m_error, ERROR_INSIDE );
-}
 
 
 GR_TEXT_H_ALIGN_T EDA_TEXT::MapHorizJustify( int aHorizJustify )
@@ -99,7 +90,8 @@ GR_TEXT_V_ALIGN_T EDA_TEXT::MapVertJustify( int aVertJustify )
 
 
 EDA_TEXT::EDA_TEXT( const wxString& text ) :
-        m_text( text )
+        m_text( text ),
+        m_bounding_box_cache_valid( false )
 {
     int sz = Mils2iu( DEFAULT_SIZE_TEXT );
     SetTextSize( wxSize( sz, sz ) );
@@ -107,12 +99,28 @@ EDA_TEXT::EDA_TEXT( const wxString& text ) :
 }
 
 
-EDA_TEXT::EDA_TEXT( const EDA_TEXT& aText ) :
-        m_text( aText.m_text ),
-        m_attributes( aText.m_attributes ),
-        m_pos( aText.m_pos )
+EDA_TEXT::EDA_TEXT( const EDA_TEXT& aText )
 {
-    cacheShownText();
+    m_text = aText.m_text;
+    m_shown_text = aText.m_shown_text;
+    m_shown_text_has_text_var_refs = aText.m_shown_text_has_text_var_refs;
+
+    m_attributes = aText.m_attributes;
+    m_pos = aText.m_pos;
+
+    m_render_cache_text = aText.m_render_cache_text;
+    m_render_cache_angle = aText.m_render_cache_angle;
+
+    m_render_cache.clear();
+
+    for( const std::unique_ptr<KIFONT::GLYPH>& glyph : aText.m_render_cache )
+    {
+        KIFONT::OUTLINE_GLYPH* outline_glyph = static_cast<KIFONT::OUTLINE_GLYPH*>( glyph.get() );
+        m_render_cache.emplace_back( std::make_unique<KIFONT::OUTLINE_GLYPH>( *outline_glyph ) );
+    }
+
+    m_bounding_box_cache_valid = aText.m_bounding_box_cache_valid;
+    m_bounding_box_cache = aText.m_bounding_box_cache;
 }
 
 
@@ -121,10 +129,41 @@ EDA_TEXT::~EDA_TEXT()
 }
 
 
+EDA_TEXT& EDA_TEXT::operator=( const EDA_TEXT& aText )
+{
+    m_text = aText.m_text;
+    m_shown_text = aText.m_shown_text;
+    m_shown_text_has_text_var_refs = aText.m_shown_text_has_text_var_refs;
+
+    m_attributes = aText.m_attributes;
+    m_pos = aText.m_pos;
+
+    m_render_cache_text = aText.m_render_cache_text;
+    m_render_cache_angle = aText.m_render_cache_angle;
+
+    m_render_cache.clear();
+
+    for( const std::unique_ptr<KIFONT::GLYPH>& glyph : aText.m_render_cache )
+    {
+        KIFONT::OUTLINE_GLYPH* outline_glyph = static_cast<KIFONT::OUTLINE_GLYPH*>( glyph.get() );
+        m_render_cache.emplace_back( std::make_unique<KIFONT::OUTLINE_GLYPH>( *outline_glyph ) );
+    }
+
+    m_bounding_box_cache_valid = aText.m_bounding_box_cache_valid;
+    m_bounding_box_cache = aText.m_bounding_box_cache;
+
+    return *this;
+}
+
+
 void EDA_TEXT::SetText( const wxString& aText )
 {
     m_text = aText;
+
     cacheShownText();
+
+    ClearRenderCache();
+    m_bounding_box_cache_valid = false;
 }
 
 
@@ -133,6 +172,88 @@ void EDA_TEXT::CopyText( const EDA_TEXT& aSrc )
     m_text = aSrc.m_text;
     m_shown_text = aSrc.m_shown_text;
     m_shown_text_has_text_var_refs = aSrc.m_shown_text_has_text_var_refs;
+
+    ClearRenderCache();
+    m_bounding_box_cache_valid = false;
+}
+
+
+void EDA_TEXT::SetTextThickness( int aWidth )
+{
+    m_attributes.m_StrokeWidth = aWidth;
+    ClearRenderCache();
+    m_bounding_box_cache_valid = false;
+}
+
+
+void EDA_TEXT::SetTextAngle( const EDA_ANGLE& aAngle )
+{
+    m_attributes.m_Angle = aAngle;
+    ClearRenderCache();
+    m_bounding_box_cache_valid = false;
+}
+
+
+void EDA_TEXT::SetItalic( bool aItalic )
+{
+    m_attributes.m_Italic = aItalic;
+    ClearRenderCache();
+    m_bounding_box_cache_valid = false;
+}
+
+
+void EDA_TEXT::SetBold( bool aBold )
+{
+    m_attributes.m_Bold = aBold;
+    ClearRenderCache();
+    m_bounding_box_cache_valid = false;
+}
+
+
+void EDA_TEXT::SetVisible( bool aVisible )
+{
+    m_attributes.m_Visible = aVisible;
+    ClearRenderCache();
+}
+
+
+void EDA_TEXT::SetMirrored( bool isMirrored )
+{
+    m_attributes.m_Mirrored = isMirrored;
+    ClearRenderCache();
+    m_bounding_box_cache_valid = false;
+}
+
+
+void EDA_TEXT::SetMultilineAllowed( bool aAllow )
+{
+    m_attributes.m_Multiline = aAllow;
+    ClearRenderCache();
+    m_bounding_box_cache_valid = false;
+}
+
+
+void EDA_TEXT::SetHorizJustify( GR_TEXT_H_ALIGN_T aType )
+{
+    m_attributes.m_Halign = aType;
+    ClearRenderCache();
+    m_bounding_box_cache_valid = false;
+}
+
+
+void EDA_TEXT::SetVertJustify( GR_TEXT_V_ALIGN_T aType )
+{
+    m_attributes.m_Valign = aType;
+    ClearRenderCache();
+    m_bounding_box_cache_valid = false;
+}
+
+
+void EDA_TEXT::SetKeepUpright( bool aKeepUpright )
+{
+    m_attributes.m_KeepUpright = aKeepUpright;
+    ClearRenderCache();
+    m_bounding_box_cache_valid = false;
 }
 
 
@@ -140,6 +261,8 @@ void EDA_TEXT::SetAttributes( const EDA_TEXT& aSrc )
 {
     m_attributes = aSrc.m_attributes;
     m_pos = aSrc.m_pos;
+    ClearRenderCache();
+    m_bounding_box_cache_valid = false;
 }
 
 
@@ -148,6 +271,9 @@ void EDA_TEXT::SwapText( EDA_TEXT& aTradingPartner )
     std::swap( m_text, aTradingPartner.m_text );
     std::swap( m_shown_text, aTradingPartner.m_shown_text );
     std::swap( m_shown_text_has_text_var_refs, aTradingPartner.m_shown_text_has_text_var_refs );
+
+    ClearRenderCache();
+    m_bounding_box_cache_valid = false;
 }
 
 
@@ -155,6 +281,12 @@ void EDA_TEXT::SwapAttributes( EDA_TEXT& aTradingPartner )
 {
     std::swap( m_attributes, aTradingPartner.m_attributes );
     std::swap( m_pos, aTradingPartner.m_pos );
+
+    ClearRenderCache();
+    aTradingPartner.ClearRenderCache();
+
+    m_bounding_box_cache_valid = false;
+    aTradingPartner.m_bounding_box_cache_valid = false;
 }
 
 
@@ -182,9 +314,90 @@ int EDA_TEXT::GetEffectiveTextPenWidth( int aDefaultWidth ) const
 bool EDA_TEXT::Replace( const wxFindReplaceData& aSearchData )
 {
     bool retval = EDA_ITEM::Replace( aSearchData, m_text );
+
     cacheShownText();
 
+    ClearRenderCache();
+    m_bounding_box_cache_valid = false;
+
     return retval;
+}
+
+
+void EDA_TEXT::SetFont( KIFONT::FONT* aFont )
+{
+    m_attributes.m_Font = aFont;
+    ClearRenderCache();
+    m_bounding_box_cache_valid = false;
+}
+
+
+void EDA_TEXT::SetLineSpacing( double aLineSpacing )
+{
+    m_attributes.m_LineSpacing = aLineSpacing;
+    ClearRenderCache();
+    m_bounding_box_cache_valid = false;
+}
+
+
+void EDA_TEXT::SetTextSize( const wxSize& aNewSize )
+{
+    m_attributes.m_Size = aNewSize;
+    ClearRenderCache();
+    m_bounding_box_cache_valid = false;
+}
+
+
+void EDA_TEXT::SetTextWidth( int aWidth )
+{
+    m_attributes.m_Size.x = aWidth;
+    ClearRenderCache();
+    m_bounding_box_cache_valid = false;
+}
+
+
+void EDA_TEXT::SetTextHeight( int aHeight )
+{
+    m_attributes.m_Size.y = aHeight;
+    ClearRenderCache();
+    m_bounding_box_cache_valid = false;
+}
+
+
+void EDA_TEXT::SetTextPos( const VECTOR2I& aPoint )
+{
+    Offset( VECTOR2I( aPoint.x - m_pos.x, aPoint.y - m_pos.y ) );
+}
+
+
+void EDA_TEXT::SetTextX( int aX )
+{
+    Offset( VECTOR2I( aX - m_pos.x, 0 ) );
+}
+
+
+void EDA_TEXT::SetTextY( int aY )
+{
+    Offset( VECTOR2I( 0, aY - m_pos.y ) );
+}
+
+
+void EDA_TEXT::Offset( const VECTOR2I& aOffset )
+{
+    m_pos += aOffset;
+
+    for( std::unique_ptr<KIFONT::GLYPH>& glyph : m_render_cache )
+        static_cast<KIFONT::OUTLINE_GLYPH*>( glyph.get() )->Move( aOffset );
+
+    m_bounding_box_cache.Move( aOffset );
+}
+
+
+void EDA_TEXT::Empty()
+{
+    m_text.Empty();
+    ClearRenderCache();
+    m_bounding_box_cache_valid = false;
 }
 
 
@@ -200,20 +413,74 @@ void EDA_TEXT::cacheShownText()
         m_shown_text = UnescapeString( m_text );
         m_shown_text_has_text_var_refs = m_shown_text.Contains( wxT( "${" ) );
     }
+
+    ClearRenderCache();
+    m_bounding_box_cache_valid = false;
 }
 
 
-int EDA_TEXT::LenSize( const wxString& aLine, int aThickness ) const
+KIFONT::FONT* EDA_TEXT::GetDrawFont() const
 {
-    basic_gal.SetFontItalic( IsItalic() );
-    basic_gal.SetFontBold( IsBold() );
-    basic_gal.SetFontUnderlined( false );
-    basic_gal.SetLineWidth( (float) aThickness );
-    basic_gal.SetGlyphSize( VECTOR2D( GetTextSize() ) );
+    KIFONT::FONT* font = GetFont();
 
-    VECTOR2D tsize = basic_gal.GetTextLineSize( aLine );
+    if( !font )
+        font = KIFONT::FONT::GetFont( wxEmptyString, IsBold(), IsItalic() );
 
-    return KiROUND( tsize.x );
+    return font;
+}
+
+
+
+void EDA_TEXT::ClearRenderCache()
+{
+    m_render_cache.clear();
+}
+
+
+void EDA_TEXT::ClearBoundingBoxCache()
+{
+    m_bounding_box_cache_valid = false;
+}
+
+
+std::vector<std::unique_ptr<KIFONT::GLYPH>>*
+EDA_TEXT::GetRenderCache( const wxString& forResolvedText ) const
+{
+    if( GetFont() && GetFont()->IsOutline() )
+    {
+        EDA_ANGLE resolvedAngle = GetDrawRotation();
+
+        if( m_render_cache.empty()
+                || m_render_cache_text != forResolvedText
+                || m_render_cache_angle != resolvedAngle )
+        {
+            m_render_cache.clear();
+
+            KIFONT::OUTLINE_FONT* font = static_cast<KIFONT::OUTLINE_FONT*>( GetFont() );
+            font->GetLinesAsGlyphs( &m_render_cache, this );
+
+            m_render_cache_angle = resolvedAngle;
+            m_render_cache_text = forResolvedText;
+        }
+
+        return &m_render_cache;
+    }
+
+    return nullptr;
+}
+
+
+void EDA_TEXT::SetupRenderCache( const wxString& aResolvedText, const EDA_ANGLE& aAngle )
+{
+    m_render_cache_text = aResolvedText;
+    m_render_cache_angle = aAngle;
+    m_render_cache.clear();
+}
+
+
+void EDA_TEXT::AddRenderCacheGlyph( const SHAPE_POLY_SET& aPoly )
+{
+    m_render_cache.emplace_back( std::make_unique<KIFONT::OUTLINE_GLYPH>( aPoly ) );
 }
 
 
@@ -234,18 +501,19 @@ wxString EDA_TEXT::ShortenedShownText() const
 
 int EDA_TEXT::GetInterline() const
 {
-    return KiROUND( KIGFX::STROKE_FONT::GetInterline( GetTextHeight() ) );
+    return KiROUND( GetDrawFont()->GetInterline( GetTextHeight() ) );
 }
 
 
 EDA_RECT EDA_TEXT::GetTextBox( int aLine, bool aInvertY ) const
 {
+    if( m_bounding_box_cache_valid && aLine < 0 && !aInvertY )
+        return m_bounding_box_cache;
+
     EDA_RECT       rect;
     wxArrayString  strings;
     wxString       text = GetShownText();
     int            thickness = GetEffectiveTextPenWidth();
-    int            linecount = 1;
-    bool           hasOverBar = false;     // true if the first line of text as an overbar
 
     if( IsMultilineAllowed() )
     {
@@ -257,64 +525,38 @@ EDA_RECT EDA_TEXT::GetTextBox( int aLine, bool aInvertY ) const
                 text = strings.Item( aLine );
             else
                 text = strings.Item( 0 );
-
-            linecount = strings.GetCount();
-        }
-    }
-
-    // Search for overbar symbol. Only text is scanned,
-    // because only this line can change the bounding box
-    for( unsigned ii = 1; ii < text.size(); ii++ )
-    {
-        if( text[ii-1] == '~' && text[ii] == '{' )
-        {
-            hasOverBar = true;
-            break;
         }
     }
 
     // calculate the H and V size
-    const auto& font = basic_gal.GetStrokeFont();
-    VECTOR2D    fontSize( GetTextSize() );
-    double      penWidth( thickness );
-    int         dx = KiROUND( font.ComputeStringBoundaryLimits( text, fontSize, penWidth ).x );
-    int         dy = GetInterline();
+    KIFONT::FONT* font = GetDrawFont();
+    VECTOR2D      fontSize( GetTextSize() );
+    double        penWidth( thickness );
+    bool          bold = IsBold();
+    bool          italic = IsItalic();
+    int           dx = font->StringBoundaryLimits( text, fontSize, penWidth, bold, italic ).x;
+    int           dy = GetInterline();
 
     // Creates bounding box (rectangle) for horizontal, left and top justified text. The
     // bounding box will be moved later according to the actual text options
-    wxSize textsize = wxSize( dx, dy );
-    wxPoint pos = GetTextPos();
+    wxSize   textsize = wxSize( dx, fontSize.y );
+    VECTOR2I pos = GetTextPos();
 
     if( IsMultilineAllowed() && aLine > 0 && ( aLine < static_cast<int>( strings.GetCount() ) ) )
-    {
         pos.y -= aLine * GetInterline();
-    }
 
     if( aInvertY )
         pos.y = -pos.y;
 
     rect.SetOrigin( pos );
 
-    if( hasOverBar )
-    {   // A overbar adds an extra size to the text
-        // Height from the base line text of chars like [ or {
-        double curr_height = GetTextHeight() * 1.15;
-        double overbarPosition = font.ComputeOverbarVerticalPosition( fontSize.y );
-        int    extra_height = KiROUND( overbarPosition - curr_height );
-
-        extra_height += thickness / 2;
-        textsize.y += extra_height;
-        rect.Move( wxPoint( 0, -extra_height ) );
-    }
-
-    // for multiline texts and aLine < 0, merge all rectangles
-    // ( if aLine < 0, we want the full text bounding box )
+    // for multiline texts and aLine < 0, merge all rectangles (aLine == -1 signals all lines)
     if( IsMultilineAllowed() && aLine < 0 )
     {
         for( unsigned ii = 1; ii < strings.GetCount(); ii++ )
         {
             text = strings.Item( ii );
-            dx = KiROUND( font.ComputeStringBoundaryLimits( text, fontSize, penWidth ).x );
+            dx = font->StringBoundaryLimits( text, fontSize, penWidth, bold, italic ).x;
             textsize.x = std::max( textsize.x, dx );
             textsize.y += dy;
         }
@@ -336,7 +578,7 @@ EDA_RECT EDA_TEXT::GetTextBox( int aLine, bool aInvertY ) const
         break;
 
     case GR_TEXT_H_ALIGN_CENTER:
-        rect.SetX( rect.GetX() - (rect.GetWidth() / 2) );
+        rect.SetX( rect.GetX() - rect.GetWidth() / 2 );
         break;
 
     case GR_TEXT_H_ALIGN_RIGHT:
@@ -347,57 +589,30 @@ EDA_RECT EDA_TEXT::GetTextBox( int aLine, bool aInvertY ) const
 
     switch( GetVertJustify() )
     {
-    case GR_TEXT_V_ALIGN_TOP:
-        break;
-
-    case GR_TEXT_V_ALIGN_CENTER:
-        rect.SetY( rect.GetY() - ( dy / 2) );
-        break;
-
-    case GR_TEXT_V_ALIGN_BOTTOM:
-        rect.SetY( rect.GetY() - dy );
-        break;
+    case GR_TEXT_V_ALIGN_TOP:                                                     break;
+    case GR_TEXT_V_ALIGN_CENTER: rect.SetY( rect.GetY() - rect.GetHeight() / 2 ); break;
+    case GR_TEXT_V_ALIGN_BOTTOM: rect.SetY( rect.GetY() - rect.GetHeight() );     break;
     }
-
-    if( linecount > 1 )
-    {
-        int yoffset;
-        linecount -= 1;
-
-        switch( GetVertJustify() )
-        {
-        case GR_TEXT_V_ALIGN_TOP:
-            break;
-
-        case GR_TEXT_V_ALIGN_CENTER:
-            yoffset = linecount * GetInterline() / 2;
-            rect.SetY( rect.GetY() - yoffset );
-            break;
-
-        case GR_TEXT_V_ALIGN_BOTTOM:
-            yoffset = linecount * GetInterline();
-            rect.SetY( rect.GetY() - yoffset );
-            break;
-        }
-    }
-
-    // Many fonts draw diacriticals, descenders, etc. outside the X-height of the font.  This
-    // will cacth most (but probably not all) of them.
-    rect.Inflate( 0, thickness * 1.5 );
 
     rect.Normalize();       // Make h and v sizes always >= 0
+
+    if( aLine < 0 && !aInvertY )
+    {
+        m_bounding_box_cache_valid = true;
+        m_bounding_box_cache = rect;
+    }
 
     return rect;
 }
 
 
-bool EDA_TEXT::TextHitTest( const wxPoint& aPoint, int aAccuracy ) const
+bool EDA_TEXT::TextHitTest( const VECTOR2I& aPoint, int aAccuracy ) const
 {
     EDA_RECT rect = GetTextBox();
-    wxPoint location = aPoint;
+    VECTOR2I location = aPoint;
 
     rect.Inflate( aAccuracy );
-    RotatePoint( &location, GetTextPos(), -GetTextAngle() );
+    RotatePoint( location, GetTextPos(), -GetTextAngle() );
 
     return rect.Contains( location );
 }
@@ -416,12 +631,12 @@ bool EDA_TEXT::TextHitTest( const EDA_RECT& aRect, bool aContains, int aAccuracy
 }
 
 
-void EDA_TEXT::Print( const RENDER_SETTINGS* aSettings, const wxPoint& aOffset,
+void EDA_TEXT::Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset,
                       const COLOR4D& aColor, OUTLINE_MODE aFillMode )
 {
     if( IsMultilineAllowed() )
     {
-        std::vector<wxPoint> positions;
+        std::vector<VECTOR2I> positions;
         wxArrayString  strings;
         wxStringSplit( GetShownText(), strings, '\n' );
 
@@ -439,12 +654,12 @@ void EDA_TEXT::Print( const RENDER_SETTINGS* aSettings, const wxPoint& aOffset,
 }
 
 
-void EDA_TEXT::GetLinePositions( std::vector<wxPoint>& aPositions, int aLineCount ) const
+void EDA_TEXT::GetLinePositions( std::vector<VECTOR2I>& aPositions, int aLineCount ) const
 {
-    wxPoint pos  = GetTextPos();     // Position of first line of the multiline text according
-                                     // to the center of the multiline text block
+    VECTOR2I pos = GetTextPos();    // Position of first line of the multiline text according
+                                    // to the center of the multiline text block
 
-    wxPoint offset;                  // Offset to next line.
+    VECTOR2I offset;                // Offset to next line.
 
     offset.y = GetInterline();
 
@@ -466,22 +681,22 @@ void EDA_TEXT::GetLinePositions( std::vector<wxPoint>& aPositions, int aLineCoun
     }
 
     // Rotate the position of the first line around the center of the multiline text block
-    RotatePoint( &pos, GetTextPos(), GetTextAngle() );
+    RotatePoint( pos, GetTextPos(), GetTextAngle() );
 
     // Rotate the offset lines to increase happened in the right direction
-    RotatePoint( &offset, GetTextAngle() );
+    RotatePoint( offset, GetTextAngle() );
 
     for( int ii = 0; ii < aLineCount; ii++ )
     {
-        aPositions.push_back( pos );
+        aPositions.push_back( (VECTOR2I) pos );
         pos += offset;
     }
 }
 
 
-void EDA_TEXT::printOneLineOfText( const RENDER_SETTINGS* aSettings, const wxPoint& aOffset,
+void EDA_TEXT::printOneLineOfText( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset,
                                    const COLOR4D& aColor, OUTLINE_MODE aFillMode,
-                                   const wxString& aText, const wxPoint &aPos )
+                                   const wxString& aText, const VECTOR2I& aPos )
 {
     wxDC* DC = aSettings->GetPrintDC();
     int   penWidth = std::max( GetEffectiveTextPenWidth(), aSettings->GetDefaultPenWidth() );
@@ -489,13 +704,13 @@ void EDA_TEXT::printOneLineOfText( const RENDER_SETTINGS* aSettings, const wxPoi
     if( aFillMode == SKETCH )
         penWidth = -penWidth;
 
-    wxSize size = GetTextSize();
+    VECTOR2I size = GetTextSize();
 
     if( IsMirrored() )
         size.x = -size.x;
 
-    GRText( DC, aOffset + aPos, aColor, aText, GetTextAngle(), size, GetHorizJustify(),
-            GetVertJustify(), penWidth, IsItalic(), IsBold(), GetFont() );
+    GRPrintText( DC, aOffset + aPos, aColor, aText, GetTextAngle(), size, GetHorizJustify(),
+                 GetVertJustify(), penWidth, IsItalic(), IsBold(), GetDrawFont() );
 }
 
 
@@ -554,10 +769,19 @@ void EDA_TEXT::Format( OUTPUTFORMATTER* aFormatter, int aNestLevel, int aControl
 
     aFormatter->Print( 0, " (font" );
 
+    if( GetFont() && !GetFont()->Name().IsEmpty() )
+        aFormatter->Print( 0, " (face \"%s\")", GetFont()->NameAsToken() );
+
     // Text size
     aFormatter->Print( 0, " (size %s %s)",
                        FormatInternalUnits( GetTextHeight() ).c_str(),
                        FormatInternalUnits( GetTextWidth() ).c_str() );
+
+    if( GetLineSpacing() != 1.0 )
+    {
+        aFormatter->Print( 0, " (line_spacing %s)",
+                           Double2Str( GetLineSpacing() ).c_str() );
+    }
 
     if( GetTextThickness() )
     {
@@ -598,67 +822,35 @@ void EDA_TEXT::Format( OUTPUTFORMATTER* aFormatter, int aNestLevel, int aControl
 #endif
 }
 
-// Convert the text shape to a list of segment
-// each segment is stored as 2 wxPoints: its starting point and its ending point
-// we are using GRText to create the segments and therefore a call-back function is needed
-
-// This is a call back function, used by GRText to put each segment in buffer
-static void addTextSegmToBuffer( int x0, int y0, int xf, int yf, void* aData )
-{
-    std::vector<wxPoint>* cornerBuffer = static_cast<std::vector<wxPoint>*>( aData );
-    cornerBuffer->push_back( wxPoint( x0, y0 ) );
-    cornerBuffer->push_back( wxPoint( xf, yf ) );
-}
-
-
-std::vector<wxPoint> EDA_TEXT::TransformToSegmentList() const
-{
-    std::vector<wxPoint> cornerBuffer;
-    wxSize size = GetTextSize();
-
-    if( IsMirrored() )
-        size.x = -size.x;
-
-    bool forceBold = true;
-    int  penWidth = 0;      // use max-width for bold text
-
-    COLOR4D color = COLOR4D::BLACK;  // not actually used, but needed by GRText
-
-    if( IsMultilineAllowed() )
-    {
-        wxArrayString strings_list;
-        wxStringSplit( GetShownText(), strings_list, wxChar('\n') );
-        std::vector<wxPoint> positions;
-        positions.reserve( strings_list.Count() );
-        GetLinePositions( positions, strings_list.Count() );
-
-        for( unsigned ii = 0; ii < strings_list.Count(); ii++ )
-        {
-            wxString txt = strings_list.Item( ii );
-            GRText( nullptr, positions[ii], color, txt, GetDrawRotation(), size,
-                    GetDrawHorizJustify(), GetDrawVertJustify(), penWidth, IsItalic(), forceBold,
-                    GetFont(), addTextSegmToBuffer, &cornerBuffer );
-        }
-    }
-    else
-    {
-        GRText( nullptr, GetDrawPos(), color, GetShownText(), GetDrawRotation(), size,
-                GetDrawHorizJustify(), GetDrawVertJustify(), penWidth, IsItalic(), forceBold,
-                GetFont(), addTextSegmToBuffer, &cornerBuffer );
-    }
-
-    return cornerBuffer;
-}
-
 
 std::shared_ptr<SHAPE_COMPOUND> EDA_TEXT::GetEffectiveTextShape( ) const
 {
     std::shared_ptr<SHAPE_COMPOUND> shape = std::make_shared<SHAPE_COMPOUND>();
-    int penWidth = GetEffectiveTextPenWidth();
-    std::vector<wxPoint> pts = TransformToSegmentList();
+    KIGFX::GAL_DISPLAY_OPTIONS      empty_opts;
+    KIFONT::FONT*                   font = GetDrawFont();
+    int                             penWidth = GetEffectiveTextPenWidth();
 
-    for( unsigned jj = 0; jj < pts.size(); jj += 2 )
-        shape->AddShape( new SHAPE_SEGMENT( pts[jj], pts[jj+1], penWidth ) );
+    CALLBACK_GAL callback_gal( empty_opts,
+            // Stroke callback
+            [&]( const VECTOR2I& aPt1, const VECTOR2I& aPt2 )
+            {
+                shape->AddShape( new SHAPE_SEGMENT( aPt1, aPt2, penWidth ) );
+            },
+            // Triangulation callback
+            [&]( const VECTOR2I& aPt1, const VECTOR2I& aPt2, const VECTOR2I& aPt3 )
+            {
+                SHAPE_SIMPLE* triShape = new SHAPE_SIMPLE;
+
+                for( const VECTOR2I& point : { aPt1, aPt2, aPt3 } )
+                    triShape->Append( point.x, point.y );
+
+                shape->AddShape( triShape );
+            } );
+
+    TEXT_ATTRIBUTES attrs = GetAttributes();
+    attrs.m_Angle = GetDrawRotation();
+
+    font->Draw( &callback_gal, GetShownText(), GetTextPos(), attrs );
 
     return shape;
 }
@@ -704,7 +896,7 @@ void EDA_TEXT::TransformBoundingBoxWithClearanceToPolygon( SHAPE_POLY_SET* aCorn
     if( GetText().Length() == 0 )
         return;
 
-    wxPoint  corners[4];    // Buffer of polygon corners
+    VECTOR2I  corners[4];    // Buffer of polygon corners
 
     EDA_RECT rect = GetTextBox();
 
@@ -735,10 +927,10 @@ void EDA_TEXT::TransformBoundingBoxWithClearanceToPolygon( SHAPE_POLY_SET* aCorn
 
     aCornerBuffer->NewOutline();
 
-    for( wxPoint& corner : corners )
+    for( VECTOR2I& corner : corners )
     {
         // Rotate polygon
-        RotatePoint( &corner, GetTextPos(), GetTextAngle() );
+        RotatePoint( corner, GetTextPos(), GetTextAngle() );
         aCornerBuffer->Append( corner.x, corner.y );
     }
 }
@@ -760,7 +952,8 @@ static struct EDA_TEXT_DESC
         PROPERTY_MANAGER& propMgr = PROPERTY_MANAGER::Instance();
         REGISTER_TYPE( EDA_TEXT );
         propMgr.AddProperty( new PROPERTY<EDA_TEXT, wxString>( _HKI( "Text" ),
-                    &EDA_TEXT::SetText, &EDA_TEXT::GetText ) );
+                                                               &EDA_TEXT::SetText,
+                                                               &EDA_TEXT::GetText ) );
         propMgr.AddProperty( new PROPERTY<EDA_TEXT, int>( _HKI( "Thickness" ),
                                                           &EDA_TEXT::SetTextThickness,
                                                           &EDA_TEXT::GetTextThickness,

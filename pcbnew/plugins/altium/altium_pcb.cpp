@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2019-2020 Thomas Pointhuber <thomas.pointhuber@gmx.at>
- * Copyright (C) 2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2021-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -162,7 +162,7 @@ void ALTIUM_PCB::HelperShapeSetLocalCoord( PCB_SHAPE* aShape, uint16_t aComponen
                 FOOTPRINT* fp = m_components.at( aComponent );
 
                 polyShape.Move( -fp->GetPosition() );
-                polyShape.Rotate( -fp->GetOrientationRadians() );
+                polyShape.Rotate( -fp->GetOrientation().AsRadians() );
             }
         }
     }
@@ -176,18 +176,19 @@ void HelperShapeLineChainFromAltiumVertices( SHAPE_LINE_CHAIN& aLine,
     {
         if( vertex.isRound )
         {
-            double angle = NormalizeAngleDegreesPos( vertex.endangle - vertex.startangle );
+            EDA_ANGLE angle( vertex.endangle - vertex.startangle, DEGREES_T );
+            angle.Normalize();
 
             double  startradiant   = DEG2RAD( vertex.startangle );
             double  endradiant     = DEG2RAD( vertex.endangle );
-            wxPoint arcStartOffset = wxPoint( KiROUND( std::cos( startradiant ) * vertex.radius ),
+            VECTOR2I arcStartOffset = VECTOR2I( KiROUND( std::cos( startradiant ) * vertex.radius ),
                                              -KiROUND( std::sin( startradiant ) * vertex.radius ) );
 
-            wxPoint arcEndOffset = wxPoint( KiROUND( std::cos( endradiant ) * vertex.radius ),
+            VECTOR2I arcEndOffset = VECTOR2I( KiROUND( std::cos( endradiant ) * vertex.radius ),
                                            -KiROUND( std::sin( endradiant ) * vertex.radius ) );
 
-            wxPoint arcStart = vertex.center + arcStartOffset;
-            wxPoint arcEnd   = vertex.center + arcEndOffset;
+            VECTOR2I arcStart = vertex.center + arcStartOffset;
+            VECTOR2I arcEnd   = vertex.center + arcEndOffset;
 
             if( GetLineLength( arcStart, vertex.position )
                     < GetLineLength( arcEnd, vertex.position ) )
@@ -609,7 +610,7 @@ void ALTIUM_PCB::Parse( const CFB::CompoundFileReader& aReader,
         // Enforce a minimum on the radialLine else we won't have enough precision to get the
         // angle from it.
         radialLine = radialLine.Resize( std::max( radius, 2 ) );
-        dim->SetEnd( dim->GetStart() + (wxPoint) radialLine );
+        dim->SetEnd( dim->GetStart() + (VECTOR2I) radialLine );
         dim->SetLeaderLength( totalLength - radius );
         dim->Update();
     }
@@ -623,7 +624,7 @@ void ALTIUM_PCB::Parse( const CFB::CompoundFileReader& aReader,
     int desired_x = ( w - bbbox.GetWidth() ) / 2;
     int desired_y = ( h - bbbox.GetHeight() ) / 2;
 
-    wxPoint movementVector( desired_x - bbbox.GetX(), desired_y - bbbox.GetY() );
+    VECTOR2I movementVector( desired_x - bbbox.GetX(), desired_y - bbbox.GetY() );
     m_board->Move( movementVector );
 
     BOARD_DESIGN_SETTINGS& bds = m_board->GetDesignSettings();
@@ -848,66 +849,38 @@ void ALTIUM_PCB::ParseBoard6Data( const CFB::CompoundFileReader& aReader,
 
 void ALTIUM_PCB::HelperCreateBoardOutline( const std::vector<ALTIUM_VERTICE>& aVertices )
 {
-    if( !aVertices.empty() )
+    SHAPE_LINE_CHAIN lineChain;
+    HelperShapeLineChainFromAltiumVertices( lineChain, aVertices );
+
+    STROKE_PARAMS stroke( m_board->GetDesignSettings().GetLineThickness( Edge_Cuts ),
+                          PLOT_DASH_TYPE::SOLID );
+
+    for( int i = 0; i <= lineChain.PointCount() && i != -1; i = lineChain.NextShape( i ) )
     {
-        const ALTIUM_VERTICE* last = &aVertices.at( 0 );
-        STROKE_PARAMS         stroke( m_board->GetDesignSettings().GetLineThickness( Edge_Cuts ),
-                                      PLOT_DASH_TYPE::SOLID );
-
-        for( size_t i = 0; i < aVertices.size(); i++ )
+        if( lineChain.IsArcStart( i ) )
         {
-            const ALTIUM_VERTICE* cur = &aVertices.at( ( i + 1 ) % aVertices.size() );
+            const SHAPE_ARC& currentArc = lineChain.Arc( lineChain.ArcIndex( i ) );
+            int              nextShape = lineChain.NextShape( i );
+            bool             isLastShape = nextShape < 0;
 
-            PCB_SHAPE* shape = new PCB_SHAPE( m_board );
+            PCB_SHAPE* shape = new PCB_SHAPE( m_board, SHAPE_T::ARC );
             m_board->Add( shape, ADD_MODE::APPEND );
 
             shape->SetStroke( stroke );
             shape->SetLayer( Edge_Cuts );
+            shape->SetArcGeometry( currentArc.GetP0(), currentArc.GetArcMid(), currentArc.GetP1() );
+        }
+        else
+        {
+            const SEG& seg = lineChain.Segment( i );
 
-            if( !last->isRound && !cur->isRound )
-            {
-                shape->SetShape( SHAPE_T::SEGMENT );
-                shape->SetStart( last->position );
-                shape->SetEnd( cur->position );
-            }
-            else if( cur->isRound )
-            {
-                shape->SetShape( SHAPE_T::ARC );
+            PCB_SHAPE* shape = new PCB_SHAPE( m_board, SHAPE_T::SEGMENT );
+            m_board->Add( shape, ADD_MODE::APPEND );
 
-                double  includedAngle = cur->endangle - cur->startangle;
-                double  startAngle    = DEG2RAD( cur->endangle );
-                wxPoint startOffset   = wxPoint( KiROUND( std::cos( startAngle ) * cur->radius ),
-                                                 -KiROUND( std::sin( startAngle ) * cur->radius ) );
-                wxPoint arcStart      = cur->center + startOffset;
-
-                shape->SetCenter( cur->center );
-                shape->SetStart( arcStart );
-                shape->SetArcAngleAndEnd( -NormalizeAngleDegreesPos( includedAngle ) * 10.0, true );
-
-                if( !last->isRound )
-                {
-                    double  endAngle  = DEG2RAD( cur->endangle );
-                    wxPoint endOffset = wxPoint( KiROUND( std::cos( endAngle ) * cur->radius ),
-                                                 -KiROUND( std::sin( endAngle ) * cur->radius ) );
-                    wxPoint arcEnd    = cur->center + endOffset;
-
-                    PCB_SHAPE* shape2 = new PCB_SHAPE( m_board, SHAPE_T::SEGMENT );
-                    m_board->Add( shape2, ADD_MODE::APPEND );
-                    shape2->SetStroke( stroke );
-                    shape2->SetLayer( Edge_Cuts );
-                    shape2->SetStart( last->position );
-
-                    // TODO: this is more of a hack than the real solution
-                    double lineLengthStart = GetLineLength( last->position, arcStart );
-                    double lineLengthEnd   = GetLineLength( last->position, arcEnd );
-
-                    if( lineLengthStart > lineLengthEnd )
-                        shape2->SetEnd( cur->center + endOffset );
-                    else
-                        shape2->SetEnd( cur->center + startOffset );
-                }
-            }
-            last = cur;
+            shape->SetStroke( stroke );
+            shape->SetLayer( Edge_Cuts );
+            shape->SetStart( seg.A );
+            shape->SetEnd( seg.B );
         }
     }
 }
@@ -1030,7 +1003,7 @@ void ALTIUM_PCB::ParseComponentsBodies6Data( const CFB::CompoundFileReader& aRea
         }
 
         FOOTPRINT*     footprint  = m_components.at( elem.component );
-        const wxPoint& fpPosition = footprint->GetPosition();
+        const VECTOR2I& fpPosition = footprint->GetPosition();
 
         FP_3DMODEL modelSettings;
 
@@ -1040,7 +1013,7 @@ void ALTIUM_PCB::ParseComponentsBodies6Data( const CFB::CompoundFileReader& aRea
         modelSettings.m_Offset.y = -Iu2Millimeter((int) elem.modelPosition.y - fpPosition.y );
         modelSettings.m_Offset.z = Iu2Millimeter( (int) elem.modelPosition.z );
 
-        double orientation = footprint->GetOrientation();
+        EDA_ANGLE orientation = footprint->GetOrientation();
 
         if( footprint->IsFlipped() )
         {
@@ -1054,7 +1027,7 @@ void ALTIUM_PCB::ParseComponentsBodies6Data( const CFB::CompoundFileReader& aRea
         modelSettings.m_Rotation.y = NormalizeAngleDegrees( -elem.modelRotation.y, -180, 180 );
         modelSettings.m_Rotation.z = NormalizeAngleDegrees( -elem.modelRotation.z
                                                                 + elem.rotation
-                                                                + orientation / 10, -180, 180 );
+                                                                + orientation.AsDegrees(), -180, 180 );
         modelSettings.m_Opacity = elem.bodyOpacity;
 
         footprint->Models().push_back( modelSettings );
@@ -1080,8 +1053,8 @@ void ALTIUM_PCB::HelperParseDimensions6Linear( const ADIMENSION6& aElem )
         klayer = Eco1_User;
     }
 
-    wxPoint referencePoint0 = aElem.referencePoint.at( 0 );
-    wxPoint referencePoint1 = aElem.referencePoint.at( 1 );
+    VECTOR2I referencePoint0 = aElem.referencePoint.at( 0 );
+    VECTOR2I referencePoint1 = aElem.referencePoint.at( 1 );
 
     PCB_DIM_ALIGNED* dimension = new PCB_DIM_ALIGNED( m_board, PCB_DIM_ALIGNED_T );
     m_board->Add( dimension, ADD_MODE::APPEND );
@@ -1101,11 +1074,11 @@ void ALTIUM_PCB::HelperParseDimensions6Linear( const ADIMENSION6& aElem )
          * intersect it with REFERENCE1POINT pointing the same direction as REFERENCE0POINT -> XY1.
          * This should give us a valid measurement point where we can place the drawsegment.
          */
-        wxPoint direction             = aElem.xy1 - referencePoint0;
-        wxPoint directionNormalVector = wxPoint( -direction.y, direction.x );
+        VECTOR2I direction             = aElem.xy1 - referencePoint0;
+        VECTOR2I directionNormalVector = VECTOR2I( -direction.y, direction.x );
         SEG     segm1( referencePoint0, referencePoint0 + directionNormalVector );
         SEG     segm2( referencePoint1, referencePoint1 + direction );
-        wxPoint intersection( segm1.Intersect( segm2, true, true ).get() );
+        VECTOR2I intersection( segm1.Intersect( segm2, true, true ).get() );
         dimension->SetEnd( intersection );
 
         int height = static_cast<int>( EuclideanNorm( direction ) );
@@ -1172,8 +1145,8 @@ void ALTIUM_PCB::HelperParseDimensions6Radial(const ADIMENSION6 &aElem)
         klayer = Eco1_User;
     }
 
-    wxPoint referencePoint0 = aElem.referencePoint.at( 0 );
-    wxPoint referencePoint1 = aElem.referencePoint.at( 1 );
+    VECTOR2I referencePoint0 = aElem.referencePoint.at( 0 );
+    VECTOR2I referencePoint1 = aElem.referencePoint.at( 1 );
 
     PCB_DIM_RADIAL* dimension = new PCB_DIM_RADIAL( m_board );
     m_board->Add( dimension, ADD_MODE::APPEND );
@@ -1232,7 +1205,7 @@ void ALTIUM_PCB::HelperParseDimensions6Radial(const ADIMENSION6 &aElem)
     dimension->Text().SetHorizJustify( GR_TEXT_H_ALIGN_LEFT );
 
     int yAdjust = dimension->Text().GetCenter().y - dimension->Text().GetPosition().y;
-    dimension->Text().Move( wxPoint( 0, yAdjust + aElem.textgap ) );
+    dimension->Text().Move( VECTOR2I( 0, yAdjust + aElem.textgap ) );
     dimension->Text().SetVertJustify( GR_TEXT_V_ALIGN_CENTER );
 }
 
@@ -1251,10 +1224,10 @@ void ALTIUM_PCB::HelperParseDimensions6Leader( const ADIMENSION6& aElem )
 
     if( !aElem.referencePoint.empty() )
     {
-        wxPoint referencePoint0 = aElem.referencePoint.at( 0 );
+        VECTOR2I referencePoint0 = aElem.referencePoint.at( 0 );
 
         // line
-        wxPoint last = referencePoint0;
+        VECTOR2I last = referencePoint0;
         for( size_t i = 1; i < aElem.referencePoint.size(); i++ )
         {
             PCB_SHAPE* shape = new PCB_SHAPE( m_board, SHAPE_T::SEGMENT );
@@ -1269,13 +1242,13 @@ void ALTIUM_PCB::HelperParseDimensions6Leader( const ADIMENSION6& aElem )
         // arrow
         if( aElem.referencePoint.size() >= 2 )
         {
-            wxPoint dirVec = aElem.referencePoint.at( 1 ) - referencePoint0;
+            VECTOR2I dirVec = aElem.referencePoint.at( 1 ) - referencePoint0;
             if( dirVec.x != 0 || dirVec.y != 0 )
             {
-                double  scaling = EuclideanNorm( dirVec ) / aElem.arrowsize;
-                wxPoint arrVec =
-                        wxPoint( KiROUND( dirVec.x / scaling ), KiROUND( dirVec.y / scaling ) );
-                RotatePoint( &arrVec, 200. );
+                double   scaling = EuclideanNorm( dirVec ) / aElem.arrowsize;
+                VECTOR2I arrVec =
+                        VECTOR2I( KiROUND( dirVec.x / scaling ), KiROUND( dirVec.y / scaling ) );
+                RotatePoint( arrVec, 200. );
 
                 PCB_SHAPE* shape1 = new PCB_SHAPE( m_board, SHAPE_T::SEGMENT );
                 m_board->Add( shape1, ADD_MODE::APPEND );
@@ -1284,7 +1257,7 @@ void ALTIUM_PCB::HelperParseDimensions6Leader( const ADIMENSION6& aElem )
                 shape1->SetStart( referencePoint0 );
                 shape1->SetEnd( referencePoint0 + arrVec );
 
-                RotatePoint( &arrVec, -400. );
+                RotatePoint( arrVec, -400. );
 
                 PCB_SHAPE* shape2 = new PCB_SHAPE( m_board, SHAPE_T::SEGMENT );
                 m_board->Add( shape2, ADD_MODE::APPEND );
@@ -1350,8 +1323,8 @@ void ALTIUM_PCB::HelperParseDimensions6Center( const ADIMENSION6& aElem )
         klayer = Eco1_User;
     }
 
-    wxPoint vec = wxPoint( 0, aElem.height / 2 );
-    RotatePoint( &vec, aElem.angle * 10. );
+    VECTOR2I vec = VECTOR2I( 0, aElem.height / 2 );
+    RotatePoint( vec, aElem.angle * 10. );
 
     PCB_DIM_CENTER* dimension = new PCB_DIM_CENTER( m_board );
     m_board->Add( dimension, ADD_MODE::APPEND );
@@ -1933,7 +1906,7 @@ void ALTIUM_PCB::ParseArcs6Data( const CFB::CompoundFileReader& aReader,
                     // TODO: other variants to define circle?
                     shape.SetShape( SHAPE_T::CIRCLE );
                     shape.SetStart( elem.center );
-                    shape.SetEnd( elem.center - wxPoint( 0, elem.radius ) );
+                    shape.SetEnd( elem.center - VECTOR2I( 0, elem.radius ) );
                     return;
                 }
 
@@ -1942,8 +1915,8 @@ void ALTIUM_PCB::ParseArcs6Data( const CFB::CompoundFileReader& aReader,
                 double includedAngle = elem.endangle - elem.startangle;
                 double startAngle    = DEG2RAD( elem.endangle );
 
-                wxPoint startOffset = wxPoint( KiROUND( std::cos( startAngle ) * elem.radius ),
-                                               -KiROUND( std::sin( startAngle ) * elem.radius ) );
+                VECTOR2I startOffset = VECTOR2I( KiROUND( std::cos( startAngle ) * elem.radius ),
+                                                -KiROUND( std::sin( startAngle ) * elem.radius ) );
 
                 shape.SetCenter( elem.center );
                 shape.SetStart( elem.center + startOffset );
@@ -2018,16 +1991,18 @@ void ALTIUM_PCB::ParseArcs6Data( const CFB::CompoundFileReader& aReader,
 
         if( klayer >= F_Cu && klayer <= B_Cu )
         {
-            double  angle          = -NormalizeAngleDegreesPos( elem.endangle - elem.startangle );
-            double  startradiant   = DEG2RAD( elem.startangle );
-            wxPoint arcStartOffset = wxPoint( KiROUND( std::cos( startradiant ) * elem.radius ),
-                                              -KiROUND( std::sin( startradiant ) * elem.radius ) );
+            EDA_ANGLE angle( elem.startangle - elem.endangle, DEGREES_T );
+            angle.Normalize();
+
+            double   startradiant = DEG2RAD( elem.startangle );
+            VECTOR2I arcStartOffset = VECTOR2I( KiROUND( std::cos( startradiant ) * elem.radius ),
+                                               -KiROUND( std::sin( startradiant ) * elem.radius ) );
 
             arcStartOffset += elem.center;
 
             // If it's a circle then add two 180-degree arcs
-            if( elem.startangle == 0. && elem.endangle == 360. )
-                angle = 180.;
+            if( elem.startangle == 0.0 && elem.endangle == 360.0 )
+                angle = ANGLE_180;
 
             SHAPE_ARC shapeArc( elem.center, arcStartOffset, angle, elem.width );
             PCB_ARC*  arc = new PCB_ARC( m_board, &shapeArc );
@@ -2330,13 +2305,13 @@ void ALTIUM_PCB::HelperParsePad6NonCopper( const APAD6& aElem )
         shape->SetLayer( klayer );
         shape->SetStroke( STROKE_PARAMS( 0 ) );
 
-        shape->SetPolyPoints( { aElem.position + wxPoint( aElem.topsize.x / 2, aElem.topsize.y / 2 ),
-                                aElem.position + wxPoint( aElem.topsize.x / 2, -aElem.topsize.y / 2 ),
-                                aElem.position + wxPoint( -aElem.topsize.x / 2, -aElem.topsize.y / 2 ),
-                                aElem.position + wxPoint( -aElem.topsize.x / 2, aElem.topsize.y / 2 ) } );
+        shape->SetPolyPoints( { aElem.position + VECTOR2I( aElem.topsize.x / 2, aElem.topsize.y / 2 ),
+                                aElem.position + VECTOR2I( aElem.topsize.x / 2, -aElem.topsize.y / 2 ),
+                                aElem.position + VECTOR2I( -aElem.topsize.x / 2, -aElem.topsize.y / 2 ),
+                                aElem.position + VECTOR2I( -aElem.topsize.x / 2, aElem.topsize.y / 2 ) } );
 
         if( aElem.direction != 0 )
-            shape->Rotate( aElem.position, aElem.direction * 10 );
+            shape->Rotate( aElem.position, EDA_ANGLE( aElem.direction, DEGREES_T ) );
 
         HelperShapeSetLocalCoord( shape, aElem.component );
     }
@@ -2359,10 +2334,10 @@ void ALTIUM_PCB::HelperParsePad6NonCopper( const APAD6& aElem )
                 int offsetX = aElem.topsize.x / 2 - offset;
                 int offsetY = aElem.topsize.y / 2 - offset;
 
-                wxPoint p11 = aElem.position + wxPoint( offsetX, offsetY );
-                wxPoint p12 = aElem.position + wxPoint( offsetX, -offsetY );
-                wxPoint p22 = aElem.position + wxPoint( -offsetX, -offsetY );
-                wxPoint p21 = aElem.position + wxPoint( -offsetX, offsetY );
+                VECTOR2I p11 = aElem.position + VECTOR2I( offsetX, offsetY );
+                VECTOR2I p12 = aElem.position + VECTOR2I( offsetX, -offsetY );
+                VECTOR2I p22 = aElem.position + VECTOR2I( -offsetX, -offsetY );
+                VECTOR2I p21 = aElem.position + VECTOR2I( -offsetX, offsetY );
 
                 shape->SetShape( SHAPE_T::POLY );
                 shape->SetFilled( true );
@@ -2374,14 +2349,14 @@ void ALTIUM_PCB::HelperParsePad6NonCopper( const APAD6& aElem )
                 shape->SetShape( SHAPE_T::CIRCLE );
                 shape->SetFilled( true );
                 shape->SetStart( aElem.position );
-                shape->SetEnd( aElem.position - wxPoint( 0, aElem.topsize.x / 4 ) );
+                shape->SetEnd( aElem.position - VECTOR2I( 0, aElem.topsize.x / 4 ) );
                 shape->SetStroke( STROKE_PARAMS( aElem.topsize.x / 2, PLOT_DASH_TYPE::SOLID ) );
             }
             else if( aElem.topsize.x < aElem.topsize.y )
             {
                 // short vertical line
                 shape->SetShape( SHAPE_T::SEGMENT );
-                wxPoint pointOffset( 0, ( aElem.topsize.y - aElem.topsize.x ) / 2 );
+                VECTOR2I pointOffset( 0, ( aElem.topsize.y - aElem.topsize.x ) / 2 );
                 shape->SetStart( aElem.position + pointOffset );
                 shape->SetEnd( aElem.position - pointOffset );
             }
@@ -2389,13 +2364,13 @@ void ALTIUM_PCB::HelperParsePad6NonCopper( const APAD6& aElem )
             {
                 // short horizontal line
                 shape->SetShape( SHAPE_T::SEGMENT );
-                wxPoint pointOffset( ( aElem.topsize.x - aElem.topsize.y ) / 2, 0 );
+                VECTOR2I pointOffset( ( aElem.topsize.x - aElem.topsize.y ) / 2, 0 );
                 shape->SetStart( aElem.position + pointOffset );
                 shape->SetEnd( aElem.position - pointOffset );
             }
 
             if( aElem.direction != 0 )
-                shape->Rotate( aElem.position, aElem.direction * 10 );
+                shape->Rotate( aElem.position, EDA_ANGLE( aElem.direction, DEGREES_T ) );
 
             HelperShapeSetLocalCoord( shape, aElem.component );
         }
@@ -2407,7 +2382,7 @@ void ALTIUM_PCB::HelperParsePad6NonCopper( const APAD6& aElem )
             shape->SetFilled( true );
             shape->SetLayer( klayer );
             shape->SetStart( aElem.position );
-            shape->SetEnd( aElem.position - wxPoint( 0, aElem.topsize.x / 4 ) );
+            shape->SetEnd( aElem.position - VECTOR2I( 0, aElem.topsize.x / 4 ) );
             shape->SetStroke( STROKE_PARAMS( aElem.topsize.x / 2, PLOT_DASH_TYPE::SOLID ) );
             HelperShapeSetLocalCoord( shape, aElem.component );
         }
@@ -2422,19 +2397,19 @@ void ALTIUM_PCB::HelperParsePad6NonCopper( const APAD6& aElem )
 
             if( aElem.topsize.x < aElem.topsize.y )
             {
-                wxPoint offset( 0, ( aElem.topsize.y - aElem.topsize.x ) / 2 );
+                VECTOR2I offset( 0, ( aElem.topsize.y - aElem.topsize.x ) / 2 );
                 shape->SetStart( aElem.position + offset );
                 shape->SetEnd( aElem.position - offset );
             }
             else
             {
-                wxPoint offset( ( aElem.topsize.x - aElem.topsize.y ) / 2, 0 );
+                VECTOR2I offset( ( aElem.topsize.x - aElem.topsize.y ) / 2, 0 );
                 shape->SetStart( aElem.position + offset );
                 shape->SetEnd( aElem.position - offset );
             }
 
             if( aElem.direction != 0 )
-                shape->Rotate( aElem.position, aElem.direction * 10. );
+                shape->Rotate( aElem.position, EDA_ANGLE( aElem.direction, DEGREES_T ) );
 
             HelperShapeSetLocalCoord( shape, aElem.component );
         }
@@ -2449,20 +2424,20 @@ void ALTIUM_PCB::HelperParsePad6NonCopper( const APAD6& aElem )
         shape->SetLayer( klayer );
         shape->SetStroke( STROKE_PARAMS( 0 ) );
 
-        wxPoint p11 = aElem.position + wxPoint( aElem.topsize.x / 2, aElem.topsize.y / 2 );
-        wxPoint p12 = aElem.position + wxPoint( aElem.topsize.x / 2, -aElem.topsize.y / 2 );
-        wxPoint p22 = aElem.position + wxPoint( -aElem.topsize.x / 2, -aElem.topsize.y / 2 );
-        wxPoint p21 = aElem.position + wxPoint( -aElem.topsize.x / 2, aElem.topsize.y / 2 );
+        VECTOR2I p11 = aElem.position + VECTOR2I( aElem.topsize.x / 2, aElem.topsize.y / 2 );
+        VECTOR2I p12 = aElem.position + VECTOR2I( aElem.topsize.x / 2, -aElem.topsize.y / 2 );
+        VECTOR2I p22 = aElem.position + VECTOR2I( -aElem.topsize.x / 2, -aElem.topsize.y / 2 );
+        VECTOR2I p21 = aElem.position + VECTOR2I( -aElem.topsize.x / 2, aElem.topsize.y / 2 );
 
         int     chamfer = std::min( aElem.topsize.x, aElem.topsize.y ) / 4;
-        wxPoint chamferX( chamfer, 0 );
-        wxPoint chamferY( 0, chamfer );
+        VECTOR2I chamferX( chamfer, 0 );
+        VECTOR2I chamferY( 0, chamfer );
 
         shape->SetPolyPoints( { p11 - chamferX, p11 - chamferY, p12 + chamferY, p12 - chamferX,
                                 p22 + chamferX, p22 + chamferY, p21 - chamferY, p21 + chamferX } );
 
         if( aElem.direction != 0. )
-            shape->Rotate( aElem.position, aElem.direction * 10 );
+            shape->Rotate( aElem.position, EDA_ANGLE( aElem.direction, DEGREES_T ) );
 
         HelperShapeSetLocalCoord( shape, aElem.component );
     }
@@ -2650,7 +2625,7 @@ void ALTIUM_PCB::ParseWideStrings6Data( const CFB::CompoundFileReader&  aReader,
         m_progressReporter->Report( _( "Loading unicode strings..." ) );
 
     ALTIUM_PARSER reader( aReader, aEntry );
-    
+
     m_unicodeStrings = reader.ReadWideStringTable();
 
     if( reader.GetRemainingBytes() != 0 )
@@ -2740,7 +2715,7 @@ void ALTIUM_PCB::ParseTexts6Data( const CFB::CompoundFileReader& aReader,
         }
 
         itm->SetPosition( elem.position );
-        tx->SetTextAngle( elem.rotation * 10. );
+        tx->SetTextAngle( EDA_ANGLE( elem.rotation, DEGREES_T ) );
 
         if( elem.component != ALTIUM_COMPONENT_NONE )
         {
@@ -2749,9 +2724,9 @@ void ALTIUM_PCB::ParseTexts6Data( const CFB::CompoundFileReader& aReader,
             if( fpText )
             {
                 FOOTPRINT* parentFootprint = static_cast<FOOTPRINT*>( fpText->GetParent() );
-                double     orientation     = parentFootprint->GetOrientation();
+                EDA_ANGLE  orientation     = parentFootprint->GetOrientation();
 
-                fpText->SetTextAngle( fpText->GetTextAngle().AsTenthsOfADegree() - orientation );
+                fpText->SetTextAngle( fpText->GetTextAngle() - orientation );
                 fpText->SetLocalCoord();
             }
         }
@@ -2855,12 +2830,12 @@ void ALTIUM_PCB::ParseFills6Data( const CFB::CompoundFileReader& aReader,
         checkpoint();
         AFILL6 elem( reader );
 
-        wxPoint p11( elem.pos1.x, elem.pos1.y );
-        wxPoint p12( elem.pos1.x, elem.pos2.y );
-        wxPoint p22( elem.pos2.x, elem.pos2.y );
-        wxPoint p21( elem.pos2.x, elem.pos1.y );
+        VECTOR2I p11( elem.pos1.x, elem.pos1.y );
+        VECTOR2I p12( elem.pos1.x, elem.pos2.y );
+        VECTOR2I p22( elem.pos2.x, elem.pos2.y );
+        VECTOR2I p21( elem.pos2.x, elem.pos1.y );
 
-        wxPoint center( ( elem.pos1.x + elem.pos2.x ) / 2, ( elem.pos1.y + elem.pos2.y ) / 2 );
+        VECTOR2I center( ( elem.pos1.x + elem.pos2.x ) / 2, ( elem.pos1.y + elem.pos2.y ) / 2 );
 
         PCB_LAYER_ID klayer = GetKicadLayer( elem.layer );
 
@@ -2904,7 +2879,7 @@ void ALTIUM_PCB::ParseFills6Data( const CFB::CompoundFileReader& aReader,
             }
 
             if( elem.rotation != 0. )
-                zone->Rotate( center, elem.rotation * 10 );
+                zone->Rotate( center, EDA_ANGLE( elem.rotation, DEGREES_T ) );
 
             zone->SetBorderDisplayStyle( ZONE_BORDER_DISPLAY_STYLE::DIAGONAL_EDGE,
                                          ZONE::GetDefaultHatchPitch(), true );
@@ -2920,7 +2895,7 @@ void ALTIUM_PCB::ParseFills6Data( const CFB::CompoundFileReader& aReader,
             shape->SetPolyPoints( { p11, p12, p22, p21 } );
 
             if( elem.rotation != 0. )
-                shape->Rotate( center, elem.rotation * 10 );
+                shape->Rotate( center, EDA_ANGLE( elem.rotation, DEGREES_T ) );
         }
     }
 

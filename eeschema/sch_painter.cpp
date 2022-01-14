@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2014 CERN
- * Copyright (C) 2019-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2019-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * @author Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  *
@@ -144,8 +144,8 @@ static LIB_SYMBOL* dummy()
 
         LIB_SHAPE* square = new LIB_SHAPE( symbol, SHAPE_T::RECT );
 
-        square->MoveTo( wxPoint( Mils2iu( -200 ), Mils2iu( 200 ) ) );
-        square->SetEnd( wxPoint( Mils2iu( 200 ), Mils2iu( -200 ) ) );
+        square->MoveTo( VECTOR2I( Mils2iu( -200 ), Mils2iu( 200 ) ) );
+        square->SetEnd( VECTOR2I( Mils2iu( 200 ), Mils2iu( -200 ) ) );
 
         LIB_TEXT* text = new LIB_TEXT( symbol );
 
@@ -308,7 +308,7 @@ COLOR4D SCH_PAINTER::getRenderColor( const EDA_ITEM* aItem, int aLayer, bool aDr
     }
     else if( aItem->Type() == SCH_SHEET_T )
     {
-        SCH_SHEET* sheet = (SCH_SHEET*) aItem;
+        const SCH_SHEET* sheet = static_cast<const SCH_SHEET*>( aItem );
 
         if( m_schSettings.m_OverrideItemColors )
             color = m_schSettings.GetLayerColor( aLayer );
@@ -316,6 +316,20 @@ COLOR4D SCH_PAINTER::getRenderColor( const EDA_ITEM* aItem, int aLayer, bool aDr
             color = sheet->GetBorderColor();
         else if( aLayer == LAYER_SHEET_BACKGROUND )
             color = sheet->GetBackgroundColor();
+
+        if( color == COLOR4D::UNSPECIFIED )
+            color = m_schSettings.GetLayerColor( aLayer );
+    }
+    else if( aItem->Type() == SCH_SHAPE_T )
+    {
+        const SCH_SHAPE* shape = static_cast<const SCH_SHAPE*>( aItem );
+
+        if( m_schSettings.m_OverrideItemColors )
+            color = m_schSettings.GetLayerColor( aLayer );
+        else if( aLayer == LAYER_NOTES )
+            color = shape->GetStroke().GetColor();
+        else if( aLayer == LAYER_NOTES_BACKGROUND )
+            color = shape->GetFillColor();
 
         if( color == COLOR4D::UNSPECIFIED )
             color = m_schSettings.GetLayerColor( aLayer );
@@ -416,7 +430,7 @@ float SCH_PAINTER::getTextThickness( const LIB_TEXT* aItem, bool aDrawingShadows
 }
 
 
-static VECTOR2D mapCoords( const wxPoint& aCoord )
+static VECTOR2D mapCoords( const VECTOR2D& aCoord )
 {
     return VECTOR2D( aCoord.x, -aCoord.y );
 }
@@ -435,32 +449,64 @@ static bool isFieldsLayer( int aLayer )
 }
 
 
-void SCH_PAINTER::strokeText( const wxString& aText, const VECTOR2D& aPosition, double aAngle )
+void SCH_PAINTER::strokeText( const wxString& aText, const VECTOR2D& aPosition,
+                              const TEXT_ATTRIBUTES& aAttrs )
 {
-    m_gal->StrokeText( aText, VECTOR2D( aPosition.x, aPosition.y ), aAngle );
+    KIFONT::FONT* font = aAttrs.m_Font;
+
+    if( !font )
+    {
+        font = KIFONT::FONT::GetFont( eeconfig()->m_Appearance.default_font, aAttrs.m_Bold,
+                                      aAttrs.m_Italic );
+    }
+
+    m_gal->SetIsFill( font->IsOutline() );
+    m_gal->SetIsStroke( font->IsStroke() );
+
+    font->Draw( m_gal, aText, aPosition, aAttrs );
 }
 
 
-void SCH_PAINTER::boxText( const wxString& aText, const VECTOR2D& aPosition, double aAngle )
+void SCH_PAINTER::boxText( const wxString& aText, const VECTOR2D& aPosition,
+                           const TEXT_ATTRIBUTES& aAttrs )
 {
-    const STROKE_FONT& font = m_gal->GetStrokeFont();
-    VECTOR2D           extents = font.ComputeStringBoundaryLimits( aText, m_gal->GetGlyphSize(),
-                                                                   m_gal->GetLineWidth() );
-    EDA_RECT           box( (wxPoint) aPosition, wxSize( extents.x, extents.y ) );
+    KIFONT::FONT* font = aAttrs.m_Font;
 
-    if( m_gal->GetHorizontalJustify() == GR_TEXT_H_ALIGN_CENTER )
-        box.SetX( box.GetX() - ( box.GetWidth() / 2) );
-    else if( m_gal->GetHorizontalJustify() == GR_TEXT_H_ALIGN_RIGHT )
-        box.SetX( box.GetX() - box.GetWidth() );
+    if( !font )
+    {
+        font = KIFONT::FONT::GetFont( eeconfig()->m_Appearance.default_font, aAttrs.m_Bold,
+                                      aAttrs.m_Italic );
+    }
 
-    if( m_gal->GetVerticalJustify() == GR_TEXT_V_ALIGN_CENTER )
-        box.SetY( box.GetY() - ( box.GetHeight() / 2) );
-    else if( m_gal->GetVerticalJustify() == GR_TEXT_V_ALIGN_BOTTOM )
-        box.SetY( box.GetY() - box.GetHeight() );
+    VECTOR2I extents = font->StringBoundaryLimits( aText, aAttrs.m_Size, aAttrs.m_StrokeWidth,
+                                                   aAttrs.m_Bold, aAttrs.m_Italic );
+    EDA_RECT box( (VECTOR2I) aPosition, wxSize( extents.x, aAttrs.m_Size.y ) );
+
+    switch( aAttrs.m_Halign )
+    {
+    case GR_TEXT_H_ALIGN_LEFT:                                                break;
+    case GR_TEXT_H_ALIGN_CENTER: box.SetX( box.GetX() - box.GetWidth() / 2 ); break;
+    case GR_TEXT_H_ALIGN_RIGHT:  box.SetX( box.GetX() - box.GetWidth() );     break;
+    }
+
+    switch(  aAttrs.m_Valign )
+    {
+    case GR_TEXT_V_ALIGN_TOP:                                                  break;
+    case GR_TEXT_V_ALIGN_CENTER: box.SetY( box.GetY() - box.GetHeight() / 2 ); break;
+    case GR_TEXT_V_ALIGN_BOTTOM: box.SetY( box.GetY() - box.GetHeight() );     break;
+    }
+
+    // Many fonts draw diacriticals, descenders, etc. outside the X-height of the font.  This
+    // will cacth most (but probably not all) of them.
+    box.Inflate( 0, aAttrs.m_StrokeWidth * 1.5 );
 
     box.Normalize();       // Make h and v sizes always >= 0
-    box = box.GetBoundingBoxRotated((wxPoint) aPosition, RAD2DECIDEG( aAngle ) );
+    box = box.GetBoundingBoxRotated( (VECTOR2I) aPosition, aAttrs.m_Angle.AsTenthsOfADegree() );
     box.RevertYAxis();
+
+    m_gal->SetIsFill( true );
+    m_gal->SetIsStroke( true );
+    m_gal->SetLineWidth( getShadowWidth( false ) );
     m_gal->DrawRectangle( mapCoords( box.GetOrigin() ), mapCoords( box.GetEnd() ) );
 }
 
@@ -617,7 +663,7 @@ void SCH_PAINTER::draw( const LIB_SHAPE *aShape, int aLayer )
             std::deque<VECTOR2D>   mappedPts;
 
             for( const VECTOR2I& pt : poly.CPoints() )
-                mappedPts.push_back( mapCoords( (wxPoint) pt ) );
+                mappedPts.push_back( mapCoords( pt ) );
 
             m_gal->DrawPolygon( mappedPts );
         }
@@ -627,7 +673,7 @@ void SCH_PAINTER::draw( const LIB_SHAPE *aShape, int aLayer )
         {
             std::deque<VECTOR2D> mappedPts;
 
-            for( const wxPoint& p : aShape->GetBezierPoints() )
+            for( const VECTOR2I& p : aShape->GetBezierPoints() )
                 mappedPts.push_back( mapCoords( p ) );
 
             m_gal->DrawPolygon( mappedPts );
@@ -678,30 +724,27 @@ void SCH_PAINTER::draw( const LIB_FIELD *aField, int aLayer )
             return;
     }
 
-    m_gal->SetIsStroke( true );
-    m_gal->SetLineWidth( getTextThickness( aField, drawingShadows ) );
     m_gal->SetStrokeColor( color );
-    m_gal->SetIsFill( drawingShadows && eeconfig()->m_Selection.text_as_box );
     m_gal->SetFillColor( color );
 
     EDA_RECT bbox = aField->GetBoundingBox();
-    wxPoint  textpos = bbox.Centre();
+    VECTOR2I  textpos = bbox.Centre();
 
     if( drawingShadows && eeconfig()->m_Selection.text_as_box )
     {
-        bbox.RevertYAxis();
-        m_gal->SetLineWidth( m_gal->GetLineWidth() / 2 );
-        m_gal->DrawRectangle( mapCoords( bbox.GetPosition() ), mapCoords( bbox.GetEnd() ) );
+        m_gal->SetIsStroke( true );
+        m_gal->SetIsFill( true );
+        m_gal->SetLineWidth( getTextThickness( aField, drawingShadows ) );
+        m_gal->DrawRectangle( bbox.GetPosition(), bbox.GetEnd() );
     }
     else
     {
-        m_gal->SetHorizontalJustify( GR_TEXT_H_ALIGN_CENTER );
-        m_gal->SetVerticalJustify( GR_TEXT_V_ALIGN_CENTER );
-        m_gal->SetGlyphSize( VECTOR2D( aField->GetTextSize() ) );
-        m_gal->SetFontItalic( aField->IsItalic() );
+        TEXT_ATTRIBUTES attrs( aField->GetAttributes() );
+        attrs.m_Halign = GR_TEXT_H_ALIGN_CENTER;
+        attrs.m_Valign = GR_TEXT_V_ALIGN_CENTER;
+        attrs.m_StrokeWidth = getTextThickness( aField, drawingShadows );
 
-        strokeText( UnescapeString( aField->GetText() ), textpos,
-                    aField->GetTextAngle().AsRadians() );
+        strokeText( UnescapeString( aField->GetText() ), textpos, attrs );
     }
 
     // Draw the umbilical line when in the schematic editor
@@ -709,7 +752,7 @@ void SCH_PAINTER::draw( const LIB_FIELD *aField, int aLayer )
     {
         m_gal->SetLineWidth( m_schSettings.m_outlineWidth );
         m_gal->SetStrokeColor( getRenderColor( aField, LAYER_SCHEMATIC_ANCHOR, drawingShadows ) );
-        m_gal->DrawLine( textpos, wxPoint( 0, 0 ) );
+        m_gal->DrawLine( textpos, VECTOR2I( 0, 0 ) );
     }
 }
 
@@ -735,21 +778,27 @@ void SCH_PAINTER::draw( const LIB_TEXT *aText, int aLayer )
     }
 
     EDA_RECT bBox = aText->GetBoundingBox();
-    bBox.RevertYAxis();
-    VECTOR2D pos = mapCoords( bBox.Centre() );
-    double orient = aText->GetTextAngle().AsRadians();
+    VECTOR2D pos = bBox.Centre();
 
-    m_gal->SetHorizontalJustify( GR_TEXT_H_ALIGN_CENTER );
-    m_gal->SetVerticalJustify( GR_TEXT_V_ALIGN_CENTER );
-    m_gal->SetLineWidth( getTextThickness( aText, drawingShadows ) );
-    m_gal->SetIsFill( false );
-    m_gal->SetIsStroke( true );
+    m_gal->SetFillColor( color );
     m_gal->SetStrokeColor( color );
-    m_gal->SetGlyphSize( VECTOR2D( aText->GetTextSize() ) );
-    m_gal->SetFontBold( aText->IsBold() );
-    m_gal->SetFontItalic( aText->IsItalic() );
-    m_gal->SetFontUnderlined( false );
-    strokeText( aText->GetText(), pos, orient );
+
+    if( drawingShadows && eeconfig()->m_Selection.text_as_box )
+    {
+        m_gal->SetIsStroke( true );
+        m_gal->SetIsFill( true );
+        m_gal->SetLineWidth( getTextThickness( aText, drawingShadows ) );
+        m_gal->DrawRectangle( bBox.GetPosition(), bBox.GetEnd() );
+    }
+    else
+    {
+        TEXT_ATTRIBUTES attrs( aText->GetAttributes() );
+        attrs.m_Halign = GR_TEXT_H_ALIGN_CENTER;
+        attrs.m_Valign = GR_TEXT_V_ALIGN_CENTER;
+        attrs.m_StrokeWidth = getTextThickness( aText, drawingShadows );
+
+        strokeText( aText->GetText(), pos, attrs );
+    }
 }
 
 
@@ -1039,7 +1088,7 @@ void SCH_PAINTER::draw( LIB_PIN *aPin, int aLayer )
     if( m_schSettings.m_ShowPinsElectricalType )
     {
         size     [OUTSIDE] = std::max( aPin->GetNameTextSize() * 3 / 4, Millimeter2iu( 0.7 ) );
-        thickness[OUTSIDE] = float( size[OUTSIDE] ) / 6.0F;
+        thickness[OUTSIDE] = float( size[OUTSIDE] ) / 8.0F;
         colour   [OUTSIDE] = getRenderColor( aPin, LAYER_NOTES, drawingShadows );
         text     [OUTSIDE] = aPin->GetElectricalTypeName();
     }
@@ -1062,42 +1111,31 @@ void SCH_PAINTER::draw( LIB_PIN *aPin, int aLayer )
     {
         float shadowWidth = getShadowWidth( aPin->IsBrightened() );
 
-        if( eeconfig()->m_Selection.text_as_box )
-        {
-            insideOffset  -= thickness[INSIDE]  / 2.0;
-            outsideOffset -= thickness[OUTSIDE] / 2.0;
-            aboveOffset   -= thickness[ABOVE] + penWidth;
-            belowOffset   -= thickness[BELOW] + penWidth;
-        }
-
         for( float& t : thickness )
             t += shadowWidth;
-
-        insideOffset  -= shadowWidth / 2.0;
-        outsideOffset -= shadowWidth / 2.0;
     }
 
-    auto setupDC =
-            [&]( int i )
-            {
-                m_gal->SetGlyphSize( VECTOR2D( size[i], size[i] ) );
-                m_gal->SetIsStroke( !( drawingShadows && eeconfig()->m_Selection.text_as_box ) );
-                m_gal->SetLineWidth( thickness[i] );
-                m_gal->SetStrokeColor( colour[i] );
-                m_gal->SetIsFill( drawingShadows && eeconfig()->m_Selection.text_as_box );
-                m_gal->SetFillColor( colour[i] );
-            };
-
     auto drawText =
-            [&]( const wxString& aText, const VECTOR2D& aPos, double aAngle )
+            [&]( int i, const VECTOR2D& aPos, GR_TEXT_H_ALIGN_T hAlign, GR_TEXT_V_ALIGN_T vAlign,
+                 const EDA_ANGLE& aAngle )
             {
-                if( aText.IsEmpty() )
+                if( text[i].IsEmpty() )
                     return;
 
+                m_gal->SetStrokeColor( colour[i] );
+                m_gal->SetFillColor( colour[i] );
+
+                TEXT_ATTRIBUTES attrs;
+                attrs.m_Size = VECTOR2I( size[i], size[i] );
+                attrs.m_Halign = hAlign;
+                attrs.m_Valign = vAlign;
+                attrs.m_Angle = aAngle;
+                attrs.m_StrokeWidth = thickness[i];
+
                 if( drawingShadows && eeconfig()->m_Selection.text_as_box )
-                    boxText( aText, aPos, aAngle );
+                    boxText( text[i], aPos, attrs );
                 else
-                    strokeText( aText, aPos, aAngle );
+                    strokeText( text[i], aPos, attrs );
             };
 
     switch( orient )
@@ -1105,125 +1143,92 @@ void SCH_PAINTER::draw( LIB_PIN *aPin, int aLayer )
     case PIN_LEFT:
         if( size[INSIDE] )
         {
-            setupDC( INSIDE );
-            m_gal->SetHorizontalJustify( GR_TEXT_H_ALIGN_RIGHT );
-            m_gal->SetVerticalJustify( GR_TEXT_V_ALIGN_CENTER );
-            drawText( text[INSIDE], pos + VECTOR2D( -insideOffset - len, 0 ), 0 );
+            drawText( INSIDE, pos + VECTOR2D( -insideOffset - len, 0 ),
+                      GR_TEXT_H_ALIGN_RIGHT, GR_TEXT_V_ALIGN_CENTER, ANGLE_HORIZONTAL );
         }
         if( size[OUTSIDE] )
         {
-            setupDC( OUTSIDE );
-            m_gal->SetHorizontalJustify( GR_TEXT_H_ALIGN_LEFT );
-            m_gal->SetVerticalJustify( GR_TEXT_V_ALIGN_CENTER );
-            drawText( text[OUTSIDE], pos + VECTOR2D( outsideOffset, 0 ), 0 );
+            drawText( OUTSIDE, pos + VECTOR2D( outsideOffset, 0 ),
+                      GR_TEXT_H_ALIGN_LEFT, GR_TEXT_V_ALIGN_CENTER, ANGLE_HORIZONTAL );
         }
         if( size[ABOVE] )
         {
-            setupDC( ABOVE );
-            m_gal->SetHorizontalJustify( GR_TEXT_H_ALIGN_CENTER );
-            m_gal->SetVerticalJustify( GR_TEXT_V_ALIGN_BOTTOM );
-            drawText( text[ABOVE], pos + VECTOR2D( -len / 2.0, -aboveOffset ), 0 );
+            drawText( ABOVE, pos + VECTOR2D( -len / 2.0, -aboveOffset ),
+                      GR_TEXT_H_ALIGN_CENTER, GR_TEXT_V_ALIGN_BOTTOM, ANGLE_HORIZONTAL );
         }
         if( size[BELOW] )
         {
-            setupDC( BELOW );
-            m_gal->SetHorizontalJustify( GR_TEXT_H_ALIGN_CENTER );
-            m_gal->SetVerticalJustify( GR_TEXT_V_ALIGN_TOP );
-            drawText( text[BELOW], pos + VECTOR2D( -len / 2.0, belowOffset ), 0 );
+            drawText( BELOW, pos + VECTOR2D( -len / 2.0, belowOffset ),
+                      GR_TEXT_H_ALIGN_CENTER, GR_TEXT_V_ALIGN_TOP, ANGLE_HORIZONTAL );
         }
         break;
 
     case PIN_RIGHT:
         if( size[INSIDE] )
         {
-            setupDC( INSIDE );
-            m_gal->SetHorizontalJustify( GR_TEXT_H_ALIGN_LEFT );
-            m_gal->SetVerticalJustify( GR_TEXT_V_ALIGN_CENTER );
-            m_gal->SetHorizontalJustify( GR_TEXT_H_ALIGN_LEFT );
-            drawText( text[INSIDE], pos + VECTOR2D( insideOffset + len, 0 ), 0 );
+            drawText( INSIDE, pos + VECTOR2D( insideOffset + len, 0 ),
+                      GR_TEXT_H_ALIGN_LEFT, GR_TEXT_V_ALIGN_CENTER, ANGLE_HORIZONTAL );
         }
         if( size[OUTSIDE] )
         {
-            setupDC( OUTSIDE );
-            m_gal->SetHorizontalJustify( GR_TEXT_H_ALIGN_RIGHT );
-            m_gal->SetVerticalJustify( GR_TEXT_V_ALIGN_CENTER );
-            drawText( text[OUTSIDE], pos + VECTOR2D( -outsideOffset, 0 ), 0 );
+            drawText( OUTSIDE, pos + VECTOR2D( -outsideOffset, 0 ),
+                      GR_TEXT_H_ALIGN_RIGHT, GR_TEXT_V_ALIGN_CENTER, ANGLE_HORIZONTAL );
         }
         if( size[ABOVE] )
         {
-            setupDC( ABOVE );
-            m_gal->SetHorizontalJustify( GR_TEXT_H_ALIGN_CENTER );
-            m_gal->SetVerticalJustify( GR_TEXT_V_ALIGN_BOTTOM );
-            drawText( text[ABOVE], pos + VECTOR2D( len / 2.0, -aboveOffset ), 0 );
+            drawText( ABOVE, pos + VECTOR2D( len / 2.0, -aboveOffset ),
+                      GR_TEXT_H_ALIGN_CENTER, GR_TEXT_V_ALIGN_BOTTOM, ANGLE_HORIZONTAL );
         }
         if( size[BELOW] )
         {
-            setupDC( BELOW );
-            m_gal->SetHorizontalJustify( GR_TEXT_H_ALIGN_CENTER );
-            m_gal->SetVerticalJustify( GR_TEXT_V_ALIGN_TOP );
-            drawText( text[BELOW], pos + VECTOR2D( len / 2.0, belowOffset ), 0 );
+            drawText( BELOW, pos + VECTOR2D( len / 2.0, belowOffset ),
+                      GR_TEXT_H_ALIGN_CENTER, GR_TEXT_V_ALIGN_TOP, ANGLE_HORIZONTAL );
         }
         break;
 
     case PIN_DOWN:
         if( size[INSIDE] )
         {
-            setupDC( INSIDE );
-            m_gal->SetHorizontalJustify( GR_TEXT_H_ALIGN_RIGHT );
-            m_gal->SetVerticalJustify( GR_TEXT_V_ALIGN_CENTER );
-            drawText( text[INSIDE], pos + VECTOR2D( 0, insideOffset + len ), M_PI / 2 );
+            drawText( INSIDE, pos + VECTOR2D( 0, insideOffset + len ),
+                      GR_TEXT_H_ALIGN_RIGHT, GR_TEXT_V_ALIGN_CENTER, ANGLE_VERTICAL );
         }
         if( size[OUTSIDE] )
         {
-            setupDC( OUTSIDE );
-            m_gal->SetHorizontalJustify( GR_TEXT_H_ALIGN_LEFT );
-            m_gal->SetVerticalJustify( GR_TEXT_V_ALIGN_CENTER );
-            drawText( text[OUTSIDE], pos + VECTOR2D( 0, -outsideOffset ), M_PI / 2 );
+            drawText( OUTSIDE, pos + VECTOR2D( 0, -outsideOffset ),
+                      GR_TEXT_H_ALIGN_LEFT, GR_TEXT_V_ALIGN_CENTER, ANGLE_VERTICAL );
         }
         if( size[ABOVE] )
         {
-            setupDC( ABOVE );
-            m_gal->SetHorizontalJustify( GR_TEXT_H_ALIGN_CENTER );
-            m_gal->SetVerticalJustify( GR_TEXT_V_ALIGN_BOTTOM );
-            drawText( text[ABOVE], pos + VECTOR2D( -aboveOffset, len / 2.0 ), M_PI / 2 );
+            drawText( ABOVE, pos + VECTOR2D( -aboveOffset, len / 2.0 ),
+                      GR_TEXT_H_ALIGN_CENTER, GR_TEXT_V_ALIGN_BOTTOM, ANGLE_VERTICAL );
         }
         if( size[BELOW] )
         {
-            setupDC( BELOW );
-            m_gal->SetHorizontalJustify( GR_TEXT_H_ALIGN_CENTER );
-            m_gal->SetVerticalJustify( GR_TEXT_V_ALIGN_TOP );
-            drawText( text[BELOW], pos + VECTOR2D( belowOffset, len / 2.0 ), M_PI / 2 );
+            drawText( BELOW, pos + VECTOR2D( belowOffset, len / 2.0 ),
+                      GR_TEXT_H_ALIGN_CENTER, GR_TEXT_V_ALIGN_TOP, ANGLE_VERTICAL );
         }
         break;
 
     case PIN_UP:
         if( size[INSIDE] )
         {
-            setupDC( INSIDE );
-            m_gal->SetHorizontalJustify( GR_TEXT_H_ALIGN_LEFT );
-            m_gal->SetVerticalJustify( GR_TEXT_V_ALIGN_CENTER );
-            drawText( text[INSIDE], pos + VECTOR2D( 0, -insideOffset - len ), M_PI / 2 );
+            drawText( INSIDE, pos + VECTOR2D( 0, -insideOffset - len ),
+                      GR_TEXT_H_ALIGN_LEFT, GR_TEXT_V_ALIGN_CENTER, ANGLE_VERTICAL );
         }
         if( size[OUTSIDE] )
         {
-            setupDC( OUTSIDE );
-            m_gal->SetHorizontalJustify( GR_TEXT_H_ALIGN_RIGHT );
-            m_gal->SetVerticalJustify( GR_TEXT_V_ALIGN_CENTER );
-            drawText( text[OUTSIDE], pos + VECTOR2D( 0, outsideOffset ), M_PI / 2 );
+            drawText( OUTSIDE, pos + VECTOR2D( 0, outsideOffset ),
+                      GR_TEXT_H_ALIGN_RIGHT, GR_TEXT_V_ALIGN_CENTER, ANGLE_VERTICAL );
         }
         if( size[ABOVE] )
         {
-            setupDC( ABOVE );
-            m_gal->SetHorizontalJustify( GR_TEXT_H_ALIGN_CENTER );
-            m_gal->SetVerticalJustify( GR_TEXT_V_ALIGN_BOTTOM );
-            drawText( text[ABOVE], pos + VECTOR2D( -aboveOffset, -len / 2.0 ), M_PI / 2 );
+            drawText( ABOVE, pos + VECTOR2D( -aboveOffset, -len / 2.0 ),
+                      GR_TEXT_H_ALIGN_CENTER, GR_TEXT_V_ALIGN_BOTTOM, ANGLE_VERTICAL );
         }
         if( size[BELOW] )
         {
-            setupDC( BELOW );
-            m_gal->SetHorizontalJustify( GR_TEXT_H_ALIGN_CENTER );
-            m_gal->SetVerticalJustify( GR_TEXT_V_ALIGN_TOP );
-            drawText( text[BELOW], pos + VECTOR2D( belowOffset, -len / 2.0 ), M_PI / 2 );
+            drawText( BELOW, pos + VECTOR2D( belowOffset, -len / 2.0 ),
+                      GR_TEXT_H_ALIGN_CENTER, GR_TEXT_V_ALIGN_TOP, ANGLE_VERTICAL );
         }
         break;
 
@@ -1235,11 +1240,11 @@ void SCH_PAINTER::draw( LIB_PIN *aPin, int aLayer )
 
 // Draw the target (an open square) for a wire or label which has no connection or is
 // being moved.
-void SCH_PAINTER::drawDanglingSymbol( const wxPoint& aPos, const COLOR4D& aColor, int aWidth,
+void SCH_PAINTER::drawDanglingSymbol( const VECTOR2I& aPos, const COLOR4D& aColor, int aWidth,
                                       bool aDrawingShadows, bool aBrightened )
 {
-    wxPoint radius( aWidth + Mils2iu( DANGLING_SYMBOL_SIZE / 2 ),
-                    aWidth + Mils2iu( DANGLING_SYMBOL_SIZE / 2 ) );
+    VECTOR2I radius( aWidth + Mils2iu( DANGLING_SYMBOL_SIZE / 2 ),
+                     aWidth + Mils2iu( DANGLING_SYMBOL_SIZE / 2 ) );
 
     // Dangling symbols must be drawn in a slightly different colour so they can be seen when
     // they overlap with a junction dot.
@@ -1319,9 +1324,14 @@ void SCH_PAINTER::draw( const SCH_LINE *aLine, int aLayer )
         SHAPE_SEGMENT line( aLine->GetStartPoint(), aLine->GetEndPoint() );
 
         STROKE_PARAMS::Stroke( &line, lineStyle, width, &m_schSettings,
-                               [&]( const wxPoint& a, const wxPoint& b )
+                               [&]( const VECTOR2I& a, const VECTOR2I& b )
                                {
-                                   m_gal->DrawLine( a, b );
+                                    // DrawLine has problem with 0 length lines
+                                    // so draw a line with a minimal length
+                                    if( a == b )
+                                        m_gal->DrawLine( a+1, b );
+                                    else
+                                        m_gal->DrawLine( a, b );
                                } );
     }
 }
@@ -1404,7 +1414,7 @@ void SCH_PAINTER::draw( const SCH_SHAPE* aShape, int aLayer )
     }
     else if( aLayer == LAYER_NOTES )
     {
-        int lineWidth =  getLineWidth( aShape, drawingShadows );
+        int lineWidth = getLineWidth( aShape, drawingShadows );
 
         m_gal->SetIsFill( false );
         m_gal->SetIsStroke( true );
@@ -1422,9 +1432,14 @@ void SCH_PAINTER::draw( const SCH_SHAPE* aShape, int aLayer )
             for( SHAPE* shape : shapes )
             {
                 STROKE_PARAMS::Stroke( shape, lineStyle, lineWidth, &m_schSettings,
-                                       [&]( const wxPoint& a, const wxPoint& b )
+                                       [&]( const VECTOR2I& a, const VECTOR2I& b )
                                        {
-                                           m_gal->DrawLine( a, b );
+                                            // DrawLine has problem with 0 length lines
+                                            // so draw a line with a minimal length
+                                            if( a == b )
+                                                m_gal->DrawLine( a+1, b );
+                                            else
+                                                m_gal->DrawLine( a, b );
                                        } );
             }
 
@@ -1485,42 +1500,42 @@ void SCH_PAINTER::draw( const SCH_TEXT *aText, int aLayer )
         return;
     }
 
-    m_gal->SetIsStroke( true );
-    m_gal->SetLineWidth( getTextThickness( aText, drawingShadows ) );
     m_gal->SetStrokeColor( color );
-    m_gal->SetIsFill( drawingShadows && eeconfig()->m_Selection.text_as_box );
     m_gal->SetFillColor( color );
 
-    VECTOR2D text_offset = aText->GetTextPos() + aText->GetSchematicTextOffset( &m_schSettings );
+    VECTOR2I text_offset = aText->GetSchematicTextOffset( &m_schSettings );
     wxString shownText( aText->GetShownText() );
 
-    if( drawingShadows )
+    if( drawingShadows && eeconfig()->m_Selection.text_as_box )
     {
-        if( eeconfig()->m_Selection.text_as_box )
-        {
-            EDA_RECT bBox = aText->GetBoundingBox();
-            bBox.RevertYAxis();
-            m_gal->DrawRectangle( mapCoords( bBox.GetPosition() ), mapCoords( bBox.GetEnd() ) );
-            return;
-        }
-
-        float shadowWidth = getShadowWidth( aText->IsBrightened() );
-
-        switch( aText->GetLabelSpinStyle() )
-        {
-        case LABEL_SPIN_STYLE::LEFT:   text_offset.x += shadowWidth / 2.0; break;
-        case LABEL_SPIN_STYLE::UP:     text_offset.y += shadowWidth / 2.0; break;
-        case LABEL_SPIN_STYLE::RIGHT:  text_offset.x -= shadowWidth / 2.0; break;
-        case LABEL_SPIN_STYLE::BOTTOM: text_offset.y -= shadowWidth / 2.0; break;
-        }
+        EDA_RECT bBox = aText->GetBoundingBox();
+        bBox.RevertYAxis();
+        m_gal->SetIsStroke( true );
+        m_gal->SetIsFill( true );
+        m_gal->SetLineWidth( getTextThickness( aText, drawingShadows ) );
+        m_gal->DrawRectangle( mapCoords( bBox.GetPosition() ), mapCoords( bBox.GetEnd() ) );
+        return;
     }
 
     if( !shownText.IsEmpty() )
     {
-        m_gal->SetTextAttributes( aText );
-        m_gal->SetFontUnderlined( false );
+        TEXT_ATTRIBUTES attrs = aText->GetAttributes();
+        attrs.m_StrokeWidth = getTextThickness( aText, drawingShadows );
 
-        strokeText( shownText, text_offset, aText->GetTextAngle().AsRadians() );
+        std::vector<std::unique_ptr<KIFONT::GLYPH>>* cache = nullptr;
+
+        if( !text_offset.x && !text_offset.y )
+            cache = aText->GetRenderCache( shownText );
+
+        if( cache )
+        {
+            for( const std::unique_ptr<KIFONT::GLYPH>& glyph : *cache )
+                m_gal->DrawGlyph( *glyph.get() );
+        }
+        else
+        {
+            strokeText( shownText, aText->GetTextPos() + text_offset, attrs );
+        }
     }
 }
 
@@ -1564,13 +1579,13 @@ static void orientSymbol( LIB_SYMBOL* symbol, int orientation )
     for( auto& item : symbol->GetDrawItems() )
     {
         for( int i = 0; i < o.n_rots; i++ )
-            item.Rotate( wxPoint(0, 0 ), true );
+            item.Rotate( VECTOR2I(0, 0 ), true );
 
         if( o.mirror_x )
-            item.MirrorVertical( wxPoint( 0, 0 ) );
+            item.MirrorVertical( VECTOR2I( 0, 0 ) );
 
         if( o.mirror_y )
-            item.MirrorHorizontal( wxPoint( 0, 0 ) );
+            item.MirrorHorizontal( VECTOR2I( 0, 0 ) );
     }
 }
 
@@ -1612,7 +1627,7 @@ void SCH_PAINTER::draw( SCH_SYMBOL* aSymbol, int aLayer )
     for( auto& tempItem : tempSymbol.GetDrawItems() )
     {
         tempItem.SetFlags( aSymbol->GetFlags() );     // SELECTED, HIGHLIGHTED, BRIGHTENED
-        tempItem.MoveTo( tempItem.GetPosition() + (wxPoint) mapCoords( aSymbol->GetPosition() ) );
+        tempItem.MoveTo( tempItem.GetPosition() + (VECTOR2I) mapCoords( aSymbol->GetPosition() ) );
     }
 
     // Copy the pin info from the symbol to the temp pins
@@ -1664,13 +1679,10 @@ void SCH_PAINTER::draw( const SCH_FIELD *aField, int aLayer )
     if( drawingShadows && !eeconfig()->m_Selection.draw_selected_children )
         return;
 
-    bool underline = false;
-
     if( aField->IsHypertext() && ( aField->GetFlags() & IS_ROLLOVER ) > 0
             && !drawingShadows && !aField->IsMoving() )
     {
         color = PUREBLUE;
-        underline = true;
     }
 
     // Calculate the text orientation according to the parent orientation.
@@ -1682,9 +1694,9 @@ void SCH_PAINTER::draw( const SCH_FIELD *aField, int aLayer )
         {
         // Rotate symbol 90 degrees.
         if( orient.IsHorizontal() )
-            orient = EDA_ANGLE::VERTICAL;
+            orient = ANGLE_VERTICAL;
         else
-            orient = EDA_ANGLE::HORIZONTAL;
+            orient = ANGLE_HORIZONTAL;
         }
     }
 
@@ -1706,38 +1718,48 @@ void SCH_PAINTER::draw( const SCH_FIELD *aField, int aLayer )
         bbox.Offset( label->GetSchematicTextOffset( &m_schSettings ) );
     }
 
-    wxPoint  textpos = bbox.Centre();
+    VECTOR2I textpos = bbox.Centre();
 
-    m_gal->SetIsStroke( true );
-    m_gal->SetLineWidth( getTextThickness( aField, drawingShadows ) );
     m_gal->SetStrokeColor( color );
-    m_gal->SetIsFill( drawingShadows && eeconfig()->m_Selection.text_as_box );
     m_gal->SetFillColor( color );
 
     if( drawingShadows && eeconfig()->m_Selection.text_as_box )
     {
         bbox.RevertYAxis();
-        m_gal->SetLineWidth( m_gal->GetLineWidth() / 2 );
+        m_gal->SetIsStroke( true );
+        m_gal->SetIsFill( true );
+        m_gal->SetLineWidth( getTextThickness( aField, drawingShadows ) );
         m_gal->DrawRectangle( mapCoords( bbox.GetPosition() ), mapCoords( bbox.GetEnd() ) );
     }
     else
     {
-        m_gal->SetHorizontalJustify( GR_TEXT_H_ALIGN_CENTER );
-        m_gal->SetVerticalJustify( GR_TEXT_V_ALIGN_CENTER );
-        m_gal->SetIsFill( false );
-        m_gal->SetGlyphSize( VECTOR2D( aField->GetTextSize() ) );
-        m_gal->SetFontBold( aField->IsBold() );
-        m_gal->SetFontItalic( aField->IsItalic() );
-        m_gal->SetFontUnderlined( underline );
-        m_gal->SetTextMirrored( aField->IsMirrored() );
+        wxString        shownText = aField->GetShownText();
+        TEXT_ATTRIBUTES attributes = aField->GetAttributes();
 
-        strokeText( aField->GetShownText(), textpos, orient.AsRadians() );
+        attributes.m_Halign = GR_TEXT_H_ALIGN_CENTER;
+        attributes.m_Valign = GR_TEXT_V_ALIGN_CENTER;
+        attributes.m_StrokeWidth = getTextThickness( aField, drawingShadows );
+        attributes.m_Angle = orient;
+
+        std::vector<std::unique_ptr<KIFONT::GLYPH>>* cache = nullptr;
+
+        cache = aField->GetRenderCache( shownText, textpos, attributes );
+
+        if( cache )
+        {
+            for( const std::unique_ptr<KIFONT::GLYPH>& glyph : *cache )
+                m_gal->DrawGlyph( *glyph.get() );
+        }
+        else
+        {
+            strokeText( shownText, textpos, attributes );
+        }
     }
 
     // Draw the umbilical line
     if( aField->IsMoving() )
     {
-        wxPoint parentPos = aField->GetParentPosition();
+        VECTOR2I parentPos = aField->GetParentPosition();
 
         m_gal->SetLineWidth( m_schSettings.m_outlineWidth );
         m_gal->SetStrokeColor( getRenderColor( aField, LAYER_SCHEMATIC_ANCHOR, drawingShadows ) );
@@ -1764,12 +1786,12 @@ void SCH_PAINTER::draw( const SCH_GLOBALLABEL *aLabel, int aLayer )
 
     COLOR4D color = getRenderColor( aLabel, LAYER_GLOBLABEL, drawingShadows );
 
-    std::vector<wxPoint> pts;
+    std::vector<VECTOR2I> pts;
     std::deque<VECTOR2D> pts2;
 
     aLabel->CreateGraphicShape( &m_schSettings, pts, aLabel->GetTextPos() );
 
-    for( const wxPoint& p : pts )
+    for( const VECTOR2I& p : pts )
         pts2.emplace_back( VECTOR2D( p.x, p.y ) );
 
     // The text is drawn inside the graphic shape.
@@ -1838,12 +1860,12 @@ void SCH_PAINTER::draw( const SCH_HIERLABEL *aLabel, int aLayer )
             color = getRenderColor( aLabel, LAYER_BUS, drawingShadows );
     }
 
-    std::vector<wxPoint> pts;
+    std::vector<VECTOR2I> pts;
     std::deque<VECTOR2D> pts2;
 
-    aLabel->CreateGraphicShape( &m_schSettings, pts, aLabel->GetTextPos() );
+    aLabel->CreateGraphicShape( &m_schSettings, pts, (VECTOR2I)aLabel->GetTextPos() );
 
-    for( const wxPoint& p : pts )
+    for( const VECTOR2I& p : pts )
         pts2.emplace_back( VECTOR2D( p.x, p.y ) );
 
     m_gal->SetIsFill( true );
@@ -1886,12 +1908,12 @@ void SCH_PAINTER::draw( const SCH_NETCLASS_FLAG *aLabel, int aLayer )
         return;
     }
 
-    std::vector<wxPoint> pts;
+    std::vector<VECTOR2I> pts;
     std::deque<VECTOR2D> pts2;
 
     aLabel->CreateGraphicShape( &m_schSettings, pts, aLabel->GetTextPos() );
 
-    for( const wxPoint& p : pts )
+    for( const VECTOR2I& p : pts )
         pts2.emplace_back( VECTOR2D( p.x, p.y ) );
 
     m_gal->SetIsFill( false );
@@ -1950,8 +1972,8 @@ void SCH_PAINTER::draw( const SCH_SHEET *aSheet, int aLayer )
             }
 
             int     width = std::max( aSheet->GetPenWidth(), m_schSettings.GetDefaultPenWidth() );
-            wxPoint initial_pos = sheetPin->GetTextPos();
-            wxPoint offset_pos = initial_pos;
+            VECTOR2I initial_pos = sheetPin->GetTextPos();
+            VECTOR2I offset_pos = initial_pos;
 
             // For aesthetic reasons, the SHEET_PIN is drawn with a small offset of width / 2
             switch( sheetPin->GetSide() )
@@ -2017,7 +2039,7 @@ void SCH_PAINTER::draw( const SCH_NO_CONNECT *aNC, int aLayer )
 void SCH_PAINTER::draw( const SCH_BUS_ENTRY_BASE *aEntry, int aLayer )
 {
     SCH_LAYER_ID layer = aEntry->Type() == SCH_BUS_WIRE_ENTRY_T ? LAYER_WIRE : LAYER_BUS;
-    SCH_LINE     line( wxPoint(), layer );
+    SCH_LINE     line( VECTOR2I(), layer );
     bool         drawingShadows = aLayer == LAYER_SELECTION_SHADOWS;
     bool         drawingDangling = aLayer == LAYER_DANGLING;
 

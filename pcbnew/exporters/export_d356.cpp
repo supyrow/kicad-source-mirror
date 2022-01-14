@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2011-2013 Lorenzo Marcantonio <l.marcantonio@logossrl.com>
- * Copyright (C) 2004-2017 KiCad Developers, see change_log.txt for contributors.
+ * Copyright (C) 2004-2022 KiCad Developers, see change_log.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -95,7 +95,7 @@ static int iu_to_d356(int iu, int clamp)
 /* Extract the D356 record from the footprints (pads) */
 static void build_pad_testpoints( BOARD *aPcb, std::vector <D356_RECORD>& aRecords )
 {
-    wxPoint origin = aPcb->GetDesignSettings().GetAuxOrigin();
+    VECTOR2I origin = aPcb->GetDesignSettings().GetAuxOrigin();
 
     for( FOOTPRINT* footprint : aPcb->Footprints() )
     {
@@ -111,7 +111,7 @@ static void build_pad_testpoints( BOARD *aPcb, std::vector <D356_RECORD>& aRecor
                 rk.pin = pad->GetNumber();
                 rk.refdes = footprint->GetReference();
                 rk.midpoint = false; // XXX MAYBE need to be computed (how?)
-                const wxSize& drill = pad->GetDrillSize();
+                const VECTOR2I& drill = pad->GetDrillSize();
                 rk.drill = std::min( drill.x, drill.y );
                 rk.hole = (rk.drill != 0);
                 rk.smd = pad->GetAttribute() == PAD_ATTRIB::SMD;
@@ -126,13 +126,17 @@ static void build_pad_testpoints( BOARD *aPcb, std::vector <D356_RECORD>& aRecor
                 else
                     rk.y_size = pad->GetSize().y;
 
-                rk.rotation = -KiROUND( pad->GetOrientation() ) / 10;
-                if( rk.rotation < 0 ) rk.rotation += 360;
+                rk.rotation = - pad->GetOrientation().AsDegrees();
+
+                if( rk.rotation < 0 )
+                    rk.rotation += 360;
 
                 // the value indicates which sides are *not* accessible
                 rk.soldermask = 3;
+
                 if( pad->GetLayerSet()[F_Mask] )
                     rk.soldermask &= ~1;
+
                 if( pad->GetLayerSet()[B_Mask] )
                     rk.soldermask &= ~2;
 
@@ -168,7 +172,7 @@ static int via_access_code( BOARD *aPcb, int top_layer, int bottom_layer )
 /* Extract the D356 record from the vias */
 static void build_via_testpoints( BOARD *aPcb, std::vector <D356_RECORD>& aRecords )
 {
-    wxPoint origin = aPcb->GetDesignSettings().GetAuxOrigin();
+    VECTOR2I origin = aPcb->GetDesignSettings().GetAuxOrigin();
 
     // Enumerate all the track segments and keep the vias
     for( auto track : aPcb->Tracks() )

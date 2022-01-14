@@ -57,7 +57,7 @@
 
 // This is an odd place for this, but CvPcb won't link if it's in board_item.cpp like I first
 // tried it.
-wxPoint BOARD_ITEM::ZeroOffset( 0, 0 );
+VECTOR2I BOARD_ITEM::ZeroOffset( 0, 0 );
 
 
 BOARD::BOARD() :
@@ -281,19 +281,19 @@ bool BOARD::ResolveTextVar( wxString* token, int aDepth ) const
 }
 
 
-wxPoint BOARD::GetPosition() const
+VECTOR2I BOARD::GetPosition() const
 {
     return ZeroOffset;
 }
 
 
-void BOARD::SetPosition( const wxPoint& aPos )
+void BOARD::SetPosition( const VECTOR2I& aPos )
 {
     wxLogWarning( wxT( "This should not be called on the BOARD object") );
 }
 
 
-void BOARD::Move( const wxPoint& aMoveVector )        // overload
+void BOARD::Move( const VECTOR2I& aMoveVector ) // overload
 {
     // @todo : anything like this elsewhere?  maybe put into GENERAL_COLLECTOR class.
     static const KICAD_T top_level_board_stuff[] = {
@@ -1482,7 +1482,7 @@ int BOARD::SetAreasNetCodesFromNetNames()
 }
 
 
-PAD* BOARD::GetPad( const wxPoint& aPosition, LSET aLayerSet ) const
+PAD* BOARD::GetPad( const VECTOR2I& aPosition, LSET aLayerSet ) const
 {
     if( !aLayerSet.any() )
         aLayerSet = LSET::AllCuMask();
@@ -1504,7 +1504,7 @@ PAD* BOARD::GetPad( const wxPoint& aPosition, LSET aLayerSet ) const
 
 PAD* BOARD::GetPad( const PCB_TRACK* aTrace, ENDPOINT_T aEndPoint ) const
 {
-    const wxPoint& aPosition = aTrace->GetEndPoint( aEndPoint );
+    const VECTOR2I& aPosition = aTrace->GetEndPoint( aEndPoint );
 
     LSET lset( aTrace->GetLayer() );
 
@@ -1512,7 +1512,7 @@ PAD* BOARD::GetPad( const PCB_TRACK* aTrace, ENDPOINT_T aEndPoint ) const
 }
 
 
-PAD* BOARD::GetPadFast( const wxPoint& aPosition, LSET aLayerSet ) const
+PAD* BOARD::GetPadFast( const VECTOR2I& aPosition, LSET aLayerSet ) const
 {
     for( FOOTPRINT* footprint : Footprints() )
     {
@@ -1531,7 +1531,7 @@ PAD* BOARD::GetPadFast( const wxPoint& aPosition, LSET aLayerSet ) const
 }
 
 
-PAD* BOARD::GetPad( std::vector<PAD*>& aPadList, const wxPoint& aPosition, LSET aLayerSet ) const
+PAD* BOARD::GetPad( std::vector<PAD*>& aPadList, const VECTOR2I& aPosition, LSET aLayerSet ) const
 {
     // Search aPadList for aPosition
     // aPadList is sorted by X then Y values, and a fast binary search is used
@@ -1747,7 +1747,7 @@ std::tuple<int, double, double> BOARD::GetTrackLength( const PCB_TRACK& aTrack )
 }
 
 
-FOOTPRINT* BOARD::GetFootprint( const wxPoint& aPosition, PCB_LAYER_ID aActiveLayer,
+FOOTPRINT* BOARD::GetFootprint( const VECTOR2I& aPosition, PCB_LAYER_ID aActiveLayer,
                                 bool aVisibleOnly, bool aIgnoreLocked ) const
 {
     FOOTPRINT* footprint     = nullptr;
@@ -1832,7 +1832,7 @@ std::list<ZONE*> BOARD::GetZoneList( bool aIncludeZonesInFootprints ) const
 
 
 ZONE* BOARD::AddArea( PICKED_ITEMS_LIST* aNewZonesList, int aNetcode, PCB_LAYER_ID aLayer,
-                      wxPoint aStartPointPosition, ZONE_BORDER_DISPLAY_STYLE aHatch )
+                      VECTOR2I aStartPointPosition, ZONE_BORDER_DISPLAY_STYLE aHatch )
 {
     ZONE* new_area = new ZONE( this );
 
@@ -1882,7 +1882,7 @@ bool BOARD::NormalizeAreaPolygon( PICKED_ITEMS_LIST * aNewZonesList, ZONE* aCurr
                 // Create new copper area and copy poly into it
                 SHAPE_POLY_SET* new_p = new SHAPE_POLY_SET( aCurrArea->Outline()->UnitSet( ip ) );
                 NewArea = AddArea( aNewZonesList, aCurrArea->GetNetCode(), aCurrArea->GetLayer(),
-                                   wxPoint(0, 0), aCurrArea->GetHatchStyle() );
+                                   VECTOR2I( 0, 0 ), aCurrArea->GetHatchStyle() );
 
                 // remove the poly that was automatically created for the new area
                 // and replace it with a poly from NormalizeAreaOutlines

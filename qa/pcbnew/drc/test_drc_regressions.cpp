@@ -48,14 +48,17 @@ BOOST_FIXTURE_TEST_CASE( DRCFalsePositiveRegressions, DRC_REGRESSION_TEST_FIXTUR
 {
     // These documents at one time flagged DRC errors that they shouldn't have.
 
-    std::vector<wxString> tests = { "issue4139",
-                                    "issue4774",
-                                    "issue5978",
-                                    "issue5990",
-                                    "issue6443",
-                                    "issue7567",
-                                    "issue7975",
-                                    "issue8407" };
+    std::vector<wxString> tests = { "issue4139",    // DRC fails wrongly with minimally-spaced pads at 45 degree
+                                    "issue4774",    // Shape collisions missing SH_POLY_SET - Breaks DRC
+                                    "issue5978",    // Hole clearance violation with non-copper pad
+                                    "issue5990",    // DRC flags a board edge clearance violation
+                                                    // although the clearance is respected
+                                    "issue6443",    // Wrong DRC and rendering of THT pads with
+                                                    // selective inner copper layers
+                                    "issue7567",    // DRC constraint to disallow holes gets SMD pads also
+                                    "issue7975",    // Differential pair gap out of range fault by DRC
+                                    "issue8407"     // PCBNEW: Arc for diff pair has clearance DRC error
+                                  };
 
     for( const wxString& relPath : tests )
     {
@@ -65,11 +68,18 @@ BOOST_FIXTURE_TEST_CASE( DRCFalsePositiveRegressions, DRC_REGRESSION_TEST_FIXTUR
         std::vector<DRC_ITEM>  violations;
         BOARD_DESIGN_SETTINGS& bds = m_board->GetDesignSettings();
 
+        // Disable DRC tests not useful or not handled in this testcase
         bds.m_DRCSeverities[ DRCE_INVALID_OUTLINE ] = SEVERITY::RPT_SEVERITY_IGNORE;
         bds.m_DRCSeverities[ DRCE_UNCONNECTED_ITEMS ] = SEVERITY::RPT_SEVERITY_IGNORE;
+        bds.m_DRCSeverities[ DRCE_COPPER_SLIVER ] = SEVERITY::RPT_SEVERITY_IGNORE;
+        bds.m_DRCSeverities[ DRCE_STARVED_THERMAL ] = SEVERITY::RPT_SEVERITY_IGNORE;
+        // These DRC tests are not useful and do not work because they need a footprint library
+        // associated to the board
+        bds.m_DRCSeverities[ DRCE_LIB_FOOTPRINT_ISSUES ] = SEVERITY::RPT_SEVERITY_IGNORE;
+        bds.m_DRCSeverities[ DRCE_LIB_FOOTPRINT_MISMATCH ] = SEVERITY::RPT_SEVERITY_IGNORE;
 
         bds.m_DRCEngine->SetViolationHandler(
-                [&]( const std::shared_ptr<DRC_ITEM>& aItem, wxPoint aPos, PCB_LAYER_ID aLayer )
+                [&]( const std::shared_ptr<DRC_ITEM>& aItem, VECTOR2I aPos, PCB_LAYER_ID aLayer )
                 {
                     if( bds.GetSeverity( aItem->GetErrorCode() ) == SEVERITY::RPT_SEVERITY_ERROR )
                         violations.push_back( *aItem );
@@ -114,7 +124,8 @@ BOOST_FIXTURE_TEST_CASE( DRCFalseNegativeRegressions, DRC_REGRESSION_TEST_FIXTUR
                                                       { "issue7267", 4 },
                                                       { "issue7325", 2 },
                                                       { "issue8003", 2 },
-                                                      { "issue9081", 2 } };
+                                                      { "issue9081", 2 }
+                                                      };
 
     for( const std::pair<wxString, int>& entry : tests )
     {
@@ -124,8 +135,14 @@ BOOST_FIXTURE_TEST_CASE( DRCFalseNegativeRegressions, DRC_REGRESSION_TEST_FIXTUR
         std::vector<DRC_ITEM>  violations;
         BOARD_DESIGN_SETTINGS& bds = m_board->GetDesignSettings();
 
+        // Disable DRC tests not useful in this testcase
+        bds.m_DRCSeverities[ DRCE_COPPER_SLIVER ] = SEVERITY::RPT_SEVERITY_IGNORE;
+        bds.m_DRCSeverities[ DRCE_STARVED_THERMAL ] = SEVERITY::RPT_SEVERITY_IGNORE;
+        bds.m_DRCSeverities[ DRCE_LIB_FOOTPRINT_ISSUES ] = SEVERITY::RPT_SEVERITY_IGNORE;
+        bds.m_DRCSeverities[ DRCE_LIB_FOOTPRINT_MISMATCH ] = SEVERITY::RPT_SEVERITY_IGNORE;
+
         bds.m_DRCEngine->SetViolationHandler(
-                [&]( const std::shared_ptr<DRC_ITEM>& aItem, wxPoint aPos, PCB_LAYER_ID aLayer )
+                [&]( const std::shared_ptr<DRC_ITEM>& aItem, VECTOR2I aPos, PCB_LAYER_ID aLayer )
                 {
                     PCB_MARKER temp( aItem, aPos );
 
@@ -149,7 +166,7 @@ BOOST_FIXTURE_TEST_CASE( DRCFalseNegativeRegressions, DRC_REGRESSION_TEST_FIXTUR
 
             for( const DRC_ITEM& item : violations )
             {
-                BOOST_TEST_MESSAGE( item.ShowReport( EDA_UNITS::INCHES, RPT_SEVERITY_ERROR,
+                 BOOST_TEST_MESSAGE( item.ShowReport( EDA_UNITS::INCHES, RPT_SEVERITY_ERROR,
                                                      itemMap ) );
             }
 

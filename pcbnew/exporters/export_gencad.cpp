@@ -4,7 +4,7 @@
  * Copyright (C) 2016 Jean-Pierre Charras, jean-pierre.charras@ujf-grenoble.fr
  * Copyright (C) 2012 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
  * Copyright (C) 2012 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -272,7 +272,7 @@ void PCB_EDIT_FRAME::ExportToGenCAD( wxCommandEvent& aEvent )
     GetBoard()->ComputeBoundingBox();
 
     // Save the auxiliary origin for the rest of the footprint
-    wxPoint auxOrigin = m_pcb->GetDesignSettings().GetAuxOrigin();
+    VECTOR2I auxOrigin = m_pcb->GetDesignSettings().GetAuxOrigin();
     GencadOffsetX = optionsDialog.GetOption( USE_AUX_ORIGIN ) ? auxOrigin.x : 0;
     GencadOffsetY = optionsDialog.GetOption( USE_AUX_ORIGIN ) ? auxOrigin.y : 0;
 
@@ -419,7 +419,7 @@ static void CreatePadsShapesSection( FILE* aFile, BOARD* aPcb )
     for( unsigned i = 0; i<pads.size(); ++i )
     {
         PAD* pad = pads[i];
-        const wxPoint& off = pad->GetOffset();
+        const VECTOR2I& off = pad->GetOffset();
 
         pad->SetSubRatsnest( pad_name_number );
 
@@ -470,7 +470,7 @@ static void CreatePadsShapesSection( FILE* aFile, BOARD* aPcb )
         case PAD_SHAPE::ROUNDRECT:
         case PAD_SHAPE::OVAL:
         {
-            const wxSize& size = pad->GetSize();
+            const VECTOR2I& size = pad->GetSize();
             int radius = std::min( size.x, size.y ) / 2;
 
             if( pad->GetShape() == PAD_SHAPE::ROUNDRECT )
@@ -563,11 +563,11 @@ static void CreatePadsShapesSection( FILE* aFile, BOARD* aPcb )
             int  ddx = pad->GetDelta().x / 2;
             int  ddy = pad->GetDelta().y / 2;
 
-            wxPoint poly[4];
-            poly[0] = wxPoint( -dx + ddy,  dy + ddx );
-            poly[1] = wxPoint(  dx - ddy,  dy - ddx );
-            poly[2] = wxPoint(  dx + ddy, -dy + ddx );
-            poly[3] = wxPoint( -dx - ddy, -dy - ddx );
+            VECTOR2I poly[4];
+            poly[0] = VECTOR2I( -dx + ddy, dy + ddx );
+            poly[1] = VECTOR2I( dx - ddy, dy - ddx );
+            poly[2] = VECTOR2I( dx + ddy, -dy + ddx );
+            poly[3] = VECTOR2I( -dx - ddy, -dy - ddx );
 
             for( int cur = 0; cur < 4; ++cur )
             {
@@ -588,10 +588,10 @@ static void CreatePadsShapesSection( FILE* aFile, BOARD* aPcb )
 
             SHAPE_POLY_SET outline;
             int            maxError = aPcb->GetDesignSettings().m_MaxError;
-            wxPoint        padOffset( 0, 0 );
+            VECTOR2I       padOffset( 0, 0 );
 
             TransformRoundChamferedRectToPolygon( outline, padOffset, pad->GetSize(),
-                                                  pad->GetOrientation(),
+                                                  pad->GetOrientation().AsTenthsOfADegree(),
                                                   pad->GetRoundRectCornerRadius(),
                                                   pad->GetChamferRectRatio(),
                                                   pad->GetChamferPositions(), 0, maxError,
@@ -828,8 +828,8 @@ static void CreateShapesSection( FILE* aFile, BOARD* aPcb )
                 pins.insert( pinname );
             }
 
-            double orient = pad->GetOrientation() - footprint->GetOrientation();
-            NORMALIZE_ANGLE_POS( orient );
+            EDA_ANGLE orient = pad->GetOrientation() - footprint->GetOrientation();
+            orient.Normalize();
 
             // Bottom side footprints use the flipped padstack
             fprintf( aFile, ( flipBottomPads && footprint->GetFlag() ) ?
@@ -838,7 +838,7 @@ static void CreateShapesSection( FILE* aFile, BOARD* aPcb )
                      TO_UTF8( escapeString( pinname ) ), pad->GetSubRatsnest(),
                      pad->GetPos0().x / SCALE_FACTOR,
                      -pad->GetPos0().y / SCALE_FACTOR,
-                     layer, orient / 10.0, mirror );
+                     layer, orient.AsDegrees(), mirror );
         }
     }
 
@@ -861,7 +861,7 @@ static void CreateComponentsSection( FILE* aFile, BOARD* aPcb )
     {
         const char*   mirror;
         const char*   flip;
-        double        fp_orient = footprint->GetOrientation();
+        double        fp_orient = footprint->GetOrientation().AsTenthsOfADegree();
 
         if( footprint->GetFlag() )
         {
@@ -1270,10 +1270,10 @@ static void FootprintWriteShape( FILE* aFile, FOOTPRINT* aFootprint, const wxStr
 
                 case SHAPE_T::ARC:
                 {
-                    wxPoint start = shape->GetStart0();
-                    wxPoint end = shape->GetEnd0();
+                    VECTOR2I start = shape->GetStart0();
+                    VECTOR2I end = shape->GetEnd0();
 
-                    if( shape->GetArcAngle() > 0 )
+                    if( shape->GetArcAngle() > ANGLE_0 )
                         std::swap( start, end );
 
                     fprintf( aFile, "ARC %g %g %g %g %g %g\n",

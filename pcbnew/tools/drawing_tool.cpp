@@ -574,14 +574,19 @@ int DRAWING_TOOL::PlaceText( const TOOL_EVENT& aEvent )
                 m_controls->ForceCursorPosition( true, m_controls->GetCursorPosition() );
                 PCB_LAYER_ID layer = m_frame->GetActiveLayer();
 
+                wxSize textSize = dsnSettings.GetTextSize( layer );
+                int    thickness = dsnSettings.GetTextThickness( layer );
+
                 // Init the new item attributes
                 if( m_isFootprintEditor )
                 {
                     FP_TEXT* fpText = new FP_TEXT( (FOOTPRINT*) m_frame->GetModel() );
 
                     fpText->SetLayer( layer );
-                    fpText->SetTextSize( dsnSettings.GetTextSize( layer ) );
-                    fpText->SetTextThickness( dsnSettings.GetTextThickness( layer ) );
+                    fpText->SetTextSize( textSize );
+                    fpText->SetTextThickness( thickness );
+                    fpText->SetBold( abs( thickness - GetPenSizeForBold( textSize ) ) <
+                                     abs( thickness - GetPenSizeForNormal( textSize ) ) );
                     fpText->SetItalic( dsnSettings.GetTextItalic( layer ) );
                     fpText->SetKeepUpright( dsnSettings.GetTextUpright( layer ) );
                     fpText->SetTextPos( (wxPoint) cursorPos );
@@ -619,8 +624,10 @@ int DRAWING_TOOL::PlaceText( const TOOL_EVENT& aEvent )
                     if( IsBackLayer( layer ) )
                         pcbText->SetMirrored( true );
 
-                    pcbText->SetTextSize( dsnSettings.GetTextSize( layer ) );
-                    pcbText->SetTextThickness( dsnSettings.GetTextThickness( layer ) );
+                    pcbText->SetTextSize( textSize );
+                    pcbText->SetTextThickness( thickness );
+                    pcbText->SetBold( abs( thickness - GetPenSizeForBold( textSize ) ) <
+                                      abs( thickness - GetPenSizeForNormal( textSize ) ) );
                     pcbText->SetItalic( dsnSettings.GetTextItalic( layer ) );
                     pcbText->SetTextPos( (wxPoint) cursorPos );
 
@@ -1042,7 +1049,7 @@ int DRAWING_TOOL::DrawDimension( const TOOL_EVENT& aEvent )
                     // Calculating the direction of travel perpendicular to the selected axis
                     double angle = aligned->GetAngle() + ( M_PI / 2 );
 
-                    wxPoint delta( (wxPoint) cursorPos - dimension->GetEnd() );
+                    VECTOR2I delta( (VECTOR2I) cursorPos - dimension->GetEnd() );
                     double  height = ( delta.x * cos( angle ) ) + ( delta.y * sin( angle ) );
                     aligned->SetHeight( height );
                     aligned->Update();
@@ -1368,7 +1375,7 @@ int DRAWING_TOOL::SetAnchor( const TOOL_EVENT& aEvent )
             commit.Modify( footprint );
 
             // set the new relative internal local coordinates of footprint items
-            wxPoint     moveVector = footprint->GetPosition() - (wxPoint) cursorPos;
+            VECTOR2I moveVector = footprint->GetPosition() - (wxPoint) cursorPos;
             footprint->MoveAnchorPosition( moveVector );
 
             commit.Push( _( "Move the footprint reference anchor" ) );
@@ -2368,7 +2375,7 @@ int DRAWING_TOOL::DrawVia( const TOOL_EVENT& aEvent )
         PCB_TRACK* findTrack( PCB_VIA* aVia )
         {
             const LSET lset = aVia->GetLayerSet();
-            wxPoint position = aVia->GetPosition();
+            VECTOR2I   position = aVia->GetPosition();
             BOX2I bbox = aVia->GetBoundingBox();
 
             std::vector<KIGFX::VIEW::LAYER_ITEM_PAIR> items;
@@ -2448,7 +2455,7 @@ int DRAWING_TOOL::DrawVia( const TOOL_EVENT& aEvent )
             if( aOther->Type() == PCB_VIA_T )
             {
                 PCB_VIA* via = static_cast<PCB_VIA*>( aOther );
-                wxPoint  pos = via->GetPosition();
+                VECTOR2I pos = via->GetPosition();
 
                 holeShape.reset( new SHAPE_SEGMENT( pos, pos, via->GetDrill() ) );
             }
@@ -2517,7 +2524,7 @@ int DRAWING_TOOL::DrawVia( const TOOL_EVENT& aEvent )
 
         PAD* findPad( PCB_VIA* aVia )
         {
-            const wxPoint position = aVia->GetPosition();
+            const VECTOR2I position = aVia->GetPosition();
             const LSET    lset = aVia->GetLayerSet();
 
             for( FOOTPRINT* fp : m_board->Footprints() )
@@ -2535,7 +2542,7 @@ int DRAWING_TOOL::DrawVia( const TOOL_EVENT& aEvent )
 
         int findStitchedZoneNet( PCB_VIA* aVia )
         {
-            const wxPoint position = aVia->GetPosition();
+            const VECTOR2I position = aVia->GetPosition();
             const LSET    lset = aVia->GetLayerSet();
 
             std::vector<ZONE*> foundZones;
@@ -2582,7 +2589,7 @@ int DRAWING_TOOL::DrawVia( const TOOL_EVENT& aEvent )
 
             m_gridHelper.SetSnap( !( m_modifiers & MD_SHIFT ) );
             PCB_VIA*   via = static_cast<PCB_VIA*>( aItem );
-            wxPoint    position = via->GetPosition();
+            VECTOR2I   position = via->GetPosition();
             PCB_TRACK* track = findTrack( via );
             PAD*       pad = findPad( via );
 
@@ -2605,7 +2612,7 @@ int DRAWING_TOOL::DrawVia( const TOOL_EVENT& aEvent )
         {
             WX_INFOBAR* infobar = m_frame->GetInfoBar();
             PCB_VIA*    via = static_cast<PCB_VIA*>( aItem );
-            wxPoint     viaPos = via->GetPosition();
+            VECTOR2I    viaPos = via->GetPosition();
             PCB_TRACK*  track = findTrack( via );
             PAD*        pad = findPad( via );
 

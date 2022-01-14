@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2020-2021 Roberto Fernandez Bautista <roberto.fer.bau@gmail.com>
- * Copyright (C) 2020-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2020-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -121,7 +121,7 @@ private:
     std::vector<LAYER_ID> m_powerPlaneLayers;            ///< List of layers that are marked as
                                                          ///< power plane in CADSTAR. This is used
                                                          ///< by "loadtemplates"
-    wxPoint m_designCenter;                              ///< Used for calculating the required
+    VECTOR2I m_designCenter;                             ///< Used for calculating the required
                                                          ///< offset to apply to the Cadstar design
                                                          ///< so that it fits in KiCad canvas
     std::set<HATCHCODE_ID> m_hatchcodesTested;           ///< Used by checkAndLogHatchCode() to
@@ -200,10 +200,10 @@ private:
     void drawCadstarText( const TEXT& aCadstarText, BOARD_ITEM_CONTAINER* aContainer,
                           const GROUP_ID& aCadstarGroupID = wxEmptyString,
                           const LAYER_ID& aCadstarLayerOverride = wxEmptyString,
-                          const wxPoint& aMoveVector = { 0, 0 },
+                          const VECTOR2I& aMoveVector = { 0, 0 },
                           const double& aRotationAngle = 0.0,
                           const double& aScalingFactor = 1.0,
-                          const wxPoint& aTransformCentre = { 0, 0 },
+                          const VECTOR2I& aTransformCentre = { 0, 0 },
                           const bool& aMirrorInvert = false );
 
     /**
@@ -224,9 +224,9 @@ private:
                            const int& aLineThickness, const wxString& aShapeName,
                            BOARD_ITEM_CONTAINER* aContainer,
                            const GROUP_ID& aCadstarGroupID = wxEmptyString,
-                           const wxPoint& aMoveVector = { 0, 0 },
+                           const VECTOR2I& aMoveVector = { 0, 0 },
                            const double& aRotationAngle = 0.0, const double& aScalingFactor = 1.0,
-                           const wxPoint& aTransformCentre = { 0, 0 },
+                           const VECTOR2I& aTransformCentre = { 0, 0 },
                            const bool& aMirrorInvert = false );
 
     /**
@@ -246,10 +246,10 @@ private:
                                      const PCB_LAYER_ID& aKiCadLayer, const int& aLineThickness,
                                      BOARD_ITEM_CONTAINER* aContainer,
                                      const GROUP_ID& aCadstarGroupID = wxEmptyString,
-                                     const wxPoint& aMoveVector = { 0, 0 },
+                                     const VECTOR2I& aMoveVector = { 0, 0 },
                                      const double& aRotationAngle = 0.0,
                                      const double& aScalingFactor = 1.0,
-                                     const wxPoint& aTransformCentre = { 0, 0 },
+                                     const VECTOR2I& aTransformCentre = { 0, 0 },
                                      const bool& aMirrorInvert = false );
 
     /**
@@ -270,10 +270,10 @@ private:
                                       const PCB_LAYER_ID& aKiCadLayer, const int& aLineThickness,
                                       BOARD_ITEM_CONTAINER* aContainer,
                                       const GROUP_ID& aCadstarGroupID = wxEmptyString,
-                                      const wxPoint& aMoveVector = { 0, 0 },
+                                      const VECTOR2I& aMoveVector = { 0, 0 },
                                       const double& aRotationAngle = 0.0,
                                       const double& aScalingFactor = 1.0,
-                                      const wxPoint& aTransformCentre = { 0, 0 },
+                                      const VECTOR2I& aTransformCentre = { 0, 0 },
                                       const bool& aMirrorInvert = false );
 
     /**
@@ -291,10 +291,10 @@ private:
     std::vector<PCB_SHAPE*> getShapesFromVertices( const std::vector<VERTEX>& aCadstarVertices,
                                                    BOARD_ITEM_CONTAINER* aContainer = nullptr,
                                                    const GROUP_ID& aCadstarGroupID = wxEmptyString,
-                                                   const wxPoint& aMoveVector = { 0, 0 },
+                                                   const VECTOR2I& aMoveVector = { 0, 0 },
                                                    const double& aRotationAngle = 0.0,
                                                    const double& aScalingFactor = 1.0,
-                                                   const wxPoint& aTransformCentre = { 0, 0 },
+                                                   const VECTOR2I& aTransformCentre = { 0, 0 },
                                                    const bool& aMirrorInvert = false );
 
     /**
@@ -314,10 +314,10 @@ private:
                                    const VERTEX& aCadstarVertex,
                                    BOARD_ITEM_CONTAINER* aContainer = nullptr,
                                    const GROUP_ID& aCadstarGroupID = wxEmptyString,
-                                   const wxPoint& aMoveVector = { 0, 0 },
+                                   const VECTOR2I& aMoveVector = { 0, 0 },
                                    const double& aRotationAngle = 0.0,
                                    const double& aScalingFactor = 1.0,
-                                   const wxPoint& aTransformCentre = { 0, 0 },
+                                   const VECTOR2I& aTransformCentre = { 0, 0 },
                                    const bool& aMirrorInvert = false );
 
     /**
@@ -345,10 +345,10 @@ private:
     SHAPE_POLY_SET getPolySetFromCadstarShape( const SHAPE& aCadstarShape,
                                                const int& aLineThickness = -1,
                                                BOARD_ITEM_CONTAINER* aContainer = nullptr,
-                                               const wxPoint& aMoveVector = { 0, 0 },
+                                               const VECTOR2I& aMoveVector = { 0, 0 },
                                                const double& aRotationAngle = 0.0,
                                                const double& aScalingFactor = 1.0,
-                                               const wxPoint& aTransformCentre = { 0, 0 },
+                                               const VECTOR2I& aTransformCentre = { 0, 0 },
                                                const bool& aMirrorInvert = false );
 
     /**
@@ -395,7 +395,7 @@ private:
      * @param aRefPoint Reference point to use for determine the angle of the offset
      * @param aOffsetAmount
     */
-    void applyRouteOffset( wxPoint* aPointToOffset, const wxPoint& aRefPoint,
+    void applyRouteOffset( VECTOR2I* aPointToOffset, const VECTOR2I& aRefPoint,
                            const long& aOffsetAmount );
 
     //Helper Functions for obtaining CADSTAR elements in the parsed structures
@@ -427,7 +427,7 @@ private:
      * @param aCadstarPoint
      * @return
      */
-    wxPoint getKiCadPoint( const wxPoint& aCadstarPoint );
+    VECTOR2I getKiCadPoint( const VECTOR2I& aCadstarPoint );
 
     /**
      * @brief
@@ -463,18 +463,31 @@ private:
      * @brief
      * @param aCadstarAngle
      * @return
+    */
+    EDA_ANGLE getAngle( const long long& aCadstarAngle )
+    {
+        // CADSTAR v6 (which outputted Format Version 8) and earlier versions used 1/10 degree
+        // as the unit for angles/orientations. It is assumed that CADSTAR version 7 (i.e. Format
+        // Version 9 and later) is the version that introduced 1/1000 degree for angles.
+        if( Header.Format.Version > 8 )
+        {
+            return EDA_ANGLE( aCadstarAngle / 1000.0, DEGREES_T );
+        }
+        else
+        {
+            return EDA_ANGLE( (int) aCadstarAngle, TENTHS_OF_A_DEGREE_T );
+        }
+    }
+
+    /**
+     * @brief
+     * @param aCadstarAngle
+     * @return
      */
     double getAngleDegrees( const long long& aCadstarAngle )
     {
         return getAngleTenthDegree( aCadstarAngle ) / 10.0;
     }
-
-    /**
-     * @brief
-     * @param aPoint
-     * @return Angle in decidegrees of the polar representation of the point, scaled 0..360
-     */
-    double getPolarAngle( const wxPoint& aPoint );
 
     /**
      * @brief Searches m_netMap and returns the NETINFO_ITEM pointer if exists. Otherwise

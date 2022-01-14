@@ -113,9 +113,6 @@ PAGED_DIALOG::PAGED_DIALOG( wxWindow* aParent, const wxString& aTitle, bool aSho
 
 void PAGED_DIALOG::finishInitialization()
 {
-    for( size_t i = 0; i < m_treebook->GetPageCount(); ++i )
-   	    m_macHack.push_back( true );
-
     // For some reason adding page labels to the treeCtrl doesn't invalidate its bestSize
     // cache so we have to do it by hand
     m_treebook->GetTreeCtrl()->InvalidateBestSize();
@@ -346,23 +343,6 @@ void PAGED_DIALOG::OnPageChanged( wxBookCtrlEvent& event )
     wxSizeEvent evt( wxDefaultSize );
 
     wxQueueEvent( m_treebook, evt.Clone() );
-
-    // @todo Test to see if this macOS hack is still necessary now that a psuedo size event is
-    //       processed above.
-
-    // Work around an OSX bug where the wxGrid children don't get placed correctly until
-    // the first resize event
-#ifdef __WXMAC__
-    if( page + 1 <= m_macHack.size() && m_macHack[ page ] )
-    {
-        wxSize pageSize = m_treebook->GetPage( page )->GetSize();
-        pageSize.x -= 5;
-        pageSize.y += 2;
-
-        m_treebook->GetPage( page )->SetSize( pageSize );
-        m_macHack[ page ] = false;
-    }
-#endif
 }
 
 

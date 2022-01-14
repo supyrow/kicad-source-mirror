@@ -40,6 +40,8 @@ include_directories(
     )
 
 set( PCBNEW_DIALOGS
+    teardrop/dialog_teardrop_base.cpp
+    teardrop/dialog_teardrop.cpp
     dialogs/dialog_filter_selection.cpp
     dialogs/dialog_filter_selection_base.cpp
     dialogs/dialog_board_setup.cpp
@@ -349,6 +351,8 @@ set( PCBNEW_CLASS_SRCS
     tools/tool_event_utils.cpp
     tools/zone_create_helper.cpp
     tools/zone_filler_tool.cpp
+    teardrop/teardrop.cpp
+    teardrop/teardrop_utils.cpp
 
     footprint_preview_panel.cpp
     footprint_tree_pane.cpp
@@ -480,6 +484,7 @@ add_custom_command( OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/pcbnew_wrap.cxx
 
     DEPENDS ${CMAKE_SOURCE_DIR}/common/swig/kicad.i
     DEPENDS ${CMAKE_SOURCE_DIR}/common/swig/wx.i
+    DEPENDS ${CMAKE_SOURCE_DIR}/common/swig/math.i
     DEPENDS ${CMAKE_SOURCE_DIR}/common/swig/ki_exception.i
     DEPENDS ${CMAKE_SOURCE_DIR}/common/swig/netclass.i
     DEPENDS ${CMAKE_SOURCE_DIR}/scripting/kicadplugins.i
@@ -617,11 +622,8 @@ target_link_libraries( pcbnew
     common
     gal
     scripting
+    nlohmann_json
     ${wxWidgets_LIBRARIES}
-    )
-
-target_include_directories( pcbnew INTERFACE
-    $<TARGET_PROPERTY:nlohmann_json,INTERFACE_INCLUDE_DIRECTORIES>
     )
 
 if( PCBNEW_LINK_MAPS )
@@ -648,33 +650,20 @@ make_lexer(
 
 # CMake <3.9 can't link anything to object libraries,
 # but we only need include directories, as we will link the kiface MODULE
-target_include_directories( pcbnew_kiface_objects PRIVATE
-    $<TARGET_PROPERTY:common,INTERFACE_INCLUDE_DIRECTORIES>
-    $<TARGET_PROPERTY:dxflib_qcad,INTERFACE_INCLUDE_DIRECTORIES>
-    $<TARGET_PROPERTY:nanosvg,INTERFACE_INCLUDE_DIRECTORIES>
-    $<TARGET_PROPERTY:tinyspline_lib,INTERFACE_INCLUDE_DIRECTORIES>
-    $<TARGET_PROPERTY:nlohmann_json,INTERFACE_INCLUDE_DIRECTORIES>
+target_link_libraries( pcbnew_kiface_objects
+    PRIVATE
+        common
+        dxflib_qcad
+        nanosvg
+        tinyspline_lib
+        nlohmann_json
     )
 
-# Since we're not using target_link_libraries, we need to explicitly
-# declare the dependency
-add_dependencies( pcbnew_kiface_objects common )
-add_dependencies( pcbnew_kiface_objects dxflib_qcad )
-add_dependencies( pcbnew_kiface_objects tinyspline_lib )
-add_dependencies( pcbnew_kiface_objects nanosvg )
-
 if( KICAD_STEP_EXPORT_LIB )
-    target_include_directories( pcbnew_kiface_objects PRIVATE
-        $<TARGET_PROPERTY:kicad2step_lib,INTERFACE_INCLUDE_DIRECTORIES>
-        )
-    add_dependencies( pcbnew_kiface_objects kicad2step_lib )
-
-    list( APPEND PCBNEW_EXTRA_LIBS kicad2step_lib )
-
     add_definitions( -DKICAD_STEP_EXPORT_LIB )
 endif()
 
-add_library( pcbnew_kiface MODULE $<TARGET_OBJECTS:pcbnew_kiface_objects> )
+add_library( pcbnew_kiface MODULE )
 
 set_target_properties( pcbnew_kiface PROPERTIES
     # Decorate OUTPUT_NAME with PREFIX and SUFFIX, creating something like
@@ -697,6 +686,7 @@ if ( KICAD_BUILD_TESTS )
 endif ()
 
 set( PCBNEW_KIFACE_LIBRARIES
+    pcbnew_kiface_objects
     3d-viewer
     connectivity
     pcbcommon
@@ -719,7 +709,10 @@ set( PCBNEW_KIFACE_LIBRARIES
     )
 
 
-target_link_libraries( pcbnew_kiface ${PCBNEW_KIFACE_LIBRARIES} )
+target_link_libraries( pcbnew_kiface
+    PRIVATE
+        ${PCBNEW_KIFACE_LIBRARIES}
+    )
 
 set_source_files_properties( pcbnew.cpp PROPERTIES
     # The KIFACE is in pcbnew.cpp, export it:

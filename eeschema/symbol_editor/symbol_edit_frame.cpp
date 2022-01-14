@@ -1104,6 +1104,9 @@ void SYMBOL_EDIT_FRAME::CommonSettingsChanged( bool aEnvVarsChanged, bool aTextV
 
     GetGalDisplayOptions().ReadWindowSettings( cfg->m_Window );
 
+    if( m_symbol )
+        m_symbol->ClearCaches();
+
     GetCanvas()->ForceRefresh();
 
     RecreateToolbars();
@@ -1165,6 +1168,8 @@ void SYMBOL_EDIT_FRAME::HardRedraw()
             else
                 item.SetSelected();
         }
+
+        m_symbol->ClearCaches();
     }
 
     RebuildView();
@@ -1313,7 +1318,7 @@ void SYMBOL_EDIT_FRAME::LoadSymbolFromSchematic( SCH_SYMBOL* aSymbol )
     for( int i = 0; i < (int) aSymbol->GetFields().size(); ++i )
     {
         const SCH_FIELD& field = aSymbol->GetFields()[i];
-        wxPoint          pos = field.GetPosition() - aSymbol->GetPosition();
+        VECTOR2I         pos = field.GetPosition() - aSymbol->GetPosition();
         LIB_FIELD        libField( symbol.get(), field.GetId() );
 
         if( i >= MANDATORY_FIELDS && !field.GetName( false ).IsEmpty() )
@@ -1481,4 +1486,16 @@ bool SYMBOL_EDIT_FRAME::IsSymbolAlias() const
 bool SYMBOL_EDIT_FRAME::IsSymbolEditable() const
 {
     return m_symbol && ( !IsSymbolFromLegacyLibrary() || IsSymbolFromSchematic() );
+}
+
+
+void SYMBOL_EDIT_FRAME::UpdateItem( EDA_ITEM* aItem, bool isAddOrDelete, bool aUpdateRtree )
+{
+    SCH_BASE_FRAME::UpdateItem( aItem, isAddOrDelete, aUpdateRtree );
+
+    if( EDA_TEXT* eda_text = dynamic_cast<EDA_TEXT*>( aItem ) )
+    {
+        eda_text->ClearBoundingBoxCache();
+        eda_text->ClearRenderCache();
+    }
 }

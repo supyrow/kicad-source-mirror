@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2017 CERN
- * Copyright (C) 2020-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2020-2022 KiCad Developers, see AUTHORS.txt for contributors.
  * @author Maciej Suminski <maciej.suminski@cern.ch>
  *
  * This program is free software; you can redistribute it and/or
@@ -62,7 +62,7 @@ size_t hash_fp_item( const EDA_ITEM* aItem, int aFlags )
             hash_combine( ret, footprint->GetPosition().x, footprint->GetPosition().y );
 
         if( aFlags & HASH_ROT )
-            hash_combine( ret, footprint->GetOrientation() );
+            hash_combine( ret, footprint->GetOrientation().AsTenthsOfADegree() );
 
         for( BOARD_ITEM* item : footprint->GraphicalItems() )
             hash_combine( ret, hash_fp_item( item, aFlags ) );
@@ -96,7 +96,7 @@ size_t hash_fp_item( const EDA_ITEM* aItem, int aFlags )
         }
 
         if( aFlags & HASH_ROT )
-            hash_combine( ret, pad->GetOrientation() );
+            hash_combine( ret, pad->GetOrientation().AsTenthsOfADegree() );
 
         if( aFlags & HASH_NET )
             hash_combine( ret, pad->GetNetCode() );

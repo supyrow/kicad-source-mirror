@@ -275,16 +275,16 @@ public:
     BOARD();
     ~BOARD();
 
-    wxPoint GetPosition() const override;
-    void SetPosition( const wxPoint& aPos ) override;
-    const wxPoint GetFocusPosition() const override { return GetBoundingBox().GetCenter(); }
+    VECTOR2I       GetPosition() const override;
+    void           SetPosition( const VECTOR2I& aPos ) override;
+    const VECTOR2I GetFocusPosition() const override { return GetBoundingBox().GetCenter(); }
 
     bool IsEmpty() const
     {
         return m_drawings.empty() && m_footprints.empty() && m_tracks.empty() && m_zones.empty();
     }
 
-    void Move( const wxPoint& aMoveVector ) override;
+    void Move( const VECTOR2I& aMoveVector ) override;
 
     void SetFileFormatVersionAtLoad( int aVersion ) { m_fileFormatVersionAtLoad = aVersion; }
     int GetFileFormatVersionAtLoad() const { return m_fileFormatVersionAtLoad; }
@@ -866,7 +866,7 @@ public:
      * @return a reference to the new area.
      */
     ZONE* AddArea( PICKED_ITEMS_LIST* aNewZonesList, int aNetcode, PCB_LAYER_ID aLayer,
-                   wxPoint aStartPointPosition, ZONE_BORDER_DISPLAY_STYLE aHatch );
+                   VECTOR2I aStartPointPosition, ZONE_BORDER_DISPLAY_STYLE aHatch );
 
     /**
      * Process an area that has been modified, by normalizing its polygon against itself.
@@ -905,12 +905,12 @@ public:
     /**
      * Find a pad \a aPosition on \a aLayer.
      *
-     * @param aPosition A wxPoint object containing the position to hit test.
+     * @param aPosition A VECTOR2I object containing the position to hit test.
      * @param aLayerMask A layer or layers to mask the hit test.
      * @return A pointer to a PAD object if found or NULL if not found.
      */
-    PAD* GetPad( const wxPoint& aPosition, LSET aLayerMask ) const;
-    PAD* GetPad( const wxPoint& aPosition ) const
+    PAD* GetPad( const VECTOR2I& aPosition, LSET aLayerMask ) const;
+    PAD* GetPad( const VECTOR2I& aPosition ) const
     {
         return GetPad( aPosition, LSET().set() );
     }
@@ -929,11 +929,11 @@ public:
      * <p>
      * The fast search method only works if the pad list has already been built.
      * </p>
-     * @param aPosition A wxPoint object containing the position to hit test.
+     * @param aPosition A VECTOR2I object containing the position to hit test.
      * @param aLayerMask A layer or layers to mask the hit test.
      * @return A pointer to a PAD object if found or NULL if not found.
      */
-    PAD* GetPadFast( const wxPoint& aPosition, LSET aLayerMask ) const;
+    PAD* GetPadFast( const VECTOR2I& aPosition, LSET aLayerMask ) const;
 
     /**
      * Locate the pad connected at \a aPosition on \a aLayer starting at list position
@@ -945,11 +945,11 @@ public:
      * </p>
      * @note The normal pad list is sorted by increasing netcodes.
      * @param aPadList is the list of pads candidates (a std::vector<PAD*>).
-     * @param aPosition A wxPoint object containing the position to test.
+     * @param aPosition A VECTOR2I object containing the position to test.
      * @param aLayerMask A layer or layers to mask the hit test.
      * @return a PAD object pointer to the connected pad.
      */
-    PAD* GetPad( std::vector<PAD*>& aPadList, const wxPoint& aPosition, LSET aLayerMask ) const;
+    PAD* GetPad( std::vector<PAD*>& aPadList, const VECTOR2I& aPosition, LSET aLayerMask ) const;
 
     /**
      * Delete a given pad from the BOARD by removing it from its footprint and from the
@@ -997,12 +997,12 @@ public:
      * active layer is returned.  The distance is calculated via manhattan distance from
      * the center of the bounding rectangle to \a aPosition.
      *
-     * @param aPosition A wxPoint object containing the position to test.
+     * @param aPosition A VECTOR2I object containing the position to test.
      * @param aActiveLayer Layer to test.
      * @param aVisibleOnly Search only the visible layers if true.
      * @param aIgnoreLocked Ignore locked footprints when true.
      */
-    FOOTPRINT* GetFootprint( const wxPoint& aPosition, PCB_LAYER_ID aActiveLayer,
+    FOOTPRINT* GetFootprint( const VECTOR2I& aPosition, PCB_LAYER_ID aActiveLayer,
                              bool aVisibleOnly, bool aIgnoreLocked = false ) const;
 
     /**

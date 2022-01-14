@@ -1,6 +1,6 @@
 # This program source code file is part of KiCad, a free EDA CAD application.
 #
-# Copyright (C) 2018 KiCad Developers, see CHANGELOG.TXT for contributors.
+# Copyright (C) 2018-2022 KiCad Developers, see CHANGELOG.TXT for contributors.
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -38,6 +38,7 @@ set( QA_PCBNEW_SRCS
     test_lset.cpp
     test_pad_numbering.cpp
     test_libeval_compiler.cpp
+    test_save_load.cpp
     test_tracks_cleaner.cpp
     test_zone_filler.cpp
 
@@ -54,10 +55,6 @@ set( QA_PCBNEW_SRCS
 
 add_executable( qa_pcbnew
     ${QA_PCBNEW_SRCS}
-
-    # Older CMakes cannot link OBJECT libraries
-    # https://cmake.org/pipermail/cmake/2013-November/056263.html
-    $<TARGET_OBJECTS:pcbnew_kiface_objects>
 )
 
 # Pcbnew tests, so pretend to be pcbnew (for units, etc)
@@ -89,6 +86,7 @@ include_directories(
 
 target_link_libraries( qa_pcbnew
     qa_pcbnew_utils
+    pcbnew_kiface_objects
     3d-viewer
     connectivity
     pcbcommon
@@ -110,5 +108,12 @@ target_link_libraries( qa_pcbnew
     ${Boost_LIBRARIES}
     ${PCBNEW_EXTRA_LIBS}    # -lrt must follow Boost
 )
+
+if( WIN32 )
+    # Copy dynamic lib dependency to build dir to allow running directly
+    add_custom_command( TARGET qa_pcbnew POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:kicad_3dsg>" "$<TARGET_FILE_DIR:qa_pcbnew>"
+        )
+endif()
 
 kicad_add_boost_test( qa_pcbnew qa_pcbnew )

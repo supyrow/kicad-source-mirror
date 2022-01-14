@@ -5,19 +5,15 @@ if( COMPILER_SUPPORTS_WARNINGS )
 endif()
 
 add_definitions( -DKICAD )
+add_subdirectory( pcm )
 
 include_directories( BEFORE ${INC_BEFORE} )
 include_directories(
     ${CMAKE_SOURCE_DIR}/pcbnew
     ${CMAKE_SOURCE_DIR}/eeschema
+    ${CMAKE_SOURCE_DIR}/kicad/pcm
     ${INC_AFTER}
     )
-
-if ( KICAD_PCM )
-    add_definitions( -DPCM )
-    add_subdirectory( pcm )
-    include_directories( ./pcm )
-endif ( KICAD_PCM )
 
 set( KICAD_SRCS
     dialogs/dialog_template_selector_base.cpp
@@ -66,10 +62,6 @@ add_executable( kicad WIN32 MACOSX_BUNDLE
     ${KICAD_RESOURCES}
     )
 
-target_include_directories( kicad PRIVATE
-        $<TARGET_PROPERTY:nlohmann_json,INTERFACE_INCLUDE_DIRECTORIES>
-        )
-
 if( UNIX )
     # for build directory: create kiface symlinks so kicad (exe) can be run in-situ
     add_custom_target( kiface_sym_links
@@ -85,11 +77,13 @@ if( APPLE )
         MACOSX_BUNDLE_INFO_PLIST ${PROJECT_BINARY_DIR}/kicad/Info.plist
         )
     target_link_libraries( kicad
+        nlohmann_json
         common
         ${wxWidgets_LIBRARIES}
         )
 else()
     target_link_libraries( kicad
+        nlohmann_json
         common
         gal
         common      #repeated due to a circular dependency between gal and common
@@ -98,9 +92,7 @@ else()
         )
 endif()
 
-if( KICAD_PCM )
-    target_link_libraries( kicad pcm )
-endif()
+target_link_libraries( kicad pcm )
 
 install( TARGETS kicad
     DESTINATION ${KICAD_BIN}

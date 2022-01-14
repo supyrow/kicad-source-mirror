@@ -52,7 +52,7 @@ PCB_SHAPE::~PCB_SHAPE()
 }
 
 
-const wxPoint PCB_SHAPE::GetFocusPosition() const
+const VECTOR2I PCB_SHAPE::GetFocusPosition() const
 {
     // For some shapes return the visual center, but for not filled polygonal shapes,
     // the center is usually far from the shape: a point on the outline is better
@@ -61,7 +61,7 @@ const wxPoint PCB_SHAPE::GetFocusPosition() const
     {
     case SHAPE_T::CIRCLE:
         if( !IsFilled() )
-            return wxPoint( GetCenter().x + GetRadius(), GetCenter().y );
+            return VECTOR2I( GetCenter().x + GetRadius(), GetCenter().y );
         else
             return GetCenter();
 
@@ -75,7 +75,7 @@ const wxPoint PCB_SHAPE::GetFocusPosition() const
         if( !IsFilled() )
         {
             VECTOR2I pos = GetPolyShape().Outline(0).CPoint(0);
-            return wxPoint( pos.x, pos.y );
+            return VECTOR2I( pos.x, pos.y );
         }
         else
         {
@@ -94,7 +94,7 @@ const wxPoint PCB_SHAPE::GetFocusPosition() const
 }
 
 
-void PCB_SHAPE::Move( const wxPoint& aMoveVector )
+void PCB_SHAPE::Move( const VECTOR2I& aMoveVector )
 {
     move( aMoveVector );
 }
@@ -106,13 +106,13 @@ void PCB_SHAPE::Scale( double aScale )
 }
 
 
-void PCB_SHAPE::Rotate( const wxPoint& aRotCentre, double aAngle )
+void PCB_SHAPE::Rotate( const VECTOR2I& aRotCentre, const EDA_ANGLE& aAngle )
 {
-    rotate( aRotCentre, aAngle );
+    rotate( aRotCentre, aAngle.AsTenthsOfADegree() );
 }
 
 
-void PCB_SHAPE::Flip( const wxPoint& aCentre, bool aFlipLeftRight )
+void PCB_SHAPE::Flip( const VECTOR2I& aCentre, bool aFlipLeftRight )
 {
     flip( aCentre, aFlipLeftRight );
 
@@ -132,18 +132,18 @@ FOOTPRINT* PCB_SHAPE::GetParentFootprint() const
 double PCB_SHAPE::getParentOrientation() const
 {
     if( GetParentFootprint() )
-        return GetParentFootprint()->GetOrientation();
+        return GetParentFootprint()->GetOrientation().AsTenthsOfADegree();
     else
         return 0.0;
 }
 
 
-wxPoint PCB_SHAPE::getParentPosition() const
+VECTOR2I PCB_SHAPE::getParentPosition() const
 {
     if( GetParentFootprint() )
         return GetParentFootprint()->GetPosition();
     else
-        return wxPoint( 0, 0 );
+        return VECTOR2I( 0, 0 );
 }
 
 

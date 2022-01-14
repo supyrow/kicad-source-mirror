@@ -117,14 +117,14 @@ void PCB_TEXT::AddToBoard()
     pcbtxt->SetTextThickness( m_name.textstrokeWidth );
 
     SetTextJustify( pcbtxt, m_name.justify );
-    pcbtxt->SetTextPos( wxPoint( m_name.textPositionX, m_name.textPositionY ) );
+    pcbtxt->SetTextPos( VECTOR2I( m_name.textPositionX, m_name.textPositionY ) );
 
     pcbtxt->SetMirrored( m_name.mirror );
 
     if( pcbtxt->IsMirrored() )
-        pcbtxt->SetTextAngle( 3600.0 - m_name.textRotation );
+        pcbtxt->SetTextAngle( ANGLE_360 - EDA_ANGLE( m_name.textRotation, TENTHS_OF_A_DEGREE_T ) );
     else
-        pcbtxt->SetTextAngle( m_name.textRotation );
+        pcbtxt->SetTextAngle( EDA_ANGLE( m_name.textRotation, TENTHS_OF_A_DEGREE_T ) );
 
     pcbtxt->SetLayer( m_KiCadLayer );
 }

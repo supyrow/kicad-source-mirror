@@ -39,11 +39,11 @@
 #include <trigo.h>
 
 
-void TransformCircleToPolygon( SHAPE_LINE_CHAIN& aCornerBuffer, const wxPoint& aCenter, int aRadius,
-                               int aError, ERROR_LOC aErrorLoc, int aMinSegCount )
+void TransformCircleToPolygon( SHAPE_LINE_CHAIN& aCornerBuffer, const VECTOR2I& aCenter,
+                               int aRadius, int aError, ERROR_LOC aErrorLoc, int aMinSegCount )
 {
-    wxPoint corner_position;
-    int     numSegs = GetArcToSegmentCount( aRadius, aError, 360.0 );
+    VECTOR2I corner_position;
+    int     numSegs = GetArcToSegmentCount( aRadius, aError, FULL_CIRCLE );
     numSegs = std::max( aMinSegCount, numSegs );
 
     // The shape will be built with a even number of segs. Reason: the horizontal
@@ -69,7 +69,7 @@ void TransformCircleToPolygon( SHAPE_LINE_CHAIN& aCornerBuffer, const wxPoint& a
     {
         corner_position.x   = radius;
         corner_position.y   = 0;
-        RotatePoint( &corner_position, angle );
+        RotatePoint( corner_position, angle );
         corner_position += aCenter;
         aCornerBuffer.Append( corner_position.x, corner_position.y );
     }
@@ -78,12 +78,12 @@ void TransformCircleToPolygon( SHAPE_LINE_CHAIN& aCornerBuffer, const wxPoint& a
 }
 
 
-void TransformCircleToPolygon( SHAPE_POLY_SET& aCornerBuffer, const wxPoint& aCenter, int aRadius,
+void TransformCircleToPolygon( SHAPE_POLY_SET& aCornerBuffer, const VECTOR2I& aCenter, int aRadius,
                                int aError, ERROR_LOC aErrorLoc, int aMinSegCount )
 {
-    wxPoint corner_position;
-    int     numSegs = GetArcToSegmentCount( aRadius, aError, 360.0 );
-    numSegs = std::max( aMinSegCount, numSegs);
+    VECTOR2I corner_position;
+    int      numSegs = GetArcToSegmentCount( aRadius, aError, FULL_CIRCLE );
+    numSegs = std::max( aMinSegCount, numSegs );
 
     // The shape will be built with a even number of segs. Reason: the horizontal
     // diameter begins and ends to points on the actual circle, or circle
@@ -110,7 +110,7 @@ void TransformCircleToPolygon( SHAPE_POLY_SET& aCornerBuffer, const wxPoint& aCe
     {
         corner_position.x = radius;
         corner_position.y = 0;
-        RotatePoint( &corner_position, angle );
+        RotatePoint( corner_position, angle );
         corner_position += aCenter;
         aCornerBuffer.Append( corner_position.x, corner_position.y );
     }
@@ -133,7 +133,7 @@ void TransformOvalToPolygon( SHAPE_POLY_SET& aCornerBuffer, const VECTOR2I& aSta
     // so, later, we will clamp the polygonal shape with the bounding box
     // of the segment.
     int radius  = aWidth / 2;
-    int numSegs = GetArcToSegmentCount( radius, aError, 360.0 );
+    int numSegs = GetArcToSegmentCount( radius, aError, FULL_CIRCLE );
     numSegs = std::max( aMinSegCount, numSegs );
 
     int delta = 3600 / numSegs;   // rotate angle in 0.1 degree
@@ -151,7 +151,7 @@ void TransformOvalToPolygon( SHAPE_POLY_SET& aCornerBuffer, const VECTOR2I& aSta
     // end point is the coordinate relative to aStart
     VECTOR2I       endp = aEnd - aStart;
     VECTOR2I       startp = aStart;
-    wxPoint        corner;
+    VECTOR2I       corner;
     SHAPE_POLY_SET polyshape;
 
     polyshape.NewOutline();
@@ -176,26 +176,26 @@ void TransformOvalToPolygon( SHAPE_POLY_SET& aCornerBuffer, const VECTOR2I& aSta
 
     for( int angle = 0; angle < 1800; angle += delta )
     {
-        corner = wxPoint( 0, radius );
-        RotatePoint( &corner, angle );
+        corner = VECTOR2I( 0, radius );
+        RotatePoint( corner, angle );
         corner.x += seg_len;
         polyshape.Append( corner.x, corner.y );
     }
 
     // Finish arc:
-    corner = wxPoint( seg_len, -radius );
+    corner = VECTOR2I( seg_len, -radius );
     polyshape.Append( corner.x, corner.y );
 
     // add left rounded end:
     for( int angle = 0; angle < 1800; angle += delta )
     {
-        corner = wxPoint( 0, -radius );
-        RotatePoint( &corner, angle );
+        corner = VECTOR2I( 0, -radius );
+        RotatePoint( corner, angle );
         polyshape.Append( corner.x, corner.y );
     }
 
     // Finish arc:
-    corner = wxPoint( 0, radius );
+    corner = VECTOR2I( 0, radius );
     polyshape.Append( corner.x, corner.y );
 
     // Now trim the edges of the polygonal shape which will be slightly outside the
@@ -281,7 +281,7 @@ void CornerListToPolygon( SHAPE_POLY_SET& outline, std::vector<ROUNDED_CORNER>& 
             }
 
             // Ensure 16+ segments per 360deg and ensure first & last segment are the same size
-            int numSegs = std::max( 16, GetArcToSegmentCount( radius, aError, 360.0 ) );
+            int numSegs = std::max( 16, GetArcToSegmentCount( radius, aError, FULL_CIRCLE ) );
             int angDelta = 3600 / numSegs;
             int lastSegLen = endAngle % angDelta; // or 0 if last seg length is angDelta
             int angPos = lastSegLen ? ( angDelta + lastSegLen ) / 2 : angDelta;
@@ -361,12 +361,12 @@ void CornerListRemoveDuplicates( std::vector<ROUNDED_CORNER>& aCorners )
 }
 
 
-void TransformTrapezoidToPolygon( SHAPE_POLY_SET& aCornerBuffer, const wxPoint& aPosition,
-                                  const wxSize& aSize, double aRotation, int aDeltaX, int aDeltaY,
+void TransformTrapezoidToPolygon( SHAPE_POLY_SET& aCornerBuffer, const VECTOR2I& aPosition,
+                                  const VECTOR2I& aSize, double aRotation, int aDeltaX, int aDeltaY,
                                   int aInflate, int aError, ERROR_LOC aErrorLoc )
 {
     SHAPE_POLY_SET              outline;
-    wxSize                      size( aSize / 2 );
+    VECTOR2I                    size( aSize / 2 );
     std::vector<ROUNDED_CORNER> corners;
 
     if( aInflate < 0 )
@@ -501,29 +501,28 @@ void TransformRoundChamferedRectToPolygon( SHAPE_POLY_SET& aCornerBuffer, const 
 
 
 int ConvertArcToPolyline( SHAPE_LINE_CHAIN& aPolyline, VECTOR2I aCenter, int aRadius,
-                          double aStartAngleDeg, double aArcAngleDeg, double aAccuracy,
-                          ERROR_LOC aErrorLoc )
+                          const EDA_ANGLE& aStartAngle, const EDA_ANGLE& aArcAngle,
+                          double aAccuracy, ERROR_LOC aErrorLoc )
 {
-    double endAngle = aStartAngleDeg + aArcAngleDeg;
     int n = 2;
 
     if( aRadius >= aAccuracy )
-        n = GetArcToSegmentCount( aRadius, aAccuracy, aArcAngleDeg )+1;  // n >= 3
+        n = GetArcToSegmentCount( aRadius, aAccuracy, aArcAngle ) + 1;
 
     if( aErrorLoc == ERROR_OUTSIDE )
     {
-        int seg360 = std::abs( KiROUND( n * 360.0 / aArcAngleDeg ) );
+        int seg360 = std::abs( KiROUND( n * 360.0 / aArcAngle.AsDegrees() ) );
         int actual_delta_radius = CircleToEndSegmentDeltaRadius( aRadius, seg360 );
         aRadius += actual_delta_radius;
     }
 
     for( int i = 0; i <= n ; i++ )
     {
-        double rot = aStartAngleDeg;
-        rot += ( aArcAngleDeg * i ) / n;
+        EDA_ANGLE rot = aStartAngle;
+        rot += ( aArcAngle * i ) / n;
 
-        double x = aCenter.x + aRadius * cos( rot * M_PI / 180.0 );
-        double y = aCenter.y + aRadius * sin( rot * M_PI / 180.0 );
+        double x = aCenter.x + aRadius * cos( rot.AsRadians() );
+        double y = aCenter.y + aRadius * sin( rot.AsRadians() );
 
         aPolyline.Append( KiROUND( x ), KiROUND( y ) );
     }
@@ -532,8 +531,8 @@ int ConvertArcToPolyline( SHAPE_LINE_CHAIN& aPolyline, VECTOR2I aCenter, int aRa
 }
 
 
-void TransformArcToPolygon( SHAPE_POLY_SET& aCornerBuffer, const wxPoint& aStart,
-                            const wxPoint& aMid, const wxPoint& aEnd, int aWidth,
+void TransformArcToPolygon( SHAPE_POLY_SET& aCornerBuffer, const VECTOR2I& aStart,
+                            const VECTOR2I& aMid, const VECTOR2I& aEnd, int aWidth,
                             int aError, ERROR_LOC aErrorLoc )
 {
     SHAPE_ARC        arc( aStart, aMid, aEnd, aWidth );
@@ -589,11 +588,13 @@ void TransformArcToPolygon( SHAPE_POLY_SET& aCornerBuffer, const wxPoint& aStart
     polyshape.NewOutline();
 
     ConvertArcToPolyline( polyshape.Outline(2), center, arc_outer_radius,
-                          arc_angle_start_deg, arc_angle, aError, errorLocOuter );
+                          EDA_ANGLE( arc_angle_start_deg, DEGREES_T ),
+                          EDA_ANGLE( arc_angle, DEGREES_T ), aError, errorLocOuter );
 
     if( arc_inner_radius > 0 )
         ConvertArcToPolyline( polyshape.Outline(2), center, arc_inner_radius,
-                              arc_angle_end_deg, -arc_angle, aError, errorLocInner );
+                              EDA_ANGLE( arc_angle_end_deg, DEGREES_T ),
+                              -EDA_ANGLE( arc_angle, DEGREES_T ), aError, errorLocInner );
     else
         polyshape.Append( center );
 #else
@@ -665,7 +666,7 @@ void TransformArcToPolygon( SHAPE_POLY_SET& aCornerBuffer, const wxPoint& aStart
 }
 
 
-void TransformRingToPolygon( SHAPE_POLY_SET& aCornerBuffer, const wxPoint& aCentre, int aRadius,
+void TransformRingToPolygon( SHAPE_POLY_SET& aCornerBuffer, const VECTOR2I& aCentre, int aRadius,
                              int aWidth, int aError, ERROR_LOC aErrorLoc )
 {
     int inner_radius = aRadius - ( aWidth / 2 );

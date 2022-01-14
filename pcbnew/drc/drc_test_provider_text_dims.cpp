@@ -21,6 +21,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
+#include <macros.h>
 #include <pcb_text.h>
 #include <fp_text.h>
 #include <drc/drc_engine.h>
@@ -103,10 +104,33 @@ bool DRC_TEST_PROVIDER_TEXT_DIMS::Run()
                 if( !reportProgress( ii++, count, delta ) )
                     return false;
 
-                PCB_TEXT*      textItem = static_cast<PCB_TEXT*>( item );
-                DRC_CONSTRAINT constraint;
+                wxASSERT( item->Type() == PCB_TEXT_T || item->Type() == PCB_FP_TEXT_T );
 
-                if( !textItem->IsVisible() )
+                DRC_CONSTRAINT constraint;
+                int            actualH = 0;
+                int            actualT = 0;
+                bool           visible = false;
+
+                if( item->Type() == PCB_TEXT_T )
+                {
+                    PCB_TEXT*      textItem = static_cast<PCB_TEXT*>( item );
+                    visible = textItem->IsVisible();
+                    actualH = textItem->GetTextHeight();
+                    actualT = textItem->GetTextThickness();
+                }
+                else if( item->Type() == PCB_FP_TEXT_T )
+                {
+                    FP_TEXT*      fpTextItem = static_cast<FP_TEXT*>( item );
+                    visible = fpTextItem->IsVisible();
+                    actualH = fpTextItem->GetTextHeight();
+                    actualT = fpTextItem->GetTextThickness();
+                }
+                else
+                {
+                    UNIMPLEMENTED_FOR( item->GetClass() );
+                }
+
+                if( !visible )
                     return true;
 
                 if( !m_drcEngine->IsErrorLimitExceeded( DRCE_TEXT_HEIGHT ) )
@@ -116,17 +140,16 @@ bool DRC_TEST_PROVIDER_TEXT_DIMS::Run()
                     bool fail_min = false;
                     bool fail_max = false;
                     int  constraintHeight;
-                    int  actual = textItem->GetTextHeight();
 
                     if( constraint.GetSeverity() != RPT_SEVERITY_IGNORE )
                     {
-                        if( constraint.Value().HasMin() && actual < constraint.Value().Min() )
+                        if( constraint.Value().HasMin() && actualH < constraint.Value().Min() )
                         {
                             fail_min         = true;
                             constraintHeight = constraint.Value().Min();
                         }
 
-                        if( constraint.Value().HasMax() && actual > constraint.Value().Max() )
+                        if( constraint.Value().HasMax() && actualH > constraint.Value().Max() )
                         {
                             fail_max         = true;
                             constraintHeight = constraint.Value().Max();
@@ -142,14 +165,14 @@ bool DRC_TEST_PROVIDER_TEXT_DIMS::Run()
                             m_msg.Printf( _( "(%s min height %s; actual %s)" ),
                                           constraint.GetName(),
                                           MessageTextFromValue( userUnits(), constraintHeight ),
-                                          MessageTextFromValue( userUnits(), actual ) );
+                                          MessageTextFromValue( userUnits(), actualH ) );
                         }
                         else
                         {
                             m_msg.Printf( _( "(%s max height %s; actual %s)" ),
                                           constraint.GetName(),
                                           MessageTextFromValue( userUnits(), constraintHeight ),
-                                          MessageTextFromValue( userUnits(), actual ) );
+                                          MessageTextFromValue( userUnits(), actualH ) );
                         }
 
                         drcItem->SetErrorMessage( drcItem->GetErrorText() + wxS( " " ) + m_msg );
@@ -167,17 +190,16 @@ bool DRC_TEST_PROVIDER_TEXT_DIMS::Run()
                     bool fail_min = false;
                     bool fail_max = false;
                     int  constraintThickness;
-                    int  actual = textItem->GetTextThickness();
 
                     if( constraint.GetSeverity() != RPT_SEVERITY_IGNORE )
                     {
-                        if( constraint.Value().HasMin() && actual < constraint.Value().Min() )
+                        if( constraint.Value().HasMin() && actualT < constraint.Value().Min() )
                         {
                             fail_min            = true;
                             constraintThickness = constraint.Value().Min();
                         }
 
-                        if( constraint.Value().HasMax() && actual > constraint.Value().Max() )
+                        if( constraint.Value().HasMax() && actualT > constraint.Value().Max() )
                         {
                             fail_max            = true;
                             constraintThickness = constraint.Value().Max();
@@ -193,14 +215,14 @@ bool DRC_TEST_PROVIDER_TEXT_DIMS::Run()
                             m_msg.Printf( _( "(%s min thickness %s; actual %s)" ),
                                           constraint.GetName(),
                                           MessageTextFromValue( userUnits(), constraintThickness ),
-                                          MessageTextFromValue( userUnits(), actual ) );
+                                          MessageTextFromValue( userUnits(), actualT ) );
                         }
                         else
                         {
                             m_msg.Printf( _( "(%s max thickness %s; actual %s)" ),
                                           constraint.GetName(),
                                           MessageTextFromValue( userUnits(), constraintThickness ),
-                                          MessageTextFromValue( userUnits(), actual ) );
+                                          MessageTextFromValue( userUnits(), actualT ) );
                         }
 
                         drcItem->SetErrorMessage( drcItem->GetErrorText() + wxS( " " ) + m_msg );

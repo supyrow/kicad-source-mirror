@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2007, 2008 Lubo Racko <developer@lura.sk>
  * Copyright (C) 2007, 2008, 2012-2013 Alexander Lunev <al.lunev@yahoo.com>
- * Copyright (C) 2012-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2012-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -33,7 +33,6 @@
 #include <trigo.h>
 #include <xnode.h>
 
-#include <wx/gdicmn.h>
 #include <wx/string.h>
 
 namespace PCAD2KICAD {
@@ -287,13 +286,13 @@ void PCB_PAD::AddToFootprint( FOOTPRINT* aFootprint, int aRotation, bool aEncaps
             pad->SetShape( PAD_SHAPE::RECT ); // approximation
         }
 
-        pad->SetSize( wxSize( width, height ) );
-        pad->SetDelta( wxSize( 0, 0 ) );
-        pad->SetOrientation( m_rotation + aRotation );
+        pad->SetSize( VECTOR2I( width, height ) );
+        pad->SetDelta( VECTOR2I( 0, 0 ) );
+        pad->SetOrientation( EDA_ANGLE( m_rotation + aRotation, TENTHS_OF_A_DEGREE_T ) );
 
         pad->SetDrillShape( PAD_DRILL_SHAPE_CIRCLE );
-        pad->SetOffset( wxPoint( 0, 0 ) );
-        pad->SetDrillSize( wxSize( m_Hole, m_Hole ) );
+        pad->SetOffset( VECTOR2I( 0, 0 ) );
+        pad->SetDrillSize( VECTOR2I( m_Hole, m_Hole ) );
 
         pad->SetAttribute( padType );
 
@@ -314,9 +313,9 @@ void PCB_PAD::AddToFootprint( FOOTPRINT* aFootprint, int aRotation, bool aEncaps
     {
         // pad's "Position" is not relative to the footprint's, whereas Pos0 is relative to
         // the footprint's but is the unrotated coordinate.
-        wxPoint padpos( m_positionX, m_positionY );
+        VECTOR2I padpos( m_positionX, m_positionY );
         pad->SetPos0( padpos );
-        RotatePoint( &padpos, aFootprint->GetOrientation() );
+        RotatePoint( padpos, aFootprint->GetOrientation() );
         pad->SetPosition( padpos + aFootprint->GetPosition() );
     }
 
@@ -359,8 +358,8 @@ void PCB_PAD::AddToBoard()
             PCB_VIA* via = new PCB_VIA( m_board );
             m_board->Add( via );
 
-            via->SetPosition( wxPoint( m_positionX, m_positionY ) );
-            via->SetEnd( wxPoint( m_positionX, m_positionY ) );
+            via->SetPosition( VECTOR2I( m_positionX, m_positionY ) );
+            via->SetEnd( VECTOR2I( m_positionX, m_positionY ) );
 
             via->SetWidth( height );
             via->SetViaType( VIATYPE::THROUGH );
@@ -378,7 +377,7 @@ void PCB_PAD::AddToBoard()
 
         m_name.text = m_defaultPinDes;
 
-        footprint->SetPosition( wxPoint( m_positionX, m_positionY ) );
+        footprint->SetPosition( VECTOR2I( m_positionX, m_positionY ) );
         AddToFootprint( footprint, 0, true );
     }
 }

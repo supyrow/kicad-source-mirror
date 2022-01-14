@@ -88,7 +88,7 @@ void CLIPBOARD_IO::SaveSelection( const PCB_SELECTION& aSelected, bool isFootpri
         newFootprint.SetLocked( false );
 
         // locate the reference point at (0, 0) in the copied items
-        newFootprint.Move( wxPoint( -refPoint.x, -refPoint.y ) );
+        newFootprint.Move( VECTOR2I( -refPoint.x, -refPoint.y ) );
 
         Format( static_cast<BOARD_ITEM*>( &newFootprint ) );
     }
@@ -154,7 +154,7 @@ void CLIPBOARD_IO::SaveSelection( const PCB_SELECTION& aSelected, bool isFootpri
             }
 
             // locate the reference point at (0, 0) in the copied items
-            clone->Move( (wxPoint) -refPoint );
+            clone->Move( -refPoint );
 
             // Now delete items, duplicated but not added:
             for( BOARD_ITEM* skp_item : skipped_items )
@@ -163,7 +163,7 @@ void CLIPBOARD_IO::SaveSelection( const PCB_SELECTION& aSelected, bool isFootpri
 
         // Set the new relative internal local coordinates of copied items
         FOOTPRINT* editedFootprint = m_board->Footprints().front();
-        wxPoint    moveVector = partialFootprint.GetPosition() + editedFootprint->GetPosition();
+        VECTOR2I   moveVector = partialFootprint.GetPosition() + editedFootprint->GetPosition();
 
         partialFootprint.MoveAnchorPosition( moveVector );
 
@@ -221,7 +221,7 @@ void CLIPBOARD_IO::SaveSelection( const PCB_SELECTION& aSelected, bool isFootpri
                 PAD*       pad = (PAD*) item->Clone();
 
                 footprint->SetPosition( pad->GetPosition() );
-                pad->SetPos0( wxPoint() );
+                pad->SetPos0( VECTOR2I() );
                 footprint->Add( pad );
                 copy = footprint;
             }
@@ -251,7 +251,7 @@ void CLIPBOARD_IO::SaveSelection( const PCB_SELECTION& aSelected, bool isFootpri
                 prepItem( copy );
 
                 // locate the reference point at (0, 0) in the copied items
-                copy->Move( (wxPoint) -refPoint );
+                copy->Move( -refPoint );
 
                 Format( copy, 1 );
 
@@ -291,7 +291,7 @@ void CLIPBOARD_IO::SaveSelection( const PCB_SELECTION& aSelected, bool isFootpri
     // clipboard is closed seems to cause an ASAN error (heap-buffer-overflow)
     // since it uses the cached version of the clipboard data and not the system
     // clipboard data.
-    if( clipboard->IsSupported( wxDF_TEXT ) )
+    if( clipboard->IsSupported( wxDF_TEXT ) || clipboard->IsSupported( wxDF_UNICODETEXT ) )
     {
         wxTextDataObject data;
         clipboard->GetData( data );
@@ -314,7 +314,7 @@ BOARD_ITEM* CLIPBOARD_IO::Parse()
     if( !clipboardLock )
         return nullptr;
 
-    if( clipboard->IsSupported( wxDF_TEXT ) )
+    if( clipboard->IsSupported( wxDF_TEXT ) || clipboard->IsSupported( wxDF_UNICODETEXT ) )
     {
         wxTextDataObject data;
         clipboard->GetData( data );
@@ -370,7 +370,7 @@ void CLIPBOARD_IO::Save( const wxString& aFileName, BOARD* aBoard,
     // been processed by the system clipboard.  This appears to be needed for
     // extremely large clipboard copies on asynchronous linux clipboard managers
     // such as KDE's Klipper
-    if( clipboard->IsSupported( wxDF_TEXT ) )
+    if( clipboard->IsSupported( wxDF_TEXT ) || clipboard->IsSupported( wxDF_UNICODETEXT ) )
     {
         wxTextDataObject data;
         clipboard->GetData( data );
@@ -393,7 +393,7 @@ BOARD* CLIPBOARD_IO::Load( const wxString& aFileName, BOARD* aAppendToMe,
     if( !clipboardLock )
         return nullptr;
 
-    if( clipboard->IsSupported( wxDF_TEXT ) )
+    if( clipboard->IsSupported( wxDF_TEXT ) || clipboard->IsSupported( wxDF_UNICODETEXT ) )
     {
         wxTextDataObject data;
         clipboard->GetData( data );

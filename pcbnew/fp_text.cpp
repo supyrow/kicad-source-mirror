@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2015 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2012 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
- * Copyright (C) 1992-2019 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -35,6 +35,8 @@
 #include <string_utils.h>
 #include <painter.h>
 #include <geometry/shape_compound.h>
+#include <callback_gal.h>
+#include <convert_basic_shapes_to_polygon.h>
 
 FP_TEXT::FP_TEXT( FOOTPRINT* aParentFootprint, TEXT_TYPE text_type ) :
     BOARD_ITEM( aParentFootprint, PCB_FP_TEXT_T ),
@@ -43,7 +45,7 @@ FP_TEXT::FP_TEXT( FOOTPRINT* aParentFootprint, TEXT_TYPE text_type ) :
     FOOTPRINT* parentFootprint = static_cast<FOOTPRINT*>( m_parent );
 
     m_Type = text_type;
-    m_keepUpright = true;
+    SetKeepUpright( true );
 
     // Set text thickness to a default value
     SetTextThickness( Millimeter2iu( DEFAULT_TEXT_WIDTH ) );
@@ -70,26 +72,14 @@ FP_TEXT::~FP_TEXT()
 }
 
 
-void FP_TEXT::SetTextAngle( double aAngle )
-{
-    EDA_TEXT::SetTextAngle( NormalizeAngle360Min( aAngle ) );
-}
-
-
-void FP_TEXT::SetTextAngle( const EDA_ANGLE& aAngle )
-{
-    EDA_TEXT::SetTextAngle( aAngle );
-}
-
-
-bool FP_TEXT::TextHitTest( const wxPoint& aPoint, int aAccuracy ) const
+bool FP_TEXT::TextHitTest( const VECTOR2I& aPoint, int aAccuracy ) const
 {
     EDA_RECT rect = GetTextBox();
-    wxPoint location = aPoint;
+    VECTOR2I location = aPoint;
 
     rect.Inflate( aAccuracy );
 
-    RotatePoint( &location, GetTextPos(), -GetDrawRotation() );
+    RotatePoint( location, GetTextPos(), -GetDrawRotation() );
 
     return rect.Contains( location );
 }
@@ -108,39 +98,40 @@ bool FP_TEXT::TextHitTest( const EDA_RECT& aRect, bool aContains, int aAccuracy 
 }
 
 
-void FP_TEXT::KeepUpright( double aOldOrientation, double aNewOrientation )
+void FP_TEXT::KeepUpright( const EDA_ANGLE& aOldOrientation, const EDA_ANGLE& aNewOrientation )
 {
     if( !IsKeepUpright() )
         return;
 
-    double newAngle = GetTextAngle().AsTenthsOfADegree() + aNewOrientation;
-    NORMALIZE_ANGLE_POS( newAngle );
-    bool   needsFlipped = newAngle >= 1800.0;
+    EDA_ANGLE newAngle = GetTextAngle() + aNewOrientation;
+    newAngle.Normalize();
+
+    bool needsFlipped = newAngle >= ANGLE_180;
 
     if( needsFlipped )
     {
         SetHorizJustify( static_cast<GR_TEXT_H_ALIGN_T>( -GetHorizJustify() ) );
-        SetTextAngle( GetTextAngle().AsTenthsOfADegree() + 1800.0 );
+        SetTextAngle( GetTextAngle() + ANGLE_180 );
         SetDrawCoord();
     }
 }
 
 
-void FP_TEXT::Rotate( const wxPoint& aRotCentre, double aAngle )
+void FP_TEXT::Rotate( const VECTOR2I& aRotCentre, const EDA_ANGLE& aAngle )
 {
     // Used in footprint editing
     // Note also in footprint editor, m_Pos0 = m_Pos
 
-    wxPoint pt = GetTextPos();
-    RotatePoint( &pt, aRotCentre, aAngle );
+    VECTOR2I pt = GetTextPos();
+    RotatePoint( pt, aRotCentre, aAngle );
     SetTextPos( pt );
 
-    SetTextAngle( GetTextAngle().AsTenthsOfADegree() + aAngle );
+    SetTextAngle( GetTextAngle() + aAngle );
     SetLocalCoord();
 }
 
 
-void FP_TEXT::Flip( const wxPoint& aCentre, bool aFlipLeftRight )
+void FP_TEXT::Flip( const VECTOR2I& aCentre, bool aFlipLeftRight )
 {
     // flipping the footprint is relative to the X axis
     if( aFlipLeftRight )
@@ -151,7 +142,7 @@ void FP_TEXT::Flip( const wxPoint& aCentre, bool aFlipLeftRight )
     else
     {
         SetTextY( MIRRORVAL( GetTextPos().y, aCentre.y ) );
-        SetTextAngle( 1800 - GetTextAngle().AsTenthsOfADegree() );
+        SetTextAngle( ANGLE_180 - GetTextAngle() );
     }
 
     SetLayer( FlipLayer( GetLayer(), GetBoard()->GetCopperLayerCount() ) );
@@ -167,7 +158,7 @@ bool FP_TEXT::IsParentFlipped() const
 }
 
 
-void FP_TEXT::Mirror( const wxPoint& aCentre, bool aMirrorAroundXAxis )
+void FP_TEXT::Mirror( const VECTOR2I& aCentre, bool aMirrorAroundXAxis )
 {
     // the position is mirrored, but the text itself is not mirrored
 
@@ -180,7 +171,7 @@ void FP_TEXT::Mirror( const wxPoint& aCentre, bool aMirrorAroundXAxis )
 }
 
 
-void FP_TEXT::Move( const wxPoint& aMoveVector )
+void FP_TEXT::Move( const VECTOR2I& aMoveVector )
 {
     Offset( aMoveVector );
     SetLocalCoord();
@@ -201,10 +192,8 @@ void FP_TEXT::SetDrawCoord()
 
     if( parentFootprint  )
     {
-        double angle = parentFootprint->GetOrientation();
-
-        wxPoint pt = GetTextPos();
-        RotatePoint( &pt, angle );
+        VECTOR2I pt = GetTextPos();
+        RotatePoint( pt, parentFootprint->GetOrientation() );
         SetTextPos( pt );
 
         Offset( parentFootprint->GetPosition() );
@@ -219,10 +208,7 @@ void FP_TEXT::SetLocalCoord()
     if( parentFootprint )
     {
         m_Pos0 = GetTextPos() - parentFootprint->GetPosition();
-
-        double angle = parentFootprint->GetOrientation();
-
-        RotatePoint( &m_Pos0.x, &m_Pos0.y, -angle );
+        RotatePoint( &m_Pos0.x, &m_Pos0.y, - parentFootprint->GetOrientation() );
     }
     else
     {
@@ -245,26 +231,26 @@ const EDA_RECT FP_TEXT::GetBoundingBox() const
 EDA_ANGLE FP_TEXT::GetDrawRotation() const
 {
     FOOTPRINT* parentFootprint = static_cast<FOOTPRINT*>( m_parent );
-    double     rotation = GetTextAngle().AsTenthsOfADegree();
+    EDA_ANGLE  rotation = GetTextAngle();
 
     if( parentFootprint )
         rotation += parentFootprint->GetOrientation();
 
-    if( m_keepUpright )
+    if( IsKeepUpright() )
     {
         // Keep angle between 0 .. 90 deg. Otherwise the text is not easy to read
-        while( rotation > 900 )
-            rotation -= 1800;
+        while( rotation > ANGLE_90 )
+            rotation -= ANGLE_180;
 
-        while( rotation < 0 )
-            rotation += 1800;
+        while( rotation < ANGLE_0 )
+            rotation += ANGLE_180;
     }
     else
     {
-        NORMALIZE_ANGLE_POS( rotation );
+        rotation.Normalize();
     }
 
-    return EDA_ANGLE( rotation, EDA_ANGLE::TENTHS_OF_A_DEGREE );
+    return rotation;
 }
 
 
@@ -464,20 +450,30 @@ void FP_TEXT::TransformTextShapeWithClearanceToPolygon( SHAPE_POLY_SET& aCornerB
                                                         PCB_LAYER_ID aLayer, int aClearance,
                                                         int aError, ERROR_LOC aErrorLoc ) const
 {
-    struct TSEGM_2_POLY_PRMS prms;
+    KIGFX::GAL_DISPLAY_OPTIONS empty_opts;
+    KIFONT::FONT*              font = GetDrawFont();
+    int                        penWidth = GetEffectiveTextPenWidth();
 
-    prms.m_cornerBuffer = &aCornerBuffer;
-    prms.m_textWidth  = GetEffectiveTextPenWidth() + ( 2 * aClearance );
-    prms.m_error = aError;
-    wxSize size = GetTextSize();
-    int  penWidth = GetEffectiveTextPenWidth();
+    CALLBACK_GAL callback_gal( empty_opts,
+            // Stroke callback
+            [&]( const VECTOR2I& aPt1, const VECTOR2I& aPt2 )
+            {
+                TransformOvalToPolygon( aCornerBuffer, aPt1, aPt2, penWidth+ ( 2 * aClearance ),
+                                        aError, ERROR_INSIDE );
+            },
+            // Triangulation callback
+            [&]( const VECTOR2I& aPt1, const VECTOR2I& aPt2, const VECTOR2I& aPt3 )
+            {
+                aCornerBuffer.NewOutline();
 
-    if( IsMirrored() )
-        size.x = -size.x;
+                for( const VECTOR2I& point : { aPt1, aPt2, aPt3 } )
+                    aCornerBuffer.Append( point.x, point.y );
+            } );
 
-    GRText( nullptr, GetTextPos(), BLACK, GetShownText(), GetDrawRotation(), size,
-            GetHorizJustify(), GetVertJustify(), penWidth, IsItalic(), IsBold(), GetFont(),
-            addTextSegmToPoly, &prms );
+    TEXT_ATTRIBUTES attrs = GetAttributes();
+    attrs.m_Angle = GetDrawRotation();
+
+    font->Draw( &callback_gal, GetShownText(), GetTextPos(), attrs );
 }
 
 

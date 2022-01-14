@@ -1096,7 +1096,7 @@ int BOARD_EDITOR_CONTROL::PlaceFootprint( const TOOL_EVENT& aEvent )
                 if( fp->IsFlipped() )
                     fp->Flip( fp->GetPosition(), m_frame->Settings().m_FlipLeftRight );
 
-                fp->SetOrientation( 0 );
+                fp->SetOrientation( ANGLE_0 );
                 fp->SetPosition( wxPoint( cursorPos.x, cursorPos.y ) );
 
                 commit.Add( fp );
@@ -1529,7 +1529,7 @@ void BOARD_EDITOR_CONTROL::DoSetDrillOrigin( KIGFX::VIEW* aView, PCB_BASE_FRAME*
                                              EDA_ITEM* originViewItem, const VECTOR2D& aPosition )
 {
     aFrame->GetDesignSettings().SetAuxOrigin( wxPoint( aPosition ) );
-    originViewItem->SetPosition( (wxPoint) aPosition );
+    originViewItem->SetPosition( aPosition );
     aView->MarkDirty();
     aFrame->OnModify();
 }

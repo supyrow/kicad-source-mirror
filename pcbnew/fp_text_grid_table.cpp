@@ -264,7 +264,7 @@ long FP_TEXT_GRID_TABLE::GetValueAsLong( int aRow, int aCol )
 void FP_TEXT_GRID_TABLE::SetValue( int aRow, int aCol, const wxString &aValue )
 {
     FP_TEXT& text = this->at( (size_t) aRow );
-    wxPoint  pos;
+    VECTOR2I pos;
 
     switch( aCol )
     {
@@ -284,7 +284,8 @@ void FP_TEXT_GRID_TABLE::SetValue( int aRow, int aCol, const wxString &aValue )
         break;
 
     case FPT_ORIENTATION:
-        text.SetTextAngle( DoubleValueFromString( EDA_UNITS::DEGREES, aValue ) );
+        text.SetTextAngle( EDA_ANGLE( DoubleValueFromString( EDA_UNITS::UNSCALED, aValue ),
+                                      DEGREES_T ) );
         text.SetDrawCoord();
         break;
 

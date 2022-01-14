@@ -544,7 +544,7 @@ void EDA_DRAW_FRAME::AddStandardSubMenus( TOOL_MENU& aToolMenu )
     gridMenu->SetTool( commonTools );
     aToolMenu.AddSubMenu( gridMenu );
 
-    aMenu.AddMenu( zoomMenu.get(),   SELECTION_CONDITIONS::ShowAlways, 1000 );
+    aMenu.AddMenu( zoomMenu.get(), SELECTION_CONDITIONS::ShowAlways, 1000 );
     aMenu.AddMenu( gridMenu.get(), SELECTION_CONDITIONS::ShowAlways, 1000 );
 }
 
@@ -832,9 +832,9 @@ bool EDA_DRAW_FRAME::saveCanvasTypeSetting( EDA_DRAW_PANEL_GAL::GAL_TYPE aCanvas
 }
 
 
-wxPoint EDA_DRAW_FRAME::GetNearestGridPosition( const wxPoint& aPosition ) const
+VECTOR2I EDA_DRAW_FRAME::GetNearestGridPosition( const VECTOR2I& aPosition ) const
 {
-    const wxPoint& gridOrigin = GetGridOrigin();
+    const VECTOR2I& gridOrigin = GetGridOrigin();
     VECTOR2D       gridSize = GetCanvas()->GetGAL()->GetGridSize();
 
     double xOffset = fmod( gridOrigin.x, gridSize.x );
@@ -842,13 +842,13 @@ wxPoint EDA_DRAW_FRAME::GetNearestGridPosition( const wxPoint& aPosition ) const
     double yOffset = fmod( gridOrigin.y, gridSize.y );
     int    y = KiROUND( (aPosition.y - yOffset) / gridSize.y );
 
-    return wxPoint( KiROUND( x * gridSize.x + xOffset ), KiROUND( y * gridSize.y + yOffset ) );
+    return VECTOR2I( KiROUND( x * gridSize.x + xOffset ), KiROUND( y * gridSize.y + yOffset ) );
 }
 
 
-wxPoint EDA_DRAW_FRAME::GetNearestHalfGridPosition( const wxPoint& aPosition ) const
+VECTOR2I EDA_DRAW_FRAME::GetNearestHalfGridPosition( const VECTOR2I& aPosition ) const
 {
-    const wxPoint& gridOrigin = GetGridOrigin();
+    const VECTOR2I& gridOrigin = GetGridOrigin();
     VECTOR2D       gridSize = GetCanvas()->GetGAL()->GetGridSize() / 2.0;
 
     double xOffset = fmod( gridOrigin.x, gridSize.x );
@@ -856,7 +856,7 @@ wxPoint EDA_DRAW_FRAME::GetNearestHalfGridPosition( const wxPoint& aPosition ) c
     double yOffset = fmod( gridOrigin.y, gridSize.y );
     int    y = KiROUND( (aPosition.y - yOffset) / gridSize.y );
 
-    return wxPoint( KiROUND( x * gridSize.x + xOffset ), KiROUND( y * gridSize.y + yOffset ) );
+    return VECTOR2I( KiROUND( x * gridSize.x + xOffset ), KiROUND( y * gridSize.y + yOffset ) );
 }
 
 
@@ -893,7 +893,7 @@ std::vector<wxWindow*> EDA_DRAW_FRAME::findDialogs()
 }
 
 
-void EDA_DRAW_FRAME::FocusOnLocation( const wxPoint& aPos )
+void EDA_DRAW_FRAME::FocusOnLocation( const VECTOR2I& aPos )
 {
     bool  centerView = false;
     BOX2D r = GetCanvas()->GetView()->GetViewport();
@@ -1009,18 +1009,22 @@ bool EDA_DRAW_FRAME::LibraryFileBrowser( bool doOpen, wxFileName& aFilename,
     wxString prompt = doOpen ? _( "Select Library" ) : _( "New Library" );
     aFilename.SetExt( ext );
 
-    wxString dir = aGlobalPath;
+    wxString dir;
+
+    if( GetMruPath().IsEmpty() )
+        dir = aGlobalPath;
+    else
+        dir = GetMruPath();
 
 
     if( isDirectory && doOpen )
     {
-        if( !aIsGlobal )
+        if( !aIsGlobal && GetMruPath().IsEmpty() )
         {
             dir = Prj().GetProjectPath();
         }
 
-        wxDirDialog dlg( this, prompt, dir,
-                         wxDD_DEFAULT_STYLE | wxDD_DIR_MUST_EXIST );
+        wxDirDialog dlg( this, prompt, dir, wxDD_DEFAULT_STYLE | wxDD_DIR_MUST_EXIST );
 
         if( dlg.ShowModal() == wxID_CANCEL )
             return false;
@@ -1034,7 +1038,7 @@ bool EDA_DRAW_FRAME::LibraryFileBrowser( bool doOpen, wxFileName& aFilename,
         if( aFilename.GetName().empty() )
             aFilename.SetName( "Library" );
 
-        if( !aIsGlobal )
+        if( !aIsGlobal && GetMruPath().IsEmpty() )
         {
             dir = Prj().IsNullProject() ? aFilename.GetFullPath() : Prj().GetProjectPath();
         }
@@ -1049,6 +1053,8 @@ bool EDA_DRAW_FRAME::LibraryFileBrowser( bool doOpen, wxFileName& aFilename,
         aFilename = dlg.GetPath();
         aFilename.SetExt( ext );
     }
+
+    SetMruPath( aFilename.GetPath() );
 
     return true;
 }

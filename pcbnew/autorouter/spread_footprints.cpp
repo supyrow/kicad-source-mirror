@@ -161,14 +161,15 @@ void moveFootprintsInArea( CRectPlacement& aPlacementArea, std::vector <FOOTPRIN
 
     for( unsigned it = 0; it < vecSubRects.size(); ++it )
     {
-        wxPoint pos( vecSubRects[it].x, vecSubRects[it].y );
+        VECTOR2I pos( vecSubRects[it].x, vecSubRects[it].y );
         pos.x *= scale;
         pos.y *= scale;
 
         FOOTPRINT* footprint = aFootprintList[vecSubRects[it].n];
 
         EDA_RECT fpBBox = footprint->GetBoundingBox( false, false );
-        wxPoint mod_pos = pos + ( footprint->GetPosition() - fpBBox.GetOrigin() )
+        VECTOR2I mod_pos =
+                pos + ( footprint->GetPosition() - fpBBox.GetOrigin() )
                           + aFreeArea.GetOrigin();
 
         footprint->Move( mod_pos - footprint->GetPosition() );
@@ -186,7 +187,7 @@ static bool sortFootprintsbySheetPath( FOOTPRINT* ref, FOOTPRINT* compare );
  * @param aSpreadAreaPosition the position of the upper left corner of the
  *        area allowed to spread footprints
  */
-void SpreadFootprints( std::vector<FOOTPRINT*>* aFootprints, wxPoint aSpreadAreaPosition )
+void SpreadFootprints( std::vector<FOOTPRINT*>* aFootprints, VECTOR2I aSpreadAreaPosition )
 {
     // Build candidate list
     // calculate also the area needed by these footprints
@@ -260,7 +261,8 @@ void SpreadFootprints( std::vector<FOOTPRINT*>* aFootprints, wxPoint aSpreadArea
 
                 if( pass == 1 )
                 {
-                    wxPoint areapos = placementSheetAreas[subareaIdx].GetOrigin()
+                    VECTOR2I areapos =
+                            placementSheetAreas[subareaIdx].GetOrigin()
                                       + aSpreadAreaPosition;
                     freeArea.SetOrigin( areapos );
                 }
@@ -313,8 +315,8 @@ void SpreadFootprints( std::vector<FOOTPRINT*>* aFootprints, wxPoint aSpreadArea
             for( unsigned it = 0; it < vecSubRects.size(); ++it )
             {
                 TSubRect& srect = vecSubRects[it];
-                wxPoint pos( srect.x*scale, srect.y*scale );
-                wxSize size( srect.w*scale, srect.h*scale );
+                VECTOR2I  pos( srect.x * scale, srect.y * scale );
+                VECTOR2I  size( srect.w * scale, srect.h * scale );
 
                 // Avoid too large coordinates: Overlapping components
                 // are better than out of screen components

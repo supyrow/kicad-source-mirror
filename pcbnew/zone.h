@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2019 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -43,6 +43,18 @@ class BOARD;
 class ZONE;
 class MSG_PANEL_ITEM;
 
+/**
+ * define the type of a teardrop: on a via or pad, or atrack end
+ */
+enum class TEARDROP_TYPE
+{
+    TD_NONE = 0,        // Not a teardrop: just a standard zone
+    TD_UNSPECIFIED,     // Not specified/unknown teardrop type
+    TD_VIAPAD,          // a teardrop on a via or pad
+    TD_TRACKEND         // a teardrop on a track end
+                        // (when 2 tracks having different widths have a teardrop on the
+                        // end of the largest track)
+};
 
 /**
  * Handle a list of polygons defining a copper zone.
@@ -106,10 +118,10 @@ public:
     void InitDataFromSrcInCopyCtor( const ZONE& aZone );
 
     /**
-     * @return a wxPoint, position of the first point of the outline
+     * @return a VECTOR2I, position of the first point of the outline
      */
-    wxPoint GetPosition() const override;
-    void SetPosition( const wxPoint& aPos ) override {}
+    VECTOR2I GetPosition() const override;
+    void     SetPosition( const VECTOR2I& aPos ) override {}
 
     /**
      * @param aPriority is the priority level.
@@ -209,6 +221,12 @@ public:
     double CalculateFilledArea();
 
     /**
+     * Compute the area of the zone outline (not the filled area).
+     * @return the currently calculated area
+     */
+    double CalculateOutlineArea();
+
+    /**
      * This area is cached from the most recent call to CalculateFilledArea().
      *
      * @return the filled area
@@ -216,6 +234,16 @@ public:
     double GetFilledArea()
     {
         return m_area;
+    }
+
+    /**
+     * This area is cached from the most recent call to CalculateOutlineArea().
+     *
+     * @return the outline area
+     */
+    double GetOutlineArea()
+    {
+        return m_outlinearea;
     }
 
     std::mutex& GetLock()
@@ -298,7 +326,7 @@ public:
 
     ///
     // Like HitTest but selects the current corner to be operated on
-    void SetSelectedCorner( const wxPoint& aPosition, int aAccuracy );
+    void SetSelectedCorner( const VECTOR2I& aPosition, int aAccuracy );
 
     int GetLocalFlags() const { return m_localFlgs; }
     void SetLocalFlags( int aFlags ) { m_localFlgs = aFlags; }
@@ -327,20 +355,20 @@ public:
     /**
      * Test if a point is near an outline edge or a corner of this zone.
      *
-     * @param aPosition the wxPoint to test
+     * @param aPosition the VECTOR2I to test
      * @return true if a hit, else false
      */
-    bool HitTest( const wxPoint& aPosition, int aAccuracy = 0 ) const override;
+    bool HitTest( const VECTOR2I& aPosition, int aAccuracy = 0 ) const override;
 
     /**
-     * Test if the given wxPoint is within the bounds of a filled area of this zone.
+     * Test if the given VECTOR2I is within the bounds of a filled area of this zone.
      *
      * @param aLayer is the layer to test on
-     * @param aRefPos A wxPoint to test
+     * @param aRefPos A VECTOR2I to test
      * @param aAccuracy Expand the distance by which the areas are expanded for the hittest
      * @return true if a hit, else false
      */
-    bool HitTestFilledArea( PCB_LAYER_ID aLayer, const wxPoint &aRefPos, int aAccuracy = 0 ) const;
+    bool HitTestFilledArea( PCB_LAYER_ID aLayer, const VECTOR2I& aRefPos, int aAccuracy = 0 ) const;
 
     /**
      * Test if the given point is contained within a cutout of the zone.
@@ -352,12 +380,6 @@ public:
      */
     bool HitTestCutout( const VECTOR2I& aRefPos, int* aOutlineIdx = nullptr,
                         int* aHoleIdx = nullptr ) const;
-
-    bool HitTestCutout( const wxPoint& aRefPos, int* aOutlineIdx = nullptr,
-                        int* aHoleIdx = nullptr ) const
-    {
-        return HitTestCutout( VECTOR2I( aRefPos.x, aRefPos.y ), aOutlineIdx, aHoleIdx );
-    }
 
     /**
      * Some intersecting zones, despite being on the same layer with the same net, cannot be
@@ -411,47 +433,47 @@ public:
                                                bool ignoreLineWidth = false ) const override;
 
     /**
-     * Test if the given wxPoint is near a corner.
+     * Test if the given VECTOR2I is near a corner.
      *
-     * @param  refPos     is the wxPoint to test.
+     * @param  refPos     is the VECTOR2I to test.
      * @param  aAccuracy  increase the item bounding box by this amount.
      * @param  aCornerHit [out] is the index of the closest vertex found, useless when return
      *                    value is false.
      * @return true if some corner was found to be closer to refPos than aClearance; false
      *         otherwise.
      */
-    bool HitTestForCorner( const wxPoint& refPos, int aAccuracy,
+    bool HitTestForCorner( const VECTOR2I& refPos, int aAccuracy,
                            SHAPE_POLY_SET::VERTEX_INDEX& aCornerHit ) const;
 
     /**
-     * Test if the given wxPoint is near a corner.
-     * @param  refPos     is the wxPoint to test.
+     * Test if the given VECTOR2I is near a corner.
+     * @param  refPos     is the VECTOR2I to test.
      * @param  aAccuracy  increase the item bounding box by this amount.
      * @return true if some corner was found to be closer to refPos than aClearance; false
      *         otherwise.
      */
-    bool HitTestForCorner( const wxPoint& refPos, int aAccuracy ) const;
+    bool HitTestForCorner( const VECTOR2I& refPos, int aAccuracy ) const;
 
     /**
-     * Test if the given wxPoint is near a segment defined by 2 corners.
+     * Test if the given VECTOR2I is near a segment defined by 2 corners.
      *
-     * @param  refPos     is the wxPoint to test.
+     * @param  refPos     is the VECTOR2I to test.
      * @param  aAccuracy  increase the item bounding box by this amount.
      * @param  aCornerHit [out] is the index of the closest vertex found, useless when return
      *                    value is false.
      * @return true if some edge was found to be closer to refPos than aClearance.
      */
-    bool HitTestForEdge( const wxPoint& refPos, int aAccuracy,
+    bool HitTestForEdge( const VECTOR2I& refPos, int aAccuracy,
                          SHAPE_POLY_SET::VERTEX_INDEX& aCornerHit ) const;
 
     /**
-     * Test if the given wxPoint is near a segment defined by 2 corners.
+     * Test if the given VECTOR2I is near a segment defined by 2 corners.
      *
-     * @param  refPos     is the wxPoint to test.
+     * @param  refPos     is the VECTOR2I to test.
      * @param  aAccuracy  increase the item bounding box by this amount.
      * @return true if some edge was found to be closer to refPos than aClearance.
      */
-    bool HitTestForEdge( const wxPoint& refPos, int aAccuracy ) const;
+    bool HitTestForEdge( const VECTOR2I& refPos, int aAccuracy ) const;
 
     /**
      * @copydoc BOARD_ITEM::HitTest(const EDA_RECT& aRect,
@@ -473,7 +495,7 @@ public:
      *
      * @param offset is moving vector
      */
-    void Move( const wxPoint& offset ) override;
+    void Move( const VECTOR2I& offset ) override;
 
     /**
      * Move the outline Edge.
@@ -481,15 +503,14 @@ public:
      * @param offset is moving vector
      * @param aEdge is start point of the outline edge
      */
-    void MoveEdge( const wxPoint& offset, int aEdge );
+    void MoveEdge( const VECTOR2I& offset, int aEdge );
 
     /**
-     * Move the outlines.
+     * Rotate the outlines.
      *
      * @param aCentre is rot centre
-     * @param aAngle is in 0.1 degree
      */
-    void Rotate( const wxPoint& aCentre, double aAngle ) override;
+    void Rotate( const VECTOR2I& aCentre, const EDA_ANGLE& aAngle ) override;
 
     /**
      * Flip this object, i.e. change the board side for this object
@@ -497,7 +518,7 @@ public:
      *
      * @param aCentre is the rotation point.
      */
-    virtual void Flip( const wxPoint& aCentre, bool aFlipLeftRight ) override;
+    virtual void Flip( const VECTOR2I& aCentre, bool aFlipLeftRight ) override;
 
     /**
      * Mirror the outlines relative to a given horizontal axis the layer is not changed.
@@ -505,7 +526,7 @@ public:
      * @param aMirrorRef is axis position
      * @param aMirrorLeftRight mirror across Y axis (otherwise mirror across X)
      */
-    void Mirror( const wxPoint& aMirrorRef, bool aMirrorLeftRight );
+    void Mirror( const VECTOR2I& aMirrorRef, bool aMirrorLeftRight );
 
     /**
      * @return the class name.
@@ -569,7 +590,7 @@ public:
         return m_Poly->CVertex( index );
     }
 
-    void SetCornerPosition( int aCornerIndex, const wxPoint& new_pos )
+    void SetCornerPosition( int aCornerIndex, const VECTOR2I& new_pos )
     {
         SHAPE_POLY_SET::VERTEX_INDEX relativeIndices;
 
@@ -606,7 +627,7 @@ public:
      *                          even if it is duplicated.
      * @return true if the corner was added, false if error (aHoleIdx > hole count -1)
      */
-    bool AppendCorner( wxPoint aPosition, int aHoleIdx, bool aAllowDuplication = false );
+    bool AppendCorner( VECTOR2I aPosition, int aHoleIdx, bool aAllowDuplication = false );
 
     ZONE_BORDER_DISPLAY_STYLE GetHatchStyle() const { return m_borderStyle; }
     void SetHatchStyle( ZONE_BORDER_DISPLAY_STYLE aStyle ) { m_borderStyle = aStyle; }
@@ -710,7 +731,7 @@ public:
      * If the zone outline is empty, this is the main outline.  Otherwise it is a hole
      * inside the main outline.
      */
-    void AddPolygon( std::vector< wxPoint >& aPolygon );
+    void AddPolygon( std::vector<VECTOR2I>& aPolygon );
 
     void AddPolygon( const SHAPE_LINE_CHAIN& aPolygon );
 
@@ -730,6 +751,22 @@ public:
     BITMAPS GetMenuImage() const override;
 
     EDA_ITEM* Clone() const override;
+
+    /**
+     * @return true if the zone is a teardrop area
+     */
+    bool IsTeardropArea() const { return m_teardropType != TEARDROP_TYPE::TD_NONE; }
+
+    /**
+     * Set the type of teardrop if the zone is a teardrop area
+     * for non teardrop area, the type must be TEARDROP_TYPE::TD_NONE
+     */
+    void SetTeardropAreaType( TEARDROP_TYPE aType ) { m_teardropType = aType; }
+
+    /**
+     * @return the type of the teardrop ( has meaning only if the zone is a teardrop area)
+     */
+    TEARDROP_TYPE GetTeardropAreaType() const { return m_teardropType; }
 
     /**
      * Accessors to parameters used in Rule Area zones:
@@ -843,6 +880,12 @@ protected:
      */
     bool m_isRuleArea;
 
+    /* A zone outline can be a teardrop zone with different rules for priority
+     * (alway bigger priority than copper zones) and never removed from a
+     * copper zone having the same netcode
+     */
+    TEARDROP_TYPE m_teardropType;
+
     /* For keepout zones only:
      * what is not allowed inside the keepout ( pads, tracks and vias )
      */
@@ -934,9 +977,10 @@ protected:
     /// For each layer, a set of insulated islands that were not removed
     std::map<PCB_LAYER_ID, std::set<int>> m_insulatedIslands;
 
-    bool                      m_hv45;              // constrain edges to horiz, vert or 45º
+    bool                      m_hv45;              // constrain edges to horiz, vert or 45°
 
     double                    m_area;              // The filled zone area
+    double                    m_outlinearea;       // The outline zone area
 
     /// Lock used for multi-threaded filling on multi-layer zones
     std::mutex m_lock;

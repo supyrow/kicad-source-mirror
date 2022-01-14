@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2007-2015 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
- * Copyright (C) 2015-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2015-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -200,7 +200,7 @@ static inline double mapY( int y )
  * Kicad's #BOARD coordinates are in nanometers (called Internal Units or IU) and we are
  * exporting in units of mils, so we have to scale them.
  */
-static POINT mapPt( const wxPoint& pt )
+static POINT mapPt( const VECTOR2I& pt )
 {
     POINT ret;
 
@@ -301,7 +301,7 @@ PADSTACK* SPECCTRA_DB::makePADSTACK( BOARD* aBoard, PAD* aPad )
     {
         char offsetTxt[64];
 
-        wxPoint offset( aPad->GetOffset().x, aPad->GetOffset().y );
+        VECTOR2I offset( aPad->GetOffset().x, aPad->GetOffset().y );
 
         dsnOffset = mapPt( offset );
 
@@ -493,14 +493,14 @@ PADSTACK* SPECCTRA_DB::makePADSTACK( BOARD* aBoard, PAD* aPad )
          */
         double correctionFactor = cos( M_PI / (double) circleToSegmentsCount );
         int    extra_clearance = KiROUND( rradius * ( 1.0 - correctionFactor ) );
-        wxSize psize = aPad->GetSize();
+        VECTOR2I psize = aPad->GetSize();
         psize.x += extra_clearance * 2;
         psize.y += extra_clearance * 2;
         rradius += extra_clearance;
         bool doChamfer = aPad->GetShape() == PAD_SHAPE::CHAMFERED_RECT;
 
         TransformRoundChamferedRectToPolygon(
-                cornerBuffer, wxPoint( 0, 0 ), psize, 0, rradius, aPad->GetChamferRectRatio(),
+                cornerBuffer, VECTOR2I( 0, 0 ), psize, 0, rradius, aPad->GetChamferRectRatio(),
                 doChamfer ? aPad->GetChamferPositions() : 0, 0,
                 aBoard->GetDesignSettings().m_MaxError, ERROR_INSIDE );
         SHAPE_LINE_CHAIN& polygonal_shape = cornerBuffer.Outline( 0 );
@@ -549,7 +549,7 @@ PADSTACK* SPECCTRA_DB::makePADSTACK( BOARD* aBoard, PAD* aPad )
 
     case PAD_SHAPE::CUSTOM:
     {
-        std::vector<wxPoint> polygonal_shape;
+        std::vector<VECTOR2I> polygonal_shape;
         SHAPE_POLY_SET       pad_shape;
         aPad->MergePrimitivesAsPolygon( &pad_shape );
 
@@ -749,15 +749,15 @@ IMAGE* SPECCTRA_DB::makeIMAGE( BOARD* aBoard, FOOTPRINT* aFootprint )
             path->SetLayerId( "signal" );
 
             double radius = graphic->GetRadius();
-            wxPoint circle_centre = graphic->GetStart0();
+            VECTOR2I circle_centre = graphic->GetStart0();
 
             SHAPE_LINE_CHAIN polyline;
-            ConvertArcToPolyline( polyline, VECTOR2I( circle_centre ), radius, 0.0, 360.0,
+            ConvertArcToPolyline( polyline, VECTOR2I( circle_centre ), radius, ANGLE_0, ANGLE_360,
                                   ARC_HIGH_DEF, ERROR_INSIDE );
 
             for( int ii = 0; ii < polyline.PointCount(); ++ii )
             {
-                wxPoint corner( polyline.CPoint( ii ).x, polyline.CPoint( ii ).y );
+                VECTOR2I corner( polyline.CPoint( ii ).x, polyline.CPoint( ii ).y );
                 path->AppendPoint( mapPt( corner ) );
             }
 
@@ -774,7 +774,7 @@ IMAGE* SPECCTRA_DB::makeIMAGE( BOARD* aBoard, FOOTPRINT* aFootprint )
             outline->SetShape( path );
             path->SetAperture( scale( graphic->GetWidth() ) );
             path->SetLayerId( "signal" );
-            wxPoint corner = graphic->GetStart0();
+            VECTOR2I corner = graphic->GetStart0();
             path->AppendPoint( mapPt( corner ) );
 
             corner.x = graphic->GetEnd0().x;
@@ -802,29 +802,30 @@ IMAGE* SPECCTRA_DB::makeIMAGE( BOARD* aBoard, FOOTPRINT* aFootprint )
             path->SetAperture( 0 );//scale( graphic->GetWidth() ) );
             path->SetLayerId( "signal" );
 
-            wxPoint arc_centre = graphic->GetCenter0();
-            double radius = graphic->GetRadius() + graphic->GetWidth()/2;
-            double arcAngleDeg = graphic->GetArcAngle() / 10.0;
+            VECTOR2I  arc_centre = graphic->GetCenter0();
+            double    radius = graphic->GetRadius() + graphic->GetWidth()/2;
+            EDA_ANGLE arcAngle = graphic->GetArcAngle();
 
-            VECTOR2I startRadial = graphic->GetStart() - graphic->GetCenter();
-            double arcStartDeg = ArcTangente( startRadial.y, startRadial.x ) / 10;
-            NORMALIZE_ANGLE_DEGREES_POS( arcStartDeg );
+            VECTOR2I  startRadial = graphic->GetStart() - graphic->GetCenter();
+            EDA_ANGLE arcStart( startRadial );
+
+            arcStart.Normalize();
 
             // For some obscure reason, FreeRouter does not show the same polygonal
             // shape for polygons CW and CCW. So used only the order of corners
             // giving the best look.
-            if( arcAngleDeg < 0 )
+            if( arcAngle < ANGLE_0 )
             {
                 VECTOR2I endRadial = graphic->GetEnd() - graphic->GetCenter();
-                arcStartDeg = ArcTangente( endRadial.y, endRadial.x ) / 10;
-                NORMALIZE_ANGLE_DEGREES_POS( arcStartDeg );
+                arcStart = EDA_ANGLE( endRadial );
+                arcStart.Normalize();
 
-                arcAngleDeg = -arcAngleDeg;
+                arcAngle = -arcAngle;
             }
 
             SHAPE_LINE_CHAIN polyline;
-            ConvertArcToPolyline( polyline, VECTOR2I( arc_centre ), radius, arcStartDeg,
-                                  arcAngleDeg, ARC_HIGH_DEF, ERROR_INSIDE );
+            ConvertArcToPolyline( polyline, VECTOR2I( arc_centre ), radius, arcStart, arcAngle,
+                                  ARC_HIGH_DEF, ERROR_INSIDE );
 
             SHAPE_POLY_SET polyBuffer;
             polyBuffer.AddOutline( polyline );
@@ -834,8 +835,8 @@ IMAGE* SPECCTRA_DB::makeIMAGE( BOARD* aBoard, FOOTPRINT* aFootprint )
             if( radius > 0 )
             {
                 polyline.Clear();
-                ConvertArcToPolyline( polyline, VECTOR2I( arc_centre ), radius, arcStartDeg,
-                                      arcAngleDeg, ARC_HIGH_DEF, ERROR_INSIDE );
+                ConvertArcToPolyline( polyline, VECTOR2I( arc_centre ), radius, arcStart, arcAngle,
+                                      ARC_HIGH_DEF, ERROR_INSIDE );
 
                 // Add points in reverse order, to create a closed polygon
                 for( int ii = polyline.PointCount() - 1; ii >= 0; --ii )
@@ -845,7 +846,7 @@ IMAGE* SPECCTRA_DB::makeIMAGE( BOARD* aBoard, FOOTPRINT* aFootprint )
             // ensure the polygon is closed
             polyBuffer.Append( polyBuffer.Outline( 0 ).CPoint( 0 ) );
 
-            wxPoint move = graphic->GetCenter() - arc_centre;
+            VECTOR2I move = graphic->GetCenter() - arc_centre;
 
             TransformCircleToPolygon( polyBuffer, graphic->GetStart() - move,
                                       graphic->GetWidth() / 2, ARC_HIGH_DEF, ERROR_INSIDE );
@@ -858,7 +859,7 @@ IMAGE* SPECCTRA_DB::makeIMAGE( BOARD* aBoard, FOOTPRINT* aFootprint )
 
             for( int ii = 0; ii < poly.PointCount(); ++ii )
             {
-                wxPoint corner( poly.CPoint( ii ).x, poly.CPoint( ii ).y );
+                VECTOR2I corner( poly.CPoint( ii ).x, poly.CPoint( ii ).y );
                 path->AppendPoint( mapPt( corner ) );
             }
 
@@ -878,8 +879,8 @@ IMAGE* SPECCTRA_DB::makeIMAGE( BOARD* aBoard, FOOTPRINT* aFootprint )
         // IMAGE object coordinates are relative to the IMAGE not absolute board coordinates.
         ZONE untransformedZone( *zone );
 
-        double angle = -aFootprint->GetOrientation();
-        NORMALIZE_ANGLE_POS( angle );
+        EDA_ANGLE angle = -aFootprint->GetOrientation();
+        angle.Normalize();
         untransformedZone.Rotate( aFootprint->GetPosition(), angle );
 
         // keepout areas have a type. types are
@@ -920,11 +921,11 @@ IMAGE* SPECCTRA_DB::makeIMAGE( BOARD* aBoard, FOOTPRINT* aFootprint )
             // Handle the main outlines
             SHAPE_POLY_SET::ITERATOR iterator;
             bool is_first_point = true;
-            wxPoint startpoint;
+            VECTOR2I startpoint;
 
             for( iterator = untransformedZone.IterateWithHoles(); iterator; iterator++ )
             {
-                wxPoint point( iterator->x, iterator->y );
+                VECTOR2I point( iterator->x, iterator->y );
 
                 point -= aFootprint->GetPosition();
 
@@ -969,7 +970,7 @@ IMAGE* SPECCTRA_DB::makeIMAGE( BOARD* aBoard, FOOTPRINT* aFootprint )
                 wxASSERT( window );
                 wxASSERT( cutout );
 
-                wxPoint point( iterator->x, iterator->y );
+                VECTOR2I point( iterator->x, iterator->y );
 
                 point -= aFootprint->GetPosition();
 

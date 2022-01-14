@@ -151,6 +151,39 @@ VECTOR2I PCB_GRID_HELPER::AlignToArc( const VECTOR2I& aPoint, const SHAPE_ARC& a
 }
 
 
+VECTOR2I PCB_GRID_HELPER::AlignToNearestPad( const VECTOR2I& aMousePos, PADS& aPads )
+{
+    clearAnchors();
+
+    for( BOARD_ITEM* item : aPads )
+        computeAnchors( item, aMousePos, true );
+
+    double  minDist = std::numeric_limits<double>::max();
+    ANCHOR* nearestOrigin = nullptr;
+
+    for( ANCHOR& a : m_anchors )
+    {
+        BOARD_ITEM* item = static_cast<BOARD_ITEM*>( a.item );
+
+        if( ( ORIGIN & a.flags ) != ORIGIN )
+            continue;
+
+        if( !item->HitTest( aMousePos ) )
+            continue;
+
+        double dist = a.Distance( aMousePos );
+
+        if( dist < minDist )
+        {
+            minDist = dist;
+            nearestOrigin = &a;
+        }
+    }
+
+    return nearestOrigin ? nearestOrigin->pos : aMousePos;
+}
+
+
 VECTOR2I PCB_GRID_HELPER::BestDragOrigin( const VECTOR2I &aMousePos,
                                           std::vector<BOARD_ITEM*>& aItems )
 {
@@ -579,10 +612,10 @@ void PCB_GRID_HELPER::computeAnchors( BOARD_ITEM* aItem, const VECTOR2I& aRefPos
                 {
                     SHAPE_LINE_CHAIN lc;
                     lc.SetClosed( true );
-                    std::vector<wxPoint> poly;
+                    std::vector<VECTOR2I> poly;
                     shape->DupPolyPointsList( poly );
 
-                    for( const wxPoint& p : poly )
+                    for( const VECTOR2I& p : poly )
                     {
                         addAnchor( p, CORNER | SNAPPABLE, shape );
                         lc.Append( p );

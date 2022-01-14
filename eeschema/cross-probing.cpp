@@ -46,7 +46,7 @@ SCH_ITEM* SCH_EDITOR_CONTROL::FindSymbolAndItem( const wxString* aPath, const wx
 {
     SCH_SHEET_PATH* sheetWithSymbolFound = nullptr;
     SCH_SYMBOL*     symbol                  = nullptr;
-    wxPoint         pos;
+    VECTOR2I        pos;
     SCH_PIN*        pin = nullptr;
     SCH_SHEET_LIST  sheetList;
     SCH_ITEM*       foundItem = nullptr;
@@ -134,7 +134,7 @@ SCH_ITEM* SCH_EDITOR_CONTROL::FindSymbolAndItem( const wxString* aPath, const wx
             if( crossProbingSettings.zoom_to_fit )
             {
                 EDA_RECT bbox       = symbol->GetBoundingBox();
-                wxSize   bbSize     = bbox.Inflate( bbox.GetWidth() * 0.2f ).GetSize();
+                VECTOR2I bbSize = bbox.Inflate( bbox.GetWidth() * 0.2f ).GetSize();
                 VECTOR2D screenSize = getView()->GetViewport().GetSize();
 
                 // This code tries to come up with a zoom factor that doesn't simply zoom in

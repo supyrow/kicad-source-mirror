@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 1992-2013 Jean-Pierre Charras <jp.charras at wanadoo.fr>.
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -143,7 +143,7 @@ int DS_DATA_ITEM::GetPenSizeUi()
 }
 
 
-void DS_DATA_ITEM::MoveToUi( const wxPoint& aPosition )
+void DS_DATA_ITEM::MoveToUi( const VECTOR2I& aPosition )
 {
     DPOINT pos_mm;
     pos_mm.x = aPosition.x / DS_DATA_MODEL::GetTheInstance().m_WSunits2Iu;
@@ -202,7 +202,7 @@ void DS_DATA_ITEM::MoveStartPointTo( const DPOINT& aPosition )
 }
 
 
-void DS_DATA_ITEM::MoveStartPointToUi( const wxPoint& aPosition )
+void DS_DATA_ITEM::MoveStartPointToUi( const VECTOR2I& aPosition )
 {
     DPOINT pos_mm( aPosition.x / DS_DATA_MODEL::GetTheInstance().m_WSunits2Iu,
                    aPosition.y / DS_DATA_MODEL::GetTheInstance().m_WSunits2Iu );
@@ -254,7 +254,7 @@ void DS_DATA_ITEM::MoveEndPointTo( const DPOINT& aPosition )
 }
 
 
-void DS_DATA_ITEM::MoveEndPointToUi( const wxPoint& aPosition )
+void DS_DATA_ITEM::MoveEndPointToUi( const VECTOR2I& aPosition )
 {
     DPOINT pos_mm;
     pos_mm.x = aPosition.x / DS_DATA_MODEL::GetTheInstance().m_WSunits2Iu;
@@ -295,10 +295,10 @@ const DPOINT DS_DATA_ITEM::GetStartPos( int ii ) const
 }
 
 
-const wxPoint DS_DATA_ITEM::GetStartPosUi( int ii ) const
+const VECTOR2I DS_DATA_ITEM::GetStartPosUi( int ii ) const
 {
     DPOINT pos = GetStartPos( ii ) * DS_DATA_MODEL::GetTheInstance().m_WSunits2Iu;
-    return wxPoint( KiROUND( pos.x ), KiROUND( pos.y ) );
+    return VECTOR2I( KiROUND( pos.x ), KiROUND( pos.y ) );
 }
 
 
@@ -332,11 +332,11 @@ const DPOINT DS_DATA_ITEM::GetEndPos( int ii ) const
 }
 
 
-const wxPoint DS_DATA_ITEM::GetEndPosUi( int ii ) const
+const VECTOR2I DS_DATA_ITEM::GetEndPosUi( int ii ) const
 {
     DPOINT pos = GetEndPos( ii );
     pos = pos * DS_DATA_MODEL::GetTheInstance().m_WSunits2Iu;
-    return wxPoint( KiROUND( pos.x ), KiROUND( pos.y ) );
+    return VECTOR2I( KiROUND( pos.x ), KiROUND( pos.y ) );
 }
 
 
@@ -510,11 +510,11 @@ bool DS_DATA_ITEM_POLYGONS::IsInsidePage( int ii ) const
 }
 
 
-const wxPoint DS_DATA_ITEM_POLYGONS::GetCornerPositionUi( unsigned aIdx, int aRepeat ) const
+const VECTOR2I DS_DATA_ITEM_POLYGONS::GetCornerPositionUi( unsigned aIdx, int aRepeat ) const
 {
     DPOINT pos = GetCornerPosition( aIdx, aRepeat );
     pos = pos * DS_DATA_MODEL::GetTheInstance().m_WSunits2Iu;
-    return wxPoint( int(pos.x), int(pos.y) );
+    return VECTOR2I( int( pos.x ), int( pos.y ) );
 }
 
 
@@ -596,7 +596,7 @@ void DS_DATA_ITEM_TEXT::SyncDrawItems( DS_DRAW_ITEM_LIST* aCollector, KIGFX::VIE
 
         text->SetHorizJustify( m_Hjustify ) ;
         text->SetVertJustify( m_Vjustify );
-        text->SetTextAngle( m_Orient * 10 );    // graphic text orient unit = 0.1 degree
+        text->SetTextAngle( EDA_ANGLE( m_Orient, DEGREES_T ) );
         text->SetMultilineAllowed( multilines );
 
         // Increment label for the next text (has no meaning for multiline texts)
@@ -692,12 +692,12 @@ void DS_DATA_ITEM_TEXT::SetConstrainedTextSize()
         int linewidth = 0;
         size_micron.x = KiROUND( m_ConstrainedTextSize.x * FSCALE );
         size_micron.y = KiROUND( m_ConstrainedTextSize.y * FSCALE );
-        DS_DRAW_ITEM_TEXT dummy( DS_DRAW_ITEM_TEXT( this, 0, m_FullText, wxPoint( 0, 0 ),
+        DS_DRAW_ITEM_TEXT dummy( DS_DRAW_ITEM_TEXT( this, 0, m_FullText, VECTOR2I( 0, 0 ),
                                                     size_micron, linewidth, m_Italic, m_Bold ) );
         dummy.SetMultilineAllowed( true );
         dummy.SetHorizJustify( m_Hjustify ) ;
         dummy.SetVertJustify( m_Vjustify );
-        dummy.SetTextAngle( m_Orient * 10 );
+        dummy.SetTextAngle( EDA_ANGLE( m_Orient, DEGREES_T ) );
 
         EDA_RECT rect = dummy.GetTextBox();
         DSIZE size;

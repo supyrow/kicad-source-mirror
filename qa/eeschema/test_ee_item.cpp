@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2021 KiCad Developers, see AUTHORS.TXT for contributors.
+ * Copyright (C) 2022 KiCad Developers, see AUTHORS.TXT for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -87,6 +87,7 @@ public:
         case SCH_BITMAP_T:         return new SCH_BITMAP();
         case SCH_TEXT_T:           return new SCH_TEXT( wxPoint( 0, 0 ), "test text" );
         case SCH_LABEL_T:          return new SCH_LABEL( wxPoint( 0, 0 ), "test label" );
+        case SCH_NETCLASS_FLAG_T:  return new SCH_NETCLASS_FLAG( wxPoint( 0, 0 ) );
         case SCH_GLOBAL_LABEL_T:   return new SCH_GLOBALLABEL();
         case SCH_HIER_LABEL_T:     return new SCH_HIERLABEL();
         case SCH_FIELD_T:          return new SCH_FIELD( wxPoint( 0, 0 ), 0, nullptr );
@@ -156,7 +157,7 @@ BOOST_AUTO_TEST_CASE( Move )
                     []( EDA_ITEM* aOriginalItem, wxPoint aRef )
                     {
                         auto item = std::unique_ptr<EDA_ITEM>( aOriginalItem->Clone() );
-                        wxPoint originalPos = item->GetPosition();
+                        VECTOR2I originalPos = item->GetPosition();
 
                         SCH_ITEM* schItem = dynamic_cast<SCH_ITEM*>( item.get() );
                         LIB_ITEM* libItem = dynamic_cast<LIB_ITEM*>( item.get() );
@@ -201,6 +202,7 @@ BOOST_AUTO_TEST_CASE( Rotate )
         BOOST_TEST_CONTEXT( "Class: " << item->GetClass() )
         {
             // Four equivalent 90 degree rotations are an identity.
+            // (warning: only for items having no autoplaced fields).
 
             if( item->GetClass() == "SCH_SHEET_PIN" )
             {
@@ -211,6 +213,7 @@ BOOST_AUTO_TEST_CASE( Rotate )
 
                 if( schItem != nullptr )
                 {
+                    schItem->ClearFieldsAutoplaced();
                     // Only rotating pins around the center of parent sheet works.
                     schItem->Rotate( m_sheet.GetBodyBoundingBox().GetCenter() );
                     schItem->Rotate( m_sheet.GetBodyBoundingBox().GetCenter() );
@@ -241,6 +244,7 @@ BOOST_AUTO_TEST_CASE( Rotate )
 
                             if( schItem != nullptr )
                             {
+                                schItem->ClearFieldsAutoplaced();
                                 schItem->Rotate( aRef );
                                 schItem->Rotate( aRef );
                                 schItem->Rotate( aRef );
@@ -285,10 +289,11 @@ BOOST_AUTO_TEST_CASE( MirrorHorizontally )
                         SCH_ITEM* schItem = dynamic_cast<SCH_ITEM*>( item.get() );
                         LIB_ITEM* libItem = dynamic_cast<LIB_ITEM*>( item.get() );
 
-                        // Two mirrorings are an identity.
-
+                        // Two mirrorings are an identity
+                        // (warning: only for text items having no autoplaced fields).
                         if( schItem != nullptr )
                         {
+                            schItem->ClearFieldsAutoplaced();
                             schItem->MirrorHorizontally( aRef.x );
                             schItem->MirrorHorizontally( aRef.x );
                         }
@@ -328,10 +333,12 @@ BOOST_AUTO_TEST_CASE( MirrorVertically )
                         SCH_ITEM* schItem = dynamic_cast<SCH_ITEM*>( item.get() );
                         LIB_ITEM* libItem = dynamic_cast<LIB_ITEM*>( item.get() );
 
-                        // Two mirrorings are an identity.
+                        // Two mirrorings are an identity
+                        // (warning only for text items having no autoplaced fields).
 
                         if( schItem != nullptr )
                         {
+                            schItem->ClearFieldsAutoplaced();
                             schItem->MirrorVertically( aRef.y );
                             schItem->MirrorVertically( aRef.y );
                         }

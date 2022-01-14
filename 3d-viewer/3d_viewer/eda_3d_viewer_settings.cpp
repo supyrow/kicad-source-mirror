@@ -29,7 +29,7 @@
 using KIGFX::COLOR4D;
 
 ///! Update the schema version whenever a migration is required
-const int viewer3dSchemaVersion = 1;
+const int viewer3dSchemaVersion = 2;
 
 
 EDA_3D_VIEWER_SETTINGS::EDA_3D_VIEWER_SETTINGS()
@@ -37,25 +37,27 @@ EDA_3D_VIEWER_SETTINGS::EDA_3D_VIEWER_SETTINGS()
           m_Render(),
           m_Camera()
 {
-    m_params.emplace_back( new PARAM<int>( "render.engine", &m_Render.engine,
-                                           static_cast<int>( RENDER_ENGINE::OPENGL ),
-                                           static_cast<int>( RENDER_ENGINE::OPENGL ),
-                                           static_cast<int>( RENDER_ENGINE::RAYTRACING ) ) );
+    m_params.emplace_back( new PARAM_ENUM<RENDER_ENGINE>( "render.engine", &m_Render.engine,
+                                                          RENDER_ENGINE::OPENGL,
+                                                          RENDER_ENGINE::OPENGL,
+                                                          RENDER_ENGINE::RAYTRACING ) );
 
-    m_params.emplace_back( new PARAM<int>( "render.grid_type", &m_Render.grid_type,
-                                           static_cast<int>( GRID3D_TYPE::NONE ),
-                                           static_cast<int>( GRID3D_TYPE::NONE ),
-                                           static_cast<int>( GRID3D_TYPE::GRID_10MM ) ) );
+    m_params.emplace_back( new PARAM_ENUM<GRID3D_TYPE>( "render.grid_type", &m_Render.grid_type,
+                                                        GRID3D_TYPE::NONE,
+                                                        GRID3D_TYPE::NONE,
+                                                        GRID3D_TYPE::GRID_10MM ) );
 
-    m_params.emplace_back( new PARAM<int>( "render.material_mode", &m_Render.material_mode,
-                                           static_cast<int>( MATERIAL_MODE::NORMAL ),
-                                           static_cast<int>( MATERIAL_MODE::NORMAL ),
-                                           static_cast<int>( MATERIAL_MODE::CAD_MODE ) ) );
+    m_params.emplace_back( new PARAM_ENUM<MATERIAL_MODE>( "render.material_mode",
+                                                          &m_Render.material_mode,
+                                                          MATERIAL_MODE::NORMAL,
+                                                          MATERIAL_MODE::NORMAL,
+                                                          MATERIAL_MODE::CAD_MODE ) );
 
-    m_params.emplace_back( new PARAM<int>( "render.opengl_AA_mode", &m_Render.opengl_AA_mode,
-                                           static_cast<int>( ANTIALIASING_MODE::AA_8X ),
-                                           static_cast<int>( ANTIALIASING_MODE::AA_NONE ),
-                                           static_cast<int>( ANTIALIASING_MODE::AA_8X ) ) );
+    m_params.emplace_back( new PARAM_ENUM<ANTIALIASING_MODE>( "render.opengl_AA_mode",
+                                                              &m_Render.opengl_AA_mode,
+                                                              ANTIALIASING_MODE::AA_8X,
+                                                              ANTIALIASING_MODE::AA_NONE,
+                                                              ANTIALIASING_MODE::AA_8X ) );
 
     m_params.emplace_back( new PARAM<COLOR4D>( "render.opengl_selection_color",
                                                &m_Render.opengl_selection_color,
@@ -63,7 +65,7 @@ EDA_3D_VIEWER_SETTINGS::EDA_3D_VIEWER_SETTINGS()
 
     // OpenGL options
     m_params.emplace_back( new PARAM<bool>( "render.opengl_copper_thickness",
-                                            &m_Render.opengl_copper_thickness, true ) );
+                                            &m_Render.opengl_copper_thickness, false ) );
     m_params.emplace_back( new PARAM<bool>( "render.opengl_show_model_bbox",
                                             &m_Render.opengl_show_model_bbox, false ) );
     m_params.emplace_back( new PARAM<bool>( "render.opengl_highlight_on_rollover",
@@ -86,7 +88,7 @@ EDA_3D_VIEWER_SETTINGS::EDA_3D_VIEWER_SETTINGS()
                                             &m_Render.raytrace_backfloor, false ) );
     m_params.emplace_back( new PARAM<bool>( "render.raytrace_post_processing",
                                             &m_Render.raytrace_post_processing, true ) );
-    m_params.emplace_back(  new PARAM<bool>( "render.raytrace_procedural_textures",
+    m_params.emplace_back( new PARAM<bool>( "render.raytrace_procedural_textures",
                                              &m_Render.raytrace_procedural_textures, true ) );
     m_params.emplace_back( new PARAM<bool>( "render.raytrace_reflections",
                                             &m_Render.raytrace_reflections, true ) );
@@ -202,6 +204,12 @@ EDA_3D_VIEWER_SETTINGS::EDA_3D_VIEWER_SETTINGS()
                                            &m_Camera.projection_mode, 1 ) );
 
     registerMigration( 0, 1, std::bind( &EDA_3D_VIEWER_SETTINGS::migrateSchema0to1, this ) );
+
+    registerMigration( 1, 2, [&]() -> bool
+    {
+        Set( "render.opengl_copper_thickness", false );
+        return true;
+    } );
 }
 
 

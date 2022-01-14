@@ -4,7 +4,7 @@
  * Copyright (C) 2012 Jean-Pierre Charras, jean-pierre.charras@ujf-grenoble.fr
  * Copyright (C) 2012 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
  * Copyright (C) 2012 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -200,7 +200,7 @@ void PCB_DIMENSION_BASE::SetLayer( PCB_LAYER_ID aLayer )
 }
 
 
-void PCB_DIMENSION_BASE::Move( const wxPoint& offset )
+void PCB_DIMENSION_BASE::Move( const VECTOR2I& offset )
 {
     m_text.Offset( offset );
 
@@ -211,27 +211,26 @@ void PCB_DIMENSION_BASE::Move( const wxPoint& offset )
 }
 
 
-void PCB_DIMENSION_BASE::Rotate( const wxPoint& aRotCentre, double aAngle )
+void PCB_DIMENSION_BASE::Rotate( const VECTOR2I& aRotCentre, const EDA_ANGLE& aAngle )
 {
-    double newAngle = m_text.GetTextAngle().AsTenthsOfADegree() + aAngle;
+    EDA_ANGLE newAngle = m_text.GetTextAngle() + aAngle;
 
-    if( newAngle >= 3600 )
-        newAngle -= 3600;
+    newAngle.Normalize();
 
     m_text.SetTextAngle( newAngle );
 
-    wxPoint pt = m_text.GetTextPos();
-    RotatePoint( &pt, aRotCentre, aAngle );
+    VECTOR2I pt = m_text.GetTextPos();
+    RotatePoint( pt, aRotCentre, aAngle );
     m_text.SetTextPos( pt );
 
-    RotatePoint( &m_start, aRotCentre, aAngle );
-    RotatePoint( &m_end, aRotCentre, aAngle );
+    RotatePoint( m_start, aRotCentre, aAngle );
+    RotatePoint( m_end, aRotCentre, aAngle );
 
     Update();
 }
 
 
-void PCB_DIMENSION_BASE::Flip( const wxPoint& aCentre, bool aFlipLeftRight )
+void PCB_DIMENSION_BASE::Flip( const VECTOR2I& aCentre, bool aFlipLeftRight )
 {
     Mirror( aCentre );
 
@@ -239,10 +238,10 @@ void PCB_DIMENSION_BASE::Flip( const wxPoint& aCentre, bool aFlipLeftRight )
 }
 
 
-void PCB_DIMENSION_BASE::Mirror( const wxPoint& axis_pos, bool aMirrorLeftRight )
+void PCB_DIMENSION_BASE::Mirror( const VECTOR2I& axis_pos, bool aMirrorLeftRight )
 {
     int axis = aMirrorLeftRight ? axis_pos.x : axis_pos.y;
-    wxPoint newPos = m_text.GetTextPos();
+    VECTOR2I newPos = m_text.GetTextPos();
 
 #define INVERT( pos ) ( ( pos ) = axis - ( ( pos ) - axis ) )
     if( aMirrorLeftRight )
@@ -308,7 +307,7 @@ void PCB_DIMENSION_BASE::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame,
 
     if( Type() == PCB_DIM_CENTER_T || Type() == PCB_FP_DIM_CENTER_T )
     {
-        wxPoint startCoord = originTransforms.ToDisplayAbs( GetStart() );
+        VECTOR2I startCoord = originTransforms.ToDisplayAbs( GetStart() );
         wxString start = wxString::Format( "@(%s, %s)",
                                            MessageTextFromValue( units, startCoord.x ),
                                            MessageTextFromValue( units, startCoord.y ) );
@@ -317,11 +316,11 @@ void PCB_DIMENSION_BASE::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame,
     }
     else
     {
-        wxPoint startCoord = originTransforms.ToDisplayAbs( GetStart() );
+        VECTOR2I startCoord = originTransforms.ToDisplayAbs( GetStart() );
         wxString start = wxString::Format( "@(%s, %s)",
                                            MessageTextFromValue( units, startCoord.x ),
                                            MessageTextFromValue( units, startCoord.y ) );
-        wxPoint endCoord = originTransforms.ToDisplayAbs( GetEnd() );
+        VECTOR2I endCoord = originTransforms.ToDisplayAbs( GetEnd() );
         wxString end   = wxString::Format( "@(%s, %s)",
                                            MessageTextFromValue( units, endCoord.x ),
                                            MessageTextFromValue( units, endCoord.y ) );
@@ -349,7 +348,7 @@ std::shared_ptr<SHAPE> PCB_DIMENSION_BASE::GetEffectiveShape( PCB_LAYER_ID aLaye
 }
 
 
-bool PCB_DIMENSION_BASE::HitTest( const wxPoint& aPosition, int aAccuracy ) const
+bool PCB_DIMENSION_BASE::HitTest( const VECTOR2I& aPosition, int aAccuracy ) const
 {
     if( m_text.TextHitTest( aPosition ) )
         return true;
@@ -499,14 +498,14 @@ void PCB_DIMENSION_BASE::TransformShapeWithClearanceToPolygon( SHAPE_POLY_SET& a
 
         if( circle )
         {
-            TransformCircleToPolygon( aCornerBuffer, (wxPoint) circle->GetCenter(),
+            TransformCircleToPolygon( aCornerBuffer, circle->GetCenter(),
                                       circle->GetRadius() + m_lineThickness / 2 + aClearance,
                                       aError, aErrorLoc );
         }
         else if( seg )
         {
-            TransformOvalToPolygon( aCornerBuffer, (wxPoint) seg->GetSeg().A,
-                                    (wxPoint) seg->GetSeg().B, m_lineThickness + 2 * aClearance,
+            TransformOvalToPolygon( aCornerBuffer, seg->GetSeg().A,
+                                    seg->GetSeg().B, m_lineThickness + 2 * aClearance,
                                     aError, aErrorLoc );
         }
         else
@@ -552,7 +551,7 @@ BITMAPS PCB_DIM_ALIGNED::GetMenuImage() const
 }
 
 
-void PCB_DIM_ALIGNED::UpdateHeight( const wxPoint& aCrossbarStart, const wxPoint& aCrossbarEnd )
+void PCB_DIM_ALIGNED::UpdateHeight( const VECTOR2I& aCrossbarStart, const VECTOR2I& aCrossbarEnd )
 {
     VECTOR2D height( aCrossbarStart - GetStart() );
     VECTOR2D crossBar( aCrossbarEnd - aCrossbarStart );
@@ -596,8 +595,8 @@ void PCB_DIM_ALIGNED::updateGeometry()
 
     // Add crossbar
     VECTOR2I crossBarDistance = sign( m_height ) * extension.Resize( m_height );
-    m_crossBarStart = m_start + wxPoint( crossBarDistance );
-    m_crossBarEnd   = m_end + wxPoint( crossBarDistance );
+    m_crossBarStart = m_start + crossBarDistance;
+    m_crossBarEnd   = m_end + crossBarDistance;
 
     // Update text after calculating crossbar position but before adding crossbar lines
     updateText();
@@ -641,16 +640,16 @@ void PCB_DIM_ALIGNED::updateGeometry()
     double arrowRotNeg = dimension.Angle() - DEG2RAD( s_arrowAngle );
 
     m_shapes.emplace_back( new SHAPE_SEGMENT( m_crossBarStart,
-                           m_crossBarStart + wxPoint( arrowEnd.Rotate( arrowRotPos ) ) ) );
+                           m_crossBarStart + arrowEnd.Rotate( arrowRotPos ) ) );
 
     m_shapes.emplace_back( new SHAPE_SEGMENT( m_crossBarStart,
-                           m_crossBarStart + wxPoint( arrowEnd.Rotate( arrowRotNeg ) ) ) );
+                           m_crossBarStart + arrowEnd.Rotate( arrowRotNeg ) ) );
 
     m_shapes.emplace_back( new SHAPE_SEGMENT( m_crossBarEnd,
-                           m_crossBarEnd - wxPoint( arrowEnd.Rotate( arrowRotPos ) ) ) );
+                           m_crossBarEnd - arrowEnd.Rotate( arrowRotPos ) ) );
 
     m_shapes.emplace_back( new SHAPE_SEGMENT( m_crossBarEnd,
-                           m_crossBarEnd - wxPoint( arrowEnd.Rotate( arrowRotNeg ) ) ) );
+                           m_crossBarEnd - arrowEnd.Rotate( arrowRotNeg ) ) );
 }
 
 
@@ -671,21 +670,20 @@ void PCB_DIM_ALIGNED::updateText()
         VECTOR2I textOffset = crossbarCenter.Rotate( rotation ).Resize( textOffsetDistance );
         textOffset += crossbarCenter;
 
-        m_text.SetTextPos( m_crossBarStart + wxPoint( textOffset ) );
+        m_text.SetTextPos( m_crossBarStart + textOffset );
     }
     else if( m_textPosition == DIM_TEXT_POSITION::INLINE )
     {
-        m_text.SetTextPos( m_crossBarStart + wxPoint( crossbarCenter ) );
+        m_text.SetTextPos( m_crossBarStart + crossbarCenter );
     }
 
     if( m_keepTextAligned )
     {
-        double textAngle = 3600 - RAD2DECIDEG( crossbarCenter.Angle() );
+        EDA_ANGLE textAngle = FULL_CIRCLE - EDA_ANGLE( crossbarCenter.Angle(), RADIANS_T );
+        textAngle.Normalize();
 
-        NORMALIZE_ANGLE_POS( textAngle );
-
-        if( textAngle > 900 && textAngle <= 2700 )
-            textAngle -= 1800;
+        if( textAngle > ANGLE_90 && textAngle <= ANGLE_270 )
+            textAngle -= ANGLE_180;
 
         m_text.SetTextAngle( textAngle );
     }
@@ -762,12 +760,12 @@ void PCB_DIM_ORTHOGONAL::updateGeometry()
 
     // Add crossbar
     VECTOR2I crossBarDistance = sign( m_height ) * extension.Resize( m_height );
-    m_crossBarStart = m_start + wxPoint( crossBarDistance );
+    m_crossBarStart = m_start + crossBarDistance;
 
     if( m_orientation == DIR::HORIZONTAL )
-        m_crossBarEnd = wxPoint( m_end.x, m_crossBarStart.y );
+        m_crossBarEnd = VECTOR2I( m_end.x, m_crossBarStart.y );
     else
-        m_crossBarEnd = wxPoint( m_crossBarStart.x, m_end.y );
+        m_crossBarEnd = VECTOR2I( m_crossBarStart.x, m_end.y );
 
     // Add second extension line (m_end to crossbar end)
     if( m_orientation == DIR::HORIZONTAL )
@@ -824,17 +822,13 @@ void PCB_DIM_ORTHOGONAL::updateGeometry()
     double arrowRotPos = crossBarAngle.Angle() + DEG2RAD( s_arrowAngle );
     double arrowRotNeg = crossBarAngle.Angle() - DEG2RAD( s_arrowAngle );
 
-    m_shapes.emplace_back( new SHAPE_SEGMENT( m_crossBarStart,
-                                              m_crossBarStart + wxPoint( arrowEnd.Rotate( arrowRotPos ) ) ) );
+    m_shapes.emplace_back( new SHAPE_SEGMENT( m_crossBarStart, m_crossBarStart + arrowEnd.Rotate( arrowRotPos ) ) );
 
-    m_shapes.emplace_back( new SHAPE_SEGMENT( m_crossBarStart,
-                                              m_crossBarStart + wxPoint( arrowEnd.Rotate( arrowRotNeg ) ) ) );
+    m_shapes.emplace_back( new SHAPE_SEGMENT( m_crossBarStart, m_crossBarStart + arrowEnd.Rotate( arrowRotNeg ) ) );
 
-    m_shapes.emplace_back( new SHAPE_SEGMENT( m_crossBarEnd,
-                                              m_crossBarEnd - wxPoint( arrowEnd.Rotate( arrowRotPos ) ) ) );
+    m_shapes.emplace_back( new SHAPE_SEGMENT( m_crossBarEnd, m_crossBarEnd - arrowEnd.Rotate( arrowRotPos ) ) );
 
-    m_shapes.emplace_back( new SHAPE_SEGMENT( m_crossBarEnd,
-                                              m_crossBarEnd - wxPoint( arrowEnd.Rotate( arrowRotNeg ) ) ) );
+    m_shapes.emplace_back( new SHAPE_SEGMENT( m_crossBarEnd, m_crossBarEnd - arrowEnd.Rotate( arrowRotNeg ) ) );
 }
 
 
@@ -855,39 +849,37 @@ void PCB_DIM_ORTHOGONAL::updateText()
 
         textOffset += crossbarCenter;
 
-        m_text.SetTextPos( m_crossBarStart + wxPoint( textOffset ) );
+        m_text.SetTextPos( m_crossBarStart + textOffset );
     }
     else if( m_textPosition == DIM_TEXT_POSITION::INLINE )
     {
-        m_text.SetTextPos( m_crossBarStart + wxPoint( crossbarCenter ) );
+        m_text.SetTextPos( m_crossBarStart + crossbarCenter );
     }
 
     if( m_keepTextAligned )
     {
-        double textAngle;
-
         if( abs( crossbarCenter.x ) > abs( crossbarCenter.y ) )
-            textAngle = 0;
+            m_text.SetTextAngle( ANGLE_HORIZONTAL );
         else
-            textAngle = 900;
-
-        m_text.SetTextAngle( textAngle );
+            m_text.SetTextAngle( ANGLE_VERTICAL );
     }
 
     PCB_DIMENSION_BASE::updateText();
 }
 
 
-void PCB_DIM_ORTHOGONAL::Rotate( const wxPoint& aRotCentre, double aAngle )
+void PCB_DIM_ORTHOGONAL::Rotate( const VECTOR2I& aRotCentre, const EDA_ANGLE& aAngle )
 {
+    EDA_ANGLE angle( aAngle );
+
     // restrict angle to -179.9 to 180.0 degrees
-    if( aAngle > 1800 )
+    if( angle > ANGLE_180 )
     {
-        aAngle -= 3600;
+        angle -= ANGLE_360;
     }
-    else if( aAngle <= -1800 )
+    else if( angle <= -ANGLE_180 )
     {
-        aAngle += 3600;
+        angle += ANGLE_360;
     }
 
     // adjust orientation and height to new angle
@@ -895,7 +887,7 @@ void PCB_DIM_ORTHOGONAL::Rotate( const wxPoint& aRotCentre, double aAngle )
     // in the other cases we will use the nearest 90 degree angle to
     // choose at least an approximate axis for the target orientation
     // In case of exactly 45 or 135 degrees, we will round towards zero for consistency
-    if( aAngle > 450 && aAngle <= 1350 )
+    if( angle > ANGLE_45 && angle <= ANGLE_135 )
     {
         // about 90 degree
         if( m_orientation == DIR::HORIZONTAL )
@@ -908,7 +900,7 @@ void PCB_DIM_ORTHOGONAL::Rotate( const wxPoint& aRotCentre, double aAngle )
             m_height = -m_height;
         }
     }
-    else if( aAngle < -450 && aAngle >= -1350 )
+    else if( angle < -ANGLE_45 && angle >= -ANGLE_135 )
     {
         // about -90 degree
         if( m_orientation == DIR::HORIZONTAL )
@@ -921,14 +913,14 @@ void PCB_DIM_ORTHOGONAL::Rotate( const wxPoint& aRotCentre, double aAngle )
             m_orientation = DIR::HORIZONTAL;
         }
     }
-    else if( aAngle > 1350 || aAngle < -1350 )
+    else if( angle > ANGLE_135 || angle < -ANGLE_135 )
     {
         // about 180 degree
         m_height = -m_height;
     }
 
     // this will update m_crossBarStart and m_crossbarEnd
-    PCB_DIMENSION_BASE::Rotate( aRotCentre, aAngle );
+    PCB_DIMENSION_BASE::Rotate( aRotCentre, angle );
 }
 
 
@@ -1023,10 +1015,8 @@ void PCB_DIM_LEADER::updateGeometry()
     double arrowRotPos = firstLine.Angle() + DEG2RAD( s_arrowAngle );
     double arrowRotNeg = firstLine.Angle() - DEG2RAD( s_arrowAngle );
 
-    m_shapes.emplace_back( new SHAPE_SEGMENT( start,
-                                              start + (wxPoint) arrowEnd.Rotate( arrowRotPos ) ) );
-    m_shapes.emplace_back( new SHAPE_SEGMENT( start,
-                                              start + (wxPoint) arrowEnd.Rotate( arrowRotNeg ) ) );
+    m_shapes.emplace_back( new SHAPE_SEGMENT( start, start + arrowEnd.Rotate( arrowRotPos ) ) );
+    m_shapes.emplace_back( new SHAPE_SEGMENT( start, start + arrowEnd.Rotate( arrowRotNeg ) ) );
 
 
     if( !GetText().IsEmpty() )
@@ -1069,7 +1059,7 @@ void PCB_DIM_LEADER::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PA
     ORIGIN_TRANSFORMS originTransforms = aFrame->GetOriginTransforms();
     EDA_UNITS         units = aFrame->GetUserUnits();
 
-    wxPoint startCoord = originTransforms.ToDisplayAbs( GetStart() );
+    VECTOR2I startCoord = originTransforms.ToDisplayAbs( GetStart() );
     wxString start = wxString::Format( "@(%s, %s)",
                                        MessageTextFromValue( units, startCoord.x ),
                                        MessageTextFromValue( units, startCoord.y ) );
@@ -1117,11 +1107,11 @@ BITMAPS PCB_DIM_RADIAL::GetMenuImage() const
 }
 
 
-wxPoint PCB_DIM_RADIAL::GetKnee() const
+VECTOR2I PCB_DIM_RADIAL::GetKnee() const
 {
     VECTOR2I radial( m_end - m_start );
 
-    return m_end + (wxPoint) radial.Resize( m_leaderLength );
+    return m_end + radial.Resize( m_leaderLength );
 }
 
 
@@ -1129,16 +1119,18 @@ void PCB_DIM_RADIAL::updateText()
 {
     if( m_keepTextAligned )
     {
-        VECTOR2I textLine( Text().GetPosition() - GetKnee() );
-        double   textAngle = 3600 - RAD2DECIDEG( textLine.Angle() );
+        VECTOR2I  textLine( Text().GetPosition() - GetKnee() );
+        EDA_ANGLE textAngle = FULL_CIRCLE - EDA_ANGLE( textLine.Angle(), RADIANS_T );
 
-        NORMALIZE_ANGLE_POS( textAngle );
+        textAngle.Normalize();
 
-        if( textAngle > 900 && textAngle <= 2700 )
-            textAngle -= 1800;
+        if( textAngle > ANGLE_90 && textAngle <= ANGLE_270 )
+            textAngle -= ANGLE_180;
 
         // Round to nearest degree
-        m_text.SetTextAngle( KiROUND( textAngle / 10 ) * 10 );
+        textAngle = EDA_ANGLE( KiROUND( textAngle.AsDegrees() ), DEGREES_T );
+
+        m_text.SetTextAngle( textAngle );
     }
 
     PCB_DIMENSION_BASE::updateText();
@@ -1183,7 +1175,7 @@ void PCB_DIM_RADIAL::updateGeometry()
     VECTOR2I radial( m_end - m_start );
     radial = radial.Resize( m_leaderLength );
 
-    SEG arrowSeg( m_end, m_end + (wxPoint) radial );
+    SEG arrowSeg( m_end, m_end + radial );
     SEG textSeg( arrowSeg.B, m_text.GetPosition() );
 
     OPT_VECTOR2I arrowSegEnd = segPolyIntersection( polyBox, arrowSeg );
@@ -1203,10 +1195,8 @@ void PCB_DIM_RADIAL::updateGeometry()
     double arrowRotPos = radial.Angle() + DEG2RAD( s_arrowAngle );
     double arrowRotNeg = radial.Angle() - DEG2RAD( s_arrowAngle );
 
-    m_shapes.emplace_back( new SHAPE_SEGMENT( m_end,
-                                              m_end + (wxPoint) arrowEnd.Rotate( arrowRotPos ) ) );
-    m_shapes.emplace_back( new SHAPE_SEGMENT( m_end,
-                                              m_end + (wxPoint) arrowEnd.Rotate( arrowRotNeg ) ) );
+    m_shapes.emplace_back( new SHAPE_SEGMENT( m_end, m_end + arrowEnd.Rotate( arrowRotPos ) ) );
+    m_shapes.emplace_back( new SHAPE_SEGMENT( m_end, m_end + arrowEnd.Rotate( arrowRotNeg ) ) );
 
     m_shapes.emplace_back( new SHAPE_SEGMENT( textSeg ) );
 }

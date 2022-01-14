@@ -23,6 +23,9 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
+#include <pgm_base.h>
+#include <settings/settings_manager.h>
+#include <eeschema_settings.h>
 #include <sch_draw_panel.h>
 #include <widgets/msgpanel.h>
 #include <lib_symbol.h>
@@ -115,8 +118,16 @@ bool LIB_ITEM::HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy ) 
 }
 
 
-void LIB_ITEM::Print( const RENDER_SETTINGS* aSettings, const wxPoint& aOffset,
-                      void* aData, const TRANSFORM& aTransform )
+const wxString& LIB_ITEM::GetDefaultFont() const
+{
+    EESCHEMA_SETTINGS* cfg = Pgm().GetSettingsManager().GetAppSettings<EESCHEMA_SETTINGS>();
+
+    return cfg->m_Appearance.default_font;
+}
+
+
+void LIB_ITEM::Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset, void* aData,
+                      const TRANSFORM& aTransform )
 {
     print( aSettings, aOffset, aData, aTransform );
 }

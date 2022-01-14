@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2015-2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2015-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -97,7 +97,7 @@ PLACE_FILE_EXPORTER::PLACE_FILE_EXPORTER( BOARD* aBoard, bool aUnitsMM, bool aOn
     if( aUseAuxOrigin )
         m_place_Offset = m_board->GetDesignSettings().GetAuxOrigin();
     else
-        m_place_Offset = wxPoint( 0, 0 );
+        m_place_Offset = VECTOR2I( 0, 0 );
 }
 
 
@@ -173,7 +173,7 @@ std::string PLACE_FILE_EXPORTER::GenPositionData()
 
         for( int ii = 0; ii < m_fpCount; ii++ )
         {
-            wxPoint  footprint_pos;
+            VECTOR2I footprint_pos;
             footprint_pos  = list[ii].m_Footprint->GetPosition();
             footprint_pos -= m_place_Offset;
 
@@ -191,11 +191,13 @@ std::string PLACE_FILE_EXPORTER::GenPositionData()
             tmp << "\"" << csv_sep;
 
             tmp << wxString::Format( "%f%c%f%c%f",
-                                    footprint_pos.x * conv_unit, csv_sep,
-                                    // Keep the Y axis oriented from bottom to top,
-                                    // ( change y coordinate sign )
-                                    -footprint_pos.y * conv_unit, csv_sep,
-                                     list[ii].m_Footprint->GetOrientation() / 10.0 );
+                                     footprint_pos.x * conv_unit,
+                                     csv_sep,
+                                     // Keep the Y axis oriented from bottom to top,
+                                     // ( change y coordinate sign )
+                                     -footprint_pos.y * conv_unit,
+                                     csv_sep,
+                                     list[ii].m_Footprint->GetOrientation().AsDegrees() );
             tmp << csv_sep;
 
             tmp << ( (layer == F_Cu ) ? PLACE_FILE_EXPORTER::GetFrontSideName()
@@ -239,7 +241,7 @@ std::string PLACE_FILE_EXPORTER::GenPositionData()
 
         for( int ii = 0; ii < m_fpCount; ii++ )
         {
-            wxPoint  footprint_pos;
+            VECTOR2I footprint_pos;
             footprint_pos  = list[ii].m_Footprint->GetPosition();
             footprint_pos -= m_place_Offset;
 
@@ -263,7 +265,7 @@ std::string PLACE_FILE_EXPORTER::GenPositionData()
                     // Keep the coordinates in the first quadrant,
                     // (i.e. change y sign
                     -footprint_pos.y * conv_unit,
-                    list[ii].m_Footprint->GetOrientation() / 10.0,
+                    list[ii].m_Footprint->GetOrientation().AsDegrees(),
                     (layer == F_Cu ) ? GetFrontSideName().c_str() : GetBackSideName().c_str() );
             buffer += line;
         }
@@ -280,7 +282,7 @@ std::string PLACE_FILE_EXPORTER::GenReportData()
 {
     std::string buffer;
 
-    m_place_Offset = wxPoint( 0, 0 );
+    m_place_Offset = VECTOR2I( 0, 0 );
 
     // Select units:
     double conv_unit = m_unitsMM ? conv_unit_mm : conv_unit_inch;
@@ -351,13 +353,13 @@ std::string PLACE_FILE_EXPORTER::GenReportData()
 
         buffer += "\n";
 
-        wxPoint footprint_pos = footprint->GetPosition();
+        VECTOR2I footprint_pos = footprint->GetPosition();
         footprint_pos -= m_place_Offset;
 
         sprintf( line, "position %9.6f %9.6f  orientation %.2f\n",
                  footprint_pos.x * conv_unit,
                  footprint_pos.y * conv_unit,
-                 footprint->GetOrientation() / 10.0 );
+                 footprint->GetOrientation().AsDegrees() );
         buffer += line;
 
         if( footprint->GetLayer() == F_Cu )
@@ -402,7 +404,7 @@ std::string PLACE_FILE_EXPORTER::GenReportData()
                      pad->GetPos0().y * conv_unit,
                      pad->GetSize().x * conv_unit,
                      pad->GetSize().y * conv_unit,
-                     ( pad->GetOrientation() - footprint->GetOrientation()) / 10.0 );
+                     ( pad->GetOrientation() - footprint->GetOrientation() ).AsDegrees() );
             buffer += line;
 
             sprintf( line, "drill %9.6f\n", pad->GetDrillSize().x * conv_unit );

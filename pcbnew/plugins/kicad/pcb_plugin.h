@@ -45,6 +45,8 @@ class PCB_GROUP;
 class PCB_TRACK;
 class ZONE;
 class PCB_TEXT;
+class EDA_TEXT;
+class SHAPE_LINE_CHAIN;
 
 
 /// Current s-expression file format version.  2 was the last legacy format version.
@@ -108,7 +110,8 @@ class PCB_TEXT;
 //#define SEXPR_BOARD_FILE_VERSION    20211228  // Add allow_soldermask_bridges footprint attribute
 //#define SEXPR_BOARD_FILE_VERSION    20211229  // Stroke formatting
 //#define SEXPR_BOARD_FILE_VERSION    20211230  // Dimensions in footprints
-#define SEXPR_BOARD_FILE_VERSION      20221231  // Private footprint layers
+//#define SEXPR_BOARD_FILE_VERSION    20221231  // Private footprint layers
+#define SEXPR_BOARD_FILE_VERSION      20221232  // Fonts
 
 #define BOARD_FILE_HOST_VERSION       20200825  ///< Earlier files than this include the host tag
 #define LEGACY_ARC_FORMATTING         20210925  ///< These were the last to use old arc formatting
@@ -278,6 +281,10 @@ private:
     void format( const PCB_TRACK* aTrack, int aNestLevel = 0 ) const;
 
     void format( const ZONE* aZone, int aNestLevel = 0 ) const;
+
+    void formatPolyPts( const SHAPE_LINE_CHAIN& outline, int aNestLevel, bool aCompact ) const;
+
+    void formatRenderCache( const EDA_TEXT* aText, int aNestLevel ) const;
 
     void formatLayer( const BOARD_ITEM* aItem ) const;
 

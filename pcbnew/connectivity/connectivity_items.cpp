@@ -3,7 +3,7 @@
  * This program source code file is part of KICAD, a free EDA CAD application.
  *
  * Copyright (C) 2016-2018 CERN
- * Copyright (C) 2019-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2019-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * @author Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  *
@@ -92,7 +92,7 @@ const VECTOR2I CN_ITEM::GetAnchor( int n ) const
             default:                               break;    // Wicked witch
             }
 
-            if( pad->GetOrientation() )
+            if( !pad->GetOrientation().IsZero() )
                 RotatePoint( pt1, pad->ShapePos(), pad->GetOrientation() );
 
             // Thermal spokes on circular pads form an 'X' instead of a '+'
@@ -112,7 +112,7 @@ const VECTOR2I CN_ITEM::GetAnchor( int n ) const
             default:                     break;    // Wicked witch
             }
 
-            if( pad->GetOrientation() )
+            if( !pad->GetOrientation().IsZero() )
                 RotatePoint( pt1, pad->ShapePos(), pad->GetOrientation() );
 
             const std::shared_ptr<SHAPE_POLY_SET>& padPolySet = pad->GetEffectivePolygon();
@@ -376,10 +376,10 @@ bool CN_ANCHOR::IsDangling() const
         {
             ZONE* zone = static_cast<ZONE*>( item->Parent() );
 
-            if( zone->HitTestFilledArea( ToLAYER_ID( item->Layer() ), (wxPoint) Pos(), accuracy ) )
+            if( zone->HitTestFilledArea( ToLAYER_ID( item->Layer() ), Pos(), accuracy ) )
                 connected_count++;
         }
-        else if( item->Parent()->HitTest( (wxPoint) Pos(), accuracy ) )
+        else if( item->Parent()->HitTest( Pos(), accuracy ) )
         {
             connected_count++;
         }
@@ -402,10 +402,10 @@ int CN_ANCHOR::ConnectedItemsCount() const
         {
             ZONE* zone = static_cast<ZONE*>( item->Parent() );
 
-            if( zone->HitTestFilledArea( ToLAYER_ID( item->Layer() ), (wxPoint) Pos() ) )
+            if( zone->HitTestFilledArea( ToLAYER_ID( item->Layer() ), Pos() ) )
                 connected_count++;
         }
-        else if( item->Parent()->HitTest( (wxPoint) Pos() ) )
+        else if( item->Parent()->HitTest( Pos() ) )
         {
             connected_count++;
         }

@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2017-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2017-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -32,9 +32,11 @@
 #include <footprint.h>
 #include <fp_shape.h>
 #include <pad.h>
+#include <pcbnew_settings.h>
 #include <board_commit.h>
 #include <dialogs/dialog_push_pad_properties.h>
 #include <tools/pcb_actions.h>
+#include <tools/pcb_grid_helper.h>
 #include <tools/pcb_selection_tool.h>
 #include <tools/pcb_selection_conditions.h>
 #include <tools/edit_tool.h>
@@ -176,7 +178,7 @@ static void doPushPadProperties( BOARD& board, const PAD& aSrcPad, BOARD_COMMIT&
 {
     const FOOTPRINT* refFootprint = aSrcPad.GetParent();
 
-    double pad_orient = aSrcPad.GetOrientation() - refFootprint->GetOrientation();
+    EDA_ANGLE srcPadAngle = aSrcPad.GetOrientation() - refFootprint->GetOrientation();
 
     for( FOOTPRINT* footprint : board.Footprints() )
     {
@@ -186,14 +188,14 @@ static void doPushPadProperties( BOARD& board, const PAD& aSrcPad, BOARD_COMMIT&
         if( footprint->GetFPID() != refFootprint->GetFPID() )
             continue;
 
-        for( auto pad : footprint->Pads() )
+        for( PAD* pad : footprint->Pads() )
         {
             if( aPadShapeFilter && ( pad->GetShape() != aSrcPad.GetShape() ) )
                 continue;
 
-            double currpad_orient = pad->GetOrientation() - footprint->GetOrientation();
+            EDA_ANGLE padAngle = pad->GetOrientation() - footprint->GetOrientation();
 
-            if( aPadOrientFilter && ( currpad_orient != pad_orient ) )
+            if( aPadOrientFilter && ( padAngle != srcPadAngle ) )
                 continue;
 
             if( aPadLayerFilter && ( pad->GetLayerSet() != aSrcPad.GetLayerSet() ) )
@@ -295,6 +297,16 @@ int PAD_TOOL::EnumeratePads( const TOOL_EVENT& aEvent )
     std::list<PAD*> selectedPads;
     BOARD_COMMIT    commit( frame() );
     bool            isFirstPoint = true;   // make sure oldCursorPos is initialized at least once
+    PADS            pads = board()->GetFirstFootprint()->Pads();
+
+    MAGNETIC_SETTINGS mag_settings;
+    mag_settings.graphics = false;
+    mag_settings.tracks = MAGNETIC_OPTIONS::NO_EFFECT;
+    mag_settings.pads = MAGNETIC_OPTIONS::CAPTURE_ALWAYS;
+    PCB_GRID_HELPER grid( m_toolMgr, &mag_settings );
+
+    grid.SetSnap( true );
+    grid.SetUseGrid( false );
 
     auto setCursor =
             [&]()
@@ -318,6 +330,9 @@ int PAD_TOOL::EnumeratePads( const TOOL_EVENT& aEvent )
     {
         setCursor();
 
+        VECTOR2I cursorPos = grid.AlignToNearestPad( getViewControls()->GetMousePosition(), pads );
+        getViewControls()->ForceCursorPosition( true, cursorPos );
+
         if( evt->IsCancelInteractive() )
         {
             m_toolMgr->RunAction( PCB_ACTIONS::selectionClear, true );
@@ -336,7 +351,6 @@ int PAD_TOOL::EnumeratePads( const TOOL_EVENT& aEvent )
         else if( evt->IsDrag( BUT_LEFT ) || evt->IsClick( BUT_LEFT ) )
         {
             selectedPads.clear();
-            VECTOR2I cursorPos = getViewControls()->GetCursorPosition();
 
             // Be sure the old cursor mouse position was initialized:
             if( isFirstPoint )
@@ -734,14 +748,14 @@ void PAD_TOOL::recombinePad( PAD* aPad )
             if( aPad->GetSizeX() > aPad->GetSizeY() )
                 aPad->SetSizeX( aPad->GetSizeY() );
 
-            aPad->SetOffset( wxPoint( 0, 0 ) );
+            aPad->SetOffset( VECTOR2I( 0, 0 ) );
 
             PCB_SHAPE* shape = new PCB_SHAPE( nullptr, SHAPE_T::POLY );
             shape->SetFilled( true );
             shape->SetStroke( STROKE_PARAMS( 0, PLOT_DASH_TYPE::SOLID ) );
             shape->SetPolyShape( existingOutline );
             shape->Move( - aPad->GetPosition() );
-            shape->Rotate( wxPoint( 0, 0 ), - aPad->GetOrientation() );
+            shape->Rotate( VECTOR2I( 0, 0 ), - aPad->GetOrientation() );
 
             aPad->AddPrimitive( shape );
         }
@@ -788,7 +802,7 @@ void PAD_TOOL::recombinePad( PAD* aPad )
         }
 
         pcbShape->Move( - aPad->GetPosition() );
-        pcbShape->Rotate( wxPoint( 0, 0 ), - aPad->GetOrientation() );
+        pcbShape->Rotate( VECTOR2I( 0, 0 ), - aPad->GetOrientation() );
         aPad->AddPrimitive( pcbShape );
 
         fpShape->SetFlags( STRUCT_DELETED );

@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2009-2014 Jerry Jacobs
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -70,52 +70,45 @@ int Clamp_Text_PenSize( int aPenSize, const VECTOR2I& aSize, bool aBold = true )
  * @return the "best" value for a pen size to draw/plot a bold text.
  */
 int GetPenSizeForBold( int aTextSize );
+int GetPenSizeForBold( const wxSize& aTextSize );
 
 /**
  * @param aTextSize = the char size (height or width).
  * @return the "best" value for a pen size to draw/plot a non-bold text.
  */
 int GetPenSizeForNormal( int aTextSize );
+int GetPenSizeForNormal( const wxSize& aTextSize );
 
 /**
  * The full X size is GraphicTextWidth + the thickness of graphic lines.
  *
  * @return the X size of the graphic text.
  */
-int GraphicTextWidth( const wxString& aText, const VECTOR2I& aSize, bool italic, bool bold );
+int GraphicTextWidth( const wxString& aText, KIFONT::FONT* aFont, const VECTOR2I& aSize,
+                      int aThickness, bool aBold, bool aItalic );
 
 /**
- * Draw a graphic text (like footprint text)
+ * Print a graphic text through wxDC.
  *
- *  @param aClipBox the clipping rect, or NULL if no clipping.
- *  @param aDC the current Device Context. NULL if draw within a 3D GL Canvas.
- *  @param aPos text position (according to h_justify, v_justify).
- *  @param aColor (COLOR4D) = text color.
- *  @param aText text to draw.
- *  @param aOrient angle.
- *  @param aSize text size (size.x or size.y can be < 0 for mirrored texts).
- *  @param aH_justify horizontal justification (Left, center, right).
- *  @param aV_justify vertical justification (bottom, center, top).
- *  @param aWidth line width (pen width) (default = 0). If width < 0 : draw segments in
- *                sketch mode, width = abs(width).  Use a value min(aSize.x, aSize.y) / 5
- *                for a bold text.
- *  @param aItalic true to simulate an italic font.
- *  @param aBold true to use a bold font.
+ *  @param aDC is the current Device Context.
+ *  @param aPos is the text position (according to h_justify, v_justify).
+ *  @param aColor is the text color.
+ *  @param aText is the text to draw.
+ *  @param aOrient is the angle.
+ *  @param aSize is the text size (size.x or size.y can be < 0 for mirrored texts).
+ *  @param aH_justify is the horizontal justification (Left, center, right).
+ *  @param aV_justify is the vertical justification (bottom, center, top).
+ *  @param aWidth is the line width (pen width) (use default width if aWidth = 0).
+ *      if width < 0 : draw segments in sketch mode, width = abs(width)
+ *      Use a value min(aSize.x, aSize.y) / 5 for a bold text.
+ *  @param aItalic is the true to simulate an italic font.
+ *  @param aBold use true to use a bold font. Useful only with default width value (aWidth = 0).
  *  @param aFont is the font to use, or nullptr for the KiCad stroke font
- *  @param aCallback ( int x0, int y0, int xf, int yf, void* aData ) is a function called
- *                   (if non null) to draw each segment. used to draw 3D texts or for plotting.
- *                   NULL for normal drawings.
- *  @param aCallbackData is the auxiliary parameter aData for the callback function.
- *                       This can be nullptr if no auxiliary parameter is needed.
- *  @param aPlotter = a pointer to a PLOTTER instance, when this function is used to plot
- *                    the text. NULL to draw this text.
  */
-void GRText( wxDC* aDC, const VECTOR2I& aPos, const KIGFX::COLOR4D& aColor, const wxString& aText,
-             const EDA_ANGLE& aOrient, const VECTOR2I& aSize, enum GR_TEXT_H_ALIGN_T aH_justify,
-             enum GR_TEXT_V_ALIGN_T aV_justify, int aWidth, bool aItalic, bool aBold,
-             KIFONT::FONT* aFont,
-             void (*aCallback)( int x0, int y0, int xf, int yf, void* aData ) = nullptr,
-             void* aCallbackData = nullptr, PLOTTER* aPlotter = nullptr );
+void GRPrintText( wxDC* aDC, const VECTOR2I& aPos, const KIGFX::COLOR4D& aColor,
+                  const wxString& aText, const EDA_ANGLE& aOrient, const VECTOR2I& aSize,
+                  enum GR_TEXT_H_ALIGN_T aH_justify, enum GR_TEXT_V_ALIGN_T aV_justify,
+                  int aWidth, bool aItalic, bool aBold, KIFONT::FONT* aFont );
 
 
 #endif /* GR_TEXT_H */

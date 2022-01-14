@@ -73,12 +73,12 @@ public:
     }
 
     // pure virtuals:
-    void SetPosition( const wxPoint& ) override {}
-    void Print( const RENDER_SETTINGS* aSettings, const wxPoint& aOffset ) override {}
-    void Move( const wxPoint& aMoveVector ) override {}
+    void SetPosition( const VECTOR2I& ) override {}
+    void Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset ) override {}
+    void Move( const VECTOR2I& aMoveVector ) override {}
     void MirrorHorizontally( int aCenter ) override {}
     void MirrorVertically( int aCenter ) override {}
-    void Rotate( const wxPoint& aCenter ) override {}
+    void Rotate( const VECTOR2I& aCenter ) override {}
 
 #if defined(DEBUG)
     void Show( int , std::ostream&  ) const override {}
@@ -163,7 +163,7 @@ int SCH_SHEET_PATH::Cmp( const SCH_SHEET_PATH& aSheetPathToTest ) const
 }
 
 
-int SCH_SHEET_PATH::ComparePageNumAndName( const SCH_SHEET_PATH& aSheetPathToTest ) const
+int SCH_SHEET_PATH::ComparePageNum( const SCH_SHEET_PATH& aSheetPathToTest ) const
 {
     wxString pageA = GetPageNumber();
     wxString pageB = aSheetPathToTest.GetPageNumber();
@@ -172,10 +172,10 @@ int SCH_SHEET_PATH::ComparePageNumAndName( const SCH_SHEET_PATH& aSheetPathToTes
 
     if( pageNumComp == 0 )
     {
-        wxString nameA = Last()->GetName();
-        wxString nameB = aSheetPathToTest.Last()->GetName();
+        int virtualPageA = GetVirtualPageNumber();
+        int virtualPageB = aSheetPathToTest.GetVirtualPageNumber();
 
-        return nameA.Cmp( nameB );
+        return virtualPageA > virtualPageB ? 1 : -1;
     }
     else
     {
@@ -588,7 +588,7 @@ void SCH_SHEET_LIST::SortByPageNumbers( bool aUpdateVirtualPageNums )
     std::sort( begin(), end(),
         []( SCH_SHEET_PATH a, SCH_SHEET_PATH b ) -> bool
         {
-             return a.ComparePageNumAndName( b ) < 0;
+             return a.ComparePageNum( b ) < 0;
         } );
 
     if( aUpdateVirtualPageNums )

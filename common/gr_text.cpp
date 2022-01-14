@@ -1,15 +1,10 @@
-/**
- * Functions to draw and plot text on screen
- * @file draw_graphic_text.cpp
- */
-
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2018 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2012 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
  * Copyright (C) 2012 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -35,7 +30,7 @@
 #include <math/util.h>          // for KiROUND
 #include <font/font.h>
 
-#include <basic_gal.h>
+#include <callback_gal.h>
 
 
 /**
@@ -48,9 +43,21 @@ int GetPenSizeForBold( int aTextSize )
 }
 
 
+int GetPenSizeForBold( const wxSize& aTextSize )
+{
+    return GetPenSizeForBold( std::min( aTextSize.x, aTextSize.y ) );
+}
+
+
 int GetPenSizeForNormal( int aTextSize )
 {
     return KiROUND( aTextSize / 8.0 );
+}
+
+
+int GetPenSizeForNormal( const wxSize& aTextSize )
+{
+    return GetPenSizeForNormal( std::min( aTextSize.x, aTextSize.y ) );
 }
 
 
@@ -89,22 +96,20 @@ int Clamp_Text_PenSize( int aPenSize, const VECTOR2I& aSize, bool aBold )
 }
 
 
-int GraphicTextWidth( const wxString& aText, const VECTOR2I& aSize, bool aItalic, bool aBold )
+int GraphicTextWidth( const wxString& aText, KIFONT::FONT* aFont, const VECTOR2I& aSize,
+                      int aThickness, bool aBold, bool aItalic )
 {
-    basic_gal.SetFontItalic( aItalic );
-    basic_gal.SetFontBold( aBold );
-    basic_gal.SetGlyphSize( VECTOR2D( aSize ) );
+    if( !aFont )
+        aFont = KIFONT::FONT::GetFont();
 
-    VECTOR2D tsize = basic_gal.GetTextLineSize( aText );
-
-    return KiROUND( tsize.x );
+    return KiROUND( aFont->StringBoundaryLimits( aText, aSize, aThickness, aBold, aItalic ).x );
 }
 
 
 /**
- * Draw a graphic text (like footprint texts).
+ * Print a graphic text through wxDC.
  *
- *  @param aDC is the current Device Context. NULL if draw within a 3D GL Canvas.
+ *  @param aDC is the current Device Context.
  *  @param aPos is the text position (according to h_justify, v_justify).
  *  @param aColor is the text color.
  *  @param aText is the text to draw.
@@ -118,21 +123,17 @@ int GraphicTextWidth( const wxString& aText, const VECTOR2I& aSize, bool aItalic
  *  @param aItalic is the true to simulate an italic font.
  *  @param aBold use true to use a bold font. Useful only with default width value (aWidth = 0).
  *  @param aFont is the font to use, or nullptr for the KiCad stroke font
- *  @param aCallback( int x0, int y0, int xf, int yf, void* aData ) is a function called
- *                  (if non null) to draw each segment. used to draw 3D texts or for plotting.
- *                  NULL for normal drawings
- *  @param aCallbackData is the auxiliary parameter aData for the callback function.
- *                       can be nullptr if no auxiliary parameter is needed
- *  @param aPlotter is a PLOTTER instance, when this function is used to plot
- *                  the text. NULL to draw this text.
  */
-void GRText( wxDC* aDC, const VECTOR2I& aPos, const COLOR4D& aColor, const wxString& aText,
-             const EDA_ANGLE& aOrient, const VECTOR2I& aSize, enum GR_TEXT_H_ALIGN_T aH_justify,
-             enum GR_TEXT_V_ALIGN_T aV_justify, int aWidth, bool aItalic, bool aBold,
-             KIFONT::FONT* aFont, void (* aCallback)( int x0, int y0, int xf, int yf, void* aData ),
-             void* aCallbackData, PLOTTER* aPlotter )
+void GRPrintText( wxDC* aDC, const VECTOR2I& aPos, const COLOR4D& aColor, const wxString& aText,
+                  const EDA_ANGLE& aOrient, const VECTOR2I& aSize,
+                  enum GR_TEXT_H_ALIGN_T aH_justify, enum GR_TEXT_V_ALIGN_T aV_justify,
+                  int aWidth, bool aItalic, bool aBold, KIFONT::FONT* aFont )
 {
-    bool fill_mode = true;
+    KIGFX::GAL_DISPLAY_OPTIONS empty_opts;
+    bool                       fill_mode = true;
+
+    if( !aFont )
+        aFont = KIFONT::FONT::GetFont();
 
     if( aWidth == 0 && aBold ) // Use default values if aWidth == 0
         aWidth = GetPenSizeForBold( std::min( aSize.x, aSize.y ) );
@@ -143,30 +144,31 @@ void GRText( wxDC* aDC, const VECTOR2I& aPos, const COLOR4D& aColor, const wxStr
         fill_mode = false;
     }
 
-    basic_gal.SetIsFill( fill_mode );
-    basic_gal.SetLineWidth( aWidth );
+    CALLBACK_GAL callback_gal( empty_opts,
+            // Stroke callback
+            [&]( const VECTOR2I& aPt1, const VECTOR2I& aPt2 )
+            {
+                if( fill_mode )
+                    GRLine( nullptr, aDC, aPt1.x, aPt1.y, aPt2.x, aPt2.y, aWidth, aColor );
+                else
+                    GRCSegm( nullptr, aDC, aPt1.x, aPt1.y, aPt2.x, aPt2.y, aWidth, 0, aColor );
+            },
+            // Polygon callback
+            [&]( const SHAPE_LINE_CHAIN& aPoly )
+            {
+                GRClosedPoly( nullptr, aDC, aPoly.PointCount(), aPoly.CPoints().data(), true, aColor, aColor );
+            } );
 
-    EDA_TEXT dummy;
-    dummy.SetItalic( aItalic );
-    dummy.SetBold( aBold );
-    dummy.SetHorizJustify( aH_justify );
-    dummy.SetVertJustify( aV_justify );
+    TEXT_ATTRIBUTES attributes;
+    attributes.m_Angle = aOrient;
+    attributes.m_StrokeWidth = aWidth;
+    attributes.m_Italic = aItalic;
+    attributes.m_Bold = aBold;
+    attributes.m_Halign = aH_justify;
+    attributes.m_Valign = aV_justify;
+    attributes.m_Size = aSize;
 
-    wxSize size = wxSize( aSize.x, aSize.y );
-    dummy.SetMirrored( size.x < 0 );
-
-    if( size.x < 0 )
-        size.x = - size.x;
-
-    dummy.SetTextSize( size );
-
-    basic_gal.SetTextAttributes( &dummy );
-    basic_gal.SetPlotter( aPlotter );
-    basic_gal.SetCallback( aCallback, aCallbackData );
-    basic_gal.m_DC = aDC;
-    basic_gal.m_Color = aColor;
-    basic_gal.SetClipBox( nullptr );
-    basic_gal.StrokeText( aText, VECTOR2D( aPos ), aOrient.AsRadians() );
+    aFont->Draw( &callback_gal, aText, aPos, attributes );
 }
 
 

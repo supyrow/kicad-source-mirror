@@ -2,7 +2,7 @@
  * KiRouter - a push-and-(sometimes-)shove PCB router
  *
  * Copyright (C) 2013-2016 CERN
- * Copyright (C) 2016-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2016-2022 KiCad Developers, see AUTHORS.txt for contributors.
  * Author: Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  *
  * This program is free software: you can redistribute it and/or modify it
@@ -53,6 +53,7 @@
 
 #include <advanced_config.h>
 #include <pcbnew_settings.h>
+#include <macros.h>
 
 #include "pns_kicad_iface.h"
 
@@ -582,8 +583,6 @@ bool PNS_KICAD_IFACE_BASE::ImportSizes( PNS::SIZES_SETTINGS& aSizes, PNS::ITEM* 
 
     aSizes.SetHoleToHole( holeToHoleMin );
 
-    aSizes.ClearLayerPairs();
-
     return true;
 }
 
@@ -931,14 +930,14 @@ std::unique_ptr<PNS::SOLID> PNS_KICAD_IFACE_BASE::syncPad( PAD* aPad )
     solid->SetNet( aPad->GetNetCode() );
     solid->SetParent( aPad );
     solid->SetPadToDie( aPad->GetPadToDieLength() );
-    solid->SetOrientation( aPad->GetOrientation() );
+    solid->SetOrientation( aPad->GetOrientation().AsTenthsOfADegree() );
 
-    wxPoint wx_c = aPad->ShapePos();
-    wxPoint offset = aPad->GetOffset();
+    VECTOR2I wx_c = aPad->ShapePos();
+    VECTOR2I offset = aPad->GetOffset();
 
     VECTOR2I c( wx_c.x, wx_c.y );
 
-    RotatePoint( &offset, aPad->GetOrientation() );
+    RotatePoint( offset, aPad->GetOrientation() );
 
     solid->SetPos( VECTOR2I( c.x - offset.x, c.y - offset.y ) );
     solid->SetOffset( VECTOR2I( offset.x, offset.y ) );
@@ -1109,27 +1108,15 @@ bool PNS_KICAD_IFACE_BASE::syncTextItem( PNS::NODE* aWorld, EDA_TEXT* aText, PCB
     if( !IsCopperLayer( aLayer ) )
         return false;
 
-    int textWidth = aText->GetEffectiveTextPenWidth();
-    std::vector<wxPoint> textShape = aText->TransformToSegmentList();
+    std::unique_ptr<PNS::SOLID> solid = std::make_unique<PNS::SOLID>();
 
-    if( textShape.size() < 2 )
-        return false;
+    solid->SetLayer( aLayer );
+    solid->SetNet( -1 );
+    solid->SetParent( dynamic_cast<BOARD_ITEM*>( aText ) );
+    solid->SetShape( aText->GetEffectiveTextShape()->Clone() );
+    solid->SetRoutable( false );
 
-    for( size_t jj = 0; jj < textShape.size(); jj += 2 )
-    {
-        VECTOR2I start( textShape[jj] );
-        VECTOR2I end( textShape[jj+1] );
-        std::unique_ptr<PNS::SOLID> solid = std::make_unique<PNS::SOLID>();
-
-        solid->SetLayer( aLayer );
-        solid->SetNet( -1 );
-        solid->SetParent( dynamic_cast<BOARD_ITEM*>( aText ) );
-        solid->SetShape( new SHAPE_SEGMENT( start, end, textWidth ) );
-        solid->SetIsCompoundShapePrimitive();
-        solid->SetRoutable( false );
-
-        aWorld->Add( std::move( solid ) );
-    }
+    aWorld->Add( std::move( solid ) );
 
     return true;
 

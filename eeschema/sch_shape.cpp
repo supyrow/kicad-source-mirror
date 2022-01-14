@@ -30,6 +30,7 @@
 #include <bitmaps.h>
 #include <eda_draw_frame.h>
 #include <general.h>
+#include <schematic.h>
 #include <sch_shape.h>
 
 
@@ -47,13 +48,22 @@ EDA_ITEM* SCH_SHAPE::Clone() const
 }
 
 
+void SCH_SHAPE::SwapData( SCH_ITEM* aItem )
+{
+    SCH_SHAPE* shape = static_cast<SCH_SHAPE*>( aItem );
+
+    EDA_SHAPE::SwapShape( shape );
+    std::swap( m_layer, shape->m_layer );
+}
+
+
 void SCH_SHAPE::SetStroke( const STROKE_PARAMS& aStroke )
 {
     m_stroke = aStroke;
 }
 
 
-void SCH_SHAPE::Move( const wxPoint& aOffset )
+void SCH_SHAPE::Move( const VECTOR2I& aOffset )
 {
     move( aOffset );
 }
@@ -61,17 +71,17 @@ void SCH_SHAPE::Move( const wxPoint& aOffset )
 
 void SCH_SHAPE::MirrorHorizontally( int aCenter )
 {
-    flip( wxPoint( aCenter, 0 ), true );
+    flip( VECTOR2I( aCenter, 0 ), true );
 }
 
 
 void SCH_SHAPE::MirrorVertically( int aCenter )
 {
-    flip( wxPoint( 0, aCenter ), false );
+    flip( VECTOR2I( 0, aCenter ), false );
 }
 
 
-void SCH_SHAPE::Rotate( const wxPoint& aCenter )
+void SCH_SHAPE::Rotate( const VECTOR2I& aCenter )
 {
     rotate( aCenter, 900 );
 }
@@ -80,19 +90,19 @@ void SCH_SHAPE::Rotate( const wxPoint& aCenter )
 void SCH_SHAPE::Plot( PLOTTER* aPlotter ) const
 {
     int     pen_size = std::max( GetPenWidth(), aPlotter->RenderSettings()->GetMinPenWidth() );
-    wxPoint center;
-    int     radius;
-    int     startAngle;
-    int     endAngle;
+    VECTOR2I center;
+    int     radius     = 0;
+    int     startAngle = 0;
+    int     endAngle   = 0;
 
-    static std::vector<wxPoint> cornerList;
+    static std::vector<VECTOR2I> cornerList;
 
     if( GetShape() == SHAPE_T::POLY )
     {
         cornerList.clear();
 
         for( const VECTOR2I& pt : m_poly.Outline( 0 ).CPoints() )
-            cornerList.push_back( (wxPoint) pt );
+            cornerList.push_back( pt );
     }
     else if( GetShape() == SHAPE_T::ARC )
     {
@@ -107,23 +117,21 @@ void SCH_SHAPE::Plot( PLOTTER* aPlotter ) const
         aPlotter->SetColor( GetStroke().GetColor() );
 
     aPlotter->SetCurrentLineWidth( pen_size );
-    aPlotter->SetDash( GetStroke().GetPlotStyle() );
+    aPlotter->SetDash( GetEffectiveLineStyle() );
 
     switch( GetShape() )
     {
     case SHAPE_T::ARC:
-        // TODO: doesn't work for dash styles
         aPlotter->Arc( center, -endAngle, -startAngle, radius, FILL_T::NO_FILL, pen_size );
         break;
 
     case SHAPE_T::CIRCLE:
-        // TODO: doesn't work for dash styles
         aPlotter->Circle( GetStart(), GetRadius() * 2, FILL_T::NO_FILL, pen_size );
         break;
 
     case SHAPE_T::RECT:
     {
-        std::vector<wxPoint> pts = GetRectCorners();
+        std::vector<VECTOR2I> pts = GetRectCorners();
 
         aPlotter->MoveTo( pts[0] );
         aPlotter->LineTo( pts[1] );
@@ -145,7 +153,6 @@ void SCH_SHAPE::Plot( PLOTTER* aPlotter ) const
         break;
 
     case SHAPE_T::BEZIER:
-        // TODO: doesn't work for dash styles
         aPlotter->PlotPoly( m_bezierPoints, FILL_T::NO_FILL, pen_size );
         break;
 
@@ -190,42 +197,50 @@ void SCH_SHAPE::Plot( PLOTTER* aPlotter ) const
 
 int SCH_SHAPE::GetPenWidth() const
 {
+    if( m_stroke.GetWidth() > 0 )
+        return m_stroke.GetWidth();
+
     // Historically 0 meant "default width" and negative numbers meant "don't stroke".
     if( GetWidth() < 0 && GetFillMode() != FILL_T::NO_FILL )
         return 0;
-    else
-        return std::max( GetWidth(), 1 );
+
+    SCHEMATIC* schematic = Schematic();
+
+    if( schematic )
+        return schematic->Settings().m_DefaultLineWidth;
+
+    return Mils2iu( DEFAULT_LINE_WIDTH_MILS );
 }
 
 
-void SCH_SHAPE::Print( const RENDER_SETTINGS* aSettings, const wxPoint& aOffset )
+void SCH_SHAPE::Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset )
 {
     int      penWidth = GetPenWidth();
     wxDC*    DC = aSettings->GetPrintDC();
-    wxPoint  pt1 = GetStart();
-    wxPoint  pt2 = GetEnd();
-    wxPoint  c;
+    VECTOR2I pt1 = GetStart();
+    VECTOR2I pt2 = GetEnd();
+    VECTOR2I c;
     COLOR4D  color;
 
     penWidth = std::max( penWidth, aSettings->GetDefaultPenWidth() );
 
     unsigned ptCount = 0;
-    wxPoint* buffer = nullptr;
+    VECTOR2I* buffer = nullptr;
 
     if( GetShape() == SHAPE_T::POLY )
     {
         SHAPE_LINE_CHAIN poly = m_poly.Outline( 0 );
 
         ptCount = poly.GetPointCount();
-        buffer = new wxPoint[ ptCount ];
+        buffer = new VECTOR2I[ptCount];
 
         for( unsigned ii = 0; ii < ptCount; ++ii )
-            buffer[ii] = (wxPoint) poly.CPoint( ii );
+            buffer[ii] = poly.CPoint( ii );
     }
     else if( GetShape() == SHAPE_T::BEZIER )
     {
         ptCount = m_bezierPoints.size();
-        buffer = new wxPoint[ ptCount ];
+        buffer = new VECTOR2I[ptCount];
 
         for( size_t ii = 0; ii < ptCount; ++ii )
             buffer[ii] = m_bezierPoints[ii];
@@ -312,7 +327,7 @@ void SCH_SHAPE::Print( const RENDER_SETTINGS* aSettings, const wxPoint& aOffset 
         for( SHAPE* shape : shapes )
         {
             STROKE_PARAMS::Stroke( shape, GetStroke().GetPlotStyle(), penWidth, aSettings,
-                                   [&]( const wxPoint& a, const wxPoint& b )
+                                   [&]( const VECTOR2I& a, const VECTOR2I& b )
                                    {
                                        GRLine( nullptr, DC, a.x, a.y, b.x, b.y, penWidth, color );
                                    } );
@@ -392,7 +407,7 @@ void SCH_SHAPE::ViewGetLayers( int aLayers[], int& aCount ) const
 }
 
 
-void SCH_SHAPE::AddPoint( const wxPoint& aPosition )
+void SCH_SHAPE::AddPoint( const VECTOR2I& aPosition )
 {
     if( GetShape() == SHAPE_T::POLY )
     {

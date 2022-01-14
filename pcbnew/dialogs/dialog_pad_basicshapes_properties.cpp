@@ -119,7 +119,7 @@ bool DIALOG_PAD_PRIMITIVES_PROPERTIES::TransferDataToWindow()
         m_endY.SetValue( m_shape->GetCenter().y );
         m_radiusLabel->SetLabel( _( "Angle:" ) );
         m_radius.SetUnits( EDA_UNITS::DEGREES );
-        m_radius.SetValue( m_shape->GetArcAngle() );
+        m_radius.SetValue( m_shape->GetArcAngle().AsTenthsOfADegree() );
         m_ctrl1X.Show( false, true );
         m_ctrl1Y.Show( false, true );
         m_ctrl2X.Show( false, true );
@@ -578,12 +578,12 @@ DIALOG_PAD_PRIMITIVES_TRANSFORM::DIALOG_PAD_PRIMITIVES_TRANSFORM( wxWindow* aPar
 
 
 // A helper function in geometry transform
-inline void geom_transf( wxPoint& aCoord, const wxPoint& aMove, double aScale, double aRotation )
+inline void geom_transf( VECTOR2I& aCoord, const VECTOR2I& aMove, double aScale, double aRotation )
 {
     aCoord.x = KiROUND( aCoord.x * aScale );
     aCoord.y = KiROUND( aCoord.y * aScale );
     aCoord += aMove;
-    RotatePoint( &aCoord, aRotation );
+    RotatePoint( aCoord, aRotation );
 }
 
 
@@ -631,7 +631,7 @@ void DIALOG_PAD_PRIMITIVES_TRANSFORM::Transform( std::vector<std::shared_ptr<PCB
 
             shape->Move( currMoveVect );
             shape->Scale( scale );
-            shape->Rotate( wxPoint( 0, 0 ), curr_rotation );
+            shape->Rotate( VECTOR2I( 0, 0 ), EDA_ANGLE( curr_rotation, TENTHS_OF_A_DEGREE_T ) );
         }
 
         // Prepare new transform on duplication:

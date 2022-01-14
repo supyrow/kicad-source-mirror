@@ -262,7 +262,7 @@ public:
      * @param aScreen is the screen to examine, or nullptr to examine the current screen.
      * @return True if any wires or buses were broken.
      */
-    bool BreakSegment( SCH_LINE* aSegment, const wxPoint& aPoint,
+    bool BreakSegment( SCH_LINE* aSegment, const VECTOR2I& aPoint,
                        SCH_LINE** aNewSegment = nullptr, SCH_SCREEN* aScreen = nullptr );
 
     /**
@@ -275,7 +275,7 @@ public:
      * @param aScreen is the screen to examine, or nullptr to examine the current screen.
      * @return True if any wires or buses were broken.
      */
-    bool BreakSegments( const wxPoint& aPoint, SCH_SCREEN* aScreen = nullptr );
+    bool BreakSegments( const VECTOR2I& aPoint, SCH_SCREEN* aScreen = nullptr );
 
     /**
      * Test all junctions and bus entries in the schematic for intersections with wires and
@@ -429,6 +429,9 @@ public:
 
     void SetCurrentSheet( const SCH_SHEET_PATH& aSheet );
 
+    void UpdateItem( EDA_ITEM* aItem, bool isAddOrDelete = false,
+                     bool aUpdateRtree = false ) override;
+
     /**
      * Rebuild the GAL and redraw the screen.  Call when something went wrong.
      */
@@ -502,7 +505,7 @@ public:
      */
     bool AskToSaveChanges();
 
-    SCH_JUNCTION* AddJunction( SCH_SCREEN* aScreen, const wxPoint& aPos, bool aAppendToUndo,
+    SCH_JUNCTION* AddJunction( SCH_SCREEN* aScreen, const VECTOR2I& aPos, bool aAppendToUndo,
                                bool aFinal = true );
 
     /**
@@ -526,14 +529,14 @@ public:
      * @param aEnd The ending point for trimming
      * @return True if any wires were changed by this operation
      */
-    bool TrimWire( const wxPoint& aStart, const wxPoint& aEnd );
+    bool TrimWire( const VECTOR2I& aStart, const VECTOR2I& aEnd );
 
     /**
      * Collect a unique list of all possible connection points in the schematic.
      *
      * @return vector of connections
      */
-    std::vector<wxPoint> GetSchematicConnections();
+    std::vector<VECTOR2I> GetSchematicConnections();
 
     void OnOpenPcbnew( wxCommandEvent& event );
     void OnOpenCvpcb( wxCommandEvent& event );

@@ -21,7 +21,7 @@ include_directories(
 
 set( GAL_SRCS
     # Common part
-    basic_gal.cpp
+	callback_gal.cpp
     draw_panel_gal.cpp
     gl_context_mgr.cpp
     newstroke_font.cpp
@@ -32,7 +32,6 @@ set( GAL_SRCS
     gal/gal_display_options.cpp
     gal/graphics_abstraction_layer.cpp
     gal/hidpi_gl_canvas.cpp
-    gal/stroke_font.cpp
 
     view/view_controls.cpp
     view/view_overlay.cpp
@@ -67,16 +66,17 @@ add_library( gal STATIC ${GAL_SRCS} )
 target_link_libraries( gal
     common          # This is needed until the circular dependency is removed
     kimath
+    nlohmann_json
     ${GLEW_LIBRARIES}
     ${CAIRO_LIBRARIES}
     ${PIXMAN_LIBRARIES}
     ${OPENGL_LIBRARIES}
     ${GDI_PLUS_LIBRARIES}
+	# outline font support
+	${FREETYPE_LIBRARIES}
+	${HarfBuzz_LIBRARIES}
+	${Fontconfig_LIBRARIES}
 )
-
-target_include_directories( gal PRIVATE
-    $<TARGET_PROPERTY:nlohmann_json,INTERFACE_INCLUDE_DIRECTORIES>
-    )
 
 
 # Only for win32 cross compilation using MXE
@@ -211,6 +211,7 @@ set( COMMON_WIDGET_SRCS
     widgets/button_row_panel.cpp
     widgets/collapsible_pane.cpp
     widgets/color_swatch.cpp
+    widgets/font_choice.cpp
     widgets/footprint_choice.cpp
     widgets/footprint_preview_widget.cpp
     widgets/footprint_select_widget.cpp
@@ -298,6 +299,11 @@ set( PLUGINS_EAGLE_SRCS
 
 set( FONT_SRCS
     font/font.cpp
+    font/glyph.cpp
+    font/stroke_font.cpp
+	font/outline_font.cpp
+	font/outline_decomposer.cpp
+	font/fontconfig.cpp
 	)
 
 set( COMMON_SRCS
@@ -373,6 +379,7 @@ set( COMMON_SRCS
     lockfile.cpp
     lset.cpp
     marker_base.cpp
+    markup_parser.cpp
     netclass.cpp
     observable.cpp
     origin_transforms.cpp
@@ -477,36 +484,41 @@ set( COMMON_SRCS
 
 add_library( common STATIC
     ${COMMON_SRCS}
-    $<TARGET_OBJECTS:libcontext>
     )
 
-target_include_directories( common PRIVATE
-    $<TARGET_PROPERTY:libcontext,INTERFACE_INCLUDE_DIRECTORIES>
-    )
-
-add_dependencies( common libcontext )
 add_dependencies( common version_header )
 add_dependencies( common compoundfilereader )  # used by altium_parser.cpp
 
 target_link_libraries( common
+    libcontext
     kimath
     kiplatform
     gal
     scripting
     pybind11::embed
+    compoundfilereader
     ${Boost_LIBRARIES}
     ${CURL_LIBRARIES}
     ${wxWidgets_LIBRARIES}
     ${EXTRA_LIBS}
+    # outline font support
+   	${FREETYPE_LIBRARIES}
+   	${HarfBuzz_LIBRARIES}
+	${Fontconfig_LIBRARIES}
     )
 
-target_include_directories( common PUBLIC
-    $<TARGET_PROPERTY:nlohmann_json,INTERFACE_INCLUDE_DIRECTORIES>
+target_include_directories( common
+    PUBLIC
+        .
+        ${CMAKE_BINARY_DIR}
     )
 
+# text markup support
+add_dependencies( common pegtl )
 target_include_directories( common PUBLIC
-    $<TARGET_PROPERTY:compoundfilereader,INTERFACE_INCLUDE_DIRECTORIES>
-    )  # used by altium_parser.cpp
+    $<TARGET_PROPERTY:pegtl,INTERFACE_INCLUDE_DIRECTORIES>
+    )
+
 
 set( PCB_COMMON_SRCS
     base_screen.cpp
@@ -589,10 +601,6 @@ set_source_files_properties( ${PCB_COMMON_SRCS} PROPERTIES
     )
 
 add_library( pcbcommon STATIC ${PCB_COMMON_SRCS} )
-
-target_include_directories( pcbcommon PUBLIC
-    $<TARGET_PROPERTY:delaunator,INTERFACE_INCLUDE_DIRECTORIES>
-)
 
 target_link_libraries( pcbcommon PUBLIC
     common

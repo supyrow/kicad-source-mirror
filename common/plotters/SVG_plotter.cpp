@@ -1,13 +1,8 @@
-/**
- * @file SVG_plotter.cpp
- * @brief KiCad: specialized plotter for SVG files format
- */
-
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2020 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -95,6 +90,7 @@
 #include <eda_rect.h>
 #include <eda_shape.h>
 #include <string_utils.h>
+#include <font/font.h>
 #include <macros.h>
 #include <trigo.h>
 
@@ -794,13 +790,13 @@ void SVG_PLOTTER::Text( const VECTOR2I&             aPos,
 
     // aSize.x or aSize.y is < 0 for mirrored texts.
     // The actual text size value is the absolute value
-    text_size.x = std::abs( GraphicTextWidth( aText, aSize, aItalic, aWidth ) );
+    text_size.x = std::abs( GraphicTextWidth( aText, aFont, aSize, aWidth, aBold, aItalic ) );
     text_size.y = std::abs( aSize.x * 4/3 ); // Hershey font height to em size conversion
     DPOINT anchor_pos_dev = userToDeviceCoordinates( aPos );
     DPOINT text_pos_dev = userToDeviceCoordinates( text_pos );
     DPOINT sz_dev = userToDeviceSize( text_size );
 
-    if( aOrient != EDA_ANGLE::ANGLE_0 )
+    if( !aOrient.IsZero() )
     {
         fprintf( m_outputFile,
                  "<g transform=\"rotate(%f %f %f)\">\n",
@@ -818,7 +814,7 @@ void SVG_PLOTTER::Text( const VECTOR2I&             aPos,
              "text-anchor=\"%s\" opacity=\"0\">%s</text>\n",
              sz_dev.x, sz_dev.y, hjust, TO_UTF8( XmlEsc( aText ) ) );
 
-    if( aOrient != EDA_ANGLE::ANGLE_0 )
+    if( !aOrient.IsZero() )
         fputs( "</g>\n", m_outputFile );
 
     fprintf( m_outputFile, "<g class=\"stroked-text\"><desc>%s</desc>\n",

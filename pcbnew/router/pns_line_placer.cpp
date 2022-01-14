@@ -52,6 +52,7 @@ LINE_PLACER::LINE_PLACER( ROUTER* aRouter ) :
     m_currentNet = 0;
     m_currentLayer = 0;
     m_startItem = nullptr;
+    m_endItem = nullptr;
     m_chainedPlacement = false;
     m_orthoMode = false;
     m_placementCorrect = false;
@@ -653,8 +654,15 @@ bool LINE_PLACER::rhWalkOnly( const VECTOR2I& aP, LINE& aNewHead )
         break;
     }
 
-    if( Settings().SmartPads() && !m_mouseTrailTracer.IsManuallyForced() )
+    DIRECTION_45::CORNER_MODE cornerMode = Settings().GetCornerMode();
+
+    // Smart Pads is incompatible with 90-degree mode for now
+    if( Settings().SmartPads()
+            && ( cornerMode == DIRECTION_45::MITERED_45 || cornerMode == DIRECTION_45::ROUNDED_45 )
+            && !m_mouseTrailTracer.IsManuallyForced() )
+    {
         effort |= OPTIMIZER::SMART_PADS;
+    }
 
     if( m_placingVia && viaOk )
     {

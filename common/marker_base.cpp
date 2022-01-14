@@ -65,8 +65,8 @@ MARKER_BASE::MARKER_BASE( int aScalingFactor, std::shared_ptr<RC_ITEM> aItem, TY
         m_scalingFactor( aScalingFactor )
 {
     const VECTOR2I* point_shape = MarkerShapeCorners;
-    wxPoint start( point_shape->x, point_shape->y );
-    wxPoint end = start;
+    VECTOR2I        start( point_shape->x, point_shape->y );
+    VECTOR2I        end = start;
 
     for( unsigned ii = 1; ii < CORNERS_COUNT; ii++ )
     {
@@ -87,7 +87,7 @@ MARKER_BASE::~MARKER_BASE()
 }
 
 
-bool MARKER_BASE::HitTestMarker( const wxPoint& aHitPosition, int aAccuracy ) const
+bool MARKER_BASE::HitTestMarker( const VECTOR2I& aHitPosition, int aAccuracy ) const
 {
     EDA_RECT bbox = GetBoundingBoxMarker();
     bbox.Inflate( aAccuracy );
@@ -122,8 +122,8 @@ void MARKER_BASE::ShapeToPolygon( SHAPE_LINE_CHAIN& aPolygon, int aScale ) const
 
 EDA_RECT MARKER_BASE::GetBoundingBoxMarker() const
 {
-    wxSize size_iu = m_shapeBoundingBox.GetSize();
-    wxPoint position_iu = m_shapeBoundingBox.GetPosition();
+    VECTOR2I size_iu = m_shapeBoundingBox.GetSize();
+    VECTOR2I position_iu = m_shapeBoundingBox.GetPosition();
     size_iu.x *= m_scalingFactor;
     size_iu.y *= m_scalingFactor;
     position_iu.x *= m_scalingFactor;
@@ -134,12 +134,12 @@ EDA_RECT MARKER_BASE::GetBoundingBoxMarker() const
 }
 
 
-void MARKER_BASE::PrintMarker( const RENDER_SETTINGS* aSettings, const wxPoint& aOffset )
+void MARKER_BASE::PrintMarker( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset )
 {
     wxDC* DC = aSettings->GetPrintDC();
 
     // Build the marker shape polygon in internal units:
-    std::vector<wxPoint> shape;
+    std::vector<VECTOR2I> shape;
     shape.reserve( CORNERS_COUNT );
 
     for( const VECTOR2I& corner : MarkerShapeCorners )

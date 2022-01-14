@@ -32,7 +32,6 @@
 #include <xnode.h>
 #include <zone.h>
 
-#include <wx/gdicmn.h>
 #include <wx/string.h>
 
 namespace PCAD2KICAD {
@@ -169,9 +168,9 @@ void PCB_POLYGON::AddToFootprint( FOOTPRINT* aFootprint )
         dwg->SetStroke( STROKE_PARAMS( 0 ) );
         dwg->SetLayer( m_KiCadLayer );
 
-        auto outline = new std::vector<wxPoint>;
+        auto outline = new std::vector<VECTOR2I>;
         for( auto point : m_outline )
-            outline->push_back( wxPoint( point->x, point->y ) );
+            outline->push_back( VECTOR2I( point->x, point->y ) );
 
         dwg->SetPolyPoints( *outline );
         dwg->SetStart0( *outline->begin() );
@@ -198,8 +197,8 @@ void PCB_POLYGON::AddToBoard()
         // add outline
         for( i = 0; i < (int) m_outline.GetCount(); i++ )
         {
-            zone->AppendCorner( wxPoint( KiROUND( m_outline[i]->x ),
-                                         KiROUND( m_outline[i]->y ) ), -1 );
+            zone->AppendCorner( VECTOR2I( KiROUND( m_outline[i]->x ),
+                                          KiROUND( m_outline[i]->y ) ), -1 );
         }
 
         zone->SetLocalClearance( m_width );

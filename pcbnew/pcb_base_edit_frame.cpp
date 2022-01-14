@@ -48,7 +48,8 @@ PCB_BASE_EDIT_FRAME::PCB_BASE_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent,
                                           const wxPoint& aPos, const wxSize& aSize, long aStyle,
                                           const wxString& aFrameName ) :
         PCB_BASE_FRAME( aKiway, aParent, aFrameType, aTitle, aPos, aSize, aStyle, aFrameName ),
-                        m_rotationAngle( 900 ), m_undoRedoBlocked( false ),
+        m_rotationAngle( ANGLE_90 ),
+        m_undoRedoBlocked( false ),
         m_selectionFilterPanel( nullptr ),
         m_appearancePanel( nullptr )
 {
@@ -96,42 +97,61 @@ bool PCB_BASE_EDIT_FRAME::TryBefore( wxEvent& aEvent )
     static bool s_presetSwitcherShown = false;
     static bool s_viewportSwitcherShown = false;
 
-    if( !s_presetSwitcherShown && wxGetKeyState( WXK_RAW_CONTROL ) && wxGetKeyState( WXK_TAB ) )
+#ifdef __WXMAC__
+    wxKeyCode presetSwitchKey = WXK_RAW_CONTROL;
+    wxKeyCode viewSwitchKey = WXK_ALT;
+#else
+    wxKeyCode presetSwitchKey = WXK_RAW_CONTROL;
+    wxKeyCode viewSwitchKey = WXK_WINDOWS_LEFT;
+#endif
+
+    if( aEvent.GetEventType() != wxEVT_CHAR && aEvent.GetEventType() != wxEVT_CHAR_HOOK )
+        return PCB_BASE_FRAME::TryBefore( aEvent );
+
+    if( !s_presetSwitcherShown && wxGetKeyState( presetSwitchKey ) && wxGetKeyState( WXK_TAB ) )
     {
         if( m_appearancePanel && this->IsActive() )
         {
             const wxArrayString& mru = m_appearancePanel->GetLayerPresetsMRU();
-            EDA_VIEW_SWITCHER    switcher( this, mru, WXK_RAW_CONTROL );
 
-            s_presetSwitcherShown = true;
-            switcher.ShowModal();
-            s_presetSwitcherShown = false;
+            if( mru.size() > 1 )
+            {
+                EDA_VIEW_SWITCHER switcher( this, mru, presetSwitchKey );
 
-            int idx = switcher.GetSelection();
+                s_presetSwitcherShown = true;
+                switcher.ShowModal();
+                s_presetSwitcherShown = false;
 
-            if( idx >= 0 && idx < (int) mru.size() )
-                m_appearancePanel->ApplyLayerPreset( mru[idx] );
+                int idx = switcher.GetSelection();
 
-            return true;
+                if( idx >= 0 && idx < (int) mru.size() )
+                    m_appearancePanel->ApplyLayerPreset( mru[idx] );
+
+                return true;
+            }
         }
     }
-    else if( !s_viewportSwitcherShown && wxGetKeyState( WXK_ALT ) && wxGetKeyState( WXK_TAB ) )
+    else if( !s_viewportSwitcherShown && wxGetKeyState( viewSwitchKey ) && wxGetKeyState( WXK_TAB ) )
     {
         if( m_appearancePanel && this->IsActive() )
         {
             const wxArrayString& mru = m_appearancePanel->GetViewportsMRU();
-            EDA_VIEW_SWITCHER    switcher( this, mru, WXK_ALT );
 
-            s_viewportSwitcherShown = true;
-            switcher.ShowModal();
-            s_viewportSwitcherShown = false;
+            if( mru.size() > 1 )
+            {
+                EDA_VIEW_SWITCHER switcher( this, mru, viewSwitchKey );
 
-            int idx = switcher.GetSelection();
+                s_viewportSwitcherShown = true;
+                switcher.ShowModal();
+                s_viewportSwitcherShown = false;
 
-            if( idx >= 0 && idx < (int) mru.size() )
-                m_appearancePanel->ApplyViewport( mru[idx] );
+                int idx = switcher.GetSelection();
 
-            return true;
+                if( idx >= 0 && idx < (int) mru.size() )
+                    m_appearancePanel->ApplyViewport( mru[idx] );
+
+                return true;
+            }
         }
     }
 
@@ -139,9 +159,10 @@ bool PCB_BASE_EDIT_FRAME::TryBefore( wxEvent& aEvent )
 }
 
 
-void PCB_BASE_EDIT_FRAME::SetRotationAngle( int aRotationAngle )
+void PCB_BASE_EDIT_FRAME::SetRotationAngle( EDA_ANGLE aRotationAngle )
 {
-    wxCHECK2_MSG( aRotationAngle > 0 && aRotationAngle <= 900, aRotationAngle = 900,
+    wxCHECK2_MSG( aRotationAngle > ANGLE_0 && aRotationAngle <= ANGLE_90,
+                  aRotationAngle = ANGLE_90,
                   wxT( "Invalid rotation angle, defaulting to 90." ) );
 
     m_rotationAngle = aRotationAngle;

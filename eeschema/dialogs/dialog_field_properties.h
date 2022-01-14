@@ -85,23 +85,24 @@ protected:
     void onVAlignButton( wxCommandEvent &aEvent );
 
 protected:
-    UNIT_BINDER m_posX;
-    UNIT_BINDER m_posY;
-    UNIT_BINDER m_textSize;
+    UNIT_BINDER       m_posX;
+    UNIT_BINDER       m_posY;
+    UNIT_BINDER       m_textSize;
 
-    int         m_fieldId;
-    bool        m_isPower;
-    wxString    m_text;
-    bool        m_isItalic;
-    bool        m_isBold;
-    wxPoint     m_position;
-    int         m_size;
-    bool        m_isVertical;
-    int         m_verticalJustification;
-    int         m_horizontalJustification;
-    bool        m_isVisible;
+    int               m_fieldId;
+    bool              m_isPower;
+    wxString          m_text;
+    KIFONT::FONT*     m_font;
+    bool              m_isItalic;
+    bool              m_isBold;
+    VECTOR2I          m_position;
+    int               m_size;
+    bool              m_isVertical;
+    GR_TEXT_V_ALIGN_T m_verticalJustification;
+    GR_TEXT_H_ALIGN_T m_horizontalJustification;
+    bool              m_isVisible;
 
-    bool        m_firstFocus;
+    bool              m_firstFocus;
 
     SCINTILLA_TRICKS* m_scintillaTricks;
 };
@@ -120,25 +121,7 @@ public:
 
     ~DIALOG_LIB_FIELD_PROPERTIES() {}
 
-    void UpdateField( LIB_FIELD* aField )
-    {
-        wxString value = m_text;
-
-        if( m_fieldId == VALUE_FIELD )
-            value = EscapeString( value, CTX_LIBID );
-
-        aField->SetText( value );
-
-        // VALUE === symbol name, so update the parent symbol if it changes.
-        if( m_fieldId == VALUE_FIELD && aField->GetParent() )
-            aField->GetParent()->SetName( value );
-
-        updateText( aField );
-
-        aField->SetHorizJustify( EDA_TEXT::MapHorizJustify( m_horizontalJustification - 1 ) );
-        aField->SetVertJustify( EDA_TEXT::MapVertJustify( m_verticalJustification - 1 ) );
-        aField->SetTextPos( m_position );
-    }
+    void UpdateField( LIB_FIELD* aField );
 };
 
 

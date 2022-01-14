@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2020-2021 KiCad Developers.
+ * Copyright (C) 2020-2022 KiCad Developers.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -67,7 +67,10 @@ void LABEL_MANAGER::Add( VECTOR2I target, std::string msg, COLOR4D color )
     lbl.m_color = color;
     m_gal->SetGlyphSize( VECTOR2D( m_textSize, m_textSize ) );
 
-    VECTOR2I textDims = m_gal->GetTextLineSize( msg );
+    KIFONT::FONT* strokeFont = KIFONT::FONT::GetFont( wxEmptyString );
+    UTF8 text( msg );
+    VECTOR2I textDims = strokeFont->StringBoundaryLimits( text, VECTOR2D( m_textSize, m_textSize ),
+                                                          m_textSize/8, false, false );
 
     lbl.m_bbox.SetOrigin( lbl.m_target - textDims - VECTOR2I( m_textSize, m_textSize ) );
     lbl.m_bbox.SetSize( textDims );
@@ -96,7 +99,7 @@ void LABEL_MANAGER::Redraw( KIGFX::VIEW_OVERLAY* aOvl )
         aOvl->SetLineWidth( 10000 );
         aOvl->SetStrokeColor( lbl.m_color.Brighten( 0.7 ) );
         aOvl->Rectangle( lbl.m_bbox.GetOrigin(), lbl.m_bbox.GetEnd() );
-        aOvl->BitmapText( lbl.m_msg, lbl.m_bbox.Centre(), 0.0 );
+        aOvl->BitmapText( lbl.m_msg, lbl.m_bbox.Centre(), ANGLE_HORIZONTAL );
         VECTOR2I nearest = nearestBoxCorner( lbl.m_bbox, lbl.m_target );
         aOvl->Line( lbl.m_target, nearest );
     }

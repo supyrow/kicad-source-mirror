@@ -36,9 +36,9 @@
 #include <gal/color4d.h>
 #include <gal/cursors.h>
 #include <gal/definitions.h>
-#include <gal/stroke_font.h>
 #include <gal/gal_display_options.h>
 #include <newstroke_font.h>
+#include <font/stroke_font.h>
 #include <eda_rect.h>
 
 class SHAPE_LINE_CHAIN;
@@ -170,6 +170,11 @@ public:
     {
         DrawRectangle( aRect.GetOrigin(), aRect.GetEnd() );
     }
+
+    /**
+     * Draw a polygon representing an outline font glyph.
+     */
+    virtual void DrawGlyph( const KIFONT::GLYPH& aGlyph, int aNth = 0, int aTotal = 1 ) {};
 
     /**
      * Draw a polygon.
@@ -338,82 +343,26 @@ public:
     // Text
     // ----
 
-    const STROKE_FONT& GetStrokeFont() const
-    {
-        return m_strokeFont;
-    }
-
-    /**
-     * Draw a vector type text using preloaded Newstroke font.
-     *
-     * @param aText is the text to be drawn.
-     * @param aPosition is the text position in world coordinates.
-     * @param aRotationAngle is the text rotation angle.
-     */
-    virtual void StrokeText( const wxString& aText, const VECTOR2D& aPosition,
-                             double aRotationAngle )
-    {
-        m_strokeFont.Draw( aText, aPosition, aRotationAngle );
-    }
-
     /**
      * Draw a text using a bitmap font. It should be faster than StrokeText(), but can be used
      * only for non-Gerber elements.
      *
      * @param aText is the text to be drawn.
      * @param aPosition is the text position in world coordinates.
-     * @param aRotationAngle is the text rotation angle.
+     * @param aAngle is the text rotation angle.
      */
-    virtual void BitmapText( const wxString& aText, const VECTOR2D& aPosition,
-                             double aRotationAngle )
-    {
-        // Fallback for implementations that don't implement bitmap text: use stroke font
-
-        // Handle flipped view
-        if( m_globalFlipX )
-            m_attributes.m_Mirrored = !m_attributes.m_Mirrored;
-
-        // Bitmap font is slightly smaller and slightly heavier than the stroke font so we
-        // compensate a bit before stroking
-        float    saveLineWidth = m_lineWidth;
-        VECTOR2D saveGlyphSize = m_attributes.m_Size;
-        {
-            m_lineWidth *= 1.2f;
-            m_attributes.m_Size = m_attributes.m_Size * 0.8;
-
-            StrokeText( aText, aPosition, aRotationAngle );
-        }
-        m_lineWidth = saveLineWidth;
-        m_attributes.m_Size = saveGlyphSize;
-
-        if( m_globalFlipX )
-            m_attributes.m_Mirrored = !m_attributes.m_Mirrored;
-    }
+    virtual void BitmapText( const wxString& aText, const VECTOR2I& aPosition,
+                             const EDA_ANGLE& aAngle );
 
     /**
-     * Compute the X and Y size of a given text. The text is expected to be a only one line text.
+     * Reset text attributes to default styling.  FONT TODO: do we need any of this in GAL anymore?
      *
-     * @param aText is the text string (one line).
-     * @return is the text size.
-     */
-    VECTOR2D GetTextLineSize( const UTF8& aText ) const;
-
-    /**
-     * Loads attributes of the given text (bold/italic/underline/mirrored and so on).
-     *
-     * @param aText is the text item.
-     */
-    virtual void SetTextAttributes( const EDA_TEXT* aText );
-
-    /**
-     * Reset text attributes to default styling.
-     *
-     * Normally, custom attributes will be set individually after this,
-     * otherwise you can use SetTextAttributes()
+     * Normally, custom attributes will be set individually after this, otherwise you can use
+     * SetTextAttributes()
      */
     void ResetTextAttributes();
 
-    void SetGlyphSize( const VECTOR2D aSize )         { m_attributes.m_Size = aSize; }
+    void SetGlyphSize( const VECTOR2I aSize )         { m_attributes.m_Size = aSize; }
     const VECTOR2D& GetGlyphSize() const              { return m_attributes.m_Size; }
 
     inline void SetFontBold( const bool aBold )       { m_attributes.m_Bold = aBold; }
@@ -1082,9 +1031,6 @@ protected:
     COLOR4D              m_cursorColor;        ///< Cursor color
     bool                 m_fullscreenCursor;   ///< Shape of the cursor (fullscreen or small cross)
     VECTOR2D             m_cursorPosition;     ///< Current cursor position (world coordinates)
-
-    STROKE_FONT          m_strokeFont;         ///< Instance of object that stores information
-                                               ///< about how to draw texts
 
     KICURSOR             m_currentNativeCursor; ///< Current cursor
 

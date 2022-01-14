@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2016 CERN
  * @author Maciej Suminski <maciej.suminski@cern.ch>
- * Copyright (C) 2018 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2018-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -124,7 +124,7 @@ void GRAPHICS_IMPORTER_PCBNEW::AddArc( const VECTOR2D& aCenter, const VECTOR2D& 
 
 void GRAPHICS_IMPORTER_PCBNEW::AddPolygon( const std::vector< VECTOR2D >& aVertices, double aWidth )
 {
-    std::vector< wxPoint > convertedPoints;
+    std::vector<VECTOR2I> convertedPoints;
     convertedPoints.reserve( convertedPoints.size() );
 
     for( const VECTOR2D& precisePoint : aVertices )
@@ -155,7 +155,7 @@ void GRAPHICS_IMPORTER_PCBNEW::AddText( const VECTOR2D& aOrigin, const wxString&
     boardItem->SetLayer( GetLayer() );
     textItem->SetTextThickness( MapLineWidth( aThickness ) );
     textItem->SetTextPos( MapCoordinate( aOrigin ) );
-    textItem->SetTextAngle( aOrientation * 10.0 );      // Pcbnew uses the decidegree
+    textItem->SetTextAngle( EDA_ANGLE( aOrientation, DEGREES_T ) );      // Pcbnew uses the decidegree
     textItem->SetTextWidth( aWidth * ImportScalingFactor() );
     textItem->SetTextHeight( aHeight * ImportScalingFactor() );
     textItem->SetVertJustify( aVJustify );

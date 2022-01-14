@@ -28,6 +28,7 @@
 
 #include <gal/graphics_abstraction_layer.h>
 #include <gal/definitions.h>
+#include <font/font.h>
 
 #include <math/util.h>      // for KiROUND
 
@@ -38,7 +39,6 @@ using namespace KIGFX;
 
 GAL::GAL( GAL_DISPLAY_OPTIONS& aDisplayOptions ) :
         m_options( aDisplayOptions ),
-        m_strokeFont( this ),
         // m_currentNativeCursor is initialized with KICURSOR::DEFAULT value to avoid
         // if comparison with uninitialized value on SetNativeCursorStyle method.
         // Some classes inheriting from GAL has different SetNativeCursorStyle method
@@ -85,8 +85,6 @@ GAL::GAL( GAL_DISPLAY_OPTIONS& aDisplayOptions ) :
 
     // Initialize text properties
     ResetTextAttributes();
-
-    m_strokeFont.LoadNewStrokeFont( newstroke_font, newstroke_font_bufsize );
 
     // subscribe for settings updates
     m_observerLink = m_options.Subscribe( this );
@@ -152,23 +150,11 @@ bool GAL::updatedGalDisplayOptions( const GAL_DISPLAY_OPTIONS& aOptions )
 }
 
 
-void GAL::SetTextAttributes( const EDA_TEXT* aText )
-{
-    SetGlyphSize( VECTOR2D( aText->GetTextSize() ) );
-    SetHorizontalJustify( aText->GetHorizJustify() );
-    SetVerticalJustify( aText->GetVertJustify() );
-    SetFontBold( aText->IsBold() );
-    SetFontItalic( aText->IsItalic() );
-    SetFontUnderlined( false );
-    SetTextMirrored( aText->IsMirrored() );
-}
-
-
 void GAL::ResetTextAttributes()
 {
      // Tiny but non-zero - this will always need setting
      // there is no built-in default
-    SetGlyphSize( { 1.0, 1.0 } );
+    SetGlyphSize( { 1, 1 } );
 
     SetHorizontalJustify( GR_TEXT_H_ALIGN_CENTER );
     SetVerticalJustify( GR_TEXT_V_ALIGN_CENTER );
@@ -177,15 +163,6 @@ void GAL::ResetTextAttributes()
     SetFontItalic( false );
     SetFontUnderlined( false );
     SetTextMirrored( false );
-}
-
-
-VECTOR2D GAL::GetTextLineSize( const UTF8& aText ) const
-{
-    // Compute the X and Y size of a given text.
-    // Because computeTextLineSize expects a one line text,
-    // aText is expected to be only one line text.
-    return m_strokeFont.computeTextLineSize( aText );
 }
 
 
@@ -274,6 +251,29 @@ COLOR4D GAL::getCursorColor() const
         color.a = color.a * 0.5;
 
     return color;
+}
+
+
+/*
+ * Fallback for implementations that don't implement bitmap text: use stroke font
+ */
+void GAL::BitmapText( const wxString& aText, const VECTOR2I& aPosition, const EDA_ANGLE& aAngle )
+{
+    KIFONT::FONT* font = KIFONT::FONT::GetFont();
+
+    if( aText.IsEmpty() )
+        return;
+
+    TEXT_ATTRIBUTES attrs = m_attributes;
+    attrs.m_Angle = aAngle;
+    attrs.m_Mirrored = m_globalFlipX;    // Prevent text flipping when view is flipped
+
+    // Bitmap font is slightly smaller and slightly heavier than the stroke font so we
+    // compensate a bit before stroking
+    attrs.m_StrokeWidth *= 1.2f;
+    attrs.m_Size = attrs.m_Size * 0.8;
+
+    font->Draw( this, aText, aPosition, attrs );
 }
 
 

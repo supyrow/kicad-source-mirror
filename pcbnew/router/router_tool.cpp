@@ -1509,6 +1509,27 @@ void ROUTER_TOOL::performDragging( int aMode )
             return;
     }
 
+    // We don't support dragging arcs inside the PNS right now
+    if( m_startItem && m_startItem->Kind() == PNS::ITEM::ARC_T )
+    {
+        if( m_router->RoutingInProgress() )
+            m_router->StopRouting();
+
+        m_startItem = nullptr;
+
+        m_gridHelper->SetAuxAxes( false );
+        frame()->UndoRedoBlock( false );
+        ctls->SetAutoPan( false );
+        ctls->ForceCursorPosition( false );
+        highlightNet( false );
+
+        m_cancelled = true;
+
+        m_toolMgr->RunAction( PCB_ACTIONS::drag45Degree, false );
+
+        return;
+    }
+
     bool dragStarted = m_router->StartDragging( m_startSnapPoint, m_startItem, aMode );
 
     if( !dragStarted )
@@ -1595,7 +1616,7 @@ void ROUTER_TOOL::NeighboringSegmentFilter( const VECTOR2I& aPt, GENERAL_COLLECT
 
     int refNet = reference->GetNetCode();
 
-    wxPoint refPoint( aPt.x, aPt.y );
+    VECTOR2I       refPoint( aPt.x, aPt.y );
     EDA_ITEM_FLAGS flags = reference->IsPointOnEnds( refPoint, -1 );
 
     if( flags & STARTPOINT )
@@ -1825,7 +1846,7 @@ int ROUTER_TOOL::InlineDrag( const TOOL_EVENT& aEvent )
             {
                 VECTOR2I offset = m_endSnapPoint - p;
                 BOARD_ITEM* previewItem;
-                wxPoint fp_offset = wxPoint( offset.Rotate( footprint->GetOrientationRadians() ) );
+                wxPoint fp_offset = wxPoint( offset.Rotate( footprint->GetOrientation().AsRadians() ) );
 
                 view()->ClearPreview();
 

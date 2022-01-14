@@ -85,38 +85,28 @@ public:
         return BOARD_ITEM::Matches( GetShownText(), aSearchData );
     }
 
-    virtual wxPoint GetPosition() const override
+    virtual VECTOR2I GetPosition() const override
     {
         return EDA_TEXT::GetTextPos();
     }
 
-    virtual void SetPosition( const wxPoint& aPos ) override
+    virtual void SetPosition( const VECTOR2I& aPos ) override
     {
         EDA_TEXT::SetTextPos( aPos );
         SetLocalCoord();
     }
 
-    void SetTextAngle( double aAngle ) override;
-    void SetTextAngle( const EDA_ANGLE& aAngle );
-
     /**
      * Called when rotating the parent footprint.
      */
-    void KeepUpright( double aOldOrientation, double aNewOrientation );
-
-    /**
-     * @return force the text rotation to be always between -90 .. 90 deg. Otherwise the text
-     *         is not easy to read if false, the text rotation is free.
-     */
-    bool IsKeepUpright() const { return m_keepUpright; }
-    void SetKeepUpright( bool aKeepUpright ) { m_keepUpright = aKeepUpright; }
+    void KeepUpright( const EDA_ANGLE& aOldOrientation, const EDA_ANGLE& aNewOrientation );
 
     /// Rotate text, in footprint editor
     /// (for instance in footprint rotation transform)
-    void Rotate( const wxPoint& aOffset, double aAngle ) override;
+    void Rotate( const VECTOR2I& aOffset, const EDA_ANGLE& aAngle ) override;
 
     /// Flip entity during footprint flip
-    void Flip( const wxPoint& aCentre, bool aFlipLeftRight ) override;
+    void Flip( const VECTOR2I& aCentre, bool aFlipLeftRight ) override;
 
     bool IsParentFlipped() const;
 
@@ -124,19 +114,19 @@ public:
     /// the text itself is not mirrored, and the layer not modified,
     /// only position is mirrored.
     /// (use Flip to change layer to its paired and mirror the text in fp editor).
-    void Mirror( const wxPoint& aCentre, bool aMirrorAroundXAxis );
+    void Mirror( const VECTOR2I& aCentre, bool aMirrorAroundXAxis );
 
     /// move text in move transform, in footprint editor
-    void Move( const wxPoint& aMoveVector ) override;
+    void Move( const VECTOR2I& aMoveVector ) override;
 
     /// @deprecated it seems (but the type is used to 'protect'
     //  reference and value from deletion, and for identification)
-    void SetType( TEXT_TYPE aType )     { m_Type = aType; }
-    TEXT_TYPE GetType() const           { return m_Type; }
+    void SetType( TEXT_TYPE aType )      { m_Type = aType; }
+    TEXT_TYPE GetType() const            { return m_Type; }
 
     // The Pos0 accessors are for footprint-relative coordinates.
-    void SetPos0( const wxPoint& aPos ) { m_Pos0 = aPos; SetDrawCoord(); }
-    const wxPoint& GetPos0() const      { return m_Pos0; }
+    void SetPos0( const VECTOR2I& aPos ) { m_Pos0 = aPos; SetDrawCoord(); }
+    const VECTOR2I& GetPos0() const      { return m_Pos0; }
 
     int GetLength() const;        // text length
 
@@ -157,10 +147,10 @@ public:
 
     void GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList ) override;
 
-    bool TextHitTest( const wxPoint& aPoint, int aAccuracy = 0 ) const override;
+    bool TextHitTest( const VECTOR2I& aPoint, int aAccuracy = 0 ) const override;
     bool TextHitTest( const EDA_RECT& aRect, bool aContains, int aAccuracy = 0 ) const override;
 
-    bool HitTest( const wxPoint& aPosition, int aAccuracy ) const override
+    bool HitTest( const VECTOR2I& aPosition, int aAccuracy ) const override
     {
         return TextHitTest( aPosition, aAccuracy );
     }
@@ -207,11 +197,8 @@ public:
 private:
     TEXT_TYPE m_Type;           ///< 0=ref, 1=val, etc.
 
-    wxPoint   m_Pos0;           ///< text coordinates relative to the footprint anchor, orient 0.
+    VECTOR2I  m_Pos0;           ///< text coordinates relative to the footprint anchor, orient 0.
                                 ///< text coordinate ref point is the text center
-
-    bool      m_keepUpright;    ///< if true, keep rotation angle between -90 .. 90 deg.
-                                ///< to keep the text more easy to read
 };
 
 #endif // FP_TEXT_H

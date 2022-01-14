@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2021 KiCad Developers.
+ * Copyright (C) 2021-2022 KiCad Developers.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -40,6 +40,7 @@
 
     Errors generated:
     - DRCE_LIB_FOOTPRINT_ISSUES
+    - DRCE_LIB_FOOTPRINT_MISMATCH
 */
 
 class DRC_TEST_PROVIDER_LIBRARY_PARITY : public DRC_TEST_PROVIDER
@@ -94,7 +95,7 @@ bool primitivesNeedUpdate( const std::shared_ptr<PCB_SHAPE>& a,
         TEST( a->GetStart(), b->GetStart() );
         TEST( a->GetEnd(), b->GetEnd() );
         TEST( a->GetCenter(), b->GetCenter() );
-        TEST( a->GetArcAngle(), b->GetArcAngle() );
+        TEST( a->GetArcAngle().AsTenthsOfADegree(), b->GetArcAngle().AsTenthsOfADegree() );
         break;
 
     case SHAPE_T::BEZIER:
@@ -146,8 +147,8 @@ bool padsNeedUpdate( const PAD* a, const PAD* b )
     TEST( a->GetProperty(), b->GetProperty() );
 
     // The pad orientation, for historical reasons is the pad rotation + parent rotation.
-    TEST( NormalizeAnglePos( a->GetOrientation() - a->GetParent()->GetOrientation() ),
-          NormalizeAnglePos( b->GetOrientation() - b->GetParent()->GetOrientation() ) );
+    TEST( ( a->GetOrientation() - a->GetParent()->GetOrientation() ).Normalize().AsTenthsOfADegree(),
+          ( b->GetOrientation() - b->GetParent()->GetOrientation() ).Normalize().AsTenthsOfADegree() );
 
     TEST( a->GetSize(), b->GetSize() );
     TEST( a->GetDelta(), b->GetDelta() );
@@ -168,7 +169,7 @@ bool padsNeedUpdate( const PAD* a, const PAD* b )
     TEST( a->GetZoneConnection(), b->GetZoneConnection() );
     TEST( a->GetThermalGap(), b->GetThermalGap() );
     TEST( a->GetThermalSpokeWidth(), b->GetThermalSpokeWidth() );
-    TEST( a->GetThermalSpokeAngle(), b->GetThermalSpokeAngle() );
+    TEST( a->GetThermalSpokeAngle().AsTenthsOfADegree(), b->GetThermalSpokeAngle().AsTenthsOfADegree() );
     TEST( a->GetCustomShapeInZoneOpt(), b->GetCustomShapeInZoneOpt() );
 
     TEST( a->GetPrimitives().size(), b->GetPrimitives().size() );
@@ -197,7 +198,7 @@ bool shapesNeedUpdate( const FP_SHAPE* a, const FP_SHAPE* b )
         TEST( a->GetStart0(), b->GetStart0() );
         TEST( a->GetEnd0(), b->GetEnd0() );
         TEST( a->GetCenter0(), b->GetCenter0() );
-        TEST( a->GetArcAngle(), b->GetArcAngle() );
+        TEST( a->GetArcAngle().AsTenthsOfADegree(), b->GetArcAngle().AsTenthsOfADegree() );
         break;
 
     case SHAPE_T::BEZIER:
@@ -321,6 +322,8 @@ bool modelsNeedUpdate( const FP_3DMODEL& a, const FP_3DMODEL& b )
 
 bool FOOTPRINT::FootprintNeedsUpdate( const FOOTPRINT* aLibFootprint )
 {
+    wxASSERT( aLibFootprint );
+
     if( IsFlipped() )
     {
         std::unique_ptr<FOOTPRINT> temp( static_cast<FOOTPRINT*>( Clone() ) );
@@ -421,8 +424,11 @@ bool DRC_TEST_PROVIDER_LIBRARY_PARITY::Run()
 
     for( FOOTPRINT* footprint : board->Footprints() )
     {
-        if( m_drcEngine->IsErrorLimitExceeded( DRCE_LIB_FOOTPRINT_ISSUES ) )
+        if( m_drcEngine->IsErrorLimitExceeded( DRCE_LIB_FOOTPRINT_ISSUES )
+                && m_drcEngine->IsErrorLimitExceeded( DRCE_LIB_FOOTPRINT_MISMATCH ) )
+        {
             return true;    // Continue with other tests
+        }
 
         if( !reportProgress( ii++, board->Footprints().size(), delta ) )
             return false;   // DRC cancelled
@@ -442,23 +448,29 @@ bool DRC_TEST_PROVIDER_LIBRARY_PARITY::Run()
 
         if( !libTableRow )
         {
-            std::shared_ptr<DRC_ITEM> drcItem = DRC_ITEM::Create( DRCE_LIB_FOOTPRINT_ISSUES );
-            msg.Printf( _( "The current configuration does not include the library '%s'." ),
-                        libName );
-            drcItem->SetErrorMessage( msg );
-            drcItem->SetItems( footprint );
-            reportViolation( drcItem, footprint->GetCenter(), UNDEFINED_LAYER );
+            if( !m_drcEngine->IsErrorLimitExceeded( DRCE_LIB_FOOTPRINT_ISSUES ) )
+            {
+                std::shared_ptr<DRC_ITEM> drcItem = DRC_ITEM::Create( DRCE_LIB_FOOTPRINT_ISSUES );
+                msg.Printf( _( "The current configuration does not include the library '%s'." ),
+                            libName );
+                drcItem->SetErrorMessage( msg );
+                drcItem->SetItems( footprint );
+                reportViolation( drcItem, footprint->GetCenter(), UNDEFINED_LAYER );
+            }
 
             continue;
         }
         else if( !libTable->HasLibrary( libName, true ) )
         {
-            std::shared_ptr<DRC_ITEM> drcItem = DRC_ITEM::Create( DRCE_LIB_FOOTPRINT_ISSUES );
-            msg.Printf( _( "The library '%s' is not enabled in the current configuration." ),
-                        libName );
-            drcItem->SetErrorMessage( msg );
-            drcItem->SetItems( footprint );
-            reportViolation( drcItem, footprint->GetCenter(), UNDEFINED_LAYER );
+            if( !m_drcEngine->IsErrorLimitExceeded( DRCE_LIB_FOOTPRINT_ISSUES ) )
+            {
+                std::shared_ptr<DRC_ITEM> drcItem = DRC_ITEM::Create( DRCE_LIB_FOOTPRINT_ISSUES );
+                msg.Printf( _( "The library '%s' is not enabled in the current configuration." ),
+                            libName );
+                drcItem->SetErrorMessage( msg );
+                drcItem->SetItems( footprint );
+                reportViolation( drcItem, footprint->GetCenter(), UNDEFINED_LAYER );
+            }
 
             continue;
         }
@@ -486,23 +498,29 @@ bool DRC_TEST_PROVIDER_LIBRARY_PARITY::Run()
 
         if( !libFootprint )
         {
-            std::shared_ptr<DRC_ITEM> drcItem = DRC_ITEM::Create( DRCE_LIB_FOOTPRINT_ISSUES );
-            msg.Printf( "Footprint '%s' not found in library '%s'.",
-                        fpName,
-                        libName );
-            drcItem->SetErrorMessage( msg );
-            drcItem->SetItems( footprint );
-            reportViolation( drcItem, footprint->GetCenter(), UNDEFINED_LAYER );
+            if( !m_drcEngine->IsErrorLimitExceeded( DRCE_LIB_FOOTPRINT_ISSUES ) )
+            {
+                std::shared_ptr<DRC_ITEM> drcItem = DRC_ITEM::Create( DRCE_LIB_FOOTPRINT_ISSUES );
+                msg.Printf( "Footprint '%s' not found in library '%s'.",
+                            fpName,
+                            libName );
+                drcItem->SetErrorMessage( msg );
+                drcItem->SetItems( footprint );
+                reportViolation( drcItem, footprint->GetCenter(), UNDEFINED_LAYER );
+            }
         }
         else if( footprint->FootprintNeedsUpdate( libFootprint.get() ) )
         {
-            std::shared_ptr<DRC_ITEM> drcItem = DRC_ITEM::Create( DRCE_LIB_FOOTPRINT_ISSUES );
-            msg.Printf( "Footprint '%s' does not match copy in library '%s'.",
-                        fpName,
-                        libName );
-            drcItem->SetErrorMessage( msg );
-            drcItem->SetItems( footprint );
-            reportViolation( drcItem, footprint->GetCenter(), UNDEFINED_LAYER );
+            if( !m_drcEngine->IsErrorLimitExceeded( DRCE_LIB_FOOTPRINT_MISMATCH ) )
+            {
+                std::shared_ptr<DRC_ITEM> drcItem = DRC_ITEM::Create( DRCE_LIB_FOOTPRINT_MISMATCH );
+                msg.Printf( "Footprint '%s' does not match copy in library '%s'.",
+                            fpName,
+                            libName );
+                drcItem->SetErrorMessage( msg );
+                drcItem->SetItems( footprint );
+                reportViolation( drcItem, footprint->GetCenter(), UNDEFINED_LAYER );
+            }
         }
     }
 

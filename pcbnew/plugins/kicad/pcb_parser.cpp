@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2012 CERN
- * Copyright (C) 2012-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2012-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -42,7 +42,7 @@
 #include <pcb_target.h>
 #include <footprint.h>
 #include <geometry/shape_line_chain.h>
-
+#include <font/font.h>
 #include <ignore.h>
 #include <netclass.h>
 #include <pad.h>
@@ -267,12 +267,12 @@ wxString PCB_PARSER::GetRequiredVersion()
 }
 
 
-wxPoint PCB_PARSER::parseXY()
+VECTOR2I PCB_PARSER::parseXY()
 {
     if( CurTok() != T_LEFT )
         NeedLEFT();
 
-    wxPoint pt;
+    VECTOR2I pt;
     T token = NextTok();
 
     if( token != T_xy )
@@ -374,7 +374,7 @@ void PCB_PARSER::parseOutlinePoints( SHAPE_LINE_CHAIN& aPoly )
 
 void PCB_PARSER::parseXY( int* aX, int* aY )
 {
-    wxPoint pt = parseXY();
+    VECTOR2I pt = parseXY();
 
     if( aX )
         *aX = pt.x;
@@ -413,7 +413,8 @@ void PCB_PARSER::parseEDA_TEXT( EDA_TEXT* aText )
 
     // Prior to v5.0 text size was omitted from file format if equal to 60mils
     // Now, it is always explicitly written to file
-    bool foundTextSize = false;
+    bool     foundTextSize = false;
+    wxString faceName;
 
     for( token = NextTok();  token != T_RIGHT;  token = NextTok() )
     {
@@ -430,6 +431,12 @@ void PCB_PARSER::parseEDA_TEXT( EDA_TEXT* aText )
 
                 switch( token )
                 {
+                case T_face:
+                    NeedSYMBOL();
+                    faceName = FromUTF8();
+                    NeedRIGHT();
+                    break;
+
                 case T_size:
                 {
                     wxSize sz;
@@ -441,6 +448,11 @@ void PCB_PARSER::parseEDA_TEXT( EDA_TEXT* aText )
                     foundTextSize = true;
                     break;
                 }
+
+                case T_line_spacing:
+                    aText->SetLineSpacing( parseDouble( "line spacing" ) );
+                    NeedRIGHT();
+                    break;
 
                 case T_thickness:
                     aText->SetTextThickness( parseBoardUnits( "text thickness" ) );
@@ -456,9 +468,16 @@ void PCB_PARSER::parseEDA_TEXT( EDA_TEXT* aText )
                     break;
 
                 default:
-                    Expecting( "size, bold, or italic" );
+                    Expecting( "face, size, line_spacing, thickness, bold, or italic" );
                 }
             }
+
+            if( !faceName.IsEmpty() )
+            {
+                aText->SetFont( KIFONT::FONT::GetFont( faceName, aText->IsBold(),
+                                                       aText->IsItalic() ) );
+            }
+
             break;
 
         case T_justify:
@@ -513,6 +532,56 @@ void PCB_PARSER::parseEDA_TEXT( EDA_TEXT* aText )
         const double defaultTextSize = 1.524 * IU_PER_MM;
 
         aText->SetTextSize( wxSize( defaultTextSize, defaultTextSize ) );
+    }
+}
+
+
+void PCB_PARSER::parseRenderCache( EDA_TEXT* text )
+{
+    T token;
+
+    NeedSYMBOLorNUMBER();
+    wxString cacheText = FROM_UTF8( CurText() );
+    double   cacheAngle = parseAngle( "render cache angle" );
+
+    text->SetupRenderCache( cacheText, EDA_ANGLE( cacheAngle, TENTHS_OF_A_DEGREE_T ) );
+
+    for( token = NextTok(); token != T_RIGHT; token = NextTok() )
+    {
+        if( token != T_LEFT )
+            Expecting( T_LEFT );
+
+        token = NextTok();
+
+        if( token != T_polygon )
+            Expecting( T_polygon );
+
+        SHAPE_POLY_SET poly;
+
+        for( token = NextTok(); token != T_RIGHT; token = NextTok() )
+        {
+            if( token != T_LEFT )
+                Expecting( T_LEFT );
+
+            token = NextTok();
+
+            if( token != T_pts )
+                Expecting( T_pts );
+
+            SHAPE_LINE_CHAIN lineChain;
+
+            while( (token = NextTok() ) != T_RIGHT )
+                parseOutlinePoints( lineChain );
+
+            lineChain.SetClosed( true );
+
+            if( poly.OutlineCount() == 0 )
+                poly.AddOutline( lineChain );
+            else
+                poly.AddHole( lineChain );
+        }
+
+        text->AddRenderCacheGlyph( poly );
     }
 }
 
@@ -2047,7 +2116,7 @@ void PCB_PARSER::parseSetup()
         {
             int x = parseBoardUnits( "auxiliary origin X" );
             int y = parseBoardUnits( "auxiliary origin Y" );
-            designSettings.SetAuxOrigin( wxPoint( x, y ) );
+            designSettings.SetAuxOrigin( VECTOR2I( x, y ) );
 
             // Aux origin still stored in board for the moment
             //m_board->m_LegacyDesignSettingsLoaded = true;
@@ -2059,7 +2128,7 @@ void PCB_PARSER::parseSetup()
         {
             int x = parseBoardUnits( "grid origin X" );
             int y = parseBoardUnits( "grid origin Y" );
-            designSettings.SetGridOrigin( wxPoint( x, y ) );
+            designSettings.SetGridOrigin( VECTOR2I( x, y ) );
             // Grid origin still stored in board for the moment
             //m_board->m_LegacyDesignSettingsLoaded = true;
             NeedRIGHT();
@@ -2364,9 +2433,9 @@ PCB_SHAPE* PCB_PARSER::parsePCB_SHAPE()
                  CurTok() == T_gr_rect || CurTok() == T_gr_line || CurTok() == T_gr_poly, nullptr,
                  wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as PCB_SHAPE." ) );
 
-    T token;
-    wxPoint pt;
-    STROKE_PARAMS stroke( 0, PLOT_DASH_TYPE::SOLID );
+    T                          token;
+    VECTOR2I                   pt;
+    STROKE_PARAMS              stroke( 0, PLOT_DASH_TYPE::SOLID );
     std::unique_ptr<PCB_SHAPE> shape = std::make_unique<PCB_SHAPE>( nullptr );
 
     switch( CurTok() )
@@ -2410,7 +2479,7 @@ PCB_SHAPE* PCB_PARSER::parsePCB_SHAPE()
         }
         else
         {
-            wxPoint arc_start, arc_mid, arc_end;
+            VECTOR2I arc_start, arc_mid, arc_end;
 
             if( token != T_start )
                 Expecting( T_start );
@@ -2751,7 +2820,7 @@ PCB_TEXT* PCB_PARSER::parsePCB_TEXT()
     if( token != T_at )
         Expecting( T_at );
 
-    wxPoint pt;
+    VECTOR2I pt;
 
     pt.x = parseBoardUnits( "X coordinate" );
     pt.y = parseBoardUnits( "Y coordinate" );
@@ -2762,7 +2831,7 @@ PCB_TEXT* PCB_PARSER::parsePCB_TEXT()
 
     if( token == T_NUMBER )
     {
-        text->SetTextAngle( parseAngle() );
+        text->SetTextAngle( EDA_ANGLE( parseAngle(), TENTHS_OF_A_DEGREE_T ) );
         NeedRIGHT();
     }
     else if( token != T_RIGHT )
@@ -2791,7 +2860,11 @@ PCB_TEXT* PCB_PARSER::parsePCB_TEXT()
             break;
 
         case T_effects:
-            parseEDA_TEXT( (EDA_TEXT*) text.get() );
+            parseEDA_TEXT( static_cast<EDA_TEXT*>( text.get() ) );
+            break;
+
+        case T_render_cache:
+            parseRenderCache( static_cast<EDA_TEXT*>( text.get() ) );
             break;
 
         default:
@@ -2917,7 +2990,7 @@ PCB_DIMENSION_BASE* PCB_PARSER::parseDIMENSION( BOARD_ITEM* aParent, bool aInFP 
         // New format: feature points
         case T_pts:
         {
-            wxPoint point;
+            VECTOR2I point;
 
             parseXY( &point.x, &point.y );
             dim->SetStart( point );
@@ -3115,7 +3188,7 @@ PCB_DIMENSION_BASE* PCB_PARSER::parseDIMENSION( BOARD_ITEM* aParent, bool aInFP 
             if( token != T_pts )
                 Expecting( T_pts );
 
-            wxPoint point;
+            VECTOR2I point;
 
             parseXY( &point.x, &point.y );
             dim->SetStart( point );
@@ -3135,7 +3208,7 @@ PCB_DIMENSION_BASE* PCB_PARSER::parseDIMENSION( BOARD_ITEM* aParent, bool aInFP 
             if( token != T_pts )
                 Expecting( T_pts );
 
-            wxPoint point;
+            VECTOR2I point;
 
             parseXY( &point.x, &point.y );
             dim->SetEnd( point );
@@ -3158,7 +3231,7 @@ PCB_DIMENSION_BASE* PCB_PARSER::parseDIMENSION( BOARD_ITEM* aParent, bool aInFP 
                 PCB_DIM_ALIGNED* aligned = static_cast<PCB_DIM_ALIGNED*>( dim.get() );
 
                 // Old style: calculate height from crossbar
-                wxPoint point1, point2;
+                VECTOR2I point1, point2;
                 parseXY( &point1.x, &point1.y );
                 parseXY( &point2.x, &point2.y );
                 aligned->UpdateHeight( point2, point1 ); // Yes, backwards intentionally
@@ -3262,7 +3335,7 @@ FOOTPRINT* PCB_PARSER::parseFOOTPRINT_unchecked( wxArrayString* aInitialComments
                  wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as FOOTPRINT." ) );
 
     wxString name;
-    wxPoint  pt;
+    VECTOR2I pt;
     T        token;
     LIB_ID   fpid;
     int      attributes = 0;
@@ -3352,7 +3425,7 @@ FOOTPRINT* PCB_PARSER::parseFOOTPRINT_unchecked( wxArrayString* aInitialComments
 
             if( token == T_NUMBER )
             {
-                footprint->SetOrientation( parseAngle() );
+                footprint->SetOrientation( EDA_ANGLE( parseAngle(), TENTHS_OF_A_DEGREE_T ) );
                 NeedRIGHT();
             }
             else if( token != T_RIGHT )
@@ -3492,7 +3565,7 @@ FOOTPRINT* PCB_PARSER::parseFOOTPRINT_unchecked( wxArrayString* aInitialComments
         {
             FP_TEXT* text = parseFP_TEXT();
             text->SetParent( footprint.get() );
-            double orientation = text->GetTextAngle().AsTenthsOfADegree();
+            EDA_ANGLE orientation = text->GetTextAngle();
             orientation -= footprint->GetOrientation();
             text->SetTextAngle( orientation );
             text->SetDrawCoord();
@@ -3544,7 +3617,7 @@ FOOTPRINT* PCB_PARSER::parseFOOTPRINT_unchecked( wxArrayString* aInitialComments
             PAD* pad = parsePAD( footprint.get() );
             pt       = pad->GetPos0();
 
-            RotatePoint( &pt, footprint->GetOrientation() );
+            RotatePoint( pt, footprint->GetOrientation() );
             pad->SetPosition( pt + footprint->GetPosition() );
             footprint->Add( pad, ADD_MODE::APPEND );
             break;
@@ -3652,7 +3725,7 @@ FP_TEXT* PCB_PARSER::parseFP_TEXT()
     if( token != T_at )
         Expecting( T_at );
 
-    wxPoint pt;
+    VECTOR2I pt;
 
     pt.x = parseBoardUnits( "X coordinate" );
     pt.y = parseBoardUnits( "Y coordinate" );
@@ -3662,7 +3735,7 @@ FP_TEXT* PCB_PARSER::parseFP_TEXT()
 
     if( CurTok() == T_NUMBER )
     {
-        text->SetTextAngle( parseAngle() );
+        text->SetTextAngle( EDA_ANGLE( parseAngle(), TENTHS_OF_A_DEGREE_T ) );
         NextTok();
     }
 
@@ -3694,7 +3767,11 @@ FP_TEXT* PCB_PARSER::parseFP_TEXT()
             break;
 
         case T_effects:
-            parseEDA_TEXT( (EDA_TEXT*) text.get() );
+            parseEDA_TEXT( static_cast<EDA_TEXT*>( text.get() ) );
+            break;
+
+        case T_render_cache:
+            parseRenderCache( static_cast<EDA_TEXT*>( text.get() ) );
             break;
 
         case T_tstamp:
@@ -3718,7 +3795,7 @@ FP_SHAPE* PCB_PARSER::parseFP_SHAPE()
                  CurTok() == T_fp_rect || CurTok() == T_fp_line || CurTok() == T_fp_poly, nullptr,
                  wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as FP_SHAPE." ) );
 
-    wxPoint pt;
+    VECTOR2I pt;
     STROKE_PARAMS stroke( 0, PLOT_DASH_TYPE::SOLID );
     T token;
 
@@ -3773,7 +3850,7 @@ FP_SHAPE* PCB_PARSER::parseFP_SHAPE()
         }
         else
         {
-            wxPoint arc_start, arc_mid, arc_end;
+            VECTOR2I arc_start, arc_mid, arc_end;
 
             if( token != T_start )
                 Expecting( T_start );
@@ -4082,8 +4159,8 @@ PAD* PCB_PARSER::parsePAD( FOOTPRINT* aParent )
     wxCHECK_MSG( CurTok() == T_pad, nullptr,
                  wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as PAD." ) );
 
-    wxSize  sz;
-    wxPoint pt;
+    VECTOR2I sz;
+    VECTOR2I pt;
 
     std::unique_ptr<PAD> pad = std::make_unique<PAD>( aParent );
 
@@ -4106,7 +4183,7 @@ PAD* PCB_PARSER::parsePAD( FOOTPRINT* aParent )
 
         // Default PAD object is thru hole with drill.
         // SMD pads have no hole
-        pad->SetDrillSize( wxSize( 0, 0 ) );
+        pad->SetDrillSize( VECTOR2I( 0, 0 ) );
         break;
 
     case T_connect:
@@ -4114,7 +4191,7 @@ PAD* PCB_PARSER::parsePAD( FOOTPRINT* aParent )
 
         // Default PAD object is thru hole with drill.
         // CONN pads have no hole
-        pad->SetDrillSize( wxSize( 0, 0 ) );
+        pad->SetDrillSize( VECTOR2I( 0, 0 ) );
         break;
 
     case T_np_thru_hole:
@@ -4160,11 +4237,11 @@ PAD* PCB_PARSER::parsePAD( FOOTPRINT* aParent )
     }
 
     if( pad->GetShape() == PAD_SHAPE::CIRCLE )
-        pad->SetThermalSpokeAngle( 450 );
+        pad->SetThermalSpokeAngle( ANGLE_45 );
     else if( pad->GetShape() == PAD_SHAPE::CUSTOM && pad->GetAnchorPadShape() == PAD_SHAPE::CIRCLE )
-        pad->SetThermalSpokeAngle( 450 );
+        pad->SetThermalSpokeAngle( ANGLE_45 );
     else
-        pad->SetThermalSpokeAngle( 900 );
+        pad->SetThermalSpokeAngle( ANGLE_90 );
 
     for( token = NextTok();  token != T_RIGHT;  token = NextTok() )
     {
@@ -4182,8 +4259,8 @@ PAD* PCB_PARSER::parsePAD( FOOTPRINT* aParent )
         switch( token )
         {
         case T_size:
-            sz.SetWidth( parseBoardUnits( "width value" ) );
-            sz.SetHeight( parseBoardUnits( "height value" ) );
+            sz.x = parseBoardUnits( "width value" );
+            sz.y = parseBoardUnits( "height value" );
             pad->SetSize( sz );
             NeedRIGHT();
             break;
@@ -4196,7 +4273,7 @@ PAD* PCB_PARSER::parsePAD( FOOTPRINT* aParent )
 
             if( token == T_NUMBER )
             {
-                pad->SetOrientation( parseAngle() );
+                pad->SetOrientation( EDA_ANGLE( parseAngle(), TENTHS_OF_A_DEGREE_T ) );
                 NeedRIGHT();
             }
             else if( token != T_RIGHT )
@@ -4219,7 +4296,7 @@ PAD* PCB_PARSER::parsePAD( FOOTPRINT* aParent )
         case T_drill:
         {
             bool   haveWidth = false;
-            wxSize drillSize = pad->GetDrillSize();
+            VECTOR2I drillSize = pad->GetDrillSize();
 
             for( token = NextTok(); token != T_RIGHT; token = NextTok() )
             {
@@ -4234,15 +4311,15 @@ PAD* PCB_PARSER::parsePAD( FOOTPRINT* aParent )
                 {
                     if( !haveWidth )
                     {
-                        drillSize.SetWidth( parseBoardUnits() );
+                        drillSize.x = parseBoardUnits();
 
                         // If height is not defined the width and height are the same.
-                        drillSize.SetHeight( drillSize.GetWidth() );
+                        drillSize.y = drillSize.x;
                         haveWidth = true;
                     }
                     else
                     {
-                        drillSize.SetHeight( parseBoardUnits() );
+                        drillSize.y = parseBoardUnits();
                     }
                 }
 
@@ -4360,7 +4437,7 @@ PAD* PCB_PARSER::parsePAD( FOOTPRINT* aParent )
             break;
 
         case T_thermal_bridge_angle:
-            pad->SetThermalSpokeAngle( parseAngle( "thermal spoke angle value" ) );
+            pad->SetThermalSpokeAngle( EDA_ANGLE( parseAngle( "thermal spoke angle value" ), TENTHS_OF_A_DEGREE_T ) );
             NeedRIGHT();
             break;
 
@@ -4500,7 +4577,8 @@ PAD* PCB_PARSER::parsePAD( FOOTPRINT* aParent )
                 case T_gr_arc:
                     dummyShape = parsePCB_SHAPE();
                     pad->AddPrimitiveArc( dummyShape->GetCenter(), dummyShape->GetStart(),
-                                          dummyShape->GetArcAngle(), dummyShape->GetWidth() );
+                                          dummyShape->GetArcAngle().AsTenthsOfADegree(),
+                                          dummyShape->GetWidth() );
                     break;
 
                 case T_gr_line:
@@ -4663,8 +4741,8 @@ void PCB_PARSER::parseGROUP( BOARD_ITEM* aParent )
     wxCHECK_RET( CurTok() == T_group,
                  wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as PCB_GROUP." ) );
 
-    wxPoint pt;
-    T       token;
+    VECTOR2I pt;
+    T        token;
 
     m_groupInfos.push_back( GROUP_INFO() );
     GROUP_INFO& groupInfo = m_groupInfos.back();
@@ -4713,8 +4791,8 @@ PCB_ARC* PCB_PARSER::parseARC()
     wxCHECK_MSG( CurTok() == T_arc, nullptr,
                  wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as ARC." ) );
 
-    wxPoint pt;
-    T       token;
+    VECTOR2I pt;
+    T        token;
 
     std::unique_ptr<PCB_ARC> arc = std::make_unique<PCB_ARC>( m_board );
 
@@ -4797,8 +4875,8 @@ PCB_TRACK* PCB_PARSER::parsePCB_TRACK()
     wxCHECK_MSG( CurTok() == T_segment, nullptr,
                  wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as PCB_TRACK." ) );
 
-    wxPoint pt;
-    T token;
+    VECTOR2I pt;
+    T        token;
 
     std::unique_ptr<PCB_TRACK> track = std::make_unique<PCB_TRACK>( m_board );
 
@@ -4875,8 +4953,8 @@ PCB_VIA* PCB_PARSER::parsePCB_VIA()
     wxCHECK_MSG( CurTok() == T_via, nullptr,
                  wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as PCB_VIA." ) );
 
-    wxPoint pt;
-    T token;
+    VECTOR2I pt;
+    T        token;
 
     std::unique_ptr<PCB_VIA> via = std::make_unique<PCB_VIA>( m_board );
 
@@ -4997,7 +5075,7 @@ ZONE* PCB_PARSER::parseZONE( BOARD_ITEM_CONTAINER* aParent )
     ZONE_BORDER_DISPLAY_STYLE hatchStyle = ZONE_BORDER_DISPLAY_STYLE::NO_HATCH;
 
     int      hatchPitch = ZONE::GetDefaultHatchPitch();
-    wxPoint  pt;
+    VECTOR2I pt;
     T        token;
     int      tmp;
     wxString netnameFromfile;    // the zone net name find in file
@@ -5492,6 +5570,14 @@ ZONE* PCB_PARSER::parseZONE( BOARD_ITEM_CONTAINER* aParent )
         case T_name:
             NextTok();
             zone->SetZoneName( FromUTF8() );
+
+            // TODO: remove this hack and replace it when a suitable token is added
+            // If a zone name starts by "$teardrop_", set its teardrop property flag
+            if( zone->GetZoneName().StartsWith( "$teardrop_p" ) )
+                zone->SetTeardropAreaType( TEARDROP_TYPE::TD_VIAPAD );
+            else if( zone->GetZoneName().StartsWith( "$teardrop_t" ) )
+                zone->SetTeardropAreaType( TEARDROP_TYPE::TD_TRACKEND );
+
             NeedRIGHT();
             break;
 
@@ -5567,8 +5653,8 @@ PCB_TARGET* PCB_PARSER::parsePCB_TARGET()
     wxCHECK_MSG( CurTok() == T_target, nullptr,
                  wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as PCB_TARGET." ) );
 
-    wxPoint pt;
-    T token;
+    VECTOR2I pt;
+    T        token;
 
     std::unique_ptr<PCB_TARGET> target = std::make_unique<PCB_TARGET>( nullptr );
 

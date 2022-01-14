@@ -47,6 +47,9 @@ class DRC_TEST_PROVIDER_SOLDER_MASK : public ::DRC_TEST_PROVIDER
 {
 public:
     DRC_TEST_PROVIDER_SOLDER_MASK ():
+            m_board( nullptr ),
+            m_webWidth( 0 ),
+            m_maxError( 0 ),
             m_largestClearance( 0 )
     {
         m_bridgeRule.m_Name = _( "board setup solder mask min width" );
@@ -94,6 +97,11 @@ private:
     std::vector<ZONE*>         m_copperZones;
 
     std::map< std::tuple<BOARD_ITEM*, BOARD_ITEM*, PCB_LAYER_ID>, int> m_checkedPairs;
+
+    // Shapes used to define solder mask apertures don't have nets, so we assign them the
+    // first net that bridges their aperture (after which any other nets will generate
+    // violations).
+    std::map< std::pair<BOARD_ITEM*, PCB_LAYER_ID>, int> m_maskApertureNetMap;
 };
 
 
@@ -202,7 +210,7 @@ void DRC_TEST_PROVIDER_SOLDER_MASK::buildRTrees()
     solderMask->GetFill( F_Mask )->Simplify( SHAPE_POLY_SET::PM_STRICTLY_SIMPLE );
     solderMask->GetFill( B_Mask )->Simplify( SHAPE_POLY_SET::PM_STRICTLY_SIMPLE );
 
-    int numSegs = GetArcToSegmentCount( m_webWidth / 2, m_maxError, 360.0 );
+    int numSegs = GetArcToSegmentCount( m_webWidth / 2, m_maxError, FULL_CIRCLE );
 
     solderMask->GetFill( F_Mask )->Deflate( m_webWidth / 2, numSegs );
     solderMask->GetFill( B_Mask )->Deflate( m_webWidth / 2, numSegs );
@@ -278,12 +286,23 @@ void DRC_TEST_PROVIDER_SOLDER_MASK::testSilkToMaskClearance()
                         drce->SetItems( item );
                         drce->SetViolatingRule( constraint.GetParentRule() );
 
-                        reportViolation( drce, (wxPoint) pos, layer );
+                        reportViolation( drce, pos, layer );
                     }
                 }
 
                 return true;
             } );
+}
+
+
+bool isMaskAperture( BOARD_ITEM* aItem )
+{
+    static const LSET saved( 2, F_Mask, B_Mask );
+
+    LSET maskLayers = aItem->GetLayerSet() & saved;
+    LSET otherLayers = aItem->GetLayerSet() & ~saved;
+
+    return maskLayers.count() > 0 && otherLayers.count() == 0;
 }
 
 
@@ -346,6 +365,11 @@ void DRC_TEST_PROVIDER_SOLDER_MASK::testItemAgainstItems( BOARD_ITEM* aItem,
                 PAD*     otherPad = dynamic_cast<PAD*>( other );
                 PCB_VIA* otherVia = dynamic_cast<PCB_VIA*>( other );
                 auto     otherShape = other->GetEffectiveShape( aTargetLayer );
+                int      otherNet = -1;
+
+                if( other->IsConnected() )
+                    otherNet = static_cast<BOARD_CONNECTED_ITEM*>( other )->GetNetCode();
+
                 int      actual;
                 VECTOR2I pos;
                 int      clearance = 0;
@@ -373,6 +397,28 @@ void DRC_TEST_PROVIDER_SOLDER_MASK::testItemAgainstItems( BOARD_ITEM* aItem,
 
                 if( itemShape->Collide( otherShape.get(), clearance, &actual, &pos ) )
                 {
+                    if( isMaskAperture( aItem ) )
+                    {
+                        std::pair<BOARD_ITEM*, PCB_LAYER_ID> key = { aItem, aRefLayer };
+
+                        if( m_maskApertureNetMap.count( key ) == 0 )
+                            m_maskApertureNetMap[ key ] = otherNet;
+
+                        if( m_maskApertureNetMap.at( key ) == otherNet && otherNet > 0 )
+                            return true;
+                    }
+
+                    if( isMaskAperture( other ) )
+                    {
+                        std::pair<BOARD_ITEM*, PCB_LAYER_ID> key = { other, aRefLayer };
+
+                        if( m_maskApertureNetMap.count( key ) == 0 )
+                            m_maskApertureNetMap[ key ] = itemNet;
+
+                        if( m_maskApertureNetMap.at( key ) == itemNet && itemNet > 0 )
+                            return true;
+                    }
+
                     auto drce = DRC_ITEM::Create( DRCE_SOLDERMASK_BRIDGE );
 
                     if( aTargetLayer == F_Mask )
@@ -388,7 +434,7 @@ void DRC_TEST_PROVIDER_SOLDER_MASK::testItemAgainstItems( BOARD_ITEM* aItem,
 
                     drce->SetItems( aItem, other );
                     drce->SetViolatingRule( &m_bridgeRule );
-                    reportViolation( drce, (wxPoint) pos, aTargetLayer );
+                    reportViolation( drce, pos, aTargetLayer );
                 }
 
                 return true;
@@ -407,9 +453,13 @@ void DRC_TEST_PROVIDER_SOLDER_MASK::testMaskItemAgainstZones( BOARD_ITEM* aItem,
         if( !zone->GetLayerSet().test( aTargetLayer ) )
             continue;
 
-        if( zone->GetNetCode() && aItem->IsConnected() )
+        int zoneNet = zone->GetNetCode();
+
+        if( aItem->IsConnected() )
         {
-            if( zone->GetNetCode() == static_cast<BOARD_CONNECTED_ITEM*>( aItem )->GetNetCode() )
+            BOARD_CONNECTED_ITEM* connectedItem = static_cast<BOARD_CONNECTED_ITEM*>( aItem );
+
+            if( zoneNet == connectedItem->GetNetCode() && zoneNet > 0 )
                 continue;
         }
 
@@ -438,6 +488,17 @@ void DRC_TEST_PROVIDER_SOLDER_MASK::testMaskItemAgainstZones( BOARD_ITEM* aItem,
             if( zoneTree && zoneTree->QueryColliding( aItemBBox, itemShape.get(), aTargetLayer,
                                                       clearance, &actual, &pos ) )
             {
+                if( isMaskAperture( aItem ) )
+                {
+                    std::pair<BOARD_ITEM*, PCB_LAYER_ID> key = { aItem, aMaskLayer };
+
+                    if( m_maskApertureNetMap.count( key ) == 0 )
+                        m_maskApertureNetMap[ key ] = zoneNet;
+
+                    if( m_maskApertureNetMap.at( key ) == zoneNet && zoneNet > 0 )
+                        continue;
+                }
+
                 auto drce = DRC_ITEM::Create( DRCE_SOLDERMASK_BRIDGE );
 
                 if( aMaskLayer == F_Mask )
@@ -453,7 +514,7 @@ void DRC_TEST_PROVIDER_SOLDER_MASK::testMaskItemAgainstZones( BOARD_ITEM* aItem,
 
                 drce->SetItems( aItem, zone );
                 drce->SetViolatingRule( &m_bridgeRule );
-                reportViolation( drce, (wxPoint) pos, aTargetLayer );
+                reportViolation( drce, pos, aTargetLayer );
             }
         }
     }

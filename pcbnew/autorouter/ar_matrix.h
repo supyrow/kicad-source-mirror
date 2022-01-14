@@ -71,7 +71,7 @@ public:
      * @return the board coordinate corresponding to the routing matrix origin ( board
      *         coordinate offset ).
      */
-    wxPoint GetBrdCoordOrigin()
+    VECTOR2I GetBrdCoordOrigin()
     {
         return m_BrdBox.GetOrigin();
     }

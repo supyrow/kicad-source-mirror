@@ -42,6 +42,7 @@
 #include <plotters/plotter.h>
 #include <geometry/shape_line_chain.h>
 #include <bezier_curves.h>
+#include <callback_gal.h>
 #include <math/util.h>      // for KiROUND
 
 
@@ -461,21 +462,14 @@ void PLOTTER::Marker( const VECTOR2I& position, int diametre, unsigned aShapeId 
 void PLOTTER::segmentAsOval( const VECTOR2I& start, const VECTOR2I& end, int width,
                              OUTLINE_MODE tracemode )
 {
-    VECTOR2I center( ( start.x + end.x ) / 2, ( start.y + end.y ) / 2 );
-    VECTOR2I size( end.x - start.x, end.y - start.y );
-    double  orient;
-
-    if( size.y == 0 )
-        orient = 0;
-    else if( size.x == 0 )
-        orient = 900;
-    else
-        orient = -ArcTangente( size.y, size.x );
+    VECTOR2I  center( ( start.x + end.x ) / 2, ( start.y + end.y ) / 2 );
+    VECTOR2I  size( end.x - start.x, end.y - start.y );
+    EDA_ANGLE orient( size );
 
     size.x = KiROUND( EuclideanNorm( size ) ) + width;
     size.y = width;
 
-    FlashPadOval( center, size, orient, tracemode, nullptr );
+    FlashPadOval( center, size, orient.AsTenthsOfADegree(), tracemode, nullptr );
 }
 
 
@@ -647,7 +641,7 @@ void PLOTTER::PlotPoly( const SHAPE_LINE_CHAIN& aCornerList, FILL_T aFill, int a
  * @param aV_justify is the vertical justification (bottom, center, top).
  * @param aPenWidth is the line width (if = 0, use plot default line width).
  * @param aItalic is the true to simulate an italic font.
- * @param aBold use true to use a bold font Useful only with default width value (aWidth = 0).
+ * @param aBold use true to use a bold font Useful only with default width value (aPenWidth = 0).
  * @param aMultilineAllowed use true to plot text as multiline, otherwise single line.
  * @param aData is a parameter used by some plotters in SetCurrentLineWidth(),
  *              not directly used here.
@@ -656,7 +650,7 @@ void PLOTTER::Text( const VECTOR2I&             aPos,
                     const COLOR4D&              aColor,
                     const wxString&             aText,
                     const EDA_ANGLE&            aOrient,
-                    const VECTOR2I&              aSize,
+                    const VECTOR2I&             aSize,
                     enum GR_TEXT_H_ALIGN_T      aH_justify,
                     enum GR_TEXT_V_ALIGN_T      aV_justify,
                     int                         aPenWidth,
@@ -666,9 +660,42 @@ void PLOTTER::Text( const VECTOR2I&             aPos,
                     KIFONT::FONT*               aFont,
                     void*                       aData )
 {
+    KIGFX::GAL_DISPLAY_OPTIONS empty_opts;
+
     SetColor( aColor );
     SetCurrentLineWidth( aPenWidth, aData );
 
-    GRText( nullptr, aPos, aColor, aText, aOrient, aSize, aH_justify, aV_justify, aPenWidth,
-            aItalic, aBold, aFont, nullptr, nullptr, this );
+    if( aPenWidth == 0 && aBold ) // Use default values if aPenWidth == 0
+        aPenWidth = GetPenSizeForBold( std::min( aSize.x, aSize.y ) );
+
+    if( aPenWidth < 0 )
+        aPenWidth = -aPenWidth;
+
+    CALLBACK_GAL callback_gal( empty_opts,
+            // Stroke callback
+            [&]( const VECTOR2I& aPt1, const VECTOR2I& aPt2 )
+            {
+                MoveTo( (wxPoint) aPt1 );
+                LineTo( (wxPoint) aPt2 );
+                PenFinish();
+            },
+            // Polygon callback
+            [&]( const SHAPE_LINE_CHAIN& aPoly )
+            {
+                PlotPoly( aPoly, FILL_T::FILLED_SHAPE, 0, aData );
+            } );
+
+    TEXT_ATTRIBUTES attributes;
+    attributes.m_Angle = aOrient;
+    attributes.m_StrokeWidth = aPenWidth;
+    attributes.m_Italic = aItalic;
+    attributes.m_Bold = aBold;
+    attributes.m_Halign = aH_justify;
+    attributes.m_Valign = aV_justify;
+    attributes.m_Size = aSize;
+
+    if( !aFont )
+        aFont = KIFONT::FONT::GetFont();
+
+    aFont->Draw( &callback_gal, aText, aPos, attributes );
 }

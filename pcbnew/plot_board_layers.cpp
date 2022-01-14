@@ -8,7 +8,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -270,18 +270,18 @@ void PlotStandardLayer( BOARD* aBoard, PLOTTER* aPlotter, LSET aLayerMask,
 
             COLOR4D color = COLOR4D::BLACK;
 
-            if( pad->GetLayerSet()[B_Cu] )
-               color = aPlotOpt.ColorSettings()->GetColor( LAYER_PAD_BK );
+            if( ( pad->GetLayerSet() & aLayerMask )[B_Cu] )
+               color = aPlotOpt.ColorSettings()->GetColor( B_Cu );
 
-            if( pad->GetLayerSet()[F_Cu] )
-                color = color.LegacyMix( aPlotOpt.ColorSettings()->GetColor( LAYER_PAD_FR ) );
+            if( ( pad->GetLayerSet() & aLayerMask )[F_Cu] )
+                color = color.LegacyMix( aPlotOpt.ColorSettings()->GetColor( F_Cu ) );
 
             if( sketchPads && aLayerMask[F_Fab] )
                 color = aPlotOpt.ColorSettings()->GetColor( F_Fab );
             else if( sketchPads && aLayerMask[B_Fab] )
                 color = aPlotOpt.ColorSettings()->GetColor( B_Fab );
 
-            wxSize margin;
+            VECTOR2I margin;
             int width_adj = 0;
 
             if( onCopperLayer )
@@ -300,12 +300,12 @@ void PlotStandardLayer( BOARD* aBoard, PLOTTER* aPlotter, LSET aLayerMask,
             int mask_clearance = margin.x;
 
             // Now offset the pad size by margin + width_adj
-            wxSize padPlotsSize = pad->GetSize() + margin * 2 + wxSize( width_adj, width_adj );
+            VECTOR2I padPlotsSize = pad->GetSize() + margin * 2 + VECTOR2I( width_adj, width_adj );
 
             // Store these parameters that can be modified to plot inflated/deflated pads shape
             PAD_SHAPE padShape = pad->GetShape();
-            wxSize      padSize  = pad->GetSize();
-            wxSize      padDelta = pad->GetDelta(); // has meaning only for trapezoidal pads
+            VECTOR2I    padSize = pad->GetSize();
+            VECTOR2I  padDelta = pad->GetDelta(); // has meaning only for trapezoidal pads
             double      padCornerRadius = pad->GetRoundRectCornerRadius();
 
             // Don't draw a 0 sized pad.
@@ -373,7 +373,7 @@ void PlotStandardLayer( BOARD* aBoard, PLOTTER* aPlotter, LSET aLayerMask,
                     // Shape polygon can have holes so use InflateWithLinkedHoles(), not Inflate()
                     // which can create bad shapes if margin.x is < 0
                     int maxError = aBoard->GetDesignSettings().m_MaxError;
-                    int numSegs = GetArcToSegmentCount( mask_clearance, maxError, 360.0 );
+                    int numSegs = GetArcToSegmentCount( mask_clearance, maxError, FULL_CIRCLE );
                     outline.InflateWithLinkedHoles( mask_clearance, numSegs,
                                                     SHAPE_POLY_SET::PM_FAST );
                     dummy.DeletePrimitivesList();
@@ -417,11 +417,11 @@ void PlotStandardLayer( BOARD* aBoard, PLOTTER* aPlotter, LSET aLayerMask,
                     // Build the dummy pad outline with coordinates relative to the pad position
                     // and orientation 0. The actual pos and rotation will be taken in account
                     // later by the plot function
-                    dummy.SetPosition( wxPoint( 0, 0 ) );
-                    dummy.SetOrientation( 0 );
+                    dummy.SetPosition( VECTOR2I( 0, 0 ) );
+                    dummy.SetOrientation( ANGLE_0 );
                     SHAPE_POLY_SET outline;
                     int maxError = aBoard->GetDesignSettings().m_MaxError;
-                    int numSegs = GetArcToSegmentCount( mask_clearance, maxError, 360.0 );
+                    int numSegs = GetArcToSegmentCount( mask_clearance, maxError, FULL_CIRCLE );
                     dummy.TransformShapeWithClearanceToPolygon( outline, UNDEFINED_LAYER, 0,
                                                                 maxError, ERROR_INSIDE );
                     outline.InflateWithLinkedHoles( mask_clearance, numSegs,
@@ -456,7 +456,7 @@ void PlotStandardLayer( BOARD* aBoard, PLOTTER* aPlotter, LSET aLayerMask,
                 // Shape polygon can have holes so use InflateWithLinkedHoles(), not Inflate()
                 // which can create bad shapes if margin.x is < 0
                 int maxError = aBoard->GetDesignSettings().m_MaxError;
-                int numSegs = GetArcToSegmentCount( mask_clearance, maxError, 360.0 );
+                int numSegs = GetArcToSegmentCount( mask_clearance, maxError, FULL_CIRCLE );
                 shape.InflateWithLinkedHoles( mask_clearance, numSegs, SHAPE_POLY_SET::PM_FAST );
                 dummy.DeletePrimitivesList();
                 dummy.AddPrimitivePoly( shape, 0, true );
@@ -578,14 +578,15 @@ void PlotStandardLayer( BOARD* aBoard, PLOTTER* aPlotter, LSET aLayerMask,
 
         if( track->Type() == PCB_ARC_T )
         {
-            const    PCB_ARC* arc = static_cast<const PCB_ARC*>( track );
-            VECTOR2D center( arc->GetCenter() );
-            int      radius = arc->GetRadius();
-            double   start_angle = arc->GetArcAngleStart();
-            double   end_angle = start_angle + arc->GetAngle();
+            const     PCB_ARC* arc = static_cast<const PCB_ARC*>( track );
+            VECTOR2D  center( arc->GetCenter() );
+            int       radius = arc->GetRadius();
+            EDA_ANGLE start_angle = arc->GetArcAngleStart();
+            EDA_ANGLE end_angle = start_angle + arc->GetAngle();
 
-            aPlotter->ThickArc( wxPoint( center.x, center.y ), -end_angle, -start_angle,
-                                radius, width, plotMode, &gbr_metadata );
+            aPlotter->ThickArc( VECTOR2I( center.x, center.y ), -end_angle.AsTenthsOfADegree(),
+                                -start_angle.AsTenthsOfADegree(), radius, width, plotMode,
+                                &gbr_metadata );
         }
         else
         {
@@ -719,7 +720,7 @@ void PlotLayerOutlines( BOARD* aBoard, PLOTTER* aPlotter, LSET aLayerMask,
         outlines.Simplify( SHAPE_POLY_SET::PM_FAST );
 
         // Plot outlines
-        std::vector<wxPoint> cornerList;
+        std::vector<VECTOR2I> cornerList;
 
         // Now we have one or more basic polygons: plot each polygon
         for( int ii = 0; ii < outlines.OutlineCount(); ii++ )
@@ -744,7 +745,7 @@ void PlotLayerOutlines( BOARD* aBoard, PLOTTER* aPlotter, LSET aLayerMask,
             {
                 for( PAD* pad : footprint->Pads() )
                 {
-                    wxSize hole = pad->GetDrillSize();
+                    VECTOR2I hole = pad->GetDrillSize();
 
                     if( hole.x == 0 || hole.y == 0 )
                         continue;
@@ -758,8 +759,8 @@ void PlotLayerOutlines( BOARD* aBoard, PLOTTER* aPlotter, LSET aLayerMask,
                     {
                         // Note: small drill marks have no significance when applied to slots
                         const SHAPE_SEGMENT* seg = pad->GetEffectiveHoleShape();
-                        aPlotter->ThickSegment( (wxPoint) seg->GetSeg().A,
-                                                (wxPoint) seg->GetSeg().B,
+                        aPlotter->ThickSegment( seg->GetSeg().A,
+                                                seg->GetSeg().B,
                                                 seg->GetWidth(), SKETCH, nullptr );
                     }
                 }
@@ -882,11 +883,12 @@ void PlotSolderMaskLayer( BOARD *aBoard, PLOTTER* aPlotter, LSET aLayerMask,
         for( const PCB_TRACK* track : aBoard->Tracks() )
         {
             const PCB_VIA* via = dyn_cast<const PCB_VIA*>( track );
-            int            clearance = via->GetSolderMaskExpansion();
 
             // Note: IsOnLayer() checks relevant mask layers of untented vias
             if( !via || !via->IsOnLayer( layer ) )
                 continue;
+
+            int            clearance = via->GetSolderMaskExpansion();
 
             // add shapes with their exact mask layer size in initialPolys
             via->TransformShapeWithClearanceToPolygon( initialPolys, layer, clearance, maxError,
@@ -933,7 +935,7 @@ void PlotSolderMaskLayer( BOARD *aBoard, PLOTTER* aPlotter, LSET aLayerMask,
         }
     }
 
-    int numSegs = GetArcToSegmentCount( inflate, maxError, 360.0 );
+    int numSegs = GetArcToSegmentCount( inflate, maxError, FULL_CIRCLE );
 
     // Merge all polygons: After deflating, not merged (not overlapping) polygons
     // will have the initial shape (with perhaps small changes due to deflating transform)
@@ -1037,8 +1039,8 @@ static void initializePlotter( PLOTTER* aPlotter, const BOARD* aBoard,
     }
 
     EDA_RECT bbox = aBoard->ComputeBoundingBox();
-    wxPoint boardCenter = bbox.Centre();
-    wxSize boardSize = bbox.GetSize();
+    VECTOR2I boardCenter = bbox.Centre();
+    VECTOR2I boardSize = bbox.GetSize();
 
     double compound_scale;
 
@@ -1058,7 +1060,7 @@ static void initializePlotter( PLOTTER* aPlotter, const BOARD* aBoard,
 
     // For the plot offset we have to keep in mind the auxiliary origin too: if autoscaling is
     // off we check that plot option (i.e. autoscaling overrides auxiliary origin)
-    wxPoint offset( 0, 0);
+    VECTOR2I offset( 0, 0);
 
     if( autocenter )
     {

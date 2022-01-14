@@ -206,7 +206,7 @@ std::unique_ptr<FOOTPRINT> MakeInvalidCourtyardTestFP( BOARD& aBoard,
 
     // As of 2019-01-17, this has to go after adding the courtyards,
     // or all the poly sets are empty when DRC'd
-    footprint->SetPosition( (wxPoint) aFPDef.m_pos );
+    footprint->SetPosition( aFPDef.m_pos );
 
     return footprint;
 }
@@ -304,7 +304,7 @@ void DoCourtyardInvalidTest( const COURTYARD_INVALID_CASE& aCase,
     drcEngine.InitEngine( wxFileName() );
 
     drcEngine.SetViolationHandler(
-            [&]( const std::shared_ptr<DRC_ITEM>& aItem, wxPoint aPos, PCB_LAYER_ID aLayer )
+            [&]( const std::shared_ptr<DRC_ITEM>& aItem, VECTOR2I aPos, PCB_LAYER_ID aLayer )
             {
                 if(    aItem->GetErrorCode() == DRCE_OVERLAPPING_FOOTPRINTS
                     || aItem->GetErrorCode() == DRCE_MALFORMED_COURTYARD

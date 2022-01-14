@@ -4,7 +4,7 @@
  * Copyright (C) 2016 Mario Luzeiro <mrluzeiro@ua.pt>
  * Copyright (C) 2018 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2015 Dick Hollenbeck, dick@softplc.com
- * Copyright (C) 2004-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2004-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -78,9 +78,6 @@ DIALOG_FOOTPRINT_PROPERTIES::DIALOG_FOOTPRINT_PROPERTIES( PCB_EDIT_FRAME* aParen
     // Configure display origin transforms
     m_posX.SetCoordType( ORIGIN_TRANSFORMS::ABS_X_COORD );
     m_posY.SetCoordType( ORIGIN_TRANSFORMS::ABS_Y_COORD );
-
-    for( size_t i = 0; i < m_NoteBook->GetPageCount(); ++i )
-   	    m_macHack.push_back( true );
 
     m_texts = new FP_TEXT_GRID_TABLE( m_frame );
 
@@ -249,7 +246,7 @@ bool DIALOG_FOOTPRINT_PROPERTIES::TransferDataToWindow()
 
     m_BoardSideCtrl->SetSelection( (m_footprint->GetLayer() == B_Cu) ? 1 : 0 );
 
-    m_orientation.SetDoubleValue( m_footprint->GetOrientation() / 10.0 );
+    m_orientation.SetDoubleValue( m_footprint->GetOrientation().AsTenthsOfADegree() );
 
     m_cbLocked->SetValue( m_footprint->IsLocked() );
     m_cbLocked->SetToolTip( _( "Locked footprints cannot be freely moved and oriented on the "
@@ -444,7 +441,7 @@ bool DIALOG_FOOTPRINT_PROPERTIES::TransferDataFromWindow()
 
     m_footprint->SetAttributes( attributes );
 
-    double orient = m_orientation.GetDoubleValue() * 10.0;
+    EDA_ANGLE orient( m_orientation.GetDoubleValue(), TENTHS_OF_A_DEGREE_T );
 
     if( m_footprint->GetOrientation() != orient )
         m_footprint->Rotate( m_footprint->GetPosition(), orient - m_footprint->GetOrientation() );
@@ -659,19 +656,6 @@ void DIALOG_FOOTPRINT_PROPERTIES::OnPageChange( wxNotebookEvent& aEvent )
     // Shouldn't be necessary, but is on at least OSX
     if( page >= 0 )
         m_NoteBook->ChangeSelection( (unsigned) page );
-
-#ifdef __WXMAC__
-    // Work around an OSX bug where the wxGrid children don't get placed correctly until
-    // the first resize event
-    if( m_macHack[ page ] )
-    {
-        wxSize pageSize = m_NoteBook->GetPage( page )->GetSize();
-        pageSize.x -= 1;
-
-        m_NoteBook->GetPage( page )->SetSize( pageSize );
-        m_macHack[ page ] = false;
-    }
-#endif
 }
 
 

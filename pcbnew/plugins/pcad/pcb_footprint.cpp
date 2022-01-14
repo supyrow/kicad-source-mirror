@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2007, 2008 Lubo Racko <developer@lura.sk>
  * Copyright (C) 2007, 2008, 2012-2013 Alexander Lunev <al.lunev@yahoo.com>
- * Copyright (C) 2012-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2012-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -39,7 +39,6 @@
 #include <trigo.h>
 #include <xnode.h>
 
-#include <wx/gdicmn.h>
 #include <wx/string.h>
 
 namespace PCAD2KICAD {
@@ -508,9 +507,9 @@ void PCB_FOOTPRINT::AddToBoard()
     FOOTPRINT* footprint = new FOOTPRINT( m_board );
     m_board->Add( footprint, ADD_MODE::APPEND );
 
-    footprint->SetPosition( wxPoint( m_positionX, m_positionY ) );
+    footprint->SetPosition( VECTOR2I( m_positionX, m_positionY ) );
     footprint->SetLayer( m_Mirror ? B_Cu : F_Cu );
-    footprint->SetOrientation( m_rotation );
+    footprint->SetOrientation( EDA_ANGLE( m_rotation, TENTHS_OF_A_DEGREE_T ) );
     footprint->SetLastEditTime( 0 );
 
     LIB_ID fpID;
@@ -523,7 +522,7 @@ void PCB_FOOTPRINT::AddToBoard()
     ref_text->SetText( ValidateReference( m_name.text ) );
     ref_text->SetType( FP_TEXT::TEXT_is_REFERENCE );
 
-    ref_text->SetPos0( wxPoint( m_name.correctedPositionX, m_name.correctedPositionY ) );
+    ref_text->SetPos0( VECTOR2I( m_name.correctedPositionX, m_name.correctedPositionY ) );
 
     if( m_name.isTrueType )
         SetTextSizeFromTrueTypeFontHeight( ref_text, m_name.textHeight );
@@ -531,7 +530,7 @@ void PCB_FOOTPRINT::AddToBoard()
         SetTextSizeFromStrokeFontHeight( ref_text, m_name.textHeight );
 
     r = m_name.textRotation - m_rotation;
-    ref_text->SetTextAngle( r );
+    ref_text->SetTextAngle( EDA_ANGLE( r, TENTHS_OF_A_DEGREE_T ) );
     ref_text->SetKeepUpright( false );
 
     ref_text->SetItalic( m_name.isItalic );
@@ -551,7 +550,7 @@ void PCB_FOOTPRINT::AddToBoard()
     val_text->SetText( m_Value.text );
     val_text->SetType( FP_TEXT::TEXT_is_VALUE );
 
-    val_text->SetPos0( wxPoint( m_Value.correctedPositionX, m_Value.correctedPositionY ) );
+    val_text->SetPos0( VECTOR2I( m_Value.correctedPositionX, m_Value.correctedPositionY ) );
 
     if( m_Value.isTrueType )
         SetTextSizeFromTrueTypeFontHeight( val_text, m_Value.textHeight );
@@ -559,7 +558,7 @@ void PCB_FOOTPRINT::AddToBoard()
         SetTextSizeFromStrokeFontHeight( val_text, m_Value.textHeight );
 
     r = m_Value.textRotation - m_rotation;
-    val_text->SetTextAngle( r );
+    val_text->SetTextAngle( EDA_ANGLE( r, TENTHS_OF_A_DEGREE_T ) );
     val_text->SetKeepUpright( false );
 
     val_text->SetItalic( m_Value.isItalic );

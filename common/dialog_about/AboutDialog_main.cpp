@@ -64,7 +64,7 @@ static void buildKicadAboutBanner( EDA_BASE_FRAME* aParent, ABOUT_APP_INFO& aInf
     aInfo.SetAppName( Pgm().App().GetAppName() );
 
     /* Copyright information */
-    aInfo.SetCopyright( "(C) 1992-2021 KiCad Developers Team" );
+    aInfo.SetCopyright( "(C) 1992-2022 KiCad Developers Team" );
 
     /* KiCad build version */
     wxString version;
@@ -867,7 +867,7 @@ static void buildKicadAboutBanner( EDA_BASE_FRAME* aParent, ABOUT_APP_INFO& aInf
                                           wxEmptyString,
                                           "Other" ) );
 
-    aInfo.AddTranslator( new CONTRIBUTOR( "David Briscoe",
+    aInfo.AddTranslator( new CONTRIBUTOR( "David J S Briscoe",
                                           wxEmptyString,
                                           wxEmptyString,
                                           "Other" ) );

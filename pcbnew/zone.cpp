@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2017 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2012 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -48,6 +48,7 @@ ZONE::ZONE( BOARD_ITEM_CONTAINER* aParent, bool aInFP ) :
 {
     m_CornerSelection = nullptr;                // no corner is selected
     m_isFilled = false;                         // fill status : true when the zone is filled
+    m_teardropType = TEARDROP_TYPE::TD_NONE;
     m_borderStyle = ZONE_BORDER_DISPLAY_STYLE::DIAGONAL_EDGE;
     m_borderHatchPitch = GetDefaultHatchPitch();
     m_priority = 0;
@@ -128,6 +129,7 @@ void ZONE::InitDataFromSrcInCopyCtor( const ZONE& aZone )
 
     m_isFilled                = aZone.m_isFilled;
     m_needRefill              = aZone.m_needRefill;
+    m_teardropType            = aZone.m_teardropType;
 
     m_thermalReliefGap        = aZone.m_thermalReliefGap;
     m_thermalReliefSpokeWidth = aZone.m_thermalReliefSpokeWidth;
@@ -197,9 +199,9 @@ bool ZONE::UnFill()
 }
 
 
-wxPoint ZONE::GetPosition() const
+VECTOR2I ZONE::GetPosition() const
 {
-    return (wxPoint) GetCornerPosition( 0 );
+    return GetCornerPosition( 0 );
 }
 
 
@@ -309,9 +311,9 @@ bool ZONE::IsOnLayer( PCB_LAYER_ID aLayer ) const
 
 const EDA_RECT ZONE::GetBoundingBox() const
 {
-    auto bb = m_Poly->BBox();
+    BOX2I bb = m_Poly->BBox();
 
-    EDA_RECT ret( (wxPoint) bb.GetOrigin(), wxSize( bb.GetWidth(), bb.GetHeight() ) );
+    EDA_RECT ret( bb.GetOrigin(), VECTOR2I( bb.GetWidth(), bb.GetHeight() ) );
 
     return ret;
 }
@@ -371,7 +373,7 @@ void ZONE::BuildHashValue( PCB_LAYER_ID aLayer )
 }
 
 
-bool ZONE::HitTest( const wxPoint& aPosition, int aAccuracy ) const
+bool ZONE::HitTest( const VECTOR2I& aPosition, int aAccuracy ) const
 {
     // When looking for an "exact" hit aAccuracy will be 0 which works poorly for very thin
     // lines.  Give it a floor.
@@ -381,7 +383,7 @@ bool ZONE::HitTest( const wxPoint& aPosition, int aAccuracy ) const
 }
 
 
-void ZONE::SetSelectedCorner( const wxPoint& aPosition, int aAccuracy )
+void ZONE::SetSelectedCorner( const VECTOR2I& aPosition, int aAccuracy )
 {
     SHAPE_POLY_SET::VERTEX_INDEX corner;
 
@@ -396,28 +398,28 @@ void ZONE::SetSelectedCorner( const wxPoint& aPosition, int aAccuracy )
     }
 }
 
-bool ZONE::HitTestForCorner( const wxPoint& refPos, int aAccuracy,
+bool ZONE::HitTestForCorner( const VECTOR2I& refPos, int aAccuracy,
                              SHAPE_POLY_SET::VERTEX_INDEX& aCornerHit ) const
 {
     return m_Poly->CollideVertex( VECTOR2I( refPos ), aCornerHit, aAccuracy );
 }
 
 
-bool ZONE::HitTestForCorner( const wxPoint& refPos, int aAccuracy ) const
+bool ZONE::HitTestForCorner( const VECTOR2I& refPos, int aAccuracy ) const
 {
     SHAPE_POLY_SET::VERTEX_INDEX dummy;
     return HitTestForCorner( refPos, aAccuracy, dummy );
 }
 
 
-bool ZONE::HitTestForEdge( const wxPoint& refPos, int aAccuracy,
+bool ZONE::HitTestForEdge( const VECTOR2I& refPos, int aAccuracy,
                            SHAPE_POLY_SET::VERTEX_INDEX& aCornerHit ) const
 {
     return m_Poly->CollideEdge( VECTOR2I( refPos ), aCornerHit, aAccuracy );
 }
 
 
-bool ZONE::HitTestForEdge( const wxPoint& refPos, int aAccuracy ) const
+bool ZONE::HitTestForEdge( const VECTOR2I& refPos, int aAccuracy ) const
 {
     SHAPE_POLY_SET::VERTEX_INDEX dummy;
     return HitTestForEdge( refPos, aAccuracy, dummy );
@@ -452,11 +454,11 @@ bool ZONE::HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy ) cons
             auto vertexNext = m_Poly->CVertex( ( ii + 1 ) % count );
 
             // Test if the point is within the rect
-            if( arect.Contains( ( wxPoint ) vertex ) )
+            if( arect.Contains( vertex ) )
                 return true;
 
             // Test if this edge intersects the rect
-            if( arect.Intersects( ( wxPoint ) vertex, ( wxPoint ) vertexNext ) )
+            if( arect.Intersects( vertex, vertexNext ) )
                 return true;
         }
 
@@ -477,7 +479,7 @@ int ZONE::GetLocalClearance( wxString* aSource ) const
 }
 
 
-bool ZONE::HitTestFilledArea( PCB_LAYER_ID aLayer, const wxPoint &aRefPos, int aAccuracy ) const
+bool ZONE::HitTestFilledArea( PCB_LAYER_ID aLayer, const VECTOR2I& aRefPos, int aAccuracy ) const
 {
     // Rule areas have no filled area, but it's generally nice to treat their interior as if it were
     // filled so that people don't have to select them by their outline (which is min-width)
@@ -645,7 +647,7 @@ void ZONE::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>&
 }
 
 
-void ZONE::Move( const wxPoint& offset )
+void ZONE::Move( const VECTOR2I& offset )
 {
     /* move outlines */
     m_Poly->Move( offset );
@@ -659,14 +661,14 @@ void ZONE::Move( const wxPoint& offset )
     {
         for( SEG& seg : pair.second )
         {
-            seg.A += VECTOR2I( offset );
-            seg.B += VECTOR2I( offset );
+            seg.A += offset;
+            seg.B += offset;
         }
     }
 }
 
 
-void ZONE::MoveEdge( const wxPoint& offset, int aEdge )
+void ZONE::MoveEdge( const VECTOR2I& offset, int aEdge )
 {
     int next_corner;
 
@@ -681,33 +683,32 @@ void ZONE::MoveEdge( const wxPoint& offset, int aEdge )
 }
 
 
-void ZONE::Rotate( const wxPoint& aCentre, double aAngle )
+void ZONE::Rotate( const VECTOR2I& aCentre, const EDA_ANGLE& aAngle )
 {
-    aAngle = -DECIDEG2RAD( aAngle );
-
-    m_Poly->Rotate( aAngle, VECTOR2I( aCentre ) );
+    m_Poly->Rotate( -aAngle.AsRadians(), VECTOR2I( aCentre ) );
     HatchBorder();
 
     /* rotate filled areas: */
     for( std::pair<const PCB_LAYER_ID, SHAPE_POLY_SET>& pair : m_FilledPolysList )
-        pair.second.Rotate( aAngle, VECTOR2I( aCentre ) );
+        pair.second.Rotate( -aAngle.AsRadians(), aCentre );
 
     for( std::pair<const PCB_LAYER_ID, std::vector<SEG> >& pair : m_FillSegmList )
     {
         for( SEG& seg : pair.second )
         {
-            wxPoint a( seg.A );
-            RotatePoint( &a, aCentre, aAngle );
+            VECTOR2I a( seg.A );
+            RotatePoint( a, aCentre, -aAngle.AsRadians() );
             seg.A = a;
-            wxPoint b( seg.B );
-            RotatePoint( &b, aCentre, aAngle );
+
+            VECTOR2I b( seg.B );
+            RotatePoint( b, aCentre, -aAngle.AsRadians() );
             seg.B = a;
         }
     }
 }
 
 
-void ZONE::Flip( const wxPoint& aCentre, bool aFlipLeftRight )
+void ZONE::Flip( const VECTOR2I& aCentre, bool aFlipLeftRight )
 {
     Mirror( aCentre, aFlipLeftRight );
     int copperLayerCount = GetBoard()->GetCopperLayerCount();
@@ -719,15 +720,15 @@ void ZONE::Flip( const wxPoint& aCentre, bool aFlipLeftRight )
 }
 
 
-void ZONE::Mirror( const wxPoint& aMirrorRef, bool aMirrorLeftRight )
+void ZONE::Mirror( const VECTOR2I& aMirrorRef, bool aMirrorLeftRight )
 {
     // ZONEs mirror about the x-axis (why?!?)
-    m_Poly->Mirror( aMirrorLeftRight, !aMirrorLeftRight, VECTOR2I( aMirrorRef ) );
+    m_Poly->Mirror( aMirrorLeftRight, !aMirrorLeftRight, aMirrorRef );
 
     HatchBorder();
 
     for( std::pair<const PCB_LAYER_ID, SHAPE_POLY_SET>& pair : m_FilledPolysList )
-        pair.second.Mirror( aMirrorLeftRight, !aMirrorLeftRight, VECTOR2I( aMirrorRef ) );
+        pair.second.Mirror( aMirrorLeftRight, !aMirrorLeftRight, aMirrorRef );
 
     for( std::pair<const PCB_LAYER_ID, std::vector<SEG> >& pair : m_FillSegmList )
     {
@@ -777,7 +778,7 @@ void ZONE::AddPolygon( const SHAPE_LINE_CHAIN& aPolygon )
 }
 
 
-void ZONE::AddPolygon( std::vector< wxPoint >& aPolygon )
+void ZONE::AddPolygon( std::vector<VECTOR2I>& aPolygon )
 {
     if( aPolygon.empty() )
         return;
@@ -785,7 +786,7 @@ void ZONE::AddPolygon( std::vector< wxPoint >& aPolygon )
     SHAPE_LINE_CHAIN outline;
 
     // Create an outline and populate it with the points of aPolygon
-    for( const wxPoint& pt : aPolygon)
+    for( const VECTOR2I& pt : aPolygon )
         outline.Append( pt );
 
     outline.SetClosed( true );
@@ -794,7 +795,7 @@ void ZONE::AddPolygon( std::vector< wxPoint >& aPolygon )
 }
 
 
-bool ZONE::AppendCorner( wxPoint aPosition, int aHoleIdx, bool aAllowDuplication )
+bool ZONE::AppendCorner( VECTOR2I aPosition, int aHoleIdx, bool aAllowDuplication )
 {
     // Ensure the main outline exists:
     if( m_Poly->OutlineCount() == 0 )
@@ -878,7 +879,7 @@ void ZONE::UnHatchBorder()
 
 
 // Creates hatch lines inside the outline of the complex polygon
-// sort function used in ::HatchBorder to sort points by descending wxPoint.x values
+// sort function used in ::HatchBorder to sort points by descending VECTOR2I.x values
 bool sortEndsByDescendingX( const VECTOR2I& ref, const VECTOR2I& tst )
 {
     return tst.x < ref.x;
@@ -1244,6 +1245,13 @@ double ZONE::CalculateFilledArea()
 }
 
 
+double ZONE::CalculateOutlineArea()
+{
+    m_outlinearea = std::abs( m_Poly->Area() );
+    return m_outlinearea;
+}
+
+
 void ZONE::TransformSmoothedOutlineToPolygon( SHAPE_POLY_SET& aCornerBuffer, int aClearance,
                                               SHAPE_POLY_SET* aBoardOutline ) const
 {
@@ -1261,7 +1269,7 @@ void ZONE::TransformSmoothedOutlineToPolygon( SHAPE_POLY_SET& aCornerBuffer, int
         if( board )
             maxError = board->GetDesignSettings().m_MaxError;
 
-        int segCount = GetArcToSegmentCount( aClearance, maxError, 360.0 );
+        int segCount = GetArcToSegmentCount( aClearance, maxError, FULL_CIRCLE );
         polybuffer.Inflate( aClearance, segCount );
     }
 
@@ -1365,9 +1373,12 @@ void ZONE::TransformShapeWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuffer,
 
     aCornerBuffer = m_FilledPolysList.at( aLayer );
 
-    int numSegs = GetArcToSegmentCount( aClearance, aError, 360.0 );
-    aCornerBuffer.Inflate( aClearance, numSegs );
-    aCornerBuffer.Simplify( SHAPE_POLY_SET::PM_STRICTLY_SIMPLE );
+    // Rebuild filled areas only if clearance is not 0
+    if( aClearance )
+    {
+        int numSegs = GetArcToSegmentCount( aClearance, aError, FULL_CIRCLE );
+        aCornerBuffer.InflateWithLinkedHoles( aClearance, numSegs, SHAPE_POLY_SET::PM_FAST );
+    }
 }
 
 
@@ -1395,7 +1406,7 @@ void ZONE::TransformSolidAreasShapesToPolygon( PCB_LAYER_ID aLayer, SHAPE_POLY_S
     if( board )
         maxError = board->GetDesignSettings().m_MaxError;
 
-    int numSegs = GetArcToSegmentCount( GetMinThickness(), maxError, 360.0 );
+    int numSegs = GetArcToSegmentCount( GetMinThickness(), maxError, FULL_CIRCLE );
 
     polys.InflateWithLinkedHoles( GetMinThickness()/2, numSegs, SHAPE_POLY_SET::PM_FAST );
 

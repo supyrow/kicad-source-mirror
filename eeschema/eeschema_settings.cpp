@@ -94,6 +94,9 @@ EESCHEMA_SETTINGS::EESCHEMA_SETTINGS() :
     m_params.emplace_back( new PARAM<bool>( "appearance.print_sheet_reference",
             &m_Appearance.print_sheet_reference, true ) );
 
+    m_params.emplace_back( new PARAM<wxString>( "appearance.default_font",
+            &m_Appearance.default_font, "KiCad Font" ) );
+
     m_params.emplace_back( new PARAM<bool>( "appearance.show_hidden_pins",
             &m_Appearance.show_hidden_pins, false ) );
 
@@ -549,7 +552,15 @@ bool EESCHEMA_SETTINGS::MigrateFromLegacy( wxConfigBase* aCfg )
             if( aCfg->Read( key, &value ) )
             {
                 std::string key_utf( key.ToUTF8() );
-                js[JSON_SETTINGS_INTERNALS::PointerFromString( key_utf )] = value;
+
+                try
+                {
+                    js[key_utf] = value;
+                }
+                catch(...)
+                {
+                    continue;
+                }
             }
         }
 
@@ -562,7 +573,15 @@ bool EESCHEMA_SETTINGS::MigrateFromLegacy( wxConfigBase* aCfg )
             if( aCfg->Read( key, &value ) )
             {
                 std::string key_utf( key.ToUTF8() );
-                js[JSON_SETTINGS_INTERNALS::PointerFromString( key_utf )] = value;
+
+                try
+                {
+                    js[key_utf] = value;
+                }
+                catch(...)
+                {
+                    continue;
+                }
             }
         }
 

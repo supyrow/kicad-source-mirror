@@ -150,8 +150,8 @@ public:
     void SetFileExists( bool aFileExists )                  { m_fileExists = aFileExists; }
     bool FileExists() const                                 { return m_fileExists; }
 
-    const wxPoint& GetAuxOrigin() const                     { return m_aux_origin; }
-    void SetAuxOrigin( const wxPoint& aPosition )           { m_aux_origin = aPosition; }
+    const VECTOR2I& GetAuxOrigin() const                    { return m_aux_origin; }
+    void SetAuxOrigin( const VECTOR2I& aPosition )          { m_aux_origin = aPosition; }
 
     const TITLE_BLOCK& GetTitleBlock() const                { return m_titles; }
 
@@ -215,7 +215,7 @@ public:
      * @param aType The type of item to find.
      * @return The item found that meets the search criteria or NULL if none found.
      */
-    SCH_ITEM* GetItem( const wxPoint& aPosition, int aAccuracy = 0,
+    SCH_ITEM* GetItem( const VECTOR2I& aPosition, int aAccuracy = 0,
                        KICAD_T aType = SCH_LOCATE_ANY_T ) const;
 
     /**
@@ -309,7 +309,7 @@ public:
      */
     void ClearDrawingState();
 
-    size_t CountConnectedItems( const wxPoint& aPos, bool aTestJunctions ) const;
+    size_t CountConnectedItems( const VECTOR2I& aPos, bool aTestJunctions ) const;
 
     /**
      * Test if a junction is required for the items at \a aPosition on the screen.  Note that
@@ -325,25 +325,25 @@ public:
      * @param[in] aPosition The position to test.
      * @return True if a junction is required at \a aPosition.
      */
-    bool IsJunction( const wxPoint& aPosition ) const;
+    bool IsJunction( const VECTOR2I& aPosition ) const;
 
     /**
      * Indicates that a junction dot is necessary at the given location.  See IsJunctionNeeded
      * for more info.
      */
-    bool IsExplicitJunction( const wxPoint& aPosition ) const;
+    bool IsExplicitJunction( const VECTOR2I& aPosition ) const;
 
     /**
      * Indicates that a junction dot is necessary at the given location, and does not yet exist.
      * See IsJunctionNeeded for more info.
      */
-    bool IsExplicitJunctionNeeded( const wxPoint& aPosition ) const;
+    bool IsExplicitJunctionNeeded( const VECTOR2I& aPosition ) const;
 
     /**
      * Indicates that a juction dot may be placed at the given location.  See IsJunctionNeeded
      * for more info.
      */
-    bool IsExplicitJunctionAllowed( const wxPoint& aPosition ) const;
+    bool IsExplicitJunctionAllowed( const VECTOR2I& aPosition ) const;
 
     /**
      * Test if \a aPosition is a connection point on \a aLayer.
@@ -353,7 +353,7 @@ public:
      *               #LAYER_BUS, and #LAYER_WIRE.
      * @return True if \a Position is a connection point on \a aLayer.
      */
-    bool IsTerminalPoint( const wxPoint& aPosition, int aLayer ) const;
+    bool IsTerminalPoint( const VECTOR2I& aPosition, int aLayer ) const;
 
     /**
      * Test the screen for a symbol pin item at \a aPosition.
@@ -364,7 +364,7 @@ public:
      *                      point of the pin.
      * @return The pin item if found, otherwise NULL.
      */
-    LIB_PIN* GetPin( const wxPoint& aPosition, SCH_SYMBOL** aSymbol = nullptr,
+    LIB_PIN* GetPin( const VECTOR2I& aPosition, SCH_SYMBOL** aSymbol = nullptr,
                      bool aEndPointOnly = false ) const;
 
     /**
@@ -373,7 +373,7 @@ public:
      * @param[in] aPosition The position to test.
      * @return The sheet label object if found otherwise NULL.
      */
-    SCH_SHEET_PIN* GetSheetPin( const wxPoint& aPosition ) const;
+    SCH_SHEET_PIN* GetSheetPin( const VECTOR2I& aPosition ) const;
 
     /**
      * Clear the annotation for the symbols in \a aSheetPath on the screen.
@@ -410,23 +410,23 @@ public:
     /**
      * Return a line item located at \a aPosition.
      *
-     * @param[in] aPosition The wxPoint to test for a line item.
+     * @param[in] aPosition The VECTOR2I to test for a line item.
      * @param aAccuracy Amount to inflate the item hit test bounding box.
      * @param aLayer The layer the line is drawn upon.
      * @param aSearchType Additional line test criteria.
      * @return The SCH_LINE* of the wire item found at \a aPosition or NULL if item not
      *         found.
      */
-    SCH_LINE* GetLine( const wxPoint& aPosition, int aAccuracy = 0, int aLayer = LAYER_NOTES,
+    SCH_LINE* GetLine( const VECTOR2I& aPosition, int aAccuracy = 0, int aLayer = LAYER_NOTES,
                        SCH_LINE_TEST_T aSearchType = ENTIRE_LENGTH_T ) const;
 
-    SCH_LINE* GetWire( const wxPoint& aPosition, int aAccuracy = 0,
+    SCH_LINE* GetWire( const VECTOR2I& aPosition, int aAccuracy = 0,
                        SCH_LINE_TEST_T aSearchType = ENTIRE_LENGTH_T ) const
     {
         return GetLine( aPosition, aAccuracy, LAYER_WIRE, aSearchType );
     }
 
-    SCH_LINE* GetBus( const wxPoint& aPosition, int aAccuracy = 0,
+    SCH_LINE* GetBus( const VECTOR2I& aPosition, int aAccuracy = 0,
                       SCH_LINE_TEST_T aSearchType = ENTIRE_LENGTH_T ) const
     {
         return GetLine( aPosition, aAccuracy, LAYER_BUS, aSearchType );
@@ -435,12 +435,12 @@ public:
     /**
      * Return a label item located at \a aPosition.
      *
-     * @param[in] aPosition The wxPoint to test for label items.
+     * @param[in] aPosition The VECTOR2I to test for label items.
      * @param aAccuracy Amount to inflate the item hit test bounding box.
      * @return The SCH_TEXT* of the label item found at \a aPosition or NULL if item not
      *         found.
      */
-    SCH_TEXT* GetLabel( const wxPoint& aPosition, int aAccuracy = 0 ) const;
+    SCH_TEXT* GetLabel( const VECTOR2I& aPosition, int aAccuracy = 0 ) const;
 
     /**
      * Fetch a list of unique #LIB_SYMBOL object pointers required to properly render each
@@ -508,7 +508,7 @@ public:
     double m_LastZoomLevel;
 
 private:
-    bool doIsJunction( const wxPoint& aPosition, bool aBreakCrossings,
+    bool doIsJunction( const VECTOR2I& aPosition, bool aBreakCrossings,
                        bool* aHasExplicitJunctionDot, bool* aHasBusEntry ) const;
 
 private:
@@ -534,7 +534,7 @@ private:
 
     PAGE_INFO   m_paper;                    // The size of the paper to print or plot on.
     TITLE_BLOCK m_titles;
-    wxPoint     m_aux_origin;               // Origin used for drill & place files by Pcbnew.
+    VECTOR2I    m_aux_origin;               // Origin used for drill & place files by Pcbnew.
     EE_RTREE    m_rtree;
 
     int         m_modification_sync;        // Inequality with SYMBOL_LIBS::GetModificationHash()

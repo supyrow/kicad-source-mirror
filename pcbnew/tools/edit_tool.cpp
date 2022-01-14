@@ -112,7 +112,7 @@ bool EDIT_TOOL::Init()
                         DS_PROXY_VIEW_ITEM* ds = frame()->GetCanvas()->GetDrawingSheet();
                         VECTOR2D            cursor = getViewControls()->GetCursorPosition( false );
 
-                        if( ds && ds->HitTestDrawingSheetItems( getView(), (wxPoint) cursor ) )
+                        if( ds && ds->HitTestDrawingSheetItems( getView(), cursor ) )
                             return true;
                     }
 
@@ -318,7 +318,7 @@ int EDIT_TOOL::DragArcTrack( const TOOL_EVENT& aEvent )
         return 0;
 
     PCB_ARC* theArc = static_cast<PCB_ARC*>( selection.Front() );
-    double   arcAngleDegrees = std::abs( theArc->GetAngle() ) / 10.0;
+    double   arcAngleDegrees = std::abs( theArc->GetAngle().AsDegrees() );
 
     if( arcAngleDegrees + ADVANCED_CFG::GetCfg().m_MaxTangentAngleDeviation >= 180.0 )
     {
@@ -387,8 +387,8 @@ int EDIT_TOOL::DragArcTrack( const TOOL_EVENT& aEvent )
             if( !retval )
             {
                 retval = new PCB_TRACK( theArc->GetParent() );
-                retval->SetStart( (wxPoint) aAnchor );
-                retval->SetEnd( (wxPoint) aAnchor );
+                retval->SetStart( aAnchor );
+                retval->SetEnd( aAnchor );
                 retval->SetNet( theArc->GetNet() );
                 retval->SetLayer( theArc->GetLayer() );
                 retval->SetWidth( theArc->GetWidth() );
@@ -543,19 +543,19 @@ int EDIT_TOOL::DragArcTrack( const TOOL_EVENT& aEvent )
         VECTOR2I newMid = CalcArcMid( newStart, newEnd, newCenter );
 
         // Update objects
-        theArc->SetStart( (wxPoint) newStart );
-        theArc->SetEnd( (wxPoint) newEnd );
-        theArc->SetMid( (wxPoint) newMid );
+        theArc->SetStart( newStart );
+        theArc->SetEnd( newEnd );
+        theArc->SetMid( newMid );
 
         if( isStartTrackOnStartPt )
-            trackOnStart->SetStart( (wxPoint) newStart );
+            trackOnStart->SetStart( newStart );
         else
-            trackOnStart->SetEnd( (wxPoint) newStart );
+            trackOnStart->SetEnd( newStart );
 
         if( isEndTrackOnStartPt )
-            trackOnEnd->SetStart( (wxPoint) newEnd );
+            trackOnEnd->SetStart( newEnd );
         else
-            trackOnEnd->SetEnd( (wxPoint) newEnd );
+            trackOnEnd->SetEnd( newEnd );
 
         // Update view
         getView()->Update( trackOnStart );
@@ -632,8 +632,8 @@ int EDIT_TOOL::DragArcTrack( const TOOL_EVENT& aEvent )
             };
 
     // Amend the end points of the arc if we delete the joining tracks
-    wxPoint newStart = trackOnStart->GetStart();
-    wxPoint newEnd = trackOnEnd->GetStart();
+    VECTOR2I newStart = trackOnStart->GetStart();
+    VECTOR2I newEnd = trackOnEnd->GetStart();
 
     if( isStartTrackOnStartPt )
         newStart = trackOnStart->GetEnd();
@@ -1215,7 +1215,7 @@ int EDIT_TOOL::FilletTracks( const TOOL_EVENT& aEvent )
         auto processFilletOp =
                 [&]( bool aStartPoint )
                 {
-                    wxPoint anchor = ( aStartPoint ) ? track->GetStart() : track->GetEnd();
+            VECTOR2I anchor = ( aStartPoint ) ? track->GetStart() : track->GetEnd();
                     auto connectivity = board()->GetConnectivity();
                     auto itemsOnAnchor = connectivity->GetConnectedItemsAtAnchor( track, anchor,
                                                                                   track_types );
@@ -1380,7 +1380,7 @@ int EDIT_TOOL::Properties( const TOOL_EVENT& aEvent )
         DS_PROXY_VIEW_ITEM* ds = editFrame->GetCanvas()->GetDrawingSheet();
         VECTOR2D            cursorPos = getViewControls()->GetCursorPosition( false );
 
-        if( ds && ds->HitTestDrawingSheetItems( getView(), (wxPoint) cursorPos ) )
+        if( ds && ds->HitTestDrawingSheetItems( getView(), cursorPos ) )
             m_toolMgr->RunAction( ACTIONS::pageSettings );
         else
             m_toolMgr->RunAction( PCB_ACTIONS::footprintProperties, true );
@@ -1455,10 +1455,14 @@ int EDIT_TOOL::Rotate( const TOOL_EVENT& aEvent )
                 true /* prompt user regarding locked items */ );
     }
 
+    // Did we filter everything out?  If so, don't try to operate further
+    if( selection.Empty() )
+        return 0;
+
     updateModificationPoint( selection );
 
-    VECTOR2I refPt = selection.GetReferencePoint();
-    const int rotateAngle = TOOL_EVT_UTILS::GetEventRotationAngle( *editFrame, aEvent );
+    VECTOR2I  refPt = selection.GetReferencePoint();
+    EDA_ANGLE rotateAngle = TOOL_EVT_UTILS::GetEventRotationAngle( *editFrame, aEvent );
 
     // When editing footprints, all items have the same parent
     if( IsFootprintEditor() )
@@ -1508,9 +1512,9 @@ int EDIT_TOOL::Rotate( const TOOL_EVENT& aEvent )
 /**
  * Mirror a point about the vertical axis passing through another point.
  */
-static wxPoint mirrorPointX( const wxPoint& aPoint, const wxPoint& aMirrorPoint )
+static VECTOR2I mirrorPointX( const VECTOR2I& aPoint, const VECTOR2I& aMirrorPoint )
 {
-    wxPoint mirrored = aPoint;
+    VECTOR2I mirrored = aPoint;
 
     mirrored.x -= aMirrorPoint.x;
     mirrored.x = -mirrored.x;
@@ -1523,12 +1527,12 @@ static wxPoint mirrorPointX( const wxPoint& aPoint, const wxPoint& aMirrorPoint 
 /**
  * Mirror a pad in the vertical axis passing through a point (mirror left to right).
  */
-static void mirrorPadX( PAD& aPad, const wxPoint& aMirrorPoint )
+static void mirrorPadX( PAD& aPad, const VECTOR2I& aMirrorPoint )
 {
     if( aPad.GetShape() == PAD_SHAPE::CUSTOM )
         aPad.FlipPrimitives( true );  // mirror primitives left to right
 
-    wxPoint tmpPt = mirrorPointX( aPad.GetPosition(), aMirrorPoint );
+    VECTOR2I tmpPt = mirrorPointX( aPad.GetPosition(), aMirrorPoint );
     aPad.SetPosition( tmpPt );
 
     aPad.SetX0( aPad.GetPosition().x );
@@ -1982,8 +1986,9 @@ int EDIT_TOOL::MoveExact( const TOOL_EVENT& aEvent )
 
     if( ret == wxID_OK )
     {
-        VECTOR2I rp = selection.GetCenter();
-        wxPoint selCenter( rp.x, rp.y );
+        EDA_ANGLE angle( rotation, TENTHS_OF_A_DEGREE_T );
+        VECTOR2I  rp = selection.GetCenter();
+        wxPoint   selCenter( rp.x, rp.y );
 
         // Make sure the rotation is from the right reference point
         selCenter += translation;
@@ -2020,16 +2025,16 @@ int EDIT_TOOL::MoveExact( const TOOL_EVENT& aEvent )
             switch( rotationAnchor )
             {
             case ROTATE_AROUND_ITEM_ANCHOR:
-                item->Rotate( item->GetPosition(), rotation );
+                item->Rotate( item->GetPosition(), angle );
                 break;
             case ROTATE_AROUND_SEL_CENTER:
-                item->Rotate( selCenter, rotation );
+                item->Rotate( selCenter, angle );
                 break;
             case ROTATE_AROUND_USER_ORIGIN:
-                item->Rotate( (wxPoint) frame()->GetScreen()->m_LocalOrigin, rotation );
+                item->Rotate( frame()->GetScreen()->m_LocalOrigin, angle );
                 break;
             case ROTATE_AROUND_AUX_ORIGIN:
-                item->Rotate( board()->GetDesignSettings().GetAuxOrigin(), rotation );
+                item->Rotate( board()->GetDesignSettings().GetAuxOrigin(), angle );
                 break;
             }
 
@@ -2251,6 +2256,10 @@ void EDIT_TOOL::FootprintFilter( const VECTOR2I&, GENERAL_COLLECTOR& aCollector,
 bool EDIT_TOOL::updateModificationPoint( PCB_SELECTION& aSelection )
 {
     if( m_dragging && aSelection.HasReferencePoint() )
+        return false;
+
+    // Can't modify an empty group
+    if( aSelection.Empty() )
         return false;
 
     // When there is only one item selected, the reference point is its position...

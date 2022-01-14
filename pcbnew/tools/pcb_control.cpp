@@ -88,7 +88,7 @@ void PCB_CONTROL::Reset( RESET_REASON aReason )
 
     if( aReason == MODEL_RELOAD || aReason == GAL_SWITCH )
     {
-        m_gridOrigin->SetPosition( board()->GetDesignSettings().GetGridOrigin() );
+        m_gridOrigin->SetPosition( (wxPoint) board()->GetDesignSettings().GetGridOrigin() );
         m_gridOrigin->SetColor( m_frame->GetGridColor() );
         getView()->Remove( m_gridOrigin.get() );
         getView()->Add( m_gridOrigin.get() );
@@ -675,8 +675,7 @@ static void pasteFootprintItemsToFootprintEditor( FOOTPRINT* aClipFootprint, BOA
             if( text->GetType() != FP_TEXT::TEXT_is_DIVERS )
                 continue;
 
-            text->SetTextAngle( text->GetTextAngle().AsTenthsOfADegree()
-                                    + aClipFootprint->GetOrientation() );
+            text->SetTextAngle( text->GetTextAngle() + aClipFootprint->GetOrientation() );
 
             text->SetParent( nullptr );
             text->SetLocalCoord();

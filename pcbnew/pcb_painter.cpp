@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2013-2019 CERN
- * Copyright (C) 2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2021-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * @author Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  * @author Maciej Suminski <maciej.suminski@cern.ch>
@@ -57,6 +57,7 @@
 #include <geometry/shape_circle.h>
 #include <bezier_curves.h>
 #include <kiface_base.h>
+#include <gr_text.h>
 #include <pgm_base.h>
 #include "pcbnew_settings.h"
 
@@ -235,10 +236,9 @@ COLOR4D PCB_RENDER_SETTINGS::GetColor( const VIEW_ITEM* aItem, int aLayer ) cons
         }
 
         if( netColor == COLOR4D::UNSPECIFIED )
-        {
             netColor = color;
-        }
-        else if( selected )
+
+        if( selected )
         {
             // Selection brightening overrides highlighting
             netColor.Brighten( m_selectFactor );
@@ -352,7 +352,7 @@ PCBNEW_SETTINGS* pcbconfig()
 
 bool PCB_RENDER_SETTINGS::GetShowPageLimits() const
 {
-    return pcbconfig()->m_ShowPageLimits;
+    return pcbconfig() && pcbconfig()->m_ShowPageLimits;
 }
 
 
@@ -554,7 +554,7 @@ void PCB_PAINTER::draw( const PCB_TRACK* aTrack, int aLayer )
 
     if( IsNetnameLayer( aLayer ) )
     {
-        if( pcbconfig()->m_Display.m_DisplayNetNamesMode < 2 )
+        if( !pcbconfig() || pcbconfig()->m_Display.m_DisplayNetNamesMode < 2 )
             return;
 
         if( aTrack->GetNetCode() <= NETINFO_LIST::UNCONNECTED )
@@ -579,25 +579,25 @@ void PCB_PAINTER::draw( const PCB_TRACK* aTrack, int aLayer )
         if( length < 6 * width )
             return;
 
-        const wxString& netName = UnescapeString( aTrack->GetShortNetname() );
-        double   textSize = width;
-        double   penWidth = width / 12.0;
-        VECTOR2D textPosition = start + line / 2.0;     // center of the track
-        double   textOrientation;
+        const     wxString& netName = UnescapeString( aTrack->GetShortNetname() );
+        double    textSize = width;
+        double    penWidth = width / 12.0;
+        VECTOR2D  textPosition = start + line / 2.0;     // center of the track
+        EDA_ANGLE textOrientation;
 
         if( end.y == start.y ) // horizontal
         {
-            textOrientation = 0;
+            textOrientation = ANGLE_HORIZONTAL;
             textPosition.y += penWidth;
         }
         else if( end.x == start.x ) // vertical
         {
-            textOrientation = M_PI / 2;
+            textOrientation = ANGLE_VERTICAL;
             textPosition.x += penWidth;
         }
         else
         {
-            textOrientation = -atan( line.y / line.x );
+            textOrientation = EDA_ANGLE( -atan( line.y / line.x ), RADIANS_T );
             textPosition.x += penWidth / 1.4;
             textPosition.y += penWidth / 1.4;
         }
@@ -620,7 +620,7 @@ void PCB_PAINTER::draw( const PCB_TRACK* aTrack, int aLayer )
     else if( IsCopperLayer( aLayer ) )
     {
         // Draw a regular track
-        bool outline_mode = !pcbconfig()->m_Display.m_DisplayPcbTrackFill;
+        bool outline_mode = pcbconfig() && !pcbconfig()->m_Display.m_DisplayPcbTrackFill;
         m_gal->SetStrokeColor( color );
         m_gal->SetFillColor( color );
         m_gal->SetIsStroke( outline_mode );
@@ -631,7 +631,8 @@ void PCB_PAINTER::draw( const PCB_TRACK* aTrack, int aLayer )
     }
 
     // Clearance lines
-    if( pcbconfig()->m_Display.m_ShowTrackClearanceMode == SHOW_TRACK_CLEARANCE_WITH_VIA_ALWAYS
+    if( pcbconfig()
+            && pcbconfig()->m_Display.m_ShowTrackClearanceMode == SHOW_TRACK_CLEARANCE_WITH_VIA_ALWAYS
             && !m_pcbSettings.m_ForceClearanceDisplayOff )
     {
         int clearance = aTrack->GetOwnClearance( m_pcbSettings.GetActiveLayer() );
@@ -647,12 +648,12 @@ void PCB_PAINTER::draw( const PCB_TRACK* aTrack, int aLayer )
 
 void PCB_PAINTER::draw( const PCB_ARC* aArc, int aLayer )
 {
-    VECTOR2D center( aArc->GetCenter() );
-    int      width = aArc->GetWidth();
-    COLOR4D  color = m_pcbSettings.GetColor( aArc, aLayer );
-    double   radius = aArc->GetRadius();
-    double   start_angle = DECIDEG2RAD( aArc->GetArcAngleStart() );
-    double   angle = DECIDEG2RAD( aArc->GetAngle() );
+    VECTOR2D  center( aArc->GetCenter() );
+    int       width = aArc->GetWidth();
+    COLOR4D   color = m_pcbSettings.GetColor( aArc, aLayer );
+    double    radius = aArc->GetRadius();
+    EDA_ANGLE start_angle = aArc->GetArcAngleStart();
+    EDA_ANGLE angle = aArc->GetAngle();
 
     if( IsNetnameLayer( aLayer ) )
     {
@@ -662,18 +663,20 @@ void PCB_PAINTER::draw( const PCB_ARC* aArc, int aLayer )
     else if( IsCopperLayer( aLayer ) )
     {
         // Draw a regular track
-        bool outline_mode = !pcbconfig()->m_Display.m_DisplayPcbTrackFill;
+        bool outline_mode = pcbconfig() && !pcbconfig()->m_Display.m_DisplayPcbTrackFill;
         m_gal->SetStrokeColor( color );
         m_gal->SetFillColor( color );
         m_gal->SetIsStroke( outline_mode );
         m_gal->SetIsFill( not outline_mode );
         m_gal->SetLineWidth( m_pcbSettings.m_outlineWidth );
 
-        m_gal->DrawArcSegment( center, radius, start_angle, start_angle + angle, width, m_maxError );
+        m_gal->DrawArcSegment( center, radius, start_angle.AsRadians(),
+                               ( start_angle + angle ).AsRadians(), width, m_maxError );
     }
 
     // Clearance lines
-    if( pcbconfig()->m_Display.m_ShowTrackClearanceMode == SHOW_TRACK_CLEARANCE_WITH_VIA_ALWAYS
+    if( pcbconfig()
+            && pcbconfig()->m_Display.m_ShowTrackClearanceMode == SHOW_TRACK_CLEARANCE_WITH_VIA_ALWAYS
             && !m_pcbSettings.m_ForceClearanceDisplayOff )
     {
         int clearance = aArc->GetOwnClearance( m_pcbSettings.GetActiveLayer() );
@@ -683,8 +686,9 @@ void PCB_PAINTER::draw( const PCB_ARC* aArc, int aLayer )
         m_gal->SetIsStroke( true );
         m_gal->SetStrokeColor( color );
 
-        m_gal->DrawArcSegment( center, radius, start_angle, start_angle + angle,
-                               width + clearance * 2, m_maxError );
+        m_gal->DrawArcSegment( center, radius, start_angle.AsRadians(),
+                               ( start_angle + angle ).AsRadians(), width + clearance * 2,
+                               m_maxError );
     }
 
 // Debug only: enable this code only to test the TransformArcToPolygon function
@@ -732,6 +736,9 @@ void PCB_PAINTER::draw( const PCB_VIA* aVia, int aLayer )
         VECTOR2D position( center );
 
         // Is anything that we can display enabled?
+        if( !pcbconfig() )
+            return;
+
         if( pcbconfig()->m_Display.m_DisplayNetNamesMode == 0
                 || pcbconfig()->m_Display.m_DisplayNetNamesMode == 2
                 || aVia->GetNetname().empty() )
@@ -768,7 +775,7 @@ void PCB_PAINTER::draw( const PCB_VIA* aVia, int aLayer )
 
         m_gal->SetGlyphSize( namesize );
         m_gal->SetLineWidth( namesize.x / 12.0 );
-        m_gal->BitmapText( netname, textpos, 0.0 );
+        m_gal->BitmapText( netname, textpos, ANGLE_HORIZONTAL );
 
         m_gal->Restore();
 
@@ -786,7 +793,7 @@ void PCB_PAINTER::draw( const PCB_VIA* aVia, int aLayer )
         return;
     }
 
-    bool outline_mode = !pcbconfig()->m_Display.m_DisplayViaFill;
+    bool outline_mode = pcbconfig() && !pcbconfig()->m_Display.m_DisplayViaFill;
 
     if( outline_mode )
     {
@@ -841,7 +848,8 @@ void PCB_PAINTER::draw( const PCB_VIA* aVia, int aLayer )
     }
 
     // Clearance lines
-    if( pcbconfig()->m_Display.m_ShowTrackClearanceMode == SHOW_TRACK_CLEARANCE_WITH_VIA_ALWAYS
+    if( pcbconfig()
+            && pcbconfig()->m_Display.m_ShowTrackClearanceMode == SHOW_TRACK_CLEARANCE_WITH_VIA_ALWAYS
             && aLayer != LAYER_VIA_HOLES
             && !m_pcbSettings.m_ForceClearanceDisplayOff )
     {
@@ -869,11 +877,11 @@ void PCB_PAINTER::draw( const PAD* aPad, int aLayer )
     if( IsNetnameLayer( aLayer ) )
     {
         // Is anything that we can display enabled?
-        bool displayNetname = ( pcbconfig()->m_Display.m_DisplayNetNamesMode == 1
-                                || pcbconfig()->m_Display.m_DisplayNetNamesMode == 3 )
-                            && !aPad->GetNetname().empty();
+        bool displayNetname = ( (pcbconfig() && pcbconfig()->m_Display.m_DisplayNetNamesMode == 1)
+                                || (pcbconfig() && pcbconfig()->m_Display.m_DisplayNetNamesMode == 3 ) )
+                                && !aPad->GetNetname().empty();
 
-        bool displayPadNumber = pcbconfig()->m_Display.m_DisplayPadNum;
+        bool displayPadNumber = !pcbconfig() || pcbconfig()->m_Display.m_DisplayPadNum;
 
         if( displayNetname || displayPadNumber )
         {
@@ -883,7 +891,7 @@ void PCB_PAINTER::draw( const PAD* aPad, int aLayer )
 
             if( aPad->GetShape() != PAD_SHAPE::CUSTOM )
             {
-                // Don't allow a 45º rotation to bloat a pad's bounding box unnecessarily
+                // Don't allow a 45° rotation to bloat a pad's bounding box unnecessarily
                 double limit = std::min( aPad->GetSize().x, aPad->GetSize().y ) * 1.1;
 
                 if( padsize.x > limit && padsize.y > limit )
@@ -924,7 +932,7 @@ void PCB_PAINTER::draw( const PAD* aPad, int aLayer )
 
             // We have already translated the GAL to be centered at the center of the pad's
             // bounding box
-            VECTOR2D textpos( 0.0, 0.0 );
+            VECTOR2I textpos( 0, 0 );
 
             // Divide the space, to display both pad numbers and netnames and set the Y text
             // position to display 2 lines
@@ -961,7 +969,7 @@ void PCB_PAINTER::draw( const PAD* aPad, int aLayer )
 
                 m_gal->SetGlyphSize( namesize );
                 m_gal->SetLineWidth( namesize.x / 12.0 );
-                m_gal->BitmapText( netname, textpos, 0.0 );
+                m_gal->BitmapText( netname, textpos, ANGLE_HORIZONTAL );
             }
 
             if( displayPadNumber )
@@ -980,7 +988,7 @@ void PCB_PAINTER::draw( const PAD* aPad, int aLayer )
 
                 m_gal->SetGlyphSize( numsize );
                 m_gal->SetLineWidth( numsize.x / 12.0 );
-                m_gal->BitmapText( padNumber, textpos, 0.0 );
+                m_gal->BitmapText( padNumber, textpos, ANGLE_HORIZONTAL );
             }
 
             m_gal->Restore();
@@ -1006,7 +1014,7 @@ void PCB_PAINTER::draw( const PAD* aPad, int aLayer )
         return;
     }
 
-    bool outline_mode = !pcbconfig()->m_Display.m_DisplayPadFill;
+    bool outline_mode = pcbconfig() && !pcbconfig()->m_Display.m_DisplayPadFill;
 
     if( m_pcbSettings.m_ForcePadSketchModeOff )
         outline_mode = false;
@@ -1040,8 +1048,8 @@ void PCB_PAINTER::draw( const PAD* aPad, int aLayer )
     }
     else
     {
-        wxSize pad_size = aPad->GetSize();
-        wxSize margin;
+        VECTOR2I pad_size = aPad->GetSize();
+        VECTOR2I margin;
 
         switch( aLayer )
         {
@@ -1205,7 +1213,7 @@ void PCB_PAINTER::draw( const PAD* aPad, int aLayer )
 
                     if( margin.x < 0 )  // The poly shape must be deflated
                     {
-                        int numSegs = GetArcToSegmentCount( -margin.x, m_maxError, 360.0 );
+                        int numSegs = GetArcToSegmentCount( -margin.x, m_maxError, FULL_CIRCLE );
                         SHAPE_POLY_SET outline;
                         outline.NewOutline();
 
@@ -1250,7 +1258,8 @@ void PCB_PAINTER::draw( const PAD* aPad, int aLayer )
         }
     }
 
-    if( pcbconfig()->m_Display.m_DisplayPadClearance
+    if( pcbconfig()
+            && pcbconfig()->m_Display.m_DisplayPadClearance
             && ( aLayer == LAYER_PAD_FR || aLayer == LAYER_PAD_BK || aLayer == LAYER_PADS_TH )
             && !m_pcbSettings.m_ForceClearanceDisplayOff )
     {
@@ -1318,7 +1327,7 @@ void PCB_PAINTER::draw( const PAD* aPad, int aLayer )
 void PCB_PAINTER::draw( const PCB_SHAPE* aShape, int aLayer )
 {
     const COLOR4D& color = m_pcbSettings.GetColor( aShape, aShape->GetLayer() );
-    bool           outline_mode = !pcbconfig()->m_Display.m_DisplayGraphicsFill;
+    bool           outline_mode = pcbconfig() && !pcbconfig()->m_Display.m_DisplayGraphicsFill;
     int            thickness = getLineThickness( aShape->GetWidth() );
     PLOT_DASH_TYPE lineStyle = aShape->GetStroke().GetPlotStyle();
 
@@ -1353,7 +1362,7 @@ void PCB_PAINTER::draw( const PCB_SHAPE* aShape, int aLayer )
 
         case SHAPE_T::RECT:
         {
-            std::vector<wxPoint> pts = aShape->GetRectCorners();
+            std::vector<VECTOR2I> pts = aShape->GetRectCorners();
 
             if( outline_mode )
             {
@@ -1380,7 +1389,7 @@ void PCB_PAINTER::draw( const PCB_SHAPE* aShape, int aLayer )
                     SHAPE_POLY_SET poly;
                     poly.NewOutline();
 
-                    for( const wxPoint& pt : pts )
+                    for( const VECTOR2I& pt : pts )
                         poly.Append( pt );
 
                     m_gal->DrawPolygon( poly );
@@ -1442,7 +1451,7 @@ void PCB_PAINTER::draw( const PCB_SHAPE* aShape, int aLayer )
             {
                 m_gal->Save();
                 m_gal->Translate( parentFootprint->GetPosition() );
-                m_gal->Rotate( -parentFootprint->GetOrientationRadians() );
+                m_gal->Rotate( -parentFootprint->GetOrientation().AsRadians() );
             }
 
             if( outline_mode )
@@ -1536,7 +1545,7 @@ void PCB_PAINTER::draw( const PCB_SHAPE* aShape, int aLayer )
         for( SHAPE* shape : shapes )
         {
             STROKE_PARAMS::Stroke( shape, lineStyle, thickness, &m_pcbSettings,
-                                   [&]( const wxPoint& a, const wxPoint& b )
+                                   [&]( const VECTOR2I& a, const VECTOR2I& b )
                                    {
                                        m_gal->DrawSegment( a, b, thickness );
                                    } );
@@ -1548,58 +1557,95 @@ void PCB_PAINTER::draw( const PCB_SHAPE* aShape, int aLayer )
 }
 
 
+void PCB_PAINTER::strokeText( const wxString& aText, const VECTOR2I& aPosition,
+                              const TEXT_ATTRIBUTES& aAttrs )
+{
+    KIFONT::FONT* font = aAttrs.m_Font;
+
+    if( !font )
+        font = KIFONT::FONT::GetFont( wxEmptyString, aAttrs.m_Bold, aAttrs.m_Italic );
+
+    m_gal->SetIsFill( font->IsOutline() );
+    m_gal->SetIsStroke( font->IsStroke() );
+
+    font->Draw( m_gal, aText, aPosition, aAttrs );
+}
+
+
 void PCB_PAINTER::draw( const PCB_TEXT* aText, int aLayer )
 {
-    wxString shownText( aText->GetShownText() );
+    wxString resolvedText( aText->GetShownText() );
 
-    if( shownText.Length() == 0 )
+    if( resolvedText.Length() == 0 )
         return;
 
     const COLOR4D& color = m_pcbSettings.GetColor( aText, aText->GetLayer() );
-    VECTOR2D       position( aText->GetTextPos().x, aText->GetTextPos().y );
-    bool           outline_mode = !pcbconfig()->m_Display.m_DisplayTextFill;
-
-    if( outline_mode )
-        m_gal->SetLineWidth( m_pcbSettings.m_outlineWidth );
-    else
-        m_gal->SetLineWidth( getLineThickness( aText->GetEffectiveTextPenWidth() ) );
+    bool           outline_mode = pcbconfig() && !pcbconfig()->m_Display.m_DisplayTextFill;
 
     m_gal->SetStrokeColor( color );
-    m_gal->SetIsFill( false );
-    m_gal->SetIsStroke( true );
-    m_gal->SetTextAttributes( aText );
-    m_gal->StrokeText( shownText, position, aText->GetTextAngle().AsRadians() );
+    m_gal->SetFillColor( color );
+
+    TEXT_ATTRIBUTES attrs = aText->GetAttributes();
+
+    if( outline_mode )
+        attrs.m_StrokeWidth = m_pcbSettings.m_outlineWidth;
+    else
+        attrs.m_StrokeWidth = getLineThickness( aText->GetEffectiveTextPenWidth() );
+
+    std::vector<std::unique_ptr<KIFONT::GLYPH>>* cache = aText->GetRenderCache( resolvedText );
+
+    if( cache )
+    {
+        for( const std::unique_ptr<KIFONT::GLYPH>& glyph : *cache )
+            m_gal->DrawGlyph( *glyph.get() );
+    }
+    else
+    {
+        strokeText( resolvedText, aText->GetTextPos(), attrs );
+    }
 }
 
 
 void PCB_PAINTER::draw( const FP_TEXT* aText, int aLayer )
 {
-    wxString shownText( aText->GetShownText() );
+    wxString resolvedText( aText->GetShownText() );
 
-    if( shownText.Length() == 0 )
+    if( resolvedText.Length() == 0 )
         return;
 
     const COLOR4D& color = m_pcbSettings.GetColor( aText, aLayer );
-    VECTOR2D       position( aText->GetTextPos().x, aText->GetTextPos().y );
-    bool           outline_mode = !pcbconfig()->m_Display.m_DisplayTextFill;
-
-    if( outline_mode )
-        m_gal->SetLineWidth( m_pcbSettings.m_outlineWidth );
-    else
-        m_gal->SetLineWidth( getLineThickness( aText->GetEffectiveTextPenWidth() ) );
+    bool           outline_mode = pcbconfig() && !pcbconfig()->m_Display.m_DisplayTextFill;
 
     m_gal->SetStrokeColor( color );
-    m_gal->SetIsFill( false );
-    m_gal->SetIsStroke( true );
-    m_gal->SetTextAttributes( aText );
-    m_gal->StrokeText( shownText, position, aText->GetDrawRotation().AsRadians() );
+    m_gal->SetFillColor( color );
+
+    TEXT_ATTRIBUTES attrs = aText->GetAttributes();
+
+    attrs.m_Angle = aText->GetDrawRotation();
+
+    if( outline_mode )
+        attrs.m_StrokeWidth = m_pcbSettings.m_outlineWidth;
+    else
+        attrs.m_StrokeWidth = getLineThickness( aText->GetEffectiveTextPenWidth() );
+
+    std::vector<std::unique_ptr<KIFONT::GLYPH>>* cache = aText->GetRenderCache( resolvedText );
+
+    if( cache )
+    {
+        for( const std::unique_ptr<KIFONT::GLYPH>& glyph : *cache )
+            m_gal->DrawGlyph( *glyph.get() );
+    }
+    else
+    {
+        strokeText( resolvedText, aText->GetTextPos(), attrs );
+    }
 
     // Draw the umbilical line
     if( aText->IsSelected() )
     {
         m_gal->SetLineWidth( m_pcbSettings.m_outlineWidth );
         m_gal->SetStrokeColor( m_pcbSettings.GetColor( nullptr, LAYER_ANCHOR ) );
-        m_gal->DrawLine( position, aText->GetParent()->GetPosition() );
+        m_gal->DrawLine( aText->GetTextPos(), aText->GetParent()->GetPosition() );
     }
 }
 
@@ -1652,9 +1698,9 @@ void PCB_PAINTER::draw( const PCB_GROUP* aGroup, int aLayer )
         EDA_RECT bbox = aGroup->GetBoundingBox();
         m_gal->SetStrokeColor( color );
         m_gal->SetLineWidth( m_pcbSettings.m_outlineWidth * 2.0f );
-        wxPoint topLeft = bbox.GetPosition();
-        wxPoint width = wxPoint( bbox.GetWidth(), 0 );
-        wxPoint height = wxPoint( 0, bbox.GetHeight() );
+        VECTOR2I topLeft = bbox.GetPosition();
+        VECTOR2I width = VECTOR2I( bbox.GetWidth(), 0 );
+        VECTOR2I height = VECTOR2I( 0, bbox.GetHeight() );
 
         m_gal->DrawLine( topLeft, topLeft + width );
         m_gal->DrawLine( topLeft + width, topLeft + width + height );
@@ -1671,10 +1717,9 @@ void PCB_PAINTER::draw( const PCB_GROUP* aGroup, int aLayer )
         int unscaledSize = Mils2iu( ptSize );
 
         // Scale by zoom a bit, but not too much
-        int     textSize = ( scaledSize + ( unscaledSize * 2 ) ) / 3;
-        int     penWidth = textSize / 10;
-        wxPoint textOffset = wxPoint( width.x / 2, - KiROUND( textSize * 0.5 ) );
-        wxPoint titleHeight = wxPoint( 0, KiROUND( textSize * 2.0 ) );
+        int      textSize = ( scaledSize + ( unscaledSize * 2 ) ) / 3;
+        VECTOR2I textOffset = VECTOR2I( width.x / 2, -KiROUND( textSize * 0.5 ) );
+        VECTOR2I titleHeight = VECTOR2I( 0, KiROUND( textSize * 2.0 ) );
 
         if( PrintableCharCount( name ) * textSize < bbox.GetWidth() )
         {
@@ -1682,16 +1727,14 @@ void PCB_PAINTER::draw( const PCB_GROUP* aGroup, int aLayer )
             m_gal->DrawLine( topLeft - titleHeight, topLeft + width - titleHeight );
             m_gal->DrawLine( topLeft + width - titleHeight, topLeft + width );
 
-            m_gal->SetFontBold( false );
-            m_gal->SetFontItalic( true );
-            m_gal->SetFontUnderlined( false );
-            m_gal->SetTextMirrored( m_gal->IsFlippedX() );
-            m_gal->SetHorizontalJustify( GR_TEXT_H_ALIGN_CENTER );
-            m_gal->SetVerticalJustify( GR_TEXT_V_ALIGN_BOTTOM );
-            m_gal->SetIsFill( false );
-            m_gal->SetGlyphSize( VECTOR2D( textSize, textSize ) );
-            m_gal->SetLineWidth( penWidth );
-            m_gal->StrokeText( aGroup->GetName(), topLeft + textOffset, 0.0 );
+            TEXT_ATTRIBUTES attrs;
+            attrs.m_Italic = true;
+            attrs.m_Halign = GR_TEXT_H_ALIGN_CENTER;
+            attrs.m_Valign = GR_TEXT_V_ALIGN_BOTTOM;
+            attrs.m_Size = VECTOR2I( textSize, textSize );
+            attrs.m_StrokeWidth = GetPenSizeForNormal( textSize );
+
+            KIFONT::FONT::GetFont()->Draw( m_gal, aGroup->GetName(), topLeft + textOffset, attrs );
         }
     }
 }
@@ -1791,7 +1834,7 @@ void PCB_PAINTER::draw( const PCB_DIMENSION_BASE* aDimension, int aLayer )
     m_gal->SetIsFill( false );
     m_gal->SetIsStroke( true );
 
-    bool outline_mode = !pcbconfig()->m_Display.m_DisplayGraphicsFill;
+    bool outline_mode = pcbconfig() && !pcbconfig()->m_Display.m_DisplayGraphicsFill;
 
     if( outline_mode )
         m_gal->SetLineWidth( m_pcbSettings.m_outlineWidth );
@@ -1825,15 +1868,26 @@ void PCB_PAINTER::draw( const PCB_DIMENSION_BASE* aDimension, int aLayer )
 
     // Draw text
     const PCB_TEXT& text = aDimension->Text();
+    wxString        resolvedText = text.GetShownText();
     VECTOR2D        position( text.GetTextPos().x, text.GetTextPos().y );
+    TEXT_ATTRIBUTES attrs = text.GetAttributes();
 
     if( outline_mode )
-        m_gal->SetLineWidth( m_pcbSettings.m_outlineWidth );
+        attrs.m_StrokeWidth = m_pcbSettings.m_outlineWidth;
     else
-        m_gal->SetLineWidth( getLineThickness( text.GetEffectiveTextPenWidth() ) );
+        attrs.m_StrokeWidth = getLineThickness( text.GetEffectiveTextPenWidth() );
 
-    m_gal->SetTextAttributes( &text );
-    m_gal->StrokeText( text.GetShownText(), position, text.GetTextAngle().AsRadians() );
+    std::vector<std::unique_ptr<KIFONT::GLYPH>>* cache = text.GetRenderCache( resolvedText );
+
+    if( cache )
+    {
+        for( const std::unique_ptr<KIFONT::GLYPH>& glyph : *cache )
+            m_gal->DrawGlyph( *glyph.get() );
+    }
+    else
+    {
+        strokeText( resolvedText, position, attrs );
+    }
 }
 
 

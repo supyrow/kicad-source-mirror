@@ -21,7 +21,7 @@
 #  51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
 #
 
-cmake_minimum_required( VERSION 3.10 FATAL_ERROR )
+cmake_minimum_required( VERSION 3.12 FATAL_ERROR )
 
 # Default to CMAKE_BUILD_TYPE = Release unless overridden on command line
 # http://www.cmake.org/pipermail/cmake/2008-September/023808.html
@@ -142,10 +142,6 @@ option( KICAD_GAL_PROFILE
     "Enable profiling info for GAL"
     OFF )
 
-option( KICAD_PCM
-    "Build Plugin and Content Manager"
-    ON )
-
 cmake_dependent_option( KICAD_WIN32_INSTALL_PDBS
     "Installs debug pdb to the bin folder, DO NOT USE (NOR REQUIRED) FOR DEBUGGING THE SOURCE ON MSVC. This is purely for release building.
     MSVC can find the PDBs without this."
@@ -163,8 +159,8 @@ set( CMAKE_VISIBILITY_INLINES_HIDDEN ON )
 # Global setting: build everything position independent
 set( CMAKE_POSITION_INDEPENDENT_CODE ON )
 
-# Global setting: Use C++14
-set(CMAKE_CXX_STANDARD 14)
+# Global setting: Use C++17
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -712,6 +708,15 @@ include_directories( SYSTEM ${PIXMAN_INCLUDE_DIR} )
 find_package( Boost 1.59.0 REQUIRED )
 include_directories( SYSTEM ${Boost_INCLUDE_DIR} )
 
+#
+# Libraries required for outline font support.
+find_package( Freetype REQUIRED )
+include_directories( SYSTEM ${FREETYPE_INCLUDE_DIRS} )
+
+find_package( HarfBuzz REQUIRED )
+include_directories( SYSTEM ${HarfBuzz_INCLUDE_DIRS} )
+
+find_package( Fontconfig REQUIRED )
 
 # Include MinGW resource compiler.
 include( MinGWResourceCompiler )

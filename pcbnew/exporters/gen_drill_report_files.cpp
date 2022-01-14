@@ -1,13 +1,8 @@
-/**
- * @file gen_drill_report_files.cpp
- * @brief Functions to create report and map files for EXCELLON drill files.
- */
-
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 1992-2017 Jean_Pierre Charras <jp.charras at wanadoo.fr>
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -73,7 +68,7 @@ bool GENDRILL_WRITER_BASE::genDrillMapFile( const wxString& aFullFileName, PLOT_
     // for the right holes set (PTH, NPTH, buried/blind vias ...)
 
     double    scale = 1.0;
-    wxPoint   offset = GetOffset();
+    VECTOR2I  offset = GetOffset();
     PLOTTER*  plotter = nullptr;
     PAGE_INFO dummy( PAGE_INFO::A4, false );
     int       bottom_limit = 0;        // Y coord limit of page. 0 mean do not use
@@ -252,7 +247,7 @@ bool GENDRILL_WRITER_BASE::genDrillMapFile( const wxString& aFullFileName, PLOT_
 
     // Plot title  "Info"
     wxString Text = wxT( "Drill Map:" );
-    plotter->Text( wxPoint( plotX, plotY ), COLOR4D::UNSPECIFIED, Text, EDA_ANGLE::HORIZONTAL,
+    plotter->Text( VECTOR2I( plotX, plotY ), COLOR4D::UNSPECIFIED, Text, ANGLE_HORIZONTAL,
                    wxSize( KiROUND( charSize * charScale ), KiROUND( charSize * charScale ) ),
                    GR_TEXT_H_ALIGN_LEFT, GR_TEXT_V_ALIGN_CENTER, TextWidth, false, false );
 
@@ -286,7 +281,7 @@ bool GENDRILL_WRITER_BASE::genDrillMapFile( const wxString& aFullFileName, PLOT_
         int y = KiROUND( plotY + charSize * charScale );
 
         plotter->SetCurrentLineWidth( getMarkerBestPenSize( plot_diam ) );
-        plotter->Marker( wxPoint( x, y ), plot_diam, ii );
+        plotter->Marker( VECTOR2I( x, y ), plot_diam, ii );
         plotter->SetCurrentLineWidth( -1 );
 
         // List the diameter of each drill in mm and inches.
@@ -313,8 +308,8 @@ bool GENDRILL_WRITER_BASE::genDrillMapFile( const wxString& aFullFileName, PLOT_
         if( tool.m_Hole_NotPlated )
             msg += wxT( " (not plated)" );
 
-        plotter->Text( wxPoint( plotX, y ), COLOR4D::UNSPECIFIED, msg, EDA_ANGLE::HORIZONTAL,
-                       wxSize( KiROUND( charSize * charScale ), KiROUND( charSize * charScale ) ),
+        plotter->Text( VECTOR2I( plotX, y ), COLOR4D::UNSPECIFIED, msg, ANGLE_HORIZONTAL,
+                       VECTOR2I( KiROUND( charSize * charScale ), KiROUND( charSize * charScale ) ),
                        GR_TEXT_H_ALIGN_LEFT, GR_TEXT_V_ALIGN_CENTER, TextWidth, false, false );
 
         intervalle = KiROUND( ( ( charSize * charScale ) + TextWidth ) * 1.2 );
@@ -440,7 +435,7 @@ bool GENDRILL_WRITER_BASE::GenDrillReportFile( const wxString& aFullFileName )
 bool GENDRILL_WRITER_BASE::plotDrillMarks( PLOTTER* aPlotter )
 {
     // Plot the drill map:
-    wxPoint pos;
+    VECTOR2I pos;
 
     for( unsigned ii = 0; ii < m_holeListBuffer.size(); ii++ )
     {
@@ -455,7 +450,7 @@ bool GENDRILL_WRITER_BASE::plotDrillMarks( PLOTTER* aPlotter )
 
         if( hole.m_Hole_Shape != 0 )
         {
-            wxSize oblong_size = hole.m_Hole_Size;
+            VECTOR2I oblong_size = hole.m_Hole_Size;
             aPlotter->FlashPadOval( pos, oblong_size, hole.m_Hole_Orient, SKETCH, nullptr );
         }
     }

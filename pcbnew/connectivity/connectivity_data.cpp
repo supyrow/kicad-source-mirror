@@ -36,6 +36,7 @@
 #include <connectivity/from_to_cache.h>
 
 #include <ratsnest/ratsnest_data.h>
+#include <progress_reporter.h>
 #include <trigo.h>
 
 CONNECTIVITY_DATA::CONNECTIVITY_DATA()
@@ -99,7 +100,19 @@ void CONNECTIVITY_DATA::Build( BOARD* aBoard, PROGRESS_REPORTER* aReporter )
         if( net->GetNetClass()->GetName() != NETCLASS::Default )
             m_netclassMap[ net->GetNetCode() ] = net->GetNetClass()->GetName();
 
+    if( aReporter )
+    {
+        aReporter->SetCurrentProgress( 0.75 );
+        aReporter->KeepRefreshing( false );
+    }
+
     RecalculateRatsnest();
+
+    if( aReporter )
+    {
+        aReporter->SetCurrentProgress( 1.0 );
+        aReporter->KeepRefreshing( false );
+    }
 }
 
 
@@ -334,8 +347,8 @@ void CONNECTIVITY_DATA::ComputeDynamicRatsnest( const std::vector<BOARD_ITEM*>& 
         RN_DYNAMIC_LINE      l;
 
         // Use the parents' positions
-        l.a = nodeA->Parent()->GetPosition() + (wxPoint) aInternalOffset;
-        l.b = nodeB->Parent()->GetPosition() + (wxPoint) aInternalOffset;
+        l.a = nodeA->Parent()->GetPosition() + aInternalOffset;
+        l.b = nodeB->Parent()->GetPosition() + aInternalOffset;
         l.netCode = 0;
         m_dynamicRatsnest.push_back( l );
     }
@@ -605,7 +618,7 @@ void CONNECTIVITY_DATA::GetUnconnectedEdges( std::vector<CN_EDGE>& aEdges) const
 }
 
 
-static int getMinDist( BOARD_CONNECTED_ITEM* aItem, const wxPoint& aPoint )
+static int getMinDist( BOARD_CONNECTED_ITEM* aItem, const VECTOR2I& aPoint )
 {
     switch( aItem->Type() )
     {
@@ -624,7 +637,7 @@ static int getMinDist( BOARD_CONNECTED_ITEM* aItem, const wxPoint& aPoint )
 }
 
 
-bool CONNECTIVITY_DATA::TestTrackEndpointDangling( PCB_TRACK* aTrack, wxPoint* aPos )
+bool CONNECTIVITY_DATA::TestTrackEndpointDangling( PCB_TRACK* aTrack, VECTOR2I* aPos )
 {
     std::list<CN_ITEM*> items = GetConnectivityAlgo()->ItemEntry( aTrack ).GetItems();
 

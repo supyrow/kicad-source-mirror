@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2016 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 1992-2021 Kicad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 Kicad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -84,7 +84,7 @@ const wxString SCH_SHEET::GetDefaultFieldName( int aFieldNdx, bool aTranslated )
 }
 
 
-SCH_SHEET::SCH_SHEET( EDA_ITEM* aParent, const wxPoint& aPos, wxSize aSize,
+SCH_SHEET::SCH_SHEET( EDA_ITEM* aParent, const VECTOR2I& aPos, wxSize aSize,
                       FIELDS_AUTOPLACED aAutoplaceFields ) :
         SCH_ITEM( aParent, SCH_SHEET_T )
 {
@@ -352,7 +352,7 @@ bool SCH_SHEET::HasPin( const wxString& aName ) const
 }
 
 
-bool SCH_SHEET::doIsConnected( const wxPoint& aPosition ) const
+bool SCH_SHEET::doIsConnected( const VECTOR2I& aPosition ) const
 {
     for( SCH_SHEET_PIN* sheetPin : m_pins )
     {
@@ -525,7 +525,7 @@ void SCH_SHEET::CleanupSheet()
 }
 
 
-SCH_SHEET_PIN* SCH_SHEET::GetPin( const wxPoint& aPosition )
+SCH_SHEET_PIN* SCH_SHEET::GetPin( const VECTOR2I& aPosition )
 {
     for( SCH_SHEET_PIN* pin : m_pins )
     {
@@ -557,17 +557,17 @@ void SCH_SHEET::AutoplaceFields( SCH_SCREEN* aScreen, bool aManual )
 
     if( IsVerticalOrientation() )
     {
-        m_fields[ SHEETNAME ].SetTextPos( m_pos + wxPoint( -margin, m_size.y ) );
+        m_fields[SHEETNAME].SetTextPos( m_pos + VECTOR2I( -margin, m_size.y ) );
         m_fields[ SHEETNAME ].SetHorizJustify( GR_TEXT_H_ALIGN_LEFT );
         m_fields[ SHEETNAME ].SetVertJustify( GR_TEXT_V_ALIGN_BOTTOM );
-        m_fields[ SHEETNAME ].SetTextAngle( EDA_ANGLE::VERTICAL );
+        m_fields[ SHEETNAME ].SetTextAngle( ANGLE_VERTICAL );
     }
     else
     {
-        m_fields[ SHEETNAME ].SetTextPos( m_pos + wxPoint( 0, -margin ) );
+        m_fields[SHEETNAME].SetTextPos( m_pos + VECTOR2I( 0, -margin ) );
         m_fields[ SHEETNAME ].SetHorizJustify( GR_TEXT_H_ALIGN_LEFT );
         m_fields[ SHEETNAME ].SetVertJustify( GR_TEXT_V_ALIGN_BOTTOM );
-        m_fields[ SHEETNAME ].SetTextAngle( EDA_ANGLE::HORIZONTAL );
+        m_fields[ SHEETNAME ].SetTextAngle( ANGLE_HORIZONTAL );
     }
 
     textSize = m_fields[ SHEETFILENAME ].GetTextSize();
@@ -575,17 +575,17 @@ void SCH_SHEET::AutoplaceFields( SCH_SCREEN* aScreen, bool aManual )
 
     if( IsVerticalOrientation() )
     {
-        m_fields[ SHEETFILENAME ].SetTextPos( m_pos + wxPoint( m_size.x + margin, m_size.y ) );
+        m_fields[SHEETFILENAME].SetTextPos( m_pos + VECTOR2I( m_size.x + margin, m_size.y ) );
         m_fields[ SHEETFILENAME ].SetHorizJustify( GR_TEXT_H_ALIGN_LEFT );
         m_fields[ SHEETFILENAME ].SetVertJustify( GR_TEXT_V_ALIGN_TOP );
-        m_fields[ SHEETFILENAME ].SetTextAngle( EDA_ANGLE::VERTICAL );
+        m_fields[ SHEETFILENAME ].SetTextAngle( ANGLE_VERTICAL );
     }
     else
     {
-        m_fields[ SHEETFILENAME ].SetTextPos( m_pos + wxPoint( 0, m_size.y + margin ) );
+        m_fields[SHEETFILENAME].SetTextPos( m_pos + VECTOR2I( 0, m_size.y + margin ) );
         m_fields[ SHEETFILENAME ].SetHorizJustify( GR_TEXT_H_ALIGN_LEFT );
         m_fields[ SHEETFILENAME ].SetVertJustify( GR_TEXT_V_ALIGN_TOP );
-        m_fields[ SHEETFILENAME ].SetTextAngle( EDA_ANGLE::HORIZONTAL );
+        m_fields[ SHEETFILENAME ].SetTextAngle( ANGLE_HORIZONTAL );
     }
 
     m_fieldsAutoplaced = FIELDS_AUTOPLACED_AUTO;
@@ -607,7 +607,7 @@ void SCH_SHEET::ViewGetLayers( int aLayers[], int& aCount ) const
 
 const EDA_RECT SCH_SHEET::GetBodyBoundingBox() const
 {
-    wxPoint  end;
+    VECTOR2I end;
     EDA_RECT box( m_pos, m_size );
     int      lineWidth = GetPenWidth();
     int      textLength = 0;
@@ -637,7 +637,7 @@ const EDA_RECT SCH_SHEET::GetBoundingBox() const
 }
 
 
-wxPoint SCH_SHEET::GetRotationCenter() const
+VECTOR2I SCH_SHEET::GetRotationCenter() const
 {
     EDA_RECT box( m_pos, m_size );
     return box.GetCenter();
@@ -758,7 +758,7 @@ void SCH_SHEET::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_I
 }
 
 
-void SCH_SHEET::Move( const wxPoint& aMoveVector )
+void SCH_SHEET::Move( const VECTOR2I& aMoveVector )
 {
     m_pos += aMoveVector;
 
@@ -770,11 +770,11 @@ void SCH_SHEET::Move( const wxPoint& aMoveVector )
 }
 
 
-void SCH_SHEET::Rotate( const wxPoint& aCenter )
+void SCH_SHEET::Rotate( const VECTOR2I& aCenter )
 {
-    wxPoint prev = m_pos;
+    VECTOR2I prev = m_pos;
 
-    RotatePoint( &m_pos, aCenter, 900 );
+    RotatePoint( m_pos, aCenter, 900 );
     RotatePoint( &m_size.x, &m_size.y, 900 );
 
     if( m_size.x < 0 )
@@ -803,7 +803,7 @@ void SCH_SHEET::Rotate( const wxPoint& aCenter )
         // Move the fields to the new position because the parent itself has moved.
         for( SCH_FIELD& field : m_fields )
         {
-            wxPoint pos = field.GetTextPos();
+            VECTOR2I pos = field.GetTextPos();
             pos.x -= prev.x - m_pos.x;
             pos.y -= prev.y - m_pos.y;
             field.SetTextPos( pos );
@@ -825,7 +825,7 @@ void SCH_SHEET::MirrorVertically( int aCenter )
 
     for( SCH_FIELD& field : m_fields )
     {
-        wxPoint pos = field.GetTextPos();
+        VECTOR2I pos = field.GetTextPos();
         pos.y -= dy;
         field.SetTextPos( pos );
     }
@@ -845,14 +845,14 @@ void SCH_SHEET::MirrorHorizontally( int aCenter )
 
     for( SCH_FIELD& field : m_fields )
     {
-        wxPoint pos = field.GetTextPos();
+        VECTOR2I pos = field.GetTextPos();
         pos.x -= dx;
         field.SetTextPos( pos );
     }
 }
 
 
-void SCH_SHEET::SetPosition( const wxPoint& aPosition )
+void SCH_SHEET::SetPosition( const VECTOR2I& aPosition )
 {
     // Remember the sheet and all pin sheet positions must be
     // modified. So use Move function to do that.
@@ -922,9 +922,9 @@ bool SCH_SHEET::UpdateDanglingState( std::vector<DANGLING_END_ITEM>& aItemList,
 }
 
 
-std::vector<wxPoint> SCH_SHEET::GetConnectionPoints() const
+std::vector<VECTOR2I> SCH_SHEET::GetConnectionPoints() const
 {
-    std::vector<wxPoint> retval;
+    std::vector<VECTOR2I> retval;
 
     for( SCH_SHEET_PIN* sheetPin : m_pins )
         retval.push_back( sheetPin->GetPosition() );
@@ -994,7 +994,7 @@ BITMAPS SCH_SHEET::GetMenuImage() const
 }
 
 
-bool SCH_SHEET::HitTest( const wxPoint& aPosition, int aAccuracy ) const
+bool SCH_SHEET::HitTest( const VECTOR2I& aPosition, int aAccuracy ) const
 {
     EDA_RECT rect = GetBodyBoundingBox();
 
@@ -1020,7 +1020,7 @@ bool SCH_SHEET::HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy )
 void SCH_SHEET::Plot( PLOTTER* aPlotter ) const
 {
     wxString msg;
-    wxPoint  pos;
+    VECTOR2I pos;
     auto*    settings = dynamic_cast<KIGFX::SCH_RENDER_SETTINGS*>( aPlotter->RenderSettings() );
     bool     override = settings ? settings->m_OverrideItemColors : false;
     COLOR4D  borderColor = GetBorderColor();
@@ -1056,10 +1056,10 @@ void SCH_SHEET::Plot( PLOTTER* aPlotter ) const
 }
 
 
-void SCH_SHEET::Print( const RENDER_SETTINGS* aSettings, const wxPoint& aOffset )
+void SCH_SHEET::Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset )
 {
     wxDC*       DC = aSettings->GetPrintDC();
-    wxPoint     pos = m_pos + aOffset;
+    VECTOR2I    pos = m_pos + aOffset;
     int         lineWidth = std::max( GetPenWidth(), aSettings->GetDefaultPenWidth() );
     const auto* settings = dynamic_cast<const KIGFX::SCH_RENDER_SETTINGS*>( aSettings );
     bool        override = settings && settings->m_OverrideItemColors;

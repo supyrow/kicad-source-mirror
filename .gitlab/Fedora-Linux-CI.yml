@@ -3,6 +3,9 @@
 ##########################################################################
 fedora_build_linux:
   stage: build
+  tags:
+    - kicad-fedora
+  image: registry.gitlab.com/kicad/kicad-ci/source_containers/master/fedora:34
   extends: .only_code
   interruptible: false
   cache:
@@ -18,14 +21,14 @@ fedora_build_linux:
     - mkdir -p build/linux
     - cd build/linux
     - cmake
-      -DCMAKE_BUILD_TYPE=Debug
+      -G Ninja
+      -DCMAKE_BUILD_TYPE=Release
       -DKICAD_STDLIB_LIGHT_DEBUG=ON
       -DKICAD_USE_OCC=ON
       -DKICAD_SPICE=ON
       -DKICAD_BUILD_I18N=ON
-      -DKICAD_BUILD_PNS_DEBUG_TOOL=ON
       ../../
-    - make 2>&1 | tee compilation_log.txt
+    - ninja 2>&1 | tee compilation_log.txt
     - cd ../../
   artifacts:
     # Only save the artifacts that are needed for running the tests in the next stage

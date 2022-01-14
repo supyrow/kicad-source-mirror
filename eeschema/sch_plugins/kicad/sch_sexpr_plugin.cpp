@@ -80,6 +80,7 @@ static void formatFill( OUTPUTFORMATTER* aFormatter, int aNestLevel, FILL_T aFil
 
     switch( aFillMode )
     {
+    default:
     case FILL_T::NO_FILL:                  fillType = "none";       break;
     case FILL_T::FILLED_SHAPE:             fillType = "outline";    break;
     case FILL_T::FILLED_WITH_BG_BODYCOLOR: fillType = "background"; break;
@@ -190,15 +191,15 @@ static const char* getPinShapeToken( GRAPHIC_PINSHAPE aShape )
 }
 
 
-static float getPinAngle( int aOrientation )
+static EDA_ANGLE getPinAngle( int aOrientation )
 {
     switch( aOrientation )
     {
-    case PIN_RIGHT: return 0.0;
-    case PIN_LEFT:  return 180.0;
-    case PIN_UP:    return 90.0;
-    case PIN_DOWN:  return 270.0;
-    default:        wxFAIL_MSG( "Missing symbol library pin orientation type" ); return 0.0;
+    case PIN_RIGHT: return ANGLE_0;
+    case PIN_LEFT:  return ANGLE_180;
+    case PIN_UP:    return ANGLE_90;
+    case PIN_DOWN:  return ANGLE_270;
+    default:        wxFAIL_MSG( "Missing symbol library pin orientation type" ); return ANGLE_0;
     }
 }
 
@@ -221,21 +222,17 @@ static const char* getSheetPinShapeToken( LABEL_FLAG_SHAPE aShape )
 }
 
 
-static double getSheetPinAngle( SHEET_SIDE aSide )
+static EDA_ANGLE getSheetPinAngle( SHEET_SIDE aSide )
 {
-    double retv;
-
     switch( aSide )
     {
     case SHEET_SIDE::UNDEFINED:
-    case SHEET_SIDE::LEFT:     retv = 180.0; break;
-    case SHEET_SIDE::RIGHT:    retv = 0.0;   break;
-    case SHEET_SIDE::TOP:      retv = 90.0;  break;
-    case SHEET_SIDE::BOTTOM:   retv = 270.0; break;
-    default:   wxFAIL;         retv = 0.0;   break;
+    case SHEET_SIDE::LEFT:     return ANGLE_180;
+    case SHEET_SIDE::RIGHT:    return ANGLE_0;
+    case SHEET_SIDE::TOP:      return ANGLE_90;
+    case SHEET_SIDE::BOTTOM:   return ANGLE_270;
+    default:   wxFAIL;         return ANGLE_0;
     }
-
-    return retv;
 }
 
 
@@ -328,8 +325,8 @@ static void formatBezier( OUTPUTFORMATTER* aFormatter, int aNestLevel, EDA_SHAPE
 {
     aFormatter->Print( aNestLevel, "(bezier (pts " );
 
-    for( const wxPoint& pt : { aBezier->GetStart(), aBezier->GetBezierC1(),
-                               aBezier->GetBezierC2(), aBezier->GetEnd() } )
+    for( const VECTOR2I& pt : { aBezier->GetStart(), aBezier->GetBezierC1(),
+                                aBezier->GetBezierC2(), aBezier->GetEnd() } )
     {
         aFormatter->Print( 0, " (xy %s %s)",
                            FormatInternalUnits( pt.x ).c_str(),
@@ -627,8 +624,16 @@ void SCH_SEXPR_PLUGIN::loadHierarchy( SCH_SHEET* aSheet )
                 m_error += ioe.What();
             }
 
-            aSheet->GetScreen()->SetFileReadOnly( !fileName.IsFileWritable() );
-            aSheet->GetScreen()->SetFileExists( true );
+            if( fileName.FileExists() )
+            {
+                aSheet->GetScreen()->SetFileReadOnly( !fileName.IsFileWritable() );
+                aSheet->GetScreen()->SetFileExists( true );
+            }
+            else
+            {
+                aSheet->GetScreen()->SetFileReadOnly( !fileName.IsDirWritable() );
+                aSheet->GetScreen()->SetFileExists( false );
+            }
 
             // This was moved out of the try{} block so that any sheets definitionsthat
             // the plugin fully parsed before the exception was raised will be loaded.
@@ -731,7 +736,7 @@ void SCH_SEXPR_PLUGIN::Format( SCH_SHEET* aSheet )
     // Save cache library.
     m_out->Print( 1, "(lib_symbols\n" );
 
-    for( auto libSymbol : screen->GetLibSymbols() )
+    for( std::pair<const wxString, LIB_SYMBOL*>& libSymbol : screen->GetLibSymbols() )
         SCH_SEXPR_PLUGIN_CACHE::SaveSymbol( libSymbol.second, *m_out, 2, libSymbol.first );
 
     m_out->Print( 1, ")\n\n" );
@@ -1029,17 +1034,17 @@ void SCH_SEXPR_PLUGIN::saveSymbol( SCH_SYMBOL* aSymbol, SCH_SHEET_PATH* aSheetPa
         libName = "_NONAME_";
     }
 
-    double angle;
-    int orientation = aSymbol->GetOrientation() & ~( SYM_MIRROR_X | SYM_MIRROR_Y );
+    EDA_ANGLE angle;
+    int       orientation = aSymbol->GetOrientation() & ~( SYM_MIRROR_X | SYM_MIRROR_Y );
 
     if( orientation == SYM_ORIENT_90 )
-        angle = 90.0;
+        angle = ANGLE_90;
     else if( orientation == SYM_ORIENT_180 )
-        angle = 180.0;
+        angle = ANGLE_180;
     else if( orientation == SYM_ORIENT_270 )
-        angle = 270.0;
+        angle = ANGLE_270;
     else
-        angle = 0.0;
+        angle = ANGLE_0;
 
     m_out->Print( aNestLevel, "(symbol" );
 
@@ -1053,7 +1058,7 @@ void SCH_SEXPR_PLUGIN::saveSymbol( SCH_SYMBOL* aSymbol, SCH_SHEET_PATH* aSheetPa
                   m_out->Quotew( aSymbol->GetLibId().Format().wx_str() ).c_str(),
                   FormatInternalUnits( aSymbol->GetPosition().x ).c_str(),
                   FormatInternalUnits( aSymbol->GetPosition().y ).c_str(),
-                  FormatAngle( angle * 10.0 ).c_str() );
+                  FormatAngle( angle ).c_str() );
 
     bool mirrorX = aSymbol->GetOrientation() & SYM_MIRROR_X;
     bool mirrorY = aSymbol->GetOrientation() & SYM_MIRROR_Y;
@@ -1148,7 +1153,7 @@ void SCH_SEXPR_PLUGIN::saveField( SCH_FIELD* aField, int aNestLevel )
                   aField->GetId(),
                   FormatInternalUnits( aField->GetPosition().x ).c_str(),
                   FormatInternalUnits( aField->GetPosition().y ).c_str(),
-                  FormatAngle( aField->GetTextAngle().AsTenthsOfADegree() ).c_str() );
+                  FormatAngle( aField->GetTextAngle() ).c_str() );
 
     if( !aField->IsDefaultFormatting()
       || ( aField->GetTextHeight() != Mils2iu( DEFAULT_SIZE_TEXT ) ) )
@@ -1257,7 +1262,7 @@ void SCH_SEXPR_PLUGIN::saveSheet( SCH_SHEET* aSheet, int aNestLevel )
                       getSheetPinShapeToken( pin->GetShape() ),
                       FormatInternalUnits( pin->GetPosition().x ).c_str(),
                       FormatInternalUnits( pin->GetPosition().y ).c_str(),
-                      FormatAngle( getSheetPinAngle( pin->GetSide() ) * 10.0 ).c_str() );
+                      FormatAngle( getSheetPinAngle( pin->GetSide() ) ).c_str() );
 
         pin->Format( m_out, aNestLevel + 1, 0 );
 
@@ -1412,17 +1417,6 @@ void SCH_SEXPR_PLUGIN::saveText( SCH_TEXT* aText, int aNestLevel )
 {
     wxCHECK_RET( aText != nullptr && m_out != nullptr, "" );
 
-    double angle;
-
-    switch( aText->GetLabelSpinStyle() )
-    {
-    case LABEL_SPIN_STYLE::RIGHT:    angle = 0.0;    break;
-    case LABEL_SPIN_STYLE::UP:       angle = 90.0;   break;
-    case LABEL_SPIN_STYLE::LEFT:     angle = 180.0;  break;
-    case LABEL_SPIN_STYLE::BOTTOM:   angle = 270.0;  break;
-    default:      wxFAIL;            angle = 0.0;    break;
-    }
-
     m_out->Print( aNestLevel, "(%s %s",
                   getTextTypeToken( aText->Type() ),
                   m_out->Quotew( aText->GetText() ).c_str() );
@@ -1447,7 +1441,7 @@ void SCH_SEXPR_PLUGIN::saveText( SCH_TEXT* aText, int aNestLevel )
         m_out->Print( 0, " (at %s %s %s)",
                       FormatInternalUnits( aText->GetPosition().x ).c_str(),
                       FormatInternalUnits( aText->GetPosition().y ).c_str(),
-                      FormatAngle( angle * 10.0 ).c_str() );
+                      FormatAngle( aText->GetTextAngle() ).c_str() );
     }
     else
     {
@@ -1455,7 +1449,7 @@ void SCH_SEXPR_PLUGIN::saveText( SCH_TEXT* aText, int aNestLevel )
         m_out->Print( aNestLevel + 1, "(at %s %s %s)",
                       FormatInternalUnits( aText->GetPosition().x ).c_str(),
                       FormatInternalUnits( aText->GetPosition().y ).c_str(),
-                      FormatAngle( aText->GetTextAngle().AsTenthsOfADegree() ).c_str() );
+                      FormatAngle( aText->GetTextAngle() ).c_str() );
     }
 
     if( aText->GetFieldsAutoplaced() != FIELDS_AUTOPLACED_NO )
@@ -2060,7 +2054,7 @@ void SCH_SEXPR_PLUGIN_CACHE::savePin( LIB_PIN* aPin, OUTPUTFORMATTER& aFormatter
                       getPinShapeToken( aPin->GetShape() ),
                       FormatInternalUnits( aPin->GetPosition().x ).c_str(),
                       FormatInternalUnits( aPin->GetPosition().y ).c_str(),
-                      FormatAngle( getPinAngle( aPin->GetOrientation() ) * 10.0 ).c_str(),
+                      FormatAngle( getPinAngle( aPin->GetOrientation() ) ).c_str(),
                       FormatInternalUnits( aPin->GetLength() ).c_str() );
 
     if( !aPin->IsVisible() )

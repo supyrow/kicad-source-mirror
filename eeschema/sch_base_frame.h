@@ -121,12 +121,12 @@ public:
     const PAGE_INFO& GetPageSettings () const override;
     const wxSize GetPageSizeIU() const override;
 
-    const wxPoint& GetGridOrigin() const override
+    const VECTOR2I& GetGridOrigin() const override
     {
-        static wxPoint zero;
+        static VECTOR2I zero;
         return zero;
     }
-    void SetGridOrigin( const wxPoint& aPoint ) override {}
+    void SetGridOrigin( const VECTOR2I& aPoint ) override {}
 
     const TITLE_BLOCK& GetTitleBlock() const override;
     void SetTitleBlock( const TITLE_BLOCK& aTitleBlock ) override;
@@ -192,9 +192,9 @@ public:
                                             const LIB_ID& aPreselectedLibId,
                                             int aUnit, int aConvert );
 
-    virtual void RedrawScreen( const wxPoint& aCenterPoint, bool aWarpPointer );
+    virtual void RedrawScreen( const VECTOR2I& aCenterPoint, bool aWarpPointer );
 
-    virtual void CenterScreen( const wxPoint& aCenterPoint, bool aWarpPointer );
+    virtual void CenterScreen( const VECTOR2I& aCenterPoint, bool aWarpPointer );
 
     void HardRedraw() override;
 
@@ -213,7 +213,8 @@ public:
     /**
      * Mark an item for refresh.
      */
-    void UpdateItem( EDA_ITEM* aItem, bool isAddOrDelete = false, bool aUpdateRtree = false );
+    virtual void UpdateItem( EDA_ITEM* aItem, bool isAddOrDelete = false,
+                             bool aUpdateRtree = false );
 
     /**
      * Mark selected items for refresh.

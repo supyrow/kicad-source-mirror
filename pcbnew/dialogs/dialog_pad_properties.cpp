@@ -4,7 +4,7 @@
  * Copyright (C) 2019 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2013 Dick Hollenbeck, dick@softplc.com
  * Copyright (C) 2008-2013 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -486,8 +486,7 @@ void DIALOG_PAD_PROPERTIES::initValues()
 
         if( footprint )
         {
-            double angle = m_dummyPad->GetOrientation();
-            angle -= footprint->GetOrientation();
+            EDA_ANGLE angle = m_dummyPad->GetOrientation() - footprint->GetOrientation();
             m_dummyPad->SetOrientation( angle );
 
             // Display parent footprint info
@@ -495,7 +494,7 @@ void DIALOG_PAD_PROPERTIES::initValues()
                          footprint->Reference().GetShownText(),
                          footprint->Value().GetShownText(),
                          footprint->IsFlipped() ? _( "back side (mirrored)" ) : _( "front side" ),
-                         footprint->GetOrientationDegrees() );
+                         footprint->GetOrientation().AsDegrees() );
         }
 
         m_parentInfo->SetLabel( msg );
@@ -559,11 +558,11 @@ void DIALOG_PAD_PROPERTIES::initValues()
     m_clearance.ChangeValue( m_dummyPad->GetLocalClearance() );
     m_maskMargin.ChangeValue( m_dummyPad->GetLocalSolderMaskMargin() );
     m_spokeWidth.ChangeValue( m_dummyPad->GetThermalSpokeWidth() );
-    m_spokeAngle.ChangeDoubleValue( m_dummyPad->GetThermalSpokeAngle() );
+    m_spokeAngle.ChangeDoubleValue( m_dummyPad->GetThermalSpokeAngle().AsTenthsOfADegree() );
     m_thermalGap.ChangeValue( m_dummyPad->GetThermalGap() );
     m_pasteMargin.ChangeValue( m_dummyPad->GetLocalSolderPasteMargin() );
     m_pasteMarginRatio.ChangeDoubleValue( m_dummyPad->GetLocalSolderPasteMarginRatio() * 100.0 );
-    m_pad_orientation.ChangeDoubleValue( m_dummyPad->GetOrientation() );
+    m_pad_orientation.ChangeDoubleValue( m_dummyPad->GetOrientation().AsTenthsOfADegree() );
 
     switch( m_dummyPad->GetZoneConnection() )
     {
@@ -670,7 +669,7 @@ void DIALOG_PAD_PROPERTIES::initValues()
 }
 
 // A small helper function, to display coordinates:
-static wxString formatCoord( EDA_UNITS aUnits, wxPoint aCoord )
+static wxString formatCoord( EDA_UNITS aUnits, VECTOR2I aCoord )
 {
     return wxString::Format( "(X:%s Y:%s)",
                              MessageTextFromValue( aUnits, aCoord.x ),
@@ -1233,8 +1232,8 @@ bool DIALOG_PAD_PROPERTIES::padValuesOK()
     wxArrayString error_msgs;
     wxArrayString warning_msgs;
     wxString      msg;
-    wxSize        pad_size = m_dummyPad->GetSize();
-    wxSize        drill_size = m_dummyPad->GetDrillSize();
+    VECTOR2I      pad_size = m_dummyPad->GetSize();
+    VECTOR2I      drill_size = m_dummyPad->GetDrillSize();
 
     if( m_dummyPad->GetShape() == PAD_SHAPE::CUSTOM )
     {
@@ -1266,7 +1265,7 @@ bool DIALOG_PAD_PROPERTIES::padValuesOK()
         const SEG            drillSeg   = drillShape->GetSeg();
         SHAPE_POLY_SET       drillOutline;
 
-        TransformOvalToPolygon( drillOutline, (wxPoint) drillSeg.A, (wxPoint) drillSeg.B,
+        TransformOvalToPolygon( drillOutline, drillSeg.A, drillSeg.B,
                                 drillShape->GetWidth(), maxError, ERROR_LOC::ERROR_INSIDE );
 
         drillOutline.BooleanSubtract( padOutline, SHAPE_POLY_SET::POLYGON_MODE::PM_FAST );
@@ -1478,7 +1477,7 @@ void DIALOG_PAD_PROPERTIES::redraw()
     {
         PCB_SHAPE* dummyShape = (PCB_SHAPE*) m_primitives[select]->Clone();
         dummyShape->SetLayer( SELECTED_ITEMS_LAYER );
-        dummyShape->Rotate( wxPoint( 0, 0), m_dummyPad->GetOrientation() );
+        dummyShape->Rotate( VECTOR2I( 0, 0), m_dummyPad->GetOrientation() );
         dummyShape->Move( m_dummyPad->GetPosition() );
 
         view->Add( dummyShape );
@@ -1579,7 +1578,7 @@ bool DIALOG_PAD_PROPERTIES::TransferDataFromWindow()
     if( !m_locked->GetValue() || m_isFpEditor )
         m_currentPad->SetPosition( m_padMaster->GetPosition() );
 
-    wxSize     size;
+    VECTOR2I   size;
     FOOTPRINT* footprint = m_currentPad->GetParent();
 
     m_currentPad->SetSize( m_padMaster->GetSize() );
@@ -1590,7 +1589,7 @@ bool DIALOG_PAD_PROPERTIES::TransferDataFromWindow()
     m_currentPad->SetDrillSize( m_padMaster->GetDrillSize() );
     m_currentPad->SetDrillShape( m_padMaster->GetDrillShape() );
 
-    wxPoint offset = m_padMaster->GetOffset();
+    VECTOR2I offset = m_padMaster->GetOffset();
     m_currentPad->SetOffset( offset );
 
     m_currentPad->SetPadToDieLength( m_padMaster->GetPadToDieLength() );
@@ -1652,11 +1651,10 @@ bool DIALOG_PAD_PROPERTIES::TransferDataFromWindow()
 
         // compute the pos 0 value, i.e. pad position for footprint with orientation = 0
         // i.e. relative to footprint origin (footprint position)
-        wxPoint pt = m_currentPad->GetPosition() - footprint->GetPosition();
-        RotatePoint( &pt, -footprint->GetOrientation() );
+        VECTOR2I pt = m_currentPad->GetPosition() - footprint->GetPosition();
+        RotatePoint( pt, -footprint->GetOrientation() );
         m_currentPad->SetPos0( pt );
-        m_currentPad->SetOrientation( m_currentPad->GetOrientation() +
-                                      footprint->GetOrientation() );
+        m_currentPad->SetOrientation( m_currentPad->GetOrientation() + footprint->GetOrientation() );
     }
 
     m_parent->SetMsgPanel( m_currentPad );
@@ -1719,11 +1717,11 @@ bool DIALOG_PAD_PROPERTIES::transferDataToPad( PAD* aPad )
     aPad->SetLocalSolderPasteMargin( m_pasteMargin.GetValue() );
     aPad->SetLocalSolderPasteMarginRatio( m_pasteMarginRatio.GetDoubleValue() / 100.0 );
     aPad->SetThermalSpokeWidth( m_spokeWidth.GetValue() );
-    aPad->SetThermalSpokeAngle( m_spokeAngle.GetDoubleValue() );
+    aPad->SetThermalSpokeAngle( EDA_ANGLE( m_spokeAngle.GetDoubleValue(), TENTHS_OF_A_DEGREE_T ) );
     aPad->SetThermalGap( m_thermalGap.GetValue() );
 
     // And rotation
-    aPad->SetOrientation( m_pad_orientation.GetDoubleValue() );
+    aPad->SetOrientation( EDA_ANGLE( m_pad_orientation.GetDoubleValue(), TENTHS_OF_A_DEGREE_T ) );
 
     switch( m_ZoneConnectionChoice->GetSelection() )
     {

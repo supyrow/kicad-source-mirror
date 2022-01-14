@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2012 Jean-Pierre Charras, jean-pierre.charras@gipsa-lab.inpg.com
  * Copyright (C) 2016 Wayne Stambaugh, stambaughw@gmail.com
- * Copyright (C) 2004-2021 KiCad Developers, see AITHORS.txt for contributors.
+ * Copyright (C) 2004-2022 KiCad Developers, see AITHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -24,6 +24,7 @@
  */
 
 #include <widgets/bitmap_button.h>
+#include <widgets/font_choice.h>
 #include <bitmaps.h>
 #include <kiway.h>
 #include <confirm.h>
@@ -49,6 +50,7 @@ DIALOG_FIELD_PROPERTIES::DIALOG_FIELD_PROPERTIES( SCH_BASE_FRAME* aParent, const
     m_posX( aParent, m_xPosLabel, m_xPosCtrl, m_xPosUnits, true ),
     m_posY( aParent, m_yPosLabel, m_yPosCtrl, m_yPosUnits, true ),
     m_textSize( aParent, m_textSizeLabel, m_textSizeCtrl, m_textSizeUnits, true ),
+    m_font( nullptr ),
     m_firstFocus( true ),
     m_scintillaTricks( nullptr )
 {
@@ -121,8 +123,8 @@ DIALOG_FIELD_PROPERTIES::DIALOG_FIELD_PROPERTIES( SCH_BASE_FRAME* aParent, const
     m_position = aTextItem->GetTextPos();
     m_size = aTextItem->GetTextWidth();
     m_isVertical = aTextItem->GetTextAngle().IsVertical();
-    m_verticalJustification = aTextItem->GetVertJustify() + 1;
-    m_horizontalJustification = aTextItem->GetHorizJustify() + 1;
+    m_verticalJustification = aTextItem->GetVertJustify();
+    m_horizontalJustification = aTextItem->GetHorizJustify();
     m_isVisible = aTextItem->IsVisible();
 }
 
@@ -278,7 +280,7 @@ void DIALOG_FIELD_PROPERTIES::onHAlignButton( wxCommandEvent& aEvent )
 
 void DIALOG_FIELD_PROPERTIES::onVAlignButton( wxCommandEvent& aEvent )
 {
-    for( BITMAP_BUTTON* btn : { m_vAlignTop, m_vAlignTop, m_vAlignBottom } )
+    for( BITMAP_BUTTON* btn : { m_vAlignTop, m_vAlignCenter, m_vAlignBottom } )
     {
         if( btn->IsChecked() && btn != aEvent.GetEventObject() )
             btn->Check( false );
@@ -292,6 +294,8 @@ bool DIALOG_FIELD_PROPERTIES::TransferDataToWindow()
         m_TextCtrl->SetValue( m_text );
     else if( m_StyledTextCtrl->IsShown() )
         m_StyledTextCtrl->SetValue( m_text );
+
+    m_fontCtrl->SetFontSelection( m_font );
 
     m_posX.SetValue( m_position.x );
     m_posY.SetValue( m_position.y );
@@ -363,6 +367,9 @@ bool DIALOG_FIELD_PROPERTIES::TransferDataFromWindow()
     m_position = wxPoint( m_posX.GetValue(), m_posY.GetValue() );
     m_size = m_textSize.GetValue();
 
+    if( m_fontCtrl->HaveFontSelection() )
+        m_font = m_fontCtrl->GetFontSelection( m_bold->IsChecked(), m_italic->IsChecked() );
+
     m_isVertical = m_vertical->IsChecked();
 
     m_isBold = m_bold->IsChecked();
@@ -394,7 +401,7 @@ void DIALOG_FIELD_PROPERTIES::updateText( EDA_TEXT* aText )
         aText->SetTextSize( wxSize( m_size, m_size ) );
 
     aText->SetVisible( m_isVisible );
-    aText->SetTextAngle( m_isVertical ? EDA_ANGLE::VERTICAL : EDA_ANGLE::HORIZONTAL );
+    aText->SetTextAngle( m_isVertical ? ANGLE_VERTICAL : ANGLE_HORIZONTAL );
     aText->SetItalic( m_isItalic );
     aText->SetBold( m_isBold );
 }
@@ -413,6 +420,27 @@ DIALOG_LIB_FIELD_PROPERTIES::DIALOG_LIB_FIELD_PROPERTIES( SCH_BASE_FRAME* aParen
     // When in the library editor, power symbols can be renamed.
     m_isPower = false;
     init();
+}
+
+
+void DIALOG_LIB_FIELD_PROPERTIES::UpdateField( LIB_FIELD* aField )
+{
+    wxString value = m_text;
+
+    if( m_fieldId == VALUE_FIELD )
+        value = EscapeString( value, CTX_LIBID );
+
+    aField->SetText( value );
+
+    // VALUE === symbol name, so update the parent symbol if it changes.
+    if( m_fieldId == VALUE_FIELD && aField->GetParent() )
+        aField->GetParent()->SetName( value );
+
+    updateText( aField );
+
+    aField->SetHorizJustify( EDA_TEXT::MapHorizJustify( m_horizontalJustification ) );
+    aField->SetVertJustify( EDA_TEXT::MapVertJustify( m_verticalJustification  ) );
+    aField->SetTextPos( m_position );
 }
 
 
@@ -453,14 +481,16 @@ DIALOG_SCH_FIELD_PROPERTIES::DIALOG_SCH_FIELD_PROPERTIES( SCH_BASE_FRAME* aParen
     // show text variable cross-references in a human-readable format
     m_text = aField->Schematic()->ConvertKIIDsToRefs( aField->GetText() );
 
+    m_font = m_field->GetFont();
+
     m_isPower = false;
 
     m_textLabel->SetLabel( m_field->GetName() + ":" );
 
     m_position = m_field->GetPosition();
 
-    m_horizontalJustification = m_field->GetEffectiveHorizJustify() + 1;
-    m_verticalJustification = m_field->GetEffectiveVertJustify() + 1;
+    m_horizontalJustification = m_field->GetEffectiveHorizJustify();
+    m_verticalJustification = m_field->GetEffectiveVertJustify();
 
     // The library symbol may have been removed so using SCH_SYMBOL::GetLibSymbolRef() here
     // could result in a segfault.  If the library symbol is no longer available, the
@@ -475,8 +505,8 @@ DIALOG_SCH_FIELD_PROPERTIES::DIALOG_SCH_FIELD_PROPERTIES( SCH_BASE_FRAME* aParen
             m_isPower = true;
     }
 
-    m_StyledTextCtrl->Bind( wxEVT_STC_CHARADDED,
-                            &DIALOG_SCH_FIELD_PROPERTIES::onScintillaCharAdded, this );
+    m_StyledTextCtrl->Bind( wxEVT_STC_CHARADDED, &DIALOG_SCH_FIELD_PROPERTIES::onScintillaCharAdded,
+                            this );
 
     init();
 
@@ -596,8 +626,6 @@ void DIALOG_SCH_FIELD_PROPERTIES::UpdateField( SCH_FIELD* aField, SCH_SHEET_PATH
             symbol->SetFootprint( m_text );
     }
 
-    GR_TEXT_H_ALIGN_T hJustify = EDA_TEXT::MapHorizJustify( m_horizontalJustification - 1 );
-    GR_TEXT_V_ALIGN_T vJustify = EDA_TEXT::MapVertJustify( m_verticalJustification - 1 );
     bool positioningModified = false;
 
     if( aField->GetPosition() != m_position )
@@ -606,10 +634,10 @@ void DIALOG_SCH_FIELD_PROPERTIES::UpdateField( SCH_FIELD* aField, SCH_SHEET_PATH
     if( aField->GetTextAngle().IsVertical() != m_isVertical )
         positioningModified = true;
 
-    if( aField->GetEffectiveHorizJustify() != hJustify )
+    if( aField->GetEffectiveHorizJustify() != m_horizontalJustification )
         positioningModified = true;
 
-    if( aField->GetEffectiveVertJustify() != vJustify )
+    if( aField->GetEffectiveVertJustify() != m_verticalJustification )
         positioningModified = true;
 
     // convert any text variable cross-references to their UUIDs
@@ -619,17 +647,19 @@ void DIALOG_SCH_FIELD_PROPERTIES::UpdateField( SCH_FIELD* aField, SCH_SHEET_PATH
     updateText( aField );
     aField->SetPosition( m_position );
 
+    aField->SetFont( m_font );
+
     // Note that we must set justifications before we can ask if they're flipped.  If the old
     // justification is center then it won't know (whereas if the new justification is center
     // the we don't care).
-    aField->SetHorizJustify( hJustify );
-    aField->SetVertJustify( vJustify );
+    aField->SetHorizJustify( m_horizontalJustification );
+    aField->SetVertJustify( m_verticalJustification );
 
     if( aField->IsHorizJustifyFlipped() )
-        aField->SetHorizJustify( EDA_TEXT::MapHorizJustify( -hJustify ) );
+        aField->SetHorizJustify( EDA_TEXT::MapHorizJustify( -m_horizontalJustification ) );
 
     if( aField->IsVertJustifyFlipped() )
-        aField->SetVertJustify( EDA_TEXT::MapVertJustify( -vJustify ) );
+        aField->SetVertJustify( EDA_TEXT::MapVertJustify( -m_verticalJustification ) );
 
     // The value, footprint and datasheet fields should be kept in sync in multi-unit parts.
     // Of course the symbol must be annotated to collect other units.

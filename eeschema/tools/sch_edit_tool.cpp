@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2019 CERN
- * Copyright (C) 2019-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2019-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -231,7 +231,7 @@ bool SCH_EDIT_TOOL::Init()
                         DS_PROXY_VIEW_ITEM* ds = m_frame->GetCanvas()->GetView()->GetDrawingSheet();
                         VECTOR2D            cursor = getViewControls()->GetCursorPosition( false );
 
-                        if( ds && ds->HitTestDrawingSheetItems( getView(), (wxPoint) cursor ) )
+                        if( ds && ds->HitTestDrawingSheetItems( getView(), cursor ) )
                             return true;
                     }
 
@@ -255,6 +255,7 @@ bool SCH_EDIT_TOOL::Init()
                 case SCH_HIER_LABEL_T:
                 case SCH_NETCLASS_FLAG_T:
                 case SCH_FIELD_T:
+                case SCH_SHAPE_T:
                 case SCH_BITMAP_T:
                     return aSel.GetSize() == 1;
 
@@ -457,7 +458,7 @@ int SCH_EDIT_TOOL::Rotate( const TOOL_EVENT& aEvent )
 
     SCH_ITEM* head = nullptr;
     int       principalItemCount = 0;  // User-selected items (as opposed to connected wires)
-    wxPoint   rotPoint;
+    VECTOR2I  rotPoint;
     bool      moving = false;
     bool      connections = false;
 
@@ -480,7 +481,7 @@ int SCH_EDIT_TOOL::Rotate( const TOOL_EVENT& aEvent )
     if( principalItemCount == 1 )
     {
         if( moving && selection.HasReferencePoint() )
-            rotPoint = (wxPoint) selection.GetReferencePoint();
+            rotPoint = selection.GetReferencePoint();
         else
             rotPoint = head->GetPosition();
 
@@ -538,9 +539,9 @@ int SCH_EDIT_TOOL::Rotate( const TOOL_EVENT& aEvent )
             SCH_FIELD* field = static_cast<SCH_FIELD*>( head );
 
             if( field->GetTextAngle().IsHorizontal() )
-                field->SetTextAngle( EDA_ANGLE::VERTICAL );
+                field->SetTextAngle( ANGLE_VERTICAL );
             else
-                field->SetTextAngle( EDA_ANGLE::HORIZONTAL );
+                field->SetTextAngle( ANGLE_HORIZONTAL );
 
             // Now that we're moving a field, they're no longer autoplaced.
             static_cast<SCH_ITEM*>( head->GetParent() )->ClearFieldsAutoplaced();
@@ -585,9 +586,9 @@ int SCH_EDIT_TOOL::Rotate( const TOOL_EVENT& aEvent )
     else
     {
         if( moving && selection.HasReferencePoint() )
-            rotPoint = (wxPoint) selection.GetReferencePoint();
+            rotPoint = selection.GetReferencePoint();
         else
-            rotPoint = m_frame->GetNearestHalfGridPosition( (wxPoint) selection.GetCenter() );
+            rotPoint = m_frame->GetNearestHalfGridPosition( selection.GetCenter() );
     }
 
     for( unsigned ii = 0; ii < selection.GetSize(); ii++ )
@@ -644,9 +645,9 @@ int SCH_EDIT_TOOL::Rotate( const TOOL_EVENT& aEvent )
                     field->Rotate( rotPoint );
 
                     if( field->GetTextAngle().IsHorizontal() )
-                        field->SetTextAngle( EDA_ANGLE::VERTICAL );
+                        field->SetTextAngle( ANGLE_VERTICAL );
                     else
-                        field->SetTextAngle( EDA_ANGLE::HORIZONTAL );
+                        field->SetTextAngle( ANGLE_HORIZONTAL );
 
                     // Now that we're moving a field, they're no longer autoplaced.
                     static_cast<SCH_ITEM*>( field->GetParent() )->ClearFieldsAutoplaced();
@@ -691,7 +692,7 @@ int SCH_EDIT_TOOL::Mirror( const TOOL_EVENT& aEvent )
     if( selection.GetSize() == 0 )
         return 0;
 
-    wxPoint   mirrorPoint;
+    VECTOR2I  mirrorPoint;
     bool      vertical = ( aEvent.Matches( EE_ACTIONS::mirrorV.MakeEvent() ) );
     SCH_ITEM* item = static_cast<SCH_ITEM*>( selection.Front() );
     bool      connections = false;
@@ -805,7 +806,7 @@ int SCH_EDIT_TOOL::Mirror( const TOOL_EVENT& aEvent )
     }
     else if( selection.GetSize() > 1 )
     {
-        mirrorPoint = m_frame->GetNearestHalfGridPosition( (wxPoint)selection.GetCenter() );
+        mirrorPoint = m_frame->GetNearestHalfGridPosition( selection.GetCenter() );
 
         for( unsigned ii = 0; ii < selection.GetSize(); ii++ )
         {
@@ -885,7 +886,7 @@ int SCH_EDIT_TOOL::RepeatDrawItem( const TOOL_EVENT& aEvent )
     // If cloning a symbol then put into 'move' mode.
     if( newItem->Type() == SCH_SYMBOL_T )
     {
-        wxPoint cursorPos = (wxPoint) getViewControls()->GetCursorPosition( true );
+        VECTOR2I cursorPos = getViewControls()->GetCursorPosition( true );
         newItem->Move( cursorPos - newItem->GetPosition() );
         performDrag = true;
     }
@@ -903,8 +904,8 @@ int SCH_EDIT_TOOL::RepeatDrawItem( const TOOL_EVENT& aEvent )
                 m_frame->ShowInfoBarWarning( _( "Label value cannot go below zero" ), true );
         }
 
-        newItem->Move( wxPoint( Mils2iu( cfg->m_Drawing.default_repeat_offset_x ),
-                                Mils2iu( cfg->m_Drawing.default_repeat_offset_y ) ) );
+        newItem->Move( VECTOR2I( Mils2iu( cfg->m_Drawing.default_repeat_offset_x ),
+                                 Mils2iu( cfg->m_Drawing.default_repeat_offset_y ) ) );
     }
 
     newItem->SetFlags( IS_NEW );
@@ -966,7 +967,7 @@ int SCH_EDIT_TOOL::DoDelete( const TOOL_EVENT& aEvent )
     SCH_SCREEN*          screen = m_frame->GetScreen();
     auto                 items = m_selectionTool->RequestSelection( deletableItems ).GetItems();
     bool                 appendToUndo = false;
-    std::vector<wxPoint> pts;
+    std::vector<VECTOR2I> pts;
 
     if( items.empty() )
         return 0;
@@ -986,7 +987,7 @@ int SCH_EDIT_TOOL::DoDelete( const TOOL_EVENT& aEvent )
 
         if( sch_item->IsConnectable() )
         {
-            std::vector<wxPoint> tmp_pts = sch_item->GetConnectionPoints();
+            std::vector<VECTOR2I> tmp_pts = sch_item->GetConnectionPoints();
             pts.insert( pts.end(), tmp_pts.begin(), tmp_pts.end() );
         }
 
@@ -1026,7 +1027,7 @@ int SCH_EDIT_TOOL::DoDelete( const TOOL_EVENT& aEvent )
         }
     }
 
-    for( const wxPoint& point : pts )
+    for( const VECTOR2I& point : pts )
     {
         SCH_ITEM* junction = screen->GetItem( point, 0, SCH_JUNCTION_T );
 
@@ -1083,7 +1084,7 @@ int SCH_EDIT_TOOL::DeleteItemCursor( const TOOL_EVENT& aEvent )
             {
                 EE_COLLECTOR collector;
                 collector.m_Threshold = KiROUND( getView()->ToWorld( HITTEST_THRESHOLD_PIXELS ) );
-                collector.Collect( m_frame->GetScreen(), deletableItems, (wxPoint) aPos );
+                collector.Collect( m_frame->GetScreen(), deletableItems, aPos );
 
                 EE_SELECTION_TOOL* selectionTool = m_toolMgr->GetTool<EE_SELECTION_TOOL>();
                 selectionTool->GuessSelectionCandidates( collector, aPos );
@@ -1319,7 +1320,7 @@ int SCH_EDIT_TOOL::Properties( const TOOL_EVENT& aEvent )
             DS_PROXY_VIEW_ITEM* ds = m_frame->GetCanvas()->GetView()->GetDrawingSheet();
             VECTOR2D            cursorPos = getViewControls()->GetCursorPosition( false );
 
-            if( ds && ds->HitTestDrawingSheetItems( getView(), (wxPoint) cursorPos ) )
+            if( ds && ds->HitTestDrawingSheetItems( getView(), cursorPos ) )
                 m_toolMgr->RunAction( ACTIONS::pageSettings );
         }
 
@@ -1613,7 +1614,7 @@ int SCH_EDIT_TOOL::ChangeTextType( const TOOL_EVENT& aEvent )
         {
             bool             selected    = text->IsSelected();
             SCH_TEXT*        newtext     = nullptr;
-            const wxPoint&   position    = text->GetPosition();
+            const VECTOR2I&  position    = text->GetPosition();
             LABEL_SPIN_STYLE orientation = text->GetLabelSpinStyle();
             wxString         txt         = UnescapeString( text->GetText() );
 

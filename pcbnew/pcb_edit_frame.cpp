@@ -136,6 +136,9 @@ BEGIN_EVENT_TABLE( PCB_EDIT_FRAME, PCB_BASE_FRAME )
     EVT_MENU( ID_GEN_EXPORT_FILE_STEP, PCB_EDIT_FRAME::OnExportSTEP )
     EVT_MENU( ID_GEN_EXPORT_FILE_HYPERLYNX, PCB_EDIT_FRAME::OnExportHyperlynx )
 
+    EVT_MENU( ID_RUN_TEARDROP_TOOL, PCB_EDIT_FRAME::OnRunTeardropTool )
+    EVT_MENU( ID_REMOVE_TEARDROP_TOOL, PCB_EDIT_FRAME::OnRemoveTeardropTool )
+
     EVT_MENU( ID_MENU_EXPORT_FOOTPRINTS_TO_LIBRARY, PCB_EDIT_FRAME::Process_Special_Functions )
     EVT_MENU( ID_MENU_EXPORT_FOOTPRINTS_TO_NEW_LIBRARY, PCB_EDIT_FRAME::Process_Special_Functions )
 
@@ -189,7 +192,7 @@ PCB_EDIT_FRAME::PCB_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
     // assume dirty
     m_ZoneFillsDirty = true;
 
-    m_rotationAngle = 900;
+    m_rotationAngle = ANGLE_90;
     m_aboutTitle = _( "KiCad PCB Editor" );
 
     // Must be created before the menus are created.
@@ -483,6 +486,9 @@ void PCB_EDIT_FRAME::SetPageSettings( const PAGE_INFO& aPageSettings )
                                                                m_pcb->GetProject(),
                                                                &m_pcb->GetTitleBlock() );
     drawingSheet->SetSheetName( std::string( GetScreenDesc().mb_str() ) );
+    // A board is not like a schematic having a main page and sub sheets.
+    // So for the drawing sheet, use only the first page option to display items
+    drawingSheet->SetIsFirstPage( true );
 
     BASE_SCREEN* screen = GetScreen();
 
@@ -1042,7 +1048,7 @@ void PCB_EDIT_FRAME::LoadSettings( APP_SETTINGS_BASE* aCfg )
 
     if( cfg )
     {
-        m_rotationAngle            = cfg->m_RotationAngle;
+        m_rotationAngle            = EDA_ANGLE( cfg->m_RotationAngle, TENTHS_OF_A_DEGREE_T );
         m_show_layer_manager_tools = cfg->m_AuiPanels.show_layer_manager;
     }
 }
@@ -1057,7 +1063,7 @@ void PCB_EDIT_FRAME::SaveSettings( APP_SETTINGS_BASE* aCfg )
 
     if( cfg )
     {
-        cfg->m_RotationAngle                  = m_rotationAngle;
+        cfg->m_RotationAngle                  = m_rotationAngle.AsTenthsOfADegree();
         cfg->m_AuiPanels.show_layer_manager   = m_show_layer_manager_tools;
         cfg->m_AuiPanels.right_panel_width    = m_appearancePanel->GetSize().x;
         cfg->m_AuiPanels.appearance_panel_tab = m_appearancePanel->GetTabIndex();

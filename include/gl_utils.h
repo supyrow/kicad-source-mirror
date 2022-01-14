@@ -25,6 +25,7 @@
 #define GL_UTILS_H
 
 #include <gal/opengl/kiglew.h>    // Must be included first
+#include <wx/glcanvas.h>
 #include <wx/utils.h>
 
 #include <limits>
@@ -44,19 +45,18 @@ public:
         /// Windows would include <wglext.h> and call wglSwapIntervalEXT
 #if defined( __linux__ ) && !defined( KICAD_USE_EGL )
 
-        /// Do not try to set the swapping over remote connections
-        /// Video drivers lie and then crash when they can't handle the adaptive swapping
-        if( wxGetEnv( wxT( "SSH_CONNECTION"), nullptr ) )
-            return 0;
-
         Display *dpy = glXGetCurrentDisplay();
         GLXDrawable drawable = glXGetCurrentDrawable();
+        std::string vendor( reinterpret_cast<const char*>( glGetString( GL_VENDOR ) ) );
+        bool is_mesa = ( vendor.find( "Mesa" ) != std::string::npos );
 
-        if( glXSwapIntervalEXT && glXQueryDrawable && dpy && drawable )
+        if( !is_mesa && glXSwapIntervalEXT && glXQueryDrawable && dpy && drawable )
         {
+            std::string exts( glXQueryExtensionsString( dpy, DefaultScreen( dpy ) ) );
+
             if( aVal < 0 )
             {
-                if( !GLX_EXT_swap_control_tear )
+                if( exts.find( "GLX_EXT_swap_control_tear" ) == std::string::npos )
                 {
                     aVal = 0;
                 }
@@ -66,7 +66,7 @@ public:
                     // we need to be sure that late/adaptive swaps are
                     // enabled on the drawable.
 
-                    unsigned lateSwapsEnabled;
+                    unsigned lateSwapsEnabled = 0;
                     glXQueryDrawable( dpy, drawable, GLX_LATE_SWAPS_TEAR_EXT, &lateSwapsEnabled );
 
                     if( !lateSwapsEnabled )

@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2012 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
- * Copyright (C) 2012-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2012-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -699,8 +699,8 @@ void EAGLE_PLUGIN::loadPlain( wxXmlNode* aGraphics )
             EWIRE        w( gr );
             PCB_LAYER_ID layer = kicad_layer( w.layer );
 
-            wxPoint start( kicad_x( w.x1 ), kicad_y( w.y1 ) );
-            wxPoint end(   kicad_x( w.x2 ), kicad_y( w.y2 ) );
+            VECTOR2I start( kicad_x( w.x1 ), kicad_y( w.y1 ) );
+            VECTOR2I end( kicad_x( w.x2 ), kicad_y( w.y2 ) );
 
             if( layer != UNDEFINED_LAYER )
             {
@@ -721,7 +721,7 @@ void EAGLE_PLUGIN::loadPlain( wxXmlNode* aGraphics )
                 }
                 else
                 {
-                    wxPoint center = ConvertArcCenter( start, end, *w.curve );
+                    VECTOR2I center = ConvertArcCenter( start, end, *w.curve );
 
                     shape->SetShape( SHAPE_T::ARC );
                     shape->SetCenter( center );
@@ -750,7 +750,7 @@ void EAGLE_PLUGIN::loadPlain( wxXmlNode* aGraphics )
                 pcbtxt->SetLayer( layer );
                 wxString kicadText = interpret_text( t.text );
                 pcbtxt->SetText( FROM_UTF8( kicadText.c_str() ) );
-                pcbtxt->SetTextPos( wxPoint( kicad_x( t.x ), kicad_y( t.y ) ) );
+                pcbtxt->SetTextPos( VECTOR2I( kicad_x( t.x ), kicad_y( t.y ) ) );
 
                 double ratio = t.ratio ? *t.ratio : 8;     // DTD says 8 is default
                 int textThickness = KiROUND( t.size.ToPcbUnits() * ratio / 100 );
@@ -768,7 +768,7 @@ void EAGLE_PLUGIN::loadPlain( wxXmlNode* aGraphics )
 
                     if( degrees == 90 || t.rot->spin )
                     {
-                        pcbtxt->SetTextAngle( sign * t.rot->degrees * 10 );
+                        pcbtxt->SetTextAngle( EDA_ANGLE( sign * t.rot->degrees, DEGREES_T ) );
                     }
                     else if( degrees == 180 )
                     {
@@ -776,7 +776,7 @@ void EAGLE_PLUGIN::loadPlain( wxXmlNode* aGraphics )
                     }
                     else if( degrees == 270 )
                     {
-                        pcbtxt->SetTextAngle( sign * 90 * 10 );
+                        pcbtxt->SetTextAngle( EDA_ANGLE( sign * 90, DEGREES_T ) );
                         align = -align;
                     }
                     else
@@ -785,21 +785,21 @@ void EAGLE_PLUGIN::loadPlain( wxXmlNode* aGraphics )
                         // placement right.
                         if( ( degrees > 0 ) &&  ( degrees < 90 ) )
                         {
-                            pcbtxt->SetTextAngle( sign * t.rot->degrees * 10 );
+                            pcbtxt->SetTextAngle( EDA_ANGLE( sign * t.rot->degrees, DEGREES_T ) );
                         }
                         else if( ( degrees > 90 ) && ( degrees < 180 ) )
                         {
-                            pcbtxt->SetTextAngle( sign * ( t.rot->degrees + 180 ) * 10 );
+                            pcbtxt->SetTextAngle( EDA_ANGLE( sign * ( t.rot->degrees + 180 ), DEGREES_T ) );
                             align = ETEXT::TOP_RIGHT;
                         }
                         else if( ( degrees > 180 ) && ( degrees < 270 ) )
                         {
-                            pcbtxt->SetTextAngle( sign * ( t.rot->degrees - 180 ) * 10 );
+                            pcbtxt->SetTextAngle( EDA_ANGLE( sign * ( t.rot->degrees - 180 ), DEGREES_T ) );
                             align = ETEXT::TOP_RIGHT;
                         }
                         else if( ( degrees > 270 ) && ( degrees < 360 ) )
                         {
-                            pcbtxt->SetTextAngle( sign * t.rot->degrees * 10 );
+                            pcbtxt->SetTextAngle( EDA_ANGLE( sign * t.rot->degrees, DEGREES_T ) );
                             align = ETEXT::BOTTOM_LEFT;
                         }
                     }
@@ -874,13 +874,13 @@ void EAGLE_PLUGIN::loadPlain( wxXmlNode* aGraphics )
                 setKeepoutSettingsToZone( zone, c.layer );
 
                 // approximate circle as polygon with a edge every 10 degree
-                wxPoint center( kicad_x( c.x ), kicad_y( c.y ) );
+                VECTOR2I center( kicad_x( c.x ), kicad_y( c.y ) );
                 int     outlineRadius = radius + ( width / 2 );
 
                 for( int angle = 0; angle < 360; angle += 10 )
                 {
-                    wxPoint rotatedPoint( outlineRadius, 0 );
-                    RotatePoint( &rotatedPoint, angle * 10. );
+                    VECTOR2I rotatedPoint( outlineRadius, 0 );
+                    RotatePoint( rotatedPoint, angle * 10. );
                     zone->AppendCorner( center + rotatedPoint, -1 );
                 }
 
@@ -891,8 +891,8 @@ void EAGLE_PLUGIN::loadPlain( wxXmlNode* aGraphics )
 
                     for( int angle = 0; angle < 360; angle += 10 )
                     {
-                        wxPoint rotatedPoint( innerRadius, 0 );
-                        RotatePoint( &rotatedPoint, angle * 10. );
+                        VECTOR2I rotatedPoint( innerRadius, 0 );
+                        RotatePoint( rotatedPoint, angle * 10. );
                         zone->AppendCorner( center + rotatedPoint, 0 );
                     }
                 }
@@ -910,8 +910,8 @@ void EAGLE_PLUGIN::loadPlain( wxXmlNode* aGraphics )
                     m_board->Add( shape, ADD_MODE::APPEND );
                     shape->SetFilled( false );
                     shape->SetLayer( layer );
-                    shape->SetStart( wxPoint( kicad_x( c.x ), kicad_y( c.y ) ) );
-                    shape->SetEnd( wxPoint( kicad_x( c.x ) + radius, kicad_y( c.y ) ) );
+                    shape->SetStart( VECTOR2I( kicad_x( c.x ), kicad_y( c.y ) ) );
+                    shape->SetEnd( VECTOR2I( kicad_x( c.x ) + radius, kicad_y( c.y ) ) );
                     shape->SetStroke( STROKE_PARAMS( width, PLOT_DASH_TYPE::SOLID ) );
                 }
             }
@@ -939,13 +939,13 @@ void EAGLE_PLUGIN::loadPlain( wxXmlNode* aGraphics )
                 ZONE_BORDER_DISPLAY_STYLE outline_hatch = ZONE_BORDER_DISPLAY_STYLE::DIAGONAL_EDGE;
 
                 const int outlineIdx = -1;      // this is the id of the copper zone main outline
-                zone->AppendCorner( wxPoint( kicad_x( r.x1 ), kicad_y( r.y1 ) ), outlineIdx );
-                zone->AppendCorner( wxPoint( kicad_x( r.x2 ), kicad_y( r.y1 ) ), outlineIdx );
-                zone->AppendCorner( wxPoint( kicad_x( r.x2 ), kicad_y( r.y2 ) ), outlineIdx );
-                zone->AppendCorner( wxPoint( kicad_x( r.x1 ), kicad_y( r.y2 ) ), outlineIdx );
+                zone->AppendCorner( VECTOR2I( kicad_x( r.x1 ), kicad_y( r.y1 ) ), outlineIdx );
+                zone->AppendCorner( VECTOR2I( kicad_x( r.x2 ), kicad_y( r.y1 ) ), outlineIdx );
+                zone->AppendCorner( VECTOR2I( kicad_x( r.x2 ), kicad_y( r.y2 ) ), outlineIdx );
+                zone->AppendCorner( VECTOR2I( kicad_x( r.x1 ), kicad_y( r.y2 ) ), outlineIdx );
 
                 if( r.rot )
-                    zone->Rotate( zone->GetPosition(), r.rot->degrees * 10 );
+                    zone->Rotate( zone->GetPosition(), EDA_ANGLE( r.rot->degrees, DEGREES_T ) );
 
                 // this is not my fault:
                 zone->SetBorderDisplayStyle( outline_hatch, ZONE::GetDefaultHatchPitch(),
@@ -1014,8 +1014,8 @@ void EAGLE_PLUGIN::loadPlain( wxXmlNode* aGraphics )
                 dimension->SetPrecision( DIMENSION_PRECISION );
 
                 // The origin and end are assumed to always be in this order from eagle
-                dimension->SetStart( wxPoint( kicad_x( d.x1 ), kicad_y( d.y1 ) ) );
-                dimension->SetEnd( wxPoint( kicad_x( d.x2 ), kicad_y( d.y2 ) ) );
+                dimension->SetStart( VECTOR2I( kicad_x( d.x1 ), kicad_y( d.y1 ) ) );
+                dimension->SetEnd( VECTOR2I( kicad_x( d.x2 ), kicad_y( d.y2 ) ) );
                 dimension->Text().SetTextSize( designSettings.GetTextSize( layer ) );
                 dimension->Text().SetTextThickness( designSettings.GetTextThickness( layer ) );
                 dimension->SetLineThickness( designSettings.GetLineThickness( layer ) );
@@ -1186,7 +1186,7 @@ void EAGLE_PLUGIN::loadElements( wxXmlNode* aElements )
 
         refanceNamePresetInPackageLayout = true;
         valueNamePresetInPackageLayout = true;
-        footprint->SetPosition( wxPoint( kicad_x( e.x ), kicad_y( e.y ) ) );
+        footprint->SetPosition( VECTOR2I( kicad_x( e.x ), kicad_y( e.y ) ) );
 
         // Is >NAME field set in package layout ?
         if( footprint->GetReference().size() == 0 )
@@ -1440,16 +1440,17 @@ ZONE* EAGLE_PLUGIN::loadPolygon( wxXmlNode* aPolyNode )
 
         if( v1.curve )
         {
-            EVERTEX v2 = vertices[i + 1];
-            wxPoint center = ConvertArcCenter( wxPoint( kicad_x( v1.x ), kicad_y( v1.y ) ),
-                                               wxPoint( kicad_x( v2.x ), kicad_y( v2.y ) ),
-                                               *v1.curve );
+            EVERTEX  v2 = vertices[i + 1];
+            VECTOR2I center =
+                    ConvertArcCenter( VECTOR2I( kicad_x( v1.x ), kicad_y( v1.y ) ),
+                                      VECTOR2I( kicad_x( v2.x ), kicad_y( v2.y ) ), *v1.curve );
             double angle = DEG2RAD( *v1.curve );
             double  end_angle = atan2( kicad_y( v2.y ) - center.y, kicad_x( v2.x ) - center.x );
             double  radius = sqrt( pow( center.x - kicad_x( v1.x ), 2 )
                                   + pow( center.y - kicad_y( v1.y ), 2 ) );
 
-            int segCount = GetArcToSegmentCount( KiROUND( radius ), ARC_HIGH_DEF, *v1.curve );
+            int segCount = GetArcToSegmentCount( KiROUND( radius ), ARC_HIGH_DEF,
+                                                 EDA_ANGLE( *v1.curve, DEGREES_T ) );
             double delta_angle = angle / segCount;
 
             for( double a = end_angle + angle; fabs( a - end_angle ) > fabs( delta_angle );
@@ -1530,13 +1531,12 @@ void EAGLE_PLUGIN::orientFootprintAndText( FOOTPRINT* aFootprint, const EELEMENT
     {
         if( e.rot->mirror )
         {
-            double orientation = e.rot->degrees + 180.0;
-            aFootprint->SetOrientation( orientation * 10 );
+            aFootprint->SetOrientation( EDA_ANGLE( e.rot->degrees + 180.0, DEGREES_T ) );
             aFootprint->Flip( aFootprint->GetPosition(), false );
         }
         else
         {
-            aFootprint->SetOrientation( e.rot->degrees * 10 );
+            aFootprint->SetOrientation( EDA_ANGLE( e.rot->degrees, DEGREES_T ) );
         }
     }
 
@@ -1561,7 +1561,7 @@ void EAGLE_PLUGIN::orientFPText( FOOTPRINT* aFootprint, const EELEMENT& e, FP_TE
 
         if( a.x && a.y )    // OPT
         {
-            wxPoint pos( kicad_x( *a.x ), kicad_y( *a.y ) );
+            VECTOR2I pos( kicad_x( *a.x ), kicad_y( *a.y ) );
             aFPText->SetTextPos( pos );
         }
 
@@ -1592,7 +1592,7 @@ void EAGLE_PLUGIN::orientFPText( FOOTPRINT* aFootprint, const EELEMENT& e, FP_TE
         // present, and this zero rotation becomes an override to the
         // package's text field.  If they did not want zero, they specify
         // what they want explicitly.
-        double  degrees  = a.rot ? a.rot->degrees : 0;
+        double  degrees  = a.rot ? a.rot->degrees : 0.0;
         double  orient;      // relative to parent
 
         int     sign = 1;
@@ -1607,25 +1607,25 @@ void EAGLE_PLUGIN::orientFPText( FOOTPRINT* aFootprint, const EELEMENT& e, FP_TE
 
         if( degrees == 90 || degrees == 0 || spin )
         {
-            orient = degrees - aFootprint->GetOrientation() / 10;
-            aFPText->SetTextAngle( sign * orient * 10 );
+            orient = degrees - aFootprint->GetOrientation().AsDegrees();
+            aFPText->SetTextAngle( EDA_ANGLE( sign * orient, DEGREES_T ) );
         }
         else if( degrees == 180 )
         {
-            orient = 0 - aFootprint->GetOrientation() / 10;
-            aFPText->SetTextAngle( sign * orient * 10 );
+            orient = 0 - aFootprint->GetOrientation().AsDegrees();
+            aFPText->SetTextAngle( EDA_ANGLE( sign * orient, DEGREES_T ) );
             align = -align;
         }
         else if( degrees == 270 )
         {
-            orient = 90 - aFootprint->GetOrientation() / 10;
+            orient = 90 - aFootprint->GetOrientation().AsDegrees();
             align = -align;
-            aFPText->SetTextAngle( sign * orient * 10 );
+            aFPText->SetTextAngle( EDA_ANGLE( sign * orient, DEGREES_T ) );
         }
         else
         {
-            orient = 90 - degrees - aFootprint->GetOrientation() / 10;
-            aFPText->SetTextAngle( sign * orient * 10 );
+            orient = 90 - degrees - aFootprint->GetOrientation().AsDegrees();
+            aFPText->SetTextAngle( EDA_ANGLE( sign * orient, DEGREES_T ) );
         }
 
         switch( align )
@@ -1681,9 +1681,10 @@ void EAGLE_PLUGIN::orientFPText( FOOTPRINT* aFootprint, const EELEMENT& e, FP_TE
     }
     else
     {
-        // Part is not smash so use Lib default for NAME/VALUE // the text is per the original
-        // package, sans <attribute>.
-        double degrees = aFPText->GetTextAngle().AsDegrees() + aFootprint->GetOrientation() / 10.0;
+        // Part is not smash so use Lib default for NAME/VALUE
+        // the text is per the original package, sans <attribute>.
+        double degrees = aFPText->GetTextAngle().AsDegrees()
+                            + aFootprint->GetOrientation().AsDegrees();
 
         // @todo there are a few more cases than these to contend with:
         if( ( !aFPText->IsMirrored() && ( abs( degrees ) == 180 || abs( degrees ) == 270 ) )
@@ -1742,8 +1743,8 @@ void EAGLE_PLUGIN::packageWire( FOOTPRINT* aFootprint, wxXmlNode* aTree ) const
 {
     EWIRE        w( aTree );
     PCB_LAYER_ID layer = kicad_layer( w.layer );
-    wxPoint      start( kicad_x( w.x1 ), kicad_y( w.y1 ) );
-    wxPoint      end(   kicad_x( w.x2 ), kicad_y( w.y2 ) );
+    VECTOR2I     start( kicad_x( w.x1 ), kicad_y( w.y1 ) );
+    VECTOR2I     end( kicad_x( w.x2 ), kicad_y( w.y2 ) );
     int          width = w.width.ToPcbUnits();
 
     if( layer == UNDEFINED_LAYER )
@@ -1796,7 +1797,7 @@ void EAGLE_PLUGIN::packageWire( FOOTPRINT* aFootprint, wxXmlNode* aTree ) const
     else
     {
         dwg = new FP_SHAPE( aFootprint, SHAPE_T::ARC );
-        wxPoint center = ConvertArcCenter( start, end, *w.curve );
+        VECTOR2I center = ConvertArcCenter( start, end, *w.curve );
 
         dwg->SetCenter0( center );
         dwg->SetStart0( start );
@@ -1895,21 +1896,19 @@ void EAGLE_PLUGIN::packagePad( FOOTPRINT* aFootprint, wxXmlNode* aTree )
     {
         // The Eagle "long" pad is wider than it is tall,
         // m_elongation is percent elongation
-        wxSize sz = pad->GetSize();
+        VECTOR2I sz = pad->GetSize();
         sz.x = ( sz.x * ( 100 + m_rules->psElongationLong ) ) / 100;
         pad->SetSize( sz );
 
         if( e.shape && *e.shape == EPAD::OFFSET )
         {
             int offset = KiROUND( ( sz.x - sz.y ) / 2.0 );
-            pad->SetOffset( wxPoint( offset, 0 ) );
+            pad->SetOffset( VECTOR2I( offset, 0 ) );
         }
     }
 
     if( e.rot )
-    {
-        pad->SetOrientation( e.rot->degrees * 10 );
-    }
+        pad->SetOrientation( EDA_ANGLE( e.rot->degrees, DEGREES_T ) );
 }
 
 
@@ -1928,9 +1927,9 @@ void EAGLE_PLUGIN::packageText( FOOTPRINT* aFootprint, wxXmlNode* aTree ) const
 
     FP_TEXT* txt;
 
-    if( t.text == ">NAME" || t.text == ">name" )
+    if( t.text.MakeUpper() == ">NAME" )
         txt = &aFootprint->Reference();
-    else if( t.text == ">VALUE" || t.text == ">value" )
+    else if( t.text.MakeUpper() == ">VALUE" )
         txt = &aFootprint->Value();
     else
     {
@@ -1941,7 +1940,7 @@ void EAGLE_PLUGIN::packageText( FOOTPRINT* aFootprint, wxXmlNode* aTree ) const
 
     txt->SetText( FROM_UTF8( t.text.c_str() ) );
 
-    wxPoint pos( kicad_x( t.x ), kicad_y( t.y ) );
+    VECTOR2I pos( kicad_x( t.x ), kicad_y( t.y ) );
 
     txt->SetTextPos( pos );
     txt->SetPos0( pos - aFootprint->GetPosition() );
@@ -1968,7 +1967,7 @@ void EAGLE_PLUGIN::packageText( FOOTPRINT* aFootprint, wxXmlNode* aTree ) const
 
         if( degrees == 90 || t.rot->spin )
         {
-            txt->SetTextAngle( sign * degrees * 10 );
+            txt->SetTextAngle( EDA_ANGLE( sign * degrees, DEGREES_T ) );
         }
         else if( degrees == 180 )
         {
@@ -1977,7 +1976,7 @@ void EAGLE_PLUGIN::packageText( FOOTPRINT* aFootprint, wxXmlNode* aTree ) const
         else if( degrees == 270 )
         {
             align = ETEXT::TOP_RIGHT;
-            txt->SetTextAngle( sign * 90 * 10 );
+            txt->SetTextAngle( EDA_ANGLE( sign * 90, DEGREES_T ) );
         }
     }
 
@@ -2044,16 +2043,16 @@ void EAGLE_PLUGIN::packageRectangle( FOOTPRINT* aFootprint, wxXmlNode* aTree ) c
         setKeepoutSettingsToZone( zone, r.layer );
 
         const int outlineIdx = -1; // this is the id of the copper zone main outline
-        zone->AppendCorner( wxPoint( kicad_x( r.x1 ), kicad_y( r.y1 ) ), outlineIdx );
-        zone->AppendCorner( wxPoint( kicad_x( r.x2 ), kicad_y( r.y1 ) ), outlineIdx );
-        zone->AppendCorner( wxPoint( kicad_x( r.x2 ), kicad_y( r.y2 ) ), outlineIdx );
-        zone->AppendCorner( wxPoint( kicad_x( r.x1 ), kicad_y( r.y2 ) ), outlineIdx );
+        zone->AppendCorner( VECTOR2I( kicad_x( r.x1 ), kicad_y( r.y1 ) ), outlineIdx );
+        zone->AppendCorner( VECTOR2I( kicad_x( r.x2 ), kicad_y( r.y1 ) ), outlineIdx );
+        zone->AppendCorner( VECTOR2I( kicad_x( r.x2 ), kicad_y( r.y2 ) ), outlineIdx );
+        zone->AppendCorner( VECTOR2I( kicad_x( r.x1 ), kicad_y( r.y2 ) ), outlineIdx );
 
         if( r.rot )
         {
-            wxPoint center( ( kicad_x( r.x1 ) + kicad_x( r.x2 ) ) / 2,
-                    ( kicad_y( r.y1 ) + kicad_y( r.y2 ) ) / 2 );
-            zone->Rotate( center, r.rot->degrees * 10 );
+            VECTOR2I center( ( kicad_x( r.x1 ) + kicad_x( r.x2 ) ) / 2,
+                             ( kicad_y( r.y1 ) + kicad_y( r.y2 ) ) / 2 );
+            zone->Rotate( center, EDA_ANGLE( r.rot->degrees, DEGREES_T ) );
         }
 
         zone->SetBorderDisplayStyle( ZONE_BORDER_DISPLAY_STYLE::DIAGONAL_EDGE,
@@ -2079,10 +2078,10 @@ void EAGLE_PLUGIN::packageRectangle( FOOTPRINT* aFootprint, wxXmlNode* aTree ) c
         dwg->SetStroke( STROKE_PARAMS( 0 ) );
         dwg->SetFilled( true );
 
-        std::vector<wxPoint> pts;
+        std::vector<VECTOR2I> pts;
 
-        wxPoint start( wxPoint( kicad_x( r.x1 ), kicad_y( r.y1 ) ) );
-        wxPoint end( wxPoint( kicad_x( r.x1 ), kicad_y( r.y2 ) ) );
+        VECTOR2I start( VECTOR2I( kicad_x( r.x1 ), kicad_y( r.y1 ) ) );
+        VECTOR2I end( VECTOR2I( kicad_x( r.x1 ), kicad_y( r.y2 ) ) );
 
         pts.push_back( start );
         pts.emplace_back( kicad_x( r.x2 ), kicad_y( r.y1 ) );
@@ -2095,7 +2094,7 @@ void EAGLE_PLUGIN::packageRectangle( FOOTPRINT* aFootprint, wxXmlNode* aTree ) c
         dwg->SetEnd0( end );
 
         if( r.rot )
-            dwg->Rotate( dwg->GetCenter(), r.rot->degrees * 10 );
+            dwg->Rotate( dwg->GetCenter(), EDA_ANGLE( r.rot->degrees, DEGREES_T ) );
     }
 }
 
@@ -2104,7 +2103,7 @@ void EAGLE_PLUGIN::packagePolygon( FOOTPRINT* aFootprint, wxXmlNode* aTree ) con
 {
     EPOLYGON      p( aTree );
 
-    std::vector<wxPoint> pts;
+    std::vector<VECTOR2I> pts;
 
     // Get the first vertex and iterate
     wxXmlNode* vertex = aTree->GetChildren();
@@ -2133,10 +2132,10 @@ void EAGLE_PLUGIN::packagePolygon( FOOTPRINT* aFootprint, wxXmlNode* aTree ) con
 
         if( v1.curve )
         {
-            EVERTEX v2 = vertices[i + 1];
-            wxPoint center =
-                    ConvertArcCenter( wxPoint( kicad_x( v1.x ), kicad_y( v1.y ) ),
-                                      wxPoint( kicad_x( v2.x ), kicad_y( v2.y ) ), *v1.curve );
+            EVERTEX  v2 = vertices[i + 1];
+            VECTOR2I center =
+                    ConvertArcCenter( VECTOR2I( kicad_x( v1.x ), kicad_y( v1.y ) ),
+                                      VECTOR2I( kicad_x( v2.x ), kicad_y( v2.y ) ), *v1.curve );
             double angle = DEG2RAD( *v1.curve );
             double end_angle = atan2( kicad_y( v2.y ) - center.y, kicad_x( v2.x ) - center.x );
             double radius = sqrt( pow( center.x - kicad_x( v1.x ), 2 )
@@ -2146,13 +2145,15 @@ void EAGLE_PLUGIN::packagePolygon( FOOTPRINT* aFootprint, wxXmlNode* aTree ) con
             if( KiROUND( radius ) == 0 )
                 radius = 1.0;
 
-            int segCount = GetArcToSegmentCount( KiROUND( radius ), ARC_HIGH_DEF, *v1.curve );
+            int segCount = GetArcToSegmentCount( KiROUND( radius ), ARC_HIGH_DEF,
+                                                 EDA_ANGLE( *v1.curve, DEGREES_T ) );
             double delta = angle / segCount;
 
             for( double a = end_angle + angle; fabs( a - end_angle ) > fabs( delta ); a -= delta )
             {
-                pts.push_back( wxPoint( KiROUND( radius * cos( a ) ),
-                                        KiROUND( radius * sin( a ) ) ) + center );
+                pts.push_back(
+                        VECTOR2I( KiROUND( radius * cos( a ) ), KiROUND( radius * sin( a ) ) )
+                        + center );
             }
         }
     }
@@ -2220,13 +2221,13 @@ void EAGLE_PLUGIN::packageCircle( FOOTPRINT* aFootprint, wxXmlNode* aTree ) cons
         setKeepoutSettingsToZone( zone, e.layer );
 
         // approximate circle as polygon with a edge every 10 degree
-        wxPoint center( kicad_x( e.x ), kicad_y( e.y ) );
+        VECTOR2I center( kicad_x( e.x ), kicad_y( e.y ) );
         int     outlineRadius = radius + ( width / 2 );
 
         for( int angle = 0; angle < 360; angle += 10 )
         {
-            wxPoint rotatedPoint( outlineRadius, 0 );
-            RotatePoint( &rotatedPoint, angle * 10. );
+            VECTOR2I rotatedPoint( outlineRadius, 0 );
+            RotatePoint( rotatedPoint, angle * 10. );
             zone->AppendCorner( center + rotatedPoint, -1 );
         }
 
@@ -2237,8 +2238,8 @@ void EAGLE_PLUGIN::packageCircle( FOOTPRINT* aFootprint, wxXmlNode* aTree ) cons
 
             for( int angle = 0; angle < 360; angle += 10 )
             {
-                wxPoint rotatedPoint( innerRadius, 0 );
-                RotatePoint( &rotatedPoint, angle * 10. );
+                VECTOR2I rotatedPoint( innerRadius, 0 );
+                RotatePoint( rotatedPoint, angle * 10. );
                 zone->AppendCorner( center + rotatedPoint, 0 );
             }
         }
@@ -2281,8 +2282,8 @@ void EAGLE_PLUGIN::packageCircle( FOOTPRINT* aFootprint, wxXmlNode* aTree ) cons
         }
 
         gr->SetLayer( layer );
-        gr->SetStart0( wxPoint( kicad_x( e.x ), kicad_y( e.y ) ) );
-        gr->SetEnd0( wxPoint( kicad_x( e.x ) + radius, kicad_y( e.y ) ) );
+        gr->SetStart0( VECTOR2I( kicad_x( e.x ), kicad_y( e.y ) ) );
+        gr->SetEnd0( VECTOR2I( kicad_x( e.x ) + radius, kicad_y( e.y ) ) );
         gr->SetDrawCoord();
     }
 }
@@ -2304,14 +2305,14 @@ void EAGLE_PLUGIN::packageHole( FOOTPRINT* aFootprint, wxXmlNode* aTree, bool aC
 
     // Mechanical purpose only:
     // no offset, no net name, no pad name allowed
-    // pad->SetOffset( wxPoint( 0, 0 ) );
+    // pad->SetOffset( VECTOR2I( 0, 0 ) );
     // pad->SetNumber( wxEmptyString );
 
-    wxPoint padpos( kicad_x( e.x ), kicad_y( e.y ) );
+    VECTOR2I padpos( kicad_x( e.x ), kicad_y( e.y ) );
 
     if( aCenter )
     {
-        pad->SetPos0( wxPoint( 0, 0 ) );
+        pad->SetPos0( VECTOR2I( 0, 0 ) );
         aFootprint->SetPosition( padpos );
         pad->SetPosition( padpos );
     }
@@ -2377,7 +2378,7 @@ void EAGLE_PLUGIN::packageSMD( FOOTPRINT* aFootprint, wxXmlNode* aTree ) const
     }
 
     if( e.rot )
-        pad->SetOrientation( e.rot->degrees * 10 );
+        pad->SetOrientation( EDA_ANGLE( e.rot->degrees, DEGREES_T ) );
 
     pad->SetLocalSolderPasteMargin( -eagleClamp( m_rules->mlMinCreamFrame,
                                                  (int) ( m_rules->mvCreamFrame * minPadSize ),
@@ -2409,11 +2410,11 @@ void EAGLE_PLUGIN::transferPad( const EPAD_COMMON& aEaglePad, PAD* aPad ) const
 
     // pad's "Position" is not relative to the footprint's,
     // whereas Pos0 is relative to the footprint's but is the unrotated coordinate.
-    wxPoint padPos( kicad_x( aEaglePad.x ), kicad_y( aEaglePad.y ) );
+    VECTOR2I padPos( kicad_x( aEaglePad.x ), kicad_y( aEaglePad.y ) );
     aPad->SetPos0( padPos );
 
     // Solder mask
-    const wxSize& padSize( aPad->GetSize() );
+    const VECTOR2I& padSize( aPad->GetSize() );
 
     aPad->SetLocalSolderMaskMargin(
             eagleClamp( m_rules->mlMinStopFrame,
@@ -2426,7 +2427,7 @@ void EAGLE_PLUGIN::transferPad( const EPAD_COMMON& aEaglePad, PAD* aPad ) const
 
     FOOTPRINT* footprint = aPad->GetParent();
     wxCHECK( footprint, /* void */ );
-    RotatePoint( &padPos, footprint->GetOrientation() );
+    RotatePoint( padPos, footprint->GetOrientation() );
     aPad->SetPosition( padPos + footprint->GetPosition() );
 }
 
@@ -2483,17 +2484,20 @@ void EAGLE_PLUGIN::loadClasses( wxXmlNode* aClasses )
     {
         for( std::pair<const wxString&, ECOORD> entry : eClass.clearanceMap )
         {
-            wxString rule;
-            rule.Printf( "(rule \"class %s:%s\"\n"
-                         "  (condition \"A.NetClass == '%s' && B.NetClass == '%s'\")\n"
-                         "  (constraint clearance (min %smm)))\n",
-                         eClass.number,
-                         entry.first,
-                         eClass.name,
-                         m_classMap[ entry.first ]->GetName(),
-                         StringFromValue( EDA_UNITS::MILLIMETRES, entry.second.ToPcbUnits() ) );
+            if( m_classMap[ entry.first ] != nullptr )
+            {
+                wxString rule;
+                rule.Printf( "(rule \"class %s:%s\"\n"
+                             "  (condition \"A.NetClass == '%s' && B.NetClass == '%s'\")\n"
+                             "  (constraint clearance (min %smm)))\n",
+                             eClass.number,
+                             entry.first,
+                             eClass.name,
+                             m_classMap[ entry.first ]->GetName(),
+                             StringFromValue( EDA_UNITS::MILLIMETRES, entry.second.ToPcbUnits() ) );
 
-            m_customRules += "\n" + rule;
+                m_customRules += "\n" + rule;
+            }
         }
     }
 
@@ -2552,12 +2556,12 @@ void EAGLE_PLUGIN::loadSignals( wxXmlNode* aSignals )
 
                 if( IsCopperLayer( layer ) )
                 {
-                    wxPoint start( kicad_x( w.x1 ), kicad_y( w.y1 ) );
+                    VECTOR2I start( kicad_x( w.x1 ), kicad_y( w.y1 ) );
                     double angle = 0.0;
                     double end_angle = 0.0;
                     double radius = 0.0;
                     double delta_angle = 0.0;
-                    wxPoint center;
+                    VECTOR2I center;
 
                     int width = w.width.ToPcbUnits();
 
@@ -2569,8 +2573,8 @@ void EAGLE_PLUGIN::loadSignals( wxXmlNode* aSignals )
 
                     if( w.curve )
                     {
-                        center = ConvertArcCenter( wxPoint( kicad_x( w.x1 ), kicad_y( w.y1 ) ),
-                                                   wxPoint( kicad_x( w.x2 ), kicad_y( w.y2 ) ),
+                        center = ConvertArcCenter( VECTOR2I( kicad_x( w.x1 ), kicad_y( w.y1 ) ),
+                                                   VECTOR2I( kicad_x( w.x2 ), kicad_y( w.y2 ) ),
                                                    *w.curve );
 
                         angle = DEG2RAD( *w.curve );
@@ -2582,15 +2586,15 @@ void EAGLE_PLUGIN::loadSignals( wxXmlNode* aSignals )
                                        pow( center.y - kicad_y( w.y1 ), 2 ) );
 
                         int segs = GetArcToSegmentCount( KiROUND( radius ), ARC_HIGH_DEF,
-                                                         *w.curve );
+                                                         EDA_ANGLE( *w.curve, DEGREES_T ) );
                         delta_angle = angle / segs;
                     }
 
                     while( fabs( angle ) > fabs( delta_angle ) )
                     {
                         wxASSERT( radius > 0.0 );
-                        wxPoint end( KiROUND( radius * cos( end_angle + angle ) + center.x ),
-                                     KiROUND( radius * sin( end_angle + angle ) + center.y ) );
+                        VECTOR2I end( KiROUND( radius * cos( end_angle + angle ) + center.x ),
+                                      KiROUND( radius * sin( end_angle + angle ) + center.y ) );
 
                         PCB_TRACK*  t = new PCB_TRACK( m_board );
 
@@ -2609,7 +2613,7 @@ void EAGLE_PLUGIN::loadSignals( wxXmlNode* aSignals )
                     PCB_TRACK*  t = new PCB_TRACK( m_board );
 
                     t->SetPosition( start );
-                    t->SetEnd( wxPoint( kicad_x( w.x2 ), kicad_y( w.y2 ) ) );
+                    t->SetEnd( VECTOR2I( kicad_x( w.x2 ), kicad_y( w.y2 ) ) );
                     t->SetWidth( width );
                     t->SetLayer( layer );
                     t->SetNetCode( netCode );
@@ -2700,7 +2704,7 @@ void EAGLE_PLUGIN::loadSignals( wxXmlNode* aSignals )
                         via->SetViaType( VIATYPE::BLIND_BURIED );
                     }
 
-                    wxPoint pos( kicad_x( v.x ), kicad_y( v.y ) );
+                    VECTOR2I pos( kicad_x( v.x ), kicad_y( v.y ) );
 
                     via->SetLayerPair( layer_front_most, layer_back_most );
                     via->SetPosition( pos  );
@@ -2942,7 +2946,7 @@ std::tuple<PCB_LAYER_ID, LSET, bool> EAGLE_PLUGIN::defaultKicadLayer( int aEagle
     case EAGLE_LAYER::BTEST:
     case EAGLE_LAYER::HOLES:
     default:
-        kiLayer = UNSELECTED_LAYER;
+        kiLayer = UNDEFINED_LAYER;
         break;
     }
 
@@ -2984,7 +2988,7 @@ void EAGLE_PLUGIN::centerBoard()
             int desired_x = ( w - bbbox.GetWidth() )  / 2;
             int desired_y = ( h - bbbox.GetHeight() ) / 2;
 
-            m_board->Move( wxPoint( desired_x - bbbox.GetX(), desired_y - bbbox.GetY() ) );
+            m_board->Move( VECTOR2I( desired_x - bbbox.GetX(), desired_y - bbbox.GetY() ) );
         }
     }
 }

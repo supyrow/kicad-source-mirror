@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2020-2021 Roberto Fernandez Bautista <roberto.fer.bau@gmail.com>
- * Copyright (C) 2020-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2020-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -819,7 +819,7 @@ void CADSTAR_PCB_ARCHIVE_LOADER::loadLibraryCoppers( const SYMDEF_PCB& aComponen
             // but not the other way round
             PADCODE anchorpadcode = getPadCode( anchorPad.PadCodeID );
             int     anchorSize = getKiCadLength( anchorpadcode.Shape.Size );
-            wxPoint anchorPos = getKiCadPoint( anchorPad.Position );
+            VECTOR2I anchorPos = getKiCadPoint( anchorPad.Position );
 
             pad->SetShape( PAD_SHAPE::CUSTOM );
             pad->SetAnchorPadShape( PAD_SHAPE::CIRCLE );
@@ -1024,8 +1024,8 @@ PAD* CADSTAR_PCB_ARCHIVE_LOADER::getKiCadPad( const COMPONENT_PAD& aCadstarPad, 
         csPadcode.Shape.Size = 1;
     }
 
-    wxPoint padOffset = { 0, 0 }; // offset of the pad origin (before rotating)
-    wxPoint drillOffset = { 0, 0 }; // offset of the drill origin w.r.t. the pad (before rotating)
+    VECTOR2I padOffset = { 0, 0 };   // offset of the pad origin (before rotating)
+    VECTOR2I drillOffset = { 0, 0 }; // offset of the drill origin w.r.t. the pad (before rotating)
 
     switch( csPadcode.Shape.ShapeType )
     {
@@ -1181,8 +1181,7 @@ PAD* CADSTAR_PCB_ARCHIVE_LOADER::getKiCadPad( const COMPONENT_PAD& aCadstarPad, 
             padShape->SetPolyShape( padOutline );
             padShape->SetStroke( STROKE_PARAMS( 0 ) );
             padShape->Move( padOffset - drillOffset );
-            padShape->Rotate( wxPoint( 0, 0 ),
-                              1800.0 - getAngleTenthDegree( csPadcode.SlotOrientation ) );
+            padShape->Rotate( VECTOR2I( 0, 0 ), ANGLE_180 - getAngle( csPadcode.SlotOrientation ) );
 
             SHAPE_POLY_SET editedPadOutline = padShape->GetPolyShape();
 
@@ -1221,14 +1220,14 @@ PAD* CADSTAR_PCB_ARCHIVE_LOADER::getKiCadPad( const COMPONENT_PAD& aCadstarPad, 
         pad->SetOffset( drillOffset );
     }
 
-    double padOrientation = getAngleTenthDegree( aCadstarPad.OrientAngle )
-                            + getAngleTenthDegree( csPadcode.Shape.OrientAngle );
+    EDA_ANGLE padOrientation = getAngle( aCadstarPad.OrientAngle )
+                                    + getAngle( csPadcode.Shape.OrientAngle );
 
-    RotatePoint( &padOffset, padOrientation );
-    RotatePoint( &drillOffset, padOrientation );
+    RotatePoint( padOffset, padOrientation );
+    RotatePoint( drillOffset, padOrientation );
     pad->SetPos0( getKiCadPoint( aCadstarPad.Position ) - aParent->GetPosition() - padOffset
                   - drillOffset );
-    pad->SetOrientation( padOrientation + getAngleTenthDegree( csPadcode.SlotOrientation ) );
+    pad->SetOrientation( padOrientation + getAngle( csPadcode.SlotOrientation ) );
 
     //TODO handle csPadcode.Reassigns when KiCad supports full padstacks
 
@@ -1401,8 +1400,8 @@ void CADSTAR_PCB_ARCHIVE_LOADER::loadDimensions()
                         getKiCadLength( csDim.ExtensionLineParams.Overshoot ) );
 
                 // Calculate height:
-                wxPoint  crossbarStart = getKiCadPoint( csDim.Line.Start );
-                wxPoint  crossbarEnd = getKiCadPoint( csDim.Line.End );
+                VECTOR2I crossbarStart = getKiCadPoint( csDim.Line.Start );
+                VECTOR2I crossbarEnd = getKiCadPoint( csDim.Line.End );
                 VECTOR2I crossbarVector = crossbarEnd - crossbarStart;
                 VECTOR2I heightVector = crossbarStart - dimension->GetStart();
                 double   height = 0.0;
@@ -1537,12 +1536,12 @@ void CADSTAR_PCB_ARCHIVE_LOADER::loadDimensions()
                     }
                 }
 
-                wxPoint endOffset( csDim.Line.LeaderLineLength * cos( angRad ) * orientX,
-                                   csDim.Line.LeaderLineLength * sin( angRad ) * orientY );
+                VECTOR2I endOffset( csDim.Line.LeaderLineLength * cos( angRad ) * orientX,
+                                    csDim.Line.LeaderLineLength * sin( angRad ) * orientY );
 
-                wxPoint endPoint = csDim.Line.End + endOffset;
-                wxPoint txtPoint( endPoint.x + ( csDim.Line.LeaderLineExtensionLength * orientX ),
-                                  endPoint.y );
+                VECTOR2I endPoint = VECTOR2I( csDim.Line.End ) + endOffset;
+                VECTOR2I txtPoint( endPoint.x + ( csDim.Line.LeaderLineExtensionLength * orientX ),
+                                   endPoint.y );
 
                 leaderDim->SetEnd( getKiCadPoint( endPoint ) );
                 leaderDim->Text().SetTextPos( getKiCadPoint( txtPoint ) );
@@ -1721,13 +1720,13 @@ void CADSTAR_PCB_ARCHIVE_LOADER::loadComponents()
         footprint->SetValue( wxEmptyString );
 
         footprint->SetPosition( getKiCadPoint( comp.Origin ) );
-        footprint->SetOrientation( getAngleTenthDegree( comp.OrientAngle ) );
+        footprint->SetOrientation( getAngle( comp.OrientAngle ) );
         footprint->SetReference( comp.Name );
 
         if( comp.Mirror )
         {
-            double mirroredAngle = - getAngleTenthDegree( comp.OrientAngle );
-            NORMALIZE_ANGLE_180( mirroredAngle );
+            EDA_ANGLE mirroredAngle = - getAngle( comp.OrientAngle );
+            mirroredAngle.Normalize180();
             footprint->SetOrientation( mirroredAngle );
             footprint->Flip( getKiCadPoint( comp.Origin ), true );
         }
@@ -1762,12 +1761,12 @@ void CADSTAR_PCB_ARCHIVE_LOADER::loadDocumentationSymbols()
         }
 
         SYMDEF_PCB& docSymDefinition = ( *docSymIter ).second;
-        wxPoint     moveVector =
+        VECTOR2I    moveVector =
                 getKiCadPoint( docSymInstance.Origin ) - getKiCadPoint( docSymDefinition.Origin );
         double rotationAngle = getAngleTenthDegree( docSymInstance.OrientAngle );
         double scalingFactor = (double) docSymInstance.ScaleRatioNumerator
                                / (double) docSymInstance.ScaleRatioDenominator;
-        wxPoint centreOfTransform = getKiCadPoint( docSymDefinition.Origin );
+        VECTOR2I centreOfTransform = getKiCadPoint( docSymDefinition.Origin );
         bool    mirrorInvert      = docSymInstance.Mirror;
 
         //create a group to store the items in
@@ -2504,18 +2503,19 @@ int CADSTAR_PCB_ARCHIVE_LOADER::loadNetVia(
 }
 
 
-void CADSTAR_PCB_ARCHIVE_LOADER::drawCadstarText( const TEXT& aCadstarText,
-        BOARD_ITEM_CONTAINER* aContainer, const GROUP_ID& aCadstarGroupID,
-        const LAYER_ID& aCadstarLayerOverride, const wxPoint& aMoveVector,
-        const double& aRotationAngle, const double& aScalingFactor, const wxPoint& aTransformCentre,
-        const bool& aMirrorInvert )
+void CADSTAR_PCB_ARCHIVE_LOADER::drawCadstarText(
+        const TEXT& aCadstarText, BOARD_ITEM_CONTAINER* aContainer, const GROUP_ID& aCadstarGroupID,
+        const LAYER_ID& aCadstarLayerOverride, const VECTOR2I& aMoveVector,
+        const double& aRotationAngle, const double& aScalingFactor,
+        const VECTOR2I& aTransformCentre, const bool& aMirrorInvert )
 {
     PCB_TEXT* txt = new PCB_TEXT( aContainer );
     aContainer->Add( txt );
     txt->SetText( aCadstarText.Text );
 
-    wxPoint rotatedTextPos = getKiCadPoint( aCadstarText.Position );
-    RotatePoint( &rotatedTextPos, aTransformCentre, aRotationAngle );
+    EDA_ANGLE rotationAngle( aRotationAngle, TENTHS_OF_A_DEGREE_T );
+    VECTOR2I  rotatedTextPos = getKiCadPoint( aCadstarText.Position );
+    RotatePoint( rotatedTextPos, aTransformCentre, rotationAngle );
     rotatedTextPos.x =
             KiROUND( (double) ( rotatedTextPos.x - aTransformCentre.x ) * aScalingFactor );
     rotatedTextPos.y =
@@ -2524,7 +2524,7 @@ void CADSTAR_PCB_ARCHIVE_LOADER::drawCadstarText( const TEXT& aCadstarText,
     txt->SetTextPos( rotatedTextPos );
     txt->SetPosition( rotatedTextPos );
 
-    txt->SetTextAngle( getAngleTenthDegree( aCadstarText.OrientAngle ) + aRotationAngle );
+    txt->SetTextAngle( getAngle( aCadstarText.OrientAngle ) + rotationAngle );
 
     txt->SetMirrored( aCadstarText.Mirror );
 
@@ -2658,10 +2658,10 @@ void CADSTAR_PCB_ARCHIVE_LOADER::drawCadstarShape( const SHAPE& aCadstarShape,
                                                    const wxString& aShapeName,
                                                    BOARD_ITEM_CONTAINER* aContainer,
                                                    const GROUP_ID& aCadstarGroupID,
-                                                   const wxPoint& aMoveVector,
+                                                   const VECTOR2I& aMoveVector,
                                                    const double& aRotationAngle,
                                                    const double& aScalingFactor,
-                                                   const wxPoint& aTransformCentre,
+                                                   const VECTOR2I& aTransformCentre,
                                                    const bool& aMirrorInvert )
 {
     switch( aCadstarShape.Type )
@@ -2720,10 +2720,10 @@ void CADSTAR_PCB_ARCHIVE_LOADER::drawCadstarCutoutsAsShapes( const std::vector<C
                                                              const int& aLineThickness,
                                                              BOARD_ITEM_CONTAINER* aContainer,
                                                              const GROUP_ID& aCadstarGroupID,
-                                                             const wxPoint& aMoveVector,
+                                                             const VECTOR2I& aMoveVector,
                                                              const double& aRotationAngle,
                                                              const double& aScalingFactor,
-                                                             const wxPoint& aTransformCentre,
+                                                             const VECTOR2I& aTransformCentre,
                                                              const bool& aMirrorInvert )
 {
     for( CUTOUT cutout : aCutouts )
@@ -2740,10 +2740,10 @@ void CADSTAR_PCB_ARCHIVE_LOADER::drawCadstarVerticesAsShapes( const std::vector<
                                                               const int& aLineThickness,
                                                               BOARD_ITEM_CONTAINER* aContainer,
                                                               const GROUP_ID& aCadstarGroupID,
-                                                              const wxPoint& aMoveVector,
+                                                              const VECTOR2I& aMoveVector,
                                                               const double& aRotationAngle,
                                                               const double& aScalingFactor,
-                                                              const wxPoint& aTransformCentre,
+                                                              const VECTOR2I& aTransformCentre,
                                                               const bool& aMirrorInvert )
 {
     std::vector<PCB_SHAPE*> shapes = getShapesFromVertices( aCadstarVertices, aContainer,
@@ -2765,10 +2765,10 @@ std::vector<PCB_SHAPE*> CADSTAR_PCB_ARCHIVE_LOADER::getShapesFromVertices(
                                                     const std::vector<VERTEX>& aCadstarVertices,
                                                     BOARD_ITEM_CONTAINER* aContainer,
                                                     const GROUP_ID& aCadstarGroupID,
-                                                    const wxPoint& aMoveVector,
+                                                    const VECTOR2I& aMoveVector,
                                                     const double& aRotationAngle,
                                                     const double& aScalingFactor,
-                                                    const wxPoint& aTransformCentre,
+                                                    const VECTOR2I& aTransformCentre,
                                                     const bool& aMirrorInvert )
 {
     std::vector<PCB_SHAPE*> drawSegments;
@@ -2797,19 +2797,18 @@ PCB_SHAPE* CADSTAR_PCB_ARCHIVE_LOADER::getShapeFromVertex( const POINT& aCadstar
                                                            const VERTEX& aCadstarVertex,
                                                            BOARD_ITEM_CONTAINER* aContainer,
                                                            const GROUP_ID& aCadstarGroupID,
-                                                           const wxPoint& aMoveVector,
+                                                           const VECTOR2I& aMoveVector,
                                                            const double& aRotationAngle,
                                                            const double& aScalingFactor,
-                                                           const wxPoint& aTransformCentre,
+                                                           const VECTOR2I& aTransformCentre,
                                                            const bool& aMirrorInvert )
 {
     PCB_SHAPE* shape = nullptr;
     bool       cw = false;
-    double     arcStartAngle, arcEndAngle, arcAngle;
 
-    wxPoint startPoint = getKiCadPoint( aCadstarStartPoint );
-    wxPoint endPoint   = getKiCadPoint( aCadstarVertex.End );
-    wxPoint centerPoint;
+    VECTOR2I startPoint = getKiCadPoint( aCadstarStartPoint );
+    VECTOR2I endPoint = getKiCadPoint( aCadstarVertex.End );
+    VECTOR2I centerPoint;
 
     if( aCadstarVertex.Type == VERTEX_TYPE::ANTICLOCKWISE_SEMICIRCLE
             || aCadstarVertex.Type == VERTEX_TYPE::CLOCKWISE_SEMICIRCLE )
@@ -2842,7 +2841,7 @@ PCB_SHAPE* CADSTAR_PCB_ARCHIVE_LOADER::getShapeFromVertex( const POINT& aCadstar
 
     case VERTEX_TYPE::ANTICLOCKWISE_SEMICIRCLE:
     case VERTEX_TYPE::ANTICLOCKWISE_ARC:
-
+    {
         if( isFootprint( aContainer ) )
             shape = new FP_SHAPE((FOOTPRINT*) aContainer, SHAPE_T::ARC );
         else
@@ -2851,18 +2850,19 @@ PCB_SHAPE* CADSTAR_PCB_ARCHIVE_LOADER::getShapeFromVertex( const POINT& aCadstar
         shape->SetCenter( centerPoint );
         shape->SetStart( startPoint );
 
-        arcStartAngle = getPolarAngle( startPoint - centerPoint );
-        arcEndAngle   = getPolarAngle( endPoint - centerPoint );
-        arcAngle      = arcEndAngle - arcStartAngle;
+        EDA_ANGLE arcStartAngle( startPoint - centerPoint );
+        EDA_ANGLE arcEndAngle( endPoint - centerPoint );
+        EDA_ANGLE arcAngle = arcEndAngle - arcStartAngle;
         //TODO: detect if we are supposed to draw a circle instead (i.e. two SEMICIRCLEs
         // with opposite start/end points and same centre point)
 
         if( cw )
-            shape->SetArcAngleAndEnd( NormalizeAnglePos( arcAngle ) );
+            shape->SetArcAngleAndEnd( arcAngle.Normalize().AsTenthsOfADegree() );
         else
-            shape->SetArcAngleAndEnd( NormalizeAngleNeg( arcAngle ), true );
+            shape->SetArcAngleAndEnd( -arcAngle.Normalize().AsTenthsOfADegree(), true );
 
         break;
+    }
     }
 
     //Apply transforms
@@ -2871,15 +2871,15 @@ PCB_SHAPE* CADSTAR_PCB_ARCHIVE_LOADER::getShapeFromVertex( const POINT& aCadstar
 
     if( aScalingFactor != 1.0 )
     {
-        shape->Move( -aTransformCentre );
+        shape->Move( -1*aTransformCentre );
         shape->Scale( aScalingFactor );
         shape->Move( aTransformCentre );
     }
 
     if( aRotationAngle != 0.0 )
-        shape->Rotate( aTransformCentre, aRotationAngle );
+        shape->Rotate( aTransformCentre, EDA_ANGLE( aRotationAngle, TENTHS_OF_A_DEGREE_T ) );
 
-    if( aMoveVector != wxPoint{ 0, 0 } )
+    if( aMoveVector != VECTOR2I{ 0, 0 } )
         shape->Move( aMoveVector );
 
     if( isFootprint( aContainer ) && shape != nullptr )
@@ -2922,10 +2922,10 @@ ZONE* CADSTAR_PCB_ARCHIVE_LOADER::getZoneFromCadstarShape( const SHAPE& aCadstar
 SHAPE_POLY_SET CADSTAR_PCB_ARCHIVE_LOADER::getPolySetFromCadstarShape( const SHAPE& aCadstarShape,
                                                                        const int& aLineThickness,
                                                                        BOARD_ITEM_CONTAINER* aContainer,
-                                                                       const wxPoint& aMoveVector,
+                                                                       const VECTOR2I& aMoveVector,
                                                                        const double& aRotationAngle,
                                                                        const double& aScalingFactor,
-                                                                       const wxPoint& aTransformCentre,
+                                                                       const VECTOR2I& aTransformCentre,
                                                                        const bool& aMirrorInvert )
 {
     GROUP_ID noGroup = wxEmptyString;
@@ -2992,7 +2992,7 @@ SHAPE_LINE_CHAIN CADSTAR_PCB_ARCHIVE_LOADER::getLineChainFromShapes( const std::
             if( shape->GetClass() == wxT( "MGRAPHIC" ) )
             {
                 FP_SHAPE* fp_shape = (FP_SHAPE*) shape;
-                SHAPE_ARC arc( fp_shape->GetCenter0(), fp_shape->GetStart0(), fp_shape->GetArcAngle() / 10.0 );
+                SHAPE_ARC arc( fp_shape->GetCenter0(), fp_shape->GetStart0(), fp_shape->GetArcAngle() );
 
                 if( shape->EndsSwapped() )
                     arc.Reverse();
@@ -3001,7 +3001,7 @@ SHAPE_LINE_CHAIN CADSTAR_PCB_ARCHIVE_LOADER::getLineChainFromShapes( const std::
             }
             else
             {
-                SHAPE_ARC arc( shape->GetCenter(), shape->GetStart(), shape->GetArcAngle() / 10.0 );
+                SHAPE_ARC arc( shape->GetCenter(), shape->GetStart(), shape->GetArcAngle() );
 
                 if( shape->EndsSwapped() )
                     arc.Reverse();
@@ -3144,14 +3144,14 @@ std::vector<PCB_TRACK*> CADSTAR_PCB_ARCHIVE_LOADER::makeTracksFromShapes(
             if( offsetAmount > 0 )
             {
                 // modify the start of the current track
-                wxPoint newStart = track->GetStart();
+                VECTOR2I newStart = track->GetStart();
                 applyRouteOffset( &newStart, track->GetEnd(), offsetAmount );
                 track->SetStart( newStart );
             }
             else if( offsetAmount < 0 )
             {
                 // amend the end of the previous track
-                wxPoint newEnd = prevTrack->GetEnd();
+                VECTOR2I newEnd = prevTrack->GetEnd();
                 applyRouteOffset( &newEnd, prevTrack->GetStart(), -offsetAmount );
                 prevTrack->SetEnd( newEnd );
             } // don't do anything if offsetAmount == 0
@@ -3235,15 +3235,14 @@ void CADSTAR_PCB_ARCHIVE_LOADER::addAttribute( const ATTRIBUTE_LOCATION& aCadsta
         //TODO: Future improvement - allow user to decide what to do with attributes
     }
 
-    wxPoint rotatedTextPos = getKiCadPoint( aCadstarAttrLoc.Position ) - aFootprint->GetPosition();
-    RotatePoint( &rotatedTextPos, -aFootprint->GetOrientation() );
+    VECTOR2I rotatedTextPos = getKiCadPoint( aCadstarAttrLoc.Position ) - aFootprint->GetPosition();
+    RotatePoint( rotatedTextPos, -aFootprint->GetOrientation() );
 
     txt->SetTextPos( getKiCadPoint( aCadstarAttrLoc.Position ) );
     txt->SetPos0( rotatedTextPos );
     txt->SetLayer( getKiCadLayer( aCadstarAttrLoc.LayerID ) );
     txt->SetMirrored( aCadstarAttrLoc.Mirror );
-    txt->SetTextAngle(
-            getAngleTenthDegree( aCadstarAttrLoc.OrientAngle ) - aFootprint->GetOrientation() );
+    txt->SetTextAngle( getAngle( aCadstarAttrLoc.OrientAngle ) - aFootprint->GetOrientation() );
 
     if( aCadstarAttrLoc.Mirror ) // If mirroring, invert angle to match CADSTAR
         txt->SetTextAngle( -txt->GetTextAngle() );
@@ -3322,8 +3321,8 @@ void CADSTAR_PCB_ARCHIVE_LOADER::addAttribute( const ATTRIBUTE_LOCATION& aCadsta
 }
 
 
-void CADSTAR_PCB_ARCHIVE_LOADER::applyRouteOffset( wxPoint*       aPointToOffset,
-                                                   const wxPoint& aRefPoint,
+void CADSTAR_PCB_ARCHIVE_LOADER::applyRouteOffset( VECTOR2I*      aPointToOffset,
+                                                   const VECTOR2I& aRefPoint,
                                                    const long& aOffsetAmount )
 {
     VECTOR2I v( *aPointToOffset - aRefPoint );
@@ -3480,7 +3479,7 @@ double CADSTAR_PCB_ARCHIVE_LOADER::getHatchCodeAngleDegrees(
     if( hcode.Hatches.size() < 1 )
         return m_board->GetDesignSettings().GetDefaultZoneSettings().m_HatchOrientation;
     else
-        return getAngleDegrees( hcode.Hatches.at( 0 ).OrientAngle );
+        return getAngle( hcode.Hatches.at( 0 ).OrientAngle ).AsDegrees();
 }
 
 
@@ -3570,9 +3569,9 @@ void CADSTAR_PCB_ARCHIVE_LOADER::checkAndLogHatchCode( const HATCHCODE_ID& aCads
                            "degrees apart.  The imported hatching has two hatches 90 "
                            "degrees apart, oriented %.1f degrees from horizontal." ),
                         hcode.Name,
-                        getAngleDegrees( abs( hcode.Hatches.at( 0 ).OrientAngle
-                                              - hcode.Hatches.at( 1 ).OrientAngle ) ),
-                        getAngleDegrees( hcode.Hatches.at( 0 ).OrientAngle ) ) );
+                        getAngle( abs( hcode.Hatches.at( 0 ).OrientAngle
+                                         - hcode.Hatches.at( 1 ).OrientAngle ) ).AsDegrees(),
+                        getAngle( hcode.Hatches.at( 0 ).OrientAngle ).AsDegrees() ) );
             }
         }
 
@@ -3870,20 +3869,14 @@ FOOTPRINT* CADSTAR_PCB_ARCHIVE_LOADER::getFootprintFromCadstarID(
 }
 
 
-wxPoint CADSTAR_PCB_ARCHIVE_LOADER::getKiCadPoint( const wxPoint& aCadstarPoint )
+VECTOR2I CADSTAR_PCB_ARCHIVE_LOADER::getKiCadPoint( const VECTOR2I& aCadstarPoint )
 {
-    wxPoint retval;
+    VECTOR2I retval;
 
     retval.x = ( aCadstarPoint.x - m_designCenter.x ) * KiCadUnitMultiplier;
     retval.y = -( aCadstarPoint.y - m_designCenter.y ) * KiCadUnitMultiplier;
 
     return retval;
-}
-
-
-double CADSTAR_PCB_ARCHIVE_LOADER::getPolarAngle( const wxPoint& aPoint )
-{
-    return NormalizeAnglePos( ArcTangente( aPoint.y, aPoint.x ) );
 }
 
 

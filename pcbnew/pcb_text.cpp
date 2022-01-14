@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2012 Jean-Pierre Charras, jean-pierre.charras@ujf-grenoble.fr
  * Copyright (C) 2012 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -36,6 +36,8 @@
 #include <trigo.h>
 #include <string_utils.h>
 #include <geometry/shape_compound.h>
+#include <callback_gal.h>
+#include <convert_basic_shapes_to_polygon.h>
 
 using KIGFX::PCB_RENDER_SETTINGS;
 
@@ -101,18 +103,6 @@ wxString PCB_TEXT::GetShownText( int aDepth ) const
 }
 
 
-void PCB_TEXT::SetTextAngle( double aAngle )
-{
-    EDA_TEXT::SetTextAngle( NormalizeAngle360Min( aAngle ) );
-}
-
-
-void PCB_TEXT::SetTextAngle( const EDA_ANGLE& aAngle )
-{
-    EDA_TEXT::SetTextAngle( aAngle );
-}
-
-
 void PCB_TEXT::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList )
 {
     EDA_UNITS units = aFrame->GetUserUnits();
@@ -139,14 +129,14 @@ const EDA_RECT PCB_TEXT::GetBoundingBox() const
 {
     EDA_RECT rect = GetTextBox();
 
-    if( GetTextAngle() != EDA_ANGLE::ANGLE_0 )
+    if( !GetTextAngle().IsZero() )
         rect = rect.GetBoundingBoxRotated( GetTextPos(), GetTextAngle().AsTenthsOfADegree() );
 
     return rect;
 }
 
 
-bool PCB_TEXT::TextHitTest( const wxPoint& aPoint, int aAccuracy ) const
+bool PCB_TEXT::TextHitTest( const VECTOR2I& aPoint, int aAccuracy ) const
 {
     return EDA_TEXT::TextHitTest( aPoint, aAccuracy );
 }
@@ -165,17 +155,17 @@ bool PCB_TEXT::TextHitTest( const EDA_RECT& aRect, bool aContains, int aAccuracy
 }
 
 
-void PCB_TEXT::Rotate( const wxPoint& aRotCentre, double aAngle )
+void PCB_TEXT::Rotate( const VECTOR2I& aRotCentre, const EDA_ANGLE& aAngle )
 {
-    wxPoint pt = GetTextPos();
-    RotatePoint( &pt, aRotCentre, aAngle );
+    VECTOR2I pt = GetTextPos();
+    RotatePoint( pt, aRotCentre, aAngle );
     SetTextPos( pt );
 
-    SetTextAngle( GetTextAngle().AsTenthsOfADegree() + aAngle );
+    SetTextAngle( GetTextAngle() + aAngle );
 }
 
 
-void PCB_TEXT::Flip( const wxPoint& aCentre, bool aFlipLeftRight )
+void PCB_TEXT::Flip( const VECTOR2I& aCentre, bool aFlipLeftRight )
 {
     if( aFlipLeftRight )
     {
@@ -185,7 +175,7 @@ void PCB_TEXT::Flip( const wxPoint& aCentre, bool aFlipLeftRight )
     else
     {
         SetTextY( MIRRORVAL( GetTextPos().y, aCentre.y ) );
-        SetTextAngle( 1800 - GetTextAngle().AsTenthsOfADegree() );
+        SetTextAngle( ANGLE_180 - GetTextAngle() );
     }
 
     SetLayer( FlipLayer( GetLayer(), GetBoard()->GetCopperLayerCount() ) );
@@ -226,25 +216,30 @@ std::shared_ptr<SHAPE> PCB_TEXT::GetEffectiveShape( PCB_LAYER_ID aLayer ) const
 
 
 void PCB_TEXT::TransformTextShapeWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuffer,
-                                                         PCB_LAYER_ID aLayer, int aClearanceValue,
+                                                         PCB_LAYER_ID aLayer, int aClearance,
                                                          int aError, ERROR_LOC aErrorLoc ) const
 {
-    struct TSEGM_2_POLY_PRMS prms;
+    KIGFX::GAL_DISPLAY_OPTIONS empty_opts;
+    KIFONT::FONT*              font = GetDrawFont();
+    int                        penWidth = GetEffectiveTextPenWidth();
 
-    wxSize size = GetTextSize();
+    CALLBACK_GAL callback_gal( empty_opts,
+            // Stroke callback
+            [&]( const VECTOR2I& aPt1, const VECTOR2I& aPt2 )
+            {
+                TransformOvalToPolygon( aCornerBuffer, aPt1, aPt2, penWidth+ ( 2 * aClearance ),
+                                        aError, ERROR_INSIDE );
+            },
+            // Triangulation callback
+            [&]( const VECTOR2I& aPt1, const VECTOR2I& aPt2, const VECTOR2I& aPt3 )
+            {
+                aCornerBuffer.NewOutline();
 
-    if( IsMirrored() )
-        size.x = -size.x;
+                for( const VECTOR2I& point : { aPt1, aPt2, aPt3 } )
+                    aCornerBuffer.Append( point.x, point.y );
+            } );
 
-    int  penWidth = GetEffectiveTextPenWidth();
-
-    prms.m_cornerBuffer = &aCornerBuffer;
-    prms.m_textWidth = GetEffectiveTextPenWidth() + ( 2 * aClearanceValue );
-    prms.m_error = aError;
-    COLOR4D color;  // not actually used, but needed by GRText
-
-    GRText( nullptr, GetTextPos(), color, GetShownText(), GetTextAngle(), size, GetHorizJustify(),
-            GetVertJustify(), penWidth, IsItalic(), IsBold(), GetFont(), addTextSegmToPoly, &prms );
+    font->Draw( &callback_gal, GetShownText(), GetTextPos(), GetAttributes() );
 }
 
 

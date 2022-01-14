@@ -35,10 +35,12 @@ using std::min;
 
 #ifdef __WXMSW__
 #include <windows.h>
+#include <ObjIdl.h>
 #include <gdiplus.h>
 #include <cairo-win32.h>
 #include <wx/msw/enhmeta.h>
 #endif /* __WXMSW__ */
+
 
 #ifdef __WXMAC__
 #include <ApplicationServices/ApplicationServices.h>

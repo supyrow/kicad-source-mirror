@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2007-2012 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
  * Copyright (C) 2019 Jean-Pierre Charras, jp.charras@wanadoo.fr
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -869,7 +869,7 @@ void LEGACY_PLUGIN::loadSETUP()
             BIU gx = biuParse( line + SZ( "AuxiliaryAxisOrg" ), &data );
             BIU gy = biuParse( data );
 
-            bds.SetAuxOrigin( wxPoint( gx, gy ) );
+            bds.SetAuxOrigin( VECTOR2I( gx, gy ) );
         }
         else if( TESTSUBSTR( "Layer[" ) )
         {
@@ -1062,7 +1062,7 @@ void LEGACY_PLUGIN::loadSETUP()
             BIU x = biuParse( line + SZ( "GridOrigin" ), &data );
             BIU y = biuParse( data );
 
-            bds.SetGridOrigin( wxPoint( x, y ) );
+            bds.SetGridOrigin( VECTOR2I( x, y ) );
         }
         else if( TESTLINE( "VisibleElements" ) )
         {
@@ -1192,9 +1192,9 @@ void LEGACY_PLUGIN::loadFOOTPRINT( FOOTPRINT* aFootprint )
             if( data && data[1] == 'P' )
                 aFootprint->SetIsPlaced( true );
 
-            aFootprint->SetPosition( wxPoint( pos_x, pos_y ) );
+            aFootprint->SetPosition( VECTOR2I( pos_x, pos_y ) );
             aFootprint->SetLayer( layer_id );
-            aFootprint->SetOrientation( orient );
+            aFootprint->SetOrientation( EDA_ANGLE( orient, TENTHS_OF_A_DEGREE_T ) );
             const_cast<KIID&>( aFootprint->m_Uuid ) = KIID( uuid );
             aFootprint->SetLastEditTime( edittime );
         }
@@ -1376,7 +1376,7 @@ void LEGACY_PLUGIN::loadPAD( FOOTPRINT* aFootprint )
             pad->SetShape( static_cast<PAD_SHAPE>( padshape ) );
             pad->SetSize( wxSize( size_x, size_y ) );
             pad->SetDelta( wxSize( delta_x, delta_y ) );
-            pad->SetOrientation( orient );
+            pad->SetOrientation( EDA_ANGLE( orient, TENTHS_OF_A_DEGREE_T ) );
         }
         else if( TESTLINE( "Dr" ) )         // (Dr)ill
         {
@@ -1405,7 +1405,7 @@ void LEGACY_PLUGIN::loadPAD( FOOTPRINT* aFootprint )
             }
 
             pad->SetDrillShape( drShape );
-            pad->SetOffset( wxPoint( offs_x, offs_y ) );
+            pad->SetOffset( VECTOR2I( offs_x, offs_y ) );
             pad->SetDrillSize( wxSize( drill_x, drill_y ) );
         }
         else if( TESTLINE( "At" ) )         // (At)tribute
@@ -1456,7 +1456,7 @@ void LEGACY_PLUGIN::loadPAD( FOOTPRINT* aFootprint )
         else if( TESTLINE( "Po" ) )         // (Po)sition
         {
             // e.g. "Po 500 -500"
-            wxPoint pos;
+            VECTOR2I pos;
 
             pos.x = biuParse( line + SZ( "Po" ), &data );
             pos.y = biuParse( data );
@@ -1509,9 +1509,9 @@ void LEGACY_PLUGIN::loadPAD( FOOTPRINT* aFootprint )
             // pad's "Position" is not relative to the footprint's, whereas Pos0 is relative
             // to the footprint's but is the unrotated coordinate.
 
-            wxPoint padpos = pad->GetPos0();
+            VECTOR2I padpos = pad->GetPos0();
 
-            RotatePoint( &padpos, aFootprint->GetOrientation() );
+            RotatePoint( padpos, aFootprint->GetOrientation() );
 
             pad->SetPosition( padpos + aFootprint->GetPosition() );
 
@@ -1563,8 +1563,8 @@ void LEGACY_PLUGIN::loadFP_SHAPE( FOOTPRINT* aFootprint )
         width = biuParse( data, &data );
         layer = intParse( data );
 
-        dwg->SetCenter0( wxPoint( center0_x, center0_y ) );
-        dwg->SetStart0( wxPoint( start0_x, start0_y ) );
+        dwg->SetCenter0( VECTOR2I( center0_x, center0_y ) );
+        dwg->SetStart0( VECTOR2I( start0_x, start0_y ) );
         dwg->SetArcAngleAndEnd0( angle, true );
         break;
     }
@@ -1581,8 +1581,8 @@ void LEGACY_PLUGIN::loadFP_SHAPE( FOOTPRINT* aFootprint )
         width = biuParse( data, &data );
         layer = intParse( data );
 
-        dwg->SetStart0( wxPoint( start0_x, start0_y ) );
-        dwg->SetEnd0( wxPoint( end0_x, end0_y ) );
+        dwg->SetStart0( VECTOR2I( start0_x, start0_y ) );
+        dwg->SetEnd0( VECTOR2I( end0_x, end0_y ) );
         break;
     }
 
@@ -1598,10 +1598,10 @@ void LEGACY_PLUGIN::loadFP_SHAPE( FOOTPRINT* aFootprint )
         width = biuParse( data, &data );
         layer = intParse( data );
 
-        dwg->SetStart0( wxPoint( start0_x, start0_y ) );
-        dwg->SetEnd0( wxPoint( end0_x, end0_y ) );
+        dwg->SetStart0( VECTOR2I( start0_x, start0_y ) );
+        dwg->SetEnd0( VECTOR2I( end0_x, end0_y ) );
 
-        std::vector<wxPoint> pts;
+        std::vector<VECTOR2I> pts;
         pts.reserve( ptCount );
 
         for( int ii = 0; ii < ptCount; ++ii )
@@ -1658,22 +1658,18 @@ void LEGACY_PLUGIN::loadMODULE_TEXT( FP_TEXT* aText )
     const char* txt_end;
     const char* line = m_reader->Line();     // current (old) line
 
-    // sscanf( line + 1, "%d %d %d %d %d %d %d %s %s %d %s",
-    //  &type, &m_Pos0.x, &m_Pos0.y, &m_Size.y, &m_Size.x,
-    //  &m_Orient, &m_Thickness, BufCar1, BufCar2, &layer, BufCar3 ) >= 10 )
-
     // e.g. "T1 6940 -16220 350 300 900 60 M I 20 N "CFCARD"\r\n"
     // or    T1 0 500 600 400 900 80 M V 20 N"74LS245"
     // ouch, the last example has no space between N and "74LS245" !
     // that is an older version.
 
-    int     type    = intParse( line+1, &data );
-    BIU     pos0_x  = biuParse( data, &data );
-    BIU     pos0_y  = biuParse( data, &data );
-    BIU     size0_y = biuParse( data, &data );
-    BIU     size0_x = biuParse( data, &data );
-    double  orient  = degParse( data, &data );
-    BIU     thickn  = biuParse( data, &data );
+    int       type    = intParse( line+1, &data );
+    BIU       pos0_x  = biuParse( data, &data );
+    BIU       pos0_y  = biuParse( data, &data );
+    BIU       size0_y = biuParse( data, &data );
+    BIU       size0_x = biuParse( data, &data );
+    EDA_ANGLE orient  = EDA_ANGLE( degParse( data, &data ), TENTHS_OF_A_DEGREE_T );
+    BIU       thickn  = biuParse( data, &data );
 
     // read the quoted text before the first call to strtok() which introduces
     // NULs into the string and chops it into multiple C strings, something
@@ -1706,10 +1702,10 @@ void LEGACY_PLUGIN::loadMODULE_TEXT( FP_TEXT* aText )
 
     aText->SetType( static_cast<FP_TEXT::TEXT_TYPE>( type ) );
 
-    aText->SetPos0( wxPoint( pos0_x, pos0_y ) );
+    aText->SetPos0( VECTOR2I( pos0_x, pos0_y ) );
     aText->SetTextSize( wxSize( size0_x, size0_y ) );
 
-    orient -= ( static_cast<FOOTPRINT*>( aText->GetParent() ) )->GetOrientation();
+    orient -= ( static_cast<FOOTPRINT*>( aText->GetParentFootprint() ) )->GetOrientation();
 
     aText->SetTextAngle( orient );
 
@@ -1819,8 +1815,8 @@ void LEGACY_PLUGIN::loadPCB_LINE()
             dseg->SetShape( static_cast<SHAPE_T>( shape ) );
             dseg->SetFilled( false );
             dseg->SetStroke( STROKE_PARAMS( width, PLOT_DASH_TYPE::SOLID ) );
-            dseg->SetStart( wxPoint( start_x, start_y ) );
-            dseg->SetEnd( wxPoint( end_x, end_y ) );
+            dseg->SetStart( VECTOR2I( start_x, start_y ) );
+            dseg->SetEnd( VECTOR2I( end_x, end_y ) );
         }
         else if( TESTLINE( "De" ) )
         {
@@ -1871,7 +1867,7 @@ void LEGACY_PLUGIN::loadPCB_LINE()
                     break;
                 case 6:
                     y = biuParse( data );
-                    dseg->SetBezierC1( wxPoint( x, y ));
+                    dseg->SetBezierC1( VECTOR2I( x, y ) );
                     break;
 
                 case 7:
@@ -1879,7 +1875,7 @@ void LEGACY_PLUGIN::loadPCB_LINE()
                     break;
                 case 8:
                     y = biuParse( data );
-                    dseg->SetBezierC2( wxPoint( x, y ));
+                    dseg->SetBezierC2( VECTOR2I( x, y ) );
                     break;
 
                 default:
@@ -2011,20 +2007,21 @@ void LEGACY_PLUGIN::loadPCB_TEXT()
         }
         else if( TESTLINE( "Po" ) )
         {
-            wxSize  size;
+            wxSize size;
+            BIU    pos_x = biuParse( line + SZ( "Po" ), &data );
+            BIU    pos_y = biuParse( data, &data );
 
-            BIU pos_x   = biuParse( line + SZ( "Po" ), &data );
-            BIU pos_y   = biuParse( data, &data );
-            size.x      = biuParse( data, &data );
-            size.y      = biuParse( data, &data );
-            BIU thickn  = biuParse( data, &data );
-            double angle = degParse( data );
+            size.x = biuParse( data, &data );
+            size.y = biuParse( data, &data );
+
+            BIU       thickn = biuParse( data, &data );
+            EDA_ANGLE angle = EDA_ANGLE( degParse( data ), TENTHS_OF_A_DEGREE_T );
 
             pcbtxt->SetTextSize( size );
             pcbtxt->SetTextThickness( thickn );
             pcbtxt->SetTextAngle( angle );
 
-            pcbtxt->SetTextPos( wxPoint( pos_x, pos_y ) );
+            pcbtxt->SetTextPos( VECTOR2I( pos_x, pos_y ) );
         }
         else if( TESTLINE( "De" ) )
         {
@@ -2163,8 +2160,8 @@ void LEGACY_PLUGIN::loadTrackList( int aStructType )
         }
 
         const_cast<KIID&>( newTrack->m_Uuid ) = KIID( uuid );
-        newTrack->SetPosition( wxPoint( start_x, start_y ) );
-        newTrack->SetEnd( wxPoint( end_x, end_y ) );
+        newTrack->SetPosition( VECTOR2I( start_x, start_y ) );
+        newTrack->SetEnd( VECTOR2I( end_x, end_y ) );
 
         newTrack->SetWidth( width );
 
@@ -2339,7 +2336,7 @@ void LEGACY_PLUGIN::loadZONE_CONTAINER()
                 holeIndex++;
             }
 
-            zc->AppendCorner( wxPoint( x, y ), holeIndex );
+            zc->AppendCorner( VECTOR2I( x, y ), holeIndex );
 
             // Is this corner the end of current contour?
             // the next corner (if any) will be stored in a new contour (a hole)
@@ -2598,8 +2595,8 @@ void LEGACY_PLUGIN::loadDIMENSION()
 {
     std::unique_ptr<PCB_DIM_ALIGNED> dim = std::make_unique<PCB_DIM_ALIGNED>( m_board,
                                                                               PCB_DIM_ALIGNED_T );
-    wxPoint crossBarO;
-    wxPoint crossBarF;
+    VECTOR2I crossBarO;
+    VECTOR2I crossBarF;
 
     char*   line;
 
@@ -2646,15 +2643,15 @@ void LEGACY_PLUGIN::loadDIMENSION()
         }
         else if( TESTLINE( "Po" ) )
         {
-            BIU     pos_x  = biuParse( line + SZ( "Po" ), &data );
-            BIU     pos_y  = biuParse( data, &data );
-            BIU     width  = biuParse( data, &data );
-            BIU     height = biuParse( data, &data );
-            BIU     thickn = biuParse( data, &data );
-            double  orient = degParse( data, &data );
-            char*   mirror = strtok_r( (char*) data, delims, (char**) &data );
+            BIU       pos_x  = biuParse( line + SZ( "Po" ), &data );
+            BIU       pos_y  = biuParse( data, &data );
+            BIU       width  = biuParse( data, &data );
+            BIU       height = biuParse( data, &data );
+            BIU       thickn = biuParse( data, &data );
+            EDA_ANGLE orient = EDA_ANGLE( degParse( data, &data ), TENTHS_OF_A_DEGREE_T );
+            char*     mirror = strtok_r( (char*) data, delims, (char**) &data );
 
-            dim->Text().SetTextPos( wxPoint( pos_x, pos_y ) );
+            dim->Text().SetTextPos( VECTOR2I( pos_x, pos_y ) );
             dim->Text().SetTextSize( wxSize( width, height ) );
             dim->Text().SetMirrored( mirror && *mirror == '0' );
             dim->Text().SetTextThickness( thickn );
@@ -2670,8 +2667,8 @@ void LEGACY_PLUGIN::loadDIMENSION()
             BIU width      = biuParse( data );
 
             dim->SetLineThickness( width );
-            crossBarO = wxPoint( crossBarOx, crossBarOy );
-            crossBarF = wxPoint( crossBarFx, crossBarFy );
+            crossBarO = VECTOR2I( crossBarOx, crossBarOy );
+            crossBarF = VECTOR2I( crossBarFx, crossBarFy );
         }
         else if( TESTLINE( "Sd" ) )
         {
@@ -2682,7 +2679,7 @@ void LEGACY_PLUGIN::loadDIMENSION()
             ignore_unused( biuParse( data, &data ) );
             ignore_unused( biuParse( data ) );
 
-            dim->SetStart( wxPoint( featureLineDOx, featureLineDOy ) );
+            dim->SetStart( VECTOR2I( featureLineDOx, featureLineDOy ) );
         }
         else if( TESTLINE( "Sg" ) )
         {
@@ -2693,7 +2690,7 @@ void LEGACY_PLUGIN::loadDIMENSION()
             ignore_unused( biuParse( data, &data ) );
             ignore_unused( biuParse( data ) );
 
-            dim->SetEnd( wxPoint( featureLineGOx, featureLineGOy ) );
+            dim->SetEnd( VECTOR2I( featureLineGOx, featureLineGOy ) );
         }
         else if( TESTLINE( "S1" ) )        // Arrow: no longer imported
         {
@@ -2761,7 +2758,7 @@ void LEGACY_PLUGIN::loadPCB_TARGET()
                 layer_num = LAST_NON_COPPER_LAYER;
 
             PCB_TARGET* t = new PCB_TARGET( m_board, shape, leg_layer2new( m_cu_count,  layer_num ),
-                                            wxPoint( pos_x, pos_y ), size, width );
+                                            VECTOR2I( pos_x, pos_y ), size, width );
             m_board->Add( t, ADD_MODE::APPEND );
 
             const_cast<KIID&>( t->m_Uuid ) = KIID( uuid );
