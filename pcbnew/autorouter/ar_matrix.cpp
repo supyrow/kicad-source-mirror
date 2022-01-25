@@ -33,6 +33,7 @@
 #include <pcb_shape.h>
 #include <pad.h>
 
+
 AR_MATRIX::AR_MATRIX()
 {
     m_BoardSide[0]       = nullptr;
@@ -401,10 +402,9 @@ void AR_MATRIX::traceCircle( int ux0, int uy0, int ux1, int uy1, int lg, int lay
                              AR_MATRIX::CELL_OP op_logic )
 {
     int radius, nb_segm;
-    int x0, y0,     // Starting point of the current segment trace.
-            x1, y1; // End point.
+    int x0, y0;     // Starting point of the current segment trace.
+    int x1, y1;     // End point.
     int ii;
-    int angle;
 
     radius = KiROUND( Distance( ux0, uy0, ux1, uy1 ) );
 
@@ -424,9 +424,9 @@ void AR_MATRIX::traceCircle( int ux0, int uy0, int ux1, int uy1, int lg, int lay
 
     for( ii = 1; ii < nb_segm; ii++ )
     {
-        angle = ( 3600 * ii ) / nb_segm;
-        x1 = KiROUND( cosdecideg( radius, angle ) );
-        y1 = KiROUND( sindecideg( radius, angle ) );
+        EDA_ANGLE angle = ( ANGLE_360 * ii ) / nb_segm;
+        x1 = KiROUND( radius * angle.Cos() );
+        y1 = KiROUND( radius * angle.Sin() );
         drawSegmentQcq( x0 + ux0, y0 + uy0, x1 + ux0, y1 + uy0, lg, layer, color, op_logic );
         x0 = x1;
         y0 = y1;
@@ -557,27 +557,26 @@ void AR_MATRIX::traceFilledCircle(
  * center = ux0,uy0, starting at ux1, uy1.  Coordinates are in
  * PCB units.
  */
-void AR_MATRIX::traceArc( int ux0, int uy0, int ux1, int uy1, double ArcAngle, int lg, int layer,
-                          int color, AR_MATRIX::CELL_OP op_logic )
+void AR_MATRIX::traceArc( int ux0, int uy0, int ux1, int uy1, const EDA_ANGLE& arcAngle, int lg,
+                          int layer, int color, AR_MATRIX::CELL_OP op_logic )
 {
-    int radius, nb_segm;
-    int x0, y0,     // Starting point of the current segment trace
-            x1, y1; // End point
-    int    ii;
-    double angle, StAngle;
-
+    int       radius, nb_segm;
+    int       x0, y0;     // Starting point of the current segment trace
+    int       x1, y1;     // End point
+    int       ii;
+    EDA_ANGLE angle, startAngle;
 
     radius = KiROUND( Distance( ux0, uy0, ux1, uy1 ) );
 
     x0 = ux1 - ux0;
     y0 = uy1 - uy0;
-    StAngle = ArcTangente( uy1 - uy0, ux1 - ux0 );
+    startAngle = EDA_ANGLE( VECTOR2I( ux1, uy1 ) - VECTOR2I( ux0, uy0 ) );
 
     if( lg < 1 )
         lg = 1;
 
     nb_segm = ( 2 * radius ) / lg;
-    nb_segm = ( nb_segm * std::abs( ArcAngle ) ) / 3600;
+    nb_segm = nb_segm * std::abs( arcAngle.AsDegrees() ) / 360.0;
 
     if( nb_segm < 5 )
         nb_segm = 5;
@@ -587,13 +586,13 @@ void AR_MATRIX::traceArc( int ux0, int uy0, int ux1, int uy1, double ArcAngle, i
 
     for( ii = 1; ii <= nb_segm; ii++ )
     {
-        angle = ( ArcAngle * ii ) / nb_segm;
-        angle += StAngle;
+        angle = arcAngle * ii / nb_segm;
+        angle += startAngle;
 
-        NORMALIZE_ANGLE_POS( angle );
+        angle.Normalize();
 
-        x1 = KiROUND( cosdecideg( radius, angle ) );
-        y1 = KiROUND( cosdecideg( radius, angle ) );
+        x1 = KiROUND( radius * angle.Cos() );
+        y1 = KiROUND( radius * angle.Cos() );
         drawSegmentQcq( x0 + ux0, y0 + uy0, x1 + ux0, y1 + uy0, lg, layer, color, op_logic );
         x0 = x1;
         y0 = y1;
@@ -602,7 +601,7 @@ void AR_MATRIX::traceArc( int ux0, int uy0, int ux1, int uy1, double ArcAngle, i
 
 
 void AR_MATRIX::TraceFilledRectangle( int ux0, int uy0, int ux1, int uy1, double angle,
-        LSET aLayerMask, int color, AR_MATRIX::CELL_OP op_logic )
+                                      LSET aLayerMask, int color, AR_MATRIX::CELL_OP op_logic )
 {
     int row, col;
     int cx, cy; // Center of rectangle
@@ -665,7 +664,7 @@ void AR_MATRIX::TraceFilledRectangle( int ux0, int uy0, int ux1, int uy1, double
         {
             rotrow = row * m_GridRouting;
             rotcol = col * m_GridRouting;
-            RotatePoint( &rotcol, &rotrow, cx, cy, -angle );
+            RotatePoint( &rotcol, &rotrow, cx, cy, -EDA_ANGLE( angle, TENTHS_OF_A_DEGREE_T ) );
 
             if( rotrow <= uy0 )
                 continue;
@@ -690,7 +689,7 @@ void AR_MATRIX::TraceFilledRectangle( int ux0, int uy0, int ux1, int uy1, double
 
 
 void AR_MATRIX::TraceFilledRectangle( int ux0, int uy0, int ux1, int uy1, LSET aLayerMask,
-        int color, AR_MATRIX::CELL_OP op_logic )
+                                      int color, AR_MATRIX::CELL_OP op_logic )
 {
     int row, col;
     int row_min, row_max, col_min, col_max;
@@ -778,8 +777,7 @@ void AR_MATRIX::TraceSegmentPcb( PCB_SHAPE* aShape, int aColor, int aMargin,
         int ux1 = aShape->GetStart().x - GetBrdCoordOrigin().x;
         int uy1 = aShape->GetStart().y - GetBrdCoordOrigin().y;
 
-        traceArc( ux0, uy0, ux1, uy1, aShape->GetArcAngle().AsTenthsOfADegree(), half_width,
-                  layer, aColor, op_logic );
+        traceArc( ux0, uy0, ux1, uy1, aShape->GetArcAngle(), half_width, layer, aColor, op_logic );
     }
 }
 

@@ -21,6 +21,7 @@
 #include <font/fontconfig.h>
 #include <pgm_base.h>
 #include <wx/log.h>
+#include <trace_helpers.h>
 
 using namespace fontconfig;
 
@@ -132,7 +133,6 @@ void FONTCONFIG::ListFonts( std::vector<std::string>& aFonts )
             FcChar8*   family;
             FcLangSet* langSet;
             FcBool     outline;
-            bool       langSupported = false;
 
             if( FcPatternGetString( font, FC_FILE, 0, &file ) == FcResultMatch
                 && FcPatternGetString( font, FC_FAMILY, 0, &family ) == FcResultMatch
@@ -146,6 +146,18 @@ void FONTCONFIG::ListFonts( std::vector<std::string>& aFonts )
                 FcStrSet*  langStrSet = FcLangSetGetLangs( langSet );
                 FcStrList* langStrList = FcStrListCreate( langStrSet );
                 FcChar8*   langStr = FcStrListNext( langStrList );
+
+                std::string theFamily( reinterpret_cast<char *>( family ) );
+
+#ifdef __WXMAC__
+                // On Mac (at least) some of the font names are in their own language.  If
+                // the OS doesn't support this language then we get a bunch of garbage names
+                // in the font menu.
+                //
+                // GTK, on the other hand, doesn't appear to support wxLocale::IsAvailable(),
+                // so we can't run these checks.
+
+                bool langSupported = false;
 
                 if( !langStr )
                 {
@@ -162,6 +174,11 @@ void FONTCONFIG::ListFonts( std::vector<std::string>& aFonts )
                         langSupported = true;
                         break;
                     }
+                    else
+                    {
+                        wxLogTrace( traceFonts, "Font '%s' language '%s' not supported by OS.",
+                                    theFamily, langWxStr );
+                    }
 
                     langStr = FcStrListNext( langStrList );
                 }
@@ -171,9 +188,9 @@ void FONTCONFIG::ListFonts( std::vector<std::string>& aFonts )
 
                 if( !langSupported )
                     continue;
+#endif
 
                 std::string theFile( reinterpret_cast<char *>( file ) );
-                std::string theFamily( reinterpret_cast<char *>( family ) );
                 std::string theStyle( reinterpret_cast<char *>( style ) );
                 FONTINFO    fontInfo( theFile, theStyle, theFamily );
 

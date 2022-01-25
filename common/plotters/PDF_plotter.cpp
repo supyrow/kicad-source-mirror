@@ -199,8 +199,8 @@ void PDF_PLOTTER::SetDash( PLOT_DASH_TYPE dashed )
 void PDF_PLOTTER::Rect( const VECTOR2I& p1, const VECTOR2I& p2, FILL_T fill, int width )
 {
     wxASSERT( workFile );
-    DPOINT p1_dev = userToDeviceCoordinates( p1 );
-    DPOINT p2_dev = userToDeviceCoordinates( p2 );
+    VECTOR2D p1_dev = userToDeviceCoordinates( p1 );
+    VECTOR2D p2_dev = userToDeviceCoordinates( p2 );
 
     SetCurrentLineWidth( width );
     fprintf( workFile, "%g %g %g %g re %c\n", p1_dev.x, p1_dev.y,
@@ -211,8 +211,8 @@ void PDF_PLOTTER::Rect( const VECTOR2I& p1, const VECTOR2I& p2, FILL_T fill, int
 void PDF_PLOTTER::Circle( const VECTOR2I& pos, int diametre, FILL_T aFill, int width )
 {
     wxASSERT( workFile );
-    DPOINT pos_dev = userToDeviceCoordinates( pos );
-    double radius = userToDeviceSize( diametre / 2.0 );
+    VECTOR2D pos_dev = userToDeviceCoordinates( pos );
+    double   radius = userToDeviceSize( diametre / 2.0 );
 
     /* OK. Here's a trick. PDF doesn't support circles or circular angles, that's
        a fact. You'll have to do with cubic beziers. These *can't* represent
@@ -261,55 +261,60 @@ void PDF_PLOTTER::Circle( const VECTOR2I& pos, int diametre, FILL_T aFill, int w
 }
 
 
-void PDF_PLOTTER::Arc( const VECTOR2I& centre, double StAngle, double EndAngle, int radius,
-                       FILL_T fill, int width )
+void PDF_PLOTTER::Arc( const VECTOR2I& aCenter, const EDA_ANGLE& aStartAngle,
+                       const EDA_ANGLE& aEndAngle, int aRadius, FILL_T aFill, int aWidth )
 {
     wxASSERT( workFile );
 
-    if( radius <= 0 )
+    if( aRadius <= 0 )
     {
-        Circle( centre, width, FILL_T::FILLED_SHAPE, 0 );
+        Circle( aCenter, aWidth, FILL_T::FILLED_SHAPE, 0 );
         return;
     }
 
-    /* Arcs are not so easily approximated by beziers (in the general case),
-       so we approximate them in the old way */
-    VECTOR2I  start, end;
-    const int delta = 50;   // increment (in 0.1 degrees) to draw circles
+    /*
+     * Arcs are not so easily approximated by beziers (in the general case), so we approximate
+     * them in the old way
+     */
+    EDA_ANGLE       startAngle( aStartAngle );
+    EDA_ANGLE       endAngle( aEndAngle );
+    VECTOR2I        start;
+    VECTOR2I        end;
+    const EDA_ANGLE delta( 5, DEGREES_T );   // increment to draw circles
 
-    if( StAngle > EndAngle )
-        std::swap( StAngle, EndAngle );
+    if( startAngle > endAngle )
+        std::swap( startAngle, endAngle );
 
-    SetCurrentLineWidth( width );
+    SetCurrentLineWidth( aWidth );
 
     // Usual trig arc plotting routine...
-    start.x = centre.x + KiROUND( cosdecideg( radius, -StAngle ) );
-    start.y = centre.y + KiROUND( sindecideg( radius, -StAngle ) );
-    DPOINT pos_dev = userToDeviceCoordinates( start );
+    start.x = aCenter.x + KiROUND( aRadius * -startAngle.Cos() );
+    start.y = aCenter.y + KiROUND( aRadius * -startAngle.Sin() );
+    VECTOR2D pos_dev = userToDeviceCoordinates( start );
     fprintf( workFile, "%g %g m ", pos_dev.x, pos_dev.y );
 
-    for( int ii = StAngle + delta; ii < EndAngle; ii += delta )
+    for( EDA_ANGLE ii = startAngle + delta; ii < endAngle; ii += delta )
     {
-        end.x = centre.x + KiROUND( cosdecideg( radius, -ii ) );
-        end.y = centre.y + KiROUND( sindecideg( radius, -ii ) );
+        end.x = aCenter.x + KiROUND( aRadius * -ii.Cos() );
+        end.y = aCenter.y + KiROUND( aRadius * -ii.Sin() );
         pos_dev = userToDeviceCoordinates( end );
         fprintf( workFile, "%g %g l ", pos_dev.x, pos_dev.y );
     }
 
-    end.x = centre.x + KiROUND( cosdecideg( radius, -EndAngle ) );
-    end.y = centre.y + KiROUND( sindecideg( radius, -EndAngle ) );
+    end.x = aCenter.x + KiROUND( aRadius * -endAngle.Cos() );
+    end.y = aCenter.y + KiROUND( aRadius * -endAngle.Sin() );
     pos_dev = userToDeviceCoordinates( end );
     fprintf( workFile, "%g %g l ", pos_dev.x, pos_dev.y );
 
     // The arc is drawn... if not filled we stroke it, otherwise we finish
     // closing the pie at the center
-    if( fill == FILL_T::NO_FILL )
+    if( aFill == FILL_T::NO_FILL )
     {
         fputs( "S\n", workFile );
     }
     else
     {
-        pos_dev = userToDeviceCoordinates( centre );
+        pos_dev = userToDeviceCoordinates( aCenter );
         fprintf( workFile, "%g %g l b\n", pos_dev.x, pos_dev.y );
     }
 }
@@ -325,7 +330,7 @@ void PDF_PLOTTER::PlotPoly( const std::vector<VECTOR2I>& aCornerList, FILL_T aFi
 
     SetCurrentLineWidth( aWidth );
 
-    DPOINT pos = userToDeviceCoordinates( aCornerList[0] );
+    VECTOR2D pos = userToDeviceCoordinates( aCornerList[0] );
     fprintf( workFile, "%g %g m\n", pos.x, pos.y );
 
     for( unsigned ii = 1; ii < aCornerList.size(); ii++ )
@@ -358,7 +363,7 @@ void PDF_PLOTTER::PenTo( const VECTOR2I& pos, char plume )
 
     if( m_penState != plume || pos != m_penLastpos )
     {
-        DPOINT pos_dev = userToDeviceCoordinates( pos );
+        VECTOR2D pos_dev = userToDeviceCoordinates( pos );
         fprintf( workFile, "%g %g %c\n",
                  pos_dev.x, pos_dev.y,
                  ( plume=='D' ) ? 'l' : 'm' );
@@ -375,12 +380,11 @@ void PDF_PLOTTER::PlotImage( const wxImage& aImage, const VECTOR2I& aPos, double
     VECTOR2I pix_size( aImage.GetWidth(), aImage.GetHeight() );
 
     // Requested size (in IUs)
-    DPOINT drawsize( aScaleFactor * pix_size.x, aScaleFactor * pix_size.y );
+    VECTOR2D drawsize( aScaleFactor * pix_size.x, aScaleFactor * pix_size.y );
 
     // calculate the bitmap start position
     VECTOR2I start( aPos.x - drawsize.x / 2, aPos.y + drawsize.y / 2 );
-
-    DPOINT dev_start = userToDeviceCoordinates( start );
+    VECTOR2D dev_start = userToDeviceCoordinates( start );
 
     /* PDF has an uhm... simplified coordinate system handling. There is
        *one* operator to do everything (the PS concat equivalent). At least

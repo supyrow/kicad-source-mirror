@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2013-2017 CERN
- * Copyright (C) 2017-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2017-2022 KiCad Developers, see AUTHORS.txt for contributors.
  * @author Maciej Suminski <maciej.suminski@cern.ch>
  * @author Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  *
@@ -377,8 +377,8 @@ int EDIT_TOOL::DragArcTrack( const TOOL_EVENT& aEvent )
                 SEG trackSeg( retval->GetStart(), retval->GetEnd() );
 
                 // Allow deviations in colinearity as defined in ADVANCED_CFG
-                if( trackSeg.AngleDegrees( aCollinearSeg )
-                    > ADVANCED_CFG::GetCfg().m_MaxTangentAngleDeviation )
+                if( trackSeg.Angle( aCollinearSeg )
+                    > EDA_ANGLE( ADVANCED_CFG::GetCfg().m_MaxTangentAngleDeviation, DEGREES_T ) )
                 {
                     retval = nullptr;
                 }
@@ -1825,6 +1825,26 @@ int EDIT_TOOL::Remove( const TOOL_EVENT& aEvent )
                 getView()->Remove( text );
                 parent->Remove( text );
             }
+            else if( selectionCopy.GetSize() == 1 )
+            {
+                text->SetVisible( false );
+                getView()->Update( text );
+
+                switch( text->GetType() )
+                {
+                case FP_TEXT::TEXT_is_REFERENCE:
+                    frame()->ShowInfoBarMsg( _( "Reference designator hidden (it is required and "
+                                                "can not be deleted)." ) );
+                    break;
+                case FP_TEXT::TEXT_is_VALUE:
+                    frame()->ShowInfoBarMsg( _( "Value hidden (it is required and can not be "
+                                                "deleted)." ) );
+                    break;
+                default:
+                    wxFAIL;   // Shouldn't get here
+                    break;
+                }
+            }
 
             break;
         }
@@ -1973,8 +1993,8 @@ int EDIT_TOOL::MoveExact( const TOOL_EVENT& aEvent )
     if( selection.Empty() )
         return 0;
 
-    wxPoint         translation;
-    double          rotation;
+    VECTOR2I        translation;
+    EDA_ANGLE       rotation;
     ROTATION_ANCHOR rotationAnchor = selection.Size() > 1 ? ROTATE_AROUND_SEL_CENTER
                                                           : ROTATE_AROUND_ITEM_ANCHOR;
 
@@ -1986,15 +2006,15 @@ int EDIT_TOOL::MoveExact( const TOOL_EVENT& aEvent )
 
     if( ret == wxID_OK )
     {
-        EDA_ANGLE angle( rotation, TENTHS_OF_A_DEGREE_T );
+        EDA_ANGLE angle = rotation;
         VECTOR2I  rp = selection.GetCenter();
-        wxPoint   selCenter( rp.x, rp.y );
+        VECTOR2I  selCenter( rp.x, rp.y );
 
         // Make sure the rotation is from the right reference point
         selCenter += translation;
 
         if( !frame()->Settings().m_Display.m_DisplayInvertYAxis )
-            rotation *= -1.0;
+            rotation = -rotation;
 
         // When editing footprints, all items have the same parent
         if( IsFootprintEditor() )

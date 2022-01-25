@@ -269,7 +269,7 @@ void SCH_TEXT::MirrorVertically( int aCenter )
 void SCH_TEXT::Rotate( const VECTOR2I& aCenter )
 {
     VECTOR2I pt = GetTextPos();
-    RotatePoint( pt, aCenter, 900 );
+    RotatePoint( pt, aCenter, ANGLE_90 );
     VECTOR2I offset = pt - GetTextPos();
 
     Rotate90( false );
@@ -746,7 +746,7 @@ VECTOR2I SCH_LABEL_BASE::GetSchematicTextOffset( const RENDER_SETTINGS* aSetting
 void SCH_LABEL_BASE::Rotate( const VECTOR2I& aCenter )
 {
     VECTOR2I pt = GetTextPos();
-    RotatePoint( pt, aCenter, 900 );
+    RotatePoint( pt, aCenter, ANGLE_90 );
     VECTOR2I offset = pt - GetTextPos();
 
     Rotate90( false );
@@ -804,7 +804,7 @@ void SCH_LABEL_BASE::Rotate90( bool aClockwise )
             }
 
             VECTOR2I pos = field.GetTextPos();
-            RotatePoint( pos, GetPosition(), aClockwise ? -900 : 900 );
+            RotatePoint( pos, GetPosition(), aClockwise ? -ANGLE_90 : ANGLE_90 );
             field.SetTextPos( pos );
         }
     }
@@ -1431,10 +1431,10 @@ void SCH_NETCLASS_FLAG::CreateGraphicShape( const RENDER_SETTINGS* aRenderSettin
         switch( GetLabelSpinStyle() )
         {
         default:
-        case LABEL_SPIN_STYLE::LEFT:                                 break;
-        case LABEL_SPIN_STYLE::UP:     RotatePoint( aPoint, -900 ); break;
-        case LABEL_SPIN_STYLE::RIGHT:  RotatePoint( aPoint, 1800 ); break;
-        case LABEL_SPIN_STYLE::BOTTOM: RotatePoint( aPoint, 900 );  break;
+        case LABEL_SPIN_STYLE::LEFT:                                     break;
+        case LABEL_SPIN_STYLE::UP:     RotatePoint( aPoint, -ANGLE_90 ); break;
+        case LABEL_SPIN_STYLE::RIGHT:  RotatePoint( aPoint, ANGLE_180 ); break;
+        case LABEL_SPIN_STYLE::BOTTOM: RotatePoint( aPoint, ANGLE_90 );  break;
         }
 
         aPoint += aPos;
@@ -1753,10 +1753,10 @@ void SCH_GLOBALLABEL::CreateGraphicShape( const RENDER_SETTINGS* aRenderSettings
         switch( GetLabelSpinStyle() )
         {
         default:
-        case LABEL_SPIN_STYLE::LEFT:                                 break;
-        case LABEL_SPIN_STYLE::UP:     RotatePoint( aPoint, -900 ); break;
-        case LABEL_SPIN_STYLE::RIGHT:  RotatePoint( aPoint, 1800 ); break;
-        case LABEL_SPIN_STYLE::BOTTOM: RotatePoint( aPoint, 900 );  break;
+        case LABEL_SPIN_STYLE::LEFT:                                     break;
+        case LABEL_SPIN_STYLE::UP:     RotatePoint( aPoint, -ANGLE_90 ); break;
+        case LABEL_SPIN_STYLE::RIGHT:  RotatePoint( aPoint, ANGLE_180 ); break;
+        case LABEL_SPIN_STYLE::BOTTOM: RotatePoint( aPoint, ANGLE_90 );  break;
         }
 
         aPoint += aPos;

@@ -274,6 +274,12 @@ void UNIT_BINDER::SetDoubleValue( double aValue )
 }
 
 
+void UNIT_BINDER::SetAngleValue( const EDA_ANGLE& aValue )
+{
+    SetDoubleValue( aValue.AsDegrees() );
+}
+
+
 void UNIT_BINDER::SetValue( const wxString& aValue )
 {
     wxTextEntry*  textEntry = dynamic_cast<wxTextEntry*>( m_valueCtrl );
@@ -313,6 +319,12 @@ void UNIT_BINDER::ChangeDoubleValue( double aValue )
         ChangeValue( wxT( "-" ) + StringFromValue( m_units, displayValue, false, m_dataType ) );
     else
         ChangeValue( StringFromValue( m_units, displayValue, false, m_dataType ) );
+}
+
+
+void UNIT_BINDER::ChangeAngleValue( const EDA_ANGLE& aValue )
+{
+    ChangeDoubleValue( aValue.AsDegrees() );
 }
 
 
@@ -403,6 +415,12 @@ double UNIT_BINDER::GetDoubleValue()
     displayValue = setPrecision( displayValue, false );
 
     return m_originTransforms.FromDisplay( displayValue, m_coordType );
+}
+
+
+EDA_ANGLE UNIT_BINDER::GetAngleValue()
+{
+    return EDA_ANGLE( GetDoubleValue(), DEGREES_T );
 }
 
 

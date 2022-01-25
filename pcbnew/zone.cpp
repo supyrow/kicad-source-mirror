@@ -685,23 +685,23 @@ void ZONE::MoveEdge( const VECTOR2I& offset, int aEdge )
 
 void ZONE::Rotate( const VECTOR2I& aCentre, const EDA_ANGLE& aAngle )
 {
-    m_Poly->Rotate( -aAngle.AsRadians(), VECTOR2I( aCentre ) );
+    m_Poly->Rotate( aAngle, VECTOR2I( aCentre ) );
     HatchBorder();
 
     /* rotate filled areas: */
     for( std::pair<const PCB_LAYER_ID, SHAPE_POLY_SET>& pair : m_FilledPolysList )
-        pair.second.Rotate( -aAngle.AsRadians(), aCentre );
+        pair.second.Rotate( aAngle, aCentre );
 
     for( std::pair<const PCB_LAYER_ID, std::vector<SEG> >& pair : m_FillSegmList )
     {
         for( SEG& seg : pair.second )
         {
             VECTOR2I a( seg.A );
-            RotatePoint( a, aCentre, -aAngle.AsRadians() );
+            RotatePoint( a, aCentre, -aAngle );
             seg.A = a;
 
             VECTOR2I b( seg.B );
-            RotatePoint( b, aCentre, -aAngle.AsRadians() );
+            RotatePoint( b, aCentre, -aAngle );
             seg.B = a;
         }
     }
@@ -1302,7 +1302,7 @@ FP_ZONE::FP_ZONE( BOARD_ITEM_CONTAINER* aParent ) :
 
 
 FP_ZONE::FP_ZONE( const FP_ZONE& aZone ) :
-        ZONE( aZone.GetParent(), true )
+        ZONE( aZone )
 {
     InitDataFromSrcInCopyCtor( aZone );
 }

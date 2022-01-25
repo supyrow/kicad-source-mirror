@@ -417,7 +417,7 @@ void PAD::BuildEffectiveShapes( PCB_LAYER_ID aLayer ) const
         corners.Append(  half_size.x - trap_delta.y, -half_size.y + trap_delta.x );
         corners.Append( -half_size.x + trap_delta.y, -half_size.y - trap_delta.x );
 
-        corners.Rotate( - m_orient.AsRadians() );
+        corners.Rotate( m_orient );
         corners.Move( shapePos );
 
         // GAL renders rectangles faster than 4-point polygons so it's worth checking if our
@@ -462,8 +462,7 @@ void PAD::BuildEffectiveShapes( PCB_LAYER_ID aLayer ) const
     {
         SHAPE_POLY_SET outline;
 
-        TransformRoundChamferedRectToPolygon( outline, shapePos, GetSize(),
-                                              m_orient.AsTenthsOfADegree(),
+        TransformRoundChamferedRectToPolygon( outline, shapePos, GetSize(), m_orient,
                                               GetRoundRectCornerRadius(), GetChamferRectRatio(),
                                               GetChamferPositions(), 0, maxError, ERROR_INSIDE );
 
@@ -483,7 +482,7 @@ void PAD::BuildEffectiveShapes( PCB_LAYER_ID aLayer ) const
         {
             for( SHAPE* shape : primitive->MakeEffectiveShapes() )
             {
-                shape->Rotate( - m_orient.AsRadians() );
+                shape->Rotate( m_orient );
                 shape->Move( shapePos );
                 add( shape );
             }
@@ -907,14 +906,14 @@ void PAD::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& 
         aList.emplace_back( _( "Height" ), MessageTextFromValue( units, m_size.y ) );
     }
 
-    double fp_orient_degrees = parentFootprint ? parentFootprint->GetOrientationDegrees() : 0;
-    double pad_orient_degrees = GetOrientationDegrees() - fp_orient_degrees;
-    pad_orient_degrees = NormalizeAngleDegrees( pad_orient_degrees, -180.0, +180.0 );
+    EDA_ANGLE fp_orient = parentFootprint ? parentFootprint->GetOrientation() : ANGLE_0;
+    EDA_ANGLE pad_orient = GetOrientation() - fp_orient;
+    pad_orient.Normalize180();
 
-    if( fp_orient_degrees != 0.0 )
-        msg.Printf( wxT( "%g(+ %g)" ), pad_orient_degrees, fp_orient_degrees );
+    if( !fp_orient.IsZero() )
+        msg.Printf( wxT( "%g(+ %g)" ), pad_orient.AsDegrees(), fp_orient.AsDegrees() );
     else
-        msg.Printf( wxT( "%g" ), GetOrientationDegrees() );
+        msg.Printf( wxT( "%g" ), GetOrientation().AsDegrees() );
 
     aList.emplace_back( _( "Rotation" ), msg );
 
@@ -1539,8 +1538,8 @@ void PAD::TransformShapeWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuffer,
         int  ddy = GetShape() == PAD_SHAPE::TRAPEZOID ? m_deltaSize.y / 2 : 0;
 
         SHAPE_POLY_SET outline;
-        TransformTrapezoidToPolygon( outline, padShapePos, m_size, m_orient.AsTenthsOfADegree(),
-                                     ddx, ddy, aClearanceValue, aError, aErrorLoc );
+        TransformTrapezoidToPolygon( outline, padShapePos, m_size, m_orient, ddx, ddy,
+                                     aClearanceValue, aError, aErrorLoc );
         aCornerBuffer.Append( outline );
         break;
     }
@@ -1551,8 +1550,7 @@ void PAD::TransformShapeWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuffer,
         bool doChamfer = GetShape() == PAD_SHAPE::CHAMFERED_RECT;
 
         SHAPE_POLY_SET outline;
-        TransformRoundChamferedRectToPolygon( outline, padShapePos, m_size,
-                                              m_orient.AsTenthsOfADegree(),
+        TransformRoundChamferedRectToPolygon( outline, padShapePos, m_size, m_orient,
                                               GetRoundRectCornerRadius(),
                                               doChamfer ? GetChamferRectRatio() : 0,
                                               doChamfer ? GetChamferPositions() : 0,
@@ -1565,7 +1563,7 @@ void PAD::TransformShapeWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuffer,
     {
         SHAPE_POLY_SET outline;
         MergePrimitivesAsPolygon( &outline, aErrorLoc );
-        outline.Rotate( - m_orient.AsRadians() );
+        outline.Rotate( m_orient );
         outline.Move( VECTOR2I( m_pos ) );
 
         if( aClearanceValue )

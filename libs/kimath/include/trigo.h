@@ -26,7 +26,7 @@
 
 #include <cmath>
 #include <math/vector2d.h>
-#include <eda_angle.h>
+#include <geometry/eda_angle.h>
 
 /**
  * Test if \a aTestPoint is on line defined by \a aSegStart and \a aSegEnd.
@@ -59,68 +59,44 @@ bool SegmentIntersectsSegment( const VECTOR2I& a_p1_l1, const VECTOR2I& a_p2_l1,
                                VECTOR2I* aIntersectionPoint = nullptr );
 
 /*
- * Calculate the new point of coord coord pX, pY,
- * for a rotation center 0, 0, and angle in (1/10 degree)
+ * Calculate the new point of coord coord pX, pY, for a rotation center 0, 0
  */
-void RotatePoint( int *pX, int *pY, double angle );
+void RotatePoint( int *pX, int *pY, const EDA_ANGLE& aAngle );
 
-inline void RotatePoint( int *pX, int *pY, EDA_ANGLE angle )
+inline void RotatePoint( VECTOR2I& point, const EDA_ANGLE& aAngle )
 {
-    RotatePoint( pX, pY, angle.AsTenthsOfADegree() );
+    RotatePoint( &point.x, &point.y, aAngle );
 }
+
 
 /*
- * Calculate the new point of coord coord pX, pY,
- * for a rotation center cx, cy, and angle in (1/10 degree)
+ * Calculate the new point of coord coord pX, pY, for a rotation center cx, cy
  */
-void RotatePoint( int *pX, int *pY, int cx, int cy, double angle );
+void RotatePoint( int *pX, int *pY, int cx, int cy, const EDA_ANGLE& aAngle );
+
+inline void RotatePoint( VECTOR2I& point, const VECTOR2I& centre, const EDA_ANGLE& aAngle )
+{
+    RotatePoint( &point.x, &point.y, centre.x, centre.y, aAngle );
+}
+
 
 /*
- * Calculate the new coord point point for a rotation angle in (1/10 degree).
- */
-inline void RotatePoint( VECTOR2I& point, double angle )
-{
-    RotatePoint( &point.x, &point.y, angle );
-}
-
-inline void RotatePoint( VECTOR2I& point, EDA_ANGLE angle )
-{
-    RotatePoint( &point.x, &point.y, angle.AsTenthsOfADegree() );
-}
-
-void RotatePoint( VECTOR2I& point, const VECTOR2I& centre, double angle );
-
-inline void RotatePoint( VECTOR2I& point, const VECTOR2I& centre, EDA_ANGLE angle )
-{
-    RotatePoint( point, centre, angle.AsTenthsOfADegree() );
-}
-
-/*
- * Calculate the new coord point point for a center rotation center and angle in (1/10 degree).
+ * Calculate the new coord point point for a rotation center 0, 0
  */
 
-void RotatePoint( double* pX, double* pY, double angle );
+void RotatePoint( double* pX, double* pY, const EDA_ANGLE& aAngle );
 
-inline void RotatePoint( double* pX, double* pY, EDA_ANGLE angle )
+inline void RotatePoint( VECTOR2D& point, const EDA_ANGLE& aAngle )
 {
-    RotatePoint( pX, pY, angle.AsTenthsOfADegree() );
+    RotatePoint( &point.x, &point.y, aAngle );
 }
 
-inline void RotatePoint( VECTOR2D& point, EDA_ANGLE angle )
-{
-    RotatePoint( &point.x, &point.y, angle.AsTenthsOfADegree() );
-}
 
-void RotatePoint( double* pX, double* pY, double cx, double cy, double angle );
+void RotatePoint( double* pX, double* pY, double cx, double cy, const EDA_ANGLE& aAngle );
 
-inline void RotatePoint( double* pX, double* pY, double cx, double cy, EDA_ANGLE angle )
+inline void RotatePoint( VECTOR2D& point, const VECTOR2D& aCenter, const EDA_ANGLE& aAngle )
 {
-    RotatePoint( pX, pY, cx, cy, angle.AsTenthsOfADegree() );
-}
-
-inline void RotatePoint( VECTOR2D& point, const VECTOR2D& aCenter, EDA_ANGLE angle )
-{
-    RotatePoint( &point.x, &point.y, aCenter.x, aCenter.y, angle.AsTenthsOfADegree() );
+    RotatePoint( &point.x, &point.y, aCenter.x, aCenter.y, aAngle );
 }
 
 /**
@@ -133,12 +109,8 @@ inline void RotatePoint( VECTOR2D& point, const VECTOR2D& aCenter, EDA_ANGLE ang
  */
 const VECTOR2I CalcArcCenter( const VECTOR2I& aStart, const VECTOR2I& aMid, const VECTOR2I& aEnd );
 const VECTOR2D CalcArcCenter( const VECTOR2D& aStart, const VECTOR2D& aMid, const VECTOR2D& aEnd );
-const VECTOR2I CalcArcCenter( const VECTOR2I& aStart, const VECTOR2I& aEnd, double aAngle );
-
-/**
- * Return the subtended angle for a given arc.
- */
-double CalcArcAngle( const VECTOR2I& aStart, const VECTOR2I& aMid, const VECTOR2I& aEnd );
+const VECTOR2I CalcArcCenter( const VECTOR2I& aStart, const VECTOR2I& aEnd,
+                              const EDA_ANGLE& aAngle );
 
 /**
  * Return the middle point of an arc, half-way between aStart and aEnd. There are two possible
@@ -154,16 +126,6 @@ double CalcArcAngle( const VECTOR2I& aStart, const VECTOR2I& aMid, const VECTOR2
 const VECTOR2I CalcArcMid( const VECTOR2I& aStart, const VECTOR2I& aEnd, const VECTOR2I& aCenter,
                            bool aMinArcAngle = true );
 
-/* Return the arc tangent of 0.1 degrees coord vector dx, dy
- * between -1800 and 1800
- * Equivalent to atan2 (but faster for calculations if
- * the angle is 0 to -1800, or + - 900)
- * Lorenzo: In fact usually atan2 already has to do these optimizations
- * (due to the discontinuity in tan) but this function also returns
- * in decidegrees instead of radians, so it's handier
- */
-double ArcTangente( int dy, int dx );
-
 inline double EuclideanNorm( const VECTOR2I& vector )
 {
     // this is working with doubles
@@ -178,10 +140,9 @@ inline double EuclideanNorm( const VECTOR2I& vector )
 inline double DistanceLinePoint( const VECTOR2I& linePointA, const VECTOR2I& linePointB,
                                  const VECTOR2I& referencePoint )
 {
-    // Some of the multiple double casts are redundant. However in the previous
-    // definition the cast was (implicitly) done too late, just before
-    // the division (EuclideanNorm gives a double so from int it would
-    // be promoted); that means that the whole expression were
+    // Some of the multiple double casts are redundant. However in the previous definition
+    // the cast was (implicitly) done too late, just before the division (EuclideanNorm gives
+    // a double so from int it would be promoted); that means that the whole expression were
     // vulnerable to overflow during int multiplications
     return fabs( ( static_cast<double>( linePointB.x - linePointA.x ) *
                    static_cast<double>( linePointA.y - referencePoint.y ) -
@@ -199,8 +160,8 @@ inline bool HitTestPoints( const VECTOR2I& pointA, const VECTOR2I& pointB, doubl
 {
     VECTOR2I vectorAB = pointB - pointA;
 
-    // Compare the distances squared. The double is needed to avoid
-    // overflow during int multiplication
+    // Compare the distances squared. The double is needed to avoid overflow during int
+    // multiplication
     double sqdistance = (double)vectorAB.x * vectorAB.x + (double)vectorAB.y * vectorAB.y;
 
     return sqdistance < threshold * threshold;
@@ -235,52 +196,10 @@ inline double DEG2RAD( double deg ) { return deg * M_PI / 180.0; }
 inline double RAD2DEG( double rad ) { return rad * 180.0 / M_PI; }
 
 // These are the same *but* work with the internal 'decidegrees' unit
-inline double DECIDEG2RAD( double deg ) { return deg * M_PI / 1800.0; }
 inline double RAD2DECIDEG( double rad ) { return rad * 1800.0 / M_PI; }
 
 /* These are templated over T (and not simply double) because Eeschema
    is still using int for angles in some place */
-
-/// Normalize angle to be  >=-360.0 and <= 360.0
-/// Angle can be equal to -360 or +360
-template <class T> inline T NormalizeAngle360Max( T Angle )
-{
-    while( Angle < -3600 )
-        Angle += 3600;
-
-    while( Angle > 3600 )
-        Angle -= 3600;
-
-    return Angle;
-}
-
-/// Normalize angle to be > -360.0 and < 360.0
-/// Angle equal to -360 or +360 are set to 0
-template <class T> inline T NormalizeAngle360Min( T Angle )
-{
-    while( Angle <= -3600 )
-        Angle += 3600;
-
-    while( Angle >= 3600 )
-        Angle -= 3600;
-
-    return Angle;
-}
-
-
-/// Normalize angle to be in the 0.0 .. -360.0 range: angle is in 1/10 degrees.
-template <class T>
-inline T NormalizeAngleNeg( T Angle )
-{
-    while( Angle <= -3600 )
-        Angle += 3600;
-
-    while( Angle > 0 )
-        Angle -= 3600;
-
-    return Angle;
-}
-
 
 /// Normalize angle to be in the 0.0 .. 360.0 range: angle is in 1/10 degrees.
 template <class T> inline T NormalizeAnglePos( T Angle )
@@ -298,96 +217,6 @@ template <class T> inline void NORMALIZE_ANGLE_POS( T& Angle )
 }
 
 
-/// Normalize angle to be in the 0.0 .. 360.0 range: angle is in degrees.
-inline double NormalizeAngleDegreesPos( double Angle )
-{
-    while( Angle < 0 )
-        Angle += 360.0;
-
-    while( Angle >= 360.0 )
-        Angle -= 360.0;
-
-    return Angle;
-}
-
-
-inline void NORMALIZE_ANGLE_DEGREES_POS( double& Angle )
-{
-    Angle = NormalizeAngleDegreesPos( Angle );
-}
-
-
-inline double NormalizeAngleRadiansPos( double Angle )
-{
-    while( Angle < 0 )
-        Angle += (2 * M_PI );
-
-    while( Angle >= ( 2 * M_PI ) )
-        Angle -= ( 2 * M_PI );
-
-    return Angle;
-}
-
-/// Normalize angle to be aMin < angle <= aMax angle is in degrees.
-inline double NormalizeAngleDegrees( double Angle, double aMin, double aMax )
-{
-    while( Angle < aMin )
-        Angle += 360.0;
-
-    while( Angle >= aMax )
-        Angle -= 360.0;
-
-    return Angle;
-}
-
-/// Add two angles (keeping the result normalized). T2 is here
-// because most of the time it's an int (and templates don't promote in
-// that way)
-template <class T, class T2> inline T AddAngles( T a1, T2 a2 )
-{
-    a1 += a2;
-    NORMALIZE_ANGLE_POS( a1 );
-    return a1;
-}
-
-
-template <class T> inline T NegateAndNormalizeAnglePos( T Angle )
-{
-    Angle = -Angle;
-
-    while( Angle < 0 )
-        Angle += 3600;
-
-    while( Angle >= 3600 )
-        Angle -= 3600;
-
-    return Angle;
-}
-
-template <class T> inline void NEGATE_AND_NORMALIZE_ANGLE_POS( T& Angle )
-{
-    Angle = NegateAndNormalizeAnglePos( Angle );
-}
-
-
-/// Normalize angle to be in the -90.0 .. 90.0 range
-template <class T> inline T NormalizeAngle90( T Angle )
-{
-    while( Angle < -900 )
-        Angle += 1800;
-
-    while( Angle > 900 )
-        Angle -= 1800;
-
-    return Angle;
-}
-
-template <class T> inline void NORMALIZE_ANGLE_90( T& Angle )
-{
-    Angle = NormalizeAngle90( Angle );
-}
-
-
 /// Normalize angle to be in the -180.0 .. 180.0 range
 template <class T> inline T NormalizeAngle180( T Angle )
 {
@@ -398,11 +227,6 @@ template <class T> inline T NormalizeAngle180( T Angle )
         Angle -= 3600;
 
     return Angle;
-}
-
-template <class T> inline void NORMALIZE_ANGLE_180( T& Angle )
-{
-    Angle = NormalizeAngle180( Angle );
 }
 
 /**
@@ -439,24 +263,6 @@ inline bool InterceptsNegativeX( double aStartAngle, double aEndAngle )
         end += 360.0;
 
     return aStartAngle < 180.0 && end > 180.0;
-}
-
-/**
- * Circle generation utility: computes r * sin(a)
- * Where a is in decidegrees, not in radians.
- */
-inline double sindecideg( double r, double a )
-{
-    return r * sin( DECIDEG2RAD( a ) );
-}
-
-/**
- * Circle generation utility: computes r * cos(a)
- * Where a is in decidegrees, not in radians.
- */
-inline double cosdecideg( double r, double a )
-{
-    return r * cos( DECIDEG2RAD( a ) );
 }
 
 #endif

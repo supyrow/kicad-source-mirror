@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2017 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 2004-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2004-20212KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -102,7 +102,7 @@ void LIB_SHAPE::MirrorVertical( const VECTOR2I& aCenter )
 
 void LIB_SHAPE::Rotate( const VECTOR2I& aCenter, bool aRotateCCW )
 {
-    int rot_angle = aRotateCCW ? -900 : 900;
+    EDA_ANGLE rot_angle = aRotateCCW ? -ANGLE_90 : ANGLE_90;
 
     rotate( aCenter, rot_angle );
 }
@@ -111,13 +111,13 @@ void LIB_SHAPE::Rotate( const VECTOR2I& aCenter, bool aRotateCCW )
 void LIB_SHAPE::Plot( PLOTTER* aPlotter, const VECTOR2I& aOffset, bool aFill,
                       const TRANSFORM& aTransform ) const
 {
-    VECTOR2I start = aTransform.TransformCoordinate( m_start ) + aOffset;
-    VECTOR2I end = aTransform.TransformCoordinate( m_end ) + aOffset;
-    VECTOR2I center;
-    int     startAngle = 0;
-    int     endAngle = 0;
-    int     pen_size = GetEffectivePenWidth( aPlotter->RenderSettings() );
-    FILL_T fill = aFill ? m_fill : FILL_T::NO_FILL;
+    VECTOR2I  start = aTransform.TransformCoordinate( m_start ) + aOffset;
+    VECTOR2I  end = aTransform.TransformCoordinate( m_end ) + aOffset;
+    VECTOR2I  center;
+    EDA_ANGLE startAngle;
+    EDA_ANGLE endAngle;
+    int       pen_size = GetEffectivePenWidth( aPlotter->RenderSettings() );
+    FILL_T    fill = aFill ? m_fill : FILL_T::NO_FILL;
 
     static std::vector<VECTOR2I> cornerList;
 
@@ -251,11 +251,11 @@ void LIB_SHAPE::print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset
     {
         c = aTransform.TransformCoordinate( getCenter() ) + aOffset;
 
-        int t1, t2;
+        EDA_ANGLE t1, t2;
 
         CalcArcAngles( t1, t2 );
 
-        if( aTransform.MapAngles( &t1, &t2 ) == ( NormalizeAngle180( t1 - t2 ) > 0 ) )
+        if( aTransform.MapAngles( &t1, &t2 ) == ( ( t1 - t2 ).Normalize180() > ANGLE_0 ) )
             std::swap( pt1, pt2 );
     }
 
@@ -314,10 +314,12 @@ void LIB_SHAPE::print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset
             break;
 
         case SHAPE_T::POLY:
+
+            GRPoly( nullptr, DC, ptCount, buffer, true, 0, fillColor, fillColor );
+
             if( penWidth > 0 )
-                GRPoly( nullptr, DC, ptCount, buffer, true, penWidth, color, fillColor );
-            else
-                GRPoly( nullptr, DC, ptCount, buffer, true, 0, fillColor, fillColor );
+                GRPoly( nullptr, DC, ptCount, buffer, false, penWidth, color, fillColor );
+
             break;
 
         case SHAPE_T::BEZIER:
@@ -416,18 +418,6 @@ void LIB_SHAPE::AddPoint( const VECTOR2I& aPosition )
     {
         UNIMPLEMENTED_FOR( SHAPE_T_asString() );
     }
-}
-
-
-void LIB_SHAPE::CalcArcAngles( int& aStartAngle, int& aEndAngle ) const
-{
-    double start;
-    double end;
-
-    EDA_SHAPE::CalcArcAngles( start, end );
-
-    aStartAngle = KiROUND( start * 10.0 );
-    aEndAngle = KiROUND( end * 10.0 );
 }
 
 

@@ -336,7 +336,6 @@ set( COMMON_SRCS
     dialog_shim.cpp
     gr_text.cpp
     dsnlexer.cpp
-    eda_angle.cpp
     eda_base_frame.cpp
     eda_dde.cpp
     eda_doc.cpp
@@ -532,6 +531,7 @@ set( PCB_COMMON_SRCS
     ${CMAKE_SOURCE_DIR}/pcbnew/board_commit.cpp
     ${CMAKE_SOURCE_DIR}/pcbnew/board_connected_item.cpp
     ${CMAKE_SOURCE_DIR}/pcbnew/board_design_settings.cpp
+    ${CMAKE_SOURCE_DIR}/pcbnew/teardrop/teardrop_parameters.cpp     #needed by board_design_settings.cpp
     ${CMAKE_SOURCE_DIR}/pcbnew/board.cpp
     ${CMAKE_SOURCE_DIR}/pcbnew/board_item.cpp
     ${CMAKE_SOURCE_DIR}/pcbnew/pcb_dimension.cpp

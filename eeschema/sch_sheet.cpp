@@ -22,6 +22,9 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
+#include <cstdlib>
+#include <climits>
+
 #include <bitmaps.h>
 #include <core/mirror.h>
 #include <sch_draw_panel.h>
@@ -774,8 +777,8 @@ void SCH_SHEET::Rotate( const VECTOR2I& aCenter )
 {
     VECTOR2I prev = m_pos;
 
-    RotatePoint( m_pos, aCenter, 900 );
-    RotatePoint( &m_size.x, &m_size.y, 900 );
+    RotatePoint( m_pos, aCenter, ANGLE_90 );
+    RotatePoint( &m_size.x, &m_size.y, ANGLE_90 );
 
     if( m_size.x < 0 )
     {
@@ -1227,10 +1230,9 @@ int SCH_SHEET::ComparePageNum( const wxString& aPageNumberA, const wxString& aPa
     // If not numeric, then sort as strings using natural sort
     int result = StrNumCmp( aPageNumberA, aPageNumberB );
 
-    if( result > 0 )
-        return 1; // A > B
+    result = result / std::abs( result );
 
-    return -1; //A < B
+    return result;
 }
 
 

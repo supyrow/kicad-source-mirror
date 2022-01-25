@@ -32,41 +32,107 @@
 #include <wx/log.h>
 #include <wx/translation.h>
 
-const CFB::COMPOUND_FILE_ENTRY* FindStream( const CFB::CompoundFileReader& aReader,
-                                            const char* aStreamName )
+
+ALTIUM_COMPOUND_FILE::ALTIUM_COMPOUND_FILE( const wxString& aFilePath )
+{
+    // Open file
+    FILE* fp = wxFopen( aFilePath, "rb" );
+
+    if( fp == nullptr )
+    {
+        THROW_IO_ERROR( wxString::Format( _( "Cannot open file '%s'." ), aFilePath ) );
+    }
+
+    fseek( fp, 0, SEEK_END );
+    long len = ftell( fp );
+
+    if( len < 0 )
+    {
+        fclose( fp );
+        THROW_IO_ERROR( _( "Error reading file: cannot determine length." ) );
+    }
+
+    // Read into buffer (TODO: add support for memory-mapped files to avoid this copy!)
+    m_buffer.resize( len );
+
+    fseek( fp, 0, SEEK_SET );
+
+    size_t bytesRead = fread( m_buffer.data(), sizeof( unsigned char ), len, fp );
+    fclose( fp );
+
+    if( static_cast<size_t>( len ) != bytesRead )
+    {
+        THROW_IO_ERROR( _( "Error reading file." ) );
+    }
+
+    try
+    {
+        m_reader = std::make_unique<CFB::CompoundFileReader>( m_buffer.data(), m_buffer.size() );
+    }
+    catch( CFB::CFBException& exception )
+    {
+        THROW_IO_ERROR( exception.what() );
+    }
+}
+
+
+static const CFB::COMPOUND_FILE_ENTRY*
+FindStreamSingleLevel( const CFB::CompoundFileReader&  aReader,
+                       const CFB::COMPOUND_FILE_ENTRY* aEntry, const std::string aName,
+                       const bool aIsStream )
 {
     const CFB::COMPOUND_FILE_ENTRY* ret = nullptr;
-    aReader.EnumFiles( aReader.GetRootEntry(), -1,
-            [&]( const CFB::COMPOUND_FILE_ENTRY* aEntry, const CFB::utf16string& aU16dir,
-                 int level ) -> void
-            {
-                if( aReader.IsStream( aEntry ) )
-                {
-                    std::string name = UTF16ToUTF8( aEntry->name );
-                    if( aU16dir.length() > 0 )
-                    {
-                        std::string dir = UTF16ToUTF8( aU16dir.c_str() );
-                        if( strncmp( aStreamName, dir.c_str(), dir.length() ) == 0
-                                && aStreamName[dir.length()] == '\\'
-                                && strcmp( aStreamName + dir.length() + 1, name.c_str() ) == 0 )
-                        {
-                            ret = aEntry;
-                        }
-                    }
-                    else
-                    {
-                        if( strcmp( aStreamName, name.c_str() ) == 0 )
-                        {
-                            ret = aEntry;
-                        }
-                    }
-                }
-            } );
+
+    aReader.EnumFiles( aEntry, 1,
+                       [&]( const CFB::COMPOUND_FILE_ENTRY* entry, const CFB::utf16string& dir,
+                            int level ) -> void
+                       {
+                           if( aReader.IsStream( entry ) == aIsStream )
+                           {
+                               std::string name = UTF16ToUTF8( entry->name );
+                               if( name == aName.c_str() )
+                               {
+                                   ret = entry;
+                               }
+                           }
+                       } );
+
     return ret;
 }
 
 
-ALTIUM_PARSER::ALTIUM_PARSER( const CFB::CompoundFileReader& aReader,
+const CFB::COMPOUND_FILE_ENTRY*
+ALTIUM_COMPOUND_FILE::FindStream( const std::string& aStreamPath ) const
+{
+    if( !m_reader )
+    {
+        return nullptr;
+    }
+
+    const CFB::COMPOUND_FILE_ENTRY* currentDirEntry = m_reader->GetRootEntry();
+
+    size_t startCh = 0;
+    size_t delimiter = aStreamPath.find( '\\', startCh );
+    while( delimiter != std::string::npos )
+    {
+        std::string directoryName = aStreamPath.substr( startCh, delimiter );
+        currentDirEntry =
+                FindStreamSingleLevel( *m_reader.get(), currentDirEntry, directoryName, false );
+        if( currentDirEntry == nullptr )
+        {
+            return nullptr;
+        }
+
+        startCh = delimiter + 1;
+        delimiter = aStreamPath.find( '\\', startCh );
+    }
+
+    std::string fileName = aStreamPath.substr( startCh, delimiter );
+    return FindStreamSingleLevel( *m_reader.get(), currentDirEntry, fileName, true );
+}
+
+
+ALTIUM_PARSER::ALTIUM_PARSER( const ALTIUM_COMPOUND_FILE&     aFile,
                               const CFB::COMPOUND_FILE_ENTRY* aEntry )
 {
     m_subrecord_end = nullptr;
@@ -76,7 +142,7 @@ ALTIUM_PARSER::ALTIUM_PARSER( const CFB::CompoundFileReader& aReader,
     m_pos = m_content.get();
 
     // read file into buffer
-    aReader.ReadFile( aEntry, 0, m_content.get(), m_size );
+    aFile.GetCompoundFileReader().ReadFile( aEntry, 0, m_content.get(), m_size );
 }
 
 

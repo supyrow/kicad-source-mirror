@@ -31,6 +31,7 @@
 #include <pad.h>
 #include <drc/drc_item.h>
 #include <connectivity/connectivity_data.h>
+#include <connectivity/connectivity_algo.h>
 #include <pcb_edit_frame.h>
 #include <pcbnew_settings.h>
 #include <tool/tool_manager.h>
@@ -97,7 +98,28 @@ DIALOG_DRC::DIALOG_DRC( PCB_EDIT_FRAME* aEditorFrame, wxWindow* aParent ) :
     SetupStandardButtons( { { wxID_OK,     _( "Run DRC" ) },
                             { wxID_CANCEL, _( "Close" )   } } );
 
-    initValues();
+    m_markersTitleTemplate     = m_Notebook->GetPageText( 0 );
+    m_unconnectedTitleTemplate = m_Notebook->GetPageText( 1 );
+    m_footprintsTitleTemplate  = m_Notebook->GetPageText( 2 );
+    m_ignoredTitleTemplate     = m_Notebook->GetPageText( 3 );
+
+    auto cfg = m_frame->GetPcbNewSettings();
+
+    m_cbRefillZones->SetValue( cfg->m_DrcDialog.refill_zones );
+    m_cbReportAllTrackErrors->SetValue( cfg->m_DrcDialog.test_all_track_errors );
+
+    if( !Kiface().IsSingle() )
+        m_cbTestFootprints->SetValue( cfg->m_DrcDialog.test_footprints );
+
+    m_severities = cfg->m_DrcDialog.severities;
+    m_markersTreeModel->SetSeverities( m_severities );
+    m_unconnectedTreeModel->SetSeverities( m_severities );
+    m_footprintWarningsTreeModel->SetSeverities( m_severities );
+
+    Layout(); // adding the units above expanded Clearance text, now resize.
+
+    SetFocus();
+
     syncCheckboxes();
 
     finishDialogSettings();
@@ -136,31 +158,7 @@ void DIALOG_DRC::OnActivateDlg( wxActivateEvent& aEvent )
 }
 
 
-void DIALOG_DRC::initValues()
-{
-    m_markersTitleTemplate     = m_Notebook->GetPageText( 0 );
-    m_unconnectedTitleTemplate = m_Notebook->GetPageText( 1 );
-    m_footprintsTitleTemplate  = m_Notebook->GetPageText( 2 );
-    m_ignoredTitleTemplate     = m_Notebook->GetPageText( 3 );
-
-    auto cfg = m_frame->GetPcbNewSettings();
-
-    m_cbRefillZones->SetValue( cfg->m_DrcDialog.refill_zones );
-    m_cbReportAllTrackErrors->SetValue( cfg->m_DrcDialog.test_all_track_errors );
-
-    if( !Kiface().IsSingle() )
-        m_cbTestFootprints->SetValue( cfg->m_DrcDialog.test_footprints );
-
-    m_severities = cfg->m_DrcDialog.severities;
-    m_markersTreeModel->SetSeverities( m_severities );
-    m_unconnectedTreeModel->SetSeverities( m_severities );
-    m_footprintWarningsTreeModel->SetSeverities( m_severities );
-
-    Layout(); // adding the units above expanded Clearance text, now resize.
-
-    SetFocus();
-}
-
+// PROGRESS_REPORTER calls
 
 bool DIALOG_DRC::updateUI()
 {
@@ -361,11 +359,13 @@ void DIALOG_DRC::OnDRCItemSelected( wxDataViewEvent& aEvent )
         PCB_LAYER_ID             principalLayer = item->GetLayer();
         LSET                     violationLayers;
         std::shared_ptr<RC_ITEM> rc_item = node->m_RcItem;
+        BOARD_ITEM*              a = board->GetItem( rc_item->GetMainItemID() );
+        BOARD_ITEM*              b = board->GetItem( rc_item->GetAuxItemID() );
+        BOARD_ITEM*              c = board->GetItem( rc_item->GetAuxItem2ID() );
+        BOARD_ITEM*              d = board->GetItem( rc_item->GetAuxItem3ID() );
 
         if( rc_item->GetErrorCode() == DRCE_MALFORMED_COURTYARD )
         {
-            BOARD_ITEM* a = board->GetItem( rc_item->GetMainItemID() );
-
             if( a && ( a->GetFlags() & MALFORMED_B_COURTYARD ) > 0
                   && ( a->GetFlags() & MALFORMED_F_COURTYARD ) == 0 )
             {
@@ -382,11 +382,6 @@ void DIALOG_DRC::OnDRCItemSelected( wxDataViewEvent& aEvent )
         }
         else
         {
-            BOARD_ITEM*  a = board->GetItem( rc_item->GetMainItemID() );
-            BOARD_ITEM*  b = board->GetItem( rc_item->GetAuxItemID() );
-            BOARD_ITEM*  c = board->GetItem( rc_item->GetAuxItem2ID() );
-            BOARD_ITEM*  d = board->GetItem( rc_item->GetAuxItem3ID() );
-
             if( a || b || c || d )
                 violationLayers = LSET::AllLayersMask();
 
@@ -412,15 +407,34 @@ void DIALOG_DRC::OnDRCItemSelected( wxDataViewEvent& aEvent )
 
         WINDOW_THAWER thawer( m_frame );
 
-        if( !(principalLayer <= UNDEFINED_LAYER )
-                && ( violationLayers & board->GetVisibleLayers() ) == 0 )
+        if( principalLayer > UNDEFINED_LAYER && ( violationLayers & board->GetVisibleLayers() ) == 0 )
             m_frame->GetAppearancePanel()->SetLayerVisible( principalLayer, true );
 
-        if( !(principalLayer <= UNDEFINED_LAYER )
-                && board->GetVisibleLayers().test( principalLayer ) )
+        if( principalLayer > UNDEFINED_LAYER && board->GetVisibleLayers().test( principalLayer ) )
             m_frame->SetActiveLayer( principalLayer );
 
-        if( m_centerMarkerOnIdle )
+        if( rc_item->GetErrorCode() == DRCE_UNCONNECTED_ITEMS )
+        {
+            if( !m_frame->Settings().m_Display.m_ShowGlobalRatsnest )
+                m_frame->GetToolManager()->RunAction( PCB_ACTIONS::showRatsnest, true );
+
+            std::vector<CN_EDGE> edges;
+            m_frame->GetBoard()->GetConnectivity()->GetUnconnectedEdges( edges );
+
+            for( const CN_EDGE& edge : edges )
+            {
+                if( edge.GetSourceNode()->Parent() == a  && edge.GetTargetNode()->Parent() == b )
+                {
+                    if( item == a )
+                        m_frame->FocusOnLocation( edge.GetSourcePos() );
+                    else
+                        m_frame->FocusOnLocation( edge.GetTargetPos() );
+
+                    break;
+                }
+            }
+        }
+        else if( m_centerMarkerOnIdle )
         {
             // we already came from a cross-probe of the marker in the document; don't go
             // around in circles
@@ -751,9 +765,9 @@ void DIALOG_DRC::OnSeverity( wxCommandEvent& aEvent )
 
 void DIALOG_DRC::OnSaveReport( wxCommandEvent& aEvent )
 {
-    wxFileName fn( "./DRC." + ReportFileExtension );
+    wxFileName fn( "DRC." + ReportFileExtension );
 
-    wxFileDialog dlg( this, _( "Save Report to File" ), fn.GetPath(), fn.GetFullName(),
+    wxFileDialog dlg( this, _( "Save Report to File" ), Prj().GetProjectPath(), fn.GetFullName(),
                       ReportFileWildcard(), wxFD_SAVE | wxFD_OVERWRITE_PROMPT );
 
     if( dlg.ShowModal() != wxID_OK )

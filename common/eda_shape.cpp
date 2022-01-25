@@ -37,14 +37,14 @@
 #include <plotters/plotter.h>
 
 
-EDA_SHAPE::EDA_SHAPE( SHAPE_T aType, int aLineWidth, FILL_T aFill, bool eeWinding ) :
-    m_endsSwapped( false ),
-    m_shape( aType ),
-    m_stroke( aLineWidth, PLOT_DASH_TYPE::DEFAULT, COLOR4D::UNSPECIFIED ),
-    m_fill( aFill ),
-    m_fillColor( COLOR4D::UNSPECIFIED ),
-    m_editState( 0 ),
-    m_eeWinding( eeWinding )
+EDA_SHAPE::EDA_SHAPE( SHAPE_T aType, int aLineWidth, FILL_T aFill, bool upsideDownCoords ) :
+        m_endsSwapped( false ),
+        m_shape( aType ),
+        m_stroke( aLineWidth, PLOT_DASH_TYPE::DEFAULT, COLOR4D::UNSPECIFIED ),
+        m_fill( aFill ),
+        m_fillColor( COLOR4D::UNSPECIFIED ),
+        m_editState( 0 ),
+        m_upsideDownCoords( upsideDownCoords )
 {
 }
 
@@ -222,7 +222,7 @@ void EDA_SHAPE::scale( double aScale )
 }
 
 
-void EDA_SHAPE::rotate( const VECTOR2I& aRotCentre, double aAngle )
+void EDA_SHAPE::rotate( const VECTOR2I& aRotCentre, const EDA_ANGLE& aAngle )
 {
     switch( m_shape )
     {
@@ -239,7 +239,7 @@ void EDA_SHAPE::rotate( const VECTOR2I& aRotCentre, double aAngle )
         break;
 
     case SHAPE_T::RECT:
-        if( KiROUND( aAngle ) % 900 == 0 )
+        if( aAngle.IsCardinal() )
         {
             RotatePoint( m_start, aRotCentre, aAngle );
             RotatePoint( m_end, aRotCentre, aAngle );
@@ -258,7 +258,7 @@ void EDA_SHAPE::rotate( const VECTOR2I& aRotCentre, double aAngle )
         KI_FALLTHROUGH;
 
     case SHAPE_T::POLY:
-        m_poly.Rotate( -DECIDEG2RAD( aAngle ), VECTOR2I( aRotCentre ) );
+        m_poly.Rotate( aAngle, aRotCentre );
         break;
 
     case SHAPE_T::BEZIER:
@@ -443,23 +443,23 @@ VECTOR2I EDA_SHAPE::GetArcMid() const
 }
 
 
-void EDA_SHAPE::CalcArcAngles( double& aStartAngle, double& aEndAngle ) const
+void EDA_SHAPE::CalcArcAngles( EDA_ANGLE& aStartAngle, EDA_ANGLE& aEndAngle ) const
 {
     VECTOR2D startRadial( GetStart() - getCenter() );
     VECTOR2D endRadial( GetEnd() - getCenter() );
 
-    aStartAngle = 180.0 / M_PI * atan2( startRadial.y, startRadial.x );
-    aEndAngle = 180.0 / M_PI * atan2( endRadial.y, endRadial.x );
+    aStartAngle = EDA_ANGLE( startRadial );
+    aEndAngle = EDA_ANGLE( endRadial );
 
     if( aEndAngle == aStartAngle )
-        aEndAngle = aStartAngle + 360.0;   // ring, not null
+        aEndAngle = aStartAngle + ANGLE_360;   // ring, not null
 
     if( aStartAngle > aEndAngle )
     {
-        if( aEndAngle < 0 )
-            aEndAngle = NormalizeAngleDegrees( aEndAngle, 0.0, 360.0 );
+        if( aEndAngle < ANGLE_0 )
+            aEndAngle.Normalize();
         else
-            aStartAngle = NormalizeAngleDegrees( aStartAngle, -360.0, 0.0 );
+            aStartAngle = aStartAngle.Normalize() - ANGLE_360;
     }
 }
 
@@ -494,10 +494,10 @@ void EDA_SHAPE::SetArcGeometry( const VECTOR2I& aStart, const VECTOR2I& aMid, co
     m_arcCenter = CalcArcCenter( aStart, aMid, aEnd );
     m_endsSwapped = false;
 
-    /**
-     * If the input winding doesn't match our internal winding, the calculated midpoint will end up
-     * on the other side of the arc.  In this case, we need to flip the start/end points and flag this
-     * change for the system
+    /*
+     * If the input winding doesn't match our internal winding, the calculated midpoint will end
+     * up on the other side of the arc.  In this case, we need to flip the start/end points and
+     * flag this change for the system.
      */
     VECTOR2I new_mid = GetArcMid();
     VECTOR2D dist( new_mid - aMid );
@@ -508,27 +508,28 @@ void EDA_SHAPE::SetArcGeometry( const VECTOR2I& aStart, const VECTOR2I& aMid, co
         std::swap( m_start, m_end );
         m_endsSwapped = true;
     }
-
 }
 
 
 EDA_ANGLE EDA_SHAPE::GetArcAngle() const
 {
-    double startAngle;
-    double endAngle;
+    EDA_ANGLE startAngle;
+    EDA_ANGLE endAngle;
 
     CalcArcAngles( startAngle, endAngle );
 
-    return EDA_ANGLE( endAngle - startAngle, DEGREES_T );
+    return endAngle - startAngle;
 }
 
 
-void EDA_SHAPE::SetArcAngleAndEnd( double aAngle, bool aCheckNegativeAngle )
+void EDA_SHAPE::SetArcAngleAndEnd( const EDA_ANGLE& aAngle, bool aCheckNegativeAngle )
 {
-    m_end = m_start;
-    RotatePoint( m_end, m_arcCenter, -NormalizeAngle360Max( aAngle ) );
+    EDA_ANGLE angle( aAngle );
 
-    if( aCheckNegativeAngle && aAngle < 0 )
+    m_end = m_start;
+    RotatePoint( m_end, m_arcCenter, -angle.Normalize720() );
+
+    if( aCheckNegativeAngle && aAngle < ANGLE_0 )
     {
         std::swap( m_start, m_end );
         m_endsSwapped = true;
@@ -598,8 +599,8 @@ void EDA_SHAPE::ShapeGetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PA
         const double deg = RAD2DEG( atan2( (double)( GetStart().y - GetEnd().y ),
                                            (double)( GetEnd().x - GetStart().x ) ) );
         aList.emplace_back( _( "Angle" ), wxString::Format( "%.1f", deg ) );
-    }
         break;
+    }
 
     default:
         aList.emplace_back( shape, _( "Unrecognized" ) );
@@ -705,18 +706,18 @@ bool EDA_SHAPE::hitTest( const VECTOR2I& aPosition, int aAccuracy ) const
 
         if( abs( radius - dist ) <= maxdist )
         {
-            double startAngle;
-            double endAngle;
+            EDA_ANGLE startAngle;
+            EDA_ANGLE endAngle;
             CalcArcAngles( startAngle, endAngle );
 
-            if( m_eeWinding && NormalizeAngleDegrees( startAngle - endAngle, -180.0, 180.0 ) > 0 )
+            if( m_upsideDownCoords && ( startAngle - endAngle ).Normalize180() > ANGLE_0 )
                 std::swap( startAngle, endAngle );
 
-            double relPosAngle = 180.0 / M_PI * atan2( relPos.y, relPos.x );
+            EDA_ANGLE relPosAngle( relPos );
 
-            startAngle = NormalizeAngleDegrees( startAngle, 0.0, 360.0 );
-            endAngle = NormalizeAngleDegrees( endAngle, 0.0, 360.0 );
-            relPosAngle = NormalizeAngleDegrees( relPosAngle, 0.0, 360.0 );
+            startAngle.Normalize();
+            endAngle.Normalize();
+            relPosAngle.Normalize();
 
             if( endAngle > startAngle )
                 return relPosAngle >= startAngle && relPosAngle <= endAngle;
@@ -876,14 +877,10 @@ bool EDA_SHAPE::hitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy )
             // Polygons in footprints use coordinates relative to the footprint.
             // Therefore, instead of using m_poly, we make a copy which is translated
             // to the actual location in the board.
-            double  orientation = 0.0;
             VECTOR2I offset = getParentPosition();
 
-            if( getParentOrientation() )
-                orientation = -DECIDEG2RAD( getParentOrientation() );
-
             SHAPE_LINE_CHAIN poly = m_poly.Outline( 0 );
-            poly.Rotate( orientation );
+            poly.Rotate( getParentOrientation() );
             poly.Move( offset );
 
             int count = poly.GetPointCount();
@@ -964,7 +961,7 @@ std::vector<VECTOR2I> EDA_SHAPE::GetRectCorners() const
     VECTOR2I              botRight = GetEnd();
 
     // Un-rotate rect topLeft and botRight
-    if( KiROUND( getParentOrientation() ) % 900 != 0 )
+    if( !getParentOrientation().IsCardinal() )
     {
         topLeft -= getParentPosition();
         RotatePoint( topLeft, -getParentOrientation() );
@@ -980,7 +977,7 @@ std::vector<VECTOR2I> EDA_SHAPE::GetRectCorners() const
     pts.emplace_back( topLeft.x, botRight.y );
 
     // Now re-rotate the 4 corners to get a diamond
-    if( KiROUND( getParentOrientation() ) % 900 != 0 )
+    if( !getParentOrientation().IsCardinal() )
     {
         for( VECTOR2I& pt : pts )
         {
@@ -995,68 +992,50 @@ std::vector<VECTOR2I> EDA_SHAPE::GetRectCorners() const
 
 void EDA_SHAPE::computeArcBBox( EDA_RECT& aBBox ) const
 {
-    VECTOR2I start = m_start;
-    VECTOR2I end = m_end;
-    double  t1, t2;
+    int       radius = GetRadius();
+    EDA_ANGLE t1, t2;
 
     CalcArcAngles( t1, t2 );
 
-    if( m_eeWinding && NormalizeAngleDegrees( t1 - t2, -180.0, 180.0 ) > 0 )
-        std::swap( start, end );
+    if( m_upsideDownCoords && ( t1 - t2 ).Normalize180() > ANGLE_0 )
+        std::swap( t1, t2 );
 
-    // Do not include the center, which is not necessarily inside the BB of an arc with a small
-    // included angle
-    aBBox.SetOrigin( start );
-    aBBox.Merge( end );
+    t1.Normalize();
+    t2.Normalize();
 
-    // Determine the starting quarter
-    // 0 right-bottom
-    // 1 left-bottom
-    // 2 left-top
-    // 3 right-top
-    unsigned int quarter;
+    // Start, end, and each inflection point the arc crosses will enclose the entire arc
+    // Do not include the center, which is not necessarily inside the BB of an arc with a
+    // small included angle
+    aBBox.SetOrigin( m_start );
+    aBBox.Merge( m_end );
 
-    if( start.x < m_arcCenter.x )
+    if( t2 > t1 )
     {
-        if( start.y <= m_arcCenter.y )
-            quarter = 2;
-        else
-            quarter = 1;
-    }
-    else if( start.x == m_arcCenter.x )
-    {
-        if( start.y < m_arcCenter.y )
-            quarter = 3;
-        else
-            quarter = 1;
+        if( t1 < ANGLE_0 && t2 > ANGLE_0 )
+            aBBox.Merge( VECTOR2I( m_arcCenter.x + radius, m_arcCenter.y ) ); // right
+
+        if( t1 < ANGLE_90 && t2 > ANGLE_90 )
+            aBBox.Merge( VECTOR2I( m_arcCenter.x, m_arcCenter.y + radius ) ); // down
+
+        if( t1 < ANGLE_180 && t2 > ANGLE_180 )
+            aBBox.Merge( VECTOR2I( m_arcCenter.x - radius, m_arcCenter.y ) ); // left
+
+        if( t1 < ANGLE_270 && t2 > ANGLE_270 )
+            aBBox.Merge( VECTOR2I( m_arcCenter.x, m_arcCenter.y - radius ) ); // up
     }
     else
     {
-        if( start.y < m_arcCenter.y )
-            quarter = 3;
-        else
-            quarter = 0;
-    }
+        if( t1 < ANGLE_0 || t2 > ANGLE_0 )
+            aBBox.Merge( VECTOR2I( m_arcCenter.x + radius, m_arcCenter.y ) ); // right
 
-    int      radius = GetRadius();
-    VECTOR2I startRadial = start - m_arcCenter;
-    VECTOR2I endRadial = end - m_arcCenter;
-    double   angleStart = ArcTangente( startRadial.y, startRadial.x );
-    double   arcAngle = RAD2DECIDEG( endRadial.Angle() - startRadial.Angle() );
-    int      angle = (int) NormalizeAnglePos( angleStart ) % 900 + NormalizeAnglePos( arcAngle );
+        if( t1 < ANGLE_90 || t2 > ANGLE_90 )
+            aBBox.Merge( VECTOR2I( m_arcCenter.x, m_arcCenter.y + radius ) ); // down
 
-    while( angle > 900 )
-    {
-        switch( quarter )
-        {
-        case 0: aBBox.Merge( VECTOR2I( m_arcCenter.x, m_arcCenter.y + radius ) ); break; // down
-        case 1: aBBox.Merge( VECTOR2I( m_arcCenter.x - radius, m_arcCenter.y ) ); break; // left
-        case 2: aBBox.Merge( VECTOR2I( m_arcCenter.x, m_arcCenter.y - radius ) ); break; // up
-        case 3: aBBox.Merge( VECTOR2I( m_arcCenter.x + radius, m_arcCenter.y ) ); break; // right
-        }
+        if( t1 < ANGLE_180 || t2 > ANGLE_180 )
+            aBBox.Merge( VECTOR2I( m_arcCenter.x - radius, m_arcCenter.y ) ); // left
 
-        ++quarter %= 4;
-        angle -= 900;
+        if( t1 < ANGLE_270 || t2 > ANGLE_270 )
+            aBBox.Merge( VECTOR2I( m_arcCenter.x, m_arcCenter.y - radius ) ); // up
     }
 }
 
@@ -1133,7 +1112,7 @@ std::vector<SHAPE*> EDA_SHAPE::MakeEffectiveShapes( bool aEdgeOnly ) const
     {
         SHAPE_LINE_CHAIN l = GetPolyShape().COutline( 0 );
 
-        l.Rotate( -DECIDEG2RAD( getParentOrientation() ) );
+        l.Rotate( getParentOrientation() );
         l.Move( getParentPosition() );
 
         if( IsFilled() && !aEdgeOnly )
@@ -1431,7 +1410,7 @@ void EDA_SHAPE::SwapShape( EDA_SHAPE* aImage )
     SWAPITEM( m_poly );
     SWAPITEM( m_fill );
     SWAPITEM( m_fillColor );
-    SWAPITEM( m_eeWinding );
+    SWAPITEM( m_upsideDownCoords );
     SWAPITEM( m_editState );
     SWAPITEM( m_endsSwapped );
     #undef SWAPITEM
@@ -1543,8 +1522,8 @@ void EDA_SHAPE::TransformShapeWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuf
             break;
 
         // The polygon is expected to be a simple polygon; not self intersecting, no hole.
-        double  orientation = getParentOrientation();
-        VECTOR2I offset = getParentPosition();
+        EDA_ANGLE orientation = getParentOrientation();
+        VECTOR2I  offset = getParentPosition();
 
         // Build the polygon with the actual position and orientation:
         std::vector<VECTOR2I> poly;

@@ -184,12 +184,14 @@ VECTOR2I FP_SHAPE::GetArcMid0() const
 }
 
 
-void FP_SHAPE::SetArcAngleAndEnd0( double aAngle, bool aCheckNegativeAngle )
+void FP_SHAPE::SetArcAngleAndEnd0( const EDA_ANGLE& aAngle, bool aCheckNegativeAngle )
 {
-    m_end0 = m_start0;
-    RotatePoint( m_end0, m_arcCenter0, -NormalizeAngle360Max( aAngle ) );
+    EDA_ANGLE angle( aAngle );
 
-    if( aCheckNegativeAngle && aAngle < 0 )
+    m_end0 = m_start0;
+    RotatePoint( m_end0, m_arcCenter0, -angle.Normalize720() );
+
+    if( aCheckNegativeAngle && aAngle < ANGLE_0 )
         std::swap( m_start0, m_end0 );
 }
 
@@ -303,6 +305,12 @@ void FP_SHAPE::Mirror( const VECTOR2I& aCentre, bool aMirrorAroundXAxis )
             MIRROR( m_arcCenter0.x, aCentre.x );
             MIRROR( m_bezierC1_0.x, aCentre.x );
             MIRROR( m_bezierC2_0.x, aCentre.x );
+        }
+
+        if( GetShape() == SHAPE_T::ARC )
+        {
+            std::swap( m_start, m_end );
+            std::swap( m_start0, m_end0 );
         }
 
         if( GetShape() == SHAPE_T::BEZIER )

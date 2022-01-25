@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2021 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -43,19 +43,17 @@
 #define MAGIC_TEARDROP_ZONE_ID 30000
 
 
-void TEARDROP_MANAGER::SetTargets( bool aApplyToPadVias, bool aApplyToRoundShapesOnly,
-                                   bool aApplyToSurfacePads, bool aApplyToTracks )
+TEARDROP_MANAGER::TEARDROP_MANAGER( BOARD* aBoard, PCB_EDIT_FRAME* aFrame )
 {
-    m_applyToViaPads = aApplyToPadVias;
-    m_applyToRoundShapesOnly = aApplyToRoundShapesOnly;
-    m_applyToSurfacePads = aApplyToSurfacePads;
-    m_applyToTracks = aApplyToTracks;
+    m_board = aBoard;
+    m_prmsList = m_board->GetDesignSettings().GetTeadropParamsList();
+    m_tolerance = 0;
 }
 
 
 // Build a zone teardrop
 ZONE* TEARDROP_MANAGER::createTeardrop( TEARDROP_VARIANT aTeardropVariant,
-                                        std::vector<VECTOR2I>& aPoints, PCB_TRACK* aTrack)
+                                        std::vector<VECTOR2I>& aPoints, PCB_TRACK* aTrack) const
 {
     ZONE* teardrop = new ZONE( m_board );
 
@@ -90,7 +88,7 @@ int TEARDROP_MANAGER::SetTeardrops( BOARD_COMMIT* aCommitter,
                                     bool aDiscardInSameZone, bool aFollowTracks )
 {
     // Init parameters:
-    m_Parameters.m_tolerance = Millimeter2iu( 0.01 );
+    m_tolerance = Millimeter2iu( 0.01 );
 
     int count = 0;      // Number of created teardrop
 
@@ -100,8 +98,12 @@ int TEARDROP_MANAGER::SetTeardrops( BOARD_COMMIT* aCommitter,
     // get vias, PAD_ATTRIB_PTH and others if aIncludeNotDrilled == true
     // (custom pads are not collected)
     std::vector< VIAPAD > viapad_list;
-    collectVias( viapad_list );
-    collectPadsCandidate( viapad_list, m_applyToRoundShapesOnly, m_applyToSurfacePads );
+
+    if( m_prmsList->m_TargetViasPads )
+        collectVias( viapad_list );
+
+    collectPadsCandidate( viapad_list, m_prmsList->m_TargetViasPads,
+                          m_prmsList->m_UseRoundShapesOnly, m_prmsList->m_TargetPadsWithNoHole );
 
     TRACK_BUFFER trackLookupList;
 
@@ -132,6 +134,10 @@ int TEARDROP_MANAGER::SetTeardrops( BOARD_COMMIT* aCommitter,
         // if both track ends are inside or outside, one cannot build a teadrop
         for( VIAPAD& viapad: viapad_list )
         {
+            // Pad and track must be on the same layer
+            if( !viapad.IsOnLayer( track->GetLayer() ) )
+                continue;
+
             bool start_in_pad = viapad.m_Parent->HitTest( track->GetStart() );
             bool end_in_pad = viapad.m_Parent->HitTest( track->GetEnd() );
 
@@ -139,14 +145,18 @@ int TEARDROP_MANAGER::SetTeardrops( BOARD_COMMIT* aCommitter,
                 // the track is inside or outside the via pad. Cannot create a teardrop
                 continue;
 
+            // A pointer to one of available m_Parameters items
+            TEARDROP_PARAMETERS* currParams;
+
+            if( viapad.m_IsRound )
+                currParams = m_prmsList->GetParameters( TARGET_ROUND );
+            else
+                currParams = m_prmsList->GetParameters( TARGET_RECT );
+
             // Ensure a teardrop shape can be built:
             // The track width must be < teardrop height
-            if( track->GetWidth() >= m_Parameters.m_tdMaxHeight
-                || track->GetWidth() >= viapad.m_Width * m_Parameters.m_heightRatio )
-                continue;
-
-            // Pad and track must be on the same layer
-            if( !viapad.IsOnLayer( track->GetLayer() ) )
+            if( track->GetWidth() >= currParams->m_TdMaxHeight
+                || track->GetWidth() >= viapad.m_Width * currParams->m_HeightRatio )
                 continue;
 
             // Skip case where pad/via and the track is within a copper zone with the same net
@@ -155,7 +165,7 @@ int TEARDROP_MANAGER::SetTeardrops( BOARD_COMMIT* aCommitter,
                 continue;
 
             std::vector<VECTOR2I> points;
-            bool success = computeTeardropPolygonPoints( points, track, viapad,
+            bool success = computeTeardropPolygonPoints( currParams, points, track, viapad,
                                                          aFollowTracks, trackLookupList );
 
             if( success )
@@ -174,7 +184,7 @@ int TEARDROP_MANAGER::SetTeardrops( BOARD_COMMIT* aCommitter,
 
     int track2trackCount = 0;
 
-    if( m_applyToTracks )
+    if( m_prmsList->m_TargetTrack2Track )
         track2trackCount = addTeardropsOnTracks( aCommitter );
 
     // Now set priority of teardrops now all teardrops are added
@@ -250,7 +260,9 @@ int TEARDROP_MANAGER::addTeardropsOnTracks( BOARD_COMMIT* aCommitter )
     // teardrop inside a pad or via area
     std::vector< VIAPAD > viapad_list;
     collectVias( viapad_list );
-    collectPadsCandidate( viapad_list, true, true );
+    collectPadsCandidate( viapad_list, true, true, true );
+
+    TEARDROP_PARAMETERS* currParams = m_prmsList->GetParameters( TARGET_TRACK );
 
     // Explore groups (a group is a set of tracks on the same layer and the same net):
     for( auto grp : trackLookupList.GetBuffer() )
@@ -308,12 +320,12 @@ int TEARDROP_MANAGER::addTeardropsOnTracks( BOARD_COMMIT* aCommitter )
 
                 VECTOR2I roundshape_pos = candidate->GetStart();
                 ENDPOINT_T endPointCandidate = ENDPOINT_START;
-                match_points = track->IsPointOnEnds( roundshape_pos, m_Parameters.m_tolerance);
+                match_points = track->IsPointOnEnds( roundshape_pos, m_tolerance );
 
                 if( !match_points )
                 {
                     roundshape_pos = candidate->GetEnd();
-                    match_points = track->IsPointOnEnds( roundshape_pos, m_Parameters.m_tolerance);
+                    match_points = track->IsPointOnEnds( roundshape_pos, m_tolerance );
                     endPointCandidate = ENDPOINT_END;
                 }
 
@@ -333,7 +345,8 @@ int TEARDROP_MANAGER::addTeardropsOnTracks( BOARD_COMMIT* aCommitter )
                 {
                     VIAPAD viatrack( candidate, endPointCandidate );
                     std::vector<VECTOR2I> points;
-                    bool success = computeTeardropPolygonPoints( points, track, viatrack,
+                    bool success = computeTeardropPolygonPoints( currParams,
+                                                                 points, track, viatrack,
                                                                  false, trackLookupList );
 
                     if( success )

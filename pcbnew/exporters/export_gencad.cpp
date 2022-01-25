@@ -591,7 +591,7 @@ static void CreatePadsShapesSection( FILE* aFile, BOARD* aPcb )
             VECTOR2I       padOffset( 0, 0 );
 
             TransformRoundChamferedRectToPolygon( outline, padOffset, pad->GetSize(),
-                                                  pad->GetOrientation().AsTenthsOfADegree(),
+                                                  pad->GetOrientation(),
                                                   pad->GetRoundRectCornerRadius(),
                                                   pad->GetChamferRectRatio(),
                                                   pad->GetChamferPositions(), 0, maxError,
@@ -861,13 +861,13 @@ static void CreateComponentsSection( FILE* aFile, BOARD* aPcb )
     {
         const char*   mirror;
         const char*   flip;
-        double        fp_orient = footprint->GetOrientation().AsTenthsOfADegree();
+        EDA_ANGLE     fp_orient = footprint->GetOrientation();
 
         if( footprint->GetFlag() )
         {
             mirror = "MIRRORX";
             flip   = "FLIP";
-            NEGATE_AND_NORMALIZE_ANGLE_POS( fp_orient );
+            fp_orient = fp_orient.Invert().Normalize();
         }
         else
         {
@@ -885,7 +885,7 @@ static void CreateComponentsSection( FILE* aFile, BOARD* aPcb )
         fprintf( aFile, "LAYER %s\n",
                  footprint->GetFlag() ? "BOTTOM" : "TOP" );
         fprintf( aFile, "ROTATION %g\n",
-                 fp_orient / 10.0 );
+                 fp_orient.AsDegrees() );
         fprintf( aFile, "SHAPE \"%s\" %s %s\n",
                  TO_UTF8( escapeString( getShapeName( footprint ) ) ),
                  mirror, flip );
@@ -987,9 +987,9 @@ static bool CreateHeaderInfoData( FILE* aFile, PCB_EDIT_FRAME* aFrame )
     msg = wxT( "DRAWING \"" ) + board->GetFileName() + wxT( "\"\n" );
     fputs( TO_UTF8( msg ), aFile );
 
-    const TITLE_BLOCK&  tb = aFrame->GetTitleBlock();
-
-    msg = wxT( "REVISION \"" ) + tb.GetRevision() + wxT( " " ) + tb.GetDate() + wxT( "\"\n" );
+    wxString rev = ExpandTextVars( board->GetTitleBlock().GetRevision(), board->GetProject() );
+    wxString date = ExpandTextVars( board->GetTitleBlock().GetDate(), board->GetProject() );
+    msg = wxT( "REVISION \"" ) + rev + wxT( " " ) + date + wxT( "\"\n" );
 
     fputs( TO_UTF8( msg ), aFile );
     fputs( "UNITS INCH\n", aFile );

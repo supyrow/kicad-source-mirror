@@ -26,6 +26,7 @@
 #include <gerbview_id.h>
 #include <gerber_file_image.h>
 #include <gerber_file_image_list.h>
+#include <excellon_image.h>
 #include <gerbview_draw_panel_gal.h>
 #include <gerbview_settings.h>
 #include <drawing_sheet/ds_proxy_view_item.h>
@@ -253,24 +254,34 @@ bool GERBVIEW_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
         const unsigned limit = std::min( unsigned( aFileSet.size() ),
                                          unsigned( GERBER_DRAWLAYERS_COUNT ) );
 
-        int layer = 0;
-
-        for( unsigned i = 0; i < limit; ++i, ++layer )
+        for( unsigned i = 0; i < limit; ++i )
         {
-            SetActiveLayer( layer );
+            wxString ext = wxFileName( aFileSet[i] ).GetExt().Lower();
 
-            // Try to guess the type of file by its ext
-            // if it is .drl (KiCad files), .nc or .xnc it is a drill file
-            wxFileName fn( aFileSet[i] );
-            wxString ext = fn.GetExt();
-
-            if( ext == DrillFileExtension ||    // our Excellon format
-                ext == "nc" || ext == "xnc" )   // alternate ext for Excellon format
-                LoadExcellonFiles( aFileSet[i] );
-            else if( ext == GerberJobFileExtension )
+            if( ext == "zip" )
+                LoadZipArchiveFile( aFileSet[i] );
+            else if( ext == "gbrprj" )
                 LoadGerberJobFile( aFileSet[i] );
             else
-                LoadGerberFiles( aFileSet[i] );
+            {
+                GERBER_ORDER_ENUM fnameLayer;
+                wxString          fnameExtensionMatched;
+
+                GERBER_FILE_IMAGE_LIST::GetGerberLayerFromFilename( aFileSet[i], fnameLayer,
+                                                                    fnameExtensionMatched );
+
+                switch( fnameLayer )
+                {
+                case GERBER_ORDER_ENUM::GERBER_DRILL:
+                    LoadExcellonFiles( aFileSet[i] );
+                    break;
+                case GERBER_ORDER_ENUM::GERBER_LAYER_UNKNOWN:
+                    LoadAutodetectedFiles( aFileSet[i] );
+                    break;
+                default:
+                    LoadGerberFiles( aFileSet[i] );
+                }
+            }
         }
     }
 
@@ -450,21 +461,14 @@ void GERBVIEW_FRAME::ApplyDisplaySettingsToGAL()
 }
 
 
-int GERBVIEW_FRAME::getNextAvailableLayer( int aLayer ) const
+int GERBVIEW_FRAME::getNextAvailableLayer() const
 {
-    int layer = aLayer;
-
     for( unsigned i = 0; i < ImagesMaxCount(); ++i )
     {
-        const GERBER_FILE_IMAGE* gerber = GetGbrImage( layer );
+        const GERBER_FILE_IMAGE* gerber = GetGbrImage( i );
 
         if( gerber == nullptr )    // this graphic layer is available: use it
-            return layer;
-
-        ++layer;                // try next graphic layer
-
-        if( layer >= (int)ImagesMaxCount() )
-            layer = 0;
+            return i;
     }
 
     return NO_AVAILABLE_LAYERS;
@@ -499,10 +503,20 @@ void GERBVIEW_FRAME::syncLayerBox( bool aRebuildLayerBox )
 }
 
 
+void GERBVIEW_FRAME::SortLayersByFileExtension()
+{
+    RemapLayers( GetImagesList()->SortImagesByFileExtension() );
+}
+
+
 void GERBVIEW_FRAME::SortLayersByX2Attributes()
 {
-    auto remapping = GetImagesList()->SortImagesByZOrder();
+    RemapLayers( GetImagesList()->SortImagesByZOrder() );
+}
 
+
+void GERBVIEW_FRAME::RemapLayers( std::unordered_map<int, int> remapping )
+{
     ReFillLayerWidget();
     syncLayerBox( true );
 
@@ -510,7 +524,7 @@ void GERBVIEW_FRAME::SortLayersByX2Attributes()
 
     for( const std::pair<const int, int>& entry : remapping )
     {
-        view_remapping[ entry.first ] = GERBER_DRAW_LAYER( entry.second );
+        view_remapping[ GERBER_DRAW_LAYER( entry.first ) ] = GERBER_DRAW_LAYER( entry.second );
         view_remapping[ GERBER_DCODE_LAYER( entry.first ) ] = GERBER_DCODE_LAYER( entry.second );
     }
 
@@ -572,7 +586,7 @@ void GERBVIEW_FRAME::UpdateTitleAndInfo()
         SetStatusText( wxEmptyString, 0 );
 
         wxString info;
-        info.Printf( _( "Drawing layer %d not in use" ), GetActiveLayer() + 1 );
+        info.Printf( _( "Drawing layer not in use" ) );
         m_TextInfo->SetValue( info );
 
         if( KIUI::EnsureTextCtrlWidth( m_TextInfo, &info ) ) // Resized
@@ -886,14 +900,13 @@ void GERBVIEW_FRAME::UpdateStatusBar()
 
     if( GetShowPolarCoords() )  // display relative polar coordinates
     {
-        double   dx = cursorPos.x - GetScreen()->m_LocalOrigin.x;
-        double   dy = cursorPos.y - GetScreen()->m_LocalOrigin.y;
-        double   theta = RAD2DEG( atan2( -dy, dx ) );
-        double   ro = hypot( dx, dy );
+        VECTOR2D  v = cursorPos - GetScreen()->m_LocalOrigin;
+        EDA_ANGLE theta( VECTOR2D( v.x, -v.y ) );
+        double    ro = hypot( v.x, v.y );
 
         line.Printf( wxT( "r %s  theta %s" ),
                      MessageTextFromValue( GetUserUnits(), ro, false ),
-                     MessageTextFromValue( EDA_UNITS::DEGREES, theta, false ) );
+                     MessageTextFromValue( EDA_UNITS::DEGREES, theta.AsDegrees(), false ) );
 
         SetStatusText( line, 3 );
     }

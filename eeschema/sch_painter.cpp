@@ -197,7 +197,7 @@ bool SCH_PAINTER::Draw( const VIEW_ITEM *aItem, int aLayer )
 
 #endif
 
-    if( ADVANCED_CFG::GetCfg().m_DrawBoundingBoxes )
+    if( m_schSettings.GetDrawBoundingBoxes() )
     {
         BOX2I box = item->GetBoundingBox();
 
@@ -501,7 +501,7 @@ void SCH_PAINTER::boxText( const wxString& aText, const VECTOR2D& aPosition,
     box.Inflate( 0, aAttrs.m_StrokeWidth * 1.5 );
 
     box.Normalize();       // Make h and v sizes always >= 0
-    box = box.GetBoundingBoxRotated( (VECTOR2I) aPosition, aAttrs.m_Angle.AsTenthsOfADegree() );
+    box = box.GetBoundingBoxRotated( (VECTOR2I) aPosition, aAttrs.m_Angle );
     box.RevertYAxis();
 
     m_gal->SetIsFill( true );
@@ -518,7 +518,8 @@ void SCH_PAINTER::triLine( const VECTOR2D &a, const VECTOR2D &b, const VECTOR2D 
 }
 
 
-void SCH_PAINTER::draw( const LIB_SYMBOL *aSymbol, int aLayer, bool aDrawFields, int aUnit, int aConvert )
+void SCH_PAINTER::draw( const LIB_SYMBOL *aSymbol, int aLayer, bool aDrawFields, int aUnit,
+                        int aConvert )
 {
     if( !aUnit )
         aUnit = m_schSettings.m_ShowUnit;
@@ -637,14 +638,14 @@ void SCH_PAINTER::draw( const LIB_SHAPE *aShape, int aLayer )
         {
         case SHAPE_T::ARC:
         {
-            int startAngle;
-            int endAngle;
+            EDA_ANGLE startAngle;
+            EDA_ANGLE endAngle;
             aShape->CalcArcAngles( startAngle, endAngle );
 
             TRANSFORM().MapAngles( &startAngle, &endAngle );
 
-            m_gal->DrawArc( mapCoords( aShape->GetCenter() ), aShape->GetRadius(),
-                            DECIDEG2RAD( startAngle ), DECIDEG2RAD( endAngle ) );
+            m_gal->DrawArc( mapCoords( aShape->GetCenter() ), aShape->GetRadius(), startAngle,
+                            endAngle );
         }
             break;
 
@@ -1341,6 +1342,8 @@ void SCH_PAINTER::draw( const SCH_SHAPE* aShape, int aLayer )
 {
     bool           drawingShadows = aLayer == LAYER_SELECTION_SHADOWS;
     PLOT_DASH_TYPE lineStyle = aShape->GetEffectiveLineStyle();
+    COLOR4D        color = getRenderColor( aShape, aLayer, drawingShadows );
+
 
     if( drawingShadows && !( aShape->IsBrightened() || aShape->IsSelected() ) )
         return;
@@ -1352,12 +1355,12 @@ void SCH_PAINTER::draw( const SCH_SHAPE* aShape, int aLayer )
                 {
                 case SHAPE_T::ARC:
                 {
-                    int startAngle;
-                    int endAngle;
+                    EDA_ANGLE startAngle;
+                    EDA_ANGLE endAngle;
                     aShape->CalcArcAngles( startAngle, endAngle );
 
-                    m_gal->DrawArc( aShape->GetCenter(), aShape->GetRadius(),
-                                    DECIDEG2RAD( startAngle ), DECIDEG2RAD( endAngle ) );
+                    m_gal->DrawArc( aShape->GetCenter(), aShape->GetRadius(), startAngle,
+                                    endAngle );
                 }
                     break;
 
@@ -1396,11 +1399,21 @@ void SCH_PAINTER::draw( const SCH_SHAPE* aShape, int aLayer )
                 }
             };
 
-    if( aLayer == LAYER_SELECTION_SHADOWS && eeconfig()->m_Selection.fill_shapes )
+    if( aLayer == LAYER_SELECTION_SHADOWS )
     {
-        m_gal->SetIsFill( true );
-        m_gal->SetIsStroke( false );
-        m_gal->SetFillColor( getRenderColor( aShape, aLayer, drawingShadows ) );
+        if( eeconfig()->m_Selection.fill_shapes )
+        {
+            m_gal->SetIsFill( true );
+            m_gal->SetIsStroke( false );
+            m_gal->SetFillColor( color );
+        }
+        else
+        {
+            m_gal->SetIsStroke( true );
+            m_gal->SetIsFill( false );
+            m_gal->SetLineWidth( getLineWidth( aShape, true ) );
+            m_gal->SetStrokeColor( color );
+        }
 
         drawShape( aShape );
     }
@@ -1419,7 +1432,7 @@ void SCH_PAINTER::draw( const SCH_SHAPE* aShape, int aLayer )
         m_gal->SetIsFill( false );
         m_gal->SetIsStroke( true );
         m_gal->SetLineWidth( lineWidth );
-        m_gal->SetStrokeColor( getRenderColor( aShape, aLayer, drawingShadows ) );
+        m_gal->SetStrokeColor( color );
 
         if( lineStyle <= PLOT_DASH_TYPE::FIRST_TYPE || drawingShadows )
         {

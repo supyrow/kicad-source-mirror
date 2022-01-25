@@ -39,22 +39,42 @@ class CompoundFileReader;
 struct COMPOUND_FILE_ENTRY;
 } // namespace CFB
 
-// Helper method to find file inside compound file
-const CFB::COMPOUND_FILE_ENTRY* FindStream(
-        const CFB::CompoundFileReader& aReader, const char* aStreamName );
+
+class ALTIUM_COMPOUND_FILE
+{
+public:
+    /**
+     * Open a CFB file. Constructor might throw an IO_ERROR.
+     *
+     * @param aFilePath path to file to open
+     */
+    ALTIUM_COMPOUND_FILE( const wxString& aFilePath );
+    ALTIUM_COMPOUND_FILE( const ALTIUM_COMPOUND_FILE& temp_obj ) = delete;
+    ALTIUM_COMPOUND_FILE& operator=( const ALTIUM_COMPOUND_FILE& temp_obj ) = delete;
+    ~ALTIUM_COMPOUND_FILE() = default;
+
+    const CFB::CompoundFileReader& GetCompoundFileReader() const { return *m_reader; }
+
+    const CFB::COMPOUND_FILE_ENTRY* FindStream( const std::string& aStreamPath ) const;
+
+private:
+    std::unique_ptr<CFB::CompoundFileReader> m_reader;
+    std::vector<char>                        m_buffer;
+};
 
 
 class ALTIUM_PARSER
 {
 public:
-    ALTIUM_PARSER( const CFB::CompoundFileReader& aReader, const CFB::COMPOUND_FILE_ENTRY* aEntry );
+    ALTIUM_PARSER( const ALTIUM_COMPOUND_FILE& aFile, const CFB::COMPOUND_FILE_ENTRY* aEntry );
     ALTIUM_PARSER( std::unique_ptr<char[]>& aContent, size_t aSize );
     ~ALTIUM_PARSER() = default;
 
     template <typename Type>
     Type Read()
     {
-        if( GetRemainingBytes() >= sizeof( Type ) )
+        const size_t remainingBytes = GetRemainingBytes();
+        if( remainingBytes >= sizeof( Type ) )
         {
             Type val = *(Type*) ( m_pos );
             m_pos += sizeof( Type );
@@ -62,9 +82,21 @@ public:
         }
         else
         {
+            m_pos += remainingBytes; // Ensure remaining bytes are zero
             m_error = true;
             return 0;
         }
+    }
+
+    template <typename Type>
+    Type Peek()
+    {
+        char* const oldPos = m_pos;
+        const bool  oldError = m_error;
+        Type        result = Read<Type>();
+        m_pos = oldPos;
+        m_error = oldError;
+        return result;
     }
 
     wxString ReadWxString()

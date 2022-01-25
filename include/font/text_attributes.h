@@ -25,7 +25,7 @@
 #include <wx/log.h>
 #include <cmath>
 #include <math/vector2d.h>
-#include <eda_angle.h>
+#include "../../libs/kimath/include/geometry/eda_angle.h"
 
 class EDA_TEXT;
 
@@ -65,7 +65,7 @@ public:
     KIFONT::FONT*     m_Font = nullptr;
     GR_TEXT_H_ALIGN_T m_Halign = GR_TEXT_H_ALIGN_CENTER;
     GR_TEXT_V_ALIGN_T m_Valign = GR_TEXT_V_ALIGN_CENTER;
-    EDA_ANGLE         m_Angle;
+    EDA_ANGLE         m_Angle = ANGLE_0;
     double            m_LineSpacing = 1.0;
     int               m_StrokeWidth = 0;
     bool              m_Italic = false;

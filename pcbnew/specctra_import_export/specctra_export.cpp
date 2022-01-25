@@ -499,10 +499,12 @@ PADSTACK* SPECCTRA_DB::makePADSTACK( BOARD* aBoard, PAD* aPad )
         rradius += extra_clearance;
         bool doChamfer = aPad->GetShape() == PAD_SHAPE::CHAMFERED_RECT;
 
-        TransformRoundChamferedRectToPolygon(
-                cornerBuffer, VECTOR2I( 0, 0 ), psize, 0, rradius, aPad->GetChamferRectRatio(),
-                doChamfer ? aPad->GetChamferPositions() : 0, 0,
-                aBoard->GetDesignSettings().m_MaxError, ERROR_INSIDE );
+        TransformRoundChamferedRectToPolygon( cornerBuffer, VECTOR2I( 0, 0 ), psize, ANGLE_0,
+                                              rradius, aPad->GetChamferRectRatio(),
+                                              doChamfer ? aPad->GetChamferPositions() : 0,
+                                              0, aBoard->GetDesignSettings().m_MaxError,
+                                              ERROR_INSIDE );
+
         SHAPE_LINE_CHAIN& polygonal_shape = cornerBuffer.Outline( 0 );
 
         for( int ndx = 0; ndx < reportedLayers; ++ndx )
@@ -699,9 +701,8 @@ IMAGE* SPECCTRA_DB::makeIMAGE( BOARD* aBoard, FOOTPRINT* aFootprint )
 
             pin->padstack_id = padstack->padstack_id;
 
-            double angle = pad->GetOrientationDegrees() - aFootprint->GetOrientationDegrees();
-            NORMALIZE_ANGLE_DEGREES_POS( angle );
-            pin->SetRotation( angle );
+            EDA_ANGLE angle = pad->GetOrientation() - aFootprint->GetOrientation();
+            pin->SetRotation( angle.Normalize().AsDegrees() );
 
             wxPoint pos( pad->GetPos0() );
 
@@ -1573,9 +1574,8 @@ void SPECCTRA_DB::FromBOARD( BOARD* aBoard )
             // footprint is flipped from bottom side, set side to T_back
             if( footprint->GetFlag() )
             {
-                double angle = 180.0 - footprint->GetOrientationDegrees();
-                NORMALIZE_ANGLE_DEGREES_POS( angle );
-                place->SetRotation( angle );
+                EDA_ANGLE angle = ANGLE_180 - footprint->GetOrientation();
+                place->SetRotation( angle.Normalize().AsDegrees() );
 
                 place->side = T_back;
             }

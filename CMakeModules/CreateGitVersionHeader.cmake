@@ -42,6 +42,15 @@ macro( create_git_version_header _git_src_path )
             RESULT_VARIABLE _git_log_result
             OUTPUT_STRIP_TRAILING_WHITESPACE)
 
+        execute_process(
+            COMMAND
+            ${GIT_EXECUTABLE} rev-list --count --first-parent HEAD
+            WORKING_DIRECTORY ${_git_src_path}
+            OUTPUT_VARIABLE _git_REV_COUNT
+            ERROR_VARIABLE _git_log_error
+            RESULT_VARIABLE _git_log_result
+            OUTPUT_STRIP_TRAILING_WHITESPACE)
+
         set( ENV{LC_ALL} ${_Git_SAVED_LC_ALL} )
     endif( GIT_FOUND )
 
@@ -49,6 +58,18 @@ macro( create_git_version_header _git_src_path )
     # to KiCadVersion.cmake as the revision level.
     if( _git_DESCRIBE )
         set( KICAD_VERSION "(${_git_DESCRIBE})" )
+    endif()
+
+    if( _git_REV_COUNT )
+        set( KICAD_GIT_REV "${_git_REV_COUNT}" )
+
+        # Sanity check
+        if (NOT KICAD_GIT_REV MATCHES "^[0-9]+$")
+            set( KICAD_GIT_REV "0" )
+        endif ()
+    else()
+        # Incase the command failed, we can just default to 0, only a problem in CI right now
+        set( KICAD_GIT_REV "0" )
     endif()
 
 endmacro()

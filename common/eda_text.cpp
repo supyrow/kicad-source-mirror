@@ -627,7 +627,7 @@ bool EDA_TEXT::TextHitTest( const EDA_RECT& aRect, bool aContains, int aAccuracy
     if( aContains )
         return rect.Contains( GetTextBox() );
 
-    return rect.Intersects( GetTextBox(), GetTextAngle().AsTenthsOfADegree() );
+    return rect.Intersects( GetTextBox(), GetTextAngle() );
 }
 
 
@@ -868,7 +868,7 @@ int EDA_TEXT::Compare( const EDA_TEXT* aOther ) const
 
     TEST_PT( m_attributes.m_Size, aOther->m_attributes.m_Size );
     TEST_E( m_attributes.m_StrokeWidth, aOther->m_attributes.m_StrokeWidth );
-    TEST( m_attributes.m_Angle.AsTenthsOfADegree(), aOther->m_attributes.m_Angle.AsTenthsOfADegree() );
+    TEST( m_attributes.m_Angle.AsDegrees(), aOther->m_attributes.m_Angle.AsDegrees() );
     TEST( m_attributes.m_LineSpacing, aOther->m_attributes.m_LineSpacing );
 
     TEST( m_attributes.m_Halign, aOther->m_attributes.m_Halign );

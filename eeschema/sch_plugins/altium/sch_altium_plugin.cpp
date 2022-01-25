@@ -290,39 +290,12 @@ SCH_SHEET* SCH_ALTIUM_PLUGIN::Load( const wxString& aFileName, SCHEMATIC* aSchem
 
 void SCH_ALTIUM_PLUGIN::ParseAltiumSch( const wxString& aFileName )
 {
-    // Open file
-    FILE* fp = wxFopen( aFileName, "rb" );
-
-    if( fp == nullptr )
-    {
-        m_reporter->Report( wxString::Format( _( "Cannot open file '%s'." ), aFileName ),
-                            RPT_SEVERITY_ERROR );
-        return;
-    }
-
-    fseek( fp, 0, SEEK_END );
-    long len = ftell( fp );
-
-    if( len < 0 )
-    {
-        fclose( fp );
-        THROW_IO_ERROR( "Read error, cannot determine length of file." );
-    }
-
-    std::unique_ptr<unsigned char[]> buffer( new unsigned char[len] );
-    fseek( fp, 0, SEEK_SET );
-
-    size_t bytesRead = fread( buffer.get(), sizeof( unsigned char ), len, fp );
-    fclose( fp );
-
-    if( static_cast<size_t>( len ) != bytesRead )
-        THROW_IO_ERROR( "Read error." );
+    ALTIUM_COMPOUND_FILE altiumSchFile( aFileName );
 
     try
     {
-        CFB::CompoundFileReader reader( buffer.get(), bytesRead );
-        ParseStorage( reader ); // we need this before parsing the FileHeader
-        ParseFileHeader( reader );
+        ParseStorage( altiumSchFile ); // we need this before parsing the FileHeader
+        ParseFileHeader( altiumSchFile );
     }
     catch( CFB::CFBException& exception )
     {
@@ -331,14 +304,14 @@ void SCH_ALTIUM_PLUGIN::ParseAltiumSch( const wxString& aFileName )
 }
 
 
-void SCH_ALTIUM_PLUGIN::ParseStorage( const CFB::CompoundFileReader& aReader )
+void SCH_ALTIUM_PLUGIN::ParseStorage( const ALTIUM_COMPOUND_FILE& aAltiumSchFile )
 {
-    const CFB::COMPOUND_FILE_ENTRY* file = FindStream( aReader, "Storage" );
+    const CFB::COMPOUND_FILE_ENTRY* file = aAltiumSchFile.FindStream( "Storage" );
 
     if( file == nullptr )
         return;
 
-    ALTIUM_PARSER reader( aReader, file );
+    ALTIUM_PARSER reader( aAltiumSchFile, file );
 
     std::map<wxString, wxString> properties = reader.ReadProperties();
     wxString header = ALTIUM_PARSER::ReadString( properties, "HEADER", "" );
@@ -367,14 +340,14 @@ void SCH_ALTIUM_PLUGIN::ParseStorage( const CFB::CompoundFileReader& aReader )
 }
 
 
-void SCH_ALTIUM_PLUGIN::ParseFileHeader( const CFB::CompoundFileReader& aReader )
+void SCH_ALTIUM_PLUGIN::ParseFileHeader( const ALTIUM_COMPOUND_FILE& aAltiumSchFile )
 {
-    const CFB::COMPOUND_FILE_ENTRY* file = FindStream( aReader, "FileHeader" );
+    const CFB::COMPOUND_FILE_ENTRY* file = aAltiumSchFile.FindStream( "FileHeader" );
 
     if( file == nullptr )
         THROW_IO_ERROR( "FileHeader not found" );
 
-    ALTIUM_PARSER reader( aReader, file );
+    ALTIUM_PARSER reader( aAltiumSchFile, file );
 
     if( reader.GetRemainingBytes() <= 0 )
     {
@@ -1319,16 +1292,14 @@ void SCH_ALTIUM_PLUGIN::ParseArc( const std::map<wxString, wxString>& aPropertie
         else
         {
             SCH_SHAPE* arc = new SCH_SHAPE( SHAPE_T::ARC, SCH_LAYER_ID::LAYER_NOTES );
-
-            double includedAngle = elem.endAngle - elem.startAngle;
-            double startAngle = DEG2RAD( elem.endAngle );
-
-            VECTOR2I startOffset = VECTOR2I( KiROUND( std::cos( startAngle ) * elem.radius ),
-                                            -KiROUND( std::sin( startAngle ) * elem.radius ) );
+            EDA_ANGLE  includedAngle( elem.endAngle - elem.startAngle, DEGREES_T );
+            EDA_ANGLE  startAngle( elem.endAngle, DEGREES_T );
+            VECTOR2I   startOffset( KiROUND( elem.radius * startAngle.Cos() ),
+                                   -KiROUND( elem.radius * startAngle.Sin() ) );
 
             arc->SetCenter( elem.center + m_sheetOffset );
             arc->SetStart( elem.center + startOffset + m_sheetOffset );
-            arc->SetArcAngleAndEnd( NormalizeAngleDegreesPos( includedAngle ) * 10.0, true );
+            arc->SetArcAngleAndEnd( includedAngle.Normalize(), true );
 
             arc->SetStroke( STROKE_PARAMS( elem.lineWidth, PLOT_DASH_TYPE::SOLID ) );
 
@@ -1373,12 +1344,12 @@ void SCH_ALTIUM_PLUGIN::ParseArc( const std::map<wxString, wxString>& aPropertie
             arc->SetCenter( GetRelativePosition( elem.center + m_sheetOffset, symbol ) );
 
             VECTOR2I arcStart( elem.radius, 0 );
-            RotatePoint( &arcStart.x, &arcStart.y, -elem.startAngle * 10.0 );
+            RotatePoint( arcStart, -EDA_ANGLE( elem.startAngle, DEGREES_T ) );
             arcStart += arc->GetCenter();
             arc->SetStart( arcStart );
 
             VECTOR2I arcEnd( elem.radius, 0 );
-            RotatePoint( &arcEnd.x, &arcEnd.y, -elem.endAngle * 10.0 );
+            RotatePoint( arcEnd, -EDA_ANGLE( elem.endAngle, DEGREES_T ) );
             arcEnd += arc->GetCenter();
             arc->SetEnd( arcEnd );
 

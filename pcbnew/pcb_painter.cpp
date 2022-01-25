@@ -504,7 +504,7 @@ bool PCB_PAINTER::Draw( const VIEW_ITEM* aItem, int aLayer )
     }
 
     // Draw bounding boxes after drawing objects so they can be seen.
-    if( ADVANCED_CFG::GetCfg().m_DrawBoundingBoxes )
+    if( m_pcbSettings.GetDrawBoundingBoxes() )
     {
         // Show bounding boxes of painted objects for debugging.
         EDA_RECT box = item->GetBoundingBox();
@@ -670,8 +670,8 @@ void PCB_PAINTER::draw( const PCB_ARC* aArc, int aLayer )
         m_gal->SetIsFill( not outline_mode );
         m_gal->SetLineWidth( m_pcbSettings.m_outlineWidth );
 
-        m_gal->DrawArcSegment( center, radius, start_angle.AsRadians(),
-                               ( start_angle + angle ).AsRadians(), width, m_maxError );
+        m_gal->DrawArcSegment( center, radius, start_angle, start_angle + angle, width,
+                               m_maxError );
     }
 
     // Clearance lines
@@ -686,9 +686,8 @@ void PCB_PAINTER::draw( const PCB_ARC* aArc, int aLayer )
         m_gal->SetIsStroke( true );
         m_gal->SetStrokeColor( color );
 
-        m_gal->DrawArcSegment( center, radius, start_angle.AsRadians(),
-                               ( start_angle + angle ).AsRadians(), width + clearance * 2,
-                               m_maxError );
+        m_gal->DrawArcSegment( center, radius, start_angle, start_angle + angle,
+                               width + clearance * 2, m_maxError );
     }
 
 // Debug only: enable this code only to test the TransformArcToPolygon function
@@ -829,22 +828,22 @@ void PCB_PAINTER::draw( const PCB_VIA* aVia, int aLayer )
         if( !outline_mode )
             m_gal->SetLineWidth( ( aVia->GetWidth() - aVia->GetDrillValue() ) / 2.0 );
 
-        m_gal->DrawArc( center, radius, M_PI * -0.375, M_PI * 0.375 );
-        m_gal->DrawArc( center, radius, M_PI * 0.625, M_PI * 1.375 );
+        m_gal->DrawArc( center, radius, EDA_ANGLE( -60, DEGREES_T ), EDA_ANGLE( 60, DEGREES_T ) );
+        m_gal->DrawArc( center, radius, EDA_ANGLE( 120, DEGREES_T ), EDA_ANGLE( 240, DEGREES_T ) );
 
         if( outline_mode )
             m_gal->SetStrokeColor( m_pcbSettings.GetColor( aVia, layerTop ) );
         else
             m_gal->SetFillColor( m_pcbSettings.GetColor( aVia, layerTop ) );
 
-        m_gal->DrawArc( center, radius, M_PI * 1.375, M_PI * 1.625 );
+        m_gal->DrawArc( center, radius, EDA_ANGLE( 240, DEGREES_T ), EDA_ANGLE( 300, DEGREES_T ) );
 
         if( outline_mode )
             m_gal->SetStrokeColor( m_pcbSettings.GetColor( aVia, layerBottom ) );
         else
             m_gal->SetFillColor( m_pcbSettings.GetColor( aVia, layerBottom ) );
 
-        m_gal->DrawArc( center, radius, M_PI * 0.375, M_PI * 0.625 );
+        m_gal->DrawArc( center, radius, EDA_ANGLE( 60, DEGREES_T ), EDA_ANGLE( 120, DEGREES_T ) );
     }
 
     // Clearance lines
@@ -910,7 +909,7 @@ void PCB_PAINTER::draw( const PAD* aPad, int aLayer )
             // Keep the size ratio for the font, but make it smaller
             if( padsize.x < padsize.y )
             {
-                m_gal->Rotate( DECIDEG2RAD( -900.0 ) );
+                m_gal->Rotate( -ANGLE_90.AsRadians() );
                 size = padsize.x;
                 std::swap( padsize.x, padsize.y );
             }
@@ -1401,24 +1400,22 @@ void PCB_PAINTER::draw( const PCB_SHAPE* aShape, int aLayer )
 
         case SHAPE_T::ARC:
         {
-            double startAngle;
-            double endAngle;
+            EDA_ANGLE startAngle;
+            EDA_ANGLE endAngle;
             aShape->CalcArcAngles( startAngle, endAngle );
 
             if( outline_mode )
             {
-                m_gal->DrawArcSegment( aShape->GetCenter(), aShape->GetRadius(),
-                                       DEG2RAD( startAngle ), DEG2RAD( endAngle ), thickness,
-                                       m_maxError );
+                m_gal->DrawArcSegment( aShape->GetCenter(), aShape->GetRadius(), startAngle,
+                                       endAngle, thickness, m_maxError );
             }
             else
             {
                 m_gal->SetIsFill( true );
                 m_gal->SetIsStroke( false );
 
-                m_gal->DrawArcSegment( aShape->GetCenter(), aShape->GetRadius(),
-                                       DEG2RAD( startAngle ), DEG2RAD( endAngle ), thickness,
-                                       m_maxError );
+                m_gal->DrawArcSegment( aShape->GetCenter(), aShape->GetRadius(), startAngle,
+                                       endAngle, thickness, m_maxError );
             }
             break;
         }
@@ -1770,10 +1767,10 @@ void PCB_PAINTER::draw( const ZONE* aZone, int aLayer )
 
         // Draw each contour (main contour and holes)
 
-        /* This line:
+        /*
          * m_gal->DrawPolygon( *outline );
-         * should be enough, but currently does not work to draw holes contours in a complex polygon
-         * so each contour is draw as a simple polygon
+         * should be enough, but currently does not work to draw holes contours in a complex
+         * polygon so each contour is draw as a simple polygon
          */
 
         // Draw the main contour

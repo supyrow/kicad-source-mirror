@@ -119,7 +119,7 @@ bool DIALOG_PAD_PRIMITIVES_PROPERTIES::TransferDataToWindow()
         m_endY.SetValue( m_shape->GetCenter().y );
         m_radiusLabel->SetLabel( _( "Angle:" ) );
         m_radius.SetUnits( EDA_UNITS::DEGREES );
-        m_radius.SetValue( m_shape->GetArcAngle().AsTenthsOfADegree() );
+        m_radius.SetAngleValue( m_shape->GetArcAngle() );
         m_ctrl1X.Show( false, true );
         m_ctrl1Y.Show( false, true );
         m_ctrl2X.Show( false, true );
@@ -190,26 +190,26 @@ bool DIALOG_PAD_PRIMITIVES_PROPERTIES::TransferDataFromWindow()
     switch( m_shape->GetShape() )
     {
     case SHAPE_T::SEGMENT:
-        m_shape->SetStart( wxPoint( m_startX.GetValue(), m_startY.GetValue() ) );
-        m_shape->SetEnd( wxPoint( m_endX.GetValue(), m_endY.GetValue() ) );
+        m_shape->SetStart( VECTOR2I( m_startX.GetValue(), m_startY.GetValue() ) );
+        m_shape->SetEnd( VECTOR2I( m_endX.GetValue(), m_endY.GetValue() ) );
         break;
 
     case SHAPE_T::BEZIER:
-        m_shape->SetStart( wxPoint( m_startX.GetValue(), m_startY.GetValue() ) );
-        m_shape->SetEnd( wxPoint( m_endX.GetValue(), m_endY.GetValue() ) );
-        m_shape->SetBezierC1( wxPoint( m_ctrl1X.GetValue(), m_ctrl1Y.GetValue()));
-        m_shape->SetBezierC1( wxPoint( m_ctrl2X.GetValue(), m_ctrl2Y.GetValue()));
+        m_shape->SetStart( VECTOR2I( m_startX.GetValue(), m_startY.GetValue() ) );
+        m_shape->SetEnd( VECTOR2I( m_endX.GetValue(), m_endY.GetValue() ) );
+        m_shape->SetBezierC1( VECTOR2I( m_ctrl1X.GetValue(), m_ctrl1Y.GetValue()));
+        m_shape->SetBezierC1( VECTOR2I( m_ctrl2X.GetValue(), m_ctrl2Y.GetValue()));
         break;
 
     case SHAPE_T::ARC:
-        m_shape->SetCenter( wxPoint( m_endX.GetValue(), m_endY.GetValue() ) );
-        m_shape->SetStart( wxPoint( m_startX.GetValue(), m_startY.GetValue() ) );
-        m_shape->SetArcAngleAndEnd( m_radius.GetValue() );
+        m_shape->SetCenter( VECTOR2I( m_endX.GetValue(), m_endY.GetValue() ) );
+        m_shape->SetStart( VECTOR2I( m_startX.GetValue(), m_startY.GetValue() ) );
+        m_shape->SetArcAngleAndEnd( m_radius.GetAngleValue() );
         break;
 
     case SHAPE_T::CIRCLE:
-        m_shape->SetStart( wxPoint( m_startX.GetValue(), m_startY.GetValue() ) );
-        m_shape->SetEnd( m_shape->GetStart() + wxPoint( m_radius.GetValue(), 0 ) );
+        m_shape->SetStart( VECTOR2I( m_startX.GetValue(), m_startY.GetValue() ) );
+        m_shape->SetEnd( m_shape->GetStart() + VECTOR2I( m_radius.GetValue(), 0 ) );
         break;
 
     case SHAPE_T::POLY:
@@ -577,22 +577,12 @@ DIALOG_PAD_PRIMITIVES_TRANSFORM::DIALOG_PAD_PRIMITIVES_TRANSFORM( wxWindow* aPar
 }
 
 
-// A helper function in geometry transform
-inline void geom_transf( VECTOR2I& aCoord, const VECTOR2I& aMove, double aScale, double aRotation )
-{
-    aCoord.x = KiROUND( aCoord.x * aScale );
-    aCoord.y = KiROUND( aCoord.y * aScale );
-    aCoord += aMove;
-    RotatePoint( aCoord, aRotation );
-}
-
-
 void DIALOG_PAD_PRIMITIVES_TRANSFORM::Transform( std::vector<std::shared_ptr<PCB_SHAPE>>* aList,
                                                  int aDuplicateCount )
 {
-    wxPoint move_vect( m_vectorX.GetValue(), m_vectorY.GetValue() );
-    double  rotation = m_rotation.GetValue();
-    double  scale = DoubleValueFromString( EDA_UNITS::UNSCALED, m_scaleCtrl->GetValue() );
+    VECTOR2I  move_vect( m_vectorX.GetValue(), m_vectorY.GetValue() );
+    EDA_ANGLE rotation = m_rotation.GetAngleValue();
+    double    scale = DoubleValueFromString( EDA_UNITS::UNSCALED, m_scaleCtrl->GetValue() );
 
     // Avoid too small / too large scale, which could create issues:
     if( scale < 0.01 )
@@ -606,8 +596,8 @@ void DIALOG_PAD_PRIMITIVES_TRANSFORM::Transform( std::vector<std::shared_ptr<PCB
     // if aList != NULL, the initial shape will be duplicated, and transform
     // applied to the duplicated shape
 
-    wxPoint currMoveVect = move_vect;
-    double curr_rotation = rotation;
+    VECTOR2I  currMoveVect = move_vect;
+    EDA_ANGLE curr_rotation = rotation;
 
     do {
         for( unsigned idx = 0; idx < m_list.size(); ++idx )
@@ -631,7 +621,7 @@ void DIALOG_PAD_PRIMITIVES_TRANSFORM::Transform( std::vector<std::shared_ptr<PCB
 
             shape->Move( currMoveVect );
             shape->Scale( scale );
-            shape->Rotate( VECTOR2I( 0, 0 ), EDA_ANGLE( curr_rotation, TENTHS_OF_A_DEGREE_T ) );
+            shape->Rotate( VECTOR2I( 0, 0 ), curr_rotation );
         }
 
         // Prepare new transform on duplication:

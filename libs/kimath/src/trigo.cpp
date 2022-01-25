@@ -166,107 +166,59 @@ const VECTOR2I CalcArcMid( const VECTOR2I& aStart, const VECTOR2I& aEnd, const V
     VECTOR2I startVector = aStart - aCenter;
     VECTOR2I endVector = aEnd - aCenter;
 
-    double startAngle = ArcTangente( startVector.y, startVector.x );
-    double endAngle = ArcTangente( endVector.y, endVector.x );
-    double midPointRotAngleDeciDeg = NormalizeAngle180( startAngle - endAngle ) / 2;
+    EDA_ANGLE startAngle( startVector );
+    EDA_ANGLE endAngle( endVector );
+    EDA_ANGLE midPointRotAngle = ( startAngle - endAngle ).Normalize180() / 2;
 
     if( !aMinArcAngle )
-        midPointRotAngleDeciDeg += 1800.0;
+        midPointRotAngle += ANGLE_180;
 
     VECTOR2I newMid = aStart;
-    RotatePoint( newMid, aCenter, midPointRotAngleDeciDeg );
+    RotatePoint( newMid, aCenter, midPointRotAngle );
 
     return newMid;
 }
 
 
-double ArcTangente( int dy, int dx )
+void RotatePoint( int* pX, int* pY, const EDA_ANGLE& aAngle )
 {
+    VECTOR2I  pt;
+    EDA_ANGLE angle = aAngle;
 
-    /* gcc is surprisingly smart in optimizing these conditions in
-       a tree! */
-
-    if( dx == 0 && dy == 0 )
-        return 0;
-
-    if( dy == 0 )
-    {
-        if( dx >= 0 )
-            return 0;
-        else
-            return -1800;
-    }
-
-    if( dx == 0 )
-    {
-        if( dy >= 0 )
-            return 900;
-        else
-            return -900;
-    }
-
-    if( dx == dy )
-    {
-        if( dx >= 0 )
-            return 450;
-        else
-            return -1800 + 450;
-    }
-
-    if( dx == -dy )
-    {
-        if( dx >= 0 )
-            return -450;
-        else
-            return 1800 - 450;
-    }
-
-    // Of course dy and dx are treated as double
-    return RAD2DECIDEG( std::atan2( (double) dy, (double) dx ) );
-}
-
-
-void RotatePoint( int* pX, int* pY, double angle )
-{
-    int tmp;
-
-    NORMALIZE_ANGLE_POS( angle );
+    angle.Normalize();
 
     // Cheap and dirty optimizations for 0, 90, 180, and 270 degrees.
-    if( angle == 0 )
-        return;
-
-    if( angle == 900 )          /* sin = 1, cos = 0 */
+    if( angle == ANGLE_0 )
     {
-        tmp = *pX;
-        *pX = *pY;
-        *pY = -tmp;
+        pt = VECTOR2I( *pX, *pY );
     }
-    else if( angle == 1800 )    /* sin = 0, cos = -1 */
+    else if( angle == ANGLE_90 )          /* sin = 1, cos = 0 */
     {
-        *pX = -*pX;
-        *pY = -*pY;
+        pt = VECTOR2I( *pY, -*pX );
     }
-    else if( angle == 2700 )    /* sin = -1, cos = 0 */
+    else if( angle == ANGLE_180 )    /* sin = 0, cos = -1 */
     {
-        tmp = *pX;
-        *pX = -*pY;
-        *pY = tmp;
+        pt = VECTOR2I( -*pX, -*pY );
+    }
+    else if( angle == ANGLE_270 )    /* sin = -1, cos = 0 */
+    {
+        pt = VECTOR2I( -*pY, *pX );
     }
     else
     {
-        double fangle = DECIDEG2RAD( angle );
-        double sinus = sin( fangle );
-        double cosinus = cos( fangle );
-        double fpx = (*pY * sinus ) + (*pX * cosinus );
-        double fpy = (*pY * cosinus ) - (*pX * sinus );
-        *pX = KiROUND( fpx );
-        *pY = KiROUND( fpy );
+        double sinus = angle.Sin();
+        double cosinus = angle.Cos();
+
+        pt.x = KiROUND( ( *pY * sinus ) + ( *pX * cosinus ) );
+        pt.y = KiROUND( ( *pY * cosinus ) - ( *pX * sinus ) );
     }
+
+    *pX = pt.x;
+    *pY = pt.y;
 }
 
 
-void RotatePoint( int* pX, int* pY, int cx, int cy, double angle )
+void RotatePoint( int* pX, int* pY, int cx, int cy, const EDA_ANGLE& angle )
 {
     int ox, oy;
 
@@ -280,7 +232,7 @@ void RotatePoint( int* pX, int* pY, int cx, int cy, double angle )
 }
 
 
-void RotatePoint( wxPoint* point, const wxPoint& centre, double angle )
+void RotatePoint( wxPoint* point, const wxPoint& centre, const EDA_ANGLE& angle )
 {
     int ox, oy;
 
@@ -288,24 +240,13 @@ void RotatePoint( wxPoint* point, const wxPoint& centre, double angle )
     oy = point->y - centre.y;
 
     RotatePoint( &ox, &oy, angle );
+
     point->x = ox + centre.x;
     point->y = oy + centre.y;
 }
 
-void RotatePoint( VECTOR2I& point, const VECTOR2I& centre, double angle )
-{
-    int ox, oy;
 
-    ox = point.x - centre.x;
-    oy = point.y - centre.y;
-
-    RotatePoint( &ox, &oy, angle );
-    point.x = ox + centre.x;
-    point.y = oy + centre.y;
-}
-
-
-void RotatePoint( double* pX, double* pY, double cx, double cy, double angle )
+void RotatePoint( double* pX, double* pY, double cx, double cy, const EDA_ANGLE& angle )
 {
     double ox, oy;
 
@@ -319,72 +260,71 @@ void RotatePoint( double* pX, double* pY, double cx, double cy, double angle )
 }
 
 
-void RotatePoint( double* pX, double* pY, double angle )
+void RotatePoint( double* pX, double* pY, const EDA_ANGLE& aAngle )
 {
-    double tmp;
+    EDA_ANGLE angle = aAngle;
+    VECTOR2D  pt;
 
-    NORMALIZE_ANGLE_POS( angle );
+    angle.Normalize();
 
     // Cheap and dirty optimizations for 0, 90, 180, and 270 degrees.
-    if( angle == 0 )
-        return;
-
-    if( angle == 900 )          /* sin = 1, cos = 0 */
+    if( angle == ANGLE_0 )
     {
-        tmp = *pX;
-        *pX = *pY;
-        *pY = -tmp;
+        pt = VECTOR2D( *pX, *pY );
     }
-    else if( angle == 1800 )    /* sin = 0, cos = -1 */
+    else if( angle == ANGLE_90 )          /* sin = 1, cos = 0 */
     {
-        *pX = -*pX;
-        *pY = -*pY;
+        pt = VECTOR2D( *pY, -*pX );
     }
-    else if( angle == 2700 )    /* sin = -1, cos = 0 */
+    else if( angle == ANGLE_180 )    /* sin = 0, cos = -1 */
     {
-        tmp = *pX;
-        *pX = -*pY;
-        *pY = tmp;
+        pt = VECTOR2D( -*pX, -*pY );
+    }
+    else if( angle == ANGLE_270 )    /* sin = -1, cos = 0 */
+    {
+        pt = VECTOR2D( -*pY, *pX );
     }
     else
     {
-        double fangle = DECIDEG2RAD( angle );
-        double sinus = sin( fangle );
-        double cosinus = cos( fangle );
+        double sinus = angle.Sin();
+        double cosinus = angle.Cos();
 
-        double fpx = (*pY * sinus ) + (*pX * cosinus );
-        double fpy = (*pY * cosinus ) - (*pX * sinus );
-        *pX = fpx;
-        *pY = fpy;
+        pt.x = ( *pY * sinus ) + ( *pX * cosinus );
+        pt.y = ( *pY * cosinus ) - ( *pX * sinus );
     }
+
+    *pX = pt.x;
+    *pY = pt.y;
 }
 
 
-const VECTOR2I CalcArcCenter( const VECTOR2I& aStart, const VECTOR2I& aEnd, double aAngle )
+const VECTOR2I CalcArcCenter( const VECTOR2I& aStart, const VECTOR2I& aEnd,
+                              const EDA_ANGLE& aAngle )
 {
-    VECTOR2I start = aStart;
-    VECTOR2I end = aEnd;
+    EDA_ANGLE angle( aAngle );
+    VECTOR2I  start = aStart;
+    VECTOR2I  end = aEnd;
 
-    if( aAngle < 0 )
+    if( angle < ANGLE_0 )
     {
         std::swap( start, end );
-        aAngle = abs( aAngle );
+        angle = -angle;
     }
 
-    if( aAngle > 180 )
+    if( angle > ANGLE_180 )
     {
         std::swap( start, end );
-        aAngle = 360 - aAngle;
+        angle = ANGLE_360 - angle;
     }
 
     int chord = ( start - end ).EuclideanNorm();
-    int r = ( chord / 2 ) / sin( aAngle * M_PI / 360.0 );
+    int r = ( chord / 2 ) / ( angle / 2 ).Sin();
 
     VECTOR2I vec = end - start;
     vec = vec.Resize( r );
-    vec = vec.Rotate( ( 180.0 - aAngle ) * M_PI / 360.0 );
+    RotatePoint( vec, -( ANGLE_180 - angle ) / 2 );
 
-    return (VECTOR2I) ( start + vec );
+    return VECTOR2I( start + vec );
 }
 
 
@@ -473,30 +413,3 @@ const VECTOR2I CalcArcCenter( const VECTOR2I& aStart, const VECTOR2I& aMid, cons
 }
 
 
-double CalcArcAngle( const VECTOR2I& aStart, const VECTOR2I& aMid, const VECTOR2I& aEnd )
-{
-    VECTOR2I center = CalcArcCenter( aStart, aMid, aEnd );
-
-    // Check if the new arc is CW or CCW
-    VECTOR2D startLine = aStart - center;
-    VECTOR2D endLine   = aEnd - center;
-    double angle       = RAD2DECIDEG( endLine.Angle() - startLine.Angle() );
-
-    VECTOR2D v1, v2;
-    v1           = aStart - aMid;
-    v2           = aEnd - aMid;
-    double theta = RAD2DECIDEG( v1.Angle() );
-
-    RotatePoint( &( v1.x ), &( v1.y ), theta );
-    RotatePoint( &( v2.x ), &( v2.y ), theta );
-
-    bool clockwise = ( ( v1.Angle() - v2.Angle() ) > 0 );
-
-    // Normalize the angle
-    if( clockwise && angle < 0.0 )
-        angle += 3600.0;
-    else if( !clockwise && angle > 0.0 )
-        angle -= 3600.0;
-
-    return angle;
-}

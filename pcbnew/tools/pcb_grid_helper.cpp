@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2014 CERN
- * Copyright (C) 2018-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2018-2022 KiCad Developers, see AUTHORS.txt for contributors.
  * @author Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  *
  * This program is free software; you can redistribute it and/or
@@ -431,7 +431,9 @@ void PCB_GRID_HELPER::computeAnchors( BOARD_ITEM* aItem, const VECTOR2I& aRefPos
 
                         int offset = segment->GetWidth() / 2;
                         SEG seg    = segment->GetSeg();
-                        VECTOR2I normal = ( seg.B - seg.A ).Resize( offset ).Rotate( -M_PI_2 );
+                        VECTOR2I normal = ( seg.B - seg.A );
+                        normal.Resize( offset );
+                        RotatePoint( normal, ANGLE_90 );
 
                         /*
                          * TODO: This creates more snap points than necessary for rounded rect pads
@@ -446,7 +448,7 @@ void PCB_GRID_HELPER::computeAnchors( BOARD_ITEM* aItem, const VECTOR2I& aRefPos
                         addAnchor( seg.Center() + normal, OUTLINE | SNAPPABLE, aPad );
                         addAnchor( seg.Center() - normal, OUTLINE | SNAPPABLE, aPad );
 
-                        normal = normal.Rotate( M_PI_2 );
+                        RotatePoint( normal, -ANGLE_90 );
 
                         addAnchor( seg.A - normal, OUTLINE | SNAPPABLE, aPad );
                         addAnchor( seg.B + normal, OUTLINE | SNAPPABLE, aPad );
@@ -683,6 +685,24 @@ void PCB_GRID_HELPER::computeAnchors( BOARD_ITEM* aItem, const VECTOR2I& aRefPos
             break;
         }
 
+        case PCB_FP_ZONE_T:
+        {
+            const SHAPE_POLY_SET* outline = static_cast<const FP_ZONE*>( aItem )->Outline();
+
+            SHAPE_LINE_CHAIN lc;
+            lc.SetClosed( true );
+
+            for( auto iter = outline->CIterateWithHoles(); iter; iter++ )
+            {
+                addAnchor( *iter, CORNER, aItem );
+                lc.Append( *iter );
+            }
+
+            addAnchor( lc.NearestPoint( aRefPos ), OUTLINE, aItem );
+
+            break;
+        }
+
         case PCB_DIM_ALIGNED_T:
         case PCB_DIM_ORTHOGONAL_T:
         case PCB_FP_DIM_ALIGNED_T:
@@ -708,7 +728,7 @@ void PCB_GRID_HELPER::computeAnchors( BOARD_ITEM* aItem, const VECTOR2I& aRefPos
 
             for( int i = 0; i < 2; i++ )
             {
-                radial = radial.Rotate( DEG2RAD( 90 ) );
+                RotatePoint( radial, -ANGLE_90 );
                 addAnchor( start + radial, CORNER | SNAPPABLE, aItem );
             }
 

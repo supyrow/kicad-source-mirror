@@ -503,14 +503,6 @@ bool DIALOG_SYMBOL_PROPERTIES::TransferDataToWindow()
 
     Layout();
 
-    // Workaround to fix an annoying issue on wxGTK: in some cases selecting a field
-    // to change its value make this value invisible. It happens until the dialog is resized.
-    // So I am guessing there is a problem when initializing sizers settings
-    // Do not create issues on other OS
-    wxSafeYield();              // slice of time to handle events generated when creating the
-                                // dialog, especially size events
-    m_fieldsGrid->Layout();     // Force recalculating  all sizers in m_fieldsGrid
-
     return true;
 }
 
@@ -802,6 +794,16 @@ void DIALOG_SYMBOL_PROPERTIES::OnGridEditorShown( wxGridEvent& aEvent )
 {
     if( aEvent.GetRow() == REFERENCE_FIELD && aEvent.GetCol() == FDC_VALUE )
         m_delayedSelection= true;
+
+    /// Queue up an event to ensure the widget gets resized if the editor needs it
+    wxSizeEvent *evt = new wxSizeEvent();
+    evt->SetSize( wxSize( m_width + 1, -1 ) );
+
+    wxQueueEvent( m_fieldsGrid, evt );
+
+    wxSizeEvent *frmEvt = new wxSizeEvent();
+    evt->SetSize( wxSize( -1, -1 ) );
+    wxQueueEvent( this, frmEvt );
 }
 
 

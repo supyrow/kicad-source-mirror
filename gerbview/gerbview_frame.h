@@ -67,13 +67,12 @@ public:
      *
      * @param aPath is the base path for the filenames if they are relative
      * @param aFilenameList is a list of filenames to load
-     * @param aFileType is a list of type of files to load (0 = Gerber, 1 = NC drill)
-     * if nullptr, files are expected Gerber type.
+     * @param aFileType is a list of type of files to load (0 = Gerber, 1 = NC drill, 2 Autodetect)
+     *        Successfully autodetected files will have their type changed
      * @return true if every file loaded successfully
      */
-    bool LoadListOfGerberAndDrillFiles( const wxString& aPath,
-                                        const wxArrayString& aFilenameList,
-                                        const std::vector<int>* aFileType = nullptr );
+    bool LoadListOfGerberAndDrillFiles( const wxString& aPath, const wxArrayString& aFilenameList,
+                                        std::vector<int>* aFileType );
 
     // Virtual basic functions:
     void ReCreateHToolbar() override;
@@ -190,14 +189,13 @@ public:
     int GetActiveLayer() const { return m_activeLayer; }
 
     /**
-     * Find the next empty layer starting at \a aLayer and returns it to the caller.
+     * Find the next empty layer.
      *
      * If no empty layers are found, #NO_AVAILABLE_LAYERS is return.
      *
-     * @param aLayer The first layer to search.
      * @return The first empty layer found or #NO_AVAILABLE_LAYERS.
      */
-    int getNextAvailableLayer( int aLayer = 0 ) const;
+    int getNextAvailableLayer() const;
 
     /**
      * Update the currently "selected" layer within the #GERBER_LAYER_WIDGET.
@@ -303,6 +301,16 @@ public:
     bool unarchiveFiles( const wxString& aFullFileName, REPORTER* aReporter = nullptr );
 
     /**
+     * Load a given file or selected file(s), if the filename is empty.
+     *
+     * @param aFileName - file name with full path to open or empty string.
+     *                    if empty string: a dialog will be opened to select one or
+     *                    a set of files
+     * @return true if file was opened successfully.
+     */
+    bool LoadAutodetectedFiles( const wxString& aFileName );
+
+    /**
      * Load a given Gerber file or selected file(s), if the filename is empty.
      *
      * @param aFileName - file name with full path to open or empty string.
@@ -349,7 +357,16 @@ public:
     bool Clear_DrawLayers( bool query );
     void Erase_Current_DrawLayer( bool query );
 
+    void SortLayersByFileExtension();
     void SortLayersByX2Attributes();
+
+    /**
+     * Takes a layer remapping and reorders the layers.
+     *
+     * @param remapping A map of old layer number -> new layer number mapping.
+     *                  Generally sourced from the SortImagesBy* functions.
+     */
+    void RemapLayers( std::unordered_map<int, int> remapping );
 
     /**
      * Update each layers' differential option. Needed when diff mode changes or the active layer
@@ -477,6 +494,19 @@ private:
     void OnClearZipFileHistory( wxCommandEvent& aEvent );
     void OnClearDrlFileHistory( wxCommandEvent& aEvent );
     void OnClearGbrFileHistory( wxCommandEvent& aEvent );
+
+    /**
+     * Loads the file provided or shows a dialog to get the file(s) from the user.
+     *
+     * @param aFileName Name of the file to open. Shows a dialog if not specified.
+     * @param dialogFiletypes File extensions to pass to the dialog if necessary
+     * @param dialogTitle Dialog title to use if necessary
+     * @param filetype Type of file for parsing, 0 = gerber, 1 = drill, 2 = autodetect
+     *
+     * @return true if success opening all files, false otherwise
+     */
+    bool LoadFileOrShowDialog( const wxString& aFileName, const wxString& dialogFiletypes,
+                               const wxString& dialogTitle, const int filetype );
 
     // The Tool Framework initialization
     void setupTools();

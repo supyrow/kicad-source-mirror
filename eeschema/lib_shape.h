@@ -92,8 +92,6 @@ public:
 
     VECTOR2I GetCenter() const { return getCenter(); }
 
-    void CalcArcAngles( int& aStartAngle, int& aEndAngle ) const;
-
     void MirrorHorizontal( const VECTOR2I& aCenter ) override;
     void MirrorVertical( const VECTOR2I& aCenter ) override;
     void Rotate( const VECTOR2I& aCenter, bool aRotateCCW = true ) override;
@@ -122,7 +120,7 @@ private:
     void print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset, void* aData,
                 const TRANSFORM& aTransform ) override;
 
-    double getParentOrientation() const override { return 0.0; }
+    EDA_ANGLE getParentOrientation() const override { return ANGLE_0; }
     VECTOR2I getParentPosition() const override { return VECTOR2I(); }
 };
 

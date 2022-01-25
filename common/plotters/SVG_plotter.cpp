@@ -371,9 +371,9 @@ void SVG_PLOTTER::Rect( const VECTOR2I& p1, const VECTOR2I& p2, FILL_T fill, int
 {
     EDA_RECT rect( p1, VECTOR2I( p2.x - p1.x, p2.y - p1.y ) );
     rect.Normalize();
-    DPOINT  org_dev  = userToDeviceCoordinates( rect.GetOrigin() );
-    DPOINT  end_dev = userToDeviceCoordinates( rect.GetEnd() );
-    DSIZE  size_dev = end_dev - org_dev;
+    VECTOR2D org_dev  = userToDeviceCoordinates( rect.GetOrigin() );
+    VECTOR2D end_dev  = userToDeviceCoordinates( rect.GetEnd() );
+    VECTOR2D size_dev = end_dev - org_dev;
 
     // Ensure size of rect in device coordinates is > 0
     // I don't know if this is a SVG issue or a Inkscape issue, but
@@ -406,8 +406,8 @@ void SVG_PLOTTER::Rect( const VECTOR2I& p1, const VECTOR2I& p2, FILL_T fill, int
 
 void SVG_PLOTTER::Circle( const VECTOR2I& pos, int diametre, FILL_T fill, int width )
 {
-    DPOINT  pos_dev = userToDeviceCoordinates( pos );
-    double  radius  = userToDeviceSize( diametre / 2.0 );
+    VECTOR2D pos_dev = userToDeviceCoordinates( pos );
+    double   radius  = userToDeviceSize( diametre / 2.0 );
 
     setFillMode( fill );
     SetCurrentLineWidth( width );
@@ -427,67 +427,69 @@ void SVG_PLOTTER::Circle( const VECTOR2I& pos, int diametre, FILL_T fill, int wi
 }
 
 
-void SVG_PLOTTER::Arc( const VECTOR2I& centre, double StAngle, double EndAngle, int radius,
-                       FILL_T fill, int width )
+void SVG_PLOTTER::Arc( const VECTOR2I& aCenter, const EDA_ANGLE& aStartAngle,
+                       const EDA_ANGLE& aEndAngle, int aRadius, FILL_T aFill, int aWidth )
 {
-    /* Draws an arc of a circle, centered on (xc,yc), with starting point
-     *  (x1, y1) and ending at (x2, y2). The current pen is used for the outline
-     *  and the current brush for filling the shape.
+    /* Draws an arc of a circle, centered on (xc,yc), with starting point (x1, y1) and ending
+     * at (x2, y2). The current pen is used for the outline and the current brush for filling
+     * the shape.
      *
-     *  The arc is drawn in an anticlockwise direction from the start point to
-     *  the end point
+     *  The arc is drawn in an anticlockwise direction from the start point to the end point.
      */
 
-    if( radius <= 0 )
+    if( aRadius <= 0 )
     {
-        Circle( centre, width, FILL_T::FILLED_SHAPE, 0 );
+        Circle( aCenter, aWidth, FILL_T::FILLED_SHAPE, 0 );
         return;
     }
 
-    if( StAngle > EndAngle )
-        std::swap( StAngle, EndAngle );
+    EDA_ANGLE startAngle( aStartAngle );
+    EDA_ANGLE endAngle( aEndAngle );
+
+    if( startAngle > endAngle )
+        std::swap( startAngle, endAngle );
 
     // Calculate start point.
-    DPOINT  centre_dev  = userToDeviceCoordinates( centre );
-    double  radius_dev  = userToDeviceSize( radius );
+    VECTOR2D centre_device  = userToDeviceCoordinates( aCenter );
+    double   radius_device  = userToDeviceSize( aRadius );
 
     if( !m_yaxisReversed )   // Should be never the case
     {
-        double tmp  = StAngle;
-        StAngle     = -EndAngle;
-        EndAngle    = -tmp;
+        std::swap( startAngle, endAngle );
+        startAngle = -startAngle;
+        endAngle = -endAngle;
     }
 
     if( m_plotMirror )
     {
         if( m_mirrorIsHorizontal )
         {
-            StAngle = 1800.0 -StAngle;
-            EndAngle = 1800.0 -EndAngle;
-            std::swap( StAngle, EndAngle );
+            std::swap( startAngle, endAngle );
+            startAngle = ANGLE_180 - startAngle;
+            endAngle = ANGLE_180 - endAngle;
         }
         else
         {
-            StAngle = -StAngle;
-            EndAngle = -EndAngle;
+            startAngle = -startAngle;
+            endAngle = -endAngle;
         }
     }
 
-    DPOINT  start;
-    start.x = radius_dev;
-    RotatePoint( &start.x, &start.y, StAngle );
-    DPOINT  end;
-    end.x = radius_dev;
-    RotatePoint( &end.x, &end.y, EndAngle );
-    start += centre_dev;
-    end += centre_dev;
+    VECTOR2D  start;
+    start.x = radius_device;
+    RotatePoint( start, startAngle );
+    VECTOR2D  end;
+    end.x = radius_device;
+    RotatePoint( end, endAngle );
+    start += centre_device;
+    end += centre_device;
 
-    double theta1 = DECIDEG2RAD( StAngle );
+    double theta1 = startAngle.AsRadians();
 
     if( theta1 < 0 )
         theta1 = theta1 + M_PI * 2;
 
-    double theta2 = DECIDEG2RAD( EndAngle );
+    double theta2 = endAngle.AsRadians();
 
     if( theta2 < 0 )
         theta2 = theta2 + M_PI * 2;
@@ -507,23 +509,23 @@ void SVG_PLOTTER::Arc( const VECTOR2I& centre, double StAngle, double EndAngle, 
     // flag arc size (0 = small arc > 180 deg, 1 = large arc > 180 deg),
     // sweep arc ( 0 = CCW, 1 = CW),
     // end point
-    if( fill != FILL_T::NO_FILL )
+    if( aFill != FILL_T::NO_FILL )
     {
         // Filled arcs (in Eeschema) consist of the pie wedge and a stroke only on the arc
         // This needs to be drawn in two steps.
-        setFillMode( fill );
+        setFillMode( aFill );
         SetCurrentLineWidth( 0 );
 
         fprintf( m_outputFile, "<path d=\"M%f %f A%f %f 0.0 %d %d %f %f L %f %f Z\" />\n",
-                 start.x, start.y, radius_dev, radius_dev,
+                 start.x, start.y, radius_device, radius_device,
                  flg_arc, flg_sweep,
-                 end.x, end.y, centre_dev.x, centre_dev.y  );
+                 end.x, end.y, centre_device.x, centre_device.y  );
     }
 
     setFillMode( FILL_T::NO_FILL );
-    SetCurrentLineWidth( width );
+    SetCurrentLineWidth( aWidth );
     fprintf( m_outputFile, "<path d=\"M%f %f A%f %f 0.0 %d %d %f %f\" />\n",
-             start.x, start.y, radius_dev, radius_dev,
+             start.x, start.y, radius_device, radius_device,
              flg_arc, flg_sweep,
              end.x, end.y  );
 }
@@ -537,10 +539,10 @@ void SVG_PLOTTER::BezierCurve( const VECTOR2I& aStart, const VECTOR2I& aControl1
     setFillMode( FILL_T::NO_FILL );
     SetCurrentLineWidth( aLineThickness );
 
-    DPOINT start  = userToDeviceCoordinates( aStart );
-    DPOINT ctrl1  = userToDeviceCoordinates( aControl1 );
-    DPOINT ctrl2  = userToDeviceCoordinates( aControl2 );
-    DPOINT end  = userToDeviceCoordinates( aEnd );
+    VECTOR2D start = userToDeviceCoordinates( aStart );
+    VECTOR2D ctrl1 = userToDeviceCoordinates( aControl1 );
+    VECTOR2D ctrl2 = userToDeviceCoordinates( aControl2 );
+    VECTOR2D end   = userToDeviceCoordinates( aEnd );
 
     // Generate a cubic curve: start point and 3 other control points.
     fprintf( m_outputFile, "<path d=\"M%f,%f C%f,%f %f,%f %f,%f\" />\n",
@@ -575,7 +577,7 @@ void SVG_PLOTTER::PlotPoly( const std::vector<VECTOR2I>& aCornerList, FILL_T aFi
         break;
     }
 
-    DPOINT pos = userToDeviceCoordinates( aCornerList[0] );
+    VECTOR2D pos = userToDeviceCoordinates( aCornerList[0] );
     fprintf( m_outputFile, "d=\"M %f,%f\n", pos.x, pos.y );
 
     for( unsigned ii = 1; ii < aCornerList.size() - 1; ii++ )
@@ -602,7 +604,7 @@ void SVG_PLOTTER::PlotImage( const wxImage& aImage, const VECTOR2I& aPos, double
     VECTOR2I pix_size( aImage.GetWidth(), aImage.GetHeight() );
 
     // Requested size (in IUs)
-    DPOINT drawsize( aScaleFactor * pix_size.x, aScaleFactor * pix_size.y );
+    VECTOR2D drawsize( aScaleFactor * pix_size.x, aScaleFactor * pix_size.y );
 
     // calculate the bitmap start position
     VECTOR2I start( aPos.x - drawsize.x / 2, aPos.y - drawsize.y / 2 );
@@ -660,7 +662,7 @@ void SVG_PLOTTER::PenTo( const VECTOR2I& pos, char plume )
 
     if( m_penState == 'Z' )    // here plume = 'D' or 'U'
     {
-        DPOINT pos_dev = userToDeviceCoordinates( pos );
+        VECTOR2D pos_dev = userToDeviceCoordinates( pos );
 
         // Ensure we do not use a fill mode when moving the pen,
         // in SVG mode (i;e. we are plotting only basic lines, not a filled area
@@ -674,7 +676,7 @@ void SVG_PLOTTER::PenTo( const VECTOR2I& pos, char plume )
     }
     else if( m_penState != plume || pos != m_penLastpos )
     {
-        DPOINT pos_dev = userToDeviceCoordinates( pos );
+        VECTOR2D pos_dev = userToDeviceCoordinates( pos );
         fprintf( m_outputFile, "L%d %d\n", (int) pos_dev.x, (int) pos_dev.y );
     }
 
@@ -792,9 +794,9 @@ void SVG_PLOTTER::Text( const VECTOR2I&             aPos,
     // The actual text size value is the absolute value
     text_size.x = std::abs( GraphicTextWidth( aText, aFont, aSize, aWidth, aBold, aItalic ) );
     text_size.y = std::abs( aSize.x * 4/3 ); // Hershey font height to em size conversion
-    DPOINT anchor_pos_dev = userToDeviceCoordinates( aPos );
-    DPOINT text_pos_dev = userToDeviceCoordinates( text_pos );
-    DPOINT sz_dev = userToDeviceSize( text_size );
+    VECTOR2D anchor_pos_dev = userToDeviceCoordinates( aPos );
+    VECTOR2D text_pos_dev = userToDeviceCoordinates( text_pos );
+    VECTOR2D sz_dev = userToDeviceSize( text_size );
 
     if( !aOrient.IsZero() )
     {

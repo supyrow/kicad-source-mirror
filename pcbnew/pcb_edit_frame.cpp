@@ -4,7 +4,7 @@
  * Copyright (C) 2018 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2013 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
  * Copyright (C) 2013 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 2013-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2013-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -175,10 +175,10 @@ END_EVENT_TABLE()
 
 
 PCB_EDIT_FRAME::PCB_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
-    PCB_BASE_EDIT_FRAME( aKiway, aParent, FRAME_PCB_EDITOR, _( "PCB Editor" ), wxDefaultPosition,
-                         wxDefaultSize, KICAD_DEFAULT_DRAWFRAME_STYLE, PCB_EDIT_FRAME_NAME ),
-    m_exportNetlistAction( nullptr ),
-    m_findDialog( nullptr )
+        PCB_BASE_EDIT_FRAME( aKiway, aParent, FRAME_PCB_EDITOR, _( "PCB Editor" ),
+                             wxDefaultPosition, wxDefaultSize, KICAD_DEFAULT_DRAWFRAME_STYLE,
+                             PCB_EDIT_FRAME_NAME ),
+        m_exportNetlistAction( nullptr ), m_findDialog( nullptr )
 {
     m_maximizeByDefault = true;
     m_showBorderAndTitleBlock = true;   // true to display sheet references
@@ -187,12 +187,12 @@ PCB_EDIT_FRAME::PCB_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
     m_SelLayerBox = nullptr;
     m_show_layer_manager_tools = true;
     m_supportsAutoSave = true;
+    m_syncingSchToPcbSelection = false;
 
     // We don't know what state board was in when it was last saved, so we have to
     // assume dirty
     m_ZoneFillsDirty = true;
 
-    m_rotationAngle = ANGLE_90;
     m_aboutTitle = _( "KiCad PCB Editor" );
 
     // Must be created before the menus are created.
@@ -637,13 +637,19 @@ void PCB_EDIT_FRAME::setupUIConditions()
         };
 
     mgr->SetConditions( PCB_ACTIONS::zoneDisplayFilled,
-                        ENABLE( enableZoneControlConition ).Check( cond.ZoneDisplayMode( ZONE_DISPLAY_MODE::SHOW_FILLED ) ) );
+                        ENABLE( enableZoneControlConition )
+                        .Check( cond.ZoneDisplayMode( ZONE_DISPLAY_MODE::SHOW_FILLED ) ) );
     mgr->SetConditions( PCB_ACTIONS::zoneDisplayOutline,
-                        ENABLE( enableZoneControlConition ).Check( cond.ZoneDisplayMode( ZONE_DISPLAY_MODE::SHOW_ZONE_OUTLINE ) ) );
+                        ENABLE( enableZoneControlConition )
+                        .Check( cond.ZoneDisplayMode( ZONE_DISPLAY_MODE::SHOW_ZONE_OUTLINE ) ) );
     mgr->SetConditions( PCB_ACTIONS::zoneDisplayFractured,
-                        ENABLE( enableZoneControlConition ).Check( cond.ZoneDisplayMode( ZONE_DISPLAY_MODE::SHOW_FRACTURE_BORDERS ) ) );
+                        ENABLE( enableZoneControlConition )
+                        .Check( cond.ZoneDisplayMode( ZONE_DISPLAY_MODE::SHOW_FRACTURE_BORDERS ) ) );
     mgr->SetConditions( PCB_ACTIONS::zoneDisplayTriangulated,
-                        ENABLE( enableZoneControlConition ).Check( cond.ZoneDisplayMode( ZONE_DISPLAY_MODE::SHOW_TRIANGULATION ) ) );
+                        ENABLE( enableZoneControlConition )
+                        .Check( cond.ZoneDisplayMode( ZONE_DISPLAY_MODE::SHOW_TRIANGULATION ) ) );
+
+    mgr->SetConditions( ACTIONS::toggleBoundingBoxes, CHECK( cond.BoundingBoxes() ) );
 
     auto enableBoardSetupCondition =
         [this] ( const SELECTION& )
@@ -703,10 +709,9 @@ void PCB_EDIT_FRAME::setupUIConditions()
     mgr->SetConditions( PCB_ACTIONS::showLayersManager,    CHECK( layerManagerCond ) );
     mgr->SetConditions( PCB_ACTIONS::showRatsnest,         CHECK( globalRatsnestCond ) );
     mgr->SetConditions( PCB_ACTIONS::ratsnestLineMode,     CHECK( curvedRatsnestCond ) );
-    mgr->SetConditions( PCB_ACTIONS::toggleNetHighlight,
-                        CHECK( netHighlightCond ).Enable( enableNetHighlightCond ) );
-    mgr->SetConditions( PCB_ACTIONS::boardSetup ,          ENABLE( enableBoardSetupCondition ) );
-
+    mgr->SetConditions( PCB_ACTIONS::toggleNetHighlight,   CHECK( netHighlightCond )
+                                                           .Enable( enableNetHighlightCond ) );
+    mgr->SetConditions( PCB_ACTIONS::boardSetup,           ENABLE( enableBoardSetupCondition ) );
 
     auto isHighlightMode =
         [this]( const SELECTION& )
@@ -760,12 +765,11 @@ void PCB_EDIT_FRAME::setupUIConditions()
                         ENABLE( SELECTION_CONDITIONS::OnlyType( PCB_FOOTPRINT_T ) ) );
 
 
-    SELECTION_CONDITION singleZoneCond = SELECTION_CONDITIONS::Count( 1 ) &&
-                                         SELECTION_CONDITIONS::OnlyTypes( GENERAL_COLLECTOR::Zones );
+    SELECTION_CONDITION singleZoneCond = SELECTION_CONDITIONS::Count( 1 )
+                                    && SELECTION_CONDITIONS::OnlyTypes( GENERAL_COLLECTOR::Zones );
 
-    SELECTION_CONDITION zoneMergeCond = SELECTION_CONDITIONS::MoreThan( 1 ) &&
-                                        PCB_SELECTION_CONDITIONS::SameNet( true ) &&
-                                        PCB_SELECTION_CONDITIONS::SameLayer();
+    SELECTION_CONDITION zoneMergeCond = SELECTION_CONDITIONS::MoreThan( 1 )
+                                    && SELECTION_CONDITIONS::OnlyTypes( GENERAL_COLLECTOR::Zones );
 
     mgr->SetConditions( PCB_ACTIONS::zoneDuplicate, ENABLE( singleZoneCond ) );
     mgr->SetConditions( PCB_ACTIONS::drawZoneCutout, ENABLE( singleZoneCond ) );
@@ -1048,7 +1052,6 @@ void PCB_EDIT_FRAME::LoadSettings( APP_SETTINGS_BASE* aCfg )
 
     if( cfg )
     {
-        m_rotationAngle            = EDA_ANGLE( cfg->m_RotationAngle, TENTHS_OF_A_DEGREE_T );
         m_show_layer_manager_tools = cfg->m_AuiPanels.show_layer_manager;
     }
 }
@@ -1058,16 +1061,23 @@ void PCB_EDIT_FRAME::SaveSettings( APP_SETTINGS_BASE* aCfg )
 {
     PCB_BASE_FRAME::SaveSettings( aCfg );
 
-    auto cfg = dynamic_cast<PCBNEW_SETTINGS*>( aCfg );
+    PCBNEW_SETTINGS* cfg = dynamic_cast<PCBNEW_SETTINGS*>( aCfg );
     wxASSERT( cfg );
 
     if( cfg )
     {
-        cfg->m_RotationAngle                  = m_rotationAngle.AsTenthsOfADegree();
         cfg->m_AuiPanels.show_layer_manager   = m_show_layer_manager_tools;
         cfg->m_AuiPanels.right_panel_width    = m_appearancePanel->GetSize().x;
         cfg->m_AuiPanels.appearance_panel_tab = m_appearancePanel->GetTabIndex();
     }
+}
+
+
+EDA_ANGLE PCB_EDIT_FRAME::GetRotationAngle() const
+{
+    PCBNEW_SETTINGS* cfg = dynamic_cast<PCBNEW_SETTINGS*>( config() );
+
+    return cfg ? cfg->m_RotationAngle : ANGLE_90;
 }
 
 

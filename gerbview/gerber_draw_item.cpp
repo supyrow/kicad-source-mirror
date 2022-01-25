@@ -115,10 +115,9 @@ bool GERBER_DRAW_ITEM::GetTextD_CodePrms( int& aSize, VECTOR2I& aPos, EDA_ANGLE&
     else        // this item is a line
     {
         VECTOR2I delta = m_Start - m_End;
+        EDA_ANGLE angle( delta );
 
-        double deci = RAD2DECIDEG( atan2( (double)delta.y, (double)delta.x ) );
-        NORMALIZE_ANGLE_90( deci );
-        aOrientation = EDA_ANGLE( deci, TENTHS_OF_A_DEGREE_T );
+        aOrientation = angle.Normalize90();
 
         // A reasonable size for text is size/2 because text needs margin below and above it.
         // a margin = size/4 seems good, expecting the line len is large enough to show 3 chars,
@@ -144,9 +143,9 @@ VECTOR2I GERBER_DRAW_ITEM::GetABPosition( const VECTOR2I& aXYPosition ) const
     abPos  += m_layerOffset + m_GerberImageFile->m_ImageOffset;
     abPos.x = KiROUND( abPos.x * m_drawScale.x );
     abPos.y = KiROUND( abPos.y * m_drawScale.y );
-    double rotation = m_lyrRotation * 10 + m_GerberImageFile->m_ImageRotation * 10;
+    EDA_ANGLE rotation( m_lyrRotation + m_GerberImageFile->m_ImageRotation, DEGREES_T );
 
-    if( rotation )
+    if( !rotation.IsZero() )
         RotatePoint( abPos, -rotation );
 
     // Negate A axis if mirrored
@@ -172,9 +171,9 @@ VECTOR2I GERBER_DRAW_ITEM::GetXYPosition( const VECTOR2I& aABPosition ) const
     if( !m_mirrorB )
         xyPos.y = -xyPos.y;
 
-    double rotation = m_lyrRotation * 10 + m_GerberImageFile->m_ImageRotation * 10;
+    EDA_ANGLE rotation( m_lyrRotation + m_GerberImageFile->m_ImageRotation, DEGREES_T );
 
-    if( rotation )
+    if( !rotation.IsZero() )
         RotatePoint( xyPos, rotation );
 
     xyPos.x = KiROUND( xyPos.x / m_drawScale.x );
@@ -683,6 +682,26 @@ void GERBER_DRAW_ITEM::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_
     msg = GERBER_FILE_IMAGE_LIST::GetImagesList().GetDisplayName( GetLayer(), true );
     aList.emplace_back( _( "Graphic Layer" ), msg );
 
+    // Display item position
+    auto xStart = To_User_Unit( aFrame->GetUserUnits(), m_Start.x );
+    auto yStart = To_User_Unit( aFrame->GetUserUnits(), m_Start.y );
+    auto xEnd   = To_User_Unit( aFrame->GetUserUnits(), m_End.x );
+    auto yEnd   = To_User_Unit( aFrame->GetUserUnits(), m_End.y );
+
+    if( m_Flashed )
+    {
+        msg.Printf( wxT( "(%.4f, %.4f)" ), xStart, yStart );
+        aList.emplace_back( MSG_PANEL_ITEM( _( "Position" ), msg, BLUE ) );
+    }
+    else
+    {
+        msg.Printf( wxT( "(%.4f, %.4f)" ), xStart, yStart );
+        aList.emplace_back( MSG_PANEL_ITEM( _( "Start" ), msg, BLUE ) );
+
+        msg.Printf( wxT( "(%.4f, %.4f)" ), xEnd, yEnd );
+        aList.emplace_back( MSG_PANEL_ITEM( _( "End" ), msg, BLUE ) );
+    }
+
     // Display item rotation
     // The full rotation is Image rotation + m_lyrRotation
     // but m_lyrRotation is specific to this object
@@ -848,23 +867,26 @@ bool GERBER_DRAW_ITEM::HitTest( const VECTOR2I& aRefPos, int aAccuracy ) const
         {
             // Now check that we are within the arc angle
 
-            VECTOR2D start = VECTOR2D( m_Start ) - VECTOR2D( m_ArcCentre );
-            VECTOR2D end = VECTOR2D( m_End ) - VECTOR2D( m_ArcCentre );
+            VECTOR2D  start = VECTOR2D( m_Start ) - VECTOR2D( m_ArcCentre );
+            VECTOR2D  end = VECTOR2D( m_End ) - VECTOR2D( m_ArcCentre );
+            EDA_ANGLE start_angle( start );
+            EDA_ANGLE end_angle( end );
 
-            double start_angle = NormalizeAngleRadiansPos( start.Angle() );
-            double end_angle = NormalizeAngleRadiansPos( end.Angle() );
+            start_angle.Normalize();
+            end_angle.Normalize();
 
             if( m_Start == m_End )
             {
-                start_angle = 0;
-                end_angle = 2 * M_PI;
+                start_angle = ANGLE_0;
+                end_angle = ANGLE_360;
             }
             else if( end_angle < start_angle )
             {
-                end_angle += 2 * M_PI;
+                end_angle += ANGLE_360;
             }
 
-            double test_angle = NormalizeAngleRadiansPos( test_radius.Angle() );
+            EDA_ANGLE test_angle( test_radius );
+            test_angle.Normalize();
 
             return ( test_angle > start_angle && test_angle < end_angle );
         }

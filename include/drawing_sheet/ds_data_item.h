@@ -71,13 +71,13 @@ class POINT_COORD
 public:
     POINT_COORD() { m_Anchor = RB_CORNER; }
 
-    POINT_COORD( const DPOINT& aPos, enum CORNER_ANCHOR aAnchor = RB_CORNER )
+    POINT_COORD( const VECTOR2D& aPos, enum CORNER_ANCHOR aAnchor = RB_CORNER )
     {
         m_Pos = aPos;
         m_Anchor = aAnchor;
     }
 
-    DPOINT            m_Pos;
+    VECTOR2D          m_Pos;
     int               m_Anchor;
 };
 
@@ -136,8 +136,8 @@ public:
     // Coordinate handling
     const VECTOR2I GetStartPosUi( int ii = 0 ) const;
     const VECTOR2I GetEndPosUi( int ii = 0 ) const;
-    const DPOINT GetStartPos( int ii = 0 ) const;
-    const DPOINT GetEndPos( int ii = 0 ) const;
+    const VECTOR2D GetStartPos( int ii = 0 ) const;
+    const VECTOR2D GetEndPos( int ii = 0 ) const;
 
     virtual int GetPenSizeUi();
 
@@ -146,7 +146,7 @@ public:
      *
      * @param aPosition the new position of item, in mm.
      */
-    void MoveTo( const DPOINT& aPosition );
+    void MoveTo( const VECTOR2D& aPosition );
 
     /**
      * Move item to a new position.
@@ -160,7 +160,7 @@ public:
      *
      * @param aPosition the new position of the starting point, in mm.
      */
-    void MoveStartPointTo( const DPOINT& aPosition );
+    void MoveStartPointTo( const VECTOR2D& aPosition );
 
     /**
      * Move the starting point of the item to a new position.
@@ -177,7 +177,7 @@ public:
      *
      * @param aPosition is the new position of the ending point, in mm.
      */
-    void MoveEndPointTo( const DPOINT& aPosition );
+    void MoveEndPointTo( const VECTOR2D& aPosition );
 
     /**
      * Move the ending point of the item to a new position.
@@ -201,7 +201,7 @@ public:
     POINT_COORD    m_End;
     double         m_LineWidth;
     int            m_RepeatCount;        // repeat count for duplicate items
-    DPOINT         m_IncrementVector;    // for duplicate items: move vector for position increment
+    VECTOR2D       m_IncrementVector;    // for duplicate items: move vector for position increment
     int            m_IncrementLabel;
 
 protected:
@@ -226,7 +226,7 @@ public:
      *
      * @param aCorner is the item to append.
      */
-    void AppendCorner( const DPOINT& aCorner )
+    void AppendCorner( const VECTOR2D& aCorner )
     {
         m_Corners.push_back( aCorner );
     }
@@ -269,7 +269,7 @@ public:
     /**
      * @return the coordinate (in mm) of the corner \a aIdx and the repeated item \a aRepeat
      */
-    const DPOINT GetCornerPosition( unsigned aIdx, int aRepeat = 0 ) const;
+    const VECTOR2D GetCornerPosition( unsigned aIdx, int aRepeat = 0 ) const;
 
     /**
      * @return the coordinate (in draw/plot units) of the corner \a aIdx and the repeated
@@ -284,13 +284,13 @@ public:
 
     bool IsInsidePage( int ii ) const override;
 
-    double                m_Orient;         // Orientation in degrees
-    std::vector<DPOINT>   m_Corners;        // corner list
+    EDA_ANGLE             m_Orient;         // Orientation
+    std::vector<VECTOR2D> m_Corners;        // corner list
 
 private:
     std::vector<unsigned> m_polyIndexEnd;   // index of the last point of each polygon
-    DPOINT                m_minCoord;       // min coord of corners, relative to m_Pos
-    DPOINT                m_maxCoord;       // max coord of corners, relative to m_Pos
+    VECTOR2D              m_minCoord;       // min coord of corners, relative to m_Pos
+    VECTOR2D              m_maxCoord;       // max coord of corners, relative to m_Pos
 };
 
 
@@ -339,11 +339,11 @@ public:
     GR_TEXT_V_ALIGN_T   m_Vjustify;
     bool                m_Italic;
     bool                m_Bold;
-    DSIZE               m_TextSize;
-    DSIZE               m_BoundingBoxSize;      // When not null, this is the max size of the
+    VECTOR2D            m_TextSize;
+    VECTOR2D            m_BoundingBoxSize;      // When not null, this is the max size of the
                                                 // full text.  The text size will be modified
                                                 // to keep the full text inside this bound.
-    DSIZE               m_ConstrainedTextSize;  // Actual text size, if constrained by
+    VECTOR2D            m_ConstrainedTextSize;  // Actual text size, if constrained by
                                                 // the m_BoundingBoxSize constraint
 };
 

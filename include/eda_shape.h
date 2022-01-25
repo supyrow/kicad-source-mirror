@@ -160,10 +160,8 @@ public:
 
     /**
      * Set the end point from the angle center and start.
-     *
-     * @param aAngle is tenths of degrees.
      */
-    void SetArcAngleAndEnd( double aAngle, bool aCheckNegativeAngle = false );
+    void SetArcAngleAndEnd( const EDA_ANGLE& aAngle, bool aCheckNegativeAngle = false );
 
     EDA_ANGLE GetArcAngle() const;
 
@@ -183,7 +181,7 @@ public:
      * Calc arc start and end angles such that aStartAngle < aEndAngle.  Each may be between
      * -360.0 and 360.0.
      */
-    void CalcArcAngles( double& aStartAngle, double& aEndAngle ) const;
+    void CalcArcAngles( EDA_ANGLE& aStartAngle, EDA_ANGLE& aEndAngle ) const;
 
     int GetRadius() const;
 
@@ -277,12 +275,12 @@ protected:
     VECTOR2I getPosition() const;
 
     void move( const VECTOR2I& aMoveVector );
-    void rotate( const VECTOR2I& aRotCentre, double aAngle );
+    void rotate( const VECTOR2I& aRotCentre, const EDA_ANGLE& aAngle );
     void flip( const VECTOR2I& aCentre, bool aFlipLeftRight );
     void scale( double aScale );
 
     // To be implemented by concrete classes
-    virtual double getParentOrientation() const = 0;
+    virtual EDA_ANGLE getParentOrientation() const = 0;
     virtual VECTOR2I getParentPosition() const = 0;
 
     const EDA_RECT getBoundingBox() const;
@@ -312,19 +310,19 @@ protected:
     FILL_T                m_fill;
     COLOR4D               m_fillColor;
 
-    VECTOR2I              m_start; // Line start point or Circle center
-    VECTOR2I              m_end;   // Line end point or Circle 3 o'clock point
+    VECTOR2I              m_start;             // Line start point or Circle center
+    VECTOR2I              m_end;               // Line end point or Circle 3 o'clock point
 
-    VECTOR2I              m_arcCenter; // Used only for Arcs: arc end point
+    VECTOR2I              m_arcCenter;         // Used only for Arcs: arc end point
 
-    VECTOR2I              m_bezierC1; // Bezier Control Point 1
-    VECTOR2I              m_bezierC2; // Bezier Control Point 2
+    VECTOR2I              m_bezierC1;          // Bezier Control Point 1
+    VECTOR2I              m_bezierC2;          // Bezier Control Point 2
 
     std::vector<VECTOR2I> m_bezierPoints;
-    SHAPE_POLY_SET        m_poly;         // Stores the S_POLYGON shape
+    SHAPE_POLY_SET        m_poly;              // Stores the S_POLYGON shape
 
     int                   m_editState;
-    bool                  m_eeWinding;    // Awful hack
+    bool                  m_upsideDownCoords;  // Awful hack
 };
 
 #endif  // EDA_SHAPE_H

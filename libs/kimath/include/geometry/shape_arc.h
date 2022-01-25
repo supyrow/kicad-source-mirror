@@ -28,8 +28,8 @@
 
 #include <geometry/shape.h>
 #include <convert_to_biu.h>
-#include <eda_angle.h>
 #include <math/vector2d.h>   // for VECTOR2I
+#include <geometry/eda_angle.h>
 
 class SHAPE_LINE_CHAIN;
 
@@ -94,7 +94,7 @@ public:
      * @return this arc.
      */
     SHAPE_ARC& ConstructFromStartEndAngle( const VECTOR2I& aStart, const VECTOR2I& aEnd,
-                                           double aAngle, double aWidth = 0 );
+                                           const EDA_ANGLE& aAngle, double aWidth = 0 );
 
     /**
      * Constructs this arc from the given start, end and center.
@@ -170,9 +170,9 @@ public:
      * Rotate the arc by a given angle about a point.
      *
      * @param aCenter is the rotation center.
-     * @param aAngle rotation angle in radians.
+     * @param aAngle rotation angle.
      */
-    void Rotate( double aAngle, const VECTOR2I& aCenter ) override;
+    void Rotate( const EDA_ANGLE& aAngle, const VECTOR2I& aCenter ) override;
 
     void Mirror( bool aX = true, bool aY = false, const VECTOR2I& aVector = { 0, 0 } );
 
@@ -190,19 +190,19 @@ public:
     }
 
     /**
-     * @return the central angle of the arc shape in degrees, normalized between 0.0, 360.0 deg.
+     * @return the central angle of the arc shape, normalized between 0..360 deg.
      */
-    double  GetCentralAngle() const;
+    EDA_ANGLE GetCentralAngle() const;
 
     /**
-     * @return the start angle of the arc shape in degrees, normalized between 0.0, 360.0 deg.
+     * @return the start angle of the arc shape, normalized between 0..360 deg.
      */
-    double  GetStartAngle() const;
+    EDA_ANGLE GetStartAngle() const;
 
     /**
-     * @return the end angle of the arc shape in degrees, normalized between 0.0, 360.0 deg.
+     * @return the end angle of the arc shape, normalized between 0..360 deg.
      */
-    double  GetEndAngle() const;
+    EDA_ANGLE GetEndAngle() const;
 
     /**
      * @return the length of the arc shape.

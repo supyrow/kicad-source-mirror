@@ -18,6 +18,7 @@
  */
 
 #include <geometry/direction45.h>
+#include <trigo.h>
 
 
 const SHAPE_LINE_CHAIN DIRECTION_45::BuildInitialTrace( const VECTOR2I& aP0, const VECTOR2I& aP1,
@@ -143,7 +144,7 @@ const SHAPE_LINE_CHAIN DIRECTION_45::BuildInitialTrace( const VECTOR2I& aP0, con
             {
                 // Positive tangentLength, diagonal start: arc goes at the start
                 arcEndpoint = aP1 - mp0.Resize( tangentLength );
-                arc.ConstructFromStartEndAngle( aP0, arcEndpoint, 45 * rotationSign );
+                arc.ConstructFromStartEndAngle( aP0, arcEndpoint, ANGLE_45 * rotationSign );
 
                 if( arc.GetP0() == arc.GetP1() )
                     pl.Append( aP0 );
@@ -156,7 +157,7 @@ const SHAPE_LINE_CHAIN DIRECTION_45::BuildInitialTrace( const VECTOR2I& aP0, con
             {
                 // Negative tangentLength, diagonal start: arc goes at the end
                 arcEndpoint = aP0 + mp1.Resize( std::abs( tangentLength ) );
-                arc.ConstructFromStartEndAngle( arcEndpoint, aP1, 45 * rotationSign );
+                arc.ConstructFromStartEndAngle( arcEndpoint, aP1, ANGLE_45 * rotationSign );
 
                 pl.Append( aP0 );
 
@@ -168,14 +169,16 @@ const SHAPE_LINE_CHAIN DIRECTION_45::BuildInitialTrace( const VECTOR2I& aP0, con
         }
         else
         {
-            int      rotationSign = ( w > h ) ? ( sw * sh ) : ( sw * sh * -1 );
-            VECTOR2D centerDir( mp0.Rotate( M_PI_2 * rotationSign ) );
+            int      rotationSign = ( w > h ) ? ( sw * sh * -1 ) : ( sw * sh );
+            VECTOR2D centerDir( mp0 );
+
+            RotatePoint( centerDir, ANGLE_90 * rotationSign );
 
             if( tangentLength >= 0 )
             {
                 // Positive tangentLength: arc goes at the end
                 arcEndpoint = aP0 + mp0.Resize( tangentLength );
-                arc.ConstructFromStartEndAngle( arcEndpoint, aP1, 45 * rotationSign );
+                arc.ConstructFromStartEndAngle( arcEndpoint, aP1, ANGLE_45 * rotationSign );
 
                 pl.Append( aP0 );
 
@@ -198,12 +201,12 @@ const SHAPE_LINE_CHAIN DIRECTION_45::BuildInitialTrace( const VECTOR2I& aP0, con
                 if( std::abs( endpoint.y - aP1.y ) < SHAPE_ARC::MIN_PRECISION_IU )
                 {
                     VECTOR2I fixedEnd( endpoint.x, aP1.y );
-                    ca.ConstructFromStartEndAngle( ca.GetP0(), fixedEnd, 45 * rotationSign );
+                    ca.ConstructFromStartEndAngle( ca.GetP0(), fixedEnd, ANGLE_45 * rotationSign );
                 }
                 else if( std::abs( endpoint.x - aP1.x ) < SHAPE_ARC::MIN_PRECISION_IU )
                 {
                     VECTOR2I fixedEnd( aP1.x, endpoint.y );
-                    ca.ConstructFromStartEndAngle( ca.GetP0(), fixedEnd, 45 * rotationSign );
+                    ca.ConstructFromStartEndAngle( ca.GetP0(), fixedEnd, ANGLE_45 * rotationSign );
                 }
 
                 if( ca.GetP0() == ca.GetP1() )

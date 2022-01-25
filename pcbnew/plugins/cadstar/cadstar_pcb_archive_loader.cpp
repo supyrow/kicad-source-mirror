@@ -1415,8 +1415,9 @@ void CADSTAR_PCB_ARCHIVE_LOADER::loadDimensions()
                 }
                 else
                 {
-                    double angle = crossbarVector.Angle() + ( M_PI / 2 );
-                    height = heightVector.x * cos( angle ) + heightVector.y * sin( angle );
+                    EDA_ANGLE angle( crossbarVector );
+                    angle += ANGLE_90;
+                    height = heightVector.x * angle.Cos() + heightVector.y * angle.Sin();
                 }
 
                 dimension->SetHeight( height );
@@ -1900,7 +1901,7 @@ void CADSTAR_PCB_ARCHIVE_LOADER::loadTemplates()
             zone->SetFillMode( ZONE_FILL_MODE::HATCH_PATTERN );
             zone->SetHatchGap( getKiCadHatchCodeGap( csTemplate.Pouring.HatchCodeID ) );
             zone->SetHatchThickness( getKiCadHatchCodeThickness( csTemplate.Pouring.HatchCodeID ) );
-            zone->SetHatchOrientation( getHatchCodeAngleDegrees( csTemplate.Pouring.HatchCodeID ) );
+            zone->SetHatchOrientation( getHatchCodeAngle( csTemplate.Pouring.HatchCodeID ) );
         }
         else
         {
@@ -2134,7 +2135,7 @@ void CADSTAR_PCB_ARCHIVE_LOADER::loadCoppers()
                 zone->SetFillMode( ZONE_FILL_MODE::HATCH_PATTERN );
                 zone->SetHatchGap( getKiCadHatchCodeGap( csCopper.Shape.HatchCodeID ) );
                 zone->SetHatchThickness( getKiCadHatchCodeThickness( csCopper.Shape.HatchCodeID ) );
-                zone->SetHatchOrientation( getHatchCodeAngleDegrees( csCopper.Shape.HatchCodeID ) );
+                zone->SetHatchOrientation( getHatchCodeAngle( csCopper.Shape.HatchCodeID ) );
             }
             else
             {
@@ -2857,9 +2858,9 @@ PCB_SHAPE* CADSTAR_PCB_ARCHIVE_LOADER::getShapeFromVertex( const POINT& aCadstar
         // with opposite start/end points and same centre point)
 
         if( cw )
-            shape->SetArcAngleAndEnd( arcAngle.Normalize().AsTenthsOfADegree() );
+            shape->SetArcAngleAndEnd( arcAngle.Normalize() );
         else
-            shape->SetArcAngleAndEnd( -arcAngle.Normalize().AsTenthsOfADegree(), true );
+            shape->SetArcAngleAndEnd( -arcAngle.Normalize(), true );
 
         break;
     }
@@ -3470,8 +3471,7 @@ CADSTAR_PCB_ARCHIVE_LOADER::HATCHCODE CADSTAR_PCB_ARCHIVE_LOADER::getHatchCode(
 }
 
 
-double CADSTAR_PCB_ARCHIVE_LOADER::getHatchCodeAngleDegrees(
-        const HATCHCODE_ID& aCadstarHatchcodeID )
+EDA_ANGLE CADSTAR_PCB_ARCHIVE_LOADER::getHatchCodeAngle( const HATCHCODE_ID& aCadstarHatchcodeID )
 {
     checkAndLogHatchCode( aCadstarHatchcodeID );
     HATCHCODE hcode = getHatchCode( aCadstarHatchcodeID );
@@ -3479,7 +3479,7 @@ double CADSTAR_PCB_ARCHIVE_LOADER::getHatchCodeAngleDegrees(
     if( hcode.Hatches.size() < 1 )
         return m_board->GetDesignSettings().GetDefaultZoneSettings().m_HatchOrientation;
     else
-        return getAngle( hcode.Hatches.at( 0 ).OrientAngle ).AsDegrees();
+        return getAngle( hcode.Hatches.at( 0 ).OrientAngle );
 }
 
 

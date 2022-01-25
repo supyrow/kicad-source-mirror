@@ -72,6 +72,7 @@ set( BMAPS_SMALL
     icon_eeschema_16
     icon_gerbview_16
     icon_kicad_16
+    icon_kicad_nightly_16
     icon_libedit_16
     icon_modedit_16
     icon_pagelayout_editor_16
@@ -529,6 +530,7 @@ set( BMAPS_32
     icon_eeschema_32
     icon_gerbview_32
     icon_kicad_32
+    icon_kicad_nightly_32
     icon_libedit_32
     icon_modedit_32
     icon_pagelayout_editor_32
@@ -544,6 +546,7 @@ set( BMAPS_BIG
     icon_eeschema
     icon_gerbview
     icon_kicad
+    icon_kicad_nightly
     icon_libedit
     icon_modedit
     icon_pcbnew
@@ -569,6 +572,7 @@ set( BMAPS_64
     icon_eeschema
     icon_gerbview
     icon_kicad
+    icon_kicad_nightly
     icon_libedit
     icon_modedit
     icon_pcbnew
@@ -583,6 +587,7 @@ set( BMAPS_128
     icon_eeschema
     icon_gerbview
     icon_kicad
+    icon_kicad_nightly
     icon_libedit
     icon_modedit
     icon_pcbnew
@@ -641,7 +646,7 @@ set( TMP_DIR   "${CMAKE_CURRENT_BINARY_DIR}/tmp" )
 
 # true to generate log files, false to build icon files only
 # generate logs is useful only if you have problems
-set( CREATE_LOG_FILES true )
+set( CREATE_LOG_FILES false )
 
 set( BITMAP_INFO_FILE "${CMAKE_SOURCE_DIR}/include/bitmaps/bitmap_info.h" )
 set( BITMAP_INFO_TEMPLATE "${CMAKE_SOURCE_DIR}/include/bitmaps/bitmap_info.h.in" )
@@ -655,7 +660,11 @@ function( svg2png inputFile outFile pngWidth pngHeight )
     if( CREATE_LOG_FILES )
         set( logfile "${TMP_DIR}/${bmn}.inkscape.log" )
     else()
-        set( logfile "null" )
+        if( MSVC )
+            set( logfile "nul" )
+        else()
+            set( logfile "null" )
+        endif()
     endif()
 
     if( ${pngWidth} EQUAL -1 )
@@ -687,7 +696,11 @@ function( png2png inputFile outFile )
     if( CREATE_LOG_FILES )
         set( logfile "${TMP_DIR}/${bmn}.pngcrush.log" )
     else()
-        set( logfile "null" )
+        if( MSVC )
+            set( logfile "nul" )
+        else()
+            set( logfile "null" )
+        endif()
     endif()
 
     add_custom_command(
@@ -825,7 +838,7 @@ if( MAINTAIN_PNGS )
 
     if( NOT Inkscape_FOUND )
         find_program( Inkscape_EXECUTABLE inkscape
-                      PATHS "[HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Inkscape;InstallDir]"
+                      PATHS "[HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Inkscape;InstallDir]" "$ENV{PROGRAMFILES}\\Inkscape\\bin"
                       DOC "Inkscape vector drawing program." )
 
         if( NOT Inkscape_EXECUTABLE )

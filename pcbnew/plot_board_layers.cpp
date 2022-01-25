@@ -584,8 +584,7 @@ void PlotStandardLayer( BOARD* aBoard, PLOTTER* aPlotter, LSET aLayerMask,
             EDA_ANGLE start_angle = arc->GetArcAngleStart();
             EDA_ANGLE end_angle = start_angle + arc->GetAngle();
 
-            aPlotter->ThickArc( VECTOR2I( center.x, center.y ), -end_angle.AsTenthsOfADegree(),
-                                -start_angle.AsTenthsOfADegree(), radius, width, plotMode,
+            aPlotter->ThickArc( center, -end_angle, -start_angle, radius, width, plotMode,
                                 &gbr_metadata );
         }
         else
@@ -739,7 +738,7 @@ void PlotLayerOutlines( BOARD* aBoard, PLOTTER* aPlotter, LSET aLayerMask,
         if( aPlotOpt.GetDrillMarksType() != PCB_PLOT_PARAMS::NO_DRILL_SHAPE )
         {
             int smallDrill = (aPlotOpt.GetDrillMarksType() == PCB_PLOT_PARAMS::SMALL_DRILL_SHAPE)
-                                  ? ADVANCED_CFG::GetCfg().m_SmallDrillMarkSize : INT_MAX;
+                                  ? Millimeter2iu( ADVANCED_CFG::GetCfg().m_SmallDrillMarkSize ) : INT_MAX;
 
             for( FOOTPRINT* footprint : aBoard->Footprints() )
             {
