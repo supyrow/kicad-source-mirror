@@ -28,6 +28,7 @@
 
 enum COL_ORDER
 {
+    COL_PIN_COUNT,
     COL_NUMBER,
     COL_NAME,
     COL_TYPE,
@@ -39,8 +40,9 @@ enum COL_ORDER
     COL_POSX,
     COL_POSY,
     COL_VISIBLE,
+    COL_UNIT,
 
-    COL_COUNT       // keep as last
+    COL_COUNT // keep as last
 };
 
 
@@ -66,6 +68,9 @@ public:
     void OnUpdateUI( wxUpdateUIEvent& event ) override;
     void OnCancel( wxCommandEvent& event ) override;
     void OnClose( wxCloseEvent& event ) override;
+    void AddPin( LIB_PIN* pin );
+    void RemovePin( LIB_PIN* pin );
+    bool IsDisplayGrouped();
 
 protected:
 

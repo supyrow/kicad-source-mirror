@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2021 KiCad Developers.
+ * Copyright (C) 2021-2022 KiCad Developers.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -23,11 +23,14 @@
 
 #include <macros.h>
 #include <pcb_text.h>
+#include <pcb_textbox.h>
 #include <fp_text.h>
+#include <fp_textbox.h>
 #include <drc/drc_engine.h>
 #include <drc/drc_item.h>
 #include <drc/drc_rule.h>
 #include <drc/drc_test_provider.h>
+#include <font/font.h>
 
 
 /*
@@ -104,34 +107,40 @@ bool DRC_TEST_PROVIDER_TEXT_DIMS::Run()
                 if( !reportProgress( ii++, count, delta ) )
                     return false;
 
-                wxASSERT( item->Type() == PCB_TEXT_T || item->Type() == PCB_FP_TEXT_T );
-
                 DRC_CONSTRAINT constraint;
-                int            actualH = 0;
-                int            actualT = 0;
-                bool           visible = false;
+                EDA_TEXT*      text = nullptr;
 
-                if( item->Type() == PCB_TEXT_T )
+                switch( item->Type() )
                 {
-                    PCB_TEXT*      textItem = static_cast<PCB_TEXT*>( item );
-                    visible = textItem->IsVisible();
-                    actualH = textItem->GetTextHeight();
-                    actualT = textItem->GetTextThickness();
-                }
-                else if( item->Type() == PCB_FP_TEXT_T )
-                {
-                    FP_TEXT*      fpTextItem = static_cast<FP_TEXT*>( item );
-                    visible = fpTextItem->IsVisible();
-                    actualH = fpTextItem->GetTextHeight();
-                    actualT = fpTextItem->GetTextThickness();
-                }
-                else
-                {
-                    UNIMPLEMENTED_FOR( item->GetClass() );
+                case PCB_TEXT_T:       text = static_cast<PCB_TEXT*>( item );    break;
+                case PCB_TEXTBOX_T:    text = static_cast<PCB_TEXTBOX*>( item ); break;
+                case PCB_FP_TEXT_T:    text = static_cast<FP_TEXT*>( item );     break;
+                case PCB_FP_TEXTBOX_T: text = static_cast<FP_TEXTBOX*>( item );  break;
+                default:               UNIMPLEMENTED_FOR( item->GetClass() );    break;
                 }
 
-                if( !visible )
+                if( !text || !text->IsVisible() )
                     return true;
+
+                VECTOR2I      size = text->GetTextSize();
+                KIFONT::FONT* font = text->GetDrawFont();
+
+                int actualH = size.y;
+                int actualT = 0;
+
+                if( font->IsStroke() )
+                {
+                    actualT = text->GetTextThickness();
+                }
+                else if( font->IsOutline() )
+                {
+                    // The best we can do for outline fonts is estimate their thickness based
+                    // on their fontweight.
+                    if( font->IsBold() )
+                        actualT = GetPenSizeForBold( size.x );
+                    else
+                        actualT = GetPenSizeForNormal( size.x );
+                }
 
                 if( !m_drcEngine->IsErrorLimitExceeded( DRCE_TEXT_HEIGHT ) )
                 {

@@ -141,6 +141,8 @@ set( PCBNEW_DIALOGS
     dialogs/dialog_target_properties_base.cpp
     dialogs/dialog_text_properties.cpp
     dialogs/dialog_text_properties_base.cpp
+    dialogs/dialog_textbox_properties.cpp
+    dialogs/dialog_textbox_properties_base.cpp
     dialogs/dialog_track_via_properties.cpp
     dialogs/dialog_track_via_properties_base.cpp
     dialogs/dialog_track_via_size.cpp
@@ -418,6 +420,7 @@ set( SWIG_FLAGS
     -I${CMAKE_SOURCE_DIR}/pcbnew/python/scripting
     -I${CMAKE_SOURCE_DIR}/common/swig
     -I${CMAKE_SOURCE_DIR}/libs/kimath/include
+    -I${CMAKE_BINARY_DIR}
     )
 
 if( DEBUG )
@@ -479,6 +482,7 @@ add_custom_command( OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/pcbnew_wrap.cxx
     DEPENDS python/swig/track.i
     DEPENDS python/swig/units.i
     DEPENDS python/swig/typeinfo.i
+    DEPENDS python/swig/version.i
     DEPENDS python/swig/zone.i
     DEPENDS python/swig/zone_settings.i
 

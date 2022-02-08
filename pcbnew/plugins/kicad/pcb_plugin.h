@@ -41,10 +41,12 @@ class PCB_SHAPE;
 class PCB_TARGET;
 class PAD;
 class FP_TEXT;
+class FP_TEXTBOX;
 class PCB_GROUP;
 class PCB_TRACK;
 class ZONE;
 class PCB_TEXT;
+class PCB_TEXTBOX;
 class EDA_TEXT;
 class SHAPE_LINE_CHAIN;
 
@@ -111,7 +113,8 @@ class SHAPE_LINE_CHAIN;
 //#define SEXPR_BOARD_FILE_VERSION    20211229  // Stroke formatting
 //#define SEXPR_BOARD_FILE_VERSION    20211230  // Dimensions in footprints
 //#define SEXPR_BOARD_FILE_VERSION    20211231  // Private footprint layers
-#define SEXPR_BOARD_FILE_VERSION      20211232  // Fonts
+//#define SEXPR_BOARD_FILE_VERSION    20211232  // Fonts
+#define SEXPR_BOARD_FILE_VERSION      20220131  // Textboxes
 
 #define BOARD_FILE_HOST_VERSION       20200825  ///< Earlier files than this include the host tag
 #define LEGACY_ARC_FORMATTING         20210925  ///< These were the last to use old arc formatting
@@ -275,8 +278,10 @@ private:
     void format( const PAD* aPad, int aNestLevel = 0 ) const;
 
     void format( const PCB_TEXT* aText, int aNestLevel = 0 ) const;
+    void format( const PCB_TEXTBOX* aTextBox, int aNestLevel = 0 ) const;
 
     void format( const FP_TEXT* aText, int aNestLevel = 0 ) const;
+    void format( const FP_TEXTBOX* aTextBox, int aNestLevel = 0 ) const;
 
     void format( const PCB_TRACK* aTrack, int aNestLevel = 0 ) const;
 

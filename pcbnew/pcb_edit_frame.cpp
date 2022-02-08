@@ -108,13 +108,13 @@
 
 #include <wx/filedlg.h>
 
-
 using namespace std::placeholders;
 
 
 BEGIN_EVENT_TABLE( PCB_EDIT_FRAME, PCB_BASE_FRAME )
     EVT_SOCKET( ID_EDA_SOCKET_EVENT_SERV, PCB_EDIT_FRAME::OnSockRequestServer )
     EVT_SOCKET( ID_EDA_SOCKET_EVENT, PCB_EDIT_FRAME::OnSockRequest )
+
 
     EVT_CHOICE( ID_ON_ZOOM_SELECT, PCB_EDIT_FRAME::OnSelectZoom )
     EVT_CHOICE( ID_ON_GRID_SELECT, PCB_EDIT_FRAME::OnSelectGrid )
@@ -347,19 +347,19 @@ PCB_EDIT_FRAME::PCB_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
     wxString strK2S = Pgm().GetExecutablePath();
 
 #ifdef __WXMAC__
-    if( strK2S.Find( "pcbnew.app" ) != wxNOT_FOUND )
+    if( strK2S.Find( wxT( "pcbnew.app" ) ) != wxNOT_FOUND )
     {
         // On macOS, we have standalone applications inside the main bundle, so we handle that here:
-        strK2S += "../../";
+        strK2S += wxT( "../../" );
     }
 
-    strK2S += "Contents/MacOS/";
+    strK2S += wxT( "Contents/MacOS/" );
 #endif
 
-    wxFileName appK2S( strK2S, "kicad2step" );
+    wxFileName appK2S( strK2S, wxT( "kicad2step" ) );
 
     #ifdef _WIN32
-    appK2S.SetExt( "exe" );
+    appK2S.SetExt( wxT( "exe" ) );
     #endif
 
     // Ensure the window is on top
@@ -815,6 +815,7 @@ void PCB_EDIT_FRAME::setupUIConditions()
     CURRENT_EDIT_TOOL( PCB_ACTIONS::drawArc );
     CURRENT_EDIT_TOOL( PCB_ACTIONS::drawPolygon );
     CURRENT_EDIT_TOOL( PCB_ACTIONS::placeText );
+    CURRENT_EDIT_TOOL( PCB_ACTIONS::drawTextBox );
     CURRENT_EDIT_TOOL( PCB_ACTIONS::drawAlignedDimension );
     CURRENT_EDIT_TOOL( PCB_ACTIONS::drawOrthogonalDimension );
     CURRENT_EDIT_TOOL( PCB_ACTIONS::drawCenterDimension );
@@ -966,7 +967,7 @@ void PCB_EDIT_FRAME::doCloseWindow()
     if( !fn.IsOk() || !fn.IsDirWritable() )
         fn.SetPath( wxFileName::GetTempDir() );
 
-    wxLogTrace( traceAutoSave, "Deleting auto save file <" + fn.GetFullPath() + ">" );
+    wxLogTrace( traceAutoSave, wxT( "Deleting auto save file <" ) + fn.GetFullPath() + wxT( ">" ) );
 
     // Remove the auto save file on a normal close of Pcbnew.
     if( fn.FileExists() && !wxRemoveFile( fn.GetFullPath() ) )
@@ -1013,6 +1014,10 @@ void PCB_EDIT_FRAME::ShowBoardSetupDialog( const wxString& aInitialPage )
     // Make sure everything's up-to-date
     GetBoard()->BuildListOfNets();
 
+    PCBNEW_SETTINGS::DISPLAY_OPTIONS* displayOpts = &GetPcbNewSettings()->m_Display;
+    PCBNEW_SETTINGS::DISPLAY_OPTIONS  prevDisplayOpts = *displayOpts;
+#define CHANGED( x ) ( displayOpts->x != prevDisplayOpts.x )
+
     DIALOG_BOARD_SETUP dlg( this );
 
     if( !aInitialPage.IsEmpty() )
@@ -1027,6 +1032,31 @@ void PCB_EDIT_FRAME::ShowBoardSetupDialog( const wxString& aInitialPage )
 
         Kiway().CommonSettingsChanged( false, true );
 
+        GetCanvas()->GetView()->UpdateAllItemsConditionally( KIGFX::REPAINT,
+                [&]( KIGFX::VIEW_ITEM* aItem ) -> bool
+                {
+                    if( dynamic_cast<RATSNEST_VIEW_ITEM*>( aItem ) )
+                    {
+                        return CHANGED( m_RatsnestMode )
+                                   || CHANGED( m_ShowGlobalRatsnest )
+                                   || CHANGED( m_DisplayRatsnestLinesCurved );
+                    }
+                    else if( dynamic_cast<PCB_TRACK*>( aItem ) )
+                    {
+                        return CHANGED( m_DisplayPadClearance );
+                    }
+                    else if( dynamic_cast<PAD*>( aItem ) )
+                    {
+                        return CHANGED( m_ShowTrackClearanceMode );
+                    }
+                    else if( dynamic_cast<EDA_TEXT*>( aItem ) )
+                    {
+                        return true;  // text variables
+                    }
+
+                    return false;
+                } );
+
         GetCanvas()->Refresh();
 
         UpdateUserInterface();
@@ -1039,6 +1069,7 @@ void PCB_EDIT_FRAME::ShowBoardSetupDialog( const wxString& aInitialPage )
         m_toolManager->ProcessEvent( toolEvent );
     }
 
+#undef CHANGED
     GetCanvas()->SetFocus();
 }
 
@@ -1310,7 +1341,7 @@ void PCB_EDIT_FRAME::OnModify( )
 
     Update3DView( true, Settings().m_Display.m_Live3DRefresh );
 
-    if( !GetTitle().StartsWith( "*" ) )
+    if( !GetTitle().StartsWith( wxT( "*" ) ) )
         UpdateTitle();
 
     m_ZoneFillsDirty = true;
@@ -1458,23 +1489,18 @@ void PCB_EDIT_FRAME::ToPlotter( int aID )
     case ID_GEN_PLOT_PS:
         plotSettings.SetFormat( PLOT_FORMAT::POST );
         break;
-    case ID_GEN_PLOT:        /* keep the previous setup */                   break;
+    case ID_GEN_PLOT:
+        /* keep the previous setup */
+        break;
     default:
-        wxFAIL_MSG( "ToPlotter(): unexpected plot type" ); break;
+        wxFAIL_MSG( wxT( "ToPlotter(): unexpected plot type" ) ); break;
         break;
     }
 
     SetPlotSettings( plotSettings );
 
-    // Force rebuild the dialog if currently open because the old dialog can be not up to date
-    // if the board (or units) has changed
-    wxWindow* dlg =  wxWindow::FindWindowByName( DLG_WINDOW_NAME );
-
-    if( dlg )
-        dlg->Destroy();
-
-    dlg = new DIALOG_PLOT( this );
-    dlg->Show( true );
+    DIALOG_PLOT dlg( this );
+    dlg.ShowQuasiModal(  );
 }
 
 
@@ -1555,7 +1581,7 @@ bool PCB_EDIT_FRAME::FetchNetlistFromSchematic( NETLIST& aNetlist,
         Raise();
 
         // Do not translate extra_info strings.  These are for developers
-        wxString extra_info = e.Problem() + " : " + e.What() + " at " + e.Where();
+        wxString extra_info = e.Problem() + wxT( " : " ) + e.What() + wxT( " at " ) + e.Where();
 
         DisplayErrorMessage( this, _( "Received an error while reading netlist.  Please "
                                       "report this issue to the KiCad team using the menu "
@@ -1790,14 +1816,6 @@ void PCB_EDIT_FRAME::CommonSettingsChanged( bool aEnvVarsChanged, bool aTextVars
         infobar->ShowMessage( _( "Could not compile custom design rules." ), wxICON_ERROR,
                               WX_INFOBAR::MESSAGE_TYPE::DRC_RULES_ERROR );
     }
-
-    GetCanvas()->GetView()->UpdateAllItemsConditionally( KIGFX::REPAINT,
-            []( KIGFX::VIEW_ITEM* aItem ) -> bool
-            {
-                return dynamic_cast<RATSNEST_VIEW_ITEM*>( aItem )
-                        || dynamic_cast<PCB_TRACK*>( aItem )
-                        || dynamic_cast<PAD*>( aItem );
-            } );
 
     GetCanvas()->GetView()->MarkTargetDirty( KIGFX::TARGET_NONCACHED );
     GetCanvas()->ForceRefresh();

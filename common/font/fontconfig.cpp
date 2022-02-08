@@ -18,6 +18,8 @@
  * with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <fontconfig/fontconfig.h>
+
 #include <font/fontconfig.h>
 #include <pgm_base.h>
 #include <wx/log.h>
@@ -143,10 +145,6 @@ void FONTCONFIG::ListFonts( std::vector<std::string>& aFonts )
                 if( !outline )
                     continue;
 
-                FcStrSet*  langStrSet = FcLangSetGetLangs( langSet );
-                FcStrList* langStrList = FcStrListCreate( langStrSet );
-                FcChar8*   langStr = FcStrListNext( langStrList );
-
                 std::string theFamily( reinterpret_cast<char *>( family ) );
 
 #ifdef __WXMAC__
@@ -157,6 +155,9 @@ void FONTCONFIG::ListFonts( std::vector<std::string>& aFonts )
                 // GTK, on the other hand, doesn't appear to support wxLocale::IsAvailable(),
                 // so we can't run these checks.
 
+                FcStrSet*  langStrSet = FcLangSetGetLangs( langSet );
+                FcStrList* langStrList = FcStrListCreate( langStrSet );
+                FcChar8*   langStr = FcStrListNext( langStrList );
                 bool langSupported = false;
 
                 if( !langStr )
@@ -200,7 +201,7 @@ void FONTCONFIG::ListFonts( std::vector<std::string>& aFonts )
                 std::map<std::string, FONTINFO>::iterator it = m_fonts.find( theFamily );
 
                 if( it == m_fonts.end() )
-                    m_fonts.insert( std::pair<std::string, FONTINFO>( theFamily, fontInfo ) );
+                    m_fonts.emplace( theFamily, fontInfo );
                 else
                     it->second.Children().push_back( fontInfo );
             }

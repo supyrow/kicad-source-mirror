@@ -92,7 +92,7 @@ COLOR_SETTINGS::COLOR_SETTINGS( const wxString& aFilename, bool aAbsolutePath ) 
     CLR( "schematic.label_global",      LAYER_GLOBLABEL              );
     CLR( "schematic.label_hier",        LAYER_HIERLABEL              );
     CLR( "schematic.label_local",       LAYER_LOCLABEL               );
-    CLR( "schematic.netclass_flag", LAYER_NETCLASS_REFS          );
+    CLR( "schematic.netclass_flag",     LAYER_NETCLASS_REFS          );
     CLR( "schematic.no_connect",        LAYER_NOCONNECT              );
     CLR( "schematic.note",              LAYER_NOTES                  );
     CLR( "schematic.note_background",   LAYER_NOTES_BACKGROUND       );
@@ -311,13 +311,13 @@ bool COLOR_SETTINGS::migrateSchema0to1()
 
     if( !m_manager )
     {
-        wxLogTrace( traceSettings, "Error: COLOR_SETTINGS migration cannot run unmanaged!" );
+        wxLogTrace( traceSettings, wxT( "Error: COLOR_SETTINGS migration cannot run unmanaged!" ) );
         return false;
     }
 
     if( !Contains( "fpedit" ) )
     {
-        wxLogTrace( traceSettings, "migrateSchema0to1: %s doesn't have fpedit settings; skipping.",
+        wxLogTrace( traceSettings, wxT( "migrateSchema0to1: %s doesn't have fpedit settings; skipping." ),
                     m_filename );
         return true;
     }

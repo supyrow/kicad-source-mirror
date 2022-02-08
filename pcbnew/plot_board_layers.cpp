@@ -873,7 +873,7 @@ void PlotSolderMaskLayer( BOARD *aBoard, PLOTTER* aPlotter, LSET aLayerMask,
                 }
                 else if( item->Type() == PCB_FP_SHAPE_T && item->IsOnLayer( Edge_Cuts ) )
                 {
-                   itemplotter.PlotFootprintGraphicItem( static_cast<const FP_SHAPE*>( item ) );
+                   itemplotter.PlotFootprintShape( static_cast<const FP_SHAPE*>( item ) );
                 }
             }
         }
@@ -1080,7 +1080,7 @@ static void initializePlotter( PLOTTER* aPlotter, const BOARD* aBoard,
     aPlotter->SetGerberCoordinatesFormat( aPlotOpts->GetGerberPrecision() );
 
     // Has meaning only for SVG plotter. Must be called only after SetViewport
-    aPlotter->SetSvgCoordinatesFormat( aPlotOpts->GetSvgPrecision(), aPlotOpts->GetSvgUseInch() );
+    aPlotter->SetSvgCoordinatesFormat( aPlotOpts->GetSvgPrecision() );
 
     aPlotter->SetCreator( wxT( "PCBNEW" ) );
     aPlotter->SetColorMode( false );        // default is plot in Black and White.
@@ -1214,7 +1214,7 @@ PLOTTER* StartPlotBoard( BOARD *aBoard, const PCB_PLOT_PARAMS *aPlotOpts, int aL
         if( aPlotOpts->GetPlotFrameRef() )
         {
             PlotDrawingSheet( plotter, aBoard->GetProject(), aBoard->GetTitleBlock(),
-                              aBoard->GetPageSettings(), "1", 1, aSheetDesc,
+                              aBoard->GetPageSettings(), wxT( "1" ), 1, aSheetDesc,
                               aBoard->GetFileName() );
 
             if( aPlotOpts->GetMirror() )

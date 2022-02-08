@@ -114,7 +114,7 @@ EDA_3D_CANVAS::EDA_3D_CANVAS( wxWindow* aParent, const int* aAttribList,
           m_accelerator3DShapes( nullptr ),
           m_currentRollOverItem( nullptr )
 {
-    wxLogTrace( m_logTrace, "EDA_3D_CANVAS::EDA_3D_CANVAS" );
+    wxLogTrace( m_logTrace, wxT( "EDA_3D_CANVAS::EDA_3D_CANVAS" ) );
 
     m_editing_timeout_timer.SetOwner( this );
     Connect( m_editing_timeout_timer.GetId(), wxEVT_TIMER,
@@ -167,7 +167,7 @@ EDA_3D_CANVAS::EDA_3D_CANVAS( wxWindow* aParent, const int* aAttribList,
 
 EDA_3D_CANVAS::~EDA_3D_CANVAS()
 {
-    wxLogTrace( m_logTrace, "EDA_3D_CANVAS::~EDA_3D_CANVAS" );
+    wxLogTrace( m_logTrace, wxT( "EDA_3D_CANVAS::~EDA_3D_CANVAS" ) );
 
     delete m_accelerator3DShapes;
     m_accelerator3DShapes = nullptr;
@@ -214,7 +214,7 @@ void EDA_3D_CANVAS::OnResize( wxSizeEvent& event )
 
 bool  EDA_3D_CANVAS::initializeOpenGL()
 {
-    wxLogTrace( m_logTrace, "EDA_3D_CANVAS::initializeOpenGL" );
+    wxLogTrace( m_logTrace, wxT( "EDA_3D_CANVAS::initializeOpenGL" ) );
 
     const GLenum err = glewInit();
 
@@ -228,13 +228,13 @@ bool  EDA_3D_CANVAS::initializeOpenGL()
     }
     else
     {
-        wxLogTrace( m_logTrace, "EDA_3D_CANVAS::initializeOpenGL Using GLEW version %s",
+        wxLogTrace( m_logTrace, wxT( "EDA_3D_CANVAS::initializeOpenGL Using GLEW version %s" ),
                     FROM_UTF8( (char*) glewGetString( GLEW_VERSION ) ) );
     }
 
     wxString version = FROM_UTF8( (char *) glGetString( GL_VERSION ) );
 
-    wxLogTrace( m_logTrace, "EDA_3D_CANVAS::%s OpenGL version string %s.",
+    wxLogTrace( m_logTrace, wxT( "EDA_3D_CANVAS::%s OpenGL version string %s." ),
                 __WXFUNCTION__, version );
 
     // Extract OpenGL version from string.  This method is used because prior to OpenGL 2,
@@ -250,7 +250,7 @@ bool  EDA_3D_CANVAS::initializeOpenGL()
 
         tmp = tokenizer.GetNextToken();
 
-        tokenizer.SetString( tmp, wxString( "." ) );
+        tokenizer.SetString( tmp, wxString( wxT( "." ) ) );
 
         if( tokenizer.HasMoreTokens() )
             tokenizer.GetNextToken().ToLong( &major );
@@ -260,7 +260,7 @@ bool  EDA_3D_CANVAS::initializeOpenGL()
 
         if( major < 2 || ( ( major == 2 ) && ( minor < 1 ) ) )
         {
-            wxLogTrace( m_logTrace, "EDA_3D_CANVAS::%s OpenGL ray tracing not supported.",
+            wxLogTrace( m_logTrace, wxT( "EDA_3D_CANVAS::%s OpenGL ray tracing not supported." ),
                         __WXFUNCTION__ );
 
             if( GetParent() )
@@ -274,7 +274,8 @@ bool  EDA_3D_CANVAS::initializeOpenGL()
 
         if( ( major == 1 ) && ( minor < 5 ) )
         {
-            wxLogTrace( m_logTrace, "EDA_3D_CANVAS::%s OpenGL not supported.", __WXFUNCTION__ );
+            wxLogTrace( m_logTrace, wxT( "EDA_3D_CANVAS::%s OpenGL not supported." ),
+                        __WXFUNCTION__ );
 
             m_is_opengl_version_supported = false;
         }
@@ -327,10 +328,10 @@ void EDA_3D_CANVAS::DisplayStatus()
     {
         wxString msg;
 
-        msg.Printf( "dx %3.2f", m_camera.GetCameraPos().x );
+        msg.Printf( wxT( "dx %3.2f" ), m_camera.GetCameraPos().x );
         m_parentStatusBar->SetStatusText( msg, static_cast<int>( EDA_3D_VIEWER_STATUSBAR::X_POS ) );
 
-        msg.Printf( "dy %3.2f", m_camera.GetCameraPos().y );
+        msg.Printf( wxT( "dy %3.2f" ), m_camera.GetCameraPos().y );
         m_parentStatusBar->SetStatusText( msg, static_cast<int>( EDA_3D_VIEWER_STATUSBAR::Y_POS ) );
     }
 }
@@ -351,7 +352,7 @@ void EDA_3D_CANVAS::DoRePaint()
     // SwapBuffer requires the window to be shown before calling
     if( !IsShownOnScreen() )
     {
-        wxLogTrace( m_logTrace, "EDA_3D_CANVAS::DoRePaint !IsShown" );
+        wxLogTrace( m_logTrace, wxT( "EDA_3D_CANVAS::DoRePaint !IsShown" ) );
         m_is_currently_painting.clear();
         return;
     }
@@ -577,7 +578,7 @@ void EDA_3D_CANVAS::OnEvent( wxEvent& aEvent )
 
 void EDA_3D_CANVAS::OnEraseBackground( wxEraseEvent& event )
 {
-    wxLogTrace( m_logTrace, "EDA_3D_CANVAS::OnEraseBackground" );
+    wxLogTrace( m_logTrace, wxT( "EDA_3D_CANVAS::OnEraseBackground" ) );
     // Do nothing, to avoid flashing.
 }
 
@@ -586,7 +587,7 @@ void EDA_3D_CANVAS::OnMouseWheel( wxMouseEvent& event )
 {
     bool mouseActivity = false;
 
-    wxLogTrace( m_logTrace, "EDA_3D_CANVAS::OnMouseWheel" );
+    wxLogTrace( m_logTrace, wxT( "EDA_3D_CANVAS::OnMouseWheel" ) );
 
     if( m_camera_is_moving )
         return;
@@ -703,7 +704,7 @@ void EDA_3D_CANVAS::OnMouseMove( wxMouseEvent& event )
         STATUSBAR_REPORTER reporter( m_parentStatusBar,
                                      static_cast<int>( EDA_3D_VIEWER_STATUSBAR::HOVERED_ITEM ) );
 
-        RAY mouseRay = getRayAtCurrrentMousePosition();
+        RAY mouseRay = getRayAtCurrentMousePosition();
 
         BOARD_ITEM *rollOverItem = m_3d_render_raytracing->IntersectBoardItem( mouseRay );
 
@@ -782,7 +783,7 @@ void EDA_3D_CANVAS::OnMouseMove( wxMouseEvent& event )
                 m_3d_render_opengl->SetCurrentRollOverItem( nullptr );
                 Request_refresh();
 
-                reporter.Report( "" );
+                reporter.Report( wxEmptyString );
             }
 
             m_currentRollOverItem = nullptr;
@@ -798,7 +799,7 @@ void EDA_3D_CANVAS::OnLeftDown( wxMouseEvent& event )
 
     if( !event.Dragging() && ( m_3d_render_raytracing != nullptr ) )
     {
-        RAY mouseRay = getRayAtCurrrentMousePosition();
+        RAY mouseRay = getRayAtCurrentMousePosition();
 
         BOARD_ITEM *intersectedBoardItem = m_3d_render_raytracing->IntersectBoardItem( mouseRay );
 
@@ -930,7 +931,7 @@ void EDA_3D_CANVAS::request_start_moving_camera( float aMovingSpeed, bool aRende
 
 void EDA_3D_CANVAS::move_pivot_based_on_cur_mouse_position()
 {
-    RAY mouseRay = getRayAtCurrrentMousePosition();
+    RAY mouseRay = getRayAtCurrentMousePosition();
 
     float hit_t;
 
@@ -1130,13 +1131,13 @@ void EDA_3D_CANVAS::RenderEngineChanged()
 }
 
 
-RAY EDA_3D_CANVAS::getRayAtCurrrentMousePosition()
+RAY EDA_3D_CANVAS::getRayAtCurrentMousePosition()
 {
     SFVEC3F rayOrigin;
     SFVEC3F rayDir;
 
     // Generate a ray origin and direction based on current mouser position and camera
-    m_camera.MakeRayAtCurrrentMousePosition( rayOrigin, rayDir );
+    m_camera.MakeRayAtCurrentMousePosition( rayOrigin, rayDir );
 
     RAY mouseRay;
     mouseRay.Init( rayOrigin, rayDir );

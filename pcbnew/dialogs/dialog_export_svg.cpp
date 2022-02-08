@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2012 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 2012 KiCad Developers, see change_log.txt for contributors.
+ * Copyright (C) 2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -131,7 +131,7 @@ DIALOG_EXPORT_SVG::~DIALOG_EXPORT_SVG()
             continue;
 
         if( m_boxSelectLayer[layer].first->IsChecked( m_boxSelectLayer[layer].second ) )
-            cfg->m_ExportSvg.layers.push_back( m_boxSelectLayer[layer].second );
+            cfg->m_ExportSvg.layers.push_back( layer );
     }
 }
 
@@ -328,6 +328,8 @@ bool DIALOG_EXPORT_SVG::CreateSVGFile( const wxString& aFullFileName )
 
     plot_opts.SetMirror( m_printMirror );
     plot_opts.SetFormat( PLOT_FORMAT::SVG );
+    // coord format: 4 digits in mantissa (units always in mm). This is a good choice.
+    plot_opts.SetSvgPrecision( 4 );
 
     PAGE_INFO   savedPageInfo = m_board->GetPageSettings();
     VECTOR2I  savedAuxOrigin = m_board->GetDesignSettings().GetAuxOrigin();

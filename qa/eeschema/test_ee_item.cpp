@@ -37,6 +37,7 @@
 #include <sch_shape.h>
 #include <sch_bitmap.h>
 #include <sch_text.h>
+#include <sch_textbox.h>
 #include <sch_field.h>
 #include <sch_symbol.h>
 #include <sch_sheet_pin.h>
@@ -44,6 +45,7 @@
 
 #include <lib_shape.h>
 #include <lib_text.h>
+#include <lib_textbox.h>
 #include <lib_pin.h>
 #include <lib_field.h>
 
@@ -77,21 +79,22 @@ public:
 
         switch( aType )
         {
-        case SCH_MARKER_T:         return new SCH_MARKER( m_ercItem, wxPoint( 0, 0 ) );
-        case SCH_JUNCTION_T:       return new SCH_JUNCTION();
-        case SCH_NO_CONNECT_T:     return new SCH_NO_CONNECT();
-        case SCH_BUS_WIRE_ENTRY_T: return new SCH_BUS_WIRE_ENTRY();
-        case SCH_BUS_BUS_ENTRY_T:  return new SCH_BUS_BUS_ENTRY();
-        case SCH_LINE_T:           return new SCH_LINE();
-        case SCH_SHAPE_T:          return new SCH_SHAPE( SHAPE_T::ARC );
-        case SCH_BITMAP_T:         return new SCH_BITMAP();
-        case SCH_TEXT_T:           return new SCH_TEXT( wxPoint( 0, 0 ), "test text" );
-        case SCH_LABEL_T:          return new SCH_LABEL( wxPoint( 0, 0 ), "test label" );
-        case SCH_NETCLASS_FLAG_T:  return new SCH_NETCLASS_FLAG( wxPoint( 0, 0 ) );
-        case SCH_GLOBAL_LABEL_T:   return new SCH_GLOBALLABEL();
-        case SCH_HIER_LABEL_T:     return new SCH_HIERLABEL();
-        case SCH_FIELD_T:          return new SCH_FIELD( wxPoint( 0, 0 ), 0, nullptr );
-        case SCH_SYMBOL_T:         return new SCH_SYMBOL();
+        case SCH_MARKER_T:          return new SCH_MARKER( m_ercItem, wxPoint( 0, 0 ) );
+        case SCH_JUNCTION_T:        return new SCH_JUNCTION();
+        case SCH_NO_CONNECT_T:      return new SCH_NO_CONNECT();
+        case SCH_BUS_WIRE_ENTRY_T:  return new SCH_BUS_WIRE_ENTRY();
+        case SCH_BUS_BUS_ENTRY_T:   return new SCH_BUS_BUS_ENTRY();
+        case SCH_LINE_T:            return new SCH_LINE();
+        case SCH_SHAPE_T:           return new SCH_SHAPE( SHAPE_T::ARC );
+        case SCH_BITMAP_T:          return new SCH_BITMAP();
+        case SCH_TEXT_T:            return new SCH_TEXT( wxPoint( 0, 0 ), "test text" );
+        case SCH_TEXTBOX_T:         return new SCH_TEXTBOX( 0, FILL_T::NO_FILL, "test textbox" );
+        case SCH_LABEL_T:           return new SCH_LABEL( wxPoint( 0, 0 ), "test label" );
+        case SCH_DIRECTIVE_LABEL_T: return new SCH_DIRECTIVE_LABEL( wxPoint( 0, 0 ) );
+        case SCH_GLOBAL_LABEL_T:    return new SCH_GLOBALLABEL();
+        case SCH_HIER_LABEL_T:      return new SCH_HIERLABEL();
+        case SCH_FIELD_T:           return new SCH_FIELD( wxPoint( 0, 0 ), 0, nullptr );
+        case SCH_SYMBOL_T:          return new SCH_SYMBOL();
 
         case SCH_SHEET_PIN_T:
             // XXX: m_sheet pins currently have to have their initial positions calculated manually.
@@ -100,17 +103,17 @@ public:
                                                m_sheet.GetPosition().y + Millimeter2iu( 40 ) ),
                                       "test aPin" );
 
-        case SCH_SHEET_T:          return new SCH_SHEET();
-        case LIB_SHAPE_T:          return new LIB_SHAPE( &m_symbol, SHAPE_T::ARC );
-        case LIB_TEXT_T:           return new LIB_TEXT( &m_symbol );
-        case LIB_PIN_T:            return new LIB_PIN( &m_symbol );
-        case LIB_FIELD_T:          return new LIB_FIELD( &m_symbol );
+        case SCH_SHEET_T:           return new SCH_SHEET();
+        case LIB_SHAPE_T:           return new LIB_SHAPE( &m_symbol, SHAPE_T::ARC );
+        case LIB_TEXT_T:            return new LIB_TEXT( &m_symbol );
+        case LIB_TEXTBOX_T:         return new LIB_TEXTBOX( &m_symbol, 0, FILL_T::NO_FILL, "test" );
+        case LIB_PIN_T:             return new LIB_PIN( &m_symbol );
+        case LIB_FIELD_T:           return new LIB_FIELD( &m_symbol );
 
         case SCHEMATIC_T:
         case SCH_PIN_T:
         case LIB_SYMBOL_T:
-        case LIB_ALIAS_T:
-            return nullptr;
+        case LIB_ALIAS_T:           return nullptr;
 
         default:
             BOOST_FAIL( wxString::Format(

@@ -4,7 +4,7 @@
  * Copyright (C) 2015 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2015 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
  * Copyright (C) 2015 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
 *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -186,6 +186,7 @@ void FOOTPRINT_EDIT_FRAME::ReCreateMenuBar()
     placeMenu->Add( PCB_ACTIONS::drawCircle );
     placeMenu->Add( PCB_ACTIONS::drawPolygon );
     placeMenu->Add( PCB_ACTIONS::placeText );
+    placeMenu->Add( PCB_ACTIONS::drawTextBox );
 
     placeMenu->AppendSeparator();
     placeMenu->Add( PCB_ACTIONS::drawAlignedDimension );
@@ -237,7 +238,7 @@ void FOOTPRINT_EDIT_FRAME::ReCreateMenuBar()
 
     // We can't use ACTIONS::showPreferences yet because wxWidgets moves this on
     // Mac, and it needs the wxID_PREFERENCES id to find it.
-    prefsMenu->Add( _( "Preferences..." ) + "\tCtrl+,",
+    prefsMenu->Add( _( "Preferences..." ) + wxT( "\tCtrl+," ),
                     _( "Show preferences for all open tools" ),
                     wxID_PREFERENCES,
                     BITMAPS::preference );

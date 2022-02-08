@@ -25,6 +25,7 @@
 #include <iostream>
 #include <sstream>
 #include <fstream>
+#include <memory>
 #include <wx/filename.h>
 #include <wx/log.h>
 #include "plugins/3dapi/ifsg_api.h"
@@ -97,7 +98,7 @@ bool S3D::WriteVRML( const char* filename, bool overwrite, SGNODE* aTopNode,
 
     if( op.fail() )
     {
-        wxLogTrace( MASK_3D_SG, "%s:%s:%d  * [INFO] failed to open file '%s'",
+        wxLogTrace( MASK_3D_SG, wxT( "%s:%s:%d  * [INFO] failed to open file '%s'" ),
                     __FILE__, __FUNCTION__, __LINE__, filename );
 
         return false;
@@ -122,7 +123,7 @@ bool S3D::WriteVRML( const char* filename, bool overwrite, SGNODE* aTopNode,
 
     CLOSE_STREAM( op );
 
-    wxLogTrace( MASK_3D_SG, "%s:%s:%d  * [INFO] problems encountered writing file '%s'",
+    wxLogTrace( MASK_3D_SG, wxT( "%s:%s:%d  * [INFO] problems encountered writing file '%s'" ),
                 __FILE__, __FUNCTION__, __LINE__, filename );
 
     return false;
@@ -167,7 +168,7 @@ bool S3D::WriteCache( const char* aFileName, bool overwrite, SGNODE* aNode,
     {
         if( !overwrite )
         {
-            wxLogTrace( MASK_3D_SG, "%s:%s:%d * [INFO] file exists not overwriting '%s'",
+            wxLogTrace( MASK_3D_SG, wxT( "%s:%s:%d * [INFO] file exists not overwriting '%s'" ),
                         __FILE__, __FUNCTION__, __LINE__, aFileName );
 
             return false;
@@ -176,7 +177,7 @@ bool S3D::WriteCache( const char* aFileName, bool overwrite, SGNODE* aNode,
         // make sure we make no attempt to write a directory
         if( !wxFileName::FileExists( aFileName ) )
         {
-            wxLogTrace( MASK_3D_SG, "%s:%s:%d * [INFO] specified path is a directory '%s'",
+            wxLogTrace( MASK_3D_SG, wxT( "%s:%s:%d * [INFO] specified path is a directory '%s'" ),
                         __FILE__, __FUNCTION__, __LINE__, aFileName );
 
             return false;
@@ -187,7 +188,7 @@ bool S3D::WriteCache( const char* aFileName, bool overwrite, SGNODE* aNode,
 
     if( output.fail() )
     {
-        wxLogTrace( MASK_3D_SG, "%s:%s:%d * [INFO] failed to open file '%s'",
+        wxLogTrace( MASK_3D_SG, wxT( "%s:%s:%d * [INFO] failed to open file '%s'" ),
                     __FILE__, __FUNCTION__, __LINE__, aFileName );
 
         return false;
@@ -205,7 +206,8 @@ bool S3D::WriteCache( const char* aFileName, bool overwrite, SGNODE* aNode,
 
     if( !rval )
     {
-        wxLogTrace( MASK_3D_SG, "%s:%s:%d * [INFO] problems encountered writing cache file '%s'",
+        wxLogTrace( MASK_3D_SG,
+                    wxT( "%s:%s:%d * [INFO] problems encountered writing cache file '%s'" ),
                     __FILE__, __FUNCTION__, __LINE__, aFileName );
 
         // delete the defective file
@@ -226,21 +228,19 @@ SGNODE* S3D::ReadCache( const char* aFileName, void* aPluginMgr,
 
     if( !wxFileName::FileExists( aFileName ) )
     {
-        wxLogTrace( MASK_3D_SG, "%s:%s:%d * [INFO] no such file '%s'",
+        wxLogTrace( MASK_3D_SG, wxT( "%s:%s:%d * [INFO] no such file '%s'" ),
                     __FILE__, __FUNCTION__, __LINE__, aFileName );
 
         return nullptr;
     }
 
-    SGNODE* np = new SCENEGRAPH( nullptr );
+    std::unique_ptr<SGNODE> np = std::make_unique<SCENEGRAPH>( nullptr );
 
     OPEN_ISTREAM( file, aFileName );
 
     if( file.fail() )
     {
-        delete np;
-
-        wxLogTrace( MASK_3D_SG, "%s:%s:%d * [INFO] failed to open file '%s'",
+        wxLogTrace( MASK_3D_SG, wxT( "%s:%s:%d * [INFO] failed to open file '%s'" ),
                     __FILE__, __FUNCTION__, __LINE__, aFileName );
 
         return nullptr;
@@ -256,9 +256,10 @@ SGNODE* S3D::ReadCache( const char* aFileName, void* aPluginMgr,
 
         if( '(' != schar )
         {
-            wxLogTrace( MASK_3D_SG,
-                        "%s:%s:%d * [INFO] corrupt data; missing left parenthesis at position '%d'",
-                        __FILE__, __FUNCTION__, __LINE__, static_cast<int>( file.tellg() ) );
+            wxLogTrace( MASK_3D_SG, wxT( "%s:%s:%d * [INFO] corrupt data; missing left parenthesis"
+                                         " at position '%d'" ),
+                        __FILE__, __FUNCTION__, __LINE__,
+                        static_cast<int>( file.tellg() ) );
 
             CLOSE_STREAM( file );
             return nullptr;
@@ -290,9 +291,10 @@ SGNODE* S3D::ReadCache( const char* aFileName, void* aPluginMgr,
 
         if( '(' != schar )
         {
-            wxLogTrace( MASK_3D_SG,
-                        "%s:%s:%d * [INFO] corrupt data; missing left parenthesis at position '%d'",
-                        __FILE__, __FUNCTION__, __LINE__, static_cast<int>( file.tellg() ) );
+            wxLogTrace( MASK_3D_SG, wxT( "%s:%s:%d * [INFO] corrupt data; missing left parenthesis"
+                                         " at position '%d'" ),
+                        __FILE__, __FUNCTION__, __LINE__,
+                        static_cast<int>( file.tellg() ) );
 
             CLOSE_STREAM( file );
             return nullptr;
@@ -321,15 +323,15 @@ SGNODE* S3D::ReadCache( const char* aFileName, void* aPluginMgr,
 
     if( !rval )
     {
-        delete np;
-
-        wxLogTrace( MASK_3D_SG, "%s:%s:%d * [INFO] problems encountered reading cache file '%s'",
-                    __FILE__, __FUNCTION__, __LINE__, aFileName );
+        wxLogTrace( MASK_3D_SG, wxT( "%s:%s:%d * [INFO] problems encountered reading cache file "
+                                     "'%s'" ),
+                    __FILE__, __FUNCTION__, __LINE__,
+                    aFileName );
 
         return nullptr;
     }
 
-    return np;
+    return np.release();
 }
 
 
@@ -357,7 +359,7 @@ S3DMODEL* S3D::GetModel( SCENEGRAPH* aNode )
     app.transparency = 0.0f;
 
     materials.matorder.push_back( &app );
-    materials.matmap.insert( std::pair< SGAPPEARANCE const*, int >( &app, 0 ) );
+    materials.matmap.emplace( &app, 0 );
 
     if( aNode->Prepare( nullptr, materials, meshes ) )
     {

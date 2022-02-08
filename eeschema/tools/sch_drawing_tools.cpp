@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2019 CERN
- * Copyright (C) 2019-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2019-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -31,7 +31,6 @@
 #include <id.h>
 #include <eeschema_id.h>
 #include <confirm.h>
-#include <widgets/infobar.h>
 #include <view/view_controls.h>
 #include <view/view.h>
 #include <sch_symbol.h>
@@ -40,11 +39,12 @@
 #include <sch_junction.h>
 #include <sch_bus_entry.h>
 #include <sch_text.h>
+#include <sch_textbox.h>
 #include <sch_sheet.h>
 #include <sch_sheet_pin.h>
 #include <sch_bitmap.h>
 #include <schematic.h>
-#include <symbol_library.h>
+#include <symbol_library_common.h>
 #include <eeschema_settings.h>
 #include <dialogs/dialog_label_properties.h>
 #include <dialogs/dialog_text_properties.h>
@@ -61,10 +61,10 @@ SCH_DRAWING_TOOLS::SCH_DRAWING_TOOLS() :
         m_lastSheetPinType( LABEL_FLAG_SHAPE::L_INPUT ),
         m_lastGlobalLabelShape( LABEL_FLAG_SHAPE::L_INPUT ),
         m_lastNetClassFlagShape( LABEL_FLAG_SHAPE::F_ROUND ),
-        m_lastTextOrientation( LABEL_SPIN_STYLE::RIGHT ),
+        m_lastTextOrientation( TEXT_SPIN_STYLE::RIGHT ),
         m_lastTextBold( false ),
         m_lastTextItalic( false ),
-        m_lastNetClassFlagItalic( true ),
+        m_lastNetClassDirectiveItalic( true ),
         m_lastFillStyle( FILL_T::NO_FILL ),
         m_inPlaceSymbol( false ),
         m_inDrawShape( false ),
@@ -114,7 +114,7 @@ EDA_RECT SCH_DRAWING_TOOLS::GetCanvasFreeAreaPixels()
 int SCH_DRAWING_TOOLS::PlaceSymbol( const TOOL_EVENT& aEvent )
 {
     SCH_SYMBOL*                 symbol = aEvent.Parameter<SCH_SYMBOL*>();
-    SCHLIB_FILTER               filter;
+    SYMBOL_LIBRARY_FILTER       filter;
     std::vector<PICKED_SYMBOL>* historyList = nullptr;
 
     if( m_inPlaceSymbol )
@@ -868,6 +868,7 @@ SCH_TEXT* SCH_DRAWING_TOOLS::createNewText( const VECTOR2I& aPosition, int aType
     SCHEMATIC*          schematic = getModel<SCHEMATIC>();
     SCHEMATIC_SETTINGS& settings = schematic->Settings();
     SCH_TEXT*           textItem = nullptr;
+    SCH_LABEL_BASE*     labelItem = nullptr;
 
     switch( aType )
     {
@@ -876,23 +877,30 @@ SCH_TEXT* SCH_DRAWING_TOOLS::createNewText( const VECTOR2I& aPosition, int aType
         break;
 
     case LAYER_LOCLABEL:
-        textItem = new SCH_LABEL( aPosition );
+        labelItem = new SCH_LABEL( aPosition );
+        textItem = labelItem;
         break;
 
     case LAYER_NETCLASS_REFS:
-        textItem = new SCH_NETCLASS_FLAG( aPosition );
-        textItem->SetShape( m_lastNetClassFlagShape );
+        labelItem = new SCH_DIRECTIVE_LABEL( aPosition );
+        labelItem->SetShape( m_lastNetClassFlagShape );
+        labelItem->GetFields().emplace_back( SCH_FIELD( {0,0}, 0, labelItem, wxT( "Netclass" ) ) );
+        labelItem->GetFields().back().SetItalic( true );
+        labelItem->GetFields().back().SetVisible( true );
+        textItem = labelItem;
         break;
 
     case LAYER_HIERLABEL:
-        textItem = new SCH_HIERLABEL( aPosition );
-        textItem->SetShape( m_lastGlobalLabelShape );
+        labelItem = new SCH_HIERLABEL( aPosition );
+        labelItem->SetShape( m_lastGlobalLabelShape );
+        textItem = labelItem;
         break;
 
     case LAYER_GLOBLABEL:
-        textItem = new SCH_GLOBALLABEL( aPosition );
-        textItem->SetShape( m_lastGlobalLabelShape );
-        static_cast<SCH_GLOBALLABEL*>( textItem )->GetFields()[0].SetVisible( true );
+        labelItem = new SCH_GLOBALLABEL( aPosition );
+        labelItem->SetShape( m_lastGlobalLabelShape );
+        labelItem->GetFields()[0].SetVisible( true );
+        textItem = labelItem;
         break;
 
     default:
@@ -903,16 +911,16 @@ SCH_TEXT* SCH_DRAWING_TOOLS::createNewText( const VECTOR2I& aPosition, int aType
     textItem->SetParent( schematic );
     textItem->SetBold( m_lastTextBold );
 
-    if( textItem->Type() == SCH_NETCLASS_FLAG_T )
-        textItem->SetItalic( m_lastNetClassFlagItalic );
+    if( aType == LAYER_NETCLASS_REFS )
+        textItem->SetItalic( m_lastNetClassDirectiveItalic );
     else
         textItem->SetItalic( m_lastTextItalic );
 
-    textItem->SetLabelSpinStyle( m_lastTextOrientation );
+    textItem->SetTextSpinStyle( m_lastTextOrientation );
     textItem->SetTextSize( wxSize( settings.m_DefaultTextSize, settings.m_DefaultTextSize ) );
     textItem->SetFlags( IS_NEW | IS_MOVING );
 
-    if( aType == LAYER_NOTES )
+    if( !labelItem )
     {
         DIALOG_TEXT_PROPERTIES dlg( m_frame, textItem );
 
@@ -930,14 +938,14 @@ SCH_TEXT* SCH_DRAWING_TOOLS::createNewText( const VECTOR2I& aPosition, int aType
         // Must be quasi modal for syntax help
         if( dlg.ShowQuasiModal() != wxID_OK )
         {
-            delete textItem;
+            delete labelItem;
             return nullptr;
         }
     }
 
     wxString text = textItem->GetText();
 
-    if( textItem->Type() != SCH_NETCLASS_FLAG_T && NoPrintableChars( text ) )
+    if( textItem->Type() != SCH_DIRECTIVE_LABEL_T && NoPrintableChars( text ) )
     {
         delete textItem;
         return nullptr;
@@ -945,17 +953,17 @@ SCH_TEXT* SCH_DRAWING_TOOLS::createNewText( const VECTOR2I& aPosition, int aType
 
     m_lastTextBold = textItem->IsBold();
 
-    if( textItem->Type() == SCH_NETCLASS_FLAG_T )
-        m_lastNetClassFlagItalic = textItem->IsItalic();
+    if( aType == LAYER_NETCLASS_REFS )
+        m_lastNetClassDirectiveItalic = textItem->IsItalic();
     else
         m_lastTextItalic = textItem->IsItalic();
 
-    m_lastTextOrientation = textItem->GetLabelSpinStyle();
+    m_lastTextOrientation = textItem->GetTextSpinStyle();
 
-    if( textItem->Type() == SCH_GLOBAL_LABEL_T || textItem->Type() == SCH_HIER_LABEL_T )
-        m_lastGlobalLabelShape = textItem->GetShape();
-    else if( textItem->Type() == SCH_NETCLASS_FLAG_T )
-        m_lastNetClassFlagShape = textItem->GetShape();
+    if( aType == LAYER_GLOBLABEL || aType == LAYER_HIERLABEL )
+        m_lastGlobalLabelShape = labelItem->GetShape();
+    else if( aType == LAYER_NETCLASS_REFS )
+        m_lastNetClassFlagShape = labelItem->GetShape();
 
     return textItem;
 }
@@ -1050,7 +1058,7 @@ int SCH_DRAWING_TOOLS::TwoClickPlace( const TOOL_EVENT& aEvent )
                 else if( isNetLabel )
                     m_frame->GetCanvas()->SetCurrentCursor( KICURSOR::LABEL_NET );
                 else if( isClassLabel )
-                    m_frame->GetCanvas()->SetCurrentCursor( KICURSOR::LABEL_NET );    // JEY TODO: LABEL_CLASS cursor
+                    m_frame->GetCanvas()->SetCurrentCursor( KICURSOR::LABEL_NET );    // JEY TODO: netclass directive cursor
                 else if( isHierLabel )
                     m_frame->GetCanvas()->SetCurrentCursor( KICURSOR::LABEL_HIER );
                 else
@@ -1292,6 +1300,7 @@ int SCH_DRAWING_TOOLS::DrawShape( const TOOL_EVENT& aEvent )
     else
         m_inDrawShape = true;
 
+    bool    isTextBox = aEvent.IsAction( &EE_ACTIONS::drawTextBox );
     SHAPE_T type = aEvent.Parameter<SHAPE_T>();
 
     // We might be running as the same shape in another co-routine.  Make sure that one
@@ -1383,7 +1392,11 @@ int SCH_DRAWING_TOOLS::DrawShape( const TOOL_EVENT& aEvent )
 
             int lineWidth = Mils2iu( cfg->m_Drawing.default_line_thickness );
 
-            item = new SCH_SHAPE( type, lineWidth, m_lastFillStyle );
+            if( isTextBox )
+                item = new SCH_TEXTBOX( lineWidth, m_lastFillStyle );
+            else
+                item = new SCH_SHAPE( type, lineWidth, m_lastFillStyle );
+
             item->SetFlags( IS_NEW );
             item->BeginEdit( (wxPoint) cursorPos );
 
@@ -1399,6 +1412,17 @@ int SCH_DRAWING_TOOLS::DrawShape( const TOOL_EVENT& aEvent )
                 item->EndEdit();
                 item->ClearEditFlags();
                 item->SetFlags( IS_NEW );
+
+                if( isTextBox )
+                {
+                    DIALOG_TEXT_PROPERTIES dlg( m_frame, item );
+
+                    if( dlg.ShowQuasiModal() != wxID_OK )
+                    {
+                        cleanup();
+                        continue;
+                    }
+                }
 
                 m_frame->AddItemToScreenAndUndoList( m_frame->GetScreen(), item, false );
                 m_selectionTool->AddItemToSel( item );
@@ -1657,5 +1681,6 @@ void SCH_DRAWING_TOOLS::setTransitions()
     Go( &SCH_DRAWING_TOOLS::DrawShape,           EE_ACTIONS::drawRectangle.MakeEvent() );
     Go( &SCH_DRAWING_TOOLS::DrawShape,           EE_ACTIONS::drawCircle.MakeEvent() );
     Go( &SCH_DRAWING_TOOLS::DrawShape,           EE_ACTIONS::drawArc.MakeEvent() );
+    Go( &SCH_DRAWING_TOOLS::DrawShape,           EE_ACTIONS::drawTextBox.MakeEvent() );
     Go( &SCH_DRAWING_TOOLS::PlaceImage,          EE_ACTIONS::placeImage.MakeEvent() );
 }

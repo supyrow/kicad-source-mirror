@@ -45,7 +45,6 @@
 #include <callback_gal.h>
 #include <math/util.h>      // for KiROUND
 
-
 PLOTTER::PLOTTER( )
 {
     m_plotScale = 1;
@@ -154,6 +153,49 @@ double PLOTTER::GetDashGapLenIU() const
 }
 
 
+void PLOTTER::Arc( const VECTOR2I& aCenter, const VECTOR2I& aStart, const VECTOR2I& aEnd,
+                   FILL_T aFill, int aWidth, int aMaxError )
+{
+    EDA_ANGLE startAngle( aStart - aCenter );
+    EDA_ANGLE endAngle( aEnd - aCenter );
+    int       radius = ( aStart - aCenter ).EuclideanNorm();
+    int       numSegs = GetArcToSegmentCount( radius, aMaxError, FULL_CIRCLE );
+    EDA_ANGLE delta = ANGLE_360 / std::max( 8, numSegs );
+    VECTOR2I  start( aStart );
+    VECTOR2I  end( aEnd );
+    VECTOR2I  pt;
+
+    if( startAngle > endAngle )
+    {
+        if( endAngle < ANGLE_0 )
+            endAngle.Normalize();
+        else
+            startAngle = startAngle.Normalize() - ANGLE_360;
+    }
+
+    SetCurrentLineWidth( aWidth );
+    MoveTo( start );
+
+    for( EDA_ANGLE ii = delta; startAngle + ii < endAngle; ii += delta )
+    {
+        pt = start;
+        RotatePoint( pt, aCenter, -ii );
+
+        LineTo( pt );
+    }
+
+    if( aFill == FILL_T::NO_FILL )
+    {
+        FinishTo( end );
+    }
+    else
+    {
+        LineTo( end );
+        FinishTo( aCenter );
+    }
+}
+
+
 void PLOTTER::Arc( const VECTOR2I& aCenter, const EDA_ANGLE& aStartAngle,
                    const EDA_ANGLE& aEndAngle, int aRadius, FILL_T aFill, int aWidth )
 {
@@ -211,6 +253,8 @@ void PLOTTER::BezierCurve( const VECTOR2I& aStart, const VECTOR2I& aControl1,
     int minSegLen = aLineThickness;  // The segment min length to approximate a bezier curve
 
     std::vector<VECTOR2I> ctrlPoints;
+    ctrlPoints.reserve( 4 );
+
     ctrlPoints.push_back( aStart );
     ctrlPoints.push_back( aControl1 );
     ctrlPoints.push_back( aControl2 );
@@ -253,6 +297,8 @@ void PLOTTER::markerSquare( const VECTOR2I& position, int radius )
     std::vector<VECTOR2I> corner_list;
     VECTOR2I              corner;
 
+    corner_list.reserve( 4 );
+
     corner.x = position.x + r;
     corner.y = position.y + r;
     corner_list.push_back( corner );
@@ -283,6 +329,8 @@ void PLOTTER::markerLozenge( const VECTOR2I& position, int radius )
 {
     std::vector<VECTOR2I> corner_list;
     VECTOR2I              corner;
+
+    corner_list.reserve( 4 );
 
     corner.x = position.x;
     corner.y = position.y + radius;

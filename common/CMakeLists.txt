@@ -545,8 +545,10 @@ set( PCB_COMMON_SRCS
     ${CMAKE_SOURCE_DIR}/pcbnew/pad.cpp
     ${CMAKE_SOURCE_DIR}/pcbnew/pcb_target.cpp
     ${CMAKE_SOURCE_DIR}/pcbnew/pcb_text.cpp
+    ${CMAKE_SOURCE_DIR}/pcbnew/pcb_textbox.cpp
     ${CMAKE_SOURCE_DIR}/pcbnew/board_stackup_manager/board_stackup.cpp
     ${CMAKE_SOURCE_DIR}/pcbnew/fp_text.cpp
+    ${CMAKE_SOURCE_DIR}/pcbnew/fp_textbox.cpp
     ${CMAKE_SOURCE_DIR}/pcbnew/pcb_track.cpp
     ${CMAKE_SOURCE_DIR}/pcbnew/zone.cpp
     ${CMAKE_SOURCE_DIR}/pcbnew/collectors.cpp
@@ -608,6 +610,13 @@ target_link_libraries( pcbcommon PUBLIC
     kimath
     kiplatform
 )
+
+if( KICAD_USE_3DCONNEXION )
+    message( STATUS "Including 3Dconnexion SpaceMouse navigation support in pcbcommon" )
+    add_subdirectory( ../pcbnew/navlib ./navlib)
+    target_link_libraries( pcbcommon PUBLIC pcbnew_navlib)
+endif()
+
 
 add_dependencies( pcbcommon delaunator )
 

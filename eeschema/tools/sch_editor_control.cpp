@@ -133,9 +133,18 @@ int SCH_EDITOR_CONTROL::PageSetup( const TOOL_EVENT& aEvent )
     dlg.SetWksFileName( BASE_SCREEN::m_DrawingSheetFileName );
 
     if( dlg.ShowModal() )
+    {
+        // Update text variables
+        m_frame->GetCanvas()->GetView()->MarkDirty();
+        m_frame->GetCanvas()->GetView()->UpdateAllItems( KIGFX::REPAINT );
+        m_frame->GetCanvas()->Refresh();
+
         m_frame->OnModify();
+    }
     else
+    {
         m_frame->RollbackSchematicFromUndo();
+    }
 
     return 0;
 }
@@ -1591,7 +1600,7 @@ int SCH_EDITOR_CONTROL::Paste( const TOOL_EVENT& aEvent )
     {
         // If it wasn't content, then paste as content
         SCH_TEXT* text_item = new SCH_TEXT( wxPoint( 0, 0 ), content );
-        text_item->SetLabelSpinStyle( LABEL_SPIN_STYLE::RIGHT ); // Left alignment
+        text_item->SetTextSpinStyle( TEXT_SPIN_STYLE::RIGHT ); // Left alignment
         tempScreen->Append( text_item );
     }
 

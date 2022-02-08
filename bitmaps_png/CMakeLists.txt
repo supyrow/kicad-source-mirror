@@ -1,7 +1,7 @@
 #  This program source code file is part of KICAD, a free EDA CAD application.
 #
 # Copyright (C) 2011 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
-# Copyright (C) 2011-2018 Kicad Developers, see AUTHORS.txt for contributors.
+# Copyright (C) 2011-2022 Kicad Developers, see AUTHORS.txt for contributors.
 #
 #  This program is free software; you can redistribute it and/or
 #  modify it under the terms of the GNU General Public License
@@ -124,6 +124,7 @@ set( BMAPS_SMALL
     text_align_center
     text_align_right
     text_align_bottom
+    text_align_middle
     text_align_top
     text_valign_top
     text_valign_center
@@ -174,6 +175,7 @@ set( BMAPS_MID
     add_radial_dimension
     add_rectangle
     add_symbol_to_schematic
+    add_textbox
     add_tracks
     add_via
     add_zone_cutout

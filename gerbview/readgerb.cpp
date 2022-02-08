@@ -284,13 +284,13 @@ bool GERBER_FILE_IMAGE::LoadGerberFile( const wxString& aFullFileName )
                 break;
 
             case 'G':    /* Line type Gxx : command */
-                G_command = GCodeNumber( text );
+                G_command = CodeNumber( text );
                 Execute_G_Command( text, G_command );
                 break;
 
             case 'D':       /* Line type Dxx : Tool selection (xx > 0) or
                              * command if xx = 0..9 */
-                D_commande = DCodeNumber( text );
+                D_commande = CodeNumber( text );
                 Execute_DCODE_Command( text, D_commande );
                 break;
 
@@ -321,14 +321,14 @@ bool GERBER_FILE_IMAGE::LoadGerberFile( const wxString& aFullFileName )
                 }
                 else        //Error
                 {
-                    AddMessageToList( "Expected RS274X Command"  );
+                    AddMessageToList( wxT( "Expected RS274X Command" ) );
                     m_CommandState = CMD_IDLE;
                     text++;
                 }
                 break;
 
             default:
-                msg.Printf( "Unexpected char 0x%2.2X", *text );
+                msg.Printf( wxT( "Unexpected char 0x%2.2X" ), *text );
                 AddMessageToList( msg );
                 text++;
                 break;

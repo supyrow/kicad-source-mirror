@@ -64,6 +64,7 @@ public:
         m_cbSmdSimilarPads->SetValue( prmsList->m_TargetPadsWithNoHole );
         m_cbRoundShapesOnly->SetValue( prmsList->m_UseRoundShapesOnly );
         m_cbTrack2Track->SetValue( prmsList->m_TargetTrack2Track );
+        m_cbPadsInZones->SetValue( prmsList->m_TdOnPadsInZones );
 
         m_cbOptUseNextTrack->SetValue( prmsList->m_AllowUseTwoTracks );
         m_spPointCount->SetValue( prmsList->m_CurveSegCount );
@@ -74,13 +75,15 @@ public:
         m_spTeardropLenPercentRound->SetValue( prms->m_LengthRatio*100 );
         m_spTeardropSizePercentRound->SetValue( prms->m_HeightRatio*100 );
         m_rbShapeRound->SetSelection( prms->IsCurved() );
+        m_spTeardropHDPercentRound->SetValue( prms->m_WidthtoSizeFilterRatio*100 );
 
         prms = prmsList->GetParameters( TARGET_RECT );
         m_teardropMaxLenSettingRect.SetValue( prms->m_TdMaxLen );
         m_teardropMaxHeightSettingRect.SetValue( prms->m_TdMaxHeight );
         m_spTeardropLenPercentRect->SetValue( prms->m_LengthRatio*100 );
-        m_spTeardropSizePercentRect->SetValue(prms->m_HeightRatio*100 );
+        m_spTeardropSizePercentRect->SetValue( prms->m_HeightRatio*100 );
         m_rbShapeRect->SetSelection( prms->IsCurved() );
+        m_spTeardropHDPercentRect->SetValue( prms->m_WidthtoSizeFilterRatio*100 );
 
         prms = prmsList->GetParameters( TARGET_TRACK );
         m_teardropMaxLenSettingTrack.SetValue(prms->m_TdMaxLen );
@@ -88,6 +91,7 @@ public:
         m_spTeardropLenPercentTrack->SetValue( prms->m_LengthRatio*100 );
         m_spTeardropSizePercentTrack->SetValue( prms->m_HeightRatio*100 );
         m_rbShapeTrack->SetSelection( prms->IsCurved() );
+        m_spTeardropHDPercentTrack->SetValue( prms->m_WidthtoSizeFilterRatio*100 );
 
         // recalculate sizers, now the bitmap is initialized
         finishDialogSettings();
@@ -110,6 +114,7 @@ public:
         prmsList->m_TargetPadsWithNoHole = m_cbSmdSimilarPads->GetValue();
         prmsList->m_UseRoundShapesOnly = m_cbRoundShapesOnly->GetValue();
         prmsList->m_TargetTrack2Track = m_cbTrack2Track->GetValue();
+        prmsList->m_TdOnPadsInZones = m_cbPadsInZones->GetValue();
 
         prmsList->m_AllowUseTwoTracks = m_cbOptUseNextTrack->GetValue();
         prmsList->m_CurveSegCount = m_spPointCount->GetValue();
@@ -120,6 +125,7 @@ public:
         prms->m_TdMaxLen = m_teardropMaxLenSettingRound.GetValue();
         prms->m_TdMaxHeight = m_teardropMaxHeightSettingRound.GetValue();
         prms->m_CurveSegCount = (CurvedShapeOption() & CURVED_OPTION_ROUND) ? shape_seg_count : 0;
+        prms->m_WidthtoSizeFilterRatio = m_spTeardropHDPercentRound->GetValue() / 100.0;
 
         prms = prmsList->GetParameters( TARGET_RECT );
         prms->m_LengthRatio = GetTeardropLenPercentRect();
@@ -127,6 +133,7 @@ public:
         prms->m_TdMaxLen = m_teardropMaxLenSettingRect.GetValue();
         prms->m_TdMaxHeight = m_teardropMaxHeightSettingRect.GetValue();
         prms->m_CurveSegCount = (CurvedShapeOption() & CURVED_OPTION_RECT) ? shape_seg_count : 0;
+        prms->m_WidthtoSizeFilterRatio = m_spTeardropHDPercentRect->GetValue() / 100.0;
 
         prms = prmsList->GetParameters( TARGET_TRACK );
         prms->m_LengthRatio = GetTeardropLenPercentTrack();
@@ -134,6 +141,7 @@ public:
         prms->m_TdMaxLen = m_teardropMaxLenSettingTrack.GetValue();
         prms->m_TdMaxHeight = m_teardropMaxHeightSettingTrack.GetValue();
         prms->m_CurveSegCount = (CurvedShapeOption() & CURVED_OPTION_TRACK) ? shape_seg_count : 0;
+        prms->m_WidthtoSizeFilterRatio = m_spTeardropHDPercentTrack->GetValue() / 100.0;
     }
 
     int CurvedShapeOption()
@@ -206,16 +214,11 @@ void PCB_EDIT_FRAME::OnRunTeardropTool( wxCommandEvent& event )
     dlg.TransferToParamList();
     TEARDROP_MANAGER trdm( GetBoard(), this );
 
-    const bool discardTeardropInSameZone = true;
-
-    int added_count = trdm.SetTeardrops( &committer,
-                                   discardTeardropInSameZone,
-                                   dlg.CanUseTwoTracks() );
+    int added_count = trdm.SetTeardrops( &committer, dlg.CanUseTwoTracks() );
 
     m_infoBar->RemoveAllButtons();
     m_infoBar->AddCloseButton();
-    m_infoBar->ShowMessageFor( wxString::Format( _( "%d Teardrops created" ),
-                                                 added_count ),
+    m_infoBar->ShowMessageFor( wxString::Format( _( "%d Teardrops created" ), added_count ),
                                1000, wxICON_EXCLAMATION );
 }
 

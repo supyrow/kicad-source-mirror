@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////
-// C++ code generated with wxFormBuilder (version Dec 21 2020)
+// C++ code generated with wxFormBuilder (version Oct 26 2018)
 // http://www.wxformbuilder.org/
 //
 // PLEASE DO *NOT* EDIT THIS FILE!
@@ -21,38 +21,42 @@ DIALOG_LIB_EDIT_PIN_TABLE_BASE::DIALOG_LIB_EDIT_PIN_TABLE_BASE( wxWindow* parent
 	m_grid = new WX_GRID( this, wxID_ANY, wxDefaultPosition, wxSize( 800,400 ), 0 );
 
 	// Grid
-	m_grid->CreateGrid( 5, 11 );
+	m_grid->CreateGrid( 5, 13 );
 	m_grid->EnableEditing( true );
 	m_grid->EnableGridLines( true );
 	m_grid->EnableDragGridSize( false );
 	m_grid->SetMargins( 0, 0 );
 
 	// Columns
-	m_grid->SetColSize( 0, 66 );
-	m_grid->SetColSize( 1, 84 );
-	m_grid->SetColSize( 2, 140 );
+	m_grid->SetColSize( 0, 60 );
+	m_grid->SetColSize( 1, 66 );
+	m_grid->SetColSize( 2, 84 );
 	m_grid->SetColSize( 3, 140 );
-	m_grid->SetColSize( 4, 100 );
-	m_grid->SetColSize( 5, 110 );
+	m_grid->SetColSize( 4, 140 );
+	m_grid->SetColSize( 5, 100 );
 	m_grid->SetColSize( 6, 110 );
-	m_grid->SetColSize( 7, 84 );
+	m_grid->SetColSize( 7, 110 );
 	m_grid->SetColSize( 8, 84 );
 	m_grid->SetColSize( 9, 84 );
 	m_grid->SetColSize( 10, 84 );
+	m_grid->SetColSize( 11, 84 );
+	m_grid->SetColSize( 12, 66 );
 	m_grid->EnableDragColMove( false );
 	m_grid->EnableDragColSize( true );
 	m_grid->SetColLabelSize( 24 );
-	m_grid->SetColLabelValue( 0, _("Number") );
-	m_grid->SetColLabelValue( 1, _("Name") );
-	m_grid->SetColLabelValue( 2, _("Electrical Type") );
-	m_grid->SetColLabelValue( 3, _("Graphic Style") );
-	m_grid->SetColLabelValue( 4, _("Orientation") );
-	m_grid->SetColLabelValue( 5, _("Number Text Size") );
-	m_grid->SetColLabelValue( 6, _("Name Text Size") );
-	m_grid->SetColLabelValue( 7, _("Length") );
-	m_grid->SetColLabelValue( 8, _("X Position") );
-	m_grid->SetColLabelValue( 9, _("Y Position") );
-	m_grid->SetColLabelValue( 10, _("Visible") );
+	m_grid->SetColLabelValue( 0, _("Count") );
+	m_grid->SetColLabelValue( 1, _("Number") );
+	m_grid->SetColLabelValue( 2, _("Name") );
+	m_grid->SetColLabelValue( 3, _("Electrical Type") );
+	m_grid->SetColLabelValue( 4, _("Graphic Style") );
+	m_grid->SetColLabelValue( 5, _("Orientation") );
+	m_grid->SetColLabelValue( 6, _("Number Text Size") );
+	m_grid->SetColLabelValue( 7, _("Name Text Size") );
+	m_grid->SetColLabelValue( 8, _("Length") );
+	m_grid->SetColLabelValue( 9, _("X Position") );
+	m_grid->SetColLabelValue( 10, _("Y Position") );
+	m_grid->SetColLabelValue( 11, _("Visible") );
+	m_grid->SetColLabelValue( 12, _("Unit") );
 	m_grid->SetColLabelAlignment( wxALIGN_CENTER, wxALIGN_CENTER );
 
 	// Rows
@@ -92,13 +96,53 @@ DIALOG_LIB_EDIT_PIN_TABLE_BASE::DIALOG_LIB_EDIT_PIN_TABLE_BASE( wxWindow* parent
 	m_staticline2 = new wxStaticLine( this, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxLI_VERTICAL );
 	bSizer2->Add( m_staticline2, 0, wxBOTTOM|wxRIGHT|wxLEFT|wxEXPAND, 10 );
 
-	m_staticText1 = new wxStaticText( this, wxID_ANY, _("Pin numbers:"), wxDefaultPosition, wxDefaultSize, 0 );
-	m_staticText1->Wrap( -1 );
-	bSizer2->Add( m_staticText1, 0, wxALIGN_CENTER_VERTICAL|wxLEFT, 10 );
+	wxBoxSizer* bSizer3;
+	bSizer3 = new wxBoxSizer( wxVERTICAL );
 
-	m_summary = new wxStaticText( this, wxID_ANY, _("0"), wxDefaultPosition, wxDefaultSize, 0 );
-	m_summary->Wrap( -1 );
-	bSizer2->Add( m_summary, 1, wxRIGHT|wxLEFT|wxALIGN_CENTER_VERTICAL, 5 );
+	wxBoxSizer* bPinNumbersSizer;
+	bPinNumbersSizer = new wxBoxSizer( wxHORIZONTAL );
+
+	m_staticTextPinNumbers = new wxStaticText( this, wxID_ANY, _("Pin numbers:"), wxDefaultPosition, wxDefaultSize, 0 );
+	m_staticTextPinNumbers->Wrap( -1 );
+	bPinNumbersSizer->Add( m_staticTextPinNumbers, 0, wxALIGN_CENTER_VERTICAL|wxLEFT, 10 );
+
+	m_pin_numbers_summary = new wxStaticText( this, wxID_ANY, _("0"), wxDefaultPosition, wxDefaultSize, 0 );
+	m_pin_numbers_summary->Wrap( -1 );
+	bPinNumbersSizer->Add( m_pin_numbers_summary, 1, wxRIGHT|wxLEFT|wxALIGN_CENTER_VERTICAL, 5 );
+
+
+	bSizer3->Add( bPinNumbersSizer, 1, wxEXPAND, 5 );
+
+	wxBoxSizer* bPinCountSizer;
+	bPinCountSizer = new wxBoxSizer( wxHORIZONTAL );
+
+	m_staticTextPinCount = new wxStaticText( this, wxID_ANY, _("Pin count:"), wxDefaultPosition, wxDefaultSize, 0 );
+	m_staticTextPinCount->Wrap( -1 );
+	bPinCountSizer->Add( m_staticTextPinCount, 0, wxALIGN_CENTER_VERTICAL|wxLEFT, 10 );
+
+	m_pin_count = new wxStaticText( this, wxID_ANY, _("0"), wxDefaultPosition, wxDefaultSize, 0 );
+	m_pin_count->Wrap( -1 );
+	bPinCountSizer->Add( m_pin_count, 1, wxRIGHT|wxLEFT|wxALIGN_CENTER_VERTICAL, 5 );
+
+
+	bSizer3->Add( bPinCountSizer, 1, wxEXPAND, 5 );
+
+	wxBoxSizer* bDuplicatePinSizer;
+	bDuplicatePinSizer = new wxBoxSizer( wxHORIZONTAL );
+
+	m_staticTextDuplicatePins = new wxStaticText( this, wxID_ANY, _("Duplicate pins:"), wxDefaultPosition, wxDefaultSize, 0 );
+	m_staticTextDuplicatePins->Wrap( -1 );
+	bDuplicatePinSizer->Add( m_staticTextDuplicatePins, 0, wxALIGN_CENTER_VERTICAL|wxLEFT, 10 );
+
+	m_duplicate_pins = new wxStaticText( this, wxID_ANY, _("0"), wxDefaultPosition, wxDefaultSize, 0 );
+	m_duplicate_pins->Wrap( -1 );
+	bDuplicatePinSizer->Add( m_duplicate_pins, 1, wxRIGHT|wxLEFT|wxALIGN_CENTER_VERTICAL, 5 );
+
+
+	bSizer3->Add( bDuplicatePinSizer, 1, wxBOTTOM|wxEXPAND, 5 );
+
+
+	bSizer2->Add( bSizer3, 1, wxEXPAND, 5 );
 
 
 	bSizer2->Add( 10, 0, 0, wxEXPAND, 5 );

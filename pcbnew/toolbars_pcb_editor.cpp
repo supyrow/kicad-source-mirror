@@ -4,7 +4,7 @@
  * Copyright (C) 2012 Jean-Pierre Charras, jean-pierre.charras@ujf-grenoble.fr
  * Copyright (C) 2012 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
  * Copyright (C) 2012 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -456,6 +456,7 @@ void PCB_EDIT_FRAME::ReCreateVToolbar()
     m_drawToolBar->Add( PCB_ACTIONS::drawCircle,           ACTION_TOOLBAR::TOGGLE );
     m_drawToolBar->Add( PCB_ACTIONS::drawPolygon,          ACTION_TOOLBAR::TOGGLE );
     m_drawToolBar->Add( PCB_ACTIONS::placeText,            ACTION_TOOLBAR::TOGGLE );
+    m_drawToolBar->Add( PCB_ACTIONS::drawTextBox,          ACTION_TOOLBAR::TOGGLE );
     m_drawToolBar->AddGroup( dimensionGroup,               ACTION_TOOLBAR::TOGGLE );
     m_drawToolBar->Add( PCB_ACTIONS::placeTarget,          ACTION_TOOLBAR::TOGGLE );
     m_drawToolBar->Add( ACTIONS::deleteTool,               ACTION_TOOLBAR::TOGGLE );
@@ -615,11 +616,13 @@ static wxString ComboBoxUnits( EDA_UNITS aUnits, double aValue, bool aIncludeLab
 
     switch( aUnits )
     {
-    default:                     wxASSERT_MSG( false, "Invalid unit" ); KI_FALLTHROUGH;
-    case EDA_UNITS::UNSCALED:    format = wxT( "%.0f" );                break;
-    case EDA_UNITS::MILLIMETRES: format = wxT( "%.3f" );                break;
-    case EDA_UNITS::MILS:        format = wxT( "%.2f" );                break;
-    case EDA_UNITS::INCHES:      format = wxT( "%.5f" );                break;
+    default:
+        wxASSERT_MSG( false, wxT( "Invalid unit" ) );
+        KI_FALLTHROUGH;
+    case EDA_UNITS::UNSCALED:    format = wxT( "%.0f" ); break;
+    case EDA_UNITS::MILLIMETRES: format = wxT( "%.3f" ); break;
+    case EDA_UNITS::MILS:        format = wxT( "%.2f" ); break;
+    case EDA_UNITS::INCHES:      format = wxT( "%.5f" ); break;
     }
 
     text.Printf( format, To_User_Unit( aUnits, aValue ) );
@@ -709,9 +712,9 @@ void PCB_EDIT_FRAME::UpdateViaSizeSelectBox( wxChoice* aViaSizeSelectBox, bool a
 
         if( hole > 0 )
         {
-            priStr = ComboBoxUnits( primaryUnit, diam, false ) + " / "
+            priStr = ComboBoxUnits( primaryUnit, diam, false ) + wxT( " / " )
                         + ComboBoxUnits( primaryUnit, hole, true );
-            secStr = ComboBoxUnits( secondaryUnit, diam, false ) + " / "
+            secStr = ComboBoxUnits( secondaryUnit, diam, false ) + wxT( " / " )
                         + ComboBoxUnits( secondaryUnit, hole, true );
         }
         else

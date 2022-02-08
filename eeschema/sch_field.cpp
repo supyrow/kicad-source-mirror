@@ -44,6 +44,7 @@
 #include <symbol_library.h>
 #include <sch_symbol.h>
 #include <sch_field.h>
+#include <sch_label.h>
 #include <schematic.h>
 #include <settings/color_settings.h>
 #include <string_utils.h>
@@ -400,24 +401,6 @@ EDA_ANGLE SCH_FIELD::GetDrawRotation() const
     }
 
     return orient;
-}
-
-
-VECTOR2I SCH_FIELD::GetDrawPos() const
-{
-    return GetBoundingBox().Centre();
-}
-
-
-GR_TEXT_H_ALIGN_T SCH_FIELD::GetDrawHorizJustify() const
-{
-    return GR_TEXT_H_ALIGN_CENTER;
-}
-
-
-GR_TEXT_V_ALIGN_T SCH_FIELD::GetDrawVertJustify() const
-{
-    return GR_TEXT_V_ALIGN_CENTER;
 }
 
 
@@ -805,7 +788,7 @@ wxString SCH_FIELD::GetName( bool aUseDefaultName ) const
 
     if( m_parent && m_parent->Type() == SCH_SYMBOL_T )
     {
-        if( m_id < MANDATORY_FIELDS )
+        if( m_id >= 0 && m_id < MANDATORY_FIELDS )
             return TEMPLATE_FIELDNAME::GetDefaultFieldName( m_id );
         else if( m_name.IsEmpty() && aUseDefaultName )
             return TEMPLATE_FIELDNAME::GetDefaultFieldName( m_id );
@@ -814,7 +797,7 @@ wxString SCH_FIELD::GetName( bool aUseDefaultName ) const
     }
     else if( m_parent && m_parent->Type() == SCH_SHEET_T )
     {
-        if( m_id < SHEET_MANDATORY_FIELDS )
+        if( m_id >= 0 && m_id < SHEET_MANDATORY_FIELDS )
             return SCH_SHEET::GetDefaultFieldName( m_id );
         else if( m_name.IsEmpty() && aUseDefaultName )
             return SCH_SHEET::GetDefaultFieldName( m_id );

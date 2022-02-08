@@ -40,6 +40,8 @@
 #include <sch_plugins/kicad/sch_sexpr_plugin.h>
 #include <lib_text.h>
 #include "symbol_editor_edit_tool.h"
+#include "dialog_lib_textbox_properties.h"
+#include "lib_textbox.h"
 #include <math/util.h>      // for KiROUND
 
 SYMBOL_EDITOR_EDIT_TOOL::SYMBOL_EDITOR_EDIT_TOOL() :
@@ -242,6 +244,7 @@ static KICAD_T nonFields[] =
         LIB_SYMBOL_T,
         LIB_SHAPE_T,
         LIB_TEXT_T,
+        LIB_TEXTBOX_T,
         LIB_PIN_T,
         EOT
 };
@@ -440,6 +443,10 @@ int SYMBOL_EDITOR_EDIT_TOOL::Properties( const TOOL_EVENT& aEvent )
             editTextProperties( item );
             break;
 
+        case LIB_TEXTBOX_T:
+            editTextBoxProperties( item );
+            break;
+
         case LIB_FIELD_T:
             editFieldProperties( (LIB_FIELD*) item );
             break;
@@ -485,7 +492,23 @@ void SYMBOL_EDITOR_EDIT_TOOL::editTextProperties( LIB_ITEM* aItem )
     if ( aItem->Type() != LIB_TEXT_T )
         return;
 
-    DIALOG_LIB_TEXT_PROPERTIES dlg( m_frame, (LIB_TEXT*) aItem );
+    DIALOG_LIB_TEXT_PROPERTIES dlg( m_frame, static_cast<LIB_TEXT*>( aItem ) );
+
+    if( dlg.ShowModal() != wxID_OK )
+        return;
+
+    updateItem( aItem, true );
+    m_frame->GetCanvas()->Refresh();
+    m_frame->OnModify( );
+}
+
+
+void SYMBOL_EDITOR_EDIT_TOOL::editTextBoxProperties( LIB_ITEM* aItem )
+{
+    if ( aItem->Type() != LIB_TEXTBOX_T )
+        return;
+
+    DIALOG_LIB_TEXTBOX_PROPERTIES dlg( m_frame, static_cast<LIB_TEXTBOX*>( aItem ) );
 
     if( dlg.ShowModal() != wxID_OK )
         return;

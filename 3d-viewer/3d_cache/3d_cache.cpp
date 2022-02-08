@@ -165,7 +165,7 @@ void S3D_CACHE_ENTRY::SetSHA1( const unsigned char* aSHA1Sum )
 {
     if( nullptr == aSHA1Sum )
     {
-        wxLogTrace( MASK_3D_CACHE, "%s:%s:%d\n * [BUG] NULL passed for aSHA1Sum",
+        wxLogTrace( MASK_3D_CACHE, wxT( "%s:%s:%d\n * [BUG] NULL passed for aSHA1Sum" ),
                     __FILE__, __FUNCTION__, __LINE__ );
 
         return;
@@ -221,7 +221,7 @@ SCENEGRAPH* S3D_CACHE::load( const wxString& aModelFile, S3D_CACHE_ENTRY** aCach
     if( full3Dpath.empty() )
     {
         // the model cannot be found; we cannot proceed
-        wxLogTrace( MASK_3D_CACHE, "%s:%s:%d\n * [3D model] could not find model '%s'\n",
+        wxLogTrace( MASK_3D_CACHE, wxT( "%s:%s:%d\n * [3D model] could not find model '%s'\n" ),
                     __FILE__, __FUNCTION__, __LINE__, aModelFile );
         return nullptr;
     }
@@ -304,10 +304,10 @@ SCENEGRAPH* S3D_CACHE::checkCache( const wxString& aFileName, S3D_CACHE_ENTRY** 
         // or we do not have a configured cache file directory, we create an
         // entry to prevent further attempts at loading the file
 
-        if( m_CacheMap.insert( std::pair< wxString, S3D_CACHE_ENTRY* >
-            ( aFileName, ep ) ).second == false )
+        if( m_CacheMap.emplace( aFileName, ep ).second == false )
         {
-            wxLogTrace( MASK_3D_CACHE, "%s:%s:%d\n * [BUG] duplicate entry in map file; key = '%s'",
+            wxLogTrace( MASK_3D_CACHE,
+                        wxT( "%s:%s:%d\n * [BUG] duplicate entry in map file; key = '%s'" ),
                         __FILE__, __FUNCTION__, __LINE__, aFileName );
 
             m_CacheList.pop_back();
@@ -322,10 +322,10 @@ SCENEGRAPH* S3D_CACHE::checkCache( const wxString& aFileName, S3D_CACHE_ENTRY** 
         return nullptr;
     }
 
-    if( m_CacheMap.insert( std::pair< wxString, S3D_CACHE_ENTRY* >
-                               ( aFileName, ep ) ).second == false )
+    if( m_CacheMap.emplace( aFileName, ep ).second == false )
     {
-        wxLogTrace( MASK_3D_CACHE, "%s:%s:%d\n * [BUG] duplicate entry in map file; key = '%s'",
+        wxLogTrace( MASK_3D_CACHE,
+                    wxT( "%s:%s:%d\n * [BUG] duplicate entry in map file; key = '%s'" ),
                     __FILE__, __FUNCTION__, __LINE__, aFileName );
 
         m_CacheList.pop_back();
@@ -358,7 +358,7 @@ bool S3D_CACHE::getSHA1( const wxString& aFileName, unsigned char* aSHA1Sum )
 {
     if( aFileName.empty() )
     {
-        wxLogTrace( MASK_3D_CACHE, "%s:%s:%d\n * [BUG] empty filename",
+        wxLogTrace( MASK_3D_CACHE, wxT( "%s:%s:%d\n * [BUG] empty filename" ),
                     __FILE__, __FUNCTION__, __LINE__ );
 
         return false;
@@ -366,7 +366,7 @@ bool S3D_CACHE::getSHA1( const wxString& aFileName, unsigned char* aSHA1Sum )
 
     if( nullptr == aSHA1Sum )
     {
-        wxLogTrace( MASK_3D_CACHE, "%s\n * [BUG] NULL pointer passed for aMD5Sum",
+        wxLogTrace( MASK_3D_CACHE, wxT( "%s\n * [BUG] NULL pointer passed for aMD5Sum" ),
                     __FILE__, __FUNCTION__, __LINE__ );
 
         return false;
@@ -417,7 +417,7 @@ bool S3D_CACHE::loadCacheData( S3D_CACHE_ENTRY* aCacheItem )
     if( bname.empty() )
     {
         wxLogTrace( MASK_3D_CACHE,
-                    " * [3D model] cannot load cached model; no file hash available" );
+                    wxT( " * [3D model] cannot load cached model; no file hash available" ) );
 
         return false;
     }
@@ -425,7 +425,7 @@ bool S3D_CACHE::loadCacheData( S3D_CACHE_ENTRY* aCacheItem )
     if( m_CacheDir.empty() )
     {
         wxLogTrace( MASK_3D_CACHE,
-                    " * [3D model] cannot load cached model; config directory unknown" );
+                    wxT( " * [3D model] cannot load cached model; config directory unknown" ) );
 
         return false;
     }
@@ -434,8 +434,7 @@ bool S3D_CACHE::loadCacheData( S3D_CACHE_ENTRY* aCacheItem )
 
     if( !wxFileName::FileExists( fname ) )
     {
-        wxString errmsg = "cannot open file";
-        wxLogTrace( MASK_3D_CACHE, " * [3D model] %s '%s'", errmsg.GetData(), fname.GetData() );
+        wxLogTrace( MASK_3D_CACHE, wxT( " * [3D model] cannot open file '%s'" ), fname.GetData() );
         return false;
     }
 
@@ -455,7 +454,7 @@ bool S3D_CACHE::saveCacheData( S3D_CACHE_ENTRY* aCacheItem )
 {
     if( nullptr == aCacheItem )
     {
-        wxLogTrace( MASK_3D_CACHE, "%s:%s:%d\n * NULL passed for aCacheItem",
+        wxLogTrace( MASK_3D_CACHE, wxT( "%s:%s:%d\n * NULL passed for aCacheItem" ),
                     __FILE__, __FUNCTION__, __LINE__ );
 
         return false;
@@ -463,7 +462,7 @@ bool S3D_CACHE::saveCacheData( S3D_CACHE_ENTRY* aCacheItem )
 
     if( nullptr == aCacheItem->sceneData )
     {
-        wxLogTrace( MASK_3D_CACHE, "%s:%s:%d\n * aCacheItem has no valid scene data",
+        wxLogTrace( MASK_3D_CACHE, wxT( "%s:%s:%d\n * aCacheItem has no valid scene data" ),
                     __FILE__, __FUNCTION__, __LINE__ );
 
         return false;
@@ -474,7 +473,7 @@ bool S3D_CACHE::saveCacheData( S3D_CACHE_ENTRY* aCacheItem )
     if( bname.empty() )
     {
         wxLogTrace( MASK_3D_CACHE,
-                    " * [3D model] cannot load cached model; no file hash available" );
+                    wxT( " * [3D model] cannot load cached model; no file hash available" ) );
 
         return false;
     }
@@ -482,7 +481,7 @@ bool S3D_CACHE::saveCacheData( S3D_CACHE_ENTRY* aCacheItem )
     if( m_CacheDir.empty() )
     {
         wxLogTrace( MASK_3D_CACHE,
-                    " * [3D model] cannot load cached model; config directory unknown" );
+                    wxT( " * [3D model] cannot load cached model; config directory unknown" ) );
 
         return false;
     }
@@ -493,8 +492,8 @@ bool S3D_CACHE::saveCacheData( S3D_CACHE_ENTRY* aCacheItem )
     {
         if( !wxFileName::FileExists( fname ) )
         {
-            wxLogTrace( MASK_3D_CACHE, " * [3D model] path exists but is not a regular file '%s'",
-                        fname );
+            wxLogTrace( MASK_3D_CACHE,
+                        wxT( " * [3D model] path exists but is not a regular file '%s'" ), fname );
 
             return false;
         }
@@ -510,7 +509,7 @@ bool S3D_CACHE::Set3DConfigDir( const wxString& aConfigDir )
     if( !m_ConfigDir.empty() )
         return false;
 
-    wxFileName cfgdir( ExpandEnvVarSubstitutions( aConfigDir, m_project ), "" );
+    wxFileName cfgdir( ExpandEnvVarSubstitutions( aConfigDir, m_project ), wxEmptyString );
 
     cfgdir.Normalize();
 
@@ -521,7 +520,7 @@ bool S3D_CACHE::Set3DConfigDir( const wxString& aConfigDir )
         if( !cfgdir.DirExists() )
         {
             wxLogTrace( MASK_3D_CACHE,
-                        "%s:%s:%d\n * failed to create 3D configuration directory '%s'",
+                        wxT( "%s:%s:%d\n * failed to create 3D configuration directory '%s'" ),
                         __FILE__, __FUNCTION__, __LINE__, cfgdir.GetPath() );
 
             return false;
@@ -534,8 +533,8 @@ bool S3D_CACHE::Set3DConfigDir( const wxString& aConfigDir )
     if( !m_FNResolver->Set3DConfigDir( m_ConfigDir ) )
     {
         wxLogTrace( MASK_3D_CACHE,
-                    "%s:%s:%d\n * could not set 3D Config Directory on filename resolver\n"
-                    " * config directory: '%s'",
+                    wxT( "%s:%s:%d\n * could not set 3D Config Directory on filename resolver\n"
+                         " * config directory: '%s'" ),
                     __FILE__, __FUNCTION__, __LINE__, m_ConfigDir );
     }
 
@@ -548,7 +547,7 @@ bool S3D_CACHE::Set3DConfigDir( const wxString& aConfigDir )
     // 3. MSWin: AppData\Local\kicad\3d
     wxFileName cacheDir;
     cacheDir.AssignDir( PATHS::GetUserCachePath() );
-    cacheDir.AppendDir( "3d" );
+    cacheDir.AppendDir( wxT( "3d" ) );
 
     if( !cacheDir.DirExists() )
     {
@@ -556,7 +555,8 @@ bool S3D_CACHE::Set3DConfigDir( const wxString& aConfigDir )
 
         if( !cacheDir.DirExists() )
         {
-            wxLogTrace( MASK_3D_CACHE, "%s:%s:%d\n * failed to create 3D cache directory '%s'",
+            wxLogTrace( MASK_3D_CACHE,
+                        wxT( "%s:%s:%d\n * failed to create 3D cache directory '%s'" ),
                         __FILE__, __FUNCTION__, __LINE__, cacheDir.GetPath() );
 
             return false;
@@ -651,7 +651,7 @@ S3DMODEL* S3D_CACHE::GetModel( const wxString& aModelFileName )
     if( !cp )
     {
         wxLogTrace( MASK_3D_CACHE,
-                    "%s:%s:%d\n  * [BUG] model loaded with no associated S3D_CACHE_ENTRY",
+                    wxT( "%s:%s:%d\n  * [BUG] model loaded with no associated S3D_CACHE_ENTRY" ),
                     __FILE__, __FUNCTION__, __LINE__ );
 
         return nullptr;

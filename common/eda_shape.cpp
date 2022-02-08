@@ -246,7 +246,7 @@ void EDA_SHAPE::rotate( const VECTOR2I& aRotCentre, const EDA_ANGLE& aAngle )
             break;
         }
 
-        // Convert non-cartesian-rotated rect to a diamond
+        // Convert non-cardinally-rotated rect to a diamond
         m_shape = SHAPE_T::POLY;
         m_poly.RemoveAllContours();
         m_poly.NewOutline();
@@ -1110,6 +1110,9 @@ std::vector<SHAPE*> EDA_SHAPE::MakeEffectiveShapes( bool aEdgeOnly ) const
 
     case SHAPE_T::POLY:
     {
+        if( GetPolyShape().OutlineCount() == 0 )    // malformed/empty polygon
+            break;
+
         SHAPE_LINE_CHAIN l = GetPolyShape().COutline( 0 );
 
         l.Rotate( getParentOrientation() );

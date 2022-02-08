@@ -59,6 +59,10 @@
 #include "cleanup_item.h"
 #include <zoom_defines.h>
 
+#if defined( KICAD_USE_3DCONNEXION )
+#include <navlib/nl_pcbnew_plugin.h>
+#endif
+
 using KIGFX::RENDER_SETTINGS;
 using KIGFX::PCB_RENDER_SETTINGS;
 
@@ -66,10 +70,9 @@ wxDEFINE_EVENT( BOARD_CHANGED, wxCommandEvent );
 
 PCB_BASE_FRAME::PCB_BASE_FRAME( KIWAY* aKiway, wxWindow* aParent, FRAME_T aFrameType,
                                 const wxString& aTitle, const wxPoint& aPos, const wxSize& aSize,
-                                long aStyle, const wxString & aFrameName ) :
+                                long aStyle, const wxString& aFrameName ) :
         EDA_DRAW_FRAME( aKiway, aParent, aFrameType, aTitle, aPos, aSize, aStyle, aFrameName ),
-        m_pcb( nullptr ),
-        m_originTransforms( *this )
+        m_pcb( nullptr ), m_originTransforms( *this ), m_spaceMouse( nullptr )
 {
     m_settings = static_cast<PCBNEW_SETTINGS*>( Kiface().KifaceSettings() );
 }
@@ -77,6 +80,11 @@ PCB_BASE_FRAME::PCB_BASE_FRAME( KIWAY* aKiway, wxWindow* aParent, FRAME_T aFrame
 
 PCB_BASE_FRAME::~PCB_BASE_FRAME()
 {
+#if defined( KICAD_USE_3DCONNEXION )
+    if( m_spaceMouse != nullptr )
+        delete m_spaceMouse;
+#endif
+
     // Ensure m_canvasType is up to date, to save it in config
     m_canvasType = GetCanvas()->GetBackend();
 
@@ -94,6 +102,19 @@ bool PCB_BASE_FRAME::canCloseWindow( wxCloseEvent& aEvent )
         viewer3D->Close( true );
 
     return true;
+}
+
+
+void PCB_BASE_FRAME::handleActivateEvent( wxActivateEvent& aEvent )
+{
+    EDA_DRAW_FRAME::handleActivateEvent( aEvent );
+
+#if defined( KICAD_USE_3DCONNEXION )
+    if( m_spaceMouse != nullptr )
+    {
+        m_spaceMouse->SetFocus( aEvent.GetActive() );
+    }
+#endif
 }
 
 
@@ -228,7 +249,8 @@ void PCB_BASE_FRAME::FocusOnItem( BOARD_ITEM* aItem, PCB_LAYER_ID aLayer )
     }
     catch( const boost::uuids::entropy_error& )
     {
-        wxLogError( "A Boost UUID entropy exception was thrown in %s:%s.", __FILE__, __FUNCTION__ );
+        wxLogError( wxT( "A Boost UUID entropy exception was thrown in %s:%s." ),
+                    __FILE__, __FUNCTION__ );
     }
 #else
     lastItem = GetBoard()->GetItem( lastBrightenedItemID );
@@ -339,7 +361,9 @@ void PCB_BASE_FRAME::FocusOnItem( BOARD_ITEM* aItem, PCB_LAYER_ID aLayer )
 
         case PCB_SHAPE_T:
         case PCB_TEXT_T:
+        case PCB_TEXTBOX_T:
         case PCB_FP_TEXT_T:
+        case PCB_FP_TEXTBOX_T:
         case PCB_FP_SHAPE_T:
         case PCB_FP_ZONE_T:
         case PCB_TRACE_T:
@@ -708,7 +732,7 @@ void PCB_BASE_FRAME::DisplayGridMsg()
     VECTOR2D gridSize = GetCanvas()->GetGAL()->GetGridSize();
     wxString line;
 
-    line.Printf( "grid X %s  Y %s",
+    line.Printf( wxT( "grid X %s  Y %s" ),
                  MessageTextFromValue( m_userUnits, gridSize.x, false ),
                  MessageTextFromValue( m_userUnits, gridSize.y, false ) );
 
@@ -919,6 +943,20 @@ void PCB_BASE_FRAME::ActivateGalCanvas()
     view->RecacheAllItems();
     canvas->SetEventDispatcher( m_toolDispatcher );
     canvas->StartDrawing();
+
+#if defined( KICAD_USE_3DCONNEXION )
+    try
+    {
+        if( m_spaceMouse == nullptr )
+        {
+            m_spaceMouse = new NL_PCBNEW_PLUGIN( GetCanvas() );
+        }
+    }
+    catch( const std::system_error& e )
+    {
+        wxLogTrace( wxT( "KI_TRACE_NAVLIB" ), e.what() );
+    }
+#endif
 }
 
 

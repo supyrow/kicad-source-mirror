@@ -260,8 +260,12 @@ BOARD_DESIGN_SETTINGS::BOARD_DESIGN_SETTINGS( JSON_SETTINGS* aParent, const std:
             &m_SilkClearance, Millimeter2iu( DEFAULT_SILKCLEARANCE ),
             Millimeter2iu( 0.00 ), Millimeter2iu( 100.0 ), MM_PER_IU ) );
 
+    // While the maximum *effective* value is 4, we've had users interpret this as the count on
+    // all layers, and enter something like 10.  They'll figure it out soon enough *unless* we
+    // enforce a max of 4 (and therefore reset it back to the default of 2), at which point it
+    // just looks buggy.
     m_params.emplace_back( new PARAM<int>( "rules.min_resolved_spokes",
-            &m_MinResolvedSpokes, DEFAULT_MINRESOLVEDSPOKES, 0, 4 ) );
+            &m_MinResolvedSpokes, DEFAULT_MINRESOLVEDSPOKES, 0, 99 ) );
 
     m_params.emplace_back( new PARAM_SCALED<int>( "rules.min_text_height",
             &m_MinSilkTextHeight, Millimeter2iu( DEFAULT_SILK_TEXT_SIZE * 0.8 ),
@@ -461,6 +465,7 @@ BOARD_DESIGN_SETTINGS::BOARD_DESIGN_SETTINGS( JSON_SETTINGS* aParent, const std:
                 entry["td_onroundshapesonly"]  = m_TeardropParamsList.m_UseRoundShapesOnly;
                 entry["td_allow_use_two_tracks"] = m_TeardropParamsList.m_AllowUseTwoTracks;
                 entry["td_curve_segcount"]  = m_TeardropParamsList.m_CurveSegCount;
+                entry["td_on_pad_in_zone"]  = m_TeardropParamsList.m_TdOnPadsInZones;
 
                 js.push_back( entry );
 
@@ -476,21 +481,26 @@ BOARD_DESIGN_SETTINGS::BOARD_DESIGN_SETTINGS( JSON_SETTINGS* aParent, const std:
                     if( entry.empty() || !entry.is_object() )
                         continue;
 
-                    if( !entry.contains( "td_onviapad" )
-                            || !entry.contains( "td_onpadsmd" )
-                            || !entry.contains( "td_ontrackend" )
-                            || !entry.contains( "td_onroundshapesonly" )
-                            || !entry.contains( "td_allow_use_two_tracks" )
-                            || !entry.contains( "td_curve_segcount" )
-                            )
-                        continue;
+                    if( entry.contains( "td_onviapad" ) )
+                        m_TeardropParamsList.m_TargetViasPads = entry["td_onviapad"].get<bool>();
 
-                    m_TeardropParamsList.m_TargetViasPads = entry["td_onviapad"].get<bool>();
-                    m_TeardropParamsList.m_TargetPadsWithNoHole = entry["td_onpadsmd"].get<bool>();
-                    m_TeardropParamsList.m_TargetTrack2Track = entry["td_ontrackend"].get<bool>();
-                    m_TeardropParamsList.m_UseRoundShapesOnly = entry["td_onroundshapesonly"].get<bool>();
-                    m_TeardropParamsList.m_AllowUseTwoTracks = entry["td_allow_use_two_tracks"].get<bool>();
-                    m_TeardropParamsList.m_CurveSegCount = entry["td_curve_segcount"].get<int>();
+                    if( entry.contains( "td_onpadsmd" ) )
+                        m_TeardropParamsList.m_TargetPadsWithNoHole = entry["td_onpadsmd"].get<bool>();
+
+                    if( entry.contains( "td_ontrackend" ) )
+                        m_TeardropParamsList.m_TargetTrack2Track = entry["td_ontrackend"].get<bool>();
+
+                    if( entry.contains( "td_onroundshapesonly" ) )
+                        m_TeardropParamsList.m_UseRoundShapesOnly = entry["td_onroundshapesonly"].get<bool>();
+
+                    if( entry.contains( "td_allow_use_two_tracks" ) )
+                        m_TeardropParamsList.m_AllowUseTwoTracks = entry["td_allow_use_two_tracks"].get<bool>();
+
+                    if( entry.contains( "td_curve_segcount" ) )
+                        m_TeardropParamsList.m_CurveSegCount = entry["td_curve_segcount"].get<int>();
+
+                    if( entry.contains( "td_on_pad_in_zone" ) )
+                        m_TeardropParamsList.m_TdOnPadsInZones = entry["td_on_pad_in_zone"].get<bool>();
                 }
             },
             {} ) );
@@ -512,6 +522,7 @@ BOARD_DESIGN_SETTINGS::BOARD_DESIGN_SETTINGS( JSON_SETTINGS* aParent, const std:
                     entry["td_length_ratio"]  = td_prm->m_LengthRatio;
                     entry["td_height_ratio"]  = td_prm->m_HeightRatio;
                     entry["td_curve_segcount"]  = td_prm->m_CurveSegCount;
+                    entry["td_width_to_size_filter_ratio"] = td_prm->m_WidthtoSizeFilterRatio;
 
                     js.push_back( entry );
                 }
@@ -528,13 +539,7 @@ BOARD_DESIGN_SETTINGS::BOARD_DESIGN_SETTINGS( JSON_SETTINGS* aParent, const std:
                     if( entry.empty() || !entry.is_object() )
                         continue;
 
-                    if( !entry.contains( "td_target_name" )
-                            || !entry.contains( "td_maxlen" )
-                            || !entry.contains( "td_maxheight" )
-                            || !entry.contains( "td_length_ratio" )
-                            || !entry.contains( "td_height_ratio" )
-                            || !entry.contains( "td_curve_segcount" )
-                            )
+                    if( !entry.contains( "td_target_name" ) )
                         continue;
 
                     int idx = GetTeardropTargetTypeFromCanonicalName( entry["td_target_name"].get<std::string>() );
@@ -542,11 +547,24 @@ BOARD_DESIGN_SETTINGS::BOARD_DESIGN_SETTINGS( JSON_SETTINGS* aParent, const std:
                     if( idx >= 0 && idx < 3 )
                     {
                         TEARDROP_PARAMETERS* td_prm = m_TeardropParamsList.GetParameters( (TARGET_TD)idx );
-                        td_prm->m_TdMaxLen = Millimeter2iu( entry["td_maxlen"].get<double>() );
-                        td_prm->m_TdMaxHeight = Millimeter2iu( entry["td_maxheight"].get<double>() );
-                        td_prm->m_LengthRatio = entry["td_length_ratio"].get<double>();
-                        td_prm->m_HeightRatio = entry["td_height_ratio"].get<double>();
-                        td_prm->m_CurveSegCount = entry["td_curve_segcount"].get<int>();
+
+                        if( entry.contains( "td_maxlen" ) )
+                            td_prm->m_TdMaxLen = Millimeter2iu( entry["td_maxlen"].get<double>() );
+
+                        if( entry.contains( "td_maxheight" ) )
+                            td_prm->m_TdMaxHeight = Millimeter2iu( entry["td_maxheight"].get<double>() );
+
+                        if( entry.contains( "td_length_ratio" ) )
+                            td_prm->m_LengthRatio = entry["td_length_ratio"].get<double>();
+
+                        if( entry.contains( "td_height_ratio" ) )
+                            td_prm->m_HeightRatio = entry["td_height_ratio"].get<double>();
+
+                        if( entry.contains( "td_curve_segcount" ) )
+                            td_prm->m_CurveSegCount = entry["td_curve_segcount"].get<int>();
+
+                        if( entry.contains( "td_width_to_size_filter_ratio" ) )
+                            td_prm->m_WidthtoSizeFilterRatio = entry["td_width_to_size_filter_ratio"].get<double>();
                     }
                 }
             },

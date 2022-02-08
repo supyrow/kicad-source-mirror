@@ -217,24 +217,26 @@ std::vector<BOARD_ITEM*> DRAWING_TOOL::DrawSpecificationStackup( const wxPoint& 
     std::vector<std::vector<PCB_TEXT*>> texts;
 
     // Style : Header
-    PCB_TEXT* headStyle = new PCB_TEXT( static_cast<FOOTPRINT*>( m_frame->GetModel() ) );
+    std::unique_ptr<PCB_TEXT> headStyle =
+            std::make_unique<PCB_TEXT>( static_cast<FOOTPRINT*>( m_frame->GetModel() ) );
     headStyle->SetLayer( Eco1_User );
     headStyle->SetTextSize( wxSize( Millimeter2iu( 1.5 ), Millimeter2iu( 1.5 ) ) );
     headStyle->SetTextThickness( Millimeter2iu( 0.3 ) );
     headStyle->SetItalic( false );
     headStyle->SetTextPos( wxPoint( 0, 0 ) );
-    headStyle->SetText( "Layer" );
+    headStyle->SetText( _( "Layer" ) );
     headStyle->SetHorizJustify( GR_TEXT_H_ALIGN_LEFT );
     headStyle->SetVertJustify( GR_TEXT_V_ALIGN_TOP );
 
     // Style : data
-    PCB_TEXT* dataStyle = new PCB_TEXT( static_cast<FOOTPRINT*>( m_frame->GetModel() ) );
+    std::unique_ptr<PCB_TEXT> dataStyle =
+            std::make_unique<PCB_TEXT>( static_cast<FOOTPRINT*>( m_frame->GetModel() ) );
     dataStyle->SetLayer( Eco1_User );
     dataStyle->SetTextSize( wxSize( Millimeter2iu( 1.5 ), Millimeter2iu( 1.5 ) ) );
     dataStyle->SetTextThickness( Millimeter2iu( 0.1 ) );
     dataStyle->SetItalic( false );
     dataStyle->SetTextPos( wxPoint( 0, 0 ) );
-    dataStyle->SetText( "Layer" );
+    dataStyle->SetText( _( "Layer" ) );
     dataStyle->SetHorizJustify( GR_TEXT_H_ALIGN_LEFT );
     dataStyle->SetVertJustify( GR_TEXT_V_ALIGN_TOP );
 
@@ -273,7 +275,7 @@ std::vector<BOARD_ITEM*> DRAWING_TOOL::DrawSpecificationStackup( const wxPoint& 
     case EDA_UNITS::MILLIMETRES: t->SetText( _( "Thickness (mm)" ) );     break;
     case EDA_UNITS::INCHES:      t->SetText( _( "Thickness (inches)" ) ); break;
     case EDA_UNITS::MILS:        t->SetText( _( "Thickness (mils)" ) );   break;
-    default:                     wxFAIL_MSG( "Unhandled unit type" );
+    default:                     wxFAIL_MSG( wxT( "Unhandled unit type" ) );
     }
 
     colThickness.push_back( t );
@@ -382,7 +384,8 @@ std::vector<BOARD_ITEM*> DRAWING_TOOL::DrawBoardCharacteristics( const wxPoint& 
     wxPoint cursorPos = aOrigin;
 
     // Style : Section header
-    PCB_TEXT* headStyle = new PCB_TEXT( static_cast<FOOTPRINT*>( m_frame->GetModel() ) );
+    std::unique_ptr<PCB_TEXT> headStyle =
+            std::make_unique<PCB_TEXT>( static_cast<FOOTPRINT*>( m_frame->GetModel() ) );
     headStyle->SetLayer( Eco1_User );
     headStyle->SetTextSize( wxSize( Millimeter2iu( 2.0 ), Millimeter2iu( 2.0 ) ) );
     headStyle->SetTextThickness( Millimeter2iu( 0.4 ) );
@@ -392,7 +395,8 @@ std::vector<BOARD_ITEM*> DRAWING_TOOL::DrawBoardCharacteristics( const wxPoint& 
     headStyle->SetVertJustify( GR_TEXT_V_ALIGN_TOP );
 
     // Style : Data
-    PCB_TEXT* dataStyle = new PCB_TEXT( static_cast<FOOTPRINT*>( m_frame->GetModel() ) );
+    std::unique_ptr<PCB_TEXT> dataStyle =
+            std::make_unique<PCB_TEXT>( static_cast<FOOTPRINT*>( m_frame->GetModel() ) );
     dataStyle->SetLayer( Eco1_User );
     dataStyle->SetTextSize( wxSize( Millimeter2iu( 1.5 ), Millimeter2iu( 1.5 ) ) );
     dataStyle->SetTextThickness( Millimeter2iu( 0.2 ) );
@@ -417,7 +421,7 @@ std::vector<BOARD_ITEM*> DRAWING_TOOL::DrawBoardCharacteristics( const wxPoint& 
     std::vector<PCB_TEXT*>              colbreak;
     std::vector<PCB_TEXT*>              colLabel2;
     std::vector<PCB_TEXT*>              colData2;
-    wxString                            text = wxString( "" );
+    wxString                            text;
 
     t = static_cast<PCB_TEXT*>( dataStyle->Duplicate() );
     t->SetText( _( "Copper Layer Count: " ) );
@@ -433,7 +437,7 @@ std::vector<BOARD_ITEM*> DRAWING_TOOL::DrawBoardCharacteristics( const wxPoint& 
     colLabel1.push_back( t );
 
     t = static_cast<PCB_TEXT*>( dataStyle->Duplicate() );
-    t->SetText( wxString::Format( "%s x %s",
+    t->SetText( wxString::Format( wxT( "%s x %s" ),
                 MessageTextFromValue( m_frame->GetUserUnits(), size.GetWidth(), true ),
                 MessageTextFromValue( m_frame->GetUserUnits(), size.GetHeight(), true ) ) );
     colData1.push_back( t );
@@ -443,7 +447,7 @@ std::vector<BOARD_ITEM*> DRAWING_TOOL::DrawBoardCharacteristics( const wxPoint& 
     colLabel1.push_back( t );
 
     t = static_cast<PCB_TEXT*>( dataStyle->Duplicate() );
-    t->SetText( wxString::Format( "%s / %s",
+    t->SetText( wxString::Format( wxT( "%s / %s" ),
                 MessageTextFromValue( m_frame->GetUserUnits(), settings.m_TrackMinWidth, true ),
                 MessageTextFromValue( m_frame->GetUserUnits(), settings.m_MinClearance, true ) ) );
     colData1.push_back( t );
@@ -537,7 +541,7 @@ std::vector<BOARD_ITEM*> DRAWING_TOOL::DrawBoardCharacteristics( const wxPoint& 
         for( auto item : objects )
             commit.Add( item );
 
-        commit.Push( "Board Characteristics" );
+        commit.Push( wxT( "Board Characteristics" ) );
     }
 
     tableSize->x = tableSize2.x;
@@ -673,7 +677,7 @@ int DRAWING_TOOL::InteractivePlaceWithPreview( const TOOL_EVENT& aEvent,
                 commit.Add( item );
             }
 
-            commit.Push( "Placing items" );
+            commit.Push( wxT( "Placing items" ) );
             m_frame->PopTool( tool );
 
             break;

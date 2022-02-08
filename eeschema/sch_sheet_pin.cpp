@@ -75,17 +75,14 @@ void SCH_SHEET_PIN::Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOf
 void SCH_SHEET_PIN::SwapData( SCH_ITEM* aItem )
 {
     wxCHECK_RET( aItem->Type() == SCH_SHEET_PIN_T,
-                 wxString::Format( wxT( "SCH_SHEET_PIN object cannot swap data with %s object." ),
+                 wxString::Format( "SCH_SHEET_PIN object cannot swap data with %s object.",
                                    aItem->GetClass() ) );
 
-    SCH_SHEET_PIN* pin = ( SCH_SHEET_PIN* ) aItem;
-    SCH_TEXT::SwapData( (SCH_TEXT*) pin );
-    int tmp = pin->GetNumber();
-    pin->SetNumber( GetNumber() );
-    SetNumber( tmp );
-    SHEET_SIDE stmp = pin->GetSide();
-    pin->SetSide( GetSide() );
-    SetSide( stmp );
+    SCH_SHEET_PIN* pin = static_cast<SCH_SHEET_PIN*>( aItem );
+
+    SCH_HIERLABEL::SwapData( pin );
+    std::swap( m_number, pin->m_number );
+    std::swap( m_edge, pin->m_edge );
 }
 
 
@@ -123,25 +120,25 @@ void SCH_SHEET_PIN::SetSide( SHEET_SIDE aEdge )
     case SHEET_SIDE::LEFT:
         m_edge = aEdge;
         SetTextX( Sheet->m_pos.x );
-        SetLabelSpinStyle( LABEL_SPIN_STYLE::RIGHT ); // Orientation horiz inverse
+        SetTextSpinStyle( TEXT_SPIN_STYLE::RIGHT ); // Orientation horiz inverse
         break;
 
     case SHEET_SIDE::RIGHT:
         m_edge = aEdge;
         SetTextX( Sheet->m_pos.x + Sheet->m_size.x );
-        SetLabelSpinStyle( LABEL_SPIN_STYLE::LEFT ); // Orientation horiz normal
+        SetTextSpinStyle( TEXT_SPIN_STYLE::LEFT ); // Orientation horiz normal
         break;
 
     case SHEET_SIDE::TOP:
         m_edge = aEdge;
         SetTextY( Sheet->m_pos.y );
-        SetLabelSpinStyle( LABEL_SPIN_STYLE::BOTTOM ); // Orientation vert BOTTOM
+        SetTextSpinStyle( TEXT_SPIN_STYLE::BOTTOM ); // Orientation vert BOTTOM
         break;
 
     case SHEET_SIDE::BOTTOM:
         m_edge = aEdge;
         SetTextY( Sheet->m_pos.y + Sheet->m_size.y );
-        SetLabelSpinStyle( LABEL_SPIN_STYLE::UP ); // Orientation vert UP
+        SetTextSpinStyle( TEXT_SPIN_STYLE::UP ); // Orientation vert UP
         break;
 
     default:

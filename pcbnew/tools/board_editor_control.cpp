@@ -339,9 +339,32 @@ int BOARD_EDITOR_CONTROL::PageSettings( const TOOL_EVENT& aEvent )
     dlg.SetWksFileName( BASE_SCREEN::m_DrawingSheetFileName );
 
     if( dlg.ShowModal() == wxID_OK )
+    {
+        m_frame->GetCanvas()->GetView()->UpdateAllItemsConditionally( KIGFX::REPAINT,
+                [&]( KIGFX::VIEW_ITEM* aItem ) -> bool
+                {
+                    BOARD_ITEM* item = dynamic_cast<BOARD_ITEM*>( aItem );
+
+                    if( !item )
+                        return false;
+
+                    switch( item->Type() )
+                    {
+                    case PCB_TEXT_T:
+                    case PCB_FP_TEXT_T:
+                        return true;        // text variables
+
+                    default:
+                        return false;
+                    }
+                } );
+
         m_frame->OnModify();
+    }
     else
+    {
         m_frame->RollbackFromUndo();
+    }
 
     return 0;
 }
@@ -441,7 +464,7 @@ int BOARD_EDITOR_CONTROL::ExportNetlist( const TOOL_EVENT& aEvent )
 
     // Use a different file extension for the board netlist so the schematic netlist file
     // is accidentally overwritten.
-    fn.SetExt( "pcb_net" );
+    fn.SetExt( wxT( "pcb_net" ) );
 
     wxFileDialog dlg( m_frame, _( "Export Board Netlist" ), fn.GetPath(), fn.GetFullName(),
                       _( "KiCad board netlist files" ) + AddFileExtListToFilter( { "pcb_net" } ),
@@ -510,7 +533,7 @@ int BOARD_EDITOR_CONTROL::GenerateFabFiles( const TOOL_EVENT& aEvent )
     else if( aEvent.IsAction( &PCB_ACTIONS::generateBOM ) )
         m_frame->RecreateBOMFileFromBoard( dummy );
     else
-        wxFAIL_MSG( "GenerateFabFiles(): unexpected request" );
+        wxFAIL_MSG( wxT( "GenerateFabFiles(): unexpected request" ) );
 
     return 0;
 }
@@ -651,10 +674,10 @@ int BOARD_EDITOR_CONTROL::UpdateSchematicFromPCB( const TOOL_EVENT& aEvent )
 {
     if( Kiface().IsSingle() )
     {
-        DisplayErrorMessage(
-                m_frame, _( "Cannot update schematic because Pcbnew is opened in stand-alone "
-                            "mode. In order to create or update PCBs from schematics, you "
-                            "must launch the KiCad project manager and create a project." ) );
+        DisplayErrorMessage( m_frame, _( "Cannot update schematic because Pcbnew is opened in "
+                                         "stand-alone mode. In order to create or update PCBs "
+                                         "from schematics, you must launch the KiCad project "
+                                         "manager and create a project." ) );
         return 0;
     }
 
@@ -723,7 +746,7 @@ int BOARD_EDITOR_CONTROL::TrackWidthInc( const TOOL_EVENT& aEvent )
             }
         }
 
-        commit.Push( "Increase Track Width" );
+        commit.Push( wxT( "Increase Track Width" ) );
         return 0;
     }
 
@@ -803,7 +826,7 @@ int BOARD_EDITOR_CONTROL::TrackWidthDec( const TOOL_EVENT& aEvent )
             }
         }
 
-        commit.Push( "Decrease Track Width" );
+        commit.Push( wxT( "Decrease Track Width" ) );
         return 0;
     }
 
@@ -881,7 +904,7 @@ int BOARD_EDITOR_CONTROL::ViaSizeInc( const TOOL_EVENT& aEvent )
             }
         }
 
-        commit.Push( "Increase Via Size" );
+        commit.Push( wxT( "Increase Via Size" ) );
     }
     else
     {
@@ -1315,7 +1338,7 @@ int BOARD_EDITOR_CONTROL::PlaceTarget( const TOOL_EVENT& aEvent )
 
             BOARD_COMMIT commit( m_frame );
             commit.Add( target );
-            commit.Push( "Place a layer alignment target" );
+            commit.Push( wxT( "Place a layer alignment target" ) );
 
             preview.Remove( target );
 
@@ -1448,7 +1471,7 @@ int BOARD_EDITOR_CONTROL::ZoneMerge( const TOOL_EVENT& aEvent )
 
     if( mergeZones( m_frame, commit, toMerge, merged ) )
     {
-        commit.Push( "Merge zones" );
+        commit.Push( wxT( "Merge zones" ) );
 
         for( EDA_ITEM* item : merged )
             m_toolMgr->RunAction( PCB_ACTIONS::selectItem, true, item );

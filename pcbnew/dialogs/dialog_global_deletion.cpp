@@ -195,7 +195,7 @@ void DIALOG_GLOBAL_DELETION::DoGlobalDeletions()
                     if( !item->IsLocked() && !m_drawingFilterUnlocked->GetValue() )
                         continue;
                 }
-                else if( type == PCB_TEXT_T )
+                else if( type == PCB_TEXT_T || type == PCB_TEXTBOX_T )
                 {
                     if( !delete_texts || !del_text_layers[layer] )
                         continue;
@@ -254,7 +254,7 @@ void DIALOG_GLOBAL_DELETION::DoGlobalDeletions()
         }
     }
 
-    commit.Push( "Global delete" );
+    commit.Push( wxT( "Global delete" ) );
 
     if( m_delMarkers->GetValue() )
         board->DeleteMARKERs();

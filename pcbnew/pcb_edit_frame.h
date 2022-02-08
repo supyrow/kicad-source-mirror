@@ -723,12 +723,12 @@ protected:
      */
     void AddActionPluginTools();
 
-	/**
-	 * Execute action plugin's Run() method and updates undo buffer.
+    /**
+     * Execute action plugin's Run() method and updates undo buffer.
      *
-	 * @param aActionPlugin action plugin
-	 */
-	void RunActionPlugin( ACTION_PLUGIN* aActionPlugin );
+     * @param aActionPlugin action plugin
+     */
+    void RunActionPlugin( ACTION_PLUGIN* aActionPlugin );
 
     /**
      * Launched by the menu when an action is called.

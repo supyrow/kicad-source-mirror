@@ -96,7 +96,7 @@ bool FONT::IsStroke( const wxString& aFontName )
 }
 
 
-void FONT::getLinePositions( const UTF8& aText, const VECTOR2I& aPosition,
+void FONT::getLinePositions( const wxString& aText, const VECTOR2I& aPosition,
                              wxArrayString& aTextLines, std::vector<VECTOR2I>& aPositions,
                              std::vector<VECTOR2I>& aExtents, const TEXT_ATTRIBUTES& aAttrs ) const
 {
@@ -161,7 +161,7 @@ void FONT::getLinePositions( const UTF8& aText, const VECTOR2I& aPosition,
  *                object, such as a run of superscript characters)
  * @param aAttrs are the styling attributes of the text, including its rotation
  */
-void FONT::Draw( KIGFX::GAL* aGal, const UTF8& aText, const VECTOR2I& aPosition,
+void FONT::Draw( KIGFX::GAL* aGal, const wxString& aText, const VECTOR2I& aPosition,
                  const VECTOR2I& aCursor, const TEXT_ATTRIBUTES& aAttrs ) const
 {
     if( !aGal || aText.empty() )
@@ -232,11 +232,11 @@ VECTOR2I drawMarkup( BOX2I* aBoundingBox, std::vector<std::unique_ptr<GLYPH>>* a
 
 
 VECTOR2I FONT::drawMarkup( BOX2I* aBoundingBox, std::vector<std::unique_ptr<GLYPH>>* aGlyphs,
-                           const UTF8& aText, const VECTOR2I& aPosition, const VECTOR2I& aSize,
+                           const wxString& aText, const VECTOR2I& aPosition, const VECTOR2I& aSize,
                            const EDA_ANGLE& aAngle, bool aMirror, const VECTOR2I& aOrigin,
                            TEXT_STYLE_FLAGS aTextStyle ) const
 {
-    MARKUP::MARKUP_PARSER         markupParser( aText );
+    MARKUP::MARKUP_PARSER         markupParser( aText.ToStdString() );
     std::unique_ptr<MARKUP::NODE> root = markupParser.Parse();
 
     return ::drawMarkup( aBoundingBox, aGlyphs, root, aPosition, this, aSize, aAngle, aMirror,
@@ -244,7 +244,7 @@ VECTOR2I FONT::drawMarkup( BOX2I* aBoundingBox, std::vector<std::unique_ptr<GLYP
 }
 
 
-void FONT::drawSingleLineText( KIGFX::GAL* aGal, BOX2I* aBoundingBox, const UTF8& aText,
+void FONT::drawSingleLineText( KIGFX::GAL* aGal, BOX2I* aBoundingBox, const wxString& aText,
                                const VECTOR2I& aPosition, const VECTOR2I& aSize,
                                const EDA_ANGLE& aAngle, bool aMirror, const VECTOR2I& aOrigin,
                                bool aItalic ) const
@@ -267,7 +267,7 @@ void FONT::drawSingleLineText( KIGFX::GAL* aGal, BOX2I* aBoundingBox, const UTF8
 }
 
 
-VECTOR2I FONT::StringBoundaryLimits( const UTF8& aText, const VECTOR2I& aSize, int aThickness,
+VECTOR2I FONT::StringBoundaryLimits( const wxString& aText, const VECTOR2I& aSize, int aThickness,
                                      bool aBold, bool aItalic ) const
 {
     // TODO do we need to parse every time - have we already parsed?
@@ -297,8 +297,9 @@ VECTOR2I FONT::StringBoundaryLimits( const UTF8& aText, const VECTOR2I& aSize, i
 }
 
 
-VECTOR2I FONT::boundingBoxSingleLine( BOX2I* aBBox, const UTF8& aText, const VECTOR2I& aPosition,
-                                      const VECTOR2I& aSize, bool aItalic ) const
+VECTOR2I FONT::boundingBoxSingleLine( BOX2I* aBBox, const wxString& aText,
+                                      const VECTOR2I& aPosition, const VECTOR2I& aSize,
+                                      bool aItalic ) const
 {
     TEXT_STYLE_FLAGS textStyle = 0;
 
@@ -310,3 +311,174 @@ VECTOR2I FONT::boundingBoxSingleLine( BOX2I* aBBox, const UTF8& aText, const VEC
 
     return extents;
 }
+
+
+/*
+ * Break marked-up text into "words".  In this context, a "word" is EITHER a run of marked-up
+ * text (subscript, superscript or overbar), OR a run of non-marked-up text separated by spaces.
+ */
+void wordbreakMarkup( std::vector<std::pair<wxString, int>>* aWords,
+                      const std::unique_ptr<MARKUP::NODE>& aNode, const KIFONT::FONT* aFont,
+                      const VECTOR2I& aSize, TEXT_STYLE_FLAGS aTextStyle )
+{
+    TEXT_STYLE_FLAGS textStyle = aTextStyle;
+
+    if( !aNode->is_root() )
+    {
+        wxChar escapeChar = 0;
+
+        if( aNode->isSubscript() )
+        {
+            escapeChar = '_';
+            textStyle = TEXT_STYLE::SUBSCRIPT;
+        }
+        else if( aNode->isSuperscript() )
+        {
+            escapeChar = '^';
+            textStyle = TEXT_STYLE::SUPERSCRIPT;
+        }
+
+        if( aNode->isOverbar() )
+        {
+            escapeChar = '~';
+            textStyle |= TEXT_STYLE::OVERBAR;
+        }
+
+        if( escapeChar )
+        {
+            wxString word = wxString::Format( "%c{", escapeChar );
+            int      width = 0;
+
+            if( aNode->has_content() )
+            {
+                VECTOR2I next = aFont->GetTextAsGlyphs( nullptr, nullptr, aNode->string(), aSize,
+                                                        {0,0}, ANGLE_0, false, {0,0}, textStyle );
+                word += aNode->string();
+                width += next.x;
+            }
+
+            std::vector<std::pair<wxString, int>> childWords;
+
+            for( const std::unique_ptr<MARKUP::NODE>& child : aNode->children )
+                wordbreakMarkup( &childWords, child, aFont, aSize, textStyle );
+
+            for( const std::pair<wxString, int>& childWord : childWords )
+            {
+                word += childWord.first;
+                width += childWord.second;
+            }
+
+            word += "}";
+            aWords->emplace_back( std::make_pair( word, width ) );
+            return;
+        }
+        else
+        {
+            wxString      space( wxS( " " ) );
+            wxString      textRun( aNode->string() );
+            wxArrayString words;
+
+            wxStringSplit( textRun, words, ' ' );
+
+            if( textRun.EndsWith( wxS( " " ) ) )
+                words.Add( wxS( " " ) );
+
+            for( size_t ii = 0; ii < words.size(); ++ii )
+            {
+                int w = aFont->GetTextAsGlyphs( nullptr, nullptr, words[ii], aSize, { 0, 0 },
+                                                ANGLE_0, false, { 0, 0 }, textStyle ).x;
+
+                aWords->emplace_back( std::make_pair( words[ii], w ) );
+            }
+        }
+    }
+
+    for( const std::unique_ptr<MARKUP::NODE>& child : aNode->children )
+        wordbreakMarkup( aWords, child, aFont, aSize, textStyle );
+}
+
+
+void FONT::wordbreakMarkup( std::vector<std::pair<wxString, int>>* aWords, const wxString& aText,
+                            const VECTOR2I& aSize, TEXT_STYLE_FLAGS aTextStyle ) const
+{
+    MARKUP::MARKUP_PARSER         markupParser( aText.ToStdString() );
+    std::unique_ptr<MARKUP::NODE> root = markupParser.Parse();
+
+    ::wordbreakMarkup( aWords, root, this, aSize, aTextStyle );
+}
+
+
+/*
+ * This is a highly simplified line-breaker.  KiCad is an EDA tool, not a word processor.
+ *
+ * 1) It breaks only on spaces.  If you type a word wider than the column width then you get
+ *    overflow.
+ * 2) It treats runs of formatted text (superscript, subscript, overbar) as single words.
+ * 3) It does not perform justification.
+ *
+ * The results of the linebreaking are the addition of \n in the text.  It is presumed that this
+ * function is called on m_shownText (or equivalent) rather than the original source text.
+ */
+void FONT::LinebreakText( wxString& aText, int aColumnWidth, const VECTOR2I& aSize, int aThickness,
+                          bool aBold, bool aItalic ) const
+{
+    TEXT_STYLE_FLAGS textStyle = 0;
+
+    if( aBold )
+        textStyle |= TEXT_STYLE::BOLD;
+
+    if( aItalic )
+        textStyle |= TEXT_STYLE::ITALIC;
+
+    int spaceWidth = GetTextAsGlyphs( nullptr, nullptr, wxS( " " ), aSize, VECTOR2I(), ANGLE_0,
+                                      false, VECTOR2I(), textStyle ).x;
+
+    wxArrayString  textLines;
+    wxStringSplit( aText, textLines, '\n' );
+
+    aText = wxEmptyString;
+
+    for( size_t ii = 0; ii < textLines.Count(); ++ii )
+    {
+        int lineWidth = 0;
+        std::vector<std::pair<wxString, int>> words;
+
+        wordbreakMarkup( &words, textLines[ii], aSize, textStyle );
+
+        for( size_t jj = 0; jj < words.size(); /* advance in loop */ )
+        {
+            if( lineWidth == 0
+                    || lineWidth + spaceWidth + words[jj].second < aColumnWidth - aThickness )
+            {
+                if( lineWidth > 0 )
+                {
+                    aText += " ";
+                    lineWidth += spaceWidth;
+                }
+            }
+            else if( lineWidth > 0 )
+            {
+                aText += '\n';
+                lineWidth = 0;
+                continue;
+            }
+            else
+            {
+                // TODO: Would we want to further split the words into characters when it doesn't fit
+                // in the column width? For now just return the full word even if it doesn't fit
+                // to avoid an infinite loop.
+            }
+
+            aText += words[jj].first;
+            lineWidth += words[jj].second;
+
+            jj++;
+        }
+
+        // Add the newlines back onto the string
+        if( ii != ( textLines.Count() - 1 ) )
+            aText += '\n';
+    }
+}
+
+

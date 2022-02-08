@@ -47,14 +47,14 @@ void LOGGER::Save( const std::string& aFilename )
 {
     FILE* f = fopen( aFilename.c_str(), "wb" );
 
-    wxLogTrace( "PNS", "Saving to '%s' [%p]", aFilename.c_str(), f );
+    wxLogTrace( wxT( "PNS" ), wxT( "Saving to '%s' [%p]" ), aFilename.c_str(), f );
 
     for( const EVENT_ENTRY& evt : m_events )
     {
         uint64_t id = 0;
 
         fprintf( f, "event %d %d %d %s\n", evt.type, evt.p.x, evt.p.y,
-                 (const char*) evt.uuid.c_str() );
+                 static_cast<const char*>( evt.uuid.AsString().c_str() ) );
     }
 
     fclose( f );
@@ -67,11 +67,11 @@ void LOGGER::Log( LOGGER::EVENT_TYPE evt, const VECTOR2I& pos, const ITEM* item 
 
     ent.type = evt;
     ent.p = pos;
-    ent.uuid = "null";
+    ent.uuid = KIID(0);
 
 
     if( item && item->Parent() )
-        ent.uuid = item->Parent()->m_Uuid.AsString();
+        ent.uuid = item->Parent()->m_Uuid;
 
     m_events.push_back( ent );
 }

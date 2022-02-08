@@ -7,7 +7,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2017 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -250,8 +250,6 @@ DIALOG_PAD_PRIMITIVE_POLY_PROPS::DIALOG_PAD_PRIMITIVE_POLY_PROPS( wxWindow* aPar
 
     SetupStandardButtons();
 
-    GetSizer()->SetSizeHints( this );
-
 	m_gridCornersList->Connect( wxEVT_GRID_CELL_CHANGING,
                                 wxGridEventHandler( DIALOG_PAD_PRIMITIVE_POLY_PROPS::onCellChanging ),
                                 nullptr, this );
@@ -296,7 +294,7 @@ bool DIALOG_PAD_PRIMITIVE_POLY_PROPS::TransferDataToWindow()
     for( unsigned row = 0; row < m_currPoints.size(); ++row )
     {
         // Row label is "Corner x"
-        msg.Printf( "Corner %d", row+1 );
+        msg.Printf( _( "Corner %d" ), row+1 );
         m_gridCornersList->SetRowLabelValue( row, msg );
 
         msg = StringFromValue( GetUserUnits(), m_currPoints[row].x, true );
@@ -490,8 +488,8 @@ void DIALOG_PAD_PRIMITIVE_POLY_PROPS::onPaintPolyPanel( wxPaintEvent& event )
     // Draw X and Y axis. This is particularly useful to show the
     // reference position of basic shape
     // Axis are drawn before the polygon to avoid masking segments on axis
-    GRLine( nullptr, &dc, -dc_size.x, 0, dc_size.x, 0, 0, LIGHTBLUE );   // X axis
-    GRLine( nullptr, &dc, 0, -dc_size.y, 0, dc_size.y, 0, LIGHTBLUE );   // Y axis
+    GRLine( &dc, -dc_size.x, 0, dc_size.x, 0, 0, LIGHTBLUE );   // X axis
+    GRLine( &dc, 0, -dc_size.y, 0, dc_size.y, 0, LIGHTBLUE );   // Y axis
 
     // Draw polygon.
     // The selected edge(s) are shown in selectcolor, the others in normalcolor.
@@ -512,7 +510,7 @@ void DIALOG_PAD_PRIMITIVE_POLY_PROPS::onPaintPolyPanel( wxPaintEvent& event )
         if( jj >= m_currPoints.size() )
             jj = 0;
 
-        GRLine( nullptr, &dc, m_currPoints[ii] * scale, m_currPoints[jj] * scale,
+        GRLine( &dc, m_currPoints[ii] * scale, m_currPoints[jj] * scale,
                 m_thickness.GetValue() * scale, color );
     }
 

@@ -149,8 +149,10 @@ public:
         // For historical reasons, a stored value of 0 means "default width" and negative
         // numbers meant "don't stroke".
 
-        if( GetPenWidth() <= 0 )
-            return aSettings->GetDefaultPenWidth();
+        if( GetPenWidth() < 0 )
+            return 0;
+        else if( GetPenWidth() == 0 )
+            return std::max( aSettings->GetDefaultPenWidth(), aSettings->GetMinPenWidth() );
         else
             return std::max( GetPenWidth(), aSettings->GetMinPenWidth() );
     }
@@ -262,6 +264,9 @@ public:
     void SetConvert( int aConvert ) { m_convert = aConvert; }
     int GetConvert() const { return m_convert; }
 
+    void SetPrivate( bool aPrivate ) { m_private = aPrivate; }
+    bool IsPrivate() const { return m_private; }
+
 #if defined(DEBUG)
     void Show( int nestLevel, std::ostream& os ) const override { ShowDummy( os ); }
 #endif
@@ -316,6 +321,11 @@ protected:
      * body styles.  This is typially used for representing DeMorgan variants in KiCad.
      */
     int         m_convert;
+
+    /**
+     * Private items are shown only in the Symbol Editor.
+     */
+    bool        m_private;
 };
 
 

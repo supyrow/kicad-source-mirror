@@ -82,7 +82,7 @@ void PCB_BASE_EDIT_FRAME::doCloseWindow()
     if( mgr->IsProjectOpen() && wxFileName::IsDirWritable( projectName.GetPath() )
             && projectName.Exists() )
     {
-        GFootprintList.WriteCacheToFile( Prj().GetProjectPath() + "fp-info-cache" );
+        GFootprintList.WriteCacheToFile( Prj().GetProjectPath() + wxT( "fp-info-cache" ) );
     }
 
     // Close the project if we are standalone, so it gets cleaned up properly
@@ -278,7 +278,7 @@ wxString PCB_BASE_EDIT_FRAME::GetDesignRulesPath()
 
 void PCB_BASE_EDIT_FRAME::handleActivateEvent( wxActivateEvent& aEvent )
 {
-    EDA_DRAW_FRAME::handleActivateEvent( aEvent );
+    PCB_BASE_FRAME::handleActivateEvent( aEvent );
 
     // The text in the collapsible pane headers need to be updated
     if( m_appearancePanel )

@@ -307,7 +307,8 @@ DIALOG_TRACK_VIA_PROPERTIES::DIALOG_TRACK_VIA_PROPERTIES( PCB_BASE_FRAME* aParen
         {
             VIA_DIMENSION* viaDimension = &aParent->GetDesignSettings().m_ViasDimensionsList[ii];
             wxString msg = StringFromValue( m_frame->GetUserUnits(), viaDimension->m_Diameter )
-                            + " / " + StringFromValue( m_frame->GetUserUnits(), viaDimension->m_Drill );
+                            + wxT( " / " )
+                            + StringFromValue( m_frame->GetUserUnits(), viaDimension->m_Drill );
             m_DesignRuleViasCtrl->Append( msg, viaDimension );
 
             if( viaSelection == wxNOT_FOUND
@@ -405,7 +406,8 @@ void DIALOG_TRACK_VIA_PROPERTIES::onUnitsChanged( wxCommandEvent& aEvent )
         {
             VIA_DIMENSION* viaDimension = &m_frame->GetDesignSettings().m_ViasDimensionsList[ii];
             wxString msg = StringFromValue( m_frame->GetUserUnits(), viaDimension->m_Diameter )
-                            + " / " + StringFromValue( m_frame->GetUserUnits(), viaDimension->m_Drill );
+                            + wxT( " / " )
+                            + StringFromValue( m_frame->GetUserUnits(), viaDimension->m_Drill );
             m_DesignRuleViasCtrl->Append( msg, viaDimension );
         }
 
@@ -618,7 +620,7 @@ bool DIALOG_TRACK_VIA_PROPERTIES::TransferDataFromWindow()
                     switch( v->GetViaType() )
                     {
                     default:
-                        wxFAIL_MSG( "Unhandled via type" );
+                        wxFAIL_MSG( wxT( "Unhandled via type" ) );
                         KI_FALLTHROUGH;
 
                     case VIATYPE::THROUGH:
@@ -670,7 +672,7 @@ bool DIALOG_TRACK_VIA_PROPERTIES::TransferDataFromWindow()
 
         for( EDA_ITEM* item : m_items )
         {
-            const KICAD_T ourTypes[] = { PCB_TRACE_T, PCB_PAD_T, PCB_VIA_T, PCB_FOOTPRINT_T, EOT };
+            const KICAD_T ourTypes[] = { PCB_TRACE_T, PCB_ARC_T, PCB_PAD_T, PCB_VIA_T, PCB_FOOTPRINT_T, EOT };
             BOARD_CONNECTED_ITEM* boardItem = static_cast<BOARD_CONNECTED_ITEM*>( item );
             auto connectedItems = connectivity->GetConnectedItems( boardItem, ourTypes, true );
 

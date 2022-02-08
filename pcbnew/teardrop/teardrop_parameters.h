@@ -53,7 +53,8 @@ public:
         m_TdMaxHeight( Millimeter2iu( 2.0 ) ),
         m_LengthRatio( 0.5),
         m_HeightRatio( 1.0 ),
-        m_CurveSegCount( 0 )
+        m_CurveSegCount( 0 ),
+        m_WidthtoSizeFilterRatio( 0.9 )
     {
     }
 
@@ -102,6 +103,9 @@ public:
     /// number of segments to build the curved sides of a teardrop area
     /// must be > 2. for values <= 2 a straight line is used
     int     m_CurveSegCount;
+    /// The ratio (H/D) between the via/pad size and the track width max value to create a teardrop
+    /// 1.0 (100 %) always creates a teardrop, 0.0 (0%) never create a teardrop
+    double  m_WidthtoSizeFilterRatio;
 };
 
 
@@ -129,6 +133,9 @@ public:
     /// the number of segments to apprximate a curve (Bezier curve) in a teardrop
     /// Must be > 2, otherwise a line is used
     int      m_CurveSegCount;
+    /// Pads inside a zone of the same net do not have teardrop added.
+    /// if this option is true, these pads will have teardrop added.
+    bool    m_TdOnPadsInZones;
 
 public:
     TEARDROP_PARAMETERS_LIST() :
@@ -137,7 +144,8 @@ public:
             m_TargetTrack2Track( false ),
             m_UseRoundShapesOnly( false ),
             m_AllowUseTwoTracks( true ),
-            m_CurveSegCount( 5 )
+            m_CurveSegCount( 5 ),
+            m_TdOnPadsInZones( false )
     {
         m_params_list.emplace_back( TARGET_ROUND );     // parameters for TARGET_ROUND
         m_params_list.emplace_back( TARGET_RECT );      // parameters for TARGET_RECT

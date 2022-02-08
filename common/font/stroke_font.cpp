@@ -47,10 +47,6 @@ static constexpr double OVERBAR_POSITION_FACTOR = 1.33;
 ///< Scale factor for a glyph
 static constexpr double STROKE_FONT_SCALE = 1.0 / 21.0;
 
-///< Tilt factor for italic style (this is the scaling factor on dY relative coordinates to
-///< give a tilted shape)
-static constexpr double ITALIC_TILT = 1.0 / 8;
-
 static constexpr int FONT_OFFSET = -10;
 
 
@@ -61,7 +57,8 @@ std::vector<BOX2D>*                 g_defaultFontGlyphBoundingBoxes;
 
 STROKE_FONT::STROKE_FONT() :
         m_glyphs( nullptr ),
-        m_glyphBoundingBoxes( nullptr )
+        m_glyphBoundingBoxes( nullptr ),
+        m_maxGlyphWidth( 0.0 )
 {
 }
 
@@ -208,57 +205,52 @@ double STROKE_FONT::ComputeOverbarVerticalPosition( double aGlyphHeight ) const
 
 
 VECTOR2I STROKE_FONT::GetTextAsGlyphs( BOX2I* aBBox, std::vector<std::unique_ptr<GLYPH>>* aGlyphs,
-                                       const UTF8& aText, const VECTOR2I& aSize,
+                                       const wxString& aText, const VECTOR2I& aSize,
                                        const VECTOR2I& aPosition, const EDA_ANGLE& aAngle,
                                        bool aMirror, const VECTOR2I& aOrigin,
                                        TEXT_STYLE_FLAGS aTextStyle ) const
 {
-    wxPoint  cursor( aPosition );
+    constexpr double SPACE_WIDTH = 0.6;
+    constexpr double INTER_CHAR = 0.2;
+    constexpr double SUPER_SUB_SIZE_MULTIPLIER = 0.7;
+    constexpr double SUPER_HEIGHT_OFFSET = 0.5;
+    constexpr double SUB_HEIGHT_OFFSET = 0.3;
+
+    VECTOR2I cursor( aPosition );
     VECTOR2D glyphSize( aSize );
     double   tilt = ( aTextStyle & TEXT_STYLE::ITALIC ) ? ITALIC_TILT : 0.0;
 
     if( aTextStyle & TEXT_STYLE::SUBSCRIPT || aTextStyle & TEXT_STYLE::SUPERSCRIPT )
     {
-        constexpr double subscriptSuperscriptMultiplier = 0.7;
-        glyphSize.x *= subscriptSuperscriptMultiplier;
-        glyphSize.y *= subscriptSuperscriptMultiplier;
+        glyphSize = glyphSize * SUPER_SUB_SIZE_MULTIPLIER;
 
         if( aTextStyle & TEXT_STYLE::SUBSCRIPT )
-        {
-            constexpr double subscriptVerticalMultiplier = 0.3;
-            cursor.y += glyphSize.y * subscriptVerticalMultiplier;
-        }
+            cursor.y += glyphSize.y * SUB_HEIGHT_OFFSET;
         else
-        {
-            constexpr double superscriptVerticalMultiplier = 0.5;
-            cursor.y -= glyphSize.y * superscriptVerticalMultiplier;
-        }
+            cursor.y -= glyphSize.y * SUPER_HEIGHT_OFFSET;
     }
 
-    for( UTF8::uni_iter i = aText.ubegin(), end = aText.uend(); i < end; ++i )
+    for( wxUniChar c : aText )
     {
-        // Index into bounding boxes table
-        int dd = (signed) *i - ' ';
+        // dd is the index into bounding boxes table
+        int dd = (signed) c - ' ';
 
         if( dd >= (int) m_glyphBoundingBoxes->size() || dd < 0 )
         {
-            switch( *i )
-            {
-            case '\t':
-                // TAB->SPACE
-                dd = 0;
-                break;
-            default:
-                // everything else is turned into a '?'
-                dd = '?' - ' ';
-            }
+            // Filtering non existing glyphes and non printable chars
+            if( c == '\t' )
+                c = ' ';
+            else
+                c = '?';
+
+            // Fix the index:
+            dd = (signed) c - ' ';
         }
 
-        if( dd == 0 )
+        if( dd <= 0 )   // dd < 0 should not happen
         {
             // 'space' character - draw nothing, advance cursor position
-            constexpr double spaceAdvance = 0.6;
-            cursor.x += glyphSize.x * spaceAdvance;
+            cursor.x += KiROUND( glyphSize.x * SPACE_WIDTH );
         }
         else
         {
@@ -274,14 +266,17 @@ VECTOR2I STROKE_FONT::GetTextAsGlyphs( BOX2I* aBBox, std::vector<std::unique_ptr
 
             glyphExtents *= glyphSize;
 
-            if( tilt )
+            if( tilt > 0.0 )
                 glyphExtents.x -= glyphExtents.y * tilt;
 
-            cursor.x += glyphExtents.x;
+            cursor.x += KiROUND( glyphExtents.x );
         }
     }
 
     VECTOR2D barOffset( 0.0, 0.0 );
+
+    // Shorten the bar a little so its rounded ends don't make it over-long
+    double   barTrim = glyphSize.x * 0.1;
 
     if( aTextStyle & TEXT_STYLE::OVERBAR )
     {
@@ -290,8 +285,8 @@ VECTOR2I STROKE_FONT::GetTextAsGlyphs( BOX2I* aBBox, std::vector<std::unique_ptr
         if( aTextStyle & TEXT_STYLE::ITALIC )
             barOffset.x = barOffset.y * ITALIC_TILT;
 
-        VECTOR2D barStart( aPosition.x + barOffset.x, cursor.y - barOffset.y );
-        VECTOR2D barEnd( cursor.x + barOffset.x, cursor.y - barOffset.y );
+        VECTOR2D barStart( aPosition.x + barOffset.x + barTrim, cursor.y - barOffset.y );
+        VECTOR2D barEnd( cursor.x + barOffset.x - barTrim, cursor.y - barOffset.y );
 
         if( !aAngle.IsZero() )
         {
@@ -314,7 +309,8 @@ VECTOR2I STROKE_FONT::GetTextAsGlyphs( BOX2I* aBBox, std::vector<std::unique_ptr
     if( aBBox )
     {
         aBBox->SetOrigin( aPosition );
-        aBBox->SetEnd( cursor.x + barOffset.x, cursor.y + std::max( glyphSize.y, barOffset.y ) );
+        aBBox->SetEnd( cursor.x + barOffset.x - KiROUND( glyphSize.x * INTER_CHAR ),
+                       cursor.y + std::max( glyphSize.y, barOffset.y * OVERBAR_POSITION_FACTOR ) );
         aBBox->Normalize();
     }
 

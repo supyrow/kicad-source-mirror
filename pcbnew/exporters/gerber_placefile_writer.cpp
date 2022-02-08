@@ -34,12 +34,14 @@
 
 #include <board.h>
 #include <board_design_settings.h>
+#include <pcb_shape.h>
 
 #include <pcbplot.h>
 #include <wildcards_and_files_ext.h>
 #include <gbr_metadata.h>
 #include <footprint.h>
 #include <pad.h>
+#include <fp_shape.h>
 
 
 PLACEFILE_GERBER_WRITER::PLACEFILE_GERBER_WRITER( BOARD* aPcb )
@@ -92,13 +94,13 @@ int PLACEFILE_GERBER_WRITER::CreatePlaceFile( wxString& aFullFilename, PCB_LAYER
     // Add the standard X2 FileFunction for P&P files
     // %TF.FileFunction,Component,Ln,[top][bottom]*%
     wxString text;
-    text.Printf( "%%TF.FileFunction,Component,L%d,%s*%%",
+    text.Printf( wxT( "%%TF.FileFunction,Component,L%d,%s*%%" ),
                  aLayer == B_Cu ? m_pcb->GetCopperLayerCount() : 1,
-                 aLayer == B_Cu ? "Bot" : "Top" );
+                 aLayer == B_Cu ? wxT( "Bot" ) : wxT( "Top" ) );
     plotter.AddLineToHeader( text );
 
     // Add file polarity (positive)
-    text = "%TF.FilePolarity,Positive*%";
+    text = wxT( "%TF.FilePolarity,Positive*%" );
     plotter.AddLineToHeader( text );
 
     if( !plotter.OpenFile( aFullFilename ) )
@@ -302,7 +304,7 @@ int PLACEFILE_GERBER_WRITER::CreatePlaceFile( wxString& aFullFilename, PCB_LAYER
             for( BOARD_ITEM* item : footprint->GraphicalItems() )
             {
                 if( item->Type() == PCB_FP_SHAPE_T && item->GetLayer() == Edge_Cuts )
-                    brd_plotter.PlotFootprintGraphicItem( (FP_SHAPE*) item );
+                    brd_plotter.PlotFootprintShape( static_cast<FP_SHAPE*>( item ) );
             }
         }
     }
@@ -332,7 +334,7 @@ void PLACEFILE_GERBER_WRITER::findPads1( std::vector<PAD*>& aPadList, FOOTPRINT*
         if( !pad->IsOnLayer( m_layer ) )
             continue;
 
-        if( pad->GetNumber() == "1" || pad->GetNumber() == "A1")
+        if( pad->GetNumber() == wxT( "1" )  || pad->GetNumber() == wxT( "A1" ) )
             aPadList.push_back( pad );
     }
 }
@@ -345,8 +347,8 @@ const wxString PLACEFILE_GERBER_WRITER::GetPlaceFileName( const wxString& aFullB
     // Therefore, to mark pnp files, add "-pnp" to the filename, and a layer id.
     wxFileName  fn = aFullBaseFilename;
 
-    wxString post_id = "-pnp_";
-    post_id += aLayer == B_Cu ? "bottom" : "top";
+    wxString post_id = wxT( "-pnp_" );
+    post_id += aLayer == B_Cu ? wxT( "bottom" ) : wxT( "top" );
     fn.SetName( fn.GetName() + post_id );
     fn.SetExt( GerberFileExtension );
 

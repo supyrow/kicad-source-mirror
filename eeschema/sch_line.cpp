@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2015 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -380,7 +380,7 @@ void SCH_LINE::Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& offset )
 
     if( lineStyle <= PLOT_DASH_TYPE::FIRST_TYPE )
     {
-        GRLine( nullptr, DC, start.x, start.y, end.x, end.y, penWidth, color );
+        GRLine( DC, start.x, start.y, end.x, end.y, penWidth, color );
     }
     else
     {
@@ -389,7 +389,7 @@ void SCH_LINE::Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& offset )
         STROKE_PARAMS::Stroke( &segment, lineStyle, penWidth, aSettings,
                                [&]( const VECTOR2I& a, const VECTOR2I& b )
                                {
-                                   GRLine( nullptr, DC, a.x, a.y, b.x, b.y, penWidth, color );
+                                   GRLine( DC, a.x, a.y, b.x, b.y, penWidth, color );
                                } );
     }
 }
@@ -668,7 +668,7 @@ bool SCH_LINE::CanConnect( const SCH_ITEM* aItem ) const
         case SCH_LABEL_T:
         case SCH_GLOBAL_LABEL_T:
         case SCH_HIER_LABEL_T:
-        case SCH_NETCLASS_FLAG_T:
+        case SCH_DIRECTIVE_LABEL_T:
         case SCH_BUS_WIRE_ENTRY_T:
         case SCH_SYMBOL_T:
         case SCH_SHEET_T:
@@ -686,7 +686,7 @@ bool SCH_LINE::CanConnect( const SCH_ITEM* aItem ) const
         case SCH_LABEL_T:
         case SCH_GLOBAL_LABEL_T:
         case SCH_HIER_LABEL_T:
-        case SCH_NETCLASS_FLAG_T:
+        case SCH_DIRECTIVE_LABEL_T:
         case SCH_BUS_WIRE_ENTRY_T:
         case SCH_SHEET_T:
         case SCH_SHEET_PIN_T:

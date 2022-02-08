@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2016-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2016-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -204,9 +204,8 @@ public:
                        int width = USE_DEFAULT_LINE_WIDTH ) override;
     virtual void Circle( const VECTOR2I& pos, int diametre, FILL_T fill,
                          int width = USE_DEFAULT_LINE_WIDTH ) override;
-    virtual void Arc( const VECTOR2I& aCenter, const EDA_ANGLE& aStartAngle,
-                      const EDA_ANGLE& aEndAngle, int aRadius, FILL_T aFill,
-                      int aWidth = USE_DEFAULT_LINE_WIDTH ) override;
+    virtual void Arc( const VECTOR2I& aCenter, const VECTOR2I& aStart, const VECTOR2I& aEnd,
+                      FILL_T aFill, int aWidth, int aMaxError ) override;
 
     virtual void PlotPoly( const std::vector<VECTOR2I>& aCornerList, FILL_T aFill,
                            int aWidth = USE_DEFAULT_LINE_WIDTH, void* aData = nullptr ) override;
@@ -322,10 +321,13 @@ public:
                          int width = USE_DEFAULT_LINE_WIDTH ) override;
 
     /**
-     * The PDF engine can't directly plot arcs, it uses the base emulation.
-     * So no filled arcs (not a great loss... )
+     * The PDF engine can't directly plot arcs so we use polygonization.
      */
-    virtual void Arc( const VECTOR2I& aCenter, const EDA_ANGLE& aStartAngle, const EDA_ANGLE& aEndAngle, int aRadius,
+    virtual void Arc( const VECTOR2I& aCenter, const VECTOR2I& aStart, const VECTOR2I& aEnd,
+                      FILL_T aFill, int aWidth, int aMaxError ) override;
+
+    virtual void Arc( const VECTOR2I& aCenter, const EDA_ANGLE& aStartAngle,
+                      const EDA_ANGLE& aEndAngle, int aRadius,
                       FILL_T aFill, int aWidth = USE_DEFAULT_LINE_WIDTH ) override;
 
     /**
@@ -475,17 +477,16 @@ public:
     virtual void PenTo( const VECTOR2I& pos, char plume ) override;
 
     /**
-     * Select SVG step size (number of digits needed for 1 mm or 1 inch )
-     *
+     * Select SVG coordinate precision (number of digits needed for 1 mm  )
+     * (SVG plotter uses always metric unit)
      * Should be called only after SetViewport() is called
      *
-     * @param aResolution = number of digits in mantissa of coordinate
+     * @param aPrecision = number of digits in mantissa of coordinate
      *                      use a value from 3-6
      *                      do not use value > 6 to avoid overflow in PCBNEW
      *                      do not use value > 4 to avoid overflow for other parts
-     * @param aUseInches = true to use inches, false to use mm (default)
      */
-    virtual void SetSvgCoordinatesFormat( unsigned aResolution, bool aUseInches = false ) override;
+    virtual void SetSvgCoordinatesFormat( unsigned aPrecision ) override;
 
     /**
      * Calling this function allows one to define the beginning of a group

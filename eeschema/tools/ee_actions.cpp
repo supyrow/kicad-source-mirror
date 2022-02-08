@@ -225,6 +225,11 @@ TOOL_ACTION EE_ACTIONS::placeSymbolText( "eeschema.SymbolDrawing.placeSymbolText
         _( "Add Text" ), _( "Add a text item" ),
         BITMAPS::text, AF_ACTIVATE, (void*) LIB_TEXT_T );
 
+TOOL_ACTION EE_ACTIONS::drawSymbolTextBox( "eeschema.SymbolDrawing.drawSymbolTextBox",
+        AS_GLOBAL, 0, "",
+        _( "Add Text Box" ), _( "Add a text box item" ),
+        BITMAPS::add_textbox, AF_ACTIVATE, (void*) LIB_TEXTBOX_T );
+
 TOOL_ACTION EE_ACTIONS::drawSymbolLines( "eeschema.SymbolDrawing.drawSymbolLines",
         AS_GLOBAL, 0, "",
         _( "Add Lines" ), _( "Add connected graphic lines" ),
@@ -298,7 +303,7 @@ TOOL_ACTION EE_ACTIONS::placeLabel( "eeschema.InteractiveDrawing.placeLabel",
 
 TOOL_ACTION EE_ACTIONS::placeClassLabel( "eeschema.InteractiveDrawing.placeClassLabel",
         AS_GLOBAL, 0, "",
-        _( "Add Net Class Flag" ), _( "Add a net class flag" ),
+        _( "Add Net Class Directive" ), _( "Add a net class directive label" ),
         BITMAPS::add_class_flag, AF_ACTIVATE );
 
 TOOL_ACTION EE_ACTIONS::placeHierLabel( "eeschema.InteractiveDrawing.placeHierarchicalLabel",
@@ -334,6 +339,11 @@ TOOL_ACTION EE_ACTIONS::placeSchematicText( "eeschema.InteractiveDrawing.placeSc
         'T', LEGACY_HK_NAME( "Add Graphic Text" ),
         _( "Add Text" ), _( "Add text" ),
         BITMAPS::text, AF_ACTIVATE );
+
+TOOL_ACTION EE_ACTIONS::drawTextBox( "eeschema.InteractiveDrawing.drawTextBox",
+        AS_GLOBAL, 0, "",
+        _( "Add Text Box" ), _( "Add a text box" ),
+        BITMAPS::add_textbox, AF_ACTIVATE, (void*) SHAPE_T::RECT );
 
 TOOL_ACTION EE_ACTIONS::drawRectangle( "eeschema.InteractiveDrawing.drawRectangle",
         AS_GLOBAL, 0, "",
@@ -475,8 +485,8 @@ TOOL_ACTION EE_ACTIONS::toLabel( "eeschema.InteractiveEdit.toLabel",
 
 TOOL_ACTION EE_ACTIONS::toCLabel( "eeschema.InteractiveEdit.toCLabel",
         AS_GLOBAL, 0, "",
-        _( "Change to Net Class Flag" ), _( "Change existing item to a net class flag" ),
-        BITMAPS::add_class_flag, AF_NONE, (void*) SCH_NETCLASS_FLAG_T );
+        _( "Change to Directive Label" ), _( "Change existing item to a directive label" ),
+        BITMAPS::add_class_flag, AF_NONE, (void*) SCH_DIRECTIVE_LABEL_T );
 
 TOOL_ACTION EE_ACTIONS::toHLabel( "eeschema.InteractiveEdit.toHLabel",
         AS_GLOBAL, 0, "",
@@ -717,14 +727,14 @@ TOOL_ACTION EE_ACTIONS::addNeededJunctions( "eeschema.InteractiveDrawingLineWire
         BITMAPS::INVALID_BITMAP, AF_ACTIVATE );
 
 
-const DRAW_SEGMENT_EVENT_PARAMS drawWireActionParam = { LAYER_WIRE, false };
+const DRAW_SEGMENT_EVENT_PARAMS drawWireActionParam = { LAYER_WIRE, false, nullptr };
 TOOL_ACTION EE_ACTIONS::drawWire( "eeschema.InteractiveDrawingLineWireBus.drawWires",
         AS_GLOBAL,
         'W', LEGACY_HK_NAME( "Begin Wire" ),
         _( "Add Wire" ), _( "Add a wire" ),
         BITMAPS::add_line, AF_ACTIVATE, (void*) &drawWireActionParam );
 
-const DRAW_SEGMENT_EVENT_PARAMS drawBusActionParam = { LAYER_BUS, false };
+const DRAW_SEGMENT_EVENT_PARAMS drawBusActionParam = { LAYER_BUS, false, nullptr };
 TOOL_ACTION EE_ACTIONS::drawBus( "eeschema.InteractiveDrawingLineWireBus.drawBuses",
         AS_GLOBAL,
         'B', LEGACY_HK_NAME( "Begin Bus" ),
@@ -737,7 +747,7 @@ TOOL_ACTION EE_ACTIONS::unfoldBus( "eeschema.InteractiveDrawingLineWireBus.unfol
         _( "Unfold from Bus" ), _( "Break a wire out of a bus" ),
                                    BITMAPS::INVALID_BITMAP, AF_ACTIVATE );
 
-const DRAW_SEGMENT_EVENT_PARAMS drawLinesActionParam = { LAYER_NOTES, false };
+const DRAW_SEGMENT_EVENT_PARAMS drawLinesActionParam = { LAYER_NOTES, false, nullptr };
 TOOL_ACTION EE_ACTIONS::drawLines( "eeschema.InteractiveDrawingLineWireBus.drawLines",
         AS_GLOBAL,
         'I', LEGACY_HK_NAME( "Add Graphic PolyLine" ),

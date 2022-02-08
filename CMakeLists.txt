@@ -152,6 +152,20 @@ option( KICAD_STEP_EXPORT_LIB
     "Build and use kicad2step as a library, meant for debugging"
     OFF )
 
+option( KICAD_USE_3DCONNEXION
+    "Build KiCad with support for 3Dconnexion devices (Currently only for Mac/MSW)"
+    OFF )
+
+if( KICAD_USE_3DCONNEXION )
+    if( WIN32 )
+        add_definitions( -DKICAD_USE_3DCONNEXION )
+    elseif( APPLE )
+        add_definitions( -DKICAD_USE_3DCONNEXION )
+    else()
+        remove_definitions( -DKICAD_USE_3DCONNEXION )
+    endif()
+endif()
+
 # Global setting: exports are explicit
 set( CMAKE_CXX_VISIBILITY_PRESET "hidden" )
 set( CMAKE_VISIBILITY_INLINES_HIDDEN ON )
@@ -710,7 +724,12 @@ include_directories( SYSTEM ${Boost_INCLUDE_DIR} )
 
 #
 # Libraries required for outline font support.
-find_package( Freetype REQUIRED )
+if( MSVC )
+# Earlier than 2.11.1 contain a crash bug specific to MSVC built freetype
+set( FREETYPE_MIN_VERSION 2.11.1 )
+endif()
+
+find_package( Freetype ${FREETYPE_MIN_VERSION} REQUIRED )
 include_directories( SYSTEM ${FREETYPE_INCLUDE_DIRS} )
 
 find_package( HarfBuzz REQUIRED )

@@ -438,23 +438,29 @@ void CONNECTIVITY_DATA::Clear()
 }
 
 
-const std::vector<BOARD_CONNECTED_ITEM*> CONNECTIVITY_DATA::GetConnectedItems(
-        const BOARD_CONNECTED_ITEM* aItem,
-        const KICAD_T aTypes[],
-        bool aIgnoreNetcodes ) const
+const std::vector<BOARD_CONNECTED_ITEM*>
+CONNECTIVITY_DATA::GetConnectedItems( const BOARD_CONNECTED_ITEM* aItem, const KICAD_T aTypes[],
+                                      bool aIgnoreNetcodes ) const
 {
-    std::vector<BOARD_CONNECTED_ITEM*> rv;
-    const auto clusters = m_connAlgo->SearchClusters(
-            aIgnoreNetcodes ?
-                    CN_CONNECTIVITY_ALGO::CSM_PROPAGATE :
-                    CN_CONNECTIVITY_ALGO::CSM_CONNECTIVITY_CHECK, aTypes,
-            aIgnoreNetcodes ? -1 : aItem->GetNetCode() );
+    constexpr KICAD_T types[] = { PCB_TRACE_T, PCB_ARC_T, PCB_PAD_T, PCB_VIA_T, PCB_ZONE_T,
+                                  PCB_FOOTPRINT_T, EOT };
 
-    for( auto cl : clusters )
+    std::vector<BOARD_CONNECTED_ITEM*> rv;
+    CN_CONNECTIVITY_ALGO::CLUSTER_SEARCH_MODE searchMode;
+
+    if( aIgnoreNetcodes )
+        searchMode = CN_CONNECTIVITY_ALGO::CSM_PROPAGATE;
+    else
+        searchMode = CN_CONNECTIVITY_ALGO::CSM_CONNECTIVITY_CHECK;
+
+    const auto clusters = m_connAlgo->SearchClusters( searchMode, types,
+                                                      aIgnoreNetcodes ? -1 : aItem->GetNetCode() );
+
+    for( const std::shared_ptr<CN_CLUSTER>& cl : clusters )
     {
         if( cl->Contains( aItem ) )
         {
-            for( const auto item : *cl )
+            for( const CN_ITEM* item : *cl )
             {
                 if( item->Valid() )
                     rv.push_back( item->Parent() );
@@ -644,7 +650,7 @@ bool CONNECTIVITY_DATA::TestTrackEndpointDangling( PCB_TRACK* aTrack, VECTOR2I* 
     // Not in the connectivity system.  This is a bug!
     if( items.empty() )
     {
-        wxFAIL_MSG( "track not in connectivity system" );
+        wxFAIL_MSG( wxT( "track not in connectivity system" ) );
         return false;
     }
 
@@ -737,7 +743,7 @@ bool CONNECTIVITY_DATA::TestTrackEndpointDangling( PCB_TRACK* aTrack, VECTOR2I* 
     }
     else
     {
-        wxFAIL_MSG( "CONNECTIVITY_DATA::TestTrackEndpointDangling: unknown track type" );
+        wxFAIL_MSG( wxT( "CONNECTIVITY_DATA::TestTrackEndpointDangling: unknown track type" ) );
     }
 
     return false;
@@ -815,8 +821,8 @@ void CONNECTIVITY_DATA::SetProgressReporter( PROGRESS_REPORTER* aReporter )
 
 void CONNECTIVITY_DATA::AddExclusion( const KIID& aBoardItemId1, const KIID& aBoardItemId2 )
 {
-    m_exclusions.insert( std::pair<KIID, KIID>( aBoardItemId1, aBoardItemId2 ) );
-    m_exclusions.insert( std::pair<KIID, KIID>( aBoardItemId2, aBoardItemId1 ) );
+    m_exclusions.emplace( aBoardItemId1, aBoardItemId2 );
+    m_exclusions.emplace( aBoardItemId2, aBoardItemId1 );
 
     for( RN_NET* rnNet : m_nets )
     {

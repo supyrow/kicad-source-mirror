@@ -34,8 +34,8 @@
 #include <sch_shape.h>
 
 
-SCH_SHAPE::SCH_SHAPE( SHAPE_T aShape, int aLineWidth, FILL_T aFillType ) :
-    SCH_ITEM( nullptr, SCH_SHAPE_T ),
+SCH_SHAPE::SCH_SHAPE( SHAPE_T aShape, int aLineWidth, FILL_T aFillType, KICAD_T aType ) :
+    SCH_ITEM( nullptr, aType ),
     EDA_SHAPE( aShape, aLineWidth, aFillType, false )
 {
     SetLayer( LAYER_NOTES );
@@ -83,17 +83,13 @@ void SCH_SHAPE::MirrorVertically( int aCenter )
 
 void SCH_SHAPE::Rotate( const VECTOR2I& aCenter )
 {
-    rotate( aCenter, ANGLE_90 );
+    rotate( aCenter, -ANGLE_90 );
 }
 
 
 void SCH_SHAPE::Plot( PLOTTER* aPlotter ) const
 {
-    int       pen_size = std::max( GetPenWidth(), aPlotter->RenderSettings()->GetMinPenWidth() );
-    VECTOR2I  center;
-    int       radius = 0;
-    EDA_ANGLE startAngle;
-    EDA_ANGLE endAngle;
+    int pen_size = std::max( GetPenWidth(), aPlotter->RenderSettings()->GetMinPenWidth() );
 
     static std::vector<VECTOR2I> cornerList;
 
@@ -103,12 +99,6 @@ void SCH_SHAPE::Plot( PLOTTER* aPlotter ) const
 
         for( const VECTOR2I& pt : m_poly.Outline( 0 ).CPoints() )
             cornerList.push_back( pt );
-    }
-    else if( GetShape() == SHAPE_T::ARC )
-    {
-        center = getCenter();
-        radius = GetRadius();
-        CalcArcAngles( startAngle, endAngle );
     }
 
     if( GetStroke().GetColor() == COLOR4D::UNSPECIFIED )
@@ -122,11 +112,11 @@ void SCH_SHAPE::Plot( PLOTTER* aPlotter ) const
     switch( GetShape() )
     {
     case SHAPE_T::ARC:
-        aPlotter->Arc( center, -endAngle, -startAngle, radius, FILL_T::NO_FILL, pen_size );
+        aPlotter->Arc( getCenter(), GetStart(), GetEnd(), FILL_T::NO_FILL, pen_size, ARC_HIGH_DEF );
         break;
 
     case SHAPE_T::CIRCLE:
-        aPlotter->Circle( GetStart(), GetRadius() * 2, FILL_T::NO_FILL, pen_size );
+        aPlotter->Circle( getCenter(), GetRadius() * 2, FILL_T::NO_FILL, pen_size );
         break;
 
     case SHAPE_T::RECT:
@@ -169,11 +159,11 @@ void SCH_SHAPE::Plot( PLOTTER* aPlotter ) const
         switch( GetShape() )
         {
         case SHAPE_T::ARC:
-            aPlotter->Arc( center, -endAngle, -startAngle, radius, m_fill, 0 );
+            aPlotter->Arc( getCenter(), GetStart(), GetEnd(), m_fill, 0, ARC_HIGH_DEF );
             break;
 
         case SHAPE_T::CIRCLE:
-            aPlotter->Circle( GetStart(), GetRadius() * 2, m_fill, 0 );
+            aPlotter->Circle( getCenter(), GetRadius() * 2, m_fill, 0 );
             break;
 
         case SHAPE_T::RECT:
@@ -201,7 +191,7 @@ int SCH_SHAPE::GetPenWidth() const
         return m_stroke.GetWidth();
 
     // Historically 0 meant "default width" and negative numbers meant "don't stroke".
-    if( GetWidth() < 0 && GetFillMode() != FILL_T::NO_FILL )
+    if( GetWidth() < 0 )
         return 0;
 
     SCHEMATIC* schematic = Schematic();
@@ -222,7 +212,7 @@ void SCH_SHAPE::Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset
     VECTOR2I c;
     COLOR4D  color;
 
-    penWidth = std::max( penWidth, aSettings->GetDefaultPenWidth() );
+    penWidth = std::max( penWidth, aSettings->GetMinPenWidth() );
 
     unsigned ptCount = 0;
     VECTOR2I* buffer = nullptr;
@@ -263,23 +253,23 @@ void SCH_SHAPE::Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset
         switch( GetShape() )
         {
         case SHAPE_T::ARC:
-            GRFilledArc1( nullptr, DC, pt1, pt2, c, 0, color, color );
+            GRFilledArc( DC, pt1, pt2, c, 0, color, color );
             break;
 
         case SHAPE_T::CIRCLE:
-            GRFilledCircle( nullptr, DC, pt1.x, pt1.y, GetRadius(), 0, color, color );
+            GRFilledCircle( DC, pt1, GetRadius(), 0, color, color );
             break;
 
         case SHAPE_T::RECT:
-            GRFilledRect( nullptr, DC, pt1.x, pt1.y, pt2.x, pt2.y, 0, color, color );
+            GRFilledRect( DC, pt1, pt2, 0, color, color );
             break;
 
         case SHAPE_T::POLY:
-            GRPoly( nullptr, DC, ptCount, buffer, true, 0, color, color );
+            GRPoly( DC, ptCount, buffer, true, 0, color, color );
             break;
 
         case SHAPE_T::BEZIER:
-            GRPoly( nullptr, DC, ptCount, buffer, true, 0, color, color );
+            GRPoly( DC, ptCount, buffer, true, 0, color, color );
             break;
 
         default:
@@ -297,23 +287,23 @@ void SCH_SHAPE::Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset
         switch( GetShape() )
         {
         case SHAPE_T::ARC:
-            GRArc1( nullptr, DC, pt1, pt2, c, penWidth, color );
+            GRArc( DC, pt1, pt2, c, penWidth, color );
             break;
 
         case SHAPE_T::CIRCLE:
-            GRCircle( nullptr, DC, pt1.x, pt1.y, GetRadius(), penWidth, color );
+            GRCircle( DC, pt1, GetRadius(), penWidth, color );
             break;
 
         case SHAPE_T::RECT:
-            GRRect( nullptr, DC, pt1.x, pt1.y, pt2.x, pt2.y, penWidth, color );
+            GRRect( DC, pt1, pt2, penWidth, color );
             break;
 
         case SHAPE_T::POLY:
-            GRPoly( nullptr, DC, ptCount, buffer, false, penWidth, color, color );
+            GRPoly( DC, ptCount, buffer, false, penWidth, color, color );
             break;
 
         case SHAPE_T::BEZIER:
-            GRPoly( nullptr, DC, ptCount, buffer, false, penWidth, color, color );
+            GRPoly( DC, ptCount, buffer, false, penWidth, color, color );
             break;
 
         default:
@@ -329,7 +319,7 @@ void SCH_SHAPE::Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset
             STROKE_PARAMS::Stroke( shape, GetStroke().GetPlotStyle(), penWidth, aSettings,
                                    [&]( const VECTOR2I& a, const VECTOR2I& b )
                                    {
-                                       GRLine( nullptr, DC, a.x, a.y, b.x, b.y, penWidth, color );
+                                       GRLine( DC, a.x, a.y, b.x, b.y, penWidth, color );
                                    } );
         }
 

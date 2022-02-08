@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2014 CERN
- * Copyright (C) 2004-2021 KiCad Developers, see change_log.txt for contributors.
+ * Copyright (C) 2004-2022 KiCad Developers, see change_log.txt for contributors.
  * @author Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  *
  * This program is free software; you can redistribute it and/or
@@ -89,7 +89,9 @@ enum KICAD_T
     PCB_PAD_T,               ///< class PAD, a pad in a footprint
     PCB_SHAPE_T,             ///< class PCB_SHAPE, a segment not on copper layers
     PCB_TEXT_T,              ///< class PCB_TEXT, text on a layer
+    PCB_TEXTBOX_T,           ///< class PCB_TEXTBOX, wrapped text on a layer
     PCB_FP_TEXT_T,           ///< class FP_TEXT, text in a footprint
+    PCB_FP_TEXTBOX_T,        ///< class FP_TEXTBOX, wrapped text in a footprint
     PCB_FP_SHAPE_T,          ///< class FP_SHAPE, a footprint edge
     PCB_FP_DIM_ALIGNED_T,    ///< class PCB_DIM_ALIGNED, a linear dimension (graphic item)
     PCB_FP_DIM_LEADER_T,     ///< class PCB_DIM_LEADER, a leader dimension (graphic item)
@@ -134,11 +136,12 @@ enum KICAD_T
     SCH_LINE_T,
     SCH_SHAPE_T,
     SCH_BITMAP_T,
+    SCH_TEXTBOX_T,
     SCH_TEXT_T,
     SCH_LABEL_T,
     SCH_GLOBAL_LABEL_T,
     SCH_HIER_LABEL_T,
-    SCH_NETCLASS_FLAG_T,
+    SCH_DIRECTIVE_LABEL_T,
     SCH_FIELD_T,
     SCH_SYMBOL_T,
     SCH_SHEET_PIN_T,
@@ -186,6 +189,7 @@ enum KICAD_T
     LIB_ALIAS_T,
     LIB_SHAPE_T,
     LIB_TEXT_T,
+    LIB_TEXTBOX_T,
     LIB_PIN_T,
 
     /*
@@ -348,8 +352,9 @@ constexpr bool IsEeschemaType( const KICAD_T aType )
     case SCH_SHAPE_T:
     case SCH_BITMAP_T:
     case SCH_TEXT_T:
+    case SCH_TEXTBOX_T:
     case SCH_LABEL_T:
-    case SCH_NETCLASS_FLAG_T:
+    case SCH_DIRECTIVE_LABEL_T:
     case SCH_GLOBAL_LABEL_T:
     case SCH_HIER_LABEL_T:
     case SCH_FIELD_T:
@@ -381,6 +386,7 @@ constexpr bool IsEeschemaType( const KICAD_T aType )
     case LIB_ALIAS_T:
     case LIB_SHAPE_T:
     case LIB_TEXT_T:
+    case LIB_TEXTBOX_T:
     case LIB_PIN_T:
 
     case LIB_FIELD_T:
@@ -401,7 +407,9 @@ constexpr bool IsPcbnewType( const KICAD_T aType )
     case PCB_PAD_T:
     case PCB_SHAPE_T:
     case PCB_TEXT_T:
+    case PCB_TEXTBOX_T:
     case PCB_FP_TEXT_T:
+    case PCB_FP_TEXTBOX_T:
     case PCB_FP_SHAPE_T:
     case PCB_FP_DIM_ALIGNED_T:
     case PCB_FP_DIM_LEADER_T:

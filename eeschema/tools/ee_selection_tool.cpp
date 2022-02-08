@@ -44,6 +44,7 @@
 #include <sch_edit_frame.h>
 #include <sch_item.h>
 #include <sch_line.h>
+#include <sch_bus_entry.h>
 #include <sch_junction.h>
 #include <sch_marker.h>
 #include <sch_sheet.h>
@@ -166,7 +167,7 @@ bool EE_SELECTION_TOOL::Init()
                                         SCH_GLOBAL_LABEL_T,
                                         SCH_HIER_LABEL_T,
                                         SCH_LABEL_T,
-                                        SCH_NETCLASS_FLAG_T,
+                                        SCH_DIRECTIVE_LABEL_T,
                                         SCH_SHEET_PIN_T,
                                         SCH_PIN_T,
                                         EOT };
@@ -397,7 +398,14 @@ int EE_SELECTION_TOOL::Main( const TOOL_EVENT& aEvent )
                         if( ( connection && ( connection->IsNet() || connection->IsUnconnected() ) )
                             || collector[0]->Type() == SCH_SYMBOL_T )
                         {
-                            newEvt = EE_ACTIONS::drawWire.MakeEvent();
+                            // For bus wire entries, we want to autostart a wire or a bus
+                            // depending on what is connected to the other side.
+                            auto entry = static_cast<SCH_BUS_WIRE_ENTRY*>( collector[0] );
+
+                            if( ( entry != nullptr ) && ( entry->m_connected_bus_item == nullptr ) )
+                                newEvt = EE_ACTIONS::drawBus.MakeEvent();
+                            else
+                                newEvt = EE_ACTIONS::drawWire.MakeEvent();
                         }
                         else if( connection && connection->IsBus() )
                         {
@@ -419,6 +427,10 @@ int EE_SELECTION_TOOL::Main( const TOOL_EVENT& aEvent )
                         *newParams= *params;
                         newParams->quitOnDraw = true;
                         newEvt->SetParameter( newParams );
+
+                        // Make it so we can copy the parameters of the line we are extending
+                        if( collector[0]->Type() == SCH_LINE_T )
+                            newParams->sourceSegment = static_cast<SCH_LINE*>( collector[0] );
 
                         getViewControls()->ForceCursorPosition( true, snappedCursorPos );
                         newEvt->SetMousePosition( snappedCursorPos );
@@ -841,6 +853,10 @@ void EE_SELECTION_TOOL::narrowSelection( EE_COLLECTOR& collector, const VECTOR2I
                 line->SetFlags( ENDPOINT );
             else
                 line->SetFlags( STARTPOINT | ENDPOINT );
+        }
+        else if( collector[i]->Type() == SCH_LINE_T )
+        {
+            static_cast<SCH_LINE*>( collector[i] )->SetFlags( STARTPOINT | ENDPOINT );
         }
     }
 
@@ -1337,19 +1353,19 @@ bool EE_SELECTION_TOOL::selectMultiple()
 
 static KICAD_T nodeTypes[] =
 {
-        SCH_SYMBOL_LOCATE_POWER_T,
-        SCH_PIN_T,
-        SCH_ITEM_LOCATE_WIRE_T,
-        SCH_ITEM_LOCATE_BUS_T,
-        SCH_BUS_WIRE_ENTRY_T,
-        SCH_BUS_BUS_ENTRY_T,
-        SCH_LABEL_T,
-        SCH_HIER_LABEL_T,
-        SCH_GLOBAL_LABEL_T,
-        SCH_SHEET_PIN_T,
-        SCH_NETCLASS_FLAG_T,
-        SCH_JUNCTION_T,
-        EOT
+    SCH_SYMBOL_LOCATE_POWER_T,
+    SCH_PIN_T,
+    SCH_ITEM_LOCATE_WIRE_T,
+    SCH_ITEM_LOCATE_BUS_T,
+    SCH_BUS_WIRE_ENTRY_T,
+    SCH_BUS_BUS_ENTRY_T,
+    SCH_LABEL_T,
+    SCH_HIER_LABEL_T,
+    SCH_GLOBAL_LABEL_T,
+    SCH_SHEET_PIN_T,
+    SCH_DIRECTIVE_LABEL_T,
+    SCH_JUNCTION_T,
+    EOT
 };
 
 

@@ -458,7 +458,7 @@ bool EXCELLON_IMAGE::LoadFile( const wxString & aFullFileName, EXCELLON_DEFAULTS
     ResetDefaultValues();
     ClearMessageList();
 
-    m_Current_File = wxFopen( aFullFileName, "rt" );
+    m_Current_File = wxFopen( aFullFileName, wxT( "rt" ) );
 
     if( m_Current_File == nullptr )
         return false;
@@ -529,7 +529,7 @@ bool EXCELLON_IMAGE::LoadFile( const wxString & aFullFileName, EXCELLON_DEFAULTS
                 break;
 
             default:
-                msg.Printf( "Unexpected symbol 0x%2.2X &lt;%c&gt;", *text, *text );
+                msg.Printf( wxT( "Unexpected symbol 0x%2.2X &lt;%c&gt;" ), *text, *text );
                 AddMessageToList( msg );
                 break;
             }   // End switch
@@ -663,7 +663,7 @@ bool EXCELLON_IMAGE::Execute_HEADER_And_M_Command( char*& text )
     case DRILL_INCREMENTALHEADER:
         if( *text != ',' )
         {
-            AddMessageToList( "ICI command has no parameter" );
+            AddMessageToList( wxT( "ICI command has no parameter" ) );
             break;
         }
         text++;     // skip separator
@@ -673,7 +673,7 @@ bool EXCELLON_IMAGE::Execute_HEADER_And_M_Command( char*& text )
         else if( strncasecmp( text, "ON", 2 ) == 0 )
             m_Relative = true;
         else
-            AddMessageToList( "ICI command has incorrect parameter" );
+            AddMessageToList( wxT( "ICI command has incorrect parameter" ) );
         break;
 
     case DRILL_TOOL_CHANGE_STOP:
@@ -903,7 +903,7 @@ bool EXCELLON_IMAGE::Select_Tool( char*& text )
     // in tool selection command, if the tool is not defined in list,
     // and the definition is embedded, it will be entered in list
     char * startline = text;    // the tool id starts here.
-    int tool_id = TCodeNumber( text );
+    int tool_id = CodeNumber( text );
 
     // T0 is legal, but is not a selection tool. it is a special command
     if( tool_id >= 0 )
@@ -1124,7 +1124,7 @@ void EXCELLON_IMAGE::FinishRouteCommand()
 
     if( !tool )
     {
-        AddMessageToList( wxString::Format( "Unknown tool code %d", m_Current_Tool ) );
+        AddMessageToList( wxString::Format( wxT( "Unknown tool code %d" ), m_Current_Tool ) );
         return;
     }
 

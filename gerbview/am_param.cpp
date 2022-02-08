@@ -100,7 +100,7 @@ double AM_PARAM::GetValue( const D_CODE* aDcode ) const
             case OPEN_PAR:
             case CLOSE_PAR: // Priority modifiers: store in stack
                 op_code = item.GetType();
-                ops.push_back( AM_PARAM_EVAL( op_code ) );
+                ops.emplace_back( op_code );
                 break;
 
             case PUSHPARM:
@@ -119,20 +119,20 @@ double AM_PARAM::GetValue( const D_CODE* aDcode ) const
                 }
                 else
                 {
-                    wxFAIL_MSG( "AM_PARAM::GetValue(): NULL param aDcode" );
+                    wxFAIL_MSG( wxT( "AM_PARAM::GetValue(): NULL param aDcode" ) );
                 }
 
-                ops.push_back( AM_PARAM_EVAL( curr_value ) );
+                ops.emplace_back( curr_value );
                 break;
 
             case PUSHVALUE: // a value is on the stack:
                 curr_value = item.GetValue();
-                ops.push_back( AM_PARAM_EVAL( curr_value ) );
+                ops.emplace_back( curr_value );
                 break;
 
             default:
-                wxFAIL_MSG( wxString::Format( "AM_PARAM::GetValue(): dcode %d prm %d/%d: "
-                                              "unexpected type %d",
+                wxFAIL_MSG( wxString::Format( wxT( "AM_PARAM::GetValue(): dcode %d prm %d/%d: "
+                                                   "unexpected type %d" ),
                                                aDcode ? aDcode->m_Num_Dcode : -1, ii,
                                                m_paramStack.size(), item.GetType() ) );
                 break;

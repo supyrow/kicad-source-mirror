@@ -35,19 +35,21 @@
 
 #include <board.h>
 #include <board_design_settings.h>
+#include <fp_shape.h>
+#include <fp_textbox.h>
 #include <pcb_dimension.h>
 #include <pcb_shape.h>
-#include <fp_shape.h>
 #include <pcb_group.h>
 #include <pcb_target.h>
+#include <pcb_track.h>
+#include <pcb_textbox.h>
+#include <pad.h>
+#include <zone.h>
 #include <footprint.h>
 #include <geometry/shape_line_chain.h>
 #include <font/font.h>
 #include <ignore.h>
 #include <netclass.h>
-#include <pad.h>
-#include <pcb_track.h>
-#include <zone.h>
 #include <plugins/kicad/pcb_plugin.h>
 #include <pcb_plot_params_parser.h>
 #include <pcb_plot_params.h>
@@ -208,7 +210,8 @@ int PCB_PARSER::parseBoardUnits()
     // larger or smaller than those board units represent undefined behavior for
     // the system.  We limit values to the largest that is visible on the screen
     // This is the diagonal distance of the full screen ~1.5m
-    double int_limit = std::numeric_limits<int>::max() * 0.7071; // 0.7071 = roughly 1/sqrt(2)
+    constexpr double int_limit =
+            std::numeric_limits<int>::max() * 0.7071; // 0.7071 = roughly 1/sqrt(2)
     return KiROUND( Clamp<double>( -int_limit, retval, int_limit ) );
 }
 
@@ -220,7 +223,7 @@ int PCB_PARSER::parseBoardUnits( const char* aExpected )
     // N.B. we currently represent board units as integers.  Any values that are
     // larger or smaller than those board units represent undefined behavior for
     // the system.  We limit values to the largest that is visible on the screen
-    double int_limit = std::numeric_limits<int>::max() * 0.7071;
+    constexpr double int_limit = std::numeric_limits<int>::max() * 0.7071;
 
     // Use here #KiROUND, not EKIROUND (see comments about them) when having a function as
     // argument, because it will be called twice with #KIROUND.
@@ -849,6 +852,12 @@ BOARD* PCB_PARSER::parseBOARD_unchecked()
             bulkAddedItems.push_back( item );
             break;
 
+        case T_gr_text_box:
+            item = parsePCB_TEXTBOX();
+            m_board->Add( item, ADD_MODE::BULK_APPEND );
+            bulkAddedItems.push_back( item );
+            break;
+
         case T_dimension:
             item = parseDIMENSION( m_board, false );
             m_board->Add( item, ADD_MODE::BULK_APPEND );
@@ -1074,6 +1083,7 @@ void PCB_PARSER::resolveGroups( BOARD_ITEM* aParent )
                 {
                 // We used to allow fp items in non-footprint groups.  It was a mistake.
                 case PCB_FP_TEXT_T:
+                case PCB_FP_TEXTBOX_T:
                 case PCB_FP_SHAPE_T:
                 case PCB_FP_ZONE_T:
                 case PCB_PAD_T:
@@ -1551,7 +1561,7 @@ void PCB_PARSER::parseBoardStackup()
                         name = FromUTF8();
 
                         // Older versions didn't store opacity with custom colors
-                        if( name.StartsWith( "#" ) && m_requiredVersion < 20210824 )
+                        if( name.StartsWith( wxT( "#" ) ) && m_requiredVersion < 20210824 )
                         {
                             KIGFX::COLOR4D color( name );
 
@@ -2810,9 +2820,10 @@ PCB_TEXT* PCB_PARSER::parsePCB_TEXT()
     T token;
 
     std::unique_ptr<PCB_TEXT> text = std::make_unique<PCB_TEXT>( m_board );
-    NeedSYMBOLorNUMBER();
 
+    NeedSYMBOLorNUMBER();
     text->SetText( FromUTF8() );
+
     NeedLEFT();
     token = NextTok();
 
@@ -2867,11 +2878,121 @@ PCB_TEXT* PCB_PARSER::parsePCB_TEXT()
             break;
 
         default:
-            Expecting( "layer, tstamp or effects" );
+            Expecting( "layer, effects, render_cache or tstamp" );
         }
     }
 
     return text.release();
+}
+
+
+PCB_TEXTBOX* PCB_PARSER::parsePCB_TEXTBOX()
+{
+    wxCHECK_MSG( CurTok() == T_gr_text_box, nullptr,
+                 wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as PCB_TEXTBOX." ) );
+
+    std::unique_ptr<PCB_TEXTBOX> textbox = std::make_unique<PCB_TEXTBOX>( m_board );
+
+    STROKE_PARAMS stroke( -1, PLOT_DASH_TYPE::SOLID );
+    T token = NextTok();
+
+    if( token == T_locked )
+    {
+        textbox->SetLocked( true );
+        token = NextTok();
+    }
+
+    if( !IsSymbol( token ) && (int) token != DSN_NUMBER )
+        Expecting( "text value" );
+
+    textbox->SetText( FromUTF8() );
+
+    NeedLEFT();
+    token = NextTok();
+
+    if( token == T_start )
+    {
+        int x = parseBoardUnits( "X coordinate" );
+        int y = parseBoardUnits( "Y coordinate" );
+        textbox->SetStart( VECTOR2I( x, y ) );
+        NeedRIGHT();
+
+        NeedLEFT();
+        token = NextTok();
+
+        if( token != T_end )
+            Expecting( T_end );
+
+        x = parseBoardUnits( "X coordinate" );
+        y = parseBoardUnits( "Y coordinate" );
+        textbox->SetEnd( VECTOR2I( x, y ) );
+        NeedRIGHT();
+    }
+    else if( token == T_pts )
+    {
+        textbox->SetShape( SHAPE_T::POLY );
+        textbox->GetPolyShape().RemoveAllContours();
+        textbox->GetPolyShape().NewOutline();
+
+        while( (token = NextTok() ) != T_RIGHT )
+            parseOutlinePoints( textbox->GetPolyShape().Outline( 0 ) );
+    }
+    else
+    {
+        Expecting( "start or pts" );
+    }
+
+    for( token = NextTok(); token != T_RIGHT; token = NextTok() )
+    {
+        if( token != T_LEFT )
+            Expecting( T_LEFT );
+
+        token = NextTok();
+
+        switch( token )
+        {
+        case T_angle:
+            textbox->SetTextAngle( EDA_ANGLE( parseDouble( "text box angle" ), DEGREES_T ) );
+            NeedRIGHT();
+            break;
+
+        case T_stroke:
+        {
+            STROKE_PARAMS_PARSER strokeParser( reader, IU_PER_MM );
+            strokeParser.SyncLineReaderWith( *this );
+
+            strokeParser.ParseStroke( stroke );
+            SyncLineReaderWith( strokeParser );
+            break;
+        }
+
+        case T_layer:
+            textbox->SetLayer( parseBoardItemLayer() );
+            NeedRIGHT();
+            break;
+
+        case T_tstamp:
+            NextTok();
+            const_cast<KIID&>( textbox->m_Uuid ) = CurStrToKIID();
+            NeedRIGHT();
+            break;
+
+        case T_effects:
+            parseEDA_TEXT( static_cast<EDA_TEXT*>( textbox.get() ) );
+            break;
+
+        case T_render_cache:
+            parseRenderCache( static_cast<EDA_TEXT*>( textbox.get() ) );
+            break;
+
+        default:
+            Expecting( "angle, width, layer, effects, render_cache or tstamp" );
+        }
+    }
+
+    textbox->SetStroke( stroke );
+
+    return textbox.release();
 }
 
 
@@ -3590,6 +3711,15 @@ FOOTPRINT* PCB_PARSER::parseFOOTPRINT_unchecked( wxArrayString* aInitialComments
             break;
         }
 
+        case T_fp_text_box:
+        {
+            FP_TEXTBOX* textbox = parseFP_TEXTBOX();
+            textbox->SetParent( footprint.get() );
+            textbox->SetDrawCoord();
+            footprint->Add( textbox, ADD_MODE::APPEND );
+            break;
+        }
+
         case T_fp_arc:
         case T_fp_circle:
         case T_fp_curve:
@@ -3715,8 +3845,8 @@ FP_TEXT* PCB_PARSER::parseFP_TEXT()
         Expecting( "text value" );
 
     wxString value = FromUTF8();
-    value.Replace( "%V", "${VALUE}" );
-    value.Replace( "%R", "${REFERENCE}" );
+    value.Replace( wxT( "%V" ), wxT( "${VALUE}" ) );
+    value.Replace( wxT( "%R" ), wxT( "${REFERENCE}" ) );
     text->SetText( value );
     NeedLEFT();
     token = NextTok();
@@ -3780,11 +3910,120 @@ FP_TEXT* PCB_PARSER::parseFP_TEXT()
             break;
 
         default:
-            Expecting( "layer, hide, effects or tstamp" );
+            Expecting( "layer, hide, effects, render_cache or tstamp" );
         }
     }
 
     return text.release();
+}
+
+
+FP_TEXTBOX* PCB_PARSER::parseFP_TEXTBOX()
+{
+    wxCHECK_MSG( CurTok() == T_fp_text_box, nullptr,
+                 wxString::Format( wxT( "Cannot parse %s as FP_TEXTBOX at line %d, offset %d." ),
+                                   GetTokenString( CurTok() ), CurLineNumber(), CurOffset() ) );
+
+    std::unique_ptr<FP_TEXTBOX> textbox = std::make_unique<FP_TEXTBOX>( nullptr );
+
+    STROKE_PARAMS stroke( -1, PLOT_DASH_TYPE::SOLID );
+    T token = NextTok();
+
+    if( token == T_locked )
+    {
+        textbox->SetLocked( true );
+        token = NextTok();
+    }
+
+    if( !IsSymbol( token ) && (int) token != DSN_NUMBER )
+        Expecting( "text value" );
+
+    textbox->SetText( FromUTF8() );
+
+    NeedLEFT();
+    token = NextTok();
+
+    if( token == T_start )
+    {
+        int x = parseBoardUnits( "X coordinate" );
+        int y = parseBoardUnits( "Y coordinate" );
+        textbox->SetStart0( VECTOR2I( x, y ) );
+        NeedRIGHT();
+
+        NeedLEFT();
+        token = NextTok();
+
+        if( token != T_end )
+            Expecting( T_end );
+
+        x = parseBoardUnits( "X coordinate" );
+        y = parseBoardUnits( "Y coordinate" );
+        textbox->SetEnd0( VECTOR2I( x, y ) );
+        NeedRIGHT();
+    }
+    else if( token == T_pts )
+    {
+        textbox->SetShape( SHAPE_T::POLY );
+        textbox->GetPolyShape().RemoveAllContours();
+        textbox->GetPolyShape().NewOutline();
+
+        while( (token = NextTok() ) != T_RIGHT )
+            parseOutlinePoints( textbox->GetPolyShape().Outline( 0 ) );
+    }
+    else
+    {
+        Expecting( "start or pts" );
+    }
+
+    for( token = NextTok();  token != T_RIGHT;  token = NextTok() )
+    {
+        if( token == T_LEFT )
+            token = NextTok();
+
+        switch( token )
+        {
+        case T_angle:
+            textbox->SetTextAngle( EDA_ANGLE( parseDouble( "text box angle" ), DEGREES_T ) );
+            NeedRIGHT();
+            break;
+
+        case T_stroke:
+        {
+            STROKE_PARAMS_PARSER strokeParser( reader, IU_PER_MM );
+            strokeParser.SyncLineReaderWith( *this );
+
+            strokeParser.ParseStroke( stroke );
+            SyncLineReaderWith( strokeParser );
+            break;
+        }
+
+        case T_layer:
+            textbox->SetLayer( parseBoardItemLayer() );
+            NeedRIGHT();
+            break;
+
+        case T_effects:
+            parseEDA_TEXT( static_cast<EDA_TEXT*>( textbox.get() ) );
+            break;
+
+        case T_render_cache:
+            parseRenderCache( static_cast<EDA_TEXT*>( textbox.get() ) );
+            break;
+
+        case T_tstamp:
+            NextTok();
+            const_cast<KIID&>( textbox->m_Uuid ) = CurStrToKIID();
+            NeedRIGHT();
+            break;
+
+        default:
+            Expecting( "angle, width, layer, effects, render_cache or tstamp" );
+        }
+    }
+
+    textbox->SetStroke( stroke );
+
+    return textbox.release();
 }
 
 

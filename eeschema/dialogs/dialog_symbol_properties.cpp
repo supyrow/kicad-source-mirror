@@ -23,6 +23,8 @@
 
 #include "dialog_symbol_properties.h"
 
+#include <memory>
+
 #include <bitmaps.h>
 #include <wx/tooltip.h>
 #include <grid_tricks.h>
@@ -44,11 +46,15 @@
 #include <schematic.h>
 #include <tool/tool_manager.h>
 #include <tool/actions.h>
+#include <math/vector2d.h>
 
 #ifdef KICAD_SPICE
 #include <dialog_spice_model.h>
 #endif /* KICAD_SPICE */
 
+
+wxDEFINE_EVENT( SYMBOL_DELAY_FOCUS, wxCommandEvent );
+wxDEFINE_EVENT( SYMBOL_DELAY_SELECTION, wxCommandEvent );
 
 enum PIN_TABLE_COL_ORDER
 {
@@ -292,9 +298,8 @@ DIALOG_SYMBOL_PROPERTIES::DIALOG_SYMBOL_PROPERTIES( SCH_EDIT_FRAME* aParent,
 
     m_fields = new FIELDS_GRID_TABLE<SCH_FIELD>( this, aParent, m_fieldsGrid, m_part );
 
-    m_delayedFocusRow = REFERENCE_FIELD;
-    m_delayedFocusColumn = FDC_VALUE;
-    m_delayedSelection = true;
+    m_editorShown = false;
+    m_lastRequestedSize = wxSize( 0, 0 );
 
 #ifndef KICAD_SPICE
     m_spiceFieldsButton->Hide();
@@ -369,6 +374,17 @@ DIALOG_SYMBOL_PROPERTIES::DIALOG_SYMBOL_PROPERTIES( SCH_EDIT_FRAME* aParent,
     m_pinGrid->Connect( wxEVT_GRID_COL_SORT,
                         wxGridEventHandler( DIALOG_SYMBOL_PROPERTIES::OnPinTableColSort ),
                         nullptr, this );
+
+    Connect( SYMBOL_DELAY_FOCUS,
+            wxCommandEventHandler( DIALOG_SYMBOL_PROPERTIES::HandleDelayedFocus ), nullptr, this );
+    Connect( SYMBOL_DELAY_SELECTION,
+            wxCommandEventHandler( DIALOG_SYMBOL_PROPERTIES::HandleDelayedSelection ), nullptr,
+            this );
+
+    QueueEvent( new wxCommandEvent( SYMBOL_DELAY_SELECTION ) );
+    wxCommandEvent *evt = new wxCommandEvent( SYMBOL_DELAY_FOCUS );
+    evt->SetClientData( new VECTOR2I( REFERENCE_FIELD, FDC_VALUE ) );
+    QueueEvent( evt );
 
     finishDialogSettings();
 }
@@ -502,6 +518,8 @@ bool DIALOG_SYMBOL_PROPERTIES::TransferDataToWindow()
     m_tcLibraryID->SetValue( UnescapeString( m_symbol->GetLibId().Format() ) );
 
     Layout();
+    m_fieldsGrid->Layout();
+    wxSafeYield();
 
     return true;
 }
@@ -556,9 +574,9 @@ bool DIALOG_SYMBOL_PROPERTIES::Validate()
     {
         DisplayErrorMessage( this, _( "References must start with a letter." ) );
 
-        m_delayedFocusColumn = FDC_VALUE;
-        m_delayedFocusRow = REFERENCE_FIELD;
-        m_delayedSelection = false;
+        wxCommandEvent *evt = new wxCommandEvent( SYMBOL_DELAY_FOCUS );
+        evt->SetClientData( new VECTOR2I( REFERENCE_FIELD, FDC_VALUE ) );
+        QueueEvent( evt );
 
         return false;
     }
@@ -573,9 +591,9 @@ bool DIALOG_SYMBOL_PROPERTIES::Validate()
         {
             DisplayErrorMessage( this, _( "Fields must have a name." ) );
 
-            m_delayedFocusColumn = FDC_NAME;
-            m_delayedFocusRow = i;
-            m_delayedSelection = false;
+            wxCommandEvent *evt = new wxCommandEvent( SYMBOL_DELAY_FOCUS );
+            evt->SetClientData( new VECTOR2I( i, FDC_VALUE ) );
+            QueueEvent( evt );
 
             return false;
         }
@@ -761,9 +779,9 @@ void DIALOG_SYMBOL_PROPERTIES::OnGridCellChanging( wxGridEvent& event )
     if( control && control->GetValidator() && !control->GetValidator()->Validate( control ) )
     {
         event.Veto();
-        m_delayedFocusRow = event.GetRow();
-        m_delayedFocusColumn = event.GetCol();
-        m_delayedSelection = false;
+        wxCommandEvent *evt = new wxCommandEvent( SYMBOL_DELAY_FOCUS );
+        evt->SetClientData( new VECTOR2I( event.GetRow(), event.GetCol() ) );
+        QueueEvent( evt );
     }
     else if( event.GetCol() == FDC_NAME )
     {
@@ -779,9 +797,9 @@ void DIALOG_SYMBOL_PROPERTIES::OnGridCellChanging( wxGridEvent& event )
                 DisplayError( this, wxString::Format( _( "Field name '%s' already in use." ),
                                                       newName ) );
                 event.Veto();
-                m_delayedFocusRow = event.GetRow();
-                m_delayedFocusColumn = event.GetCol();
-                m_delayedSelection = false;
+                wxCommandEvent *evt = new wxCommandEvent( SYMBOL_DELAY_FOCUS );
+                evt->SetClientData( new VECTOR2I( event.GetRow(), event.GetCol() ) );
+                QueueEvent( evt );
             }
         }
     }
@@ -793,17 +811,15 @@ void DIALOG_SYMBOL_PROPERTIES::OnGridCellChanging( wxGridEvent& event )
 void DIALOG_SYMBOL_PROPERTIES::OnGridEditorShown( wxGridEvent& aEvent )
 {
     if( aEvent.GetRow() == REFERENCE_FIELD && aEvent.GetCol() == FDC_VALUE )
-        m_delayedSelection= true;
+        QueueEvent( new wxCommandEvent( SYMBOL_DELAY_SELECTION ) );
 
-    /// Queue up an event to ensure the widget gets resized if the editor needs it
-    wxSizeEvent *evt = new wxSizeEvent();
-    evt->SetSize( wxSize( m_width + 1, -1 ) );
+    m_editorShown = true;
+}
 
-    wxQueueEvent( m_fieldsGrid, evt );
 
-    wxSizeEvent *frmEvt = new wxSizeEvent();
-    evt->SetSize( wxSize( -1, -1 ) );
-    wxQueueEvent( this, frmEvt );
+void DIALOG_SYMBOL_PROPERTIES::OnGridEditorHidden( wxGridEvent& aEvent )
+{
+    m_editorShown = false;
 }
 
 
@@ -1046,46 +1062,54 @@ void DIALOG_SYMBOL_PROPERTIES::OnUpdateUI( wxUpdateUIEvent& event )
         if( !m_fieldsGrid->IsCellEditControlShown() )
             AdjustFieldsGridColumns();
     }
-
-    // Handle a delayed focus
-    if( m_delayedFocusRow >= 0 )
-    {
-        m_fieldsGrid->SetFocus();
-        m_fieldsGrid->MakeCellVisible( m_delayedFocusRow, m_delayedFocusColumn );
-        m_fieldsGrid->SetGridCursor( m_delayedFocusRow, m_delayedFocusColumn );
-
-        m_fieldsGrid->EnableCellEditControl( true );
-        m_fieldsGrid->ShowCellEditControl();
-
-        m_delayedFocusRow = -1;
-        m_delayedFocusColumn = -1;
-    }
-
-    // Handle a delayed selection
-    if( m_delayedSelection )
-    {
-        wxGridCellEditor* cellEditor = m_fieldsGrid->GetCellEditor( REFERENCE_FIELD, FDC_VALUE );
-
-        if( wxTextEntry* txt = dynamic_cast<wxTextEntry*>( cellEditor->GetControl() ) )
-            KIUI::SelectReferenceNumber( txt );
-
-        cellEditor->DecRef();   // we're done; must release
-
-        m_delayedSelection = false;
-    }
 }
 
+
+void DIALOG_SYMBOL_PROPERTIES::HandleDelayedFocus( wxCommandEvent& event )
+{
+    VECTOR2I *loc = static_cast<VECTOR2I*>( event.GetClientData() );
+
+    wxCHECK_RET( loc, wxT( "Missing focus cell location" ) );
+
+    // Handle a delayed focus
+
+    m_fieldsGrid->SetFocus();
+    m_fieldsGrid->MakeCellVisible( loc->x, loc->y );
+    m_fieldsGrid->SetGridCursor( loc->x, loc->y );
+
+    m_fieldsGrid->EnableCellEditControl( true );
+    m_fieldsGrid->ShowCellEditControl();
+
+    delete loc;
+}
+
+
+void DIALOG_SYMBOL_PROPERTIES::HandleDelayedSelection( wxCommandEvent& event )
+{
+    // Handle a delayed selection
+    wxGridCellEditor* cellEditor = m_fieldsGrid->GetCellEditor( REFERENCE_FIELD, FDC_VALUE );
+
+    if( wxTextEntry* txt = dynamic_cast<wxTextEntry*>( cellEditor->GetControl() ) )
+        KIUI::SelectReferenceNumber( txt );
+
+    cellEditor->DecRef();   // we're done; must release
+}
 
 void DIALOG_SYMBOL_PROPERTIES::OnSizeFieldsGrid( wxSizeEvent& event )
 {
     wxSize new_size = event.GetSize();
 
-    if( m_fieldsSize != new_size )
+    if( ( !m_editorShown || m_lastRequestedSize != new_size ) && m_fieldsSize != new_size )
     {
         m_fieldsSize = new_size;
 
         AdjustFieldsGridColumns();
     }
+
+    // We store this value to check whether the dialog is changing size.  This might indicate
+    // that the user is scaling the dialog with an editor shown.  Some editors do not close
+    // (at least on GTK) when the user drags a dialog corner
+    m_lastRequestedSize = new_size;
 
     // Always propagate for a grid repaint (needed if the height changes, as well as width)
     event.Skip();

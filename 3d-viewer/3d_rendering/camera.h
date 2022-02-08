@@ -93,7 +93,7 @@ public:
      *
      *  @return the rotation matrix of the camera
      */
-    const glm::mat4 GetRotationMatrix() const;
+    glm::mat4 GetRotationMatrix() const;
 
     const glm::mat4& GetViewMatrix() const;
     const glm::mat4& GetViewMatrix_Inv() const;
@@ -108,17 +108,27 @@ public:
     const SFVEC2F& GetFocalLen() const { return m_focalLen; }
     float GetNear() const { return m_frustum.nearD; }
     float GetFar() const { return m_frustum.farD; }
+    const CAMERA_FRUSTUM& GetFrustum() const { return m_frustum; }
+    const SFVEC3F&        GetLookAtPos() const { return m_lookat_pos; }
 
-    void SetBoardLookAtPos( const SFVEC3F& aBoardPos )
-    {
-        if( m_board_lookat_pos_init != aBoardPos )
-        {
-            m_board_lookat_pos_init = aBoardPos;
-            SetLookAtPos( aBoardPos );
-        }
-    }
+    /**
+     *  Set the rotation matrix to be applied in a transformation camera, without
+     *  making any new calculations on camera.
+     *
+     *  @param aRotation is the total rotation matrix of the camera.
+     */
+    void SetRotationMatrix( const glm::mat4& aRotation );
 
-    virtual void SetLookAtPos( const SFVEC3F& aLookAtPos ) = 0;
+    /**
+     *  Set the affine matrix to be applied to a transformation camera.
+     *
+     *  @param aViewMatrix is the affine matrix of the camera. The affine matrix
+     *                     maps coordinates in the world frame to those in the
+     *                     camera frame.
+     */
+    void SetViewMatrix( glm::mat4 aViewMatrix );
+
+    void SetBoardLookAtPos( const SFVEC3F& aBoardPos );
 
     void SetLookAtPos_T1( const SFVEC3F& aLookAtPos )
     {
@@ -151,6 +161,11 @@ public:
 
     void ResetXYpos();
     void ResetXYpos_T1();
+
+    /**
+     *  Get the current mouse position.
+     */
+    const wxPoint& GetCurMousePosition() { return m_lastPosition; }
 
     /**
      *  Update the current mouse position without make any new calculations on camera.
@@ -250,7 +265,12 @@ public:
      * @param aOutOrigin out origin position of the ray.
      * @param aOutDirection out direction.
      */
-    void MakeRayAtCurrrentMousePosition( SFVEC3F& aOutOrigin, SFVEC3F& aOutDirection ) const;
+    void MakeRayAtCurrentMousePosition( SFVEC3F& aOutOrigin, SFVEC3F& aOutDirection ) const;
+
+    /**
+     * Update the camera.
+     */
+    void Update() { updateFrustum(); }
 
 protected:
     void zoomChanged();

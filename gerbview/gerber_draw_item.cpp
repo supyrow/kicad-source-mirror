@@ -481,12 +481,12 @@ void GERBER_DRAW_ITEM::Print( wxDC* aDC, const VECTOR2I& aOffset, GBR_DISPLAY_OP
         if( !isFilled )
         {
             // draw the border of the pen's path using two circles, each as narrow as possible
-            GRCircle( nullptr, aDC, GetABPosition( m_Start ), radius - halfPenWidth, 0, color );
-            GRCircle( nullptr, aDC, GetABPosition( m_Start ), radius + halfPenWidth, 0, color );
+            GRCircle( aDC, GetABPosition( m_Start ), radius - halfPenWidth, 0, color );
+            GRCircle( aDC, GetABPosition( m_Start ), radius + halfPenWidth, 0, color );
         }
         else    // Filled mode
         {
-            GRCircle( nullptr, aDC, GetABPosition( m_Start ), radius, m_Size.x, color );
+            GRCircle( aDC, GetABPosition( m_Start ), radius, m_Size.x, color );
         }
 
         break;
@@ -496,13 +496,13 @@ void GERBER_DRAW_ITEM::Print( wxDC* aDC, const VECTOR2I& aOffset, GBR_DISPLAY_OP
         // a round pen only is expected.
         if( !isFilled )
         {
-            GRArc1( nullptr, aDC, GetABPosition( m_Start ), GetABPosition( m_End ),
-                    GetABPosition( m_ArcCentre ), 0, color );
+            GRArc( aDC, GetABPosition( m_Start ), GetABPosition( m_End ),
+                   GetABPosition( m_ArcCentre ), 0, color );
         }
         else
         {
-            GRArc1( nullptr, aDC, GetABPosition( m_Start ), GetABPosition( m_End ),
-                    GetABPosition( m_ArcCentre ), m_Size.x, color );
+            GRArc( aDC, GetABPosition( m_Start ), GetABPosition( m_End ),
+                   GetABPosition( m_ArcCentre ), m_Size.x, color );
         }
 
         break;
@@ -513,7 +513,7 @@ void GERBER_DRAW_ITEM::Print( wxDC* aDC, const VECTOR2I& aOffset, GBR_DISPLAY_OP
     case GBR_SPOT_POLY:
     case GBR_SPOT_MACRO:
         isFilled = aOptions->m_DisplayFlashedItemsFill;
-        d_codeDescr->DrawFlashedShape( this, nullptr, aDC, color, m_Start, isFilled );
+        d_codeDescr->DrawFlashedShape( this, aDC, color, m_Start, isFilled );
         break;
 
     case GBR_SEGMENT:
@@ -529,18 +529,14 @@ void GERBER_DRAW_ITEM::Print( wxDC* aDC, const VECTOR2I& aOffset, GBR_DISPLAY_OP
 
             PrintGerberPoly( aDC, color, aOffset, isFilled );
         }
+        else if( !isFilled )
+        {
+            GRCSegm( aDC, GetABPosition( m_Start ), GetABPosition( m_End ), m_Size.x, color );
+        }
         else
         {
-            if( !isFilled )
-            {
-                GRCSegm( nullptr, aDC, GetABPosition( m_Start ), GetABPosition( m_End ),
-                         m_Size.x, color );
-            }
-            else
-            {
-                GRFilledSegment( nullptr, aDC, GetABPosition( m_Start ), GetABPosition( m_End ),
-                                 m_Size.x, color );
-            }
+            GRFilledSegment( aDC, GetABPosition( m_Start ), GetABPosition( m_End ), m_Size.x,
+                             color );
         }
 
         break;
@@ -643,7 +639,7 @@ void GERBER_DRAW_ITEM::PrintGerberPoly( wxDC* aDC, const COLOR4D& aColor, const 
         points[ii] = GetABPosition( points[ii] );
     }
 
-    GRClosedPoly( nullptr, aDC, pointCount, &points[0], aFilledShape, aColor, aColor );
+    GRClosedPoly( aDC, pointCount, &points[0], aFilledShape, aColor );
 }
 
 
@@ -733,10 +729,10 @@ void GERBER_DRAW_ITEM::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_
     if( ( m_netAttributes.m_NetAttribType & GBR_NETLIST_METADATA::GBR_NETINFO_NET ) )
     {
         net_msg = _( "Net:" );
-        net_msg << " ";
+        net_msg << wxS( " " );
 
         if( m_netAttributes.m_Netname.IsEmpty() )
-            net_msg << "<no net>";
+            net_msg << wxT( "<no net>" );
         else
             net_msg << UnescapeString( m_netAttributes.m_Netname );
     }
@@ -761,7 +757,7 @@ void GERBER_DRAW_ITEM::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_
     else if( ( m_netAttributes.m_NetAttribType & GBR_NETLIST_METADATA::GBR_NETINFO_CMP ) )
     {
         cmp_pad_msg = _( "Cmp:" );
-        cmp_pad_msg << " " << m_netAttributes.m_Cmpref;
+        cmp_pad_msg << wxS( " " ) << m_netAttributes.m_Cmpref;
     }
 
     aList.emplace_back( net_msg, cmp_pad_msg );

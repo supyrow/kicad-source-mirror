@@ -504,23 +504,31 @@ bool DRAGGER::tryWalkaround( NODE* aNode, LINE& aOrig, LINE& aWalk )
 
     WALKAROUND::RESULT wr = walkaround.Route( aWalk );
 
-
     if( wr.statusCcw == WALKAROUND::DONE && wr.statusCw == WALKAROUND::DONE )
     {
-        aWalk = ( wr.lineCw.CLine().Length() < wr.lineCcw.CLine().Length() ? wr.lineCw :
-                                                                             wr.lineCcw );
-        ok    = true;
+        if( wr.lineCw.CLine().PointCount() > 1
+                && wr.lineCw.CLine().Length() < wr.lineCcw.CLine().Length() )
+        {
+            aWalk = wr.lineCw;
+            ok    = true;
+        }
+        else if( wr.lineCcw.CLine().PointCount() > 1 )
+        {
+            aWalk = wr.lineCcw;
+            ok    = true;
+        }
     }
-    else if( wr.statusCw == WALKAROUND::DONE )
+    else if( wr.statusCw == WALKAROUND::DONE && wr.lineCw.CLine().PointCount() > 1 )
     {
         aWalk = wr.lineCw;
         ok    = true;
     }
-    else if( wr.statusCcw == WALKAROUND::DONE )
+    else if( wr.statusCcw == WALKAROUND::DONE && wr.lineCcw.CLine().PointCount() > 1  )
     {
         aWalk = wr.lineCcw;
         ok    = true;
     }
+
     return ok;
 }
 
@@ -564,6 +572,9 @@ bool DRAGGER::dragWalkaround( const VECTOR2I& aP )
             draggedWalk = dragged;
             ok = true;
         }
+
+        if( draggedWalk.CLine().PointCount() < 2 )
+            ok = false;
 
         if( ok )
         {

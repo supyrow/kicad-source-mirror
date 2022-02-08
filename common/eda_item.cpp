@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2015 Jean-Pierre Charras, jaen-pierre.charras@gipsa-lab.inpg.com
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -316,7 +316,9 @@ static struct EDA_ITEM_DESC
             .Map( PCB_PAD_T,               _HKI( "Pad" ) )
             .Map( PCB_SHAPE_T,             _HKI( "Graphic" ) )
             .Map( PCB_TEXT_T,              _HKI( "Text" ) )
+            .Map( PCB_TEXTBOX_T,           _HKI( "Text Box" ) )
             .Map( PCB_FP_TEXT_T,           _HKI( "Text" ) )
+            .Map( PCB_FP_TEXTBOX_T,        _HKI( "Text Box" ) )
             .Map( PCB_FP_SHAPE_T,          _HKI( "Graphic" ) )
             .Map( PCB_FP_DIM_ALIGNED_T,    _HKI( "Dimension" ) )
             .Map( PCB_FP_DIM_ORTHOGONAL_T, _HKI( "Dimension" ) )
@@ -346,8 +348,9 @@ static struct EDA_ITEM_DESC
             .Map( SCH_LINE_T,              _HKI( "Line" ) )
             .Map( SCH_BITMAP_T,            _HKI( "Bitmap" ) )
             .Map( SCH_TEXT_T,              _HKI( "Text" ) )
+            .Map( SCH_TEXTBOX_T,           _HKI( "Text Box" ) )
             .Map( SCH_LABEL_T,             _HKI( "Net Label" ) )
-            .Map( SCH_NETCLASS_FLAG_T,     _HKI( "Net Class Flag" ) )
+            .Map( SCH_DIRECTIVE_LABEL_T,   _HKI( "Directive Label" ) )
             .Map( SCH_GLOBAL_LABEL_T,      _HKI( "Global Label" ) )
             .Map( SCH_HIER_LABEL_T,        _HKI( "Hierarchical Label" ) )
             .Map( SCH_FIELD_T,             _HKI( "Field" ) )
@@ -367,6 +370,7 @@ static struct EDA_ITEM_DESC
             .Map( LIB_ALIAS_T,             _HKI( "Alias" ) )
             .Map( LIB_SHAPE_T,             _HKI( "Graphic" ) )
             .Map( LIB_TEXT_T,              _HKI( "Text" ) )
+            .Map( LIB_TEXTBOX_T,           _HKI( "Text Box" ) )
             .Map( LIB_PIN_T,               _HKI( "Pin" ) )
             .Map( LIB_FIELD_T,             _HKI( "Symbol Field" ) )
 

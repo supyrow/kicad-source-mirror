@@ -84,8 +84,8 @@
 
 
 // log mask for wxLogTrace
-#define MASK_OCE "PLUGIN_OCE"
-#define MASK_OCE_EXTRA "PLUGIN_OCE_EXTRA"
+#define MASK_OCE wxT( "PLUGIN_OCE" )
+#define MASK_OCE_EXTRA wxT( "PLUGIN_OCE_EXTRA" )
 
 // precision for mesh creation; 0.07 should be good enough for ECAD viewing
 #define USER_PREC (0.14)
@@ -259,7 +259,7 @@ struct DATA
         app.SetSpecular( 0.12f, 0.12f, 0.12f );
         app.SetAmbient( 0.1f, 0.1f, 0.1f );
         app.SetDiffuse( colorObj->Red(), colorObj->Green(), colorObj->Blue() );
-        colors.insert( std::pair< Standard_Real, SGNODE* >( id, app.GetRawPtr() ) );
+        colors.emplace( id, app.GetRawPtr() );
 
         return app.GetRawPtr();
     }
@@ -283,9 +283,11 @@ FormatType fileType( const char* aFileName )
     if( !ifile.IsOk() )
         return FMT_NONE;
 
-    if( fname.GetExt().MakeUpper().EndsWith( "STPZ" ) ||
-        fname.GetExt().MakeUpper().EndsWith( "GZ" ) )
+    if( fname.GetExt().MakeUpper().EndsWith( wxT( "STPZ" ) )
+            || fname.GetExt().MakeUpper().EndsWith( wxT( "GZ" ) ) )
+    {
         return FMT_STPZ;
+    }
 
     char iline[82];
     memset( iline, 0, 82 );
@@ -326,7 +328,7 @@ void getTag( const TDF_Label& aLabel, std::string& aTag )
 
     if( aLabel.IsNull() )
     {
-        wxLogTrace( MASK_OCE, "Null label passed to getTag" );
+        wxLogTrace( MASK_OCE, wxT( "Null label passed to getTag" ) );
         return;
     }
 
@@ -550,7 +552,7 @@ bool readIGES( Handle( TDocStd_Document ) & m_doc, const char* fname )
 
 bool readSTEP( Handle(TDocStd_Document)& m_doc, const char* fname )
 {
-    wxLogTrace( MASK_OCE, "Reading step file %s", fname );
+    wxLogTrace( MASK_OCE, wxT( "Reading step file %s" ), fname );
 
     STEPCAFControl_Reader reader;
     IFSelect_ReturnStatus stat  = reader.ReadFile( fname );
@@ -593,7 +595,7 @@ bool readSTEPZ( Handle(TDocStd_Document)& m_doc, const char* aFileName )
     wxFileName outFile( fname );
 
     outFile.SetPath( wxStandardPaths::Get().GetTempDir() );
-    outFile.SetExt( "STEP" );
+    outFile.SetExt( wxT( "STEP" ) );
 
     wxFileOffset size = ifile.GetLength();
     wxBusyCursor busycursor;
@@ -669,24 +671,34 @@ SCENEGRAPH* LoadModel( char const* filename )
         data.renderBoth = true;
 
         if( !readIGES( data.m_doc, filename ) )
+        {
+            m_app->Close( data.m_doc );
             return nullptr;
+        }
 
         break;
 
     case FMT_STEP:
         if( !readSTEP( data.m_doc, filename ) )
+        {
+            m_app->Close( data.m_doc );
             return nullptr;
+        }
 
         break;
 
     case FMT_STPZ:
         if( !readSTEPZ( data.m_doc, filename ) )
+        {
+            m_app->Close( data.m_doc );
             return nullptr;
+        }
 
         break;
 
 
     default:
+        m_app->Close( data.m_doc );
         return nullptr;
         break;
     }
@@ -722,7 +734,10 @@ SCENEGRAPH* LoadModel( char const* filename )
     }
 
     if( !ret )
+    {
+        m_app->Close( data.m_doc );
         return nullptr;
+    }
 
     SCENEGRAPH* scene = (SCENEGRAPH*)data.scene;
 
@@ -747,6 +762,7 @@ SCENEGRAPH* LoadModel( char const* filename )
     // set to NULL to prevent automatic destruction of the scene data
     data.scene = nullptr;
 
+    m_app->Close( data.m_doc );
     return scene;
 }
 
@@ -757,7 +773,7 @@ bool processShell( const TopoDS_Shape& shape, DATA& data, SGNODE* parent,
     TopoDS_Iterator it;
     bool ret = false;
 
-    wxLogTrace( MASK_OCE, "Processing shell" );
+    wxLogTrace( MASK_OCE, wxT( "Processing shell" ) );
     for( it.Initialize( shape, false, false ); it.More(); it.Next() )
     {
         const TopoDS_Face& face = TopoDS::Face( it.Value() );
@@ -779,7 +795,7 @@ bool processSolid( const TopoDS_Shape& shape, DATA& data, SGNODE* parent,
     Quantity_Color col;
     Quantity_Color* lcolor = nullptr;
 
-    wxLogTrace( MASK_OCE, "Processing solid" );
+    wxLogTrace( MASK_OCE, wxT( "Processing solid" ) );
 
     // Search the whole model first to make sure something exists (may or may not have color)
     if( !data.m_assy->Search( shape, label ) )
@@ -871,7 +887,7 @@ bool processSolid( const TopoDS_Shape& shape, DATA& data, SGNODE* parent,
         }
         else
         {
-            wxLogTrace( MASK_OCE, "Unsupported subshape in solid" );
+            wxLogTrace( MASK_OCE, wxT( "Unsupported subshape in solid" ) );
         }
     }
 
@@ -895,7 +911,7 @@ bool processLabel( const TDF_Label& aLabel, DATA& aData, SGNODE* aParent,
         getTag( aLabel, labelTag );
     }
 
-    wxLogTrace( MASK_OCE, "Processing label %s", labelTag );
+    wxLogTrace( MASK_OCE, wxT( "Processing label %s" ), labelTag );
 
     TopoDS_Shape originalShape;
     TDF_Label shapeLabel = aLabel;
@@ -909,7 +925,8 @@ bool processLabel( const TDF_Label& aLabel, DATA& aData, SGNODE* aParent,
 
     if( aData.m_assy->IsReference( aLabel ) )
     {
-        wxLogTrace( MASK_OCE, "Label %s is ref, trying to pull up referred label", labelTag );
+        wxLogTrace( MASK_OCE, wxT( "Label %s is ref, trying to pull up referred label" ),
+                    labelTag );
 
         if( !aData.m_assy->GetReferredShape( aLabel, shapeLabel ) )
         {
@@ -917,7 +934,7 @@ bool processLabel( const TDF_Label& aLabel, DATA& aData, SGNODE* aParent,
         }
 
         labelTag = static_cast<int>( shapeLabel.Tag() );
-       // wxLogTrace( MASK_OCE, "Label %s referred", labelTag );
+       // wxLogTrace( MASK_OCE, wxT( "Label %s referred" ), labelTag );
 
         if( !aData.m_assy->GetShape( shapeLabel, shape ) )
         {
@@ -933,19 +950,19 @@ bool processLabel( const TDF_Label& aLabel, DATA& aData, SGNODE* aParent,
 
     if( !loc.IsIdentity() )
     {
-        wxLogTrace( MASK_OCE, "Label %d has location", static_cast<int>( aLabel.Tag() ) );
+        wxLogTrace( MASK_OCE, wxT( "Label %d has location" ), static_cast<int>( aLabel.Tag() ) );
         gp_Trsf T = loc.Transformation();
         gp_XYZ  coord = T.TranslationPart();
         childNode.SetTranslation( SGPOINT( coord.X(), coord.Y(), coord.Z() ) );
-        wxLogTrace( MASK_OCE, "Translation %f, %f, %f", coord.X(), coord.Y(), coord.Z() );
+        wxLogTrace( MASK_OCE, wxT( "Translation %f, %f, %f" ), coord.X(), coord.Y(), coord.Z() );
         gp_XYZ        axis;
         Standard_Real angle;
 
         if( T.GetRotation( axis, angle ) )
         {
             childNode.SetRotation( SGVECTOR( axis.X(), axis.Y(), axis.Z() ), angle );
-            wxLogTrace( MASK_OCE, "Rotation %f, %f, %f, angle %f", axis.X(), axis.Y(), axis.Z(),
-                        angle );
+            wxLogTrace( MASK_OCE, wxT( "Rotation %f, %f, %f, angle %f" ),
+                        axis.X(), axis.Y(), axis.Z(), angle );
         }
     }
 
@@ -1005,8 +1022,9 @@ bool processLabel( const TDF_Label& aLabel, DATA& aData, SGNODE* aParent,
 
     if( shapeLabel.HasChild() )
     {
-        wxLogTrace( MASK_OCE, "Label %s has children", labelTag );
+        wxLogTrace( MASK_OCE, wxT( "Label %s has children" ), labelTag );
         TDF_ChildIterator it;
+
         for( it.Initialize( shapeLabel ); it.More(); it.Next() )
         {
             if( processLabel( it.Value(), aData, pptr, aItems ) )
@@ -1163,7 +1181,7 @@ bool processFace( const TopoDS_Face& face, DATA& data, SGNODE* parent,
     vshape.SetParent( parent );
 
     if( !partID.empty() )
-        data.faces.insert( std::pair< std::string, SGNODE* >( partID, vshape.GetRawPtr() ) );
+        data.faces.emplace( partID, vshape.GetRawPtr() );
 
     // The outer surface of an IGES model is indeterminate so
     // we must render both sides of a surface.
@@ -1183,7 +1201,7 @@ bool processFace( const TopoDS_Face& face, DATA& data, SGNODE* parent,
         vshape2.SetParent( parent );
 
         if( !partID.empty() )
-            data.faces.insert( std::pair< std::string, SGNODE* >( id2, vshape2.GetRawPtr() ) );
+            data.faces.emplace( id2, vshape2.GetRawPtr() );
     }
 
     return true;
