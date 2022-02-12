@@ -68,7 +68,8 @@ using namespace PCB_KEYS_T;
 
 void PCB_PARSER::init()
 {
-    m_showLegacyZoneWarning = true;
+    m_showLegacySegmentZoneWarning = true;
+    m_showLegacy5ZoneWarning = true;
     m_tooRecent = false;
     m_requiredVersion = 0;
     m_layerIndices.clear();
@@ -1227,8 +1228,7 @@ void PCB_PARSER::parsePAGE_INFO()
 void PCB_PARSER::parseTITLE_BLOCK()
 {
     wxCHECK_RET( CurTok() == T_title_block,
-                 wxT( "Cannot parse " ) + GetTokenString( CurTok() ) +
-                 wxT( " as TITLE_BLOCK." ) );
+                 wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as TITLE_BLOCK." ) );
 
     T token;
     TITLE_BLOCK titleBlock;
@@ -1830,8 +1830,7 @@ PCB_LAYER_ID PCB_PARSER::parseBoardItemLayer()
 LSET PCB_PARSER::parseBoardItemLayersAsMask()
 {
     wxCHECK_MSG( CurTok() == T_layers, LSET(),
-                 wxT( "Cannot parse " ) + GetTokenString( CurTok() ) +
-                 wxT( " as item layer mask." ) );
+                 wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as item layers." ) );
 
     LSET layerMask;
 
@@ -2166,9 +2165,27 @@ void PCB_PARSER::parseSetup()
             NeedRIGHT();
             break;
 
-        case T_filled_areas_thickness:  // Note: legacy (early 5.99) token
-            designSettings.m_ZoneFillVersion = parseBool() ? 5 : 6;
-            m_board->m_LegacyDesignSettingsLoaded = true;
+        case T_filled_areas_thickness:
+            if( parseBool() )
+            {
+                if( m_showLegacy5ZoneWarning )
+                {
+                    // Thick outline fill mode no longer supported.  Make sure user is OK with
+                    // converting fills.
+                    KIDIALOG dlg( nullptr, _( "The legacy zone fill strategy is no longer "
+                                              "supported.\nConvert zones to smoothed polygon "
+                                              "fills?" ),
+                                  _( "Legacy Zone Warning" ), wxYES_NO | wxICON_WARNING );
+
+                    dlg.DoNotShowCheckbox( __FILE__, __LINE__ );
+
+                    if( dlg.ShowModal() == wxID_NO )
+                        THROW_IO_ERROR( wxT( "CANCEL" ) );
+
+                    m_showLegacy5ZoneWarning = false;
+                }
+            }
+
             NeedRIGHT();
             break;
 
@@ -3475,10 +3492,9 @@ FOOTPRINT* PCB_PARSER::parseFOOTPRINT_unchecked( wxArrayString* aInitialComments
 
     if( !name.IsEmpty() && fpid.Parse( name, true ) >= 0 )
     {
-        wxString error;
-        error.Printf( _( "Invalid footprint ID in\nfile: '%s'\nline: %d\noffset: %d." ),
-                      CurSource(), CurLineNumber(), CurOffset() );
-        THROW_IO_ERROR( error );
+        THROW_IO_ERROR( wxString::Format( _( "Invalid footprint ID in\nfile: %s\nline: %d\n"
+                                             "offset: %d." ),
+                                          CurSource(), CurLineNumber(), CurOffset() ) );
     }
 
     for( token = NextTok(); token != T_RIGHT; token = NextTok() )
@@ -4598,8 +4614,8 @@ PAD* PCB_PARSER::parsePAD( FOOTPRINT* aParent )
         case T_net:
             if( ! pad->SetNetCode( getNetCode( parseInt( "net number" ) ), /* aNoAssert */ true ) )
             {
-                wxLogError( _( "Invalid net ID in\nfile: %s\nline: %d offset: %d" ), CurSource(),
-                            CurLineNumber(), CurOffset() );
+                wxLogError( _( "Invalid net ID in\nfile: %s\nline: %d offset: %d" ),
+                            CurSource(), CurLineNumber(), CurOffset() );
             }
 
             NeedSYMBOLorNUMBER();
@@ -5054,9 +5070,10 @@ PCB_ARC* PCB_PARSER::parseARC()
 
         case T_net:
             if( !arc->SetNetCode( getNetCode( parseInt( "net number" ) ), /* aNoAssert */ true ) )
-                THROW_IO_ERROR( wxString::Format(
-                        _( "Invalid net ID in\nfile: '%s'\nline: %d\noffset: %d." ), CurSource(),
-                        CurLineNumber(), CurOffset() ) );
+            {
+                wxLogError( _( "Invalid net ID in\nfile: %s\nline: %d\noffset: %d." ),
+                            CurSource(), CurLineNumber(), CurOffset() );
+            }
             break;
 
         case T_tstamp:
@@ -5132,9 +5149,10 @@ PCB_TRACK* PCB_PARSER::parsePCB_TRACK()
 
         case T_net:
             if( !track->SetNetCode( getNetCode( parseInt( "net number" ) ), /* aNoAssert */ true ) )
-                THROW_IO_ERROR( wxString::Format(
-                        _( "Invalid net ID in\nfile: '%s'\nline: %d\noffset: %d." ), CurSource(),
-                        CurLineNumber(), CurOffset() ) );
+            {
+                wxLogError( _( "Invalid net ID in\nfile: '%s'\nline: %d\noffset: %d." ),
+                            CurSource(), CurLineNumber(), CurOffset() );
+            }
             break;
 
         case T_tstamp:
@@ -5227,13 +5245,8 @@ PCB_VIA* PCB_PARSER::parsePCB_VIA()
         case T_net:
             if( !via->SetNetCode( getNetCode( parseInt( "net number" ) ), /* aNoAssert */ true ) )
             {
-                THROW_IO_ERROR( wxString::Format( _( "Invalid net ID in\n"
-                                                     "file: '%s'\n"
-                                                     "line: %d\n"
-                                                     "offset: %d" ),
-                                      CurSource(),
-                                      CurLineNumber(),
-                                      CurOffset() ) );
+                wxLogError( _( "Invalid net ID in\nfile: %s\nline: %d\noffset: %d" ),
+                            CurSource(), CurLineNumber(), CurOffset() );
             }
 
             NeedRIGHT();
@@ -5284,8 +5297,7 @@ PCB_VIA* PCB_PARSER::parsePCB_VIA()
 ZONE* PCB_PARSER::parseZONE( BOARD_ITEM_CONTAINER* aParent )
 {
     wxCHECK_MSG( CurTok() == T_zone, nullptr,
-                 wxT( "Cannot parse " ) + GetTokenString( CurTok() ) +
-                 wxT( " as ZONE." ) );
+                 wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as ZONE." ) );
 
     ZONE_BORDER_DISPLAY_STYLE hatchStyle = ZONE_BORDER_DISPLAY_STYLE::NO_HATCH;
 
@@ -5300,6 +5312,7 @@ ZONE* PCB_PARSER::parseZONE( BOARD_ITEM_CONTAINER* aParent )
     bool         inFootprint = false;
     PCB_LAYER_ID filledLayer;
     bool         addedFilledPolygons = false;
+    bool         dropFilledPolygons = false;
 
     if( dynamic_cast<FOOTPRINT*>( aParent ) )      // The zone belongs a footprint
         inFootprint = true;
@@ -5336,11 +5349,10 @@ ZONE* PCB_PARSER::parseZONE( BOARD_ITEM_CONTAINER* aParent )
                 tmp = 0;
 
             if( !zone->SetNetCode( tmp, /* aNoAssert */ true ) )
-                THROW_IO_ERROR( wxString::Format(
-                        _( "Invalid net ID in\n file: '%s;\nline: %d\noffset: %d." ),
-                        CurSource(),
-                        CurLineNumber(),
-                        CurOffset() ) );
+            {
+                wxLogError( _( "Invalid net ID in\nfile: %s;\nline: %d\noffset: %d." ),
+                            CurSource(), CurLineNumber(), CurOffset() );
+            }
 
             NeedRIGHT();
             break;
@@ -5427,7 +5439,25 @@ ZONE* PCB_PARSER::parseZONE( BOARD_ITEM_CONTAINER* aParent )
             break;
 
         case T_filled_areas_thickness:
-            zone->SetFillVersion( parseBool() ? 5 : 6 );
+            if( parseBool() )
+            {
+                if( m_showLegacy5ZoneWarning && m_queryUserCallback )
+                {
+                    if( !(*m_queryUserCallback)(
+                                _( "Legacy Zone Warning" ), wxICON_WARNING,
+                                _( "The legacy zone fill strategy is no longer supported.\n"
+                                   "Convert zones to smoothed polygon fills?" ),
+                                _( "Convert" ) ) )
+                    {
+                        THROW_IO_ERROR( wxT( "CANCEL" ) );
+                    }
+                }
+
+                m_showLegacy5ZoneWarning = false;
+                zone->SetFlags( CANDIDATE );
+                dropFilledPolygons = true;
+            }
+
             NeedRIGHT();
             break;
 
@@ -5451,24 +5481,20 @@ ZONE* PCB_PARSER::parseZONE( BOARD_ITEM_CONTAINER* aParent )
 
                     if( token == T_segment )    // deprecated
                     {
-                        // SEGMENT fill mode no longer supported.  Make sure user is OK with
-                        // converting them.
-                        if( m_showLegacyZoneWarning )
+                        if( m_showLegacySegmentZoneWarning && m_queryUserCallback )
                         {
-                            KIDIALOG dlg( nullptr,
-                                          _( "The legacy segment fill mode is no longer supported."
-                                             "\nConvert zones to polygon fills?"),
-                                          _( "Legacy Zone Warning" ),
-                                          wxYES_NO | wxICON_WARNING );
-
-                            dlg.DoNotShowCheckbox( __FILE__, __LINE__ );
-
-                            if( dlg.ShowModal() == wxID_NO )
+                            if( !(*m_queryUserCallback)(
+                                        _( "Legacy Zone Warning" ), wxICON_WARNING,
+                                        _( "The segment zone fill mode is no longer supported.\n"
+                                           "Convert zones to smoothed polygon fills?" ),
+                                        _( "Convert" ) ) )
+                            {
                                 THROW_IO_ERROR( wxT( "CANCEL" ) );
-
-                            m_showLegacyZoneWarning = false;
+                            }
                         }
 
+                        m_showLegacySegmentZoneWarning = false;
+                        zone->SetFlags( CANDIDATE );
                         zone->SetFillMode( ZONE_FILL_MODE::POLYGONS );
                         m_board->SetModified();
                     }
@@ -5748,8 +5774,6 @@ ZONE* PCB_PARSER::parseZONE( BOARD_ITEM_CONTAINER* aParent )
 
         case T_fill_segments:
         {
-            std::vector<SEG> segs;
-
             for( token = NextTok(); token != T_RIGHT; token = NextTok() )
             {
                 if( token != T_LEFT )
@@ -5776,12 +5800,11 @@ ZONE* PCB_PARSER::parseZONE( BOARD_ITEM_CONTAINER* aParent )
                 if( token != T_pts )
                     Expecting( T_pts );
 
-                SEG segment( parseXY(), parseXY() );
+                ignore_unused( parseXY() );
+                ignore_unused( parseXY() );
                 NeedRIGHT();
-                segs.push_back( segment );
             }
 
-            zone->SetFillSegments( filledLayer, segs );
             break;
         }
 
@@ -5817,7 +5840,7 @@ ZONE* PCB_PARSER::parseZONE( BOARD_ITEM_CONTAINER* aParent )
         zone->SetBorderDisplayStyle( hatchStyle, hatchPitch, true );
     }
 
-    if( addedFilledPolygons )
+    if( addedFilledPolygons && !dropFilledPolygons )
     {
         for( auto& pair : pts )
             zone->SetFilledPolysList( pair.first, pair.second );

@@ -331,18 +331,6 @@ public:
     int GetLocalFlags() const { return m_localFlgs; }
     void SetLocalFlags( int aFlags ) { m_localFlgs = aFlags; }
 
-    std::vector<SEG>& FillSegments( PCB_LAYER_ID aLayer )
-    {
-        wxASSERT( m_FillSegmList.count( aLayer ) );
-        return m_FillSegmList.at( aLayer );
-    }
-
-    const std::vector<SEG>& FillSegments( PCB_LAYER_ID aLayer ) const
-    {
-        wxASSERT( m_FillSegmList.count( aLayer ) );
-        return m_FillSegmList.at( aLayer );
-    }
-
     SHAPE_POLY_SET* Outline() { return m_Poly; }
     const SHAPE_POLY_SET* Outline() const { return m_Poly; }
 
@@ -711,12 +699,6 @@ public:
 
     unsigned int GetCornerRadius() const { return m_cornerRadius; }
 
-    bool GetFilledPolysUseThickness() const { return m_fillVersion == 5; }
-    bool GetFilledPolysUseThickness( PCB_LAYER_ID aLayer ) const;
-
-    int GetFillVersion() const { return m_fillVersion; }
-    void SetFillVersion( int aVersion ) { m_fillVersion = aVersion; }
-
     /**
      * Remove a cutout from the zone.
      *
@@ -734,11 +716,6 @@ public:
     void AddPolygon( std::vector<VECTOR2I>& aPolygon );
 
     void AddPolygon( const SHAPE_LINE_CHAIN& aPolygon );
-
-    void SetFillSegments( PCB_LAYER_ID aLayer, const std::vector<SEG>& aSegments )
-    {
-        m_FillSegmList[aLayer] = aSegments;
-    }
 
     SHAPE_POLY_SET& RawPolysList( PCB_LAYER_ID aLayer )
     {
@@ -945,12 +922,6 @@ protected:
     SHAPE_POLY_SET::VERTEX_INDEX* m_CornerSelection;
 
     int              m_localFlgs;               // Variable used in polygon calculations.
-
-    /**
-     * Segments used to fill the zone (#m_FillMode ==1 ), when fill zone by segment is used.
-     * In this case the segments have #m_ZoneMinThickness width.
-     */
-    std::map<PCB_LAYER_ID, std::vector<SEG> > m_FillSegmList;
 
     /* set of filled polygons used to draw a zone as a filled area.
      * from outlines (m_Poly) but unlike m_Poly these filled polygons have no hole

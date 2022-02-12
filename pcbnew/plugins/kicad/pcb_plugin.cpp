@@ -265,7 +265,7 @@ void FP_CACHE::Load()
             try
             {
                 FILE_LINE_READER reader( fn.GetFullPath() );
-                PCB_PARSER       parser( &reader );
+                PCB_PARSER       parser( &reader, nullptr, nullptr );
 
                 FOOTPRINT* footprint = (FOOTPRINT*) parser.Parse();
                 wxString   fpName = fn.GetName();
@@ -337,17 +337,16 @@ void PCB_PLUGIN::Save( const wxString& aFileName, BOARD* aBoard, const PROPERTIE
 
     wxString sanityResult = aBoard->GroupsSanityCheck();
 
-    if( sanityResult != wxEmptyString )
+    if( sanityResult != wxEmptyString && m_queryUserCallback )
     {
-        KIDIALOG dlg( nullptr, wxString::Format(
-             _( "Please report this bug.  Error validating group structure: %s"
-                "\n\nSave anyway?" ), sanityResult ),
-                      _( "Internal group data structure corrupt" ),
-                      wxOK | wxCANCEL | wxICON_ERROR );
-        dlg.SetOKLabel( _( "Save Anyway" ) );
-
-        if( dlg.ShowModal() == wxID_CANCEL )
+        if( !(*m_queryUserCallback)(
+                    _( "Internal Group Data Error" ), wxICON_ERROR,
+                    wxString::Format( _( "Please report this bug.  Error validating group "
+                                         "structure: %s\n\nSave anyway?" ), sanityResult ),
+                    _( "Save Anyway" ) ) )
+        {
             return;
+        }
     }
 
     init( aProperties );
@@ -376,7 +375,7 @@ BOARD_ITEM* PCB_PLUGIN::Parse( const wxString& aClipboardSourceInput )
     std::string input = TO_UTF8( aClipboardSourceInput );
 
     STRING_LINE_READER reader( input, wxT( "clipboard" ) );
-    PCB_PARSER         parser( &reader );
+    PCB_PARSER         parser( &reader, nullptr, m_queryUserCallback );
 
     try
     {
@@ -2114,10 +2113,8 @@ void PCB_PLUGIN::format( const ZONE* aZone, int aNestLevel ) const
     m_out->Print( aNestLevel+1, "(min_thickness %s)",
                   FormatInternalUnits( aZone->GetMinThickness() ).c_str() );
 
-    // write it only if V 6.O version option is used (i.e. do not write if the "legacy"
-    // algorithm is used)
-    if( !aZone->GetFilledPolysUseThickness() )
-        m_out->Print( 0, " (filled_areas_thickness no)" );
+    // We continue to write this for 3rd-party parsers, but we no longer read it (as of V7).
+    m_out->Print( 0, " (filled_areas_thickness no)" );
 
     m_out->Print( 0, "\n" );
 
@@ -2234,25 +2231,6 @@ void PCB_PLUGIN::format( const ZONE* aZone, int aNestLevel ) const
             formatPolyPts( chain, aNestLevel + 1, ADVANCED_CFG::GetCfg().m_CompactSave );
             m_out->Print( aNestLevel + 1, ")\n" );
         }
-
-        // Save the filling segments list
-        const std::vector<SEG>& segs = aZone->FillSegments( layer );
-
-        if( segs.size() )
-        {
-            m_out->Print( aNestLevel + 1, "(fill_segments\n" );
-            m_out->Print( aNestLevel + 2, "(layer %s)\n",
-                          TO_UTF8( BOARD::GetStandardLayerName( layer ) ) );
-
-            for( const SEG& seg : segs )
-            {
-                m_out->Print( aNestLevel + 2, "(pts (xy %s) (xy %s))\n",
-                              FormatInternalUnits( seg.A ).c_str(),
-                              FormatInternalUnits( seg.B ).c_str() );
-            }
-
-            m_out->Print( aNestLevel + 1, ")\n" );
-        }
     }
 
     m_out->Print( aNestLevel, ")\n" );
@@ -2262,7 +2240,8 @@ void PCB_PLUGIN::format( const ZONE* aZone, int aNestLevel ) const
 PCB_PLUGIN::PCB_PLUGIN( int aControlFlags ) :
     m_cache( nullptr ),
     m_ctl( aControlFlags ),
-    m_mapping( new NETINFO_MAPPING() )
+    m_mapping( new NETINFO_MAPPING() ),
+    m_queryUserCallback( nullptr )
 {
     init( nullptr );
     m_out = &m_sf;
@@ -2276,8 +2255,9 @@ PCB_PLUGIN::~PCB_PLUGIN()
 }
 
 
-BOARD* PCB_PLUGIN::Load( const wxString& aFileName, BOARD* aAppendToMe, const PROPERTIES* aProperties,
-                         PROJECT* aProject, PROGRESS_REPORTER* aProgressReporter )
+BOARD* PCB_PLUGIN::Load( const wxString& aFileName, BOARD* aAppendToMe,
+                         const PROPERTIES* aProperties, PROJECT* aProject,
+                         PROGRESS_REPORTER* aProgressReporter )
 {
     FILE_LINE_READER reader( aFileName );
 
@@ -2311,7 +2291,7 @@ BOARD* PCB_PLUGIN::DoLoad( LINE_READER& aReader, BOARD* aAppendToMe, const PROPE
 {
     init( aProperties );
 
-    PCB_PARSER parser( &aReader, aAppendToMe, aProgressReporter, aLineCount );
+    PCB_PARSER parser( &aReader, aAppendToMe, m_queryUserCallback, aProgressReporter, aLineCount );
     BOARD*     board;
 
     try

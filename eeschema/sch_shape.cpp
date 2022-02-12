@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2017 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 2004-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2004-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -87,7 +87,7 @@ void SCH_SHAPE::Rotate( const VECTOR2I& aCenter )
 }
 
 
-void SCH_SHAPE::Plot( PLOTTER* aPlotter ) const
+void SCH_SHAPE::Plot( PLOTTER* aPlotter, bool aBackground ) const
 {
     int pen_size = std::max( GetPenWidth(), aPlotter->RenderSettings()->GetMinPenWidth() );
 
@@ -106,81 +106,87 @@ void SCH_SHAPE::Plot( PLOTTER* aPlotter ) const
     else
         aPlotter->SetColor( GetStroke().GetColor() );
 
-    aPlotter->SetCurrentLineWidth( pen_size );
-    aPlotter->SetDash( GetEffectiveLineStyle() );
-
-    switch( GetShape() )
+    if( aBackground )
     {
-    case SHAPE_T::ARC:
-        aPlotter->Arc( getCenter(), GetStart(), GetEnd(), FILL_T::NO_FILL, pen_size, ARC_HIGH_DEF );
-        break;
+        if( m_fill == FILL_T::FILLED_WITH_COLOR && GetFillColor() != COLOR4D::UNSPECIFIED )
+        {
+            aPlotter->SetColor( GetFillColor() );
 
-    case SHAPE_T::CIRCLE:
-        aPlotter->Circle( getCenter(), GetRadius() * 2, FILL_T::NO_FILL, pen_size );
-        break;
+            switch( GetShape() )
+            {
+            case SHAPE_T::ARC:
+                aPlotter->Arc( getCenter(), GetStart(), GetEnd(), m_fill, 0, ARC_HIGH_DEF );
+                break;
 
-    case SHAPE_T::RECT:
-    {
-        std::vector<VECTOR2I> pts = GetRectCorners();
+            case SHAPE_T::CIRCLE:
+                aPlotter->Circle( getCenter(), GetRadius() * 2, m_fill, 0 );
+                break;
 
-        aPlotter->MoveTo( pts[0] );
-        aPlotter->LineTo( pts[1] );
-        aPlotter->LineTo( pts[2] );
-        aPlotter->LineTo( pts[3] );
-        aPlotter->FinishTo( pts[0] );
+            case SHAPE_T::RECT:
+                aPlotter->Rect( GetStart(), GetEnd(), m_fill, 0 );
+                break;
+
+            case SHAPE_T::POLY:
+                aPlotter->PlotPoly( cornerList, m_fill, 0 );
+                break;
+
+            case SHAPE_T::BEZIER:
+                aPlotter->PlotPoly( m_bezierPoints, m_fill, 0 );
+                break;
+
+            default:
+                UNIMPLEMENTED_FOR( SHAPE_T_asString() );
+            }
+        }
     }
-        break;
-
-    case SHAPE_T::POLY:
+    else /* if( aForeground ) */
     {
-        aPlotter->MoveTo( cornerList[0] );
-
-        for( size_t ii = 1; ii < cornerList.size(); ++ii )
-            aPlotter->LineTo( cornerList[ii] );
-
-        aPlotter->FinishTo( cornerList[0] );
-    }
-        break;
-
-    case SHAPE_T::BEZIER:
-        aPlotter->PlotPoly( m_bezierPoints, FILL_T::NO_FILL, pen_size );
-        break;
-
-    default:
-        UNIMPLEMENTED_FOR( SHAPE_T_asString() );
-    }
-
-    aPlotter->SetDash( PLOT_DASH_TYPE::SOLID );
-
-    if( m_fill == FILL_T::FILLED_WITH_COLOR && GetFillColor() != COLOR4D::UNSPECIFIED )
-    {
-        aPlotter->SetColor( GetFillColor() );
+        aPlotter->SetCurrentLineWidth( pen_size );
+        aPlotter->SetDash( GetEffectiveLineStyle() );
 
         switch( GetShape() )
         {
         case SHAPE_T::ARC:
-            aPlotter->Arc( getCenter(), GetStart(), GetEnd(), m_fill, 0, ARC_HIGH_DEF );
+            aPlotter->Arc( getCenter(), GetStart(), GetEnd(), FILL_T::NO_FILL, pen_size,
+                           ARC_HIGH_DEF );
             break;
 
         case SHAPE_T::CIRCLE:
-            aPlotter->Circle( getCenter(), GetRadius() * 2, m_fill, 0 );
+            aPlotter->Circle( getCenter(), GetRadius() * 2, FILL_T::NO_FILL, pen_size );
             break;
 
         case SHAPE_T::RECT:
-            aPlotter->Rect( GetStart(), GetEnd(), m_fill, 0 );
+        {
+            std::vector<VECTOR2I> pts = GetRectCorners();
+
+            aPlotter->MoveTo( pts[0] );
+            aPlotter->LineTo( pts[1] );
+            aPlotter->LineTo( pts[2] );
+            aPlotter->LineTo( pts[3] );
+            aPlotter->FinishTo( pts[0] );
+        }
             break;
 
         case SHAPE_T::POLY:
-            aPlotter->PlotPoly( cornerList, m_fill, 0 );
+        {
+            aPlotter->MoveTo( cornerList[0] );
+
+            for( size_t ii = 1; ii < cornerList.size(); ++ii )
+                aPlotter->LineTo( cornerList[ii] );
+
+            aPlotter->FinishTo( cornerList[0] );
+        }
             break;
 
         case SHAPE_T::BEZIER:
-            aPlotter->PlotPoly( m_bezierPoints, m_fill, 0 );
+            aPlotter->PlotPoly( m_bezierPoints, FILL_T::NO_FILL, pen_size );
             break;
 
         default:
             UNIMPLEMENTED_FOR( SHAPE_T_asString() );
         }
+
+        aPlotter->SetDash( PLOT_DASH_TYPE::SOLID );
     }
 }
 
@@ -207,9 +213,6 @@ void SCH_SHAPE::Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset
 {
     int      penWidth = GetPenWidth();
     wxDC*    DC = aSettings->GetPrintDC();
-    VECTOR2I pt1 = GetStart();
-    VECTOR2I pt2 = GetEnd();
-    VECTOR2I c;
     COLOR4D  color;
 
     penWidth = std::max( penWidth, aSettings->GetMinPenWidth() );
@@ -235,16 +238,6 @@ void SCH_SHAPE::Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset
         for( size_t ii = 0; ii < ptCount; ++ii )
             buffer[ii] = m_bezierPoints[ii];
     }
-    else if( GetShape() == SHAPE_T::ARC )
-    {
-        c = getCenter();
-        EDA_ANGLE t1, t2;
-
-        CalcArcAngles( t1, t2 );
-
-        if( ( t1 - t2 ).Normalize180() > ANGLE_0 )
-            std::swap( pt1, pt2 );
-    }
 
     if( GetFillMode() == FILL_T::FILLED_WITH_COLOR )
     {
@@ -253,15 +246,15 @@ void SCH_SHAPE::Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset
         switch( GetShape() )
         {
         case SHAPE_T::ARC:
-            GRFilledArc( DC, pt1, pt2, c, 0, color, color );
+            GRFilledArc( DC, GetEnd(), GetStart(), getCenter(), 0, color, color );
             break;
 
         case SHAPE_T::CIRCLE:
-            GRFilledCircle( DC, pt1, GetRadius(), 0, color, color );
+            GRFilledCircle( DC, GetStart(), GetRadius(), 0, color, color );
             break;
 
         case SHAPE_T::RECT:
-            GRFilledRect( DC, pt1, pt2, 0, color, color );
+            GRFilledRect( DC, GetStart(), GetEnd(), 0, color, color );
             break;
 
         case SHAPE_T::POLY:
@@ -287,15 +280,15 @@ void SCH_SHAPE::Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset
         switch( GetShape() )
         {
         case SHAPE_T::ARC:
-            GRArc( DC, pt1, pt2, c, penWidth, color );
+            GRArc( DC, GetEnd(), GetStart(), getCenter(), penWidth, color );
             break;
 
         case SHAPE_T::CIRCLE:
-            GRCircle( DC, pt1, GetRadius(), penWidth, color );
+            GRCircle( DC, GetStart(), GetRadius(), penWidth, color );
             break;
 
         case SHAPE_T::RECT:
-            GRRect( DC, pt1, pt2, penWidth, color );
+            GRRect( DC, GetStart(), GetEnd(), penWidth, color );
             break;
 
         case SHAPE_T::POLY:

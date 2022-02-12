@@ -64,9 +64,7 @@ public:
 
     PLOT_DASH_TYPE GetEffectiveLineStyle() const
     {
-        if( IsFilled() )
-            return PLOT_DASH_TYPE::SOLID;
-        else if( m_stroke.GetPlotStyle() == PLOT_DASH_TYPE::DEFAULT )
+        if( m_stroke.GetPlotStyle() == PLOT_DASH_TYPE::DEFAULT )
             return PLOT_DASH_TYPE::DASH;
         else
             return m_stroke.GetPlotStyle();
@@ -93,7 +91,7 @@ public:
 
     void AddPoint( const VECTOR2I& aPosition );
 
-    void Plot( PLOTTER* aPlotter ) const override;
+    void Plot( PLOTTER* aPlotter, bool aBackground ) const override;
 
     void GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList ) override;
 

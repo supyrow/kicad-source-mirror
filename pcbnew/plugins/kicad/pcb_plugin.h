@@ -28,6 +28,7 @@
 #include <io_mgr.h>
 #include <string>
 #include <layer_ids.h>
+#include "widgets/report_severity.h"
 
 class BOARD;
 class BOARD_ITEM;
@@ -114,7 +115,8 @@ class SHAPE_LINE_CHAIN;
 //#define SEXPR_BOARD_FILE_VERSION    20211230  // Dimensions in footprints
 //#define SEXPR_BOARD_FILE_VERSION    20211231  // Private footprint layers
 //#define SEXPR_BOARD_FILE_VERSION    20211232  // Fonts
-#define SEXPR_BOARD_FILE_VERSION      20220131  // Textboxes
+//#define SEXPR_BOARD_FILE_VERSION    20220131  // Textboxes
+#define SEXPR_BOARD_FILE_VERSION      20220211  // End support for V5 zone fill strategy
 
 #define BOARD_FILE_HOST_VERSION       20200825  ///< Earlier files than this include the host tag
 #define LEGACY_ARC_FORMATTING         20210925  ///< These were the last to use old arc formatting
@@ -167,8 +169,14 @@ public:
         return wxT( "kicad_pcb" );
     }
 
-    virtual void Save( const wxString& aFileName, BOARD* aBoard,
-                       const PROPERTIES* aProperties = nullptr ) override;
+    void SetQueryUserCallback( std::function<bool( wxString aTitle, int aIcon, wxString aMessage,
+                                                   wxString aOKButtonTitle )> aCallback ) override
+    {
+        m_queryUserCallback = &aCallback;
+    }
+
+    void Save( const wxString& aFileName, BOARD* aBoard,
+               const PROPERTIES* aProperties = nullptr ) override;
 
     BOARD* Load( const wxString& aFileName, BOARD* aAppendToMe,
                  const PROPERTIES* aProperties = nullptr, PROJECT* aProject = nullptr,
@@ -313,6 +321,8 @@ protected:
     int                 m_ctl;
     NETINFO_MAPPING*    m_mapping;  ///< mapping for net codes, so only not empty net codes
                                     ///< are stored with consecutive integers as net codes
+
+    std::function<bool( wxString aTitle, int aIcon, wxString aMsg, wxString aAction )>* m_queryUserCallback;
 };
 
 #endif  // PCB_PLUGIN_H

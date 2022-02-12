@@ -709,15 +709,6 @@ void CN_VISITOR::checkZoneZoneConnection( CN_ZONE_LAYER* aZoneLayerA, CN_ZONE_LA
     const BOX2I& boxA = aZoneLayerA->BBox();
     const BOX2I& boxB = aZoneLayerB->BBox();
 
-    int radiusA = 0;
-    int radiusB = 0;
-
-    if( zoneA->GetFilledPolysUseThickness() )
-        radiusA = ( zoneA->GetMinThickness() + 1 ) / 2;
-
-    if( zoneB->GetFilledPolysUseThickness() )
-        radiusB = ( zoneB->GetMinThickness() + 1 ) / 2;
-
     PCB_LAYER_ID layer = static_cast<PCB_LAYER_ID>( aZoneLayerA->Layer() );
 
     const SHAPE_LINE_CHAIN& outline =
@@ -728,7 +719,7 @@ void CN_VISITOR::checkZoneZoneConnection( CN_ZONE_LAYER* aZoneLayerA, CN_ZONE_LA
         if( !boxB.Contains( outline.CPoint( i ) ) )
             continue;
 
-        if( aZoneLayerB->ContainsPoint( outline.CPoint( i ), radiusA ) )
+        if( aZoneLayerB->ContainsPoint( outline.CPoint( i ) ) )
         {
             aZoneLayerA->Connect( aZoneLayerB );
             aZoneLayerB->Connect( aZoneLayerA );
@@ -744,7 +735,7 @@ void CN_VISITOR::checkZoneZoneConnection( CN_ZONE_LAYER* aZoneLayerA, CN_ZONE_LA
         if( !boxA.Contains( outline2.CPoint( i ) ) )
             continue;
 
-        if( aZoneLayerA->ContainsPoint( outline2.CPoint( i ), radiusB ) )
+        if( aZoneLayerA->ContainsPoint( outline2.CPoint( i ) ) )
         {
             aZoneLayerA->Connect( aZoneLayerB );
             aZoneLayerB->Connect( aZoneLayerA );
@@ -765,7 +756,9 @@ bool CN_VISITOR::operator()( CN_ITEM* aCandidate )
     if( parentA == parentB )
         return true;
 
-    if( !( parentA->GetLayerSet() & parentB->GetLayerSet() ).any() )
+    LSET commonLayers = parentA->GetLayerSet() & parentB->GetLayerSet();
+
+    if( !commonLayers.any() )
         return true;
 
     // If both m_item and aCandidate are marked dirty, they will both be searched
@@ -794,34 +787,9 @@ bool CN_VISITOR::operator()( CN_ITEM* aCandidate )
         return true;
     }
 
-    int accuracyA = 0;
-    int accuracyB = 0;
-
-    if( parentA->Type() == PCB_VIA_T
-            || parentA->Type() == PCB_TRACE_T
-            || parentA->Type() == PCB_ARC_T)
-        accuracyA = ( static_cast<const PCB_TRACK*>( parentA )->GetWidth() + 1 ) / 2;
-
-    if( parentB->Type() == PCB_VIA_T
-            || parentB->Type() == PCB_TRACE_T
-            || parentB->Type() == PCB_ARC_T )
-        accuracyB = ( static_cast<const PCB_TRACK*>( parentB )->GetWidth() + 1 ) / 2;
-
-    // Items do not necessarily have reciprocity as we only check for anchors
-    //  therefore, we check HitTest both directions A->B & B->A
-    for( int i = 0; i < aCandidate->AnchorCount(); ++i )
+    for( PCB_LAYER_ID layer : commonLayers.Seq() )
     {
-        if( parentB->HitTest( VECTOR2I( aCandidate->GetAnchor( i ) ), accuracyA ) )
-        {
-            m_item->Connect( aCandidate );
-            aCandidate->Connect( m_item );
-            return true;
-        }
-    }
-
-    for( int i = 0; i < m_item->AnchorCount(); ++i )
-    {
-        if( parentA->HitTest( VECTOR2I( m_item->GetAnchor( i ) ), accuracyB ) )
+        if( parentA->GetEffectiveShape( layer )->Collide( parentB->GetEffectiveShape( layer ).get() ) )
         {
             m_item->Connect( aCandidate );
             aCandidate->Connect( m_item );

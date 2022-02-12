@@ -739,9 +739,11 @@ void SCH_PAINTER::draw( const LIB_SHAPE *aShape, int aLayer )
                     m_gal->SetFillColor( getRenderColor( aShape, LAYER_DEVICE, false ) );
                 else
                     m_gal->SetFillColor( color );
-             }
+            }
             else
+            {
                 m_gal->SetFillColor( aShape->GetFillColor() );
+            }
 
             drawShape( aShape );
         }
@@ -1528,14 +1530,20 @@ void SCH_PAINTER::draw( const SCH_LINE *aLine, int aLayer )
     {
         if( aLine->IsStartDangling() && aLine->IsWire() )
         {
-            drawDanglingSymbol( aLine->GetStartPoint(), color, getLineWidth( aLine, drawingShadows ),
-                                drawingShadows, aLine->IsBrightened() );
+            COLOR4D danglingColor =
+                    ( drawingShadows && !aLine->HasFlag( STARTPOINT ) ) ? color.Inverted() : color;
+            drawDanglingSymbol( aLine->GetStartPoint(), danglingColor,
+                                getLineWidth( aLine, drawingShadows ), drawingShadows,
+                                aLine->IsBrightened() );
         }
 
         if( aLine->IsEndDangling() && aLine->IsWire() )
         {
-            drawDanglingSymbol( aLine->GetEndPoint(), color, getLineWidth( aLine, drawingShadows ),
-                                drawingShadows, aLine->IsBrightened() );
+            COLOR4D danglingColor =
+                    ( drawingShadows && !aLine->HasFlag( ENDPOINT ) ) ? color.Inverted() : color;
+            drawDanglingSymbol( aLine->GetEndPoint(), danglingColor,
+                                getLineWidth( aLine, drawingShadows ), drawingShadows,
+                                aLine->IsBrightened() );
         }
 
         if( drawingDangling )

@@ -295,10 +295,10 @@ void LIB_FIELD::Rotate( const VECTOR2I& center, bool aRotateCCW )
 }
 
 
-void LIB_FIELD::Plot( PLOTTER* aPlotter, const VECTOR2I& aOffset, bool aFill,
+void LIB_FIELD::Plot( PLOTTER* aPlotter, bool aBackground, const VECTOR2I& aOffset,
                       const TRANSFORM& aTransform ) const
 {
-    if( GetText().IsEmpty() )
+    if( GetText().IsEmpty() || aBackground )
         return;
 
     // Calculate the text orientation, according to the symbol orientation/mirror.
@@ -329,7 +329,7 @@ void LIB_FIELD::Plot( PLOTTER* aPlotter, const VECTOR2I& aOffset, bool aFill,
     int penWidth = GetEffectivePenWidth( aPlotter->RenderSettings() );
 
     aPlotter->Text( textpos, color, GetShownText(), orient, GetTextSize(), hjustify, vjustify,
-                    penWidth, IsItalic(), IsBold() );
+                    penWidth, IsItalic(), IsBold(), false, GetDrawFont() );
 }
 
 
