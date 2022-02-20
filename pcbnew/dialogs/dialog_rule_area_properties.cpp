@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2014 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2014 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -27,9 +27,9 @@
 #include <confirm.h>
 #include <pcb_edit_frame.h>
 #include <pcbnew_settings.h>
-#include <footprint_edit_frame.h>
 #include <zone_settings.h>
 #include <dialog_rule_area_properties_base.h>
+#include <widgets/unit_binder.h>
 
 #define LAYER_LIST_COLUMN_CHECK 0
 #define LAYER_LIST_COLUMN_ICON 1
@@ -43,6 +43,7 @@ public:
     DIALOG_RULE_AREA_PROPERTIES( PCB_BASE_FRAME* aParent, ZONE_SETTINGS* aSettings );
 
 private:
+    UNIT_BINDER     m_outlineHatchPitch;
     PCB_BASE_FRAME* m_parent;
     ZONE_SETTINGS   m_zonesettings;         ///< the working copy of zone settings
     ZONE_SETTINGS*  m_ptr;                  ///< the pointer to the zone settings
@@ -66,17 +67,22 @@ int InvokeRuleAreaEditor( PCB_BASE_FRAME* aCaller, ZONE_SETTINGS* aSettings )
 
 DIALOG_RULE_AREA_PROPERTIES::DIALOG_RULE_AREA_PROPERTIES( PCB_BASE_FRAME* aParent,
                                                           ZONE_SETTINGS* aSettings ) :
-        DIALOG_RULE_AREA_PROPERTIES_BASE( aParent )
+        DIALOG_RULE_AREA_PROPERTIES_BASE( aParent ),
+        m_outlineHatchPitch( aParent, m_stBorderHatchPitchText,
+                             m_outlineHatchPitchCtrl, m_outlineHatchUnits )
+
 {
     m_parent = aParent;
 
     m_ptr = aSettings;
     m_zonesettings = *aSettings;
 
-    m_isFpEditor = dynamic_cast<FOOTPRINT_EDIT_FRAME*>( aParent ) != nullptr;
+    m_isFpEditor = m_parent->IsType( FRAME_FOOTPRINT_EDITOR );
 
-    bool fpEditorMode = m_parent->IsType( FRAME_FOOTPRINT_EDITOR );
-    m_zonesettings.SetupLayersList( m_layers, m_parent, true, fpEditorMode );
+    BOARD* board = m_parent->GetBoard();
+    LSET   layers = LSET::AllBoardTechMask() | LSET::AllCuMask( board->GetCopperLayerCount() );
+
+    m_zonesettings.SetupLayersList( m_layers, m_parent, layers, m_isFpEditor );
 
     SetupStandardButtons();
 
@@ -105,6 +111,8 @@ bool DIALOG_RULE_AREA_PROPERTIES::TransferDataToWindow()
     case ZONE_BORDER_DISPLAY_STYLE::DIAGONAL_EDGE: m_OutlineDisplayCtrl->SetSelection( 1 ); break;
     case ZONE_BORDER_DISPLAY_STYLE::DIAGONAL_FULL: m_OutlineDisplayCtrl->SetSelection( 2 ); break;
     }
+
+    m_outlineHatchPitch.SetValue( m_zonesettings.m_BorderHatchPitch );
 
     SetInitialFocus( m_OutlineDisplayCtrl );
 
@@ -167,6 +175,12 @@ bool DIALOG_RULE_AREA_PROPERTIES::TransferDataFromWindow()
         m_zonesettings.m_ZoneBorderDisplayStyle = ZONE_BORDER_DISPLAY_STYLE::DIAGONAL_FULL;
         break;
     }
+
+    if( !m_outlineHatchPitch.Validate( Millimeter2iu( ZONE_BORDER_HATCH_MINDIST_MM ),
+                                       Millimeter2iu( ZONE_BORDER_HATCH_MAXDIST_MM ) ) )
+        return false;
+
+    m_zonesettings.m_BorderHatchPitch = m_outlineHatchPitch.GetValue();
 
     auto cfg = m_parent->GetPcbNewSettings();
     cfg->m_Zones.hatching_style = static_cast<int>( m_zonesettings.m_ZoneBorderDisplayStyle );

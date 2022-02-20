@@ -414,14 +414,26 @@ void GERBER_JOBFILE_WRITER::addJSONFilesAttributes()
                 gbr_layer_id = wxT( "AssemblyDrawing,Top" );
                 break;
 
-            case Dwgs_User:
-            case Cmts_User:
-            case Eco1_User:
-            case Eco2_User:
             case Margin:
             case B_CrtYd:
             case F_CrtYd:
                 skip_file = true;
+                break;
+
+            case Dwgs_User:
+            case Cmts_User:
+            case Eco1_User:
+            case Eco2_User:
+            case User_1:
+            case User_2:
+            case User_3:
+            case User_4:
+            case User_5:
+            case User_6:
+            case User_7:
+            case User_8:
+            case User_9:
+                gbr_layer_id = wxT( "Other,User" );
                 break;
 
             default:

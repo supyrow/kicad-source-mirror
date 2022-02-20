@@ -496,7 +496,7 @@ void FOOTPRINT::ClearAllNets()
 }
 
 
-void FOOTPRINT::Add( BOARD_ITEM* aBoardItem, ADD_MODE aMode )
+void FOOTPRINT::Add( BOARD_ITEM* aBoardItem, ADD_MODE aMode, bool aSkipConnectivity )
 {
     switch( aBoardItem->Type() )
     {
@@ -894,7 +894,7 @@ SHAPE_POLY_SET FOOTPRINT::GetBoundingHull() const
     {
         for( PCB_LAYER_ID layer : zone->GetLayerSet().Seq() )
         {
-            SHAPE_POLY_SET layerPoly = zone->GetFilledPolysList( layer );
+            SHAPE_POLY_SET layerPoly = *zone->GetFilledPolysList( layer );
 
             for( int ii = 0; ii < layerPoly.OutlineCount(); ii++ )
             {

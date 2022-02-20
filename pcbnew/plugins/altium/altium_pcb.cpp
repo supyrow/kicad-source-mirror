@@ -387,7 +387,7 @@ void ALTIUM_PCB::Parse( const ALTIUM_COMPOUND_FILE&                  altiumPcbFi
         { true, ALTIUM_PCB_DIR::MODELS,
           [this, aFileMapping]( const ALTIUM_COMPOUND_FILE& aFile, auto fileHeader )
           {
-              wxString dir( aFileMapping.at( ALTIUM_PCB_DIR::MODELS ) );
+              std::vector<std::string> dir{ aFileMapping.at( ALTIUM_PCB_DIR::MODELS ) };
               this->ParseModelsData( aFile, fileHeader, dir );
           } },
         { true, ALTIUM_PCB_DIR::COMPONENTBODIES6,
@@ -493,8 +493,7 @@ void ALTIUM_PCB::Parse( const ALTIUM_COMPOUND_FILE&                  altiumPcbFi
                 continue;
             }
 
-            std::string mappedFile = mappedDirectory->second + "Header";
-
+            const std::vector<std::string>  mappedFile{ mappedDirectory->second, "Header" };
             const CFB::COMPOUND_FILE_ENTRY* file = altiumPcbFile.FindStream( mappedFile );
             if( file == nullptr )
             {
@@ -506,7 +505,7 @@ void ALTIUM_PCB::Parse( const ALTIUM_COMPOUND_FILE&                  altiumPcbFi
 
             if( reader.HasParsingError() )
             {
-                wxLogError( _( "'%s' was not parsed correctly." ), mappedFile );
+                wxLogError( _( "'%s' was not parsed correctly." ), FormatPath( mappedFile ) );
                 continue;
             }
 
@@ -514,7 +513,7 @@ void ALTIUM_PCB::Parse( const ALTIUM_COMPOUND_FILE&                  altiumPcbFi
 
             if( reader.GetRemainingBytes() != 0 )
             {
-                wxLogError( _( "'%s' was not fully parsed." ), mappedFile );
+                wxLogError( _( "'%s' was not fully parsed." ), FormatPath( mappedFile ) );
                 continue;
             }
         }
@@ -539,17 +538,16 @@ void ALTIUM_PCB::Parse( const ALTIUM_COMPOUND_FILE&                  altiumPcbFi
             continue;
         }
 
-        std::string mappedFile = mappedDirectory->second;
-
+        std::vector<std::string> mappedFile{ mappedDirectory->second };
         if( directory != ALTIUM_PCB_DIR::FILE_HEADER )
-            mappedFile += "Data";
+            mappedFile.emplace_back( "Data" );
 
         const CFB::COMPOUND_FILE_ENTRY* file = altiumPcbFile.FindStream( mappedFile );
 
         if( file != nullptr )
             fp( altiumPcbFile, file );
         else if( isRequired )
-            wxLogError( _( "File not found: '%s'." ), mappedFile );
+            wxLogError( _( "File not found: '%s'." ), FormatPath( mappedFile ) );
     }
 
     // fixup zone priorities since Altium stores them in the opposite order
@@ -650,6 +648,7 @@ void ALTIUM_PCB::Parse( const ALTIUM_COMPOUND_FILE&                  altiumPcbFi
     m_board->SetModified();
 }
 
+
 FOOTPRINT* ALTIUM_PCB::ParseFootprint( const ALTIUM_COMPOUND_FILE& altiumLibFile,
                                        const wxString&             aFootprintName )
 {
@@ -669,11 +668,12 @@ FOOTPRINT* ALTIUM_PCB::ParseFootprint( const ALTIUM_COMPOUND_FILE& altiumLibFile
     //        ParseWideStrings6Data( altiumLibFile, unicodeStringsData );
     //    }
 
-    std::string                     streamName = aFootprintName.ToStdString() + "\\Data";
+    const std::vector<std::string>  streamName{ aFootprintName.ToStdString(), "Data" };
     const CFB::COMPOUND_FILE_ENTRY* footprintData = altiumLibFile.FindStream( streamName );
     if( footprintData == nullptr )
     {
-        THROW_IO_ERROR( wxString::Format( _( "File not found: '%s'." ), streamName ) );
+        THROW_IO_ERROR(
+                wxString::Format( _( "File not found: '%s'." ), FormatPath( streamName ) ) );
     }
 
     ALTIUM_PARSER parser( altiumLibFile, footprintData );
@@ -685,7 +685,8 @@ FOOTPRINT* ALTIUM_PCB::ParseFootprint( const ALTIUM_COMPOUND_FILE& altiumLibFile
     LIB_ID fpID = AltiumToKiCadLibID( "", footprintName ); // TODO: library name
     footprint->SetFPID( fpID );
 
-    std::string parametersStreamName = aFootprintName.ToStdString() + "\\Parameters";
+    const std::vector<std::string>  parametersStreamName{ aFootprintName.ToStdString(),
+                                                         "Parameters" };
     const CFB::COMPOUND_FILE_ENTRY* parametersData =
             altiumLibFile.FindStream( parametersStreamName );
     if( parametersData != nullptr )
@@ -698,8 +699,18 @@ FOOTPRINT* ALTIUM_PCB::ParseFootprint( const ALTIUM_COMPOUND_FILE& altiumLibFile
     }
     else
     {
-        wxLogError( _( "File not found: '%s'." ), parametersStreamName );
+        wxLogError( _( "File not found: '%s'." ), FormatPath( parametersStreamName ) );
         footprint->SetDescription( wxT( "" ) );
+    }
+
+    const std::vector<std::string> extendedPrimitiveInformationStreamName{
+        aFootprintName.ToStdString(), "ExtendedPrimitiveInformation", "Data"
+    };
+    const CFB::COMPOUND_FILE_ENTRY* extendedPrimitiveInformationData =
+            altiumLibFile.FindStream( extendedPrimitiveInformationStreamName );
+    if( extendedPrimitiveInformationData != nullptr )
+    {
+        // TODO: implement
     }
 
     footprint->SetReference( wxT( "REF**" ) );
@@ -767,12 +778,14 @@ FOOTPRINT* ALTIUM_PCB::ParseFootprint( const ALTIUM_COMPOUND_FILE& altiumLibFile
 
     if( parser.HasParsingError() )
     {
-        THROW_IO_ERROR( wxString::Format( wxT( "%s stream was not parsed correctly" ), streamName ) );
+        THROW_IO_ERROR( wxString::Format( wxT( "%s stream was not parsed correctly" ),
+                                          FormatPath( streamName ) ) );
     }
 
     if( parser.GetRemainingBytes() != 0 )
     {
-        THROW_IO_ERROR( wxString::Format( wxT( "%s stream is not fully parsed" ), streamName ) );
+        THROW_IO_ERROR( wxString::Format( wxT( "%s stream is not fully parsed" ),
+                                          FormatPath( streamName ) ) );
     }
 
     return footprint.release();
@@ -1156,9 +1169,10 @@ void ALTIUM_PCB::ParseComponentsBodies6Data( const ALTIUM_COMPOUND_FILE&     aAl
 
         if( modelTuple == m_models.end() )
         {
-            THROW_IO_ERROR( wxString::Format( wxT( "ComponentsBodies6 stream tries to access "
-                                                   "model id %s which does not exist" ),
-                                              elem.modelId ) );
+            wxLogError( wxT( "ComponentsBodies6 stream tries to access model id %s which does not "
+                             "exist" ),
+                        elem.modelId );
+            continue;
         }
 
         FOOTPRINT*     footprint  = m_components.at( elem.component );
@@ -1538,7 +1552,8 @@ void ALTIUM_PCB::ParseDimensions6Data( const ALTIUM_COMPOUND_FILE&     aAltiumPc
 
 
 void ALTIUM_PCB::ParseModelsData( const ALTIUM_COMPOUND_FILE&     aAltiumPcbFile,
-                                  const CFB::COMPOUND_FILE_ENTRY* aEntry, const wxString& aRootDir )
+                                  const CFB::COMPOUND_FILE_ENTRY* aEntry,
+                                  const std::vector<std::string>& aRootDir )
 {
     if( m_progressReporter )
         m_progressReporter->Report( _( "Loading 3D models..." ) );
@@ -1583,7 +1598,9 @@ void ALTIUM_PCB::ParseModelsData( const ALTIUM_COMPOUND_FILE&     aAltiumPcbFile
         checkpoint();
         AMODEL elem( reader );
 
-        wxString       stepPath = wxString::Format( aRootDir + wxT( "%d" ), idx );
+        std::vector<std::string> stepPath = aRootDir;
+        stepPath.emplace_back( std::to_string( idx ) );
+
         bool           validName = !elem.name.IsEmpty() && elem.name.IsAscii() &&
                                    wxString::npos == elem.name.find_first_of( invalidChars );
         wxString       storageName = !validName ? wxString::Format( wxT( "model_%d" ), idx )
@@ -1592,12 +1609,12 @@ void ALTIUM_PCB::ParseModelsData( const ALTIUM_COMPOUND_FILE&     aAltiumPcbFile
 
         idx++;
 
-        const CFB::COMPOUND_FILE_ENTRY* stepEntry =
-                aAltiumPcbFile.FindStream( stepPath.ToStdString() );
+        const CFB::COMPOUND_FILE_ENTRY* stepEntry = aAltiumPcbFile.FindStream( stepPath );
 
         if( stepEntry == nullptr )
         {
-            wxLogError( _( "File not found: '%s'. 3D-model not imported." ), stepPath );
+            wxLogError( _( "File not found: '%s'. 3D-model not imported." ),
+                        FormatPath( stepPath ) );
             continue;
         }
 
@@ -1664,16 +1681,6 @@ void ALTIUM_PCB::ParsePolygons6Data( const ALTIUM_COMPOUND_FILE&     aAltiumPcbF
         checkpoint();
         APOLYGON6 elem( reader );
 
-        PCB_LAYER_ID klayer = GetKicadLayer( elem.layer );
-
-        if( klayer == UNDEFINED_LAYER )
-        {
-            wxLogWarning( _( "Polygon found on an Altium layer (%d) with no KiCad equivalent. "
-                             "It has been moved to KiCad layer Eco1_User." ),
-                          elem.layer );
-            klayer = Eco1_User;
-        }
-
         SHAPE_LINE_CHAIN linechain;
         HelperShapeLineChainFromAltiumVertices( linechain, elem.vertices );
 
@@ -1697,11 +1704,12 @@ void ALTIUM_PCB::ParsePolygons6Data( const ALTIUM_COMPOUND_FILE&     aAltiumPcbF
         m_polygons.emplace_back( zone );
 
         zone->SetNetCode( GetNetCode( elem.net ) );
-        zone->SetLayer( klayer );
         zone->SetPosition( elem.vertices.at( 0 ).position );
         zone->SetLocked( elem.locked );
         zone->SetPriority( elem.pourindex > 0 ? elem.pourindex : 0 );
         zone->Outline()->AddOutline( linechain );
+
+        HelperSetZoneLayers( zone, elem.layer );
 
         if( elem.pourindex > m_highest_pour_index )
             m_highest_pour_index = elem.pourindex;
@@ -1905,24 +1913,7 @@ void ALTIUM_PCB::ConvertShapeBasedRegions6ToBoardItem( const AREGION6& aElem )
         zone->SetPosition( aElem.outline.at( 0 ).position );
         zone->Outline()->AddOutline( linechain );
 
-        if( aElem.layer == ALTIUM_LAYER::MULTI_LAYER )
-        {
-            zone->SetLayer( F_Cu );
-            zone->SetLayerSet( LSET::AllCuMask() );
-        }
-        else
-        {
-            PCB_LAYER_ID klayer = GetKicadLayer( aElem.layer );
-
-            if( klayer == UNDEFINED_LAYER )
-            {
-                wxLogWarning( _( "Zone found on an Altium layer (%d) with no KiCad equivalent. "
-                                 "It has been moved to KiCad layer Eco1_User." ),
-                              aElem.layer );
-                klayer = Eco1_User;
-            }
-            zone->SetLayer( klayer );
-        }
+        HelperSetZoneLayers( zone, aElem.layer );
 
         zone->SetBorderDisplayStyle( ZONE_BORDER_DISPLAY_STYLE::DIAGONAL_EDGE,
                                      ZONE::GetDefaultHatchPitch(), true );
@@ -1973,16 +1964,7 @@ void ALTIUM_PCB::ConvertShapeBasedRegions6ToFootprintItem( FOOTPRINT*      aFoot
         zone->SetPosition( aElem.outline.at( 0 ).position );
         zone->Outline()->AddOutline( linechain );
 
-        if( aElem.layer == ALTIUM_LAYER::MULTI_LAYER )
-        {
-            zone->SetLayer( F_Cu );
-            zone->SetLayerSet( LSET::AllCuMask() );
-        }
-        else
-        {
-            std::vector<PCB_LAYER_ID> klayers = GetKicadLayersToIterate( aElem.layer );
-            zone->SetLayer( klayers.at( 0 ) );
-        }
+        HelperSetZoneLayers( zone, aElem.layer );
 
         zone->SetBorderDisplayStyle( ZONE_BORDER_DISPLAY_STYLE::DIAGONAL_EDGE,
                                      ZONE::GetDefaultHatchPitch(), true );
@@ -2105,8 +2087,8 @@ void ALTIUM_PCB::ParseRegions6Data( const ALTIUM_COMPOUND_FILE&     aAltiumPcbFi
             linechain.Append( elem.outline.at( 0 ).position );
             linechain.SetClosed( true );
 
-            SHAPE_POLY_SET rawPolys;
-            rawPolys.AddOutline( linechain );
+            SHAPE_POLY_SET fill;
+            fill.AddOutline( linechain );
 
             for( const std::vector<ALTIUM_VERTICE>& hole : elem.holes )
             {
@@ -2117,20 +2099,15 @@ void ALTIUM_PCB::ParseRegions6Data( const ALTIUM_COMPOUND_FILE&     aAltiumPcbFi
 
                 hole_linechain.Append( hole.at( 0 ).position );
                 hole_linechain.SetClosed( true );
-                rawPolys.AddHole( hole_linechain );
+                fill.AddHole( hole_linechain );
             }
 
             if( zone->HasFilledPolysForLayer( klayer ) )
-            {
-                rawPolys.BooleanAdd( zone->RawPolysList( klayer ),
-                                     SHAPE_POLY_SET::PM_STRICTLY_SIMPLE );
-            }
+                fill.BooleanAdd( *zone->GetFill( klayer ), SHAPE_POLY_SET::PM_STRICTLY_SIMPLE );
 
-            SHAPE_POLY_SET finalPolys = rawPolys;
-            finalPolys.Fracture( SHAPE_POLY_SET::PM_STRICTLY_SIMPLE );
+            fill.Fracture( SHAPE_POLY_SET::PM_STRICTLY_SIMPLE );
 
-            zone->SetRawPolysList( klayer, rawPolys );
-            zone->SetFilledPolysList( klayer, finalPolys );
+            zone->SetFilledPolysList( klayer, fill );
             zone->SetIsFilled( true );
             zone->SetNeedRefill( false );
         }
@@ -2384,6 +2361,8 @@ void ALTIUM_PCB::ConvertPads6ToFootprintItem( FOOTPRINT* aFootprint, const APAD6
 void ALTIUM_PCB::ConvertPads6ToFootprintItemOnCopper( FOOTPRINT* aFootprint, const APAD6& aElem )
 {
     PAD* pad = new PAD( aFootprint );
+
+    pad->SetKeepTopBottom( false ); // TODO: correct? This seems to be KiCad default on import
 
     pad->SetNumber( aElem.name );
     pad->SetNetCode( GetNetCode( aElem.net ) );
@@ -3266,16 +3245,8 @@ void ALTIUM_PCB::ConvertFills6ToBoardItemWithNet( const AFILL6& aElem )
 
     zone->SetPosition( aElem.pos1 );
     zone->SetPriority( 1000 );
-    if( aElem.layer == ALTIUM_LAYER::MULTI_LAYER )
-    {
-        zone->SetLayer( F_Cu );
-        zone->SetLayerSet( LSET::AllCuMask() );
-    }
-    else
-    {
-        std::vector<PCB_LAYER_ID> klayers = GetKicadLayersToIterate( aElem.layer );
-        zone->SetLayer( klayers.at( 0 ) );
-    }
+
+    HelperSetZoneLayers( zone, aElem.layer );
 
     VECTOR2I p11( aElem.pos1.x, aElem.pos1.y );
     VECTOR2I p12( aElem.pos1.x, aElem.pos2.y );
@@ -3358,6 +3329,24 @@ void ALTIUM_PCB::ConvertFills6ToFootprintItemOnLayer( FOOTPRINT* aFootprint, con
 }
 
 
+void ALTIUM_PCB::HelperSetZoneLayers( ZONE* aZone, const ALTIUM_LAYER aAltiumLayer )
+{
+    if( aAltiumLayer == ALTIUM_LAYER::MULTI_LAYER || aAltiumLayer == ALTIUM_LAYER::KEEP_OUT_LAYER )
+    {
+        aZone->SetLayerSet( LSET::AllCuMask() );
+    }
+    else
+    {
+        LSET layerSet;
+        for( PCB_LAYER_ID klayer : GetKicadLayersToIterate( aAltiumLayer ) )
+        {
+            layerSet.set( klayer );
+        }
+        aZone->SetLayerSet( layerSet );
+    }
+}
+
+
 void ALTIUM_PCB::HelperPcpShapeAsBoardKeepoutRegion( const PCB_SHAPE& aShape,
                                                      ALTIUM_LAYER     aAltiumLayer )
 {
@@ -3370,16 +3359,7 @@ void ALTIUM_PCB::HelperPcpShapeAsBoardKeepoutRegion( const PCB_SHAPE& aShape,
     zone->SetDoNotAllowFootprints( false );
     zone->SetDoNotAllowCopperPour( true );
 
-    if( aAltiumLayer == ALTIUM_LAYER::MULTI_LAYER )
-    {
-        zone->SetLayer( F_Cu );
-        zone->SetLayerSet( LSET::AllCuMask() );
-    }
-    else
-    {
-        std::vector<PCB_LAYER_ID> klayers = GetKicadLayersToIterate( aAltiumLayer );
-        zone->SetLayer( klayers.at( 0 ) );
-    }
+    HelperSetZoneLayers( zone, aAltiumLayer );
 
     aShape.EDA_SHAPE::TransformShapeWithClearanceToPolygon( *zone->Outline(), 0, ARC_HIGH_DEF,
                                                             ERROR_INSIDE, false );
@@ -3403,16 +3383,7 @@ void ALTIUM_PCB::HelperPcpShapeAsFootprintKeepoutRegion( FOOTPRINT*       aFootp
     zone->SetDoNotAllowFootprints( false );
     zone->SetDoNotAllowCopperPour( true );
 
-    if( aAltiumLayer == ALTIUM_LAYER::MULTI_LAYER )
-    {
-        zone->SetLayer( F_Cu );
-        zone->SetLayerSet( LSET::AllCuMask() );
-    }
-    else
-    {
-        std::vector<PCB_LAYER_ID> klayers = GetKicadLayersToIterate( aAltiumLayer );
-        zone->SetLayer( klayers.at( 0 ) );
-    }
+    HelperSetZoneLayers( zone, aAltiumLayer );
 
     aShape.EDA_SHAPE::TransformShapeWithClearanceToPolygon( *zone->Outline(), 0, ARC_HIGH_DEF,
                                                             ERROR_INSIDE, false );

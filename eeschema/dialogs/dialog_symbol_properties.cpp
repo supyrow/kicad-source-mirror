@@ -718,8 +718,19 @@ bool DIALOG_SYMBOL_PROPERTIES::TransferDataFromWindow()
     m_symbol->SetIncludeInBom( !m_cbExcludeFromBom->IsChecked() );
     m_symbol->SetIncludeOnBoard( !m_cbExcludeFromBoard->IsChecked() );
 
-    // The value, footprint and datasheet fields and exclude from bill of materials setting
-    // should be kept in sync in multi-unit parts.
+    // Update any assignments
+    if( m_dataModel )
+    {
+        for( const SCH_PIN& model_pin : *m_dataModel )
+        {
+            // map from the edited copy back to the "real" pin in the symbol.
+            SCH_PIN* src_pin = m_symbol->GetPin( model_pin.GetLibPin() );
+            src_pin->SetAlt( model_pin.GetAlt() );
+        }
+    }
+
+    // Keep fields other than the reference, include/exclude flags, and alternate pin assignements
+    // in sync in multi-unit parts.
     if( m_symbol->GetUnitCount() > 1 && m_symbol->IsAnnotated( &GetParent()->GetCurrentSheet() ) )
     {
         wxString ref = m_symbol->GetRef( &GetParent()->GetCurrentSheet() );
@@ -740,22 +751,46 @@ bool DIALOG_SYMBOL_PROPERTIES::TransferDataFromWindow()
                                                  appendUndo );
                 otherUnit->SetValue( m_fields->at( VALUE_FIELD ).GetText() );
                 otherUnit->SetFootprint( m_fields->at( FOOTPRINT_FIELD ).GetText() );
-                otherUnit->GetField( DATASHEET_FIELD )->SetText( m_fields->at( DATASHEET_FIELD ).GetText() );
+
+                for( size_t ii = DATASHEET_FIELD; ii < m_fields->size(); ++ii )
+                {
+                    SCH_FIELD* otherField = otherUnit->FindField( m_fields->at( ii ).GetName() );
+
+                    if( otherField )
+                    {
+                        otherField->SetText( m_fields->at( ii ).GetText() );
+                    }
+                    else
+                    {
+                        SCH_FIELD* newField = otherUnit->AddField( m_fields->at( ii ) );
+                        const_cast<KIID&>( newField->m_Uuid ) = KIID();
+                    }
+                }
+
+                for( size_t ii = otherUnit->GetFields().size() - 1; ii > DATASHEET_FIELD; ii-- )
+                {
+                    SCH_FIELD& otherField = otherUnit->GetFields().at( ii );
+
+                    if( !m_symbol->FindField( otherField.GetName() ) )
+                        otherUnit->GetFields().erase( otherUnit->GetFields().begin() + ii );
+                }
+
                 otherUnit->SetIncludeInBom( !m_cbExcludeFromBom->IsChecked() );
                 otherUnit->SetIncludeOnBoard( !m_cbExcludeFromBoard->IsChecked() );
+
+                if( m_dataModel )
+                {
+                    for( const SCH_PIN& model_pin : *m_dataModel )
+                    {
+                        SCH_PIN* src_pin = otherUnit->GetPin( model_pin.GetNumber() );
+
+                        if( src_pin )
+                            src_pin->SetAlt( model_pin.GetAlt() );
+                    }
+                }
+
                 GetParent()->UpdateItem( otherUnit, false, true );
             }
-        }
-    }
-
-    // Update any assignments
-    if( m_dataModel )
-    {
-        for( const SCH_PIN& model_pin : *m_dataModel )
-        {
-            // map from the edited copy back to the "real" pin in the symbol.
-            SCH_PIN* src_pin = m_symbol->GetPin( model_pin.GetLibPin() );
-            src_pin->SetAlt( model_pin.GetAlt() );
         }
     }
 

@@ -78,8 +78,9 @@ bool ZONE_FILLER::Fill( std::vector<ZONE*>& aZones, bool aCheck, wxWindow* aPare
 {
     std::lock_guard<KISPINLOCK> lock( m_board->GetConnectivity()->GetLock() );
 
-    std::vector<std::pair<ZONE*, PCB_LAYER_ID>> toFill;
-    std::vector<CN_ZONE_ISOLATED_ISLAND_LIST> islandsList;
+    std::vector<std::pair<ZONE*, PCB_LAYER_ID>>        toFill;
+    std::map<std::pair<ZONE*, PCB_LAYER_ID>, MD5_HASH> oldFillHashes;
+    std::vector<CN_ZONE_ISOLATED_ISLAND_LIST>          islandsList;
 
     std::shared_ptr<CONNECTIVITY_DATA> connectivity = m_board->GetConnectivity();
 
@@ -155,6 +156,7 @@ bool ZONE_FILLER::Fill( std::vector<ZONE*>& aZones, bool aCheck, wxWindow* aPare
         for( PCB_LAYER_ID layer : zone->GetLayerSet().Seq() )
         {
             zone->BuildHashValue( layer );
+            oldFillHashes[ { zone, layer } ] = zone->GetHashValue( layer );
 
             // Add the zone to the list of zones to test or refill
             toFill.emplace_back( std::make_pair( zone, layer ) );
@@ -236,13 +238,12 @@ bool ZONE_FILLER::Fill( std::vector<ZONE*>& aZones, bool aCheck, wxWindow* aPare
                         continue;
 
                     // Now we're ready to fill.
-                    SHAPE_POLY_SET rawPolys, finalPolys;
-                    fillSingleZone( zone, layer, rawPolys, finalPolys );
+                    SHAPE_POLY_SET fillPolys;
+                    fillSingleZone( zone, layer, fillPolys );
 
                     std::unique_lock<std::mutex> zoneLock( zone->GetLock() );
 
-                    zone->SetRawPolysList( layer, rawPolys );
-                    zone->SetFilledPolysList( layer, finalPolys );
+                    zone->SetFilledPolysList( layer, fillPolys );
                     zone->SetFillFlag( layer, true );
 
                     if( m_progressReporter )
@@ -291,6 +292,8 @@ bool ZONE_FILLER::Fill( std::vector<ZONE*>& aZones, bool aCheck, wxWindow* aPare
             break;
     }
 
+    m_board->CacheTriangulation( m_progressReporter, aZones );
+
     // Now update the connectivity to check for copper islands
     if( m_progressReporter )
     {
@@ -335,23 +338,23 @@ bool ZONE_FILLER::Fill( std::vector<ZONE*>& aZones, bool aCheck, wxWindow* aPare
             // to allow deleting a polygon from list without breaking the remaining of the list
             std::sort( islands.begin(), islands.end(), std::greater<int>() );
 
-            SHAPE_POLY_SET      poly = zone.m_zone->GetFilledPolysList( layer );
-            long long int       minArea = zone.m_zone->GetMinIslandArea();
-            ISLAND_REMOVAL_MODE mode    = zone.m_zone->GetIslandRemovalMode();
+            std::shared_ptr<SHAPE_POLY_SET> poly = zone.m_zone->GetFilledPolysList( layer );
+            long long int                   minArea = zone.m_zone->GetMinIslandArea();
+            ISLAND_REMOVAL_MODE             mode = zone.m_zone->GetIslandRemovalMode();
 
             for( int idx : islands )
             {
-                SHAPE_LINE_CHAIN& outline = poly.Outline( idx );
+                SHAPE_LINE_CHAIN& outline = poly->Outline( idx );
 
                 if( mode == ISLAND_REMOVAL_MODE::ALWAYS )
-                    poly.DeletePolygon( idx );
+                    poly->DeletePolygonAndTriangulationData( idx, false );
                 else if ( mode == ISLAND_REMOVAL_MODE::AREA && outline.Area() < minArea )
-                    poly.DeletePolygon( idx );
+                    poly->DeletePolygonAndTriangulationData( idx, false );
                 else
                     zone.m_zone->SetIsIsland( layer, idx );
             }
 
-            zone.m_zone->SetFilledPolysList( layer, poly );
+            poly->UpdateTriangulationDataHash();
             zone.m_zone->CalculateFilledArea();
 
             if( m_progressReporter && m_progressReporter->IsCancelled() )
@@ -369,17 +372,17 @@ bool ZONE_FILLER::Fill( std::vector<ZONE*>& aZones, bool aCheck, wxWindow* aPare
             if( m_debugZoneFiller && LSET::InternalCuMask().Contains( layer ) )
                 continue;
 
-            SHAPE_POLY_SET poly = zone->GetFilledPolysList( layer );
+            std::shared_ptr<SHAPE_POLY_SET> poly = zone->GetFilledPolysList( layer );
 
-            for( int ii = poly.OutlineCount() - 1; ii >= 0; ii-- )
+            for( int ii = poly->OutlineCount() - 1; ii >= 0; ii-- )
             {
-                std::vector<SHAPE_LINE_CHAIN>& island = poly.Polygon( ii );
+                std::vector<SHAPE_LINE_CHAIN>& island = poly->Polygon( ii );
 
                 if( island.empty() || !m_boardOutline.Contains( island.front().CPoint( 0 ) ) )
-                    poly.DeletePolygon( ii );
+                    poly->DeletePolygonAndTriangulationData( ii, false );
             }
 
-            zone->SetFilledPolysList( layer, poly );
+            poly->UpdateTriangulationDataHash();
             zone->CalculateFilledArea();
 
             if( m_progressReporter && m_progressReporter->IsCancelled() )
@@ -399,12 +402,9 @@ bool ZONE_FILLER::Fill( std::vector<ZONE*>& aZones, bool aCheck, wxWindow* aPare
 
             for( PCB_LAYER_ID layer : zone->GetLayerSet().Seq() )
             {
-                MD5_HASH was = zone->GetHashValue( layer );
-                zone->CacheTriangulation( layer );
                 zone->BuildHashValue( layer );
-                MD5_HASH is = zone->GetHashValue( layer );
 
-                if( is != was )
+                if( oldFillHashes[ { zone, layer } ] != zone->GetHashValue( layer ) )
                     outOfDate = true;
             }
         }
@@ -424,66 +424,6 @@ bool ZONE_FILLER::Fill( std::vector<ZONE*>& aZones, bool aCheck, wxWindow* aPare
             // No need to commit something that hasn't changed (and committing will set
             // the modified flag).
             return false;
-        }
-    }
-
-    if( m_progressReporter )
-    {
-        m_progressReporter->AdvancePhase();
-        m_progressReporter->Report( _( "Performing polygon fills..." ) );
-        m_progressReporter->SetMaxProgress( islandsList.size() );
-    }
-
-    nextItem = 0;
-
-    auto tri_lambda =
-            [&]( PROGRESS_REPORTER* aReporter ) -> size_t
-            {
-                size_t num = 0;
-
-                for( size_t i = nextItem++; i < islandsList.size(); i = nextItem++ )
-                {
-                    islandsList[i].m_zone->CacheTriangulation();
-                    num++;
-
-                    if( m_progressReporter )
-                    {
-                        m_progressReporter->AdvanceProgress();
-
-                        if( m_progressReporter->IsCancelled() )
-                            break;
-                    }
-                }
-
-                return num;
-            };
-
-    size_t parallelThreadCount = std::min( cores, islandsList.size() );
-    std::vector<std::future<size_t>> returns( parallelThreadCount );
-
-    if( parallelThreadCount <= 1 )
-        tri_lambda( m_progressReporter );
-    else
-    {
-        for( size_t ii = 0; ii < parallelThreadCount; ++ii )
-            returns[ii] = std::async( std::launch::async, tri_lambda, m_progressReporter );
-
-        for( size_t ii = 0; ii < parallelThreadCount; ++ii )
-        {
-            // Here we balance returns with a 100ms timeout to allow UI updating
-            std::future_status status;
-            do
-            {
-                if( m_progressReporter )
-                {
-                    m_progressReporter->KeepRefreshing();
-
-                    if( m_progressReporter->IsCancelled() )
-                        break;
-                }
-
-                status = returns[ii].wait_for( std::chrono::milliseconds( 100 ) );
-            } while( status != std::future_status::ready );
         }
     }
 
@@ -851,7 +791,7 @@ void ZONE_FILLER::buildCopperItemClearances( const ZONE* aZone, PCB_LAYER_ID aLa
                                                                     aZone, aItem, Margin ) );
                         }
 
-                        addKnockout( aItem, aLayer, gap, ignoreLineWidths, aHoles );
+                        addKnockout( aItem, aLayer, gap + extra_margin, ignoreLineWidths, aHoles );
                     }
                 }
             };
@@ -919,7 +859,8 @@ void ZONE_FILLER::buildCopperItemClearances( const ZONE* aZone, PCB_LAYER_ID aLa
                                                      aLayer );
 
                         SHAPE_POLY_SET poly;
-                        aKnockout->TransformShapeWithClearanceToPolygon( poly, aLayer, gap,
+                        aKnockout->TransformShapeWithClearanceToPolygon( poly, aLayer,
+                                                                         gap + extra_margin,
                                                                          m_maxError,
                                                                          ERROR_OUTSIDE );
                         aHoles.Append( poly );
@@ -1045,11 +986,11 @@ void ZONE_FILLER::subtractHigherPriorityZones( const ZONE* aZone, PCB_LAYER_ID a
  * 5 - Removes unconnected copper islands, deleting any affected spokes
  * 6 - Adds in the remaining spokes
  */
-bool ZONE_FILLER::computeRawFilledArea( const ZONE* aZone,
-                                        PCB_LAYER_ID aLayer, PCB_LAYER_ID aDebugLayer,
-                                        const SHAPE_POLY_SET& aSmoothedOutline,
-                                        const SHAPE_POLY_SET& aMaxExtents,
-                                        SHAPE_POLY_SET& aRawPolys )
+bool ZONE_FILLER::fillCopperZone( const ZONE* aZone,
+                                  PCB_LAYER_ID aLayer, PCB_LAYER_ID aDebugLayer,
+                                  const SHAPE_POLY_SET& aSmoothedOutline,
+                                  const SHAPE_POLY_SET& aMaxExtents,
+                                  SHAPE_POLY_SET& aRawPolys )
 {
     m_maxError = m_board->GetDesignSettings().m_MaxError;
 
@@ -1218,8 +1159,7 @@ bool ZONE_FILLER::computeRawFilledArea( const ZONE* aZone,
  * The solid areas can be more than one on copper layers, and do not have holes
  * ( holes are linked by overlapping segments to the main outline)
  */
-bool ZONE_FILLER::fillSingleZone( ZONE* aZone, PCB_LAYER_ID aLayer, SHAPE_POLY_SET& aRawPolys,
-                                  SHAPE_POLY_SET& aFinalPolys )
+bool ZONE_FILLER::fillSingleZone( ZONE* aZone, PCB_LAYER_ID aLayer, SHAPE_POLY_SET& aFillPolys )
 {
     SHAPE_POLY_SET* boardOutline = m_brdOutlinesValid ? &m_boardOutline : nullptr;
     SHAPE_POLY_SET  maxExtents;
@@ -1240,10 +1180,8 @@ bool ZONE_FILLER::fillSingleZone( ZONE* aZone, PCB_LAYER_ID aLayer, SHAPE_POLY_S
 
     if( aZone->IsOnCopperLayer() )
     {
-        if( computeRawFilledArea( aZone, aLayer, debugLayer, smoothedPoly, maxExtents, aRawPolys ) )
+        if( fillCopperZone( aZone, aLayer, debugLayer, smoothedPoly, maxExtents, aFillPolys ) )
             aZone->SetNeedRefill( false );
-
-        aFinalPolys = aRawPolys;
     }
     else
     {
@@ -1264,10 +1202,9 @@ bool ZONE_FILLER::fillSingleZone( ZONE* aZone, PCB_LAYER_ID aLayer, SHAPE_POLY_S
         if( half_min_width - epsilon > epsilon )
             smoothedPoly.Inflate( half_min_width - epsilon, numSegs );
 
-        aRawPolys = smoothedPoly;
-        aFinalPolys = smoothedPoly;
+        aFillPolys = smoothedPoly;
 
-        aFinalPolys.Fracture( SHAPE_POLY_SET::PM_STRICTLY_SIMPLE );
+        aFillPolys.Fracture( SHAPE_POLY_SET::PM_STRICTLY_SIMPLE );
         aZone->SetNeedRefill( false );
     }
 

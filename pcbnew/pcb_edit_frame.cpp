@@ -1014,10 +1014,6 @@ void PCB_EDIT_FRAME::ShowBoardSetupDialog( const wxString& aInitialPage )
     // Make sure everything's up-to-date
     GetBoard()->BuildListOfNets();
 
-    PCBNEW_SETTINGS::DISPLAY_OPTIONS* displayOpts = &GetPcbNewSettings()->m_Display;
-    PCBNEW_SETTINGS::DISPLAY_OPTIONS  prevDisplayOpts = *displayOpts;
-#define CHANGED( x ) ( displayOpts->x != prevDisplayOpts.x )
-
     DIALOG_BOARD_SETUP dlg( this );
 
     if( !aInitialPage.IsEmpty() )
@@ -1032,26 +1028,25 @@ void PCB_EDIT_FRAME::ShowBoardSetupDialog( const wxString& aInitialPage )
 
         Kiway().CommonSettingsChanged( false, true );
 
+        PCBNEW_SETTINGS* settings = GetPcbNewSettings();
+
         GetCanvas()->GetView()->UpdateAllItemsConditionally( KIGFX::REPAINT,
                 [&]( KIGFX::VIEW_ITEM* aItem ) -> bool
                 {
-                    if( dynamic_cast<RATSNEST_VIEW_ITEM*>( aItem ) )
+                    if( dynamic_cast<PCB_TRACK*>( aItem ) )
                     {
-                        return CHANGED( m_RatsnestMode )
-                                   || CHANGED( m_ShowGlobalRatsnest )
-                                   || CHANGED( m_DisplayRatsnestLinesCurved );
-                    }
-                    else if( dynamic_cast<PCB_TRACK*>( aItem ) )
-                    {
-                        return CHANGED( m_DisplayPadClearance );
+                        if( settings->m_Display.m_PadClearance )
+                            return true;        // clearance values
                     }
                     else if( dynamic_cast<PAD*>( aItem ) )
                     {
-                        return CHANGED( m_ShowTrackClearanceMode );
+                        if( settings->m_Display.m_TrackClearance == SHOW_WITH_VIA_ALWAYS )
+                            return true;        // clearance values
                     }
                     else if( dynamic_cast<EDA_TEXT*>( aItem ) )
                     {
-                        return true;  // text variables
+                        if( dynamic_cast<EDA_TEXT*>( aItem )->HasTextVars() )
+                            return true;        // text variables
                     }
 
                     return false;
@@ -1069,7 +1064,6 @@ void PCB_EDIT_FRAME::ShowBoardSetupDialog( const wxString& aInitialPage )
         m_toolManager->ProcessEvent( toolEvent );
     }
 
-#undef CHANGED
     GetCanvas()->SetFocus();
 }
 
@@ -1155,7 +1149,7 @@ void PCB_EDIT_FRAME::SetActiveLayer( PCB_LAYER_ID aLayer )
                 {
                     // Clearances could be layer-dependent so redraw them when the active layer
                     // is changed
-                    if( Settings().m_Display.m_DisplayPadClearance )
+                    if( Settings().m_Display.m_PadClearance )
                     {
                         // Round-corner rects are expensive to draw, but are mostly found on
                         // SMD pads which only need redrawing on an active-to-not-active
@@ -1176,7 +1170,7 @@ void PCB_EDIT_FRAME::SetActiveLayer( PCB_LAYER_ID aLayer )
                 {
                     // Clearances could be layer-dependent so redraw them when the active layer
                     // is changed
-                    if( Settings().m_Display.m_ShowTrackClearanceMode )
+                    if( Settings().m_Display.m_TrackClearance )
                     {
                         // Tracks aren't particularly expensive to draw, but it's an easy check.
                         return track->IsOnLayer( oldLayer ) || track->IsOnLayer( aLayer );
@@ -1299,7 +1293,8 @@ void PCB_EDIT_FRAME::ShowChangedLanguage()
     pane_info.Caption( _( "Appearance" ) );
     m_auimgr.Update();
 
-    m_appearancePanel->OnBoardChanged();
+    m_appearancePanel->OnLanguageChanged();
+    m_selectionFilterPanel->OnLanguageChanged();
 }
 
 
@@ -1781,7 +1776,7 @@ void PCB_EDIT_FRAME::CommonSettingsChanged( bool aEnvVarsChanged, bool aTextVars
     auto* painter = static_cast<KIGFX::PCB_PAINTER*>( GetCanvas()->GetView()->GetPainter() );
     auto* renderSettings = painter->GetSettings();
     renderSettings->LoadDisplayOptions( GetDisplayOptions() );
-    SetElementVisibility( LAYER_NO_CONNECTS, Settings().m_Display.m_DisplayPadNoConnects );
+    SetElementVisibility( LAYER_NO_CONNECTS, Settings().m_Display.m_PadNoConnects );
     SetElementVisibility( LAYER_RATSNEST, Settings().m_Display.m_ShowGlobalRatsnest );
 
     auto cfg = Pgm().GetSettingsManager().GetAppSettings<PCBNEW_SETTINGS>();

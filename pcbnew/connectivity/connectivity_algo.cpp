@@ -2,7 +2,7 @@
  * This program source code file is part of KICAD, a free EDA CAD application.
  *
  * Copyright (C) 2016-2018 CERN
- * Copyright (C) 2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2020-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * @author Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  *
@@ -97,7 +97,7 @@ void CN_CONNECTIVITY_ALGO::markItemNetAsDirty( const BOARD_ITEM* aItem )
 {
     if( aItem->IsConnected() )
     {
-        auto citem = static_cast<const BOARD_CONNECTED_ITEM*>( aItem );
+        const BOARD_CONNECTED_ITEM* citem = static_cast<const BOARD_CONNECTED_ITEM*>( aItem );
         MarkNetAsDirty( citem->GetNetCode() );
     }
     else
@@ -213,7 +213,7 @@ void CN_CONNECTIVITY_ALGO::searchConnections()
 
     m_itemList.RemoveInvalidItems( garbage );
 
-    for( auto item : garbage )
+    for( CN_ITEM* item : garbage )
         delete item;
 
 #ifdef PROFILE
@@ -266,7 +266,9 @@ void CN_CONNECTIVITY_ALGO::searchConnections()
                 };
 
         if( parallelThreadCount <= 1 )
+        {
             conn_lambda( &m_itemList, m_progressReporter );
+        }
         else
         {
             for( size_t ii = 0; ii < parallelThreadCount; ++ii )
@@ -367,9 +369,9 @@ CN_CONNECTIVITY_ALGO::SearchClusters( CLUSTER_SEARCH_MODE aMode, const KICAD_T a
 
     while( !item_set.empty() )
     {
-        CN_CLUSTER_PTR cluster = std::make_shared<CN_CLUSTER>();
-        CN_ITEM*       root;
-        auto           it = item_set.begin();
+        std::shared_ptr<CN_CLUSTER> cluster = std::make_shared<CN_CLUSTER>();
+        CN_ITEM*                    root;
+        auto                        it = item_set.begin();
 
         while( it != item_set.end() && (*it)->Visited() )
             it = item_set.erase( item_set.begin() );
@@ -390,7 +392,7 @@ CN_CONNECTIVITY_ALGO::SearchClusters( CLUSTER_SEARCH_MODE aMode, const KICAD_T a
             Q.pop_front();
             cluster->Add( current );
 
-            for( auto n : current->ConnectedItems() )
+            for( CN_ITEM* n : current->ConnectedItems() )
             {
                 if( withinAnyNet && n->Net() != root->Net() )
                     continue;
@@ -410,7 +412,7 @@ CN_CONNECTIVITY_ALGO::SearchClusters( CLUSTER_SEARCH_MODE aMode, const KICAD_T a
         return CLUSTERS();
 
     std::sort( clusters.begin(), clusters.end(),
-               []( CN_CLUSTER_PTR a, CN_CLUSTER_PTR b )
+               []( const std::shared_ptr<CN_CLUSTER>& a, const std::shared_ptr<CN_CLUSTER>& b )
                {
                    return a->OriginNet() < b->OriginNet();
                } );
@@ -419,42 +421,106 @@ CN_CONNECTIVITY_ALGO::SearchClusters( CLUSTER_SEARCH_MODE aMode, const KICAD_T a
 }
 
 
-void reportProgress( PROGRESS_REPORTER* aReporter, int aCount, int aSize, int aDelta )
-{
-    if( aReporter && ( ( aCount % aDelta ) == 0 || aCount == aSize -  1 ) )
-    {
-        aReporter->SetCurrentProgress( (double) aCount / (double) aSize );
-        aReporter->KeepRefreshing( false );
-    }
-}
-
-
 void CN_CONNECTIVITY_ALGO::Build( BOARD* aBoard, PROGRESS_REPORTER* aReporter )
 {
-    int delta = 200;  // Number of additions between 2 calls to the progress bar
-    int ii = 0;
-    int size = 0;
+    // Generate CN_ZONE_LAYERs for each island on each layer of each zone
+    //
+    std::vector<CN_ZONE_LAYER*> zitems;
 
-    size += aBoard->Zones().size();
+    for( ZONE* zone : aBoard->Zones() )
+    {
+        if( zone->IsOnCopperLayer() )
+        {
+            m_itemMap[zone] = ITEM_MAP_ENTRY();
+            markItemNetAsDirty( zone );
+
+            for( PCB_LAYER_ID layer : zone->GetLayerSet().Seq() )
+            {
+                if( IsCopperLayer( layer ) )
+                {
+                    for( int j = 0; j < zone->GetFilledPolysList( layer )->OutlineCount(); j++ )
+                        zitems.push_back( new CN_ZONE_LAYER( zone, layer, j ) );
+                }
+            }
+        }
+    }
+
+    // Setup progress metrics
+    //
+    int    delta = 50;            // Number of additions between 2 calls to the progress bar
+    double size = 0.0;
+
+    size += zitems.size();        // Once for building RTrees
+    size += zitems.size();        // Once for adding to connectivity
     size += aBoard->Tracks().size();
 
     for( FOOTPRINT* footprint : aBoard->Footprints() )
         size += footprint->Pads().size();
 
-    size *= 2;      // Our caller us gets the other half of the progress bar
+    size *= 1.5;                  // Our caller gets the other third of the progress bar
 
-    delta = std::max( delta, size / 10 );
+    delta = std::max( delta, KiROUND( size / 10 ) );
 
-    for( ZONE* zone : aBoard->Zones() )
+    auto report =
+            [&]( int progress )
+            {
+                if( aReporter && ( progress % delta ) == 0 )
+                {
+                    aReporter->SetCurrentProgress( progress / size );
+                    aReporter->KeepRefreshing( false );
+                }
+            };
+
+    // Generate RTrees for CN_ZONE_LAYER items (in parallel)
+    //
+    std::atomic<size_t> next( 0 );
+    std::atomic<size_t> zitems_done( 0 );
+    std::atomic<size_t> threads_done( 0 );
+    size_t parallelThreadCount = std::max<size_t>( std::thread::hardware_concurrency(), 2 );
+
+    for( size_t ii = 0; ii < parallelThreadCount; ++ii )
     {
-        Add( zone );
-        reportProgress( aReporter, ii++, size, delta );
+        std::thread t = std::thread(
+                [ &zitems, &zitems_done, &threads_done, &next ]( )
+                {
+                    for( size_t i = next.fetch_add( 1 ); i < zitems.size(); i = next.fetch_add( 1 ) )
+                    {
+                        zitems[i]->BuildRTree();
+                        zitems_done.fetch_add( 1 );
+                    }
+
+                    threads_done.fetch_add( 1 );
+                } );
+
+        t.detach();
+    }
+
+    while( threads_done < parallelThreadCount )
+    {
+        if( aReporter )
+        {
+            aReporter->SetCurrentProgress( zitems_done / size );
+            aReporter->KeepRefreshing();
+        }
+
+        std::this_thread::sleep_for( std::chrono::milliseconds( 100 ) );
+    }
+
+    // Add CN_ZONE_LAYERS, tracks, and pads to connectivity
+    //
+    int ii = zitems.size();
+
+    for( CN_ZONE_LAYER* zitem : zitems )
+    {
+        m_itemList.Add( zitem );
+        m_itemMap[ zitem->Parent() ].Link( zitem );
+        report( ++ii );
     }
 
     for( PCB_TRACK* tv : aBoard->Tracks() )
     {
         Add( tv );
-        reportProgress( aReporter, ii++, size, delta );
+        report( ++ii );
     }
 
     for( FOOTPRINT* footprint : aBoard->Footprints() )
@@ -462,33 +528,34 @@ void CN_CONNECTIVITY_ALGO::Build( BOARD* aBoard, PROGRESS_REPORTER* aReporter )
         for( PAD* pad : footprint->Pads() )
         {
             Add( pad );
-            reportProgress( aReporter, ii++, size, delta );
+            report( ++ii );
         }
+    }
+
+    if( aReporter )
+    {
+        aReporter->SetCurrentProgress( (double) ii / (double) size );
+        aReporter->KeepRefreshing( false );
     }
 }
 
 
-void CN_CONNECTIVITY_ALGO::Build( const std::vector<BOARD_ITEM*>& aItems )
+void CN_CONNECTIVITY_ALGO::LocalBuild( const std::vector<BOARD_ITEM*>& aItems )
 {
-    for( auto item : aItems )
+    for( BOARD_ITEM* item : aItems )
     {
         switch( item->Type() )
         {
-            case PCB_TRACE_T:
-            case PCB_ARC_T:
-            case PCB_VIA_T:
-            case PCB_PAD_T:
-                Add( item );
-                break;
+        case PCB_TRACE_T:
+        case PCB_ARC_T:
+        case PCB_VIA_T:
+        case PCB_PAD_T:
+        case PCB_FOOTPRINT_T:
+            Add( item );
+            break;
 
-            case PCB_FOOTPRINT_T:
-                for( PAD* pad : static_cast<FOOTPRINT*>( item )->Pads() )
-                    Add( pad );
-
-                break;
-
-            default:
-                break;
+        default:
+            break;
         }
     }
 }
@@ -501,7 +568,7 @@ void CN_CONNECTIVITY_ALGO::propagateConnections( BOARD_COMMIT* aCommit, PROPAGAT
     wxLogTrace( wxT( "CN" ), wxT( "propagateConnections: propagate skip conflicts? %d" ),
                 skipConflicts );
 
-    for( const auto& cluster : m_connClusters )
+    for( const std::shared_ptr<CN_CLUSTER>& cluster : m_connClusters )
     {
         if( skipConflicts && cluster->IsConflicting() )
         {
@@ -575,7 +642,7 @@ void CN_CONNECTIVITY_ALGO::PropagateNets( BOARD_COMMIT* aCommit, PROPAGATE_MODE 
 void CN_CONNECTIVITY_ALGO::FindIsolatedCopperIslands( ZONE* aZone, PCB_LAYER_ID aLayer,
                                                       std::vector<int>& aIslands )
 {
-    if( aZone->GetFilledPolysList( aLayer ).IsEmpty() )
+    if( aZone->GetFilledPolysList( aLayer )->IsEmpty() )
         return;
 
     aIslands.clear();
@@ -585,16 +652,14 @@ void CN_CONNECTIVITY_ALGO::FindIsolatedCopperIslands( ZONE* aZone, PCB_LAYER_ID 
 
     m_connClusters = SearchClusters( CSM_CONNECTIVITY_CHECK );
 
-    for( const auto& cluster : m_connClusters )
+    for( const std::shared_ptr<CN_CLUSTER>& cluster : m_connClusters )
     {
         if( cluster->Contains( aZone ) && cluster->IsOrphaned() )
         {
-            for( auto z : *cluster )
+            for( CN_ITEM* z : *cluster )
             {
                 if( z->Parent() == aZone && z->Layer() == aLayer )
-                {
                     aIslands.push_back( static_cast<CN_ZONE_LAYER*>(z)->SubpolyIndex() );
-                }
             }
         }
     }
@@ -604,10 +669,23 @@ void CN_CONNECTIVITY_ALGO::FindIsolatedCopperIslands( ZONE* aZone, PCB_LAYER_ID 
 
 void CN_CONNECTIVITY_ALGO::FindIsolatedCopperIslands( std::vector<CN_ZONE_ISOLATED_ISLAND_LIST>& aZones )
 {
-    for( auto& z : aZones )
+    int delta = 10;    // Number of additions between 2 calls to the progress bar
+    int ii = 0;
+
+    for( CN_ZONE_ISOLATED_ISLAND_LIST& z : aZones )
     {
         Remove( z.m_zone );
         Add( z.m_zone );
+        ii++;
+
+        if( m_progressReporter && ( ii % delta ) == 0 )
+        {
+            m_progressReporter->SetCurrentProgress( (double) ii / (double) aZones.size() );
+            m_progressReporter->KeepRefreshing( false );
+        }
+
+        if( m_progressReporter && m_progressReporter->IsCancelled() )
+            return;
     }
 
     m_connClusters = SearchClusters( CSM_CONNECTIVITY_CHECK );
@@ -616,10 +694,10 @@ void CN_CONNECTIVITY_ALGO::FindIsolatedCopperIslands( std::vector<CN_ZONE_ISOLAT
     {
         for( PCB_LAYER_ID layer : zone.m_zone->GetLayerSet().Seq() )
         {
-            if( zone.m_zone->GetFilledPolysList( layer ).IsEmpty() )
+            if( zone.m_zone->GetFilledPolysList( layer )->IsEmpty() )
                 continue;
 
-            for( const CN_CLUSTER_PTR& cluster : m_connClusters )
+            for( const std::shared_ptr<CN_CLUSTER>& cluster : m_connClusters )
             {
                 if( cluster->Contains( zone.m_zone ) && cluster->IsOrphaned() )
                 {
@@ -672,27 +750,30 @@ void CN_VISITOR::checkZoneItemConnection( CN_ZONE_LAYER* aZoneLayer, CN_ITEM* aI
     if( aZoneLayer->Net() != aItem->Net() && !aItem->CanChangeNet() )
         return;
 
-    if( !aZoneLayer->BBox().Intersects( aItem->BBox() ) )
+    PCB_LAYER_ID layer = aZoneLayer->GetLayer();
+
+    if( !aItem->Parent()->IsOnLayer( layer ) )
         return;
 
-    int accuracy = 0;
+    auto connect =
+            [&]()
+            {
+                aZoneLayer->Connect( aItem );
+                aItem->Connect( aZoneLayer );
+            };
 
-    if( aItem->Parent()->Type() == PCB_VIA_T
-            || aItem->Parent()->Type() == PCB_TRACE_T
-            || aItem->Parent()->Type() == PCB_ARC_T )
-    {
-        accuracy = ( static_cast<PCB_TRACK*>( aItem->Parent() )->GetWidth() + 1 ) / 2;
-    }
-
+    // Try quick checks first...
     for( int i = 0; i < aItem->AnchorCount(); ++i )
     {
-        if( aZoneLayer->ContainsPoint( aItem->GetAnchor( i ), accuracy ) )
+        if( aZoneLayer->ContainsPoint( aItem->GetAnchor( i ) ) )
         {
-            aZoneLayer->Connect( aItem );
-            aItem->Connect( aZoneLayer );
+            connect();
             return;
         }
     }
+
+    if( aZoneLayer->Collide( aItem->Parent()->GetEffectiveShape( layer ).get() ) )
+        connect();
 }
 
 void CN_VISITOR::checkZoneZoneConnection( CN_ZONE_LAYER* aZoneLayerA, CN_ZONE_LAYER* aZoneLayerB )
@@ -700,19 +781,22 @@ void CN_VISITOR::checkZoneZoneConnection( CN_ZONE_LAYER* aZoneLayerA, CN_ZONE_LA
     const ZONE* zoneA = static_cast<const ZONE*>( aZoneLayerA->Parent() );
     const ZONE* zoneB = static_cast<const ZONE*>( aZoneLayerB->Parent() );
 
-    if( aZoneLayerA->Layer() != aZoneLayerB->Layer() )
-        return;
-
     if( aZoneLayerB->Net() != aZoneLayerA->Net() )
         return; // we only test zones belonging to the same net
 
     const BOX2I& boxA = aZoneLayerA->BBox();
     const BOX2I& boxB = aZoneLayerB->BBox();
 
-    PCB_LAYER_ID layer = static_cast<PCB_LAYER_ID>( aZoneLayerA->Layer() );
+    PCB_LAYER_ID layer = aZoneLayerA->GetLayer();
+
+    if( aZoneLayerB->GetLayer() != layer )
+        return;
+
+    if( !boxA.Intersects( boxB ) )
+        return;
 
     const SHAPE_LINE_CHAIN& outline =
-            zoneA->GetFilledPolysList( layer ).COutline( aZoneLayerA->SubpolyIndex() );
+            zoneA->GetFilledPolysList( layer )->COutline( aZoneLayerA->SubpolyIndex() );
 
     for( int i = 0; i < outline.PointCount(); i++ )
     {
@@ -728,7 +812,7 @@ void CN_VISITOR::checkZoneZoneConnection( CN_ZONE_LAYER* aZoneLayerA, CN_ZONE_LA
     }
 
     const SHAPE_LINE_CHAIN& outline2 =
-            zoneB->GetFilledPolysList( layer ).COutline( aZoneLayerB->SubpolyIndex() );
+            zoneB->GetFilledPolysList( layer )->COutline( aZoneLayerB->SubpolyIndex() );
 
     for( int i = 0; i < outline2.PointCount(); i++ )
     {
@@ -756,11 +840,6 @@ bool CN_VISITOR::operator()( CN_ITEM* aCandidate )
     if( parentA == parentB )
         return true;
 
-    LSET commonLayers = parentA->GetLayerSet() & parentB->GetLayerSet();
-
-    if( !commonLayers.any() )
-        return true;
-
     // If both m_item and aCandidate are marked dirty, they will both be searched
     // Since we are reciprocal in our connection, we arbitrarily pick one of the connections
     // to conduct the expensive search
@@ -786,6 +865,8 @@ bool CN_VISITOR::operator()( CN_ITEM* aCandidate )
         checkZoneItemConnection( static_cast<CN_ZONE_LAYER*>( m_item ), aCandidate );
         return true;
     }
+
+    LSET commonLayers = parentA->GetLayerSet() & parentB->GetLayerSet();
 
     for( PCB_LAYER_ID layer : commonLayers.Seq() )
     {

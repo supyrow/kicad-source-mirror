@@ -183,6 +183,9 @@ public:
 
     virtual PCB_LAYER_ID GetLayer() const override;
 
+    // Return the first layer in GUI sequence.
+    PCB_LAYER_ID GetFirstLayer() const;
+
     virtual bool IsOnLayer( PCB_LAYER_ID ) const override;
 
     virtual void ViewGetLayers( int aLayers[], int& aCount ) const override;
@@ -639,7 +642,7 @@ public:
     /**
      * @return a reference to the list of filled polygons.
      */
-    const SHAPE_POLY_SET& GetFilledPolysList( PCB_LAYER_ID aLayer ) const
+    const std::shared_ptr<SHAPE_POLY_SET>& GetFilledPolysList( PCB_LAYER_ID aLayer ) const
     {
         wxASSERT( m_FilledPolysList.count( aLayer ) );
         return m_FilledPolysList.at( aLayer );
@@ -648,7 +651,7 @@ public:
     SHAPE_POLY_SET* GetFill( PCB_LAYER_ID aLayer )
     {
         wxASSERT( m_FilledPolysList.count( aLayer ) );
-        return &m_FilledPolysList.at( aLayer );
+        return m_FilledPolysList.at( aLayer ).get();
     }
 
     /**
@@ -662,15 +665,7 @@ public:
      */
     void SetFilledPolysList( PCB_LAYER_ID aLayer, const SHAPE_POLY_SET& aPolysList )
     {
-        m_FilledPolysList[aLayer] = aPolysList;
-    }
-
-    /**
-     * Set the list of filled polygons.
-     */
-    void SetRawPolysList( PCB_LAYER_ID aLayer, const SHAPE_POLY_SET& aPolysList )
-    {
-        m_RawPolysList[aLayer] = aPolysList;
+        m_FilledPolysList[aLayer] = std::make_shared<SHAPE_POLY_SET>( aPolysList );
     }
 
     /**
@@ -716,12 +711,6 @@ public:
     void AddPolygon( std::vector<VECTOR2I>& aPolygon );
 
     void AddPolygon( const SHAPE_LINE_CHAIN& aPolygon );
-
-    SHAPE_POLY_SET& RawPolysList( PCB_LAYER_ID aLayer )
-    {
-        wxASSERT( m_RawPolysList.count( aLayer ) );
-        return m_RawPolysList.at( aLayer );
-    }
 
     wxString GetSelectMenuText( EDA_UNITS aUnits ) const override;
 
@@ -787,21 +776,21 @@ public:
     /**
      * Set all hatch parameters for the zone.
      *
-     * @param  aHatchStyle   is the style of the hatch, specified as one of HATCH_STYLE possible
-     *                       values.
-     * @param  aHatchPitch   is the hatch pitch in iu.
-     * @param  aRebuildHatch is a flag to indicate whether to re-hatch after having set the
+     * @param  aBorderHatchStyle   is the style of the hatch, specified as one of HATCH_STYLE
+                                   possible values.
+     * @param  aBorderHatchPitch   is the hatch pitch in iu.
+     * @param  aRebuildBorderHatch is a flag to indicate whether to re-hatch after having set the
      *                       previous parameters.
      */
-    void SetBorderDisplayStyle( ZONE_BORDER_DISPLAY_STYLE aHatchStyle, int aHatchPitch,
-                                bool aRebuildHatch );
+    void SetBorderDisplayStyle( ZONE_BORDER_DISPLAY_STYLE aBorderHatchStyle, int aBorderHatchPitch,
+                                bool aRebuilBorderdHatch );
 
     /**
      * Set the hatch pitch parameter for the zone.
      *
      * @param aPitch is the hatch pitch in iu.
      */
-    void SetHatchPitch( int aPitch );
+    void SetBorderHatchPitch( int aPitch );
 
     /**
      * Clear the zone's hatch.
@@ -931,8 +920,7 @@ protected:
      * connecting "holes" with external main outline.  In complex cases an outline
      * described by m_Poly can have many filled areas
      */
-    std::map<PCB_LAYER_ID, SHAPE_POLY_SET> m_FilledPolysList;
-    std::map<PCB_LAYER_ID, SHAPE_POLY_SET> m_RawPolysList;
+    std::map<PCB_LAYER_ID, std::shared_ptr<SHAPE_POLY_SET>> m_FilledPolysList;
 
     /// Temp variables used while filling
     EDA_RECT                               m_bboxCache;

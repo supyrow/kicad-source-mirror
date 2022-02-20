@@ -19,9 +19,10 @@
 #include <wx/settings.h>
 #include <wx/dataview.h>
 #include <wx/sizer.h>
-#include <wx/checkbox.h>
 #include <wx/textctrl.h>
+#include <wx/checkbox.h>
 #include <wx/choice.h>
+#include <wx/gbsizer.h>
 #include <wx/statline.h>
 #include <wx/button.h>
 #include <wx/dialog.h>
@@ -39,18 +40,21 @@ class DIALOG_RULE_AREA_PROPERTIES_BASE : public DIALOG_SHIM
 	protected:
 		wxStaticText* m_staticTextLayerSelection;
 		wxDataViewListCtrl* m_layers;
+		wxStaticText* m_staticText3;
+		wxTextCtrl* m_tcName;
+		wxCheckBox* m_cbLocked;
 		wxStaticText* m_staticTextBasicRules;
 		wxCheckBox* m_cbTracksCtrl;
 		wxCheckBox* m_cbViasCtrl;
 		wxCheckBox* m_cbPadsCtrl;
 		wxCheckBox* m_cbCopperPourCtrl;
 		wxCheckBox* m_cbFootprintsCtrl;
-		wxStaticText* m_staticText3;
-		wxTextCtrl* m_tcName;
 		wxCheckBox* m_cbConstrainCtrl;
-		wxCheckBox* m_cbLocked;
 		wxStaticText* m_staticTextStyle;
 		wxChoice* m_OutlineDisplayCtrl;
+		wxStaticText* m_stBorderHatchPitchText;
+		wxTextCtrl* m_outlineHatchPitchCtrl;
+		wxStaticText* m_outlineHatchUnits;
 		wxStaticLine* m_staticline1;
 		wxStdDialogButtonSizer* m_sdbSizerButtons;
 		wxButton* m_sdbSizerButtonsOK;

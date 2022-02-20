@@ -59,6 +59,7 @@ ZONE_SETTINGS::ZONE_SETTINGS()
     m_ZoneBorderDisplayStyle = ZONE_BORDER_DISPLAY_STYLE::DIAGONAL_EDGE; // Option to show the zone
                                                                          // outlines only, short
                                                                          // hatches or full hatches
+    m_BorderHatchPitch = Mils2iu( ZONE_BORDER_HATCH_DIST_MIL );
 
     m_Layers.reset().set( F_Cu );
     m_Name = wxEmptyString;
@@ -104,6 +105,7 @@ ZONE_SETTINGS& ZONE_SETTINGS::operator << ( const ZONE& aSource )
     m_NetcodeSelection            = aSource.GetNetCode();
     m_Name                        = aSource.GetZoneName();
     m_ZoneBorderDisplayStyle      = aSource.GetHatchStyle();
+    m_BorderHatchPitch            = aSource.GetBorderHatchPitch();
     m_ThermalReliefGap            = aSource.GetThermalReliefGap();
     m_ThermalReliefSpokeWidth     = aSource.GetThermalReliefSpokeWidth();
     m_padConnection               = aSource.GetPadConnection();
@@ -166,8 +168,8 @@ void ZONE_SETTINGS::ExportSetting( ZONE& aTarget, bool aFullExport ) const
 
     // call SetBorderDisplayStyle last, because hatch lines will be rebuilt,
     // using new parameters values
-    aTarget.SetBorderDisplayStyle( m_ZoneBorderDisplayStyle, aTarget.GetDefaultHatchPitch(),
-                                   true );
+    aTarget.SetBorderDisplayStyle( m_ZoneBorderDisplayStyle,
+                                   m_BorderHatchPitch, true );
 }
 
 
@@ -192,16 +194,14 @@ const static wxSize CHECKERBOARD_SIZE( 8, 8 );
 // A helper for setting up a dialog list for specifying zone layers.  Used by all three
 // zone settings dialogs.
 void ZONE_SETTINGS::SetupLayersList( wxDataViewListCtrl* aList, PCB_BASE_FRAME* aFrame,
-                                     bool aShowCopper, bool aFpEditorMode )
+                                     LSET aLayers, bool aFpEditorMode )
 {
     BOARD* board = aFrame->GetBoard();
     COLOR4D backgroundColor = aFrame->GetColorSettings()->GetColor( LAYER_PCB_BACKGROUND );
-    LSET layers = aShowCopper ? LSET::AllCuMask( board->GetCopperLayerCount() )
-                              : LSET::AllNonCuMask();
 
     // In the Footprint Editor In1_Cu is used as a proxy for "all inner layers"
     if( aFpEditorMode )
-        layers.set( In1_Cu );
+        aLayers.set( In1_Cu );
 
     wxDataViewColumn* checkColumn = aList->AppendToggleColumn( wxEmptyString );
     wxDataViewColumn* layerColumn = aList->AppendIconTextColumn( wxEmptyString );
@@ -210,7 +210,7 @@ void ZONE_SETTINGS::SetupLayersList( wxDataViewListCtrl* aList, PCB_BASE_FRAME* 
 
     int textWidth = 0;
 
-    for( LSEQ layer = layers.UIOrder(); layer; ++layer )
+    for( LSEQ layer = aLayers.UIOrder(); layer; ++layer )
     {
         PCB_LAYER_ID layerID = *layer;
         wxString layerName = board->GetLayerName( layerID );

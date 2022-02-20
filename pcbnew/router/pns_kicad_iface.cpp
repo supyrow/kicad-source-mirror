@@ -1039,9 +1039,6 @@ bool PNS_KICAD_IFACE_BASE::syncZone( PNS::NODE* aWorld, ZONE* aZone, SHAPE_POLY_
     if( !aZone->GetIsRuleArea() && aZone->GetZoneName().IsEmpty() )
         return false;
 
-    // Required by expression function insideArea()
-    aZone->CacheBoundingBox();
-
     // TODO handle aZone->GetDoNotAllowVias()
     // TODO handle rules which disallow tracks & vias
     if( !aZone->GetIsRuleArea() || !aZone->GetDoNotAllowTracks() )
@@ -1411,18 +1408,18 @@ void PNS_KICAD_IFACE::DisplayItem( const PNS::ITEM* aItem, int aClearance, bool 
 
         auto* settings = static_cast<PCBNEW_SETTINGS*>( m_tool->GetManager()->GetSettings() );
 
-        switch( settings->m_Display.m_ShowTrackClearanceMode )
+        switch( settings->m_Display.m_TrackClearance )
         {
-        case SHOW_TRACK_CLEARANCE_WITH_VIA_ALWAYS:
-        case SHOW_WHILE_ROUTING_OR_DRAGGING:
+        case SHOW_WITH_VIA_ALWAYS:
+        case SHOW_WITH_VIA_WHILE_ROUTING_OR_DRAGGING:
             pitem->ShowClearance( aItem->OfKind( tracksOrVias ) );
             break;
 
-        case SHOW_TRACK_CLEARANCE_WITH_VIA_WHILE_ROUTING:
+        case SHOW_WITH_VIA_WHILE_ROUTING:
             pitem->ShowClearance( aItem->OfKind( tracksOrVias ) && !aEdit );
             break;
 
-        case SHOW_TRACK_CLEARANCE_WHILE_ROUTING:
+        case SHOW_WHILE_ROUTING:
             pitem->ShowClearance( aItem->OfKind( tracks ) && !aEdit );
             break;
 

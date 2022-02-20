@@ -26,6 +26,7 @@
  */
 
 #include <iterator>
+#include <thread>
 #include <drc/drc_rtree.h>
 #include <pcb_base_frame.h>
 #include <board_design_settings.h>
@@ -55,6 +56,7 @@
 #include <tool/selection_conditions.h>
 #include <convert_shape_list_to_polygon.h>
 #include <wx/log.h>
+#include <progress_reporter.h>
 
 // This is an odd place for this, but CvPcb won't link if it's in board_item.cpp like I first
 // tried it.
@@ -619,7 +621,57 @@ void BOARD::SetZoneSettings( const ZONE_SETTINGS& aSettings )
 }
 
 
-void BOARD::Add( BOARD_ITEM* aBoardItem, ADD_MODE aMode )
+void BOARD::CacheTriangulation( PROGRESS_REPORTER* aReporter, const std::vector<ZONE*>& aZones )
+{
+    std::vector<ZONE*> zones = aZones;
+
+    if( zones.empty() )
+        zones = m_zones;
+
+    if( zones.empty() )
+        return;
+
+    if( aReporter )
+        aReporter->Report( _( "Tessellating copper zones..." ) );
+
+    std::atomic<size_t> next( 0 );
+    std::atomic<size_t> zones_done( 0 );
+    std::atomic<size_t> threads_done( 0 );
+    size_t parallelThreadCount = std::max<size_t>( std::thread::hardware_concurrency(), 2 );
+
+    for( size_t ii = 0; ii < parallelThreadCount; ++ii )
+    {
+        std::thread t = std::thread(
+                [ &zones, &zones_done, &threads_done, &next ]( )
+                {
+                    for( size_t i = next.fetch_add( 1 ); i < zones.size(); i = next.fetch_add( 1 ) )
+                    {
+                        zones[i]->CacheTriangulation();
+                        zones_done.fetch_add( 1 );
+                    }
+
+                    threads_done.fetch_add( 1 );
+                } );
+
+        t.detach();
+    }
+
+    // Finalize the triangulation threads
+    while( threads_done < parallelThreadCount )
+    {
+        if( aReporter )
+        {
+            aReporter->SetCurrentProgress( (double) zones_done / (double) zones.size() );
+            aReporter->KeepRefreshing();
+        }
+
+        std::this_thread::sleep_for( std::chrono::milliseconds( 100 ) );
+    }
+
+}
+
+
+void BOARD::Add( BOARD_ITEM* aBoardItem, ADD_MODE aMode, bool aSkipConnectivity )
 {
     if( aBoardItem == nullptr )
     {
@@ -704,10 +756,14 @@ void BOARD::Add( BOARD_ITEM* aBoardItem, ADD_MODE aMode )
 
     aBoardItem->SetParent( this );
     aBoardItem->ClearEditFlags();
-    m_connectivity->Add( aBoardItem );
+
+    if( !aSkipConnectivity )
+        m_connectivity->Add( aBoardItem );
 
     if( aMode != ADD_MODE::BULK_INSERT && aMode != ADD_MODE::BULK_APPEND )
+    {
         InvokeListeners( &BOARD_LISTENER::OnBoardItemAdded, *this, aBoardItem );
+    }
 }
 
 
@@ -1863,54 +1919,6 @@ ZONE* BOARD::AddArea( PICKED_ITEMS_LIST* aNewZonesList, int aNetcode, PCB_LAYER_
     }
 
     return new_area;
-}
-
-
-bool BOARD::NormalizeAreaPolygon( PICKED_ITEMS_LIST * aNewZonesList, ZONE* aCurrArea )
-{
-    // mark all areas as unmodified except this one, if modified
-    for( ZONE* zone : m_zones )
-        zone->SetLocalFlags( 0 );
-
-    aCurrArea->SetLocalFlags( 1 );
-
-    if( aCurrArea->Outline()->IsSelfIntersecting() )
-    {
-        aCurrArea->UnHatchBorder();
-
-        // Normalize copied area and store resulting number of polygons
-        int n_poly = aCurrArea->Outline()->NormalizeAreaOutlines();
-
-        // If clipping has created some polygons, we must add these new copper areas.
-        if( n_poly > 1 )
-        {
-            ZONE* NewArea;
-
-            // Move the newly created polygons to new areas, removing them from the current area
-            for( int ip = 1; ip < n_poly; ip++ )
-            {
-                // Create new copper area and copy poly into it
-                SHAPE_POLY_SET* new_p = new SHAPE_POLY_SET( aCurrArea->Outline()->UnitSet( ip ) );
-                NewArea = AddArea( aNewZonesList, aCurrArea->GetNetCode(), aCurrArea->GetLayer(),
-                                   VECTOR2I( 0, 0 ), aCurrArea->GetHatchStyle() );
-
-                // remove the poly that was automatically created for the new area
-                // and replace it with a poly from NormalizeAreaOutlines
-                delete NewArea->Outline();
-                NewArea->SetOutline( new_p );
-                NewArea->HatchBorder();
-                NewArea->SetLocalFlags( 1 );
-            }
-
-            SHAPE_POLY_SET* new_p = new SHAPE_POLY_SET( aCurrArea->Outline()->UnitSet( 0 ) );
-            delete aCurrArea->Outline();
-            aCurrArea->SetOutline( new_p );
-        }
-    }
-
-    aCurrArea->HatchBorder();
-
-    return true;
 }
 
 

@@ -929,7 +929,6 @@ bool PCB_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
     std::vector<ZONE*> toFill;
 
     // Rebuild list of nets (full ratsnest rebuild)
-    progressReporter.Report( _( "Updating nets" ) );
     GetBoard()->BuildConnectivity( &progressReporter );
 
     // Load project settings after setting up board; some of them depend on the nets list
@@ -968,11 +967,9 @@ bool PCB_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
         filler.SetProgressReporter( &progressReporter );
 
         if( filler.Fill( toFill ) )
-        {
-            commit.Push( _( "Convert Zone(s)" ) );
-            progressReporter.Report( _( "Updating nets" ) );
-            GetBoard()->BuildConnectivity( &progressReporter );
-        }
+            commit.Push( _( "Convert Zone(s)" ), true, true, false );
+
+        GetBoard()->BuildConnectivity( &progressReporter );
     }
 
     // from EDA_APPL which was first loaded BOARD only:

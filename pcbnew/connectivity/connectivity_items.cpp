@@ -39,8 +39,6 @@ int CN_ITEM::AnchorCount() const
 
     switch( m_parent->Type() )
     {
-    case PCB_PAD_T:
-        return 5;  // center, north, south, east and west
     case PCB_TRACE_T:
     case PCB_ARC_T:
         return 2;  // start and end
@@ -52,89 +50,14 @@ int CN_ITEM::AnchorCount() const
 
 const VECTOR2I CN_ITEM::GetAnchor( int n ) const
 {
-    VECTOR2I pt0;
-
     if( !m_valid )
-        return pt0;
+        return VECTOR2I();
 
     switch( m_parent->Type() )
     {
     case PCB_PAD_T:
-    {
-        PAD* pad = static_cast<PAD*>( m_parent );
+        return static_cast<PAD*>( m_parent )->GetPosition();
 
-        if( n == 0 )
-            return VECTOR2I( pad->GetPosition() );
-
-        // ShapePos() is the geometric center (not anchor) for the pad
-        pt0 = pad->ShapePos();
-        VECTOR2I pt1 = pt0;
-
-        switch( pad->GetShape() )
-        {
-        case PAD_SHAPE::TRAPEZOID:
-            // Because the trap delta is applied as +1/2 at one end and -1/2 at the other,
-            // the midpoint is actually unchanged.  Therefore all the cardinal points are
-            // the same as for a rectangle.
-            KI_FALLTHROUGH;
-
-        case PAD_SHAPE::RECT:
-        case PAD_SHAPE::CIRCLE:
-        case PAD_SHAPE::OVAL:
-        case PAD_SHAPE::ROUNDRECT:
-        case PAD_SHAPE::CHAMFERED_RECT:
-            switch( n )
-            {
-            case 1: pt1.y -= pad->GetSize().y / 2; break;    // North
-            case 2: pt1.y += pad->GetSize().y / 2; break;    // South
-            case 3: pt1.x -= pad->GetSize().x / 2; break;    // East
-            case 4: pt1.x += pad->GetSize().x / 2; break;    // West
-            default:                               break;    // Wicked witch
-            }
-
-            if( !pad->GetOrientation().IsZero() )
-                RotatePoint( pt1, pad->ShapePos(), pad->GetOrientation() );
-
-            // Thermal spokes on circular pads form an 'X' instead of a '+'
-            if( pad->GetShape() == PAD_SHAPE::CIRCLE )
-                RotatePoint( pt1, pad->ShapePos(), ANGLE_45 );
-
-            return pt1;
-
-        case PAD_SHAPE::CUSTOM:
-        {
-            switch( n )
-            {
-            case 1: pt1.y = INT_MIN / 2; break;    // North
-            case 2: pt1.y = INT_MAX / 2; break;    // South
-            case 3: pt1.x = INT_MIN / 2; break;    // East
-            case 4: pt1.x = INT_MAX / 2; break;    // West
-            default:                     break;    // Wicked witch
-            }
-
-            if( !pad->GetOrientation().IsZero() )
-                RotatePoint( pt1, pad->ShapePos(), pad->GetOrientation() );
-
-            const std::shared_ptr<SHAPE_POLY_SET>& padPolySet = pad->GetEffectivePolygon();
-            const SHAPE_LINE_CHAIN&                padOutline = padPolySet->COutline( 0 );
-            SHAPE_LINE_CHAIN::INTERSECTIONS        intersections;
-
-            padOutline.Intersect( SEG( pt0, pt1 ), intersections );
-
-            if( intersections.empty() )
-            {
-                // There should always be at least some copper outside the hole and/or
-                // shapePos center
-                assert( false );
-                return pt0;
-            }
-
-            return intersections[ intersections.size() - 1 ].p;
-        }
-        }
-
-        break;
-    }
     case PCB_TRACE_T:
     case PCB_ARC_T:
         if( n == 0 )
@@ -146,10 +69,9 @@ const VECTOR2I CN_ITEM::GetAnchor( int n ) const
         return static_cast<const PCB_VIA*>( m_parent )->GetStart();
 
     default:
-        assert( false );
+        UNIMPLEMENTED_FOR( m_parent->GetClass() );
+        return VECTOR2I();
     }
-
-    return pt0;
 }
 
 
@@ -170,10 +92,9 @@ int CN_ZONE_LAYER::AnchorCount() const
     if( !Valid() )
         return 0;
 
-    const ZONE*             zone    = static_cast<const ZONE*>( Parent() );
-    const SHAPE_LINE_CHAIN& outline = zone->GetFilledPolysList( m_layer ).COutline( m_subpolyIndex );
+    const ZONE* zone = static_cast<const ZONE*>( Parent() );
 
-    return outline.PointCount() ? 1 : 0;
+    return zone->GetFilledPolysList( m_layer )->COutline( m_subpolyIndex ).PointCount() ? 1 : 0;
 }
 
 
@@ -182,16 +103,15 @@ const VECTOR2I CN_ZONE_LAYER::GetAnchor( int n ) const
     if( !Valid() )
         return VECTOR2I();
 
-    const ZONE*             zone    = static_cast<const ZONE*>( Parent() );
-    const SHAPE_LINE_CHAIN& outline = zone->GetFilledPolysList( m_layer ).COutline( m_subpolyIndex );
+    const ZONE* zone = static_cast<const ZONE*>( Parent() );
 
-    return outline.CPoint( 0 );
+    return zone->GetFilledPolysList( m_layer )->COutline( m_subpolyIndex ).CPoint( 0 );
 }
 
 
 void CN_ITEM::RemoveInvalidRefs()
 {
-    for( auto it = m_connected.begin(); it != m_connected.end(); )
+    for( auto it = m_connected.begin(); it != m_connected.end(); /* increment in loop */ )
     {
         if( !(*it)->Valid() )
             it = m_connected.erase( it );
@@ -238,9 +158,10 @@ CN_ITEM* CN_LIST::Add( PAD* pad )
      return item;
 }
 
+
 CN_ITEM* CN_LIST::Add( PCB_TRACK* track )
 {
-    auto item = new CN_ITEM( track, true );
+    CN_ITEM* item = new CN_ITEM( track, true );
     m_items.push_back( item );
     item->AddAnchor( track->GetStart() );
     item->AddAnchor( track->GetEnd() );
@@ -250,9 +171,10 @@ CN_ITEM* CN_LIST::Add( PCB_TRACK* track )
     return item;
 }
 
+
 CN_ITEM* CN_LIST::Add( PCB_ARC* aArc )
 {
-    auto item = new CN_ITEM( aArc, true );
+    CN_ITEM* item = new CN_ITEM( aArc, true );
     m_items.push_back( item );
     item->AddAnchor( aArc->GetStart() );
     item->AddAnchor( aArc->GetEnd() );
@@ -262,42 +184,50 @@ CN_ITEM* CN_LIST::Add( PCB_ARC* aArc )
     return item;
 }
 
- CN_ITEM* CN_LIST::Add( PCB_VIA* via )
- {
-     auto item = new CN_ITEM( via, !via->GetIsFree(), 1 );
 
-     m_items.push_back( item );
-     item->AddAnchor( via->GetStart() );
+CN_ITEM* CN_LIST::Add( PCB_VIA* via )
+{
+    CN_ITEM* item = new CN_ITEM( via, !via->GetIsFree(), 1 );
 
-     item->SetLayers( LAYER_RANGE( via->TopLayer(), via->BottomLayer() ) );
-     addItemtoTree( item );
-     SetDirty();
-     return item;
- }
+    m_items.push_back( item );
+    item->AddAnchor( via->GetStart() );
 
- const std::vector<CN_ITEM*> CN_LIST::Add( ZONE* zone, PCB_LAYER_ID aLayer )
- {
-     const auto& polys = zone->GetFilledPolysList( aLayer );
+    item->SetLayers( LAYER_RANGE( via->TopLayer(), via->BottomLayer() ) );
+    addItemtoTree( item );
+    SetDirty();
+    return item;
+}
 
-     std::vector<CN_ITEM*> rv;
 
-     for( int j = 0; j < polys.OutlineCount(); j++ )
-     {
-         CN_ZONE_LAYER* zitem = new CN_ZONE_LAYER( zone, aLayer, false, j );
-         const auto& outline = zone->GetFilledPolysList( aLayer ).COutline( j );
+const std::vector<CN_ITEM*> CN_LIST::Add( ZONE* zone, PCB_LAYER_ID aLayer )
+{
+    const std::shared_ptr<SHAPE_POLY_SET>& polys = zone->GetFilledPolysList( aLayer );
 
-         for( int k = 0; k < outline.PointCount(); k++ )
-             zitem->AddAnchor( outline.CPoint( k ) );
+    std::vector<CN_ITEM*> rv;
 
-         m_items.push_back( zitem );
-         zitem->SetLayer( aLayer );
-         addItemtoTree( zitem );
-         rv.push_back( zitem );
-         SetDirty();
-     }
+    for( int j = 0; j < polys->OutlineCount(); j++ )
+    {
+        CN_ZONE_LAYER* zitem = new CN_ZONE_LAYER( zone, aLayer, j );
 
-     return rv;
- }
+        zitem->BuildRTree();
+
+        for( VECTOR2I pt : zone->GetFilledPolysList( aLayer )->COutline( j ).CPoints() )
+            zitem->AddAnchor( pt );
+
+        rv.push_back( Add( zitem ) );
+    }
+
+    return rv;
+}
+
+
+CN_ITEM* CN_LIST::Add( CN_ZONE_LAYER* zitem )
+{
+    m_items.push_back( zitem );
+    addItemtoTree( zitem );
+    SetDirty();
+    return zitem;
+}
 
 
 void CN_LIST::RemoveInvalidItems( std::vector<CN_ITEM*>& aGarbage )
@@ -305,23 +235,24 @@ void CN_LIST::RemoveInvalidItems( std::vector<CN_ITEM*>& aGarbage )
     if( !m_hasInvalid )
         return;
 
-    auto lastItem = std::remove_if(m_items.begin(), m_items.end(), [&aGarbage] ( CN_ITEM* item )
-    {
-        if( !item->Valid() )
-        {
-            aGarbage.push_back ( item );
-            return true;
-        }
+    auto lastItem = std::remove_if( m_items.begin(), m_items.end(),
+                                    [&aGarbage]( CN_ITEM* item )
+                                    {
+                                        if( !item->Valid() )
+                                        {
+                                            aGarbage.push_back ( item );
+                                            return true;
+                                        }
 
-        return false;
-    } );
+                                        return false;
+                                    } );
 
     m_items.resize( lastItem - m_items.begin() );
 
-    for( auto item : m_items )
+    for( CN_ITEM* item : m_items )
         item->RemoveInvalidRefs();
 
-    for( auto item : aGarbage )
+    for( CN_ITEM* item : aGarbage )
         m_index.Remove( item );
 
     m_hasInvalid = false;
@@ -447,7 +378,7 @@ bool CN_CLUSTER::Contains( const CN_ITEM* aItem )
 bool CN_CLUSTER::Contains( const BOARD_CONNECTED_ITEM* aItem )
 {
     return std::find_if( m_items.begin(), m_items.end(),
-                         [ &aItem ] ( const CN_ITEM* item )
+                         [&aItem]( const CN_ITEM* item )
                          {
                              return item->Valid() && item->Parent() == aItem;
                          } ) != m_items.end();
@@ -483,9 +414,7 @@ void CN_CLUSTER::Add( CN_ITEM* item )
         return;
 
     if( m_originNet <= 0 )
-    {
         m_originNet = netCode;
-    }
 
     if( item->Parent()->Type() == PCB_PAD_T )
     {
@@ -511,8 +440,6 @@ void CN_CLUSTER::Add( CN_ITEM* item )
         }
 
         if( m_originPad && item->Net() != m_originNet )
-        {
             m_conflicting = true;
-        }
     }
 }

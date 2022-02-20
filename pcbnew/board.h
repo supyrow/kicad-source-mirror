@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2007 Jean-Pierre Charras, jaen-pierre.charras@gipsa-lab.inpg.com
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -292,8 +292,11 @@ public:
     void SetGenerator( const wxString& aGenerator ) { m_generator = aGenerator; }
     const wxString& GetGenerator() const { return m_generator; }
 
-    void Add( BOARD_ITEM* aItem, ADD_MODE aMode = ADD_MODE::INSERT ) override;
+    ///< @copydoc BOARD_ITEM_CONTAINER::Add()
+    void Add( BOARD_ITEM* aItem, ADD_MODE aMode = ADD_MODE::INSERT,
+              bool aSkipConnectivity = false ) override;
 
+    ///< @copydoc BOARD_ITEM_CONTAINER::Remove()
     void Remove( BOARD_ITEM* aBoardItem, REMOVE_MODE aMode = REMOVE_MODE::NORMAL ) override;
 
     /**
@@ -307,6 +310,9 @@ public:
      * for listeners.
      */
     void FinalizeBulkRemove( std::vector<BOARD_ITEM*>& aRemovedItems );
+
+    void CacheTriangulation( PROGRESS_REPORTER* aReporter = nullptr,
+                             const std::vector<ZONE*>& aZones = {} );
 
     /**
      * Get the first footprint on the board or nullptr.
@@ -867,31 +873,6 @@ public:
      */
     ZONE* AddArea( PICKED_ITEMS_LIST* aNewZonesList, int aNetcode, PCB_LAYER_ID aLayer,
                    VECTOR2I aStartPointPosition, ZONE_BORDER_DISPLAY_STYLE aHatch );
-
-    /**
-     * Process an area that has been modified, by normalizing its polygon against itself.
-     * i.e. convert a self-intersecting polygon to one (or more) non self-intersecting polygon(s)
-     *
-     * This may change the number and order of copper areas in the net.
-     *
-     * @param aNewZonesList is a PICKED_ITEMS_LIST where to store new created areas pickers.
-     * @param aCurrArea is the zone to process.
-     * @return true if changes are made.
-     */
-    bool NormalizeAreaPolygon( PICKED_ITEMS_LIST* aNewZonesList, ZONE* aCurrArea );
-
-    /**
-     * Process an area that has been modified, by normalizing its polygon
-     * and merging the intersecting polygons for any other areas on the same net.
-     *
-     * This may change the number and order of copper areas in the net.
-     *
-     * @param aModifiedZonesList is a #PICKED_ITEMS_LIST where to store deleted or added areas
-     *                           (useful in undo commands can be NULL).
-     * @param modified_area is the area to test.
-     * @return true if some areas modified.
-    */
-    bool OnAreaPolygonModified( PICKED_ITEMS_LIST* aModifiedZonesList, ZONE* modified_area );
 
     /**
      * Test for intersection of 2 copper areas.

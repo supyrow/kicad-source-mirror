@@ -22,6 +22,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
+#include <cmath>
 #include <trigo.h>
 #include <tool/tool_manager.h>
 #include <tools/ee_grid_helper.h>
@@ -373,6 +374,35 @@ int SCH_MOVE_TOOL::Main( const TOOL_EVENT& aEvent )
             VECTOR2I delta( m_cursor - prevPos );
             m_anchorPos = m_cursor;
 
+            // We need to check if the movement will change the net offset direction on the
+            // X an Y axes. This is because we remerge added bend lines in realtime, and we
+            // also account for the direction of the move when adding bend lines. So, if the
+            // move direction changes, we need to split it into a move that gets us back to
+            // zero, then the rest of the move.
+            std::vector<VECTOR2I> splitMoves;
+
+            // Note, this was originally implemented as std::signbit( m_moveOffset.x ) !=
+            // std::signbit( ( m_moveOffset + delta ).x ).  The binary logic XORs both
+            // values and if the signbit is set in the result, that means that one value
+            // had the sign bit set and one did not, hence the result is negative.
+            // We need to avoid std::signbit<int> as it is not supported by MSVC because reasons
+            if( ( m_moveOffset.x ^ ( m_moveOffset + delta ).x ) < 0 )
+            {
+                splitMoves.emplace_back( VECTOR2I( -1 * m_moveOffset.x, 0 ) );
+                splitMoves.emplace_back( VECTOR2I( delta.x + m_moveOffset.x, 0 ) );
+            }
+            else
+                splitMoves.emplace_back( VECTOR2I( delta.x, 0 ) );
+
+            if( ( m_moveOffset.y ^ ( m_moveOffset + delta ).y ) < 0 )
+            {
+                splitMoves.emplace_back( VECTOR2I( 0, -1 * m_moveOffset.y ) );
+                splitMoves.emplace_back( VECTOR2I( 0, delta.y + m_moveOffset.y ) );
+            }
+            else
+                splitMoves.emplace_back( VECTOR2I( 0, delta.y ) );
+
+
             m_moveOffset += delta;
             prevPos = m_cursor;
 
@@ -381,13 +411,14 @@ int SCH_MOVE_TOOL::Main( const TOOL_EVENT& aEvent )
             int yBendCount = 1;
 
             // Split the move into X and Y moves so we can correctly drag orthogonal lines
-            for( VECTOR2I splitDelta : { VECTOR2I( delta.x, 0 ), VECTOR2I( 0, delta.y ) } )
+            for( VECTOR2I splitDelta : splitMoves )
             {
                 // Skip non-moves
                 if( splitDelta == VECTOR2I( 0, 0 ) )
                     continue;
 
-                for( EDA_ITEM* item : selection.GetItemsSortedByTypeAndXY() )
+                for( EDA_ITEM* item :
+                     selection.GetItemsSortedByTypeAndXY( ( delta.x >= 0 ), ( delta.y >= 0 ) ) )
                 {
                     // Don't double move pins, fields, etc.
                     if( item->GetParent() && item->GetParent()->IsSelected() )
@@ -596,7 +627,7 @@ int SCH_MOVE_TOOL::Main( const TOOL_EVENT& aEvent )
                                 int          yLength = abs( unselectedEnd.y - selectedEnd.y );
                                 int          xMove = ( xLength - ( xBendCount * grid.GetGrid().x ) )
                                             * sign( selectedEnd.x - unselectedEnd.x );
-                                int yMove = ( yLength - ( yBendCount * grid.GetGrid().y ) )
+                                int          yMove = ( yLength - ( yBendCount * grid.GetGrid().y ) )
                                             * sign( selectedEnd.y - unselectedEnd.y );
 
                                 // Create a new wire ending at the unselected end, we'll
@@ -813,6 +844,7 @@ int SCH_MOVE_TOOL::Main( const TOOL_EVENT& aEvent )
                 m_frame->AddJunction( m_frame->GetScreen(), it.GetPosition(), true, false );
         }
 
+        m_toolMgr->RunAction( EE_ACTIONS::trimOverlappingWires, true, &selectionCopy );
         m_toolMgr->RunAction( EE_ACTIONS::addNeededJunctions, true, &selectionCopy );
 
         m_frame->RecalculateConnections( LOCAL_CLEANUP );
@@ -1402,6 +1434,7 @@ int SCH_MOVE_TOOL::AlignElements( const TOOL_EVENT& aEvent )
     }
 
     m_toolMgr->PostEvent( EVENTS::SelectedItemsMoved );
+    m_toolMgr->RunAction( EE_ACTIONS::trimOverlappingWires, true, &selection );
     m_toolMgr->RunAction( EE_ACTIONS::addNeededJunctions, true, &selection );
 
     m_frame->RecalculateConnections( LOCAL_CLEANUP );
@@ -1424,7 +1457,10 @@ void SCH_MOVE_TOOL::setTransitions()
 void SCH_MOVE_TOOL::commitNewDragLines()
 {
     for( auto newLine : m_newDragLines )
+    {
         saveCopyInUndoList( newLine, UNDO_REDO::NEWITEM, true );
+        newLine->ClearEditFlags();
+    }
 
     m_newDragLines.clear();
 }

@@ -149,8 +149,13 @@ void ZONE::InitDataFromSrcInCopyCtor( const ZONE& aZone )
 
     for( PCB_LAYER_ID layer : aZone.GetLayerSet().Seq() )
     {
-        m_FilledPolysList[layer]  = aZone.m_FilledPolysList.at( layer );
-        m_RawPolysList[layer]     = aZone.m_RawPolysList.at( layer );
+        std::shared_ptr<SHAPE_POLY_SET> fill = aZone.m_FilledPolysList.at( layer );
+
+        if( fill )
+            m_FilledPolysList[layer] = std::make_shared<SHAPE_POLY_SET>( *fill );
+        else
+            m_FilledPolysList[layer] = std::make_shared<SHAPE_POLY_SET>();
+
         m_filledPolysHash[layer]  = aZone.m_filledPolysHash.at( layer );
         m_insulatedIslands[layer] = aZone.m_insulatedIslands.at( layer );
     }
@@ -178,11 +183,11 @@ bool ZONE::UnFill()
 {
     bool change = false;
 
-    for( std::pair<const PCB_LAYER_ID, SHAPE_POLY_SET>& pair : m_FilledPolysList )
+    for( std::pair<const PCB_LAYER_ID, std::shared_ptr<SHAPE_POLY_SET>>& pair : m_FilledPolysList )
     {
-        change |= !pair.second.IsEmpty();
+        change |= !pair.second->IsEmpty();
         m_insulatedIslands[pair.first].clear();
-        pair.second.RemoveAllContours();
+        pair.second->RemoveAllContours();
     }
 
     m_isFilled = false;
@@ -200,7 +205,18 @@ VECTOR2I ZONE::GetPosition() const
 
 PCB_LAYER_ID ZONE::GetLayer() const
 {
+    wxFAIL_MSG( wxT( "Zones exist on multiple layers.  GetLayer() has no meaning." ) );
+
     return BOARD_ITEM::GetLayer();
+}
+
+
+PCB_LAYER_ID ZONE::GetFirstLayer() const
+{
+    if( m_layerSet.size() )
+        return m_layerSet.UIOrder()[0];
+    else
+        return UNDEFINED_LAYER;
 }
 
 
@@ -221,19 +237,11 @@ bool ZONE::CommonLayerExists( const LSET aLayerSet ) const
 void ZONE::SetLayer( PCB_LAYER_ID aLayer )
 {
     SetLayerSet( LSET( aLayer ) );
-
-    m_layer = aLayer;
 }
 
 
 void ZONE::SetLayerSet( LSET aLayerSet )
 {
-    if( GetIsRuleArea() )
-    {
-        // Rule areas can only exist on copper layers
-        aLayerSet &= LSET::AllCuMask();
-    }
-
     if( aLayerSet.count() == 0 )
         return;
 
@@ -244,28 +252,18 @@ void ZONE::SetLayerSet( LSET aLayerSet )
         UnFill();
 
         m_FilledPolysList.clear();
-        m_RawPolysList.clear();
         m_filledPolysHash.clear();
         m_insulatedIslands.clear();
 
         for( PCB_LAYER_ID layer : aLayerSet.Seq() )
         {
-            m_FilledPolysList[layer]  = {};
-            m_RawPolysList[layer]     = {};
+            m_FilledPolysList[layer]  = std::make_shared<SHAPE_POLY_SET>();
             m_filledPolysHash[layer]  = {};
             m_insulatedIslands[layer] = {};
         }
     }
 
     m_layerSet = aLayerSet;
-
-    // Set the single layer parameter.  For zones that can be on many layers, this parameter
-    // is arbitrary at best, but some code still uses it.
-    // Priority is F_Cu then B_Cu then to the first selected layer
-    m_layer = aLayerSet.Seq()[0];
-
-    if( m_layer != F_Cu && aLayerSet[B_Cu] )
-        m_layer = B_Cu;
 }
 
 
@@ -351,7 +349,7 @@ void ZONE::BuildHashValue( PCB_LAYER_ID aLayer )
     if( !m_FilledPolysList.count( aLayer ) )
         m_filledPolysHash[aLayer] = g_nullPoly.GetHash();
     else
-        m_filledPolysHash[aLayer] = m_FilledPolysList.at( aLayer ).GetHash();
+        m_filledPolysHash[aLayer] = m_FilledPolysList.at( aLayer )->GetHash();
 }
 
 
@@ -466,13 +464,12 @@ bool ZONE::HitTestFilledArea( PCB_LAYER_ID aLayer, const VECTOR2I& aRefPos, int 
     // Rule areas have no filled area, but it's generally nice to treat their interior as if it were
     // filled so that people don't have to select them by their outline (which is min-width)
     if( GetIsRuleArea() )
-        return m_Poly->Contains( VECTOR2I( aRefPos.x, aRefPos.y ), -1, aAccuracy );
+        return m_Poly->Contains( aRefPos, -1, aAccuracy );
 
     if( !m_FilledPolysList.count( aLayer ) )
         return false;
 
-    return m_FilledPolysList.at( aLayer ).Contains( VECTOR2I( aRefPos.x, aRefPos.y ), -1,
-                                                    aAccuracy );
+    return m_FilledPolysList.at( aLayer )->Contains( aRefPos, -1, aAccuracy );
 }
 
 
@@ -593,7 +590,7 @@ void ZONE::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>&
     aList.emplace_back( _( "Filled Area" ), msg );
 
     wxString source;
-    int      clearance = GetOwnClearance( GetLayer(), &source );
+    int      clearance = GetOwnClearance( UNDEFINED_LAYER, &source );
 
     if( !source.IsEmpty() )
     {
@@ -607,25 +604,6 @@ void ZONE::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>&
     // and filled polygons can explain the display and DRC calculation time:
     msg.Printf( wxT( "%d" ), (int) m_borderHatchLines.size() );
     aList.emplace_back( MSG_PANEL_ITEM( _( "HatchBorder Lines" ), msg ) );
-
-    PCB_LAYER_ID layer = m_layer;
-
-    if( dynamic_cast<PCB_SCREEN*>( aFrame->GetScreen() ) )
-        layer = dynamic_cast<PCB_SCREEN*>( aFrame->GetScreen() )->m_Active_Layer;
-
-    if( !GetIsRuleArea() )
-    {
-        auto layer_it = m_FilledPolysList.find( layer );
-
-        if( layer_it == m_FilledPolysList.end() )
-            layer_it = m_FilledPolysList.begin();
-
-        if( layer_it != m_FilledPolysList.end() )
-        {
-            msg.Printf( wxT( "%d" ), layer_it->second.TotalVertices() );
-            aList.emplace_back( MSG_PANEL_ITEM( _( "Corner Count" ), msg ) );
-        }
-    }
 }
 
 
@@ -636,8 +614,8 @@ void ZONE::Move( const VECTOR2I& offset )
 
     HatchBorder();
 
-    for( std::pair<const PCB_LAYER_ID, SHAPE_POLY_SET>& pair : m_FilledPolysList )
-        pair.second.Move( offset );
+    for( std::pair<const PCB_LAYER_ID, std::shared_ptr<SHAPE_POLY_SET>>& pair : m_FilledPolysList )
+        pair.second->Move( offset );
 }
 
 
@@ -662,20 +640,16 @@ void ZONE::Rotate( const VECTOR2I& aCentre, const EDA_ANGLE& aAngle )
     HatchBorder();
 
     /* rotate filled areas: */
-    for( std::pair<const PCB_LAYER_ID, SHAPE_POLY_SET>& pair : m_FilledPolysList )
-        pair.second.Rotate( aAngle, aCentre );
+    for( std::pair<const PCB_LAYER_ID, std::shared_ptr<SHAPE_POLY_SET>>& pair : m_FilledPolysList )
+        pair.second->Rotate( aAngle, aCentre );
 }
 
 
 void ZONE::Flip( const VECTOR2I& aCentre, bool aFlipLeftRight )
 {
     Mirror( aCentre, aFlipLeftRight );
-    int copperLayerCount = GetBoard()->GetCopperLayerCount();
 
-    if( GetIsRuleArea() )
-        SetLayerSet( FlipLayerMask( GetLayerSet(), copperLayerCount ) );
-    else
-        SetLayer( FlipLayer( GetLayer(), copperLayerCount ) );
+    SetLayerSet( FlipLayerMask( GetLayerSet(), GetBoard()->GetCopperLayerCount() ) );
 }
 
 
@@ -686,8 +660,8 @@ void ZONE::Mirror( const VECTOR2I& aMirrorRef, bool aMirrorLeftRight )
 
     HatchBorder();
 
-    for( std::pair<const PCB_LAYER_ID, SHAPE_POLY_SET>& pair : m_FilledPolysList )
-        pair.second.Mirror( aMirrorLeftRight, !aMirrorLeftRight, aMirrorRef );
+    for( std::pair<const PCB_LAYER_ID, std::shared_ptr<SHAPE_POLY_SET>>& pair : m_FilledPolysList )
+        pair.second->Mirror( aMirrorLeftRight, !aMirrorLeftRight, aMirrorRef );
 }
 
 
@@ -797,18 +771,23 @@ int ZONE::GetBorderHatchPitch() const
 }
 
 
-void ZONE::SetBorderDisplayStyle( ZONE_BORDER_DISPLAY_STYLE aHatchStyle, int aHatchPitch,
-                                  bool aRebuildHatch )
+void ZONE::SetBorderDisplayStyle( ZONE_BORDER_DISPLAY_STYLE aBorderHatchStyle,
+                                  int aBorderHatchPitch,
+                                  bool aRebuildBorderHatch )
 {
-    SetHatchPitch( aHatchPitch );
-    m_borderStyle = aHatchStyle;
+    aBorderHatchPitch = std::max( aBorderHatchPitch,
+                                  Millimeter2iu( ZONE_BORDER_HATCH_MINDIST_MM ) );
+    aBorderHatchPitch = std::min( aBorderHatchPitch,
+                                  Millimeter2iu( ZONE_BORDER_HATCH_MAXDIST_MM ) );
+    SetBorderHatchPitch( aBorderHatchPitch );
+    m_borderStyle = aBorderHatchStyle;
 
-    if( aRebuildHatch )
+    if( aRebuildBorderHatch )
         HatchBorder();
 }
 
 
-void ZONE::SetHatchPitch( int aPitch )
+void ZONE::SetBorderHatchPitch( int aPitch )
 {
     m_borderHatchPitch = aPitch;
 }
@@ -872,7 +851,7 @@ void ZONE::HatchBorder()
     int  hatch_line_len = m_borderHatchPitch;
 
     // To have a better look, give a slope depending on the layer
-    int     layer = GetLayer();
+    int     layer = GetLayerSet().Seq()[0];
     int     slope_flag = (layer & 1) ? 1 : -1;  // 1 or -1
     double  slope = 0.707106 * slope_flag;      // 45 degrees slope
     int     max_a, min_a;
@@ -991,7 +970,7 @@ void ZONE::HatchBorder()
 
 int ZONE::GetDefaultHatchPitch()
 {
-    return Mils2iu( 20 );
+    return Mils2iu( ZONE_BORDER_HATCH_DIST_MIL );
 }
 
 
@@ -1013,13 +992,13 @@ void ZONE::CacheTriangulation( PCB_LAYER_ID aLayer )
 {
     if( aLayer == UNDEFINED_LAYER )
     {
-        for( std::pair<const PCB_LAYER_ID, SHAPE_POLY_SET>& pair : m_FilledPolysList )
-            pair.second.CacheTriangulation();
+        for( std::pair<const PCB_LAYER_ID, std::shared_ptr<SHAPE_POLY_SET>>& pair : m_FilledPolysList )
+            pair.second->CacheTriangulation();
     }
     else
     {
         if( m_FilledPolysList.count( aLayer ) )
-            m_FilledPolysList[ aLayer ].CacheTriangulation();
+            m_FilledPolysList[ aLayer ]->CacheTriangulation();
     }
 }
 
@@ -1170,16 +1149,16 @@ double ZONE::CalculateFilledArea()
 
     // Iterate over each outline polygon in the zone and then iterate over
     // each hole it has to compute the total area.
-    for( std::pair<const PCB_LAYER_ID, SHAPE_POLY_SET>& pair : m_FilledPolysList )
+    for( std::pair<const PCB_LAYER_ID, std::shared_ptr<SHAPE_POLY_SET>>& pair : m_FilledPolysList )
     {
-        SHAPE_POLY_SET& poly = pair.second;
+        std::shared_ptr<SHAPE_POLY_SET>& poly = pair.second;
 
-        for( int i = 0; i < poly.OutlineCount(); i++ )
+        for( int i = 0; i < poly->OutlineCount(); i++ )
         {
-            m_area += poly.Outline( i ).Area();
+            m_area += poly->Outline( i ).Area();
 
-            for( int j = 0; j < poly.HoleCount( i ); j++ )
-                m_area -= poly.Hole( i, j ).Area();
+            for( int j = 0; j < poly->HoleCount( i ); j++ )
+                m_area -= poly->Hole( i, j ).Area();
         }
     }
 
@@ -1199,7 +1178,9 @@ void ZONE::TransformSmoothedOutlineToPolygon( SHAPE_POLY_SET& aCornerBuffer, int
 {
     // Creates the zone outline polygon (with holes if any)
     SHAPE_POLY_SET polybuffer;
-    BuildSmoothedPoly( polybuffer, GetLayer(), aBoardOutline );
+
+    // TODO: using GetFirstLayer() means it only works for single-layer zones....
+    BuildSmoothedPoly( polybuffer, GetFirstLayer(), aBoardOutline );
 
     // Calculate the polygon with clearance
     // holes are linked to the main outline, so only one polygon is created.
@@ -1297,7 +1278,7 @@ std::shared_ptr<SHAPE> ZONE::GetEffectiveShape( PCB_LAYER_ID aLayer ) const
     }
     else
     {
-        shape.reset( m_FilledPolysList.at( aLayer ).Clone() );
+        shape.reset( m_FilledPolysList.at( aLayer )->Clone() );
     }
 
     return shape;
@@ -1313,7 +1294,7 @@ void ZONE::TransformShapeWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuffer,
     if( !m_FilledPolysList.count( aLayer ) )
         return;
 
-    aCornerBuffer = m_FilledPolysList.at( aLayer );
+    aCornerBuffer = *m_FilledPolysList.at( aLayer );
 
     // Rebuild filled areas only if clearance is not 0
     if( aClearance )
@@ -1327,8 +1308,8 @@ void ZONE::TransformShapeWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuffer,
 void ZONE::TransformSolidAreasShapesToPolygon( PCB_LAYER_ID aLayer, SHAPE_POLY_SET& aCornerBuffer,
                                                int aError ) const
 {
-    if( m_FilledPolysList.count( aLayer ) && !m_FilledPolysList.at( aLayer ).IsEmpty() )
-        aCornerBuffer.Append( m_FilledPolysList.at( aLayer ) );
+    if( m_FilledPolysList.count( aLayer ) && !m_FilledPolysList.at( aLayer )->IsEmpty() )
+        aCornerBuffer.Append( *m_FilledPolysList.at( aLayer ) );
 }
 
 

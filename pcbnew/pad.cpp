@@ -200,6 +200,24 @@ bool PAD::IsFlipped() const
 }
 
 
+PCB_LAYER_ID PAD::GetLayer() const
+{
+    wxFAIL_MSG( wxT( "Pads exist on multiple layers.  GetLayer() has no meaning." ) );
+
+    return BOARD_ITEM::GetLayer();
+}
+
+
+PCB_LAYER_ID PAD::GetPrincipalLayer() const
+{
+    if( m_attribute == PAD_ATTRIB::SMD || m_attribute == PAD_ATTRIB::CONN )
+        return m_layer;
+
+    wxFAIL_MSG( wxT( "Non-SMD/CONN pads have no principal layer." ) );
+    return m_layer;
+}
+
+
 bool PAD::FlashLayer( LSET aLayers ) const
 {
     for( auto layer : aLayers.Seq() )
@@ -958,7 +976,7 @@ void PAD::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& 
     }
 
     wxString source;
-    int      clearance = GetOwnClearance( GetLayer(), &source );
+    int      clearance = GetOwnClearance( UNDEFINED_LAYER, &source );
 
     if( !source.IsEmpty() )
     {

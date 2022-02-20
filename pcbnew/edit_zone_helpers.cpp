@@ -101,9 +101,6 @@ void PCB_EDIT_FRAME::Edit_Zone_Params( ZONE* aZone )
     if( net )   // net == NULL should not occur
         aZone->SetNetCode( net->GetNetCode() );
 
-    // Combine zones if possible
-    GetBoard()->OnAreaPolygonModified( &deletedList, aZone );
-
     UpdateCopyOfZonesList( pickedList, deletedList, GetBoard() );
 
     // refill zones with the new properties applied
@@ -139,40 +136,14 @@ void PCB_EDIT_FRAME::Edit_Zone_Params( ZONE* aZone )
             reporter = std::make_unique<WX_PROGRESS_REPORTER>( this, title, 4 );
             filler.SetProgressReporter( reporter.get() );
 
-            if( !filler.Fill( zones_to_refill ) )
-            {
-                GetBoard()->GetConnectivity()->Build( GetBoard() );
-                // User has already OK'ed dialog so we're going to go ahead and commit even if the
-                // fill was cancelled.
-            }
+            (void) filler.Fill( zones_to_refill );
         }
     }
 
-    commit.Push( _( "Modify zone properties" ) );
-    GetBoard()->GetConnectivity()->RecalculateRatsnest();
+    commit.Push( _( "Modify zone properties" ), true, true, false );
+    GetBoard()->GetConnectivity()->Build( GetBoard() );
 
     pickedList.ClearItemsList();  // s_ItemsListPicker is no longer owner of picked items
-}
-
-
-bool BOARD::OnAreaPolygonModified( PICKED_ITEMS_LIST* aModifiedZonesList, ZONE* modified_area )
-{
-    // clip polygon against itself
-    bool modified = NormalizeAreaPolygon( aModifiedZonesList, modified_area );
-
-    // Test for bad areas: all zones must have more than 2 corners:
-    // Note: should not happen, but just in case.
-    for( ZONE* zone : m_zones )
-    {
-        if( zone->GetNumCorners() < 3 )
-        {
-            ITEM_PICKER picker( nullptr, zone, UNDO_REDO::DELETED );
-            aModifiedZonesList->PushItem( picker );
-            zone->SetFlags( STRUCT_DELETED );
-        }
-    }
-
-    return modified;
 }
 
 

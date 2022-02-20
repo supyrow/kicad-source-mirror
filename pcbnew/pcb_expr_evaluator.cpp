@@ -454,12 +454,12 @@ bool calcIsInsideArea( BOARD_ITEM* aItem, const EDA_RECT& aItemBBox, PCB_EXPR_CO
     BOARD*                 board = aArea->GetBoard();
     std::shared_ptr<SHAPE> shape;
 
-    if( !aArea->GetCachedBoundingBox().Intersects( aItemBBox ) )
+    if( !aArea->GetBoundingBox().Intersects( aItemBBox ) )
         return false;
 
-    // Collisions include touching, so we need to deflate outline by enough to
-    // exclude touching.  This is particularly important for detecting copper fills
-    // as they will be exactly touching along the entire border.
+    // Collisions include touching, so we need to deflate outline by enough to exclude it.
+    // This is particularly important for detecting copper fills as they will be exactly
+    // touching along the entire exclusion border.
     SHAPE_POLY_SET areaOutline = *aArea->Outline();
     areaOutline.Deflate( board->GetDesignSettings().GetDRCEpsilon(), 0,
                          SHAPE_POLY_SET::ALLOW_ACUTE_CORNERS );
@@ -568,12 +568,13 @@ bool calcIsInsideArea( BOARD_ITEM* aItem, const EDA_RECT& aItemBBox, PCB_EXPR_CO
     }
     else
     {
-        if( aCtx->GetLayer() != UNDEFINED_LAYER
-                && !( aArea->GetLayerSet().Contains( aCtx->GetLayer() ) ) )
+        PCB_LAYER_ID layer = aCtx->GetLayer();
+
+        if( layer != UNDEFINED_LAYER && !( aArea->GetLayerSet().Contains( layer ) ) )
             return false;
 
         if( !shape )
-            shape = aItem->GetEffectiveShape( aCtx->GetLayer() );
+            shape = aItem->GetEffectiveShape( layer );
 
         return areaOutline.Collide( shape.get() );
     }
@@ -795,17 +796,15 @@ static void isCoupledDiffPair( LIBEVAL::CONTEXT* aCtx, void* self )
     result->SetDeferredEval(
             [a, b]() -> double
             {
-                if( a && b )
-                {
-                    NETINFO_ITEM* netinfo = a->GetNet();
-                    wxString      coupledNet, dummy;
+                NETINFO_ITEM* netinfo = a ? a->GetNet() : nullptr;
+                wxString      coupledNet;
+                wxString      dummy;
 
-                    if( netinfo
-                            && DRC_ENGINE::MatchDpSuffix( netinfo->GetNetname(), coupledNet, dummy )
-                            && b->GetNetname() == coupledNet )
-                    {
-                        return 1.0;
-                    }
+                if( netinfo
+                        && DRC_ENGINE::MatchDpSuffix( netinfo->GetNetname(), coupledNet, dummy )
+                        && ( !b || b->GetNetname() == coupledNet ) )
+                {
+                    return 1.0;
                 }
 
                 return 0.0;
@@ -815,7 +814,7 @@ static void isCoupledDiffPair( LIBEVAL::CONTEXT* aCtx, void* self )
 
 static void inDiffPair( LIBEVAL::CONTEXT* aCtx, void* self )
 {
-    LIBEVAL::VALUE*   arg    = aCtx->Pop();
+    LIBEVAL::VALUE*   argv   = aCtx->Pop();
     PCB_EXPR_VAR_REF* vref   = static_cast<PCB_EXPR_VAR_REF*>( self );
     BOARD_ITEM*       item   = vref ? vref->GetObject( aCtx ) : nullptr;
     LIBEVAL::VALUE*   result = aCtx->AllocValue();
@@ -823,7 +822,7 @@ static void inDiffPair( LIBEVAL::CONTEXT* aCtx, void* self )
     result->Set( 0.0 );
     aCtx->Push( result );
 
-    if( !arg )
+    if( !argv )
     {
         if( aCtx->HasErrorCallback() )
         {
@@ -838,21 +837,24 @@ static void inDiffPair( LIBEVAL::CONTEXT* aCtx, void* self )
         return;
 
     result->SetDeferredEval(
-            [item, arg]() -> double
+            [item, argv]() -> double
             {
                 if( item && item->IsConnected() )
                 {
                     NETINFO_ITEM* netinfo = static_cast<BOARD_CONNECTED_ITEM*>( item )->GetNet();
 
                     wxString refName = netinfo->GetNetname();
+                    wxString arg = argv->AsString();
                     wxString baseName, coupledNet;
                     int      polarity = DRC_ENGINE::MatchDpSuffix( refName, coupledNet, baseName );
 
-                    if( polarity != 0
-                            && item->GetBoard()->FindNet( coupledNet )
-                            && baseName.Matches( arg->AsString() ) )
+                    if( polarity != 0 && item->GetBoard()->FindNet( coupledNet ) )
                     {
-                        return 1.0;
+                        if( baseName.Matches( arg ) )
+                            return 1.0;
+
+                        if( baseName.EndsWith( "_" ) && baseName.BeforeLast( '_' ).Matches( arg ) )
+                            return 1.0;
                     }
                 }
 

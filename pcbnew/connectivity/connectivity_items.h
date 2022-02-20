@@ -2,7 +2,7 @@
  * This program source code file is part of KICAD, a free EDA CAD application.
  *
  * Copyright (C) 2013-2017 CERN
- * Copyright (C) 2018-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2018-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * @author Maciej Suminski <maciej.suminski@cern.ch>
  * @author Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
@@ -36,7 +36,6 @@
 #include <zone.h>
 
 #include <geometry/shape_poly_set.h>
-#include <geometry/poly_grid_partition.h>
 
 #include <memory>
 #include <algorithm>
@@ -156,9 +155,6 @@ private:
 };
 
 
-typedef std::shared_ptr<CN_ANCHOR>  CN_ANCHOR_PTR;
-typedef std::vector<CN_ANCHOR_PTR>  CN_ANCHORS;
-
 
 /**
  * CN_ITEM represents a BOARD_CONNETED_ITEM in the connectivity system (ie: a pad, track/arc/via,
@@ -167,8 +163,6 @@ typedef std::vector<CN_ANCHOR_PTR>  CN_ANCHORS;
 class CN_ITEM
 {
 public:
-    using CONNECTED_ITEMS = std::vector<CN_ITEM*>;
-
     void Dump();
 
     CN_ITEM( BOARD_CONNECTED_ITEM* aParent, bool aCanChangeNet, int aAnchorCount = 2 )
@@ -190,7 +184,7 @@ public:
         m_anchors.emplace_back( std::make_shared<CN_ANCHOR>( aPos, this ) );
     }
 
-    CN_ANCHORS& Anchors() { return m_anchors; }
+    std::vector<std::shared_ptr<CN_ANCHOR>>& Anchors() { return m_anchors; }
 
     void SetValid( bool aValid ) { m_valid = aValid; }
     bool Valid() const { return m_valid; }
@@ -234,7 +228,7 @@ public:
 
     BOARD_CONNECTED_ITEM* Parent() const { return m_parent; }
 
-    const CONNECTED_ITEMS& ConnectedItems() const { return m_connected; }
+    const std::vector<CN_ITEM*>& ConnectedItems() const { return m_connected; }
     void ClearConnections() { m_connected.clear(); }
 
     void SetVisited( bool aVisited ) { m_visited = aVisited; }
@@ -271,10 +265,10 @@ protected:
     BOX2I           m_bbox;          ///< bounding box for the item
 
 private:
-    BOARD_CONNECTED_ITEM* m_parent;
+    BOARD_CONNECTED_ITEM*                    m_parent;
 
-    CONNECTED_ITEMS m_connected;     ///< list of items physically connected (touching)
-    CN_ANCHORS      m_anchors;
+    std::vector<CN_ITEM*>                    m_connected;   ///< list of physically touching items
+    std::vector<std::shared_ptr<CN_ANCHOR>>  m_anchors;
 
     bool            m_canChangeNet;  ///< can the net propagator modify the netcode?
 
@@ -291,17 +285,33 @@ typedef std::shared_ptr<CN_ITEM> CN_ITEM_PTR;
 class CN_ZONE_LAYER : public CN_ITEM
 {
 public:
-    CN_ZONE_LAYER( ZONE* aParent, PCB_LAYER_ID aLayer, bool aCanChangeNet, int aSubpolyIndex ) :
-            CN_ITEM( aParent, aCanChangeNet ),
+    CN_ZONE_LAYER( ZONE* aParent, PCB_LAYER_ID aLayer, int aSubpolyIndex ) :
+            CN_ITEM( aParent, false ),
             m_subpolyIndex( aSubpolyIndex ),
             m_layer( aLayer )
     {
-        SHAPE_LINE_CHAIN outline = aParent->GetFilledPolysList( aLayer ).COutline( aSubpolyIndex );
+        m_triangulatedPoly = aParent->GetFilledPolysList( aLayer );
+        SetLayers( aLayer );
+    }
 
-        outline.SetClosed( true );
-        outline.Simplify();
+    void BuildRTree()
+    {
+        for( unsigned int ii = 0; ii < m_triangulatedPoly->TriangulatedPolyCount(); ++ii )
+        {
+            const auto* triangleSet = m_triangulatedPoly->TriangulatedPolygon( ii );
 
-        m_cachedPoly = std::make_unique<POLY_GRID_PARTITION>( outline, 16 );
+            if( triangleSet->GetSourceOutlineIndex() != m_subpolyIndex )
+                continue;
+
+            for( const SHAPE_POLY_SET::TRIANGULATED_POLYGON::TRI& tri : triangleSet->Triangles() )
+            {
+                BOX2I     bbox = tri.BBox();
+                const int mmin[2] = { bbox.GetX(), bbox.GetY() };
+                const int mmax[2] = { bbox.GetRight(), bbox.GetBottom() };
+
+                m_rTree.Insert( mmin, mmax, &tri );
+            }
+        }
     }
 
     int SubpolyIndex() const
@@ -309,33 +319,67 @@ public:
         return m_subpolyIndex;
     }
 
-    bool ContainsAnchor( const CN_ANCHOR_PTR anchor ) const
+    bool ContainsPoint( const VECTOR2I& p ) const
     {
-        return ContainsPoint( anchor->Pos(), 0 );
+        int  min[2] = { p.x, p.y };
+        int  max[2] = { p.x, p.y };
+        bool collision = false;
+
+        auto visitor =
+                [&]( const SHAPE* aShape ) -> bool
+                {
+                    if( aShape->Collide( p ) )
+                    {
+                        collision = true;
+                        return false;
+                    }
+
+                    return true;
+                };
+
+        m_rTree.Search( min, max, visitor );
+
+        return collision;
     }
 
-    bool ContainsPoint( const VECTOR2I& p, int aAccuracy = 0 ) const
-    {
-        return m_cachedPoly->ContainsPoint( p, aAccuracy );
-    }
-
-    const BOX2I& BBox()
-    {
-        if( m_dirty )
-            m_bbox = m_cachedPoly->BBox();
-
-        return m_bbox;
-    }
+    PCB_LAYER_ID GetLayer() { return m_layer; }
 
     virtual int AnchorCount() const override;
     virtual const VECTOR2I GetAnchor( int n ) const override;
 
+    bool Collide( SHAPE* aRefShape ) const
+    {
+        BOX2I bbox = aRefShape->BBox();
+        int  min[2] = { bbox.GetX(), bbox.GetY() };
+        int  max[2] = { bbox.GetRight(), bbox.GetBottom() };
+        bool collision = false;
+
+        auto visitor =
+                [&]( const SHAPE* aShape ) -> bool
+                {
+                    if( aRefShape->Collide( aShape ) )
+                    {
+                        collision = true;
+                        return false;
+                    }
+
+                    return true;
+                };
+
+        m_rTree.Search( min, max, visitor );
+
+        return collision;
+    }
+
 private:
-    std::vector<VECTOR2I>                m_testOutlinePoints;
-    std::unique_ptr<POLY_GRID_PARTITION> m_cachedPoly;
-    int                                  m_subpolyIndex;
-    PCB_LAYER_ID                         m_layer;
+    std::vector<VECTOR2I>               m_testOutlinePoints;
+    int                                 m_subpolyIndex;
+    PCB_LAYER_ID                        m_layer;
+    std::shared_ptr<SHAPE_POLY_SET>     m_triangulatedPoly;
+    RTree<const SHAPE*, int, 2, double> m_rTree;
 };
+
+
 
 
 class CN_LIST
@@ -370,15 +414,8 @@ public:
     ITER begin() { return m_items.begin(); };
     ITER end() { return m_items.end(); };
 
-    CONST_ITER begin() const
-    {
-        return m_items.begin();
-    }
-
-    CONST_ITER end() const
-    {
-        return m_items.end();
-    }
+    CONST_ITER begin() const { return m_items.begin(); }
+    CONST_ITER end() const { return m_items.end(); }
 
     CN_ITEM* operator[] ( int aIndex ) { return m_items[aIndex]; }
 
@@ -403,14 +440,6 @@ public:
         SetDirty( false );
     }
 
-    void MarkAllAsDirty()
-    {
-        for( auto item : m_items )
-            item->SetDirty( true );
-
-        SetDirty( true );
-    }
-
     int Size() const
     {
         return m_items.size();
@@ -424,13 +453,14 @@ public:
 
     CN_ITEM* Add( PCB_VIA* via );
 
+    CN_ITEM* Add( CN_ZONE_LAYER* zitem );
+
     const std::vector<CN_ITEM*> Add( ZONE* zone, PCB_LAYER_ID aLayer );
 
 private:
-    bool                  m_dirty;
-    bool                  m_hasInvalid;
-
-    CN_RTREE<CN_ITEM*>    m_index;
+    bool               m_dirty;
+    bool               m_hasInvalid;
+    CN_RTREE<CN_ITEM*> m_index;
 };
 
 
@@ -470,7 +500,6 @@ public:
     ITER end() { return m_items.end(); };
 };
 
-typedef std::shared_ptr<CN_CLUSTER> CN_CLUSTER_PTR;
 
 
 #endif /* PCBNEW_CONNECTIVITY_ITEMS_H */

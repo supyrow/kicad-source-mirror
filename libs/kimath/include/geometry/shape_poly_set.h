@@ -101,9 +101,8 @@ public:
                     case 0: return parent->m_vertices[a];
                     case 1: return parent->m_vertices[b];
                     case 2: return parent->m_vertices[c];
-                    default: assert(false);
+                    default: wxCHECK( false, VECTOR2I() );
                 }
-                return VECTOR2I(0, 0);
             }
 
             virtual const SEG GetSegment( int aIndex ) const override
@@ -113,20 +112,20 @@ public:
                     case 0: return SEG( parent->m_vertices[a], parent->m_vertices[b] );
                     case 1: return SEG( parent->m_vertices[b], parent->m_vertices[c] );
                     case 2: return SEG( parent->m_vertices[c], parent->m_vertices[a] );
-                    default: assert(false);
+                    default: wxCHECK( false, SEG() );
                 }
-                return SEG();
             }
 
             virtual size_t GetPointCount() const override { return 3; }
             virtual size_t GetSegmentCount() const override { return 3; }
 
-
-            int a, b, c;
+            int                   a;
+            int                   b;
+            int                   c;
             TRIANGULATED_POLYGON* parent;
         };
 
-        TRIANGULATED_POLYGON();
+        TRIANGULATED_POLYGON( int aSourceOutline );
         TRIANGULATED_POLYGON( const TRIANGULATED_POLYGON& aOther );
         ~TRIANGULATED_POLYGON();
 
@@ -153,15 +152,13 @@ public:
             m_vertices.push_back( aP );
         }
 
-        size_t GetTriangleCount() const
-        {
-            return m_triangles.size();
-        }
+        size_t GetTriangleCount() const { return m_triangles.size(); }
 
-        std::deque<TRI>& Triangles()
-        {
-            return m_triangles;
-        }
+        int GetSourceOutlineIndex() const { return m_sourceOutline; }
+        void SetSourceOutlineIndex( int aIndex ) { m_sourceOutline = aIndex; }
+
+        std::deque<TRI>& Triangles() { return m_triangles; }
+        const std::deque<TRI>& Triangles() const { return m_triangles; }
 
         size_t GetVertexCount() const
         {
@@ -170,11 +167,12 @@ public:
 
         void Move( const VECTOR2I& aVec )
         {
-            for( auto& vertex : m_vertices )
+            for( VECTOR2I& vertex : m_vertices )
                 vertex += aVec;
         }
 
     private:
+        int                  m_sourceOutline;
         std::deque<TRI>      m_triangles;
         std::deque<VECTOR2I> m_vertices;
     };
@@ -1254,6 +1252,12 @@ public:
     ///< Delete \a aIdx-th polygon from the set.
     void DeletePolygon( int aIdx );
 
+    ///< Delete \a aIdx-th polygon and its triangulation data from the set.
+    ///< If called with \a aUpdateHash false, caller must call UpdateTriangulationDataHash().
+    void DeletePolygonAndTriangulationData( int aIdx, bool aUpdateHash = true );
+
+    void UpdateTriangulationDataHash();
+
     /**
      * Return a chamfered version of the \a aIndex-th polygon.
      *
@@ -1436,10 +1440,7 @@ private:
     MD5_HASH checksum() const;
 
 private:
-    typedef std::vector<POLYGON> POLYSET;
-
-    POLYSET  m_polys;
-
+    std::vector<POLYGON>                               m_polys;
     std::vector<std::unique_ptr<TRIANGULATED_POLYGON>> m_triangulatedPolys;
 
     bool     m_triangulationValid = false;
