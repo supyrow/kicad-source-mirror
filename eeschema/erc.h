@@ -128,6 +128,17 @@ public:
      */
     int TestLibSymbolIssues();
 
+    /**
+     * Test pins and wire ends for being off grid.
+     * @return the error count
+     */
+    int TestOffGridEndpoints( int aGridSize );
+
+    /**
+     * Test SPICE models for various issues.
+     */
+    int TestSimModelIssues();
+
 private:
 
     SCHEMATIC* m_schematic;

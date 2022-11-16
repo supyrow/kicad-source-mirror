@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2020 Jon Evans <jon@craftyjon.com>
- * Copyright (C) 2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2021-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -30,7 +30,7 @@
 
 
 ///! Update the schema version whenever a migration is required
-const int colorsSchemaVersion = 3;
+const int colorsSchemaVersion = 5;
 
 
 COLOR_SETTINGS::COLOR_SETTINGS( const wxString& aFilename, bool aAbsolutePath ) :
@@ -42,26 +42,6 @@ COLOR_SETTINGS::COLOR_SETTINGS( const wxString& aFilename, bool aAbsolutePath ) 
         SetLocation( SETTINGS_LOC::NONE );
 
     m_params.emplace_back( new PARAM<wxString>( "meta.name", &m_displayName, "KiCad Default" ) );
-
-    std::vector<COLOR4D> default_palette = {
-            CSS_COLOR( 200, 52,  52,  1 ),
-            CSS_COLOR( 127, 200, 127, 1 ),
-            CSS_COLOR( 206, 125, 44,  1 ),
-            CSS_COLOR( 79,  203, 203, 1 ),
-            CSS_COLOR( 219, 98, 139,  1 ),
-            CSS_COLOR( 167, 165, 198, 1 ),
-            CSS_COLOR( 40,  204, 217, 1 ),
-            CSS_COLOR( 232, 178, 167, 1 ),
-            CSS_COLOR( 242, 237, 161, 1 ),
-            CSS_COLOR( 141, 203, 129, 1 ),
-            CSS_COLOR( 237, 124, 51,  1 ),
-            CSS_COLOR( 91,  195, 235, 1 ),
-            CSS_COLOR( 247, 111, 142, 1 ),
-            CSS_COLOR( 77,  127, 196, 1 )
-            };
-
-    // TODO(JE) in actual usage, how long does the default palette need to be?
-    m_params.emplace_back( new PARAM_LIST<COLOR4D>( "palette", &m_Palette, default_palette ) );
 
     m_params.emplace_back( new PARAM<bool>( "schematic.override_item_colors",
                                             &m_overrideSchItemColors, false ) );
@@ -76,6 +56,7 @@ COLOR_SETTINGS::COLOR_SETTINGS( const wxString& aFilename, bool aAbsolutePath ) 
     CLR( "schematic.anchor",            LAYER_SCHEMATIC_ANCHOR       );
     CLR( "schematic.aux_items",         LAYER_SCHEMATIC_AUX_ITEMS    );
     CLR( "schematic.background",        LAYER_SCHEMATIC_BACKGROUND   );
+    CLR( "schematic.hovered",           LAYER_HOVERED                );
     CLR( "schematic.brightened",        LAYER_BRIGHTENED             );
     CLR( "schematic.bus",               LAYER_BUS                    );
     CLR( "schematic.bus_junction",      LAYER_BUS_JUNCTION           );
@@ -84,6 +65,7 @@ COLOR_SETTINGS::COLOR_SETTINGS( const wxString& aFilename, bool aAbsolutePath ) 
     CLR( "schematic.cursor",            LAYER_SCHEMATIC_CURSOR       );
     CLR( "schematic.erc_error",         LAYER_ERC_ERR                );
     CLR( "schematic.erc_warning",       LAYER_ERC_WARN               );
+    CLR( "schematic.erc_exclusion",     LAYER_ERC_EXCLUSION          );
     CLR( "schematic.fields",            LAYER_FIELDS                 );
     CLR( "schematic.grid",              LAYER_SCHEMATIC_GRID         );
     CLR( "schematic.grid_axes",         LAYER_SCHEMATIC_GRID_AXES    );
@@ -95,17 +77,13 @@ COLOR_SETTINGS::COLOR_SETTINGS( const wxString& aFilename, bool aAbsolutePath ) 
     CLR( "schematic.netclass_flag",     LAYER_NETCLASS_REFS          );
     CLR( "schematic.no_connect",        LAYER_NOCONNECT              );
     CLR( "schematic.note",              LAYER_NOTES                  );
+    CLR( "schematic.private_note",      LAYER_PRIVATE_NOTES          );
     CLR( "schematic.note_background",   LAYER_NOTES_BACKGROUND       );
     CLR( "schematic.pin",               LAYER_PIN                    );
     CLR( "schematic.pin_name",          LAYER_PINNAM                 );
     CLR( "schematic.pin_number",        LAYER_PINNUM                 );
     CLR( "schematic.reference",         LAYER_REFERENCEPART          );
-    // Macs look better with a lighter shadow
-#ifdef __WXMAC__
     CLR( "schematic.shadow",            LAYER_SELECTION_SHADOWS      );
-#else
-    CLR( "schematic.shadow",            LAYER_SELECTION_SHADOWS      );
-#endif
     CLR( "schematic.sheet",             LAYER_SHEET                  );
     CLR( "schematic.sheet_background",  LAYER_SHEET_BACKGROUND       );
     CLR( "schematic.sheet_filename",    LAYER_SHEETFILENAME          );
@@ -115,6 +93,7 @@ COLOR_SETTINGS::COLOR_SETTINGS( const wxString& aFilename, bool aAbsolutePath ) 
     CLR( "schematic.value",             LAYER_VALUEPART              );
     CLR( "schematic.wire",              LAYER_WIRE                   );
     CLR( "schematic.worksheet",         LAYER_SCHEMATIC_DRAWINGSHEET );
+    CLR( "schematic.page_limits",       LAYER_SCHEMATIC_PAGE_LIMITS  );
 
     CLR( "gerbview.axes",               LAYER_GERBVIEW_AXES          );
     CLR( "gerbview.background",         LAYER_GERBVIEW_BACKGROUND    );
@@ -122,16 +101,18 @@ COLOR_SETTINGS::COLOR_SETTINGS( const wxString& aFilename, bool aAbsolutePath ) 
     CLR( "gerbview.grid",               LAYER_GERBVIEW_GRID          );
     CLR( "gerbview.negative_objects",   LAYER_NEGATIVE_OBJECTS       );
     CLR( "gerbview.worksheet",          LAYER_GERBVIEW_DRAWINGSHEET  );
+    CLR( "gerbview.page_limits",        LAYER_GERBVIEW_PAGE_LIMITS   );
 
     for( int i = 0, id = GERBVIEW_LAYER_ID_START;
          id < GERBER_DRAWLAYERS_COUNT + GERBVIEW_LAYER_ID_START; ++i, ++id )
     {
         m_params.emplace_back( new COLOR_MAP_PARAM( "gerbview.layers." + std::to_string( i ), id,
-                                                    default_palette[ i % default_palette.size() ],
-                                                    &m_colors ) );
+                                                    s_defaultTheme.at( id ), &m_colors ) );
     }
 
     CLR( "board.anchor",                   LAYER_ANCHOR             );
+    CLR( "board.locked_shadow",            LAYER_LOCKED_ITEM_SHADOW );
+    CLR( "board.conflicts_shadow",         LAYER_CONFLICTS_SHADOW   );
     CLR( "board.aux_items",                LAYER_AUX_ITEMS          );
     CLR( "board.background",               LAYER_PCB_BACKGROUND     );
     CLR( "board.cursor",                   LAYER_CURSOR             );
@@ -141,7 +122,6 @@ COLOR_SETTINGS::COLOR_SETTINGS( const wxString& aFilename, bool aAbsolutePath ) 
     CLR( "board.footprint_text_invisible", LAYER_MOD_TEXT_INVISIBLE );
     CLR( "board.grid",                     LAYER_GRID               );
     CLR( "board.grid_axes",                LAYER_GRID_AXES          );
-    CLR( "board.no_connect",               LAYER_NO_CONNECTS        );
     CLR( "board.pad_plated_hole",          LAYER_PAD_PLATEDHOLES    );
     CLR( "board.pad_through_hole",         LAYER_PADS_TH            );
     CLR( "board.plated_hole",              LAYER_NON_PLATEDHOLES    );
@@ -150,7 +130,8 @@ COLOR_SETTINGS::COLOR_SETTINGS( const wxString& aFilename, bool aAbsolutePath ) 
     CLR( "board.via_hole",                 LAYER_VIA_HOLES          );
     CLR( "board.via_micro",                LAYER_VIA_MICROVIA       );
     CLR( "board.via_through",              LAYER_VIA_THROUGH        );
-    CLR( "board.worksheet",                LAYER_DRAWINGSHEET   );
+    CLR( "board.worksheet",                LAYER_DRAWINGSHEET       );
+    CLR( "board.page_limits",              LAYER_PAGE_LIMITS        );
 
     CLR( "board.copper.f",      F_Cu    );
     CLR( "board.copper.in1",    In1_Cu  );
@@ -230,9 +211,9 @@ COLOR_SETTINGS::COLOR_SETTINGS( const wxString& aFilename, bool aAbsolutePath ) 
             [&]()
             {
                 // Fix LAYER_VIA_HOLES color - before version 2, this setting had no effect
-                nlohmann::json::json_pointer ptr( "/board/via_hole");
+                nlohmann::json::json_pointer ptr( "/board/via_hole" );
 
-                ( *m_internals )[ptr] = COLOR4D( 0.5, 0.4, 0, 0.8 ).ToWxString( wxC2S_CSS_SYNTAX );
+                ( *m_internals )[ptr] = COLOR4D( 0.5, 0.4, 0, 0.8 ).ToCSSString();
 
                 return true;
             } );
@@ -250,9 +231,21 @@ COLOR_SETTINGS::COLOR_SETTINGS( const wxString& aFilename, bool aAbsolutePath ) 
                                           "3d_viewer.silkscreen_bottom",
                                           "3d_viewer.solderpaste" } )
                 {
-                    if( OPT<COLOR4D> optval = Get<COLOR4D>( path ) )
+                    if( std::optional<COLOR4D> optval = Get<COLOR4D>( path ) )
                         Set( path, optval->WithAlpha( 1.0 ) );
                 }
+
+                return true;
+            } );
+
+    registerMigration( 3, 4,
+            [&]()
+            {
+                if( std::optional<COLOR4D> optval = Get<COLOR4D>( "board.grid" ) )
+                    Set( "board.page_limits",  *optval );
+
+                if( std::optional<COLOR4D> optval = Get<COLOR4D>( "schematic.grid" ) )
+                    Set( "schematic.page_limits", *optval );
 
                 return true;
             } );

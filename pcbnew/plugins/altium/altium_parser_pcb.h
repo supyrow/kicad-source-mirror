@@ -119,14 +119,16 @@ enum class ALTIUM_CONNECT_STYLE
 
 enum class ALTIUM_RECORD
 {
-    ARC    = 1,
-    PAD    = 2,
-    VIA    = 3,
-    TRACK  = 4,
-    TEXT   = 5,
-    FILL   = 6,
+    UNKNOWN = -1,
+
+    ARC = 1,
+    PAD = 2,
+    VIA = 3,
+    TRACK = 4,
+    TEXT = 5,
+    FILL = 6,
     REGION = 11,
-    MODEL  = 12
+    MODEL = 12
 };
 
 enum class ALTIUM_PAD_SHAPE
@@ -161,11 +163,12 @@ enum class ALTIUM_PAD_MODE
     FULL_STACK        = 2
 };
 
-enum class ALTIUM_PAD_RULE
+enum class ALTIUM_MODE
 {
-    UNKNOWN = 0,
-    RULE    = 1,
-    MANUAL  = 2
+    UNKNOWN = -1,
+    NONE = 0, // TODO: correct ID?
+    RULE = 1,
+    MANUAL = 2
 };
 
 enum class ALTIUM_POLYGON_HATCHSTYLE
@@ -329,6 +332,29 @@ enum class ALTIUM_LAYER
 
 class ALTIUM_PARSER;
 
+enum class AEXTENDED_PRIMITIVE_INFORMATION_TYPE
+{
+    UNKNOWN = -1,
+
+    MASK
+};
+
+struct AEXTENDED_PRIMITIVE_INFORMATION
+{
+    int           primitiveIndex;
+    ALTIUM_RECORD primitiveObjectId;
+
+    AEXTENDED_PRIMITIVE_INFORMATION_TYPE type;
+
+    // Type == Mask
+    ALTIUM_MODE pastemaskexpansionmode;
+    int32_t     pastemaskexpansionmanual;
+    ALTIUM_MODE soldermaskexpansionmode;
+    int32_t     soldermaskexpansionmanual;
+
+    explicit AEXTENDED_PRIMITIVE_INFORMATION( ALTIUM_PARSER& aReader );
+};
+
 struct ABOARD6_LAYER_STACKUP
 {
     wxString name;
@@ -426,7 +452,7 @@ struct AMODEL
     wxString id;
     bool     isEmbedded;
 
-    FP_3DMODEL::VECTOR3D rotation;
+    VECTOR3D rotation;
 
     explicit AMODEL( ALTIUM_PARSER& aReader );
 };
@@ -498,6 +524,7 @@ struct AREGION6
     uint16_t     net;
     uint16_t     component;
     uint16_t     subpolyindex;
+    uint8_t      keepoutrestrictions;
     uint16_t     holecount;
 
     ALTIUM_REGION_KIND kind; // I assume this means if normal or keepout?
@@ -518,6 +545,7 @@ struct AARC6
     uint16_t     net;
     uint16_t     component;
     uint16_t     subpolyindex;
+    uint8_t      keepoutrestrictions;
 
     VECTOR2I center;
     uint32_t radius;
@@ -536,8 +564,8 @@ struct ACOMPONENTBODY6
     wxString             modelId;
     bool                 modelIsEmbedded;
 
-    FP_3DMODEL::VECTOR3D modelPosition;
-    FP_3DMODEL::VECTOR3D modelRotation;
+    VECTOR3D             modelPosition;
+    VECTOR3D             modelRotation;
     double               rotation;
     double               bodyOpacity;
 
@@ -585,9 +613,9 @@ struct APAD6
 
     double          direction;
     bool            plated;
-    ALTIUM_PAD_RULE pastemaskexpansionmode;
+    ALTIUM_MODE     pastemaskexpansionmode;
     int32_t         pastemaskexpansionmanual;
-    ALTIUM_PAD_RULE soldermaskexpansionmode;
+    ALTIUM_MODE     soldermaskexpansionmode;
     int32_t         soldermaskexpansionmanual;
     double          holerotation;
 
@@ -630,6 +658,7 @@ struct ATRACK6
     uint16_t     net;
     uint16_t     component;
     uint16_t     subpolyindex;
+    uint8_t      keepoutrestrictions;
 
     VECTOR2I start;
     VECTOR2I end;
@@ -672,6 +701,7 @@ struct AFILL6
     ALTIUM_LAYER layer;
     uint16_t     component;
     uint16_t     net;
+    uint8_t      keepoutrestrictions;
 
     VECTOR2I pos1;
     VECTOR2I pos2;

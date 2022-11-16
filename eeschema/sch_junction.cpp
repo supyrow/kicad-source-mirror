@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2009 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -22,10 +22,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
-/**
- * @file sch_junction.cpp
- */
-
 #include <sch_draw_panel.h>
 #include <trigo.h>
 #include <common.h>
@@ -38,7 +34,6 @@
 #include <sch_connection.h>
 #include <schematic.h>
 #include <settings/color_settings.h>
-#include <advanced_config.h>
 #include <connection_graph.h>
 
 
@@ -50,7 +45,7 @@ SCH_JUNCTION::SCH_JUNCTION( const VECTOR2I& aPosition, int aDiameter, SCH_LAYER_
     m_diameter = aDiameter;
     m_layer = aLayer;
 
-    m_lastResolvedDiameter = KiROUND( Mils2iu( DEFAULT_WIRE_WIDTH_MILS ) * 1.7 );
+    m_lastResolvedDiameter = KiROUND( schIUScale.MilsToIU( DEFAULT_WIRE_WIDTH_MILS ) * 1.7 );
     m_lastResolvedColor = COLOR4D::UNSPECIFIED;
 }
 
@@ -88,16 +83,16 @@ SHAPE_CIRCLE SCH_JUNCTION::getEffectiveShape() const
     else if( Schematic() )
         m_lastResolvedDiameter = Schematic()->Settings().m_JunctionSize;
     else
-        m_lastResolvedDiameter = Mils2iu( DEFAULT_JUNCTION_DIAM );
+        m_lastResolvedDiameter = schIUScale.MilsToIU( DEFAULT_JUNCTION_DIAM );
 
-    if( m_lastResolvedDiameter != 1 )  // Diameter 1 means users doesn't want to draw junction dots
+    if( m_lastResolvedDiameter != 1 )  // Diameter 1 means user doesn't want to draw junctions
     {
+        // If we know what we're connected to, then enforce a minimum size of 170% of the
+        // connected wire width:
         if( !IsConnectivityDirty() )
         {
-            NETCLASSPTR netclass = NetClass();
-
-            if( netclass )
-                m_lastResolvedDiameter = std::max( m_lastResolvedDiameter, KiROUND( netclass->GetWireWidth() * 1.7 ) );
+            m_lastResolvedDiameter = std::max<int>( m_lastResolvedDiameter,
+                                                    GetEffectiveNetClass()->GetWireWidth() * 1.7 );
         }
     }
 
@@ -105,14 +100,12 @@ SHAPE_CIRCLE SCH_JUNCTION::getEffectiveShape() const
 }
 
 
-const EDA_RECT SCH_JUNCTION::GetBoundingBox() const
+const BOX2I SCH_JUNCTION::GetBoundingBox() const
 {
-    EDA_RECT rect;
+    BOX2I bbox( m_pos );
+    bbox.Inflate( getEffectiveShape().GetRadius() );
 
-    rect.SetOrigin( m_pos );
-    rect.Inflate( getEffectiveShape().GetRadius() );
-
-    return rect;
+    return bbox;
 }
 
 
@@ -173,21 +166,28 @@ void SCH_JUNCTION::Show( int nestLevel, std::ostream& os ) const
 #endif
 
 
+void SCH_JUNCTION::SetDiameter( int aDiameter )
+{
+    m_diameter = aDiameter;
+    m_lastResolvedDiameter = aDiameter;
+}
+
+
 COLOR4D SCH_JUNCTION::GetJunctionColor() const
 {
     if( m_color != COLOR4D::UNSPECIFIED )
-    {
         m_lastResolvedColor = m_color;
-    }
     else if( !IsConnectivityDirty() )
-    {
-        NETCLASSPTR netclass = NetClass();
-
-        if( netclass )
-            m_lastResolvedColor = netclass->GetSchematicColor();
-    }
+        m_lastResolvedColor = GetEffectiveNetClass()->GetSchematicColor();
 
     return m_lastResolvedColor;
+}
+
+
+void SCH_JUNCTION::SetColor( const COLOR4D& aColor )
+{
+    m_color = aColor;
+    m_lastResolvedColor = aColor;
 }
 
 
@@ -206,18 +206,16 @@ bool SCH_JUNCTION::HitTest( const VECTOR2I& aPosition, int aAccuracy ) const
 }
 
 
-bool SCH_JUNCTION::HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy ) const
+bool SCH_JUNCTION::HitTest( const BOX2I& aRect, bool aContained, int aAccuracy ) const
 {
     if( m_flags & STRUCT_DELETED || m_flags & SKIP_STRUCT )
         return false;
 
     if( aContained )
     {
-        EDA_RECT selRect = aRect;
+        BOX2I selRect( aRect );
 
-        selRect.Inflate( aAccuracy );
-
-        return selRect.Contains( GetBoundingBox() );
+        return selRect.Inflate( aAccuracy ).Contains( GetBoundingBox() );
     }
     else
     {
@@ -240,8 +238,8 @@ void SCH_JUNCTION::Plot( PLOTTER* aPlotter, bool aBackground ) const
     if( aBackground )
         return;
 
-    auto*   settings = static_cast<KIGFX::SCH_RENDER_SETTINGS*>( aPlotter->RenderSettings() );
-    COLOR4D color = GetJunctionColor();
+    RENDER_SETTINGS* settings = aPlotter->RenderSettings();
+    COLOR4D          color = GetJunctionColor();
 
     if( color == COLOR4D::UNSPECIFIED )
         color = settings->GetLayerColor( GetLayer() );
@@ -266,7 +264,7 @@ bool SCH_JUNCTION::operator <( const SCH_ITEM& aItem ) const
     if( GetLayer() != aItem.GetLayer() )
         return GetLayer() < aItem.GetLayer();
 
-    auto junction = static_cast<const SCH_JUNCTION*>( &aItem );
+    const SCH_JUNCTION* junction = static_cast<const SCH_JUNCTION*>( &aItem );
 
     if( GetPosition().x != junction->GetPosition().x )
         return GetPosition().x < junction->GetPosition().x;

@@ -84,7 +84,6 @@
 // the value 0.0218 is equivalent to about 5 degrees arc,
 #define MIN_BULGE 0.0218
 
-//#define SCALE_FACTOR(x) millimeter2iu(x)  /* no longer used */
 #define SCALE_FACTOR(x) (x)
 
 
@@ -118,7 +117,21 @@ DXF_IMPORT_PLUGIN::~DXF_IMPORT_PLUGIN()
 
 bool DXF_IMPORT_PLUGIN::Load( const wxString& aFileName )
 {
-    return ImportDxfFile( aFileName );
+    try
+    {
+        return ImportDxfFile( aFileName );
+    }
+    catch( const std::bad_alloc& )
+    {
+        m_layers.clear();
+        m_blocks.clear();
+        m_styles.clear();
+
+        m_internalImporter.ClearShapes();
+
+        reportMsg( _( "Memory was exhausted trying to load the DXF, it may be too large." ) );
+        return false;
+    }
 }
 
 

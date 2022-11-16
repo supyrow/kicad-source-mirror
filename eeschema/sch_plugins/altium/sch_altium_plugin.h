@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2020 Thomas Pointhuber <thomas.pointhuber@gmx.at>
- * Copyright (C) 2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2021-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -63,7 +63,7 @@ public:
 
     SCH_SHEET* Load( const wxString& aFileName, SCHEMATIC* aSchematic,
                      SCH_SHEET* aAppendToMe = nullptr,
-                     const PROPERTIES* aProperties = nullptr ) override;
+                     const STRING_UTF8_MAP* aProperties = nullptr ) override;
 
     bool CheckHeader( const wxString& aFileName ) override;
 
@@ -103,11 +103,16 @@ public:
 
     void ParseAltiumSch( const wxString& aFileName );
     void ParseStorage( const ALTIUM_COMPOUND_FILE& aAltiumSchFile );
+    void ParseAdditional( const ALTIUM_COMPOUND_FILE& aAltiumSchFile );
     void ParseFileHeader( const ALTIUM_COMPOUND_FILE& aAltiumSchFile );
 
 private:
+    SCH_SCREEN* getCurrentScreen();
+    SCH_SHEET* getCurrentSheet();
+
     bool IsComponentPartVisible( int aOwnerindex, int aOwnerpartdisplaymode ) const;
     const ASCH_STORAGE_FILE* GetFileFromStorage( const wxString& aFilename ) const;
+    void AddTextBox( const ASCH_TEXT_FRAME* aElem );
 
     void ParseComponent( int aIndex, const std::map<wxString, wxString>& aProperties );
     void ParsePin( const std::map<wxString, wxString>& aProperties );
@@ -119,7 +124,13 @@ private:
     void ParsePolygon( const std::map<wxString, wxString>& aProperties );
     void ParseRoundRectangle( const std::map<wxString, wxString>& aProperties );
     void ParseArc( const std::map<wxString, wxString>& aProperties );
+    void ParseEllipse( const std::map<wxString, wxString>& aProperties );
     void ParseLine( const std::map<wxString, wxString>& aProperties );
+    void ParseSignalHarness( const std::map<wxString, wxString>& aProperties );
+    void ParseHarnessConnector( int aIndex, const std::map<wxString, wxString>& aProperties );
+    void ParseHarnessEntry( const std::map<wxString, wxString>& aProperties );
+    void ParseHarnessType( const std::map<wxString, wxString>& aProperties );
+    void ParseHarnessPort( const ASCH_PORT& aElem );
     void ParseRectangle( const std::map<wxString, wxString>& aProperties );
     void ParseSheetSymbol( int aIndex, const std::map<wxString, wxString>& aProperties );
     void ParseSheetEntry( const std::map<wxString, wxString>& aProperties );
@@ -144,12 +155,12 @@ private:
     REPORTER*                       m_reporter;          // current reporter for warnings/errors
 
     SCH_SHEET* m_rootSheet;      // The root sheet of the schematic being loaded..
-    SCH_SHEET* m_currentSheet;   // The current sheet of the schematic being loaded..
+    SCH_SHEET_PATH m_sheetPath;
     SCHEMATIC* m_schematic;      // Passed to Load(), the schematic object being loaded
     wxString   m_libName;        // Library name to save symbols
 
     SCH_PLUGIN::SCH_PLUGIN_RELEASER m_pi;                // Plugin to create KiCad symbol library.
-    std::unique_ptr<PROPERTIES>     m_properties;        // Library plugin properties.
+    std::unique_ptr<STRING_UTF8_MAP>     m_properties;        // Library plugin properties.
 
     std::unique_ptr<TITLE_BLOCK>    m_currentTitleBlock; // Will be assigned at the end of parsing
                                                          // a sheet
@@ -162,10 +173,18 @@ private:
 
     std::map<wxString, LIB_SYMBOL*> m_powerSymbols;
     std::vector<ASCH_STORAGE_FILE>  m_altiumStorage;
+    std::vector<ASCH_ADDITIONAL_FILE>  m_altiumAdditional;
 
     std::map<int, ASCH_SYMBOL>      m_altiumComponents;
     std::map<int, int>              m_altiumImplementationList;
     std::vector<ASCH_PORT>          m_altiumPortsCurrentSheet; // we require all connections first
+
+    // parse harness ports after "FileHeader" was parsed, in 2nd run.
+    std::vector<ASCH_PORT>          m_altiumHarnessPortsCurrentSheet;
+
+    // Add offset to all harness ownerIndex'es after parsing FileHeader.
+    int m_harnessOwnerIndexOffset;
+    int m_harnessEntryParent; // used to identify harness connector for harness entry element
 };
 
 #endif // _SCH_ALTIUM_PLUGIN_H_

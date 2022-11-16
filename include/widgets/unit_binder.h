@@ -26,7 +26,6 @@
 #ifndef __UNIT_BINDER_H_
 #define __UNIT_BINDER_H_
 
-#include <eda_units.h>
 #include <base_units.h>
 #include <origin_transforms.h>
 #include <libeval/numeric_evaluator.h>
@@ -53,11 +52,15 @@ public:
      * Can be nullptr.
      * @param aAllowEval indicates \a aTextInput's content should be eval'ed before storing
      */
-    UNIT_BINDER( EDA_BASE_FRAME* aParent,
+    UNIT_BINDER( EDA_DRAW_FRAME* aParent,
                  wxStaticText* aLabel, wxWindow* aValueCtrl, wxStaticText* aUnitLabel,
-                 bool aAllowEval = true );
+                 bool aAllowEval = true, bool aBindFrameEvents = true );
 
-    ~UNIT_BINDER() override;
+    UNIT_BINDER( EDA_BASE_FRAME* aParent, const EDA_IU_SCALE& aIUScale, wxStaticText* aLabel,
+                 wxWindow* aValueCtrl, wxStaticText* aUnitLabel, bool aAllowEval = true,
+                 bool aBindFrameEvents = true );
+
+    virtual ~UNIT_BINDER() override;
 
     /**
      * Normally not needed (as the UNIT_BINDER inherits from the parent frame), but can be
@@ -85,7 +88,7 @@ public:
     /**
      * Set new value (in Internal Units) for the text field, taking care of units conversion.
      */
-    virtual void SetValue( int aValue );
+    virtual void SetValue( long long int aValue );
 
     void SetValue( const wxString& aValue );
 
@@ -195,6 +198,8 @@ public:
     }
 
 protected:
+    void init();
+    void onClick( wxMouseEvent& aEvent );
 
     void onSetFocus( wxFocusEvent& aEvent );
     void onKillFocus( wxFocusEvent& aEvent );
@@ -216,6 +221,7 @@ protected:
     double setPrecision( double aValue, bool aValueUsesUserUnits );
 
     EDA_BASE_FRAME*   m_frame;
+    bool              m_bindFrameEvents;
 
     ///< The bound widgets
     wxStaticText*     m_label;
@@ -223,6 +229,7 @@ protected:
     wxStaticText*     m_unitLabel;      ///< Can be nullptr
 
     ///< Currently used units.
+    const EDA_IU_SCALE& m_iuScale;
     EDA_UNITS         m_units;
     bool              m_negativeZero;   ///< Indicates "-0" should be displayed for 0.
     EDA_DATA_TYPE     m_dataType;
@@ -242,6 +249,20 @@ protected:
 
     /// Type of coordinate for display origin transforms
     ORIGIN_TRANSFORMS::COORD_TYPES_T m_coordType;
+};
+
+
+/**
+ * Specialization for wxPropertyGrid, where we have no labels and units are displayed in the editor
+ */
+class PROPERTY_EDITOR_UNIT_BINDER : public UNIT_BINDER
+{
+public:
+    PROPERTY_EDITOR_UNIT_BINDER( EDA_DRAW_FRAME* aParent );
+
+    virtual ~PROPERTY_EDITOR_UNIT_BINDER();
+
+    void SetControl( wxWindow* aControl ) { m_valueCtrl = aControl; }
 };
 
 #endif /* __UNIT_BINDER_H_ */

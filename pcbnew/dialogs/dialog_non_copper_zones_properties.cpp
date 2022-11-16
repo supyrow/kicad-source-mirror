@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2019 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2014 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -28,6 +28,7 @@
 #include <pcb_edit_frame.h>
 #include <pcbnew_settings.h>
 #include <widgets/unit_binder.h>
+#include <wx/statbox.h>
 #include <zones.h>
 
 #include <dialog_non_copper_zones_properties_base.h>
@@ -35,18 +36,11 @@
 
 class DIALOG_NON_COPPER_ZONES_EDITOR : public DIALOG_NONCOPPER_ZONES_PROPERTIES_BASE
 {
-private:
-    PCB_BASE_FRAME* m_parent;
-    ZONE_SETTINGS*  m_ptr;
-    ZONE_SETTINGS   m_settings;     // working copy of zone settings
-    UNIT_BINDER     m_outlineHatchPitch;
-    UNIT_BINDER     m_minWidth;
-    UNIT_BINDER     m_hatchRotation;
-    UNIT_BINDER     m_hatchWidth;
-    UNIT_BINDER     m_hatchGap;
-    int             m_cornerSmoothingType;
-    UNIT_BINDER     m_cornerRadius;
+public:
+    DIALOG_NON_COPPER_ZONES_EDITOR( PCB_BASE_FRAME* aParent, ZONE_SETTINGS* aSettings,
+                                    CONVERT_SETTINGS* aConvertSettings );
 
+private:
     bool TransferDataToWindow() override;
     bool TransferDataFromWindow() override;
 
@@ -54,22 +48,37 @@ private:
     void OnLayerSelection( wxDataViewEvent& event ) override;
     void OnUpdateUI( wxUpdateUIEvent& ) override;
 
-public:
-    DIALOG_NON_COPPER_ZONES_EDITOR( PCB_BASE_FRAME* aParent, ZONE_SETTINGS* aSettings );
+private:
+    PCB_BASE_FRAME*   m_parent;
+    ZONE_SETTINGS*    m_ptr;
+    ZONE_SETTINGS     m_settings;     // working copy of zone settings
+    UNIT_BINDER       m_outlineHatchPitch;
+    UNIT_BINDER       m_minWidth;
+    UNIT_BINDER       m_hatchRotation;
+    UNIT_BINDER       m_hatchWidth;
+    UNIT_BINDER       m_hatchGap;
+    int               m_cornerSmoothingType;
+    UNIT_BINDER       m_cornerRadius;
+
+    CONVERT_SETTINGS* m_convertSettings;
+    wxCheckBox*       m_cbIgnoreLineWidths;
+    wxCheckBox*       m_cbDeleteOriginals;
 };
 
 
-int InvokeNonCopperZonesEditor( PCB_BASE_FRAME* aParent, ZONE_SETTINGS* aSettings )
+int InvokeNonCopperZonesEditor( PCB_BASE_FRAME* aParent, ZONE_SETTINGS* aSettings,
+                                CONVERT_SETTINGS* aConvertSettings )
 {
-    DIALOG_NON_COPPER_ZONES_EDITOR  dlg( aParent, aSettings );
+    DIALOG_NON_COPPER_ZONES_EDITOR  dlg( aParent, aSettings, aConvertSettings );
 
     return dlg.ShowQuasiModal();
 }
 
-#define MIN_THICKNESS 10*IU_PER_MILS
+#define MIN_THICKNESS 10*pcbIUScale.IU_PER_MILS
 
 DIALOG_NON_COPPER_ZONES_EDITOR::DIALOG_NON_COPPER_ZONES_EDITOR( PCB_BASE_FRAME* aParent,
-                                                                ZONE_SETTINGS* aSettings ) :
+                                                                ZONE_SETTINGS* aSettings,
+                                                                CONVERT_SETTINGS* aConvertSettings ) :
     DIALOG_NONCOPPER_ZONES_PROPERTIES_BASE( aParent ),
     m_outlineHatchPitch( aParent, m_stBorderHatchPitchText,
                          m_outlineHatchPitchCtrl, m_outlineHatchUnits ),
@@ -78,14 +87,42 @@ DIALOG_NON_COPPER_ZONES_EDITOR::DIALOG_NON_COPPER_ZONES_EDITOR( PCB_BASE_FRAME* 
     m_hatchWidth( aParent, m_hatchWidthLabel, m_hatchWidthCtrl, m_hatchWidthUnits),
     m_hatchGap( aParent, m_hatchGapLabel, m_hatchGapCtrl, m_hatchGapUnits ),
     m_cornerSmoothingType( ZONE_SETTINGS::SMOOTHING_UNDEFINED ),
-    m_cornerRadius( aParent, m_cornerRadiusLabel, m_cornerRadiusCtrl, m_cornerRadiusUnits )
+    m_cornerRadius( aParent, m_cornerRadiusLabel, m_cornerRadiusCtrl, m_cornerRadiusUnits ),
+    m_convertSettings( aConvertSettings ),
+    m_cbIgnoreLineWidths( nullptr ),
+    m_cbDeleteOriginals( nullptr )
 {
     m_parent = aParent;
 
     m_ptr  = aSettings;
     m_settings = *aSettings;
 
+    if( aConvertSettings )
+    {
+        wxStaticBox*      bConvertBox = new wxStaticBox( this, wxID_ANY,
+                                                         _( "Conversion Settings" ) );
+        wxStaticBoxSizer* bConvertSizer = new wxStaticBoxSizer( bConvertBox, wxVERTICAL  );
+
+        m_cbIgnoreLineWidths = new wxCheckBox( this, wxID_ANY,
+                                               _( "Ignore source object line widths" )  );
+        bConvertSizer->Add( m_cbIgnoreLineWidths, 0, wxLEFT|wxRIGHT, 5 );
+
+        m_cbDeleteOriginals = new wxCheckBox( this, wxID_ANY,
+                                              _( "Delete source objects after conversion" ) );
+        bConvertSizer->Add( m_cbDeleteOriginals, 0, wxALL, 5 );
+
+        GetSizer()->Insert( 0, bConvertSizer, 0, wxALL|wxEXPAND, 10 );
+
+        wxStaticLine* line =  new wxStaticLine( this, wxID_ANY, wxDefaultPosition, wxDefaultSize,
+                                                wxLI_HORIZONTAL );
+        GetSizer()->Insert( 1, line, 0, wxLEFT|wxRIGHT|wxEXPAND, 10 );
+
+        SetTitle( _( "Convert to Non Copper Zone" ) );
+    }
+
     bool fpEditorMode = m_parent->IsType( FRAME_FOOTPRINT_EDITOR );
+
+    m_staticTextLayerSelection->SetFont( KIUI::GetInfoFont( this ) );
 
     m_settings.SetupLayersList( m_layers, m_parent, LSET::AllNonCuMask(), fpEditorMode );
 
@@ -113,11 +150,16 @@ void DIALOG_NON_COPPER_ZONES_EDITOR::OnUpdateUI( wxUpdateUIEvent& )
 
 bool DIALOG_NON_COPPER_ZONES_EDITOR::TransferDataToWindow()
 {
+    if( m_convertSettings )
+    {
+        m_cbIgnoreLineWidths->SetValue( m_convertSettings->m_IgnoreLineWidths );
+        m_cbDeleteOriginals->SetValue( m_convertSettings->m_DeleteOriginals );
+    }
+
     m_cornerSmoothingChoice->SetSelection( m_settings.GetCornerSmoothingType() );
     m_cornerRadius.SetValue( m_settings.GetCornerRadius() );
 
     m_minWidth.SetValue( m_settings.m_ZoneMinThickness );
-    m_ConstrainOpt->SetValue( m_settings.m_Zone_45_Only );
     m_cbLocked->SetValue( m_settings.m_Locked );
 
     switch( m_settings.m_ZoneBorderDisplayStyle )
@@ -149,14 +191,14 @@ bool DIALOG_NON_COPPER_ZONES_EDITOR::TransferDataToWindow()
     int bestvalue = m_settings.m_HatchThickness;
 
     if( bestvalue <= 0 )     // No defined value for m_hatchWidth
-        bestvalue = std::max( m_settings.m_ZoneMinThickness * 4, Millimeter2iu( 1.0 ) );
+        bestvalue = std::max( m_settings.m_ZoneMinThickness * 4, pcbIUScale.mmToIU( 1.0 ) );
 
     m_hatchWidth.SetValue( std::max( bestvalue, m_settings.m_ZoneMinThickness ) );
 
     bestvalue = m_settings.m_HatchGap;
 
     if( bestvalue <= 0 )     // No defined value for m_hatchGap
-        bestvalue = std::max( m_settings.m_ZoneMinThickness * 6, Millimeter2iu( 1.5 ) );
+        bestvalue = std::max( m_settings.m_ZoneMinThickness * 6, pcbIUScale.mmToIU( 1.5 ) );
 
     m_hatchGap.SetValue( std::max( bestvalue, m_settings.m_ZoneMinThickness ) );
 
@@ -200,6 +242,12 @@ void DIALOG_NON_COPPER_ZONES_EDITOR::OnLayerSelection( wxDataViewEvent& event )
 
 bool DIALOG_NON_COPPER_ZONES_EDITOR::TransferDataFromWindow()
 {
+    if( m_convertSettings )
+    {
+        m_convertSettings->m_IgnoreLineWidths = m_cbIgnoreLineWidths->GetValue();
+        m_convertSettings->m_DeleteOriginals = m_cbDeleteOriginals->GetValue();
+    }
+
     m_settings.SetCornerSmoothingType( m_cornerSmoothingChoice->GetSelection() );
 
     m_settings.SetCornerRadius( m_settings.GetCornerSmoothingType() == ZONE_SETTINGS::SMOOTHING_NONE
@@ -214,8 +262,8 @@ bool DIALOG_NON_COPPER_ZONES_EDITOR::TransferDataFromWindow()
     case 2: m_settings.m_ZoneBorderDisplayStyle = ZONE_BORDER_DISPLAY_STYLE::DIAGONAL_FULL; break;
     }
 
-    if( !m_outlineHatchPitch.Validate( Millimeter2iu( ZONE_BORDER_HATCH_MINDIST_MM ),
-                                       Millimeter2iu( ZONE_BORDER_HATCH_MAXDIST_MM ) ) )
+    if( !m_outlineHatchPitch.Validate( pcbIUScale.mmToIU( ZONE_BORDER_HATCH_MINDIST_MM ),
+                                       pcbIUScale.mmToIU( ZONE_BORDER_HATCH_MAXDIST_MM ) ) )
         return false;
 
     m_settings.m_BorderHatchPitch = m_outlineHatchPitch.GetValue();
@@ -244,10 +292,6 @@ bool DIALOG_NON_COPPER_ZONES_EDITOR::TransferDataFromWindow()
     m_settings.m_HatchSmoothingLevel = m_spinCtrlSmoothLevel->GetValue();
     m_settings.m_HatchSmoothingValue = m_spinCtrlSmoothValue->GetValue();
 
-    auto cfg = m_parent->GetPcbNewSettings();
-    cfg->m_Zones.hatching_style = static_cast<int>( m_settings.m_ZoneBorderDisplayStyle );
-
-    m_settings.m_Zone_45_Only = m_ConstrainOpt->GetValue();
     m_settings.m_Locked = m_cbLocked->GetValue();
 
     // Get the layer selection for this zone

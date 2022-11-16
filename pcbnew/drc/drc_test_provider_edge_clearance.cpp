@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2004-2021 KiCad Developers.
+ * Copyright (C) 2004-2022 KiCad Developers.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -23,6 +23,7 @@
 
 #include <common.h>
 #include <pcb_shape.h>
+#include <footprint.h>
 #include <geometry/seg.h>
 #include <geometry/shape_segment.h>
 #include <drc/drc_engine.h>
@@ -36,6 +37,7 @@
     edge.
     Errors generated:
     - DRCE_EDGE_CLEARANCE
+    - DRCE_SILK_EDGE_CLEARANCE
 
     TODO:
     - separate holes to edge check
@@ -48,7 +50,8 @@ class DRC_TEST_PROVIDER_EDGE_CLEARANCE : public DRC_TEST_PROVIDER_CLEARANCE_BASE
 {
 public:
     DRC_TEST_PROVIDER_EDGE_CLEARANCE () :
-            DRC_TEST_PROVIDER_CLEARANCE_BASE()
+            DRC_TEST_PROVIDER_CLEARANCE_BASE(),
+            m_largestEdgeClearance( 0 )
     {
     }
 
@@ -60,17 +63,21 @@ public:
 
     virtual const wxString GetName() const override
     {
-        return "edge_clearance";
+        return wxT( "edge_clearance" );
     }
 
     virtual const wxString GetDescription() const override
     {
-        return "Tests items vs board edge clearance";
+        return wxT( "Tests items vs board edge clearance" );
     }
 
 private:
     bool testAgainstEdge( BOARD_ITEM* item, SHAPE* itemShape, BOARD_ITEM* other,
                           DRC_CONSTRAINT_T aConstraintType, PCB_DRC_CODE aErrorCode );
+
+private:
+    std::vector<PAD*> m_castellatedPads;
+    int               m_largestEdgeClearance;
 };
 
 
@@ -79,7 +86,12 @@ bool DRC_TEST_PROVIDER_EDGE_CLEARANCE::testAgainstEdge( BOARD_ITEM* item, SHAPE*
                                                         DRC_CONSTRAINT_T aConstraintType,
                                                         PCB_DRC_CODE aErrorCode )
 {
-    const std::shared_ptr<SHAPE>& edgeShape = edge->GetEffectiveShape( Edge_Cuts );
+    std::shared_ptr<SHAPE> shape;
+
+    if( edge->Type() == PCB_PAD_T )
+        shape = edge->GetEffectiveHoleShape();
+    else
+        shape = edge->GetEffectiveShape( Edge_Cuts );
 
     auto     constraint = m_drcEngine->EvalRules( aConstraintType, edge, item, UNDEFINED_LAYER );
     int      minClearance = constraint.GetValue().Min();
@@ -88,19 +100,29 @@ bool DRC_TEST_PROVIDER_EDGE_CLEARANCE::testAgainstEdge( BOARD_ITEM* item, SHAPE*
 
     if( constraint.GetSeverity() != RPT_SEVERITY_IGNORE && minClearance >= 0 )
     {
-        if( itemShape->Collide( edgeShape.get(), minClearance, &actual, &pos ) )
+        if( itemShape->Collide( shape.get(), minClearance, &actual, &pos ) )
         {
+            if( item->Type() == PCB_TRACE_T || item->Type() == PCB_ARC_T )
+            {
+                // Edge collisions are allowed inside the holes of castellated pads
+                for( PAD* castellatedPad : m_castellatedPads )
+                {
+                    if( castellatedPad->GetEffectiveHoleShape()->Collide( pos ) )
+                        return true;
+                }
+            }
+
             std::shared_ptr<DRC_ITEM> drce = DRC_ITEM::Create( aErrorCode );
 
             // Only report clearance info if there is any; otherwise it's just a straight collision
             if( minClearance > 0 )
             {
-                m_msg.Printf( _( "(%s clearance %s; actual %s)" ),
-                              constraint.GetName(),
-                              MessageTextFromValue( userUnits(), minClearance ),
-                              MessageTextFromValue( userUnits(), actual ) );
+                wxString msg = formatMsg( _( "(%s clearance %s; actual %s)" ),
+                                          constraint.GetName(),
+                                          minClearance,
+                                          actual );
 
-                drce->SetErrorMessage( drce->GetErrorText() + wxS( " " ) + m_msg );
+                drce->SetErrorMessage( drce->GetErrorText() + wxS( " " ) + msg );
             }
 
             drce->SetItems( edge->m_Uuid, item->m_Uuid );
@@ -122,37 +144,43 @@ bool DRC_TEST_PROVIDER_EDGE_CLEARANCE::Run()
         if( !reportPhase( _( "Checking copper to board edge clearances..." ) ) )
             return false;    // DRC cancelled
     }
-    else if( m_drcEngine->IsErrorLimitExceeded( DRCE_SILK_CLEARANCE ) )
+    else if( m_drcEngine->IsErrorLimitExceeded( DRCE_SILK_EDGE_CLEARANCE ) )
     {
         if( !reportPhase( _( "Checking silk to board edge clearances..." ) ) )
             return false;    // DRC cancelled
     }
     else
     {
-        reportAux( "Edge clearance violations ignored. Tests not run." );
+        reportAux( wxT( "Edge clearance violations ignored. Tests not run." ) );
         return true;         // continue with other tests
     }
 
     m_board = m_drcEngine->GetBoard();
+    m_castellatedPads.clear();
 
     DRC_CONSTRAINT worstClearanceConstraint;
 
     if( m_drcEngine->QueryWorstConstraint( EDGE_CLEARANCE_CONSTRAINT, worstClearanceConstraint ) )
-        m_largestClearance = worstClearanceConstraint.GetValue().Min();
+        m_largestEdgeClearance = worstClearanceConstraint.GetValue().Min();
 
-    reportAux( "Worst clearance : %d nm", m_largestClearance );
+    reportAux( wxT( "Worst clearance : %d nm" ), m_largestEdgeClearance );
 
-    std::vector<std::unique_ptr<PCB_SHAPE>> edges;          // we own these
+    /*
+     * Build an RTree of the various edges (including NPTH holes) and margins found on the board.
+     */
+    std::vector<std::unique_ptr<PCB_SHAPE>> edges;
     DRC_RTREE                               edgesTree;
-    std::vector<BOARD_ITEM*>                boardItems;     // we don't own these
 
-    auto queryBoardOutlineItems =
+    forEachGeometryItem( { PCB_SHAPE_T, PCB_FP_SHAPE_T }, LSET( 2, Edge_Cuts, Margin ),
             [&]( BOARD_ITEM *item ) -> bool
             {
                 PCB_SHAPE*    shape = static_cast<PCB_SHAPE*>( item );
-                STROKE_PARAMS stroke( 0 );
+                STROKE_PARAMS stroke = shape->GetStroke();
 
-                if( shape->GetShape() == SHAPE_T::RECT )
+                if( item->IsOnLayer( Edge_Cuts ) )
+                    stroke.SetWidth( 0 );
+
+                if( shape->GetShape() == SHAPE_T::RECT && !shape->IsFilled() )
                 {
                     // A single rectangle for the board would make the RTree useless, so convert
                     // to 4 edges
@@ -172,9 +200,8 @@ bool DRC_TEST_PROVIDER_EDGE_CLEARANCE::Run()
                     edges.back()->SetShape( SHAPE_T::SEGMENT );
                     edges.back()->SetStartY( shape->GetEndY() );
                     edges.back()->SetStroke( stroke );
-                    return true;
                 }
-                else if( shape->GetShape() == SHAPE_T::POLY )
+                else if( shape->GetShape() == SHAPE_T::POLY && !shape->IsFilled() )
                 {
                     // A single polygon for the board would make the RTree useless, so convert
                     // to n edges.
@@ -190,95 +217,113 @@ bool DRC_TEST_PROVIDER_EDGE_CLEARANCE::Run()
                         edges.back()->SetStroke( stroke );
                     }
                 }
-
-                edges.emplace_back( static_cast<PCB_SHAPE*>( shape->Clone() ) );
-                edges.back()->SetStroke( stroke );
-                return true;
-            };
-
-    auto queryBoardGeometryItems =
-            [&]( BOARD_ITEM *item ) -> bool
-            {
-                if( !isInvisibleText( item ) )
-                    boardItems.push_back( item );
+                else
+                {
+                    edges.emplace_back( static_cast<PCB_SHAPE*>( shape->Clone() ) );
+                    edges.back()->SetStroke( stroke );
+                }
 
                 return true;
-            };
-
-    forEachGeometryItem( { PCB_SHAPE_T, PCB_FP_SHAPE_T }, LSET( 2, Edge_Cuts, Margin ),
-                         queryBoardOutlineItems );
-    forEachGeometryItem( s_allBasicItemsButZones, LSET::AllLayersMask(), queryBoardGeometryItems );
+            } );
 
     for( const std::unique_ptr<PCB_SHAPE>& edge : edges )
     {
         for( PCB_LAYER_ID layer : { Edge_Cuts, Margin } )
         {
             if( edge->IsOnLayer( layer ) )
-                edgesTree.Insert( edge.get(), layer, m_largestClearance );
+                edgesTree.Insert( edge.get(), layer, m_largestEdgeClearance );
         }
     }
 
-    wxString val;
-    wxGetEnv( "WXTRACE", &val );
+    for( FOOTPRINT* footprint : m_board->Footprints() )
+    {
+        for( PAD* pad : footprint->Pads() )
+        {
+            if( pad->GetAttribute() == PAD_ATTRIB::NPTH )
+                edgesTree.Insert( pad, Edge_Cuts, m_largestEdgeClearance );
 
-    drc_dbg( 2, "outline: %d items, board: %d items\n",
-             (int) edges.size(), (int) boardItems.size() );
+            if( pad->GetProperty() == PAD_PROP::CASTELLATED )
+                m_castellatedPads.push_back( pad );
+        }
+    }
 
-    // This is the number of tests between 2 calls to the progress bar
-    const int delta = 50;
+    /*
+     * Test copper and silk items against the set of edges.
+     */
+    const int progressDelta = 200;
+    int       count = 0;
     int       ii = 0;
 
-    for( BOARD_ITEM* item : boardItems )
-    {
-        bool testCopper = !m_drcEngine->IsErrorLimitExceeded( DRCE_EDGE_CLEARANCE );
-        bool testSilk = !m_drcEngine->IsErrorLimitExceeded( DRCE_SILK_CLEARANCE );
-
-        if( !testCopper && !testSilk )
-            break;
-
-        if( !reportProgress( ii++, boardItems.size(), delta ) )
-            return false;   // DRC cancelled
-
-        const std::shared_ptr<SHAPE>& itemShape = item->GetEffectiveShape();
-
-        for( PCB_LAYER_ID testLayer : { Edge_Cuts, Margin } )
-        {
-            if( testCopper && item->IsOnCopperLayer() )
+    forEachGeometryItem( s_allBasicItemsButZones, LSET::AllLayersMask(),
+            [&]( BOARD_ITEM *item ) -> bool
             {
-                edgesTree.QueryColliding( item, UNDEFINED_LAYER, testLayer, nullptr,
-                        [&]( BOARD_ITEM* edge ) -> bool
-                        {
-                            return testAgainstEdge( item, itemShape.get(), edge,
-                                                    EDGE_CLEARANCE_CONSTRAINT,
-                                                    DRCE_EDGE_CLEARANCE );
-                        },
-                        m_largestClearance );
-            }
+                count++;
+                return true;
+            } );
 
-            if( testSilk && ( item->IsOnLayer( F_SilkS ) || item->IsOnLayer( B_SilkS ) ) )
+    forEachGeometryItem( s_allBasicItemsButZones, LSET::AllLayersMask(),
+            [&]( BOARD_ITEM *item ) -> bool
             {
-                if( edgesTree.QueryColliding( item, UNDEFINED_LAYER, testLayer, nullptr,
-                        [&]( BOARD_ITEM* edge ) -> bool
+                bool testCopper = !m_drcEngine->IsErrorLimitExceeded( DRCE_EDGE_CLEARANCE );
+                bool testSilk = !m_drcEngine->IsErrorLimitExceeded( DRCE_SILK_EDGE_CLEARANCE );
+
+                if( !testCopper && !testSilk )
+                    return false;    // We're done
+
+                if( !reportProgress( ii++, count, progressDelta ) )
+                    return false;    // DRC cancelled; we're done
+
+                if( isInvisibleText( item ) )
+                    return true;     // Continue with other items
+
+                if( item->Type() == PCB_PAD_T
+                        && static_cast<PAD*>( item )->GetProperty() == PAD_PROP::CASTELLATED )
+                {
+                    return true;
+                }
+
+                const std::shared_ptr<SHAPE>& itemShape = item->GetEffectiveShape();
+
+                for( PCB_LAYER_ID testLayer : { Edge_Cuts, Margin } )
+                {
+                    if( testCopper && item->IsOnCopperLayer() )
+                    {
+                        edgesTree.QueryColliding( item, UNDEFINED_LAYER, testLayer, nullptr,
+                                [&]( BOARD_ITEM* edge ) -> bool
+                                {
+                                    return testAgainstEdge( item, itemShape.get(), edge,
+                                                            EDGE_CLEARANCE_CONSTRAINT,
+                                                            DRCE_EDGE_CLEARANCE );
+                                },
+                                m_largestEdgeClearance );
+                    }
+
+                    if( testSilk && ( item->IsOnLayer( F_SilkS ) || item->IsOnLayer( B_SilkS ) ) )
+                    {
+                        if( edgesTree.QueryColliding( item, UNDEFINED_LAYER, testLayer, nullptr,
+                                [&]( BOARD_ITEM* edge ) -> bool
+                                {
+                                    return testAgainstEdge( item, itemShape.get(), edge,
+                                                            SILK_CLEARANCE_CONSTRAINT,
+                                                            DRCE_SILK_EDGE_CLEARANCE );
+                                },
+                                m_largestEdgeClearance ) )
                         {
-                            return testAgainstEdge( item, itemShape.get(), edge,
-                                                    SILK_CLEARANCE_CONSTRAINT,
-                                                    DRCE_SILK_CLEARANCE );
-                        },
-                        m_largestClearance ) )
-                {
-                    // violations reported during QueryColliding
+                            // violations reported during QueryColliding
+                        }
+                        else
+                        {
+                            // TODO: check postion being outside board boundary
+                        }
+                    }
                 }
-                else
-                {
-                    // TODO: check postion being outside board boundary
-                }
-            }
-        }
-    }
+
+                return true;
+            } );
 
     reportRuleStatistics();
 
-    return true;
+    return !m_drcEngine->IsCancelled();
 }
 
 

@@ -69,6 +69,8 @@ public:
     // Layer control
     static TOOL_ACTION layerPrev;
     static TOOL_ACTION layerNext;
+    static TOOL_ACTION moveLayerUp;
+    static TOOL_ACTION moveLayerDown;
     static TOOL_ACTION clearLayer;
     static TOOL_ACTION clearAllLayers;
     static TOOL_ACTION reloadAllLayers;
@@ -91,6 +93,10 @@ public:
     static TOOL_ACTION highlightComponent;
     static TOOL_ACTION highlightAttribute;
     static TOOL_ACTION highlightDCode;
+
+    // Drag and drop
+    static TOOL_ACTION loadZipFile;
+    static TOOL_ACTION loadGerbFiles;
 };
 
 #endif  // __GERBVIEW_ACTIONS_H

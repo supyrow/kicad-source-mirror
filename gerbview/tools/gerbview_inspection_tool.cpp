@@ -79,17 +79,17 @@ int GERBVIEW_INSPECTION_TOOL::ShowDCodes( const TOOL_EVENT& aEvent )
     switch( m_frame->GetUserUnits() )
     {
     case EDA_UNITS::MILLIMETRES:
-        scale = IU_PER_MM;
+        scale = gerbIUScale.IU_PER_MM;
         units = wxT( "mm" );
         break;
 
     case EDA_UNITS::INCHES:
-        scale = IU_PER_MILS * 1000;
+        scale = gerbIUScale.IU_PER_MILS * 1000;
         units = wxT( "in" );
         break;
 
     case EDA_UNITS::MILS:
-        scale = IU_PER_MILS;
+        scale = gerbIUScale.IU_PER_MILS;
         units = wxT( "mil" );
         break;
 
@@ -205,10 +205,9 @@ int GERBVIEW_INSPECTION_TOOL::MeasureTool( const TOOL_EVENT& aEvent )
     bool                       originSet = false;
     TWO_POINT_GEOMETRY_MANAGER twoPtMgr;
     EDA_UNITS                  units = m_frame->GetUserUnits();
-    KIGFX::PREVIEW::RULER_ITEM ruler( twoPtMgr, units, false, false );
+    KIGFX::PREVIEW::RULER_ITEM ruler( twoPtMgr, gerbIUScale, units, false, false );
 
-    std::string tool = aEvent.GetCommandStr().get();
-    m_frame->PushTool( tool );
+    m_frame->PushTool( aEvent );
 
     auto setCursor =
             [&]()
@@ -247,7 +246,7 @@ int GERBVIEW_INSPECTION_TOOL::MeasureTool( const TOOL_EVENT& aEvent )
             }
             else
             {
-                m_frame->PopTool( tool );
+                m_frame->PopTool( aEvent );
                 break;
             }
         }
@@ -263,7 +262,7 @@ int GERBVIEW_INSPECTION_TOOL::MeasureTool( const TOOL_EVENT& aEvent )
             }
             else
             {
-                m_frame->PopTool( tool );
+                m_frame->PopTool( aEvent );
                 break;
             }
         }

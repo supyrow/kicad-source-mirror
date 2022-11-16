@@ -27,7 +27,6 @@
 #define _LIB_ITEM_H_
 
 #include <eda_item.h>
-#include <eda_rect.h>
 #include <eda_shape.h>
 #include <transform.h>
 #include <render_settings.h>
@@ -73,11 +72,19 @@ public:
     /**
      * The list of flags used by the #compare function.
      *
-     * - NORMAL This compares everything between two #LIB_ITEM objects.
-     * - UNIT This compare flag ignores unit and convert and pin number information when
-     *        comparing #LIB_ITEM objects for unit comparison.
+     * - UNIT This flag relaxes unit, conversion and pin number constraints.  It is used for
+     *        #LIB_ITEM object unit comparisons.
+     * - EQUALITY This flag relaxes ordering contstraints so that fields, etc. don't have to
+     *            appear in the same order to be considered equal.
+     * - ERC This flag relaxes constraints on data that is settable in the schematic editor.  It
+     *       compares only symbol-editor-only data.
      */
-    enum COMPARE_FLAGS : int { NORMAL = 0x00, UNIT = 0x01, EQUALITY = 0x02 };
+    enum COMPARE_FLAGS : int
+    {
+        UNIT     = 0x01,
+        EQUALITY = 0x02,
+        ERC      = 0x04
+    };
 
     /**
      * Provide a user-consumable name of the object type.  Perform localization when
@@ -136,9 +143,10 @@ public:
      *              items what can be filled ). used in printing or moving objects mode or to
      *              pass reference to the lib symbol for pins.
      * @param aTransform Transform Matrix (rotation, mirror ..)
+     * @param aDimmed Dim the color on the printout
      */
     virtual void Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset, void* aData,
-                        const TRANSFORM& aTransform );
+                        const TRANSFORM& aTransform, bool aDimmed );
 
     virtual int GetPenWidth() const = 0;
 
@@ -171,12 +179,12 @@ public:
         return EDA_ITEM::HitTest( aPosition, aAccuracy );
     }
 
-    bool HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy = 0 ) const override;
+    bool HitTest( const BOX2I& aRect, bool aContained, int aAccuracy = 0 ) const override;
 
     /**
      * @return the boundary box for this, in library coordinates
      */
-    const EDA_RECT GetBoundingBox() const override { return EDA_ITEM::GetBoundingBox(); }
+    const BOX2I GetBoundingBox() const override { return EDA_ITEM::GetBoundingBox(); }
 
     /**
      * Display basic info (type, part and convert) about the current item in message panel.
@@ -256,9 +264,10 @@ public:
      * @param aOffset Plot offset position.
      * @param aFill Flag to indicate whether or not the object is filled.
      * @param aTransform The plot transform.
+     * @param aDimmed if true, reduce color to background
      */
     virtual void Plot( PLOTTER* aPlotter, bool aBackground, const VECTOR2I& aOffset,
-                       const TRANSFORM& aTransform ) const = 0;
+                       const TRANSFORM& aTransform, bool aDimmed ) const = 0;
 
     void SetUnit( int aUnit ) { m_unit = aUnit; }
     int GetUnit() const { return m_unit; }
@@ -294,8 +303,7 @@ protected:
      *         zero if the object is equal to \a aOther object, or greater than 0 if the
      *         object is greater than \a aOther object.
      */
-    virtual int compare( const LIB_ITEM& aOther,
-            LIB_ITEM::COMPARE_FLAGS aCompareFlags = LIB_ITEM::COMPARE_FLAGS::NORMAL ) const;
+    virtual int compare( const LIB_ITEM& aOther, int aCompareFlags = 0 ) const;
 
     /**
      * Print the item to \a aDC.
@@ -306,7 +314,7 @@ protected:
      * @param aTransform A reference to a #TRANSFORM object containing drawing transform.
      */
     virtual void print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset, void* aData,
-                        const TRANSFORM& aTransform ) = 0;
+                        const TRANSFORM& aTransform, bool aDimmed ) = 0;
 
 private:
     friend class LIB_SYMBOL;

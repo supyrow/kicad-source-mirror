@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2020 Joshua Redstone redstone at gmail.com
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -92,11 +92,11 @@ public:
     void RemoveAll();
 
     /*
-     * Search for highest level group containing item.
+     * Search for highest level group inside of aScope, containing item.
      *
      * @param aScope restricts the search to groups within the group scope.
      * @param isFootprintEditor true if we should stop promoting at the footprint level
-     * @return group containing item, if it exists, otherwise, NULL
+     * @return group inside of aScope, containing item, if exists, otherwise, nullptr
      */
     static PCB_GROUP* TopLevelGroup( BOARD_ITEM* aItem, PCB_GROUP* aScope, bool isFootprintEditor );
 
@@ -145,9 +145,6 @@ public:
      */
     PCB_GROUP* DeepDuplicate() const;
 
-    ///< @copydoc BOARD_ITEM::SwapData
-    void SwapData( BOARD_ITEM* aImage ) override;
-
     ///< @copydoc BOARD_ITEM::IsOnLayer
     bool IsOnLayer( PCB_LAYER_ID aLayer ) const override;
 
@@ -155,14 +152,14 @@ public:
     bool HitTest( const VECTOR2I& aPosition, int aAccuracy = 0 ) const override;
 
     ///< @copydoc EDA_ITEM::HitTest
-    bool HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy = 0 ) const override;
+    bool HitTest( const BOX2I& aRect, bool aContained, int aAccuracy = 0 ) const override;
 
     ///< @copydoc EDA_ITEM::GetBoundingBox
-    const EDA_RECT GetBoundingBox() const override;
+    const BOX2I GetBoundingBox() const override;
 
     ///< @copydoc EDA_ITEM::Visit
-    SEARCH_RESULT Visit( INSPECTOR aInspector, void* aTestData,
-                         const KICAD_T aScanTypes[] ) override;
+    INSPECT_RESULT Visit( INSPECTOR aInspector, void* aTestData,
+                          const std::vector<KICAD_T>& aScanTypes ) override;
 
     ///< @copydoc VIEW_ITEM::ViewGetLayers
     void ViewGetLayers( int aLayers[], int& aCount ) const override;
@@ -180,7 +177,7 @@ public:
     void Flip( const VECTOR2I& aCentre, bool aFlipLeftRight ) override;
 
     ///< @copydoc EDA_ITEM::GetSelectMenuText
-    wxString GetSelectMenuText( EDA_UNITS aUnits ) const override;
+    wxString GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const override;
 
     ///< @copydoc EDA_ITEM::GetMenuImage
     BITMAPS GetMenuImage() const override;
@@ -220,6 +217,10 @@ public:
      * @param aFunction is the function to be invoked.
      */
     void RunOnDescendants( const std::function<void( BOARD_ITEM* )>& aFunction ) const;
+
+protected:
+    ///< @copydoc BOARD_ITEM::swapData
+    void swapData( BOARD_ITEM* aImage ) override;
 
 private:
     std::unordered_set<BOARD_ITEM*> m_items;     // Members of the group

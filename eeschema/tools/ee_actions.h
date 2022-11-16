@@ -66,6 +66,9 @@ public:
     /// Runs a selection menu to select from a list of items
     static TOOL_ACTION selectionMenu;
 
+    /// Selection synchronization (PCB -> SCH)
+    static TOOL_ACTION syncSelection;
+
     // Locking
     static TOOL_ACTION toggleLock;
     static TOOL_ACTION lock;
@@ -88,6 +91,7 @@ public:
     static TOOL_ACTION placeGlobalLabel;
     static TOOL_ACTION placeHierLabel;
     static TOOL_ACTION drawSheet;
+    static TOOL_ACTION importSingleSheetPin;
     static TOOL_ACTION importSheetPin;
     static TOOL_ACTION placeSchematicText;
     static TOOL_ACTION drawTextBox;
@@ -96,6 +100,8 @@ public:
     static TOOL_ACTION drawArc;
     static TOOL_ACTION drawLines;
     static TOOL_ACTION placeImage;
+    static TOOL_ACTION undoLastSegment;
+    static TOOL_ACTION switchSegmentPosture;
     static TOOL_ACTION finishLineWireOrBus;
     static TOOL_ACTION finishWire;
     static TOOL_ACTION finishBus;
@@ -121,6 +127,7 @@ public:
     static TOOL_ACTION rotateCCW;
     static TOOL_ACTION mirrorV;
     static TOOL_ACTION mirrorH;
+    static TOOL_ACTION swap;
     static TOOL_ACTION properties;
     static TOOL_ACTION editReference;
     static TOOL_ACTION editValue;
@@ -135,6 +142,7 @@ public:
     static TOOL_ACTION toHLabel;
     static TOOL_ACTION toGLabel;
     static TOOL_ACTION toText;
+    static TOOL_ACTION toTextBox;
     static TOOL_ACTION breakWire;
     static TOOL_ACTION breakBus;
     static TOOL_ACTION pointEditorAddCorner;
@@ -154,7 +162,6 @@ public:
     static TOOL_ACTION updateSymbol;
     static TOOL_ACTION assignFootprints;
     static TOOL_ACTION assignNetclass;
-    static TOOL_ACTION showBusManager;
     static TOOL_ACTION schematicSetup;
     static TOOL_ACTION editPageNumber;
     static TOOL_ACTION checkSymbol;
@@ -170,6 +177,8 @@ public:
     static TOOL_ACTION exportNetlist;
     static TOOL_ACTION generateBOM;
     static TOOL_ACTION addSymbolToSchematic;
+    static TOOL_ACTION exportSymbolsToLibrary;
+    static TOOL_ACTION exportSymbolsToNewLibrary;
 
     // Library management
     static TOOL_ACTION saveLibraryAs;
@@ -177,6 +186,7 @@ public:
     static TOOL_ACTION newSymbol;
     static TOOL_ACTION editSymbol;
     static TOOL_ACTION duplicateSymbol;
+    static TOOL_ACTION renameSymbol;
     static TOOL_ACTION deleteSymbol;
     static TOOL_ACTION cutSymbol;
     static TOOL_ACTION copySymbol;
@@ -184,13 +194,19 @@ public:
     static TOOL_ACTION importSymbol;
     static TOOL_ACTION exportSymbol;
     static TOOL_ACTION updateSymbolFields;
+    static TOOL_ACTION setUnitDisplayName;
 
     // Hierarchy navigation
+    static TOOL_ACTION changeSheet;
     static TOOL_ACTION enterSheet;
     static TOOL_ACTION leaveSheet;
-    static TOOL_ACTION navigateHierarchy;
+    static TOOL_ACTION navigateUp;
+    static TOOL_ACTION navigateForward;
+    static TOOL_ACTION navigateBack;
+    static TOOL_ACTION navigatePrevious;
+    static TOOL_ACTION navigateNext;
+    static TOOL_ACTION showHierarchy;
     static TOOL_ACTION hypertextCommand;
-    static TOOL_ACTION importSingleSheetPin;
 
     // Global edit tools
     static TOOL_ACTION cleanupSheetPins;
@@ -209,14 +225,23 @@ public:
     static TOOL_ACTION pushPinNameSize;
     static TOOL_ACTION pushPinNumSize;
     static TOOL_ACTION showElectricalTypes;
+    static TOOL_ACTION showPinNumbers;
     static TOOL_ACTION showSymbolTree;
     static TOOL_ACTION hideSymbolTree;
-    static TOOL_ACTION toggleForceHV;
     static TOOL_ACTION drawSheetOnClipboard;
     static TOOL_ACTION exportSymbolView;
     static TOOL_ACTION exportSymbolAsSVG;
     static TOOL_ACTION showPythonConsole;
     static TOOL_ACTION repairSchematic;
+
+    // Line modes
+    static TOOL_ACTION lineModeFree;
+    static TOOL_ACTION lineMode90;
+    static TOOL_ACTION lineMode45;
+    static TOOL_ACTION lineModeNext;
+
+    // Annotation
+    static TOOL_ACTION toggleAnnotateAuto;
 
     // SPICE
     static TOOL_ACTION runSimulation;
@@ -228,6 +253,9 @@ public:
     static TOOL_ACTION clearHighlight;
     static TOOL_ACTION updateNetHighlighting;
     static TOOL_ACTION highlightNetTool;
+
+    // Drag and drop
+    static TOOL_ACTION ddAppendFile;
 };
 
 #endif

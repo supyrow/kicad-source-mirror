@@ -55,9 +55,7 @@ public:
 
     VECTOR2I GetDrawPos() const override;
 
-    wxString GetShownText( int aDepth = 0 ) const override;
-
-    KIFONT::FONT* GetDrawFont() const override;
+    wxString GetShownText( int aDepth = 0, bool aAllowExtraText = true ) const override;
 
     void MirrorHorizontally( const VECTOR2I& center );
     void MirrorVertically( const VECTOR2I& center );
@@ -65,26 +63,26 @@ public:
 
     bool HitTest( const VECTOR2I& aPosition, int aAccuracy = 0 ) const override;
 
-    bool HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy = 0 ) const override;
+    bool HitTest( const BOX2I& aRect, bool aContained, int aAccuracy = 0 ) const override;
 
-    bool Matches( const wxFindReplaceData& aSearchData, void* aAuxData ) const override
+    bool Matches( const EDA_SEARCH_DATA& aSearchData, void* aAuxData ) const override
     {
         return LIB_ITEM::Matches( GetText(), aSearchData );
     }
 
-    bool Replace( const wxFindReplaceData& aSearchData, void* aAuxData ) override
+    bool Replace( const EDA_SEARCH_DATA& aSearchData, void* aAuxData ) override
     {
         return EDA_TEXT::Replace( aSearchData );
     }
 
     virtual bool IsReplaceable() const override { return true; }
 
-    wxString GetSelectMenuText( EDA_UNITS aUnits ) const override;
+    wxString GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const override;
 
     BITMAPS GetMenuImage() const override;
 
     void Plot( PLOTTER* aPlotter, bool aBackground, const VECTOR2I& offset,
-               const TRANSFORM& aTransform ) const override;
+               const TRANSFORM& aTransform, bool aDimmed ) const override;
 
     EDA_ITEM* Clone() const override
     {
@@ -95,12 +93,14 @@ public:
 
     void ViewGetLayers( int aLayers[], int& aCount ) const override;
 
+protected:
+        KIFONT::FONT* getDrawFont() const override;
+
 private:
-    int compare( const LIB_ITEM& aOther,
-            LIB_ITEM::COMPARE_FLAGS aCompareFlags = LIB_ITEM::COMPARE_FLAGS::NORMAL ) const override;
+    int compare( const LIB_ITEM& aOther, int aCompareFlags = 0 ) const override;
 
     void print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset, void* aData,
-                const TRANSFORM& aTransform ) override;
+                const TRANSFORM& aTransform, bool aDimmed ) override;
 };
 
 

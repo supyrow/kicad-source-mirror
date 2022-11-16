@@ -4,7 +4,7 @@
  * Copyright (C) 2016 Mario Luzeiro <mrluzeiro@ua.pt>
  * Copyright (C) 2015 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2013 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -25,8 +25,10 @@
  */
 
 #include <wx/wupdlock.h>
+#include <wx/choice.h>
 
 #include <bitmaps.h>
+#include <dialogs/eda_view_switcher.h>
 #include <eda_3d_viewer_frame.h>
 #include <menus_helpers.h>
 #include <tool/action_toolbar.h>
@@ -49,6 +51,32 @@ void EDA_3D_VIEWER_FRAME::ReCreateMainToolbar()
                                             KICAD_AUI_TB_STYLE | wxAUI_TB_HORZ_LAYOUT | wxAUI_TB_HORIZONTAL );
         m_mainToolBar->SetAuiManager( &m_auimgr );
     }
+
+    // Show the hotkey to open the windows list selector:
+    wxString keyName = KeyNameFromKeyCode( VIEWPORT_SWITCH_KEY );
+
+    m_viewportsLabel = new wxStaticText( m_mainToolBar, wxID_ANY,
+                                         wxString::Format( _( "Viewports (%s+Tab):" ), keyName ) );
+   	m_viewportsLabel->Wrap( -1 );
+
+   	m_cbViewports = new wxChoice( m_mainToolBar, wxID_ANY );
+
+    for( std::pair<const wxString, VIEWPORT3D>& pair : m_viewports )
+        m_cbViewports->Append( pair.first, static_cast<void*>( &pair.second ) );
+
+    m_cbViewports->Append( wxT( "---" ) );
+    m_cbViewports->Append( _( "Save viewport..." ) );
+    m_cbViewports->Append( _( "Delete viewport..." ) );
+
+    m_cbViewports->SetToolTip( wxString::Format( _( "Save and restore view orientation and zoom.\n"
+                                                    "Use %s+Tab to activate selector.\n"
+                                                    "Successive Tabs while holding %s down will "
+                                                    "cycle through viewports in the popup." ),
+                                                 keyName, keyName ) );
+
+    m_cbViewports->SetSelection( m_cbViewports->GetCount() - 3 );
+
+    m_lastSelectedViewport = nullptr;
 
     // Set up toolbar
     m_mainToolBar->AddTool( ID_RELOAD3D_BOARD, wxEmptyString,
@@ -98,6 +126,13 @@ void EDA_3D_VIEWER_FRAME::ReCreateMainToolbar()
     m_mainToolBar->Add( EDA_3D_ACTIONS::showTHT, ACTION_TOOLBAR::TOGGLE );
     m_mainToolBar->Add( EDA_3D_ACTIONS::showSMD, ACTION_TOOLBAR::TOGGLE );
     m_mainToolBar->Add( EDA_3D_ACTIONS::showVirtual, ACTION_TOOLBAR::TOGGLE );
+    m_mainToolBar->Add( EDA_3D_ACTIONS::showNotInPosFile, ACTION_TOOLBAR::TOGGLE );
+
+    m_mainToolBar->AddScaledSeparator( this );
+    m_mainToolBar->AddControl( m_viewportsLabel );
+    m_mainToolBar->AddControl( m_cbViewports );
 
     m_mainToolBar->KiRealize();
 }
+
+

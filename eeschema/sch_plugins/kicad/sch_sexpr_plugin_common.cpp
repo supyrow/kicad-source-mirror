@@ -18,6 +18,7 @@
  */
 
 #include <advanced_config.h>
+#include <base_units.h>
 #include <macros.h>
 #include <schematic_lexer.h>
 #include "sch_sexpr_plugin_common.h"
@@ -51,7 +52,7 @@ void formatFill( OUTPUTFORMATTER* aFormatter, int aNestLevel, FILL_T aFillMode,
                            KiROUND( aFillColor.r * 255.0 ),
                            KiROUND( aFillColor.g * 255.0 ),
                            KiROUND( aFillColor.b * 255.0 ),
-                           Double2Str( aFillColor.a ).c_str() );
+                           FormatDouble2Str( aFillColor.a ).c_str() );
     }
     else
     {
@@ -213,11 +214,11 @@ void formatArc( OUTPUTFORMATTER* aFormatter, int aNestLevel, EDA_SHAPE* aArc,
 {
     aFormatter->Print( aNestLevel, "(arc%s (start %s) (mid %s) (end %s)\n",
                        aIsPrivate ? " private" : "",
-                       FormatInternalUnits( aArc->GetStart() ).c_str(),
-                       FormatInternalUnits( aArc->GetArcMid() ).c_str(),
-                       FormatInternalUnits( aArc->GetEnd() ).c_str() );
+                       EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aArc->GetStart() ).c_str(),
+                       EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aArc->GetArcMid() ).c_str(),
+                       EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aArc->GetEnd() ).c_str() );
 
-    aStroke.Format( aFormatter, aNestLevel + 1 );
+    aStroke.Format( aFormatter, schIUScale, aNestLevel + 1 );
     aFormatter->Print( 0, "\n" );
     formatFill( aFormatter, aNestLevel + 1, aFillMode, aFillColor );
     aFormatter->Print( 0, "\n" );
@@ -235,11 +236,11 @@ void formatCircle( OUTPUTFORMATTER* aFormatter, int aNestLevel, EDA_SHAPE* aCirc
 {
     aFormatter->Print( aNestLevel, "(circle%s (center %s %s) (radius %s)\n",
                        aIsPrivate ? " private" : "",
-                       FormatInternalUnits( aCircle->GetStart().x ).c_str(),
-                       FormatInternalUnits( aCircle->GetStart().y ).c_str(),
-                       FormatInternalUnits( aCircle->GetRadius() ).c_str() );
+                       EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aCircle->GetStart().x ).c_str(),
+                       EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aCircle->GetStart().y ).c_str(),
+                       EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aCircle->GetRadius() ).c_str() );
 
-    aStroke.Format( aFormatter, aNestLevel + 1 );
+    aStroke.Format( aFormatter, schIUScale, aNestLevel + 1 );
     aFormatter->Print( 0, "\n" );
     formatFill( aFormatter, aNestLevel + 1, aFillMode, aFillColor );
     aFormatter->Print( 0, "\n" );
@@ -257,11 +258,11 @@ void formatRect( OUTPUTFORMATTER* aFormatter, int aNestLevel, EDA_SHAPE* aRect,
 {
     aFormatter->Print( aNestLevel, "(rectangle%s (start %s %s) (end %s %s)\n",
                        aIsPrivate ? " private" : "",
-                       FormatInternalUnits( aRect->GetStart().x ).c_str(),
-                       FormatInternalUnits( aRect->GetStart().y ).c_str(),
-                       FormatInternalUnits( aRect->GetEnd().x ).c_str(),
-                       FormatInternalUnits( aRect->GetEnd().y ).c_str() );
-    aStroke.Format( aFormatter, aNestLevel + 1 );
+                       EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aRect->GetStart().x ).c_str(),
+                       EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aRect->GetStart().y ).c_str(),
+                       EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aRect->GetEnd().x ).c_str(),
+                       EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aRect->GetEnd().y ).c_str() );
+    aStroke.Format( aFormatter, schIUScale, aNestLevel + 1 );
     aFormatter->Print( 0, "\n" );
     formatFill( aFormatter, aNestLevel + 1, aFillMode, aFillColor );
     aFormatter->Print( 0, "\n" );
@@ -284,13 +285,13 @@ void formatBezier( OUTPUTFORMATTER* aFormatter, int aNestLevel, EDA_SHAPE* aBezi
                                 aBezier->GetBezierC2(), aBezier->GetEnd() } )
     {
         aFormatter->Print( 0, " (xy %s %s)",
-                           FormatInternalUnits( pt.x ).c_str(),
-                           FormatInternalUnits( pt.y ).c_str() );
+                           EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, pt.x ).c_str(),
+                           EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, pt.y ).c_str() );
     }
 
     aFormatter->Print( 0, ")\n" );  // Closes pts token on same line.
 
-    aStroke.Format( aFormatter, aNestLevel + 1 );
+    aStroke.Format( aFormatter, schIUScale, aNestLevel + 1 );
     aFormatter->Print( 0, "\n" );
     formatFill( aFormatter, aNestLevel + 1, aFillMode, aFillColor );
     aFormatter->Print( 0, "\n" );
@@ -318,16 +319,16 @@ void formatPoly( OUTPUTFORMATTER* aFormatter, int aNestLevel, EDA_SHAPE* aPolyLi
         {
             aFormatter->Print( 0, "\n" );
             aFormatter->Print( aNestLevel + 2, "(xy %s %s)",
-                               FormatInternalUnits( pt.x ).c_str(),
-                               FormatInternalUnits( pt.y ).c_str() );
+                               EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, pt.x ).c_str(),
+                               EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, pt.y ).c_str() );
             newLine = 0;
             lineCount += 1;
         }
         else
         {
             aFormatter->Print( 0, " (xy %s %s)",
-                               FormatInternalUnits( pt.x ).c_str(),
-                               FormatInternalUnits( pt.y ).c_str() );
+                               EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, pt.x ).c_str(),
+                               EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, pt.y ).c_str() );
         }
 
         newLine += 1;
@@ -343,7 +344,7 @@ void formatPoly( OUTPUTFORMATTER* aFormatter, int aNestLevel, EDA_SHAPE* aPolyLi
         aFormatter->Print( aNestLevel + 1, ")\n" );  // Closes pts token with multiple lines.
     }
 
-    aStroke.Format( aFormatter, aNestLevel + 1 );
+    aStroke.Format( aFormatter, schIUScale, aNestLevel + 1 );
     aFormatter->Print( 0, "\n" );
     formatFill( aFormatter, aNestLevel + 1, aFillMode, aFillColor );
     aFormatter->Print( 0, "\n" );

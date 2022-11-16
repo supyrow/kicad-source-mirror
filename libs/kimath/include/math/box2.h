@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2012 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
- * Copyright (C) 2012-2021 Kicad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2012-2022 Kicad Developers, see AUTHORS.txt for contributors.
  * Copyright (C) 2013 CERN
  * @author Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  *
@@ -27,12 +27,13 @@
 #ifndef __BOX2_H
 #define __BOX2_H
 
-#include <math/vector2d.h>
 #include <limits>
 #include <algorithm>
+#include <optional>
 
-// Needed for the OPT definition
-#include <core/optional.h>
+#include <math/vector2d.h>
+#include <geometry/eda_angle.h>
+#include <trigo.h>
 
 /**
  * A 2D bounding box built on top of an origin point and size vector.
@@ -41,15 +42,20 @@ template <class Vec>
 class BOX2
 {
 public:
-    typedef typename Vec::coord_type                 coord_type;
-    typedef typename Vec::extended_type              ecoord_type;
-    typedef std::numeric_limits<coord_type>          coord_limits;
+    typedef typename Vec::coord_type        coord_type;
+    typedef typename Vec::extended_type     ecoord_type;
+    typedef std::numeric_limits<coord_type> coord_limits;
 
-    BOX2() {};
+    BOX2() :
+        m_Pos( 0, 0 ),
+        m_Size( 0, 0 ),
+        m_init( false )
+    {};
 
     BOX2( const Vec& aPos, const Vec& aSize = Vec(0, 0) ) :
         m_Pos( aPos ),
-        m_Size( aSize )
+        m_Size( aSize ),
+        m_init( true )
     {
         Normalize();
     }
@@ -58,6 +64,7 @@ public:
     {
         m_Pos.x  = m_Pos.y = coord_limits::lowest() / 2 + coord_limits::epsilon();
         m_Size.x = m_Size.y = coord_limits::max() - coord_limits::epsilon();
+        m_init = true;
     }
 
     Vec Centre() const
@@ -107,7 +114,7 @@ public:
     }
 
     /**
-     * Ensure that the height ant width are positive.
+     * Ensure that the height and width are positive.
      */
     BOX2<Vec>& Normalize()
     {
@@ -185,29 +192,74 @@ public:
     // Compatibility aliases
     coord_type GetLeft() const { return GetX(); }
     coord_type GetTop() const { return GetY(); }
-    void MoveTopTo( coord_type aTop ) { m_Pos.y = aTop; }
-    void MoveBottomTo( coord_type aBottom ) { m_Size.y = aBottom - m_Pos.y; }
-    void MoveLeftTo( coord_type aLeft ) { m_Pos.x = aLeft; }
-    void MoveRightTo( coord_type aRight ) { m_Size.x = aRight - m_Pos.x; }
+    const Vec GetCenter() const { return Centre(); }
 
-    void SetOrigin( const Vec& pos ) { m_Pos = pos; }
-    void SetOrigin( coord_type x, coord_type y ) { m_Pos.x = x; m_Pos.y = y; }
-    void SetSize( const Vec& size ) { m_Size = size; }
-    void SetSize( coord_type w, coord_type h ) { m_Size.x = w; m_Size.y = h; }
-    void Offset( coord_type dx, coord_type dy ) { m_Pos.x += dx; m_Pos.y += dy; }
-    void Offset( const Vec& offset )
+    /**
+     * @return the width or height, whichever is greater.
+     */
+    int GetSizeMax() const { return ( m_Size.x > m_Size.y ) ? m_Size.x : m_Size.y; }
+
+    void SetOrigin( const Vec& pos )
     {
-        m_Pos.x += offset.x; m_Pos.y += offset.y;
+        m_Pos = pos;
+        m_init = true;
     }
 
-    void SetX( coord_type val ) { m_Pos.x = val; }
-    void SetY( coord_type val ) { m_Pos.y = val; }
-    void SetWidth( coord_type val ) { m_Size.x = val; }
-    void SetHeight( coord_type val ) { m_Size.y = val; }
-    void SetEnd( coord_type x, coord_type y ) { SetEnd( Vec( x, y ) ); }
+    void SetOrigin( coord_type x, coord_type y )
+    {
+        SetOrigin( Vec( x, y ) );
+    }
+
+    void SetSize( const Vec& size )
+    {
+        m_Size = size;
+        m_init = true;
+    }
+
+    void SetSize( coord_type w, coord_type h )
+    {
+        SetSize( Vec( w, h ) );
+    }
+
+    void Offset( coord_type dx, coord_type dy )
+    {
+        m_Pos.x += dx;
+        m_Pos.y += dy;
+    }
+
+    void Offset( const Vec& offset )
+    {
+        Offset( offset.x, offset.y );
+    }
+
+    void SetX( coord_type val )
+    {
+        SetOrigin( val, m_Pos.y );
+    }
+
+    void SetY( coord_type val )
+    {
+        SetOrigin( m_Pos.x, val );
+    }
+
+    void SetWidth( coord_type val )
+    {
+        SetSize( val, m_Size.y );
+    }
+
+    void SetHeight( coord_type val )
+    {
+        SetSize( m_Size.x, val );
+    }
+
+    void SetEnd( coord_type x, coord_type y )
+    {
+        SetEnd( Vec( x, y ) );
+    }
+
     void SetEnd( const Vec& pos )
     {
-        m_Size.x = pos.x - m_Pos.x; m_Size.y = pos.y - m_Pos.y;
+        SetSize( pos - m_Pos );
     }
 
     /**
@@ -229,7 +281,7 @@ public:
         // calculate the right common area coordinate:
         int  right  = std::min( me.m_Pos.x + me.m_Size.x, rect.m_Pos.x + rect.m_Size.x );
         // calculate the upper common area coordinate:
-        int  top    = std::max( me.m_Pos.y, aRect.m_Pos.y );
+        int  top    = std::max( me.m_Pos.y, rect.m_Pos.y );
         // calculate the lower common area coordinate:
         int  bottom = std::min( me.m_Pos.y + me.m_Size.y, rect.m_Pos.y + rect.m_Size.y );
 
@@ -243,7 +295,7 @@ public:
     }
 
     /**
-     * Return the intersection of this with another rectangle.
+     * @return true if this rectangle intersects \a aRect.
      */
     BOX2<Vec> Intersect( const BOX2<Vec>& aRect )
     {
@@ -263,6 +315,179 @@ public:
             return BOX2<Vec>( topLeft, bottomRight - topLeft );
         else
             return BOX2<Vec>( Vec( 0, 0 ), Vec( 0, 0 ) );
+    }
+
+    /**
+     * @return true if this rectangle intersects a line from \a aPoint1 to \a aPoint2
+     */
+    bool Intersects( const Vec& aPoint1, const Vec& aPoint2 ) const
+    {
+        Vec point2, point4;
+
+        if( Contains( aPoint1 ) || Contains( aPoint2 ) )
+            return true;
+
+        point2.x = GetEnd().x;
+        point2.y = GetOrigin().y;
+        point4.x = GetOrigin().x;
+        point4.y = GetEnd().y;
+
+        //Only need to test 3 sides since a straight line can't enter and exit on same side
+        if( SegmentIntersectsSegment( aPoint1, aPoint2, GetOrigin(), point2 ) )
+            return true;
+
+        if( SegmentIntersectsSegment( aPoint1, aPoint2, point2, GetEnd() ) )
+            return true;
+
+        if( SegmentIntersectsSegment( aPoint1, aPoint2, GetEnd(), point4 ) )
+            return true;
+
+        return false;
+    }
+
+    /**
+     * @return true if this rectangle intersects a rotated rect given by \a aRect and
+     *         \a aRotaiton.
+     */
+    bool Intersects( const BOX2<Vec>& aRect, const EDA_ANGLE& aRotation ) const
+    {
+        if( !m_init )
+            return false;
+
+        EDA_ANGLE rotation = aRotation;
+        rotation.Normalize();
+
+        /*
+         * Most rectangles will be axis aligned.  It is quicker to check for this case and pass
+         * the rect to the simpler intersection test.
+         */
+
+        // Prevent floating point comparison errors
+        static const EDA_ANGLE ROT_EPSILON( 0.000000001, DEGREES_T );
+
+        static const EDA_ANGLE ROT_PARALLEL[]      = { ANGLE_0, ANGLE_180, ANGLE_360 };
+        static const EDA_ANGLE ROT_PERPENDICULAR[] = { ANGLE_0, ANGLE_90,  ANGLE_270 };
+
+        // Test for non-rotated rectangle
+        for( EDA_ANGLE ii : ROT_PARALLEL )
+        {
+            if( std::abs( rotation - ii ) < ROT_EPSILON )
+                return Intersects( aRect );
+        }
+
+        // Test for rectangle rotated by multiple of 90 degrees
+        for( EDA_ANGLE jj : ROT_PERPENDICULAR )
+        {
+            if( std::abs( rotation - jj ) < ROT_EPSILON )
+            {
+                BOX2<Vec> rotRect;
+
+                // Rotate the supplied rect by 90 degrees
+                rotRect.SetOrigin( aRect.Centre() );
+                rotRect.Inflate( aRect.GetHeight(), aRect.GetWidth() );
+                return Intersects( rotRect );
+            }
+        }
+
+        /* There is some non-orthogonal rotation.
+         * There are three cases to test:
+         * A) One point of this rect is inside the rotated rect
+         * B) One point of the rotated rect is inside this rect
+         * C) One of the sides of the rotated rect intersect this
+         */
+
+        VECTOR2I corners[4];
+
+        /* Test A : Any corners exist in rotated rect? */
+        corners[0] = m_Pos;
+        corners[1] = m_Pos + VECTOR2I( m_Size.x, 0 );
+        corners[2] = m_Pos + VECTOR2I( m_Size.x, m_Size.y );
+        corners[3] = m_Pos + VECTOR2I( 0, m_Size.y );
+
+        VECTOR2I rCentre = aRect.Centre();
+
+        for( int i = 0; i < 4; i++ )
+        {
+            VECTOR2I delta = corners[i] - rCentre;
+            RotatePoint( delta, -rotation );
+            delta += rCentre;
+
+            if( aRect.Contains( delta ) )
+                return true;
+        }
+
+        /* Test B : Any corners of rotated rect exist in this one? */
+        int w = aRect.GetWidth() / 2;
+        int h = aRect.GetHeight() / 2;
+
+        // Construct corners around center of shape
+        corners[0] = VECTOR2I( -w, -h );
+        corners[1] = VECTOR2I( w, -h );
+        corners[2] = VECTOR2I( w, h );
+        corners[3] = VECTOR2I( -w, h );
+
+        // Rotate and test each corner
+        for( int j = 0; j < 4; j++ )
+        {
+            RotatePoint( corners[j], rotation );
+            corners[j] += rCentre;
+
+            if( Contains( corners[j] ) )
+                return true;
+        }
+
+        /* Test C : Any sides of rotated rect intersect this */
+        if( Intersects( corners[0], corners[1] ) || Intersects( corners[1], corners[2] )
+                || Intersects( corners[2], corners[3] ) || Intersects( corners[3], corners[0] ) )
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * @return true if this rectangle intersects the circle defined by \a aCenter and \a aRadius.
+     */
+    bool IntersectsCircle( const Vec& aCenter, const int aRadius ) const
+    {
+        if( !m_init )
+            return false;
+
+        Vec closest = ClosestPointTo( aCenter );
+
+        double dx = static_cast<double>( aCenter.x ) - closest.x;
+        double dy = static_cast<double>( aCenter.y ) - closest.y;
+
+        double r = static_cast<double>( aRadius );
+
+        return ( dx * dx + dy * dy ) <= ( r * r );
+    }
+
+    /**
+     * @return true if this rectangle intersects the edge of a circle defined by \a aCenter
+     *         and \a aRadius.
+     */
+    bool IntersectsCircleEdge( const Vec& aCenter, const int aRadius, const int aWidth ) const
+    {
+        if( !m_init )
+            return false;
+
+        BOX2<Vec> me( *this );
+        me.Normalize(); // ensure size is >= 0
+
+        // Test if the circle intersects at all
+        if( !IntersectsCircle( aCenter, aRadius + aWidth / 2 ) )
+            return false;
+
+        Vec farpt = FarthestPointTo( aCenter );
+        // Farthest point must be further than the inside of the line
+        double fx = (double) farpt.x - aCenter.x;
+        double fy = (double) farpt.y - aCenter.y;
+
+        double r = (double) aRadius - (double) aWidth / 2;
+
+        return ( fx * fx + fy * fy ) > ( r * r );
     }
 
     const std::string Format() const
@@ -297,7 +522,7 @@ public:
         }
         else    // size.x < 0:
         {
-            if( m_Size.x > -2 * dx )
+            if( m_Size.x > 2 * dx )
             {
                 // Don't allow deflate to eat more width than we have,
                 m_Pos.x -= m_Size.x / 2;
@@ -362,6 +587,18 @@ public:
      */
     BOX2<Vec>& Merge( const BOX2<Vec>& aRect )
     {
+        if( !m_init )
+        {
+            if( aRect.m_init )
+            {
+                m_Pos  = aRect.GetPosition();
+                m_Size = aRect.GetSize();
+                m_init = true;
+            }
+
+            return *this;
+        }
+
         Normalize();        // ensure width and height >= 0
         BOX2<Vec> rect = aRect;
         rect.Normalize();   // ensure width and height >= 0
@@ -384,6 +621,14 @@ public:
      */
     BOX2<Vec>& Merge( const Vec& aPoint )
     {
+        if( !m_init )
+        {
+            m_Pos  = aPoint;
+            m_Size = VECTOR2I( 0, 0 );
+            m_init = true;
+            return *this;
+        }
+
         Normalize();        // ensure width and height >= 0
 
         Vec end = GetEnd();
@@ -395,6 +640,57 @@ public:
         end.y   = std::max( end.y, aPoint.y );
         SetEnd( end );
         return *this;
+    }
+
+    /**
+     * Useful to calculate bounding box of rotated items, when rotation is not cardinal.
+     *
+     * @return the bounding box of this, after rotation.
+     */
+    const BOX2<Vec> GetBoundingBoxRotated( const VECTOR2I& aRotCenter,
+                                           const EDA_ANGLE& aAngle ) const
+    {
+        VECTOR2I corners[4];
+
+        // Build the corners list
+        corners[0]   = GetOrigin();
+        corners[2]   = GetEnd();
+        corners[1].x = corners[0].x;
+        corners[1].y = corners[2].y;
+        corners[3].x = corners[2].x;
+        corners[3].y = corners[0].y;
+
+        // Rotate all corners, to find the bounding box
+        for( int ii = 0; ii < 4; ii++ )
+            RotatePoint( corners[ii], aRotCenter, aAngle );
+
+        // Find the corners bounding box
+        VECTOR2I start = corners[0];
+        VECTOR2I end = corners[0];
+
+        for( int ii = 1; ii < 4; ii++ )
+        {
+            start.x = std::min( start.x, corners[ii].x );
+            start.y = std::min( start.y, corners[ii].y );
+            end.x   = std::max( end.x, corners[ii].x );
+            end.y   = std::max( end.y, corners[ii].y );
+        }
+
+        BOX2<Vec> bbox;
+        bbox.SetOrigin( start );
+        bbox.SetEnd( end );
+
+        return bbox;
+    }
+
+    /**
+     * Mirror the rectangle from the X axis (negate Y pos and size).
+     */
+    void RevertYAxis()
+    {
+        m_Pos.y  = -m_Pos.y;
+        m_Size.y = -m_Size.y;
+        Normalize();
     }
 
     /**
@@ -479,6 +775,49 @@ public:
         return sqrt( SquaredDistance( aBox ) );
     }
 
+    /**
+     * Return the point in this rect that is closest to the provided point
+     */
+    const Vec ClosestPointTo( const Vec& aPoint ) const
+    {
+        BOX2<Vec> me( *this );
+
+        me.Normalize(); // ensure size is >= 0
+
+        // Determine closest point to the circle centre within this rect
+        coord_type nx = std::max( me.GetLeft(), std::min( aPoint.x, me.GetRight() ) );
+        coord_type ny = std::max( me.GetTop(), std::min( aPoint.y, me.GetBottom() ) );
+
+        return Vec( nx, ny );
+    }
+
+    /**
+     * Return the point in this rect that is farthest from the provided point
+     */
+    const Vec FarthestPointTo( const Vec& aPoint ) const
+    {
+        BOX2<Vec> me( *this );
+
+        me.Normalize(); // ensure size is >= 0
+
+        coord_type fx;
+        coord_type fy;
+
+        Vec center = me.GetCenter();
+
+        if( aPoint.x < center.x )
+            fx = me.GetRight();
+        else
+            fx = me.GetLeft();
+
+        if( aPoint.y < center.y )
+            fy = me.GetBottom();
+        else
+            fy = me.GetTop();
+
+        return Vec( fx, fy );
+    }
+
     bool operator==( const BOX2<Vec>& aOther ) const
     {
         auto t1 ( *this );
@@ -498,17 +837,17 @@ public:
     }
 
 private:
-    Vec m_Pos;      // Rectangle Origin
-    Vec m_Size;     // Rectangle Size
+    Vec  m_Pos;      // Rectangle Origin
+    Vec  m_Size;     // Rectangle Size
+
+    bool m_init;     // Is the rectangle initialized
 };
 
 /* Default specializations */
 typedef BOX2<VECTOR2I>    BOX2I;
 typedef BOX2<VECTOR2D>    BOX2D;
 
-typedef OPT<BOX2I> OPT_BOX2I;
+typedef std::optional<BOX2I> OPT_BOX2I;
 
-// FIXME should be removed to avoid multiple typedefs for the same type
-typedef BOX2D             DBOX;
 
 #endif

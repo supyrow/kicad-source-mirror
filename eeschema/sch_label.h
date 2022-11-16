@@ -31,9 +31,6 @@
 #include <sch_connection.h>   // for CONNECTION_TYPE
 
 
-extern const char* SheetLabelType[];    /* names of types of labels */
-
-
 class SCH_LABEL_BASE : public SCH_TEXT
 {
 public:
@@ -44,12 +41,47 @@ public:
     // Abstract class
     virtual wxString GetClass() const override = 0;
 
-    bool IsType( const KICAD_T aScanTypes[] ) const override;
+    bool IsType( const std::vector<KICAD_T>& aScanTypes ) const override;
 
     void SwapData( SCH_ITEM* aItem ) override;
 
+    bool CanConnect( const SCH_ITEM* aItem ) const override
+    {
+        switch( aItem->Type() )
+        {
+        case SCH_LINE_T:
+            return aItem->GetLayer() == LAYER_WIRE || aItem->GetLayer() == LAYER_BUS;
+
+        case SCH_BUS_WIRE_ENTRY_T:
+            return true;
+
+        case SCH_SYMBOL_T:
+            return true;
+
+        case SCH_LABEL_T:
+        case SCH_GLOBAL_LABEL_T:
+        case SCH_HIER_LABEL_T:
+        case SCH_DIRECTIVE_LABEL_T:
+        case SCH_SHEET_PIN_T:
+            return true;
+
+        default:
+            return false;
+        }
+    }
+
     LABEL_FLAG_SHAPE GetShape() const override        { return m_shape; }
     void SetShape( LABEL_FLAG_SHAPE aShape ) override { m_shape = aShape; }
+
+    COLOR4D GetLabelColor() const;
+
+    void SetLastResolvedState( const SCH_ITEM* aItem ) override
+    {
+        const SCH_LABEL_BASE* aLabel = dynamic_cast<const SCH_LABEL_BASE*>( aItem );
+
+        if( aLabel )
+            m_lastResolvedColor = aLabel->m_lastResolvedColor;
+    }
 
     static const wxString GetDefaultFieldName( const wxString& aName, bool aUseDefaultName );
 
@@ -88,13 +120,23 @@ public:
 
     void AutoplaceFields( SCH_SCREEN* aScreen, bool aManual ) override;
 
+    /**
+     * Builds an array of { pageNumber, pageName } pairs.
+     * @param pages [out] Array of { pageNumber, pageName } pairs.
+     */
+    void GetIntersheetRefs( std::vector<std::pair<wxString, wxString>>* pages );
+
     virtual bool ResolveTextVar( wxString* token, int aDepth ) const;
 
-    wxString GetShownText( int aDepth = 0 ) const override;
+    wxString GetShownText( int aDepth = 0, bool aAllowExtraText = true ) const override;
 
     void RunOnChildren( const std::function<void( SCH_ITEM* )>& aFunction ) override;
 
-    SEARCH_RESULT Visit( INSPECTOR inspector, void* testData, const KICAD_T scanTypes[] ) override;
+    INSPECT_RESULT Visit( INSPECTOR inspector, void* testData,
+                          const std::vector<KICAD_T>& scanTypes ) override;
+
+    bool Matches( const EDA_SEARCH_DATA& aSearchData, void* aAuxData ) const override;
+    bool Replace( const EDA_SEARCH_DATA& aSearchData, void* aAuxData ) override;
 
     VECTOR2I GetSchematicTextOffset( const RENDER_SETTINGS* aSettings ) const override;
 
@@ -115,15 +157,15 @@ public:
     /**
      * Return the bounding box of the label only, without taking in account its fields.
      */
-    virtual const EDA_RECT GetBodyBoundingBox() const;
+    virtual const BOX2I GetBodyBoundingBox() const;
 
     /**
      * Return the bounding box of the label including its fields.
      */
-    const EDA_RECT GetBoundingBox() const override;
+    const BOX2I GetBoundingBox() const override;
 
     bool HitTest( const VECTOR2I& aPosition, int aAccuracy = 0 ) const override;
-    bool HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy = 0 ) const override;
+    bool HitTest( const BOX2I& aRect, bool aContained, int aAccuracy = 0 ) const override;
 
     std::vector<VECTOR2I> GetConnectionPoints() const override;
 
@@ -143,6 +185,26 @@ public:
 
     void Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& offset ) override;
 
+    /**
+     * @brief autoRotateOnPlacement
+     * @return Returns true if the label rotation will be automatically set on the placement
+     */
+    bool AutoRotateOnPlacement() const;
+
+    /**
+     * @brief setAutoRotateOnPlacement
+     * @param autoRotate If set to true when the label is placed in the connection to a
+     * pin/net the direction will be automatically set according to the positioning of the net/pin
+     */
+    void SetAutoRotateOnPlacement( bool autoRotate = true );
+
+    /**
+     * @brief AutoRotateOnPlacementSupported
+     * @return true if the automated rotation of the label is supported after the placement
+     * At the moment it is supported for global and hierarchial labels
+     */
+    virtual bool AutoRotateOnPlacementSupported() const = 0;
+
 protected:
     std::vector<SCH_FIELD>  m_fields;
 
@@ -150,6 +212,9 @@ protected:
 
     CONNECTION_TYPE         m_connectionType;
     bool                    m_isDangling;
+    bool                    m_autoRotateOnPlacement = false;
+
+    mutable COLOR4D         m_lastResolvedColor;
 };
 
 
@@ -172,17 +237,11 @@ public:
         return wxT( "SCH_LABEL" );
     }
 
-    const EDA_RECT GetBodyBoundingBox() const override;
+    const BOX2I GetBodyBoundingBox() const override;
 
     bool IsConnectable() const override { return true; }
 
-    bool CanConnect( const SCH_ITEM* aItem ) const override
-    {
-        return aItem->Type() == SCH_LINE_T &&
-                ( aItem->GetLayer() == LAYER_WIRE || aItem->GetLayer() == LAYER_BUS );
-    }
-
-    wxString GetSelectMenuText( EDA_UNITS aUnits ) const override;
+    wxString GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const override;
 
     BITMAPS GetMenuImage() const override;
 
@@ -197,6 +256,8 @@ public:
     {
         return m_isDangling && GetPosition() == aPos;
     }
+
+    bool AutoRotateOnPlacementSupported() const override { return false; }
 
 private:
     bool doIsConnected( const VECTOR2I& aPosition ) const override
@@ -230,23 +291,23 @@ public:
         return new SCH_DIRECTIVE_LABEL( *this );
     }
 
+    void SwapData( SCH_ITEM* aItem ) override;
+
     int GetPinLength() const { return m_pinLength; }
     void SetPinLength( int aLength ) { m_pinLength = aLength; }
+
+    int GetPenWidth() const override;
 
     void CreateGraphicShape( const RENDER_SETTINGS* aSettings, std::vector<VECTOR2I>& aPoints,
                              const VECTOR2I& aPos ) const override;
 
     void AutoplaceFields( SCH_SCREEN* aScreen, bool aManual ) override;
 
-    wxString GetSelectMenuText( EDA_UNITS aUnits ) const override;
+    wxString GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const override;
 
     bool IsConnectable() const override { return true; }
 
-    bool CanConnect( const SCH_ITEM* aItem ) const override
-    {
-        return aItem->Type() == SCH_LINE_T &&
-                ( aItem->GetLayer() == LAYER_WIRE || aItem->GetLayer() == LAYER_BUS );
-    }
+    bool AutoRotateOnPlacementSupported() const override { return false; }
 
 private:
     int       m_pinLength;
@@ -296,15 +357,9 @@ public:
 
     bool IsConnectable() const override { return true; }
 
-    bool CanConnect( const SCH_ITEM* aItem ) const override
-    {
-        return aItem->Type() == SCH_LINE_T &&
-                ( aItem->GetLayer() == LAYER_WIRE || aItem->GetLayer() == LAYER_BUS );
-    }
-
     void ViewGetLayers( int aLayers[], int& aCount ) const override;
 
-    wxString GetSelectMenuText( EDA_UNITS aUnits ) const override;
+    wxString GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const override;
 
     BITMAPS GetMenuImage() const override;
 
@@ -312,6 +367,8 @@ public:
     {
         return m_isDangling && GetPosition() == aPos;
     }
+
+    bool AutoRotateOnPlacementSupported() const override { return true; }
 
 private:
     bool doIsConnected( const VECTOR2I& aPosition ) const override
@@ -350,17 +407,11 @@ public:
     void CreateGraphicShape( const RENDER_SETTINGS* aSettings, std::vector<VECTOR2I>& aPoints,
                              const VECTOR2I& aPos, LABEL_FLAG_SHAPE aShape ) const;
 
-    const EDA_RECT GetBodyBoundingBox() const override;
+    const BOX2I GetBodyBoundingBox() const override;
 
     bool IsConnectable() const override { return true; }
 
-    bool CanConnect( const SCH_ITEM* aItem ) const override
-    {
-        return aItem->Type() == SCH_LINE_T &&
-                ( aItem->GetLayer() == LAYER_WIRE || aItem->GetLayer() == LAYER_BUS );
-    }
-
-    wxString GetSelectMenuText( EDA_UNITS aUnits ) const override;
+    wxString GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const override;
 
     BITMAPS GetMenuImage() const override;
 
@@ -373,6 +424,8 @@ public:
     {
         return m_isDangling && GetPosition() == aPos;
     }
+
+    bool AutoRotateOnPlacementSupported() const override { return true; }
 
 private:
     bool doIsConnected( const VECTOR2I& aPosition ) const override

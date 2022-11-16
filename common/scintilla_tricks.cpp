@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2020-2021 KiCad Developers, see change_log.txt for contributors.
+ * Copyright (C) 2020-2022 KiCad Developers, see change_log.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -37,6 +37,8 @@ SCINTILLA_TRICKS::SCINTILLA_TRICKS( wxStyledTextCtrl* aScintilla, const wxString
         m_te( aScintilla ),
         m_braces( aBraces ),
         m_lastCaretPos( -1 ),
+        m_lastSelStart( -1 ),
+        m_lastSelEnd( -1 ),
         m_suppressAutocomplete( false ),
         m_singleLine( aSingleLine ),
         m_returnCallback( aReturnCallback )
@@ -77,19 +79,24 @@ void SCINTILLA_TRICKS::onThemeChanged( wxSysColourChangedEvent &aEvent )
 
 void SCINTILLA_TRICKS::setupStyles()
 {
-    wxTextCtrl dummy( m_te->GetParent(), wxID_ANY );
-    wxColour   foreground    = dummy.GetForegroundColour();
-    wxColour   background    = dummy.GetBackgroundColour();
-    wxColour   highlight     = wxSystemSettings::GetColour( wxSYS_COLOUR_HIGHLIGHT );
-    wxColour   highlightText = wxSystemSettings::GetColour( wxSYS_COLOUR_HIGHLIGHTTEXT );
+    wxTextCtrl     dummy( m_te->GetParent(), wxID_ANY );
+    KIGFX::COLOR4D foreground    = dummy.GetForegroundColour();
+    KIGFX::COLOR4D background    = dummy.GetBackgroundColour();
+    KIGFX::COLOR4D highlight     = wxSystemSettings::GetColour( wxSYS_COLOUR_HIGHLIGHT );
+    KIGFX::COLOR4D highlightText = wxSystemSettings::GetColour( wxSYS_COLOUR_HIGHLIGHTTEXT );
 
-    m_te->StyleSetForeground( wxSTC_STYLE_DEFAULT, foreground );
-    m_te->StyleSetBackground( wxSTC_STYLE_DEFAULT, background );
+    m_te->StyleSetForeground( wxSTC_STYLE_DEFAULT, foreground.ToColour() );
+    m_te->StyleSetBackground( wxSTC_STYLE_DEFAULT, background.ToColour() );
     m_te->StyleClearAll();
 
-    m_te->SetSelForeground( true, highlightText );
-    m_te->SetSelBackground( true, highlight );
-    m_te->SetCaretForeground( foreground );
+    // Scintilla doesn't handle alpha channel, which at least OSX uses in some highlight colours,
+    // such as "graphite".
+    highlight = highlight.Mix( background, highlight.a ).WithAlpha( 1.0 );
+    highlightText = highlightText.Mix( background, highlightText.a ).WithAlpha( 1.0 );
+
+    m_te->SetSelForeground( true, highlightText.ToColour() );
+    m_te->SetSelBackground( true, highlight.ToColour() );
+    m_te->SetCaretForeground( foreground.ToColour() );
 
     if( !m_singleLine )
     {
@@ -103,14 +110,13 @@ void SCINTILLA_TRICKS::setupStyles()
         m_te->SetTabWidth( 4 );
     }
 
-    // Set up the brace highlighting
-    unsigned char r = highlight.Red();
-    unsigned char g = highlight.Green();
-    unsigned char b = highlight.Blue();
-    wxColour::MakeGrey( &r, &g, &b );
-    highlight.Set( r, g, b );
-    m_te->StyleSetForeground( wxSTC_STYLE_BRACELIGHT, highlightText );
-    m_te->StyleSetBackground( wxSTC_STYLE_BRACELIGHT, highlight );
+    // Set up the brace highlighting.  Scintilla doesn't handle alpha, so we construct our own
+    // 20% wash by blending with the background.
+    KIGFX::COLOR4D braceText = foreground;
+    KIGFX::COLOR4D braceHighlight = braceText.Mix( background, 0.2 );
+
+    m_te->StyleSetForeground( wxSTC_STYLE_BRACELIGHT, highlightText.ToColour() );
+    m_te->StyleSetBackground( wxSTC_STYLE_BRACELIGHT, braceHighlight.ToColour() );
     m_te->StyleSetForeground( wxSTC_STYLE_BRACEBAD, *wxRED );
 }
 
@@ -226,7 +232,9 @@ void SCINTILLA_TRICKS::onCharHook( wxKeyEvent& aEvent )
                 str = data.GetText();
 
                 ConvertSmartQuotesAndDashes( &str );
+                m_te->BeginUndoAction();
                 m_te->AddText( str );
+                m_te->EndUndoAction();
             }
 
             wxTheClipboard->Close();
@@ -268,7 +276,7 @@ void SCINTILLA_TRICKS::onCharHook( wxKeyEvent& aEvent )
         for( int ii = startLine; ii <= endLine; ++ii )
         {
             if( comment )
-                m_te->InsertText( m_te->PositionFromLine( ii ), "#" );
+                m_te->InsertText( m_te->PositionFromLine( ii ), wxT( "#" ) );
             else if( firstNonWhitespace( ii, &whitespaceCount ) == '#' )
                 m_te->DeleteRange( m_te->PositionFromLine( ii ) + whitespaceCount, 1 );
         }
@@ -337,10 +345,14 @@ void SCINTILLA_TRICKS::onScintillaUpdateUI( wxStyledTextEvent& aEvent )
 
     // Has the caret changed position?
     int caretPos = m_te->GetCurrentPos();
+    int selStart = m_te->GetSelectionStart();
+    int selEnd = m_te->GetSelectionEnd();
 
-    if( m_lastCaretPos != caretPos )
+    if( m_lastCaretPos != caretPos || m_lastSelStart != selStart || m_lastSelEnd != selEnd )
     {
         m_lastCaretPos = caretPos;
+        m_lastSelStart = selStart;
+        m_lastSelEnd = selEnd;
         int bracePos1 = -1;
         int bracePos2 = -1;
 

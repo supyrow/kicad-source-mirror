@@ -65,10 +65,10 @@
 #include <eeschema_settings.h>
 #include <core/arraydim.h>
 
-#define FIELD_PADDING Mils2iu( 10 )            // arbitrarily chosen for aesthetics
-#define WIRE_V_SPACING Mils2iu( 100 )
-#define HPADDING Mils2iu( 25 )
-#define VPADDING Mils2iu( 25 )
+#define FIELD_PADDING schIUScale.MilsToIU( 10 )            // arbitrarily chosen for aesthetics
+#define WIRE_V_SPACING schIUScale.MilsToIU( 100 )
+#define HPADDING schIUScale.MilsToIU( 25 )
+#define VPADDING schIUScale.MilsToIU( 25 )
 
 /**
  * Round up/down to the nearest multiple of n
@@ -135,14 +135,14 @@ public:
      */
     void DoAutoplace( bool aManual )
     {
-        bool            force_wire_spacing = false;
+        bool            forceWireSpacing = false;
         SIDE_AND_NPINS  sideandpins = chooseSideForFields( aManual );
         SIDE            field_side = sideandpins.side;
         VECTOR2I        fbox_pos = fieldBoxPlacement( sideandpins );
-        EDA_RECT        field_box( fbox_pos, m_fbox_size );
+        BOX2I           field_box( fbox_pos, m_fbox_size );
 
         if( aManual )
-            force_wire_spacing = fitFieldsBetweenWires( &field_box, field_side );
+            forceWireSpacing = fitFieldsBetweenWires( &field_box, field_side );
 
         // Move the fields
         int last_y_coord = field_box.GetTop();
@@ -150,6 +150,9 @@ public:
         for( unsigned field_idx = 0; field_idx < m_fields.size(); ++field_idx )
         {
             SCH_FIELD* field = m_fields[field_idx];
+            
+            if( !field->IsVisible() || !field->CanAutoplace() )
+                continue;
 
             if( m_allow_rejustify )
             {
@@ -166,17 +169,16 @@ public:
                 }
             }
 
-            VECTOR2I pos(
-                    fieldHorizPlacement( field, field_box ),
-                    fieldVertPlacement( field, field_box, &last_y_coord, !force_wire_spacing ) );
+            VECTOR2I pos( fieldHPlacement( field, field_box ),
+                          fieldVPlacement( field, field_box, &last_y_coord, !forceWireSpacing ) );
 
             if( m_align_to_grid )
             {
                 if( abs( field_side.x ) > 0 )
-                    pos.x = round_n( pos.x, Mils2iu( 50 ), field_side.x >= 0 );
+                    pos.x = round_n( pos.x, schIUScale.MilsToIU( 50 ), field_side.x >= 0 );
 
                 if( abs( field_side.y ) > 0 )
-                    pos.y = round_n( pos.y, Mils2iu( 50 ), field_side.y >= 0 );
+                    pos.y = round_n( pos.y, schIUScale.MilsToIU( 50 ), field_side.y >= 0 );
             }
 
             field->SetPosition( pos );
@@ -188,37 +190,48 @@ protected:
      * Compute and return the size of the fields' bounding box.
      * @param aDynamic - if true, use dynamic spacing
      */
-    wxSize computeFBoxSize( bool aDynamic )
+    VECTOR2I computeFBoxSize( bool aDynamic )
     {
         int max_field_width = 0;
         int total_height = 0;
 
+        std::vector<SCH_FIELD*> visibleFields;
+
         for( SCH_FIELD* field : m_fields )
         {
-            if( m_symbol->GetTransform().y1 )
-                field->SetTextAngle( ANGLE_VERTICAL );
-            else
-                field->SetTextAngle( ANGLE_HORIZONTAL );
+            if( field->IsVisible() )
+                visibleFields.push_back( field );
+        }
 
-            EDA_RECT bbox = field->GetBoundingBox();
-            int      field_width = bbox.GetWidth();
-            int      field_height = bbox.GetHeight();
+        for( SCH_FIELD* field : visibleFields )
+        {
+            if( field->CanAutoplace() )
+            {
+                if( m_symbol->GetTransform().y1 )
+                    field->SetTextAngle( ANGLE_VERTICAL );
+                else
+                    field->SetTextAngle( ANGLE_HORIZONTAL );
+            }
+
+            BOX2I bbox = field->GetBoundingBox();
+            int   field_width = bbox.GetWidth();
+            int   field_height = bbox.GetHeight();
 
             max_field_width = std::max( max_field_width, field_width );
 
             // Remove interline spacing from field_height for last line.
-            if( field == m_fields[ m_fields.size() - 1 ] )
+            if( field == visibleFields.back() )
                 field_height *= 0.62;
 
             if( !aDynamic )
                 total_height += WIRE_V_SPACING;
             else if( m_align_to_grid )
-                total_height += round_n( field_height, Mils2iu( 50 ), true );
+                total_height += round_n( field_height, schIUScale.MilsToIU( 50 ), true );
             else
                 total_height += field_height + FIELD_PADDING;
         }
 
-        return wxSize( max_field_width, total_height );
+        return VECTOR2I( max_field_width, total_height );
     }
 
     /**
@@ -267,12 +280,12 @@ protected:
     {
         wxCHECK_RET( m_screen, "getPossibleCollisions() with null m_screen" );
 
-        EDA_RECT symbolBox = m_symbol->GetBodyAndPinsBoundingBox();
+        BOX2I symbolBox = m_symbol->GetBodyAndPinsBoundingBox();
         std::vector<SIDE_AND_NPINS> sides = getPreferredSides();
 
         for( SIDE_AND_NPINS& side : sides )
         {
-            EDA_RECT box( fieldBoxPlacement( side ), m_fbox_size );
+            BOX2I box( fieldBoxPlacement( side ), m_fbox_size );
             box.Merge( symbolBox );
 
             for( SCH_ITEM* item : m_screen->Items().Overlapping( box ) )
@@ -298,13 +311,13 @@ protected:
      * Filter a list of possible colliders to include only those that actually collide
      * with a given rectangle. Returns the new vector.
      */
-    std::vector<SCH_ITEM*> filterCollisions( const EDA_RECT& aRect )
+    std::vector<SCH_ITEM*> filterCollisions( const BOX2I& aRect )
     {
         std::vector<SCH_ITEM*> filtered;
 
         for( SCH_ITEM* item : m_colliders )
         {
-            EDA_RECT item_box;
+            BOX2I item_box;
 
             if( SCH_SYMBOL* item_comp = dynamic_cast<SCH_SYMBOL*>( item ) )
                 item_box = item_comp->GetBodyAndPinsBoundingBox();
@@ -314,6 +327,7 @@ protected:
             if( item_box.Intersects( aRect ) )
                 filtered.push_back( item );
         }
+
         return filtered;
     }
 
@@ -401,7 +415,7 @@ protected:
             sideandpins.side = side;
             sideandpins.pins = pinsOnSide( side );
 
-            EDA_RECT box( fieldBoxPlacement( sideandpins ), m_fbox_size );
+            BOX2I box( fieldBoxPlacement( sideandpins ), m_fbox_size );
 
             COLLISION collision = COLLIDE_NONE;
 
@@ -529,8 +543,8 @@ protected:
     VECTOR2I fieldBoxPlacement( SIDE_AND_NPINS aFieldSideAndPins )
     {
         VECTOR2I fbox_center = m_symbol_bbox.Centre();
-        int     offs_x = ( m_symbol_bbox.GetWidth() + m_fbox_size.GetWidth() ) / 2;
-        int     offs_y = ( m_symbol_bbox.GetHeight() + m_fbox_size.GetHeight() ) / 2;
+        int      offs_x = ( m_symbol_bbox.GetWidth() + m_fbox_size.x ) / 2;
+        int      offs_y = ( m_symbol_bbox.GetHeight() + m_fbox_size.y ) / 2;
 
         if( aFieldSideAndPins.side.x != 0 )
             offs_x += HPADDING;
@@ -540,13 +554,13 @@ protected:
         fbox_center.x += aFieldSideAndPins.side.x * offs_x;
         fbox_center.y += aFieldSideAndPins.side.y * offs_y;
 
-        int     x = fbox_center.x - ( m_fbox_size.GetWidth() / 2 );
-        int     y = fbox_center.y - ( m_fbox_size.GetHeight() / 2 );
+        int     x = fbox_center.x - ( m_fbox_size.x / 2 );
+        int     y = fbox_center.y - ( m_fbox_size.y / 2 );
 
         auto getPinsBox =
                 [&]( const VECTOR2I& aSide )
                 {
-                    EDA_RECT pinsBox;
+                    BOX2I pinsBox;
 
                     for( SCH_PIN* each_pin : m_symbol->GetPins() )
                     {
@@ -562,7 +576,7 @@ protected:
 
         if( aFieldSideAndPins.pins > 0 )
         {
-            EDA_RECT pinsBox = getPinsBox( aFieldSideAndPins.side );
+            BOX2I pinsBox = getPinsBox( aFieldSideAndPins.side );
 
             if( aFieldSideAndPins.side == SIDE_TOP || aFieldSideAndPins.side == SIDE_BOTTOM )
             {
@@ -570,7 +584,7 @@ protected:
             }
             else if( aFieldSideAndPins.side == SIDE_RIGHT || aFieldSideAndPins.side == SIDE_LEFT )
             {
-                y = pinsBox.GetTop() - ( m_fbox_size.GetHeight() + ( VPADDING * 2 ) );
+                y = pinsBox.GetTop() - ( m_fbox_size.y + ( VPADDING * 2 ) );
             }
         }
 
@@ -581,7 +595,7 @@ protected:
      * Shift a field box up or down a bit to make the fields fit between some wires.
      * Returns true if a shift was made.
      */
-    bool fitFieldsBetweenWires( EDA_RECT* aBox, SIDE aSide )
+    bool fitFieldsBetweenWires( BOX2I* aBox, SIDE aSide )
     {
         if( aSide != SIDE_TOP && aSide != SIDE_BOTTOM )
             return false;
@@ -634,7 +648,7 @@ protected:
      *
      * @return Correct field horizontal position
      */
-    int fieldHorizPlacement( SCH_FIELD *aField, const EDA_RECT &aFieldBox )
+    int fieldHPlacement( SCH_FIELD* aField, const BOX2I& aFieldBox )
     {
         int field_hjust;
         int field_xcoord;
@@ -669,13 +683,13 @@ protected:
      *
      * @param aField - the field to place.
      * @param aFieldBox - box in which fields will be placed.
-     * @param aPosAccum - pointer to a position accumulator
+     * @param aAccumulatedPosition - pointer to a position accumulator
      * @param aDynamic - use dynamic spacing
      *
      * @return Correct field vertical position
      */
-    int fieldVertPlacement( SCH_FIELD *aField, const EDA_RECT &aFieldBox, int *aPosAccum,
-                            bool aDynamic )
+    int fieldVPlacement( SCH_FIELD* aField, const BOX2I& aFieldBox, int* aAccumulatedPosition,
+                         bool aDynamic )
     {
         int field_height;
         int padding;
@@ -688,7 +702,7 @@ protected:
         else if( m_align_to_grid )
         {
             field_height = aField->GetBoundingBox().GetHeight();
-            padding = round_n( field_height, Mils2iu( 50 ), true ) - field_height;
+            padding = round_n( field_height, schIUScale.MilsToIU( 50 ), true ) - field_height;
         }
         else
         {
@@ -696,9 +710,9 @@ protected:
             padding = FIELD_PADDING;
         }
 
-        int placement = *aPosAccum + padding / 2 + field_height / 2;
+        int placement = *aAccumulatedPosition + padding / 2 + field_height / 2;
 
-        *aPosAccum += padding + field_height;
+        *aAccumulatedPosition += padding + field_height;
 
         return placement;
     }
@@ -708,8 +722,8 @@ private:
     SCH_SYMBOL*             m_symbol;
     std::vector<SCH_FIELD*> m_fields;
     std::vector<SCH_ITEM*>  m_colliders;
-    EDA_RECT                m_symbol_bbox;
-    wxSize                  m_fbox_size;
+    BOX2I                   m_symbol_bbox;
+    VECTOR2I                m_fbox_size;
     bool                    m_allow_rejustify;
     bool                    m_align_to_grid;
     bool                    m_is_power_symbol;

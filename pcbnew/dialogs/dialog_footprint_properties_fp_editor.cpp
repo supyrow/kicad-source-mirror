@@ -4,7 +4,7 @@
  * Copyright (C) 2018 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2015 Dick Hollenbeck, dick@softplc.com
  * Copyright (C) 2008 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 2004-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2004-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -43,6 +43,7 @@
 #include "3d_rendering/opengl/3d_model.h"
 #include "filename_resolver.h"
 #include <pgm_base.h>
+#include <pcbnew.h>
 #include "dialogs/panel_preview_3d_model.h"
 #include "dialogs/3d_cache_dialogs.h"
 #include <settings/settings_manager.h>
@@ -59,6 +60,8 @@ PRIVATE_LAYERS_GRID_TABLE::PRIVATE_LAYERS_GRID_TABLE( PCB_BASE_FRAME* aFrame ) :
     m_layerColAttr->SetRenderer( new GRID_CELL_LAYER_RENDERER( m_frame ) );
 
     LSET forbiddenLayers = LSET::AllCuMask() | LSET::AllTechMask();
+    forbiddenLayers.set( Edge_Cuts );
+    forbiddenLayers.set( Margin );
     m_layerColAttr->SetEditor( new GRID_CELL_LAYER_SELECTOR( m_frame, forbiddenLayers ) );
 }
 
@@ -130,7 +133,9 @@ DIALOG_FOOTPRINT_PROPERTIES_FP_EDITOR::DIALOG_FOOTPRINT_PROPERTIES_FP_EDITOR(
     m_solderPaste( aParent, m_SolderPasteMarginLabel, m_SolderPasteMarginCtrl,
                    m_SolderPasteMarginUnits ),
     m_solderPasteRatio( aParent, m_PasteMarginRatioLabel, m_PasteMarginRatioCtrl,
-                        m_PasteMarginRatioUnits )
+                        m_PasteMarginRatioUnits ),
+    m_gridSize( 0, 0 ),
+    m_lastRequestedSize( 0, 0 )
 {
     // Create the 3D models page
     m_3dPanel = new PANEL_FP_PROPERTIES_3D_MODEL( m_frame, m_footprint, this, m_NoteBook );
@@ -159,10 +164,20 @@ DIALOG_FOOTPRINT_PROPERTIES_FP_EDITOR::DIALOG_FOOTPRINT_PROPERTIES_FP_EDITOR(
     m_privateLayersGrid->SetTable( m_privateLayers );
 
     m_itemsGrid->PushEventHandler( new GRID_TRICKS( m_itemsGrid ) );
-    m_privateLayersGrid->PushEventHandler( new GRID_TRICKS( m_itemsGrid ) );
+    m_privateLayersGrid->PushEventHandler( new GRID_TRICKS( m_privateLayersGrid,
+                                                            [this]( wxCommandEvent& aEvent )
+                                                            {
+                                                                OnAddLayer( aEvent );
+                                                            } ) );
+    m_padGroupsGrid->PushEventHandler( new GRID_TRICKS( m_padGroupsGrid,
+                                                        [this]( wxCommandEvent& aEvent )
+                                                        {
+                                                            OnAddPadGroup( aEvent );
+                                                        } ) );
 
     m_itemsGrid->SetSelectionMode( wxGrid::wxGridSelectRows );
     m_privateLayersGrid->SetSelectionMode( wxGrid::wxGridSelectRows );
+    m_padGroupsGrid->SetSelectionMode( wxGrid::wxGridSelectRows );
 
     // Show/hide columns according to the user's preference
     m_itemsGrid->ShowHideColumns( m_frame->GetSettings()->m_FootprintTextShownColumns );
@@ -200,6 +215,8 @@ DIALOG_FOOTPRINT_PROPERTIES_FP_EDITOR::DIALOG_FOOTPRINT_PROPERTIES_FP_EDITOR(
     m_bpDelete->SetBitmap( KiBitmap( BITMAPS::small_trash ) );
     m_bpAddLayer->SetBitmap( KiBitmap( BITMAPS::small_plus ) );
     m_bpDeleteLayer->SetBitmap( KiBitmap( BITMAPS::small_trash ) );
+    m_bpAddPadGroup->SetBitmap( KiBitmap( BITMAPS::small_plus ) );
+    m_bpRemovePadGroup->SetBitmap( KiBitmap( BITMAPS::small_trash ) );
 
     SetupStandardButtons();
 
@@ -219,6 +236,7 @@ DIALOG_FOOTPRINT_PROPERTIES_FP_EDITOR::~DIALOG_FOOTPRINT_PROPERTIES_FP_EDITOR()
     // Delete the GRID_TRICKS.
     m_itemsGrid->PopEventHandler( true );
     m_privateLayersGrid->PopEventHandler( true );
+    m_padGroupsGrid->PopEventHandler( true );
 
     m_page = static_cast<NOTEBOOK_PAGES>( m_NoteBook->GetSelection() );
 
@@ -301,14 +319,22 @@ bool DIALOG_FOOTPRINT_PROPERTIES_FP_EDITOR::TransferDataToWindow()
     case ZONE_CONNECTION::NONE:      m_ZoneConnectionChoice->SetSelection( 3 ); break;
     }
 
+    for( const wxString& group : m_footprint->GetNetTiePadGroups() )
+    {
+        if( !group.IsEmpty() )
+        {
+            m_padGroupsGrid->AppendRows( 1 );
+            m_padGroupsGrid->SetCellValue( m_padGroupsGrid->GetNumberRows() - 1, 0, group );
+        }
+    }
+
     // Items grid
     for( int col = 0; col < m_itemsGrid->GetNumberCols(); col++ )
     {
         // Adjust min size to the column label size
-        m_itemsGrid->SetColMinimalWidth( col, m_itemsGrid->GetVisibleWidth( col, true, false,
-                                                                            false ) );
+        m_itemsGrid->SetColMinimalWidth( col, m_itemsGrid->GetVisibleWidth( col, true, false ) );
         // Adjust the column size.
-        int col_size = m_itemsGrid->GetVisibleWidth( col, true, true, false );
+        int col_size = m_itemsGrid->GetVisibleWidth( col );
 
         if( col == FPT_LAYER )  // This one's a drop-down.  Check all possible values.
         {
@@ -391,6 +417,47 @@ bool DIALOG_FOOTPRINT_PROPERTIES_FP_EDITOR::Validate()
 
             return false;
         }
+
+        if( text.GetTextWidth() < TEXTS_MIN_SIZE || text.GetTextWidth() > TEXTS_MAX_SIZE )
+        {
+            m_delayedFocusGrid = m_itemsGrid;
+            m_delayedErrorMessage = wxString::Format( _( "The text width must be between %s and %s." ),
+                                                      m_frame->StringFromValue( TEXTS_MIN_SIZE, true ),
+                                                      m_frame->StringFromValue( TEXTS_MAX_SIZE, true ) );
+            m_delayedFocusColumn = FPT_WIDTH;
+            m_delayedFocusRow = i;
+
+            return false;
+        }
+
+        if( text.GetTextHeight() < TEXTS_MIN_SIZE || text.GetTextHeight() > TEXTS_MAX_SIZE )
+        {
+            m_delayedFocusGrid = m_itemsGrid;
+            m_delayedErrorMessage = wxString::Format( _( "The text height must be between %s and %s." ),
+                                                      m_frame->StringFromValue( TEXTS_MIN_SIZE, true ),
+                                                      m_frame->StringFromValue( TEXTS_MAX_SIZE, true ) );
+            m_delayedFocusColumn = FPT_HEIGHT;
+            m_delayedFocusRow = i;
+
+            return false;
+        }
+
+        // Test for acceptable values for thickness and size and clamp if fails
+        int maxPenWidth = Clamp_Text_PenSize( text.GetTextThickness(), text.GetTextSize() );
+
+        if( text.GetTextThickness() > maxPenWidth )
+        {
+            m_itemsGrid->SetCellValue( i, FPT_THICKNESS,
+                                       m_frame->StringFromValue( maxPenWidth, true ) );
+
+            m_delayedFocusGrid = m_itemsGrid;
+            m_delayedErrorMessage = _( "The text thickness is too large for the text size.\n"
+                                       "It will be clamped." );
+            m_delayedFocusColumn = FPT_THICKNESS;
+            m_delayedFocusRow = i;
+
+            return false;
+        }
     }
 
     if( !m_netClearance.Validate( 0, INT_MAX ) )
@@ -408,8 +475,12 @@ bool DIALOG_FOOTPRINT_PROPERTIES_FP_EDITOR::TransferDataFromWindow()
     if( !DIALOG_SHIM::TransferDataFromWindow() )
         return false;
 
-    if( !m_itemsGrid->CommitPendingChanges() )
+    if( !m_itemsGrid->CommitPendingChanges()
+            || !m_privateLayersGrid->CommitPendingChanges()
+            || !m_padGroupsGrid->CommitPendingChanges() )
+    {
         return false;
+    }
 
     // This only commits the editor, model updating is done below so it is inside
     // the commit
@@ -513,6 +584,16 @@ bool DIALOG_FOOTPRINT_PROPERTIES_FP_EDITOR::TransferDataFromWindow()
     case 1:  m_footprint->SetZoneConnection( ZONE_CONNECTION::FULL );      break;
     case 2:  m_footprint->SetZoneConnection( ZONE_CONNECTION::THERMAL );   break;
     case 3:  m_footprint->SetZoneConnection( ZONE_CONNECTION::NONE );      break;
+    }
+
+    m_footprint->ClearNetTiePadGroups();
+
+    for( int ii = 0; ii < m_padGroupsGrid->GetNumberRows(); ++ii )
+    {
+        wxString group = m_padGroupsGrid->GetCellValue( ii, 0 );
+
+        if( !group.IsEmpty() )
+            m_footprint->AddNetTiePadGroup( group );
     }
 
     // Copy the models from the panel to the footprint
@@ -647,9 +728,7 @@ void DIALOG_FOOTPRINT_PROPERTIES_FP_EDITOR::OnDeleteLayer( wxCommandEvent& event
     int curRow = m_privateLayersGrid->GetGridCursorRow();
 
     if( curRow < 0 )
-    {
         return;
-    }
 
     m_privateLayers->erase( m_privateLayers->begin() + curRow );
 
@@ -667,6 +746,46 @@ void DIALOG_FOOTPRINT_PROPERTIES_FP_EDITOR::OnDeleteLayer( wxCommandEvent& event
 }
 
 
+void DIALOG_FOOTPRINT_PROPERTIES_FP_EDITOR::OnAddPadGroup( wxCommandEvent& event )
+{
+    if( !m_padGroupsGrid->CommitPendingChanges() )
+        return;
+
+    m_padGroupsGrid->AppendRows( 1 );
+
+    m_padGroupsGrid->SetFocus();
+    m_padGroupsGrid->MakeCellVisible( m_padGroupsGrid->GetNumberRows() - 1, 0 );
+    m_padGroupsGrid->SetGridCursor( m_padGroupsGrid->GetNumberRows() - 1, 0 );
+
+    m_padGroupsGrid->EnableCellEditControl( true );
+    m_padGroupsGrid->ShowCellEditControl();
+}
+
+
+void DIALOG_FOOTPRINT_PROPERTIES_FP_EDITOR::OnRemovePadGroup( wxCommandEvent& event )
+{
+    if( !m_padGroupsGrid->CommitPendingChanges() )
+        return;
+
+    wxArrayInt selectedRows = m_padGroupsGrid->GetSelectedRows();
+    int        curRow = m_padGroupsGrid->GetGridCursorRow();
+
+    if( selectedRows.empty() && curRow >= 0 && curRow < m_padGroupsGrid->GetNumberRows() )
+        selectedRows.Add( curRow );
+
+    for( int ii = selectedRows.Count() - 1; ii >= 0; --ii )
+    {
+        int row = selectedRows.Item( ii );
+        m_padGroupsGrid->DeleteRows( row, 1 );
+        curRow = std::min( curRow, row );
+    }
+
+    curRow = std::max( 0, curRow - 1 );
+    m_padGroupsGrid->MakeCellVisible( curRow, m_padGroupsGrid->GetGridCursorCol() );
+    m_padGroupsGrid->SetGridCursor( curRow, m_padGroupsGrid->GetGridCursorCol() );
+}
+
+
 void DIALOG_FOOTPRINT_PROPERTIES_FP_EDITOR::adjustGridColumns()
 {
     // Account for scroll bars
@@ -677,11 +796,16 @@ void DIALOG_FOOTPRINT_PROPERTIES_FP_EDITOR::adjustGridColumns()
     for( int i = 1; i < m_itemsGrid->GetNumberCols(); i++ )
         itemsWidth -= m_itemsGrid->GetColSize( i );
 
-    if( itemsWidth > 0 )
-    {
-        m_itemsGrid->SetColSize( 0, std::max( itemsWidth,
-                                 m_itemsGrid->GetVisibleWidth( 0, true, false, false ) ) );
-    }
+    m_itemsGrid->SetColSize( 0, std::max( itemsWidth,
+                                          m_itemsGrid->GetVisibleWidth( 0, true, false ) ) );
+
+    // Update the width private layers grid
+    m_privateLayersGrid->SetColSize( 0, std::max( m_privateLayersGrid->GetClientSize().x,
+                                                  m_privateLayersGrid->GetVisibleWidth( 0 ) ) );
+
+    // Update the width net tie pad groups grid
+    m_padGroupsGrid->SetColSize( 0, std::max( m_padGroupsGrid->GetClientSize().x,
+                                              m_padGroupsGrid->GetVisibleWidth( 0 ) ) );
 
     // Update the width of the 3D panel
     m_3dPanel->AdjustGridColumnWidths();
@@ -690,9 +814,6 @@ void DIALOG_FOOTPRINT_PROPERTIES_FP_EDITOR::adjustGridColumns()
 
 void DIALOG_FOOTPRINT_PROPERTIES_FP_EDITOR::OnUpdateUI( wxUpdateUIEvent& event )
 {
-    if( !m_itemsGrid->IsCellEditControlShown() )
-        adjustGridColumns();
-
     // Handle a delayed focus.  The delay allows us to:
     // a) change focus when the error was triggered from within a killFocus handler
     // b) show the correct notebook page in the background before the error dialog comes up
@@ -742,9 +863,34 @@ void DIALOG_FOOTPRINT_PROPERTIES_FP_EDITOR::OnUpdateUI( wxUpdateUIEvent& event )
 }
 
 
-void DIALOG_FOOTPRINT_PROPERTIES_FP_EDITOR::OnGridSize( wxSizeEvent& event )
+void DIALOG_FOOTPRINT_PROPERTIES_FP_EDITOR::OnGridSize( wxSizeEvent& aEvent )
 {
-    adjustGridColumns();
+    wxSize new_size = aEvent.GetSize();
 
-    event.Skip();
+    if( ( !m_itemsGrid->IsCellEditControlShown() || m_lastRequestedSize != new_size )
+            && m_gridSize != new_size )
+    {
+        m_gridSize = new_size;
+
+        // A trick to fix a cosmetic issue: when, in m_itemsGrid, a layer selector widget has
+        // the focus (is activated in column 6) when resizing the grid, the widget is not moved.
+        // So just change the widget having the focus in this case
+        if( m_NoteBook->GetSelection() == 0 && !m_itemsGrid->HasFocus() )
+        {
+            int col = m_itemsGrid->GetGridCursorCol();
+
+            if( col == 6 )  // a layer selector widget can be activated
+                 m_itemsGrid->SetFocus();
+        }
+
+        adjustGridColumns();
+    }
+
+    // We store this value to check whether the dialog is changing size.  This might indicate
+    // that the user is scaling the dialog with an editor shown.  Some editors do not close
+    // (at least on GTK) when the user drags a dialog corner
+    m_lastRequestedSize = new_size;
+
+    // Always propagate for a grid repaint (needed if the height changes, as well as width)
+    aEvent.Skip();
 }

@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2012-2014 Jean-Pierre Charras  jp.charras at wanadoo.fr
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -35,7 +35,7 @@
 #include <gerbview.h>                       // GERBER_DRAWLAYERS_COUNT
 #include <title_block.h>
 #include <gerber_draw_item.h>
-#include <eda_rect.h>
+#include <math/box2.h>
 
 class GERBER_FILE_IMAGE_LIST;
 
@@ -68,26 +68,27 @@ public:
      *
      * @return the full item list bounding box.
      */
-    EDA_RECT ComputeBoundingBox() const;
+    BOX2I ComputeBoundingBox() const;
 
-    const EDA_RECT GetBoundingBox() const override
+    const BOX2I GetBoundingBox() const override
     {
         return ComputeBoundingBox();
     }
 
-    void SetBoundingBox( const EDA_RECT& aBox ) { m_BoundingBox = aBox; }
+    void SetBoundingBox( const BOX2I& aBox ) { m_BoundingBox = aBox; }
 
     ///< @copydoc EDA_ITEM::Visit()
-    SEARCH_RESULT Visit( INSPECTOR inspector, void* testData, const KICAD_T scanTypes[] ) override;
+    INSPECT_RESULT Visit( INSPECTOR inspector, void* testData,
+                          const std::vector<KICAD_T>& aScanTypes ) override;
 
 #if defined(DEBUG)
     void Show( int nestLevel, std::ostream& os ) const override { ShowDummy( os ); }
 #endif
 
 private:
-    mutable EDA_RECT    m_BoundingBox;
-    TITLE_BLOCK         m_titles;
-    VECTOR2I            m_originAxisPosition;
+    mutable BOX2I    m_BoundingBox;
+    TITLE_BLOCK      m_titles;
+    VECTOR2I         m_originAxisPosition;
 };
 
 #endif      // #ifndef GBR_LAYOUT_H

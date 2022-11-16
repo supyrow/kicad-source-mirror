@@ -28,7 +28,7 @@
 #include <gal/color4d.h>
 #include <sch_item.h>
 
-#define TARGET_BUSENTRY_RADIUS Mils2iu( 12 )   // Circle diameter drawn at the ends
+#define TARGET_BUSENTRY_RADIUS schIUScale.MilsToIU( 12 )   // Circle diameter drawn at the ends
 
 
 /**
@@ -71,15 +71,17 @@ public:
     wxSize GetSize() const { return m_size; }
     void SetSize( const wxSize& aSize ) { m_size = aSize; }
 
-    void SetPenWidth( int aWidth ) { m_stroke.SetWidth( aWidth ); }
+    void SetPenWidth( int aWidth );
 
     virtual bool HasLineStroke() const override { return true; }
     virtual STROKE_PARAMS GetStroke() const override { return m_stroke; }
     virtual void SetStroke( const STROKE_PARAMS& aStroke ) override { m_stroke = aStroke; }
 
     PLOT_DASH_TYPE GetLineStyle() const;
+    void SetLineStyle( PLOT_DASH_TYPE aStyle );
 
     COLOR4D GetBusEntryColor() const;
+    void SetBusEntryColor( const COLOR4D& aColor );
 
     void SwapData( SCH_ITEM* aItem ) override;
 
@@ -87,7 +89,7 @@ public:
 
     void Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset ) override;
 
-    const EDA_RECT GetBoundingBox() const override;
+    const BOX2I GetBoundingBox() const override;
 
     void Move( const VECTOR2I& aMoveVector ) override
     {
@@ -114,7 +116,7 @@ public:
                || ( GetEnd() == aPos && IsDanglingEnd() );
     }
 
-    bool HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy = 0 ) const override;
+    bool HitTest( const BOX2I& aRect, bool aContained, int aAccuracy = 0 ) const override;
 
     void Plot( PLOTTER* aPlotter, bool aBackground ) const override;
 
@@ -176,7 +178,7 @@ public:
                 ( aItem->GetLayer() == LAYER_WIRE || aItem->GetLayer() == LAYER_BUS );
     }
 
-    wxString GetSelectMenuText( EDA_UNITS aUnits ) const override;
+    wxString GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const override;
 
     EDA_ITEM* Clone() const override;
 
@@ -223,7 +225,7 @@ public:
         return aItem->Type() == SCH_LINE_T && aItem->GetLayer() == LAYER_BUS;
     }
 
-    wxString GetSelectMenuText( EDA_UNITS aUnits ) const override;
+    wxString GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const override;
 
     EDA_ITEM* Clone() const override;
 

@@ -34,7 +34,6 @@
 #include <set>
 
 #include <am_param.h>
-#include <eda_rect.h>
 
 class SHAPE_POLY_SET;
 
@@ -203,7 +202,8 @@ struct APERTURE_MACRO
      * @param aShapePos is the actual shape position.
      * @param aFilledShape set to true to draw in filled mode, false to draw in sketch mode.
      */
-    void DrawApertureMacroShape( GERBER_DRAW_ITEM* aParent, wxDC* aDC, const COLOR4D& aColor,
+    void DrawApertureMacroShape( const GERBER_DRAW_ITEM* aParent, wxDC* aDC,
+                                 const COLOR4D& aColor,
                                  const VECTOR2I& aShapePos, bool aFilledShape );
 
     /**
@@ -223,7 +223,7 @@ struct APERTURE_MACRO
     int  GetShapeDim( GERBER_DRAW_ITEM* aParent );
 
     /// Return the bounding box of the shape.
-    EDA_RECT GetBoundingBox() const
+    BOX2I GetBoundingBox() const
     {
         return m_boundingBox;
     }
@@ -239,9 +239,9 @@ struct APERTURE_MACRO
      */
     AM_PARAMS m_localparamStack;
 
-    SHAPE_POLY_SET m_shape;     ///< The shape of the item, calculated by GetApertureMacroShape
-    EDA_RECT m_boundingBox;     ///< The bounding box of the item, calculated by
-                                ///< GetApertureMacroShape.
+    SHAPE_POLY_SET m_shape;         ///< The shape of the item, calculated by GetApertureMacroShape
+    BOX2I          m_boundingBox;   ///< The bounding box of the item, calculated by
+                                    ///< GetApertureMacroShape.
 
 };
 

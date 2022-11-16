@@ -41,7 +41,7 @@ class MSG_PANEL_ITEM;
 class PCB_MARKER : public BOARD_ITEM, public MARKER_BASE
 {
 public:
-    PCB_MARKER( std::shared_ptr<RC_ITEM> aItem, const VECTOR2I& aPos, PCB_LAYER_ID aLayer = F_Cu );
+    PCB_MARKER( std::shared_ptr<RC_ITEM> aItem, const VECTOR2I& aPos, int aLayer = F_Cu );
 
     ~PCB_MARKER();
 
@@ -88,16 +88,17 @@ public:
 
     GAL_LAYER_ID GetColorLayer() const;
 
-    std::shared_ptr<SHAPE> GetEffectiveShape( PCB_LAYER_ID aLayer ) const override;
+    std::shared_ptr<SHAPE> GetEffectiveShape( PCB_LAYER_ID aLayer,
+            FLASHING aFlash = FLASHING::DEFAULT ) const override;
 
     void GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList ) override;
 
-    bool Matches( const wxFindReplaceData& aSearchData, void* aAuxData ) const override
+    bool Matches( const EDA_SEARCH_DATA& aSearchData, void* aAuxData ) const override
     {
         return BOARD_ITEM::Matches( m_rcItem->GetErrorMessage(), aSearchData );
     }
 
-    wxString GetSelectMenuText( EDA_UNITS aUnits ) const override;
+    wxString GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const override;
 
     BITMAPS GetMenuImage() const override;
 
@@ -105,7 +106,7 @@ public:
 
     const BOX2I ViewBBox() const override;
 
-    const EDA_RECT GetBoundingBox() const override;
+    const BOX2I GetBoundingBox() const override;
 
     void ViewGetLayers( int aLayers[], int& aCount ) const override;
 

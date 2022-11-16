@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2020-2021 KiCad Developers, see change_log.txt for contributors.
+ * Copyright (C) 2020-2022 KiCad Developers, see change_log.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -31,7 +31,6 @@
 #include <kiface_base.h>
 #include <dialog_drc.h>
 #include <board_commit.h>
-#include <zone.h>
 #include <board_design_settings.h>
 #include <progress_reporter.h>
 #include <drc/drc_engine.h>
@@ -153,7 +152,7 @@ void DRC_TOOL::RunTests( PROGRESS_REPORTER* aProgressReporter, bool aRefillZones
         zoneFiller->FillAllZones( m_drcDialog, aProgressReporter );
     }
 
-    m_drcEngine->SetDrawingSheet( m_editFrame->GetCanvas()->GetDrawingSheet());
+    m_drcEngine->SetDrawingSheet( m_editFrame->GetCanvas()->GetDrawingSheet() );
 
     if( aTestFootprints && !Kiface().IsSingle() )
     {
@@ -172,10 +171,9 @@ void DRC_TOOL::RunTests( PROGRESS_REPORTER* aProgressReporter, bool aRefillZones
     m_drcEngine->SetProgressReporter( aProgressReporter );
 
     m_drcEngine->SetViolationHandler(
-            [&]( const std::shared_ptr<DRC_ITEM>& aItem, VECTOR2I aPos, PCB_LAYER_ID aLayer )
+            [&]( const std::shared_ptr<DRC_ITEM>& aItem, VECTOR2I aPos, int aLayer )
             {
-                PCB_MARKER* marker = new PCB_MARKER( aItem, aPos );
-                marker->SetLayer( aLayer );
+                PCB_MARKER* marker = new PCB_MARKER( aItem, aPos, aLayer );
                 commit.Add( marker );
             } );
 
@@ -192,7 +190,7 @@ void DRC_TOOL::RunTests( PROGRESS_REPORTER* aProgressReporter, bool aRefillZones
             m_drcDialog->SetFootprintTestsRun();
     }
 
-    commit.Push( _( "DRC" ), false );
+    commit.Push( _( "DRC" ), SKIP_UNDO | SKIP_SET_DIRTY );
 
     m_drcRunning = false;
 
@@ -210,15 +208,8 @@ void DRC_TOOL::updatePointers()
 
     m_editFrame->ResolveDRCExclusions();
 
-    if( m_drcDialog )  // Use dialog list boxes only in DRC_TOOL dialog
-    {
-        m_drcDialog->SetMarkersProvider( new DRC_ITEMS_PROVIDER( m_pcb,
-                                                                 MARKER_BASE::MARKER_DRC ) );
-        m_drcDialog->SetRatsnestProvider( new DRC_ITEMS_PROVIDER( m_pcb,
-                                                                  MARKER_BASE::MARKER_RATSNEST ) );
-        m_drcDialog->SetFootprintsProvider( new DRC_ITEMS_PROVIDER( m_pcb,
-                                                                    MARKER_BASE::MARKER_PARITY ) );
-    }
+    if( m_drcDialog )
+        m_drcDialog->UpdateData();
 }
 
 
@@ -300,6 +291,7 @@ void DRC_TOOL::setTransitions()
     Go( &DRC_TOOL::PrevMarker,                 ACTIONS::prevMarker.MakeEvent() );
     Go( &DRC_TOOL::NextMarker,                 ACTIONS::nextMarker.MakeEvent() );
     Go( &DRC_TOOL::ExcludeMarker,              ACTIONS::excludeMarker.MakeEvent() );
+    Go( &DRC_TOOL::CrossProbe,                 EVENTS::PointSelectedEvent );
     Go( &DRC_TOOL::CrossProbe,                 EVENTS::SelectedEvent );
 }
 

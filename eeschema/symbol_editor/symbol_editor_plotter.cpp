@@ -44,7 +44,7 @@ void SYMBOL_EDIT_FRAME::SVGPlotSymbol( const wxString& aFullFileName )
     const double scale = 1.0;
 
     // Currently, plot units are in decimil
-    plotter->SetViewport( plot_offset, IU_PER_MILS/10, scale, false );
+    plotter->SetViewport( plot_offset, schIUScale.IU_PER_MILS/10, scale, false );
 
     // Init :
     plotter->SetCreator( wxT( "Eeschema-SVG" ) );
@@ -57,7 +57,7 @@ void SYMBOL_EDIT_FRAME::SVGPlotSymbol( const wxString& aFullFileName )
 
     LOCALE_IO   toggle;
 
-    plotter->StartPlot();
+    plotter->StartPlot( wxT( "1" ) );
 
     if( m_symbol )
     {
@@ -65,18 +65,18 @@ void SYMBOL_EDIT_FRAME::SVGPlotSymbol( const wxString& aFullFileName )
         TRANSFORM      temp;                 // Uses default transform
         wxPoint        plotPos;
 
-        plotPos.x = pageInfo.GetWidthIU() / 2;
-        plotPos.y = pageInfo.GetHeightIU() / 2;
+        plotPos.x = pageInfo.GetWidthIU( schIUScale.IU_PER_MILS ) / 2;
+        plotPos.y = pageInfo.GetHeightIU( schIUScale.IU_PER_MILS ) / 2;
 
-        m_symbol->Plot( plotter, GetUnit(), GetConvert(), background, plotPos, temp );
-
-        // Plot lib fields, not plotted by m_symbol->Plot():
-        m_symbol->PlotLibFields( plotter, GetUnit(), GetConvert(), background, plotPos, temp );
-
-        m_symbol->Plot( plotter, GetUnit(), GetConvert(), !background, plotPos, temp );
+        m_symbol->Plot( plotter, GetUnit(), GetConvert(), background, plotPos, temp, false );
 
         // Plot lib fields, not plotted by m_symbol->Plot():
-        m_symbol->PlotLibFields( plotter, GetUnit(), GetConvert(), !background, plotPos, temp );
+        m_symbol->PlotLibFields( plotter, GetUnit(), GetConvert(), background, plotPos, temp, false );
+
+        m_symbol->Plot( plotter, GetUnit(), GetConvert(), !background, plotPos, temp, false );
+
+        // Plot lib fields, not plotted by m_symbol->Plot():
+        m_symbol->PlotLibFields( plotter, GetUnit(), GetConvert(), !background, plotPos, temp, false );
     }
 
     plotter->EndPlot();
@@ -89,7 +89,7 @@ void SYMBOL_EDIT_FRAME::PrintPage( const RENDER_SETTINGS* aSettings )
     if( !m_symbol )
         return;
 
-    wxSize pagesize = GetScreen()->GetPageSettings().GetSizeIU();
+    wxSize pagesize = GetScreen()->GetPageSettings().GetSizeIU( schIUScale.IU_PER_MILS );
 
     /* Plot item centered to the page
      * In symbol_editor, the symbol is centered at 0,0 coordinates.
@@ -99,5 +99,7 @@ void SYMBOL_EDIT_FRAME::PrintPage( const RENDER_SETTINGS* aSettings )
     plot_offset.x = pagesize.x / 2;
     plot_offset.y = pagesize.y / 2;
 
-    m_symbol->Print( aSettings, plot_offset, m_unit, m_convert, LIB_SYMBOL_OPTIONS() );
+    m_symbol->PrintBackground( aSettings, plot_offset, m_unit, m_convert, LIB_SYMBOL_OPTIONS(), false );
+
+    m_symbol->Print( aSettings, plot_offset, m_unit, m_convert, LIB_SYMBOL_OPTIONS(), false );
 }

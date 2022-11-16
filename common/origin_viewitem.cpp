@@ -69,7 +69,7 @@ const BOX2I ORIGIN_VIEWITEM::ViewBBox() const
 
 void ORIGIN_VIEWITEM::ViewDraw( int, VIEW* aView ) const
 {
-    auto gal = aView->GetGAL();
+    GAL* gal = aView->GetGAL();
 
     // Nothing to do if the target shouldn't be drawn at 0,0 and that's where the target is.
     if( !m_drawAtZero && ( m_position.x == 0 ) && ( m_position.y == 0 ) )
@@ -104,7 +104,7 @@ void ORIGIN_VIEWITEM::ViewDraw( int, VIEW* aView ) const
 
             VECTOR2D start( m_position );
             VECTOR2D end( m_end );
-            EDA_RECT clip( VECTOR2I( start ), VECTOR2I( end.x - start.x, end.y - start.y ) );
+            BOX2I    clip( VECTOR2I( start ), VECTOR2I( end.x - start.x, end.y - start.y ) );
             clip.Normalize();
 
             double               theta = atan2( end.y - start.y, end.x - start.x );

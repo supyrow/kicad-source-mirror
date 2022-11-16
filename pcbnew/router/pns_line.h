@@ -127,6 +127,11 @@ public:
     {
         m_line = aLine;
         m_line.SetWidth( m_width );
+
+        if( m_hasVia && m_line.PointCount() > 0 )
+        {
+            m_via.SetPos( m_line.CPoint( -1 ) );
+        }
     }
 
     ///< Return the shape of the line.
@@ -182,8 +187,6 @@ public:
                      SHAPE_LINE_CHAIN& aPost, bool aCw ) const;
 
     bool Walkaround( const SHAPE_LINE_CHAIN& aObstacle, SHAPE_LINE_CHAIN& aPath, bool aCw ) const;
-
-    bool Is45Degree() const;
 
     ///< Print out all linked segments.
     void ShowLinks() const;

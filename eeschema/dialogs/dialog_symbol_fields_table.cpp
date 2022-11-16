@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2017 Oliver Walters
- * Copyright (C) 2017-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2017-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -28,6 +28,8 @@
 #include <symbol_library.h>
 #include <confirm.h>
 #include <eda_doc.h>
+//#include "eda_list_dialog.h"
+#include <wildcards_and_files_ext.h>
 #include <eeschema_settings.h>
 #include <general.h>
 #include <grid_tricks.h>
@@ -39,13 +41,13 @@
 #include <tools/sch_editor_control.h>
 #include <kiplatform/ui.h>
 #include <widgets/grid_text_button_helpers.h>
+#include <widgets/bitmap_button.h>
 #include <widgets/wx_grid.h>
+#include <wx/ffile.h>
 #include <wx/grid.h>
-#include <wx/msgdlg.h>
 #include <wx/textdlg.h>
-
+#include <wx/filedlg.h>
 #include "dialog_symbol_fields_table.h"
-
 
 #define DISPLAY_NAME_COLUMN   0
 #define SHOW_FIELD_COLUMN     1
@@ -62,7 +64,7 @@
 
 enum
 {
-    MYID_SELECT_FOOTPRINT = GRIDTRICKS_FIRST_SHOWHIDE - 2, // must be within GRID_TRICKS' enum range
+    MYID_SELECT_FOOTPRINT = GRIDTRICKS_FIRST_CLIENT_ID,
     MYID_SHOW_DATASHEET
 };
 
@@ -115,7 +117,7 @@ protected:
         {
             wxString datasheet_uri = m_grid->GetCellValue( m_grid->GetGridCursorRow(),
                                                            DATASHEET_FIELD );
-            GetAssociatedDocument( m_dlg, datasheet_uri, &m_dlg->Prj() );
+            GetAssociatedDocument( m_dlg, datasheet_uri, &m_dlg->Prj(), m_dlg->Prj().SchSearchS() );
         }
         else
         {
@@ -176,6 +178,7 @@ protected:
     std::vector<wxString> m_fieldNames;
     int                   m_sortColumn;
     bool                  m_sortAscending;
+    std::vector<wxString> m_userAddedFields;
 
     // However, the grid view can vary in two ways:
     //   1) the componentRefs can be grouped into fewer rows
@@ -202,15 +205,40 @@ public:
         m_symbolsList.SplitReferences();
     }
 
-    void AddColumn( const wxString& aFieldName )
+    void AddColumn( const wxString& aFieldName, bool aAddedByUser )
     {
         m_fieldNames.push_back( aFieldName );
+
+        if( aAddedByUser )
+            m_userAddedFields.push_back( aFieldName );
 
         for( unsigned i = 0; i < m_symbolsList.GetCount(); ++i )
         {
             SCH_SYMBOL* symbol = m_symbolsList[ i ].GetSymbol();
-            m_dataStore[ symbol->m_Uuid ][ aFieldName ] = symbol->GetFieldText( aFieldName,
-                                                                                m_frame );
+
+            wxCHECK( symbol && ( symbol->GetInstanceReferences().size() != 0 ), /* void */ );
+
+            wxString val = symbol->GetFieldText( aFieldName );
+
+            if( aFieldName == wxT( "Value" ) )
+                val = symbol->GetInstanceReferences()[0].m_Value;
+            else if( aFieldName == wxT( "Footprint" ) )
+                val = symbol->GetInstanceReferences()[0].m_Footprint;
+
+            m_dataStore[ symbol->m_Uuid ][ aFieldName ] = val;
+        }
+    }
+
+    void RemoveColumn( int aCol )
+    {
+        wxString fieldName = m_fieldNames[ aCol ];
+
+        m_fieldNames.erase( m_fieldNames.begin() + aCol );
+
+        for( unsigned i = 0; i < m_symbolsList.GetCount(); ++i )
+        {
+            SCH_SYMBOL* symbol = m_symbolsList[ i ].GetSymbol();
+            m_dataStore[ symbol->m_Uuid ].erase( fieldName );
         }
     }
 
@@ -224,6 +252,10 @@ public:
         if( aCol == QUANTITY_COLUMN )
             return _( "Qty" );
         else if( aCol < MANDATORY_FIELDS )
+            // FIX ME: the column label should be displayed translated.
+            // but when translated, and the DATASHEET column is shown, a new field
+            // with the translated DATASHEET field name is added when saving fields
+            // return TEMPLATE_FIELDNAME::GetDefaultFieldName( aCol, DO_TRANSLATE );
             return TEMPLATE_FIELDNAME::GetDefaultFieldName( aCol );
         else
             return m_fieldNames[ aCol ];
@@ -262,6 +294,16 @@ public:
         }
     }
 
+    wxString GetRawValue( int aRow, int aCol )
+    {
+        return GetValue( m_rows[ aRow ], aCol );
+    }
+
+    GROUP_TYPE GetRowFlags( int aRow )
+    {
+        return m_rows[ aRow ].m_Flag;
+    }
+
     std::vector<SCH_REFERENCE> GetRowReferences( int aRow ) const
     {
         wxCHECK( aRow < (int)m_rows.size(), std::vector<SCH_REFERENCE>() );
@@ -273,7 +315,7 @@ public:
         std::vector<SCH_REFERENCE> references;
         wxString                   fieldValue;
 
-        for( const auto& ref : group.m_Refs )
+        for( const SCH_REFERENCE& ref : group.m_Refs )
         {
             if( aCol == REFERENCE_FIELD || aCol == QUANTITY_COLUMN )
             {
@@ -339,7 +381,7 @@ public:
         DATA_MODEL_ROW& rowGroup = m_rows[ aRow ];
         wxString fieldName = m_fieldNames[ aCol ];
 
-        for( const auto& ref : rowGroup.m_Refs )
+        for( const SCH_REFERENCE& ref : rowGroup.m_Refs )
             m_dataStore[ ref.GetSymbol()->m_Uuid ][ fieldName ] = aValue;
 
         m_edited = true;
@@ -392,8 +434,21 @@ public:
 
         CollapseForSort();
 
+        // We're going to sort the rows based on their first reference, so the first reference
+        // had better be the lowest one.
+        for( DATA_MODEL_ROW& row : m_rows )
+        {
+            std::sort( row.m_Refs.begin(), row.m_Refs.end(),
+                    []( const SCH_REFERENCE& lhs, const SCH_REFERENCE& rhs )
+                    {
+                        wxString lhs_ref( lhs.GetRef() << lhs.GetRefNumber() );
+                        wxString rhs_ref( rhs.GetRef() << rhs.GetRefNumber() );
+                        return StrNumCmp( lhs_ref, rhs_ref, true ) < 0;
+                    } );
+        }
+
         std::sort( m_rows.begin(), m_rows.end(),
-               [ this ]( const DATA_MODEL_ROW& lhs, const DATA_MODEL_ROW& rhs ) -> bool
+               [this]( const DATA_MODEL_ROW& lhs, const DATA_MODEL_ROW& rhs ) -> bool
                {
                    return cmp( lhs, rhs, this, m_sortColumn, m_sortAscending );
                } );
@@ -447,9 +502,10 @@ public:
         return matchFound;
     }
 
-    void RebuildRows( wxCheckBox* aGroupSymbolsBox, wxDataViewListCtrl* aFieldsCtrl )
+    void RebuildRows( wxSearchCtrl* aFilter, wxCheckBox* aGroupSymbolsBox,
+                      wxDataViewListCtrl* aFieldsCtrl )
     {
-        if ( GetView() )
+        if( GetView() )
         {
             // Commit any pending in-place edits before the row gets moved out from under
             // the editor.
@@ -464,7 +520,14 @@ public:
         for( unsigned i = 0; i < m_symbolsList.GetCount(); ++i )
         {
             SCH_REFERENCE ref = m_symbolsList[ i ];
-            bool          matchFound = false;
+
+            if( !aFilter->GetValue().IsEmpty()
+                    && !WildCompareString( aFilter->GetValue(), ref.GetFullRef(), false ) )
+            {
+                continue;
+            }
+
+            bool matchFound = false;
 
             // See if we already have a row which this symbol fits into
             for( DATA_MODEL_ROW& row : m_rows )
@@ -602,23 +665,31 @@ public:
 
             for( const std::pair<wxString, wxString> srcData : fieldStore )
             {
+                if( srcData.first == _( "Qty" ) )
+                    continue;
+
                 const wxString& srcName = srcData.first;
                 const wxString& srcValue = srcData.second;
                 SCH_FIELD*      destField = symbol.FindField( srcName );
 
-                if( !destField && !srcValue.IsEmpty() )
+                // Add a not existing field if it has a value for this symbol
+                bool createField = !destField && !srcValue.IsEmpty();
+
+                if( alg::contains( m_userAddedFields, srcName ) )
+                    createField = true;
+
+                if( createField )
                 {
                     const VECTOR2I symbolPos = symbol.GetPosition();
                     destField = symbol.AddField( SCH_FIELD( symbolPos, -1, &symbol, srcName ) );
                 }
 
                 if( !destField )
+                    continue;
+
+                if( destField->GetId() == REFERENCE_FIELD )
                 {
-                    symbol.RemoveField( srcName );
-                }
-                else if( destField->GetId() == REFERENCE_FIELD )
-                {
-                    // Reference is not editable
+                    // Reference is not editable from this dialog
                 }
                 else if( destField->GetId() == VALUE_FIELD )
                 {
@@ -634,6 +705,12 @@ public:
                 {
                     destField->SetText( srcValue );
                 }
+            }
+
+            for( int ii = symbol.GetFields().size() - 1; ii >= MANDATORY_FIELDS; ii-- )
+            {
+                if( fieldStore.count( symbol.GetFields()[ii].GetName() ) == 0 )
+                    symbol.GetFields().erase( symbol.GetFields().begin() + ii );
             }
         }
 
@@ -678,10 +755,13 @@ DIALOG_SYMBOL_FIELDS_TABLE::DIALOG_SYMBOL_FIELDS_TABLE( SCH_EDIT_FRAME* parent )
         m_parent( parent )
 {
     wxSize defaultDlgSize = ConvertDialogToPixels( wxSize( 600, 300 ) );
+    int    nameColWidthMargin = 44;
 
     // Get all symbols from the list of schematic sheets
     m_parent->Schematic().GetSheets().GetSymbols( m_symbolsList, false );
 
+    m_separator1->SetIsSeparator();
+    m_separator2->SetIsSeparator();
     m_bRefresh->SetBitmap( KiBitmap( BITMAPS::small_refresh ) );
 
     m_fieldsCtrl->AppendTextColumn( _( "Field" ), wxDATAVIEW_CELL_INERT, 0, wxALIGN_LEFT, 0 );
@@ -708,6 +788,8 @@ DIALOG_SYMBOL_FIELDS_TABLE::DIALOG_SYMBOL_FIELDS_TABLE( SCH_EDIT_FRAME* parent )
     // expander buttons... but it doesn't.  Fix by forcing the indent to 0.
     m_fieldsCtrl->SetIndent( 0 );
 
+    m_filter->SetDescriptiveText( _( "Filter" ) );
+
     m_dataModel = new FIELDS_EDITOR_GRID_DATA_MODEL( m_parent, m_symbolsList );
 
     LoadFieldNames();   // loads rows into m_fieldsCtrl and columns into m_dataModel
@@ -722,6 +804,8 @@ DIALOG_SYMBOL_FIELDS_TABLE::DIALOG_SYMBOL_FIELDS_TABLE( SCH_EDIT_FRAME* parent )
         nameColWidth = std::max( nameColWidth, KIUI::GetTextSize( fieldName, m_fieldsCtrl ).x );
     }
 
+    nameColWidth += nameColWidthMargin;
+
     int fieldsMinWidth = nameColWidth + m_groupByColWidth + m_showColWidth;
 
     m_fieldsCtrl->GetColumn( DISPLAY_NAME_COLUMN )->SetWidth( nameColWidth );
@@ -732,12 +816,10 @@ DIALOG_SYMBOL_FIELDS_TABLE::DIALOG_SYMBOL_FIELDS_TABLE( SCH_EDIT_FRAME* parent )
     m_splitterMainWindow->SetMinimumPaneSize( fieldsMinWidth );
     m_splitterMainWindow->SetSashPosition( fieldsMinWidth + 40 );
 
-    m_dataModel->RebuildRows( m_groupSymbolsBox, m_fieldsCtrl );
+    m_dataModel->RebuildRows( m_filter, m_groupSymbolsBox, m_fieldsCtrl );
     m_dataModel->Sort( 0, true );
 
-    // wxGrid's column moving is buggy with native headers and this is one dialog where you'd
-    // really like to be able to rearrange columns.
-    m_grid->UseNativeColHeader( false );
+    m_grid->UseNativeColHeader( true );
     m_grid->SetTable( m_dataModel, true );
 
     // must be done after SetTable(), which appears to re-set it
@@ -765,12 +847,12 @@ DIALOG_SYMBOL_FIELDS_TABLE::DIALOG_SYMBOL_FIELDS_TABLE( SCH_EDIT_FRAME* parent )
 
     // set footprint column browse button
     attr = new wxGridCellAttr;
-    attr->SetEditor( new GRID_CELL_FOOTPRINT_ID_EDITOR( this ) );
+    attr->SetEditor( new GRID_CELL_FPID_EDITOR( this, wxEmptyString ) );
     m_grid->SetColAttr( FOOTPRINT_FIELD, attr );
 
     // set datasheet column viewer button
     attr = new wxGridCellAttr;
-    attr->SetEditor( new GRID_CELL_URL_EDITOR( this ) );
+    attr->SetEditor( new GRID_CELL_URL_EDITOR( this, Prj().SchSearchS() ) );
     m_grid->SetColAttr( DATASHEET_FIELD, attr );
 
     // set quantities column attributes
@@ -910,9 +992,9 @@ bool DIALOG_SYMBOL_FIELDS_TABLE::TransferDataFromWindow()
 
 void DIALOG_SYMBOL_FIELDS_TABLE::AddField( const wxString& aDisplayName,
                                            const wxString& aCanonicalName,
-                                           bool defaultShow, bool defaultSortBy )
+                                           bool defaultShow, bool defaultSortBy, bool addedByUser )
 {
-    m_dataModel->AddColumn( aCanonicalName );
+    m_dataModel->AddColumn( aCanonicalName, addedByUser );
 
     wxVector<wxVariant> fieldsCtrlRow;
 
@@ -951,7 +1033,7 @@ void DIALOG_SYMBOL_FIELDS_TABLE::LoadFieldNames()
     }
 
     // Force References to always be shown
-    auto cfg = dynamic_cast<EESCHEMA_SETTINGS*>( Kiface().KifaceSettings() );
+    EESCHEMA_SETTINGS* cfg = dynamic_cast<EESCHEMA_SETTINGS*>( Kiface().KifaceSettings() );
     wxCHECK( cfg, /*void*/ );
 
     cfg->m_FieldEditorPanel.fields_show["Reference"] = true;
@@ -977,7 +1059,7 @@ void DIALOG_SYMBOL_FIELDS_TABLE::LoadFieldNames()
 void DIALOG_SYMBOL_FIELDS_TABLE::OnAddField( wxCommandEvent& event )
 {
     // quantities column will become new field column, so it needs to be reset
-    auto attr = new wxGridCellAttr;
+    wxGridCellAttr* attr = new wxGridCellAttr;
     m_grid->SetColAttr( m_dataModel->GetColsCount() - 1, attr );
     m_grid->SetColFormatCustom( m_dataModel->GetColsCount() - 1, wxGRID_VALUE_STRING );
 
@@ -1006,10 +1088,10 @@ void DIALOG_SYMBOL_FIELDS_TABLE::OnAddField( wxCommandEvent& event )
 
     std::string key( fieldName.ToUTF8() );
 
-    auto cfg = static_cast<EESCHEMA_SETTINGS*>( Kiface().KifaceSettings() );
+    EESCHEMA_SETTINGS* cfg = static_cast<EESCHEMA_SETTINGS*>( Kiface().KifaceSettings() );
     cfg->m_FieldEditorPanel.fields_show[key] = true;
 
-    AddField( fieldName, fieldName, true, false );
+    AddField( fieldName, fieldName, true, false, true );
 
     wxGridTableMessage msg( m_dataModel, wxGRIDTABLE_NOTIFY_COLS_INSERTED,
                             m_fieldsCtrl->GetItemCount(), 1 );
@@ -1023,6 +1105,87 @@ void DIALOG_SYMBOL_FIELDS_TABLE::OnAddField( wxCommandEvent& event )
     m_grid->SetColSize( m_dataModel->GetColsCount() - 1, 50 );
 }
 
+
+void DIALOG_SYMBOL_FIELDS_TABLE::OnRemoveField( wxCommandEvent& event )
+{
+    int col = -1;
+    int row = m_fieldsCtrl->GetSelectedRow();
+
+   // Should never occur: "Remove Field..." button should be disabled if invalid selection
+   // via OnFieldsCtrlSelectionChanged()
+    wxCHECK_RET( row != -1, "Some user defined field must be selected first" );
+    wxCHECK_RET( row >= MANDATORY_FIELDS, "Mandatory fields cannot be removed" );
+
+    wxString fieldName = m_fieldsCtrl->GetTextValue( row, 0 );
+
+    wxString confirm_msg = wxString::Format( _( "Are you sure you want to remove the field '%s'?" ),
+                                        fieldName );
+    
+    if( !IsOK( this, confirm_msg ) )
+        return;
+
+    for( int i = 0; i < m_dataModel->GetNumberCols(); ++i )
+    {
+         if( fieldName == m_dataModel->GetColLabelValue( i ) )
+            col = i;
+    }
+
+    m_fieldsCtrl->DeleteItem( row );
+    m_dataModel->RemoveColumn( col );
+
+    // Make selection and update the state of "Remove field..." button via OnFieldsCtrlSelectionChanged()
+    // Safe to decrement row index because we always have mandatory fields
+    m_fieldsCtrl->SelectRow( --row );
+
+    if( row < MANDATORY_FIELDS )
+        m_removeFieldButton->Enable( false );
+
+    wxGridTableMessage msg( m_dataModel, wxGRIDTABLE_NOTIFY_COLS_DELETED,
+                                m_fieldsCtrl->GetItemCount(), 1 );
+   
+    m_grid->ProcessTableMessage( msg );
+
+    // set up attributes on the new quantities column
+    wxGridCellAttr* attr = new wxGridCellAttr;
+    attr->SetReadOnly();
+
+    m_grid->SetColAttr( m_dataModel->GetColsCount() - 1, attr );
+    m_grid->SetColFormatNumber( m_dataModel->GetColsCount() - 1 );
+    m_grid->SetColSize( m_dataModel->GetColsCount() - 1, 50 );
+}
+
+
+void DIALOG_SYMBOL_FIELDS_TABLE::OnFilterText( wxCommandEvent& aEvent )
+{
+    m_dataModel->RebuildRows( m_filter, m_groupSymbolsBox, m_fieldsCtrl );
+    m_dataModel->Sort( m_grid->GetSortingColumn(), m_grid->IsSortOrderAscending() );
+    m_grid->ForceRefresh();
+}
+
+
+void DIALOG_SYMBOL_FIELDS_TABLE::OnFilterMouseMoved( wxMouseEvent& aEvent )
+{
+    wxPoint pos = aEvent.GetPosition();
+    wxRect  ctrlRect = m_filter->GetScreenRect();
+    int     buttonWidth = ctrlRect.GetHeight();         // Presume buttons are square
+
+    if( m_filter->IsSearchButtonVisible() && pos.x < buttonWidth )
+        SetCursor( wxCURSOR_ARROW );
+    else if( m_filter->IsCancelButtonVisible() && pos.x > ctrlRect.GetWidth() - buttonWidth )
+        SetCursor( wxCURSOR_ARROW );
+    else
+        SetCursor( wxCURSOR_IBEAM );
+}
+
+void DIALOG_SYMBOL_FIELDS_TABLE::OnFieldsCtrlSelectionChanged( wxDataViewEvent& event )
+{
+    int row = m_fieldsCtrl->GetSelectedRow();
+
+    if( row >= MANDATORY_FIELDS )
+        m_removeFieldButton->Enable( true );
+    else
+        m_removeFieldButton->Enable( false );
+}
 
 void DIALOG_SYMBOL_FIELDS_TABLE::OnColumnItemToggled( wxDataViewEvent& event )
 {
@@ -1063,7 +1226,7 @@ void DIALOG_SYMBOL_FIELDS_TABLE::OnColumnItemToggled( wxDataViewEvent& event )
         std::string fieldName( m_fieldsCtrl->GetTextValue( row, CANONICAL_NAME_COLUMN ).ToUTF8() );
         cfg->m_FieldEditorPanel.fields_group_by[fieldName] = value;
 
-        m_dataModel->RebuildRows( m_groupSymbolsBox, m_fieldsCtrl );
+        m_dataModel->RebuildRows( m_filter, m_groupSymbolsBox, m_fieldsCtrl );
         m_dataModel->Sort( m_grid->GetSortingColumn(), m_grid->IsSortOrderAscending() );
         m_grid->ForceRefresh();
         break;
@@ -1077,7 +1240,7 @@ void DIALOG_SYMBOL_FIELDS_TABLE::OnColumnItemToggled( wxDataViewEvent& event )
 
 void DIALOG_SYMBOL_FIELDS_TABLE::OnGroupSymbolsToggled( wxCommandEvent& event )
 {
-    m_dataModel->RebuildRows( m_groupSymbolsBox, m_fieldsCtrl );
+    m_dataModel->RebuildRows( m_filter, m_groupSymbolsBox, m_fieldsCtrl );
     m_dataModel->Sort( m_grid->GetSortingColumn(), m_grid->IsSortOrderAscending() );
     m_grid->ForceRefresh();
 }
@@ -1127,7 +1290,7 @@ void DIALOG_SYMBOL_FIELDS_TABLE::OnTableColSize( wxGridSizeEvent& aEvent )
 
 void DIALOG_SYMBOL_FIELDS_TABLE::OnRegroupSymbols( wxCommandEvent& aEvent )
 {
-    m_dataModel->RebuildRows( m_groupSymbolsBox, m_fieldsCtrl );
+    m_dataModel->RebuildRows( m_filter, m_groupSymbolsBox, m_fieldsCtrl );
     m_dataModel->Sort( m_grid->GetSortingColumn(), m_grid->IsSortOrderAscending() );
     m_grid->ForceRefresh();
 }
@@ -1171,8 +1334,14 @@ void DIALOG_SYMBOL_FIELDS_TABLE::OnTableItemContextMenu( wxGridEvent& event )
 
 void DIALOG_SYMBOL_FIELDS_TABLE::OnSizeFieldList( wxSizeEvent& event )
 {
-    int nameColWidth = KIPLATFORM::UI::GetUnobscuredSize( m_fieldsCtrl ).x - m_showColWidth
-                       - m_groupByColWidth;
+    int nameColWidth = KIPLATFORM::UI::GetUnobscuredSize( m_fieldsCtrl ).x;
+    nameColWidth -= m_showColWidth + m_groupByColWidth;
+#ifdef __WXMAC__
+    // TODO: something in wxWidgets 3.1.x pads checkbox columns with extra space.  (It used to
+    // also be that the width of the column would get set too wide (to 30), but that's patched in
+    // our local wxWidgets fork.)
+    nameColWidth -= 30;
+#endif
 
     // GTK loses its head and messes these up when resizing the splitter bar:
     m_fieldsCtrl->GetColumn( SHOW_FIELD_COLUMN )->SetWidth( m_showColWidth );
@@ -1191,6 +1360,81 @@ void DIALOG_SYMBOL_FIELDS_TABLE::OnSaveAndContinue( wxCommandEvent& aEvent )
 {
     if( TransferDataFromWindow() )
         m_parent->SaveProject();
+}
+
+
+void DIALOG_SYMBOL_FIELDS_TABLE::OnExport( wxCommandEvent& aEvent )
+{
+    int last_col = m_grid->GetNumberCols() - 1;
+
+    if( m_dataModel->IsEdited() )
+        if( OKOrCancelDialog( nullptr, _( "Unsaved data" ),
+                              _( "Changes are unsaved. Export unsaved data?" ), "", _( "OK" ),
+                              _( "Cancel" ) )
+            == wxID_CANCEL )
+            return;
+
+
+    // Calculate the netlist filename
+    wxFileName fn = m_parent->Schematic().GetFileName();
+    fn.SetExt( CsvFileExtension );
+
+    wxFileDialog saveDlg( this, _( "Save as CSV" ), wxPathOnly( Prj().GetProjectFullName() ),
+                          fn.GetFullName(), CsvFileWildcard(), wxFD_SAVE | wxFD_OVERWRITE_PROMPT );
+
+    if( saveDlg.ShowModal() == wxID_CANCEL )
+        return;
+
+    wxFFile out( saveDlg.GetPath(), "wb" );
+
+    if( !out.IsOpened() )
+        return;
+
+    // Find the location for the line terminator
+    for( int col = m_grid->GetNumberCols() - 1; col >=0 ; --col )
+    {
+        if( m_grid->IsColShown( col ) )
+        {
+            last_col = col;
+            break;
+        }
+    }
+
+    // Column names
+    for( int col = 0; col < m_grid->GetNumberCols(); col++ )
+    {
+        if( !m_grid->IsColShown( col ) )
+            continue;
+
+        wxString escapedValue = m_grid->GetColLabelValue( col );
+        escapedValue.Replace( "\"", "\"\"" );
+
+        wxString format = col == last_col ? "\"%s\"\r\n" : "\"%s\",";
+
+        out.Write( wxString::Format( format, escapedValue ) );
+    }
+
+    // Data rows
+    for( int row = 0; row < m_grid->GetNumberRows(); row++ )
+    {
+        // Don't output child rows
+        if( m_dataModel->GetRowFlags( row ) == CHILD_ITEM )
+            continue;
+
+        for( int col = 0; col < m_grid->GetNumberCols(); col++ )
+        {
+            if( !m_grid->IsColShown( col ) )
+                continue;
+
+            // Get the unanottated version of the field, e.g. no ">   " or "v   " by
+            wxString escapedValue = m_dataModel->GetRawValue( row, col );
+            escapedValue.Replace( "\"", "\"\"" );
+
+            wxString format = col == last_col ? "\"%s\"\r\n" : "\"%s\",";
+
+            out.Write( wxString::Format( format, escapedValue ) );
+        }
+    }
 }
 
 

@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2017 CERN
- * Copyright (C) 2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2021-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * Author: Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  *
@@ -34,7 +34,8 @@ PROGRESS_REPORTER_BASE::PROGRESS_REPORTER_BASE( int aNumPhases ) :
     m_numPhases( aNumPhases ),
     m_progress( 0 ),
     m_maxProgress( 1000 ),
-    m_cancelled( false )
+    m_cancelled( false ),
+    m_messageChanged( false )
 {
 }
 
@@ -63,6 +64,8 @@ void PROGRESS_REPORTER_BASE::AdvancePhase( const wxString& aMessage )
 void PROGRESS_REPORTER_BASE::Report( const wxString& aMessage )
 {
     std::lock_guard<std::mutex> guard( m_mutex );
+
+    m_messageChanged = m_rptMessage != aMessage;
     m_rptMessage = aMessage;
 }
 
@@ -119,7 +122,7 @@ bool PROGRESS_REPORTER_BASE::KeepRefreshing( bool aWait )
                 return false;
             }
 
-            wxMilliSleep( 20 );
+            wxMilliSleep( 33 /* 30 FPS refresh rate */ );
         }
 
         return true;

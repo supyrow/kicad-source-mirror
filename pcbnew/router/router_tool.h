@@ -35,6 +35,7 @@ public:
     void Reset( RESET_REASON aReason ) override;
 
     int MainLoop( const TOOL_EVENT& aEvent );
+    int RouteSelected( const TOOL_EVENT& aEvent );
 
     int InlineBreakTrack( const TOOL_EVENT& aEvent );
     bool CanInlineDrag( int aDragMode );
@@ -63,6 +64,8 @@ public:
     // or a non-fanout-via to a single PCB_TRACK item.
     static void NeighboringSegmentFilter( const VECTOR2I& aPt, GENERAL_COLLECTOR& aCollector );
 
+    void UpdateMessagePanel();
+
 private:
     void performRouting();
     void performDragging( int aMode = PNS::DM_ANY );
@@ -73,6 +76,8 @@ private:
 
     int getStartLayer( const PNS::ITEM* aItem );
     void switchLayerOnViaPlacement();
+    void updateSizesAfterLayerSwitch( PCB_LAYER_ID targetLayer );
+    bool getNearestRatnestAnchor( VECTOR2I& aPoint, LAYER_RANGE& aLayers );
 
     int onLayerCommand( const TOOL_EVENT& aEvent );
     int onViaCommand( const TOOL_EVENT& aEvent );
@@ -82,13 +87,14 @@ private:
     bool finishInteractive();
     void saveRouterDebugLog();
 
-    void updateMessagePanel();
-
 private:
     std::shared_ptr<ACTION_MENU> m_diffPairMenu;
     std::shared_ptr<ACTION_MENU> m_trackViaMenu;
 
     int                          m_lastTargetLayer;
+    PCB_LAYER_ID                 m_originalActiveLayer;
+
+    bool                         m_inRouterTool;         // Re-entrancy guard
 };
 
 #endif

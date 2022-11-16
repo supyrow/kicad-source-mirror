@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 1992-2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -24,12 +24,12 @@
 #include <dialog_cleanup_tracks_and_vias.h>
 #include <board_commit.h>
 #include <pcb_edit_frame.h>
-#include <pcbnew_settings.h>
 #include <tool/tool_manager.h>
 #include <tools/pcb_actions.h>
 #include <tracks_cleaner.h>
 #include <drc/drc_item.h>
 #include <tools/zone_filler_tool.h>
+#include <reporter.h>
 
 DIALOG_CLEANUP_TRACKS_AND_VIAS::DIALOG_CLEANUP_TRACKS_AND_VIAS( PCB_EDIT_FRAME* aParentFrame ) :
         DIALOG_CLEANUP_TRACKS_AND_VIAS_BASE( aParentFrame ),
@@ -37,6 +37,7 @@ DIALOG_CLEANUP_TRACKS_AND_VIAS::DIALOG_CLEANUP_TRACKS_AND_VIAS( PCB_EDIT_FRAME* 
         m_firstRun( true )
 {
     auto cfg = m_parentFrame->GetPcbNewSettings();
+    m_reporter = new WX_TEXT_CTRL_REPORTER( m_tcReport );
 
     m_cleanViasOpt->SetValue( cfg->m_Cleanup.cleanup_vias );
     m_mergeSegmOpt->SetValue( cfg->m_Cleanup.merge_segments );
@@ -48,9 +49,7 @@ DIALOG_CLEANUP_TRACKS_AND_VIAS::DIALOG_CLEANUP_TRACKS_AND_VIAS( PCB_EDIT_FRAME* 
     m_changesTreeModel = new RC_TREE_MODEL( m_parentFrame, m_changesDataView );
     m_changesDataView->AssociateModel( m_changesTreeModel );
 
-    m_changesTreeModel->SetSeverities( RPT_SEVERITY_ACTION );
-
-    SetupStandardButtons( { { wxID_OK, _( "Update PCB" ) } } );
+    setupOKButtonLabel();
 
     m_sdbSizer->SetSizeHints( this );
 
@@ -73,30 +72,44 @@ DIALOG_CLEANUP_TRACKS_AND_VIAS::~DIALOG_CLEANUP_TRACKS_AND_VIAS()
 }
 
 
+void DIALOG_CLEANUP_TRACKS_AND_VIAS::setupOKButtonLabel()
+{
+    if( m_firstRun )
+        SetupStandardButtons( { { wxID_OK, _( "Build Changes" ) } } );
+    else
+        SetupStandardButtons( { { wxID_OK, _( "Update PCB" ) } } );
+}
+
+
 void DIALOG_CLEANUP_TRACKS_AND_VIAS::OnCheckBox( wxCommandEvent& anEvent )
 {
-    doCleanup( true );
+    m_firstRun = true;
+    setupOKButtonLabel();
+    m_tcReport->Clear();
 }
 
 
 bool DIALOG_CLEANUP_TRACKS_AND_VIAS::TransferDataToWindow()
 {
-    doCleanup( true );
-
     return true;
 }
 
 
 bool DIALOG_CLEANUP_TRACKS_AND_VIAS::TransferDataFromWindow()
 {
-    doCleanup( false );
+    bool dryRun = m_firstRun;
 
-    return true;
+    doCleanup( dryRun );
+
+    return !dryRun;
 }
 
 
 void DIALOG_CLEANUP_TRACKS_AND_VIAS::doCleanup( bool aDryRun )
 {
+    m_tcReport->Clear();
+    wxSafeYield();      // Timeslice to update UI
+
     wxBusyCursor busy;
     BOARD_COMMIT commit( m_parentFrame );
     TRACKS_CLEANER cleaner( m_parentFrame->GetBoard(), commit );
@@ -107,26 +120,23 @@ void DIALOG_CLEANUP_TRACKS_AND_VIAS::doCleanup( bool aDryRun )
         m_parentFrame->GetToolManager()->RunAction( PCB_ACTIONS::selectionClear, true );
 
         // ... and to keep the treeModel from trying to refresh a deleted item
-        m_changesTreeModel->SetProvider( nullptr );
+        m_changesTreeModel->Update( nullptr, RPT_SEVERITY_ACTION );
     }
 
     m_items.clear();
 
     if( m_firstRun )
     {
-        m_items.push_back( std::make_shared<CLEANUP_ITEM>( CLEANUP_CHECKING_ZONE_FILLS ) );
-        RC_ITEMS_PROVIDER* provider = new VECTOR_CLEANUP_ITEMS_PROVIDER( &m_items );
-        m_changesTreeModel->SetProvider( provider );
-
+        m_reporter->Report( _( "Checking zones..." ) );
+        wxSafeYield();      // Timeslice to update UI
         m_parentFrame->GetToolManager()->GetTool<ZONE_FILLER_TOOL>()->CheckAllZones( this );
-        wxSafeYield();  // Timeslice to close zone progress reporter
-
-        m_changesTreeModel->SetProvider( nullptr );
-        m_items.clear();
+        wxSafeYield();      // Timeslice to close zone progress reporter
         m_firstRun = false;
     }
 
     // Old model has to be refreshed, GAL normally does not keep updating it
+    m_reporter->Report( _( "Rebuilding connectivity..." ) );
+    wxSafeYield();      // Timeslice to update UI
     m_parentFrame->Compile_Ratsnest( false );
 
     cleaner.CleanupBoard( aDryRun, &m_items, m_cleanShortCircuitOpt->GetValue(),
@@ -134,12 +144,13 @@ void DIALOG_CLEANUP_TRACKS_AND_VIAS::doCleanup( bool aDryRun )
                                              m_mergeSegmOpt->GetValue(),
                                              m_deleteUnconnectedOpt->GetValue(),
                                              m_deleteTracksInPadsOpt->GetValue(),
-                                             m_deleteDanglingViasOpt->GetValue() );
+                                             m_deleteDanglingViasOpt->GetValue(),
+                                             m_reporter );
 
     if( aDryRun )
     {
-        RC_ITEMS_PROVIDER* provider = new VECTOR_CLEANUP_ITEMS_PROVIDER( &m_items );
-        m_changesTreeModel->SetProvider( provider );
+        m_changesTreeModel->Update( std::make_shared<VECTOR_CLEANUP_ITEMS_PROVIDER>( &m_items ),
+                                    RPT_SEVERITY_ACTION );
     }
     else if( !commit.Empty() )
     {
@@ -147,6 +158,9 @@ void DIALOG_CLEANUP_TRACKS_AND_VIAS::doCleanup( bool aDryRun )
         commit.Push( _( "Board cleanup" ) );
         m_parentFrame->GetCanvas()->Refresh( true );
     }
+
+    m_reporter->Report( _( "Done." ) );
+    setupOKButtonLabel();
 }
 
 

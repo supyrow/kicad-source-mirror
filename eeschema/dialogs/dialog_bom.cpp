@@ -235,7 +235,7 @@ BOM_GENERATOR_HANDLER* DIALOG_BOM::addGenerator( const wxString& aPath, const wx
     BOM_GENERATOR_HANDLER* ret = nullptr;
     auto plugin = std::make_unique<BOM_GENERATOR_HANDLER>( aPath );
 
-    if( !plugin )
+    if( !plugin->IsOk() )
         return nullptr;
 
     if( !aName.IsEmpty() )
@@ -456,7 +456,7 @@ void DIALOG_BOM::OnHelp( wxCommandEvent& event )
         return;
     }
 
-    m_helpWindow = new HTML_MESSAGE_BOX( nullptr, _( "Bill of Material Generation Help" ) );
+    m_helpWindow = new HTML_MESSAGE_BOX( nullptr, _( "Bill of Materials Generation Help" ) );
     m_helpWindow->SetDialogSizeInDU( 500, 350 );
 
     wxString html_txt;

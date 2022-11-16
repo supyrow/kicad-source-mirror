@@ -72,6 +72,7 @@
 
 
 SCH_LEGACY_PLUGIN::SCH_LEGACY_PLUGIN() :
+    m_appending( false ),
     m_progressReporter( nullptr ),
     m_lineReader( nullptr ),
     m_lastProgressLine( 0 ),
@@ -87,10 +88,11 @@ SCH_LEGACY_PLUGIN::~SCH_LEGACY_PLUGIN()
 }
 
 
-void SCH_LEGACY_PLUGIN::init( SCHEMATIC* aSchematic, const PROPERTIES* aProperties )
+void SCH_LEGACY_PLUGIN::init( SCHEMATIC* aSchematic, const STRING_UTF8_MAP* aProperties )
 {
     m_version   = 0;
     m_rootSheet = nullptr;
+    m_currentSheet = nullptr;
     m_schematic = aSchematic;
     m_cache     = nullptr;
     m_out       = nullptr;
@@ -120,7 +122,7 @@ void SCH_LEGACY_PLUGIN::checkpoint()
 
 
 SCH_SHEET* SCH_LEGACY_PLUGIN::Load( const wxString& aFileName, SCHEMATIC* aSchematic,
-                                    SCH_SHEET* aAppendToMe, const PROPERTIES* aProperties )
+                                    SCH_SHEET* aAppendToMe, const STRING_UTF8_MAP* aProperties )
 {
     wxASSERT( !aFileName || aSchematic != nullptr );
 
@@ -174,6 +176,7 @@ SCH_SHEET* SCH_LEGACY_PLUGIN::Load( const wxString& aFileName, SCHEMATIC* aSchem
     }
     else
     {
+        m_appending = true;
         wxCHECK_MSG( aSchematic->IsValid(), nullptr, "Can't append to a schematic with no root!" );
         m_rootSheet = &aSchematic->Root();
         sheet = aAppendToMe;
@@ -191,6 +194,8 @@ SCH_SHEET* SCH_LEGACY_PLUGIN::Load( const wxString& aFileName, SCHEMATIC* aSchem
 void SCH_LEGACY_PLUGIN::loadHierarchy( SCH_SHEET* aSheet )
 {
     SCH_SCREEN* screen = nullptr;
+
+    m_currentSheet = aSheet;
 
     if( !aSheet->GetScreen() )
     {
@@ -224,6 +229,9 @@ void SCH_LEGACY_PLUGIN::loadHierarchy( SCH_SHEET* aSheet )
             aSheet->SetScreen( new SCH_SCREEN( m_schematic ) );
             aSheet->GetScreen()->SetFileName( fileName.GetFullPath() );
 
+            if( aSheet == m_rootSheet )
+                const_cast<KIID&>( aSheet->m_Uuid ) = aSheet->GetScreen()->GetUuid();
+
             try
             {
                 loadFile( fileName.GetFullPath(), aSheet->GetScreen() );
@@ -244,7 +252,7 @@ void SCH_LEGACY_PLUGIN::loadHierarchy( SCH_SHEET* aSheet )
             aSheet->GetScreen()->SetFileReadOnly( !fileName.IsFileWritable() );
             aSheet->GetScreen()->SetFileExists( true );
 
-            for( auto aItem : aSheet->GetScreen()->Items().OfType( SCH_SHEET_T ) )
+            for( SCH_ITEM* aItem : aSheet->GetScreen()->Items().OfType( SCH_SHEET_T ) )
             {
                 wxCHECK2( aItem->Type() == SCH_SHEET_T, continue );
                 auto sheet = static_cast<SCH_SHEET*>( aItem );
@@ -534,14 +542,14 @@ SCH_SHEET* SCH_LEGACY_PLUGIN::loadSheet( LINE_READER& aReader )
         {
             VECTOR2I position;
 
-            position.x = Mils2Iu( parseInt( aReader, line, &line ) );
-            position.y = Mils2Iu( parseInt( aReader, line, &line ) );
+            position.x = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
+            position.y = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
             sheet->SetPosition( position );
 
             wxSize  size;
 
-            size.SetWidth( Mils2Iu( parseInt( aReader, line, &line ) ) );
-            size.SetHeight( Mils2Iu( parseInt( aReader, line, &line ) ) );
+            size.SetWidth( schIUScale.MilsToIU( parseInt( aReader, line, &line ) ) );
+            size.SetHeight( schIUScale.MilsToIU( parseInt( aReader, line, &line ) ) );
             sheet->SetSize( size );
         }
         else if( strCompare( "U", line, &line ) )   // Sheet UUID.
@@ -563,7 +571,7 @@ SCH_SHEET* SCH_LEGACY_PLUGIN::loadSheet( LINE_READER& aReader )
             if( fieldId == 0 || fieldId == 1 )      // Sheet name and file name.
             {
                 parseQuotedString( text, aReader, line, &line );
-                size = Mils2Iu( parseInt( aReader, line, &line ) );
+                size = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
 
                 SCH_FIELD& field = sheet->GetFields()[ fieldId ];
                 field.SetText( text );
@@ -606,11 +614,11 @@ SCH_SHEET* SCH_LEGACY_PLUGIN::loadSheet( LINE_READER& aReader )
 
                 VECTOR2I position;
 
-                position.x = Mils2Iu( parseInt( aReader, line, &line ) );
-                position.y = Mils2Iu( parseInt( aReader, line, &line ) );
+                position.x = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
+                position.y = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
                 sheetPin->SetPosition( position );
 
-                size = Mils2Iu( parseInt( aReader, line, &line ) );
+                size = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
 
                 sheetPin->SetTextSize( wxSize( size, size ) );
 
@@ -648,8 +656,8 @@ SCH_BITMAP* SCH_LEGACY_PLUGIN::loadBitmap( LINE_READER& aReader )
         {
             VECTOR2I position;
 
-            position.x = Mils2Iu( parseInt( aReader, line, &line ) );
-            position.y = Mils2Iu( parseInt( aReader, line, &line ) );
+            position.x = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
+            position.y = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
             bitmap->SetPosition( position );
         }
         else if( strCompare( "Scale", line, &line ) )
@@ -712,7 +720,9 @@ SCH_BITMAP* SCH_LEGACY_PLUGIN::loadBitmap( LINE_READER& aReader )
                 THROW_IO_ERROR( _( "unexpected end of file" ) );
         }
         else if( strCompare( "$EndBitmap", line ) )
+        {
             return bitmap.release();
+        }
 
         line = aReader.ReadLine();
     }
@@ -735,8 +745,8 @@ SCH_JUNCTION* SCH_LEGACY_PLUGIN::loadJunction( LINE_READER& aReader )
 
     VECTOR2I position;
 
-    position.x = Mils2Iu( parseInt( aReader, line, &line ) );
-    position.y = Mils2Iu( parseInt( aReader, line, &line ) );
+    position.x = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
+    position.y = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
     junction->SetPosition( position );
 
     return junction.release();
@@ -757,8 +767,8 @@ SCH_NO_CONNECT* SCH_LEGACY_PLUGIN::loadNoConnect( LINE_READER& aReader )
 
     VECTOR2I position;
 
-    position.x = Mils2Iu( parseInt( aReader, line, &line ) );
-    position.y = Mils2Iu( parseInt( aReader, line, &line ) );
+    position.x = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
+    position.y = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
     no_connect->SetPosition( position );
 
     return no_connect.release();
@@ -798,14 +808,21 @@ SCH_LINE* SCH_LEGACY_PLUGIN::loadWire( LINE_READER& aReader )
 
         else if( buf == T_WIDTH )
         {
-            int size = Mils2Iu( parseInt( aReader, line, &line ) );
+            int size = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
             wire->SetLineWidth( size );
         }
         else if( buf == T_STYLE )
         {
             parseUnquotedString( buf, aReader, line, &line );
-            PLOT_DASH_TYPE style = SCH_LINE::GetLineStyleByName( buf );
-            wire->SetLineStyle( style );
+
+            if( buf == wxT( "solid" ) )
+                wire->SetLineStyle( PLOT_DASH_TYPE::SOLID );
+            else if( buf == wxT( "dashed" ) )
+                wire->SetLineStyle( PLOT_DASH_TYPE::DASH );
+            else if( buf == wxT( "dash_dot" ) )
+                wire->SetLineStyle( PLOT_DASH_TYPE::DASHDOT );
+            else if( buf == wxT( "dotted" ) )
+                wire->SetLineStyle( PLOT_DASH_TYPE::DOT );
         }
         else    // should be the color parameter.
         {
@@ -829,6 +846,7 @@ SCH_LINE* SCH_LEGACY_PLUGIN::loadWire( LINE_READER& aReader )
                 }
 
                 int prm_count = ( keyword == T_COLORA ) ? 4 : 3;
+
                 // fix opacity to 1.0 or 255, when not exists in file
                 color[3] = 255;
 
@@ -851,10 +869,10 @@ SCH_LINE* SCH_LEGACY_PLUGIN::loadWire( LINE_READER& aReader )
 
     VECTOR2I begin, end;
 
-    begin.x = Mils2Iu( parseInt( aReader, line, &line ) );
-    begin.y = Mils2Iu( parseInt( aReader, line, &line ) );
-    end.x = Mils2Iu( parseInt( aReader, line, &line ) );
-    end.y = Mils2Iu( parseInt( aReader, line, &line ) );
+    begin.x = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
+    begin.y = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
+    end.x = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
+    end.y = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
 
     wire->SetStartPoint( begin );
     wire->SetEndPoint( end );
@@ -886,17 +904,19 @@ SCH_BUS_ENTRY_BASE* SCH_LEGACY_PLUGIN::loadBusEntry( LINE_READER& aReader )
             SCH_PARSE_ERROR( "invalid bus entry definition expected 'Bus'", aReader, line );
     }
     else
+    {
         SCH_PARSE_ERROR( "invalid bus entry type", aReader, line );
+    }
 
     line = aReader.ReadLine();
 
     VECTOR2I pos;
     wxSize size;
 
-    pos.x = Mils2Iu( parseInt( aReader, line, &line ) );
-    pos.y = Mils2Iu( parseInt( aReader, line, &line ) );
-    size.x = Mils2Iu( parseInt( aReader, line, &line ) );
-    size.y = Mils2Iu( parseInt( aReader, line, &line ) );
+    pos.x = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
+    pos.y = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
+    size.x = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
+    size.y = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
 
     size.x -= pos.x;
     size.y -= pos.y;
@@ -906,6 +926,7 @@ SCH_BUS_ENTRY_BASE* SCH_LEGACY_PLUGIN::loadBusEntry( LINE_READER& aReader )
 
     return busEntry.release();
 }
+
 
 // clang-format off
 const std::map<LABEL_FLAG_SHAPE, const char*> sheetLabelNames
@@ -921,35 +942,51 @@ const std::map<LABEL_FLAG_SHAPE, const char*> sheetLabelNames
 
 SCH_TEXT* SCH_LEGACY_PLUGIN::loadText( LINE_READER& aReader )
 {
-    const char*   line = aReader.Line();
+    const char* line = aReader.Line();
+    KICAD_T     textType = TYPE_NOT_INIT;
 
     wxCHECK( strCompare( "Text", line, &line ), nullptr );
 
-    std::unique_ptr<SCH_TEXT> text;
-
     if( strCompare( "Notes", line, &line ) )
-        text.reset( new SCH_TEXT );
+    {
+        textType = SCH_TEXT_T;
+    }
     else if( strCompare( "Label", line, &line ) )
-        text.reset( new SCH_LABEL );
+    {
+        textType = SCH_LABEL_T;
+    }
     else if( strCompare( "HLabel", line, &line ) )
-        text.reset( new SCH_HIERLABEL );
+    {
+        textType = SCH_HIER_LABEL_T;
+    }
     else if( strCompare( "GLabel", line, &line ) )
     {
         // Prior to version 2, the SCH_GLOBALLABEL object did not exist.
         if( m_version == 1 )
-            text = std::make_unique<SCH_HIERLABEL>();
+            textType = SCH_HIER_LABEL_T;
         else
-            text = std::make_unique<SCH_GLOBALLABEL>();
+            textType = SCH_GLOBAL_LABEL_T;
     }
     else
+    {
         SCH_PARSE_ERROR( "unknown Text type", aReader, line );
+    }
 
-    // Parse the parameters common to all text objects.
     VECTOR2I position;
 
-    position.x = Mils2Iu( parseInt( aReader, line, &line ) );
-    position.y = Mils2Iu( parseInt( aReader, line, &line ) );
-    text->SetPosition( position );
+    position.x = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
+    position.y = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
+
+    std::unique_ptr<SCH_TEXT> text;
+
+    switch( textType )
+    {
+    case SCH_TEXT_T:         text.reset( new SCH_TEXT( position ) );        break;
+    case SCH_LABEL_T:        text.reset( new SCH_LABEL( position ) );       break;
+    case SCH_HIER_LABEL_T:   text.reset( new SCH_HIERLABEL( position ) );   break;
+    case SCH_GLOBAL_LABEL_T: text.reset( new SCH_GLOBALLABEL( position ) ); break;
+    default:                                                                break;
+    }
 
     int spinStyle = parseInt( aReader, line, &line );
 
@@ -971,7 +1008,7 @@ SCH_TEXT* SCH_LEGACY_PLUGIN::loadText( LINE_READER& aReader )
 
     text->SetTextSpinStyle( static_cast<TEXT_SPIN_STYLE::SPIN>( spinStyle ) );
 
-    int size = Mils2Iu( parseInt( aReader, line, &line ) );
+    int size = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
 
     text->SetTextSize( wxSize( size, size ) );
 
@@ -1138,8 +1175,8 @@ SCH_SYMBOL* SCH_LEGACY_PLUGIN::loadSymbol( LINE_READER& aReader )
         {
             VECTOR2I pos;
 
-            pos.x = Mils2Iu( parseInt( aReader, line, &line ) );
-            pos.y = Mils2Iu( parseInt( aReader, line, &line ) );
+            pos.x = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
+            pos.y = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
             symbol->SetPosition( pos );
         }
         else if( strCompare( "AR", line, &line ) )
@@ -1155,19 +1192,18 @@ SCH_SYMBOL* SCH_LEGACY_PLUGIN::loadSymbol( LINE_READER& aReader )
 
             parseQuotedString( pathStr, aReader, line, &line );
 
-            // Note: AR path excludes root sheet, but includes symbol.  Normalize to
-            // internal format by shifting everything down one and adding the root sheet.
+            // Note: AR path excludes root sheet, but includes symbol.  Drop the symbol ID
+            // since it's already defined in the symbol itself.
             KIID_PATH path( pathStr );
 
             if( path.size() > 0 )
-            {
-                for( size_t i = path.size() - 1; i > 0; --i )
-                    path[i] = path[i-1];
+                path.pop_back();
 
-                path[0] = m_rootSheet->m_Uuid;
-            }
-            else
-                path.push_back( m_rootSheet->m_Uuid );
+            // In the new file format, the root schematic UUID is used as the virtual SCH_SHEET
+            // UUID so we need to prefix it to the symbol path so the symbol instance paths
+            // get saved with the root schematic UUID.
+            if( !m_appending )
+                path.insert( path.begin(), m_rootSheet->GetScreen()->GetUuid() );
 
             strCompare = "Ref=";
             len = strlen( strCompare );
@@ -1197,7 +1233,6 @@ SCH_SYMBOL* SCH_LEGACY_PLUGIN::loadSymbol( LINE_READER& aReader )
 
             symbol->AddHierarchicalReference( path, reference, (int)tmp );
             symbol->GetField( REFERENCE_FIELD )->SetText( reference );
-
         }
         else if( strCompare( "F", line, &line ) )
         {
@@ -1209,9 +1244,9 @@ SCH_SYMBOL* SCH_LEGACY_PLUGIN::loadSymbol( LINE_READER& aReader )
 
             char orientation = parseChar( aReader, line, &line );
             VECTOR2I pos;
-            pos.x = Mils2Iu( parseInt( aReader, line, &line ) );
-            pos.y = Mils2Iu( parseInt( aReader, line, &line ) );
-            int size = Mils2Iu( parseInt( aReader, line, &line ) );
+            pos.x = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
+            pos.y = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
+            int size = schIUScale.MilsToIU( parseInt( aReader, line, &line ) );
             int attributes = parseHex( aReader, line, &line );
 
             if( index >= symbol->GetFieldCount() )
@@ -1265,20 +1300,30 @@ SCH_SYMBOL* SCH_LEGACY_PLUGIN::loadSymbol( LINE_READER& aReader )
                 if( textAttrs.Length() > 1 )
                 {
                     if( textAttrs.Length() != 3 )
+                    {
                         SCH_PARSE_ERROR( _( "symbol field text attributes must be 3 characters wide" ),
                                          aReader, line );
+                    }
 
                     if( textAttrs[1] == 'I' )
+                    {
                         field.SetItalic( true );
+                    }
                     else if( textAttrs[1] != 'N' )
+                    {
                         SCH_PARSE_ERROR( "symbol field text italics indicator must be I or N",
                                          aReader, line );
+                    }
 
                     if( textAttrs[2] == 'B' )
+                    {
                         field.SetBold( true );
+                    }
                     else if( textAttrs[2] != 'N' )
+                    {
                         SCH_PARSE_ERROR( "symbol field text bold indicator must be B or N",
                                          aReader, line );
+                    }
                 }
             }
 
@@ -1301,6 +1346,30 @@ SCH_SYMBOL* SCH_LEGACY_PLUGIN::loadSymbol( LINE_READER& aReader )
         }
         else if( strCompare( "$EndComp", line ) )
         {
+            if( !m_appending )
+            {
+                if( m_currentSheet == m_rootSheet )
+                {
+                    KIID_PATH path;
+                    path.push_back( m_rootSheet->GetScreen()->GetUuid() );
+                    symbol->AddHierarchicalReference( path,
+                                                      symbol->GetField( REFERENCE_FIELD )->GetText(),
+                                                      symbol->GetUnit(),
+                                                      symbol->GetField( VALUE_FIELD )->GetText(),
+                                                      symbol->GetField( FOOTPRINT_FIELD )->GetText() );
+                }
+                else
+                {
+                    for( const SYMBOL_INSTANCE_REFERENCE& instance : symbol->GetInstanceReferences() )
+                    {
+                        symbol->AddHierarchicalReference( instance.m_Path, instance.m_Reference,
+                                                          instance.m_Unit,
+                                                          symbol->GetField( VALUE_FIELD )->GetText(),
+                                                          symbol->GetField( FOOTPRINT_FIELD )->GetText() );
+                    }
+                }
+            }
+
             // Ensure all flags (some are set by previous initializations) are reset:
             symbol->ClearFlags();
             return symbol.release();
@@ -1369,10 +1438,8 @@ std::shared_ptr<BUS_ALIAS> SCH_LEGACY_PLUGIN::loadBusAlias( LINE_READER& aReader
         buf.clear();
         parseUnquotedString( buf, aReader, line, &line, true );
 
-        if( buf.Len() > 0 )
-        {
-            busAlias->AddMember( buf );
-        }
+        if( !buf.IsEmpty() )
+            busAlias->Members().emplace_back( buf );
     }
 
     return busAlias;
@@ -1380,7 +1447,7 @@ std::shared_ptr<BUS_ALIAS> SCH_LEGACY_PLUGIN::loadBusAlias( LINE_READER& aReader
 
 
 void SCH_LEGACY_PLUGIN::Save( const wxString& aFileName, SCH_SHEET* aSheet, SCHEMATIC* aSchematic,
-                              const PROPERTIES* aProperties )
+                              const STRING_UTF8_MAP* aProperties )
 {
     wxCHECK_RET( aSheet != nullptr, "NULL SCH_SHEET object." );
     wxCHECK_RET( !aFileName.IsEmpty(), "No schematic file name defined." );
@@ -1450,16 +1517,14 @@ void SCH_LEGACY_PLUGIN::Format( SCH_SHEET* aSheet )
     m_out->Print( 0, "Comment9 %s\n", EscapedUTF8( tb.GetComment( 8 ) ).c_str() );
     m_out->Print( 0, "$EndDescr\n" );
 
-    for( const auto& alias : screen->GetBusAliases() )
-    {
+    for( const std::shared_ptr<BUS_ALIAS>& alias : screen->GetBusAliases() )
         saveBusAlias( alias );
-    }
 
     // Enforce item ordering
     auto cmp = []( const SCH_ITEM* a, const SCH_ITEM* b ) { return *a < *b; };
     std::multiset<SCH_ITEM*, decltype( cmp )> save_map( cmp );
 
-    for( auto item : screen->Items() )
+    for( SCH_ITEM* item : screen->Items() )
         save_map.insert( item );
 
 
@@ -1592,8 +1657,8 @@ void SCH_LEGACY_PLUGIN::saveSymbol( SCH_SYMBOL* aSymbol )
 
     // Save the position
     m_out->Print( 0, "P %d %d\n",
-                  Iu2Mils( aSymbol->GetPosition().x ),
-                  Iu2Mils( aSymbol->GetPosition().y ) );
+                  schIUScale.IUToMils( aSymbol->GetPosition().x ),
+                  schIUScale.IUToMils( aSymbol->GetPosition().y ) );
 
     /* If this is a complex hierarchy; save hierarchical references.
      * but for simple hierarchies it is not necessary.
@@ -1644,8 +1709,8 @@ void SCH_LEGACY_PLUGIN::saveSymbol( SCH_SYMBOL* aSymbol )
 
     // Unit number, position, box ( old standard )
     m_out->Print( 0, "\t%-4d %-4d %-4d\n", aSymbol->GetUnit(),
-                  Iu2Mils( aSymbol->GetPosition().x ),
-                  Iu2Mils( aSymbol->GetPosition().y ) );
+                  schIUScale.IUToMils( aSymbol->GetPosition().x ),
+                  schIUScale.IUToMils( aSymbol->GetPosition().y ) );
 
     TRANSFORM transform = aSymbol->GetTransform();
 
@@ -1675,9 +1740,9 @@ void SCH_LEGACY_PLUGIN::saveField( SCH_FIELD* aField )
                   aField->GetId(),
                   EscapedUTF8( aField->GetText() ).c_str(),     // wraps in quotes too
                   aField->GetTextAngle().IsHorizontal() ? 'H' : 'V',
-                  Iu2Mils( aField->GetLibPosition().x ),
-                  Iu2Mils( aField->GetLibPosition().y ),
-                  Iu2Mils( aField->GetTextWidth() ),
+                  schIUScale.IUToMils( aField->GetLibPosition().x ),
+                  schIUScale.IUToMils( aField->GetLibPosition().y ),
+                  schIUScale.IUToMils( aField->GetTextWidth() ),
                   !aField->IsVisible(),
                   hjustify, vjustify,
                   aField->IsItalic() ? 'I' : 'N',
@@ -1701,8 +1766,8 @@ void SCH_LEGACY_PLUGIN::saveBitmap( SCH_BITMAP* aBitmap )
 
     m_out->Print( 0, "$Bitmap\n" );
     m_out->Print( 0, "Pos %-4d %-4d\n",
-                  Iu2Mils( aBitmap->GetPosition().x ),
-                  Iu2Mils( aBitmap->GetPosition().y ) );
+                  schIUScale.IUToMils( aBitmap->GetPosition().x ),
+                  schIUScale.IUToMils( aBitmap->GetPosition().y ) );
     m_out->Print( 0, "Scale %f\n", aBitmap->GetImage()->GetScale() );
     m_out->Print( 0, "Data\n" );
 
@@ -1737,10 +1802,10 @@ void SCH_LEGACY_PLUGIN::saveSheet( SCH_SHEET* aSheet )
 
     m_out->Print( 0, "$Sheet\n" );
     m_out->Print( 0, "S %-4d %-4d %-4d %-4d\n",
-                  Iu2Mils( aSheet->GetPosition().x ),
-                  Iu2Mils( aSheet->GetPosition().y ),
-                  Iu2Mils( aSheet->GetSize().x ),
-                  Iu2Mils( aSheet->GetSize().y ) );
+                  schIUScale.IUToMils( aSheet->GetPosition().x ),
+                  schIUScale.IUToMils( aSheet->GetPosition().y ),
+                  schIUScale.IUToMils( aSheet->GetSize().x ),
+                  schIUScale.IUToMils( aSheet->GetSize().y ) );
 
     m_out->Print( 0, "U %8.8X\n", aSheet->m_Uuid.AsLegacyTimestamp() );
 
@@ -1748,14 +1813,18 @@ void SCH_LEGACY_PLUGIN::saveSheet( SCH_SHEET* aSheet )
     SCH_FIELD& fileName = aSheet->GetFields()[SHEETFILENAME];
 
     if( !sheetName.GetText().IsEmpty() )
+    {
         m_out->Print( 0, "F0 %s %d\n",
                       EscapedUTF8( sheetName.GetText() ).c_str(),
-                      Iu2Mils( sheetName.GetTextSize().x ) );
+                      schIUScale.IUToMils( sheetName.GetTextSize().x ) );
+    }
 
     if( !fileName.GetText().IsEmpty() )
+    {
         m_out->Print( 0, "F1 %s %d\n",
                       EscapedUTF8( fileName.GetText() ).c_str(),
-                      Iu2Mils( fileName.GetTextSize().x ) );
+                      schIUScale.IUToMils( fileName.GetTextSize().x ) );
+    }
 
     for( const SCH_SHEET_PIN* pin : aSheet->GetPins() )
     {
@@ -1786,9 +1855,9 @@ void SCH_LEGACY_PLUGIN::saveSheet( SCH_SHEET* aSheet )
         m_out->Print( 0, "F%d %s %c %c %-3d %-3d %-3d\n",
                       pin->GetNumber(),
                       EscapedUTF8( pin->GetText() ).c_str(),     // supplies wrapping quotes
-                      type, side, Iu2Mils( pin->GetPosition().x ),
-                      Iu2Mils( pin->GetPosition().y ),
-                      Iu2Mils( pin->GetTextWidth() ) );
+                      type, side, schIUScale.IUToMils( pin->GetPosition().x ),
+                      schIUScale.IUToMils( pin->GetPosition().y ),
+                      schIUScale.IUToMils( pin->GetTextWidth() ) );
     }
 
     m_out->Print( 0, "$EndSheet\n" );
@@ -1800,8 +1869,8 @@ void SCH_LEGACY_PLUGIN::saveJunction( SCH_JUNCTION* aJunction )
     wxCHECK_RET( aJunction != nullptr, "SCH_JUNCTION* is NULL" );
 
     m_out->Print( 0, "Connection ~ %-4d %-4d\n",
-                  Iu2Mils( aJunction->GetPosition().x ),
-                  Iu2Mils( aJunction->GetPosition().y ) );
+                  schIUScale.IUToMils( aJunction->GetPosition().x ),
+                  schIUScale.IUToMils( aJunction->GetPosition().y ) );
 }
 
 
@@ -1810,8 +1879,8 @@ void SCH_LEGACY_PLUGIN::saveNoConnect( SCH_NO_CONNECT* aNoConnect )
     wxCHECK_RET( aNoConnect != nullptr, "SCH_NOCONNECT* is NULL" );
 
     m_out->Print( 0, "NoConn ~ %-4d %-4d\n",
-                  Iu2Mils( aNoConnect->GetPosition().x ),
-                  Iu2Mils( aNoConnect->GetPosition().y ) );
+                  schIUScale.IUToMils( aNoConnect->GetPosition().x ),
+                  schIUScale.IUToMils( aNoConnect->GetPosition().y ) );
 }
 
 
@@ -1820,15 +1889,21 @@ void SCH_LEGACY_PLUGIN::saveBusEntry( SCH_BUS_ENTRY_BASE* aBusEntry )
     wxCHECK_RET( aBusEntry != nullptr, "SCH_BUS_ENTRY_BASE* is NULL" );
 
     if( aBusEntry->GetLayer() == LAYER_WIRE )
+    {
         m_out->Print( 0, "Entry Wire Line\n\t%-4d %-4d %-4d %-4d\n",
-                      Iu2Mils( aBusEntry->GetPosition().x ),
-                      Iu2Mils( aBusEntry->GetPosition().y ),
-                      Iu2Mils( aBusEntry->GetEnd().x ), Iu2Mils( aBusEntry->GetEnd().y ) );
+                      schIUScale.IUToMils( aBusEntry->GetPosition().x ),
+                      schIUScale.IUToMils( aBusEntry->GetPosition().y ),
+                      schIUScale.IUToMils( aBusEntry->GetEnd().x ),
+                      schIUScale.IUToMils( aBusEntry->GetEnd().y ) );
+    }
     else
+    {
         m_out->Print( 0, "Entry Bus Bus\n\t%-4d %-4d %-4d %-4d\n",
-                      Iu2Mils( aBusEntry->GetPosition().x ),
-                      Iu2Mils( aBusEntry->GetPosition().y ),
-                      Iu2Mils( aBusEntry->GetEnd().x ), Iu2Mils( aBusEntry->GetEnd().y ) );
+                      schIUScale.IUToMils( aBusEntry->GetPosition().x ),
+                      schIUScale.IUToMils( aBusEntry->GetPosition().y ),
+                      schIUScale.IUToMils( aBusEntry->GetEnd().x ),
+                      schIUScale.IUToMils( aBusEntry->GetEnd().y ) );
+    }
 }
 
 
@@ -1850,22 +1925,25 @@ void SCH_LEGACY_PLUGIN::saveLine( SCH_LINE* aLine )
     if( aLine->IsGraphicLine() )
     {
         if( aLine->GetLineSize() != 0 )
-            m_out->Print( 0, " %s %d", T_WIDTH, Iu2Mils( aLine->GetLineSize() ) );
+            m_out->Print( 0, " %s %d", T_WIDTH, schIUScale.IUToMils( aLine->GetLineSize() ) );
 
-        if( aLine->GetLineStyle() != aLine->GetDefaultStyle() )
-            m_out->Print( 0, " %s %s", T_STYLE,
-                          SCH_LINE::GetLineStyleName( aLine->GetLineStyle() ) );
+        m_out->Print( 0, " %s %s", T_STYLE,
+                      TO_UTF8( STROKE_PARAMS::GetLineStyleToken( aLine->GetLineStyle() ) ) );
 
         if( aLine->GetLineColor() != COLOR4D::UNSPECIFIED )
+        {
             m_out->Print( 0, " %s",
-                TO_UTF8( aLine->GetLineColor().ToColour().GetAsString( wxC2S_CSS_SYNTAX ) ) );
+                TO_UTF8( aLine->GetLineColor().ToCSSString() ) );
+        }
     }
 
     m_out->Print( 0, "\n" );
 
     m_out->Print( 0, "\t%-4d %-4d %-4d %-4d",
-                  Iu2Mils( aLine->GetStartPoint().x ), Iu2Mils( aLine->GetStartPoint().y ),
-                  Iu2Mils( aLine->GetEndPoint().x ), Iu2Mils( aLine->GetEndPoint().y ) );
+                  schIUScale.IUToMils( aLine->GetStartPoint().x ),
+                  schIUScale.IUToMils( aLine->GetStartPoint().y ),
+                  schIUScale.IUToMils( aLine->GetEndPoint().x ),
+                  schIUScale.IUToMils( aLine->GetEndPoint().y ) );
 
     m_out->Print( 0, "\n");
 }
@@ -1921,10 +1999,11 @@ void SCH_LEGACY_PLUGIN::saveText( SCH_TEXT* aText )
             spinStyle = 0;
 
         m_out->Print( 0, "Text %s %-4d %-4d %-4d %-4d %s %d\n%s\n", textType,
-                      Iu2Mils( aText->GetPosition().x ), Iu2Mils( aText->GetPosition().y ),
+                      schIUScale.IUToMils( aText->GetPosition().x ),
+                      schIUScale.IUToMils( aText->GetPosition().y ),
                       spinStyle,
-                      Iu2Mils( aText->GetTextWidth() ),
-                      italics, Iu2Mils( aText->GetTextThickness() ), TO_UTF8( text ) );
+                      schIUScale.IUToMils( aText->GetTextWidth() ),
+                      italics, schIUScale.IUToMils( aText->GetTextThickness() ), TO_UTF8( text ) );
     }
     else if( layer == LAYER_GLOBLABEL || layer == LAYER_HIERLABEL )
     {
@@ -1934,12 +2013,13 @@ void SCH_LEGACY_PLUGIN::saveText( SCH_TEXT* aText )
         wxCHECK_RET( shapeLabelIt != sheetLabelNames.end(), "Shape not found in names list" );
 
         m_out->Print( 0, "Text %s %-4d %-4d %-4d %-4d %s %s %d\n%s\n", textType,
-                      Iu2Mils( aText->GetPosition().x ), Iu2Mils( aText->GetPosition().y ),
+                      schIUScale.IUToMils( aText->GetPosition().x ),
+                      schIUScale.IUToMils( aText->GetPosition().y ),
                       static_cast<int>( aText->GetTextSpinStyle() ),
-                      Iu2Mils( aText->GetTextWidth() ),
+                      schIUScale.IUToMils( aText->GetTextWidth() ),
                       shapeLabelIt->second,
                       italics,
-                      Iu2Mils( aText->GetTextThickness() ), TO_UTF8( text ) );
+                      schIUScale.IUToMils( aText->GetTextThickness() ), TO_UTF8( text ) );
     }
 }
 
@@ -1955,7 +2035,7 @@ void SCH_LEGACY_PLUGIN::saveBusAlias( std::shared_ptr<BUS_ALIAS> aAlias )
 }
 
 
-void SCH_LEGACY_PLUGIN::cacheLib( const wxString& aLibraryFileName, const PROPERTIES* aProperties )
+void SCH_LEGACY_PLUGIN::cacheLib( const wxString& aLibraryFileName, const STRING_UTF8_MAP* aProperties )
 {
     if( !m_cache || !m_cache->IsFile( aLibraryFileName ) || m_cache->IsFileChanged() )
     {
@@ -1969,7 +2049,7 @@ void SCH_LEGACY_PLUGIN::cacheLib( const wxString& aLibraryFileName, const PROPER
 }
 
 
-bool SCH_LEGACY_PLUGIN::writeDocFile( const PROPERTIES* aProperties )
+bool SCH_LEGACY_PLUGIN::writeDocFile( const STRING_UTF8_MAP* aProperties )
 {
     std::string propName( SCH_LEGACY_PLUGIN::PropNoDocFile );
 
@@ -1980,7 +2060,7 @@ bool SCH_LEGACY_PLUGIN::writeDocFile( const PROPERTIES* aProperties )
 }
 
 
-bool SCH_LEGACY_PLUGIN::isBuffering( const PROPERTIES* aProperties )
+bool SCH_LEGACY_PLUGIN::isBuffering( const STRING_UTF8_MAP* aProperties )
 {
     return ( aProperties && aProperties->Exists( SCH_LEGACY_PLUGIN::PropBuffering ) );
 }
@@ -1998,7 +2078,7 @@ int SCH_LEGACY_PLUGIN::GetModifyHash() const
 
 void SCH_LEGACY_PLUGIN::EnumerateSymbolLib( wxArrayString&    aSymbolNameList,
                                             const wxString&   aLibraryPath,
-                                            const PROPERTIES* aProperties )
+                                            const STRING_UTF8_MAP* aProperties )
 {
     LOCALE_IO   toggle;     // toggles on, then off, the C locale.
 
@@ -2019,7 +2099,7 @@ void SCH_LEGACY_PLUGIN::EnumerateSymbolLib( wxArrayString&    aSymbolNameList,
 
 void SCH_LEGACY_PLUGIN::EnumerateSymbolLib( std::vector<LIB_SYMBOL*>& aSymbolList,
                                             const wxString&   aLibraryPath,
-                                            const PROPERTIES* aProperties )
+                                            const STRING_UTF8_MAP* aProperties )
 {
     LOCALE_IO   toggle;     // toggles on, then off, the C locale.
 
@@ -2040,7 +2120,7 @@ void SCH_LEGACY_PLUGIN::EnumerateSymbolLib( std::vector<LIB_SYMBOL*>& aSymbolLis
 
 LIB_SYMBOL* SCH_LEGACY_PLUGIN::LoadSymbol( const wxString& aLibraryPath,
                                            const wxString& aSymbolName,
-                                           const PROPERTIES* aProperties )
+                                           const STRING_UTF8_MAP* aProperties )
 {
     LOCALE_IO toggle;     // toggles on, then off, the C locale.
 
@@ -2056,7 +2136,7 @@ LIB_SYMBOL* SCH_LEGACY_PLUGIN::LoadSymbol( const wxString& aLibraryPath,
 
 
 void SCH_LEGACY_PLUGIN::SaveSymbol( const wxString& aLibraryPath, const LIB_SYMBOL* aSymbol,
-                                    const PROPERTIES* aProperties )
+                                    const STRING_UTF8_MAP* aProperties )
 {
     LOCALE_IO toggle;     // toggles on, then off, the C locale.
 
@@ -2070,7 +2150,7 @@ void SCH_LEGACY_PLUGIN::SaveSymbol( const wxString& aLibraryPath, const LIB_SYMB
 
 
 void SCH_LEGACY_PLUGIN::DeleteSymbol( const wxString& aLibraryPath, const wxString& aSymbolName,
-                                      const PROPERTIES* aProperties )
+                                      const STRING_UTF8_MAP* aProperties )
 {
     LOCALE_IO toggle;     // toggles on, then off, the C locale.
 
@@ -2084,7 +2164,7 @@ void SCH_LEGACY_PLUGIN::DeleteSymbol( const wxString& aLibraryPath, const wxStri
 
 
 void SCH_LEGACY_PLUGIN::CreateSymbolLib( const wxString& aLibraryPath,
-                                         const PROPERTIES* aProperties )
+                                         const STRING_UTF8_MAP* aProperties )
 {
     if( wxFileExists( aLibraryPath ) )
     {
@@ -2103,7 +2183,7 @@ void SCH_LEGACY_PLUGIN::CreateSymbolLib( const wxString& aLibraryPath,
 
 
 bool SCH_LEGACY_PLUGIN::DeleteSymbolLib( const wxString& aLibraryPath,
-                                         const PROPERTIES* aProperties )
+                                         const STRING_UTF8_MAP* aProperties )
 {
     wxFileName fn = aLibraryPath;
 
@@ -2128,7 +2208,7 @@ bool SCH_LEGACY_PLUGIN::DeleteSymbolLib( const wxString& aLibraryPath,
 }
 
 
-void SCH_LEGACY_PLUGIN::SaveLibrary( const wxString& aLibraryPath, const PROPERTIES* aProperties )
+void SCH_LEGACY_PLUGIN::SaveLibrary( const wxString& aLibraryPath, const STRING_UTF8_MAP* aProperties )
 {
     if( !m_cache )
         m_cache = new SCH_LEGACY_PLUGIN_CACHE( aLibraryPath );

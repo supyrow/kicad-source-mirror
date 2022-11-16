@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2010-2014 Jean-Pierre Charras, jean-pierre.charras at wanadoo.fr
- * Copyright (C) 1992-2019 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -29,6 +29,7 @@
 #include <rc_item.h>
 
 class FOOTPRINT_EDIT_FRAME;
+class PCB_MARKER;
 
 
 class DIALOG_FOOTPRINT_CHECKER: public DIALOG_FOOTPRINT_CHECKER_BASE
@@ -37,13 +38,15 @@ public:
     DIALOG_FOOTPRINT_CHECKER( FOOTPRINT_EDIT_FRAME* aParent );
     ~DIALOG_FOOTPRINT_CHECKER();
 
-    void SetMarkersProvider( RC_ITEMS_PROVIDER* aProvider );
+    void SelectMarker( const PCB_MARKER* aMarker );
 
 private:
     void syncCheckboxes();
     void updateDisplayedCounts();
 
     void runChecks();
+
+    void centerMarkerIdleHandler( wxIdleEvent& aEvent );
 
     void deleteAllMarkers();
     void refreshEditor();
@@ -63,13 +66,14 @@ private:
     bool TransferDataFromWindow() override;
 
 private:
-    FOOTPRINT_EDIT_FRAME* m_frame;
-    bool                  m_checksRun;
+    FOOTPRINT_EDIT_FRAME*              m_frame;
+    bool                               m_checksRun;
 
-    RC_TREE_MODEL*        m_markersTreeModel;
-    RC_ITEMS_PROVIDER*    m_markersProvider;
+    int                                m_severities;
+    std::shared_ptr<RC_ITEMS_PROVIDER> m_markersProvider;
+    RC_TREE_MODEL*                     m_markersTreeModel;
 
-    int                   m_severities;
+    const PCB_MARKER*                  m_centerMarkerOnIdle;
 };
 
 #endif // DIALOG_FOOTPRINT_CHECKER_H

@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2019-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2019-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -28,6 +28,7 @@
 #include <vector>
 #include <unordered_map>
 
+#include <units_provider.h>
 #include <geometry/shape.h>
 
 #include <drc/drc_rule.h>
@@ -63,9 +64,9 @@ class DRC_RULE;
 class DRC_CONSTRAINT;
 
 
-typedef
-std::function<void( const std::shared_ptr<DRC_ITEM>& aItem,
-                    const VECTOR2I& aPos, PCB_LAYER_ID aLayer )> DRC_VIOLATION_HANDLER;
+typedef std::function<void( const std::shared_ptr<DRC_ITEM>& aItem,
+                            const VECTOR2I& aPos,
+                            int aLayer )> DRC_VIOLATION_HANDLER;
 
 
 /**
@@ -78,7 +79,7 @@ std::function<void( const std::shared_ptr<DRC_ITEM>& aItem,
  * Note that EvalRules() has yet another optional REPORTER for reporting resolution info to
  * the user.
  */
-class DRC_ENGINE
+class DRC_ENGINE : public UNITS_PROVIDER
 {
 public:
     DRC_ENGINE( BOARD* aBoard = nullptr, BOARD_DESIGN_SETTINGS* aSettings = nullptr );
@@ -158,20 +159,24 @@ public:
 
     bool HasRulesForConstraintType( DRC_CONSTRAINT_T constraintID );
 
-    EDA_UNITS UserUnits() const { return m_userUnits; }
     bool GetReportAllTrackErrors() const { return m_reportAllTrackErrors; }
     bool GetTestFootprints() const { return m_testFootprints; }
 
     bool RulesValid() { return m_rulesValid; }
 
     void ReportViolation( const std::shared_ptr<DRC_ITEM>& aItem, const VECTOR2I& aPos,
-                          PCB_LAYER_ID aMarkerLayer );
+                          int aMarkerLayer );
 
+    bool KeepRefreshing( bool aWait = false );
+    void AdvanceProgress();
+    void SetMaxProgress( int aSize );
     bool ReportProgress( double aProgress );
     bool ReportPhase( const wxString& aMessage );
     void ReportAux( const wxString& aStr );
+    bool IsCancelled() const;
 
     bool QueryWorstConstraint( DRC_CONSTRAINT_T aRuleId, DRC_CONSTRAINT& aConstraint );
+    std::set<int> QueryDistinctConstraints( DRC_CONSTRAINT_T aConstraintId );
 
     std::vector<DRC_TEST_PROVIDER*> GetTestProviders() const { return m_testProviders; };
 
@@ -189,7 +194,12 @@ public:
     static int MatchDpSuffix( const wxString& aNetName, wxString& aComplementNet,
                               wxString& aBaseDpName );
 
-    static bool IsNetTie( BOARD_ITEM* aItem );
+    /**
+     * Check if the given collision between a track and another item occurs during the track's
+     * entry into a net-tie pad.
+     */
+    static bool IsNetTieExclusion( int aTrackNetCode, PCB_LAYER_ID aTrackLayer,
+                                   const VECTOR2I& aCollisionPos, BOARD_ITEM* aCollidingItem );
 
 private:
     void addRule( std::shared_ptr<DRC_RULE>& rule )
@@ -227,19 +237,17 @@ protected:
     bool                                    m_rulesValid;
     std::vector<DRC_TEST_PROVIDER*>         m_testProviders;
 
-    EDA_UNITS                  m_userUnits;
     std::vector<int>           m_errorLimits;
     bool                       m_reportAllTrackErrors;
     bool                       m_testFootprints;
 
     // constraint -> rule -> provider
-    std::unordered_map<DRC_CONSTRAINT_T, std::vector<DRC_ENGINE_CONSTRAINT*>*> m_constraintMap;
+    std::map<DRC_CONSTRAINT_T, std::vector<DRC_ENGINE_CONSTRAINT*>*> m_constraintMap;
 
     DRC_VIOLATION_HANDLER      m_violationHandler;
     REPORTER*                  m_reporter;
     PROGRESS_REPORTER*         m_progressReporter;
 
-    wxString m_msg;  // Allocating strings gets expensive enough to want to avoid it
     std::shared_ptr<KIGFX::VIEW_OVERLAY> m_debugOverlay;
 };
 

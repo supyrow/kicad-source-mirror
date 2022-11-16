@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2012 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
- * Copyright (C) 2012-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2012-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -25,7 +25,7 @@
 #ifndef EAGLE_PLUGIN_H
 #define EAGLE_PLUGIN_H
 
-#include <convert_to_biu.h>
+#include <eda_units.h>
 #include <io_mgr.h>
 #include <layer_ids.h>
 #include <netclass.h>
@@ -55,27 +55,27 @@ struct ERULES
 
         mvStopFrame         ( 1.0 ),
         mvCreamFrame        ( 0.0 ),
-        mlMinStopFrame      ( Mils2iu( 4.0 ) ),
-        mlMaxStopFrame      ( Mils2iu( 4.0 ) ),
-        mlMinCreamFrame     ( Mils2iu( 0.0 ) ),
-        mlMaxCreamFrame     ( Mils2iu( 0.0 ) ),
+        mlMinStopFrame      ( EDA_UNIT_UTILS::Mils2IU( pcbIUScale,  4.0 ) ),
+        mlMaxStopFrame      ( EDA_UNIT_UTILS::Mils2IU( pcbIUScale,  4.0 ) ),
+        mlMinCreamFrame     ( EDA_UNIT_UTILS::Mils2IU( pcbIUScale,  0.0 ) ),
+        mlMaxCreamFrame     ( EDA_UNIT_UTILS::Mils2IU( pcbIUScale,  0.0 ) ),
 
         psTop               ( EPAD::UNDEF ),
         psBottom            ( EPAD::UNDEF ),
         psFirst             ( EPAD::UNDEF ),
 
         srRoundness         ( 0.0 ),
-        srMinRoundness      ( Mils2iu( 0.0 ) ),
-        srMaxRoundness      ( Mils2iu( 0.0 ) ),
+        srMinRoundness      ( EDA_UNIT_UTILS::Mils2IU( pcbIUScale,  0.0 ) ),
+        srMaxRoundness      ( EDA_UNIT_UTILS::Mils2IU( pcbIUScale,  0.0 ) ),
 
         rvPadTop            ( 0.25 ),
         // rvPadBottom      ( 0.25 ),
-        rlMinPadTop         ( Mils2iu( 10 ) ),
-        rlMaxPadTop         ( Mils2iu( 20 ) ),
+        rlMinPadTop         ( EDA_UNIT_UTILS::Mils2IU( pcbIUScale,  10 ) ),
+        rlMaxPadTop         ( EDA_UNIT_UTILS::Mils2IU( pcbIUScale,  20 ) ),
 
         rvViaOuter          ( 0.25 ),
-        rlMinViaOuter       ( Mils2iu( 10 ) ),
-        rlMaxViaOuter       ( Mils2iu( 20 ) ),
+        rlMinViaOuter       ( EDA_UNIT_UTILS::Mils2IU( pcbIUScale,  10 ) ),
+        rlMaxViaOuter       ( EDA_UNIT_UTILS::Mils2IU( pcbIUScale,  20 ) ),
         mdWireWire          ( 0 )
     {}
 
@@ -132,7 +132,7 @@ public:
     const wxString PluginName() const override;
 
     BOARD* Load( const wxString& aFileName, BOARD* aAppendToMe,
-                 const PROPERTIES* aProperties = nullptr, PROJECT* aProject = nullptr,
+                 const STRING_UTF8_MAP* aProperties = nullptr, PROJECT* aProject = nullptr,
                  PROGRESS_REPORTER* aProgressReporter = nullptr ) override;
 
     std::vector<FOOTPRINT*> GetImportedCachedLibraryFootprints() override;
@@ -140,11 +140,11 @@ public:
     const wxString GetFileExtension() const override;
 
     void FootprintEnumerate( wxArrayString& aFootprintNames, const wxString& aLibraryPath,
-                             bool aBestEfforts, const PROPERTIES* aProperties = nullptr) override;
+                             bool aBestEfforts, const STRING_UTF8_MAP* aProperties = nullptr) override;
 
     FOOTPRINT* FootprintLoad( const wxString& aLibraryPath, const wxString& aFootprintName,
                               bool  aKeepUUID = false,
-                              const PROPERTIES* aProperties = nullptr ) override;
+                              const STRING_UTF8_MAP* aProperties = nullptr ) override;
 
     long long GetLibraryTimestamp( const wxString& aLibraryPath ) const override
     {
@@ -156,7 +156,7 @@ public:
         return false;   // until someone writes others like FootprintSave(), etc.
     }
 
-    void FootprintLibOptions( PROPERTIES* aProperties ) const override;
+    void FootprintLibOptions( STRING_UTF8_MAP* aProperties ) const override;
 
     typedef int BIU;
 
@@ -178,7 +178,7 @@ public:
 
 private:
     /// initialize PLUGIN like a constructor would, and futz with fresh BOARD if needed.
-    void init( const PROPERTIES* aProperties );
+    void init( const STRING_UTF8_MAP* aProperties );
 
     void checkpoint();
 
@@ -191,15 +191,41 @@ private:
     /// create a font size (fontz) from an eagle font size scalar and KiCad font thickness
     wxSize  kicad_fontz( const ECOORD& d, int aTextThickness ) const;
 
-    /// Generate mapping between Eagle na KiCad layers
-    void mapEagleLayersToKicad();
+    /**
+     * Generate mapping between Eagle and KiCad layers.
+     *
+     * @warning It is imperative that this gets called correctly because footprint libraries
+     *          do not get remapped by the user on load.  Otherwise, Pcbnew will crash when
+     *          attempting to load footprint libraries that contain layers that do not exist
+     *          in the #EAGLE_LAYER definitions.
+     *
+     * @param aIsLibraryCache is the flag to indicate when mapping the footprint library cache
+     *                        layers rather than the board layers.
+     */
+    void mapEagleLayersToKicad( bool aIsLibraryCache = false );
 
     /// Convert an Eagle layer to a KiCad layer.
     PCB_LAYER_ID kicad_layer( int aLayer ) const;
 
-    /// Get default KiCad layer corresponding to an Eagle layer of the board,
-    /// a set of sensible layer mapping options and required flag
-    std::tuple<PCB_LAYER_ID, LSET, bool> defaultKicadLayer( int aEagleLayer ) const;
+    /**
+     * Get the default KiCad layer corresponding to an Eagle layer of the board,
+     * a set of sensible layer mapping options and required flag
+     *
+     * @note The Eagle MILLING, TTEST, BTEST, and HOLES layers are set to #UNDEFINED_LAYER
+     *       for historical purposes.  All other Eagle layers that do not directly map to
+     *       KiCad layers will be set to #UNDEFINED_LAYER when loading Eagle footprint
+     *       libraries.  This should be addressed in the future because in some cases this
+     *       will cause data loss.
+     *
+     * @see #EAGLE_LAYER and defaultKiCadLayer().
+     *
+     * @param aEagleLayer is the Eagle layer to map.
+     * @param aIsLibraryCache is a flag to indicate if the mapping is for board or footprint
+     *                        library cache objects.
+     * @return a tuple containing the mapped layer.
+     */
+    std::tuple<PCB_LAYER_ID, LSET, bool> defaultKicadLayer( int aEagleLayer,
+                                                            bool aIsLibraryCache = false ) const;
 
     /// Get Eagle layer name by its number
     const wxString& eagle_layer_name( int aLayer ) const;
@@ -288,7 +314,9 @@ private:
     std::map<wxString, int>          m_eagleLayersIds; ///< Eagle layer ids stored by layer name
     std::map<wxString, PCB_LAYER_ID> m_layer_map;      ///< Map of Eagle layers to KiCad layers
 
-    std::map<wxString, NETCLASSPTR>  m_classMap;       ///< Eagle class number to KiCad netclass
+    ///< Eagle class number to KiCad netclass
+    std::map<wxString, std::shared_ptr<NETCLASS>>  m_classMap;
+
     wxString                         m_customRules;
 
     ERULES*       m_rules;          ///< Eagle design rules.
@@ -304,7 +332,7 @@ private:
                                     ///< lookup key is either libname.packagename or simply
                                     ///< packagename if FootprintLoad() or FootprintEnumberate()
 
-    const PROPERTIES*   m_props;    ///< passed via Save() or Load(), no ownership, may be NULL.
+    const STRING_UTF8_MAP*   m_props;    ///< passed via Save() or Load(), no ownership, may be NULL.
     BOARD*              m_board;    ///< which BOARD is being worked on, no ownership here
 
     PROGRESS_REPORTER*  m_progressReporter;  ///< optional; may be nullptr

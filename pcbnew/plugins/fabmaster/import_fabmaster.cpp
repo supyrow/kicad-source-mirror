@@ -41,7 +41,6 @@
 #include <board.h>
 #include <board_design_settings.h>
 #include <board_item.h>
-#include <convert_to_biu.h>
 #include <footprint.h>
 #include <fp_shape.h>
 #include <pad.h>
@@ -128,7 +127,7 @@ bool FABMASTER::Read( const std::string& aFile )
 
     bool quoted = false;
 
-    for( auto ch : buffer )
+    for( auto& ch : buffer )
     {
         switch( ch )
         {
@@ -277,19 +276,19 @@ double FABMASTER::processScaleFactor( size_t aRow )
         std::transform(units.begin(), units.end(),units.begin(), ::toupper);
 
         if( units == "MILS" )
-            retval = IU_PER_MILS;
+            retval = pcbIUScale.IU_PER_MILS;
         else if( units == "MILLIMETERS" )
-            retval = IU_PER_MM;
+            retval = pcbIUScale.IU_PER_MM;
         else if( units == "MICRONS" )
-            retval = IU_PER_MM * 10.0;
+            retval = pcbIUScale.IU_PER_MM * 10.0;
         else if( units == "INCHES" )
-            retval = IU_PER_MILS * 1000.0;
+            retval = pcbIUScale.IU_PER_MILS * 1000.0;
     }
 
     if( retval < 1.0 )
     {
         wxLogError( _( "Could not find units value, defaulting to mils." ) );
-        retval = IU_PER_MILS;
+        retval = pcbIUScale.IU_PER_MILS;
     }
 
     return retval;
@@ -2241,7 +2240,7 @@ bool FABMASTER::loadFootprints( BOARD* aBoard )
 
                     auto net_it = netinfo.find( netname );
 
-                    PAD* newpad = new PAD( fp );
+                    std::unique_ptr<PAD> newpad = std::make_unique<PAD>( fp );
 
                     if( net_it != netinfo.end() )
                         newpad->SetNet( net_it->second );
@@ -2259,8 +2258,8 @@ bool FABMASTER::loadFootprints( BOARD* aBoard )
 
                     if( padstack == pads.end() )
                     {
-                        ///TODO:Warning
-                        delete newpad;
+                        wxLogError( _( "Unable to locate padstack %s in file %s\n" ),
+                                      pin->padstack.c_str(), aBoard->GetFileName().wc_str() );
                         continue;
                     }
                     else
@@ -2412,7 +2411,15 @@ bool FABMASTER::loadFootprints( BOARD* aBoard )
                     else
                         newpad->SetOrientation( EDA_ANGLE( src->rotate - pin->rotation, DEGREES_T ) );
 
-                    fp->Add( newpad, ADD_MODE::APPEND );
+                    if( newpad->GetSizeX() > 0 || newpad->GetSizeY() > 0 )
+                    {
+                        fp->Add( newpad.release(), ADD_MODE::APPEND );
+                    }
+                    else
+                    {
+                        wxLogError( _( "Invalid zero-sized pad ignored in\nfile: %s" ),
+                                    aBoard->GetFileName().wc_str() );
+                    }
                 }
             }
 
@@ -2706,7 +2713,7 @@ bool FABMASTER::loadZone( BOARD* aBoard, const std::unique_ptr<FABMASTER::TRACE>
     }
     else
     {
-        zone->SetPriority( 50 );
+        zone->SetAssignedPriority( 50 );
     }
 
     zone->SetLocalClearance( 0 );
@@ -3021,7 +3028,7 @@ bool FABMASTER::orderZones( BOARD* aBoard )
             priority = 0;
         }
 
-        zone->SetPriority( priority );
+        zone->SetAssignedPriority( priority );
         priority += 10;
     }
 

@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2019 Jean-Pierre Charras jp.charras at wanadoo.fr
- * Copyright (C) 1992-2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -130,6 +130,8 @@ DIALOG_GRAPHIC_ITEM_PROPERTIES::DIALOG_GRAPHIC_ITEM_PROPERTIES( PCB_BASE_EDIT_FR
     for( const std::pair<const PLOT_DASH_TYPE, lineTypeStruct>& typeEntry : lineTypeNames )
         m_lineStyleCombo->Append( typeEntry.second.name, KiBitmap( typeEntry.second.bitmap ) );
 
+    m_lineStyleCombo->Append( DEFAULT_STYLE );
+
     m_LayerSelectionCtrl->SetLayersHotkeys( false );
     m_LayerSelectionCtrl->SetBoardFrame( m_parent );
     m_LayerSelectionCtrl->Resync();
@@ -206,7 +208,7 @@ bool DIALOG_GRAPHIC_ITEM_PROPERTIES::TransferDataToWindow()
     {
     case SHAPE_T::CIRCLE:
         SetTitle( _( "Circle Properties" ) );
-        m_startPointLabel->SetLabel( _( "Center" ) );
+        m_startPointLabel->SetLabel( _( "Center Point" ) );
 
         m_endPointLabel->SetLabel( _( "Radius" ) );
         m_endXLabel->Show( false );
@@ -244,6 +246,11 @@ bool DIALOG_GRAPHIC_ITEM_PROPERTIES::TransferDataToWindow()
             m_flipStartEnd = m_item->GetStart().x > m_item->GetEnd().x;
 
         m_filledCtrl->Show( false );
+        break;
+
+    case SHAPE_T::BEZIER:
+        SetTitle( _( "Curve Properties" ) );
+        m_filledCtrl->Show( true );
         break;
 
     default:
@@ -307,19 +314,12 @@ bool DIALOG_GRAPHIC_ITEM_PROPERTIES::TransferDataFromWindow()
     if( !DIALOG_GRAPHIC_ITEM_PROPERTIES_BASE::TransferDataFromWindow() )
         return false;
 
-    if( !m_thickness.Validate( 0, Millimeter2iu( 1000.0 ) ) )
-        return false;
+    if( !m_item )
+        return true;
 
-    if( m_thickness.GetValue() == 0 && !m_filledCtrl->GetValue() )
-    {
-        DisplayError( this, _( "Line width may not be 0 for unfilled shapes." ) );
-        m_thicknessCtrl->SetFocus();
-        return false;
-    }
-
-    int layer = m_LayerSelectionCtrl->GetLayerSelection();
-
+    int          layer = m_LayerSelectionCtrl->GetLayerSelection();
     BOARD_COMMIT commit( m_parent );
+
     commit.Modify( m_item );
 
     if( m_flipStartEnd && m_item->GetShape() != SHAPE_T::ARC )
@@ -335,7 +335,7 @@ bool DIALOG_GRAPHIC_ITEM_PROPERTIES::TransferDataFromWindow()
 
     if( m_item->GetShape() == SHAPE_T::CIRCLE )
     {
-        m_item->SetEnd( m_item->GetStart() + wxPoint( m_endX.GetValue(), 0 ) );
+        m_item->SetEnd( m_item->GetStart() + VECTOR2I( m_endX.GetValue(), 0 ) );
     }
     else if( m_flipStartEnd && m_item->GetShape() != SHAPE_T::ARC )
     {
@@ -351,26 +351,27 @@ bool DIALOG_GRAPHIC_ITEM_PROPERTIES::TransferDataFromWindow()
     // For Bezier curve: Set the two control points
     if( m_item->GetShape() == SHAPE_T::BEZIER )
     {
-        m_item->SetBezierC1( wxPoint( m_bezierCtrl1X.GetValue(), m_bezierCtrl1Y.GetValue() ) );
-        m_item->SetBezierC2( wxPoint( m_bezierCtrl2X.GetValue(), m_bezierCtrl2Y.GetValue() ) );
+        m_item->SetBezierC1( VECTOR2I( m_bezierCtrl1X.GetValue(), m_bezierCtrl1Y.GetValue() ) );
+        m_item->SetBezierC2( VECTOR2I( m_bezierCtrl2X.GetValue(), m_bezierCtrl2Y.GetValue() ) );
     }
 
     if( m_item->GetShape() == SHAPE_T::ARC )
     {
-        VECTOR2D center = CalcArcCenter( m_item->GetStart(), m_item->GetEnd(), m_angle.GetAngleValue() );
+        VECTOR2D c = CalcArcCenter( m_item->GetStart(), m_item->GetEnd(), m_angle.GetAngleValue() );
 
-        m_item->SetCenter( center );
+        m_item->SetCenter( c );
     }
+
     if( m_fp_item )
     {
         // We are editing a footprint; init the item coordinates relative to the footprint anchor.
         m_fp_item->SetStart0( m_fp_item->GetStart() );
         m_fp_item->SetEnd0( m_fp_item->GetEnd() );
 
-        if( m_item->GetShape() == SHAPE_T::ARC )
+        if( m_fp_item->GetShape() == SHAPE_T::ARC )
             m_fp_item->SetCenter0( m_fp_item->GetCenter() );
 
-        if( m_item->GetShape() == SHAPE_T::BEZIER )
+        if( m_fp_item->GetShape() == SHAPE_T::BEZIER )
         {
             m_fp_item->SetBezierC1_0( m_fp_item->GetBezierC1() );
             m_fp_item->SetBezierC2_0( m_fp_item->GetBezierC2() );
@@ -414,7 +415,7 @@ bool DIALOG_GRAPHIC_ITEM_PROPERTIES::TransferDataFromWindow()
 
 bool DIALOG_GRAPHIC_ITEM_PROPERTIES::Validate()
 {
-    wxArrayString error_msgs;
+    wxArrayString errors;
 
     if( !DIALOG_GRAPHIC_ITEM_PROPERTIES_BASE::Validate() )
         return false;
@@ -425,12 +426,12 @@ bool DIALOG_GRAPHIC_ITEM_PROPERTIES::Validate()
     case SHAPE_T::ARC:
         // Check angle of arc.
         if( m_angle.GetAngleValue() == ANGLE_0 )
-            error_msgs.Add( _( "The arc angle cannot be zero." ) );
+            errors.Add( _( "Arc angle cannot be zero." ) );
 
         if( m_startX.GetValue() == m_endX.GetValue() && m_startY.GetValue() == m_endY.GetValue() )
         {
-            error_msgs.Add( wxString::Format( _( "Invalid Arc with radius %f and angle %f" ),
-                                      0.0, m_angle.GetDoubleValue() ) );
+            errors.Add( wxString::Format( _( "Invalid Arc with radius %f and angle %f." ),
+                                          0.0, m_angle.GetDoubleValue() ) );
         }
         else
         {
@@ -445,26 +446,52 @@ bool DIALOG_GRAPHIC_ITEM_PROPERTIES::Validate()
             if( max_offset >= ( std::numeric_limits<VECTOR2I::coord_type>::max() / 2 )
                     || center == start || center == end )
             {
-                error_msgs.Add( wxString::Format( _( "Invalid Arc with radius %f and angle %f" ),
-                                          radius, m_angle.GetDoubleValue() ) );
+                errors.Add( wxString::Format( _( "Invalid Arc with radius %f and angle %f." ),
+                                              radius, m_angle.GetDoubleValue() ) );
             }
         }
+
+        if( m_thickness.GetValue() <= 0 )
+            errors.Add( _( "Line width must be greater than zero." ) );
+
         break;
+
     case SHAPE_T::CIRCLE:
         // Check radius.
-        if( m_endX.GetValue() == 0 )
-            error_msgs.Add( _( "The radius cannot be zero." ) );
+        if( m_endX.GetValue() <= 0 )
+            errors.Add( _( "Radius must be greater than zero." ) );
+
+        if( !m_filledCtrl->GetValue() && m_thickness.GetValue() <= 0 )
+            errors.Add( _( "Line width must be greater than zero for an unfilled circle." ) );
+
         break;
 
     case SHAPE_T::RECT:
         // Check for null rect.
         if( m_startX.GetValue() == m_endX.GetValue() && m_startY.GetValue() == m_endY.GetValue() )
-            error_msgs.Add( _( "The rectangle cannot be empty." ) );
+            errors.Add( _( "Rectangle cannot be empty." ) );
+
+        if( !m_filledCtrl->GetValue() && m_thickness.GetValue() <= 0 )
+            errors.Add( _( "Line width must be greater than zero for an unfilled rectangle." ) );
+
         break;
 
     case SHAPE_T::POLY:
+        if( !m_filledCtrl->GetValue() && m_thickness.GetValue() <= 0 )
+            errors.Add( _( "Line width must be greater than zero for an unfilled polygon." ) );
+
+        break;
+
     case SHAPE_T::SEGMENT:
+        if( m_thickness.GetValue() <= 0 )
+            errors.Add( _( "Line width must be greater than zero." ) );
+
+        break;
+
     case SHAPE_T::BEZIER:
+        if( !m_filledCtrl->GetValue() && m_thickness.GetValue() <= 0 )
+            errors.Add( _( "Line width must be greater than zero for an unfilled curve." ) );
+
         break;
 
     default:
@@ -472,12 +499,12 @@ bool DIALOG_GRAPHIC_ITEM_PROPERTIES::Validate()
         break;
     }
 
-    if( error_msgs.GetCount() )
+    if( errors.GetCount() )
     {
         HTML_MESSAGE_BOX dlg( this, _( "Error List" ) );
-        dlg.ListSet( error_msgs );
+        dlg.ListSet( errors );
         dlg.ShowModal();
     }
 
-    return error_msgs.GetCount() == 0;
+    return errors.GetCount() == 0;
 }

@@ -41,6 +41,7 @@
 #include <stroke_params.h>
 #include <render_settings.h>
 
+
 class COLOR_SETTINGS;
 class SHAPE_ARC;
 class SHAPE_POLY_SET;
@@ -123,7 +124,7 @@ public:
      */
     virtual PLOT_FORMAT GetPlotterType() const = 0;
 
-    virtual bool StartPlot() = 0;
+    virtual bool StartPlot( const wxString& aPageNumber ) = 0;
     virtual bool EndPlot() = 0;
 
     virtual void SetNegative( bool aNegative ) { m_negativeMode = aNegative; }
@@ -153,7 +154,7 @@ public:
 
     virtual void SetColor( const COLOR4D& color ) = 0;
 
-    virtual void SetDash( PLOT_DASH_TYPE dashed ) = 0;
+    virtual void SetDash( int aLineWidth, PLOT_DASH_TYPE aLineStyle ) = 0;
 
     virtual void SetCreator( const wxString& aCreator ) { m_creator = aCreator; }
 
@@ -222,13 +223,6 @@ public:
      */
     virtual void Arc( const VECTOR2I& aCenter, const VECTOR2I& aStart, const VECTOR2I& aEnd,
                       FILL_T aFill, int aWidth, int aMaxError );
-
-    /**
-     * Generic fallback: arc rendered as a polyline.
-     */
-    virtual void Arc( const VECTOR2I& aCentre, const EDA_ANGLE& aStartAngle,
-                      const EDA_ANGLE& aEndAngle, int aRadius, FILL_T aFill,
-                      int aWidth = USE_DEFAULT_LINE_WIDTH );
 
     /**
      * Generic fallback: Cubic Bezier curve rendered as a polyline
@@ -309,13 +303,20 @@ public:
     // Higher level primitives -- can be drawn as line, sketch or 'filled'
     virtual void ThickSegment( const VECTOR2I& start, const VECTOR2I& end, int width,
                                OUTLINE_MODE tracemode, void* aData );
-    virtual void ThickArc( const VECTOR2I& centre, const EDA_ANGLE& StAngle,
-                           const EDA_ANGLE& EndAngle, int rayon, int width,
-                           OUTLINE_MODE tracemode, void* aData );
+
+    virtual void ThickArc( const VECTOR2I& aCentre, const VECTOR2I& aStart,
+                           const VECTOR2I& aEnd, int aWidth,
+                           OUTLINE_MODE aTraceMode, void* aData );
+
+    virtual void ThickArc( const EDA_SHAPE& aArcShape,
+                           OUTLINE_MODE aTraceMode, void* aData );
+
     virtual void ThickRect( const VECTOR2I& p1, const VECTOR2I& p2, int width, OUTLINE_MODE tracemode,
                             void* aData );
+
     virtual void ThickCircle( const VECTOR2I& pos, int diametre, int width, OUTLINE_MODE tracemode,
                               void* aData );
+
     virtual void FilledCircle( const VECTOR2I& pos, int diametre, OUTLINE_MODE tracemode,
                                void* aData );
 
@@ -426,6 +427,40 @@ public:
                        void*                       aData = nullptr );
 
     /**
+     * Create a clickable hyperlink with a rectangular click area
+     *
+     * @aBox is the rectangular click target
+     * @aDestinationURL is the target URL
+     */
+    virtual void HyperlinkBox( const BOX2I& aBox, const wxString& aDestinationURL )
+    {
+        // NOP for most plotters.
+    }
+
+    /**
+     * Create a clickable hyperlink menu with a rectangular click area
+     *
+     * @aBox is the rectangular click target
+     * @aDestURLs is the list of target URLs for the menu
+     */
+    virtual void HyperlinkMenu( const BOX2I& aBox, const std::vector<wxString>& aDestURLs )
+    {
+        // NOP for most plotters.
+    }
+
+    /**
+     * Create a bookmark to a symbol
+     *
+     * @aBox is the bounding box of the symbol
+     * @aSymbolReference is the symbol schematic ref
+     */
+    virtual void Bookmark( const BOX2I& aBox, const wxString& aName,
+                           const wxString& aGroupName = wxEmptyString )
+    {
+        // NOP for most plotters.
+    }
+
+    /**
      * Draw a marker (used for the drill map).
      */
     static const unsigned MARKER_COUNT = 58;
@@ -493,6 +528,17 @@ public:
 
 
 protected:
+    /**
+     * Generic fallback: arc rendered as a polyline.
+     */
+    virtual void Arc( const VECTOR2I& aCentre, const EDA_ANGLE& aStartAngle,
+                      const EDA_ANGLE& aEndAngle, int aRadius, FILL_T aFill,
+                      int aWidth = USE_DEFAULT_LINE_WIDTH );
+
+    virtual void ThickArc( const VECTOR2I& aCentre, const EDA_ANGLE& StAngle,
+                           const EDA_ANGLE& EndAngle, int aRadius, int aWidth,
+                           OUTLINE_MODE aTraceMode, void* aData );
+
     // These are marker subcomponents
     /**
      * Plot a circle centered on the position. Building block for markers
@@ -559,11 +605,11 @@ protected:
      */
     virtual double userToDeviceSize( double size ) const;
 
-    double GetDotMarkLenIU() const;
+    double GetDotMarkLenIU( int aLineWidth ) const;
 
-    double GetDashMarkLenIU() const;
+    double GetDashMarkLenIU( int aLineWidth ) const;
 
-    double GetDashGapLenIU() const;
+    double GetDashGapLenIU( int aLineWidth ) const;
 
 protected:      // variables used in most of plotters:
     /// Plot scale - chosen by the user (even implicitly with 'fit in a4')
@@ -608,8 +654,9 @@ protected:      // variables used in most of plotters:
 class TITLE_BLOCK;
 
 void PlotDrawingSheet( PLOTTER* plotter, const PROJECT* aProject, const TITLE_BLOCK& aTitleBlock,
-                       const PAGE_INFO& aPageInfo, const wxString& aSheetNumber, int aSheetCount,
-                       const wxString& aSheetDesc, const wxString& aFilename,
+                       const PAGE_INFO& aPageInfo, const std::map<wxString, wxString>*aProperties,
+                       const wxString& aSheetNumber, int aSheetCount, const wxString& aSheetName,
+                       const wxString& aSheetPath, const wxString& aFilename,
                        COLOR4D aColor = COLOR4D::UNSPECIFIED, bool aIsFirstPage = true );
 
 /** Returns the default plot extension for a format

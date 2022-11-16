@@ -6,7 +6,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2017 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 2017-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2017-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -29,7 +29,8 @@
 #include <confirm.h>
 #include <reporter.h>
 #include <wildcards_and_files_ext.h>
-#include <wx_html_report_panel.h>
+#include <wx_filename.h>
+#include "widgets/wx_html_report_panel.h"
 
 #include <symbol_library.h>
 #include <core/kicad_algo.h>
@@ -84,19 +85,20 @@ void DIALOG_SYMBOL_REMAP::OnRemapSymbols( wxCommandEvent& aEvent )
 
     wxCHECK_RET( parent != nullptr, "Parent window is not type SCH_EDIT_FRAME." );
 
-    wxBusyCursor busy;
-
     if( !backupProject( m_messagePanel->Reporter() ) )
         return;
 
     // Ignore the never show rescue setting for one last rescue of legacy symbol
     // libraries before remapping to the symbol library table.  This ensures the
     // best remapping results.
+
     LEGACY_RESCUER rescuer( Prj(), &parent->Schematic(), &parent->GetCurrentSheet(),
-            parent->GetCanvas()->GetBackend() );
+                            parent->GetCanvas()->GetBackend() );
 
     if( RESCUER::RescueProject( this, rescuer, false ) )
     {
+        wxBusyCursor busy;
+
         auto viewer = (SYMBOL_VIEWER_FRAME*) parent->Kiway().Player( FRAME_SCH_VIEWER, false );
 
         if( viewer )
@@ -111,14 +113,13 @@ void DIALOG_SYMBOL_REMAP::OnRemapSymbols( wxCommandEvent& aEvent )
     // The schematic is fully loaded, any legacy library symbols have been rescued.  Now
     // check to see if the schematic has not been converted to the symbol library table
     // method for looking up symbols.
+
     wxFileName prjSymLibTableFileName( Prj().GetProjectPath(),
                                        SYMBOL_LIB_TABLE::GetSymbolLibTableFileName() );
 
     // Delete the existing project symbol library table.
     if( prjSymLibTableFileName.FileExists() )
-    {
         wxRemoveFile( prjSymLibTableFileName.GetFullPath() );
-    }
 
     createProjectSymbolLibTable( m_messagePanel->Reporter() );
     Prj().SetElem( PROJECT::ELEM_SYMBOL_LIB_TABLE, nullptr );
@@ -130,7 +131,7 @@ void DIALOG_SYMBOL_REMAP::OnRemapSymbols( wxCommandEvent& aEvent )
     wxString paths;
     wxArrayString libNames;
 
-    SYMBOL_LIBS::LibNamesAndPaths( &Prj(), true, &paths, &libNames );
+    SYMBOL_LIBS::SetLibNamesAndPaths( &Prj(), paths, libNames );
 
     // Reload the cache symbol library.
     Prj().SetElem( PROJECT::ELEM_SCH_SYMBOL_LIBS, nullptr );
@@ -164,15 +165,16 @@ size_t DIALOG_SYMBOL_REMAP::getLibsNotInGlobalSymbolLibTable( std::vector< SYMBO
 
 void DIALOG_SYMBOL_REMAP::createProjectSymbolLibTable( REPORTER& aReporter )
 {
-    wxString msg;
-    std::vector< SYMBOL_LIB* > libs;
+    std::vector<SYMBOL_LIB*> libs;
 
     if( getLibsNotInGlobalSymbolLibTable( libs ) )
     {
-        SYMBOL_LIB_TABLE prjLibTable;
-        std::vector< wxString > libNames = SYMBOL_LIB_TABLE::GetGlobalLibTable().GetLogicalLibs();
+        wxBusyCursor          busy;
+        SYMBOL_LIB_TABLE      libTable;
+        std::vector<wxString> libNames = SYMBOL_LIB_TABLE::GetGlobalLibTable().GetLogicalLibs();
+        wxString              msg;
 
-        for( auto lib : libs )
+        for( SYMBOL_LIB* lib : libs )
         {
             wxString libName = lib->GetName();
             int libNameInc = 1;
@@ -190,48 +192,46 @@ void DIALOG_SYMBOL_REMAP::createProjectSymbolLibTable( REPORTER& aReporter )
                 libNameInc++;
             }
 
-            wxString pluginType = SCH_IO_MGR::ShowType( SCH_IO_MGR::SCH_LEGACY );
-            wxFileName fn = lib->GetFullFileName();
+            wxString   type = SCH_IO_MGR::ShowType( SCH_IO_MGR::SCH_LEGACY );
+            wxFileName fn( lib->GetFullFileName() );
 
             // Use environment variable substitution where possible.  This is based solely
             // on the internal user environment variable list.  Checking against all of the
             // system wide environment variables is probably not a good idea.
-            wxString fullFileName = NormalizePath( fn, &Pgm().GetLocalEnvVariables(), &Prj() );
-
-            wxFileName tmpFn = fullFileName;
+            wxString   normalizedPath = NormalizePath( fn, &Pgm().GetLocalEnvVariables(), &Prj() );
+            wxFileName normalizedFn( normalizedPath );
 
             // Don't add symbol libraries that do not exist.
-            if( tmpFn.Normalize() && tmpFn.FileExists() )
+            if( normalizedFn.Normalize(FN_NORMALIZE_FLAGS | wxPATH_NORM_ENV_VARS )
+                    && normalizedFn.FileExists() )
             {
                 msg.Printf( _( "Adding library '%s', file '%s' to project symbol library table." ),
                             libName,
-                            fullFileName );
+                            normalizedPath );
                 aReporter.Report( msg, RPT_SEVERITY_INFO );
 
-                prjLibTable.InsertRow( new SYMBOL_LIB_TABLE_ROW( libName, fullFileName,
-                                                                 pluginType ) );
+                libTable.InsertRow( new SYMBOL_LIB_TABLE_ROW( libName, normalizedPath, type ) );
             }
             else
             {
-                msg.Printf( _( "Library '%s' not found." ), fullFileName );
+                msg.Printf( _( "Library '%s' not found." ), normalizedPath );
                 aReporter.Report( msg, RPT_SEVERITY_WARNING );
             }
         }
 
         // Don't save empty project symbol library table.
-        if( !prjLibTable.IsEmpty() )
+        if( !libTable.IsEmpty() )
         {
             wxFileName fn( Prj().GetProjectPath(), SYMBOL_LIB_TABLE::GetSymbolLibTableFileName() );
 
             try
             {
                 FILE_OUTPUTFORMATTER formatter( fn.GetFullPath() );
-                prjLibTable.Format( &formatter, 0 );
+                libTable.Format( &formatter, 0 );
             }
             catch( const IO_ERROR& ioe )
             {
-                msg.Printf( _( "Failed to write project symbol library table. Error:\n  %s" ),
-                            ioe.What() );
+                msg.Printf( _( "Error writing project symbol library table.\n  %s" ), ioe.What() );
                 aReporter.ReportTail( msg, RPT_SEVERITY_ERROR );
             }
 
@@ -244,16 +244,19 @@ void DIALOG_SYMBOL_REMAP::createProjectSymbolLibTable( REPORTER& aReporter )
 
 void DIALOG_SYMBOL_REMAP::remapSymbolsToLibTable( REPORTER& aReporter )
 {
-    wxString msg;
-    SCH_SCREENS schematic( m_frame->Schematic().Root() );
-    SCH_SYMBOL* symbol;
-    SCH_SCREEN* screen;
+    wxBusyCursor busy;
+    wxString     msg;
+    SCH_SCREENS  schematic( m_frame->Schematic().Root() );
+    SCH_SYMBOL*  symbol;
+    SCH_SCREEN*  screen;
 
     for( screen = schematic.GetFirst(); screen; screen = schematic.GetNext() )
     {
-        for( auto item : screen->Items().OfType( SCH_SYMBOL_T ) )
+        for( EDA_ITEM* item : screen->Items().OfType( SCH_SYMBOL_T ) )
         {
             symbol = dynamic_cast<SCH_SYMBOL*>( item );
+
+            wxCHECK2( symbol, continue );
 
             if( !remapSymbolToLibTable( symbol ) )
             {
@@ -355,139 +358,143 @@ bool DIALOG_SYMBOL_REMAP::backupProject( REPORTER& aReporter )
         }
     }
 
-    // Time stamp to append to file name in case multiple remappings are performed.
-    wxString timeStamp = wxDateTime::Now().Format( "-%Y-%m-%d-%H-%M-%S" );
-
-    // Back up symbol library table.
-    srcFileName.SetPath( Prj().GetProjectPath() );
-    srcFileName.SetName( SYMBOL_LIB_TABLE::GetSymbolLibTableFileName() );
-    destFileName = srcFileName;
-    destFileName.AppendDir( backupFolder );
-    destFileName.SetName( destFileName.GetName() + timeStamp );
-
-    tmp.Printf( _( "Backing up file '%s' to '%s'." ),
-                srcFileName.GetFullPath(),
-                destFileName.GetFullPath() );
-    aReporter.Report( tmp, RPT_SEVERITY_INFO );
-
-    if( wxFileName::Exists( srcFileName.GetFullPath() )
-      && !wxCopyFile( srcFileName.GetFullPath(), destFileName.GetFullPath() ) )
     {
-        tmp.Printf( _( "Failed to back up file '%s'.\n" ),
-                    srcFileName.GetFullPath() );
-        errorMsg += tmp;
-    }
+        wxBusyCursor busy;
 
-    // Back up the schematic files.
-    for( SCH_SCREEN* screen = schematic.GetFirst(); screen; screen = schematic.GetNext() )
-    {
-        destFileName = screen->GetFileName();
+        // Time stamp to append to file name in case multiple remappings are performed.
+        wxString timeStamp = wxDateTime::Now().Format( "-%Y-%m-%d-%H-%M-%S" );
+
+        // Back up symbol library table.
+        srcFileName.SetPath( Prj().GetProjectPath() );
+        srcFileName.SetName( SYMBOL_LIB_TABLE::GetSymbolLibTableFileName() );
+        destFileName = srcFileName;
+        destFileName.AppendDir( backupFolder );
         destFileName.SetName( destFileName.GetName() + timeStamp );
 
-        // Check for nest hierarchical schematic paths.
-        if( destFileName.GetPath() != backupPath.GetPath() )
-        {
-            destFileName.SetPath( backupPath.GetPath() );
-
-            wxArrayString srcDirs = wxFileName( screen->GetFileName() ).GetDirs();
-            wxArrayString destDirs = wxFileName( Prj().GetProjectPath() ).GetDirs();
-
-            for( size_t i = destDirs.GetCount(); i < srcDirs.GetCount(); i++ )
-                destFileName.AppendDir( srcDirs[i] );
-        }
-        else
-        {
-            destFileName.AppendDir( backupFolder );
-        }
-
         tmp.Printf( _( "Backing up file '%s' to '%s'." ),
-                    screen->GetFileName(),
+                    srcFileName.GetFullPath(),
                     destFileName.GetFullPath() );
         aReporter.Report( tmp, RPT_SEVERITY_INFO );
 
-        if( !destFileName.DirExists() && !destFileName.Mkdir( wxS_DIR_DEFAULT, wxPATH_MKDIR_FULL ) )
+        if( wxFileName::Exists( srcFileName.GetFullPath() )
+                && !wxCopyFile( srcFileName.GetFullPath(), destFileName.GetFullPath() ) )
         {
-            tmp.Printf( _( "Failed to create backup folder '%s'.\n" ), destFileName.GetPath() );
-            errorMsg += tmp;
-            continue;
-        }
-
-        if( wxFileName::Exists( screen->GetFileName() )
-          && !wxCopyFile( screen->GetFileName(), destFileName.GetFullPath() ) )
-        {
-            tmp.Printf( _( "Failed to back up file '%s'.\n" ), screen->GetFileName() );
+            tmp.Printf( _( "Failed to back up file '%s'.\n" ),
+                        srcFileName.GetFullPath() );
             errorMsg += tmp;
         }
-    }
 
-    // Back up the project file.
-    destFileName = Prj().GetProjectFullName();
-    destFileName.SetName( destFileName.GetName() + timeStamp );
-    destFileName.AppendDir( backupFolder );
+        // Back up the schematic files.
+        for( SCH_SCREEN* screen = schematic.GetFirst(); screen; screen = schematic.GetNext() )
+        {
+            destFileName = screen->GetFileName();
+            destFileName.SetName( destFileName.GetName() + timeStamp );
 
-    tmp.Printf( _( "Backing up file '%s' to '%s'." ),
-                   Prj().GetProjectFullName(),
-                   destFileName.GetFullPath() );
-    aReporter.Report( tmp, RPT_SEVERITY_INFO );
+            // Check for nest hierarchical schematic paths.
+            if( destFileName.GetPath() != backupPath.GetPath() )
+            {
+                destFileName.SetPath( backupPath.GetPath() );
 
-    if( wxFileName::Exists( Prj().GetProjectFullName() )
-      && !wxCopyFile( Prj().GetProjectFullName(), destFileName.GetFullPath() ) )
-    {
-        tmp.Printf( _( "Failed to back up file '%s'.\n" ), Prj().GetProjectFullName() );
-        errorMsg += tmp;
-    }
+                wxArrayString srcDirs = wxFileName( screen->GetFileName() ).GetDirs();
+                wxArrayString destDirs = wxFileName( Prj().GetProjectPath() ).GetDirs();
 
-    // Back up the cache library.
-    srcFileName.SetPath( Prj().GetProjectPath() );
-    srcFileName.SetName( Prj().GetProjectName() + "-cache" );
-    srcFileName.SetExt( LegacySymbolLibFileExtension );
+                for( size_t i = destDirs.GetCount(); i < srcDirs.GetCount(); i++ )
+                    destFileName.AppendDir( srcDirs[i] );
+            }
+            else
+            {
+                destFileName.AppendDir( backupFolder );
+            }
 
-    destFileName = srcFileName;
-    destFileName.SetName( destFileName.GetName() + timeStamp );
-    destFileName.AppendDir( backupFolder );
+            tmp.Printf( _( "Backing up file '%s' to '%s'." ),
+                        screen->GetFileName(),
+                        destFileName.GetFullPath() );
+            aReporter.Report( tmp, RPT_SEVERITY_INFO );
 
-    tmp.Printf( _( "Backing up file '%s' to '%s'." ),
-                srcFileName.GetFullPath(),
-                destFileName.GetFullPath() );
-    aReporter.Report( tmp, RPT_SEVERITY_INFO );
+            if( !destFileName.DirExists() && !destFileName.Mkdir( wxS_DIR_DEFAULT, wxPATH_MKDIR_FULL ) )
+            {
+                tmp.Printf( _( "Failed to create backup folder '%s'.\n" ), destFileName.GetPath() );
+                errorMsg += tmp;
+                continue;
+            }
 
-    if( srcFileName.Exists()
-      && !wxCopyFile( srcFileName.GetFullPath(), destFileName.GetFullPath() ) )
-    {
-        tmp.Printf( _( "Failed to back up file '%s'.\n" ), srcFileName.GetFullPath() );
-        errorMsg += tmp;
-    }
+            if( wxFileName::Exists( screen->GetFileName() )
+                    && !wxCopyFile( screen->GetFileName(), destFileName.GetFullPath() ) )
+            {
+                tmp.Printf( _( "Failed to back up file '%s'.\n" ), screen->GetFileName() );
+                errorMsg += tmp;
+            }
+        }
 
-    // Back up the rescue symbol library if it exists.
-    srcFileName.SetName( Prj().GetProjectName() + "-rescue" );
-    destFileName.SetName( srcFileName.GetName() + timeStamp );
+        // Back up the project file.
+        destFileName = Prj().GetProjectFullName();
+        destFileName.SetName( destFileName.GetName() + timeStamp );
+        destFileName.AppendDir( backupFolder );
 
-    tmp.Printf( _( "Backing up file '%s' to '%s'." ),
-                srcFileName.GetFullPath(),
-                destFileName.GetFullPath() );
-    aReporter.Report( tmp, RPT_SEVERITY_INFO );
+        tmp.Printf( _( "Backing up file '%s' to '%s'." ),
+                    Prj().GetProjectFullName(),
+                    destFileName.GetFullPath() );
+        aReporter.Report( tmp, RPT_SEVERITY_INFO );
 
-    if( srcFileName.Exists()
-      && !wxCopyFile( srcFileName.GetFullPath(), destFileName.GetFullPath() ) )
-    {
-        tmp.Printf( _( "Failed to back up file '%s'.\n" ), srcFileName.GetFullPath() );
-        errorMsg += tmp;
-    }
+        if( wxFileName::Exists( Prj().GetProjectFullName() )
+                && !wxCopyFile( Prj().GetProjectFullName(), destFileName.GetFullPath() ) )
+        {
+            tmp.Printf( _( "Failed to back up file '%s'.\n" ), Prj().GetProjectFullName() );
+            errorMsg += tmp;
+        }
 
-    // Back up the rescue symbol library document file if it exists.
-    srcFileName.SetExt( LegacySymbolDocumentFileExtension );
-    destFileName.SetExt( srcFileName.GetExt() );
+        // Back up the cache library.
+        srcFileName.SetPath( Prj().GetProjectPath() );
+        srcFileName.SetName( Prj().GetProjectName() + "-cache" );
+        srcFileName.SetExt( LegacySymbolLibFileExtension );
 
-    tmp.Printf( _( "Backing up file '%s' to '%s'." ),
-                srcFileName.GetFullPath(),
-                destFileName.GetFullPath() );
-    aReporter.Report( tmp, RPT_SEVERITY_INFO );
+        destFileName = srcFileName;
+        destFileName.SetName( destFileName.GetName() + timeStamp );
+        destFileName.AppendDir( backupFolder );
 
-    if( srcFileName.Exists()
-      && !wxCopyFile( srcFileName.GetFullPath(), destFileName.GetFullPath() ) )
-    {
-        tmp.Printf( _( "Failed to back up file '%s'.\n" ), srcFileName.GetFullPath() );
-        errorMsg += tmp;
+        tmp.Printf( _( "Backing up file '%s' to '%s'." ),
+                    srcFileName.GetFullPath(),
+                    destFileName.GetFullPath() );
+        aReporter.Report( tmp, RPT_SEVERITY_INFO );
+
+        if( srcFileName.Exists()
+                && !wxCopyFile( srcFileName.GetFullPath(), destFileName.GetFullPath() ) )
+        {
+            tmp.Printf( _( "Failed to back up file '%s'.\n" ), srcFileName.GetFullPath() );
+            errorMsg += tmp;
+        }
+
+        // Back up the rescue symbol library if it exists.
+        srcFileName.SetName( Prj().GetProjectName() + "-rescue" );
+        destFileName.SetName( srcFileName.GetName() + timeStamp );
+
+        tmp.Printf( _( "Backing up file '%s' to '%s'." ),
+                    srcFileName.GetFullPath(),
+                    destFileName.GetFullPath() );
+        aReporter.Report( tmp, RPT_SEVERITY_INFO );
+
+        if( srcFileName.Exists()
+                && !wxCopyFile( srcFileName.GetFullPath(), destFileName.GetFullPath() ) )
+        {
+            tmp.Printf( _( "Failed to back up file '%s'.\n" ), srcFileName.GetFullPath() );
+            errorMsg += tmp;
+        }
+
+        // Back up the rescue symbol library document file if it exists.
+        srcFileName.SetExt( LegacySymbolDocumentFileExtension );
+        destFileName.SetExt( srcFileName.GetExt() );
+
+        tmp.Printf( _( "Backing up file '%s' to '%s'." ),
+                    srcFileName.GetFullPath(),
+                    destFileName.GetFullPath() );
+        aReporter.Report( tmp, RPT_SEVERITY_INFO );
+
+        if( srcFileName.Exists()
+                && !wxCopyFile( srcFileName.GetFullPath(), destFileName.GetFullPath() ) )
+        {
+            tmp.Printf( _( "Failed to back up file '%s'.\n" ), srcFileName.GetFullPath() );
+            errorMsg += tmp;
+        }
     }
 
     if( !errorMsg.IsEmpty() )

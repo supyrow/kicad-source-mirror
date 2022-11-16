@@ -5,7 +5,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2017-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2017-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -170,7 +170,7 @@ void DXF_PLOTTER::SetViewport( const VECTOR2I& aOffset, double aIusPerDecimil,
 }
 
 
-bool DXF_PLOTTER::StartPlot()
+bool DXF_PLOTTER::StartPlot( const wxString& aPageNumber )
 {
     wxASSERT( m_outputFile );
 
@@ -587,10 +587,12 @@ void DXF_PLOTTER::PenTo( const VECTOR2I& pos, char plume )
 }
 
 
-void DXF_PLOTTER::SetDash( PLOT_DASH_TYPE aDashed )
+void DXF_PLOTTER::SetDash( int aLineWidth, PLOT_DASH_TYPE aLineStyle )
 {
-    wxASSERT( aDashed >= PLOT_DASH_TYPE::FIRST_TYPE && aDashed <= PLOT_DASH_TYPE::LAST_TYPE );
-    m_currentLineType = aDashed;
+    wxASSERT( aLineStyle >= PLOT_DASH_TYPE::FIRST_TYPE
+                && aLineStyle <= PLOT_DASH_TYPE::LAST_TYPE );
+
+    m_currentLineType = aLineStyle;
 }
 
 

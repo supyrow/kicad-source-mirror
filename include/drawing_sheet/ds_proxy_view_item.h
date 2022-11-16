@@ -48,7 +48,8 @@ class DS_PROXY_VIEW_ITEM : public EDA_ITEM
 {
 public:
     DS_PROXY_VIEW_ITEM( int aScaleFactor, const PAGE_INFO* aPageInfo, const PROJECT* aProject,
-                        const TITLE_BLOCK* aTitleBlock );
+                        const TITLE_BLOCK* aTitleBlock,
+                        const std::map<wxString, wxString>* aProperties );
 
     /**
      * Set the file name displayed in the title block.
@@ -59,6 +60,11 @@ public:
      * Set the sheet name displayed in the title block.
      */
     void SetSheetName( const std::string& aSheetName ) { m_sheetName = aSheetName; }
+
+    /**
+     * Set the sheet path displayed in the title block.
+     */
+    void SetSheetPath( const std::string& aSheetPath ) { m_sheetPath = aSheetPath; }
 
     /**
      * Changes the page number displayed in the title block.
@@ -124,7 +130,8 @@ public:
     bool HitTestDrawingSheetItems( KIGFX::VIEW* aView, const VECTOR2I& aPosition );
 
 protected:
-    void buildDrawList( KIGFX::VIEW* aView, DS_DRAW_ITEM_LIST* aDrawList ) const;
+    void buildDrawList( KIGFX::VIEW* aView, const std::map<wxString, wxString>* aProperties,
+                        DS_DRAW_ITEM_LIST* aDrawList ) const;
 
     /// the factor between mils (units used in drawing sheet and internal units)
     /// it is the value IU_PER_MILS used in the caller
@@ -132,12 +139,15 @@ protected:
 
     std::string        m_fileName;
     std::string        m_sheetName;
+    std::string        m_sheetPath;
     const TITLE_BLOCK* m_titleBlock;
     const PAGE_INFO*   m_pageInfo;
     std::string        m_pageNumber;
     int                m_sheetCount;
     bool               m_isFirstPage;
     const PROJECT*     m_project;
+
+    const std::map<wxString, wxString>* m_properties;
 
     /// Layer that is used for drawing sheet color (LAYER_DRAWINGSHEET is always used for visibility)
     int                m_colorLayer;

@@ -22,7 +22,9 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
+#include <base_units.h>
 #include <bitmaps.h>
+#include <string_utils.h>
 #include <core/mirror.h>
 #include <sch_painter.h>
 #include <plotters/plotter.h>
@@ -36,7 +38,6 @@
 #include <project/net_settings.h>
 #include <trigo.h>
 #include <board_item.h>
-#include <advanced_config.h>
 
 
 SCH_LINE::SCH_LINE( const VECTOR2I& pos, int layer ) :
@@ -61,13 +62,13 @@ SCH_LINE::SCH_LINE( const VECTOR2I& pos, int layer ) :
         m_startIsDangling = m_endIsDangling = false;
 
     if( layer == LAYER_WIRE )
-        m_lastResolvedWidth = Mils2iu( DEFAULT_WIRE_WIDTH_MILS );
+        m_lastResolvedWidth = schIUScale.MilsToIU( DEFAULT_WIRE_WIDTH_MILS );
     else if( layer == LAYER_BUS )
-        m_lastResolvedWidth = Mils2iu( DEFAULT_BUS_WIDTH_MILS );
+        m_lastResolvedWidth = schIUScale.MilsToIU( DEFAULT_BUS_WIDTH_MILS );
     else
-        m_lastResolvedWidth = Mils2iu( DEFAULT_LINE_WIDTH_MILS );
+        m_lastResolvedWidth = schIUScale.MilsToIU( DEFAULT_LINE_WIDTH_MILS );
 
-    m_lastResolvedLineStyle = GetDefaultStyle();
+    m_lastResolvedLineStyle = PLOT_DASH_TYPE::SOLID;
     m_lastResolvedColor = COLOR4D::UNSPECIFIED;
 }
 
@@ -86,49 +87,47 @@ SCH_LINE::SCH_LINE( const SCH_LINE& aLine ) :
     m_lastResolvedColor = aLine.m_lastResolvedColor;
 }
 
+wxString SCH_LINE::GetNetname( const SCH_SHEET_PATH& aSheet )
+{
+    std::list<const SCH_LINE *> checkedLines;
+    checkedLines.push_back(this);
+    return FindWireSegmentNetNameRecursive( this, checkedLines, aSheet );
+}
+
+wxString SCH_LINE::FindWireSegmentNetNameRecursive( SCH_LINE *line,
+                                                    std::list<const SCH_LINE *> &checkedLines,
+                                                    const SCH_SHEET_PATH& aSheet ) const
+{
+    for ( auto connected : line->ConnectedItems( aSheet ) )
+    {
+        if( connected->Type() == SCH_LINE_T )
+        {
+            if( std::find(checkedLines.begin(), checkedLines.end(), connected ) == checkedLines.end() )
+            {
+                SCH_LINE* connectedLine = static_cast<SCH_LINE*>( connected );
+                checkedLines.push_back( connectedLine );
+
+                wxString netName = FindWireSegmentNetNameRecursive( connectedLine, checkedLines,
+                                                                    aSheet );
+
+                if( !netName.IsEmpty() )
+                    return netName;
+            }
+        }
+        else if( connected->Type() == SCH_LABEL_T
+                 || connected->Type() == SCH_GLOBAL_LABEL_T
+                 || connected->Type() == SCH_DIRECTIVE_LABEL_T)
+        {
+            return static_cast<SCH_TEXT*>( connected )->GetText();
+        }
+
+    }
+    return "";
+}
 
 EDA_ITEM* SCH_LINE::Clone() const
 {
     return new SCH_LINE( *this );
-}
-
-
-/*
- * Conversion between PLOT_DASH_TYPE values and style names displayed
- */
-const std::map<PLOT_DASH_TYPE, const char*> lineStyleNames{
-    { PLOT_DASH_TYPE::SOLID, "solid" },
-    { PLOT_DASH_TYPE::DASH, "dashed" },
-    { PLOT_DASH_TYPE::DASHDOT, "dash_dot" },
-    { PLOT_DASH_TYPE::DOT, "dotted" },
-};
-
-
-const char* SCH_LINE::GetLineStyleName( PLOT_DASH_TYPE aStyle )
-{
-    auto resultIt = lineStyleNames.find( aStyle );
-
-    //legacy behavior is to default to dash if there is no name
-    return resultIt == lineStyleNames.end() ? lineStyleNames.find( PLOT_DASH_TYPE::DASH )->second :
-                                              resultIt->second;
-}
-
-
-PLOT_DASH_TYPE SCH_LINE::GetLineStyleByName( const wxString& aStyleName )
-{
-    PLOT_DASH_TYPE id = PLOT_DASH_TYPE::DEFAULT; // Default style id
-
-    //find the name by value
-    auto resultIt = std::find_if( lineStyleNames.begin(), lineStyleNames.end(),
-                                  [aStyleName]( const auto& it )
-                                  {
-                                      return it.second == aStyleName;
-                                  } );
-
-    if( resultIt != lineStyleNames.end() )
-        id = resultIt->first;
-
-    return id;
 }
 
 
@@ -189,18 +188,17 @@ void SCH_LINE::ViewGetLayers( int aLayers[], int& aCount ) const
 }
 
 
-const EDA_RECT SCH_LINE::GetBoundingBox() const
+const BOX2I SCH_LINE::GetBoundingBox() const
 {
-    int      width = m_stroke.GetWidth() / 2;
-    int      extra = m_stroke.GetWidth() & 0x1;
+    int   width = GetPenWidth() / 2;
 
-    int      xmin = std::min( m_start.x, m_end.x ) - width;
-    int      ymin = std::min( m_start.y, m_end.y ) - width;
+    int   xmin = std::min( m_start.x, m_end.x ) - width;
+    int   ymin = std::min( m_start.y, m_end.y ) - width;
 
-    int      xmax = std::max( m_start.x, m_end.x ) + width + extra;
-    int      ymax = std::max( m_start.y, m_end.y ) + width + extra;
+    int   xmax = std::max( m_start.x, m_end.x ) + width + 1;
+    int   ymax = std::max( m_start.y, m_end.y ) + width + 1;
 
-    EDA_RECT ret( VECTOR2I( xmin, ymin ), VECTOR2I( xmax - xmin, ymax - ymin ) );
+    BOX2I ret( VECTOR2I( xmin, ymin ), VECTOR2I( xmax - xmin, ymax - ymin ) );
 
     return ret;
 }
@@ -215,6 +213,7 @@ double SCH_LINE::GetLength() const
 void SCH_LINE::SetLineColor( const COLOR4D& aColor )
 {
     m_stroke.SetColor( aColor );
+    m_lastResolvedColor = GetLineColor();
 }
 
 
@@ -238,27 +237,13 @@ void SCH_LINE::SetLineColor( const double r, const double g, const double b, con
 COLOR4D SCH_LINE::GetLineColor() const
 {
     if( m_stroke.GetColor() != COLOR4D::UNSPECIFIED )
-    {
         m_lastResolvedColor = m_stroke.GetColor();
-    }
-    else if( IsConnectable() && !IsConnectivityDirty() )
-    {
-        NETCLASSPTR netclass = NetClass();
-
-        if( netclass )
-            m_lastResolvedColor = netclass->GetSchematicColor();
-    }
+    else if( !IsConnectable() )
+        m_lastResolvedColor = COLOR4D::UNSPECIFIED;
+    else if( !IsConnectivityDirty() )
+        m_lastResolvedColor = GetEffectiveNetClass()->GetSchematicColor();
 
     return m_lastResolvedColor;
-}
-
-
-PLOT_DASH_TYPE SCH_LINE::GetDefaultStyle() const
-{
-    if( IsGraphicLine() )
-        return PLOT_DASH_TYPE::DASH;
-
-    return PLOT_DASH_TYPE::SOLID;
 }
 
 
@@ -270,10 +255,8 @@ void SCH_LINE::SetLineStyle( const int aStyleId )
 
 void SCH_LINE::SetLineStyle( const PLOT_DASH_TYPE aStyle )
 {
-    if( aStyle == GetDefaultStyle() )
-        m_stroke.SetPlotStyle( PLOT_DASH_TYPE::DEFAULT );
-    else
-        m_stroke.SetPlotStyle( aStyle );
+    m_stroke.SetPlotStyle( aStyle );
+    m_lastResolvedLineStyle = GetLineStyle();
 }
 
 
@@ -282,23 +265,18 @@ PLOT_DASH_TYPE SCH_LINE::GetLineStyle() const
     if( m_stroke.GetPlotStyle() != PLOT_DASH_TYPE::DEFAULT )
         return m_stroke.GetPlotStyle();
 
-    return GetDefaultStyle();
+    return PLOT_DASH_TYPE::SOLID;
 }
 
 
 PLOT_DASH_TYPE SCH_LINE::GetEffectiveLineStyle() const
 {
     if( m_stroke.GetPlotStyle() != PLOT_DASH_TYPE::DEFAULT )
-    {
         m_lastResolvedLineStyle = m_stroke.GetPlotStyle();
-    }
-    else if( IsConnectable() && !IsConnectivityDirty() )
-    {
-        NETCLASSPTR netclass = NetClass();
-
-        if( netclass )
-            m_lastResolvedLineStyle = static_cast<PLOT_DASH_TYPE>( netclass->GetLineStyle() );
-    }
+    else if( !IsConnectable() )
+        m_lastResolvedLineStyle = PLOT_DASH_TYPE::SOLID;
+    else if( !IsConnectivityDirty() )
+        m_lastResolvedLineStyle = (PLOT_DASH_TYPE) GetEffectiveNetClass()->GetLineStyle();
 
     return m_lastResolvedLineStyle;
 }
@@ -307,13 +285,13 @@ PLOT_DASH_TYPE SCH_LINE::GetEffectiveLineStyle() const
 void SCH_LINE::SetLineWidth( const int aSize )
 {
     m_stroke.SetWidth( aSize );
+    m_lastResolvedWidth = GetPenWidth();
 }
 
 
 int SCH_LINE::GetPenWidth() const
 {
     SCHEMATIC*  schematic = Schematic();
-    NETCLASSPTR netclass;
 
     switch ( m_layer )
     {
@@ -324,41 +302,21 @@ int SCH_LINE::GetPenWidth() const
         if( schematic )
             return schematic->Settings().m_DefaultLineWidth;
 
-        return Mils2iu( DEFAULT_LINE_WIDTH_MILS );
+        return schIUScale.MilsToIU( DEFAULT_LINE_WIDTH_MILS );
 
     case LAYER_WIRE:
         if( m_stroke.GetWidth() > 0 )
-        {
             m_lastResolvedWidth = m_stroke.GetWidth();
-        }
         else if( !IsConnectivityDirty() )
-        {
-            netclass = NetClass();
-
-            if( !netclass && schematic  )
-                netclass = schematic->Prj().GetProjectFile().NetSettings().m_NetClasses.GetDefault();
-
-            if( netclass )
-                m_lastResolvedWidth = netclass->GetWireWidth();
-        }
+            m_lastResolvedWidth = GetEffectiveNetClass()->GetWireWidth();
 
         return m_lastResolvedWidth;
 
     case LAYER_BUS:
         if( m_stroke.GetWidth() > 0 )
-        {
             m_lastResolvedWidth = m_stroke.GetWidth();
-        }
         else if( !IsConnectivityDirty() )
-        {
-            netclass = NetClass();
-
-            if( !netclass && schematic )
-                netclass = schematic->Prj().GetProjectFile().NetSettings().m_NetClasses.GetDefault();
-
-            if( netclass )
-                m_lastResolvedWidth = netclass->GetBusWidth();
-        }
+            m_lastResolvedWidth = GetEffectiveNetClass()->GetBusWidth();
 
         return m_lastResolvedWidth;
     }
@@ -417,10 +375,13 @@ void SCH_LINE::MirrorHorizontally( int aCenter )
 
 void SCH_LINE::Rotate( const VECTOR2I& aCenter )
 {
+    // When we allow off grid items, the
+    // else if should become a plain if to allow
+    // rotation around the center of the line
     if( m_flags & STARTPOINT )
         RotatePoint( m_start, aCenter, ANGLE_90 );
 
-    if( m_flags & ENDPOINT )
+    else if( m_flags & ENDPOINT )
         RotatePoint( m_end, aCenter, ANGLE_90 );
 }
 
@@ -729,9 +690,9 @@ void SCH_LINE::GetSelectedPoints( std::vector<VECTOR2I>& aPoints ) const
 }
 
 
-wxString SCH_LINE::GetSelectMenuText( EDA_UNITS aUnits ) const
+wxString SCH_LINE::GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const
 {
-    wxString txtfmt, orient;
+    wxString txtfmt;
 
     if( m_start.x == m_end.x )
     {
@@ -762,7 +723,7 @@ wxString SCH_LINE::GetSelectMenuText( EDA_UNITS aUnits ) const
     }
 
     return wxString::Format( txtfmt,
-                             MessageTextFromValue( aUnits, EuclideanNorm( m_start - m_end ) ) );
+                             aUnitsProvider->MessageTextFromValue( EuclideanNorm( m_start - m_end ) ) );
 }
 
 
@@ -811,22 +772,16 @@ bool SCH_LINE::HitTest( const VECTOR2I& aPosition, int aAccuracy ) const
     else
         aAccuracy = abs( aAccuracy );
 
-    if( TestSegmentHit( aPosition, m_start, m_end, aAccuracy ) )
-        return true;
-
-    aAccuracy += Mils2iu( DANGLING_SYMBOL_SIZE );
-
-    return ( EuclideanNorm( aPosition - m_start ) < aAccuracy
-            || EuclideanNorm( aPosition - m_end ) < aAccuracy );
+    return TestSegmentHit( aPosition, m_start, m_end, aAccuracy );
 }
 
 
-bool SCH_LINE::HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy ) const
+bool SCH_LINE::HitTest( const BOX2I& aRect, bool aContained, int aAccuracy ) const
 {
     if( m_flags & (STRUCT_DELETED | SKIP_STRUCT ) )
         return false;
 
-    EDA_RECT rect = aRect;
+    BOX2I rect = aRect;
 
     if ( aAccuracy )
         rect.Inflate( aAccuracy );
@@ -876,12 +831,43 @@ void SCH_LINE::Plot( PLOTTER* aPlotter, bool aBackground ) const
     aPlotter->SetColor( color );
 
     aPlotter->SetCurrentLineWidth( penWidth );
-    aPlotter->SetDash( GetEffectiveLineStyle() );
+    aPlotter->SetDash( penWidth, GetEffectiveLineStyle() );
 
     aPlotter->MoveTo( m_start );
     aPlotter->FinishTo( m_end );
 
-    aPlotter->SetDash( PLOT_DASH_TYPE::SOLID );
+    aPlotter->SetDash( penWidth, PLOT_DASH_TYPE::SOLID );
+
+    // Plot attributes to a hypertext menu
+    std::vector<wxString> properties;
+    BOX2I                 bbox = GetBoundingBox();
+    bbox.Inflate( GetPenWidth() * 3 );
+
+    if( GetLayer() == LAYER_WIRE )
+    {
+        if( SCH_CONNECTION* connection = Connection() )
+        {
+            properties.emplace_back( wxString::Format( wxT( "!%s = %s" ),
+                                                       _( "Net" ),
+                                                       connection->Name() ) );
+
+            properties.emplace_back( wxString::Format( wxT( "!%s = %s" ),
+                                                       _( "Resolved netclass" ),
+                                                       GetEffectiveNetClass()->GetName() ) );
+        }
+    }
+    else if( GetLayer() == LAYER_BUS )
+    {
+        if( SCH_CONNECTION* connection = Connection() )
+        {
+            for( std::shared_ptr<SCH_CONNECTION>& member : connection->Members() )
+                properties.emplace_back( wxT( "!" ) + member->Name() );
+        }
+
+    }
+
+    if( !properties.empty() )
+        aPlotter->HyperlinkMenu( bbox, properties );
 }
 
 
@@ -905,12 +891,12 @@ void SCH_LINE::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_IT
 
     aList.emplace_back( _( "Line Type" ), msg );
 
-    if( GetLineStyle() != GetEffectiveLineStyle() )
-        msg = _( "from netclass" );
-    else
-        msg = GetLineStyleName( GetLineStyle() );
+    PLOT_DASH_TYPE lineStyle = GetLineStyle();
 
-    aList.emplace_back( _( "Line Style" ), msg );
+    if( GetEffectiveLineStyle() != lineStyle )
+        aList.emplace_back( _( "Line Style" ), _( "from netclass" ) );
+    else
+        m_stroke.GetMsgPanelInfo( aFrame, aList, true, false );
 
     SCH_CONNECTION* conn = nullptr;
 
@@ -923,14 +909,8 @@ void SCH_LINE::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_IT
 
         if( !conn->IsBus() )
         {
-            NET_SETTINGS& netSettings = Schematic()->Prj().GetProjectFile().NetSettings();
-            wxString netname = conn->Name();
-            wxString netclassName = netSettings.m_NetClasses.GetDefaultPtr()->GetName();
-
-            if( netSettings.m_NetClassAssignments.count( netname ) )
-                netclassName = netSettings.m_NetClassAssignments[ netname ];
-
-            aList.emplace_back( _( "Assigned Netclass" ), netclassName );
+            aList.emplace_back( _( "Resolved Netclass" ),
+                                UnescapeString( GetEffectiveNetClass()->GetName() ) );
         }
     }
 }
@@ -947,15 +927,9 @@ bool SCH_LINE::IsWire() const
     return ( GetLayer() == LAYER_WIRE );
 }
 
+
 bool SCH_LINE::IsBus() const
 {
     return ( GetLayer() == LAYER_BUS );
 }
 
-
-bool SCH_LINE::UsesDefaultStroke() const
-{
-    return m_stroke.GetWidth() == 0 && m_stroke.GetColor() == COLOR4D::UNSPECIFIED
-            && ( m_stroke.GetPlotStyle() == GetDefaultStyle()
-            || m_stroke.GetPlotStyle() == PLOT_DASH_TYPE::DEFAULT );
-}

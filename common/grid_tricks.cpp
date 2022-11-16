@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2012 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
- * Copyright (C) 2012-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2012-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -37,49 +37,68 @@
 #define ROW_SEP     wxT( '\n' )
 
 
-GRID_TRICKS::GRID_TRICKS( WX_GRID* aGrid ):
-    m_grid( aGrid )
+GRID_TRICKS::GRID_TRICKS( WX_GRID* aGrid ) :
+    m_grid( aGrid ),
+    m_addHandler( []( wxCommandEvent& ) {} )
+{
+    init();
+}
+
+
+GRID_TRICKS::GRID_TRICKS( WX_GRID* aGrid, std::function<void( wxCommandEvent& )> aAddHandler ) :
+    m_grid( aGrid ),
+    m_addHandler( aAddHandler )
+{
+    init();
+}
+
+
+void GRID_TRICKS::init()
 {
     m_sel_row_start = 0;
     m_sel_col_start = 0;
     m_sel_row_count = 0;
     m_sel_col_count = 0;
 
-    aGrid->Connect( wxEVT_GRID_CELL_LEFT_CLICK,
-                    wxGridEventHandler( GRID_TRICKS::onGridCellLeftClick ), nullptr, this );
-    aGrid->Connect( wxEVT_GRID_CELL_LEFT_DCLICK,
-                    wxGridEventHandler( GRID_TRICKS::onGridCellLeftDClick ), nullptr, this );
-    aGrid->Connect( wxEVT_GRID_CELL_RIGHT_CLICK,
-                    wxGridEventHandler( GRID_TRICKS::onGridCellRightClick ), nullptr, this );
-    aGrid->Connect( wxEVT_GRID_LABEL_RIGHT_CLICK,
-                    wxGridEventHandler( GRID_TRICKS::onGridLabelRightClick ), nullptr, this );
-    aGrid->Connect( wxEVT_GRID_LABEL_LEFT_CLICK,
-                    wxGridEventHandler( GRID_TRICKS::onGridLabelLeftClick ), nullptr, this );
-    aGrid->Connect( GRIDTRICKS_FIRST_ID, GRIDTRICKS_LAST_ID, wxEVT_COMMAND_MENU_SELECTED,
-                    wxCommandEventHandler( GRID_TRICKS::onPopupSelection ), nullptr, this );
-    aGrid->Connect( wxEVT_CHAR_HOOK, wxCharEventHandler( GRID_TRICKS::onCharHook ), nullptr, this );
-    aGrid->Connect( wxEVT_KEY_DOWN, wxKeyEventHandler( GRID_TRICKS::onKeyDown ), nullptr, this );
-    aGrid->Connect( wxEVT_UPDATE_UI, wxUpdateUIEventHandler( GRID_TRICKS::onUpdateUI ),
-                    nullptr, this );
+    m_grid->Connect( wxEVT_GRID_CELL_LEFT_CLICK,
+                     wxGridEventHandler( GRID_TRICKS::onGridCellLeftClick ), nullptr, this );
+    m_grid->Connect( wxEVT_GRID_CELL_LEFT_DCLICK,
+                     wxGridEventHandler( GRID_TRICKS::onGridCellLeftDClick ), nullptr, this );
+    m_grid->Connect( wxEVT_GRID_CELL_RIGHT_CLICK,
+                     wxGridEventHandler( GRID_TRICKS::onGridCellRightClick ), nullptr, this );
+    m_grid->Connect( wxEVT_GRID_LABEL_RIGHT_CLICK,
+                     wxGridEventHandler( GRID_TRICKS::onGridLabelRightClick ), nullptr, this );
+    m_grid->Connect( wxEVT_GRID_LABEL_LEFT_CLICK,
+                     wxGridEventHandler( GRID_TRICKS::onGridLabelLeftClick ), nullptr, this );
+    m_grid->Connect( GRIDTRICKS_FIRST_ID, GRIDTRICKS_LAST_ID, wxEVT_COMMAND_MENU_SELECTED,
+                     wxCommandEventHandler( GRID_TRICKS::onPopupSelection ), nullptr, this );
+    m_grid->Connect( wxEVT_CHAR_HOOK,
+                     wxCharEventHandler( GRID_TRICKS::onCharHook ), nullptr, this );
+    m_grid->Connect( wxEVT_KEY_DOWN,
+                     wxKeyEventHandler( GRID_TRICKS::onKeyDown ), nullptr, this );
+    m_grid->Connect( wxEVT_UPDATE_UI,
+                     wxUpdateUIEventHandler( GRID_TRICKS::onUpdateUI ), nullptr, this );
 
     // The handlers that control the tooltips must be on the actual grid window, not the grid
-    aGrid->GetGridWindow()->Connect( wxEVT_MOTION,
-                            wxMouseEventHandler( GRID_TRICKS::onGridMotion ), nullptr, this );
+    m_grid->GetGridWindow()->Connect( wxEVT_MOTION,
+                                      wxMouseEventHandler( GRID_TRICKS::onGridMotion ), nullptr,
+                                      this );
 }
 
 
 bool GRID_TRICKS::toggleCell( int aRow, int aCol, bool aPreserveSelection )
 {
-    auto renderer = m_grid->GetCellRenderer( aRow, aCol );
-    bool isCheckbox = ( dynamic_cast<wxGridCellBoolRenderer*>( renderer ) != nullptr );
+    wxGridCellRenderer* renderer = m_grid->GetCellRenderer( aRow, aCol );
+    bool                isCheckbox = ( dynamic_cast<wxGridCellBoolRenderer*>( renderer ) );
     renderer->DecRef();
 
     if( isCheckbox )
     {
         if( !aPreserveSelection )
+        {
             m_grid->ClearSelection();
-
-        m_grid->SetGridCursor( aRow, aCol );
+            m_grid->SetGridCursor( aRow, aCol );
+        }
 
         wxGridTableBase* model = m_grid->GetTable();
 
@@ -154,11 +173,39 @@ void GRID_TRICKS::onGridCellLeftClick( wxGridEvent& aEvent )
     // Don't make users click twice to toggle a checkbox or edit a text cell
     if( !aEvent.GetModifiers() )
     {
-        if( toggleCell( row, col ) )
+        bool toggled = false;
+
+        if( toggleCell( row, col, true ) )
+            toggled = true;
+        else if( showEditor( row, col ) )
             return;
 
-        if( showEditor( row, col ) )
-            return;
+        // Apply checkbox changes to multi-selection.
+        // Non-checkbox changes handled elsewhere
+        if( toggled )
+        {
+            getSelectedArea();
+
+            // We only want to apply this to whole rows.  If the grid allows selecting individual
+            // cells, and the selection contains dijoint cells, skip this logic.
+            if( !m_grid->GetSelectedCells().IsEmpty() || m_sel_row_count < 2 )
+            {
+                // We preserved the selection in toggleCell above; so clear it now that we know
+                // we aren't doing a multi-select edit
+                m_grid->ClearSelection();
+                return;
+            }
+
+            wxString newVal = m_grid->GetCellValue( row, col );
+
+            for( int affectedRow = m_sel_row_start; affectedRow < m_sel_row_count; ++affectedRow )
+            {
+                if( affectedRow == row )
+                    continue;
+
+                m_grid->SetCellValue( affectedRow, col, newVal );
+            }
+        }
     }
 
     aEvent.Skip();
@@ -293,12 +340,17 @@ void GRID_TRICKS::showPopupMenu( wxMenu& menu )
         menu.Enable( GRIDTRICKS_ID_COPY, false );
         menu.Enable( GRIDTRICKS_ID_DELETE, false );
     }
+    else if( !m_grid->IsEditable() )
+    {
+        menu.Enable( GRIDTRICKS_ID_CUT,  false );
+        menu.Enable( GRIDTRICKS_ID_DELETE, false );
+    }
 
     menu.Enable( GRIDTRICKS_ID_PASTE, false );
 
     wxLogNull doNotLog; // disable logging of failed clipboard actions
 
-    if( wxTheClipboard->Open() )
+    if( m_grid->IsEditable() && wxTheClipboard->Open() )
     {
         if( wxTheClipboard->IsSupported( wxDF_TEXT )
             || wxTheClipboard->IsSupported( wxDF_UNICODETEXT ) )
@@ -366,7 +418,15 @@ void GRID_TRICKS::onCharHook( wxKeyEvent& ev )
 {
     bool handled = false;
 
-    if( ev.GetModifiers() == wxMOD_CONTROL && ev.GetKeyCode() == 'V' )
+    if( ev.GetKeyCode() == WXK_RETURN && m_grid->GetGridCursorRow() == m_grid->GetNumberRows() - 1 )
+    {
+        if( m_grid->CommitPendingChanges() )
+        {
+            wxCommandEvent dummy;
+            m_addHandler( dummy );
+        }
+    }
+    else if( ev.GetModifiers() == wxMOD_CONTROL && ev.GetKeyCode() == 'V' )
     {
         if( m_grid->IsCellEditControlShown() && wxTheClipboard->Open() )
         {
@@ -427,7 +487,7 @@ void GRID_TRICKS::onKeyDown( wxKeyEvent& ev )
     }
 
     // space-bar toggling of checkboxes
-    if( ev.GetKeyCode() == ' ' )
+    if( m_grid->IsEditable() && ev.GetKeyCode() == ' ' )
     {
         bool retVal = false;
 
@@ -501,9 +561,6 @@ void GRID_TRICKS::onKeyDown( wxKeyEvent& ev )
                 }
             }
         }
-        else
-        {
-        }
 
         // Return if there were any cells toggled
         if( retVal )
@@ -569,7 +626,7 @@ void GRID_TRICKS::paste_clipboard()
 {
     wxLogNull doNotLog; // disable logging of failed clipboard actions
 
-    if( wxTheClipboard->Open() )
+    if( m_grid->IsEditable() && wxTheClipboard->Open() )
     {
         if( wxTheClipboard->IsSupported( wxDF_TEXT )
             || wxTheClipboard->IsSupported( wxDF_UNICODETEXT ) )
@@ -708,7 +765,7 @@ void GRID_TRICKS::cutcopy( bool doCopy, bool doDelete )
             if( col < m_sel_col_start + m_sel_col_count - 1 )   // that was not last column
                 txt += COL_SEP;
 
-            if( doDelete )
+            if( doDelete && m_grid->IsEditable() )
             {
                 if( tbl->CanSetValueAs( row, col, wxGRID_VALUE_STRING ) )
                     tbl->SetValue( row, col, wxEmptyString );

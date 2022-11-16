@@ -4,7 +4,7 @@
  * Copyright (C) 2012 Jean-Pierre Charras, jean-pierre.charras@ujf-grenoble.fr
  * Copyright (C) 2012 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
  * Copyright (C) 2016 CERN
- * Copyright (C) 2012-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2012-2022 KiCad Developers, see AUTHORS.txt for contributors.
  * @author Maciej Suminski <maciej.suminski@cern.ch>
  *
  * This program is free software; you can redistribute it and/or
@@ -35,10 +35,8 @@ using namespace std::placeholders;
 #include <pcb_target.h>
 #include <footprint.h>
 #include <pad.h>
-#include <pcb_dimension.h>
 #include <origin_viewitem.h>
 #include <connectivity/connectivity_data.h>
-#include <pcbnew_settings.h>
 #include <tool/tool_manager.h>
 #include <tool/actions.h>
 #include <tools/pcb_selection_tool.h>
@@ -154,40 +152,11 @@ static bool TestForExistingItem( BOARD* aPcb, BOARD_ITEM* aItem )
 }
 
 
-static void SwapItemData( BOARD_ITEM* aItem, BOARD_ITEM* aImage )
-{
-    if( aImage == nullptr )
-        return;
-
-    wxASSERT( aItem->Type() == aImage->Type() );
-
-    // Remark: to create images of edited items to undo, we are using Clone method
-    // which does not do a deep copy.
-    // So we have to use the current values of these parameters.
-
-    wxASSERT( aItem->m_Uuid == aImage->m_Uuid );
-
-    EDA_ITEM* parent = aItem->GetParent();
-
-    aItem->SwapData( aImage );
-
-    // Restore pointers to be sure they are not broken
-    aItem->SetParent( parent );
-}
-
-
-void PCB_BASE_EDIT_FRAME::SaveCopyInUndoList( EDA_ITEM* aItem, UNDO_REDO aCommandType )
-{
-    PICKED_ITEMS_LIST commandToUndo;
-    commandToUndo.PushItem( ITEM_PICKER( nullptr, aItem, aCommandType ) );
-    SaveCopyInUndoList( commandToUndo, aCommandType );
-}
-
-
-void PCB_BASE_EDIT_FRAME::SaveCopyInUndoList( const PICKED_ITEMS_LIST& aItemsList,
+void PCB_BASE_EDIT_FRAME::saveCopyInUndoList( PICKED_ITEMS_LIST* commandToUndo,
+                                              const PICKED_ITEMS_LIST& aItemsList,
                                               UNDO_REDO aCommandType )
 {
-    PICKED_ITEMS_LIST* commandToUndo = new PICKED_ITEMS_LIST();
+    int preExisting = commandToUndo->GetCount();
 
     // First, filter unnecessary stuff from the list (i.e. for multiple pads / labels modified),
     // take the first occurrence of the footprint (we save copies of footprints when one of its
@@ -221,6 +190,7 @@ void PCB_BASE_EDIT_FRAME::SaveCopyInUndoList( const PICKED_ITEMS_LIST& aItemsLis
                 FOOTPRINT* orig = static_cast<FOOTPRINT*>( item );
                 FOOTPRINT* clone = new FOOTPRINT( *orig );
                 clone->SetParent( GetBoard() );
+                clone->SetParentGroup( nullptr );
 
                 // Clear current flags (which can be temporary set by a current edit command)
                 for( BOARD_ITEM* child : clone->GraphicalItems() )
@@ -235,8 +205,6 @@ void PCB_BASE_EDIT_FRAME::SaveCopyInUndoList( const PICKED_ITEMS_LIST& aItemsLis
                 ITEM_PICKER picker( nullptr, item, UNDO_REDO::CHANGED );
                 picker.SetLink( clone );
                 commandToUndo->PushItem( picker );
-
-                orig->SetLastEditTime();
             }
             else
             {
@@ -250,9 +218,9 @@ void PCB_BASE_EDIT_FRAME::SaveCopyInUndoList( const PICKED_ITEMS_LIST& aItemsLis
         }
     }
 
-    for( unsigned ii = 0; ii < commandToUndo->GetCount(); ii++ )
+    for( unsigned ii = preExisting; ii < commandToUndo->GetCount(); ii++ )
     {
-        EDA_ITEM*   item    = aItemsList.GetPickedItem( ii );
+        EDA_ITEM* item    = commandToUndo->GetPickedItem( ii );
         UNDO_REDO command = commandToUndo->GetPickedItemStatus( ii );
 
         if( command == UNDO_REDO::UNSPECIFIED )
@@ -269,14 +237,13 @@ void PCB_BASE_EDIT_FRAME::SaveCopyInUndoList( const PICKED_ITEMS_LIST& aItemsLis
         case UNDO_REDO::DRILLORIGIN:
         case UNDO_REDO::GRIDORIGIN:
 
-            /* If needed, create a copy of item, and put in undo list
-             * in the picker, as link
-             * If this link is not null, the copy is already done
-             */
-            if( commandToUndo->GetPickedItemLink( ii ) == nullptr )
+            // If we don't yet have a copy in the link, set one up
+            if( !commandToUndo->GetPickedItemLink( ii ) )
             {
-                EDA_ITEM* cloned = item->Clone();
-                commandToUndo->SetPickedItemLink( cloned, ii );
+                BOARD_ITEM* clone = static_cast<BOARD_ITEM*>( item->Clone() );
+                clone->SetParentGroup( nullptr );
+
+                commandToUndo->SetPickedItemLink( clone, ii );
             }
 
             break;
@@ -309,6 +276,37 @@ void PCB_BASE_EDIT_FRAME::SaveCopyInUndoList( const PICKED_ITEMS_LIST& aItemsLis
         wxASSERT( false );
         delete commandToUndo;
     }
+}
+
+
+void PCB_BASE_EDIT_FRAME::SaveCopyInUndoList( EDA_ITEM* aItem, UNDO_REDO aCommandType )
+{
+    PICKED_ITEMS_LIST* commandToUndo = new PICKED_ITEMS_LIST();
+    PICKED_ITEMS_LIST  itemsList;
+
+    itemsList.PushItem( ITEM_PICKER( nullptr, aItem, aCommandType ) );
+    saveCopyInUndoList( commandToUndo, itemsList, aCommandType );
+}
+
+
+void PCB_BASE_EDIT_FRAME::SaveCopyInUndoList( const PICKED_ITEMS_LIST& aItemsList,
+                                              UNDO_REDO aCommandType )
+{
+    PICKED_ITEMS_LIST* commandToUndo = new PICKED_ITEMS_LIST();
+
+    saveCopyInUndoList( commandToUndo, aItemsList, aCommandType );
+}
+
+
+void PCB_BASE_EDIT_FRAME::AppendCopyToUndoList( const PICKED_ITEMS_LIST& aItemsList,
+                                                UNDO_REDO aCommandType )
+{
+    PICKED_ITEMS_LIST* commandToUndo = PopCommandFromUndoList();
+
+    if( !commandToUndo )
+        commandToUndo = new PICKED_ITEMS_LIST();
+
+    saveCopyInUndoList( commandToUndo, aItemsList, aCommandType );
 }
 
 
@@ -453,11 +451,21 @@ void PCB_BASE_EDIT_FRAME::PutDataInPreviousState( PICKED_ITEMS_LIST* aList )
             BOARD_ITEM* image = (BOARD_ITEM*) aList->GetPickedItemLink( ii );
 
             // Remove all pads/drawings/texts, as they become invalid
-            // for the VIEW after SwapData() called for footprints
+            // for the VIEW after SwapItemData() called for footprints
             view->Remove( item );
             connectivity->Remove( item );
 
-            SwapItemData( item, image );
+            item->SwapItemData( image );
+
+            if( item->Type() == PCB_GROUP_T )
+            {
+                group = static_cast<PCB_GROUP*>( item );
+
+                group->RunOnChildren( [&]( BOARD_ITEM* child )
+                                      {
+                                          child->SetParentGroup( group );
+                                      } );
+            }
 
             view->Add( item );
             view->Hide( item, false );
@@ -568,10 +576,19 @@ void PCB_BASE_EDIT_FRAME::ClearUndoORRedoList( UNDO_REDO_LIST whichList, int aIt
 
         PICKED_ITEMS_LIST* curr_cmd = list.m_CommandsList[0];
         list.m_CommandsList.erase( list.m_CommandsList.begin() );
-
-        curr_cmd->ClearListAndDeleteItems();
+        ClearListAndDeleteItems( curr_cmd );
         delete curr_cmd;    // Delete command
     }
+}
+
+
+void PCB_BASE_EDIT_FRAME::ClearListAndDeleteItems( PICKED_ITEMS_LIST* aList )
+{
+    aList->ClearListAndDeleteItems( []( EDA_ITEM* item )
+                                    {
+                                        static_cast<BOARD_ITEM*>( item )->SetParentGroup( nullptr );
+                                        delete item;
+                                    } );
 }
 
 
@@ -579,8 +596,7 @@ void PCB_BASE_EDIT_FRAME::RollbackFromUndo()
 {
     PICKED_ITEMS_LIST* undo = PopCommandFromUndoList();
     PutDataInPreviousState( undo );
-
-    undo->ClearListAndDeleteItems();
+    ClearListAndDeleteItems( undo );
     delete undo;
 
     GetCanvas()->Refresh();

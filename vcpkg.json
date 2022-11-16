@@ -1,0 +1,44 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg/master/scripts/vcpkg.schema.json",
+  "name": "kicad",
+  "version": "6.99",
+  "license": "GPL-2.0+",
+  "dependencies": [
+    "boost",
+    "cairo",
+    "wxwidgets",
+    "glew",
+    "curl",
+    {
+      "name": "gettext",
+      "features": [ "tools" ]
+    },
+    "harfbuzz",
+    "glm",
+    "opencascade",
+    "opengl",
+    "python3",
+    "openssl",
+    "icu",
+    "ngspice",
+    "wxpython"
+  ],
+  "overrides": [
+    {
+      "name": "python3",
+      "version": "3.9.14"
+    },
+    {
+      "name": "wxwidgets",
+      "version": "3.2.1#0"
+    },
+    {
+      "name": "wxpython",
+      "version": "4.2.0#2"
+    },
+    {
+      "name": "ngspice",
+      "version": "37"
+    }
+  ]
+}

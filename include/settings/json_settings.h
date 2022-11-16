@@ -26,7 +26,8 @@
 #include <utility>
 #include <wx/string.h>
 
-#include <core/optional.h>
+#include <functional>
+#include <optional>
 #include <nlohmann/json_fwd.hpp>
 
 class wxConfigBase;
@@ -90,7 +91,6 @@ public:
 
     nlohmann::json& At( const std::string& aPath );
     bool Contains( const std::string& aPath ) const;
-    size_t Count( const std::string& aPath ) const;
 
     JSON_SETTINGS_INTERNALS* Internals();
 
@@ -131,7 +131,7 @@ c     * @return true if the file was saved
      * @param aPath is a string containing one or more keys separated by '.'
      * @return a JSON object from within this one
      */
-    OPT<nlohmann::json> GetJson( const std::string& aPath ) const;
+    std::optional<nlohmann::json> GetJson( const std::string& aPath ) const;
 
     /**
      * Fetches a value from within the JSON document.
@@ -141,7 +141,7 @@ c     * @return true if the file was saved
      * @return a value from within this document
      */
     template<typename ValueType>
-    OPT<ValueType> Get( const std::string& aPath ) const;
+    std::optional<ValueType> Get( const std::string& aPath ) const;
 
     /**
      * Stores a value into the JSON document
@@ -226,6 +226,11 @@ c     * @return true if the file was saved
     */
     static bool SetIfPresent( const nlohmann::json& aObj, const std::string& aPath,
                               unsigned int& aTarget );
+
+    const std::string FormatAsString() const;
+
+    bool LoadFromRawFile( const wxString& aPath );
+
 protected:
 
     /**
@@ -277,6 +282,17 @@ protected:
         return wxEmptyString;
     }
 
+    /**
+     * Helper to retrieve a value from a JSON object (dictionary) as a certain result type
+     * @tparam ResultType is the type of the retrieved value.
+     * @param aJson is the object to act on .
+     * @param aKey is the object key to retrieve the value for.
+     * @return the result, or aDefault if aKey is not found.
+     */
+    template<typename ResultType>
+    static ResultType fetchOrDefault( const nlohmann::json& aJson, const std::string& aKey,
+                                      ResultType aDefault = ResultType() );
+
     /// The filename (not including path) of this settings file (inicode)
     wxString m_filename;
 
@@ -324,7 +340,7 @@ protected:
 
 // Specializations to allow conversion between wxString and std::string via JSON_SETTINGS API
 
-template<> OPT<wxString> JSON_SETTINGS::Get( const std::string& aPath ) const;
+template<> std::optional<wxString> JSON_SETTINGS::Get( const std::string& aPath ) const;
 
 template<> void JSON_SETTINGS::Set<wxString>( const std::string& aPath, wxString aVal );
 

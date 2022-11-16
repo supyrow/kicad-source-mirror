@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2020 Brian Piccioni brian@documenteddesigns.com
- * Copyright (C) 2020-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2020-2022 KiCad Developers, see AUTHORS.txt for contributors.
  * @author Brian Piccioni <brian@documenteddesigns.com>
  *
  * This program is free software; you can redistribute it and/or
@@ -30,15 +30,12 @@
 #include <confirm.h>
 #include <ctype.h>
 #include <dialog_board_reannotate.h>
-#include <fstream>
 #include <string_utils.h>  // StrNumCmp
 #include <kiface_base.h>
-#include <mail_type.h>
 #include <pcbnew_settings.h>
 #include <refdes_utils.h>
-#include <sstream>
-#include <tool/tool_manager.h>
 #include <tool/grid_menu.h>
+#include <widgets/wx_html_report_panel.h>
 #include <wx/valtext.h>
 
 
@@ -136,16 +133,12 @@ DIALOG_BOARD_REANNOTATE::DIALOG_BOARD_REANNOTATE( PCB_EDIT_FRAME* aParentFrame )
     m_selection = m_frame->GetToolManager()->GetTool<PCB_SELECTION_TOOL>()->GetSelection();
 
     if( !m_selection.Empty() )
-        m_annotationChoice = AnnotationChoice::AnnotateSelected;
+        m_annotationScope = AnnotateSelected;
 
-    for( wxRadioButton* button : AnnotateWhat )
+    for( wxRadioButton* button : m_scopeRadioButtons )
         button->SetValue( false );
 
-    m_annotationChoice = ( m_sortCode >= (int) AnnotateWhat.size() ) ?
-                         AnnotationChoice::AnnotateAll :
-                         m_annotationChoice;
-
-    AnnotateWhat[m_annotationChoice]->SetValue( true );
+    m_scopeRadioButtons[m_annotationScope]->SetValue( true );
 
     reannotate_down_right_bitmap->SetBitmap( KiBitmap( BITMAPS::reannotate_right_down ) );
     reannotate_right_down_bitmap->SetBitmap( KiBitmap( BITMAPS::reannotate_left_down ) );
@@ -176,7 +169,7 @@ DIALOG_BOARD_REANNOTATE::~DIALOG_BOARD_REANNOTATE()
 
     cfg->m_Reannotate.grid_index              = m_gridIndex;
     cfg->m_Reannotate.sort_code               = m_sortCode;
-    cfg->m_Reannotate.annotation_choice       = m_annotationChoice;
+    cfg->m_Reannotate.annotation_choice       = m_annotationScope;
     cfg->m_Reannotate.report_severity         = m_severity;
 
     cfg->m_Reannotate.front_refdes_start      = m_FrontRefDesStart->GetValue();
@@ -198,7 +191,7 @@ void DIALOG_BOARD_REANNOTATE::InitValues( void )
 
     m_gridIndex         = cfg->m_Reannotate.grid_index ;
     m_sortCode          = cfg->m_Reannotate.sort_code ;
-    m_annotationChoice  = cfg->m_Reannotate.annotation_choice ;
+    m_annotationScope   = cfg->m_Reannotate.annotation_choice ;
     m_severity          = cfg->m_Reannotate.report_severity;
 
     m_FrontRefDesStart->SetValue( cfg->m_Reannotate.front_refdes_start );
@@ -308,10 +301,8 @@ void DIALOG_BOARD_REANNOTATE::OnApplyClick( wxCommandEvent& event )
 
 void DIALOG_BOARD_REANNOTATE::MakeSampleText( wxString& aMessage )
 {
-    wxString tmp;
-
     aMessage.Printf( _( "\n%s footprints will be reannotated." ),
-                     _( AnnotateString[m_annotationChoice] ) );
+                     _( AnnotateString[m_annotationScope] ) );
 
     if( !m_ExcludeList->GetValue().empty() )
     {
@@ -376,8 +367,8 @@ void DIALOG_BOARD_REANNOTATE::MakeSampleText( wxString& aMessage )
                                      "rounded to a %s, %s grid." ),
                                   fpLocation ? _( "footprint location" )
                                              : _( "reference designator location" ),
-                                  MessageTextFromValue( m_units, m_sortGridx ),
-                                  MessageTextFromValue( m_units, m_sortGridy ) );
+                                  m_frame->MessageTextFromValue( m_sortGridx ),
+                                  m_frame->MessageTextFromValue( m_sortGridy ) );
 
     ShowReport( aMessage, RPT_SEVERITY_INFO );
 }
@@ -406,29 +397,27 @@ void DIALOG_BOARD_REANNOTATE::GetParameters()
 
     if( m_gridIndex >= ( int ) m_settings->m_Window.grid.sizes.size() )
     {
-        m_sortGridx = DoubleValueFromString( EDA_UNITS::MILS,
-                                             m_settings->m_Window.grid.user_grid_x );
-        m_sortGridy = DoubleValueFromString( EDA_UNITS::MILS,
-                                             m_settings->m_Window.grid.user_grid_y );
+        m_sortGridx = EDA_UNIT_UTILS::UI::DoubleValueFromString(
+                pcbIUScale, EDA_UNITS::MILS, m_settings->m_Window.grid.user_grid_x );
+        m_sortGridy = EDA_UNIT_UTILS::UI::DoubleValueFromString(
+                pcbIUScale, EDA_UNITS::MILS, m_settings->m_Window.grid.user_grid_y );
     }
     else
     {
-        m_sortGridx = DoubleValueFromString( EDA_UNITS::MILS,
-                                             m_settings->m_Window.grid.sizes[ m_gridIndex ] );
+        m_sortGridx = EDA_UNIT_UTILS::UI::DoubleValueFromString(
+                pcbIUScale, EDA_UNITS::MILS, m_settings->m_Window.grid.sizes[m_gridIndex] );
         m_sortGridy = m_sortGridx;
     }
 
-    int i = 0;
+    m_annotationScope = AnnotateAll;
 
-    for( wxRadioButton* button : AnnotateWhat )
+    for( wxRadioButton* button : m_scopeRadioButtons )
     {
         if( button->GetValue() )
             break;
         else
-            i++;
+            m_annotationScope++;
     }
-
-    m_annotationChoice = ( i >= (int) AnnotateWhat.size() ) ? AnnotationChoice::AnnotateAll : i;
 
     m_MessageWindow->SetLazyUpdate( true );
 }
@@ -493,8 +482,8 @@ static bool ModuleCompare( const RefDesInfo& aA, const RefDesInfo& aB )
 wxString DIALOG_BOARD_REANNOTATE::CoordTowxString( int aX, int aY )
 {
     return wxString::Format( wxT( "%s, %s" ),
-                             MessageTextFromValue( m_units, aX ),
-                             MessageTextFromValue( m_units, aY ) );
+                             m_frame->MessageTextFromValue( aX ),
+                             m_frame->MessageTextFromValue( aY ) );
 }
 
 
@@ -642,7 +631,7 @@ bool DIALOG_BOARD_REANNOTATE::ReannotateBoard()
 
 bool DIALOG_BOARD_REANNOTATE::BuildFootprintList( std::vector<RefDesInfo>& aBadRefDes )
 {
-    bool annotateSelected;
+    bool annotateSelected = m_AnnotateSelection->GetValue();
     bool annotateFront = m_AnnotateFront->GetValue(); // Unless only doing back
     bool annotateBack  = m_AnnotateBack->GetValue();  // Unless only doing front
     bool skipLocked    = m_ExcludeLocked->GetValue();
@@ -657,7 +646,7 @@ bool DIALOG_BOARD_REANNOTATE::BuildFootprintList( std::vector<RefDesInfo>& aBadR
 
     std::vector<KIID> selected;
 
-    if( m_AnnotateSelection->GetValue() )
+    if( annotateSelected )
     {
         for( EDA_ITEM* item : m_selection )
         {
@@ -666,8 +655,6 @@ bool DIALOG_BOARD_REANNOTATE::BuildFootprintList( std::vector<RefDesInfo>& aBadR
                 selected.push_back( item->m_Uuid );
         }
     }
-
-    annotateSelected = !selected.empty();
 
     wxString exclude;
 
@@ -799,7 +786,8 @@ bool DIALOG_BOARD_REANNOTATE::BuildFootprintList( std::vector<RefDesInfo>& aBadR
             {
                 if( m_changeArray[i].NewRefDes == m_changeArray[j].NewRefDes )
                 {
-                    ShowReport( wxString::Format( _( "Duplicate instances of %s" ), m_changeArray[j].NewRefDes ),
+                    ShowReport( wxString::Format( _( "Duplicate instances of %s" ),
+                                                  m_changeArray[j].NewRefDes ),
                                 RPT_SEVERITY_ERROR );
 
                     if( errorcount++ > MAXERROR )

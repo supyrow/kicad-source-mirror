@@ -38,6 +38,7 @@
 #include <dialog_find.h>
 #include <dialog_footprint_properties.h>
 #include <dialogs/dialog_exchange_footprints.h>
+#include <pcb_properties_panel.h>
 #include <dialog_board_setup.h>
 #include <invoke_pcb_dialog.h>
 #include <board.h>
@@ -51,7 +52,6 @@
 #include <pcb_painter.h>
 #include <project/project_file.h>
 #include <project/project_local_settings.h>
-#include <project/net_settings.h>
 #include <python_scripting.h>
 #include <settings/common_settings.h>
 #include <settings/settings_manager.h>
@@ -81,6 +81,7 @@
 #include <tools/pad_tool.h>
 #include <microwave/microwave_tool.h>
 #include <tools/position_relative_tool.h>
+#include <tools/properties_tool.h>
 #include <tools/zone_filler_tool.h>
 #include <tools/pcb_actions.h>
 #include <router/router_tool.h>
@@ -95,6 +96,7 @@
 #include <dialog_drc.h>     // for DIALOG_DRC_WINDOW_NAME definition
 #include <ratsnest/ratsnest_view_item.h>
 #include <widgets/appearance_controls.h>
+#include <widgets/pcb_search_pane.h>
 #include <widgets/infobar.h>
 #include <widgets/panel_selection_filter.h>
 #include <widgets/wx_aui_utils.h>
@@ -171,6 +173,8 @@ BEGIN_EVENT_TABLE( PCB_EDIT_FRAME, PCB_BASE_FRAME )
                          PCB_EDIT_FRAME::OnUpdateSelectTrackWidth )
     EVT_UPDATE_UI_RANGE( ID_POPUP_PCB_SELECT_VIASIZE1, ID_POPUP_PCB_SELECT_VIASIZE8,
                          PCB_EDIT_FRAME::OnUpdateSelectViaSize )
+    // Drop files event
+    EVT_DROP_FILES( PCB_EDIT_FRAME::OnDropFiles )
 END_EVENT_TABLE()
 
 
@@ -187,7 +191,9 @@ PCB_EDIT_FRAME::PCB_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
     m_SelLayerBox = nullptr;
     m_show_layer_manager_tools = true;
     m_supportsAutoSave = true;
-    m_syncingSchToPcbSelection = false;
+    m_probingSchToPcb = false;
+    m_show_properties = true;
+    m_show_search = false;
 
     // We don't know what state board was in when it was last saved, so we have to
     // assume dirty
@@ -207,7 +213,6 @@ PCB_EDIT_FRAME::PCB_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
                                           EDA_DRAW_PANEL_GAL::GAL_FALLBACK );
 
     SetCanvas( canvas );
-
     SetBoard( new BOARD() );
 
     wxIcon icon;
@@ -226,7 +231,7 @@ PCB_EDIT_FRAME::PCB_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
     // initialize parameters in m_LayersManager
     LoadSettings( config() );
 
-    SetScreen( new PCB_SCREEN( GetPageSettings().GetSizeIU() ) );
+    SetScreen( new PCB_SCREEN( GetPageSettings().GetSizeIU( pcbIUScale.IU_PER_MILS ) ) );
 
     // PCB drawings start in the upper left corner.
     GetScreen()->m_Center = false;
@@ -240,9 +245,13 @@ PCB_EDIT_FRAME::PCB_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
     ReCreateVToolbar();
     ReCreateOptToolbar();
 
+    if( ADVANCED_CFG::GetCfg().m_ShowPropertiesPanel )
+        m_propertiesPanel = new PCB_PROPERTIES_PANEL( this, this );
+
     m_selectionFilterPanel = new PANEL_SELECTION_FILTER( this );
 
     m_appearancePanel = new APPEARANCE_CONTROLS( this, GetCanvas() );
+    m_searchPane = new PCB_SEARCH_PANE( this );
 
     m_auimgr.SetManagedWindow( this );
 
@@ -281,12 +290,37 @@ PCB_EDIT_FRAME::PCB_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
                       .Caption( _( "Selection Filter" ) ).PaneBorder( false )
                       .MinSize( 180, -1 ).BestSize( 180, -1 ) );
 
+    if( ADVANCED_CFG::GetCfg().m_ShowPropertiesPanel )
+    {
+        m_auimgr.AddPane( m_propertiesPanel, EDA_PANE().Name( "PropertiesManager" )
+                          .Left().Layer( 5 ).Caption( _( "Properties" ) )
+                          .PaneBorder( false ).MinSize( 240, -1 ).BestSize( 300, -1 ) );
+    }
+
     // Center
     m_auimgr.AddPane( GetCanvas(), EDA_PANE().Canvas().Name( "DrawFrame" )
                       .Center() );
 
+
+    m_auimgr.AddPane( m_searchPane, EDA_PANE()
+                                                 .Name( SearchPaneName() )
+                                                 .Bottom()
+                                                 .Caption( _( "Search" ) )
+                                                 .PaneBorder( false )
+                                                 .MinSize( 180, -1 )
+                                                 .BestSize( 180, -1 )
+                                                 .FloatingSize( 480, 200 )
+                                                 .CloseButton( true )
+                                                 .DestroyOnClose( false ) );
+
+
     m_auimgr.GetPane( "LayersManager" ).Show( m_show_layer_manager_tools );
     m_auimgr.GetPane( "SelectionFilter" ).Show( m_show_layer_manager_tools );
+
+    bool showProperties = ADVANCED_CFG::GetCfg().m_ShowPropertiesPanel && m_show_properties;
+    m_auimgr.GetPane( "PropertiesManager" ).Show( showProperties );
+
+    m_auimgr.GetPane( SearchPaneName() ).Show( m_show_search );
 
     // The selection filter doesn't need to grow in the vertical direction when docked
     m_auimgr.GetPane( "SelectionFilter" ).dock_proportion = 0;
@@ -322,8 +356,11 @@ PCB_EDIT_FRAME::PCB_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
                 if( GetCanvas()->GetView()->GetViewport() != m_lastViewport )
                 {
                     m_lastViewport = GetCanvas()->GetView()->GetViewport();
-                    m_redrawNetnamesTimer.StartOnce( 100 );
+                    m_redrawNetnamesTimer.StartOnce( 500 );
                 }
+
+                // Do not forget to pass the Idle event to other clients:
+                aEvent.Skip();
             } );
 
     resolveCanvasType();
@@ -407,6 +444,10 @@ PCB_EDIT_FRAME::PCB_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
 
         m_eventCounterTimer->Start( 1000 );
     }
+
+    m_acceptedExts.emplace( KiCadPcbFileExtension, &PCB_ACTIONS::ddAppendBoard );
+    m_acceptedExts.emplace( LegacyPcbFileExtension, &PCB_ACTIONS::ddAppendBoard );
+    DragAcceptFiles( true );
 }
 
 
@@ -430,11 +471,12 @@ PCB_EDIT_FRAME::~PCB_EDIT_FRAME()
         m_toolManager->ShutdownAllTools();
 
     if( GetBoard() )
-        GetBoard()->RemoveListener( m_appearancePanel );
+        GetBoard()->RemoveAllListeners();
 
     delete m_selectionFilterPanel;
     delete m_appearancePanel;
     delete m_exportNetlistAction;
+    delete m_propertiesPanel;
 }
 
 
@@ -449,7 +491,7 @@ void PCB_EDIT_FRAME::SetBoard( BOARD* aBoard, bool aBuildConnectivity,
     aBoard->SetProject( &Prj() );
 
     if( aBuildConnectivity )
-        aBoard->GetConnectivity()->Build( aBoard );
+        aBoard->BuildConnectivity();
 
     // reload the drawing-sheet
     SetPageSettings( aBoard->GetPageSettings() );
@@ -464,15 +506,42 @@ BOARD_ITEM_CONTAINER* PCB_EDIT_FRAME::GetModel() const
 
 void PCB_EDIT_FRAME::redrawNetnames( wxTimerEvent& aEvent )
 {
+    bool needs_refresh = false;
+
+    // Don't stomp on the auto-save timer event.
+    if( aEvent.GetId() == ID_AUTO_SAVE_TIMER )
+    {
+        aEvent.Skip();
+        return;
+    }
+
+    PCBNEW_SETTINGS* cfg = dynamic_cast<PCBNEW_SETTINGS*>( Kiface().KifaceSettings() );
+
+    if( !cfg || cfg->m_Display.m_NetNames < 2 )
+        return;
+
     KIGFX::VIEW* view = GetCanvas()->GetView();
 
     for( PCB_TRACK* track : GetBoard()->Tracks() )
     {
-        if( track->ViewGetLOD( GetNetnameLayer( track->GetLayer() ), view ) < view->GetScale() )
-            view->Update( track, KIGFX::REPAINT );
+        double lod = track->ViewGetLOD( GetNetnameLayer( track->GetLayer() ), view );
+        double scale = view->GetScale();
+
+        if( lod != track->GetCachedLOD() || scale != track->GetCachedScale() )
+        {
+            if( lod < view->GetScale() )
+            {
+                view->Update( track, KIGFX::REPAINT );
+                needs_refresh = true;
+            }
+
+            track->SetCachedLOD( lod );
+            track->SetCachedScale( scale );
+        }
     }
 
-    GetCanvas()->Refresh();
+    if( needs_refresh )
+        GetCanvas()->Refresh();
 }
 
 
@@ -481,11 +550,14 @@ void PCB_EDIT_FRAME::SetPageSettings( const PAGE_INFO& aPageSettings )
     PCB_BASE_FRAME::SetPageSettings( aPageSettings );
 
     // Prepare drawing-sheet template
-    DS_PROXY_VIEW_ITEM* drawingSheet = new DS_PROXY_VIEW_ITEM( IU_PER_MILS,
+    DS_PROXY_VIEW_ITEM* drawingSheet = new DS_PROXY_VIEW_ITEM( pcbIUScale.IU_PER_MILS,
                                                                &m_pcb->GetPageSettings(),
                                                                m_pcb->GetProject(),
-                                                               &m_pcb->GetTitleBlock() );
+                                                               &m_pcb->GetTitleBlock(),
+                                                               &m_pcb->GetProperties() );
+
     drawingSheet->SetSheetName( std::string( GetScreenDesc().mb_str() ) );
+
     // A board is not like a schematic having a main page and sub sheets.
     // So for the drawing sheet, use only the first page option to display items
     drawingSheet->SetIsFirstPage( true );
@@ -509,15 +581,6 @@ void PCB_EDIT_FRAME::SetPageSettings( const PAGE_INFO& aPageSettings )
 bool PCB_EDIT_FRAME::IsContentModified() const
 {
     return GetScreen() && GetScreen()->IsContentModified();
-}
-
-
-bool PCB_EDIT_FRAME::isAutoSaveRequired() const
-{
-    if( GetScreen() )
-        return GetScreen()->IsContentModified();
-
-    return false;
 }
 
 
@@ -563,7 +626,14 @@ void PCB_EDIT_FRAME::setupTools()
     m_toolManager->RegisterTool( new CONVERT_TOOL );
     m_toolManager->RegisterTool( new GROUP_TOOL );
     m_toolManager->RegisterTool( new SCRIPTING_TOOL );
+    m_toolManager->RegisterTool( new PROPERTIES_TOOL );
     m_toolManager->InitTools();
+
+    for( TOOL_BASE* tool : m_toolManager->Tools() )
+    {
+        if( PCB_TOOL_BASE* pcbTool = dynamic_cast<PCB_TOOL_BASE*>( tool ) )
+            pcbTool->SetIsBoardEditor( true );
+    }
 
     // Run the selection tool, it is supposed to be always active
     m_toolManager->InvokeTool( "pcbnew.InteractiveSelection" );
@@ -615,8 +685,6 @@ void PCB_EDIT_FRAME::setupUIConditions()
                 return false;
             };
 
-    mgr->SetConditions( PCB_ACTIONS::rotateCw, ENABLE( cond.HasItems() ) );
-    mgr->SetConditions( PCB_ACTIONS::rotateCcw, ENABLE( cond.HasItems() ) );
     mgr->SetConditions( PCB_ACTIONS::group, ENABLE( SELECTION_CONDITIONS::MoreThan( 1 ) ) );
     mgr->SetConditions( PCB_ACTIONS::ungroup, ENABLE( haveAtLeastOneGroupCond ) );
     mgr->SetConditions( PCB_ACTIONS::lock, ENABLE( cond.HasItems() ) );
@@ -651,59 +719,78 @@ void PCB_EDIT_FRAME::setupUIConditions()
 
     mgr->SetConditions( ACTIONS::toggleBoundingBoxes, CHECK( cond.BoundingBoxes() ) );
 
-    auto enableBoardSetupCondition =
-        [this] ( const SELECTION& )
-        {
-            if( DRC_TOOL* tool = m_toolManager->GetTool<DRC_TOOL>() )
-                return !tool->IsDRCDialogShown();
+    auto constrainedDrawingModeCond =
+            [this]( const SELECTION& )
+            {
+                return GetPcbNewSettings()->m_Use45DegreeLimit;
+            };
 
-            return true;
-        };
+    auto enableBoardSetupCondition =
+            [this] ( const SELECTION& )
+            {
+                if( DRC_TOOL* tool = m_toolManager->GetTool<DRC_TOOL>() )
+                    return !tool->IsDRCDialogShown();
+
+                return true;
+            };
 
     auto boardFlippedCond =
-        [this]( const SELECTION& )
-        {
-            return GetCanvas()->GetView()->IsMirroredX();
-        };
+            [this]( const SELECTION& )
+            {
+                return GetCanvas()->GetView()->IsMirroredX();
+            };
 
     auto layerManagerCond =
+            [this] ( const SELECTION& )
+            {
+                return LayerManagerShown();
+            };
+
+    auto propertiesCond =
         [this] ( const SELECTION& )
         {
-            return LayerManagerShown();
+            return PropertiesShown();
+        };
+
+    auto searchPaneCond =
+        [this] ( const SELECTION& )
+        {
+            return m_auimgr.GetPane( SearchPaneName() ).IsShown();
         };
 
     auto highContrastCond =
-        [this] ( const SELECTION& )
-        {
-            return GetDisplayOptions().m_ContrastModeDisplay != HIGH_CONTRAST_MODE::NORMAL;
-        };
+            [this] ( const SELECTION& )
+            {
+                return GetDisplayOptions().m_ContrastModeDisplay != HIGH_CONTRAST_MODE::NORMAL;
+            };
 
     auto globalRatsnestCond =
-        [this] (const SELECTION& )
-        {
-            return Settings().m_Display.m_ShowGlobalRatsnest;
-        };
+            [this] (const SELECTION& )
+            {
+                return GetPcbNewSettings()->m_Display.m_ShowGlobalRatsnest;
+            };
 
     auto curvedRatsnestCond =
-        [this] (const SELECTION& )
-        {
-            return Settings().m_Display.m_DisplayRatsnestLinesCurved;
-        };
+            [this] (const SELECTION& )
+            {
+                return GetPcbNewSettings()->m_Display.m_DisplayRatsnestLinesCurved;
+            };
 
     auto netHighlightCond =
-        [this]( const SELECTION& )
-        {
-            KIGFX::RENDER_SETTINGS* settings = GetCanvas()->GetView()->GetPainter()->GetSettings();
-            return !settings->GetHighlightNetCodes().empty();
-        };
+            [this]( const SELECTION& )
+            {
+                KIGFX::RENDER_SETTINGS* settings = GetCanvas()->GetView()->GetPainter()->GetSettings();
+                return !settings->GetHighlightNetCodes().empty();
+            };
 
     auto enableNetHighlightCond =
-        [this]( const SELECTION& )
-        {
-            BOARD_INSPECTION_TOOL* tool = m_toolManager->GetTool<BOARD_INSPECTION_TOOL>();
-            return tool->IsNetHighlightSet();
-        };
+            [this]( const SELECTION& )
+            {
+                BOARD_INSPECTION_TOOL* tool = m_toolManager->GetTool<BOARD_INSPECTION_TOOL>();
+                return tool->IsNetHighlightSet();
+            };
 
+    mgr->SetConditions( PCB_ACTIONS::toggleHV45Mode,       CHECK( constrainedDrawingModeCond ) );
     mgr->SetConditions( ACTIONS::highContrastMode,         CHECK( highContrastCond ) );
     mgr->SetConditions( PCB_ACTIONS::flipBoard,            CHECK( boardFlippedCond ) );
     mgr->SetConditions( PCB_ACTIONS::showLayersManager,    CHECK( layerManagerCond ) );
@@ -712,73 +799,78 @@ void PCB_EDIT_FRAME::setupUIConditions()
     mgr->SetConditions( PCB_ACTIONS::toggleNetHighlight,   CHECK( netHighlightCond )
                                                            .Enable( enableNetHighlightCond ) );
     mgr->SetConditions( PCB_ACTIONS::boardSetup,           ENABLE( enableBoardSetupCondition ) );
+    mgr->SetConditions( PCB_ACTIONS::showProperties,       CHECK( propertiesCond ) );
+    mgr->SetConditions( PCB_ACTIONS::showSearch,           CHECK( searchPaneCond ) );
 
     auto isHighlightMode =
-        [this]( const SELECTION& )
-        {
-            ROUTER_TOOL* tool = m_toolManager->GetTool<ROUTER_TOOL>();
-            return tool->GetRouterMode() == PNS::RM_MarkObstacles;
-        };
+            [this]( const SELECTION& )
+            {
+                ROUTER_TOOL* tool = m_toolManager->GetTool<ROUTER_TOOL>();
+                return tool->GetRouterMode() == PNS::RM_MarkObstacles;
+            };
 
     auto isShoveMode =
-        [this]( const SELECTION& )
-        {
-            ROUTER_TOOL* tool = m_toolManager->GetTool<ROUTER_TOOL>();
-            return tool->GetRouterMode() == PNS::RM_Shove;
-        };
+            [this]( const SELECTION& )
+            {
+                ROUTER_TOOL* tool = m_toolManager->GetTool<ROUTER_TOOL>();
+                return tool->GetRouterMode() == PNS::RM_Shove;
+            };
 
     auto isWalkaroundMode =
-        [this]( const SELECTION& )
-        {
-            ROUTER_TOOL* tool = m_toolManager->GetTool<ROUTER_TOOL>();
-            return tool->GetRouterMode() == PNS::RM_Walkaround;
-        };
+            [this]( const SELECTION& )
+            {
+                ROUTER_TOOL* tool = m_toolManager->GetTool<ROUTER_TOOL>();
+                return tool->GetRouterMode() == PNS::RM_Walkaround;
+            };
 
     mgr->SetConditions( PCB_ACTIONS::routerHighlightMode,  CHECK( isHighlightMode ) );
     mgr->SetConditions( PCB_ACTIONS::routerShoveMode,      CHECK( isShoveMode ) );
     mgr->SetConditions( PCB_ACTIONS::routerWalkaroundMode, CHECK( isWalkaroundMode ) );
 
     auto haveNetCond =
-        [] ( const SELECTION& aSel )
-        {
-            for( EDA_ITEM* item : aSel )
+            [] ( const SELECTION& aSel )
             {
-                if( BOARD_CONNECTED_ITEM* bci = dynamic_cast<BOARD_CONNECTED_ITEM*>( item ) )
+                for( EDA_ITEM* item : aSel )
                 {
-                    if( bci->GetNetCode() > 0 )
-                        return true;
+                    if( BOARD_CONNECTED_ITEM* bci = dynamic_cast<BOARD_CONNECTED_ITEM*>( item ) )
+                    {
+                        if( bci->GetNetCode() > 0 )
+                            return true;
+                    }
                 }
-            }
 
-            return false;
-        };
+                return false;
+            };
 
-    mgr->SetConditions( PCB_ACTIONS::showNet,      ENABLE( haveNetCond ) );
-    mgr->SetConditions( PCB_ACTIONS::hideNet,      ENABLE( haveNetCond ) );
-    mgr->SetConditions( PCB_ACTIONS::highlightNet, ENABLE( haveNetCond ) );
+    mgr->SetConditions( PCB_ACTIONS::showNetInRatsnest,     ENABLE( haveNetCond ) );
+    mgr->SetConditions( PCB_ACTIONS::hideNetInRatsnest,     ENABLE( haveNetCond ) );
+    mgr->SetConditions( PCB_ACTIONS::highlightNet,          ENABLE( SELECTION_CONDITIONS::ShowAlways ) );
+    mgr->SetConditions( PCB_ACTIONS::highlightNetSelection, ENABLE( SELECTION_CONDITIONS::ShowAlways ) );
 
     mgr->SetConditions( PCB_ACTIONS::selectNet,
-                        ENABLE( SELECTION_CONDITIONS::OnlyTypes( GENERAL_COLLECTOR::Tracks ) ) );
+                        ENABLE( SELECTION_CONDITIONS::OnlyTypes( { PCB_TRACE_T, PCB_ARC_T, PCB_VIA_T } ) ) );
     mgr->SetConditions( PCB_ACTIONS::deselectNet,
-                        ENABLE( SELECTION_CONDITIONS::OnlyTypes( GENERAL_COLLECTOR::Tracks ) ) );
+                        ENABLE( SELECTION_CONDITIONS::OnlyTypes( { PCB_TRACE_T, PCB_ARC_T, PCB_VIA_T } ) ) );
+    mgr->SetConditions( PCB_ACTIONS::selectUnconnected,
+                        ENABLE( SELECTION_CONDITIONS::OnlyTypes( { PCB_FOOTPRINT_T, PCB_PAD_T, PCB_TRACE_T, PCB_ARC_T, PCB_VIA_T } ) ) );
     mgr->SetConditions( PCB_ACTIONS::selectSameSheet,
-                        ENABLE( SELECTION_CONDITIONS::OnlyType( PCB_FOOTPRINT_T ) ) );
+                        ENABLE( SELECTION_CONDITIONS::OnlyTypes( { PCB_FOOTPRINT_T } ) ) );
+    mgr->SetConditions( PCB_ACTIONS::selectOnSchematic,
+                        ENABLE( SELECTION_CONDITIONS::HasTypes( { PCB_PAD_T, PCB_FOOTPRINT_T, PCB_GROUP_T } ) ) );
 
 
     SELECTION_CONDITION singleZoneCond = SELECTION_CONDITIONS::Count( 1 )
-                                    && SELECTION_CONDITIONS::OnlyTypes( GENERAL_COLLECTOR::Zones );
+                                    && SELECTION_CONDITIONS::OnlyTypes( { PCB_ZONE_T, PCB_FP_ZONE_T } );
 
     SELECTION_CONDITION zoneMergeCond = SELECTION_CONDITIONS::MoreThan( 1 )
-                                    && SELECTION_CONDITIONS::OnlyTypes( GENERAL_COLLECTOR::Zones );
+                                    && SELECTION_CONDITIONS::OnlyTypes( { PCB_ZONE_T, PCB_FP_ZONE_T } );
 
-    mgr->SetConditions( PCB_ACTIONS::zoneDuplicate, ENABLE( singleZoneCond ) );
-    mgr->SetConditions( PCB_ACTIONS::drawZoneCutout, ENABLE( singleZoneCond ) );
+    mgr->SetConditions( PCB_ACTIONS::zoneDuplicate,   ENABLE( singleZoneCond ) );
+    mgr->SetConditions( PCB_ACTIONS::drawZoneCutout,  ENABLE( singleZoneCond ) );
     mgr->SetConditions( PCB_ACTIONS::drawSimilarZone, ENABLE( singleZoneCond ) );
-    mgr->SetConditions( PCB_ACTIONS::zoneMerge, ENABLE( zoneMergeCond ) );
-    mgr->SetConditions( PCB_ACTIONS::zoneFill, ENABLE( SELECTION_CONDITIONS::MoreThan( 0 ) ) );
-    mgr->SetConditions( PCB_ACTIONS::zoneUnfill, ENABLE( SELECTION_CONDITIONS::MoreThan( 0 ) ) );
+    mgr->SetConditions( PCB_ACTIONS::zoneMerge,       ENABLE( zoneMergeCond ) );
 
-    mgr->SetConditions( PCB_ACTIONS::toggle45, CHECK( cond.Get45degMode() ) );
+    mgr->SetConditions( PCB_ACTIONS::toggleHV45Mode,  CHECK( cond.Get45degMode() ) );
 
 #define CURRENT_TOOL( action ) mgr->SetConditions( action, CHECK( cond.CurrentTool( action ) ) )
 
@@ -790,11 +882,11 @@ void PCB_EDIT_FRAME::setupUIConditions()
 
 
     auto isDrcRunning =
-        [this] ( const SELECTION& )
-        {
-            DRC_TOOL* tool = m_toolManager->GetTool<DRC_TOOL>();
-            return !tool->IsDRCRunning();
-        };
+            [this] ( const SELECTION& )
+            {
+                DRC_TOOL* tool = m_toolManager->GetTool<DRC_TOOL>();
+                return !tool->IsDRCRunning();
+            };
 
 #define CURRENT_EDIT_TOOL( action ) mgr->SetConditions( action, ACTION_CONDITIONS().Check( cond.CurrentTool( action ) ).Enable( isDrcRunning ) )
 
@@ -814,6 +906,7 @@ void PCB_EDIT_FRAME::setupUIConditions()
     CURRENT_EDIT_TOOL( PCB_ACTIONS::drawCircle );
     CURRENT_EDIT_TOOL( PCB_ACTIONS::drawArc );
     CURRENT_EDIT_TOOL( PCB_ACTIONS::drawPolygon );
+    CURRENT_EDIT_TOOL( PCB_ACTIONS::placeImage );
     CURRENT_EDIT_TOOL( PCB_ACTIONS::placeText );
     CURRENT_EDIT_TOOL( PCB_ACTIONS::drawTextBox );
     CURRENT_EDIT_TOOL( PCB_ACTIONS::drawAlignedDimension );
@@ -821,7 +914,6 @@ void PCB_EDIT_FRAME::setupUIConditions()
     CURRENT_EDIT_TOOL( PCB_ACTIONS::drawCenterDimension );
     CURRENT_EDIT_TOOL( PCB_ACTIONS::drawRadialDimension );
     CURRENT_EDIT_TOOL( PCB_ACTIONS::drawLeader );
-    CURRENT_EDIT_TOOL( PCB_ACTIONS::placeTarget );
     CURRENT_EDIT_TOOL( PCB_ACTIONS::drillOrigin );
     CURRENT_EDIT_TOOL( PCB_ACTIONS::gridSetOrigin );
 
@@ -866,9 +958,14 @@ void PCB_EDIT_FRAME::ResolveDRCExclusions()
     BOARD_COMMIT commit( this );
 
     for( PCB_MARKER* marker : GetBoard()->ResolveDRCExclusions() )
-        commit.Add( marker );
+    {
+        if( marker->GetMarkerType() == MARKER_BASE::MARKER_DRAWING_SHEET )
+            marker->GetRCItem()->SetItems( GetCanvas()->GetDrawingSheet() );
 
-    commit.Push( wxEmptyString, false, false );
+        commit.Add( marker );
+    }
+
+    commit.Push( wxEmptyString, SKIP_UNDO | SKIP_SET_DIRTY | SKIP_CONNECTIVITY );
 
     for( PCB_MARKER* marker : GetBoard()->Markers() )
     {
@@ -878,6 +975,8 @@ void PCB_EDIT_FRAME::ResolveDRCExclusions()
             GetCanvas()->GetView()->Add( marker );
         }
     }
+
+    GetBoard()->UpdateRatsnestExclusions();
 }
 
 
@@ -984,7 +1083,10 @@ void PCB_EDIT_FRAME::doCloseWindow()
     // on some platforms (Windows) that generate useless redraw of items in
     // the Layer Manager
     if( m_show_layer_manager_tools )
+    {
         m_auimgr.GetPane( "LayersManager" ).Show( false );
+        m_auimgr.GetPane( "TabbedPanel" ).Show( false );
+    }
 
     // Unlink the old project if needed
     GetBoard()->ClearProject();
@@ -1021,32 +1123,32 @@ void PCB_EDIT_FRAME::ShowBoardSetupDialog( const wxString& aInitialPage )
 
     if( dlg.ShowQuasiModal() == wxID_OK )
     {
-        Prj().GetProjectFile().NetSettings().RebuildNetClassAssignments();
-
         GetBoard()->SynchronizeNetsAndNetClasses();
         SaveProjectSettings();
 
         Kiway().CommonSettingsChanged( false, true );
 
         PCBNEW_SETTINGS* settings = GetPcbNewSettings();
+        static LSET      maskAndPasteLayers = LSET( 4, F_Mask, F_Paste, B_Mask, B_Paste );
+
+        bool maskOrPasteVisible = ( GetBoard()->GetVisibleLayers() & maskAndPasteLayers ).any();
 
         GetCanvas()->GetView()->UpdateAllItemsConditionally( KIGFX::REPAINT,
                 [&]( KIGFX::VIEW_ITEM* aItem ) -> bool
                 {
                     if( dynamic_cast<PCB_TRACK*>( aItem ) )
                     {
-                        if( settings->m_Display.m_PadClearance )
-                            return true;        // clearance values
+                        return settings->m_Display.m_TrackClearance == SHOW_WITH_VIA_ALWAYS;
                     }
                     else if( dynamic_cast<PAD*>( aItem ) )
                     {
-                        if( settings->m_Display.m_TrackClearance == SHOW_WITH_VIA_ALWAYS )
-                            return true;        // clearance values
+                        return settings->m_Display.m_PadClearance || maskOrPasteVisible;
                     }
                     else if( dynamic_cast<EDA_TEXT*>( aItem ) )
                     {
-                        if( dynamic_cast<EDA_TEXT*>( aItem )->HasTextVars() )
-                            return true;        // text variables
+                        EDA_TEXT* text = dynamic_cast<EDA_TEXT*>( aItem );
+
+                        return text->HasTextVars();
                     }
 
                     return false;
@@ -1078,6 +1180,8 @@ void PCB_EDIT_FRAME::LoadSettings( APP_SETTINGS_BASE* aCfg )
     if( cfg )
     {
         m_show_layer_manager_tools = cfg->m_AuiPanels.show_layer_manager;
+        m_show_properties          = cfg->m_AuiPanels.show_properties;
+        m_show_search              = cfg->m_AuiPanels.show_search;
     }
 }
 
@@ -1094,6 +1198,11 @@ void PCB_EDIT_FRAME::SaveSettings( APP_SETTINGS_BASE* aCfg )
         cfg->m_AuiPanels.show_layer_manager   = m_show_layer_manager_tools;
         cfg->m_AuiPanels.right_panel_width    = m_appearancePanel->GetSize().x;
         cfg->m_AuiPanels.appearance_panel_tab = m_appearancePanel->GetTabIndex();
+        cfg->m_AuiPanels.show_properties = m_show_properties;
+
+        // ensure m_show_search is up to date (the pane can be closed)
+        m_show_search = m_auimgr.GetPane( SearchPaneName() ).IsShown();
+        cfg->m_AuiPanels.show_search = m_show_search;
     }
 }
 
@@ -1149,7 +1258,7 @@ void PCB_EDIT_FRAME::SetActiveLayer( PCB_LAYER_ID aLayer )
                 {
                     // Clearances could be layer-dependent so redraw them when the active layer
                     // is changed
-                    if( Settings().m_Display.m_PadClearance )
+                    if( GetPcbNewSettings()->m_Display.m_PadClearance )
                     {
                         // Round-corner rects are expensive to draw, but are mostly found on
                         // SMD pads which only need redrawing on an active-to-not-active
@@ -1170,7 +1279,7 @@ void PCB_EDIT_FRAME::SetActiveLayer( PCB_LAYER_ID aLayer )
                 {
                     // Clearances could be layer-dependent so redraw them when the active layer
                     // is changed
-                    if( Settings().m_Display.m_TrackClearance )
+                    if( GetPcbNewSettings()->m_Display.m_TrackClearance )
                     {
                         // Tracks aren't particularly expensive to draw, but it's an easy check.
                         return track->IsOnLayer( oldLayer ) || track->IsOnLayer( aLayer );
@@ -1222,7 +1331,8 @@ void PCB_EDIT_FRAME::onBoardLoaded()
     {
         m_infoBar->RemoveAllButtons();
         m_infoBar->AddCloseButton();
-        m_infoBar->ShowMessage( _( "Board file is read only." ), wxICON_WARNING );
+        m_infoBar->ShowMessage( _( "Board file is read only." ),
+                                wxICON_WARNING, WX_INFOBAR::MESSAGE_TYPE::OUTDATED_SAVE );
     }
 
     ReCreateLayerBox();
@@ -1230,7 +1340,7 @@ void PCB_EDIT_FRAME::onBoardLoaded()
     // Sync layer and item visibility
     GetCanvas()->SyncLayersVisibility( m_pcb );
 
-    SetElementVisibility( LAYER_RATSNEST, Settings().m_Display.m_ShowGlobalRatsnest );
+    SetElementVisibility( LAYER_RATSNEST, GetPcbNewSettings()->m_Display.m_ShowGlobalRatsnest );
 
     m_appearancePanel->OnBoardChanged();
 
@@ -1289,12 +1399,15 @@ void PCB_EDIT_FRAME::ShowChangedLanguage()
     // call my base class
     PCB_BASE_EDIT_FRAME::ShowChangedLanguage();
 
-    wxAuiPaneInfo& pane_info = m_auimgr.GetPane( m_appearancePanel );
-    pane_info.Caption( _( "Appearance" ) );
+    m_auimgr.GetPane( m_appearancePanel ).Caption( _( "Appearance" ) );
+    m_auimgr.GetPane( m_selectionFilterPanel ).Caption( _( "Selection Filter" ) );
+    m_auimgr.GetPane( m_propertiesPanel ).Caption( _( "Properties" ) );
     m_auimgr.Update();
 
     m_appearancePanel->OnLanguageChanged();
     m_selectionFilterPanel->OnLanguageChanged();
+
+    UpdateTitle();
 }
 
 
@@ -1330,11 +1443,11 @@ void PCB_EDIT_FRAME::SetLastPath( LAST_PATH_TYPE aType, const wxString& aLastPat
 }
 
 
-void PCB_EDIT_FRAME::OnModify( )
+void PCB_EDIT_FRAME::OnModify()
 {
     PCB_BASE_FRAME::OnModify();
 
-    Update3DView( true, Settings().m_Display.m_Live3DRefresh );
+    Update3DView( true, GetPcbNewSettings()->m_Display.m_Live3DRefresh );
 
     if( !GetTitle().StartsWith( wxT( "*" ) ) )
         UpdateTitle();
@@ -1392,7 +1505,6 @@ void PCB_EDIT_FRAME::UpdateUserInterface()
 
     // Rebuild list of nets (full ratsnest rebuild)
     GetBoard()->BuildConnectivity();
-    Compile_Ratsnest( true );
 
     // Update info shown by the horizontal toolbars
     ReCreateLayerBox();
@@ -1419,11 +1531,8 @@ void PCB_EDIT_FRAME::UpdateUserInterface()
     }
 
     // Sync visibility with canvas
-    KIGFX::VIEW* view    = GetCanvas()->GetView();
-    LSET         visible = GetBoard()->GetVisibleLayers();
-
     for( PCB_LAYER_ID layer : LSET::AllLayersMask().Seq() )
-        view->SetLayerVisible( layer, visible.Contains( layer ) );
+        GetCanvas()->GetView()->SetLayerVisible( layer, GetBoard()->IsLayerVisible( layer ) );
 
     // Stackup and/or color theme may have changed
     m_appearancePanel->OnBoardChanged();
@@ -1446,6 +1555,39 @@ void PCB_EDIT_FRAME::ShowFindDialog()
                                               m_toolManager->GetTool<PCB_SELECTION_TOOL>(), _1 ) );
     }
 
+    wxString findString;
+
+    PCB_SELECTION& selection = m_toolManager->GetTool<PCB_SELECTION_TOOL>()->GetSelection();
+
+    if( selection.Size() == 1 )
+    {
+        EDA_ITEM* front = selection.Front();
+
+        switch( front->Type() )
+        {
+        case PCB_FOOTPRINT_T:
+            findString = static_cast<FOOTPRINT*>( front )->GetValue();
+            break;
+
+        case PCB_FP_TEXT_T:
+            findString = static_cast<FP_TEXT*>( front )->GetShownText();
+            break;
+
+        case PCB_TEXT_T:
+            findString = static_cast<PCB_TEXT*>( front )->GetShownText();
+
+            if( findString.Contains( wxT( "\n" ) ) )
+                findString = findString.Before( '\n' );
+
+            break;
+
+        default:
+            break;
+        }
+    }
+
+    m_findDialog->Preload( findString );
+
     m_findDialog->Show( true );
 }
 
@@ -1453,11 +1595,7 @@ void PCB_EDIT_FRAME::ShowFindDialog()
 void PCB_EDIT_FRAME::FindNext()
 {
     if( !m_findDialog )
-    {
-        m_findDialog = new DIALOG_FIND( this );
-        m_findDialog->SetCallback( std::bind( &PCB_SELECTION_TOOL::FindItem,
-                                              m_toolManager->GetTool<PCB_SELECTION_TOOL>(), _1 ) );
-    }
+        ShowFindDialog();
 
     m_findDialog->FindNext();
 }
@@ -1499,14 +1637,19 @@ void PCB_EDIT_FRAME::ToPlotter( int aID )
 }
 
 
-bool PCB_EDIT_FRAME::TestStandalone()
+int PCB_EDIT_FRAME::TestStandalone()
 {
     if( Kiface().IsSingle() )
-        return false;
+        return 0;
 
     // Update PCB requires a netlist. Therefore the schematic editor must be running
     // If this is not the case, open the schematic editor
     KIWAY_PLAYER* frame = Kiway().Player( FRAME_SCH, true );
+
+    // If Kiway() cannot create the eeschema frame, it shows a error message, and
+    // frame is null
+    if( !frame )
+        return -1;
 
     if( !frame->IsShown() )
     {
@@ -1522,7 +1665,7 @@ bool PCB_EDIT_FRAME::TestStandalone()
             if( !fn.FileExists() )
             {
                 DisplayError( this, _( "The schematic for this board cannot be found." ) );
-                return false;
+                return -2;
             }
         }
 
@@ -1536,14 +1679,14 @@ bool PCB_EDIT_FRAME::TestStandalone()
         Raise();
     }
 
-    return true;            //Success!
+    return 1;            //Success!
 }
 
 
 bool PCB_EDIT_FRAME::FetchNetlistFromSchematic( NETLIST& aNetlist,
                                                 const wxString& aAnnotateMessage )
 {
-    if( !TestStandalone() )
+    if( TestStandalone() == 0 )
     {
         DisplayErrorMessage( this, _( "Cannot update the PCB because PCB editor is opened in "
                                       "stand-alone mode. In order to create or update PCBs from "
@@ -1551,6 +1694,9 @@ bool PCB_EDIT_FRAME::FetchNetlistFromSchematic( NETLIST& aNetlist,
                                       "create a project." ) );
         return false;       // Not in standalone mode
     }
+
+    if( TestStandalone() < 0 )      // Problem with Eeschema or the schematic
+        return false;
 
     Raise();                // Show
 
@@ -1641,6 +1787,11 @@ void PCB_EDIT_FRAME::RunEeschema()
             }
         }
 
+        // If Kiway() cannot create the eeschema frame, it shows a error message, and
+        // frame is null
+        if( !frame )
+            return;
+
         if( !frame->IsShown() ) // the frame exists, (created by the dialog field editor)
                                 // but no project loaded.
         {
@@ -1653,6 +1804,7 @@ void PCB_EDIT_FRAME::RunEeschema()
         if( frame->IsIconized() )
         {
             frame->Iconize( false );
+
             // If an iconized frame was created by Pcbnew, Iconize( false ) is not enough
             // to show the frame at its normal size: Maximize should be called.
             frame->Maximize( false );
@@ -1669,12 +1821,12 @@ void PCB_EDIT_FRAME::PythonSyncEnvironmentVariables()
 
     // Set the environment variables for python scripts
     // note: the string will be encoded UTF8 for python env
-    for( auto& var : vars )
+    for( const std::pair<const wxString, ENV_VAR_ITEM>& var : vars )
         UpdatePythonEnvVar( var.first, var.second.GetValue() );
 
     // Because the env vars can be modified by the python scripts (rewritten in UTF8),
     // regenerate them (in Unicode) for our normal environment
-    for( auto& var : vars )
+    for( const std::pair<const wxString, ENV_VAR_ITEM>& var : vars )
         wxSetEnv( var.first, var.second.GetValue() );
 }
 
@@ -1706,8 +1858,7 @@ void PCB_EDIT_FRAME::ShowFootprintPropertiesDialog( FOOTPRINT* aFootprint )
     {
         DIALOG_FOOTPRINT_PROPERTIES dlg( this, aFootprint );
 
-        // We use quasi modal to allow displaying help dialogs.
-        dlg.ShowQuasiModal();
+        dlg.ShowModal();
         retvalue = dlg.GetReturnValue();
     }
 
@@ -1735,7 +1886,6 @@ void PCB_EDIT_FRAME::ShowFootprintPropertiesDialog( FOOTPRINT* aFootprint )
         editor->Show( true );
         editor->Raise();        // Iconize( false );
     }
-
     else if( retvalue == DIALOG_FOOTPRINT_PROPERTIES::FP_PROPS_EDIT_LIBRARY_FP )
     {
         auto editor = (FOOTPRINT_EDIT_FRAME*) Kiway().Player( FRAME_FOOTPRINT_EDITOR, true );
@@ -1745,12 +1895,10 @@ void PCB_EDIT_FRAME::ShowFootprintPropertiesDialog( FOOTPRINT* aFootprint )
         editor->Show( true );
         editor->Raise();        // Iconize( false );
     }
-
     else if( retvalue == DIALOG_FOOTPRINT_PROPERTIES::FP_PROPS_UPDATE_FP )
     {
         ShowExchangeFootprintsDialog( aFootprint, true, true );
     }
-
     else if( retvalue == DIALOG_FOOTPRINT_PROPERTIES::FP_PROPS_CHANGE_FP )
     {
         ShowExchangeFootprintsDialog( aFootprint, false, true );
@@ -1773,14 +1921,15 @@ void PCB_EDIT_FRAME::CommonSettingsChanged( bool aEnvVarsChanged, bool aTextVars
 
     GetAppearancePanel()->OnColorThemeChanged();
 
-    auto* painter = static_cast<KIGFX::PCB_PAINTER*>( GetCanvas()->GetView()->GetPainter() );
-    auto* renderSettings = painter->GetSettings();
-    renderSettings->LoadDisplayOptions( GetDisplayOptions() );
-    SetElementVisibility( LAYER_NO_CONNECTS, Settings().m_Display.m_PadNoConnects );
-    SetElementVisibility( LAYER_RATSNEST, Settings().m_Display.m_ShowGlobalRatsnest );
+    KIGFX::PCB_VIEW*            view = GetCanvas()->GetView();
+    KIGFX::PCB_PAINTER*         painter = static_cast<KIGFX::PCB_PAINTER*>( view->GetPainter() );
+    KIGFX::PCB_RENDER_SETTINGS* renderSettings = painter->GetSettings();
 
-    auto cfg = Pgm().GetSettingsManager().GetAppSettings<PCBNEW_SETTINGS>();
-    GetGalDisplayOptions().ReadWindowSettings( cfg->m_Window );
+    renderSettings->LoadDisplayOptions( GetDisplayOptions() );
+
+    SetElementVisibility( LAYER_RATSNEST, GetPcbNewSettings()->m_Display.m_ShowGlobalRatsnest );
+
+    GetGalDisplayOptions().ReadWindowSettings( GetPcbNewSettings()->m_Window );
 
     // Netclass definitions could have changed, either by us or by Eeschema, so we need to
     // recompile the implicit rules
@@ -1870,6 +2019,12 @@ wxString PCB_EDIT_FRAME::GetCurrentFileName() const
 bool PCB_EDIT_FRAME::LayerManagerShown()
 {
     return m_auimgr.GetPane( "LayersManager" ).IsShown();
+}
+
+
+bool PCB_EDIT_FRAME::PropertiesShown()
+{
+    return m_auimgr.GetPane( "PropertiesManager" ).IsShown();
 }
 
 

@@ -32,13 +32,14 @@
 #include <iterator>
 
 #include <math/vector2d.h>
-#include <core/optional.h>
+#include <optional>
 
 #include <tool/tool_action.h>
 
 class TOOL_ACTION;
 class TOOL_MANAGER;
 class TOOL_BASE;
+class TOOLS_HOLDER;
 
 /**
  * Internal (GUI-independent) event definitions.
@@ -126,7 +127,9 @@ enum TOOL_MOUSE_BUTTONS
     BUT_LEFT         = 0x1,
     BUT_RIGHT        = 0x2,
     BUT_MIDDLE       = 0x4,
-    BUT_BUTTON_MASK  = BUT_LEFT | BUT_RIGHT | BUT_MIDDLE,
+    BUT_AUX1         = 0x8,
+    BUT_AUX2         = 0x10,
+    BUT_BUTTON_MASK  = BUT_LEFT | BUT_RIGHT | BUT_MIDDLE | BUT_AUX1 | BUT_AUX2,
     BUT_ANY          = 0xffffffff
 };
 
@@ -366,8 +369,8 @@ public:
 
         if( m_category == TC_COMMAND || m_category == TC_MESSAGE )
         {
-            if( (bool) m_commandStr && (bool) aEvent.m_commandStr )
-                return *m_commandStr == *aEvent.m_commandStr;
+            if( !m_commandStr.empty() && !aEvent.getCommandStr().empty() )
+                return m_commandStr == aEvent.m_commandStr;
 
             if( (bool) m_commandId && (bool) aEvent.m_commandId )
                 return *m_commandId == *aEvent.m_commandId;
@@ -420,6 +423,13 @@ public:
     bool IsMoveTool() const;
 
     /**
+     * Indicate if the event is asking for an editor tool.
+     *
+     * Used to allow deleting an element without de-activating the current tool.
+     */
+    bool IsEditorTool() const;
+
+    /**
      * Indicate if the event is from the simulator.
      */
     bool IsSimulator() const;
@@ -452,14 +462,9 @@ public:
         m_param = reinterpret_cast<void*>( aParam );
     }
 
-    OPT<int> GetCommandId() const
+    std::optional<int> GetCommandId() const
     {
         return m_commandId;
-    }
-
-    OPT<std::string> GetCommandStr() const
-    {
-        return m_commandStr;
     }
 
     void SetMousePosition( const VECTOR2D& aP )
@@ -469,8 +474,12 @@ public:
 
 private:
     friend class TOOL_DISPATCHER;
+    friend class TOOL_MANAGER;
+    friend class TOOLS_HOLDER;
 
     void init();
+
+    const std::string& getCommandStr() const { return m_commandStr; }
 
     void setMouseDragOrigin( const VECTOR2D& aP )
     {
@@ -541,11 +550,11 @@ private:
     ///< The first tool to receive the event
     TOOL_BASE* m_firstResponder;
 
-    OPT<int> m_commandId;
-    OPT<std::string> m_commandStr;
+    std::optional<int> m_commandId;
+    std::string        m_commandStr;
 };
 
-typedef OPT<TOOL_EVENT> OPT_TOOL_EVENT;
+typedef std::optional<TOOL_EVENT> OPT_TOOL_EVENT;
 
 /**
  * A list of TOOL_EVENTs, with overloaded || operators allowing for concatenating TOOL_EVENTs
@@ -585,7 +594,7 @@ public:
      */
     const std::string Format() const;
 
-    OPT<const TOOL_EVENT&> Matches( const TOOL_EVENT& aEvent ) const
+    OPT_TOOL_EVENT Matches( const TOOL_EVENT& aEvent ) const
     {
         for( const TOOL_EVENT& event : m_events )
         {
@@ -593,7 +602,7 @@ public:
                 return event;
         }
 
-        return OPT<const TOOL_EVENT&>();
+        return OPT_TOOL_EVENT();
     }
 
     /**

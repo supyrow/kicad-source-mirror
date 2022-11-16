@@ -114,7 +114,7 @@ bool DIALOG_PAD_PRIMITIVES_PROPERTIES::TransferDataToWindow()
         SetTitle( _( "Arc" ) );
         m_startX.SetValue( m_shape->GetStart().x );
         m_startY.SetValue( m_shape->GetStart().y );
-        m_staticTextPosEnd->SetLabel( _( "Center" ) );
+        m_staticTextPosEnd->SetLabel( _( "Center Point:" ) );
         m_endX.SetValue( m_shape->GetCenter().x );
         m_endY.SetValue( m_shape->GetCenter().y );
         m_radiusLabel->SetLabel( _( "Angle:" ) );
@@ -143,7 +143,7 @@ bool DIALOG_PAD_PRIMITIVES_PROPERTIES::TransferDataToWindow()
         m_endY.Show( false );
 
         // Circle center uses position controls:
-        m_staticTextPosStart->SetLabel( _( "Center:" ) );
+        m_staticTextPosStart->SetLabel( _( "Center Point:" ) );
         m_startX.SetValue( m_shape->GetStart().x );
         m_startY.SetValue( m_shape->GetStart().y );
         m_radius.SetValue( m_shape->GetRadius() );
@@ -158,12 +158,34 @@ bool DIALOG_PAD_PRIMITIVES_PROPERTIES::TransferDataToWindow()
         m_filledCtrl->Show( true );
         break;
 
+    case SHAPE_T::RECT:
+        if( m_shape->IsAnnotationProxy() )
+            SetTitle( _( "Number Box" ) );
+        else
+            SetTitle( _( "Rectangle" ) );
+
+        m_startX.SetValue( m_shape->GetStart().x );
+        m_startY.SetValue( m_shape->GetStart().y );
+        m_endX.SetValue( m_shape->GetEnd().x );
+        m_endY.SetValue( m_shape->GetEnd().y );
+        m_ctrl1X.Show( false, true );
+        m_ctrl1Y.Show( false, true );
+        m_ctrl2X.Show( false, true );
+        m_ctrl2Y.Show( false, true );
+        m_staticTextPosCtrl1->Show( false );
+        m_staticTextPosCtrl1->SetSize( 0, 0 );
+        m_staticTextPosCtrl2->Show( false );
+        m_staticTextPosCtrl2->SetSize( 0, 0 );
+        m_radius.Show( false );
+        m_filledCtrl->Show( false );
+        break;
+
     case SHAPE_T::POLY:
         // polygon has a specific dialog editor. So nothing here
         break;
 
     default:
-        SetTitle( "Unknown basic shape" );
+        SetTitle( "Unknown Basic Shape" );
         break;
     }
 
@@ -190,6 +212,7 @@ bool DIALOG_PAD_PRIMITIVES_PROPERTIES::TransferDataFromWindow()
     switch( m_shape->GetShape() )
     {
     case SHAPE_T::SEGMENT:
+    case SHAPE_T::RECT:
         m_shape->SetStart( VECTOR2I( m_startX.GetValue(), m_startY.GetValue() ) );
         m_shape->SetEnd( VECTOR2I( m_endX.GetValue(), m_endY.GetValue() ) );
         break;
@@ -198,7 +221,7 @@ bool DIALOG_PAD_PRIMITIVES_PROPERTIES::TransferDataFromWindow()
         m_shape->SetStart( VECTOR2I( m_startX.GetValue(), m_startY.GetValue() ) );
         m_shape->SetEnd( VECTOR2I( m_endX.GetValue(), m_endY.GetValue() ) );
         m_shape->SetBezierC1( VECTOR2I( m_ctrl1X.GetValue(), m_ctrl1Y.GetValue()));
-        m_shape->SetBezierC1( VECTOR2I( m_ctrl2X.GetValue(), m_ctrl2Y.GetValue()));
+        m_shape->SetBezierC2( VECTOR2I( m_ctrl2X.GetValue(), m_ctrl2Y.GetValue()));
         break;
 
     case SHAPE_T::ARC:
@@ -217,7 +240,6 @@ bool DIALOG_PAD_PRIMITIVES_PROPERTIES::TransferDataFromWindow()
         break;
 
     default:
-        SetTitle( "Unknown basic shape" );
         break;
     }
 
@@ -229,6 +251,7 @@ DIALOG_PAD_PRIMITIVE_POLY_PROPS::DIALOG_PAD_PRIMITIVE_POLY_PROPS( wxWindow* aPar
                                                                   PCB_BASE_FRAME* aFrame,
                                                                   PCB_SHAPE* aShape ) :
         DIALOG_PAD_PRIMITIVE_POLY_PROPS_BASE( aParent ),
+        m_frame( aFrame ),
         m_shape( aShape ),
         m_thickness( aFrame, m_thicknessLabel, m_thicknessCtrl, m_thicknessUnits )
 {
@@ -241,6 +264,11 @@ DIALOG_PAD_PRIMITIVE_POLY_PROPS::DIALOG_PAD_PRIMITIVE_POLY_PROPS( wxWindow* aPar
     m_addButton->SetBitmap( KiBitmap( BITMAPS::small_plus ) );
     m_deleteButton->SetBitmap( KiBitmap( BITMAPS::small_trash ) );
     m_warningIcon->SetBitmap( KiBitmap( BITMAPS::dialog_warning ) );
+
+    m_gridCornersList->SetUnitsProvider( aFrame );
+    m_gridCornersList->SetAutoEvalCols( { 0, 1 } );
+
+    m_gridCornersList->SetDefaultRowSize( m_gridCornersList->GetDefaultRowSize() + 4 );
 
     // Test for acceptable polygon (more than 2 corners, and not self-intersecting) and
     // remove any redundant corners.  A warning message is displayed if not OK.
@@ -289,19 +317,13 @@ bool DIALOG_PAD_PRIMITIVE_POLY_PROPS::TransferDataToWindow()
     }
 
     // enter others corner coordinates
-    wxString msg;
-
     for( unsigned row = 0; row < m_currPoints.size(); ++row )
     {
         // Row label is "Corner x"
-        msg.Printf( _( "Corner %d" ), row+1 );
-        m_gridCornersList->SetRowLabelValue( row, msg );
+        m_gridCornersList->SetRowLabelValue( row, wxString::Format( _( "Corner %d" ), row+1 ) );
 
-        msg = StringFromValue( GetUserUnits(), m_currPoints[row].x, true );
-        m_gridCornersList->SetCellValue( row, 0, msg );
-
-        msg = StringFromValue( GetUserUnits(), m_currPoints[row].y, true );
-        m_gridCornersList->SetCellValue( row, 1, msg );
+        m_gridCornersList->SetUnitValue( row, 0, m_currPoints[row].x );
+        m_gridCornersList->SetUnitValue( row, 1, m_currPoints[row].y );
     }
 
     return true;
@@ -467,7 +489,7 @@ void DIALOG_PAD_PRIMITIVE_POLY_PROPS::onPaintPolyPanel( wxPaintEvent& event )
     dc.SetDeviceOrigin( dc_size.x / 2, dc_size.y / 2 );
 
     // Calculate a suitable scale to fit the available draw area
-    int minsize( Millimeter2iu( 0.5 ) );
+    int minsize( pcbIUScale.mmToIU( 0.5 ) );
 
     for( unsigned ii = 0; ii < m_currPoints.size(); ++ii )
     {
@@ -533,21 +555,21 @@ void DIALOG_PAD_PRIMITIVE_POLY_PROPS::onGridSelect( wxGridRangeSelectEvent& even
 
 void DIALOG_PAD_PRIMITIVE_POLY_PROPS::onCellChanging( wxGridEvent& event )
 {
-    int      row = event.GetRow();
-    int      col = event.GetCol();
-    wxString msg = event.GetString();
+    int row = event.GetRow();
+    int col = event.GetCol();
 
-    if( msg.IsEmpty() )
-        return;
+    CallAfter(
+            [this, row, col]()
+            {
+                if( col == 0 )  // Set the X value
+                    m_currPoints[row].x = m_gridCornersList->GetUnitValue( row, col );
+                else            // Set the Y value
+                    m_currPoints[row].y = m_gridCornersList->GetUnitValue( row, col );
 
-    if( col == 0 )  // Set the X value
-        m_currPoints[row].x = ValueFromString( GetUserUnits(), msg );
-    else            // Set the Y value
-        m_currPoints[row].y = ValueFromString( GetUserUnits(), msg );
+                Validate();
 
-    Validate();
-
-    m_panelPoly->Refresh();
+                m_panelPoly->Refresh();
+            } );
 }
 
 
@@ -580,7 +602,7 @@ void DIALOG_PAD_PRIMITIVES_TRANSFORM::Transform( std::vector<std::shared_ptr<PCB
 {
     VECTOR2I  move_vect( m_vectorX.GetValue(), m_vectorY.GetValue() );
     EDA_ANGLE rotation = m_rotation.GetAngleValue();
-    double    scale = DoubleValueFromString( EDA_UNITS::UNSCALED, m_scaleCtrl->GetValue() );
+    double    scale = EDA_UNIT_UTILS::UI::DoubleValueFromString( m_scaleCtrl->GetValue() );
 
     // Avoid too small / too large scale, which could create issues:
     if( scale < 0.01 )

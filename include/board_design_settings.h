@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2009-2019 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -28,6 +28,7 @@
 #include <memory>
 
 #include <netclass.h>
+#include <project/net_settings.h>
 #include <config_params.h>
 #include <board_stackup_manager/board_stackup.h>
 #include <drc/drc_engine.h>
@@ -76,6 +77,7 @@
 #define DEFAULT_CUSTOMDPAIRVIAGAP     0.18
 
 #define DEFAULT_MINCLEARANCE          0.0     // overall min clearance
+#define DEFAULT_MINCONNECTION         0.0     // overall min connection width
 #define DEFAULT_TRACKMINWIDTH         0.2     // track width min value
 #define DEFAULT_VIASMINSIZE           0.4     // vias (not micro vias) min diameter
 #define DEFAULT_MINTHROUGHDRILL       0.3     // through holes (not micro vias) min drill diameter
@@ -244,19 +246,6 @@ public:
      */
     bool Ignore( int aDRCErrorCode );
 
-    NETCLASSES& GetNetClasses() const
-    {
-        return *m_netClasses;
-    }
-
-    void SetNetClasses( NETCLASSES* aNetClasses )
-    {
-        if( aNetClasses )
-            m_netClasses = aNetClasses;
-        else
-            m_netClasses = &m_internalNetClasses;
-    }
-
     ZONE_SETTINGS& GetDefaultZoneSettings()
     {
         return m_defaultZoneSettings;
@@ -265,14 +254,6 @@ public:
     void SetDefaultZoneSettings( const ZONE_SETTINGS& aSettings )
     {
         m_defaultZoneSettings = aSettings;
-    }
-
-    /**
-     * @return the default netclass.
-     */
-    inline NETCLASS* GetDefault() const
-    {
-        return GetNetClasses().GetDefaultPtr();
     }
 
     /**
@@ -316,16 +297,6 @@ public:
      * @return the smallest clearance value found in NetClasses list.
      */
     int GetSmallestClearanceValue() const;
-
-    /**
-     * @return the current micro via size that is the current netclass value.
-     */
-    int GetCurrentMicroViaSize();
-
-    /**
-     * @return the current micro via drill that is the current netclass value.
-     */
-    int GetCurrentMicroViaDrill();
 
     /**
      * @return the current track width list index.
@@ -673,8 +644,6 @@ public:
      */
     TEARDROP_PARAMETERS_LIST         m_TeardropParamsList;
 
-    bool       m_MicroViasAllowed;          ///< true to allow micro vias
-    bool       m_BlindBuriedViaAllowed;     ///< true to allow blind/buried vias
     VIATYPE    m_CurrentViaType;            ///< (VIA_BLIND_BURIED, VIA_THROUGH, VIA_MICROVIA)
 
     bool       m_UseConnectedTrackWidth;    // use width of existing track when creating a new,
@@ -682,6 +651,7 @@ public:
     bool       m_TempOverrideTrackWidth;    // use selected track width temporarily even when
                                             // using connected track width
     int        m_MinClearance;              // overall min clearance
+    int        m_MinConn;                   // overall min connection width
     int        m_TrackMinWidth;             // overall min track width
     int        m_ViasMinAnnularWidth;       // overall minimum width of the via copper ring
     int        m_ViasMinSize;               // overall vias (not micro vias) min diameter
@@ -718,9 +688,12 @@ public:
     int        m_SolderPasteMargin;           // Solder paste margin absolute value
     double     m_SolderPasteMarginRatio;      // Solder mask margin ratio value of pad size
                                               // The final margin is the sum of these 2 values
+    bool       m_AllowSoldermaskBridgesInFPs;
+
+    std::shared_ptr<NET_SETTINGS> m_NetSettings;
 
     // Variables used in footprint editing (default value in item/footprint creation)
-    std::vector<TEXT_ITEM_INFO> m_DefaultFPTextItems;
+    std::vector<TEXT_ITEM_INFO>   m_DefaultFPTextItems;
 
     // Arrays of default values for the various layer classes.
     int        m_LineThickness[ LAYER_CLASS_COUNT ];
@@ -785,12 +758,6 @@ private:
      * It includes not only layers enabled for the board edition, but also dielectric layers
      */
     BOARD_STACKUP m_stackup;
-
-    /// Net classes that are loaded from the board file before these were stored in the project
-    NETCLASSES m_internalNetClasses;
-
-    /// This will point to m_internalNetClasses until it is repointed to the project after load
-    NETCLASSES* m_netClasses;
 
     /// The default settings that will be used for new zones
     ZONE_SETTINGS m_defaultZoneSettings;

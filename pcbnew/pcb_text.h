@@ -48,27 +48,27 @@ public:
         return aItem && PCB_TEXT_T == aItem->Type();
     }
 
-    bool IsType( const KICAD_T aScanTypes[] ) const override
+    bool IsType( const std::vector<KICAD_T>& aScanTypes ) const override
     {
         if( BOARD_ITEM::IsType( aScanTypes ) )
             return true;
 
-        for( const KICAD_T* p = aScanTypes; *p != EOT; ++p )
+        for( KICAD_T scanType : aScanTypes )
         {
-            if( *p == PCB_LOCATE_TEXT_T )
+            if( scanType == PCB_LOCATE_TEXT_T )
                 return true;
         }
 
         return false;
     }
 
-    wxString GetShownText( int aDepth = 0 ) const override;
+    wxString GetShownText( int aDepth = 0, bool aAllowExtraText = true ) const override;
 
     /// PCB_TEXTs are always visible:
     void SetVisible( bool aVisible ) override { /* do nothing */}
     bool IsVisible() const override { return true; }
 
-    bool Matches( const wxFindReplaceData& aSearchData, void* aAuxData ) const override
+    bool Matches( const EDA_SEARCH_DATA& aSearchData, void* aAuxData ) const override
     {
         return BOARD_ITEM::Matches( GetShownText(), aSearchData );
     }
@@ -90,22 +90,21 @@ public:
 
     void Rotate( const VECTOR2I& aRotCentre, const EDA_ANGLE& aAngle ) override;
 
+    void Mirror( const VECTOR2I& aCentre, bool aMirrorAroundXAxis );
+
     void Flip( const VECTOR2I& aCentre, bool aFlipLeftRight ) override;
 
     void GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList ) override;
 
     bool TextHitTest( const VECTOR2I& aPoint, int aAccuracy = 0 ) const override;
-    bool TextHitTest( const EDA_RECT& aRect, bool aContains, int aAccuracy = 0 ) const override;
+    bool TextHitTest( const BOX2I& aRect, bool aContains, int aAccuracy = 0 ) const override;
 
     bool HitTest( const VECTOR2I& aPosition, int aAccuracy ) const override
     {
         return TextHitTest( aPosition, aAccuracy );
     }
 
-    /** @copydoc BOARD_ITEM::HitTest(const EDA_RECT& aRect,
-     *                               bool aContained = true, int aAccuracy ) const
-     */
-    bool HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy = 0 ) const override
+    bool HitTest( const BOX2I& aRect, bool aContained, int aAccuracy = 0 ) const override
     {
         return TextHitTest( aRect, aContained, aAccuracy );
     }
@@ -116,39 +115,46 @@ public:
     }
 
     /**
-     * Function TransformTextShapeWithClearanceToPolygon
+     * Function TransformTextToPolySet
      * Convert the text to a polygonSet describing the actual character strokes (one per segment).
      * Used in 3D viewer
      * Circles and arcs are approximated by segments
-     * @aCornerBuffer = SHAPE_POLY_SET to store the polygon corners
-     * @aClearanceValue = the clearance around the text
+     * @aBuffer = SHAPE_POLY_SET to store the polygon corners
+     * @aClearance = the clearance around the text
      * @aError = the maximum error to allow when approximating curves
      */
-    void TransformTextShapeWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuffer,
-                                                   PCB_LAYER_ID aLayer, int aClearanceValue,
-                                                   int aError, ERROR_LOC aErrorLoc ) const;
+    void TransformTextToPolySet( SHAPE_POLY_SET& aBuffer, PCB_LAYER_ID aLayer, int aClearance,
+                                 int aError, ERROR_LOC aErrorLoc ) const;
 
-    void TransformShapeWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuffer, PCB_LAYER_ID aLayer,
-                                               int aClearanceValue, int aError, ERROR_LOC aErrorLoc,
-                                               bool aIgnoreLineWidth = false ) const override;
+    void TransformShapeToPolygon( SHAPE_POLY_SET& aBuffer, PCB_LAYER_ID aLayer, int aClearance,
+                                  int aError, ERROR_LOC aErrorLoc,
+                                  bool aIgnoreLineWidth = false ) const override;
 
     // @copydoc BOARD_ITEM::GetEffectiveShape
-    virtual std::shared_ptr<SHAPE> GetEffectiveShape( PCB_LAYER_ID aLayer = UNDEFINED_LAYER ) const override;
+    virtual std::shared_ptr<SHAPE>
+    GetEffectiveShape( PCB_LAYER_ID aLayer = UNDEFINED_LAYER,
+                       FLASHING aFlash = FLASHING::DEFAULT ) const override;
 
-    wxString GetSelectMenuText( EDA_UNITS aUnits ) const override;
+    wxString GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const override;
 
     BITMAPS GetMenuImage() const override;
 
+    ///< @copydoc VIEW_ITEM::ViewGetLOD
+    double ViewGetLOD( int aLayer, KIGFX::VIEW* aView ) const override;
+
     // Virtual function
-    const EDA_RECT GetBoundingBox() const override;
+    const BOX2I GetBoundingBox() const override;
 
     EDA_ITEM* Clone() const override;
-
-    virtual void SwapData( BOARD_ITEM* aImage ) override;
 
 #if defined(DEBUG)
     virtual void Show( int nestLevel, std::ostream& os ) const override { ShowDummy( os ); }
 #endif
+
+protected:
+    virtual void swapData( BOARD_ITEM* aImage ) override;
+
+    int getKnockoutMargin() const;
 };
 
 #endif  // #define PCB_TEXT_H

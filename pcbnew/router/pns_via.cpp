@@ -23,6 +23,7 @@
 #include "pns_node.h"
 #include "pns_utils.h"
 #include "pns_router.h"
+#include "pns_debug_decorator.h"
 
 #include <geometry/shape_rect.h>
 #include <math/box2.h>
@@ -32,23 +33,29 @@ namespace PNS {
 bool VIA::PushoutForce( NODE* aNode, const ITEM* aOther, VECTOR2I& aForce )
 {
     int      clearance = aNode->GetClearance( this, aOther );
-    int      holeClearance = aNode->GetHoleClearance( this, aOther );
-    int      hole2holeClearance = aNode->GetHoleToHoleClearance( this, aOther );
-    VECTOR2I f[4], force;
+    VECTOR2I elementForces[4], force;
+    size_t   nf = 0;
 
-    if( aOther->Hole() )
+    if( aNode->GetCollisionQueryScope() == NODE::CQS_ALL_RULES )
     {
-        aOther->Hole()->Collide( Shape(), holeClearance, &f[0] );
-        aOther->Hole()->Collide( Hole(), hole2holeClearance, &f[1] );
+        int holeClearance = aNode->GetHoleClearance( this, aOther );
+        int hole2holeClearance = aNode->GetHoleToHoleClearance( this, aOther );
+
+        if( aOther->Hole() )
+        {
+            aOther->Hole()->Collide( Shape(), holeClearance, &elementForces[nf++] );
+            aOther->Hole()->Collide( Hole(), hole2holeClearance, &elementForces[nf++] );
+        }
+
+        aOther->Shape()->Collide( Hole(), holeClearance, &elementForces[nf++] );
     }
 
-    aOther->Shape()->Collide( Shape(), clearance, &f[2] );
-    aOther->Shape()->Collide( Hole(), holeClearance, &f[3] );
+    aOther->Shape()->Collide( Shape(), clearance, &elementForces[nf++] );
 
-    for( int i = 0; i < 4; i++ )
+    for( size_t i = 0; i < nf; i++ )
     {
-        if( f[i].SquaredEuclideanNorm() > force.SquaredEuclideanNorm() )
-            force = f[i];
+        if( elementForces[i].SquaredEuclideanNorm() > force.SquaredEuclideanNorm() )
+            force = elementForces[i];
     }
 
     aForce = force;
@@ -57,35 +64,66 @@ bool VIA::PushoutForce( NODE* aNode, const ITEM* aOther, VECTOR2I& aForce )
 }
 
 bool VIA::PushoutForce( NODE* aNode, const VECTOR2I& aDirection, VECTOR2I& aForce,
-                            bool aSolidsOnly, int aMaxIterations )
+                        int aCollisionMask, int aMaxIterations )
 {
-    int iter = 0;
-    VIA mv( *this );
+    int      iter = 0;
+    VIA      mv( *this );
     VECTOR2I totalForce;
 
+    auto dbg = ROUTER::GetInstance()->GetInterface()->GetDebugDecorator();
+    PNS_DBG( dbg, AddPoint, Pos(), YELLOW, 100000, wxString::Format( "via-force-init-pos" ) );
 
     while( iter < aMaxIterations )
     {
-        NODE::OPT_OBSTACLE obs = aNode->CheckColliding( &mv, aSolidsOnly ? ITEM::SOLID_T
-                                                                         : ITEM::ANY_T );
+        NODE::OPT_OBSTACLE obs = aNode->CheckColliding( &mv, aCollisionMask );
 
         if( !obs )
             break;
 
-        if( iter > aMaxIterations / 2 )
-        {
-            VECTOR2I l = aDirection.Resize( m_diameter / 2 );
-            totalForce += l;
-            mv.SetPos( mv.Pos() + l );
-        }
-
         VECTOR2I force;
-        bool collFound = PushoutForce( aNode, obs->m_item, force );
+        bool     collFound = PushoutForce( aNode, obs->m_item, force );
 
-        if( collFound )
+        if( !collFound )
+            break;
+
+        const int threshold = Diameter() / 4; // another stupid heuristic.
+        const int forceMag = force.EuclideanNorm();
+
+        // We've been through a lot of iterations already and our pushout force is still too big?
+        // Perhaps the barycentric force goes in the wrong direction, let's try to move along
+        // the 'lead' vector instead (usually backwards to the cursor)
+        if( iter > aMaxIterations / 2 && forceMag > threshold )
         {
+            VECTOR2I l = aDirection.Resize( threshold );
+            totalForce += l;
+
+            SHAPE_LINE_CHAIN ff;
+            ff.Append( mv.Pos() );
+            ff.Append( mv.Pos() + l );
+
+            mv.SetPos( mv.Pos() + l );
+
+            PNS_DBG( dbg, AddShape, &ff, YELLOW, 100000, "via-force-lead" );
+        }
+        else if( collFound ) // push along the minmum translation vector
+        {
+            // Limit the force magnitude to, say, 25% of the via diameter
+            // This adds a few iterations for large areas (e.g. keepouts)
+            // But makes the algorithm more predictable and less 'jumpy'
+            if( forceMag > threshold )
+            {
+                force.Resize( threshold );
+            }
+
             totalForce += force;
+
+            SHAPE_LINE_CHAIN ff;
+            ff.Append( mv.Pos() );
+            ff.Append( mv.Pos() + force );
+
             mv.SetPos( mv.Pos() + force );
+
+            PNS_DBG( dbg, AddShape, &ff, WHITE, 100000, "via-force-coll" );
         }
 
         iter++;
@@ -93,6 +131,8 @@ bool VIA::PushoutForce( NODE* aNode, const VECTOR2I& aDirection, VECTOR2I& aForc
 
     if( iter == aMaxIterations )
         return false;
+
+    PNS_DBG( dbg, AddPoint, ( Pos() + totalForce ), WHITE, 1000000, "via-force-new" );
 
     aForce = totalForce;
 
@@ -106,12 +146,23 @@ const SHAPE_LINE_CHAIN VIA::Hull( int aClearance, int aWalkaroundThickness, int 
     int width = m_diameter;
 
     if( !ROUTER::GetInstance()->GetInterface()->IsFlashedOnLayer( this, aLayer ) )
-        width = m_drill;
+        width = m_hole.GetRadius() * 2;
 
     // Chamfer = width * ( 1 - sqrt(2)/2 ) for equilateral octagon
     return OctagonalHull( m_pos - VECTOR2I( width / 2, width / 2 ),
                          VECTOR2I( width, width ),
-                         cl + 1, ( 2 * cl + width ) * ( 1.0 - M_SQRT1_2 ) );
+                         cl, ( 2 * cl + width ) * ( 1.0 - M_SQRT1_2 ) );
+}
+
+
+const SHAPE_LINE_CHAIN VIA::HoleHull( int aClearance, int aWalkaroundThickness, int aLayer ) const
+{
+    int cl = ( aClearance + aWalkaroundThickness / 2 );
+    int width = m_hole.GetRadius() * 2;
+
+    // Chamfer = width * ( 1 - sqrt(2)/2 ) for equilateral octagon
+    return OctagonalHull( m_pos - VECTOR2I( width / 2, width / 2 ), VECTOR2I( width, width ), cl,
+                          ( 2 * cl + width ) * ( 1.0 - M_SQRT1_2 ) );
 }
 
 
@@ -149,6 +200,7 @@ OPT_BOX2I VIA::ChangedArea( const VIA* aOther ) const
     return OPT_BOX2I();
 }
 
+
 const VIA_HANDLE VIA::MakeHandle() const
 {
     VIA_HANDLE h;
@@ -157,6 +209,15 @@ const VIA_HANDLE VIA::MakeHandle() const
     h.net = Net();
     h.valid = true;
     return h;
+}
+
+
+const std::string VIA::Format( ) const
+{
+    std::stringstream ss;
+    ss << ITEM::Format() << " drill " << m_drill << " ";
+    ss << m_shape.Format( false );
+    return ss.str();
 }
 
 }

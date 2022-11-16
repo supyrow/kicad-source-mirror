@@ -2,7 +2,7 @@
  * KiRouter - a push-and-(sometimes-)shove PCB router
  *
  * Copyright (C) 2013-2014 CERN
- * Copyright (C) 2016-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2016-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * @author Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  *
@@ -79,15 +79,22 @@ class RULE_RESOLVER
 public:
     virtual ~RULE_RESOLVER() {}
 
-    virtual int Clearance( const ITEM* aA, const ITEM* aB ) = 0;
-    virtual int HoleClearance( const ITEM* aA, const ITEM* aB ) = 0;
-    virtual int HoleToHoleClearance( const ITEM* aA, const ITEM* aB ) = 0;
+    virtual int Clearance( const ITEM* aA, const ITEM* aB, bool aUseClearanceEpsilon = true ) = 0;
+    virtual int HoleClearance( const ITEM* aA, const ITEM* aB,
+                               bool aUseClearanceEpsilon = true ) = 0;
+    virtual int HoleToHoleClearance( const ITEM* aA, const ITEM* aB,
+                                     bool aUseClearanceEpsilon = true ) = 0;
 
     virtual int DpCoupledNet( int aNet ) = 0;
     virtual int DpNetPolarity( int aNet ) = 0;
     virtual bool DpNetPair( const ITEM* aItem, int& aNetP, int& aNetN ) = 0;
 
     virtual bool IsDiffPair( const ITEM* aA, const ITEM* aB ) = 0;
+
+    virtual bool IsInNetTie( const ITEM* aA ) = 0;
+    virtual bool IsNetTieExclusion( const PNS::ITEM* aItem, const VECTOR2I& aCollisionPos,
+                                    const PNS::ITEM* aCollidingItem )= 0;
+
 
     virtual bool QueryConstraint( CONSTRAINT_TYPE aType, const PNS::ITEM* aItemA,
                                   const PNS::ITEM* aItemB, int aLayer,
@@ -103,12 +110,13 @@ public:
  */
 struct OBSTACLE
 {
-    const ITEM*      m_head;        ///< Item we search collisions with
+    const ITEM*      m_head;           ///< Item we search collisions with
 
-    ITEM*            m_item;        ///< Item found to be colliding with m_head
-    SHAPE_LINE_CHAIN m_hull;        ///< Hull of the colliding m_item
-    VECTOR2I         m_ipFirst;     ///< First intersection between m_head and m_hull
-    int              m_distFirst;   ///< ... and the distance thereof
+    ITEM*            m_item;           ///< Item found to be colliding with m_head
+    SHAPE_LINE_CHAIN m_hull;           ///< Hull of the colliding m_item
+    VECTOR2I         m_ipFirst;        ///< First intersection between m_head and m_hull
+    int              m_distFirst;      ///< ... and the distance thereof
+    int              m_maxFanoutWidth; ///< worst case (largest) width of the tracks connected to the item
 };
 
 class OBSTACLE_VISITOR
@@ -146,7 +154,15 @@ protected:
 class NODE
 {
 public:
-    typedef OPT<OBSTACLE>         OPT_OBSTACLE;
+
+///< Supported item types
+    enum COLLISION_QUERY_SCOPE
+    {
+        CQS_ALL_RULES               =    1, ///< check all rules
+        CQS_IGNORE_HOLE_CLEARANCE   =    2  ///< check everything except hole2hole / hole2copper
+    };
+
+    typedef std::optional<OBSTACLE>         OPT_OBSTACLE;
     typedef std::vector<ITEM*>    ITEM_VECTOR;
     typedef std::vector<OBSTACLE> OBSTACLES;
 
@@ -154,9 +170,10 @@ public:
     ~NODE();
 
     ///< Return the expected clearance between items a and b.
-    int GetClearance( const ITEM* aA, const ITEM* aB ) const;
-    int GetHoleClearance( const ITEM* aA, const ITEM* aB ) const;
-    int GetHoleToHoleClearance( const ITEM* aA, const ITEM* aB ) const;
+    int GetClearance( const ITEM* aA, const ITEM* aB, bool aUseClearanceEpsilon = true ) const;
+    int GetHoleClearance( const ITEM* aA, const ITEM* aB, bool aUseClearanceEpsilon = true ) const;
+    int GetHoleToHoleClearance( const ITEM* aA, const ITEM* aB,
+                                bool aUseClearanceEpsilon = true ) const;
 
     ///< Return the pre-set worst case clearance between any pair of items.
     int GetMaxClearance() const
@@ -203,7 +220,7 @@ public:
      * @return number of obstacles found
      */
     int QueryColliding( const ITEM* aItem, OBSTACLES& aObstacles, int aKindMask = ITEM::ANY_T,
-                        int aLimitCount = -1, bool aDifferentNetsOnly = true );
+                        int aLimitCount = -1, bool aDifferentNetsOnly = true, int aOverrideClearance = -1 );
 
     int QueryJoints( const BOX2I& aBox, std::vector<JOINT*>& aJoints,
                      LAYER_RANGE aLayerMask = LAYER_RANGE::All(), int aKindMask = ITEM::ANY_T );
@@ -214,10 +231,13 @@ public:
      *
      * @param aLine the item to find collisions with
      * @param aKindMask mask of obstacle types to take into account
+     * @param aRestrictedSet is an optional set of items that should be considered as obstacles
+     * @param aUseClearanceEpsilon determines if the epsilon is subtracted from the hull size
      * @return the obstacle, if found, otherwise empty.
      */
     OPT_OBSTACLE NearestObstacle( const LINE* aLine, int aKindMask = ITEM::ANY_T,
-                                  const std::set<ITEM*>* aRestrictedSet = nullptr );
+                                  const std::set<ITEM*>* aRestrictedSet = nullptr,
+                                  bool aUseClearanceEpsilon = true );
 
     /**
      * Check if the item collides with anything else in the world, and if found, returns the
@@ -262,6 +282,10 @@ public:
     bool Add( std::unique_ptr< ARC >     aArc, bool aAllowRedundant = false );
 
     void Add( LINE& aLine, bool aAllowRedundant = false );
+
+    void AddEdgeExclusion( std::unique_ptr<SHAPE> aShape );
+
+    bool QueryEdgeExclusions( const VECTOR2I& aPos ) const;
 
     /**
      * Remove an item from this branch.
@@ -388,8 +412,19 @@ public:
 
     void FixupVirtualVias();
 
-private:
+    void SetCollisionQueryScope( COLLISION_QUERY_SCOPE aScope )
+    {
+        m_collisionQueryScope = aScope;
+    }
+
+    COLLISION_QUERY_SCOPE GetCollisionQueryScope() const
+    {
+        return m_collisionQueryScope;
+    }
+
     void Add( std::unique_ptr< ITEM > aItem, bool aAllowRedundant = false );
+
+private:
 
     /// nodes are not copyable
     NODE( const NODE& aB );
@@ -459,7 +494,11 @@ private:
     int             m_depth;            ///< depth of the node (number of parent nodes in the
                                         ///< inheritance chain)
 
+    std::vector< std::unique_ptr<SHAPE> > m_edgeExclusions;
+
     std::unordered_set<ITEM*> m_garbageItems;
+
+    COLLISION_QUERY_SCOPE m_collisionQueryScope;
 };
 
 }

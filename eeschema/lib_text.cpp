@@ -39,17 +39,17 @@
 
 LIB_TEXT::LIB_TEXT( LIB_SYMBOL* aParent ) :
     LIB_ITEM( LIB_TEXT_T, aParent ),
-    EDA_TEXT( wxEmptyString )
+    EDA_TEXT( schIUScale, wxEmptyString )
 {
-    SetTextSize( wxSize( Mils2iu( DEFAULT_TEXT_SIZE ), Mils2iu( DEFAULT_TEXT_SIZE ) ) );
+    SetTextSize( wxSize( schIUScale.MilsToIU( DEFAULT_TEXT_SIZE ), schIUScale.MilsToIU( DEFAULT_TEXT_SIZE ) ) );
 }
 
 
 void LIB_TEXT::ViewGetLayers( int aLayers[], int& aCount ) const
 {
-    aCount      = 2;
-    aLayers[0]  = LAYER_DEVICE;
-    aLayers[1]  = LAYER_SELECTION_SHADOWS;
+    aCount     = 2;
+    aLayers[0] = IsPrivate() ? LAYER_PRIVATE_NOTES : LAYER_DEVICE;
+    aLayers[1] = LAYER_SELECTION_SHADOWS;
 }
 
 
@@ -73,8 +73,10 @@ EDA_ITEM* LIB_TEXT::Clone() const
 {
     LIB_TEXT* newitem = new LIB_TEXT( nullptr );
 
+    newitem->m_parent    = m_parent;
     newitem->m_unit      = m_unit;
     newitem->m_convert   = m_convert;
+    newitem->m_private   = m_private;
     newitem->m_flags     = m_flags;
 
     newitem->SetText( GetText() );
@@ -84,7 +86,7 @@ EDA_ITEM* LIB_TEXT::Clone() const
 }
 
 
-int LIB_TEXT::compare( const LIB_ITEM& aOther, LIB_ITEM::COMPARE_FLAGS aCompareFlags ) const
+int LIB_TEXT::compare( const LIB_ITEM& aOther, int aCompareFlags ) const
 {
     wxASSERT( aOther.Type() == LIB_TEXT_T );
 
@@ -131,7 +133,7 @@ void LIB_TEXT::MoveTo( const VECTOR2I& newPosition )
 void LIB_TEXT::NormalizeJustification( bool inverse )
 {
     VECTOR2I delta( 0, 0 );
-    EDA_RECT bbox = GetTextBox();
+    BOX2I    bbox = GetTextBox();
 
     if( GetTextAngle().IsHorizontal() )
     {
@@ -258,38 +260,51 @@ void LIB_TEXT::Rotate( const VECTOR2I& center, bool aRotateCCW )
 
 
 void LIB_TEXT::Plot( PLOTTER* plotter, bool aBackground, const VECTOR2I& offset,
-                     const TRANSFORM& aTransform ) const
+                     const TRANSFORM& aTransform, bool aDimmed ) const
 {
     wxASSERT( plotter != nullptr );
+
+    if( IsPrivate() )
+        return;
 
     if( aBackground )
         return;
 
-    EDA_RECT bBox = GetBoundingBox();
+    RENDER_SETTINGS* settings = plotter->RenderSettings();
+
+    BOX2I bBox = GetBoundingBox();
     // convert coordinates from draw Y axis to symbol_editor Y axis
     bBox.RevertYAxis();
     VECTOR2I txtpos = bBox.Centre();
 
     // The text orientation may need to be flipped if the transformation matrix causes xy
     // axes to be flipped.
-    int t1  = ( aTransform.x1 != 0 ) ^ ( GetTextAngle() != ANGLE_HORIZONTAL );
+    int      t1  = ( aTransform.x1 != 0 ) ^ ( GetTextAngle() != ANGLE_HORIZONTAL );
     VECTOR2I pos = aTransform.TransformCoordinate( txtpos ) + offset;
+    COLOR4D  color = GetTextColor();
+    COLOR4D  bg = settings->GetBackgroundColor();
 
-    // Get color
-    COLOR4D color;
+    if( !plotter->GetColorMode() || color == COLOR4D::UNSPECIFIED )
+        color = settings->GetLayerColor( LAYER_DEVICE );
 
-    if( plotter->GetColorMode() )       // Used normal color or selected color
-        color = plotter->RenderSettings()->GetLayerColor( LAYER_DEVICE );
-    else
-        color = COLOR4D::BLACK;
+    if( !IsVisible() )
+        bg = settings->GetLayerColor( LAYER_HIDDEN );
+    else if( bg == COLOR4D::UNSPECIFIED || !plotter->GetColorMode() )
+        bg = COLOR4D::WHITE;
 
-    RENDER_SETTINGS* settings = plotter->RenderSettings();
+    if( aDimmed )
+        color = color.Mix( bg, 0.5f );
 
     int penWidth = std::max( GetEffectiveTextPenWidth(), settings->GetMinPenWidth() );
 
+    KIFONT::FONT* font = GetFont();
+
+    if( !font )
+        font = KIFONT::FONT::GetFont( settings->GetDefaultFont(), IsBold(), IsItalic() );
+
     plotter->Text( pos, color, GetText(), t1 ? ANGLE_HORIZONTAL : ANGLE_VERTICAL, GetTextSize(),
                    GR_TEXT_H_ALIGN_CENTER, GR_TEXT_V_ALIGN_CENTER, penWidth, IsItalic(), IsBold(),
-                   true, GetDrawFont() );
+                   true, font );
 }
 
 
@@ -299,7 +314,7 @@ int LIB_TEXT::GetPenWidth() const
 }
 
 
-KIFONT::FONT* LIB_TEXT::GetDrawFont() const
+KIFONT::FONT* LIB_TEXT::getDrawFont() const
 {
     KIFONT::FONT* font = EDA_TEXT::GetFont();
 
@@ -311,11 +326,26 @@ KIFONT::FONT* LIB_TEXT::GetDrawFont() const
 
 
 void LIB_TEXT::print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset, void* aData,
-                      const TRANSFORM& aTransform )
+                      const TRANSFORM& aTransform, bool aDimmed )
 {
     wxDC*   DC = aSettings->GetPrintDC();
-    COLOR4D color = aSettings->GetLayerColor( LAYER_DEVICE );
+    COLOR4D color = GetTextColor();
+    bool    blackAndWhiteMode = GetGRForceBlackPenState();
     int     penWidth = std::max( GetEffectiveTextPenWidth(), aSettings->GetDefaultPenWidth() );
+
+    if( blackAndWhiteMode || color == COLOR4D::UNSPECIFIED )
+        color = aSettings->GetLayerColor( LAYER_DEVICE );
+
+    COLOR4D bg = aSettings->GetBackgroundColor();
+
+    if( bg == COLOR4D::UNSPECIFIED || GetGRForceBlackPenState() )
+        bg = COLOR4D::WHITE;
+
+    if( !IsVisible() )
+        bg = aSettings->GetLayerColor( LAYER_HIDDEN );
+
+    if( aDimmed )
+        color = color.Mix( bg, 0.5f );
 
     // Calculate the text orientation, according to the symbol orientation/mirror (needed when
     // draw text in schematic)
@@ -329,6 +359,11 @@ void LIB_TEXT::print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset,
             orient = ANGLE_HORIZONTAL;
     }
 
+    KIFONT::FONT* font = GetFont();
+
+    if( !font )
+        font = KIFONT::FONT::GetFont( aSettings->GetDefaultFont(), IsBold(), IsItalic() );
+
     /*
      * Calculate the text justification, according to the symbol orientation/mirror.
      * This is a bit complicated due to cumulative calculations:
@@ -339,7 +374,7 @@ void LIB_TEXT::print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset,
      *   to calculate so the more easily way is to use no justifications (centered text) and
      *   use GetBoundingBox to know the text coordinate considered as centered
     */
-    EDA_RECT bBox = GetBoundingBox();
+    BOX2I bBox = GetBoundingBox();
 
     // convert coordinates from draw Y axis to symbol_editor Y axis:
     bBox.RevertYAxis();
@@ -349,7 +384,7 @@ void LIB_TEXT::print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset,
     txtpos = aTransform.TransformCoordinate( txtpos ) + aOffset;
 
     GRPrintText( DC, txtpos, color, GetShownText(), orient, GetTextSize(), GR_TEXT_H_ALIGN_CENTER,
-                 GR_TEXT_V_ALIGN_CENTER, penWidth, IsItalic(), IsBold(), GetDrawFont() );
+                 GR_TEXT_V_ALIGN_CENTER, penWidth, IsItalic(), IsBold(), font );
 }
 
 
@@ -362,10 +397,11 @@ void LIB_TEXT::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_IT
     // Don't use GetShownText() here; we want to show the user the variable references
     aList.emplace_back( _( "Text" ), UnescapeString( GetText() ) );
 
+    aList.emplace_back( _( "Font" ), GetFont() ? GetFont()->GetName() : _( "Default" ) );
+
     aList.emplace_back( _( "Style" ), GetTextStyleName() );
 
-    aList.emplace_back( _( "Text Size" ), MessageTextFromValue( aFrame->GetUserUnits(),
-                                                                GetTextWidth() ) );
+    aList.emplace_back( _( "Text Size" ), aFrame->MessageTextFromValue( GetTextWidth() ) );
 
     switch ( GetHorizJustify() )
     {
@@ -387,34 +423,34 @@ void LIB_TEXT::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_IT
 }
 
 
-const EDA_RECT LIB_TEXT::GetBoundingBox() const
+const BOX2I LIB_TEXT::GetBoundingBox() const
 {
     /* Y coordinates for LIB_ITEMS are bottom to top, so we must invert the Y position when
      * calling GetTextBox() that works using top to bottom Y axis orientation.
      */
-    EDA_RECT rect = GetTextBox( -1, true );
-    rect.RevertYAxis();
+    BOX2I bbox = GetTextBox( -1, true );
+    bbox.RevertYAxis();
 
     // We are using now a bottom to top Y axis.
-    VECTOR2I orig = rect.GetOrigin();
-    VECTOR2I end = rect.GetEnd();
+    VECTOR2I orig = bbox.GetOrigin();
+    VECTOR2I end = bbox.GetEnd();
 
     RotatePoint( orig, GetTextPos(), -GetTextAngle() );
     RotatePoint( end, GetTextPos(), -GetTextAngle() );
 
-    rect.SetOrigin( orig );
-    rect.SetEnd( end );
+    bbox.SetOrigin( orig );
+    bbox.SetEnd( end );
 
     // We are using now a top to bottom Y axis:
-    rect.RevertYAxis();
+    bbox.RevertYAxis();
 
-    return rect;
+    return bbox;
 }
 
 
-wxString LIB_TEXT::GetSelectMenuText( EDA_UNITS aUnits ) const
+wxString LIB_TEXT::GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const
 {
-    return wxString::Format( _( "Graphic Text '%s'" ), ShortenedShownText() );
+    return wxString::Format( _( "Graphic Text '%s'" ), KIUI::EllipsizeMenuText( GetShownText() ) );
 }
 
 

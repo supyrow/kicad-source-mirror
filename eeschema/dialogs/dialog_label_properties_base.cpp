@@ -1,11 +1,12 @@
 ///////////////////////////////////////////////////////////////////////////
-// C++ code generated with wxFormBuilder (version Oct 26 2018)
+// C++ code generated with wxFormBuilder (version 3.10.1-0-g8feb16b)
 // http://www.wxformbuilder.org/
 //
 // PLEASE DO *NOT* EDIT THIS FILE!
 ///////////////////////////////////////////////////////////////////////////
 
 #include "widgets/bitmap_button.h"
+#include "widgets/color_swatch.h"
 #include "widgets/font_choice.h"
 #include "widgets/wx_grid.h"
 
@@ -59,7 +60,7 @@ DIALOG_LABEL_PROPERTIES_BASE::DIALOG_LABEL_PROPERTIES_BASE( wxWindow* parent, wx
 	m_grid = new WX_GRID( sbFields->GetStaticBox(), wxID_ANY, wxDefaultPosition, wxDefaultSize, 0 );
 
 	// Grid
-	m_grid->CreateGrid( 4, 11 );
+	m_grid->CreateGrid( 4, 13 );
 	m_grid->EnableEditing( true );
 	m_grid->EnableGridLines( true );
 	m_grid->EnableDragGridSize( false );
@@ -69,17 +70,18 @@ DIALOG_LABEL_PROPERTIES_BASE::DIALOG_LABEL_PROPERTIES_BASE( wxWindow* parent, wx
 	m_grid->SetColSize( 0, 72 );
 	m_grid->SetColSize( 1, 84 );
 	m_grid->SetColSize( 2, 48 );
-	m_grid->SetColSize( 3, 72 );
-	m_grid->SetColSize( 4, 72 );
+	m_grid->SetColSize( 3, 70 );
+	m_grid->SetColSize( 4, 70 );
 	m_grid->SetColSize( 5, 48 );
 	m_grid->SetColSize( 6, 48 );
-	m_grid->SetColSize( 7, 84 );
+	m_grid->SetColSize( 7, 80 );
 	m_grid->SetColSize( 8, 48 );
-	m_grid->SetColSize( 9, 84 );
-	m_grid->SetColSize( 10, 84 );
+	m_grid->SetColSize( 9, 80 );
+	m_grid->SetColSize( 10, 80 );
+	m_grid->SetColSize( 11, 100 );
+	m_grid->SetColSize( 12, 48 );
 	m_grid->EnableDragColMove( false );
 	m_grid->EnableDragColSize( true );
-	m_grid->SetColLabelSize( 22 );
 	m_grid->SetColLabelValue( 0, _("Name") );
 	m_grid->SetColLabelValue( 1, _("Value") );
 	m_grid->SetColLabelValue( 2, _("Show") );
@@ -91,6 +93,9 @@ DIALOG_LABEL_PROPERTIES_BASE::DIALOG_LABEL_PROPERTIES_BASE( wxWindow* parent, wx
 	m_grid->SetColLabelValue( 8, _("Orientation") );
 	m_grid->SetColLabelValue( 9, _("X Position") );
 	m_grid->SetColLabelValue( 10, _("Y Position") );
+	m_grid->SetColLabelValue( 11, _("Font") );
+	m_grid->SetColLabelValue( 12, _("Color") );
+	m_grid->SetColLabelSize( 22 );
 	m_grid->SetColLabelAlignment( wxALIGN_CENTER, wxALIGN_CENTER );
 
 	// Rows
@@ -176,77 +181,104 @@ DIALOG_LABEL_PROPERTIES_BASE::DIALOG_LABEL_PROPERTIES_BASE( wxWindow* parent, wx
 	wxStaticBoxSizer* formatting;
 	formatting = new wxStaticBoxSizer( new wxStaticBox( this, wxID_ANY, _("Formatting") ), wxVERTICAL );
 
-	wxGridBagSizer* gbSizer1;
-	gbSizer1 = new wxGridBagSizer( 3, 0 );
-	gbSizer1->SetFlexibleDirection( wxBOTH );
-	gbSizer1->SetNonFlexibleGrowMode( wxFLEX_GROWMODE_SPECIFIED );
+	m_formattingGB = new wxGridBagSizer( 3, 0 );
+	m_formattingGB->SetFlexibleDirection( wxBOTH );
+	m_formattingGB->SetNonFlexibleGrowMode( wxFLEX_GROWMODE_SPECIFIED );
 
 	m_fontLabel = new wxStaticText( formatting->GetStaticBox(), wxID_ANY, _("Font:"), wxDefaultPosition, wxDefaultSize, 0 );
 	m_fontLabel->Wrap( -1 );
-	gbSizer1->Add( m_fontLabel, wxGBPosition( 0, 0 ), wxGBSpan( 1, 1 ), wxRIGHT|wxALIGN_CENTER_VERTICAL, 5 );
+	m_formattingGB->Add( m_fontLabel, wxGBPosition( 0, 0 ), wxGBSpan( 1, 1 ), wxRIGHT|wxALIGN_CENTER_VERTICAL, 5 );
 
 	wxString m_fontCtrlChoices[] = { _("Default Font"), _("KiCad Font") };
 	int m_fontCtrlNChoices = sizeof( m_fontCtrlChoices ) / sizeof( wxString );
 	m_fontCtrl = new FONT_CHOICE( formatting->GetStaticBox(), wxID_ANY, wxDefaultPosition, wxDefaultSize, m_fontCtrlNChoices, m_fontCtrlChoices, 0 );
 	m_fontCtrl->SetSelection( 0 );
-	gbSizer1->Add( m_fontCtrl, wxGBPosition( 0, 1 ), wxGBSpan( 1, 2 ), wxALIGN_CENTER_VERTICAL|wxEXPAND, 5 );
+	m_formattingGB->Add( m_fontCtrl, wxGBPosition( 0, 1 ), wxGBSpan( 1, 2 ), wxALIGN_CENTER_VERTICAL|wxEXPAND, 5 );
 
-	wxBoxSizer* formattingSizer;
-	formattingSizer = new wxBoxSizer( wxHORIZONTAL );
+	m_iconBar = new wxBoxSizer( wxHORIZONTAL );
 
 	m_separator1 = new BITMAP_BUTTON( formatting->GetStaticBox(), wxID_ANY, wxNullBitmap, wxDefaultPosition, wxSize( 21,21 ), wxBU_AUTODRAW|wxBORDER_NONE );
 	m_separator1->Enable( false );
 
-	formattingSizer->Add( m_separator1, 0, wxALIGN_CENTER_VERTICAL|wxLEFT, 5 );
+	m_iconBar->Add( m_separator1, 0, wxALIGN_CENTER_VERTICAL|wxLEFT, 5 );
 
 	m_bold = new BITMAP_BUTTON( formatting->GetStaticBox(), wxID_ANY, wxNullBitmap, wxDefaultPosition, wxSize( 21,21 ), wxBU_AUTODRAW|wxBORDER_NONE );
 	m_bold->SetToolTip( _("Bold") );
 
-	formattingSizer->Add( m_bold, 0, wxALIGN_CENTER_VERTICAL, 5 );
+	m_iconBar->Add( m_bold, 0, wxALIGN_CENTER_VERTICAL, 5 );
 
 	m_italic = new BITMAP_BUTTON( formatting->GetStaticBox(), wxID_ANY, wxNullBitmap, wxDefaultPosition, wxSize( 21,21 ), wxBU_AUTODRAW|wxBORDER_NONE );
 	m_italic->SetToolTip( _("Italic") );
 
-	formattingSizer->Add( m_italic, 0, wxALIGN_CENTER_VERTICAL, 5 );
+	m_iconBar->Add( m_italic, 0, wxALIGN_CENTER_VERTICAL, 5 );
 
 	m_separator2 = new BITMAP_BUTTON( formatting->GetStaticBox(), wxID_ANY, wxNullBitmap, wxDefaultPosition, wxSize( 21,21 ), wxBU_AUTODRAW|wxBORDER_NONE );
 	m_separator2->Enable( false );
 
-	formattingSizer->Add( m_separator2, 0, wxALIGN_CENTER_VERTICAL, 5 );
+	m_iconBar->Add( m_separator2, 0, wxALIGN_CENTER_VERTICAL, 5 );
 
 	m_spin0 = new BITMAP_BUTTON( formatting->GetStaticBox(), wxID_ANY, wxNullBitmap, wxDefaultPosition, wxSize( 21,21 ), wxBU_AUTODRAW|wxBORDER_NONE );
-	formattingSizer->Add( m_spin0, 0, wxALIGN_CENTER_VERTICAL, 5 );
+	m_iconBar->Add( m_spin0, 0, wxALIGN_CENTER_VERTICAL, 5 );
 
 	m_spin1 = new BITMAP_BUTTON( formatting->GetStaticBox(), wxID_ANY, wxNullBitmap, wxDefaultPosition, wxSize( 21,21 ), wxBU_AUTODRAW|wxBORDER_NONE );
-	formattingSizer->Add( m_spin1, 0, wxALIGN_CENTER_VERTICAL, 5 );
+	m_iconBar->Add( m_spin1, 0, wxALIGN_CENTER_VERTICAL, 5 );
 
 	m_spin2 = new BITMAP_BUTTON( formatting->GetStaticBox(), wxID_ANY, wxNullBitmap, wxDefaultPosition, wxSize( 21,21 ), wxBU_AUTODRAW|wxBORDER_NONE );
-	formattingSizer->Add( m_spin2, 0, wxALIGN_CENTER_VERTICAL, 5 );
+	m_iconBar->Add( m_spin2, 0, wxALIGN_CENTER_VERTICAL, 5 );
 
 	m_spin3 = new BITMAP_BUTTON( formatting->GetStaticBox(), wxID_ANY, wxNullBitmap, wxDefaultPosition, wxSize( 21,21 ), wxBU_AUTODRAW|wxBORDER_NONE );
-	formattingSizer->Add( m_spin3, 0, wxALIGN_CENTER_VERTICAL, 5 );
+	m_iconBar->Add( m_spin3, 0, wxALIGN_CENTER_VERTICAL, 5 );
+
+	m_autoRotate = new wxCheckBox( formatting->GetStaticBox(), wxID_ANY, _("Auto"), wxDefaultPosition, wxDefaultSize, 0 );
+	m_iconBar->Add( m_autoRotate, 0, wxALL, 5 );
 
 	m_separator3 = new BITMAP_BUTTON( formatting->GetStaticBox(), wxID_ANY, wxNullBitmap, wxDefaultPosition, wxSize( 21,21 ), wxBU_AUTODRAW|wxBORDER_NONE );
 	m_separator3->Enable( false );
 
-	formattingSizer->Add( m_separator3, 0, wxALIGN_CENTER_VERTICAL, 5 );
+	m_iconBar->Add( m_separator3, 0, wxALIGN_CENTER_VERTICAL, 5 );
 
 
-	gbSizer1->Add( formattingSizer, wxGBPosition( 0, 3 ), wxGBSpan( 1, 1 ), wxEXPAND|wxRIGHT|wxLEFT, 5 );
+	m_formattingGB->Add( m_iconBar, wxGBPosition( 0, 3 ), wxGBSpan( 1, 1 ), wxEXPAND|wxRIGHT|wxLEFT, 5 );
 
 	m_textSizeLabel = new wxStaticText( formatting->GetStaticBox(), wxID_ANY, _("Text size:"), wxDefaultPosition, wxDefaultSize, 0 );
 	m_textSizeLabel->Wrap( -1 );
-	gbSizer1->Add( m_textSizeLabel, wxGBPosition( 1, 0 ), wxGBSpan( 1, 1 ), wxALIGN_CENTER_VERTICAL|wxRIGHT, 5 );
+	m_formattingGB->Add( m_textSizeLabel, wxGBPosition( 1, 0 ), wxGBSpan( 1, 1 ), wxALIGN_CENTER_VERTICAL|wxRIGHT, 5 );
 
-	m_textSizeCtrl = new wxTextCtrl( formatting->GetStaticBox(), wxID_SIZE, wxEmptyString, wxDefaultPosition, wxDefaultSize, 0 );
-	gbSizer1->Add( m_textSizeCtrl, wxGBPosition( 1, 1 ), wxGBSpan( 1, 1 ), 0, 5 );
+	wxBoxSizer* bSizer71;
+	bSizer71 = new wxBoxSizer( wxHORIZONTAL );
+
+	m_textSizeCtrl = new wxTextCtrl( formatting->GetStaticBox(), wxID_ANY, wxEmptyString, wxDefaultPosition, wxSize( -1,-1 ), 0 );
+	bSizer71->Add( m_textSizeCtrl, 0, wxALIGN_CENTER_VERTICAL, 5 );
 
 	m_textSizeUnits = new wxStaticText( formatting->GetStaticBox(), wxID_ANY, _("mm"), wxDefaultPosition, wxDefaultSize, 0 );
 	m_textSizeUnits->Wrap( -1 );
-	gbSizer1->Add( m_textSizeUnits, wxGBPosition( 1, 2 ), wxGBSpan( 1, 1 ), wxLEFT|wxALIGN_CENTER_VERTICAL, 5 );
+	bSizer71->Add( m_textSizeUnits, 0, wxALIGN_CENTER_VERTICAL|wxLEFT, 3 );
+
+	m_textColorLabel = new wxStaticText( formatting->GetStaticBox(), wxID_ANY, _("Color:"), wxDefaultPosition, wxDefaultSize, 0 );
+	m_textColorLabel->Wrap( -1 );
+	bSizer71->Add( m_textColorLabel, 0, wxALIGN_CENTER_VERTICAL|wxLEFT, 15 );
 
 
-	formatting->Add( gbSizer1, 1, wxEXPAND, 5 );
+	bSizer71->Add( 5, 0, 0, 0, 5 );
+
+	m_panelBorderColor1 = new wxPanel( formatting->GetStaticBox(), wxID_ANY, wxDefaultPosition, wxDefaultSize, wxBORDER_SIMPLE|wxTAB_TRAVERSAL );
+	wxBoxSizer* bSizer22;
+	bSizer22 = new wxBoxSizer( wxVERTICAL );
+
+	m_textColorSwatch = new COLOR_SWATCH( m_panelBorderColor1, wxID_ANY, wxDefaultPosition, wxDefaultSize, 0 );
+	bSizer22->Add( m_textColorSwatch, 0, wxALIGN_CENTER_VERTICAL|wxALIGN_CENTER_HORIZONTAL, 5 );
+
+
+	m_panelBorderColor1->SetSizer( bSizer22 );
+	m_panelBorderColor1->Layout();
+	bSizer22->Fit( m_panelBorderColor1 );
+	bSizer71->Add( m_panelBorderColor1, 0, wxALIGN_CENTER_VERTICAL, 5 );
+
+
+	m_formattingGB->Add( bSizer71, wxGBPosition( 1, 1 ), wxGBSpan( 1, 1 ), wxEXPAND, 5 );
+
+
+	formatting->Add( m_formattingGB, 1, wxEXPAND, 5 );
 
 
 	optionsSizer->Add( formatting, 1, wxEXPAND|wxTOP, 5 );
@@ -276,7 +308,9 @@ DIALOG_LABEL_PROPERTIES_BASE::DIALOG_LABEL_PROPERTIES_BASE( wxWindow* parent, wx
 
 	// Connect Events
 	this->Connect( wxEVT_UPDATE_UI, wxUpdateUIEventHandler( DIALOG_LABEL_PROPERTIES_BASE::OnUpdateUI ) );
+	m_valueSingleLine->Connect( wxEVT_CHAR_HOOK, wxKeyEventHandler( DIALOG_LABEL_PROPERTIES_BASE::OnValueCharHook ), NULL, this );
 	m_valueSingleLine->Connect( wxEVT_COMMAND_TEXT_ENTER, wxCommandEventHandler( DIALOG_LABEL_PROPERTIES_BASE::OnEnterKey ), NULL, this );
+	m_valueCombo->Connect( wxEVT_CHAR_HOOK, wxKeyEventHandler( DIALOG_LABEL_PROPERTIES_BASE::OnValueCharHook ), NULL, this );
 	m_valueCombo->Connect( wxEVT_COMMAND_TEXT_ENTER, wxCommandEventHandler( DIALOG_LABEL_PROPERTIES_BASE::OnEnterKey ), NULL, this );
 	m_syntaxHelp->Connect( wxEVT_COMMAND_HYPERLINK, wxHyperlinkEventHandler( DIALOG_LABEL_PROPERTIES_BASE::OnFormattingHelp ), NULL, this );
 	m_grid->Connect( wxEVT_SIZE, wxSizeEventHandler( DIALOG_LABEL_PROPERTIES_BASE::OnSizeGrid ), NULL, this );
@@ -290,7 +324,9 @@ DIALOG_LABEL_PROPERTIES_BASE::~DIALOG_LABEL_PROPERTIES_BASE()
 {
 	// Disconnect Events
 	this->Disconnect( wxEVT_UPDATE_UI, wxUpdateUIEventHandler( DIALOG_LABEL_PROPERTIES_BASE::OnUpdateUI ) );
+	m_valueSingleLine->Disconnect( wxEVT_CHAR_HOOK, wxKeyEventHandler( DIALOG_LABEL_PROPERTIES_BASE::OnValueCharHook ), NULL, this );
 	m_valueSingleLine->Disconnect( wxEVT_COMMAND_TEXT_ENTER, wxCommandEventHandler( DIALOG_LABEL_PROPERTIES_BASE::OnEnterKey ), NULL, this );
+	m_valueCombo->Disconnect( wxEVT_CHAR_HOOK, wxKeyEventHandler( DIALOG_LABEL_PROPERTIES_BASE::OnValueCharHook ), NULL, this );
 	m_valueCombo->Disconnect( wxEVT_COMMAND_TEXT_ENTER, wxCommandEventHandler( DIALOG_LABEL_PROPERTIES_BASE::OnEnterKey ), NULL, this );
 	m_syntaxHelp->Disconnect( wxEVT_COMMAND_HYPERLINK, wxHyperlinkEventHandler( DIALOG_LABEL_PROPERTIES_BASE::OnFormattingHelp ), NULL, this );
 	m_grid->Disconnect( wxEVT_SIZE, wxSizeEventHandler( DIALOG_LABEL_PROPERTIES_BASE::OnSizeGrid ), NULL, this );

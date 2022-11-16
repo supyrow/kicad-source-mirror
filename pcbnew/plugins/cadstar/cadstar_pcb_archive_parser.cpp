@@ -23,8 +23,8 @@
  * @brief Parses a CADSTAR PCB Archive file
  */
 
+#include <base_units.h>
 #include <cadstar_pcb_archive_parser.h>
-#include <convert_to_biu.h> // PCB_IU_PER_MM
 #include <macros.h>
 #include <progress_reporter.h>
 #include <wx/translation.h>
@@ -2027,20 +2027,42 @@ XNODE* CADSTAR_PCB_ARCHIVE_PARSER::NET_PCB::ROUTE_VERTEX::Parse( XNODE* aNode,
     wxASSERT( aNode->GetName() == wxT( "ROUTEWIDTH" ) );
 
     RouteWidth      = GetXmlAttributeIDLong( aNode, 0 );
+    XNODE* prevNode = aNode;
     XNODE* nextNode = aNode->GetNext();
 
-    if( nextNode->GetName() == wxT( "FIX" ) )
+    for( ; nextNode; nextNode = nextNode->GetNext() )
     {
-        Fixed    = true;
-        nextNode = nextNode->GetNext();
+        if( nextNode->GetName() == wxT( "FIX" ) )
+        {
+            Fixed = true;
+        }
+        else if( nextNode->GetName() == wxT( "TDROPATSTART" ) )
+        {
+            TeardropAtStart = true;
+            TeardropAtStartAngle = GetXmlAttributeIDLong( nextNode, 0 );
+        }
+        else if( nextNode->GetName() == wxT( "TDROPATEND" ) )
+        {
+            TeardropAtEnd = true;
+            TeardropAtEndAngle = GetXmlAttributeIDLong( nextNode, 0 );
+        }
+        else if( VERTEX::IsVertex( nextNode ) )
+        {
+            Vertex.Parse( nextNode, aContext );
+        }
+        else if( nextNode->GetName() == wxT( "ROUTEWIDTH" ) )
+        {
+            return prevNode;
+        }
+        else
+        {
+            THROW_UNKNOWN_NODE_IO_ERROR( nextNode->GetName(), wxT( "ROUTE" ) );
+        }
+
+        prevNode = nextNode;
     }
 
-    if( !VERTEX::IsVertex( nextNode ) )
-        THROW_UNKNOWN_NODE_IO_ERROR( nextNode->GetName(), wxT( "ROUTE_VERTEX" ) );
-
-    Vertex.Parse( nextNode, aContext );
-
-    return nextNode;
+    return prevNode;
 }
 
 
@@ -2068,6 +2090,8 @@ void CADSTAR_PCB_ARCHIVE_PARSER::NET_PCB::ROUTE::Parse( XNODE* aNode, PARSER_CON
             ROUTE_VERTEX rtVert;
             cNode = rtVert.Parse( cNode, aContext );
             RouteVertices.push_back( rtVert );
+
+            assert( cNode != nullptr );
         }
         else
         {

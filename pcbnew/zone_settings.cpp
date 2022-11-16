@@ -1,13 +1,9 @@
-/**
- * @brief class ZONE_SETTINGS used to handle zones parameters
- */
-
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2018 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2012 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
- * Copyright (C) 1992-2018 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -29,7 +25,6 @@
 
 #include <zone_settings.h>
 
-#include <convert_to_biu.h>
 #include <pcbnew.h>
 #include <pcb_base_frame.h>
 #include <board.h>
@@ -45,9 +40,9 @@ ZONE_SETTINGS::ZONE_SETTINGS()
     m_ZonePriority = 0;
     m_FillMode = ZONE_FILL_MODE::POLYGONS; // Mode for filling zone
     // Zone clearance value
-    m_ZoneClearance = Mils2iu( ZONE_CLEARANCE_MIL );
+    m_ZoneClearance = EDA_UNIT_UTILS::Mils2IU( pcbIUScale, ZONE_CLEARANCE_MIL );
     // Min thickness value in filled areas (this is the minimum width of copper to fill solid areas) :
-    m_ZoneMinThickness = Mils2iu( ZONE_THICKNESS_MIL );
+    m_ZoneMinThickness = EDA_UNIT_UTILS::Mils2IU( pcbIUScale, ZONE_THICKNESS_MIL );
     m_HatchThickness = 0;           // good value of grid line thickness for ZFM_GRID_PATTERN
     m_HatchGap = 0;                 // good value of grid line gap for ZFM_GRID_PATTERN
     m_HatchOrientation = ANGLE_0;   // Grid style: orientation of grid lines
@@ -59,26 +54,25 @@ ZONE_SETTINGS::ZONE_SETTINGS()
     m_ZoneBorderDisplayStyle = ZONE_BORDER_DISPLAY_STYLE::DIAGONAL_EDGE; // Option to show the zone
                                                                          // outlines only, short
                                                                          // hatches or full hatches
-    m_BorderHatchPitch = Mils2iu( ZONE_BORDER_HATCH_DIST_MIL );
+    m_BorderHatchPitch = EDA_UNIT_UTILS::Mils2IU( pcbIUScale, ZONE_BORDER_HATCH_DIST_MIL );
 
     m_Layers.reset().set( F_Cu );
     m_Name = wxEmptyString;
 
     // thickness of the gap in thermal reliefs:
-    m_ThermalReliefGap = Mils2iu( ZONE_THERMAL_RELIEF_GAP_MIL );
+    m_ThermalReliefGap = EDA_UNIT_UTILS::Mils2IU( pcbIUScale, ZONE_THERMAL_RELIEF_GAP_MIL );
     // thickness of the copper bridge in thermal reliefs:
-    m_ThermalReliefSpokeWidth = Mils2iu( ZONE_THERMAL_RELIEF_COPPER_WIDTH_MIL );
+    m_ThermalReliefSpokeWidth = EDA_UNIT_UTILS::Mils2IU( pcbIUScale, ZONE_THERMAL_RELIEF_COPPER_WIDTH_MIL );
 
     m_padConnection = ZONE_CONNECTION::THERMAL; // How pads are covered by copper in zone
 
-    m_Zone_45_Only = false;
     m_Locked = false;
 
     m_cornerSmoothingType = SMOOTHING_NONE;
     m_cornerRadius = 0;
 
-    m_removeIslands = ISLAND_REMOVAL_MODE::ALWAYS;
-    m_minIslandArea = 0;
+    m_removeIslands = ISLAND_REMOVAL_MODE::AREA;
+    m_minIslandArea = 10 * pcbIUScale.IU_PER_MM * pcbIUScale.IU_PER_MM;
 
     SetIsRuleArea( false );
     SetDoNotAllowCopperPour( false );
@@ -86,12 +80,14 @@ ZONE_SETTINGS::ZONE_SETTINGS()
     SetDoNotAllowTracks( true );
     SetDoNotAllowPads( true );
     SetDoNotAllowFootprints( false );
+
+    m_TeardropType = TEARDROP_TYPE::TD_NONE;
 }
 
 
 ZONE_SETTINGS& ZONE_SETTINGS::operator << ( const ZONE& aSource )
 {
-    m_ZonePriority                = aSource.GetPriority();
+    m_ZonePriority                = aSource.GetAssignedPriority();
     m_FillMode                    = aSource.GetFillMode();
     m_ZoneClearance               = aSource.GetLocalClearance();
     m_ZoneMinThickness            = aSource.GetMinThickness();
@@ -117,10 +113,14 @@ ZONE_SETTINGS& ZONE_SETTINGS::operator << ( const ZONE& aSource )
     m_keepoutDoNotAllowTracks     = aSource.GetDoNotAllowTracks();
     m_keepoutDoNotAllowPads       = aSource.GetDoNotAllowPads();
     m_keepoutDoNotAllowFootprints = aSource.GetDoNotAllowFootprints();
-    m_Zone_45_Only                = aSource.GetHV45();
     m_Locked                      = aSource.IsLocked();
     m_removeIslands               = aSource.GetIslandRemovalMode();
     m_minIslandArea               = aSource.GetMinIslandArea();
+
+    // Currently, the teardrop area type is not really a ZONE_SETTINGS parameter,
+    // but a ZONE parameter only.
+    // However it can be used in dialogs
+    m_TeardropType                = aSource.GetTeardropAreaType();
 
     m_Layers = aSource.GetLayerSet();
 
@@ -151,14 +151,19 @@ void ZONE_SETTINGS::ExportSetting( ZONE& aTarget, bool aFullExport ) const
     aTarget.SetDoNotAllowTracks( GetDoNotAllowTracks() );
     aTarget.SetDoNotAllowPads( GetDoNotAllowPads() );
     aTarget.SetDoNotAllowFootprints( GetDoNotAllowFootprints() );
-    aTarget.SetHV45( m_Zone_45_Only );
     aTarget.SetLocked( m_Locked );
     aTarget.SetIslandRemovalMode( GetIslandRemovalMode() );
     aTarget.SetMinIslandArea( GetMinIslandArea() );
+    // Currently, the teardrop area type is not imported from a ZONE_SETTINGS, because
+    // it is not really a ZONE_SETTINGS parameter, but a ZONE parameter only
+#if 0
+    aTarget.SetTeardropAreaType( m_TeardropType );
+#endif
+
 
     if( aFullExport )
     {
-        aTarget.SetPriority( m_ZonePriority );
+        aTarget.SetAssignedPriority( m_ZonePriority );
         aTarget.SetLayerSet( m_Layers );
         aTarget.SetZoneName( m_Name );
 
@@ -240,10 +245,20 @@ void ZONE_SETTINGS::SetupLayersList( wxDataViewListCtrl* aList, PCB_BASE_FRAME* 
     int checkColSize = 22;
     int layerColSize = textWidth + LAYER_BITMAP_SIZE.x + 15;
 
+#ifdef __WXMAC__
+    // TODO: something in wxWidgets 3.1.x pads checkbox columns with extra space.  (It used to
+    // also be that the width of the column would get set too wide (to 30), but that's patched in
+    // our local wxWidgets fork.)
+    int checkColMargins = 40;
+#else
+    int checkColMargins = 0;
+#endif
+
     // You'd think the fact that m_layers is a list would encourage wxWidgets not to save room
     // for the tree expanders... but you'd be wrong.  Force indent to 0.
     aList->SetIndent( 0 );
-    aList->SetMinClientSize( wxSize( checkColSize + layerColSize, aList->GetMinClientSize().y ) );
+    aList->SetMinClientSize( wxSize( checkColSize + checkColMargins + layerColSize,
+                                     aList->GetMinClientSize().y ) );
 
     checkColumn->SetWidth( checkColSize );
     layerColumn->SetWidth( layerColSize );

@@ -80,44 +80,41 @@ bool MEANDER_SKEW_PLACER::Start( const VECTOR2I& aP, ITEM* aStartItem )
         !m_originPair.NLine().SegmentCount() )
         return false;
 
-    SOLID* padA = nullptr;
-    SOLID* padB = nullptr;
-
-    m_tunedPathP = topo.AssembleTuningPath( m_originPair.PLine().GetLink( 0 ), &padA, &padB );
+    m_tunedPathP = topo.AssembleTuningPath( m_originPair.PLine().GetLink( 0 ), &m_startPad_p, &m_endPad_p );
 
     m_padToDieP = 0;
 
-    if( padA )
-        m_padToDieP += padA->GetPadToDie();
+    if( m_startPad_p )
+        m_padToDieP += m_startPad_p->GetPadToDie();
 
-    if( padB )
-        m_padToDieP += padB->GetPadToDie();
+    if( m_endPad_p )
+        m_padToDieP += m_endPad_p->GetPadToDie();
 
-    m_tunedPathN = topo.AssembleTuningPath( m_originPair.NLine().GetLink( 0 ), &padA, &padB );
+    m_tunedPathN = topo.AssembleTuningPath( m_originPair.NLine().GetLink( 0 ), &m_startPad_n, &m_endPad_n );
 
     m_padToDieN = 0;
 
-    if( padA )
-        m_padToDieN += padA->GetPadToDie();
+    if( m_startPad_n )
+        m_padToDieN += m_startPad_n->GetPadToDie();
 
-    if( padB )
-        m_padToDieN += padB->GetPadToDie();
+    if( m_endPad_n )
+        m_padToDieN += m_endPad_n->GetPadToDie();
 
     m_world->Remove( m_originLine );
 
     m_currentWidth = m_originLine.Width();
     m_currentEnd = VECTOR2I( 0, 0 );
 
-    if ( m_originPair.PLine().Net() == m_originLine.Net() )
+    if ( m_originPair.NetP() == m_originLine.Net() )
     {
-        m_padToDieLength = m_padToDieN;
-        m_coupledLength = lineLength( m_tunedPathN );
+        m_padToDieLength = m_padToDieP;
+        m_coupledLength = m_padToDieN + lineLength( m_tunedPathN, m_startPad_n, m_endPad_n );
         m_tunedPath = m_tunedPathP;
     }
     else
     {
-        m_padToDieLength = m_padToDieP;
-        m_coupledLength = lineLength( m_tunedPathP );
+        m_padToDieLength = m_padToDieN;
+        m_coupledLength = m_padToDieP + lineLength( m_tunedPathP, m_startPad_p, m_endPad_p );
         m_tunedPath = m_tunedPathN;
     }
 
@@ -127,7 +124,11 @@ bool MEANDER_SKEW_PLACER::Start( const VECTOR2I& aP, ITEM* aStartItem )
 
 long long int MEANDER_SKEW_PLACER::origPathLength() const
 {
-    return m_padToDieLength + lineLength( m_tunedPath );
+    if ( m_originPair.NetP() == m_originLine.Net() )
+        return m_padToDieLength + lineLength( m_tunedPath, m_startPad_p, m_endPad_p );
+
+    return m_padToDieLength + lineLength( m_tunedPath, m_startPad_n, m_endPad_n );
+
 }
 
 
@@ -142,13 +143,13 @@ bool MEANDER_SKEW_PLACER::Move( const VECTOR2I& aP, ITEM* aEndItem )
     for( const ITEM* item : m_tunedPathP.CItems() )
     {
         if( const LINE* l = dyn_cast<const LINE*>( item ) )
-            PNS_DBG( Dbg(), AddLine, l->CLine(), BLUE, 10000, "tuned-path-skew-p" );
+            PNS_DBG( Dbg(), AddItem, l, BLUE, 10000, wxT( "tuned-path-skew-p" ) );
     }
 
     for( const ITEM* item : m_tunedPathN.CItems() )
     {
         if( const LINE* l = dyn_cast<const LINE*>( item ) )
-            PNS_DBG( Dbg(), AddLine, l->CLine(), YELLOW, 10000, "tuned-path-skew-n" );
+            PNS_DBG( Dbg(), AddItem, l, YELLOW, 10000, wxT( "tuned-path-skew-n" ) );
     }
 
     return doMove( aP, aEndItem, m_coupledLength + m_settings.m_targetSkew );
@@ -174,9 +175,9 @@ const wxString MEANDER_SKEW_PLACER::TuningInfo( EDA_UNITS aUnits ) const
         return _( "?" );
     }
 
-    status += ::MessageTextFromValue( aUnits, m_lastLength - m_coupledLength );
+    status += EDA_UNIT_UTILS::UI::MessageTextFromValue( pcbIUScale, aUnits, m_lastLength - m_coupledLength );
     status += wxT( "/" );
-    status += ::MessageTextFromValue( aUnits, m_settings.m_targetSkew );
+    status += EDA_UNIT_UTILS::UI::MessageTextFromValue( pcbIUScale, aUnits, m_settings.m_targetSkew );
 
     return status;
 }

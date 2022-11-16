@@ -126,11 +126,11 @@ DIALOG_TEXT_PROPERTIES::DIALOG_TEXT_PROPERTIES( PCB_BASE_EDIT_FRAME* aParent, BO
 
     m_separator1->SetIsSeparator();
 
-    m_alignLeft->SetIsCheckButton();
+    m_alignLeft->SetIsRadioButton();
     m_alignLeft->SetBitmap( KiBitmap( BITMAPS::text_align_left ) );
-    m_alignCenter->SetIsCheckButton();
+    m_alignCenter->SetIsRadioButton();
     m_alignCenter->SetBitmap( KiBitmap( BITMAPS::text_align_center ) );
-    m_alignRight->SetIsCheckButton();
+    m_alignRight->SetIsRadioButton();
     m_alignRight->SetBitmap( KiBitmap( BITMAPS::text_align_right ) );
 
     m_separator2->SetIsSeparator();
@@ -233,6 +233,7 @@ bool DIALOG_TEXT_PROPERTIES::TransferDataToWindow()
 
         m_MultiLineText->SetValue( converted );
         m_MultiLineText->SetSelection( -1, -1 );
+        m_MultiLineText->EmptyUndoBuffer();
     }
 
     if( m_item->Type() == PCB_FP_TEXT_T && m_fpText )
@@ -259,6 +260,7 @@ bool DIALOG_TEXT_PROPERTIES::TransferDataToWindow()
     m_cbLocked->SetValue( m_item->IsLocked() );
 
     m_LayerSelectionCtrl->SetLayerSelection( m_item->GetLayer() );
+    m_cbKnockout->SetValue( m_item->IsKnockout() );
 
     m_fontCtrl->SetFontSelection( m_edaText->GetFont() );
 
@@ -285,7 +287,8 @@ bool DIALOG_TEXT_PROPERTIES::TransferDataToWindow()
 
     m_mirrored->Check( m_edaText->IsMirrored() );
 
-    m_orientation.SetAngleValue( m_edaText->GetTextAngle() );
+    EDA_ANGLE orientation = m_edaText->GetTextAngle();
+    m_orientation.SetAngleValue( orientation.Normalize180() );
 
     return DIALOG_TEXT_PROPERTIES_BASE::TransferDataToWindow();
 }
@@ -395,6 +398,7 @@ bool DIALOG_TEXT_PROPERTIES::TransferDataFromWindow()
     m_item->SetLocked( m_cbLocked->GetValue() );
 
     m_item->SetLayer( ToLAYER_ID( m_LayerSelectionCtrl->GetLayerSelection() ) );
+    m_item->SetIsKnockout( m_cbKnockout->GetValue() );
 
     if( m_fontCtrl->HaveFontSelection() )
     {
@@ -419,7 +423,7 @@ bool DIALOG_TEXT_PROPERTIES::TransferDataFromWindow()
         m_edaText->SetTextThickness( maxPenWidth );
     }
 
-    m_edaText->SetTextAngle( m_orientation.GetAngleValue() );
+    m_edaText->SetTextAngle( m_orientation.GetAngleValue().Normalize() );
 
     m_edaText->SetVisible( m_Visible->GetValue() );
 

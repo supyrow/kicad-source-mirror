@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2004-2020 KiCad Developers.
+ * Copyright (C) 2004-2022 KiCad Developers.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -43,7 +43,9 @@
 class DRC_TEST_PROVIDER_COURTYARD_CLEARANCE : public DRC_TEST_PROVIDER_CLEARANCE_BASE
 {
 public:
-    DRC_TEST_PROVIDER_COURTYARD_CLEARANCE ()
+    DRC_TEST_PROVIDER_COURTYARD_CLEARANCE () :
+        DRC_TEST_PROVIDER_CLEARANCE_BASE(),
+        m_largestCourtyardClearance( 0 )
     {
         m_isRuleDriven = false;
     }
@@ -56,25 +58,26 @@ public:
 
     virtual const wxString GetName() const override
     {
-        return "courtyard_clearance";
+        return wxT( "courtyard_clearance" );
     }
 
     virtual const wxString GetDescription() const override
     {
-        return "Tests footprints' courtyard clearance";
+        return wxT( "Tests footprints' courtyard clearance" );
     }
 
 private:
     bool testFootprintCourtyardDefinitions();
 
     bool testCourtyardClearances();
+
+private:
+    int  m_largestCourtyardClearance;
 };
 
 
 bool DRC_TEST_PROVIDER_COURTYARD_CLEARANCE::testFootprintCourtyardDefinitions()
 {
-    const int delta = 100;  // This is the number of tests between 2 calls to the progress bar
-
     // Detects missing (or malformed) footprint courtyards
     if( !m_drcEngine->IsErrorLimitExceeded( DRCE_MALFORMED_COURTYARD)
             || !m_drcEngine->IsErrorLimitExceeded( DRCE_MISSING_COURTYARD) )
@@ -89,15 +92,16 @@ bool DRC_TEST_PROVIDER_COURTYARD_CLEARANCE::testFootprintCourtyardDefinitions()
     }
     else
     {
-        reportAux( "All courtyard violations ignored. Tests not run." );
+        reportAux( wxT( "All courtyard violations ignored. Tests not run." ) );
         return true;        // continue with other tests
     }
 
-    int ii = 0;
+    const int progressDelta = 500;
+    int       ii = 0;
 
     for( FOOTPRINT* footprint : m_board->Footprints() )
     {
-        if( !reportProgress( ii++, m_board->Footprints().size(), delta ) )
+        if( !reportProgress( ii++, m_board->Footprints().size(), progressDelta ) )
             return false;   // DRC cancelled
 
         if( ( footprint->GetFlags() & MALFORMED_COURTYARDS ) != 0 )
@@ -115,10 +119,10 @@ bool DRC_TEST_PROVIDER_COURTYARD_CLEARANCE::testFootprintCourtyardDefinitions()
                     };
 
             // Re-run courtyard tests to generate DRC_ITEMs
-            footprint->BuildPolyCourtyards( &errorHandler );
+            footprint->BuildCourtyardCaches( &errorHandler );
         }
-        else if( footprint->GetPolyCourtyard( F_CrtYd ).OutlineCount() == 0
-                && footprint->GetPolyCourtyard( B_CrtYd ).OutlineCount() == 0 )
+        else if( footprint->GetCourtyard( F_CrtYd ).OutlineCount() == 0
+                && footprint->GetCourtyard( B_CrtYd ).OutlineCount() == 0 )
         {
             if( m_drcEngine->IsErrorLimitExceeded( DRCE_MISSING_COURTYARD ) )
                 continue;
@@ -132,27 +136,26 @@ bool DRC_TEST_PROVIDER_COURTYARD_CLEARANCE::testFootprintCourtyardDefinitions()
         }
         else
         {
-            footprint->GetPolyCourtyard( F_CrtYd ).BuildBBoxCaches();
-            footprint->GetPolyCourtyard( B_CrtYd ).BuildBBoxCaches();
+            footprint->GetCourtyard( F_CrtYd ).BuildBBoxCaches();
+            footprint->GetCourtyard( B_CrtYd ).BuildBBoxCaches();
         }
     }
 
-    return true;
+    return !m_drcEngine->IsCancelled();
 }
 
 
 bool DRC_TEST_PROVIDER_COURTYARD_CLEARANCE::testCourtyardClearances()
 {
-    const int delta = 100;  // This is the number of tests between 2 calls to the progress bar
-
     if( !reportPhase( _( "Checking footprints for overlapping courtyards..." ) ) )
         return false;   // DRC cancelled
 
-    int ii = 0;
+    const int progressDelta = 100;
+    int       ii = 0;
 
     for( auto itA = m_board->Footprints().begin(); itA != m_board->Footprints().end(); itA++ )
     {
-        if( !reportProgress( ii++, m_board->Footprints().size(), delta ) )
+        if( !reportProgress( ii++, m_board->Footprints().size(), progressDelta ) )
             return false;   // DRC cancelled
 
         if( m_drcEngine->IsErrorLimitExceeded( DRCE_OVERLAPPING_FOOTPRINTS)
@@ -163,8 +166,8 @@ bool DRC_TEST_PROVIDER_COURTYARD_CLEARANCE::testCourtyardClearances()
         }
 
         FOOTPRINT*            fpA = *itA;
-        const SHAPE_POLY_SET& frontA = fpA->GetPolyCourtyard( F_CrtYd );
-        const SHAPE_POLY_SET& backA = fpA->GetPolyCourtyard( B_CrtYd );
+        const SHAPE_POLY_SET& frontA = fpA->GetCourtyard( F_CrtYd );
+        const SHAPE_POLY_SET& backA = fpA->GetCourtyard( B_CrtYd );
 
         if( frontA.OutlineCount() == 0 && backA.OutlineCount() == 0
              && m_drcEngine->IsErrorLimitExceeded( DRCE_PTH_IN_COURTYARD )
@@ -174,27 +177,46 @@ bool DRC_TEST_PROVIDER_COURTYARD_CLEARANCE::testCourtyardClearances()
             continue;
         }
 
-        BOX2I frontBBox = frontA.BBoxFromCaches();
-        BOX2I backBBox = backA.BBoxFromCaches();
+        BOX2I frontA_worstCaseBBox = frontA.BBoxFromCaches();
+        BOX2I backA_worstCaseBBox = backA.BBoxFromCaches();
 
-        frontBBox.Inflate( m_largestClearance );
-        backBBox.Inflate( m_largestClearance );
+        frontA_worstCaseBBox.Inflate( m_largestCourtyardClearance );
+        backA_worstCaseBBox.Inflate( m_largestCourtyardClearance );
 
-        EDA_RECT fpABBox = fpA->GetBoundingBox();
+        BOX2I fpA_bbox = fpA->GetBoundingBox();
 
         for( auto itB = itA + 1; itB != m_board->Footprints().end(); itB++ )
         {
             FOOTPRINT*            fpB = *itB;
-            EDA_RECT              fpBBBox = fpB->GetBoundingBox();
-            const SHAPE_POLY_SET& frontB = fpB->GetPolyCourtyard( F_CrtYd );
-            const SHAPE_POLY_SET& backB = fpB->GetPolyCourtyard( B_CrtYd );
-            DRC_CONSTRAINT        constraint;
-            int                   clearance;
-            int                   actual;
-            VECTOR2I              pos;
+            const SHAPE_POLY_SET& frontB = fpB->GetCourtyard( F_CrtYd );
+            const SHAPE_POLY_SET& backB = fpB->GetCourtyard( B_CrtYd );
+
+            if( frontB.OutlineCount() == 0 && backB.OutlineCount() == 0
+                 && m_drcEngine->IsErrorLimitExceeded( DRCE_PTH_IN_COURTYARD )
+                 && m_drcEngine->IsErrorLimitExceeded( DRCE_NPTH_IN_COURTYARD ) )
+            {
+                // No courtyards defined and no hole testing against other footprint's courtyards
+                continue;
+            }
+
+            BOX2I frontB_worstCaseBBox = frontB.BBoxFromCaches();
+            BOX2I backB_worstCaseBBox = backB.BBoxFromCaches();
+
+            frontB_worstCaseBBox.Inflate( m_largestCourtyardClearance );
+            backB_worstCaseBBox.Inflate( m_largestCourtyardClearance );
+
+            BOX2I          fpB_bbox = fpB->GetBoundingBox();
+            DRC_CONSTRAINT constraint;
+            int            clearance;
+            int            actual;
+            VECTOR2I       pos;
+
+            //
+            // Check courtyard-to-courtyard collisions on front of board.
+            //
 
             if( frontA.OutlineCount() > 0 && frontB.OutlineCount() > 0
-                    && frontBBox.Intersects( frontB.BBoxFromCaches() ) )
+                    && frontA_worstCaseBBox.Intersects( frontB.BBoxFromCaches() ) )
             {
                 constraint = m_drcEngine->EvalRules( COURTYARD_CLEARANCE_CONSTRAINT, fpA, fpB, F_Cu );
                 clearance = constraint.GetValue().Min();
@@ -207,12 +229,12 @@ bool DRC_TEST_PROVIDER_COURTYARD_CLEARANCE::testCourtyardClearances()
 
                         if( clearance > 0 )
                         {
-                            m_msg.Printf( _( "(%s clearance %s; actual %s)" ),
-                                          constraint.GetName(),
-                                          MessageTextFromValue( userUnits(), clearance ),
-                                          MessageTextFromValue( userUnits(), actual ) );
+                            wxString msg = formatMsg( _( "(%s clearance %s; actual %s)" ),
+                                                      constraint.GetName(),
+                                                      clearance,
+                                                      actual );
 
-                            drce->SetErrorMessage( drce->GetErrorText() + wxS( " " ) + m_msg );
+                            drce->SetErrorMessage( drce->GetErrorText() + wxS( " " ) + msg );
                             drce->SetViolatingRule( constraint.GetParentRule() );
                         }
 
@@ -222,8 +244,12 @@ bool DRC_TEST_PROVIDER_COURTYARD_CLEARANCE::testCourtyardClearances()
                 }
             }
 
+            //
+            // Check courtyard-to-courtyard collisions on back of board.
+            //
+
             if( backA.OutlineCount() > 0 && backB.OutlineCount() > 0
-                    && backBBox.Intersects( backB.BBoxFromCaches() ) )
+                    && backA_worstCaseBBox.Intersects( backB.BBoxFromCaches() ) )
             {
                 constraint = m_drcEngine->EvalRules( COURTYARD_CLEARANCE_CONSTRAINT, fpA, fpB, B_Cu );
                 clearance = constraint.GetValue().Min();
@@ -236,12 +262,12 @@ bool DRC_TEST_PROVIDER_COURTYARD_CLEARANCE::testCourtyardClearances()
 
                         if( clearance > 0 )
                         {
-                            m_msg.Printf( _( "(%s clearance %s; actual %s)" ),
-                                          constraint.GetName(),
-                                          MessageTextFromValue( userUnits(), clearance ),
-                                          MessageTextFromValue( userUnits(), actual ) );
+                            wxString msg = formatMsg( _( "(%s clearance %s; actual %s)" ),
+                                                      constraint.GetName(),
+                                                      clearance,
+                                                      actual );
 
-                            drce->SetErrorMessage( drce->GetErrorText() + wxS( " " ) + m_msg );
+                            drce->SetErrorMessage( drce->GetErrorText() + wxS( " " ) + msg );
                             drce->SetViolatingRule( constraint.GetParentRule() );
                         }
 
@@ -251,8 +277,15 @@ bool DRC_TEST_PROVIDER_COURTYARD_CLEARANCE::testCourtyardClearances()
                 }
             }
 
+            //
+            // Check pad-hole-to-courtyard collisions on front and back of board.
+            //
+            // NB: via holes are not checked.  There is a presumption that a physical object goes
+            // through a pad hole, which is not the case for via holes.
+            //
+
             auto testPadAgainstCourtyards =
-                    [&]( const PAD* pad, const FOOTPRINT* footprint )
+                    [&]( const PAD* pad, const FOOTPRINT* fp )
                     {
                         int errorCode = 0;
 
@@ -266,41 +299,47 @@ bool DRC_TEST_PROVIDER_COURTYARD_CLEARANCE::testCourtyardClearances()
                         if( m_drcEngine->IsErrorLimitExceeded( errorCode ) )
                             return;
 
-                        const SHAPE_SEGMENT*  hole = pad->GetEffectiveHoleShape();
-                        const SHAPE_POLY_SET& front = footprint->GetPolyCourtyard( F_CrtYd );
-                        const SHAPE_POLY_SET& back = footprint->GetPolyCourtyard( B_CrtYd );
+                        if( pad->HasHole() )
+                        {
+                            std::shared_ptr<SHAPE_SEGMENT> hole = pad->GetEffectiveHoleShape();
+                            const SHAPE_POLY_SET&          front = fp->GetCourtyard( F_CrtYd );
+                            const SHAPE_POLY_SET&          back = fp->GetCourtyard( B_CrtYd );
 
-                        if( front.OutlineCount() > 0 && front.Collide( hole, 0 ) )
-                        {
-                            std::shared_ptr<DRC_ITEM> drce = DRC_ITEM::Create( errorCode );
-                            drce->SetItems( pad, footprint );
-                            reportViolation( drce, pad->GetPosition(), F_CrtYd );
-                        }
-                        else if( back.OutlineCount() > 0 && back.Collide( hole, 0 ) )
-                        {
-                            std::shared_ptr<DRC_ITEM> drce = DRC_ITEM::Create( errorCode );
-                            drce->SetItems( pad, footprint );
-                            reportViolation( drce, pad->GetPosition(), B_CrtYd );
+                            if( front.OutlineCount() > 0 && front.Collide( hole.get(), 0 ) )
+                            {
+                                std::shared_ptr<DRC_ITEM> drce = DRC_ITEM::Create( errorCode );
+                                drce->SetItems( pad, fp );
+                                reportViolation( drce, pad->GetPosition(), F_CrtYd );
+                            }
+                            else if( back.OutlineCount() > 0 && back.Collide( hole.get(), 0 ) )
+                            {
+                                std::shared_ptr<DRC_ITEM> drce = DRC_ITEM::Create( errorCode );
+                                drce->SetItems( pad, fp );
+                                reportViolation( drce, pad->GetPosition(), B_CrtYd );
+                            }
                         }
                     };
 
-            if( ( frontA.OutlineCount() > 0 && frontA.BBoxFromCaches().Intersects( fpBBBox ) )
-                || ( backA.OutlineCount() > 0 && backA.BBoxFromCaches().Intersects( fpBBBox ) ) )
+            if( ( frontA.OutlineCount() > 0 && frontA_worstCaseBBox.Intersects( fpB_bbox ) )
+                || ( backA.OutlineCount() > 0 && backA_worstCaseBBox.Intersects( fpB_bbox ) ) )
             {
                 for( const PAD* padB : fpB->Pads() )
                     testPadAgainstCourtyards( padB, fpA );
             }
 
-            if( ( frontB.OutlineCount() > 0 && frontB.BBoxFromCaches().Intersects( fpABBox ) )
-                || ( backB.OutlineCount() > 0 && backB.BBoxFromCaches().Intersects( fpABBox ) ) )
+            if( ( frontB.OutlineCount() > 0 && frontB.BBoxFromCaches().Intersects( fpA_bbox ) )
+                || ( backB.OutlineCount() > 0 && backB.BBoxFromCaches().Intersects( fpA_bbox ) ) )
             {
                 for( const PAD* padA : fpA->Pads() )
                     testPadAgainstCourtyards( padA, fpB );
             }
+
+            if( m_drcEngine->IsCancelled() )
+                return false;
         }
     }
 
-    return true;
+    return !m_drcEngine->IsCancelled();
 }
 
 
@@ -310,9 +349,9 @@ bool DRC_TEST_PROVIDER_COURTYARD_CLEARANCE::Run()
     DRC_CONSTRAINT constraint;
 
     if( m_drcEngine->QueryWorstConstraint( COURTYARD_CLEARANCE_CONSTRAINT, constraint ) )
-        m_largestClearance = constraint.GetValue().Min();
+        m_largestCourtyardClearance = constraint.GetValue().Min();
 
-    reportAux( "Worst courtyard clearance : %d nm", m_largestClearance );
+    reportAux( wxT( "Worst courtyard clearance : %d nm" ), m_largestCourtyardClearance );
 
     if( !testFootprintCourtyardDefinitions() )
         return false;

@@ -2,7 +2,7 @@
  * This file is part of libeval, a simple math expression evaluator
  *
  * Copyright (C) 2017 Michael Geselbracht, mgeselbracht3@gmail.com
- * Copyright (C) 2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2021-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -54,13 +54,7 @@ NUMERIC_EVALUATOR::NUMERIC_EVALUATOR( EDA_UNITS aUnits )
 
     m_parser = numEval::ParseAlloc( malloc );
 
-    switch( aUnits )
-    {
-    case EDA_UNITS::MILLIMETRES: m_defaultUnits = Unit::MM;   break;
-    case EDA_UNITS::MILS:        m_defaultUnits = Unit::Mil;  break;
-    case EDA_UNITS::INCHES:      m_defaultUnits = Unit::Inch; break;
-    default:                     m_defaultUnits = Unit::MM;   break;
-    }
+    SetDefaultUnits( aUnits );
 }
 
 
@@ -77,11 +71,23 @@ NUMERIC_EVALUATOR::~NUMERIC_EVALUATOR()
 
 void NUMERIC_EVALUATOR::Clear()
 {
-    free( m_token.token );
+    delete[] m_token.token;
     m_token.token = nullptr;
     m_token.input = nullptr;
     m_parseError = true;
     m_originalText = wxEmptyString;
+}
+
+
+void NUMERIC_EVALUATOR::SetDefaultUnits( EDA_UNITS aUnits )
+{
+    switch( aUnits )
+    {
+    case EDA_UNITS::MILLIMETRES: m_defaultUnits = Unit::MM;   break;
+    case EDA_UNITS::MILS:        m_defaultUnits = Unit::Mil;  break;
+    case EDA_UNITS::INCHES:      m_defaultUnits = Unit::Inch; break;
+    default:                     m_defaultUnits = Unit::MM;   break;
+    }
 }
 
 
@@ -103,15 +109,15 @@ void NUMERIC_EVALUATOR::parseSetResult( double val )
     {
         // Naively printing this with %g produces "nan" on some platforms
         // and "-nan(ind)" on others (e.g. MSVC). So force a "standard" string.
-        snprintf( m_token.token, m_token.OutLen, "%s", "NaN" );
+        snprintf( m_token.token, m_token.outputLen, "%s", "NaN" );
     }
     else
     {
         // Can be printed as a floating point
         // Warning: DO NOT use a format like %f or %g, because they can create issues.
         // especially %g can generate an exponent, incompatible with UNIT_BINDER
-        // Use the optimized Double2Str
-        snprintf( m_token.token, m_token.OutLen, "%s", Double2Str( val ).c_str() );
+        // Use the optimized UIDouble2Str
+        snprintf( m_token.token, m_token.outputLen, "%s", UIDouble2Str( val ).c_str() );
     }
 }
 
@@ -159,12 +165,12 @@ void NUMERIC_EVALUATOR::newString( const wxString& aString )
     Clear();
 
     m_originalText = aString;
-
-    m_token.token = reinterpret_cast<decltype( m_token.token )>( malloc( TokenStat::OutLen + 1 ) );
-    strcpy( m_token.token, "0" );
     m_token.inputLen = aString.length();
+    m_token.outputLen = std::max<std::size_t>( 64, m_token.inputLen + 1 );
     m_token.pos = 0;
     m_token.input = aString.mb_str();
+    m_token.token = new char[m_token.outputLen]();
+    m_token.token[0] = '0';
 
     m_parseFinished = false;
 }
@@ -189,88 +195,94 @@ NUMERIC_EVALUATOR::Token NUMERIC_EVALUATOR::getToken()
     if( m_token.pos >= m_token.inputLen )
         return retval;
 
-    auto isDecimalSeparator = [ & ]( char ch ) -> bool {
-        return ( ch == m_localeDecimalSeparator || ch == '.' || ch == ',' );
-    };
+    auto isDecimalSeparator =
+            [&]( char ch ) -> bool
+            {
+                return ( ch == m_localeDecimalSeparator || ch == '.' || ch == ',' );
+            };
 
     // Lambda: get value as string, store into clToken.token and update current index.
-    auto extractNumber = [ & ]() {
-        bool haveSeparator = false;
-        idx = 0;
-        auto ch = m_token.input[ m_token.pos ];
+    auto extractNumber =
+            [&]()
+            {
+                bool haveSeparator = false;
+                idx = 0;
+                char ch = m_token.input[ m_token.pos ];
 
-        do
-        {
-            if( isDecimalSeparator( ch ) && haveSeparator )
-                break;
+                do
+                {
+                    if( isDecimalSeparator( ch ) && haveSeparator )
+                        break;
 
-            m_token.token[ idx++ ] = ch;
+                    m_token.token[ idx++ ] = ch;
 
-            if( isDecimalSeparator( ch ) )
-                haveSeparator = true;
+                    if( isDecimalSeparator( ch ) )
+                        haveSeparator = true;
 
-            ch = m_token.input[ ++m_token.pos ];
-        } while( isdigit( ch ) || isDecimalSeparator( ch ) );
+                    ch = m_token.input[ ++m_token.pos ];
+                } while( isdigit( ch ) || isDecimalSeparator( ch ) );
 
-        m_token.token[ idx ] = 0;
+                m_token.token[ idx ] = 0;
 
-        // Ensure that the systems decimal separator is used
-        for( int i = strlen( m_token.token ); i; i-- )
-        {
-            if( isDecimalSeparator( m_token.token[ i - 1 ] ) )
-                m_token.token[ i - 1 ] = m_localeDecimalSeparator;
-        }
-    };
+                // Ensure that the systems decimal separator is used
+                for( int i = strlen( m_token.token ); i; i-- )
+                {
+                    if( isDecimalSeparator( m_token.token[ i - 1 ] ) )
+                        m_token.token[ i - 1 ] = m_localeDecimalSeparator;
+                }
+            };
 
     // Lamda: Get unit for current token.
     // Valid units are ", in, mm, mil and thou.  Returns Unit::Invalid otherwise.
-    auto checkUnit = [ this ]() -> Unit {
-        char ch = m_token.input[ m_token.pos ];
+    auto checkUnit =
+            [this]() -> Unit
+            {
+                char ch = m_token.input[ m_token.pos ];
 
-        if( ch == '"' )
-        {
-            m_token.pos++;
-            return Unit::Inch;
-        }
+                if( ch == '"' )
+                {
+                    m_token.pos++;
+                    return Unit::Inch;
+                }
 
-        // Do not use strcasecmp() as it is not available on all platforms
-        const char* cptr = &m_token.input[ m_token.pos ];
-        const auto sizeLeft = m_token.inputLen - m_token.pos;
+                // Do not use strcasecmp() as it is not available on all platforms
+                const char* cptr = &m_token.input[ m_token.pos ];
+                const auto sizeLeft = m_token.inputLen - m_token.pos;
 
-        if( sizeLeft >= 2 && ch == 'm' && cptr[ 1 ] == 'm' && !isalnum( cptr[ 2 ] ) )
-        {
-            m_token.pos += 2;
-            return Unit::MM;
-        }
+                if( sizeLeft >= 2 && ch == 'm' && cptr[ 1 ] == 'm' && !isalnum( cptr[ 2 ] ) )
+                {
+                    m_token.pos += 2;
+                    return Unit::MM;
+                }
 
-        if( sizeLeft >= 2 && ch == 'c' && cptr[ 1 ] == 'm' && !isalnum( cptr[ 2 ] ) )
-        {
-            m_token.pos += 2;
-            return Unit::CM;
-        }
+                if( sizeLeft >= 2 && ch == 'c' && cptr[ 1 ] == 'm' && !isalnum( cptr[ 2 ] ) )
+                {
+                    m_token.pos += 2;
+                    return Unit::CM;
+                }
 
-        if( sizeLeft >= 2 && ch == 'i' && cptr[ 1 ] == 'n' && !isalnum( cptr[ 2 ] ) )
-        {
-            m_token.pos += 2;
-            return Unit::Inch;
-        }
+                if( sizeLeft >= 2 && ch == 'i' && cptr[ 1 ] == 'n' && !isalnum( cptr[ 2 ] ) )
+                {
+                    m_token.pos += 2;
+                    return Unit::Inch;
+                }
 
-        if( sizeLeft >= 3 && ch == 'm' && cptr[ 1 ] == 'i' && cptr[ 2 ] == 'l'
-          && !isalnum( cptr[ 3 ] ) )
-        {
-            m_token.pos += 3;
-            return Unit::Mil;
-        }
+                if( sizeLeft >= 3 && ch == 'm' && cptr[ 1 ] == 'i' && cptr[ 2 ] == 'l'
+                        && !isalnum( cptr[ 3 ] ) )
+                {
+                    m_token.pos += 3;
+                    return Unit::Mil;
+                }
 
-        if( sizeLeft >= 4 && ch == 't' && cptr[ 1 ] == 'h' && cptr[ 2 ] == 'o'
-          && cptr[ 3 ] == 'u' && !isalnum( cptr[ 4 ] ) )
-        {
-            m_token.pos += 4;
-            return Unit::Mil;
-        }
+                if( sizeLeft >= 4 && ch == 't' && cptr[ 1 ] == 'h' && cptr[ 2 ] == 'o'
+                        && cptr[ 3 ] == 'u' && !isalnum( cptr[ 4 ] ) )
+                {
+                    m_token.pos += 4;
+                    return Unit::Mil;
+                }
 
-        return Unit::Invalid;
-    };
+                return Unit::Invalid;
+            };
 
     char ch;
 
@@ -298,7 +310,7 @@ NUMERIC_EVALUATOR::Token NUMERIC_EVALUATOR::getToken()
         retval.token = VALUE;
         retval.value.dValue = atof( m_token.token );
     }
-    else if(( convertFrom = checkUnit()) != Unit::Invalid )
+    else if( ( convertFrom = checkUnit() ) != Unit::Invalid )
     {
         // UNIT
         // Units are appended to a VALUE.
@@ -342,7 +354,7 @@ NUMERIC_EVALUATOR::Token NUMERIC_EVALUATOR::getToken()
             }
         }
     }
-    else if( isalpha( ch ))
+    else if( isalpha( ch ) )
     {
         // VAR
         const char* cptr = &m_token.input[ m_token.pos ];

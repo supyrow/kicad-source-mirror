@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2004-2020 KiCad Developers.
+ * Copyright (C) 2004-2022 KiCad Developers.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -45,8 +45,9 @@ class DRC_TEST_PROVIDER_HOLE_TO_HOLE : public DRC_TEST_PROVIDER_CLEARANCE_BASE
 {
 public:
     DRC_TEST_PROVIDER_HOLE_TO_HOLE () :
-        DRC_TEST_PROVIDER_CLEARANCE_BASE(),
-        m_board( nullptr )
+            DRC_TEST_PROVIDER_CLEARANCE_BASE(),
+            m_board( nullptr ),
+            m_largestHoleToHoleClearance( 0 )
     {
     }
 
@@ -58,12 +59,12 @@ public:
 
     virtual const wxString GetName() const override
     {
-        return "hole_to_hole_clearance";
+        return wxT( "hole_to_hole_clearance" );
     };
 
     virtual const wxString GetDescription() const override
     {
-        return "Tests hole to hole spacing";
+        return wxT( "Tests hole to hole spacing" );
     }
 
 private:
@@ -71,6 +72,7 @@ private:
 
     BOARD*    m_board;
     DRC_RTREE m_holeTree;
+    int       m_largestHoleToHoleClearance;
 };
 
 
@@ -96,7 +98,7 @@ bool DRC_TEST_PROVIDER_HOLE_TO_HOLE::Run()
     if( m_drcEngine->IsErrorLimitExceeded( DRCE_DRILLED_HOLES_TOO_CLOSE )
             && m_drcEngine->IsErrorLimitExceeded( DRCE_DRILLED_HOLES_COLOCATED ) )
     {
-        reportAux( "Hole to hole violations ignored. Tests not run." );
+        reportAux( wxT( "Hole to hole violations ignored. Tests not run." ) );
         return true;        // continue with other tests
     }
 
@@ -106,40 +108,37 @@ bool DRC_TEST_PROVIDER_HOLE_TO_HOLE::Run()
 
     if( m_drcEngine->QueryWorstConstraint( HOLE_TO_HOLE_CONSTRAINT, worstClearanceConstraint ) )
     {
-        m_largestClearance = worstClearanceConstraint.GetValue().Min();
-        reportAux( "Worst hole to hole : %d nm", m_largestClearance );
+        m_largestHoleToHoleClearance = worstClearanceConstraint.GetValue().Min();
+        reportAux( wxT( "Worst hole to hole : %d nm" ), m_largestHoleToHoleClearance );
     }
     else
     {
-        reportAux( "No hole to hole constraints found. Skipping check." );
+        reportAux( wxT( "No hole to hole constraints found. Skipping check." ) );
         return true;        // continue with other tests
     }
 
     if( !reportPhase( _( "Checking hole to hole clearances..." ) ) )
         return false;   // DRC cancelled
 
-    // This is the number of tests between 2 calls to the progress bar
-    const size_t delta = 50;
+    const size_t progressDelta = 200;
     size_t       count = 0;
     size_t       ii = 0;
 
     m_holeTree.clear();
 
-    auto countItems =
+    forEachGeometryItem( { PCB_PAD_T, PCB_VIA_T }, LSET::AllLayersMask(),
             [&]( BOARD_ITEM* item ) -> bool
             {
-                if( item->Type() == PCB_PAD_T )
-                    ++count;
-                else if( item->Type() == PCB_VIA_T )
-                    ++count;
-
+                ++count;
                 return true;
-            };
+            } );
 
-    auto addToHoleTree =
+    count *= 2;  // One for adding to the rtree; one for checking
+
+    forEachGeometryItem( { PCB_PAD_T, PCB_VIA_T }, LSET::AllLayersMask(),
             [&]( BOARD_ITEM* item ) -> bool
             {
-                if( !reportProgress( ii++, count, delta ) )
+                if( !reportProgress( ii++, count, progressDelta ) )
                     return false;
 
                 if( item->Type() == PCB_PAD_T )
@@ -148,7 +147,7 @@ bool DRC_TEST_PROVIDER_HOLE_TO_HOLE::Run()
 
                     // We only care about drilled (ie: round) holes
                     if( pad->GetDrillSize().x && pad->GetDrillSize().x == pad->GetDrillSize().y )
-                        m_holeTree.Insert( item, F_Cu, m_largestClearance );
+                        m_holeTree.Insert( item, Edge_Cuts, m_largestHoleToHoleClearance );
                 }
                 else if( item->Type() == PCB_VIA_T )
                 {
@@ -156,19 +155,13 @@ bool DRC_TEST_PROVIDER_HOLE_TO_HOLE::Run()
 
                     // We only care about mechanically drilled (ie: non-laser) holes
                     if( via->GetViaType() == VIATYPE::THROUGH )
-                        m_holeTree.Insert( item, F_Cu, m_largestClearance );
+                        m_holeTree.Insert( item, Edge_Cuts, m_largestHoleToHoleClearance );
                 }
 
                 return true;
-            };
+            } );
 
-    forEachGeometryItem( { PCB_PAD_T, PCB_VIA_T }, LSET::AllLayersMask(), countItems );
-
-    count *= 2;  // One for adding to tree; one for checking
-
-    forEachGeometryItem( { PCB_PAD_T, PCB_VIA_T }, LSET::AllLayersMask(), addToHoleTree );
-
-    std::map< std::pair<BOARD_ITEM*, BOARD_ITEM*>, int> checkedPairs;
+    std::unordered_map<PTR_PTR_CACHE_KEY, int> checkedPairs;
 
     for( PCB_TRACK* track : m_board->Tracks() )
     {
@@ -177,7 +170,7 @@ bool DRC_TEST_PROVIDER_HOLE_TO_HOLE::Run()
 
         PCB_VIA* via = static_cast<PCB_VIA*>( track );
 
-        if( !reportProgress( ii++, count, delta ) )
+        if( !reportProgress( ii++, count, progressDelta ) )
             return false;   // DRC cancelled
 
         // We only care about mechanically drilled (ie: non-laser) holes
@@ -185,7 +178,7 @@ bool DRC_TEST_PROVIDER_HOLE_TO_HOLE::Run()
         {
             std::shared_ptr<SHAPE_CIRCLE> holeShape = getDrilledHoleShape( via );
 
-            m_holeTree.QueryColliding( via, F_Cu, F_Cu,
+            m_holeTree.QueryColliding( via, Edge_Cuts, Edge_Cuts,
                     // Filter:
                     [&]( BOARD_ITEM* other ) -> bool
                     {
@@ -197,7 +190,7 @@ bool DRC_TEST_PROVIDER_HOLE_TO_HOLE::Run()
                         if( static_cast<void*>( a ) > static_cast<void*>( b ) )
                             std::swap( a, b );
 
-                        if( checkedPairs.count( { a, b } ) )
+                        if( checkedPairs.find( { a, b } ) != checkedPairs.end() )
                         {
                             return false;
                         }
@@ -212,7 +205,7 @@ bool DRC_TEST_PROVIDER_HOLE_TO_HOLE::Run()
                     {
                         return testHoleAgainstHole( via, holeShape.get(), other );
                     },
-                    m_largestClearance );
+                    m_largestHoleToHoleClearance );
         }
     }
 
@@ -222,7 +215,7 @@ bool DRC_TEST_PROVIDER_HOLE_TO_HOLE::Run()
     {
         for( PAD* pad : footprint->Pads() )
         {
-            if( !reportProgress( ii++, count, delta ) )
+            if( !reportProgress( ii++, count, progressDelta ) )
                 return false;   // DRC cancelled
 
             // We only care about drilled (ie: round) holes
@@ -230,7 +223,7 @@ bool DRC_TEST_PROVIDER_HOLE_TO_HOLE::Run()
             {
                 std::shared_ptr<SHAPE_CIRCLE> holeShape = getDrilledHoleShape( pad );
 
-                m_holeTree.QueryColliding( pad, F_Cu, F_Cu,
+                m_holeTree.QueryColliding( pad, Edge_Cuts, Edge_Cuts,
                         // Filter:
                         [&]( BOARD_ITEM* other ) -> bool
                         {
@@ -242,7 +235,7 @@ bool DRC_TEST_PROVIDER_HOLE_TO_HOLE::Run()
                             if( static_cast<void*>( a ) > static_cast<void*>( b ) )
                                 std::swap( a, b );
 
-                            if( checkedPairs.count( { a, b } ) )
+                            if( checkedPairs.find( { a, b } ) != checkedPairs.end() )
                             {
                                 return false;
                             }
@@ -257,14 +250,17 @@ bool DRC_TEST_PROVIDER_HOLE_TO_HOLE::Run()
                         {
                             return testHoleAgainstHole( pad, holeShape.get(), other );
                         },
-                        m_largestClearance );
+                        m_largestHoleToHoleClearance );
             }
         }
+
+        if( m_drcEngine->IsCancelled() )
+            return false;
     }
 
     reportRuleStatistics();
 
-    return true;
+    return !m_drcEngine->IsCancelled();
 }
 
 
@@ -305,13 +301,12 @@ bool DRC_TEST_PROVIDER_HOLE_TO_HOLE::testHoleAgainstHole( BOARD_ITEM* aItem, SHA
                 && actual < minClearance )
         {
             std::shared_ptr<DRC_ITEM> drce = DRC_ITEM::Create( DRCE_DRILLED_HOLES_TOO_CLOSE );
+            wxString msg = formatMsg( _( "(%s min %s; actual %s)" ),
+                                      constraint.GetName(),
+                                      minClearance,
+                                      actual );
 
-            m_msg.Printf( _( "(%s min %s; actual %s)" ),
-                          constraint.GetName(),
-                          MessageTextFromValue( userUnits(), minClearance ),
-                          MessageTextFromValue( userUnits(), actual ) );
-
-            drce->SetErrorMessage( drce->GetErrorText() + wxS( " " ) + m_msg );
+            drce->SetErrorMessage( drce->GetErrorText() + wxS( " " ) + msg );
             drce->SetItems( aItem, aOther );
             drce->SetViolatingRule( constraint.GetParentRule() );
 
@@ -319,7 +314,7 @@ bool DRC_TEST_PROVIDER_HOLE_TO_HOLE::testHoleAgainstHole( BOARD_ITEM* aItem, SHA
         }
     }
 
-    return true;
+    return !m_drcEngine->IsCancelled();
 }
 
 

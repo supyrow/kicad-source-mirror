@@ -157,6 +157,15 @@ bool ROUTER::StartDragging( const VECTOR2I& aP, ITEM_SET aStartItems, int aDragM
     if( aStartItems.Empty() )
         return false;
 
+    if( Settings().Mode() == RM_MarkObstacles )
+    {
+        m_world->SetCollisionQueryScope( NODE::CQS_ALL_RULES );
+    }
+    else
+    {
+        m_world->SetCollisionQueryScope( NODE::CQS_IGNORE_HOLE_CLEARANCE );
+    }
+
     if( aStartItems.Count( ITEM::SOLID_T ) == aStartItems.Size() )
     {
         m_dragger = std::make_unique<COMPONENT_DRAGGER>( this );
@@ -215,10 +224,23 @@ bool ROUTER::isStartingPointRoutable( const VECTOR2I& aWhere, ITEM* aStartItem, 
     }
 
     ITEM_SET candidates = QueryHoverItems( aWhere );
+    wxString failureReason;
 
     for( ITEM* item : candidates.Items() )
     {
-        if( !item->IsRoutable() && item->Layers().Overlaps( aLayer ) )
+        // Edge cuts are put on all layers, but they're not *really* on all layers
+        if( item->Parent() && item->Parent()->GetLayer() == Edge_Cuts )
+            continue;
+
+        if( !item->Layers().Overlaps( aLayer ) )
+            continue;
+
+        if( item->IsRoutable() )
+        {
+            failureReason = wxEmptyString;
+            break;
+        }
+        else
         {
             BOARD_ITEM* parent = item->Parent();
 
@@ -229,7 +251,7 @@ bool ROUTER::isStartingPointRoutable( const VECTOR2I& aWhere, ITEM* aStartItem, 
                 PAD* pad = static_cast<PAD*>( parent );
 
                 if( pad->GetAttribute() == PAD_ATTRIB::NPTH )
-                    SetFailureReason( _( "Cannot start routing from a non-plated hole." ) );
+                    failureReason = _( "Cannot start routing from a non-plated hole." );
             }
                 break;
 
@@ -240,12 +262,12 @@ bool ROUTER::isStartingPointRoutable( const VECTOR2I& aWhere, ITEM* aStartItem, 
 
                 if( !zone->GetZoneName().IsEmpty() )
                 {
-                    SetFailureReason( wxString::Format( _( "Rule area '%s' disallows tracks." ),
-                                                        zone->GetZoneName() ) );
+                    failureReason = wxString::Format( _( "Rule area '%s' disallows tracks." ),
+                                                      zone->GetZoneName() );
                 }
                 else
                 {
-                    SetFailureReason( _( "Rule area disallows tracks." ) );
+                    failureReason = _( "Rule area disallows tracks." );
                 }
             }
                 break;
@@ -254,33 +276,26 @@ bool ROUTER::isStartingPointRoutable( const VECTOR2I& aWhere, ITEM* aStartItem, 
             case PCB_FP_TEXT_T:
             case PCB_TEXTBOX_T:
             case PCB_FP_TEXTBOX_T:
-                SetFailureReason( _( "Cannot start routing from a text item." ) );
+                failureReason = _( "Cannot start routing from a text item." );
                 break;
 
             case PCB_SHAPE_T:
             case PCB_FP_SHAPE_T:
-                SetFailureReason( _( "Cannot start routing from a graphic." ) );
+                failureReason = _( "Cannot start routing from a graphic." );
 
             default:
                 break;
             }
-
-            return false;
         }
     }
 
-    VECTOR2I startPoint = aStartItem ? aStartItem->Anchor( 0 ) : aWhere;
-
-    if( aStartItem && aStartItem->OfKind( ITEM::SEGMENT_T | ITEM::ARC_T ) )
+    if( !failureReason.IsEmpty() )
     {
-        VECTOR2I otherEnd = aStartItem->Anchor( 1 );
-
-        if( ( otherEnd - aWhere ).SquaredEuclideanNorm()
-                < ( startPoint - aWhere ).SquaredEuclideanNorm() )
-        {
-            startPoint = otherEnd;
-        }
+        SetFailureReason( failureReason );
+        return false;
     }
+
+    VECTOR2I startPoint = aWhere;
 
     if( m_mode == PNS_MODE_ROUTE_SINGLE )
     {
@@ -372,6 +387,15 @@ bool ROUTER::isStartingPointRoutable( const VECTOR2I& aWhere, ITEM* aStartItem, 
 
 bool ROUTER::StartRouting( const VECTOR2I& aP, ITEM* aStartItem, int aLayer )
 {
+    if( Settings().Mode() == RM_MarkObstacles )
+    {
+        m_world->SetCollisionQueryScope( NODE::CQS_ALL_RULES );
+    }
+    else
+    {
+        m_world->SetCollisionQueryScope( NODE::CQS_IGNORE_HOLE_CLEARANCE );
+    }
+
     if( !isStartingPointRoutable( aP, aStartItem, aLayer ) )
         return false;
 
@@ -408,15 +432,16 @@ bool ROUTER::StartRouting( const VECTOR2I& aP, ITEM* aStartItem, int aLayer )
     m_placer->SetDebugDecorator( m_iface->GetDebugDecorator() );
     m_placer->SetLogger( m_logger );
 
-    if( m_logger )
-    {
-        m_logger->Clear();
-        m_logger->Log( LOGGER::EVT_START_ROUTE, aP, aStartItem );
-    }
-
     if( m_placer->Start( aP, aStartItem ) )
     {
         m_state = ROUTE_TRACK;
+
+        if( m_logger )
+        {
+            m_logger->Clear();
+            m_logger->Log( LOGGER::EVT_START_ROUTE, aP, aStartItem, &m_sizes );
+        }
+
         return true;
     }
     else
@@ -427,7 +452,7 @@ bool ROUTER::StartRouting( const VECTOR2I& aP, ITEM* aStartItem, int aLayer )
 }
 
 
-void ROUTER::Move( const VECTOR2I& aP, ITEM* endItem )
+bool ROUTER::Move( const VECTOR2I& aP, ITEM* endItem )
 {
     if( m_logger )
         m_logger->Log( LOGGER::EVT_MOVE, aP, endItem );
@@ -435,28 +460,141 @@ void ROUTER::Move( const VECTOR2I& aP, ITEM* endItem )
     switch( m_state )
     {
     case ROUTE_TRACK:
-        movePlacing( aP, endItem );
-        break;
+        return movePlacing( aP, endItem );
 
     case DRAG_SEGMENT:
     case DRAG_COMPONENT:
-        moveDragging( aP, endItem );
-        break;
+        return moveDragging( aP, endItem );
 
     default:
         break;
     }
+
+    return false;
 }
 
 
-void ROUTER::moveDragging( const VECTOR2I& aP, ITEM* aEndItem )
+bool ROUTER::getNearestRatnestAnchor( VECTOR2I& aOtherEnd, LAYER_RANGE& aOtherEndLayers )
+{
+    // Can't finish something with no connections
+    if( GetCurrentNets().empty() )
+        return false;
+
+    PNS::LINE_PLACER* placer = dynamic_cast<PNS::LINE_PLACER*>( Placer() );
+
+    if( placer == nullptr )
+        return false;
+
+    PNS::LINE     trace = placer->Trace();
+    PNS::NODE*    lastNode = placer->CurrentNode( true );
+    PNS::TOPOLOGY topo( lastNode );
+
+    // If the user has drawn a line, get the anchor nearest to the line end
+    if( trace.SegmentCount() > 0 )
+        return topo.NearestUnconnectedAnchorPoint( &trace, aOtherEnd, aOtherEndLayers );
+
+    // Otherwise, find the closest anchor to our start point
+
+    // Get joint from placer start item
+    JOINT* jt = lastNode->FindJoint( placer->CurrentStart(), placer->CurrentLayer(),
+                                     placer->CurrentNets()[0] );
+
+    if( !jt )
+        return false;
+
+    // Get unconnected item from joint
+    int        anchor;
+    PNS::ITEM* it = topo.NearestUnconnectedItem( jt, &anchor );
+
+    if( !it )
+        return false;
+
+    aOtherEnd = it->Anchor( anchor );
+    aOtherEndLayers = it->Layers();
+
+    return true;
+}
+
+
+bool ROUTER::Finish()
+{
+    if( m_state != ROUTE_TRACK )
+        return false;
+
+    LINE_PLACER* placer = dynamic_cast<LINE_PLACER*>( Placer() );
+
+    if( placer == nullptr )
+        return false;
+
+    // Get our current line and position and nearest ratsnest to them if it exists
+    PNS::LINE   current = placer->Trace();
+    VECTOR2I    currentEnd = placer->CurrentEnd();
+    VECTOR2I    otherEnd;
+    LAYER_RANGE otherEndLayers;
+
+    // Get the anchor nearest to the end of the trace the user is routing
+    if( !getNearestRatnestAnchor( otherEnd, otherEndLayers ) )
+        return false;
+
+    // Keep moving until we don't change position
+    VECTOR2I moveResultPoint;
+    do
+    {
+        moveResultPoint = Placer()->CurrentEnd();
+        Move( otherEnd, &current );
+    } while( Placer()->CurrentEnd() != moveResultPoint );
+
+    // If we've made it, fix the route and we're done
+    if( moveResultPoint == otherEnd && otherEndLayers.Overlaps( GetCurrentLayer() ) )
+    {
+        return FixRoute( otherEnd, &current, false );
+    }
+
+    return false;
+}
+
+
+bool ROUTER::ContinueFromEnd()
+{
+    LINE_PLACER* placer = dynamic_cast<LINE_PLACER*>( Placer() );
+
+    if( placer == nullptr )
+        return false;
+
+    LINE        current = placer->Trace();
+    int         currentLayer = GetCurrentLayer();
+    VECTOR2I    currentEnd = placer->CurrentEnd();
+    VECTOR2I    otherEnd;
+    LAYER_RANGE otherEndLayers;
+
+    // Get the anchor nearest to the end of the trace the user is routing
+    if( !getNearestRatnestAnchor( otherEnd, otherEndLayers ) )
+        return false;
+
+    CommitRouting();
+
+    // Commit whatever we've fixed and restart routing from the other end
+    int nextLayer = otherEndLayers.Overlaps( currentLayer ) ? currentLayer : otherEndLayers.Start();
+
+    if( !StartRouting( otherEnd, &current, nextLayer ) )
+        return false;
+
+    // Attempt to route to our current position
+    Move( currentEnd, &current );
+
+    return true;
+}
+
+
+bool ROUTER::moveDragging( const VECTOR2I& aP, ITEM* aEndItem )
 {
     m_iface->EraseView();
 
-    m_dragger->Drag( aP );
+    bool ret = m_dragger->Drag( aP );
     ITEM_SET dragged = m_dragger->Traces();
 
     updateView( m_dragger->CurrentNode(), dragged, true );
+    return ret;
 }
 
 
@@ -526,8 +664,17 @@ void ROUTER::markViolations( NODE* aNode, ITEM_SET& aCurrent, NODE::ITEM_VECTOR&
             }
         }
 
+        ITEM_SET draggedItems;
+
+        if( GetDragger() )
+            draggedItems = GetDragger()->Traces();
+
         for( OBSTACLE& obs : obstacles )
         {
+            // Don't mark items being dragged; only board items they collide with
+            if( draggedItems.Contains( obs.m_item ) )
+                continue;
+
             obs.m_item->Mark( obs.m_item->Marker() | MK_VIOLATION );
             updateItem( item, obs.m_item );
         }
@@ -581,11 +728,11 @@ void ROUTER::UpdateSizes( const SIZES_SETTINGS& aSizes )
 }
 
 
-void ROUTER::movePlacing( const VECTOR2I& aP, ITEM* aEndItem )
+bool ROUTER::movePlacing( const VECTOR2I& aP, ITEM* aEndItem )
 {
     m_iface->EraseView();
 
-    m_placer->Move( aP, aEndItem );
+    bool ret = m_placer->Move( aP, aEndItem );
     ITEM_SET current = m_placer->Traces();
 
     for( const ITEM* item : current.CItems() )
@@ -614,8 +761,40 @@ void ROUTER::movePlacing( const VECTOR2I& aP, ITEM* aEndItem )
     //ITEM_SET tmp( &current );
 
     updateView( m_placer->CurrentNode( true ), current );
+
+    return ret;
 }
 
+bool ROUTER::GetUpdatedItems( std::vector<PNS::ITEM*>& aRemoved, std::vector<PNS::ITEM*>& aAdded )
+{
+    NODE *node;
+    ITEM_SET current;
+
+    if( m_state == ROUTE_TRACK )
+    {
+        node = m_placer->CurrentNode( true );
+        current = m_placer->Traces();
+    }
+    else if ( m_state == DRAG_SEGMENT )
+    {
+        node = m_dragger->CurrentNode();
+        current = m_dragger->Traces();
+    }
+
+    std::unique_ptr<NODE> tmpNode( node->Branch() );
+
+    for( auto item : current )
+    {
+        std::unique_ptr<ITEM> ip( item.item->Clone() );
+        tmpNode->Add( std::move( ip ) );
+    }
+
+    tmpNode->GetUpdatedItems( aRemoved, aAdded );
+    
+    //printf("added %d removed %d\n", aRemoved.size(), aAdded.size() );
+
+    return true;
+}
 
 void ROUTER::CommitRouting( NODE* aNode )
 {
@@ -705,6 +884,7 @@ void ROUTER::UndoLastSegment()
     if( !RoutingInProgress() )
         return;
 
+    m_logger->Log( LOGGER::EVT_UNFIX );
     m_placer->UnfixRoute();
 }
 
@@ -776,6 +956,11 @@ void ROUTER::ToggleViaPlacement()
     {
         bool toggle = !m_placer->IsPlacingVia();
         m_placer->ToggleVia( toggle );
+
+        if( m_logger )
+        {
+            m_logger->Log( LOGGER::EVT_TOGGLE_VIA, VECTOR2I(), nullptr, &m_sizes );
+        }
     }
 }
 

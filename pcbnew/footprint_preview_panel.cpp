@@ -23,6 +23,7 @@
 #include <utility>
 
 #include "pcbnew_settings.h"
+#include <base_units.h>
 #include <board.h>
 #include <footprint.h>
 #include <eda_draw_frame.h>
@@ -72,7 +73,7 @@ FOOTPRINT_PREVIEW_PANEL::~FOOTPRINT_PREVIEW_PANEL( )
 }
 
 
-const COLOR4D& FOOTPRINT_PREVIEW_PANEL::GetBackgroundColor()
+const COLOR4D& FOOTPRINT_PREVIEW_PANEL::GetBackgroundColor() const
 {
     KIGFX::PAINTER* painter = GetView()->GetPainter();
     auto settings = static_cast<KIGFX::PCB_RENDER_SETTINGS*>( painter->GetSettings() );
@@ -81,12 +82,12 @@ const COLOR4D& FOOTPRINT_PREVIEW_PANEL::GetBackgroundColor()
 }
 
 
-const COLOR4D& FOOTPRINT_PREVIEW_PANEL::GetForegroundColor()
+const COLOR4D& FOOTPRINT_PREVIEW_PANEL::GetForegroundColor() const
 {
     KIGFX::PAINTER* painter = GetView()->GetPainter();
     auto settings = static_cast<KIGFX::PCB_RENDER_SETTINGS*>( painter->GetSettings() );
 
-    return settings->GetCursorColor();
+    return settings->GetLayerColor( F_Fab );
 }
 
 
@@ -192,8 +193,9 @@ FOOTPRINT_PREVIEW_PANEL* FOOTPRINT_PREVIEW_PANEL::New( KIWAY* aKiway, wxWindow* 
     panel->GetGAL()->SetGridVisibility( gridCfg.show );
 
     //Bounds checking cannot include number of elements as an index!
-    int gridIdx = std::max( 0, std::min( gridCfg.last_size_idx, (int) gridCfg.sizes.size() - 1 ) );
-    int gridSize = (int) ValueFromString( EDA_UNITS::MILS, gridCfg.sizes[ gridIdx ] );
+    int    gridIdx = std::max( 0, std::min( gridCfg.last_size_idx, (int) gridCfg.sizes.size() - 1 ) );
+    double gridSize = EDA_UNIT_UTILS::UI::DoubleValueFromString( pcbIUScale, EDA_UNITS::MILS,
+                                                                 gridCfg.sizes[ gridIdx ] );
     panel->GetGAL()->SetGridSize( VECTOR2D( gridSize, gridSize ) );
 
     return panel;

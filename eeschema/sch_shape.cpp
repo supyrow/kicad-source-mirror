@@ -32,11 +32,12 @@
 #include <general.h>
 #include <schematic.h>
 #include <sch_shape.h>
+#include "plotters/plotter.h"
 
 
 SCH_SHAPE::SCH_SHAPE( SHAPE_T aShape, int aLineWidth, FILL_T aFillType, KICAD_T aType ) :
     SCH_ITEM( nullptr, aType ),
-    EDA_SHAPE( aShape, aLineWidth, aFillType, false )
+    EDA_SHAPE( aShape, aLineWidth, aFillType )
 {
     SetLayer( LAYER_NOTES );
 }
@@ -66,6 +67,27 @@ void SCH_SHAPE::SetStroke( const STROKE_PARAMS& aStroke )
 void SCH_SHAPE::Move( const VECTOR2I& aOffset )
 {
     move( aOffset );
+}
+
+
+void SCH_SHAPE::Normalize()
+{
+    if( GetShape() == SHAPE_T::RECT )
+    {
+        VECTOR2I size = GetEnd() - GetPosition();
+
+        if( size.y < 0 )
+        {
+            SetStartY( GetStartY() + size.y );
+            SetEndY( GetStartY() - size.y );
+        }
+
+        if( size.x < 0 )
+        {
+            SetStartX( GetStartX() + size.x );
+            SetEndX( GetStartX() - size.x );
+        }
+    }
 }
 
 
@@ -101,21 +123,28 @@ void SCH_SHAPE::Plot( PLOTTER* aPlotter, bool aBackground ) const
             cornerList.push_back( pt );
     }
 
-    if( GetStroke().GetColor() == COLOR4D::UNSPECIFIED )
-        aPlotter->SetColor( aPlotter->RenderSettings()->GetLayerColor( LAYER_NOTES ) );
-    else
-        aPlotter->SetColor( GetStroke().GetColor() );
-
     if( aBackground )
     {
+        if( !aPlotter->GetColorMode() )
+            return;
+
         if( m_fill == FILL_T::FILLED_WITH_COLOR && GetFillColor() != COLOR4D::UNSPECIFIED )
         {
-            aPlotter->SetColor( GetFillColor() );
+            if( GetFillColor() != COLOR4D::UNSPECIFIED )
+                aPlotter->SetColor( GetFillColor() );
+            else
+                aPlotter->SetColor( aPlotter->RenderSettings()->GetLayerColor( LAYER_NOTES ) );
 
             switch( GetShape() )
             {
             case SHAPE_T::ARC:
-                aPlotter->Arc( getCenter(), GetStart(), GetEnd(), m_fill, 0, ARC_HIGH_DEF );
+            {
+                // In some plotters (not all) the arc is approximated by segments, and
+                // a error max is needed. We try to approximate by 360/5 segments by 360 deg
+                int arc2segment_error = CircleToEndSegmentDeltaRadius( GetRadius(), 360/5 );
+                aPlotter->Arc( getCenter(), GetStart(), GetEnd(), m_fill, 0, arc2segment_error );
+            }
+
                 break;
 
             case SHAPE_T::CIRCLE:
@@ -141,14 +170,24 @@ void SCH_SHAPE::Plot( PLOTTER* aPlotter, bool aBackground ) const
     }
     else /* if( aForeground ) */
     {
+        if( aPlotter->GetColorMode() && GetStroke().GetColor() != COLOR4D::UNSPECIFIED )
+            aPlotter->SetColor( GetStroke().GetColor() );
+        else
+            aPlotter->SetColor( aPlotter->RenderSettings()->GetLayerColor( LAYER_NOTES ) );
+
         aPlotter->SetCurrentLineWidth( pen_size );
-        aPlotter->SetDash( GetEffectiveLineStyle() );
+        aPlotter->SetDash( pen_size, GetEffectiveLineStyle() );
 
         switch( GetShape() )
         {
         case SHAPE_T::ARC:
-            aPlotter->Arc( getCenter(), GetStart(), GetEnd(), FILL_T::NO_FILL, pen_size,
-                           ARC_HIGH_DEF );
+        {
+            // In some plotters (not all) the arc is approximated by segments, and
+            // a error max is needed. We try to approximate by 360/5 segments by 360 deg
+            int arc2segment_error = CircleToEndSegmentDeltaRadius( GetRadius(), 360/5 );
+            aPlotter->Arc( getCenter(), GetStart(), GetEnd(), FILL_T::NO_FILL, pen_size, arc2segment_error );
+        }
+
             break;
 
         case SHAPE_T::CIRCLE:
@@ -168,14 +207,7 @@ void SCH_SHAPE::Plot( PLOTTER* aPlotter, bool aBackground ) const
             break;
 
         case SHAPE_T::POLY:
-        {
-            aPlotter->MoveTo( cornerList[0] );
-
-            for( size_t ii = 1; ii < cornerList.size(); ++ii )
-                aPlotter->LineTo( cornerList[ii] );
-
-            aPlotter->FinishTo( cornerList[0] );
-        }
+            aPlotter->PlotPoly( cornerList, FILL_T::NO_FILL, pen_size );
             break;
 
         case SHAPE_T::BEZIER:
@@ -186,7 +218,7 @@ void SCH_SHAPE::Plot( PLOTTER* aPlotter, bool aBackground ) const
             UNIMPLEMENTED_FOR( SHAPE_T_asString() );
         }
 
-        aPlotter->SetDash( PLOT_DASH_TYPE::SOLID );
+        aPlotter->SetDash( pen_size, PLOT_DASH_TYPE::SOLID );
     }
 }
 
@@ -205,7 +237,73 @@ int SCH_SHAPE::GetPenWidth() const
     if( schematic )
         return schematic->Settings().m_DefaultLineWidth;
 
-    return Mils2iu( DEFAULT_LINE_WIDTH_MILS );
+    return schIUScale.MilsToIU( DEFAULT_LINE_WIDTH_MILS );
+}
+
+
+void SCH_SHAPE::PrintBackground( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset )
+{
+    wxDC*    DC = aSettings->GetPrintDC();
+    COLOR4D  color;
+
+    unsigned ptCount = 0;
+    VECTOR2I* buffer = nullptr;
+
+    if( GetShape() == SHAPE_T::POLY )
+    {
+        SHAPE_LINE_CHAIN poly = m_poly.Outline( 0 );
+
+        ptCount = poly.GetPointCount();
+        buffer = new VECTOR2I[ptCount];
+
+        for( unsigned ii = 0; ii < ptCount; ++ii )
+            buffer[ii] = poly.CPoint( ii );
+    }
+    else if( GetShape() == SHAPE_T::BEZIER )
+    {
+        ptCount = m_bezierPoints.size();
+        buffer = new VECTOR2I[ptCount];
+
+        for( size_t ii = 0; ii < ptCount; ++ii )
+            buffer[ii] = m_bezierPoints[ii];
+    }
+
+    if( GetFillMode() == FILL_T::FILLED_WITH_COLOR )
+    {
+        if( GetFillColor() == COLOR4D::UNSPECIFIED )
+            color = aSettings->GetLayerColor( LAYER_NOTES );
+        else
+            color = GetFillColor();
+
+        switch( GetShape() )
+        {
+        case SHAPE_T::ARC:
+            GRFilledArc( DC, GetEnd(), GetStart(), getCenter(), 0, color, color );
+            break;
+
+        case SHAPE_T::CIRCLE:
+            GRFilledCircle( DC, GetStart(), GetRadius(), 0, color, color );
+            break;
+
+        case SHAPE_T::RECT:
+            GRFilledRect( DC, GetStart(), GetEnd(), 0, color, color );
+            break;
+
+        case SHAPE_T::POLY:
+            GRPoly( DC, ptCount, buffer, true, 0, color, color );
+            break;
+
+        case SHAPE_T::BEZIER:
+            GRPoly( DC, ptCount, buffer, true, 0, color, color );
+            break;
+
+        default:
+            UNIMPLEMENTED_FOR( SHAPE_T_asString() );
+        }
+    }
+
+    delete[] buffer;
+
 }
 
 
@@ -239,43 +337,12 @@ void SCH_SHAPE::Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset
             buffer[ii] = m_bezierPoints[ii];
     }
 
-    if( GetFillMode() == FILL_T::FILLED_WITH_COLOR )
-    {
-        color = GetFillColor();
-
-        switch( GetShape() )
-        {
-        case SHAPE_T::ARC:
-            GRFilledArc( DC, GetEnd(), GetStart(), getCenter(), 0, color, color );
-            break;
-
-        case SHAPE_T::CIRCLE:
-            GRFilledCircle( DC, GetStart(), GetRadius(), 0, color, color );
-            break;
-
-        case SHAPE_T::RECT:
-            GRFilledRect( DC, GetStart(), GetEnd(), 0, color, color );
-            break;
-
-        case SHAPE_T::POLY:
-            GRPoly( DC, ptCount, buffer, true, 0, color, color );
-            break;
-
-        case SHAPE_T::BEZIER:
-            GRPoly( DC, ptCount, buffer, true, 0, color, color );
-            break;
-
-        default:
-            UNIMPLEMENTED_FOR( SHAPE_T_asString() );
-        }
-    }
-
     if( GetStroke().GetColor() == COLOR4D::UNSPECIFIED )
         color = aSettings->GetLayerColor( LAYER_NOTES );
     else
         color = GetStroke().GetColor();
 
-    if( GetStroke().GetPlotStyle() <= PLOT_DASH_TYPE::FIRST_TYPE )
+    if( GetEffectiveLineStyle() == PLOT_DASH_TYPE::SOLID )
     {
         switch( GetShape() )
         {
@@ -309,7 +376,7 @@ void SCH_SHAPE::Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset
 
         for( SHAPE* shape : shapes )
         {
-            STROKE_PARAMS::Stroke( shape, GetStroke().GetPlotStyle(), penWidth, aSettings,
+            STROKE_PARAMS::Stroke( shape, GetEffectiveLineStyle(), penWidth, aSettings,
                                    [&]( const VECTOR2I& a, const VECTOR2I& b )
                                    {
                                        GRLine( DC, a.x, a.y, b.x, b.y, penWidth, color );
@@ -332,22 +399,22 @@ void SCH_SHAPE::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_I
 }
 
 
-wxString SCH_SHAPE::GetSelectMenuText( EDA_UNITS aUnits ) const
+wxString SCH_SHAPE::GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const
 {
     switch( GetShape() )
     {
     case SHAPE_T::ARC:
         return wxString::Format( _( "Arc, radius %s" ),
-                                 MessageTextFromValue( aUnits, GetRadius() ) );
+                                 aUnitsProvider->MessageTextFromValue( GetRadius() ) );
 
     case SHAPE_T::CIRCLE:
         return wxString::Format( _( "Circle, radius %s" ),
-                                 MessageTextFromValue( aUnits, GetRadius() ) );
+                                 aUnitsProvider->MessageTextFromValue( GetRadius() ) );
 
     case SHAPE_T::RECT:
         return wxString::Format( _( "Rectangle, width %s height %s" ),
-                                 MessageTextFromValue( aUnits, std::abs( m_start.x - m_end.x ) ),
-                                 MessageTextFromValue( aUnits, std::abs( m_start.y - m_end.y ) ) );
+                                 aUnitsProvider->MessageTextFromValue( std::abs( m_start.x - m_end.x ) ),
+                                 aUnitsProvider->MessageTextFromValue( std::abs( m_start.y - m_end.y ) ) );
 
     case SHAPE_T::POLY:
         return wxString::Format( _( "Polyline, %d points" ),

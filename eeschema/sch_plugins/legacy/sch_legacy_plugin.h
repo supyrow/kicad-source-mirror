@@ -5,7 +5,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2016 CERN
- * Copyright (C) 2016-2021 KiCad Developers, see change_log.txt for contributors.
+ * Copyright (C) 2016-2022 KiCad Developers, see change_log.txt for contributors.
  *
  * @author Wayne Stambaugh <stambaughw@gmail.com>
  *
@@ -41,7 +41,7 @@ class SCH_BUS_ENTRY_BASE;
 class SCH_TEXT;
 class SCH_SYMBOL;
 class SCH_FIELD;
-class PROPERTIES;
+class STRING_UTF8_MAP;
 class SELECTION;
 class SCH_LEGACY_PLUGIN_CACHE;
 class LIB_SYMBOL;
@@ -104,13 +104,13 @@ public:
 
     SCH_SHEET* Load( const wxString& aFileName, SCHEMATIC* aSchematic,
                      SCH_SHEET* aAppendToMe = nullptr,
-                     const PROPERTIES* aProperties = nullptr ) override;
+                     const STRING_UTF8_MAP* aProperties = nullptr ) override;
 
     void LoadContent( LINE_READER& aReader, SCH_SCREEN* aScreen,
                       int version = EESCHEMA_VERSION );
 
     void Save( const wxString& aFileName, SCH_SHEET* aScreen, SCHEMATIC* aSchematic,
-               const PROPERTIES* aProperties = nullptr ) override;
+               const STRING_UTF8_MAP* aProperties = nullptr ) override;
 
     void Format( SCH_SHEET* aSheet );
 
@@ -118,22 +118,22 @@ public:
 
     void EnumerateSymbolLib( wxArrayString&    aSymbolNameList,
                              const wxString&   aLibraryPath,
-                             const PROPERTIES* aProperties = nullptr ) override;
+                             const STRING_UTF8_MAP* aProperties = nullptr ) override;
     void EnumerateSymbolLib( std::vector<LIB_SYMBOL*>& aSymbolList,
                              const wxString&   aLibraryPath,
-                             const PROPERTIES* aProperties = nullptr ) override;
+                             const STRING_UTF8_MAP* aProperties = nullptr ) override;
     LIB_SYMBOL* LoadSymbol( const wxString& aLibraryPath, const wxString& aAliasName,
-                            const PROPERTIES* aProperties = nullptr ) override;
+                            const STRING_UTF8_MAP* aProperties = nullptr ) override;
     void SaveSymbol( const wxString& aLibraryPath, const LIB_SYMBOL* aSymbol,
-                     const PROPERTIES* aProperties = nullptr ) override;
+                     const STRING_UTF8_MAP* aProperties = nullptr ) override;
     void DeleteSymbol( const wxString& aLibraryPath, const wxString& aSymbolName,
-                       const PROPERTIES* aProperties = nullptr ) override;
+                       const STRING_UTF8_MAP* aProperties = nullptr ) override;
     void CreateSymbolLib( const wxString& aLibraryPath,
-                          const PROPERTIES* aProperties = nullptr ) override;
+                          const STRING_UTF8_MAP* aProperties = nullptr ) override;
     bool DeleteSymbolLib( const wxString& aLibraryPath,
-                          const PROPERTIES* aProperties = nullptr ) override;
+                          const STRING_UTF8_MAP* aProperties = nullptr ) override;
     void SaveLibrary( const wxString& aLibraryPath,
-                      const PROPERTIES* aProperties = nullptr ) override;
+                      const STRING_UTF8_MAP* aProperties = nullptr ) override;
 
     bool CheckHeader( const wxString& aFileName ) override;
     bool IsSymbolLibWritable( const wxString& aLibraryPath ) override;
@@ -171,12 +171,15 @@ private:
     void saveText( SCH_TEXT* aText );
     void saveBusAlias( std::shared_ptr<BUS_ALIAS> aAlias );
 
-    void cacheLib( const wxString& aLibraryFileName, const PROPERTIES* aProperties );
-    bool writeDocFile( const PROPERTIES* aProperties );
-    bool isBuffering( const PROPERTIES* aProperties );
+    void cacheLib( const wxString& aLibraryFileName, const STRING_UTF8_MAP* aProperties );
+    bool writeDocFile( const STRING_UTF8_MAP* aProperties );
+    bool isBuffering( const STRING_UTF8_MAP* aProperties );
 
 protected:
     int                      m_version;          ///< Version of file being loaded.
+
+    ///< Indicate if we are appending the loaded schemitic or loading a full project.
+    bool                     m_appending;
 
     wxString                 m_error;            ///< For throwing exceptions or errors on partial
                                                  ///<  schematic loads.
@@ -188,12 +191,13 @@ protected:
     wxString                 m_path;             ///< Root project path for loading child sheets.
     std::stack<wxString>     m_currentPath;      ///< Stack to maintain nested sheet paths
     SCH_SHEET*               m_rootSheet;        ///< The root sheet of the schematic being loaded.
+    SCH_SHEET*               m_currentSheet;     ///< The sheet currently being loaded.
     OUTPUTFORMATTER*         m_out;              ///< The formatter for saving SCH_SCREEN objects.
     SCH_LEGACY_PLUGIN_CACHE* m_cache;
     SCHEMATIC*               m_schematic;
 
     /// initialize PLUGIN like a constructor would.
-    void init( SCHEMATIC* aSchematic, const PROPERTIES* aProperties = nullptr );
+    void init( SCHEMATIC* aSchematic, const STRING_UTF8_MAP* aProperties = nullptr );
 };
 
 #endif  // _SCH_LEGACY_PLUGIN_H_

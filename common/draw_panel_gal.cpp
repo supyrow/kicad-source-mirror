@@ -24,11 +24,11 @@
  * or you may write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
-
 #include <confirm.h>
 #include <eda_draw_frame.h>
 #include <kiface_base.h>
 #include <macros.h>
+#include <scoped_set_reset.h>
 #include <settings/app_settings.h>
 #include <trace_helpers.h>
 
@@ -52,6 +52,7 @@
 
 #include <profile.h>
 
+#include <pgm_base.h>
 
 EDA_DRAW_PANEL_GAL::EDA_DRAW_PANEL_GAL( wxWindow* aParentWindow, wxWindowID aWindowId,
                                         const wxPoint& aPosition, const wxSize& aSize,
@@ -66,7 +67,8 @@ EDA_DRAW_PANEL_GAL::EDA_DRAW_PANEL_GAL( wxWindow* aParentWindow, wxWindowID aWin
         m_options( aOptions ),
         m_eventDispatcher( nullptr ),
         m_lostFocus( false ),
-        m_stealsFocus( true )
+        m_stealsFocus( true ),
+        m_statusPopup( nullptr )
 {
     m_parent = aParentWindow;
     m_MouseCapturedLost = false;
@@ -92,7 +94,15 @@ EDA_DRAW_PANEL_GAL::EDA_DRAW_PANEL_GAL( wxWindow* aParentWindow, wxWindowID aWin
     SwitchBackend( aGalType );
     SetBackgroundStyle( wxBG_STYLE_CUSTOM );
 
-    ShowScrollbars( wxSHOW_SB_ALWAYS, wxSHOW_SB_ALWAYS );
+    if( Pgm().GetCommonSettings()->m_Appearance.show_scrollbars )
+    {
+        ShowScrollbars( wxSHOW_SB_ALWAYS, wxSHOW_SB_ALWAYS );
+    }
+    else
+    {
+        ShowScrollbars( wxSHOW_SB_NEVER, wxSHOW_SB_NEVER );
+    }
+
     EnableScrolling( false, false ); // otherwise Zoom Auto disables GAL canvas
     KIPLATFORM::UI::SetOverlayScrolling( this, false ); // Prevent excessive repaint on GTK
 
@@ -116,6 +126,12 @@ EDA_DRAW_PANEL_GAL::EDA_DRAW_PANEL_GAL( wxWindow* aParentWindow, wxWindowID aWin
         wxEVT_MIDDLE_UP,
         wxEVT_MIDDLE_DOWN,
         wxEVT_MIDDLE_DCLICK,
+        wxEVT_AUX1_UP,
+        wxEVT_AUX1_DOWN,
+        wxEVT_AUX1_DCLICK,
+        wxEVT_AUX2_UP,
+        wxEVT_AUX2_DOWN,
+        wxEVT_AUX2_DCLICK,
         wxEVT_MOTION,
         wxEVT_MOUSEWHEEL,
         wxEVT_CHAR,
@@ -174,6 +190,11 @@ void EDA_DRAW_PANEL_GAL::onPaint( wxPaintEvent& WXUNUSED( aEvent ) )
 
 void EDA_DRAW_PANEL_GAL::DoRePaint()
 {
+    if( !m_refreshMutex.try_lock() )
+        return;
+
+    std::lock_guard<std::mutex> lock( m_refreshMutex, std::adopt_lock );
+
     // Repaint the canvas, and fix scrollbar cursors
     // Usually called by a OnPaint event, but because it does not use a wxPaintDC,
     // it can be called outside a wxPaintEvent.
@@ -185,6 +206,9 @@ void EDA_DRAW_PANEL_GAL::DoRePaint()
 
     m_viewControls->UpdateScrollbars();
 
+    if( !m_drawingEnabled )
+        return;
+
     if( !m_gal->IsVisible() )
         return;
 
@@ -193,11 +217,12 @@ void EDA_DRAW_PANEL_GAL::DoRePaint()
     if( m_drawing )
         return;
 
+    SCOPED_SET_RESET<bool> drawing( m_drawing, true );
+
     ( *m_PaintEventCounter )++;
 
     wxASSERT( m_painter );
 
-    m_drawing = true;
     KIGFX::RENDER_SETTINGS* settings =
             static_cast<KIGFX::RENDER_SETTINGS*>( m_painter->GetSettings() );
 
@@ -229,49 +254,56 @@ void EDA_DRAW_PANEL_GAL::DoRePaint()
 
         cntUpd.Stop();
 
-        cntCtx.Start();
-        KIGFX::GAL_DRAWING_CONTEXT ctx( m_gal );
-        cntCtx.Stop();
-
-        if( m_view->IsTargetDirty( KIGFX::TARGET_OVERLAY )
-            && !m_gal->HasTarget( KIGFX::TARGET_OVERLAY ) )
+        // GAL_DRAWING_CONTEXT can throw in the dtor, so we need to scope
+        // the full lifetime inside the try block
         {
-            m_view->MarkDirty();
-        }
+            cntCtx.Start();
+            KIGFX::GAL_DRAWING_CONTEXT ctx( m_gal );
+            cntCtx.Stop();
 
-        m_gal->SetClearColor( settings->GetBackgroundColor() );
-        m_gal->SetGridColor( settings->GetGridColor() );
-        m_gal->SetCursorColor( settings->GetCursorColor() );
-
-        // TODO: find why ClearScreen() must be called here in opengl mode
-        // and only if m_view->IsDirty() in Cairo mode to avoid display artifacts
-        // when moving the mouse cursor
-        if( m_backend == GAL_TYPE_OPENGL )
-            m_gal->ClearScreen();
-
-        if( m_view->IsDirty() )
-        {
-            if( m_backend != GAL_TYPE_OPENGL  // Already called in opengl
-                    && m_view->IsTargetDirty( KIGFX::TARGET_NONCACHED ) )
+            if( m_view->IsTargetDirty( KIGFX::TARGET_OVERLAY )
+                && !m_gal->HasTarget( KIGFX::TARGET_OVERLAY ) )
             {
-                m_gal->ClearScreen();
+                m_view->MarkDirty();
             }
 
-            m_view->ClearTargets();
+            m_gal->SetClearColor( settings->GetBackgroundColor() );
+            m_gal->SetGridColor( settings->GetGridColor() );
+            m_gal->SetCursorColor( settings->GetCursorColor() );
 
-            // Grid has to be redrawn only when the NONCACHED target is redrawn
-            if( m_view->IsTargetDirty( KIGFX::TARGET_NONCACHED ) )
-                m_gal->DrawGrid();
+            // TODO: find why ClearScreen() must be called here in opengl mode
+            // and only if m_view->IsDirty() in Cairo mode to avoid display artifacts
+            // when moving the mouse cursor
+            if( m_backend == GAL_TYPE_OPENGL )
+                m_gal->ClearScreen();
 
-            cntRedraw.Start();
-            m_view->Redraw();
-            cntRedraw.Stop();
-            isDirty = true;
+            if( m_view->IsDirty() )
+            {
+                if( m_backend != GAL_TYPE_OPENGL  // Already called in opengl
+                        && m_view->IsTargetDirty( KIGFX::TARGET_NONCACHED ) )
+                {
+                    m_gal->ClearScreen();
+                }
+
+                m_view->ClearTargets();
+
+                // Grid has to be redrawn only when the NONCACHED target is redrawn
+                if( m_view->IsTargetDirty( KIGFX::TARGET_NONCACHED ) )
+                    m_gal->DrawGrid();
+
+                cntRedraw.Start();
+                m_view->Redraw();
+                cntRedraw.Stop();
+                isDirty = true;
+            }
+
+            m_gal->DrawCursor( m_viewControls->GetCursorPosition() );
+
+            cntCtxDestroy.Start();
         }
 
-        m_gal->DrawCursor( m_viewControls->GetCursorPosition() );
-
-        cntCtxDestroy.Start();
+        // ctx goes out of scope here so destructor would be called
+        cntCtxDestroy.Stop();
     }
     catch( std::exception& err )
     {
@@ -290,10 +322,6 @@ void EDA_DRAW_PANEL_GAL::DoRePaint()
         }
     }
 
-    // ctx goes out of scope here so destructor would be called
-    cntCtxDestroy.Stop();
-
-
     if( isDirty )
     {
         KI_TRACE( traceGalProfile, "View timing: %s %s %s %s %s\n",
@@ -306,7 +334,6 @@ void EDA_DRAW_PANEL_GAL::DoRePaint()
     }
 
     m_lastRefresh = wxGetLocalTimeMillis();
-    m_drawing = false;
 }
 
 
@@ -388,10 +415,10 @@ void EDA_DRAW_PANEL_GAL::StartDrawing()
 
 void EDA_DRAW_PANEL_GAL::StopDrawing()
 {
+    m_refreshTimer.Stop();
     m_drawingEnabled = false;
     Disconnect( wxEVT_PAINT, wxPaintEventHandler( EDA_DRAW_PANEL_GAL::onPaint ), nullptr, this );
     m_pendingRefresh = false;
-    m_refreshTimer.Stop();
 }
 
 
@@ -572,7 +599,6 @@ void EDA_DRAW_PANEL_GAL::onRefreshTimer( wxTimerEvent& aEvent )
     {
         if( m_gal && m_gal->IsInitialized() )
         {
-            m_drawing = false;
             m_pendingRefresh = true;
             Connect( wxEVT_PAINT, wxPaintEventHandler( EDA_DRAW_PANEL_GAL::onPaint ), nullptr,
                      this );

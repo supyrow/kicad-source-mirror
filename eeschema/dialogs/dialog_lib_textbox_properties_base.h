@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////
-// C++ code generated with wxFormBuilder (version 3.10.0-39-g3487c3cb)
+// C++ code generated with wxFormBuilder (version 3.10.1-0-g8feb16b)
 // http://www.wxformbuilder.org/
 //
 // PLEASE DO *NOT* EDIT THIS FILE!
@@ -31,8 +31,8 @@ class FONT_CHOICE;
 #include <wx/sizer.h>
 #include <wx/hyperlink.h>
 #include <wx/textctrl.h>
-#include <wx/checkbox.h>
 #include <wx/panel.h>
+#include <wx/checkbox.h>
 #include <wx/bmpcbox.h>
 #include <wx/gbsizer.h>
 #include <wx/statline.h>
@@ -48,11 +48,6 @@ class DIALOG_LIB_TEXTBOX_PROPERTIES_BASE : public DIALOG_SHIM
 	private:
 
 	protected:
-		enum
-		{
-			wxID_SIZE = 1000
-		};
-
 		wxGridBagSizer* m_textEntrySizer;
 		wxStaticText* m_textLabel;
 		wxStyledTextCtrl* m_textCtrl;
@@ -62,17 +57,24 @@ class DIALOG_LIB_TEXTBOX_PROPERTIES_BASE : public DIALOG_SHIM
 		BITMAP_BUTTON* m_bold;
 		BITMAP_BUTTON* m_italic;
 		BITMAP_BUTTON* m_separator2;
-		BITMAP_BUTTON* m_spin0;
-		BITMAP_BUTTON* m_spin1;
-		BITMAP_BUTTON* m_spin2;
-		BITMAP_BUTTON* m_spin3;
-		BITMAP_BUTTON* m_spin4;
-		BITMAP_BUTTON* m_spin5;
+		BITMAP_BUTTON* m_hAlignLeft;
+		BITMAP_BUTTON* m_hAlignCenter;
+		BITMAP_BUTTON* m_hAlignRight;
 		BITMAP_BUTTON* m_separator3;
+		BITMAP_BUTTON* m_vAlignTop;
+		BITMAP_BUTTON* m_vAlignCenter;
+		BITMAP_BUTTON* m_vAlignBottom;
+		BITMAP_BUTTON* m_separator4;
+		BITMAP_BUTTON* m_horizontal;
+		BITMAP_BUTTON* m_vertical;
+		BITMAP_BUTTON* m_separator5;
 		wxHyperlinkCtrl* m_syntaxHelp;
 		wxStaticText* m_textSizeLabel;
 		wxTextCtrl* m_textSizeCtrl;
 		wxStaticText* m_textSizeUnits;
+		wxStaticText* m_textColorLabel;
+		wxPanel* m_panelBorderColor1;
+		COLOR_SWATCH* m_textColorSwatch;
 		wxCheckBox* m_borderCheckbox;
 		wxStaticText* m_borderWidthLabel;
 		wxTextCtrl* m_borderWidthCtrl;

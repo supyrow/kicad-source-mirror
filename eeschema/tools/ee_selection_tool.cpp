@@ -22,21 +22,20 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
-#include <bitmaps.h>
 #include <core/typeinfo.h>
 #include <core/kicad_algo.h>
 #include <geometry/shape_compound.h>
 #include <ee_actions.h>
 #include <ee_collectors.h>
 #include <ee_selection_tool.h>
-#include <eeschema_id.h> // For MAX_SELECT_ITEM_IDS
+#include <eeschema_id.h>
 #include <symbol_edit_frame.h>
 #include <lib_item.h>
 #include <symbol_viewer_frame.h>
 #include <math/util.h>
 #include <geometry/shape_rect.h>
 #include <menus_helpers.h>
-#include <painter.h>
+#include <sch_painter.h>
 #include <preview_items/selection_area.h>
 #include <sch_base_frame.h>
 #include <sch_symbol.h>
@@ -56,10 +55,12 @@
 #include <tools/ee_grid_helper.h>
 #include <tools/ee_point_editor.h>
 #include <tools/sch_line_wire_bus_tool.h>
+#include <tools/sch_editor_control.h>
 #include <trigo.h>
 #include <view/view.h>
 #include <view/view_controls.h>
 #include <wx/log.h>
+
 
 SELECTION_CONDITION EE_CONDITIONS::SingleSymbol = []( const SELECTION& aSel )
 {
@@ -122,7 +123,7 @@ SELECTION_CONDITION EE_CONDITIONS::SingleNonExcludedMarker = []( const SELECTION
 
 
 EE_SELECTION_TOOL::EE_SELECTION_TOOL() :
-        TOOL_INTERACTIVE( "eeschema.InteractiveSelection" ),
+        SELECTION_TOOL( "eeschema.InteractiveSelection" ),
         m_frame( nullptr ),
         m_nonModifiedCursor( KICURSOR::ARROW ),
         m_isSymbolEditor( false ),
@@ -143,6 +144,23 @@ EE_SELECTION_TOOL::~EE_SELECTION_TOOL()
 using E_C = EE_CONDITIONS;
 
 
+static std::vector<KICAD_T> connectedTypes =
+{
+    SCH_SYMBOL_LOCATE_POWER_T,
+    SCH_PIN_T,
+    SCH_ITEM_LOCATE_WIRE_T,
+    SCH_ITEM_LOCATE_BUS_T,
+    SCH_BUS_WIRE_ENTRY_T,
+    SCH_BUS_BUS_ENTRY_T,
+    SCH_LABEL_T,
+    SCH_HIER_LABEL_T,
+    SCH_GLOBAL_LABEL_T,
+    SCH_SHEET_PIN_T,
+    SCH_DIRECTIVE_LABEL_T,
+    SCH_JUNCTION_T
+};
+
+
 bool EE_SELECTION_TOOL::Init()
 {
     m_frame = getEditFrame<SCH_BASE_FRAME>();
@@ -161,25 +179,12 @@ bool EE_SELECTION_TOOL::Init()
         m_isSymbolViewer = symbolViewerFrame != nullptr;
     }
 
-    static KICAD_T wireOrBusTypes[] = { SCH_ITEM_LOCATE_WIRE_T, SCH_ITEM_LOCATE_BUS_T, EOT };
-    static KICAD_T connectedTypes[] = { SCH_ITEM_LOCATE_WIRE_T,
-                                        SCH_ITEM_LOCATE_BUS_T,
-                                        SCH_GLOBAL_LABEL_T,
-                                        SCH_HIER_LABEL_T,
-                                        SCH_LABEL_T,
-                                        SCH_DIRECTIVE_LABEL_T,
-                                        SCH_SHEET_PIN_T,
-                                        SCH_PIN_T,
-                                        EOT };
-
-    static KICAD_T crossProbingTypes[] = { SCH_SYMBOL_T, SCH_PIN_T, SCH_SHEET_T, EOT };
-
-    auto wireSelection =      E_C::MoreThan( 0 ) && E_C::OnlyType( SCH_ITEM_LOCATE_WIRE_T );
-    auto busSelection =       E_C::MoreThan( 0 ) && E_C::OnlyType( SCH_ITEM_LOCATE_BUS_T );
-    auto wireOrBusSelection = E_C::MoreThan( 0 ) && E_C::OnlyTypes( wireOrBusTypes );
-    auto connectedSelection = E_C::MoreThan( 0 ) && E_C::OnlyTypes( connectedTypes );
-    auto sheetSelection = E_C::Count( 1 ) && E_C::OnlyType( SCH_SHEET_T );
-    auto crossProbingSelection = E_C::MoreThan( 0 ) && E_C::HasTypes( crossProbingTypes );
+    auto wireSelection =         E_C::Count( 1 )    && E_C::OnlyTypes( { SCH_ITEM_LOCATE_WIRE_T } );
+    auto busSelection =          E_C::Count( 1 )    && E_C::OnlyTypes( { SCH_ITEM_LOCATE_BUS_T  });
+    auto wireOrBusSelection =    E_C::Count( 1 )    && E_C::OnlyTypes( { SCH_ITEM_LOCATE_WIRE_T, SCH_ITEM_LOCATE_BUS_T } );
+    auto connectedSelection =    E_C::Count( 1 )    && E_C::OnlyTypes( connectedTypes );
+    auto sheetSelection =        E_C::Count( 1 )    && E_C::OnlyTypes( { SCH_SHEET_T } );
+    auto crossProbingSelection = E_C::MoreThan( 0 ) && E_C::HasTypes( { SCH_SYMBOL_T, SCH_PIN_T, SCH_SHEET_T } );
 
     auto schEditSheetPageNumberCondition =
             [&] ( const SELECTION& aSel )
@@ -187,7 +192,7 @@ bool EE_SELECTION_TOOL::Init()
                 if( m_isSymbolEditor || m_isSymbolViewer )
                     return false;
 
-                return E_C::LessThan( 2 )( aSel ) && E_C::OnlyType( SCH_SHEET_T )( aSel );
+                return E_C::LessThan( 2 )( aSel ) && E_C::OnlyTypes( { SCH_SHEET_T } )( aSel );
             };
 
     auto schEditCondition =
@@ -205,18 +210,44 @@ bool EE_SELECTION_TOOL::Init()
                         && editFrame->GetCurrentSheet().Last() != &editFrame->Schematic().Root();
             };
 
-    auto haveSymbolCondition =
+    auto haveHighlight =
+            [&]( const SELECTION& sel )
+            {
+                SCH_EDIT_FRAME* editFrame = dynamic_cast<SCH_EDIT_FRAME*>( m_frame );
+
+                return editFrame && editFrame->GetHighlightedConnection() != nullptr;
+            };
+
+    auto haveSymbol =
             [&]( const SELECTION& sel )
             {
                 return m_isSymbolEditor &&
                        static_cast<SYMBOL_EDIT_FRAME*>( m_frame )->GetCurSymbol();
             };
 
+    auto symbolDisplayNameIsEditable =
+            [&]( const SELECTION& sel )
+            {
+                if ( !m_isSymbolEditor )
+                    return false;
+
+                SYMBOL_EDIT_FRAME* symbEditorFrame = dynamic_cast<SYMBOL_EDIT_FRAME*>( m_frame );
+
+                return symbEditorFrame
+                        && symbEditorFrame->GetCurSymbol()
+                        && symbEditorFrame->GetCurSymbol()->IsMulti()
+                        && symbEditorFrame->IsSymbolEditable()
+                        && !symbEditorFrame->IsSymbolAlias();
+            };
+
     auto& menu = m_menu.GetMenu();
 
-    menu.AddItem( EE_ACTIONS::enterSheet,         sheetSelection && EE_CONDITIONS::Idle, 1 );
-    menu.AddItem( EE_ACTIONS::selectOnPCB,        crossProbingSelection && EE_CONDITIONS::Idle, 1 );
-    menu.AddItem( EE_ACTIONS::leaveSheet,         belowRootSheetCondition, 1 );
+    menu.AddItem( EE_ACTIONS::clearHighlight,     haveHighlight && EE_CONDITIONS::Idle, 1 );
+    menu.AddSeparator(                            haveHighlight && EE_CONDITIONS::Idle, 1 );
+
+    menu.AddItem( EE_ACTIONS::enterSheet,         sheetSelection && EE_CONDITIONS::Idle, 2 );
+    menu.AddItem( EE_ACTIONS::selectOnPCB,        crossProbingSelection && EE_CONDITIONS::Idle, 2 );
+    menu.AddItem( EE_ACTIONS::leaveSheet,         belowRootSheetCondition, 2 );
 
     menu.AddSeparator( 100 );
     menu.AddItem( EE_ACTIONS::drawWire,           schEditCondition && EE_CONDITIONS::Empty, 100 );
@@ -229,7 +260,7 @@ bool EE_SELECTION_TOOL::Init()
     menu.AddItem( EE_ACTIONS::finishBus,          SCH_LINE_WIRE_BUS_TOOL::IsDrawingBus, 100 );
 
     menu.AddSeparator( 200 );
-    menu.AddItem( EE_ACTIONS::selectConnection,   wireOrBusSelection && EE_CONDITIONS::Idle, 250 );
+    menu.AddItem( EE_ACTIONS::selectConnection,   connectedSelection && EE_CONDITIONS::Idle, 250 );
     menu.AddItem( EE_ACTIONS::placeJunction,      wireOrBusSelection && EE_CONDITIONS::Idle, 250 );
     menu.AddItem( EE_ACTIONS::placeLabel,         wireOrBusSelection && EE_CONDITIONS::Idle, 250 );
     menu.AddItem( EE_ACTIONS::placeClassLabel,    wireOrBusSelection && EE_CONDITIONS::Idle, 250 );
@@ -242,10 +273,10 @@ bool EE_SELECTION_TOOL::Init()
     menu.AddItem( EE_ACTIONS::editPageNumber,     schEditSheetPageNumberCondition, 250 );
 
     menu.AddSeparator( 400 );
-    menu.AddItem( EE_ACTIONS::symbolProperties,
-                  haveSymbolCondition && EE_CONDITIONS::Empty, 400 );
-    menu.AddItem( EE_ACTIONS::pinTable,
-                  haveSymbolCondition && EE_CONDITIONS::Empty, 400 );
+    menu.AddItem( EE_ACTIONS::symbolProperties,   haveSymbol && EE_CONDITIONS::Empty, 400 );
+    menu.AddItem( EE_ACTIONS::pinTable,           haveSymbol && EE_CONDITIONS::Empty, 400 );
+    menu.AddItem( EE_ACTIONS::setUnitDisplayName,
+                  haveSymbol && symbolDisplayNameIsEditable && EE_CONDITIONS::Empty, 400 );
 
     menu.AddSeparator( 1000 );
     m_frame->AddStandardSubMenus( m_menu );
@@ -278,48 +309,20 @@ void EE_SELECTION_TOOL::Reset( RESET_REASON aReason )
             m_convert = symbolEditFrame->GetConvert();
         }
         else
+        {
             m_isSymbolViewer = symbolViewerFrame != nullptr;
+        }
     }
     else
+    {
         // Restore previous properties of selected items and remove them from containers
         ClearSelection();
+    }
 
     // Reinsert the VIEW_GROUP, in case it was removed from the VIEW
     getView()->Remove( &m_selection );
     getView()->Add( &m_selection );
 }
-
-
-int EE_SELECTION_TOOL::UpdateMenu( const TOOL_EVENT& aEvent )
-{
-    ACTION_MENU*      actionMenu = aEvent.Parameter<ACTION_MENU*>();
-    CONDITIONAL_MENU* conditionalMenu = dynamic_cast<CONDITIONAL_MENU*>( actionMenu );
-
-    if( conditionalMenu )
-        conditionalMenu->Evaluate( m_selection );
-
-    if( actionMenu )
-        actionMenu->UpdateAll();
-
-    return 0;
-}
-
-
-const KICAD_T movableSymbolItems[] =
-{
-    LIB_SHAPE_T,
-    LIB_TEXT_T,
-    LIB_PIN_T,
-    LIB_FIELD_T,
-    EOT
-};
-
-
-const KICAD_T movableSymbolAliasItems[] =
-{
-    LIB_FIELD_T,
-    EOT
-};
 
 
 int EE_SELECTION_TOOL::Main( const TOOL_EVENT& aEvent )
@@ -349,7 +352,8 @@ int EE_SELECTION_TOOL::Main( const TOOL_EVENT& aEvent )
         if( evt->IsMouseDown( BUT_LEFT ) )
         {
             // Avoid triggering when running under other tools
-            if( m_frame->ToolStackIsEmpty() && !m_toolMgr->GetTool<EE_POINT_EDITOR>()->HasPoint() )
+            if( m_frame->ToolStackIsEmpty() && m_toolMgr->GetTool<EE_POINT_EDITOR>()
+                && !m_toolMgr->GetTool<EE_POINT_EDITOR>()->HasPoint() )
             {
                 m_originalCursor = m_toolMgr->GetMousePosition();
                 m_disambiguateTimer.StartOnce( 500 );
@@ -374,7 +378,7 @@ int EE_SELECTION_TOOL::Main( const TOOL_EVENT& aEvent )
             // Collect items at the clicked location (doesn't select them yet)
             EE_COLLECTOR collector;
             CollectHits( collector, evt->Position() );
-            narrowSelection( collector, evt->Position(), false, false );
+            narrowSelection( collector, evt->Position(), false );
 
             if( collector.GetCount() == 1 && !m_isSymbolEditor && !modifier_enabled )
             {
@@ -395,14 +399,15 @@ int EE_SELECTION_TOOL::Main( const TOOL_EVENT& aEvent )
                 }
                 else if( collector[0]->IsHypertext() )
                 {
-                    collector[0]->DoHypertextMenu( m_frame );
+                    collector[ 0 ]->DoHypertextAction( m_frame );
                     selCancelled = true;
                 }
             }
 
             if( !selCancelled )
             {
-                selectPoint( collector, nullptr, nullptr, m_additive, m_subtractive, m_exclusive_or );
+                selectPoint( collector, evt->Position(), nullptr, nullptr, m_additive,
+                             m_subtractive, m_exclusive_or );
                 m_selection.SetIsHover( false );
             }
         }
@@ -414,7 +419,7 @@ int EE_SELECTION_TOOL::Main( const TOOL_EVENT& aEvent )
             if( m_selection.Empty() )
             {
                 ClearSelection();
-                SelectPoint( evt->Position(), EE_COLLECTOR::AllItems, nullptr, &selCancelled );
+                SelectPoint( evt->Position(), { SCH_LOCATE_ANY_T }, nullptr, &selCancelled );
                 m_selection.SetIsHover( true );
             }
             // If the cursor has moved off the bounding box of the selection by more than
@@ -430,7 +435,7 @@ int EE_SELECTION_TOOL::Main( const TOOL_EVENT& aEvent )
                 for( EDA_ITEM* item : saved_selection )
                     RemoveItemFromSel( item, true );
 
-                SelectPoint( evt->Position(), EE_COLLECTOR::AllItems, nullptr, &selCancelled );
+                SelectPoint( evt->Position(), { SCH_LOCATE_ANY_T }, nullptr, &selCancelled );
 
                 if( m_selection.Empty() )
                 {
@@ -505,9 +510,17 @@ int EE_SELECTION_TOOL::Main( const TOOL_EVENT& aEvent )
                 if( m_isSymbolEditor )
                 {
                     if( static_cast<SYMBOL_EDIT_FRAME*>( m_frame )->IsSymbolAlias() )
-                        m_selection = RequestSelection( movableSymbolAliasItems );
+                    {
+                        m_selection = RequestSelection( { LIB_FIELD_T } );
+                    }
                     else
-                        m_selection = RequestSelection( movableSymbolItems );
+                    {
+                        m_selection = RequestSelection( { LIB_SHAPE_T,
+                                                          LIB_TEXT_T,
+                                                          LIB_TEXTBOX_T,
+                                                          LIB_PIN_T,
+                                                          LIB_FIELD_T } );
+                    }
                 }
                 else
                 {
@@ -530,22 +543,30 @@ int EE_SELECTION_TOOL::Main( const TOOL_EVENT& aEvent )
                 }
             }
         }
+        else if( evt->IsMouseDown( BUT_AUX1 ) )
+        {
+            m_toolMgr->RunAction( EE_ACTIONS::navigateBack, true );
+        }
+        else if( evt->IsMouseDown( BUT_AUX2 ) )
+        {
+            m_toolMgr->RunAction( EE_ACTIONS::navigateForward, true );
+        }
         else if( evt->Category() == TC_COMMAND && evt->Action() == TA_CHOICE_MENU_CHOICE )
         {
             m_disambiguateTimer.Stop();
 
             // context sub-menu selection?  Handle unit selection or bus unfolding
-            if( evt->GetCommandId().get() >= ID_POPUP_SCH_SELECT_UNIT_CMP
-                && evt->GetCommandId().get() <= ID_POPUP_SCH_SELECT_UNIT_SYM_MAX )
+            if( *evt->GetCommandId() >= ID_POPUP_SCH_SELECT_UNIT_CMP
+                && *evt->GetCommandId() <= ID_POPUP_SCH_SELECT_UNIT_SYM_MAX )
             {
                 SCH_SYMBOL* symbol = dynamic_cast<SCH_SYMBOL*>( m_selection.Front() );
-                int unit = evt->GetCommandId().get() - ID_POPUP_SCH_SELECT_UNIT_CMP;
+                int unit = *evt->GetCommandId() - ID_POPUP_SCH_SELECT_UNIT_CMP;
 
                 if( symbol )
                     static_cast<SCH_EDIT_FRAME*>( m_frame )->SelectUnit( symbol, unit );
             }
-            else if( evt->GetCommandId().get() >= ID_POPUP_SCH_UNFOLD_BUS
-                     && evt->GetCommandId().get() <= ID_POPUP_SCH_UNFOLD_BUS_END )
+            else if( *evt->GetCommandId() >= ID_POPUP_SCH_UNFOLD_BUS
+                     && *evt->GetCommandId() <= ID_POPUP_SCH_UNFOLD_BUS_END )
             {
                 wxString* net = new wxString( *evt->Parameter<wxString*>() );
                 m_toolMgr->RunAction( EE_ACTIONS::unfoldBus, true, net );
@@ -558,7 +579,17 @@ int EE_SELECTION_TOOL::Main( const TOOL_EVENT& aEvent )
             if( SCH_EDIT_FRAME* schframe = dynamic_cast<SCH_EDIT_FRAME*>( m_frame ) )
                 schframe->FocusOnItem( nullptr );
 
-            ClearSelection();
+            if( !GetSelection().Empty() )
+            {
+                ClearSelection();
+            }
+            else if( evt->FirstResponder() == this && evt->GetCommandId() == (int) WXK_ESCAPE )
+            {
+                SCH_EDITOR_CONTROL* editor = m_toolMgr->GetTool<SCH_EDITOR_CONTROL>();
+
+                if( editor && m_frame->eeconfig()->m_Input.esc_clears_net_highlight )
+                    editor->ClearHighlight( *evt );
+            }
         }
         else if( evt->Action() == TA_UNDO_REDO_PRE )
         {
@@ -567,7 +598,7 @@ int EE_SELECTION_TOOL::Main( const TOOL_EVENT& aEvent )
 
             ClearSelection();
         }
-        else if( evt->IsMotion() && !m_isSymbolEditor && m_frame->ToolStackIsEmpty() )
+        else if( evt->IsMotion() && !m_isSymbolEditor && evt->FirstResponder() == this )
         {
             // Update cursor and rollover item
             rolloverItem = niluuid;
@@ -577,7 +608,7 @@ int EE_SELECTION_TOOL::Main( const TOOL_EVENT& aEvent )
 
             if( CollectHits( collector, evt->Position() ) )
             {
-                narrowSelection( collector, evt->Position(), false, false );
+                narrowSelection( collector, evt->Position(), false );
 
                 if( collector.GetCount() == 1 && !modifier_enabled )
                 {
@@ -606,9 +637,7 @@ int EE_SELECTION_TOOL::Main( const TOOL_EVENT& aEvent )
 
         if( rolloverItem != lastRolloverItem )
         {
-            EDA_ITEM* item = m_frame->GetItem( lastRolloverItem );
-
-            if( item  )
+            if( EDA_ITEM* item = m_frame->GetItem( lastRolloverItem ) )
             {
                 item->ClearFlags( IS_ROLLOVER );
                 lastRolloverItem = niluuid;
@@ -618,10 +647,11 @@ int EE_SELECTION_TOOL::Main( const TOOL_EVENT& aEvent )
                 else
                     m_frame->GetCanvas()->GetView()->Update( item );
             }
+        }
 
-            item = m_frame->GetItem( rolloverItem );
-
-            if( item )
+        if( EDA_ITEM* item = m_frame->GetItem( rolloverItem ) )
+        {
+            if( !( item->GetFlags() & IS_ROLLOVER ) )
             {
                 item->SetFlags( IS_ROLLOVER );
                 lastRolloverItem = rolloverItem;
@@ -721,18 +751,17 @@ OPT_TOOL_EVENT EE_SELECTION_TOOL::autostartEvent( TOOL_EVENT* aEvent, EE_GRID_HE
 
 int EE_SELECTION_TOOL::disambiguateCursor( const TOOL_EVENT& aEvent )
 {
+    wxMouseState keyboardState = wxGetMouseState();
+
+    setModifiersState( keyboardState.ShiftDown(), keyboardState.ControlDown(),
+                       keyboardState.AltDown() );
+
     m_skip_heuristics = true;
-    SelectPoint( m_originalCursor, EE_COLLECTOR::AllItems, nullptr, &m_canceledMenu, false,
+    SelectPoint( m_originalCursor, { SCH_LOCATE_ANY_T }, nullptr, &m_canceledMenu, false,
                  m_additive, m_subtractive, m_exclusive_or );
     m_skip_heuristics = false;
 
     return 0;
-}
-
-
-void EE_SELECTION_TOOL::onDisambiguationExpire( wxTimerEvent& aEvent )
-{
-    m_toolMgr->ProcessEvent( EVENTS::DisambiguatePoint );
 }
 
 
@@ -764,11 +793,12 @@ EE_SELECTION& EE_SELECTION_TOOL::GetSelection()
 
 
 bool EE_SELECTION_TOOL::CollectHits( EE_COLLECTOR& aCollector, const VECTOR2I& aWhere,
-                                     const KICAD_T* aFilterList )
+                                     const std::vector<KICAD_T>& aScanTypes )
 {
     int pixelThreshold = KiROUND( getView()->ToWorld( HITTEST_THRESHOLD_PIXELS ) );
     int gridThreshold = KiROUND( getView()->GetGAL()->GetGridSize().EuclideanNorm() / 2 );
     aCollector.m_Threshold = std::max( pixelThreshold, gridThreshold );
+    aCollector.m_ShowPinElectricalTypes = m_frame->GetRenderSettings()->m_ShowPinsElectricalType;
 
     if( m_isSymbolEditor )
     {
@@ -777,11 +807,27 @@ bool EE_SELECTION_TOOL::CollectHits( EE_COLLECTOR& aCollector, const VECTOR2I& a
         if( !symbol )
             return false;
 
-        aCollector.Collect( symbol->GetDrawItems(), aFilterList, aWhere, m_unit, m_convert );
+        aCollector.Collect( symbol->GetDrawItems(), aScanTypes, aWhere, m_unit, m_convert );
     }
     else
     {
-        aCollector.Collect( m_frame->GetScreen(), aFilterList, aWhere, m_unit, m_convert );
+        aCollector.Collect( m_frame->GetScreen(), aScanTypes, aWhere, m_unit, m_convert );
+
+        if( m_frame->eeconfig()->m_Selection.select_pin_selects_symbol )
+        {
+            int originalCount = aCollector.GetCount();
+
+            for( int ii = 0; ii < originalCount; ++ii )
+            {
+                if( aCollector[ii]->Type() == SCH_PIN_T )
+                {
+                    SCH_PIN* pin = static_cast<SCH_PIN*>( aCollector[ii] );
+
+                    if( !aCollector.HasItem( pin->GetParentSymbol() ) )
+                        aCollector.Append( pin->GetParentSymbol() );
+                }
+            }
+        }
     }
 
     return aCollector.GetCount() > 0;
@@ -789,7 +835,7 @@ bool EE_SELECTION_TOOL::CollectHits( EE_COLLECTOR& aCollector, const VECTOR2I& a
 
 
 void EE_SELECTION_TOOL::narrowSelection( EE_COLLECTOR& collector, const VECTOR2I& aWhere,
-                                         bool aCheckLocked, bool aSelectPoints )
+                                         bool aCheckLocked, bool aSelectedOnly )
 {
     for( int i = collector.GetCount() - 1; i >= 0; --i )
     {
@@ -805,36 +851,22 @@ void EE_SELECTION_TOOL::narrowSelection( EE_COLLECTOR& collector, const VECTOR2I
             continue;
         }
 
-        // SelectPoint, unlike other selection routines, can select line ends
-        if( aSelectPoints && collector[i]->Type() == SCH_LINE_T )
+        if( aSelectedOnly && !collector[i]->IsSelected() )
         {
-            SCH_LINE* line = (SCH_LINE*) collector[i];
-            line->ClearFlags( STARTPOINT | ENDPOINT );
-
-            if( HitTestPoints( line->GetStartPoint(), aWhere, collector.m_Threshold ) )
-                line->SetFlags( STARTPOINT );
-            else if( HitTestPoints( line->GetEndPoint(), aWhere, collector.m_Threshold ) )
-                line->SetFlags( ENDPOINT );
-            else
-                line->SetFlags( STARTPOINT | ENDPOINT );
-        }
-        else if( collector[i]->Type() == SCH_LINE_T )
-        {
-            static_cast<SCH_LINE*>( collector[i] )->SetFlags( STARTPOINT | ENDPOINT );
+            collector.Remove( i );
+            continue;
         }
     }
 
     // Apply some ugly heuristics to avoid disambiguation menus whenever possible
     if( collector.GetCount() > 1 && !m_skip_heuristics )
-    {
         GuessSelectionCandidates( collector, aWhere );
-    }
 }
 
 
-bool EE_SELECTION_TOOL::selectPoint( EE_COLLECTOR& aCollector, EDA_ITEM** aItem,
-                                     bool* aSelectionCancelledFlag, bool aAdd, bool aSubtract,
-                                     bool aExclusiveOr )
+bool EE_SELECTION_TOOL::selectPoint( EE_COLLECTOR& aCollector, const VECTOR2I& aWhere,
+                                     EDA_ITEM** aItem, bool* aSelectionCancelledFlag, bool aAdd,
+                                     bool aSubtract, bool aExclusiveOr )
 {
     m_selection.ClearReferencePoint();
 
@@ -862,33 +894,59 @@ bool EE_SELECTION_TOOL::selectPoint( EE_COLLECTOR& aCollector, EDA_ITEM** aItem,
     if( !aAdd && !aSubtract && !aExclusiveOr )
         ClearSelection();
 
-    bool anyAdded      = false;
+    int  addedCount = 0;
     bool anySubtracted = false;
 
     if( aCollector.GetCount() > 0 )
     {
         for( int i = 0; i < aCollector.GetCount(); ++i )
         {
+            EDA_ITEM_FLAGS flags = 0;
+
+            // Handle line ends specially
+            if( aCollector[i]->Type() == SCH_LINE_T )
+            {
+                SCH_LINE* line = (SCH_LINE*) aCollector[i];
+
+                if( HitTestPoints( line->GetStartPoint(), aWhere, aCollector.m_Threshold ) )
+                    flags = STARTPOINT;
+                else if( HitTestPoints( line->GetEndPoint(), aWhere, aCollector.m_Threshold ) )
+                    flags = ENDPOINT;
+                else
+                    flags = STARTPOINT | ENDPOINT;
+            }
+
             if( aSubtract || ( aExclusiveOr && aCollector[i]->IsSelected() ) )
             {
-                unselect( aCollector[i] );
-                anySubtracted = true;
+                aCollector[i]->ClearFlags( flags );
+
+                if( !aCollector[i]->HasFlag( STARTPOINT ) && !aCollector[i]->HasFlag( ENDPOINT ) )
+                {
+                    unselect( aCollector[i] );
+                    anySubtracted = true;
+                }
             }
             else
             {
+                aCollector[i]->SetFlags( flags );
                 select( aCollector[i] );
-                anyAdded = true;
+                addedCount++;
             }
         }
     }
 
-    if( anyAdded )
+    if( addedCount == 1 )
     {
-        m_toolMgr->ProcessEvent( EVENTS::SelectedEvent );
+        m_toolMgr->ProcessEvent( EVENTS::PointSelectedEvent );
 
         if( aItem && aCollector.GetCount() == 1 )
             *aItem = aCollector[0];
 
+        return true;
+    }
+    else if( addedCount > 1 )
+    {
+        m_toolMgr->ProcessEvent( EVENTS::SelectedEvent );
         return true;
     }
     else if( anySubtracted )
@@ -901,19 +959,21 @@ bool EE_SELECTION_TOOL::selectPoint( EE_COLLECTOR& aCollector, EDA_ITEM** aItem,
 }
 
 
-bool EE_SELECTION_TOOL::SelectPoint( const VECTOR2I& aWhere, const KICAD_T* aFilterList,
+bool EE_SELECTION_TOOL::SelectPoint( const VECTOR2I& aWhere,
+                                     const std::vector<KICAD_T>& aScanTypes,
                                      EDA_ITEM** aItem, bool* aSelectionCancelledFlag,
                                      bool aCheckLocked, bool aAdd, bool aSubtract,
                                      bool aExclusiveOr )
 {
     EE_COLLECTOR collector;
 
-    if( !CollectHits( collector, aWhere, aFilterList ) )
+    if( !CollectHits( collector, aWhere, aScanTypes ) )
         return false;
 
-    narrowSelection( collector, aWhere, aCheckLocked, true );
+    narrowSelection( collector, aWhere, aCheckLocked, aSubtract );
 
-    return selectPoint( collector, aItem, aSelectionCancelledFlag, aAdd, aSubtract, aExclusiveOr );
+    return selectPoint( collector, aWhere, aItem, aSelectionCancelledFlag, aAdd, aSubtract,
+                        aExclusiveOr );
 }
 
 
@@ -953,11 +1013,18 @@ int EE_SELECTION_TOOL::SelectAll( const TOOL_EVENT& aEvent )
         if( EDA_ITEM* item = dynamic_cast<EDA_ITEM*>( item_pair.first ) )
         {
             if( Selectable( item ) )
+            {
+                if( item->Type() == SCH_LINE_T )
+                    item->SetFlags( STARTPOINT | ENDPOINT );
+
                 select( item );
+            }
         }
     }
 
     m_multiple = false;
+
+    m_toolMgr->ProcessEvent( EVENTS::SelectedEvent );
 
     return 0;
 }
@@ -970,15 +1037,23 @@ void EE_SELECTION_TOOL::GuessSelectionCandidates( EE_COLLECTOR& collector, const
 
     for( int i = collector.GetCount() - 1; i >= 0; --i )
     {
-        EDA_ITEM*  item = collector[ i ];
-        SCH_LINE*  line = dynamic_cast<SCH_LINE*>( item );
-        LIB_SHAPE* shape = dynamic_cast<LIB_SHAPE*>( item );
+        EDA_ITEM*   item = collector[ i ];
+        SCH_LINE*   line = dynamic_cast<SCH_LINE*>( item );
+        LIB_SHAPE*  shape = dynamic_cast<LIB_SHAPE*>( item );
+        SCH_SYMBOL* symbol = dynamic_cast<SCH_SYMBOL*>( item );
 
         // Lines are hard to hit.  Give them a bit more slop to still be considered "exact".
 
         if( line || ( shape && shape->GetShape() == SHAPE_T::POLY ) )
         {
-            if( item->HitTest( aPos, Mils2iu( DANGLING_SYMBOL_SIZE ) ) )
+            int pixelThreshold = KiROUND( getView()->ToWorld( 1 ) );
+
+            if( item->HitTest( aPos, pixelThreshold ) )
+                exactHits.insert( item );
+        }
+        else if( symbol && m_frame->eeconfig()->m_Selection.select_pin_selects_symbol )
+        {
+            if( symbol->GetBodyAndPinsBoundingBox().Contains( aPos ) )
                 exactHits.insert( item );
         }
         else
@@ -1008,8 +1083,8 @@ void EE_SELECTION_TOOL::GuessSelectionCandidates( EE_COLLECTOR& collector, const
 
     for( EDA_ITEM* item : collector )
     {
-        EDA_RECT bbox = item->GetBoundingBox();
-        int      dist = INT_MAX / 2;
+        BOX2I bbox = item->GetBoundingBox();
+        int   dist = INT_MAX / 2;
 
         if( exactHits.count( item ) )
         {
@@ -1062,7 +1137,12 @@ void EE_SELECTION_TOOL::GuessSelectionCandidates( EE_COLLECTOR& collector, const
             rect.Collide( poss, collector.m_Threshold, &dist );
         }
 
-        if( dist < closestDist )
+        if( dist == closestDist )
+        {
+            if( item->GetParent() == closest )
+                closest = item;
+        }
+        else if( dist < closestDist )
         {
             closestDist = dist;
             closest = item;
@@ -1074,7 +1154,7 @@ void EE_SELECTION_TOOL::GuessSelectionCandidates( EE_COLLECTOR& collector, const
     // for selection and can be dropped.
     if( closest ) // Don't try and get a tight bbox if nothing is near the mouse pointer
     {
-        EDA_RECT tightBox = closest->GetBoundingBox();
+        BOX2I tightBox = closest->GetBoundingBox();
         tightBox.Inflate( -tightBox.GetWidth() / 4, -tightBox.GetHeight() / 4 );
 
         for( int i = collector.GetCount() - 1; i >= 0; --i )
@@ -1091,32 +1171,36 @@ void EE_SELECTION_TOOL::GuessSelectionCandidates( EE_COLLECTOR& collector, const
 }
 
 
-EE_SELECTION& EE_SELECTION_TOOL::RequestSelection( const KICAD_T aFilterList[] )
+EE_SELECTION& EE_SELECTION_TOOL::RequestSelection( const std::vector<KICAD_T>& aScanTypes )
 {
     if( m_selection.Empty() )
     {
         VECTOR2D cursorPos = getViewControls()->GetCursorPosition( true );
 
         ClearSelection();
-        SelectPoint( cursorPos, aFilterList );
+        SelectPoint( cursorPos, aScanTypes );
         m_selection.SetIsHover( true );
         m_selection.ClearReferencePoint();
     }
     else        // Trim an existing selection by aFilterList
     {
         bool isMoving = false;
+        bool anyUnselected = false;
 
         for( int i = (int) m_selection.GetSize() - 1; i >= 0; --i )
         {
             EDA_ITEM* item = (EDA_ITEM*) m_selection.GetItem( i );
             isMoving |= static_cast<SCH_ITEM*>( item )->IsMoving();
 
-            if( !item->IsType( aFilterList ) )
+            if( !item->IsType( aScanTypes ) )
             {
                 unselect( item );
-                m_toolMgr->ProcessEvent( EVENTS::UnselectedEvent );
+                anyUnselected = true;
             }
         }
+
+        if( anyUnselected )
+            m_toolMgr->ProcessEvent( EVENTS::UnselectedEvent );
 
         if( !isMoving )
             updateReferencePoint();
@@ -1173,13 +1257,13 @@ bool EE_SELECTION_TOOL::selectMultiple()
          * Left > Right : Select objects that are fully enclosed by selection
          * Right > Left : Select objects that are crossed by selection
          */
-        bool isWindowSelection = width >= 0;
+        bool isGreedy = width < 0;
 
         if( view->IsMirroredX() )
-            isWindowSelection = !isWindowSelection;
+            isGreedy = !isGreedy;
 
-        m_frame->GetCanvas()->SetCurrentCursor( isWindowSelection ? KICURSOR::SELECT_WINDOW
-                                                                  : KICURSOR::SELECT_LASSO );
+        m_frame->GetCanvas()->SetCurrentCursor( isGreedy ? KICURSOR::SELECT_LASSO
+                                                         : KICURSOR::SELECT_WINDOW );
 
         if( evt->IsCancelInteractive() || evt->IsActivate() )
         {
@@ -1216,90 +1300,116 @@ bool EE_SELECTION_TOOL::selectMultiple()
             view->Query( area.ViewBBox(), nearbyViewItems );
 
             // Build lists of nearby items and their children
-            std::vector<EDA_ITEM*> nearbyItems;
-            std::vector<EDA_ITEM*> nearbyChildren;
+            std::unordered_set<EDA_ITEM*> nearbyItems;
+            std::vector<EDA_ITEM*>        nearbyChildren;
+            std::vector<EDA_ITEM*>        flaggedItems;
 
             for( KIGFX::VIEW::LAYER_ITEM_PAIR& pair : nearbyViewItems )
             {
-                EDA_ITEM* item = dynamic_cast<EDA_ITEM*>( pair.first );
-
-                if( item )
+                if( EDA_ITEM* item = dynamic_cast<EDA_ITEM*>( pair.first ) )
                 {
-                    item->ClearFlags( TEMP_SELECTED | STARTPOINT | ENDPOINT );
-                    nearbyItems.push_back( item );
-                }
+                    if( nearbyItems.insert( item ).second )
+                    {
+                        item->ClearFlags( CANDIDATE );
 
-                if( SCH_ITEM* sch_item = dynamic_cast<SCH_ITEM*>( item ) )
-                {
-                    sch_item->RunOnChildren(
-                            [&]( SCH_ITEM* aChild )
-                            {
-                                nearbyChildren.push_back( aChild );
-                            } );
+                        if( SCH_ITEM* sch_item = dynamic_cast<SCH_ITEM*>( item ) )
+                        {
+                            sch_item->RunOnChildren(
+                                    [&]( SCH_ITEM* aChild )
+                                    {
+                                        // Filter pins by unit
+                                        if( SCH_PIN* pin = dyn_cast<SCH_PIN*>( aChild ) )
+                                        {
+                                            int unit = pin->GetLibPin()->GetUnit();
+
+                                            if( unit && unit != pin->GetParentSymbol()->GetUnit() )
+                                                return;
+                                        }
+
+                                        nearbyChildren.push_back( aChild );
+                                    } );
+                        }
+                    }
                 }
             }
 
-            EDA_RECT selectionRect( area.GetOrigin(), wxSize( width, height ) );
+            BOX2I selectionRect( area.GetOrigin(), VECTOR2I( width, height ) );
             selectionRect.Normalize();
 
             bool anyAdded = false;
             bool anySubtracted = false;
+
             auto selectItem =
                     [&]( EDA_ITEM* aItem )
                     {
+                        EDA_ITEM_FLAGS flags = 0;
+
+                        // Handle line ends specially
+                        if( aItem->Type() == SCH_LINE_T )
+                        {
+                            SCH_LINE* line = (SCH_LINE*) aItem;
+
+                            if( selectionRect.Contains( line->GetStartPoint() ) || isGreedy )
+                                flags |= STARTPOINT;
+
+                            if( selectionRect.Contains( line->GetEndPoint() ) || isGreedy )
+                                flags |= ENDPOINT;
+
+                            // If no ends were selected, select whole line (both ends)
+                            if( !( flags & STARTPOINT ) && !( flags & ENDPOINT ) )
+                                flags = STARTPOINT | ENDPOINT;
+                        }
+
                         if( m_subtractive || ( m_exclusive_or && aItem->IsSelected() ) )
                         {
-                            unselect( aItem );
-                            anySubtracted = true;
+                            aItem->ClearFlags( flags );
+
+                            if( !aItem->HasFlag( STARTPOINT ) && !aItem->HasFlag( ENDPOINT ) )
+                            {
+                                unselect( aItem );
+                                anySubtracted = true;
+                            }
                         }
                         else
                         {
+                            aItem->SetFlags( flags );
                             select( aItem );
-
-                            // Lines can have just one end selected
-                            if( aItem->Type() == SCH_LINE_T )
-                            {
-                                SCH_LINE* line = static_cast<SCH_LINE*>( aItem );
-
-                                line->ClearFlags( STARTPOINT | ENDPOINT );
-
-                                if( selectionRect.Contains( line->GetStartPoint() ) )
-                                    line->SetFlags( STARTPOINT );
-
-                                if( selectionRect.Contains( line->GetEndPoint() ) )
-                                    line->SetFlags( ENDPOINT );
-
-                                // If no ends were selected, select whole line (both ends)
-                                // Also select both ends if the selection overlaps the midpoint
-                                if( ( !line->HasFlag( STARTPOINT ) && !line->HasFlag( ENDPOINT ) )
-                                    || selectionRect.Contains( line->GetMidPoint() ) )
-                                {
-                                    line->SetFlags( STARTPOINT | ENDPOINT );
-                                }
-                            }
-
                             anyAdded = true;
                         }
                     };
 
             for( EDA_ITEM* item : nearbyItems )
             {
-                if( Selectable( item ) && item->HitTest( selectionRect, isWindowSelection ) )
+                if( m_frame->GetRenderSettings()->m_ShowPinsElectricalType )
+                    item->SetFlags( SHOW_ELEC_TYPE );
+
+                if( Selectable( item ) && item->HitTest( selectionRect, !isGreedy ) )
                 {
-                    item->SetFlags( TEMP_SELECTED );
+                    item->SetFlags( CANDIDATE );
+                    flaggedItems.push_back( item );
                     selectItem( item );
                 }
+
+                item->ClearFlags( SHOW_ELEC_TYPE );
             }
 
             for( EDA_ITEM* item : nearbyChildren )
             {
+                if( m_frame->GetRenderSettings()->m_ShowPinsElectricalType )
+                    item->SetFlags( SHOW_ELEC_TYPE );
+
                 if( Selectable( item )
-                        && !item->GetParent()->HasFlag( TEMP_SELECTED )
-                        && item->HitTest( selectionRect, isWindowSelection ) )
+                        && !item->GetParent()->HasFlag( CANDIDATE )
+                        && item->HitTest( selectionRect, !isGreedy ) )
                 {
                     selectItem( item );
                 }
+
+                item->ClearFlags( SHOW_ELEC_TYPE );
             }
+
+            for( EDA_ITEM* item : flaggedItems )
+                item->ClearFlags( CANDIDATE );
 
             m_selection.SetIsHover( false );
 
@@ -1337,24 +1447,6 @@ bool EE_SELECTION_TOOL::selectMultiple()
 }
 
 
-static KICAD_T nodeTypes[] =
-{
-    SCH_SYMBOL_LOCATE_POWER_T,
-    SCH_PIN_T,
-    SCH_ITEM_LOCATE_WIRE_T,
-    SCH_ITEM_LOCATE_BUS_T,
-    SCH_BUS_WIRE_ENTRY_T,
-    SCH_BUS_BUS_ENTRY_T,
-    SCH_LABEL_T,
-    SCH_HIER_LABEL_T,
-    SCH_GLOBAL_LABEL_T,
-    SCH_SHEET_PIN_T,
-    SCH_DIRECTIVE_LABEL_T,
-    SCH_JUNCTION_T,
-    EOT
-};
-
-
 EDA_ITEM* EE_SELECTION_TOOL::GetNode( VECTOR2I aPosition )
 {
     EE_COLLECTOR collector;
@@ -1367,7 +1459,7 @@ EDA_ITEM* EE_SELECTION_TOOL::GetNode( VECTOR2I aPosition )
     for( int threshold : { 0, thresholdMax/4, thresholdMax/2, thresholdMax } )
     {
         collector.m_Threshold = threshold;
-        collector.Collect( m_frame->GetScreen(), nodeTypes, aPosition );
+        collector.Collect( m_frame->GetScreen(), connectedTypes, aPosition );
 
         if( collector.GetCount() > 0 )
             break;
@@ -1381,7 +1473,7 @@ int EE_SELECTION_TOOL::SelectNode( const TOOL_EVENT& aEvent )
 {
     VECTOR2I cursorPos = getViewControls()->GetCursorPosition( false );
 
-    SelectPoint( cursorPos, nodeTypes  );
+    SelectPoint( cursorPos, connectedTypes );
 
     return 0;
 }
@@ -1389,21 +1481,35 @@ int EE_SELECTION_TOOL::SelectNode( const TOOL_EVENT& aEvent )
 
 int EE_SELECTION_TOOL::SelectConnection( const TOOL_EVENT& aEvent )
 {
-    static KICAD_T wiresAndBuses[] = { SCH_ITEM_LOCATE_WIRE_T, SCH_ITEM_LOCATE_BUS_T, EOT };
-
-    RequestSelection( wiresAndBuses );
+    RequestSelection( { SCH_ITEM_LOCATE_WIRE_T, SCH_ITEM_LOCATE_BUS_T } );
 
     if( m_selection.Empty() )
         return 0;
 
     SCH_LINE* line = (SCH_LINE*) m_selection.Front();
-    EDA_ITEMS items;
+    unsigned  done = false;
 
     m_frame->GetScreen()->ClearDrawingState();
-    std::set<SCH_ITEM*> conns = m_frame->GetScreen()->MarkConnections( line );
+    std::set<SCH_ITEM*> conns = m_frame->GetScreen()->MarkConnections( line, false );
 
     for( SCH_ITEM* item : conns )
+    {
+        if( item->IsType( { SCH_ITEM_LOCATE_WIRE_T, SCH_ITEM_LOCATE_BUS_T } )
+                && !item->IsSelected() )
+        {
+            done = true;
+        }
+
         select( item );
+    }
+
+    if( !done )
+    {
+        conns = m_frame->GetScreen()->MarkConnections( line, true );
+
+        for( SCH_ITEM* item : conns )
+            select( item );
+    }
 
     if( m_selection.GetSize() > 1 )
         m_toolMgr->ProcessEvent( EVENTS::SelectedEvent );
@@ -1412,121 +1518,160 @@ int EE_SELECTION_TOOL::SelectConnection( const TOOL_EVENT& aEvent )
 }
 
 
-int EE_SELECTION_TOOL::AddItemToSel( const TOOL_EVENT& aEvent )
-{
-    AddItemToSel( aEvent.Parameter<EDA_ITEM*>() );
-    m_selection.SetIsHover( false );
-    return 0;
-}
-
-
-void EE_SELECTION_TOOL::AddItemToSel( EDA_ITEM* aItem, bool aQuietMode )
-{
-    if( aItem )
-    {
-        select( aItem );
-
-        // Inform other potentially interested tools
-        if( !aQuietMode )
-            m_toolMgr->ProcessEvent( EVENTS::SelectedEvent );
-    }
-}
-
-
-int EE_SELECTION_TOOL::AddItemsToSel( const TOOL_EVENT& aEvent )
-{
-    AddItemsToSel( aEvent.Parameter<EDA_ITEMS*>(), false );
-    m_selection.SetIsHover( false );
-    return 0;
-}
-
-
-void EE_SELECTION_TOOL::AddItemsToSel( EDA_ITEMS* aList, bool aQuietMode )
-{
-    if( aList )
-    {
-        for( EDA_ITEM* item : *aList )
-            select( item );
-
-        // Inform other potentially interested tools
-        if( !aQuietMode )
-            m_toolMgr->ProcessEvent( EVENTS::SelectedEvent );
-    }
-}
-
-
-int EE_SELECTION_TOOL::RemoveItemFromSel( const TOOL_EVENT& aEvent )
-{
-    RemoveItemFromSel( aEvent.Parameter<EDA_ITEM*>() );
-    m_selection.SetIsHover( false );
-    return 0;
-}
-
-
-void EE_SELECTION_TOOL::RemoveItemFromSel( EDA_ITEM* aItem, bool aQuietMode )
-{
-    if( aItem )
-    {
-        unselect( aItem );
-
-        // Inform other potentially interested tools
-        if( !aQuietMode )
-            m_toolMgr->ProcessEvent( EVENTS::UnselectedEvent );
-    }
-}
-
-
-int EE_SELECTION_TOOL::RemoveItemsFromSel( const TOOL_EVENT& aEvent )
-{
-    RemoveItemsFromSel( aEvent.Parameter<EDA_ITEMS*>(), false );
-    m_selection.SetIsHover( false );
-    return 0;
-}
-
-
-void EE_SELECTION_TOOL::RemoveItemsFromSel( EDA_ITEMS* aList, bool aQuietMode )
-{
-    if( aList )
-    {
-        for( EDA_ITEM* item : *aList )
-            unselect( item );
-
-        // Inform other potentially interested tools
-        if( !aQuietMode )
-            m_toolMgr->ProcessEvent( EVENTS::UnselectedEvent );
-    }
-}
-
-
-void EE_SELECTION_TOOL::RemoveItemsFromSel( std::vector<KIID>* aList, bool aQuietMode )
-{
-    EDA_ITEMS removeItems;
-
-    for( EDA_ITEM* item : m_selection )
-    {
-        if( alg::contains( *aList, item->m_Uuid ) )
-            removeItems.push_back( item );
-    }
-
-    RemoveItemsFromSel( &removeItems, aQuietMode );
-}
-
-
-void EE_SELECTION_TOOL::BrightenItem( EDA_ITEM* aItem )
-{
-    highlight( aItem, BRIGHTENED );
-}
-
-
-void EE_SELECTION_TOOL::UnbrightenItem( EDA_ITEM* aItem )
-{
-    unhighlight( aItem, BRIGHTENED );
-}
-
-
 int EE_SELECTION_TOOL::ClearSelection( const TOOL_EVENT& aEvent )
 {
     ClearSelection();
+
+    return 0;
+}
+
+
+void EE_SELECTION_TOOL::ZoomFitCrossProbeBBox( const BOX2I& aBBox )
+{
+    if( aBBox.GetWidth() == 0 )
+        return;
+
+    BOX2I bbox = aBBox;
+    bbox.Normalize();
+
+    VECTOR2I bbSize = bbox.Inflate( bbox.GetWidth() * 0.2f ).GetSize();
+    VECTOR2D screenSize = getView()->GetViewport().GetSize();
+
+    // This code tries to come up with a zoom factor that doesn't simply zoom in
+    // to the cross probed symbol, but instead shows a reasonable amount of the
+    // circuit around it to provide context.  This reduces or eliminates the need
+    // to manually change the zoom because it's too close.
+
+    // Using the default text height as a constant to compare against, use the
+    // height of the bounding box of visible items for a footprint to figure out
+    // if this is a big symbol (like a processor) or a small symbol (like a resistor).
+    // This ratio is not useful by itself as a scaling factor.  It must be "bent" to
+    // provide good scaling at varying symbol sizes.  Bigger symbols need less
+    // scaling than small ones.
+    double currTextHeight = schIUScale.MilsToIU( DEFAULT_TEXT_SIZE );
+
+    double compRatio = bbSize.y / currTextHeight; // Ratio of symbol to text height
+    double compRatioBent = 1.0;
+
+    // LUT to scale zoom ratio to provide reasonable schematic context.  Must work
+    // with symbols of varying sizes (e.g. 0402 package and 200 pin BGA).
+    // "first" is used as the input and "second" as the output
+    //
+    // "first" = compRatio (symbol height / default text height)
+    // "second" = Amount to scale ratio by
+    std::vector<std::pair<double, double>> lut{ { 1.25, 16 }, // 32
+                                                { 2.5, 12 },  //24
+                                                { 5, 8 },     // 16
+                                                { 6, 6 },     //
+                                                { 10, 4 },    //8
+                                                { 20, 2 },    //4
+                                                { 40, 1.5 },  // 2
+                                                { 100, 1 } };
+
+    std::vector<std::pair<double, double>>::iterator it;
+
+    // Large symbol default is last LUT entry (1:1).
+    compRatioBent = lut.back().second;
+
+    // Use LUT to do linear interpolation of "compRatio" within "first", then
+    // use that result to linearly interpolate "second" which gives the scaling
+    // factor needed.
+    if( compRatio >= lut.front().first )
+    {
+        for( it = lut.begin(); it < lut.end() - 1; it++ )
+        {
+            if( it->first <= compRatio && next( it )->first >= compRatio )
+            {
+                double diffx = compRatio - it->first;
+                double diffn = next( it )->first - it->first;
+
+                compRatioBent = it->second + ( next( it )->second - it->second ) * diffx / diffn;
+                break; // We have our interpolated value
+            }
+        }
+    }
+    else
+    {
+        compRatioBent = lut.front().second; // Small symbol default is first entry
+    }
+
+    // This is similar to the original KiCad code that scaled the zoom to make sure
+    // symbols were visible on screen.  It's simply a ratio of screen size to
+    // symbol size, and its job is to zoom in to make the component fullscreen.
+    // Earlier in the code the symbol BBox is given a 20% margin to add some
+    // breathing room. We compare the height of this enlarged symbol bbox to the
+    // default text height.  If a symbol will end up with the sides clipped, we
+    // adjust later to make sure it fits on screen.
+    screenSize.x = std::max( 10.0, screenSize.x );
+    screenSize.y = std::max( 10.0, screenSize.y );
+    double ratio = std::max( -1.0, fabs( bbSize.y / screenSize.y ) );
+
+    // Original KiCad code for how much to scale the zoom
+    double kicadRatio =
+            std::max( fabs( bbSize.x / screenSize.x ), fabs( bbSize.y / screenSize.y ) );
+
+    // If the width of the part we're probing is bigger than what the screen width
+    // will be after the zoom, then punt and use the KiCad zoom algorithm since it
+    // guarantees the part's width will be encompassed within the screen.
+    if( bbSize.x > screenSize.x * ratio * compRatioBent )
+    {
+        // Use standard KiCad zoom for parts too wide to fit on screen/
+        ratio = kicadRatio;
+        compRatioBent = 1.0; // Reset so we don't modify the "KiCad" ratio
+        wxLogTrace( "CROSS_PROBE_SCALE",
+                    "Part TOO WIDE for screen.  Using normal KiCad zoom ratio: %1.5f", ratio );
+    }
+
+    // Now that "compRatioBent" holds our final scaling factor we apply it to the
+    // original fullscreen zoom ratio to arrive at the final ratio itself.
+    ratio *= compRatioBent;
+
+    bool alwaysZoom = false; // DEBUG - allows us to minimize zooming or not
+
+    // Try not to zoom on every cross-probe; it gets very noisy
+    if( ( ratio < 0.5 || ratio > 1.0 ) || alwaysZoom )
+        getView()->SetScale( getView()->GetScale() / ratio );
+}
+
+
+int EE_SELECTION_TOOL::SyncSelection( std::optional<SCH_SHEET_PATH> targetSheetPath,
+                                      SCH_ITEM* focusItem, std::vector<SCH_ITEM*> items )
+{
+    SCH_EDIT_FRAME* editFrame = dynamic_cast<SCH_EDIT_FRAME*>( m_frame );
+
+    if( !editFrame || m_isSymbolEditor || m_isSymbolViewer )
+        return 0;
+
+    if( targetSheetPath && targetSheetPath != editFrame->Schematic().CurrentSheet() )
+    {
+        editFrame->Schematic().SetCurrentSheet( *targetSheetPath );
+        editFrame->DisplayCurrentSheet();
+    }
+
+    ClearSelection( items.size() > 0 ? true /*quiet mode*/ : false );
+
+    // Perform individual selection of each item before processing the event.
+    for( SCH_ITEM* item : items )
+        select( item );
+
+    BOX2I bbox = m_selection.GetBoundingBox();
+
+    if( bbox.GetWidth() != 0 && bbox.GetHeight() != 0 )
+    {
+        if( m_frame->eeconfig()->m_CrossProbing.center_on_items )
+        {
+            if( m_frame->eeconfig()->m_CrossProbing.zoom_to_fit )
+                ZoomFitCrossProbeBBox( bbox );
+
+            editFrame->FocusOnItem( focusItem );
+
+            if( !focusItem )
+                editFrame->FocusOnLocation( bbox.Centre() );
+        }
+    }
+
+    if( m_selection.Size() > 0 )
+        m_toolMgr->ProcessEvent( EVENTS::SelectedEvent );
 
     return 0;
 }
@@ -1543,7 +1688,7 @@ void EE_SELECTION_TOOL::RebuildSelection()
         for( LIB_ITEM& item : start->GetDrawItems() )
         {
             if( item.IsSelected() )
-                select( static_cast<EDA_ITEM*>( &item ) );
+                select( &item );
         }
     }
     else
@@ -1571,170 +1716,6 @@ void EE_SELECTION_TOOL::RebuildSelection()
 
     // Inform other potentially interested tools
     m_toolMgr->ProcessEvent( EVENTS::SelectedEvent );
-}
-
-
-int EE_SELECTION_TOOL::SelectionMenu( const TOOL_EVENT& aEvent )
-{
-    EE_COLLECTOR* collector = aEvent.Parameter<EE_COLLECTOR*>();
-
-    if( !doSelectionMenu( collector ) )
-        collector->m_MenuCancelled = true;
-
-    return 0;
-}
-
-
-bool EE_SELECTION_TOOL::doSelectionMenu( EE_COLLECTOR* aCollector )
-{
-    EDA_ITEM*   current = nullptr;
-    bool        selectAll = false;
-    bool        expandSelection = false;
-
-    do
-    {
-        /// The user has requested the full, non-limited list of selection items
-        if( expandSelection )
-            aCollector->Combine();
-
-        expandSelection = false;
-
-        int         limit = std::min( 9, aCollector->GetCount() );
-        ACTION_MENU menu( true );
-
-        for( int i = 0; i < limit; ++i )
-        {
-            wxString  text;
-            EDA_ITEM* item = ( *aCollector )[i];
-            text           = item->GetSelectMenuText( m_frame->GetUserUnits() );
-
-            wxString menuText = wxString::Format( "&%d. %s\t%d", i + 1, text, i + 1 );
-            menu.Add( menuText, i + 1, item->GetMenuImage() );
-        }
-
-        menu.AppendSeparator();
-        menu.Add( _( "Select &All\tA" ), limit + 1, BITMAPS::INVALID_BITMAP );
-
-        if( !expandSelection && aCollector->HasAdditionalItems() )
-            menu.Add( _( "&Expand Selection\tE" ), limit + 2, BITMAPS::INVALID_BITMAP );
-
-        if( aCollector->m_MenuTitle.Length() )
-        {
-            menu.SetTitle( aCollector->m_MenuTitle );
-            menu.SetIcon( BITMAPS::info );
-            menu.DisplayTitle( true );
-        }
-        else
-        {
-            menu.DisplayTitle( false );
-        }
-
-        SetContextMenu( &menu, CMENU_NOW );
-
-        while( TOOL_EVENT* evt = Wait() )
-        {
-            if( evt->Action() == TA_CHOICE_MENU_UPDATE )
-            {
-                if( selectAll )
-                {
-                    for( int i = 0; i < aCollector->GetCount(); ++i )
-                        unhighlight( ( *aCollector )[i], BRIGHTENED );
-                }
-                else if( current )
-                {
-                    unhighlight( current, BRIGHTENED );
-                }
-
-                int id = *evt->GetCommandId();
-
-                // User has pointed an item, so show it in a different way
-                if( id > 0 && id <= limit )
-                {
-                    current = ( *aCollector )[id - 1];
-                    highlight( current, BRIGHTENED );
-                }
-                else
-                {
-                    current = nullptr;
-                }
-
-                // User has pointed on the "Select All" option
-                if( id == limit + 1 )
-                {
-                    for( int i = 0; i < aCollector->GetCount(); ++i )
-                        highlight( ( *aCollector )[i], BRIGHTENED );
-
-                    selectAll = true;
-                }
-                else
-                {
-                    selectAll = false;
-                }
-            }
-            else if( evt->Action() == TA_CHOICE_MENU_CHOICE )
-            {
-                if( selectAll )
-                {
-                    for( int i = 0; i < aCollector->GetCount(); ++i )
-                        unhighlight( ( *aCollector )[i], BRIGHTENED );
-                }
-                else if( current )
-                {
-                    unhighlight( current, BRIGHTENED );
-                }
-
-                OPT<int> id = evt->GetCommandId();
-
-                // User has selected the "Select All" option
-                if( id == limit + 1 )
-                {
-                    selectAll = true;
-                    current   = nullptr;
-                }
-                else if( id == limit + 2 )
-                {
-                    selectAll       = false;
-                    current         = nullptr;
-                    expandSelection = true;
-                }
-                // User has selected an item, so this one will be returned
-                else if( id && ( *id > 0 ) && ( *id <= limit ) )
-                {
-                    selectAll = false;
-                    current   = ( *aCollector )[*id - 1];
-                }
-                // User has cancelled the menu (either by <esc> or clicking out of it)
-                else
-                {
-                    selectAll = false;
-                    current   = nullptr;
-                }
-            }
-            else if( evt->Action() == TA_CHOICE_MENU_CLOSED )
-            {
-                break;
-            }
-
-            getView()->UpdateItems();
-            m_frame->GetCanvas()->Refresh();
-        }
-    } while( expandSelection );
-
-    if( selectAll )
-        return true;
-    else if( current )
-    {
-        unhighlight( current, BRIGHTENED );
-
-        getView()->UpdateItems();
-        m_frame->GetCanvas()->Refresh();
-
-        aCollector->Empty();
-        aCollector->Append( current );
-        return true;
-    }
-
-    return false;
 }
 
 
@@ -1809,13 +1790,13 @@ bool EE_SELECTION_TOOL::Selectable( const EDA_ITEM* aItem, const VECTOR2I* aPos,
 }
 
 
-void EE_SELECTION_TOOL::ClearSelection()
+void EE_SELECTION_TOOL::ClearSelection( bool aQuietMode )
 {
     if( m_selection.Empty() )
         return;
 
     while( m_selection.GetSize() )
-        unhighlight( (EDA_ITEM*) m_selection.Front(), SELECTED, &m_selection );
+        unhighlight( m_selection.Front(), SELECTED, &m_selection );
 
     getView()->Update( &m_selection );
 
@@ -1823,7 +1804,8 @@ void EE_SELECTION_TOOL::ClearSelection()
     m_selection.ClearReferencePoint();
 
     // Inform other potentially interested tools
-    m_toolMgr->ProcessEvent( EVENTS::ClearedEvent );
+    if( !aQuietMode )
+        m_toolMgr->ProcessEvent( EVENTS::ClearedEvent );
 }
 
 
@@ -1839,7 +1821,7 @@ void EE_SELECTION_TOOL::unselect( EDA_ITEM* aItem )
 }
 
 
-void EE_SELECTION_TOOL::highlight( EDA_ITEM* aItem, int aMode, EE_SELECTION* aGroup )
+void EE_SELECTION_TOOL::highlight( EDA_ITEM* aItem, int aMode, SELECTION* aGroup )
 {
     KICAD_T itemType = aItem->Type();
 
@@ -1872,12 +1854,17 @@ void EE_SELECTION_TOOL::highlight( EDA_ITEM* aItem, int aMode, EE_SELECTION* aGr
 }
 
 
-void EE_SELECTION_TOOL::unhighlight( EDA_ITEM* aItem, int aMode, EE_SELECTION* aGroup )
+void EE_SELECTION_TOOL::unhighlight( EDA_ITEM* aItem, int aMode, SELECTION* aGroup )
 {
     KICAD_T itemType = aItem->Type();
 
     if( aMode == SELECTED )
+    {
         aItem->ClearSelected();
+        // Lines need endpoints cleared here
+        if( aItem->Type() == SCH_LINE_T )
+            aItem->ClearFlags( STARTPOINT | ENDPOINT );
+    }
     else if( aMode == BRIGHTENED )
         aItem->ClearBrightened();
 
@@ -1889,13 +1876,13 @@ void EE_SELECTION_TOOL::unhighlight( EDA_ITEM* aItem, int aMode, EE_SELECTION* a
     if( SCH_ITEM* sch_item = dynamic_cast<SCH_ITEM*>( aItem ) )
     {
         sch_item->RunOnChildren(
-            [&]( SCH_ITEM* aChild )
-            {
-                if( aMode == SELECTED )
-                    aChild->ClearSelected();
-                else if( aMode == BRIGHTENED )
-                    aChild->ClearBrightened();
-            } );
+                [&]( SCH_ITEM* aChild )
+                {
+                    if( aMode == SELECTED )
+                        aChild->ClearSelected();
+                    else if( aMode == BRIGHTENED )
+                        aChild->ClearBrightened();
+                } );
     }
 
     if( itemType == SCH_PIN_T || itemType == SCH_FIELD_T || itemType == SCH_SHEET_PIN_T )

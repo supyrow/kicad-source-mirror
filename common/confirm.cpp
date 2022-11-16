@@ -22,6 +22,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
+#include <wx/app.h>
 #include <wx/stockitem.h>
 #include <wx/richmsgdlg.h>
 #include <wx/choicdlg.h>
@@ -157,16 +158,16 @@ bool OverrideLock( wxWindow* aParent, const wxString& aMessage )
     // wxMessageDialog gets the button spacing wrong on Mac so we have to use wxRichMessageDialog.
     // Note that its warning icon is more like wxMessageDialog's error icon, so we use it instead
     // of wxICON_ERROR.
-    wxRichMessageDialog dlg( aParent, aMessage, _( "File Open Error" ),
+    wxRichMessageDialog dlg( aParent, aMessage, _( "File Open Warning" ),
                              wxYES_NO | wxICON_WARNING | wxCENTER );
     dlg.SetExtendedMessage( _( "Interleaved saves may produce very unexpected results." )
                                 + wxS( "\n" ) );
-    dlg.SetYesNoLabels( _( "OK" ), _( "Open Anyway" ) );
+    dlg.SetYesNoLabels( _( "Cancel" ), _( "Open Anyway" ) );
 #else
-    wxMessageDialog dlg( aParent, aMessage, _( "File Open Error" ),
+    wxMessageDialog dlg( aParent, aMessage, _( "File Open Warning" ),
                          wxYES_NO | wxICON_ERROR | wxCENTER );
     dlg.SetExtendedMessage( _( "Interleaved saves may produce very unexpected results." ) );
-    dlg.SetYesNoLabels( _( "OK" ), _( "Open Anyway" ) );
+    dlg.SetYesNoLabels( _( "Cancel" ), _( "Open Anyway" ) );
 #endif
 
     return dlg.ShowModal() == wxID_NO;
@@ -278,6 +279,12 @@ int OKOrCancelDialog( wxWindow* aParent, const wxString& aWarning, const wxStrin
 // DisplayError should be deprecated, use DisplayErrorMessage instead
 void DisplayError( wxWindow* aParent, const wxString& aText, int aDisplayTime )
 {
+    if( !wxTheApp || !wxTheApp->IsMainLoopRunning() )
+    {
+        wxLogError( "%s", aText );
+        return;
+    }
+
     wxMessageDialog* dlg;
     int              icon = aDisplayTime > 0 ? wxICON_INFORMATION : wxICON_ERROR;
 
@@ -291,6 +298,12 @@ void DisplayError( wxWindow* aParent, const wxString& aText, int aDisplayTime )
 
 void DisplayErrorMessage( wxWindow* aParent, const wxString& aText, const wxString& aExtraInfo )
 {
+    if( !wxTheApp || !wxTheApp->IsMainLoopRunning() )
+    {
+        wxLogError( "%s %s", aText, aExtraInfo );
+        return;
+    }
+
     wxMessageDialog* dlg;
 
     dlg = new wxMessageDialog( aParent, aText, _( "Error" ),
@@ -306,6 +319,12 @@ void DisplayErrorMessage( wxWindow* aParent, const wxString& aText, const wxStri
 
 void DisplayInfoMessage( wxWindow* aParent, const wxString& aMessage, const wxString& aExtraInfo )
 {
+    if( !wxTheApp || !wxTheApp->GetTopWindow() )
+    {
+        wxLogDebug( "%s %s", aMessage, aExtraInfo );
+        return;
+    }
+
     wxMessageDialog* dlg;
     int              icon = wxICON_INFORMATION;
 
@@ -322,11 +341,26 @@ void DisplayInfoMessage( wxWindow* aParent, const wxString& aMessage, const wxSt
 
 bool IsOK( wxWindow* aParent, const wxString& aMessage )
 {
-    wxMessageDialog dlg( aParent, aMessage, _( "Confirmation" ),
-                         wxYES_NO | wxCENTRE | wxICON_QUESTION | wxSTAY_ON_TOP );
-    dlg.SetEscapeId( wxID_NO );
+    // wxMessageDialog no longer responds correctly to the <ESC> key (on at least OSX and MSW)
+    // so we're now using wxRichMessageDialog.
+    //
+    // Note also that we have to repurpose an OK/Cancel version of it because otherwise wxWidgets
+    // uses "destructive" spacing for the "No" button.
 
-    return dlg.ShowModal() == wxID_YES;
+#ifdef __APPLE__
+    // Why is wxICON_QUESTION a light-bulb on Mac?  That has more of a hint or info connotation.
+    int icon = wxICON_WARNING;
+#else
+    int icon = wxICON_QUESTION;
+#endif
+
+    wxRichMessageDialog dlg( aParent, aMessage, _( "Confirmation" ),
+                             wxOK | wxCANCEL | wxOK_DEFAULT | wxCENTRE | icon | wxSTAY_ON_TOP );
+
+    dlg.SetOKCancelLabels( _( "Yes" ), _( "No" ) );
+
+
+    return dlg.ShowModal() == wxID_OK;
 }
 
 

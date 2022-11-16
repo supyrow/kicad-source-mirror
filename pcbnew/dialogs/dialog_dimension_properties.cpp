@@ -69,8 +69,8 @@ DIALOG_DIMENSION_PROPERTIES::DIALOG_DIMENSION_PROPERTIES( PCB_BASE_EDIT_FRAME* a
         m_cbTextPositionMode->Hide();
         break;
 
-        case PCB_DIM_CENTER_T:
-        case PCB_FP_DIM_CENTER_T:
+    case PCB_DIM_CENTER_T:
+    case PCB_FP_DIM_CENTER_T:
         m_sizerLeader->GetStaticBox()->Hide();
         m_sizerFormat->GetStaticBox()->Hide();
         m_sizerText->GetStaticBox()->Hide();
@@ -101,11 +101,11 @@ DIALOG_DIMENSION_PROPERTIES::DIALOG_DIMENSION_PROPERTIES( PCB_BASE_EDIT_FRAME* a
 
     m_separator1->SetIsSeparator();
 
-    m_alignLeft->SetIsCheckButton();
+    m_alignLeft->SetIsRadioButton();
     m_alignLeft->SetBitmap( KiBitmap( BITMAPS::text_align_left ) );
-    m_alignCenter->SetIsCheckButton();
+    m_alignCenter->SetIsRadioButton();
     m_alignCenter->SetBitmap( KiBitmap( BITMAPS::text_align_center ) );
-    m_alignRight->SetIsCheckButton();
+    m_alignRight->SetIsRadioButton();
     m_alignRight->SetBitmap( KiBitmap( BITMAPS::text_align_right ) );
 
     m_separator2->SetIsSeparator();
@@ -245,7 +245,9 @@ bool DIALOG_DIMENSION_PROPERTIES::TransferDataToWindow()
         m_txtTextPosY->Disable();
     }
 
-    m_orientation.SetAngleValue( text.GetTextAngle() );
+    EDA_ANGLE orientation = text.GetTextAngle();
+    m_orientation.SetAngleValue( orientation.Normalize180() );
+    m_cbTextOrientation->Enable( !m_dimension->GetKeepTextAligned() );
     m_cbKeepAligned->SetValue( m_dimension->GetKeepTextAligned() );
 
     m_bold->Check( text.IsBold() );
@@ -275,7 +277,7 @@ bool DIALOG_DIMENSION_PROPERTIES::TransferDataToWindow()
         m_txtValueActual->SetValue( m_dimension->GetValueText() );
     }
 
-    if( m_dimension->Type() == PCB_DIM_LEADER_T )
+    if( m_dimension->Type() == PCB_DIM_LEADER_T || m_dimension->Type() == PCB_FP_DIM_LEADER_T )
     {
         PCB_DIM_LEADER* leader = static_cast<PCB_DIM_LEADER*>( m_dimension );
         m_cbTextFrame->SetSelection( static_cast<int>( leader->GetTextBorder() ) );
@@ -418,10 +420,13 @@ void DIALOG_DIMENSION_PROPERTIES::updateDimensionFromDialog( PCB_DIMENSION_BASE*
 
     aTarget->SetKeepTextAligned( m_cbKeepAligned->GetValue() );
 
-    text.SetTextAngle( m_orientation.GetAngleValue() );
+    text.SetTextAngle( m_orientation.GetAngleValue().Normalize() );
     text.SetTextWidth( m_textWidth.GetValue() );
     text.SetTextHeight( m_textHeight.GetValue() );
     text.SetTextThickness( m_textThickness.GetValue() );
+
+    if( m_fontCtrl->HaveFontSelection() )
+        text.SetFont( m_fontCtrl->GetFontSelection( m_bold->IsChecked(), m_italic->IsChecked() ) );
 
     text.SetBold( m_bold->IsChecked() );
     text.SetItalic( m_italic->IsChecked() );
@@ -439,7 +444,7 @@ void DIALOG_DIMENSION_PROPERTIES::updateDimensionFromDialog( PCB_DIMENSION_BASE*
     aTarget->SetArrowLength( m_arrowLength.GetValue() );
     aTarget->SetExtensionOffset( m_extensionOffset.GetValue() );
 
-    if( aTarget->Type() == PCB_DIM_LEADER_T )
+    if( aTarget->Type() == PCB_DIM_LEADER_T || m_dimension->Type() == PCB_FP_DIM_LEADER_T )
     {
         PCB_DIM_LEADER* leader = static_cast<PCB_DIM_LEADER*>( aTarget );
         leader->SetTextBorder( static_cast<DIM_TEXT_BORDER>( m_cbTextFrame->GetSelection()));

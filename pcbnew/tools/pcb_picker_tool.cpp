@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2015 CERN
- * Copyright (C) 2019-2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2019-2022 KiCad Developers, see AUTHORS.txt for contributors.
  * @author Maciej Suminski <maciej.suminski@cern.ch>
  *
  * This program is free software; you can redistribute it and/or
@@ -27,8 +27,7 @@
 #include "pcb_actions.h"
 #include "pcb_grid_helper.h"
 #include <view/view_controls.h>
-#include <tool/tool_manager.h>
-#include "pcb_selection_tool.h"
+#include <tools/zone_filler_tool.h>
 
 
 PCB_PICKER_TOOL::PCB_PICKER_TOOL() :
@@ -45,18 +44,17 @@ int PCB_PICKER_TOOL::Main( const TOOL_EVENT& aEvent )
     PCB_GRID_HELPER       grid( m_toolMgr, frame->GetMagneticItemsSettings() );
     int                   finalize_state = WAIT_CANCEL;
 
-    std::string tool = *aEvent.Parameter<std::string*>();
-
-    if( !tool.empty() )
-        frame->PushTool( tool );
+    if( aEvent.IsAction( &ACTIONS::pickerTool ) )
+        frame->PushTool( aEvent );
 
     Activate();
     setControls();
 
-    auto setCursor = 
-            [&]() 
+    auto setCursor =
+            [&]()
             {
                 frame->GetCanvas()->SetCurrentCursor( m_cursor );
+                controls->ShowCursor( true );
             };
 
     // Set initial cursor
@@ -97,7 +95,6 @@ int PCB_PICKER_TOOL::Main( const TOOL_EVENT& aEvent )
 
             break;
         }
-
         else if( evt->IsClick( BUT_LEFT ) )
         {
             bool getNext = false;
@@ -123,9 +120,10 @@ int PCB_PICKER_TOOL::Main( const TOOL_EVENT& aEvent )
                 break;
             }
             else
+            {
                 setControls();
+            }
         }
-
         else if( evt->IsMotion() )
         {
             if( m_motionHandler )
@@ -139,20 +137,25 @@ int PCB_PICKER_TOOL::Main( const TOOL_EVENT& aEvent )
                 }
             }
         }
-
         else if( evt->IsDblClick( BUT_LEFT ) || evt->IsDrag( BUT_LEFT ) )
         {
             // Not currently used, but we don't want to pass them either
         }
-
         else if( evt->IsClick( BUT_RIGHT ) )
         {
             PCB_SELECTION dummy;
             m_menu.ShowContextMenu( dummy );
         }
-
+        // TODO: It'd be nice to be able to say "don't allow any non-trivial editing actions",
+        // but we don't at present have that, so we just knock out some of the egregious ones.
+        else if( ZONE_FILLER_TOOL::IsZoneFillAction( evt ) )
+        {
+            wxBell();
+        }
         else
+        {
             evt->SetPassEvent();
+        }
     }
 
     if( m_finalizeHandler )
@@ -168,17 +171,12 @@ int PCB_PICKER_TOOL::Main( const TOOL_EVENT& aEvent )
 
     reset();
     controls->ForceCursorPosition( false );
+    controls->ShowCursor( false );
 
-    if( !tool.empty() )
-        frame->PopTool( tool );
+    if( aEvent.IsAction( &ACTIONS::pickerTool ) )
+        frame->PopTool( aEvent );
 
     return 0;
-}
-
-
-void PCB_PICKER_TOOL::setTransitions()
-{
-    Go( &PCB_PICKER_TOOL::Main, ACTIONS::pickerTool.MakeEvent() );
 }
 
 
@@ -196,3 +194,12 @@ void PCB_PICKER_TOOL::setControls()
     controls->CaptureCursor( false );
     controls->SetAutoPan( false );
 }
+
+
+void PCB_PICKER_TOOL::setTransitions()
+{
+    Go( &PCB_PICKER_TOOL::Main, ACTIONS::pickerTool.MakeEvent() );
+    Go( &PCB_PICKER_TOOL::Main, ACTIONS::pickerSubTool.MakeEvent() );
+}
+
+

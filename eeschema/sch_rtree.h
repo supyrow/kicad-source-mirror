@@ -26,7 +26,6 @@
 #define EESCHEMA_SCH_RTREE_H_
 
 #include <core/typeinfo.h>
-#include <eda_rect.h>
 #include <sch_item.h>
 #include <set>
 #include <vector>
@@ -59,7 +58,7 @@ public:
      */
     void insert( SCH_ITEM* aItem )
     {
-        EDA_RECT bbox = aItem->GetBoundingBox();
+        BOX2I bbox = aItem->GetBoundingBox();
 
         // Inflate a bit for safety, selection shadows, etc.
         bbox.Inflate( aItem->GetPenWidth() );
@@ -79,7 +78,7 @@ public:
     bool remove( SCH_ITEM* aItem )
     {
         // First, attempt to remove the item using its given BBox
-        EDA_RECT bbox    = aItem->GetBoundingBox();
+        BOX2I bbox = aItem->GetBoundingBox();
 
         // Inflate a bit for safety, selection shadows, etc.
         bbox.Inflate( aItem->GetPenWidth() );
@@ -125,7 +124,7 @@ public:
      */
     bool contains( const SCH_ITEM* aItem, bool aRobust = false ) const
     {
-        EDA_RECT bbox    = aItem->GetBoundingBox();
+        BOX2I bbox = aItem->GetBoundingBox();
 
         // Inflate a bit for safety, selection shadows, etc.
         bbox.Inflate( aItem->GetPenWidth() );
@@ -201,16 +200,20 @@ public:
                 m_rect = { { type, INT_MIN, INT_MIN }, { type, INT_MAX, INT_MAX } };
         };
 
-        EE_TYPE( ee_rtree* aTree, KICAD_T aType, const EDA_RECT aRect ) : type_tree( aTree )
+        EE_TYPE( ee_rtree* aTree, KICAD_T aType, const BOX2I& aRect ) : type_tree( aTree )
         {
             KICAD_T type = BaseType( aType );
 
             if( type == SCH_LOCATE_ANY_T )
-                m_rect = { { INT_MIN, aRect.GetX(), aRect.GetY() },
-                    { INT_MAX, aRect.GetRight(), aRect.GetBottom() } };
+            {
+                m_rect = { { INT_MIN, aRect.GetX(),     aRect.GetY() },
+                           { INT_MAX, aRect.GetRight(), aRect.GetBottom() } };
+            }
             else
-                m_rect = { { type, aRect.GetX(), aRect.GetY() },
-                    { type, aRect.GetRight(), aRect.GetBottom() } };
+            {
+                m_rect = { { type, aRect.GetX(),     aRect.GetY() },
+                           { type, aRect.GetRight(), aRect.GetBottom() } };
+            }
         };
 
         ee_rtree::Rect m_rect;
@@ -225,6 +228,11 @@ public:
         {
             return type_tree->end( m_rect );
         }
+
+        bool empty()
+        {
+            return type_tree->Count() == 0;
+        }
     };
 
     EE_TYPE OfType( KICAD_T aType ) const
@@ -232,26 +240,26 @@ public:
         return EE_TYPE( m_tree, aType );
     }
 
-    EE_TYPE Overlapping( const EDA_RECT& aRect ) const
+    EE_TYPE Overlapping( const BOX2I& aRect ) const
     {
         return EE_TYPE( m_tree, SCH_LOCATE_ANY_T, aRect );
     }
 
     EE_TYPE Overlapping( const VECTOR2I& aPoint, int aAccuracy = 0 ) const
     {
-        EDA_RECT rect( aPoint, wxSize( 0, 0 ) );
+        BOX2I rect( aPoint, VECTOR2I( 0, 0 ) );
         rect.Inflate( aAccuracy );
         return EE_TYPE( m_tree, SCH_LOCATE_ANY_T, rect );
     }
 
     EE_TYPE Overlapping( KICAD_T aType, const VECTOR2I& aPoint, int aAccuracy = 0 ) const
     {
-        EDA_RECT rect( aPoint, wxSize( 0, 0 ) );
+        BOX2I rect( aPoint, VECTOR2I( 0, 0 ) );
         rect.Inflate( aAccuracy );
         return EE_TYPE( m_tree, aType, rect );
     }
 
-    EE_TYPE Overlapping( KICAD_T aType, const EDA_RECT& aRect ) const
+    EE_TYPE Overlapping( KICAD_T aType, const BOX2I& aRect ) const
     {
         return EE_TYPE( m_tree, aType, aRect );
     }

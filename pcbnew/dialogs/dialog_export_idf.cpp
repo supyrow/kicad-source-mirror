@@ -117,12 +117,12 @@ public:
 
     double GetXRef()
     {
-        return DoubleValueFromString( EDA_UNITS::UNSCALED, m_IDF_Xref->GetValue() );
+        return EDA_UNIT_UTILS::UI::DoubleValueFromString( m_IDF_Xref->GetValue() );
     }
 
     double GetYRef()
     {
-        return DoubleValueFromString( EDA_UNITS::UNSCALED, m_IDF_Yref->GetValue() );
+        return EDA_UNIT_UTILS::UI::DoubleValueFromString( m_IDF_Yref->GetValue() );
     }
 
     bool GetAutoAdjustOffset()
@@ -194,10 +194,10 @@ void PCB_EDIT_FRAME::OnExportIDF3( wxCommandEvent& event )
 
     if( dlg.GetAutoAdjustOffset() )
     {
-        EDA_RECT bbox = GetBoard()->GetBoardEdgesBoundingBox();
+        BOX2I bbox = GetBoard()->GetBoardEdgesBoundingBox();
 
-        aXRef = bbox.Centre().x * MM_PER_IU;
-        aYRef = bbox.Centre().y * MM_PER_IU;
+        aXRef = bbox.Centre().x * pcbIUScale.MM_PER_IU;
+        aYRef = bbox.Centre().y * pcbIUScale.MM_PER_IU;
     }
     else
     {

@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 1992-2016 <Jean-Pierre Charras>
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -75,10 +75,7 @@ public:
      */
     int GetLayer() const;
 
-    bool GetLayerPolarity() const
-    {
-        return m_LayerNegative;
-    }
+    bool GetLayerPolarity() const { return m_LayerNegative; }
 
     /**
      * Return the best size and orientation to display the D_Code on screen.
@@ -106,17 +103,7 @@ public:
      */
     void SetLayerParameters();
 
-    void SetLayerPolarity( bool aNegative)
-    {
-        m_LayerNegative = aNegative;
-    }
-
-    /**
-     * Move this object.
-     *
-     * @param aMoveVector the move vector for this object.
-     */
-    void MoveAB( const VECTOR2I& aMoveVector );
+    void SetLayerPolarity( bool aNegative) { m_LayerNegative = aNegative; }
 
      /**
       * Move this object.
@@ -164,7 +151,7 @@ public:
      */
     D_CODE* GetDcodeDescr() const;
 
-    const EDA_RECT GetBoundingBox() const override;
+    const BOX2I GetBoundingBox() const override;
 
     void Print( wxDC* aDC, const VECTOR2I& aOffset, GBR_DISPLAY_OPTIONS* aOptions );
 
@@ -207,7 +194,7 @@ public:
      * @param aRefArea a wxPoint to test
      * @return true if a hit, else false
      */
-    bool HitTest( const EDA_RECT& aRefArea, bool aContained, int aAccuracy = 0 ) const override;
+    bool HitTest( const BOX2I& aRefArea, bool aContained, int aAccuracy = 0 ) const override;
 
     /**
      * @return the class name string.
@@ -231,10 +218,11 @@ public:
     double ViewGetLOD( int aLayer, KIGFX::VIEW* aView ) const override;
 
     ///< @copydoc EDA_ITEM::Visit()
-    SEARCH_RESULT Visit( INSPECTOR inspector, void* testData, const KICAD_T scanTypes[] ) override;
+    INSPECT_RESULT Visit( INSPECTOR inspector, void* testData,
+                          const std::vector<KICAD_T>& aScanTypes ) override;
 
     ///< @copydoc EDA_ITEM::GetSelectMenuText()
-    virtual wxString GetSelectMenuText( EDA_UNITS aUnits ) const override;
+    virtual wxString GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const override;
 
     ///< @copydoc EDA_ITEM::GetMenuImage()
     BITMAPS GetMenuImage() const override;

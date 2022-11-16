@@ -26,6 +26,8 @@
 #define _SCH_LINE_H_
 
 #include <sch_item.h>
+#include <wx/pen.h>     // for wxPenStyle
+#include <list>         // for std::list
 
 class NETLIST_OBJECT_LIST;
 
@@ -59,20 +61,28 @@ public:
         return wxT( "SCH_LINE" );
     }
 
-    bool IsType( const KICAD_T aScanTypes[] ) const override
+    /**
+     * @brief This function travel though all the connected wire segments
+     * to look for connected labels.
+     * @param aSheet - the sheet where the current wire segment is located
+     * @return returns the name of the wire if connected labels found, otherwise empty string
+     */
+    wxString GetNetname(const SCH_SHEET_PATH &aSheet);
+
+    bool IsType( const std::vector<KICAD_T>& aScanTypes ) const override
     {
         if( SCH_ITEM::IsType( aScanTypes ) )
             return true;
 
-        for( const KICAD_T* p = aScanTypes; *p != EOT; ++p )
+        for( KICAD_T scanType : aScanTypes  )
         {
-            if( *p == SCH_ITEM_LOCATE_WIRE_T && m_layer == LAYER_WIRE )
+            if( scanType == SCH_ITEM_LOCATE_WIRE_T && m_layer == LAYER_WIRE )
                 return true;
 
-            if ( *p == SCH_ITEM_LOCATE_BUS_T && m_layer == LAYER_BUS )
+            if ( scanType == SCH_ITEM_LOCATE_BUS_T && m_layer == LAYER_BUS )
                 return true;
 
-            if ( *p == SCH_ITEM_LOCATE_GRAPHIC_LINE_T && m_layer == LAYER_NOTES )
+            if ( scanType == SCH_ITEM_LOCATE_GRAPHIC_LINE_T && m_layer == LAYER_NOTES )
                 return true;
         }
 
@@ -139,8 +149,6 @@ public:
         }
     }
 
-    PLOT_DASH_TYPE GetDefaultStyle() const;
-
     void           SetLineStyle( const PLOT_DASH_TYPE aStyle );
     void           SetLineStyle( const int aStyleId );
     PLOT_DASH_TYPE GetLineStyle() const;
@@ -148,14 +156,6 @@ public:
     /// @return the style that the line should be drawn in
     /// this might be set on the line or inherited from the line's netclass
     PLOT_DASH_TYPE GetEffectiveLineStyle() const;
-
-    /// @return the style name from the style id
-    /// (mainly to write it in .sch file)
-    static const char* GetLineStyleName( PLOT_DASH_TYPE aStyle );
-
-    /// @return the style id from the style  name
-    /// (mainly to read style from .sch file)
-    static PLOT_DASH_TYPE GetLineStyleByName( const wxString& aStyleName );
 
     void SetLineColor( const COLOR4D& aColor );
 
@@ -186,20 +186,11 @@ public:
                || ( style_a == PLOT_DASH_TYPE::SOLID   && style_b == PLOT_DASH_TYPE::DEFAULT );
     }
 
-    /**
-     * Test if the #SCH_LINE object uses the default stroke settings.
-     *
-     * The stroke settings include the line width, style, and color.
-     *
-     * @return True if the #SCH_LINE object uses the default stroke settings.
-     */
-    bool UsesDefaultStroke() const;
-
     int GetLineSize() const { return m_stroke.GetWidth(); }
 
     void ViewGetLayers( int aLayers[], int& aCount ) const override;
 
-    const EDA_RECT GetBoundingBox() const override;
+    const BOX2I GetBoundingBox() const override;
 
     /**
      * @return The length of the line segment.
@@ -256,7 +247,7 @@ public:
 
     bool CanConnect( const SCH_ITEM* aItem ) const override;
 
-    wxString GetSelectMenuText( EDA_UNITS aUnits ) const override;
+    wxString GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const override;
 
     BITMAPS GetMenuImage() const override;
 
@@ -264,6 +255,7 @@ public:
 
     VECTOR2I GetPosition() const override { return m_start; }
     void     SetPosition( const VECTOR2I& aPosition ) override;
+    VECTOR2I GetSortPosition() const override { return GetMidPoint(); }
 
     bool IsPointClickableAnchor( const VECTOR2I& aPos ) const override
     {
@@ -272,7 +264,7 @@ public:
     }
 
     bool HitTest( const VECTOR2I& aPosition, int aAccuracy = 0 ) const override;
-    bool HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy = 0 ) const override;
+    bool HitTest( const BOX2I& aRect, bool aContained, int aAccuracy = 0 ) const override;
 
     void Plot( PLOTTER* aPlotter, bool aBackground ) const override;
 
@@ -308,6 +300,17 @@ public:
     bool IsBus() const;
 
 private:
+    /**
+     * @brief Recursively called function to travel through the connected wires and find a connected
+     * net name label
+     * @param line - the wire segment to start the recursive lookup
+     * @param checkedLines - a lsit containing the already checked wire segments, to prevent the
+     * infinite recursion in the case if someone draws a rectangle for e.g.
+     * @param aSheet - the sheet where the lookup is performed
+     * @return With the net name if a connected label found, otherwise with an empty string
+     */
+    wxString FindWireSegmentNetNameRecursive( SCH_LINE *line, std::list<const SCH_LINE*>& checkedLines,
+                                              const SCH_SHEET_PATH &aSheet ) const;
     bool doIsConnected( const VECTOR2I& aPosition ) const override;
 
     bool          m_startIsDangling;  ///< True if start point is not connected.

@@ -47,6 +47,7 @@
 #include <tools/pcb_actions.h>
 #include <tools/pcb_selection_tool.h>
 #include <widgets/appearance_controls.h>
+#include <widgets/pcb_search_pane.h>
 #include <widgets/wx_aui_utils.h>
 #include <wx/wupdlock.h>
 #include <wx/dcmemory.h>
@@ -263,6 +264,8 @@ void PCB_EDIT_FRAME::ReCreateHToolbar()
     m_mainToolBar->AddScaledSeparator( this );
     m_mainToolBar->Add( PCB_ACTIONS::rotateCcw );
     m_mainToolBar->Add( PCB_ACTIONS::rotateCw );
+    m_mainToolBar->Add( PCB_ACTIONS::mirrorV );
+    m_mainToolBar->Add( PCB_ACTIONS::mirrorH );
     m_mainToolBar->Add( PCB_ACTIONS::group );
     m_mainToolBar->Add( PCB_ACTIONS::ungroup );
     m_mainToolBar->Add( PCB_ACTIONS::lock );
@@ -347,6 +350,9 @@ void PCB_EDIT_FRAME::ReCreateOptToolbar()
     m_optionsToolBar->Add( ACTIONS::toggleCursorStyle,        ACTION_TOOLBAR::TOGGLE );
 
     m_optionsToolBar->AddScaledSeparator( this );
+    m_optionsToolBar->Add( PCB_ACTIONS::toggleHV45Mode,       ACTION_TOOLBAR::TOGGLE );
+
+    m_optionsToolBar->AddScaledSeparator( this );
     m_optionsToolBar->Add( PCB_ACTIONS::showRatsnest,         ACTION_TOOLBAR::TOGGLE );
     m_optionsToolBar->Add( PCB_ACTIONS::ratsnestLineMode,     ACTION_TOOLBAR::TOGGLE );
 
@@ -375,6 +381,9 @@ void PCB_EDIT_FRAME::ReCreateOptToolbar()
     // Tools to show/hide toolbars:
     m_optionsToolBar->AddScaledSeparator( this );
     m_optionsToolBar->Add( PCB_ACTIONS::showLayersManager,    ACTION_TOOLBAR::TOGGLE  );
+
+    if( ADVANCED_CFG::GetCfg().m_ShowPropertiesPanel )
+        m_optionsToolBar->Add( PCB_ACTIONS::showProperties,       ACTION_TOOLBAR::TOGGLE  );
 
     PCB_SELECTION_TOOL*          selTool = m_toolManager->GetTool<PCB_SELECTION_TOOL>();
     std::unique_ptr<ACTION_MENU> gridMenu = std::make_unique<ACTION_MENU>( false, selTool );
@@ -455,10 +464,10 @@ void PCB_EDIT_FRAME::ReCreateVToolbar()
     m_drawToolBar->Add( PCB_ACTIONS::drawRectangle,        ACTION_TOOLBAR::TOGGLE );
     m_drawToolBar->Add( PCB_ACTIONS::drawCircle,           ACTION_TOOLBAR::TOGGLE );
     m_drawToolBar->Add( PCB_ACTIONS::drawPolygon,          ACTION_TOOLBAR::TOGGLE );
+    m_drawToolBar->Add( PCB_ACTIONS::placeImage,           ACTION_TOOLBAR::TOGGLE );
     m_drawToolBar->Add( PCB_ACTIONS::placeText,            ACTION_TOOLBAR::TOGGLE );
     m_drawToolBar->Add( PCB_ACTIONS::drawTextBox,          ACTION_TOOLBAR::TOGGLE );
     m_drawToolBar->AddGroup( dimensionGroup,               ACTION_TOOLBAR::TOGGLE );
-    m_drawToolBar->Add( PCB_ACTIONS::placeTarget,          ACTION_TOOLBAR::TOGGLE );
     m_drawToolBar->Add( ACTIONS::deleteTool,               ACTION_TOOLBAR::TOGGLE );
 
     m_drawToolBar->AddScaledSeparator( this );
@@ -625,10 +634,10 @@ static wxString ComboBoxUnits( EDA_UNITS aUnits, double aValue, bool aIncludeLab
     case EDA_UNITS::INCHES:      format = wxT( "%.5f" ); break;
     }
 
-    text.Printf( format, To_User_Unit( aUnits, aValue ) );
+    text.Printf( format, EDA_UNIT_UTILS::UI::ToUserUnit( pcbIUScale, aUnits, aValue ) );
 
     if( aIncludeLabel )
-        text += GetAbbreviatedUnitsLabel( aUnits, EDA_DATA_TYPE::DISTANCE );
+        text += EDA_UNIT_UTILS::GetText( aUnits, EDA_DATA_TYPE::DISTANCE );
 
     return text;
 }
@@ -762,6 +771,7 @@ void PCB_EDIT_FRAME::ToggleLayersManager()
 
     // show auxiliary Vertical layers and visibility manager toolbar
     m_show_layer_manager_tools = !m_show_layer_manager_tools;
+
     layersManager.Show( m_show_layer_manager_tools );
     selectionFilter.Show( m_show_layer_manager_tools );
 
@@ -773,6 +783,32 @@ void PCB_EDIT_FRAME::ToggleLayersManager()
     {
         settings->m_AuiPanels.right_panel_width = m_appearancePanel->GetSize().x;
         m_auimgr.Update();
+    }
+}
+
+
+void PCB_EDIT_FRAME::ToggleProperties()
+{
+    m_show_properties = !m_show_properties;
+
+    m_auimgr.GetPane( "PropertiesManager" ).Show( m_show_properties );
+    m_auimgr.Update();
+}
+
+
+void PCB_EDIT_FRAME::ToggleSearch()
+{
+    // Ensure m_show_search is up to date (the pane can be closed outside the menu)
+    m_show_search = m_auimgr.GetPane( SearchPaneName() ).IsShown();
+
+    m_show_search = !m_show_search;
+
+    m_auimgr.GetPane( SearchPaneName() ).Show( m_show_search );
+    m_auimgr.Update();
+
+    if( m_show_search )
+    {
+        m_searchPane->FocusSearch();
     }
 }
 

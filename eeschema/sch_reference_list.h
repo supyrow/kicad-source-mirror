@@ -3,7 +3,7 @@
  *
  * Copyright (C) 1992-2011 jean-pierre Charras <jean-pierre.charras@gipsa-lab.inpg.fr>
  * Copyright (C) 2011 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -34,6 +34,37 @@
 #include <sch_symbol.h>
 #include <sch_text.h>
 #include <erc_settings.h>
+
+
+/** Schematic annotation scope options. */
+enum ANNOTATE_SCOPE_T
+{
+    ANNOTATE_ALL,           ///< Annotate the full schematic
+    ANNOTATE_CURRENT_SHEET, ///< Annotate the current sheet
+    ANNOTATE_SELECTION      ///< Annotate the selection
+};
+
+
+/** Schematic annotation order options. */
+enum ANNOTATE_ORDER_T
+{
+    SORT_BY_X_POSITION, ///< Annotate by X position from left to right.
+    SORT_BY_Y_POSITION, ///< Annotate by Y position from top to bottom.
+    UNSORTED,           ///< Annotate by position of symbol in the schematic sheet
+                        ///< object list.
+};
+
+
+/** Schematic annotation type options. */
+enum ANNOTATE_ALGO_T
+{
+    INCREMENTAL_BY_REF,  ///< Annotate incrementally using the first free reference number.
+    SHEET_NUMBER_X_100,  ///< Annotate using the first free reference number starting at
+                         ///< the sheet number * 100.
+    SHEET_NUMBER_X_1000, ///< Annotate using the first free reference number starting at
+                         ///< the sheet number * 1000.
+};
+
 
 /**
  * A helper to define a symbol's reference designator in a schematic.
@@ -78,9 +109,20 @@ public:
 
     void SetSheetNumber( int aSheetNumber )    { m_sheetNum = aSheetNumber; }
 
+     /**
+     * @return the sheet path containing the symbol item
+     */
     const wxString GetPath() const
     {
-        return m_rootSymbol ? m_sheetPath.PathAsString() + m_rootSymbol->m_Uuid.AsString() : "";
+        return m_sheetPath.PathAsString();
+    }
+
+    /**
+     * @return the full patb of the symbol item
+     */
+    const wxString GetFullPath() const
+    {
+        return m_sheetPath.PathAsString() + m_symbolUuid.AsString();
     }
 
     /**
@@ -97,6 +139,13 @@ public:
      */
     void Split();
 
+    /**
+     * Determine if this reference needs to be split or if it likely already has been
+     *
+     * @return true if this reference hasn't been split yet
+     */
+    bool IsSplitNeeded();
+
     void SetRef( const wxString& aReference ) { m_ref = aReference; }
     wxString GetRef() const { return m_ref; }
 
@@ -107,9 +156,9 @@ public:
     wxString GetFullRef() const
     {
         if( GetSymbol()->GetUnitCount() > 1 )
-            return GetRef() + LIB_SYMBOL::SubReference( GetUnit() );
+            return GetRef() + GetRefNumber() + LIB_SYMBOL::SubReference( GetUnit() );
         else
-            return GetRef();
+            return GetRef() + GetRefNumber();
     }
 
     wxString GetRefNumber() const
@@ -134,7 +183,7 @@ public:
 
     int CompareRef( const SCH_REFERENCE& item ) const
     {
-        return m_ref.compare( item.m_ref );
+        return m_ref.CmpNoCase( item.m_ref );
     }
 
     int CompareLibName( const SCH_REFERENCE& item ) const
@@ -168,7 +217,7 @@ private:
     friend class SCH_REFERENCE_LIST;
 
     /// Symbol reference prefix, without number (for IC1, this is IC) )
-    UTF8            m_ref;               // it's private, use the accessors please
+    wxString        m_ref;               // it's private, use the accessors please
     SCH_SYMBOL*     m_rootSymbol;        ///< The symbol associated the reference object.
     LIB_SYMBOL*     m_libPart;           ///< The source symbol from a library.
     VECTOR2I        m_symbolPos;         ///< The physical position of the symbol in schematic
@@ -204,7 +253,7 @@ class SCH_REFERENCE_LIST
 {
 
 private:
-    std::vector<SCH_REFERENCE> flatList;
+    std::vector<SCH_REFERENCE> m_flatList;
 
 public:
     SCH_REFERENCE_LIST()
@@ -213,25 +262,25 @@ public:
 
     SCH_REFERENCE& operator[]( int aIndex )
     {
-        return flatList[ aIndex ];
+        return m_flatList[ aIndex ];
     }
 
     const SCH_REFERENCE& operator[]( int aIndex ) const
     {
-        return flatList[ aIndex ];
+        return m_flatList[ aIndex ];
     }
 
     void Clear()
     {
-        flatList.clear();
+        m_flatList.clear();
     }
 
-    size_t GetCount() const { return flatList.size(); }
+    size_t GetCount() const { return m_flatList.size(); }
 
-    SCH_REFERENCE& GetItem( int aIdx ) { return flatList[aIdx]; }
-    const SCH_REFERENCE& GetItem( int aIdx ) const { return flatList[aIdx]; }
+    SCH_REFERENCE& GetItem( int aIdx ) { return m_flatList[aIdx]; }
+    const SCH_REFERENCE& GetItem( int aIdx ) const { return m_flatList[aIdx]; }
 
-    void AddItem( const SCH_REFERENCE& aItem ) { flatList.push_back( aItem ); }
+    void AddItem( const SCH_REFERENCE& aItem ) { m_flatList.push_back( aItem ); }
 
     /**
      * Remove an item from the list of references.
@@ -245,7 +294,7 @@ public:
      * @param aItem Reference to check
      * @return true if aItem exists in this list
      */
-    bool Contains( const SCH_REFERENCE& aItem );
+    bool Contains( const SCH_REFERENCE& aItem ) const;
 
     /* Sort functions:
      * Sort functions are used to sort symbols for annotation or BOM generation.  Because
@@ -266,7 +315,21 @@ public:
     void SplitReferences()
     {
         for( unsigned ii = 0; ii < GetCount(); ii++ )
-            flatList[ii].Split();
+            m_flatList[ii].Split();
+    }
+
+    /**
+     * Treat all symbols in this list as non-annotated. Does not update annotation state of the
+     * symbols.
+     * @see SCH_REFERENCE_LIST::UpdateAnnotation
+     */
+    void RemoveAnnotation( bool aIncludePowerSymbols )
+    {
+        for( unsigned ii = 0; ii < GetCount(); ii++ )
+        {
+            if( !m_flatList[ii].m_libPart->IsPower() || aIncludePowerSymbols )
+                m_flatList[ii].m_isNew = true;
+        }
     }
 
     /**
@@ -281,16 +344,62 @@ public:
     {
         /* update the reference numbers */
         for( unsigned ii = 0; ii < GetCount(); ii++ )
-            flatList[ii].Annotate();
+            m_flatList[ii].Annotate();
     }
 
     /**
-     * Replace any duplicate reference designators with the next available number after the
-     * present number. Multi-unit symbols are reannotated together.
+     * @brief Forces reannotation of the provided references. Will also reannotate
+     * associated multi-unit symbols.
      *
+     * @param aSortOption Define the annotation order.  See #ANNOTATE_ORDER_T.
+     * @param aAlgoOption Define the annotation style.  See #ANNOTATE_ALGO_T.
+     * @param aStartNumber The start number for non-sheet-based annotation styles.
      * @param aAdditionalReferences Additional references to check for duplicates
+     * @param aStartAtCurrent Use m_numRef for each reference as the start number (overrides
+     *        aStartNumber)
+     * @param aHierarchy Optional sheet path hierarchy for resetting the references'
+     *        sheet numbers based on their sheet's place in the hierarchy. Set
+     *        nullptr if not desired.
+     */
+    void ReannotateByOptions( ANNOTATE_ORDER_T             aSortOption,
+                              ANNOTATE_ALGO_T              aAlgoOption,
+                              int                          aStartNumber,
+                              const SCH_REFERENCE_LIST&    aAdditionalRefs,
+                              bool                         aStartAtCurrent,
+                              SCH_SHEET_LIST*              aHierarchy );
+
+    /**
+     * Convenience function for the Paste Unique functionality. Do not use as a general
+     * reannotation method.
+     *
+     * Replaces any duplicate reference designators with the next available number after the
+     * present number regardless of configured annotation options.
+     *
+     * Multi-unit symbols are reannotated together.
      */
     void ReannotateDuplicates( const SCH_REFERENCE_LIST& aAdditionalReferences );
+
+    /**
+     * Annotate the references by the provided options.
+     *
+     * @param aSortOption Define the annotation order.  See #ANNOTATE_ORDER_T.
+     * @param aAlgoOption Define the annotation style.  See #ANNOTATE_ALGO_T.
+     * @param aStartNumber The start number for non-sheet-based annotation styles.
+     * @param appendUndo True if the annotation operation should be added to an existing undo,
+     *                   false if it should be separately undo-able.
+     * @param aLockedUnitMap A SCH_MULTI_UNIT_REFERENCE_MAP of reference designator wxStrings
+     *      to SCH_REFERENCE_LISTs. May be an empty map. If not empty, any multi-unit parts
+     *      found in this map will be annotated as a group rather than individually.
+     * @param aAdditionalReferences Additional references to check for duplicates
+     * @param aStartAtCurrent Use m_numRef for each reference as the start number (overrides
+     *        aStartNumber)
+     */
+    void AnnotateByOptions( enum ANNOTATE_ORDER_T        aSortOption,
+                            enum ANNOTATE_ALGO_T         aAlgoOption,
+                            int                          aStartNumber,
+                            SCH_MULTI_UNIT_REFERENCE_MAP aLockedUnitMap,
+                            const SCH_REFERENCE_LIST&    aAdditionalRefs,
+                            bool                         aStartAtCurrent );
 
     /**
      * Set the reference designators in the list that have not been annotated.
@@ -343,7 +452,7 @@ public:
      */
     void SortByXCoordinate()
     {
-        sort( flatList.begin(), flatList.end(), sortByXPosition );
+        sort( m_flatList.begin(), m_flatList.end(), sortByXPosition );
     }
 
     /**
@@ -358,7 +467,7 @@ public:
      */
     void SortByYCoordinate()
     {
-        sort( flatList.begin(), flatList.end(), sortByYPosition );
+        sort( m_flatList.begin(), m_flatList.end(), sortByYPosition );
     }
 
     /**
@@ -368,7 +477,7 @@ public:
      */
     void SortByTimeStamp()
     {
-        sort( flatList.begin(), flatList.end(), sortByTimeStamp );
+        sort( m_flatList.begin(), m_flatList.end(), sortByTimeStamp );
     }
 
     /**
@@ -384,7 +493,7 @@ public:
      */
     void SortByRefAndValue()
     {
-        sort( flatList.begin(), flatList.end(), sortByRefAndValue );
+        sort( m_flatList.begin(), m_flatList.end(), sortByRefAndValue );
     }
 
     /**
@@ -396,7 +505,7 @@ public:
      */
     void SortByReferenceOnly()
     {
-        sort( flatList.begin(), flatList.end(), sortByReferenceOnly );
+        sort( m_flatList.begin(), m_flatList.end(), sortByReferenceOnly );
     }
 
     /**
@@ -410,17 +519,18 @@ public:
      *
      * @param aIndex is the index in aSymbolsList for of given #SCH_REFERENCE item to test.
      * @param aUnit is the given unit number to search.
+     * @param aIncludeNew true to include references with the "new" flag in the search.
      * @return index in aSymbolsList if found or -1 if not found.
      */
-    int FindUnit( size_t aIndex, int aUnit ) const;
+    int FindUnit( size_t aIndex, int aUnit, bool aIncludeNew = false ) const;
 
     /**
-     * Search the list for a symbol with the given KIID path.
+     * Search the list for a symbol with the given KIID path (as string).
      *
-     * @param aPath is the path to search.
-     * @return index in aSymbolsList if found or -1 if not found.
+     * @param aFullPath is the path of the symbol item to search.
+     * @return an index in m_flatList if found or -1 if not found.
      */
-    int FindRefByPath( const wxString& aPath ) const;
+    int FindRefByFullPath( const wxString& aFullPath ) const;
 
     /**
      * Add all the reference designator numbers greater than \a aMinRefId to \a aIdList
@@ -430,16 +540,26 @@ public:
      * @param aIdList is the buffer to fill.
      * @param aMinRefId is the minimum ID value to store. All values < aMinRefId are ignored.
      */
-    void GetRefsInUse( int aIndex, std::vector< int >& aIdList, int aMinRefId ) const;
+    void GetRefsInUse( int aIndex, std::vector<int>& aIdList, int aMinRefId ) const;
 
     /**
-     * Return the last used (greatest) reference number in the reference list for the prefix
-     * used by the symbol pointed to by \a aIndex.  The symbol list must be sorted.
+     * Return all the unit numbers for a given reference, comparing library reference, value,
+     * reference number and reference prefix.
+     *
+     * @param aRef is the index of a symbol to use for reference prefix and number filtering.
+     */
+    std::vector<int> GetUnitsMatchingRef( const SCH_REFERENCE& aRef ) const;
+
+    /**
+     * Return the first unused reference number from the properties given in aRef, ensuring
+     * all of the units in aRequiredUnits are also unused.
      *
      * @param aIndex The index of the reference item used for the search pattern.
      * @param aMinValue The minimum value for the current search.
+     * @param aRequiredUnits List of units to ensure are free
      */
-    int GetLastReference( int aIndex, int aMinValue ) const;
+    int FindFirstUnusedReference( const SCH_REFERENCE& aRef, int aMinValue,
+                                  const std::vector<int>& aRequiredUnits ) const;
 
     std::vector<SYMBOL_INSTANCE_REFERENCE> GetSymbolInstances() const;
 
@@ -448,13 +568,13 @@ public:
     {
         printf( "%s\n", aPrefix );
 
-        for( unsigned i=0; i < flatList.size(); ++i )
+        for( unsigned i=0; i < m_flatList.size(); ++i )
         {
-            SCH_REFERENCE& schref = flatList[i];
+            SCH_REFERENCE& schref = m_flatList[i];
 
             printf( " [%-2d] ref:%-8s num:%-3d lib_part:%s\n",
                     i,
-                    schref.m_ref.c_str(),
+                    schref.m_ref.ToStdString().c_str(),
                     schref.m_numRef,
                     TO_UTF8( schref.GetLibPart()->GetName() ) );
         }
@@ -492,7 +612,7 @@ private:
      * @param aFirstValue The first expected free value
      * @return The first free (not yet used) value.
      */
-    int CreateFirstFreeRefId( std::vector<int>& aIdList, int aFirstValue );
+    static int createFirstFreeRefId( std::vector<int>& aIdList, int aFirstValue );
 
     // Used for sorting static sortByTimeStamp function
     friend class BACK_ANNOTATE;

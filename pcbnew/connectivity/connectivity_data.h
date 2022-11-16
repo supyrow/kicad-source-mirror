@@ -2,7 +2,7 @@
  * This program source code file is part of KICAD, a free EDA CAD application.
  *
  * Copyright (C) 2013-2017 CERN
- * Copyright (C) 2018-2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2018-2022 KiCad Developers, see AUTHORS.txt for contributors.
  * @author Maciej Suminski <maciej.suminski@cern.ch>
  * @author Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  *
@@ -176,8 +176,6 @@ public:
     void PropagateNets( BOARD_COMMIT* aCommit = nullptr,
                         PROPAGATE_MODE aMode = PROPAGATE_MODE::SKIP_CONFLICTS );
 
-    bool CheckConnectivity( std::vector<CN_DISJOINT_NET_ENTRY>& aReport );
-
     /**
      * Function FindIsolatedCopperIslands()
      * Searches for copper islands in zone aZone that are not connected to any pad.
@@ -185,7 +183,8 @@ public:
      * @param aIslands list of islands that have no connections (outline indices in the polygon set)
      */
     void FindIsolatedCopperIslands( ZONE* aZone, std::vector<int>& aIslands );
-    void FindIsolatedCopperIslands( std::vector<CN_ZONE_ISOLATED_ISLAND_LIST>& aZones );
+    void FindIsolatedCopperIslands( std::vector<CN_ZONE_ISOLATED_ISLAND_LIST>& aZones,
+                                    bool aConnectivityAlreadyRebuilt = false );
 
     /**
      * Function RecalculateRatsnest()
@@ -195,13 +194,13 @@ public:
     void RecalculateRatsnest( BOARD_COMMIT* aCommit = nullptr );
 
     /**
-     * Function GetUnconnectedCount()
-     * Returns the number of remaining edges in the ratsnest.
+     * @param aVisibleOnly include only visbile edges in the count
+     * @return the number of remaining edges in the ratsnest
      */
-    unsigned int GetUnconnectedCount() const;
+    unsigned int GetUnconnectedCount( bool aVisibileOnly ) const;
 
-    bool IsConnectedOnLayer( const BOARD_CONNECTED_ITEM* aItem,
-                             int aLayer, std::vector<KICAD_T> aTypes = {} ) const;
+    bool IsConnectedOnLayer( const BOARD_CONNECTED_ITEM* aItem, int aLayer,
+                             const std::initializer_list<KICAD_T>& aTypes = {} ) const;
 
     unsigned int GetNodeCount( int aNet = -1 ) const;
 
@@ -223,41 +222,36 @@ public:
      * @param aMaxError Maximum distance of the found items' anchors to aAnchor in IU
      * @return
      */
-    const std::vector<BOARD_CONNECTED_ITEM*> GetConnectedItemsAtAnchor(
-            const BOARD_CONNECTED_ITEM* aItem,
-            const VECTOR2I& aAnchor,
-            const KICAD_T aTypes[],
-            const int& aMaxError = 0 ) const;
+    const std::vector<BOARD_CONNECTED_ITEM*>
+    GetConnectedItemsAtAnchor( const BOARD_CONNECTED_ITEM* aItem, const VECTOR2I& aAnchor,
+                               const std::initializer_list<KICAD_T>& aTypes,
+                               const int& aMaxError = 0 ) const;
 
-    void GetUnconnectedEdges( std::vector<CN_EDGE>& aEdges ) const;
+    void RunOnUnconnectedEdges( std::function<bool( CN_EDGE& )> aFunc );
 
     bool TestTrackEndpointDangling( PCB_TRACK* aTrack, VECTOR2I* aPos = nullptr );
 
     /**
-     * Function ClearDynamicRatsnest()
-     * Erases the temporary dynamic ratsnest (i.e. the ratsnest lines that
-     * pcbnew displays when moving an item/set of items)
+     * Function ClearLocalRatsnest()
+     * Erases the temporary, selection-based ratsnest (i.e. the ratsnest lines that pcbnew
+     * displays when moving an item/set of items).
      */
-    void ClearDynamicRatsnest();
+    void ClearLocalRatsnest();
 
     /**
-     * Hides the temporary dynamic ratsnest lines.
+     * Hides the temporary, selection-based ratsnest lines.
      */
-    void HideDynamicRatsnest();
+    void HideLocalRatsnest();
 
     /**
-     * Function ComputeDynamicRatsnest()
-     * Calculates the temporary dynamic ratsnest (i.e. the ratsnest lines that)
-     * for the set of items aItems.
+     * Function ComputeLocalRatsnest()
+     * Calculates the temporary (usually selection-based) ratsnest for the set of \a aItems.
      */
-    void ComputeDynamicRatsnest( const std::vector<BOARD_ITEM*>& aItems,
-                                 const CONNECTIVITY_DATA* aDynamicData,
-                                 VECTOR2I aInternalOffset = { 0, 0 } );
+    void ComputeLocalRatsnest( const std::vector<BOARD_ITEM*>& aItems,
+                               const CONNECTIVITY_DATA* aDynamicData,
+                               VECTOR2I aInternalOffset = { 0, 0 } );
 
-    const std::vector<RN_DYNAMIC_LINE>& GetDynamicRatsnest() const
-    {
-        return m_dynamicRatsnest;
-    }
+    const std::vector<RN_DYNAMIC_LINE>& GetLocalRatsnest() const { return m_dynamicRatsnest; }
 
     /**
      * Function GetConnectedItems()
@@ -265,8 +259,10 @@ public:
      * @param aItem is the reference item to find other connected items.
      * @param aTypes allows one to filter by item types.
      */
-    const std::vector<BOARD_CONNECTED_ITEM*> GetConnectedItems( const BOARD_CONNECTED_ITEM* aItem,
-            const KICAD_T aTypes[], bool aIgnoreNetcodes = false ) const;
+    const std::vector<BOARD_CONNECTED_ITEM*>
+    GetConnectedItems( const BOARD_CONNECTED_ITEM* aItem,
+                       const std::initializer_list<KICAD_T>& aTypes,
+                       bool aIgnoreNetcodes = false ) const;
 
     /**
      * Function GetNetItems()
@@ -274,31 +270,19 @@ public:
      * @param aNetCode is the net code.
      * @param aTypes allows one to filter by item types.
      */
-    const std::vector<BOARD_CONNECTED_ITEM*> GetNetItems( int aNetCode,
-            const KICAD_T aTypes[] ) const;
+    const std::vector<BOARD_CONNECTED_ITEM*>
+    GetNetItems( int aNetCode, const std::initializer_list<KICAD_T>& aTypes ) const;
 
     void BlockRatsnestItems( const std::vector<BOARD_ITEM*>& aItems );
 
-    std::shared_ptr<CN_CONNECTIVITY_ALGO> GetConnectivityAlgo() const
-    {
-        return m_connAlgo;
-    }
+    std::shared_ptr<CN_CONNECTIVITY_ALGO> GetConnectivityAlgo() const { return m_connAlgo; }
 
-    KISPINLOCK& GetLock()
-    {
-        return m_lock;
-    }
+    KISPINLOCK& GetLock() { return m_lock; }
 
     void MarkItemNetAsDirty( BOARD_ITEM* aItem );
     void SetProgressReporter( PROGRESS_REPORTER* aReporter );
 
-    const std::map<int, wxString>& GetNetclassMap() const
-    {
-        return m_netclassMap;
-    }
-
-    void AddExclusion( const KIID& aBoardItemId1, const KIID& aBoardItemId2 );
-    void RemoveExclusion( const KIID& aBoardItemId1, const KIID& aBoardItemId2 );
+    const std::map<int, wxString>& GetNetclassMap() const { return m_netclassMap; }
 
 #ifndef SWIG
     const std::vector<CN_EDGE> GetRatsnestForItems( const std::vector<BOARD_ITEM*> aItems );
@@ -309,10 +293,7 @@ public:
                                                         bool aSkipInternalConnections = false );
 #endif
 
-    std::shared_ptr<FROM_TO_CACHE> GetFromToCache()
-    {
-        return m_fromToCache;
-    }
+    std::shared_ptr<FROM_TO_CACHE> GetFromToCache() { return m_fromToCache; }
 
 private:
     void    updateRatsnest();
@@ -328,9 +309,6 @@ private:
 
     /// Used to suppress ratsnest calculations on dynamic ratsnests
     bool                            m_skipRatsnest = false;
-
-    /// Ratsnest lines that have been excluded in DRC
-    std::set<std::pair<KIID, KIID>> m_exclusions;
 
     KISPINLOCK                      m_lock;
 

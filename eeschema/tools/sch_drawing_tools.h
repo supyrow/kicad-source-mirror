@@ -58,13 +58,6 @@ public:
 
 private:
     /**
-     * @return the "free" area of the canvas in pixels.
-     * the free area is the area that create no autopan when the mouse cursor
-     * is inside this area
-     */
-    EDA_RECT GetCanvasFreeAreaPixels();
-
-    /**
      * Get the next queued text item.
      *
      * @return next SCH_TEXT* or nullptr if empty
@@ -89,8 +82,16 @@ private:
     TEXT_SPIN_STYLE            m_lastTextOrientation;
     bool                       m_lastTextBold;
     bool                       m_lastTextItalic;
-    bool                       m_lastNetClassDirectiveItalic;
+    EDA_ANGLE                  m_lastTextAngle;
+    GR_TEXT_H_ALIGN_T          m_lastTextJust;
     FILL_T                     m_lastFillStyle;
+    FILL_T                     m_lastTextboxFillStyle;
+    COLOR4D                    m_lastFillColor;
+    COLOR4D                    m_lastTextboxFillColor;
+    STROKE_PARAMS              m_lastStroke;
+    STROKE_PARAMS              m_lastTextboxStroke;
+    wxString                   m_mruPath;
+    bool                       m_lastAutoLabelRotateOnPlacement;
 
     ///< Re-entrancy guards
     bool                       m_inPlaceSymbol;

@@ -32,7 +32,7 @@
 #include <memory>
 #include <mutex>
 #include <project.h>
-#include <properties.h>
+#include <string_utf8_map.h>
 #include <richio.h>
 
 
@@ -43,6 +43,7 @@ class LIB_TABLE_LEXER;
 class LIB_ID;
 class LIB_TABLE_ROW;
 class LIB_TABLE_GRID;
+class LIB_TABLE;
 class IO_ERROR;
 
 
@@ -68,7 +69,9 @@ class LIB_TABLE_ROW : boost::noncopyable
 public:
     LIB_TABLE_ROW() :
         enabled( true ),
-        m_loaded( false )
+        visible( true ),
+        m_loaded( false ),
+        m_parent( nullptr )
     {
     }
 
@@ -77,11 +80,13 @@ public:
     }
 
     LIB_TABLE_ROW( const wxString& aNick, const wxString& aURI, const wxString& aOptions,
-                   const wxString& aDescr = wxEmptyString ) :
+                   const wxString& aDescr = wxEmptyString, LIB_TABLE* aParent = nullptr ) :
         nickName( aNick ),
         description( aDescr ),
         enabled( true ),
-        m_loaded( false )
+        visible( true ),
+        m_loaded( false ),
+        m_parent( aParent )
     {
         properties.reset();
         SetOptions( aOptions );
@@ -121,6 +126,10 @@ public:
      * Change the enabled status of this library
      */
     void SetEnabled( bool aEnabled = true ) { enabled = aEnabled; }
+
+    bool GetIsVisible() const { return visible; }
+
+    void SetVisible( bool aVisible = true ) { visible = aVisible; }
 
     /**
      * Return the type of library represented by this row.
@@ -167,11 +176,17 @@ public:
      */
     void SetDescr( const wxString& aDescr )     { description = aDescr; }
 
+    LIB_TABLE* GetParent() const { return m_parent; }
+
+    void SetParent( LIB_TABLE* aParent ) { m_parent = aParent; }
+
+    std::mutex& GetMutex() { return m_loadMutex; }
+
     /**
      * Return the constant #PROPERTIES for this library (#LIB_TABLE_ROW).  These are
      * the "options" in a table.
      */
-    const PROPERTIES* GetProperties() const     { return properties.get(); }
+    const STRING_UTF8_MAP* GetProperties() const     { return properties.get(); }
 
     /**
      * Serialize this object as utf8 text to an #OUTPUTFORMATTER, and tries to
@@ -198,10 +213,12 @@ protected:
         options( aRow.options ),
         description( aRow.description ),
         enabled( aRow.enabled ),
-        m_loaded( aRow.m_loaded )
+        visible( aRow.visible ),
+        m_loaded( aRow.m_loaded ),
+        m_parent( aRow.m_parent )
     {
         if( aRow.properties )
-            properties = std::make_unique<PROPERTIES>( *aRow.properties.get() );
+            properties = std::make_unique<STRING_UTF8_MAP>( *aRow.properties.get() );
         else
             properties.reset();
     }
@@ -211,7 +228,7 @@ protected:
 private:
     virtual LIB_TABLE_ROW* do_clone() const = 0;
 
-    void setProperties( PROPERTIES* aProperties );
+    void setProperties( STRING_UTF8_MAP* aProperties );
 
     wxString          nickName;
     wxString          uri_user;           ///< what user entered from UI or loaded from disk
@@ -224,9 +241,13 @@ private:
     wxString          description;
 
     bool              enabled  = true;    ///< Whether the LIB_TABLE_ROW is enabled
+    bool              visible  = true;    ///< Whether the LIB_TABLE_ROW is visible in choosers
     bool              m_loaded = false;   ///< Whether the LIB_TABLE_ROW is loaded
+    LIB_TABLE*        m_parent;           ///< Pointer to the table this row lives in (maybe null)
 
-    std::unique_ptr< PROPERTIES > properties;
+    std::unique_ptr<STRING_UTF8_MAP> properties;
+
+    std::mutex        m_loadMutex;
 };
 
 
@@ -319,7 +340,7 @@ public:
     /// Delete all rows.
     void Clear()
     {
-        std::lock_guard<std::recursive_mutex> lock( m_nickIndexMutex );
+        std::lock_guard<std::mutex> lock( m_nickIndexMutex );
 
         rows.clear();
         nickIndex.clear();
@@ -400,6 +421,14 @@ public:
     bool HasLibrary( const wxString& aNickname, bool aCheckEnabled = false ) const;
 
     /**
+     * Test for the existence of \a aPath in the library table.
+     *
+     * @param aCheckEnabled if true will only return true for enabled libraries
+     * @return true if a library \a aNickname exists in the table.
+     */
+    bool HasLibraryWithPath( const wxString& aPath ) const;
+
+    /**
      * Return the logical library names, all of them that are pertinent to
      * a look up done on this LIB_TABLE.
      */
@@ -429,7 +458,7 @@ public:
      * @param aRow is the row to remove
      * @return true if the row was found (and removed)
      */
-    bool RemoveRow( LIB_TABLE_ROW* aRow )
+    bool RemoveRow( const LIB_TABLE_ROW* aRow )
     {
         for( auto iter = rows.begin(); iter != rows.end(); ++iter )
         {
@@ -477,7 +506,7 @@ public:
      * a library table, this formatting is handled for you.
      * </p>
      */
-    static PROPERTIES* ParseOptions( const std::string& aOptionsList );
+    static STRING_UTF8_MAP* ParseOptions( const std::string& aOptionsList );
 
     /**
      * Returns a list of options from the aProperties parameter.
@@ -489,7 +518,7 @@ public:
      * @param aProperties is the PROPERTIES to format or NULL.  If NULL the returned
      *                    string will be empty.
      */
-    static UTF8 FormatOptions( const PROPERTIES* aProperties );
+    static UTF8 FormatOptions( const STRING_UTF8_MAP* aProperties );
 
 protected:
     /**
@@ -504,7 +533,7 @@ protected:
 
     void reindex()
     {
-        std::lock_guard<std::recursive_mutex> lock( m_nickIndexMutex );
+        std::lock_guard<std::mutex> lock( m_nickIndexMutex );
 
         nickIndex.clear();
 
@@ -514,8 +543,6 @@ protected:
 
     void ensureIndex()
     {
-        std::lock_guard<std::recursive_mutex> lock( m_nickIndexMutex );
-
         // The dialog lib table editor may not maintain the nickIndex.
         // Lazy indexing may be required.  To handle lazy indexing, we must enforce
         // that "nickIndex" is either empty or accurate, but never inaccurate.
@@ -542,7 +569,7 @@ protected:
     LIB_TABLE* fallBack;
 
     /// Mutex to protect access to the nickIndex variable
-    mutable std::recursive_mutex m_nickIndexMutex;
+    mutable std::mutex m_nickIndexMutex;
 };
 
 #endif  // _LIB_TABLE_BASE_H_

@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2017 Chris Pavlina <pavlina.chris@gmail.com>
  * Copyright (C) 2014 Henner Zeller <h.zeller@acm.org>
- * Copyright (C) 2014-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2014-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -22,7 +22,6 @@
 #include <eda_base_frame.h>
 #include <eda_pattern_match.h>
 #include <kiface_base.h>
-#include <config_params.h>
 #include <lib_tree_model_adapter.h>
 #include <project/project_file.h>
 #include <settings/app_settings.h>
@@ -31,8 +30,6 @@
 #include <wx/wupdlock.h>
 #include <string_utils.h>
 
-
-#define PINNED_ITEMS_KEY      wxT( "PinnedItems" )
 
 static const int kDataViewIndent = 20;
 
@@ -74,28 +71,26 @@ LIB_TREE_MODEL_ADAPTER::LIB_TREE_MODEL_ADAPTER( EDA_BASE_FRAME* aParent,
         m_show_units( true ),
         m_preselect_unit( 0 ),
         m_freeze( 0 ),
-        m_col_part( nullptr ),
-        m_col_desc( nullptr ),
-        m_widget( nullptr ),
-        m_pinnedLibs(),
-        m_pinnedKey( aPinnedKey )
+        m_widget( nullptr )
 {
-    // Default column widths
-    m_colWidths[PART_COL] = 360;
-    m_colWidths[DESC_COL] = 2000;
+    // Default column widths.  Do not translate these names.
+    m_colWidths[ wxT( "Item" ) ] = 300;
+    m_colWidths[ wxT( "Description" ) ] = 600;
+
+    m_availableColumns = { wxT( "Item" ), wxT( "Description" ) };
 
     APP_SETTINGS_BASE* cfg = Kiface().KifaceSettings();
-    m_colWidths[PART_COL] = cfg->m_LibTree.column_width;
 
-    // Read the pinned entries from the project config
-    PROJECT_FILE& project = m_parent->Kiway().Prj().GetProjectFile();
+    for( const std::pair<const wxString, int>& pair : cfg->m_LibTree.column_widths )
+        m_colWidths[pair.first] = pair.second;
 
-    std::vector<wxString>& entries = ( m_pinnedKey == "pinned_symbol_libs" ) ?
-                                             project.m_PinnedSymbolLibs :
-                                             project.m_PinnedFootprintLibs;
+    m_shownColumns = cfg->m_LibTree.columns;
 
-    for( const wxString& entry : entries )
-        m_pinnedLibs.push_back( entry );
+    if( m_shownColumns.empty() )
+        m_shownColumns = m_availableColumns;
+
+    if( m_shownColumns[0] != wxT( "Item" ) )
+        m_shownColumns.insert( m_shownColumns.begin(), wxT( "Item" ) );
 }
 
 
@@ -103,37 +98,18 @@ LIB_TREE_MODEL_ADAPTER::~LIB_TREE_MODEL_ADAPTER()
 {}
 
 
-void LIB_TREE_MODEL_ADAPTER::SaveColWidths()
+void LIB_TREE_MODEL_ADAPTER::SaveSettings()
 {
     if( m_widget )
     {
         APP_SETTINGS_BASE* cfg = Kiface().KifaceSettings();
-        cfg->m_LibTree.column_width = m_widget->GetColumn( PART_COL )->GetWidth();
+
+        cfg->m_LibTree.columns = GetShownColumns();
+        cfg->m_LibTree.column_widths.clear();
+
+        for( const std::pair<const wxString, wxDataViewColumn*>& pair : m_colNameMap )
+            cfg->m_LibTree.column_widths[pair.first] = pair.second->GetWidth();
     }
-}
-
-
-void LIB_TREE_MODEL_ADAPTER::SavePinnedItems()
-{
-    PROJECT_FILE& project = m_parent->Kiway().Prj().GetProjectFile();
-
-    std::vector<wxString>& entries = ( m_pinnedKey == "pinned_symbol_libs" ) ?
-                                     project.m_PinnedSymbolLibs :
-                                     project.m_PinnedFootprintLibs;
-
-    entries.clear();
-    m_pinnedLibs.clear();
-
-    for( std::unique_ptr<LIB_TREE_NODE>& child: m_tree.m_Children )
-    {
-        if( child->m_Pinned )
-        {
-            m_pinnedLibs.push_back( child->m_LibId.GetLibNickname() );
-            entries.push_back( child->m_LibId.GetLibNickname() );
-        }
-    }
-
-
 }
 
 
@@ -157,11 +133,11 @@ void LIB_TREE_MODEL_ADAPTER::SetPreselectNode( const LIB_ID& aLibId, int aUnit )
 
 
 LIB_TREE_NODE_LIB& LIB_TREE_MODEL_ADAPTER::DoAddLibraryNode( const wxString& aNodeName,
-                                                             const wxString& aDesc )
+                                                             const wxString& aDesc, bool pinned )
 {
     LIB_TREE_NODE_LIB& lib_node = m_tree.AddLib( aNodeName, aDesc );
 
-    lib_node.m_Pinned = m_pinnedLibs.Index( lib_node.m_LibId.GetLibNickname() ) != wxNOT_FOUND;
+    lib_node.m_Pinned = pinned;
 
     return lib_node;
 }
@@ -169,9 +145,9 @@ LIB_TREE_NODE_LIB& LIB_TREE_MODEL_ADAPTER::DoAddLibraryNode( const wxString& aNo
 
 void LIB_TREE_MODEL_ADAPTER::DoAddLibrary( const wxString& aNodeName, const wxString& aDesc,
                                            const std::vector<LIB_TREE_ITEM*>& aItemList,
-                                           bool presorted )
+                                           bool pinned, bool presorted )
 {
-    LIB_TREE_NODE_LIB& lib_node = DoAddLibraryNode( aNodeName, aDesc );
+    LIB_TREE_NODE_LIB& lib_node = DoAddLibraryNode( aNodeName, aDesc, pinned );
 
     for( LIB_TREE_ITEM* item: aItemList )
         lib_node.AddItem( item );
@@ -214,12 +190,6 @@ void LIB_TREE_MODEL_ADAPTER::UpdateSearchString( const wxString& aSearch, bool a
 
         m_tree.ResetScore();
 
-        for( std::unique_ptr<LIB_TREE_NODE>& child: m_tree.m_Children )
-        {
-            if( child->m_Pinned )
-                child->m_Score *= 2;
-        }
-
         wxStringTokenizer tokenizer( aSearch );
 
         while( tokenizer.HasMoreTokens() )
@@ -233,7 +203,7 @@ void LIB_TREE_MODEL_ADAPTER::UpdateSearchString( const wxString& aSearch, bool a
                 term = term.AfterFirst( ':' );
             }
 
-            EDA_COMBINED_MATCHER matcher( term );
+            EDA_COMBINED_MATCHER matcher( term, CTX_LIBITEM );
 
             m_tree.UpdateScore( matcher, lib );
         }
@@ -268,7 +238,7 @@ void LIB_TREE_MODEL_ADAPTER::UpdateSearchString( const wxString& aSearch, bool a
             wxDataViewItem parent = GetParent( item );
 
             if( parent.IsOk() )
-                item = parent;
+                m_widget->EnsureVisible( parent );
         }
 
         m_widget->EnsureVisible( item );
@@ -278,28 +248,109 @@ void LIB_TREE_MODEL_ADAPTER::UpdateSearchString( const wxString& aSearch, bool a
 
 void LIB_TREE_MODEL_ADAPTER::AttachTo( wxDataViewCtrl* aDataViewCtrl )
 {
-    wxString partHead = _( "Item" );
-    wxString descHead = _( "Description" );
-
-    // The extent of the text doesn't take into account the space on either side
-    // in the header, so artificially pad it
-    wxSize partHeadMinWidth = KIUI::GetTextSize( partHead + "MMM", aDataViewCtrl );
-
-    // Ensure the part column is wider than the smallest allowable width
-    if( m_colWidths[PART_COL] < partHeadMinWidth.x )
-        m_colWidths[PART_COL] = partHeadMinWidth.x;
-
     m_widget = aDataViewCtrl;
     aDataViewCtrl->SetIndent( kDataViewIndent );
     aDataViewCtrl->AssociateModel( this );
-    aDataViewCtrl->ClearColumns();
+    recreateColumns();
+}
 
-    m_col_part = aDataViewCtrl->AppendTextColumn( partHead, PART_COL, wxDATAVIEW_CELL_INERT,
-                                                  m_colWidths[PART_COL] );
-    m_col_desc = aDataViewCtrl->AppendTextColumn( descHead, DESC_COL, wxDATAVIEW_CELL_INERT,
-                                                  m_colWidths[DESC_COL] );
 
-    m_col_part->SetMinWidth( partHeadMinWidth.x );
+void LIB_TREE_MODEL_ADAPTER::recreateColumns()
+{
+    m_widget->ClearColumns();
+
+    m_columns.clear();
+    m_colIdxMap.clear();
+    m_colNameMap.clear();
+
+    // The Item column is always shown
+    doAddColumn( wxT( "Item" ) );
+
+    for( const wxString& colName : m_shownColumns )
+    {
+        if( !m_colNameMap.count( colName ) )
+            doAddColumn( colName, false );
+    }
+}
+
+
+void LIB_TREE_MODEL_ADAPTER::resortTree()
+{
+    Freeze();
+    BeforeReset();
+
+    m_tree.SortNodes();
+
+    AfterReset();
+    Thaw();
+}
+
+
+void LIB_TREE_MODEL_ADAPTER::PinLibrary( LIB_TREE_NODE* aTreeNode )
+{
+    m_parent->Prj().PinLibrary( aTreeNode->m_LibId.GetLibNickname(), isSymbolModel() );
+    aTreeNode->m_Pinned = true;
+
+    resortTree();
+    m_widget->EnsureVisible( ToItem( aTreeNode ) );
+}
+
+
+void LIB_TREE_MODEL_ADAPTER::UnpinLibrary( LIB_TREE_NODE* aTreeNode )
+{
+    m_parent->Prj().UnpinLibrary( aTreeNode->m_LibId.GetLibNickname(), isSymbolModel() );
+    aTreeNode->m_Pinned = false;
+
+    resortTree();
+    // Keep focus at top when unpinning
+}
+
+
+wxDataViewColumn* LIB_TREE_MODEL_ADAPTER::doAddColumn( const wxString& aHeader, bool aTranslate )
+{
+    wxString translatedHeader = aTranslate ? wxGetTranslation( aHeader ) : aHeader;
+
+    // The extent of the text doesn't take into account the space on either side
+    // in the header, so artificially pad it
+    wxSize headerMinWidth = KIUI::GetTextSize( translatedHeader + wxT( "MMM" ), m_widget );
+
+    if( !m_colWidths.count( aHeader ) || m_colWidths[aHeader] < headerMinWidth.x )
+        m_colWidths[aHeader] = headerMinWidth.x;
+
+    int index = m_columns.size();
+
+    wxDataViewColumn* ret = m_widget->AppendTextColumn( translatedHeader, index,
+                                                        wxDATAVIEW_CELL_INERT,
+                                                        m_colWidths[aHeader] );
+    ret->SetMinWidth( headerMinWidth.x );
+
+    m_columns.emplace_back( ret );
+    m_colNameMap[aHeader] = ret;
+    m_colIdxMap[m_columns.size() - 1] = aHeader;
+
+    return ret;
+}
+
+
+void LIB_TREE_MODEL_ADAPTER::addColumnIfNecessary( const wxString& aHeader )
+{
+    if( m_colNameMap.count( aHeader ) )
+        return;
+
+    // Columns will be created later
+    m_colNameMap[aHeader] = nullptr;
+    m_availableColumns.emplace_back( aHeader );
+}
+
+
+void LIB_TREE_MODEL_ADAPTER::SetShownColumns( const std::vector<wxString>& aColumnNames )
+{
+    bool recreate = m_shownColumns != aColumnNames;
+
+    m_shownColumns = aColumnNames;
+
+    if( recreate && m_widget )
+        recreateColumns();
 }
 
 
@@ -392,8 +443,34 @@ unsigned int LIB_TREE_MODEL_ADAPTER::GetChildren( const wxDataViewItem&   aItem,
 
 void LIB_TREE_MODEL_ADAPTER::FinishTreeInitialization()
 {
-    m_col_part->SetWidth( m_colWidths[PART_COL] );
-    m_col_desc->SetWidth( m_colWidths[DESC_COL] );
+    wxDataViewColumn* col        = nullptr;
+    size_t            idx        = 0;
+    int               totalWidth = 0;
+    wxString          header;
+
+    for( ; idx < m_columns.size() - 1; idx++ )
+    {
+        wxASSERT( m_colIdxMap.count( idx ) );
+    
+        col    = m_columns[idx];
+        header = m_colIdxMap[idx];
+
+        wxASSERT( m_colWidths.count( header ) );
+
+        col->SetWidth( m_colWidths[header] );
+        totalWidth += col->GetWidth();
+    }
+
+    int remainingWidth = m_widget->GetSize().x - totalWidth;
+    header = m_columns[idx]->GetTitle();
+
+    m_columns[idx]->SetWidth( std::max( m_colWidths[header], remainingWidth ) );
+}
+
+
+void LIB_TREE_MODEL_ADAPTER::OnSize( wxSizeEvent& aEvent )
+{
+    aEvent.Skip();
 }
 
 
@@ -404,22 +481,40 @@ void LIB_TREE_MODEL_ADAPTER::RefreshTree()
     // user's scroll position (which re-attaching or deleting/re-inserting columns does).
     static int walk = 1;
 
-    int partWidth = m_col_part->GetWidth();
-    int descWidth = m_col_desc->GetWidth();
+    std::vector<int> widths;
+
+    for( const wxDataViewColumn* col : m_columns )
+        widths.emplace_back( col->GetWidth() );
+
+    wxASSERT( widths.size() );
 
     // Only use the widths read back if they are non-zero.
     // GTK returns the displayed width of the column, which is not calculated immediately
-    if( descWidth > 0 )
+    if( widths[0] > 0 )
     {
-        m_colWidths[PART_COL] = partWidth;
-        m_colWidths[DESC_COL] = descWidth;
+        size_t i = 0;
+
+        for( const auto& [ colName, colPtr ] : m_colNameMap )
+            m_colWidths[ colName ] = widths[i++];
     }
 
-    m_colWidths[PART_COL] += walk;
-    m_colWidths[DESC_COL] -= walk;
+    auto colIt = m_colWidths.begin();
 
-    m_col_part->SetWidth( m_colWidths[PART_COL] );
-    m_col_desc->SetWidth( m_colWidths[DESC_COL] );
+    colIt->second += walk;
+    colIt++;
+
+    if( colIt != m_colWidths.end() )
+        colIt->second -= walk;
+
+    for( const auto& [ colName, colPtr ] : m_colNameMap )
+    {
+        if( colPtr == m_columns[0] )
+            continue;
+
+        wxASSERT( m_colWidths.count( colName ) );
+        colPtr->SetWidth( m_colWidths[ colName ] );
+    }
+
     walk = -walk;
 }
 
@@ -469,12 +564,27 @@ void LIB_TREE_MODEL_ADAPTER::GetValue( wxVariant&              aVariant,
 
     switch( aCol )
     {
-    default:    // column == -1 is used for default Compare function
-    case 0:
-        aVariant = UnescapeString( node->m_Name );
+    case NAME_COL:
+        if( node->m_Pinned )
+            aVariant = GetPinningSymbol() + UnescapeString( node->m_Name );
+        else
+            aVariant = UnescapeString( node->m_Name );
+
         break;
-    case 1:
-        aVariant = node->m_Desc;
+
+    default:
+        if( m_colIdxMap.count( aCol ) )
+        {
+            const wxString& key = m_colIdxMap.at( aCol );
+
+            if( node->m_Fields.count( key ) )
+                aVariant = node->m_Fields.at( key );
+            else if( key == wxT( "Description" ) )
+                aVariant = node->m_Desc;
+            else
+                aVariant = wxEmptyString;
+        }
+
         break;
     }
 }
@@ -509,7 +619,7 @@ bool LIB_TREE_MODEL_ADAPTER::GetAttr( const wxDataViewItem&   aItem,
 }
 
 
-void LIB_TREE_MODEL_ADAPTER::FindAndExpand( LIB_TREE_NODE& aNode,
+void LIB_TREE_MODEL_ADAPTER::Find( LIB_TREE_NODE& aNode,
                                             std::function<bool( const LIB_TREE_NODE* )> aFunc,
                                             LIB_TREE_NODE** aHighScore )
 {
@@ -517,14 +627,11 @@ void LIB_TREE_MODEL_ADAPTER::FindAndExpand( LIB_TREE_NODE& aNode,
     {
         if( aFunc( &*node ) )
         {
-            wxDataViewItem item = wxDataViewItem( &*node );
-            m_widget->ExpandAncestors( item );
-
             if( !(*aHighScore) || node->m_Score > (*aHighScore)->m_Score )
                 (*aHighScore) = &*node;
         }
 
-        FindAndExpand( *node, aFunc, aHighScore );
+        Find( *node, aFunc, aHighScore );
     }
 }
 
@@ -533,13 +640,19 @@ LIB_TREE_NODE* LIB_TREE_MODEL_ADAPTER::ShowResults()
 {
     LIB_TREE_NODE* highScore = nullptr;
 
-    FindAndExpand( m_tree,
+    Find( m_tree,
                    []( LIB_TREE_NODE const* n )
                    {
                        // return leaf nodes with some level of matching
                        return n->m_Type == LIB_TREE_NODE::TYPE::LIBID && n->m_Score > 1;
                    },
                    &highScore );
+
+    if( highScore)
+    {
+        wxDataViewItem item = wxDataViewItem( highScore );
+        m_widget->ExpandAncestors( item );
+    }
 
     return highScore;
 }
@@ -552,7 +665,7 @@ LIB_TREE_NODE* LIB_TREE_MODEL_ADAPTER::ShowPreselect()
     if( !m_preselect_lib_id.IsValid() )
         return highScore;
 
-    FindAndExpand( m_tree,
+    Find( m_tree,
             [&]( LIB_TREE_NODE const* n )
             {
                 if( n->m_Type == LIB_TREE_NODE::LIBID && ( n->m_Children.empty() ||
@@ -566,6 +679,12 @@ LIB_TREE_NODE* LIB_TREE_MODEL_ADAPTER::ShowPreselect()
             },
             &highScore );
 
+    if( highScore)
+    {
+        wxDataViewItem item = wxDataViewItem( highScore );
+        m_widget->ExpandAncestors( item );
+    }
+
     return highScore;
 }
 
@@ -574,13 +693,19 @@ LIB_TREE_NODE* LIB_TREE_MODEL_ADAPTER::ShowSingleLibrary()
 {
     LIB_TREE_NODE* highScore = nullptr;
 
-    FindAndExpand( m_tree,
+    Find( m_tree,
                    []( LIB_TREE_NODE const* n )
                    {
                        return n->m_Type == LIB_TREE_NODE::TYPE::LIBID &&
                               n->m_Parent->m_Parent->m_Children.size() == 1;
                    },
                    &highScore );
+
+    if( highScore)
+    {
+        wxDataViewItem item = wxDataViewItem( highScore );
+        m_widget->ExpandAncestors( item );
+    }
 
     return highScore;
 }

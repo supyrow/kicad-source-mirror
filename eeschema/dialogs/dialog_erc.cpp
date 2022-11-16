@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2015 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2012 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -29,7 +29,6 @@
 #include <schematic.h>
 #include <project.h>
 #include <kiface_base.h>
-#include <bitmaps.h>
 #include <reporter.h>
 #include <wildcards_and_files_ext.h>
 #include <sch_marker.h>
@@ -40,7 +39,7 @@
 #include <erc.h>
 #include <id.h>
 #include <confirm.h>
-#include <dialogs/wx_html_report_box.h>
+#include <widgets/wx_html_report_box.h>
 #include <wx/ffile.h>
 #include <wx/filedlg.h>
 #include <wx/hyperlink.h>
@@ -55,14 +54,23 @@
 static int DEFAULT_SINGLE_COL_WIDTH = 660;
 
 
+static SCHEMATIC*            g_lastERCSchematic = nullptr;
+static bool                  g_lastERCRun = false;
+static std::vector<wxString> g_lastERCIgnored;
+
+
 DIALOG_ERC::DIALOG_ERC( SCH_EDIT_FRAME* parent ) :
         DIALOG_ERC_BASE( parent ),
         PROGRESS_REPORTER_BASE( 1 ),
         m_parent( parent ),
+        m_markerTreeModel( nullptr ),
         m_running( false ),
         m_ercRun( false ),
-        m_severities( RPT_SEVERITY_ERROR | RPT_SEVERITY_WARNING )
+        m_centerMarkerOnIdle( nullptr ),
+        m_severities( 0 )
 {
+    m_currentSchematic = &parent->Schematic();
+
     SetName( DIALOG_ERC_WINDOW_NAME ); // Set a window name to be able to find it
 
     EESCHEMA_SETTINGS* settings = dynamic_cast<EESCHEMA_SETTINGS*>( Kiface().KifaceSettings() );
@@ -70,14 +78,21 @@ DIALOG_ERC::DIALOG_ERC( SCH_EDIT_FRAME* parent ) :
 
     m_messages->SetImmediateMode();
 
-    m_markerProvider = new SHEETLIST_ERC_ITEMS_PROVIDER( &m_parent->Schematic() );
+    m_markerProvider = std::make_shared<SHEETLIST_ERC_ITEMS_PROVIDER>( &m_parent->Schematic() );
+
     m_markerTreeModel = new RC_TREE_MODEL( parent, m_markerDataView );
     m_markerDataView->AssociateModel( m_markerTreeModel );
-
-    m_markerTreeModel->SetSeverities( m_severities );
-    m_markerTreeModel->SetProvider( m_markerProvider );
+    m_markerTreeModel->Update( m_markerProvider, m_severities );
 
     m_ignoredList->InsertColumn( 0, wxEmptyString, wxLIST_FORMAT_LEFT, DEFAULT_SINGLE_COL_WIDTH );
+
+    if( m_currentSchematic == g_lastERCSchematic )
+    {
+        m_ercRun = g_lastERCRun;
+
+        for( const wxString& str : g_lastERCIgnored )
+            m_ignoredList->InsertItem( m_ignoredList->GetItemCount(), str );
+    }
 
     m_notebook->SetSelection( 0 );
 
@@ -107,6 +122,14 @@ DIALOG_ERC::DIALOG_ERC( SCH_EDIT_FRAME* parent ) :
 
 DIALOG_ERC::~DIALOG_ERC()
 {
+    g_lastERCSchematic = m_currentSchematic;
+    g_lastERCRun = m_ercRun;
+
+    g_lastERCIgnored.clear();
+
+    for( int ii = 0; ii < m_ignoredList->GetItemCount(); ++ii )
+        g_lastERCIgnored.push_back( m_ignoredList->GetItemText( ii ) );
+
     EESCHEMA_SETTINGS* settings = dynamic_cast<EESCHEMA_SETTINGS*>( Kiface().KifaceSettings() );
     wxASSERT( settings );
 
@@ -125,7 +148,7 @@ void DIALOG_ERC::UpdateAnnotationWarning()
         if( !m_infoBar->IsShown() )
         {
             wxHyperlinkCtrl* button = new wxHyperlinkCtrl( m_infoBar, wxID_ANY,
-                                                           _("Show Annotation dialog"),
+                                                           _( "Show Annotation dialog" ),
                                                            wxEmptyString );
 
             button->Bind( wxEVT_COMMAND_HYPERLINK, std::function<void( wxHyperlinkEvent& aEvent )>(
@@ -189,33 +212,48 @@ void DIALOG_ERC::updateDisplayedCounts()
     int numWarnings = 0;
     int numExcluded = 0;
 
+    int numMarkers = 0;
+
     if( m_markerProvider )
     {
+        numMarkers += m_markerProvider->GetCount();
         numErrors += m_markerProvider->GetCount( RPT_SEVERITY_ERROR );
         numWarnings += m_markerProvider->GetCount( RPT_SEVERITY_WARNING );
         numExcluded += m_markerProvider->GetCount( RPT_SEVERITY_EXCLUSION );
     }
 
+    bool markersOverflowed = false;
+
+    // We don't currently have a limit on ERC violations, so the above is always false.
+
+    wxString num;
     wxString msg;
 
     if( m_ercRun )
     {
-        msg.sprintf( m_violationsTitleTemplate, m_markerProvider->GetCount() );
-        m_notebook->SetPageText( 0, msg );
-
-        msg.sprintf( m_ignoredTitleTemplate, m_ignoredList->GetItemCount() );
-        m_notebook->SetPageText( 1, msg );
+        num.Printf( markersOverflowed ? wxT( "%d+" ) : wxT( "%d" ), numMarkers );
+        msg.Printf( m_violationsTitleTemplate, num );
     }
     else
     {
         msg = m_violationsTitleTemplate;
-        msg.Replace( wxT( "(%d)" ), wxEmptyString );
-        m_notebook->SetPageText( 0, msg );
-
-        msg = m_ignoredTitleTemplate;
-        msg.Replace( wxT( "(%d)" ), wxEmptyString );
-        m_notebook->SetPageText( 1, msg );
+        msg.Replace( wxT( "(%s)" ), wxEmptyString );
     }
+
+    m_notebook->SetPageText( 0, msg );
+
+    if( m_ercRun )
+    {
+        num.Printf( wxT( "%d" ), m_ignoredList->GetItemCount() );
+        msg.sprintf( m_ignoredTitleTemplate, num );
+    }
+    else
+    {
+        msg = m_ignoredTitleTemplate;
+        msg.Replace( wxT( "(%s)" ), wxEmptyString );
+    }
+
+    m_notebook->SetPageText( 1, msg );
 
     if( !m_ercRun && numErrors == 0 )
         numErrors = -1;
@@ -274,8 +312,6 @@ void DIALOG_ERC::OnDeleteAllClick( wxCommandEvent& event )
 
     // redraw the schematic
     redrawDrawPanel();
-
-    m_ercRun = false;
     updateDisplayedCounts();
 }
 
@@ -466,7 +502,7 @@ void DIALOG_ERC::testErc()
             || settings.IsTestEnabled( ERCE_POWERPIN_NOT_DRIVEN )
             || settings.IsTestEnabled( ERCE_PIN_NOT_DRIVEN ) )
     {
-        tester.TestPinToPin();
+         tester.TestPinToPin();
     }
 
     // Test similar labels (i;e. labels which are identical when
@@ -483,6 +519,12 @@ void DIALOG_ERC::testErc()
         tester.TestTextVars( m_parent->GetCanvas()->GetView()->GetDrawingSheet() );
     }
 
+    if( settings.IsTestEnabled( ERCE_SIMULATION_MODEL ) )
+    {
+        AdvancePhase( _( "Checking SPICE models..." ) );
+        tester.TestSimModelIssues();
+    }
+
     if( settings.IsTestEnabled( ERCE_NOCONNECT_CONNECTED ) )
     {
         AdvancePhase( _( "Checking no connect pins for connections..." ) );
@@ -495,10 +537,16 @@ void DIALOG_ERC::testErc()
         tester.TestLibSymbolIssues();
     }
 
+    if( settings.IsTestEnabled( ERCE_ENDPOINT_OFF_GRID ) )
+    {
+        AdvancePhase( _( "Checking for off grid pins and wires..." ) );
+        tester.TestOffGridEndpoints( m_parent->GetCanvas()->GetView()->GetGAL()->GetGridSize().x );
+    }
+
     m_parent->ResolveERCExclusions();
 
-    // Display diags:
-    m_markerTreeModel->SetProvider( m_markerProvider );
+    // Update marker list:
+    m_markerTreeModel->Update( m_markerProvider, m_severities );
 
     // Display new markers from the current screen:
     for( SCH_ITEM* marker : m_parent->GetScreen()->Items().OfType( SCH_MARKER_T ) )
@@ -517,7 +565,12 @@ void DIALOG_ERC::OnERCItemSelected( wxDataViewEvent& aEvent )
     SCH_SHEET_PATH  sheet;
     SCH_ITEM*       item = m_parent->Schematic().GetSheets().GetItem( itemID, &sheet );
 
-    if( item && item->GetClass() != wxT( "DELETED_SHEET_ITEM" ) )
+    if( m_centerMarkerOnIdle )
+    {
+        // we already came from a cross-probe of the marker in the document; don't go
+        // around in circles
+    }
+    else if( item && item->GetClass() != wxT( "DELETED_SHEET_ITEM" ) )
     {
         WINDOW_THAWER thawer( m_parent );
 
@@ -565,7 +618,6 @@ void DIALOG_ERC::OnERCItemRClick( wxDataViewEvent& aEvent )
     std::shared_ptr<RC_ITEM>  rcItem = node->m_RcItem;
     wxString  listName;
     wxMenu    menu;
-    wxString  msg;
 
     switch( settings.GetSeverity( rcItem->GetErrorCode() ) )
     {
@@ -673,7 +725,7 @@ void DIALOG_ERC::OnERCItemRClick( wxDataViewEvent& aEvent )
         }
 
         // Rebuild model and view
-        static_cast<RC_TREE_MODEL*>( aEvent.GetModel() )->SetProvider( m_markerProvider );
+        static_cast<RC_TREE_MODEL*>( aEvent.GetModel() )->Update( m_markerProvider, m_severities );
         modified = true;
         break;
 
@@ -689,7 +741,7 @@ void DIALOG_ERC::OnERCItemRClick( wxDataViewEvent& aEvent )
         }
 
         // Rebuild model and view
-        static_cast<RC_TREE_MODEL*>( aEvent.GetModel() )->SetProvider( m_markerProvider );
+        static_cast<RC_TREE_MODEL*>( aEvent.GetModel() )->Update( m_markerProvider, m_severities );
         modified = true;
         break;
 
@@ -704,7 +756,7 @@ void DIALOG_ERC::OnERCItemRClick( wxDataViewEvent& aEvent )
         ScreenList.DeleteMarkers( MARKER_BASE::MARKER_ERC, rcItem->GetErrorCode() );
 
         // Rebuild model and view
-        static_cast<RC_TREE_MODEL*>( aEvent.GetModel() )->SetProvider( m_markerProvider );
+        static_cast<RC_TREE_MODEL*>( aEvent.GetModel() )->Update( m_markerProvider, m_severities );
         modified = true;
     }
         break;
@@ -748,6 +800,29 @@ void DIALOG_ERC::NextMarker()
 
         m_markerTreeModel->NextMarker();
     }
+}
+
+
+void DIALOG_ERC::SelectMarker( const SCH_MARKER* aMarker )
+{
+    if( m_notebook->IsShown() )
+    {
+        m_notebook->SetSelection( 0 );
+        m_markerTreeModel->SelectMarker( aMarker );
+
+        // wxWidgets on some platforms fails to correctly ensure that a selected item is
+        // visible, so we have to do it in a separate idle event.
+        m_centerMarkerOnIdle = aMarker;
+        Bind( wxEVT_IDLE, &DIALOG_ERC::centerMarkerIdleHandler, this );
+    }
+}
+
+
+void DIALOG_ERC::centerMarkerIdleHandler( wxIdleEvent& aEvent )
+{
+    m_markerTreeModel->CenterMarker( m_centerMarkerOnIdle );
+    m_centerMarkerOnIdle = nullptr;
+    Unbind( wxEVT_IDLE, &DIALOG_ERC::centerMarkerIdleHandler, this );
 }
 
 
@@ -821,14 +896,7 @@ void DIALOG_ERC::OnSeverity( wxCommandEvent& aEvent )
 
     syncCheckboxes();
 
-    // Set the provider's severity levels through the TreeModel so that the old tree
-    // can be torn down before the severity changes.
-    //
-    // It's not clear this is required, but we've had a lot of issues with wxDataView
-    // being cranky on various platforms.
-
-    m_markerTreeModel->SetSeverities( m_severities );
-
+    m_markerTreeModel->Update( m_markerProvider, m_severities );
     updateDisplayedCounts();
 }
 
@@ -838,7 +906,10 @@ void DIALOG_ERC::deleteAllMarkers( bool aIncludeExclusions )
     // Clear current selection list to avoid selection of deleted items
     m_parent->GetToolManager()->RunAction( EE_ACTIONS::clearSelection, true );
 
-    m_markerTreeModel->DeleteItems( false, aIncludeExclusions, true );
+    m_markerTreeModel->DeleteItems( false, aIncludeExclusions, false );
+
+    SCH_SCREENS screens( m_parent->Schematic().Root() );
+    screens.DeleteAllMarkers( MARKER_BASE::MARKER_ERC, aIncludeExclusions );
 }
 
 
@@ -918,7 +989,7 @@ bool DIALOG_ERC::writeReport( const wxString& aFullFileName )
             default:                                 break;
             }
 
-            msg << marker->GetRCItem()->ShowReport( GetUserUnits(), severity, itemMap );
+            msg << marker->GetRCItem()->ShowReport( m_parent, severity, itemMap );
         }
     }
 

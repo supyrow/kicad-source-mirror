@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2015 Jean-Pierre Charras, jaen-pierre.charras at wanadoo.fr
  * Copyright (C) 2015 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 2004-2021 KiCad Developers, see change_log.txt for contributors.
+ * Copyright (C) 2004-2022 KiCad Developers, see change_log.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -53,7 +53,7 @@ void LIB_ITEM::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_IT
     if( m_unit == 0 )
         msg = _( "All" );
     else
-        msg.Printf( wxT( "%d" ), m_unit );
+        msg = LIB_SYMBOL::SubReference( m_unit, false );
 
     aList.emplace_back( _( "Unit" ), msg );
 
@@ -71,7 +71,7 @@ void LIB_ITEM::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_IT
 }
 
 
-int LIB_ITEM::compare( const LIB_ITEM& aOther, LIB_ITEM::COMPARE_FLAGS aCompareFlags ) const
+int LIB_ITEM::compare( const LIB_ITEM& aOther, int aCompareFlags ) const
 {
     if( Type() != aOther.Type() )
         return Type() - aOther.Type();
@@ -108,12 +108,12 @@ bool LIB_ITEM::operator<( const LIB_ITEM& aOther ) const
 }
 
 
-bool LIB_ITEM::HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy ) const
+bool LIB_ITEM::HitTest( const BOX2I& aRect, bool aContained, int aAccuracy ) const
 {
     if( m_flags & (STRUCT_DELETED | SKIP_STRUCT ) )
         return false;
 
-    EDA_RECT sel = aRect;
+    BOX2I sel = aRect;
 
     if ( aAccuracy )
         sel.Inflate( aAccuracy );
@@ -134,9 +134,9 @@ const wxString& LIB_ITEM::GetDefaultFont() const
 
 
 void LIB_ITEM::Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset, void* aData,
-                      const TRANSFORM& aTransform )
+                      const TRANSFORM& aTransform, bool aDimmed )
 {
-    print( aSettings, aOffset, aData, aTransform );
+    print( aSettings, aOffset, aData, aTransform, aDimmed );
 }
 
 

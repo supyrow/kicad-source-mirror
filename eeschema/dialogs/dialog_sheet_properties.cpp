@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2009 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 2014-2021 KiCad Developers, see CHANGELOG.txt for contributors.
+ * Copyright (C) 2014-2022 KiCad Developers, see CHANGELOG.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -29,6 +29,7 @@
 #include <wx/tooltip.h>
 #include <confirm.h>
 #include <validators.h>
+#include <wx_filename.h>
 #include <wildcards_and_files_ext.h>
 #include <widgets/tab_traversal.h>
 #include <kiplatform/ui.h>
@@ -40,6 +41,7 @@
 #include <settings/color_settings.h>
 #include <trace_helpers.h>
 #include "panel_eeschema_color_settings.h"
+#include "wx/dcclient.h"
 
 DIALOG_SHEET_PROPERTIES::DIALOG_SHEET_PROPERTIES( SCH_EDIT_FRAME* aParent, SCH_SHEET* aSheet,
                                                   bool* aClearAnnotationNewItems ) :
@@ -72,6 +74,9 @@ DIALOG_SHEET_PROPERTIES::DIALOG_SHEET_PROPERTIES( SCH_EDIT_FRAME* aParent, SCH_S
         m_grid->ShowHideColumns( m_shownColumns );
     }
 
+    if( m_frame->GetColorSettings()->GetOverrideSchItemColors() )
+        m_infoBar->ShowMessage( _( "Note: individual item colors overridden in Preferences." ) );
+
     wxToolTip::Enable( true );
     SetupStandardButtons();
 
@@ -83,6 +88,7 @@ DIALOG_SHEET_PROPERTIES::DIALOG_SHEET_PROPERTIES( SCH_EDIT_FRAME* aParent, SCH_S
 
     // Set font sizes
     m_hierarchicalPathLabel->SetFont( KIUI::GetInfoFont( this ) );
+    m_hierarchicalPath->SetFont( KIUI::GetInfoFont( this ) );
 
     // wxFormBuilder doesn't include this event...
     m_grid->Connect( wxEVT_GRID_CELL_CHANGING,
@@ -178,7 +184,6 @@ bool DIALOG_SHEET_PROPERTIES::TransferDataToWindow()
 
 bool DIALOG_SHEET_PROPERTIES::Validate()
 {
-    wxString msg;
     LIB_ID   id;
 
     if( !m_grid->CommitPendingChanges() || !m_grid->Validate() )
@@ -369,13 +374,14 @@ bool DIALOG_SHEET_PROPERTIES::TransferDataFromWindow()
     m_sheet->SetBorderColor( m_borderSwatch->GetSwatchColor() );
     m_sheet->SetBackgroundColor( m_backgroundSwatch->GetSwatchColor() );
 
-    SCH_SHEET_LIST hierarchy = m_frame->Schematic().GetFullHierarchy();
     SCH_SHEET_PATH instance = m_frame->GetCurrentSheet();
 
     instance.push_back( m_sheet );
 
     if( m_sheet->IsNew() )
+    {
         m_sheet->AddInstance( instance );
+    }
 
     m_sheet->SetPageNumber( instance, m_pageNumberTextCtrl->GetValue() );
 
@@ -413,10 +419,13 @@ bool DIALOG_SHEET_PROPERTIES::onSheetFilenameChanged( const wxString& aNewFilena
         return false;
     }
 
-    SCH_SHEET_LIST fullHierarchy = m_frame->Schematic().GetFullHierarchy();
-    std::vector<SCH_SHEET_INSTANCE> sheetInstances = fullHierarchy.GetSheetInstances();
-    wxFileName screenFileName( sheetFileName );
-    wxFileName tmp( sheetFileName );
+    SCHEMATIC&                             schematic = m_frame->Schematic();
+    SCH_SCREEN*                            rootScreen = schematic.RootScreen();
+    SCH_SHEET_LIST                         fullHierarchy = schematic.GetFullHierarchy();
+    std::vector<SCH_SHEET_INSTANCE>        sheetInstances = fullHierarchy.GetSheetInstances();
+    std::vector<SYMBOL_INSTANCE_REFERENCE> symbolInstances = rootScreen->GetSymbolInstances();
+    wxFileName                             screenFileName( sheetFileName );
+    wxFileName                             tmp( sheetFileName );
 
     SCH_SCREEN* currentScreen = m_frame->GetCurrentSheet().LastScreen();
 
@@ -425,7 +434,8 @@ bool DIALOG_SHEET_PROPERTIES::onSheetFilenameChanged( const wxString& aNewFilena
     // SCH_SCREEN file names are always absolute.
     wxFileName currentScreenFileName = currentScreen->GetFileName();
 
-    if( !screenFileName.Normalize( wxPATH_NORM_ALL, currentScreenFileName.GetPath() ) )
+    if( !screenFileName.Normalize(  FN_NORMALIZE_FLAGS | wxPATH_NORM_ENV_VARS,
+                                    currentScreenFileName.GetPath() ) )
     {
         msg = wxString::Format( _( "Cannot normalize new sheet schematic file path:\n"
                                    "'%s'\n"
@@ -445,14 +455,13 @@ bool DIALOG_SHEET_PROPERTIES::onSheetFilenameChanged( const wxString& aNewFilena
     bool renameFile = false;
     bool loadFromFile = false;
     bool clearAnnotation = false;
-    bool restoreSheet = false;
     bool isExistingSheet = false;
     SCH_SCREEN* useScreen = nullptr;
     SCH_SCREEN* oldScreen = nullptr;
 
     // Search for a schematic file having the same filename already in use in the hierarchy
     // or on disk, in order to reuse it.
-    if( !m_frame->Schematic().Root().SearchHierarchy( newAbsoluteFilename, &useScreen ) )
+    if( !schematic.Root().SearchHierarchy( newAbsoluteFilename, &useScreen ) )
     {
         loadFromFile = wxFileExists( newAbsoluteFilename );
 
@@ -530,7 +539,8 @@ bool DIALOG_SHEET_PROPERTIES::onSheetFilenameChanged( const wxString& aNewFilena
             {
                 if( m_sheet->GetScreenCount() > 1 )
                 {
-                    if( !IsOK( this, wxString::Format( _( "Create new file '%s' with contents of '%s'?" ),
+                    if( !IsOK( this, wxString::Format( _( "Create new file '%s' with contents "
+                                                          "of '%s'?" ),
                                                        sheetFileName.GetFullName(),
                                                        m_sheet->GetFileName() )
                                      + wxT( "\n\n" )
@@ -563,7 +573,7 @@ bool DIALOG_SHEET_PROPERTIES::onSheetFilenameChanged( const wxString& aNewFilena
 
             try
             {
-                pi->Save( newAbsoluteFilename, m_sheet, &m_frame->Schematic() );
+                pi->Save( newAbsoluteFilename, m_sheet, &schematic );
             }
             catch( const IO_ERROR& ioe )
             {
@@ -594,25 +604,23 @@ bool DIALOG_SHEET_PROPERTIES::onSheetFilenameChanged( const wxString& aNewFilena
     if( useScreen )
     {
         // Create a temporary sheet for recursion testing to prevent a possible recursion error.
-        std::unique_ptr< SCH_SHEET> tmpSheet = std::make_unique<SCH_SHEET>( &m_frame->Schematic() );
+        std::unique_ptr< SCH_SHEET> tmpSheet = std::make_unique<SCH_SHEET>( &schematic );
         tmpSheet->GetFields()[SHEETNAME] = m_fields->at( SHEETNAME );
         tmpSheet->GetFields()[SHEETFILENAME].SetText( sheetFileName.GetFullPath() );
         tmpSheet->SetScreen( useScreen );
 
         // No need to check for valid library IDs if we are using an existing screen.
         if( m_frame->CheckSheetForRecursion( tmpSheet.get(), &currentSheet ) )
-        {
-            if( restoreSheet )
-                currentSheet.LastScreen()->Append( m_sheet );
-
             return false;
-        }
 
         // It's safe to set the sheet screen now.
         m_sheet->SetScreen( useScreen );
+        // currentSheet.LastScreen()->Append( m_sheet );
     }
     else if( loadFromFile )
     {
+        bool restoreSheet = false;
+
         if( isExistingSheet )
         {
             // Temporarily remove the sheet from the current schematic page so that recursion
@@ -639,10 +647,10 @@ bool DIALOG_SHEET_PROPERTIES::onSheetFilenameChanged( const wxString& aNewFilena
         if( restoreSheet )
             currentSheet.LastScreen()->Append( m_sheet );
 
-        // The full hiearchy needs to be reloaded because any sub-sheet that occurred on
-        // file load will have new SCH_SHEET object pointers.
-        fullHierarchy = m_frame->Schematic().GetFullHierarchy();
+        // The full hierarchy needs to be reloaded because due to the addition of a new sheet.
+        fullHierarchy = schematic.GetFullHierarchy();
         fullHierarchy.UpdateSheetInstances( sheetInstances );
+        fullHierarchy.UpdateSymbolInstances( symbolInstances );
     }
 
     if( m_clearAnnotationNewItems )
@@ -839,12 +847,10 @@ void DIALOG_SHEET_PROPERTIES::OnUpdateUI( wxUpdateUIEvent& event )
     }
 
     // Propagate changes in sheetname to displayed hierarchical path
-    wxString hierarchicalPath = _( "Hierarchical path: " );
+    wxString  path = m_frame->GetCurrentSheet().PathHumanReadable( false );
 
-    hierarchicalPath += m_frame->GetCurrentSheet().PathHumanReadable( false );
-
-    if( hierarchicalPath.Last() != '/' )
-        hierarchicalPath.Append( '/' );
+    if( path.Last() != '/' )
+        path.Append( '/' );
 
     wxGridCellEditor* editor = m_grid->GetCellEditor( SHEETNAME, FDC_VALUE );
     wxControl*        control = editor->GetControl();
@@ -858,12 +864,19 @@ void DIALOG_SHEET_PROPERTIES::OnUpdateUI( wxUpdateUIEvent& event )
 
     m_dummySheet.SetFields( *m_fields );
     m_dummySheetNameField.SetText( sheetName );
-    hierarchicalPath += m_dummySheetNameField.GetShownText();
+    path += m_dummySheetNameField.GetShownText();
 
     editor->DecRef();
 
-    if( m_hierarchicalPathLabel->GetLabel() != hierarchicalPath )
-        m_hierarchicalPathLabel->SetLabel( hierarchicalPath );
+    wxClientDC dc( m_hierarchicalPathLabel );
+    int        width = m_sizerBottom->GetSize().x - m_stdDialogButtonSizer->GetSize().x
+                                                  - m_hierarchicalPathLabel->GetSize().x
+                                                  - 30;
+
+    path = wxControl::Ellipsize( path, dc, wxELLIPSIZE_START, width, wxELLIPSIZE_FLAGS_NONE );
+
+    if( m_hierarchicalPath->GetLabel() != path )
+        m_hierarchicalPath->SetLabel( path );
 
     // Handle a delayed focus
     if( m_delayedFocusRow >= 0 )

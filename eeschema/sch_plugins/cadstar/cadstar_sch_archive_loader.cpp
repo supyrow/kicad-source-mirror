@@ -27,6 +27,7 @@
 
 #include <bus_alias.h>
 #include <core/mirror.h>
+#include <core/kicad_algo.h>
 #include <eda_text.h>
 #include <lib_shape.h>
 #include <lib_text.h>
@@ -155,11 +156,11 @@ void CADSTAR_SCH_ARCHIVE_LOADER::Load( SCHEMATIC* aSchematic, SCH_SHEET* aRootSh
         SCH_SHEET* sheet = sheetPair.second;
 
         // Calculate the new sheet size.
-        EDA_RECT sheetBoundingBox;
+        BOX2I sheetBoundingBox;
 
-        for( auto item : sheet->GetScreen()->Items() )
+        for( SCH_ITEM* item : sheet->GetScreen()->Items() )
         {
-            EDA_RECT bbox;
+            BOX2I bbox;
 
             // Only use the visible fields of the symbols to calculate their bounding box
             // (hidden fields could be very long and artificially enlarge the sheet bounding box)
@@ -225,13 +226,13 @@ void CADSTAR_SCH_ARCHIVE_LOADER::Load( SCHEMATIC* aSchematic, SCH_SHEET* aRootSh
 
         // Update page size always
         PAGE_INFO pageInfo = sheet->GetScreen()->GetPageSettings();
-        pageInfo.SetWidthMils( Iu2Mils( targetSheetSize.x ) );
-        pageInfo.SetHeightMils( Iu2Mils( targetSheetSize.y ) );
+        pageInfo.SetWidthMils( schIUScale.IUToMils( targetSheetSize.x ) );
+        pageInfo.SetHeightMils( schIUScale.IUToMils( targetSheetSize.y ) );
 
         // Set the new sheet size.
         sheet->GetScreen()->SetPageSettings( pageInfo );
 
-        wxSize  pageSizeIU = sheet->GetScreen()->GetPageSettings().GetSizeIU();
+        wxSize   pageSizeIU = sheet->GetScreen()->GetPageSettings().GetSizeIU( schIUScale.IU_PER_MILS );
         VECTOR2I sheetcentre( pageSizeIU.x / 2, pageSizeIU.y / 2 );
         VECTOR2I itemsCentre = sheetBoundingBox.Centre();
 
@@ -256,6 +257,11 @@ void CADSTAR_SCH_ARCHIVE_LOADER::Load( SCHEMATIC* aSchematic, SCH_SHEET* aRootSh
 
     checkPoint();
 
+    m_reporter->Report( _( "CADSTAR fonts are different to the ones in KiCad. This will likely "
+                           "result in alignment issues. Please review the imported text elements "
+                           "carefully and correct manually if required." ),
+                        RPT_SEVERITY_WARNING );
+
     m_reporter->Report( _( "The CADSTAR design has been imported successfully.\n"
                            "Please review the import errors and warnings (if any)." ) );
 }
@@ -276,8 +282,8 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadSheets()
 
         for( LAYER_ID sheetID : orphanSheets )
         {
-            VECTOR2I pos( x * Mils2iu( 1000 ), y * Mils2iu( 1000 ) );
-            wxSize   siz( Mils2iu( 1000 ), Mils2iu( 1000 ) );
+            VECTOR2I pos( x * schIUScale.MilsToIU( 1000 ), y * schIUScale.MilsToIU( 1000 ) );
+            wxSize   siz( schIUScale.MilsToIU( 1000 ), schIUScale.MilsToIU( 1000 ) );
 
             loadSheetAndChildSheets( sheetID, pos, siz, rootPath );
 
@@ -370,9 +376,6 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadPartsLibrary()
         PART_ID partID = partPair.first;
         PART    part = partPair.second;
 
-        if( part.Definition.GateSymbols.size() == 0 )
-            continue;
-
         wxString    escapedPartName = EscapeString( part.Name, CTX_LIBID );
         LIB_SYMBOL* kiPart = new LIB_SYMBOL( escapedPartName );
 
@@ -384,7 +387,6 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadPartsLibrary()
             GATE_ID                gateID   = gatePair.first;
             PART::DEFINITION::GATE gate     = gatePair.second;
             SYMDEF_ID              symbolID = getSymDefFromName( gate.Name, gate.Alternate );
-            m_partSymbolsMap.insert( { { partID, gateID }, symbolID } );
 
             if( symbolID.IsEmpty() )
             {
@@ -401,10 +403,11 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadPartsLibrary()
                 break;
             }
 
+            m_partSymbolsMap.insert( { { partID, gateID }, symbolID } );
             loadSymDefIntoLibrary( symbolID, &part, gateID, kiPart );
         }
 
-        if( ok )
+        if( ok && part.Definition.GateSymbols.size() != 0 )
         {
             ( *m_plugin )->SaveSymbol( m_libraryFileName.GetFullPath(), kiPart );
 
@@ -415,8 +418,19 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadPartsLibrary()
         }
         else
         {
+            if( part.Definition.GateSymbols.size() == 0 )
+            {
+                m_reporter->Report(
+                        wxString::Format( _( "Part definition '%s' has an incomplete definition (no"
+                                             " symbol definitions are associated with it). The part"
+                                             " has not been loaded into the KiCad library." ),
+                                          part.Name ),
+                        RPT_SEVERITY_WARNING );
+            }
+
             // Don't save in the library, but still keep it cached as some of the units might have
-            // been loaded correctly (saving us time later on)
+            // been loaded correctly (saving us time later on), plus the part definition contains
+            // the part name, which is important to load
             m_partMap.insert( { partID, kiPart } );
         }
 
@@ -650,7 +664,7 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadSchematicSymbolInstances()
                 SCH_GLOBALLABEL* netLabel = new SCH_GLOBALLABEL;
                 netLabel->SetPosition( getKiCadPoint( (VECTOR2I)sym.Origin + terminalPosOffset ) );
                 netLabel->SetText( "***UNKNOWN NET****" ); // This should be later updated when we load the netlist
-                netLabel->SetTextSize( wxSize( Mils2iu( 50 ), Mils2iu( 50 ) ) );
+                netLabel->SetTextSize( wxSize( schIUScale.MilsToIU( 50 ), schIUScale.MilsToIU( 50 ) ) );
 
                 SYMDEF_SCM symbolDef = Library.SymbolDefinitions.at( sym.SymdefID );
 
@@ -902,8 +916,8 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadNets()
             NET_SCH::BUS_TERM busTerm = busPair.second;
             BUS               bus     = Schematic.Buses.at( busTerm.BusID );
 
-            if( !m_busesMap.at( bus.ID )->Contains( netName ) )
-                m_busesMap.at( bus.ID )->AddMember( netName );
+            if( !alg::contains( m_busesMap.at( bus.ID )->Members(), netName ) )
+                m_busesMap.at( bus.ID )->Members().emplace_back( netName );
 
             SCH_BUS_WIRE_ENTRY* busEntry =
                     new SCH_BUS_WIRE_ENTRY( getKiCadPoint( busTerm.FirstPoint ), false );
@@ -1300,6 +1314,13 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadSymDefIntoLibrary( const SYMDEF_ID& aSymdef
     SYMDEF_SCM symbol = Library.SymbolDefinitions.at( aSymdefID );
     int        gateNumber = getKiCadUnitNumberFromGate( aGateID );
 
+    // Ensure there are no items on this unit (e.g. if we already previously loaded the symbol from
+    // the part definition)
+    std::vector<LIB_ITEM*> drawItems = aSymbol->GetUnitDrawItems( gateNumber, 0 );
+
+    for( LIB_ITEM* item : drawItems )
+        aSymbol->RemoveDrawItem( item );
+
     for( std::pair<FIGURE_ID, FIGURE> figPair : symbol.Figures )
     {
         FIGURE fig = figPair.second;
@@ -1417,7 +1438,7 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadSymDefIntoLibrary( const SYMDEF_ID& aSymdef
 
             for( size_t ii = 0; ii < strings.size(); ++ii )
             {
-                EDA_RECT bbox = libtext->GetTextBox( ii, true );
+                BOX2I    bbox = libtext->GetTextBox( ii, true );
                 VECTOR2I linePos = { bbox.GetLeft(), -bbox.GetBottom() };
 
                 RotatePoint( linePos, libtext->GetTextPos(), -libtext->GetTextAngle() );
@@ -1587,17 +1608,19 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadSymDefIntoLibrary( const SYMDEF_ID& aSymdef
             loadLibraryField( attrVal );
         }
 
-        wxString      fpNameInLibrary = generateLibName( footprintRefName, footprintAlternateName );
-        wxArrayString fpFilters;
-        fpFilters.Add( fpNameInLibrary );
+        wxString fpNameInLibrary = generateLibName( footprintRefName, footprintAlternateName );
 
-        aSymbol->SetFPFilters( fpFilters );
+        if( !fpNameInLibrary.IsEmpty() )
+        {
+            wxArrayString fpFilters;
+            fpFilters.Add( fpNameInLibrary );
+            aSymbol->SetFPFilters( fpFilters );
 
-        // Assume that the PCB footprint library name will be the same as the schematic filename
-        wxFileName schFilename( Filename );
-        wxString   libName = schFilename.GetName();
-
-        aSymbol->GetFootprintField().SetText( libName + wxT( ":" ) + fpNameInLibrary );
+            // Assume that the PCB footprint library name will be the same as the schematic filename
+            wxFileName schFilename( Filename );
+            wxString   libName = schFilename.GetName();
+            aSymbol->GetFootprintField().SetText( libName + wxT( ":" ) + fpNameInLibrary );
+        }
     }
 
     if( aCadstarPart && aCadstarPart->Definition.HidePinNames )
@@ -2072,14 +2095,14 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadShapeVertices( const std::vector<VERTEX>& a
             // TODO: Load as arc...
 
             SHAPE_ARC        tempArc( centerPoint, startPoint, arcAngle );
-            SHAPE_LINE_CHAIN arcSegments = tempArc.ConvertToPolyline( Millimeter2iu( 0.1 ) );
+            SHAPE_LINE_CHAIN arcSegments = tempArc.ConvertToPolyline( schIUScale.mmToIU( 0.1 ) );
 
             // Load the arc as a series of piece-wise segments
 
             for( int jj = 0; jj < arcSegments.SegmentCount(); jj++ )
             {
-                VECTOR2I segStart = (wxPoint) arcSegments.Segment( jj ).A;
-                VECTOR2I segEnd = (wxPoint) arcSegments.Segment( jj ).B;
+                VECTOR2I segStart = arcSegments.Segment( jj ).A;
+                VECTOR2I segEnd = arcSegments.Segment( jj ).B;
 
                 loadGraphicStaightSegment( segStart, segEnd, aCadstarLineCodeID, aCadstarSheetID,
                                            aKiCadSchLayerID, aMoveVector, aRotation, aScalingFactor,
@@ -2134,11 +2157,13 @@ void CADSTAR_SCH_ARCHIVE_LOADER::loadSheetAndChildSheets( LAYER_ID              
     wxCHECK_MSG( m_sheetMap.find( aCadstarSheetID ) == m_sheetMap.end(), ,
                  "Sheet already loaded!" );
 
-    SCH_SHEET*     sheet = new SCH_SHEET( aParentSheet.Last(), aPosition );
+    SCH_SHEET*     sheet = new SCH_SHEET(
+        /* aParent */ aParentSheet.Last(),
+        /* aPosition */ aPosition,
+        /* aSize */ wxSize( aSheetSize ) );
     SCH_SCREEN*    screen = new SCH_SCREEN( m_schematic );
     SCH_SHEET_PATH instance( aParentSheet );
 
-    sheet->SetSize( (wxSize) aSheetSize );
     sheet->SetScreen( screen );
 
     wxString name = Sheets.SheetNames.at( aCadstarSheetID );
@@ -2392,7 +2417,7 @@ int CADSTAR_SCH_ARCHIVE_LOADER::getLineThickness( const LINECODE_ID& aCadstarLin
 {
     wxCHECK( Assignments.Codedefs.LineCodes.find( aCadstarLineCodeID )
                      != Assignments.Codedefs.LineCodes.end(),
-             Mils2iu( DEFAULT_WIRE_WIDTH_MILS ) );
+             schIUScale.MilsToIU( DEFAULT_WIRE_WIDTH_MILS ) );
 
     return getKiCadLength( Assignments.Codedefs.LineCodes.at( aCadstarLineCodeID ).Width );
 }
@@ -2744,7 +2769,7 @@ void CADSTAR_SCH_ARCHIVE_LOADER::applyTextSettings( EDA_TEXT*            aKiCadT
         // so need to adjust the location of the text element based on Cadstar's original text
         // alignment (anchor position).
         setAlignment( aKiCadTextItem, textAlignment );
-        EDA_RECT bb = textEdaItem->GetBoundingBox();
+        BOX2I    bb = textEdaItem->GetBoundingBox();
         int      off = static_cast<SCH_TEXT*>( aKiCadTextItem )->GetTextOffset();
         wxPoint  pos;
 
@@ -2818,9 +2843,9 @@ LIB_SYMBOL* CADSTAR_SCH_ARCHIVE_LOADER::getScaledLibPart( const LIB_SYMBOL* aSym
         };
 
     auto scaleSize =
-        [&]( wxSize aSize ) -> wxSize
+        [&]( VECTOR2I aSize ) -> VECTOR2I
         {
-            return wxSize( scaleLen( aSize.x ), scaleLen( aSize.y ) );
+            return VECTOR2I( scaleLen( aSize.x ), scaleLen( aSize.y ) );
         };
 
     LIB_ITEMS_CONTAINER& items = retval->GetDrawItems();
@@ -2844,7 +2869,7 @@ LIB_SYMBOL* CADSTAR_SCH_ARCHIVE_LOADER::getScaledLibPart( const LIB_SYMBOL* aSym
                 SHAPE_LINE_CHAIN& poly = shape.GetPolyShape().Outline( 0 );
 
                 for( size_t ii = 0; ii < poly.GetPointCount(); ++ii )
-                    poly.SetPoint( ii, scalePt( (wxPoint) poly.CPoint( ii ) ) );
+                    poly.SetPoint( ii, scalePt( poly.CPoint( ii ) ) );
             }
             break;
         }

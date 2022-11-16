@@ -3,9 +3,14 @@
  *
  * Copyright (c) 2005 Michael Niedermayer <michaelni@gmx.at>
  * Copyright (C) CERN
- * Copyright (C) 2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2021-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * @author Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
+ *
+ * The equals() method to compare two floating point values adapted from
+ * AlmostEqualRelativeAndAbs() on 
+ * https://randomascii.wordpress.com/2012/02/25/comparing-floating-point-numbers-2012-edition/
+ * (C) Bruce Dawson subject to the Apache 2.0 license.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -29,14 +34,21 @@
 #define UTIL_H
 
 #include <config.h>
+#include <cmath>
 #include <cstdint>
 #include <limits>
 #include <typeinfo>
+#include <type_traits>
 
 /**
  * Helper to avoid directly including wx/log.h for the templated functions in kimath
  */
 void kimathLogDebug( const char* aFormatString, ... );
+
+/**
+ * Workaround to avoid the empty-string conversion issue in wxWidgets
+ */
+void kimathLogOverflow( double v, const char* aTypeName );
 
 /**
  * Limit @a value within the range @a lower <= @a value <= @a upper.
@@ -49,7 +61,7 @@ void kimathLogDebug( const char* aFormatString, ... );
  * result is:  lower <= value <= upper
  *</p>
  */
-template <typename T> inline const T& Clamp( const T& lower, const T& value, const T& upper )
+template <typename T> inline constexpr T Clamp( const T& lower, const T& value, const T& upper )
 {
     if( value < lower )
         return lower;
@@ -75,12 +87,20 @@ constexpr ret_type KiROUND( fp_type v )
     using max_ret = long long int;
     fp_type ret = v < 0 ? v - 0.5 : v + 0.5;
 
-    if( std::numeric_limits<ret_type>::max() < ret ||
-        std::numeric_limits<ret_type>::lowest() > ret )
+    if( ret > std::numeric_limits<ret_type>::max() )
     {
-        kimathLogDebug( "Overflow KiROUND converting value %f to %s", double( v ),
-                        typeid( ret_type ).name() );
-        return 0;
+        kimathLogOverflow( double( v ), typeid( ret_type ).name() );
+        
+        return std::numeric_limits<ret_type>::max() - 1;
+    }
+    else if( ret < std::numeric_limits<ret_type>::lowest() )
+    {
+        kimathLogOverflow( double( v ), typeid( ret_type ).name() );
+
+        if( std::numeric_limits<ret_type>::is_signed )
+            return std::numeric_limits<ret_type>::lowest() + 1;
+        else
+            return 0;
     }
 
     return ret_type( max_ret( ret ) );
@@ -112,5 +132,38 @@ int rescale( int aNumerator, int aValue, int aDenominator );
 
 template <>
 int64_t rescale( int64_t aNumerator, int64_t aValue, int64_t aDenominator );
+
+
+/**
+ * Template to compare two floating point values for equality within a required epsilon.
+ *
+ * @param aFirst value to compare.
+ * @param aSecond value to compare.
+ * @param aEpsilon allowed error.
+ * @return true if the values considered equal within the specified epsilon, otherwise false.
+ */
+template <class T>
+typename std::enable_if<std::is_floating_point<T>::value, bool>::type
+equals( T aFirst, T aSecond, T aEpsilon = std::numeric_limits<T>::epsilon() )
+{
+    T diff = std::abs( aFirst - aSecond );
+
+    if( diff < aEpsilon )
+    {
+        return true;
+    }
+
+    aFirst = std::abs( aFirst );
+    aSecond = std::abs( aSecond );
+    T largest = aFirst > aSecond ? aFirst : aSecond;
+
+    if( diff <= largest * aEpsilon )
+    {
+        return true;
+    }
+
+    return false;
+}
+
 
 #endif // UTIL_H

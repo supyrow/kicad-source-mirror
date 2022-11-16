@@ -124,7 +124,7 @@ VECTOR2I EE_GRID_HELPER::BestSnapAnchor( const VECTOR2I& aOrigin, int aLayer, SC
 VECTOR2I EE_GRID_HELPER::BestSnapAnchor( const VECTOR2I& aOrigin, int aLayer,
                                          const EE_SELECTION& aSkip )
 {
-    constexpr int snapRange = SNAP_RANGE * IU_PER_MILS;
+    constexpr int snapRange = SNAP_RANGE * schIUScale.IU_PER_MILS;
 
     VECTOR2I pt = aOrigin;
     VECTOR2I snapDist( snapRange, snapRange );
@@ -296,6 +296,7 @@ void EE_GRID_HELPER::computeAnchors( SCH_ITEM *aItem, const VECTOR2I &aRefPos, b
     case SCH_LABEL_T:
     case SCH_DIRECTIVE_LABEL_T:
     case SCH_BUS_WIRE_ENTRY_T:
+    case SCH_SHEET_PIN_T:
     {
         std::vector<VECTOR2I> pts = aItem->GetConnectionPoints();
 

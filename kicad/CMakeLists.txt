@@ -16,15 +16,30 @@ include_directories(
     )
 
 set( KICAD_SRCS
+    cli/command_export_pcb_base.cpp
+    cli/command_export_pcb_drill.cpp
+    cli/command_export_pcb_dxf.cpp
+    cli/command_export_pcb_gerber.cpp
+    cli/command_export_pcb_pdf.cpp
+    cli/command_export_pcb_pos.cpp
+    cli/command_export_pcb_step.cpp
+    cli/command_export_pcb_svg.cpp
+    cli/command_pcb.cpp
+    cli/command_pcb_export.cpp
+    cli/command_export_sch_bom.cpp
+    cli/command_export_sch_netlist.cpp
+    cli/command_export_sch_pdf.cpp
+    cli/command_export_sch_svg.cpp
+    cli/command_sch.cpp
+    cli/command_sch_export.cpp
     dialogs/dialog_template_selector_base.cpp
     dialogs/dialog_template_selector.cpp
     dialogs/panel_kicad_launcher_base.cpp
     dialogs/panel_kicad_launcher.cpp
     files-io.cpp
+    import_proj.cpp
     import_project.cpp
-    kicad.cpp
     kicad_manager_frame.cpp
-    kicad_settings.cpp
     menubar.cpp
     project_template.cpp
     project_tree_pane.cpp
@@ -57,10 +72,28 @@ if( APPLE )
 endif()
 
 add_executable( kicad WIN32 MACOSX_BUNDLE
+    kicad.cpp
     ${KICAD_SRCS}
     ${KICAD_EXTRA_SRCS}
     ${KICAD_RESOURCES}
     )
+
+add_executable( kicad-cli WIN32
+    kicad_cli.cpp
+    ${KICAD_SRCS}
+    ${KICAD_EXTRA_SRCS}
+    ${KICAD_RESOURCES}
+    )
+
+if( MSVC )
+   # The cli needs subsystem:console or else we can't link wmain/main
+   set_target_properties(kicad-cli PROPERTIES COMPILE_DEFINITIONS_DEBUG "_CONSOLE")
+   set_target_properties(kicad-cli PROPERTIES COMPILE_DEFINITIONS_RELWITHDEBINFO "_CONSOLE")
+   set_target_properties(kicad-cli PROPERTIES LINK_FLAGS_DEBUG "/SUBSYSTEM:CONSOLE")
+   set_target_properties(kicad-cli PROPERTIES LINK_FLAGS_RELWITHDEBINFO "/SUBSYSTEM:CONSOLE")
+   set_target_properties(kicad-cli PROPERTIES LINK_FLAGS_RELEASE "/SUBSYSTEM:CONSOLE")
+   set_target_properties(kicad-cli PROPERTIES LINK_FLAGS_MINSIZEREL "/SUBSYSTEM:CONSOLE")
+endif()
 
 if( UNIX )
     # for build directory: create kiface symlinks so kicad (exe) can be run in-situ
@@ -81,6 +114,16 @@ if( APPLE )
         common
         ${wxWidgets_LIBRARIES}
         )
+
+    set_target_properties( kicad-cli PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY ${OSX_BUNDLE_BUILD_BIN_DIR}
+        )
+
+    target_link_libraries( kicad-cli
+        nlohmann_json
+        common
+        ${wxWidgets_LIBRARIES}
+        )
 else()
     target_link_libraries( kicad
         nlohmann_json
@@ -88,16 +131,39 @@ else()
         gal
         common      #repeated due to a circular dependency between gal and common
         ${wxWidgets_LIBRARIES}
-        ${GDI_PLUS_LIBRARIES}
+        )
+
+    target_link_libraries( kicad-cli
+        nlohmann_json
+        common
+        gal
+        common      #repeated due to a circular dependency between gal and common
+        ${wxWidgets_LIBRARIES}
         )
 endif()
 
 target_link_libraries( kicad pcm )
+target_link_libraries( kicad-cli pcm )
+
+target_include_directories( kicad PRIVATE
+    $<TARGET_PROPERTY:thread-pool,INTERFACE_INCLUDE_DIRECTORIES>
+    )
+
+target_include_directories( kicad-cli PRIVATE
+    $<TARGET_PROPERTY:thread-pool,INTERFACE_INCLUDE_DIRECTORIES>
+    )
 
 install( TARGETS kicad
     DESTINATION ${KICAD_BIN}
     COMPONENT binary
     )
+
+if( NOT APPLE )
+    install( TARGETS kicad-cli
+        DESTINATION ${KICAD_BIN}
+        COMPONENT binary
+        )
+endif()
 
 if( KICAD_WIN32_INSTALL_PDBS )
     # Get the PDBs to copy over for MSVC
@@ -125,9 +191,7 @@ if( APPLE )
         set( BUNDLE_FIX_DIRS ${BUNDLE_FIX_DIRS} ${MACOS_EXTRA_BUNDLE_FIX_DIRS} ) # TODO: where should we document MACOS_EXTRA_BUNDLE_FIX_DIRS?
     endif()
 
-    if( KICAD_USE_OCC )
-        set( BUNDLE_FIX_DIRS ${BUNDLE_FIX_DIRS} ${OCC_LIBRARY_DIR} )
-    endif()
+    set( BUNDLE_FIX_DIRS ${BUNDLE_FIX_DIRS} ${OCC_LIBRARY_DIR} )
 
     # make main bundle relocatable
     install( CODE "

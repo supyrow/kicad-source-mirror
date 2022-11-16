@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2018 Jean-Pierre Charras, jap.charras at wanadoo.fr
- * Copyright (C) 2004-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2004-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -29,9 +29,10 @@
 #include <wx/gdicmn.h>
 #include <pcb_base_frame.h>
 #include <pcbnew_settings.h>
+#include <netlist_reader/pcb_netlist.h>
 
 class wxSashLayoutWindow;
-class wxListBox;
+class WX_LISTBOX;
 class wxSearchCtrl;
 class FP_LIB_TABLE;
 class BOARD_ITEM;
@@ -81,6 +82,8 @@ public:
 
     COLOR_SETTINGS* GetColorSettings( bool aForceRefresh = false ) const override;
 
+    void KiwayMailIn( KIWAY_EXPRESS& mail ) override;
+
 protected:
     FOOTPRINT_VIEWER_FRAME( KIWAY* aKiway, wxWindow* aParent, FRAME_T aFrameType );
 
@@ -105,6 +108,8 @@ private:
      */
     void UpdateTitle();
 
+    void displayFootprint( FOOTPRINT* aFootprint );
+
     void doCloseWindow() override;
     void CloseFootprintViewer( wxCommandEvent& event );
     void OnExitKiCad( wxCommandEvent& event );
@@ -118,11 +123,11 @@ private:
     void OnFPFilter( wxCommandEvent& aEvent );
     void OnCharHook( wxKeyEvent& aEvent ) override;
 
-    void selectPrev( wxListBox* aListBox );
-    void selectNext( wxListBox* aListBox );
+    void selectPrev( WX_LISTBOX* aListBox );
+    void selectNext( WX_LISTBOX* aListBox );
     void ClickOnLibList( wxCommandEvent& aEvent );
     void ClickOnFootprintList( wxCommandEvent& aEvent );
-    void DClickOnFootprintList( wxCommandEvent& aEvent );
+    void DClickOnFootprintList( wxMouseEvent& aEvent );
 
     void LoadSettings( APP_SETTINGS_BASE* aCfg ) override;
     void SaveSettings( APP_SETTINGS_BASE* aCfg ) override;
@@ -157,6 +162,7 @@ private:
 
     void SaveCopyInUndoList( EDA_ITEM*, UNDO_REDO ) override {}
     void SaveCopyInUndoList( const PICKED_ITEMS_LIST&, UNDO_REDO ) override {}
+    void AppendCopyToUndoList( const PICKED_ITEMS_LIST&, UNDO_REDO ) override {}
 
     void updateView();
 
@@ -164,10 +170,16 @@ private:
 
     friend struct PCB::IFACE;       // constructor called from here only
 
+private:
     wxSearchCtrl*       m_libFilter;
-    wxListBox*          m_libList;        // The list of library names.
+    WX_LISTBOX*         m_libList;        // The list of library names.
+    int                 m_libListWidth;   // Last width of the window.
+
     wxSearchCtrl*       m_fpFilter;
-    wxListBox*          m_fpList;         // The list of footprint names.
+    WX_LISTBOX*         m_fpList;         // The list of footprint names.
+    int                 m_fpListWidth;    // Last width of the window.
+
+    COMPONENT           m_comp;
 
     bool                m_autoZoom;
     double              m_lastZoom;

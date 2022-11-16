@@ -25,13 +25,14 @@
 
 #include "symbol_tree_pane.h"
 #include <widgets/lib_tree.h>
-#include <symbol_library_manager.h>
+#include <lib_symbol_library_manager.h>
 #include <symbol_edit_frame.h>
 #include <symbol_lib_table.h>
 #include <tool/tool_manager.h>
 #include <tools/ee_actions.h>
 
-SYMBOL_TREE_PANE::SYMBOL_TREE_PANE( SYMBOL_EDIT_FRAME* aParent, SYMBOL_LIBRARY_MANAGER* aLibMgr )
+SYMBOL_TREE_PANE::SYMBOL_TREE_PANE( SYMBOL_EDIT_FRAME* aParent,
+                                    LIB_SYMBOL_LIBRARY_MANAGER* aLibMgr )
         : wxPanel( aParent ),
           m_symbolEditFrame( aParent ),
           m_tree( nullptr ),
@@ -39,8 +40,8 @@ SYMBOL_TREE_PANE::SYMBOL_TREE_PANE( SYMBOL_EDIT_FRAME* aParent, SYMBOL_LIBRARY_M
 {
     // Create widgets
     wxBoxSizer* boxSizer = new wxBoxSizer( wxVERTICAL );
-    m_tree = new LIB_TREE( this, &SYMBOL_LIB_TABLE::GetGlobalLibTable(), m_libMgr->GetAdapter(),
-                           LIB_TREE::SEARCH );
+    m_tree = new LIB_TREE( this, wxT( "symbols" ), &SYMBOL_LIB_TABLE::GetGlobalLibTable(),
+                           m_libMgr->GetAdapter(), LIB_TREE::SEARCH | LIB_TREE::MULTISELECT );
     boxSizer->Add( m_tree, 1, wxEXPAND, 5 );
 
     SetSizer( boxSizer );      // should remove the previous sizer according to wxWidgets docs

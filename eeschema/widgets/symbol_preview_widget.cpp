@@ -52,7 +52,7 @@ SYMBOL_PREVIEW_WIDGET::SYMBOL_PREVIEW_WIDGET( wxWindow* aParent, KIWAY& aKiway,
         canvasType = EDA_DRAW_PANEL_GAL::GAL_TYPE_OPENGL;
     }
 
-    m_preview = new SCH_PREVIEW_PANEL( aParent, wxID_ANY, wxDefaultPosition, wxSize( -1, -1 ),
+    m_preview = new SCH_PREVIEW_PANEL( this, wxID_ANY, wxDefaultPosition, wxSize( -1, -1 ),
                                        m_galDisplayOptions, canvasType );
     m_preview->SetStealsFocus( false );
     m_preview->ShowScrollbars( wxSHOW_SB_NEVER, wxSHOW_SB_NEVER );
@@ -76,6 +76,9 @@ SYMBOL_PREVIEW_WIDGET::SYMBOL_PREVIEW_WIDGET( wxWindow* aParent, KIWAY& aKiway,
     const COLOR4D& foregroundColor = settings->GetCursorColor();
 
     m_preview->GetGAL()->SetClearColor( backgroundColor );
+
+    settings->m_ShowPinsElectricalType = app_settings->m_LibViewPanel.show_pin_electrical_type;
+    settings->m_ShowPinNumbers = app_settings->m_LibViewPanel.show_pin_numbers;
 
     m_statusPanel = new wxPanel( this );
     m_statusPanel->SetBackgroundColour( backgroundColor.ToColour() );
@@ -195,6 +198,18 @@ void SYMBOL_PREVIEW_WIDGET::DisplaySymbol( const LIB_ID& aSymbolID, int aUnit, i
     {
         // This will flatten derived parts so that the correct final symbol can be shown.
         m_previewItem = symbol.release();
+
+        // Hide fields that were added automatically by the library (for example, when using
+        // database libraries) as they don't have a valid position yet, and we don't support
+        // autoplacing fields on library symbols yet.
+        std::vector<LIB_FIELD*> previewFields;
+        m_previewItem->GetFields( previewFields );
+
+        for( LIB_FIELD* field : previewFields )
+        {
+            if( field->IsAutoAdded() )
+                field->SetVisible( false );
+        }
 
         // If unit isn't specified for a multi-unit part, pick the first.  (Otherwise we'll
         // draw all of them.)

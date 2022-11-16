@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2012 Torsten Hueter, torstenhtr <at> gmx.de
  * Copyright (C) 2013-2015 CERN
- * Copyright (C) 2012-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2012-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * @author Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  * @author Maciej Suminski <maciej.suminski@cern.ch>
@@ -39,11 +39,12 @@
 #include <geometry/geometry_utils.h>
 #include <widgets/ui_common.h>
 #include <class_draw_panel_gal.h>
+#include <eda_draw_frame.h>
+#include <kiway.h>
 #include <kiplatform/ui.h>
 #include <wx/log.h>
 
-
-#if defined __WXMSW__
+#ifdef __WXMSW__
     #define USE_MOUSE_CAPTURE
 #endif
 
@@ -157,6 +158,7 @@ void WX_VIEW_CONTROLS::LoadSettings()
     COMMON_SETTINGS* cfg = Pgm().GetCommonSettings();
 
     m_settings.m_warpCursor            = cfg->m_Input.center_on_zoom;
+    m_settings.m_focusFollowSchPcb     = cfg->m_Input.focus_follow_sch_pcb;
     m_settings.m_autoPanSettingEnabled = cfg->m_Input.auto_pan;
     m_settings.m_autoPanAcceleration   = cfg->m_Input.auto_pan_acceleration;
     m_settings.m_horizontalPan         = cfg->m_Input.horizontal_pan;
@@ -201,6 +203,30 @@ void WX_VIEW_CONTROLS::onMotion( wxMouseEvent& aEvent )
     int x = aEvent.GetX();
     int y = aEvent.GetY();
     VECTOR2D mousePos( x, y );
+
+    // Automatic focus switching between SCH and PCB windows on canvas mouse motion
+    if( m_settings.m_focusFollowSchPcb )
+    {
+        if( EDA_DRAW_FRAME* frame = m_parentPanel->GetParentEDAFrame() )
+        {
+            KIWAY_PLAYER* otherFrame = nullptr;
+
+            if( frame->IsType( FRAME_PCB_EDITOR ) )
+            {
+                otherFrame = frame->Kiway().Player( FRAME_SCH, false );
+            }
+            else if( frame->IsType( FRAME_SCH ) )
+            {
+                otherFrame = frame->Kiway().Player( FRAME_PCB_EDITOR, false );
+            }
+
+            if( otherFrame && KIPLATFORM::UI::IsWindowActive( otherFrame )
+                && !KIPLATFORM::UI::IsWindowActive( frame ) )
+            {
+                frame->Raise();
+            }
+        }
+    }
 
     if( m_state != DRAG_PANNING && m_state != DRAG_ZOOMING )
         handleCursorCapture( x, y );
@@ -248,7 +274,7 @@ void WX_VIEW_CONTROLS::onMotion( wxMouseEvent& aEvent )
             {
                 if( !justWarped )
                 {
-                    m_parentPanel->WarpPointer( x + warpX, y + warpY );
+                    KIPLATFORM::UI::WarpPointer( m_parentPanel, x + warpX, y + warpY );
                     m_dragStartPoint += VECTOR2D( warpX, warpY );
                     justWarped = true;
                 }
@@ -290,7 +316,7 @@ void WX_VIEW_CONTROLS::onMotion( wxMouseEvent& aEvent )
             {
                 if( !justWarped )
                 {
-                    m_parentPanel->WarpPointer( x, y + warpY );
+                    KIPLATFORM::UI::WarpPointer( m_parentPanel, x, y + warpY );
                     m_dragStartPoint += VECTOR2D( 0, warpY );
                     justWarped = true;
                 }
@@ -395,6 +421,11 @@ void WX_VIEW_CONTROLS::onMagnify( wxMouseEvent& aEvent )
 #endif
 
 
+void WX_VIEW_CONTROLS::setState( STATE aNewState )
+{
+    m_state = aNewState;
+}
+
 void WX_VIEW_CONTROLS::onButton( wxMouseEvent& aEvent )
 {
     switch( m_state )
@@ -405,7 +436,7 @@ void WX_VIEW_CONTROLS::onButton( wxMouseEvent& aEvent )
             ( aEvent.RightDown() && m_settings.m_dragRight == MOUSE_DRAG_ACTION::PAN ) )
         {
             m_dragStartPoint = VECTOR2D( aEvent.GetX(), aEvent.GetY() );
-            m_state = DRAG_PANNING;
+            setState( DRAG_PANNING );
 
 #if defined USE_MOUSE_CAPTURE
             if( !m_parentPanel->HasCapture() )
@@ -417,7 +448,7 @@ void WX_VIEW_CONTROLS::onButton( wxMouseEvent& aEvent )
         {
             m_dragStartPoint   = VECTOR2D( aEvent.GetX(), aEvent.GetY() );
             m_zoomStartPoint = m_dragStartPoint;
-            m_state = DRAG_ZOOMING;
+            setState( DRAG_ZOOMING );
 
 #if defined USE_MOUSE_CAPTURE
             if( !m_parentPanel->HasCapture() )
@@ -426,7 +457,7 @@ void WX_VIEW_CONTROLS::onButton( wxMouseEvent& aEvent )
         }
 
         if( aEvent.LeftUp() )
-            m_state = IDLE;     // Stop autopanning when user release left mouse button
+            setState( IDLE );     // Stop autopanning when user release left mouse button
 
         break;
 
@@ -434,7 +465,7 @@ void WX_VIEW_CONTROLS::onButton( wxMouseEvent& aEvent )
     case DRAG_PANNING:
         if( aEvent.MiddleUp() || aEvent.LeftUp() || aEvent.RightUp() )
         {
-            m_state = IDLE;
+            setState( IDLE );
 
 #if defined USE_MOUSE_CAPTURE
             if( !m_settings.m_cursorCaptured && m_parentPanel->HasCapture() )
@@ -459,8 +490,8 @@ void WX_VIEW_CONTROLS::onEnter( wxMouseEvent& aEvent )
         return;
     }
 
-#if defined( _WIN32 )
-    // Win32 transmits mouse move and wheel events to all controls below the mouse regardless
+#if defined( _WIN32 ) || defined( __WXGTK__ )
+    // Win32 and some *nix WMs transmit mouse move and wheel events to all controls below the mouse regardless
     // of focus.  Forcing the focus here will cause the EDA FRAMES to immediately become the
     // top level active window.
     if( m_parentPanel->GetParent() != nullptr )
@@ -503,12 +534,27 @@ void WX_VIEW_CONTROLS::onTimer( wxTimerEvent& aEvent )
     {
         if( !m_settings.m_autoPanEnabled )
         {
-            m_state = IDLE;
+            setState( IDLE );
             return;
         }
 
-        if( !m_parentPanel->HasFocus() )
-            break;
+        #ifdef __WXMSW__
+        // Hackfix: It's possible for the mouse to leave the canvas
+        // without triggering any leave events on windows
+        // Use a MSW only wx function
+        if( !m_parentPanel->IsMouseInWindow() )
+        {
+            m_panTimer.Stop();
+            setState( IDLE );
+            return;
+        }
+        #endif
+
+        if( !m_parentPanel->HasFocus() && !m_parentPanel->StatusPopupHasFocus() )
+        {
+            setState( IDLE );
+            return;
+        }
 
         double borderSize = std::min( m_settings.m_autoPanMargin * m_view->GetScreenPixelSize().x,
                                       m_settings.m_autoPanMargin * m_view->GetScreenPixelSize().y );
@@ -635,7 +681,7 @@ void WX_VIEW_CONTROLS::CancelDrag()
 {
     if( m_state == DRAG_PANNING || m_state == DRAG_ZOOMING )
     {
-        m_state = IDLE;
+        setState( IDLE );
 #if defined USE_MOUSE_CAPTURE
         if( !m_settings.m_cursorCaptured && m_parentPanel->HasCapture() )
             m_parentPanel->ReleaseMouse();
@@ -703,7 +749,7 @@ void WX_VIEW_CONTROLS::SetCursorPosition( const VECTOR2D& aPosition, bool aWarpV
         m_cursorWarped = true;
     }
 
-    WarpCursor( clampedPosition, true, aWarpView );
+    WarpMouseCursor( clampedPosition, true, aWarpView );
     m_cursorPos = clampedPosition;
 }
 
@@ -726,8 +772,8 @@ void WX_VIEW_CONTROLS::SetCrossHairCursorPosition( const VECTOR2D& aPosition,
 }
 
 
-void WX_VIEW_CONTROLS::WarpCursor( const VECTOR2D& aPosition, bool aWorldCoordinates,
-                                   bool aWarpView )
+void WX_VIEW_CONTROLS::WarpMouseCursor( const VECTOR2D& aPosition, bool aWorldCoordinates,
+                                        bool aWarpView )
 {
     if( aWorldCoordinates )
     {
@@ -741,17 +787,17 @@ void WX_VIEW_CONTROLS::WarpCursor( const VECTOR2D& aPosition, bool aWorldCoordin
             if( aWarpView )
             {
                 m_view->SetCenter( clampedPosition );
-                m_parentPanel->WarpPointer( screenSize.x / 2, screenSize.y / 2 );
+                KIPLATFORM::UI::WarpPointer( m_parentPanel, screenSize.x / 2, screenSize.y / 2 );
             }
         }
         else
         {
-            m_parentPanel->WarpPointer( screenPos.x, screenPos.y );
+            KIPLATFORM::UI::WarpPointer( m_parentPanel, screenPos.x, screenPos.y );
         }
     }
     else
     {
-        m_parentPanel->WarpPointer( aPosition.x, aPosition.y );
+        KIPLATFORM::UI::WarpPointer( m_parentPanel, aPosition.x, aPosition.y );
     }
 
     refreshMouse();
@@ -766,8 +812,40 @@ void WX_VIEW_CONTROLS::CenterOnCursor() const
     if( GetMousePosition( false ) != screenCenter )
     {
         m_view->SetCenter( GetCursorPosition() );
-        m_parentPanel->WarpPointer( KiROUND( screenSize.x / 2 ), KiROUND( screenSize.y / 2 ) );
+        KIPLATFORM::UI::WarpPointer( m_parentPanel, KiROUND( screenSize.x / 2 ), KiROUND( screenSize.y / 2 ) );
     }
+}
+
+
+void WX_VIEW_CONTROLS::PinCursorInsideNonAutoscrollArea( bool aWarpMouseCursor )
+{
+    int border = std::min( m_settings.m_autoPanMargin * m_view->GetScreenPixelSize().x,
+                           m_settings.m_autoPanMargin * m_view->GetScreenPixelSize().y );
+    border += 2;
+
+    VECTOR2D topLeft( border, border );
+    VECTOR2D botRight( m_view->GetScreenPixelSize().x - border,
+                       m_view->GetScreenPixelSize().y - border );
+
+    topLeft = m_view->ToWorld( topLeft );
+    botRight = m_view->ToWorld( botRight );
+
+    VECTOR2D pos = GetMousePosition( true );
+
+    if( pos.x < topLeft.x )
+        pos.x = topLeft.x;
+    else if( pos.x > botRight.x )
+        pos.x = botRight.x;
+
+    if( pos.y < topLeft.y )
+        pos.y = topLeft.y;
+    else if( pos.y > botRight.y )
+        pos.y = botRight.y;
+
+    SetCursorPosition( pos, false, false, 0 );
+
+    if( aWarpMouseCursor )
+        WarpMouseCursor( pos, true );
 }
 
 
@@ -818,25 +896,23 @@ bool WX_VIEW_CONTROLS::handleAutoPanning( const wxMouseEvent& aEvent )
         if( !borderHit )
         {
             m_panTimer.Stop();
-            m_state = IDLE;
+            setState( IDLE );
 
             return false;
         }
 
         return true;
-        break;
 
     case IDLE:
         if( borderHit )
         {
-            m_state = AUTO_PANNING;
+            setState( AUTO_PANNING );
             m_panTimer.Start( (int) ( 250.0 / 60.0 ) );
 
             return true;
         }
 
         return false;
-        break;
 
     case DRAG_PANNING:
     case DRAG_ZOOMING:
@@ -844,6 +920,8 @@ bool WX_VIEW_CONTROLS::handleAutoPanning( const wxMouseEvent& aEvent )
     }
 
     wxCHECK_MSG( false, false, wxT( "This line should never be reached" ) );
+
+    return false;
 }
 
 
@@ -877,7 +955,7 @@ void WX_VIEW_CONTROLS::handleCursorCapture( int x, int y )
         }
 
         if( warp )
-            m_parentPanel->WarpPointer( x, y );
+            KIPLATFORM::UI::WarpPointer( m_parentPanel, x, y );
     }
 }
 

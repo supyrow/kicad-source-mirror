@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2004-2020 KiCad Developers.
+ * Copyright (C) 2004-2022 KiCad Developers.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -23,10 +23,15 @@
 
 #include <common.h>
 #include <pcb_track.h>
+#include <pad.h>
+#include <footprint.h>
 #include <drc/drc_engine.h>
 #include <drc/drc_item.h>
 #include <drc/drc_rule.h>
 #include <drc/drc_test_provider.h>
+#include <macros.h>
+#include <convert_basic_shapes_to_polygon.h>
+#include <board_design_settings.h>
 
 /*
     Via/pad annular ring width test. Checks if there's sufficient copper ring around
@@ -54,12 +59,12 @@ public:
 
     virtual const wxString GetName() const override
     {
-        return "annular_width";
+        return wxT( "annular_width" );
     };
 
     virtual const wxString GetDescription() const override
     {
-        return "Tests pad/via annular rings";
+        return wxT( "Tests pad/via annular rings" );
     }
 };
 
@@ -68,20 +73,66 @@ bool DRC_TEST_PROVIDER_ANNULAR_WIDTH::Run()
 {
     if( m_drcEngine->IsErrorLimitExceeded( DRCE_ANNULAR_WIDTH ) )
     {
-        reportAux( "Annular width violations ignored. Skipping check." );
+        reportAux( wxT( "Annular width violations ignored. Skipping check." ) );
         return true;    // continue with other tests
     }
 
-    const int delta = 250;  // This is the number of tests between 2 calls to the progress bar
+    const int progressDelta = 500;
 
     if( !m_drcEngine->HasRulesForConstraintType( ANNULAR_WIDTH_CONSTRAINT ) )
     {
-        reportAux( "No annular width constraints found. Tests not run." );
+        reportAux( wxT( "No annular width constraints found. Tests not run." ) );
         return true;    // continue with other tests
     }
 
-    if( !reportPhase( _( "Checking via annular rings..." ) ) )
+    if( !reportPhase( _( "Checking pad & via annular rings..." ) ) )
         return false;   // DRC cancelled
+
+    int maxError = m_drcEngine->GetBoard()->GetDesignSettings().m_MaxError;
+
+    auto calcEffort =
+            []( BOARD_ITEM* item )
+            {
+                switch( item->Type() )
+                {
+                case PCB_VIA_T:
+                    return 1;
+
+                case PCB_PAD_T:
+                {
+                    PAD* pad = static_cast<PAD*>( item );
+
+                    if( !pad->HasHole() || pad->GetAttribute() != PAD_ATTRIB::PTH )
+                        return 0;
+
+                    if( pad->GetOffset() == VECTOR2I( 0, 0 ) )
+                    {
+                        switch( pad->GetShape() )
+                        {
+                        case PAD_SHAPE::CHAMFERED_RECT:
+                            if( pad->GetChamferRectRatio() > 0.30 )
+                                break;
+
+                            KI_FALLTHROUGH;
+
+                        case PAD_SHAPE::CIRCLE:
+                        case PAD_SHAPE::OVAL:
+                        case PAD_SHAPE::RECT:
+                        case PAD_SHAPE::ROUNDRECT:
+                            return 1;
+
+                        default:
+                            break;
+                        }
+                    }
+
+                    return 5;
+                }
+
+                default:
+                    return 0;
+                }
+            };
 
     auto checkAnnularWidth =
             [&]( BOARD_ITEM* item ) -> bool
@@ -89,18 +140,86 @@ bool DRC_TEST_PROVIDER_ANNULAR_WIDTH::Run()
                 if( m_drcEngine->IsErrorLimitExceeded( DRCE_ANNULAR_WIDTH ) )
                     return false;
 
-                int      v_min = 0;
-                int      v_max = 0;
-                PCB_VIA* via = dyn_cast<PCB_VIA*>( item );
+                int annularWidth = 0;
 
-                // fixme: check minimum IAR/OAR ring for THT pads too
-                if( !via )
+                switch( item->Type() )
+                {
+                case PCB_VIA_T:
+                {
+                    PCB_VIA* via = static_cast<PCB_VIA*>( item );
+                    annularWidth = ( via->GetWidth() - via->GetDrillValue() ) / 2;
+                    break;
+                }
+
+                case PCB_PAD_T:
+                {
+                    PAD* pad = static_cast<PAD*>( item );
+                    bool handled = false;
+
+                    if( !pad->HasHole() || pad->GetAttribute() != PAD_ATTRIB::PTH )
+                        return true;
+
+                    if( pad->GetOffset() == VECTOR2I( 0, 0 ) )
+                    {
+                        switch( pad->GetShape() )
+                        {
+                        case PAD_SHAPE::CHAMFERED_RECT:
+                            if( pad->GetChamferRectRatio() > 0.30 )
+                                break;
+
+                            KI_FALLTHROUGH;
+
+                        case PAD_SHAPE::CIRCLE:
+                        case PAD_SHAPE::OVAL:
+                        case PAD_SHAPE::RECT:
+                        case PAD_SHAPE::ROUNDRECT:
+                            annularWidth = std::min( pad->GetSizeX() - pad->GetDrillSizeX(),
+                                                     pad->GetSizeY() - pad->GetDrillSizeY() ) / 2;
+                            handled = true;
+                            break;
+
+                        default:
+                            break;
+                        }
+                    }
+
+                    if( !handled )
+                    {
+                        // Slow (but general purpose) method.
+                        SHAPE_POLY_SET padOutline;
+
+                        pad->TransformShapeToPolygon( padOutline, UNDEFINED_LAYER, 0, maxError,
+                                                      ERROR_INSIDE );
+
+                        if( !padOutline.Collide( pad->GetPosition() ) )
+                        {
+                            // Hole outside pad
+                            annularWidth = 0;
+                        }
+                        else
+                        {
+                            std::shared_ptr<SHAPE_SEGMENT> slot = pad->GetEffectiveHoleShape();
+
+                            // Disable is-inside test in SquaredDistance
+                            padOutline.Outline( 0 ).SetClosed( false );
+
+                            SEG::ecoord dist_sq = padOutline.SquaredDistance( slot->GetSeg() );
+                            annularWidth = sqrt( dist_sq ) -  slot->GetWidth() / 2;
+                        }
+                    }
+
+                    break;
+                }
+
+                default:
                     return true;
+                }
 
                 // PADSTACKS TODO: once we have padstacks we'll need to run this per-layer....
-                auto constraint = m_drcEngine->EvalRules( ANNULAR_WIDTH_CONSTRAINT, via, nullptr,
+                auto constraint = m_drcEngine->EvalRules( ANNULAR_WIDTH_CONSTRAINT, item, nullptr,
                                                           UNDEFINED_LAYER );
-                int  annularWidth = ( via->GetWidth() - via->GetDrillValue() ) / 2;
+                int  v_min = 0;
+                int  v_max = 0;
                 bool fail_min = false;
                 bool fail_max = false;
 
@@ -122,44 +241,75 @@ bool DRC_TEST_PROVIDER_ANNULAR_WIDTH::Run()
                 if( fail_min || fail_max )
                 {
                     std::shared_ptr<DRC_ITEM> drcItem = DRC_ITEM::Create( DRCE_ANNULAR_WIDTH );
+                    wxString msg;
 
                     if( fail_min )
-                        m_msg.Printf( _( "(%s min annular width %s; actual %s)" ),
-                                      constraint.GetName(),
-                                      MessageTextFromValue( userUnits(), v_min ),
-                                      MessageTextFromValue( userUnits(), annularWidth ) );
+                    {
+                        msg = formatMsg( _( "(%s min annular width %s; actual %s)" ),
+                                         constraint.GetName(),
+                                         v_min,
+                                         annularWidth );
+                    }
 
                     if( fail_max )
-                        m_msg.Printf( _( "(%s max annular width %s; actual %s)" ),
-                                      constraint.GetName(),
-                                      MessageTextFromValue( userUnits(), v_max ),
-                                      MessageTextFromValue( userUnits(), annularWidth ) );
+                    {
+                        msg = formatMsg( _( "(%s max annular width %s; actual %s)" ),
+                                         constraint.GetName(),
+                                         v_max,
+                                         annularWidth );
+                    }
 
-                    drcItem->SetErrorMessage( drcItem->GetErrorText() + wxS( " " ) + m_msg );
+                    drcItem->SetErrorMessage( drcItem->GetErrorText() + wxS( " " ) + msg );
                     drcItem->SetItems( item );
                     drcItem->SetViolatingRule( constraint.GetParentRule() );
 
-                    reportViolation( drcItem, via->GetPosition(), via->GetLayer() );
+                    reportViolation( drcItem, item->GetPosition(), item->GetLayer() );
                 }
 
                 return true;
             };
 
     BOARD* board = m_drcEngine->GetBoard();
-    int    ii = 0;
+    size_t ii = 0;
+    size_t total = 0;
+
+    for( PCB_TRACK* item : board->Tracks() )
+        total += calcEffort( item );
+
+    for( FOOTPRINT* footprint : board->Footprints() )
+    {
+        for( PAD* pad : footprint->Pads() )
+            total += calcEffort( pad );
+    }
 
     for( PCB_TRACK* item : board->Tracks() )
     {
-        if( !reportProgress( ii++, board->Tracks().size(), delta ) )
-            break;
+        ii += calcEffort( item );
+
+        if( !reportProgress( ii, total, progressDelta ) )
+            return false;   // DRC cancelled
 
         if( !checkAnnularWidth( item ) )
-            return false;   // DRC cancelled
+            break;
+    }
+
+    for( FOOTPRINT* footprint : board->Footprints() )
+    {
+        for( PAD* pad : footprint->Pads() )
+        {
+            ii += calcEffort( pad );
+
+            if( !reportProgress( ii, total, progressDelta ) )
+                return false;   // DRC cancelled
+
+            if( !checkAnnularWidth( pad ) )
+                break;
+        }
     }
 
     reportRuleStatistics();
 
-    return true;
+    return !m_drcEngine->IsCancelled();
 }
 
 

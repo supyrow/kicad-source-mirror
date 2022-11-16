@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2015 Jean-Pierre Charras, jp.charras wanadoo.fr
  * Copyright (C) 2008 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 2004-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2004-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -42,8 +42,6 @@
 #include <sch_base_frame.h>
 #include <template_fieldnames.h>
 
-class STATUS_TEXT_POPUP;
-
 class SCH_ITEM;
 class EDA_ITEM;
 class SCH_LINE;
@@ -59,7 +57,7 @@ class SCHEMATIC;
 class DIALOG_SCH_FIND;
 class wxFindReplaceData;
 class RESCUER;
-class HIERARCHY_NAVIG_DLG;
+class HIERARCHY_NAVIG_PANEL;
 
 // @todo Move this to transform alone with all of the transform manipulation code.
 /// enum used in RotationMiroir()
@@ -74,36 +72,6 @@ enum SYMBOL_ORIENTATION_T
     SYM_ORIENT_270,                 // Rotate -90, no mirror
     SYM_MIRROR_X = 0x100,           // Mirror around X axis
     SYM_MIRROR_Y = 0x200            // Mirror around Y axis
-};
-
-
-/** Schematic annotation scope options. */
-enum ANNOTATE_SCOPE_T
-{
-    ANNOTATE_ALL,           ///< Annotate the full schematic
-    ANNOTATE_CURRENT_SHEET, ///< Annotate the current sheet
-    ANNOTATE_SELECTION      ///< Annotate the selection
-};
-
-
-/** Schematic annotation order options. */
-enum ANNOTATE_ORDER_T
-{
-    SORT_BY_X_POSITION,     ///< Annotate by X position from left to right.
-    SORT_BY_Y_POSITION,     ///< Annotate by Y position from top to bottom.
-    UNSORTED,               ///< Annotate by position of symbol in the schematic sheet
-                            ///< object list.
-};
-
-
-/** Schematic annotation type options. */
-enum ANNOTATE_ALGO_T
-{
-    INCREMENTAL_BY_REF,     ///< Annotate incrementally using the first free reference number.
-    SHEET_NUMBER_X_100,     ///< Annotate using the first free reference number starting at
-                            ///< the sheet number * 100.
-    SHEET_NUMBER_X_1000,    ///< Annotate using the first free reference number starting at
-                            ///< the sheet number * 1000.
 };
 
 
@@ -176,8 +144,8 @@ public:
     bool IsContentModified() const override;
 
     /**
-     * Must be called after a schematic change in order to set the "modify" flag of the
-     * current screen and update the date in frame reference.
+     * Must be called after a schematic change in order to set the "modify" flag and update other
+     * data structures and GUI elements.
      */
     void OnModify() override;
 
@@ -221,6 +189,11 @@ public:
     void KiwayMailIn( KIWAY_EXPRESS& aEvent ) override;
 
     /**
+     * Automatically set the rotation of an item (if the item supports it)
+     */
+    void AutoRotateItem( SCH_SCREEN* aScreen, SCH_ITEM* aItem );
+
+    /**
      * Add an item to the schematic and adds the changes to the undo/redo container.
      * @param aUndoAppend True if the action should be appended to the current undo record.
      */
@@ -232,16 +205,15 @@ public:
     void ShowFindReplaceDialog( bool aReplace );
 
     /**
-     * Run the Hierarchy Navigator dialog.
-     * @param aForceUpdate: When true, creates a new dialog. And if a dialog
-     * already exist, it destroys it first.
+     * Update the hierarchy navigation tree and history
      */
-    void UpdateHierarchyNavigator( bool aForceUpdate = false );
+    void UpdateHierarchyNavigator();
 
     /**
-     * @return a reference to the Hierarchy Navigator dialog if exists, or nullptr.
+     * Update the hierarchy navigation tree selection (cross-probe from schematic to hierarchy
+     * pane).
      */
-    HIERARCHY_NAVIG_DLG* FindHierarchyNavigator();
+    void UpdateHierarchySelection();
 
     void ShowFindReplaceStatus( const wxString& aMsg, int aStatusTime );
     void ClearFindReplaceStatus();
@@ -295,25 +267,13 @@ public:
     void TestDanglingEnds();
 
     /**
-     * Send a message to Pcbnew via a socket connection.
-     *
-     * Commands are:
-     * - $PART: reference   put cursor on footprint anchor
-     * - $PIN: number $PART: reference put cursor on the footprint pad
-     * - $SHEET: time_stamp  select all footprints of symbols is the schematic sheet path
-     *
-     * @param aObjectToSync is the item to be located on board.
-     * @param aPart is the symbol if \a aObjectToSync is a sub item of a symbol (like a pin).
-     */
-    void SendMessageToPCBNEW( EDA_ITEM* aObjectToSync, SCH_SYMBOL* aPart );
-
-    /**
      * Sends items to Pcbnew for selection
      *
-     * @param aSelectConnections - set to select connected tracks/vias too
-     * @param aElements are the items to select
+     * @param aItems are the items to select
+     * @param aForce select the element in pcbnew whether or not the user has the select option chosen
+     * This is used for when the eeschema user is using the cross-probe tool
      */
-    void SendSelectItems( bool aSelectConnections, const std::deque<EDA_ITEM*>& aElements );
+    void SendSelectItemsToPcb( const std::vector<EDA_ITEM*>& aItems, bool aForce );
 
     /**
      * Sends a net name to Pcbnew for highlighting
@@ -378,7 +338,7 @@ public:
      * @param aCurrentSheetOnly Where to clear the annotation. See #ANNOTATE_SCOPE_T
      * @param appendUndo true to add the action to the previous undo list
      */
-    void DeleteAnnotation( ANNOTATE_SCOPE_T aAnnotateScope, bool* appendUndo );
+    void DeleteAnnotation( ANNOTATE_SCOPE_T aAnnotateScope, bool aRecursive, bool* appendUndo );
 
     /**
      * Annotate the symbols in the schematic that are not currently annotated. Multi-unit symbols
@@ -388,6 +348,7 @@ public:
      * @param aAnnotateScope See #ANNOTATE_SCOPE_T
      * @param aSortOption Define the annotation order.  See #ANNOTATE_ORDER_T.
      * @param aAlgoOption Define the annotation style.  See #ANNOTATE_ALGO_T.
+     * @param aRecursive  Annotation should descend into and annotate subsheets
      * @param aStartNumber The start number for non-sheet-based annotation styles.
      * @param aResetAnnotation Clear any previous annotation if true.  Otherwise, keep the
      *                         existing symbol annotation.
@@ -397,13 +358,17 @@ public:
      *                          used to handle annotation in complex hierarchies.
      * @param aReporter A sink for error messages.  Use NULL_REPORTER if you don't need errors.
      *
+     * @param appendUndo True if the annotation operation should be added to an existing undo,
+     *                   false if it should be separately undo-able.
+     *
      * When the sheet number is used in annotation, each sheet annotation starts from sheet
      * number * 100.  In other words the first sheet uses 100 to 199, the second sheet uses
      * 200 to 299, and so on.
      */
     void AnnotateSymbols( ANNOTATE_SCOPE_T aAnnotateScope, ANNOTATE_ORDER_T aSortOption,
-                          ANNOTATE_ALGO_T aAlgoOption, int aStartNumber, bool aResetAnnotation,
-                          bool aRepairTimestamps, REPORTER& aReporter );
+                          ANNOTATE_ALGO_T aAlgoOption, bool aRecursive, int aStartNumber,
+                          bool aResetAnnotation, bool aRepairTimestamps, REPORTER& aReporter,
+                          bool appendUndo = false );
 
     /**
      * Check for annotation errors.
@@ -422,7 +387,8 @@ public:
      *                       Otherwise check the entire schematic.
      */
     int CheckAnnotate( ANNOTATION_ERROR_HANDLER aErrorHandler,
-                       ANNOTATE_SCOPE_T         aAnnotateScope = ANNOTATE_ALL );
+                       ANNOTATE_SCOPE_T         aAnnotateScope = ANNOTATE_ALL,
+                       bool                     aRecursive = true );
 
     /**
      * Run a modal version of the annotate dialog for a specific purpose.
@@ -464,15 +430,6 @@ public:
     void OnPageSettingsChange() override;
 
     /**
-     * @return a filename that can be used in plot and print functions for the current screen
-     * and sheet path.  This filename is unique and must be used instead of the screen filename
-     * when one must create files for each sheet in the hierarchy.
-     * Name is &ltroot sheet filename&gt-&ltsheet path&gt and has no extension.
-     * However if filename is too long name is &ltsheet filename&gt-&ltsheet number&gt
-     */
-    wxString GetUniqueFilenameForCurrentSheet();
-
-    /**
      * Set the m_ScreenNumber and m_NumberOfScreens members for screens.
      *
      * @note This must be called after deleting or adding a sheet and when entering a sheet.
@@ -503,6 +460,16 @@ public:
      * @return True if the schematic was imported properly.
      */
     bool AppendSchematic();
+
+    /**
+     * Add a sheet file into the current sheet and updates display
+     *
+     * @note Used in AppendSchematic() and SCH_EDIT_TOOL::ddAppendFile() (so it is public)
+     *
+     * @param aFullFileName Path and name of sheet
+     * @return True if the sheet was properly added
+     */
+    bool AddSheetAndUpdateDisplay( const wxString aFullFileName );
 
     /**
      * Check if any of the screens has unsaved changes and asks the user whether to save or
@@ -687,9 +654,10 @@ public:
      * @param aItemToCopy is the schematic item modified by the command to undo.
      * @param aTypeCommand is the command type (see enum UNDO_REDO).
      * @param aAppend set to true to add the item to the previous undo list.
+     * @param aDirtyConnectivity set to true if the change can affect connectivity.
      */
     void SaveCopyInUndoList( SCH_SCREEN* aScreen, SCH_ITEM* aItemToCopy, UNDO_REDO aTypeCommand,
-                             bool aAppend );
+                             bool aAppend, bool aDirtyConnectivity = true );
 
     /**
      * Create a new entry in undo list of commands.
@@ -697,9 +665,10 @@ public:
      * @param aItemsList is the list of items modified by the command to undo/
      * @param aTypeCommand is the command type (see enum UNDO_REDO).
      * @param aAppend set to true to add the item to the previous undo list.
+     * @param aDirtyConnectivity set to true if the change can affect connectivity.
      */
     void SaveCopyInUndoList( const PICKED_ITEMS_LIST& aItemsList, UNDO_REDO aTypeCommand,
-                             bool aAppend );
+                             bool aAppend, bool aDirtyConnectivity = true );
 
     /**
      * Restore an undo or redo command to put data pointed by \a aList in the previous state.
@@ -725,13 +694,16 @@ public:
      * Clone \a aItem and owns that clone in this container.
      */
     void SaveCopyForRepeatItem( const SCH_ITEM* aItem );
+    void AddCopyForRepeatItem( const SCH_ITEM* aItem );
 
     /**
-     * Return the item which is to be repeated with the insert key.
-     *
-     * Such object is owned by this container, and must be cloned.
+     * Return the items which are to be repeated with the insert key.  Such objects are owned by
+     * this container, and must be cloned.
      */
-    SCH_ITEM* GetRepeatItem() const { return m_item_to_repeat; }
+    const std::vector<std::unique_ptr<SCH_ITEM>>& GetRepeatItems() const
+    {
+        return m_items_to_repeat;
+    }
 
     EDA_ITEM* GetItem( const KIID& aId ) const override;
 
@@ -813,6 +785,8 @@ public:
 
     void FocusOnItem( SCH_ITEM* aItem );
 
+    bool IsSyncingSelection() { return m_syncingPcbToSchSelection; }
+
     /**
      * Update a schematic symbol from a LIB_SYMBOL.
      *
@@ -827,7 +801,7 @@ public:
      * Update the schematic's page reference map for all global labels, and refresh the labels
      * so that they are redrawn with up-to-date references.
      */
-    void RecomputeIntersheetRefs();
+    void RecomputeIntersheetRefs( bool autoplaceUninitialized = false );
 
     void ShowAllIntersheetRefs( bool aShow );
 
@@ -838,6 +812,20 @@ public:
      * @param aFileName is the project auto save master file name.
      */
     virtual void CheckForAutoSaveFile( const wxFileName& aFileName ) override;
+
+
+    /**
+     * Toggle the show/hide state of the left side schematic navigation panel
+     */
+    void ToggleSchematicHierarchy();
+
+    /**
+     * @return the name of the wxAuiPaneInfo managing the Hierarchy Navigator panel
+     */
+    static const wxString SchematicHierarchyPaneName()
+    {
+        return wxT( "SchematicHierarchy" );
+    }
 
     DECLARE_EVENT_TABLE()
 
@@ -850,11 +838,6 @@ protected:
     bool doAutoSave() override;
 
     /**
-     * Return true if the schematic has been modified.
-     */
-    bool isAutoSaveRequired() const override;
-
-    /**
      * Send the KiCad netlist over to CVPCB.
      */
     void sendNetlistToCvpcb();
@@ -862,6 +845,9 @@ protected:
     void onSize( wxSizeEvent& aEvent );
 
 private:
+    // Called when resizing the Hierarchy Navigator panel
+    void OnResizeHierarchyNavigator( wxSizeEvent& aEvent );
+
     // Sets up the tool framework
     void setupTools();
 
@@ -938,13 +924,18 @@ private:
     const SCH_CONNECTION*   m_highlightedConn;    ///< The highlighted net or bus, or nullptr
 
     wxPageSetupDialogData   m_pageSetupData;
-    SCH_ITEM*               m_item_to_repeat;     ///< Last item to insert by the repeat command.
+    std::vector<std::unique_ptr<SCH_ITEM>> m_items_to_repeat;  ///< For the repeat-last-item cmd
+
     wxString                m_netListerCommand;   ///< Command line to call a custom net list
                                                   ///< generator.
     int                     m_exec_flags;         ///< Flags of the wxExecute() function
                                                   ///< to call a custom net list generator.
 
     DIALOG_SCH_FIND*        m_findReplaceDialog;
+
+    HIERARCHY_NAVIG_PANEL*  m_hierarchy;
+
+	bool m_syncingPcbToSchSelection; // Recursion guard when synchronizing selection from PCB
 };
 
 

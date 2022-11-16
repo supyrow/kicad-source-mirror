@@ -2,7 +2,7 @@
 * This program source code file is part of KiCad, a free EDA CAD application.
 *
 * Copyright (C) 2020 Mark Roszko <mark.roszko@gmail.com>
-* Copyright (C) 2020 KiCad Developers, see AUTHORS.txt for contributors.
+* Copyright (C) 2022 KiCad Developers, see AUTHORS.txt for contributors.
 *
 * This program is free software: you can redistribute it and/or modify it
 * under the terms of the GNU General Public License as published by the
@@ -28,6 +28,12 @@
 #include <strsafe.h>
 #include <config.h>
 #include <VersionHelpers.h>
+#include <iostream>
+#include <cstdio>
+
+#if defined( _MSC_VER )
+#include <werapi.h>     // issues on msys2
+#endif
 
 
 bool KIPLATFORM::APP::Init()
@@ -37,6 +43,61 @@ bool KIPLATFORM::APP::Init()
     // for half a hour _CRTDBG_ALLOC_MEM_DF is the usual default for MSVC.
     _CrtSetDbgFlag( _CRTDBG_ALLOC_MEM_DF );
 #endif
+
+#if defined( DEBUG )
+    // undo wxwidgets trying to hide errors
+    SetErrorMode( 0 );
+#else
+    SetErrorMode( SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX );
+#endif
+
+#if defined( _MSC_VER )
+    // ensure the WER crash report dialog always appears
+    WerSetFlags( WER_FAULT_REPORTING_ALWAYS_SHOW_UI );
+#endif
+
+    // remove CWD from the dll search paths
+    // just the smallest of security tweaks as we do load DLLs on demand
+    SetDllDirectory( wxT( "" ) );
+
+    // Moves the CWD to the end of the search list for spawning processes
+    SetSearchPathMode( BASE_SEARCH_PATH_ENABLE_SAFE_SEARCHMODE | BASE_SEARCH_PATH_PERMANENT );
+
+    // In order to support GUI and CLI
+    // Let's attach to console when it's possible
+    HANDLE handle;
+    if( AttachConsole( ATTACH_PARENT_PROCESS ) )
+    {
+        #if !defined( __MINGW32__ ) // These redirections create problems on mingw:
+                                    // Nothing is printed to the console
+        if( GetStdHandle( STD_INPUT_HANDLE ) != INVALID_HANDLE_VALUE )
+        {
+            freopen( "CONIN$", "r", stdin );
+            setvbuf( stdin, NULL, _IONBF, 0 );
+        }
+
+        if( GetStdHandle( STD_OUTPUT_HANDLE ) != INVALID_HANDLE_VALUE )
+        {
+            freopen( "CONOUT$", "w", stdout );
+            setvbuf( stdout, NULL, _IONBF, 0 );
+        }
+
+        if( GetStdHandle( STD_ERROR_HANDLE ) != INVALID_HANDLE_VALUE )
+        {
+            freopen( "CONOUT$", "w", stderr );
+            setvbuf( stderr, NULL, _IONBF, 0 );
+        }
+        #endif
+
+        std::ios::sync_with_stdio( true );
+
+        std::wcout.clear();
+        std::cout.clear();
+        std::wcerr.clear();
+        std::cerr.clear();
+        std::wcin.clear();
+        std::cin.clear();
+    }
 
     return true;
 }
@@ -60,15 +121,18 @@ bool KIPLATFORM::APP::IsOperatingSystemUnsupported()
 
 bool KIPLATFORM::APP::RegisterApplicationRestart( const wxString& aCommandLine )
 {
+    // Command line arguments with spaces require quotes.
+    wxString restartCmd = wxS( "\"" ) + aCommandLine + wxS( "\"" );
+
     // Ensure we don't exceed the maximum allowable size
-    if( aCommandLine.length() > RESTART_MAX_CMD_LINE - 1 )
+    if( restartCmd.length() > RESTART_MAX_CMD_LINE - 1 )
     {
         return false;
     }
 
     HRESULT hr = S_OK;
 
-    hr = ::RegisterApplicationRestart( aCommandLine.wc_str(), RESTART_NO_PATCH );
+    hr = ::RegisterApplicationRestart( restartCmd.wc_str(), RESTART_NO_PATCH );
 
     return SUCCEEDED( hr );
 }
@@ -116,5 +180,5 @@ void KIPLATFORM::APP::ForceTimerMessagesToBeCreatedIfNecessary()
 
 void KIPLATFORM::APP::AddDynamicLibrarySearchPath( const wxString& aPath )
 {
-    SetDllDirectoryA( aPath.c_str() );
+    SetDllDirectory( aPath.c_str() );
 }

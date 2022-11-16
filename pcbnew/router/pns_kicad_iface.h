@@ -56,11 +56,11 @@ public:
     void SetBoard( BOARD* aBoard );
     void SyncWorld( PNS::NODE* aWorld ) override;
     bool IsAnyLayerVisible( const LAYER_RANGE& aLayer ) const override { return true; };
-    bool IsFlashedOnLayer( const PNS::ITEM* aItem, int aLayer ) const override { return true; };
-    bool IsItemVisible( const PNS::ITEM* aItem ) const override { return true; }
+    bool IsFlashedOnLayer( const PNS::ITEM* aItem, int aLayer ) const override;
+    bool IsItemVisible( const PNS::ITEM* aItem ) const override { return true; };
     void HideItem( PNS::ITEM* aItem ) override {}
     void DisplayItem( const PNS::ITEM* aItem, int aClearance, bool aEdit = false ) override {}
-    void DisplayRatline( const SHAPE_LINE_CHAIN& aRatline, int aColor = -1 ) override {}
+    void DisplayRatline( const SHAPE_LINE_CHAIN& aRatline, int aNetCode ) override {}
     void AddItem( PNS::ITEM* aItem ) override;
     void UpdateItem( PNS::ITEM* aItem ) override;
     void RemoveItem( PNS::ITEM* aItem ) override;
@@ -114,10 +114,9 @@ public:
     void EraseView() override;
     bool IsAnyLayerVisible( const LAYER_RANGE& aLayer ) const override;
     bool IsItemVisible( const PNS::ITEM* aItem ) const override;
-    bool IsFlashedOnLayer( const PNS::ITEM* aItem, int aLayer ) const override;
     void HideItem( PNS::ITEM* aItem ) override;
     void DisplayItem( const PNS::ITEM* aItem, int aClearance, bool aEdit = false ) override;
-    void DisplayRatline( const SHAPE_LINE_CHAIN& aRatline, int aColor = -1 ) override;
+    void DisplayRatline( const SHAPE_LINE_CHAIN& aRatline, int aNetCode ) override;
     void Commit() override;
     void AddItem( PNS::ITEM* aItem ) override;
     void UpdateItem( PNS::ITEM* aItem ) override;
@@ -126,6 +125,8 @@ public:
     void UpdateNet( int aNetCode ) override;
 
     EDA_UNITS GetUnits() const override;
+
+    void SetCommitFlags( int aCommitFlags ) { m_commitFlags = aCommitFlags; }
 
 private:
     struct OFFSET
@@ -140,6 +141,7 @@ private:
 
     PCB_TOOL_BASE*                  m_tool;
     std::unique_ptr<BOARD_COMMIT>   m_commit;
+    int                             m_commitFlags;
 };
 
 

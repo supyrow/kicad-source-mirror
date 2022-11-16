@@ -74,12 +74,9 @@ public:
     /**
      * Map a wxWidgets key event to a TOOL_EVENT.
      */
-    OPT<TOOL_EVENT> GetToolEvent( wxKeyEvent* aKeyEvent, bool* aSpecialKeyFlag );
+    std::optional<TOOL_EVENT> GetToolEvent( wxKeyEvent* aKeyEvent, bool* aSpecialKeyFlag );
 
 private:
-    ///< Number of mouse buttons that is handled in events.
-    static const int MouseButtonCount = 3;
-
     ///< The time threshold for a mouse button press that distinguishes between a single mouse
     ///< click and a beginning of drag event (expressed in milliseconds).
     static const int DragTimeThreshold = 300;

@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2014 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2008 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 2004-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2004-2022 KiCad Developers, see AUTHORS.txt for contributors.
  * Copyright (C) 2017 CERN
  * @author Maciej Suminski <maciej.suminski@cern.ch>
  *
@@ -32,7 +32,7 @@
 #include <sch_screen.h>
 #include <lib_item.h>
 #include <ee_collectors.h>
-#include <core/optional.h>
+#include <optional>
 
 class SCH_EDIT_FRAME;
 class SYMBOL_LIB_TABLE;
@@ -42,8 +42,9 @@ class DIALOG_LIB_TEXT_PROPERTIES;
 class SYMBOL_TREE_PANE;
 class LIB_TREE_NODE;
 class LIB_ID;
-class SYMBOL_LIBRARY_MANAGER;
+class LIB_SYMBOL_LIBRARY_MANAGER;
 class SYMBOL_EDITOR_SETTINGS;
+class EDA_LIST_DIALOG;
 
 
 /**
@@ -97,6 +98,10 @@ public:
      */
     LIB_ID GetTreeLIBID( int* aUnit = nullptr ) const;
 
+    int GetTreeSelectionCount() const;
+
+    int GetTreeLIBIDs( std::vector<LIB_ID>& aSelection ) const;
+
     /**
      * Return the current symbol being edited or NULL if none selected.
      *
@@ -109,7 +114,7 @@ public:
      */
     void SetCurSymbol( LIB_SYMBOL* aSymbol, bool aUpdateZoom );
 
-    SYMBOL_LIBRARY_MANAGER& GetLibManager();
+    LIB_SYMBOL_LIBRARY_MANAGER& GetLibManager();
 
     SELECTION& GetCurrentSelection() override;
 
@@ -121,7 +126,12 @@ public:
     /**
      * Create or add an existing library to the symbol library table.
      */
-    bool AddLibraryFile( bool aCreateNew );
+    wxString AddLibraryFile( bool aCreateNew );
+
+    /**
+     * Add a library dropped file to the symbol library table.
+     */
+    void DdAddLibrary( wxString aLibFile );
 
     /**
      * Create a new symbol in the selected library.
@@ -296,7 +306,8 @@ public:
      * Synchronize the library manager to the symbol library table, and then the symbol tree
      * to the library manager.  Optionally displays a progress dialog.
      */
-    void SyncLibraries( bool aShowProgress, const wxString& aForceRefresh = wxEmptyString );
+    void SyncLibraries( bool aShowProgress, bool aPreloadCancelled = false,
+                        const wxString& aForceRefresh = wxEmptyString );
 
     /**
      * Filter, sort, and redisplay the library tree.
@@ -309,6 +320,24 @@ public:
      * Redisplay the library tree.  Used after changing modified states, descriptions, etc.
      */
     void RefreshLibraryTree();
+
+    /**
+     * Update a symbol node in the library tree.
+     */
+    void UpdateLibraryTree( const wxDataViewItem& aTreeItem, LIB_SYMBOL* aSymbol );
+
+    /**
+     * Return either the symbol selected in the symbol tree (if context menu is active) or the
+     * symbol on the editor canvas.
+     */
+    LIB_ID GetTargetLibId() const;
+
+    /**
+     * @return a list of selected items in the symbol tree
+     */
+    std::vector<LIB_ID> GetSelectedLibIds() const;
+
+    void FocusOnLibId( const LIB_ID& aLibID );
 
     /**
      * Called after the preferences dialog is run.
@@ -354,12 +383,11 @@ public:
 
     bool IsSymbolAlias() const;
 
+    ///< Return true if \a aLibId is an alias for the editor screen symbol.
+    bool IsCurrentSymbol( const LIB_ID& aLibId ) const;
+
     ///< Restore the empty editor screen, without any symbol or library selected.
     void emptyScreen();
-
-    ///< Return either the symbol selected in the symbol tree, if context menu is active or the
-    ///< currently modified symbol.
-    LIB_ID GetTargetLibId() const;
 
 protected:
     void setupUIConditions() override;
@@ -367,6 +395,9 @@ protected:
 private:
     // Set up the tool framework
     void setupTools();
+
+    EDA_LIST_DIALOG* buildSaveAsDialog( const wxString& aSymbolName,
+                                        const wxString& aLibraryPreselect );
 
     void saveSymbolAs();
 
@@ -397,16 +428,6 @@ private:
     void SelectActiveLibrary( const wxString& aLibrary = wxEmptyString );
 
     /**
-     * Display a list of loaded libraries in the symbol library and allows the user to select
-     * a library.
-     *
-     * This list is sorted, with the library cache always at end of the list
-     *
-     * @return the library nickname used in the symbol library table.
-     */
-    wxString SelectLibraryFromList();
-
-    /**
      * Load a symbol from the current active library, optionally setting the selected unit
      * and convert.
      *
@@ -429,14 +450,6 @@ private:
      */
     bool LoadOneLibrarySymbolAux( LIB_SYMBOL* aLibEntry, const wxString& aLibrary, int aUnit,
                                   int aConvert );
-
-    /**
-     * Display a dialog asking the user to select a symbol library table.
-     *
-     * @param aOptional if set the Cancel button will be relabelled "Skip".
-     * @return Pointer to the selected symbol library table or nullptr if canceled.
-     */
-    SYMBOL_LIB_TABLE* selectSymLibTable( bool aOptional = false );
 
     ///< Create a backup copy of a file with requested extension.
     bool backupFile( const wxFileName& aOriginalFile, const wxString& aBackupExt );
@@ -463,9 +476,6 @@ private:
 
     ///< Store the currently modified symbol in the library manager buffer.
     void storeCurrentSymbol();
-
-    ///< Return true if \a aLibId is an alias for the editor screen symbol.
-    bool isCurrentSymbol( const LIB_ID& aLibId ) const;
 
     ///< Rename LIB_SYMBOL aliases to avoid conflicts before adding a symbol to a library.
     void ensureUniqueName( LIB_SYMBOL* aSymbol, const wxString& aLibrary );
@@ -534,7 +544,7 @@ private:
     wxComboBox*             m_unitSelectBox;     // a ComboBox to select a unit to edit (if the
                                                  // symbol has multiple units)
     SYMBOL_TREE_PANE*       m_treePane;          // symbol search tree widget
-    SYMBOL_LIBRARY_MANAGER* m_libMgr;            // manager taking care of temporary modifications
+    LIB_SYMBOL_LIBRARY_MANAGER* m_libMgr;        // manager taking care of temporary modifications
     SYMBOL_EDITOR_SETTINGS* m_settings;          // Handle to the settings
 
     LIB_ID                  m_centerItemOnIdle;

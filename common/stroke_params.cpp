@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2021-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -16,11 +16,10 @@
  * You should have received a copy of the GNU General Public License along
  * with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-
 #include <macros.h>
 #include <base_units.h>
+#include <charconv>
 #include <string_utils.h>
-#include <eda_rect.h>
 #include <render_settings.h>
 #include <geometry/shape.h>
 #include <geometry/shape_segment.h>
@@ -28,6 +27,7 @@
 #include <geometry/geometry_utils.h>
 #include <stroke_params.h>
 #include <trigo.h>
+#include <widgets/msgpanel.h>
 
 using namespace STROKEPARAMS_T;
 
@@ -93,8 +93,7 @@ void STROKE_PARAMS::Stroke( const SHAPE* aShape, PLOT_DASH_TYPE aLineStyle, int 
 
         VECTOR2D start = line->GetSeg().A;
         VECTOR2D end = line->GetSeg().B;
-
-        EDA_RECT clip( (VECTOR2I) start, wxSize( end.x - start.x, end.y - start.y ) );
+        BOX2I    clip( start, VECTOR2I( end.x - start.x, end.y - start.y ) );
         clip.Normalize();
 
         double theta = atan2( end.y - start.y, end.x - start.x );
@@ -173,43 +172,69 @@ void STROKE_PARAMS::Stroke( const SHAPE* aShape, PLOT_DASH_TYPE aLineStyle, int 
 }
 
 
-static wxString getLineStyleToken( PLOT_DASH_TYPE aStyle )
+wxString STROKE_PARAMS::GetLineStyleToken( PLOT_DASH_TYPE aStyle )
 {
     wxString token;
 
     switch( aStyle )
     {
-    case PLOT_DASH_TYPE::DASH:       token = "dash";         break;
-    case PLOT_DASH_TYPE::DOT:        token = "dot";          break;
-    case PLOT_DASH_TYPE::DASHDOT:    token = "dash_dot";     break;
-    case PLOT_DASH_TYPE::DASHDOTDOT: token = "dash_dot_dot"; break;
-    case PLOT_DASH_TYPE::SOLID:      token = "solid";        break;
-    case PLOT_DASH_TYPE::DEFAULT:    token = "default";      break;
+    case PLOT_DASH_TYPE::DASH:       token = wxT( "dash" );         break;
+    case PLOT_DASH_TYPE::DOT:        token = wxT( "dot" );          break;
+    case PLOT_DASH_TYPE::DASHDOT:    token = wxT( "dash_dot" );     break;
+    case PLOT_DASH_TYPE::DASHDOTDOT: token = wxT( "dash_dot_dot" ); break;
+    case PLOT_DASH_TYPE::SOLID:      token = wxT( "solid" );        break;
+    case PLOT_DASH_TYPE::DEFAULT:    token = wxT( "default" );      break;
     }
 
     return token;
 }
 
 
-void STROKE_PARAMS::Format( OUTPUTFORMATTER* aFormatter, int aNestLevel ) const
+void STROKE_PARAMS::GetMsgPanelInfo( UNITS_PROVIDER* aUnitsProvider,
+                                     std::vector<MSG_PANEL_ITEM>& aList,
+                                     bool aIncludeStyle, bool aIncludeWidth )
+{
+    if( aIncludeStyle )
+    {
+        wxString lineStyle = _( "Default" );
+
+        for( const std::pair<const PLOT_DASH_TYPE, lineTypeStruct>& typeEntry : lineTypeNames )
+        {
+            if( typeEntry.first == GetPlotStyle() )
+            {
+                lineStyle = typeEntry.second.name;
+                break;
+            }
+        }
+
+        aList.emplace_back( _( "Line Style" ), lineStyle );
+    }
+
+    if( aIncludeWidth )
+        aList.emplace_back( _( "Line Width" ), aUnitsProvider->MessageTextFromValue( GetWidth() ) );
+}
+
+
+void STROKE_PARAMS::Format( OUTPUTFORMATTER* aFormatter, const EDA_IU_SCALE& aIuScale,
+                            int aNestLevel ) const
 {
     wxASSERT( aFormatter != nullptr );
 
     if( GetColor() == KIGFX::COLOR4D::UNSPECIFIED )
     {
         aFormatter->Print( aNestLevel, "(stroke (width %s) (type %s))",
-                           FormatInternalUnits(GetWidth() ).c_str(),
-                           TO_UTF8( getLineStyleToken( GetPlotStyle() ) ) );
+                           EDA_UNIT_UTILS::FormatInternalUnits( aIuScale, GetWidth() ).c_str(),
+                           TO_UTF8( GetLineStyleToken( GetPlotStyle() ) ) );
     }
     else
     {
         aFormatter->Print( aNestLevel, "(stroke (width %s) (type %s) (color %d %d %d %s))",
-                           FormatInternalUnits(GetWidth() ).c_str(),
-                           TO_UTF8( getLineStyleToken( GetPlotStyle() ) ),
+                           EDA_UNIT_UTILS::FormatInternalUnits( aIuScale, GetWidth() ).c_str(),
+                           TO_UTF8( GetLineStyleToken( GetPlotStyle() ) ),
                            KiROUND( GetColor().r * 255.0 ),
                            KiROUND( GetColor().g * 255.0 ),
                            KiROUND( GetColor().b * 255.0 ),
-                           Double2Str( GetColor().a ).c_str() );
+                           FormatDouble2Str( GetColor().a ).c_str() );
     }
 }
 
@@ -289,7 +314,7 @@ double STROKE_PARAMS_PARSER::parseDouble( const char* aText )
     if( token != T_NUMBER )
         Expecting( aText );
 
-    double val = strtod( CurText(), NULL );
-
-    return val;
+    return DSNLEXER::parseDouble();
 }
+
+

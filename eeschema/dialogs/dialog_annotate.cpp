@@ -24,12 +24,13 @@
 
 
 #include <sch_edit_frame.h>
+#include <base_units.h>
 #include <bitmaps.h>
 #include <confirm.h>
 #include <dialog_annotate_base.h>
 #include <eeschema_settings.h>
 #include <kiface_base.h>
-#include <wx_html_report_panel.h>
+#include <widgets/wx_html_report_panel.h>
 #include <schematic.h>
 
 // A window name for the annotate dialog to retrieve is if not destroyed
@@ -59,6 +60,8 @@ private:
 
     ANNOTATE_SCOPE_T GetScope();
 
+    bool GetRecursive();
+
     ANNOTATE_ORDER_T GetSortOrder();
 
     ANNOTATE_ALGO_T GetAnnotateAlgo();
@@ -80,8 +83,8 @@ DIALOG_ANNOTATE::DIALOG_ANNOTATE( SCH_EDIT_FRAME* parent, const wxString& messag
         m_infoBar->RemoveAllButtons();
         m_infoBar->ShowMessage( message );
 
-        m_rbScope->SetSelection( 0 );
-        m_rbScope->Enable( false );
+        m_rbScope_Schematic->SetValue( true );
+        m_rbScope_Schematic->Enable( false );
     }
 
     m_MessageWindow->SetLabel( _( "Annotation Messages:" ) );
@@ -106,8 +109,11 @@ DIALOG_ANNOTATE::~DIALOG_ANNOTATE()
     cfg->m_AnnotatePanel.method = GetAnnotateAlgo();
     cfg->m_AnnotatePanel.options = m_rbOptions->GetSelection();
 
-    if( m_rbScope->IsEnabled() )
-        cfg->m_AnnotatePanel.scope = m_rbScope->GetSelection();
+    if( m_rbScope_Schematic->IsEnabled() )
+    {
+        cfg->m_AnnotatePanel.scope = GetScope();
+        cfg->m_AnnotatePanel.recursive = GetRecursive();
+    }
 
     cfg->m_AnnotatePanel.messages_filter = m_MessageWindow->GetVisibleSeverities();
 
@@ -137,8 +143,19 @@ void DIALOG_ANNOTATE::InitValues()
     EESCHEMA_SETTINGS* cfg = static_cast<EESCHEMA_SETTINGS*>( Kiface().KifaceSettings() );
     int option;
 
-    if( m_rbScope->IsEnabled() )
-        m_rbScope->SetSelection( cfg->m_AnnotatePanel.scope );
+    if( m_rbScope_Schematic->IsEnabled() )
+    {
+        switch( cfg->m_AnnotatePanel.scope )
+        {
+        default:
+        case 0: m_rbScope_Schematic->SetValue( true ); break;
+        case 1: m_rbScope_Sheet->SetValue( true );     break;
+        case 2: m_rbScope_Selection->SetValue( true ); break;
+        }
+
+        m_checkRecursive->SetValue( cfg->m_AnnotatePanel.recursive );
+    }
+
 
     m_rbOptions->SetSelection( cfg->m_AnnotatePanel.options );
 
@@ -202,7 +219,7 @@ void DIALOG_ANNOTATE::OnApplyClick( wxCommandEvent& event )
     REPORTER& reporter = m_MessageWindow->Reporter();
     m_MessageWindow->SetLazyUpdate( true );     // Don't update after each message
 
-    m_Parent->AnnotateSymbols( GetScope(), GetSortOrder(), GetAnnotateAlgo(),
+    m_Parent->AnnotateSymbols( GetScope(), GetSortOrder(), GetAnnotateAlgo(), GetRecursive(),
                                GetStartNumber(), GetResetItems(), true, reporter );
 
     m_MessageWindow->Flush( true );             // Now update to show all messages
@@ -230,7 +247,7 @@ void DIALOG_ANNOTATE::OnClearAnnotationClick( wxCommandEvent& event )
 {
     bool appendUndo = false;
 
-    m_Parent->DeleteAnnotation( GetScope(), &appendUndo );
+    m_Parent->DeleteAnnotation( GetScope(), GetRecursive(), &appendUndo );
     m_btnClear->Enable( false );
 }
 
@@ -250,13 +267,18 @@ bool DIALOG_ANNOTATE::GetResetItems()
 
 ANNOTATE_SCOPE_T DIALOG_ANNOTATE::GetScope()
 {
-    switch( m_rbScope->GetSelection() )
-    {
-    case 0:  return ANNOTATE_ALL;
-    case 1:  return ANNOTATE_CURRENT_SHEET;
-    case 2:  return ANNOTATE_SELECTION;
-    default: return ANNOTATE_ALL;
-    }
+    if( m_rbScope_Schematic->GetValue() )
+        return ANNOTATE_ALL;
+    else if( m_rbScope_Sheet->GetValue() )
+        return ANNOTATE_CURRENT_SHEET;
+    else
+        return ANNOTATE_SELECTION;
+}
+
+
+bool DIALOG_ANNOTATE::GetRecursive()
+{
+    return m_checkRecursive->GetValue();
 }
 
 
@@ -282,7 +304,7 @@ ANNOTATE_ALGO_T DIALOG_ANNOTATE::GetAnnotateAlgo()
 
 int DIALOG_ANNOTATE::GetStartNumber()
 {
-    return ValueFromString( EDA_UNITS::UNSCALED, m_textNumberAfter->GetValue() );
+    return EDA_UNIT_UTILS::UI::ValueFromString( m_textNumberAfter->GetValue() );
 }
 
 

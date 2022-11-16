@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2014 Henner Zeller <h.zeller@acm.org>
- * Copyright (C) 2016-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2016-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -47,6 +47,9 @@
 
 std::mutex DIALOG_CHOOSE_SYMBOL::g_Mutex;
 
+wxString DIALOG_CHOOSE_SYMBOL::g_symbolSearchString;
+wxString DIALOG_CHOOSE_SYMBOL::g_powerSearchString;
+
 
 DIALOG_CHOOSE_SYMBOL::DIALOG_CHOOSE_SYMBOL( SCH_BASE_FRAME* aParent, const wxString& aTitle,
                                             wxObjectDataPtr<LIB_TREE_MODEL_ADAPTER>& aAdapter,
@@ -70,8 +73,10 @@ DIALOG_CHOOSE_SYMBOL::DIALOG_CHOOSE_SYMBOL( SCH_BASE_FRAME* aParent, const wxStr
           m_show_footprints( aShowFootprints ),
           m_external_browser_requested( false )
 {
+    m_showPower = aAdapter->GetFilter() == SYMBOL_TREE_MODEL_ADAPTER::SYM_FILTER_POWER;
+
     // Never show footprints in power symbol mode
-    if( aAdapter->GetFilter() == SYMBOL_TREE_MODEL_ADAPTER::SYM_FILTER_POWER )
+    if( m_showPower )
         m_show_footprints = false;
 
     wxBoxSizer* sizer = new wxBoxSizer( wxVERTICAL );
@@ -121,7 +126,8 @@ DIALOG_CHOOSE_SYMBOL::DIALOG_CHOOSE_SYMBOL( SCH_BASE_FRAME* aParent, const wxStr
     wxBoxSizer* treeSizer = new wxBoxSizer( wxVERTICAL );
     treePanel->SetSizer( treeSizer );
 
-    m_tree = new LIB_TREE( treePanel, Prj().SchSymbolLibTable(), aAdapter, LIB_TREE::WIDGETS::ALL,
+    m_tree = new LIB_TREE( treePanel, m_showPower ? wxT( "power" ) : wxT( "symbols" ),
+                           Prj().SchSymbolLibTable(), aAdapter, LIB_TREE::FLAGS::ALL_WIDGETS,
                            m_details );
 
     treeSizer->Add( m_tree, 1, wxEXPAND | wxALL, 5 );
@@ -129,6 +135,11 @@ DIALOG_CHOOSE_SYMBOL::DIALOG_CHOOSE_SYMBOL( SCH_BASE_FRAME* aParent, const wxStr
     treeSizer->Fit( treePanel );
 
     aAdapter->FinishTreeInitialization();
+
+    if( m_showPower )
+        m_tree->SetSearchString( g_powerSearchString );
+    else
+        m_tree->SetSearchString( g_symbolSearchString );
 
     m_hsplitter->SetSashGravity( 0.8 );
     m_hsplitter->SetMinimumPaneSize( 20 );
@@ -144,11 +155,11 @@ DIALOG_CHOOSE_SYMBOL::DIALOG_CHOOSE_SYMBOL( SCH_BASE_FRAME* aParent, const wxStr
         buttonsSizer->Add( m_browser_button, 0, wxALL | wxALIGN_CENTER_VERTICAL, 5 );
     }
 
-    m_keepSymbol = new wxCheckBox( this, wxID_ANY, _("Place repeated copies"), wxDefaultPosition,
+    m_keepSymbol = new wxCheckBox( this, wxID_ANY, _( "Place repeated copies" ), wxDefaultPosition,
                                    wxDefaultSize, wxALIGN_RIGHT );
     m_keepSymbol->SetToolTip( _( "Keep the symbol selected for subsequent clicks." ) );
 
-    m_useUnits = new wxCheckBox( this, wxID_ANY, _("Place all units"), wxDefaultPosition,
+    m_useUnits = new wxCheckBox( this, wxID_ANY, _( "Place all units" ), wxDefaultPosition,
                                  wxDefaultSize, wxALIGN_RIGHT );
     m_useUnits->SetToolTip( _( "Sequentially place all units of the symbol." ) );
 
@@ -182,13 +193,13 @@ DIALOG_CHOOSE_SYMBOL::DIALOG_CHOOSE_SYMBOL( SCH_BASE_FRAME* aParent, const wxStr
 
         // We specify the width of the right window (m_symbol_view_panel), because specify
         // the width of the left window does not work as expected when SetSashGravity() is called
-        m_hsplitter->SetSashPosition( panelCfg.sash_pos_h > 0 ? panelCfg.sash_pos_h :
-                                      horizPixelsFromDU( 220 ) );
+        m_hsplitter->SetSashPosition( panelCfg.sash_pos_h > 0 ? panelCfg.sash_pos_h
+                                                              : horizPixelsFromDU( 220 ) );
 
         if( m_vsplitter )
         {
-            m_vsplitter->SetSashPosition( panelCfg.sash_pos_v > 0 ? panelCfg.sash_pos_v :
-                                          vertPixelsFromDU( 230 ) );
+            m_vsplitter->SetSashPosition( panelCfg.sash_pos_v > 0 ? panelCfg.sash_pos_v
+                                                                  : vertPixelsFromDU( 230 ) );
         }
 
         wxSize dlgSize( panelCfg.width > 0 ? panelCfg.width : horizPixelsFromDU( 390 ),
@@ -234,6 +245,11 @@ DIALOG_CHOOSE_SYMBOL::~DIALOG_CHOOSE_SYMBOL()
     // Stop the timer during destruction early to avoid potential race conditions (that do happen)
     m_dbl_click_timer->Stop();
     delete m_dbl_click_timer;
+
+    if( m_showPower )
+        g_powerSearchString = m_tree->GetSearchString();
+    else
+        g_symbolSearchString = m_tree->GetSearchString();
 
     if( m_browser_button )
     {
@@ -283,7 +299,7 @@ wxPanel* DIALOG_CHOOSE_SYMBOL::ConstructRightPanel( wxWindow* aParent )
     {
         FOOTPRINT_LIST* fp_list = FOOTPRINT_LIST::GetInstance( Kiway() );
 
-        sizer->Add( m_symbol_preview, 1, wxEXPAND | wxALL, 5 );
+        sizer->Add( m_symbol_preview, 11, wxEXPAND | wxALL, 5 );
 
         if ( fp_list )
         {
@@ -294,10 +310,10 @@ wxPanel* DIALOG_CHOOSE_SYMBOL::ConstructRightPanel( wxWindow* aParent )
         }
 
         if( m_fp_sel_ctrl )
-            sizer->Add( m_fp_sel_ctrl, 0, wxEXPAND | wxTOP | wxLEFT | wxRIGHT, 3 );
+            sizer->Add( m_fp_sel_ctrl, 0, wxEXPAND | wxALL, 4 );
 
         if( m_fp_preview )
-            sizer->Add( m_fp_preview, 1, wxEXPAND | wxALL, 5 );
+            sizer->Add( m_fp_preview, 10, wxEXPAND | wxLEFT | wxRIGHT | wxBOTTOM, 5 );
     }
     else
     {
@@ -500,16 +516,18 @@ void DIALOG_CHOOSE_SYMBOL::OnFootprintSelected( wxCommandEvent& aEvent )
 
 void DIALOG_CHOOSE_SYMBOL::OnComponentPreselected( wxCommandEvent& aEvent )
 {
-    int unit = 0;
+    LIB_TREE_NODE* node = m_tree->GetCurrentTreeNode();
 
-    LIB_ID id = m_tree->GetSelectedLibId( &unit );
-
-    if( id.IsValid() )
+    if( node && node->m_LibId.IsValid() )
     {
-        m_symbol_preview->DisplaySymbol( id, unit );
+        m_symbol_preview->DisplaySymbol( node->m_LibId, node->m_Unit );
 
-        ShowFootprintFor( id );
-        PopulateFootprintSelector( id );
+        if( !node->m_Footprint.IsEmpty() )
+            ShowFootprint( node->m_Footprint );
+        else
+            ShowFootprintFor( node->m_LibId );
+
+        PopulateFootprintSelector( node->m_LibId );
     }
     else
     {
@@ -518,7 +536,7 @@ void DIALOG_CHOOSE_SYMBOL::OnComponentPreselected( wxCommandEvent& aEvent )
         if( m_fp_preview && m_fp_preview->IsInitialized() )
             m_fp_preview->SetStatusText( wxEmptyString );
 
-        PopulateFootprintSelector( id );
+        PopulateFootprintSelector( LIB_ID() );
     }
 }
 

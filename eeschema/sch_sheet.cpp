@@ -27,6 +27,7 @@
 
 #include <bitmaps.h>
 #include <core/mirror.h>
+#include <core/kicad_algo.h>
 #include <sch_draw_panel.h>
 #include <trigo.h>
 #include <sch_edit_frame.h>
@@ -45,18 +46,14 @@
 #include <pgm_base.h>
 #include <wx/log.h>
 
-#define SHEET_NAME_CANONICAL "Sheet name"
-#define SHEET_FILE_CANONICAL "Sheet file"
+// N.B. Do not change these values without transitioning the file format
+#define SHEET_NAME_CANONICAL "Sheetname"
+#define SHEET_FILE_CANONICAL "Sheetfile"
 #define USER_FIELD_CANONICAL "Field%d"
 
 
 const wxString SCH_SHEET::GetDefaultFieldName( int aFieldNdx, bool aTranslated )
 {
-    static void* locale = nullptr;
-    static wxString sheetnameDefault;
-    static wxString sheetfilenameDefault;
-    static wxString userFieldDefault;
-
     if( !aTranslated )
     {
         switch( aFieldNdx )
@@ -67,22 +64,12 @@ const wxString SCH_SHEET::GetDefaultFieldName( int aFieldNdx, bool aTranslated )
         }
     }
 
-    // Fetching translations can take a surprising amount of time when loading libraries,
-    // so only do it when necessary.
-    if( Pgm().GetLocale() != locale )
-    {
-        sheetnameDefault     = _( SHEET_NAME_CANONICAL );
-        sheetfilenameDefault = _( SHEET_FILE_CANONICAL );
-        userFieldDefault     = _( USER_FIELD_CANONICAL );
-        locale = Pgm().GetLocale();
-    }
-
     // Fixed values for the mandatory fields
     switch( aFieldNdx )
     {
-    case  SHEETNAME:     return sheetnameDefault;
-    case  SHEETFILENAME: return sheetfilenameDefault;
-    default:             return wxString::Format( userFieldDefault, aFieldNdx );
+    case  SHEETNAME:     return _( SHEET_NAME_CANONICAL );
+    case  SHEETFILENAME: return _( SHEET_FILE_CANONICAL );
+    default:             return wxString::Format( _( USER_FIELD_CANONICAL ), aFieldNdx );
     }
 }
 
@@ -214,14 +201,31 @@ bool SCH_SHEET::IsRootSheet() const
 
 void SCH_SHEET::GetContextualTextVars( wxArrayString* aVars ) const
 {
+    auto add =
+            [&]( const wxString& aVar )
+            {
+                if( !alg::contains( *aVars, aVar ) )
+                    aVars->push_back( aVar );
+            };
+
     for( int i = 0; i < SHEET_MANDATORY_FIELDS; ++i )
-        aVars->push_back( m_fields[i].GetCanonicalName().Upper() );
+        add( m_fields[i].GetCanonicalName().Upper() );
 
     for( size_t i = SHEET_MANDATORY_FIELDS; i < m_fields.size(); ++i )
-        aVars->push_back( m_fields[i].GetName() );
+        add( m_fields[i].GetName() );
 
-    aVars->push_back( wxT( "#" ) );
-    aVars->push_back( wxT( "##" ) );
+    SCH_SHEET_PATH sheetPath = findSelf();
+
+    if( sheetPath.size() >= 2 )
+    {
+        sheetPath.pop_back();
+        sheetPath.Last()->GetContextualTextVars( aVars );
+    }
+
+    add( wxT( "#" ) );
+    add( wxT( "##" ) );
+    add( wxT( "SHEETPATH" ) );
+
     m_screen->GetTitleBlock().GetContextualTextVars( aVars );
 }
 
@@ -248,21 +252,17 @@ bool SCH_SHEET::ResolveTextVar( wxString* token, int aDepth ) const
 
     PROJECT *project = &Schematic()->Prj();
 
-    if( m_screen->GetTitleBlock().TextVarResolver( token, project ) )
+    // We cannot resolve text variables initially on load as we need to first load the screen and
+    // then parse the hierarchy.  So skip the resolution if the screen isn't set yet
+    if( m_screen && m_screen->GetTitleBlock().TextVarResolver( token, project ) )
     {
         return true;
     }
 
     if( token->IsSameAs( wxT( "#" ) ) )
     {
-        for( const SCH_SHEET_PATH& sheet : Schematic()->GetSheets() )
-        {
-            if( sheet.Last() == this )   // Current sheet path found
-            {
-                *token = wxString::Format( "%s", sheet.GetPageNumber() );
-                return true;
-            }
-        }
+        *token = wxString::Format( "%s", findSelf().GetPageNumber() );
+        return true;
     }
     else if( token->IsSameAs( wxT( "##" ) ) )
     {
@@ -270,14 +270,27 @@ bool SCH_SHEET::ResolveTextVar( wxString* token, int aDepth ) const
         *token = wxString::Format( wxT( "%d" ), (int) sheetList.size() );
         return true;
     }
+    else if( token->IsSameAs( wxT( "SHEETPATH" ) ) )
+    {
+        *token = findSelf().PathHumanReadable();
+        return true;
+    }
+    else
+    {
+        // See if any of the sheets up the hierarchy can resolve it:
+
+        SCH_SHEET_PATH sheetPath = findSelf();
+
+        if( sheetPath.size() >= 2 )
+        {
+            sheetPath.pop_back();
+
+            if( sheetPath.Last()->ResolveTextVar( token, aDepth ) )
+                return true;
+        }
+    }
 
     return false;
-}
-
-
-bool SCH_SHEET::UsesDefaultStroke() const
-{
-    return m_borderWidth == 0 && m_borderColor == COLOR4D::UNSPECIFIED;
 }
 
 
@@ -312,6 +325,28 @@ void SCH_SHEET::SwapData( SCH_ITEM* aItem )
     std::swap( m_borderColor, sheet->m_borderColor );
     std::swap( m_backgroundColor, sheet->m_backgroundColor );
     std::swap( m_instances, sheet->m_instances );
+}
+
+
+void SCH_SHEET::SetFields( const std::vector<SCH_FIELD>& aFields )
+{
+    m_fields = aFields;
+    int next_id = SHEET_MANDATORY_FIELDS;
+
+    for( int ii = 0; ii < int( m_fields.size() ); )
+    {
+        if( m_fields[ii].GetId() < 0 || m_fields[ii].GetId() >= ssize_t( m_fields.size() ) )
+            m_fields[ii].SetId( next_id++ );
+
+        if( m_fields[ii].GetId() != ii )
+            std::swap( m_fields[ii], m_fields[m_fields[ii].GetId()]);
+
+        if( m_fields[ii].GetId() == ii )
+            ++ii;
+    }
+
+    // Make sure that we get the UNIX variant of the file path
+    SetFileName( m_fields[SHEETFILENAME].GetText() );
 }
 
 
@@ -414,7 +449,7 @@ bool SCH_SHEET::HasUndefinedPins() const
 
 int bumpToNextGrid( const int aVal, const int aDirection )
 {
-    constexpr int gridSize = Mils2iu( 50 );
+    constexpr int gridSize = schIUScale.MilsToIU( 50 );
 
     int base = aVal / gridSize;
     int excess = abs( aVal % gridSize );
@@ -445,7 +480,7 @@ int SCH_SHEET::GetMinWidth( bool aFromLeft ) const
 
         if( edge == SHEET_SIDE::TOP || edge == SHEET_SIDE::BOTTOM )
         {
-            EDA_RECT pinRect = m_pins[i]->GetBoundingBox();
+            BOX2I pinRect = m_pins[i]->GetBoundingBox();
 
             pinsLeft = std::min( pinsLeft, pinRect.GetLeft() );
             pinsRight = std::max( pinsRight, pinRect.GetRight() );
@@ -464,7 +499,7 @@ int SCH_SHEET::GetMinWidth( bool aFromLeft ) const
     else
         pinMinWidth = m_pos.x + m_size.x - pinsLeft;
 
-    return std::max( pinMinWidth, Mils2iu( MIN_SHEET_WIDTH ) );
+    return std::max( pinMinWidth, schIUScale.MilsToIU( MIN_SHEET_WIDTH ) );
 }
 
 
@@ -479,7 +514,7 @@ int SCH_SHEET::GetMinHeight( bool aFromTop ) const
 
         if( edge == SHEET_SIDE::RIGHT || edge == SHEET_SIDE::LEFT )
         {
-            EDA_RECT pinRect = m_pins[i]->GetBoundingBox();
+            BOX2I pinRect = m_pins[i]->GetBoundingBox();
 
             pinsTop = std::min( pinsTop, pinRect.GetTop() );
             pinsBottom = std::max( pinsBottom, pinRect.GetBottom() );
@@ -498,7 +533,7 @@ int SCH_SHEET::GetMinHeight( bool aFromTop ) const
     else
         pinMinHeight = m_pos.y + m_size.y - pinsTop;
 
-    return std::max( pinMinHeight, Mils2iu( MIN_SHEET_HEIGHT ) );
+    return std::max( pinMinHeight, schIUScale.MilsToIU( MIN_SHEET_HEIGHT ) );
 }
 
 
@@ -548,15 +583,15 @@ int SCH_SHEET::GetPenWidth() const
     if( Schematic() )
         return Schematic()->Settings().m_DefaultLineWidth;
 
-    return Mils2iu( DEFAULT_LINE_WIDTH_MILS );
+    return schIUScale.MilsToIU( DEFAULT_LINE_WIDTH_MILS );
 }
 
 
 void SCH_SHEET::AutoplaceFields( SCH_SCREEN* aScreen, bool aManual )
 {
-    wxSize textSize = m_fields[ SHEETNAME ].GetTextSize();
-    int    borderMargin = KiROUND( GetPenWidth() / 2.0 ) + 4;
-    int    margin = borderMargin + KiROUND( std::max( textSize.x, textSize.y ) * 0.5 );
+    VECTOR2I textSize = m_fields[SHEETNAME].GetTextSize();
+    int      borderMargin = KiROUND( GetPenWidth() / 2.0 ) + 4;
+    int      margin = borderMargin + KiROUND( std::max( textSize.x, textSize.y ) * 0.5 );
 
     if( IsVerticalOrientation() )
     {
@@ -608,10 +643,10 @@ void SCH_SHEET::ViewGetLayers( int aLayers[], int& aCount ) const
 }
 
 
-const EDA_RECT SCH_SHEET::GetBodyBoundingBox() const
+const BOX2I SCH_SHEET::GetBodyBoundingBox() const
 {
     VECTOR2I end;
-    EDA_RECT box( m_pos, m_size );
+    BOX2I    box( m_pos, m_size );
     int      lineWidth = GetPenWidth();
     int      textLength = 0;
 
@@ -629,20 +664,20 @@ const EDA_RECT SCH_SHEET::GetBodyBoundingBox() const
 }
 
 
-const EDA_RECT SCH_SHEET::GetBoundingBox() const
+const BOX2I SCH_SHEET::GetBoundingBox() const
 {
-    EDA_RECT box = GetBodyBoundingBox();
+    BOX2I bbox = GetBodyBoundingBox();
 
     for( const SCH_FIELD& field : m_fields )
-        box.Merge( field.GetBoundingBox() );
+        bbox.Merge( field.GetBoundingBox() );
 
-    return box;
+    return bbox;
 }
 
 
 VECTOR2I SCH_SHEET::GetRotationCenter() const
 {
-    EDA_RECT box( m_pos, m_size );
+    BOX2I box( m_pos, m_size );
     return box.GetCenter();
 }
 
@@ -714,14 +749,12 @@ bool SCH_SHEET::LocatePathOfScreen( SCH_SCREEN* aScreen, SCH_SHEET_PATH* aList )
         if( m_screen == aScreen )
             return true;
 
-        for( auto item : m_screen->Items().OfType( SCH_SHEET_T ) )
+        for( EDA_ITEM* item : m_screen->Items().OfType( SCH_SHEET_T ) )
         {
             SCH_SHEET* sheet = static_cast<SCH_SHEET*>( item );
 
             if( sheet->LocatePathOfScreen( aScreen, aList ) )
-            {
                 return true;
-            }
         }
 
         aList->pop_back();
@@ -880,10 +913,8 @@ void SCH_SHEET::Resize( const wxSize& aSize )
 }
 
 
-bool SCH_SHEET::Matches( const wxFindReplaceData& aSearchData, void* aAuxData ) const
+bool SCH_SHEET::Matches( const EDA_SEARCH_DATA& aSearchData, void* aAuxData ) const
 {
-    wxLogTrace( traceFindItem, wxT( "  item " ) + GetSelectMenuText( EDA_UNITS::MILLIMETRES ) );
-
     // Sheets are searchable via the child field and pin item text.
     return false;
 }
@@ -898,6 +929,26 @@ void SCH_SHEET::renumberPins()
         pin->SetNumber( id );
         id++;
     }
+}
+
+
+SCH_SHEET_PATH SCH_SHEET::findSelf() const
+{
+    wxCHECK_MSG( Schematic(), SCH_SHEET_PATH(), "Can't call findSelf without a schematic" );
+
+    SCH_SHEET_PATH sheetPath = Schematic()->CurrentSheet();
+
+    while( !sheetPath.empty() && sheetPath.Last() != this )
+        sheetPath.pop_back();
+
+    if( sheetPath.empty() )
+    {
+        // If we weren't in the hierarchy, then we must be a child of the current sheet.
+        sheetPath = Schematic()->CurrentSheet();
+        sheetPath.push_back( const_cast<SCH_SHEET*>( this ) );
+    }
+
+    return sheetPath;
 }
 
 
@@ -936,41 +987,40 @@ std::vector<VECTOR2I> SCH_SHEET::GetConnectionPoints() const
 }
 
 
-SEARCH_RESULT SCH_SHEET::Visit( INSPECTOR aInspector, void* testData, const KICAD_T aFilterTypes[] )
+INSPECT_RESULT SCH_SHEET::Visit( INSPECTOR aInspector, void* testData,
+                                 const std::vector<KICAD_T>& aScanTypes )
 {
-    KICAD_T stype;
-
-    for( const KICAD_T* p = aFilterTypes;  (stype = *p) != EOT;   ++p )
+    for( KICAD_T scanType : aScanTypes )
     {
         // If caller wants to inspect my type
-        if( stype == SCH_LOCATE_ANY_T || stype == Type() )
+        if( scanType == SCH_LOCATE_ANY_T || scanType == Type() )
         {
-            if( SEARCH_RESULT::QUIT == aInspector( this, nullptr ) )
-                return SEARCH_RESULT::QUIT;
+            if( INSPECT_RESULT::QUIT == aInspector( this, nullptr ) )
+                return INSPECT_RESULT::QUIT;
         }
 
-        if( stype == SCH_LOCATE_ANY_T || stype == SCH_FIELD_T )
+        if( scanType == SCH_LOCATE_ANY_T || scanType == SCH_FIELD_T )
         {
             // Test the sheet fields.
             for( SCH_FIELD& field : m_fields )
             {
-                if( SEARCH_RESULT::QUIT == aInspector( &field, this ) )
-                    return SEARCH_RESULT::QUIT;
+                if( INSPECT_RESULT::QUIT == aInspector( &field, this ) )
+                    return INSPECT_RESULT::QUIT;
             }
         }
 
-        if( stype == SCH_LOCATE_ANY_T || stype == SCH_SHEET_PIN_T )
+        if( scanType == SCH_LOCATE_ANY_T || scanType == SCH_SHEET_PIN_T )
         {
             // Test the sheet labels.
             for( SCH_SHEET_PIN* sheetPin : m_pins )
             {
-                if( SEARCH_RESULT::QUIT == aInspector( sheetPin, this ) )
-                    return SEARCH_RESULT::QUIT;
+                if( INSPECT_RESULT::QUIT == aInspector( sheetPin, this ) )
+                    return INSPECT_RESULT::QUIT;
             }
         }
     }
 
-    return SEARCH_RESULT::CONTINUE;
+    return INSPECT_RESULT::CONTINUE;
 }
 
 
@@ -984,7 +1034,7 @@ void SCH_SHEET::RunOnChildren( const std::function<void( SCH_ITEM* )>& aFunction
 }
 
 
-wxString SCH_SHEET::GetSelectMenuText( EDA_UNITS aUnits ) const
+wxString SCH_SHEET::GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const
 {
     return wxString::Format( _( "Hierarchical Sheet %s" ),
                              m_fields[ SHEETNAME ].GetText() );
@@ -999,7 +1049,7 @@ BITMAPS SCH_SHEET::GetMenuImage() const
 
 bool SCH_SHEET::HitTest( const VECTOR2I& aPosition, int aAccuracy ) const
 {
-    EDA_RECT rect = GetBodyBoundingBox();
+    BOX2I rect = GetBodyBoundingBox();
 
     rect.Inflate( aAccuracy );
 
@@ -1007,9 +1057,9 @@ bool SCH_SHEET::HitTest( const VECTOR2I& aPosition, int aAccuracy ) const
 }
 
 
-bool SCH_SHEET::HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy ) const
+bool SCH_SHEET::HitTest( const BOX2I& aRect, bool aContained, int aAccuracy ) const
 {
-    EDA_RECT rect = aRect;
+    BOX2I rect = aRect;
 
     rect.Inflate( aAccuracy );
 
@@ -1025,8 +1075,6 @@ void SCH_SHEET::Plot( PLOTTER* aPlotter, bool aBackground ) const
     if( aBackground && !aPlotter->GetColorMode() )
         return;
 
-    wxString msg;
-    VECTOR2I pos;
     auto*    settings = dynamic_cast<KIGFX::SCH_RENDER_SETTINGS*>( aPlotter->RenderSettings() );
     bool     override = settings ? settings->m_OverrideItemColors : false;
     COLOR4D  borderColor = GetBorderColor();
@@ -1050,6 +1098,20 @@ void SCH_SHEET::Plot( PLOTTER* aPlotter, bool aBackground ) const
         int penWidth = std::max( GetPenWidth(), aPlotter->RenderSettings()->GetMinPenWidth() );
         aPlotter->Rect( m_pos, m_pos + m_size, FILL_T::NO_FILL, penWidth );
     }
+
+    // Make the sheet object a clickable hyperlink (e.g. for PDF plotter)
+    std::vector<wxString> properties;
+
+    properties.emplace_back( EDA_TEXT::GotoPageHref( GetPageNumber( findSelf() ) ) );
+
+    for( const SCH_FIELD& field : GetFields() )
+    {
+        properties.emplace_back( wxString::Format( wxT( "!%s = %s" ),
+                                                   field.GetName(),
+                                                   field.GetShownText() ) );
+    }
+
+    aPlotter->HyperlinkMenu( GetBoundingBox(), properties );
 
     // Plot sheet pins
     for( SCH_SHEET_PIN* sheetPin : m_pins )
@@ -1147,17 +1209,17 @@ bool SCH_SHEET::AddInstance( const SCH_SHEET_PATH& aSheetPath )
     for( const SCH_SHEET_INSTANCE& instance : m_instances )
     {
         // if aSheetPath is found, nothing to do:
-        if( instance.m_Path == aSheetPath.PathWithoutRootUuid() )
+        if( instance.m_Path == aSheetPath.Path() )
             return false;
     }
 
     wxLogTrace( traceSchSheetPaths, wxT( "Adding instance `%s` to sheet `%s`." ),
-                aSheetPath.PathWithoutRootUuid().AsString(),
+                aSheetPath.Path().AsString(),
                 ( GetName().IsEmpty() ) ? wxT( "root" ) : GetName() );
 
     SCH_SHEET_INSTANCE instance;
 
-    instance.m_Path = aSheetPath.PathWithoutRootUuid();
+    instance.m_Path = aSheetPath.Path();
 
     // This entry does not exist: add it with an empty page number.
     m_instances.emplace_back( instance );
@@ -1170,7 +1232,7 @@ wxString SCH_SHEET::GetPageNumber( const SCH_SHEET_PATH& aSheetPath ) const
     wxCHECK( aSheetPath.IsFullPath(), wxEmptyString );
 
     wxString pageNumber;
-    KIID_PATH path = aSheetPath.PathWithoutRootUuid();
+    KIID_PATH path = aSheetPath.Path();
 
     for( const SCH_SHEET_INSTANCE& instance : m_instances )
     {
@@ -1189,7 +1251,7 @@ void SCH_SHEET::SetPageNumber( const SCH_SHEET_PATH& aSheetPath, const wxString&
 {
     wxCHECK( aSheetPath.IsFullPath(), /* void */ );
 
-    KIID_PATH path = aSheetPath.PathWithoutRootUuid();
+    KIID_PATH path = aSheetPath.Path();
 
     for( SCH_SHEET_INSTANCE& instance : m_instances )
     {
@@ -1228,6 +1290,9 @@ int SCH_SHEET::ComparePageNum( const wxString& aPageNumberA, const wxString& aPa
 
     // If not numeric, then sort as strings using natural sort
     int result = StrNumCmp( aPageNumberA, aPageNumberB );
+
+    // Divide by zero bad.
+    wxCHECK( result != 0, 0 );
 
     result = result / std::abs( result );
 

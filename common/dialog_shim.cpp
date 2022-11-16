@@ -25,6 +25,7 @@
 #include <dialog_shim.h>
 #include <ignore.h>
 #include <kiway_player.h>
+#include <kiway.h>
 #include <pgm_base.h>
 #include <tool/tool_manager.h>
 #include <kiplatform/ui.h>
@@ -59,7 +60,7 @@ public:
         if( m_win )
         {
             m_win->Enable();
-            m_win->SetFocus(); // let's focus back on the parent window
+            m_win->Raise(); // let's focus back on the parent window
         }
     }
 };
@@ -122,6 +123,9 @@ DIALOG_SHIM::DIALOG_SHIM( wxWindow* aParent, wxWindowID id, const wxString& titl
     if( kiwayHolder )
         SetKiway( this, &kiwayHolder->Kiway() );
 
+    if( HasKiway() )
+        Kiway().SetBlockingDialog( this );
+
     Bind( wxEVT_CLOSE_WINDOW, &DIALOG_SHIM::OnCloseWindow, this );
     Bind( wxEVT_BUTTON, &DIALOG_SHIM::OnButton, this );
 
@@ -142,6 +146,9 @@ DIALOG_SHIM::~DIALOG_SHIM()
     // if the dialog is quasi-modal, this will end its event loop
     if( IsQuasiModal() )
         EndQuasiModal( wxID_CANCEL );
+
+    if( HasKiway() )
+        Kiway().SetBlockingDialog( nullptr );
 
     if( m_qmodal_parent_disabler )
         delete m_qmodal_parent_disabler;    // usually NULL by now
@@ -240,7 +247,7 @@ bool DIALOG_SHIM::Show( bool show )
 #endif
         ret = wxDialog::Show( show );
 
-        // classname is key, returns a zeroed out default EDA_RECT if none existed before.
+        // classname is key, returns a zeroed-out default wxRect if none existed before.
         wxRect savedDialogRect = class_map[ hash_key ];
 
         if( savedDialogRect.GetSize().x != 0 && savedDialogRect.GetSize().y != 0 )
@@ -588,12 +595,13 @@ void DIALOG_SHIM::OnCharHook( wxKeyEvent& aEvt )
         int       currentIdx = -1;
         int       delta = aEvt.ShiftDown() ? -1 : 1;
 
-        auto advance = [&]( int& idx )
-        {
-            // Wrap-around modulus
-            int size = m_tabOrder.size();
-            idx = ( ( idx + delta ) % size + size ) % size;
-        };
+        auto advance =
+                [&]( int& idx )
+                {
+                    // Wrap-around modulus
+                    int size = m_tabOrder.size();
+                    idx = ( ( idx + delta ) % size + size ) % size;
+                };
 
         for( size_t i = 0; i < m_tabOrder.size(); ++i )
         {

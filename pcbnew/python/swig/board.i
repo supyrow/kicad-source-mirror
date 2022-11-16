@@ -53,9 +53,9 @@ HANDLE_EXCEPTIONS(BOARD::TracksInNetBetweenPoints)
 %include track.i
 %include zone.i
 %include zone_settings.i
+%include pcb_shape.i
 %include pcb_text.i
 %include pcb_dimension.i
-%include pcb_shape.i
 %include pcb_marker.i
 %include pcb_target.i
 %include fp_shape.i
@@ -73,9 +73,20 @@ HANDLE_EXCEPTIONS(BOARD::TracksInNetBetweenPoints)
 
 // Do not wrap internal-only structures
 %ignore BOARD::m_CachesMutex;
-%ignore BOARD::m_InsideCourtyardCache;
-%ignore BOARD::m_InsideAreaCache;
-%ignore BOARD::m_CopperZoneRTrees;
+%ignore BOARD::m_IntersectsCourtyardCache;
+%ignore BOARD::m_IntersectsFCourtyardCache;
+%ignore BOARD::m_IntersectsBCourtyardCache;
+%ignore BOARD::m_IntersectsAreaCache;
+%ignore BOARD::m_EnclosedByAreaCache;
+%ignore BOARD::m_LayerExpressionCache;
+%ignore BOARD::m_CopperZoneRTreeCache;
+%ignore BOARD::m_CopperItemRTreeCache;
+%ignore BOARD::m_DRCZones;
+%ignore BOARD::m_DRCCopperZones;
+%ignore BOARD::m_DRCMaxClearance;
+%ignore BOARD::m_DRCMaxPhysicalClearance;
+%ignore BOARD::m_SolderMask;
+
 
 %include board.h
 %{
@@ -143,10 +154,10 @@ HANDLE_EXCEPTIONS(BOARD::TracksInNetBetweenPoints)
         return SaveBoard(filename,self)
 
     def GetNetClasses(self):
-        return self.GetDesignSettings().m_NetClasses
+        return self.GetDesignSettings().GetNetClasses()
 
     def GetCurrentNetClassName(self):
-        return self.GetDesignSettings().m_CurrentNetClassName
+        return self.GetDesignSettings().GetCurrentNetClassName()
 
     def GetViasDimensionsList(self):
         return self.GetDesignSettings().m_ViasDimensionsList

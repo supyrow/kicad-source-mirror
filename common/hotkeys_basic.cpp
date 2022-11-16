@@ -175,6 +175,15 @@ wxString KeyNameFromKeyCode( int aKeycode, bool* aIsFound )
     int      ii;
     bool     found = false;
 
+    if( aKeycode == WXK_CONTROL )
+        return wxString( MODIFIER_CTRL ).BeforeFirst( '+' );
+    else if( aKeycode == WXK_RAW_CONTROL )
+        return wxString( MODIFIER_CTRL_BASE ).BeforeFirst( '+' );
+    else if( aKeycode == WXK_SHIFT )
+        return wxString( MODIFIER_SHIFT ).BeforeFirst( '+' );
+    else if( aKeycode == WXK_ALT )
+        return wxString( MODIFIER_ALT ).BeforeFirst( '+' );
+
     // Assume keycode of 0 is "unassigned"
     if( (aKeycode & MD_CTRL) != 0 )
         modifier << MODIFIER_CTRL;
@@ -374,6 +383,20 @@ void ReadHotKeyConfig( const wxString& aFileName, std::map<std::string, int>& aH
         if( !cmdName.IsEmpty() )
             aHotKeys[ cmdName.ToStdString() ] = KeyCodeFromKeyName( keyName );
     }
+}
+
+
+void ReadHotKeyConfigIntoActions( const wxString& aFileName, std::vector<TOOL_ACTION*>& aActions )
+{
+    std::map<std::string, int> hotkeys;
+
+    // Read the existing config (all hotkeys)
+    ReadHotKeyConfig( aFileName, hotkeys );
+
+    // Set each tool action hotkey to the config file hotkey if present
+    for( TOOL_ACTION* action : aActions )
+        if( hotkeys.find( action->GetName() ) != hotkeys.end() )
+            action->SetHotKey( hotkeys[action->GetName()] );
 }
 
 

@@ -72,6 +72,10 @@ void RATSNEST_VIEW_ITEM::ViewDraw( int aLayer, KIGFX::VIEW* aView ) const
     gal->SetIsFill( false );
     gal->SetLineWidth( 1.0 );
     auto cfg = static_cast<PCBNEW_SETTINGS*>( Kiface().KifaceSettings() );
+
+    if( !cfg )
+        return;
+
     auto rs = static_cast<KIGFX::PCB_RENDER_SETTINGS*>( aView->GetPainter()->GetSettings() );
 
     COLOR4D    defaultColor = rs->GetColor( nullptr, LAYER_RATSNEST );
@@ -105,7 +109,7 @@ void RATSNEST_VIEW_ITEM::ViewDraw( int aLayer, KIGFX::VIEW* aView ) const
     const bool curved_ratsnest = cfg->m_Display.m_DisplayRatsnestLinesCurved;
 
     // Draw the "dynamic" ratsnest (i.e. for objects that may be currently being moved)
-    for( const RN_DYNAMIC_LINE& l : m_data->GetDynamicRatsnest() )
+    for( const RN_DYNAMIC_LINE& l : m_data->GetLocalRatsnest() )
     {
         if( hiddenNets.count( l.netCode ) )
             continue;
@@ -120,7 +124,7 @@ void RATSNEST_VIEW_ITEM::ViewDraw( int aLayer, KIGFX::VIEW* aView ) const
         if( color == COLOR4D::UNSPECIFIED )
             color = defaultColor;
 
-        gal->SetStrokeColor( color.Brightened( 0.5 ) );
+        gal->SetStrokeColor( color.Brightened( 0.5 ).WithAlpha( std::min( 1.0, color.a + 0.4 ) ) );
 
         if( l.a == l.b )
         {

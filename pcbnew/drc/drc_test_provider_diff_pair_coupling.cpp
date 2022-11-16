@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2004-2020 KiCad Developers.
+ * Copyright (C) 2004-2022 KiCad Developers.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -18,15 +18,14 @@
  */
 
 
-#include <common.h>
 #include <board.h>
+#include <board_design_settings.h>
 #include <pcb_track.h>
 
 #include <drc/drc_engine.h>
 #include <drc/drc_item.h>
 #include <drc/drc_rule.h>
 #include <drc/drc_test_provider.h>
-#include <drc/drc_length_report.h>
 #include <drc/drc_rtree.h>
 
 #include <geometry/shape_segment.h>
@@ -66,12 +65,12 @@ public:
 
     virtual const wxString GetName() const override
     {
-        return "diff_pair_coupling";
+        return wxT( "diff_pair_coupling" );
     };
 
     virtual const wxString GetDescription() const override
     {
-        return "Tests differential pair coupling";
+        return wxT( "Tests differential pair coupling" );
     }
 
 private:
@@ -158,16 +157,19 @@ struct DIFF_PAIR_COUPLED_SEGMENTS
     PCB_TRACK*   parentP;
     int          computedGap;
     PCB_LAYER_ID layer;
-    bool         couplingOK;
+    bool         couplingFailMin;
+    bool         couplingFailMax;
 
     DIFF_PAIR_COUPLED_SEGMENTS() :
         parentN( nullptr ),
         parentP( nullptr ),
         computedGap( 0 ),
         layer( UNDEFINED_LAYER ),
-        couplingOK( false )
+        couplingFailMin( false ),
+        couplingFailMax( false )
     {}
 };
+
 
 struct DIFF_PAIR_ITEMS
 {
@@ -178,12 +180,13 @@ struct DIFF_PAIR_ITEMS
     int totalLengthP;
 };
 
-static void extractDiffPairCoupledItems( DIFF_PAIR_ITEMS& aDp, DRC_RTREE& aTree )
+
+static void extractDiffPairCoupledItems( DIFF_PAIR_ITEMS& aDp )
 {
     for( BOARD_CONNECTED_ITEM* itemP : aDp.itemsP )
     {
         PCB_TRACK* sp = dyn_cast<PCB_TRACK*>( itemP );
-        OPT<DIFF_PAIR_COUPLED_SEGMENTS> bestCoupled;
+        std::optional<DIFF_PAIR_COUPLED_SEGMENTS> bestCoupled;
         int bestGap = std::numeric_limits<int>::max();
 
         if( !sp )
@@ -202,9 +205,9 @@ static void extractDiffPairCoupledItems( DIFF_PAIR_ITEMS& aDp, DRC_RTREE& aTree 
             SEG ssp ( sp->GetStart(), sp->GetEnd() );
             SEG ssn ( sn->GetStart(), sn->GetEnd() );
 
-            // Segments that are == 1 IU in length are approximately parallel with everything and their
-            // parallel projection is < 1 IU, leading to bad distance calculations
-            if( ssp.SquaredLength() > 1 && ssn.SquaredLength() > 1 && ssp.ApproxParallel(ssn) )
+            // Segments that are ~ 1 IU in length per side are approximately parallel (tolerance is 1 IU)
+            // with everything and their parallel projection is < 1 IU, leading to bad distance calculations
+            if( ssp.SquaredLength() > 2 && ssn.SquaredLength() > 2 && ssp.ApproxParallel(ssn) )
             {
                 DIFF_PAIR_COUPLED_SEGMENTS cpair;
                 bool coupled = commonParallelProjection( ssp, ssn, cpair.coupledP, cpair.coupledN );
@@ -250,12 +253,13 @@ static void extractDiffPairCoupledItems( DIFF_PAIR_ITEMS& aDp, DRC_RTREE& aTree 
 
             SHAPE_SEGMENT checkSegStart( bestCoupled->coupledP.A, bestCoupled->coupledN.A );
             SHAPE_SEGMENT checkSegEnd( bestCoupled->coupledP.B, bestCoupled->coupledN.B );
+            DRC_RTREE*    tree = bestCoupled->parentP->GetBoard()->m_CopperItemRTreeCache.get();
 
             // check if there's anything in between the segments suspected to be coupled. If
             // there's nothing, assume they are really coupled.
 
-            if( !aTree.CheckColliding( &checkSegStart, sp->GetLayer(), 0, excludeSelf )
-                  && !aTree.CheckColliding( &checkSegEnd, sp->GetLayer(), 0, excludeSelf ) )
+            if( !tree->CheckColliding( &checkSegStart, sp->GetLayer(), 0, excludeSelf )
+                  && !tree->CheckColliding( &checkSegEnd, sp->GetLayer(), 0, excludeSelf ) )
             {
                 aDp.coupled.push_back( *bestCoupled );
             }
@@ -269,20 +273,20 @@ bool test::DRC_TEST_PROVIDER_DIFF_PAIR_COUPLING::Run()
 {
     m_board = m_drcEngine->GetBoard();
 
-
+    int epsilon = m_board->GetDesignSettings().GetDRCEpsilon();
 
     std::map<DIFF_PAIR_KEY, DIFF_PAIR_ITEMS> dpRuleMatches;
 
     auto evaluateDpConstraints =
             [&]( BOARD_ITEM *item ) -> bool
             {
-                DIFF_PAIR_KEY key;
+                DIFF_PAIR_KEY         key;
                 BOARD_CONNECTED_ITEM* citem = static_cast<BOARD_CONNECTED_ITEM*>( item );
-                NETINFO_ITEM* refNet = citem->GetNet();
+                NETINFO_ITEM*         refNet = citem->GetNet();
 
                 if( refNet && DRC_ENGINE::IsNetADiffPair( m_board, refNet, key.netP, key.netN ) )
                 {
-                    drc_dbg( 10, "eval dp %p\n", item );
+                    drc_dbg( 10, wxT( "eval dp %p\n" ), item );
 
                     const DRC_CONSTRAINT_T constraintsToCheck[] = {
                             DIFF_PAIR_GAP_CONSTRAINT,
@@ -291,13 +295,14 @@ bool test::DRC_TEST_PROVIDER_DIFF_PAIR_COUPLING::Run()
 
                     for( int i = 0; i < 2; i++ )
                     {
-                        auto constraint = m_drcEngine->EvalRules( constraintsToCheck[ i ], item,
-                                                                  nullptr, item->GetLayer() );
+                        DRC_CONSTRAINT constraint = m_drcEngine->EvalRules( constraintsToCheck[ i ],
+                                                                            item, nullptr,
+                                                                            item->GetLayer() );
 
                         if( constraint.IsNull() || constraint.GetSeverity() == RPT_SEVERITY_IGNORE )
                             continue;
 
-                        drc_dbg( 10, "cns %d item %p\n", constraintsToCheck[i], item );
+                        drc_dbg( 10, wxT( "cns %d item %p\n" ), constraintsToCheck[i], item );
 
                         key.parentRule = constraint.GetParentRule();
 
@@ -316,33 +321,14 @@ bool test::DRC_TEST_PROVIDER_DIFF_PAIR_COUPLING::Run()
     forEachGeometryItem( { PCB_TRACE_T, PCB_VIA_T, PCB_ARC_T }, LSET::AllCuMask(),
                          evaluateDpConstraints );
 
-    drc_dbg( 10, "dp rule matches %d\n", (int) dpRuleMatches.size() );
+    drc_dbg( 10, wxT( "dp rule matches %d\n" ), (int) dpRuleMatches.size() );
 
+    reportAux( wxT( "DPs evaluated:" ) );
 
-    DRC_RTREE copperTree;
-
-    auto addToTree =
-            [&copperTree]( BOARD_ITEM *item ) -> bool
-            {
-                for( PCB_LAYER_ID layer : item->GetLayerSet().Seq() )
-                {
-                    if( IsCopperLayer( layer ) )
-                        copperTree.Insert( item, layer );
-                }
-
-                return true;
-            };
-
-    forEachGeometryItem( { PCB_TRACE_T, PCB_VIA_T, PCB_PAD_T, PCB_ZONE_T, PCB_ARC_T },
-                         LSET::AllCuMask(), addToTree );
-
-
-    reportAux( wxString::Format( _("DPs evaluated:") ) );
-
-    for( auto& it : dpRuleMatches )
+    for( auto& [ key, itemSet ] : dpRuleMatches )
     {
-        NETINFO_ITEM *niP = m_board->GetNetInfo().GetNetItem( it.first.netP );
-        NETINFO_ITEM *niN = m_board->GetNetInfo().GetNetItem( it.first.netN );
+        NETINFO_ITEM *niP = m_board->GetNetInfo().GetNetItem( key.netP );
+        NETINFO_ITEM *niN = m_board->GetNetInfo().GetNetItem( key.netN );
 
         assert( niP );
         assert( niN );
@@ -350,47 +336,50 @@ bool test::DRC_TEST_PROVIDER_DIFF_PAIR_COUPLING::Run()
         wxString nameP = niP->GetNetname();
         wxString nameN = niN->GetNetname();
 
-        reportAux( wxString::Format( "Rule '%s', DP: (+) %s - (-) %s",
-                                     it.first.parentRule->m_Name, nameP, nameN ) );
+        reportAux( wxString::Format( wxT( "Rule '%s', DP: (+) %s - (-) %s" ),
+                                     key.parentRule->m_Name,
+                                     nameP,
+                                     nameN ) );
 
-        extractDiffPairCoupledItems( it.second, copperTree );
+        extractDiffPairCoupledItems( itemSet );
 
-        it.second.totalCoupled = 0;
-        it.second.totalLengthN = 0;
-        it.second.totalLengthP = 0;
+        itemSet.totalCoupled = 0;
+        itemSet.totalLengthN = 0;
+        itemSet.totalLengthP = 0;
 
-        drc_dbg(10, "       coupled prims : %d\n", (int) it.second.coupled.size() );
+        drc_dbg(10, wxT( "       coupled prims : %d\n" ), (int) itemSet.coupled.size() );
 
-        OPT<DRC_CONSTRAINT> gapConstraint =
-                it.first.parentRule->FindConstraint( DIFF_PAIR_GAP_CONSTRAINT );
-        OPT<DRC_CONSTRAINT> maxUncoupledConstraint =
-                it.first.parentRule->FindConstraint( DIFF_PAIR_MAX_UNCOUPLED_CONSTRAINT );
+        std::optional<DRC_CONSTRAINT> gapConstraint
+                            = key.parentRule->FindConstraint( DIFF_PAIR_GAP_CONSTRAINT );
 
-        for( BOARD_CONNECTED_ITEM* item : it.second.itemsN )
+        std::optional<DRC_CONSTRAINT> maxUncoupledConstraint
+                            = key.parentRule->FindConstraint( DIFF_PAIR_MAX_UNCOUPLED_CONSTRAINT );
+
+        for( BOARD_CONNECTED_ITEM* item : itemSet.itemsN )
         {
             // fixme: include vias
             if( PCB_TRACK* track = dyn_cast<PCB_TRACK*>( item ) )
-                it.second.totalLengthN += track->GetLength();
+                itemSet.totalLengthN += track->GetLength();
         }
 
-        for( BOARD_CONNECTED_ITEM* item : it.second.itemsP )
+        for( BOARD_CONNECTED_ITEM* item : itemSet.itemsP )
         {
             // fixme: include vias
             if( PCB_TRACK* track = dyn_cast<PCB_TRACK*>( item ) )
-                it.second.totalLengthP += track->GetLength();
+                itemSet.totalLengthP += track->GetLength();
         }
 
-        for( auto& cpair : it.second.coupled )
+        for( DIFF_PAIR_COUPLED_SEGMENTS& dp : itemSet.coupled )
         {
-            int length = cpair.coupledN.Length();
-            int gap = cpair.coupledN.Distance( cpair.coupledP );
+            int length = dp.coupledN.Length();
+            int gap = dp.coupledN.Distance( dp.coupledP );
 
-            gap -= cpair.parentN->GetWidth() / 2;
-            gap -= cpair.parentP->GetWidth() / 2;
+            gap -= dp.parentN->GetWidth() / 2;
+            gap -= dp.parentP->GetWidth() / 2;
 
-            cpair.computedGap = gap;
+            dp.computedGap = gap;
 
-            auto overlay = m_drcEngine->GetDebugOverlay();
+            std::shared_ptr<KIGFX::VIEW_OVERLAY> overlay = m_drcEngine->GetDebugOverlay();
 
             if( overlay )
             {
@@ -398,108 +387,130 @@ bool test::DRC_TEST_PROVIDER_DIFF_PAIR_COUPLING::Run()
                 overlay->SetIsStroke(true);
                 overlay->SetStrokeColor( RED );
                 overlay->SetLineWidth( 100000 );
-                overlay->Line( cpair.coupledP );
+                overlay->Line( dp.coupledP );
                 overlay->SetStrokeColor( BLUE );
-                overlay->Line( cpair.coupledN );
+                overlay->Line( dp.coupledN );
             }
 
-            drc_dbg( 10, "               len %d gap %d l %d\n", length, gap,
-                     cpair.parentP->GetLayer() );
+            drc_dbg( 10, wxT( "               len %d gap %d l %d\n" ),
+                     length,
+                     gap,
+                     dp.parentP->GetLayer() );
 
             if( gapConstraint )
             {
-                auto val = gapConstraint->GetValue();
-                bool insideRange = true;
+                const MINOPTMAX<int>& val = gapConstraint->GetValue();
 
-                if( val.HasMin() && gap < val.Min() )
-                    insideRange = false;
+                if( val.HasMin() && gap < val.Min() - epsilon )
+                    dp.couplingFailMin = true;
 
-                if( val.HasMax() && gap > val.Max() )
-                    insideRange = false;
-
-                cpair.couplingOK = insideRange;
-            }
-            else
-            {
-                cpair.couplingOK = true;
+                if( val.HasMax() && gap > val.Max() + epsilon )
+                    dp.couplingFailMax = true;
             }
 
-            if( cpair.couplingOK )
-                it.second.totalCoupled += length;
+            if( !dp.couplingFailMin && !dp.couplingFailMax )
+                itemSet.totalCoupled += length;
         }
 
-        int totalLen = std::max( it.second.totalLengthN, it.second.totalLengthP );
-        reportAux( wxString::Format( "   - coupled length: %s, total length: %s",
+        int totalLen = std::max( itemSet.totalLengthN, itemSet.totalLengthP );
+        reportAux( wxString::Format( wxT( "   - coupled length: %s, total length: %s" ),
+                                     MessageTextFromValue( itemSet.totalCoupled ),
+                                     MessageTextFromValue( totalLen ) ) );
 
-                                     MessageTextFromValue( userUnits(), it.second.totalCoupled ),
-                                     MessageTextFromValue( userUnits(), totalLen ) ) );
-
-        int totalUncoupled = totalLen - it.second.totalCoupled;
+        int totalUncoupled = totalLen - itemSet.totalCoupled;
 
         bool uncoupledViolation = false;
 
-        if( maxUncoupledConstraint )
+        if( maxUncoupledConstraint && ( !itemSet.itemsP.empty() || !itemSet.itemsN.empty() ) )
         {
-            auto val = maxUncoupledConstraint->GetValue();
+            const MINOPTMAX<int>& val = maxUncoupledConstraint->GetValue();
 
             if ( val.HasMax() && totalUncoupled > val.Max() )
             {
-                auto drce = DRC_ITEM::Create( DRCE_DIFF_PAIR_UNCOUPLED_LENGTH_TOO_LONG );
-
-                m_msg = wxString::Format( _( "(%s maximum uncoupled length: %s; actual: %s)" ),
+                auto     drce = DRC_ITEM::Create( DRCE_DIFF_PAIR_UNCOUPLED_LENGTH_TOO_LONG );
+                wxString msg = formatMsg( _( "(%s maximum uncoupled length %s; actual %s)" ),
                                           maxUncoupledConstraint->GetParentRule()->m_Name,
-                                          MessageTextFromValue( userUnits(), val.Max() ),
-                                          MessageTextFromValue( userUnits(), totalUncoupled ) );
+                                          val.Max(),
+                                          totalUncoupled );
 
-                drce->SetErrorMessage( drce->GetErrorText() + wxS( " " ) + m_msg );
+                drce->SetErrorMessage( drce->GetErrorText() + wxS( " " ) + msg );
 
-                for( BOARD_CONNECTED_ITEM* offendingTrack : it.second.itemsP )
-                    drce->AddItem( offendingTrack );
+                BOARD_CONNECTED_ITEM* item = nullptr;
+                auto                  p_it = itemSet.itemsP.begin();
+                auto                  n_it = itemSet.itemsN.begin();
 
-                for( BOARD_CONNECTED_ITEM* offendingTrack : it.second.itemsN )
-                    drce->AddItem( offendingTrack );
+                if( p_it != itemSet.itemsP.end() )
+                {
+                    item = *p_it;
+                    drce->AddItem( *p_it );
+                    p_it++;
+                }
+
+                if( n_it != itemSet.itemsN.end() )
+                {
+                    item = *n_it;
+                    drce->AddItem( *n_it );
+                    n_it++;
+                }
+
+                while( p_it != itemSet.itemsP.end() )
+                    drce->AddItem( *p_it++ );
+
+                while( n_it != itemSet.itemsN.end() )
+                    drce->AddItem( *n_it++ );
 
                 uncoupledViolation = true;
 
                 drce->SetViolatingRule( maxUncoupledConstraint->GetParentRule() );
 
-                reportViolation( drce, ( *it.second.itemsP.begin() )->GetPosition(),
-                                 ( *it.second.itemsP.begin() )->GetLayer() );
+                reportViolation( drce, item->GetPosition(), item->GetLayer() );
             }
         }
 
-        if ( gapConstraint && ( uncoupledViolation || !maxUncoupledConstraint ) )
+        if( gapConstraint && ( uncoupledViolation || !maxUncoupledConstraint ) )
         {
-            for( auto& cpair : it.second.coupled )
+            for( DIFF_PAIR_COUPLED_SEGMENTS& dp : itemSet.coupled )
             {
-                if( !cpair.couplingOK )
+                if( ( dp.couplingFailMin || dp.couplingFailMax ) && ( dp.parentP || dp.parentN ) )
                 {
-                    auto val = gapConstraint->GetValue();
-                    auto drcItem = DRC_ITEM::Create( DRCE_DIFF_PAIR_GAP_OUT_OF_RANGE );
+                    MINOPTMAX<int> val = gapConstraint->GetValue();
+                    auto           drcItem = DRC_ITEM::Create( DRCE_DIFF_PAIR_GAP_OUT_OF_RANGE );
+                    wxString       msg;
 
-                    m_msg = drcItem->GetErrorText() + " (" +
-                            gapConstraint->GetParentRule()->m_Name + " ";
+                    if( dp.couplingFailMin )
+                    {
+                        msg = formatMsg( _( "(%s minimum gap %s; actual %s)" ),
+                                         gapConstraint->GetParentRule()->m_Name,
+                                         val.Min(),
+                                         dp.computedGap );
+                    }
+                    else if( dp.couplingFailMax )
+                    {
+                        msg = formatMsg( _( "(%s maximum gap %s; actual %s)" ),
+                                         gapConstraint->GetParentRule()->m_Name,
+                                         val.Max(),
+                                         dp.computedGap );
+                    }
 
-                    if( val.HasMin() )
-                        m_msg += wxString::Format( _( "minimum gap: %s; " ),
-                                                   MessageTextFromValue( userUnits(), val.Min() ) );
+                    drcItem->SetErrorMessage( drcItem->GetErrorText() + wxS( " " ) + msg );
 
-                    if( val.HasMax() )
-                        m_msg += wxString::Format( _( "maximum gap: %s; " ),
-                                                   MessageTextFromValue( userUnits(), val.Max() ) );
+                    BOARD_CONNECTED_ITEM* item = nullptr;
 
-                    m_msg += wxString::Format( _( "actual: %s)" ),
-                        MessageTextFromValue( userUnits(), cpair.computedGap ) );
+                    if( dp.parentP )
+                    {
+                        item = dp.parentP;
+                        drcItem->AddItem( dp.parentP );
+                    }
 
-                    drcItem->SetErrorMessage( m_msg );
-
-                    drcItem->AddItem( cpair.parentP );
-                    drcItem->AddItem( cpair.parentN );
+                    if( dp.parentN )
+                    {
+                        item = dp.parentN;
+                        drcItem->AddItem( dp.parentN );
+                    }
 
                     drcItem->SetViolatingRule( gapConstraint->GetParentRule() );
 
-                    reportViolation( drcItem, cpair.parentP->GetPosition(),
-                                     cpair.parentP->GetLayer() );
+                    reportViolation( drcItem, item->GetPosition(), item->GetLayer() );
                 }
             }
         }

@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2017-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2017-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -53,6 +53,7 @@ DIALOG_BOARD_SETUP::DIALOG_BOARD_SETUP( PCB_EDIT_FRAME* aFrame ) :
                       _( "Import Settings from Another Board..." ) ),
         m_frame( aFrame )
 {
+    PROJECT_FILE&          project = aFrame->Prj().GetProjectFile();
     BOARD*                 board = aFrame->GetBoard();
     BOARD_DESIGN_SETTINGS& bds = board->GetDesignSettings();
 
@@ -61,7 +62,7 @@ DIALOG_BOARD_SETUP::DIALOG_BOARD_SETUP( PCB_EDIT_FRAME* aFrame ) :
     m_formatting = new PANEL_SETUP_FORMATTING( this, aFrame );
     m_constraints = new PANEL_SETUP_CONSTRAINTS( this, aFrame );
     m_rules = new PANEL_SETUP_RULES( this, aFrame );
-    m_tracksAndVias = new PANEL_SETUP_TRACKS_AND_VIAS( this, aFrame, m_constraints );
+    m_tracksAndVias = new PANEL_SETUP_TRACKS_AND_VIAS( this, aFrame );
     m_maskAndPaste = new PANEL_SETUP_MASK_AND_PASTE( this, aFrame );
     m_physicalStackup = new PANEL_SETUP_BOARD_STACKUP( this, aFrame, m_layers );
     m_boardFinish = new PANEL_SETUP_BOARD_FINISH( this, board );
@@ -69,7 +70,7 @@ DIALOG_BOARD_SETUP::DIALOG_BOARD_SETUP( PCB_EDIT_FRAME* aFrame ) :
     m_severities = new PANEL_SETUP_SEVERITIES( this, DRC_ITEM::GetItemsWithSeverities(),
                                                bds.m_DRCSeverities );
 
-    m_netclasses = new PANEL_SETUP_NETCLASSES( this, aFrame, &bds.GetNetClasses(),
+    m_netclasses = new PANEL_SETUP_NETCLASSES( this, aFrame, project.NetSettings(),
                                                board->GetNetClassAssignmentCandidates(), false );
 
     m_textVars = new PANEL_TEXT_VARIABLES( m_treebook, &Prj() );
@@ -101,7 +102,7 @@ DIALOG_BOARD_SETUP::DIALOG_BOARD_SETUP( PCB_EDIT_FRAME* aFrame ) :
 
     m_treebook->AddPage( new wxPanel( GetTreebook() ), _( "Text & Graphics" ) );
     m_treebook->AddSubPage( m_textAndGraphics,  _( "Defaults" ) );
-    m_treebook->AddSubPage( m_formatting, _( "Fomatting" ) );
+    m_treebook->AddSubPage( m_formatting, _( "Formatting" ) );
     m_treebook->AddSubPage( m_textVars, _( "Text Variables" ) );
 
     m_treebook->AddPage( new wxPanel( GetTreebook() ), _( "Design Rules" ) );
@@ -114,7 +115,7 @@ DIALOG_BOARD_SETUP::DIALOG_BOARD_SETUP( PCB_EDIT_FRAME* aFrame ) :
     for( size_t i = 0; i < m_treebook->GetPageCount(); ++i )
         m_treebook->ExpandNode( i );
 
-    m_treebook->SetMinSize( wxSize( -1, 480 ) );
+    m_treebook->SetMinSize( wxSize( -1, 580 ) );
 
     finishDialogSettings();
 
@@ -135,9 +136,9 @@ DIALOG_BOARD_SETUP::~DIALOG_BOARD_SETUP()
 }
 
 
-void DIALOG_BOARD_SETUP::OnPageChanged( wxBookCtrlEvent& aEvent )
+void DIALOG_BOARD_SETUP::onPageChanged( wxBookCtrlEvent& aEvent )
 {
-    PAGED_DIALOG::OnPageChanged( aEvent );
+    PAGED_DIALOG::onPageChanged( aEvent );
 
     int page = aEvent.GetSelection();
 
@@ -154,7 +155,7 @@ void DIALOG_BOARD_SETUP::OnPageChanged( wxBookCtrlEvent& aEvent )
 }
 
 
-void DIALOG_BOARD_SETUP::OnAuxiliaryAction( wxCommandEvent& aEvent )
+void DIALOG_BOARD_SETUP::onAuxiliaryAction( wxCommandEvent& aEvent )
 {
     DIALOG_IMPORT_SETTINGS importDlg( this, m_frame );
 
@@ -235,8 +236,8 @@ void DIALOG_BOARD_SETUP::OnAuxiliaryAction( wxCommandEvent& aEvent )
         // separately, and stackup can be imported only after layers options
         if( importDlg.m_LayersOpt->GetValue() )
         {
-            m_layers->ImportSettingsFrom( otherBoard );
             m_physicalStackup->ImportSettingsFrom( otherBoard );
+            m_layers->ImportSettingsFrom( otherBoard );
             m_boardFinish->ImportSettingsFrom( otherBoard );
         }
 
@@ -250,7 +251,7 @@ void DIALOG_BOARD_SETUP::OnAuxiliaryAction( wxCommandEvent& aEvent )
             m_constraints->ImportSettingsFrom( otherBoard );
 
         if( importDlg.m_NetclassesOpt->GetValue() )
-            m_netclasses->ImportSettingsFrom( &otherBoard->GetDesignSettings().GetNetClasses() );
+            m_netclasses->ImportSettingsFrom( otherPrj->GetProjectFile().m_NetSettings );
 
         if( importDlg.m_TracksAndViasOpt->GetValue() )
             m_tracksAndVias->ImportSettingsFrom( otherBoard );

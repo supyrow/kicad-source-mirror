@@ -37,14 +37,14 @@
 #include <plotters/plotter.h>
 
 
-EDA_SHAPE::EDA_SHAPE( SHAPE_T aType, int aLineWidth, FILL_T aFill, bool upsideDownCoords ) :
+EDA_SHAPE::EDA_SHAPE( SHAPE_T aType, int aLineWidth, FILL_T aFill ) :
         m_endsSwapped( false ),
         m_shape( aType ),
         m_stroke( aLineWidth, PLOT_DASH_TYPE::DEFAULT, COLOR4D::UNSPECIFIED ),
         m_fill( aFill ),
         m_fillColor( COLOR4D::UNSPECIFIED ),
         m_editState( 0 ),
-        m_upsideDownCoords( upsideDownCoords )
+        m_annotationProxy( false )
 {
 }
 
@@ -56,6 +56,9 @@ EDA_SHAPE::~EDA_SHAPE()
 
 wxString EDA_SHAPE::ShowShape() const
 {
+    if( IsAnnotationProxy() )
+        return _( "Number Box" );
+
     switch( m_shape )
     {
     case SHAPE_T::SEGMENT: return _( "Line" );
@@ -198,10 +201,13 @@ void EDA_SHAPE::scale( double aScale )
     {
         std::vector<VECTOR2I> pts;
 
-        for( const VECTOR2I& pt : m_poly.Outline( 0 ).CPoints() )
+        for( int ii = 0; ii < m_poly.OutlineCount(); ++ ii )
         {
-            pts.emplace_back( pt );
-            scalePt( pts.back() );
+            for( const VECTOR2I& pt : m_poly.Outline( ii ).CPoints() )
+            {
+                pts.emplace_back( pt );
+                scalePt( pts.back() );
+            }
         }
 
         SetPolyPoints( pts );
@@ -366,7 +372,7 @@ void EDA_SHAPE::flip( const VECTOR2I& aCentre, bool aFlipLeftRight )
 
 void EDA_SHAPE::RebuildBezierToSegmentsPointsList( int aMinSegLen )
 {
-    // Has meaning only for S_CURVE DRAW_SEGMENT shape
+    // Has meaning only for SHAPE_T::BEZIER
     if( m_shape != SHAPE_T::BEZIER )
     {
         m_bezierPoints.clear();
@@ -437,6 +443,12 @@ void EDA_SHAPE::SetCenter( const VECTOR2I& aCenter )
 
 VECTOR2I EDA_SHAPE::GetArcMid() const
 {
+    // If none of the input data have changed since we loaded the arc,
+    // keep the original mid point data to minimize churn
+    if( m_arcMidData.start == m_start && m_arcMidData.end == m_end
+            && m_arcMidData.center == m_arcCenter )
+        return m_arcMidData.mid;
+
     VECTOR2I mid = m_start;
     RotatePoint( mid, m_arcCenter, -GetArcAngle() / 2.0 );
     return mid;
@@ -487,19 +499,34 @@ int EDA_SHAPE::GetRadius() const
 }
 
 
+void EDA_SHAPE::SetCachedArcData( const VECTOR2I& aStart, const VECTOR2I& aMid, const VECTOR2I& aEnd, const VECTOR2I& aCenter )
+{
+    m_arcMidData.start = aStart;
+    m_arcMidData.end = aEnd;
+    m_arcMidData.center = aCenter;
+    m_arcMidData.mid = aMid;
+}
+
+
 void EDA_SHAPE::SetArcGeometry( const VECTOR2I& aStart, const VECTOR2I& aMid, const VECTOR2I& aEnd )
 {
+    m_arcMidData = {};
     m_start = aStart;
     m_end = aEnd;
     m_arcCenter = CalcArcCenter( aStart, aMid, aEnd );
+    VECTOR2I new_mid = GetArcMid();
+
     m_endsSwapped = false;
+
+    // Watch the ordering here.  GetArcMid above needs to be called prior to initializing the
+    // m_arcMidData structure in order to ensure we get the calculated variant, not the cached
+    SetCachedArcData( aStart, aMid, aEnd, m_arcCenter );
 
     /*
      * If the input winding doesn't match our internal winding, the calculated midpoint will end
      * up on the other side of the arc.  In this case, we need to flip the start/end points and
      * flag this change for the system.
      */
-    VECTOR2I new_mid = GetArcMid();
     VECTOR2D dist( new_mid - aMid );
     VECTOR2D dist2( new_mid - m_arcCenter );
 
@@ -539,7 +566,6 @@ void EDA_SHAPE::SetArcAngleAndEnd( const EDA_ANGLE& aAngle, bool aCheckNegativeA
 
 void EDA_SHAPE::ShapeGetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList )
 {
-    EDA_UNITS         units = aFrame->GetUserUnits();
     ORIGIN_TRANSFORMS originTransforms = aFrame->GetOriginTransforms();
     wxString          msg;
 
@@ -549,26 +575,21 @@ void EDA_SHAPE::ShapeGetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PA
     {
     case SHAPE_T::CIRCLE:
         aList.emplace_back( shape, _( "Circle" ) );
-
-        msg = MessageTextFromValue( units, GetRadius() );
-        aList.emplace_back( _( "Radius" ), msg );
+        aList.emplace_back( _( "Radius" ), aFrame->MessageTextFromValue( GetRadius() ) );
         break;
 
     case SHAPE_T::ARC:
         aList.emplace_back( shape, _( "Arc" ) );
 
-        msg.Printf( wxT( "%.1f" ), GetArcAngle().AsDegrees() );
+        msg = EDA_UNIT_UTILS::UI::MessageTextFromValue( GetArcAngle() );
         aList.emplace_back( _( "Angle" ), msg );
 
-        msg = MessageTextFromValue( units, GetRadius() );
-        aList.emplace_back( _( "Radius" ), msg );
+        aList.emplace_back( _( "Radius" ), aFrame->MessageTextFromValue( GetRadius() ) );
         break;
 
     case SHAPE_T::BEZIER:
         aList.emplace_back( shape, _( "Curve" ) );
-
-        msg = MessageTextFromValue( units, GetLength() );
-        aList.emplace_back( _( "Length" ), msg );
+        aList.emplace_back( _( "Length" ), aFrame->MessageTextFromValue( GetLength() ) );
         break;
 
     case SHAPE_T::POLY:
@@ -579,26 +600,29 @@ void EDA_SHAPE::ShapeGetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PA
         break;
 
     case SHAPE_T::RECT:
-        aList.emplace_back( shape, _( "Rectangle" ) );
+        if( IsAnnotationProxy() )
+            aList.emplace_back( shape, _( "Pad Number Box" ) );
+        else
+            aList.emplace_back( shape, _( "Rectangle" ) );
 
-        msg = MessageTextFromValue( units, std::abs( GetEnd().x - GetStart().x ) );
-        aList.emplace_back( _( "Width" ), msg );
+        aList.emplace_back( _( "Width" ),
+                            aFrame->MessageTextFromValue( std::abs( GetEnd().x - GetStart().x ) ) );
 
-        msg = MessageTextFromValue( units, std::abs( GetEnd().y - GetStart().y ) );
-        aList.emplace_back( _( "Height" ), msg );
+        aList.emplace_back( _( "Height" ),
+                            aFrame->MessageTextFromValue( std::abs( GetEnd().y - GetStart().y ) ) );
         break;
 
     case SHAPE_T::SEGMENT:
     {
         aList.emplace_back( shape, _( "Segment" ) );
 
-        msg = MessageTextFromValue( units, GetLineLength( GetStart(), GetEnd() ) );
-        aList.emplace_back( _( "Length" ), msg );
+        aList.emplace_back( _( "Length" ),
+                            aFrame->MessageTextFromValue( GetLineLength( GetStart(), GetEnd() ) ));
 
         // angle counter-clockwise from 3'o-clock
-        const double deg = RAD2DEG( atan2( (double)( GetStart().y - GetEnd().y ),
-                                           (double)( GetEnd().x - GetStart().x ) ) );
-        aList.emplace_back( _( "Angle" ), wxString::Format( "%.1f", deg ) );
+        EDA_ANGLE angle( atan2( (double)( GetStart().y - GetEnd().y ),
+                                (double)( GetEnd().x - GetStart().x ) ), RADIANS_T );
+        aList.emplace_back( _( "Angle" ), EDA_UNIT_UTILS::UI::MessageTextFromValue( angle ) );
         break;
     }
 
@@ -607,13 +631,13 @@ void EDA_SHAPE::ShapeGetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PA
         break;
     }
 
-    aList.emplace_back( _( "Line width" ), MessageTextFromValue( units, GetWidth() ) );
+    m_stroke.GetMsgPanelInfo( aFrame, aList );
 }
 
 
-const EDA_RECT EDA_SHAPE::getBoundingBox() const
+const BOX2I EDA_SHAPE::getBoundingBox() const
 {
-    EDA_RECT bbox;
+    BOX2I bbox;
 
     switch( m_shape )
     {
@@ -684,7 +708,9 @@ bool EDA_SHAPE::hitTest( const VECTOR2I& aPosition, int aAccuracy ) const
     case SHAPE_T::CIRCLE:
     {
         int radius = GetRadius();
-        int dist   = KiROUND( EuclideanNorm( aPosition - getCenter() ) );
+
+        VECTOR2I::extended_type dist = KiROUND<double, VECTOR2I::extended_type>(
+                EuclideanNorm( aPosition - getCenter() ) );
 
         if( IsFilled() )
             return dist <= radius + maxdist;          // Filled circle hit-test
@@ -702,30 +728,38 @@ bool EDA_SHAPE::hitTest( const VECTOR2I& aPosition, int aAccuracy ) const
 
         VECTOR2I relPos = aPosition - getCenter();
         int      radius = GetRadius();
-        int      dist = KiROUND( EuclideanNorm( relPos ) );
 
-        if( abs( radius - dist ) <= maxdist )
+        VECTOR2I::extended_type dist =
+                KiROUND<double, VECTOR2I::extended_type>( EuclideanNorm( relPos ) );
+
+        if( IsFilled() )
         {
-            EDA_ANGLE startAngle;
-            EDA_ANGLE endAngle;
-            CalcArcAngles( startAngle, endAngle );
-
-            if( m_upsideDownCoords && ( startAngle - endAngle ).Normalize180() > ANGLE_0 )
-                std::swap( startAngle, endAngle );
-
-            EDA_ANGLE relPosAngle( relPos );
-
-            startAngle.Normalize();
-            endAngle.Normalize();
-            relPosAngle.Normalize();
-
-            if( endAngle > startAngle )
-                return relPosAngle >= startAngle && relPosAngle <= endAngle;
-            else
-                return relPosAngle >= startAngle || relPosAngle <= endAngle;
+            // Check distance from arc center
+            if( dist > radius + maxdist )
+                return false;
+        }
+        else
+        {
+            // Check distance from arc circumference
+            if( abs( radius - dist ) > maxdist )
+                return false;
         }
 
-        return false;
+        // Finally, check to see if it's within arc's swept angle.
+        EDA_ANGLE startAngle;
+        EDA_ANGLE endAngle;
+        CalcArcAngles( startAngle, endAngle );
+
+        EDA_ANGLE relPosAngle( relPos );
+
+        startAngle.Normalize();
+        endAngle.Normalize();
+        relPosAngle.Normalize();
+
+        if( endAngle > startAngle )
+            return relPosAngle >= startAngle && relPosAngle <= endAngle;
+        else
+            return relPosAngle >= startAngle || relPosAngle <= endAngle;
     }
 
     case SHAPE_T::BEZIER:
@@ -743,7 +777,7 @@ bool EDA_SHAPE::hitTest( const VECTOR2I& aPosition, int aAccuracy ) const
         return TestSegmentHit( aPosition, GetStart(), GetEnd(), maxdist );
 
     case SHAPE_T::RECT:
-        if( IsFilled() )            // Filled rect hit-test
+        if( IsAnnotationProxy() || IsFilled() )         // Filled rect hit-test
         {
             SHAPE_POLY_SET poly;
             poly.NewOutline();
@@ -751,9 +785,9 @@ bool EDA_SHAPE::hitTest( const VECTOR2I& aPosition, int aAccuracy ) const
             for( const VECTOR2I& pt : GetRectCorners() )
                 poly.Append( pt );
 
-            return poly.Collide( VECTOR2I( aPosition ), maxdist );
+            return poly.Collide( aPosition, maxdist );
         }
-        else                        // Open rect hit-test
+        else                                            // Open rect hit-test
         {
             std::vector<VECTOR2I> pts = GetRectCorners();
 
@@ -765,14 +799,9 @@ bool EDA_SHAPE::hitTest( const VECTOR2I& aPosition, int aAccuracy ) const
 
     case SHAPE_T::POLY:
         if( IsFilled() )
-        {
-            return m_poly.Collide( VECTOR2I( aPosition ), maxdist );
-        }
+            return m_poly.Collide( aPosition, maxdist );
         else
-        {
-            SHAPE_POLY_SET::VERTEX_INDEX dummy;
-            return m_poly.CollideEdge( VECTOR2I( aPosition ), dummy, maxdist );
-        }
+            return m_poly.CollideEdge( aPosition, nullptr, maxdist );
 
     default:
         UNIMPLEMENTED_FOR( SHAPE_T_asString() );
@@ -781,14 +810,13 @@ bool EDA_SHAPE::hitTest( const VECTOR2I& aPosition, int aAccuracy ) const
 }
 
 
-bool EDA_SHAPE::hitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy ) const
+bool EDA_SHAPE::hitTest( const BOX2I& aRect, bool aContained, int aAccuracy ) const
 {
-    EDA_RECT arect = aRect;
+    BOX2I arect = aRect;
     arect.Normalize();
     arect.Inflate( aAccuracy );
 
-    EDA_RECT arcRect;
-    EDA_RECT bb = getBoundingBox();
+    BOX2I bbox = getBoundingBox();
 
     switch( m_shape )
     {
@@ -796,14 +824,34 @@ bool EDA_SHAPE::hitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy )
         // Test if area intersects or contains the circle:
         if( aContained )
         {
-            return arect.Contains( bb );
+            return arect.Contains( bbox );
         }
         else
         {
             // If the rectangle does not intersect the bounding box, this is a much quicker test
-            if( !aRect.Intersects( bb ) )
-            {
+            if( !arect.Intersects( bbox ) )
                 return false;
+            else
+                return arect.IntersectsCircleEdge( getCenter(), GetRadius(), GetWidth() );
+        }
+
+    case SHAPE_T::ARC:
+        // Test for full containment of this arc in the rect
+        if( aContained )
+        {
+            return arect.Contains( bbox );
+        }
+        // Test if the rect crosses the arc
+        else
+        {
+            if( !arect.Intersects( bbox ) )
+                return false;
+
+            if( IsFilled() )
+            {
+                return ( arect.Intersects( getCenter(), GetStart() )
+                      || arect.Intersects( getCenter(), GetEnd() )
+                      || arect.IntersectsCircleEdge( getCenter(), GetRadius(), GetWidth() ) );
             }
             else
             {
@@ -811,29 +859,10 @@ bool EDA_SHAPE::hitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy )
             }
         }
 
-    case SHAPE_T::ARC:
-        // Test for full containment of this arc in the rect
-        if( aContained )
-        {
-            return arect.Contains( bb );
-        }
-        // Test if the rect crosses the arc
-        else
-        {
-            arcRect = bb.Common( arect );
-
-            /* All following tests must pass:
-             * 1. Rectangle must intersect arc BoundingBox
-             * 2. Rectangle must cross the outside of the arc
-             */
-            return arcRect.Intersects( arect ) &&
-                   arcRect.IntersectsCircleEdge( getCenter(), GetRadius(), GetWidth() );
-        }
-
     case SHAPE_T::RECT:
         if( aContained )
         {
-            return arect.Contains( bb );
+            return arect.Contains( bbox );
         }
         else
         {
@@ -862,13 +891,13 @@ bool EDA_SHAPE::hitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy )
     case SHAPE_T::POLY:
         if( aContained )
         {
-            return arect.Contains( bb );
+            return arect.Contains( bbox );
         }
         else
         {
             // Fast test: if aRect is outside the polygon bounding box,
             // rectangles cannot intersect
-            if( !arect.Intersects( bb ) )
+            if( !arect.Intersects( bbox ) )
                 return false;
 
             // Account for the width of the line
@@ -879,35 +908,38 @@ bool EDA_SHAPE::hitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy )
             // to the actual location in the board.
             VECTOR2I offset = getParentPosition();
 
-            SHAPE_LINE_CHAIN poly = m_poly.Outline( 0 );
-            poly.Rotate( getParentOrientation() );
-            poly.Move( offset );
-
-            int count = poly.GetPointCount();
-
-            for( int ii = 0; ii < count; ii++ )
+            for( int ii = 0; ii < m_poly.OutlineCount(); ++ii )
             {
-                VECTOR2I vertex = poly.GetPoint( ii );
+                SHAPE_LINE_CHAIN poly = m_poly.Outline( ii );
+                poly.Rotate( getParentOrientation() );
+                poly.Move( offset );
 
-                // Test if the point is within aRect
-                if( arect.Contains( vertex ) )
-                    return true;
+                int count = poly.GetPointCount();
 
-                if( ii + 1 < count )
+                for( int jj = 0; jj < count; jj++ )
                 {
-                    VECTOR2I vertexNext = poly.GetPoint( ii + 1 );
+                    VECTOR2I vertex = poly.GetPoint( jj );
 
-                    // Test if this edge intersects aRect
-                    if( arect.Intersects( vertex, vertexNext ) )
+                    // Test if the point is within aRect
+                    if( arect.Contains( vertex ) )
                         return true;
-                }
-                else if( poly.IsClosed() )
-                {
-                    VECTOR2I vertexNext = poly.GetPoint( 0 );
 
-                    // Test if this edge intersects aRect
-                    if( arect.Intersects( vertex, vertexNext ) )
-                        return true;
+                    if( jj + 1 < count )
+                    {
+                        VECTOR2I vertexNext = poly.GetPoint( jj + 1 );
+
+                        // Test if this edge intersects aRect
+                        if( arect.Intersects( vertex, vertexNext ) )
+                            return true;
+                    }
+                    else if( poly.IsClosed() )
+                    {
+                        VECTOR2I vertexNext = poly.GetPoint( 0 );
+
+                        // Test if this edge intersects aRect
+                        if( arect.Intersects( vertex, vertexNext ) )
+                            return true;
+                    }
                 }
             }
 
@@ -917,13 +949,13 @@ bool EDA_SHAPE::hitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy )
     case SHAPE_T::BEZIER:
         if( aContained )
         {
-            return arect.Contains( bb );
+            return arect.Contains( bbox );
         }
         else
         {
             // Fast test: if aRect is outside the polygon bounding box,
             // rectangles cannot intersect
-            if( !arect.Intersects( bb ) )
+            if( !arect.Intersects( bbox ) )
                 return false;
 
             // Account for the width of the line
@@ -990,24 +1022,24 @@ std::vector<VECTOR2I> EDA_SHAPE::GetRectCorners() const
 }
 
 
-void EDA_SHAPE::computeArcBBox( EDA_RECT& aBBox ) const
+void EDA_SHAPE::computeArcBBox( BOX2I& aBBox ) const
 {
+    // Start, end, and each inflection point the arc crosses will enclose the entire arc.
+    // Only include the center when filled; it's not necessarily inside the BB of an unfilled
+    // arc with a small included angle.
+    aBBox.SetOrigin( m_start );
+    aBBox.Merge( m_end );
+
+    if( IsFilled() )
+        aBBox.Merge( m_arcCenter );
+
     int       radius = GetRadius();
     EDA_ANGLE t1, t2;
 
     CalcArcAngles( t1, t2 );
 
-    if( m_upsideDownCoords && ( t1 - t2 ).Normalize180() > ANGLE_0 )
-        std::swap( t1, t2 );
-
     t1.Normalize();
     t2.Normalize();
-
-    // Start, end, and each inflection point the arc crosses will enclose the entire arc
-    // Do not include the center, which is not necessarily inside the BB of an arc with a
-    // small included angle
-    aBBox.SetOrigin( m_start );
-    aBBox.Merge( m_end );
 
     if( t2 > t1 )
     {
@@ -1050,34 +1082,34 @@ void EDA_SHAPE::SetPolyPoints( const std::vector<VECTOR2I>& aPoints )
 }
 
 
-std::vector<SHAPE*> EDA_SHAPE::MakeEffectiveShapes( bool aEdgeOnly ) const
+std::vector<SHAPE*> EDA_SHAPE::makeEffectiveShapes( bool aEdgeOnly, bool aLineChainOnly ) const
 {
     std::vector<SHAPE*> effectiveShapes;
+    int                 width = GetEffectiveWidth();
 
     switch( m_shape )
     {
     case SHAPE_T::ARC:
-        effectiveShapes.emplace_back( new SHAPE_ARC( m_arcCenter, m_start, GetArcAngle(),
-                                                     GetWidth() ) );
+        effectiveShapes.emplace_back( new SHAPE_ARC( m_arcCenter, m_start, GetArcAngle(), width ) );
         break;
 
     case SHAPE_T::SEGMENT:
-        effectiveShapes.emplace_back( new SHAPE_SEGMENT( m_start, m_end, GetWidth() ) );
+        effectiveShapes.emplace_back( new SHAPE_SEGMENT( m_start, m_end, width ) );
         break;
 
     case SHAPE_T::RECT:
     {
         std::vector<VECTOR2I> pts = GetRectCorners();
 
-        if( IsFilled() && !aEdgeOnly )
+        if( ( IsFilled() || IsAnnotationProxy() ) && !aEdgeOnly )
             effectiveShapes.emplace_back( new SHAPE_SIMPLE( pts ) );
 
-        if( GetWidth() > 0 || !IsFilled() || aEdgeOnly )
+        if( width > 0 || !IsFilled() || aEdgeOnly )
         {
-            effectiveShapes.emplace_back( new SHAPE_SEGMENT( pts[0], pts[1], GetWidth() ) );
-            effectiveShapes.emplace_back( new SHAPE_SEGMENT( pts[1], pts[2], GetWidth() ) );
-            effectiveShapes.emplace_back( new SHAPE_SEGMENT( pts[2], pts[3], GetWidth() ) );
-            effectiveShapes.emplace_back( new SHAPE_SEGMENT( pts[3], pts[0], GetWidth() ) );
+            effectiveShapes.emplace_back( new SHAPE_SEGMENT( pts[0], pts[1], width ) );
+            effectiveShapes.emplace_back( new SHAPE_SEGMENT( pts[1], pts[2], width ) );
+            effectiveShapes.emplace_back( new SHAPE_SEGMENT( pts[2], pts[3], width ) );
+            effectiveShapes.emplace_back( new SHAPE_SEGMENT( pts[3], pts[0], width ) );
         }
     }
         break;
@@ -1087,21 +1119,21 @@ std::vector<SHAPE*> EDA_SHAPE::MakeEffectiveShapes( bool aEdgeOnly ) const
         if( IsFilled() && !aEdgeOnly )
             effectiveShapes.emplace_back( new SHAPE_CIRCLE( getCenter(), GetRadius() ) );
 
-        if( GetWidth() > 0 || !IsFilled() || aEdgeOnly )
-            effectiveShapes.emplace_back( new SHAPE_ARC( getCenter(), GetEnd(), ANGLE_360 ) );
+        if( width > 0 || !IsFilled() || aEdgeOnly )
+            effectiveShapes.emplace_back( new SHAPE_ARC( getCenter(), GetEnd(), ANGLE_360, width ) );
 
         break;
     }
 
     case SHAPE_T::BEZIER:
     {
-        std::vector<VECTOR2I> bezierPoints = buildBezierToSegmentsPointsList( GetWidth() );
+        std::vector<VECTOR2I> bezierPoints = buildBezierToSegmentsPointsList( width );
         VECTOR2I              start_pt = bezierPoints[0];
 
         for( unsigned int jj = 1; jj < bezierPoints.size(); jj++ )
         {
             VECTOR2I end_pt = bezierPoints[jj];
-            effectiveShapes.emplace_back( new SHAPE_SEGMENT( start_pt, end_pt, GetWidth() ) );
+            effectiveShapes.emplace_back( new SHAPE_SEGMENT( start_pt, end_pt, width ) );
             start_pt = end_pt;
         }
 
@@ -1113,18 +1145,24 @@ std::vector<SHAPE*> EDA_SHAPE::MakeEffectiveShapes( bool aEdgeOnly ) const
         if( GetPolyShape().OutlineCount() == 0 )    // malformed/empty polygon
             break;
 
-        SHAPE_LINE_CHAIN l = GetPolyShape().COutline( 0 );
-
-        l.Rotate( getParentOrientation() );
-        l.Move( getParentPosition() );
-
-        if( IsFilled() && !aEdgeOnly )
-            effectiveShapes.emplace_back( new SHAPE_SIMPLE( l ) );
-
-        if( GetWidth() > 0 || !IsFilled() || aEdgeOnly )
+        for( int ii = 0; ii < GetPolyShape().OutlineCount(); ++ii )
         {
-            for( int i = 0; i < l.SegmentCount(); i++ )
-                effectiveShapes.emplace_back( new SHAPE_SEGMENT( l.Segment( i ), GetWidth() ) );
+            SHAPE_LINE_CHAIN l = GetPolyShape().COutline( ii );
+
+            if( aLineChainOnly )
+                l.SetClosed( false );
+
+            l.Rotate( getParentOrientation() );
+            l.Move( getParentPosition() );
+
+            if( IsFilled() && !aEdgeOnly )
+                effectiveShapes.emplace_back( new SHAPE_SIMPLE( l ) );
+
+            if( width > 0 || !IsFilled() || aEdgeOnly )
+            {
+                for( int jj = 0; jj < l.SegmentCount(); jj++ )
+                    effectiveShapes.emplace_back( new SHAPE_SEGMENT( l.Segment( jj ), width ) );
+            }
         }
     }
         break;
@@ -1140,9 +1178,9 @@ std::vector<SHAPE*> EDA_SHAPE::MakeEffectiveShapes( bool aEdgeOnly ) const
 
 void EDA_SHAPE::DupPolyPointsList( std::vector<VECTOR2I>& aBuffer ) const
 {
-    if( m_poly.OutlineCount() )
+    for( int ii = 0; ii < m_poly.OutlineCount(); ++ii )
     {
-        int pointCount = m_poly.COutline( 0 ).PointCount();
+        int pointCount = m_poly.COutline( ii ).PointCount();
 
         if( pointCount )
         {
@@ -1161,7 +1199,7 @@ bool EDA_SHAPE::IsPolyShapeValid() const
     if( GetPolyShape().OutlineCount() == 0 )
         return false;
 
-    const SHAPE_LINE_CHAIN& outline = ( (SHAPE_POLY_SET&)GetPolyShape() ).Outline( 0 );
+    const SHAPE_LINE_CHAIN& outline = static_cast<const SHAPE_POLY_SET&>( GetPolyShape() ).Outline( 0 );
 
     return outline.PointCount() > 2;
 }
@@ -1324,28 +1362,30 @@ void EDA_SHAPE::calcEdit( const VECTOR2I& aPosition )
         switch( m_editState )
         {
         case 1:
-        {
-            // Keep center clockwise from chord while drawing
-            VECTOR2I  chordVector = m_end - m_start;
-            EDA_ANGLE chordAngle( chordVector );
+            // Keep arc clockwise while drawing i.e. arc angle = 90 deg.
+            // it can be 90 or 270 deg depending on the arc center choice (c1 or c2)
+            m_arcCenter = c1;   // first trial
 
-            VECTOR2I c1Test = c1;
-            RotatePoint( c1Test, m_start, -chordAngle.Normalize() );
+            if( GetArcAngle() > ANGLE_180 )
+                m_arcCenter = c2;
 
-            m_arcCenter = c1Test.x > 0 ? c2 : c1;
-        }
             break;
 
         case 2:
         case 3:
-            // Pick the one closer to the old center
-            m_arcCenter = GetLineLength( c1, m_arcCenter ) < GetLineLength( c2, m_arcCenter ) ? c1 : c2;
+            // Pick the one of c1, c2 to keep arc <= 180 deg
+            m_arcCenter = c1;   // first trial
+
+            if( GetArcAngle() > ANGLE_180 )
+                m_arcCenter = c2;
+
             break;
 
         case 4:
             // Pick the one closer to the mouse position
             m_arcCenter = GetLineLength( c1, aPosition ) < GetLineLength( c2, aPosition ) ? c1 : c2;
 
+            // keep arc angle <= 180 deg
             if( GetArcAngle() > ANGLE_180 )
                 std::swap( m_start, m_end );
 
@@ -1413,7 +1453,6 @@ void EDA_SHAPE::SwapShape( EDA_SHAPE* aImage )
     SWAPITEM( m_poly );
     SWAPITEM( m_fill );
     SWAPITEM( m_fillColor );
-    SWAPITEM( m_upsideDownCoords );
     SWAPITEM( m_editState );
     SWAPITEM( m_endsSwapped );
     #undef SWAPITEM
@@ -1461,62 +1500,57 @@ int EDA_SHAPE::Compare( const EDA_SHAPE* aOther ) const
 }
 
 
-void EDA_SHAPE::TransformShapeWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuffer,
-                                                      int aClearanceValue,
-                                                      int aError, ERROR_LOC aErrorLoc,
-                                                      bool ignoreLineWidth ) const
+void EDA_SHAPE::TransformShapeToPolygon( SHAPE_POLY_SET& aBuffer, int aClearance, int aError,
+                                         ERROR_LOC aErrorLoc, bool ignoreLineWidth ) const
 {
     int width = ignoreLineWidth ? 0 : GetWidth();
 
-    width += 2 * aClearanceValue;
+    width += 2 * aClearance;
 
     switch( m_shape )
     {
     case SHAPE_T::CIRCLE:
+    {
+        int r = GetRadius();
+
         if( IsFilled() )
-        {
-            TransformCircleToPolygon( aCornerBuffer, getCenter(), GetRadius() + width / 2, aError,
-                                      aErrorLoc );
-        }
+            TransformCircleToPolygon( aBuffer, getCenter(), r + width / 2, aError, aErrorLoc );
         else
-        {
-            TransformRingToPolygon( aCornerBuffer, getCenter(), GetRadius(), width, aError,
-                                    aErrorLoc );
-        }
+            TransformRingToPolygon( aBuffer, getCenter(), r, width, aError, aErrorLoc );
 
         break;
+    }
 
     case SHAPE_T::RECT:
     {
         std::vector<VECTOR2I> pts = GetRectCorners();
 
-        if( IsFilled() )
+        if( IsFilled() || IsAnnotationProxy() )
         {
-            aCornerBuffer.NewOutline();
+            aBuffer.NewOutline();
 
             for( const VECTOR2I& pt : pts )
-                aCornerBuffer.Append( pt );
+                aBuffer.Append( pt );
         }
 
         if( width > 0 || !IsFilled() )
         {
             // Add in segments
-            TransformOvalToPolygon( aCornerBuffer, pts[0], pts[1], width, aError, aErrorLoc );
-            TransformOvalToPolygon( aCornerBuffer, pts[1], pts[2], width, aError, aErrorLoc );
-            TransformOvalToPolygon( aCornerBuffer, pts[2], pts[3], width, aError, aErrorLoc );
-            TransformOvalToPolygon( aCornerBuffer, pts[3], pts[0], width, aError, aErrorLoc );
+            TransformOvalToPolygon( aBuffer, pts[0], pts[1], width, aError, aErrorLoc );
+            TransformOvalToPolygon( aBuffer, pts[1], pts[2], width, aError, aErrorLoc );
+            TransformOvalToPolygon( aBuffer, pts[2], pts[3], width, aError, aErrorLoc );
+            TransformOvalToPolygon( aBuffer, pts[3], pts[0], width, aError, aErrorLoc );
         }
 
         break;
     }
 
     case SHAPE_T::ARC:
-        TransformArcToPolygon( aCornerBuffer, GetStart(), GetArcMid(), GetEnd(), width, aError,
-                               aErrorLoc );
+        TransformArcToPolygon( aBuffer, GetStart(), GetArcMid(), GetEnd(), width, aError, aErrorLoc );
         break;
 
     case SHAPE_T::SEGMENT:
-        TransformOvalToPolygon( aCornerBuffer, GetStart(), GetEnd(), width, aError, aErrorLoc );
+        TransformOvalToPolygon( aBuffer, GetStart(), GetEnd(), width, aError, aErrorLoc );
         break;
 
     case SHAPE_T::POLY:
@@ -1540,10 +1574,10 @@ void EDA_SHAPE::TransformShapeWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuf
 
         if( IsFilled() )
         {
-            aCornerBuffer.NewOutline();
+            aBuffer.NewOutline();
 
             for( const VECTOR2I& point : poly )
-                aCornerBuffer.Append( point.x, point.y );
+                aBuffer.Append( point.x, point.y );
         }
 
         if( width > 0 || !IsFilled() )
@@ -1553,7 +1587,7 @@ void EDA_SHAPE::TransformShapeWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuf
             for( const VECTOR2I& pt2 : poly )
             {
                 if( pt2 != pt1 )
-                    TransformOvalToPolygon( aCornerBuffer, pt1, pt2, width, aError, aErrorLoc );
+                    TransformOvalToPolygon( aBuffer, pt1, pt2, width, aError, aErrorLoc );
 
                 pt1 = pt2;
             }
@@ -1570,10 +1604,7 @@ void EDA_SHAPE::TransformShapeWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuf
         converter.GetPoly( poly, GetWidth() );
 
         for( unsigned ii = 1; ii < poly.size(); ii++ )
-        {
-            TransformOvalToPolygon( aCornerBuffer, poly[ii - 1], poly[ii], width, aError,
-                                    aErrorLoc );
-        }
+            TransformOvalToPolygon( aBuffer, poly[ii - 1], poly[ii], width, aError, aErrorLoc );
 
         break;
     }
@@ -1583,6 +1614,10 @@ void EDA_SHAPE::TransformShapeWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuf
         break;
     }
 }
+
+
+ENUM_TO_WXANY( SHAPE_T )
+ENUM_TO_WXANY( PLOT_DASH_TYPE )
 
 
 static struct EDA_SHAPE_DESC
@@ -1606,21 +1641,33 @@ static struct EDA_SHAPE_DESC
 
         PROPERTY_MANAGER& propMgr = PROPERTY_MANAGER::Instance();
         REGISTER_TYPE( EDA_SHAPE );
-        propMgr.AddProperty( new PROPERTY_ENUM<EDA_SHAPE, SHAPE_T>( _HKI( "Shape" ),
-                    &EDA_SHAPE::SetShape, &EDA_SHAPE::GetShape ) );
+        auto shape = new PROPERTY_ENUM<EDA_SHAPE, SHAPE_T>( _HKI( "Shape" ),
+                     NO_SETTER( EDA_SHAPE, SHAPE_T ), &EDA_SHAPE::GetShape );
+        propMgr.AddProperty( shape );
         propMgr.AddProperty( new PROPERTY<EDA_SHAPE, int>( _HKI( "Start X" ),
-                    &EDA_SHAPE::SetStartX, &EDA_SHAPE::GetStartX ) );
+                    &EDA_SHAPE::SetStartX, &EDA_SHAPE::GetStartX, PROPERTY_DISPLAY::PT_COORD,
+                    ORIGIN_TRANSFORMS::ABS_X_COORD ) );
         propMgr.AddProperty( new PROPERTY<EDA_SHAPE, int>( _HKI( "Start Y" ),
-                    &EDA_SHAPE::SetStartY, &EDA_SHAPE::GetStartY ) );
+                    &EDA_SHAPE::SetStartY, &EDA_SHAPE::GetStartY, PROPERTY_DISPLAY::PT_COORD,
+                    ORIGIN_TRANSFORMS::ABS_Y_COORD ) );
         propMgr.AddProperty( new PROPERTY<EDA_SHAPE, int>( _HKI( "End X" ),
-                    &EDA_SHAPE::SetEndX, &EDA_SHAPE::GetEndX ) );
+                    &EDA_SHAPE::SetEndX, &EDA_SHAPE::GetEndX, PROPERTY_DISPLAY::PT_COORD,
+                    ORIGIN_TRANSFORMS::ABS_X_COORD ) );
         propMgr.AddProperty( new PROPERTY<EDA_SHAPE, int>( _HKI( "End Y" ),
-                    &EDA_SHAPE::SetEndY, &EDA_SHAPE::GetEndY ) );
+                    &EDA_SHAPE::SetEndY, &EDA_SHAPE::GetEndY, PROPERTY_DISPLAY::PT_COORD,
+                    ORIGIN_TRANSFORMS::ABS_Y_COORD ) );
         // TODO: m_arcCenter, m_bezierC1, m_bezierC2, m_poly
         propMgr.AddProperty( new PROPERTY<EDA_SHAPE, int>( _HKI( "Line Width" ),
-                    &EDA_SHAPE::SetWidth, &EDA_SHAPE::GetWidth ) );
+                    &EDA_SHAPE::SetWidth, &EDA_SHAPE::GetWidth, PROPERTY_DISPLAY::PT_SIZE ) );
+
+        auto angle = new PROPERTY<EDA_SHAPE, EDA_ANGLE>( _HKI( "Angle" ),
+                    NO_SETTER( EDA_SHAPE, EDA_ANGLE ), &EDA_SHAPE::GetArcAngle,
+                    PROPERTY_DISPLAY::PT_DECIDEGREE );
+        angle->SetAvailableFunc(
+                [=]( INSPECTABLE* aItem ) -> bool
+                {
+                    return aItem->Get<SHAPE_T>( shape ) == SHAPE_T::ARC;
+                } );
+        propMgr.AddProperty( angle );
     }
 } _EDA_SHAPE_DESC;
-
-ENUM_TO_WXANY( SHAPE_T )
-ENUM_TO_WXANY( PLOT_DASH_TYPE )

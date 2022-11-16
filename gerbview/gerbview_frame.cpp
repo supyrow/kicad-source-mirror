@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2018 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -19,6 +19,7 @@
  */
 
 #include <kiface_base.h>
+#include <base_units.h>
 #include <pgm_base.h>
 #include <bitmaps.h>
 #include <wildcards_and_files_ext.h>
@@ -57,7 +58,8 @@
 
 GERBVIEW_FRAME::GERBVIEW_FRAME( KIWAY* aKiway, wxWindow* aParent )
         : EDA_DRAW_FRAME( aKiway, aParent, FRAME_GERBER, wxT( "GerbView" ), wxDefaultPosition,
-                          wxDefaultSize, KICAD_DEFAULT_DRAWFRAME_STYLE, GERBVIEW_FRAME_NAME ),
+                        wxDefaultSize, KICAD_DEFAULT_DRAWFRAME_STYLE, GERBVIEW_FRAME_NAME,
+                        gerbIUScale ),
           m_TextInfo( nullptr ),
           m_zipFileHistory( DEFAULT_FILE_HISTORY_SIZE, ID_GERBVIEW_ZIP_FILE1,
                             ID_GERBVIEW_ZIP_FILE_LIST_CLEAR, _( "Clear Recent Zip Files" ) ),
@@ -120,7 +122,7 @@ GERBVIEW_FRAME::GERBVIEW_FRAME( KIWAY* aKiway, wxWindow* aParent )
 
     SetVisibleLayers( LSET::AllLayersMask() );         // All draw layers visible.
 
-    SetScreen( new BASE_SCREEN( GetPageSettings().GetSizeIU() ) );
+    SetScreen( new BASE_SCREEN( GetPageSettings().GetSizeIU( gerbIUScale.IU_PER_MILS ) ) );
 
     // Create the PCB_LAYER_WIDGET *after* SetLayout():
     m_LayersManager = new GERBER_LAYER_WIDGET( this, GetCanvas() );
@@ -175,6 +177,13 @@ GERBVIEW_FRAME::GERBVIEW_FRAME( KIWAY* aKiway, wxWindow* aParent )
 
     m_LayersManager->ReFill();
     m_LayersManager->ReFillRender();    // Update colors in Render after the config is read
+
+    // Drag and drop
+    m_acceptedExts.emplace( ArchiveFileExtension, &GERBVIEW_ACTIONS::loadZipFile );
+    for( const auto& ext : GerberFileExtensions )
+        m_acceptedExts.emplace( ext, &GERBVIEW_ACTIONS::loadGerbFiles );
+    m_acceptedExts.emplace( DrillFileExtension, &GERBVIEW_ACTIONS::loadGerbFiles );
+    DragAcceptFiles( true );
 
     GetToolManager()->RunAction( ACTIONS::zoomFitScreen, true );
 
@@ -258,9 +267,9 @@ bool GERBVIEW_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
         {
             wxString ext = wxFileName( aFileSet[i] ).GetExt().Lower();
 
-            if( ext == wxT( "zip" ) )
+            if( ext == ArchiveFileExtension )
                 LoadZipArchiveFile( aFileSet[i] );
-            else if( ext == wxT( "gbrprj" ) )
+            else if( ext == GerberJobFileExtension )
                 LoadGerberJobFile( aFileSet[i] );
             else
             {
@@ -337,6 +346,8 @@ void GERBVIEW_FRAME::LoadSettings( APP_SETTINGS_BASE* aCfg )
 
     SetElementVisibility( LAYER_GERBVIEW_DRAWINGSHEET,
                           cfg->m_Appearance.show_border_and_titleblock );
+    SetElementVisibility( LAYER_GERBVIEW_PAGE_LIMITS,
+                          cfg->m_Display.m_DisplayPageLimits );
 
     PAGE_INFO pageInfo( wxT( "GERBER" ) );
     pageInfo.SetType( cfg->m_Appearance.page_type );
@@ -366,6 +377,15 @@ void GERBVIEW_FRAME::SaveSettings( APP_SETTINGS_BASE* aCfg )
 
     COLOR_SETTINGS* cs = Pgm().GetSettingsManager().GetColorSettings();
     Pgm().GetSettingsManager().SaveColorSettings( cs, "gerbview" );
+}
+
+
+COLOR_SETTINGS* GERBVIEW_FRAME::GetColorSettings( bool aForceRefresh ) const
+{
+    SETTINGS_MANAGER&  mgr = Pgm().GetSettingsManager();
+    GERBVIEW_SETTINGS* cfg = mgr.GetAppSettings<GERBVIEW_SETTINGS>();
+    wxString currentTheme = cfg->m_ColorTheme;
+    return mgr.GetColorSettings( currentTheme );
 }
 
 
@@ -441,6 +461,11 @@ void GERBVIEW_FRAME::SetElementVisibility( int aLayerID, bool aNewState )
         SetGridVisibility( aNewState );
         break;
 
+    case LAYER_GERBVIEW_PAGE_LIMITS:
+        gvconfig()->m_Display.m_DisplayPageLimits = aNewState;
+        SetPageSettings( GetPageSettings() );
+        break;
+
     default:
         wxFAIL_MSG( wxString::Format( wxT( "GERBVIEW_FRAME::SetElementVisibility(): bad arg %d" ),
                                       aLayerID ) );
@@ -455,7 +480,8 @@ void GERBVIEW_FRAME::ApplyDisplaySettingsToGAL()
 {
     auto painter = static_cast<KIGFX::GERBVIEW_PAINTER*>( GetCanvas()->GetView()->GetPainter() );
     KIGFX::GERBVIEW_RENDER_SETTINGS* settings = painter->GetSettings();
-    settings->LoadColors( Pgm().GetSettingsManager().GetColorSettings() );
+    settings->SetHighContrast( gvconfig()->m_Display.m_HighContrastMode );
+    settings->LoadColors( GetColorSettings() );
 
     GetCanvas()->GetView()->MarkTargetDirty( KIGFX::TARGET_NONCACHED );
 }
@@ -646,6 +672,7 @@ bool GERBVIEW_FRAME::IsElementVisible( int aLayerID ) const
     case LAYER_NEGATIVE_OBJECTS:      return gvconfig()->m_Appearance.show_negative_objects;
     case LAYER_GERBVIEW_GRID:         return IsGridVisible();
     case LAYER_GERBVIEW_DRAWINGSHEET: return gvconfig()->m_Appearance.show_border_and_titleblock;
+    case LAYER_GERBVIEW_PAGE_LIMITS:  return gvconfig()->m_Display.m_DisplayPageLimits;
     case LAYER_GERBVIEW_BACKGROUND:   return true;
 
     default:
@@ -696,13 +723,14 @@ bool GERBVIEW_FRAME::IsLayerVisible( int aLayer ) const
 COLOR4D GERBVIEW_FRAME::GetVisibleElementColor( int aLayerID )
 {
     COLOR4D color = COLOR4D::UNSPECIFIED;
-    COLOR_SETTINGS* settings = Pgm().GetSettingsManager().GetColorSettings();
+    COLOR_SETTINGS* settings = GetColorSettings();
 
     switch( aLayerID )
     {
     case LAYER_NEGATIVE_OBJECTS:
     case LAYER_DCODES:
     case LAYER_GERBVIEW_DRAWINGSHEET:
+    case LAYER_GERBVIEW_PAGE_LIMITS:
     case LAYER_GERBVIEW_BACKGROUND:
         color = settings->GetColor( aLayerID );
         break;
@@ -729,59 +757,40 @@ void GERBVIEW_FRAME::SetGridVisibility( bool aVisible )
 
 void GERBVIEW_FRAME::SetVisibleElementColor( int aLayerID, const COLOR4D& aColor )
 {
-    COLOR_SETTINGS* settings = Pgm().GetSettingsManager().GetColorSettings();
+    COLOR_SETTINGS* settings = GetColorSettings();
+
+    settings->SetColor( aLayerID, aColor );
 
     switch( aLayerID )
     {
-    case LAYER_NEGATIVE_OBJECTS:
-    case LAYER_DCODES:
-        settings->SetColor( aLayerID, aColor );
-        break;
-
     case LAYER_GERBVIEW_DRAWINGSHEET:
-        settings->SetColor( LAYER_GERBVIEW_DRAWINGSHEET, aColor );
-
-        // LAYER_DRAWINGSHEET color is also used to draw the drawing-sheet
-        // FIX ME: why LAYER_DRAWINGSHEET must be set, although LAYER_GERBVIEW_DRAWINGSHEET
-        // is used to initialize the drawing-sheet color layer.
-        settings->SetColor( LAYER_DRAWINGSHEET, aColor );
+    case LAYER_GERBVIEW_PAGE_LIMITS:
+        SetPageSettings( GetPageSettings() );
         break;
 
     case LAYER_GERBVIEW_GRID:
         SetGridColor( aColor );
-        settings->SetColor( aLayerID, aColor );
         break;
 
     case LAYER_GERBVIEW_BACKGROUND:
         SetDrawBgColor( aColor );
-        settings->SetColor( aLayerID, aColor );
         break;
 
     default:
-        wxFAIL_MSG( wxString::Format( wxT( "GERBVIEW_FRAME::SetVisibleElementColor(): bad arg %d" ),
-                                       aLayerID ) );
+        break;
     }
-}
-
-
-COLOR4D GERBVIEW_FRAME::GetNegativeItemsColor()
-{
-    if( gvconfig()->m_Appearance.show_negative_objects )
-        return GetVisibleElementColor( LAYER_NEGATIVE_OBJECTS );
-    else
-        return GetDrawBgColor();
 }
 
 
 COLOR4D GERBVIEW_FRAME::GetLayerColor( int aLayer ) const
 {
-    return Pgm().GetSettingsManager().GetColorSettings()->GetColor( aLayer );
+    return GetColorSettings()->GetColor( aLayer );
 }
 
 
 void GERBVIEW_FRAME::SetLayerColor( int aLayer, const COLOR4D& aColor )
 {
-    Pgm().GetSettingsManager().GetColorSettings()->SetColor( aLayer, aColor );
+    GetColorSettings()->SetColor( aLayer, aColor );
     ApplyDisplaySettingsToGAL();
 }
 
@@ -811,13 +820,14 @@ void GERBVIEW_FRAME::SetPageSettings( const PAGE_INFO& aPageSettings )
     m_paper = aPageSettings;
 
     if( GetScreen() )
-        GetScreen()->InitDataPoints( aPageSettings.GetSizeIU() );
+        GetScreen()->InitDataPoints( aPageSettings.GetSizeIU( gerbIUScale.IU_PER_MILS ) );
 
     GERBVIEW_DRAW_PANEL_GAL* drawPanel = static_cast<GERBVIEW_DRAW_PANEL_GAL*>( GetCanvas() );
 
     // Prepare drawing-sheet template
-    DS_PROXY_VIEW_ITEM* drawingSheet = new DS_PROXY_VIEW_ITEM( IU_PER_MILS, &GetPageSettings(),
-                                                               &Prj(), &GetTitleBlock() );
+    DS_PROXY_VIEW_ITEM* drawingSheet = new DS_PROXY_VIEW_ITEM( gerbIUScale.IU_PER_MILS,
+                                                               &GetPageSettings(), &Prj(),
+                                                               &GetTitleBlock(), nullptr );
 
     if( GetScreen() )
     {
@@ -826,6 +836,7 @@ void GERBVIEW_FRAME::SetPageSettings( const PAGE_INFO& aPageSettings )
     }
 
     drawingSheet->SetColorLayer( LAYER_GERBVIEW_DRAWINGSHEET );
+    drawingSheet->SetPageBorderColorLayer( LAYER_GERBVIEW_PAGE_LIMITS );
 
     // Draw panel takes ownership of the drawing-sheet
     drawPanel->SetDrawingSheet( drawingSheet );
@@ -843,7 +854,7 @@ const wxSize GERBVIEW_FRAME::GetPageSizeIU() const
     // this function is only needed because EDA_DRAW_FRAME is not compiled
     // with either -DPCBNEW or -DEESCHEMA, so the virtual is used to route
     // into an application specific source file.
-    return GetPageSettings().GetSizeIU();
+    return GetPageSettings().GetSizeIU( gerbIUScale.IU_PER_MILS );
 }
 
 
@@ -863,13 +874,13 @@ void GERBVIEW_FRAME::SetTitleBlock( const TITLE_BLOCK& aTitleBlock )
 
 COLOR4D GERBVIEW_FRAME::GetGridColor()
 {
-    return Pgm().GetSettingsManager().GetColorSettings()->GetColor( LAYER_GRID );
+    return GetColorSettings()->GetColor( LAYER_GERBVIEW_GRID );
 }
 
 
 void GERBVIEW_FRAME::SetGridColor( const COLOR4D& aColor )
 {
-    Pgm().GetSettingsManager().GetColorSettings()->SetColor( LAYER_GRID, aColor );
+    GetColorSettings()->SetColor( LAYER_GERBVIEW_GRID, aColor );
     GetCanvas()->GetGAL()->SetGridColor( aColor );
     m_gridColor = aColor;
 }
@@ -881,8 +892,8 @@ void GERBVIEW_FRAME::DisplayGridMsg()
     wxString line;
 
     line.Printf( wxT( "grid X %s  Y %s" ),
-                 MessageTextFromValue( m_userUnits, gridSize.x, false ),
-                 MessageTextFromValue( m_userUnits, gridSize.y, false ) );
+                 MessageTextFromValue( gridSize.x, false ),
+                 MessageTextFromValue( gridSize.y, false ) );
 
     SetStatusText( line, 4 );
     SetStatusText( line, 4 );
@@ -906,16 +917,16 @@ void GERBVIEW_FRAME::UpdateStatusBar()
         double    ro = hypot( v.x, v.y );
 
         line.Printf( wxT( "r %s  theta %s" ),
-                     MessageTextFromValue( GetUserUnits(), ro, false ),
-                     MessageTextFromValue( EDA_UNITS::DEGREES, theta.AsDegrees(), false ) );
+                     MessageTextFromValue( ro, false ),
+                     MessageTextFromValue( theta, false ) );
 
         SetStatusText( line, 3 );
     }
 
     // Display absolute coordinates:
     line.Printf( wxT( "X %s  Y %s" ),
-                 MessageTextFromValue( GetUserUnits(), cursorPos.x, false ),
-                 MessageTextFromValue( GetUserUnits(), cursorPos.y, false ) );
+                 MessageTextFromValue( cursorPos.x, false ),
+                 MessageTextFromValue( cursorPos.y, false ) );
     SetStatusText( line, 2 );
 
     if( !GetShowPolarCoords() )
@@ -925,9 +936,9 @@ void GERBVIEW_FRAME::UpdateStatusBar()
         double dYpos = cursorPos.y - GetScreen()->m_LocalOrigin.y;
 
         line.Printf( wxT( "dx %s  dy %s  dist %s" ),
-                     MessageTextFromValue( GetUserUnits(), dXpos, false ),
-                     MessageTextFromValue( GetUserUnits(), dYpos, false ),
-                     MessageTextFromValue( GetUserUnits(), hypot( dXpos, dYpos ), false ) );
+                     MessageTextFromValue( dXpos, false ),
+                     MessageTextFromValue( dYpos,false ),
+                     MessageTextFromValue( hypot( dXpos, dYpos ), false ) );
         SetStatusText( line, 3 );
     }
 
@@ -1020,23 +1031,17 @@ void GERBVIEW_FRAME::setupUIConditions()
 #define ENABLE( x ) ACTION_CONDITIONS().Enable( x )
 #define CHECK( x )  ACTION_CONDITIONS().Check( x )
 
-    mgr->SetConditions( ACTIONS::zoomTool,
-                        CHECK( cond.CurrentTool( ACTIONS::zoomTool ) ) );
-    mgr->SetConditions( ACTIONS::selectionTool,
-                        CHECK( cond.CurrentTool( ACTIONS::selectionTool ) ) );
-    mgr->SetConditions( ACTIONS::measureTool,
-                        CHECK( cond.CurrentTool( ACTIONS::measureTool ) ) );
+    mgr->SetConditions( ACTIONS::zoomTool,      CHECK( cond.CurrentTool( ACTIONS::zoomTool ) ) );
+    mgr->SetConditions( ACTIONS::selectionTool, CHECK( cond.CurrentTool( ACTIONS::selectionTool ) ) );
+    mgr->SetConditions( ACTIONS::measureTool,   CHECK( cond.CurrentTool( ACTIONS::measureTool ) ) );
 
-    mgr->SetConditions( ACTIONS::toggleGrid,          CHECK( cond.GridVisible() ) );
-    mgr->SetConditions( ACTIONS::togglePolarCoords,   CHECK( cond.PolarCoordinates() ) );
-    mgr->SetConditions( ACTIONS::toggleCursorStyle,   CHECK( cond.FullscreenCursor() ) );
+    mgr->SetConditions( ACTIONS::toggleGrid,        CHECK( cond.GridVisible() ) );
+    mgr->SetConditions( ACTIONS::togglePolarCoords, CHECK( cond.PolarCoordinates() ) );
+    mgr->SetConditions( ACTIONS::toggleCursorStyle, CHECK( cond.FullscreenCursor() ) );
 
-    mgr->SetConditions( ACTIONS::millimetersUnits,
-                        CHECK( cond.Units( EDA_UNITS::MILLIMETRES ) ) );
-    mgr->SetConditions( ACTIONS::inchesUnits,
-                        CHECK( cond.Units( EDA_UNITS::INCHES ) ) );
-    mgr->SetConditions( ACTIONS::milsUnits,
-                        CHECK( cond.Units( EDA_UNITS::MILS ) ) );
+    mgr->SetConditions( ACTIONS::millimetersUnits,  CHECK( cond.Units( EDA_UNITS::MILLIMETRES ) ) );
+    mgr->SetConditions( ACTIONS::inchesUnits,       CHECK( cond.Units( EDA_UNITS::INCHES ) ) );
+    mgr->SetConditions( ACTIONS::milsUnits,         CHECK( cond.Units( EDA_UNITS::MILS ) ) );
 
     auto flashedDisplayOutlinesCond =
         [this] ( const SELECTION& )
@@ -1092,8 +1097,7 @@ void GERBVIEW_FRAME::setupUIConditions()
             return m_show_layer_manager_tools;
         };
 
-    mgr->SetConditions( GERBVIEW_ACTIONS::flashedDisplayOutlines,
-                        CHECK( flashedDisplayOutlinesCond ) );
+    mgr->SetConditions( GERBVIEW_ACTIONS::flashedDisplayOutlines,  CHECK( flashedDisplayOutlinesCond ) );
     mgr->SetConditions( GERBVIEW_ACTIONS::linesDisplayOutlines,    CHECK( linesFillCond ) );
     mgr->SetConditions( GERBVIEW_ACTIONS::polygonsDisplayOutlines, CHECK( polygonsFilledCond ) );
     mgr->SetConditions( GERBVIEW_ACTIONS::negativeObjectDisplay,   CHECK( negativeObjectsCond ) );
@@ -1101,8 +1105,7 @@ void GERBVIEW_FRAME::setupUIConditions()
     mgr->SetConditions( GERBVIEW_ACTIONS::toggleDiffMode,          CHECK( diffModeCond ) );
     mgr->SetConditions( GERBVIEW_ACTIONS::flipGerberView,          CHECK( flipGerberCond ) );
     mgr->SetConditions( ACTIONS::highContrastMode,                 CHECK( highContrastModeCond ) );
-    mgr->SetConditions( GERBVIEW_ACTIONS::toggleLayerManager,
-                        CHECK( layersManagerShownCondition ) );
+    mgr->SetConditions( GERBVIEW_ACTIONS::toggleLayerManager,      CHECK( layersManagerShownCondition ) );
 
 #undef CHECK
 #undef ENABLE
@@ -1125,6 +1128,9 @@ void GERBVIEW_FRAME::CommonSettingsChanged( bool aEnvVarsChanged, bool aTextVars
     GetCanvas()->ForceRefresh();
 
     RecreateToolbars();
+    ReFillLayerWidget();                // Update the layers list
+    m_LayersManager->ReFillRender();    // Update colors in Render after the config is read
+
     Layout();
     SendSizeEvent();
 }

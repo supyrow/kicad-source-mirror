@@ -103,17 +103,16 @@ void SCH_EDIT_FRAME::StartNewUndo()
 }
 
 
-void SCH_EDIT_FRAME::SaveCopyInUndoList( SCH_SCREEN*    aScreen,
-                                         SCH_ITEM*      aItem,
-                                         UNDO_REDO      aCommandType,
-                                         bool           aAppend )
+void SCH_EDIT_FRAME::SaveCopyInUndoList( SCH_SCREEN* aScreen, SCH_ITEM* aItem,
+                                         UNDO_REDO aCommandType, bool aAppend,
+                                         bool aDirtyConnectivity )
 {
     PICKED_ITEMS_LIST* commandToUndo = nullptr;
 
     wxCHECK( aItem, /* void */ );
 
-    // Connectivity may change
-    aItem->SetConnectivityDirty();
+    if( aDirtyConnectivity )
+        aItem->SetConnectivityDirty();
 
     PICKED_ITEMS_LIST* lastUndo = PopCommandFromUndoList();
 
@@ -168,8 +167,8 @@ void SCH_EDIT_FRAME::SaveCopyInUndoList( SCH_SCREEN*    aScreen,
 
 
 void SCH_EDIT_FRAME::SaveCopyInUndoList( const PICKED_ITEMS_LIST& aItemsList,
-                                         UNDO_REDO                aTypeCommand,
-                                         bool                     aAppend )
+                                         UNDO_REDO aTypeCommand, bool aAppend,
+                                         bool aDirtyConnectivity )
 {
     PICKED_ITEMS_LIST* commandToUndo = nullptr;
 
@@ -209,8 +208,8 @@ void SCH_EDIT_FRAME::SaveCopyInUndoList( const PICKED_ITEMS_LIST& aItemsList,
         if( !sch_item )
             continue;
 
-        // Connectivity may change
-        sch_item->SetConnectivityDirty();
+        if( aDirtyConnectivity )
+            sch_item->SetConnectivityDirty();
 
         UNDO_REDO command = commandToUndo->GetPickedItemStatus( ii );
 
@@ -325,6 +324,31 @@ void SCH_EDIT_FRAME::PutDataInPreviousState( PICKED_ITEMS_LIST* aList )
             {
             case UNDO_REDO::CHANGED:
                 item->SwapData( alt_item );
+
+                // Special cases for items which have instance data
+                if( item->GetParent() && item->GetParent()->Type() == SCH_SYMBOL_T
+                        && item->Type() == SCH_FIELD_T )
+                {
+                    SCH_FIELD*  field = static_cast<SCH_FIELD*>( item );
+                    SCH_SYMBOL* symbol = static_cast<SCH_SYMBOL*>( item->GetParent() );
+
+                    if( field->GetId() == REFERENCE_FIELD )
+                    {
+                        symbol->SetRef( m_schematic->GetSheets().FindSheetForScreen( screen ),
+                                        field->GetText() );
+                    }
+                    else if( field->GetId() == VALUE_FIELD )
+                    {
+                        symbol->SetValue( m_schematic->GetSheets().FindSheetForScreen( screen ),
+                                          field->GetText() );
+                    }
+                    else if( field->GetId() == FOOTPRINT_FIELD )
+                    {
+                        symbol->SetFootprint( m_schematic->GetSheets().FindSheetForScreen( screen ),
+                                              field->GetText() );
+                    }
+                }
+
                 break;
 
             case UNDO_REDO::EXCHANGE_T:
@@ -350,9 +374,6 @@ void SCH_EDIT_FRAME::PutDataInPreviousState( PICKED_ITEMS_LIST* aList )
         }
     }
 
-    // Bitmaps are cached in Opengl: clear the cache, because
-    // the cache data can be invalid
-    GetCanvas()->GetView()->RecacheAllItems();
     GetCanvas()->GetView()->ClearHiddenFlags();
 }
 
@@ -372,7 +393,10 @@ void SCH_EDIT_FRAME::RollbackSchematicFromUndo()
     if( undo )
     {
         PutDataInPreviousState( undo );
-        undo->ClearListAndDeleteItems();
+        undo->ClearListAndDeleteItems( []( EDA_ITEM* aItem )
+                                       {
+                                           delete aItem;
+                                       } );
         delete undo;
 
         SetSheetNumberAndCount();
@@ -383,7 +407,6 @@ void SCH_EDIT_FRAME::RollbackSchematicFromUndo()
         m_toolManager->GetTool<EE_SELECTION_TOOL>()->RebuildSelection();
     }
 
-    SyncView();
     GetCanvas()->Refresh();
 }
 
@@ -397,7 +420,10 @@ void SCH_EDIT_FRAME::ClearUndoORRedoList( UNDO_REDO_LIST whichList, int aItemCou
 
     for( PICKED_ITEMS_LIST* command : list.m_CommandsList )
     {
-        command->ClearListAndDeleteItems();
+        command->ClearListAndDeleteItems( []( EDA_ITEM* aItem )
+                                          {
+                                              delete aItem;
+                                          } );
         delete command;
     }
 

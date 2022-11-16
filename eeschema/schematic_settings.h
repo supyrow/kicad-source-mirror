@@ -20,7 +20,6 @@
 #ifndef KICAD_SCHEMATIC_SETTINGS_H
 #define KICAD_SCHEMATIC_SETTINGS_H
 
-#include <convert_to_biu.h>
 #include <default_values.h>
 #include <settings/nested_settings.h>
 #include <template_fieldnames.h>
@@ -70,7 +69,12 @@ public:
 
     ///< @todo These should probably be moved to the "schematic.simulator" path.
     bool      m_SpiceAdjustPassiveValues;
+    bool      m_SpiceCurSheetAsRoot;
+    bool      m_SpiceSaveAllVoltages;
+    bool      m_SpiceSaveAllCurrents;
     wxString  m_SpiceCommandString;      // A command string to run external spice
+
+    bool      m_SpiceModelCurSheetAsRoot;
 
     TEMPLATES m_TemplateFieldNames;
 

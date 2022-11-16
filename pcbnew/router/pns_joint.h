@@ -102,34 +102,57 @@ public:
      */
     bool IsLineCorner( bool aAllowLockedSegs = false ) const
     {
-        if( m_linkedItems.Size() != 2 || m_linkedItems.Count( SEGMENT_T | ARC_T ) != 2 )
+        if( m_linkedItems.Size() == 2 && m_linkedItems.Count( SEGMENT_T | ARC_T ) == 2 )
+        {
+            LINKED_ITEM* seg1 = static_cast<LINKED_ITEM*>( m_linkedItems[0] );
+            LINKED_ITEM* seg2 = static_cast<LINKED_ITEM*>( m_linkedItems[1] );
+
+            // joints between segments of different widths are not considered trivial.
+            return seg1->Width() == seg2->Width();
+        }
+        else if( m_linkedItems.Size() > 2 && m_linkedItems.Count( SEGMENT_T | ARC_T ) == 2 )
         {
             if( !aAllowLockedSegs )
             {
                 return false;
             }
-            else if( m_linkedItems.Size() == 3
-                        && m_linkedItems.Count( SEGMENT_T | ARC_T ) == 2
-                        && m_linkedItems.Count( VIA_T ) == 1 )
+            // There will be multiple VVIAs on joints between two locked segments, because we
+            // naively add a VVIA to each end of a locked segment.
+            else if( ( m_linkedItems.Size() - m_linkedItems.Count( SEGMENT_T | ARC_T ) )
+                     == m_linkedItems.Count( VIA_T ) )
             {
-                assert( static_cast<const ITEM*>( m_linkedItems[2] )->Kind() == VIA_T );
+                const LINKED_ITEM* seg1 = nullptr;
+                const LINKED_ITEM* seg2 = nullptr;
+                const VIA*         via = nullptr;
+                bool               hasNonVirtualVia = false;
 
-                const VIA* via = static_cast<const VIA*>( m_linkedItems[2] );
+                for( const ITEM* item : m_linkedItems.CItems() )
+                {
+                    if( item->Kind() == VIA_T )
+                    {
+                        via = static_cast<const VIA*>( item );
 
-                if( !via->IsVirtual() )
+                        hasNonVirtualVia = !via->IsVirtual();
+                    }
+                    else if( item->Kind() == SEGMENT_T || item->Kind() == ARC_T )
+                    {
+                        if( !seg1 )
+                            seg1 = static_cast<const LINKED_ITEM*>( item );
+                        else
+                            seg2 = static_cast<const LINKED_ITEM*>( item );
+                    }
+                }
+
+                if( !via || hasNonVirtualVia )
                     return false;
-            }
-            else
-            {
-                return false;
+
+                assert ( seg1 && seg2 );
+
+                return seg1->Width() == seg2->Width();
             }
         }
 
-        auto seg1 = static_cast<LINKED_ITEM*>( m_linkedItems[0] );
-        auto seg2 = static_cast<LINKED_ITEM*>( m_linkedItems[1] );
-
-        // joints between segments of different widths are not considered trivial.
-        return seg1->Width() == seg2->Width();
+        return false;
     }
 
     bool IsNonFanoutVia() const

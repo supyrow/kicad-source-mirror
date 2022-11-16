@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2004 Jean-Pierre Charras, jaen-pierre.charras@gipsa-lab.inpg.com
- * Copyright (C) 2004-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2004-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -59,16 +59,16 @@ public:
 
     bool HitTest( const VECTOR2I& aPosition, int aAccuracy = 0 ) const override;
 
-    bool HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy = 0 ) const override
+    bool HitTest( const BOX2I& aRect, bool aContained, int aAccuracy = 0 ) const override
     {
         if( m_flags & (STRUCT_DELETED | SKIP_STRUCT ) )
             return false;
 
-        EDA_RECT rect = aRect;
+        BOX2I rect = aRect;
 
         rect.Inflate( aAccuracy );
 
-        EDA_RECT textBox = GetTextBox();
+        BOX2I textBox = GetTextBox();
         textBox.RevertYAxis();
 
         if( aContained )
@@ -79,9 +79,9 @@ public:
 
     int GetPenWidth() const override;
 
-    KIFONT::FONT* GetDrawFont() const override;
+    KIFONT::FONT* getDrawFont() const override;
 
-    const EDA_RECT GetBoundingBox() const override;
+    const BOX2I GetBoundingBox() const override;
 
     void BeginEdit( const VECTOR2I& aStartPoint ) override;
     void CalcEdit( const VECTOR2I& aPosition ) override;
@@ -99,9 +99,9 @@ public:
     void NormalizeJustification( bool inverse );
 
     void Plot( PLOTTER* aPlotter, bool aBackground, const VECTOR2I& aOffset,
-               const TRANSFORM& aTransform ) const override;
+               const TRANSFORM& aTransform, bool aDimmed ) const override;
 
-    wxString GetSelectMenuText( EDA_UNITS aUnits ) const override;
+    wxString GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const override;
     void GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList ) override;
 
     BITMAPS GetMenuImage() const override;
@@ -119,11 +119,10 @@ private:
      *      - Text width.
      *      - Text height.
      */
-    int compare( const LIB_ITEM& aOther,
-            LIB_ITEM::COMPARE_FLAGS aCompareFlags = LIB_ITEM::COMPARE_FLAGS::NORMAL ) const override;
+    int compare( const LIB_ITEM& aOther, int aCompareFlags = 0 ) const override;
 
     void print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset, void* aData,
-                const TRANSFORM& aTransform ) override;
+                const TRANSFORM& aTransform, bool aDimmed ) override;
 };
 
 

@@ -85,7 +85,7 @@ public:
     void Init( int aId );
 
     /**
-     * Return the field name.
+     * Return the field name (not translated).
      *
      * The first four field IDs are reserved and therefore always return their respective
      * names.
@@ -117,7 +117,7 @@ public:
 
     int GetPenWidth() const override;
 
-    KIFONT::FONT* GetDrawFont() const override;
+    KIFONT::FONT* getDrawFont() const override;
 
     /**
      * Copy parameters of this field to another field. Pointers are not copied.
@@ -128,7 +128,7 @@ public:
 
     void ViewGetLayers( int aLayers[], int& aCount ) const override;
 
-    const EDA_RECT GetBoundingBox() const override;
+    const BOX2I GetBoundingBox() const override;
 
     void GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList ) override;
 
@@ -148,6 +148,8 @@ public:
      */
     wxString GetFullText( int unit = 1 ) const;
 
+    wxString GetShownText( int aDepth = 0, bool aAllowExtraText = true ) const override;
+
     SCH_LAYER_ID GetDefaultLayer() const;
 
     void BeginEdit( const VECTOR2I& aStartPoint ) override;
@@ -163,15 +165,27 @@ public:
     void Rotate( const VECTOR2I& aCenter, bool aRotateCCW = true ) override;
 
     void Plot( PLOTTER* aPlotter, bool aBackground, const VECTOR2I& aOffset,
-               const TRANSFORM& aTransform ) const override;
+               const TRANSFORM& aTransform, bool aDimmed ) const override;
 
-    wxString GetSelectMenuText( EDA_UNITS aUnits ) const override;
+    wxString GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const override;
 
     BITMAPS GetMenuImage() const override;
 
     EDA_ITEM* Clone() const override;
 
     bool IsMandatory() const;
+
+    bool IsAutoAdded() const { return m_autoAdded; }
+    void SetAutoAdded( bool aAutoAdded ) { m_autoAdded = aAutoAdded; }
+
+    bool IsNameShown() const { return m_showName; }
+    void SetNameShown( bool aShown = true ) { m_showName = aShown; }
+
+    bool CanAutoplace() const { return m_allowAutoPlace; }
+    void SetCanAutoplace( bool aCanPlace ) { m_allowAutoPlace = aCanPlace; }
+
+    bool ShowInChooser() const { return m_showInChooser; }
+    void SetShowInChooser( bool aShow = true ) { m_showInChooser = aShow; }
 
 private:
 
@@ -187,8 +201,7 @@ private:
      *      - Field width.
      *      - Field height.
      */
-    int compare( const LIB_ITEM& aOther,
-            LIB_ITEM::COMPARE_FLAGS aCompareFlags = LIB_ITEM::COMPARE_FLAGS::NORMAL ) const override;
+    int compare( const LIB_ITEM& aOther, int aCompareFlags = 0 ) const override;
 
     /**
      * Print the field.
@@ -197,7 +210,7 @@ private:
      * the m_Text
      */
     void print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset, void* aData,
-                const TRANSFORM& aTransform ) override;
+                const TRANSFORM& aTransform, bool aDimmed ) override;
 
     /**
      * Calculate the new circle at \a aPosition when editing.
@@ -210,6 +223,10 @@ private:
 
     int      m_id;         ///< @see enum MANDATORY_FIELD_T
     wxString m_name;       ///< Name (not the field text value itself, that is #EDA_TEXT::m_Text)
+    bool     m_autoAdded;  ///< Was this field automatically added to a LIB_SYMBOL?
+    bool     m_showName;   ///< Render the field's name in addition to its value
+    bool     m_allowAutoPlace;  ///< This field can be autoplaced when converted to a SCH_FIELD
+    bool     m_showInChooser;   ///< This field is available as a data column for the chooser
 };
 
 #endif  //  CLASS_LIBENTRY_FIELDS_H

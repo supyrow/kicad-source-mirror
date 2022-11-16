@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2015 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2012 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -63,17 +63,6 @@ bool BOARD_CONNECTED_ITEM::SetNetCode( int aNetCode, bool aNoAssert )
 }
 
 
-NETCLASS* BOARD_CONNECTED_ITEM::GetEffectiveNetclass() const
-{
-    // NB: we must check the net first, as when it is 0 GetNetClass() will return the
-    // orphaned net netclass, not the default netclass.
-    if( !m_netinfo || m_netinfo->GetNetCode() == 0 )
-        return GetBoard()->GetDesignSettings().GetDefault();
-    else
-        return GetNetClass();
-}
-
-
 int BOARD_CONNECTED_ITEM::GetOwnClearance( PCB_LAYER_ID aLayer, wxString* aSource ) const
 {
     DRC_CONSTRAINT constraint;
@@ -105,21 +94,18 @@ int BOARD_CONNECTED_ITEM::GetNetCode() const
 
 // Note: do NOT return a std::shared_ptr from this.  It is used heavily in DRC, and the
 // std::shared_ptr stuff shows up large in performance profiling.
-NETCLASS* BOARD_CONNECTED_ITEM::GetNetClass() const
+NETCLASS* BOARD_CONNECTED_ITEM::GetEffectiveNetClass() const
 {
     if( m_netinfo && m_netinfo->GetNetClass() )
         return m_netinfo->GetNetClass();
     else
-        return GetBoard()->GetDesignSettings().GetDefault();
+        return GetBoard()->GetDesignSettings().m_NetSettings->m_DefaultNetClass.get();
 }
 
 
 wxString BOARD_CONNECTED_ITEM::GetNetClassName() const
 {
-    if( m_netinfo )
-        return m_netinfo->GetNetClassName();
-    else
-        return wxEmptyString;
+    return GetEffectiveNetClass()->GetName();
 }
 
 
@@ -169,15 +155,11 @@ static struct BOARD_CONNECTED_ITEM_DESC
         REGISTER_TYPE( BOARD_CONNECTED_ITEM );
         propMgr.InheritsAfter( TYPE_HASH( BOARD_CONNECTED_ITEM ), TYPE_HASH( BOARD_ITEM ) );
 
-        propMgr.ReplaceProperty( TYPE_HASH( BOARD_ITEM ), _HKI( "Layer" ),
-                new PROPERTY_ENUM<BOARD_CONNECTED_ITEM, PCB_LAYER_ID, BOARD_ITEM>( _HKI( "Layer" ),
-                    &BOARD_CONNECTED_ITEM::SetLayer, &BOARD_CONNECTED_ITEM::GetLayer ) );
-
         propMgr.AddProperty( new PROPERTY_ENUM<BOARD_CONNECTED_ITEM, int>( _HKI( "Net" ),
                     &BOARD_CONNECTED_ITEM::SetNetCode, &BOARD_CONNECTED_ITEM::GetNetCode ) );
-        propMgr.AddProperty( new PROPERTY<BOARD_CONNECTED_ITEM, wxString>( _HKI( "NetName" ),
+        propMgr.AddProperty( new PROPERTY<BOARD_CONNECTED_ITEM, wxString>( _HKI( "Net Name" ),
                     NO_SETTER( BOARD_CONNECTED_ITEM, wxString ), &BOARD_CONNECTED_ITEM::GetNetname ) );
-        propMgr.AddProperty( new PROPERTY<BOARD_CONNECTED_ITEM, wxString>( _HKI( "NetClass" ),
+        propMgr.AddProperty( new PROPERTY<BOARD_CONNECTED_ITEM, wxString>( _HKI( "Net Class" ),
                     NO_SETTER( BOARD_CONNECTED_ITEM, wxString ), &BOARD_CONNECTED_ITEM::GetNetClassName ) );
     }
 } _BOARD_CONNECTED_ITEM_DESC;

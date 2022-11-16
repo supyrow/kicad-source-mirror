@@ -42,7 +42,7 @@ SCH_NO_CONNECT::SCH_NO_CONNECT( const VECTOR2I& pos ) :
     SCH_ITEM( nullptr, SCH_NO_CONNECT_T )
 {
     m_pos    = pos;
-    m_size   = Mils2iu( DEFAULT_NOCONNECT_SIZE );      ///< No-connect symbol size.
+    m_size   = schIUScale.MilsToIU( DEFAULT_NOCONNECT_SIZE );      ///< No-connect symbol size.
 
     SetLayer( LAYER_NOCONNECT );
 }
@@ -65,15 +65,14 @@ void SCH_NO_CONNECT::SwapData( SCH_ITEM* aItem )
 }
 
 
-const EDA_RECT SCH_NO_CONNECT::GetBoundingBox() const
+const BOX2I SCH_NO_CONNECT::GetBoundingBox() const
 {
-    int      delta = ( GetPenWidth() + GetSize() ) / 2;
-    EDA_RECT box;
+    int   delta = ( GetPenWidth() + GetSize() ) / 2;
+    BOX2I bbox( m_pos );
 
-    box.SetOrigin( m_pos );
-    box.Inflate( delta );
+    bbox.Inflate( delta );
 
-    return box;
+    return bbox;
 }
 
 
@@ -158,9 +157,9 @@ bool SCH_NO_CONNECT::HitTest( const VECTOR2I& aPosition, int aAccuracy ) const
 }
 
 
-bool SCH_NO_CONNECT::HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy ) const
+bool SCH_NO_CONNECT::HitTest( const BOX2I& aRect, bool aContained, int aAccuracy ) const
 {
-    EDA_RECT rect = aRect;
+    BOX2I rect = aRect;
 
     rect.Inflate( aAccuracy );
 

@@ -1,8 +1,8 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2015-2016 Mario Luzeiro <mrluzeiro@ua.pt>
- * Copyright (C) 2015-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2015-2022 Mario Luzeiro <mrluzeiro@ua.pt>
+ * Copyright (C) 2015-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -39,6 +39,8 @@
 
 #include <board.h>
 #include <footprint.h>
+#include <fp_lib_table.h>
+#include <eda_3d_viewer_frame.h>
 
 #include <base_units.h>
 #include <profile.h>        // To use GetRunningMicroSecs or another profiling utility
@@ -65,7 +67,7 @@ static float TransparencyControl( float aGrayColorValue, float aTransparency )
 /**
   * Scale conversion from 3d model units to pcb units
   */
-#define UNITS3D_TO_UNITSPCB ( IU_PER_MM )
+#define UNITS3D_TO_UNITSPCB ( pcbIUScale.IU_PER_MM )
 
 
 void RENDER_3D_RAYTRACE::setupMaterials()
@@ -76,7 +78,7 @@ void RENDER_3D_RAYTRACE::setupMaterials()
     MATERIAL::SetDefaultRefractionRecursionCount( m_boardAdapter.m_Cfg->m_Render.raytrace_recursivelevel_refractions );
     MATERIAL::SetDefaultReflectionRecursionCount( m_boardAdapter.m_Cfg->m_Render.raytrace_recursivelevel_reflections );
 
-    double mmTo3Dunits = IU_PER_MM * m_boardAdapter.BiuTo3dUnits();
+    double mmTo3Dunits = pcbIUScale.IU_PER_MM * m_boardAdapter.BiuTo3dUnits();
 
     if( m_boardAdapter.m_Cfg->m_Render.raytrace_procedural_textures )
     {
@@ -556,9 +558,9 @@ void RENDER_3D_RAYTRACE::Reload( REPORTER* aStatusReporter, REPORTER* aWarningRe
         aStatusReporter->Report( _( "Load Raytracing: layers" ) );
 
     // Add layers maps (except B_Mask and F_Mask)
-    for( auto entry : m_boardAdapter.GetLayerMap() )
+    for( const std::pair<const PCB_LAYER_ID, BVH_CONTAINER_2D*>& entry : m_boardAdapter.GetLayerMap() )
     {
-        PCB_LAYER_ID            layer_id = entry.first;
+        const PCB_LAYER_ID      layer_id = entry.first;
         const BVH_CONTAINER_2D* container2d = entry.second;
 
         // Only process layers that exist
@@ -632,16 +634,21 @@ void RENDER_3D_RAYTRACE::Reload( REPORTER* aStatusReporter, REPORTER* aWarningRe
             if( m_boardAdapter.m_Cfg->m_Render.realistic )
             {
                 if( m_boardAdapter.m_Cfg->m_Render.renderPlatedPadsAsPlated )
+                {
                     layerColor = SFVEC3F( 184.0f / 255.0f, 115.0f / 255.0f, 50.0f / 255.0f );
+                    materialLayer = &m_materials.m_NonPlatedCopper;
+                }
                 else
+                {
                     layerColor = m_boardAdapter.m_CopperColor;
+                    materialLayer = &m_materials.m_Copper;
+                }
             }
             else
             {
                 layerColor = m_boardAdapter.GetLayerColor( layer_id );
             }
 
-            materialLayer = &m_materials.m_NonPlatedCopper;
             break;
         }
 
@@ -672,9 +679,9 @@ void RENDER_3D_RAYTRACE::Reload( REPORTER* aStatusReporter, REPORTER* aWarningRe
         {
             const MATERIAL* materialLayer = &m_materials.m_SolderMask;
 
-            for( auto entry : m_boardAdapter.GetLayerMap() )
+            for( const std::pair<const PCB_LAYER_ID, BVH_CONTAINER_2D*>& entry : m_boardAdapter.GetLayerMap() )
             {
-                PCB_LAYER_ID            layer_id = entry.first;
+                const PCB_LAYER_ID      layer_id = entry.first;
                 const BVH_CONTAINER_2D* container2d = entry.second;
 
                 // Only process layers that exist
@@ -1246,13 +1253,35 @@ void RENDER_3D_RAYTRACE::load3DModels( CONTAINER_3D& aDstContainer, bool aSkipMa
             auto       sM       = fp->Models().begin();
             auto       eM       = fp->Models().end();
 
+            wxString                libraryName = fp->GetFPID().GetLibNickname();
+
+            wxString                footprintBasePath = wxEmptyString;
+            if( m_boardAdapter.GetBoard()->GetProject() )
+            {
+                try
+                {
+                    // FindRow() can throw an exception
+                    const FP_LIB_TABLE_ROW* fpRow =
+                            m_boardAdapter.GetBoard()->GetProject()->PcbFootprintLibs()->FindRow(
+                                    libraryName, false );
+
+                    if( fpRow )
+                        footprintBasePath = fpRow->GetFullURI( true );
+                }
+                catch( ... )
+                {
+                    // Do nothing if the libraryName is not found in lib table
+                }
+            }
+
             while( sM != eM )
             {
                 if( ( static_cast<float>( sM->m_Opacity ) > FLT_EPSILON )
                   && ( sM->m_Show && !sM->m_Filename.empty() ) )
                 {
                     // get it from cache
-                    const S3DMODEL* modelPtr = cacheMgr->GetModel( sM->m_Filename );
+                    const S3DMODEL* modelPtr =
+                            cacheMgr->GetModel( sM->m_Filename, footprintBasePath );
 
                     // only add it if the return is not NULL.
                     if( modelPtr )

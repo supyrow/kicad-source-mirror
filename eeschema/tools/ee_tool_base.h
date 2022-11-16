@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2019 CERN
- * Copyright (C) 2019-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2019-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -131,20 +131,23 @@ protected:
 
     ///< Similar to m_frame->SaveCopyInUndoList(), but handles items that are owned by their
     ///< parents.
-    void saveCopyInUndoList( EDA_ITEM* aItem, UNDO_REDO aType, bool aAppend = false )
+    void saveCopyInUndoList( EDA_ITEM* aItem, UNDO_REDO aType, bool aAppend = false,
+                             bool aDirtyConnectivity = true )
     {
+        wxASSERT( aItem );
+
         KICAD_T itemType = aItem->Type();
         bool    selected = aItem->IsSelected();
 
         // IS_SELECTED flag should not be set on undo items which were added for
         // a drag operation.
-        if( selected && aItem->HasFlag( TEMP_SELECTED ) )
+        if( selected && aItem->HasFlag( SELECTED_BY_DRAG ) )
             aItem->ClearSelected();
 
         if( m_isSymbolEditor )
         {
             SYMBOL_EDIT_FRAME* editFrame = dynamic_cast<SYMBOL_EDIT_FRAME*>( m_frame );
-            wxASSERT( editFrame );
+            wxCHECK_RET( editFrame, wxT( "editFrame is null" ) );
 
             editFrame->SaveCopyInUndoList( static_cast<LIB_ITEM*>( aItem ), aType, aAppend );
         }
@@ -153,21 +156,25 @@ protected:
             SCH_EDIT_FRAME* editFrame = dynamic_cast<SCH_EDIT_FRAME*>( m_frame );
             wxASSERT( editFrame );
 
-            if( itemType == SCH_PIN_T || itemType == SCH_FIELD_T || itemType == SCH_SHEET_PIN_T )
+            if( editFrame )
             {
-                editFrame->SaveCopyInUndoList( editFrame->GetScreen(),
-                                               static_cast<SCH_ITEM*>( aItem->GetParent() ),
-                                               UNDO_REDO::CHANGED, aAppend );
-            }
-            else
-            {
-                editFrame->SaveCopyInUndoList( editFrame->GetScreen(),
-                                               static_cast<SCH_ITEM*>( aItem ),
-                                               aType, aAppend );
+                if( itemType == SCH_PIN_T || itemType == SCH_FIELD_T || itemType == SCH_SHEET_PIN_T )
+                {
+                    editFrame->SaveCopyInUndoList( editFrame->GetScreen(),
+                                                   static_cast<SCH_ITEM*>( aItem->GetParent() ),
+                                                   UNDO_REDO::CHANGED, aAppend,
+                                                   aDirtyConnectivity );
+                }
+                else
+                {
+                    editFrame->SaveCopyInUndoList( editFrame->GetScreen(),
+                                                   static_cast<SCH_ITEM*>( aItem ), aType,
+                                                   aAppend, aDirtyConnectivity );
+                }
             }
         }
 
-        if( selected && aItem->HasFlag( TEMP_SELECTED ) )
+        if( selected && aItem->HasFlag( SELECTED_BY_DRAG ) )
             aItem->SetSelected();
     }
 

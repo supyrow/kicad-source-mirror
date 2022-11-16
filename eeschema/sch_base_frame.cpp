@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2012 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
- * Copyright (C) 2015-2021 KiCad Developers, see change_log.txt for contributors.
+ * Copyright (C) 2015-2022 KiCad Developers, see change_log.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -24,8 +24,11 @@
 
 #include <base_units.h>
 #include <kiway.h>
+#include <lib_tree_model_adapter.h>
 #include <pgm_base.h>
+#include <eda_list_dialog.h>
 #include <eeschema_settings.h>
+#include <project/project_file.h>
 #include <symbol_editor/symbol_editor_settings.h>
 #include <sch_draw_panel.h>
 #include <sch_view.h>
@@ -41,7 +44,11 @@
 #include <tool/tool_dispatcher.h>
 #include <tools/ee_actions.h>
 #include <tools/ee_selection_tool.h>
+#include <wx/choicdlg.h>
 
+#if defined( KICAD_USE_3DCONNEXION )
+#include <navlib/nl_schematic_plugin.h>
+#endif
 
 LIB_SYMBOL* SchGetLibSymbol( const LIB_ID& aLibId, SYMBOL_LIB_TABLE* aLibTable,
                              SYMBOL_LIB* aCacheLib, wxWindow* aParent, bool aShowErrorMsg )
@@ -81,8 +88,12 @@ LIB_SYMBOL* SchGetLibSymbol( const LIB_ID& aLibId, SYMBOL_LIB_TABLE* aLibTable,
 SCH_BASE_FRAME::SCH_BASE_FRAME( KIWAY* aKiway, wxWindow* aParent, FRAME_T aWindowType,
                                 const wxString& aTitle, const wxPoint& aPosition,
                                 const wxSize& aSize, long aStyle, const wxString& aFrameName ) :
-    EDA_DRAW_FRAME( aKiway, aParent, aWindowType, aTitle, aPosition, aSize, aStyle, aFrameName ),
-    m_base_frame_defaults( nullptr, "base_Frame_defaults" )
+        EDA_DRAW_FRAME( aKiway, aParent, aWindowType, aTitle, aPosition, aSize, aStyle,
+                        aFrameName, schIUScale ),
+        m_base_frame_defaults( nullptr, "base_Frame_defaults" )
+#if defined( KICAD_USE_3DCONNEXION )
+        ,m_spaceMouse( nullptr )
+#endif
 {
     createCanvas();
 
@@ -104,6 +115,10 @@ SCH_BASE_FRAME::SCH_BASE_FRAME( KIWAY* aKiway, wxWindow* aParent, FRAME_T aWindo
 
 SCH_BASE_FRAME::~SCH_BASE_FRAME()
 {
+#if defined( KICAD_USE_3DCONNEXION )
+    if( m_spaceMouse != nullptr )
+        delete m_spaceMouse;
+#endif
 }
 
 
@@ -140,7 +155,7 @@ const PAGE_INFO& SCH_BASE_FRAME::GetPageSettings () const
 const wxSize SCH_BASE_FRAME::GetPageSizeIU() const
 {
     // GetSizeIU is compile time dependent:
-    return GetScreen()->GetPageSettings().GetSizeIU();
+    return GetScreen()->GetPageSettings().GetSizeIU( schIUScale.IU_PER_MILS );
 }
 
 
@@ -173,20 +188,17 @@ void SCH_BASE_FRAME::UpdateStatusBar()
     VECTOR2D d         = cursorPos - screen->m_LocalOrigin;
 
     line.Printf( "X %s  Y %s",
-                 MessageTextFromValue( GetUserUnits(), cursorPos.x, false ),
-                 MessageTextFromValue( GetUserUnits(), cursorPos.y, false ) );
+                 MessageTextFromValue( cursorPos.x, false ),
+                 MessageTextFromValue( cursorPos.y, false ) );
     SetStatusText( line, 2 );
 
     line.Printf( "dx %s  dy %s  dist %s",
-                 MessageTextFromValue( GetUserUnits(), d.x, false ),
-                 MessageTextFromValue( GetUserUnits(), d.y, false ),
-                 MessageTextFromValue( GetUserUnits(), hypot( d.x, d.y ), false ) );
+                 MessageTextFromValue( d.x, false ),
+                 MessageTextFromValue( d.y, false ),
+                 MessageTextFromValue( hypot( d.x, d.y ), false ) );
     SetStatusText( line, 3 );
 
-    // refresh grid display
     DisplayGridMsg();
-
-    // refresh units display
     DisplayUnitsMsg();
 }
 
@@ -240,23 +252,56 @@ bool SCH_BASE_FRAME::saveSymbolLibTables( bool aGlobal, bool aProject )
 }
 
 
+SYMBOL_LIB_TABLE* SCH_BASE_FRAME::SelectSymLibTable( bool aOptional )
+{
+    // If no project is loaded, always work with the global table
+    if( Prj().IsNullProject() )
+    {
+        SYMBOL_LIB_TABLE* ret = &SYMBOL_LIB_TABLE::GetGlobalLibTable();
+
+        if( aOptional )
+        {
+            wxMessageDialog dlg( this, _( "Add the library to the global library table?" ),
+                                 _( "Add To Global Library Table" ), wxYES_NO );
+
+            if( dlg.ShowModal() != wxID_OK )
+                ret = nullptr;
+        }
+
+        return ret;
+    }
+
+    wxArrayString libTableNames;
+    libTableNames.Add( _( "Global" ) );
+    libTableNames.Add( _( "Project" ) );
+
+    wxSingleChoiceDialog dlg( this, _( "Choose the Library Table to add the library to:" ),
+                              _( "Add To Library Table" ), libTableNames );
+
+    if( aOptional )
+    {
+        dlg.FindWindow( wxID_CANCEL )->SetLabel( _( "Skip" ) );
+        dlg.FindWindow( wxID_OK )->SetLabel( _( "Add" ) );
+    }
+
+    if( dlg.ShowModal() != wxID_OK )
+        return nullptr;
+
+    switch( dlg.GetSelection() )
+    {
+    case 0:  return &SYMBOL_LIB_TABLE::GetGlobalLibTable();
+    case 1:  return Prj().SchSymbolLibTable();
+    default: return nullptr;
+    }
+}
+
+
 void SCH_BASE_FRAME::RedrawScreen( const VECTOR2I& aCenterPoint, bool aWarpPointer )
 {
     GetCanvas()->GetView()->SetCenter( aCenterPoint );
 
     if( aWarpPointer )
         GetCanvas()->GetViewControls()->CenterOnCursor();
-
-    GetCanvas()->Refresh();
-}
-
-
-void SCH_BASE_FRAME::CenterScreen( const VECTOR2I& aCenterPoint, bool aWarpPointer )
-{
-    GetCanvas()->GetView()->SetCenter( aCenterPoint );
-
-    if( aWarpPointer )
-        GetCanvas()->GetViewControls()->WarpCursor( aCenterPoint, true );
 
     GetCanvas()->Refresh();
 }
@@ -300,6 +345,28 @@ void SCH_BASE_FRAME::createCanvas()
 }
 
 
+void SCH_BASE_FRAME::ActivateGalCanvas()
+{
+    EDA_DRAW_FRAME::ActivateGalCanvas();
+
+#if defined( KICAD_USE_3DCONNEXION )
+    try
+    {
+        if( !m_spaceMouse )
+        {
+            m_spaceMouse = new NL_SCHEMATIC_PLUGIN();
+        }
+
+        m_spaceMouse->SetCanvas( GetCanvas() );
+    }
+    catch( const std::system_error& e )
+    {
+        wxLogTrace( wxT( "KI_TRACE_NAVLIB" ), e.what() );
+    }
+#endif
+}
+
+
 void SCH_BASE_FRAME::UpdateItem( EDA_ITEM* aItem, bool isAddOrDelete, bool aUpdateRtree )
 {
     EDA_ITEM* parent = aItem->GetParent();
@@ -316,15 +383,7 @@ void SCH_BASE_FRAME::UpdateItem( EDA_ITEM* aItem, bool isAddOrDelete, bool aUpda
             GetCanvas()->GetView()->Update( aItem );
 
         // Some children are drawn from their parents.  Mark them for re-paint.
-        static KICAD_T parentTypes[] = { SCH_SYMBOL_T,
-                                         SCH_SHEET_T,
-                                         SCH_LABEL_T,
-                                         SCH_GLOBAL_LABEL_T,
-                                         SCH_HIER_LABEL_T,
-                                         SCH_DIRECTIVE_LABEL_T,
-                                         EOT };
-
-        if( parent && parent->IsType( parentTypes ) )
+        if( parent && parent->IsType( { SCH_SYMBOL_T, SCH_SHEET_T, SCH_LABEL_LOCATE_ANY_T } ) )
             GetCanvas()->GetView()->Update( parent, KIGFX::REPAINT );
     }
 
@@ -343,8 +402,17 @@ void SCH_BASE_FRAME::UpdateItem( EDA_ITEM* aItem, bool isAddOrDelete, bool aUpda
 }
 
 
-void SCH_BASE_FRAME::RefreshSelection()
+void SCH_BASE_FRAME::RefreshZoomDependentItems()
 {
+    // We currently have two zoom-dependent renderings: text, which is rendered as bitmap text
+    // when too small to see the difference, and selection shadows.
+    //
+    // Because non-selected text is cached by OpenGL, we only apply the bitmap performance hack
+    // to selected text items.
+    //
+    // Thus, as it currently stands, all zoom-dependent items can be found in the list of selected
+    // items.
+
     if( m_toolManager )
     {
         EE_SELECTION_TOOL* selectionTool = m_toolManager->GetTool<EE_SELECTION_TOOL>();
@@ -353,17 +421,12 @@ void SCH_BASE_FRAME::RefreshSelection()
 
         for( EDA_ITEM* item : selection )
         {
-            EDA_ITEM* parent = item->GetParent();
-
-            if( item->Type() == SCH_SHEET_PIN_T )
-            {
-                // Sheet pins aren't in the view.  Refresh their parent.
-                if( parent )
-                    GetCanvas()->GetView()->Update( parent );
-            }
-            else
+            if( item->RenderAsBitmap( view->GetGAL()->GetWorldScale() ) != item->IsShownAsBitmap()
+                    || item->IsType( KIGFX::SCH_PAINTER::g_ScaledSelectionTypes ) )
             {
                 view->Update( item, KIGFX::REPAINT );
+
+                EDA_ITEM* parent = item->GetParent();
 
                 // Symbol children are drawn from their parents.  Mark them for re-paint.
                 if( parent && parent->Type() == SCH_SYMBOL_T )
@@ -376,6 +439,11 @@ void SCH_BASE_FRAME::RefreshSelection()
 
 void SCH_BASE_FRAME::AddToScreen( EDA_ITEM* aItem, SCH_SCREEN* aScreen )
 {
+    // Null pointers will cause boost::ptr_vector to raise a boost::bad_pointer exception which
+    // will be unhandled.  There is no valid reason to pass an invalid EDA_ITEM pointer to the
+    // screen append function.
+    wxCHECK( aItem != nullptr, /* voide */ );
+
     auto screen = aScreen;
 
     if( aScreen == nullptr )
@@ -428,7 +496,6 @@ void SCH_BASE_FRAME::CommonSettingsChanged( bool aEnvVarsChanged, bool aTextVars
 
     GetCanvas()->GetView()->GetPainter()->GetSettings()->LoadColors( colorSettings );
     GetCanvas()->GetGAL()->SetAxesColor( colorSettings->GetColor( LAYER_SCHEMATIC_GRID_AXES ) );
-    GetCanvas()->GetGAL()->DrawGrid();
 
     GetCanvas()->GetView()->UpdateAllItems( KIGFX::ALL );
     GetCanvas()->GetView()->RecacheAllItems();
@@ -466,3 +533,100 @@ COLOR4D SCH_BASE_FRAME::GetDrawBgColor() const
     return GetColorSettings()->GetColor( LAYER_SCHEMATIC_BACKGROUND );
 }
 
+
+void SCH_BASE_FRAME::handleActivateEvent( wxActivateEvent& aEvent )
+{
+    EDA_DRAW_FRAME::handleActivateEvent( aEvent );
+
+#if defined( KICAD_USE_3DCONNEXION )
+    if( m_spaceMouse )
+    {
+        m_spaceMouse->SetFocus( aEvent.GetActive() );
+    }
+#endif
+}
+
+
+void SCH_BASE_FRAME::handleIconizeEvent( wxIconizeEvent& aEvent )
+{
+    EDA_DRAW_FRAME::handleIconizeEvent( aEvent );
+
+#if defined( KICAD_USE_3DCONNEXION )
+    if( m_spaceMouse && aEvent.IsIconized() )
+    {
+        m_spaceMouse->SetFocus( false );
+    }
+#endif
+}
+
+
+wxString SCH_BASE_FRAME::SelectLibraryFromList()
+{
+    COMMON_SETTINGS* cfg = Pgm().GetCommonSettings();
+    PROJECT&         prj = Prj();
+
+    if( prj.SchSymbolLibTable()->IsEmpty() )
+    {
+        ShowInfoBarError( _( "No symbol libraries are loaded." ) );
+        return wxEmptyString;
+    }
+
+    wxArrayString headers;
+
+    headers.Add( _( "Library" ) );
+
+    std::vector< wxArrayString > itemsToDisplay;
+    std::vector< wxString > libNicknames = prj.SchSymbolLibTable()->GetLogicalLibs();
+
+    for( const wxString& name : libNicknames )
+    {
+        // Exclude read only libraries.
+        if( !prj.SchSymbolLibTable()->IsSymbolLibWritable( name ) )
+            continue;
+
+        if( alg::contains( prj.GetProjectFile().m_PinnedSymbolLibs, name )
+            || alg::contains( cfg->m_Session.pinned_symbol_libs, name ) )
+        {
+            wxArrayString item;
+
+            item.Add( LIB_TREE_MODEL_ADAPTER::GetPinningSymbol() + name );
+            itemsToDisplay.push_back( item );
+        }
+    }
+
+    for( const wxString& name : libNicknames )
+    {
+        // Exclude read only libraries.
+        if( !prj.SchSymbolLibTable()->IsSymbolLibWritable( name ) )
+            continue;
+
+        if( !alg::contains( prj.GetProjectFile().m_PinnedSymbolLibs, name )
+            && !alg::contains( cfg->m_Session.pinned_symbol_libs, name ) )
+        {
+            wxArrayString item;
+
+            item.Add( name );
+            itemsToDisplay.push_back( item );
+        }
+    }
+
+    wxString oldLibName = prj.GetRString( PROJECT::SCH_LIB_SELECT );
+
+    EDA_LIST_DIALOG dlg( this, _( "Select Symbol Library" ), headers, itemsToDisplay, oldLibName,
+                         false );
+
+    if( dlg.ShowModal() != wxID_OK )
+        return wxEmptyString;
+
+    wxString libName = dlg.GetTextSelection();
+
+    if( !libName.empty() )
+    {
+        if( prj.SchSymbolLibTable()->HasLibrary( libName ) )
+            prj.SetRString( PROJECT::SCH_LIB_SELECT, libName );
+        else
+            libName = wxEmptyString;
+    }
+
+    return libName;
+}

@@ -208,6 +208,8 @@ public:
     /// Compound assignment operator
     VECTOR2<T>& operator*=( const VECTOR2<T>& aVector );
 
+    VECTOR2<T>& operator*=( const T& aScalar );
+
     /// Compound assignment operator
     VECTOR2<T>& operator+=( const T& aScalar );
 
@@ -332,6 +334,15 @@ VECTOR2<T>& VECTOR2<T>::operator*=( const VECTOR2<T>& aVector )
 {
     x *= aVector.x;
     y *= aVector.y;
+    return *this;
+}
+
+
+template <class T>
+VECTOR2<T>& VECTOR2<T>::operator*=( const T& aScalar )
+{
+    x *= aScalar;
+    y *= aScalar;
     return *this;
 }
 
@@ -573,6 +584,28 @@ const int LexicographicalCompare( const VECTOR2<T>& aA, const VECTOR2<T>& aB )
 }
 
 
+/**
+ * Template to compare two VECTOR2<T> values for equality within a required epsilon.
+ *
+ * @param aFirst value to compare.
+ * @param aSecond value to compare.
+ * @param aEpsilon allowed error.
+ * @return true if the values considered equal within the specified epsilon, otherwise false.
+ */
+template <class T>
+typename std::enable_if<!std::numeric_limits<T>::is_integer, bool>::type
+equals( VECTOR2<T> const& aFirst, VECTOR2<T> const& aSecond,
+        T aEpsilon = std::numeric_limits<T>::epsilon() )
+{
+    if( !equals( aFirst.x, aSecond.x, aEpsilon ) )
+    {
+        return false;
+    }
+
+    return equals( aFirst.y, aSecond.y, aEpsilon );
+}
+
+
 template <class T>
 std::ostream& operator<<( std::ostream& aStream, const VECTOR2<T>& aVector )
 {
@@ -589,13 +622,17 @@ typedef VECTOR2<unsigned int> VECTOR2U;
 namespace std
 {
     // Required to enable correct use in std::map/unordered_map
+    // DO NOT USE hash tables with VECTOR2 elements.  It is inefficient
+    // and degenerates to a linear search.  Use the std::map/std::set
+    // trees instead that utilize the less operator below
+    // This function is purposely deleted after substantial testing
     template <>
     struct hash<VECTOR2I>
     {
-        size_t operator()( const VECTOR2I& k ) const;
+        size_t operator()( const VECTOR2I& k ) const = delete;
     };
 
-    // Required to enable use of std::hash with maps
+    // Required to enable use of std::hash with maps.
     template <>
     struct less<VECTOR2I>
     {

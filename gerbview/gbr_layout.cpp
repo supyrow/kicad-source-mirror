@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2012-2018 Jean-Pierre Charras  jp.charras at wanadoo.fr
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -44,10 +44,9 @@ GERBER_FILE_IMAGE_LIST* GBR_LAYOUT::GetImagesList() const
 }
 
 
-EDA_RECT GBR_LAYOUT::ComputeBoundingBox() const
+BOX2I GBR_LAYOUT::ComputeBoundingBox() const
 {
-    EDA_RECT bbox;
-    bool first_item = true;
+    BOX2I bbox;     // Start with a fresh BOX2I so the Merge algorithm works
 
     for( unsigned layer = 0; layer < GetImagesList()->ImagesMaxCount(); ++layer )
     {
@@ -57,15 +56,7 @@ EDA_RECT GBR_LAYOUT::ComputeBoundingBox() const
             continue;
 
         for( GERBER_DRAW_ITEM* item : gerber->GetItems() )
-        {
-            if( first_item )
-            {
-                bbox = item->GetBoundingBox();
-                first_item = false;
-            }
-            else
-                bbox.Merge( item->GetBoundingBox() );
-        }
+            bbox.Merge( item->GetBoundingBox() );
     }
 
     bbox.Normalize();
@@ -75,24 +66,17 @@ EDA_RECT GBR_LAYOUT::ComputeBoundingBox() const
 }
 
 
-SEARCH_RESULT GBR_LAYOUT::Visit( INSPECTOR inspector, void* testData, const KICAD_T scanTypes[] )
+INSPECT_RESULT GBR_LAYOUT::Visit( INSPECTOR inspector, void* testData,
+                                  const std::vector<KICAD_T>& aScanTypes )
 {
-    KICAD_T        stype;
-    SEARCH_RESULT  result = SEARCH_RESULT::CONTINUE;
-    const KICAD_T* p    = scanTypes;
-    bool           done = false;
-
 #if 0 && defined(DEBUG)
     std::cout << GetClass().mb_str() << ' ';
 #endif
 
-    while( !done )
+    for( KICAD_T scanType : aScanTypes )
     {
-        stype = *p;
-
-        switch( stype )
+        if( scanType == GERBER_LAYOUT_T )
         {
-        case GERBER_LAYOUT_T:
             for( unsigned layer = 0; layer < GetImagesList()->ImagesMaxCount(); ++layer )
             {
                 GERBER_FILE_IMAGE* gerber = GetImagesList()->GetGbrImage( layer );
@@ -100,23 +84,11 @@ SEARCH_RESULT GBR_LAYOUT::Visit( INSPECTOR inspector, void* testData, const KICA
                 if( gerber == nullptr )    // Graphic layer not yet used
                     continue;
 
-                result = gerber->Visit( inspector, testData, p );
-
-                if( result == SEARCH_RESULT::QUIT )
-                    break;
+                if( gerber->Visit( inspector, testData, aScanTypes ) == INSPECT_RESULT::QUIT )
+                    return INSPECT_RESULT::QUIT;
             }
-
-            ++p;
-            break;
-
-        default:        // catch EOT or ANY OTHER type here and return.
-            done = true;
-            break;
         }
-
-        if( result == SEARCH_RESULT::QUIT )
-            break;
     }
 
-    return result;
+    return INSPECT_RESULT::CONTINUE;
 }

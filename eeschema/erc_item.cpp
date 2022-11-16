@@ -46,6 +46,10 @@ ERC_ITEM ERC_ITEM::duplicateSheetName( ERCE_DUPLICATE_SHEET_NAME,
         _( "Duplicate sheet names within a given sheet" ),
         wxT( "duplicate_sheet_names" ) );
 
+ERC_ITEM ERC_ITEM::endpointOffGrid( ERCE_ENDPOINT_OFF_GRID,
+        _( "Symbol pin or wire end off grid" ),
+        wxT( "endpoint_off_grid" ) );
+
 ERC_ITEM ERC_ITEM::pinNotConnected( ERCE_PIN_NOT_CONNECTED,
         _( "Pin not connected" ),
         wxT( "pin_not_connected" ) );
@@ -106,6 +110,10 @@ ERC_ITEM ERC_ITEM::multipleNetNames( ERCE_DRIVER_CONFLICT,
         _( "More than one name given to this bus or net" ),
         wxT( "multiple_net_names" ) );
 
+ERC_ITEM ERC_ITEM::netclassConflict( ERCE_NETCLASS_CONFLICT,
+        _( "Conflicting netclass assignments" ),
+        wxT( "conflicting_netclasses" ) );
+
 ERC_ITEM ERC_ITEM::netNotBusMember( ERCE_BUS_ENTRY_CONFLICT,
         _( "Net is graphically connected to a bus but not a bus member" ),
         wxT( "net_not_bus_member" ) );
@@ -125,6 +133,10 @@ ERC_ITEM ERC_ITEM::busToNetConflict( ERCE_BUS_TO_NET_CONFLICT,
 ERC_ITEM ERC_ITEM::unresolvedVariable( ERCE_UNRESOLVED_VARIABLE,
         _( "Unresolved text variable" ),
         wxT( "unresolved_variable" ) );
+
+ERC_ITEM ERC_ITEM::simulationModelIssues( ERCE_SIMULATION_MODEL,
+        _( "SPICE model issue" ),
+        wxT( "simulation_model_issue" ) );
 
 ERC_ITEM ERC_ITEM::wireDangling( ERCE_WIRE_DANGLING,
         _( "Wires not connected to anything" ),
@@ -183,6 +195,7 @@ std::vector<std::reference_wrapper<RC_ITEM>> ERC_ITEM::allItemTypes( {
                  ERC_ITEM::heading_misc,
                  ERC_ITEM::unannotated,
                  ERC_ITEM::unresolvedVariable,
+                 ERC_ITEM::simulationModelIssues,
                  ERC_ITEM::similarLabels,
                  ERC_ITEM::busLabelSyntax,
                  ERC_ITEM::libSymbolIssues,
@@ -196,6 +209,7 @@ std::shared_ptr<ERC_ITEM> ERC_ITEM::Create( int aErrorCode )
     switch( aErrorCode )
     {
     case ERCE_DUPLICATE_SHEET_NAME:    return std::make_shared<ERC_ITEM>( duplicateSheetName );
+    case ERCE_ENDPOINT_OFF_GRID:       return std::make_shared<ERC_ITEM>( endpointOffGrid );
     case ERCE_PIN_NOT_CONNECTED:       return std::make_shared<ERC_ITEM>( pinNotConnected );
     case ERCE_PIN_NOT_DRIVEN:          return std::make_shared<ERC_ITEM>( pinNotDriven );
     case ERCE_POWERPIN_NOT_DRIVEN:     return std::make_shared<ERC_ITEM>( powerpinNotDriven );
@@ -214,8 +228,10 @@ std::shared_ptr<ERC_ITEM> ERC_ITEM::Create( int aErrorCode )
     case ERCE_BUS_LABEL_ERROR:         return std::make_shared<ERC_ITEM>( busLabelSyntax );
     case ERCE_BUS_TO_BUS_CONFLICT:     return std::make_shared<ERC_ITEM>( busToBusConflict );
     case ERCE_BUS_TO_NET_CONFLICT:     return std::make_shared<ERC_ITEM>( busToNetConflict );
+    case ERCE_NETCLASS_CONFLICT:       return std::make_shared<ERC_ITEM>( netclassConflict );
     case ERCE_GLOBLABEL:               return std::make_shared<ERC_ITEM>( globalLabelDangling );
     case ERCE_UNRESOLVED_VARIABLE:     return std::make_shared<ERC_ITEM>( unresolvedVariable );
+    case ERCE_SIMULATION_MODEL:        return std::make_shared<ERC_ITEM>( simulationModelIssues );
     case ERCE_WIRE_DANGLING:           return std::make_shared<ERC_ITEM>( wireDangling );
     case ERCE_LIB_SYMBOL_ISSUES:       return std::make_shared<ERC_ITEM>( libSymbolIssues );
     case ERCE_UNANNOTATED:             return std::make_shared<ERC_ITEM>( unannotated );

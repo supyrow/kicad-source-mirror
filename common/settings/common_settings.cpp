@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2020 Jon Evans <jon@craftyjon.com>
- * Copyright (C) 2020-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2020-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -19,9 +19,12 @@
  */
 
 #include <set>
+#include <fstream>
+#include <sstream>
 
 #include <paths.h>
 #include <search_stack.h>
+#include <settings/settings_manager.h>
 #include <settings/common_settings.h>
 #include <settings/json_settings_internals.h>
 #include <settings/parameters.h>
@@ -29,6 +32,7 @@
 #include <trace_helpers.h>
 #include <wx/config.h>
 #include <wx/log.h>
+#include <wx/regex.h>
 
 
 ///! The following environment variables will never be migrated from a previous version
@@ -42,7 +46,7 @@ const std::set<wxString> envVarBlacklist =
 
 
 ///! Update the schema version whenever a migration is required
-const int commonSchemaVersion = 2;
+const int commonSchemaVersion = 3;
 
 COMMON_SETTINGS::COMMON_SETTINGS() :
         JSON_SETTINGS( "kicad_common", SETTINGS_LOC::USER, commonSchemaVersion ),
@@ -104,6 +108,9 @@ COMMON_SETTINGS::COMMON_SETTINGS() :
 #else
     m_Appearance.apply_icon_scale_to_fonts = false;
 #endif
+
+    m_params.emplace_back( new PARAM<bool>( "appearance.show_scrollbars",
+            &m_Appearance.show_scrollbars, true ) );
 
     m_params.emplace_back( new PARAM<double>( "appearance.hicontrast_dimming_factor",
             &m_Appearance.hicontrast_dimming_factor, 0.8f ) );
@@ -221,6 +228,9 @@ COMMON_SETTINGS::COMMON_SETTINGS() :
             },
             {} ) );
 
+    m_params.emplace_back( new PARAM<bool>( "input.focus_follow_sch_pcb",
+            &m_Input.focus_follow_sch_pcb, false ) );
+
     m_params.emplace_back( new PARAM<bool>( "input.auto_pan", &m_Input.auto_pan, false ) );
 
     m_params.emplace_back( new PARAM<int>( "input.auto_pan_acceleration",
@@ -318,8 +328,17 @@ COMMON_SETTINGS::COMMON_SETTINGS() :
     m_params.emplace_back( new PARAM<bool>( "do_not_show_again.scaled_3d_models_warning",
             &m_DoNotShowAgain.scaled_3d_models_warning, false ) );
 
+    m_params.emplace_back( new PARAM<bool>( "do_not_show_again.data_collection_prompt",
+            &m_DoNotShowAgain.data_collection_prompt, false ) );
+
     m_params.emplace_back( new PARAM<bool>( "session.remember_open_files",
             &m_Session.remember_open_files, false ) );
+
+    m_params.emplace_back( new PARAM_LIST<wxString>( "session.pinned_symbol_libs",
+            &m_Session.pinned_symbol_libs, {} ) );
+
+    m_params.emplace_back( new PARAM_LIST<wxString>( "session.pinned_fp_libs",
+            &m_Session.pinned_fp_libs, {} ) );
 
     m_params.emplace_back( new PARAM<int>( "netclass_panel.sash_pos",
             &m_NetclassPanel.sash_pos, 160 ) );
@@ -329,6 +348,7 @@ COMMON_SETTINGS::COMMON_SETTINGS() :
 
     registerMigration( 0, 1, std::bind( &COMMON_SETTINGS::migrateSchema0to1, this ) );
     registerMigration( 1, 2, std::bind( &COMMON_SETTINGS::migrateSchema1to2, this ) );
+    registerMigration( 2, 3, std::bind( &COMMON_SETTINGS::migrateSchema2to3, this ) );
 }
 
 
@@ -400,6 +420,52 @@ bool COMMON_SETTINGS::migrateSchema1to2()
 }
 
 
+bool COMMON_SETTINGS::migrateSchema2to3()
+{
+    wxFileName cfgpath;
+    cfgpath.AssignDir( SETTINGS_MANAGER::GetUserSettingsPath() );
+    cfgpath.AppendDir( wxT( "3d" ) );
+    cfgpath.SetFullName( "3Dresolver.cfg" );
+    cfgpath.MakeAbsolute();
+
+    std::vector<LEGACY_3D_SEARCH_PATH> legacyPaths;
+    readLegacy3DResolverCfg( cfgpath.GetFullPath(), legacyPaths );
+
+    // env variables have a limited allowed character set for names
+    wxRegEx nonValidCharsRegex( "[^A-Z0-9_]+", wxRE_ADVANCED );
+
+    for( const LEGACY_3D_SEARCH_PATH& path : legacyPaths )
+    {
+        wxString key = path.m_Alias;
+        const wxString& val = path.m_Pathvar;
+
+        // The 3d alias config didnt use the same naming restrictions as real env variables
+        // We need to sanitize them
+
+        // upper case only
+        key.MakeUpper();
+        // logically swap - with _
+        key.Replace( wxS( "-" ), wxS( "_" ) );
+
+        // remove any other chars
+        nonValidCharsRegex.Replace( &key, wxEmptyString );
+
+        if( !m_Env.vars.count( key ) )
+        {
+            wxLogTrace( traceEnvVars, "COMMON_SETTINGS: Loaded new var: %s = %s", key, val );
+            m_Env.vars[key] = ENV_VAR_ITEM( key, val );
+        }
+    }
+
+    if( cfgpath.FileExists() )
+    {
+        wxRemoveFile( cfgpath.GetFullPath() );
+    }
+
+    return true;
+}
+
+
 bool COMMON_SETTINGS::MigrateFromLegacy( wxConfigBase* aCfg )
 {
     bool ret = true;
@@ -462,7 +528,7 @@ bool COMMON_SETTINGS::MigrateFromLegacy( wxConfigBase* aCfg )
     ret &= fromLegacy<bool>( aCfg, "ZoomNoCenter",              "input.center_on_zoom" );
 
     // This was stored inverted in legacy config
-    if( OPT<bool> value = Get<bool>( "input.center_on_zoom" ) )
+    if( std::optional<bool> value = Get<bool>( "input.center_on_zoom" ) )
         Set( "input.center_on_zoom", !( *value ) );
 
     ret &= fromLegacy<int>( aCfg, "OpenGLAntialiasingMode", "graphics.opengl_antialiasing_mode" );
@@ -514,44 +580,7 @@ void COMMON_SETTINGS::InitializeEnvironment()
     path.AppendDir( wxT( "3dmodels" ) );
     addVar( wxT( "KICAD6_3DMODEL_DIR" ), path.GetFullPath() );
 
-    // We don't have just one default template path, so use this logic that originally was in
-    // PGM_BASE::InitPgm to determine the best default template path
-    {
-        // Attempt to find the best default template path.
-        SEARCH_STACK bases;
-        SEARCH_STACK templatePaths;
-
-        SystemDirsAppend( &bases );
-
-        for( unsigned i = 0; i < bases.GetCount(); ++i )
-        {
-            wxFileName fn( bases[i], wxEmptyString );
-
-            // Add KiCad template file path to search path list.
-            fn.AppendDir( "template" );
-
-            // Only add path if exists and can be read by the user.
-            if( fn.DirExists() && fn.IsDirReadable() )
-            {
-                wxLogTrace( tracePathsAndFiles, "Checking template path '%s' exists",
-                            fn.GetPath() );
-                templatePaths.AddPaths( fn.GetPath() );
-            }
-        }
-
-        if( templatePaths.IsEmpty() )
-        {
-            path = basePath;
-            path.AppendDir( "template" );
-        }
-        else
-        {
-            // Take the first one.  There may be more but this will likely be the best option.
-            path.AssignDir( templatePaths[0] );
-        }
-
-        addVar( wxT( "KICAD6_TEMPLATE_DIR" ), path.GetFullPath() );
-    }
+    addVar( wxT( "KICAD6_TEMPLATE_DIR" ), PATHS::GetStockTemplatesPath() );
 
     addVar( wxT( "KICAD_USER_TEMPLATE_DIR" ), PATHS::GetUserTemplatesPath() );
 
@@ -560,4 +589,198 @@ void COMMON_SETTINGS::InitializeEnvironment()
     path = basePath;
     path.AppendDir( wxT( "symbols" ) );
     addVar( wxT( "KICAD6_SYMBOL_DIR" ), path.GetFullPath() );
+}
+
+
+bool COMMON_SETTINGS::readLegacy3DResolverCfg( const wxString&                   path,
+                                               std::vector<LEGACY_3D_SEARCH_PATH>& aSearchPaths )
+{
+    wxFileName cfgpath( path );
+
+    // This should be the same as wxWidgets 3.0 wxPATH_NORM_ALL which is deprecated in 3.1.
+    // There are known issues with environment variable expansion so maybe we should be using
+    // our own ExpandEnvVarSubstitutions() here instead.
+    cfgpath.Normalize( FN_NORMALIZE_FLAGS | wxPATH_NORM_ENV_VARS );
+    wxString cfgname = cfgpath.GetFullPath();
+
+    std::ifstream cfgFile;
+    std::string   cfgLine;
+
+    if( !wxFileName::Exists( cfgname ) )
+    {
+        std::ostringstream ostr;
+        ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
+        wxString errmsg = "no 3D configuration file";
+        ostr << " * " << errmsg.ToUTF8() << " '";
+        ostr << cfgname.ToUTF8() << "'";
+        wxLogTrace( traceSettings, "%s\n", ostr.str().c_str() );
+        return false;
+    }
+
+    cfgFile.open( cfgname.ToUTF8() );
+
+    if( !cfgFile.is_open() )
+    {
+        std::ostringstream ostr;
+        ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
+        wxString errmsg = "Could not open configuration file";
+        ostr << " * " << errmsg.ToUTF8() << " '" << cfgname.ToUTF8() << "'";
+        wxLogTrace( traceSettings, "%s\n", ostr.str().c_str() );
+        return false;
+    }
+
+    int         lineno = 0;
+    LEGACY_3D_SEARCH_PATH al;
+    size_t      idx;
+    int         vnum = 0; // version number
+
+    while( cfgFile.good() )
+    {
+        cfgLine.clear();
+        std::getline( cfgFile, cfgLine );
+        ++lineno;
+
+        if( cfgLine.empty() )
+        {
+            if( cfgFile.eof() )
+                break;
+
+            continue;
+        }
+
+        if( 1 == lineno && cfgLine.compare( 0, 2, "#V" ) == 0 )
+        {
+            // extract the version number and parse accordingly
+            if( cfgLine.size() > 2 )
+            {
+                std::istringstream istr;
+                istr.str( cfgLine.substr( 2 ) );
+                istr >> vnum;
+            }
+
+            continue;
+        }
+
+        idx = 0;
+
+        if( !getLegacy3DHollerith( cfgLine, idx, al.m_Alias ) )
+            continue;
+
+        // Don't add KICAD6_3DMODEL_DIR, one of its legacy equivalents, or KIPRJMOD from a
+        // config file.  They're system variables are are defined at runtime.
+        if( al.m_Alias == "${KICAD6_3DMODEL_DIR}" || al.m_Alias == "${KIPRJMOD}"
+            || al.m_Alias == "$(KIPRJMOD)" || al.m_Alias == "${KISYS3DMOD}"
+            || al.m_Alias == "$(KISYS3DMOD)" )
+        {
+            continue;
+        }
+
+        if( !getLegacy3DHollerith( cfgLine, idx, al.m_Pathvar ) )
+            continue;
+
+        if( !getLegacy3DHollerith( cfgLine, idx, al.m_Description ) )
+            continue;
+
+        aSearchPaths.push_back( al );
+    }
+
+    cfgFile.close();
+
+    return true;
+}
+
+
+bool COMMON_SETTINGS::getLegacy3DHollerith( const std::string& aString, size_t& aIndex,
+                                            wxString& aResult )
+{
+    aResult.clear();
+
+    if( aIndex >= aString.size() )
+    {
+        std::ostringstream ostr;
+        ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
+        wxString errmsg = "bad Hollerith string on line";
+        ostr << " * " << errmsg.ToUTF8() << "\n'" << aString << "'";
+        wxLogTrace( traceSettings, "%s\n", ostr.str().c_str() );
+
+        return false;
+    }
+
+    size_t i2 = aString.find( '"', aIndex );
+
+    if( std::string::npos == i2 )
+    {
+        std::ostringstream ostr;
+        ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
+        wxString errmsg = "missing opening quote mark in config file";
+        ostr << " * " << errmsg.ToUTF8() << "\n'" << aString << "'";
+        wxLogTrace( traceSettings, "%s\n", ostr.str().c_str() );
+
+        return false;
+    }
+
+    ++i2;
+
+    if( i2 >= aString.size() )
+    {
+        std::ostringstream ostr;
+        ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
+        wxString errmsg = "invalid entry (unexpected end of line)";
+        ostr << " * " << errmsg.ToUTF8() << "\n'" << aString << "'";
+        wxLogTrace( traceSettings, "%s\n", ostr.str().c_str() );
+
+        return false;
+    }
+
+    std::string tnum;
+
+    while( aString[i2] >= '0' && aString[i2] <= '9' )
+        tnum.append( 1, aString[i2++] );
+
+    if( tnum.empty() || aString[i2++] != ':' )
+    {
+        std::ostringstream ostr;
+        ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
+        wxString errmsg = "bad Hollerith string on line";
+        ostr << " * " << errmsg.ToUTF8() << "\n'" << aString << "'";
+        wxLogTrace( traceSettings, "%s\n", ostr.str().c_str() );
+
+        return false;
+    }
+
+    std::istringstream istr;
+    istr.str( tnum );
+    size_t nchars;
+    istr >> nchars;
+
+    if( ( i2 + nchars ) >= aString.size() )
+    {
+        std::ostringstream ostr;
+        ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
+        wxString errmsg = "invalid entry (unexpected end of line)";
+        ostr << " * " << errmsg.ToUTF8() << "\n'" << aString << "'";
+        wxLogTrace( traceSettings, "%s\n", ostr.str().c_str() );
+
+        return false;
+    }
+
+    if( nchars > 0 )
+    {
+        aResult = wxString::FromUTF8( aString.substr( i2, nchars ).c_str() );
+        i2 += nchars;
+    }
+
+    if( i2 >= aString.size() || aString[i2] != '"' )
+    {
+        std::ostringstream ostr;
+        ostr << __FILE__ << ": " << __FUNCTION__ << ": " << __LINE__ << "\n";
+        wxString errmsg = "missing closing quote mark in config file";
+        ostr << " * " << errmsg.ToUTF8() << "\n'" << aString << "'";
+        wxLogTrace( traceSettings, "%s\n", ostr.str().c_str() );
+
+        return false;
+    }
+
+    aIndex = i2 + 1;
+    return true;
 }

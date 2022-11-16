@@ -218,10 +218,7 @@ public:
     const BOX2I& BBox()
     {
         if( m_dirty && m_valid )
-        {
-            EDA_RECT box = m_parent->GetBoundingBox();
-            m_bbox = BOX2I( box.GetPosition(), box.GetSize() );
-        }
+            m_bbox = m_parent->GetBoundingBox();
 
         return m_bbox;
     }
@@ -252,6 +249,9 @@ public:
 
     virtual int AnchorCount() const;
     virtual const VECTOR2I GetAnchor( int n ) const;
+
+    int GetAnchorItemCount() const { return m_anchors.size(); }
+    std::shared_ptr<CN_ANCHOR> GetAnchorItem( int n ) const { return m_anchors[n]; }
 
     int Net() const
     {
@@ -314,10 +314,9 @@ public:
         }
     }
 
-    int SubpolyIndex() const
-    {
-        return m_subpolyIndex;
-    }
+    int SubpolyIndex() const { return m_subpolyIndex; }
+
+    PCB_LAYER_ID GetLayer() const { return m_layer; }
 
     bool ContainsPoint( const VECTOR2I& p ) const
     {
@@ -347,6 +346,20 @@ public:
     virtual int AnchorCount() const override;
     virtual const VECTOR2I GetAnchor( int n ) const override;
 
+    const SHAPE_LINE_CHAIN& GetOutline() const
+    {
+        return m_triangulatedPoly->Outline( m_subpolyIndex );
+    }
+
+    VECTOR2I ClosestPoint( const VECTOR2I aPt )
+    {
+        VECTOR2I closest;
+
+        m_triangulatedPoly->SquaredDistanceToPolygon( aPt, m_subpolyIndex, &closest );
+
+        return closest;
+    }
+
     bool Collide( SHAPE* aRefShape ) const
     {
         BOX2I bbox = aRefShape->BBox();
@@ -372,7 +385,6 @@ public:
     }
 
 private:
-    std::vector<VECTOR2I>               m_testOutlinePoints;
     int                                 m_subpolyIndex;
     PCB_LAYER_ID                        m_layer;
     std::shared_ptr<SHAPE_POLY_SET>     m_triangulatedPoly;
@@ -434,7 +446,7 @@ public:
 
     void ClearDirtyFlags()
     {
-        for( auto item : m_items )
+        for( CN_ITEM* item : m_items )
             item->SetDirty( false );
 
         SetDirty( false );

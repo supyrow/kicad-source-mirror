@@ -32,6 +32,7 @@
 #include <drc/drc_item.h>
 #include <connectivity/connectivity_data.h>
 #include <connectivity/connectivity_algo.h>
+#include <drawing_sheet/ds_proxy_view_item.h>
 #include <pcb_edit_frame.h>
 #include <pcbnew_settings.h>
 #include <tool/tool_manager.h>
@@ -43,7 +44,7 @@
 #include <widgets/appearance_controls.h>
 #include <widgets/ui_common.h>
 #include <widgets/progress_reporter_base.h>
-#include <dialogs/wx_html_report_box.h>
+#include <widgets/wx_html_report_box.h>
 #include <dialogs/panel_setup_rules_base.h>
 #include <tools/drc_tool.h>
 #include <tools/zone_filler_tool.h>
@@ -55,20 +56,21 @@
 // Use default column widths instead.
 static int DEFAULT_SINGLE_COL_WIDTH = 660;
 
+static BOARD*                g_lastDRCBoard = nullptr;
+static bool                  g_lastDRCRun = false;
+static bool                  g_lastFootprintTestsRun = false;
+static std::vector<wxString> g_lastIgnored;
+
 
 DIALOG_DRC::DIALOG_DRC( PCB_EDIT_FRAME* aEditorFrame, wxWindow* aParent ) :
         DIALOG_DRC_BASE( aParent ),
         PROGRESS_REPORTER_BASE( 1 ),
         m_running( false ),
-        m_cancelled( false ),
         m_drcRun( false ),
         m_footprintTestsRun( false ),
-        m_markersProvider( nullptr ),
         m_markersTreeModel( nullptr ),
-        m_unconnectedItemsProvider( nullptr ),
         m_unconnectedTreeModel( nullptr ),
-        m_footprintWarningsProvider( nullptr ),
-        m_footprintWarningsTreeModel( nullptr ),
+        m_fpWarningsTreeModel( nullptr ),
         m_centerMarkerOnIdle( nullptr ),
         m_severities( RPT_SEVERITY_ERROR | RPT_SEVERITY_WARNING )
 {
@@ -79,16 +81,41 @@ DIALOG_DRC::DIALOG_DRC( PCB_EDIT_FRAME* aEditorFrame, wxWindow* aParent ) :
 
     m_messages->SetImmediateMode();
 
+    PCBNEW_SETTINGS* cfg = m_frame->GetPcbNewSettings();
+    m_severities = cfg->m_DrcDialog.severities;
+
+    m_markersProvider = std::make_shared<DRC_ITEMS_PROVIDER>( m_currentBoard,
+                                                              MARKER_BASE::MARKER_DRC,
+                                                              MARKER_BASE::MARKER_DRAWING_SHEET );
+
+    m_ratsnestProvider = std::make_shared<DRC_ITEMS_PROVIDER>( m_currentBoard,
+                                                               MARKER_BASE::MARKER_RATSNEST );
+
+    m_fpWarningsProvider = std::make_shared<DRC_ITEMS_PROVIDER>( m_currentBoard,
+                                                                 MARKER_BASE::MARKER_PARITY );
+
     m_markersTreeModel = new RC_TREE_MODEL( m_frame, m_markerDataView );
     m_markerDataView->AssociateModel( m_markersTreeModel );
+    m_markersTreeModel->Update( m_markersProvider, m_severities );
 
     m_unconnectedTreeModel = new RC_TREE_MODEL( m_frame, m_unconnectedDataView );
     m_unconnectedDataView->AssociateModel( m_unconnectedTreeModel );
+    m_unconnectedTreeModel->Update( m_ratsnestProvider, m_severities );
 
-    m_footprintWarningsTreeModel = new RC_TREE_MODEL( m_frame, m_footprintsDataView );
-    m_footprintsDataView->AssociateModel( m_footprintWarningsTreeModel );
+    m_fpWarningsTreeModel = new RC_TREE_MODEL( m_frame, m_footprintsDataView );
+    m_footprintsDataView->AssociateModel( m_fpWarningsTreeModel );
+    m_fpWarningsTreeModel->Update( m_fpWarningsProvider, m_severities );
 
     m_ignoredList->InsertColumn( 0, wxEmptyString, wxLIST_FORMAT_LEFT, DEFAULT_SINGLE_COL_WIDTH );
+
+    if( m_currentBoard == g_lastDRCBoard )
+    {
+        m_drcRun = g_lastDRCRun;
+        m_footprintTestsRun = g_lastFootprintTestsRun;
+
+        for( const wxString& str : g_lastIgnored )
+            m_ignoredList->InsertItem( m_ignoredList->GetItemCount(), str );
+    }
 
     m_Notebook->SetSelection( 0 );
 
@@ -103,18 +130,11 @@ DIALOG_DRC::DIALOG_DRC( PCB_EDIT_FRAME* aEditorFrame, wxWindow* aParent ) :
     m_footprintsTitleTemplate  = m_Notebook->GetPageText( 2 );
     m_ignoredTitleTemplate     = m_Notebook->GetPageText( 3 );
 
-    auto cfg = m_frame->GetPcbNewSettings();
-
     m_cbRefillZones->SetValue( cfg->m_DrcDialog.refill_zones );
     m_cbReportAllTrackErrors->SetValue( cfg->m_DrcDialog.test_all_track_errors );
 
     if( !Kiface().IsSingle() )
         m_cbTestFootprints->SetValue( cfg->m_DrcDialog.test_footprints );
-
-    m_severities = cfg->m_DrcDialog.severities;
-    m_markersTreeModel->SetSeverities( m_severities );
-    m_unconnectedTreeModel->SetSeverities( m_severities );
-    m_footprintWarningsTreeModel->SetSeverities( m_severities );
 
     Layout(); // adding the units above expanded Clearance text, now resize.
 
@@ -130,6 +150,15 @@ DIALOG_DRC::~DIALOG_DRC()
 {
     m_frame->FocusOnItem( nullptr );
 
+    g_lastDRCBoard = m_currentBoard;
+    g_lastDRCRun = m_drcRun;
+    g_lastFootprintTestsRun = m_footprintTestsRun;
+
+    g_lastIgnored.clear();
+
+    for( int ii = 0; ii < m_ignoredList->GetItemCount(); ++ii )
+        g_lastIgnored.push_back( m_ignoredList->GetItemText( ii ) );
+
     PCBNEW_SETTINGS* settings = m_frame->GetPcbNewSettings();
     settings->m_DrcDialog.refill_zones          = m_cbRefillZones->GetValue();
     settings->m_DrcDialog.test_all_track_errors = m_cbReportAllTrackErrors->GetValue();
@@ -140,6 +169,8 @@ DIALOG_DRC::~DIALOG_DRC()
     settings->m_DrcDialog.severities            = m_severities;
 
     m_markersTreeModel->DecRef();
+    m_unconnectedTreeModel->DecRef();
+    m_fpWarningsTreeModel->DecRef();
 }
 
 
@@ -239,14 +270,11 @@ void DIALOG_DRC::OnRunDRCClick( wxCommandEvent& aEvent )
         return;
     }
 
-    m_drcRun = false;
     m_footprintTestsRun = false;
     m_cancelled = false;
 
     m_frame->RecordDRCExclusions();
     deleteAllMarkers( true );
-    m_unconnectedTreeModel->DeleteItems( false, true, true );
-    m_footprintWarningsTreeModel->DeleteItems( false, true, true );
 
     std::vector<std::reference_wrapper<RC_ITEM>> violations = DRC_ITEM::GetItemsWithSeverities();
     m_ignoredList->DeleteAllItems();
@@ -304,26 +332,12 @@ void DIALOG_DRC::OnRunDRCClick( wxCommandEvent& aEvent )
 }
 
 
-void DIALOG_DRC::SetMarkersProvider( RC_ITEMS_PROVIDER* aProvider )
+void DIALOG_DRC::UpdateData()
 {
-    m_markersProvider = aProvider;
-    m_markersTreeModel->SetProvider( m_markersProvider );
-    updateDisplayedCounts();
-}
+    m_markersTreeModel->Update( m_markersProvider, m_severities );
+    m_unconnectedTreeModel->Update( m_ratsnestProvider, m_severities );
+    m_fpWarningsTreeModel->Update( m_fpWarningsProvider, m_severities );
 
-
-void DIALOG_DRC::SetRatsnestProvider( class RC_ITEMS_PROVIDER * aProvider )
-{
-    m_unconnectedItemsProvider = aProvider;
-    m_unconnectedTreeModel->SetProvider( m_unconnectedItemsProvider );
-    updateDisplayedCounts();
-}
-
-
-void DIALOG_DRC::SetFootprintsProvider( RC_ITEMS_PROVIDER* aProvider )
-{
-    m_footprintWarningsProvider = aProvider;
-    m_footprintWarningsTreeModel->SetProvider( m_footprintWarningsProvider );
     updateDisplayedCounts();
 }
 
@@ -332,8 +346,6 @@ void DIALOG_DRC::OnDRCItemSelected( wxDataViewEvent& aEvent )
 {
     BOARD*        board = m_frame->GetBoard();
     RC_TREE_NODE* node = RC_TREE_MODEL::ToNode( aEvent.GetItem() );
-    const KIID&   itemID = node ? RC_TREE_MODEL::ToUUID( aEvent.GetItem() ) : niluuid;
-    BOARD_ITEM*   item = board->GetItem( itemID );
 
     auto getActiveLayers =
             []( BOARD_ITEM* aItem ) -> LSET
@@ -357,95 +369,162 @@ void DIALOG_DRC::OnDRCItemSelected( wxDataViewEvent& aEvent )
                 }
             };
 
-    if( node && item && item != DELETED_BOARD_ITEM::GetInstance() )
+    if( !node )
     {
-        PCB_LAYER_ID             principalLayer = item->GetLayer();
-        LSET                     violationLayers;
-        std::shared_ptr<RC_ITEM> rc_item = node->m_RcItem;
-        BOARD_ITEM*              a = board->GetItem( rc_item->GetMainItemID() );
-        BOARD_ITEM*              b = board->GetItem( rc_item->GetAuxItemID() );
-        BOARD_ITEM*              c = board->GetItem( rc_item->GetAuxItem2ID() );
-        BOARD_ITEM*              d = board->GetItem( rc_item->GetAuxItem3ID() );
+        // list is being freed; don't do anything with null ptrs
 
-        if( rc_item->GetErrorCode() == DRCE_MALFORMED_COURTYARD )
+        aEvent.Skip();
+        return;
+    }
+
+    if( m_centerMarkerOnIdle )
+    {
+        // we already came from a cross-probe of the marker in the document; don't go
+        // around in circles
+
+        aEvent.Skip();
+        return;
+    }
+
+    std::shared_ptr<RC_ITEM> rc_item = node->m_RcItem;
+
+    if( rc_item->GetErrorCode() == DRCE_UNRESOLVED_VARIABLE
+            && rc_item->GetParent()->GetMarkerType() == MARKER_BASE::MARKER_DRAWING_SHEET )
+    {
+        m_frame->FocusOnLocation( node->m_RcItem->GetParent()->GetPos() );
+
+        aEvent.Skip();
+        return;
+    }
+
+    const KIID& itemID = RC_TREE_MODEL::ToUUID( aEvent.GetItem() );
+    BOARD_ITEM* item = board->GetItem( itemID );
+
+    if( !item || item == DELETED_BOARD_ITEM::GetInstance() )
+    {
+        // nothing to highlight / focus on
+
+        aEvent.Skip();
+        return;
+    }
+
+    PCB_LAYER_ID principalLayer;
+    LSET         violationLayers;
+    BOARD_ITEM*  a = board->GetItem( rc_item->GetMainItemID() );
+    BOARD_ITEM*  b = board->GetItem( rc_item->GetAuxItemID() );
+    BOARD_ITEM*  c = board->GetItem( rc_item->GetAuxItem2ID() );
+    BOARD_ITEM*  d = board->GetItem( rc_item->GetAuxItem3ID() );
+
+    if( rc_item->GetErrorCode() == DRCE_MALFORMED_COURTYARD )
+    {
+        if( a && ( a->GetFlags() & MALFORMED_B_COURTYARD ) > 0
+              && ( a->GetFlags() & MALFORMED_F_COURTYARD ) == 0 )
         {
-            if( a && ( a->GetFlags() & MALFORMED_B_COURTYARD ) > 0
-                  && ( a->GetFlags() & MALFORMED_F_COURTYARD ) == 0 )
-            {
-                principalLayer = B_CrtYd;
-            }
-            else
-            {
-                principalLayer = F_CrtYd;
-            }
-        }
-        else if (rc_item->GetErrorCode() == DRCE_INVALID_OUTLINE )
-        {
-            principalLayer = Edge_Cuts;
+            principalLayer = B_CrtYd;
         }
         else
         {
-            if( a || b || c || d )
-                violationLayers = LSET::AllLayersMask();
-
-            for( BOARD_ITEM* it: {a, b, c, d} )
-            {
-                if( !it )
-                    continue;
-
-                LSET layersList = getActiveLayers( it );
-                violationLayers &= layersList;
-                // Try to initialize principalLayer to a valid layer
-                // Some markers have a layer set to UNDEFINED_LAYER, and setting
-                // principalLayer to a valid layer can be useful
-                if( principalLayer <= UNDEFINED_LAYER )
-                    principalLayer = layersList.Seq().front();
-            }
+            principalLayer = F_CrtYd;
         }
+    }
+    else if (rc_item->GetErrorCode() == DRCE_INVALID_OUTLINE )
+    {
+        principalLayer = Edge_Cuts;
+    }
+    else
+    {
+        principalLayer = UNDEFINED_LAYER;
 
-        if( violationLayers.count() )
-            principalLayer = violationLayers.Seq().front();
-        else if( !(principalLayer <= UNDEFINED_LAYER ) )
-            violationLayers.set( principalLayer );
+        if( a || b || c || d )
+            violationLayers = LSET::AllLayersMask();
 
-        WINDOW_THAWER thawer( m_frame );
+        // Try to initialize principalLayer to a valid layer.  Note that some markers have
+        // a layer set to UNDEFINED_LAYER, so we may need to keep looking.
 
-        if( principalLayer > UNDEFINED_LAYER && ( violationLayers & board->GetVisibleLayers() ) == 0 )
-            m_frame->GetAppearancePanel()->SetLayerVisible( principalLayer, true );
-
-        if( principalLayer > UNDEFINED_LAYER && board->GetVisibleLayers().test( principalLayer ) )
-            m_frame->SetActiveLayer( principalLayer );
-
-        if( rc_item->GetErrorCode() == DRCE_UNCONNECTED_ITEMS )
+        for( BOARD_ITEM* it: { a, b, c, d } )
         {
-            if( !m_frame->Settings().m_Display.m_ShowGlobalRatsnest )
-                m_frame->GetToolManager()->RunAction( PCB_ACTIONS::showRatsnest, true );
+            if( !it )
+                continue;
 
-            std::vector<CN_EDGE> edges;
-            m_frame->GetBoard()->GetConnectivity()->GetUnconnectedEdges( edges );
+            LSET layersList = getActiveLayers( it );
+            violationLayers &= layersList;
 
-            for( const CN_EDGE& edge : edges )
-            {
-                if( edge.GetSourceNode()->Parent() == a  && edge.GetTargetNode()->Parent() == b )
-                {
-                    if( item == a )
-                        m_frame->FocusOnLocation( edge.GetSourcePos() );
-                    else
-                        m_frame->FocusOnLocation( edge.GetTargetPos() );
-
-                    break;
-                }
-            }
+            if( principalLayer <= UNDEFINED_LAYER && layersList.count() )
+                principalLayer = layersList.Seq().front();
         }
-        else if( m_centerMarkerOnIdle )
+    }
+
+    if( violationLayers.count() )
+        principalLayer = violationLayers.Seq().front();
+    else if( !(principalLayer <= UNDEFINED_LAYER ) )
+        violationLayers.set( principalLayer );
+
+    WINDOW_THAWER thawer( m_frame );
+
+    if( principalLayer > UNDEFINED_LAYER && ( violationLayers & board->GetVisibleLayers() ) == 0 )
+        m_frame->GetAppearancePanel()->SetLayerVisible( principalLayer, true );
+
+    if( principalLayer > UNDEFINED_LAYER && board->GetVisibleLayers().test( principalLayer ) )
+        m_frame->SetActiveLayer( principalLayer );
+
+    if( rc_item->GetErrorCode() == DRCE_UNCONNECTED_ITEMS )
+    {
+        if( !m_frame->GetPcbNewSettings()->m_Display.m_ShowGlobalRatsnest )
+            m_frame->GetToolManager()->RunAction( PCB_ACTIONS::showRatsnest, true );
+
+        if( item->Type() == PCB_ZONE_T )
         {
-            // we already came from a cross-probe of the marker in the document; don't go
-            // around in circles
+            m_frame->GetBoard()->GetConnectivity()->RunOnUnconnectedEdges(
+                    [&]( CN_EDGE& edge )
+                    {
+                        if( edge.GetSourceNode()->Parent() == a
+                                && edge.GetTargetNode()->Parent() == b )
+                        {
+                            if( item == a )
+                                m_frame->FocusOnLocation( edge.GetSourcePos() );
+                            else
+                                m_frame->FocusOnLocation( edge.GetTargetPos() );
+
+                            return false;
+                        }
+
+                        return true;
+                    } );
         }
         else
         {
             m_frame->FocusOnItem( item, principalLayer );
         }
+    }
+    else if( rc_item->GetErrorCode() == DRCE_DIFF_PAIR_UNCOUPLED_LENGTH_TOO_LONG )
+    {
+        BOARD_CONNECTED_ITEM*    track = dynamic_cast<PCB_TRACK*>( item );
+        std::vector<BOARD_ITEM*> items;
+
+        if( track )
+        {
+            int net = track->GetNetCode();
+
+            wxASSERT( net > 0 );    // Without a net how can it be a diff-pair?
+
+            for( const KIID& id : rc_item->GetIDs() )
+            {
+                auto* candidate = dynamic_cast<BOARD_CONNECTED_ITEM*>( board->GetItem( id ) );
+
+                if( candidate && candidate->GetNetCode() == net )
+                    items.push_back( candidate );
+            }
+        }
+        else
+        {
+            items.push_back( item );
+        }
+
+        m_frame->FocusOnItems( items, principalLayer );
+    }
+    else
+    {
+        m_frame->FocusOnItem( item, principalLayer );
     }
 
     aEvent.Skip();
@@ -514,9 +593,23 @@ void DIALOG_DRC::OnDRCItemRClick( wxDataViewEvent& aEvent )
     }
 
     if( rcItem->GetErrorCode() == DRCE_CLEARANCE
-            || rcItem->GetErrorCode() == DRCE_EDGE_CLEARANCE )
+            || rcItem->GetErrorCode() == DRCE_EDGE_CLEARANCE
+            || rcItem->GetErrorCode() == DRCE_HOLE_CLEARANCE
+            || rcItem->GetErrorCode() == DRCE_DRILLED_HOLES_TOO_CLOSE )
     {
         menu.Append( 3, _( "Run clearance resolution tool..." ) );
+    }
+    else if( rcItem->GetErrorCode() == DRCE_TEXT_HEIGHT
+            || rcItem->GetErrorCode() == DRCE_TEXT_THICKNESS
+            || rcItem->GetErrorCode() == DRCE_DIFF_PAIR_UNCOUPLED_LENGTH_TOO_LONG
+            || rcItem->GetErrorCode() == DRCE_TRACK_WIDTH
+            || rcItem->GetErrorCode() == DRCE_VIA_DIAMETER
+            || rcItem->GetErrorCode() == DRCE_ANNULAR_WIDTH
+            || rcItem->GetErrorCode() == DRCE_DRILL_OUT_OF_RANGE
+            || rcItem->GetErrorCode() == DRCE_MICROVIA_DRILL_OUT_OF_RANGE
+            || rcItem->GetErrorCode() == DRCE_CONNECTION_WIDTH )
+    {
+        menu.Append( 3, _( "Run constraints resolution tool..." ) );
     }
 
     menu.AppendSeparator();
@@ -558,12 +651,14 @@ void DIALOG_DRC::OnDRCItemRClick( wxDataViewEvent& aEvent )
             marker->SetExcluded( false );
 
             if( rcItem->GetErrorCode() == DRCE_UNCONNECTED_ITEMS )
-                conn->RemoveExclusion( drcItem->GetMainItemID(), drcItem->GetAuxItemID() );
-
-            if( rcItem->GetErrorCode() == DRCE_UNCONNECTED_ITEMS )
+            {
+                m_frame->GetBoard()->UpdateRatsnestExclusions();
                 m_frame->GetCanvas()->RedrawRatsnest();
+            }
             else
+            {
                 m_frame->GetCanvas()->GetView()->Update( marker );
+            }
 
             // Update view
             static_cast<RC_TREE_MODEL*>( aEvent.GetModel() )->ValueChanged( node );
@@ -582,12 +677,14 @@ void DIALOG_DRC::OnDRCItemRClick( wxDataViewEvent& aEvent )
             marker->SetExcluded( true );
 
             if( rcItem->GetErrorCode() == DRCE_UNCONNECTED_ITEMS )
-                conn->AddExclusion( drcItem->GetMainItemID(), drcItem->GetAuxItemID() );
-
-            if( rcItem->GetErrorCode() == DRCE_UNCONNECTED_ITEMS )
+            {
+                m_frame->GetBoard()->UpdateRatsnestExclusions();
                 m_frame->GetCanvas()->RedrawRatsnest();
+            }
             else
+            {
                 m_frame->GetCanvas()->GetView()->Update( marker );
+            }
 
             // Update view
             if( m_severities & RPT_SEVERITY_EXCLUSION )
@@ -612,7 +709,7 @@ void DIALOG_DRC::OnDRCItemRClick( wxDataViewEvent& aEvent )
         }
 
         // Rebuild model and view
-        static_cast<RC_TREE_MODEL*>( aEvent.GetModel() )->SetProvider( m_markersProvider );
+        static_cast<RC_TREE_MODEL*>( aEvent.GetModel() )->Update( m_markersProvider, m_severities );
         modified = true;
         break;
     }
@@ -628,7 +725,7 @@ void DIALOG_DRC::OnDRCItemRClick( wxDataViewEvent& aEvent )
         }
 
         // Rebuild model and view
-        static_cast<RC_TREE_MODEL*>( aEvent.GetModel() )->SetProvider( m_markersProvider );
+        static_cast<RC_TREE_MODEL*>( aEvent.GetModel() )->Update( m_markersProvider, m_severities );
         modified = true;
         break;
     }
@@ -652,7 +749,7 @@ void DIALOG_DRC::OnDRCItemRClick( wxDataViewEvent& aEvent )
         }
 
         // Rebuild model and view
-        static_cast<RC_TREE_MODEL*>( aEvent.GetModel() )->SetProvider( m_markersProvider );
+        static_cast<RC_TREE_MODEL*>( aEvent.GetModel() )->Update( m_markersProvider, m_severities );
         modified = true;
         break;
 
@@ -666,7 +763,7 @@ void DIALOG_DRC::OnDRCItemRClick( wxDataViewEvent& aEvent )
         }
 
         // Rebuild model and view
-        static_cast<RC_TREE_MODEL*>( aEvent.GetModel() )->SetProvider( m_markersProvider );
+        static_cast<RC_TREE_MODEL*>( aEvent.GetModel() )->Update( m_markersProvider, m_severities );
         modified = true;
         break;
 
@@ -696,7 +793,7 @@ void DIALOG_DRC::OnDRCItemRClick( wxDataViewEvent& aEvent )
             m_frame->GetCanvas()->RedrawRatsnest();
 
         // Rebuild model and view
-        static_cast<RC_TREE_MODEL*>( aEvent.GetModel() )->SetProvider( m_markersProvider );
+        static_cast<RC_TREE_MODEL*>( aEvent.GetModel() )->Update( m_markersProvider, m_severities );
         modified = true;
         break;
     }
@@ -715,18 +812,9 @@ void DIALOG_DRC::OnDRCItemRClick( wxDataViewEvent& aEvent )
 }
 
 
-void DIALOG_DRC::OnIgnoreItemRClick( wxListEvent& event )
+void DIALOG_DRC::OnEditViolationSeverities( wxHyperlinkEvent& aEvent )
 {
-    wxMenu menu;
-
-    menu.Append( 1, _( "Edit ignored violations..." ), _( "Open the Board Setup... dialog" ) );
-
-    switch( GetPopupMenuSelectionFromUser( menu ) )
-    {
-    case 1:
-        m_frame->ShowBoardSetupDialog( _( "Violation Severity" ) );
-        break;
-    }
+    m_frame->ShowBoardSetupDialog( _( "Violation Severity" ) );
 }
 
 
@@ -751,18 +839,7 @@ void DIALOG_DRC::OnSeverity( wxCommandEvent& aEvent )
         m_severities &= ~flag;
 
     syncCheckboxes();
-
-    // Set the provider's severity levels through the TreeModel so that the old tree
-    // can be torn down before the severity changes.
-    //
-    // It's not clear this is required, but we've had a lot of issues with wxDataView
-    // being cranky on various platforms.
-
-    m_markersTreeModel->SetSeverities( m_severities );
-    m_unconnectedTreeModel->SetSeverities( m_severities );
-    m_footprintWarningsTreeModel->SetSeverities( m_severities );
-
-    updateDisplayedCounts();
+    UpdateData();
 }
 
 
@@ -858,7 +935,7 @@ void DIALOG_DRC::PrevMarker()
         {
         case 0: m_markersTreeModel->PrevMarker();           break;
         case 1: m_unconnectedTreeModel->PrevMarker();       break;
-        case 2: m_footprintWarningsTreeModel->PrevMarker(); break;
+        case 2: m_fpWarningsTreeModel->PrevMarker(); break;
         case 3:                                             break;
         }
     }
@@ -873,7 +950,7 @@ void DIALOG_DRC::NextMarker()
         {
         case 0: m_markersTreeModel->NextMarker();           break;
         case 1: m_unconnectedTreeModel->NextMarker();       break;
-        case 2: m_footprintWarningsTreeModel->NextMarker(); break;
+        case 2: m_fpWarningsTreeModel->NextMarker(); break;
         case 3:                                             break;
         }
     }
@@ -934,7 +1011,11 @@ void DIALOG_DRC::deleteAllMarkers( bool aIncludeExclusions )
     // Clear current selection list to avoid selection of deleted items
     m_frame->GetToolManager()->RunAction( PCB_ACTIONS::selectionClear, true );
 
-    m_markersTreeModel->DeleteItems( false, aIncludeExclusions, true );
+    m_markersTreeModel->DeleteItems( false, aIncludeExclusions, false );
+    m_unconnectedTreeModel->DeleteItems( false, aIncludeExclusions, false );
+    m_fpWarningsTreeModel->DeleteItems( false, aIncludeExclusions, false );
+
+    m_frame->GetBoard()->DeleteMARKERs( true, aIncludeExclusions );
 }
 
 
@@ -948,8 +1029,8 @@ bool DIALOG_DRC::writeReport( const wxString& aFullFileName )
     std::map<KIID, EDA_ITEM*> itemMap;
     m_frame->GetBoard()->FillItemMap( itemMap );
 
-    EDA_UNITS              units = GetUserUnits();
     BOARD_DESIGN_SETTINGS& bds = m_frame->GetBoard()->GetDesignSettings();
+    UNITS_PROVIDER         unitsProvider( pcbIUScale, GetUserUnits() );
     int                    count;
 
     fprintf( fp, "** Drc report for %s **\n", TO_UTF8( m_frame->GetBoard()->GetFileName() ) );
@@ -970,31 +1051,31 @@ bool DIALOG_DRC::writeReport( const wxString& aFullFileName )
         if( severity == RPT_SEVERITY_EXCLUSION )
             severity = bds.GetSeverity( item->GetErrorCode() );
 
-        fprintf( fp, "%s", TO_UTF8( item->ShowReport( units, severity, itemMap ) ) );
+        fprintf( fp, "%s", TO_UTF8( item->ShowReport( &unitsProvider, severity, itemMap ) ) );
     }
 
-    count = m_unconnectedItemsProvider->GetCount();
+    count = m_ratsnestProvider->GetCount();
 
     fprintf( fp, "\n** Found %d unconnected pads **\n", count );
 
     for( int i = 0; i < count; ++i )
     {
-        const std::shared_ptr<RC_ITEM>& item = m_unconnectedItemsProvider->GetItem( i );
+        const std::shared_ptr<RC_ITEM>& item = m_ratsnestProvider->GetItem( i );
         SEVERITY severity = bds.GetSeverity( item->GetErrorCode() );
 
-        fprintf( fp, "%s", TO_UTF8( item->ShowReport( units, severity, itemMap ) ) );
+        fprintf( fp, "%s", TO_UTF8( item->ShowReport( &unitsProvider, severity, itemMap ) ) );
     }
 
-    count = m_footprintWarningsProvider->GetCount();
+    count = m_fpWarningsProvider->GetCount();
 
     fprintf( fp, "\n** Found %d Footprint errors **\n", count );
 
     for( int i = 0; i < count; ++i )
     {
-        const std::shared_ptr<RC_ITEM>& item = m_footprintWarningsProvider->GetItem( i );
+        const std::shared_ptr<RC_ITEM>& item = m_fpWarningsProvider->GetItem( i );
         SEVERITY severity = bds.GetSeverity( item->GetErrorCode() );
 
-        fprintf( fp, "%s", TO_UTF8( item->ShowReport( units, severity, itemMap ) ) );
+        fprintf( fp, "%s", TO_UTF8( item->ShowReport( &unitsProvider, severity, itemMap ) ) );
     }
 
 
@@ -1024,7 +1105,7 @@ void DIALOG_DRC::OnDeleteOneClick( wxCommandEvent& aEvent )
     }
     else if( m_Notebook->GetSelection() == 2 )
     {
-        m_footprintWarningsTreeModel->DeleteCurrentItem( true );
+        m_fpWarningsTreeModel->DeleteCurrentItem( true );
     }
 
     updateDisplayedCounts();
@@ -1040,11 +1121,11 @@ void DIALOG_DRC::OnDeleteAllClick( wxCommandEvent& aEvent )
     if( m_markersProvider )
         numExcluded += m_markersProvider->GetCount( RPT_SEVERITY_EXCLUSION );
 
-    if( m_unconnectedItemsProvider )
-        numExcluded += m_unconnectedItemsProvider->GetCount( RPT_SEVERITY_EXCLUSION );
+    if( m_ratsnestProvider )
+        numExcluded += m_ratsnestProvider->GetCount( RPT_SEVERITY_EXCLUSION );
 
-    if( m_footprintWarningsProvider )
-        numExcluded += m_footprintWarningsProvider->GetCount( RPT_SEVERITY_EXCLUSION );
+    if( m_fpWarningsProvider )
+        numExcluded += m_fpWarningsProvider->GetCount( RPT_SEVERITY_EXCLUSION );
 
     if( numExcluded > 0 )
     {
@@ -1063,7 +1144,6 @@ void DIALOG_DRC::OnDeleteAllClick( wxCommandEvent& aEvent )
 
     deleteAllMarkers( s_includeExclusions );
 
-    m_drcRun = false;
     refreshEditor();
     updateDisplayedCounts();
 }
@@ -1093,22 +1173,24 @@ void DIALOG_DRC::updateDisplayedCounts()
         numExcluded += m_markersProvider->GetCount( RPT_SEVERITY_EXCLUSION );
     }
 
-    if( m_unconnectedItemsProvider )
+    if( m_ratsnestProvider )
     {
-        numUnconnected += m_unconnectedItemsProvider->GetCount();
-        numErrors += m_unconnectedItemsProvider->GetCount( RPT_SEVERITY_ERROR );
-        numWarnings += m_unconnectedItemsProvider->GetCount( RPT_SEVERITY_WARNING );
-        numExcluded += m_unconnectedItemsProvider->GetCount( RPT_SEVERITY_EXCLUSION );
+        numUnconnected += m_ratsnestProvider->GetCount();
+        numErrors += m_ratsnestProvider->GetCount( RPT_SEVERITY_ERROR );
+        numWarnings += m_ratsnestProvider->GetCount( RPT_SEVERITY_WARNING );
+        numExcluded += m_ratsnestProvider->GetCount( RPT_SEVERITY_EXCLUSION );
     }
 
-    if( m_footprintTestsRun && m_footprintWarningsProvider )
+    if( m_footprintTestsRun && m_fpWarningsProvider )
     {
-        numFootprints += m_footprintWarningsProvider->GetCount();
-        numErrors += m_footprintWarningsProvider->GetCount( RPT_SEVERITY_ERROR );
-        numWarnings += m_footprintWarningsProvider->GetCount( RPT_SEVERITY_WARNING );
-        numExcluded += m_footprintWarningsProvider->GetCount( RPT_SEVERITY_EXCLUSION );
+        numFootprints += m_fpWarningsProvider->GetCount();
+        numErrors += m_fpWarningsProvider->GetCount( RPT_SEVERITY_ERROR );
+        numWarnings += m_fpWarningsProvider->GetCount( RPT_SEVERITY_WARNING );
+        numExcluded += m_fpWarningsProvider->GetCount( RPT_SEVERITY_EXCLUSION );
     }
 
+    bool showErrors = m_showErrors->GetValue();
+    bool showWarnings = m_showWarnings->GetValue();
     bool errorsOverflowed = false;
     bool warningsOverflowed = false;
     bool markersOverflowed = false;
@@ -1117,31 +1199,36 @@ void DIALOG_DRC::updateDisplayedCounts()
 
     for( int ii = DRCE_FIRST; ii < DRCE_LAST; ++ii )
     {
-        if( drcEngine->IsErrorLimitExceeded( ii ) && bds.GetSeverity( ii ) != RPT_SEVERITY_IGNORE )
+        if( drcEngine->IsErrorLimitExceeded( ii ) )
         {
             if( bds.GetSeverity( ii ) == RPT_SEVERITY_ERROR )
-            {
                 errorsOverflowed = true;
-            }
             else if( bds.GetSeverity( ii ) == RPT_SEVERITY_WARNING )
-            {
                 warningsOverflowed = true;
-            }
 
             if( ii == DRCE_UNCONNECTED_ITEMS )
             {
-                unconnectedOverflowed = true;
+                if( showWarnings && bds.GetSeverity( ii ) == RPT_SEVERITY_WARNING )
+                    unconnectedOverflowed = true;
+                else if( showErrors && bds.GetSeverity( ii ) == RPT_SEVERITY_ERROR )
+                    unconnectedOverflowed = true;
             }
             else if(    ii == DRCE_MISSING_FOOTPRINT
                      || ii == DRCE_DUPLICATE_FOOTPRINT
                      || ii == DRCE_EXTRA_FOOTPRINT
                      || ii == DRCE_NET_CONFLICT )
             {
-                footprintsOverflowed = true;
+                if( showWarnings && bds.GetSeverity( ii ) == RPT_SEVERITY_WARNING )
+                    footprintsOverflowed = true;
+                else if( showErrors && bds.GetSeverity( ii ) == RPT_SEVERITY_ERROR )
+                    footprintsOverflowed = true;
             }
             else
             {
-                markersOverflowed = true;
+                if( showWarnings && bds.GetSeverity( ii ) == RPT_SEVERITY_WARNING )
+                    markersOverflowed = true;
+                else if( showErrors && bds.GetSeverity( ii ) == RPT_SEVERITY_ERROR )
+                    markersOverflowed = true;
             }
         }
     }
@@ -1155,47 +1242,58 @@ void DIALOG_DRC::updateDisplayedCounts()
     {
         num.Printf( markersOverflowed ? wxT( "%d+" ) : wxT( "%d" ), numMarkers );
         msg.Printf( m_markersTitleTemplate, num );
-        m_Notebook->SetPageText( 0, msg );
-
-        num.Printf( unconnectedOverflowed ? wxT( "%d+" ) : wxT( "%d" ), numUnconnected );
-        msg.sprintf( m_unconnectedTitleTemplate, num );
-        m_Notebook->SetPageText( 1, msg );
-
-        if( m_footprintTestsRun )
-        {
-            num.Printf( footprintsOverflowed ? wxT( "%d+" ) : wxT( "%d" ), numFootprints );
-            msg.sprintf( m_footprintsTitleTemplate, num );
-        }
-        else
-        {
-            msg = m_footprintsTitleTemplate;
-            msg.Replace( wxT( "%s" ), _( "not run" ) );
-        }
-
-        m_Notebook->SetPageText( 2, msg );
-
-        num.Printf( wxT( "%d" ), m_ignoredList->GetItemCount() );
-        msg.sprintf( m_ignoredTitleTemplate, num );
-        m_Notebook->SetPageText( 3, msg );
     }
     else
     {
         msg = m_markersTitleTemplate;
         msg.Replace( wxT( "(%s)" ), wxEmptyString );
-        m_Notebook->SetPageText( 0, msg );
+    }
 
+    m_Notebook->SetPageText( 0, msg );
+
+    if( m_drcRun )
+    {
+        num.Printf( unconnectedOverflowed ? wxT( "%d+" ) : wxT( "%d" ), numUnconnected );
+        msg.sprintf( m_unconnectedTitleTemplate, num );
+    }
+    else
+    {
         msg = m_unconnectedTitleTemplate;
         msg.Replace( wxT( "(%s)" ), wxEmptyString );
-        m_Notebook->SetPageText( 1, msg );
+    }
 
+    m_Notebook->SetPageText( 1, msg );
+
+    if( m_footprintTestsRun )
+    {
+        num.Printf( footprintsOverflowed ? wxT( "%d+" ) : wxT( "%d" ), numFootprints );
+        msg.sprintf( m_footprintsTitleTemplate, num );
+    }
+    else if( m_drcRun )
+    {
+        msg = m_footprintsTitleTemplate;
+        msg.Replace( wxT( "%s" ), _( "not run" ) );
+    }
+    else
+    {
         msg = m_footprintsTitleTemplate;
         msg.Replace( wxT( "(%s)" ), wxEmptyString );
-        m_Notebook->SetPageText( 2, msg );
+    }
 
+    m_Notebook->SetPageText( 2, msg );
+
+    if( m_drcRun )
+    {
+        num.Printf( wxT( "%d" ), m_ignoredList->GetItemCount() );
+        msg.sprintf( m_ignoredTitleTemplate, num );
+    }
+    else
+    {
         msg = m_ignoredTitleTemplate;
         msg.Replace( wxT( "(%s)" ), wxEmptyString );
-        m_Notebook->SetPageText( 3, msg );
     }
+
+    m_Notebook->SetPageText( 3, msg );
 
     // Update badges:
 

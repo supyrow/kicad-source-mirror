@@ -47,7 +47,7 @@ class SCH_TEXT;
 class SCH_GLOBALLABEL;
 class SCH_SYMBOL;
 class SCH_FIELD;
-class PROPERTIES;
+class STRING_UTF8_MAP;
 class SCH_EAGLE_PLUGIN_CACHE;
 class LIB_SYMBOL;
 class SYMBOL_LIB;
@@ -100,7 +100,7 @@ public:
 
     SCH_SHEET* Load( const wxString& aFileName, SCHEMATIC* aSchematic,
                      SCH_SHEET* aAppendToMe = nullptr,
-                     const PROPERTIES* aProperties = nullptr ) override;
+                     const STRING_UTF8_MAP* aProperties = nullptr ) override;
 
     bool CheckHeader( const wxString& aFileName ) override;
 
@@ -190,6 +190,9 @@ private:
 
     bool netHasPowerDriver( SCH_LINE* aLine, const wxString& aNetName ) const;
 
+    SCH_SHEET* getCurrentSheet();
+    SCH_SCREEN* getCurrentScreen();
+
     // Describe missing units containing pins creating implicit connections
     // (named power pins in Eagle).
     struct EAGLE_MISSING_CMP
@@ -215,7 +218,7 @@ private:
     std::map<wxString, EAGLE_MISSING_CMP> m_missingCmps;
 
     SCH_SHEET*  m_rootSheet;      ///< The root sheet of the schematic being loaded
-    SCH_SHEET*  m_currentSheet;   ///< The current sheet of the schematic being loaded
+    SCH_SHEET_PATH  m_sheetPath;  ///< The current sheet path of the schematic being loaded.
     wxString    m_version;        ///< Eagle file version.
     wxFileName  m_filename;
     wxString    m_libName;        ///< Library name to save symbols
@@ -225,7 +228,7 @@ private:
     std::map<wxString, EAGLE_LIBRARY> m_eagleLibs;
 
     SCH_PLUGIN::SCH_PLUGIN_RELEASER   m_pi;                ///< PI to create KiCad symbol library.
-    std::unique_ptr< PROPERTIES >     m_properties;        ///< Library plugin properties.
+    std::unique_ptr<STRING_UTF8_MAP>     m_properties;        ///< Library plugin properties.
 
     PROGRESS_REPORTER*                m_progressReporter;  ///< optional; may be nullptr
     unsigned                          m_doneCount;

@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2009 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
  * Copyright (C) 2009 Jean-Pierre Charras, jean-pierre.charras@inpg.fr
- * Copyright (C) 2009-2020 KiCad Developers, see change_log.txt for contributors.
+ * Copyright (C) 2009-2022 KiCad Developers, see change_log.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -31,18 +31,18 @@
 const char NETCLASS::Default[] = "Default";
 
 // Initial values for netclass initialization
-const int DEFAULT_CLEARANCE        = PcbMm2iu( 0.2 ); // track to track and track to pads clearance
-const int DEFAULT_VIA_DIAMETER     = PcbMm2iu( 0.8 );
-const int DEFAULT_VIA_DRILL        = PcbMm2iu( 0.4 );
-const int DEFAULT_UVIA_DIAMETER    = PcbMm2iu( 0.3 );
-const int DEFAULT_UVIA_DRILL       = PcbMm2iu( 0.1 );
-const int DEFAULT_TRACK_WIDTH      = PcbMm2iu( 0.25 );
-const int DEFAULT_DIFF_PAIR_WIDTH  = PcbMm2iu( 0.2 );
-const int DEFAULT_DIFF_PAIR_GAP    = PcbMm2iu( 0.25 );
-const int DEFAULT_DIFF_PAIR_VIAGAP = PcbMm2iu( 0.25 );
+const int DEFAULT_CLEARANCE        = pcbIUScale.mmToIU( 0.2 ); // track to track and track to pads clearance
+const int DEFAULT_VIA_DIAMETER     = pcbIUScale.mmToIU( 0.8 );
+const int DEFAULT_VIA_DRILL        = pcbIUScale.mmToIU( 0.4 );
+const int DEFAULT_UVIA_DIAMETER    = pcbIUScale.mmToIU( 0.3 );
+const int DEFAULT_UVIA_DRILL       = pcbIUScale.mmToIU( 0.1 );
+const int DEFAULT_TRACK_WIDTH      = pcbIUScale.mmToIU( 0.25 );
+const int DEFAULT_DIFF_PAIR_WIDTH  = pcbIUScale.mmToIU( 0.2 );
+const int DEFAULT_DIFF_PAIR_GAP    = pcbIUScale.mmToIU( 0.25 );
+const int DEFAULT_DIFF_PAIR_VIAGAP = pcbIUScale.mmToIU( 0.25 );
 
-const int DEFAULT_WIRE_WIDTH       = SchMils2iu( 6 );
-const int DEFAULT_BUS_WIDTH        = SchMils2iu( 12 );
+const int DEFAULT_WIRE_WIDTH       = schIUScale.MilsToIU( 6 );
+const int DEFAULT_BUS_WIDTH        = schIUScale.MilsToIU( 12 );
 
 const int DEFAULT_LINE_STYLE = 0; // solid
 
@@ -76,90 +76,3 @@ NETCLASS::~NETCLASS()
 }
 
 
-NETCLASSES::NETCLASSES()
-{
-    m_default = std::make_shared<NETCLASS>( NETCLASS::Default );
-}
-
-
-NETCLASSES::~NETCLASSES()
-{
-}
-
-
-bool NETCLASSES::Add( const NETCLASSPTR& aNetClass )
-{
-    const wxString& name = aNetClass->GetName();
-
-    if( name == NETCLASS::Default )
-    {
-        m_default = aNetClass;
-        return true;
-    }
-
-    // Test for an existing netclass:
-    if( !Find( name ) )
-    {
-        // name not found, take ownership
-        m_NetClasses[name] = aNetClass;
-
-        return true;
-    }
-    else
-    {
-        // name already exists
-        // do not "take ownership" and return false telling caller such.
-        return false;
-    }
-}
-
-
-NETCLASSPTR NETCLASSES::Remove( const wxString& aNetName )
-{
-    NETCLASS_MAP::iterator found = m_NetClasses.find( aNetName );
-
-    if( found != m_NetClasses.end() )
-    {
-        std::shared_ptr<NETCLASS> netclass = found->second;
-        m_NetClasses.erase( found );
-        return netclass;
-    }
-
-    return NETCLASSPTR();
-}
-
-
-NETCLASSPTR NETCLASSES::Find( const wxString& aName ) const
-{
-    if( aName == NETCLASS::Default )
-        return GetDefault();
-
-    NETCLASS_MAP::const_iterator found = m_NetClasses.find( aName );
-
-    if( found == m_NetClasses.end() )
-        return NETCLASSPTR();
-    else
-        return found->second;
-}
-
-
-#if defined(DEBUG)
-
-void NETCLASS::Show( int nestLevel, std::ostream& os ) const
-{
-    // for now, make it look like XML:
-    //NestedSpace( nestLevel, os )
-
-    os << '<' << GetClass().Lower().mb_str() << ">\n";
-
-    for( const_iterator i = begin();  i!=end();  ++i )
-    {
-        // NestedSpace( nestLevel+1, os ) << *i;
-        os << TO_UTF8( *i );
-    }
-
-    // NestedSpace( nestLevel, os )
-    os << "</" << GetClass().Lower().mb_str() << ">\n";
-}
-
-#endif

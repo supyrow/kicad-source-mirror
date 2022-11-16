@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2017 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2013 CERN (www.cern.ch)
- * Copyright (C) 2004-2021 KiCad Developers, see change_log.txt for contributors.
+ * Copyright (C) 2004-2022 KiCad Developers, see change_log.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -31,8 +31,12 @@
 #include <build_version.h>
 #include <dialogs/panel_kicad_launcher.h>
 #include <eda_base_frame.h>
+#include <executable_names.h>
 #include <filehistory.h>
+#include <policy_keys.h>
+#include <gestfich.h>
 #include <kiplatform/app.h>
+#include <kiplatform/policy.h>
 #include <kicad_build_version.h>
 #include <kiway.h>
 #include <kiway_express.h>
@@ -65,7 +69,7 @@
 #endif
 
 #include "kicad_manager_frame.h"
-#include "kicad_settings.h"
+#include "settings/kicad_settings.h"
 
 
 #define SEP()   wxFileName::GetPathSeparator()
@@ -95,6 +99,10 @@ BEGIN_EVENT_TABLE( KICAD_MANAGER_FRAME, EDA_BASE_FRAME )
 
     // Special functions
     EVT_MENU( ID_INIT_WATCHED_PATHS, KICAD_MANAGER_FRAME::OnChangeWatchedPaths )
+
+    // Drop files event
+    EVT_DROP_FILES( KICAD_MANAGER_FRAME::OnDropFiles )
+
 END_EVENT_TABLE()
 
 
@@ -103,8 +111,8 @@ END_EVENT_TABLE()
 
 KICAD_MANAGER_FRAME::KICAD_MANAGER_FRAME( wxWindow* parent, const wxString& title,
                                           const wxPoint& pos, const wxSize&   size ) :
-        EDA_BASE_FRAME( parent, KICAD_MAIN_FRAME_T, title, pos, size,
-                        KICAD_DEFAULT_DRAWFRAME_STYLE, KICAD_MANAGER_FRAME_NAME, &::Kiway ),
+        EDA_BASE_FRAME( parent, KICAD_MAIN_FRAME_T, title, pos, size, KICAD_DEFAULT_DRAWFRAME_STYLE,
+                        KICAD_MANAGER_FRAME_NAME, &::Kiway, unityScale ),
         m_leftWin( nullptr ),
         m_launcher( nullptr ),
         m_mainToolBar( nullptr )
@@ -120,7 +128,7 @@ KICAD_MANAGER_FRAME::KICAD_MANAGER_FRAME( wxWindow* parent, const wxString& titl
     wxXmlDocument dummy;
 
     // Create the status line (bottom of the frame).  Left half is for project name; right half
-    // is for Reporter (currently used by archiver/unarchiver).
+    // is for Reporter (currently used by archiver/unarchiver and PCM).
     CreateStatusBar( 2 );
     GetStatusBar()->SetFont( KIUI::GetStatusFont( this ) );
 
@@ -148,6 +156,28 @@ KICAD_MANAGER_FRAME::KICAD_MANAGER_FRAME( wxWindow* parent, const wxString& titl
 
     // Load the settings
     LoadSettings( config() );
+
+    m_pcmButton = nullptr;
+    m_pcmUpdateCount = 0;
+    m_pcm = std::make_shared<PLUGIN_CONTENT_MANAGER>(
+            [this]( int aUpdateCount )
+            {
+                m_pcmUpdateCount = aUpdateCount;
+                CallAfter(
+                        [this]()
+                        {
+                            updatePcmButtonBadge();
+                        } );
+            },
+            [this]( const wxString aText )
+            {
+                CallAfter(
+                        [aText, this]()
+                        {
+                            SetStatusText( aText, 1 );
+                        } );
+            } );
+    m_pcm->SetRepositoryList( kicadSettings()->m_PcmRepositories );
 
     // Left window: is the box which display tree project
     m_leftWin = new PROJECT_TREE_PANE( this );
@@ -198,6 +228,22 @@ KICAD_MANAGER_FRAME::KICAD_MANAGER_FRAME( wxWindow* parent, const wxString& titl
     // Do not let the messages window have initial focus
     m_leftWin->SetFocus();
 
+    // Init for dropping files
+    m_acceptedExts.emplace( ProjectFileExtension, &KICAD_MANAGER_ACTIONS::loadProject );
+    m_acceptedExts.emplace( LegacyProjectFileExtension, &KICAD_MANAGER_ACTIONS::loadProject );
+    for( const auto& ext : GerberFileExtensions )
+        m_acceptedExts.emplace( ext, &KICAD_MANAGER_ACTIONS::viewDroppedGerbers );
+    m_acceptedExts.emplace( DrillFileExtension, &KICAD_MANAGER_ACTIONS::viewDroppedGerbers );
+    // Eagle files import
+    m_acceptedExts.emplace( EagleSchematicFileExtension,
+                            &KICAD_MANAGER_ACTIONS::importNonKicadProj );
+    m_acceptedExts.emplace( EaglePcbFileExtension, &KICAD_MANAGER_ACTIONS::importNonKicadProj );
+    // Cadstar files import
+    m_acceptedExts.emplace( CadstarSchematicFileExtension,
+                            &KICAD_MANAGER_ACTIONS::importNonKicadProj );
+    m_acceptedExts.emplace( CadstarPcbFileExtension, &KICAD_MANAGER_ACTIONS::importNonKicadProj );
+    DragAcceptFiles( true );
+
     // Ensure the window is on top
     Raise();
 }
@@ -208,6 +254,8 @@ KICAD_MANAGER_FRAME::~KICAD_MANAGER_FRAME()
     // Shutdown all running tools
     if( m_toolManager )
         m_toolManager->ShutdownAllTools();
+
+    m_pcm->StopBackgroundUpdate();
 
     delete m_actions;
     delete m_toolManager;
@@ -251,14 +299,24 @@ void KICAD_MANAGER_FRAME::setupUIConditions()
             return m_active_project;
         };
 
+#define ENABLE( x ) ACTION_CONDITIONS().Enable( x )
+
     ACTION_CONDITIONS activeProjectCond;
     activeProjectCond.Enable( activeProject );
 
     manager->SetConditions( ACTIONS::saveAs,                       activeProjectCond );
     manager->SetConditions( KICAD_MANAGER_ACTIONS::closeProject,   activeProjectCond );
 
+    // These are just here for text boxes, search boxes, etc. in places such as the standard
+    // file dialogs.
+    manager->SetConditions( ACTIONS::cut,     ENABLE( SELECTION_CONDITIONS::ShowNever ) );
+    manager->SetConditions( ACTIONS::copy,    ENABLE( SELECTION_CONDITIONS::ShowNever ) );
+    manager->SetConditions( ACTIONS::paste,   ENABLE( SELECTION_CONDITIONS::ShowNever ) );
+
     // TODO: Switch this to an action
     RegisterUIUpdateHandler( ID_SAVE_AND_ZIP_FILES, activeProjectCond );
+
+#undef ENABLE
 }
 
 
@@ -353,6 +411,59 @@ void KICAD_MANAGER_FRAME::OnSize( wxSizeEvent& event )
     PrintPrjInfo();
 
     event.Skip();
+}
+
+
+void KICAD_MANAGER_FRAME::DoWithAcceptedFiles()
+{
+    // All fileNames are now in m_AcceptedFiles vector.
+    // Check if contains a project file name and load project.
+    // If not, open files in dedicated app.
+    for( const wxFileName& fileName : m_AcceptedFiles )
+    {
+        if( IsExtensionAccepted( fileName.GetExt(),
+                                 { ProjectFileExtension, LegacyProjectFileExtension } ) )
+        {
+            wxString fn = fileName.GetFullPath();
+            m_toolManager->RunAction( *m_acceptedExts.at( fileName.GetExt() ), true, &fn );
+            return;
+        }
+    }
+
+    // Then stock gerber files in gerberFiles and run action for other files.
+    wxString gerberFiles;
+
+    // Gerbview editor should be able to open Gerber and drill files
+    std::vector<std::string> gerberExts( GerberFileExtensions );
+    gerberExts.push_back( DrillFileExtension );
+
+    for( const wxFileName& fileName : m_AcceptedFiles )
+    {
+        if( IsExtensionAccepted( fileName.GetExt(), gerberExts ) )
+        {
+            gerberFiles += wxT( '\"' );
+            gerberFiles += fileName.GetFullPath() + wxT( '\"' );
+            gerberFiles = gerberFiles.Pad( 1 );
+        }
+        else
+        {
+            wxString fn = fileName.GetFullPath();
+            m_toolManager->RunAction( *m_acceptedExts.at( fileName.GetExt() ), true, &fn );
+        }
+    }
+
+    // Execute Gerbviewer
+    if( !gerberFiles.IsEmpty() )
+    {
+        wxString fullEditorName = FindKicadFile( GERBVIEW_EXE );
+
+        if( wxFileExists( fullEditorName ) )
+        {
+            wxString command = fullEditorName + " " + gerberFiles;
+            m_toolManager->RunAction( *m_acceptedExts.at( GerberFileExtension ),
+                                      true, &command );
+        }
+    }
 }
 
 
@@ -627,6 +738,11 @@ void KICAD_MANAGER_FRAME::ShowChangedLanguage()
 void KICAD_MANAGER_FRAME::CommonSettingsChanged( bool aEnvVarsChanged, bool aTextVarsChanged )
 {
     EDA_BASE_FRAME::CommonSettingsChanged( aEnvVarsChanged, aTextVarsChanged );
+
+    if( aEnvVarsChanged )
+    {
+        m_pcm->ReadEnvVar();
+    }
 }
 
 
@@ -763,4 +879,55 @@ void KICAD_MANAGER_FRAME::OnIdle( wxIdleEvent& aEvent )
 
     // clear file states regardless if we opened windows or not due to setting
     Prj().GetLocalSettings().ClearFileState();
+
+    KICAD_SETTINGS* settings = kicadSettings();
+
+    if( settings->m_updateCheck == KICAD_SETTINGS::UPDATE_CHECK::UNINITIALIZED )
+    {
+        if( wxMessageBox( _( "Would you like to automatically check for plugin updates on startup?" ),
+                          _( "Check for updates" ), wxICON_QUESTION | wxYES_NO, this )
+            == wxYES )
+        {
+            settings->m_updateCheck = KICAD_SETTINGS::UPDATE_CHECK::ALLOWED;
+            settings->m_PcmUpdateCheck = true;
+        }
+        else
+        {
+            settings->m_updateCheck = KICAD_SETTINGS::UPDATE_CHECK::NOT_ALLOWED;
+            settings->m_PcmUpdateCheck = false;
+        }
+    }
+
+    if( KIPLATFORM::POLICY::GetPolicyState( POLICY_KEY_PCM ) != KIPLATFORM::POLICY::STATE::DISABLED
+        && settings->m_PcmUpdateCheck )
+    {
+        m_pcm->RunBackgroundUpdate();
+    }
+}
+
+
+void KICAD_MANAGER_FRAME::SetPcmButton( BITMAP_BUTTON* aButton )
+{
+    m_pcmButton = aButton;
+
+    updatePcmButtonBadge();
+}
+
+
+void KICAD_MANAGER_FRAME::updatePcmButtonBadge()
+{
+    if( m_pcmButton )
+    {
+        if( m_pcmUpdateCount > 0 )
+        {
+            m_pcmButton->SetShowBadge( true );
+            m_pcmButton->SetBadgeText( wxString::Format( "%d", m_pcmUpdateCount ) );
+        }
+        else
+        {
+            m_pcmButton->SetShowBadge( false );
+        }
+
+        m_pcmButton->Refresh();
+    }
 }

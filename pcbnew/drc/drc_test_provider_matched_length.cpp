@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2004-2020 KiCad Developers.
+ * Copyright (C) 2004-2022 KiCad Developers.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -23,7 +23,6 @@
 #include <pad.h>
 #include <pcb_track.h>
 
-#include <drc/drc_engine.h>
 #include <drc/drc_item.h>
 #include <drc/drc_rule.h>
 #include <drc/drc_test_provider.h>
@@ -59,12 +58,12 @@ public:
 
     virtual const wxString GetName() const override
     {
-        return "length";
+        return wxT( "length" );
     };
 
     virtual const wxString GetDescription() const override
     {
-        return "Tests matched track lengths.";
+        return wxT( "Tests matched track lengths." );
     }
 
     DRC_LENGTH_REPORT BuildLengthReport() const;
@@ -75,16 +74,19 @@ private:
 
     using CONNECTION = DRC_LENGTH_REPORT::ENTRY;
 
-    void checkLengths( DRC_CONSTRAINT& aConstraint, std::vector<CONNECTION>& aMatchedConnections );
-    void checkSkews( DRC_CONSTRAINT& aConstraint, std::vector<CONNECTION>& aMatchedConnections );
-    void checkViaCounts( DRC_CONSTRAINT& aConstraint, std::vector<CONNECTION>& aMatchedConnections );
+    void checkLengths( const DRC_CONSTRAINT& aConstraint,
+                       const std::vector<CONNECTION>& aMatchedConnections );
+    void checkSkews( const DRC_CONSTRAINT& aConstraint,
+                     const std::vector<CONNECTION>& aMatchedConnections );
+    void checkViaCounts( const DRC_CONSTRAINT& aConstraint,
+                         const std::vector<CONNECTION>& aMatchedConnections );
 
     BOARD* m_board;
     DRC_LENGTH_REPORT m_report;
 };
 
-void DRC_TEST_PROVIDER_MATCHED_LENGTH::checkLengths( DRC_CONSTRAINT& aConstraint,
-                                                     std::vector<CONNECTION>& aMatchedConnections )
+void DRC_TEST_PROVIDER_MATCHED_LENGTH::checkLengths( const DRC_CONSTRAINT& aConstraint,
+                                                     const std::vector<CONNECTION>& aMatchedConnections )
 {
     for( const DRC_LENGTH_REPORT::ENTRY& ent : aMatchedConnections )
     {
@@ -107,23 +109,24 @@ void DRC_TEST_PROVIDER_MATCHED_LENGTH::checkLengths( DRC_CONSTRAINT& aConstraint
         if( ( minViolation || maxViolation ) )
         {
             std::shared_ptr<DRC_ITEM> drcItem = DRC_ITEM::Create( DRCE_LENGTH_OUT_OF_RANGE );
+            wxString msg;
 
             if( minViolation )
             {
-                m_msg.Printf( _( "(%s min length: %s; actual: %s)" ),
-                              aConstraint.GetName(),
-                              MessageTextFromValue( userUnits(), minLen ),
-                              MessageTextFromValue( userUnits(), ent.total ) );
+                msg = formatMsg( _( "(%s min length %s; actual %s)" ),
+                                 aConstraint.GetName(),
+                                 minLen,
+                                 ent.total );
             }
             else if( maxViolation )
             {
-                m_msg.Printf( _( "(%s max length: %s; actual: %s)" ),
-                              aConstraint.GetName(),
-                              MessageTextFromValue( userUnits(), maxLen ),
-                              MessageTextFromValue( userUnits(), ent.total ) );
+                msg = formatMsg( _( "(%s max length %s; actual %s)" ),
+                                 aConstraint.GetName(),
+                                 maxLen,
+                                 ent.total );
             }
 
-            drcItem->SetErrorMessage( drcItem->GetErrorText() + wxS( " " ) + m_msg );
+            drcItem->SetErrorMessage( drcItem->GetErrorText() + wxS( " " ) + msg );
 
             for( auto offendingTrack : ent.items )
                 drcItem->AddItem( offendingTrack );
@@ -136,8 +139,8 @@ void DRC_TEST_PROVIDER_MATCHED_LENGTH::checkLengths( DRC_CONSTRAINT& aConstraint
     }
 }
 
-void DRC_TEST_PROVIDER_MATCHED_LENGTH::checkSkews( DRC_CONSTRAINT& aConstraint,
-                                                   std::vector<CONNECTION>& aMatchedConnections )
+void DRC_TEST_PROVIDER_MATCHED_LENGTH::checkSkews( const DRC_CONSTRAINT& aConstraint,
+                                                   const std::vector<CONNECTION>& aMatchedConnections )
 {
     int avgLength = 0;
 
@@ -152,15 +155,16 @@ void DRC_TEST_PROVIDER_MATCHED_LENGTH::checkSkews( DRC_CONSTRAINT& aConstraint,
         if( aConstraint.GetValue().HasMax() && abs( skew ) > aConstraint.GetValue().Max() )
         {
             std::shared_ptr<DRC_ITEM> drcItem = DRC_ITEM::Create( DRCE_SKEW_OUT_OF_RANGE );
+            wxString msg;
 
-            m_msg.Printf( _( "(%s max skew: %s; actual: %s; average net length: %s; actual: %s)" ),
+            msg.Printf( _( "(%s max skew %s; actual %s; average net length %s; actual %s)" ),
                           aConstraint.GetName(),
-                          MessageTextFromValue( userUnits(), aConstraint.GetValue().Max() ),
-                          MessageTextFromValue( userUnits(), skew ),
-                          MessageTextFromValue( userUnits(), avgLength ),
-                          MessageTextFromValue( userUnits(), ent.total ) );
+                          MessageTextFromValue( aConstraint.GetValue().Max() ),
+                          MessageTextFromValue( skew ),
+                          MessageTextFromValue( avgLength ),
+                          MessageTextFromValue( ent.total ) );
 
-            drcItem->SetErrorMessage( drcItem->GetErrorText() + " " + m_msg );
+            drcItem->SetErrorMessage( drcItem->GetErrorText() + " " + msg );
 
             for( BOARD_CONNECTED_ITEM* offendingTrack : ent.items )
                 drcItem->SetItems( offendingTrack );
@@ -174,21 +178,20 @@ void DRC_TEST_PROVIDER_MATCHED_LENGTH::checkSkews( DRC_CONSTRAINT& aConstraint,
 }
 
 
-void DRC_TEST_PROVIDER_MATCHED_LENGTH::checkViaCounts( DRC_CONSTRAINT& aConstraint,
-                                                       std::vector<CONNECTION>& aMatchedConnections )
+void DRC_TEST_PROVIDER_MATCHED_LENGTH::checkViaCounts( const DRC_CONSTRAINT& aConstraint,
+                                                       const std::vector<CONNECTION>& aMatchedConnections )
 {
     for( const auto& ent : aMatchedConnections )
     {
         if( aConstraint.GetValue().HasMax() && ent.viaCount > aConstraint.GetValue().Max() )
         {
             std::shared_ptr<DRC_ITEM> drcItem = DRC_ITEM::Create( DRCE_TOO_MANY_VIAS );
+            wxString msg = wxString::Format( _( "(%s max count %d; actual %d)" ),
+                                             aConstraint.GetName(),
+                                             aConstraint.GetValue().Max(),
+                                             ent.viaCount );
 
-            m_msg.Printf( _( "(%s max count: %d; actual: %d)" ),
-                          aConstraint.GetName(),
-                          aConstraint.GetValue().Max(),
-                          ent.viaCount );
-
-            drcItem->SetErrorMessage( drcItem->GetErrorText() + wxS( " " ) + m_msg );
+            drcItem->SetErrorMessage( drcItem->GetErrorText() + wxS( " " ) + msg );
 
             for( auto offendingTrack : ent.items )
                 drcItem->SetItems( offendingTrack );
@@ -221,9 +224,27 @@ bool DRC_TEST_PROVIDER_MATCHED_LENGTH::runInternal( bool aDelayReportMode )
 
     std::map<DRC_RULE*, std::set<BOARD_CONNECTED_ITEM*> > itemSets;
 
-    auto evaluateLengthConstraints =
+    std::shared_ptr<FROM_TO_CACHE> ftCache = m_board->GetConnectivity()->GetFromToCache();
+
+    ftCache->Rebuild( m_board );
+
+    const size_t progressDelta = 100;
+    size_t       count = 0;
+    size_t       ii = 0;
+
+    forEachGeometryItem( { PCB_TRACE_T, PCB_ARC_T, PCB_VIA_T }, LSET::AllCuMask(),
             [&]( BOARD_ITEM *item ) -> bool
             {
+                count++;
+                return true;
+            } );
+
+    forEachGeometryItem( { PCB_TRACE_T, PCB_ARC_T, PCB_VIA_T }, LSET::AllCuMask(),
+            [&]( BOARD_ITEM *item ) -> bool
+            {
+                if( !reportProgress( ii++, count, progressDelta ) )
+                    return false;
+
                 const DRC_CONSTRAINT_T constraintsToCheck[] = {
                         LENGTH_CONSTRAINT,
                         SKEW_CONSTRAINT,
@@ -244,26 +265,18 @@ bool DRC_TEST_PROVIDER_MATCHED_LENGTH::runInternal( bool aDelayReportMode )
                 }
 
                 return true;
-            };
+            } );
 
-    auto ftCache = m_board->GetConnectivity()->GetFromToCache();
+    std::map< DRC_RULE*, std::vector<CONNECTION> > matches;
 
-    ftCache->Rebuild( m_board );
-
-    forEachGeometryItem( { PCB_TRACE_T, PCB_VIA_T, PCB_ARC_T }, LSET::AllCuMask(),
-                         evaluateLengthConstraints );
-
-    std::map<DRC_RULE*, std::vector<CONNECTION> > matches;
-
-    for( auto it : itemSets )
+    for( const std::pair< DRC_RULE* const, std::set<BOARD_CONNECTED_ITEM*> >& it : itemSets )
     {
         std::map<int, std::set<BOARD_CONNECTED_ITEM*> > netMap;
 
-        for( auto citem : it.second )
+        for( BOARD_CONNECTED_ITEM* citem : it.second )
             netMap[ citem->GetNetCode() ].insert( citem );
 
-
-        for( auto nitem : netMap )
+        for( const std::pair< const int, std::set<BOARD_CONNECTED_ITEM*> >& nitem : netMap )
         {
             CONNECTION ent;
             ent.items = nitem.second;
@@ -281,16 +294,16 @@ bool DRC_TEST_PROVIDER_MATCHED_LENGTH::runInternal( bool aDelayReportMode )
             {
                 if( citem->Type() == PCB_VIA_T )
                 {
-                    const BOARD_DESIGN_SETTINGS& ds = m_board->GetDesignSettings();
+                    const BOARD_DESIGN_SETTINGS& bds = m_board->GetDesignSettings();
+                    const BOARD_STACKUP&         stackup = bds.GetStackupDescriptor();
 
                     ent.viaCount++;
 
-                    if( ds.m_UseHeightForLengthCalcs )
+                    if( bds.m_UseHeightForLengthCalcs )
                     {
                         const PCB_VIA* v = static_cast<PCB_VIA*>( citem );
 
-                        ent.totalVia += ds.GetStackupDescriptor().GetLayerDistance(
-                                v->TopLayer(), v->BottomLayer() );
+                        ent.totalVia += stackup.GetLayerDistance( v->TopLayer(), v->BottomLayer() );
                     }
                 }
                 else if( citem->Type() == PCB_TRACE_T )
@@ -320,7 +333,7 @@ bool DRC_TEST_PROVIDER_MATCHED_LENGTH::runInternal( bool aDelayReportMode )
             }
             else
             {
-                ent.from = ent.to = _("<unconstrained>");
+                ent.from = ent.to = _( "<unconstrained>" );
             }
 
             m_report.Add( ent );
@@ -330,10 +343,19 @@ bool DRC_TEST_PROVIDER_MATCHED_LENGTH::runInternal( bool aDelayReportMode )
 
     if( !aDelayReportMode )
     {
-        for( auto it : matches )
+        if( !reportPhase( _( "Checking length constraints..." ) ) )
+            return false;
+
+        ii = 0;
+        count = matches.size();
+
+        for( std::pair< DRC_RULE* const, std::vector<CONNECTION> > it : matches )
         {
             DRC_RULE *rule = it.first;
             auto& matchedConnections = it.second;
+
+            if( !reportProgress( ii++, count, progressDelta ) )
+                return false;
 
             std::sort( matchedConnections.begin(), matchedConnections.end(),
                        [] ( const CONNECTION&a, const CONNECTION&b ) -> int
@@ -341,38 +363,38 @@ bool DRC_TEST_PROVIDER_MATCHED_LENGTH::runInternal( bool aDelayReportMode )
                            return a.netname < b.netname;
                        } );
 
-            reportAux( wxString::Format( "Length-constrained traces for rule '%s':",
+            reportAux( wxString::Format( wxT( "Length-constrained traces for rule '%s':" ),
                                          it.first->m_Name ) );
 
-            for( auto& ent : matchedConnections )
+            for( const DRC_LENGTH_REPORT::ENTRY& ent : matchedConnections )
             {
-                reportAux(wxString::Format( " - net: %s, from: %s, to: %s, "
-                                            "%d matching items, "
-                                            "total: %s (tracks: %s, vias: %s, pad-to-die: %s), "
-                                            "vias: %d",
+                reportAux(wxString::Format( wxT( " - net: %s, from: %s, to: %s, "
+                                                 "%d matching items, "
+                                                 "total: %s (tracks: %s, vias: %s, pad-to-die: %s), "
+                                                 "vias: %d" ),
                                             ent.netname,
                                             ent.from,
                                             ent.to,
                                             (int) ent.items.size(),
-                                            MessageTextFromValue( userUnits(), ent.total ),
-                                            MessageTextFromValue( userUnits(), ent.totalRoute ),
-                                            MessageTextFromValue( userUnits(), ent.totalVia ),
-                                            MessageTextFromValue( userUnits(), ent.totalPadToDie ),
+                                            MessageTextFromValue( ent.total ),
+                                            MessageTextFromValue( ent.totalRoute ),
+                                            MessageTextFromValue( ent.totalVia ),
+                                            MessageTextFromValue( ent.totalPadToDie ),
                                             ent.viaCount ) );
             }
 
 
-            OPT<DRC_CONSTRAINT> lengthConstraint = rule->FindConstraint( LENGTH_CONSTRAINT );
+            std::optional<DRC_CONSTRAINT> lengthConstraint = rule->FindConstraint( LENGTH_CONSTRAINT );
 
             if( lengthConstraint && lengthConstraint->GetSeverity() != RPT_SEVERITY_IGNORE )
                 checkLengths( *lengthConstraint, matchedConnections );
 
-            OPT<DRC_CONSTRAINT> skewConstraint = rule->FindConstraint( SKEW_CONSTRAINT );
+            std::optional<DRC_CONSTRAINT> skewConstraint = rule->FindConstraint( SKEW_CONSTRAINT );
 
             if( skewConstraint && skewConstraint->GetSeverity() != RPT_SEVERITY_IGNORE )
                 checkSkews( *skewConstraint, matchedConnections );
 
-            OPT<DRC_CONSTRAINT> viaCountConstraint = rule->FindConstraint( VIA_COUNT_CONSTRAINT );
+            std::optional<DRC_CONSTRAINT> viaCountConstraint = rule->FindConstraint( VIA_COUNT_CONSTRAINT );
 
             if( viaCountConstraint && viaCountConstraint->GetSeverity() != RPT_SEVERITY_IGNORE )
                 checkViaCounts( *viaCountConstraint, matchedConnections );
@@ -381,7 +403,7 @@ bool DRC_TEST_PROVIDER_MATCHED_LENGTH::runInternal( bool aDelayReportMode )
         reportRuleStatistics();
     }
 
-    return true;
+    return !m_drcEngine->IsCancelled();
 }
 
 

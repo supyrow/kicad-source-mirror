@@ -49,8 +49,8 @@ PCB_DIMENSION_BASE::PCB_DIMENSION_BASE( BOARD_ITEM* aParent, KICAD_T aType ) :
         m_unitsFormat( DIM_UNITS_FORMAT::BARE_SUFFIX ),
         m_precision( 4 ),
         m_suppressZeroes( false ),
-        m_lineThickness( Millimeter2iu( 0.2 ) ),
-        m_arrowLength( Mils2iu( 50 ) ),
+        m_lineThickness( pcbIUScale.mmToIU( 0.2 ) ),
+        m_arrowLength( pcbIUScale.MilsToIU( 50 ) ),
         m_extensionOffset( 0 ),
         m_textPosition( DIM_TEXT_POSITION::OUTSIDE ),
         m_keepTextAligned( true ),
@@ -78,14 +78,11 @@ void PCB_DIMENSION_BASE::updateText()
         break;
 
     case DIM_UNITS_FORMAT::BARE_SUFFIX: // normal
-        text += wxS( " " );
-        text += GetAbbreviatedUnitsLabel( m_units );
+        text += EDA_UNIT_UTILS::GetText( m_units );
         break;
 
     case DIM_UNITS_FORMAT::PAREN_SUFFIX: // parenthetical
-        text += wxT( " (" );
-        text += GetAbbreviatedUnitsLabel( m_units );
-        text += wxT( ")" );
+        text += wxT( " (" ) + EDA_UNIT_UTILS::GetText( m_units ).Trim( false ) + wxT( ")" );
         break;
     }
 
@@ -109,10 +106,23 @@ wxString PCB_DIMENSION_BASE::GetValueText() const
     wxChar sep = lc->decimal_point[0];
 
     int      val = GetMeasuredValue();
+    int      precision = m_precision;
     wxString text;
-    wxString format = wxT( "%." ) + wxString::Format( wxT( "%i" ), m_precision ) + wxT( "f" );
 
-    text.Printf( format, To_User_Unit( m_units, val ) );
+    if( precision >= 6 )
+    {
+        switch( m_units )
+        {
+        case EDA_UNITS::INCHES:      precision = precision - 4;                break;
+        case EDA_UNITS::MILS:        precision = std::max( 0, precision - 7 ); break;
+        case EDA_UNITS::MILLIMETRES: precision = precision - 5;                break;
+        default:                     precision = precision - 4;                break;
+        }
+    }
+
+    wxString format = wxT( "%." ) + wxString::Format( wxT( "%i" ), precision ) + wxT( "f" );
+
+    text.Printf( format, EDA_UNIT_UTILS::UI::ToUserUnit( pcbIUScale, m_units, val ) );
 
     if( m_suppressZeroes )
     {
@@ -268,7 +278,8 @@ void PCB_DIMENSION_BASE::Mirror( const VECTOR2I& axis_pos, bool aMirrorLeftRight
         INVERT( m_end.y );
     }
 
-    m_text.SetMirrored( !m_text.IsMirrored() );
+    if( ( GetLayerSet() & LSET::SideSpecificMask() ).any() )
+        m_text.SetMirrored( !m_text.IsMirrored() );
 
     Update();
 }
@@ -294,26 +305,43 @@ void PCB_DIMENSION_BASE::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame,
     {
         aList.emplace_back( _( "Value" ), GetValueText() );
 
-        msg = wxT( "%" ) + wxString::Format( wxT( "1.%df" ), GetPrecision() );
+        switch( GetPrecision() )
+        {
+        case 6:  msg = wxT( "0.00 in / 0 mils / 0.0 mm" );          break;
+        case 7:  msg = wxT( "0.000 in / 0 mils / 0.00 mm" );        break;
+        case 8:  msg = wxT( "0.0000 in / 0.0 mils / 0.000 mm" );    break;
+        case 9:  msg = wxT( "0.00000 in / 0.00 mils / 0.0000 mm" ); break;
+        default: msg = wxT( "%" ) + wxString::Format( wxT( "1.%df" ), GetPrecision() );
+        }
+
         aList.emplace_back( _( "Precision" ), wxString::Format( msg, 0.0 ) );
     }
 
     aList.emplace_back( _( "Suffix" ), GetSuffix() );
 
-    EDA_UNITS units;
+    // Use our own UNITS_PROVIDER to report dimension info in dimension's units rather than
+    // in frame's units.
+    UNITS_PROVIDER unitsProvider( pcbIUScale, EDA_UNITS::MILLIMETRES );
+    unitsProvider.SetUserUnits( GetUnits() );
 
-    GetUnits( units );
-    aList.emplace_back( _( "Units" ), GetAbbreviatedUnitsLabel( units ).Trim( false ) );
+    aList.emplace_back( _( "Units" ), EDA_UNIT_UTILS::GetLabel( GetUnits() ) );
+
+    aList.emplace_back( _( "Font" ), m_text.GetFont() ? m_text.GetFont()->GetName() : _( "Default" ) );
+    aList.emplace_back( _( "Text Thickness" ),
+                        unitsProvider.MessageTextFromValue( m_text.GetTextThickness() ) );
+    aList.emplace_back( _( "Text Width" ),
+                        unitsProvider.MessageTextFromValue( m_text.GetTextWidth() ) );
+    aList.emplace_back( _( "Text Height" ),
+                        unitsProvider.MessageTextFromValue( m_text.GetTextHeight() ) );
 
     ORIGIN_TRANSFORMS originTransforms = aFrame->GetOriginTransforms();
-    units = aFrame->GetUserUnits();
 
     if( Type() == PCB_DIM_CENTER_T || Type() == PCB_FP_DIM_CENTER_T )
     {
         VECTOR2I startCoord = originTransforms.ToDisplayAbs( GetStart() );
         wxString start = wxString::Format( wxT( "@(%s, %s)" ),
-                                           MessageTextFromValue( units, startCoord.x ),
-                                           MessageTextFromValue( units, startCoord.y ) );
+                                           aFrame->MessageTextFromValue( startCoord.x ),
+                                           aFrame->MessageTextFromValue( startCoord.y ) );
 
         aList.emplace_back( start, wxEmptyString );
     }
@@ -321,12 +349,12 @@ void PCB_DIMENSION_BASE::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame,
     {
         VECTOR2I startCoord = originTransforms.ToDisplayAbs( GetStart() );
         wxString start = wxString::Format( wxT( "@(%s, %s)" ),
-                                           MessageTextFromValue( units, startCoord.x ),
-                                           MessageTextFromValue( units, startCoord.y ) );
+                                           aFrame->MessageTextFromValue( startCoord.x ),
+                                           aFrame->MessageTextFromValue( startCoord.y ) );
         VECTOR2I endCoord = originTransforms.ToDisplayAbs( GetEnd() );
         wxString end   = wxString::Format( wxT( "@(%s, %s)" ),
-                                           MessageTextFromValue( units, endCoord.x ),
-                                           MessageTextFromValue( units, endCoord.y ) );
+                                           aFrame->MessageTextFromValue( endCoord.x ),
+                                           aFrame->MessageTextFromValue( endCoord.y ) );
 
         aList.emplace_back( start, end );
     }
@@ -338,7 +366,7 @@ void PCB_DIMENSION_BASE::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame,
 }
 
 
-std::shared_ptr<SHAPE> PCB_DIMENSION_BASE::GetEffectiveShape( PCB_LAYER_ID aLayer ) const
+std::shared_ptr<SHAPE> PCB_DIMENSION_BASE::GetEffectiveShape( PCB_LAYER_ID aLayer, FLASHING aFlash ) const
 {
     std::shared_ptr<SHAPE_COMPOUND> effectiveShape = std::make_shared<SHAPE_COMPOUND>();
 
@@ -370,12 +398,12 @@ bool PCB_DIMENSION_BASE::HitTest( const VECTOR2I& aPosition, int aAccuracy ) con
 }
 
 
-bool PCB_DIMENSION_BASE::HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy ) const
+bool PCB_DIMENSION_BASE::HitTest( const BOX2I& aRect, bool aContained, int aAccuracy ) const
 {
-    EDA_RECT arect = aRect;
+    BOX2I arect = aRect;
     arect.Inflate( aAccuracy );
 
-    EDA_RECT rect = GetBoundingBox();
+    BOX2I rect = GetBoundingBox();
 
     if( aAccuracy )
         rect.Inflate( aAccuracy );
@@ -387,10 +415,10 @@ bool PCB_DIMENSION_BASE::HitTest( const EDA_RECT& aRect, bool aContained, int aA
 }
 
 
-const EDA_RECT PCB_DIMENSION_BASE::GetBoundingBox() const
+const BOX2I PCB_DIMENSION_BASE::GetBoundingBox() const
 {
-    EDA_RECT    bBox;
-    int         xmin, xmax, ymin, ymax;
+    BOX2I bBox;
+    int   xmin, xmax, ymin, ymax;
 
     bBox    = m_text.GetTextBox();
     xmin    = bBox.GetX();
@@ -420,7 +448,7 @@ const EDA_RECT PCB_DIMENSION_BASE::GetBoundingBox() const
 }
 
 
-wxString PCB_DIMENSION_BASE::GetSelectMenuText( EDA_UNITS aUnits ) const
+wxString PCB_DIMENSION_BASE::GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const
 {
     return wxString::Format( _( "Dimension '%s' on %s" ), GetText(), GetLayerName() );
 }
@@ -444,7 +472,7 @@ OPT_VECTOR2I PCB_DIMENSION_BASE::segPolyIntersection( const SHAPE_POLY_SET& aPol
     VECTOR2I endpoint( aStart ? aSeg.B : aSeg.A );
 
     if( aPoly.Contains( start ) )
-        return NULLOPT;
+        return std::nullopt;
 
     for( SHAPE_POLY_SET::CONST_SEGMENT_ITERATOR seg = aPoly.CIterateSegments(); seg; ++seg )
     {
@@ -457,7 +485,7 @@ OPT_VECTOR2I PCB_DIMENSION_BASE::segPolyIntersection( const SHAPE_POLY_SET& aPol
     }
 
     if( start == endpoint )
-        return NULLOPT;
+        return std::nullopt;
 
     return OPT_VECTOR2I( endpoint );
 }
@@ -469,7 +497,7 @@ OPT_VECTOR2I PCB_DIMENSION_BASE::segCircleIntersection( CIRCLE& aCircle, SEG& aS
     VECTOR2I endpoint( aStart ? aSeg.B : aSeg.A );
 
     if( aCircle.Contains( start ) )
-        return NULLOPT;
+        return std::nullopt;
 
     std::vector<VECTOR2I> intersections = aCircle.Intersect( aSeg );
 
@@ -481,16 +509,15 @@ OPT_VECTOR2I PCB_DIMENSION_BASE::segCircleIntersection( CIRCLE& aCircle, SEG& aS
     }
 
     if( start == endpoint )
-        return NULLOPT;
+        return std::nullopt;
 
     return OPT_VECTOR2I( endpoint );
 }
 
 
-void PCB_DIMENSION_BASE::TransformShapeWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuffer,
-                                                               PCB_LAYER_ID aLayer, int aClearance,
-                                                               int aError, ERROR_LOC aErrorLoc,
-                                                               bool aIgnoreLineWidth ) const
+void PCB_DIMENSION_BASE::TransformShapeToPolygon( SHAPE_POLY_SET& aBuffer, PCB_LAYER_ID aLayer,
+                                                  int aClearance, int aError, ERROR_LOC aErrorLoc,
+                                                  bool aIgnoreLineWidth ) const
 {
     wxASSERT_MSG( !aIgnoreLineWidth, wxT( "IgnoreLineWidth has no meaning for dimensions." ) );
 
@@ -501,20 +528,18 @@ void PCB_DIMENSION_BASE::TransformShapeWithClearanceToPolygon( SHAPE_POLY_SET& a
 
         if( circle )
         {
-            TransformCircleToPolygon( aCornerBuffer, circle->GetCenter(),
+            TransformCircleToPolygon( aBuffer, circle->GetCenter(),
                                       circle->GetRadius() + m_lineThickness / 2 + aClearance,
                                       aError, aErrorLoc );
         }
         else if( seg )
         {
-            TransformOvalToPolygon( aCornerBuffer, seg->GetSeg().A,
-                                    seg->GetSeg().B, m_lineThickness + 2 * aClearance,
-                                    aError, aErrorLoc );
+            TransformOvalToPolygon( aBuffer, seg->GetSeg().A, seg->GetSeg().B,
+                                    m_lineThickness + 2 * aClearance, aError, aErrorLoc );
         }
         else
         {
-            wxFAIL_MSG( wxT( "PCB_DIMENSION_BASE::TransformShapeWithClearanceToPolygon unexpected "
-                             "shape type." ) );
+            wxFAIL_MSG( wxT( "PCB_DIMENSION_BASE::TransformShapeToPolygon unknown shape type." ) );
         }
     }
 }
@@ -535,7 +560,7 @@ EDA_ITEM* PCB_DIM_ALIGNED::Clone() const
 }
 
 
-void PCB_DIM_ALIGNED::SwapData( BOARD_ITEM* aImage )
+void PCB_DIM_ALIGNED::swapData( BOARD_ITEM* aImage )
 {
     wxASSERT( aImage->Type() == Type() );
 
@@ -545,6 +570,14 @@ void PCB_DIM_ALIGNED::SwapData( BOARD_ITEM* aImage )
     std::swap( *static_cast<PCB_DIM_ALIGNED*>( this ), *static_cast<PCB_DIM_ALIGNED*>( aImage ) );
 
     Update();
+}
+
+
+void PCB_DIM_ALIGNED::Mirror( const VECTOR2I& axis_pos, bool aMirrorLeftRight )
+{
+    PCB_DIMENSION_BASE::Mirror( axis_pos, aMirrorLeftRight );
+
+    m_height = -m_height;
 }
 
 
@@ -606,8 +639,8 @@ void PCB_DIM_ALIGNED::updateGeometry()
 
     // Now that we have the text updated, we can determine how to draw the crossbar.
     // First we need to create an appropriate bounding polygon to collide with
-    EDA_RECT textBox = m_text.GetTextBox().Inflate( m_text.GetTextWidth() / 2,
-                                                    m_text.GetEffectiveTextPenWidth() );
+    BOX2I textBox = m_text.GetTextBox().Inflate( m_text.GetTextWidth() / 2,
+                                                 - m_text.GetEffectiveTextPenWidth() );
 
     SHAPE_POLY_SET polyBox;
     polyBox.NewOutline();
@@ -695,7 +728,12 @@ void PCB_DIM_ALIGNED::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_P
 {
     PCB_DIMENSION_BASE::GetMsgPanelInfo( aFrame, aList );
 
-    aList.emplace_back( _( "Height" ), MessageTextFromValue( aFrame->GetUserUnits(), m_height ) );
+    // Use our own UNITS_PROVIDER to report dimension info in dimension's units rather than
+    // in frame's units.
+    UNITS_PROVIDER unitsProvider( pcbIUScale, EDA_UNITS::MILLIMETRES );
+    unitsProvider.SetUserUnits( GetUnits() );
+
+    aList.emplace_back( _( "Height" ), unitsProvider.MessageTextFromValue( m_height ) );
 }
 
 
@@ -714,7 +752,7 @@ EDA_ITEM* PCB_DIM_ORTHOGONAL::Clone() const
 }
 
 
-void PCB_DIM_ORTHOGONAL::SwapData( BOARD_ITEM* aImage )
+void PCB_DIM_ORTHOGONAL::swapData( BOARD_ITEM* aImage )
 {
     wxASSERT( aImage->Type() == Type() );
 
@@ -784,8 +822,8 @@ void PCB_DIM_ORTHOGONAL::updateGeometry()
 
     // Now that we have the text updated, we can determine how to draw the crossbar.
     // First we need to create an appropriate bounding polygon to collide with
-    EDA_RECT textBox = m_text.GetTextBox().Inflate( m_text.GetTextWidth() / 2,
-                                                    m_text.GetEffectiveTextPenWidth() );
+    BOX2I textBox = m_text.GetTextBox().Inflate( m_text.GetTextWidth() / 2,
+                                                 m_text.GetEffectiveTextPenWidth() );
 
     SHAPE_POLY_SET polyBox;
     polyBox.NewOutline();
@@ -931,7 +969,7 @@ EDA_ITEM* PCB_DIM_LEADER::Clone() const
 }
 
 
-void PCB_DIM_LEADER::SwapData( BOARD_ITEM* aImage )
+void PCB_DIM_LEADER::swapData( BOARD_ITEM* aImage )
 {
     wxASSERT( aImage->Type() == Type() );
 
@@ -958,8 +996,8 @@ void PCB_DIM_LEADER::updateGeometry()
 
     // Now that we have the text updated, we can determine how to draw the second line
     // First we need to create an appropriate bounding polygon to collide with
-    EDA_RECT textBox = m_text.GetTextBox().Inflate( m_text.GetTextWidth() / 2,
-                                                    m_text.GetEffectiveTextPenWidth() );
+    BOX2I textBox = m_text.GetTextBox().Inflate( m_text.GetTextWidth() / 2,
+                                                 m_text.GetEffectiveTextPenWidth() );
 
     SHAPE_POLY_SET polyBox;
     polyBox.NewOutline();
@@ -975,8 +1013,8 @@ void PCB_DIM_LEADER::updateGeometry()
 
     SEG arrowSeg( m_start, m_end );
     SEG textSeg( m_end, m_text.GetPosition() );
-    OPT_VECTOR2I arrowSegEnd = boost::make_optional( false, VECTOR2I() );;
-    OPT_VECTOR2I textSegEnd = boost::make_optional( false, VECTOR2I() );
+    OPT_VECTOR2I arrowSegEnd;
+    OPT_VECTOR2I textSegEnd;
 
     if( m_textBorder == DIM_TEXT_BORDER::CIRCLE )
     {
@@ -1041,17 +1079,14 @@ void PCB_DIM_LEADER::updateGeometry()
 
 void PCB_DIM_LEADER::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList )
 {
-    wxString    msg;
-
     aList.emplace_back( _( "Leader" ), m_text.GetShownText() );
 
     ORIGIN_TRANSFORMS originTransforms = aFrame->GetOriginTransforms();
-    EDA_UNITS         units = aFrame->GetUserUnits();
 
     VECTOR2I startCoord = originTransforms.ToDisplayAbs( GetStart() );
     wxString start = wxString::Format( wxT( "@(%s, %s)" ),
-                                       MessageTextFromValue( units, startCoord.x ),
-                                       MessageTextFromValue( units, startCoord.y ) );
+                                       aFrame->MessageTextFromValue( startCoord.x ),
+                                       aFrame->MessageTextFromValue( startCoord.y ) );
 
     aList.emplace_back( start, wxEmptyString );
 
@@ -1077,7 +1112,7 @@ EDA_ITEM* PCB_DIM_RADIAL::Clone() const
 }
 
 
-void PCB_DIM_RADIAL::SwapData( BOARD_ITEM* aImage )
+void PCB_DIM_RADIAL::swapData( BOARD_ITEM* aImage )
 {
     wxASSERT( aImage->Type() == Type() );
 
@@ -1150,8 +1185,8 @@ void PCB_DIM_RADIAL::updateGeometry()
 
     // Now that we have the text updated, we can determine how to draw the second line
     // First we need to create an appropriate bounding polygon to collide with
-    EDA_RECT textBox = m_text.GetTextBox().Inflate( m_text.GetTextWidth() / 2,
-                                                    m_text.GetEffectiveTextPenWidth() );
+    BOX2I textBox = m_text.GetTextBox().Inflate( m_text.GetTextWidth() / 2,
+                                                 m_text.GetEffectiveTextPenWidth() );
 
     SHAPE_POLY_SET polyBox;
     polyBox.NewOutline();
@@ -1171,10 +1206,10 @@ void PCB_DIM_RADIAL::updateGeometry()
     OPT_VECTOR2I textSegEnd = segPolyIntersection( polyBox, textSeg );
 
     if( arrowSegEnd )
-        arrowSeg.B = arrowSegEnd.get();
+        arrowSeg.B = *arrowSegEnd;
 
     if( textSegEnd )
-        textSeg.B = textSegEnd.get();
+        textSeg.B = *textSegEnd;
 
     m_shapes.emplace_back( new SHAPE_SEGMENT( arrowSeg ) );
 
@@ -1205,7 +1240,7 @@ EDA_ITEM* PCB_DIM_CENTER::Clone() const
 }
 
 
-void PCB_DIM_CENTER::SwapData( BOARD_ITEM* aImage )
+void PCB_DIM_CENTER::swapData( BOARD_ITEM* aImage )
 {
     wxASSERT( aImage->Type() == Type() );
 
@@ -1219,11 +1254,11 @@ BITMAPS PCB_DIM_CENTER::GetMenuImage() const
 }
 
 
-const EDA_RECT PCB_DIM_CENTER::GetBoundingBox() const
+const BOX2I PCB_DIM_CENTER::GetBoundingBox() const
 {
     int halfWidth = VECTOR2I( m_end - m_start ).x + ( m_lineThickness / 2.0 );
 
-    EDA_RECT bBox;
+    BOX2I bBox;
 
     bBox.SetX( m_start.x - halfWidth );
     bBox.SetY( m_start.y - halfWidth );
@@ -1267,8 +1302,6 @@ static struct DIMENSION_DESC
         propMgr.InheritsAfter( TYPE_HASH( PCB_DIMENSION_BASE ), TYPE_HASH( BOARD_ITEM ) );
         // TODO: add dimension properties:
         //propMgr.AddProperty( new PROPERTY<DIMENSION, int>( _HKI( "Height" ),
-                    //&DIMENSION::SetHeight, &DIMENSION::GetHeight, PROPERTY_DISPLAY::DISTANCE ) );
+                    //&DIMENSION::SetHeight, &DIMENSION::GetHeight, PROPERTY_DISPLAY::SIZE ) );
     }
 } _DIMENSION_DESC;
-
-

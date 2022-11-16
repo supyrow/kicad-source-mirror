@@ -23,7 +23,6 @@
  */
 
 #include <plotters/plotter_dxf.h>
-#include <plotters/plotter_hpgl.h>
 #include <plotters/plotter_gerber.h>
 #include <plotters/plotters_pslike.h>
 #include <eda_item.h>
@@ -40,20 +39,18 @@
 #include <gendrill_file_writer_base.h>
 #include <pcb_painter.h>
 #include <pcb_shape.h>
-#include <pcb_text.h>
-#include <pcb_textbox.h>
 
 
 /* Conversion utilities - these will be used often in there... */
 inline double diameter_in_inches( double ius )
 {
-    return ius * 0.001 / IU_PER_MILS;
+    return ius * 0.001 / pcbIUScale.IU_PER_MILS;
 }
 
 
 inline double diameter_in_mm( double ius )
 {
-    return ius / IU_PER_MM;
+    return ius / pcbIUScale.IU_PER_MM;
 }
 
 
@@ -86,8 +83,14 @@ bool GENDRILL_WRITER_BASE::genDrillMapFile( const wxString& aFullFileName, PLOT_
     // to calculate the board edges bounding box
     LSET visibleLayers = m_pcb->GetVisibleLayers();
     m_pcb->SetVisibleLayers( visibleLayers | LSET( Edge_Cuts ) );
-    EDA_RECT bbbox = m_pcb->GetBoardEdgesBoundingBox();
+    BOX2I bbbox = m_pcb->GetBoardEdgesBoundingBox();
     m_pcb->SetVisibleLayers( visibleLayers );
+
+    // Some formats cannot be used to generate a document like the map files
+    // Currently HPGL (old format not very used)
+
+    if( aFormat == PLOT_FORMAT::HPGL  )
+        aFormat = PLOT_FORMAT::PDF;
 
     // Calculate the scale for the format type, scale 1 in HPGL, drawing on
     // an A4 sheet in PS, + text description of symbols
@@ -95,19 +98,8 @@ bool GENDRILL_WRITER_BASE::genDrillMapFile( const wxString& aFullFileName, PLOT_
     {
     case PLOT_FORMAT::GERBER:
         plotter = new GERBER_PLOTTER();
-        plotter->SetViewport( offset, IU_PER_MILS / 10, scale, false );
+        plotter->SetViewport( offset, pcbIUScale.IU_PER_MILS / 10, scale, false );
         plotter->SetGerberCoordinatesFormat( 5 ); // format x.5 unit = mm
-        break;
-
-    case PLOT_FORMAT::HPGL: // Scale for HPGL format.
-    {
-        HPGL_PLOTTER* hpgl_plotter = new HPGL_PLOTTER;
-        plotter                    = hpgl_plotter;
-        hpgl_plotter->SetPenNumber( plot_opts.GetHPGLPenNum() );
-        hpgl_plotter->SetPenSpeed( plot_opts.GetHPGLPenSpeed() );
-        plotter->SetPageSettings( page_info );
-        plotter->SetViewport( offset, IU_PER_MILS / 10, scale, false );
-    }
         break;
 
     default:
@@ -119,10 +111,10 @@ bool GENDRILL_WRITER_BASE::genDrillMapFile( const wxString& aFullFileName, PLOT_
     case PLOT_FORMAT::SVG:
     {
         PAGE_INFO pageA4( wxT( "A4" ) );
-        wxSize    pageSizeIU = pageA4.GetSizeIU();
+        wxSize    pageSizeIU = pageA4.GetSizeIU( pcbIUScale.IU_PER_MILS );
 
         // Reserve a 10 mm margin around the page.
-        int margin = Millimeter2iu( 10 );
+        int margin = pcbIUScale.mmToIU( 10 );
 
         // Calculate a scaling factor to print the board on the sheet
         double Xscale = double( pageSizeIU.x - ( 2 * margin ) ) / bbbox.GetWidth();
@@ -155,7 +147,7 @@ bool GENDRILL_WRITER_BASE::genDrillMapFile( const wxString& aFullFileName, PLOT_
             plotter = new PS_PLOTTER;
 
         plotter->SetPageSettings( pageA4 );
-        plotter->SetViewport( offset, IU_PER_MILS / 10, scale, false );
+        plotter->SetViewport( offset, pcbIUScale.IU_PER_MILS / 10, scale, false );
         break;
     }
 
@@ -170,7 +162,7 @@ bool GENDRILL_WRITER_BASE::genDrillMapFile( const wxString& aFullFileName, PLOT_
 
         plotter = dxf_plotter;
         plotter->SetPageSettings( page_info );
-        plotter->SetViewport( offset, IU_PER_MILS / 10, scale, false );
+        plotter->SetViewport( offset, pcbIUScale.IU_PER_MILS / 10, scale, false );
         break;
     }
     }
@@ -179,7 +171,7 @@ bool GENDRILL_WRITER_BASE::genDrillMapFile( const wxString& aFullFileName, PLOT_
     plotter->SetColorMode( false );
 
     KIGFX::PCB_RENDER_SETTINGS renderSettings;
-    renderSettings.SetDefaultPenWidth( Millimeter2iu( 0.2 ) );
+    renderSettings.SetDefaultPenWidth( pcbIUScale.mmToIU( 0.2 ) );
 
     plotter->SetRenderSettings( &renderSettings );
 
@@ -189,36 +181,55 @@ bool GENDRILL_WRITER_BASE::genDrillMapFile( const wxString& aFullFileName, PLOT_
         return false;
     }
 
-    plotter->StartPlot();
+    plotter->ClearHeaderLinesList();
 
-    // Draw items on edge layer (not all, only items useful for drill map
+    // For the Gerber X2 format we need to set the  "FileFunction" to Drillmap
+    // and set a few other options.
+    if( plotter->GetPlotterType() == PLOT_FORMAT::GERBER )
+    {
+        GERBER_PLOTTER* gbrplotter = static_cast <GERBER_PLOTTER*> ( plotter );
+        gbrplotter->DisableApertMacros( false );
+        gbrplotter->UseX2format( true );            // Mandatory
+        gbrplotter->UseX2NetAttributes( false );    // net attributes have no meaning here
+
+        // Attributes are added using X2 format
+        AddGerberX2Header( gbrplotter, m_pcb, false );
+
+        wxString text;
+
+        // Add the TF.FileFunction
+        text = "%TF.FileFunction,Drillmap*%";
+        gbrplotter->AddLineToHeader( text );
+
+        // Add the TF.FilePolarity
+        text = wxT( "%TF.FilePolarity,Positive*%" );
+        gbrplotter->AddLineToHeader( text );
+    }
+
+    plotter->StartPlot( wxT( "1" ) );
+
+    // Draw items on edge layer.
+    // Not all, only items useful for drill map, i.e. board outlines.
     BRDITEMS_PLOTTER itemplotter( plotter, m_pcb, plot_opts );
-    itemplotter.SetLayerSet( Edge_Cuts );
+
+    // Use attributes of a drawing layer (we are not really draw the Edge.Cuts layer)
+    itemplotter.SetLayerSet( Dwgs_User );
 
     for( BOARD_ITEM* item : m_pcb->Drawings() )
     {
+        if( item->GetLayer() != Edge_Cuts )
+            continue;
+
         switch( item->Type() )
         {
         case PCB_SHAPE_T:
-            itemplotter.PlotPcbShape( static_cast<PCB_SHAPE*>( item ) );
+            {
+            PCB_SHAPE dummy_shape( *static_cast<PCB_SHAPE*>( item ) );
+            dummy_shape.SetLayer( Dwgs_User );
+            itemplotter.PlotPcbShape( &dummy_shape );
+            }
             break;
 
-        case PCB_TEXT_T:
-            itemplotter.PlotPcbText( static_cast<PCB_TEXT*>( item ), item->GetLayer() );
-            break;
-
-        case PCB_TEXTBOX_T:
-            itemplotter.PlotPcbText( static_cast<PCB_TEXTBOX*>( item ), item->GetLayer() );
-            itemplotter.PlotPcbShape( static_cast<PCB_TEXTBOX*>( item ) );
-            break;
-
-        case PCB_DIM_ALIGNED_T:
-        case PCB_DIM_CENTER_T:
-        case PCB_DIM_RADIAL_T:
-        case PCB_DIM_ORTHOGONAL_T:
-        case PCB_DIM_LEADER_T:
-        case PCB_TARGET_T:
-        case PCB_MARKER_T: // do not draw
         default:
             break;
         }
@@ -228,7 +239,7 @@ bool GENDRILL_WRITER_BASE::genDrillMapFile( const wxString& aFullFileName, PLOT_
     int      intervalle = 0;
     char     line[1024];
     wxString msg;
-    int      textmarginaftersymbol = Millimeter2iu( 2 );
+    int      textmarginaftersymbol = pcbIUScale.mmToIU( 2 );
 
     // Set Drill Symbols width
     plotter->SetCurrentLineWidth( -1 );
@@ -237,7 +248,7 @@ bool GENDRILL_WRITER_BASE::genDrillMapFile( const wxString& aFullFileName, PLOT_
     plotDrillMarks( plotter );
 
     // Print a list of symbols used.
-    int    charSize = Millimeter2iu( 2 );  // text size in IUs
+    int    charSize = pcbIUScale.mmToIU( 2 );  // text size in IUs
 
     // real char scale will be 1/scale, because the global plot scale is scale
     // for scale < 1.0 ( plot bigger actual size)
@@ -278,7 +289,7 @@ bool GENDRILL_WRITER_BASE::genDrillMapFile( const wxString& aFullFileName, PLOT_
         if( bottom_limit && ( plotY+intervalle > bottom_limit ) )
         {
             plotY = bbbox.GetBottom() + intervalle;
-            plotX += max_line_len + Millimeter2iu( 10 );//column_width;
+            plotX += max_line_len + pcbIUScale.mmToIU( 10 );//column_width;
             max_line_len = 0;
         }
 
@@ -324,8 +335,8 @@ bool GENDRILL_WRITER_BASE::genDrillMapFile( const wxString& aFullFileName, PLOT_
 
         intervalle = KiROUND( ( ( charSize * charScale ) + TextWidth ) * 1.2 );
 
-        if( intervalle < ( plot_diam + ( 1 * IU_PER_MM / scale ) + TextWidth ) )
-            intervalle = plot_diam + ( 1 * IU_PER_MM / scale ) + TextWidth;
+        if( intervalle < ( plot_diam + ( 1 * pcbIUScale.IU_PER_MM / scale ) + TextWidth ) )
+            intervalle = plot_diam + ( 1 * pcbIUScale.IU_PER_MM / scale ) + TextWidth;
 
         // Evaluate the text horizontal size, to know the maximal column size
         // This is a rough value, but ok to create a new column to plot next texts

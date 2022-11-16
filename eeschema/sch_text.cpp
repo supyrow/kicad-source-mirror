@@ -23,6 +23,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
+#include <base_units.h>
 #include <pgm_base.h>
 #include <sch_edit_frame.h>
 #include <plotters/plotter.h>
@@ -41,6 +42,7 @@
 #include <project/net_settings.h>
 #include <core/mirror.h>
 #include <core/kicad_algo.h>
+#include <tools/sch_navigate_tool.h>
 #include <trigo.h>
 
 using KIGFX::SCH_RENDER_SETTINGS;
@@ -112,7 +114,7 @@ TEXT_SPIN_STYLE TEXT_SPIN_STYLE::MirrorY()
 
 SCH_TEXT::SCH_TEXT( const VECTOR2I& pos, const wxString& text, KICAD_T aType ) :
         SCH_ITEM( nullptr, aType ),
-        EDA_TEXT( text )
+        EDA_TEXT( schIUScale, text )
 {
     m_layer = LAYER_NOTES;
 
@@ -274,7 +276,7 @@ int SCH_TEXT::GetPenWidth() const
 }
 
 
-KIFONT::FONT* SCH_TEXT::GetDrawFont() const
+KIFONT::FONT* SCH_TEXT::getDrawFont() const
 {
     KIFONT::FONT* font = EDA_TEXT::GetFont();
 
@@ -287,35 +289,57 @@ KIFONT::FONT* SCH_TEXT::GetDrawFont() const
 
 void SCH_TEXT::Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset )
 {
-    COLOR4D color = aSettings->GetLayerColor( m_layer );
+    COLOR4D  color = GetTextColor();
+    bool     blackAndWhiteMode = GetGRForceBlackPenState();
     VECTOR2I text_offset = aOffset + GetSchematicTextOffset( aSettings );
+
+    if( blackAndWhiteMode || color == COLOR4D::UNSPECIFIED )
+        color = aSettings->GetLayerColor( m_layer );
+
+    KIFONT::FONT* font = GetFont();
+
+    if( !font )
+        font = KIFONT::FONT::GetFont( aSettings->GetDefaultFont(), IsBold(), IsItalic() );
+
+    // Adjust text drawn in an outline font to more closely mimic the positioning of
+    // SCH_FIELD text.
+    if( font->IsOutline() )
+    {
+        BOX2I    firstLineBBox = GetTextBox( 0 );
+        int      sizeDiff = firstLineBBox.GetHeight() - GetTextSize().y;
+        int      adjust = KiROUND( sizeDiff * 0.4 );
+        VECTOR2I adjust_offset( 0, - adjust );
+
+        RotatePoint( adjust_offset, GetDrawRotation() );
+        text_offset += adjust_offset;
+    }
 
     EDA_TEXT::Print( aSettings, text_offset, color );
 }
 
 
-const EDA_RECT SCH_TEXT::GetBoundingBox() const
+const BOX2I SCH_TEXT::GetBoundingBox() const
 {
-    EDA_RECT rect = GetTextBox();
+    BOX2I bbox = GetTextBox();
 
-    if( !GetTextAngle().IsZero() ) // Rotate rect.
+    if( !GetTextAngle().IsZero() ) // Rotate bbox.
     {
-        VECTOR2I pos = rect.GetOrigin();
-        VECTOR2I end = rect.GetEnd();
+        VECTOR2I pos = bbox.GetOrigin();
+        VECTOR2I end = bbox.GetEnd();
 
         RotatePoint( pos, GetTextPos(), GetTextAngle() );
         RotatePoint( end, GetTextPos(), GetTextAngle() );
 
-        rect.SetOrigin( pos );
-        rect.SetEnd( end );
+        bbox.SetOrigin( pos );
+        bbox.SetEnd( end );
     }
 
-    rect.Normalize();
-    return rect;
+    bbox.Normalize();
+    return bbox;
 }
 
 
-wxString SCH_TEXT::GetShownText( int aDepth ) const
+wxString SCH_TEXT::GetShownText( int aDepth, bool aAllowExtraText ) const
 {
     std::function<bool( wxString* )> textResolver =
             [&]( wxString* token ) -> bool
@@ -345,9 +369,9 @@ wxString SCH_TEXT::GetShownText( int aDepth ) const
 
     wxString text = EDA_TEXT::GetShownText();
 
-    if( text == "~" )   // Legacy placeholder for empty string
+    if( text == wxS( "~" ) ) // Legacy placeholder for empty string
     {
-        text = "";
+        text = wxS( "" );
     }
     else if( HasTextVars() )
     {
@@ -364,9 +388,19 @@ wxString SCH_TEXT::GetShownText( int aDepth ) const
 }
 
 
-wxString SCH_TEXT::GetSelectMenuText( EDA_UNITS aUnits ) const
+void SCH_TEXT::DoHypertextAction( EDA_DRAW_FRAME* aFrame ) const
 {
-    return wxString::Format( _( "Graphic Text '%s'" ), ShortenedShownText() );
+    wxCHECK_MSG( IsHypertext(), /* void */,
+                 "Calling a hypertext menu on a SCH_TEXT with no hyperlink?" );
+
+    SCH_NAVIGATE_TOOL* navTool = aFrame->GetToolManager()->GetTool<SCH_NAVIGATE_TOOL>();
+    navTool->HypertextCommand( m_hyperlink );
+}
+
+
+wxString SCH_TEXT::GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const
+{
+    return wxString::Format( _( "Graphic Text '%s'" ), KIUI::EllipsizeMenuText( GetShownText() ) );
 }
 
 
@@ -378,15 +412,15 @@ BITMAPS SCH_TEXT::GetMenuImage() const
 
 bool SCH_TEXT::HitTest( const VECTOR2I& aPosition, int aAccuracy ) const
 {
-    EDA_RECT bBox = GetBoundingBox();
+    BOX2I bBox = GetBoundingBox();
     bBox.Inflate( aAccuracy );
     return bBox.Contains( aPosition );
 }
 
 
-bool SCH_TEXT::HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy ) const
+bool SCH_TEXT::HitTest( const BOX2I& aRect, bool aContained, int aAccuracy ) const
 {
-    EDA_RECT bBox = GetBoundingBox();
+    BOX2I bBox = GetBoundingBox();
     bBox.Inflate( aAccuracy );
 
     if( aContained )
@@ -409,17 +443,36 @@ void SCH_TEXT::Plot( PLOTTER* aPlotter, bool aBackground ) const
     if( aBackground )
         return;
 
-    static std::vector<VECTOR2I> s_poly;
-
     RENDER_SETTINGS* settings = aPlotter->RenderSettings();
     SCH_CONNECTION*  connection = Connection();
     int              layer = ( connection && connection->IsBus() ) ? LAYER_BUS : m_layer;
-    COLOR4D          color = settings->GetLayerColor( layer );
+    COLOR4D          color = GetTextColor();
     int              penWidth = GetEffectiveTextPenWidth( settings->GetDefaultPenWidth() );
-    KIFONT::FONT*    font = GetDrawFont();
+    VECTOR2I         text_offset = GetSchematicTextOffset( aPlotter->RenderSettings() );
+
+    if( !aPlotter->GetColorMode() || color == COLOR4D::UNSPECIFIED )
+        color = settings->GetLayerColor( layer );
 
     penWidth = std::max( penWidth, settings->GetMinPenWidth() );
     aPlotter->SetCurrentLineWidth( penWidth );
+
+    KIFONT::FONT* font = GetFont();
+
+    if( !font )
+        font = KIFONT::FONT::GetFont( settings->GetDefaultFont(), IsBold(), IsItalic() );
+
+    // Adjust text drawn in an outline font to more closely mimic the positioning of
+    // SCH_FIELD text.
+    if( font->IsOutline() )
+    {
+        BOX2I    firstLineBBox = GetTextBox( 0 );
+        int      sizeDiff = firstLineBBox.GetHeight() - GetTextSize().y;
+        int      adjust = KiROUND( sizeDiff * 0.4 );
+        VECTOR2I adjust_offset( 0, - adjust );
+
+        RotatePoint( adjust_offset, GetDrawRotation() );
+        text_offset += adjust_offset;
+    }
 
     std::vector<VECTOR2I> positions;
     wxArrayString strings_list;
@@ -430,11 +483,14 @@ void SCH_TEXT::Plot( PLOTTER* aPlotter, bool aBackground ) const
 
     for( unsigned ii = 0; ii < strings_list.Count(); ii++ )
     {
-        VECTOR2I  textpos = positions[ii] + GetSchematicTextOffset( aPlotter->RenderSettings() );
+        VECTOR2I  textpos = positions[ii] + text_offset;
         wxString& txt = strings_list.Item( ii );
         aPlotter->Text( textpos, color, txt, GetTextAngle(), GetTextSize(), GetHorizJustify(),
                         GetVertJustify(), penWidth, IsItalic(), IsBold(), false, font );
     }
+
+    if( HasHyperlink() )
+        aPlotter->HyperlinkBox( GetBoundingBox(), GetHyperlink() );
 }
 
 
@@ -443,14 +499,15 @@ void SCH_TEXT::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_IT
     wxString msg;
 
     // Don't use GetShownText() here; we want to show the user the variable references
-    aList.emplace_back( _( "Graphic Text" ), UnescapeString( GetText() ) );
+    aList.emplace_back( _( "Graphic Text" ), KIUI::EllipsizeStatusText( aFrame, GetText() ) );
+
+    aList.emplace_back( _( "Font" ), GetFont() ? GetFont()->GetName() : _( "Default" ) );
 
     wxString textStyle[] = { _( "Normal" ), _( "Italic" ), _( "Bold" ), _( "Bold Italic" ) };
     int style = IsBold() && IsItalic() ? 3 : IsBold() ? 2 : IsItalic() ? 1 : 0;
     aList.emplace_back( _( "Style" ), textStyle[style] );
 
-    aList.emplace_back( _( "Text Size" ), MessageTextFromValue( aFrame->GetUserUnits(),
-                                                                GetTextWidth() ) );
+    aList.emplace_back( _( "Text Size" ), aFrame->MessageTextFromValue( GetTextWidth() ) );
 
     switch( GetTextSpinStyle() )
     {

@@ -126,13 +126,6 @@ public:
     CVPCB_MAINFRAME::CONTROL_TYPE GetFocusedControl() const;
 
     /**
-     * Get a pointer to the currently focused control
-     *
-     * @return the control that currently has focus
-     */
-    wxControl* GetFocusedControlObject() const;
-
-    /**
      * Set the focus to a specific control.
      *
      * @param aControl the control to set focus to
@@ -146,9 +139,6 @@ public:
      * * Updates the footprint shown in footprint display window (if opened)
      */
     void OnSelectComponent( wxListEvent& event );
-
-    bool canCloseWindow( wxCloseEvent& aCloseEvent ) override;
-    void doCloseWindow() override;
 
     /*
      * Functions to rebuild the toolbars and menubars
@@ -176,11 +166,6 @@ public:
      */
     void SetFootprintFilter( FOOTPRINTS_LISTBOX::FP_FILTER_T aFilter,
                              CVPCB_MAINFRAME::CVPCB_FILTER_ACTION aAction );
-
-    /**
-     * Called each time the text of m_tcFilterString is changed.
-     */
-    void OnEnterFilteringText( wxCommandEvent& event );
 
     /**
      * Undo the most recent associations that were performed.
@@ -230,24 +215,6 @@ public:
      */
     bool SaveFootprintAssociation( bool doSaveSchematic );
 
-    /**
-     * Load the netlist file built on the fly by Eeschema and loads footprint libraries from
-     * fp lib tables.
-     *
-     * @param aNetlist is the netlist from Eeschema in KiCad s-expr format.
-     * (see CVPCB_MAINFRAME::KiwayMailIn() to know how to get this netlist)
-     */
-    bool ReadNetListAndFpFiles( const std::string& aNetlist );
-
-    /**
-     * Read the netlist (.net) file built on the fly by Eeschema.
-     *
-     * @param aNetlist is the netlist buffer filled by Eeschema, in KiCad s-expr format.
-     * It is the same netlist as the .net file created by Eeschema.
-     * (This method is called by ReadNetListAndFpFiles)
-     */
-    int ReadSchematicNetlist( const std::string& aNetlist );
-
     void LoadSettings( APP_SETTINGS_BASE* aCfg ) override;
 
     void SaveSettings( APP_SETTINGS_BASE* aCfg ) override;
@@ -283,10 +250,10 @@ public:
      * Commands are:
      * $PART: "reference" put cursor on component anchor
      *
-     * @param aClearHighligntOnly use true if the message to send is only "clear highlight"
+     * @param aClearSelectionOnly use true if the message to send is only "clear clear selection"
      *                            (used when exiting CvPcb)
      */
-    void SendMessageToEESCHEMA( bool aClearHighligntOnly = false );
+    void SendComponentSelectionToSch( bool aClearSelectionOnly = false );
 
     /**
      * Get the selected component from the component listbox.
@@ -330,12 +297,35 @@ public:
      */
     wxString GetSelectedFootprint();
 
+    void RefreshFootprintViewer();
+
     void SetStatusText( const wxString& aText, int aNumber = 0 ) override;
 
 protected:
     CVPCB_MAINFRAME( KIWAY* aKiway, wxWindow* aParent );
 
     void setupUIConditions() override;
+
+    bool canCloseWindow( wxCloseEvent& aCloseEvent ) override;
+    void doCloseWindow() override;
+
+    /**
+     * Load the netlist file built on the fly by Eeschema and loads footprint libraries from
+     * fp lib tables.
+     *
+     * @param aNetlist is the netlist from Eeschema in KiCad s-expr format.
+     * (see CVPCB_MAINFRAME::KiwayMailIn() to know how to get this netlist)
+     */
+    bool readNetListAndFpFiles( const std::string& aNetlist );
+
+    /**
+     * Read the netlist (.net) file built on the fly by Eeschema.
+     *
+     * @param aNetlist is the netlist buffer filled by Eeschema, in KiCad s-expr format.
+     * It is the same netlist as the .net file created by Eeschema.
+     * (This method is called by readNetListAndFpFiles)
+     */
+    int readSchematicNetlist( const std::string& aNetlist );
 
 private:
     wxString formatSymbolDesc( int idx, const wxString& aReference, const wxString& aValue,
@@ -350,6 +340,12 @@ private:
      * Setup event handlers
      */
     void setupEventHandlers();
+
+    void onTextFilterChanged( wxCommandEvent& event );
+
+    void updateFootprintViewerOnIdle( wxIdleEvent& aEvent );
+
+    void onTextFilterChangedTimer( wxTimerEvent& aEvent );
 
     /**
      * Read the .equ files and populate the list of equivalents.
@@ -384,23 +380,25 @@ private:
     ACTION_TOOLBAR*           m_mainToolBar;
     FOOTPRINTS_LISTBOX*       m_footprintListBox;
     LIBRARY_LISTBOX*          m_librariesListBox;
-    SYMBOLS_LISTBOX*       m_symbolsListBox;
+    SYMBOLS_LISTBOX*          m_symbolsListBox;
     wxTextCtrl*               m_tcFilterString;
     wxStaticText*             m_statusLine1;
     wxStaticText*             m_statusLine2;
     wxStaticText*             m_statusLine3;
     wxButton*                 m_saveAndContinue;
 
-    // Tool dispatcher
-    TOOL_DISPATCHER* m_toolDispatcher;
+    TOOL_DISPATCHER*          m_toolDispatcher;
 
     // Context menus for the list boxes
-    ACTION_MENU* m_footprintContextMenu;
-    ACTION_MENU* m_symbolsContextMenu;
+    ACTION_MENU*              m_footprintContextMenu;
+    ACTION_MENU*              m_symbolsContextMenu;
 
-    // Undo/Redo item lists
-    CVPCB_UNDO_REDO_LIST    m_undoList;
-    CVPCB_UNDO_REDO_LIST    m_redoList;
+    CVPCB_UNDO_REDO_LIST      m_undoList;
+    CVPCB_UNDO_REDO_LIST      m_redoList;
+
+    wxTimer*                  m_filterTimer;
+    bool                      m_viewerPendingUpdate;
+
 };
 
 #endif  //#ifndef _CVPCB_MAINFRAME_H_

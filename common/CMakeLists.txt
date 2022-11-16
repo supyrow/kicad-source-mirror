@@ -13,77 +13,19 @@ include_directories(
     ./dialogs
     ./widgets
     ./dialog_about
-    ${CMAKE_SOURCE_DIR}/bitmaps_png
+    ${CMAKE_SOURCE_DIR}/resources/bitmaps_png
     ${CMAKE_SOURCE_DIR}/3d-viewer
     ${CMAKE_SOURCE_DIR}/pcbnew
     ${INC_AFTER}
     )
 
-set( GAL_SRCS
-    # Common part
-	callback_gal.cpp
-    draw_panel_gal.cpp
-    gl_context_mgr.cpp
-    newstroke_font.cpp
-    painter.cpp
-    gal/color4d.cpp
-    gal/cursors.cpp
-    gal/dpi_scaling.cpp
-    gal/gal_display_options.cpp
-    gal/graphics_abstraction_layer.cpp
-    gal/hidpi_gl_canvas.cpp
-
-    view/view_controls.cpp
-    view/view_overlay.cpp
-    view/wx_view_controls.cpp
-    view/zoom_controller.cpp
-
-    # OpenGL GAL
-    gal/opengl/opengl_gal.cpp
-    gal/opengl/gl_resources.cpp
-    gal/opengl/gl_builtin_shaders.cpp
-    gal/opengl/shader.cpp
-    gal/opengl/vertex_item.cpp
-    gal/opengl/vertex_container.cpp
-    gal/opengl/cached_container.cpp
-    gal/opengl/cached_container_gpu.cpp
-    gal/opengl/cached_container_ram.cpp
-    gal/opengl/noncached_container.cpp
-    gal/opengl/vertex_manager.cpp
-    gal/opengl/gpu_manager.cpp
-    gal/opengl/antialiasing.cpp
-    gal/opengl/opengl_compositor.cpp
-    gal/opengl/utils.cpp
-
-    # Cairo GAL
-    gal/cairo/cairo_gal.cpp
-    gal/cairo/cairo_compositor.cpp
-    gal/cairo/cairo_print.cpp
-    )
-
-add_library( gal STATIC ${GAL_SRCS} )
-
-target_link_libraries( gal
-    common          # This is needed until the circular dependency is removed
-    kimath
-    nlohmann_json
-    ${GLEW_LIBRARIES}
-    ${CAIRO_LIBRARIES}
-    ${PIXMAN_LIBRARIES}
-    ${OPENGL_LIBRARIES}
-    ${GDI_PLUS_LIBRARIES}
-	# outline font support
-	${FREETYPE_LIBRARIES}
-	${HarfBuzz_LIBRARIES}
-	${Fontconfig_LIBRARIES}
-)
-
+# Get the GAL Target
+add_subdirectory( gal )
 
 # Only for win32 cross compilation using MXE
 if( WIN32 AND MSYS )
     add_definitions( -DGLEW_STATIC )
 endif()
-
 
 # A shared library subsetted from common which restricts what can go into
 # a single_top link image.  By not linking to common, we control what does
@@ -123,6 +65,16 @@ install( TARGETS lib_kicad
     )
 endif()
 
+# Build a single library for the thread pool that we can link around
+
+add_library( threadpool STATIC
+    thread_pool.cpp
+    )
+
+target_include_directories( threadpool PRIVATE
+    $<TARGET_PROPERTY:thread-pool,INTERFACE_INCLUDE_DIRECTORIES>
+    )
+
 
 # The build version string defaults to the value in the KiCadVersion.cmake file.
 # If being built inside a git repository, the git tag and commit hash are used to create
@@ -154,6 +106,8 @@ set( COMMON_ABOUT_DLG_SRCS
     )
 
 set( COMMON_DLG_SRCS
+    dialogs/dialog_assign_netclass.cpp
+    dialogs/dialog_assign_netclass_base.cpp
     dialogs/dialog_color_picker.cpp
     dialogs/dialog_color_picker_base.cpp
     dialogs/dialog_configure_paths.cpp
@@ -166,8 +120,6 @@ set( COMMON_DLG_SRCS
     dialogs/dialog_grid_settings_base.cpp
     dialogs/dialog_hotkey_list.cpp
     dialogs/dialog_HTML_reporter_base.cpp
-    dialogs/dialog_image_editor.cpp
-    dialogs/dialog_image_editor_base.cpp
     dialogs/dialog_locked_items_query.cpp
     dialogs/dialog_locked_items_query_base.cpp
     dialogs/dialog_migrate_settings.cpp
@@ -184,6 +136,8 @@ set( COMMON_DLG_SRCS
     dialogs/dialog_unit_entry_base.cpp
     dialogs/eda_list_dialog.cpp
     dialogs/eda_list_dialog_base.cpp
+    dialogs/eda_reorderable_list_dialog.cpp
+    dialogs/eda_reorderable_list_dialog_base.cpp
     dialogs/eda_view_switcher.cpp
     dialogs/eda_view_switcher_base.cpp
     dialogs/html_message_box.cpp
@@ -191,7 +145,10 @@ set( COMMON_DLG_SRCS
     dialogs/panel_color_settings.cpp
     dialogs/panel_common_settings.cpp
     dialogs/panel_common_settings_base.cpp
+    dialogs/panel_gal_display_options.cpp
     dialogs/panel_hotkeys_editor.cpp
+    dialogs/panel_image_editor.cpp
+    dialogs/panel_image_editor_base.cpp
     dialogs/panel_mouse_settings.cpp
     dialogs/panel_mouse_settings_base.cpp
     dialogs/panel_setup_netclasses.cpp
@@ -199,10 +156,13 @@ set( COMMON_DLG_SRCS
     dialogs/panel_setup_severities.cpp
     dialogs/panel_text_variables.cpp
     dialogs/panel_text_variables_base.cpp
-    dialogs/wx_html_report_box.cpp
-    dialogs/wx_html_report_panel.cpp
-    dialogs/wx_html_report_panel_base.cpp
     )
+
+if( KICAD_USE_SENTRY )
+    list( APPEND COMMON_DLG_SRCS
+    dialogs/panel_data_collection.cpp
+    dialogs/panel_data_collection_base.cpp )
+endif()
 
 set( COMMON_WIDGET_SRCS
     widgets/app_progress_dialog.cpp
@@ -231,6 +191,10 @@ set( COMMON_WIDGET_SRCS
     widgets/number_badge.cpp
     widgets/paged_dialog.cpp
     widgets/progress_reporter_base.cpp
+    widgets/properties_panel.cpp
+    widgets/search_pane.cpp
+    widgets/search_pane_base.cpp
+    widgets/search_pane_tab.cpp
     widgets/split_button.cpp
     widgets/stepped_slider.cpp
     widgets/text_ctrl_eval.cpp
@@ -241,8 +205,13 @@ set( COMMON_WIDGET_SRCS
     widgets/wx_aui_art_providers.cpp
     widgets/wx_aui_utils.cpp
     widgets/wx_busy_indicator.cpp
+    widgets/wx_combobox.cpp
     widgets/wx_ellipsized_static_text.cpp
     widgets/wx_grid.cpp
+    widgets/wx_html_report_box.cpp
+    widgets/wx_html_report_panel.cpp
+    widgets/wx_html_report_panel_base.cpp
+    widgets/wx_listbox.cpp
     widgets/wx_panel.cpp
     widgets/wx_progress_reporters.cpp
     widgets/wx_splitter_window.cpp
@@ -318,14 +287,17 @@ set( COMMON_SRCS
     ${PLUGINS_CADSTAR_SRCS}
     ${PLUGINS_EAGLE_SRCS}
 	${FONT_SRCS}
+    jobs/job_dispatcher.cpp
     advanced_config.cpp
     array_axis.cpp
     array_options.cpp
     asset_archive.cpp
+    base_screen.cpp
     base64.cpp
     bin_mod.cpp
     bitmap.cpp
     bitmap_base.cpp
+    bitmap_info.cpp
     bitmap_store.cpp
     board_printout.cpp
     build_version.cpp
@@ -342,7 +314,9 @@ set( COMMON_SRCS
     eda_draw_frame.cpp
     eda_item.cpp
     eda_pattern_match.cpp
-    eda_rect.cpp
+    eda_shape.cpp
+    eda_text.cpp
+    eda_tools.cpp
     eda_units.cpp
     env_paths.cpp
     env_vars.cpp
@@ -372,6 +346,7 @@ set( COMMON_SRCS
     layer_id.cpp
     lib_id.cpp
     lib_table_base.cpp
+    lib_table_grid_tricks.cpp
     lib_tree_model.cpp
     lib_tree_model_adapter.cpp
     locale_io.cpp
@@ -382,11 +357,10 @@ set( COMMON_SRCS
     netclass.cpp
     observable.cpp
     origin_transforms.cpp
+    page_info.cpp
     paths.cpp
     printout.cpp
     project.cpp
-    properties.cpp
-    property_mgr.cpp
     ptree.cpp
     rc_item.cpp
     refdes_utils.cpp
@@ -397,12 +371,14 @@ set( COMMON_SRCS
     search_stack.cpp
     searchhelpfilefullpath.cpp
     status_popup.cpp
+    string_utf8_map.cpp
     stroke_params.cpp
     systemdirsappend.cpp
     template_fieldnames.cpp
     textentry_tricks.cpp
     title_block.cpp
     trace_helpers.cpp
+    transform.cpp
     undo_redo_container.cpp
     utf8.cpp
     validators.cpp
@@ -468,17 +444,27 @@ set( COMMON_SRCS
 
     settings/app_settings.cpp
     settings/color_settings.cpp
+    settings/cvpcb_settings.cpp
     settings/common_settings.cpp
     settings/json_settings.cpp
     settings/nested_settings.cpp
     settings/parameters.cpp
     settings/settings_manager.cpp
+    settings/kicad_settings.cpp
 
     project/board_project_settings.cpp
     project/net_settings.cpp
     project/project_archiver.cpp
     project/project_file.cpp
     project/project_local_settings.cpp
+
+    properties/eda_angle_variant.cpp
+    properties/pg_editors.cpp
+    properties/pg_properties.cpp
+    properties/property_mgr.cpp
+
+    database/database_connection.cpp
+    database/database_lib_settings.cpp
     )
 
 add_library( common STATIC
@@ -492,10 +478,14 @@ target_link_libraries( common
     libcontext
     kimath
     kiplatform
+    fmt::fmt
     gal
     scripting
+    threadpool
     pybind11::embed
     compoundfilereader
+    pcm_settings
+    nanodbc # for now; maybe hoist out of common
     ${Boost_LIBRARIES}
     ${CURL_LIBRARIES}
     ${wxWidgets_LIBRARIES}
@@ -506,10 +496,17 @@ target_link_libraries( common
 	${Fontconfig_LIBRARIES}
     )
 
+if( KICAD_USE_SENTRY )
+    target_link_libraries( common
+        sentry )
+endif()
+
 target_include_directories( common
     PUBLIC
         .
         ${CMAKE_BINARY_DIR}
+        $<TARGET_PROPERTY:thread-pool,INTERFACE_INCLUDE_DIRECTORIES>
+        $<TARGET_PROPERTY:argparse::argparse,INTERFACE_INCLUDE_DIRECTORIES>
     )
 
 # text markup support
@@ -518,14 +515,14 @@ target_include_directories( common PUBLIC
     $<TARGET_PROPERTY:pegtl,INTERFACE_INCLUDE_DIRECTORIES>
     )
 
+target_include_directories( common SYSTEM PUBLIC
+    $<TARGET_PROPERTY:nanodbc,INTERFACE_INCLUDE_DIRECTORIES>
+    )
+
 
 set( PCB_COMMON_SRCS
-    base_screen.cpp
-    eda_text.cpp
-    eda_shape.cpp
     fp_lib_table.cpp
     hash_eda.cpp
-    page_info.cpp
     ${CMAKE_SOURCE_DIR}/pcbnew/pcb_base_frame.cpp
     ${CMAKE_SOURCE_DIR}/pcbnew/pcb_expr_evaluator.cpp
     ${CMAKE_SOURCE_DIR}/pcbnew/board_commit.cpp
@@ -544,6 +541,7 @@ set( PCB_COMMON_SRCS
     ${CMAKE_SOURCE_DIR}/pcbnew/netinfo_list.cpp
     ${CMAKE_SOURCE_DIR}/pcbnew/pad.cpp
     ${CMAKE_SOURCE_DIR}/pcbnew/pcb_target.cpp
+    ${CMAKE_SOURCE_DIR}/pcbnew/pcb_bitmap.cpp
     ${CMAKE_SOURCE_DIR}/pcbnew/pcb_text.cpp
     ${CMAKE_SOURCE_DIR}/pcbnew/pcb_textbox.cpp
     ${CMAKE_SOURCE_DIR}/pcbnew/board_stackup_manager/board_stackup.cpp
@@ -558,6 +556,7 @@ set( PCB_COMMON_SRCS
     ${CMAKE_SOURCE_DIR}/pcbnew/connectivity/from_to_cache.cpp
     ${CMAKE_SOURCE_DIR}/pcbnew/convert_shape_list_to_polygon.cpp
     ${CMAKE_SOURCE_DIR}/pcbnew/drc/drc_engine.cpp
+    ${CMAKE_SOURCE_DIR}/pcbnew/drc/drc_cache_generator.cpp
     ${CMAKE_SOURCE_DIR}/pcbnew/drc/drc_item.cpp
     ${CMAKE_SOURCE_DIR}/pcbnew/drc/drc_rule.cpp
     ${CMAKE_SOURCE_DIR}/pcbnew/drc/drc_rule_condition.cpp
@@ -580,6 +579,7 @@ set( PCB_COMMON_SRCS
     ${CMAKE_SOURCE_DIR}/pcbnew/pcb_painter.cpp
     ${CMAKE_SOURCE_DIR}/pcbnew/plugins/kicad/pcb_parser.cpp
     ${CMAKE_SOURCE_DIR}/pcbnew/pcb_plot_params.cpp
+    ${CMAKE_SOURCE_DIR}/pcbnew/pcb_plot_svg.cpp
     ${CMAKE_SOURCE_DIR}/pcbnew/pcb_screen.cpp
     ${CMAKE_SOURCE_DIR}/pcbnew/pcb_view.cpp
     ${CMAKE_SOURCE_DIR}/pcbnew/pcbnew_settings.cpp
@@ -604,11 +604,16 @@ set_source_files_properties( ${PCB_COMMON_SRCS} PROPERTIES
 
 add_library( pcbcommon STATIC ${PCB_COMMON_SRCS} )
 
+target_include_directories( pcbcommon PRIVATE
+    $<TARGET_PROPERTY:thread-pool,INTERFACE_INCLUDE_DIRECTORIES>
+    )
+
 target_link_libraries( pcbcommon PUBLIC
     common
     delaunator
     kimath
     kiplatform
+    threadpool
 )
 
 if( KICAD_USE_3DCONNEXION )
@@ -642,14 +647,6 @@ generate_lemon_grammar(
 # works on Linux:
 make_lexer(
     common
-    stroke_params.keywords
-    stroke_params_lexer.h
-    stroke_params_keywords.cpp
-    STROKEPARAMS_T
-    )
-# works on msys2:
-make_lexer(
-    gal
     stroke_params.keywords
     stroke_params_lexer.h
     stroke_params_keywords.cpp
@@ -725,4 +722,3 @@ make_lexer(
 # to build it, first enable #define STAND_ALONE at top of dsnlexer.cpp
 add_executable( dsntest EXCLUDE_FROM_ALL dsnlexer.cpp )
 target_link_libraries( dsntest common ${wxWidgets_LIBRARIES} rt )
-

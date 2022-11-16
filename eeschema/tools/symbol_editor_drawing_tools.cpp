@@ -26,6 +26,7 @@
 #include <symbol_edit_frame.h>
 #include <tools/symbol_editor_drawing_tools.h>
 #include <tools/symbol_editor_pin_tool.h>
+#include <tools/ee_grid_helper.h>
 #include <lib_text.h>
 #include <dialogs/dialog_lib_text_properties.h>
 #include <lib_shape.h>
@@ -41,10 +42,17 @@ static void* g_lastPinWeakPtr;
 
 SYMBOL_EDITOR_DRAWING_TOOLS::SYMBOL_EDITOR_DRAWING_TOOLS() :
         EE_TOOL_BASE<SYMBOL_EDIT_FRAME>( "eeschema.SymbolDrawing" ),
+        m_lastTextBold( false ),
+        m_lastTextItalic( false ),
         m_lastTextAngle( ANGLE_HORIZONTAL ),
+        m_lastTextJust( GR_TEXT_H_ALIGN_LEFT ),
         m_lastFillStyle( FILL_T::NO_FILL ),
+        m_lastFillColor( COLOR4D::UNSPECIFIED ),
+        m_lastStroke( 0, PLOT_DASH_TYPE::DEFAULT, COLOR4D::UNSPECIFIED ),
         m_drawSpecificConvert( true ),
-        m_drawSpecificUnit( false )
+        m_drawSpecificUnit( false ),
+        m_inDrawShape( false ),
+        m_inTwoClickPlace( false )
 {
 }
 
@@ -68,17 +76,26 @@ bool SYMBOL_EDITOR_DRAWING_TOOLS::Init()
 
 int SYMBOL_EDITOR_DRAWING_TOOLS::TwoClickPlace( const TOOL_EVENT& aEvent )
 {
-    KICAD_T   type = aEvent.Parameter<KICAD_T>();
-    auto*     settings = Pgm().GetSettingsManager().GetAppSettings<SYMBOL_EDITOR_SETTINGS>();
-    auto*     pinTool = type == LIB_PIN_T ? m_toolMgr->GetTool<SYMBOL_EDITOR_PIN_TOOL>() : nullptr;
-    VECTOR2I  cursorPos;
-    EDA_ITEM* item   = nullptr;
-    bool      isText = aEvent.IsAction( &EE_ACTIONS::placeSymbolText );
+    KICAD_T type = aEvent.Parameter<KICAD_T>();
+    auto*   settings = Pgm().GetSettingsManager().GetAppSettings<SYMBOL_EDITOR_SETTINGS>();
+    auto*   pinTool = type == LIB_PIN_T ? m_toolMgr->GetTool<SYMBOL_EDITOR_PIN_TOOL>() : nullptr;
+
+    if( m_inTwoClickPlace )
+        return 0;
+
+    REENTRANCY_GUARD guard( &m_inTwoClickPlace );
+
+    KIGFX::VIEW_CONTROLS* controls = getViewControls();
+    EE_GRID_HELPER        grid( m_toolMgr );
+    VECTOR2I              cursorPos;
+    bool                  ignorePrimePosition = false;
+    LIB_ITEM*             item   = nullptr;
+    bool                  isText = aEvent.IsAction( &EE_ACTIONS::placeSymbolText );
+    COMMON_SETTINGS*      common_settings = Pgm().GetCommonSettings();
 
     m_toolMgr->RunAction( EE_ACTIONS::clearSelection, true );
 
-    std::string tool = aEvent.GetCommandStr().get();
-    m_frame->PushTool( tool );
+    m_frame->PushTool( aEvent );
 
     auto setCursor =
             [&]()
@@ -102,53 +119,79 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::TwoClickPlace( const TOOL_EVENT& aEvent )
 
     Activate();
     // Must be done after Activate() so that it gets set into the correct context
-    getViewControls()->ShowCursor( true );
+    controls->ShowCursor( true );
     // Set initial cursor
     setCursor();
 
-    // Prime the pump
-    if( aEvent.HasPosition() || ( isText && !aEvent.IsReactivate() ) )
-        m_toolMgr->RunAction( ACTIONS::cursorClick );
-
-    // Set initial cursor
-    setCursor();
+    if( aEvent.HasPosition() )
+    {
+        m_toolMgr->PrimeTool( aEvent.Position() );
+    }
+    else if( common_settings->m_Input.immediate_actions && !aEvent.IsReactivate() )
+    {
+        m_toolMgr->PrimeTool( { 0, 0 } );
+        ignorePrimePosition = true;
+    }
 
     // Main loop: keep receiving events
     while( TOOL_EVENT* evt = Wait() )
     {
         setCursor();
+        grid.SetSnap( !evt->Modifier( MD_SHIFT ) );
+        grid.SetUseGrid( getView()->GetGAL()->GetGridSnapping() && !evt->DisableGridSnapping() );
 
-        cursorPos = getViewControls()->GetCursorPosition( !evt->DisableGridSnapping() );
+        cursorPos = grid.Align( controls->GetMousePosition() );
+        controls->ForceCursorPosition( true, cursorPos );
+
+        // The tool hotkey is interpreted as a click when drawing
+        bool isSyntheticClick = item && evt->IsActivate() && evt->HasPosition()
+                                && evt->Matches( aEvent );
 
         if( evt->IsCancelInteractive() )
         {
-            if( item )
-            {
-                cleanup();
-            }
-            else
-            {
-                m_frame->PopTool( tool );
-                break;
-            }
-        }
-        else if( evt->IsActivate() )
-        {
-            if( item )
-                cleanup();
+            m_frame->GetInfoBar()->Dismiss();
 
-            if( evt->IsMoveTool() )
+            if( item )
             {
-                // leave ourselves on the stack so we come back after the move
+                cleanup();
+            }
+            else
+            {
+                m_frame->PopTool( aEvent );
+                break;
+            }
+        }
+        else if( evt->IsActivate() && !isSyntheticClick )
+        {
+            if( item && evt->IsMoveTool() )
+            {
+                // we're already moving our own item; ignore the move tool
+                evt->SetPassEvent( false );
+                continue;
+            }
+
+            if( item )
+            {
+                m_frame->ShowInfoBarMsg( _( "Press <ESC> to cancel item creation." ) );
+                evt->SetPassEvent( false );
+                continue;
+            }
+
+            if( evt->IsPointEditor() )
+            {
+                // don't exit (the point editor runs in the background)
+            }
+            else if( evt->IsMoveTool() )
+            {
                 break;
             }
             else
             {
-                m_frame->PopTool( tool );
+                m_frame->PopTool( aEvent );
                 break;
             }
         }
-        else if( evt->IsClick( BUT_LEFT ) || evt->IsDblClick( BUT_LEFT ) )
+        else if( evt->IsClick( BUT_LEFT ) || evt->IsDblClick( BUT_LEFT ) || isSyntheticClick )
         {
             LIB_SYMBOL* symbol = m_frame->GetCurSymbol();
 
@@ -173,8 +216,8 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::TwoClickPlace( const TOOL_EVENT& aEvent )
                     LIB_TEXT* text = new LIB_TEXT( symbol );
 
                     text->SetPosition( VECTOR2I( cursorPos.x, -cursorPos.y ) );
-                    text->SetTextSize( wxSize( Mils2iu( settings->m_Defaults.text_size ),
-                                               Mils2iu( settings->m_Defaults.text_size ) ) );
+                    text->SetTextSize( wxSize( schIUScale.MilsToIU( settings->m_Defaults.text_size ),
+                                               schIUScale.MilsToIU( settings->m_Defaults.text_size ) ) );
                     text->SetTextAngle( m_lastTextAngle );
 
                     DIALOG_LIB_TEXT_PROPERTIES dlg( m_frame, text );
@@ -190,11 +233,24 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::TwoClickPlace( const TOOL_EVENT& aEvent )
                     wxFAIL_MSG( "TwoClickPlace(): unknown type" );
                 }
 
-                // Restore cursor after dialog
-                getViewControls()->WarpCursor( getViewControls()->GetCursorPosition(), true );
+                // If we started with a hotkey which has a position then warp back to that.
+                // Otherwise update to the current mouse position pinned inside the autoscroll
+                // boundaries.
+                if( evt->IsPrime() && !ignorePrimePosition )
+                {
+                    cursorPos = grid.Align( evt->Position() );
+                    getViewControls()->WarpMouseCursor( cursorPos, true );
+                }
+                else
+                {
+                    getViewControls()->PinCursorInsideNonAutoscrollArea( true );
+                    cursorPos = getViewControls()->GetMousePosition();
+                }
 
                 if( item )
                 {
+                    item->SetPosition( VECTOR2I( cursorPos.x, -cursorPos.y ) );
+
                     item->SetFlags( IS_NEW | IS_MOVING );
                     m_view->ClearPreview();
                     m_view->AddToPreview( item->Clone() );
@@ -204,7 +260,7 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::TwoClickPlace( const TOOL_EVENT& aEvent )
                     setCursor();
                 }
 
-                getViewControls()->SetCursorPosition( cursorPos, false );
+                controls->SetCursorPosition( cursorPos, false );
             }
             // ... and second click places:
             else
@@ -241,7 +297,7 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::TwoClickPlace( const TOOL_EVENT& aEvent )
         }
         else if( item && ( evt->IsAction( &ACTIONS::refreshPreview ) || evt->IsMotion() ) )
         {
-            static_cast<LIB_ITEM*>( item )->SetPosition( VECTOR2I( cursorPos.x, -cursorPos.y ) );
+            item->SetPosition( VECTOR2I( cursorPos.x, -cursorPos.y ) );
             m_view->ClearPreview();
             m_view->AddToPreview( item->Clone() );
         }
@@ -251,12 +307,13 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::TwoClickPlace( const TOOL_EVENT& aEvent )
         }
 
         // Enable autopanning and cursor capture only when there is an item to be placed
-        getViewControls()->SetAutoPan( item != nullptr );
-        getViewControls()->CaptureCursor( item != nullptr );
+        controls->SetAutoPan( item != nullptr );
+        controls->CaptureCursor( item != nullptr );
     }
 
-    getViewControls()->SetAutoPan( false );
-    getViewControls()->CaptureCursor( false );
+    controls->SetAutoPan( false );
+    controls->CaptureCursor( false );
+    controls->ForceCursorPosition( false );
     m_frame->GetCanvas()->SetCurrentCursor( KICURSOR::ARROW );
     return 0;
 }
@@ -268,8 +325,13 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::DrawShape( const TOOL_EVENT& aEvent )
     SYMBOL_EDITOR_SETTINGS* settings = settingsMgr.GetAppSettings<SYMBOL_EDITOR_SETTINGS>();
     SHAPE_T                 type = aEvent.Parameter<SHAPE_T>();
     LIB_SYMBOL*             symbol = m_frame->GetCurSymbol();
-    LIB_ITEM*               item = nullptr;
+    LIB_SHAPE*              item = nullptr;
     bool                    isTextBox = aEvent.IsAction( &EE_ACTIONS::drawSymbolTextBox );
+
+    if( m_inDrawShape )
+        return 0;
+
+    REENTRANCY_GUARD guard( &m_inDrawShape );
 
     // We might be running as the same shape in another co-routine.  Make sure that one
     // gets whacked.
@@ -277,8 +339,7 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::DrawShape( const TOOL_EVENT& aEvent )
 
     m_toolMgr->RunAction( EE_ACTIONS::clearSelection, true );
 
-    std::string tool = aEvent.GetCommandStr().get();
-    m_frame->PushTool( tool );
+    m_frame->PushTool( aEvent );
 
     auto setCursor =
             [&]()
@@ -301,9 +362,8 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::DrawShape( const TOOL_EVENT& aEvent )
     // Set initial cursor
     setCursor();
 
-    // Prime the pump
     if( aEvent.HasPosition() )
-        m_toolMgr->RunAction( ACTIONS::cursorClick );
+        m_toolMgr->PrimeTool( aEvent.Position() );
 
     // Main loop: keep receiving events
     while( TOOL_EVENT* evt = Wait() )
@@ -311,6 +371,10 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::DrawShape( const TOOL_EVENT& aEvent )
         setCursor();
 
         VECTOR2I cursorPos = getViewControls()->GetCursorPosition( !evt->DisableGridSnapping() );
+
+        // The tool hotkey is interpreted as a click when drawing
+        bool isSyntheticClick = item && evt->IsActivate() && evt->HasPosition()
+                                && evt->Matches( aEvent );
 
         if( evt->IsCancelInteractive() )
         {
@@ -320,11 +384,11 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::DrawShape( const TOOL_EVENT& aEvent )
             }
             else
             {
-                m_frame->PopTool( tool );
+                m_frame->PopTool( aEvent );
                 break;
             }
         }
-        else if( evt->IsActivate() )
+        else if( evt->IsActivate() && !isSyntheticClick )
         {
             if( item )
                 cleanup();
@@ -340,7 +404,7 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::DrawShape( const TOOL_EVENT& aEvent )
             }
             else
             {
-                m_frame->PopTool( tool );
+                m_frame->PopTool( aEvent );
                 break;
             }
         }
@@ -354,12 +418,28 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::DrawShape( const TOOL_EVENT& aEvent )
 
             m_toolMgr->RunAction( EE_ACTIONS::clearSelection, true );
 
-            int lineWidth = Mils2iu( settings->m_Defaults.line_width );
+            int lineWidth = schIUScale.MilsToIU( settings->m_Defaults.line_width );
 
             if( isTextBox )
-                item = new LIB_TEXTBOX( symbol, lineWidth, m_lastFillStyle );
+            {
+                LIB_TEXTBOX* textbox = new LIB_TEXTBOX( symbol, lineWidth, m_lastFillStyle );
+
+                textbox->SetBold( m_lastTextBold );
+                textbox->SetItalic( m_lastTextItalic );
+                textbox->SetTextSize( wxSize( schIUScale.MilsToIU( settings->m_Defaults.text_size ),
+                                              schIUScale.MilsToIU( settings->m_Defaults.text_size ) ) );
+                textbox->SetTextAngle( m_lastTextAngle );
+                textbox->SetHorizJustify( m_lastTextJust );
+
+                item = textbox;
+            }
             else
+            {
                 item = new LIB_SHAPE( symbol, type, lineWidth, m_lastFillStyle );
+            }
+
+            item->SetStroke( m_lastStroke );
+            item->SetFillColor( m_lastFillColor );
 
             item->SetFlags( IS_NEW );
             item->BeginEdit( VECTOR2I( cursorPos.x, -cursorPos.y ) );
@@ -372,7 +452,9 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::DrawShape( const TOOL_EVENT& aEvent )
 
             m_selectionTool->AddItemToSel( item );
         }
-        else if( item && ( evt->IsClick( BUT_LEFT ) || evt->IsDblClick( BUT_LEFT )
+        else if( item && ( evt->IsClick( BUT_LEFT )
+                        || evt->IsDblClick( BUT_LEFT )
+                        || isSyntheticClick
                         || evt->IsAction( &EE_ACTIONS::finishDrawing ) ) )
         {
             if( symbol != m_frame->GetCurSymbol() )
@@ -389,6 +471,7 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::DrawShape( const TOOL_EVENT& aEvent )
 
                 if( isTextBox )
                 {
+                    LIB_TEXTBOX*                  textbox = static_cast<LIB_TEXTBOX*>( item );
                     DIALOG_LIB_TEXTBOX_PROPERTIES dlg( m_frame, static_cast<LIB_TEXTBOX*>( item ) );
 
                     if( dlg.ShowQuasiModal() != wxID_OK )
@@ -396,7 +479,16 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::DrawShape( const TOOL_EVENT& aEvent )
                         cleanup();
                         continue;
                     }
+
+                    m_lastTextBold = textbox->IsBold();
+                    m_lastTextItalic = textbox->IsItalic();
+                    m_lastTextAngle = textbox->GetTextAngle();
+                    m_lastTextJust = textbox->GetHorizJustify();
                 }
+
+                m_lastStroke = item->GetStroke();
+                m_lastFillStyle = item->GetFillMode();
+                m_lastFillColor = item->GetFillColor();
 
                 m_view->ClearPreview();
 
@@ -446,8 +538,7 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::DrawShape( const TOOL_EVENT& aEvent )
 
 int SYMBOL_EDITOR_DRAWING_TOOLS::PlaceAnchor( const TOOL_EVENT& aEvent )
 {
-    std::string tool = aEvent.GetCommandStr().get();
-    m_frame->PushTool( tool );
+    m_frame->PushTool( aEvent );
 
     auto setCursor =
             [&]()
@@ -468,12 +559,12 @@ int SYMBOL_EDITOR_DRAWING_TOOLS::PlaceAnchor( const TOOL_EVENT& aEvent )
 
         if( evt->IsCancelInteractive() )
         {
-            m_frame->PopTool( tool );
+            m_frame->PopTool( aEvent );
             break;
         }
         else if( evt->IsActivate() )
         {
-            m_frame->PopTool( tool );
+            m_frame->PopTool( aEvent );
             break;
         }
         else if( evt->IsClick( BUT_LEFT ) || evt->IsDblClick( BUT_LEFT ) )

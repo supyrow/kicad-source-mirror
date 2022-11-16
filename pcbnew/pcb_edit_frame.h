@@ -21,8 +21,6 @@
 #ifndef  __PCB_EDIT_FRAME_H__
 #define  __PCB_EDIT_FRAME_H__
 
-#include <unordered_map>
-#include <map>
 #include "pcb_base_edit_frame.h"
 #include "zones.h"
 #include <mail_type.h>
@@ -127,6 +125,11 @@ public:
     std::vector<BOARD_ITEM*> FindItemsFromSyncSelection( std::string syncStr );
 
     /**
+     * @return the name of the wxAuiPaneInfo managing the Search panel
+     */
+    static const wxString SearchPaneName() { return wxT( "Search" ); }
+
+    /**
      * Show the Find dialog.
      */
     void ShowFindDialog();
@@ -148,7 +151,10 @@ public:
 
     // User interface update command event handlers.
     void OnUpdateLayerSelectBox( wxUpdateUIEvent& aEvent );
+
     bool LayerManagerShown();
+    bool PropertiesShown();
+
     void OnUpdateSelectViaSize( wxUpdateUIEvent& aEvent );
     void OnUpdateSelectTrackWidth( wxUpdateUIEvent& aEvent );
     void OnUpdateSelectAutoWidth( wxUpdateUIEvent& aEvent );
@@ -294,6 +300,8 @@ public:
     void PrepareLayerIndicator( bool aForceRebuild = false );
 
     void ToggleLayersManager();
+    void ToggleProperties();
+    void ToggleSearch();
 
     /**
      * Create an ASCII footprint position file.
@@ -308,11 +316,12 @@ public:
      *                    \a aTopSide are true, list footprints on both sides.
      * @param aFormatCSV true to use a comma separated file (CSV) format; default = false
      * @param aUseAuxOrigin true to use auxiliary axis as an origin for the position data
+     * @param aNegateBottomX true to negate X coordinates for bottom side of the placement file
      * @return the number of footprints found on aSide side or -1 if the file could not be created.
      */
     int DoGenFootprintsPositionFile( const wxString& aFullFileName, bool aUnitsMM, bool aOnlySMD,
                                      bool aNoTHItems, bool aTopSide, bool aBottomSide,
-                                     bool aFormatCSV, bool aUseAuxOrigin );
+                                     bool aFormatCSV, bool aUseAuxOrigin, bool aNegateBottomX );
 
     /**
      * Call #DoGenFootprintsReport to create a footprint report file
@@ -611,9 +620,11 @@ public:
     /**
      * Test if standalone mode.
      *
-     * @return true if in standalone, opens Eeschema, and opens the schematic for this project
+     * @return 0 if in standalone, -1 if Eeschema cannot be opened,
+     * -2 if the schematic cannot be opened and 1 if OK.
+     * If OK, opens Eeschema, and opens the schematic for this project
      */
-    bool TestStandalone( void );
+    int TestStandalone( void );
 
     /**
      * Read a netlist from a file into a #NETLIST object.
@@ -634,12 +645,25 @@ public:
     void OnNetlistChanged( BOARD_NETLIST_UPDATER& aUpdater, bool* aRunDragCommand );
 
     /**
-     * Send a message to the schematic editor so that it may move its cursor
-     * to a symbol with the same reference as the \a objectToSync.
+     * Send a message to the schematic editor to try to find schematic counterparts
+     * of specified PCB items and select them.
      *
-     * @param objectToSync The object whose reference is used to synchronize Eeschema.
+     * @param aItems are the items to try to select on schematic.
+     * @param aFocusItem set to item to select and focus on even if selection can't be
+     *                   represented in Schematic editor fully.
+     * @param aForce select elements in Schematic editor whether or not the user has
+     *               the select option chosen.
      */
-    void SendMessageToEESCHEMA( BOARD_ITEM* objectToSync );
+    void SendSelectItemsToSch( const std::deque<EDA_ITEM*>& aItems, EDA_ITEM* aFocusItem,
+                               bool aForce );
+
+    /**
+     * Send a message to the schematic editor so that it may move its cursor
+     * to an item with the same reference as the \a aSyncItem and highlight it.
+     *
+     * @param aSyncItem The object whose reference is used to highlight in Eeschema.
+     */
+    void SendCrossProbeItem( BOARD_ITEM* aSyncItem );
 
     /**
      * Send a net name to Eeschema for highlighting.
@@ -758,11 +782,6 @@ protected:
     bool doAutoSave() override;
 
     /**
-     * Return true if the board has been modified.
-     */
-    bool isAutoSaveRequired() const override;
-
-    /**
      * Load the given filename but sets the path to the current project path.
      *
      * @param full file path of file to be imported.
@@ -789,10 +808,12 @@ public:
     wxChoice* m_SelViaSizeBox;           // a choice box to display and select current via diameter
 
     bool m_show_layer_manager_tools;
+    bool m_show_properties;
+    bool m_show_search;
 
     bool m_ZoneFillsDirty;               // Board has been modified since last zone fill.
 
-    bool m_syncingSchToPcbSelection; // Recursion guard when synchronizing selection from schematic
+    bool m_probingSchToPcb;              // Recursion guard when synchronizing selection from schematic
 
 private:
     friend struct PCB::IFACE;

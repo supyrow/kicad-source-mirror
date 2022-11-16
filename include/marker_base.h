@@ -30,7 +30,6 @@
 
 #include <rc_item.h>
 #include <gr_basic.h>
-#include <eda_rect.h>
 
 
 class SHAPE_LINE_CHAIN;
@@ -53,6 +52,7 @@ public:
         MARKER_UNSPEC,
         MARKER_ERC,
         MARKER_DRC,
+        MARKER_DRAWING_SHEET,
         MARKER_RATSNEST,
         MARKER_PARITY,
         MARKER_SIMUL
@@ -119,7 +119,7 @@ public:
      * object, and the units should be in the pcb or schematic coordinate system.
      * It is OK to overestimate the size by a few counts.
      */
-    EDA_RECT GetBoundingBoxMarker() const;
+    BOX2I GetBoundingBoxMarker() const;
 
 protected:
     virtual KIGFX::COLOR4D getColor() const = 0;
@@ -134,7 +134,7 @@ protected:
 
     int                   m_scalingFactor;       // Scaling factor to convert corners coordinates
                                                  // to internal units coordinates
-    EDA_RECT              m_shapeBoundingBox;    // Bounding box of the graphic symbol, relative
+    BOX2I                 m_shapeBoundingBox;    // Bounding box of the graphic symbol, relative
                                                  // to the position of the shape, in marker shape
                                                  // units
 };

@@ -2,7 +2,7 @@
  * This program source code file is part of KICAD, a free EDA CAD application.
  *
  * Copyright (C) 1992-2015 jean-pierre.charras
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -35,22 +35,26 @@
 
 #include <calculator_panels/panel_attenuators.h>
 #include <calculator_panels/panel_board_class.h>
+#include <calculator_panels/panel_cable_size.h>
+#include <calculator_panels/panel_corrosion.h>
 #include <calculator_panels/panel_color_code.h>
 #include <calculator_panels/panel_electrical_spacing.h>
 #include <calculator_panels/panel_eserie.h>
+#include <calculator_panels/panel_fusing_current.h>
 #include <calculator_panels/panel_regulator.h>
 #include <calculator_panels/panel_track_width.h>
 #include <calculator_panels/panel_transline.h>
 #include <calculator_panels/panel_via_size.h>
+#include <calculator_panels/panel_wavelength.h>
 
 
 PCB_CALCULATOR_FRAME::PCB_CALCULATOR_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
     KIWAY_PLAYER( aParent, wxID_ANY,
-                 _( "PCB Calculator"  ), // Window title
+                 _( "Calculator Tools"  ), // Window title
                  wxDefaultPosition,
                  wxSize( 646,361 ), // Default size
                  wxDEFAULT_FRAME_STYLE | wxRESIZE_BORDER | wxFULL_REPAINT_ON_RESIZE | wxTAB_TRAVERSAL,
-                 wxT( "pcb_calculator" ) ), // Window name
+                 wxT( "calculator_tools" ) ), // Window name
     m_lastNotebookPage( -1 )
 {
     SHAPE_POLY_SET dummy;   // A ugly trick to force the linker to include
@@ -86,14 +90,22 @@ PCB_CALCULATOR_FRAME::PCB_CALCULATOR_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
                    _( "Via Size" ) );
     AddCalculator( new PANEL_TRACK_WIDTH( m_treebook, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxTAB_TRAVERSAL ),
                    _( "Track Width" ) );
+    AddCalculator( new PANEL_FUSING_CURRENT( m_treebook, wxID_ANY, wxDefaultPosition, wxDefaultSize,
+                                             wxTAB_TRAVERSAL ),
+                   _( "Fusing Current" ) );
+    AddCalculator( new PANEL_CABLE_SIZE( m_treebook, wxID_ANY, wxDefaultPosition, wxDefaultSize,
+                                         wxTAB_TRAVERSAL ),
+                   _( "Cable Size" ) );
 
     m_treebook->AddPage( nullptr, _( "High speed" ) );
 
-
+    AddCalculator( new PANEL_WAVELENGTH( m_treebook, wxID_ANY, wxDefaultPosition, wxDefaultSize,
+                                         wxTAB_TRAVERSAL ),
+                   _( "Wavelength" ) );
     AddCalculator( new PANEL_ATTENUATORS( m_treebook, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxTAB_TRAVERSAL ),
                    _( "RF Attenuators" ) );
     AddCalculator( new PANEL_TRANSLINE( m_treebook, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxTAB_TRAVERSAL ),
-                   _( "TransLine ") );
+                   _( "Transmission Lines") );
 
     m_treebook->AddPage( nullptr, _( "Memo" ) );
 
@@ -103,6 +115,8 @@ PCB_CALCULATOR_FRAME::PCB_CALCULATOR_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
                    _( "Color Code" ) );
     AddCalculator( new PANEL_BOARD_CLASS( m_treebook, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxTAB_TRAVERSAL ),
                    _("Board Classes") );
+    AddCalculator( new PANEL_CORROSION( m_treebook, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxTAB_TRAVERSAL ),
+                   _( "Galvanic Corrosion" ) );
 
     LoadSettings( config() );
 
@@ -130,15 +144,19 @@ PCB_CALCULATOR_FRAME::PCB_CALCULATOR_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
     if( m_framePos == wxDefaultPosition )
         Centre();
 
+    // Expand treebook to show all options:
+    for( size_t pageId = 0; pageId < m_treebook->GetPageCount(); pageId++ )
+        m_treebook->ExpandNode( pageId );
+
     // Connect Events
     Bind( wxEVT_CLOSE_WINDOW, wxCloseEventHandler( PCB_CALCULATOR_FRAME::OnClosePcbCalc ), this );
     Bind( wxEVT_UPDATE_UI,    wxUpdateUIEventHandler( PCB_CALCULATOR_FRAME::OnUpdateUI ),  this );
 
     Bind( wxEVT_SYS_COLOUR_CHANGED,
           wxSysColourChangedEventHandler( PCB_CALCULATOR_FRAME::onThemeChanged ), this );
-    
+
     m_treebook->Connect( wxEVT_COMMAND_TREEBOOK_PAGE_CHANGED, wxTreebookEventHandler(
-                         PCB_CALCULATOR_FRAME::OnPageChanged  ), NULL, this );    
+                         PCB_CALCULATOR_FRAME::OnPageChanged  ), NULL, this );
 }
 
 
@@ -154,7 +172,7 @@ PCB_CALCULATOR_FRAME::~PCB_CALCULATOR_FRAME()
 void PCB_CALCULATOR_FRAME::OnPageChanged ( wxTreebookEvent& aEvent )
 {
     int page = aEvent.GetSelection();
-    
+
     // If the selected page is a top level page
     if ( m_treebook->GetPageParent( page ) == wxNOT_FOUND )
     {

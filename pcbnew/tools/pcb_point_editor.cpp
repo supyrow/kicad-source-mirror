@@ -37,17 +37,20 @@ using namespace std::placeholders;
 #include <tools/pcb_point_editor.h>
 #include <tools/pcb_grid_helper.h>
 #include <board_commit.h>
-#include <status_popup.h>
 #include <pcb_edit_frame.h>
-#include <pcb_textbox.h>
 #include <fp_shape.h>
 #include <fp_textbox.h>
+#include <pcb_bitmap.h>
 #include <pcb_dimension.h>
+#include <pcb_textbox.h>
 #include <pad.h>
 #include <zone.h>
+#include <footprint.h>
+#include <footprint_editor_settings.h>
 #include <connectivity/connectivity_data.h>
 #include <progress_reporter.h>
 
+const unsigned int PCB_POINT_EDITOR::COORDS_PADDING = pcbIUScale.mmToIU( 20 );
 
 // Few constants to avoid using bare numbers for point indices
 enum SEG_POINTS
@@ -119,10 +122,6 @@ void PCB_POINT_EDITOR::Reset( RESET_REASON aReason )
     m_editPoints.reset();
     m_altConstraint.reset();
     getViewControls()->SetAutoPan( false );
-
-    m_statusPopup = std::make_unique<STATUS_TEXT_POPUP>( getEditFrame<PCB_BASE_EDIT_FRAME>() );
-    m_statusPopup->SetTextColor( wxColour( 255, 0, 0 ) );
-    m_statusPopup->SetText( _( "Self-intersecting polygons are not allowed." ) );
 }
 
 
@@ -195,6 +194,20 @@ std::shared_ptr<EDIT_POINTS> PCB_POINT_EDITOR::makePoints( EDA_ITEM* aItem )
     // Generate list of edit points basing on the item type
     switch( aItem->Type() )
     {
+    case PCB_BITMAP_T:
+    {
+        PCB_BITMAP* bitmap = (PCB_BITMAP*) aItem;
+        VECTOR2I    topLeft = bitmap->GetPosition() - bitmap->GetSize() / 2;
+        VECTOR2I    botRight = bitmap->GetPosition() + bitmap->GetSize() / 2;
+
+        points->AddPoint( topLeft );
+        points->AddPoint( VECTOR2I( botRight.x, topLeft.y ) );
+        points->AddPoint( botRight );
+        points->AddPoint( VECTOR2I( topLeft.x, botRight.y ) );
+
+        break;
+    }
+
     case PCB_TEXTBOX_T:
     case PCB_FP_TEXTBOX_T:
     case PCB_SHAPE_T:
@@ -210,10 +223,10 @@ std::shared_ptr<EDIT_POINTS> PCB_POINT_EDITOR::makePoints( EDA_ITEM* aItem )
             break;
 
         case SHAPE_T::RECT:
-            points->AddPoint( shape->GetStart() );
-            points->AddPoint( VECTOR2I( shape->GetEnd().x, shape->GetStart().y ) );
-            points->AddPoint( shape->GetEnd() );
-            points->AddPoint( VECTOR2I( shape->GetStart().x, shape->GetEnd().y ) );
+            points->AddPoint( shape->GetTopLeft() );
+            points->AddPoint( VECTOR2I( shape->GetBotRight().x, shape->GetTopLeft().y ) );
+            points->AddPoint( shape->GetBotRight() );
+            points->AddPoint( VECTOR2I( shape->GetTopLeft().x, shape->GetBotRight().y ) );
 
             points->AddLine( points->Point( RECT_TOP_LEFT ), points->Point( RECT_TOP_RIGHT ) );
             points->Line( RECT_TOP ).SetConstraint( new EC_PERPLINE( points->Line( RECT_TOP ) ) );
@@ -322,6 +335,9 @@ std::shared_ptr<EDIT_POINTS> PCB_POINT_EDITOR::makePoints( EDA_ITEM* aItem )
         points->AddPoint( dimension->GetCrossbarStart() );
         points->AddPoint( dimension->GetCrossbarEnd() );
 
+        points->Point( DIM_START ).SetSnapConstraint( ALL_LAYERS );
+        points->Point( DIM_END ).SetSnapConstraint( ALL_LAYERS );
+
         if( aItem->Type() == PCB_DIM_ALIGNED_T )
         {
             // Dimension height setting - edit points should move only along the feature lines
@@ -344,8 +360,11 @@ std::shared_ptr<EDIT_POINTS> PCB_POINT_EDITOR::makePoints( EDA_ITEM* aItem )
         points->AddPoint( dimension->GetStart() );
         points->AddPoint( dimension->GetEnd() );
 
+        points->Point( DIM_START ).SetSnapConstraint( ALL_LAYERS );
+
         points->Point( DIM_END ).SetConstraint( new EC_45DEGREE( points->Point( DIM_END ),
                                                                  points->Point( DIM_START ) ) );
+        points->Point( DIM_END ).SetSnapConstraint( IGNORE_SNAPS );
 
         break;
     }
@@ -360,12 +379,16 @@ std::shared_ptr<EDIT_POINTS> PCB_POINT_EDITOR::makePoints( EDA_ITEM* aItem )
         points->AddPoint( dimension->Text().GetPosition() );
         points->AddPoint( dimension->GetKnee() );
 
+        points->Point( DIM_START ).SetSnapConstraint( ALL_LAYERS );
+        points->Point( DIM_END ).SetSnapConstraint( ALL_LAYERS );
+
         points->Point( DIM_KNEE ).SetConstraint( new EC_LINE( points->Point( DIM_START ),
                                                               points->Point( DIM_END ) ) );
+        points->Point( DIM_KNEE ).SetSnapConstraint( IGNORE_SNAPS );
 
         points->Point( DIM_TEXT ).SetConstraint( new EC_45DEGREE( points->Point( DIM_TEXT ),
                                                                   points->Point( DIM_KNEE ) ) );
-        points->Point( DIM_TEXT ).SetGridConstraint( IGNORE_GRID );
+        points->Point( DIM_TEXT ).SetSnapConstraint( IGNORE_SNAPS );
 
         break;
     }
@@ -379,9 +402,12 @@ std::shared_ptr<EDIT_POINTS> PCB_POINT_EDITOR::makePoints( EDA_ITEM* aItem )
         points->AddPoint( dimension->GetEnd() );
         points->AddPoint( dimension->Text().GetPosition() );
 
+        points->Point( DIM_START ).SetSnapConstraint( ALL_LAYERS );
+        points->Point( DIM_END ).SetSnapConstraint( ALL_LAYERS );
+
         points->Point( DIM_TEXT ).SetConstraint( new EC_45DEGREE( points->Point( DIM_TEXT ),
                                                                   points->Point( DIM_END ) ) );
-        points->Point( DIM_TEXT ).SetGridConstraint( IGNORE_GRID );
+        points->Point( DIM_TEXT ).SetSnapConstraint( IGNORE_SNAPS );
 
         break;
     }
@@ -467,19 +493,20 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
     updateEditedPoint( aEvent );
     m_refill = false;
     bool inDrag = false;
-    bool lock45 = false;
+    bool useAltContraint = false;
 
     BOARD_COMMIT commit( editFrame );
-    LSET snapLayers = item->GetLayerSet();
-
-    if( BaseType( item->Type() ) == PCB_DIMENSION_T )
-        snapLayers = LSET::AllLayersMask();
 
     // Main loop: keep receiving events
     while( TOOL_EVENT* evt = Wait() )
     {
         grid.SetSnap( !evt->Modifier( MD_SHIFT ) );
         grid.SetUseGrid( getView()->GetGAL()->GetGridSnapping() && !evt->DisableGridSnapping() );
+
+        if( editFrame->IsType( FRAME_PCB_EDITOR ) )
+            useAltContraint = editFrame->GetPcbNewSettings()->m_Use45DegreeLimit;
+        else
+            useAltContraint = editFrame->GetFootprintEditorSettings()->m_Use45Limit;
 
         if( !m_editPoints || evt->IsSelectionEvent() ||
                 evt->Matches( EVENTS::InhibitSelectionEditing ) )
@@ -523,20 +550,18 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
                 }
             }
 
-            VECTOR2I pos = evt->Position();
+            // Keep point inside of limits with some padding
+            VECTOR2I pos = GetClampedCoords<double, int>( evt->Position(), COORDS_PADDING );
+            LSET     snapLayers;
 
-            //TODO: unify the constraints to solve simultaneously instead of sequentially
-            switch( m_editedPoint->GetGridConstraint() )
+            switch( m_editedPoint->GetSnapConstraint() )
             {
-            case IGNORE_GRID:
-                m_editedPoint->SetPosition( pos );
-                break;
+            case IGNORE_SNAPS:                                      break;
+            case OBJECT_LAYERS: snapLayers = item->GetLayerSet();   break;
+            case ALL_LAYERS:    snapLayers = LSET::AllLayersMask(); break;
+            }
 
-            case SNAP_TO_GRID:
-                m_editedPoint->SetPosition( grid.BestSnapAnchor( pos, snapLayers, { item } ) );
-                break;
-
-            case SNAP_BY_GRID:
+            if( m_editedPoint->GetGridConstraint() == SNAP_BY_GRID )
             {
                 if( grid.GetUseGrid() )
                 {
@@ -556,19 +581,20 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
                     else
                         pos.y = last.y;
                 }
+            }
 
-                m_editedPoint->SetPosition( pos );
-                break;
-            }
-            }
+            m_editedPoint->SetPosition( pos );
 
             // The alternative constraint limits to 45 degrees
-            if( lock45 )
-                m_altConstraint->Apply();
-            else
-                m_editedPoint->ApplyConstraint();
-
-            if( m_editedPoint->GetGridConstraint() == SNAP_TO_GRID )
+            if( useAltContraint )
+            {
+                m_altConstraint->Apply( grid );
+            }
+            else if( m_editedPoint->IsConstrained() )
+            {
+                m_editedPoint->ApplyConstraint( grid );
+            }
+            else if( m_editedPoint->GetGridConstraint() == SNAP_TO_GRID )
             {
                 m_editedPoint->SetPosition( grid.BestSnapAnchor( m_editedPoint->GetPosition(),
                                                                  snapLayers, { item } ) );
@@ -609,11 +635,6 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
 
             m_refill = true;
         }
-        else if( evt->IsAction( &PCB_ACTIONS::toggle45 ) )
-        {
-            lock45 = !lock45;
-            evt->SetPassEvent( false );
-        }
         else if( evt->IsCancelInteractive() || evt->IsActivate() )
         {
             if( inDrag )      // Restore the last change
@@ -633,7 +654,6 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
         {
             break;
         }
-
         else
         {
             evt->SetPassEvent();
@@ -643,8 +663,6 @@ int PCB_POINT_EDITOR::OnSelectionChange( const TOOL_EVENT& aEvent )
     if( m_editPoints )
     {
         getView()->Remove( m_editPoints.get() );
-
-        finishItem();
         m_editPoints.reset();
     }
 
@@ -811,9 +829,6 @@ void PCB_POINT_EDITOR::editArcEndpointKeepTangent( PCB_SHAPE* aArc, const VECTOR
 /**
  * Update the coordinates of 4 corners of a rectangle, according to pad constraints and the
  * moved corner
- * @param aEditedPointIndex is the corner id
- * @param aMinWidth is the minimal width constraint
- * @param aMinHeight is the minimal height constraint
  * @param aTopLeft [in/out] is the RECT_TOPLEFT to constraint
  * @param aTopRight [in/out] is the RECT_TOPRIGHT to constraint
  * @param aBotLeft [in/out] is the RECT_BOTLEFT to constraint
@@ -821,91 +836,104 @@ void PCB_POINT_EDITOR::editArcEndpointKeepTangent( PCB_SHAPE* aArc, const VECTOR
  * @param aHole the location of the pad's hole
  * @param aHoleSize the pad's hole size (or {0,0} if it has no hole)
  */
-static void pinEditedCorner( int aEditedPointIndex, int aMinWidth, int aMinHeight,
-                             VECTOR2I& aTopLeft, VECTOR2I& aTopRight, VECTOR2I& aBotLeft,
-                             VECTOR2I& aBotRight, VECTOR2I& aHole, VECTOR2I& aHoleSize )
+void PCB_POINT_EDITOR::pinEditedCorner( VECTOR2I& aTopLeft, VECTOR2I& aTopRight,
+                                        VECTOR2I& aBotLeft, VECTOR2I& aBotRight,
+                                        const VECTOR2I& aHole, const VECTOR2I& aHoleSize ) const
 {
-    switch( aEditedPointIndex )
+    int minWidth = EDA_UNIT_UTILS::Mils2IU( pcbIUScale, 1 );
+    int minHeight = EDA_UNIT_UTILS::Mils2IU( pcbIUScale, 1 );
+
+    if( isModified( m_editPoints->Point( RECT_TOP_LEFT ) ) )
     {
-    case RECT_TOP_LEFT:
         if( aHoleSize.x )
         {
             // pin edited point to the top/left of the hole
-            aTopLeft.x = std::min( aTopLeft.x, aHole.x - aHoleSize.x / 2 - aMinWidth );
-            aTopLeft.y = std::min( aTopLeft.y, aHole.y - aHoleSize.y / 2 - aMinHeight );
+            aTopLeft.x = std::min( aTopLeft.x, aHole.x - aHoleSize.x / 2 - minWidth );
+            aTopLeft.y = std::min( aTopLeft.y, aHole.y - aHoleSize.y / 2 - minHeight );
         }
         else
         {
             // pin edited point within opposite corner
-            aTopLeft.x = std::min( aTopLeft.x, aBotRight.x - aMinWidth );
-            aTopLeft.y = std::min( aTopLeft.y, aBotRight.y - aMinHeight );
+            aTopLeft.x = std::min( aTopLeft.x, aBotRight.x - minWidth );
+            aTopLeft.y = std::min( aTopLeft.y, aBotRight.y - minHeight );
         }
 
         // push edited point edges to adjacent corners
         aTopRight.y = aTopLeft.y;
         aBotLeft.x = aTopLeft.x;
-
-        break;
-
-    case RECT_TOP_RIGHT:
+    }
+    else if( isModified( m_editPoints->Point( RECT_TOP_RIGHT ) ) )
+    {
         if( aHoleSize.x )
         {
             // pin edited point to the top/right of the hole
-            aTopRight.x = std::max( aTopRight.x, aHole.x + aHoleSize.x / 2 + aMinWidth );
-            aTopRight.y = std::min( aTopRight.y, aHole.y - aHoleSize.y / 2 - aMinHeight );
+            aTopRight.x = std::max( aTopRight.x, aHole.x + aHoleSize.x / 2 + minWidth );
+            aTopRight.y = std::min( aTopRight.y, aHole.y - aHoleSize.y / 2 - minHeight );
         }
         else
         {
             // pin edited point within opposite corner
-            aTopRight.x = std::max( aTopRight.x, aBotLeft.x + aMinWidth );
-            aTopRight.y = std::min( aTopRight.y, aBotLeft.y - aMinHeight );
+            aTopRight.x = std::max( aTopRight.x, aBotLeft.x + minWidth );
+            aTopRight.y = std::min( aTopRight.y, aBotLeft.y - minHeight );
         }
 
         // push edited point edges to adjacent corners
         aTopLeft.y = aTopRight.y;
         aBotRight.x = aTopRight.x;
-
-        break;
-
-    case RECT_BOT_LEFT:
+    }
+    else if( isModified( m_editPoints->Point( RECT_BOT_LEFT ) ) )
+    {
         if( aHoleSize.x )
         {
             // pin edited point to the bottom/left of the hole
-            aBotLeft.x = std::min( aBotLeft.x, aHole.x - aHoleSize.x / 2 - aMinWidth );
-            aBotLeft.y = std::max( aBotLeft.y, aHole.y + aHoleSize.y / 2 + aMinHeight );
+            aBotLeft.x = std::min( aBotLeft.x, aHole.x - aHoleSize.x / 2 - minWidth );
+            aBotLeft.y = std::max( aBotLeft.y, aHole.y + aHoleSize.y / 2 + minHeight );
         }
         else
         {
             // pin edited point within opposite corner
-            aBotLeft.x = std::min( aBotLeft.x, aTopRight.x - aMinWidth );
-            aBotLeft.y = std::max( aBotLeft.y, aTopRight.y + aMinHeight );
+            aBotLeft.x = std::min( aBotLeft.x, aTopRight.x - minWidth );
+            aBotLeft.y = std::max( aBotLeft.y, aTopRight.y + minHeight );
         }
 
         // push edited point edges to adjacent corners
         aBotRight.y = aBotLeft.y;
         aTopLeft.x = aBotLeft.x;
-
-        break;
-
-    case RECT_BOT_RIGHT:
+    }
+    else if( isModified( m_editPoints->Point( RECT_BOT_RIGHT ) ) )
+    {
         if( aHoleSize.x )
         {
             // pin edited point to the bottom/right of the hole
-            aBotRight.x = std::max( aBotRight.x, aHole.x + aHoleSize.x / 2 + aMinWidth );
-            aBotRight.y = std::max( aBotRight.y, aHole.y + aHoleSize.y / 2 + aMinHeight );
+            aBotRight.x = std::max( aBotRight.x, aHole.x + aHoleSize.x / 2 + minWidth );
+            aBotRight.y = std::max( aBotRight.y, aHole.y + aHoleSize.y / 2 + minHeight );
         }
         else
         {
             // pin edited point within opposite corner
-            aBotRight.x = std::max( aBotRight.x, aTopLeft.x + aMinWidth );
-            aBotRight.y = std::max( aBotRight.y, aTopLeft.y + aMinHeight );
+            aBotRight.x = std::max( aBotRight.x, aTopLeft.x + minWidth );
+            aBotRight.y = std::max( aBotRight.y, aTopLeft.y + minHeight );
         }
 
         // push edited point edges to adjacent corners
         aBotLeft.y = aBotRight.y;
         aTopRight.x = aBotRight.x;
-
-        break;
+    }
+    else if( isModified( m_editPoints->Line( RECT_TOP ) ) )
+    {
+        aTopLeft.y = std::min( aTopLeft.y, aBotRight.y - minHeight );
+    }
+    else if( isModified( m_editPoints->Line( RECT_LEFT ) ) )
+    {
+        aTopLeft.x = std::min( aTopLeft.x, aBotRight.x - minWidth );
+    }
+    else if( isModified( m_editPoints->Line( RECT_BOT ) ) )
+    {
+        aBotRight.y = std::max( aBotRight.y, aTopLeft.y + minHeight );
+    }
+    else if( isModified( m_editPoints->Line( RECT_RIGHT ) ) )
+    {
+        aBotRight.x = std::max( aBotRight.x, aTopLeft.x + minWidth );
     }
 }
 
@@ -915,65 +943,57 @@ void PCB_POINT_EDITOR::editArcEndpointKeepCenter( PCB_SHAPE* aArc, const VECTOR2
                                                   const VECTOR2I& aEnd,
                                                   const VECTOR2I& aCursor ) const
 {
+    int  minRadius = EDA_UNIT_UTILS::Mils2IU( pcbIUScale, 1 );
     bool movingStart;
 
-    VECTOR2I p1, p2;
-    VECTOR2I  target;
+    VECTOR2I p1, p2, prev_p1;
 
-    // p1 does not move, p2 does.
+    // user is moving p1, we want to move p2 to the new radius.
 
     if( aStart != aArc->GetStart() )
     {
-        p1          = aEnd;
-        p2          = aStart;
+        prev_p1     = aArc->GetStart();
+        p1          = aStart;
+        p2          = aEnd;
         movingStart = true;
     }
     else
     {
-        p1          = aStart;
-        p2          = aEnd;
+        prev_p1     = aArc->GetEnd();
+        p1          = aEnd;
+        p2          = aStart;
         movingStart = false;
     }
-
-    target = p2 - aCenter;
-
-    double sqRadius = ( p1 - aCenter ).SquaredEuclideanNorm();
 
     p1 = p1 - aCenter;
     p2 = p2 - aCenter;
 
-    // Circle : x^2 + y^2 = R ^ 2
-    // In this coordinate system, the angular position of the cursor is (r, theta)
-    // The line coming from the center of the circle is y = start.y / start.x * x
-    // The intersection fulfills : x^2  = R^2 /  ( 1 + ( start.y / start.x ) ^ 2 )
+    if( p1.x == 0 && p1.y == 0 )
+        p1 = prev_p1 - aCenter;
 
-    if( target.x == 0 )
-    {
-        p2.x = 0;
-        p2.y = ( target.y > 0 ) ? sqrt( sqRadius ) : -sqrt( sqRadius );
-    }
-    else
-    {
-        double tan = target.y / static_cast<double>( target.x );
+    if( p2.x == 0 && p2.y == 0 )
+        p2 = { 1, 0 };
 
-        // The divider is always greater than 1 ( cannot be 0 )
-        double tmp = sqrt( sqRadius / ( 1.0 + tan * tan ) );
+    double radius = p1.EuclideanNorm();
 
-        // Move to the correct quadrant
-        tmp   = target.x > 0 ? tmp : -tmp;
-        p2.y = target.y / static_cast<double>( target.x ) * tmp;
-        p2.x = tmp;
-    }
+    if( radius < minRadius )
+        radius = minRadius;
 
-    p1 = p1 + aCenter;
-    p2 = p2 + aCenter;
+    p1 = aCenter + p1.Resize( radius );
+    p2 = aCenter + p2.Resize( radius );
 
     aArc->SetCenter( aCenter );
 
     if( movingStart )
-        aArc->SetStart( aStart );
+    {
+        aArc->SetStart( p1 );
+        aArc->SetEnd( p2 );
+    }
     else
-        aArc->SetEnd( aEnd );
+    {
+        aArc->SetStart( p2 );
+        aArc->SetEnd( p1 );
+    }
 }
 
 
@@ -981,57 +1001,25 @@ void PCB_POINT_EDITOR::editArcMidKeepCenter( PCB_SHAPE* aArc, const VECTOR2I& aC
                                              const VECTOR2I& aStart, const VECTOR2I& aMid,
                                              const VECTOR2I& aEnd, const VECTOR2I& aCursor ) const
 {
+    int minRadius = EDA_UNIT_UTILS::Mils2IU( pcbIUScale, 1 );
+
+    SEG chord( aStart, aEnd );
+
     // Now, update the edit point position
     // Express the point in a circle-centered coordinate system.
     VECTOR2I start = aStart - aCenter;
-    VECTOR2I end   = aEnd - aCenter;
+    VECTOR2I end = aEnd - aCenter;
 
-    double sqRadius = ( aCursor - aCenter ).SquaredEuclideanNorm();
+    double radius = ( aCursor - aCenter ).EuclideanNorm();
 
-    // Special case, because the tangent would lead to +/- infinity
-    if( start.x == 0 )
-    {
-        start.y = aCursor.y > 0 ? sqrt( sqRadius ) : -sqrt( sqRadius );
-    }
-    else
-    {
-        // Circle : x^2 + y^2 = R ^ 2
-        // In this coordinate system, the angular position of the cursor is (r, theta)
-        // The line coming from the center of the circle is y = start.y / start.x * x
-        // The intersection fulfills : x^2  = R^2 /  ( 1 + ( start.y / start.x ) ^ 2 )
+    if( radius < minRadius )
+        radius = minRadius;
 
-        double tan = aStart.y / static_cast<double>( start.x );
-        double tmp = sqrt( sqRadius / ( 1.0 + tan * tan ) );
-
-        // Move to the correct quadrant
-        tmp      = start.x > 0 ? tmp : -tmp;
-        start.y = start.y / static_cast<double>( start.x ) * tmp;
-        start.x = tmp;
-    }
-
-    // Special case, because the tangent would lead to +/- infinity
-    if( end.x == 0 )
-    {
-        end.y = aMid.y > 0 ? sqrt( sqRadius ) : -sqrt( sqRadius );
-    }
-    else
-    {
-        // Circle : x^2 + y^2 = R ^ 2
-        // In this coordinate system, the angular position of the cursor is (r, theta)
-        // The line coming from the center of the circle is y = start.y / start.x * x
-        // The intersection fulfills : x^2  = R^2 /  ( 1 + ( start.y / start.x ) ^ 2 )
-
-        double tan = end.y / static_cast<double>( end.x );
-        double tmp = sqrt( sqRadius / ( 1.0 + tan * tan ) );
-
-        // Move to the correct quadrant
-        tmp    = end.x > 0 ? tmp : -tmp;
-        end.y = end.y / static_cast<double>( end.x ) * tmp;
-        end.x = tmp;
-    }
+    start = start.Resize( radius );
+    end = end.Resize( radius );
 
     start = start + aCenter;
-    end   = end + aCenter;
+    end = end + aCenter;
 
     aArc->SetStart( start );
     aArc->SetEnd( end );
@@ -1065,6 +1053,30 @@ void PCB_POINT_EDITOR::updateItem() const
 
     switch( item->Type() )
     {
+    case PCB_BITMAP_T:
+    {
+        PCB_BITMAP* bitmap = (PCB_BITMAP*) item;
+        VECTOR2I    topLeft = m_editPoints->Point( RECT_TOP_LEFT ).GetPosition();
+        VECTOR2I    topRight = m_editPoints->Point( RECT_TOP_RIGHT ).GetPosition();
+        VECTOR2I    botLeft = m_editPoints->Point( RECT_BOT_LEFT ).GetPosition();
+        VECTOR2I    botRight = m_editPoints->Point( RECT_BOT_RIGHT ).GetPosition();
+
+        pinEditedCorner( topLeft, topRight, botLeft, botRight );
+
+        double oldWidth = bitmap->GetSize().x;
+        double newWidth = std::max( topRight.x - topLeft.x, EDA_UNIT_UTILS::Mils2IU( pcbIUScale, 50 ) );
+        double widthRatio = newWidth / oldWidth;
+
+        double oldHeight = bitmap->GetSize().y;
+        double newHeight =
+                std::max( botLeft.y - topLeft.y, EDA_UNIT_UTILS::Mils2IU( pcbIUScale, 50 ) );
+        double heightRatio = newHeight / oldHeight;
+
+        bitmap->SetImageScale( bitmap->GetImageScale() * std::min( widthRatio, heightRatio ) );
+
+        break;
+    }
+
     case PCB_TEXTBOX_T:
     case PCB_FP_TEXTBOX_T:
     case PCB_SHAPE_T:
@@ -1084,39 +1096,38 @@ void PCB_POINT_EDITOR::updateItem() const
 
         case SHAPE_T::RECT:
         {
-            if( isModified( m_editPoints->Point( RECT_TOP_LEFT ) ) )
+            VECTOR2I topLeft = m_editPoints->Point( RECT_TOP_LEFT ).GetPosition();
+            VECTOR2I topRight = m_editPoints->Point( RECT_TOP_RIGHT ).GetPosition();
+            VECTOR2I botLeft = m_editPoints->Point( RECT_BOT_LEFT ).GetPosition();
+            VECTOR2I botRight = m_editPoints->Point( RECT_BOT_RIGHT ).GetPosition();
+
+            pinEditedCorner( topLeft, topRight, botLeft, botRight );
+
+            if( isModified( m_editPoints->Point( RECT_TOP_LEFT ) )
+                    || isModified( m_editPoints->Point( RECT_TOP_RIGHT ) )
+                    || isModified( m_editPoints->Point( RECT_BOT_RIGHT ) )
+                    || isModified( m_editPoints->Point( RECT_BOT_LEFT ) ) )
             {
-                shape->SetStart( m_editPoints->Point( RECT_TOP_LEFT ).GetPosition() );
-            }
-            else if( isModified( m_editPoints->Point( RECT_TOP_RIGHT ) ) )
-            {
-                shape->SetStartY( m_editPoints->Point( RECT_TOP_RIGHT ).GetPosition().y );
-                shape->SetEndX( m_editPoints->Point( RECT_TOP_RIGHT ).GetPosition().x );
-            }
-            else if( isModified( m_editPoints->Point( RECT_BOT_RIGHT ) ) )
-            {
-                shape->SetEnd( m_editPoints->Point( RECT_BOT_RIGHT ).GetPosition() );
-            }
-            else if( isModified( m_editPoints->Point( RECT_BOT_LEFT ) ) )
-            {
-                shape->SetStartX( m_editPoints->Point( RECT_BOT_LEFT ).GetPosition().x );
-                shape->SetEndY( m_editPoints->Point( RECT_BOT_LEFT ).GetPosition().y );
+                shape->SetLeft( topLeft.x );
+                shape->SetTop( topLeft.y );
+                shape->SetRight( botRight.x );
+                shape->SetBottom( botRight.y );
             }
             else if( isModified( m_editPoints->Line( RECT_TOP ) ) )
             {
-                shape->SetStartY( m_editPoints->Point( RECT_TOP_LEFT ).GetPosition().y );
+                shape->SetTop( topLeft.y );
             }
             else if( isModified( m_editPoints->Line( RECT_LEFT ) ) )
             {
-                shape->SetStartX( m_editPoints->Point( RECT_BOT_LEFT ).GetPosition().x );
+                shape->SetLeft( topLeft.x );
             }
             else if( isModified( m_editPoints->Line( RECT_BOT ) ) )
             {
-                shape->SetEndY( m_editPoints->Point( RECT_BOT_RIGHT ).GetPosition().y );
+                shape->SetBottom( botRight.y );
             }
             else if( isModified( m_editPoints->Line( RECT_RIGHT ) ) )
             {
-                shape->SetEndX( m_editPoints->Point( RECT_TOP_RIGHT ).GetPosition().x );
+                shape->SetRight( botRight.x );
             }
 
             for( unsigned i = 0; i < m_editPoints->LinesSize(); ++i )
@@ -1148,9 +1159,9 @@ void PCB_POINT_EDITOR::updateItem() const
                 const VECTOR2I& cursorPos = getViewControls()->GetCursorPosition( false );
 
                 if( m_altEditMethod )
-                    editArcMidKeepCenter( shape, center, start, mid, end, cursorPos );
-                else
                     editArcMidKeepEndpoints( shape, start, end, cursorPos );
+                else
+                    editArcMidKeepCenter( shape, center, start, mid, end, cursorPos );
             }
             else if( isModified( m_editPoints->Point( ARC_START ) )
                      || isModified( m_editPoints->Point( ARC_END ) ) )
@@ -1158,9 +1169,9 @@ void PCB_POINT_EDITOR::updateItem() const
                 const VECTOR2I& cursorPos = getViewControls()->GetCursorPosition();
 
                 if( m_altEditMethod )
-                    editArcEndpointKeepCenter( shape, center, start, mid, end, cursorPos );
-                else
                     editArcEndpointKeepTangent( shape, center, start, mid, end, cursorPos );
+                else
+                    editArcEndpointKeepCenter( shape, center, start, mid, end, cursorPos );
             }
 
             break;
@@ -1204,14 +1215,11 @@ void PCB_POINT_EDITOR::updateItem() const
 
         case SHAPE_T::BEZIER:
             if( isModified( m_editPoints->Point( BEZIER_CURVE_START ) ) )
-                shape->SetStart( m_editPoints->Point( BEZIER_CURVE_START ).
-                                 GetPosition() );
+                shape->SetStart( m_editPoints->Point( BEZIER_CURVE_START ).GetPosition() );
             else if( isModified( m_editPoints->Point( BEZIER_CURVE_CONTROL_POINT1 ) ) )
-                shape->SetBezierC1( m_editPoints->Point( BEZIER_CURVE_CONTROL_POINT1 ).
-                                    GetPosition() );
+                shape->SetBezierC1( m_editPoints->Point( BEZIER_CURVE_CONTROL_POINT1 ).GetPosition() );
             else if( isModified( m_editPoints->Point( BEZIER_CURVE_CONTROL_POINT2 ) ) )
-                shape->SetBezierC2( m_editPoints->Point( BEZIER_CURVE_CONTROL_POINT2 ).
-                                    GetPosition() );
+                shape->SetBezierC2( m_editPoints->Point( BEZIER_CURVE_CONTROL_POINT2 ).GetPosition() );
             else if( isModified( m_editPoints->Point( BEZIER_CURVE_END ) ) )
                 shape->SetEnd( m_editPoints->Point( BEZIER_CURVE_END ).GetPosition() );
 
@@ -1222,9 +1230,26 @@ void PCB_POINT_EDITOR::updateItem() const
             break;
         }
 
-        // Update relative coordinates for footprint shapes
-        if( FP_SHAPE* fpShape = dyn_cast<FP_SHAPE*>( item ) )
+        if( FP_SHAPE* fpShape = dynamic_cast<FP_SHAPE*>( item ) )
+        {
+            // Update relative coordinates for footprint shapes
             fpShape->SetLocalCoord();
+
+            if( fpShape->IsAnnotationProxy() )
+            {
+                for( PAD* pad : fpShape->GetParentFootprint()->Pads() )
+                {
+                    if( pad->GetFlags() & ENTERED )
+                        view()->Update( pad );
+                }
+            }
+        }
+
+        // Nuke outline font render caches
+        if( PCB_TEXTBOX* textBox = dynamic_cast<PCB_TEXTBOX*>( item ) )
+            textBox->ClearRenderCache();
+        else if( FP_TEXTBOX* fpTextBox = dynamic_cast<FP_TEXTBOX*>( item ) )
+            fpTextBox->ClearRenderCache();
 
         break;
     }
@@ -1238,7 +1263,7 @@ void PCB_POINT_EDITOR::updateItem() const
         case PAD_SHAPE::CIRCLE:
         {
             VECTOR2I end = m_editPoints->Point( 0 ).GetPosition();
-            int     diameter = (int) EuclideanNorm( end - pad->GetPosition() ) * 2;
+            int      diameter = (int) EuclideanNorm( end - pad->GetPosition() ) * 2;
 
             pad->SetSize( wxSize( diameter, diameter ) );
             break;
@@ -1257,8 +1282,7 @@ void PCB_POINT_EDITOR::updateItem() const
             VECTOR2I holeCenter = pad->GetPosition();
             VECTOR2I holeSize = pad->GetDrillSize();
 
-            pinEditedCorner( getEditedPointIndex(), Mils2iu( 1 ), Mils2iu( 1 ), topLeft, topRight,
-                             botLeft, botRight, holeCenter, holeSize );
+            pinEditedCorner( topLeft, topRight, botLeft, botRight, holeCenter, holeSize );
 
             if( ( pad->GetOffset().x || pad->GetOffset().y )
                     || ( pad->GetDrillSize().x && pad->GetDrillSize().y ) )
@@ -1284,7 +1308,7 @@ void PCB_POINT_EDITOR::updateItem() const
                     dist[3] = botLeft.y - center.y;
                 }
 
-                wxSize padSize( dist[0] + dist[2], dist[1] + dist[3] );
+                wxSize   padSize( dist[0] + dist[2], dist[1] + dist[3] );
                 VECTOR2I deltaOffset( padSize.x / 2 - dist[2], padSize.y / 2 - dist[3] );
 
                 if( pad->GetOrientation() == ANGLE_90 || pad->GetOrientation() == ANGLE_270 )
@@ -1591,39 +1615,14 @@ void PCB_POINT_EDITOR::updateItem() const
     }
 
     getView()->Update( item );
-}
 
-
-void PCB_POINT_EDITOR::finishItem()
-{
-    auto item = m_editPoints->GetParent();
-
-    if( !item )
-        return;
-
-    // TODO Refill edited zones when KiCad supports auto re-fill
+    frame()->SetMsgPanel( item );
 }
 
 
 bool PCB_POINT_EDITOR::validatePolygon( SHAPE_POLY_SET& aPoly ) const
 {
-    bool valid = !aPoly.IsSelfIntersecting();
-
-    if( m_statusPopup )
-    {
-        if( valid )
-        {
-            m_statusPopup->Hide();
-        }
-        else
-        {
-            wxPoint p = wxGetMousePosition() + wxPoint( 20, 20 );
-            m_statusPopup->Move( p );
-            m_statusPopup->PopupFor( 1500 );
-        }
-    }
-
-    return valid;
+    return true;
 }
 
 
@@ -1637,25 +1636,61 @@ void PCB_POINT_EDITOR::updatePoints()
     if( !item )
         return;
 
-    if( item->Type() == PCB_TEXTBOX_T || item->Type() == PCB_FP_TEXTBOX_T )
-    {
-        const PCB_SHAPE* shape = static_cast<const PCB_SHAPE*>( item );
-
-        // We can't currently handle TEXTBOXes that have been turned into SHAPE_T::POLYs due
-        // to non-cardinal rotations
-        if( shape->GetShape() != SHAPE_T::RECT )
-        {
-            m_editPoints.reset();
-            return;
-        }
-    }
-
     switch( item->Type() )
     {
-    case PCB_SHAPE_T:
-    case PCB_FP_SHAPE_T:
+    case PCB_BITMAP_T:
+    {
+        PCB_BITMAP* bitmap = (PCB_BITMAP*) item;
+        VECTOR2I    topLeft = bitmap->GetPosition() - bitmap->GetSize() / 2;
+        VECTOR2I    botRight = bitmap->GetPosition() + bitmap->GetSize() / 2;
+
+        m_editPoints->Point( RECT_TOP_LEFT ).SetPosition( topLeft );
+        m_editPoints->Point( RECT_TOP_RIGHT ).SetPosition( botRight.x, topLeft.y );
+        m_editPoints->Point( RECT_BOT_LEFT ).SetPosition( topLeft.x, botRight.y );
+        m_editPoints->Point( RECT_BOT_RIGHT ).SetPosition( botRight );
+
+        break;
+    }
+
     case PCB_TEXTBOX_T:
     case PCB_FP_TEXTBOX_T:
+    {
+        const PCB_SHAPE* shape = static_cast<const PCB_SHAPE*>( item );
+        int              target = shape->GetShape() == SHAPE_T::RECT ? 4 : 0;
+
+        // Careful; textbox shape is mutable between cardinal and non-cardinal rotations...
+        if( int( m_editPoints->PointsSize() ) != target )
+        {
+            getView()->Remove( m_editPoints.get() );
+            m_editedPoint = nullptr;
+
+            m_editPoints = makePoints( item );
+
+            if( m_editPoints )
+                getView()->Add( m_editPoints.get() );
+
+            break;
+        }
+
+        if( shape->GetShape() == SHAPE_T::RECT )
+        {
+            m_editPoints->Point( RECT_TOP_LEFT ).SetPosition( shape->GetTopLeft() );
+            m_editPoints->Point( RECT_TOP_RIGHT ).SetPosition( shape->GetBotRight().x,
+                                                               shape->GetTopLeft().y );
+            m_editPoints->Point( RECT_BOT_RIGHT ).SetPosition( shape->GetBotRight() );
+            m_editPoints->Point( RECT_BOT_LEFT ).SetPosition( shape->GetTopLeft().x,
+                                                              shape->GetBotRight().y );
+        }
+        else if( shape->GetShape() == SHAPE_T::POLY )
+        {
+            // Not currently editable while rotated.
+        }
+
+        break;
+    }
+
+    case PCB_SHAPE_T:
+    case PCB_FP_SHAPE_T:
     {
         const PCB_SHAPE* shape = static_cast<const PCB_SHAPE*>( item );
 
@@ -1667,12 +1702,12 @@ void PCB_POINT_EDITOR::updatePoints()
             break;
 
         case SHAPE_T::RECT:
-            m_editPoints->Point( RECT_TOP_LEFT ).SetPosition( shape->GetStart() );
-            m_editPoints->Point( RECT_TOP_RIGHT ).SetPosition( shape->GetEnd().x,
-                                                               shape->GetStart().y );
-            m_editPoints->Point( RECT_BOT_RIGHT ).SetPosition( shape->GetEnd() );
-            m_editPoints->Point( RECT_BOT_LEFT ).SetPosition( shape->GetStart().x,
-                                                              shape->GetEnd().y );
+            m_editPoints->Point( RECT_TOP_LEFT ).SetPosition( shape->GetTopLeft() );
+            m_editPoints->Point( RECT_TOP_RIGHT ).SetPosition( shape->GetBotRight().x,
+                                                               shape->GetTopLeft().y );
+            m_editPoints->Point( RECT_BOT_RIGHT ).SetPosition( shape->GetBotRight() );
+            m_editPoints->Point( RECT_BOT_LEFT ).SetPosition( shape->GetTopLeft().x,
+                                                              shape->GetBotRight().y );
             break;
 
         case SHAPE_T::ARC:
@@ -2089,12 +2124,12 @@ bool PCB_POINT_EDITOR::removeCornerCondition( const SELECTION& )
         return false;
     }
 
-    auto vertex = findVertex( *polyset, *m_editedPoint );
+    std::pair<bool, SHAPE_POLY_SET::VERTEX_INDEX> vertex = findVertex( *polyset, *m_editedPoint );
 
     if( !vertex.first )
         return false;
 
-    const auto& vertexIdx = vertex.second;
+    const SHAPE_POLY_SET::VERTEX_INDEX& vertexIdx = vertex.second;
 
     // Check if there are enough vertices so one can be removed without
     // degenerating the polygon.
@@ -2102,7 +2137,9 @@ bool PCB_POINT_EDITOR::removeCornerCondition( const SELECTION& )
     // there are only 2 vertices left, a hole is removed).
     if( vertexIdx.m_contour == 0 &&
         polyset->Polygon( vertexIdx.m_polygon )[vertexIdx.m_contour].PointCount() <= 3 )
+    {
         return false;
+    }
 
     // Remove corner does not work with lines
     if( dynamic_cast<EDIT_LINE*>( m_editedPoint ) )
@@ -2117,9 +2154,9 @@ int PCB_POINT_EDITOR::addCorner( const TOOL_EVENT& aEvent )
     if( !m_editPoints )
         return 0;
 
-    EDA_ITEM* item = m_editPoints->GetParent();
+    EDA_ITEM*            item = m_editPoints->GetParent();
     PCB_BASE_EDIT_FRAME* frame = getEditFrame<PCB_BASE_EDIT_FRAME>();
-    const VECTOR2I& cursorPos = getViewControls()->GetCursorPosition();
+    const VECTOR2I&      cursorPos = getViewControls()->GetCursorPosition();
 
     // called without an active edited polygon
     if( !item || !canAddCorner( *item ) )
@@ -2144,7 +2181,9 @@ int PCB_POINT_EDITOR::addCorner( const TOOL_EVENT& aEvent )
             zone->SetNeedRefill( true );
         }
         else
+        {
             zoneOutline = &( graphicItem->GetPolyShape() );
+        }
 
         commit.Modify( item );
 
@@ -2180,10 +2219,10 @@ int PCB_POINT_EDITOR::addCorner( const TOOL_EVENT& aEvent )
         }
 
         // Find the point on the closest segment
-        auto&    sideOrigin = zoneOutline->CVertex( nearestIdx );
-        auto&    sideEnd = zoneOutline->CVertex( nextNearestIdx );
-        SEG nearestSide( sideOrigin, sideEnd );
-        VECTOR2I nearestPoint = nearestSide.NearestPoint( cursorPos );
+        const VECTOR2I& sideOrigin = zoneOutline->CVertex( nearestIdx );
+        const VECTOR2I& sideEnd = zoneOutline->CVertex( nextNearestIdx );
+        SEG             nearestSide( sideOrigin, sideEnd );
+        VECTOR2I        nearestPoint = nearestSide.NearestPoint( cursorPos );
 
         // Do not add points that have the same coordinates as ones that already belong to polygon
         // instead, add a point in the middle of the side
@@ -2203,7 +2242,7 @@ int PCB_POINT_EDITOR::addCorner( const TOOL_EVENT& aEvent )
     {
         commit.Modify( graphicItem );
 
-        SEG seg( graphicItem->GetStart(), graphicItem->GetEnd() );
+        SEG      seg( graphicItem->GetStart(), graphicItem->GetEnd() );
         VECTOR2I nearestPoint = seg.NearestPoint( cursorPos );
 
         // Move the end of the line to the break point..
@@ -2338,6 +2377,8 @@ void PCB_POINT_EDITOR::setTransitions()
     Go( &PCB_POINT_EDITOR::addCorner,         PCB_ACTIONS::pointEditorAddCorner.MakeEvent() );
     Go( &PCB_POINT_EDITOR::removeCorner,      PCB_ACTIONS::pointEditorRemoveCorner.MakeEvent() );
     Go( &PCB_POINT_EDITOR::modifiedSelection, EVENTS::SelectedItemsModified );
+    Go( &PCB_POINT_EDITOR::modifiedSelection, EVENTS::SelectedItemsMoved );
+    Go( &PCB_POINT_EDITOR::OnSelectionChange, EVENTS::PointSelectedEvent );
     Go( &PCB_POINT_EDITOR::OnSelectionChange, EVENTS::SelectedEvent );
     Go( &PCB_POINT_EDITOR::OnSelectionChange, EVENTS::UnselectedEvent );
     Go( &PCB_POINT_EDITOR::changeEditMethod,  ACTIONS::changeEditMethod.MakeEvent() );

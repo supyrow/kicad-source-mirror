@@ -112,11 +112,24 @@ endif()
 # VERSION. VERSION will typically be like "2.7" on unix, and "27" on windows.
 execute_process(
   COMMAND
-    "${PYTHON_EXECUTABLE}" "-c" "from distutils import sysconfig as s;import sys;import struct;
+    "${PYTHON_EXECUTABLE}" "-c" "
+import sys;import struct;
+import sysconfig as s
+USE_SYSCONFIG = sys.version_info >= (3, 10)
+if not USE_SYSCONFIG:
+    from distutils import sysconfig as ds
 print('.'.join(str(v) for v in sys.version_info));
 print(sys.prefix);
-print(s.get_python_inc(plat_specific=True));
-print(s.get_python_lib(plat_specific=True));
+if USE_SYSCONFIG:
+    scheme = s.get_default_scheme()
+    if scheme == 'posix_local':
+        # Debian's default scheme installs to /usr/local/ but we want to find headers in /usr/
+        scheme = 'posix_prefix'
+    print(s.get_path('platinclude', scheme))
+    print(s.get_path('platlib'))
+else:
+    print(ds.get_python_inc(plat_specific=True));
+    print(ds.get_python_lib(plat_specific=True));
 print(s.get_config_var('EXT_SUFFIX') or s.get_config_var('SO'));
 print(hasattr(sys, 'gettotalrefcount')+0);
 print(struct.calcsize('@P'));
@@ -188,6 +201,8 @@ if(CMAKE_HOST_WIN32)
   if(NOT EXISTS "${PYTHON_LIBRARY}")
     get_filename_component(_PYTHON_ROOT ${PYTHON_INCLUDE_DIR} DIRECTORY)
     set(PYTHON_LIBRARY "${_PYTHON_ROOT}/libs/python${PYTHON_LIBRARY_SUFFIX}.lib")
+  elseif(DEFINED VCPKG_TOOLCHAIN AND NOT EXISTS "${PYTHON_LIBRARY}")
+    set(PYTHON_LIBRARY "${PYTHON_PREFIX}/../../lib/python${PYTHON_LIBRARY_SUFFIX}.lib")
   endif()
 
   if(DEFINED VCPKG_TOOLCHAIN)
@@ -260,7 +275,7 @@ endif()
 set(PYTHON_DEBUG_LIBRARIES "${PYTHON_DEBUG_LIBRARY}")
 
 set(PYTHON_LIBRARY_DEBUG "${PYTHON_DEBUG_LIBRARY}")
-set(PYTHON_LIBRARY_RELEASE "${PYTHON_LIBRARY}")
+set(PYTHON_LIBRARY_RELEASE, "${PYTHON_LIBRARY}")
 select_library_configurations(PYTHON)
 
 find_package_message(PYTHON "Found PythonLibs: ${PYTHON_LIBRARY}"

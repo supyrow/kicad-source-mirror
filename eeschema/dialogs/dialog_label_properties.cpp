@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2013 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2013 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -25,14 +25,13 @@
 
 #include <widgets/bitmap_button.h>
 #include <widgets/font_choice.h>
+#include <widgets/color_swatch.h>
+#include <settings/color_settings.h>
 #include <sch_edit_frame.h>
-#include <base_units.h>
 #include <sch_validators.h>
 #include <tool/tool_manager.h>
-#include <general.h>
 #include <gr_text.h>
 #include <confirm.h>
-#include <sch_reference_list.h>
 #include <schematic.h>
 #include <dialogs/html_message_box.h>
 #include <dialog_label_properties.h>
@@ -45,14 +44,16 @@
 
 DIALOG_LABEL_PROPERTIES::DIALOG_LABEL_PROPERTIES( SCH_EDIT_FRAME* aParent, SCH_LABEL_BASE* aLabel ) :
         DIALOG_LABEL_PROPERTIES_BASE( aParent ),
+        m_Parent( aParent ),
+        m_currentLabel( aLabel ),
         m_activeTextEntry( nullptr ),
         m_netNameValidator( true ),
         m_fields( nullptr ),
         m_textSize( aParent, m_textSizeLabel, m_textSizeCtrl, m_textSizeUnits, false ),
         m_helpWindow( nullptr )
 {
-    m_Parent = aParent;
-    m_currentLabel = aLabel;
+    COLOR_SETTINGS* colorSettings = m_Parent->GetColorSettings();
+    COLOR4D         schematicBackground = colorSettings->GetColor( LAYER_SCHEMATIC_BACKGROUND );
 
     m_fields = new FIELDS_GRID_TABLE<SCH_FIELD>( this, aParent, m_grid, m_currentLabel );
     m_width = 100;  // Will be later set to a better value
@@ -135,12 +136,15 @@ DIALOG_LABEL_PROPERTIES::DIALOG_LABEL_PROPERTIES( SCH_EDIT_FRAME* aParent, SCH_L
 
     m_separator2->SetIsSeparator();
 
-    m_spin0->SetIsCheckButton();
-    m_spin1->SetIsCheckButton();
-    m_spin2->SetIsCheckButton();
-    m_spin3->SetIsCheckButton();
+    m_spin0->SetIsRadioButton();
+    m_spin1->SetIsRadioButton();
+    m_spin2->SetIsRadioButton();
+    m_spin3->SetIsRadioButton();
 
     m_separator3->SetIsSeparator();
+
+    m_textColorSwatch->SetDefaultColor( COLOR4D::UNSPECIFIED );
+    m_textColorSwatch->SetSwatchBackground( schematicBackground );
 
     // Show/hide relevant controls
     if( m_currentLabel->Type() == SCH_GLOBAL_LABEL_T || m_currentLabel->Type() == SCH_HIER_LABEL_T )
@@ -163,10 +167,21 @@ DIALOG_LABEL_PROPERTIES::DIALOG_LABEL_PROPERTIES( SCH_EDIT_FRAME* aParent, SCH_L
         m_triState->Hide();
         m_passive->Hide();
 
+        m_fontLabel->SetLabel( _( "Orientation:" ) );
+        m_fontCtrl->Hide();
+        m_separator1->Hide();
+        m_bold->Hide();
+        m_italic->Hide();
+        m_separator2->Hide();
         m_spin0->SetBitmap( KiBitmap( BITMAPS::pinorient_down ) );
         m_spin1->SetBitmap( KiBitmap( BITMAPS::pinorient_up ) );
         m_spin2->SetBitmap( KiBitmap( BITMAPS::pinorient_right ) );
         m_spin3->SetBitmap( KiBitmap( BITMAPS::pinorient_left ) );
+        m_separator3->Hide();
+
+        m_formattingGB->Detach( m_fontCtrl );
+        m_formattingGB->Detach( m_iconBar );
+        m_formattingGB->Add( m_iconBar, wxGBPosition( 0, 1 ), wxGBSpan( 1, 1 ), wxEXPAND|wxRIGHT, 5 );
     }
     else
     {
@@ -176,6 +191,14 @@ DIALOG_LABEL_PROPERTIES::DIALOG_LABEL_PROPERTIES( SCH_EDIT_FRAME* aParent, SCH_L
         m_spin1->SetBitmap( KiBitmap( BITMAPS::text_align_right ) );
         m_spin2->SetBitmap( KiBitmap( BITMAPS::text_align_bottom ) );
         m_spin3->SetBitmap( KiBitmap( BITMAPS::text_align_top ) );
+    }
+
+    if( !m_currentLabel->AutoRotateOnPlacementSupported() )
+    {
+        m_autoRotate->Hide();
+        wxSizer* parentSizer = m_autoRotate->GetContainingSizer();
+        parentSizer->Detach( m_autoRotate );
+        parentSizer->Layout();
     }
 
     SetupStandardButtons();
@@ -196,7 +219,7 @@ DIALOG_LABEL_PROPERTIES::DIALOG_LABEL_PROPERTIES( SCH_EDIT_FRAME* aParent, SCH_L
 
 DIALOG_LABEL_PROPERTIES::~DIALOG_LABEL_PROPERTIES()
 {
-    auto cfg = dynamic_cast<EESCHEMA_SETTINGS*>( Kiface().KifaceSettings() );
+    EESCHEMA_SETTINGS* cfg = dynamic_cast<EESCHEMA_SETTINGS*>( Kiface().KifaceSettings() );
     wxASSERT( cfg );
 
     if( cfg )
@@ -221,14 +244,20 @@ bool DIALOG_LABEL_PROPERTIES::TransferDataToWindow()
     if( m_activeTextEntry )
     {
         // show control characters in a human-readable format
-        m_activeTextEntry->SetValue( UnescapeString( m_currentLabel->GetText() ) );
+        wxString text = UnescapeString( m_currentLabel->GetText() );
+
+        // show text variable cross-references in a human-readable format
+        text = m_currentLabel->Schematic()->ConvertKIIDsToRefs( text );
+
+        m_activeTextEntry->SetValue( text );
     }
 
     if( m_currentLabel->Type() == SCH_GLOBAL_LABEL_T || m_currentLabel->Type() == SCH_LABEL_T )
     {
         // Load the combobox with the existing labels of the same type
-        std::set<wxString> existingLabels;
-        SCH_SCREENS        allScreens( m_Parent->Schematic().Root() );
+        std::set<wxString>                      existingLabels;
+        std::vector<std::shared_ptr<BUS_ALIAS>> busAliases;
+        SCH_SCREENS                             allScreens( m_Parent->Schematic().Root() );
 
         for( SCH_SCREEN* screen = allScreens.GetFirst(); screen; screen = allScreens.GetNext() )
         {
@@ -237,7 +266,14 @@ bool DIALOG_LABEL_PROPERTIES::TransferDataToWindow()
                 const SCH_LABEL_BASE* label = static_cast<const SCH_LABEL_BASE*>( item );
                 existingLabels.insert( UnescapeString( label->GetText() ) );
             }
+
+            std::set<std::shared_ptr<BUS_ALIAS>> sheetAliases = screen->GetBusAliases();
+            busAliases.insert( busAliases.end(), sheetAliases.begin(), sheetAliases.end() );
         }
+
+        // Add bus aliases to label list
+        for( const std::shared_ptr<BUS_ALIAS>& busAlias : busAliases )
+            existingLabels.insert( wxT( "{" ) + busAlias->GetName() + wxT( "}" ) );
 
         wxArrayString existingLabelArray;
 
@@ -245,20 +281,6 @@ bool DIALOG_LABEL_PROPERTIES::TransferDataToWindow()
             existingLabelArray.push_back( label );
 
         m_valueCombo->Append( existingLabelArray );
-    }
-    else if( m_currentLabel->Type() == SCH_DIRECTIVE_LABEL_T )
-    {
-        // Load the combobox with existing existing netclass names.  While it's not the only
-        // think a directive is used for, it is the most common.
-        NET_SETTINGS& netSettings = m_Parent->Schematic().Prj().GetProjectFile().NetSettings();
-        wxArrayString existingNetclassNames;
-
-        existingNetclassNames.push_back( netSettings.m_NetClasses.GetDefault()->GetName() );
-
-        for( const std::pair<const wxString, NETCLASSPTR>& pair : netSettings.m_NetClasses )
-            existingNetclassNames.push_back( pair.second->GetName() );
-
-        m_valueCombo->Append( existingNetclassNames );
     }
 
     // Push a copy of each field into m_updateFields
@@ -302,6 +324,7 @@ bool DIALOG_LABEL_PROPERTIES::TransferDataToWindow()
 
     m_bold->Check( m_currentLabel->IsBold() );
     m_italic->Check( m_currentLabel->IsItalic() );
+    m_textColorSwatch->SetSwatchColor( m_currentLabel->GetTextColor(), false );
 
     switch( m_currentLabel->GetTextSpinStyle() )
     {
@@ -310,6 +333,9 @@ bool DIALOG_LABEL_PROPERTIES::TransferDataToWindow()
     case TEXT_SPIN_STYLE::UP:     m_spin2->Check( true ); break;
     case TEXT_SPIN_STYLE::BOTTOM: m_spin3->Check( true ); break;
     }
+
+    if( m_currentLabel->AutoRotateOnPlacementSupported() )
+        m_autoRotate->SetValue( m_currentLabel->AutoRotateOnPlacement() );
 
     return true;
 }
@@ -324,21 +350,38 @@ void DIALOG_LABEL_PROPERTIES::OnEnterKey( wxCommandEvent& aEvent )
 }
 
 
+void DIALOG_LABEL_PROPERTIES::OnValueCharHook( wxKeyEvent& aEvent )
+{
+    if( aEvent.GetKeyCode() == WXK_TAB )
+    {
+        if( aEvent.ShiftDown() )
+        {
+            m_textSizeCtrl->SetFocusFromKbd();
+        }
+        else if( !m_fields->empty() )
+        {
+            m_grid->SetFocusFromKbd();
+            m_grid->MakeCellVisible( 0, 0 );
+            m_grid->SetGridCursor( 0, 0 );
+        }
+        else
+        {
+            m_textSizeCtrl->SetFocusFromKbd();
+        }
+    }
+    else
+    {
+        aEvent.Skip();
+    }
+}
+
+
 static bool positioningChanged( const SCH_FIELD& a, const SCH_FIELD& b )
 {
-    if( a.GetPosition() != b.GetPosition() )
-        return true;
-
-    if( a.GetHorizJustify() != b.GetHorizJustify() )
-        return true;
-
-    if( a.GetVertJustify() != b.GetVertJustify() )
-        return true;
-
-    if( a.GetTextAngle() != b.GetTextAngle() )
-        return true;
-
-    return false;
+    return a.GetPosition() != b.GetPosition()
+            || a.GetHorizJustify() != b.GetHorizJustify()
+            || a.GetVertJustify() != b.GetVertJustify()
+            || a.GetTextAngle() != b.GetTextAngle();
 }
 
 
@@ -382,6 +425,9 @@ bool DIALOG_LABEL_PROPERTIES::TransferDataFromWindow()
         // labels need escaping
         text = EscapeString( m_activeTextEntry->GetValue(), CTX_NETNAME );
 
+        // convert any text variable cross-references to their UUIDs
+        text = m_currentLabel->Schematic()->ConvertRefsToKIIDs( text );
+
 #ifdef __WXMAC__
         // On macOS CTRL+Enter produces '\r' instead of '\n' regardless of EOL setting
         text.Replace( "\r", "\n" );
@@ -404,11 +450,24 @@ bool DIALOG_LABEL_PROPERTIES::TransferDataFromWindow()
         field.Offset( m_currentLabel->GetPosition() );
 
         if( field.GetCanonicalName() == wxT( "Netclass" ) )
+        {
             field.SetLayer( LAYER_NETCLASS_REFS );
+        }
         else if( field.GetCanonicalName() == wxT( "Intersheetrefs" ) )
+        {
+            if( field.IsVisible() != m_Parent->Schematic().Settings().m_IntersheetRefsShow )
+            {
+                DisplayInfoMessage( this, _( "Intersheet reference visibility is "
+                                             "controlled globally from "
+                                             "Schematic Setup > General > Formatting" ) );
+            }
+
             field.SetLayer( LAYER_INTERSHEET_REFS );
+        }
         else
+        {
             field.SetLayer( LAYER_FIELDS );
+        }
     }
 
     if( positioningChanged( m_fields, m_currentLabel->GetFields() ) )
@@ -467,6 +526,8 @@ bool DIALOG_LABEL_PROPERTIES::TransferDataFromWindow()
 
     m_currentLabel->SetItalic( m_italic->IsChecked() );
 
+    m_currentLabel->SetTextColor( m_textColorSwatch->GetSwatchColor() );
+
     TEXT_SPIN_STYLE selectedSpinStyle= TEXT_SPIN_STYLE::LEFT;
 
     if( m_spin0->IsChecked() )
@@ -477,6 +538,11 @@ bool DIALOG_LABEL_PROPERTIES::TransferDataFromWindow()
         selectedSpinStyle = TEXT_SPIN_STYLE::UP;
     else if( m_spin3->IsChecked() )
         selectedSpinStyle = TEXT_SPIN_STYLE::BOTTOM;
+
+    if( m_currentLabel->AutoRotateOnPlacementSupported() )
+        m_currentLabel->SetAutoRotateOnPlacement( m_autoRotate->IsChecked() );
+    else
+        m_currentLabel->SetAutoRotateOnPlacement( false );
 
     if( m_currentLabel->GetTextSpinStyle() != selectedSpinStyle )
         m_currentLabel->SetTextSpinStyle( selectedSpinStyle );
@@ -680,9 +746,6 @@ void DIALOG_LABEL_PROPERTIES::OnUpdateUI( wxUpdateUIEvent& event )
         m_grid->SetFocus();
         m_grid->MakeCellVisible( m_delayedFocusRow, m_delayedFocusColumn );
         m_grid->SetGridCursor( m_delayedFocusRow, m_delayedFocusColumn );
-
-        m_grid->EnableCellEditControl( true );
-        m_grid->ShowCellEditControl();
     }
 
     m_delayedFocusRow = -1;

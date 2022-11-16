@@ -57,23 +57,9 @@ public:
         return wxT( "PCB_SHAPE" );
     }
 
-    bool IsType( const KICAD_T aScanTypes[] ) const override
-    {
-        if( BOARD_ITEM::IsType( aScanTypes ) )
-            return true;
+    bool IsType( const std::vector<KICAD_T>& aScanTypes ) const override;
 
-        for( const KICAD_T* p = aScanTypes; *p != EOT; ++p )
-        {
-            if( *p == PCB_LOCATE_GRAPHIC_T )
-                return true;
-            else if( *p == PCB_LOCATE_BOARD_EDGE_T )
-                return m_layer == Edge_Cuts;
-        }
-
-        return false;
-    }
-
-    void    SetPosition( const VECTOR2I& aPos ) override { setPosition( aPos ); }
+    void SetPosition( const VECTOR2I& aPos ) override { setPosition( aPos ); }
     VECTOR2I GetPosition() const override { return getPosition(); }
 
     VECTOR2I GetCenter() const override { return getCenter(); }
@@ -105,21 +91,24 @@ public:
     /**
      * Make a set of SHAPE objects representing the PCB_SHAPE.  Caller owns the objects.
      */
-    std::shared_ptr<SHAPE> GetEffectiveShape( PCB_LAYER_ID aLayer = UNDEFINED_LAYER ) const override;
+    std::shared_ptr<SHAPE> GetEffectiveShape( PCB_LAYER_ID aLayer = UNDEFINED_LAYER,
+            FLASHING aFlash = FLASHING::DEFAULT ) const override;
 
     void GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList ) override;
 
-    const EDA_RECT GetBoundingBox() const override { return getBoundingBox(); }
+    const BOX2I GetBoundingBox() const override { return getBoundingBox(); }
 
     bool HitTest( const VECTOR2I& aPosition, int aAccuracy = 0 ) const override
     {
         return hitTest( aPosition, aAccuracy );
     }
 
-    bool HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy = 0 ) const override
+    bool HitTest( const BOX2I& aRect, bool aContained, int aAccuracy = 0 ) const override
     {
         return hitTest( aRect, aContained, aAccuracy );
     }
+
+    void NormalizeRect();
 
     virtual void Move( const VECTOR2I& aMoveVector ) override;
 
@@ -127,26 +116,25 @@ public:
 
     virtual void Flip( const VECTOR2I& aCentre, bool aFlipLeftRight ) override;
 
+    virtual void Mirror( const VECTOR2I& aCentre, bool aMirrorAroundXAxis );
+
     void Scale( double aScale );
 
     /**
-     * Convert the shape to a closed polygon.
+     * Convert the shape to a closed polygon.  Circles and arcs are approximated by segments.
      *
-     * Used in filling zones calculations.  Circles and arcs are approximated by segments.
-     *
-     * @param aCornerBuffer is a buffer to store the polygon.
-     * @param aClearanceValue is the clearance around the pad.
+     * @param aBuffer is a buffer to store the polygon.
+     * @param aClearance is the clearance around the pad.
      * @param aError is the maximum deviation from a true arc.
-     * @param aErrorLoc whether any approximation error shoule be placed inside or outside
-     * @param ignoreLineWidth is used for edge cut items where the line width is only
-     *        for visualization
+     * @param aErrorLoc whether any approximation error should be placed inside or outside
+     * @param ignoreLineWidth is used for edge cut items where the line width is only for
+     *                        visualization
      */
-    void TransformShapeWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuffer,
-                                               PCB_LAYER_ID aLayer, int aClearanceValue,
-                                               int aError, ERROR_LOC aErrorLoc,
-                                               bool ignoreLineWidth = false ) const override;
+    void TransformShapeToPolygon( SHAPE_POLY_SET& aBuffer, PCB_LAYER_ID aLayer, int aClearance,
+                                  int aError, ERROR_LOC aErrorLoc,
+                                  bool ignoreLineWidth = false ) const override;
 
-    virtual wxString GetSelectMenuText( EDA_UNITS aUnits ) const override;
+    virtual wxString GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const override;
 
     virtual BITMAPS GetMenuImage() const override;
 
@@ -154,18 +142,21 @@ public:
 
     virtual const BOX2I ViewBBox() const override;
 
-    virtual void SwapData( BOARD_ITEM* aImage ) override;
-
-    struct cmp_drawings
-    {
-        bool operator()( const BOARD_ITEM* aFirst, const BOARD_ITEM* aSecond ) const;
-    };
+    ///< @copydoc VIEW_ITEM::ViewGetLOD
+    double ViewGetLOD( int aLayer, KIGFX::VIEW* aView ) const override;
 
 #if defined(DEBUG)
     void Show( int nestLevel, std::ostream& os ) const override { ShowDummy( os ); }
 #endif
 
 protected:
+    virtual void swapData( BOARD_ITEM* aImage ) override;
+
+    struct cmp_drawings
+    {
+        bool operator()( const BOARD_ITEM* aFirst, const BOARD_ITEM* aSecond ) const;
+    };
+
     EDA_ANGLE getParentOrientation() const override;
     VECTOR2I getParentPosition() const override;
 };

@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2017 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2013 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -28,14 +28,17 @@
 #include <dialog_shim.h>
 #include <dialogs/panel_common_settings.h>
 #include <dialogs/panel_mouse_settings.h>
+#include <dialogs/panel_data_collection.h>
 #include <eda_dde.h>
 #include <filehistory.h>
 #include <id.h>
 #include <kiface_base.h>
 #include <menus_helpers.h>
+#include <hotkeys_basic.h>
 #include <panel_hotkeys_editor.h>
 #include <paths.h>
 #include <confirm.h>
+#include <panel_pcm_settings.h>
 #include <pgm_base.h>
 #include <settings/app_settings.h>
 #include <settings/common_settings.h>
@@ -107,6 +110,7 @@ BEGIN_EVENT_TABLE( EDA_BASE_FRAME, wxFrame )
     EVT_MAXIMIZE( EDA_BASE_FRAME::OnMaximize )
 
     EVT_SYS_COLOUR_CHANGED( EDA_BASE_FRAME::onSystemColorChange )
+    EVT_ICONIZE( EDA_BASE_FRAME::onIconize )
 END_EVENT_TABLE()
 
 
@@ -118,12 +122,12 @@ void EDA_BASE_FRAME::commonInit( FRAME_T aFrameType )
     m_settingsManager   = nullptr;
     m_fileHistory       = nullptr;
     m_supportsAutoSave  = false;
-    m_autoSaveState     = false;
+    m_autoSavePending   = false;
     m_undoRedoCountMax  = DEFAULT_MAX_UNDO_ITEMS;
-    m_userUnits         = EDA_UNITS::MILLIMETRES;
     m_isClosing         = false;
     m_isNonUserClose    = false;
     m_autoSaveTimer     = new wxTimer( this, ID_AUTO_SAVE_TIMER );
+    m_autoSaveRequired  = false;
     m_mruPath           = PATHS::GetDefaultUserProjectsPath();
     m_frameSize         = defaultSize( aFrameType );
     m_displayIndex      = -1;
@@ -149,21 +153,14 @@ void EDA_BASE_FRAME::commonInit( FRAME_T aFrameType )
 }
 
 
-EDA_BASE_FRAME::EDA_BASE_FRAME( FRAME_T aFrameType, KIWAY* aKiway ) :
-        wxFrame(),
-        TOOLS_HOLDER(),
-        KIWAY_HOLDER( aKiway, KIWAY_HOLDER::FRAME )
-{
-    commonInit( aFrameType );
-}
-
-
-EDA_BASE_FRAME::EDA_BASE_FRAME( wxWindow* aParent, FRAME_T aFrameType,
-                                const wxString& aTitle, const wxPoint& aPos, const wxSize& aSize,
-                                long aStyle, const wxString& aFrameName, KIWAY* aKiway ) :
+EDA_BASE_FRAME::EDA_BASE_FRAME( wxWindow* aParent, FRAME_T aFrameType, const wxString& aTitle,
+                                const wxPoint& aPos, const wxSize& aSize, long aStyle,
+                                const wxString& aFrameName, KIWAY* aKiway,
+                                const EDA_IU_SCALE& aIuScale ) :
         wxFrame( aParent, wxID_ANY, aTitle, aPos, aSize, aStyle, aFrameName ),
         TOOLS_HOLDER(),
-        KIWAY_HOLDER( aKiway, KIWAY_HOLDER::FRAME )
+        KIWAY_HOLDER( aKiway, KIWAY_HOLDER::FRAME ),
+        UNITS_PROVIDER( aIuScale, EDA_UNITS::MILLIMETRES )
 {
     commonInit( aFrameType );
 }
@@ -277,20 +274,20 @@ bool EDA_BASE_FRAME::ProcessEvent( wxEvent& aEvent )
         return true;
 
     if( !m_isClosing && m_supportsAutoSave && IsShown() && IsActive()
-        && m_autoSaveState != isAutoSaveRequired()
-        && GetAutoSaveInterval() > 0 )
+            && m_autoSavePending != isAutoSaveRequired()
+            && GetAutoSaveInterval() > 0 )
     {
-        if( !m_autoSaveState )
+        if( !m_autoSavePending )
         {
             wxLogTrace( traceAutoSave, wxT( "Starting auto save timer." ) );
             m_autoSaveTimer->Start( GetAutoSaveInterval() * 1000, wxTIMER_ONE_SHOT );
-            m_autoSaveState = true;
+            m_autoSavePending = true;
         }
         else if( m_autoSaveTimer->IsRunning() )
         {
             wxLogTrace( traceAutoSave, wxT( "Stopping auto save timer." ) );
             m_autoSaveTimer->Stop();
-            m_autoSaveState = false;
+            m_autoSavePending = false;
         }
     }
 
@@ -306,6 +303,13 @@ int EDA_BASE_FRAME::GetAutoSaveInterval() const
 
 void EDA_BASE_FRAME::onAutoSaveTimer( wxTimerEvent& aEvent )
 {
+    // Don't stomp on someone else's timer event.
+    if( aEvent.GetId() != ID_AUTO_SAVE_TIMER )
+    {
+        aEvent.Skip();
+        return;
+    }
+
     if( !doAutoSave() )
         m_autoSaveTimer->Start( GetAutoSaveInterval() * 1000, wxTIMER_ONE_SHOT );
 }
@@ -410,7 +414,7 @@ void EDA_BASE_FRAME::HandleUpdateUIEvent( wxUpdateUIEvent& aEvent, EDA_BASE_FRAM
 
     // wxMenuItems don't want to be checked unless they actually are checkable, so we have to
     // check to see if they can be and can't just universally apply a check in this event.
-    if( auto menu = dynamic_cast<wxMenu*>( aEvent.GetEventObject() ) )
+    if( wxMenu* menu = dynamic_cast<wxMenu*>( aEvent.GetEventObject() ) )
         canCheck = menu->FindItem( aEvent.GetId() )->IsCheckable();
 
     if( canCheck )
@@ -706,12 +710,8 @@ void EDA_BASE_FRAME::LoadWindowSettings( const WINDOW_SETTINGS* aCfg )
 
 void EDA_BASE_FRAME::SaveWindowSettings( WINDOW_SETTINGS* aCfg )
 {
-    wxString        text;
-
     if( IsIconized() )
         return;
-
-    wxString baseCfgName = ConfigBaseName();
 
     // If the window is maximized, we use the saved window size from before it was maximized
     if( IsMaximized() )
@@ -983,9 +983,9 @@ void EDA_BASE_FRAME::OnPreferences( wxCommandEvent& event )
     PAGED_DIALOG dlg( this, _( "Preferences" ), true );
     wxTreebook* book = dlg.GetTreebook();
 
-    PANEL_HOTKEYS_EDITOR*      hotkeysPanel = new PANEL_HOTKEYS_EDITOR( this, book, false );
-    KIFACE*                    kiface = nullptr;
-    std::vector<int>           expand;
+    PANEL_HOTKEYS_EDITOR*   hotkeysPanel = new PANEL_HOTKEYS_EDITOR( this, book, false );
+    KIFACE*                 kiface = nullptr;
+    std::vector<int>        expand;
 
     Kiway().GetActions( hotkeysPanel->ActionsList() );
 
@@ -993,82 +993,120 @@ void EDA_BASE_FRAME::OnPreferences( wxCommandEvent& event )
     book->AddPage( new PANEL_MOUSE_SETTINGS( &dlg, book ), _( "Mouse and Touchpad" ) );
     book->AddPage( hotkeysPanel, _( "Hotkeys" ) );
 
-#define CREATE_PANEL( key ) kiface->CreateWindow( book, key, &Kiway() )
+#ifdef KICAD_USE_SENTRY
+    book->AddPage( new PANEL_DATA_COLLECTION( &dlg, book ), _( "Data Collection" ) );
+#endif
 
-    kiface = Kiway().KiFACE( KIWAY::FACE_SCH );
+#define CREATE_PANEL( key ) kiface->CreateKiWindow( book, key, &Kiway() )
 
-    kiface->GetActions( hotkeysPanel->ActionsList() );
+    // If a dll is not loaded, the loader will show an error message.
 
-    if( GetFrameType() == FRAME_SCH_SYMBOL_EDITOR )
-        expand.push_back( book->GetPageCount() );
+    try
+    {
+        kiface = Kiway().KiFACE( KIWAY::FACE_SCH );
 
-    book->AddPage( new wxPanel( book ), _( "Symbol Editor" ) );
-    book->AddSubPage( CREATE_PANEL( PANEL_SYM_DISP_OPTIONS ), _( "Display Options" ) );
-    book->AddSubPage( CREATE_PANEL( PANEL_SYM_EDIT_OPTIONS ), _( "Editing Options" ) );
-    book->AddSubPage( CREATE_PANEL( PANEL_SYM_COLORS ), _( "Colors" ) );
+        kiface->GetActions( hotkeysPanel->ActionsList() );
 
-    if( GetFrameType() == FRAME_SCH )
-        expand.push_back( book->GetPageCount() );
+        if( GetFrameType() == FRAME_SCH_SYMBOL_EDITOR )
+            expand.push_back( book->GetPageCount() );
 
-    book->AddPage( new wxPanel( book ), _( "Schematic Editor" ) );
-    book->AddSubPage( CREATE_PANEL( PANEL_SCH_DISP_OPTIONS ), _( "Display Options" ) );
-    book->AddSubPage( CREATE_PANEL( PANEL_SCH_EDIT_OPTIONS ), _( "Editing Options" ) );
-    book->AddSubPage( CREATE_PANEL( PANEL_SCH_COLORS ), _( "Colors" ) );
-    book->AddSubPage( CREATE_PANEL( PANEL_SCH_FIELD_NAME_TEMPLATES ), _( "Field Name Templates" ) );
+        book->AddPage( new wxPanel( book ), _( "Symbol Editor" ) );
+        book->AddSubPage( CREATE_PANEL( PANEL_SYM_DISP_OPTIONS ), _( "Display Options" ) );
+        book->AddSubPage( CREATE_PANEL( PANEL_SYM_EDIT_OPTIONS ), _( "Editing Options" ) );
+        book->AddSubPage( CREATE_PANEL( PANEL_SYM_COLORS ), _( "Colors" ) );
 
-    kiface = Kiway().KiFACE( KIWAY::FACE_PCB );
+        if( GetFrameType() == FRAME_SCH )
+            expand.push_back( book->GetPageCount() );
 
-    kiface->GetActions( hotkeysPanel->ActionsList() );
+        book->AddPage( new wxPanel( book ), _( "Schematic Editor" ) );
+        book->AddSubPage( CREATE_PANEL( PANEL_SCH_DISP_OPTIONS ), _( "Display Options" ) );
+        book->AddSubPage( CREATE_PANEL( PANEL_SCH_EDIT_OPTIONS ), _( "Editing Options" ) );
+        book->AddSubPage( CREATE_PANEL( PANEL_SCH_ANNO_OPTIONS ), _( "Annotation Options" ) );
+        book->AddSubPage( CREATE_PANEL( PANEL_SCH_COLORS ), _( "Colors" ) );
+        book->AddSubPage( CREATE_PANEL( PANEL_SCH_FIELD_NAME_TEMPLATES ),
+                          _( "Field Name Templates" ) );
+    }
+    catch( ... )
+    {
+    }
 
-    if( GetFrameType() == FRAME_FOOTPRINT_EDITOR )
-        expand.push_back( book->GetPageCount() );
+    try
+    {
+        kiface = Kiway().KiFACE( KIWAY::FACE_PCB );
 
-    book->AddPage( new wxPanel( book ), _( "Footprint Editor" ) );
-    book->AddSubPage( CREATE_PANEL( PANEL_FP_DISPLAY_OPTIONS ), _( "Display Options" ) );
-    book->AddSubPage( CREATE_PANEL( PANEL_FP_EDIT_OPTIONS ), _( "Editing Options" ) );
-    book->AddSubPage( CREATE_PANEL( PANEL_FP_COLORS ), _( "Colors" ) );
-    book->AddSubPage( CREATE_PANEL( PANEL_FP_DEFAULT_VALUES ), _( "Default Values" ) );
+        kiface->GetActions( hotkeysPanel->ActionsList() );
 
-    if( GetFrameType() ==  FRAME_PCB_EDITOR )
-        expand.push_back( book->GetPageCount() );
+        if( GetFrameType() == FRAME_FOOTPRINT_EDITOR )
+            expand.push_back( book->GetPageCount() );
 
-    book->AddPage( new wxPanel( book ), _( "PCB Editor" ) );
-    book->AddSubPage( CREATE_PANEL( PANEL_PCB_DISPLAY_OPTIONS ), _( "Display Options" ) );
-    book->AddSubPage( CREATE_PANEL( PANEL_PCB_EDIT_OPTIONS ), _( "Editing Options" ) );
-    book->AddSubPage( CREATE_PANEL( PANEL_PCB_COLORS ), _( "Colors" ) );
-    book->AddSubPage( CREATE_PANEL( PANEL_PCB_ACTION_PLUGINS ), _( "Action Plugins" ) );
-    book->AddSubPage( CREATE_PANEL( PANEL_PCB_ORIGINS_AXES ), _( "Origins & Axes" ) );
+        book->AddPage( new wxPanel( book ), _( "Footprint Editor" ) );
+        book->AddSubPage( CREATE_PANEL( PANEL_FP_DISPLAY_OPTIONS ), _( "Display Options" ) );
+        book->AddSubPage( CREATE_PANEL( PANEL_FP_EDIT_OPTIONS ), _( "Editing Options" ) );
+        book->AddSubPage( CREATE_PANEL( PANEL_FP_COLORS ), _( "Colors" ) );
+        book->AddSubPage( CREATE_PANEL( PANEL_FP_DEFAULT_VALUES ), _( "Default Values" ) );
 
-    if( Kiway().Player( FRAME_PCB_DISPLAY3D, false ) )
-        expand.push_back( book->GetPageCount() );
+        if( GetFrameType() ==  FRAME_PCB_EDITOR )
+            expand.push_back( book->GetPageCount() );
 
-    book->AddPage( new wxPanel( book ), _( "3D Viewer" ) );
-    book->AddSubPage( CREATE_PANEL( PANEL_3DV_DISPLAY_OPTIONS ), _( "General" ) );
-    book->AddSubPage( CREATE_PANEL( PANEL_3DV_OPENGL ), _( "Realtime Renderer" ) );
-    book->AddSubPage( CREATE_PANEL( PANEL_3DV_RAYTRACING ), _( "Raytracing Renderer" ) );
-    book->AddSubPage( CREATE_PANEL( PANEL_3DV_COLORS ), _( "Colors" ) );
+        book->AddPage( new wxPanel( book ), _( "PCB Editor" ) );
+        book->AddSubPage( CREATE_PANEL( PANEL_PCB_DISPLAY_OPTIONS ), _( "Display Options" ) );
+        book->AddSubPage( CREATE_PANEL( PANEL_PCB_EDIT_OPTIONS ), _( "Editing Options" ) );
+        book->AddSubPage( CREATE_PANEL( PANEL_PCB_COLORS ), _( "Colors" ) );
+        book->AddSubPage( CREATE_PANEL( PANEL_PCB_ACTION_PLUGINS ), _( "Action Plugins" ) );
+        book->AddSubPage( CREATE_PANEL( PANEL_PCB_ORIGINS_AXES ), _( "Origins & Axes" ) );
 
-    kiface = Kiway().KiFACE( KIWAY::FACE_GERBVIEW );
+        if( GetFrameType() == FRAME_PCB_DISPLAY3D )
+            expand.push_back( book->GetPageCount() );
 
-    kiface->GetActions( hotkeysPanel->ActionsList() );
+        book->AddPage( new wxPanel( book ), _( "3D Viewer" ) );
+        book->AddSubPage( CREATE_PANEL( PANEL_3DV_DISPLAY_OPTIONS ), _( "General" ) );
+        book->AddSubPage( CREATE_PANEL( PANEL_3DV_OPENGL ), _( "Realtime Renderer" ) );
+        book->AddSubPage( CREATE_PANEL( PANEL_3DV_RAYTRACING ), _( "Raytracing Renderer" ) );
+        book->AddSubPage( CREATE_PANEL( PANEL_3DV_COLORS ), _( "Colors" ) );
+    }
+    catch( ... )
+    {
+    }
 
-    if( GetFrameType() == FRAME_GERBER )
-        expand.push_back( book->GetPageCount() );
+    try
+    {
+        kiface = Kiway().KiFACE( KIWAY::FACE_GERBVIEW );
 
-    book->AddPage( new wxPanel( book ), _( "GerbView" ) );
-    book->AddSubPage( CREATE_PANEL( PANEL_GBR_DISPLAY_OPTIONS ), _( "Display Options" ) );
-    book->AddSubPage( CREATE_PANEL( PANEL_GBR_EXCELLON_OPTIONS ), _( "Excellon Options" ) );
+        kiface->GetActions( hotkeysPanel->ActionsList() );
 
-    kiface = Kiway().KiFACE( KIWAY::FACE_PL_EDITOR );
+        if( GetFrameType() == FRAME_GERBER )
+            expand.push_back( book->GetPageCount() );
 
-    kiface->GetActions( hotkeysPanel->ActionsList() );
+        book->AddPage( new wxPanel( book ), _( "Gerber Viewer" ) );
+        book->AddSubPage( CREATE_PANEL( PANEL_GBR_DISPLAY_OPTIONS ), _( "Display Options" ) );
+        book->AddSubPage( CREATE_PANEL( PANEL_GBR_COLORS ), _( "Colors" ) );
+        book->AddSubPage( CREATE_PANEL( PANEL_GBR_EXCELLON_OPTIONS ), _( "Excellon Options" ) );
+    }
+    catch( ... )
+    {
+    }
 
-    if( GetFrameType() == FRAME_PL_EDITOR )
-        expand.push_back( book->GetPageCount() );
+    try
+    {
+        kiface = Kiway().KiFACE( KIWAY::FACE_PL_EDITOR );
+        kiface->GetActions( hotkeysPanel->ActionsList() );
 
-    book->AddPage( new wxPanel( book ), _( "Drawing Sheet Editor" ) );
-    book->AddSubPage( CREATE_PANEL( PANEL_DS_DISPLAY_OPTIONS ), _( "Display Options" ) );
-    book->AddSubPage( CREATE_PANEL( PANEL_DS_COLORS ), _( "Colors" ) );
+        if( GetFrameType() == FRAME_PL_EDITOR )
+            expand.push_back( book->GetPageCount() );
+
+        book->AddPage( new wxPanel( book ), _( "Drawing Sheet Editor" ) );
+        book->AddSubPage( CREATE_PANEL( PANEL_DS_DISPLAY_OPTIONS ), _( "Display Options" ) );
+        book->AddSubPage( CREATE_PANEL( PANEL_DS_COLORS ), _( "Colors" ) );
+
+        book->AddPage( new PANEL_PCM_SETTINGS( book ), _( "Plugin and Content Manager" ) );
+    }
+    catch( ... )
+    {
+    }
+
+    // Update all of the action hotkeys. The process of loading the actions through
+    // the KiFACE will only get us the default hotkeys
+    ReadHotKeyConfigIntoActions( wxEmptyString, hotkeysPanel->ActionsList() );
 
     for( size_t i = 0; i < book->GetPageCount(); ++i )
         book->GetPage( i )->Layout();
@@ -1077,9 +1115,44 @@ void EDA_BASE_FRAME::OnPreferences( wxCommandEvent& event )
         book->ExpandNode( page );
 
     if( dlg.ShowModal() == wxID_OK )
+    {
+        Pgm().GetSettingsManager().Save();
         dlg.Kiway().CommonSettingsChanged( false, false );
+    }
 
 #undef CREATE_PANEL
+}
+
+
+void EDA_BASE_FRAME::OnDropFiles( wxDropFilesEvent& aEvent )
+{
+    wxString* files = aEvent.GetFiles();
+
+    for( int nb = 0; nb < aEvent.GetNumberOfFiles(); nb++ )
+    {
+        const wxFileName fn = wxFileName( files[nb] );
+        for( const auto& [ext, tool] : m_acceptedExts )
+        {
+            if( IsExtensionAccepted( fn.GetExt(), { ext.ToStdString() } ) )
+            {
+                m_AcceptedFiles.emplace( m_AcceptedFiles.end(), fn );
+                break;
+            }
+        }
+    }
+
+    DoWithAcceptedFiles();
+    m_AcceptedFiles.clear();
+}
+
+
+void EDA_BASE_FRAME::DoWithAcceptedFiles()
+{
+    for( const wxFileName& file : m_AcceptedFiles )
+    {
+        wxString fn = file.GetFullPath();
+        m_toolManager->RunAction( *m_acceptedExts.at( file.GetExt() ), true, &fn );
+    }
 }
 
 
@@ -1103,18 +1176,15 @@ bool EDA_BASE_FRAME::IsWritable( const wxFileName& aFileName, bool aVerbose )
 
     if( fn.IsDir() && !fn.IsDirWritable() )
     {
-        msg.Printf( _( "Insufficient permissions to folder '%s'." ),
-                    fn.GetPath() );
+        msg.Printf( _( "Insufficient permissions to folder '%s'." ), fn.GetPath() );
     }
     else if( !fn.FileExists() && !fn.IsDirWritable() )
     {
-        msg.Printf( _( "Insufficient permissions to save file '%s'." ),
-                    fn.GetFullName(), fn.GetPath() );
+        msg.Printf( _( "Insufficient permissions to save file '%s'." ), fn.GetFullPath() );
     }
     else if( fn.FileExists() && !fn.IsFileWritable() )
     {
-        msg.Printf( _( "Insufficient permissions to save file '%s'." ),
-                    fn.GetFullPath() );
+        msg.Printf( _( "Insufficient permissions to save file '%s'." ), fn.GetFullPath() );
     }
 
     if( !msg.IsEmpty() )
@@ -1144,13 +1214,13 @@ void EDA_BASE_FRAME::CheckForAutoSaveFile( const wxFileName& aFileName )
     if( !autoSaveFileName.FileExists() )
         return;
 
-    wxString msg = wxString::Format( _(
-            "Well this is potentially embarrassing!\n"
-            "It appears that the last time you were editing the file\n"
-            "%s\n"
-            "it was not saved properly.  Do you wish to restore the last saved edits you made?" ),
-            aFileName.GetFullName()
-        );
+    wxString msg = wxString::Format( _( "Well this is potentially embarrassing!\n"
+                                        "It appears that the last time you were editing\n"
+                                        "%s\n"
+                                        "KiCad exited before saving.\n"
+                                        "\n"
+                                        "Do you wish to open the auto-saved file instead?" ),
+                                        aFileName.GetFullName() );
 
     int response = wxMessageBox( msg, Pgm().App().GetAppDisplayName(), wxYES_NO | wxICON_QUESTION,
                                  this );
@@ -1241,6 +1311,12 @@ PICKED_ITEMS_LIST* EDA_BASE_FRAME::PopCommandFromRedoList( )
 }
 
 
+void EDA_BASE_FRAME::OnModify()
+{
+    m_autoSaveRequired = true;
+}
+
+
 void EDA_BASE_FRAME::ChangeUserUnits( EDA_UNITS aUnits )
 {
     SetUserUnits( aUnits );
@@ -1325,14 +1401,26 @@ void EDA_BASE_FRAME::onSystemColorChange( wxSysColourChangedEvent& aEvent )
 }
 
 
+void EDA_BASE_FRAME::onIconize( wxIconizeEvent& aEvent )
+{
+    // Call the handler
+    handleIconizeEvent( aEvent );
+
+    // Skip the event.
+    aEvent.Skip();
+}
+
+
 #ifdef _WIN32
 WXLRESULT EDA_BASE_FRAME::MSWWindowProc( WXUINT message, WXWPARAM wParam, WXLPARAM lParam )
 {
     // This will help avoid the menu keeping focus when the alt key is released
     // You can still trigger accelerators as long as you hold down alt
     if( message == WM_SYSCOMMAND )
+    {
         if( wParam == SC_KEYMENU && ( lParam >> 16 ) <= 0 )
             return 0;
+    }
 
     return wxFrame::MSWWindowProc( message, wParam, lParam );
 }

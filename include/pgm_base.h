@@ -119,6 +119,11 @@ public:
 #endif
 
     /**
+     * Builds the UTF8 based argv variable
+     */
+    void BuildArgvUtf8();
+
+    /**
      * Specific to MacOSX (not used under Linux or Windows).
      *
      * MacOSX requires it for file association.
@@ -273,7 +278,7 @@ public:
      * Useful in application that do not use python, to disable python dependency at run time
      * @return true if success, false if failure and program is to terminate.
      */
-    bool InitPgm( bool aHeadless = false, bool aSkipPyInit = false );
+    bool InitPgm( bool aHeadless = false, bool aSkipPyInit = false, bool aIsUnitTest = false );
 
     // The PGM_* classes can have difficulties at termination if they
     // are not destroyed soon enough.  Relying on a static destructor can be
@@ -284,6 +289,13 @@ public:
      * Save the program (process) settings subset which are stored .kicad_common.
      */
     void SaveCommonSettings();
+
+#ifdef KICAD_USE_SENTRY
+    bool IsSentryOptedIn();
+    void SetSentryOptIn( bool aOptIn );
+    void ResetSentryId();
+    const wxString& GetSentryId();
+#endif
 
     /**
      * wxWidgets on MSW tends to crash if you spool up more than one print job at a time.
@@ -308,6 +320,12 @@ protected:
      */
     bool setExecutablePath();
 
+#ifdef KICAD_USE_SENTRY
+    void     sentryInit();
+    void     sentryPrompt();
+    wxString sentryCreateUid();
+#endif
+
 protected:
     std::unique_ptr<SETTINGS_MANAGER> m_settings_manager;
 
@@ -323,6 +341,17 @@ protected:
     wxString        m_pdf_browser;            /// Filename of the app selected for browsing PDFs
 
     wxString        m_text_editor;
+
+#ifdef KICAD_USE_SENTRY
+    wxFileName      m_sentry_optin_fn;
+    wxFileName      m_sentry_uid_fn;
+    wxString        m_sentryUid;
+#endif
+
+    char** m_argvUtf8;                      /// argv parameters converted to utf8 form, because wxwidgets has opinions
+                                            /// and will return argv as either force converted to ascii in char* or wchar_t only
+
+    int m_argcUtf8;
 };
 
 

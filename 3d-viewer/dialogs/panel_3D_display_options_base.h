@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////
-// C++ code generated with wxFormBuilder (version Oct 26 2018)
+// C++ code generated with wxFormBuilder (version 3.10.1-0-g8feb16b)
 // http://www.wxformbuilder.org/
 //
 // PLEASE DO *NOT* EDIT THIS FILE!
@@ -59,7 +59,7 @@ class PANEL_3D_DISPLAY_OPTIONS_BASE : public RESETTABLE_PANEL
 		wxStaticText* m_staticAnimationSpeed;
 		wxSlider* m_sliderAnimationSpeed;
 
-		// Virtual event handlers, overide them in your derived class
+		// Virtual event handlers, override them in your derived class
 		virtual void OnCheckRealisticMode( wxCommandEvent& event ) { event.Skip(); }
 		virtual void OnCheckEnableAnimation( wxCommandEvent& event ) { event.Skip(); }
 
@@ -67,6 +67,7 @@ class PANEL_3D_DISPLAY_OPTIONS_BASE : public RESETTABLE_PANEL
 	public:
 
 		PANEL_3D_DISPLAY_OPTIONS_BASE( wxWindow* parent, wxWindowID id = wxID_ANY, const wxPoint& pos = wxDefaultPosition, const wxSize& size = wxSize( -1,-1 ), long style = wxTAB_TRAVERSAL, const wxString& name = wxEmptyString );
+
 		~PANEL_3D_DISPLAY_OPTIONS_BASE();
 
 };

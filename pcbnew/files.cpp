@@ -65,7 +65,11 @@
 #include <wx/wupdlock.h>
 #include <wx/filedlg.h>
 
-
+#if wxCHECK_VERSION( 3, 1, 7 )
+#include "widgets/filedlg_hook_save_project.h"
+#else
+#include "widgets/legacyfiledlg_save_project.h"
+#endif
 
 //#define     USE_INSTRUMENTATION     1
 #define     USE_INSTRUMENTATION     0
@@ -204,40 +208,6 @@ bool AskLoadBoardFileName( PCB_EDIT_FRAME* aParent, int* aCtl, wxString* aFileNa
 }
 
 
-///< Helper widget to select whether a new project should be created for a file when saving
-class CREATE_PROJECT_CHECKBOX : public wxPanel
-{
-public:
-    CREATE_PROJECT_CHECKBOX( wxWindow* aParent )
-            : wxPanel( aParent )
-    {
-        m_cbCreateProject = new wxCheckBox( this, wxID_ANY,
-                                            _( "Create a new project for this board" ) );
-        m_cbCreateProject->SetValue( true );
-        m_cbCreateProject->SetToolTip( _( "Creating a project will enable features such as "
-                                          "design rules, net classes, and layer presets" ) );
-
-        wxBoxSizer* sizer = new wxBoxSizer( wxHORIZONTAL );
-        sizer->Add( m_cbCreateProject, 0, wxALL, 8 );
-
-        SetSizerAndFit( sizer );
-    }
-
-    bool GetValue() const
-    {
-        return m_cbCreateProject->GetValue();
-    }
-
-    static wxWindow* Create( wxWindow* aParent )
-    {
-        return new CREATE_PROJECT_CHECKBOX( aParent );
-    }
-
-protected:
-    wxCheckBox* m_cbCreateProject;
-};
-
-
 /**
  * Put up a wxFileDialog asking for a BOARD filename to save.
  *
@@ -257,9 +227,20 @@ bool AskSaveBoardFileName( PCB_EDIT_FRAME* aParent, wxString* aFileName, bool* a
     wxFileDialog dlg( aParent, _( "Save Board File As" ), fn.GetPath(), fn.GetFullName(), wildcard,
                       wxFD_SAVE | wxFD_OVERWRITE_PROMPT );
 
+#if wxCHECK_VERSION( 3, 1, 7 )
+    FILEDLG_HOOK_SAVE_PROJECT newProjectHook;
+    bool                      checkHook = false;
+#endif
+
+#if wxCHECK_VERSION( 3, 1, 7 )
+    dlg.SetCustomizeHook( newProjectHook );
+    checkHook = true;
+#else
     // Add a "Create a project" checkbox in standalone mode and one isn't loaded
     if( Kiface().IsSingle() && aParent->Prj().IsNullProject() )
-        dlg.SetExtraControlCreator( &CREATE_PROJECT_CHECKBOX::Create );
+        dlg.SetExtraControlCreator( &LEGACYFILEDLG_SAVE_PROJECT::Create );
+#endif
+
 
     if( dlg.ShowModal() != wxID_OK )
         return false;
@@ -271,10 +252,17 @@ bool AskSaveBoardFileName( PCB_EDIT_FRAME* aParent, wxString* aFileName, bool* a
 
     *aFileName = fn.GetFullPath();
 
-    if( wxWindow* extraControl = dlg.GetExtraControl() )
-        *aCreateProject = static_cast<CREATE_PROJECT_CHECKBOX*>( extraControl )->GetValue();
+#if wxCHECK_VERSION( 3, 1, 7 )
+    if( checkHook )
+        *aCreateProject = newProjectHook.GetCreateNewProject();
     else if( !aParent->Prj().IsNullProject() )
         *aCreateProject = true;
+#else
+    if( wxWindow* ec = dlg.GetExtraControl() )
+        *aCreateProject = static_cast<LEGACYFILEDLG_SAVE_PROJECT*>( ec )->GetValue();
+    else if( !aParent->Prj().IsNullProject() )
+        *aCreateProject = true;
+#endif
 
     return true;
 }
@@ -369,6 +357,22 @@ bool PCB_EDIT_FRAME::Files_io_from_id( int id )
         return false;
     }
 
+    case ID_REVERT_BOARD:
+    {
+        wxFileName fn = Prj().AbsolutePath( GetBoard()->GetFileName() );
+
+        msg.Printf( _( "Revert '%s' to last version saved?" ), fn.GetFullPath() );
+
+        if( !IsOK( this, msg ) )
+            return false;
+
+        GetScreen()->SetContentModified( false );    // do not prompt the user for changes
+
+        ReleaseFile();
+
+        return OpenProjectFiles( std::vector<wxString>( 1, fn.GetFullPath() ) );
+    }
+
     case ID_NEW_BOARD:
     {
         if( IsContentModified() )
@@ -414,7 +418,15 @@ bool PCB_EDIT_FRAME::Files_io_from_id( int id )
 
     case ID_SAVE_BOARD:
         if( !GetBoard()->GetFileName().IsEmpty() )
-            return SavePcbFile( Prj().AbsolutePath( GetBoard()->GetFileName() ) );
+        {
+            if( SavePcbFile( Prj().AbsolutePath( GetBoard()->GetFileName() ) ) )
+            {
+                m_autoSaveRequired = false;
+                return true;
+            }
+
+            return false;
+        }
 
         KI_FALLTHROUGH;
 
@@ -442,16 +454,24 @@ bool PCB_EDIT_FRAME::Files_io_from_id( int id )
         wxFileName  fn( savePath.GetPath(), orig_name, KiCadPcbFileExtension );
         wxString    filename = fn.GetFullPath();
         bool        createProject = false;
+        bool        success = false;
 
         if( AskSaveBoardFileName( this, &filename, &createProject ) )
         {
             if( id == ID_COPY_BOARD_AS )
-                return SavePcbCopy( filename, createProject );
+            {
+                success = SavePcbCopy( filename, createProject );
+            }
             else
-                return SavePcbFile( filename, addToHistory, createProject );
+            {
+                success = SavePcbFile( filename, addToHistory, createProject );
+
+                if( success )
+                    m_autoSaveRequired = false;
+            }
         }
 
-        return false;
+        return success;
     }
 
     default:
@@ -684,7 +704,7 @@ bool PCB_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
 
         try
         {
-            PROPERTIES  props;
+            STRING_UTF8_MAP props;
             char        xbuf[30];
             char        ybuf[30];
 
@@ -770,8 +790,6 @@ bool PCB_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
         if( loadedBoard->m_LegacyDesignSettingsLoaded )
         {
             Prj().SetReadOnly( false );
-
-            Prj().GetProjectFile().NetSettings().RebuildNetClassAssignments();
 
             // Before we had a copper edge clearance setting, the edge line widths could be used
             // as a kludge to control them.  So if there's no setting then infer it from the
@@ -967,7 +985,7 @@ bool PCB_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
         filler.SetProgressReporter( &progressReporter );
 
         if( filler.Fill( toFill ) )
-            commit.Push( _( "Convert Zone(s)" ), true, true, false );
+            commit.Push( _( "Convert Zone(s)" ), SKIP_CONNECTIVITY );
 
         GetBoard()->BuildConnectivity( &progressReporter );
     }
@@ -1046,20 +1064,15 @@ bool PCB_EDIT_FRAME::SavePcbFile( const wxString& aFileName, bool addToHistory,
         GetBoard()->SynchronizeNetsAndNetClasses();
     }
 
-    wxFileName tempFile( aFileName );
+    wxString   tempFile = wxFileName::CreateTempFileName( "pcbnew" );
     wxString   upperTxt;
     wxString   lowerTxt;
-
-    tempFile.SetName( wxT( "." ) + tempFile.GetName() );
-    tempFile.SetExt( tempFile.GetExt() + wxT( "$" ) );
 
     try
     {
         PLUGIN::RELEASER    pi( IO_MGR::PluginFind( IO_MGR::KICAD_SEXP ) );
 
-        wxASSERT( tempFile.IsAbsolute() );
-
-        pi->Save( tempFile.GetFullPath(), GetBoard(), nullptr );
+        pi->Save( tempFile, GetBoard(), nullptr );
     }
     catch( const IO_ERROR& ioe )
     {
@@ -1067,26 +1080,26 @@ bool PCB_EDIT_FRAME::SavePcbFile( const wxString& aFileName, bool addToHistory,
                                               pcbFileName.GetFullPath(),
                                               ioe.What() ) );
 
-        lowerTxt.Printf( _( "Failed to create temporary file '%s'." ), tempFile.GetFullPath() );
+        lowerTxt.Printf( _( "Failed to create temporary file '%s'." ), tempFile );
 
         SetMsgPanel( upperTxt, lowerTxt );
 
         // In case we started a file but didn't fully write it, clean up
-        wxRemoveFile( tempFile.GetFullPath() );
+        wxRemoveFile( tempFile );
 
         return false;
     }
 
     // If save succeeded, replace the original with what we just wrote
-    if( !wxRenameFile( tempFile.GetFullPath(), pcbFileName.GetFullPath() ) )
+    if( !wxRenameFile( tempFile, pcbFileName.GetFullPath() ) )
     {
         DisplayError( this, wxString::Format( _( "Error saving board file '%s'.\n"
                                                  "Failed to rename temporary file '%s." ),
                                               pcbFileName.GetFullPath(),
-                                              tempFile.GetFullPath() ) );
+                                              tempFile ) );
 
         lowerTxt.Printf( _( "Failed to rename temporary file '%s'." ),
-                         tempFile.GetFullPath() );
+                         tempFile );
 
         SetMsgPanel( upperTxt, lowerTxt );
 
@@ -1247,7 +1260,8 @@ bool PCB_EDIT_FRAME::doAutoSave()
         GetScreen()->SetContentModified();
         GetBoard()->SetFileName( tmpFileName.GetFullPath() );
         UpdateTitle();
-        m_autoSaveState = false;
+        m_autoSaveRequired = false;
+        m_autoSavePending = false;
 
         if( !Kiface().IsSingle() &&
             GetSettingsManager()->GetCommonSettings()->m_Backup.backup_on_autosave )

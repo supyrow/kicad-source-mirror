@@ -23,6 +23,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
+#include <base_units.h>
 #include <pgm_base.h>
 #include <sch_edit_frame.h>
 #include <plotters/plotter.h>
@@ -85,7 +86,7 @@ bool IncrementLabelMember( wxString& name, int aIncrement )
         {
             name.Remove( ii + 1 );
             //write out a format string with correct number of leading zeroes
-            outputFormat.Printf( "%%0%dd", dCount );
+            outputFormat.Printf( "%%0%dld", dCount );
             //write out the number using the format string
             outputNumber.Printf( outputFormat, number );
             name << outputNumber << suffix;
@@ -155,7 +156,8 @@ SCH_LABEL_BASE::SCH_LABEL_BASE( const VECTOR2I& aPos, const wxString& aText, KIC
         SCH_TEXT( aPos, aText, aType ),
         m_shape( L_UNSPECIFIED ),
         m_connectionType( CONNECTION_TYPE::NONE ),
-        m_isDangling( true )
+        m_isDangling( true ),
+        m_lastResolvedColor( COLOR4D::UNSPECIFIED )
 {
     SetMultilineAllowed( false );
     ClearFieldsAutoplaced();    // fiels are not yet autoplaced.
@@ -166,7 +168,8 @@ SCH_LABEL_BASE::SCH_LABEL_BASE( const SCH_LABEL_BASE& aLabel ) :
         SCH_TEXT( aLabel ),
         m_shape( aLabel.m_shape ),
         m_connectionType( aLabel.m_connectionType ),
-        m_isDangling( aLabel.m_isDangling )
+        m_isDangling( aLabel.m_isDangling ),
+        m_lastResolvedColor( aLabel.m_lastResolvedColor )
 {
     SetMultilineAllowed( false );
 
@@ -179,63 +182,53 @@ SCH_LABEL_BASE::SCH_LABEL_BASE( const SCH_LABEL_BASE& aLabel ) :
 
 const wxString SCH_LABEL_BASE::GetDefaultFieldName( const wxString& aName, bool aUseDefaultName )
 {
-    static void* locale = nullptr;
-    static wxString intersheetRefsDefault;
-    static wxString netclassRefDefault;
-    static wxString userFieldDefault;
-
-    // Fetching translations can take a surprising amount of time when loading libraries,
-    // so only do it when necessary.
-    if( Pgm().GetLocale() != locale )
-    {
-        intersheetRefsDefault = _( "Sheet References" );
-        netclassRefDefault    = _( "Net Class" );
-        userFieldDefault      = _( "Field" );
-        locale = Pgm().GetLocale();
-    }
-
     if( aName == wxT( "Intersheetrefs" ) )
-        return intersheetRefsDefault;
+        return _( "Sheet References" );
     else if( aName == wxT( "Netclass" ) )
-        return netclassRefDefault;
+        return _( "Net Class" );
     else if( aName.IsEmpty() && aUseDefaultName )
-        return userFieldDefault;
+        return _( "Field" );
     else
         return aName;
 }
 
 
-bool SCH_LABEL_BASE::IsType( const KICAD_T aScanTypes[] ) const
+bool SCH_LABEL_BASE::IsType( const std::vector<KICAD_T>& aScanTypes ) const
 {
-    static KICAD_T wireTypes[] = { SCH_ITEM_LOCATE_WIRE_T, SCH_PIN_T, EOT };
-    static KICAD_T busTypes[] = { SCH_ITEM_LOCATE_BUS_T, EOT };
-
     if( SCH_TEXT::IsType( aScanTypes ) )
         return true;
 
-    for( const KICAD_T* p = aScanTypes; *p != EOT; ++p )
+    for( KICAD_T scanType : aScanTypes )
     {
-        if( *p == SCH_LABEL_LOCATE_ANY_T )
+        if( scanType == SCH_LABEL_LOCATE_ANY_T )
             return true;
+    }
 
-        if( *p == SCH_LABEL_LOCATE_WIRE_T )
+    wxCHECK_MSG( Schematic(), false, wxT( "No parent SCHEMATIC set for SCH_LABEL!" ) );
+
+    // Ensure m_connected_items for Schematic()->CurrentSheet() exists.
+    // Can be not the case when "this" is living in clipboard
+    if( m_connected_items.find( Schematic()->CurrentSheet() ) == m_connected_items.end() )
+        return false;
+
+    const SCH_ITEM_SET& item_set = m_connected_items.at( Schematic()->CurrentSheet() );
+
+    for( KICAD_T scanType : aScanTypes )
+    {
+        if( scanType == SCH_LABEL_LOCATE_WIRE_T )
         {
-            wxCHECK_MSG( Schematic(), false, "No parent SCHEMATIC set for SCH_LABEL!" );
-
-            for( SCH_ITEM* connection : m_connected_items.at( Schematic()->CurrentSheet() ) )
+            for( SCH_ITEM* connection : item_set )
             {
-                if( connection->IsType( wireTypes ) )
+                if( connection->IsType( { SCH_ITEM_LOCATE_WIRE_T, SCH_PIN_T } ) )
                     return true;
             }
         }
 
-        if ( *p == SCH_LABEL_LOCATE_BUS_T )
+        if ( scanType == SCH_LABEL_LOCATE_BUS_T )
         {
-            wxCHECK_MSG( Schematic(), false, "No parent SCHEMATIC set for SCH_LABEL!" );
-
-            for( SCH_ITEM* connection : m_connected_items.at( Schematic()->CurrentSheet() ) )
+            for( SCH_ITEM* connection : item_set )
             {
-                if( connection->IsType( busTypes ) )
+                if( connection->IsType( { SCH_ITEM_LOCATE_BUS_T } ) )
                     return true;
             }
         }
@@ -263,6 +256,18 @@ void SCH_LABEL_BASE::SwapData( SCH_ITEM* aItem )
     std::swap( m_shape, label->m_shape );
     std::swap( m_connectionType, label->m_connectionType );
     std::swap( m_isDangling, label->m_isDangling );
+    std::swap( m_lastResolvedColor, label->m_lastResolvedColor );
+}
+
+
+COLOR4D SCH_LABEL_BASE::GetLabelColor() const
+{
+    if( GetTextColor() != COLOR4D::UNSPECIFIED )
+        m_lastResolvedColor = GetTextColor();
+    else if( !IsConnectivityDirty() )
+        m_lastResolvedColor = GetEffectiveNetClass()->GetSchematicColor();
+
+    return m_lastResolvedColor;
 }
 
 
@@ -357,12 +362,14 @@ void SCH_LABEL_BASE::Rotate90( bool aClockwise )
 bool SCH_LABEL_BASE::IncrementLabel( int aIncrement )
 {
     wxString text = GetText();
-    bool ReturnVal = IncrementLabelMember( text, aIncrement );
 
-    if( ReturnVal )
+    if( IncrementLabelMember( text, aIncrement ) )
+    {
         SetText( text );
+        return true;
+    }
 
-    return ReturnVal;
+    return false;
 }
 
 
@@ -437,13 +444,87 @@ void SCH_LABEL_BASE::AutoplaceFields( SCH_SCREEN* aScreen, bool aManual )
 }
 
 
+void SCH_LABEL_BASE::GetIntersheetRefs( std::vector<std::pair<wxString, wxString>>* pages )
+{
+    wxCHECK( pages, /* void */ );
+
+    if( Schematic() )
+    {
+        auto it = Schematic()->GetPageRefsMap().find( GetText() );
+
+        if( it != Schematic()->GetPageRefsMap().end() )
+        {
+            std::vector<int> pageListCopy;
+
+            pageListCopy.insert( pageListCopy.end(), it->second.begin(), it->second.end() );
+
+            if( !Schematic()->Settings().m_IntersheetRefsListOwnPage )
+            {
+                int currentPage = Schematic()->CurrentSheet().GetVirtualPageNumber();
+                alg::delete_matching( pageListCopy, currentPage );
+
+                if( pageListCopy.empty() )
+                    return;
+            }
+
+            std::sort( pageListCopy.begin(), pageListCopy.end() );
+
+            std::map<int, wxString> sheetPages = Schematic()->GetVirtualPageToSheetPagesMap();
+            std::map<int, wxString> sheetNames = Schematic()->GetVirtualPageToSheetNamesMap();
+
+            for( int pageNum : pageListCopy )
+                pages->push_back( { sheetPages[ pageNum ], sheetNames[ pageNum ] } );
+        }
+    }
+}
+
+
 bool SCH_LABEL_BASE::ResolveTextVar( wxString* token, int aDepth ) const
 {
+    if( token->Contains( ':' ) )
+    {
+        if( !Schematic() )
+            return false;
+
+        if( Schematic()->ResolveCrossReference( token, aDepth ) )
+            return true;
+    }
+
     if( ( Type() == SCH_GLOBAL_LABEL_T || Type() == SCH_HIER_LABEL_T || Type() == SCH_SHEET_PIN_T )
          && token->IsSameAs( wxT( "CONNECTION_TYPE" ) ) )
     {
         const SCH_LABEL_BASE* label = static_cast<const SCH_LABEL_BASE*>( this );
         *token = getElectricalTypeLabel( label->GetShape() );
+        return true;
+    }
+    else if( token->IsSameAs( wxT( "SHORT_NET_NAME" ) ) )
+    {
+        const SCH_CONNECTION* connection = Connection();
+        *token = wxEmptyString;
+
+        if( connection )
+            *token = connection->LocalName();
+
+        return true;
+    }
+    else if( token->IsSameAs( wxT( "NET_NAME" ) ) )
+    {
+        const SCH_CONNECTION* connection = Connection();
+        *token = wxEmptyString;
+
+        if( connection )
+            *token = connection->Name();
+
+        return true;
+    }
+    else if( token->IsSameAs( wxT( "NET_CLASS" ) ) )
+    {
+        const SCH_CONNECTION* connection = Connection();
+        *token = wxEmptyString;
+
+        if( connection )
+            *token = GetEffectiveNetClass()->GetName();
+
         return true;
     }
 
@@ -463,12 +544,20 @@ bool SCH_LABEL_BASE::ResolveTextVar( wxString* token, int aDepth ) const
         if( sheet->ResolveTextVar( token, aDepth ) )
             return true;
     }
+    else if( Schematic() )
+    {
+        if( SCH_SHEET* sheet = Schematic()->CurrentSheet().Last() )
+        {
+            if( sheet->ResolveTextVar( token, aDepth ) )
+                return true;
+        }
+    }
 
     return false;
 }
 
 
-wxString SCH_LABEL_BASE::GetShownText( int aDepth ) const
+wxString SCH_LABEL_BASE::GetShownText( int aDepth, bool aAllowExtraText ) const
 {
     std::function<bool( wxString* )> textResolver =
             [&]( wxString* token ) -> bool
@@ -484,9 +573,9 @@ wxString SCH_LABEL_BASE::GetShownText( int aDepth ) const
 
     wxString text = EDA_TEXT::GetShownText();
 
-    if( text == "~" )   // Legacy placeholder for empty string
+    if( text == wxS( "~" ) ) // Legacy placeholder for empty string
     {
-        text = "";
+        text = wxS( "" );
     }
     else if( HasTextVars() )
     {
@@ -510,30 +599,44 @@ void SCH_LABEL_BASE::RunOnChildren( const std::function<void( SCH_ITEM* )>& aFun
 }
 
 
-SEARCH_RESULT SCH_LABEL_BASE::Visit( INSPECTOR aInspector, void* testData,
-                                     const KICAD_T aFilterTypes[] )
+bool SCH_LABEL_BASE::Matches( const EDA_SEARCH_DATA& aSearchData, void* aAuxData ) const
 {
-    KICAD_T stype;
+    return SCH_ITEM::Matches( UnescapeString( GetText() ), aSearchData );
+}
 
-    if( IsType( aFilterTypes ) )
+
+bool SCH_LABEL_BASE::Replace( const EDA_SEARCH_DATA& aSearchData, void* aAuxData )
+{
+    EDA_SEARCH_DATA localSearchData( aSearchData );
+    localSearchData.findString = EscapeString( aSearchData.findString, CTX_NETNAME );
+    localSearchData.replaceString = EscapeString( aSearchData.replaceString, CTX_NETNAME );
+
+    return EDA_TEXT::Replace( localSearchData );
+}
+
+
+INSPECT_RESULT SCH_LABEL_BASE::Visit( INSPECTOR aInspector, void* testData,
+                                      const std::vector<KICAD_T>& aScanTypes )
+{
+    if( IsType( aScanTypes ) )
     {
-        if( SEARCH_RESULT::QUIT == aInspector( this, nullptr ) )
-            return SEARCH_RESULT::QUIT;
+        if( INSPECT_RESULT::QUIT == aInspector( this, nullptr ) )
+            return INSPECT_RESULT::QUIT;
     }
 
-    for( const KICAD_T* p = aFilterTypes; (stype = *p) != EOT; ++p )
+    for( KICAD_T scanType : aScanTypes )
     {
-        if( stype == SCH_LOCATE_ANY_T || stype == SCH_FIELD_T )
+        if( scanType == SCH_LOCATE_ANY_T || scanType == SCH_FIELD_T )
         {
             for( SCH_FIELD& field : m_fields )
             {
-                if( SEARCH_RESULT::QUIT == aInspector( &field, this ) )
-                    return SEARCH_RESULT::QUIT;
+                if( INSPECT_RESULT::QUIT == aInspector( &field, this ) )
+                    return INSPECT_RESULT::QUIT;
             }
         }
     }
 
-    return SEARCH_RESULT::CONTINUE;
+    return INSPECT_RESULT::CONTINUE;
 }
 
 
@@ -573,16 +676,14 @@ int SCH_LABEL_BASE::GetLabelBoxExpansion( const RENDER_SETTINGS* aSettings ) con
         ratio = DEFAULT_LABEL_SIZE_RATIO; // For previews (such as in Preferences), etc.
 
     return KiROUND( ratio * GetTextSize().y );
-
-    return 0;
 }
 
 
-const EDA_RECT SCH_LABEL_BASE::GetBodyBoundingBox() const
+const BOX2I SCH_LABEL_BASE::GetBodyBoundingBox() const
 {
     // build the bounding box of the label only, without taking into account its fields
 
-    EDA_RECT             box;
+    BOX2I                 box;
     std::vector<VECTOR2I> pts;
 
     CreateGraphicShape( nullptr, pts, GetTextPos() );
@@ -596,17 +697,23 @@ const EDA_RECT SCH_LABEL_BASE::GetBodyBoundingBox() const
 }
 
 
-const EDA_RECT SCH_LABEL_BASE::GetBoundingBox() const
+const BOX2I SCH_LABEL_BASE::GetBoundingBox() const
 {
-    // build the bounding box of the entire net class flag, including both the symbol and the
-    // net class reference text
+    // build the bounding box of the entire label, including its fields
 
-    EDA_RECT box( GetBodyBoundingBox() );
+    BOX2I box = GetBodyBoundingBox();
 
     for( const SCH_FIELD& field : m_fields )
     {
         if( field.IsVisible() )
-            box.Merge( field.GetBoundingBox() );
+        {
+            BOX2I fieldBBox = field.GetBoundingBox();
+
+            if( Type() == SCH_LABEL_T || Type() == SCH_GLOBAL_LABEL_T )
+                fieldBBox.Offset( GetSchematicTextOffset( nullptr ) );
+
+            box.Merge( fieldBBox );
+        }
     }
 
     box.Normalize();
@@ -617,7 +724,7 @@ const EDA_RECT SCH_LABEL_BASE::GetBoundingBox() const
 
 bool SCH_LABEL_BASE::HitTest( const VECTOR2I& aPosition, int aAccuracy ) const
 {
-    EDA_RECT bbox = GetBodyBoundingBox();
+    BOX2I bbox = GetBodyBoundingBox();
     bbox.Inflate( aAccuracy );
 
     if( bbox.Contains( aPosition ) )
@@ -627,11 +734,14 @@ bool SCH_LABEL_BASE::HitTest( const VECTOR2I& aPosition, int aAccuracy ) const
     {
         if( field.IsVisible() )
         {
-            bbox = field.GetBoundingBox();
-            bbox.Inflate( aAccuracy );
+            BOX2I fieldBBox = field.GetBoundingBox();
+            fieldBBox.Inflate( aAccuracy );
 
-            if( bbox.Contains( aPosition ) )
-                return bbox.Contains( aPosition );
+            if( Type() == SCH_LABEL_T || Type() == SCH_GLOBAL_LABEL_T )
+                fieldBBox.Offset( GetSchematicTextOffset( nullptr ) );
+
+            if( fieldBBox.Contains( aPosition ) )
+                return true;
         }
     }
 
@@ -639,9 +749,9 @@ bool SCH_LABEL_BASE::HitTest( const VECTOR2I& aPosition, int aAccuracy ) const
 }
 
 
-bool SCH_LABEL_BASE::HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy ) const
+bool SCH_LABEL_BASE::HitTest( const BOX2I& aRect, bool aContained, int aAccuracy ) const
 {
-    EDA_RECT rect = aRect;
+    BOX2I rect = aRect;
 
     rect.Inflate( aAccuracy );
 
@@ -656,8 +766,16 @@ bool SCH_LABEL_BASE::HitTest( const EDA_RECT& aRect, bool aContained, int aAccur
 
         for( const SCH_FIELD& field : m_fields )
         {
-            if( field.IsVisible() && rect.Intersects( field.GetBoundingBox() ) )
-                return true;
+            if( field.IsVisible() )
+            {
+                BOX2I fieldBBox = field.GetBoundingBox();
+
+                if( Type() == SCH_LABEL_T || Type() == SCH_GLOBAL_LABEL_T )
+                    fieldBBox.Offset( GetSchematicTextOffset( nullptr ) );
+
+                if( rect.Intersects( fieldBBox ) )
+                    return true;
+            }
         }
 
         return false;
@@ -690,7 +808,7 @@ bool SCH_LABEL_BASE::UpdateDanglingState( std::vector<DANGLING_END_ITEM>& aItemL
                 m_isDangling = false;
 
                 if( aPath && item.GetType() != PIN_END )
-                    m_connected_items[ *aPath ].insert( static_cast<SCH_ITEM*>( item.GetItem() ) );
+                    AddConnectionTo( *aPath, static_cast<SCH_ITEM*>( item.GetItem() ) );
             }
 
             break;
@@ -761,12 +879,13 @@ void SCH_LABEL_BASE::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PA
     if( Type() == SCH_GLOBAL_LABEL_T || Type() == SCH_HIER_LABEL_T || Type() == SCH_SHEET_PIN_T )
         aList.emplace_back( _( "Type" ), getElectricalTypeLabel( GetShape() ) );
 
+    aList.emplace_back( _( "Font" ), GetFont() ? GetFont()->GetName() : _( "Default" ) );
+
     wxString textStyle[] = { _( "Normal" ), _( "Italic" ), _( "Bold" ), _( "Bold Italic" ) };
     int style = IsBold() && IsItalic() ? 3 : IsBold() ? 2 : IsItalic() ? 1 : 0;
     aList.emplace_back( _( "Style" ), textStyle[style] );
 
-    aList.emplace_back( _( "Text Size" ), MessageTextFromValue( aFrame->GetUserUnits(),
-                                                                GetTextWidth() ) );
+    aList.emplace_back( _( "Text Size" ), aFrame->MessageTextFromValue( GetTextWidth() ) );
 
     switch( GetTextSpinStyle() )
     {
@@ -790,14 +909,8 @@ void SCH_LABEL_BASE::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PA
 
         if( !conn->IsBus() )
         {
-            NET_SETTINGS& netSettings = Schematic()->Prj().GetProjectFile().NetSettings();
-            const wxString& netname = conn->Name( true );
-
-            if( netSettings.m_NetClassAssignments.count( netname ) )
-            {
-                const wxString& netclassName = netSettings.m_NetClassAssignments[ netname ];
-                aList.emplace_back( _( "Assigned Netclass" ), netclassName );
-            }
+            aList.emplace_back( _( "Resolved Netclass" ),
+                                UnescapeString( GetEffectiveNetClass()->GetName() ) );
         }
     }
 }
@@ -813,8 +926,16 @@ void SCH_LABEL_BASE::Plot( PLOTTER* aPlotter, bool aBackground ) const
     COLOR4D          color = settings->GetLayerColor( layer );
     int              penWidth = GetEffectiveTextPenWidth( settings->GetDefaultPenWidth() );
 
+    if( aPlotter->GetColorMode() && GetTextColor() != COLOR4D::UNSPECIFIED )
+        color = GetTextColor();
+
     penWidth = std::max( penWidth, settings->GetMinPenWidth() );
     aPlotter->SetCurrentLineWidth( penWidth );
+
+    KIFONT::FONT* font = GetFont();
+
+    if( !font )
+        font = KIFONT::FONT::GetFont( settings->GetDefaultFont(), IsBold(), IsItalic() );
 
     VECTOR2I textpos = GetTextPos() + GetSchematicTextOffset( aPlotter->RenderSettings() );
     CreateGraphicShape( aPlotter->RenderSettings(), s_poly, GetTextPos() );
@@ -827,10 +948,36 @@ void SCH_LABEL_BASE::Plot( PLOTTER* aPlotter, bool aBackground ) const
     {
         aPlotter->Text( textpos, color, GetShownText(), GetTextAngle(), GetTextSize(),
                         GetHorizJustify(), GetVertJustify(), penWidth, IsItalic(), IsBold(),
-                        false, GetDrawFont() );
+                        false, font );
 
         if( s_poly.size() )
             aPlotter->PlotPoly( s_poly, FILL_T::NO_FILL, penWidth );
+
+        // Plot attributes to a hypertext menu
+        std::vector<wxString> properties;
+
+        if( connection )
+        {
+            properties.emplace_back(
+                    wxString::Format( wxT( "!%s = %s" ), _( "Net" ), connection->Name() ) );
+
+            properties.emplace_back( wxString::Format( wxT( "!%s = %s" ), _( "Resolved netclass" ),
+                                                       GetEffectiveNetClass()->GetName() ) );
+        }
+
+        for( const SCH_FIELD& field : GetFields() )
+        {
+            properties.emplace_back(
+                    wxString::Format( wxT( "!%s = %s" ), field.GetName(), field.GetShownText() ) );
+        }
+
+        if( !properties.empty() )
+            aPlotter->HyperlinkMenu( GetBodyBoundingBox(), properties );
+
+        if( Type() == SCH_HIER_LABEL_T )
+        {
+            aPlotter->Bookmark( GetBodyBoundingBox(), GetShownText(), _( "Hierarchical Labels" ) );
+        }
     }
 
     for( const SCH_FIELD& field : m_fields )
@@ -846,8 +993,12 @@ void SCH_LABEL_BASE::Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aO
     int             layer = ( connection && connection->IsBus() ) ? LAYER_BUS : m_layer;
     wxDC*           DC = aSettings->GetPrintDC();
     COLOR4D         color = aSettings->GetLayerColor( layer );
+    bool            blackAndWhiteMode = GetGRForceBlackPenState();
     int             penWidth = std::max( GetPenWidth(), aSettings->GetDefaultPenWidth() );
     VECTOR2I        text_offset = aOffset + GetSchematicTextOffset( aSettings );
+
+    if( !blackAndWhiteMode && GetTextColor() != COLOR4D::UNSPECIFIED )
+        color = GetTextColor();
 
     EDA_TEXT::Print( aSettings, text_offset, color );
 
@@ -860,6 +1011,15 @@ void SCH_LABEL_BASE::Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aO
         field.Print( aSettings, aOffset );
 }
 
+bool SCH_LABEL_BASE::AutoRotateOnPlacement() const
+{
+    return m_autoRotateOnPlacement;
+}
+
+void SCH_LABEL_BASE::SetAutoRotateOnPlacement( bool autoRotate )
+{
+    m_autoRotateOnPlacement = autoRotate;
+}
 
 SCH_LABEL::SCH_LABEL( const VECTOR2I& pos, const wxString& text ) :
         SCH_LABEL_BASE( pos, text, SCH_LABEL_T )
@@ -870,11 +1030,12 @@ SCH_LABEL::SCH_LABEL( const VECTOR2I& pos, const wxString& text ) :
 }
 
 
-const EDA_RECT SCH_LABEL::GetBodyBoundingBox() const
+const BOX2I SCH_LABEL::GetBodyBoundingBox() const
 {
-    EDA_RECT rect = GetTextBox();
+    BOX2I rect = GetTextBox();
 
     rect.Offset( 0, -GetTextOffset() );
+    rect.Inflate( GetEffectiveTextPenWidth() );
 
     if( !GetTextAngle().IsZero() )
     {
@@ -898,9 +1059,9 @@ const EDA_RECT SCH_LABEL::GetBodyBoundingBox() const
 }
 
 
-wxString SCH_LABEL::GetSelectMenuText( EDA_UNITS aUnits ) const
+wxString SCH_LABEL::GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const
 {
-    return wxString::Format( _( "Label '%s'" ), ShortenedShownText() );
+    return wxString::Format( _( "Label '%s'" ), KIUI::EllipsizeMenuText( GetShownText() ) );
 }
 
 
@@ -915,9 +1076,19 @@ SCH_DIRECTIVE_LABEL::SCH_DIRECTIVE_LABEL( const VECTOR2I& pos ) :
 {
     m_layer      = LAYER_NETCLASS_REFS;
     m_shape      = LABEL_FLAG_SHAPE::F_ROUND;
-    m_pinLength  = Mils2iu( 100 );
-    m_symbolSize = Mils2iu( 20 );
+    m_pinLength  = schIUScale.MilsToIU( 100 );
+    m_symbolSize = schIUScale.MilsToIU( 20 );
     m_isDangling = true;
+}
+
+
+void SCH_DIRECTIVE_LABEL::SwapData( SCH_ITEM* aItem )
+{
+    SCH_LABEL_BASE::SwapData( aItem );
+    SCH_DIRECTIVE_LABEL* label = static_cast<SCH_DIRECTIVE_LABEL*>( aItem );
+
+    std::swap( m_pinLength, label->m_pinLength );
+    std::swap( m_symbolSize, label->m_symbolSize );
 }
 
 
@@ -926,6 +1097,17 @@ SCH_DIRECTIVE_LABEL::SCH_DIRECTIVE_LABEL( const SCH_DIRECTIVE_LABEL& aClassLabel
 {
     m_pinLength = aClassLabel.m_pinLength;
     m_symbolSize = aClassLabel.m_symbolSize;
+}
+
+
+int SCH_DIRECTIVE_LABEL::GetPenWidth() const
+{
+    int pen = 0;
+
+    if( Schematic() )
+        pen = Schematic()->Settings().m_DefaultLineWidth;
+
+    return GetEffectiveTextPenWidth( pen );
 }
 
 
@@ -1048,9 +1230,18 @@ void SCH_DIRECTIVE_LABEL::AutoplaceFields( SCH_SCREEN* aScreen, bool aManual )
 }
 
 
-wxString SCH_DIRECTIVE_LABEL::GetSelectMenuText( EDA_UNITS aUnits ) const
+wxString SCH_DIRECTIVE_LABEL::GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const
 {
-    return wxString::Format( _( "Directive Label" ), ShortenedShownText() );
+    if( m_fields.empty() )
+    {
+        return _( "Directive Label" );
+    }
+    else
+    {
+        return wxString::Format( _( "Directive Label [%s %s]" ),
+                                 m_fields[0].GetName(),
+                                 m_fields[0].GetShownText() );
+    }
 }
 
 
@@ -1063,9 +1254,9 @@ SCH_GLOBALLABEL::SCH_GLOBALLABEL( const VECTOR2I& pos, const wxString& text ) :
 
     SetVertJustify( GR_TEXT_V_ALIGN_CENTER );
 
-    m_fields.emplace_back( SCH_FIELD( { 0, 0 }, 0, this, _( "Sheet References" ) ) );
+    m_fields.emplace_back( SCH_FIELD( pos, 0, this, _( "Sheet References" ) ) );
     m_fields[0].SetText( wxT( "${INTERSHEET_REFS}" ) );
-    m_fields[0].SetVisible( true );
+    m_fields[0].SetVisible( false );
     m_fields[0].SetLayer( LAYER_INTERSHEET_REFS );
     m_fields[0].SetVertJustify( GR_TEXT_V_ALIGN_CENTER );
 }
@@ -1204,31 +1395,29 @@ bool SCH_GLOBALLABEL::ResolveTextVar( wxString* token, int aDepth ) const
         }
         else
         {
-            std::vector<wxString> pageListCopy;
+            std::vector<int> pageListCopy;
 
             pageListCopy.insert( pageListCopy.end(), it->second.begin(), it->second.end() );
-            std::sort( pageListCopy.begin(), pageListCopy.end(),
-                       []( const wxString& a, const wxString& b ) -> bool
-                       {
-                           return StrNumCmp( a, b, true ) < 0;
-                       } );
+            std::sort( pageListCopy.begin(), pageListCopy.end() );
 
             if( !settings.m_IntersheetRefsListOwnPage )
             {
-                wxString currentPage = Schematic()->CurrentSheet().GetPageNumber();
+                int currentPage = Schematic()->CurrentSheet().GetVirtualPageNumber();
                 alg::delete_matching( pageListCopy, currentPage );
             }
+
+            std::map<int, wxString> sheetPages = Schematic()->GetVirtualPageToSheetPagesMap();
 
             if( ( settings.m_IntersheetRefsFormatShort ) && ( pageListCopy.size() > 2 ) )
             {
                 ref.Append( wxString::Format( wxT( "%s..%s" ),
-                                              pageListCopy.front(),
-                                              pageListCopy.back() ) );
+                                              sheetPages[pageListCopy.front()],
+                                              sheetPages[pageListCopy.back()] ) );
             }
             else
             {
-                for( const wxString& pageNo : pageListCopy )
-                    ref.Append( wxString::Format( wxT( "%s," ), pageNo ) );
+                for( const int& pageNo : pageListCopy )
+                    ref.Append( wxString::Format( wxT( "%s," ), sheetPages[pageNo] ) );
 
                 if( !ref.IsEmpty() && ref.Last() == ',' )
                     ref.RemoveLast();
@@ -1245,12 +1434,13 @@ bool SCH_GLOBALLABEL::ResolveTextVar( wxString* token, int aDepth ) const
 
 void SCH_GLOBALLABEL::ViewGetLayers( int aLayers[], int& aCount ) const
 {
-    aCount     = 5;
-    aLayers[0] = LAYER_DEVICE;
-    aLayers[1] = LAYER_INTERSHEET_REFS;
-    aLayers[2] = LAYER_NETCLASS_REFS;
-    aLayers[3] = LAYER_FIELDS;
-    aLayers[4] = LAYER_SELECTION_SHADOWS;
+    aCount     = 6;
+    aLayers[0] = LAYER_DANGLING;
+    aLayers[1] = LAYER_DEVICE;
+    aLayers[2] = LAYER_INTERSHEET_REFS;
+    aLayers[3] = LAYER_NETCLASS_REFS;
+    aLayers[4] = LAYER_FIELDS;
+    aLayers[5] = LAYER_SELECTION_SHADOWS;
 }
 
 
@@ -1322,9 +1512,9 @@ void SCH_GLOBALLABEL::CreateGraphicShape( const RENDER_SETTINGS* aRenderSettings
 }
 
 
-wxString SCH_GLOBALLABEL::GetSelectMenuText( EDA_UNITS aUnits ) const
+wxString SCH_GLOBALLABEL::GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const
 {
-    return wxString::Format( _( "Global Label '%s'" ), ShortenedShownText() );
+    return wxString::Format( _( "Global Label '%s'" ), KIUI::EllipsizeMenuText( GetShownText() ) );
 }
 
 
@@ -1382,7 +1572,7 @@ void SCH_HIERLABEL::CreateGraphicShape( const RENDER_SETTINGS* aSettings,
 }
 
 
-const EDA_RECT SCH_HIERLABEL::GetBodyBoundingBox() const
+const BOX2I SCH_HIERLABEL::GetBodyBoundingBox() const
 {
     int penWidth = GetEffectiveTextPenWidth();
     int margin = GetTextOffset();
@@ -1403,7 +1593,7 @@ const EDA_RECT SCH_HIERLABEL::GetBodyBoundingBox() const
     case TEXT_SPIN_STYLE::LEFT:
         dx = -length;
         dy = height;
-        x += Mils2iu( DANGLING_SYMBOL_SIZE );
+        x += schIUScale.MilsToIU( DANGLING_SYMBOL_SIZE );
         y -= height / 2;
         break;
 
@@ -1411,13 +1601,13 @@ const EDA_RECT SCH_HIERLABEL::GetBodyBoundingBox() const
         dx = height;
         dy = -length;
         x -= height / 2;
-        y += Mils2iu( DANGLING_SYMBOL_SIZE );
+        y += schIUScale.MilsToIU( DANGLING_SYMBOL_SIZE );
         break;
 
     case TEXT_SPIN_STYLE::RIGHT:
         dx = length;
         dy = height;
-        x -= Mils2iu( DANGLING_SYMBOL_SIZE );
+        x -= schIUScale.MilsToIU( DANGLING_SYMBOL_SIZE );
         y -= height / 2;
         break;
 
@@ -1425,11 +1615,11 @@ const EDA_RECT SCH_HIERLABEL::GetBodyBoundingBox() const
         dx = height;
         dy = length;
         x -= height / 2;
-        y -= Mils2iu( DANGLING_SYMBOL_SIZE );
+        y -= schIUScale.MilsToIU( DANGLING_SYMBOL_SIZE );
         break;
     }
 
-    EDA_RECT box( VECTOR2I( x, y ), VECTOR2I( dx, dy ) );
+    BOX2I box( VECTOR2I( x, y ), VECTOR2I( dx, dy ) );
     box.Normalize();
     return box;
 }
@@ -1455,9 +1645,10 @@ VECTOR2I SCH_HIERLABEL::GetSchematicTextOffset( const RENDER_SETTINGS* aSettings
 }
 
 
-wxString SCH_HIERLABEL::GetSelectMenuText( EDA_UNITS aUnits ) const
+wxString SCH_HIERLABEL::GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const
 {
-    return wxString::Format( _( "Hierarchical Label '%s'" ), ShortenedShownText() );
+    return wxString::Format( _( "Hierarchical Label '%s'" ),
+                             KIUI::EllipsizeMenuText( GetShownText() ) );
 }
 
 

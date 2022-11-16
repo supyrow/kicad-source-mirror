@@ -80,6 +80,14 @@ COLOR4D DS_RENDER_SETTINGS::GetColor( const VIEW_ITEM* aItem, int aLayer ) const
 
         if( item->IsSelected() )
             return m_selectedColor;
+
+        if( item->Type() == WSG_TEXT_T )
+        {
+            COLOR4D color = static_cast<const DS_DRAW_ITEM_TEXT*>( item )->GetTextColor();
+
+            if( color != COLOR4D::UNSPECIFIED )
+                return color;
+        }
     }
 
     return m_normalColor;
@@ -92,6 +100,7 @@ void DS_DRAW_ITEM_LIST::GetTextVars( wxArrayString* aVars )
     aVars->push_back( wxT( "#" ) );
     aVars->push_back( wxT( "##" ) );
     aVars->push_back( wxT( "SHEETNAME" ) );
+    aVars->push_back( wxT( "SHEETPATH" ) );
     aVars->push_back( wxT( "FILENAME" ) );
     aVars->push_back( wxT( "PAPER" ) );
     aVars->push_back( wxT( "LAYER" ) );
@@ -99,8 +108,8 @@ void DS_DRAW_ITEM_LIST::GetTextVars( wxArrayString* aVars )
 }
 
 
-// returns the full text corresponding to the aTextbase,
-// after replacing format symbols by the corresponding value
+// Returns the full text corresponding to the aTextbase, after replacing any text variable
+// references.
 wxString DS_DRAW_ITEM_LIST::BuildFullText( const wxString& aTextbase )
 {
     std::function<bool( wxString* )> wsResolver =
@@ -131,7 +140,12 @@ wxString DS_DRAW_ITEM_LIST::BuildFullText( const wxString& aTextbase )
                 }
                 else if( token->IsSameAs( wxT( "SHEETNAME" ) ) )
                 {
-                    *token = m_sheetFullName;
+                    *token = m_sheetName;
+                    tokenUpdated = true;
+                }
+                else if( token->IsSameAs( wxT( "SHEETPATH" ) ) )
+                {
+                    *token = m_sheetPath;
                     tokenUpdated = true;
                 }
                 else if( token->IsSameAs( wxT( "FILENAME" ) ) )
@@ -152,9 +166,14 @@ wxString DS_DRAW_ITEM_LIST::BuildFullText( const wxString& aTextbase )
                 }
                 else if( m_titleBlock )
                 {
-                    m_titleBlock->TextVarResolver( token, m_project );
-                    // no need for tokenUpdated; TextVarResolver() did a full resolve
-                    return true;
+                    // no need for tokenUpdated; TITLE_BLOCK::TextVarResolver() does a full
+                    // resolve
+                    return m_titleBlock->TextVarResolver( token, m_project );
+                }
+                else if( m_properties && m_properties->count( *token ) )
+                {
+                    *token = m_properties->at( *token );
+                    tokenUpdated = true;
                 }
 
                 if( tokenUpdated )
@@ -233,7 +252,10 @@ void KIGFX::DS_PAINTER::draw( const DS_DRAW_ITEM_TEXT* aItem, int aLayer ) const
     KIFONT::FONT* font = aItem->GetFont();
 
     if( !font )
-        font = KIFONT::FONT::GetFont( wxEmptyString, aItem->IsBold(), aItem->IsItalic() );
+    {
+        font = KIFONT::FONT::GetFont( m_renderSettings.GetDefaultFont(), aItem->IsBold(),
+                                      aItem->IsItalic() );
+    }
 
     const COLOR4D& color = m_renderSettings.GetColor( aItem, aLayer );
 
@@ -266,7 +288,7 @@ void KIGFX::DS_PAINTER::draw( const DS_DRAW_ITEM_BITMAP* aItem, int aLayer ) con
     m_gal->DrawBitmap( *bitmap->m_ImageBitmap );
 
 #if 0   // For bounding box debug purpose only
-    EDA_RECT bbox = aItem->GetBoundingBox();
+    BOX2I bbox = aItem->GetBoundingBox();
     m_gal->SetIsFill( true );
     m_gal->SetIsStroke( true );
     m_gal->SetFillColor( COLOR4D( 1, 1, 1, 0.4 ) );

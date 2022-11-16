@@ -299,7 +299,8 @@ int GERBVIEW_CONTROL::DisplayControl( const TOOL_EVENT& aEvent )
     {
         m_frame->SetElementVisibility( LAYER_DCODES, !cfg->m_Appearance.show_dcodes );
     }
-    else if( aEvent.IsAction( &ACTIONS::highContrastMode ) )
+    else if( aEvent.IsAction( &ACTIONS::highContrastMode )
+             || aEvent.IsAction( &ACTIONS::highContrastModeCycle ) )
     {
         cfg->m_Display.m_HighContrastMode = !cfg->m_Display.m_HighContrastMode;
     }
@@ -327,7 +328,7 @@ int GERBVIEW_CONTROL::LayerNext( const TOOL_EVENT& aEvent )
 {
     int layer = m_frame->GetActiveLayer();
 
-    if( layer < GERBER_DRAWLAYERS_COUNT - 1 )
+    if( layer < ( (int) GERBER_FILE_IMAGE_LIST::GetImagesList().GetLoadedImageCount() - 1 ) )
         m_frame->SetActiveLayer( layer + 1, true );
 
     return 0;
@@ -340,6 +341,36 @@ int GERBVIEW_CONTROL::LayerPrev( const TOOL_EVENT& aEvent )
 
     if( layer > 0 )
         m_frame->SetActiveLayer( layer - 1, true );
+
+    return 0;
+}
+
+
+int GERBVIEW_CONTROL::MoveLayerUp( const TOOL_EVENT& aEvent )
+{
+    int layer = m_frame->GetActiveLayer();
+
+    if( layer > 0 )
+    {
+        m_frame->RemapLayers(
+                GERBER_FILE_IMAGE_LIST::GetImagesList().SwapImages( layer, layer - 1 ) );
+        m_frame->SetActiveLayer( layer - 1 );
+    }
+
+    return 0;
+}
+
+
+int GERBVIEW_CONTROL::MoveLayerDown( const TOOL_EVENT& aEvent )
+{
+    int                     layer = m_frame->GetActiveLayer();
+    GERBER_FILE_IMAGE_LIST& list = GERBER_FILE_IMAGE_LIST::GetImagesList();
+
+    if( layer < ( (int) list.GetLoadedImageCount() - 1 ) )
+    {
+        m_frame->RemapLayers( list.SwapImages( layer, layer + 1 ) );
+        m_frame->SetActiveLayer( layer + 1 );
+    }
 
     return 0;
 }
@@ -429,6 +460,46 @@ int GERBVIEW_CONTROL::UpdateMessagePanel( const TOOL_EVENT& aEvent )
 }
 
 
+int GERBVIEW_CONTROL::LoadZipfile( const TOOL_EVENT& aEvent )
+{
+    m_frame->LoadZipArchiveFile( *aEvent.Parameter<wxString*>() );
+    canvas()->Refresh();
+
+    return 0;
+}
+
+
+int GERBVIEW_CONTROL::LoadGerbFiles( const TOOL_EVENT& aEvent )
+{
+    // The event parameter is a string containing names of dropped files.
+    // Each file name has been enclosed with "", so file names with space character are allowed.
+    wxString files = *aEvent.Parameter<wxString*>();
+    // ie : files = "file1""another file""file3"...
+
+    std::vector<wxString> aFileNameList;
+
+    // Isolate each file name, deletting ""
+    files = files.AfterFirst( '"' );
+
+    // Gerber files are enclosed with "".
+    // Load files names in array.
+    while( !files.empty() )
+    {
+        wxString fileName = files.BeforeFirst( '"' );
+        // Check if file exists. If not, keep on and ignore fileName
+        if( wxFileName( fileName ).Exists() )
+            aFileNameList.push_back( fileName );
+        files = files.AfterFirst( '"' );
+        files = files.AfterFirst( '"' );
+    }
+
+    if( !aFileNameList.empty() )
+        m_frame->OpenProjectFiles( aFileNameList, KICTL_CREATE );
+
+    return 0;
+}
+
+
 void GERBVIEW_CONTROL::setTransitions()
 {
     Go( &GERBVIEW_CONTROL::OpenAutodetected,   GERBVIEW_ACTIONS::openAutodetected.MakeEvent() );
@@ -448,6 +519,8 @@ void GERBVIEW_CONTROL::setTransitions()
 
     Go( &GERBVIEW_CONTROL::LayerNext,          GERBVIEW_ACTIONS::layerNext.MakeEvent() );
     Go( &GERBVIEW_CONTROL::LayerPrev,          GERBVIEW_ACTIONS::layerPrev.MakeEvent() );
+    Go( &GERBVIEW_CONTROL::MoveLayerUp,        GERBVIEW_ACTIONS::moveLayerUp.MakeEvent() );
+    Go( &GERBVIEW_CONTROL::MoveLayerDown,      GERBVIEW_ACTIONS::moveLayerDown.MakeEvent() );
     Go( &GERBVIEW_CONTROL::ClearLayer,         GERBVIEW_ACTIONS::clearLayer.MakeEvent() );
     Go( &GERBVIEW_CONTROL::ClearAllLayers,     GERBVIEW_ACTIONS::clearAllLayers.MakeEvent() );
     Go( &GERBVIEW_CONTROL::ReloadAllLayers,    GERBVIEW_ACTIONS::reloadAllLayers.MakeEvent() );
@@ -458,6 +531,7 @@ void GERBVIEW_CONTROL::setTransitions()
     Go( &GERBVIEW_CONTROL::DisplayControl,     GERBVIEW_ACTIONS::negativeObjectDisplay.MakeEvent() );
     Go( &GERBVIEW_CONTROL::DisplayControl,     GERBVIEW_ACTIONS::dcodeDisplay.MakeEvent() );
     Go( &GERBVIEW_CONTROL::DisplayControl,     ACTIONS::highContrastMode.MakeEvent() );
+    Go( &GERBVIEW_CONTROL::DisplayControl,     ACTIONS::highContrastModeCycle.MakeEvent() );
     Go( &GERBVIEW_CONTROL::DisplayControl,     GERBVIEW_ACTIONS::toggleDiffMode.MakeEvent() );
     Go( &GERBVIEW_CONTROL::DisplayControl,     GERBVIEW_ACTIONS::flipGerberView.MakeEvent() );
 
@@ -465,4 +539,7 @@ void GERBVIEW_CONTROL::setTransitions()
     Go( &GERBVIEW_CONTROL::UpdateMessagePanel, EVENTS::UnselectedEvent );
     Go( &GERBVIEW_CONTROL::UpdateMessagePanel, EVENTS::ClearedEvent );
     Go( &GERBVIEW_CONTROL::UpdateMessagePanel, ACTIONS::updateUnits.MakeEvent() );
+
+    Go( &GERBVIEW_CONTROL::LoadZipfile,        GERBVIEW_ACTIONS::loadZipFile.MakeEvent() );
+    Go( &GERBVIEW_CONTROL::LoadGerbFiles,      GERBVIEW_ACTIONS::loadGerbFiles.MakeEvent() );
 }

@@ -35,6 +35,42 @@ int sgn( T aVal )
     return ( T( 0 ) < aVal ) - ( aVal < T( 0 ) );
 }
 
+template <typename T>
+constexpr T sqrt_helper(T x, T lo, T hi)
+{
+  if (lo == hi)
+    return lo;
+
+  const T mid = (lo + hi + 1) / 2;
+  if (x / mid < mid)
+    return sqrt_helper<T>(x, lo, mid - 1);
+  else
+    return sqrt_helper(x, mid, hi);
+}
+
+template <typename T>
+constexpr T ct_sqrt(T x)
+{
+  return sqrt_helper<T>(x, 0, x / 2 + 1);
+}
+
+template <typename T>
+static constexpr T sqrt_max_typed = ct_sqrt( std::numeric_limits<T>::max() );
+
+template <typename T>
+T isqrt(T x)
+{
+  T r = (T) std::sqrt((double) x);
+  T sqrt_max = sqrt_max_typed<T>;
+
+  while (r < sqrt_max && r * r < x)
+    r++;
+  while (r > sqrt_max || r * r > x)
+    r--;
+
+  return r;
+}
+
 
 SEG::ecoord SEG::SquaredDistance( const SEG& aSeg ) const
 {
@@ -207,7 +243,7 @@ bool SEG::Collide( const SEG& aSeg, int aClearance, int* aActual ) const
     if( dist_sq == 0 || dist_sq < (ecoord) aClearance * aClearance )
     {
         if( aActual )
-            *aActual = sqrt( dist_sq );
+            *aActual = isqrt( dist_sq );
 
         return true;
     }
@@ -282,13 +318,13 @@ VECTOR2I SEG::LineProject( const VECTOR2I& aP ) const
 
 int SEG::Distance( const SEG& aSeg ) const
 {
-    return KiROUND( sqrt( SquaredDistance( aSeg ) ) );
+    return isqrt( SquaredDistance( aSeg ) );
 }
 
 
 int SEG::Distance( const VECTOR2I& aP ) const
 {
-    return KiROUND( sqrt( SquaredDistance( aP ) ) );
+    return isqrt( SquaredDistance( aP ) );
 }
 
 
@@ -297,9 +333,77 @@ int SEG::LineDistance( const VECTOR2I& aP, bool aDetermineSide ) const
     ecoord p = ecoord{ A.y } - B.y;
     ecoord q = ecoord{ B.x } - A.x;
     ecoord r = -p * A.x - q * A.y;
+    ecoord l = p * p + q * q;
+    ecoord det = p * aP.x + q * aP.y + r;
+    ecoord dist_sq = 0;
 
-    ecoord dist = KiROUND( ( p * aP.x + q * aP.y + r ) / sqrt( p * p + q * q ) );
+    if( l > 0 )
+    {
+        dist_sq  = rescale( det, det, l );
+    }
+
+    ecoord dist = isqrt( dist_sq );
 
     return aDetermineSide ? dist : std::abs( dist );
 }
 
+
+bool SEG::mutualDistance( const SEG& aSeg, ecoord& aD1, ecoord& aD2 ) const
+{
+    SEG a( *this );
+    SEG b( aSeg );
+
+    if( a.SquaredLength() < b.SquaredLength() )
+    {
+        std::swap(a, b);
+    }
+
+    ecoord p = ecoord{ a.A.y } - a.B.y;
+    ecoord q = ecoord{ a.B.x } - a.A.x;
+    ecoord r = -p * a.A.x - q * a.A.y;
+
+    ecoord l = p * p + q * q;
+
+    if( l == 0 )
+        return false;
+
+    ecoord det1 = p * b.A.x + q * b.A.y + r;
+    ecoord det2 = p * b.B.x + q * b.B.y + r;
+
+    ecoord dsq1 = rescale( det1, det1, l );
+    ecoord dsq2 = rescale( det2, det2, l );
+
+    aD1 = sgn( det1 ) * isqrt( dsq1 );
+    aD2 = sgn( det2 ) * isqrt( dsq2 );
+
+    return true;
+}
+
+bool SEG::ApproxCollinear( const SEG& aSeg, int aDistanceThreshold ) const
+{
+    ecoord d1, d2;
+
+    if( ! mutualDistance( aSeg, d1, d2 ) )
+        return false;
+
+    return std::abs( d1 ) <= aDistanceThreshold && std::abs( d2 ) <= aDistanceThreshold;
+}
+
+
+bool SEG::ApproxParallel( const SEG& aSeg, int aDistanceThreshold ) const
+{
+    ecoord d1, d2;
+
+    if( ! mutualDistance( aSeg, d1, d2 ) )
+        return false;
+
+    return std::abs( d1 - d2 ) <= (ecoord) aDistanceThreshold;
+}
+
+
+bool SEG::ApproxPerpendicular( const SEG& aSeg ) const
+{
+    SEG perp = PerpendicularSeg( A );
+
+    return aSeg.ApproxParallel( perp );
+}

@@ -29,6 +29,7 @@
 #include <kiface_base.h>
 #include <tools/eda_3d_controller.h>
 #include "eda_3d_actions.h"
+#include "dialogs/panel_preview_3d_model.h"
 #include <3d_rendering/opengl/render_3d_opengl.h>
 
 
@@ -113,10 +114,36 @@ int EDA_3D_CONTROLLER::Main( const TOOL_EVENT& aEvent )
     // Main loop: keep receiving events
     while( TOOL_EVENT* evt = Wait() )
     {
-        if( evt->IsClick( BUT_RIGHT ) )
+        if( evt->IsCancelInteractive() )
+        {
+            wxWindow* canvas = m_toolMgr->GetToolHolder()->GetToolCanvas();
+            wxWindow* topLevelParent = canvas->GetParent();
+
+            while( topLevelParent && !topLevelParent->IsTopLevel() )
+                topLevelParent = topLevelParent->GetParent();
+
+            if( topLevelParent && dynamic_cast<DIALOG_SHIM*>( topLevelParent ) )
+            {
+                DIALOG_SHIM* dialog = static_cast<DIALOG_SHIM*>( topLevelParent );
+
+                if( dialog->IsQuasiModal() )
+                    dialog->EndQuasiModal( wxID_CANCEL );
+                else
+                    dialog->EndModal( wxID_CANCEL );
+            }
+            else
+            {
+                evt->SetPassEvent();
+            }
+        }
+        else if( evt->IsClick( BUT_RIGHT ) )
+        {
             m_menu.ShowContextMenu();
+        }
         else
+        {
             evt->SetPassEvent();
+        }
     }
 
     return 0;
@@ -215,6 +242,11 @@ int EDA_3D_CONTROLLER::ToggleVisibility( const TOOL_EVENT& aEvent )
     else if( aEvent.IsAction( &EDA_3D_ACTIONS::showVirtual ) )
     {
         FLIP( m_boardAdapter->m_Cfg->m_Render.show_footprints_virtual );
+        reload = true;
+    }
+    else if( aEvent.IsAction( &EDA_3D_ACTIONS::showNotInPosFile ) )
+    {
+        FLIP( m_boardAdapter->m_Cfg->m_Render.show_footprints_not_in_posfile );
         reload = true;
     }
     else if( aEvent.IsAction( &EDA_3D_ACTIONS::showBBoxes ) )
@@ -403,6 +435,8 @@ void EDA_3D_CONTROLLER::setTransitions()
     Go( &EDA_3D_CONTROLLER::ToggleOrtho,        EDA_3D_ACTIONS::toggleOrtho.MakeEvent() );
     Go( &EDA_3D_CONTROLLER::ToggleVisibility,   EDA_3D_ACTIONS::showTHT.MakeEvent() );
     Go( &EDA_3D_CONTROLLER::ToggleVisibility,   EDA_3D_ACTIONS::showSMD.MakeEvent() );
+    Go( &EDA_3D_CONTROLLER::ToggleVisibility,   EDA_3D_ACTIONS::showVirtual.MakeEvent() );
+    Go( &EDA_3D_CONTROLLER::ToggleVisibility,   EDA_3D_ACTIONS::showNotInPosFile.MakeEvent() );
     Go( &EDA_3D_CONTROLLER::ToggleVisibility,   EDA_3D_ACTIONS::showVirtual.MakeEvent() );
     Go( &EDA_3D_CONTROLLER::ToggleVisibility,   EDA_3D_ACTIONS::showBBoxes.MakeEvent() );
     Go( &EDA_3D_CONTROLLER::ToggleVisibility,   EDA_3D_ACTIONS::toggleRealisticMode.MakeEvent() );

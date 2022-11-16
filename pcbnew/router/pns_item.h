@@ -81,6 +81,7 @@ public:
         m_rank = -1;
         m_routable = true;
         m_isVirtual = false;
+        m_isFreePad = false;
         m_isCompoundShapePrimitive = false;
     }
 
@@ -96,6 +97,7 @@ public:
         m_rank = aOther.m_rank;
         m_routable = aOther.m_routable;
         m_isVirtual = aOther.m_isVirtual;
+        m_isFreePad = aOther.m_isFreePad;
         m_isCompoundShapePrimitive = aOther.m_isCompoundShapePrimitive;
     }
 
@@ -118,8 +120,8 @@ public:
         return SHAPE_LINE_CHAIN();
     }
 
-    virtual const SHAPE_LINE_CHAIN HoleHull( int aClearance, int aWalkaroundThickness,
-                                             int aLayer ) const
+    virtual const SHAPE_LINE_CHAIN HoleHull( int aClearance, int aWalkaroundThickness = 0,
+                                             int aLayer = -1 ) const
     {
         return SHAPE_LINE_CHAIN();
     }
@@ -192,7 +194,7 @@ public:
      * @param aOther is the item to check collision against.
      * @return true, if a collision was found.
      */
-    bool Collide( const ITEM* aOther, const NODE* aNode, bool aDifferentNetsOnly = true ) const;
+    bool Collide( const ITEM* aOther, const NODE* aNode, bool aDifferentNetsOnly = true, int aOverrideClearance = -1 ) const;
 
     /**
      * Return the geometrical shape of the item. Used for collision detection and spatial indexing.
@@ -232,6 +234,9 @@ public:
     void SetRoutable( bool aRoutable ) { m_routable = aRoutable; }
     bool IsRoutable() const { return m_routable; }
 
+    void SetIsFreePad( bool aIsFreePad = true ) { m_isFreePad = aIsFreePad; }
+    bool IsFreePad() const { return m_isFreePad; }
+
     bool IsVirtual() const
     {
         return m_isVirtual;
@@ -240,8 +245,10 @@ public:
     void SetIsCompoundShapePrimitive() { m_isCompoundShapePrimitive = true; }
     bool IsCompoundShapePrimitive() const { return m_isCompoundShapePrimitive; }
 
+    virtual const std::string Format() const;
+
 private:
-    bool collideSimple( const ITEM* aOther, const NODE* aNode, bool aDifferentNetsOnly ) const;
+    bool collideSimple( const ITEM* aOther, const NODE* aNode, bool aDifferentNetsOnly, int aOverrideClearance ) const;
 
 protected:
     PnsKind       m_kind;
@@ -256,6 +263,7 @@ protected:
     int           m_rank;
     bool          m_routable;
     bool          m_isVirtual;
+    bool          m_isFreePad;
     bool          m_isCompoundShapePrimitive;
 };
 

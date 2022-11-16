@@ -26,21 +26,16 @@
 #include <ignore.h>
 #include <macros.h>
 #include <trace_helpers.h>
-
 #include <tool/tool_manager.h>
-#include <tool/tools_holder.h>
 #include <tool/tool_dispatcher.h>
 #include <tool/actions.h>
 #include <tool/action_manager.h>
 #include <tool/action_menu.h>
 #include <view/view.h>
 #include <view/wx_view_controls.h>
-
-#include <class_draw_panel_gal.h>
 #include <eda_draw_frame.h>
-
-#include <core/arraydim.h>
-#include <core/optional.h>
+#include <core/kicad_algo.h>
+#include <optional>
 #include <wx/log.h>
 #include <wx/stc/stc.h>
 #include <wx/settings.h>
@@ -113,6 +108,12 @@ struct TOOL_DISPATCHER::BUTTON_STATE
         case BUT_RIGHT:
             return mouseState.RightIsDown();
 
+        case BUT_AUX1:
+            return mouseState.Aux1IsDown();
+
+        case BUT_AUX2:
+            return mouseState.Aux2IsDown();
+
         default:
             assert( false );
             break;
@@ -138,6 +139,10 @@ TOOL_DISPATCHER::TOOL_DISPATCHER( TOOL_MANAGER* aToolMgr ) :
                          wxEVT_RIGHT_UP, wxEVT_RIGHT_DCLICK ) );
     m_buttons.push_back( new BUTTON_STATE( BUT_MIDDLE, wxEVT_MIDDLE_DOWN,
                          wxEVT_MIDDLE_UP, wxEVT_MIDDLE_DCLICK ) );
+    m_buttons.push_back( new BUTTON_STATE( BUT_AUX1, wxEVT_AUX1_DOWN,
+                         wxEVT_AUX1_UP, wxEVT_AUX1_DCLICK ) );
+    m_buttons.push_back( new BUTTON_STATE( BUT_AUX2, wxEVT_AUX2_DOWN,
+                         wxEVT_AUX2_UP, wxEVT_AUX2_DCLICK ) );
 
     ResetState();
 }
@@ -167,7 +172,7 @@ bool TOOL_DISPATCHER::handleMouseButton( wxEvent& aEvent, int aIndex, bool aMoti
 {
     BUTTON_STATE* st = m_buttons[aIndex];
     wxEventType type = aEvent.GetEventType();
-    OPT<TOOL_EVENT> evt;
+    std::optional<TOOL_EVENT> evt;
     bool isClick = false;
 
 //    bool up = type == st->upEvent;
@@ -269,21 +274,13 @@ bool isKeySpecialCode( int aKeyCode )
 {
     // These keys have predefined actions (like move thumbtrack cursor),
     // and we do not want these actions executed
-    const enum wxKeyCode special_keys[] =
+    const std::vector<enum wxKeyCode> special_keys =
     {
         WXK_PAGEUP, WXK_PAGEDOWN,
         WXK_NUMPAD_PAGEUP, WXK_NUMPAD_PAGEDOWN
     };
 
-    bool isInList = false;
-
-    for( unsigned ii = 0; ii < arrayDim( special_keys ) && !isInList; ii++ )
-    {
-        if( special_keys[ii] == aKeyCode )
-            isInList = true;
-    }
-
-    return isInList;
+    return alg::contains( special_keys, aKeyCode );
 }
 
 
@@ -292,29 +289,22 @@ bool isKeySpecialCode( int aKeyCode )
 // that is not used alone in kicad
 static bool isKeyModifierOnly( int aKeyCode )
 {
-    const enum wxKeyCode special_keys[] =
+    const std::vector<enum wxKeyCode> special_keys =
     {
-        WXK_CONTROL, WXK_RAW_CONTROL, WXK_SHIFT,WXK_ALT
+        WXK_CONTROL, WXK_RAW_CONTROL, WXK_SHIFT, WXK_ALT
     };
 
-    bool isInList = false;
-
-    for( unsigned ii = 0; ii < arrayDim( special_keys ) && !isInList; ii++ )
-    {
-        if( special_keys[ii] == aKeyCode )
-            isInList = true;
-    }
-
-    return isInList;
+    return alg::contains( special_keys, aKeyCode );
 }
 
 
 static bool isMouseClick( wxEventType type )
 {
-    return type == wxEVT_LEFT_DOWN || type == wxEVT_LEFT_UP || type == wxEVT_MIDDLE_DOWN
-           || type == wxEVT_MIDDLE_UP || type == wxEVT_RIGHT_DOWN || type == wxEVT_RIGHT_UP
-           || type == wxEVT_LEFT_DCLICK || type == wxEVT_MIDDLE_DCLICK
-           || type == wxEVT_RIGHT_DCLICK;
+    return type == wxEVT_LEFT_DOWN || type == wxEVT_LEFT_UP || type == wxEVT_LEFT_DCLICK
+           || type == wxEVT_MIDDLE_DOWN || type == wxEVT_MIDDLE_UP || type == wxEVT_MIDDLE_DCLICK
+           || type == wxEVT_RIGHT_DOWN || type == wxEVT_RIGHT_UP || type == wxEVT_RIGHT_DCLICK
+           || type == wxEVT_AUX1_DOWN || type == wxEVT_AUX1_UP || type == wxEVT_AUX1_DCLICK
+           || type == wxEVT_AUX2_DOWN || type == wxEVT_AUX2_UP || type == wxEVT_AUX2_DCLICK;
 }
 
 
@@ -347,9 +337,9 @@ int translateSpecialCode( int aKeyCode )
 }
 
 
-OPT<TOOL_EVENT> TOOL_DISPATCHER::GetToolEvent( wxKeyEvent* aKeyEvent, bool* keyIsSpecial )
+std::optional<TOOL_EVENT> TOOL_DISPATCHER::GetToolEvent( wxKeyEvent* aKeyEvent, bool* keyIsSpecial )
 {
-    OPT<TOOL_EVENT> evt;
+    std::optional<TOOL_EVENT> evt;
     int             key = aKeyEvent->GetKeyCode();
     int             unicode_key = aKeyEvent->GetUnicodeKey();
 
@@ -419,7 +409,7 @@ OPT<TOOL_EVENT> TOOL_DISPATCHER::GetToolEvent( wxKeyEvent* aKeyEvent, bool* keyI
 #endif
 
     if( key == WXK_ESCAPE ) // ESC is the special key for canceling tools
-        evt = TOOL_EVENT( TC_COMMAND, TA_CANCEL_TOOL );
+        evt = TOOL_EVENT( TC_COMMAND, TA_CANCEL_TOOL, WXK_ESCAPE );
     else
         evt = TOOL_EVENT( TC_KEYBOARD, TA_KEY_PRESSED, key | mods );
 
@@ -432,7 +422,7 @@ void TOOL_DISPATCHER::DispatchWxEvent( wxEvent& aEvent )
     bool            motion = false;
     bool            buttonEvents = false;
     VECTOR2D        pos;
-    OPT<TOOL_EVENT> evt;
+    std::optional<TOOL_EVENT> evt;
     bool            keyIsEscape  = false;  // True if the keypress was the escape key
     bool            keyIsSpecial = false;  // True if the key is a special key code
     wxWindow*       focus = wxWindow::FindFocus();
@@ -452,7 +442,7 @@ void TOOL_DISPATCHER::DispatchWxEvent( wxEvent& aEvent )
     {
         wxWindow* holderWindow = dynamic_cast<wxWindow*>( m_toolMgr->GetToolHolder() );
 
-#if defined( _WIN32 )
+#if defined( _WIN32 ) || defined( __WXGTK__ )
         // Mouse events may trigger regardless of window status (windows feature)
         // However we need to avoid focus fighting (especially modals)
         if( holderWindow && KIPLATFORM::UI::IsWindowActive( holderWindow ) )
@@ -623,11 +613,13 @@ void TOOL_DISPATCHER::DispatchWxEvent( wxEvent& aEvent )
     // Escape key presses are never skipped by the handler since they correspond to tool cancel
     // events, and if they aren't skipped then they are propagated to other frames (which we
     // don't want).
-    if( (type == wxEVT_CHAR || type == wxEVT_CHAR_HOOK)
-         && !keyIsSpecial
-         && !handled
-         && !keyIsEscape )
+    if( ( type == wxEVT_CHAR || type == wxEVT_CHAR_HOOK )
+             && !keyIsSpecial
+             && !handled
+             && !keyIsEscape )
+    {
         aEvent.Skip();
+    }
 
     wxLogTrace( kicadTraceToolStack, "TOOL_DISPATCHER::DispatchWxEvent - Wx event skipped: %s",
                 ( aEvent.GetSkipped() ? "true" : "false" ) );

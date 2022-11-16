@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2018 CERN
- * Copyright (C) 2019-2021 KiCad Developers, see change_log.txt for contributors.
+ * Copyright (C) 2019-2022 KiCad Developers, see AUTHORS.txt for contributors.
  * @author Jon Evans <jon@craftyjon.com>
  *
  * This program is free software; you can redistribute it and/or
@@ -19,6 +19,7 @@
  * with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <base_units.h>
 #include <lib_pin.h>
 #include <sch_symbol.h>
 #include <sch_pin.h>
@@ -26,11 +27,12 @@
 #include <schematic_settings.h>
 #include <sch_sheet_path.h>
 #include <sch_edit_frame.h>
-
+#include "string_utils.h"
 
 SCH_PIN::SCH_PIN( LIB_PIN* aLibPin, SCH_SYMBOL* aParentSymbol ) :
     SCH_ITEM( aParentSymbol, SCH_PIN_T )
 {
+    m_layer = LAYER_PIN;
     m_alt = wxEmptyString;
     m_number = aLibPin->GetNumber();
     m_libPin = aLibPin;
@@ -46,6 +48,7 @@ SCH_PIN::SCH_PIN( LIB_PIN* aLibPin, SCH_SYMBOL* aParentSymbol ) :
 SCH_PIN::SCH_PIN( SCH_SYMBOL* aParentSymbol, const wxString& aNumber, const wxString& aAlt ) :
     SCH_ITEM( aParentSymbol, SCH_PIN_T )
 {
+    m_layer = LAYER_PIN;
     m_alt = aAlt;
     m_number = aNumber;
     m_libPin = nullptr;
@@ -56,6 +59,7 @@ SCH_PIN::SCH_PIN( SCH_SYMBOL* aParentSymbol, const wxString& aNumber, const wxSt
 SCH_PIN::SCH_PIN( const SCH_PIN& aPin ) :
         SCH_ITEM( aPin )
 {
+    m_layer = aPin.m_layer;
     m_alt = aPin.m_alt;
     m_number = aPin.m_number;
     m_libPin = aPin.m_libPin;
@@ -94,7 +98,7 @@ wxString SCH_PIN::GetShownName() const
     if( !m_alt.IsEmpty() )
         name = m_alt;
 
-    if( name == "~" )
+    if( name == wxS( "~" ) )
         return wxEmptyString;
     else
         return name;
@@ -103,7 +107,7 @@ wxString SCH_PIN::GetShownName() const
 
 wxString SCH_PIN::GetShownNumber() const
 {
-    if( m_number == "~" )
+    if( m_number == wxS( "~" ) )
         return wxEmptyString;
     else
         return m_number;
@@ -140,6 +144,12 @@ int SCH_PIN::GetLength() const
 }
 
 
+const BOX2I SCH_PIN::ViewBBox() const
+{
+    return GetBoundingBox( false, true, true );
+}
+
+
 void SCH_PIN::ViewGetLayers( int aLayers[], int& aCount ) const
 {
     aCount     = 3;
@@ -149,9 +159,12 @@ void SCH_PIN::ViewGetLayers( int aLayers[], int& aCount ) const
 }
 
 
-bool SCH_PIN::Matches( const wxFindReplaceData& aSearchData, void* aAuxDat ) const
+bool SCH_PIN::Matches( const EDA_SEARCH_DATA& aSearchData, void* aAuxDat ) const
 {
-    if( !( aSearchData.GetFlags() & FR_SEARCH_ALL_PINS ) )
+    const SCH_SEARCH_DATA& schSearchData =
+            dynamic_cast<const SCH_SEARCH_DATA&>( aSearchData );
+
+    if( !schSearchData.searchAllPins )
         return false;
 
     return EDA_ITEM::Matches( GetName(), aSearchData )
@@ -159,7 +172,7 @@ bool SCH_PIN::Matches( const wxFindReplaceData& aSearchData, void* aAuxDat ) con
 }
 
 
-bool SCH_PIN::Replace( const wxFindReplaceData& aSearchData, void* aAuxData )
+bool SCH_PIN::Replace( const EDA_SEARCH_DATA& aSearchData, void* aAuxData )
 {
     bool isReplaced = false;
 
@@ -178,27 +191,19 @@ SCH_SYMBOL* SCH_PIN::GetParentSymbol() const
 }
 
 
-wxString SCH_PIN::GetSelectMenuText( EDA_UNITS aUnits ) const
+wxString SCH_PIN::GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const
 {
-    return wxString::Format( "%s %s",
-                             GetParentSymbol()->GetSelectMenuText( aUnits ),
-                             m_libPin->GetSelectMenuText( aUnits ) );
+    return wxString::Format( "Symbol %s %s",
+                             GetParentSymbol()->GetField( REFERENCE_FIELD )->GetShownText(),
+                             m_libPin->GetSelectMenuText( aUnitsProvider ) );
 }
 
 
 void SCH_PIN::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList )
 {
-    EDA_UNITS units = aFrame->GetUserUnits();
     wxString  msg;
 
     aList.emplace_back( _( "Type" ), _( "Pin" ) );
-
-    if( m_libPin->GetUnit() == 0 )
-        msg = _( "All" );
-    else
-        msg.Printf( wxT( "%d" ), m_libPin->GetUnit() );
-
-    aList.emplace_back( _( "Unit" ), msg );
 
     if( m_libPin->GetConvert() == LIB_ITEM::LIB_CONVERT::BASE )
         msg = _( "no" );
@@ -216,7 +221,7 @@ void SCH_PIN::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITE
 
     aList.emplace_back( _( "Visible" ), IsVisible() ? _( "Yes" ) : _( "No" ) );
 
-    aList.emplace_back( _( "Length" ), MessageTextFromValue( units, GetLength() ), true );
+    aList.emplace_back( _( "Length" ), aFrame->MessageTextFromValue( GetLength() ), true );
 
     int i = PinOrientationIndex( GetOrientation() );
     aList.emplace_back( _( "Orientation" ), PinOrientationName( (unsigned) i ) );
@@ -240,6 +245,14 @@ void SCH_PIN::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITE
 }
 
 
+bool SCH_PIN::IsStacked( const SCH_PIN* aPin ) const
+{
+    return m_parent == aPin->GetParent()
+            && GetTransformedPosition() == aPin->GetTransformedPosition()
+            && GetType() == aPin->GetType();
+}
+
+
 void SCH_PIN::ClearDefaultNetName( const SCH_SHEET_PATH* aPath )
 {
     std::lock_guard<std::recursive_mutex> lock( m_netmap_mutex );
@@ -254,7 +267,7 @@ void SCH_PIN::ClearDefaultNetName( const SCH_SHEET_PATH* aPath )
 wxString SCH_PIN::GetDefaultNetName( const SCH_SHEET_PATH& aPath, bool aForceNoConnect )
 {
     if( m_libPin->IsPowerConnection() )
-        return m_libPin->GetName();
+        return EscapeString( m_libPin->GetName(), CTX_NETNAME );
 
     std::lock_guard<std::recursive_mutex> lock( m_netmap_mutex );
 
@@ -286,13 +299,13 @@ wxString SCH_PIN::GetDefaultNetName( const SCH_SHEET_PATH& aPath, bool aForceNoC
         // Pin names might not be unique between different units so we must have the
         // unit token in the reference designator
         name << GetParentSymbol()->GetRef( &aPath, true );
-        name << "-" << m_libPin->GetShownName() << ")";
+        name << "-" << EscapeString( m_libPin->GetShownName(), CTX_NETNAME ) << ")";
     }
     else
     {
-        // Pin number are unique, so we skip the unit token
+        // Pin numbers are unique, so we skip the unit token
         name << GetParentSymbol()->GetRef( &aPath, false );
-        name << "-Pad" << m_libPin->GetShownNumber() << ")";
+        name << "-Pad" << EscapeString( m_libPin->GetShownNumber(), CTX_NETNAME ) << ")";
     }
 
     if( annotated )
@@ -309,10 +322,12 @@ VECTOR2I SCH_PIN::GetTransformedPosition() const
 }
 
 
-const EDA_RECT SCH_PIN::GetBoundingBox() const
+const BOX2I SCH_PIN::GetBoundingBox( bool aIncludeInvisiblePins, bool aIncludeNameAndNumber,
+                                     bool aIncludeElectricalType ) const
 {
     TRANSFORM t = GetParentSymbol()->GetTransform();
-    EDA_RECT  r = m_libPin->GetBoundingBox();
+    BOX2I     r = m_libPin->GetBoundingBox( aIncludeInvisiblePins, aIncludeNameAndNumber,
+                                            aIncludeElectricalType );
 
     r.RevertYAxis();
 
@@ -330,8 +345,22 @@ bool SCH_PIN::HitTest( const VECTOR2I& aPosition, int aAccuracy ) const
     if( Schematic() )
         aAccuracy = std::max( aAccuracy, Schematic()->Settings().m_PinSymbolSize / 4 );
 
-    EDA_RECT rect = GetBoundingBox();
+    BOX2I rect = GetBoundingBox( false, true, m_flags & SHOW_ELEC_TYPE );
     return rect.Inflate( aAccuracy ).Contains( aPosition );
+}
+
+
+bool SCH_PIN::HitTest( const BOX2I& aRect, bool aContained, int aAccuracy ) const
+{
+    BOX2I sel = aRect;
+
+    if( aAccuracy )
+        sel.Inflate( aAccuracy );
+
+    if( aContained )
+        return sel.Contains( GetBoundingBox( false, false, false ) );
+
+    return sel.Intersects( GetBoundingBox( false, true, m_flags & SHOW_ELEC_TYPE ) );
 }
 
 

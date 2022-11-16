@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2013-2018 CERN
- * Copyright (C) 2013-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2013-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * @author Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  * @author Maciej Suminski <maciej.suminski@cern.ch>
@@ -35,6 +35,7 @@
 #include <math/vector2d.h>
 #include <widgets/msgpanel.h>
 #include <memory>
+#include <mutex>
 
 #include <gal/cursors.h>
 
@@ -87,7 +88,17 @@ public:
                         GAL_TYPE aGalType = GAL_TYPE_OPENGL );
     ~EDA_DRAW_PANEL_GAL();
 
-    virtual void SetFocus() override;
+    void SetFocus() override;
+
+    bool StatusPopupHasFocus()
+    {
+        return m_statusPopup && m_statusPopup->HasFocus();
+    }
+
+    void SetStatusPopup( wxWindow* aPopup )
+    {
+        m_statusPopup = aPopup;
+    }
 
     /**
      * Switch method of rendering graphics.
@@ -253,6 +264,8 @@ protected:
     bool                     m_pendingRefresh;   ///< Is there a redraw event requested?
     wxTimer                  m_refreshTimer;     ///< Timer to prevent too-frequent refreshing
 
+    std::mutex               m_refreshMutex;     ///< Blocks multiple calls to the draw
+
     /// True if GAL is currently redrawing the view
     bool                     m_drawing;
 
@@ -288,6 +301,8 @@ protected:
     /// Flag to indicate whether the panel should take focus at certain times (when moused over,
     /// and on various mouse/key events)
     bool                     m_stealsFocus;
+
+    wxWindow*                m_statusPopup;
 
     /// Optional overlay for drawing transient debug objects
     std::shared_ptr<KIGFX::VIEW_OVERLAY> m_debugOverlay;

@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2018-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2018-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -33,6 +33,8 @@
 
 class DRC_ENGINE;
 class DRC_TEST_PROVIDER;
+class DRC_RULE;
+class DRC_CONSTRAINT;
 
 class DRC_TEST_PROVIDER_REGISTRY
 {
@@ -69,16 +71,24 @@ public:
  * Represent a DRC "provider" which runs some DRC functions over a #BOARD and spits out
  * #DRC_ITEMs and positions as needed.
  */
-class DRC_TEST_PROVIDER
+class DRC_TEST_PROVIDER : public UNITS_PROVIDER
 {
 public:
-    DRC_TEST_PROVIDER ();
+    DRC_TEST_PROVIDER();
     virtual ~DRC_TEST_PROVIDER() = default;
+
+    static void Init();
 
     void SetDRCEngine( DRC_ENGINE *engine )
     {
         m_drcEngine = engine;
         m_stats.clear();
+    }
+
+    bool RunTests( EDA_UNITS aUnits )
+    {
+        SetUserUnits( aUnits );
+        return Run();
     }
 
     /**
@@ -95,7 +105,7 @@ protected:
 
     virtual void reportAux( wxString fmt, ... );
     virtual void reportViolation( std::shared_ptr<DRC_ITEM>& item, const VECTOR2I& aMarkerPos,
-                                  PCB_LAYER_ID aMarkerLayer );
+                                  int aMarkerLayer );
     virtual bool reportProgress( int aCount, int aSize, int aDelta );
     virtual bool reportPhase( const wxString& aStageName );
 
@@ -105,16 +115,19 @@ protected:
 
     bool isInvisibleText( const BOARD_ITEM* aItem ) const;
 
+    wxString formatMsg( const wxString& aFormatString, const wxString& aSource, int aConstraint,
+                        int aActual );
+
     // List of basic (ie: non-compound) geometry items
     static std::vector<KICAD_T> s_allBasicItems;
     static std::vector<KICAD_T> s_allBasicItemsButZones;
 
     EDA_UNITS   userUnits() const;
+
+protected:
     DRC_ENGINE* m_drcEngine;
     std::unordered_map<const DRC_RULE*, int> m_stats;
     bool        m_isRuleDriven = true;
-
-    wxString    m_msg;  // Allocating strings gets expensive enough to want to avoid it
 };
 
 #endif // DRC_TEST_PROVIDER__H

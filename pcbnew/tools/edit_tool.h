@@ -48,10 +48,10 @@ namespace KIGFX
 }
 
 
-class SPECIAL_TOOLS_CONTEXT_MENU : public CONDITIONAL_MENU
+class POSITIONING_TOOLS_MENU : public CONDITIONAL_MENU
 {
 public:
-    SPECIAL_TOOLS_CONTEXT_MENU( TOOL_INTERACTIVE* aTool );
+    POSITIONING_TOOLS_MENU( TOOL_INTERACTIVE* aTool );
 };
 
 /**
@@ -111,6 +111,16 @@ public:
      */
     int Mirror( const TOOL_EVENT& aEvent );
 
+    /**
+     * Swap currently selected items' positions. Changes position of each item to the next.
+     */
+    int Swap( const TOOL_EVENT& aEvent );
+
+    /**
+     * Try to fit selected footprints inside a minimal area and start movement.
+     */
+    int PackAndMoveFootprints( const TOOL_EVENT& aEvent );
+
     int ChangeTrackWidth( const TOOL_EVENT& aEvent );
 
     /**
@@ -123,6 +133,8 @@ public:
      */
     int Remove( const TOOL_EVENT& aEvent );
 
+    void DeleteItems( const PCB_SELECTION& aItems, bool aIsCut );
+
     /**
      * Duplicate the current selection and starts a move action.
      */
@@ -132,11 +144,6 @@ public:
      * Invoke a dialog box to allow moving of the item by an exact amount.
      */
     int MoveExact( const TOOL_EVENT& aEvent );
-
-    /**
-     * Move an item but with a reference point selected first
-     */
-    int MoveWithReference( const TOOL_EVENT& aEvent );
 
     /**
      * Create an array of the selected items, invoking the array editor dialog to set the options.
@@ -180,7 +187,10 @@ private:
     bool invokeInlineRouter( int aDragMode );
     bool isRouterActive() const;
 
-    int doMoveSelection( TOOL_EVENT aEvent, bool aPickReference = false );
+    int doMoveSelection( const TOOL_EVENT& aEvent );
+
+    VECTOR2I getSafeMovement( const VECTOR2I& aMovement, const BOX2I& aSourceBBox,
+                              const VECTOR2D& aBBoxOffset );
 
     bool pickReferencePoint( const wxString& aTooltip, const wxString& aSuccessMessage,
                              const wxString& aCanceledMessage, VECTOR2I& aReferencePoint );
@@ -192,6 +202,8 @@ private:
     VECTOR2I                      m_cursor;     // Last cursor position (so getModificationPoint()
                                                 // can avoid changes of edit reference point).
     std::unique_ptr<STATUS_TEXT_POPUP> m_statusPopup;
+
+    static const unsigned int COORDS_PADDING; // Padding from coordinates limits for this tool
 };
 
 #endif

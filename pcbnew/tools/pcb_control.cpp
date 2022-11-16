@@ -23,15 +23,16 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
-#include "edit_tool.h"
+#include <tools/edit_tool.h>
+#include <tools/board_inspection_tool.h>
+#include <router/router_tool.h>
 #include <pgm_base.h>
-#include "pcb_actions.h"
-#include "pcb_control.h"
-#include "pcb_picker_tool.h"
-#include "pcb_selection_tool.h"
-#include "board_reannotate_tool.h"
+#include <tools/pcb_actions.h>
+#include <tools/pcb_control.h>
+#include <tools/pcb_picker_tool.h>
+#include <tools/pcb_selection_tool.h>
+#include <tools/board_reannotate_tool.h>
 #include <3d_viewer/eda_3d_viewer_frame.h>
-#include <bitmaps.h>
 #include <board_commit.h>
 #include <board.h>
 #include <board_design_settings.h>
@@ -42,6 +43,7 @@
 #include <pcb_group.h>
 #include <pcb_textbox.h>
 #include <pcb_track.h>
+#include <wildcards_and_files_ext.h>
 #include <zone.h>
 #include <fp_shape.h>
 #include <fp_textbox.h>
@@ -52,10 +54,9 @@
 #include <origin_viewitem.h>
 #include <pcb_edit_frame.h>
 #include <pcb_painter.h>
-#include <properties.h>
+#include <string_utf8_map.h>
 #include <settings/color_settings.h>
 #include <tool/tool_manager.h>
-#include <footprint_viewer_frame.h>
 #include <footprint_edit_frame.h>
 #include <widgets/wx_progress_reporters.h>
 #include <widgets/infobar.h>
@@ -90,7 +91,7 @@ void PCB_CONTROL::Reset( RESET_REASON aReason )
 
     if( aReason == MODEL_RELOAD || aReason == GAL_SWITCH )
     {
-        m_gridOrigin->SetPosition( (wxPoint) board()->GetDesignSettings().GetGridOrigin() );
+        m_gridOrigin->SetPosition( board()->GetDesignSettings().GetGridOrigin() );
         m_gridOrigin->SetColor( m_frame->GetGridColor() );
         getView()->Remove( m_gridOrigin.get() );
         getView()->Add( m_gridOrigin.get() );
@@ -108,6 +109,23 @@ int PCB_CONTROL::AddLibrary( const TOOL_EVENT& aEvent )
             static_cast<PCB_BASE_EDIT_FRAME*>( m_frame )->AddLibrary();
     }
 
+    return 0;
+}
+
+
+int PCB_CONTROL::DdAddLibrary( const TOOL_EVENT& aEvent )
+{
+    const wxString fn = *aEvent.Parameter<wxString*>();
+    static_cast<PCB_BASE_EDIT_FRAME*>( m_frame )->AddLibrary( fn );
+    return 0;
+}
+
+
+int PCB_CONTROL::DdImportFootprint( const TOOL_EVENT& aEvent )
+{
+    const wxString fn = *aEvent.Parameter<wxString*>();
+    static_cast<FOOTPRINT_EDIT_FRAME*>( m_frame )->ImportFootprint( fn );
+    m_frame->Zoom_Automatique( false );
     return 0;
 }
 
@@ -169,7 +187,7 @@ int PCB_CONTROL::ViaDisplayMode( const TOOL_EVENT& aEvent )
 
     for( PCB_TRACK* track : board()->Tracks() )
     {
-        if( track->Type() == PCB_TRACE_T || track->Type() == PCB_VIA_T )
+        if( track->Type() == PCB_VIA_T )
             view()->Update( track, KIGFX::REPAINT );
     }
 
@@ -355,9 +373,6 @@ int PCB_CONTROL::LayerNext( const TOOL_EVENT& aEvent )
     int             layer      = editFrame->GetActiveLayer();
     int             startLayer = layer;
 
-    if( layer < F_Cu || layer > B_Cu )
-        return 0;
-
     while( startLayer != ++layer )
     {
         if( brd->IsLayerVisible( static_cast<PCB_LAYER_ID>( layer ) ) && IsCopperLayer( layer ) )
@@ -381,9 +396,6 @@ int PCB_CONTROL::LayerPrev( const TOOL_EVENT& aEvent )
     int             layer      = editFrame->GetActiveLayer();
     int             startLayer = layer;
 
-    if( layer < F_Cu || layer > B_Cu )
-        return 0;
-
     while( startLayer != --layer )
     {
         if( IsCopperLayer( layer )       // also test for valid layer id (layer >= F_Cu)
@@ -395,7 +407,6 @@ int PCB_CONTROL::LayerPrev( const TOOL_EVENT& aEvent )
         if( layer <= F_Cu )
             layer = B_Cu + 1;
     }
-
 
     wxCHECK( IsCopperLayer( layer ), 0 );
     editFrame->SwitchLayer( ToLAYER_ID( layer ) );
@@ -486,7 +497,7 @@ void PCB_CONTROL::DoSetGridOrigin( KIGFX::VIEW* aView, PCB_BASE_FRAME* aFrame,
 {
     aFrame->GetDesignSettings().SetGridOrigin( wxPoint( aPoint ) );
     aView->GetGAL()->SetGridOrigin( aPoint );
-    originViewItem->SetPosition( (wxPoint) aPoint );
+    originViewItem->SetPosition( aPoint );
     aView->MarkDirty();
     aFrame->OnModify();
 }
@@ -507,7 +518,6 @@ int PCB_CONTROL::GridSetOrigin( const TOOL_EVENT& aEvent )
         if( m_isFootprintEditor && !getEditFrame<PCB_BASE_EDIT_FRAME>()->GetModel() )
             return 0;
 
-        std::string      tool = aEvent.GetCommandStr().get();
         PCB_PICKER_TOOL* picker = m_toolMgr->GetTool<PCB_PICKER_TOOL>();
 
         if( !picker )   // Happens in footprint wizard
@@ -524,7 +534,7 @@ int PCB_CONTROL::GridSetOrigin( const TOOL_EVENT& aEvent )
                     return false;   // drill origin is a one-shot; don't continue with tool
                 } );
 
-        m_toolMgr->RunAction( ACTIONS::pickerTool, true, &tool );
+        m_toolMgr->RunAction( ACTIONS::pickerTool, true );
     }
 
     return 0;
@@ -547,7 +557,6 @@ int PCB_CONTROL::DeleteItemCursor( const TOOL_EVENT& aEvent )
     if( m_isFootprintEditor && !m_frame->GetBoard()->GetFirstFootprint() )
         return 0;
 
-    std::string      tool = aEvent.GetCommandStr().get();
     PCB_PICKER_TOOL* picker = m_toolMgr->GetTool<PCB_PICKER_TOOL>();
 
     m_pickerItem = nullptr;
@@ -574,8 +583,13 @@ int PCB_CONTROL::DeleteItemCursor( const TOOL_EVENT& aEvent )
 
                     PCB_SELECTION_TOOL* selectionTool = m_toolMgr->GetTool<PCB_SELECTION_TOOL>();
                     selectionTool->UnbrightenItem( m_pickerItem );
-                    selectionTool->AddItemToSel( m_pickerItem, true /*quiet mode*/ );
-                    m_toolMgr->RunAction( ACTIONS::doDelete, true );
+
+                    PCB_SELECTION items;
+                    items.Add( m_pickerItem );
+
+                    EDIT_TOOL* editTool = m_toolMgr->GetTool<EDIT_TOOL>();
+                    editTool->DeleteItems( items, false );
+
                     m_pickerItem = nullptr;
                 }
 
@@ -592,11 +606,9 @@ int PCB_CONTROL::DeleteItemCursor( const TOOL_EVENT& aEvent )
                 collector.m_Threshold = KiROUND( getView()->ToWorld( HITTEST_THRESHOLD_PIXELS ) );
 
                 if( m_isFootprintEditor )
-                    collector.Collect( board, GENERAL_COLLECTOR::FootprintItems,
-                                       (wxPoint) aPos, guide );
+                    collector.Collect( board, GENERAL_COLLECTOR::FootprintItems, aPos, guide );
                 else
-                    collector.Collect( board, GENERAL_COLLECTOR::BoardLevelItems,
-                                       (wxPoint) aPos, guide );
+                    collector.Collect( board, GENERAL_COLLECTOR::BoardLevelItems, aPos, guide );
 
                 // Remove unselectable items
                 for( int i = collector.GetCount() - 1; i >= 0; --i )
@@ -612,7 +624,6 @@ int PCB_CONTROL::DeleteItemCursor( const TOOL_EVENT& aEvent )
 
                 if( m_pickerItem != item )
                 {
-
                     if( m_pickerItem )
                         selectionTool->UnbrightenItem( m_pickerItem );
 
@@ -636,7 +647,7 @@ int PCB_CONTROL::DeleteItemCursor( const TOOL_EVENT& aEvent )
                 m_frame->GetCanvas()->Refresh();
             } );
 
-    m_toolMgr->RunAction( ACTIONS::pickerTool, true, &tool );
+    m_toolMgr->RunAction( ACTIONS::pickerTool, true );
 
     return 0;
 }
@@ -707,6 +718,81 @@ static void pasteFootprintItemsToFootprintEditor( FOOTPRINT* aClipFootprint, BOA
 }
 
 
+void PCB_CONTROL::pruneItemLayers( std::vector<BOARD_ITEM*>& aItems )
+{
+    LSET                     enabledLayers = board()->GetEnabledLayers();
+    std::vector<BOARD_ITEM*> returnItems;
+    bool                     fpItemDeleted = false;
+
+    auto processFPItem =
+            [&]( FOOTPRINT* aFootprint, BOARD_ITEM* aItem )
+            {
+                LSET allowed = aItem->GetLayerSet() & enabledLayers;
+
+                if( allowed.any() )
+                {
+                    // Don't prune internal copper layers on items with holes
+                    if( aItem->HasHole() && aItem->IsOnCopperLayer() )
+                        allowed |= LSET::InternalCuMask();
+
+                    aItem->SetLayerSet( allowed );
+                }
+                else
+                {
+                    aFootprint->Remove( aItem );
+                    fpItemDeleted = true;
+                }
+            };
+
+    for( BOARD_ITEM* item : aItems )
+    {
+        if( item->Type() == PCB_FOOTPRINT_T )
+        {
+            FOOTPRINT* fp = static_cast<FOOTPRINT*>( item );
+
+            if( !enabledLayers.test( fp->Reference().GetLayer() ) )
+                fp->Reference().SetLayer( fp->IsFlipped() ? B_SilkS : F_SilkS );
+
+            if( !enabledLayers.test( fp->Value().GetLayer() ) )
+                fp->Value().SetLayer( fp->IsFlipped() ? B_Fab : F_Fab );
+
+            // NOTE: all traversals from the back as processFPItem() might delete the item
+
+            for( int ii = static_cast<int>( fp->Pads().size() ) - 1; ii >= 0; ii-- )
+                processFPItem( fp, fp->Pads()[ii] );
+
+            for( int ii = static_cast<int>( fp->Zones().size() ) - 1; ii >= 0; ii-- )
+                processFPItem( fp, fp->Zones()[ii] );
+
+            for( int ii = static_cast<int>( fp->GraphicalItems().size() ) - 1; ii >= 0; ii-- )
+                processFPItem( fp, fp->GraphicalItems()[ii] );
+
+            if( fp->GraphicalItems().size() || fp->Pads().size() || fp->Zones().size() )
+                returnItems.push_back( fp );
+        }
+        else
+        {
+            LSET allowed = item->GetLayerSet() & enabledLayers;
+
+            if( allowed.any() )
+            {
+                item->SetLayerSet( allowed );
+                returnItems.push_back( item );
+            }
+        }
+    }
+
+    if( ( returnItems.size() < aItems.size() ) || fpItemDeleted )
+    {
+        DisplayError( m_frame, _( "Warning: some pasted items were on layers which are not "
+                                  "present in the current board.\n"
+                                  "These items could not be pasted.\n" )  );
+    }
+
+    aItems = returnItems;
+}
+
+
 int PCB_CONTROL::Paste( const TOOL_EVENT& aEvent )
 {
     CLIPBOARD_IO pi;
@@ -719,12 +805,12 @@ int PCB_CONTROL::Paste( const TOOL_EVENT& aEvent )
     if( !frame()->IsType( FRAME_FOOTPRINT_EDITOR ) && !frame()->IsType( FRAME_PCB_EDITOR ) )
         return 0;
 
-    PASTE_MODE     pasteMode = PASTE_MODE::KEEP_ANNOTATIONS;
+    PASTE_MODE     mode = PASTE_MODE::KEEP_ANNOTATIONS;
     const wxString defaultRef = wxT( "REF**" );
 
     if( aEvent.IsAction( &ACTIONS::pasteSpecial ) )
     {
-        DIALOG_PASTE_SPECIAL dlg( m_frame, &pasteMode, defaultRef );
+        DIALOG_PASTE_SPECIAL dlg( m_frame, &mode, defaultRef );
 
         if( dlg.ShowModal() == wxID_CANCEL )
             return 0;
@@ -762,6 +848,14 @@ int PCB_CONTROL::Paste( const TOOL_EVENT& aEvent )
                 FOOTPRINT* editorFootprint = board()->GetFirstFootprint();
                 std::vector<BOARD_ITEM*> pastedItems;
 
+                for( PCB_GROUP* group : clipBoard->Groups() )
+                {
+                    group->SetParent( nullptr );
+                    pastedItems.push_back( group );
+                }
+
+                clipBoard->Groups().clear();
+
                 for( FOOTPRINT* clipFootprint : clipBoard->Footprints() )
                     pasteFootprintItemsToFootprintEditor( clipFootprint, board(), pastedItems );
 
@@ -770,59 +864,80 @@ int PCB_CONTROL::Paste( const TOOL_EVENT& aEvent )
                     if( clipDrawItem->Type() == PCB_SHAPE_T )
                     {
                         PCB_SHAPE* clipShape = static_cast<PCB_SHAPE*>( clipDrawItem );
+                        PCB_GROUP* parentGroup = clipDrawItem->GetParentGroup();
+
+                        if( parentGroup )
+                            parentGroup->RemoveItem( clipDrawItem );
 
                         // Convert to PCB_FP_SHAPE_T
                         FP_SHAPE* pastedShape = new FP_SHAPE( editorFootprint );
-                        static_cast<PCB_SHAPE*>( pastedShape )->SwapData( clipShape );
+                        static_cast<PCB_SHAPE*>( pastedShape )->SwapItemData( clipShape );
                         pastedShape->SetLocalCoord();
 
-                        // Replace parent nuked by above call to SwapData()
-                        pastedShape->SetParent( editorFootprint );
+                        if( parentGroup )
+                            parentGroup->AddItem( pastedShape );
+
                         pastedItems.push_back( pastedShape );
                     }
                     else if( clipDrawItem->Type() == PCB_TEXT_T )
                     {
-                        PCB_TEXT* clipTextItem = static_cast<PCB_TEXT*>( clipDrawItem );
+                        PCB_TEXT*  clipTextItem = static_cast<PCB_TEXT*>( clipDrawItem );
+                        PCB_GROUP* parentGroup = clipDrawItem->GetParentGroup();
+
+                        if( parentGroup )
+                            parentGroup->RemoveItem( clipDrawItem );
 
                         // Convert to PCB_FP_TEXT_T
                         FP_TEXT* pastedTextItem = new FP_TEXT( editorFootprint );
                         static_cast<EDA_TEXT*>( pastedTextItem )->SwapText( *clipTextItem );
                         static_cast<EDA_TEXT*>( pastedTextItem )->SwapAttributes( *clipTextItem );
 
-                        pastedTextItem->SetParent( editorFootprint );
+                        if( parentGroup )
+                            parentGroup->AddItem( pastedTextItem );
+
                         pastedItems.push_back( pastedTextItem );
                     }
                     else if( clipDrawItem->Type() == PCB_TEXTBOX_T )
                     {
                         PCB_TEXTBOX* clipTextBox = static_cast<PCB_TEXTBOX*>( clipDrawItem );
+                        PCB_GROUP*   parentGroup = clipDrawItem->GetParentGroup();
+
+                        if( parentGroup )
+                            parentGroup->RemoveItem( clipDrawItem );
 
                         // Convert to PCB_FP_TEXTBOX_T
                         FP_TEXTBOX* pastedTextBox = new FP_TEXTBOX( editorFootprint );
+
+                        // Handle shape data
+                        static_cast<PCB_SHAPE*>( pastedTextBox )->SwapItemData( clipTextBox );
+                        pastedTextBox->SetLocalCoord();
+
+                        // Handle text data
                         static_cast<EDA_TEXT*>( pastedTextBox )->SwapText( *clipTextBox );
                         static_cast<EDA_TEXT*>( pastedTextBox )->SwapAttributes( *clipTextBox );
 
-                        pastedTextBox->SetParent( editorFootprint );
+                        if( parentGroup )
+                            parentGroup->AddItem( pastedTextBox );
+
                         pastedItems.push_back( pastedTextBox );
                     }
                 }
 
                 delete clipBoard;
 
-                placeBoardItems( pastedItems, true, true,
-                                 pasteMode == PASTE_MODE::UNIQUE_ANNOTATIONS );
+                pruneItemLayers( pastedItems );
+
+                placeBoardItems( pastedItems, true, true, mode == PASTE_MODE::UNIQUE_ANNOTATIONS );
             }
             else
             {
-                if( pasteMode == PASTE_MODE::REMOVE_ANNOTATIONS )
+                if( mode == PASTE_MODE::REMOVE_ANNOTATIONS )
                 {
                     for( FOOTPRINT* clipFootprint : clipBoard->Footprints() )
                         clipFootprint->SetReference( defaultRef );
                 }
 
-                placeBoardItems( clipBoard, true, pasteMode == PASTE_MODE::UNIQUE_ANNOTATIONS );
-
-                m_frame->GetBoard()->BuildConnectivity();
-                m_frame->Compile_Ratsnest( true );
+                placeBoardItems( clipBoard, true, mode == PASTE_MODE::UNIQUE_ANNOTATIONS );
             }
 
             break;
@@ -840,14 +955,16 @@ int PCB_CONTROL::Paste( const TOOL_EVENT& aEvent )
             }
             else
             {
-                if( pasteMode == PASTE_MODE::REMOVE_ANNOTATIONS )
+                if( mode == PASTE_MODE::REMOVE_ANNOTATIONS )
                     clipFootprint->SetReference( defaultRef );
 
                 clipFootprint->SetParent( board() );
                 pastedItems.push_back( clipFootprint );
             }
 
-            placeBoardItems( pastedItems, true, true, pasteMode == PASTE_MODE::UNIQUE_ANNOTATIONS );
+            pruneItemLayers( pastedItems );
+
+            placeBoardItems( pastedItems, true, true, mode == PASTE_MODE::UNIQUE_ANNOTATIONS );
             break;
         }
 
@@ -962,6 +1079,8 @@ int PCB_CONTROL::placeBoardItems( BOARD* aBoard, bool aAnchorAtOrigin, bool aRea
     // selection created aBoard that has the group and all descendants in it.
     moveUnflaggedItems( aBoard->Groups(), items, isNew );
 
+    pruneItemLayers( items );
+
     return placeBoardItems( items, isNew, aAnchorAtOrigin, aReannotateDuplicates );
 }
 
@@ -991,6 +1110,9 @@ int PCB_CONTROL::placeBoardItems( std::vector<BOARD_ITEM*>& aItems, bool aIsNew,
         {
             const_cast<KIID&>( item->m_Uuid ) = KIID();
 
+            // Even though BOARD_COMMIT::Push() will add any new items to the group, we're
+            // going to run PCB_ACTIONS::move first, and the move tool will throw out any
+            // items that aren't in the entered group.
             if( selectionTool->GetEnteredGroup() && !item->GetParentGroup() )
                 selectionTool->GetEnteredGroup()->AddItem( item );
         }
@@ -1011,7 +1133,7 @@ int PCB_CONTROL::placeBoardItems( std::vector<BOARD_ITEM*>& aItems, bool aIsNew,
             for( BOARD_ITEM* dwg : footprint->GraphicalItems() )
             {
                 if( BaseType( dwg->Type() ) == PCB_DIMENSION_T )
-                    updateDimensionUnits( static_cast<PCB_DIMENSION_BASE*>( item ) );
+                    updateDimensionUnits( static_cast<PCB_DIMENSION_BASE*>( dwg ) );
             }
         }
 
@@ -1094,6 +1216,9 @@ int PCB_CONTROL::AppendBoard( PLUGIN& pi, wxString& fileName )
     std::map<wxString, wxString> oldProperties = brd->GetProperties();
     std::map<wxString, wxString> newProperties;
 
+    PAGE_INFO   oldPageInfo = brd->GetPageSettings();
+    TITLE_BLOCK oldTitleBlock = brd->GetTitleBlock();
+
     // Keep also the count of copper layers, to adjust if necessary
     int initialCopperLayerCount = brd->GetCopperLayerCount();
     LSET initialEnabledLayers = brd->GetEnabledLayers();
@@ -1101,7 +1226,7 @@ int PCB_CONTROL::AppendBoard( PLUGIN& pi, wxString& fileName )
     // Load the data
     try
     {
-        PROPERTIES  props;
+        STRING_UTF8_MAP props;
         char        xbuf[30];
         char        ybuf[30];
 
@@ -1127,7 +1252,7 @@ int PCB_CONTROL::AppendBoard( PLUGIN& pi, wxString& fileName )
 
         WX_PROGRESS_REPORTER progressReporter( editFrame, _( "Loading PCB" ), 1 );
 
-        editFrame->GetDesignSettings().GetNetClasses().Clear();
+        editFrame->GetDesignSettings().m_NetSettings->m_NetClasses.clear();
         pi.Load( fileName, brd, &props, nullptr, &progressReporter );
     }
     catch( const IO_ERROR& ioe )
@@ -1144,6 +1269,9 @@ int PCB_CONTROL::AppendBoard( PLUGIN& pi, wxString& fileName )
         newProperties[ prop.first ] = prop.second;
 
     brd->SetProperties( newProperties );
+
+    brd->SetPageSettings( oldPageInfo );
+    brd->SetTitleBlock( oldTitleBlock );
 
     // rebuild nets and ratsnest before any use of nets
     brd->BuildListOfNets();
@@ -1193,67 +1321,216 @@ int PCB_CONTROL::Redo( const TOOL_EVENT& aEvent )
 
 int PCB_CONTROL::UpdateMessagePanel( const TOOL_EVENT& aEvent )
 {
-    PCB_SELECTION_TOOL* selTool = m_toolMgr->GetTool<PCB_SELECTION_TOOL>();
-    PCB_SELECTION&      selection = selTool->GetSelection();
+    PCB_SELECTION_TOOL*         selTool = m_toolMgr->GetTool<PCB_SELECTION_TOOL>();
+    ROUTER_TOOL*                routerTool = m_toolMgr->GetTool<ROUTER_TOOL>();
+    PCB_SELECTION&              selection = selTool->GetSelection();
+    PCB_EDIT_FRAME*             pcbFrame = dynamic_cast<PCB_EDIT_FRAME*>( m_frame );
+    std::shared_ptr<DRC_ENGINE> drcEngine = m_frame->GetBoard()->GetDesignSettings().m_DRCEngine;
+    DRC_CONSTRAINT              constraint;
 
-    if( selection.GetSize() == 1 )
+    std::vector<MSG_PANEL_ITEM> msgItems;
+
+    if( routerTool && routerTool->RoutingInProgress() )
+    {
+        routerTool->UpdateMessagePanel();
+        return 0;
+    }
+
+    if( !pcbFrame && !m_frame->GetModel() )
+        return 0;
+
+    if( selection.Empty() )
+    {
+        if( !pcbFrame )
+        {
+            FOOTPRINT* fp = static_cast<FOOTPRINT*>( m_frame->GetModel() );
+            size_t     padCount = fp->GetPadCount( DO_NOT_INCLUDE_NPTH );
+
+            msgItems.emplace_back( _( "Library" ), fp->GetFPID().GetLibNickname().wx_str() );
+
+            msgItems.emplace_back( _( "Footprint Name" ), fp->GetFPID().GetLibItemName().wx_str() );
+
+            msgItems.emplace_back( _( "Pads" ), wxString::Format( wxT( "%zu" ), padCount ) );
+
+            msgItems.emplace_back( wxString::Format( _( "Doc: %s" ), fp->GetDescription() ),
+                                   wxString::Format( _( "Keywords: %s" ), fp->GetKeywords() ) );
+        }
+        else
+        {
+            m_frame->SetMsgPanel( m_frame->GetBoard() );
+        }
+    }
+    else if( selection.GetSize() == 1 )
     {
         EDA_ITEM*                   item = selection.Front();
-        std::vector<MSG_PANEL_ITEM> msgItems;
 
         item->GetMsgPanelInfo( m_frame, msgItems );
-        m_frame->SetMsgPanel( msgItems );
     }
-    else if( selection.GetSize() > 1 )
+    else if( pcbFrame && selection.GetSize() == 2 )
     {
-        std::vector<MSG_PANEL_ITEM> msgItems;
-        wxString                    msg = wxString::Format( wxT( "%d" ), selection.GetSize() );
+        // Pair selection broken into multiple, optional data, starting with the selected item
+        // names
 
-        msgItems.emplace_back( MSG_PANEL_ITEM( _( "Selected Items" ), msg ) );
-        m_frame->SetMsgPanel( msgItems );
+        BOARD_ITEM* a = static_cast<BOARD_ITEM*>( selection[0] );
+        BOARD_ITEM* b = static_cast<BOARD_ITEM*>( selection[1] );
+
+        msgItems.emplace_back( MSG_PANEL_ITEM( a->GetSelectMenuText( m_frame ),
+                                               b->GetSelectMenuText( m_frame ) ) );
+
+        BOARD_CONNECTED_ITEM* a_conn = dyn_cast<BOARD_CONNECTED_ITEM*>( a );
+        BOARD_CONNECTED_ITEM* b_conn = dyn_cast<BOARD_CONNECTED_ITEM*>( b );
+
+        if( a_conn && b_conn )
+        {
+            LSET overlap = a_conn->GetLayerSet() & b_conn->GetLayerSet() & LSET::AllCuMask();
+            int  a_netcode = a_conn->GetNetCode();
+            int  b_netcode = b_conn->GetNetCode();
+
+            if( overlap.count() > 0
+                    && ( a_netcode != b_netcode || a_netcode < 0 || b_netcode < 0 ) )
+            {
+                PCB_LAYER_ID layer = overlap.CuStack().front();
+
+                constraint = drcEngine->EvalRules( CLEARANCE_CONSTRAINT, a, b, layer );
+
+                std::shared_ptr<SHAPE> a_shape( a_conn->GetEffectiveShape( layer ) );
+                std::shared_ptr<SHAPE> b_shape( b_conn->GetEffectiveShape( layer ) );
+
+                int actual_clearance = a_shape->GetClearance( b_shape.get() );
+
+                msgItems.emplace_back( _( "Resolved clearance" ),
+                                       m_frame->MessageTextFromValue( constraint.m_Value.Min() ) );
+
+                if( actual_clearance > -1 && actual_clearance < std::numeric_limits<int>::max() )
+                {
+                    msgItems.emplace_back( _( "Actual clearance" ),
+                                           m_frame->MessageTextFromValue( actual_clearance ) );
+                }
+            }
+        }
+
+        if( ( a->HasHole() || b->HasHole() ) )
+        {
+            PCB_LAYER_ID active = m_frame->GetActiveLayer();
+            PCB_LAYER_ID layer = UNDEFINED_LAYER;
+
+            if( b->IsOnLayer( active ) && IsCopperLayer( active ) )
+                layer = active;
+            else if( b->HasHole() && a->IsOnLayer( active ) && IsCopperLayer( active ) )
+                layer = active;
+            else if( a->HasHole() && b->IsOnCopperLayer() )
+                layer = b->GetLayer();
+            else if( b->HasHole() && a->IsOnCopperLayer() )
+                layer = a->GetLayer();
+
+            if( IsCopperLayer( layer ) )
+            {
+                int actual = std::numeric_limits<int>::max();
+
+                if( a->HasHole() && b->IsOnCopperLayer() )
+                {
+                    std::shared_ptr<SHAPE_SEGMENT> hole = a->GetEffectiveHoleShape();
+                    std::shared_ptr<SHAPE>         other( b->GetEffectiveShape( layer ) );
+
+                    actual = std::min( actual, hole->GetClearance( other.get() ) );
+                }
+
+                if( b->HasHole() && a->IsOnCopperLayer() )
+                {
+                    std::shared_ptr<SHAPE_SEGMENT> hole = b->GetEffectiveHoleShape();
+                    std::shared_ptr<SHAPE>         other( a->GetEffectiveShape( layer ) );
+
+                    actual = std::min( actual, hole->GetClearance( other.get() ) );
+                }
+
+                if( actual < std::numeric_limits<int>::max() )
+                {
+                    constraint = drcEngine->EvalRules( HOLE_CLEARANCE_CONSTRAINT, a, b, layer );
+                    msgItems.emplace_back( _( "Resolved hole clearance" ),
+                            m_frame->MessageTextFromValue( constraint.m_Value.Min() ) );
+
+                    if( actual > -1 && actual < std::numeric_limits<int>::max() )
+                    {
+                        msgItems.emplace_back( _( "Actual hole clearance" ),
+                                m_frame->MessageTextFromValue( actual ) );
+                    }
+                }
+            }
+        }
+
+        for( PCB_LAYER_ID edgeLayer : { Edge_Cuts, Margin } )
+        {
+            PCB_LAYER_ID active = m_frame->GetActiveLayer();
+            PCB_LAYER_ID layer = UNDEFINED_LAYER;
+
+            if( a->IsOnLayer( edgeLayer ) && b->Type() != PCB_FOOTPRINT_T )
+            {
+                if( b->IsOnLayer( active ) && IsCopperLayer( active ) )
+                    layer = active;
+                else if( IsCopperLayer( b->GetLayer() ) )
+                    layer = b->GetLayer();
+            }
+            else if( b->IsOnLayer( edgeLayer ) && a->Type() != PCB_FOOTPRINT_T )
+            {
+                if( a->IsOnLayer( active ) && IsCopperLayer( active ) )
+                    layer = active;
+                else if( IsCopperLayer( a->GetLayer() ) )
+                    layer = a->GetLayer();
+            }
+
+            if( layer >= 0 )
+            {
+                constraint = drcEngine->EvalRules( EDGE_CLEARANCE_CONSTRAINT, a, b, layer );
+
+                if( edgeLayer == Edge_Cuts )
+                {
+                    msgItems.emplace_back( _( "Resolved edge clearance" ),
+                                           m_frame->MessageTextFromValue( constraint.m_Value.Min() ) );
+                }
+                else
+                {
+                    msgItems.emplace_back( _( "Resolved margin clearance" ),
+                                           m_frame->MessageTextFromValue( constraint.m_Value.Min() ) );
+                }
+            }
+        }
     }
-    else if( auto editFrame = dynamic_cast<FOOTPRINT_EDIT_FRAME*>( m_frame ) )
+
+    if( msgItems.empty() )
     {
-        FOOTPRINT* footprint = static_cast<FOOTPRINT*>( editFrame->GetModel() );
-
-        if( !footprint )
-            return 0;
-
-        std::vector<MSG_PANEL_ITEM> msgItems;
-        wxString                    msg;
-
-        msg = footprint->GetFPID().GetLibNickname().wx_str();
-        msgItems.emplace_back( MSG_PANEL_ITEM( _( "Library" ), msg ) );
-
-        msg = footprint->GetFPID().GetLibItemName().wx_str();
-        msgItems.emplace_back( MSG_PANEL_ITEM( _( "Footprint Name" ), msg ) );
-
-        wxDateTime date( static_cast<time_t>( footprint->GetLastEditTime() ) );
-
-        if( footprint->GetLastEditTime() && date.IsValid() )
-        // Date format: see http://www.cplusplus.com/reference/ctime/strftime
-            msg = date.Format( wxT( "%b %d, %Y" ) ); // Abbreviated_month_name Day, Year
+        if( selection.GetSize() )
+        {
+            msgItems.emplace_back( _( "Selected Items" ),
+                                   wxString::Format( wxT( "%d" ), selection.GetSize() ) );
+        }
         else
-            msg = _( "Unknown" );
-
-        msgItems.emplace_back( MSG_PANEL_ITEM( _( "Last Change" ), msg ) );
-
-        msg.Printf( wxT( "%zu" ), (size_t) footprint->GetPadCount( DO_NOT_INCLUDE_NPTH ) );
-        msgItems.emplace_back( MSG_PANEL_ITEM( _( "Pads" ), msg ) );
-
-        wxString doc, keyword;
-        doc.Printf( _( "Doc: %s" ), footprint->GetDescription() );
-        keyword.Printf( _( "Keywords: %s" ), footprint->GetKeywords() );
-        msgItems.emplace_back( MSG_PANEL_ITEM( doc, keyword ) );
-
-        m_frame->SetMsgPanel( msgItems );
+        {
+            m_frame->GetBoard()->GetMsgPanelInfo( m_frame, msgItems );
+        }
     }
-    else
-    {
-        m_frame->SetMsgPanel( m_frame->GetBoard() );
-    }
+
+    m_frame->SetMsgPanel( msgItems );
 
     return 0;
+}
+
+
+int PCB_CONTROL::DdAppendBoard( const TOOL_EVENT& aEvent )
+{
+    wxFileName fileName = wxFileName( *aEvent.Parameter<wxString*>() );
+
+    int open_ctl = fileName.GetExt() == KiCadPcbFileExtension ? 0 : KICTL_EAGLE_BRD;
+
+    PCB_EDIT_FRAME* editFrame = dynamic_cast<PCB_EDIT_FRAME*>( m_frame );
+
+    if( !editFrame )
+        return 1;
+
+    wxString filePath = fileName.GetFullPath();
+    IO_MGR::PCB_FILE_T pluginType = plugin_type( filePath, open_ctl );
+    PLUGIN::RELEASER pi( IO_MGR::PluginFind( pluginType ) );
+
+    return AppendBoard( *pi, filePath );
 }
 
 
@@ -1341,12 +1618,18 @@ void PCB_CONTROL::setTransitions()
 
     // Append control
     Go( &PCB_CONTROL::AppendBoardFromFile,  PCB_ACTIONS::appendBoard.MakeEvent() );
+    Go( &PCB_CONTROL::DdAppendBoard,        PCB_ACTIONS::ddAppendBoard.MakeEvent() );
 
     Go( &PCB_CONTROL::Paste,                ACTIONS::paste.MakeEvent() );
     Go( &PCB_CONTROL::Paste,                ACTIONS::pasteSpecial.MakeEvent() );
 
+    Go( &PCB_CONTROL::UpdateMessagePanel,   EVENTS::PointSelectedEvent );
     Go( &PCB_CONTROL::UpdateMessagePanel,   EVENTS::SelectedEvent );
     Go( &PCB_CONTROL::UpdateMessagePanel,   EVENTS::UnselectedEvent );
     Go( &PCB_CONTROL::UpdateMessagePanel,   EVENTS::ClearedEvent );
     Go( &PCB_CONTROL::UpdateMessagePanel,   EVENTS::SelectedItemsModified );
+
+    // Add library by dropping file
+    Go( &PCB_CONTROL::DdAddLibrary,         ACTIONS::ddAddLibrary.MakeEvent() );
+    Go( &PCB_CONTROL::DdImportFootprint,    PCB_ACTIONS::ddImportFootprint.MakeEvent() );
 }

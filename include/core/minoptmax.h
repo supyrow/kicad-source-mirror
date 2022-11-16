@@ -45,10 +45,10 @@ public:
     bool IsNull() const { return m_isNull; }
 
 private:
-    bool m_isNull;
-    T m_min;
-    T m_opt;
-    T m_max;
+    bool m_isNull = true;
+    T    m_min{};
+    T    m_opt{};
+    T    m_max{};
     bool m_hasMin = false;
     bool m_hasOpt = false;
     bool m_hasMax = false;

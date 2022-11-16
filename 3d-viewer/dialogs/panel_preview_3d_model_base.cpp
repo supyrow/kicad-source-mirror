@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////
-// C++ code generated with wxFormBuilder (version 3.9.0 Sep 12 2021)
+// C++ code generated with wxFormBuilder (version 3.10.1-0-g8feb16b)
 // http://www.wxformbuilder.org/
 //
 // PLEASE DO *NOT* EDIT THIS FILE!
@@ -159,7 +159,20 @@ PANEL_PREVIEW_3D_MODEL_BASE::PANEL_PREVIEW_3D_MODEL_BASE( wxWindow* parent, wxWi
 	sbSizer4->Add( m_opacity, 0, wxBOTTOM|wxEXPAND|wxLEFT|wxRIGHT, 5 );
 
 
-	bSizerLeft->Add( sbSizer4, 1, wxBOTTOM|wxEXPAND|wxLEFT|wxRIGHT, 5 );
+	bSizerLeft->Add( sbSizer4, 1, wxEXPAND|wxLEFT|wxRIGHT, 5 );
+
+	wxStaticBoxSizer* sbSizerBoardThickness;
+	sbSizerBoardThickness = new wxStaticBoxSizer( new wxStaticBox( this, wxID_ANY, _("Board Thickness") ), wxHORIZONTAL );
+
+	m_boardThicknessCtrl = new wxTextCtrl( sbSizerBoardThickness->GetStaticBox(), wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, 0 );
+	sbSizerBoardThickness->Add( m_boardThicknessCtrl, 1, wxALIGN_CENTER_VERTICAL|wxBOTTOM|wxLEFT, 5 );
+
+	m_boardThicknessUnits = new wxStaticText( sbSizerBoardThickness->GetStaticBox(), wxID_ANY, _("mm"), wxDefaultPosition, wxDefaultSize, 0 );
+	m_boardThicknessUnits->Wrap( -1 );
+	sbSizerBoardThickness->Add( m_boardThicknessUnits, 0, wxBOTTOM|wxRIGHT|wxLEFT|wxALIGN_CENTER_VERTICAL, 5 );
+
+
+	bSizerLeft->Add( sbSizerBoardThickness, 0, wxBOTTOM|wxEXPAND|wxLEFT|wxRIGHT, 5 );
 
 
 	bSizermain->Add( bSizerLeft, 0, 0, 5 );
@@ -268,6 +281,8 @@ PANEL_PREVIEW_3D_MODEL_BASE::PANEL_PREVIEW_3D_MODEL_BASE( wxWindow* parent, wxWi
 	m_spinZoffset->Connect( wxEVT_SCROLL_LINEDOWN, wxSpinEventHandler( PANEL_PREVIEW_3D_MODEL_BASE::onDecrementOffset ), NULL, this );
 	m_spinZoffset->Connect( wxEVT_SCROLL_LINEUP, wxSpinEventHandler( PANEL_PREVIEW_3D_MODEL_BASE::onIncrementOffset ), NULL, this );
 	m_opacity->Connect( wxEVT_SLIDER, wxCommandEventHandler( PANEL_PREVIEW_3D_MODEL_BASE::onOpacitySlider ), NULL, this );
+	m_boardThicknessCtrl->Connect( wxEVT_MOUSEWHEEL, wxMouseEventHandler( PANEL_PREVIEW_3D_MODEL_BASE::onMouseWheelBoardThickness ), NULL, this );
+	m_boardThicknessCtrl->Connect( wxEVT_COMMAND_TEXT_UPDATED, wxCommandEventHandler( PANEL_PREVIEW_3D_MODEL_BASE::updateBoardThickness ), NULL, this );
 	m_bpvISO->Connect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( PANEL_PREVIEW_3D_MODEL_BASE::View3DISO ), NULL, this );
 	m_bpvLeft->Connect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( PANEL_PREVIEW_3D_MODEL_BASE::View3DLeft ), NULL, this );
 	m_bpvRight->Connect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( PANEL_PREVIEW_3D_MODEL_BASE::View3DRight ), NULL, this );
@@ -318,6 +333,8 @@ PANEL_PREVIEW_3D_MODEL_BASE::~PANEL_PREVIEW_3D_MODEL_BASE()
 	m_spinZoffset->Disconnect( wxEVT_SCROLL_LINEDOWN, wxSpinEventHandler( PANEL_PREVIEW_3D_MODEL_BASE::onDecrementOffset ), NULL, this );
 	m_spinZoffset->Disconnect( wxEVT_SCROLL_LINEUP, wxSpinEventHandler( PANEL_PREVIEW_3D_MODEL_BASE::onIncrementOffset ), NULL, this );
 	m_opacity->Disconnect( wxEVT_SLIDER, wxCommandEventHandler( PANEL_PREVIEW_3D_MODEL_BASE::onOpacitySlider ), NULL, this );
+	m_boardThicknessCtrl->Disconnect( wxEVT_MOUSEWHEEL, wxMouseEventHandler( PANEL_PREVIEW_3D_MODEL_BASE::onMouseWheelBoardThickness ), NULL, this );
+	m_boardThicknessCtrl->Disconnect( wxEVT_COMMAND_TEXT_UPDATED, wxCommandEventHandler( PANEL_PREVIEW_3D_MODEL_BASE::updateBoardThickness ), NULL, this );
 	m_bpvISO->Disconnect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( PANEL_PREVIEW_3D_MODEL_BASE::View3DISO ), NULL, this );
 	m_bpvLeft->Disconnect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( PANEL_PREVIEW_3D_MODEL_BASE::View3DLeft ), NULL, this );
 	m_bpvRight->Disconnect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( PANEL_PREVIEW_3D_MODEL_BASE::View3DRight ), NULL, this );

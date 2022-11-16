@@ -31,6 +31,7 @@ set( QA_PCBNEW_UTILS_SRCS
 
     ${CMAKE_CURRENT_SOURCE_DIR}/board_construction_utils.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/board_file_utils.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/board_test_utils.cpp
 )
 
 add_library( qa_pcbnew_utils STATIC ${QA_PCBNEW_UTILS_SRCS} )
@@ -73,7 +74,6 @@ target_link_libraries( qa_pcbnew_utils PUBLIC
 #     unit_test_utils
 #     ${PCBNEW_IO_LIBRARIES}
 #     ${wxWidgets_LIBRARIES}
-#     ${GDI_PLUS_LIBRARIES}
 #     ${PYTHON_LIBRARIES}
 #     ${Boost_LIBRARIES}      # must follow GITHUB
 #     ${PCBNEW_EXTRA_LIBS}    # -lrt must follow Boost
@@ -86,6 +86,6 @@ target_compile_definitions( qa_pcbnew_utils
 
 # Pass in the default data location
 set_source_files_properties( board_file_utils.cpp PROPERTIES
-    COMPILE_DEFINITIONS "QA_PCBNEW_DATA_LOCATION=(\"${CMAKE_CURRENT_SOURCE_DIR}/../data\")"
+    COMPILE_DEFINITIONS "QA_PCBNEW_DATA_LOCATION=(\"${CMAKE_SOURCE_DIR}/qa/data/pcbnew\")"
 )
 

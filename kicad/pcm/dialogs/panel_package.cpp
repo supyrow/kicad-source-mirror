@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2021 Andrew Lutsenko, anlutsenko at gmail dot com
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -18,15 +18,16 @@
  * with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <wx/dcclient.h>
 #include <math/util.h>
+#include <wx/dcclient.h>
 
 #include "panel_package.h"
 
 PANEL_PACKAGE::PANEL_PACKAGE( wxWindow* parent, const ActionCallback& aCallback,
-                              const PACKAGE_VIEW_DATA& aData ) :
+                              const PinCallback& aPinCallback, const PACKAGE_VIEW_DATA& aData ) :
         PANEL_PACKAGE_BASE( parent ),
         m_actionCallback( aCallback ),
+        m_pinCallback( aPinCallback ),
         m_data( aData )
 {
     // Propagate clicks on static elements to the panel handler.
@@ -49,63 +50,119 @@ PANEL_PACKAGE::PANEL_PACKAGE( wxWindow* parent, const ActionCallback& aCallback,
 
     m_minHeight = GetMinHeight();
 
-    wxSizeEvent dummy;
-    OnSize( dummy );
+    double descLineHeight = m_desc->GetTextExtent( wxT( "X" ) ).GetHeight() * 1.2 /* leading */;
+    m_desc->SetLabel( m_data.package.description );
+    descLineHeight = wxSplit( m_desc->GetLabel(), '\n' ).size() * descLineHeight;
 
-    SetState( m_data.state );
+    int    nameLineHeight = m_name->GetTextExtent( wxT( "X" ) ).GetHeight();
+    wxSize minSize = GetMinSize();
+    minSize.y = std::max( nameLineHeight + KiROUND( descLineHeight ) + 15, m_minHeight );
+    SetMinSize( minSize );
+
+    m_splitButton->SetLabel( _( "Update" ) );
+    m_splitButton->Bind( wxEVT_BUTTON, &PANEL_PACKAGE::OnButtonClicked, this );
+
+    wxMenu* splitMenu = m_splitButton->GetSplitButtonMenu();
+    m_pinVersionMenuItem =
+            splitMenu->Append( wxID_ANY, _( "Pin package" ),
+                               _( "Pinned packages don't affect available update notification and "
+                                  "will not be updated with 'Update All' button." ),
+                               wxITEM_CHECK );
+    splitMenu->Bind( wxEVT_COMMAND_MENU_SELECTED, &PANEL_PACKAGE::OnPinVersionClick, this,
+                     m_pinVersionMenuItem->GetId() );
+
+    m_actionMenuItem = splitMenu->Append( wxID_ANY, _( "Uninstall" ) );
+
+    SetState( m_data.state, m_data.pinned );
 }
 
 
 void PANEL_PACKAGE::OnSize( wxSizeEvent& event )
 {
     Layout();
-
-    int    nameLineHeight = m_name->GetTextExtent( "X" ).GetHeight();
-    double descLineHeight = m_desc->GetTextExtent( "X" ).GetHeight() * 1.2 /* leading */;
-
-    m_desc->SetLabel( m_data.package.description );
-    m_desc->Wrap( m_desc->GetClientSize().GetWidth() - 10 );
-    descLineHeight = wxSplit( m_desc->GetLabel(), '\n' ).size() * descLineHeight;
-
-    wxSize minSize = GetMinSize();
-    minSize.y = std::max( nameLineHeight + KiROUND( descLineHeight ) + 15, m_minHeight );
-    SetMinSize( minSize );
-
-    Layout();
 }
 
 
-void PANEL_PACKAGE::SetState( PCM_PACKAGE_STATE aState )
+void PANEL_PACKAGE::SetState( PCM_PACKAGE_STATE aState, bool aPinned )
 {
     m_data.state = aState;
+    m_data.pinned = aPinned;
+    m_splitButton->GetSplitButtonMenu()->Check( m_pinVersionMenuItem->GetId(), aPinned );
 
     switch( aState )
     {
     case PCM_PACKAGE_STATE::PPS_AVAILABLE:
+        m_splitButton->Hide();
+        m_button->Show();
         m_button->SetLabel( _( "Install" ) );
         m_button->Enable();
         break;
     case PCM_PACKAGE_STATE::PPS_UNAVAILABLE:
+        m_splitButton->Hide();
+        m_button->Show();
         m_button->SetLabel( _( "Install" ) );
         m_button->Disable();
         break;
     case PCM_PACKAGE_STATE::PPS_INSTALLED:
-        m_button->SetLabel( _( "Uninstall" ) );
-        m_button->Enable();
+        m_button->Hide();
+        m_splitButton->Show();
+
+        m_splitButton->SetLabel( _( "Uninstall" ) );
+        m_splitButton->Bind( wxEVT_BUTTON, &PANEL_PACKAGE::OnButtonClicked, this );
+
+        m_actionMenuItem->SetItemLabel( _( "Update" ) );
+        m_splitButton->GetSplitButtonMenu()->Enable( m_actionMenuItem->GetId(), false );
+
         break;
     case PCM_PACKAGE_STATE::PPS_PENDING_INSTALL:
+        m_splitButton->Hide();
+        m_button->Show();
         m_button->SetLabel( _( "Install Pending" ) );
         m_button->Disable();
         break;
     case PCM_PACKAGE_STATE::PPS_PENDING_UNINSTALL:
+        m_splitButton->Hide();
+        m_button->Show();
         m_button->SetLabel( _( "Uninstall Pending" ) );
+        m_button->Disable();
+        break;
+    case PCM_PACKAGE_STATE::PPS_UPDATE_AVAILABLE:
+        m_button->Hide();
+        m_splitButton->Show();
+
+        if( aPinned )
+        {
+            m_splitButton->SetLabel( _( "Uninstall" ) );
+            m_splitButton->Bind( wxEVT_BUTTON, &PANEL_PACKAGE::OnUninstallClick, this );
+
+            m_actionMenuItem->SetItemLabel( _( "Update" ) );
+            m_splitButton->GetSplitButtonMenu()->Enable( m_actionMenuItem->GetId(), true );
+            m_splitButton->GetSplitButtonMenu()->Bind( wxEVT_COMMAND_MENU_SELECTED,
+                                                       &PANEL_PACKAGE::OnButtonClicked, this,
+                                                       m_actionMenuItem->GetId() );
+        }
+        else
+        {
+            m_splitButton->SetLabel( _( "Update" ) );
+            m_splitButton->Bind( wxEVT_BUTTON, &PANEL_PACKAGE::OnButtonClicked, this );
+
+            m_actionMenuItem->SetItemLabel( _( "Uninstall" ) );
+            m_splitButton->GetSplitButtonMenu()->Enable( m_actionMenuItem->GetId(), true );
+            m_splitButton->GetSplitButtonMenu()->Bind( wxEVT_COMMAND_MENU_SELECTED,
+                                                       &PANEL_PACKAGE::OnUninstallClick, this,
+                                                       m_actionMenuItem->GetId() );
+        }
+        break;
+    case PCM_PACKAGE_STATE::PPS_PENDING_UPDATE:
+        m_splitButton->Hide();
+        m_button->Show();
+        m_button->SetLabel( _( "Update Pending" ) );
         m_button->Disable();
         break;
     }
 
     // Relayout to change button size to fit the label.
-    wxSizeEvent dummy;
-    OnSize( dummy );
+    Layout();
 }
 
 
@@ -120,9 +177,36 @@ void PANEL_PACKAGE::OnButtonClicked( wxCommandEvent& event )
 
         m_actionCallback( m_data, PPA_INSTALL, version );
     }
+    else if( m_data.state == PPS_UPDATE_AVAILABLE )
+    {
+        m_actionCallback( m_data, PPA_UPDATE, m_data.update_version );
+    }
     else
     {
         m_actionCallback( m_data, PPA_UNINSTALL, m_data.current_version );
+    }
+}
+
+
+void PANEL_PACKAGE::OnPinVersionClick( wxCommandEvent& event )
+{
+    m_data.pinned = event.IsChecked();
+
+    m_pinCallback( m_data.package.identifier, m_data.state, m_data.pinned );
+}
+
+
+void PANEL_PACKAGE::OnUninstallClick( wxCommandEvent& event )
+{
+    if( m_data.state == PPS_UPDATE_AVAILABLE )
+    {
+        m_actionCallback( m_data, PPA_UNINSTALL, m_data.current_version );
+    }
+    else
+    {
+        // Clicking uninstall menu item of the split button should not be possible
+        // for any state other than UPDATE_AVAILABLE
+        wxLogError( wxT( "Uninstall clicked in unexpected state" ) );
     }
 }
 
@@ -189,5 +273,3 @@ wxString PANEL_PACKAGE::GetPreferredVersion() const
 
     return ver_it->version;
 }
-
-

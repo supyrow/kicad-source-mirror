@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2020-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2020-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -33,6 +33,7 @@ class PROJECT;
 class SCH_SCREEN;
 class SCH_SHEET;
 class SCH_SHEET_LIST;
+class SCH_GLOBALLABEL;
 
 
 class SCHEMATIC_IFACE
@@ -72,12 +73,10 @@ public:
     void Reset();
 
     /// Return a reference to the project this schematic is part of
-    PROJECT& Prj() const override
-    {
-        return *m_project;
-    }
-
+    PROJECT& Prj() const override { return *m_project; }
     void SetProject( PROJECT* aPrj );
+
+    const std::map<wxString, wxString>* GetProperties() { return &m_properties; }
 
     /**
      * Builds and returns an updated schematic hierarchy
@@ -146,11 +145,11 @@ public:
     std::shared_ptr<BUS_ALIAS> GetBusAlias( const wxString& aLabel ) const;
 
     /**
-     * Return a list of name candidates for netclass assignment.  The list will include both
+     * Return the set of netname candidates for netclass assignment.  The list will include both
      * composite names (buses) and atomic net names.  Names are fetched from available labels,
      * power pins, etc.
      */
-    std::vector<wxString> GetNetClassAssignmentCandidates();
+    std::set<wxString> GetNetClassAssignmentCandidates();
 
     /**
      * Resolves text vars that refer to other items.
@@ -159,7 +158,10 @@ public:
      */
     bool ResolveCrossReference( wxString* token, int aDepth ) const;
 
-    std::map<wxString, std::set<wxString>>& GetPageRefsMap() { return m_labelToPageRefsMap; }
+    std::map<wxString, std::set<int>>& GetPageRefsMap() { return m_labelToPageRefsMap; }
+
+    std::map<int, wxString> GetVirtualPageToSheetNamesMap() const;
+    std::map<int, wxString> GetVirtualPageToSheetPagesMap() const;
 
     wxString ConvertRefsToKIIDs( const wxString& aSource ) const;
     wxString ConvertKIIDsToRefs( const wxString& aSource ) const;
@@ -169,6 +171,37 @@ public:
      */
     SCH_SHEET_LIST& GetFullHierarchy() const;
 
+    /**
+     * Update the symbol value and footprint instance data for legacy designs.
+     *
+     * Prior to schematic file format version 20200828 and legacy file format version, only
+     * symbol reference field and unit were saved in the instance data.  The value and footprint
+     * fields must be carried forward from the original symbol to prevent data loss.
+     */
+    void SetLegacySymbolInstanceData();
+
+    /**
+     * @return a filename that can be used in plot and print functions for the current screen
+     * and sheet path.  This filename is unique and must be used instead of the screen filename
+     * when one must create files for each sheet in the hierarchy.
+     * Name is &ltroot sheet filename&gt-&ltsheet path&gt and has no extension.
+     * However if filename is too long name is &ltsheet filename&gt-&ltsheet number&gt
+     */
+    wxString GetUniqueFilenameForCurrentSheet();
+
+    /**
+     * Set the m_ScreenNumber and m_NumberOfScreens members for screens.
+     *
+     * @note This must be called after deleting or adding a sheet and when entering a sheet.
+     */
+    void SetSheetNumberAndCount();
+
+    /**
+     * Update the schematic's page reference map for all global labels, and refresh the labels
+     * so that they are redrawn with up-to-date references.
+     */
+    void RecomputeIntersheetRefs( bool autoplaceUninitialized,
+                                  const std::function<void( SCH_GLOBALLABEL* )>& aItemCallback );
 
 #if defined(DEBUG)
     void Show( int nestLevel, std::ostream& os ) const override {}
@@ -194,10 +227,15 @@ private:
     CONNECTION_GRAPH* m_connectionGraph;
 
     /**
-     * Holds a map of labels to the page numbers that they appear on.  Used to update global
-     * label intersheet references.
+     * Holds a map of labels to the page sequence (virtual page number) that they appear on.  It is
+     * used for updating global label intersheet references.
      */
-    std::map<wxString, std::set<wxString>> m_labelToPageRefsMap;
+    std::map<wxString, std::set<int>> m_labelToPageRefsMap;
+
+    /**
+     * Properties for text variable substitution (and perhaps other uses in future).
+     */
+    std::map<wxString, wxString>      m_properties;
 };
 
 #endif

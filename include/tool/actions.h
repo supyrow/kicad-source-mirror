@@ -50,13 +50,14 @@ public:
     static TOOL_ACTION open;
     static TOOL_ACTION save;
     static TOOL_ACTION saveAs;
-    static TOOL_ACTION saveCopyAs;
+    static TOOL_ACTION saveCopy;
     static TOOL_ACTION saveAll;
     static TOOL_ACTION revert;
     static TOOL_ACTION pageSettings;
     static TOOL_ACTION print;
     static TOOL_ACTION plot;
     static TOOL_ACTION quit;
+    static TOOL_ACTION ddAddLibrary;    // for drag and drop lib
 
     // Generic edit actions
     static TOOL_ACTION cancelInteractive;
@@ -73,6 +74,7 @@ public:
     static TOOL_ACTION deleteTool;
 
     // Find and Replace
+    static TOOL_ACTION showSearch;
     static TOOL_ACTION find;
     static TOOL_ACTION findAndReplace;
     static TOOL_ACTION findNext;
@@ -154,6 +156,7 @@ public:
     static TOOL_ACTION selectionTool;
     static TOOL_ACTION measureTool;
     static TOOL_ACTION pickerTool;
+    static TOOL_ACTION pickerSubTool;
 
     // Misc
     static TOOL_ACTION show3DViewer;
@@ -169,6 +172,7 @@ public:
     static TOOL_ACTION activatePointEditor;
     static TOOL_ACTION changeEditMethod;
     static TOOL_ACTION updatePreferences;
+    static TOOL_ACTION selectColumns;
 
     // Suite
     static TOOL_ACTION openPreferences;
@@ -198,6 +202,7 @@ public:
 class EVENTS
 {
 public:
+    const static TOOL_EVENT PointSelectedEvent;
     const static TOOL_EVENT SelectedEvent;
     const static TOOL_EVENT UnselectedEvent;
     const static TOOL_EVENT ClearedEvent;
@@ -217,5 +222,3 @@ public:
 };
 
 #endif // __ACTIONS_H
-
-

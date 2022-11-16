@@ -23,7 +23,7 @@
 #define __PNS_SIZES_SETTINGS_H
 
 #include <map>
-#include <core/optional.h>
+#include <optional>
 
 #include "pcb_track.h" // for VIATYPE_T
 
@@ -48,8 +48,7 @@ public:
             m_diffPairGap( 180000 ),
             m_diffPairViaGap( 180000 ),
             m_diffPairViaGapSameAsTraceGap( true ),
-            m_holeToHole( 0 ),
-            m_widthSource()
+            m_holeToHole( 0 )
     {};
 
     ~SIZES_SETTINGS() {};
@@ -87,10 +86,10 @@ public:
     int ViaDrill() const { return m_viaDrill; }
     void SetViaDrill( int aDrill ) { m_viaDrill = aDrill; }
 
-    OPT<int> PairedLayer( int aLayerId )
+    std::optional<int> PairedLayer( int aLayerId )
     {
         if( m_layerPairs.find(aLayerId) == m_layerPairs.end() )
-            return OPT<int>();
+            return std::optional<int>();
 
         return m_layerPairs[aLayerId];
     }
@@ -104,8 +103,17 @@ public:
     void SetViaType( VIATYPE aViaType ) { m_viaType = aViaType; }
     VIATYPE ViaType() const { return m_viaType; }
 
+    wxString GetClearanceSource() const { return m_clearanceSource; }
+    void SetClearanceSource( const wxString& aSource ) { m_clearanceSource = aSource; }
+
     wxString GetWidthSource() const { return m_widthSource; }
     void SetWidthSource( const wxString& aSource ) { m_widthSource = aSource; }
+
+    wxString GetDiffPairWidthSource() const { return m_diffPairWidthSource; }
+    void SetDiffPairWidthSource( const wxString& aSource ) { m_diffPairWidthSource = aSource; }
+
+    wxString GetDiffPairGapSource() const { return m_diffPairGapSource; }
+    void SetDiffPairGapSource( const wxString& aSource ) { m_diffPairGapSource = aSource; }
 
 private:
     int     m_minClearance;
@@ -125,7 +133,10 @@ private:
 
     std::map<int, int> m_layerPairs;
 
+    wxString m_clearanceSource;
     wxString m_widthSource;
+    wxString m_diffPairWidthSource;
+    wxString m_diffPairGapSource;
 };
 
 }

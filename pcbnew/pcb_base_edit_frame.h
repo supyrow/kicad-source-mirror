@@ -32,6 +32,7 @@
 class APPEARANCE_CONTROLS;
 class BOARD_ITEM_CONTAINER;
 class PANEL_SELECTION_FILTER;
+class PROPERTIES_PANEL;
 
 /**
  * Common, abstract interface for edit frames.
@@ -103,6 +104,12 @@ public:
     void SaveCopyInUndoList( const PICKED_ITEMS_LIST& aItemsList, UNDO_REDO aCommandType ) override;
 
     /**
+     * As SaveCopyInUndoList, but appends the changes to the last undo item on the stack.
+     */
+    void AppendCopyToUndoList( const PICKED_ITEMS_LIST& aItemsList,
+                               UNDO_REDO aCommandType ) override;
+
+    /**
      * Redo the last edit:
      *  - Save the current board in Undo list
      *  - Get an old version of the board from Redo list
@@ -166,6 +173,7 @@ public:
      */
     //void SetRotationAngle( EDA_ANGLE aRotationAngle );
 
+    void ShowBitmapPropertiesDialog( BOARD_ITEM* aBitmap );
     void ShowTextPropertiesDialog( BOARD_ITEM* aText );
     int ShowTextBoxPropertiesDialog( BOARD_ITEM* aText );
     void ShowGraphicItemPropertiesDialog( BOARD_ITEM* aItem );
@@ -197,6 +205,8 @@ public:
      */
     void ClearUndoORRedoList( UNDO_REDO_LIST whichList, int aItemCount = -1 ) override;
 
+    void ClearListAndDeleteItems( PICKED_ITEMS_LIST* aList );
+
     /**
      * Return the absolute path to the design rules file for the currently-loaded board.
      *
@@ -206,6 +216,10 @@ public:
     wxString GetDesignRulesPath();
 
     APPEARANCE_CONTROLS* GetAppearancePanel() { return m_appearancePanel; }
+
+    PROPERTIES_PANEL* GetPropertiesPanel() { return m_propertiesPanel; }
+
+    void UpdateProperties();
 
 protected:
     /**
@@ -224,13 +238,23 @@ protected:
 
     void handleActivateEvent( wxActivateEvent& aEvent ) override;
 
+    void saveCopyInUndoList( PICKED_ITEMS_LIST* commandToUndo, const PICKED_ITEMS_LIST& aItemsList,
+                             UNDO_REDO aCommandType );
+
     void unitsChangeRefresh() override;
+
+    virtual void onDarkModeToggle();
 
 protected:
     bool                    m_undoRedoBlocked;
 
     PANEL_SELECTION_FILTER* m_selectionFilterPanel;
     APPEARANCE_CONTROLS*    m_appearancePanel;
+    PROPERTIES_PANEL*       m_propertiesPanel;
+
+    wxAuiNotebook*          m_tabbedPanel;        /// Panel with Layers and Object Inspector tabs
+
+    bool                    m_darkMode;
 };
 
 #endif

@@ -37,10 +37,12 @@
 enum MAIL_T
 {
     MAIL_CROSS_PROBE,              // PCB<->SCH, CVPCB->SCH cross-probing.
-    MAIL_SELECTION,                // SCH->PCB selection synchronization.
+    MAIL_SELECTION,                // SCH<->PCB selection synchronization.
+    MAIL_SELECTION_FORCE,          // Explicit selection of SCH->PCB selection synchronization.
     MAIL_ASSIGN_FOOTPRINTS,        // CVPCB->SCH footprint stuffing
     MAIL_SCH_SAVE,                 // CVPCB->SCH save the schematic
     MAIL_EESCHEMA_NETLIST,         // SCH->CVPCB netlist immediately after launching CVPCB
+    MAIL_SYMBOL_NETLIST,           // SCH->FP_VIEWER symbol pin information
     MAIL_PCB_UPDATE,               // SCH->PCB forward update
     MAIL_SCH_UPDATE,               // PCB->SCH forward update
     MAIL_IMPORT_FILE,              // Import a different format file
@@ -48,10 +50,9 @@ enum MAIL_T
     MAIL_PCB_GET_NETLIST,          // Fetch a netlist from PCB layout
     MAIL_PCB_UPDATE_LINKS,         // Update the schematic symbol paths in the PCB's footprints
     MAIL_SCH_REFRESH,              // Tell the schematic editor to refresh the display.
-    MAIL_SCH_CLEAN_NETCLASSES,     // Tell the schematic editor to clean stale nets out of
-                                   //   the netclass membership lists
     MAIL_LIB_EDIT,
-    MAIL_FP_EDIT
+    MAIL_FP_EDIT,
+    MAIL_RELOAD_LIB                //Reload Library List if one was added
 };
 
 #endif  // MAIL_TYPE_H_

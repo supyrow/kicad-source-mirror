@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2004-2020 KiCad Developers.
+ * Copyright (C) 2004-2022 KiCad Developers.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -25,15 +25,14 @@
 #include <board.h>
 #include <footprint.h>
 #include <pcb_shape.h>
-
-#include <geometry/seg.h>
+#include <pcb_track.h>
+#include <pad.h>
 #include <geometry/shape_segment.h>
-
+#include <geometry/seg.h>
 #include <drc/drc_engine.h>
 #include <drc/drc_item.h>
 #include <drc/drc_rule.h>
 #include <drc/drc_test_provider_clearance_base.h>
-
 #include <drc/drc_rtree.h>
 
 /*
@@ -60,12 +59,12 @@ public:
 
     virtual const wxString GetName() const override
     {
-        return "silk_clearance";
+        return wxT( "silk_clearance" );
     };
 
     virtual const wxString GetDescription() const override
     {
-        return "Tests for overlapping silkscreen features.";
+        return wxT( "Tests for overlapping silkscreen features." );
     }
 
 private:
@@ -77,12 +76,11 @@ private:
 
 bool DRC_TEST_PROVIDER_SILK_CLEARANCE::Run()
 {
-    // This is the number of tests between 2 calls to the progress bar
-    const int delta = 500;
+    const int progressDelta = 500;
 
     if( m_drcEngine->IsErrorLimitExceeded( DRCE_OVERLAPPING_SILK ) )
     {
-        reportAux( "Overlapping silk violations ignored.  Tests not run." );
+        reportAux( wxT( "Overlapping silk violations ignored.  Tests not run." ) );
         return true;    // continue with other tests
     }
 
@@ -94,7 +92,7 @@ bool DRC_TEST_PROVIDER_SILK_CLEARANCE::Run()
     if( m_drcEngine->QueryWorstConstraint( SILK_CLEARANCE_CONSTRAINT, worstClearanceConstraint ) )
         m_largestClearance = worstClearanceConstraint.m_Value.Min();
 
-    reportAux( "Worst clearance : %d nm", m_largestClearance );
+    reportAux( wxT( "Worst clearance : %d nm" ), m_largestClearance );
 
     if( !reportPhase( _( "Checking silkscreen for overlapping items..." ) ) )
         return false;   // DRC cancelled
@@ -114,7 +112,7 @@ bool DRC_TEST_PROVIDER_SILK_CLEARANCE::Run()
     auto addToSilkTree =
             [&]( BOARD_ITEM* item ) -> bool
             {
-                if( !reportProgress( ii++, items, delta ) )
+                if( !reportProgress( ii++, items, progressDelta ) )
                     return false;
 
                 for( PCB_LAYER_ID layer : { F_SilkS, B_SilkS } )
@@ -129,7 +127,7 @@ bool DRC_TEST_PROVIDER_SILK_CLEARANCE::Run()
     auto addToTargetTree =
             [&]( BOARD_ITEM* item ) -> bool
             {
-                if( !reportProgress( ii++, items, delta ) )
+                if( !reportProgress( ii++, items, progressDelta ) )
                     return false;
 
                 for( PCB_LAYER_ID layer : item->GetLayerSet().Seq() )
@@ -150,7 +148,7 @@ bool DRC_TEST_PROVIDER_SILK_CLEARANCE::Run()
                          LSET::FrontMask() | LSET::BackMask() | LSET( 2, Edge_Cuts, Margin ),
                          addToTargetTree );
 
-    reportAux( _("Testing %d silkscreen features against %d board items."),
+    reportAux( wxT( "Testing %d silkscreen features against %d board items." ),
                silkTree.size(),
                targetTree.size() );
 
@@ -177,18 +175,37 @@ bool DRC_TEST_PROVIDER_SILK_CLEARANCE::Run()
     };
 
     targetTree.QueryCollidingPairs( &silkTree, layerPairs,
-            [&]( const DRC_RTREE::LAYER_PAIR& aLayers, DRC_RTREE::ITEM_WITH_SHAPE* aRefItem,
-                 DRC_RTREE::ITEM_WITH_SHAPE* aTestItem, bool* aCollisionDetected ) -> bool
+            [&]( const DRC_RTREE::LAYER_PAIR& aLayers, DRC_RTREE::ITEM_WITH_SHAPE* aRefItemShape,
+                 DRC_RTREE::ITEM_WITH_SHAPE* aTestItemShape, bool* aCollisionDetected ) -> bool
             {
+                BOARD_ITEM*  refItem = aRefItemShape->parent;
+                const SHAPE* refShape = aRefItemShape->shape;
+                BOARD_ITEM*  testItem = aTestItemShape->parent;
+                const SHAPE* testShape = aTestItemShape->shape;
+
+                std::shared_ptr<SHAPE> hole;
+
                 if( m_drcEngine->IsErrorLimitExceeded( DRCE_OVERLAPPING_SILK ) )
                     return false;
 
-                if( isInvisibleText( aRefItem->parent ) || isInvisibleText( aTestItem->parent ) )
+                if( isInvisibleText( refItem ) || isInvisibleText( testItem ) )
                     return true;
 
+                if( testItem->IsTented() )
+                {
+                    if( testItem->HasHole() )
+                    {
+                        hole = testItem->GetEffectiveHoleShape();
+                        testShape = hole.get();
+                    }
+                    else
+                    {
+                        return true;
+                    }
+                }
+
                 DRC_CONSTRAINT constraint = m_drcEngine->EvalRules( SILK_CLEARANCE_CONSTRAINT,
-                                                                    aRefItem->parent,
-                                                                    aTestItem->parent,
+                                                                    refItem, testItem,
                                                                     aLayers.second );
 
                 if( constraint.IsNull() || constraint.GetSeverity() == RPT_SEVERITY_IGNORE )
@@ -204,33 +221,31 @@ bool DRC_TEST_PROVIDER_SILK_CLEARANCE::Run()
 
                 // Graphics are often compound shapes so ignore collisions between shapes in a
                 // single footprint or on the board.
-                PCB_SHAPE* refGraphic = dynamic_cast<PCB_SHAPE*>( aRefItem->parent );
-                PCB_SHAPE* testGraphic = dynamic_cast<PCB_SHAPE*>( aTestItem->parent );
-
-                if( refGraphic && testGraphic )
+                if( refItem->Type() == PCB_SHAPE_T && testItem->Type() == PCB_SHAPE_T )
                 {
-                    FOOTPRINT *refParentFP = dynamic_cast<FOOTPRINT*>( refGraphic->GetParent() );
-                    FOOTPRINT *testParentFP = dynamic_cast<FOOTPRINT*>( testGraphic->GetParent() );
-
-                    if( refParentFP == testParentFP ) // also true when both are nullptr
-                        return true;
+                    return true;
+                }
+                else if( refItem->Type() == PCB_FP_SHAPE_T && testItem->Type() == PCB_FP_SHAPE_T
+                         && refItem->GetParentFootprint() == testItem->GetParentFootprint() )
+                {
+                    return true;
                 }
 
-                if( aRefItem->shape->Collide( aTestItem->shape, minClearance, &actual, &pos ) )
+                if( refShape->Collide( testShape, minClearance, &actual, &pos ) )
                 {
                     std::shared_ptr<DRC_ITEM> drcItem = DRC_ITEM::Create( DRCE_OVERLAPPING_SILK );
 
                     if( minClearance > 0 )
                     {
-                        m_msg.Printf( _( "(%s clearance %s; actual %s)" ),
-                                      constraint.GetParentRule()->m_Name,
-                                      MessageTextFromValue( userUnits(), minClearance ),
-                                      MessageTextFromValue( userUnits(), actual ) );
+                        wxString msg = formatMsg( _( "(%s clearance %s; actual %s)" ),
+                                                  constraint.GetParentRule()->m_Name,
+                                                  minClearance,
+                                                  actual );
 
-                        drcItem->SetErrorMessage( drcItem->GetErrorText() + wxS( " " ) + m_msg );
+                        drcItem->SetErrorMessage( drcItem->GetErrorText() + wxS( " " ) + msg );
                     }
 
-                    drcItem->SetItems( aRefItem->parent, aTestItem->parent );
+                    drcItem->SetItems( refItem, testItem );
                     drcItem->SetViolatingRule( constraint.GetParentRule() );
 
                     reportViolation( drcItem, pos, aLayers.second );
@@ -243,12 +258,12 @@ bool DRC_TEST_PROVIDER_SILK_CLEARANCE::Run()
             m_largestClearance,
             [&]( int aCount, int aSize ) -> bool
             {
-                return reportProgress( aCount, aSize, delta );
+                return reportProgress( aCount, aSize, progressDelta );
             } );
 
     reportRuleStatistics();
 
-    return true;
+    return !m_drcEngine->IsCancelled();
 }
 
 

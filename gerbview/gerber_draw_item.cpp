@@ -22,6 +22,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
+#include <base_units.h>
 #include <trigo.h>
 #include <bitmaps.h>
 #include <eda_text.h>
@@ -245,10 +246,10 @@ D_CODE* GERBER_DRAW_ITEM::GetDcodeDescr() const
 }
 
 
-const EDA_RECT GERBER_DRAW_ITEM::GetBoundingBox() const
+const BOX2I GERBER_DRAW_ITEM::GetBoundingBox() const
 {
     // return a rectangle which is (pos,dim) in nature.  therefore the +1
-    EDA_RECT bbox( m_Start, wxSize( 1, 1 ) );
+    BOX2I   bbox( m_Start, VECTOR2I( 1, 1 ) );
     D_CODE* code = GetDcodeDescr();
 
     // TODO(JE) GERBER_DRAW_ITEM maybe should actually be a number of subclasses.
@@ -259,9 +260,9 @@ const EDA_RECT GERBER_DRAW_ITEM::GetBoundingBox() const
     {
     case GBR_POLYGON:
     {
-        auto bb = m_Polygon.BBox();
+        BOX2I bb = m_Polygon.BBox();
         bbox.Inflate( bb.GetWidth() / 2, bb.GetHeight() / 2 );
-        bbox.SetOrigin( bb.GetOrigin().x, bb.GetOrigin().y );
+        bbox.SetOrigin( bb.GetOrigin() );
         break;
     }
 
@@ -286,10 +287,7 @@ const EDA_RECT GERBER_DRAW_ITEM::GetBoundingBox() const
             angle.Normalize();
 
         SHAPE_ARC arc( m_ArcCentre, m_Start, angle );
-        BOX2I arc_bbox = arc.BBox( m_Size.x / 2 );  // m_Size.x is the line thickness
-        bbox.SetOrigin( arc_bbox.GetX(), arc_bbox.GetY() );
-        bbox.SetWidth( arc_bbox.GetWidth() );
-        bbox.SetHeight( arc_bbox.GetHeight() );
+        bbox = arc.BBox( m_Size.x / 2 );  // m_Size.x is the line thickness
         break;
     }
 
@@ -325,7 +323,7 @@ const EDA_RECT GERBER_DRAW_ITEM::GetBoundingBox() const
         if( code )
         {
             if( code->m_Polygon.OutlineCount() == 0 )
-                code->ConvertShapeToPolygon();
+                code->ConvertShapeToPolygon( this );
 
             bbox.Inflate( code->m_Polygon.BBox().GetWidth() / 2,
                           code->m_Polygon.BBox().GetHeight() / 2 );
@@ -357,16 +355,12 @@ const EDA_RECT GERBER_DRAW_ITEM::GetBoundingBox() const
                 // So use a temporary polygon
                 SHAPE_POLY_SET poly_shape;
                 ConvertSegmentToPolygon( &poly_shape );
-                BOX2I bb = poly_shape.BBox();
-                bbox.SetSize( bb.GetWidth(), bb.GetHeight() );
-                bbox.SetOrigin( bb.GetOrigin().x, bb.GetOrigin().y );
+                bbox = poly_shape.BBox();
             }
 
             else
             {
-                BOX2I bb = m_Polygon.BBox();
-                bbox.SetSize( bb.GetWidth(), bb.GetHeight() );
-                bbox.SetOrigin( bb.GetOrigin().x, bb.GetOrigin().y );
+                bbox = m_Polygon.BBox();
             }
         }
         else
@@ -379,7 +373,7 @@ const EDA_RECT GERBER_DRAW_ITEM::GetBoundingBox() const
             int ymin = std::min( m_Start.y, m_End.y ) - radius;
             int xmin = std::min( m_Start.x, m_End.x ) - radius;
 
-            bbox = EDA_RECT( VECTOR2I( xmin, ymin ), VECTOR2I( xmax - xmin + 1, ymax - ymin + 1 ) );
+            bbox = BOX2I( VECTOR2I( xmin, ymin ), VECTOR2I( xmax - xmin + 1, ymax - ymin + 1 ) );
         }
 
         break;
@@ -399,18 +393,6 @@ const EDA_RECT GERBER_DRAW_ITEM::GetBoundingBox() const
     bbox.Normalize();
 
     return bbox;
-}
-
-
-void GERBER_DRAW_ITEM::MoveAB( const VECTOR2I& aMoveVector )
-{
-    VECTOR2I xymove = GetXYPosition( aMoveVector );
-
-    m_Start     += xymove;
-    m_End       += xymove;
-    m_ArcCentre += xymove;
-
-    m_Polygon.Move( xymove );
 }
 
 
@@ -679,23 +661,23 @@ void GERBER_DRAW_ITEM::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_
     aList.emplace_back( _( "Graphic Layer" ), msg );
 
     // Display item position
-    auto xStart = To_User_Unit( aFrame->GetUserUnits(), m_Start.x );
-    auto yStart = To_User_Unit( aFrame->GetUserUnits(), m_Start.y );
-    auto xEnd   = To_User_Unit( aFrame->GetUserUnits(), m_End.x );
-    auto yEnd   = To_User_Unit( aFrame->GetUserUnits(), m_End.y );
+    auto xStart = EDA_UNIT_UTILS::UI::ToUserUnit( gerbIUScale, aFrame->GetUserUnits(), m_Start.x );
+    auto yStart = EDA_UNIT_UTILS::UI::ToUserUnit( gerbIUScale, aFrame->GetUserUnits(), m_Start.y );
+    auto xEnd = EDA_UNIT_UTILS::UI::ToUserUnit( gerbIUScale, aFrame->GetUserUnits(), m_End.x );
+    auto yEnd = EDA_UNIT_UTILS::UI::ToUserUnit( gerbIUScale, aFrame->GetUserUnits(), m_End.y );
 
     if( m_Flashed )
     {
         msg.Printf( wxT( "(%.4f, %.4f)" ), xStart, yStart );
-        aList.emplace_back( MSG_PANEL_ITEM( _( "Position" ), msg, BLUE ) );
+        aList.emplace_back( _( "Position" ), msg );
     }
     else
     {
         msg.Printf( wxT( "(%.4f, %.4f)" ), xStart, yStart );
-        aList.emplace_back( MSG_PANEL_ITEM( _( "Start" ), msg, BLUE ) );
+        aList.emplace_back( _( "Start" ), msg );
 
         msg.Printf( wxT( "(%.4f, %.4f)" ), xEnd, yEnd );
-        aList.emplace_back( MSG_PANEL_ITEM( _( "End" ), msg, BLUE ) );
+        aList.emplace_back( _( "End" ), msg );
     }
 
     // Display item rotation
@@ -795,7 +777,7 @@ BITMAPS GERBER_DRAW_ITEM::GetMenuImage() const
 bool GERBER_DRAW_ITEM::HitTest( const VECTOR2I& aRefPos, int aAccuracy ) const
 {
     // In case the item has a very tiny width defined, allow it to be selected
-    const int MIN_HIT_TEST_RADIUS = Millimeter2iu( 0.01 );
+    const int MIN_HIT_TEST_RADIUS = gerbIUScale.mmToIU( 0.01 );
 
     // calculate aRefPos in XY Gerber axis:
     VECTOR2I ref_pos = GetXYPosition( aRefPos );
@@ -818,10 +800,10 @@ bool GERBER_DRAW_ITEM::HitTest( const VECTOR2I& aRefPos, int aAccuracy ) const
 
     case GBR_SPOT_OVAL:
     {
-        EDA_RECT bbox = GetBoundingBox();
+        BOX2I bbox = GetBoundingBox();
 
-            if( ! bbox.Contains( aRefPos ) )
-                return false;
+        if( ! bbox.Contains( aRefPos ) )
+            return false;
 
         // This is similar to a segment with thickness = min( m_Size.x, m_Size.y )
         int radius = std::min( m_Size.x, m_Size.y )/2;
@@ -909,7 +891,7 @@ bool GERBER_DRAW_ITEM::HitTest( const VECTOR2I& aRefPos, int aAccuracy ) const
 }
 
 
-bool GERBER_DRAW_ITEM::HitTest( const EDA_RECT& aRefArea, bool aContained, int aAccuracy ) const
+bool GERBER_DRAW_ITEM::HitTest( const BOX2I& aRefArea, bool aContained, int aAccuracy ) const
 {
     VECTOR2I pos = GetABPosition( m_Start );
 
@@ -956,8 +938,7 @@ void GERBER_DRAW_ITEM::ViewGetLayers( int aLayers[], int& aCount ) const
 
 const BOX2I GERBER_DRAW_ITEM::ViewBBox() const
 {
-    EDA_RECT bbox = GetBoundingBox();
-    return BOX2I( VECTOR2I( bbox.GetOrigin() ), VECTOR2I( bbox.GetSize() ) );
+    return GetBoundingBox();
 }
 
 
@@ -987,7 +968,7 @@ double GERBER_DRAW_ITEM::ViewGetLOD( int aLayer, KIGFX::VIEW* aView ) const
 
         // the level of details is chosen experimentally, to show
         // only a readable text:
-        double level = (double)Millimeter2iu( 3 );
+        double level = (double) gerbIUScale.mmToIU( 3 );
         return level / ( size + 1 );
     }
 
@@ -996,27 +977,25 @@ double GERBER_DRAW_ITEM::ViewGetLOD( int aLayer, KIGFX::VIEW* aView ) const
 }
 
 
-SEARCH_RESULT GERBER_DRAW_ITEM::Visit( INSPECTOR inspector, void* testData,
-                                       const KICAD_T scanTypes[] )
+INSPECT_RESULT GERBER_DRAW_ITEM::Visit( INSPECTOR inspector, void* testData,
+                                        const std::vector<KICAD_T>& aScanTypes )
 {
-    KICAD_T stype = *scanTypes;
-
-    // If caller wants to inspect my type
-    if( stype == Type() )
+    for( KICAD_T scanType : aScanTypes )
     {
-        if( SEARCH_RESULT::QUIT == inspector( this, testData ) )
-            return SEARCH_RESULT::QUIT;
+        if( scanType == Type() )
+        {
+            if( INSPECT_RESULT::QUIT == inspector( this, testData ) )
+                return INSPECT_RESULT::QUIT;
+        }
     }
 
-    return SEARCH_RESULT::CONTINUE;
+    return INSPECT_RESULT::CONTINUE;
 }
 
 
-wxString GERBER_DRAW_ITEM::GetSelectMenuText( EDA_UNITS aUnits ) const
+wxString GERBER_DRAW_ITEM::GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const
 {
-    wxString layerName;
-
-    layerName = GERBER_FILE_IMAGE_LIST::GetImagesList().GetDisplayName( GetLayer(), true );
+    wxString layerName = GERBER_FILE_IMAGE_LIST::GetImagesList().GetDisplayName( GetLayer(), true );
 
     return wxString::Format( _( "%s (D%d) on layer %d: %s" ),
                              ShowGBRShape(),

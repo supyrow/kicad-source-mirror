@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2020 Jon Evans <jon@craftyjon.com>
- * Copyright (C) 2020-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2020-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -34,7 +34,7 @@
 
 
 ///! Update the schema version whenever a migration is required
-const int fpEditSchemaVersion = 1;
+const int fpEditSchemaVersion = 2;
 
 
 FOOTPRINT_EDITOR_SETTINGS::FOOTPRINT_EDITOR_SETTINGS() :
@@ -150,93 +150,93 @@ FOOTPRINT_EDITOR_SETTINGS::FOOTPRINT_EDITOR_SETTINGS() :
 
     m_params.emplace_back( new PARAM_SCALED<int>( "design_settings.silk_line_width",
             &m_DesignSettings.m_LineThickness[ LAYER_CLASS_SILK ],
-            Millimeter2iu( DEFAULT_SILK_LINE_WIDTH ), Millimeter2iu( 0.01 ), Millimeter2iu( 100.0 ),
-            MM_PER_IU ) );
+            pcbIUScale.mmToIU( DEFAULT_SILK_LINE_WIDTH ), pcbIUScale.mmToIU( 0.01 ), pcbIUScale.mmToIU( 100.0 ),
+            pcbIUScale.MM_PER_IU ) );
 
     m_params.emplace_back( new PARAM_SCALED<int>( "design_settings.silk_text_size_h",
             &m_DesignSettings.m_TextSize[ LAYER_CLASS_SILK ].x,
-            Millimeter2iu( DEFAULT_SILK_TEXT_SIZE ), TEXTS_MIN_SIZE, TEXTS_MAX_SIZE, MM_PER_IU ) );
+            pcbIUScale.mmToIU( DEFAULT_SILK_TEXT_SIZE ), TEXTS_MIN_SIZE, TEXTS_MAX_SIZE, pcbIUScale.MM_PER_IU ) );
 
     m_params.emplace_back( new PARAM_SCALED<int>( "design_settings.silk_text_size_v",
             &m_DesignSettings.m_TextSize[ LAYER_CLASS_SILK ].y,
-            Millimeter2iu( DEFAULT_SILK_TEXT_SIZE ), TEXTS_MIN_SIZE, TEXTS_MAX_SIZE, MM_PER_IU ) );
+            pcbIUScale.mmToIU( DEFAULT_SILK_TEXT_SIZE ), TEXTS_MIN_SIZE, TEXTS_MAX_SIZE, pcbIUScale.MM_PER_IU ) );
 
     m_params.emplace_back( new PARAM_SCALED<int>( "design_settings.silk_text_thickness",
             &m_DesignSettings.m_TextThickness[ LAYER_CLASS_SILK ],
-            Millimeter2iu( DEFAULT_SILK_TEXT_WIDTH ), 1, TEXTS_MAX_WIDTH, MM_PER_IU ) );
+            pcbIUScale.mmToIU( DEFAULT_SILK_TEXT_WIDTH ), 1, TEXTS_MAX_WIDTH, pcbIUScale.MM_PER_IU ) );
 
     m_params.emplace_back( new PARAM<bool>( "design_settings.silk_text_italic",
             &m_DesignSettings.m_TextItalic[ LAYER_CLASS_SILK ], false ) );
 
     m_params.emplace_back( new PARAM_SCALED<int>( "design_settings.copper_line_width",
             &m_DesignSettings.m_LineThickness[ LAYER_CLASS_COPPER ],
-            Millimeter2iu( DEFAULT_COPPER_LINE_WIDTH ), Millimeter2iu( 0.01 ), Millimeter2iu( 5.0 ),
-            MM_PER_IU ) );
+            pcbIUScale.mmToIU( DEFAULT_COPPER_LINE_WIDTH ), pcbIUScale.mmToIU( 0.01 ), pcbIUScale.mmToIU( 5.0 ),
+            pcbIUScale.MM_PER_IU ) );
 
     m_params.emplace_back( new PARAM_SCALED<int>( "design_settings.copper_text_size_h",
             &m_DesignSettings.m_TextSize[ LAYER_CLASS_COPPER ].x,
-            Millimeter2iu( DEFAULT_COPPER_TEXT_SIZE ), TEXTS_MIN_SIZE, TEXTS_MAX_SIZE,
-            MM_PER_IU ) );
+            pcbIUScale.mmToIU( DEFAULT_COPPER_TEXT_SIZE ), TEXTS_MIN_SIZE, TEXTS_MAX_SIZE,
+            pcbIUScale.MM_PER_IU ) );
 
     m_params.emplace_back( new PARAM_SCALED<int>( "design_settings.copper_text_size_v",
             &m_DesignSettings.m_TextSize[ LAYER_CLASS_COPPER ].y,
-            Millimeter2iu( DEFAULT_COPPER_TEXT_SIZE ), TEXTS_MIN_SIZE, TEXTS_MAX_SIZE,
-            MM_PER_IU ) );
+            pcbIUScale.mmToIU( DEFAULT_COPPER_TEXT_SIZE ), TEXTS_MIN_SIZE, TEXTS_MAX_SIZE,
+            pcbIUScale.MM_PER_IU ) );
 
     m_params.emplace_back( new PARAM_SCALED<int>( "design_settings.copper_text_thickness",
             &m_DesignSettings.m_TextThickness[ LAYER_CLASS_COPPER ],
-            Millimeter2iu( DEFAULT_COPPER_TEXT_WIDTH ), Millimeter2iu( 0.01 ), Millimeter2iu( 5.0 ),
-            MM_PER_IU ) );
+            pcbIUScale.mmToIU( DEFAULT_COPPER_TEXT_WIDTH ), pcbIUScale.mmToIU( 0.01 ), pcbIUScale.mmToIU( 5.0 ),
+            pcbIUScale.MM_PER_IU ) );
 
     m_params.emplace_back( new PARAM<bool>( "design_settings.copper_text_italic",
             &m_DesignSettings.m_TextItalic[ LAYER_CLASS_COPPER ], false ) );
 
     m_params.emplace_back( new PARAM_SCALED<int>( "design_settings.edge_line_width",
             &m_DesignSettings.m_LineThickness[ LAYER_CLASS_EDGES ],
-            Millimeter2iu( DEFAULT_SILK_LINE_WIDTH ), Millimeter2iu( 0.01 ), Millimeter2iu( 5.0 ),
-            MM_PER_IU ) );
+            pcbIUScale.mmToIU( DEFAULT_EDGE_WIDTH ), pcbIUScale.mmToIU( 0.01 ), pcbIUScale.mmToIU( 5.0 ),
+            pcbIUScale.MM_PER_IU ) );
 
     m_params.emplace_back( new PARAM_SCALED<int>( "design_settings.courtyard_line_width",
             &m_DesignSettings.m_LineThickness[ LAYER_CLASS_COURTYARD ],
-            Millimeter2iu( DEFAULT_COURTYARD_WIDTH ), Millimeter2iu( 0.01 ), Millimeter2iu( 5.0 ),
-            MM_PER_IU ) );
+            pcbIUScale.mmToIU( DEFAULT_COURTYARD_WIDTH ), pcbIUScale.mmToIU( 0.01 ), pcbIUScale.mmToIU( 5.0 ),
+            pcbIUScale.MM_PER_IU ) );
 
     m_params.emplace_back( new PARAM_SCALED<int>( "design_settings.fab_line_width",
            &m_DesignSettings.m_LineThickness[ LAYER_CLASS_FAB ],
-           Millimeter2iu( DEFAULT_LINE_WIDTH ), Millimeter2iu( 0.01 ), Millimeter2iu( 5.0 ),
-           MM_PER_IU ) );
+           pcbIUScale.mmToIU( DEFAULT_LINE_WIDTH ), pcbIUScale.mmToIU( 0.01 ), pcbIUScale.mmToIU( 5.0 ),
+           pcbIUScale.MM_PER_IU ) );
 
     m_params.emplace_back( new PARAM_SCALED<int>( "design_settings.fab_text_size_h",
            &m_DesignSettings.m_TextSize[ LAYER_CLASS_FAB ].x,
-           Millimeter2iu( DEFAULT_TEXT_SIZE ), TEXTS_MIN_SIZE, TEXTS_MAX_SIZE, MM_PER_IU ) );
+           pcbIUScale.mmToIU( DEFAULT_TEXT_SIZE ), TEXTS_MIN_SIZE, TEXTS_MAX_SIZE, pcbIUScale.MM_PER_IU ) );
 
     m_params.emplace_back( new PARAM_SCALED<int>( "design_settings.fab_text_size_v",
            &m_DesignSettings.m_TextSize[ LAYER_CLASS_FAB ].y,
-           Millimeter2iu( DEFAULT_TEXT_SIZE ), TEXTS_MIN_SIZE, TEXTS_MAX_SIZE, MM_PER_IU ) );
+           pcbIUScale.mmToIU( DEFAULT_TEXT_SIZE ), TEXTS_MIN_SIZE, TEXTS_MAX_SIZE, pcbIUScale.MM_PER_IU ) );
 
     m_params.emplace_back( new PARAM_SCALED<int>( "design_settings.fab_text_thickness",
            &m_DesignSettings.m_TextThickness[ LAYER_CLASS_FAB ],
-           Millimeter2iu( DEFAULT_TEXT_WIDTH ), 1, TEXTS_MAX_WIDTH, MM_PER_IU ) );
+           pcbIUScale.mmToIU( DEFAULT_TEXT_WIDTH ), 1, TEXTS_MAX_WIDTH, pcbIUScale.MM_PER_IU ) );
 
     m_params.emplace_back( new PARAM<bool>( "design_settings.fab_text_italic",
             &m_DesignSettings.m_TextItalic[ LAYER_CLASS_FAB ], false ) );
 
     m_params.emplace_back( new PARAM_SCALED<int>( "design_settings.others_line_width",
            &m_DesignSettings.m_LineThickness[ LAYER_CLASS_OTHERS ],
-           Millimeter2iu( DEFAULT_SILK_LINE_WIDTH ), Millimeter2iu( 0.01 ), Millimeter2iu( 5.0 ),
-           MM_PER_IU ) );
+           pcbIUScale.mmToIU( DEFAULT_LINE_WIDTH ), pcbIUScale.mmToIU( 0.01 ), pcbIUScale.mmToIU( 5.0 ),
+           pcbIUScale.MM_PER_IU ) );
 
     m_params.emplace_back( new PARAM_SCALED<int>( "design_settings.others_text_size_h",
            &m_DesignSettings.m_TextSize[ LAYER_CLASS_OTHERS ].x,
-           Millimeter2iu( DEFAULT_TEXT_SIZE ), TEXTS_MIN_SIZE, TEXTS_MAX_SIZE, MM_PER_IU ) );
+           pcbIUScale.mmToIU( DEFAULT_TEXT_SIZE ), TEXTS_MIN_SIZE, TEXTS_MAX_SIZE, pcbIUScale.MM_PER_IU ) );
 
     m_params.emplace_back( new PARAM_SCALED<int>( "design_settings.others_text_size_v",
            &m_DesignSettings.m_TextSize[ LAYER_CLASS_OTHERS ].y,
-           Millimeter2iu( DEFAULT_TEXT_SIZE ), TEXTS_MIN_SIZE, TEXTS_MAX_SIZE, MM_PER_IU ) );
+           pcbIUScale.mmToIU( DEFAULT_TEXT_SIZE ), TEXTS_MIN_SIZE, TEXTS_MAX_SIZE, pcbIUScale.MM_PER_IU ) );
 
     m_params.emplace_back( new PARAM_SCALED<int>( "design_settings.others_text_thickness",
            &m_DesignSettings.m_TextThickness[ LAYER_CLASS_OTHERS ],
-           Millimeter2iu( DEFAULT_TEXT_WIDTH ), 1, TEXTS_MAX_WIDTH, MM_PER_IU ) );
+           pcbIUScale.mmToIU( DEFAULT_TEXT_WIDTH ), 1, TEXTS_MAX_WIDTH, pcbIUScale.MM_PER_IU ) );
 
     m_params.emplace_back( new PARAM<bool>( "design_settings.others_text_italic",
             &m_DesignSettings.m_TextItalic[ LAYER_CLASS_OTHERS ], false ) );
@@ -292,6 +292,13 @@ FOOTPRINT_EDITOR_SETTINGS::FOOTPRINT_EDITOR_SETTINGS() :
             } ) );
 
     registerMigration( 0, 1, std::bind( &FOOTPRINT_EDITOR_SETTINGS::migrateSchema0to1, this ) );
+
+    registerMigration( 1, 2,
+                       [&]() -> bool
+                       {
+                           // This is actually a migration for APP_SETTINGS_BASE::m_LibTree
+                           return migrateLibTreeWidth();
+                       } );
 }
 
 
@@ -375,7 +382,6 @@ bool FOOTPRINT_EDITOR_SETTINGS::MigrateFromLegacy( wxConfigBase* aCfg )
     migrateLegacyColor( f + "Color4DAnchorEx",           LAYER_ANCHOR );
     migrateLegacyColor( f + "Color4DAuxItems",           LAYER_AUX_ITEMS );
     migrateLegacyColor( f + "Color4DGrid",               LAYER_GRID );
-    migrateLegacyColor( f + "Color4DNoNetPadMarker",     LAYER_NO_CONNECTS );
     migrateLegacyColor( f + "Color4DNonPlatedEx",        LAYER_NON_PLATEDHOLES );
     migrateLegacyColor( f + "Color4DPadThruHoleEx",      LAYER_PADS_TH );
     migrateLegacyColor( f + "Color4DPCBBackground",      LAYER_PCB_BACKGROUND );
@@ -397,14 +403,14 @@ bool FOOTPRINT_EDITOR_SETTINGS::MigrateFromLegacy( wxConfigBase* aCfg )
     if( aCfg->Read( f + "PcbUserGrid_X", &x ) && aCfg->Read( f + "PcbUserGrid_Y", &y ) )
     {
         EDA_UNITS u = static_cast<EDA_UNITS>( aCfg->ReadLong( f + "PcbUserGrid_Unit",
-                static_cast<long>( EDA_UNITS::INCHES ) ) );
+                                                              static_cast<long>( EDA_UNITS::INCHES ) ) );
 
         // Convert to internal units
-        x = From_User_Unit( u, x );
-        y = From_User_Unit( u, y );
+        x = EDA_UNIT_UTILS::UI::FromUserUnit( pcbIUScale, u, x );
+        y = EDA_UNIT_UTILS::UI::FromUserUnit( pcbIUScale, u, y );
 
-        Set( "window.grid.user_grid_x", StringFromValue( u, x ) );
-        Set( "window.grid.user_grid_y", StringFromValue( u, y ) );
+        Set( "window.grid.user_grid_x", EDA_UNIT_UTILS::UI::StringFromValue( pcbIUScale, u, x ) );
+        Set( "window.grid.user_grid_y", EDA_UNIT_UTILS::UI::StringFromValue( pcbIUScale, u, y ) );
     }
 
     return ret;
@@ -429,7 +435,7 @@ bool FOOTPRINT_EDITOR_SETTINGS::migrateSchema0to1()
 
     std::string theme_ptr( "appearance.color_theme" );
 
-    if( !Count( theme_ptr ) )
+    if( !Contains( theme_ptr ) )
         return true;
 
     wxString selected = At( theme_ptr ).get<wxString>();

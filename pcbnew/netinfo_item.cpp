@@ -33,6 +33,7 @@
 #include <base_units.h>
 #include <board.h>
 #include <board_design_settings.h>
+#include <connectivity/connectivity_data.h>
 #include <footprint.h>
 #include <pcb_track.h>
 #include <pad.h>
@@ -48,7 +49,7 @@ NETINFO_ITEM::NETINFO_ITEM( BOARD* aParent, const wxString& aNetName, int aNetCo
     m_parent = aParent;
 
     if( aParent )
-        m_netClass = aParent->GetDesignSettings().GetNetClasses().GetDefault();
+        m_netClass = aParent->GetDesignSettings().m_NetSettings->m_DefaultNetClass;
     else
         m_netClass = std::make_shared<NETCLASS>( wxT( "<invalid>" ) );
 }
@@ -60,10 +61,20 @@ NETINFO_ITEM::~NETINFO_ITEM()
 }
 
 
-void NETINFO_ITEM::SetNetClass( const NETCLASSPTR& aNetClass )
+void NETINFO_ITEM::Clear()
+{
+    m_netClass = m_parent->GetDesignSettings().m_NetSettings->m_DefaultNetClass;
+}
+
+
+void NETINFO_ITEM::SetNetClass( const std::shared_ptr<NETCLASS>& aNetClass )
 {
     wxCHECK( m_parent, /* void */ );
-    m_netClass = aNetClass ? aNetClass : m_parent->GetDesignSettings().GetNetClasses().GetDefault();
+
+    if( aNetClass )
+        m_netClass = aNetClass;
+    else
+        m_netClass = m_parent->GetDesignSettings().m_NetSettings->m_DefaultNetClass;
 }
 
 
@@ -117,16 +128,35 @@ void NETINFO_ITEM::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANE
             std::tie( count, lengthNet, lengthPadToDie ) = board->GetTrackLength( *startTrack );
 
             // Displays the full net length (tracks on pcb + internal ICs connections ):
-            msg = MessageTextFromValue( aFrame->GetUserUnits(), lengthNet + lengthPadToDie );
-            aList.emplace_back( _( "Net Length" ), msg );
+            aList.emplace_back( _( "Net Length" ),
+                                aFrame->MessageTextFromValue( lengthNet + lengthPadToDie ) );
 
             // Displays the net length of tracks only:
-            msg = MessageTextFromValue( aFrame->GetUserUnits(), lengthNet );
-            aList.emplace_back( _( "On Board" ), msg );
+            aList.emplace_back( _( "On Board" ), aFrame->MessageTextFromValue( lengthNet ) );
 
             // Displays the net length of internal ICs connections (wires inside ICs):
-            msg = MessageTextFromValue( aFrame->GetUserUnits(), lengthPadToDie );
-            aList.emplace_back( _( "In Package" ), msg );
+            aList.emplace_back( _( "In Package" ), aFrame->MessageTextFromValue( lengthPadToDie ) );
         }
     }
+}
+
+
+bool NETINFO_ITEM::Matches( const EDA_SEARCH_DATA& aSearchData, void* aAuxData ) const
+{
+    return BOARD_ITEM::Matches( GetNetname(), aSearchData );
+}
+
+
+const BOX2I NETINFO_ITEM::GetBoundingBox() const
+{
+    std::shared_ptr<CONNECTIVITY_DATA> conn = GetBoard()->GetConnectivity();
+    BOX2I                              bbox;
+
+    for( BOARD_ITEM* item : conn->GetNetItems( m_netCode, { PCB_TRACE_T, PCB_ARC_T, PCB_VIA_T,
+                                                            PCB_ZONE_T, PCB_PAD_T } ) )
+    {
+        bbox.Merge( item->GetBoundingBox() );
+    }
+
+    return bbox;
 }

@@ -2,7 +2,7 @@
  * KiRouter - a push-and-(sometimes-)shove PCB router
  *
  * Copyright (C) 2013-2017 CERN
- * Copyright (C) 2017-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2017-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * @author Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  *
@@ -24,6 +24,10 @@
 #include <advanced_config.h>
 
 #include <functional>
+#include <iomanip>
+#include <utility>
+#include <sstream>
+
 using namespace std::placeholders;
 #include <board.h>
 #include <board_design_settings.h>
@@ -43,20 +47,33 @@ using namespace std::placeholders;
 #include <connectivity/connectivity_algo.h>
 #include <confirm.h>
 #include <bitmaps.h>
+#include <string_utils.h>
+#include <painter.h>
 #include <tool/action_menu.h>
 #include <tool/tool_manager.h>
 #include <tool/tool_menu.h>
 #include <tools/pcb_actions.h>
 #include <tools/pcb_selection_tool.h>
 #include <tools/pcb_grid_helper.h>
+#include <tools/drc_tool.h>
+#include <tools/zone_filler_tool.h>
+#include <drc/drc_interactive_courtyard_clearance.h>
+
+#include <project.h>
+#include <project/project_file.h>
 
 #include "router_tool.h"
 #include "pns_segment.h"
 #include "pns_router.h"
 #include "pns_itemset.h"
 #include "pns_logger.h"
+#include "pns_placement_algo.h"
+#include "pns_line_placer.h"
+#include "pns_topology.h"
 
 #include "pns_kicad_iface.h"
+
+#include <ratsnest/ratsnest_data.h>
 
 #include <plugins/kicad/pcb_plugin.h>
 
@@ -90,11 +107,6 @@ static const TOOL_ACTION ACT_EndTrack( "pcbnew.InteractiveRouter.EndTrack",
         WXK_END, "",
         _( "Finish Track" ),  _( "Stops laying the current track." ),
         BITMAPS::checked_ok );
-
-static const TOOL_ACTION ACT_AutoEndRoute( "pcbnew.InteractiveRouter.AutoEndRoute",
-        AS_CONTEXT,
-        'F', "",
-        _( "Auto-finish Track" ),  _( "Automatically finishes laying the current track." ) );
 
 static const TOOL_ACTION ACT_PlaceThroughVia( "pcbnew.InteractiveRouter.PlaceVia",
         AS_CONTEXT,
@@ -170,7 +182,9 @@ static const TOOL_ACTION ACT_SwitchCornerMode( "pcbnew.InteractiveRouter.SwitchR
 
 ROUTER_TOOL::ROUTER_TOOL() :
         TOOL_BASE( "pcbnew.InteractiveRouter" ),
-        m_lastTargetLayer( UNDEFINED_LAYER )
+        m_lastTargetLayer( UNDEFINED_LAYER ),
+        m_originalActiveLayer( UNDEFINED_LAYER ),
+        m_inRouterTool( false )
 {
 }
 
@@ -194,7 +208,6 @@ protected:
 
     void update() override
     {
-        EDA_UNITS              units = m_frame.GetUserUnits();
         BOARD_DESIGN_SETTINGS& bds = m_frame.GetBoard()->GetDesignSettings();
         bool                   useIndex = !bds.m_UseConnectedTrackWidth &&
                                           !bds.UseCustomTrackViaSize();
@@ -226,7 +239,7 @@ protected:
             if( i == 0 )
                 msg = _( "Track netclass width" );
             else
-                msg.Printf( _( "Track %s" ), MessageTextFromValue( units, width ) );
+                msg.Printf( _( "Track %s" ), m_frame.MessageTextFromValue( width ) );
 
             int menuIdx = ID_POPUP_PCB_SELECT_WIDTH1 + i;
             Append( menuIdx, msg, wxEmptyString, wxITEM_CHECK );
@@ -244,11 +257,16 @@ protected:
             else
             {
                 if( via.m_Drill > 0 )
-                    msg.Printf( _("Via %s, drill %s" ),
-                                MessageTextFromValue( units, via.m_Diameter ),
-                                MessageTextFromValue( units, via.m_Drill ) );
+                {
+                    msg.Printf( _("Via %s, hole %s" ),
+                                m_frame.MessageTextFromValue( via.m_Diameter ),
+                                m_frame.MessageTextFromValue( via.m_Drill ) );
+                }
                 else
-                    msg.Printf( _( "Via %s" ), MessageTextFromValue( units, via.m_Diameter ) );
+                {
+                    msg.Printf( _( "Via %s" ),
+                                m_frame.MessageTextFromValue( via.m_Diameter ) );
+                }
             }
 
             int menuIdx = ID_POPUP_PCB_SELECT_VIASIZE1 + i;
@@ -323,7 +341,6 @@ protected:
 
     void update() override
     {
-        EDA_UNITS                    units = m_frame.GetUserUnits();
         const BOARD_DESIGN_SETTINGS& bds = m_frame.GetBoard()->GetDesignSettings();
 
         Clear();
@@ -352,13 +369,13 @@ protected:
                 if( diffPair.m_ViaGap <= 0 )
                 {
                     msg.Printf( _( "Width %s" ),
-                                    MessageTextFromValue( units, diffPair.m_Width ) );
+                                m_frame.MessageTextFromValue( diffPair.m_Width ) );
                 }
                 else
                 {
                     msg.Printf( _( "Width %s, via gap %s" ),
-                                    MessageTextFromValue( units, diffPair.m_Width ),
-                                    MessageTextFromValue( units, diffPair.m_ViaGap ) );
+                                m_frame.MessageTextFromValue( diffPair.m_Width ),
+                                m_frame.MessageTextFromValue( diffPair.m_ViaGap ) );
                 }
             }
             else
@@ -366,15 +383,15 @@ protected:
                 if( diffPair.m_ViaGap <= 0 )
                 {
                     msg.Printf( _( "Width %s, gap %s" ),
-                                    MessageTextFromValue( units, diffPair.m_Width ),
-                                    MessageTextFromValue( units, diffPair.m_Gap ) );
+                                m_frame.MessageTextFromValue( diffPair.m_Width ),
+                                m_frame.MessageTextFromValue( diffPair.m_Gap ) );
                 }
                 else
                 {
                     msg.Printf( _( "Width %s, gap %s, via gap %s" ),
-                                    MessageTextFromValue( units, diffPair.m_Width ),
-                                    MessageTextFromValue( units, diffPair.m_Gap ),
-                                    MessageTextFromValue( units, diffPair.m_ViaGap ) );
+                                m_frame.MessageTextFromValue( diffPair.m_Width ),
+                                m_frame.MessageTextFromValue( diffPair.m_Gap ),
+                                m_frame.MessageTextFromValue( diffPair.m_ViaGap ) );
                 }
             }
 
@@ -425,7 +442,8 @@ ROUTER_TOOL::~ROUTER_TOOL()
 
 bool ROUTER_TOOL::Init()
 {
-    m_lastTargetLayer = UNDEFINED_LAYER;
+    m_lastTargetLayer     = UNDEFINED_LAYER;
+    m_originalActiveLayer = UNDEFINED_LAYER;
 
     PCB_EDIT_FRAME* frame = getEditFrame<PCB_EDIT_FRAME>();
 
@@ -436,11 +454,19 @@ bool ROUTER_TOOL::Init()
 
     m_trackViaMenu = std::make_shared<TRACK_WIDTH_MENU>( *frame );
     m_trackViaMenu->SetTool( this );
-    m_menu.AddSubMenu( m_trackViaMenu );
+    m_menu.RegisterSubMenu( m_trackViaMenu );
 
     m_diffPairMenu = std::make_shared<DIFF_PAIR_MENU>( *frame );
     m_diffPairMenu->SetTool( this );
-    m_menu.AddSubMenu( m_diffPairMenu );
+    m_menu.RegisterSubMenu( m_diffPairMenu );
+
+    auto haveHighlight =
+            [&]( const SELECTION& sel )
+            {
+                KIGFX::RENDER_SETTINGS* cfg = m_toolMgr->GetView()->GetPainter()->GetSettings();
+
+                return !cfg->GetHighlightNetCodes().empty();
+            };
 
     auto notRoutingCond =
             [this]( const SELECTION& )
@@ -448,20 +474,36 @@ bool ROUTER_TOOL::Init()
                 return !m_router->RoutingInProgress();
             };
 
-    menu.AddItem( ACTIONS::cancelInteractive,        SELECTION_CONDITIONS::ShowAlways );
+    auto hasOtherEnd =
+            [&]( const SELECTION& )
+            {
+                std::vector<int> currentNets = m_router->GetCurrentNets();
 
-    menu.AddSeparator();
+                // Need to have something unconnected to finish to
+                int     currentNet = currentNets.empty() ? -1 : currentNets[0];
+                BOARD*  board = getEditFrame<PCB_EDIT_FRAME>()->GetBoard();
+                RN_NET* ratsnest = board->GetConnectivity()->GetRatsnestForNet( currentNet );
+
+                return ratsnest && !ratsnest->GetEdges().empty();
+            };
+
+    menu.AddItem( ACTIONS::cancelInteractive,         SELECTION_CONDITIONS::ShowAlways, 1 );
+    menu.AddSeparator( 1 );
+
+    menu.AddItem( PCB_ACTIONS::clearHighlight,        haveHighlight, 2 );
+    menu.AddSeparator(                                haveHighlight, 2 );
 
     menu.AddItem( PCB_ACTIONS::routeSingleTrack,      notRoutingCond );
     menu.AddItem( PCB_ACTIONS::routeDiffPair,         notRoutingCond );
     menu.AddItem( ACT_EndTrack,                       SELECTION_CONDITIONS::ShowAlways );
     menu.AddItem( PCB_ACTIONS::routerUndoLastSegment, SELECTION_CONDITIONS::ShowAlways );
+    menu.AddItem( PCB_ACTIONS::routerContinueFromEnd, hasOtherEnd );
+    menu.AddItem( PCB_ACTIONS::routerAttemptFinish,   hasOtherEnd );
     menu.AddItem( PCB_ACTIONS::breakTrack,            notRoutingCond );
 
     menu.AddItem( PCB_ACTIONS::drag45Degree,          notRoutingCond );
     menu.AddItem( PCB_ACTIONS::dragFreeAngle,         notRoutingCond );
 
-//        Add( ACT_AutoEndRoute );  // fixme: not implemented yet. Sorry.
     menu.AddItem( ACT_PlaceThroughVia,                SELECTION_CONDITIONS::ShowAlways );
     menu.AddItem( ACT_PlaceBlindVia,                  SELECTION_CONDITIONS::ShowAlways );
     menu.AddItem( ACT_PlaceMicroVia,                  SELECTION_CONDITIONS::ShowAlways );
@@ -512,11 +554,17 @@ void ROUTER_TOOL::saveRouterDebugLog()
 
     wxString cwd = wxGetCwd();
 
-    wxFileName fname_log( cwd );
+    wxFileName fname_log;
+    fname_log.SetPath( cwd );
     fname_log.SetName( "pns.log" );
 
     wxFileName fname_dump( cwd );
+    fname_dump.SetPath( cwd );
     fname_dump.SetName( "pns.dump" );
+
+    wxFileName fname_settings( cwd );
+    fname_settings.SetPath( cwd );
+    fname_settings.SetName( "pns.settings" );
 
     wxString msg = wxString::Format( _( "Event file: %s\nBoard dump: %s" ), fname_log.GetFullPath(), fname_log.GetFullPath() );
 
@@ -525,25 +573,29 @@ void ROUTER_TOOL::saveRouterDebugLog()
     if( !rv )
         return;
 
-    FILE *f = fopen( fname_log.GetFullPath().c_str(), "wb" );
+    FILE *f = fopen( fname_settings.GetFullPath().c_str(), "wb" );
+    std::string settingsStr = m_router->Settings().FormatAsString();
+    fprintf(f,"%s\n", settingsStr.c_str( ) );
+    fclose(f);
 
-    // save base router configuration (mode, etc.)
-    fprintf(f, "config %d %d %d %d\n",
-        m_router->Settings().Mode(),
-        m_router->Settings().RemoveLoops() ? 1 : 0,
-        m_router->Settings().GetFixAllSegments() ? 1 : 0,
-        static_cast<int>( m_router->Settings().GetCornerMode() )
-     );
+    f = fopen( fname_log.GetFullPath().c_str(), "wb" );
+
+    fprintf(f, "mode %d\n", m_router->Mode() );
 
     const auto& events = logger->GetEvents();
 
-    for( auto evt : events)
+    for( const auto& evt : events)
     {
-        fprintf( f, "event %d %d %d %s\n", evt.p.x, evt.p.y, evt.type,
-                 static_cast<const char*>( evt.uuid.AsString().c_str() ) );
+        fprintf( f, "event %d %d %d %s %d %d %d %d %d %d %d\n", evt.p.x, evt.p.y, evt.type,
+                 static_cast<const char*>( evt.uuid.AsString().c_str() ),
+                 evt.sizes.TrackWidth(),
+                 evt.sizes.ViaDiameter(),
+                 evt.sizes.ViaDrill(),
+                 evt.sizes.TrackWidthIsExplicit() ? 1: 0,
+                 evt.sizes.GetLayerBottom(),
+                 evt.sizes.GetLayerTop(),
+                 evt.sizes.ViaType() );
     }
-
-    fclose( f );
 
     // Export as *.kicad_pcb format, using a strategy which is specifically chosen
     // as an example on how it could also be used to send it to the system clipboard.
@@ -551,6 +603,29 @@ void ROUTER_TOOL::saveRouterDebugLog()
     PCB_PLUGIN  pcb_io;
 
     pcb_io.Save( fname_dump.GetFullPath(), m_iface->GetBoard(), nullptr );
+
+    PROJECT* prj = m_iface->GetBoard()->GetProject();
+    prj->GetProjectFile().SaveAs( cwd, "pns" );
+
+    std::vector<PNS::ITEM*> added, removed;
+
+    if( !m_router->GetUpdatedItems( removed, added ) )
+    {
+        fclose( f );
+        return;
+    }
+
+    for( auto item : removed )
+    {
+        fprintf(f, "removed %s\n", item->Parent()->m_Uuid.AsString().c_str().AsChar() );
+    }
+
+    for( auto item : added )
+    {
+        fprintf(f, "added %s\n", item->Format().c_str() );
+    }
+
+    fclose( f );
 }
 
 
@@ -567,14 +642,15 @@ void ROUTER_TOOL::handleCommonEvents( TOOL_EVENT& aEvent )
 
     switch( aEvent.KeyCode() )
     {
-        case '0':
+    case '0':
         if( !ADVANCED_CFG::GetCfg().m_ShowRouterDebugGraphics )
             return;
 
         saveRouterDebugLog();
         aEvent.SetPassEvent( false );
         break;
-        default:
+
+    default:
         break;
     }
 }
@@ -600,21 +676,88 @@ int ROUTER_TOOL::getStartLayer( const PNS::ITEM* aItem )
 
 void ROUTER_TOOL::switchLayerOnViaPlacement()
 {
-    int al = frame()->GetActiveLayer();
-    int cl = m_router->GetCurrentLayer();
+    int activeLayer = frame()->GetActiveLayer();
+    int currentLayer = m_router->GetCurrentLayer();
 
-    if( cl != al )
-    {
-        m_router->SwitchLayer( al );
-    }
+    if( currentLayer != activeLayer )
+        m_router->SwitchLayer( activeLayer );
 
-    OPT<int> newLayer = m_router->Sizes().PairedLayer( cl );
+    std::optional<int> newLayer = m_router->Sizes().PairedLayer( currentLayer );
 
     if( !newLayer )
         newLayer = m_router->Sizes().GetLayerTop();
 
     m_router->SwitchLayer( *newLayer );
     m_lastTargetLayer = *newLayer;
+
+    updateSizesAfterLayerSwitch( ToLAYER_ID( *newLayer ) );
+}
+
+
+void ROUTER_TOOL::updateSizesAfterLayerSwitch( PCB_LAYER_ID targetLayer )
+{
+    std::vector<int> nets = m_router->GetCurrentNets();
+
+    PNS::SIZES_SETTINGS          sizes     = m_router->Sizes();
+    BOARD_DESIGN_SETTINGS&       bds       = board()->GetDesignSettings();
+    std::shared_ptr<DRC_ENGINE>& drcEngine = bds.m_DRCEngine;
+    DRC_CONSTRAINT               constraint;
+
+    PCB_TRACK dummyTrack( board() );
+    dummyTrack.SetLayer( targetLayer );
+    dummyTrack.SetNetCode( nets.empty() ? 0 : nets[0] );
+
+    if( bds.UseNetClassTrack() || !sizes.TrackWidthIsExplicit() )
+    {
+        constraint = drcEngine->EvalRules( TRACK_WIDTH_CONSTRAINT, &dummyTrack, nullptr,
+                                           targetLayer );
+
+        if( !constraint.IsNull() )
+        {
+            sizes.SetTrackWidth( std::max( bds.m_TrackMinWidth, constraint.m_Value.Opt() ) );
+
+            if( sizes.TrackWidth() == constraint.m_Value.Opt() )
+                sizes.SetWidthSource( constraint.GetName() );
+            else
+                sizes.SetWidthSource( _( "board minimum track width" ) );
+        }
+    }
+
+    if( nets.size() >= 2 && ( bds.UseNetClassDiffPair() || !sizes.TrackWidthIsExplicit() ) )
+    {
+        PCB_TRACK dummyTrackB( board() );
+        dummyTrackB.SetLayer( targetLayer );
+        dummyTrackB.SetNetCode( nets[1] );
+
+        constraint = drcEngine->EvalRules( TRACK_WIDTH_CONSTRAINT, &dummyTrack, &dummyTrackB,
+                                           targetLayer );
+
+        if( !constraint.IsNull() )
+        {
+            sizes.SetDiffPairWidth( std::max( bds.m_TrackMinWidth, constraint.m_Value.Opt() ) );
+
+            if( sizes.DiffPairWidth() == constraint.m_Value.Opt() )
+                sizes.SetDiffPairWidthSource( constraint.GetName() );
+            else
+                sizes.SetDiffPairWidthSource( _( "board minimum track width" ) );
+        }
+
+        constraint = drcEngine->EvalRules( DIFF_PAIR_GAP_CONSTRAINT, &dummyTrack, &dummyTrackB,
+                                           targetLayer );
+
+        if( !constraint.IsNull() )
+        {
+            sizes.SetDiffPairGap( std::max( bds.m_MinClearance, constraint.m_Value.Opt() ) );
+
+            if( sizes.DiffPairGap() == constraint.m_Value.Opt() )
+                sizes.SetDiffPairGapSource( constraint.GetName() );
+            else
+                sizes.SetDiffPairGapSource( _( "board minimum clearance" ) );
+        }
+    }
+
+    m_router->UpdateSizes( sizes );
+    frame()->UpdateMsgPanel();
 }
 
 
@@ -714,7 +857,19 @@ int ROUTER_TOOL::onLayerCommand( const TOOL_EVENT& aEvent )
 
 int ROUTER_TOOL::onViaCommand( const TOOL_EVENT& aEvent )
 {
-    return handleLayerSwitch( aEvent, true );
+    if( !m_router->IsPlacingVia() )
+    {
+        return handleLayerSwitch( aEvent, true );
+    }
+    else
+    {
+        m_router->ToggleViaPlacement();
+        frame()->SetActiveLayer( static_cast<PCB_LAYER_ID>( m_router->GetCurrentLayer() ) );
+        updateEndItem( aEvent );
+        m_router->Move( m_endSnapPoint, m_endItem );
+    }
+
+    return 0;
 }
 
 
@@ -782,6 +937,7 @@ int ROUTER_TOOL::handleLayerSwitch( const TOOL_EVENT& aEvent, bool aForceVia )
 
         if( !aForceVia && m_router && m_router->SwitchLayer( targetLayer ) )
         {
+            updateSizesAfterLayerSwitch( targetLayer );
             updateEndItem( aEvent );
             m_router->Move( m_endSnapPoint, m_endItem );        // refresh
             return 0;
@@ -817,9 +973,7 @@ int ROUTER_TOOL::handleLayerSwitch( const TOOL_EVENT& aEvent, bool aForceVia )
             LSET not_allowed_ly = LSET::AllNonCuMask();
 
             if( viaType != VIATYPE::THROUGH )
-            {
                 not_allowed_ly.set( currentLayer );
-            }
 
             if( viaType == VIATYPE::MICROVIA )
             {
@@ -859,53 +1013,6 @@ int ROUTER_TOOL::handleLayerSwitch( const TOOL_EVENT& aEvent, bool aForceVia )
 
     // fixme: P&S supports more than one fixed layer pair. Update the dialog?
     sizes.ClearLayerPairs();
-
-    if( !m_router->IsPlacingVia() )
-    {
-        // Cannot place microvias or blind vias if not allowed (obvious)
-        if( ( viaType == VIATYPE::BLIND_BURIED ) && ( !bds.m_BlindBuriedViaAllowed ) )
-        {
-            WX_INFOBAR* infobar = frame()->GetInfoBar();
-            wxHyperlinkCtrl* button = new wxHyperlinkCtrl( infobar, wxID_ANY,
-                                                           _( "Show board setup" ),
-                                                           wxEmptyString );
-
-            button->Bind( wxEVT_COMMAND_HYPERLINK, std::function<void( wxHyperlinkEvent& aEvent )>(
-                    [&]( wxHyperlinkEvent& aEvent )
-                    {
-                        getEditFrame<PCB_EDIT_FRAME>()->ShowBoardSetupDialog( _( "Constraints" ) );
-                    } ) );
-
-            infobar->RemoveAllButtons();
-            infobar->AddButton( button );
-
-            infobar->ShowMessageFor( _( "Blind/buried vias must first be enabled in "
-                                        "Board Setup > Design Rules > Constraints." ),
-                                     10000, wxICON_ERROR, WX_INFOBAR::MESSAGE_TYPE::DRC_VIOLATION );
-            return false;
-        }
-
-        if( ( viaType == VIATYPE::MICROVIA ) && ( !bds.m_MicroViasAllowed ) )
-        {
-            WX_INFOBAR* infobar = frame()->GetInfoBar();
-            wxHyperlinkCtrl* button = new wxHyperlinkCtrl( infobar, wxID_ANY,
-                                                           _( "Show board setup" ), wxEmptyString );
-
-            button->Bind( wxEVT_COMMAND_HYPERLINK, std::function<void( wxHyperlinkEvent& aEvent )>(
-                    [&]( wxHyperlinkEvent& aEvent )
-                    {
-                        getEditFrame<PCB_EDIT_FRAME>()->ShowBoardSetupDialog( _( "Constraints" ) );
-                    } ) );
-
-            infobar->RemoveAllButtons();
-            infobar->AddButton( button );
-
-            infobar->ShowMessageFor( _( "Microvias must first be enabled in "
-                                        "Board Setup > Design Rules > Constraints." ),
-                                     10000, wxICON_ERROR, WX_INFOBAR::MESSAGE_TYPE::DRC_VIOLATION );
-            return false;
-        }
-    }
 
     // Convert blind/buried via to a through hole one, if it goes through all layers
     if( viaType == VIATYPE::BLIND_BURIED
@@ -963,6 +1070,7 @@ int ROUTER_TOOL::handleLayerSwitch( const TOOL_EVENT& aEvent, bool aForceVia )
                 // but at this point we do not know what the user want.
                targetLayer = PCB_LAYER_ID( currentLayer + 1 );
             }
+
             break;
 
         case VIATYPE::BLIND_BURIED:
@@ -1066,6 +1174,7 @@ bool ROUTER_TOOL::prepareInteractive()
         return false;
     }
 
+    m_originalActiveLayer = editFrame->GetActiveLayer();
     editFrame->SetActiveLayer( ToLAYER_ID( routingLayer ) );
 
     if( !getView()->IsLayerVisible( routingLayer ) )
@@ -1111,7 +1220,7 @@ bool ROUTER_TOOL::prepareInteractive()
     m_endItem = nullptr;
     m_endSnapPoint = m_startSnapPoint;
 
-    updateMessagePanel();
+    UpdateMessagePanel();
     frame()->UndoRedoBlock( true );
 
     return true;
@@ -1125,7 +1234,8 @@ bool ROUTER_TOOL::finishInteractive()
     m_startItem = nullptr;
     m_endItem   = nullptr;
 
-    updateMessagePanel();
+    frame()->SetActiveLayer( m_originalActiveLayer );
+    UpdateMessagePanel();
     frame()->GetCanvas()->SetCurrentCursor( KICURSOR::ARROW );
     controls()->SetAutoPan( false );
     controls()->ForceCursorPosition( false );
@@ -1147,6 +1257,21 @@ void ROUTER_TOOL::performRouting()
             [&]()
             {
                 frame()->GetCanvas()->SetCurrentCursor( KICURSOR::PENCIL );
+            };
+
+    auto syncRouterAndFrameLayer =
+            [&]()
+            {
+                PCB_LAYER_ID    routingLayer = ToLAYER_ID( m_router->GetCurrentLayer() );
+                PCB_EDIT_FRAME* editFrame = getEditFrame<PCB_EDIT_FRAME>();
+
+                editFrame->SetActiveLayer( routingLayer );
+
+                if( !getView()->IsLayerVisible( routingLayer ) )
+                {
+                    editFrame->GetAppearancePanel()->SetLayerVisible( routingLayer, true );
+                    editFrame->GetCanvas()->Refresh();
+                }
             };
 
     // Set initial cursor
@@ -1178,31 +1303,64 @@ void ROUTER_TOOL::performRouting()
             updateEndItem( *evt );
             m_router->Move( m_endSnapPoint, m_endItem );
         }
-        else if( evt->IsClick( BUT_LEFT ) || evt->IsAction( &PCB_ACTIONS::routeSingleTrack ) )
+        else if( evt->IsAction( &PCB_ACTIONS::routerAttemptFinish ) )
+        {
+            bool* autoRouted = evt->Parameter<bool*>();
+
+            if( m_router->Finish() )
+            {
+                // When we're routing a group of signals automatically we want
+                // to break up the undo stack every time we have to manually route
+                // so the user gets nice checkpoints. Remove the APPEND_UNDO flag.
+                if( autoRouted != nullptr )
+                    *autoRouted = true;
+
+                break;
+            }
+            else
+            {
+                // This acts as check if we were called by the autorouter; we don't want
+                // to reset APPEND_UNDO if we're auto finishing after route-other-end
+                if( autoRouted != nullptr )
+                {
+                    *autoRouted = false;
+                    m_iface->SetCommitFlags( 0 );
+                }
+
+                // Warp the mouse so the user is at the point we managed to route to
+                controls()->WarpMouseCursor( m_router->Placer()->CurrentEnd(), true, true );
+            }
+        }
+        else if( evt->IsAction( &PCB_ACTIONS::routerContinueFromEnd ) )
+        {
+            bool needsAppend = m_router->Placer()->HasPlacedAnything();
+
+            if( m_router->ContinueFromEnd() )
+            {
+                syncRouterAndFrameLayer();
+                m_startSnapPoint = m_router->Placer()->CurrentStart();
+
+                // Warp the mouse to wherever we actually ended up routing to
+                controls()->WarpMouseCursor( m_router->Placer()->CurrentEnd(), true, true );
+
+                // We want the next router commit to be one undo at the UI layer
+                m_iface->SetCommitFlags( needsAppend ? APPEND_UNDO : 0 );
+            }
+        }
+        else if( evt->IsClick( BUT_LEFT ) || evt->IsDrag( BUT_LEFT ) || evt->IsAction( &PCB_ACTIONS::routeSingleTrack ) )
         {
             updateEndItem( *evt );
             bool needLayerSwitch = m_router->IsPlacingVia();
             bool forceFinish = evt->Modifier( MD_SHIFT );
 
             if( m_router->FixRoute( m_endSnapPoint, m_endItem, forceFinish ) )
-            {
                 break;
-            }
 
             if( needLayerSwitch )
                 switchLayerOnViaPlacement();
 
             // Synchronize the indicated layer
-            PCB_LAYER_ID    routingLayer = ToLAYER_ID( m_router->GetCurrentLayer() );
-            PCB_EDIT_FRAME* editFrame = getEditFrame<PCB_EDIT_FRAME>();
-
-            editFrame->SetActiveLayer( routingLayer );
-
-            if( !getView()->IsLayerVisible( routingLayer ) )
-            {
-                editFrame->GetAppearancePanel()->SetLayerVisible( routingLayer, true );
-                editFrame->GetCanvas()->Refresh();
-            }
+            syncRouterAndFrameLayer();
 
             updateEndItem( *evt );
             m_router->Move( m_endSnapPoint, m_endItem );
@@ -1211,7 +1369,7 @@ void ROUTER_TOOL::performRouting()
         else if( evt->IsAction( &ACT_SwitchCornerMode ) )
         {
             m_router->ToggleCornerMode();
-            updateMessagePanel();
+            UpdateMessagePanel();
             updateEndItem( *evt );
             m_router->Move( m_endSnapPoint, m_endItem );        // refresh
         }
@@ -1230,7 +1388,7 @@ void ROUTER_TOOL::performRouting()
             }
             controls()->SetAutoPan( true );
             setCursor();
-            updateMessagePanel();
+            UpdateMessagePanel();
         }
         else if( evt->IsAction( &ACT_EndTrack ) || evt->IsDblClick( BUT_LEFT )  )
         {
@@ -1239,7 +1397,6 @@ void ROUTER_TOOL::performRouting()
             break;
         }
         else if( evt->IsCancelInteractive() || evt->IsActivate()
-                 || evt->IsUndoRedo()
                  || evt->IsAction( &PCB_ACTIONS::routerInlineDrag ) )
         {
             if( evt->IsCancelInteractive() && !m_router->RoutingInProgress() )
@@ -1250,9 +1407,21 @@ void ROUTER_TOOL::performRouting()
 
             break;
         }
+        else if( evt->IsUndoRedo() )
+        {
+            // We're in an UndoRedoBlock.  If we get here, something's broken.
+            wxFAIL;
+            break;
+        }
         else if( evt->IsClick( BUT_RIGHT ) )
         {
             m_menu.ShowContextMenu( selection() );
+        }
+        // TODO: It'd be nice to be able to say "don't allow any non-trivial editing actions",
+        // but we don't at present have that, so we just knock out some of the egregious ones.
+        else if( ZONE_FILLER_TOOL::IsZoneFillAction( evt ) )
+        {
+            wxBell();
         }
         else
         {
@@ -1261,6 +1430,8 @@ void ROUTER_TOOL::performRouting()
     }
 
     m_router->CommitRouting();
+    // Reset to normal for next route
+    m_iface->SetCommitFlags( 0 );
 
     finishInteractive();
 }
@@ -1292,7 +1463,7 @@ int ROUTER_TOOL::SettingsDialog( const TOOL_EVENT& aEvent )
 
     settingsDlg.ShowModal();
 
-    updateMessagePanel();
+    UpdateMessagePanel();
 
     return 0;
 }
@@ -1346,8 +1517,137 @@ void ROUTER_TOOL::breakTrack()
 }
 
 
+int ROUTER_TOOL::RouteSelected( const TOOL_EVENT& aEvent )
+{
+    PNS::ROUTER_MODE mode = aEvent.Parameter<PNS::ROUTER_MODE>();
+    PCB_EDIT_FRAME*  frame = getEditFrame<PCB_EDIT_FRAME>();
+    VIEW_CONTROLS*   controls = getViewControls();
+    PCB_LAYER_ID     originalLayer = frame->GetActiveLayer();
+    bool             autoRoute = aEvent.Matches( PCB_ACTIONS::routerAutorouteSelected.MakeEvent() );
+    bool             otherEnd  = aEvent.Matches( PCB_ACTIONS::routerRouteSelectedFromEnd.MakeEvent() );
+
+    if( m_router->RoutingInProgress() )
+        return 0;
+
+    // Save selection then clear it for interactive routing
+    PCB_SELECTION selection = m_toolMgr->GetTool<PCB_SELECTION_TOOL>()->GetSelection();
+
+    if( selection.Size() == 0 )
+        return 0;
+
+    m_toolMgr->RunAction( PCB_ACTIONS::selectionClear, true );
+
+    frame->PushTool( aEvent );
+
+    auto setCursor =
+            [&]()
+            {
+                frame->GetCanvas()->SetCurrentCursor( KICURSOR::PENCIL );
+            };
+
+    Activate();
+    // Must be done after Activate() so that it gets set into the correct context
+    controls->ShowCursor( true );
+    controls->ForceCursorPosition( false );
+    // Set initial cursor
+    setCursor();
+
+    // Get all connected board items, adding pads for any footprints selected
+    std::vector<BOARD_CONNECTED_ITEM*> itemList;
+
+    for( EDA_ITEM* item : selection.GetItemsSortedBySelectionOrder() )
+    {
+        if( item->Type() == PCB_FOOTPRINT_T )
+        {
+            const PADS& fpPads = ( static_cast<FOOTPRINT*>( item ) )->Pads();
+
+            for( PAD* pad : fpPads )
+                itemList.push_back( pad );
+        }
+        else if( dynamic_cast<BOARD_CONNECTED_ITEM*>( item ) != nullptr )
+        {
+            itemList.push_back( static_cast<BOARD_CONNECTED_ITEM*>( item ) );
+        }
+    }
+
+    std::shared_ptr<CONNECTIVITY_DATA> connectivity = frame->GetBoard()->GetConnectivity();
+
+    // For putting sequential tracks that successfully autoroute into one undo commit
+    bool groupStart = true;
+
+    for( BOARD_CONNECTED_ITEM* item : itemList )
+    {
+        // This code is similar to GetRatsnestForPad() but it only adds the anchor for
+        // the side of the connectivity on this pad. It also checks for ratsnest points
+        // inside the pad (like a trace end) and counts them.
+        RN_NET* net = connectivity->GetRatsnestForNet( item->GetNetCode() );
+        std::vector<std::shared_ptr<CN_ANCHOR>> anchors;
+
+        for( const CN_EDGE& edge : net->GetEdges() )
+        {
+            std::shared_ptr<CN_ANCHOR> target = edge.GetTargetNode();
+            std::shared_ptr<CN_ANCHOR> source = edge.GetSourceNode();
+
+            if( source->Parent() == item )
+                anchors.push_back( edge.GetSourceNode() );
+            else if( target->Parent() == item )
+                anchors.push_back( edge.GetTargetNode() );
+        }
+
+        // Route them
+        for( std::shared_ptr<CN_ANCHOR> anchor : anchors )
+        {
+            // Try to return to the original layer as indicating the user's preferred
+            // layer for autorouting tracks. The layer can be changed by the user to
+            // finish tracks that can't complete automatically, but should be changed
+            // back after.
+            if( frame->GetActiveLayer() != originalLayer )
+                frame->SetActiveLayer( originalLayer );
+
+            VECTOR2I ignore;
+            m_startItem = m_router->GetWorld()->FindItemByParent( anchor->Parent() );
+            m_startSnapPoint = anchor->Pos();
+            m_router->SetMode( mode );
+
+            // Prime the interactive routing to attempt finish if we are autorouting
+            bool autoRouted = false;
+
+            if( autoRoute )
+                m_toolMgr->RunAction( PCB_ACTIONS::routerAttemptFinish, false, &autoRouted );
+            else if( otherEnd )
+                m_toolMgr->RunAction( PCB_ACTIONS::routerContinueFromEnd, false );
+
+            // We want autorouted tracks to all be in one undo group except for
+            // any tracks that need to be manually finished.
+            // The undo appending for manually finished tracks is handled in peformRouting()
+            if( groupStart )
+                groupStart = false;
+            else
+                m_iface->SetCommitFlags( APPEND_UNDO );
+
+            // Start interactive routing. Will automatically finish if possible.
+            performRouting();
+
+            // Route didn't complete automatically, need to a new undo commit
+            // for the next line so those can group as far as they autoroute
+            if( !autoRouted )
+                groupStart = true;
+        }
+    }
+
+    m_iface->SetCommitFlags( 0 );
+    frame->PopTool( aEvent );
+    return 0;
+}
+
+
 int ROUTER_TOOL::MainLoop( const TOOL_EVENT& aEvent )
 {
+    if( m_inRouterTool )
+        return 0;
+
+    REENTRANCY_GUARD guard( &m_inRouterTool );
+
     PNS::ROUTER_MODE mode = aEvent.Parameter<PNS::ROUTER_MODE>();
     PCB_EDIT_FRAME*  frame = getEditFrame<PCB_EDIT_FRAME>();
     VIEW_CONTROLS*   controls = getViewControls();
@@ -1363,8 +1663,7 @@ int ROUTER_TOOL::MainLoop( const TOOL_EVENT& aEvent )
     // Deselect all items
     m_toolMgr->RunAction( PCB_ACTIONS::selectionClear, true );
 
-    std::string tool = aEvent.GetCommandStr().get();
-    frame->PushTool( tool );
+    frame->PushTool( aEvent );
 
     auto setCursor =
             [&]()
@@ -1382,9 +1681,8 @@ int ROUTER_TOOL::MainLoop( const TOOL_EVENT& aEvent )
     m_router->SetMode( mode );
     m_cancelled = false;
 
-    // Prime the pump
     if( aEvent.HasPosition() )
-        m_toolMgr->PrimeTool( controls->GetCursorPosition( false ) );
+        m_toolMgr->PrimeTool( aEvent.Position() );
 
     // Main loop: keep receiving events
     while( TOOL_EVENT* evt = Wait() )
@@ -1394,19 +1692,19 @@ int ROUTER_TOOL::MainLoop( const TOOL_EVENT& aEvent )
 
         if( evt->IsCancelInteractive() )
         {
-            frame->PopTool( tool );
+            frame->PopTool( aEvent );
             break;
         }
         else if( evt->IsActivate() )
         {
-            if( evt->IsMoveTool() )
+            if( evt->IsMoveTool() || evt->IsEditorTool() )
             {
                 // leave ourselves on the stack so we come back after the move
                 break;
             }
             else
             {
-                frame->PopTool( tool );
+                frame->PopTool( aEvent );
                 break;
             }
         }
@@ -1459,6 +1757,7 @@ int ROUTER_TOOL::MainLoop( const TOOL_EVENT& aEvent )
         else if( evt->IsAction( &PCB_ACTIONS::layerChanged ) )
         {
             m_router->SwitchLayer( frame->GetActiveLayer() );
+            updateSizesAfterLayerSwitch( frame->GetActiveLayer() );
             updateStartItem( *evt );
         }
         else if( evt->IsKeyPressed() )
@@ -1479,7 +1778,7 @@ int ROUTER_TOOL::MainLoop( const TOOL_EVENT& aEvent )
 
         if( m_cancelled )
         {
-            frame->PopTool( tool );
+            frame->PopTool( aEvent );
             break;
         }
     }
@@ -1518,8 +1817,6 @@ void ROUTER_TOOL::performDragging( int aMode )
         m_startItem = nullptr;
 
         m_gridHelper->SetAuxAxes( false );
-        frame()->UndoRedoBlock( false );
-        ctls->SetAutoPan( false );
         ctls->ForceCursorPosition( false );
         highlightNet( false );
 
@@ -1560,7 +1857,7 @@ void ROUTER_TOOL::performDragging( int aMode )
         {
             m_menu.ShowContextMenu( selection() );
         }
-        else if( evt->IsCancelInteractive() || evt->IsActivate() || evt->IsUndoRedo() )
+        else if( evt->IsCancelInteractive() || evt->IsActivate() )
         {
             if( evt->IsCancelInteractive() && !m_startItem )
                 m_cancelled = true;
@@ -1569,6 +1866,37 @@ void ROUTER_TOOL::performDragging( int aMode )
                 m_cancelled = true;
 
             break;
+        }
+        else if( evt->IsUndoRedo() )
+        {
+            // We're in an UndoRedoBlock.  If we get here, something's broken.
+            wxFAIL;
+            break;
+        }
+        else if( evt->Category() == TC_COMMAND )
+        {
+            // TODO: It'd be nice to be able to say "don't allow any non-trivial editing actions",
+            // but we don't at present have that, so we just knock out some of the egregious ones.
+            if( evt->IsAction( &ACTIONS::cut )
+                || evt->IsAction( &ACTIONS::copy )
+                || evt->IsAction( &ACTIONS::paste )
+                || evt->IsAction( &ACTIONS::pasteSpecial )
+                || ZONE_FILLER_TOOL::IsZoneFillAction( evt ) )
+            {
+                wxBell();
+            }
+            // treat an undo as an escape
+            else if( evt->IsAction( &ACTIONS::undo ) )
+            {
+                if( m_startItem )
+                    break;
+                else
+                    wxBell();
+            }
+            else
+            {
+                evt->SetPassEvent();
+            }
         }
         else
         {
@@ -1659,10 +1987,8 @@ bool ROUTER_TOOL::CanInlineDrag( int aDragMode )
         // DragArcTrack(), so PCB_ARC_T should never occur here.
         if( item->IsType( GENERAL_COLLECTOR::DraggableItems ) )
         {
-            static const KICAD_T footprints[] = { PCB_FOOTPRINT_T, EOT };
-
             // Footprints cannot be dragged freely.
-            if( item->IsType( footprints ) )
+            if( item->IsType( { PCB_FOOTPRINT_T } ) )
                 return !( aDragMode & PNS::DM_FREE_ANGLE );
             else
                 return true;
@@ -1705,24 +2031,29 @@ int ROUTER_TOOL::InlineDrag( const TOOL_EVENT& aEvent )
         item->SetLocked( false );
     }
 
+    m_toolMgr->RunAction( PCB_ACTIONS::selectionClear, true );
+
     Activate();
 
-    m_toolMgr->RunAction( PCB_ACTIONS::selectionClear, true );
-    m_router->SyncWorld();
     m_startItem = nullptr;
 
-    PNS::ITEM* startItem = nullptr;
+    PNS::ITEM*    startItem = nullptr;
     PNS::ITEM_SET itemsToDrag;
-    const FOOTPRINT* footprint = nullptr;
+    FOOTPRINT*    footprint = nullptr;
 
-    std::shared_ptr<CONNECTIVITY_DATA> connectivityData = board()->GetConnectivity();
-    std::vector<BOARD_ITEM*>           dynamicItems;
-    std::unique_ptr<CONNECTIVITY_DATA> dynamicData = nullptr;
-    VECTOR2I                           lastOffset;
+    bool showCourtyardConflicts = frame()->GetPcbNewSettings()->m_ShowCourtyardCollisions;
+
+    std::shared_ptr<DRC_ENGINE>         drcEngine = m_toolMgr->GetTool<DRC_TOOL>()->GetDRCEngine();
+    DRC_INTERACTIVE_COURTYARD_CLEARANCE courtyardClearanceDRC( drcEngine );
+
+    std::shared_ptr<CONNECTIVITY_DATA>  connectivityData = board()->GetConnectivity();
+    std::vector<BOARD_ITEM*>            dynamicItems;
+    std::unique_ptr<CONNECTIVITY_DATA>  dynamicData = nullptr;
+    VECTOR2I                            lastOffset;
 
     if( item->Type() == PCB_FOOTPRINT_T )
     {
-        footprint = static_cast<const FOOTPRINT*>(item);
+        footprint = static_cast<FOOTPRINT*>( item );
 
         for( PAD* pad : footprint->Pads() )
         {
@@ -1736,6 +2067,12 @@ int ROUTER_TOOL::InlineDrag( const TOOL_EVENT& aEvent )
                 if( connectivityData->GetRatsnestForPad( pad ).size() > 0 )
                     dynamicItems.push_back( pad );
             }
+        }
+
+        if( showCourtyardConflicts )
+        {
+            courtyardClearanceDRC.Init( board() );
+            courtyardClearanceDRC.m_FpInMove.push_back( footprint );
         }
 
         dynamicData = std::make_unique<CONNECTIVITY_DATA>( dynamicItems, true );
@@ -1906,10 +2243,18 @@ int ROUTER_TOOL::InlineDrag( const TOOL_EVENT& aEvent )
                     view()->Hide( zone, true );
                 }
 
+                if( showCourtyardConflicts )
+                {
+                    footprint->Move( offset );
+                    courtyardClearanceDRC.Run();
+                    courtyardClearanceDRC.UpdateConflicts( getView(), false );
+                    footprint->Move( -offset );
+                }
+
                 // Update ratsnest
                 dynamicData->Move( offset - lastOffset );
                 lastOffset = offset;
-                connectivityData->ComputeDynamicRatsnest( dynamicItems, dynamicData.get(), offset );
+                connectivityData->ComputeLocalRatsnest( dynamicItems, dynamicData.get(), offset );
             }
         }
         else if( hasMouseMoved && ( evt->IsMouseUp( BUT_LEFT ) || evt->IsClick( BUT_LEFT ) ) )
@@ -1918,15 +2263,31 @@ int ROUTER_TOOL::InlineDrag( const TOOL_EVENT& aEvent )
             m_router->FixRoute( m_endSnapPoint, m_endItem );
             break;
         }
+        else if( evt->IsUndoRedo() )
+        {
+            // We're in an UndoRedoBlock.  If we get here, something's broken.
+            wxFAIL;
+            break;
+        }
         else if( evt->Category() == TC_COMMAND )
         {
-            // disallow editing commands
+            // TODO: It'd be nice to be able to say "don't allow any non-trivial editing actions",
+            // but we don't at present have that, so we just knock out some of the egregious ones.
             if( evt->IsAction( &ACTIONS::cut )
                 || evt->IsAction( &ACTIONS::copy )
                 || evt->IsAction( &ACTIONS::paste )
-                || evt->IsAction( &ACTIONS::pasteSpecial ) )
+                || evt->IsAction( &ACTIONS::pasteSpecial )
+                || ZONE_FILLER_TOOL::IsZoneFillAction( evt ) )
             {
                 wxBell();
+            }
+            // treat an undo as an escape
+            else if( evt->IsAction( &ACTIONS::undo ) )
+            {
+                if( wasLocked )
+                    item->SetLocked( true );
+
+                break;
             }
             else
             {
@@ -1958,8 +2319,11 @@ int ROUTER_TOOL::InlineDrag( const TOOL_EVENT& aEvent )
         view()->ClearPreview();
         view()->ShowPreview( false );
 
-        connectivityData->ClearDynamicRatsnest();
+        connectivityData->ClearLocalRatsnest();
     }
+
+    // Clear temporary COURTYARD_CONFLICT flag and ensure the conflict shadow is cleared
+    courtyardClearanceDRC.ClearConflicts( getView() );
 
     if( m_router->RoutingInProgress() )
         m_router->StopRouting();
@@ -1987,10 +2351,10 @@ int ROUTER_TOOL::InlineBreakTrack( const TOOL_EVENT& aEvent )
     if( item->Type() != PCB_TRACE_T )
         return 0;
 
+    m_toolMgr->RunAction( PCB_ACTIONS::selectionClear, true );
+
     Activate();
 
-    m_toolMgr->RunAction( PCB_ACTIONS::selectionClear, true );
-    m_router->SyncWorld();
     m_startItem = m_router->GetWorld()->FindItemByParent( item );
 
     TOOL_MANAGER* toolManager = frame()->GetToolManager();
@@ -2065,92 +2429,132 @@ int ROUTER_TOOL::onTrackViaSizeChanged( const TOOL_EVENT& aEvent )
 
     // Changing the track width can affect the placement, so call the
     // move routine without changing the destination
+    // Update end item first to avoid moving to an invalid/missing item
+    updateEndItem( aEvent );
     m_router->Move( m_endSnapPoint, m_endItem );
 
-    updateMessagePanel();
+    UpdateMessagePanel();
 
     return 0;
 }
 
 
-void ROUTER_TOOL::updateMessagePanel()
+void ROUTER_TOOL::UpdateMessagePanel()
 {
-    if( !m_router->RoutingInProgress() )
+    std::vector<MSG_PANEL_ITEM> items;
+
+    if( m_router->GetState() == PNS::ROUTER::ROUTE_TRACK )
+    {
+        PNS::SIZES_SETTINGS sizes( m_router->Sizes() );
+        PNS::RULE_RESOLVER* resolver   = m_iface->GetRuleResolver();
+        std::vector<int>    nets = m_router->GetCurrentNets();
+        wxString            description;
+        wxString            secondary;
+
+        if( m_router->Mode() == PNS::ROUTER_MODE::PNS_MODE_ROUTE_DIFF_PAIR )
+        {
+            wxASSERT( nets.size() >= 2 );
+
+            NETINFO_ITEM* netA = board()->FindNet( nets[0] );
+            NETINFO_ITEM* netB = board()->FindNet( nets[1] );
+            wxASSERT( netA );
+            wxASSERT( netB );
+
+            description = wxString::Format( _( "Routing Diff Pair: %s" ),
+                                            netA->GetNetname() + wxT( ", " ) + netB->GetNetname() );
+
+            wxString  netclass;
+            NETCLASS* netclassA = netA->GetNetClass();
+            NETCLASS* netclassB = netB->GetNetClass();
+
+            if( netclassA == netclassB )
+                netclass = netclassA->GetName();
+            else
+                netclass = netclassA->GetName() + wxT( ", " ) + netclassB->GetName();
+
+            secondary = wxString::Format( _( "Resolved Netclass: %s" ),
+                                          UnescapeString( netclass ) );
+        }
+        else if( !nets.empty() )
+        {
+            NETINFO_ITEM* net = board()->FindNet( nets[0] );
+            wxASSERT( net );
+
+            description = wxString::Format( _( "Routing Track: %s" ),
+                                            net->GetNetname() );
+
+            secondary = wxString::Format( _( "Resolved Netclass: %s" ),
+                                          UnescapeString( net->GetNetClass()->GetName() ) );
+        }
+        else
+        {
+            description = _( "Routing Track" );
+            secondary = _( "(no net)" );
+        }
+
+        items.emplace_back( description, secondary );
+
+        wxString cornerMode;
+
+        if( m_router->Settings().GetFreeAngleMode() )
+        {
+            cornerMode = _( "Free-angle" );
+        }
+        else
+        {
+            switch( m_router->Settings().GetCornerMode() )
+            {
+            case DIRECTION_45::CORNER_MODE::MITERED_45: cornerMode = _( "45-degree" );         break;
+            case DIRECTION_45::CORNER_MODE::ROUNDED_45: cornerMode = _( "45-degree rounded" ); break;
+            case DIRECTION_45::CORNER_MODE::MITERED_90: cornerMode = _( "90-degree" );         break;
+            case DIRECTION_45::CORNER_MODE::ROUNDED_90: cornerMode = _( "90-degree rounded" ); break;
+            default: break;
+            }
+        }
+
+        items.emplace_back( _( "Corner Style" ), cornerMode );
+
+#define FORMAT_VALUE( x ) frame()->MessageTextFromValue( x )
+
+        if( m_router->Mode() == PNS::ROUTER_MODE::PNS_MODE_ROUTE_DIFF_PAIR )
+        {
+            items.emplace_back( wxString::Format( _( "Track Width: %s" ),
+                                                  FORMAT_VALUE( sizes.DiffPairWidth() ) ),
+                                wxString::Format( _( "(from %s)" ),
+                                                  sizes.GetDiffPairWidthSource() ) );
+
+            items.emplace_back( wxString::Format( _( "Min Clearance: %s" ),
+                                                  FORMAT_VALUE( sizes.MinClearance() ) ),
+                                wxString::Format( _( "(from %s)" ),
+                                                  sizes.GetClearanceSource() ) );
+
+            items.emplace_back( wxString::Format( _( "Diff Pair Gap: %s" ),
+                                                  FORMAT_VALUE( sizes.DiffPairGap() ) ),
+                                wxString::Format( _( "(from %s)" ),
+                                                  sizes.GetDiffPairGapSource() ) );
+        }
+        else
+        {
+            items.emplace_back( wxString::Format( _( "Track Width: %s" ),
+                                                  FORMAT_VALUE( sizes.TrackWidth() ) ),
+                                wxString::Format( _( "(from %s)" ),
+                                                  sizes.GetWidthSource() ) );
+
+            items.emplace_back( wxString::Format( _( "Min Clearance: %s" ),
+                                                  FORMAT_VALUE( sizes.MinClearance() ) ),
+                                wxString::Format( _( "(from %s)" ),
+                                                  sizes.GetClearanceSource() ) );
+        }
+
+#undef FORMAT_VALUE
+
+        frame()->SetMsgPanel( items );
+    }
+    else
     {
         frame()->SetMsgPanel( board() );
         return;
     }
-
-    std::vector<MSG_PANEL_ITEM> items;
-    PNS::SIZES_SETTINGS sizes( m_router->Sizes() );
-    PNS::RULE_RESOLVER* resolver   = m_iface->GetRuleResolver();
-    bool                isDiffPair = m_router->Mode() == PNS::ROUTER_MODE::PNS_MODE_ROUTE_DIFF_PAIR;
-
-    if( m_startItem && m_startItem->Net() > 0 )
-    {
-        wxString description = isDiffPair ? _( "Routing Diff Pair: %s" ) : _( "Routing Track: %s" );
-
-        NETINFO_ITEM* netInfo = board()->FindNet( m_startItem->Net() );
-        wxASSERT( netInfo );
-
-        items.emplace_back( wxString::Format( description, netInfo->GetNetname() ),
-                            wxString::Format( _( "Net Class: %s" ), netInfo->GetNetClassName() ) );
-    }
-    else
-    {
-        items.emplace_back( _( "Routing Track" ), _( "(no net)" ) );
-    }
-
-    wxString cornerMode;
-
-    if( m_router->Settings().GetFreeAngleMode() )
-    {
-        cornerMode = _( "Free-angle" );
-    }
-    else
-    {
-        switch( m_router->Settings().GetCornerMode() )
-        {
-        case DIRECTION_45::CORNER_MODE::MITERED_45: cornerMode = _( "45-degree" );         break;
-        case DIRECTION_45::CORNER_MODE::ROUNDED_45: cornerMode = _( "45-degree rounded" ); break;
-        case DIRECTION_45::CORNER_MODE::MITERED_90: cornerMode = _( "90-degree" );         break;
-        case DIRECTION_45::CORNER_MODE::ROUNDED_90: cornerMode = _( "90-degree rounded" ); break;
-        default: break;
-        }
-    }
-
-    items.emplace_back( _( "Corner Style" ), cornerMode );
-
-    EDA_UNITS units = frame()->GetUserUnits();
-
-    int width = isDiffPair ? sizes.DiffPairWidth() : sizes.TrackWidth();
-    items.emplace_back( wxString::Format( _( "Track Width: %s" ),
-                                          MessageTextFromValue( units, width ) ),
-                        wxString::Format( _( "(from %s)" ), sizes.GetWidthSource() ) );
-
-    if( m_startItem )
-    {
-        PNS::SEGMENT dummy;
-        dummy.SetNet( m_startItem->Net() );
-
-        PNS::CONSTRAINT constraint;
-
-        if( resolver->QueryConstraint( PNS::CONSTRAINT_TYPE::CT_CLEARANCE, &dummy, nullptr,
-                                       m_router->GetCurrentLayer(), &constraint ) )
-        {
-            items.emplace_back( wxString::Format( _( "Min Clearance: %s" ),
-                                        MessageTextFromValue( units, constraint.m_Value.Min() ) ),
-                                wxString::Format( _( "(from %s)" ), constraint.m_RuleName ) );
-        }
-    }
-
-    if( isDiffPair )
-    {
-        items.emplace_back( _( "Diff Pair Gap" ),
-                            MessageTextFromValue( units, sizes.DiffPairGap() ) );
-    }
-
-    frame()->SetMsgPanel( items );
 }
 
 
@@ -2160,6 +2564,9 @@ void ROUTER_TOOL::setTransitions()
 
     Go( &ROUTER_TOOL::MainLoop,               PCB_ACTIONS::routeSingleTrack.MakeEvent() );
     Go( &ROUTER_TOOL::MainLoop,               PCB_ACTIONS::routeDiffPair.MakeEvent() );
+    Go( &ROUTER_TOOL::RouteSelected,          PCB_ACTIONS::routerRouteSelected.MakeEvent() );
+    Go( &ROUTER_TOOL::RouteSelected,          PCB_ACTIONS::routerRouteSelectedFromEnd.MakeEvent() );
+    Go( &ROUTER_TOOL::RouteSelected,          PCB_ACTIONS::routerAutorouteSelected.MakeEvent() );
     Go( &ROUTER_TOOL::DpDimensionsDialog,     PCB_ACTIONS::routerDiffPairDialog.MakeEvent() );
     Go( &ROUTER_TOOL::SettingsDialog,         PCB_ACTIONS::routerSettingsDialog.MakeEvent() );
     Go( &ROUTER_TOOL::ChangeRouterMode,       PCB_ACTIONS::routerHighlightMode.MakeEvent() );

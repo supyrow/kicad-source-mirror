@@ -1,7 +1,7 @@
 /*
 * This program source code file is part of KiCad, a free EDA CAD application.
 *
-* Copyright (C) 2020 KiCad Developers, see AUTHORS.txt for contributors.
+* Copyright (C) 2022 KiCad Developers, see AUTHORS.txt for contributors.
 *
 * This program is free software; you can redistribute it and/or
 * modify it under the terms of the GNU General Public License
@@ -34,16 +34,9 @@ const int pcbCalculatorSchemaVersion = 0;
 
 
 PCB_CALCULATOR_SETTINGS::PCB_CALCULATOR_SETTINGS() :
-        APP_SETTINGS_BASE( "pcb_calculator", pcbCalculatorSchemaVersion ),
-        m_Attenuators(),
-        m_BoardClassUnits( 0 ),
-        m_ColorCodeTolerance( 0 ),
-        m_Electrical(),
-        m_LastPage( 0 ),
-        m_Regulators(),
-        m_TrackWidth(),
-        m_TransLine(),
-        m_ViaSize()
+        APP_SETTINGS_BASE( "pcb_calculator", pcbCalculatorSchemaVersion ), m_Attenuators(),
+        m_BoardClassUnits( 0 ), m_ColorCodeTolerance( 0 ), m_Electrical(), m_LastPage( 0 ),
+        m_Regulators(), m_cableSize(), m_wavelength(), m_TrackWidth(), m_TransLine(), m_ViaSize()
 {
     // Build settings:
     m_params.emplace_back( new PARAM<int>( "board_class_units", &m_BoardClassUnits, 0 ) );
@@ -90,9 +83,51 @@ PCB_CALCULATOR_SETTINGS::PCB_CALCULATOR_SETTINGS() :
     m_params.emplace_back( new PARAM<wxString>( "regulators.selected_regulator",
             &m_Regulators.selected_regulator, "" ) );
 
+
+    m_params.emplace_back( new PARAM<wxString>( "cable_size.conductorMaterialResitivity",
+                                                &m_cableSize.conductorMaterialResitivity, "" ) );
+
+    m_params.emplace_back( new PARAM<wxString>( "cable_size.conductorTemperature",
+                                                &m_cableSize.conductorTemperature, "" ) );
+
+    m_params.emplace_back( new PARAM<wxString>( "cable_size.conductorThermalCoef",
+                                                &m_cableSize.conductorThermalCoef, "" ) );
+
     m_params.emplace_back( new PARAM<int>( "regulators.type", &m_Regulators.type, 0 ) );
 
     m_params.emplace_back( new PARAM<int>( "regulators.last_param", &m_Regulators.last_param, 0 ) );
+
+    m_params.emplace_back(
+            new PARAM<int>( "cable_size.diameterUnit", &m_cableSize.diameterUnit, 0 ) );
+
+    m_params.emplace_back( new PARAM<int>( "cable_size.linResUnit", &m_cableSize.linResUnit, 0 ) );
+
+    m_params.emplace_back(
+            new PARAM<int>( "cable_size.frequencyUnit", &m_cableSize.frequencyUnit, 0 ) );
+
+    m_params.emplace_back( new PARAM<int>( "cable_size.lengthUnit", &m_cableSize.lengthUnit, 0 ) );
+
+    m_params.emplace_back(
+            new PARAM<double>( "wavelength.frequency", &m_wavelength.frequency, 1e9 ) );
+
+    m_params.emplace_back(
+            new PARAM<double>( "wavelength.permeability", &m_wavelength.permeability, 1 ) );
+
+    m_params.emplace_back(
+            new PARAM<double>( "wavelength.permittivity", &m_wavelength.permittivity, 4.6 ) );
+
+    m_params.emplace_back(
+            new PARAM<int>( "wavelength.frequencyUnit", &m_wavelength.frequencyUnit, 0 ) );
+
+    m_params.emplace_back( new PARAM<int>( "wavelength.periodUnit", &m_wavelength.periodUnit, 0 ) );
+
+    m_params.emplace_back( new PARAM<int>( "wavelength.wavelengthVacuumUnit",
+                                           &m_wavelength.wavelengthVacuumUnit, 0 ) );
+
+    m_params.emplace_back( new PARAM<int>( "wavelength.wavelengthMediumUnit",
+                                           &m_wavelength.wavelengthMediumUnit, 0 ) );
+
+    m_params.emplace_back( new PARAM<int>( "wavelength.speedUnit", &m_wavelength.speedUnit, 0 ) );
 
     m_params.emplace_back( new PARAM<wxString>( "track_width.current",
             &m_TrackWidth.current, "1.0" ) );
@@ -201,6 +236,10 @@ PCB_CALCULATOR_SETTINGS::PCB_CALCULATOR_SETTINGS() :
 
     m_params.emplace_back( new PARAM<wxString>( "via_size.pulse_rise_time",
             &m_ViaSize.pulse_rise_time, "1" ) );
+
+    m_params.emplace_back( new PARAM<wxString>( "corrosion_table.threshold_voltage",
+            &m_CorrosionTable.threshold_voltage, "0" ) );
+
 }
 
 

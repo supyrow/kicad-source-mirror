@@ -42,6 +42,7 @@
 #include "symbol_editor_edit_tool.h"
 #include "dialog_lib_textbox_properties.h"
 #include "lib_textbox.h"
+#include <wx/textdlg.h>     // for wxTextEntryDialog
 #include <math/util.h>      // for KiROUND
 
 SYMBOL_EDITOR_EDIT_TOOL::SYMBOL_EDITOR_EDIT_TOOL() :
@@ -239,14 +240,13 @@ int SYMBOL_EDITOR_EDIT_TOOL::Mirror( const TOOL_EVENT& aEvent )
 }
 
 
-static KICAD_T nonFields[] =
+static std::vector<KICAD_T> nonFields =
 {
-        LIB_SYMBOL_T,
-        LIB_SHAPE_T,
-        LIB_TEXT_T,
-        LIB_TEXTBOX_T,
-        LIB_PIN_T,
-        EOT
+    LIB_SYMBOL_T,
+    LIB_SHAPE_T,
+    LIB_TEXT_T,
+    LIB_TEXTBOX_T,
+    LIB_PIN_T
 };
 
 
@@ -333,7 +333,6 @@ int SYMBOL_EDITOR_EDIT_TOOL::DoDelete( const TOOL_EVENT& aEvent )
 
 int SYMBOL_EDITOR_EDIT_TOOL::DeleteItemCursor( const TOOL_EVENT& aEvent )
 {
-    std::string  tool = aEvent.GetCommandStr().get();
     PICKER_TOOL* picker = m_toolMgr->GetTool<PICKER_TOOL>();
 
     m_toolMgr->RunAction( EE_ACTIONS::clearSelection, true );
@@ -401,7 +400,7 @@ int SYMBOL_EDITOR_EDIT_TOOL::DeleteItemCursor( const TOOL_EVENT& aEvent )
                 m_toolMgr->RunAction( EE_ACTIONS::selectionActivate, false );
             } );
 
-    m_toolMgr->RunAction( ACTIONS::pickerTool, true, &tool );
+    m_toolMgr->RunAction( ACTIONS::pickerTool, true );
 
     return 0;
 }
@@ -436,7 +435,7 @@ int SYMBOL_EDITOR_EDIT_TOOL::Properties( const TOOL_EVENT& aEvent )
             break;
 
         case LIB_SHAPE_T:
-            editShapeProperties( item );
+            editShapeProperties( static_cast<LIB_SHAPE*>( item ) );
             break;
 
         case LIB_TEXT_T:
@@ -466,14 +465,14 @@ int SYMBOL_EDITOR_EDIT_TOOL::Properties( const TOOL_EVENT& aEvent )
 }
 
 
-void SYMBOL_EDITOR_EDIT_TOOL::editShapeProperties( LIB_ITEM* aItem )
+void SYMBOL_EDITOR_EDIT_TOOL::editShapeProperties( LIB_SHAPE* aShape )
 {
-    DIALOG_LIB_SHAPE_PROPERTIES dlg( m_frame, aItem );
+    DIALOG_LIB_SHAPE_PROPERTIES dlg( m_frame, aShape );
 
     if( dlg.ShowModal() != wxID_OK )
         return;
 
-    updateItem( aItem, true );
+    updateItem( aShape, true );
     m_frame->GetCanvas()->Refresh();
     m_frame->OnModify();
 
@@ -482,7 +481,7 @@ void SYMBOL_EDITOR_EDIT_TOOL::editShapeProperties( LIB_ITEM* aItem )
     drawingTools->SetDrawSpecificUnit( !dlg.GetApplyToAllUnits() );
 
     std::vector<MSG_PANEL_ITEM> items;
-    aItem->GetMsgPanelInfo( m_frame, items );
+    aShape->GetMsgPanelInfo( m_frame, items );
     m_frame->SetMsgPanel( items );
 }
 
@@ -528,11 +527,7 @@ void SYMBOL_EDITOR_EDIT_TOOL::editFieldProperties( LIB_FIELD* aField )
     LIB_SYMBOL* parent = aField->GetParent();
     wxCHECK( parent, /* void */ );
 
-    // Editing the symbol value field is equivalent to creating a new symbol based on the
-    // current symbol.  Set the dialog message to inform the user.
-    if( aField->GetId() == VALUE_FIELD )
-        caption = _( "Edit Symbol Name" );
-    else if( aField->GetId() < MANDATORY_FIELDS )
+    if( aField->GetId() < MANDATORY_FIELDS )
         caption.Printf( _( "Edit %s Field" ), TitleCaps( aField->GetName() ) );
     else
         caption.Printf( _( "Edit '%s' Field" ), aField->GetName() );
@@ -546,27 +541,15 @@ void SYMBOL_EDITOR_EDIT_TOOL::editFieldProperties( LIB_FIELD* aField )
 
     wxString newFieldValue = EscapeString( dlg.GetText(), CTX_LIBID );
     wxString oldFieldValue = aField->GetFullText( m_frame->GetUnit() );
-    bool     renamed = aField->GetId() == VALUE_FIELD && newFieldValue != oldFieldValue;
 
-    if( renamed )
-        saveCopyInUndoList( parent, UNDO_REDO::LIB_RENAME );
-    else
-        saveCopyInUndoList( parent, UNDO_REDO::LIBEDIT );
+    saveCopyInUndoList( parent, UNDO_REDO::LIBEDIT );
 
     dlg.UpdateField( aField );
 
-    if( renamed )
-    {
-        parent->SetName( newFieldValue );
-        m_frame->UpdateAfterSymbolProperties( &oldFieldValue );
-    }
-    else
-    {
-        updateItem( aField, true );
-        m_frame->GetCanvas()->Refresh();
-        m_frame->OnModify();
-        m_frame->UpdateSymbolMsgPanelInfo();
-    }
+    updateItem( aField, true );
+    m_frame->GetCanvas()->Refresh();
+    m_frame->OnModify();
+    m_frame->UpdateSymbolMsgPanelInfo();
 }
 
 
@@ -605,6 +588,17 @@ void SYMBOL_EDITOR_EDIT_TOOL::editSymbolProperties()
     }
 }
 
+void SYMBOL_EDITOR_EDIT_TOOL::handlePinDuplication( LIB_PIN* aOldPin, LIB_PIN* aNewPin,
+                                                    int& aSymbolLastPinNumber )
+{
+    if( !aNewPin->GetNumber().IsEmpty() )
+    {
+        // when duplicating a pin in symbol editor, assigning identical pin number
+        // to the old one does not makes any sense, so assign the next unassigned number to it
+        aSymbolLastPinNumber++;
+        aNewPin->SetNumber( wxString::Format( wxT( "%i" ), aSymbolLastPinNumber ) );
+    }
+}
 
 int SYMBOL_EDITOR_EDIT_TOOL::PinTable( const TOOL_EVENT& aEvent )
 {
@@ -646,6 +640,47 @@ int SYMBOL_EDITOR_EDIT_TOOL::UpdateSymbolFields( const TOOL_EVENT& aEvent )
 
         if( dlg.ShowModal() == wxID_CANCEL )
             return -1;
+    }
+
+    return 0;
+}
+
+
+int SYMBOL_EDITOR_EDIT_TOOL::SetUnitDisplayName( const TOOL_EVENT& aEvent )
+{
+    LIB_SYMBOL* symbol = m_frame->GetCurSymbol();
+
+    if( !symbol )
+        return 0;
+
+    int unitid = m_frame->GetUnit();
+
+    if( unitid == 0 )
+    {
+        return -1;
+    }
+
+    wxString promptText = wxString::Format( _( "Enter display name for unit %s" ),
+                                            symbol->GetUnitReference( unitid ) );
+    wxString currentvalue;
+
+    if( symbol->HasUnitDisplayName( unitid ) )
+    {
+        currentvalue = symbol->GetUnitDisplayName( unitid );
+    }
+
+    wxTextEntryDialog dlg( m_frame, promptText, _( "Set Unit Display Name" ), currentvalue );
+
+    if( dlg.ShowModal() == wxID_OK )
+    {
+        saveCopyInUndoList( symbol, UNDO_REDO::LIBEDIT );
+        symbol->SetUnitDisplayName( unitid, dlg.GetValue() );
+        m_frame->RebuildSymbolUnitsList();
+        m_frame->OnModify();
+    }
+    else
+    {
+        return -1;
     }
 
     return 0;
@@ -803,11 +838,24 @@ int SYMBOL_EDITOR_EDIT_TOOL::Duplicate( const TOOL_EVENT& aEvent )
         saveCopyInUndoList( m_frame->GetCurSymbol(), UNDO_REDO::LIBEDIT );
 
     EDA_ITEMS newItems;
+    int       symbolLastPinNumber = -1;
 
     for( unsigned ii = 0; ii < selection.GetSize(); ++ii )
     {
         LIB_ITEM* oldItem = static_cast<LIB_ITEM*>( selection.GetItem( ii ) );
         LIB_ITEM* newItem = (LIB_ITEM*) oldItem->Clone();
+
+        if( oldItem->Type() == LIB_PIN_T )
+        {
+            if( symbolLastPinNumber == -1 )
+            {
+                symbolLastPinNumber = symbol->GetMaxPinNumber();
+            }
+
+            handlePinDuplication( static_cast<LIB_PIN*>( oldItem ),
+                                  static_cast<LIB_PIN*>( newItem ), symbolLastPinNumber );
+        }
+
         oldItem->ClearFlags( IS_NEW | IS_PASTED | SELECTED );
         newItem->SetFlags( IS_NEW | IS_PASTED | SELECTED );
         newItem->SetParent( symbol );
@@ -847,4 +895,5 @@ void SYMBOL_EDITOR_EDIT_TOOL::setTransitions()
     Go( &SYMBOL_EDITOR_EDIT_TOOL::Properties,         EE_ACTIONS::symbolProperties.MakeEvent() );
     Go( &SYMBOL_EDITOR_EDIT_TOOL::PinTable,           EE_ACTIONS::pinTable.MakeEvent() );
     Go( &SYMBOL_EDITOR_EDIT_TOOL::UpdateSymbolFields, EE_ACTIONS::updateSymbolFields.MakeEvent() );
+    Go( &SYMBOL_EDITOR_EDIT_TOOL::SetUnitDisplayName, EE_ACTIONS::setUnitDisplayName.MakeEvent() );
 }

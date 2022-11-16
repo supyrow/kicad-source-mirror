@@ -37,7 +37,7 @@ GRID_MENU::GRID_MENU( EDA_DRAW_FRAME* aParent ) :
         ACTION_MENU( true ),
         m_parent( aParent )
 {
-    SetTitle( _( "Grid" ) );
+    UpdateTitle();
     SetIcon( BITMAPS::grid_select );
 
     APP_SETTINGS_BASE* settings = m_parent->config();
@@ -56,6 +56,12 @@ OPT_TOOL_EVENT GRID_MENU::eventHandler( const wxMenuEvent& aEvent )
     OPT_TOOL_EVENT event( ACTIONS::gridPreset.MakeEvent() );
     event->SetParameter( (intptr_t) aEvent.GetId() - ID_POPUP_GRID_START );
     return event;
+}
+
+
+void GRID_MENU::UpdateTitle()
+{
+    SetTitle( _( "Grid" ) );
 }
 
 
@@ -79,31 +85,33 @@ void GRID_MENU::update()
 void GRID_MENU::BuildChoiceList( wxArrayString* aGridsList, APP_SETTINGS_BASE* aCfg,
                                  EDA_DRAW_FRAME* aParent )
 {
-    wxString msg;
-
-    EDA_UNITS primaryUnit;
-    EDA_UNITS secondaryUnit;
+    wxString     msg;
+    EDA_IU_SCALE scale = aParent->GetIuScale();
+    EDA_UNITS    primaryUnit;
+    EDA_UNITS    secondaryUnit;
 
     aParent->GetUnitPair( primaryUnit, secondaryUnit );
 
     for( const wxString& gridSize : aCfg->m_Window.grid.sizes )
     {
-        int val = (int) ValueFromString( EDA_UNITS::MILLIMETRES, gridSize );
+        double val = EDA_UNIT_UTILS::UI::DoubleValueFromString( scale, EDA_UNITS::MILLIMETRES,
+                                                                gridSize );
 
         msg.Printf( _( "Grid: %s (%s)" ),
-                    MessageTextFromValue( primaryUnit, val ),
-                    MessageTextFromValue( secondaryUnit, val ) );
+                    EDA_UNIT_UTILS::UI::MessageTextFromValue( scale, primaryUnit, val ),
+                    EDA_UNIT_UTILS::UI::MessageTextFromValue( scale, secondaryUnit, val ) );
 
         aGridsList->Add( msg );
     }
 
     if( !aCfg->m_Window.grid.user_grid_x.empty() )
     {
-        int val = (int) ValueFromString( EDA_UNITS::INCHES, aCfg->m_Window.grid.user_grid_x );
+        double val = EDA_UNIT_UTILS::UI::DoubleValueFromString( scale, EDA_UNITS::INCHES,
+                                                                aCfg->m_Window.grid.user_grid_x );
 
         msg.Printf( _( "User grid: %s (%s)" ),
-                    MessageTextFromValue( primaryUnit, val ),
-                    MessageTextFromValue( secondaryUnit, val ) );
+                    EDA_UNIT_UTILS::UI::MessageTextFromValue( scale, primaryUnit, val ),
+                    EDA_UNIT_UTILS::UI::MessageTextFromValue( scale, secondaryUnit, val ) );
 
         aGridsList->Add( msg );
     }

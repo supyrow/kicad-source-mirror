@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2017 Jon Evans <jon@craftyjon.com>
- * Copyright (C) 2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2017-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -25,7 +25,6 @@
 #include <settings/color_settings.h>
 #include <gerbview_settings.h>
 #include <convert_basic_shapes_to_polygon.h>
-#include <convert_to_biu.h>
 #include <gerbview.h>
 #include <trigo.h>
 
@@ -57,32 +56,28 @@ GERBVIEW_RENDER_SETTINGS::GERBVIEW_RENDER_SETTINGS()
 
 void GERBVIEW_RENDER_SETTINGS::LoadColors( const COLOR_SETTINGS* aSettings )
 {
-    size_t palette_size = aSettings->m_Palette.size();
-    size_t palette_idx = 0;
-
     // Layers to draw gerber data read from gerber files:
     for( int i = GERBVIEW_LAYER_ID_START;
          i < GERBVIEW_LAYER_ID_START + GERBER_DRAWLAYERS_COUNT; i++ )
     {
-        COLOR4D baseColor = aSettings->GetColor( i );
-
-        if( baseColor == COLOR4D::UNSPECIFIED )
-            baseColor = aSettings->m_Palette[ ( palette_idx++ ) % palette_size ];
-
-        m_layerColors[i] = baseColor;
-        m_layerColorsHi[i] = baseColor.Brightened( 0.5 );
-        m_layerColorsSel[i] = baseColor.Brightened( 0.8 );
-        m_layerColorsDark[i] = baseColor.Darkened( 0.25 );
+        m_layerColors[i] = aSettings->GetColor( i );
+        m_layerColorsHi[i] = m_layerColors[i].Brightened( 0.5 );
+        m_layerColorsSel[i] = m_layerColors[i].Brightened( 0.8 );
+        m_layerColorsDark[i] = m_layerColors[i].Darkened( 0.25 );
     }
 
     // Draw layers specific to Gerbview:
-    // LAYER_DCODES, LAYER_NEGATIVE_OBJECTS, LAYER_GERBVIEW_GRID,
-    // LAYER_GERBVIEW_AXES, LAYER_GERBVIEW_BACKGROUND, LAYER_GERBVIEW_DRAWINGSHEET,
+    // LAYER_DCODES, LAYER_NEGATIVE_OBJECTS, LAYER_GERBVIEW_GRID, LAYER_GERBVIEW_AXES,
+    // LAYER_GERBVIEW_BACKGROUND, LAYER_GERBVIEW_DRAWINGSHEET, LAYER_GERBVIEW_PAGE_LIMITS
     for( int i = LAYER_DCODES; i < GERBVIEW_LAYER_ID_END; i++ )
         m_layerColors[i] = aSettings->GetColor( i );
 
     for( int i = GAL_LAYER_ID_START; i < GAL_LAYER_ID_END; i++ )
         m_layerColors[i] = aSettings->GetColor( i );
+
+    // Ensure the generic LAYER_DRAWINGSHEET has the same color as the specialized
+    // LAYER_GERBVIEW_DRAWINGSHEET
+    m_layerColors[LAYER_DRAWINGSHEET] = m_layerColors[ LAYER_GERBVIEW_DRAWINGSHEET ];
 
     update();
 }
@@ -282,8 +277,11 @@ void GERBVIEW_PAINTER::draw( /*const*/ GERBER_DRAW_ITEM* aItem, int aLayer )
             // On Opengl, a not convex filled polygon is usually drawn by using triangles as
             // primitives. CacheTriangulation() can create basic triangle primitives to draw the
             // polygon solid shape on Opengl
+            // We use the fastest CacheTriangulation calculation mode: no partition created because
+            // the partition is useless in Gerbview, and very time consumming (optimized only
+            // for pcbnew that has different internal unit)
             if( m_gal->IsOpenGlEngine() && !aItem->m_AbsolutePolygon.IsTriangulationUpToDate() )
-                aItem->m_AbsolutePolygon.CacheTriangulation();
+                aItem->m_AbsolutePolygon.CacheTriangulation( false /* fastest triangulation calculation mode */ );
 
             m_gal->DrawPolygon( aItem->m_AbsolutePolygon );
         }
@@ -347,7 +345,7 @@ void GERBVIEW_PAINTER::draw( /*const*/ GERBER_DRAW_ITEM* aItem, int aLayer )
 #if 0   // Bbox arc Debugging only
         m_gal->SetIsFill( false );
         m_gal->SetIsStroke( true );
-        EDA_RECT box = aItem->GetBoundingBox();
+        BOX2I box = aItem->GetBoundingBox();
         m_gal->SetLineWidth( 5 );
         m_gal->SetStrokeColor( COLOR4D(0.9, 0.9, 0, 0.4) );
         // box coordinates are already in AB position.
@@ -470,7 +468,7 @@ void GERBVIEW_PAINTER::drawFlashedShape( GERBER_DRAW_ITEM* aItem, bool aFilled )
         else    // rectangular hole
         {
             if( code->m_Polygon.OutlineCount() == 0 )
-                code->ConvertShapeToPolygon();
+                code->ConvertShapeToPolygon( aItem );
 
             drawPolygon( aItem, code->m_Polygon, aFilled, true );
         }
@@ -495,7 +493,7 @@ void GERBVIEW_PAINTER::drawFlashedShape( GERBER_DRAW_ITEM* aItem, bool aFilled )
         else
         {
             if( code->m_Polygon.OutlineCount() == 0 )
-                code->ConvertShapeToPolygon();
+                code->ConvertShapeToPolygon( aItem );
 
             drawPolygon( aItem, code->m_Polygon, aFilled, true );
         }
@@ -534,7 +532,7 @@ void GERBVIEW_PAINTER::drawFlashedShape( GERBER_DRAW_ITEM* aItem, bool aFilled )
         else
         {
             if( code->m_Polygon.OutlineCount() == 0 )
-                code->ConvertShapeToPolygon();
+                code->ConvertShapeToPolygon( aItem );
 
             drawPolygon( aItem, code->m_Polygon, aFilled, true );
         }
@@ -543,7 +541,7 @@ void GERBVIEW_PAINTER::drawFlashedShape( GERBER_DRAW_ITEM* aItem, bool aFilled )
 
     case GBR_SPOT_POLY:
         if( code->m_Polygon.OutlineCount() == 0 )
-            code->ConvertShapeToPolygon();
+            code->ConvertShapeToPolygon( aItem );
 
         drawPolygon( aItem, code->m_Polygon, aFilled, true );
         break;
@@ -580,4 +578,4 @@ void GERBVIEW_PAINTER::drawApertureMacro( GERBER_DRAW_ITEM* aParent, bool aFille
 }
 
 
-const double GERBVIEW_RENDER_SETTINGS::MAX_FONT_SIZE = Millimeter2iu( 10.0 );
+const double GERBVIEW_RENDER_SETTINGS::MAX_FONT_SIZE = gerbIUScale.mmToIU( 10.0 );

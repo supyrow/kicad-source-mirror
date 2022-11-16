@@ -37,6 +37,8 @@
 #include "properties_frame.h"
 
 #include <wx/filedlg.h>
+#include <wx/filename.h>
+#include <wx/stdpaths.h>
 
 bool PL_EDITOR_FRAME::saveCurrentPageLayout()
 {
@@ -260,7 +262,10 @@ bool PL_EDITOR_FRAME::LoadDrawingSheetFile( const wxString& aFullFileName )
 
         if( fn.FileExists() && !fn.IsFileWritable() )
         {
-            ShowInfoBarWarning( _( "Layout file is read only." ), true );
+            m_infoBar->RemoveAllButtons();
+            m_infoBar->AddCloseButton();
+            m_infoBar->ShowMessage( _( "Layout file is read only." ),
+                                    wxICON_WARNING, WX_INFOBAR::MESSAGE_TYPE::OUTDATED_SAVE );
         }
 
         return true;
@@ -288,28 +293,35 @@ bool PL_EDITOR_FRAME::SaveDrawingSheetFile( const wxString& aFullFileName )
 {
     if( !aFullFileName.IsEmpty() )
     {
-        wxFileName tempFile( aFullFileName );
-        tempFile.SetName( wxT( "." ) + tempFile.GetName() );
-        tempFile.SetExt( tempFile.GetExt() + wxT( "$" ) );
+        wxString tempFile = wxFileName::CreateTempFileName( "pledit" );
 
         try
         {
-            DS_DATA_MODEL::GetTheInstance().Save( tempFile.GetFullPath() );
+            DS_DATA_MODEL::GetTheInstance().Save( tempFile );
         }
         catch( const IO_ERROR& )
         {
             // In case we started a file but didn't fully write it, clean up
-            wxRemoveFile( tempFile.GetFullPath() );
+            wxRemoveFile( tempFile);
 
             return false;
         }
 
-        if( !wxRenameFile( tempFile.GetFullPath(), aFullFileName ) )
+        if( !wxRenameFile( tempFile, aFullFileName ) )
             return false;
+
+        if( m_infoBar->GetMessageType() == WX_INFOBAR::MESSAGE_TYPE::OUTDATED_SAVE )
+            m_infoBar->Dismiss();
 
         GetScreen()->SetContentModified( false );
         return true;
     }
 
     return false;
+}
+
+void PL_EDITOR_FRAME::DoWithAcceptedFiles()
+{
+    for( const wxFileName& file : m_AcceptedFiles )
+        OpenProjectFiles( { file.GetFullPath() }, KICTL_CREATE );
 }

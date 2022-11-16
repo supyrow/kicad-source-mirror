@@ -1,8 +1,8 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2014 CERN
- * Copyright (C) 2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2014-2020 CERN
+ * Copyright (C) 2021-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * @author Maciej Suminski <maciej.suminski@cern.ch>
  *
@@ -55,10 +55,12 @@ public:
     int Open( const TOOL_EVENT& aEvent );
     int Save( const TOOL_EVENT& aEvent );
     int SaveAs( const TOOL_EVENT& aEvent );
-    int SaveCopyAs( const TOOL_EVENT& aEvent );
+    int SaveCopy( const TOOL_EVENT& aEvent );
+    int Revert( const TOOL_EVENT& aEvent );
     int PageSettings( const TOOL_EVENT& aEvent );
     int Plot( const TOOL_EVENT& aEvent );
 
+    int Search( const TOOL_EVENT& aEvent );
     int Find( const TOOL_EVENT& aEvent );
     int FindNext( const TOOL_EVENT& aEvent );
 
@@ -76,6 +78,8 @@ public:
     int UpdateSchematicFromPCB( const TOOL_EVENT& aEvent );
     int ShowEeschema( const TOOL_EVENT& aEvent );
     int ToggleLayersManager( const TOOL_EVENT& aEvent );
+    int ToggleProperties( const TOOL_EVENT& aEvent );
+    int ToggleSearch( const TOOL_EVENT& aEvent );
     int TogglePythonConsole( const TOOL_EVENT& aEvent );
 
     // Track & via size control
@@ -92,10 +96,14 @@ public:
 
     int EditFpInFpEditor( const TOOL_EVENT& aEvent );
 
-    /**
-     * Allow user to place a layer alignment target.
-     */
-    int PlaceTarget( const TOOL_EVENT& aEvent );
+    ///< Notify Eeschema about selected items.
+    int CrossProbeToSch( const TOOL_EVENT& aEvent );
+
+    ///< Equivalent to the above, but initiated by the user.
+    int ExplicitCrossProbeToSch( const TOOL_EVENT& aEvent );
+
+    ///< Assign a netclass to a labelled net.
+    int AssignNetclass( const TOOL_EVENT& aEvent );
 
     /**
      * Display a dialog to select a footprint to be added and allows the user to set its position.
@@ -131,6 +139,8 @@ private:
 
     ///< Set up handlers for various events.
     void setTransitions() override;
+
+    void doCrossProbePcbToSch( const TOOL_EVENT& aEvent, bool aForce );
 
 private:
     PCB_EDIT_FRAME*  m_frame;

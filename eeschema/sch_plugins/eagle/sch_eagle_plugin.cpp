@@ -25,7 +25,7 @@
 #include <sch_plugins/eagle/sch_eagle_plugin.h>
 
 #include <locale_io.h>
-#include <properties.h>
+#include <string_utf8_map.h>
 
 #include <algorithm>
 #include <memory>
@@ -70,15 +70,15 @@ using namespace std;
  * Map of EAGLE pin type values to KiCad pin type values
  */
 static const std::map<wxString, ELECTRICAL_PINTYPE> pinDirectionsMap = {
-    { "sup",    ELECTRICAL_PINTYPE::PT_POWER_IN },
-    { "pas",    ELECTRICAL_PINTYPE::PT_PASSIVE },
-    { "out",    ELECTRICAL_PINTYPE::PT_OUTPUT },
-    { "in",     ELECTRICAL_PINTYPE::PT_INPUT },
-    { "nc",     ELECTRICAL_PINTYPE::PT_NC },
-    { "io",     ELECTRICAL_PINTYPE::PT_BIDI },
-    { "oc",     ELECTRICAL_PINTYPE::PT_OPENCOLLECTOR },
-    { "hiz",    ELECTRICAL_PINTYPE::PT_TRISTATE },
-    { "pwr",    ELECTRICAL_PINTYPE::PT_POWER_IN },
+    { wxT( "sup" ),    ELECTRICAL_PINTYPE::PT_POWER_IN },
+    { wxT( "pas" ),    ELECTRICAL_PINTYPE::PT_PASSIVE },
+    { wxT( "out" ),    ELECTRICAL_PINTYPE::PT_OUTPUT },
+    { wxT( "in" ),     ELECTRICAL_PINTYPE::PT_INPUT },
+    { wxT( "nc" ),     ELECTRICAL_PINTYPE::PT_NC },
+    { wxT( "io" ),     ELECTRICAL_PINTYPE::PT_BIDI },
+    { wxT( "oc" ),     ELECTRICAL_PINTYPE::PT_OPENCOLLECTOR },
+    { wxT( "hiz" ),    ELECTRICAL_PINTYPE::PT_TRISTATE },
+    { wxT( "pwr" ),    ELECTRICAL_PINTYPE::PT_POWER_IN },
 };
 
 
@@ -111,9 +111,9 @@ static int countChildren( wxXmlNode* aCurrentNode, const wxString& aName )
 
 
 ///< Compute a bounding box for all items in a schematic sheet
-static EDA_RECT getSheetBbox( SCH_SHEET* aSheet )
+static BOX2I getSheetBbox( SCH_SHEET* aSheet )
 {
-    EDA_RECT bbox;
+    BOX2I bbox;
 
     for( SCH_ITEM* item : aSheet->GetScreen()->Items() )
         bbox.Merge( item->GetBoundingBox() );
@@ -126,6 +126,20 @@ static EDA_RECT getSheetBbox( SCH_SHEET* aSheet )
 static inline wxString extractNetName( const wxString& aPinName )
 {
     return aPinName.BeforeFirst( '@' );
+}
+
+
+SCH_SHEET* SCH_EAGLE_PLUGIN::getCurrentSheet()
+{
+    return m_sheetPath.Last();
+}
+
+
+SCH_SCREEN* SCH_EAGLE_PLUGIN::getCurrentScreen()
+{
+    SCH_SHEET* currentSheet = m_sheetPath.Last();
+    wxCHECK( currentSheet, nullptr );
+    return currentSheet->GetScreen();
 }
 
 
@@ -143,9 +157,9 @@ wxString SCH_EAGLE_PLUGIN::getLibName()
         }
 
         if( m_libName.IsEmpty() )
-            m_libName = "noname";
+            m_libName = wxT( "noname" );
 
-        m_libName += "-eagle-import";
+        m_libName += wxT( "-eagle-import" );
         m_libName = LIB_ID::FixIllegalChars( m_libName, true );
     }
 
@@ -196,15 +210,15 @@ void SCH_EAGLE_PLUGIN::loadLayerDefs( wxXmlNode* aLayers )
          * </layers>
          */
 
-        if( elayer.name == "Nets" )
+        if( elayer.name == wxT( "Nets" ) )
         {
             m_layerMap[elayer.number] = LAYER_WIRE;
         }
-        else if( elayer.name == "Info" || elayer.name == "Guide" )
+        else if( elayer.name == wxT( "Info" ) || elayer.name == wxT( "Guide" ) )
         {
             m_layerMap[elayer.number] = LAYER_NOTES;
         }
-        else if( elayer.name == "Busses" )
+        else if( elayer.name == wxT( "Busses" ) )
         {
             m_layerMap[elayer.number] = LAYER_BUS;
         }
@@ -227,7 +241,7 @@ static SYMBOL_ORIENTATION_T kiCadComponentRotation( float eagleDegrees )
     switch( roti )
     {
     default:
-        wxASSERT_MSG( false, wxString::Format( "Unhandled orientation (%d degrees)", roti ) );
+        wxASSERT_MSG( false, wxString::Format( wxT( "Unhandled orientation (%d degrees)" ), roti ) );
         KI_FALLTHROUGH;
 
     case 0:
@@ -357,7 +371,6 @@ SCH_EAGLE_PLUGIN::SCH_EAGLE_PLUGIN() :
     m_totalCount( 0 )
 {
     m_rootSheet    = nullptr;
-    m_currentSheet = nullptr;
     m_schematic    = nullptr;
 
     m_reporter     = &WXLOG_REPORTER::GetInstance();
@@ -371,19 +384,19 @@ SCH_EAGLE_PLUGIN::~SCH_EAGLE_PLUGIN()
 
 const wxString SCH_EAGLE_PLUGIN::GetName() const
 {
-    return "EAGLE";
+    return wxT( "EAGLE" );
 }
 
 
 const wxString SCH_EAGLE_PLUGIN::GetFileExtension() const
 {
-    return "sch";
+    return wxT( "sch" );
 }
 
 
 const wxString SCH_EAGLE_PLUGIN::GetLibraryFileExtension() const
 {
-    return "lbr";
+    return wxT( "lbr" );
 }
 
 
@@ -414,7 +427,7 @@ void SCH_EAGLE_PLUGIN::checkpoint()
 
 
 SCH_SHEET* SCH_EAGLE_PLUGIN::Load( const wxString& aFileName, SCHEMATIC* aSchematic,
-                                   SCH_SHEET* aAppendToMe, const PROPERTIES* aProperties )
+                                   SCH_SHEET* aAppendToMe, const STRING_UTF8_MAP* aProperties )
 {
     wxASSERT( !aFileName || aSchematic != nullptr );
     LOCALE_IO toggle; // toggles on, then off, the C locale.
@@ -448,7 +461,9 @@ SCH_SHEET* SCH_EAGLE_PLUGIN::Load( const wxString& aFileName, SCHEMATIC* aSchema
 
     if( aAppendToMe )
     {
-        wxCHECK_MSG( aSchematic->IsValid(), nullptr, "Can't append to a schematic with no root!" );
+        wxCHECK_MSG( aSchematic->IsValid(), nullptr,
+                     wxT( "Can't append to a schematic with no root!" ) );
+
         m_rootSheet = &aSchematic->Root();
     }
     else
@@ -467,10 +482,10 @@ SCH_SHEET* SCH_EAGLE_PLUGIN::Load( const wxString& aFileName, SCHEMATIC* aSchema
 
     SYMBOL_LIB_TABLE* libTable = m_schematic->Prj().SchSymbolLibTable();
 
-    wxCHECK_MSG( libTable, nullptr, "Could not load symbol lib table." );
+    wxCHECK_MSG( libTable, nullptr, wxT( "Could not load symbol lib table." ) );
 
     m_pi.set( SCH_IO_MGR::FindPlugin( SCH_IO_MGR::SCH_KICAD ) );
-    m_properties = std::make_unique<PROPERTIES>();
+    m_properties = std::make_unique<STRING_UTF8_MAP>();
     ( *m_properties )[SCH_LEGACY_PLUGIN::PropBuffering] = "";
 
     /// @note No check is being done here to see if the existing symbol library exists so this
@@ -479,11 +494,11 @@ SCH_SHEET* SCH_EAGLE_PLUGIN::Load( const wxString& aFileName, SCHEMATIC* aSchema
     {
         // Create a new empty symbol library.
         m_pi->CreateSymbolLib( getLibFileName().GetFullPath() );
-        wxString libTableUri = "${KIPRJMOD}/" + getLibFileName().GetFullName();
+        wxString libTableUri = wxT( "${KIPRJMOD}/" ) + getLibFileName().GetFullName();
 
         // Add the new library to the project symbol library table.
-        libTable->InsertRow(
-                new SYMBOL_LIB_TABLE_ROW( getLibName(), libTableUri, wxString( "KiCad" ) ) );
+        libTable->InsertRow( new SYMBOL_LIB_TABLE_ROW( getLibName(), libTableUri,
+                                                       wxT( "KiCad" ) ) );
 
         // Save project symbol library table.
         wxFileName fn( m_schematic->Prj().GetProjectPath(),
@@ -505,7 +520,7 @@ SCH_SHEET* SCH_EAGLE_PLUGIN::Load( const wxString& aFileName, SCHEMATIC* aSchema
 
     // If the attribute is found, store the Eagle version;
     // otherwise, store the dummy "0.0" version.
-    m_version = currentNode->GetAttribute( "version", "0.0" );
+    m_version = currentNode->GetAttribute( wxT( "version" ), wxT( "0.0" ) );
 
     // Map all children into a readable dictionary
     NODE_MAP children = MapChildren( currentNode );
@@ -555,7 +570,7 @@ void SCH_EAGLE_PLUGIN::countNets( wxXmlNode* aSchematicNode )
     NODE_MAP schematicChildren = MapChildren( aSchematicNode );
 
     // Loop through all the sheets
-    wxXmlNode* sheetNode = getChildrenNodes( schematicChildren, "sheets" );
+    wxXmlNode* sheetNode = getChildrenNodes( schematicChildren, wxT( "sheets" ) );
 
     while( sheetNode )
     {
@@ -563,11 +578,11 @@ void SCH_EAGLE_PLUGIN::countNets( wxXmlNode* aSchematicNode )
 
         // Loop through all nets
         // From the DTD: "Net is an electrical connection in a schematic."
-        wxXmlNode* netNode = getChildrenNodes( sheetChildren, "nets" );
+        wxXmlNode* netNode = getChildrenNodes( sheetChildren, wxT( "nets" ) );
 
         while( netNode )
         {
-            wxString netName = netNode->GetAttribute( "name" );
+            wxString netName = netNode->GetAttribute( wxT( "name" ) );
 
             if( m_netCounts.count( netName ) )
                 m_netCounts[netName] = m_netCounts[netName] + 1;
@@ -587,9 +602,9 @@ void SCH_EAGLE_PLUGIN::loadSchematic( wxXmlNode* aSchematicNode )
 {
     // Map all children into a readable dictionary
     NODE_MAP   schematicChildren = MapChildren( aSchematicNode );
-    wxXmlNode* partNode          = getChildrenNodes( schematicChildren, "parts" );
-    wxXmlNode* libraryNode       = getChildrenNodes( schematicChildren, "libraries" );
-    wxXmlNode* sheetNode         = getChildrenNodes( schematicChildren, "sheets" );
+    wxXmlNode* partNode          = getChildrenNodes( schematicChildren, wxT( "parts" ) );
+    wxXmlNode* libraryNode       = getChildrenNodes( schematicChildren, wxT( "libraries" ) );
+    wxXmlNode* sheetNode         = getChildrenNodes( schematicChildren, wxT( "sheets" ) );
 
     if( !sheetNode )
         return;
@@ -618,13 +633,13 @@ void SCH_EAGLE_PLUGIN::loadSchematic( wxXmlNode* aSchematicNode )
         while( libraryNode )
         {
             NODE_MAP libraryChildren = MapChildren( libraryNode );
-            wxXmlNode* devicesetNode = getChildrenNodes( libraryChildren, "devicesets" );
+            wxXmlNode* devicesetNode = getChildrenNodes( libraryChildren, wxT( "devicesets" ) );
 
             while( devicesetNode )
             {
                 NODE_MAP deviceSetChildren = MapChildren( devicesetNode );
-                wxXmlNode* deviceNode = getChildrenNodes( deviceSetChildren, "devices" );
-                wxXmlNode* gateNode = getChildrenNodes( deviceSetChildren, "gates" );
+                wxXmlNode* deviceNode = getChildrenNodes( deviceSetChildren, wxT( "devices" ) );
+                wxXmlNode* gateNode = getChildrenNodes( deviceSetChildren, wxT( "gates" ) );
 
                 m_totalCount += count_nodes( deviceNode ) * count_nodes( gateNode );
 
@@ -635,22 +650,22 @@ void SCH_EAGLE_PLUGIN::loadSchematic( wxXmlNode* aSchematicNode )
         }
 
         // Rewind
-        libraryNode = getChildrenNodes( schematicChildren, "libraries" );
+        libraryNode = getChildrenNodes( schematicChildren, wxT( "libraries" ) );
 
         while( sheetNode )
         {
             NODE_MAP sheetChildren = MapChildren( sheetNode );
 
-            m_totalCount += count_nodes( getChildrenNodes( sheetChildren, "instances" ) );
-            m_totalCount += count_nodes( getChildrenNodes( sheetChildren, "busses" ) );
-            m_totalCount += count_nodes( getChildrenNodes( sheetChildren, "nets" ) );
-            m_totalCount += count_nodes( getChildrenNodes( sheetChildren, "plain" ) );
+            m_totalCount += count_nodes( getChildrenNodes( sheetChildren, wxT( "instances" ) ) );
+            m_totalCount += count_nodes( getChildrenNodes( sheetChildren, wxT( "busses" ) ) );
+            m_totalCount += count_nodes( getChildrenNodes( sheetChildren, wxT( "nets" ) ) );
+            m_totalCount += count_nodes( getChildrenNodes( sheetChildren, wxT( "plain" ) ) );
 
             sheetNode = sheetNode->GetNext();
         }
 
         // Rewind
-        sheetNode = getChildrenNodes( schematicChildren, "sheets" );
+        sheetNode = getChildrenNodes( schematicChildren, wxT( "sheets" ) );
     }
 
     while( partNode )
@@ -669,7 +684,7 @@ void SCH_EAGLE_PLUGIN::loadSchematic( wxXmlNode* aSchematicNode )
         while( libraryNode )
         {
             // Read the library name
-            wxString libName = libraryNode->GetAttribute( "name" );
+            wxString libName = libraryNode->GetAttribute( wxT( "name" ) );
 
             EAGLE_LIBRARY* elib = &m_eagleLibs[libName];
             elib->name          = libName;
@@ -678,6 +693,7 @@ void SCH_EAGLE_PLUGIN::loadSchematic( wxXmlNode* aSchematicNode )
 
             libraryNode = libraryNode->GetNext();
         }
+
         m_pi->SaveLibrary( getLibFileName().GetFullPath() );
     }
 
@@ -686,35 +702,44 @@ void SCH_EAGLE_PLUGIN::loadSchematic( wxXmlNode* aSchematicNode )
     countNets( aSchematicNode );
 
     // Loop through all the sheets
-    int sheet_count = countChildren( sheetNode->GetParent(), "sheet" );
+    int sheet_count = countChildren( sheetNode->GetParent(), wxT( "sheet" ) );
 
     // If eagle schematic has multiple sheets then create corresponding subsheets on the root sheet
     if( sheet_count > 1 )
     {
         int x, y, i;
-        i = 1;
+        i = 2;
         x = 1;
         y = 1;
 
+        m_sheetPath.push_back( m_rootSheet );
+        m_rootSheet->AddInstance( m_sheetPath );
+        m_sheetPath.SetPageNumber( wxT( "1" ) );
+
         while( sheetNode )
         {
-            VECTOR2I                   pos    = VECTOR2I( x * Mils2iu( 1000 ), y * Mils2iu( 1000 ) );
-            std::unique_ptr<SCH_SHEET> sheet  = std::make_unique<SCH_SHEET>( m_rootSheet, pos );
+            VECTOR2I                   pos    = VECTOR2I( x * schIUScale.MilsToIU( 1000 ),
+                                                          y * schIUScale.MilsToIU( 1000 ) );
+            std::unique_ptr<SCH_SHEET> sheet  = std::make_unique<SCH_SHEET>( getCurrentSheet(),
+                                                                             pos );
             SCH_SCREEN*                screen = new SCH_SCREEN( m_schematic );
+            wxString                   pageNo = wxString::Format( wxT( "%d" ), i );
 
             sheet->SetScreen( screen );
             sheet->GetScreen()->SetFileName( sheet->GetFileName() );
-
-            m_currentSheet = sheet.get();
+            m_sheetPath.push_back( sheet.get() );
             loadSheet( sheetNode, i );
-            m_rootSheet->GetScreen()->Append( sheet.release() );
 
-            SCH_SHEET_PATH sheetpath;
-            m_rootSheet->LocatePathOfScreen( m_currentSheet->GetScreen(), &sheetpath );
-            sheetpath.push_back( m_currentSheet );
+            SCH_SCREEN* currentScreen = getCurrentScreen();
 
-            m_rootSheet->AddInstance( sheetpath );
-            m_rootSheet->SetPageNumber( sheetpath, wxString::Format( "%d", i ) );
+            wxCHECK2( currentScreen, continue );
+            currentScreen->Append( sheet.release() );
+
+            sheet->AddInstance( m_sheetPath );
+            m_sheetPath.SetPageNumber( pageNo );
+            m_rootSheet->AddInstance( m_sheetPath );
+            m_rootSheet->SetPageNumber( m_sheetPath, pageNo );
+            m_sheetPath.pop_back();
 
             sheetNode = sheetNode->GetNext();
             x += 2;
@@ -732,14 +757,12 @@ void SCH_EAGLE_PLUGIN::loadSchematic( wxXmlNode* aSchematicNode )
     {
         while( sheetNode )
         {
-            m_currentSheet = m_rootSheet;
+            m_sheetPath.push_back( m_rootSheet );
             loadSheet( sheetNode, 0 );
             sheetNode = sheetNode->GetNext();
 
-            SCH_SHEET_PATH rootPath;
-            rootPath.push_back( m_rootSheet );
-            m_rootSheet->AddInstance( rootPath );
-            m_rootSheet->SetPageNumber( rootPath, wxT( "1" ) );
+            m_rootSheet->AddInstance( m_sheetPath );
+            m_sheetPath.SetPageNumber( wxT( "1" ) );
         }
     }
 
@@ -748,8 +771,8 @@ void SCH_EAGLE_PLUGIN::loadSchematic( wxXmlNode* aSchematicNode )
 
     // Calculate the already placed items bounding box and the page size to determine
     // placement for the new symbols
-    wxSize   pageSizeIU = m_rootSheet->GetScreen()->GetPageSettings().GetSizeIU();
-    EDA_RECT sheetBbox  = getSheetBbox( m_rootSheet );
+    wxSize   pageSizeIU = m_rootSheet->GetScreen()->GetPageSettings().GetSizeIU( schIUScale.IU_PER_MILS );
+    BOX2I    sheetBbox  = getSheetBbox( m_rootSheet );
     VECTOR2I newCmpPosition( sheetBbox.GetLeft(), sheetBbox.GetBottom() );
     int      maxY = sheetBbox.GetY();
 
@@ -760,7 +783,7 @@ void SCH_EAGLE_PLUGIN::loadSchematic( wxXmlNode* aSchematicNode )
     {
         const SCH_SYMBOL* origSymbol = cmp.second.cmp;
 
-        for( auto unitEntry : cmp.second.units )
+        for( auto& unitEntry : cmp.second.units )
         {
             if( unitEntry.second == false )
                 continue; // unit has been already processed
@@ -776,8 +799,8 @@ void SCH_EAGLE_PLUGIN::loadSchematic( wxXmlNode* aSchematicNode )
             symbol->AddHierarchicalReference( sheetpath.Path(), reference, unit );
 
             // Calculate the placement position
-            EDA_RECT cmpBbox = symbol->GetBoundingBox();
-            int      posY    = newCmpPosition.y + cmpBbox.GetHeight();
+            BOX2I cmpBbox = symbol->GetBoundingBox();
+            int   posY    = newCmpPosition.y + cmpBbox.GetHeight();
             symbol->SetPosition( VECTOR2I( newCmpPosition.x, posY ) );
             newCmpPosition.x += cmpBbox.GetWidth();
             maxY = std::max( maxY, posY );
@@ -801,23 +824,27 @@ void SCH_EAGLE_PLUGIN::loadSheet( wxXmlNode* aSheetNode, int aSheetIndex )
     NODE_MAP sheetChildren = MapChildren( aSheetNode );
 
     // Get description node
-    wxXmlNode* descriptionNode = getChildrenNodes( sheetChildren, "description" );
+    wxXmlNode* descriptionNode = getChildrenNodes( sheetChildren, wxT( "description" ) );
+
+    SCH_SHEET* sheet = getCurrentSheet();
+
+    wxCHECK( sheet, /* void */ );
 
     wxString    des;
     std::string filename;
-    SCH_FIELD&  sheetNameField = m_currentSheet->GetFields()[SHEETNAME];
-    SCH_FIELD&  filenameField = m_currentSheet->GetFields()[SHEETFILENAME];
+    SCH_FIELD&  sheetNameField = sheet->GetFields()[SHEETNAME];
+    SCH_FIELD&  filenameField = sheet->GetFields()[SHEETFILENAME];
 
     if( descriptionNode )
     {
         des = descriptionNode->GetContent();
-        des.Replace( "\n", "_", true );
+        des.Replace( wxT( "\n" ), wxT( "_" ), true );
         sheetNameField.SetText( des );
         filename = des.ToStdString();
     }
     else
     {
-        filename = wxString::Format( "%s_%d", m_filename.GetName(), aSheetIndex );
+        filename = wxString::Format( wxT( "%s_%d" ), m_filename.GetName(), aSheetIndex );
         sheetNameField.SetText( filename );
     }
 
@@ -829,12 +856,16 @@ void SCH_EAGLE_PLUGIN::loadSheet( wxXmlNode* aSheetNode, int aSheetIndex )
     fn.SetExt( KiCadSchematicFileExtension );
 
     filenameField.SetText( fn.GetFullName() );
-    m_currentSheet->GetScreen()->SetFileName( fn.GetFullPath() );
-    m_currentSheet->AutoplaceFields( m_currentSheet->GetScreen(), true );
 
+    SCH_SCREEN* screen = getCurrentScreen();
+
+    wxCHECK( screen, /* void */ );
+
+    screen->SetFileName( fn.GetFullPath() );
+    sheet->AutoplaceFields( screen, true );
 
     // Loop through all of the symbol instances.
-    wxXmlNode* instanceNode = getChildrenNodes( sheetChildren, "instances" );
+    wxXmlNode* instanceNode = getChildrenNodes( sheetChildren, wxT( "instances" ) );
 
     while( instanceNode )
     {
@@ -848,14 +879,14 @@ void SCH_EAGLE_PLUGIN::loadSheet( wxXmlNode* aSheetNode, int aSheetIndex )
     // From the DTD: "Buses receive names which determine which signals they include.
     // A bus is a drawing object. It does not create any electrical connections.
     // These are always created by means of the nets and their names."
-    wxXmlNode* busNode = getChildrenNodes( sheetChildren, "busses" );
+    wxXmlNode* busNode = getChildrenNodes( sheetChildren, wxT( "busses" ) );
 
     while( busNode )
     {
         checkpoint();
 
         // Get the bus name
-        wxString busName = translateEagleBusName( busNode->GetAttribute( "name" ) );
+        wxString busName = translateEagleBusName( busNode->GetAttribute( wxT( "name" ) ) );
 
         // Load segments of this bus
         loadSegments( busNode, busName, wxString() );
@@ -866,15 +897,15 @@ void SCH_EAGLE_PLUGIN::loadSheet( wxXmlNode* aSheetNode, int aSheetIndex )
 
     // Loop through all nets
     // From the DTD: "Net is an electrical connection in a schematic."
-    wxXmlNode* netNode = getChildrenNodes( sheetChildren, "nets" );
+    wxXmlNode* netNode = getChildrenNodes( sheetChildren, wxT( "nets" ) );
 
     while( netNode )
     {
         checkpoint();
 
         // Get the net name and class
-        wxString netName  = netNode->GetAttribute( "name" );
-        wxString netClass = netNode->GetAttribute( "class" );
+        wxString netName  = netNode->GetAttribute( wxT( "name" ) );
+        wxString netClass = netNode->GetAttribute( wxT( "class" ) );
 
         // Load segments of this net
         loadSegments( netNode, netName, netClass );
@@ -898,7 +929,7 @@ void SCH_EAGLE_PLUGIN::loadSheet( wxXmlNode* aSheetNode, int aSheetIndex )
      *  }
      */
 
-    wxXmlNode* plainNode = getChildrenNodes( sheetChildren, "plain" );
+    wxXmlNode* plainNode = getChildrenNodes( sheetChildren, wxT( "plain" ) );
 
     while( plainNode )
     {
@@ -906,60 +937,60 @@ void SCH_EAGLE_PLUGIN::loadSheet( wxXmlNode* aSheetNode, int aSheetIndex )
 
         wxString nodeName = plainNode->GetName();
 
-        if( nodeName == "text" )
+        if( nodeName == wxT( "text" ) )
         {
-            m_currentSheet->GetScreen()->Append( loadPlainText( plainNode ) );
+            screen->Append( loadPlainText( plainNode ) );
         }
-        else if( nodeName == "wire" )
+        else if( nodeName == wxT( "wire" ) )
         {
-            m_currentSheet->GetScreen()->Append( loadWire( plainNode ) );
+            screen->Append( loadWire( plainNode ) );
         }
-        else if( nodeName == "frame" )
+        else if( nodeName == wxT( "frame" ) )
         {
             std::vector<SCH_LINE*> lines;
 
             loadFrame( plainNode, lines );
 
             for( SCH_LINE* line : lines )
-                m_currentSheet->GetScreen()->Append( line );
+                screen->Append( line );
         }
 
         plainNode = plainNode->GetNext();
     }
 
     // Calculate the new sheet size.
-    EDA_RECT sheetBoundingBox = getSheetBbox( m_currentSheet );
+    BOX2I    sheetBoundingBox = getSheetBbox( sheet );
     VECTOR2I targetSheetSize = sheetBoundingBox.GetSize();
-    targetSheetSize += VECTOR2I( Mils2iu( 1500 ), Mils2iu( 1500 ) );
+    targetSheetSize += VECTOR2I( schIUScale.MilsToIU( 1500 ), schIUScale.MilsToIU( 1500 ) );
 
     // Get current Eeschema sheet size.
-    wxSize    pageSizeIU = m_currentSheet->GetScreen()->GetPageSettings().GetSizeIU();
-    PAGE_INFO pageInfo   = m_currentSheet->GetScreen()->GetPageSettings();
+    wxSize    pageSizeIU = screen->GetPageSettings().GetSizeIU( schIUScale.IU_PER_MILS );
+    PAGE_INFO pageInfo   = screen->GetPageSettings();
 
     // Increase if necessary
     if( pageSizeIU.x < targetSheetSize.x )
-        pageInfo.SetWidthMils( Iu2Mils( targetSheetSize.x ) );
+        pageInfo.SetWidthMils( schIUScale.IUToMils( targetSheetSize.x ) );
 
     if( pageSizeIU.y < targetSheetSize.y )
-        pageInfo.SetHeightMils( Iu2Mils( targetSheetSize.y ) );
+        pageInfo.SetHeightMils( schIUScale.IUToMils( targetSheetSize.y ) );
 
     // Set the new sheet size.
-    m_currentSheet->GetScreen()->SetPageSettings( pageInfo );
+    screen->SetPageSettings( pageInfo );
 
-    pageSizeIU = m_currentSheet->GetScreen()->GetPageSettings().GetSizeIU();
+    pageSizeIU = screen->GetPageSettings().GetSizeIU( schIUScale.IU_PER_MILS );
     VECTOR2I sheetcentre( pageSizeIU.x / 2, pageSizeIU.y / 2 );
     VECTOR2I itemsCentre = sheetBoundingBox.Centre();
 
     // round the translation to nearest 100mil to place it on the grid.
     VECTOR2I translation = sheetcentre - itemsCentre;
-    translation.x       = translation.x - translation.x % Mils2iu( 100 );
-    translation.y       = translation.y - translation.y % Mils2iu( 100 );
+    translation.x       = translation.x - translation.x % schIUScale.MilsToIU( 100 );
+    translation.y       = translation.y - translation.y % schIUScale.MilsToIU( 100 );
 
     // Add global net labels for the named power input pins in this sheet
-    for( SCH_ITEM* item : m_currentSheet->GetScreen()->Items().OfType( SCH_SYMBOL_T ) )
+    for( SCH_ITEM* item : screen->Items().OfType( SCH_SYMBOL_T ) )
     {
         SCH_SYMBOL* symbol = static_cast<SCH_SYMBOL*>( item );
-        addImplicitConnections( symbol, m_currentSheet->GetScreen(), true );
+        addImplicitConnections( symbol, screen, true );
     }
 
     m_connPoints.clear();
@@ -967,14 +998,13 @@ void SCH_EAGLE_PLUGIN::loadSheet( wxXmlNode* aSheetNode, int aSheetIndex )
     // Translate the items.
     std::vector<SCH_ITEM*> allItems;
 
-    std::copy( m_currentSheet->GetScreen()->Items().begin(),
-            m_currentSheet->GetScreen()->Items().end(), std::back_inserter( allItems ) );
+    std::copy( screen->Items().begin(), screen->Items().end(), std::back_inserter( allItems ) );
 
     for( SCH_ITEM* item : allItems )
     {
         item->SetPosition( item->GetPosition() + translation );
         item->ClearFlags();
-        m_currentSheet->GetScreen()->Update( item );
+        screen->Update( item );
 
     }
 }
@@ -1020,11 +1050,12 @@ void SCH_EAGLE_PLUGIN::loadSegments( wxXmlNode* aSegmentsNode, const wxString& n
 {
     // Loop through all segments
     wxXmlNode*  currentSegment = aSegmentsNode->GetChildren();
-    SCH_SCREEN* screen         = m_currentSheet->GetScreen();
+    SCH_SCREEN* screen         = getCurrentScreen();
 
-    int segmentCount = countChildren( aSegmentsNode, "segment" );
+    wxCHECK( screen, /* void */ );
 
-    // wxCHECK( screen, [>void<] );
+    int segmentCount = countChildren( aSegmentsNode, wxT( "segment" ) );
+
     while( currentSegment )
     {
         bool      labelled = false; // has a label been added to this continuously connected segment
@@ -1038,7 +1069,7 @@ void SCH_EAGLE_PLUGIN::loadSegments( wxXmlNode* aSegmentsNode, const wxString& n
 
         while( segmentAttribute )
         {
-            if( segmentAttribute->GetName() == "wire" )
+            if( segmentAttribute->GetName() == wxT( "wire" ) )
             {
                 SCH_LINE* wire = loadWire( segmentAttribute );
 
@@ -1075,11 +1106,11 @@ void SCH_EAGLE_PLUGIN::loadSegments( wxXmlNode* aSegmentsNode, const wxString& n
         {
             wxString nodeName = segmentAttribute->GetName();
 
-            if( nodeName == "junction" )
+            if( nodeName == wxT( "junction" ) )
             {
                 screen->Append( loadJunction( segmentAttribute ) );
             }
-            else if( nodeName == "label" )
+            else if( nodeName == wxT( "label" ) )
             {
                 SCH_TEXT* label = loadLabel( segmentAttribute, netName );
                 screen->Append( label );
@@ -1088,13 +1119,13 @@ void SCH_EAGLE_PLUGIN::loadSegments( wxXmlNode* aSegmentsNode, const wxString& n
                 segDesc.labels.push_back( label );
                 labelled = true;
             }
-            else if( nodeName == "pinref" )
+            else if( nodeName == wxT( "pinref" ) )
             {
-                segmentAttribute->GetAttribute( "gate" ); // REQUIRED
-                wxString part = segmentAttribute->GetAttribute( "part" ); // REQUIRED
-                wxString pin = segmentAttribute->GetAttribute( "pin" );  // REQUIRED
+                segmentAttribute->GetAttribute( wxT( "gate" ) ); // REQUIRED
+                wxString part = segmentAttribute->GetAttribute( wxT( "part" ) ); // REQUIRED
+                wxString pin = segmentAttribute->GetAttribute( wxT( "pin" ) );  // REQUIRED
 
-                auto powerPort = m_powerPorts.find( "#" + part );
+                auto powerPort = m_powerPorts.find( wxT( "#" ) + part );
 
                 if( powerPort != m_powerPorts.end()
                         && powerPort->second == EscapeString( pin, CTX_NETNAME ) )
@@ -1102,7 +1133,7 @@ void SCH_EAGLE_PLUGIN::loadSegments( wxXmlNode* aSegmentsNode, const wxString& n
                     labelled = true;
                 }
             }
-            else if( nodeName == "wire" )
+            else if( nodeName == wxT( "wire" ) )
             {
                 // already handled;
             }
@@ -1132,7 +1163,8 @@ void SCH_EAGLE_PLUGIN::loadSegments( wxXmlNode* aSegmentsNode, const wxString& n
             {
                 label->SetPosition( firstWire->GetStartPoint() );
                 label->SetText( escapeName( netName ) );
-                label->SetTextSize( wxSize( Mils2iu( 40 ), Mils2iu( 40 ) ) );
+                label->SetTextSize( wxSize( schIUScale.MilsToIU( 40 ),
+                                            schIUScale.MilsToIU( 40 ) ) );
 
                 if( firstWire->GetEndPoint().x > firstWire->GetStartPoint().x )
                     label->SetTextSpinStyle( TEXT_SPIN_STYLE::LEFT );
@@ -1272,13 +1304,14 @@ SCH_EAGLE_PLUGIN::findNearestLinePoint( const VECTOR2I&         aPoint,
 void SCH_EAGLE_PLUGIN::loadInstance( wxXmlNode* aInstanceNode )
 {
     EINSTANCE   einstance = EINSTANCE( aInstanceNode );
-    SCH_SCREEN* screen = m_currentSheet->GetScreen();
+    SCH_SCREEN* screen = getCurrentScreen();
+
+    wxCHECK( screen, /* void */ );
 
     // Find the part in the list for the sheet.
     // Assign the symbol its value from the part entry
     // Calculate the unit number from the gate entry of the instance
     // Assign the LIB_ID from device set and device names
-
     auto part_it = m_partlist.find( einstance.part.Upper() );
 
     if( part_it == m_partlist.end() )
@@ -1296,7 +1329,7 @@ void SCH_EAGLE_PLUGIN::loadInstance( wxXmlNode* aInstanceNode )
     wxString libraryname = epart->library;
     wxString gatename    = epart->deviceset + epart->device + einstance.gate;
     wxString symbolname  = wxString( epart->deviceset + epart->device );
-    symbolname.Replace( "*", "" );
+    symbolname.Replace( wxT( "*" ), wxEmptyString );
     wxString kisymbolname = EscapeString( symbolname, CTX_LIBID );
 
     int unit = m_eagleLibs[libraryname].GateUnit[gatename];
@@ -1325,9 +1358,10 @@ void SCH_EAGLE_PLUGIN::loadInstance( wxXmlNode* aInstanceNode )
     symbol->SetLibId( libId );
     symbol->SetUnit( unit );
     symbol->SetPosition( VECTOR2I( einstance.x.ToSchUnits(), -einstance.y.ToSchUnits() ) );
+
     // assume that footprint library is identical to project name
-    wxString packageString = m_schematic->Prj().GetProjectName() + wxT( ":" ) + package;
-    symbol->GetField( FOOTPRINT_FIELD )->SetText( packageString );
+    wxString footprint = m_schematic->Prj().GetProjectName() + wxT( ":" ) + package;
+    symbol->GetField( FOOTPRINT_FIELD )->SetText( footprint );
 
     if( einstance.rot )
     {
@@ -1351,23 +1385,26 @@ void SCH_EAGLE_PLUGIN::loadInstance( wxXmlNode* aInstanceNode )
     // with a hash character to mute netlist updater complaints
     wxString reference = package.IsEmpty() ? '#' + einstance.part : einstance.part;
 
+    // reference must end with a number but EAGLE does not enforce this
+    if( reference.find_last_not_of( wxT( "0123456789" ) ) == ( reference.Length()-1 ) )
+        reference.Append( wxT( "0" ) );
+
     // EAGLE allows references to be single digits.  This breaks KiCad netlisting, which requires
     // parts to have non-digit + digit annotation.  If the reference begins with a number,
     // we prepend 'UNK' (unknown) for the symbol designator
-    if( reference.find_first_not_of( "0123456789" ) == wxString::npos )
-        reference.Prepend( "UNK" );
+    if( reference.find_first_not_of( wxT( "0123456789" ) ) != 0 )
+        reference.Prepend( wxT( "UNK" ) );
 
-    SCH_SHEET_PATH sheetpath;
-    m_rootSheet->LocatePathOfScreen( screen, &sheetpath );
-    wxString current_sheetpath = sheetpath.PathAsString() + symbol->m_Uuid.AsString();
+    // EAGLE allows designator to start with # but that is used in KiCad
+    // for symbols which do not have a footprint
+    if( einstance.part.find_first_not_of( wxT( "#" ) ) != 0 )
+        reference.Prepend( wxT( "UNK" ) );
 
     symbol->GetField( REFERENCE_FIELD )->SetText( reference );
-    symbol->AddHierarchicalReference( current_sheetpath, reference, unit );
 
-    if( epart->value )
-        symbol->GetField( VALUE_FIELD )->SetText( *epart->value );
-    else
-        symbol->GetField( VALUE_FIELD )->SetText( kisymbolname );
+    wxString value = ( epart->value ) ? kisymbolname : *epart->value;
+
+    symbol->GetField( VALUE_FIELD )->SetText( value );
 
     // Set the visibility of fields.
     symbol->GetField( REFERENCE_FIELD )->SetVisible(
@@ -1385,7 +1422,7 @@ void SCH_EAGLE_PLUGIN::loadInstance( wxXmlNode* aInstanceNode )
     for( const auto& a : epart->variant )
     {
         SCH_FIELD* field = symbol->AddField( *symbol->GetField( VALUE_FIELD ) );
-        field->SetName( "VARIANT_" + a.first );
+        field->SetName( wxT( "VARIANT_" ) + a.first );
         field->SetText( a.second );
         field->SetVisible( false );
     }
@@ -1398,17 +1435,17 @@ void SCH_EAGLE_PLUGIN::loadInstance( wxXmlNode* aInstanceNode )
     // Parse attributes for the instance
     while( attributeNode )
     {
-        if( attributeNode->GetName() == "attribute" )
+        if( attributeNode->GetName() == wxT( "attribute" ) )
         {
             EATTR      attr  = EATTR( attributeNode );
             SCH_FIELD* field = nullptr;
 
-            if( attr.name.Lower() == "name" )
+            if( attr.name.Lower() == wxT( "name" ) )
             {
                 field              = symbol->GetField( REFERENCE_FIELD );
                 nameAttributeFound = true;
             }
-            else if( attr.name.Lower() == "value" )
+            else if( attr.name.Lower() == wxT( "value" ) )
             {
                 field               = symbol->GetField( VALUE_FIELD );
                 valueAttributeFound = true;
@@ -1445,17 +1482,18 @@ void SCH_EAGLE_PLUGIN::loadInstance( wxXmlNode* aInstanceNode )
                                        absdegrees );
             }
         }
-        else if( attributeNode->GetName() == "variant" )
+        else if( attributeNode->GetName() == wxT( "variant" ) )
         {
-            wxString variant, value;
+            wxString variantName, fieldValue;
 
-            if( attributeNode->GetAttribute( "name", &variant )
-                    && attributeNode->GetAttribute( "value", &value ) )
+            if( attributeNode->GetAttribute( wxT( "name" ), &variantName )
+              && attributeNode->GetAttribute( wxT( "value" ), &fieldValue ) )
             {
-                SCH_FIELD* field = symbol->AddField( *symbol->GetField( VALUE_FIELD ) );
-                field->SetName( "VARIANT_" + variant );
-                field->SetText( value );
-                field->SetVisible( false );
+                SCH_FIELD field( VECTOR2I( 0, 0 ), -1, symbol.get() );
+                field.SetName( wxT( "VARIANT_" ) + variantName );
+                field.SetText( fieldValue );
+                field.SetVisible( false );
+                symbol->AddField( field );
             }
         }
 
@@ -1470,6 +1508,8 @@ void SCH_EAGLE_PLUGIN::loadInstance( wxXmlNode* aInstanceNode )
         if( !nameAttributeFound )
             symbol->GetField( REFERENCE_FIELD )->SetVisible( false );
     }
+
+    symbol->AddHierarchicalReference( m_sheetPath.Path(), reference, unit, value, footprint );
 
     // Save the pin positions
     SYMBOL_LIB_TABLE& schLibTable = *m_schematic->Prj().SchSymbolLibTable();
@@ -1500,27 +1540,27 @@ EAGLE_LIBRARY* SCH_EAGLE_PLUGIN::loadLibrary( wxXmlNode* aLibraryNode,
     NODE_MAP libraryChildren = MapChildren( aLibraryNode );
 
     // Loop through the symbols and load each of them
-    wxXmlNode* symbolNode = getChildrenNodes( libraryChildren, "symbols" );
+    wxXmlNode* symbolNode = getChildrenNodes( libraryChildren, wxT( "symbols" ) );
 
     while( symbolNode )
     {
-        wxString symbolName                    = symbolNode->GetAttribute( "name" );
+        wxString symbolName                    = symbolNode->GetAttribute( wxT( "name" ) );
         aEagleLibrary->SymbolNodes[symbolName] = symbolNode;
         symbolNode                             = symbolNode->GetNext();
     }
 
     // Loop through the device sets and load each of them
-    wxXmlNode* devicesetNode = getChildrenNodes( libraryChildren, "devicesets" );
+    wxXmlNode* devicesetNode = getChildrenNodes( libraryChildren, wxT( "devicesets" ) );
 
     while( devicesetNode )
     {
         // Get Device set information
         EDEVICE_SET edeviceset = EDEVICE_SET( devicesetNode );
 
-        wxString prefix = edeviceset.prefix ? edeviceset.prefix.Get() : "";
+        wxString prefix = edeviceset.prefix ? edeviceset.prefix.Get() : wxT( "" );
 
         NODE_MAP   deviceSetChildren = MapChildren( devicesetNode );
-        wxXmlNode* deviceNode        = getChildrenNodes( deviceSetChildren, "devices" );
+        wxXmlNode* deviceNode        = getChildrenNodes( deviceSetChildren, wxT( "devices" ) );
 
         // For each device in the device set:
         while( deviceNode )
@@ -1530,7 +1570,7 @@ EAGLE_LIBRARY* SCH_EAGLE_PLUGIN::loadLibrary( wxXmlNode* aLibraryNode,
 
             // Create symbol name from deviceset and device names.
             wxString symbolName = edeviceset.name + edevice.name;
-            symbolName.Replace( "*", "" );
+            symbolName.Replace( wxT( "*" ), wxEmptyString );
             wxASSERT( !symbolName.IsEmpty() );
             symbolName = EscapeString( symbolName, CTX_LIBID );
 
@@ -1541,8 +1581,8 @@ EAGLE_LIBRARY* SCH_EAGLE_PLUGIN::loadLibrary( wxXmlNode* aLibraryNode,
             std::unique_ptr<LIB_SYMBOL> libSymbol = std::make_unique<LIB_SYMBOL>( symbolName );
 
             // Process each gate in the deviceset for this device.
-            wxXmlNode* gateNode    = getChildrenNodes( deviceSetChildren, "gates" );
-            int        gates_count = countChildren( deviceSetChildren["gates"], "gate" );
+            wxXmlNode* gateNode    = getChildrenNodes( deviceSetChildren, wxT( "gates" ) );
+            int        gates_count = countChildren( deviceSetChildren["gates"], wxT( "gate" ) );
             libSymbol->SetUnitCount( gates_count );
             libSymbol->LockUnits( true );
 
@@ -1604,7 +1644,7 @@ EAGLE_LIBRARY* SCH_EAGLE_PLUGIN::loadLibrary( wxXmlNode* aLibraryNode,
 bool SCH_EAGLE_PLUGIN::loadSymbol( wxXmlNode* aSymbolNode, std::unique_ptr<LIB_SYMBOL>& aSymbol,
                                    EDEVICE* aDevice, int aGateNumber, const wxString& aGateName )
 {
-    wxString               symbolName = aSymbolNode->GetAttribute( "name" );
+    wxString               symbolName = aSymbolNode->GetAttribute( wxT( "name" ) );
     std::vector<LIB_ITEM*> items;
 
     wxXmlNode* currentNode = aSymbolNode->GetChildren();
@@ -1618,11 +1658,11 @@ bool SCH_EAGLE_PLUGIN::loadSymbol( wxXmlNode* aSymbolNode, std::unique_ptr<LIB_S
     {
         wxString nodeName = currentNode->GetName();
 
-        if( nodeName == "circle" )
+        if( nodeName == wxT( "circle" ) )
         {
             aSymbol->AddDrawItem( loadSymbolCircle( aSymbol, currentNode, aGateNumber ) );
         }
-        else if( nodeName == "pin" )
+        else if( nodeName == wxT( "pin" ) )
         {
             EPIN                     ePin = EPIN( currentNode );
             std::unique_ptr<LIB_PIN> pin( loadPin( aSymbol, currentNode, &ePin, aGateNumber ) );
@@ -1638,7 +1678,7 @@ bool SCH_EAGLE_PLUGIN::loadSymbol( wxXmlNode* aSymbolNode, std::unique_ptr<LIB_S
                     {
                         pin->SetType( pinDir.second );
 
-                        if( pinDir.first == "sup" ) // power supply symbol
+                        if( pinDir.first == wxT( "sup" ) ) // power supply symbol
                             ispower = true;
 
                         break;
@@ -1678,30 +1718,30 @@ bool SCH_EAGLE_PLUGIN::loadSymbol( wxXmlNode* aSymbolNode, std::unique_ptr<LIB_S
             else
             {
                 pin->SetUnit( aGateNumber );
-                pin->SetNumber( wxString::Format( "%i", pincount ) );
+                pin->SetNumber( wxString::Format( wxT( "%i" ), pincount ) );
                 aSymbol->AddDrawItem( pin.release() );
             }
         }
-        else if( nodeName == "polygon" )
+        else if( nodeName == wxT( "polygon" ) )
         {
             aSymbol->AddDrawItem( loadSymbolPolyLine( aSymbol, currentNode, aGateNumber ) );
         }
-        else if( nodeName == "rectangle" )
+        else if( nodeName == wxT( "rectangle" ) )
         {
             aSymbol->AddDrawItem( loadSymbolRectangle( aSymbol, currentNode, aGateNumber ) );
         }
-        else if( nodeName == "text" )
+        else if( nodeName == wxT( "text" ) )
         {
             std::unique_ptr<LIB_TEXT> libtext( loadSymbolText( aSymbol, currentNode,
                                                                aGateNumber ) );
 
-            if( libtext->GetText().Upper() == ">NAME" )
+            if( libtext->GetText().Upper() == wxT( ">NAME" ) )
             {
                 LIB_FIELD* field = aSymbol->GetFieldById( REFERENCE_FIELD );
                 loadFieldAttributes( field, libtext.get() );
                 foundName = true;
             }
-            else if( libtext->GetText().Upper() == ">VALUE" )
+            else if( libtext->GetText().Upper() == wxT( ">VALUE" ) )
             {
                 LIB_FIELD* field = aSymbol->GetFieldById( VALUE_FIELD );
                 loadFieldAttributes( field, libtext.get() );
@@ -1712,11 +1752,11 @@ bool SCH_EAGLE_PLUGIN::loadSymbol( wxXmlNode* aSymbolNode, std::unique_ptr<LIB_S
                 aSymbol->AddDrawItem( libtext.release() );
             }
         }
-        else if( nodeName == "wire" )
+        else if( nodeName == wxT( "wire" ) )
         {
             aSymbol->AddDrawItem( loadSymbolWire( aSymbol, currentNode, aGateNumber ) );
         }
-        else if( nodeName == "frame" )
+        else if( nodeName == wxT( "frame" ) )
         {
             std::vector<LIB_ITEM*> frameItems;
 
@@ -1725,6 +1765,7 @@ bool SCH_EAGLE_PLUGIN::loadSymbol( wxXmlNode* aSymbolNode, std::unique_ptr<LIB_S
             for( LIB_ITEM* item : frameItems )
             {
                 item->SetParent( aSymbol.get() );
+                item->SetUnit( aGateNumber );
                 aSymbol->AddDrawItem( item );
             }
         }
@@ -1879,7 +1920,7 @@ LIB_SHAPE* SCH_EAGLE_PLUGIN::loadSymbolPolyLine( std::unique_ptr<LIB_SYMBOL>& aS
 
     while( vertex )
     {
-        if( vertex->GetName() == "vertex" ) // skip <xmlattr> node
+        if( vertex->GetName() == wxT( "vertex" ) ) // skip <xmlattr> node
         {
             EVERTEX evertex( vertex );
             pt = VECTOR2I( evertex.x.ToSchUnits(), evertex.y.ToSchUnits() );
@@ -1912,23 +1953,23 @@ LIB_PIN* SCH_EAGLE_PLUGIN::loadPin( std::unique_ptr<LIB_SYMBOL>& aSymbol, wxXmlN
     case 90:  pin->SetOrientation( 'U' ); break;
     case 180: pin->SetOrientation( 'L' ); break;
     case 270: pin->SetOrientation( 'D' ); break;
-    default:  wxFAIL_MSG( wxString::Format( "Unhandled orientation (%d degrees).", roti ) );
+    default:  wxFAIL_MSG( wxString::Format( wxT( "Unhandled orientation (%d degrees)." ), roti ) );
     }
 
-    pin->SetLength( Mils2iu( 300 ) );  // Default pin length when not defined.
+    pin->SetLength( schIUScale.MilsToIU( 300 ) );  // Default pin length when not defined.
 
     if( aEPin->length )
     {
         wxString length = aEPin->length.Get();
 
-        if( length == "short" )
-            pin->SetLength( Mils2iu( 100 ) );
-        else if( length == "middle" )
-            pin->SetLength( Mils2iu( 200 ) );
-        else if( length == "long" )
-            pin->SetLength( Mils2iu( 300 ) );
-        else if( length == "point" )
-            pin->SetLength( Mils2iu( 0 ) );
+        if( length == wxT( "short" ) )
+            pin->SetLength( schIUScale.MilsToIU( 100 ) );
+        else if( length == wxT( "middle" ) )
+            pin->SetLength( schIUScale.MilsToIU( 200 ) );
+        else if( length == wxT( "long" ) )
+            pin->SetLength( schIUScale.MilsToIU( 300 ) );
+        else if( length == wxT( "point" ) )
+            pin->SetLength( schIUScale.MilsToIU( 0 ) );
     }
 
     // emulate the visibility of pin elements
@@ -1936,22 +1977,22 @@ LIB_PIN* SCH_EAGLE_PLUGIN::loadPin( std::unique_ptr<LIB_SYMBOL>& aSymbol, wxXmlN
     {
         wxString visible = aEPin->visible.Get();
 
-        if( visible == "off" )
+        if( visible == wxT( "off" ) )
         {
             pin->SetNameTextSize( 0 );
             pin->SetNumberTextSize( 0 );
         }
-        else if( visible == "pad" )
+        else if( visible == wxT( "pad" ) )
         {
             pin->SetNameTextSize( 0 );
         }
-        else if( visible == "pin" )
+        else if( visible == wxT( "pin" ) )
         {
             pin->SetNumberTextSize( 0 );
         }
 
         /*
-         *  else if( visible == "both" )
+         *  else if( visible == wxT( "both" ) )
          *  {
          *  }
          */
@@ -1961,11 +2002,11 @@ LIB_PIN* SCH_EAGLE_PLUGIN::loadPin( std::unique_ptr<LIB_SYMBOL>& aSymbol, wxXmlN
     {
         wxString function = aEPin->function.Get();
 
-        if( function == "dot" )
+        if( function == wxT( "dot" ) )
             pin->SetShape( GRAPHIC_PINSHAPE::INVERTED );
-        else if( function == "clk" )
+        else if( function == wxT( "clk" ) )
             pin->SetShape( GRAPHIC_PINSHAPE::CLOCK );
-        else if( function == "dotclk" )
+        else if( function == wxT( "dotclk" ) )
             pin->SetShape( GRAPHIC_PINSHAPE::INVERTED_CLOCK );
     }
 
@@ -1991,7 +2032,7 @@ LIB_TEXT* SCH_EAGLE_PLUGIN::loadSymbolText( std::unique_ptr<LIB_SYMBOL>& aSymbol
     std::replace( text.begin(), text.end(), '\n', '_' );
     std::replace( text.begin(), text.end(), '\r', '_' );
 
-    libtext->SetText( text.IsEmpty() ? "~" : text );
+    libtext->SetText( text.IsEmpty() ? wxT( "~" ) : text );
     loadTextAttributes( libtext.get(), etext );
 
     return libtext.release();
@@ -2024,15 +2065,17 @@ void SCH_EAGLE_PLUGIN::loadFrame( wxXmlNode* aFrameNode, std::vector<LIB_ITEM*>&
     if( !eframe.border_left )
     {
         lines = new LIB_SHAPE( nullptr, SHAPE_T::POLY );
-        lines->AddPoint( VECTOR2I( xMin + Mils2iu( 150 ), yMin + Mils2iu( 150 ) ) );
-        lines->AddPoint( VECTOR2I( xMin + Mils2iu( 150 ), yMax - Mils2iu( 150 ) ) );
+        lines->AddPoint( VECTOR2I( xMin + schIUScale.MilsToIU( 150 ),
+                                   yMin + schIUScale.MilsToIU( 150 ) ) );
+        lines->AddPoint( VECTOR2I( xMin + schIUScale.MilsToIU( 150 ),
+                                   yMax - schIUScale.MilsToIU( 150 ) ) );
         aItems.push_back( lines );
 
         int i;
         int height = yMax - yMin;
         int x1 = xMin;
-        int x2 = x1 + Mils2iu( 150 );
-        int legendPosX = xMin + Mils2iu( 75 );
+        int x2 = x1 + schIUScale.MilsToIU( 150 );
+        int legendPosX = xMin + schIUScale.MilsToIU( 75 );
         double rowSpacing = height / double( eframe.rows );
         double legendPosY = yMax - ( rowSpacing / 2 );
 
@@ -2052,7 +2095,8 @@ void SCH_EAGLE_PLUGIN::loadFrame( wxXmlNode* aFrameNode, std::vector<LIB_ITEM*>&
             LIB_TEXT* legendText = new LIB_TEXT( nullptr );
             legendText->SetPosition( VECTOR2I( legendPosX, KiROUND( legendPosY ) ) );
             legendText->SetText( wxString( legendChar ) );
-            legendText->SetTextSize( wxSize( Mils2iu( 90 ), Mils2iu( 100 ) ) );
+            legendText->SetTextSize( wxSize( schIUScale.MilsToIU( 90 ),
+                                             schIUScale.MilsToIU( 100 ) ) );
             aItems.push_back( legendText );
             legendChar++;
             legendPosY -= rowSpacing;
@@ -2062,15 +2106,17 @@ void SCH_EAGLE_PLUGIN::loadFrame( wxXmlNode* aFrameNode, std::vector<LIB_ITEM*>&
     if( !eframe.border_right )
     {
         lines = new LIB_SHAPE( nullptr, SHAPE_T::POLY );
-        lines->AddPoint( VECTOR2I( xMax - Mils2iu( 150 ), yMin + Mils2iu( 150 ) ) );
-        lines->AddPoint( VECTOR2I( xMax - Mils2iu( 150 ), yMax - Mils2iu( 150 ) ) );
+        lines->AddPoint( VECTOR2I( xMax - schIUScale.MilsToIU( 150 ),
+                                   yMin + schIUScale.MilsToIU( 150 ) ) );
+        lines->AddPoint( VECTOR2I( xMax - schIUScale.MilsToIU( 150 ),
+                                   yMax - schIUScale.MilsToIU( 150 ) ) );
         aItems.push_back( lines );
 
         int i;
         int height = yMax - yMin;
-        int x1 = xMax - Mils2iu( 150 );
+        int x1 = xMax - schIUScale.MilsToIU( 150 );
         int x2 = xMax;
-        int legendPosX = xMax - Mils2iu( 75 );
+        int legendPosX = xMax - schIUScale.MilsToIU( 75 );
         double rowSpacing = height / double( eframe.rows );
         double legendPosY = yMax - ( rowSpacing / 2 );
 
@@ -2090,7 +2136,8 @@ void SCH_EAGLE_PLUGIN::loadFrame( wxXmlNode* aFrameNode, std::vector<LIB_ITEM*>&
             LIB_TEXT* legendText = new LIB_TEXT( nullptr );
             legendText->SetPosition( VECTOR2I( legendPosX, KiROUND( legendPosY ) ) );
             legendText->SetText( wxString( legendChar ) );
-            legendText->SetTextSize( wxSize( Mils2iu( 90 ), Mils2iu( 100 ) ) );
+            legendText->SetTextSize( wxSize( schIUScale.MilsToIU( 90 ),
+                                             schIUScale.MilsToIU( 100 ) ) );
             aItems.push_back( legendText );
             legendChar++;
             legendPosY -= rowSpacing;
@@ -2100,15 +2147,17 @@ void SCH_EAGLE_PLUGIN::loadFrame( wxXmlNode* aFrameNode, std::vector<LIB_ITEM*>&
     if( !eframe.border_top )
     {
         lines = new LIB_SHAPE( nullptr, SHAPE_T::POLY );
-        lines->AddPoint( VECTOR2I( xMax - Mils2iu( 150 ), yMax - Mils2iu( 150 ) ) );
-        lines->AddPoint( VECTOR2I( xMin + Mils2iu( 150 ), yMax - Mils2iu( 150 ) ) );
+        lines->AddPoint( VECTOR2I( xMax - schIUScale.MilsToIU( 150 ),
+                                   yMax - schIUScale.MilsToIU( 150 ) ) );
+        lines->AddPoint( VECTOR2I( xMin + schIUScale.MilsToIU( 150 ),
+                                   yMax - schIUScale.MilsToIU( 150 ) ) );
         aItems.push_back( lines );
 
         int i;
         int width = xMax - xMin;
         int y1 = yMin;
-        int y2 = yMin + Mils2iu( 150 );
-        int legendPosY = yMax - Mils2iu( 75 );
+        int y2 = yMin + schIUScale.MilsToIU( 150 );
+        int legendPosY = yMax - schIUScale.MilsToIU( 75 );
         double columnSpacing = width / double( eframe.columns );
         double legendPosX = xMin + ( columnSpacing / 2 );
 
@@ -2128,7 +2177,8 @@ void SCH_EAGLE_PLUGIN::loadFrame( wxXmlNode* aFrameNode, std::vector<LIB_ITEM*>&
             LIB_TEXT* legendText = new LIB_TEXT( nullptr );
             legendText->SetPosition( VECTOR2I( KiROUND( legendPosX ), legendPosY ) );
             legendText->SetText( wxString( legendChar ) );
-            legendText->SetTextSize( wxSize( Mils2iu( 90 ), Mils2iu( 100 ) ) );
+            legendText->SetTextSize( wxSize( schIUScale.MilsToIU( 90 ),
+                                             schIUScale.MilsToIU( 100 ) ) );
             aItems.push_back( legendText );
             legendChar++;
             legendPosX += columnSpacing;
@@ -2138,15 +2188,17 @@ void SCH_EAGLE_PLUGIN::loadFrame( wxXmlNode* aFrameNode, std::vector<LIB_ITEM*>&
     if( !eframe.border_bottom )
     {
         lines = new LIB_SHAPE( nullptr, SHAPE_T::POLY );
-        lines->AddPoint( VECTOR2I( xMax - Mils2iu( 150 ), yMin + Mils2iu( 150 ) ) );
-        lines->AddPoint( VECTOR2I( xMin + Mils2iu( 150 ), yMin + Mils2iu( 150 ) ) );
+        lines->AddPoint( VECTOR2I( xMax - schIUScale.MilsToIU( 150 ),
+                                   yMin + schIUScale.MilsToIU( 150 ) ) );
+        lines->AddPoint( VECTOR2I( xMin + schIUScale.MilsToIU( 150 ),
+                                   yMin + schIUScale.MilsToIU( 150 ) ) );
         aItems.push_back( lines );
 
         int i;
         int width = xMax - xMin;
-        int y1 = yMax - Mils2iu( 150 );
+        int y1 = yMax - schIUScale.MilsToIU( 150 );
         int y2 = yMax;
-        int legendPosY = yMin + Mils2iu( 75 );
+        int legendPosY = yMin + schIUScale.MilsToIU( 75 );
         double columnSpacing = width / double( eframe.columns );
         double legendPosX = xMin + ( columnSpacing / 2 );
 
@@ -2166,7 +2218,8 @@ void SCH_EAGLE_PLUGIN::loadFrame( wxXmlNode* aFrameNode, std::vector<LIB_ITEM*>&
             LIB_TEXT* legendText = new LIB_TEXT( nullptr );
             legendText->SetPosition( VECTOR2I( KiROUND( legendPosX ), legendPosY ) );
             legendText->SetText( wxString( legendChar ) );
-            legendText->SetTextSize( wxSize( Mils2iu( 90 ), Mils2iu( 100 ) ) );
+            legendText->SetTextSize( wxSize( schIUScale.MilsToIU( 90 ),
+                                             schIUScale.MilsToIU( 100 ) ) );
             aItems.push_back( legendText );
             legendChar++;
             legendPosX += columnSpacing;
@@ -2198,7 +2251,7 @@ SCH_TEXT* SCH_EAGLE_PLUGIN::loadPlainText( wxXmlNode* aSchText )
         adjustedText += tmp;
     }
 
-    schtext->SetText( adjustedText.IsEmpty() ? "\" \"" : escapeName( adjustedText ) );
+    schtext->SetText( adjustedText.IsEmpty() ? wxT( "\" \"" ) : escapeName( adjustedText ) );
     schtext->SetPosition( VECTOR2I( etext.x.ToSchUnits(), -etext.y.ToSchUnits() ) );
     loadTextAttributes( schtext.get(), etext );
     schtext->SetItalic( false );
@@ -2279,7 +2332,7 @@ void SCH_EAGLE_PLUGIN::adjustNetLabels()
 
             // Create a vector pointing in the direction of the wire, 50 mils long
             VECTOR2I wireDirection( segAttached->B - segAttached->A );
-            wireDirection = wireDirection.Resize( Mils2iu( 50 ) );
+            wireDirection = wireDirection.Resize( schIUScale.MilsToIU( 50 ) );
             const VECTOR2I origPos( labelPos );
 
             // Flags determining the search direction
@@ -2330,19 +2383,21 @@ bool SCH_EAGLE_PLUGIN::CheckHeader( const wxString& aFileName )
     wxString thirdline  = tempFile.GetNextLine();
     tempFile.Close();
 
-    return firstline.StartsWith( "<?xml" ) && secondline.StartsWith( "<!DOCTYPE eagle SYSTEM" )
-           && thirdline.StartsWith( "<eagle version" );
+    return firstline.StartsWith( wxT( "<?xml" ) )
+            && secondline.StartsWith( wxT( "<!DOCTYPE eagle SYSTEM" ) )
+            && thirdline.StartsWith( wxT( "<eagle version" ) );
 }
 
 
 void SCH_EAGLE_PLUGIN::moveLabels( SCH_LINE* aWire, const VECTOR2I& aNewEndPoint )
 {
-    static KICAD_T labelTypes[] = { SCH_LABEL_LOCATE_ANY_T, EOT };
-    SCH_SCREEN*    screen = m_currentSheet->GetScreen();
+    SCH_SCREEN* screen = getCurrentScreen();
+
+    wxCHECK( screen, /* void */ );
 
     for( SCH_ITEM* item : screen->Items().Overlapping( aWire->GetBoundingBox() ) )
     {
-        if( !item->IsType( labelTypes ) )
+        if( !item->IsType( { SCH_LABEL_LOCATE_ANY_T } ) )
             continue;
 
         if( TestSegmentHit( item->GetPosition(), aWire->GetStartPoint(), aWire->GetEndPoint(), 0 ) )
@@ -2362,7 +2417,11 @@ void SCH_EAGLE_PLUGIN::addBusEntries()
     std::vector<SCH_LINE*> buses;
     std::vector<SCH_LINE*> wires;
 
-    for( SCH_ITEM* ii : m_currentSheet->GetScreen()->Items().OfType( SCH_LINE_T ) )
+    SCH_SCREEN* screen = getCurrentScreen();
+
+    wxCHECK( screen, /* void */ );
+
+    for( SCH_ITEM* ii : screen->Items().OfType( SCH_LINE_T ) )
     {
         SCH_LINE* line = static_cast<SCH_LINE*>( ii );
 
@@ -2385,8 +2444,8 @@ void SCH_EAGLE_PLUGIN::addBusEntries()
             auto entrySize =
                     []( int signX, int signY ) -> VECTOR2I
                     {
-                        return VECTOR2I( Mils2iu( DEFAULT_SCH_ENTRY_SIZE ) * signX,
-                                        Mils2iu( DEFAULT_SCH_ENTRY_SIZE ) * signY );
+                        return VECTOR2I( schIUScale.MilsToIU( DEFAULT_SCH_ENTRY_SIZE ) * signX,
+                                        schIUScale.MilsToIU( DEFAULT_SCH_ENTRY_SIZE ) * signY );
                     };
 
             auto testBusHit =
@@ -2421,7 +2480,7 @@ void SCH_EAGLE_PLUGIN::addBusEntries()
                              */
                             SCH_BUS_WIRE_ENTRY* busEntry = new SCH_BUS_WIRE_ENTRY( p, 1 );
                             busEntry->SetFlags( IS_NEW );
-                            m_currentSheet->GetScreen()->Append( busEntry );
+                            screen->Append( busEntry );
                             moveLabels( wire, p );
                             wire->SetStartPoint( p );
                         }
@@ -2434,7 +2493,7 @@ void SCH_EAGLE_PLUGIN::addBusEntries()
                              */
                             SCH_BUS_WIRE_ENTRY* busEntry = new SCH_BUS_WIRE_ENTRY( p, 2 );
                             busEntry->SetFlags( IS_NEW );
-                            m_currentSheet->GetScreen()->Append( busEntry );
+                            screen->Append( busEntry );
                             moveLabels( wire, p );
                             wire->SetStartPoint( p );
                         }
@@ -2442,7 +2501,7 @@ void SCH_EAGLE_PLUGIN::addBusEntries()
                         {
                             auto        ercItem = ERC_ITEM::Create( ERCE_BUS_ENTRY_NEEDED );
                             SCH_MARKER* marker = new SCH_MARKER( ercItem, wireStart );
-                            m_currentSheet->GetScreen()->Append( marker );
+                            screen->Append( marker );
                         }
                     }
                     else
@@ -2463,7 +2522,7 @@ void SCH_EAGLE_PLUGIN::addBusEntries()
                              */
                             SCH_BUS_WIRE_ENTRY* busEntry = new SCH_BUS_WIRE_ENTRY( p , 4 );
                             busEntry->SetFlags( IS_NEW );
-                            m_currentSheet->GetScreen()->Append( busEntry );
+                            screen->Append( busEntry );
                             moveLabels( wire, p );
                             wire->SetStartPoint( p );
                         }
@@ -2476,7 +2535,7 @@ void SCH_EAGLE_PLUGIN::addBusEntries()
                              */
                             SCH_BUS_WIRE_ENTRY* busEntry = new SCH_BUS_WIRE_ENTRY( p, 3 );
                             busEntry->SetFlags( IS_NEW );
-                            m_currentSheet->GetScreen()->Append( busEntry );
+                            screen->Append( busEntry );
                             moveLabels( wire, p );
                             wire->SetStartPoint( p );
                         }
@@ -2484,7 +2543,7 @@ void SCH_EAGLE_PLUGIN::addBusEntries()
                         {
                             auto        ercItem = ERC_ITEM::Create( ERCE_BUS_ENTRY_NEEDED );
                             SCH_MARKER* marker = new SCH_MARKER( ercItem, wireStart );
-                            m_currentSheet->GetScreen()->Append( marker );
+                            screen->Append( marker );
                         }
                     }
 
@@ -2512,7 +2571,7 @@ void SCH_EAGLE_PLUGIN::addBusEntries()
                              */
                             SCH_BUS_WIRE_ENTRY* busEntry = new SCH_BUS_WIRE_ENTRY( p, 1 );
                             busEntry->SetFlags( IS_NEW );
-                            m_currentSheet->GetScreen()->Append( busEntry );
+                            screen->Append( busEntry );
                             moveLabels( wire, p );
                             wire->SetEndPoint( p );
                         }
@@ -2525,7 +2584,7 @@ void SCH_EAGLE_PLUGIN::addBusEntries()
                              */
                             SCH_BUS_WIRE_ENTRY* busEntry = new SCH_BUS_WIRE_ENTRY( p, 2 );
                             busEntry->SetFlags( IS_NEW );
-                            m_currentSheet->GetScreen()->Append( busEntry );
+                            screen->Append( busEntry );
                             moveLabels( wire, wireEnd + entrySize( -1, 0 ) );
                             wire->SetEndPoint( wireEnd + entrySize( -1, 0 ) );
                         }
@@ -2533,7 +2592,7 @@ void SCH_EAGLE_PLUGIN::addBusEntries()
                         {
                             auto        ercItem = ERC_ITEM::Create( ERCE_BUS_ENTRY_NEEDED );
                             SCH_MARKER* marker = new SCH_MARKER( ercItem, wireEnd );
-                            m_currentSheet->GetScreen()->Append( marker );
+                            screen->Append( marker );
                         }
                     }
                     else
@@ -2554,7 +2613,7 @@ void SCH_EAGLE_PLUGIN::addBusEntries()
                              */
                             SCH_BUS_WIRE_ENTRY* busEntry = new SCH_BUS_WIRE_ENTRY( p, 4 );
                             busEntry->SetFlags( IS_NEW );
-                            m_currentSheet->GetScreen()->Append( busEntry );
+                            screen->Append( busEntry );
                             moveLabels( wire, p );
                             wire->SetEndPoint( p );
                         }
@@ -2567,7 +2626,7 @@ void SCH_EAGLE_PLUGIN::addBusEntries()
                              */
                             SCH_BUS_WIRE_ENTRY* busEntry = new SCH_BUS_WIRE_ENTRY( p, 3 );
                             busEntry->SetFlags( IS_NEW );
-                            m_currentSheet->GetScreen()->Append( busEntry );
+                            screen->Append( busEntry );
                             moveLabels( wire, p );
                             wire->SetEndPoint( p );
                         }
@@ -2575,7 +2634,7 @@ void SCH_EAGLE_PLUGIN::addBusEntries()
                         {
                             auto        ercItem = ERC_ITEM::Create( ERCE_BUS_ENTRY_NEEDED );
                             SCH_MARKER* marker = new SCH_MARKER( ercItem, wireEnd );
-                            m_currentSheet->GetScreen()->Append( marker );
+                            screen->Append( marker );
                         }
                     }
 
@@ -2610,7 +2669,7 @@ void SCH_EAGLE_PLUGIN::addBusEntries()
                              */
                             SCH_BUS_WIRE_ENTRY* busEntry = new SCH_BUS_WIRE_ENTRY( p, 3 );
                             busEntry->SetFlags( IS_NEW );
-                            m_currentSheet->GetScreen()->Append( busEntry );
+                            screen->Append( busEntry );
                             moveLabels( wire, p );
                             wire->SetStartPoint( p );
                         }
@@ -2624,7 +2683,7 @@ void SCH_EAGLE_PLUGIN::addBusEntries()
                              */
                             SCH_BUS_WIRE_ENTRY* busEntry = new SCH_BUS_WIRE_ENTRY( p, 2 );
                             busEntry->SetFlags( IS_NEW );
-                            m_currentSheet->GetScreen()->Append( busEntry );
+                            screen->Append( busEntry );
                             moveLabels( wire, p );
                             wire->SetStartPoint( p );
                         }
@@ -2632,7 +2691,7 @@ void SCH_EAGLE_PLUGIN::addBusEntries()
                         {
                             auto        ercItem = ERC_ITEM::Create( ERCE_BUS_ENTRY_NEEDED );
                             SCH_MARKER* marker = new SCH_MARKER( ercItem, wireStart );
-                            m_currentSheet->GetScreen()->Append( marker );
+                            screen->Append( marker );
                         }
                     }
                     else
@@ -2655,7 +2714,7 @@ void SCH_EAGLE_PLUGIN::addBusEntries()
                              */
                             SCH_BUS_WIRE_ENTRY* busEntry = new SCH_BUS_WIRE_ENTRY( p, 4 );
                             busEntry->SetFlags( IS_NEW );
-                            m_currentSheet->GetScreen()->Append( busEntry );
+                            screen->Append( busEntry );
                             moveLabels( wire, p );
                             wire->SetStartPoint( p );
                         }
@@ -2669,7 +2728,7 @@ void SCH_EAGLE_PLUGIN::addBusEntries()
                              */
                             SCH_BUS_WIRE_ENTRY* busEntry = new SCH_BUS_WIRE_ENTRY( p, 1 );
                             busEntry->SetFlags( IS_NEW );
-                            m_currentSheet->GetScreen()->Append( busEntry );
+                            screen->Append( busEntry );
                             moveLabels( wire, p );
                             wire->SetStartPoint( p );
                         }
@@ -2677,7 +2736,7 @@ void SCH_EAGLE_PLUGIN::addBusEntries()
                         {
                             auto        ercItem = ERC_ITEM::Create( ERCE_BUS_ENTRY_NEEDED );
                             SCH_MARKER* marker = new SCH_MARKER( ercItem, wireStart );
-                            m_currentSheet->GetScreen()->Append( marker );
+                            screen->Append( marker );
                         }
                     }
 
@@ -2707,7 +2766,7 @@ void SCH_EAGLE_PLUGIN::addBusEntries()
                              */
                             SCH_BUS_WIRE_ENTRY* busEntry = new SCH_BUS_WIRE_ENTRY( p, 3 );
                             busEntry->SetFlags( IS_NEW );
-                            m_currentSheet->GetScreen()->Append( busEntry );
+                            screen->Append( busEntry );
                             moveLabels( wire, p );
                             wire->SetEndPoint( p );
                         }
@@ -2721,7 +2780,7 @@ void SCH_EAGLE_PLUGIN::addBusEntries()
                              */
                             SCH_BUS_WIRE_ENTRY* busEntry = new SCH_BUS_WIRE_ENTRY( p, 2 );
                             busEntry->SetFlags( IS_NEW );
-                            m_currentSheet->GetScreen()->Append( busEntry );
+                            screen->Append( busEntry );
                             moveLabels( wire, p );
                             wire->SetEndPoint( p );
                         }
@@ -2729,7 +2788,7 @@ void SCH_EAGLE_PLUGIN::addBusEntries()
                         {
                             auto        ercItem = ERC_ITEM::Create( ERCE_BUS_ENTRY_NEEDED );
                             SCH_MARKER* marker = new SCH_MARKER( ercItem, wireEnd );
-                            m_currentSheet->GetScreen()->Append( marker );
+                            screen->Append( marker );
                         }
                     }
                     else
@@ -2752,7 +2811,7 @@ void SCH_EAGLE_PLUGIN::addBusEntries()
                              */
                             SCH_BUS_WIRE_ENTRY* busEntry = new SCH_BUS_WIRE_ENTRY( p, 4 );
                             busEntry->SetFlags( IS_NEW );
-                            m_currentSheet->GetScreen()->Append( busEntry );
+                            screen->Append( busEntry );
                             moveLabels( wire, p );
                             wire->SetEndPoint( p );
                         }
@@ -2766,7 +2825,7 @@ void SCH_EAGLE_PLUGIN::addBusEntries()
                              */
                             SCH_BUS_WIRE_ENTRY* busEntry = new SCH_BUS_WIRE_ENTRY( p, 1 );
                             busEntry->SetFlags( IS_NEW );
-                            m_currentSheet->GetScreen()->Append( busEntry );
+                            screen->Append( busEntry );
                             moveLabels( wire, p );
                             wire->SetEndPoint( p );
                         }
@@ -2774,7 +2833,7 @@ void SCH_EAGLE_PLUGIN::addBusEntries()
                         {
                             auto        ercItem = ERC_ITEM::Create( ERCE_BUS_ENTRY_NEEDED );
                             SCH_MARKER* marker = new SCH_MARKER( ercItem, wireEnd );
-                            m_currentSheet->GetScreen()->Append( marker );
+                            screen->Append( marker );
                         }
                     }
 
@@ -2796,7 +2855,7 @@ void SCH_EAGLE_PLUGIN::addBusEntries()
                             VECTOR2I            p = wireStart + entrySize( -1, -1 );
                             SCH_BUS_WIRE_ENTRY* busEntry = new SCH_BUS_WIRE_ENTRY( p, 2 );
                             busEntry->SetFlags( IS_NEW );
-                            m_currentSheet->GetScreen()->Append( busEntry );
+                            screen->Append( busEntry );
 
                             moveLabels( wire, p );
                             wire->SetStartPoint( p );
@@ -2806,7 +2865,7 @@ void SCH_EAGLE_PLUGIN::addBusEntries()
                             VECTOR2I            p = wireStart + entrySize( -1, 1 );
                             SCH_BUS_WIRE_ENTRY* busEntry = new SCH_BUS_WIRE_ENTRY( p, 1 );
                             busEntry->SetFlags( IS_NEW );
-                            m_currentSheet->GetScreen()->Append( busEntry );
+                            screen->Append( busEntry );
 
                             moveLabels( wire, p );
                             wire->SetStartPoint( p );
@@ -2819,7 +2878,7 @@ void SCH_EAGLE_PLUGIN::addBusEntries()
                             VECTOR2I            p = wireStart + entrySize( 1, -1 );
                             SCH_BUS_WIRE_ENTRY* busEntry = new SCH_BUS_WIRE_ENTRY( p, 3 );
                             busEntry->SetFlags( IS_NEW );
-                            m_currentSheet->GetScreen()->Append( busEntry );
+                            screen->Append( busEntry );
 
                             moveLabels( wire, p );
                             wire->SetStartPoint( p );
@@ -2829,7 +2888,7 @@ void SCH_EAGLE_PLUGIN::addBusEntries()
                             VECTOR2I            p = wireStart + entrySize( 1, 1 );
                             SCH_BUS_WIRE_ENTRY* busEntry = new SCH_BUS_WIRE_ENTRY( p, 4 );
                             busEntry->SetFlags( IS_NEW );
-                            m_currentSheet->GetScreen()->Append( busEntry );
+                            screen->Append( busEntry );
 
                             moveLabels( wire, p );
                             wire->SetStartPoint( p );
@@ -2849,7 +2908,7 @@ void SCH_EAGLE_PLUGIN::addBusEntries()
                             VECTOR2I            p = wireEnd + entrySize( 1, 1 );
                             SCH_BUS_WIRE_ENTRY* busEntry = new SCH_BUS_WIRE_ENTRY( p, 4 );
                             busEntry->SetFlags( IS_NEW );
-                            m_currentSheet->GetScreen()->Append( busEntry );
+                            screen->Append( busEntry );
 
                             moveLabels( wire, p );
                             wire->SetEndPoint( p );
@@ -2859,7 +2918,7 @@ void SCH_EAGLE_PLUGIN::addBusEntries()
                             VECTOR2I            p = wireEnd + entrySize( 1, -1 );
                             SCH_BUS_WIRE_ENTRY* busEntry = new SCH_BUS_WIRE_ENTRY( p, 3 );
                             busEntry->SetFlags( IS_NEW );
-                            m_currentSheet->GetScreen()->Append( busEntry );
+                            screen->Append( busEntry );
 
                             moveLabels( wire, p );
                             wire->SetEndPoint( p );
@@ -2872,7 +2931,7 @@ void SCH_EAGLE_PLUGIN::addBusEntries()
                             VECTOR2I            p = wireEnd + entrySize( -1, 1 );
                             SCH_BUS_WIRE_ENTRY* busEntry = new SCH_BUS_WIRE_ENTRY( p, 1 );
                             busEntry->SetFlags( IS_NEW );
-                            m_currentSheet->GetScreen()->Append( busEntry );
+                            screen->Append( busEntry );
 
                             moveLabels( wire, p );
                             wire->SetEndPoint( p );
@@ -2882,7 +2941,7 @@ void SCH_EAGLE_PLUGIN::addBusEntries()
                             VECTOR2I            p = wireEnd + entrySize( -1, -1 );
                             SCH_BUS_WIRE_ENTRY* busEntry = new SCH_BUS_WIRE_ENTRY( p, 2 );
                             busEntry->SetFlags( IS_NEW );
-                            m_currentSheet->GetScreen()->Append( busEntry );
+                            screen->Append( busEntry );
 
                             moveLabels( wire, p );
                             wire->SetEndPoint( p );
@@ -2915,6 +2974,8 @@ const SEG* SCH_EAGLE_PLUGIN::SEG_DESC::LabelAttached( const SCH_TEXT* aLabel ) c
 // (see SCH_EDIT_FRAME::importFile())
 bool SCH_EAGLE_PLUGIN::checkConnections( const SCH_SYMBOL* aSymbol, const LIB_PIN* aPin ) const
 {
+    wxCHECK( aSymbol && aPin, false );
+
     VECTOR2I pinPosition = aSymbol->GetPinPhysicalPosition( aPin );
     auto     pointIt     = m_connPoints.find( pinPosition );
 
@@ -2922,7 +2983,9 @@ bool SCH_EAGLE_PLUGIN::checkConnections( const SCH_SYMBOL* aSymbol, const LIB_PI
         return false;
 
     const auto& items = pointIt->second;
-    wxASSERT( items.find( aPin ) != items.end() );
+
+    wxCHECK( items.find( aPin ) != items.end(), false );
+
     return items.size() > 1;
 }
 
@@ -2959,7 +3022,8 @@ void SCH_EAGLE_PLUGIN::addImplicitConnections( SCH_SYMBOL* aSymbol, SCH_SCREEN* 
                     SCH_GLOBALLABEL* netLabel = new SCH_GLOBALLABEL;
                     netLabel->SetPosition( aSymbol->GetPinPhysicalPosition( pin ) );
                     netLabel->SetText( extractNetName( pin->GetName() ) );
-                    netLabel->SetTextSize( wxSize( Mils2iu( 40 ), Mils2iu( 40 ) ) );
+                    netLabel->SetTextSize( wxSize( schIUScale.MilsToIU( 40 ),
+                                                   schIUScale.MilsToIU( 40 ) ) );
 
                     switch( pin->GetOrientation() )
                     {
@@ -3021,9 +3085,9 @@ wxString SCH_EAGLE_PLUGIN::translateEagleBusName( const wxString& aEagleName ) c
     if( NET_SETTINGS::ParseBusVector( aEagleName, nullptr, nullptr ) )
         return aEagleName;
 
-    wxString ret = "{";
+    wxString ret = wxT( "{" );
 
-    wxStringTokenizer tokenizer( aEagleName, "," );
+    wxStringTokenizer tokenizer( aEagleName, wxT( "," ) );
 
     while( tokenizer.HasMoreTokens() )
     {
@@ -3035,13 +3099,13 @@ wxString SCH_EAGLE_PLUGIN::translateEagleBusName( const wxString& aEagleName ) c
         // to close it out before appending the space.
 
         if( member.Freq( '!' ) % 2 > 0 )
-            member << "!";
+            member << wxT( "!" );
 
-        ret << member << " ";
+        ret << member << wxS( " " );
     }
 
     ret.Trim( true );
-    ret << "}";
+    ret << wxT( "}" );
 
     return ret;
 }

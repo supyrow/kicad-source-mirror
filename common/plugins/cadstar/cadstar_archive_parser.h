@@ -988,7 +988,7 @@ public:
                                                           ///< that this could be empty in earlier
                                                           ///< versions of CADSTAR
                 wxString Name = wxEmptyString;            ///< Can be empty. If empty the pin name
-                                                          ///< displayed wil be Identifier
+                                                          ///< displayed will be Identifier
                                                           ///< (subnode="PINNAME")
                                                           ///< This seems to be equivalent to "Pin
                                                           ///< Number" in KiCad.
@@ -1252,6 +1252,8 @@ public:
     {
         DFLTSETTINGS DefaultSettings;
         std::map<ATTRIBUTE_ID, ATTRCOL> AttributeColors;
+
+        bool IsVisible = true; // unclear what this represents - maybe all attributes are hidden?
 
         void Parse( XNODE* aNode, PARSER_CONTEXT* aContext ) override;
     };

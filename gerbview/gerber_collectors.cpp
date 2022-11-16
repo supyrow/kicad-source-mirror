@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2017-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2017-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -19,13 +19,6 @@
 
 #include "gerber_collectors.h"
 
-const KICAD_T GERBER_COLLECTOR::AllItems[] = {
-    GERBER_LAYOUT_T,
-    GERBER_IMAGE_T,
-    GERBER_DRAW_ITEM_T,
-    EOT
-};
-
 
 /**
  * The examining function within the INSPECTOR which is passed to the iterate function.
@@ -34,31 +27,25 @@ const KICAD_T GERBER_COLLECTOR::AllItems[] = {
  * @param testData is not used here.
  * @return SEARCH_QUIT if the iterator is to stop the scan, else SCAN_CONTINUE.
  */
-SEARCH_RESULT GERBER_COLLECTOR::Inspect( EDA_ITEM* testItem, void* testData )
+INSPECT_RESULT GERBER_COLLECTOR::Inspect( EDA_ITEM* testItem, void* testData )
 {
     if( testItem->HitTest( m_refPos ) )
         Append( testItem );
 
-    return SEARCH_RESULT::CONTINUE;
+    return INSPECT_RESULT::CONTINUE;
 }
 
 
-void GERBER_COLLECTOR::Collect( EDA_ITEM* aItem, const KICAD_T aScanList[],
-                                const VECTOR2I& aRefPos /*, const COLLECTORS_GUIDE& aGuide*/ )
+void GERBER_COLLECTOR::Collect( EDA_ITEM* aItem, const std::vector<KICAD_T>& aScanTypes,
+                                const VECTOR2I& aRefPos )
 {
     Empty();        // empty the collection, primary criteria list
 
-    // remember guide, pass it to Inspect()
-    //SetGuide( &aGuide );
-
-    SetScanTypes( aScanList );
+    SetScanTypes( aScanTypes );
 
     // remember where the snapshot was taken from and pass refPos to
     // the Inspect() function.
     SetRefPos( aRefPos );
 
     aItem->Visit( m_inspector, nullptr, m_scanTypes );
-
-    // record the length of the primary list before concatenating on to it.
-    m_PrimaryLength = m_list.size();
 }

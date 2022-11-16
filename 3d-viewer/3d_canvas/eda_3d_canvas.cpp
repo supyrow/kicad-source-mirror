@@ -55,11 +55,9 @@
  */
 const wxChar* EDA_3D_CANVAS::m_logTrace = wxT( "KI_TRACE_EDA_3D_CANVAS" );
 
-const float EDA_3D_CANVAS::m_delta_move_step_factor = 0.7f;
-
 
 // A custom event, used to call DoRePaint during an idle time
-wxDEFINE_EVENT( wxEVT_REFRESH_CUSTOM_COMMAND, wxEvent);
+wxDEFINE_EVENT( wxEVT_REFRESH_CUSTOM_COMMAND, wxEvent );
 
 
 BEGIN_EVENT_TABLE( EDA_3D_CANVAS, wxGLCanvas )
@@ -79,7 +77,6 @@ BEGIN_EVENT_TABLE( EDA_3D_CANVAS, wxGLCanvas )
 
     // other events
     EVT_ERASE_BACKGROUND( EDA_3D_CANVAS::OnEraseBackground )
-    //EVT_REFRESH_CUSTOM_COMMAND( ID_CUSTOM_EVENT_1, EDA_3D_CANVAS::OnRefreshRequest )
     EVT_CUSTOM(wxEVT_REFRESH_CUSTOM_COMMAND, ID_CUSTOM_EVENT_1, EDA_3D_CANVAS::OnRefreshRequest )
 
     EVT_CLOSE( EDA_3D_CANVAS::OnCloseWindow )
@@ -89,30 +86,28 @@ END_EVENT_TABLE()
 
 EDA_3D_CANVAS::EDA_3D_CANVAS( wxWindow* aParent, const int* aAttribList,
                               BOARD_ADAPTER& aBoardAdapter, CAMERA& aCamera,
-                              S3D_CACHE* a3DCachePointer )
-        : HIDPI_GL_CANVAS( aParent, wxID_ANY, aAttribList, wxDefaultPosition, wxDefaultSize,
-                           wxFULL_REPAINT_ON_RESIZE ),
-          m_eventDispatcher( nullptr ),
-          m_parentStatusBar( nullptr ),
-          m_parentInfoBar( nullptr ),
-          m_glRC( nullptr ),
-          m_is_opengl_initialized( false ),
-          m_is_opengl_version_supported( true ),
-          m_mouse_is_moving( false ),
-          m_mouse_was_moved( false ),
-          m_camera_is_moving( false ),
-          m_render_pivot( false ),
-          m_camera_moving_speed( 1.0f ),
-          m_strtime_camera_movement( 0 ),
-          m_animation_enabled( true ),
-          m_moving_speed_multiplier( 3 ),
-          m_boardAdapter( aBoardAdapter ),
-          m_camera( aCamera ),
-          m_3d_render( nullptr ),
-          m_opengl_supports_raytracing( true ),
-          m_render_raytracing_was_requested( false ),
-          m_accelerator3DShapes( nullptr ),
-          m_currentRollOverItem( nullptr )
+                              S3D_CACHE* a3DCachePointer ) :
+        HIDPI_GL_3D_CANVAS( aCamera, aParent, wxID_ANY, aAttribList, wxDefaultPosition,
+                            wxDefaultSize, wxFULL_REPAINT_ON_RESIZE ),
+        m_eventDispatcher( nullptr ),
+        m_parentStatusBar( nullptr ),
+        m_parentInfoBar( nullptr ),
+        m_glRC( nullptr ),
+        m_is_opengl_initialized( false ),
+        m_is_opengl_version_supported( true ),
+        m_editing_timeout_timer( this, wxID_HIGHEST + 1 ),
+        m_redraw_trigger_timer( this, wxID_HIGHEST + 2 ),
+        m_render_pivot( false ),
+        m_camera_moving_speed( 1.0f ),
+        m_strtime_camera_movement( 0 ),
+        m_animation_enabled( true ),
+        m_moving_speed_multiplier( 3 ),
+        m_boardAdapter( aBoardAdapter ),
+        m_3d_render( nullptr ),
+        m_opengl_supports_raytracing( true ),
+        m_render_raytracing_was_requested( false ),
+        m_accelerator3DShapes( nullptr ),
+        m_currentRollOverItem( nullptr )
 {
     wxLogTrace( m_logTrace, wxT( "EDA_3D_CANVAS::EDA_3D_CANVAS" ) );
 
@@ -132,7 +127,11 @@ EDA_3D_CANVAS::EDA_3D_CANVAS( wxWindow* aParent, const int* aAttribList,
     wxASSERT( m_3d_render_raytracing != nullptr );
     wxASSERT( m_3d_render_opengl != nullptr );
 
-    auto busy_indicator_factory = []() { return std::make_unique<WX_BUSY_INDICATOR>(); };
+    auto busy_indicator_factory =
+            []()
+            {
+                return std::make_unique<WX_BUSY_INDICATOR>();
+            };
 
     m_3d_render_raytracing->SetBusyIndicatorFactory( busy_indicator_factory );
     m_3d_render_opengl->SetBusyIndicatorFactory( busy_indicator_factory );
@@ -210,7 +209,7 @@ void EDA_3D_CANVAS::OnCloseWindow( wxCloseEvent& event )
 
 void EDA_3D_CANVAS::OnResize( wxSizeEvent& event )
 {
-    this->Request_refresh();
+    Request_refresh();
 }
 
 
@@ -372,8 +371,7 @@ void EDA_3D_CANVAS::DoRePaint()
 
     // !TODO: implement error reporter
     INFOBAR_REPORTER   warningReporter( m_parentInfoBar );
-    STATUSBAR_REPORTER activityReporter( m_parentStatusBar,
-                                         (int) EDA_3D_VIEWER_STATUSBAR::ACTIVITY );
+    STATUSBAR_REPORTER activityReporter( m_parentStatusBar, EDA_3D_VIEWER_STATUSBAR::ACTIVITY );
 
     unsigned strtime = GetRunningMicroSecs();
 
@@ -524,6 +522,14 @@ void EDA_3D_CANVAS::DoRePaint()
         render_pivot( curtime_delta_s, scale );
     }
 
+#if defined( KICAD_USE_3DCONNEXION )
+    if( m_render3dmousePivot )
+    {
+        const float scale = glm::min( m_camera.GetZoom(), 1.0f );
+        render3dmousePivot( scale );
+    }
+#endif
+
     // "Swaps the double-buffer of this window, making the back-buffer the
     //  front-buffer and vice versa, so that the output of the previous OpenGL
     //  commands is displayed on the window."
@@ -587,67 +593,16 @@ void EDA_3D_CANVAS::OnEraseBackground( wxEraseEvent& event )
 
 void EDA_3D_CANVAS::OnMouseWheel( wxMouseEvent& event )
 {
-    bool mouseActivity = false;
-
     wxLogTrace( m_logTrace, wxT( "EDA_3D_CANVAS::OnMouseWheel" ) );
 
-    if( m_camera_is_moving )
-        return;
+    OnMouseWheelCamera( event, m_boardAdapter.m_MousewheelPanning );
 
-    float delta_move = m_delta_move_step_factor * m_camera.GetZoom();
-
-    if( m_boardAdapter.m_MousewheelPanning )
-        delta_move *= 0.01f * event.GetWheelRotation();
-    else if( event.GetWheelRotation() < 0 )
-        delta_move = -delta_move;
-
-    // mousewheel_panning enabled:
-    //      wheel           -> pan;
-    //      wheel + shift   -> horizontal scrolling;
-    //      wheel + ctrl    -> zooming;
-    // mousewheel_panning disabled:
-    //      wheel + shift   -> vertical scrolling;
-    //      wheel + ctrl    -> horizontal scrolling;
-    //      wheel           -> zooming.
-
-    if( m_boardAdapter.m_MousewheelPanning && !event.ControlDown() )
-    {
-        if( event.GetWheelAxis() == wxMOUSE_WHEEL_HORIZONTAL || event.ShiftDown() )
-            m_camera.Pan( SFVEC3F( -delta_move, 0.0f, 0.0f ) );
-        else
-            m_camera.Pan( SFVEC3F( 0.0f, -delta_move, 0.0f ) );
-
-        mouseActivity = true;
-    }
-    else if( event.ShiftDown() && !m_boardAdapter.m_MousewheelPanning )
-    {
-        m_camera.Pan( SFVEC3F( 0.0f, -delta_move, 0.0f ) );
-        mouseActivity = true;
-    }
-    else if( event.ControlDown() && !m_boardAdapter.m_MousewheelPanning )
-    {
-        m_camera.Pan( SFVEC3F( delta_move, 0.0f, 0.0f ) );
-        mouseActivity = true;
-    }
-    else
-    {
-        mouseActivity = m_camera.Zoom( event.GetWheelRotation() > 0 ? 1.1f : 1/1.1f );
-    }
-
-    // If it results on a camera movement
-    if( mouseActivity )
+    if( m_mouse_was_moved )
     {
         DisplayStatus();
         Request_refresh();
-
-        m_mouse_is_moving = true;
-        m_mouse_was_moved = true;
-
         restart_editingTimeOut_Timer();
     }
-
-    // Update the cursor current mouse position on the camera
-    m_camera.SetCurMousePosition( GetNativePosition( event.GetPosition() ) );
 }
 
 
@@ -674,44 +629,37 @@ void EDA_3D_CANVAS::OnMagnify( wxMouseEvent& event )
 
 void EDA_3D_CANVAS::OnMouseMove( wxMouseEvent& event )
 {
-    //wxLogTrace( m_logTrace, wxT( "EDA_3D_CANVAS::OnMouseMove" ) );
-
     if( m_camera_is_moving )
         return;
 
-    const wxSize&  nativeWinSize  = GetNativePixelSize();
-    const wxPoint& nativePosition = GetNativePosition( event.GetPosition() );
+    OnMouseMoveCamera( event );
 
-    m_camera.SetCurWindowSize( nativeWinSize );
-
-    if( event.Dragging() )
+    if( m_mouse_was_moved )
     {
-        if( event.LeftIsDown() )            // Drag
-            m_camera.Drag( nativePosition );
-        else if( event.MiddleIsDown() )     // Pan
-            m_camera.Pan( nativePosition );
-
-        m_mouse_is_moving = true;
-        m_mouse_was_moved = true;
-
-        // orientation has changed, redraw mesh
         DisplayStatus();
         Request_refresh();
+        // *Do not* reactivate the timer here during the mouse move command:
+        // OnMiddleUp() will do it at the end of mouse drag/move command
     }
-
-    m_camera.SetCurMousePosition( nativePosition );
 
     if( !event.Dragging() && m_boardAdapter.m_Cfg->m_Render.engine == RENDER_ENGINE::OPENGL )
     {
-        STATUSBAR_REPORTER reporter( m_parentStatusBar,
-                                     static_cast<int>( EDA_3D_VIEWER_STATUSBAR::HOVERED_ITEM ) );
+        STATUSBAR_REPORTER reporter( m_parentStatusBar, EDA_3D_VIEWER_STATUSBAR::HOVERED_ITEM );
+        RAY                mouseRay = getRayAtCurrentMousePosition();
+        BOARD_ITEM*        rollOverItem = m_3d_render_raytracing->IntersectBoardItem( mouseRay );
 
-        RAY mouseRay = getRayAtCurrentMousePosition();
-
-        BOARD_ITEM *rollOverItem = m_3d_render_raytracing->IntersectBoardItem( mouseRay );
+        auto printNetInfo =
+                []( BOARD_CONNECTED_ITEM* aItem )
+                {
+                    return wxString::Format( _( "Net %s\tNet class %s" ),
+                                             aItem->GetNet()->GetNetname(),
+                                             aItem->GetNet()->GetNetClass()->GetName() );
+                };
 
         if( rollOverItem )
         {
+            wxString msg;
+
             if( rollOverItem != m_currentRollOverItem )
             {
                 m_3d_render_opengl->SetCurrentRollOverItem( rollOverItem );
@@ -724,58 +672,56 @@ void EDA_3D_CANVAS::OnMouseMove( wxMouseEvent& event )
             {
             case PCB_PAD_T:
             {
-                PAD* pad = dynamic_cast<PAD*>( rollOverItem );
+                PAD* pad = static_cast<PAD*>( rollOverItem );
 
-                if( pad && pad->IsOnCopperLayer() )
-                {
-                    reporter.Report( wxString::Format( _( "Net %s\tNetClass %s\tPadName %s" ),
-                                                       pad->GetNet()->GetNetname(),
-                                                       pad->GetNet()->GetNetClassName(),
-                                                       pad->GetNumber() ) );
-                }
-            }
+                if( !pad->GetNumber().IsEmpty() )
+                    msg += wxString::Format( _( "Pad %s\t" ), pad->GetNumber() );
+
+                if( pad->IsOnCopperLayer() )
+                    msg += printNetInfo( pad );
+
                 break;
+            }
 
             case PCB_FOOTPRINT_T:
             {
-                FOOTPRINT* footprint = dynamic_cast<FOOTPRINT*>( rollOverItem );
-
-                if( footprint )
-                    reporter.Report( footprint->GetReference() );
-            }
+                FOOTPRINT* footprint = static_cast<FOOTPRINT*>( rollOverItem );
+                msg += footprint->GetReference();
                 break;
+            }
 
             case PCB_TRACE_T:
             case PCB_VIA_T:
             case PCB_ARC_T:
             {
-                PCB_TRACK* track = dynamic_cast<PCB_TRACK*>( rollOverItem );
-
-                if( track )
-                {
-                    reporter.Report( wxString::Format( _( "Net %s\tNetClass %s" ),
-                                                       track->GetNet()->GetNetname(),
-                                                       track->GetNet()->GetNetClassName() ) );
-                }
-            }
+                PCB_TRACK* track = static_cast<PCB_TRACK*>( rollOverItem );
+                msg += printNetInfo( track );
                 break;
+            }
 
             case PCB_ZONE_T:
             {
-                ZONE* zone = dynamic_cast<ZONE*>( rollOverItem );
+                ZONE* zone = static_cast<ZONE*>( rollOverItem );
 
-                if( zone && zone->IsOnCopperLayer() )
+                if( !zone->GetZoneName().IsEmpty() )
                 {
-                    reporter.Report( wxString::Format( _( "Net %s\tNetClass %s" ),
-                                                       zone->GetNet()->GetNetname(),
-                                                       zone->GetNet()->GetNetClassName() ) );
+                    if( zone->GetIsRuleArea() )
+                        msg += wxString::Format( _( "Rule area %s\t" ), zone->GetZoneName() );
+                    else
+                        msg += wxString::Format( _( "Zone %s\t" ), zone->GetZoneName() );
                 }
-            }
+
+                if( zone->IsOnCopperLayer() )
+                    msg += printNetInfo( zone );
+
                 break;
+            }
 
             default:
                 break;
             }
+
+            reporter.Report( msg );
         }
         else
         {
@@ -847,8 +793,14 @@ void EDA_3D_CANVAS::OnMiddleUp( wxMouseEvent& event )
 }
 
 
-void EDA_3D_CANVAS::OnTimerTimeout_Editing( wxTimerEvent& /* event */ )
+void EDA_3D_CANVAS::OnTimerTimeout_Editing( wxTimerEvent& aEvent )
 {
+    if( aEvent.GetId() != m_editing_timeout_timer.GetId() )
+    {
+        aEvent.Skip();
+        return;
+    }
+
     m_mouse_is_moving = false;
     m_mouse_was_moved = false;
 
@@ -869,8 +821,14 @@ void EDA_3D_CANVAS::restart_editingTimeOut_Timer()
 }
 
 
-void EDA_3D_CANVAS::OnTimerTimeout_Redraw( wxTimerEvent& event )
+void EDA_3D_CANVAS::OnTimerTimeout_Redraw( wxTimerEvent& aEvent )
 {
+    if( aEvent.GetId() != m_redraw_trigger_timer.GetId() )
+    {
+        aEvent.Skip();
+        return;
+    }
+
     Request_refresh( true );
 }
 
@@ -957,7 +915,7 @@ bool EDA_3D_CANVAS::SetView3D( int aKeycode )
 
     const float delta_move = m_delta_move_step_factor * m_camera.GetZoom();
     const float arrow_moving_time_speed = 8.0f;
-    bool handled = false;
+    bool        handled = false;
 
     switch( aKeycode )
     {

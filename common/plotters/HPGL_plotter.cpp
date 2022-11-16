@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2017 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 2020-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2020-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -55,8 +55,8 @@
  *
  *  CP (Character Plot):
  *  CP {h, v};
- *  h         [-127.9999 .. 127.9999]  Anzahl der Zeichen horizontal
- *  v         [-127.9999 .. 127.9999]  Anzahl der Zeichen vertikal
+ *  h         [-127.9999 .. 127.9999]  Number of characters horizontally
+ *  v         [-127.9999 .. 127.9999]  Number of characters vertically
  *
  *  CS (Standard Character Set):
  *  CS {n};
@@ -219,13 +219,13 @@ static const char hpgl_end_polygon_cmd[] = "PM 2; FP; EP;\n";
 static const double PLUsPERDECIMIL = 0.1016;
 
 
-HPGL_PLOTTER::HPGL_PLOTTER()
-        : arcTargetChordLength( 0 ),
-          arcMinChordDegrees( 5.0, DEGREES_T ),
-          dashType( PLOT_DASH_TYPE::SOLID ),
-          useUserCoords( false ),
-          fitUserCoords( false ),
-          m_current_item( nullptr )
+HPGL_PLOTTER::HPGL_PLOTTER() :
+        m_arcTargetChordLength( 0 ),
+        m_arcMinChordDegrees( 5.0, DEGREES_T ),
+        m_lineStyle( PLOT_DASH_TYPE::SOLID ),
+        m_useUserCoords( false ),
+        m_fitUserCoords( false ),
+        m_current_item( nullptr )
 {
     SetPenSpeed( 40 );      // Default pen speed = 40 cm/s; Pen speed is *always* in cm
     SetPenNumber( 1 );      // Default pen num = 1
@@ -251,17 +251,17 @@ void HPGL_PLOTTER::SetViewport( const VECTOR2I& aOffset, double aIusPerDecimil,
 
 void HPGL_PLOTTER::SetTargetChordLength( double chord_len )
 {
-    arcTargetChordLength = userToDeviceSize( chord_len );
+    m_arcTargetChordLength = userToDeviceSize( chord_len );
 }
 
 
-bool HPGL_PLOTTER::StartPlot()
+bool HPGL_PLOTTER::StartPlot( const wxString& aPageNumber )
 {
     wxASSERT( m_outputFile );
-    fprintf( m_outputFile, "IN;VS%d;PU;PA;SP%d;\n", penSpeed, penNumber );
+    fprintf( m_outputFile, "IN;VS%d;PU;PA;SP%d;\n", m_penSpeed, m_penNumber );
 
     // Set HPGL Pen Thickness (in mm) (useful in polygon fill command)
-    double penThicknessMM = userToDeviceSize( penDiameter )/40;
+    double penThicknessMM = userToDeviceSize( m_penDiameter ) / 40;
     fprintf( m_outputFile, "PT %.1f;\n", penThicknessMM );
 
     return true;
@@ -279,9 +279,9 @@ bool HPGL_PLOTTER::EndPlot()
 
     if( m_items.size() > 0 )
     {
-        if( useUserCoords )
+        if( m_useUserCoords )
         {
-            if( fitUserCoords )
+            if( m_fitUserCoords )
             {
                 BOX2D bbox = m_items.front().bbox;
 
@@ -308,7 +308,7 @@ bool HPGL_PLOTTER::EndPlot()
         VECTOR2I       loc          = m_items.begin()->loc_start;
         bool           pen_up       = true;
         PLOT_DASH_TYPE current_dash = PLOT_DASH_TYPE::SOLID;
-        int            current_pen  = penNumber;
+        int            current_pen  = m_penNumber;
 
         for( HPGL_ITEM const& item : m_items )
         {
@@ -326,7 +326,7 @@ bool HPGL_PLOTTER::EndPlot()
             if( item.dashType != current_dash )
             {
                 current_dash = item.dashType;
-                fputs( lineTypeCommand( item.dashType ), m_outputFile );
+                fputs( lineStyleCommand( item.dashType ), m_outputFile );
             }
 
             if( item.pen != current_pen )
@@ -383,7 +383,7 @@ bool HPGL_PLOTTER::EndPlot()
 
 void HPGL_PLOTTER::SetPenDiameter( double diameter )
 {
-    penDiameter = diameter;
+    m_penDiameter = diameter;
 }
 
 
@@ -421,10 +421,10 @@ void HPGL_PLOTTER::Circle( const VECTOR2I& aCenter, int aDiameter, FILL_T aFill,
     SetCurrentLineWidth( aWidth );
 
     double const circumf             = 2.0 * M_PI * radius;
-    double const target_chord_length = arcTargetChordLength;
+    double const target_chord_length = m_arcTargetChordLength;
     EDA_ANGLE    chord_angle         = ANGLE_360 * target_chord_length / circumf;
 
-    chord_angle = std::max( arcMinChordDegrees, std::min( chord_angle, ANGLE_45 ) );
+    chord_angle = std::max( m_arcMinChordDegrees, std::min( chord_angle, ANGLE_45 ) );
 
     if( aFill == FILL_T::FILLED_SHAPE )
     {
@@ -491,7 +491,7 @@ void HPGL_PLOTTER::PlotPoly( const std::vector<VECTOR2I>& aCornerList, FILL_T aF
         m_current_item->content << hpgl_end_polygon_cmd; // Close, fill polygon and draw outlines
         m_current_item->pen_returns = true;
     }
-    else if( aWidth > 0 )
+    else if( aWidth != 0 )
     {
         // Plot only the polygon outline.
         for( unsigned ii = 1; ii < aCornerList.size(); ii++ )
@@ -542,9 +542,9 @@ void HPGL_PLOTTER::PenTo( const VECTOR2I& pos, char plume )
 }
 
 
-void HPGL_PLOTTER::SetDash( PLOT_DASH_TYPE dashed )
+void HPGL_PLOTTER::SetDash( int aLineWidth, PLOT_DASH_TYPE aLineStyle )
 {
-    dashType = dashed;
+    m_lineStyle = aLineStyle;
     flushItem();
 }
 
@@ -555,7 +555,7 @@ void HPGL_PLOTTER::ThickSegment( const VECTOR2I& start, const VECTOR2I& end,
     wxASSERT( m_outputFile );
 
     // Suppress overlap if pen is too big
-    if( penDiameter >= width )
+    if( m_penDiameter >= width )
     {
         MoveTo( start );
         FinishTo( end );
@@ -570,17 +570,15 @@ void HPGL_PLOTTER::ThickSegment( const VECTOR2I& start, const VECTOR2I& end,
 void HPGL_PLOTTER::Arc( const VECTOR2I& aCenter, const EDA_ANGLE& aStartAngle,
                         const EDA_ANGLE& aEndAngle, int aRadius, FILL_T aFill, int aWidth )
 {
-    wxASSERT( m_outputFile );
-
     if( aRadius <= 0 )
         return;
 
     double const radius_device       = userToDeviceSize( aRadius );
     double const circumf_device      = 2.0 * M_PI * radius_device;
-    double const target_chord_length = arcTargetChordLength;
+    double const target_chord_length = m_arcTargetChordLength;
     EDA_ANGLE    chord_angle         = ANGLE_360 * target_chord_length / circumf_device;
 
-    chord_angle = std::max( arcMinChordDegrees, std::min( chord_angle, ANGLE_45 ) );
+    chord_angle = std::max( m_arcMinChordDegrees, std::min( chord_angle, ANGLE_45 ) );
 
     VECTOR2D  centre_device = userToDeviceCoordinates( aCenter );
     EDA_ANGLE angle;
@@ -611,6 +609,18 @@ void HPGL_PLOTTER::Arc( const VECTOR2I& aCenter, const EDA_ANGLE& aStartAngle,
 }
 
 
+void HPGL_PLOTTER::Arc( const VECTOR2I& aCenter, const VECTOR2I& aStart,
+                        const VECTOR2I& aEnd,
+                        FILL_T aFill, int aWidth, int aMaxError )
+{
+    EDA_ANGLE startAngle( aStart - aCenter );
+    EDA_ANGLE endAngle( aEnd - aCenter );
+    int       radius = ( aStart - aCenter ).EuclideanNorm();
+
+    Arc( aCenter, -endAngle, -startAngle, radius, aFill, aWidth );
+}
+
+
 void HPGL_PLOTTER::FlashPadOval( const VECTOR2I& aPos, const VECTOR2I& aSize,
                                  const EDA_ANGLE& aOrient, OUTLINE_MODE aTraceMode, void* aData )
 {
@@ -630,7 +640,7 @@ void HPGL_PLOTTER::FlashPadOval( const VECTOR2I& aPos, const VECTOR2I& aSize,
     {
         int deltaxy = size.y - size.x;     // distance between centers of the oval
 
-        FlashPadRect( aPos, VECTOR2I( size.x, deltaxy + KiROUND( penDiameter ) ), orient,
+        FlashPadRect( aPos, VECTOR2I( size.x, deltaxy + KiROUND( m_penDiameter ) ), orient,
                       aTraceMode, aData );
 
         VECTOR2I pt( 0, deltaxy / 2 );
@@ -643,7 +653,7 @@ void HPGL_PLOTTER::FlashPadOval( const VECTOR2I& aPos, const VECTOR2I& aSize,
     }
     else    // Plot in outline mode.
     {
-        sketchOval( aPos, size, orient, KiROUND( penDiameter ) );
+        sketchOval( aPos, size, orient, KiROUND( m_penDiameter ) );
     }
 }
 
@@ -659,11 +669,11 @@ void HPGL_PLOTTER::FlashPadCircle( const VECTOR2I& pos, int diametre,
     {
         // if filled mode, the pen diameter is removed from diameter
         // to keep the pad size
-        radius -= KiROUND( penDiameter ) / 2;
-    }
+        radius -= KiROUND( m_penDiameter ) / 2;
 
-    if( radius < 0 )
-        radius = 0;
+        if( radius < 0 )
+            radius = 0;
+    }
 
     double rsize = userToDeviceSize( radius );
 
@@ -705,9 +715,9 @@ void HPGL_PLOTTER::FlashPadRect( const VECTOR2I& aPos, const VECTOR2I& aPadSize,
     {
         // in filled mode, the pen diameter is removed from size
         // to compensate the extra size due to this pen size
-        dx -= KiROUND( penDiameter ) / 2;
+        dx -= KiROUND( m_penDiameter ) / 2;
         dx = std::max( dx, 0);
-        dy -= KiROUND( penDiameter ) / 2;
+        dy -= KiROUND( m_penDiameter ) / 2;
         dy = std::max( dy, 0);
     }
 
@@ -741,9 +751,9 @@ void HPGL_PLOTTER::FlashPadRoundRect( const VECTOR2I& aPadPos, const VECTOR2I& a
     if( aTraceMode == FILLED )
     {
         // In filled mode, the pen diameter is removed from size to keep the pad size.
-        size.x -= KiROUND( penDiameter ) / 2;
+        size.x -= KiROUND( m_penDiameter ) / 2;
         size.x = std::max( size.x, 0);
-        size.y -= KiROUND( penDiameter ) / 2;
+        size.y -= KiROUND( m_penDiameter ) / 2;
         size.y = std::max( size.y, 0);
 
         // keep aCornerRadius to a value < min size x,y < 2:
@@ -843,8 +853,8 @@ bool HPGL_PLOTTER::startOrAppendItem( const VECTOR2D& location, wxString const& 
         item.loc_start = location;
         item.loc_end = location;
         item.bbox = BOX2D( location );
-        item.pen = penNumber;
-        item.dashType = dashType;
+        item.pen = m_penNumber;
+        item.dashType = m_lineStyle;
         item.content = content;
         m_items.push_back( item );
         m_current_item = &m_items.back();
@@ -921,9 +931,9 @@ void HPGL_PLOTTER::sortItems( std::list<HPGL_ITEM>& items )
 }
 
 
-const char* HPGL_PLOTTER::lineTypeCommand( PLOT_DASH_TYPE linetype )
+const char* HPGL_PLOTTER::lineStyleCommand( PLOT_DASH_TYPE aLineStyle )
 {
-    switch( linetype )
+    switch( aLineStyle )
     {
     case PLOT_DASH_TYPE::DASH:       return "LT 2 4 1;";
     case PLOT_DASH_TYPE::DOT:        return "LT 1 1 1;";

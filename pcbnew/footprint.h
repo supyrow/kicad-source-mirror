@@ -30,7 +30,6 @@
 #include <board_item_container.h>
 #include <board_item.h>
 #include <collectors.h>
-#include <convert_to_biu.h>
 #include <layer_ids.h> // ALL_LAYERS definition.
 #include <lib_id.h>
 #include <list>
@@ -40,6 +39,7 @@
 #include <pcb_item_containers.h>
 #include <fp_text.h>
 #include <functional>
+#include <math/vector3.h>
 
 class LINE_READER;
 class EDA_3D_CANVAS;
@@ -88,11 +88,6 @@ public:
     {
     }
 
-    struct VECTOR3D
-    {
-        double x, y, z;
-    };
-
     VECTOR3D m_Scale;       ///< 3D model scaling factor (dimensionless)
     VECTOR3D m_Rotation;    ///< 3D model rotation (degrees)
     VECTOR3D m_Offset;      ///< 3D model offset (mm)
@@ -107,7 +102,7 @@ class FOOTPRINT : public BOARD_ITEM_CONTAINER
 public:
     FOOTPRINT( BOARD* parent );
 
-     FOOTPRINT( const FOOTPRINT& aFootprint );
+    FOOTPRINT( const FOOTPRINT& aFootprint );
 
     // Move constructor and operator needed due to std containers inside the footprint
     FOOTPRINT( FOOTPRINT&& aFootprint );
@@ -142,7 +137,7 @@ public:
     void ClearAllNets();
 
     /**
-     * Old footprints do not alway have a valid UUID (some can be set to null uuid)
+     * Old footprints do not always have a valid UUID (some can be set to null uuid)
      * However null UUIDs, having a special meaning in editor, create issues when
      * editing a footprint
      * So all null uuids a re replaced by a valid uuid
@@ -159,7 +154,7 @@ public:
      *
      * @return The rectangle containing the pads for the normalized footprint.
      */
-    EDA_RECT GetFpPadsLocalBbox() const;
+    BOX2I GetFpPadsLocalBbox() const;
 
     /**
      * Return a bounding polygon for the shapes and pads in the footprint.
@@ -169,8 +164,8 @@ public:
     SHAPE_POLY_SET GetBoundingHull() const;
 
     // Virtual function
-    const EDA_RECT GetBoundingBox() const override;
-    const EDA_RECT GetBoundingBox( bool aIncludeText, bool aIncludeInvisibleText ) const;
+    const BOX2I GetBoundingBox() const override;
+    const BOX2I GetBoundingBox( bool aIncludeText, bool aIncludeInvisibleText ) const;
 
     PADS& Pads()             { return m_pads; }
     const PADS& Pads() const { return m_pads; }
@@ -208,10 +203,13 @@ public:
     const LIB_ID& GetFPID() const { return m_fpid; }
     void SetFPID( const LIB_ID& aFPID ) { m_fpid = aFPID; }
 
-    const wxString& GetDescription() const { return m_doc; }
+    wxString GetFPIDAsString() const { return m_fpid.Format(); }
+    void SetFPIDAsString( const wxString& aFPID ) { m_fpid.Parse( aFPID ); }
+
+    wxString GetDescription() const { return m_doc; }
     void SetDescription( const wxString& aDoc ) { m_doc = aDoc; }
 
-    const wxString& GetKeywords() const { return m_keywords; }
+    wxString GetKeywords() const { return m_keywords; }
     void SetKeywords( const wxString& aKeywords ) { m_keywords = aKeywords; }
 
     const KIID_PATH& GetPath() const { return m_path; }
@@ -247,11 +245,43 @@ public:
     void IncrementFlag() { m_arflag += 1; }
     int GetFlag() const { return m_arflag; }
 
-    // A bit of a hack until net ties are supported as first class citizens
     bool IsNetTie() const
     {
-        return GetKeywords().StartsWith( wxT( "net tie" ) );
+        for( const wxString& group : m_netTiePadGroups )
+        {
+            if( !group.IsEmpty() )
+                return true;
+        }
+
+        return false;
     }
+
+    /**
+     * @return a list of pad groups, each of which is allowed to short nets within their group.
+     *         A pad group is a comma-separated list of pad numbers.
+     */
+    const std::vector<wxString>& GetNetTiePadGroups() const { return m_netTiePadGroups; }
+
+    void ClearNetTiePadGroups()
+    {
+        m_netTiePadGroups.clear();
+    }
+
+    void AddNetTiePadGroup( const wxString& aGroup )
+    {
+        m_netTiePadGroups.emplace_back( aGroup );
+    }
+
+    /**
+     * @return a map from pad numbers to net-tie group indicies.  If a pad is not a member of
+     *         a net-tie group its index will be -1.
+     */
+    std::map<wxString, int> MapPadNumbersToNetTieGroups() const;
+
+    /**
+     * @return a list of pads that appear in \a aPad's net-tie pad group.
+     */
+    std::vector<PAD*> GetNetTiePads( PAD* aPad ) const;
 
     /**
      * Returns the most likely attribute based on pads
@@ -316,6 +346,11 @@ public:
             m_fpStatus &= ~FP_is_LOCKED;
     }
 
+    /**
+     * @return true if the footprint is flagged with conflicting with some item
+     */
+    bool IsConflicting() const;
+
     bool IsPlaced() const { return m_fpStatus & FP_is_PLACED;  }
     void SetIsPlaced( bool isPlaced )
     {
@@ -336,54 +371,63 @@ public:
 
     bool LegacyPadsLocked() const { return m_fpStatus & FP_PADS_are_LOCKED;  }
 
-    /*
-    void SetPadsLocked( bool aPadsLocked )
-    {
-        if( aPadsLocked )
-            m_fpStatus |= FP_PADS_are_LOCKED;
-        else
-            m_fpStatus &= ~FP_PADS_are_LOCKED;
-    }
-    */
-
-    void SetLastEditTime( timestamp_t aTime ) { m_lastEditTime = aTime; }
-    void SetLastEditTime() { m_lastEditTime = time( nullptr ); }
-    timestamp_t GetLastEditTime() const { return m_lastEditTime; }
-
     /**
      * Test if footprint attributes for type (SMD/Through hole/Other) match the expected
      * type based on the pads in the footprint.
-     * Footprints with plated through-hole pads should usually be marked through hole even if they also
-     * have SMD because they might not be auto-placed.  Exceptions to this might be shielded connectors
-     * Otherwise, footprints with SMD pads should be marked SMD
+     * Footprints with plated through-hole pads should usually be marked through hole even if they
+     * also have SMD because they might not be auto-placed.  Exceptions to this might be shielded
+     * connectors.  Otherwise, footprints with SMD pads should be marked SMD.
      * Footprints with no connecting pads should be marked "Other"
      *
      * @param aErrorHandler callback to handle the error messages generated
      */
-    void CheckFootprintAttributes( const std::function<void( const wxString& msg )>* aErrorHandler );
+    void CheckFootprintAttributes( const std::function<void( const wxString& )>& aErrorHandler );
 
     /**
-     * Test if footprint attributes for type (SMD/Through hole/Other) match the expected
-     * type based on the pads in the footprint.
-     * Footprints with plated through-hole pads should usually be marked through hole even if they also
-     * have SMD because they might not be auto-placed.  Exceptions to this might be shielded connectors
-     * Otherwise, footprints with SMD pads should be marked SMD
-     * Footprints with no connecting pads should be marked "Other"
+     * Run non-board-specific DRC checks on footprint's pads.  These are the checks supported by
+     * both the PCB DRC and the Footprint Editor Footprint Checker.
      *
      * @param aErrorHandler callback to handle the error messages generated
      */
-    void CheckFootprintTHPadNoHoles( const std::function<void( const wxString& msg, const VECTOR2I& position )>*
-                                     aErrorHandler );
+    void CheckPads( const std::function<void( const PAD*, int, const wxString& )>& aErrorHandler );
+
+    /**
+     * Check for overlapping, different-numbered, non-net-tie pads.
+     *
+     * @param aErrorHandler callback to handle the error messages generated
+     */
+    void CheckShortingPads( const std::function<void( const PAD*,
+                                                      const PAD*,
+                                                      const VECTOR2I& )>& aErrorHandler );
+
+    /**
+     * Check for un-allowed shorting of pads in net-tie footprints.  If two pads are shorted,
+     * they must both appear in one of the allowed-shorting lists.
+     *
+     * @param aErrorHandler callback to handle the error messages generated
+     */
+    void CheckNetTies( const std::function<void( const BOARD_ITEM* aItem,
+                                                 const BOARD_ITEM* bItem,
+                                                 const BOARD_ITEM* cItem,
+                                                 const VECTOR2I& )>& aErrorHandler );
+
+    /**
+     * Sanity check net-tie pad groups.  Pads cannot be listed more than once, and pad numbers
+     * must correspond to a pad.
+     *
+     * @param aErrorHandler callback to handle the error messages generated
+     */
+    void CheckNetTiePadGroups( const std::function<void( const wxString& )>& aErrorHandler );
 
     /**
      * Generate pads shapes on layer \a aLayer as polygons and adds these polygons to
-     * \a aCornerBuffer.
+     * \a aBuffer.
      *
      * Useful to generate a polygonal representation of a footprint in 3D view and plot functions,
      * when a full polygonal approach is needed.
      *
      * @param aLayer is the layer to consider, or #UNDEFINED_LAYER to consider all layers.
-     * @param aCornerBuffer i the buffer to store polygons.
+     * @param aBuffer i the buffer to store polygons.
      * @param aClearance is an additional size to add to pad shapes.
      * @param aMaxError is the maximum deviation from true for arcs.
      * @param aSkipNPTHPadsWihNoCopper if true, do not add a NPTH pad shape, if the shape has
@@ -395,43 +439,39 @@ public:
      * @param aSkipPlatedPads is used on 3D-Viewer to extract plated and non-plated pads.
      * @param aSkipNonPlatedPads is used on 3D-Viewer to extract plated and plated pads.
      */
-    void TransformPadsWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuffer,
-                                              PCB_LAYER_ID aLayer, int aClearance,
-                                              int aMaxError, ERROR_LOC aErrorLoc,
-                                              bool aSkipNPTHPadsWihNoCopper = false,
-                                              bool aSkipPlatedPads = false,
-                                              bool aSkipNonPlatedPads = false ) const;
+    void TransformPadsToPolySet( SHAPE_POLY_SET& aBuffer, PCB_LAYER_ID aLayer, int aClearance,
+                                 int aMaxError, ERROR_LOC aErrorLoc,
+                                 bool aSkipNPTHPadsWihNoCopper = false,
+                                 bool aSkipPlatedPads = false,
+                                 bool aSkipNonPlatedPads = false ) const;
 
     /**
      * Generate shapes of graphic items (outlines) on layer \a aLayer as polygons and adds these
-     * polygons to \a aCornerBuffer.
+     * polygons to \a aBuffer.
      *
      * Useful to generate a polygonal representation of a footprint in 3D view and plot functions,
      * when a full polygonal approach is needed.
      *
      * @param aLayer is the layer to consider, or #UNDEFINED_LAYER to consider all.
-     * @param aCornerBuffer is the buffer to store polygons.
+     * @param aBuffer is the buffer to store polygons.
      * @param aClearance is a value to inflate shapes.
      * @param aError is the maximum error between true arc and polygon approximation.
      * @param aIncludeText set to true to transform text shapes.
      * @param aIncludeShapes set to true to transform footprint shapes.
      */
-    void TransformFPShapesWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuffer,
-                                                  PCB_LAYER_ID aLayer, int aClearance,
-                                                  int aError, ERROR_LOC aErrorLoc,
-                                                  bool aIncludeText = true,
-                                                  bool aIncludeShapes = true ) const;
+    void TransformFPShapesToPolySet( SHAPE_POLY_SET& aBuffer, PCB_LAYER_ID aLayer, int aClearance,
+                                     int aError, ERROR_LOC aErrorLoc,
+                                     bool aIncludeText = true,
+                                     bool aIncludeShapes = true,
+                                     bool aIncludePrivateItems = false ) const;
 
     /**
-     * This function is the same as TransformGraphicShapesWithClearanceToPolygonSet
-     * but only generate text.
+     * This function is the same as TransformFPShapesToPolySet but only generates text.
      */
-    void TransformFPTextWithClearanceToPolygonSet( SHAPE_POLY_SET& aCornerBuffer,
-                                                   PCB_LAYER_ID aLayer, int aClearance,
-                                                   int aError, ERROR_LOC aErrorLoc ) const
+    void TransformFPTextToPolySet( SHAPE_POLY_SET& aBuffer, PCB_LAYER_ID aLayer, int aClearance,
+                                   int aError, ERROR_LOC aErrorLoc ) const
     {
-        TransformFPShapesWithClearanceToPolygon( aCornerBuffer, aLayer, aClearance, aError,
-                                                 aErrorLoc, true, false );
+        TransformFPShapesToPolySet( aBuffer, aLayer, aClearance, aError, aErrorLoc, true, false );
     }
 
     /**
@@ -462,7 +502,7 @@ public:
      */
     bool HitTestAccurate( const VECTOR2I& aPosition, int aAccuracy = 0 ) const;
 
-    bool HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy = 0 ) const override;
+    bool HitTest( const BOX2I& aRect, bool aContained, int aAccuracy = 0 ) const override;
 
     /**
      * @return reference designator text.
@@ -479,6 +519,12 @@ public:
     void SetReference( const wxString& aReference )
     {
         m_reference->SetText( aReference );
+    }
+
+    // Property system doesn't like const references
+    wxString GetReferenceAsString() const
+    {
+        return GetReference();
     }
 
     /**
@@ -502,6 +548,12 @@ public:
         m_value->SetText( aValue );
     }
 
+    // Property system doesn't like const references
+    wxString GetValueAsString() const
+    {
+        return GetValue();
+    }
+
     /// read/write accessors:
     FP_TEXT& Value()           { return *m_value; }
     FP_TEXT& Reference()       { return *m_reference; }
@@ -510,14 +562,14 @@ public:
     FP_TEXT& Value() const     { return *m_value; }
     FP_TEXT& Reference() const { return *m_reference; }
 
-    const std::map<wxString, wxString>& GetProperties() const { return m_properties; }
+    const std::map<wxString, wxString>& GetProperties() const        { return m_properties; }
     void SetProperties( const std::map<wxString, wxString>& aProps ) { m_properties = aProps; }
-    const wxString& GetProperty( const wxString& aKey) { return m_properties[ aKey ]; }
+    const wxString& GetProperty( const wxString& aKey)               { return m_properties[ aKey ]; }
     bool HasProperty( const wxString& aKey)
     {
         return m_properties.find( aKey ) != m_properties.end();
     }
-    void SetProperty( const wxString& aKey, const wxString& aVal ) { m_properties[ aKey ] = aVal; }
+    void SetProperty( const wxString& aKey, const wxString& aVal )   { m_properties[ aKey ] = aVal; }
 
     /**
      * Return a #PAD with a matching number.
@@ -538,8 +590,6 @@ public:
      * @return A pointer to a #PAD object if found otherwise NULL.
      */
     PAD* GetPad( const VECTOR2I& aPosition, LSET aLayerMask = LSET::AllLayersMask() );
-
-    PAD* GetTopLeftPad();
 
     /**
      * Return the number of pads.
@@ -598,14 +648,15 @@ public:
      */
     void Add3DModel( FP_3DMODEL* a3DModel );
 
-    SEARCH_RESULT Visit( INSPECTOR inspector, void* testData, const KICAD_T scanTypes[] ) override;
+    INSPECT_RESULT Visit( INSPECTOR inspector, void* testData,
+                          const std::vector<KICAD_T>& aScanTypes ) override;
 
     wxString GetClass() const override
     {
         return wxT( "FOOTPRINT" );
     }
 
-    wxString GetSelectMenuText( EDA_UNITS aUnits ) const override;
+    wxString GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const override;
 
     BITMAPS GetMenuImage() const override;
 
@@ -619,15 +670,6 @@ public:
      * @param aFunction is the function to be invoked.
      */
     void RunOnChildren( const std::function<void (BOARD_ITEM*)>& aFunction ) const;
-
-    /**
-     * Return a set of all layers that this footprint has drawings on similar to ViewGetLayers().
-     *
-     * @param aLayers is an array to store layer ids.
-     * @param aCount is the number of layers stored in the array.
-     * @param aIncludePads controls whether to also include pad layers.
-     */
-    void GetAllDrawingLayers( int aLayers[], int& aCount, bool aIncludePads = true ) const;
 
     virtual void ViewGetLayers( int aLayers[], int& aCount ) const override;
 
@@ -698,13 +740,7 @@ public:
      *
      * @return the courtyard polygon.
      */
-    const SHAPE_POLY_SET& GetPolyCourtyard( PCB_LAYER_ID aLayer ) const
-    {
-        if( IsBackLayer( aLayer ) )
-            return m_poly_courtyard_back;
-        else
-            return m_poly_courtyard_front;
-    }
+    const SHAPE_POLY_SET& GetCourtyard( PCB_LAYER_ID aLayer ) const;
 
     /**
      * Build complex polygons of the courtyard areas from graphic items on the courtyard layers.
@@ -712,11 +748,14 @@ public:
      * @note Set the #MALFORMED_F_COURTYARD and #MALFORMED_B_COURTYARD status flags if the given
      *       courtyard layer does not contain a (single) closed shape.
      */
-    void BuildPolyCourtyards( OUTLINE_ERROR_HANDLER* aErrorHandler = nullptr );
+    void BuildCourtyardCaches( OUTLINE_ERROR_HANDLER* aErrorHandler = nullptr );
 
-    virtual std::shared_ptr<SHAPE> GetEffectiveShape( PCB_LAYER_ID aLayer = UNDEFINED_LAYER ) const override;
+    virtual std::shared_ptr<SHAPE> GetEffectiveShape( PCB_LAYER_ID aLayer = UNDEFINED_LAYER,
+            FLASHING aFlash = FLASHING::DEFAULT ) const override;
 
-    virtual void SwapData( BOARD_ITEM* aImage ) override;
+#if defined(DEBUG)
+    virtual void Show( int nestLevel, std::ostream& os ) const override { ShowDummy( os ); }
+#endif
 
     struct cmp_drawings
     {
@@ -733,10 +772,8 @@ public:
         bool operator()( const FP_ZONE* aFirst, const FP_ZONE* aSecond ) const;
     };
 
-
-#if defined(DEBUG)
-    virtual void Show( int nestLevel, std::ostream& os ) const override { ShowDummy( os ); }
-#endif
+protected:
+    virtual void swapData( BOARD_ITEM* aImage ) override;
 
 private:
     DRAWINGS        m_drawings;          // BOARD_ITEMs for drawings on the board, owned by pointer.
@@ -762,14 +799,18 @@ private:
     // that any edit that could affect the bounding boxes (including edits to the footprint
     // children) marked the bounding boxes dirty.  It would definitely be faster -- but also more
     // fragile.
-    mutable EDA_RECT       m_cachedBoundingBox;
+    mutable BOX2I          m_cachedBoundingBox;
     mutable int            m_boundingBoxCacheTimeStamp;
-    mutable EDA_RECT       m_cachedVisibleBBox;
+    mutable BOX2I          m_cachedVisibleBBox;
     mutable int            m_visibleBBoxCacheTimeStamp;
-    mutable EDA_RECT       m_cachedTextExcludedBBox;
+    mutable BOX2I          m_cachedTextExcludedBBox;
     mutable int            m_textExcludedBBoxCacheTimeStamp;
     mutable SHAPE_POLY_SET m_cachedHull;
     mutable int            m_hullCacheTimeStamp;
+
+    // A list of pad groups, each of which is allowed to short nets within their group.
+    // A pad group is a comma-separated list of pad numbers.
+    std::vector<wxString> m_netTiePadGroups;
 
     ZONE_CONNECTION m_zoneConnection;
     int             m_localClearance;
@@ -790,8 +831,9 @@ private:
     wxArrayString*                m_initial_comments;  // s-expression comments in the footprint,
                                                        // lazily allocated only if needed for speed
 
-    SHAPE_POLY_SET  m_poly_courtyard_front;  // Note that a footprint can have both front and back
-    SHAPE_POLY_SET  m_poly_courtyard_back;   // courtyards populated.
+    SHAPE_POLY_SET  m_courtyard_cache_front;  // Note that a footprint can have both front and back
+    SHAPE_POLY_SET  m_courtyard_cache_back;   // courtyards populated.
+    mutable int     m_courtyard_cache_timestamp;
 };
 
 #endif     // FOOTPRINT_H

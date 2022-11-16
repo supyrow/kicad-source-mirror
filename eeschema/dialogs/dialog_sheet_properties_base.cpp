@@ -5,6 +5,7 @@
 // PLEASE DO *NOT* EDIT THIS FILE!
 ///////////////////////////////////////////////////////////////////////////
 
+#include "widgets/infobar.h"
 #include "widgets/wx_grid.h"
 
 #include "dialog_sheet_properties_base.h"
@@ -18,6 +19,13 @@ DIALOG_SHEET_PROPERTIES_BASE::DIALOG_SHEET_PROPERTIES_BASE( wxWindow* parent, wx
 	wxBoxSizer* mainSizer;
 	mainSizer = new wxBoxSizer( wxVERTICAL );
 
+	m_infoBar = new WX_INFOBAR( this );
+	m_infoBar->SetShowHideEffects( wxSHOW_EFFECT_NONE, wxSHOW_EFFECT_NONE );
+	m_infoBar->SetEffectDuration( 500 );
+	m_infoBar->Hide();
+
+	mainSizer->Add( m_infoBar, 0, wxEXPAND|wxBOTTOM, 5 );
+
 	m_longForm = new wxBoxSizer( wxVERTICAL );
 
 	wxStaticBoxSizer* sbFields;
@@ -26,7 +34,7 @@ DIALOG_SHEET_PROPERTIES_BASE::DIALOG_SHEET_PROPERTIES_BASE( wxWindow* parent, wx
 	m_grid = new WX_GRID( sbFields->GetStaticBox(), wxID_ANY, wxDefaultPosition, wxDefaultSize, 0 );
 
 	// Grid
-	m_grid->CreateGrid( 4, 11 );
+	m_grid->CreateGrid( 4, 13 );
 	m_grid->EnableEditing( true );
 	m_grid->EnableGridLines( true );
 	m_grid->EnableDragGridSize( false );
@@ -44,6 +52,8 @@ DIALOG_SHEET_PROPERTIES_BASE::DIALOG_SHEET_PROPERTIES_BASE( wxWindow* parent, wx
 	m_grid->SetColSize( 8, 84 );
 	m_grid->SetColSize( 9, 84 );
 	m_grid->SetColSize( 10, 84 );
+	m_grid->SetColSize( 11, 140 );
+	m_grid->SetColSize( 12, 48 );
 	m_grid->EnableDragColMove( false );
 	m_grid->EnableDragColSize( true );
 	m_grid->SetColLabelSize( 22 );
@@ -58,6 +68,8 @@ DIALOG_SHEET_PROPERTIES_BASE::DIALOG_SHEET_PROPERTIES_BASE( wxWindow* parent, wx
 	m_grid->SetColLabelValue( 8, _("Orientation") );
 	m_grid->SetColLabelValue( 9, _("X Position") );
 	m_grid->SetColLabelValue( 10, _("Y Position") );
+	m_grid->SetColLabelValue( 11, _("Font") );
+	m_grid->SetColLabelValue( 12, _("Color") );
 	m_grid->SetColLabelAlignment( wxALIGN_CENTER, wxALIGN_CENTER );
 
 	// Rows
@@ -167,7 +179,7 @@ DIALOG_SHEET_PROPERTIES_BASE::DIALOG_SHEET_PROPERTIES_BASE( wxWindow* parent, wx
 	bSizer6->Add( m_pageNumberStaticText, 0, wxALIGN_CENTER_VERTICAL|wxLEFT, 5 );
 
 	m_pageNumberTextCtrl = new wxTextCtrl( this, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, 0 );
-	bSizer6->Add( m_pageNumberTextCtrl, 1, wxALIGN_CENTER_VERTICAL|wxLEFT|wxRIGHT, 5 );
+	bSizer6->Add( m_pageNumberTextCtrl, 0, wxALIGN_CENTER_VERTICAL|wxLEFT|wxRIGHT, 5 );
 
 
 	bSizer6->Add( 0, 0, 3, wxEXPAND, 5 );
@@ -178,12 +190,15 @@ DIALOG_SHEET_PROPERTIES_BASE::DIALOG_SHEET_PROPERTIES_BASE( wxWindow* parent, wx
 	m_staticline1 = new wxStaticLine( this, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxLI_HORIZONTAL );
 	mainSizer->Add( m_staticline1, 0, wxEXPAND|wxLEFT|wxRIGHT|wxTOP, 5 );
 
-	wxBoxSizer* bSizerBottom;
-	bSizerBottom = new wxBoxSizer( wxHORIZONTAL );
+	m_sizerBottom = new wxBoxSizer( wxHORIZONTAL );
 
 	m_hierarchicalPathLabel = new wxStaticText( this, wxID_ANY, _("Hierarchical path:"), wxDefaultPosition, wxDefaultSize, 0 );
 	m_hierarchicalPathLabel->Wrap( -1 );
-	bSizerBottom->Add( m_hierarchicalPathLabel, 1, wxLEFT|wxALIGN_CENTER_VERTICAL, 10 );
+	m_sizerBottom->Add( m_hierarchicalPathLabel, 0, wxLEFT|wxALIGN_CENTER_VERTICAL, 10 );
+
+	m_hierarchicalPath = new wxStaticText( this, wxID_ANY, _("path"), wxDefaultPosition, wxDefaultSize, 0 );
+	m_hierarchicalPath->Wrap( -1 );
+	m_sizerBottom->Add( m_hierarchicalPath, 1, wxALL|wxALIGN_CENTER_VERTICAL, 5 );
 
 	m_stdDialogButtonSizer = new wxStdDialogButtonSizer();
 	m_stdDialogButtonSizerOK = new wxButton( this, wxID_OK );
@@ -192,10 +207,10 @@ DIALOG_SHEET_PROPERTIES_BASE::DIALOG_SHEET_PROPERTIES_BASE( wxWindow* parent, wx
 	m_stdDialogButtonSizer->AddButton( m_stdDialogButtonSizerCancel );
 	m_stdDialogButtonSizer->Realize();
 
-	bSizerBottom->Add( m_stdDialogButtonSizer, 0, wxEXPAND, 5 );
+	m_sizerBottom->Add( m_stdDialogButtonSizer, 0, wxEXPAND|wxALL, 5 );
 
 
-	mainSizer->Add( bSizerBottom, 0, wxBOTTOM|wxEXPAND|wxTOP, 5 );
+	mainSizer->Add( m_sizerBottom, 0, wxEXPAND|wxLEFT, 5 );
 
 
 	this->SetSizer( mainSizer );

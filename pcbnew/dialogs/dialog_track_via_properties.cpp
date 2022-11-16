@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2015 CERN
- * Copyright (C) 2018-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2018-2022 KiCad Developers, see AUTHORS.txt for contributors.
  * @author Maciej Suminski <maciej.suminski@cern.ch>
  *
  * This program is free software; you can redistribute it and/or
@@ -292,13 +292,16 @@ DIALOG_TRACK_VIA_PROPERTIES::DIALOG_TRACK_VIA_PROPERTIES( PCB_BASE_FRAME* aParen
 
     if( m_vias )
     {
-        if( m_viaNotFree->GetValue() )
+        if( m_viaNotFree->GetValue() && !m_tracks )
         {
+            // Disable net selector to re-inforce meaning of "Automatically update via nets",
+            // but not when tracks are also selected as then things get harder if you want to
+            // update all the nets to match.
             m_netSelectorLabel->Disable();
             m_netSelector->Disable();
         }
 
-        m_DesignRuleViasUnit->SetLabel( GetAbbreviatedUnitsLabel( m_frame->GetUserUnits() ).Trim( false ) );
+        m_DesignRuleViasUnit->SetLabel( EDA_UNIT_UTILS::GetLabel( m_frame->GetUserUnits() ) );
 
         int viaSelection = wxNOT_FOUND;
 
@@ -306,9 +309,9 @@ DIALOG_TRACK_VIA_PROPERTIES::DIALOG_TRACK_VIA_PROPERTIES( PCB_BASE_FRAME* aParen
         for( unsigned ii = 1; ii < aParent->GetDesignSettings().m_ViasDimensionsList.size(); ii++ )
         {
             VIA_DIMENSION* viaDimension = &aParent->GetDesignSettings().m_ViasDimensionsList[ii];
-            wxString msg = StringFromValue( m_frame->GetUserUnits(), viaDimension->m_Diameter )
-                            + wxT( " / " )
-                            + StringFromValue( m_frame->GetUserUnits(), viaDimension->m_Drill );
+            wxString       msg = m_frame->StringFromValue( viaDimension->m_Diameter )
+                                    + wxT( " / " )
+                                    + m_frame->StringFromValue( viaDimension->m_Drill );
             m_DesignRuleViasCtrl->Append( msg, viaDimension );
 
             if( viaSelection == wxNOT_FOUND
@@ -342,15 +345,15 @@ DIALOG_TRACK_VIA_PROPERTIES::DIALOG_TRACK_VIA_PROPERTIES( PCB_BASE_FRAME* aParen
 
     if( m_tracks )
     {
-        m_DesignRuleWidthsUnits->SetLabel( GetAbbreviatedUnitsLabel( m_frame->GetUserUnits() ).Trim( false ) );
+        m_DesignRuleWidthsUnits->SetLabel( EDA_UNIT_UTILS::GetLabel( m_frame->GetUserUnits() ) );
 
         int widthSelection = wxNOT_FOUND;
 
         // 0 is the netclass place-holder
         for( unsigned ii = 1; ii < aParent->GetDesignSettings().m_TrackWidthList.size(); ii++ )
         {
-            int width = aParent->GetDesignSettings().m_TrackWidthList[ii];
-            wxString msg = StringFromValue( m_frame->GetUserUnits(), width );
+            int      width = aParent->GetDesignSettings().m_TrackWidthList[ii];
+            wxString msg = m_frame->StringFromValue( width );
             m_DesignRuleWidthsCtrl->Append( msg );
 
             if( widthSelection == wxNOT_FOUND && m_trackWidth.GetValue() == width )
@@ -381,6 +384,7 @@ DIALOG_TRACK_VIA_PROPERTIES::DIALOG_TRACK_VIA_PROPERTIES( PCB_BASE_FRAME* aParen
     SetupStandardButtons();
 
     m_frame->Bind( UNITS_CHANGED, &DIALOG_TRACK_VIA_PROPERTIES::onUnitsChanged, this );
+    m_netSelector->Bind( NET_SELECTED, &DIALOG_TRACK_VIA_PROPERTIES::onNetSelector, this );
 
     // Now all widgets have the size fixed, call FinishDialogSettings
     finishDialogSettings();
@@ -405,14 +409,14 @@ void DIALOG_TRACK_VIA_PROPERTIES::onUnitsChanged( wxCommandEvent& aEvent )
         for( unsigned ii = 1; ii < m_frame->GetDesignSettings().m_ViasDimensionsList.size(); ii++ )
         {
             VIA_DIMENSION* viaDimension = &m_frame->GetDesignSettings().m_ViasDimensionsList[ii];
-            wxString msg = StringFromValue( m_frame->GetUserUnits(), viaDimension->m_Diameter )
-                            + wxT( " / " )
-                            + StringFromValue( m_frame->GetUserUnits(), viaDimension->m_Drill );
+            wxString       msg = m_frame->StringFromValue( viaDimension->m_Diameter )
+                                    + wxT( " / " )
+                                    + m_frame->StringFromValue( viaDimension->m_Drill );
             m_DesignRuleViasCtrl->Append( msg, viaDimension );
         }
 
         m_DesignRuleViasCtrl->SetSelection( viaSel );
-        m_DesignRuleViasUnit->SetLabel( GetAbbreviatedUnitsLabel( m_frame->GetUserUnits() ) );
+        m_DesignRuleViasUnit->SetLabel( EDA_UNIT_UTILS::GetLabel( m_frame->GetUserUnits() ) );
     }
 
     if( m_tracks )
@@ -424,13 +428,13 @@ void DIALOG_TRACK_VIA_PROPERTIES::onUnitsChanged( wxCommandEvent& aEvent )
         // 0 is the netclass place-holder
         for( unsigned ii = 1; ii < m_frame->GetDesignSettings().m_TrackWidthList.size(); ii++ )
         {
-            int width = m_frame->GetDesignSettings().m_TrackWidthList[ii];
-            wxString msg = StringFromValue( m_frame->GetUserUnits(), width );
+            int      width = m_frame->GetDesignSettings().m_TrackWidthList[ii];
+            wxString msg = m_frame->StringFromValue( width );
             m_DesignRuleWidthsCtrl->Append( msg );
         }
 
         m_DesignRuleWidthsCtrl->SetSelection( trackSel );
-        m_DesignRuleWidthsUnits->SetLabel( GetAbbreviatedUnitsLabel( m_frame->GetUserUnits() ) );
+        m_DesignRuleWidthsUnits->SetLabel( EDA_UNIT_UTILS::GetLabel( m_frame->GetUserUnits() ) );
     }
 
     aEvent.Skip();
@@ -542,7 +546,7 @@ bool DIALOG_TRACK_VIA_PROPERTIES::TransferDataFromWindow()
                     t->SetEnd( wxPoint( t->GetEnd().x, m_trackEndY.GetValue() ) );
 
                 if( m_trackNetclass->IsChecked() )
-                    t->SetWidth( t->GetNetClass()->GetTrackWidth() );
+                    t->SetWidth( t->GetEffectiveNetClass()->GetTrackWidth() );
                 else if( !m_trackWidth.IsIndeterminate() )
                     t->SetWidth( m_trackWidth.GetValue() );
 
@@ -617,6 +621,8 @@ bool DIALOG_TRACK_VIA_PROPERTIES::TransferDataFromWindow()
 
                 if( m_viaNetclass->IsChecked() )
                 {
+                    NETCLASS* netclass = v->GetEffectiveNetClass();
+
                     switch( v->GetViaType() )
                     {
                     default:
@@ -625,13 +631,13 @@ bool DIALOG_TRACK_VIA_PROPERTIES::TransferDataFromWindow()
 
                     case VIATYPE::THROUGH:
                     case VIATYPE::BLIND_BURIED:
-                        v->SetWidth( v->GetNetClass()->GetViaDiameter() );
-                        v->SetDrill( v->GetNetClass()->GetViaDrill() );
+                        v->SetWidth( netclass->GetViaDiameter() );
+                        v->SetDrill( netclass->GetViaDrill() );
                         break;
 
                     case VIATYPE::MICROVIA:
-                        v->SetWidth( v->GetNetClass()->GetuViaDiameter() );
-                        v->SetDrill( v->GetNetClass()->GetuViaDrill() );
+                        v->SetWidth( netclass->GetuViaDiameter() );
+                        v->SetDrill( netclass->GetuViaDrill() );
                         break;
                     }
                 }
@@ -672,9 +678,9 @@ bool DIALOG_TRACK_VIA_PROPERTIES::TransferDataFromWindow()
 
         for( EDA_ITEM* item : m_items )
         {
-            const KICAD_T ourTypes[] = { PCB_TRACE_T, PCB_ARC_T, PCB_PAD_T, PCB_VIA_T, PCB_FOOTPRINT_T, EOT };
             BOARD_CONNECTED_ITEM* boardItem = static_cast<BOARD_CONNECTED_ITEM*>( item );
-            auto connectedItems = connectivity->GetConnectedItems( boardItem, ourTypes, true );
+            auto connectedItems = connectivity->GetConnectedItems( boardItem,
+                    { PCB_TRACE_T, PCB_ARC_T, PCB_PAD_T, PCB_VIA_T, PCB_FOOTPRINT_T }, true );
 
             for ( BOARD_CONNECTED_ITEM* citem : connectedItems )
             {
@@ -728,10 +734,19 @@ bool DIALOG_TRACK_VIA_PROPERTIES::TransferDataFromWindow()
 }
 
 
-void DIALOG_TRACK_VIA_PROPERTIES::onViaNotFreeClicked( wxCommandEvent& event )
+void DIALOG_TRACK_VIA_PROPERTIES::onNetSelector( wxCommandEvent& aEvent )
 {
-    m_netSelectorLabel->Enable( !m_viaNotFree->GetValue() );
-    m_netSelector->Enable( !m_viaNotFree->GetValue() );
+    m_viaNotFree->SetValue( false );
+}
+
+
+void DIALOG_TRACK_VIA_PROPERTIES::onViaNotFreeClicked( wxCommandEvent& aEvent )
+{
+    if( !m_tracks )
+    {
+        m_netSelectorLabel->Enable( !m_viaNotFree->GetValue() );
+        m_netSelector->Enable( !m_viaNotFree->GetValue() );
+    }
 }
 
 

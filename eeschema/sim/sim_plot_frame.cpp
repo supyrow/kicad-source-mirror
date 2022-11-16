@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2016 CERN
- * Copyright (C) 2016-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2016-2022 KiCad Developers, see AUTHORS.txt for contributors.
  * @author Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  * @author Maciej Suminski <maciej.suminski@cern.ch>
  *
@@ -36,8 +36,9 @@
 #include <wildcards_and_files_ext.h>
 #include <widgets/tuner_slider.h>
 #include <dialogs/dialog_signal_list.h>
+#include <scintilla_tricks.h>
 #include "string_utils.h"
-#include "netlist_exporter_pspice_sim.h"
+#include "ngspice_helpers.h"
 #include <pgm_base.h>
 #include "ngspice.h"
 #include "sim_plot_colors.h"
@@ -52,6 +53,7 @@
 #include <wx/ffile.h>
 #include <wx/filedlg.h>
 #include <dialog_shim.h>
+#include <wx_filename.h>
 
 
 SIM_PLOT_TYPE operator|( SIM_PLOT_TYPE aFirst, SIM_PLOT_TYPE aSecond )
@@ -129,7 +131,7 @@ SIM_PLOT_FRAME::SIM_PLOT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
     icon.CopyFromBitmap( KiBitmap( BITMAPS::simulator ) );
     SetIcon( icon );
 
-    m_simulator = SPICE_SIMULATOR::CreateInstance( "ngspice" );
+    m_simulator = SIMULATOR::CreateInstance( "ngspice" );
 
     if( !m_simulator )
     {
@@ -157,7 +159,7 @@ SIM_PLOT_FRAME::SIM_PLOT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
     // instead of being behind the dialog frame (as it does)
     m_settingsDlg = nullptr;
 
-    updateNetlistExporter();
+    m_circuitModel.reset( new NGSPICE_CIRCUIT_MODEL( &m_schematicFrame->Schematic() ) );
 
     Bind( EVT_SIM_UPDATE, &SIM_PLOT_FRAME::onSimUpdate, this );
     Bind( EVT_SIM_REPORT, &SIM_PLOT_FRAME::onSimReport, this );
@@ -239,6 +241,7 @@ SIM_PLOT_FRAME::SIM_PLOT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
 
 SIM_PLOT_FRAME::~SIM_PLOT_FRAME()
 {
+    m_simulator->Attach( nullptr );
     m_simulator->SetReporter( nullptr );
     delete m_reporter;
     delete m_signalsIconColorList;
@@ -453,46 +456,56 @@ void SIM_PLOT_FRAME::setSubWindowsSashSize()
 
 void SIM_PLOT_FRAME::StartSimulation( const wxString& aSimCommand )
 {
-    wxCHECK_RET( m_exporter->CommandToSimType( getCurrentSimCommand() ) != ST_UNKNOWN,
-            "Unknown simulation type" );
-
-    STRING_FORMATTER formatter;
+    wxCHECK_RET( m_circuitModel->CommandToSimType( getCurrentSimCommand() ) != ST_UNKNOWN,
+                 wxT( "Unknown simulation type" ) );
 
     if( !m_settingsDlg )
-        m_settingsDlg = new DIALOG_SIM_SETTINGS( this, m_simulator->Settings() );
+        m_settingsDlg = new DIALOG_SIM_SETTINGS( this, m_circuitModel, m_simulator->Settings() );
 
     m_simConsole->Clear();
-    updateNetlistExporter();
 
-    if( aSimCommand.IsEmpty() )
-        m_exporter->SetSimCommand( getCurrentSimCommand() );
+    if( aSimCommand != wxEmptyString )
+        m_circuitModel->SetSimCommand( aSimCommand );
+    else if( m_circuitModel->GetSheetSimCommand() != getCurrentSimCommand() )
+        m_circuitModel->SetSimCommand( getCurrentSimCommand() );
     else
-        m_exporter->SetSimCommand( aSimCommand );
+        m_circuitModel->SetSimCommand( wxEmptyString );
 
+    // Make .save all and .probe alli permanent for now.
+    m_circuitModel->SetOptions( m_settingsDlg->GetNetlistOptions()
+            | NETLIST_EXPORTER_SPICE::OPTION_SAVE_ALL_VOLTAGES
+            | NETLIST_EXPORTER_SPICE::OPTION_SAVE_ALL_CURRENTS );
 
-    if( !m_exporter->Format( &formatter, m_settingsDlg->GetNetlistOptions() ) )
+    if( !m_schematicFrame->ReadyToNetlist( _( "Simulator requires a fully annotated schematic." ) )
+            || !m_simulator->Attach( m_circuitModel ) )
     {
-        DisplayErrorMessage( this, _( "There were errors during netlist export, aborted." ) );
+        DisplayErrorMessage( this, _( "Errors during netlist generation; simulation aborted." ) );
         return;
     }
 
-    m_simulator->LoadNetlist( formatter.GetString() );
-    updateTuners();
-    applyTuners();
-    m_simulator->Run();
-}
+    std::unique_lock<std::mutex> simulatorLock( m_simulator->GetMutex(), std::try_to_lock );
 
+    if( simulatorLock.owns_lock() )
+    {
+        wxBusyCursor toggle;
 
-void SIM_PLOT_FRAME::StopSimulation()
-{
-    m_simulator->Stop();
+        updateTuners();
+        applyTuners();
+        // Prevents memory leak on succeding simulations by deleting old vectors
+        m_simulator->Clean();
+        m_simulator->Run();
+    }
+    else
+    {
+        DisplayErrorMessage( this, _( "Another simulation is already running." ) );
+    }
 }
 
 
 SIM_PANEL_BASE* SIM_PLOT_FRAME::NewPlotPanel( wxString aSimCommand )
 {
     SIM_PANEL_BASE* plotPanel = nullptr;
-    SIM_TYPE        simType   = NETLIST_EXPORTER_PSPICE_SIM::CommandToSimType( aSimCommand );
+    SIM_TYPE        simType   = NGSPICE_CIRCUIT_MODEL::CommandToSimType( aSimCommand );
 
     if( SIM_PANEL_BASE::IsPlottable( simType ) )
     {
@@ -522,13 +535,13 @@ SIM_PANEL_BASE* SIM_PLOT_FRAME::NewPlotPanel( wxString aSimCommand )
 
 void SIM_PLOT_FRAME::AddVoltagePlot( const wxString& aNetName )
 {
-    addPlot( aNetName, SPT_VOLTAGE, "V" );
+    addPlot( aNetName, SPT_VOLTAGE );
 }
 
 
-void SIM_PLOT_FRAME::AddCurrentPlot( const wxString& aDeviceName, const wxString& aParam )
+void SIM_PLOT_FRAME::AddCurrentPlot( const wxString& aDeviceName )
 {
-    addPlot( aDeviceName, SPT_CURRENT, aParam );
+    addPlot( aDeviceName, SPT_CURRENT );
 }
 
 
@@ -539,24 +552,24 @@ void SIM_PLOT_FRAME::AddTuner( SCH_SYMBOL* aSymbol )
     if( !plotPanel )
         return;
 
-    // For now limit the tuner tool to RLC and code model components
-    char primitiveType = NETLIST_EXPORTER_PSPICE::GetSpiceField( SF_PRIMITIVE, aSymbol, 0 )[0];
+    wxString ref = aSymbol->GetField( REFERENCE_FIELD )->GetShownText();
 
-    if( primitiveType != SP_RESISTOR && primitiveType != SP_CAPACITOR
-        && primitiveType != SP_INDUCTOR && primitiveType != SP_CODEMODEL )
-        return;
-
-    const wxString componentName = aSymbol->GetField( REFERENCE_FIELD )->GetText();
-
-    // Do not add multiple instances for the same component
-    auto tunerIt = std::find_if( m_tuners.begin(), m_tuners.end(), [&]( const TUNER_SLIDER* t )
-        {
-            return t->GetComponentName() == componentName;
-        }
-    );
+    // Do not add multiple instances for the same component.
+    auto tunerIt = std::find_if( m_tuners.begin(), m_tuners.end(),
+                                 [ref]( const TUNER_SLIDER* tuner )
+                                 {
+                                     return tuner->GetComponentName() == ref;
+                                 } );
 
     if( tunerIt != m_tuners.end() )
-        return;     // We already have it
+        return; // We already have it.
+
+    const SPICE_ITEM*       item = GetExporter()->FindItem( std::string( ref.ToUTF8() ) );
+    const SIM_MODEL::PARAM* tunerParam = item->model->GetTunerParam();
+
+    // Do nothing if the symbol is not tunable.
+    if( !tunerParam )
+        return;
 
     try
     {
@@ -567,30 +580,31 @@ void SIM_PLOT_FRAME::AddTuner( SCH_SYMBOL* aSymbol )
     }
     catch( const KI_PARAM_ERROR& e )
     {
-        // Sorry, no bonus
         DisplayErrorMessage( nullptr, e.What() );
     }
 }
 
-void SIM_PLOT_FRAME::UpdateTunerValue( SCH_SYMBOL* aSymbol, int aId, const wxString& aValue )
+void SIM_PLOT_FRAME::UpdateTunerValue( SCH_SYMBOL* aSymbol, const wxString& aValue )
 {
-    for( auto& item : m_schematicFrame->GetScreen()->Items().OfType( SCH_SYMBOL_T ) )
+    for( EDA_ITEM* item : m_schematicFrame->GetScreen()->Items().OfType( SCH_SYMBOL_T ) )
     {
         if( item == aSymbol )
         {
-            SCH_FIELD* field = aSymbol->GetFieldById( aId );
+            SIM_LIB_MGR mgr( Prj() );
+            SIM_MODEL&  model = mgr.CreateModel( *aSymbol ).model;
 
-            if( !field )
-                break;
+            const SIM_MODEL::PARAM* tunerParam = model.GetTunerParam();
 
-            field->SetText( aValue );
+            if( !tunerParam )
+                return;
+
+            model.SetParamValue( tunerParam->info.name, std::string( aValue.ToUTF8() ) );
+            model.WriteFields( aSymbol->GetFields() );
 
             m_schematicFrame->UpdateItem( aSymbol, false, true );
             m_schematicFrame->OnModify();
-            break;
         }
     }
-
 }
 
 
@@ -614,9 +628,9 @@ SIM_PLOT_PANEL* SIM_PLOT_FRAME::GetCurrentPlot() const
 }
 
 
-const NETLIST_EXPORTER_PSPICE_SIM* SIM_PLOT_FRAME::GetExporter() const
+const NGSPICE_CIRCUIT_MODEL* SIM_PLOT_FRAME::GetExporter() const
 {
-    return m_exporter.get();
+    return m_circuitModel.get();
 }
 
 
@@ -628,9 +642,9 @@ std::shared_ptr<SPICE_SIMULATOR_SETTINGS>& SIM_PLOT_FRAME::GetSimulatorSettings(
 }
 
 
-void SIM_PLOT_FRAME::addPlot( const wxString& aName, SIM_PLOT_TYPE aType, const wxString& aParam )
+void SIM_PLOT_FRAME::addPlot( const wxString& aName, SIM_PLOT_TYPE aType )
 {
-    SIM_TYPE simType = m_exporter->GetSimType();
+    SIM_TYPE simType = m_circuitModel->GetSimType();
 
     if( simType == ST_UNKNOWN )
     {
@@ -651,7 +665,7 @@ void SIM_PLOT_FRAME::addPlot( const wxString& aName, SIM_PLOT_TYPE aType, const 
     if( !plotPanel || plotPanel->GetType() != simType )
     {
         plotPanel =
-                dynamic_cast<SIM_PLOT_PANEL*>( NewPlotPanel( m_exporter->GetUsedSimCommand() ) );
+                dynamic_cast<SIM_PLOT_PANEL*>( NewPlotPanel( m_circuitModel->GetSimCommand() ) );
     }
 
     wxASSERT( plotPanel );
@@ -667,14 +681,12 @@ void SIM_PLOT_FRAME::addPlot( const wxString& aName, SIM_PLOT_TYPE aType, const 
         int baseType = aType & ~( SPT_AC_MAG | SPT_AC_PHASE );
 
         // Add two plots: magnitude & phase
-        updated |= updatePlot( aName, ( SIM_PLOT_TYPE )( baseType | SPT_AC_MAG ), aParam,
-                               plotPanel );
-        updated |= updatePlot( aName, ( SIM_PLOT_TYPE )( baseType | SPT_AC_PHASE ), aParam,
-                               plotPanel );
+        updated |= updatePlot( aName, ( SIM_PLOT_TYPE )( baseType | SPT_AC_MAG ), plotPanel );
+        updated |= updatePlot( aName, ( SIM_PLOT_TYPE )( baseType | SPT_AC_PHASE ), plotPanel );
     }
     else
     {
-        updated = updatePlot( aName, aType, aParam, plotPanel );
+        updated = updatePlot( aName, aType, plotPanel );
     }
 
     if( updated )
@@ -701,31 +713,22 @@ void SIM_PLOT_FRAME::removePlot( const wxString& aPlotName )
 }
 
 
-void SIM_PLOT_FRAME::updateNetlistExporter()
-{
-    m_exporter.reset( new NETLIST_EXPORTER_PSPICE_SIM( &m_schematicFrame->Schematic() ) );
-
-    if( m_settingsDlg )
-        m_settingsDlg->SetNetlistExporter( m_exporter.get() );
-}
-
-
-bool SIM_PLOT_FRAME::updatePlot( const wxString& aName, SIM_PLOT_TYPE aType, const wxString& aParam,
+bool SIM_PLOT_FRAME::updatePlot( const wxString& aName, SIM_PLOT_TYPE aType,
                                  SIM_PLOT_PANEL* aPlotPanel )
 {
-    SIM_TYPE simType = m_exporter->GetSimType();
-    wxString spiceVector = m_exporter->ComponentToVector( aName, aType, aParam );
+    SIM_TYPE simType = m_circuitModel->GetSimType();
 
-    wxString plotTitle = wxString::Format( "%s(%s)", aParam, aName );
+    wxString plotTitle = aName;
+
     if( aType & SPT_AC_MAG )
-        plotTitle += " (mag)";
+        plotTitle += _( " (mag)" );
     else if( aType & SPT_AC_PHASE )
-        plotTitle += " (phase)";
+        plotTitle += _( " (phase)" );
 
     if( !SIM_PANEL_BASE::IsPlottable( simType ) )
     {
         // There is no plot to be shown
-        m_simulator->Command( wxString::Format( "print %s", spiceVector ).ToStdString() );
+        m_simulator->Command( wxString::Format( wxT( "print %s" ), aName ).ToStdString() );
 
         return false;
     }
@@ -745,29 +748,29 @@ bool SIM_PLOT_FRAME::updatePlot( const wxString& aName, SIM_PLOT_TYPE aType, con
     std::vector<double> data_y;
 
     // Now, Y axis data
-    switch( m_exporter->GetSimType() )
+    switch( m_circuitModel->GetSimType() )
     {
     case ST_AC:
         wxASSERT_MSG( !( ( aType & SPT_AC_MAG ) && ( aType & SPT_AC_PHASE ) ),
-                      "Cannot set both AC_PHASE and AC_MAG bits" );
+                      wxT( "Cannot set both AC_PHASE and AC_MAG bits" ) );
 
         if( aType & SPT_AC_MAG )
-            data_y = m_simulator->GetMagPlot( (const char*) spiceVector.c_str() );
+            data_y = m_simulator->GetMagPlot( (const char*) aName.c_str() );
         else if( aType & SPT_AC_PHASE )
-            data_y = m_simulator->GetPhasePlot( (const char*) spiceVector.c_str() );
+            data_y = m_simulator->GetPhasePlot( (const char*) aName.c_str() );
         else
-            wxASSERT_MSG( false, "Plot type missing AC_PHASE or AC_MAG bit" );
+            wxASSERT_MSG( false, wxT( "Plot type missing AC_PHASE or AC_MAG bit" ) );
 
         break;
 
     case ST_NOISE:
     case ST_DC:
     case ST_TRANSIENT:
-        data_y = m_simulator->GetMagPlot( (const char*) spiceVector.c_str() );
+        data_y = m_simulator->GetMagPlot( (const char*) aName.c_str() );
         break;
 
     default:
-        wxASSERT_MSG( false, "Unhandled plot type" );
+        wxASSERT_MSG( false, wxT( "Unhandled plot type" ) );
         return false;
     }
 
@@ -778,8 +781,8 @@ bool SIM_PLOT_FRAME::updatePlot( const wxString& aName, SIM_PLOT_TYPE aType, con
     // for each input step
     SPICE_DC_PARAMS source1, source2;
 
-    if( m_exporter->GetSimType() == ST_DC &&
-        m_exporter->ParseDCCommand( m_exporter->GetUsedSimCommand(), &source1, &source2 ) )
+    if( m_circuitModel->GetSimType() == ST_DC
+        && m_circuitModel->ParseDCCommand( m_circuitModel->GetSimCommand(), &source1, &source2 ) )
     {
         if( !source2.m_source.IsEmpty() )
         {
@@ -795,7 +798,9 @@ bool SIM_PLOT_FRAME::updatePlot( const wxString& aName, SIM_PLOT_TYPE aType, con
 
             for( size_t idx = 0; idx <= outer; idx++ )
             {
-                name = wxString::Format( "%s (%s = %s V)", plotTitle, source2.m_source,
+                name = wxString::Format( wxT( "%s (%s = %s V)" ),
+                                         plotTitle,
+                                         source2.m_source,
                                          v.ToString() );
 
                 std::vector<double> sub_x( data_x.begin() + offset,
@@ -804,7 +809,7 @@ bool SIM_PLOT_FRAME::updatePlot( const wxString& aName, SIM_PLOT_TYPE aType, con
                                            data_y.begin() + offset + inner );
 
                 m_workbook->AddTrace( aPlotPanel, name, aName, inner, sub_x.data(), sub_y.data(),
-                                      aType, aParam );
+                                      aType );
 
                 v = v + source2.m_vincrement;
                 offset += inner;
@@ -814,8 +819,7 @@ bool SIM_PLOT_FRAME::updatePlot( const wxString& aName, SIM_PLOT_TYPE aType, con
         }
     }
 
-    m_workbook->AddTrace( aPlotPanel, plotTitle, aName, size, data_x.data(), data_y.data(), aType,
-                          aParam );
+    m_workbook->AddTrace( aPlotPanel, plotTitle, aName, size, data_x.data(), data_y.data(), aType );
 
     return true;
 }
@@ -889,15 +893,16 @@ void SIM_PLOT_FRAME::updateSignalList()
 
 void SIM_PLOT_FRAME::updateTuners()
 {
-    const auto& spiceItems = m_exporter->GetSpiceItems();
+    const auto& spiceItems = m_circuitModel->GetItems();
 
     for( auto it = m_tuners.begin(); it != m_tuners.end(); /* iteration inside the loop */ )
     {
         const wxString& ref = (*it)->GetComponentName();
 
-        if( std::find_if( spiceItems.begin(), spiceItems.end(), [&]( const SPICE_ITEM& item )
+        if( std::find_if( spiceItems.begin(), spiceItems.end(),
+                          [&]( const SPICE_ITEM& item )
                 {
-                    return item.m_refName == ref;
+                    return item.refName == ref;
                 }) == spiceItems.end() )
         {
             // The component does not exist anymore, remove the associated tuner
@@ -916,17 +921,7 @@ void SIM_PLOT_FRAME::updateTuners()
 void SIM_PLOT_FRAME::applyTuners()
 {
     for( auto& tuner : m_tuners )
-    {
-        std::pair<wxString, bool> command = tuner->GetSpiceTuningCommand();
-        const SPICE_VALUE&        value   = tuner->GetValue();
-
-        // 0 < value < 1 for model parameter to avoid division by zero, etc.
-        command.first += command.second
-                            ? wxString::FromCDouble( Clamp( 1e-9, value.ToDouble() / 100.0, 1-1e-9 ), 9 )
-                            : value.ToSpiceString();
-
-        m_simulator->Command( command.first.ToStdString() );
-    }
+        m_simulator->Command( tuner->GetTunerCommand() );
 }
 
 
@@ -1008,6 +1003,7 @@ bool SIM_PLOT_FRAME::loadWorkbook( const wxString& aPath )
 
             param = file.GetNextLine();
 
+            #if 0   // no longer in use
             if( param.IsEmpty() )
             {
                 DISPLAY_LOAD_ERROR( "Error loading workbook: Line %d is empty." );
@@ -1015,8 +1011,9 @@ bool SIM_PLOT_FRAME::loadWorkbook( const wxString& aPath )
 
                 return false;
             }
+            #endif
 
-            addPlot( name, (SIM_PLOT_TYPE) traceType, param );
+            addPlot( name, (SIM_PLOT_TYPE) traceType );
         }
     }
 
@@ -1053,7 +1050,7 @@ bool SIM_PLOT_FRAME::saveWorkbook( const wxString& aPath )
         file.Create();
     }
 
-    file.AddLine( wxString::Format( "%llu", m_workbook->GetPageCount() ) );
+    file.AddLine( wxString::Format( wxT( "%llu" ), m_workbook->GetPageCount() ) );
 
     for( size_t i = 0; i < m_workbook->GetPageCount(); i++ )
     {
@@ -1061,26 +1058,26 @@ bool SIM_PLOT_FRAME::saveWorkbook( const wxString& aPath )
 
         if( !basePanel )
         {
-            file.AddLine( wxString::Format( "%llu", 0ull ) );
+            file.AddLine( wxString::Format( wxT( "%llu" ), 0ull ) );
             continue;
         }
 
-        file.AddLine( wxString::Format( "%d", basePanel->GetType() ) );
+        file.AddLine( wxString::Format( wxT( "%d" ), basePanel->GetType() ) );
         file.AddLine( EscapeString( m_workbook->GetSimCommand( basePanel ), CTX_LINE ) );
 
         const SIM_PLOT_PANEL* plotPanel = dynamic_cast<const SIM_PLOT_PANEL*>( basePanel );
 
         if( !plotPanel )
         {
-            file.AddLine( wxString::Format( "%llu", 0ull ) );
+            file.AddLine( wxString::Format( wxT( "%llu" ), 0ull ) );
             continue;
         }
 
-        file.AddLine( wxString::Format( "%llu", plotPanel->GetTraces().size() ) );
+        file.AddLine( wxString::Format( wxT( "%llu" ), plotPanel->GetTraces().size() ) );
 
         for( const auto& trace : plotPanel->GetTraces() )
         {
-            file.AddLine( wxString::Format( "%d", trace.second->GetType() ) );
+            file.AddLine( wxString::Format( wxT( "%d" ), trace.second->GetType() ) );
             file.AddLine( trace.second->GetName() );
             file.AddLine( trace.second->GetParam() );
         }
@@ -1127,7 +1124,7 @@ wxString SIM_PLOT_FRAME::getDefaultPath()
 {
     wxFileName path = m_simulator->Settings()->GetWorkbookFilename();
 
-    path.Normalize( wxPATH_NORM_ALL, Prj().GetProjectPath() );
+    path.Normalize( FN_NORMALIZE_FLAGS | wxPATH_NORM_ENV_VARS, Prj().GetProjectPath() );
     return path.GetPath();
 }
 
@@ -1141,7 +1138,7 @@ SIM_PLOT_TYPE SIM_PLOT_FRAME::getXAxisType( SIM_TYPE aType ) const
         case ST_DC:        return SPT_SWEEP;
         case ST_TRANSIENT: return SPT_TIME;
         default:
-            wxASSERT_MSG( false, "Unhandled simulation type" );
+            wxASSERT_MSG( false, wxT( "Unhandled simulation type" ) );
             return (SIM_PLOT_TYPE) 0;
     }
 }
@@ -1149,10 +1146,10 @@ SIM_PLOT_TYPE SIM_PLOT_FRAME::getXAxisType( SIM_TYPE aType ) const
 
 void SIM_PLOT_FRAME::menuNewPlot( wxCommandEvent& aEvent )
 {
-    SIM_TYPE type = m_exporter->GetSimType();
+    SIM_TYPE type = m_circuitModel->GetSimType();
 
     if( SIM_PANEL_BASE::IsPlottable( type ) )
-        NewPlotPanel( m_exporter->GetUsedSimCommand() );
+        NewPlotPanel( m_circuitModel->GetSimCommand() );
 }
 
 
@@ -1227,29 +1224,41 @@ void SIM_PLOT_FRAME::menuSaveCsv( wxCommandEvent& event )
         return;
 
     wxFFile out( saveDlg.GetPath(), "wb" );
-    bool timeWritten = false;
 
-    for( const auto& t : GetCurrentPlot()->GetTraces() )
+    std::map<wxString, TRACE *> traces = GetCurrentPlot()->GetTraces();
+
+    if( traces.size() == 0 )
+        return;
+
+    SIM_TYPE simType = m_circuitModel->GetSimType();
+
+    std::size_t rowCount = traces.begin()->second->GetDataX().size();
+
+    // write column header names on the first row
+    wxString xAxisName( m_simulator->GetXAxis( simType ) );
+    out.Write( wxString::Format( wxT( "%s%c" ), xAxisName, SEPARATOR ) );
+
+    for( const auto& trace : traces )
     {
-        const TRACE* trace = t.second;
+        wxString yAxisName = trace.first;
+        out.Write( wxString::Format( wxT( "%s%c" ), yAxisName, SEPARATOR ) );
+    }
 
-        if( !timeWritten )
+    out.Write( wxS( "\r\n" ) );
+
+    // write each row's numerical value
+    for ( std::size_t curRow=0; curRow < rowCount; curRow++ )
+    {
+        double xAxisValue = traces.begin()->second->GetDataX().at( curRow );
+        out.Write( wxString::Format( wxT( "%g%c" ), xAxisValue, SEPARATOR ) );
+
+        for( const auto& trace : traces )
         {
-            out.Write( wxString::Format( "Time%c", SEPARATOR ) );
-
-            for( double v : trace->GetDataX() )
-                out.Write( wxString::Format( "%g%c", v, SEPARATOR ) );
-
-            out.Write( "\r\n" );
-            timeWritten = true;
+            double yAxisValue = trace.second->GetDataY().at( curRow );
+            out.Write( wxString::Format( wxT( "%g%c" ), yAxisValue, SEPARATOR ) );
         }
 
-        out.Write( wxString::Format( "%s%c", t.first, SEPARATOR ) );
-
-        for( double v : trace->GetDataY() )
-            out.Write( wxString::Format( "%g%c", v, SEPARATOR ) );
-
-        out.Write( "\r\n" );
+        out.Write( wxS( "\r\n" ) );
     }
 
     out.Close();
@@ -1351,7 +1360,7 @@ void SIM_PLOT_FRAME::menuWhiteBackground( wxCommandEvent& event )
 
 void SIM_PLOT_FRAME::menuSimulateUpdate( wxUpdateUIEvent& event )
 {
-    event.Enable( m_exporter->CommandToSimType( getCurrentSimCommand() ) != ST_UNKNOWN );
+    event.Enable( m_circuitModel->CommandToSimType( getCurrentSimCommand() ) != ST_UNKNOWN );
 }
 
 
@@ -1450,7 +1459,7 @@ void SIM_PLOT_FRAME::onWorkbookClrModified( wxCommandEvent& event )
 void SIM_PLOT_FRAME::onSimulate( wxCommandEvent& event )
 {
     if( m_simulator->IsRunning() )
-        StopSimulation();
+        m_simulator->Stop();
     else
         StartSimulation();
 }
@@ -1461,12 +1470,9 @@ void SIM_PLOT_FRAME::onSettings( wxCommandEvent& event )
     SIM_PANEL_BASE* plotPanelWindow = getCurrentPlotWindow();
 
     if( !m_settingsDlg )
-        m_settingsDlg = new DIALOG_SIM_SETTINGS( this, m_simulator->Settings() );
+        m_settingsDlg = new DIALOG_SIM_SETTINGS( this, m_circuitModel, m_simulator->Settings() );
 
-    // Initial processing is required to e.g. display a list of power sources
-    updateNetlistExporter();
-
-    if( !m_exporter->ProcessNetlist( NET_ALL_FLAGS ) )
+    if( !m_circuitModel->ReadSchematicAndLibraries( NETLIST_EXPORTER_SPICE::OPTION_DEFAULT_FLAGS ) )
     {
         DisplayErrorMessage( this, _( "There were errors during netlist export, aborted." ) );
         return;
@@ -1485,7 +1491,7 @@ void SIM_PLOT_FRAME::onSettings( wxCommandEvent& event )
             oldCommand = wxString();
 
         wxString newCommand = m_settingsDlg->GetSimCommand();
-        SIM_TYPE newSimType = NETLIST_EXPORTER_PSPICE_SIM::CommandToSimType( newCommand );
+        SIM_TYPE newSimType = NGSPICE_CIRCUIT_MODEL::CommandToSimType( newCommand );
 
         // If it is a new simulation type, open a new plot
         // For the DC sim, check if sweep source type has changed (char 4 will contain 'v',
@@ -1510,27 +1516,32 @@ void SIM_PLOT_FRAME::onSettings( wxCommandEvent& event )
 
 void SIM_PLOT_FRAME::onAddSignal( wxCommandEvent& event )
 {
-    wxCHECK_RET( m_simFinished, "No simulation results available" );
+    wxCHECK_RET( m_simFinished, wxT( "No simulation results available" ) );
 
     SIM_PLOT_PANEL* plotPanel = GetCurrentPlot();
 
-    if( !plotPanel || !m_exporter || plotPanel->GetType() != m_exporter->GetSimType() )
+    if( !plotPanel || !m_circuitModel || plotPanel->GetType() != m_circuitModel->GetSimType() )
     {
         DisplayInfoMessage( this, _( "You need to run plot-providing simulation first." ) );
         return;
     }
 
-    DIALOG_SIGNAL_LIST dialog( this, m_exporter.get() );
+    DIALOG_SIGNAL_LIST dialog( this, m_circuitModel.get() );
     dialog.ShowModal();
 }
 
 
 void SIM_PLOT_FRAME::onProbe( wxCommandEvent& event )
 {
-    wxCHECK_RET( m_simFinished, "No simulation results available" );
+    wxCHECK_RET( m_simFinished, wxT( "No simulation results available" ) );
 
     if( m_schematicFrame == nullptr )
         return;
+
+    wxWindow* blocking_dialog = m_schematicFrame->Kiway().GetBlockingDialog();
+
+    if( blocking_dialog )
+        blocking_dialog->Close( true );
 
     m_schematicFrame->GetToolManager()->RunAction( EE_ACTIONS::simProbe );
     m_schematicFrame->Raise();
@@ -1539,10 +1550,15 @@ void SIM_PLOT_FRAME::onProbe( wxCommandEvent& event )
 
 void SIM_PLOT_FRAME::onTune( wxCommandEvent& event )
 {
-    wxCHECK_RET( m_simFinished, "No simulation results available" );
+    wxCHECK_RET( m_simFinished, wxT( "No simulation results available" ) );
 
     if( m_schematicFrame == nullptr )
         return;
+
+    wxWindow* blocking_dialog = m_schematicFrame->Kiway().GetBlockingDialog();
+
+    if( blocking_dialog )
+        blocking_dialog->Close( true );
 
     m_schematicFrame->GetToolManager()->RunAction( EE_ACTIONS::simTune );
     m_schematicFrame->Raise();
@@ -1565,9 +1581,8 @@ void SIM_PLOT_FRAME::onShowNetlist( wxCommandEvent& event )
         }
 
         NETLIST_VIEW_DIALOG( wxWindow* parent, wxString source) :
-            DIALOG_SHIM( parent, wxID_ANY, "SPICE Netlist",
-                         wxDefaultPosition, wxDefaultSize,
-                         wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER )
+                DIALOG_SHIM( parent, wxID_ANY, wxT( "SPICE Netlist" ), wxDefaultPosition,
+                             wxDefaultSize, wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER )
         {
             wxStyledTextCtrl* text = new wxStyledTextCtrl( this, wxID_ANY );
             text->SetMinSize( wxSize( 600, 400 ) );
@@ -1591,20 +1606,27 @@ void SIM_PLOT_FRAME::onShowNetlist( wxCommandEvent& event )
             text->SetLexer( wxSTC_LEX_SPICE );
 
             wxBoxSizer* sizer = new wxBoxSizer( wxVERTICAL );
-            sizer->Add( text, 1, wxEXPAND );
+            sizer->Add( text, 1, wxEXPAND | wxALL, 5 );
             SetSizer( sizer );
 
             Connect( wxEVT_CLOSE_WINDOW, wxCloseEventHandler( NETLIST_VIEW_DIALOG::onClose ),
                      nullptr, this );
 
+            m_scintillaTricks = std::make_unique<SCINTILLA_TRICKS>( text, wxT( "{}" ), false );
+
             finishDialogSettings();
         }
+
+        std::unique_ptr<SCINTILLA_TRICKS> m_scintillaTricks;
     };
 
     if( m_schematicFrame == nullptr || m_simulator == nullptr )
         return;
 
-    NETLIST_VIEW_DIALOG dlg( this, m_simulator->GetNetlist() );
+    STRING_FORMATTER formatter;
+    m_circuitModel->GetNetlist( &formatter );
+
+    NETLIST_VIEW_DIALOG dlg( this, formatter.GetString() );
     dlg.ShowModal();
 }
 
@@ -1642,6 +1664,9 @@ void SIM_PLOT_FRAME::doCloseWindow()
     if( m_simulator->IsRunning() )
         m_simulator->Stop();
 
+    // Prevent memory leak on exit by deleting all simulation vectors
+    m_simulator->Clean();
+
     // Cancel a running simProbe or simTune tool
     m_schematicFrame->GetToolManager()->RunAction( ACTIONS::cancelInteractive );
 
@@ -1672,7 +1697,7 @@ void SIM_PLOT_FRAME::onCursorUpdate( wxCommandEvent& event )
     wxString labelY;
 
     if( !labelY2.IsEmpty() )
-        labelY = labelY1 + " / " + labelY2;
+        labelY = labelY1 + wxT( " / " ) + labelY2;
     else
         labelY = labelY1;
 
@@ -1710,7 +1735,7 @@ void SIM_PLOT_FRAME::onSimFinished( wxCommandEvent& aEvent )
     m_toolBar->SetToolNormalBitmap( ID_SIM_RUN, KiBitmap( BITMAPS::sim_run ) );
     SetCursor( wxCURSOR_ARROW );
 
-    SIM_TYPE simType = m_exporter->GetSimType();
+    SIM_TYPE simType = m_circuitModel->GetSimType();
 
     if( simType == ST_UNKNOWN )
         return;
@@ -1718,22 +1743,37 @@ void SIM_PLOT_FRAME::onSimFinished( wxCommandEvent& aEvent )
     SIM_PANEL_BASE* plotPanelWindow = getCurrentPlotWindow();
 
     if( !plotPanelWindow || plotPanelWindow->GetType() != simType )
-        plotPanelWindow = NewPlotPanel( m_exporter->GetUsedSimCommand() );
+        plotPanelWindow = NewPlotPanel( m_circuitModel->GetSimCommand() );
 
+    // Sometimes (for instance with a directive like wrdata my_file.csv "my_signal")
+    // the simulator is in idle state (simulation is finished), but still running, during
+    // the time the file is written. So gives a slice of time to fully finish the work:
     if( m_simulator->IsRunning() )
-        return;
+    {
+        int max_time = 40;      // For a max timeout = 2s
+
+        do
+        {
+            wxMilliSleep( 50 );
+            wxYield();
+
+            if( max_time )
+                max_time--;
+
+        } while( max_time && m_simulator->IsRunning() );
+    }
+    // Is a warning message useful if the simulatior is still running?
 
     // If there are any signals plotted, update them
     if( SIM_PANEL_BASE::IsPlottable( simType ) )
     {
         SIM_PLOT_PANEL* plotPanel = dynamic_cast<SIM_PLOT_PANEL*>( plotPanelWindow );
-        wxCHECK_RET( plotPanel, "not a SIM_PLOT_PANEL"  );
+        wxCHECK_RET( plotPanel, wxT( "not a SIM_PLOT_PANEL" ) );
 
         struct TRACE_DESC
         {
             wxString      m_name;    ///< Name of the measured net/device
             SIM_PLOT_TYPE m_type;    ///< Type of the signal
-            wxString      m_param;   ///< Name of the signal parameter
         };
 
         std::vector<struct TRACE_DESC> traceInfo;
@@ -1744,14 +1784,13 @@ void SIM_PLOT_FRAME::onSimFinished( wxCommandEvent& aEvent )
             struct TRACE_DESC placeholder;
             placeholder.m_name = trace.second->GetName();
             placeholder.m_type = trace.second->GetType();
-            placeholder.m_param = trace.second->GetParam();
 
             traceInfo.push_back( placeholder );
         }
 
         for( auto& trace : traceInfo )
         {
-            if( !updatePlot( trace.m_name, trace.m_type, trace.m_param, plotPanel ) )
+            if( !updatePlot( trace.m_name, trace.m_type, plotPanel ) )
                 removePlot( trace.m_name );
         }
 
@@ -1773,7 +1812,7 @@ void SIM_PLOT_FRAME::onSimFinished( wxCommandEvent& aEvent )
 
             double val = val_list.at( 0 );
             wxString      outLine, signal;
-            SIM_PLOT_TYPE type = m_exporter->VectorToSignal( vec, signal );
+            SIM_PLOT_TYPE type = m_circuitModel->VectorToSignal( vec, signal );
 
             const size_t tab     = 25; //characters
             size_t padding = ( signal.length() < tab ) ? ( tab - signal.length() ) : 1;
@@ -1782,7 +1821,7 @@ void SIM_PLOT_FRAME::onSimFinished( wxCommandEvent& aEvent )
                             ( signal + wxT( ":" ) ).Pad( padding, wxUniChar( ' ' ) ),
                             SPICE_VALUE( val ).ToSpiceString() );
 
-            outLine.Append( type == SPT_CURRENT ? "A\n" : "V\n" );
+            outLine.Append( type == SPT_CURRENT ? wxT( "A\n" ) : wxT( "V\n" ) );
 
             m_simConsole->AppendText( outLine );
             m_simConsole->SetInsertionPointEnd();
@@ -1791,16 +1830,25 @@ void SIM_PLOT_FRAME::onSimFinished( wxCommandEvent& aEvent )
         }
     }
 
+    m_lastSimPlot = plotPanelWindow;
     m_simFinished = true;
 }
 
 
 void SIM_PLOT_FRAME::onSimUpdate( wxCommandEvent& aEvent )
 {
-    if( m_simulator->IsRunning() )
-        StopSimulation();
+    static bool updateInProgress = false;
 
-    if( GetCurrentPlot() != m_lastSimPlot )
+    // skip update when events are triggered too often and previous call didn't end yet
+    if( updateInProgress )
+        return;
+
+    updateInProgress = true;
+
+    if( m_simulator->IsRunning() )
+        m_simulator->Stop();
+
+    if( getCurrentPlotWindow() != m_lastSimPlot )
     {
         // We need to rerun simulation, as the simulator currently stores
         // results for another plot
@@ -1808,13 +1856,22 @@ void SIM_PLOT_FRAME::onSimUpdate( wxCommandEvent& aEvent )
     }
     else
     {
-        // Incremental update
-        m_simConsole->Clear();
+        std::unique_lock<std::mutex> simulatorLock( m_simulator->GetMutex(), std::try_to_lock );
 
-        // Do not export netlist, it is already stored in the simulator
-        applyTuners();
-        m_simulator->Run();
+        if( simulatorLock.owns_lock() )
+        {
+            // Incremental update
+            m_simConsole->Clear();
+
+            // Do not export netlist, it is already stored in the simulator
+            applyTuners();
+
+            m_simulator->Run();
+        }
+        else
+            DisplayErrorMessage( this, _( "Another simulation is already running." ) );
     }
+    updateInProgress = false;
 }
 
 

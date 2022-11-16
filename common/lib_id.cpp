@@ -43,6 +43,7 @@ void LIB_ID::clear()
 {
     m_libraryName.clear();
     m_itemName.clear();
+    m_subLibraryName.clear();
 }
 
 
@@ -174,7 +175,7 @@ int LIB_ID::HasIllegalChars( const UTF8& aLibItemName )
 {
     int offset = 0;
 
-    for( auto ch : aLibItemName )
+    for( auto& ch : aLibItemName )
     {
         if( !isLegalChar( ch ) )
             return offset;
@@ -212,7 +213,9 @@ bool LIB_ID::isLegalChar( unsigned aUniChar )
         return false;
 
     // This list of characters is also duplicated in validators.cpp and footprint.cpp
-    // TODO: Unify forbidden character lists
+    // TODO: Unify forbidden character lists - Warning, invalid filename characters are not the same
+    // as invalid LIB_ID characters.  We will need to separate the FP filenames from FP names before this
+    // can be unified
     switch( aUniChar )
     {
     case ':':
@@ -221,7 +224,6 @@ bool LIB_ID::isLegalChar( unsigned aUniChar )
     case '\r':
         return false;
 
-    case '/':
     case '\\':
     case '<':
     case '>':

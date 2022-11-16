@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2020 Thomas Pointhuber <thomas.pointhuber@gmx.at>
- * Copyright (C) 2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -25,7 +25,7 @@
 #include <iostream>
 #include <unordered_map>
 
-#include <convert_to_biu.h>
+#include <base_units.h>
 #include <ki_exception.h>
 
 #include <wx/log.h>
@@ -43,7 +43,12 @@ ALTIUM_SCH_RECORD ReadRecord( const std::map<wxString, wxString>& aProps )
 
 constexpr int Altium2KiCadUnit( const int val, const int frac )
 {
-    return Mils2iu( val ) * 10 + Mils2iu( frac ) / 10000; // TODO: correct, rounding issues?
+    constexpr double int_limit = ( std::numeric_limits<int>::max() - 10 ) / 2.54;
+
+    double dbase = 10 * schIUScale.MilsToIU( val );
+    double dfrac = schIUScale.MilsToIU( frac ) / 10000.0;
+
+    return KiROUND( Clamp<double>( -int_limit, ( dbase + dfrac ) / 10.0, int_limit ) ) * 10;
 }
 
 
@@ -82,7 +87,7 @@ template <typename T>
 T ReadEnum( const std::map<wxString, wxString>& aProps, const wxString& aKey, int aLower,
             int aUpper, T aDefault )
 {
-    int value = ALTIUM_PARSER::ReadInt( aProps, aKey, static_cast<int>( aDefault ));
+    int value = ALTIUM_PARSER::ReadInt( aProps, aKey, static_cast<int>( aDefault ) );
 
     if( value < aLower || value > aUpper )
         return aDefault;
@@ -100,6 +105,18 @@ ASCH_STORAGE_FILE::ASCH_STORAGE_FILE( ALTIUM_PARSER& aReader )
 
     if( aReader.HasParsingError() )
         THROW_IO_ERROR( "Storage stream was not parsed correctly" );
+}
+
+
+ASCH_ADDITIONAL_FILE::ASCH_ADDITIONAL_FILE( ALTIUM_PARSER& aReader )
+{
+    aReader.Skip( 5 );
+    FileName = aReader.ReadWxString();
+    uint32_t dataSize = aReader.Read<uint32_t>();
+    Data = aReader.ReadVector( dataSize );
+
+    if( aReader.HasParsingError() )
+        THROW_IO_ERROR( "Additional stream was not parsed correctly" );
 }
 
 
@@ -182,18 +199,22 @@ ASCH_PIN::ASCH_PIN( const std::map<wxString, wxString>& aProps )
         kicadX += p;
         kicadXfrac += pfrac;
         break;
+
     case ASCH_RECORD_ORIENTATION::UPWARDS:
         kicadY += p;
         kicadYfrac += pfrac;
         break;
+
     case ASCH_RECORD_ORIENTATION::LEFTWARDS:
         kicadX -= p;
         kicadXfrac -= pfrac;
         break;
+
     case ASCH_RECORD_ORIENTATION::DOWNWARDS:
         kicadY -= p;
         kicadYfrac -= pfrac;
         break;
+
     default:
         wxLogWarning( "Pin has unexpected orientation" );
         break;
@@ -232,21 +253,29 @@ ASCH_TEXT_FRAME::ASCH_TEXT_FRAME( const std::map<wxString, wxString>& aProps )
     wxASSERT( ReadRecord( aProps ) == ALTIUM_SCH_RECORD::NOTE
               || ReadRecord( aProps ) == ALTIUM_SCH_RECORD::TEXT_FRAME );
 
-    location = VECTOR2I( ReadKiCadUnitFrac( aProps, "LOCATION.X" ),
+    BottomLeft = VECTOR2I( ReadKiCadUnitFrac( aProps, "LOCATION.X" ),
+                           -ReadKiCadUnitFrac( aProps, "LOCATION.Y" ) );
+    TopRight = VECTOR2I( ReadKiCadUnitFrac( aProps, "CORNER.X" ),
+                         -ReadKiCadUnitFrac( aProps, "CORNER.Y" ) );
+
+    Location = VECTOR2I( ReadKiCadUnitFrac( aProps, "LOCATION.X" ),
                          -ReadKiCadUnitFrac( aProps, "LOCATION.Y" ) );
-    size = wxSize( ReadKiCadUnitFrac( aProps, "CORNER.X" ) - location.x,
-                   -ReadKiCadUnitFrac( aProps, "CORNER.Y" ) - location.y );
+    Size = wxSize( ReadKiCadUnitFrac( aProps, "CORNER.X" ) - Location.x,
+                   -ReadKiCadUnitFrac( aProps, "CORNER.Y" ) - Location.y );
 
-    text = ALTIUM_PARSER::ReadString( aProps, "TEXT", "" );
-    text.Replace( "~1", "\n", true );
+    Text = ALTIUM_PARSER::ReadString( aProps, "TEXT", "" );
+    Text.Replace( "~1", "\n", true );
 
-    fontId = ALTIUM_PARSER::ReadInt( aProps, "FONTID", 0 );
-    isWordWrapped = ALTIUM_PARSER::ReadBool( aProps, "WORDWRAP", false );
-    border = ALTIUM_PARSER::ReadBool( aProps, "SHOWBORDER", false );
-    textMargin = ReadKiCadUnitFrac( aProps, "TEXTMARGIN" );
-    areaColor = ALTIUM_PARSER::ReadInt( aProps, "AREACOLOR", 0 );
+    FontID = ALTIUM_PARSER::ReadInt( aProps, "FONTID", 0 );
+    IsWordWrapped = ALTIUM_PARSER::ReadBool( aProps, "WORDWRAP", false );
+    ShowBorder = ALTIUM_PARSER::ReadBool( aProps, "SHOWBORDER", false );
+    TextMargin = ReadKiCadUnitFrac( aProps, "TEXTMARGIN" );
+    AreaColor = ALTIUM_PARSER::ReadInt( aProps, "AREACOLOR", 0 );
+    BorderColor = ALTIUM_PARSER::ReadInt( aProps, "COLOR", 0 );
 
-    alignment = ReadEnum<ASCH_TEXT_FRAME_ALIGNMENT>( aProps, "ALIGNMENT", 1, 3,
+    IsSolid = ALTIUM_PARSER::ReadBool( aProps, "WORDWRAP", true );
+
+    Alignment = ReadEnum<ASCH_TEXT_FRAME_ALIGNMENT>( aProps, "ALIGNMENT", 1, 3,
                                                      ASCH_TEXT_FRAME_ALIGNMENT::LEFT );
 }
 
@@ -285,24 +314,27 @@ ASCH_POLYLINE::ASCH_POLYLINE( const std::map<wxString, wxString>& aProps )
 {
     wxASSERT( ReadRecord( aProps ) == ALTIUM_SCH_RECORD::POLYLINE );
 
-    ownerindex = ReadOwnerIndex( aProps );
-    ownerpartid = ReadOwnerPartId( aProps );
-    ownerpartdisplaymode = ALTIUM_PARSER::ReadInt( aProps, "OWNERPARTDISPLAYMODE", 0 );
+    OwnerIndex = ReadOwnerIndex( aProps );
+    OwnerPartID = ReadOwnerPartId( aProps );
+    OwnerPartDisplayMode = ALTIUM_PARSER::ReadInt( aProps, "OWNERPARTDISPLAYMODE", 0 );
 
     int locationCount = ALTIUM_PARSER::ReadInt( aProps, "LOCATIONCOUNT", 0 );
 
     for( int i = 1; i <= locationCount; i++ )
     {
         const wxString si = std::to_string( i );
-        points.emplace_back( ReadKiCadUnitFrac( aProps, "X" + si ),
+        Points.emplace_back( ReadKiCadUnitFrac( aProps, "X" + si ),
                              -ReadKiCadUnitFrac( aProps, "Y" + si ) );
     }
 
-    lineWidth = ReadKiCadUnitFrac( aProps, "LINEWIDTH" );
+    LineWidth = ReadKiCadUnitFrac( aProps, "LINEWIDTH" );
+    Color = ALTIUM_PARSER::ReadInt( aProps, "COLOR", 0 );
 
     int linestyleVar = ALTIUM_PARSER::ReadInt( aProps, "LINESTYLEEXT", 0 );
-    linestyleVar     = ALTIUM_PARSER::ReadInt( aProps, "LINESTYLE", linestyleVar ); // overwrite if present
-    linestyle        = linestyleVar >= 0 && linestyleVar <= 3 ?
+
+    // overwrite if present.
+    linestyleVar     = ALTIUM_PARSER::ReadInt( aProps, "LINESTYLE", linestyleVar );
+    LineStyle        = linestyleVar >= 0 && linestyleVar <= 3 ?
                                 static_cast<ASCH_POLYLINE_LINESTYLE>( linestyleVar ) :
                                 ASCH_POLYLINE_LINESTYLE::SOLID;
 }
@@ -312,9 +344,9 @@ ASCH_POLYGON::ASCH_POLYGON( const std::map<wxString, wxString>& aProps )
 {
     wxASSERT( ReadRecord( aProps ) == ALTIUM_SCH_RECORD::POLYGON );
 
-    ownerindex = ReadOwnerIndex( aProps );
-    ownerpartid = ReadOwnerPartId( aProps );
-    ownerpartdisplaymode = ALTIUM_PARSER::ReadInt( aProps, "OWNERPARTDISPLAYMODE", 0 );
+    OwnerIndex = ReadOwnerIndex( aProps );
+    OwnerPartID = ReadOwnerPartId( aProps );
+    OwnerPartDisplayMode = ALTIUM_PARSER::ReadInt( aProps, "OWNERPARTDISPLAYMODE", 0 );
 
     int locationCount = ALTIUM_PARSER::ReadInt( aProps, "LOCATIONCOUNT", 0 );
 
@@ -325,11 +357,11 @@ ASCH_POLYGON::ASCH_POLYGON( const std::map<wxString, wxString>& aProps )
                              -ReadKiCadUnitFrac( aProps, "Y" + si ) );
     }
 
-    lineWidth = ReadKiCadUnitFrac( aProps, "LINEWIDTH" );
-    isSolid   = ALTIUM_PARSER::ReadBool( aProps, "ISSOLID", false );
+    LineWidth = ReadKiCadUnitFrac( aProps, "LINEWIDTH" );
+    IsSolid   = ALTIUM_PARSER::ReadBool( aProps, "ISSOLID", false );
 
-    color     = ALTIUM_PARSER::ReadInt( aProps, "COLOR", 0 );
-    areacolor = ALTIUM_PARSER::ReadInt( aProps, "AREACOLOR", 0 );
+    Color     = ALTIUM_PARSER::ReadInt( aProps, "COLOR", 0 );
+    AreaColor = ALTIUM_PARSER::ReadInt( aProps, "AREACOLOR", 0 );
 }
 
 
@@ -337,24 +369,24 @@ ASCH_ROUND_RECTANGLE::ASCH_ROUND_RECTANGLE( const std::map<wxString, wxString>& 
 {
     wxASSERT( ReadRecord( aProps ) == ALTIUM_SCH_RECORD::ROUND_RECTANGLE );
 
-    ownerindex = ReadOwnerIndex( aProps );
-    ownerpartid = ReadOwnerPartId( aProps );
-    ownerpartdisplaymode = ALTIUM_PARSER::ReadInt( aProps, "OWNERPARTDISPLAYMODE", 0 );
+    OwnerIndex = ReadOwnerIndex( aProps );
+    OwnerPartID = ReadOwnerPartId( aProps );
+    OwnerPartDisplayMode = ALTIUM_PARSER::ReadInt( aProps, "OWNERPARTDISPLAYMODE", 0 );
 
-    bottomLeft = VECTOR2I( ReadKiCadUnitFrac( aProps, "LOCATION.X" ),
+    BottomLeft = VECTOR2I( ReadKiCadUnitFrac( aProps, "LOCATION.X" ),
                            -ReadKiCadUnitFrac( aProps, "LOCATION.Y" ) );
-    topRight = VECTOR2I( ReadKiCadUnitFrac( aProps, "CORNER.X" ),
+    TopRight = VECTOR2I( ReadKiCadUnitFrac( aProps, "CORNER.X" ),
                            -ReadKiCadUnitFrac( aProps, "CORNER.Y" ) );
 
-    cornerradius = wxSize( ReadKiCadUnitFrac( aProps, "CORNERXRADIUS" ),
+    CornerRadius = wxSize( ReadKiCadUnitFrac( aProps, "CORNERXRADIUS" ),
                            -ReadKiCadUnitFrac( aProps, "CORNERYRADIUS" ) );
 
-    lineWidth     = ReadKiCadUnitFrac( aProps, "LINEWIDTH" );
-    isSolid       = ALTIUM_PARSER::ReadBool( aProps, "ISSOLID", false );
-    isTransparent = ALTIUM_PARSER::ReadBool( aProps, "TRANSPARENT", false );
+    LineWidth     = ReadKiCadUnitFrac( aProps, "LINEWIDTH" );
+    IsSolid       = ALTIUM_PARSER::ReadBool( aProps, "ISSOLID", false );
+    IsTransparent = ALTIUM_PARSER::ReadBool( aProps, "TRANSPARENT", false );
 
-    color     = ALTIUM_PARSER::ReadInt( aProps, "COLOR", 0 );
-    areacolor = ALTIUM_PARSER::ReadInt( aProps, "AREACOLOR", 0 );
+    Color     = ALTIUM_PARSER::ReadInt( aProps, "COLOR", 0 );
+    AreaColor = ALTIUM_PARSER::ReadInt( aProps, "AREACOLOR", 0 );
 }
 
 
@@ -377,6 +409,25 @@ ASCH_ARC::ASCH_ARC( const std::map<wxString, wxString>& aProps )
 }
 
 
+ASCH_ELLIPSE::ASCH_ELLIPSE( const std::map<wxString, wxString>& aProps )
+{
+    wxASSERT( ReadRecord( aProps ) == ALTIUM_SCH_RECORD::ELLIPSE );
+
+    OwnerIndex = ReadOwnerIndex( aProps );
+    OwnerPartID = ReadOwnerPartId( aProps );
+
+    Center = VECTOR2I( ReadKiCadUnitFrac( aProps, "LOCATION.X" ),
+                       -ReadKiCadUnitFrac( aProps, "LOCATION.Y" ) );
+
+    Radius = ReadKiCadUnitFrac( aProps, "RADIUS" );
+    SecondaryRadius = ReadKiCadUnitFrac( aProps, "SECONDARYRADIUS" );
+
+    AreaColor = ALTIUM_PARSER::ReadInt( aProps, "AREACOLOR", 0 );
+    IsNotAccesible = ALTIUM_PARSER::ReadBool( aProps, "ISNOTACCESIBLE", false );
+    IsSolid = ALTIUM_PARSER::ReadBool( aProps, "ISSOLID", false );
+}
+
+
 ASCH_LINE::ASCH_LINE( const std::map<wxString, wxString>& aProps )
 {
     wxASSERT( ReadRecord( aProps ) == ALTIUM_SCH_RECORD::LINE );
@@ -394,25 +445,115 @@ ASCH_LINE::ASCH_LINE( const std::map<wxString, wxString>& aProps )
 }
 
 
+ASCH_SIGNAL_HARNESS::ASCH_SIGNAL_HARNESS( const std::map<wxString, wxString>& aProps )
+{
+    wxASSERT( ReadRecord( aProps ) == ALTIUM_SCH_RECORD::SIGNAL_HARNESS );
+
+    OwnerPartID = ReadOwnerPartId( aProps );
+
+    int locationCount = ALTIUM_PARSER::ReadInt( aProps, "LOCATIONCOUNT", 0 );
+
+    for( int i = 1; i <= locationCount; i++ )
+    {
+        const wxString si = std::to_string( i );
+        Points.emplace_back( ReadKiCadUnitFrac( aProps, "X" + si ),
+                             -ReadKiCadUnitFrac( aProps, "Y" + si ) );
+    }
+
+    IndexInSheet = ALTIUM_PARSER::ReadInt( aProps, "INDEXINSHEET", 0 );
+
+    Color = ALTIUM_PARSER::ReadInt( aProps, "COLOR", 0 );
+    LineWidth = ReadKiCadUnitFrac( aProps, "LINEWIDTH" );
+}
+
+
+ASCH_HARNESS_CONNECTOR::ASCH_HARNESS_CONNECTOR( const std::map<wxString, wxString>& aProps )
+{
+    wxASSERT( ReadRecord( aProps ) == ALTIUM_SCH_RECORD::HARNESS_CONNECTOR );
+
+    OwnerPartID = ReadOwnerPartId( aProps );
+
+    Location = VECTOR2I( ReadKiCadUnitFrac( aProps, "LOCATION.X" ),
+                         -ReadKiCadUnitFrac( aProps, "LOCATION.Y" ) );
+    Size = wxSize( ReadKiCadUnitFrac( aProps, "XSIZE" ), ReadKiCadUnitFrac( aProps, "YSIZE" ) );
+
+    Color = ALTIUM_PARSER::ReadInt( aProps, "COLOR", 0 );
+    AreaColor = ALTIUM_PARSER::ReadInt( aProps, "AREACOLOR", 0 );
+
+    IndexInSheet = 0;
+    LineWidth = 0;;
+    LocationPrimaryConnectionPosition = 0;
+}
+
+
+ASCH_HARNESS_ENTRY::ASCH_HARNESS_ENTRY( const std::map<wxString, wxString>& aProps )
+{
+    wxASSERT( ReadRecord( aProps ) == ALTIUM_SCH_RECORD::HARNESS_ENTRY );
+
+    // use SCH_ALTIUM_PLUGIN::m_harnessEntryParent instead, because this property sometimes
+    // does not exist in altium file!
+    // ownerindex = ReadOwnerIndex( aProps );
+
+    OwnerPartID = ReadOwnerPartId( aProps );
+
+    IndexInSheet = ALTIUM_PARSER::ReadInt( aProps, "INDEXINSHEET", 0 );
+
+    DistanceFromTop = ReadKiCadUnitFrac1( aProps, "DISTANCEFROMTOP" );
+
+    Side = ReadEnum<ASCH_SHEET_ENTRY_SIDE>( aProps, "SIDE", 0, 3, ASCH_SHEET_ENTRY_SIDE::LEFT );
+
+    Name = ALTIUM_PARSER::ReadString( aProps, "NAME", "" );
+
+    OwnerIndexAdditionalList = ALTIUM_PARSER::ReadBool( aProps, "OWNERINDEXADDITIONALLIST", true );
+
+    Color = ALTIUM_PARSER::ReadInt( aProps, "COLOR", 0 );
+    AreaColor = ALTIUM_PARSER::ReadInt( aProps, "AREACOLOR", 0 );
+    TextColor = ALTIUM_PARSER::ReadInt( aProps, "TEXTCOLOR", 0 );
+    TextFontID = ALTIUM_PARSER::ReadInt( aProps, "TEXTFONTID", 0 );
+    TextStyle = 0;
+}
+
+
+ASCH_HARNESS_TYPE::ASCH_HARNESS_TYPE( const std::map<wxString, wxString>& aProps )
+{
+    wxASSERT( ReadRecord( aProps ) == ALTIUM_SCH_RECORD::HARNESS_TYPE );
+
+    //ownerindex = ReadOwnerIndex( aProps ); // use SCH_ALTIUM_PLUGIN::m_harnessEntryParent instead!
+    OwnerPartID = ReadOwnerPartId( aProps );
+
+    Text = ALTIUM_PARSER::ReadString( aProps, "TEXT", "" );
+
+    Location = VECTOR2I( ReadKiCadUnitFrac( aProps, "LOCATION.X" ),
+                         -ReadKiCadUnitFrac( aProps, "LOCATION.Y" ) );
+
+    IsHidden = ALTIUM_PARSER::ReadBool( aProps, "ISHIDDEN", false );
+    OwnerIndexAdditionalList = ALTIUM_PARSER::ReadBool( aProps, "OWNERINDEXADDITIONALLIST", true );
+
+    IndexInSheet = ALTIUM_PARSER::ReadInt( aProps, "INDEXINSHEET", 0 );
+    Color = ALTIUM_PARSER::ReadInt( aProps, "COLOR", 0 );
+    FontID = ALTIUM_PARSER::ReadInt( aProps, "TEXTFONTID", 0 );
+}
+
+
 ASCH_RECTANGLE::ASCH_RECTANGLE( const std::map<wxString, wxString>& aProps )
 {
     wxASSERT( ReadRecord( aProps ) == ALTIUM_SCH_RECORD::RECTANGLE );
 
-    ownerindex = ReadOwnerIndex( aProps );
-    ownerpartid = ReadOwnerPartId( aProps );
-    ownerpartdisplaymode = ALTIUM_PARSER::ReadInt( aProps, "OWNERPARTDISPLAYMODE", 0 );
+    OwnerIndex = ReadOwnerIndex( aProps );
+    OwnerPartID = ReadOwnerPartId( aProps );
+    OwnerPartDisplayMode = ALTIUM_PARSER::ReadInt( aProps, "OWNERPARTDISPLAYMODE", 0 );
 
-    bottomLeft = VECTOR2I( ReadKiCadUnitFrac( aProps, "LOCATION.X" ),
+    BottomLeft = VECTOR2I( ReadKiCadUnitFrac( aProps, "LOCATION.X" ),
                            -ReadKiCadUnitFrac( aProps, "LOCATION.Y" ) );
-    topRight = VECTOR2I( ReadKiCadUnitFrac( aProps, "CORNER.X" ),
-                           -ReadKiCadUnitFrac( aProps, "CORNER.Y" ) );
+    TopRight = VECTOR2I( ReadKiCadUnitFrac( aProps, "CORNER.X" ),
+                         -ReadKiCadUnitFrac( aProps, "CORNER.Y" ) );
 
-    lineWidth     = ReadKiCadUnitFrac( aProps, "LINEWIDTH" );
-    isSolid       = ALTIUM_PARSER::ReadBool( aProps, "ISSOLID", false );
-    isTransparent = ALTIUM_PARSER::ReadBool( aProps, "TRANSPARENT", false );
+    LineWidth     = ReadKiCadUnitFrac( aProps, "LINEWIDTH" );
+    IsSolid       = ALTIUM_PARSER::ReadBool( aProps, "ISSOLID", false );
+    IsTransparent = ALTIUM_PARSER::ReadBool( aProps, "TRANSPARENT", false );
 
-    color     = ALTIUM_PARSER::ReadInt( aProps, "COLOR", 0 );
-    areacolor = ALTIUM_PARSER::ReadInt( aProps, "AREACOLOR", 0 );
+    Color     = ALTIUM_PARSER::ReadInt( aProps, "COLOR", 0 );
+    AreaColor = ALTIUM_PARSER::ReadInt( aProps, "AREACOLOR", 0 );
 }
 
 
@@ -470,23 +611,32 @@ ASCH_POWER_PORT::ASCH_POWER_PORT( const std::map<wxString, wxString>& aProps )
                                              ASCH_POWER_PORT_STYLE::CIRCLE );
 }
 
+
 ASCH_PORT::ASCH_PORT( const std::map<wxString, wxString>& aProps )
 {
     wxASSERT( ReadRecord( aProps ) == ALTIUM_SCH_RECORD::PORT );
 
-    ownerpartid = ReadOwnerPartId( aProps );
+    OwnerPartID = ReadOwnerPartId( aProps );
 
-    location = VECTOR2I( ReadKiCadUnitFrac( aProps, "LOCATION.X" ),
+    Location = VECTOR2I( ReadKiCadUnitFrac( aProps, "LOCATION.X" ),
                          -ReadKiCadUnitFrac( aProps, "LOCATION.Y" ) );
 
-    name = ALTIUM_PARSER::ReadString( aProps, "NAME", "" );
-    harnessType = ALTIUM_PARSER::ReadString( aProps, "HARNESSTYPE", "" );
+    Name = ALTIUM_PARSER::ReadString( aProps, "NAME", "" );
+    HarnessType = ALTIUM_PARSER::ReadString( aProps, "HARNESSTYPE", "" );
 
-    width  = ReadKiCadUnitFrac( aProps, "WIDTH" );
-    height = ReadKiCadUnitFrac( aProps, "HEIGHT" );
+    Width  = ReadKiCadUnitFrac( aProps, "WIDTH" );
+    Height = ReadKiCadUnitFrac( aProps, "HEIGHT" );
 
-    iotype = ReadEnum<ASCH_PORT_IOTYPE>( aProps, "IOTYPE", 0, 3, ASCH_PORT_IOTYPE::UNSPECIFIED );
-    style = ReadEnum<ASCH_PORT_STYLE>( aProps, "STYLE", 0, 7, ASCH_PORT_STYLE::NONE_HORIZONTAL );
+    IOtype = ReadEnum<ASCH_PORT_IOTYPE>( aProps, "IOTYPE", 0, 3, ASCH_PORT_IOTYPE::UNSPECIFIED );
+    Style = ReadEnum<ASCH_PORT_STYLE>( aProps, "STYLE", 0, 7, ASCH_PORT_STYLE::NONE_HORIZONTAL );
+
+    AreaColor = ALTIUM_PARSER::ReadInt( aProps, "AREACOLOR", 0 );
+    Color = ALTIUM_PARSER::ReadInt( aProps, "COLOR", 0 );
+    FontID = ALTIUM_PARSER::ReadInt( aProps, "TEXTFONTID", 0 );
+    TextColor = ALTIUM_PARSER::ReadInt( aProps, "TEXTCOLOR", 0 );
+
+    Alignment = ReadEnum<ASCH_TEXT_FRAME_ALIGNMENT>( aProps, "ALIGNMENT", 1, 3,
+                                                     ASCH_TEXT_FRAME_ALIGNMENT::LEFT );
 }
 
 
@@ -590,15 +740,18 @@ ASCH_SHEET_FONT::ASCH_SHEET_FONT( const std::map<wxString, wxString>& aProps, in
 
     const wxString sid = std::to_string( aId );
 
-    fontname = ALTIUM_PARSER::ReadString( aProps, "FONTNAME" + sid, "" );
+    FontName = ALTIUM_PARSER::ReadString( aProps, "FONTNAME" + sid, "" );
 
-    size     = ReadKiCadUnitFrac( aProps, "SIZE" + sid );
-    rotation = ALTIUM_PARSER::ReadInt( aProps, "ROTATION" + sid, 0 );
+    Size     = ReadKiCadUnitFrac( aProps, "SIZE" + sid );
+    Rotation = ALTIUM_PARSER::ReadInt( aProps, "ROTATION" + sid, 0 );
 
-    italic    = ALTIUM_PARSER::ReadBool( aProps, "ITALIC" + sid, false );
-    bold      = ALTIUM_PARSER::ReadBool( aProps, "BOLD" + sid, false );
-    underline = ALTIUM_PARSER::ReadBool( aProps, "UNDERLINE" + sid, false );
+    Italic    = ALTIUM_PARSER::ReadBool( aProps, "ITALIC" + sid, false );
+    Bold      = ALTIUM_PARSER::ReadBool( aProps, "BOLD" + sid, false );
+    Underline = ALTIUM_PARSER::ReadBool( aProps, "UNDERLINE" + sid, false );
+
+    AreaColor = ALTIUM_PARSER::ReadInt( aProps, "AREACOLOR" + sid, 0 );
 }
+
 
 VECTOR2I ASchSheetGetSize( ASCH_SHEET_SIZE aSheetSize )
 {
@@ -720,6 +873,7 @@ ASCH_IMPLEMENTATION_LIST::ASCH_IMPLEMENTATION_LIST( const std::map<wxString, wxS
 
     ownerindex = ReadOwnerIndex( aProps );
 }
+
 
 ASCH_BUS_ENTRY::ASCH_BUS_ENTRY( const std::map<wxString, wxString>& aProps )
 {

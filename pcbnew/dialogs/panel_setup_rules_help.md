@@ -23,7 +23,9 @@
 ### Constraint Types
 
  * annular\_width
+ * assertion
  * clearance
+ * connection\_width
  * courtyard_clearance
  * diff\_pair\_gap
  * diff\_pair\_uncoupled
@@ -32,9 +34,9 @@
  * length
  * hole\_clearance
  * hole\_size
- * mechanical\_clearance
- * mechanical\_hole\_clearance
  * min\_resolved\_spokes
+ * physical\_clearance
+ * physical\_hole\_clearance
  * silk\_clearance
  * skew
  * text\_height
@@ -46,7 +48,15 @@
  * via\_diameter
  * zone\_connection
 
-Note: `clearance` and `hole_clearance` rules are not run against items of the same net; `mechanical_clearance` and `mechanical_hole_clearance` rules are.
+Note: `clearance` and `hole_clearance` rules are not run against items of the same net; `physical_clearance` and `physical_hole_clearance` rules are.
+<br><br>
+
+### Items
+
+ * `A` &nbsp;&nbsp; _the first (or only) item under test_
+ * `B` &nbsp;&nbsp; _the second item under test (for binary tests)_
+ * `L` &nbsp;&nbsp; _the layer currently under test_
+
 <br>
 
 ### Item Types
@@ -103,7 +113,7 @@ Note: `clearance` and `hole_clearance` rules are not run against items of the sa
 
     (rule HV_unshielded
        (constraint clearance (min 2mm))
-       (condition "A.NetClass == 'HV' && !A.insideArea('Shield*')"))
+       (condition "A.NetClass == 'HV' && !A.enclosedByArea('Shield*')"))
 
 
     (rule heavy_thermals
@@ -129,20 +139,27 @@ Use Ctrl+/ to comment or uncomment line(s).
 All function parameters support simple wildcards (`*` and `?`).
 <br><br>
 
-    A.insideCourtyard('<footprint_refdes>')
+    A.intersectsCourtyard('<footprint_refdes>')
 True if any part of `A` lies within the given footprint's principal courtyard.
 <br><br>
 
-    A.insideFrontCourtyard('<footprint_refdes>')
+    A.intersectsFrontCourtyard('<footprint_refdes>')
 True if any part of `A` lies within the given footprint's front courtyard.
 <br><br>
 
-    A.insideBackCourtyard('<footprint_refdes>')
+    A.intersectsBackCourtyard('<footprint_refdes>')
 True if any part of `A` lies within the given footprint's back courtyard.
 <br><br>
 
-    A.insideArea('<zone_name>')
+    A.intersectsArea('<zone_name>')
 True if any part of `A` lies within the given zone's outline.
+<br><br>
+
+    A.enclosedByArea('<zone_name>')
+True if all of `A` lies within the given zone's outline.  
+
+NB: this is potentially a more expensive call than `intersectsArea()`.  Use `intersectsArea()` 
+where possible.
 <br><br>
 
     A.isPlated()
@@ -150,7 +167,7 @@ True if `A` has a hole which is plated.
 <br><br>
 
     A.inDiffPair('<net_name>')
-True if `A` has net that is part of the specified differential pair.
+True if `A` has a net that is part of the specified differential pair.
 `<net_name>` is the base name of the differential pair.  For example, `inDiffPair('/CLK')`
 matches items in the `/CLK_P` and `/CLK_N` nets.
 <br><br>
@@ -171,19 +188,35 @@ the canonical name (ie: `F.Cu`).
 NB: this returns true if `A` is on the given layer, independently
 of whether or not the rule is being evaluated for that layer.
 For the latter use a `(layer "layer_name")` clause in the rule.
+<br><br>
+
+    !!! A.insideCourtyard('<footprint_refdes>') !!!
+Deprecated; use `intersectsCourtyard()` instead.
+<br><br>
+
+    !!! A.insideFrontCourtyard('<footprint_refdes>') !!!
+Deprecated; use `intersectsFrontCourtyard()` instead.
+<br><br>
+
+    !!! A.insideBackCourtyard('<footprint_refdes>') !!!
+Deprecated; use `intersectsBackCourtyard()` instead.
+<br><br>
+
+    !!! A.insideArea('<zone_name>') !!!
+Deprecated; use `intersectsArea()` instead.
 <br><br><br>
 
 ### More Examples
 
     (rule "copper keepout"
        (constraint disallow track via zone)
-       (condition "A.insideArea('zone3')"))
+       (condition "A.intersectsArea('zone3')"))
 
 
     (rule "BGA neckdown"
        (constraint track_width (min 0.2mm) (opt 0.25mm))
        (constraint clearance (min 0.05mm) (opt 0.08mm))
-       (condition "A.insideCourtyard('U3')"))
+       (condition "A.intersectsCourtyard('U3')"))
 
 
     # prevent silk over tented vias
@@ -258,10 +291,24 @@ For the latter use a `(layer "layer_name")` clause in the rule.
 
     # Prevent solder wicking from SMD pads
     (rule holes_in_pads
-        (constraint mechanical_hole_clearance (min 0.2mm))
+        (constraint physical_hole_clearance (min 0.2mm))
         (condition "B.Pad_Type == 'SMD'"))
 
     # Disallow solder mask margin overrides
     (rule "disallow solder mask margin overrides"
         (constraint assertion "A.Soldermask_Margin_Override == 0mm")
         (condition "A.Type == 'Pad'"))
+
+
+    # Enforce a mechanical clearance between components and board edge
+    (rule front_mechanical_board_edge_clearance
+        (layer "F.Courtyard")
+        (constraint physical_clearance (min 3mm))
+        (condition "B.Layer == 'Edge.Cuts'"))
+
+
+    # Check current-carrying capacity
+    (rule high-current
+        (constraint track_width (min 1.0mm))
+        (constraint connection_width (min 0.8mm))
+        (condition "A.NetClass == 'Power'"))

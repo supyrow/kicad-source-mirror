@@ -30,6 +30,7 @@
 #include <vector>
 #include <functional>
 #include <set>
+#include <map>
 
 /**
  * Adapter class in the symbol selector Model-View-Adapter (mediated MVC)
@@ -98,6 +99,16 @@ class LIB_TREE_MODEL_ADAPTER: public wxDataViewModel
 {
 public:
     /**
+     * @return a unicode string to mark a node name like a pinned library name.
+     * This is not an ASCII7 char, but a unicode char.
+     */
+    static const wxString GetPinningSymbol()
+    {
+        return wxString::FromUTF8( "☆ " );
+    }
+
+public:
+    /**
      * Destructor. Do NOT delete this class manually; it is reference-counted
      * by wxObject.
      */
@@ -113,21 +124,21 @@ public:
     };
 
     /**
-     * This enum defines the order of the columns in the tree view
+     * This enum defines the order of the default columns in the tree view
      */
     enum TREE_COLS
     {
-        PART_COL = 0,   ///< Part name column
-        DESC_COL,       ///< Part description column
-        NUM_COLS        ///< The number of tree columns
+        NAME_COL = 0,   ///< Library or library item name column
+        DESC_COL,       ///< Library or library description column
+        NUM_COLS        ///< The number of default tree columns
     };
+
 
     /**
      * Save the column widths to the config file. This requires the tree view to still be
      * valid.
      */
-    void SaveColWidths();
-    void SavePinnedItems();
+    void SaveSettings();
 
     /**
      * Set the symbol filter type. Must be set before adding libraries
@@ -167,8 +178,23 @@ public:
      * @param aItemList    list of symbols
      */
     void DoAddLibrary( const wxString& aNodeName, const wxString& aDesc,
-                       const std::vector<LIB_TREE_ITEM*>& aItemList, bool presorted );
+                       const std::vector<LIB_TREE_ITEM*>& aItemList,
+                       bool pinned, bool presorted );
 
+    void AddColumn( const wxString& aHeader )
+    {
+        doAddColumn( aHeader, false );
+    }
+
+    std::vector<wxString> GetAvailableColumns() const { return m_availableColumns; }
+
+    std::vector<wxString> GetShownColumns() const { return m_shownColumns; }
+
+    /**
+     * Sets which columns are shown in the widget.  Invalid column names are discarded.
+     * @param aColumnNames is an ordered list of column names to show
+     */
+    void SetShownColumns( const std::vector<wxString>& aColumnNames );
 
     /**
      * Sort the tree and assign ranks after adding libraries.
@@ -197,6 +223,7 @@ public:
      */
     void FinishTreeInitialization();
 
+    void OnSize( wxSizeEvent& aEvent );
     /**
      * Return the alias for the given item.
      *
@@ -273,6 +300,9 @@ public:
     // Allows subclasses to nominate a context menu handler.
     virtual TOOL_INTERACTIVE* GetContextMenuTool() { return nullptr; }
 
+    void PinLibrary( LIB_TREE_NODE* aTreeNode );
+    void UnpinLibrary( LIB_TREE_NODE* aTreeNode );
+
 protected:
     /**
      * Convert #SYM_TREE_NODE -> wxDataViewItem.
@@ -297,7 +327,8 @@ protected:
      */
     LIB_TREE_MODEL_ADAPTER( EDA_BASE_FRAME* aParent, const wxString& aPinnedKey );
 
-    LIB_TREE_NODE_LIB& DoAddLibraryNode( const wxString& aNodeName, const wxString& aDesc );
+    LIB_TREE_NODE_LIB& DoAddLibraryNode( const wxString& aNodeName, const wxString& aDesc,
+                                         bool pinned );
 
     /**
      * Check whether a container has columns too
@@ -316,7 +347,7 @@ protected:
      */
     wxDataViewItem GetParent( const wxDataViewItem& aItem ) const override;
 
-    unsigned int GetColumnCount() const override { return NUM_COLS; }
+    unsigned int GetColumnCount() const override { return m_columns.size(); }
 
     /**
      * Return the type of data stored in the column as indicated by wxVariant::GetType()
@@ -354,23 +385,17 @@ protected:
                   unsigned int            aCol,
                   wxDataViewItemAttr&     aAttr ) const override;
 
-    /**
-     * @return a unicode string to mark a node name like
-     * a pinned library name
-     * This is not an ASCII7 char, but a unicode char
-     */
-    const wxString GetPinningSymbol() const
-    {
-        return wxString::FromUTF8( "☆ " );
-    }
+    virtual bool isSymbolModel() = 0;
+
+    void resortTree();
 
 private:
     /**
      * Find any results worth highlighting and expand them, according to given criteria
      * The highest-scoring node is written to aHighScore
      */
-    void FindAndExpand( LIB_TREE_NODE& aNode, std::function<bool( const LIB_TREE_NODE* )> aFunc,
-                        LIB_TREE_NODE** aHighScore );
+    void Find( LIB_TREE_NODE& aNode, std::function<bool( const LIB_TREE_NODE* )> aFunc,
+               LIB_TREE_NODE** aHighScore );
 
     /**
      * Find and expand successful search results.  Return the best match (if any).
@@ -387,8 +412,15 @@ private:
      */
     LIB_TREE_NODE* ShowSingleLibrary();
 
+    wxDataViewColumn* doAddColumn( const wxString& aHeader, bool aTranslate = true );
+
 protected:
-    LIB_TREE_NODE_ROOT      m_tree;
+    void addColumnIfNecessary( const wxString& aHeader );
+
+    void recreateColumns();
+
+    LIB_TREE_NODE_ROOT           m_tree;
+    std::map<unsigned, wxString> m_colIdxMap;
 
 private:
     EDA_BASE_FRAME*         m_parent;
@@ -399,13 +431,13 @@ private:
     int                     m_preselect_unit;
     int                     m_freeze;
 
-    wxDataViewColumn*       m_col_part;
-    wxDataViewColumn*       m_col_desc;
     wxDataViewCtrl*         m_widget;
 
-    int                     m_colWidths[NUM_COLS];
-    wxArrayString           m_pinnedLibs;
-    wxString                m_pinnedKey;
+    std::vector<wxDataViewColumn*>        m_columns;
+    std::map<wxString, wxDataViewColumn*> m_colNameMap;
+    std::map<wxString, int>               m_colWidths;
+    std::vector<wxString>                 m_availableColumns;
+    std::vector<wxString>                 m_shownColumns;   // Stored in display order
 };
 
 #endif // LIB_TREE_MODEL_ADAPTER_H

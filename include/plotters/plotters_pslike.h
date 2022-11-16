@@ -131,7 +131,7 @@ protected:
     virtual std::string encodeStringForPlotter( const wxString& aUnicode );
 
     /// Virtual primitive for emitting the setrgbcolor operator
-    virtual void emitSetRGBColor( double r, double g, double b ) = 0;
+    virtual void emitSetRGBColor( double r, double g, double b, double a ) = 0;
 
     /// Height of the postscript font (from the AFM)
     static const double postscriptTextAscent; // = 0.718;
@@ -185,7 +185,7 @@ public:
      * BBox is the boundary box (position and size of the "client rectangle"
      * for drawings (page - margins) in mils (0.001 inch)
      */
-    virtual bool StartPlot() override;
+    virtual bool StartPlot( const wxString& aPageNumber ) override;
     virtual bool EndPlot() override;
 
     /**
@@ -196,7 +196,7 @@ public:
     /**
      * PostScript supports dashed lines.
      */
-    virtual void SetDash( PLOT_DASH_TYPE dashed ) override;
+    virtual void SetDash( int aLineWidth, PLOT_DASH_TYPE aLineStyle ) override;
 
     virtual void SetViewport( const VECTOR2I& aOffset, double aIusPerDecimil,
                               double aScale, bool aMirror ) override;
@@ -232,7 +232,7 @@ public:
                        void*                       aData = nullptr ) override;
 
 protected:
-    virtual void emitSetRGBColor( double r, double g, double b ) override;
+    virtual void emitSetRGBColor( double r, double g, double b, double a ) override;
 };
 
 
@@ -240,11 +240,11 @@ class PDF_PLOTTER : public PSLIKE_PLOTTER
 {
 public:
     PDF_PLOTTER() :
-            pageTreeHandle( 0 ),
-            fontResDictHandle( 0 ),
-            pageStreamHandle( 0 ),
-            streamLengthHandle( 0 ),
-            workFile( nullptr )
+            m_pageTreeHandle( 0 ),
+            m_fontResDictHandle( 0 ),
+            m_pageStreamHandle( 0 ),
+            m_streamLengthHandle( 0 ),
+            m_workFile( nullptr )
     {
     }
 
@@ -273,13 +273,17 @@ public:
      * The PDF engine supports multiple pages; the first one is opened 'for free' the following
      * are to be closed and reopened. Between each page parameters can be set.
      */
-    virtual bool StartPlot() override;
+    virtual bool StartPlot( const wxString& aPageNumber ) override;
+
+    virtual bool StartPlot( const wxString& aPageNumber,
+                            const wxString& aPageName = wxEmptyString );
+
     virtual bool EndPlot() override;
 
     /**
      * Start a new page in the PDF document.
      */
-    virtual void StartPage();
+    virtual void StartPage( const wxString& aPageNumber, const wxString& aPageName = wxEmptyString );
 
     /**
      * Close the current page in the PDF document (and emit its compressed stream).
@@ -299,7 +303,7 @@ public:
     /**
      * PDF supports dashed lines
      */
-    virtual void SetDash( PLOT_DASH_TYPE dashed ) override;
+    virtual void SetDash( int aLineWidth, PLOT_DASH_TYPE aLineStyle ) override;
 
     /**
      * PDF can have multiple pages, so SetPageSettings can be called
@@ -326,10 +330,6 @@ public:
     virtual void Arc( const VECTOR2I& aCenter, const VECTOR2I& aStart, const VECTOR2I& aEnd,
                       FILL_T aFill, int aWidth, int aMaxError ) override;
 
-    virtual void Arc( const VECTOR2I& aCenter, const EDA_ANGLE& aStartAngle,
-                      const EDA_ANGLE& aEndAngle, int aRadius,
-                      FILL_T aFill, int aWidth = USE_DEFAULT_LINE_WIDTH ) override;
-
     /**
      * Polygon plotting for PDF. Everything is supported
      */
@@ -352,14 +352,65 @@ public:
                        KIFONT::FONT*               aFont = nullptr,
                        void*                       aData = nullptr ) override;
 
+    void HyperlinkBox( const BOX2I& aBox, const wxString& aDestinationURL ) override;
+
+    void HyperlinkMenu( const BOX2I& aBox, const std::vector<wxString>& aDestURLs ) override;
+
+    void Bookmark( const BOX2I& aBox, const wxString& aName, const wxString& aGroupName = wxEmptyString ) override;
+
     /**
      * PDF images are handles as inline, not XObject streams...
      */
-    virtual void PlotImage( const wxImage& aImage, const VECTOR2I& aPos,
-                            double aScaleFactor ) override;
+    void PlotImage( const wxImage& aImage, const VECTOR2I& aPos, double aScaleFactor ) override;
 
 
 protected:
+    struct OUTLINE_NODE
+    {
+        int      actionHandle;  ///< Handle to action
+        wxString title;         ///< Title of outline node
+        int      entryHandle;   ///< Allocated handle for this outline entry
+
+        std::vector<OUTLINE_NODE*> children;    ///< Ordered list of children
+
+        ~OUTLINE_NODE()
+        {
+            std::for_each( children.begin(), children.end(),
+                           []( OUTLINE_NODE* node )
+                           {
+                               delete node;
+                           } );
+        }
+
+        OUTLINE_NODE* AddChild( int aActionHandle, const wxString& aTitle, int aEntryHandle )
+        {
+            OUTLINE_NODE* child = new OUTLINE_NODE
+            {
+                aActionHandle, aTitle, aEntryHandle, {}
+            };
+
+            children.push_back( child );
+
+            return child;
+        }
+    };
+
+    /**
+     * Adds a new outline node entry
+     *
+     * The PDF object handle is automacially allocated
+     *
+     * @param aParent Parent node to append the new node to
+     * @param aActionHandle The handle of an action that may be performed on click, set to -1 for no action
+     * @param aTitle Title of node to display
+     */
+    OUTLINE_NODE* addOutlineNode( OUTLINE_NODE* aParent, int aActionHandle,
+                                  const wxString& aTitle );
+
+    virtual void Arc( const VECTOR2I& aCenter, const EDA_ANGLE& aStartAngle,
+                      const EDA_ANGLE& aEndAngle, int aRadius,
+                      FILL_T aFill, int aWidth = USE_DEFAULT_LINE_WIDTH ) override;
+
     /// convert a wxString unicode string to a char string compatible with the accepted
     /// string PDF format (convert special chars and non ascii7 chars)
     std::string encodeStringForPlotter( const wxString& aUnicode ) override;
@@ -373,7 +424,7 @@ protected:
      * engines. Also arcs are filled as pies but only the arc is stroked so
      * it would be difficult to handle anyway.
      */
-    virtual void emitSetRGBColor( double r, double g, double b ) override;
+    virtual void emitSetRGBColor( double r, double g, double b, double a ) override;
 
     /**
      * Allocate a new handle in the table of the PDF object. The
@@ -406,14 +457,49 @@ protected:
      */
     void closePdfStream();
 
-    int pageTreeHandle;      /// Handle to the root of the page tree object
-    int fontResDictHandle;   /// Font resource dictionary
-    std::vector<int> pageHandles;/// Handles to the page objects
-    int pageStreamHandle;    /// Handle of the page content object
-    int streamLengthHandle;      /// Handle to the deferred stream length
-    wxString workFilename;
-    FILE* workFile;              /// Temporary file to construct the stream before zipping
-    std::vector<long> xrefTable; /// The PDF xref offset table
+    /**
+     * Starts emitting the outline object
+     */
+    int emitOutline();
+
+    /**
+     * Emits a outline item object and recurses into any children
+     */
+    void emitOutlineNode( OUTLINE_NODE* aNode, int aParentHandle, int aNextNode, int aPrevNode );
+
+    /**
+     * Emits an action object that instructs a goto coordinates on a page
+     *
+     * @return Generated action handle
+     */
+    int emitGoToAction( int aPageHandle, const VECTOR2I& aBottomLeft, const VECTOR2I& aTopRight );
+    int emitGoToAction( int aPageHandle );
+
+    int m_pageTreeHandle;           ///< Handle to the root of the page tree object
+    int m_fontResDictHandle;        ///< Font resource dictionary
+    std::vector<int> m_pageHandles; ///< Handles to the page objects
+    int m_pageStreamHandle;         ///< Handle of the page content object
+    int m_streamLengthHandle;       ///< Handle to the deferred stream length
+    wxString m_workFilename;
+    wxString m_pageName;
+    FILE* m_workFile;               ///< Temporary file to construct the stream before zipping
+    std::vector<long> m_xrefTable;  ///< The PDF xref offset table
+
+    ///< List of user-space page numbers for resolving internal hyperlinks
+    std::vector<wxString>                                  m_pageNumbers;
+
+    ///< List of loaded hyperlinks in current page
+    std::vector<std::pair<BOX2I, wxString>>                m_hyperlinksInPage;
+    std::vector<std::pair<BOX2I, std::vector<wxString>>>   m_hyperlinkMenusInPage;
+
+    ///< Handles for all the hyperlink objects that will be deferred
+    std::map<int, std::pair<BOX2D, wxString>>              m_hyperlinkHandles;
+    std::map<int, std::pair<BOX2D, std::vector<wxString>>> m_hyperlinkMenuHandles;
+
+    std::map<wxString, std::vector<std::pair<BOX2I, wxString>>>      m_bookmarksInPage;
+
+    std::unique_ptr<OUTLINE_NODE> m_outlineRoot;    ///< Root outline node
+    int                           m_totalOutlineNodes;  ///< Total number of outline nodes
 };
 
 
@@ -437,7 +523,7 @@ public:
     /**
      * Create SVG file header.
      */
-    virtual bool StartPlot() override;
+    virtual bool StartPlot( const wxString& aPageNumber ) override;
     virtual bool EndPlot() override;
 
     /**
@@ -448,7 +534,7 @@ public:
     /**
      * SVG supports dashed lines.
      */
-    virtual void SetDash( PLOT_DASH_TYPE dashed ) override;
+    virtual void SetDash( int aLineWidth, PLOT_DASH_TYPE aLineStyle ) override;
 
     virtual void SetViewport( const VECTOR2I& aOffset, double aIusPerDecimil,
                               double aScale, bool aMirror ) override;
@@ -456,9 +542,6 @@ public:
                        int width = USE_DEFAULT_LINE_WIDTH ) override;
     virtual void Circle( const VECTOR2I& pos, int diametre, FILL_T fill,
                          int width = USE_DEFAULT_LINE_WIDTH ) override;
-    virtual void Arc( const VECTOR2I& aCenter, const EDA_ANGLE& aStartAngle,
-                      const EDA_ANGLE& aEndAngle, int aRadius, FILL_T aFill,
-                      int aWidth = USE_DEFAULT_LINE_WIDTH ) override;
 
     virtual void BezierCurve( const VECTOR2I& aStart, const VECTOR2I& aControl1,
                               const VECTOR2I& aControl2, const VECTOR2I& aEnd,
@@ -517,11 +600,15 @@ public:
                        void*                       aData = nullptr ) override;
 
 protected:
+    virtual void Arc( const VECTOR2I& aCenter, const EDA_ANGLE& aStartAngle,
+                      const EDA_ANGLE& aEndAngle, int aRadius,
+                      FILL_T aFill, int aWidth = USE_DEFAULT_LINE_WIDTH ) override;
+
     /**
      * Initialize m_pen_rgb_color from reduced values r, g ,b
      * ( reduced values are 0.0 to 1.0 )
      */
-    virtual void emitSetRGBColor( double r, double g, double b ) override;
+    virtual void emitSetRGBColor( double r, double g, double b, double a ) override;
 
     /**
      * Output the string which define pen and brush color, shape, transparency
@@ -529,7 +616,8 @@ protected:
      * @param aIsGroup If false, do not form a new group for the style.
      * @param aExtraStyle If given, the string will be added into the style string before closing
      */
-    void setSVGPlotStyle( bool aIsGroup = true, const std::string& aExtraStyle = {} );
+    void setSVGPlotStyle( int aLineWidth, bool aIsGroup = true,
+                          const std::string& aExtraStyle = {} );
 
     /**
      * Prepare parameters for setSVGPlotStyle()
@@ -544,6 +632,7 @@ protected:
                                         // (written in hex to svg files)
     long           m_brush_rgb_color;   // same as m_pen_rgb_color, used to fill
                                         // some contours.
+    double         m_brush_alpha;
     bool           m_graphics_changed;  // true if a pen/brush parameter is modified
                                         // color, pen size, fill mode ...
                                         // the new SVG stype must be output on file

@@ -101,6 +101,10 @@ public:
 
     const VECTOR2I GetSourcePos() const { return m_source->Pos(); }
     const VECTOR2I GetTargetPos() const { return m_target->Pos(); }
+    const unsigned GetLength() const
+    {
+        return ( m_target->Pos() - m_source->Pos() ).EuclideanNorm();
+    }
 
 private:
     std::shared_ptr<CN_ANCHOR> m_source;
@@ -193,7 +197,7 @@ public:
         return m_dirtyNets.size();
     }
 
-    void Build( BOARD* aBoard, PROGRESS_REPORTER* aReporter = nullptr );
+    void Build( BOARD* aZoneLayer, PROGRESS_REPORTER* aReporter = nullptr );
     void LocalBuild( const std::vector<BOARD_ITEM*>& aItems );
 
     void Clear();
@@ -201,7 +205,8 @@ public:
     bool Remove( BOARD_ITEM* aItem );
     bool Add( BOARD_ITEM* aItem );
 
-    const CLUSTERS SearchClusters( CLUSTER_SEARCH_MODE aMode, const KICAD_T aTypes[],
+    const CLUSTERS SearchClusters( CLUSTER_SEARCH_MODE aMode,
+                                   const std::initializer_list<KICAD_T>& aTypes,
                                    int aSingleNet, CN_ITEM* rootItem = nullptr );
     const CLUSTERS SearchClusters( CLUSTER_SEARCH_MODE aMode );
 
@@ -223,7 +228,8 @@ public:
      *
      * @param: aZones is the set of zones to search for islands.
      */
-    void FindIsolatedCopperIslands( std::vector<CN_ZONE_ISOLATED_ISLAND_LIST>& aZones );
+    void FindIsolatedCopperIslands( std::vector<CN_ZONE_ISOLATED_ISLAND_LIST>& aZones,
+                                    bool aConnectivityAlreadyRebuilt );
 
     const CLUSTERS& GetClusters();
 

@@ -28,6 +28,9 @@
 
 #include <boost/uuid/uuid.hpp>
 #include <macros_swig.h>
+#include <nlohmann/json_fwd.hpp>
+
+#include <string>
 
 class wxString;
 
@@ -46,6 +49,8 @@ class KIID
 public:
     KIID();
     KIID( int null );
+    KIID( const std::string& aString );
+    KIID( const char* aString );
     KIID( const wxString& aString );
     KIID( timestamp_t aTimestamp );
 
@@ -175,5 +180,26 @@ public:
         return false;
     }
 };
+
+/**
+ * RAII class to safely set/reset nil KIIDs for use in footprint/symbol loading
+ */
+class KIID_NIL_SET_RESET
+{
+public:
+    KIID_NIL_SET_RESET()
+    {
+        KIID::CreateNilUuids( true );
+    };
+
+    ~KIID_NIL_SET_RESET()
+    {
+        KIID::CreateNilUuids( false );
+    }
+};
+
+void to_json( nlohmann::json& aJson, const KIID& aKIID );
+
+void from_json( const nlohmann::json& aJson, KIID& aKIID );
 
 #endif // KIID_H

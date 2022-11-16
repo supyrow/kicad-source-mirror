@@ -6,7 +6,7 @@
  * Copyright (C) 2012 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
  * Copyright (C) 2011 Wayne Stambaugh <stambaughw@gmail.com>
  *
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -29,6 +29,7 @@
 
 #include <common.h>                         // for PAGE_INFO
 
+#include <base_units.h>
 #include <board.h>
 #include <netinfo.h>
 #include <footprint.h>
@@ -101,25 +102,25 @@ wxString BOARD_NETLIST_UPDATER::getPinFunction( PAD* aPad )
 }
 
 
-wxPoint BOARD_NETLIST_UPDATER::estimateFootprintInsertionPosition()
+VECTOR2I BOARD_NETLIST_UPDATER::estimateFootprintInsertionPosition()
 {
-    wxPoint bestPosition;
+    VECTOR2I bestPosition;
 
     if( !m_board->IsEmpty() )
     {
         // Position new components below any existing board features.
-        EDA_RECT bbox = m_board->GetBoardEdgesBoundingBox();
+        BOX2I bbox = m_board->GetBoardEdgesBoundingBox();
 
         if( bbox.GetWidth() || bbox.GetHeight() )
         {
             bestPosition.x = bbox.Centre().x;
-            bestPosition.y = bbox.GetBottom() + Millimeter2iu( 10 );
+            bestPosition.y = bbox.GetBottom() + pcbIUScale.mmToIU( 10 );
         }
     }
     else
     {
         // Position new components in the center of the page when the board is empty.
-        wxSize pageSize = m_board->GetPageSettings().GetSizeIU();
+        wxSize pageSize = m_board->GetPageSettings().GetSizeIU( pcbIUScale.IU_PER_MILS );
 
         bestPosition.x = pageSize.GetWidth() / 2;
         bestPosition.y = pageSize.GetHeight() / 2;
@@ -169,7 +170,7 @@ FOOTPRINT* BOARD_NETLIST_UPDATER::addNewFootprint( COMPONENT* aComponent )
         for( PAD* pad : footprint->Pads() )
         {
             // Set the pads ratsnest settings to the global settings
-            pad->SetLocalRatsnestVisible( m_frame->Settings().m_Display.m_ShowGlobalRatsnest );
+            pad->SetLocalRatsnestVisible( m_frame->GetPcbNewSettings()->m_Display.m_ShowGlobalRatsnest );
 
             // Pads in the library all have orphaned nets.  Replace with Default.
             pad->SetNetCode( 0 );
@@ -257,8 +258,14 @@ bool BOARD_NETLIST_UPDATER::updateFootprintParameters( FOOTPRINT* aPcbFootprint,
     wxString msg;
 
     // Create a copy only if the footprint has not been added during this update
-    FOOTPRINT* copy = m_commit.GetStatus( aPcbFootprint ) ? nullptr
-                                                          : (FOOTPRINT*) aPcbFootprint->Clone();
+    FOOTPRINT* copy = nullptr;
+
+    if( m_commit.GetStatus( aPcbFootprint ) )
+    {
+        copy = static_cast<FOOTPRINT*>( aPcbFootprint->Clone() );
+        copy->SetParentGroup( nullptr );
+    }
+
     bool       changed = false;
 
     // Test for reference designator field change.
@@ -395,9 +402,49 @@ bool BOARD_NETLIST_UPDATER::updateFootprintParameters( FOOTPRINT* aPcbFootprint,
         m_reporter->Report( msg, RPT_SEVERITY_ACTION );
     }
 
+    if( ( aNetlistComponent->GetProperties().count( wxT( "dnp" ) ) > 0 )
+            != ( ( aPcbFootprint->GetAttributes() & FP_EXCLUDE_FROM_POS_FILES ) > 0 ) )
+    {
+        if( m_isDryRun )
+        {
+            if( aNetlistComponent->GetProperties().count( wxT( "dnp" ) ) )
+            {
+                msg.Printf( _( "Add %s 'exclude from position files' fabrication attribute." ),
+                            aPcbFootprint->GetReference() );
+            }
+            else
+            {
+                msg.Printf( _( "Remove %s 'exclude from position files' fabrication attribute." ),
+                            aPcbFootprint->GetReference() );
+            }
+        }
+        else
+        {
+            int attributes = aPcbFootprint->GetAttributes();
+
+            if( aNetlistComponent->GetProperties().count( wxT( "dnp" ) ) )
+            {
+                attributes |= FP_EXCLUDE_FROM_POS_FILES;
+                msg.Printf( _( "Added %s 'exclude from position files' fabrication attribute." ),
+                            aPcbFootprint->GetReference() );
+            }
+            else
+            {
+                attributes &= ~FP_EXCLUDE_FROM_POS_FILES;
+                msg.Printf( _( "Removed %s 'exclude from position files' fabrication attribute." ),
+                            aPcbFootprint->GetReference() );
+            }
+
+            changed = true;
+            aPcbFootprint->SetAttributes( attributes );
+        }
+
+        m_reporter->Report( msg, RPT_SEVERITY_ACTION );
+    }
+
     if( changed && copy )
         m_commit.Modified( aPcbFootprint, copy );
-    else
+    else if( copy )
         delete copy;
 
     return true;
@@ -410,8 +457,15 @@ bool BOARD_NETLIST_UPDATER::updateComponentPadConnections( FOOTPRINT* aFootprint
     wxString msg;
 
     // Create a copy only if the footprint has not been added during this update
-    FOOTPRINT* copy = m_commit.GetStatus( aFootprint ) ? nullptr : (FOOTPRINT*) aFootprint->Clone();
-    bool       changed = false;
+    FOOTPRINT* copy = nullptr;
+
+    if( m_commit.GetStatus( aFootprint ) )
+    {
+        copy = static_cast<FOOTPRINT*>( aFootprint->Clone() );
+        copy->SetParentGroup( nullptr );
+    }
+
+    bool changed = false;
 
     // At this point, the component footprint is updated.  Now update the nets.
     for( PAD* pad : aFootprint->Pads() )
@@ -581,7 +635,7 @@ bool BOARD_NETLIST_UPDATER::updateComponentPadConnections( FOOTPRINT* aFootprint
 
     if( changed && copy )
         m_commit.Modified( aFootprint, copy );
-    else
+    else if( copy )
         delete copy;
 
     return true;
@@ -765,8 +819,8 @@ bool BOARD_NETLIST_UPDATER::updateCopperZoneNets( NETLIST& aNetlist )
 
                     msg.Printf( _( "Copper zone on layer %s at (%s, %s) has no pads connected." ),
                                 m_board->GetLayerName( layer ),
-                                MessageTextFromValue( m_frame->GetUserUnits(), pos.x ),
-                                MessageTextFromValue( m_frame->GetUserUnits(), pos.y ) );
+                                m_frame->MessageTextFromValue( pos.x ),
+                                m_frame->MessageTextFromValue( pos.y ) );
                 }
 
                 m_reporter->Report( msg, RPT_SEVERITY_WARNING );
@@ -801,16 +855,26 @@ bool BOARD_NETLIST_UPDATER::testConnectivity( NETLIST& aNetlist,
         {
             padNumber = component->GetNet( jj ).GetPinName();
 
-            if( footprint->FindPadByNumber( padNumber ) )
-                continue;   // OK, pad found
-
-            // not found: bad footprint, report error
-            msg.Printf( _( "%s pad %s not found in %s." ),
-                        component->GetReference(),
-                        padNumber,
-                        footprint->GetFPID().Format().wx_str() );
-            m_reporter->Report( msg, RPT_SEVERITY_ERROR );
-            ++m_errorCount;
+            if( padNumber.IsEmpty() )
+            {
+                // bad symbol, report error
+                msg.Printf( _( "Symbol %s has pins with no number.  These pins can not be matched "
+                               "to pads in %s." ),
+                            component->GetReference(),
+                            footprint->GetFPID().Format().wx_str() );
+                m_reporter->Report( msg, RPT_SEVERITY_ERROR );
+                ++m_errorCount;
+            }
+            else if( !footprint->FindPadByNumber( padNumber ) )
+            {
+                // not found: bad footprint, report error
+                msg.Printf( _( "%s pad %s not found in %s." ),
+                            component->GetReference(),
+                            padNumber,
+                            footprint->GetFPID().Format().wx_str() );
+                m_reporter->Report( msg, RPT_SEVERITY_ERROR );
+                ++m_errorCount;
+            }
         }
     }
 
@@ -927,6 +991,7 @@ bool BOARD_NETLIST_UPDATER::UpdateNetlist( NETLIST& aNetlist )
         {
             msg.Printf( _( "Multiple footprints found for '%s'." ), component->GetReference() );
             m_reporter->Report( msg, RPT_SEVERITY_ERROR );
+            m_errorCount++;
         }
     }
 
@@ -965,6 +1030,7 @@ bool BOARD_NETLIST_UPDATER::UpdateNetlist( NETLIST& aNetlist )
             }
 
             m_reporter->Report( msg, RPT_SEVERITY_ERROR );
+            m_errorCount++;
             doDelete = false;
         }
 
@@ -997,7 +1063,7 @@ bool BOARD_NETLIST_UPDATER::UpdateNetlist( NETLIST& aNetlist )
 
     if( !m_isDryRun )
     {
-        m_board->GetConnectivity()->Build( m_board );
+        m_board->BuildConnectivity();
         testConnectivity( aNetlist, footprintMap );
 
         for( NETINFO_ITEM* net : m_board->GetNetInfo() )
@@ -1012,7 +1078,12 @@ bool BOARD_NETLIST_UPDATER::UpdateNetlist( NETLIST& aNetlist )
 
         m_board->GetNetInfo().RemoveUnusedNets();
         m_commit.SetResolveNetConflicts();
-        m_commit.Push( _( "Update netlist" ) );
+
+        // When new footprints are added, the automatic zone refill is disabled because:
+        // * it creates crashes when calculating dynamic ratsnests if auto refill is enabled.
+        // (the auto refills rebuild the connectivity with incomplete data)
+        // * it is useless because zones will be refilled after placing new footprints
+        m_commit.Push( _( "Update netlist" ), m_newFootprintsCount ? ZONE_FILL_OP  : 0 );
 
         m_board->SynchronizeNetsAndNetClasses();
         m_frame->SaveProjectSettings();

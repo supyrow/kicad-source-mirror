@@ -37,7 +37,8 @@
 #include <netlist_exporter_base.h>
 #include <netlist_exporter_orcadpcb2.h>
 #include <netlist_exporter_cadstar.h>
-#include <netlist_exporter_pspice.h>
+#include <netlist_exporter_spice.h>
+#include <netlist_exporter_spice_model.h>
 #include <netlist_exporter_kicad.h>
 #include <netlist_exporter_xml.h>
 
@@ -59,7 +60,7 @@ bool SCH_EDIT_FRAME::WriteNetListFile( int aFormat, const wxString& aFullFileNam
 
     wxString    fileName = aFullFileName;
 
-    NETLIST_EXPORTER_BASE *helper;
+    NETLIST_EXPORTER_BASE *helper = nullptr;
 
     SCHEMATIC* sch = &Schematic();
 
@@ -78,7 +79,11 @@ bool SCH_EDIT_FRAME::WriteNetListFile( int aFormat, const wxString& aFullFileNam
         break;
 
     case NET_TYPE_SPICE:
-        helper = new NETLIST_EXPORTER_PSPICE( sch );
+        helper = new NETLIST_EXPORTER_SPICE( sch );
+        break;
+
+    case NET_TYPE_SPICE_MODEL:
+        helper = new NETLIST_EXPORTER_SPICE_MODEL( sch );
         break;
 
     case NET_TYPE_BOM:

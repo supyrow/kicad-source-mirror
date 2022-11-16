@@ -24,6 +24,7 @@
 
 #include <widgets/bitmap_button.h>
 #include <widgets/font_choice.h>
+#include <widgets/color_swatch.h>
 #include <symbol_edit_frame.h>
 #include <lib_text.h>
 #include <settings/settings_manager.h>
@@ -31,15 +32,17 @@
 #include <symbol_editor/symbol_editor_settings.h>
 #include <tools/symbol_editor_drawing_tools.h>
 #include <scintilla_tricks.h>
-
+#include "confirm.h"
 
 DIALOG_LIB_TEXT_PROPERTIES::DIALOG_LIB_TEXT_PROPERTIES( SYMBOL_EDIT_FRAME* aParent,
                                                         LIB_TEXT* aText ) :
         DIALOG_LIB_TEXT_PROPERTIES_BASE( aParent ),
+        m_parent( aParent ),
+        m_graphicText( aText ),
         m_textSize( aParent, m_textSizeLabel, m_textSizeCtrl, m_textSizeUnits, true )
 {
-    m_parent = aParent;
-    m_graphicText = aText;
+    COLOR_SETTINGS* colorSettings = m_parent->GetColorSettings();
+    COLOR4D         schematicBackground = colorSettings->GetColor( LAYER_SCHEMATIC_BACKGROUND );
 
     m_scintillaTricks = new SCINTILLA_TRICKS( m_StyledTextCtrl, wxT( "{}" ), false,
             [this]()
@@ -51,9 +54,9 @@ DIALOG_LIB_TEXT_PROPERTIES::DIALOG_LIB_TEXT_PROPERTIES( SYMBOL_EDIT_FRAME* aPare
 
     m_separator1->SetIsSeparator();
 
-    m_horizontal->SetIsCheckButton();
+    m_horizontal->SetIsRadioButton();
     m_horizontal->SetBitmap( KiBitmap( BITMAPS::text_horizontal ) );
-    m_vertical->SetIsCheckButton();
+    m_vertical->SetIsRadioButton();
     m_vertical->SetBitmap( KiBitmap( BITMAPS::text_vertical ) );
 
     m_separator2->SetIsSeparator();
@@ -65,23 +68,26 @@ DIALOG_LIB_TEXT_PROPERTIES::DIALOG_LIB_TEXT_PROPERTIES( SYMBOL_EDIT_FRAME* aPare
 
     m_separator3->SetIsSeparator();
 
-    m_hAlignLeft->SetIsCheckButton();
+    m_hAlignLeft->SetIsRadioButton();
     m_hAlignLeft->SetBitmap( KiBitmap( BITMAPS::text_align_left ) );
-    m_hAlignCenter->SetIsCheckButton();
+    m_hAlignCenter->SetIsRadioButton();
     m_hAlignCenter->SetBitmap( KiBitmap( BITMAPS::text_align_center ) );
-    m_hAlignRight->SetIsCheckButton();
+    m_hAlignRight->SetIsRadioButton();
     m_hAlignRight->SetBitmap( KiBitmap( BITMAPS::text_align_right ) );
 
     m_separator4->SetIsSeparator();
 
-    m_vAlignTop->SetIsCheckButton();
+    m_vAlignTop->SetIsRadioButton();
     m_vAlignTop->SetBitmap( KiBitmap( BITMAPS::text_valign_top ) );
-    m_vAlignCenter->SetIsCheckButton();
+    m_vAlignCenter->SetIsRadioButton();
     m_vAlignCenter->SetBitmap( KiBitmap( BITMAPS::text_valign_center ) );
-    m_vAlignBottom->SetIsCheckButton();
+    m_vAlignBottom->SetIsRadioButton();
     m_vAlignBottom->SetBitmap( KiBitmap( BITMAPS::text_valign_bottom ) );
 
     m_separator5->SetIsSeparator();
+
+    m_textColorSwatch->SetDefaultColor( COLOR4D::UNSPECIFIED );
+    m_textColorSwatch->SetSwatchBackground( schematicBackground );
 
     m_horizontal->Bind( wxEVT_BUTTON, &DIALOG_LIB_TEXT_PROPERTIES::onOrientButton, this );
     m_vertical->Bind( wxEVT_BUTTON, &DIALOG_LIB_TEXT_PROPERTIES::onOrientButton, this );
@@ -120,8 +126,10 @@ bool DIALOG_LIB_TEXT_PROPERTIES::TransferDataToWindow()
     {
         m_textSize.SetValue( m_graphicText->GetTextWidth() );
         m_StyledTextCtrl->SetValue( m_graphicText->GetText() );
+        m_StyledTextCtrl->EmptyUndoBuffer();
 
         m_fontCtrl->SetFontSelection( m_graphicText->GetFont() );
+        m_textColorSwatch->SetSwatchColor( m_graphicText->GetTextColor(), false );
 
         m_italic->Check( m_graphicText->IsItalic() );
         m_bold->Check( m_graphicText->IsBold() );
@@ -154,7 +162,7 @@ bool DIALOG_LIB_TEXT_PROPERTIES::TransferDataToWindow()
         SYMBOL_EDITOR_SETTINGS* cfg = m_parent->GetSettings();
         auto* tools = m_parent->GetToolManager()->GetTool<SYMBOL_EDITOR_DRAWING_TOOLS>();
 
-        m_textSize.SetValue( Mils2iu( cfg->m_Defaults.text_size ) );
+        m_textSize.SetValue( schIUScale.MilsToIU( cfg->m_Defaults.text_size ) );
 
         m_CommonUnit->SetValue( !tools->GetDrawSpecificUnit() );
         m_CommonConvert->SetValue( !tools->GetDrawSpecificConvert() );
@@ -191,7 +199,7 @@ void DIALOG_LIB_TEXT_PROPERTIES::onHAlignButton( wxCommandEvent& aEvent )
 
 void DIALOG_LIB_TEXT_PROPERTIES::onVAlignButton( wxCommandEvent& aEvent )
 {
-    for( BITMAP_BUTTON* btn : { m_vAlignTop, m_vAlignTop, m_vAlignBottom } )
+    for( BITMAP_BUTTON* btn : { m_vAlignTop, m_vAlignCenter, m_vAlignBottom } )
     {
         if( btn->IsChecked() && btn != aEvent.GetEventObject() )
             btn->Check( false );
@@ -204,9 +212,15 @@ bool DIALOG_LIB_TEXT_PROPERTIES::TransferDataFromWindow()
     if( m_graphicText )
     {
         if( m_StyledTextCtrl->GetValue().IsEmpty() )
-            m_graphicText->SetText( wxT( "[null]" ) );
+        {
+            // Other text items do not have defined extents, and so will disappear if empty
+            DisplayError( this, _( "Text can not be empty." ) );
+            return false;
+        }
         else
+        {
             m_graphicText->SetText( m_StyledTextCtrl->GetValue() );
+        }
 
         if( m_fontCtrl->HaveFontSelection() )
         {
@@ -236,6 +250,7 @@ bool DIALOG_LIB_TEXT_PROPERTIES::TransferDataFromWindow()
 
         m_graphicText->SetItalic( m_italic->IsChecked() );
         m_graphicText->SetBold( m_bold->IsChecked() );
+        m_graphicText->SetTextColor( m_textColorSwatch->GetSwatchColor() );
 
         if( m_hAlignLeft->IsChecked() )
             m_graphicText->SetHorizJustify( GR_TEXT_H_ALIGN_LEFT );

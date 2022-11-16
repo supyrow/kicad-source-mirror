@@ -22,7 +22,7 @@ target_include_directories( scripting PUBLIC
 
 target_include_directories( scripting PRIVATE
     $<TARGET_PROPERTY:nlohmann_json,INTERFACE_INCLUDE_DIRECTORIES>
-    ${PROJECT_SOURCE_DIR}/bitmaps_png/include
+    ${PROJECT_SOURCE_DIR}/resources/bitmaps_png/include
     ${PROJECT_SOURCE_DIR}/include
     ${wxWidgets_LIBRARIES}
     ${Boost_INCLUDE_DIR}
@@ -41,11 +41,15 @@ set_source_files_properties( kicad_scripting_main.cpp PROPERTIES
     )
 
 target_include_directories( scripting_kiface PRIVATE
-    ${PROJECT_SOURCE_DIR}/bitmaps_png/include
+    ${PROJECT_SOURCE_DIR}/resources/bitmaps_png/include
     ${PROJECT_SOURCE_DIR}/include
     ${wxWidgets_LIBRARIES}
     ${Boost_INCLUDE_DIR}
 )
+
+if( MSVC )
+    target_sources( scripting_kiface PRIVATE ${CMAKE_SOURCE_DIR}/resources/msw/kipython-dll.rc )
+endif()
 
 target_link_libraries( scripting_kiface
     scripting
@@ -68,14 +72,14 @@ if( APPLE )
         )
 else()
     install( TARGETS scripting_kiface
-        DESTINATION ${KICAD_BIN}
+        DESTINATION ${KICAD_KIFACE}
         COMPONENT binary
         )
 endif()
 
 if( KICAD_WIN32_INSTALL_PDBS )
     # Get the PDBs to copy over for MSVC
-    install(FILES $<TARGET_PDB_FILE:scripting_kiface> DESTINATION ${KICAD_BIN})
+    install(FILES $<TARGET_PDB_FILE:scripting_kiface> DESTINATION ${KICAD_KIFACE})
 endif()
 
 # python shell installation

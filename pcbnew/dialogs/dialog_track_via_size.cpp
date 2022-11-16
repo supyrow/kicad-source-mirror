@@ -2,6 +2,7 @@
  * KiRouter - a push-and-(sometimes-)shove PCB router
  *
  * Copyright (C) 2014  CERN
+ * Copyright (C) 2014-2022 KiCad Developers, see AUTHORS.txt for contributors.
  * Author: Maciej Suminski <maciej.suminski@cern.ch>
  *
  * This program is free software: you can redistribute it and/or modify it
@@ -26,12 +27,12 @@
 #include <base_units.h>
 #include <confirm.h>
 #include <widgets/text_ctrl_eval.h>
-#include <core/optional.h>
+#include <optional>
 #include <eda_draw_frame.h>
 
 #include "board_design_settings.h"
 
-const int minSize = (int)( 0.01 * IU_PER_MM );
+const int minSize = (int) ( 0.01 * pcbIUScale.IU_PER_MM );
 
 DIALOG_TRACK_VIA_SIZE::DIALOG_TRACK_VIA_SIZE( EDA_DRAW_FRAME* aParent,
                                               BOARD_DESIGN_SETTINGS& aSettings ) :
@@ -55,7 +56,7 @@ bool DIALOG_TRACK_VIA_SIZE::TransferDataFromWindow()
 
     if( m_viaDrill.GetValue() >= m_viaDiameter.GetValue() )
     {
-        DisplayError( GetParent(), _( "Via drill size must be smaller than via diameter" ) );
+        DisplayError( GetParent(), _( "Via hole size must be smaller than via diameter" ) );
         m_viaDrillText->SetFocus();
         return false;
     }

@@ -53,6 +53,9 @@ public:
 
     /// Saves the currently-open schematic sheet to an other name
     int SaveCurrSheetCopyAs( const TOOL_EVENT& aEvent );
+
+    int Revert( const TOOL_EVENT& aEvent );
+
     int ShowSchematicSetup( const TOOL_EVENT& aEvent );
     int PageSetup( const TOOL_EVENT& aEvent );
     int Print( const TOOL_EVENT& aEvent );
@@ -86,6 +89,8 @@ public:
 
     ///< Equivalent to the above, but initiated by the user.
     int ExplicitCrossProbeToPcb( const TOOL_EVENT& aEvent );
+
+    int ExportSymbolsToLibrary( const TOOL_EVENT& aEvent );
 
 #ifdef KICAD_SPICE
     int SimProbe( const TOOL_EVENT& aEvent );
@@ -128,18 +133,17 @@ public:
     int GenerateBOM( const TOOL_EVENT& aEvent );
     int DrawSheetOnClipboard( const TOOL_EVENT& aEvent );
 
-    int ShowBusManager( const TOOL_EVENT& aEvent );
-
-    int EnterSheet( const TOOL_EVENT& aEvent );
-    int LeaveSheet( const TOOL_EVENT& aEvent );
-    int NavigateHierarchy( const TOOL_EVENT& aEvent );
+    int ShowHierarchy( const TOOL_EVENT& aEvent );
 
     int ToggleHiddenPins( const TOOL_EVENT& aEvent );
     int ToggleHiddenFields( const TOOL_EVENT& aEvent );
     int ToggleERCWarnings( const TOOL_EVENT& aEvent );
     int ToggleERCErrors( const TOOL_EVENT& aEvent );
     int ToggleERCExclusions( const TOOL_EVENT& aEvent );
-    int ToggleForceHV( const TOOL_EVENT& aEvent );
+    int ChangeLineMode( const TOOL_EVENT& aEvent );
+    int NextLineMode( const TOOL_EVENT& aEvent );
+    int ToggleAnnotateAuto( const TOOL_EVENT& aEvent );
+    int ToggleAnnotateRecursive( const TOOL_EVENT& aEvent );
     int TogglePythonConsole( const TOOL_EVENT& aEvent );
 
     int RepairSchematic( const TOOL_EVENT& aEvent );
@@ -147,7 +151,7 @@ public:
     void AssignFootprints( const std::string& aChangedSetOfReferences );
 
     /**
-     * Find a symbol in the schematic and an item in this symbol.
+     * Find a symbol in the schematic and an item in this symbol and select it.
      *
      * @param aPath The symbol path to find. Pass nullptr to search by aReference.
      * @param aReference The symbol reference designator to find, or to display in
@@ -217,10 +221,10 @@ private:
      * @return pointer to the next search item found or NULL if nothing found
      */
     SCH_ITEM* nextMatch( SCH_SCREEN* aScreen, SCH_SHEET_PATH* aSheet, SCH_ITEM* aAfter,
-                         wxFindReplaceData& aData );
+                         EDA_SEARCH_DATA& aData );
 
 private:
-    bool      m_probingPcbToSch; // Recursion guard when cross-probing to PcbNew
+    bool      m_probingPcbToSch; // Recursion guard when cross-probing to schematic editor
     EDA_ITEM* m_pickerItem;      // Current item for picker highlighting.
 
     // Temporary storage location for Duplicate action

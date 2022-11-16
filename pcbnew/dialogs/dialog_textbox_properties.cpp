@@ -36,7 +36,6 @@
 #include <pcbnew.h>
 #include <pcb_edit_frame.h>
 #include <pcb_layer_box_selector.h>
-#include <wx/valnum.h>
 #include <math/util.h>      // for KiROUND
 #include <scintilla_tricks.h>
 #include "macros.h"
@@ -97,11 +96,11 @@ DIALOG_TEXTBOX_PROPERTIES::DIALOG_TEXTBOX_PROPERTIES( PCB_BASE_EDIT_FRAME* aPare
 
     m_separator1->SetIsSeparator();
 
-    m_alignLeft->SetIsCheckButton();
+    m_alignLeft->SetIsRadioButton();
     m_alignLeft->SetBitmap( KiBitmap( BITMAPS::text_align_left ) );
-    m_alignCenter->SetIsCheckButton();
+    m_alignCenter->SetIsRadioButton();
     m_alignCenter->SetBitmap( KiBitmap( BITMAPS::text_align_center ) );
-    m_alignRight->SetIsCheckButton();
+    m_alignRight->SetIsRadioButton();
     m_alignRight->SetBitmap( KiBitmap( BITMAPS::text_align_right ) );
 
     m_separator2->SetIsSeparator();
@@ -132,6 +131,8 @@ DIALOG_TEXTBOX_PROPERTIES::DIALOG_TEXTBOX_PROPERTIES( PCB_BASE_EDIT_FRAME* aPare
 
     for( const std::pair<const PLOT_DASH_TYPE, lineTypeStruct>& typeEntry : lineTypeNames )
         m_borderStyleCombo->Append( typeEntry.second.name, KiBitmap( typeEntry.second.bitmap ) );
+
+    m_borderStyleCombo->Append( DEFAULT_STYLE );
 
     SetupStandardButtons();
 
@@ -168,6 +169,7 @@ bool DIALOG_TEXTBOX_PROPERTIES::TransferDataToWindow()
 
     m_MultiLineText->SetValue( converted );
     m_MultiLineText->SetSelection( -1, -1 );
+    m_MultiLineText->EmptyUndoBuffer();
 
     m_cbLocked->SetValue( m_item->IsLocked() );
 
@@ -191,7 +193,8 @@ bool DIALOG_TEXTBOX_PROPERTIES::TransferDataToWindow()
 
     m_mirrored->Check( m_edaText->IsMirrored() );
 
-    m_orientation.SetAngleValue( m_edaText->GetTextAngle() );
+    EDA_ANGLE orientation = m_edaText->GetTextAngle();
+    m_orientation.SetAngleValue( orientation.Normalize180() );
 
     STROKE_PARAMS stroke;
 
@@ -312,23 +315,20 @@ bool DIALOG_TEXTBOX_PROPERTIES::TransferDataFromWindow()
     if( !pushCommit )
         m_item->SetFlags( IN_EDIT );
 
-    // Set the new text content
-    if( !m_MultiLineText->GetValue().IsEmpty() )
-    {
-        BOARD*   board = m_frame->GetBoard();
-        wxString txt = board->ConvertCrossReferencesToKIIDs( m_MultiLineText->GetValue() );
+    BOARD*   board = m_frame->GetBoard();
+    wxString txt = board->ConvertCrossReferencesToKIIDs( m_MultiLineText->GetValue() );
 
 #ifdef __WXMAC__
-        // On macOS CTRL+Enter produces '\r' instead of '\n' regardless of EOL setting.
-        // Replace it now.
-        txt.Replace( "\r", "\n" );
+    // On macOS CTRL+Enter produces '\r' instead of '\n' regardless of EOL setting.
+    // Replace it now.
+    txt.Replace( "\r", "\n" );
 #elif defined( __WINDOWS__ )
-        // On Windows, a new line is coded as \r\n.  We use only \n in kicad files and in
-        // drawing routines so strip the \r char.
-        txt.Replace( "\r", "" );
+    // On Windows, a new line is coded as \r\n.  We use only \n in kicad files and in
+    // drawing routines so strip the \r char.
+    txt.Replace( "\r", "" );
 #endif
-        m_edaText->SetText( EscapeString( txt, CTX_QUOTED_STR ) );
-    }
+
+    m_edaText->SetText( EscapeString( txt, CTX_QUOTED_STR ) );
 
     m_item->SetLocked( m_cbLocked->GetValue() );
 
@@ -356,7 +356,15 @@ bool DIALOG_TEXTBOX_PROPERTIES::TransferDataFromWindow()
         m_edaText->SetTextThickness( maxPenWidth );
     }
 
-    m_edaText->SetTextAngle( m_orientation.GetAngleValue() );
+    EDA_ANGLE delta = m_orientation.GetAngleValue().Normalize() - m_edaText->GetTextAngle();
+
+    if( m_fpTextBox )
+        m_fpTextBox->Rotate( m_fpTextBox->GetPosition(), delta );
+    else if( m_pcbTextBox )
+        m_pcbTextBox->Rotate( m_pcbTextBox->GetPosition(), delta );
+
+    m_edaText->SetTextAngle( m_orientation.GetAngleValue().Normalize() );
+
     m_edaText->SetBold( m_bold->IsChecked() );
     m_edaText->SetItalic( m_italic->IsChecked() );
 

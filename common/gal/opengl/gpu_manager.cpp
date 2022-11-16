@@ -72,7 +72,7 @@ GPU_MANAGER::~GPU_MANAGER()
 void GPU_MANAGER::SetShader( SHADER& aShader )
 {
     m_shader = &aShader;
-    m_shaderAttrib = m_shader->GetAttribute( "attrShaderParams" );
+    m_shaderAttrib = m_shader->GetAttribute( "a_shaderParams" );
 
     if( m_shaderAttrib == -1 )
     {
@@ -272,7 +272,7 @@ void GPU_NONCACHED_MANAGER::DrawIndices( const VERTEX_ITEM* aItem )
 void GPU_NONCACHED_MANAGER::EndDrawing()
 {
 #ifdef KICAD_GAL_PROFILE
-    PROF_COUNTER totalRealTime;
+    PROF_TIMER totalRealTime;
 #endif /* KICAD_GAL_PROFILE */
 
     if( m_container->GetSize() == 0 )

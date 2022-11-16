@@ -33,11 +33,11 @@ void PICKER_TOOL_BASE::reset()
     m_cursor = KICURSOR::ARROW;
     m_snap   = true;
 
-    m_picked = NULLOPT;
-    m_clickHandler = NULLOPT;
-    m_motionHandler = NULLOPT;
-    m_cancelHandler = NULLOPT;
-    m_finalizeHandler = NULLOPT;
+    m_picked = std::nullopt;
+    m_clickHandler = std::nullopt;
+    m_motionHandler = std::nullopt;
+    m_cancelHandler = std::nullopt;
+    m_finalizeHandler = std::nullopt;
 }
 
 
@@ -77,8 +77,7 @@ int PICKER_TOOL::Main( const TOOL_EVENT& aEvent )
     KIGFX::VIEW_CONTROLS* controls = getViewControls();
     int finalize_state = WAIT_CANCEL;
 
-    std::string tool = *aEvent.Parameter<std::string*>();
-    m_frame->PushTool( tool );
+    m_frame->PushTool( aEvent );
     Activate();
 
     setControls();
@@ -194,7 +193,7 @@ int PICKER_TOOL::Main( const TOOL_EVENT& aEvent )
 
     reset();
     controls->ForceCursorPosition( false );
-    m_frame->PopTool( tool );
+    m_frame->PopTool( aEvent );
     return 0;
 }
 

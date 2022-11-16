@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2007-2008 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
- * Copyright (C) 2004-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2004-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -37,18 +37,11 @@
 #include <macros.h>
 #include <math/util.h>      // for KiROUND
 
-/*
- * This module contains out of line member functions for classes given in
- * collectors.h.  Those classes augment the functionality of class PCB_EDIT_FRAME.
- */
 
-
-const KICAD_T GENERAL_COLLECTOR::AllBoardItems[] = {
-    // there are some restrictions on the order of items in the general case.
-    // all items in m_Drawings for instance should be contiguous.
-    //  *** all items in a same list (shown here) must be contiguous ****
+const std::vector<KICAD_T> GENERAL_COLLECTOR::AllBoardItems = {
     PCB_MARKER_T,           // in m_markers
     PCB_TEXT_T,             // in m_drawings
+    PCB_BITMAP_T,           // in m_drawings
     PCB_TEXTBOX_T,          // in m_drawings
     PCB_SHAPE_T,            // in m_drawings
     PCB_DIM_ALIGNED_T,      // in m_drawings
@@ -65,13 +58,13 @@ const KICAD_T GENERAL_COLLECTOR::AllBoardItems[] = {
     PCB_FP_TEXTBOX_T,       // in footprints
     PCB_FOOTPRINT_T,        // in m_footprints
     PCB_GROUP_T,            // in m_groups
-    PCB_ZONE_T,             // in m_zones
-    EOT
+    PCB_ZONE_T              // in m_zones
 };
 
 
-const KICAD_T GENERAL_COLLECTOR::BoardLevelItems[] = {
+const std::vector<KICAD_T> GENERAL_COLLECTOR::BoardLevelItems = {
     PCB_MARKER_T,
+    PCB_BITMAP_T,
     PCB_TEXT_T,
     PCB_TEXTBOX_T,
     PCB_SHAPE_T,
@@ -86,27 +79,25 @@ const KICAD_T GENERAL_COLLECTOR::BoardLevelItems[] = {
     PCB_TRACE_T,
     PCB_FOOTPRINT_T,
     PCB_GROUP_T,
-    PCB_ZONE_T,
-    EOT
+    PCB_ZONE_T
 };
 
 
-const KICAD_T GENERAL_COLLECTOR::Footprints[] = {
-    PCB_FOOTPRINT_T,
-    EOT
+const std::vector<KICAD_T> GENERAL_COLLECTOR::Footprints = {
+    PCB_FOOTPRINT_T
 };
 
 
-const KICAD_T GENERAL_COLLECTOR::PadsOrTracks[] = {
+const std::vector<KICAD_T> GENERAL_COLLECTOR::PadsOrTracks = {
     PCB_PAD_T,
     PCB_VIA_T,
     PCB_TRACE_T,
-    PCB_ARC_T,
-    EOT
+    PCB_ARC_T
 };
 
 
-const KICAD_T GENERAL_COLLECTOR::FootprintItems[] = {
+const std::vector<KICAD_T> GENERAL_COLLECTOR::FootprintItems = {
+    PCB_MARKER_T,
     PCB_FP_TEXT_T,
     PCB_FP_TEXTBOX_T,
     PCB_FP_SHAPE_T,
@@ -118,36 +109,33 @@ const KICAD_T GENERAL_COLLECTOR::FootprintItems[] = {
     PCB_PAD_T,
     PCB_FP_ZONE_T,
     PCB_GROUP_T,
-    EOT
+    PCB_BITMAP_T
     };
 
 
-const KICAD_T GENERAL_COLLECTOR::Tracks[] = {
+const std::vector<KICAD_T> GENERAL_COLLECTOR::Tracks = {
     PCB_TRACE_T,
     PCB_ARC_T,
-    PCB_VIA_T,
-    EOT
+    PCB_VIA_T
 };
 
 
-const KICAD_T GENERAL_COLLECTOR::LockableItems[] = {
+const std::vector<KICAD_T> GENERAL_COLLECTOR::LockableItems = {
     PCB_FOOTPRINT_T,
     PCB_GROUP_T,  // Can a group be locked?
     PCB_TRACE_T,
     PCB_ARC_T,
-    PCB_VIA_T,
-    EOT
+    PCB_VIA_T
 };
 
 
-const KICAD_T GENERAL_COLLECTOR::Zones[] = {
+const std::vector<KICAD_T> GENERAL_COLLECTOR::Zones = {
     PCB_ZONE_T,
-    PCB_FP_ZONE_T,
-    EOT
+    PCB_FP_ZONE_T
 };
 
 
-const KICAD_T GENERAL_COLLECTOR::Dimensions[] = {
+const std::vector<KICAD_T> GENERAL_COLLECTOR::Dimensions = {
     PCB_DIM_ALIGNED_T,
     PCB_DIM_LEADER_T,
     PCB_DIM_ORTHOGONAL_T,
@@ -157,21 +145,19 @@ const KICAD_T GENERAL_COLLECTOR::Dimensions[] = {
     PCB_FP_DIM_LEADER_T,
     PCB_FP_DIM_ORTHOGONAL_T,
     PCB_FP_DIM_CENTER_T,
-    PCB_FP_DIM_RADIAL_T,
-    EOT
+    PCB_FP_DIM_RADIAL_T
 };
 
 
-const KICAD_T GENERAL_COLLECTOR::DraggableItems[] = {
+const std::vector<KICAD_T> GENERAL_COLLECTOR::DraggableItems = {
     PCB_TRACE_T,
     PCB_VIA_T,
     PCB_FOOTPRINT_T,
-    PCB_ARC_T,
-    EOT
+    PCB_ARC_T
 };
 
 
-SEARCH_RESULT GENERAL_COLLECTOR::Inspect( EDA_ITEM* testItem, void* testData )
+INSPECT_RESULT GENERAL_COLLECTOR::Inspect( EDA_ITEM* testItem, void* testData )
 {
     BOARD_ITEM*         item        = (BOARD_ITEM*) testItem;
     FOOTPRINT*          footprint   = nullptr;
@@ -181,7 +167,6 @@ SEARCH_RESULT GENERAL_COLLECTOR::Inspect( EDA_ITEM* testItem, void* testData )
     PCB_VIA*            via         = nullptr;
     PCB_MARKER*         marker      = nullptr;
     ZONE*               zone        = nullptr;
-    PCB_SHAPE*          shape       = nullptr;
     PCB_DIMENSION_BASE* dimension   = nullptr;
 
 #if 0   // debugging
@@ -288,7 +273,7 @@ SEARCH_RESULT GENERAL_COLLECTOR::Inspect( EDA_ITEM* testItem, void* testData )
     case PCB_TRACE_T:
     case PCB_ARC_T:
         if( m_Guide->IgnoreTracks() )
-            goto exit;
+            return INSPECT_RESULT::CONTINUE;
 
         break;
 
@@ -304,10 +289,7 @@ SEARCH_RESULT GENERAL_COLLECTOR::Inspect( EDA_ITEM* testItem, void* testData )
 
     case PCB_TEXT_T:
     case PCB_TEXTBOX_T:
-        break;
-
     case PCB_SHAPE_T:
-        shape = static_cast<PCB_SHAPE*>( item );
         break;
 
     case PCB_FP_DIM_ALIGNED_T:
@@ -341,14 +323,14 @@ SEARCH_RESULT GENERAL_COLLECTOR::Inspect( EDA_ITEM* testItem, void* testData )
             FP_TEXT *text = static_cast<FP_TEXT*>( item );
 
             if( !text->IsVisible() )
-                goto exit;
+                return INSPECT_RESULT::CONTINUE;
         }
 
         if( m_Guide->IgnoreFPTextOnBack() && IsBackLayer( layer ) )
-            goto exit;
+            return INSPECT_RESULT::CONTINUE;
 
         if( m_Guide->IgnoreFPTextOnFront() && IsFrontLayer( layer ) )
-            goto exit;
+            return INSPECT_RESULT::CONTINUE;
 
         /*
          * The three text types have different criteria: reference and value have their own
@@ -365,19 +347,19 @@ SEARCH_RESULT GENERAL_COLLECTOR::Inspect( EDA_ITEM* testItem, void* testData )
         {
         case FP_TEXT::TEXT_is_REFERENCE:
             if( m_Guide->IgnoreFPReferences() )
-                goto exit;
+                return INSPECT_RESULT::CONTINUE;
 
             break;
 
         case FP_TEXT::TEXT_is_VALUE:
             if( m_Guide->IgnoreFPValues() )
-                goto exit;
+                return INSPECT_RESULT::CONTINUE;
 
             break;
 
         case FP_TEXT::TEXT_is_DIVERS:
             if( !m_Guide->IsLayerVisible( layer ) )
-                goto exit;
+                return INSPECT_RESULT::CONTINUE;
 
             break;
         }
@@ -388,7 +370,6 @@ SEARCH_RESULT GENERAL_COLLECTOR::Inspect( EDA_ITEM* testItem, void* testData )
     }
 
     case PCB_FP_SHAPE_T:
-        shape = static_cast<FP_SHAPE*>( item );
         break;
 
     case PCB_FOOTPRINT_T:
@@ -412,10 +393,10 @@ SEARCH_RESULT GENERAL_COLLECTOR::Inspect( EDA_ITEM* testItem, void* testData )
     if( footprint )    // true from case PCB_PAD_T, PCB_FP_TEXT_T, or PCB_FOOTPRINT_T
     {
         if( m_Guide->IgnoreFootprintsOnBack() && ( footprint->GetLayer() == B_Cu ) )
-            goto exit;
+            return INSPECT_RESULT::CONTINUE;
 
         if( m_Guide->IgnoreFootprintsOnFront() && ( footprint->GetLayer() == F_Cu ) )
-            goto exit;
+            return INSPECT_RESULT::CONTINUE;
     }
 
     // Pads are not sensitive to the layer visibility controls.
@@ -424,15 +405,15 @@ SEARCH_RESULT GENERAL_COLLECTOR::Inspect( EDA_ITEM* testItem, void* testData )
     if( pad )
     {
         if( m_Guide->IgnorePads() )
-            goto exit;
+            return INSPECT_RESULT::CONTINUE;
 
         if( ! pad_through )
         {
             if( m_Guide->IgnorePadsOnFront() && pad->IsOnLayer(F_Cu ) )
-                goto exit;
+                return INSPECT_RESULT::CONTINUE;
 
             if( m_Guide->IgnorePadsOnBack() && pad->IsOnLayer(B_Cu ) )
-                goto exit;
+                return INSPECT_RESULT::CONTINUE;
         }
     }
 
@@ -442,7 +423,7 @@ SEARCH_RESULT GENERAL_COLLECTOR::Inspect( EDA_ITEM* testItem, void* testData )
         if( marker->HitTest( m_refPos ) )
             Append( item );
 
-        goto exit;
+        return INSPECT_RESULT::CONTINUE;
     }
 
     if( group )
@@ -451,7 +432,7 @@ SEARCH_RESULT GENERAL_COLLECTOR::Inspect( EDA_ITEM* testItem, void* testData )
         if( group->HitTest( m_refPos ) )
             Append( item );
 
-        goto exit;
+        return INSPECT_RESULT::CONTINUE;
     }
 
     if( via )
@@ -462,7 +443,7 @@ SEARCH_RESULT GENERAL_COLLECTOR::Inspect( EDA_ITEM* testItem, void* testData )
                 || ( m_Guide->IgnoreBlindBuriedVias() && type == VIATYPE::BLIND_BURIED )
                 || ( m_Guide->IgnoreMicroVias() && type == VIATYPE::MICROVIA ) )
         {
-            goto exit;
+            return INSPECT_RESULT::CONTINUE;
         }
     }
 
@@ -482,7 +463,7 @@ SEARCH_RESULT GENERAL_COLLECTOR::Inspect( EDA_ITEM* testItem, void* testData )
                     || zone->HitTestForEdge( m_refPos, accuracy ) )
             {
                 Append( item );
-                goto exit;
+                return INSPECT_RESULT::CONTINUE;
             }
             else if( !m_Guide->IgnoreZoneFills() )
             {
@@ -492,18 +473,18 @@ SEARCH_RESULT GENERAL_COLLECTOR::Inspect( EDA_ITEM* testItem, void* testData )
                             && zone->HitTestFilledArea( layer, m_refPos ) )
                     {
                         Append( item );
-                        goto exit;
+                        return INSPECT_RESULT::CONTINUE;
                     }
                 }
             }
         }
-        else if( footprint )
+        else if( item == footprint )
         {
             if( footprint->HitTest( m_refPos, accuracy )
                     && footprint->HitTestAccurate( m_refPos, accuracy ) )
             {
                 Append( item );
-                goto exit;
+                return INSPECT_RESULT::CONTINUE;
             }
         }
         else if( pad || via )
@@ -511,7 +492,7 @@ SEARCH_RESULT GENERAL_COLLECTOR::Inspect( EDA_ITEM* testItem, void* testData )
             if( item->HitTest( m_refPos, accuracy ) )
             {
                 Append( item );
-                goto exit;
+                return INSPECT_RESULT::CONTINUE;
             }
         }
         else
@@ -530,14 +511,13 @@ SEARCH_RESULT GENERAL_COLLECTOR::Inspect( EDA_ITEM* testItem, void* testData )
                 if( item->HitTest( m_refPos, accuracy ) )
                 {
                     Append( item );
-                    goto exit;
+                    return INSPECT_RESULT::CONTINUE;
                 }
             }
         }
     }
 
-    if( m_Guide->IncludeSecondary()
-            && ( !item->IsLocked() || !m_Guide->IgnoreLockedItems() ) )
+    if( m_Guide->IncludeSecondary() && ( !item->IsLocked() || !m_Guide->IgnoreLockedItems() ) )
     {
         // for now, "secondary" means "tolerate any visible layer".  It has no effect on other
         // criteria, since there is a separate "ignore" control for those in the COLLECTORS_GUIDE
@@ -555,7 +535,7 @@ SEARCH_RESULT GENERAL_COLLECTOR::Inspect( EDA_ITEM* testItem, void* testData )
                     || zone->HitTestForEdge( m_refPos, accuracy ) )
             {
                 Append2nd( item );
-                goto exit;
+                return INSPECT_RESULT::CONTINUE;
             }
             else if( !m_Guide->IgnoreZoneFills() )
             {
@@ -565,7 +545,7 @@ SEARCH_RESULT GENERAL_COLLECTOR::Inspect( EDA_ITEM* testItem, void* testData )
                             && zone->HitTestFilledArea( layer, m_refPos ) )
                     {
                         Append2nd( item );
-                        goto exit;
+                        return INSPECT_RESULT::CONTINUE;
                     }
                 }
             }
@@ -576,7 +556,7 @@ SEARCH_RESULT GENERAL_COLLECTOR::Inspect( EDA_ITEM* testItem, void* testData )
                     && footprint->HitTestAccurate( m_refPos, accuracy ) )
             {
                 Append2nd( item );
-                goto exit;
+                return INSPECT_RESULT::CONTINUE;
             }
         }
         else if( pad || via )
@@ -584,7 +564,7 @@ SEARCH_RESULT GENERAL_COLLECTOR::Inspect( EDA_ITEM* testItem, void* testData )
             if( item->HitTest( m_refPos, accuracy ) )
             {
                 Append2nd( item );
-                goto exit;
+                return INSPECT_RESULT::CONTINUE;
             }
         }
         else
@@ -603,18 +583,17 @@ SEARCH_RESULT GENERAL_COLLECTOR::Inspect( EDA_ITEM* testItem, void* testData )
                 if( item->HitTest( m_refPos, accuracy ) )
                 {
                     Append2nd( item );
-                    goto exit;
+                    return INSPECT_RESULT::CONTINUE;
                 }
             }
         }
     }
 
-exit:
-    return SEARCH_RESULT::CONTINUE; // always when collecting
+    return INSPECT_RESULT::CONTINUE; // always when collecting
 }
 
 
-void GENERAL_COLLECTOR::Collect( BOARD_ITEM* aItem, const KICAD_T aScanList[],
+void GENERAL_COLLECTOR::Collect( BOARD_ITEM* aItem, const std::vector<KICAD_T>& aScanTypes,
                                  const VECTOR2I& aRefPos, const COLLECTORS_GUIDE& aGuide )
 {
     Empty();        // empty the collection, primary criteria list
@@ -623,16 +602,13 @@ void GENERAL_COLLECTOR::Collect( BOARD_ITEM* aItem, const KICAD_T aScanList[],
     // remember guide, pass it to Inspect()
     SetGuide( &aGuide );
 
-    SetScanTypes( aScanList );
+    SetScanTypes( aScanTypes );
 
     // remember where the snapshot was taken from and pass refPos to
     // the Inspect() function.
     SetRefPos( aRefPos );
 
     aItem->Visit( m_inspector, nullptr, m_scanTypes );
-
-    // record the length of the primary list before concatenating on to it.
-    m_PrimaryLength = m_list.size();
 
     // append 2nd list onto end of the first list
     for( unsigned i = 0;  i<m_List2nd.size();  ++i )
@@ -642,38 +618,36 @@ void GENERAL_COLLECTOR::Collect( BOARD_ITEM* aItem, const KICAD_T aScanList[],
 }
 
 
-SEARCH_RESULT PCB_TYPE_COLLECTOR::Inspect( EDA_ITEM* testItem, void* testData )
+INSPECT_RESULT PCB_TYPE_COLLECTOR::Inspect( EDA_ITEM* testItem, void* testData )
 {
-    // The Visit() function only visits the testItem if its type was in the
-    // the scanList, so therefore we can collect anything given to us here.
+    // The Visit() function only visits the testItem if its type was in the the scanList,
+    // so therefore we can collect anything given to us here.
     Append( testItem );
 
-    return SEARCH_RESULT::CONTINUE; // always when collecting
+    return INSPECT_RESULT::CONTINUE; // always when collecting
 }
 
 
-void PCB_TYPE_COLLECTOR::Collect( BOARD_ITEM* aBoard, const KICAD_T aScanList[] )
+void PCB_TYPE_COLLECTOR::Collect( BOARD_ITEM* aBoard, const std::vector<KICAD_T>& aTypes )
 {
-    Empty();        // empty any existing collection
-
-    aBoard->Visit( m_inspector, nullptr, aScanList );
+    Empty();
+    aBoard->Visit( m_inspector, nullptr, aTypes );
 }
 
 
-SEARCH_RESULT PCB_LAYER_COLLECTOR::Inspect( EDA_ITEM* testItem, void* testData )
+INSPECT_RESULT PCB_LAYER_COLLECTOR::Inspect( EDA_ITEM* testItem, void* testData )
 {
     BOARD_ITEM* item = (BOARD_ITEM*) testItem;
 
     if( item->IsOnLayer( m_layer_id ) )
         Append( testItem );
 
-    return SEARCH_RESULT::CONTINUE;
+    return INSPECT_RESULT::CONTINUE;
 }
 
 
-void PCB_LAYER_COLLECTOR::Collect( BOARD_ITEM* aBoard, const KICAD_T aScanList[] )
+void PCB_LAYER_COLLECTOR::Collect( BOARD_ITEM* aBoard, const std::vector<KICAD_T>& aTypes )
 {
     Empty();
-
-    aBoard->Visit( m_inspector, nullptr, aScanList );
+    aBoard->Visit( m_inspector, nullptr, aTypes );
 }

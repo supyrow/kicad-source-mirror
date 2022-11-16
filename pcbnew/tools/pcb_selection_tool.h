@@ -61,7 +61,7 @@ typedef void (*CLIENT_SELECTION_FILTER)( const VECTOR2I&, GENERAL_COLLECTOR&, PC
  * - takes into account high-contrast & layer visibility settings
  * - invokes InteractiveEdit tool when user starts to drag selected items
  */
-class PCB_SELECTION_TOOL : public SELECTION_TOOL, public PCB_TOOL_BASE
+class PCB_SELECTION_TOOL : public SELECTION_TOOL
 {
 public:
     PCB_SELECTION_TOOL();
@@ -75,23 +75,29 @@ public:
 
     void OnIdle( wxIdleEvent& aEvent );
 
+    bool IsFootprintEditor()
+    {
+        return m_isFootprintEditor;
+    }
+
     /**
      * The main loop.
      */
     int Main( const TOOL_EVENT& aEvent );
 
     /**
-     * Return the set of currently selected items.
+     * @return the set of currently selected items.
      */
     PCB_SELECTION& GetSelection();
 
     /**
-     * Return the current selection set, filtered according to aFlags and aClientFilter.
+     * Return the current selection, filtered according to aClientFilter.
      *
      * If the set is empty, performs the legacy-style hover selection.
      *
-     * @param aConfirmLockedItems if true the user will be prompted if they want to drop locked
-     *                            items from the selection or override the locks.
+     * @param aClientFilter A callback to allow tool- or action-specific filtering.
+     * @param aConfirmLockedItems [optional] Signals that the user shall be asked if they want
+     *                            to drop locked items from the selection or override the locks.
      */
     PCB_SELECTION& RequestSelection( CLIENT_SELECTION_FILTER aClientFilter,
                                      bool aConfirmLockedItems = false );
@@ -103,64 +109,44 @@ public:
     int ClearSelection( const TOOL_EVENT& aEvent );
     void ClearSelection( bool aQuietMode = false );
 
-    ///< Item selection event handler.
-    int SelectItem( const TOOL_EVENT& aEvent );
-    void AddItemToSel( BOARD_ITEM* aItem, bool aQuietMode = false );
-
     ///< Select all items on the board
     int SelectAll( const TOOL_EVENT& aEvent );
 
-    ///< Multiple item selection event handler
-    int SelectItems( const TOOL_EVENT& aEvent );
-
-    ///< Item unselection event handler.
-    int UnselectItem( const TOOL_EVENT& aEvent );
-    void RemoveItemFromSel( BOARD_ITEM* aItem, bool aQuietMode = false );
-
-    ///< Multiple item unselection event handler
-    int UnselectItems( const TOOL_EVENT& aEvent );
-
-    void BrightenItem( BOARD_ITEM* aItem );
-    void UnbrightenItem( BOARD_ITEM* aItem );
-
     /**
-     * Handle finding an item. Does not do the actual searching, is called
-     * by the find dialog.
+     * Take necessary actions to mark an item as found.
      *
-     * @param aItem Item that was found and needs to be handled.
+     * @param aItem The item that was found and needs to be highlighted/focused/etc.
      */
     void FindItem( BOARD_ITEM* aItem );
 
     /**
      * Take necessary action mark an item as selected.
      *
-     * @param aItem is an item to be selected.
+     * @param aItem The item to be selected.
      */
-    void select( BOARD_ITEM* aItem );
+    void select( EDA_ITEM* aItem ) override;
 
     /**
-     * Check conditions for an item to be selected.
-     *
-     * @return True if the item fulfills conditions to be selected.
+     * @return true if an item fulfills conditions to be selected.
      */
     bool Selectable( const BOARD_ITEM* aItem, bool checkVisibilityOnly = false ) const;
+
+    /**
+     * Select all items with the given net code.
+     *
+     * @param aNetCode is the target net to select
+     * @param aSelect is true to add the items to the selection, false to remove them (deselect)
+     */
+    void SelectAllItemsOnNet( int aNetCode, bool aSelect = true );
 
     /**
      * Try to guess best selection candidates in case multiple items are clicked, by doing
      * some brain-dead heuristics.
      *
-     * @param aCollector is the collector that has a list of items to be queried.
-     * @param aWhere is the selection point to consider
+     * @param aCollector [in, out] The collector that has a list of items to be narrowed.
+     * @param aWhere The selection point to consider.
      */
     void GuessSelectionCandidates( GENERAL_COLLECTOR& aCollector, const VECTOR2I& aWhere ) const;
-
-    /**
-     * Show a popup menu to trim the COLLECTOR passed as aEvent's parameter down to a single
-     * item.
-     *
-     * @note This routine **does not** modify the selection.
-     */
-    int SelectionMenu( const TOOL_EVENT& aEvent );
 
     /**
      * Rebuild the selection from the EDA_ITEMs' selection flags.
@@ -182,23 +168,26 @@ public:
     void zoomFitSelection();
 
     ///< Zoom the screen to fit the bounding box for cross probing/selection sync.
-    void zoomFitCrossProbeBBox( EDA_RECT bbox );
+    void ZoomFitCrossProbeBBox( const BOX2I& bbox );
 
-    BOARD* GetBoard() const
-    {
-        return board();
-    }
-
+    /**
+     * Enter the group at the head of the current selection.
+     */
     void EnterGroup();
 
     /**
-     * Leave the currently entered group.
+     * Leave the currently-entered group.
      *
-     * @param aSelectGroup when true will select the group after leaving
+     * @param aSelectGroup [optional] Select the group after leaving.
      */
     void ExitGroup( bool aSelectGroup = false );
 
+    /**
+     * @return the currently-entered group.
+     */
     PCB_GROUP* GetEnteredGroup() { return m_enteredGroup; }
+
+    PCB_LAYER_ID GetActiveLayer() { return m_frame->GetActiveLayer(); }
 
     /**
      * In general we don't want to select both a parent and any of it's children.  This includes
@@ -207,18 +196,52 @@ public:
     void FilterCollectorForHierarchy( GENERAL_COLLECTOR& aCollector, bool aMultiselect ) const;
 
     /**
-     * Check the "allow free pads" setting and if disabled, upgrade any pad selection to the
-     * selection of its parent footprint.
+     * Check the "allow free pads" setting and if disabled, replace any pads in the collector
+     * with their parent footprints.
      */
     void FilterCollectorForFreePads( GENERAL_COLLECTOR& aCollector ) const;
 
+    /**
+     * Drop any PCB_MARKERs from the collector.
+     */
     void FilterCollectorForMarkers( GENERAL_COLLECTOR& aCollector ) const;
 
-    ///< Apply the SELECTION_FILTER_OPTIONS to a collection of items
+    /**
+     * Apply the SELECTION_FITLER_OPTIONS to the collector.
+     */
     void FilterCollectedItems( GENERAL_COLLECTOR& aCollector, bool aMultiSelect );
 
-private:
+protected:
+    KIGFX::PCB_VIEW* view() const
+    {
+        return static_cast<KIGFX::PCB_VIEW*>( getView() );
+    }
 
+    KIGFX::VIEW_CONTROLS* controls() const
+    {
+        return getViewControls();
+    }
+
+    PCB_BASE_EDIT_FRAME* frame() const
+    {
+        return getEditFrame<PCB_BASE_EDIT_FRAME>();
+    }
+
+    BOARD* board() const
+    {
+        return getModel<BOARD>();
+    }
+
+    PCB_DRAW_PANEL_GAL* canvas() const
+    {
+        return static_cast<PCB_DRAW_PANEL_GAL*>( frame()->GetCanvas() );
+    }
+
+    virtual bool ctrlClickHighlights() override;
+
+    SELECTION& selection() override { return m_selection; }
+
+private:
     /**
      * Select an item pointed by the parameter \a aWhere.
      *
@@ -230,20 +253,20 @@ private:
      * @param aSelectionCancelledFlag allows the function to inform its caller that a selection
      *                                was canceled (for instance, by clicking outside of the
      *                                disambiguation menu).
-     * @param aClientFilter allows the client to perform tool- or action-specific filtering.
-     * @return True if an item was selected, false otherwise.
+     * @param aClientFilter a callback to allow tool- or action-specific filtering.
+     * @return whether or not the selection is empty.
      */
     bool selectPoint( const VECTOR2I& aWhere, bool aOnDrag = false,
                       bool* aSelectionCancelledFlag = nullptr,
                       CLIENT_SELECTION_FILTER aClientFilter = nullptr );
 
     /**
-     * Select an item under the cursor unless there is something already selected or
-     * \a aSelectAlways is true.
+     * Select an item under the cursor unless there is something already selected.
      *
-     * @param aForceSelect forces to select an item even if there is an item already selected.
-     * @param aClientFilter allows the client to perform tool- or action-specific filtering.
-     * @return true if eventually there is an item selected, false otherwise.
+     * @param aForceSelect [optional] Forces an item to be selected even if there is already a
+     *                     selection.
+     * @param aClientFilter A callback to allow tool- or action-specific filtering.
+     * @return whether or not the selection is empty.
      */
     bool selectCursor( bool aForceSelect = false,
                        CLIENT_SELECTION_FILTER aClientFilter = nullptr );
@@ -256,36 +279,34 @@ private:
     bool selectMultiple();
 
     /**
-     * Allow the selection of a single item from a list via pop-up menu.
-     *
-     * The items are highlighted on the canvas when hovered in the menu.  The collector is
-     * trimmed to the picked item.
-     *
-     * @return true if an item was picked
-     */
-    bool doSelectionMenu( GENERAL_COLLECTOR* aItems );
-
-    /**
-     * Start the process to show our disambiguation menu once the user has kept
-     * the mouse down for the minimum time
-     * @param aEvent
-     */
-    void onDisambiguationExpire( wxTimerEvent& aEvent );
-
-    /**
      * Handle disambiguation actions including displaying the menu.
      */
     int disambiguateCursor( const TOOL_EVENT& aEvent );
 
     /**
-     * Expand the current track selection to the next boundary (junctions, pads, or all)
+     * Expand the current connected-item selection to the next boundary (junctions, pads, or all)
      */
     int expandConnection( const TOOL_EVENT& aEvent );
 
     /**
-     * Select all copper connections belonging to the same net(s) as the items in the selection
+     * Unroute the selected board connected items.
+     */
+    int unrouteSelected( const TOOL_EVENT& aEvent );
+
+    /**
+     * Select all copper connections belonging to the same net(s) as the items in the selection.
      */
     int selectNet( const TOOL_EVENT& aEvent );
+
+    /**
+     * Select nearest unconnected footprints on same net as selected items.
+     */
+    int selectUnconnected( const TOOL_EVENT& aEvent );
+
+    /**
+     * Select and move other nearest footprint unconnected on same net as selected items.
+     */
+    int grabUnconnected( const TOOL_EVENT& aEvent );
 
     enum STOP_CONDITION
     {
@@ -305,18 +326,10 @@ private:
     /**
      * Select connected tracks and vias.
      *
-     * @param aStopCondition where to stop selecting more items
+     * @param aStopCondition Indicates where to stop selecting more items.
      */
     void selectAllConnectedTracks( const std::vector<BOARD_CONNECTED_ITEM*>& aStartItems,
-                                   STOP_CONDITION                            aStopCondition );
-
-    /**
-     * Select all items with the given net code.
-     *
-     * @param aNetCode is the target net to select
-     * @param aSelect is true to add the items to the selection, false to remove them (deselect)
-     */
-    void selectAllItemsOnNet( int aNetCode, bool aSelect = true );
+                                   STOP_CONDITION aStopCondition );
 
     /*
      * Select tracks and vias connected to specified board items.
@@ -354,31 +367,34 @@ private:
      *
      * @param aItem is an item to be unselected.
      */
-    void unselect( BOARD_ITEM* aItem );
+    void unselect( EDA_ITEM* aItem ) override;
 
     /**
      * Highlight the item visually.
      *
-     * @param aItem is an item to be be highlighted.
-     * @param aHighlightMode should be either SELECTED or BRIGHTENED
-     * @param aGroup is the group to add the item to in the BRIGHTENED mode.
+     * @param aItem The item to be highlighted.
+     * @param aHighlightMode Either SELECTED or BRIGHTENED
+     * @param aGroup [optional A group to add the item to.
      */
-    void highlight( BOARD_ITEM* aItem, int aHighlightMode, PCB_SELECTION* aGroup = nullptr );
+    void highlight( EDA_ITEM* aItem, int aHighlightMode, SELECTION* aGroup = nullptr ) override;
 
     /**
      * Unhighlight the item visually.
      *
-     * @param aItem is an item to be be highlighted.
-     * @param aHighlightMode should be either SELECTED or BRIGHTENED
-     * @param aGroup is the group to remove the item from.
+     * @param aItem The item to be highlighted.
+     * @param aHighlightMode Either SELECTED or BRIGHTENED
+     * @param aGroup [optional] A group to remove the item from.
      */
-    void unhighlight( BOARD_ITEM* aItem, int aHighlightMode, PCB_SELECTION* aGroup = nullptr );
+    void unhighlight( EDA_ITEM* aItem, int aHighlightMode, SELECTION* aGroup = nullptr ) override;
 
     /**
-     * @return True if the given point is contained in any of selected items' bounding box.
+     * @return true if the given point is contained in any of selected items' bounding boxes.
      */
     bool selectionContains( const VECTOR2I& aPoint ) const;
 
+    /**
+     * @return the distance from \a wWhere to \a aItem, up to and including \a aMaxDistance.
+     */
     int hitTestDistance( const wxPoint& aWhere, BOARD_ITEM* aItem, int aMaxDistance ) const;
 
     /**
@@ -386,20 +402,17 @@ private:
      */
     int updateSelection( const TOOL_EVENT& aEvent );
 
-    /**
-     * Pass the selection to a conditional menu for updating.
-     */
-    int UpdateMenu( const TOOL_EVENT& aEvent );
-
     const GENERAL_COLLECTORS_GUIDE getCollectorsGuide() const;
 
 private:
-    void highlightInternal( BOARD_ITEM* aItem, int aHighlightMode, bool aUsingOverlay );
+    void highlightInternal( EDA_ITEM* aItem, int aHighlightMode, bool aUsingOverlay );
 
-    void unhighlightInternal( BOARD_ITEM* aItem, int aHighlightMode, bool aUsingOverlay );
+    void unhighlightInternal( EDA_ITEM* aItem, int aHighlightMode, bool aUsingOverlay );
 
 private:
     PCB_BASE_FRAME*          m_frame;                // Pointer to the parent frame
+    bool                     m_isFootprintEditor;
+
     PCB_SELECTION            m_selection;            // Current state of selection
 
     SELECTION_FILTER_OPTIONS m_filter;

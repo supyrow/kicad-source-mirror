@@ -19,7 +19,7 @@
  * with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <core/optional.h>
+#include <optional>
 
 #include <base_units.h> // God forgive me doing this...
 
@@ -100,28 +100,25 @@ bool DP_MEANDER_PLACER::Start( const VECTOR2I& aP, ITEM* aStartItem )
     if( !m_originPair.PLine().SegmentCount() || !m_originPair.NLine().SegmentCount() )
         return false;
 
-    SOLID* padA = nullptr;
-    SOLID* padB = nullptr;
-
-    m_tunedPathP = topo.AssembleTuningPath( m_originPair.PLine().GetLink( 0 ), &padA, &padB );
+    m_tunedPathP = topo.AssembleTuningPath( m_originPair.PLine().GetLink( 0 ), &m_startPad_p, &m_endPad_p );
 
     m_padToDieP = 0;
 
-    if( padA )
-        m_padToDieP += padA->GetPadToDie();
+    if( m_startPad_p )
+        m_padToDieP += m_startPad_p->GetPadToDie();
 
-    if( padB )
-        m_padToDieP += padB->GetPadToDie();
+    if( m_endPad_p )
+        m_padToDieP += m_endPad_p->GetPadToDie();
 
-    m_tunedPathN = topo.AssembleTuningPath( m_originPair.NLine().GetLink( 0 ), &padA, &padB );
+    m_tunedPathN = topo.AssembleTuningPath( m_originPair.NLine().GetLink( 0 ), &m_startPad_n, &m_endPad_n );
 
     m_padToDieN = 0;
 
-    if( padA )
-        m_padToDieN += padA->GetPadToDie();
+    if( m_startPad_n )
+        m_padToDieN += m_startPad_n->GetPadToDie();
 
-    if( padB )
-        m_padToDieN += padB->GetPadToDie();
+    if( m_endPad_n )
+        m_padToDieN += m_endPad_n->GetPadToDie();
 
     m_padToDieLength = std::max( m_padToDieP, m_padToDieN );
 
@@ -141,8 +138,8 @@ void DP_MEANDER_PLACER::release()
 
 long long int DP_MEANDER_PLACER::origPathLength() const
 {
-    long long int totalP = m_padToDieLength + lineLength( m_tunedPathP );
-    long long int totalN = m_padToDieLength + lineLength( m_tunedPathN );
+    long long int totalP = m_padToDieP + lineLength( m_tunedPathP, m_startPad_p, m_endPad_p );
+    long long int totalN = m_padToDieN + lineLength( m_tunedPathN, m_startPad_n, m_endPad_n );
     return std::max( totalP, totalN );
 }
 
@@ -205,13 +202,13 @@ bool DP_MEANDER_PLACER::Move( const VECTOR2I& aP, ITEM* aEndItem )
     for( const ITEM* item : m_tunedPathP.CItems() )
     {
         if( const LINE* l = dyn_cast<const LINE*>( item ) )
-            PNS_DBG( Dbg(), AddLine, l->CLine(), YELLOW, 10000, "tuned-path-p" );
+            PNS_DBG( Dbg(), AddShape, &l->CLine(), YELLOW, 10000, wxT( "tuned-path-p" ) );
     }
 
     for( const ITEM* item : m_tunedPathN.CItems() )
     {
         if( const LINE* l = dyn_cast<const LINE*>( item ) )
-            PNS_DBG( Dbg(), AddLine, l->CLine(), YELLOW, 10000, "tuned-path-n" );
+            PNS_DBG( Dbg(), AddShape, &l->CLine(), YELLOW, 10000, wxT( "tuned-path-n" ) );
     }
 
     int curIndexP = 0, curIndexN = 0;
@@ -220,7 +217,7 @@ bool DP_MEANDER_PLACER::Move( const VECTOR2I& aP, ITEM* aEndItem )
     {
         SEG base = baselineSegment( sp );
 
-        PNS_DBG( Dbg(), AddSegment, base, GREEN, "dp-baseline" );
+        PNS_DBG( Dbg(), AddShape, base, GREEN, 10000, wxT( "dp-baseline" ) );
 
         while( sp.indexP >= curIndexP && curIndexP != -1 )
         {
@@ -416,6 +413,12 @@ const ITEM_SET DP_MEANDER_PLACER::Traces()
 }
 
 
+const VECTOR2I& DP_MEANDER_PLACER::CurrentStart() const
+{
+    return m_currentStart;
+}
+
+
 const VECTOR2I& DP_MEANDER_PLACER::CurrentEnd() const
 {
     return m_currentEnd;
@@ -447,11 +450,11 @@ const wxString DP_MEANDER_PLACER::TuningInfo( EDA_UNITS aUnits ) const
         return _( "?" );
     }
 
-    status += ::MessageTextFromValue( aUnits, m_lastLength );
+    status += EDA_UNIT_UTILS::UI::MessageTextFromValue( pcbIUScale, aUnits, m_lastLength );
     status += wxT( "/" );
-    status += ::MessageTextFromValue( aUnits, m_settings.m_targetLength );
+    status += EDA_UNIT_UTILS::UI::MessageTextFromValue( pcbIUScale, aUnits, m_settings.m_targetLength );
     status += wxT( " (gap: " );
-    status += ::MessageTextFromValue( aUnits, m_originPair.Gap() );
+    status += EDA_UNIT_UTILS::UI::MessageTextFromValue( pcbIUScale, aUnits, m_originPair.Gap() );
     status += wxT( ")" );
 
     return status;

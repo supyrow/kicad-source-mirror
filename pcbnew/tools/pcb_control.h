@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2014-2016 CERN
+ * Copyright (C) 2014-2020 CERN
  * Copyright (C) 2021 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * @author Maciej Suminski <maciej.suminski@cern.ch>
@@ -98,6 +98,11 @@ public:
 
     int FlipPcbView( const TOOL_EVENT& aEvent );
 
+    // Drag and drop
+    int DdAppendBoard( const TOOL_EVENT& aEvent );
+    int DdAddLibrary( const TOOL_EVENT& aEvent );
+    int DdImportFootprint( const TOOL_EVENT& aEvent );
+
 private:
     ///< Sets up handlers for various events.
     void setTransitions() override;
@@ -108,6 +113,12 @@ private:
      * zones are unfilled.
      */
     void unfilledZoneCheck();
+
+    /**
+     * Helper for pasting.  Remove non-enabled layers from the items in \a aItems.  If an item
+     * exists only on non-enabled layers, it will be removed entirely.
+     */
+    void pruneItemLayers( std::vector<BOARD_ITEM*>& aItems );
 
     /**
      * Add and select or just select for move/place command a list of board items.

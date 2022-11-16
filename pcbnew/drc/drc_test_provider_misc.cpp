@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2004-2021 KiCad Developers.
+ * Copyright (C) 2004-2022 KiCad Developers.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -59,12 +59,12 @@ public:
 
     virtual const wxString GetName() const override
     {
-        return "miscellaneous";
+        return wxT( "miscellaneous" );
     };
 
     virtual const wxString GetDescription() const override
     {
-        return "Misc checks (board outline, missing textvars)";
+        return wxT( "Misc checks (board outline, missing textvars)" );
     }
 
 private:
@@ -96,7 +96,7 @@ void DRC_TEST_PROVIDER_MISC::testOutline()
 
     // Use a really tight chaining epsilon here so that we report errors that might affect
     // other tools (such as STEP export).
-    constexpr int chainingEpsilon = Millimeter2iu( 0.02 ) / 100;
+    constexpr int chainingEpsilon = pcbIUScale.mmToIU( 0.02 ) / 100;
 
     if( !BuildBoardPolygonOutlines( m_board, dummyOutline, m_board->GetDesignSettings().m_MaxError,
                                     chainingEpsilon, &errorHandler ) )
@@ -108,10 +108,11 @@ void DRC_TEST_PROVIDER_MISC::testOutline()
         else
         {
             std::shared_ptr<DRC_ITEM> drcItem = DRC_ITEM::Create( DRCE_INVALID_OUTLINE );
+            wxString msg;
 
-            m_msg.Printf( _( "(no edges found on Edge.Cuts layer)" ) );
+            msg.Printf( _( "(no edges found on Edge.Cuts layer)" ) );
 
-            drcItem->SetErrorMessage( drcItem->GetErrorText() + wxS( " " ) + m_msg );
+            drcItem->SetErrorMessage( drcItem->GetErrorText() + wxS( " " ) + msg );
             drcItem->SetItems( m_board );
 
             reportViolation( drcItem, m_board->GetBoundingBox().Centre(), Edge_Cuts );
@@ -122,9 +123,7 @@ void DRC_TEST_PROVIDER_MISC::testOutline()
 
 void DRC_TEST_PROVIDER_MISC::testDisabledLayers()
 {
-    // This is the number of tests between 2 calls to the progress bar
-    const int delta = 2000;
-
+    const int progressDelta = 2000;
     int       ii = 0;
     int       items = 0;
 
@@ -146,7 +145,7 @@ void DRC_TEST_PROVIDER_MISC::testDisabledLayers()
                 if( m_drcEngine->IsErrorLimitExceeded( DRCE_DISABLED_LAYER_ITEM ) )
                     return false;
 
-                if( !reportProgress( ii++, items, delta ) )
+                if( !reportProgress( ii++, items, progressDelta ) )
                     return false;
 
                 PCB_LAYER_ID badLayer = UNDEFINED_LAYER;
@@ -163,7 +162,7 @@ void DRC_TEST_PROVIDER_MISC::testDisabledLayers()
                     }
                     else
                     {
-                        // Through hole pad is on whatever layers there are.
+                        // Through hole pad pierces all physical layers.
                     }
                 }
                 else if( item->Type() == PCB_VIA_T )
@@ -195,10 +194,11 @@ void DRC_TEST_PROVIDER_MISC::testDisabledLayers()
                 if( badLayer != UNDEFINED_LAYER )
                 {
                     auto drcItem = DRC_ITEM::Create( DRCE_DISABLED_LAYER_ITEM );
+                    wxString msg;
 
-                    m_msg.Printf( _( "(layer %s)" ), LayerName( badLayer ) );
+                    msg.Printf( _( "(layer %s)" ), LayerName( badLayer ) );
 
-                    drcItem->SetErrorMessage( drcItem->GetErrorText() + wxS( " " ) + m_msg );
+                    drcItem->SetErrorMessage( drcItem->GetErrorText() + wxS( " " ) + msg );
                     drcItem->SetItems( item );
 
                     reportViolation( drcItem, item->GetPosition(), UNDEFINED_LAYER );
@@ -214,9 +214,7 @@ void DRC_TEST_PROVIDER_MISC::testDisabledLayers()
 
 void DRC_TEST_PROVIDER_MISC::testAssertions()
 {
-    // This is the number of tests between 2 calls to the progress bar
-    const int delta = 2000;
-
+    const int progressDelta = 2000;
     int       ii = 0;
     int       items = 0;
 
@@ -233,7 +231,7 @@ void DRC_TEST_PROVIDER_MISC::testAssertions()
                 if( m_drcEngine->IsErrorLimitExceeded( DRCE_ASSERTION_FAILURE ) )
                     return false;
 
-                if( !reportProgress( ii++, items, delta ) )
+                if( !reportProgress( ii++, items, progressDelta ) )
                     return false;
 
                 m_drcEngine->ProcessAssertions( item,
@@ -257,30 +255,35 @@ void DRC_TEST_PROVIDER_MISC::testAssertions()
 
 void DRC_TEST_PROVIDER_MISC::testTextVars()
 {
-    // This is the number of tests between 2 calls to the progress bar
-    const int delta = 2000;
-
+    const int progressDelta = 2000;
     int       ii = 0;
     int       items = 0;
 
-    auto countItems =
+    static const std::vector<KICAD_T> itemTypes = {
+        PCB_TEXT_T, PCB_FP_TEXT_T, PCB_TEXTBOX_T, PCB_FP_TEXTBOX_T,
+        PCB_DIMENSION_T
+    };
+
+    forEachGeometryItem( itemTypes, LSET::AllLayersMask(),
             [&]( BOARD_ITEM* item ) -> bool
             {
                 ++items;
                 return true;
-            };
+            } );
 
-    auto checkTextVars =
-            [&]( EDA_ITEM* item ) -> bool
+    forEachGeometryItem( itemTypes, LSET::AllLayersMask(),
+            [&]( BOARD_ITEM* item ) -> bool
             {
                 if( m_drcEngine->IsErrorLimitExceeded( DRCE_UNRESOLVED_VARIABLE ) )
                     return false;
 
-                if( !reportProgress( ii++, items, delta ) )
+                if( !reportProgress( ii++, items, progressDelta ) )
                     return false;
 
                 BOARD_ITEM* boardItem = dynamic_cast<BOARD_ITEM*>( item );
                 EDA_TEXT*   text = dynamic_cast<EDA_TEXT*>( boardItem );
+
+                wxCHECK( boardItem, false );
 
                 if( text && text->GetShownText().Matches( wxT( "*${*}*" ) ) )
                 {
@@ -289,11 +292,9 @@ void DRC_TEST_PROVIDER_MISC::testTextVars()
 
                     reportViolation( drcItem, boardItem->GetPosition(), boardItem->GetLayer() );
                 }
-                return true;
-            };
 
-    forEachGeometryItem( { PCB_FP_TEXT_T, PCB_TEXT_T }, LSET::AllLayersMask(), countItems );
-    forEachGeometryItem( { PCB_FP_TEXT_T, PCB_TEXT_T }, LSET::AllLayersMask(), checkTextVars );
+                return true;
+            } );
 
     DS_PROXY_VIEW_ITEM* drawingSheet = m_drcEngine->GetDrawingSheet();
     DS_DRAW_ITEM_LIST   drawItems;
@@ -301,12 +302,12 @@ void DRC_TEST_PROVIDER_MISC::testTextVars()
     if( !drawingSheet || m_drcEngine->IsErrorLimitExceeded( DRCE_UNRESOLVED_VARIABLE ) )
         return;
 
-    drawItems.SetMilsToIUfactor( IU_PER_MILS );
-    drawItems.SetPageNumber( "1" );
+    drawItems.SetMilsToIUfactor( pcbIUScale.IU_PER_MILS );
+    drawItems.SetPageNumber( wxT( "1" ) );
     drawItems.SetSheetCount( 1 );
-    drawItems.SetFileName( "dummyFilename" );
-    drawItems.SetSheetName( "dummySheet" );
-    drawItems.SetSheetLayer( "dummyLayer" );
+    drawItems.SetFileName( wxT( "dummyFilename" ) );
+    drawItems.SetSheetName( wxT( "dummySheet" ) );
+    drawItems.SetSheetLayer( wxT( "dummyLayer" ) );
     drawItems.SetProject( m_board->GetProject() );
     drawItems.BuildDrawItemsList( drawingSheet->GetPageInfo(), drawingSheet->GetTitleBlock() );
 
@@ -315,14 +316,17 @@ void DRC_TEST_PROVIDER_MISC::testTextVars()
         if( m_drcEngine->IsErrorLimitExceeded( DRCE_UNRESOLVED_VARIABLE ) )
             break;
 
+        if( m_drcEngine->IsCancelled() )
+            return;
+
         DS_DRAW_ITEM_TEXT* text = dynamic_cast<DS_DRAW_ITEM_TEXT*>( item );
 
         if( text && text->GetShownText().Matches( wxT( "*${*}*" ) ) )
         {
             std::shared_ptr<DRC_ITEM> drcItem = DRC_ITEM::Create( DRCE_UNRESOLVED_VARIABLE );
-            drcItem->SetItems( text );
+            drcItem->SetItems( drawingSheet );
 
-            reportViolation( drcItem, text->GetPosition(), UNDEFINED_LAYER );
+            reportViolation( drcItem, text->GetPosition(), LAYER_DRAWINGSHEET );
         }
     }
 }
@@ -364,7 +368,7 @@ bool DRC_TEST_PROVIDER_MISC::Run()
         testAssertions();
     }
 
-    return true;
+    return !m_drcEngine->IsCancelled();
 }
 
 

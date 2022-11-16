@@ -23,6 +23,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
+#include <charconv>
 #include <wx/ffile.h>
 #include <wx/log.h>
 #include <eda_item.h>
@@ -33,6 +34,7 @@
 #include <drawing_sheet/ds_painter.h>
 #include <drawing_sheet/drawing_sheet_lexer.h>
 #include <drawing_sheet/ds_file_versions.h>
+#include <font/font.h>
 
 using namespace DRAWINGSHEET_T;
 
@@ -166,7 +168,7 @@ wxString convertLegacyVariableRefs( const wxString& aTextbase )
             case 'N': msg += wxT( "${##}" );            break;
             case 'F': msg += wxT( "${FILENAME}" );      break;
             case 'L': msg += wxT( "${LAYER}" );         break;
-            case 'P': msg += wxT( "${SHEETNAME}" );     break;
+            case 'P': msg += wxT( "${SHEETPATH}" );     break;
             case 'Y': msg += wxT( "${COMPANY}" );       break;
             case 'T': msg += wxT( "${TITLE}" );         break;
             case 'C':
@@ -696,11 +698,22 @@ void DRAWING_SHEET_PARSER::parseText( DS_DATA_ITEM_TEXT* aItem )
             break;
 
         case T_font:
+        {
+            wxString faceName;
+
+            aItem->m_TextColor = COLOR4D::UNSPECIFIED;
+
             for( token = NextTok(); token != T_RIGHT && token != EOF; token = NextTok() )
             {
                 switch( token )
                 {
                 case T_LEFT:
+                    break;
+
+                case T_face:
+                    NeedSYMBOL();
+                    faceName = FromUTF8();
+                    NeedRIGHT();
                     break;
 
                 case T_bold:
@@ -717,6 +730,14 @@ void DRAWING_SHEET_PARSER::parseText( DS_DATA_ITEM_TEXT* aItem )
                     NeedRIGHT();
                     break;
 
+                case T_color:
+                    aItem->m_TextColor.r = parseInt( 0, 255 ) / 255.0;
+                    aItem->m_TextColor.g = parseInt( 0, 255 ) / 255.0;
+                    aItem->m_TextColor.b = parseInt( 0, 255 ) / 255.0;
+                    aItem->m_TextColor.a = Clamp( parseDouble(), 0.0, 1.0 );
+                    NeedRIGHT();
+                    break;
+
                 case T_linewidth:
                     aItem->m_LineWidth = parseDouble();
                     NeedRIGHT();
@@ -727,7 +748,12 @@ void DRAWING_SHEET_PARSER::parseText( DS_DATA_ITEM_TEXT* aItem )
                     break;
                 }
             }
+
+            if( !faceName.IsEmpty() )
+                aItem->m_Font = KIFONT::FONT::GetFont( faceName, aItem->m_Bold, aItem->m_Italic );
+
             break;
+        }
 
         case T_justify:
             for( token = NextTok(); token != T_RIGHT && token != EOF; token = NextTok() )
@@ -788,7 +814,7 @@ void DRAWING_SHEET_PARSER::parseCoordinate( POINT_COORD& aCoord)
         case T_lbcorner: aCoord.m_Anchor = LB_CORNER; break;
         case T_rbcorner: aCoord.m_Anchor = RB_CORNER; break;
         case T_rtcorner: aCoord.m_Anchor = RT_CORNER; break;
-        default:         Unexpected( CurText() ); break;
+        default:         Unexpected( CurText() );     break;
         }
     }
 }
@@ -823,9 +849,8 @@ double DRAWING_SHEET_PARSER::parseDouble()
     if( token != T_NUMBER )
         Expecting( T_NUMBER );
 
-    double val = strtod( CurText(), NULL );
 
-    return val;
+    return DSNLEXER::parseDouble();
 }
 
 // defaultDrawingSheet is the default drawing sheet using the S expr.

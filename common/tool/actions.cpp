@@ -73,10 +73,10 @@ TOOL_ACTION ACTIONS::saveAs( "common.Control.saveAs",
         _( "Save As..." ), _( "Save current document to another location" ),
         BITMAPS::save_as );
 
-TOOL_ACTION ACTIONS::saveCopyAs( "common.Control.saveCopyAs",
+TOOL_ACTION ACTIONS::saveCopy( "common.Control.saveCopy",
         AS_GLOBAL,
         0, "",
-        _( "Save Copy As..." ), _( "Save a copy of the current document to another location" ),
+        _( "Save a Copy..." ), _( "Save a copy of the current document to another location" ),
         BITMAPS::save_as );
 
 TOOL_ACTION ACTIONS::saveAll( "common.Control.saveAll",
@@ -151,19 +151,19 @@ TOOL_ACTION ACTIONS::cut( "common.Interactive.cut",
         AS_GLOBAL,
         MD_CTRL + 'X', LEGACY_HK_NAME( "Cut" ),
         _( "Cut" ), _( "Cut selected item(s) to clipboard" ),
-        BITMAPS::cut );
+        BITMAPS::cut, AF_NONE, (void*) wxID_CUT );
 
 TOOL_ACTION ACTIONS::copy( "common.Interactive.copy",
         AS_GLOBAL,
         MD_CTRL + 'C', LEGACY_HK_NAME( "Copy" ),
         _( "Copy" ), _( "Copy selected item(s) to clipboard" ),
-        BITMAPS::copy );
+        BITMAPS::copy, AF_NONE, (void*) wxID_COPY );
 
 TOOL_ACTION ACTIONS::paste( "common.Interactive.paste",
         AS_GLOBAL,
         MD_CTRL + 'V', LEGACY_HK_NAME( "Paste" ),
         _( "Paste" ), _( "Paste item(s) from clipboard" ),
-        BITMAPS::paste );
+        BITMAPS::paste, AF_NONE, (void*) wxID_PASTE );
 
 TOOL_ACTION ACTIONS::selectAll( "common.Interactive.selectAll",
         AS_GLOBAL,
@@ -172,7 +172,8 @@ TOOL_ACTION ACTIONS::selectAll( "common.Interactive.selectAll",
 
 TOOL_ACTION ACTIONS::pasteSpecial( "common.Interactive.pasteSpecial",
         AS_GLOBAL, 0, "",
-        _( "Paste Special..." ), _( "Paste item(s) from clipboard with options" ) );
+        _( "Paste Special..." ), _( "Paste item(s) from clipboard with annotation options" ),
+        BITMAPS::paste_special );
 
 TOOL_ACTION ACTIONS::duplicate( "common.Interactive.duplicate",
         AS_GLOBAL,
@@ -201,6 +202,12 @@ TOOL_ACTION ACTIONS::activatePointEditor( "common.Control.activatePointEditor",
 
 TOOL_ACTION ACTIONS::changeEditMethod( "common.Interactive.changeEditMethod", AS_GLOBAL,
         MD_CTRL + ' ', "", _( "Change Edit Method" ), _( "Change edit method constraints" ) );
+
+TOOL_ACTION ACTIONS::showSearch( "common.Interactive.search",
+        AS_GLOBAL,
+        MD_CTRL + 'G', LEGACY_HK_NAME( "Search" ),
+        _( "Show Search Panel" ), _( "Show/hide the search panel" ),
+        BITMAPS::find );
 
 TOOL_ACTION ACTIONS::find( "common.Interactive.find",
         AS_GLOBAL,
@@ -246,17 +253,20 @@ TOOL_ACTION ACTIONS::updateFind( "common.Control.updateFind",
 TOOL_ACTION ACTIONS::prevMarker( "common.Checker.prevMarker",
         AS_GLOBAL,
         0, "",
-        _( "Previous Marker" ), _( "Go to previous marker in Checker window" ) );
+        _( "Previous Marker" ), _( "Go to previous marker in Checker window" ),
+        BITMAPS::marker_previous );
 
 TOOL_ACTION ACTIONS::nextMarker( "common.Checker.nextMarker",
         AS_GLOBAL,
         0, "",
-        _( "Next Marker" ), _( "Go to next marker in Checker window" ) );
+        _( "Next Marker" ), _( "Go to next marker in Checker window" ),
+        BITMAPS::marker_next );
 
 TOOL_ACTION ACTIONS::excludeMarker( "common.Checker.excludeMarker",
         AS_GLOBAL,
         0, "",
-        _( "Exclude Marker" ), _( "Mark current violation in Checker window as an exclusion" ) );
+        _( "Exclude Marker" ), _( "Mark current violation in Checker window as an exclusion" ),
+        BITMAPS::marker_exclude );
 
 // View Controls
 TOOL_ACTION ACTIONS::zoomRedraw( "common.Control.zoomRedraw",
@@ -323,7 +333,7 @@ TOOL_ACTION ACTIONS::zoomOutCenter( "common.Control.zoomOutCenter",
 TOOL_ACTION ACTIONS::zoomCenter( "common.Control.zoomCenter",
         AS_GLOBAL,
         WXK_F4, LEGACY_HK_NAME( "Zoom Center" ),
-        _( "Center" ), _( "Center" ),
+        _( "Center on Cursor" ), _( "Center on Cursor" ),
         BITMAPS::zoom_center_on_screen );
 
 TOOL_ACTION ACTIONS::zoomTool( "common.Control.zoomTool",
@@ -473,7 +483,7 @@ TOOL_ACTION ACTIONS::gridPreset( "common.Control.gridPreset",
 
 TOOL_ACTION ACTIONS::toggleGrid( "common.Control.toggleGrid",
         AS_GLOBAL, 0, "",
-        _( "Show Grid" ), _( "Display grid dots or lines in the edit window" ),
+        _( "Show Grid" ), _( "Display background grid in the edit window" ),
         BITMAPS::grid );
 
 TOOL_ACTION ACTIONS::gridProperties( "common.Control.gridProperties",
@@ -501,6 +511,10 @@ TOOL_ACTION ACTIONS::updateUnits( "common.Control.updateUnits",
 
 TOOL_ACTION ACTIONS::updatePreferences( "common.Control.updatePreferences",
         AS_GLOBAL );
+
+TOOL_ACTION ACTIONS::selectColumns( "common.Control.selectColumns",
+                                    AS_GLOBAL, 0, "",
+                                    _( "Select Columns" ) );
 
 TOOL_ACTION ACTIONS::toggleUnits( "common.Control.toggleUnits",
         AS_GLOBAL,
@@ -546,7 +560,7 @@ TOOL_ACTION ACTIONS::highContrastModeCycle( "common.Control.highContrastModeCycl
 
 TOOL_ACTION ACTIONS::toggleBoundingBoxes( "common.Control.toggleBoundingBoxes",
         AS_GLOBAL, 0, "",
-        _( "Draw Bounding Boxes" ), "",
+        _( "Draw Bounding Boxes" ), _( "Draw Bounding Boxes" ),
         BITMAPS::gerbview_show_negative_objects );
 
 TOOL_ACTION ACTIONS::selectionTool( "common.InteractiveSelection.selectionTool",
@@ -565,6 +579,9 @@ TOOL_ACTION ACTIONS::pickerTool( "common.InteractivePicker.pickerTool",
         AS_GLOBAL, 0, "",
         "", "",
         BITMAPS::INVALID_BITMAP, AF_ACTIVATE );
+
+TOOL_ACTION ACTIONS::pickerSubTool( "common.InteractivePicker.pickerSubTool",
+        AS_GLOBAL );
 
 TOOL_ACTION ACTIONS::show3DViewer( "common.Control.show3DViewer",
         AS_GLOBAL,
@@ -661,8 +678,12 @@ TOOL_ACTION ACTIONS::reportBug( "common.SuiteControl.reportBug",
         _( "Report a problem with KiCad" ),
         BITMAPS::bug );
 
+TOOL_ACTION ACTIONS::ddAddLibrary( "common.Control.ddaddLibrary",
+        AS_GLOBAL );
+
 // System-wide selection Events
 
+const TOOL_EVENT EVENTS::PointSelectedEvent( TC_MESSAGE, TA_ACTION, "common.Interactive.pointSelected" );
 const TOOL_EVENT EVENTS::SelectedEvent( TC_MESSAGE, TA_ACTION, "common.Interactive.selected" );
 const TOOL_EVENT EVENTS::UnselectedEvent( TC_MESSAGE, TA_ACTION, "common.Interactive.unselected" );
 const TOOL_EVENT EVENTS::ClearedEvent( TC_MESSAGE, TA_ACTION, "common.Interactive.cleared" );
@@ -673,4 +694,3 @@ const TOOL_EVENT EVENTS::InhibitSelectionEditing( TC_MESSAGE, TA_ACTION, "common
 const TOOL_EVENT EVENTS::UninhibitSelectionEditing( TC_MESSAGE, TA_ACTION, "common.Interactive.uninhibit" );
 
 const TOOL_EVENT EVENTS::DisambiguatePoint( TC_MESSAGE, TA_ACTION, "common.Interactive.disambiguate" );
-

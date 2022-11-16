@@ -181,7 +181,7 @@ wxString Convert<wxString>( const wxString& aValue );
 /**
  * Model an optional XML attribute.
  *
- * This was implemented as an alternative to OPT. This class should be replaced with a
+ * This was implemented as an alternative to std::optional. This class should be replaced with a
  * simple typedef per type using std::optional when C++17 is published.
  */
 template <typename T>
@@ -617,14 +617,14 @@ struct EATTR
 /// Eagle dimension element
 struct EDIMENSION
 {
-    ECOORD x1;
-    ECOORD y1;
-    ECOORD x2;
-    ECOORD y2;
-    ECOORD x3;
-    ECOORD y3;
-    int    layer;
-
+    ECOORD       x1;
+    ECOORD       y1;
+    ECOORD       x2;
+    ECOORD       y2;
+    ECOORD       x3;
+    ECOORD       y3;
+    opt_ecoord   textsize;
+    int          layer;
     opt_wxString dimensionType;
 
     EDIMENSION( wxXmlNode* aDimension );

@@ -26,7 +26,7 @@
 #include <dialogs/dialog_text_entry.h>
 #include <kiway.h>
 #include <symbol_edit_frame.h>
-#include <symbol_library_manager.h>
+#include <lib_symbol_library_manager.h>
 #include <math/util.h> // for KiROUND
 #include <sch_symbol.h>
 #include <kiplatform/ui.h>
@@ -35,7 +35,7 @@
 #include <string_utils.h>
 
 #ifdef KICAD_SPICE
-#include <dialog_spice_model.h>
+#include <dialog_sim_model.h>
 #endif /* KICAD_SPICE */
 
 #include <dialog_lib_symbol_properties.h>
@@ -72,7 +72,7 @@ DIALOG_LIB_SYMBOL_PROPERTIES::DIALOG_LIB_SYMBOL_PROPERTIES( SYMBOL_EDIT_FRAME* a
     m_grid->ShowHideColumns( cfg->m_EditSymbolVisibleColumns );
 
     wxGridCellAttr* attr = new wxGridCellAttr;
-    attr->SetEditor( new GRID_CELL_URL_EDITOR( this ) );
+    attr->SetEditor( new GRID_CELL_URL_EDITOR( this, Prj().SchSearchS() ) );
     m_grid->SetAttr( DATASHEET_FIELD, FDC_VALUE, attr );
 
     m_SymbolNameCtrl->SetValidator( SCH_FIELD_VALIDATOR( true, VALUE_FIELD ) );
@@ -172,7 +172,13 @@ bool DIALOG_LIB_SYMBOL_PROPERTIES::TransferDataToWindow()
     m_SelNumberOfUnits->SetValue( m_libEntry->GetUnitCount() );
     m_OptionPartsInterchangeable->SetValue( !m_libEntry->UnitsLocked() ||
                                             m_libEntry->GetUnitCount() == 1 );
-    m_AsConvertButt->SetValue( m_libEntry->HasConversion() );
+
+    // If a symbol contains no conversion-specific pins or graphic items, symbol->HasConversion()
+    // will return false.  But when editing a symbol with DeMorgan option set, we don't want to
+    // keep turning it off just because there aren't any conversion-specific items yet, so we force
+    // it to on if the parent frame has it enabled.
+    m_AsConvertButt->SetValue( m_Parent->GetShowDeMorgan() );
+
     m_OptionPower->SetValue( m_libEntry->IsPower() );
     m_excludeFromBomCheckBox->SetValue( !m_libEntry->GetIncludeInBom() );
     m_excludeFromBoardCheckBox->SetValue( !m_libEntry->GetIncludeOnBoard() );
@@ -299,8 +305,7 @@ bool DIALOG_LIB_SYMBOL_PROPERTIES::TransferDataFromWindow()
     if( !m_grid->CommitPendingChanges() )
         return false;
 
-    // We need to keep the name and the value the same at the moment!
-    wxString   newName = m_fields->at( VALUE_FIELD ).GetText();
+    wxString   newName = EscapeString( m_SymbolNameCtrl->GetValue(), CTX_LIBID );
     wxString   oldName = m_libEntry->GetName();
 
     if( oldName != newName )
@@ -311,7 +316,7 @@ bool DIALOG_LIB_SYMBOL_PROPERTIES::TransferDataFromWindow()
         {
             wxString msg;
 
-            msg.Printf( _( "The name '%s' conflicts with an existing entry in the library '%s'." ),
+            msg.Printf( _( "Symbol name '%s' already in use in library '%s'." ),
                         UnescapeString( newName ),
                         libName );
             DisplayErrorMessage( this, msg );
@@ -357,7 +362,6 @@ bool DIALOG_LIB_SYMBOL_PROPERTIES::TransferDataFromWindow()
         m_libEntry->SetParent( newParent );
     }
 
-    // We need to keep the name and the value the same at the moment!
     m_libEntry->SetName( newName );
     m_libEntry->SetDescription( m_DescCtrl->GetValue() );
     m_libEntry->SetKeyWords( m_KeywordCtrl->GetValue() );
@@ -365,11 +369,18 @@ bool DIALOG_LIB_SYMBOL_PROPERTIES::TransferDataFromWindow()
     m_libEntry->LockUnits( m_libEntry->GetUnitCount() > 1 &&
                            !m_OptionPartsInterchangeable->GetValue() );
     m_libEntry->SetConversion( m_AsConvertButt->GetValue() );
+    m_Parent->SetShowDeMorgan( m_AsConvertButt->GetValue() );
 
     if( m_OptionPower->GetValue() )
+    {
         m_libEntry->SetPower();
+        // Power symbols must have value matching name for now
+        m_libEntry->GetValueField().SetText( newName );
+    }
     else
+    {
         m_libEntry->SetNormal();
+    }
 
     m_libEntry->SetIncludeInBom( !m_excludeFromBomCheckBox->GetValue() );
     m_libEntry->SetIncludeOnBoard( !m_excludeFromBoardCheckBox->GetValue() );
@@ -435,10 +446,6 @@ void DIALOG_LIB_SYMBOL_PROPERTIES::OnGridCellChanging( wxGridEvent& event )
             }
         }
     }
-    else if( event.GetRow() == VALUE_FIELD && event.GetCol() == FDC_VALUE )
-    {
-        m_SymbolNameCtrl->ChangeValue( event.GetString() );
-    }
 
     editor->DecRef();
 }
@@ -446,17 +453,26 @@ void DIALOG_LIB_SYMBOL_PROPERTIES::OnGridCellChanging( wxGridEvent& event )
 
 void DIALOG_LIB_SYMBOL_PROPERTIES::OnSymbolNameText( wxCommandEvent& event )
 {
-    if( !m_Parent->IsSymbolFromSchematic() )
+    if( m_OptionPower->IsChecked() )
         m_grid->SetCellValue( VALUE_FIELD, FDC_VALUE, m_SymbolNameCtrl->GetValue() );
 }
 
 
 void DIALOG_LIB_SYMBOL_PROPERTIES::OnSymbolNameKillFocus( wxFocusEvent& event )
 {
-    if( !m_delayedFocusCtrl && !m_SymbolNameCtrl->GetValidator()->Validate( m_SymbolNameCtrl ) )
+    if( !m_delayedFocusCtrl )
     {
+        // If the validation fails and we throw up a dialog then GTK will give us another
+        // KillFocus event and we end up in infinite recursion.  So we use m_delayedFocusCtrl
+        // as a re-entrancy block and then clear it again if validation passes.
         m_delayedFocusCtrl = m_SymbolNameCtrl;
         m_delayedFocusPage = 0;
+
+        if( m_SymbolNameCtrl->GetValidator()->Validate( m_SymbolNameCtrl ) )
+        {
+            m_delayedFocusCtrl = nullptr;
+            m_delayedFocusPage = -1;
+        }
     }
 
     event.Skip();
@@ -472,8 +488,8 @@ void DIALOG_LIB_SYMBOL_PROPERTIES::OnAddField( wxCommandEvent& event )
     int       fieldID = m_fields->size();
     LIB_FIELD newField( m_libEntry, fieldID );
 
-    newField.SetTextSize( wxSize( Mils2iu( settings->m_Defaults.text_size ),
-                                  Mils2iu( settings->m_Defaults.text_size ) ) );
+    newField.SetTextSize( wxSize( schIUScale.MilsToIU( settings->m_Defaults.text_size ),
+                                  schIUScale.MilsToIU( settings->m_Defaults.text_size ) ) );
 
     m_fields->push_back( newField );
 
@@ -591,9 +607,9 @@ void DIALOG_LIB_SYMBOL_PROPERTIES::OnEditSpiceModel( wxCommandEvent& event )
 {
 #ifdef KICAD_SPICE
     int diff = m_fields->size();
-    auto symbol = SCH_SYMBOL( *m_libEntry, m_libEntry->GetLibId(), nullptr );
+    auto symbol = SCH_SYMBOL( *m_libEntry, m_libEntry->GetLibId(), nullptr, 0 );
 
-    DIALOG_SPICE_MODEL dialog( this, symbol, m_fields );
+    DIALOG_SIM_MODEL dialog( this, symbol, *m_fields );
 
     if( dialog.ShowModal() != wxID_OK )
         return;
@@ -720,7 +736,7 @@ void DIALOG_LIB_SYMBOL_PROPERTIES::OnUpdateUI( wxUpdateUIEvent& event )
         int row = m_grid->GetGridCursorRow();
         int col = m_grid->GetGridCursorCol();
 
-        if( row == VALUE_FIELD && col == FDC_VALUE )
+        if( row == VALUE_FIELD && col == FDC_VALUE && m_OptionPower->IsChecked() )
         {
             wxGridCellEditor* editor = m_grid->GetCellEditor( row, col );
             m_SymbolNameCtrl->ChangeValue( editor->GetValue() );

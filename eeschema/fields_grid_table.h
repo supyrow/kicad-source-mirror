@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2018-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2018-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -24,7 +24,6 @@
 #ifndef FIELDS_GRID_TABLE_H
 #define FIELDS_GRID_TABLE_H
 
-#include <base_units.h>
 #include <sch_validators.h>
 #include <wx/grid.h>
 #include <sch_symbol.h>
@@ -56,6 +55,7 @@ enum FIELDS_DATA_COL_ORDER
     FDC_NAME,
     FDC_VALUE,
     FDC_SHOWN,
+    FDC_SHOW_NAME,
     FDC_H_ALIGN,
     FDC_V_ALIGN,
     FDC_ITALIC,
@@ -64,6 +64,9 @@ enum FIELDS_DATA_COL_ORDER
     FDC_ORIENTATION,
     FDC_POSX,
     FDC_POSY,
+    FDC_FONT,
+    FDC_COLOR,
+    FDC_ALLOW_AUTOPLACE,
 
     FDC_COUNT       // keep as last
 };
@@ -75,9 +78,11 @@ class FIELDS_GRID_TABLE : public wxGridTableBase, public std::vector<T>
 public:
     FIELDS_GRID_TABLE( DIALOG_SHIM* aDialog, SCH_BASE_FRAME* aFrame, WX_GRID* aGrid,
                        LIB_SYMBOL* aSymbol );
-    FIELDS_GRID_TABLE( DIALOG_SHIM* aDialog, SCH_BASE_FRAME* aFrame, WX_GRID* aGrid,
+    FIELDS_GRID_TABLE( DIALOG_SHIM* aDialog, SCH_EDIT_FRAME* aFrame, WX_GRID* aGrid,
+                       SCH_SYMBOL* aSymbol );
+    FIELDS_GRID_TABLE( DIALOG_SHIM* aDialog, SCH_EDIT_FRAME* aFrame, WX_GRID* aGrid,
                        SCH_SHEET* aSheet );
-    FIELDS_GRID_TABLE( DIALOG_SHIM* aDialog, SCH_BASE_FRAME* aFrame, WX_GRID* aGrid,
+    FIELDS_GRID_TABLE( DIALOG_SHIM* aDialog, SCH_EDIT_FRAME* aFrame, WX_GRID* aGrid,
                        SCH_LABEL_BASE* aLabel );
     ~FIELDS_GRID_TABLE();
 
@@ -116,6 +121,7 @@ private:
     KICAD_T         m_parentType;
     int             m_mandatoryFieldCount;
     LIB_SYMBOL*     m_part;
+    wxString        m_symbolNetlist;
     wxString        m_curdir;
 
     SCH_FIELD_VALIDATOR   m_fieldNameValidator;
@@ -139,6 +145,11 @@ private:
     wxGridCellAttr*       m_hAlignAttr;
     wxGridCellAttr*       m_orientationAttr;
     wxGridCellAttr*       m_netclassAttr;
+    wxGridCellAttr*       m_fontAttr;
+    wxGridCellAttr*       m_colorAttr;
+
+    std::unique_ptr<NUMERIC_EVALUATOR>        m_eval;
+    std::map< std::pair<int, int>, wxString > m_evalOriginal;
 };
 
 

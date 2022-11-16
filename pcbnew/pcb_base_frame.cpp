@@ -4,7 +4,7 @@
  * Copyright (C) 2018 Jean-Pierre Charras, jean-pierre.charras@ujf-grenoble.fr
  * Copyright (C) 2012 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
  * Copyright (C) 2011 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -40,6 +40,7 @@
 #include <pgm_base.h>
 #include <3d_viewer/eda_3d_viewer_frame.h>          // To include VIEWER3D_FRAMENAME
 #include <footprint_editor_settings.h>
+#include <pcbnew_settings.h>
 #include <fp_lib_table.h>
 #include <pcbnew_id.h>
 #include <board.h>
@@ -51,7 +52,7 @@
 
 #include <pcb_painter.h>
 #include <settings/settings_manager.h>
-#include <pcbnew_settings.h>
+#include <settings/cvpcb_settings.h>
 #include <tool/tool_manager.h>
 #include <tool/tool_dispatcher.h>
 #include <tools/pcb_actions.h>
@@ -72,10 +73,11 @@ wxDEFINE_EVENT( BOARD_CHANGED, wxCommandEvent );
 PCB_BASE_FRAME::PCB_BASE_FRAME( KIWAY* aKiway, wxWindow* aParent, FRAME_T aFrameType,
                                 const wxString& aTitle, const wxPoint& aPos, const wxSize& aSize,
                                 long aStyle, const wxString& aFrameName ) :
-        EDA_DRAW_FRAME( aKiway, aParent, aFrameType, aTitle, aPos, aSize, aStyle, aFrameName ),
-        m_pcb( nullptr ), m_originTransforms( *this ), m_spaceMouse( nullptr )
+        EDA_DRAW_FRAME( aKiway, aParent, aFrameType, aTitle, aPos, aSize, aStyle, aFrameName, pcbIUScale ),
+        m_pcb( nullptr ),
+        m_originTransforms( *this ),
+        m_spaceMouse( nullptr )
 {
-    m_settings = static_cast<PCBNEW_SETTINGS*>( Kiface().KifaceSettings() );
 }
 
 
@@ -114,6 +116,19 @@ void PCB_BASE_FRAME::handleActivateEvent( wxActivateEvent& aEvent )
     if( m_spaceMouse != nullptr )
     {
         m_spaceMouse->SetFocus( aEvent.GetActive() );
+    }
+#endif
+}
+
+
+void PCB_BASE_FRAME::handleIconizeEvent( wxIconizeEvent& aEvent )
+{
+    EDA_DRAW_FRAME::handleIconizeEvent( aEvent );
+
+#if defined( KICAD_USE_3DCONNEXION )
+    if( m_spaceMouse != nullptr && aEvent.IsIconized() )
+    {
+        m_spaceMouse->SetFocus( false );
     }
 #endif
 }
@@ -220,7 +235,7 @@ void PCB_BASE_FRAME::AddFootprintToBoard( FOOTPRINT* aFootprint )
         // Put it on FRONT layer (note that it might be stored flipped if the lib is an archive
         // built from a board)
         if( aFootprint->IsFlipped() )
-            aFootprint->Flip( aFootprint->GetPosition(), m_settings->m_FlipLeftRight );
+            aFootprint->Flip( aFootprint->GetPosition(), GetPcbNewSettings()->m_FlipLeftRight );
 
         // Place it in orientation 0 even if it is not saved with orientation 0 in lib (note that
         // it might be stored in another orientation if the lib is an archive built from a board)
@@ -237,217 +252,251 @@ EDA_ITEM* PCB_BASE_FRAME::GetItem( const KIID& aId ) const
 
 void PCB_BASE_FRAME::FocusOnItem( BOARD_ITEM* aItem, PCB_LAYER_ID aLayer )
 {
-    static KIID lastBrightenedItemID( niluuid );
+    std::vector<BOARD_ITEM*> items;
+
+    if( aItem )
+        items.push_back( aItem );
+
+    FocusOnItems( items, aLayer );
+}
+
+
+void PCB_BASE_FRAME::FocusOnItems( std::vector<BOARD_ITEM*> aItems, PCB_LAYER_ID aLayer )
+{
+    static std::vector<KIID> lastBrightenedItemIDs;
 
     BOARD_ITEM* lastItem = nullptr;
 
-    /// @todo The Boost entropy exception does not exist prior to 1.67. Once the minimum Boost
-    ///       version is raise to 1.67 or greater, this version check can be removed.
-#if BOOST_VERSION >= 106700
-    try
+    for( KIID lastBrightenedItemID : lastBrightenedItemIDs )
     {
+        /// @todo The Boost entropy exception does not exist prior to 1.67. Once the minimum Boost
+        ///       version is raise to 1.67 or greater, this version check can be removed.
+    #if BOOST_VERSION >= 106700
+        try
+        {
+            lastItem = GetBoard()->GetItem( lastBrightenedItemID );
+        }
+        catch( const boost::uuids::entropy_error& )
+        {
+            wxLogError( wxT( "A Boost UUID entropy exception was thrown in %s:%s." ),
+                        __FILE__, __FUNCTION__ );
+        }
+    #else
         lastItem = GetBoard()->GetItem( lastBrightenedItemID );
-    }
-    catch( const boost::uuids::entropy_error& )
-    {
-        wxLogError( wxT( "A Boost UUID entropy exception was thrown in %s:%s." ),
-                    __FILE__, __FUNCTION__ );
-    }
-#else
-    lastItem = GetBoard()->GetItem( lastBrightenedItemID );
-#endif
+    #endif
 
-    if( lastItem && lastItem != aItem && lastItem != DELETED_BOARD_ITEM::GetInstance() )
-    {
-        lastItem->ClearBrightened();
-
-        if( lastItem->Type() == PCB_FOOTPRINT_T )
+        if( lastItem && lastItem != DELETED_BOARD_ITEM::GetInstance() )
         {
-            static_cast<FOOTPRINT*>( lastItem )->RunOnChildren(
-                    [&]( BOARD_ITEM* child )
-                    {
-                        child->ClearBrightened();
-                    } );
-        }
-        else if( lastItem->Type() == PCB_GROUP_T )
-        {
-            static_cast<PCB_GROUP*>( lastItem )->RunOnChildren(
-                    [&]( BOARD_ITEM* child )
-                    {
-                        child->ClearBrightened();
-                    } );
-        }
+            lastItem->ClearBrightened();
 
-        GetCanvas()->GetView()->Update( lastItem );
-        lastBrightenedItemID = niluuid;
-        GetCanvas()->Refresh();
-    }
-
-    if( aItem && aItem != DELETED_BOARD_ITEM::GetInstance() )
-    {
-        aItem->SetBrightened();
-
-        if( aItem->Type() == PCB_FOOTPRINT_T )
-        {
-            static_cast<FOOTPRINT*>( aItem )->RunOnChildren(
-                    [&]( BOARD_ITEM* child )
-                    {
-                        child->SetBrightened();
-                    });
-        }
-        else if( aItem->Type() == PCB_GROUP_T )
-        {
-            static_cast<PCB_GROUP*>( aItem )->RunOnChildren(
-                    [&]( BOARD_ITEM* child )
-                    {
-                        child->SetBrightened();
-                    });
-        }
-
-        GetCanvas()->GetView()->Update( aItem );
-        lastBrightenedItemID = aItem->m_Uuid;
-
-        // Focus on the object's location.  Prefer a visible part of the object to its anchor
-        // in order to keep from scrolling around.
-
-        VECTOR2I       focusPt = aItem->GetFocusPosition();
-        KIGFX::VIEW*   view = GetCanvas()->GetView();
-        SHAPE_POLY_SET viewportPoly( view->GetViewport() );
-
-        for( wxWindow* dialog : findDialogs() )
-        {
-            wxPoint        dialogPos = GetCanvas()->ScreenToClient( dialog->GetScreenPosition() );
-            SHAPE_POLY_SET dialogPoly( BOX2D( view->ToWorld( dialogPos, true ),
-                                              view->ToWorld( dialog->GetSize(), false ) ) );
-
-            try
+            if( lastItem->Type() == PCB_FOOTPRINT_T )
             {
-                viewportPoly.BooleanSubtract( dialogPoly, SHAPE_POLY_SET::PM_FAST );
+                static_cast<FOOTPRINT*>( lastItem )->RunOnChildren(
+                        [&]( BOARD_ITEM* child )
+                        {
+                            child->ClearBrightened();
+                        } );
             }
-            catch( const ClipperLib::clipperException& exc )
+            else if( lastItem->Type() == PCB_GROUP_T )
             {
-                // This may be overkill and could be an assertion but we are more likely to find
-                // any clipper errors this way.
-                wxLogError( wxT( "Clipper library exception '%s' occurred." ), exc.what() );
-            }
-        }
-
-        SHAPE_POLY_SET itemPoly, clippedPoly;
-
-        if( aLayer == UNDEFINED_LAYER )
-            aLayer = aItem->GetLayer();
-
-        switch( aItem->Type() )
-        {
-        case PCB_FOOTPRINT_T:
-            try
-            {
-                itemPoly = static_cast<FOOTPRINT*>( aItem )->GetBoundingHull();
-            }
-            catch( const ClipperLib::clipperException& exc )
-            {
-                // This may be overkill and could be an assertion but we are more likely to find
-                // any clipper errors this way.
-                wxLogError( wxT( "Clipper library exception '%s' occurred." ), exc.what() );
+                static_cast<PCB_GROUP*>( lastItem )->RunOnChildren(
+                        [&]( BOARD_ITEM* child )
+                        {
+                            child->ClearBrightened();
+                        } );
             }
 
-            break;
-
-        case PCB_PAD_T:
-        case PCB_MARKER_T:
-        case PCB_VIA_T:
-            FocusOnLocation( focusPt );
+            GetCanvas()->GetView()->Update( lastItem );
+            lastBrightenedItemID = niluuid;
             GetCanvas()->Refresh();
-            return;
-
-        case PCB_SHAPE_T:
-        case PCB_TEXT_T:
-        case PCB_TEXTBOX_T:
-        case PCB_FP_TEXT_T:
-        case PCB_FP_TEXTBOX_T:
-        case PCB_FP_SHAPE_T:
-        case PCB_FP_ZONE_T:
-        case PCB_TRACE_T:
-        case PCB_ARC_T:
-        case PCB_DIM_ALIGNED_T:
-        case PCB_DIM_LEADER_T:
-        case PCB_DIM_CENTER_T:
-        case PCB_DIM_RADIAL_T:
-        case PCB_DIM_ORTHOGONAL_T:
-        case PCB_FP_DIM_ALIGNED_T:
-        case PCB_FP_DIM_LEADER_T:
-        case PCB_FP_DIM_CENTER_T:
-        case PCB_FP_DIM_RADIAL_T:
-        case PCB_FP_DIM_ORTHOGONAL_T:
-            aItem->TransformShapeWithClearanceToPolygon( itemPoly, aLayer, 0, Millimeter2iu( 0.1 ),
-                                                         ERROR_INSIDE );
-            break;
-
-        case PCB_ZONE_T:
-        {
-            ZONE* zone = static_cast<ZONE*>( aItem );
-            #if 0
-            // Using the filled area shapes to find a Focus point can give good results, but
-            // unfortunately the calculations are highly time consuming, even for not very
-            // large areas (can be easily a few minutes for large areas).
-            // so we used only the zone outline that usually do not have too many vertices.
-            zone->TransformShapeWithClearanceToPolygon( itemPoly, aLayer, 0, Millimeter2iu( 0.1 ),
-                                                        ERROR_INSIDE );
-
-            if( itemPoly.IsEmpty() )
-                itemPoly = *zone->Outline();
-            #else
-            // much faster calculation time when using only the zone outlines
-            itemPoly = *zone->Outline();
-            #endif
-
-            break;
         }
+    }
 
-        default:
-        {
-            BOX2I item_bbox = aItem->GetBoundingBox();
-            itemPoly.NewOutline();
-            itemPoly.Append( item_bbox.GetOrigin() );
-            itemPoly.Append( item_bbox.GetOrigin() + VECTOR2I( item_bbox.GetWidth(), 0 ) );
-            itemPoly.Append( item_bbox.GetOrigin() + VECTOR2I( 0, item_bbox.GetHeight() ) );
-            itemPoly.Append( item_bbox.GetOrigin() + VECTOR2I( item_bbox.GetWidth(),
-                                                               item_bbox.GetHeight() ) );
-            break;
-        }
-        }
+    lastBrightenedItemIDs.clear();
+
+    if( aItems.empty() )
+        return;
+
+    VECTOR2I       focusPt;
+    KIGFX::VIEW*   view = GetCanvas()->GetView();
+    SHAPE_POLY_SET viewportPoly( view->GetViewport() );
+
+    for( wxWindow* dialog : findDialogs() )
+    {
+        wxPoint dialogPos = GetCanvas()->ScreenToClient( dialog->GetScreenPosition() );
+        SHAPE_POLY_SET dialogPoly( BOX2D( view->ToWorld( dialogPos, true ),
+                                          view->ToWorld( dialog->GetSize(), false ) ) );
 
         try
         {
-            clippedPoly.BooleanIntersection( itemPoly, viewportPoly, SHAPE_POLY_SET::PM_FAST );
+            viewportPoly.BooleanSubtract( dialogPoly, SHAPE_POLY_SET::PM_FAST );
         }
         catch( const ClipperLib::clipperException& exc )
         {
-            // This may be overkill and could be an assertion but we are more likely to find
-            // any clipper errors this way.
+            // This may be overkill and could be an assertion but we are more likely to
+            // find any clipper errors this way.
             wxLogError( wxT( "Clipper library exception '%s' occurred." ), exc.what() );
         }
+    }
 
-        if( !clippedPoly.IsEmpty() )
-            itemPoly = clippedPoly;
+    SHAPE_POLY_SET itemPoly, clippedPoly;
 
-        /*
-         * Perform a step-wise deflate to find the visual-center-of-mass
-         */
-
-        BOX2I bbox = itemPoly.BBox();
-        int   step = std::min( bbox.GetWidth(), bbox.GetHeight() ) / 10;
-
-        while( !itemPoly.IsEmpty() )
+    for( BOARD_ITEM* item : aItems )
+    {
+        if( item && item != DELETED_BOARD_ITEM::GetInstance() )
         {
-            focusPt = (wxPoint) itemPoly.BBox().Centre();
+            item->SetBrightened();
+
+            if( item->Type() == PCB_FOOTPRINT_T )
+            {
+                static_cast<FOOTPRINT*>( item )->RunOnChildren(
+                        [&]( BOARD_ITEM* child )
+                        {
+                            child->SetBrightened();
+                        });
+            }
+            else if( item->Type() == PCB_GROUP_T )
+            {
+                static_cast<PCB_GROUP*>( item )->RunOnChildren(
+                        [&]( BOARD_ITEM* child )
+                        {
+                            child->SetBrightened();
+                        });
+            }
+
+            GetCanvas()->GetView()->Update( item );
+            lastBrightenedItemIDs.push_back( item->m_Uuid );
+
+            // Focus on the object's location.  Prefer a visible part of the object to its anchor
+            // in order to keep from scrolling around.
+
+            focusPt = item->GetPosition();
+
+            if( aLayer == UNDEFINED_LAYER )
+                aLayer = item->GetLayerSet().Seq()[0];
+
+            switch( item->Type() )
+            {
+            case PCB_FOOTPRINT_T:
+                try
+                {
+                    itemPoly = static_cast<FOOTPRINT*>( item )->GetBoundingHull();
+                }
+                catch( const ClipperLib::clipperException& exc )
+                {
+                    // This may be overkill and could be an assertion but we are more likely to
+                    // find any clipper errors this way.
+                    wxLogError( wxT( "Clipper library exception '%s' occurred." ), exc.what() );
+                }
+
+                break;
+
+            case PCB_PAD_T:
+            case PCB_MARKER_T:
+            case PCB_VIA_T:
+                FocusOnLocation( item->GetFocusPosition() );
+                GetCanvas()->Refresh();
+                return;
+
+            case PCB_SHAPE_T:
+            case PCB_TEXT_T:
+            case PCB_TEXTBOX_T:
+            case PCB_FP_TEXT_T:
+            case PCB_FP_TEXTBOX_T:
+            case PCB_FP_SHAPE_T:
+            case PCB_FP_ZONE_T:
+            case PCB_TRACE_T:
+            case PCB_ARC_T:
+            case PCB_DIM_ALIGNED_T:
+            case PCB_DIM_LEADER_T:
+            case PCB_DIM_CENTER_T:
+            case PCB_DIM_RADIAL_T:
+            case PCB_DIM_ORTHOGONAL_T:
+            case PCB_FP_DIM_ALIGNED_T:
+            case PCB_FP_DIM_LEADER_T:
+            case PCB_FP_DIM_CENTER_T:
+            case PCB_FP_DIM_RADIAL_T:
+            case PCB_FP_DIM_ORTHOGONAL_T:
+                item->TransformShapeToPolygon( itemPoly, aLayer, 0, pcbIUScale.mmToIU( 0.1 ),
+                                               ERROR_INSIDE );
+                break;
+
+            case PCB_ZONE_T:
+            {
+                ZONE* zone = static_cast<ZONE*>( item );
+                #if 0
+                // Using the filled area shapes to find a Focus point can give good results, but
+                // unfortunately the calculations are highly time consuming, even for not very
+                // large areas (can be easily a few minutes for large areas).
+                // so we used only the zone outline that usually do not have too many vertices.
+                zone->TransformShapeToPolygon( itemPoly, aLayer, 0, pcbIUScale.mmToIU( 0.1 ),
+                                               ERROR_INSIDE );
+
+                if( itemPoly.IsEmpty() )
+                    itemPoly = *zone->Outline();
+                #else
+                // much faster calculation time when using only the zone outlines
+                itemPoly = *zone->Outline();
+                #endif
+
+                break;
+            }
+
+            default:
+            {
+                BOX2I item_bbox = item->GetBoundingBox();
+                itemPoly.NewOutline();
+                itemPoly.Append( item_bbox.GetOrigin() );
+                itemPoly.Append( item_bbox.GetOrigin() + VECTOR2I( item_bbox.GetWidth(), 0 ) );
+                itemPoly.Append( item_bbox.GetOrigin() + VECTOR2I( 0, item_bbox.GetHeight() ) );
+                itemPoly.Append( item_bbox.GetOrigin() + VECTOR2I( item_bbox.GetWidth(),
+                                                                   item_bbox.GetHeight() ) );
+                break;
+            }
+            }
+
+            try
+            {
+                clippedPoly.BooleanIntersection( itemPoly, viewportPoly, SHAPE_POLY_SET::PM_FAST );
+            }
+            catch( const ClipperLib::clipperException& exc )
+            {
+                // This may be overkill and could be an assertion but we are more likely to
+                // find any clipper errors this way.
+                wxLogError( wxT( "Clipper library exception '%s' occurred." ), exc.what() );
+            }
+
+            if( !clippedPoly.IsEmpty() )
+                itemPoly = clippedPoly;
+        }
+    }
+
+    /*
+     * Perform a step-wise deflate to find the visual-center-of-mass
+     */
+
+    BOX2I    bbox = itemPoly.BBox();
+    int      step = std::min( bbox.GetWidth(), bbox.GetHeight() ) / 10;
+
+    while( !itemPoly.IsEmpty() )
+    {
+        focusPt = itemPoly.BBox().Centre();
+
+        try
+        {
             itemPoly.Deflate( step, 4, SHAPE_POLY_SET::CHAMFER_ACUTE_CORNERS );
         }
-
-        FocusOnLocation( focusPt );
-
-        GetCanvas()->Refresh();
+        catch( const ClipperLib::clipperException& exc )
+        {
+            // This may be overkill and could be an assertion but we are more likely to
+            // find any clipper errors this way.
+            wxLogError( wxT( "Clipper library exception '%s' occurred." ), exc.what() );
+        }
     }
+
+    FocusOnLocation( focusPt );
+
+    GetCanvas()->Refresh();
 }
 
 
@@ -479,7 +528,7 @@ void PCB_BASE_FRAME::SetPageSettings( const PAGE_INFO& aPageSettings )
     m_pcb->SetPageSettings( aPageSettings );
 
     if( GetScreen() )
-        GetScreen()->InitDataPoints( aPageSettings.GetSizeIU() );
+        GetScreen()->InitDataPoints( aPageSettings.GetSizeIU( pcbIUScale.IU_PER_MILS ) );
 }
 
 
@@ -494,7 +543,7 @@ const wxSize PCB_BASE_FRAME::GetPageSizeIU() const
     // this function is only needed because EDA_DRAW_FRAME is not compiled
     // with either -DPCBNEW or -DEESCHEMA, so the virtual is used to route
     // into an application specific source file.
-    return m_pcb->GetPageSettings().GetSizeIU();
+    return m_pcb->GetPageSettings().GetSizeIU( pcbIUScale.IU_PER_MILS );
 }
 
 
@@ -520,7 +569,7 @@ const VECTOR2I PCB_BASE_FRAME::GetUserOrigin() const
 {
     VECTOR2I origin( 0, 0 );
 
-    switch( Settings().m_Display.m_DisplayOrigin )
+    switch( GetPcbNewSettings()->m_Display.m_DisplayOrigin )
     {
     case PCB_DISPLAY_ORIGIN::PCB_ORIGIN_PAGE:                           break;
     case PCB_DISPLAY_ORIGIN::PCB_ORIGIN_AUX:  origin = GetAuxOrigin();  break;
@@ -586,9 +635,9 @@ void PCB_BASE_FRAME::SetPlotSettings( const PCB_PLOT_PARAMS& aSettings )
 }
 
 
-EDA_RECT PCB_BASE_FRAME::GetBoardBoundingBox( bool aBoardEdgesOnly ) const
+BOX2I PCB_BASE_FRAME::GetBoardBoundingBox( bool aBoardEdgesOnly ) const
 {
-    EDA_RECT area = aBoardEdgesOnly ? m_pcb->GetBoardEdgesBoundingBox() : m_pcb->GetBoundingBox();
+    BOX2I area = aBoardEdgesOnly ? m_pcb->GetBoardEdgesBoundingBox() : m_pcb->GetBoundingBox();
 
     if( area.GetWidth() == 0 && area.GetHeight() == 0 )
     {
@@ -734,8 +783,8 @@ void PCB_BASE_FRAME::DisplayGridMsg()
     wxString line;
 
     line.Printf( wxT( "grid X %s  Y %s" ),
-                 MessageTextFromValue( m_userUnits, gridSize.x, false ),
-                 MessageTextFromValue( m_userUnits, gridSize.y, false ) );
+                 MessageTextFromValue( gridSize.x, false ),
+                 MessageTextFromValue( gridSize.y, false ) );
 
     SetStatusText( line, 4 );
 }
@@ -761,7 +810,8 @@ void PCB_BASE_FRAME::UpdateStatusBar()
         double   ro = hypot( dx, dy );
 
         line.Printf( wxT( "r %s  theta %.3f" ),
-                     MessageTextFromValue( GetUserUnits(), ro, false ), theta );
+                     MessageTextFromValue( ro, false ),
+                     theta );
 
         SetStatusText( line, 3 );
     }
@@ -772,8 +822,8 @@ void PCB_BASE_FRAME::UpdateStatusBar()
 
     // Display absolute coordinates:
     line.Printf( wxT( "X %s  Y %s" ),
-                 MessageTextFromValue( GetUserUnits(), userXpos, false ),
-                 MessageTextFromValue( GetUserUnits(), userYpos, false ) );
+                 MessageTextFromValue( userXpos, false ),
+                 MessageTextFromValue( userYpos, false ) );
     SetStatusText( line, 2 );
 
     if( !GetShowPolarCoords() )  // display relative cartesian coordinates
@@ -787,9 +837,9 @@ void PCB_BASE_FRAME::UpdateStatusBar()
         userYpos = m_originTransforms.ToDisplayRelY( relYpos );
 
         line.Printf( wxT( "dx %s  dy %s  dist %s" ),
-                     MessageTextFromValue( GetUserUnits(), userXpos, false ),
-                     MessageTextFromValue( GetUserUnits(), userYpos, false ),
-                     MessageTextFromValue( GetUserUnits(), hypot( userXpos, userYpos ), false ) );
+                     MessageTextFromValue( userXpos, false ),
+                     MessageTextFromValue( userYpos, false ),
+                     MessageTextFromValue( hypot( userXpos, userYpos ), false ) );
         SetStatusText( line, 3 );
     }
 
@@ -819,11 +869,9 @@ void PCB_BASE_FRAME::LoadSettings( APP_SETTINGS_BASE* aCfg )
         aCfg->m_Window.zoom_factors = { ZOOM_LIST_PCBNEW };
     }
 
-    // Some, but not all derived classes have a PCBNEW_SETTINGS.
-    PCBNEW_SETTINGS* cfg = dynamic_cast<PCBNEW_SETTINGS*>( aCfg );
-
-    if( cfg )
-        m_polarCoords = cfg->m_PolarCoords;
+    // Some, but not all, derived classes have a PCBNEW_SETTINGS.
+    if( PCBNEW_SETTINGS* pcbnew_cfg = dynamic_cast<PCBNEW_SETTINGS*>( aCfg ) )
+        m_polarCoords = pcbnew_cfg->m_PolarCoords;
 
     wxASSERT( GetCanvas() );
 
@@ -835,6 +883,7 @@ void PCB_BASE_FRAME::LoadSettings( APP_SETTINGS_BASE* aCfg )
         {
             rs->SetHighlightFactor( aCfg->m_Graphics.highlight_factor );
             rs->SetSelectFactor( aCfg->m_Graphics.select_factor );
+            rs->SetDefaultFont( wxEmptyString );    // Always the KiCad font for PCBs
         }
     }
 }
@@ -875,10 +924,30 @@ FOOTPRINT_EDITOR_SETTINGS* PCB_BASE_FRAME::GetFootprintEditorSettings() const
 }
 
 
+PCB_VIEWERS_SETTINGS_BASE* PCB_BASE_FRAME::GetViewerSettingsBase() const
+{
+    switch( GetFrameType() )
+    {
+    case FRAME_PCB_EDITOR:
+    case FRAME_FOOTPRINT_EDITOR:
+    case FRAME_FOOTPRINT_WIZARD:
+    case FRAME_PCB_DISPLAY3D:
+    default:
+        return Pgm().GetSettingsManager().GetAppSettings<PCBNEW_SETTINGS>();
+
+    case FRAME_FOOTPRINT_VIEWER:
+    case FRAME_FOOTPRINT_VIEWER_MODAL:
+    case FRAME_FOOTPRINT_PREVIEW:
+    case FRAME_CVPCB:
+    case FRAME_CVPCB_DISPLAY:
+        return Pgm().GetSettingsManager().GetAppSettings<CVPCB_SETTINGS>();
+    }
+}
+
+
 MAGNETIC_SETTINGS* PCB_BASE_FRAME::GetMagneticItemsSettings()
 {
-    wxCHECK( m_settings, nullptr );
-    return &m_settings->m_MagneticItems;
+    return &GetPcbNewSettings()->m_MagneticItems;
 }
 
 
@@ -925,7 +994,10 @@ void PCB_BASE_FRAME::CommonSettingsChanged( bool aEnvVarsChanged, bool aTextVars
 
 void PCB_BASE_FRAME::OnModify()
 {
+    EDA_BASE_FRAME::OnModify();
+
     GetScreen()->SetContentModified();
+    m_autoSaveRequired = true;
 
     GetBoard()->IncrementTimeStamp();
 
@@ -1002,7 +1074,12 @@ void PCB_BASE_FRAME::SetDisplayOptions( const PCB_DISPLAY_OPTIONS& aOptions, boo
                     if( PCB_VIA* via = dynamic_cast<PCB_VIA*>( aItem ) )
                     {
                         return via->GetViaType() == VIATYPE::BLIND_BURIED
-                                || via->GetViaType() == VIATYPE::MICROVIA;
+                                || via->GetViaType() == VIATYPE::MICROVIA
+                                || via->GetRemoveUnconnected();
+                    }
+                    else if( PAD* pad = dynamic_cast<PAD*>( aItem ) )
+                    {
+                        return pad->GetRemoveUnconnected();
                     }
 
                     return false;

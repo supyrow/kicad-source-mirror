@@ -41,12 +41,13 @@ class EDA_LIST_DIALOG_BASE : public DIALOG_SHIM
 		wxButton* m_sdbSizerOK;
 		wxButton* m_sdbSizerCancel;
 
-		// Virtual event handlers, overide them in your derived class
+		// Virtual event handlers, override them in your derived class
 		virtual void onListItemActivated( wxListEvent& event ) = 0;
 		virtual void textChangeInFilterBox( wxCommandEvent& event ) = 0;
 
 
 	public:
+		wxBoxSizer* m_ButtonsSizer;
 
 		EDA_LIST_DIALOG_BASE( wxWindow* parent, wxWindowID id = wxID_ANY, const wxString& title = wxEmptyString, const wxPoint& pos = wxDefaultPosition, const wxSize& size = wxDefaultSize, long style = wxDEFAULT_DIALOG_STYLE|wxRESIZE_BORDER );
 		~EDA_LIST_DIALOG_BASE();

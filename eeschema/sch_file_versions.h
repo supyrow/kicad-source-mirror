@@ -43,8 +43,11 @@
 //#define SEXPR_SYMBOL_LIB_FILE_VERSION  20211014   // Arc formatting.
 //#define SEXPR_SYMBOL_LIB_FILE_VERSION  20220101   // Class flags.
 //#define SEXPR_SYMBOL_LIB_FILE_VERSION  20220102   // Fonts.
-#define SEXPR_SYMBOL_LIB_FILE_VERSION  20220126   // Text boxes.
-
+//#define SEXPR_SYMBOL_LIB_FILE_VERSION  20220126   // Text boxes.
+//#define SEXPR_SYMBOL_LIB_FILE_VERSION  20220328   // Text box start/end -> at/size.
+//#define SEXPR_SYMBOL_LIB_FILE_VERSION  20220331   // Text colors.
+//#define SEXPR_SYMBOL_LIB_FILE_VERSION  20220914   // Symbol unit display names.
+#define SEXPR_SYMBOL_LIB_FILE_VERSION  20220914     // Don't save property ID
 
 /**
  * Schematic file version.
@@ -75,4 +78,16 @@
 //#define SEXPR_SCHEMATIC_FILE_VERSION 20220103  // Label fields
 //#define SEXPR_SCHEMATIC_FILE_VERSION 20220104  // Fonts
 //#define SEXPR_SCHEMATIC_FILE_VERSION 20220124  // netclass_flag -> directive_label
-#define SEXPR_SCHEMATIC_FILE_VERSION 20220126  // Text boxes
+//#define SEXPR_SCHEMATIC_FILE_VERSION 20220126  // Text boxes
+//#define SEXPR_SCHEMATIC_FILE_VERSION 20220328  // Text box start/end -> at/size
+//#define SEXPR_SCHEMATIC_FILE_VERSION 20220331  // Text colors
+//#define SEXPR_SCHEMATIC_FILE_VERSION 20220404  // Default schematic symbol instance data.
+//#define SEXPR_SCHEMATIC_FILE_VERSION 20220622  // New simulation model format.
+//#define SEXPR_SCHEMATIC_FILE_VERSION 20220820  // Fix broken default symbol instance data.
+//#define SEXPR_SCHEMATIC_FILE_VERSION 20220822  // Hyperlinks in text objects
+//#define SEXPR_SCHEMATIC_FILE_VERSION 20220903  // Field name visibility
+//#define SEXPR_SCHEMATIC_FILE_VERSION 20220904  // Do not autoplace field option
+//#define SEXPR_SCHEMATIC_FILE_VERSION 20220914  // Add support for DNP
+//#define SEXPR_SCHEMATIC_FILE_VERSION 20220929  // Don't save property ID
+//#define SEXPR_SCHEMATIC_FILE_VERSION 20221002  // Move instance data back into symbol definition.
+#define SEXPR_SCHEMATIC_FILE_VERSION 20221004    // Move instance data back into symbol definition.

@@ -1,12 +1,8 @@
-/**
- * @file class_bitmap_base.cpp
- */
-
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2017 jean-pierre.charras
- * Copyright (C) 2011-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2011-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -27,7 +23,6 @@
  */
 
 #include <bitmap_base.h>
-#include <eda_rect.h>     // for EDA_RECT
 #include <gr_basic.h>
 #include <math/util.h>    // for KiROUND
 #include <memory>         // for make_unique, unique_ptr
@@ -77,12 +72,10 @@ void BITMAP_BASE::ImportData( BITMAP_BASE* aItem )
 
 bool BITMAP_BASE::ReadImageFile( wxInputStream& aInStream )
 {
-    auto new_image = std::make_unique<wxImage>();
+    std::unique_ptr<wxImage> new_image = std::make_unique<wxImage>();
 
     if( !new_image->LoadFile( aInStream ) )
-    {
         return false;
-    }
 
     delete m_image;
     m_image = new_image.release();
@@ -217,15 +210,14 @@ bool BITMAP_BASE::LoadData( LINE_READER& aLine, wxString& aErrorMsg )
 }
 
 
-const EDA_RECT BITMAP_BASE::GetBoundingBox() const
+const BOX2I BITMAP_BASE::GetBoundingBox() const
 {
-    EDA_RECT rect;
+    BOX2I    bbox;
+    VECTOR2I size = GetSize();
 
-    wxSize   size = GetSize();
+    bbox.Inflate( size.x / 2, size.y / 2 );
 
-    rect.Inflate( size.x / 2, size.y / 2 );
-
-    return rect;
+    return bbox;
 }
 
 
@@ -235,7 +227,7 @@ void BITMAP_BASE::DrawBitmap( wxDC* aDC, const VECTOR2I& aPos )
         return;
 
     VECTOR2I pos = aPos;
-    wxSize  size = GetSize();
+    VECTOR2I size = GetSize();
 
     // This fixes a bug in OSX that should be fixed in the 3.0.3 version or later.
     if( ( size.x == 0 ) || ( size.y == 0 ) )
@@ -250,7 +242,17 @@ void BITMAP_BASE::DrawBitmap( wxDC* aDC, const VECTOR2I& aPos )
     aDC->GetUserScale( &scale, &scale );
     aDC->GetLogicalOrigin( &logicalOriginX, &logicalOriginY );
 
+    // We already have issues to draw a bitmap on the wxDC, depending on wxWidgets version.
+    // Now we have an issue on wxWidgets 3.1.6 and later to fix the clipboard
+    // and the bitmap position when using TransformMatrix
+    // So for version >= 3.1.6  do not use it
+    // Be carefull before changing the code.
     bool useTransform = aDC->CanUseTransformMatrix();
+
+    #if wxCHECK_VERSION( 3, 1, 6 )
+    useTransform = false;
+    #endif
+
     wxAffineMatrix2D init_matrix = aDC->GetTransformMatrix();
 
     wxPoint clipAreaPos;
@@ -261,8 +263,12 @@ void BITMAP_BASE::DrawBitmap( wxDC* aDC, const VECTOR2I& aPos )
         matrix.Translate( pos.x, pos.y );
         matrix.Scale( GetScalingFactor(), GetScalingFactor() );
         aDC->SetTransformMatrix( matrix );
+        // Needed on wx <= 3.1.5, and this is strange...
+        // Nevertheless, this code has problem (the bitmap is not seen)
+        // with wx version > 3.1.5
         clipAreaPos.x = pos.x;
         clipAreaPos.y = pos.y;
+
         pos.x = pos.y = 0;
     }
     else
@@ -280,7 +286,7 @@ void BITMAP_BASE::DrawBitmap( wxDC* aDC, const VECTOR2I& aPos )
     }
 
     aDC->DestroyClippingRegion();
-    aDC->SetClippingRegion( clipAreaPos, size );
+    aDC->SetClippingRegion( clipAreaPos, wxSize( size.x, size.y ) );
 
     if( GetGRForceBlackPenState() )
     {
@@ -304,9 +310,9 @@ void BITMAP_BASE::DrawBitmap( wxDC* aDC, const VECTOR2I& aPos )
 }
 
 
-wxSize BITMAP_BASE::GetSize() const
+VECTOR2I BITMAP_BASE::GetSize() const
 {
-    wxSize size;
+    VECTOR2I size;
 
     if( m_bitmap )
     {

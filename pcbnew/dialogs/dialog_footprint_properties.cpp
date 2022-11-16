@@ -35,11 +35,10 @@
 #include <pcb_edit_frame.h>
 #include <pcbnew_settings.h>
 #include <pgm_base.h>
-#include <validators.h>
+#include <pcbnew.h>
 #include <kiplatform/ui.h>
 #include <widgets/grid_text_button_helpers.h>
 #include <widgets/text_ctrl_eval.h>
-#include <widgets/wx_grid.h>
 #include <settings/settings_manager.h>
 
 #include <panel_fp_properties_3d_model.h>
@@ -69,7 +68,9 @@ DIALOG_FOOTPRINT_PROPERTIES::DIALOG_FOOTPRINT_PROPERTIES( PCB_EDIT_FRAME* aParen
         m_solderPasteRatio( aParent, m_PasteMarginRatioLabel, m_PasteMarginRatioCtrl,
                             m_PasteMarginRatioUnits ),
         m_returnValue( FP_PROPS_CANCEL ),
-        m_initialized( false )
+        m_initialized( false ),
+        m_gridSize( 0, 0 ),
+        m_lastRequestedSize( 0, 0 )
 {
     // Create the 3D models page
     m_3dPanel = new PANEL_FP_PROPERTIES_3D_MODEL( m_frame, m_footprint, this, m_NoteBook );
@@ -144,6 +145,28 @@ DIALOG_FOOTPRINT_PROPERTIES::DIALOG_FOOTPRINT_PROPERTIES( PCB_EDIT_FRAME* aParen
     m_bpAdd->SetBitmap( KiBitmap( BITMAPS::small_plus ) );
     m_bpDelete->SetBitmap( KiBitmap( BITMAPS::small_trash ) );
 
+    // We can't set the tab order through wxWidgets due to shortcomings in their mnemonics
+    // implementation on MSW
+    m_tabOrder = {
+        m_itemsGrid,
+        m_ModPositionX,
+        m_ModPositionY,
+        m_orientationCtrl,
+        m_BoardSideCtrl,
+        m_cbLocked,
+        m_componentType,
+        m_boardOnly,
+        m_excludeFromPosFiles,
+        m_excludeFromBOM,
+        m_noCourtyards,
+      	m_NetClearanceCtrl,
+        m_SolderMaskMarginCtrl,
+      	m_allowSolderMaskBridges,
+        m_SolderPasteMarginCtrl,
+      	m_PasteMarginRatioCtrl,
+        m_ZoneConnectionChoice
+    };
+
     SetupStandardButtons();
 
     finishDialogSettings();
@@ -153,7 +176,7 @@ DIALOG_FOOTPRINT_PROPERTIES::DIALOG_FOOTPRINT_PROPERTIES( PCB_EDIT_FRAME* aParen
 
 DIALOG_FOOTPRINT_PROPERTIES::~DIALOG_FOOTPRINT_PROPERTIES()
 {
-    m_frame->Settings().m_FootprintTextShownColumns = m_itemsGrid->GetShownColumns().ToStdString();
+    m_frame->GetPcbNewSettings()->m_FootprintTextShownColumns = m_itemsGrid->GetShownColumns().ToStdString();
 
     // Prevents crash bug in wxGrid's d'tor
     m_itemsGrid->DestroyTable( m_texts );
@@ -246,7 +269,8 @@ bool DIALOG_FOOTPRINT_PROPERTIES::TransferDataToWindow()
 
     m_BoardSideCtrl->SetSelection( (m_footprint->GetLayer() == B_Cu) ? 1 : 0 );
 
-    m_orientation.SetAngleValue( m_footprint->GetOrientation() );
+    EDA_ANGLE orientation = m_footprint->GetOrientation();
+    m_orientation.SetAngleValue( orientation.Normalize180() );
 
     m_cbLocked->SetValue( m_footprint->IsLocked() );
     m_cbLocked->SetToolTip( _( "Locked footprints cannot be freely moved and oriented on the "
@@ -287,10 +311,10 @@ bool DIALOG_FOOTPRINT_PROPERTIES::TransferDataToWindow()
 
     for( int col = 0; col < m_itemsGrid->GetNumberCols(); col++ )
     {
-        m_itemsGrid->SetColMinimalWidth( col, m_itemsGrid->GetVisibleWidth( col, true, false,
-                                                                            false ) );
+        m_itemsGrid->SetColMinimalWidth( col, m_itemsGrid->GetVisibleWidth( col, true, false ) );
+
         // Adjust the column size.
-        int col_size = m_itemsGrid->GetVisibleWidth( col, true, true, false );
+        int col_size = m_itemsGrid->GetVisibleWidth( col );
 
         if( col == FPT_LAYER )  // This one's a drop-down.  Check all possible values.
         {
@@ -324,19 +348,100 @@ bool DIALOG_FOOTPRINT_PROPERTIES::Validate()
     if( !DIALOG_SHIM::Validate() )
         return false;
 
-    // Check for empty texts.
-    for( size_t i = 2; i < m_texts->size(); ++i )
+    // Validate texts.
+    for( size_t i = 0; i < m_texts->size(); ++i )
     {
         FP_TEXT& text = m_texts->at( i );
 
-        if( text.GetText().IsEmpty() )
+        if( i >= 2 )
         {
-            if( m_NoteBook->GetSelection() != 0 )
-                m_NoteBook->SetSelection( 0 );
+            if( text.GetText().IsEmpty() )
+            {
+                if( m_NoteBook->GetSelection() != 0 )
+                    m_NoteBook->SetSelection( 0 );
+
+                m_delayedFocusGrid = m_itemsGrid;
+                m_delayedErrorMessage = _( "Text items must have some content." );
+                m_delayedFocusColumn = FPT_TEXT;
+                m_delayedFocusRow = i;
+
+                return false;
+            }
+        }
+
+        int width = m_frame->ValueFromString( m_itemsGrid->GetCellValue( i, FPT_WIDTH ) );
+
+        if( width < TEXTS_MIN_SIZE )
+        {
+            wxString min = m_frame->StringFromValue( TEXTS_MIN_SIZE, true );
+
+            m_itemsGrid->SetCellValue( i, FPT_WIDTH, min );
 
             m_delayedFocusGrid = m_itemsGrid;
-            m_delayedErrorMessage = _( "Text items must have some content." );
-            m_delayedFocusColumn = FPT_TEXT;
+            m_delayedErrorMessage = wxString::Format( _( "Text width must be at least %s." ), min );
+            m_delayedFocusColumn = FPT_WIDTH;
+            m_delayedFocusRow = i;
+
+            return false;
+        }
+        else if( width > TEXTS_MAX_SIZE )
+        {
+            wxString max = m_frame->StringFromValue( TEXTS_MAX_SIZE, true );
+
+            m_itemsGrid->SetCellValue( i, FPT_WIDTH, max );
+
+            m_delayedFocusGrid = m_itemsGrid;
+            m_delayedErrorMessage = wxString::Format( _( "Text width must be at most %s." ), max );
+            m_delayedFocusColumn = FPT_WIDTH;
+            m_delayedFocusRow = i;
+
+            return false;
+        }
+
+        int height = m_frame->ValueFromString( m_itemsGrid->GetCellValue( i, FPT_HEIGHT ) );
+
+        if( height < TEXTS_MIN_SIZE )
+        {
+            wxString min = m_frame->StringFromValue( TEXTS_MIN_SIZE, true );
+
+            m_itemsGrid->SetCellValue( i, FPT_HEIGHT, min );
+
+            m_delayedFocusGrid = m_itemsGrid;
+            m_delayedErrorMessage = wxString::Format( _( "Text height must be at least %s." ), min );
+            m_delayedFocusColumn = FPT_HEIGHT;
+            m_delayedFocusRow = i;
+
+            return false;
+        }
+        else if( height > TEXTS_MAX_SIZE )
+        {
+            wxString max = m_frame->StringFromValue( TEXTS_MAX_SIZE, true );
+
+            m_itemsGrid->SetCellValue( i, FPT_HEIGHT, max );
+
+            m_delayedFocusGrid = m_itemsGrid;
+            m_delayedErrorMessage = wxString::Format( _( "Text height must be at most %s." ), max );
+            m_delayedFocusColumn = FPT_HEIGHT;
+            m_delayedFocusRow = i;
+
+            return false;
+        }
+
+        // Test for acceptable values for thickness and size and clamp if fails
+        int maxPenWidth = Clamp_Text_PenSize( text.GetTextThickness(), text.GetTextSize() );
+
+        if( text.GetTextThickness() > maxPenWidth )
+        {
+            wxString clamped = m_frame->StringFromValue( maxPenWidth, true );
+
+            m_itemsGrid->SetCellValue( i, FPT_THICKNESS, clamped );
+
+            m_delayedFocusGrid = m_itemsGrid;
+            m_delayedErrorMessage = wxString::Format( _( "Text thickness is too large for the "
+                                                         "text size.\n"
+                                                         "It will be clamped at %s." ),
+                                                      clamped );
+            m_delayedFocusColumn = FPT_THICKNESS;
             m_delayedFocusRow = i;
 
             return false;
@@ -441,7 +546,7 @@ bool DIALOG_FOOTPRINT_PROPERTIES::TransferDataFromWindow()
 
     m_footprint->SetAttributes( attributes );
 
-    EDA_ANGLE orient = m_orientation.GetAngleValue();
+    EDA_ANGLE orient = m_orientation.GetAngleValue().Normalize();
 
     if( m_footprint->GetOrientation() != orient )
         m_footprint->Rotate( m_footprint->GetPosition(), orient - m_footprint->GetOrientation() );
@@ -457,7 +562,7 @@ bool DIALOG_FOOTPRINT_PROPERTIES::TransferDataFromWindow()
         change_layer = true;
 
     if( change_layer )
-        m_footprint->Flip( m_footprint->GetPosition(), m_frame->Settings().m_FlipLeftRight );
+        m_footprint->Flip( m_footprint->GetPosition(), m_frame->GetPcbNewSettings()->m_FlipLeftRight );
 
     // Copy the models from the panel to the footprint
     std::vector<FP_3DMODEL>& panelList = m_3dPanel->GetModelList();
@@ -561,11 +666,8 @@ void DIALOG_FOOTPRINT_PROPERTIES::adjustGridColumns()
     for( int i = 1; i < m_itemsGrid->GetNumberCols(); i++ )
         itemsWidth -= m_itemsGrid->GetColSize( i );
 
-    if( itemsWidth > 0 )
-    {
-        m_itemsGrid->SetColSize( 0, std::max( itemsWidth,
-                m_itemsGrid->GetVisibleWidth( 0, true, false, false ) ) );
-    }
+    m_itemsGrid->SetColSize( 0, std::max( itemsWidth,
+                                          m_itemsGrid->GetVisibleWidth( 0, true, false ) ) );
 
     // Update the width of the 3D panel
     m_3dPanel->AdjustGridColumnWidths();
@@ -576,9 +678,6 @@ void DIALOG_FOOTPRINT_PROPERTIES::OnUpdateUI( wxUpdateUIEvent&  )
 {
     if( !m_initialized )
         return;
-
-    if( !m_itemsGrid->IsCellEditControlShown() )
-        adjustGridColumns();
 
     // Handle a grid error.  This is delayed to OnUpdateUI so that we can change focus
     // even when the original validation was triggered from a killFocus event, and so
@@ -632,20 +731,35 @@ void DIALOG_FOOTPRINT_PROPERTIES::OnUpdateUI( wxUpdateUIEvent&  )
 
 void DIALOG_FOOTPRINT_PROPERTIES::OnGridSize( wxSizeEvent& aEvent )
 {
-    // A trick to fix a cosmetic issue: when, in m_itemsGrid, a layer selector widget
-    // has the focus (is activated in column 6) when resizing the grid, the widget
-    // is not moved. So just change the widget having the focus in this case
-    if( m_NoteBook->GetSelection() == 0 && !m_itemsGrid->HasFocus() )
-    {
-        int col = m_itemsGrid->GetGridCursorCol();
+    wxSize new_size = aEvent.GetSize();
 
-        if( col == 6 )  // a layer selector widget can be activated
-             m_itemsGrid->SetFocus();
+    if( ( !m_itemsGrid->IsCellEditControlShown() || m_lastRequestedSize != new_size )
+            && m_gridSize != new_size )
+    {
+        m_gridSize = new_size;
+
+        // A trick to fix a cosmetic issue: when, in m_itemsGrid, a layer selector widget has
+        // the focus (is activated in column 6) when resizing the grid, the widget is not moved.
+        // So just change the widget having the focus in this case
+        if( m_NoteBook->GetSelection() == 0 && !m_itemsGrid->HasFocus() )
+        {
+            int col = m_itemsGrid->GetGridCursorCol();
+
+            if( col == 6 )  // a layer selector widget can be activated
+                 m_itemsGrid->SetFocus();
+        }
+
+        adjustGridColumns();
     }
 
-    adjustGridColumns();
+    // We store this value to check whether the dialog is changing size.  This might indicate
+    // that the user is scaling the dialog with an editor shown.  Some editors do not close
+    // (at least on GTK) when the user drags a dialog corner
+    m_lastRequestedSize = new_size;
 
+    // Always propagate for a grid repaint (needed if the height changes, as well as width)
     aEvent.Skip();
+
 }
 
 

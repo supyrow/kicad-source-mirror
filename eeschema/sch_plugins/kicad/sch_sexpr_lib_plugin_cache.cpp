@@ -19,6 +19,7 @@
  * with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <base_units.h>
 #include <lib_field.h>
 #include <lib_shape.h>
 #include <lib_symbol.h>
@@ -59,8 +60,8 @@ void SCH_SEXPR_PLUGIN_CACHE::Load()
                                    "open library '%s'.", m_libFileName.GetFullPath() ) );
 
     // The current locale must use period as the decimal point.
-    wxCHECK2( wxLocale::GetInfo( wxLOCALE_DECIMAL_POINT, wxLOCALE_CAT_NUMBER ) == ".",
-              LOCALE_IO toggle );
+    // Yes, we did this earlier, but it's sadly not thread-safe.
+    LOCALE_IO toggle;
 
     wxLogTrace( traceSchLegacyPlugin, "Loading sexpr symbol library file '%s'",
                 m_libFileName.GetFullPath() );
@@ -72,9 +73,8 @@ void SCH_SEXPR_PLUGIN_CACHE::Load()
     parser.ParseLib( m_symbols );
     ++m_modHash;
 
-    // Remember the file modification time of library file when the
-    // cache snapshot was made, so that in a networked environment we will
-    // reload the cache as needed.
+    // Remember the file modification time of library file when the cache snapshot was made,
+    // so that in a networked environment we will reload the cache as needed.
     m_fileModTime = GetLibModificationTime();
 }
 
@@ -94,7 +94,7 @@ void SCH_SEXPR_PLUGIN_CACHE::Save( const std::optional<bool>& aOpt )
     formatter->Print( 0, "(kicad_symbol_lib (version %d) (generator kicad_symbol_editor)\n",
                       SEXPR_SYMBOL_LIB_FILE_VERSION );
 
-    for( auto parent : m_symbols )
+    for( const std::pair<const wxString, LIB_SYMBOL*>& parent : m_symbols )
     {
         // Save the root symbol first so alias can inherit from them.
         if( parent.second->IsRoot() )
@@ -102,7 +102,7 @@ void SCH_SEXPR_PLUGIN_CACHE::Save( const std::optional<bool>& aOpt )
             SaveSymbol( parent.second, *formatter.get(), 1 );
 
             // Save all of the aliases associated with the current root symbol.
-            for( auto alias : m_symbols )
+            for( const std::pair<const wxString, LIB_SYMBOL*>& alias : m_symbols )
             {
                 if( !alias.second->IsAlias() )
                     continue;
@@ -165,14 +165,14 @@ void SCH_SEXPR_PLUGIN_CACHE::SaveSymbol( LIB_SYMBOL* aSymbol, OUTPUTFORMATTER& a
         if( !aSymbol->ShowPinNumbers() )
             aFormatter.Print( 0, " (pin_numbers hide)" );
 
-        if( aSymbol->GetPinNameOffset() != Mils2iu( DEFAULT_PIN_NAME_OFFSET )
+        if( aSymbol->GetPinNameOffset() != schIUScale.MilsToIU( DEFAULT_PIN_NAME_OFFSET )
           || !aSymbol->ShowPinNames() )
         {
             aFormatter.Print( 0, " (pin_names" );
 
-            if( aSymbol->GetPinNameOffset() != Mils2iu( DEFAULT_PIN_NAME_OFFSET ) )
+            if( aSymbol->GetPinNameOffset() != schIUScale.MilsToIU( DEFAULT_PIN_NAME_OFFSET ) )
                 aFormatter.Print( 0, " (offset %s)",
-                                  FormatInternalUnits( aSymbol->GetPinNameOffset() ).c_str() );
+                                  EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aSymbol->GetPinNameOffset() ).c_str() );
 
             if( !aSymbol->ShowPinNames() )
                 aFormatter.Print( 0, " hide" );
@@ -219,7 +219,7 @@ void SCH_SEXPR_PLUGIN_CACHE::SaveSymbol( LIB_SYMBOL* aSymbol, OUTPUTFORMATTER& a
                         return a.m_unit < b.m_unit;
                    } );
 
-        for( auto unit : units )
+        for( const LIB_SYMBOL_UNIT& unit : units )
         {
             // Add quotes and escape chars like ") to the UTF8 unitName string
             name = aFormatter.Quotes( unitName );
@@ -228,6 +228,13 @@ void SCH_SEXPR_PLUGIN_CACHE::SaveSymbol( LIB_SYMBOL* aSymbol, OUTPUTFORMATTER& a
             aFormatter.Print( aNestLevel + 1, "(symbol %s_%d_%d\"\n",
                               name.c_str(), unit.m_unit, unit.m_convert );
 
+            // if the unit has a display name, write that
+            if( aSymbol->HasUnitDisplayName( unit.m_unit ) )
+            {
+                name = aSymbol->GetUnitDisplayName( unit.m_unit );
+                aFormatter.Print( aNestLevel + 2, "(unit_name %s)\n",
+                                  aFormatter.Quotes( name ).c_str() );
+            }
             // Enforce item ordering
             auto cmp =
                     []( const LIB_ITEM* a, const LIB_ITEM* b )
@@ -299,7 +306,7 @@ void SCH_SEXPR_PLUGIN_CACHE::saveDcmInfoAsFields( LIB_SYMBOL* aSymbol, OUTPUTFOR
     {
         wxString tmp;
 
-        for( auto filter : fpFilters )
+        for( const wxString& filter : fpFilters )
         {
             // Spaces are not handled in fp filter names so escape spaces if any
             wxString curr_filter = EscapeString( filter, ESCAPE_CONTEXT::CTX_NO_SPACE );
@@ -329,13 +336,10 @@ void SCH_SEXPR_PLUGIN_CACHE::saveSymbolDrawItem( LIB_ITEM* aItem, OUTPUTFORMATTE
     case LIB_SHAPE_T:
     {
         LIB_SHAPE*    shape = static_cast<LIB_SHAPE*>( aItem );
-        STROKE_PARAMS stroke;
+        STROKE_PARAMS stroke = shape->GetStroke();
         FILL_T        fillMode = shape->GetFillMode();
+        COLOR4D       fillColor = shape->GetFillColor();
         bool          isPrivate = shape->IsPrivate();
-
-        stroke.SetWidth( shape->GetWidth() );
-
-        COLOR4D fillColor = shape->GetFillColor();
 
         switch( shape->GetShape() )
         {
@@ -394,14 +398,20 @@ void SCH_SEXPR_PLUGIN_CACHE::saveField( LIB_FIELD* aField, OUTPUTFORMATTER& aFor
     if( aField->GetId() >= 0 && aField->GetId() < MANDATORY_FIELDS )
         fieldName = TEMPLATE_FIELDNAME::GetDefaultFieldName( aField->GetId(), false );
 
-    aFormatter.Print( aNestLevel, "(property %s %s (id %d) (at %s %s %g)\n",
+    aFormatter.Print( aNestLevel, "(property %s %s (at %s %s %g)",
                       aFormatter.Quotew( fieldName ).c_str(),
                       aFormatter.Quotew( aField->GetText() ).c_str(),
-                      aField->GetId(),
-                      FormatInternalUnits( aField->GetPosition().x ).c_str(),
-                      FormatInternalUnits( aField->GetPosition().y ).c_str(),
+                      EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aField->GetPosition().x ).c_str(),
+                      EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aField->GetPosition().y ).c_str(),
                       aField->GetTextAngle().AsDegrees() );
 
+    if( aField->IsNameShown() )
+        aFormatter.Print( 0, " (show_name)" );
+
+    if( !aField->CanAutoplace() )
+        aFormatter.Print( 0, " (do_not_autoplace)" );
+
+    aFormatter.Print( 0, "\n" );
     aField->Format( &aFormatter, aNestLevel, 0 );
     aFormatter.Print( aNestLevel, ")\n" );
 }
@@ -416,10 +426,10 @@ void SCH_SEXPR_PLUGIN_CACHE::savePin( LIB_PIN* aPin, OUTPUTFORMATTER& aFormatter
     aFormatter.Print( aNestLevel, "(pin %s %s (at %s %s %s) (length %s)",
                       getPinElectricalTypeToken( aPin->GetType() ),
                       getPinShapeToken( aPin->GetShape() ),
-                      FormatInternalUnits( aPin->GetPosition().x ).c_str(),
-                      FormatInternalUnits( aPin->GetPosition().y ).c_str(),
-                      FormatAngle( getPinAngle( aPin->GetOrientation() ) ).c_str(),
-                      FormatInternalUnits( aPin->GetLength() ).c_str() );
+                      EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aPin->GetPosition().x ).c_str(),
+                      EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aPin->GetPosition().y ).c_str(),
+                      EDA_UNIT_UTILS::FormatAngle( getPinAngle( aPin->GetOrientation() ) ).c_str(),
+                      EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aPin->GetLength() ).c_str() );
 
     if( !aPin->IsVisible() )
         aFormatter.Print( 0, " hide\n" );
@@ -429,13 +439,13 @@ void SCH_SEXPR_PLUGIN_CACHE::savePin( LIB_PIN* aPin, OUTPUTFORMATTER& aFormatter
     // This follows the EDA_TEXT effects formatting for future expansion.
     aFormatter.Print( aNestLevel + 1, "(name %s (effects (font (size %s %s))))\n",
                       aFormatter.Quotew( aPin->GetName() ).c_str(),
-                      FormatInternalUnits( aPin->GetNameTextSize() ).c_str(),
-                      FormatInternalUnits( aPin->GetNameTextSize() ).c_str() );
+                      EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aPin->GetNameTextSize() ).c_str(),
+                      EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aPin->GetNameTextSize() ).c_str() );
 
     aFormatter.Print( aNestLevel + 1, "(number %s (effects (font (size %s %s))))\n",
                       aFormatter.Quotew( aPin->GetNumber() ).c_str(),
-                      FormatInternalUnits( aPin->GetNumberTextSize() ).c_str(),
-                      FormatInternalUnits( aPin->GetNumberTextSize() ).c_str() );
+                      EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aPin->GetNumberTextSize() ).c_str(),
+                      EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aPin->GetNumberTextSize() ).c_str() );
 
 
     for( const std::pair<const wxString, LIB_PIN::ALT>& alt : aPin->GetAlternates() )
@@ -458,8 +468,8 @@ void SCH_SEXPR_PLUGIN_CACHE::saveText( LIB_TEXT* aText, OUTPUTFORMATTER& aFormat
     aFormatter.Print( aNestLevel, "(text%s %s (at %s %s %g)\n",
                       aText->IsPrivate() ? " private" : "",
                       aFormatter.Quotew( aText->GetText() ).c_str(),
-                      FormatInternalUnits( aText->GetPosition().x ).c_str(),
-                      FormatInternalUnits( aText->GetPosition().y ).c_str(),
+                      EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aText->GetPosition().x ).c_str(),
+                      EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aText->GetPosition().y ).c_str(),
                       (double) aText->GetTextAngle().AsTenthsOfADegree() );
 
     aText->EDA_TEXT::Format( &aFormatter, aNestLevel, 0 );
@@ -476,13 +486,17 @@ void SCH_SEXPR_PLUGIN_CACHE::saveTextBox( LIB_TEXTBOX* aTextBox, OUTPUTFORMATTER
                       aTextBox->IsPrivate() ? " private" : "",
                       aFormatter.Quotew( aTextBox->GetText() ).c_str() );
 
-    aFormatter.Print( aNestLevel + 1, "(start %s %s) (end %s %s)\n",
-                      FormatInternalUnits( aTextBox->GetStart().x ).c_str(),
-                      FormatInternalUnits( aTextBox->GetStart().y ).c_str(),
-                      FormatInternalUnits( aTextBox->GetEnd().x ).c_str(),
-                      FormatInternalUnits( aTextBox->GetEnd().y ).c_str() );
+    VECTOR2I pos = aTextBox->GetStart();
+    VECTOR2I size = aTextBox->GetEnd() - pos;
 
-    aTextBox->GetStroke().Format( &aFormatter, aNestLevel + 1 );
+    aFormatter.Print( aNestLevel + 1, "(at %s %s %s) (size %s %s)\n",
+                      EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, pos.x ).c_str(),
+                      EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, pos.y ).c_str(),
+                      EDA_UNIT_UTILS::FormatAngle( aTextBox->GetTextAngle() ).c_str(),
+                      EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, size.x ).c_str(),
+                      EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, size.y ).c_str() );
+
+    aTextBox->GetStroke().Format( &aFormatter, schIUScale, aNestLevel + 1 );
     aFormatter.Print( 0, "\n" );
 
     formatFill( &aFormatter, aNestLevel + 1, aTextBox->GetFillMode(), aTextBox->GetFillColor() );

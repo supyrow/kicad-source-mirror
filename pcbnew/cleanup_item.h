@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2020-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2020-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -31,8 +31,7 @@ class PCB_BASE_FRAME;
 
 enum CLEANUP_RC_CODE {
     CLEANUP_FIRST = DRCE_LAST + 1,
-    CLEANUP_CHECKING_ZONE_FILLS = CLEANUP_FIRST,
-    CLEANUP_SHORTING_TRACK,
+    CLEANUP_SHORTING_TRACK = CLEANUP_FIRST,
     CLEANUP_SHORTING_VIA,
     CLEANUP_REDUNDANT_VIA,
     CLEANUP_DUPLICATE_TRACK,
@@ -43,7 +42,8 @@ enum CLEANUP_RC_CODE {
     CLEANUP_TRACK_IN_PAD,
     CLEANUP_NULL_GRAPHIC,
     CLEANUP_DUPLICATE_GRAPHIC,
-    CLEANUP_LINES_TO_RECT
+    CLEANUP_LINES_TO_RECT,
+    CLEANUP_MERGE_PAD
 };
 
 class CLEANUP_ITEM : public RC_ITEM
@@ -93,21 +93,12 @@ public:
         return m_sourceVector->at( aIndex );
     }
 
-
     void DeleteItem( int aIndex, bool aDeep ) override
     {
         if( aDeep )
         {
             auto item = m_sourceVector->at( aIndex );
             m_sourceVector->erase( m_sourceVector->begin() + aIndex );
-        }
-    }
-
-    void DeleteAllItems( bool aIncludeExclusions, bool aDeep ) override
-    {
-        if( aDeep )
-        {
-            m_sourceVector->clear();
         }
     }
 

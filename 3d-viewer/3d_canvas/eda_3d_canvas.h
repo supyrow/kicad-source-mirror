@@ -30,7 +30,7 @@
 #include "3d_rendering/raytracing/accelerators/accelerator_3d.h"
 #include "3d_rendering/render_3d_base.h"
 #include "3d_cache/3d_cache.h"
-#include <gal/hidpi_gl_canvas.h>
+#include <gal/hidpi_gl_3D_canvas.h>
 #include <wx/image.h>
 #include <wx/timer.h>
 
@@ -45,7 +45,7 @@ class RENDER_3D_OPENGL;
 /**
  *  Implement a canvas based on a wxGLCanvas
  */
-class EDA_3D_CANVAS : public HIDPI_GL_CANVAS
+class EDA_3D_CANVAS : public HIDPI_GL_3D_CANVAS
 {
 public:
     /**
@@ -162,11 +162,6 @@ public:
     void OnEvent( wxEvent& aEvent );
 
     /**
-     * Get the canvas camera.
-     */
-    CAMERA* GetCamera() { return &m_camera; }
-
-    /**
      * Get information used to display 3D board.
      */
     const BOARD_ADAPTER& GetBoardAdapter() const { return m_boardAdapter; }
@@ -182,6 +177,39 @@ public:
      * @param aValue true will cause the pivot to be rendered on the next redraw.
      */
     void SetRenderPivot( bool aValue ) { m_render_pivot = aValue; }
+
+
+#if defined( KICAD_USE_3DCONNEXION )
+    /**
+     * Get a value indicating whether to render the 3dmouse pivot.
+     */
+    bool GetRender3dmousePivot()
+    {
+        return m_render3dmousePivot;
+    }
+
+
+    /**
+     * Set aValue indicating whether to render the 3dmouse pivot.
+     *
+     * @param aValue true will cause the pivot to be rendered on the next redraw.
+     */
+    void SetRender3dmousePivot( bool aValue )
+    {
+        m_render3dmousePivot = aValue;
+    }
+
+
+    /**
+     *  Set the position of the the 3dmouse pivot.
+     *
+     *  @param aPos is the position of the 3dmouse rotation pivot
+     */
+    void Set3dmousePivotPos( const SFVEC3F& aPos )
+    {
+        m_3dmousePivotPos = aPos;
+    }
+#endif
 
 private:
     /**
@@ -250,6 +278,15 @@ private:
      */
     void render_pivot( float t, float aScale );
 
+#if defined( KICAD_USE_3DCONNEXION )
+    /**
+     * Render the 3dmouse pivot cursor.
+     *
+     * @param aScale scale to apply on the cursor.
+     */
+    void render3dmousePivot( float aScale );
+#endif
+
     /**
      * @return true if OpenGL initialization succeeded.
      */
@@ -276,9 +313,6 @@ private:
     wxTimer                m_redraw_trigger_timer;    // Used to schedule a redraw event
     std::atomic_flag       m_is_currently_painting;   // Avoid drawing twice at the same time
 
-    bool                   m_mouse_is_moving;         // Mouse activity is in progress
-    bool                   m_mouse_was_moved;
-    bool                   m_camera_is_moving;        // Camera animation is ongoing
     bool                   m_render_pivot;            // Render the pivot while camera moving
     float                  m_camera_moving_speed;     // 1.0f will be 1:1
     unsigned               m_strtime_camera_movement; // Ticktime of camera movement start
@@ -286,13 +320,9 @@ private:
     int                    m_moving_speed_multiplier; // Camera animation speed multiplier option
 
     BOARD_ADAPTER&         m_boardAdapter;            // Pre-computed 3D info and settings
-    CAMERA&                m_camera;
     RENDER_3D_BASE*        m_3d_render;
     RENDER_3D_RAYTRACE*    m_3d_render_raytracing;
     RENDER_3D_OPENGL*      m_3d_render_opengl;
-
-    static const float     m_delta_move_step_factor;  // Step factor to used with cursor on
-                                                      // relation to the current zoom
 
     bool                   m_opengl_supports_raytracing;
     bool                   m_render_raytracing_was_requested;
@@ -300,6 +330,11 @@ private:
     ACCELERATOR_3D*        m_accelerator3DShapes;    // used for mouse over searching
 
     BOARD_ITEM*            m_currentRollOverItem;
+
+#if defined( KICAD_USE_3DCONNEXION )
+    bool    m_render3dmousePivot = false; // Render the 3dmouse pivot
+    SFVEC3F m_3dmousePivotPos;            // The position of the 3dmouse pivot
+#endif
 
     /**
      *  Trace mask used to enable or disable the trace output of this class.

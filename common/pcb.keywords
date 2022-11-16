@@ -30,6 +30,7 @@ aligned
 allowed
 allow_missing_courtyard
 allow_soldermask_bridges
+allow_soldermask_bridges_in_footprints
 anchor
 angle
 arc
@@ -74,6 +75,7 @@ convexhull
 copper_line_width
 copper_text_dims
 courtyard_line_width
+data
 date
 defaults
 descr
@@ -128,6 +130,7 @@ generator
 grid_origin
 group
 gr_arc
+gr_bbox
 gr_circle
 gr_curve
 gr_line
@@ -147,7 +150,9 @@ height
 hide
 hole_to_hole_min
 host
+href
 id
+image
 island
 island_removal_mode
 island_area_min
@@ -158,6 +163,7 @@ keep_end_layers
 keep_text_aligned
 keep_upright
 kicad_pcb
+knockout
 last_trace_width
 layer
 layers
@@ -186,6 +192,7 @@ name
 net
 net_class
 net_name
+net_tie_pad_groups
 nets
 no
 no_connects
@@ -214,6 +221,7 @@ pad_prop_fiducial_glob
 pad_prop_castellated
 pad_prop_testpoint
 pad_prop_heatsink
+padvia
 private_layers
 property
 page
@@ -271,6 +279,7 @@ tags
 target
 title
 title_block
+teardrop
 tedit
 text_frame
 text_position_mode
@@ -286,6 +295,7 @@ top_left
 top_right
 trace_width
 tracks
+track_end
 trace_min
 trace_clearance
 trapezoid
@@ -328,5 +338,6 @@ zone
 zone_45_only
 zone_clearance
 zone_connect
+zone_layer_connections
 zone_type
 zones

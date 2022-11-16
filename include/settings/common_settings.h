@@ -49,6 +49,7 @@ class COMMON_SETTINGS : public JSON_SETTINGS
 public:
     struct APPEARANCE
     {
+        bool       show_scrollbars;
         double     canvas_scale;
         int        icon_scale;
         ICON_THEME icon_theme;
@@ -77,6 +78,7 @@ public:
 
     struct INPUT
     {
+        bool focus_follow_sch_pcb;
         bool auto_pan;
         int  auto_pan_acceleration;
         bool center_on_zoom;
@@ -106,6 +108,8 @@ public:
     struct SESSION
     {
         bool remember_open_files;
+        std::vector<wxString> pinned_symbol_libs;
+        std::vector<wxString> pinned_fp_libs;
     };
 
     struct SYSTEM
@@ -125,6 +129,7 @@ public:
         bool zone_fill_warning;
         bool env_var_overwrite_warning;
         bool scaled_3d_models_warning;
+        bool data_collection_prompt;
     };
 
     struct NETCLASS_PANEL
@@ -151,6 +156,19 @@ public:
 private:
     bool migrateSchema0to1();
     bool migrateSchema1to2();
+    bool migrateSchema2to3();
+
+    struct LEGACY_3D_SEARCH_PATH
+    {
+        wxString m_Alias;       // alias to the base path
+        wxString m_Pathvar;     // base path as stored in the config file
+        wxString m_Pathexp;     // expanded base path
+        wxString m_Description; // description of the aliased path
+    };
+
+    static bool getLegacy3DHollerith( const std::string& aString, size_t& aIndex,
+                                      wxString& aResult );
+    bool readLegacy3DResolverCfg( const wxString& aPath, std::vector<LEGACY_3D_SEARCH_PATH>& aSearchPaths );
 
 public:
     APPEARANCE m_Appearance;

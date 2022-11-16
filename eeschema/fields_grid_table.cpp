@@ -40,15 +40,52 @@
 #include <project/project_file.h>
 #include <project/net_settings.h>
 #include "eda_doc.h"
+#include "widgets/grid_color_swatch_helpers.h"
+#include "font/fontconfig.h"
+#include "font/kicad_font_name.h"
 #include <wx/settings.h>
 #include <string_utils.h>
 #include <widgets/grid_combobox.h>
 
+
 enum
 {
-    MYID_SELECT_FOOTPRINT = GRIDTRICKS_FIRST_SHOWHIDE - 2, // must be within GRID_TRICKS' enum range
+    MYID_SELECT_FOOTPRINT = GRIDTRICKS_FIRST_CLIENT_ID,
     MYID_SHOW_DATASHEET
 };
+
+
+#define DEFAULT_FONT_NAME _( "Default Font" )
+
+
+static wxString netList( SCH_SYMBOL* aSymbol, SCH_SHEET_PATH& aSheetPath )
+{
+    /*
+     * Symbol netlist format:
+     *   library:footprint
+     *   reference
+     *   value
+     *   pinName,netName,pinFunction,pinType
+     *   pinName,netName,pinFunction,pinType
+     *   ...
+     */
+    wxString netlist;
+
+    netlist << EscapeString( aSymbol->GetFootprint( &aSheetPath, true ), CTX_LINE ) << wxS( "\r" );
+    netlist << EscapeString( aSymbol->GetRef( &aSheetPath ), CTX_LINE ) << wxS( "\r" );
+    netlist << EscapeString( aSymbol->GetValue( &aSheetPath, true ), CTX_LINE );
+
+    for( SCH_PIN* pin : aSymbol->GetPins( &aSheetPath ) )
+    {
+        netlist << wxS( "\r" );
+        netlist << EscapeString( pin->GetNumber(), CTX_CSV ) << wxS( "," );
+        netlist << EscapeString( pin->GetDefaultNetName( aSheetPath ), CTX_CSV ) << wxS( "," );
+        netlist << EscapeString( pin->GetName(), CTX_CSV ) << wxS( "," );
+        netlist << EscapeString( pin->GetCanonicalElectricalTypeName(), CTX_CSV );
+    }
+
+    return netlist;
+}
 
 
 template <class T>
@@ -73,7 +110,29 @@ FIELDS_GRID_TABLE<T>::FIELDS_GRID_TABLE( DIALOG_SHIM* aDialog, SCH_BASE_FRAME* a
 
 
 template <class T>
-FIELDS_GRID_TABLE<T>::FIELDS_GRID_TABLE( DIALOG_SHIM* aDialog, SCH_BASE_FRAME* aFrame,
+FIELDS_GRID_TABLE<T>::FIELDS_GRID_TABLE( DIALOG_SHIM* aDialog, SCH_EDIT_FRAME* aFrame,
+                                         WX_GRID* aGrid, SCH_SYMBOL* aSymbol ) :
+        m_frame( aFrame ),
+        m_dialog( aDialog ),
+        m_grid( aGrid ),
+        m_parentType( SCH_SYMBOL_T ),
+        m_mandatoryFieldCount( MANDATORY_FIELDS ),
+        m_part( aSymbol->GetLibSymbolRef().get() ),
+        m_symbolNetlist( netList( aSymbol, aFrame->GetCurrentSheet() ) ),
+        m_fieldNameValidator( aFrame->IsType( FRAME_SCH_SYMBOL_EDITOR ), FIELD_NAME ),
+        m_referenceValidator( aFrame->IsType( FRAME_SCH_SYMBOL_EDITOR ), REFERENCE_FIELD ),
+        m_valueValidator( aFrame->IsType( FRAME_SCH_SYMBOL_EDITOR ), VALUE_FIELD ),
+        m_libIdValidator(),
+        m_urlValidator( aFrame->IsType( FRAME_SCH_SYMBOL_EDITOR ), FIELD_VALUE ),
+        m_nonUrlValidator( aFrame->IsType( FRAME_SCH_SYMBOL_EDITOR ), FIELD_VALUE ),
+        m_filepathValidator( aFrame->IsType( FRAME_SCH_SYMBOL_EDITOR ), SHEETFILENAME )
+{
+    initGrid( aGrid );
+}
+
+
+template <class T>
+FIELDS_GRID_TABLE<T>::FIELDS_GRID_TABLE( DIALOG_SHIM* aDialog, SCH_EDIT_FRAME* aFrame,
                                          WX_GRID* aGrid, SCH_SHEET* aSheet ) :
         m_frame( aFrame ),
         m_dialog( aDialog ),
@@ -94,7 +153,7 @@ FIELDS_GRID_TABLE<T>::FIELDS_GRID_TABLE( DIALOG_SHIM* aDialog, SCH_BASE_FRAME* a
 
 
 template <class T>
-FIELDS_GRID_TABLE<T>::FIELDS_GRID_TABLE( DIALOG_SHIM* aDialog, SCH_BASE_FRAME* aFrame,
+FIELDS_GRID_TABLE<T>::FIELDS_GRID_TABLE( DIALOG_SHIM* aDialog, SCH_EDIT_FRAME* aFrame,
                                          WX_GRID* aGrid, SCH_LABEL_BASE* aLabel ) :
         m_frame( aFrame ),
         m_dialog( aDialog ),
@@ -140,12 +199,13 @@ void FIELDS_GRID_TABLE<T>::initGrid( WX_GRID* aGrid )
     m_valueAttr->SetEditor( valueEditor );
 
     m_footprintAttr = new wxGridCellAttr;
-    GRID_CELL_FOOTPRINT_ID_EDITOR* fpIdEditor = new GRID_CELL_FOOTPRINT_ID_EDITOR( m_dialog );
+    GRID_CELL_FPID_EDITOR* fpIdEditor = new GRID_CELL_FPID_EDITOR( m_dialog, m_symbolNetlist );
     fpIdEditor->SetValidator( m_libIdValidator );
     m_footprintAttr->SetEditor( fpIdEditor );
 
     m_urlAttr = new wxGridCellAttr;
-    GRID_CELL_URL_EDITOR* urlEditor = new GRID_CELL_URL_EDITOR( m_dialog );
+    GRID_CELL_URL_EDITOR* urlEditor = new GRID_CELL_URL_EDITOR( m_dialog,
+                                                                m_frame->Prj().SchSearchS() );
     urlEditor->SetValidator( m_urlValidator );
     m_urlAttr->SetEditor( urlEditor );
 
@@ -201,16 +261,37 @@ void FIELDS_GRID_TABLE<T>::initGrid( WX_GRID* aGrid )
     if( editFrame )
     {
         // Load the combobox with existing existingNetclassNames
-        NET_SETTINGS& netSettings = editFrame->Schematic().Prj().GetProjectFile().NetSettings();
+        PROJECT_FILE&                        projectFile = editFrame->Prj().GetProjectFile();
+        const std::shared_ptr<NET_SETTINGS>& settings = projectFile.NetSettings();
 
-        existingNetclasses.push_back( netSettings.m_NetClasses.GetDefault()->GetName() );
+        existingNetclasses.push_back( settings->m_DefaultNetClass->GetName() );
 
-        for( const std::pair<const wxString, NETCLASSPTR>& pair : netSettings.m_NetClasses )
-            existingNetclasses.push_back( pair.second->GetName() );
+        for( const auto& [ name, netclass ] : settings->m_NetClasses )
+            existingNetclasses.push_back( name );
     }
 
     m_netclassAttr = new wxGridCellAttr;
     m_netclassAttr->SetEditor( new GRID_CELL_COMBOBOX( existingNetclasses ) );
+
+    wxArrayString            fonts;
+    std::vector<std::string> fontNames;
+    Fontconfig()->ListFonts( fontNames );
+
+    for( const std::string& name : fontNames )
+        fonts.Add( wxString( name ) );
+
+    fonts.Sort();
+    fonts.Insert( KICAD_FONT_NAME, 0 );
+    fonts.Insert( DEFAULT_FONT_NAME, 0 );
+
+    m_fontAttr = new wxGridCellAttr;
+    m_fontAttr->SetEditor( new GRID_CELL_COMBOBOX( fonts ) );
+
+    m_colorAttr = new wxGridCellAttr;
+    m_colorAttr->SetRenderer( new GRID_CELL_COLOR_RENDERER( m_dialog ) );
+    m_colorAttr->SetEditor( new GRID_CELL_COLOR_SELECTOR( m_dialog, aGrid ) );
+
+    m_eval = std::make_unique<NUMERIC_EVALUATOR>( m_frame->GetUserUnits() );
 
     m_frame->Bind( UNITS_CHANGED, &FIELDS_GRID_TABLE<T>::onUnitsChanged, this );
 }
@@ -232,6 +313,8 @@ FIELDS_GRID_TABLE<T>::~FIELDS_GRID_TABLE()
     m_hAlignAttr->DecRef();
     m_orientationAttr->DecRef();
     m_netclassAttr->DecRef();
+    m_fontAttr->DecRef();
+    m_colorAttr->DecRef();
 
     m_frame->Unbind( UNITS_CHANGED, &FIELDS_GRID_TABLE<T>::onUnitsChanged, this );
 }
@@ -255,6 +338,7 @@ wxString FIELDS_GRID_TABLE<T>::GetColLabelValue( int aCol )
     case FDC_NAME:         return _( "Name" );
     case FDC_VALUE:        return _( "Value" );
     case FDC_SHOWN:        return _( "Show" );
+    case FDC_SHOW_NAME:    return _( "Show Name" );
     case FDC_H_ALIGN:      return _( "H Align" );
     case FDC_V_ALIGN:      return _( "V Align" );
     case FDC_ITALIC:       return _( "Italic" );
@@ -263,6 +347,9 @@ wxString FIELDS_GRID_TABLE<T>::GetColLabelValue( int aCol )
     case FDC_ORIENTATION:  return _( "Orientation" );
     case FDC_POSX:         return _( "X Position" );
     case FDC_POSY:         return _( "Y Position" );
+    case FDC_FONT:         return _( "Font" );
+    case FDC_COLOR:        return _( "Color" );
+    case FDC_ALLOW_AUTOPLACE: return _( "Allow Autoplacement" );
     default:               wxFAIL; return wxEmptyString;
     }
 }
@@ -281,11 +368,15 @@ bool FIELDS_GRID_TABLE<T>::CanGetValueAs( int aRow, int aCol, const wxString& aT
     case FDC_ORIENTATION:
     case FDC_POSX:
     case FDC_POSY:
+    case FDC_FONT:
+    case FDC_COLOR:
         return aTypeName == wxGRID_VALUE_STRING;
 
     case FDC_SHOWN:
+    case FDC_SHOW_NAME:
     case FDC_ITALIC:
     case FDC_BOLD:
+    case FDC_ALLOW_AUTOPLACE:
         return aTypeName == wxGRID_VALUE_BOOL;
 
     default:
@@ -410,10 +501,20 @@ wxGridCellAttr* FIELDS_GRID_TABLE<T>::GetAttr( int aRow, int aCol, wxGridCellAtt
         return m_orientationAttr;
 
     case FDC_SHOWN:
+    case FDC_SHOW_NAME:
     case FDC_ITALIC:
     case FDC_BOLD:
+    case FDC_ALLOW_AUTOPLACE:
         m_boolAttr->IncRef();
         return m_boolAttr;
+
+    case FDC_FONT:
+        m_fontAttr->IncRef();
+        return m_fontAttr;
+
+    case FDC_COLOR:
+        m_colorAttr->IncRef();
+        return m_colorAttr;
 
     default:
         wxFAIL;
@@ -426,7 +527,18 @@ template <class T>
 wxString FIELDS_GRID_TABLE<T>::GetValue( int aRow, int aCol )
 {
     wxCHECK( aRow < GetNumberRows(), wxEmptyString );
+
+    wxGrid*  grid = GetView();
     const T& field = this->at( (size_t) aRow );
+
+    if( grid->GetGridCursorRow() == aRow && grid->GetGridCursorCol() == aCol
+            && grid->IsCellEditControlShown() )
+    {
+        auto it = m_evalOriginal.find( { aRow, aCol } );
+
+        if( it != m_evalOriginal.end() )
+            return it->second;
+    }
 
     switch( aCol )
     {
@@ -436,7 +548,7 @@ wxString FIELDS_GRID_TABLE<T>::GetValue( int aRow, int aCol )
         if( m_parentType == SCH_SYMBOL_T )
         {
             if( aRow < m_mandatoryFieldCount )
-                return TEMPLATE_FIELDNAME::GetDefaultFieldName( aRow );
+                return TEMPLATE_FIELDNAME::GetDefaultFieldName( aRow, DO_TRANSLATE );
             else
                 return field.GetName( false );
         }
@@ -462,6 +574,9 @@ wxString FIELDS_GRID_TABLE<T>::GetValue( int aRow, int aCol )
 
     case FDC_SHOWN:
         return StringFromBool( field.IsVisible() );
+
+    case FDC_SHOW_NAME:
+        return StringFromBool( field.IsNameShown() );
 
     case FDC_H_ALIGN:
         switch ( field.GetHorizJustify() )
@@ -490,7 +605,7 @@ wxString FIELDS_GRID_TABLE<T>::GetValue( int aRow, int aCol )
         return StringFromBool( field.IsBold() );
 
     case FDC_TEXT_SIZE:
-        return StringFromValue( m_frame->GetUserUnits(), field.GetTextSize().GetHeight(), true );
+        return m_frame->StringFromValue( field.GetTextHeight(), true );
 
     case FDC_ORIENTATION:
         if( field.GetTextAngle().IsHorizontal() )
@@ -499,10 +614,22 @@ wxString FIELDS_GRID_TABLE<T>::GetValue( int aRow, int aCol )
             return _( "Vertical" );
 
     case FDC_POSX:
-        return StringFromValue( m_frame->GetUserUnits(), field.GetTextPos().x, true );
+        return m_frame->StringFromValue( field.GetTextPos().x, true );
 
     case FDC_POSY:
-        return StringFromValue( m_frame->GetUserUnits(), field.GetTextPos().y, true );
+        return m_frame->StringFromValue( field.GetTextPos().y, true );
+
+    case FDC_FONT:
+        if( field.GetFont() )
+            return field.GetFont()->GetName();
+        else
+            return DEFAULT_FONT_NAME;
+
+    case FDC_COLOR:
+        return field.GetTextColor().ToCSSString();
+
+    case FDC_ALLOW_AUTOPLACE:
+        return StringFromBool( field.CanAutoplace() );
 
     default:
         // we can't assert here because wxWidgets sometimes calls this without checking
@@ -522,9 +649,11 @@ bool FIELDS_GRID_TABLE<T>::GetValueAsBool( int aRow, int aCol )
 
     switch( aCol )
     {
-    case FDC_SHOWN:  return field.IsVisible();
-    case FDC_ITALIC: return field.IsItalic();
-    case FDC_BOLD:   return field.IsBold();
+    case FDC_SHOWN:           return field.IsVisible();
+    case FDC_SHOW_NAME:       return field.IsNameShown();
+    case FDC_ITALIC:          return field.IsItalic();
+    case FDC_BOLD:            return field.IsBold();
+    case FDC_ALLOW_AUTOPLACE: return field.CanAutoplace();
     default:
         wxFAIL_MSG( wxString::Format( wxT( "column %d doesn't hold a bool value" ), aCol ) );
         return false;
@@ -538,17 +667,35 @@ void FIELDS_GRID_TABLE<T>::SetValue( int aRow, int aCol, const wxString &aValue 
     wxCHECK( aRow < GetNumberRows(), /*void*/ );
     T& field = this->at( (size_t) aRow );
     VECTOR2I pos;
+    wxString value = aValue;
+
+    switch( aCol )
+    {
+    case FDC_TEXT_SIZE:
+    case FDC_POSX:
+    case FDC_POSY:
+        m_eval->SetDefaultUnits( m_frame->GetUserUnits() );
+
+        if( m_eval->Process( value ) )
+        {
+            m_evalOriginal[ { aRow, aCol } ] = value;
+            value = m_eval->Result();
+        }
+
+        break;
+
+    default:
+        break;
+    }
 
     switch( aCol )
     {
     case FDC_NAME:
-        field.SetName( aValue );
+        field.SetName( value );
         break;
 
     case FDC_VALUE:
     {
-        wxString value( aValue );
-
         if( m_parentType == SCH_SHEET_T && aRow == SHEETFILENAME )
         {
             wxFileName fn( value );
@@ -561,71 +708,98 @@ void FIELDS_GRID_TABLE<T>::SetValue( int aRow, int aCol, const wxString &aValue 
                 value = fn.GetFullPath();
             }
         }
-        else if( m_frame->IsType( FRAME_SCH_SYMBOL_EDITOR ) && aRow == VALUE_FIELD )
+        else if( m_parentType == LIB_SYMBOL_T && aRow == VALUE_FIELD )
         {
             value = EscapeString( value, CTX_LIBID );
         }
 
         field.SetText( value );
-    }
         break;
+    }
 
     case FDC_SHOWN:
-        field.SetVisible( BoolFromString( aValue ) );
+        field.SetVisible( BoolFromString( value ) );
+        break;
+
+    case FDC_SHOW_NAME:
+        field.SetNameShown( BoolFromString( value ) );
         break;
 
     case FDC_H_ALIGN:
-        if( aValue == _( "Left" ) )
+        if( value == _( "Left" ) )
             field.SetHorizJustify( GR_TEXT_H_ALIGN_LEFT );
-        else if( aValue == _( "Center" ) )
+        else if( value == _( "Center" ) )
             field.SetHorizJustify( GR_TEXT_H_ALIGN_CENTER );
-        else if( aValue == _( "Right" ) )
+        else if( value == _( "Right" ) )
             field.SetHorizJustify( GR_TEXT_H_ALIGN_RIGHT );
         else
-            wxFAIL_MSG( wxT( "unknown horizontal alignment: " ) + aValue );
+            wxFAIL_MSG( wxT( "unknown horizontal alignment: " ) + value );
+
         break;
 
     case FDC_V_ALIGN:
-        if( aValue == _( "Top" ) )
+        if( value == _( "Top" ) )
             field.SetVertJustify( GR_TEXT_V_ALIGN_TOP );
-        else if( aValue == _( "Center" ) )
+        else if( value == _( "Center" ) )
             field.SetVertJustify( GR_TEXT_V_ALIGN_CENTER );
-        else if( aValue == _( "Bottom" ) )
+        else if( value == _( "Bottom" ) )
             field.SetVertJustify( GR_TEXT_V_ALIGN_BOTTOM );
         else
-            wxFAIL_MSG( wxT( "unknown vertical alignment: " ) + aValue);
+            wxFAIL_MSG( wxT( "unknown vertical alignment: " ) + value);
+
         break;
 
     case FDC_ITALIC:
-        field.SetItalic( BoolFromString( aValue ) );
+        field.SetItalic( BoolFromString( value ) );
         break;
 
     case FDC_BOLD:
-        field.SetBold( BoolFromString( aValue ) );
+        field.SetBold( BoolFromString( value ) );
         break;
 
     case FDC_TEXT_SIZE:
-        field.SetTextSize( wxSize( ValueFromString( m_frame->GetUserUnits(), aValue ),
-                                   ValueFromString( m_frame->GetUserUnits(), aValue ) ) );
+        field.SetTextSize( wxSize( m_frame->ValueFromString( value ),
+                                   m_frame->ValueFromString( value ) ) );
         break;
 
     case FDC_ORIENTATION:
-        if( aValue == _( "Horizontal" ) )
+        if( value == _( "Horizontal" ) )
             field.SetTextAngle( ANGLE_HORIZONTAL );
-        else if( aValue == _( "Vertical" ) )
+        else if( value == _( "Vertical" ) )
             field.SetTextAngle( ANGLE_VERTICAL );
         else
-            wxFAIL_MSG( wxT( "unknown orientation: " ) + aValue );
+            wxFAIL_MSG( wxT( "unknown orientation: " ) + value );
+
         break;
 
     case FDC_POSX:
     case FDC_POSY:
         pos = field.GetTextPos();
+
         if( aCol == FDC_POSX )
-            pos.x = ValueFromString( m_frame->GetUserUnits(), aValue );
+            pos.x = m_frame->ValueFromString( value );
         else
-            pos.y = ValueFromString( m_frame->GetUserUnits(), aValue );
+            pos.y = m_frame->ValueFromString( value );
+
         field.SetTextPos( pos );
+        break;
+
+    case FDC_FONT:
+        if( value == DEFAULT_FONT_NAME )
+            field.SetFont( nullptr );
+        else if( value == KICAD_FONT_NAME )
+            field.SetFont( KIFONT::FONT::GetFont( wxEmptyString, field.IsBold(), field.IsItalic() ) );
+        else
+            field.SetFont( KIFONT::FONT::GetFont( aValue, field.IsBold(), field.IsItalic() ) );
+
+        break;
+
+    case FDC_COLOR:
+        field.SetTextColor( wxColor( value ) );
+        break;
+
+    case FDC_ALLOW_AUTOPLACE:
+        field.SetCanAutoplace( BoolFromString( value ) );
         break;
 
     default:
@@ -650,12 +824,23 @@ void FIELDS_GRID_TABLE<T>::SetValueAsBool( int aRow, int aCol, bool aValue )
     case FDC_SHOWN:
         field.SetVisible( aValue );
         break;
+
+    case FDC_SHOW_NAME:
+        field.SetNameShown( aValue );
+        break;
+
     case FDC_ITALIC:
         field.SetItalic( aValue );
         break;
+
     case FDC_BOLD:
         field.SetBold( aValue );
         break;
+
+    case FDC_ALLOW_AUTOPLACE:
+        field.SetCanAutoplace( aValue );
+        break;
+
     default:
         wxFAIL_MSG( wxString::Format( wxT( "column %d doesn't hold a bool value" ), aCol ) );
         break;
@@ -706,7 +891,7 @@ void FIELDS_GRID_TRICKS::doPopupSelection( wxCommandEvent& event )
     else if (event.GetId() == MYID_SHOW_DATASHEET )
     {
         wxString datasheet_uri = m_grid->GetCellValue( DATASHEET_FIELD, FDC_VALUE );
-        GetAssociatedDocument( m_dlg, datasheet_uri, &m_dlg->Prj() );
+        GetAssociatedDocument( m_dlg, datasheet_uri, &m_dlg->Prj(), m_dlg->Prj().SchSearchS() );
     }
     else
     {

@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2004-2010 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2010 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
- * Copyright (C) 2018-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2018-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -36,6 +36,8 @@
 #include <gerbview_painter.h>
 #include <gal/graphics_abstraction_layer.h>
 #include <settings/settings_manager.h>
+#include <tool/tool_manager.h>
+#include <tools/gerbview_actions.h>
 
 #include "layer_widget.h"
 #include "gbr_layer_box_selector.h"
@@ -78,6 +80,41 @@ void GERBER_LAYER_WIDGET::SetLayersManagerTabsText()
     m_notebook->SetPageText( 1, _( "Items" ) );
 }
 
+
+void GERBER_LAYER_WIDGET::CollectCurrentColorSettings(  COLOR_SETTINGS* aColorSettings )
+{
+    std::vector<int>render_layers{ LAYER_DCODES, LAYER_NEGATIVE_OBJECTS, LAYER_GERBVIEW_GRID,
+                            LAYER_GERBVIEW_DRAWINGSHEET, LAYER_GERBVIEW_PAGE_LIMITS,
+                            LAYER_GERBVIEW_BACKGROUND };
+
+    for( int layer: render_layers )
+    {
+        int row = findRenderRow( layer );
+
+        if( row < 0 )
+            continue;
+
+        COLOR4D color = GetRenderColor( row );
+
+        if( color != COLOR4D::UNSPECIFIED )
+            aColorSettings->SetColor( layer, color );
+    }
+
+    for( int layer = GERBVIEW_LAYER_ID_START; layer < GERBVIEW_LAYER_ID_START + GERBER_DRAWLAYERS_COUNT; layer++ )
+    {
+        int row = findLayerRow( layer - GERBVIEW_LAYER_ID_START );
+
+        if( row < 0 )   // Not existing in layer list
+            continue;
+
+        COLOR4D color = GetLayerColor( row );
+
+        if( color != COLOR4D::UNSPECIFIED )
+            aColorSettings->SetColor( layer, color );
+    }
+}
+
+
 void GERBER_LAYER_WIDGET::ReFillRender()
 {
     ClearRenderRows();
@@ -86,7 +123,7 @@ void GERBER_LAYER_WIDGET::ReFillRender()
     // is changed before appending to the LAYER_WIDGET.  This is an automatic variable
     // not a static variable, change the color & state after copying from code to renderRows
     // on the stack.
-    LAYER_WIDGET::ROW renderRows[6] = {
+    LAYER_WIDGET::ROW renderRows[7] = {
 
 #define RR  LAYER_WIDGET::ROW   // Render Row abbreviation to reduce source width
 
@@ -99,6 +136,8 @@ void GERBER_LAYER_WIDGET::ReFillRender()
             _( "Show the (x,y) grid dots" ) ),
         RR( _( "Drawing Sheet" ),    LAYER_GERBVIEW_DRAWINGSHEET, DARKRED,
             _( "Show drawing sheet border and title block") ),
+        RR( _( "Page Limits" ),      LAYER_GERBVIEW_PAGE_LIMITS,  WHITE,
+            _( "Show drawing sheet page limits" ) ),
         RR( _( "Background" ),       LAYER_GERBVIEW_BACKGROUND,   BLACK,
             _( "PCB Background" ), true, false )
     };
@@ -213,23 +252,11 @@ void GERBER_LAYER_WIDGET::onPopupSelection( wxCommandEvent& event )
         break;
 
     case ID_LAYER_MOVE_UP:
-        layer = m_frame->GetActiveLayer();
-
-        if( layer > 0 )
-        {
-            m_frame->RemapLayers( GetImagesList()->SwapImages( layer, layer - 1 ) );
-            m_frame->SetActiveLayer( layer - 1 );
-        }
+        m_frame->GetToolManager()->RunAction( GERBVIEW_ACTIONS::moveLayerUp, true );
         break;
 
     case ID_LAYER_MOVE_DOWN:
-        layer = m_frame->GetActiveLayer();
-
-        if( layer < ( (int)GetImagesList()->GetLoadedImageCount() - 1 ) )
-        {
-            m_frame->RemapLayers( GetImagesList()->SwapImages( layer, layer + 1 ) );
-            m_frame->SetActiveLayer( layer + 1 );
-        }
+        m_frame->GetToolManager()->RunAction( GERBVIEW_ACTIONS::moveLayerDown, true );
         break;
 
     case ID_LAYER_DELETE:
@@ -304,8 +331,10 @@ void GERBER_LAYER_WIDGET::OnLayerColorChange( int aLayer, const COLOR4D& aColor 
     m_frame->m_SelLayerBox->ResyncBitmapOnly();
 
     KIGFX::VIEW* view = m_frame->GetCanvas()->GetView();
-    auto settings = m_frame->GetSettingsManager()->GetColorSettings();
-    view->GetPainter()->GetSettings()->LoadColors( settings );
+    COLOR_SETTINGS* color_settings = m_frame->GetColorSettings();
+    color_settings->SetColor( aLayer, aColor );
+
+    view->GetPainter()->GetSettings()->LoadColors( color_settings );
     view->UpdateLayerColor( GERBER_DRAW_LAYER( aLayer ) );
 
     m_frame->GetCanvas()->Refresh();
@@ -356,9 +385,11 @@ void GERBER_LAYER_WIDGET::OnRenderColorChange( int aId, const COLOR4D& aColor )
     m_frame->SetVisibleElementColor( aId, aColor );
 
     auto view = m_frame->GetCanvas()->GetView();
-    COLOR_SETTINGS* settings = m_frame->GetSettingsManager()->GetColorSettings();
 
-    view->GetPainter()->GetSettings()->LoadColors( settings );
+    COLOR_SETTINGS* color_settings = m_frame->GetColorSettings();
+    color_settings->SetColor( aId, aColor );
+
+    view->GetPainter()->GetSettings()->LoadColors( color_settings );
     view->UpdateLayerColor( aId );
     view->MarkTargetDirty( KIGFX::TARGET_NONCACHED );
     view->UpdateAllItems( KIGFX::COLOR );
@@ -384,10 +415,4 @@ void GERBER_LAYER_WIDGET::OnRenderEnable( int aId, bool isEnabled )
     }
 
     m_frame->GetCanvas()->Refresh();
-}
-
-
-bool GERBER_LAYER_WIDGET::useAlternateBitmap( int aRow )
-{
-    return GetImagesList()->GetGbrImage( aRow ) != nullptr;
 }

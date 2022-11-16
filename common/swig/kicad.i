@@ -77,6 +77,9 @@ principle should be easily implemented by adapting the current STL containers.
 %ignore operator <<;
 %ignore operator=;
 
+%ignore to_json;
+%ignore from_json;
+
 // headers/imports that must be included in the _wrapper.cpp at top
 
 %{
@@ -84,8 +87,8 @@ principle should be easily implemented by adapting the current STL containers.
     #include <macros_swig.h>
     #include <kiid.h>
     #include <cstddef>
+    #include <base_units.h>
     #include <eda_item.h>
-    #include <eda_rect.h>
     #include <eda_units.h>
     #include <common.h>
     #include <richio.h>
@@ -97,7 +100,6 @@ principle should be easily implemented by adapting the current STL containers.
     #include <title_block.h>
     #include <marker_base.h>
     #include <eda_text.h>
-    #include <convert_to_biu.h>
     #include <id.h>
     #include <build_version.h>
     #include <layer_ids.h>
@@ -110,13 +112,19 @@ principle should be easily implemented by adapting the current STL containers.
 // SWIG is incompatible with std::unique_ptr
 %ignore GetNewConfig;
 
+// wrapper of BASE_SEQ (see typedef std::vector<PCB_LAYER_ID> BASE_SEQ;)
+%template(base_seqVect) std::vector<enum PCB_LAYER_ID>;
+
+// TODO: wrapper of BASE_SET (see std::bitset<PCB_LAYER_ID_COUNT> BASE_SET;)
+
+
 // header files that must be wrapped
 %include <outline_mode.h>
 %include macros_swig.h
 %include kiid.h
 %include core/typeinfo.h
 %include eda_item.h
-%include eda_rect.h
+%include base_units.h
 %include eda_units.h
 %include common.h
 %include richio.h
@@ -125,6 +133,7 @@ principle should be easily implemented by adapting the current STL containers.
 %include marker_base.h
 %include eda_text.h
 %include build_version.h
+%include layer_ids.h
 %include settings/settings_manager.h
 
 // Cast time_t to known type for Python
@@ -133,11 +142,6 @@ typedef long time_t;
 // std template mappings
 %template(intVector) std::vector<int>;
 %template(str_utf8_Map) std::map< std::string,UTF8 >;
-
-// wrapper of BASE_SEQ (see typedef std::vector<PCB_LAYER_ID> BASE_SEQ;)
-%template(base_seqVect) std::vector<enum PCB_LAYER_ID>;
-
-// TODO: wrapper of BASE_SET (see std::bitset<PCB_LAYER_ID_COUNT> BASE_SET;)
 
 
 // KiCad plugin handling

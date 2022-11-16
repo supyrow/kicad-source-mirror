@@ -28,6 +28,8 @@
 #include <confirm.h>
 #include <gestfich.h>
 #include <eda_dde.h>
+#include "eeschema_jobs_handler.h"
+#include "eeschema_helpers.h"
 #include <eeschema_settings.h>
 #include <sch_edit_frame.h>
 #include <symbol_edit_frame.h>
@@ -37,7 +39,6 @@
 #include <dialogs/dialog_global_sym_lib_table_config.h>
 #include <dialogs/panel_sym_lib_table.h>
 #include <kiway.h>
-#include <sim/sim_plot_frame.h>
 #include <settings/settings_manager.h>
 #include <symbol_editor_settings.h>
 #include <sexpr/sexpr.h>
@@ -53,10 +54,12 @@
 #include <panel_eeschema_color_settings.h>
 #include <panel_sym_color_settings.h>
 #include <panel_eeschema_editing_options.h>
+#include <panel_eeschema_annotation_options.h>
 #include <panel_sym_editing_options.h>
 #include <dialogs/panel_gal_display_options.h>
 #include <panel_eeschema_display_options.h>
 #include <panel_sym_display_options.h>
+#include <sim/sim_plot_frame.h>
 
 // The main sheet of the project
 SCH_SHEET*  g_RootSheet = nullptr;
@@ -132,7 +135,7 @@ static struct IFACE : public KIFACE_BASE
 
     void OnKifaceEnd() override;
 
-    wxWindow* CreateWindow( wxWindow* aParent, int aClassId, KIWAY* aKiway,
+    wxWindow* CreateKiWindow( wxWindow* aParent, int aClassId, KIWAY* aKiway,
                             int aCtlBits = 0 ) override
     {
         switch( aClassId )
@@ -140,6 +143,8 @@ static struct IFACE : public KIFACE_BASE
         case FRAME_SCH:
         {
             SCH_EDIT_FRAME* frame = new SCH_EDIT_FRAME( aKiway, aParent );
+
+            EESCHEMA_HELPERS::SetSchEditFrame( frame );
 
             if( Kiface().IsSingle() )
             {
@@ -249,6 +254,13 @@ static struct IFACE : public KIFACE_BASE
             return new PANEL_EESCHEMA_EDITING_OPTIONS( aParent, unitsProvider );
         }
 
+        case PANEL_SCH_ANNO_OPTIONS:
+        {
+            EDA_BASE_FRAME* schSettingsProvider = aKiway->Player( FRAME_SCH, false );
+
+            return new PANEL_EESCHEMA_ANNOTATION_OPTIONS( aParent, schSettingsProvider );
+        }
+
         case PANEL_SCH_COLORS:
             return new PANEL_EESCHEMA_COLOR_SETTINGS( aParent );
 
@@ -289,6 +301,12 @@ static struct IFACE : public KIFACE_BASE
     void SaveFileAs( const wxString& aProjectBasePath, const wxString& aProjectName,
                      const wxString& aNewProjectBasePath, const wxString& aNewProjectName,
                      const wxString& aSrcFilePath, wxString& aErrors ) override;
+
+
+    int HandleJob( JOB* aJob ) override;
+
+private:
+    std::unique_ptr<EESCHEMA_JOBS_HANDLER> m_jobHandler;
 
 } kiface( "eeschema", KIWAY::FACE_SCH );
 
@@ -366,6 +384,8 @@ bool IFACE::OnKifaceStart( PGM_BASE* aProgram, int aCtlBits )
         }
     }
 
+    m_jobHandler = std::make_unique<EESCHEMA_JOBS_HANDLER>();
+
     return true;
 }
 
@@ -409,7 +429,21 @@ void IFACE::SaveFileAs( const wxString& aProjectBasePath, const wxString& aProje
         ext == KiCadSchematicFileExtension + BackupFileSuffix )
     {
         if( destFile.GetName() == aProjectName )
+        {
             destFile.SetName( aNewProjectName  );
+        }
+        else if( destFile.GetName() == aNewProjectName )
+        {
+            wxString msg;
+
+            if( !aErrors.empty() )
+                aErrors += "\n";
+
+            msg.Printf( _( "Cannot copy file '%s' as it will be overwritten by the new root "
+                           "sheet file." ), destFile.GetFullPath() );
+            aErrors += msg;
+            return;
+        }
 
         // Sheet paths when auto-generated are relative to the root, so those will stay
         // pointing to whatever they were pointing at.
@@ -431,7 +465,10 @@ void IFACE::SaveFileAs( const wxString& aProjectBasePath, const wxString& aProje
              ext == KiCadSymbolLibFileExtension )
     {
         if( destFile.GetName() == aProjectName + "-cache" )
-            destFile.SetName( aNewProjectName + "-cache"  );
+            destFile.SetName( aNewProjectName + "-cache" );
+
+        if( destFile.GetName() == aProjectName + "-rescue" )
+            destFile.SetName( aNewProjectName + "-rescue" );
 
         KiCopyFile( aSrcFilePath, destFile.GetFullPath(), aErrors );
     }
@@ -538,3 +575,7 @@ void IFACE::SaveFileAs( const wxString& aProjectBasePath, const wxString& aProje
     }
 }
 
+int IFACE::HandleJob( JOB* aJob )
+{
+    return m_jobHandler->RunJob( aJob );
+}

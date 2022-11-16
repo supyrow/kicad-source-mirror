@@ -18,12 +18,18 @@ set( PCB_CALCULATOR_SRCS
     calculator_panels/panel_attenuators_base.cpp
     calculator_panels/panel_board_class.cpp
     calculator_panels/panel_board_class_base.cpp
+    calculator_panels/panel_cable_size.cpp
+    calculator_panels/panel_cable_size_base.cpp
     calculator_panels/panel_color_code.cpp
     calculator_panels/panel_color_code_base.cpp
+    calculator_panels/panel_corrosion.cpp
+    calculator_panels/panel_corrosion_base.cpp
     calculator_panels/panel_electrical_spacing.cpp
     calculator_panels/panel_electrical_spacing_base.cpp
     calculator_panels/panel_eserie.cpp
     calculator_panels/panel_eserie_base.cpp
+    calculator_panels/panel_fusing_current.cpp
+    calculator_panels/panel_fusing_current_base.cpp
     calculator_panels/panel_regulator.cpp
     calculator_panels/panel_regulator_base.cpp
     calculator_panels/panel_track_width.cpp
@@ -32,6 +38,8 @@ set( PCB_CALCULATOR_SRCS
     calculator_panels/panel_transline_base.cpp
     calculator_panels/panel_via_size.cpp
     calculator_panels/panel_via_size_base.cpp
+    calculator_panels/panel_wavelength.cpp
+    calculator_panels/panel_wavelength_base.cpp
     transline_ident.cpp
     widgets/unit_selector.cpp
     transline/transline.cpp
@@ -46,6 +54,7 @@ set( PCB_CALCULATOR_SRCS
     attenuators/attenuator_classes.cpp
     dialogs/dialog_regulator_form_base.cpp
     dialogs/dialog_regulator_form.cpp
+    pcb_calculator_utils.cpp
     ../common/env_vars.cpp      # needed on MSW to avoid a link issue (a symbol not found)
     )
 
@@ -157,7 +166,7 @@ else()
         COMPONENT binary
         )
     install( TARGETS pcb_calculator_kiface
-        DESTINATION ${KICAD_BIN}
+        DESTINATION ${KICAD_KIFACE}
         COMPONENT binary
         )
 endif()
@@ -165,7 +174,7 @@ endif()
 if( KICAD_WIN32_INSTALL_PDBS )
     # Get the PDBs to copy over for MSVC
     install(FILES $<TARGET_PDB_FILE:pcb_calculator> DESTINATION ${KICAD_BIN})
-    install(FILES $<TARGET_PDB_FILE:pcb_calculator_kiface> DESTINATION ${KICAD_BIN})
+    install(FILES $<TARGET_PDB_FILE:pcb_calculator_kiface> DESTINATION ${KICAD_KIFACE})
 endif()
 
 # auto-generate pcb_calculator_datafile.h and pcb_calculator_datafile_keywords.cpp
@@ -212,6 +221,7 @@ endfunction()
     md_doc2h( ${CMAKE_CURRENT_SOURCE_DIR}/attenuators/tee_formula )
     md_doc2h( ${CMAKE_CURRENT_SOURCE_DIR}/tracks_width_versus_current_formula )
     md_doc2h( ${CMAKE_CURRENT_SOURCE_DIR}/eserie_help )
+    md_doc2h( ${CMAKE_CURRENT_SOURCE_DIR}/fusing_current_help )
 
 set( DOCS_LIST
         ${CMAKE_CURRENT_SOURCE_DIR}/attenuators/pi_formula.h
@@ -220,6 +230,7 @@ set( DOCS_LIST
         ${CMAKE_CURRENT_SOURCE_DIR}/attenuators/splitter_formula.h
         ${CMAKE_CURRENT_SOURCE_DIR}/tracks_width_versus_current_formula.h
         ${CMAKE_CURRENT_SOURCE_DIR}/eserie_help.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/fusing_current_help.h
     )
 
 set_source_files_properties( attenuators/attenuator_classes.cpp

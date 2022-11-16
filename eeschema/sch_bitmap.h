@@ -86,9 +86,9 @@ public:
     /**
      * @return the actual size (in user units, not in pixels) of the image.
      */
-    wxSize GetSize() const;
+    VECTOR2I GetSize() const;
 
-    const EDA_RECT GetBoundingBox() const override;
+    const BOX2I GetBoundingBox() const override;
 
     void SwapData( SCH_ITEM* aItem ) override;
 
@@ -124,7 +124,7 @@ public:
     void MirrorVertically( int aCenter ) override;
     void Rotate( const VECTOR2I& aCenter ) override;
 
-    wxString GetSelectMenuText( EDA_UNITS aUnits ) const override
+    wxString GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const override
     {
         return wxString( _( "Image" ) );
     }
@@ -137,7 +137,7 @@ public:
     void     SetPosition( const VECTOR2I& aPosition ) override { m_pos = aPosition; }
 
     bool HitTest( const VECTOR2I& aPosition, int aAccuracy = 0 ) const override;
-    bool HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy = 0 ) const override;
+    bool HitTest( const BOX2I& aRect, bool aContained, int aAccuracy = 0 ) const override;
 
     void Plot( PLOTTER* aPlotter, bool aBackground ) const override;
 

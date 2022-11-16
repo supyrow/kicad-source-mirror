@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2017 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 2017-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2017-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -38,7 +38,6 @@
  */
 
 #include <trigo.h>
-#include <eda_item.h>
 #include <plotters/plotter.h>
 #include <geometry/shape_line_chain.h>
 #include <bezier_curves.h>
@@ -92,12 +91,6 @@ VECTOR2D PLOTTER::userToDeviceCoordinates( const VECTOR2I& aCoordinate )
 {
     VECTOR2I pos = aCoordinate - m_plotOffset;
 
-    // Don't allow overflows; they can cause rendering failures in some file viewers
-    // (such as Acrobat)
-    int clampSize = MAX_PAGE_SIZE_MILS * m_IUsPerDecimil * 10 / 2;
-    pos.x = std::max( -clampSize, std::min( pos.x, clampSize ) );
-    pos.y = std::max( -clampSize, std::min( pos.y, clampSize ) );
-
     double x = pos.x * m_plotScale;
     double y = ( m_paperSize.y - pos.y * m_plotScale );
 
@@ -135,21 +128,21 @@ double PLOTTER::userToDeviceSize( double size ) const
 #define IU_PER_MILS ( m_IUsPerDecimil * 10 )
 
 
-double PLOTTER::GetDotMarkLenIU() const
+double PLOTTER::GetDotMarkLenIU( int aLineWidth ) const
 {
-    return userToDeviceSize( m_renderSettings->GetDotLength( GetCurrentLineWidth() ) );
+    return userToDeviceSize( m_renderSettings->GetDotLength( aLineWidth ) );
 }
 
 
-double PLOTTER::GetDashMarkLenIU() const
+double PLOTTER::GetDashMarkLenIU( int aLineWidth ) const
 {
-    return userToDeviceSize( m_renderSettings->GetDashLength( GetCurrentLineWidth() ) );
+    return userToDeviceSize( m_renderSettings->GetDashLength( aLineWidth ) );
 }
 
 
-double PLOTTER::GetDashGapLenIU() const
+double PLOTTER::GetDashGapLenIU( int aLineWidth ) const
 {
-    return userToDeviceSize( m_renderSettings->GetGapLength( GetCurrentLineWidth() ) );
+    return userToDeviceSize( m_renderSettings->GetGapLength( aLineWidth ) );
 }
 
 
@@ -159,11 +152,6 @@ void PLOTTER::Arc( const VECTOR2I& aCenter, const VECTOR2I& aStart, const VECTOR
     EDA_ANGLE startAngle( aStart - aCenter );
     EDA_ANGLE endAngle( aEnd - aCenter );
     int       radius = ( aStart - aCenter ).EuclideanNorm();
-    int       numSegs = GetArcToSegmentCount( radius, aMaxError, FULL_CIRCLE );
-    EDA_ANGLE delta = ANGLE_360 / std::max( 8, numSegs );
-    VECTOR2I  start( aStart );
-    VECTOR2I  end( aEnd );
-    VECTOR2I  pt;
 
     if( startAngle > endAngle )
     {
@@ -173,26 +161,14 @@ void PLOTTER::Arc( const VECTOR2I& aCenter, const VECTOR2I& aStart, const VECTOR
             startAngle = startAngle.Normalize() - ANGLE_360;
     }
 
-    SetCurrentLineWidth( aWidth );
-    MoveTo( start );
+    // In old Kicad code, calls to Arc() using angles calls this function after
+    // swapping angles and negate them (to compensate the inverted Y axis).
+    // So to be compatible with Arc() calls with angles, do the same thing
+    std::swap( startAngle, endAngle );
+    startAngle = -startAngle;
+    endAngle = -endAngle;
 
-    for( EDA_ANGLE ii = delta; startAngle + ii < endAngle; ii += delta )
-    {
-        pt = start;
-        RotatePoint( pt, aCenter, -ii );
-
-        LineTo( pt );
-    }
-
-    if( aFill == FILL_T::NO_FILL )
-    {
-        FinishTo( end );
-    }
-    else
-    {
-        LineTo( end );
-        FinishTo( aCenter );
-    }
+    Arc( aCenter, startAngle, endAngle, radius, aFill, aWidth );
 }
 
 
@@ -203,15 +179,15 @@ void PLOTTER::Arc( const VECTOR2I& aCenter, const EDA_ANGLE& aStartAngle,
     EDA_ANGLE       endAngle( aEndAngle );
     const EDA_ANGLE delta( 5.0, DEGREES_T ); // increment to draw arc
     VECTOR2I        start, end;
+    const int       sign = -1;
 
     if( startAngle > endAngle )
         std::swap( startAngle, endAngle );
 
     SetCurrentLineWidth( aWidth );
 
-    /* Please NOTE the different sign due to Y-axis flip */
-    start.x = aCenter.x + KiROUND( aRadius * -startAngle.Cos() );
-    start.y = aCenter.y + KiROUND( aRadius * -startAngle.Sin() );
+    start.x = aCenter.x + KiROUND( aRadius * startAngle.Cos() );
+    start.y = aCenter.y + sign*KiROUND( aRadius * startAngle.Sin() );
 
     if( aFill != FILL_T::NO_FILL )
     {
@@ -225,13 +201,13 @@ void PLOTTER::Arc( const VECTOR2I& aCenter, const EDA_ANGLE& aStartAngle,
 
     for( EDA_ANGLE ii = startAngle + delta; ii < endAngle; ii += delta )
     {
-        end.x = aCenter.x + KiROUND( aRadius * -ii.Cos() );
-        end.y = aCenter.y + KiROUND( aRadius * -ii.Sin() );
+        end.x = aCenter.x + KiROUND( aRadius * ii.Cos() );
+        end.y = aCenter.y + sign*KiROUND( aRadius * ii.Sin() );
         LineTo( end );
     }
 
-    end.x = aCenter.x + KiROUND( aRadius * -endAngle.Cos() );
-    end.y = aCenter.y + KiROUND( aRadius * -endAngle.Sin() );
+    end.x = aCenter.x + KiROUND( aRadius * endAngle.Cos() );
+    end.y = aCenter.y + sign*KiROUND( aRadius * endAngle.Sin() );
 
     if( aFill != FILL_T::NO_FILL )
     {
@@ -523,7 +499,6 @@ void PLOTTER::sketchOval( const VECTOR2I& aPos, const VECTOR2I& aSize, const EDA
     SetCurrentLineWidth( aWidth );
 
     EDA_ANGLE orient( aOrient );
-    VECTOR2I  pt;
     VECTOR2I  size( aSize );
 
     if( size.x > size.y )
@@ -533,34 +508,41 @@ void PLOTTER::sketchOval( const VECTOR2I& aPos, const VECTOR2I& aSize, const EDA
     }
 
     int deltaxy = size.y - size.x;       /* distance between centers of the oval */
-    int radius  = ( size.x - m_currentPenWidth ) / 2;
+    int radius  = size.x / 2;
 
-    pt.x = -radius;
-    pt.y = -deltaxy / 2;
-    RotatePoint( pt, orient );
-    MoveTo( pt + aPos );
-    pt.x = -radius;
-    pt.y = deltaxy / 2;
-    RotatePoint( pt, orient );
-    FinishTo( pt + aPos );
+    // Build a vertical oval shape giving the start and end points of arcs and edges,
+    // and the middle point of arcs
+    std::vector<VECTOR2I> corners;
+    corners.reserve( 6 );
+    // Shape is (x = corner and arc ends, c = arc centre)
+    //  xcx
+    //
+    //  xcx
+    int half_height = deltaxy / 2;
+    corners.emplace_back( -radius, -half_height );
+    corners.emplace_back( -radius, half_height );
+    corners.emplace_back( 0, half_height );
+    corners.emplace_back( radius, half_height );
+    corners.emplace_back( radius, -half_height );
+    corners.emplace_back( 0, -half_height );
 
-    pt.x = radius;
-    pt.y = -deltaxy / 2;
-    RotatePoint( pt, orient );
-    MoveTo( pt + aPos );
-    pt.x = radius;
-    pt.y = deltaxy / 2;
-    RotatePoint( pt, orient );
-    FinishTo( pt + aPos );
+    // Rotate and move to the actual position
+    for( size_t ii = 0; ii < corners.size(); ii++ )
+    {
+        RotatePoint( corners[ii], orient );
+        corners[ii] += aPos;
+    }
 
-    pt.x = 0;
-    pt.y = deltaxy / 2;
-    RotatePoint( pt, orient );
-    Arc( pt + aPos, orient + ANGLE_180, orient + ANGLE_360, radius, FILL_T::NO_FILL );
-    pt.x = 0;
-    pt.y = -deltaxy / 2;
-    RotatePoint( pt, orient );
-    Arc( pt + aPos, orient, orient + ANGLE_180, radius, FILL_T::NO_FILL );
+    // Gen shape:
+    MoveTo( corners[0] );
+    FinishTo( corners[1] );
+
+    Arc( corners[2], orient + ANGLE_180, orient + ANGLE_360, radius, FILL_T::NO_FILL );
+
+    MoveTo( corners[3] );
+    FinishTo( corners[4] );
+
+    Arc( corners[5], orient, orient + ANGLE_180, radius, FILL_T::NO_FILL );
 }
 
 
@@ -604,6 +586,42 @@ void PLOTTER::ThickArc( const VECTOR2I& centre, const EDA_ANGLE& aStartAngle,
         Arc( centre, aStartAngle, aEndAngle, aRadius + ( aWidth - m_currentPenWidth ) / 2,
              FILL_T::NO_FILL, -1 );
     }
+}
+
+
+void PLOTTER::ThickArc( const VECTOR2I& aCentre, const VECTOR2I& aStart,
+                        const VECTOR2I& aEnd, int aWidth,
+                        OUTLINE_MODE aTraceMode, void* aData )
+{
+    if( aTraceMode == FILLED )
+    {
+        Arc( aCentre, aStart, aEnd, FILL_T::NO_FILL, aWidth, GetPlotterArcHighDef() );
+    }
+    else
+    {
+        SetCurrentLineWidth( -1 );
+        int radius = ( aStart - aCentre ).EuclideanNorm();
+
+        int new_radius = radius - ( aWidth - m_currentPenWidth ) / 2;
+        VECTOR2I start = ( aStart - aCentre ).Resize( new_radius ) + aCentre;
+        VECTOR2I end = ( aEnd - aCentre ).Resize( new_radius ) + aCentre;
+
+        Arc( aCentre, start, end, FILL_T::NO_FILL, -1, GetPlotterArcHighDef() );
+
+        new_radius = radius + ( aWidth - m_currentPenWidth ) / 2;
+        start = ( aStart - aCentre ).Resize( new_radius ) + aCentre;
+        end = ( aEnd - aCentre ).Resize( new_radius ) + aCentre;
+
+        Arc( aCentre, start, end, FILL_T::NO_FILL, -1, GetPlotterArcHighDef() );
+    }
+}
+
+
+void PLOTTER::ThickArc( const EDA_SHAPE& aArcShape,
+                           OUTLINE_MODE aTraceMode, void* aData )
+{
+    ThickArc( aArcShape.getCenter(),aArcShape.GetStart(), aArcShape.GetEnd(),
+              aArcShape.GetWidth(), aTraceMode, aData );
 }
 
 

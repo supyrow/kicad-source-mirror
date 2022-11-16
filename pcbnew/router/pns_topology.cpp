@@ -74,11 +74,10 @@ const TOPOLOGY::JOINT_SET TOPOLOGY::ConnectedJoints( JOINT* aStart )
 
         for( ITEM* item : current->LinkList() )
         {
-            if( item->OfKind( ITEM::SEGMENT_T ) )
+            if( item->OfKind( ITEM::SEGMENT_T | ITEM::ARC_T ) )
             {
-                SEGMENT* seg = static_cast<SEGMENT*>( item );
-                JOINT* a = m_world->FindJoint( seg->Seg().A, seg );
-                JOINT* b = m_world->FindJoint( seg->Seg().B, seg );
+                JOINT* a = m_world->FindJoint( item->Anchor( 0 ), item );;
+                JOINT* b = m_world->FindJoint( item->Anchor( 1 ), item );;
                 JOINT* next = ( *a == *current ) ? b : a;
 
                 if( processed.find( next ) == processed.end() )
@@ -94,7 +93,8 @@ const TOPOLOGY::JOINT_SET TOPOLOGY::ConnectedJoints( JOINT* aStart )
 }
 
 
-bool TOPOLOGY::LeadingRatLine( const LINE* aTrack, SHAPE_LINE_CHAIN& aRatLine )
+bool TOPOLOGY::NearestUnconnectedAnchorPoint( const LINE* aTrack, VECTOR2I& aPoint,
+                                              LAYER_RANGE& aLayers )
 {
     LINE track( *aTrack );
     VECTOR2I end;
@@ -114,6 +114,7 @@ bool TOPOLOGY::LeadingRatLine( const LINE* aTrack, SHAPE_LINE_CHAIN& aRatLine )
             || ( track.EndsWithVia() && jt->LinkCount() >= 3 ) ) // we got something connected
     {
         end = jt->Pos();
+        aLayers = jt->Layers();
     }
     else
     {
@@ -126,10 +127,25 @@ bool TOPOLOGY::LeadingRatLine( const LINE* aTrack, SHAPE_LINE_CHAIN& aRatLine )
             return false;
 
         end = it->Anchor( anchor );
+        aLayers = it->Layers();
     }
 
+    aPoint = end;
+    return true;
+}
+
+
+bool TOPOLOGY::LeadingRatLine( const LINE* aTrack, SHAPE_LINE_CHAIN& aRatLine )
+{
+    VECTOR2I end;
+    // Ratline doesn't care about the layer
+    LAYER_RANGE layers;
+
+    if( !NearestUnconnectedAnchorPoint( aTrack, end, layers ) )
+        return false;
+
     aRatLine.Clear();
-    aRatLine.Append( track.CPoint( -1 ) );
+    aRatLine.Append( aTrack->CPoint( -1 ) );
     aRatLine.Append( end );
     return true;
 }
@@ -288,8 +304,8 @@ const ITEM_SET TOPOLOGY::AssembleTrivialPath( ITEM* aStart,
     JOINT* jointA = nullptr;
     JOINT* jointB = nullptr;
 
-    followTrivialPath( &l, false, path, visited, &jointA );
-    followTrivialPath( &l, true, path, visited, &jointB );
+    followTrivialPath( &l, false, path, visited, &jointB );
+    followTrivialPath( &l, true, path, visited, &jointA );
 
     if( aTerminalJoints )
     {
@@ -531,10 +547,15 @@ const std::set<ITEM*> TOPOLOGY::AssembleCluster( ITEM* aStart, int aLayer )
 
         visited.insert( top );
 
-        m_world->QueryColliding( top, obstacles, ITEM::ANY_T, -1, false );
+        m_world->QueryColliding( top, obstacles, ITEM::ANY_T, -1, false, 0 ); // only query touching objects
 
         for( OBSTACLE& obs : obstacles )
         {
+            bool trackOnTrack = ( obs.m_item->Net() != top->Net() ) &&  obs.m_item->OfKind( ITEM::SEGMENT_T ) && top->OfKind( ITEM::SEGMENT_T );
+
+            if( trackOnTrack )
+                continue;
+
             if( visited.find( obs.m_item ) == visited.end() &&
                 obs.m_item->Layers().Overlaps( aLayer ) && !( obs.m_item->Marker() & MK_HEAD ) )
             {

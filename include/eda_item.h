@@ -4,7 +4,7 @@
  * Copyright (C) 2013-2015 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2008-2015 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
  * Copyright (C) 2008 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 2004-2020 KiCad Developers, see change_log.txt for contributors.
+ * Copyright (C) 2004-2022 KiCad Developers, see change_log.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -31,14 +31,14 @@
 
 #include <core/typeinfo.h>
 #include <eda_item_flags.h>
+#include <eda_search_data.h>
 #include <view/view_item.h>
 #include <kiid.h>
-
 
 enum class BITMAPS : unsigned int;
 
 
-enum class SEARCH_RESULT
+enum class INSPECT_RESULT
 {
     QUIT,
     CONTINUE
@@ -48,23 +48,8 @@ enum class SEARCH_RESULT
 /**
  * Additional flag values wxFindReplaceData::m_Flags
  */
-enum FIND_REPLACE_FLAGS
-{
-    // The last wxFindReplaceFlag enum is wxFR_MATCHCASE = 0x4.
-    FR_CURRENT_SHEET_ONLY = 0x4 << 1,   // Search the current sheet only.
-    FR_SEARCH_ALL_FIELDS  = 0x4 << 2,   // Search hidden fields too.
-    FR_SEARCH_ALL_PINS    = 0x4 << 3,   // Search pin name and number.
-    FR_MATCH_WILDCARD     = 0x4 << 4,   // Use simple wild card matching (* & ?).
-    FR_SEARCH_WRAP        = 0x4 << 5,   // Wrap around the start or end of search.
-    FR_SEARCH_REPLACE     = 0x4 << 7,   // Search for a item that has replaceable text.
-    FR_REPLACE_ITEM_FOUND = 0x4 << 8,   // Indicates an item with replaceable text has been found.
-    FR_REPLACE_REFERENCES = 0x4 << 9    // Don't replace in references.
-};
-
-
-class wxFindReplaceData;
+class UNITS_PROVIDER;
 class EDA_DRAW_FRAME;
-class EDA_RECT;
 class MSG_PANEL_ITEM;
 
 
@@ -87,7 +72,7 @@ class MSG_PANEL_ITEM;
  * @return A #SEARCH_RESULT type #SEARCH_QUIT if the iterator function is to
  *          stop the scan, else #SEARCH_CONTINUE;
  */
-typedef std::function< SEARCH_RESULT ( EDA_ITEM* aItem, void* aTestData ) > INSPECTOR_FUNC;
+typedef std::function< INSPECT_RESULT ( EDA_ITEM* aItem, void* aTestData ) > INSPECTOR_FUNC;
 
 ///< std::function passed to nested users by ref, avoids copying std::function.
 typedef const INSPECTOR_FUNC& INSPECTOR;
@@ -123,6 +108,11 @@ public:
     inline bool IsEntered() const { return m_flags & ENTERED; }
     inline bool IsResized() const { return m_flags & IS_RESIZING; }
     inline bool IsBrightened() const { return m_flags & BRIGHTENED; }
+
+    inline bool IsRollover() const
+    {
+        return ( m_flags & ( IS_ROLLOVER | IS_MOVING ) ) == IS_ROLLOVER;
+    }
 
     inline void SetWireImage() { SetFlags( IS_WIRE_IMAGE ); }
     inline void SetSelected() { SetFlags( SELECTED ); }
@@ -164,7 +154,7 @@ public:
 
     void ClearTempFlags()
     {
-        ClearFlags( CANDIDATE | TEMP_SELECTED | IS_LINKED | SKIP_STRUCT | DO_NOT_DRAW );
+        ClearFlags( CANDIDATE | SELECTED_BY_DRAG | IS_LINKED | SKIP_STRUCT | DO_NOT_DRAW );
     }
 
     void ClearEditFlags()
@@ -172,20 +162,29 @@ public:
         ClearFlags( GetEditFlags() );
     }
 
+    virtual bool RenderAsBitmap( double aWorldScale ) const { return false; }
+
+    void SetIsShownAsBitmap( bool aBitmap )
+    {
+        if( aBitmap )
+            SetFlags( IS_SHOWN_AS_BITMAP );
+        else
+            ClearFlags( IS_SHOWN_AS_BITMAP );
+    }
+
+    inline bool IsShownAsBitmap() const { return m_flags & IS_SHOWN_AS_BITMAP; }
+
     /**
      * Check whether the item is one of the listed types.
      *
      * @param aScanTypes List of item types
      * @return true if the item type is contained in the list aScanTypes
      */
-    virtual bool IsType( const KICAD_T aScanTypes[] ) const
+    virtual bool IsType( const std::vector<KICAD_T>& aScanTypes ) const
     {
-        if( aScanTypes[0] == SCH_LOCATE_ANY_T )
-            return true;
-
-        for( const KICAD_T* p = aScanTypes; *p != EOT; ++p )
+        for( KICAD_T scanType : aScanTypes )
         {
-            if( m_structType == *p )
+            if( scanType == SCH_LOCATE_ANY_T || scanType == m_structType )
                 return true;
         }
 
@@ -228,12 +227,12 @@ public:
     /**
      * Test if \a aRect intersects this item.
      *
-     * @param aRect A reference to a #EDA_RECT object containing the rectangle to test.
+     * @param aRect A reference to a #BOX2I object containing the rectangle to test.
      * @param aContained Set to true to test for containment instead of an intersection.
      * @param aAccuracy Increase \a aRect by this amount.
      * @return True if \a aRect contains or intersects the item bounding box.
      */
-    virtual bool HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy = 0 ) const
+    virtual bool HitTest( const BOX2I& aRect, bool aContained, int aAccuracy = 0 ) const
     {
         return false;   // derived classes should override this function
     }
@@ -245,7 +244,7 @@ public:
      * object, and the units should be in the pcb or schematic coordinate
      * system.  It is OK to overestimate the size by a few counts.
      */
-    virtual const EDA_RECT GetBoundingBox() const;
+    virtual const BOX2I GetBoundingBox() const;
 
     virtual VECTOR2I GetPosition() const { return VECTOR2I(); }
     virtual void     SetPosition( const VECTOR2I& aPos ){};
@@ -255,6 +254,15 @@ public:
      * than their anchor.
      */
     virtual const VECTOR2I GetFocusPosition() const { return GetPosition(); }
+
+    /**
+     * Return the coordinates that should be used for sorting this element
+     * visually compared to other elements. For instance, for lines the midpoint
+     * might be a better sorting point than either end.
+     *
+     * @return X,Y coordinate of the sort point
+     */
+    virtual VECTOR2I GetSortPosition() const { return GetPosition(); }
 
     /**
      * Create a duplicate of this item with linked list members set to NULL.
@@ -274,58 +282,69 @@ public:
      * May be re-implemented for each derived class in order to handle all the types given
      * by its member data.
      *
-     * Implementations should call inspector->Inspect() on types in scanTypes[], and may use
+     * Implementations should call inspector->Inspect() on types in aScanTypes, and may use
      * #IterateForward() to do so on lists of such data.
      *
      * @param inspector An #INSPECTOR instance to use in the inspection.
      * @param testData Arbitrary data used by the inspector.
-     * @param scanTypes Which# KICAD_T types are of interest and the order
-     *                  is significant too, terminated by EOT.
+     * @param aScanTypes Which #KICAD_T types are of interest and the order in which they should
+     *                   be processed.
      * @return #SEARCH_RESULT SEARCH_QUIT if the Iterator is to stop the scan,
      *         else #SCAN_CONTINUE, and determined by the inspector.
      */
-    virtual SEARCH_RESULT Visit( INSPECTOR inspector, void* testData, const KICAD_T scanTypes[] );
+    virtual INSPECT_RESULT Visit( INSPECTOR inspector, void* testData,
+                                  const std::vector<KICAD_T>& aScanTypes );
 
     /**
      * This changes first parameter to avoid the DList and use the main queue instead.
      */
     template< class T >
-    static SEARCH_RESULT IterateForward( std::deque<T>&  aList,
-                                         INSPECTOR       inspector,
-                                         void*           testData,
-                                         const KICAD_T   scanTypes[] )
+    static INSPECT_RESULT IterateForward( std::deque<T>& aList, INSPECTOR inspector, void* testData,
+                                          const std::vector<KICAD_T>& scanTypes )
     {
-        for( auto it : aList )
+        for( const auto& it : aList )
         {
-            if( static_cast<EDA_ITEM*>( it )->Visit( inspector, testData, scanTypes )
-                    == SEARCH_RESULT::QUIT )
-                return SEARCH_RESULT::QUIT;
+            if( static_cast<EDA_ITEM*>( it )->Visit( inspector,
+                                                     testData,
+                                                     scanTypes ) == INSPECT_RESULT::QUIT )
+            {
+                return INSPECT_RESULT::QUIT;
+            }
         }
 
-        return SEARCH_RESULT::CONTINUE;
+        return INSPECT_RESULT::CONTINUE;
     }
 
     /**
      * Change first parameter to avoid the DList and use std::vector instead.
      */
     template <class T>
-    static SEARCH_RESULT IterateForward(
-            std::vector<T>& aList, INSPECTOR inspector, void* testData, const KICAD_T scanTypes[] )
+    static INSPECT_RESULT IterateForward( std::vector<T>& aList, INSPECTOR inspector,
+                                          void* testData, const std::vector<KICAD_T>& scanTypes )
     {
-        for( auto it : aList )
+        for( const auto& it : aList )
         {
-            if( static_cast<EDA_ITEM*>( it )->Visit( inspector, testData, scanTypes )
-                    == SEARCH_RESULT::QUIT )
-                return SEARCH_RESULT::QUIT;
+            if( static_cast<EDA_ITEM*>( it )->Visit( inspector,
+                                                     testData,
+                                                     scanTypes ) == INSPECT_RESULT::QUIT )
+            {
+                return INSPECT_RESULT::QUIT;
+            }
         }
 
-        return SEARCH_RESULT::CONTINUE;
+        return INSPECT_RESULT::CONTINUE;
     }
 
     /**
      * Return the class name.
      */
     virtual wxString GetClass() const = 0;
+
+    /**
+     * Return a translated description of the type for this EDA_ITEM for display in user facing
+     * messages.
+     */
+    wxString GetTypeDesc();
 
     /**
      * Return the text to display to be used in the selection clarification context menu
@@ -337,7 +356,7 @@ public:
      *
      * @return The menu text string.
      */
-    virtual wxString GetSelectMenuText( EDA_UNITS aUnits ) const;
+    virtual wxString GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const;
 
     /**
      * Return a pointer to an image to be used in menus.
@@ -360,7 +379,7 @@ public:
      * @param aAuxData A pointer to optional data required for the search or NULL if not used.
      * @return True if the item's text matches the search criteria in \a aSearchData.
      */
-    virtual bool Matches( const wxFindReplaceData& aSearchData, void* aAuxData ) const
+    virtual bool Matches( const EDA_SEARCH_DATA& aSearchData, void* aAuxData ) const
     {
         return false;
     }
@@ -374,7 +393,7 @@ public:
      * @param aText A reference to a wxString object containing the text to be replaced.
      * @return True if \a aText was modified, otherwise false.
      */
-    static bool Replace( const wxFindReplaceData& aSearchData, wxString& aText );
+    static bool Replace( const EDA_SEARCH_DATA& aSearchData, wxString& aText );
 
     /**
      * Perform a text replace using the find and replace criteria in \a aSearchData
@@ -387,7 +406,7 @@ public:
      * @param aAuxData A pointer to optional data required for the search or NULL if not used.
      * @return True if the item text was modified, otherwise false.
      */
-    virtual bool Replace( const wxFindReplaceData& aSearchData, void* aAuxData = nullptr )
+    virtual bool Replace( const EDA_SEARCH_DATA& aSearchData, void* aAuxData = nullptr )
     {
         return false;
     }
@@ -467,7 +486,7 @@ protected:
      * @param aSearchData The criteria to search against.
      * @return True if \a aText matches the search criteria in \a aSearchData.
      */
-    bool Matches( const wxString& aText, const wxFindReplaceData& aSearchData ) const;
+    bool Matches( const wxString& aText, const EDA_SEARCH_DATA& aSearchData ) const;
 
 public:
     const KIID  m_Uuid;

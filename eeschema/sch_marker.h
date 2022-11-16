@@ -70,7 +70,7 @@ public:
         // do not confirm this by locally implementing a no-op Plot().
     }
 
-    EDA_RECT const GetBoundingBox() const override;
+    BOX2I const GetBoundingBox() const override;
 
     // Geometric transforms (used in block operations):
 
@@ -90,11 +90,11 @@ public:
      * @param[in] aAuxData is the optional data required for the search or NULL if not used.
      * @return True if the DRC main or auxiliary text matches the search criteria.
      */
-    bool Matches( const wxFindReplaceData& aSearchData, void* aAuxDat ) const override;
+    bool Matches( const EDA_SEARCH_DATA& aSearchData, void* aAuxDat ) const override;
 
     void GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList ) override;
 
-    wxString GetSelectMenuText( EDA_UNITS aUnits ) const override
+    wxString GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const override
     {
         return wxString( _( "ERC Marker" ) );
     }

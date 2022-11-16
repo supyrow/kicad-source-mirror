@@ -41,6 +41,7 @@ class COLOR_SETTINGS;
 class TOOL_MENU;
 class APP_SETTINGS_BASE;
 class wxFindReplaceData;
+class SEARCH_PANE;
 
 namespace KIGFX
 {
@@ -72,7 +73,7 @@ class EDA_DRAW_FRAME : public KIWAY_PLAYER
 public:
     EDA_DRAW_FRAME( KIWAY* aKiway, wxWindow* aParent, FRAME_T aFrameType, const wxString& aTitle,
                     const wxPoint& aPos, const wxSize& aSize, long aStyle,
-                    const wxString& aFrameName );
+                    const wxString& aFrameName, const EDA_IU_SCALE& aIuScale );
 
     ~EDA_DRAW_FRAME();
 
@@ -101,7 +102,7 @@ public:
      */
     bool IsScriptingConsoleVisible();
 
-    wxFindReplaceData& GetFindReplaceData() { return *m_findReplaceData; }
+    EDA_SEARCH_DATA& GetFindReplaceData() { return *m_findReplaceData; }
     wxArrayString& GetFindHistoryList() { return m_findStringHistoryList; }
 
     virtual void SetPageSettings( const PAGE_INFO& aPageSettings ) = 0;
@@ -236,9 +237,14 @@ public:
     void UpdateGridSelectBox();
 
     /**
-     * Update the checked item in the grid combobox.
+     * Update the checked item in the grid wxchoice.
      */
     void OnUpdateSelectGrid( wxUpdateUIEvent& aEvent );
+
+    /**
+     * Update the checked item in the zoom wxchoice.
+     */
+    void OnUpdateSelectZoom( wxUpdateUIEvent& aEvent );
 
     /**
      * Rebuild the grid combobox to respond to any changes in the GUI (units, user
@@ -298,13 +304,14 @@ public:
      * Prints the drawing-sheet (frame and title block).
      *
      * @param aScreen screen to draw.
+     * @param aProperties Optional properties for text variable resolution.
      * @param aMils2Iu The mils to Iu conversion factor.
      * @param aFilename The filename to display in basic inscriptions.
      * @param aSheetLayer The layer displayed from PcbNew.
      */
     void PrintDrawingSheet( const RENDER_SETTINGS* aSettings, BASE_SCREEN* aScreen,
-                            double aMils2Iu, const wxString& aFilename,
-                            const wxString& aSheetLayer = wxEmptyString );
+                            const std::map<wxString, wxString>* aProperties, double aMils2Iu,
+                            const wxString& aFilename, const wxString& aSheetLayer = wxEmptyString );
 
     void DisplayToolMsg( const wxString& msg ) override;
 
@@ -439,6 +446,11 @@ public:
      */
     void RecreateToolbars();
 
+    /**
+     * Redraw the menus and what not in current language.
+     */
+    void ShowChangedLanguage() override;
+
     DECLARE_EVENT_TABLE()
 
 protected:
@@ -496,7 +508,7 @@ protected:
     ACTION_TOOLBAR*    m_drawToolBar;       // Drawing tools (typically on right edge of window)
     ACTION_TOOLBAR*    m_optionsToolBar;    // Options (typically on left edge of window)
 
-    wxFindReplaceData* m_findReplaceData;
+    std::unique_ptr<EDA_SEARCH_DATA> m_findReplaceData;
     wxArrayString      m_findStringHistoryList;
     wxArrayString      m_replaceStringHistoryList;
 
@@ -504,6 +516,7 @@ protected:
     int                m_msgFrameHeight;
 
     COLOR_SETTINGS*    m_colorSettings;
+    SEARCH_PANE*       m_searchPane;
 
     ///< The current canvas type.
     EDA_DRAW_PANEL_GAL::GAL_TYPE    m_canvasType;

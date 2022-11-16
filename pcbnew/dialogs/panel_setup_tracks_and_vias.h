@@ -39,8 +39,7 @@ class BOARD_DESIGN_SETTINGS;
 class PANEL_SETUP_TRACKS_AND_VIAS : public PANEL_SETUP_TRACKS_AND_VIAS_BASE
 {
 public:
-    PANEL_SETUP_TRACKS_AND_VIAS( PAGED_DIALOG* aParent, PCB_EDIT_FRAME* aFrame,
-                                 PANEL_SETUP_CONSTRAINTS* aConstraintsPanel );
+    PANEL_SETUP_TRACKS_AND_VIAS( PAGED_DIALOG* aParent, PCB_EDIT_FRAME* aFrame );
     ~PANEL_SETUP_TRACKS_AND_VIAS() override;
 
     bool TransferDataToWindow() override;
@@ -52,27 +51,26 @@ public:
 
 protected:
     void OnAddTrackWidthsClick( wxCommandEvent& event ) override;
+    void OnSortTrackWidthsClick( wxCommandEvent& event ) override;
     void OnRemoveTrackWidthsClick( wxCommandEvent& event ) override;
     void OnAddViaSizesClick( wxCommandEvent& event ) override;
+    void OnSortViaSizesClick( wxCommandEvent& event ) override;
     void OnRemoveViaSizesClick( wxCommandEvent& event ) override;
     void OnAddDiffPairsClick( wxCommandEvent& event ) override;
+    void OnSortDiffPairsClick( wxCommandEvent& event ) override;
     void OnRemoveDiffPairsClick( wxCommandEvent& event ) override;
 
     void onUnitsChanged( wxCommandEvent& aEvent );
 
-    void AppendTrackWidth( const int aWidth );
-    void AppendViaSize( const int aSize, const int aDrill );
-    void AppendDiffPairs( const int aWidth, const int aGap, const int aViaGap );
+    void AppendTrackWidth( int aWidth );
+    void AppendViaSize( int aSize, int aDrill );
+    void AppendDiffPairs( int aWidth, int aGap, int aViaGap );
 
 private:
     PAGED_DIALOG*            m_Parent;
     PCB_EDIT_FRAME*          m_Frame;
     BOARD*                   m_Pcb;
     BOARD_DESIGN_SETTINGS*   m_BrdSettings;
-
-    // We must validate against the current m_BrdSettings as they may have been
-    // changed but not yet committed.  Fetch them from the constraints panel.
-    PANEL_SETUP_CONSTRAINTS* m_ConstraintsPanel;
 };
 
 #endif //PANEL_SETUP_TRACKS_AND_VIAS_H

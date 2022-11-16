@@ -64,9 +64,11 @@ public:
     wxString GetAlt() const { return m_alt; }
     void SetAlt( const wxString& aAlt ) { m_alt = aAlt; }
 
+    const BOX2I ViewBBox() const override;
+
     void ViewGetLayers( int aLayers[], int& aCount ) const override;
 
-    wxString GetSelectMenuText( EDA_UNITS aUnits ) const override;
+    wxString GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const override;
     void GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList ) override;
 
     void Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset ) override {}
@@ -81,8 +83,18 @@ public:
     const VECTOR2I GetLocalPosition() const { return m_position; }
     void           SetPosition( const VECTOR2I& aPosition ) override { m_position = aPosition; }
 
-    const EDA_RECT GetBoundingBox() const override;
-    bool           HitTest( const VECTOR2I& aPosition, int aAccuracy = 0 ) const override;
+    /* Cannot use a default parameter here as it will not be compatible with the virtual. */
+    const BOX2I GetBoundingBox() const override { return GetBoundingBox( false, true, false ); }
+
+    /**
+     * @param aIncludeInvisibles - if false, do not include labels for invisible pins
+     *      in the calculation.
+     */
+    const BOX2I GetBoundingBox( bool aIncludeInvisiblePins, bool aIncludeNameAndNumber,
+                                bool aIncludeElectricalType ) const;
+
+    bool HitTest( const VECTOR2I& aPosition, int aAccuracy = 0 ) const override;
+    bool HitTest( const BOX2I& aRect, bool aContained, int aAccuracy = 0 ) const override;
 
     EDA_ITEM* Clone() const override;
 
@@ -98,6 +110,12 @@ public:
 
     void SetIsDangling( bool isDangling ) { m_isDangling = isDangling; }
 
+    /**
+     * @param aPin Comparison Pin
+     * @return True if aPin is stacked with this pin
+     */
+    bool IsStacked( const SCH_PIN* aPin ) const;
+
     bool IsPointClickableAnchor( const VECTOR2I& aPos ) const override
     {
         return m_isDangling && GetPosition() == aPos;
@@ -106,9 +124,9 @@ public:
     /// @return the pin's position in global coordinates.
     VECTOR2I GetTransformedPosition() const;
 
-    bool Matches( const wxFindReplaceData& aSearchData, void* aAuxData ) const override;
+    bool Matches( const EDA_SEARCH_DATA& aSearchData, void* aAuxData ) const override;
 
-    bool Replace( const wxFindReplaceData& aSearchData, void* aAuxData ) override;
+    bool Replace( const EDA_SEARCH_DATA& aSearchData, void* aAuxData ) override;
 
     /*
      * While many of these are currently simply covers for the equivalent LIB_PIN methods,

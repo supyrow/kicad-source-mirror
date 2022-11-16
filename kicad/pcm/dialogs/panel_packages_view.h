@@ -35,24 +35,26 @@
 class PANEL_PACKAGES_VIEW : public PANEL_PACKAGES_VIEW_BASE
 {
 public:
-    PANEL_PACKAGES_VIEW( wxWindow* parent, std::shared_ptr<PLUGIN_CONTENT_MANAGER> aPcm );
+    PANEL_PACKAGES_VIEW( wxWindow* parent, std::shared_ptr<PLUGIN_CONTENT_MANAGER> aPcm,
+                         const ActionCallback& aCallback, const PinCallback& aPinCallback );
     ~PANEL_PACKAGES_VIEW();
 
     /**
      * @brief Recreates package panels and displays data
      *
      * @param aPackageData list of package view data
-     * @param aCallback (un)install button callback
      */
-    void SetData( const std::vector<PACKAGE_VIEW_DATA>& aPackageData, ActionCallback aCallback );
+    void SetData( const std::vector<PACKAGE_VIEW_DATA>& aPackageData );
 
     /**
      * @brief Set the state of package
      *
      * @param aPackageId id of the package
      * @param aState new state
+     * @param aPinned indicates pinned version
      */
-    void SetPackageState( const wxString& aPackageId, const PCM_PACKAGE_STATE aState ) const;
+    void SetPackageState( const wxString& aPackageId, const PCM_PACKAGE_STATE aState,
+                          const bool aPinned );
 
     ///< Destroys package panels
     void ClearData();
@@ -63,8 +65,8 @@ public:
     ///< Opens file chooser dialog and downloads selected package version archive
     void OnDownloadVersionClicked( wxCommandEvent& event ) override;
 
-    ///< Schedules installation of selected package version
-    void OnInstallVersionClicked( wxCommandEvent& event ) override;
+    ///< Schedules relevant action for selected package version
+    void OnVersionActionClicked( wxCommandEvent& event ) override;
 
     ///< Shows all versions including incompatible ones
     void OnShowAllVersionsClicked( wxCommandEvent& event ) override;
@@ -83,12 +85,18 @@ public:
     ///< Replacement of wxFormBuilder's ill-advised m_splitter1OnIdle
     void SetSashOnIdle( wxIdleEvent& );
 
+    ///< Enqueues all available package updates
+    void OnUpdateAllClicked( wxCommandEvent& event ) override;
+
 private:
     ///< Updates package listing according to search term
     void updatePackageList();
 
     ///< Updates buttons below the package details: Download and Install
     void updateDetailsButtons();
+
+    ///< Called when package state changes, currently used to calculate Update All button state
+    void updateCommonState();
 
     ///< Updates details panel
     void setPackageDetails( const PACKAGE_VIEW_DATA& aPackageData );
@@ -97,19 +105,24 @@ private:
     void unsetPackageDetails();
 
     ///< Bytes to Kb/Mb/Gb string or "-" if absent
-    wxString toHumanReadableSize( const boost::optional<uint64_t> size ) const;
+    wxString toHumanReadableSize( const std::optional<uint64_t> size ) const;
 
     ///< Returns true if it the download operation can be performed
     bool canDownload() const;
 
-    ///< Returns true if the install operation can be performed
-    bool canInstall() const;
+    ///< Returns true if the package action can be performed
+    bool canRunAction() const;
+
+    ///< Returns implied action for the action button
+    PCM_PACKAGE_ACTION getAction() const;
 
 private:
-    ActionCallback                               m_actionCallback;
+    const ActionCallback&                        m_actionCallback;
+    const PinCallback&                           m_pinCallback;
     std::unordered_map<wxString, PANEL_PACKAGE*> m_packagePanels;
     std::vector<wxString>                        m_packageInitialOrder;
     PANEL_PACKAGE*                               m_currentSelected;
+    std::unordered_set<wxString>                 m_updateablePackages;
     std::shared_ptr<PLUGIN_CONTENT_MANAGER>      m_pcm;
 
     enum PACKAGE_VERSIONS_GRID_COLUMNS

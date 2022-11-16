@@ -87,7 +87,6 @@
  */
 
 #include <base64.h>
-#include <eda_rect.h>
 #include <eda_shape.h>
 #include <string_utils.h>
 #include <font/font.h>
@@ -168,6 +167,7 @@ SVG_PLOTTER::SVG_PLOTTER()
     m_fillMode        = FILL_T::NO_FILL; // or FILLED_SHAPE or FILLED_WITH_BG_BODYCOLOR
     m_pen_rgb_color   = 0;          // current color value (black)
     m_brush_rgb_color = 0;          // current color value (black)
+    m_brush_alpha     = 1.0;
     m_dashed          = PLOT_DASH_TYPE::SOLID;
     m_useInch         = false;      // millimeters are always the svg unit
     m_precision       = 4;          // default: 4 digits in mantissa.
@@ -209,7 +209,7 @@ void SVG_PLOTTER::SetColor( const COLOR4D& color )
     PSLIKE_PLOTTER::SetColor( color );
 
     if( m_graphics_changed )
-        setSVGPlotStyle();
+        setSVGPlotStyle( GetCurrentLineWidth() );
 }
 
 
@@ -223,7 +223,7 @@ void SVG_PLOTTER::setFillMode( FILL_T fill )
 }
 
 
-void SVG_PLOTTER::setSVGPlotStyle( bool aIsGroup, const std::string& aExtraStyle )
+void SVG_PLOTTER::setSVGPlotStyle( int aLineWidth, bool aIsGroup, const std::string& aExtraStyle )
 {
     if( aIsGroup )
         fputs( "</g>\n<g ", m_outputFile );
@@ -233,13 +233,18 @@ void SVG_PLOTTER::setSVGPlotStyle( bool aIsGroup, const std::string& aExtraStyle
 
     switch( m_fillMode )
     {
-    case FILL_T::NO_FILL:                  fputs( "fill-opacity:0.0; ", m_outputFile ); break;
-    case FILL_T::FILLED_SHAPE:             fputs( "fill-opacity:1.0; ", m_outputFile ); break;
+    case FILL_T::NO_FILL:
+        fputs( "fill-opacity:0.0; ", m_outputFile );
+        break;
+
+    case FILL_T::FILLED_SHAPE:
     case FILL_T::FILLED_WITH_BG_BODYCOLOR:
-    case FILL_T::FILLED_WITH_COLOR:        fputs( "fill-opacity:0.6; ", m_outputFile ); break;
+    case FILL_T::FILLED_WITH_COLOR:
+        fprintf( m_outputFile, "fill-opacity:%.*f; ", m_precision, m_brush_alpha );
+        break;
     }
 
-    double pen_w = userToDeviceSize( GetCurrentLineWidth() );
+    double pen_w = userToDeviceSize( aLineWidth );
 
     if( pen_w < 0.0 )   // Ensure pen width validity
         pen_w = 0.0;
@@ -247,7 +252,7 @@ void SVG_PLOTTER::setSVGPlotStyle( bool aIsGroup, const std::string& aExtraStyle
     // Fix a strange issue found in Inkscape: aWidth < 100 nm create issues on degrouping objects
     // So we use only 4 digits in mantissa for stroke-width.
     // TODO: perhaps used only 3 or 4 digits in mantissa for all values in mm, because some
-    // issues were previouly reported reported when using nm as integer units
+    // issues were previously reported reported when using nm as integer units
 
     fprintf( m_outputFile, "\nstroke:#%6.6lX; stroke-width:%.*f; stroke-opacity:1; \n",
              m_pen_rgb_color, m_precision, pen_w  );
@@ -258,23 +263,28 @@ void SVG_PLOTTER::setSVGPlotStyle( bool aIsGroup, const std::string& aExtraStyle
     {
     case PLOT_DASH_TYPE::DASH:
         fprintf( m_outputFile, "stroke-dasharray:%.*f,%.*f;",
-                 m_precision, GetDashMarkLenIU(), m_precision, GetDashGapLenIU() );
+                 m_precision, GetDashMarkLenIU( aLineWidth ),
+                 m_precision, GetDashGapLenIU( aLineWidth ) );
         break;
+
     case PLOT_DASH_TYPE::DOT:
         fprintf( m_outputFile, "stroke-dasharray:%f,%f;",
-                 GetDotMarkLenIU(), GetDashGapLenIU() );
+                 GetDotMarkLenIU( aLineWidth ), GetDashGapLenIU( aLineWidth ) );
         break;
+
     case PLOT_DASH_TYPE::DASHDOT:
         fprintf( m_outputFile, "stroke-dasharray:%f,%f,%f,%f;",
-                 GetDashMarkLenIU(), GetDashGapLenIU(),
-                 GetDotMarkLenIU(), GetDashGapLenIU() );
+                 GetDashMarkLenIU( aLineWidth ), GetDashGapLenIU( aLineWidth ),
+                 GetDotMarkLenIU( aLineWidth ), GetDashGapLenIU( aLineWidth ) );
         break;
+
     case PLOT_DASH_TYPE::DASHDOTDOT:
         fprintf( m_outputFile, "stroke-dasharray:%f,%f,%f,%f,%f,%f;",
-                 GetDashMarkLenIU(), GetDashGapLenIU(),
-                 GetDotMarkLenIU(), GetDashGapLenIU(),
-                 GetDotMarkLenIU(), GetDashGapLenIU() );
+                 GetDashMarkLenIU( aLineWidth ), GetDashGapLenIU( aLineWidth ),
+                 GetDotMarkLenIU( aLineWidth ), GetDashGapLenIU( aLineWidth ),
+                 GetDotMarkLenIU( aLineWidth ), GetDashGapLenIU( aLineWidth ) );
         break;
+
     case PLOT_DASH_TYPE::DEFAULT:
     case PLOT_DASH_TYPE::SOLID:
     default:
@@ -283,9 +293,7 @@ void SVG_PLOTTER::setSVGPlotStyle( bool aIsGroup, const std::string& aExtraStyle
     }
 
     if( aExtraStyle.length() )
-    {
         fputs( aExtraStyle.c_str(), m_outputFile );
-    }
 
     fputs( "\"", m_outputFile );
 
@@ -317,7 +325,7 @@ void SVG_PLOTTER::SetCurrentLineWidth( int aWidth, void* aData )
     }
 
     if( m_graphics_changed )
-        setSVGPlotStyle();
+        setSVGPlotStyle( aWidth );
 }
 
 
@@ -342,7 +350,7 @@ void SVG_PLOTTER::EndBlock( void* aData )
 }
 
 
-void SVG_PLOTTER::emitSetRGBColor( double r, double g, double b )
+void SVG_PLOTTER::emitSetRGBColor( double r, double g, double b, double a )
 {
     int red     = (int) ( 255.0 * r );
     int green   = (int) ( 255.0 * g );
@@ -356,27 +364,29 @@ void SVG_PLOTTER::emitSetRGBColor( double r, double g, double b )
 
         // Currently, use the same color for brush and pen (i.e. to draw and fill a contour).
         m_brush_rgb_color = rgb_color;
+        m_brush_alpha = a;
     }
 }
 
 
-void SVG_PLOTTER::SetDash( PLOT_DASH_TYPE dashed )
+void SVG_PLOTTER::SetDash( int aLineWidth, PLOT_DASH_TYPE aLineStyle )
 {
-    if( m_dashed != dashed )
+    if( m_dashed != aLineStyle )
     {
         m_graphics_changed = true;
-        m_dashed = dashed;
+        m_dashed = aLineStyle;
     }
 
     if( m_graphics_changed )
-        setSVGPlotStyle();
+        setSVGPlotStyle( aLineWidth );
 }
 
 
 void SVG_PLOTTER::Rect( const VECTOR2I& p1, const VECTOR2I& p2, FILL_T fill, int width )
 {
-    EDA_RECT rect( p1, VECTOR2I( p2.x - p1.x, p2.y - p1.y ) );
+    BOX2I rect( p1, VECTOR2I( p2.x - p1.x, p2.y - p1.y ) );
     rect.Normalize();
+
     VECTOR2D  org_dev  = userToDeviceCoordinates( rect.GetOrigin() );
     VECTOR2D  end_dev = userToDeviceCoordinates( rect.GetEnd() );
     VECTOR2D  size_dev = end_dev - org_dev;
@@ -384,7 +394,7 @@ void SVG_PLOTTER::Rect( const VECTOR2I& p1, const VECTOR2I& p2, FILL_T fill, int
     // Ensure size of rect in device coordinates is > 0
     // I don't know if this is a SVG issue or a Inkscape issue, but
     // Inkscape has problems with negative or null values for width and/or height, so avoid them
-    DBOX rect_dev( org_dev, size_dev);
+    BOX2D rect_dev( org_dev, size_dev );
     rect_dev.Normalize();
 
     setFillMode( fill );
@@ -412,8 +422,8 @@ void SVG_PLOTTER::Rect( const VECTOR2I& p1, const VECTOR2I& p2, FILL_T fill, int
 
 void SVG_PLOTTER::Circle( const VECTOR2I& pos, int diametre, FILL_T fill, int width )
 {
-    VECTOR2D  pos_dev = userToDeviceCoordinates( pos );
-    double  radius  = userToDeviceSize( diametre / 2.0 );
+    VECTOR2D pos_dev = userToDeviceCoordinates( pos );
+    double   radius  = userToDeviceSize( diametre / 2.0 );
 
     setFillMode( fill );
     SetCurrentLineWidth( width );
@@ -458,13 +468,6 @@ void SVG_PLOTTER::Arc( const VECTOR2I& aCenter, const EDA_ANGLE& aStartAngle,
     // Calculate start point.
     VECTOR2D  centre_device  = userToDeviceCoordinates( aCenter );
     double  radius_device  = userToDeviceSize( aRadius );
-
-    if( !m_yaxisReversed )   // Should be never the case
-    {
-        std::swap( startAngle, endAngle );
-        startAngle = -startAngle;
-        endAngle = -endAngle;
-    }
 
     if( m_plotMirror )
     {
@@ -578,13 +581,13 @@ void SVG_PLOTTER::PlotPoly( const std::vector<VECTOR2I>& aCornerList, FILL_T aFi
     switch( aFill )
     {
     case FILL_T::NO_FILL:
-        setSVGPlotStyle( false, "fill:none" );
+        setSVGPlotStyle( aWidth, false, "fill:none" );
         break;
 
     case FILL_T::FILLED_WITH_BG_BODYCOLOR:
     case FILL_T::FILLED_SHAPE:
     case FILL_T::FILLED_WITH_COLOR:
-        setSVGPlotStyle( false, "fill-rule:evenodd;" );
+        setSVGPlotStyle( aWidth, false, "fill-rule:evenodd;" );
         break;
     }
 
@@ -680,15 +683,20 @@ void SVG_PLOTTER::PenTo( const VECTOR2I& pos, char plume )
         if( m_fillMode != FILL_T::NO_FILL )
         {
             setFillMode( FILL_T::NO_FILL );
-            setSVGPlotStyle();
+            setSVGPlotStyle( GetCurrentLineWidth() );
         }
 
-        fprintf( m_outputFile, "<path d=\"M%.*f %.*f\n", m_precision, pos_dev.x, m_precision, pos_dev.y );
+        fprintf( m_outputFile, "<path d=\"M%.*f %.*f\n",
+                 m_precision, pos_dev.x,
+                 m_precision, pos_dev.y );
     }
     else if( m_penState != plume || pos != m_penLastpos )
     {
         VECTOR2D pos_dev = userToDeviceCoordinates( pos );
-        fprintf( m_outputFile, "L%.*f %.*f\n", m_precision, pos_dev.x, m_precision, pos_dev.y );
+
+        fprintf( m_outputFile, "L%.*f %.*f\n",
+                 m_precision, pos_dev.x,
+                 m_precision, pos_dev.y );
     }
 
     m_penState    = plume;
@@ -696,10 +704,9 @@ void SVG_PLOTTER::PenTo( const VECTOR2I& pos, char plume )
 }
 
 
-bool SVG_PLOTTER::StartPlot()
+bool SVG_PLOTTER::StartPlot( const wxString& aPageNumber )
 {
     wxASSERT( m_outputFile );
-    wxString            msg;
 
     static const char*  header[] =
     {
@@ -746,7 +753,7 @@ bool SVG_PLOTTER::StartPlot()
     double opacity = 1.0;      // 0.0 (transparent to 1.0 (solid)
     fprintf( m_outputFile,
              "<g style=\"fill:#%6.6lX; fill-opacity:%.*f;stroke:#%6.6lX; stroke-opacity:%.*f;\n",
-             m_brush_rgb_color, m_precision, opacity, m_pen_rgb_color, m_precision, opacity );
+             m_brush_rgb_color, m_precision, m_brush_alpha, m_pen_rgb_color, m_precision, opacity );
 
     // output the pen cap and line joint
     fputs( "stroke-linecap:round; stroke-linejoin:round;\"\n", m_outputFile );

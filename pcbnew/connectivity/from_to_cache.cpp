@@ -59,7 +59,7 @@ enum PATH_STATUS {
 
 static bool isVertexVisited( CN_ITEM* v, const std::vector<CN_ITEM*>& path )
 {
-    for( auto u : path )
+    for( CN_ITEM* u : path )
     {
         if ( u == v )
             return true;
@@ -95,11 +95,11 @@ static PATH_STATUS uniquePathBetweenNodes( CN_ITEM* u, CN_ITEM* v, std::vector<C
             pathFound = true;
         }
 
-        for( auto ci : last->ConnectedItems() )
+        for( CN_ITEM* ci : last->ConnectedItems() )
         {
             bool vertexVisited = isVertexVisited( ci, path );
 
-            for( auto& p : Q )
+            for( std::vector<CN_ITEM*>& p : Q )
                 if( isVertexVisited( ci, p ) )
                 {
                     vertexVisited = true;
@@ -140,14 +140,12 @@ int FROM_TO_CACHE::cacheFromToPaths( const wxString& aFrom, const wxString& aTo 
     for( FT_PATH& path : paths )
     {
         int count = 0;
-        auto netName = path.from->GetNetname();
 
         wxString fromName = path.from->GetParent()->GetReference() + wxT( "-" )
                                                                     + path.from->GetNumber();
 
-        const KICAD_T onlyRouting[] = { PCB_PAD_T, PCB_ARC_T, PCB_VIA_T, PCB_TRACE_T, EOT };
-
-        auto padCandidates = connectivity->GetConnectedItems( path.from, onlyRouting );
+        auto padCandidates = connectivity->GetConnectedItems( path.from,
+                { PCB_PAD_T, PCB_ARC_T, PCB_VIA_T, PCB_TRACE_T } );
         PAD* toPad = nullptr;
 
         for( BOARD_CONNECTED_ITEM* pitem : padCandidates )

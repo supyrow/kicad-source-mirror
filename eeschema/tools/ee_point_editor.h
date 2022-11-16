@@ -59,7 +59,7 @@ public:
 
 private:
     ///< Update item's points with edit points.
-    void updateParentItem() const;
+    void updateParentItem( bool aSnapToGrid ) const;
 
     ///< Update edit points with item's points.
     void updatePoints();
@@ -89,6 +89,9 @@ private:
 
         return wxNOT_FOUND;
     }
+
+    void pinEditedCorner( int minWidth, int minHeight, VECTOR2I& topLeft, VECTOR2I& topRight,
+                          VECTOR2I& botLeft, VECTOR2I& botRight, EE_GRID_HELPER* aGrid ) const;
 
     bool addCornerCondition( const SELECTION& aSelection );
     bool removeCornerCondition( const SELECTION& aSelection );

@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2019-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2019-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -31,6 +31,7 @@
 #include <sch_line.h>
 #include <sch_junction.h>
 #include <sch_sheet.h>
+#include <sch_sheet_pin.h>
 #include <schematic.h>
 #include <advanced_config.h>
 #include <tool/tool_manager.h>
@@ -38,7 +39,6 @@
 #include <tools/sch_edit_tool.h>
 #include <widgets/unit_binder.h>
 #include <widgets/font_choice.h>
-
 
 static bool       g_modifyReferences;
 static bool       g_modifyValues;
@@ -84,7 +84,6 @@ public:
     ~DIALOG_GLOBAL_EDIT_TEXT_AND_GRAPHICS() override;
 
 protected:
-    void OnUpdateUI( wxUpdateUIEvent& event ) override;
     void OnReferenceFilterText( wxCommandEvent& event ) override
     {
         m_referenceFilterOpt->SetValue( true );
@@ -92,6 +91,14 @@ protected:
     void OnSymbolFilterText( wxCommandEvent& event ) override
     {
         m_symbolFilterOpt->SetValue( true );
+    }
+    void OnFieldNameFilterText( wxCommandEvent& event ) override
+    {
+        m_fieldnameFilterOpt->SetValue( true );
+    }
+    void OnNetFilterText( wxCommandEvent& event ) override
+    {
+        m_netFilterOpt->SetValue( true );
     }
 
     bool TransferDataToWindow() override;
@@ -118,6 +125,8 @@ DIALOG_GLOBAL_EDIT_TEXT_AND_GRAPHICS::DIALOG_GLOBAL_EDIT_TEXT_AND_GRAPHICS( SCH_
     m_lineStyle->Append( DEFAULT_STYLE );
     m_lineStyle->Append( INDETERMINATE_ACTION );
 
+    m_textColorSwatch->SetSwatchColor( COLOR4D::UNSPECIFIED, false );
+    m_textColorSwatch->SetDefaultColor( COLOR4D::UNSPECIFIED );
     m_colorSwatch->SetSwatchColor( COLOR4D::UNSPECIFIED, false );
     m_colorSwatch->SetDefaultColor( COLOR4D::UNSPECIFIED );
     m_fillColorSwatch->SetSwatchColor( COLOR4D::UNSPECIFIED, false );
@@ -219,6 +228,7 @@ bool DIALOG_GLOBAL_EDIT_TEXT_AND_GRAPHICS::TransferDataToWindow()
     m_italic->Set3StateValue( wxCHK_UNDETERMINED );
     m_bold->Set3StateValue( wxCHK_UNDETERMINED );
     m_visible->Set3StateValue( wxCHK_UNDETERMINED );
+    m_showFieldNames->Set3StateValue( wxCHK_UNDETERMINED );
     m_lineWidth.SetValue( INDETERMINATE_ACTION );
     m_lineStyle->SetStringSelection( INDETERMINATE_ACTION );
     m_junctionSize.SetValue( INDETERMINATE_ACTION );
@@ -227,11 +237,6 @@ bool DIALOG_GLOBAL_EDIT_TEXT_AND_GRAPHICS::TransferDataToWindow()
     m_setDotColor->SetValue( false );
 
     return true;
-}
-
-
-void DIALOG_GLOBAL_EDIT_TEXT_AND_GRAPHICS::OnUpdateUI( wxUpdateUIEvent&  )
-{
 }
 
 
@@ -244,23 +249,49 @@ void DIALOG_GLOBAL_EDIT_TEXT_AND_GRAPHICS::processItem( const SCH_SHEET_PATH& aS
             return;
     }
 
-    EDA_TEXT*     eda_text = dynamic_cast<EDA_TEXT*>( aItem );
-    SCH_TEXT*     sch_text = dynamic_cast<SCH_TEXT*>( aItem );
-    SCH_JUNCTION* junction = dynamic_cast<SCH_JUNCTION*>( aItem );
-
-    m_parent->SaveCopyInUndoList( aSheetPath.LastScreen(), aItem, UNDO_REDO::CHANGED, m_appendUndo );
+    m_parent->SaveCopyInUndoList( aSheetPath.LastScreen(), aItem, UNDO_REDO::CHANGED, m_appendUndo,
+                                  false );
     m_appendUndo = true;
 
-    if( eda_text )
+    if( EDA_TEXT* eda_text = dynamic_cast<EDA_TEXT*>( aItem ) )
     {
         if( !m_textSize.IsIndeterminate() )
             eda_text->SetTextSize( wxSize( m_textSize.GetValue(), m_textSize.GetValue() ) );
 
+        if( m_setTextColor->GetValue() )
+            eda_text->SetTextColor( m_textColorSwatch->GetSwatchColor() );
+
         if( m_hAlign->GetStringSelection() != INDETERMINATE_ACTION )
-            eda_text->SetHorizJustify( EDA_TEXT::MapHorizJustify( m_hAlign->GetSelection() - 1 ) );
+        {
+            GR_TEXT_H_ALIGN_T hAlign = EDA_TEXT::MapHorizJustify( m_hAlign->GetSelection() - 1 );
+            SCH_SYMBOL*       parentSymbol = dynamic_cast<SCH_SYMBOL*>( aItem->GetParent() );
+
+            if( parentSymbol && parentSymbol->GetTransform().x1 < 0 )
+            {
+                if( hAlign == GR_TEXT_H_ALIGN_LEFT )
+                    hAlign = GR_TEXT_H_ALIGN_RIGHT;
+                else if( hAlign == GR_TEXT_H_ALIGN_RIGHT )
+                    hAlign = GR_TEXT_H_ALIGN_LEFT;
+            }
+
+            eda_text->SetHorizJustify( hAlign );
+        }
 
         if( m_vAlign->GetStringSelection() != INDETERMINATE_ACTION )
-            eda_text->SetVertJustify( EDA_TEXT::MapVertJustify( m_vAlign->GetSelection() - 1 ) );
+        {
+            GR_TEXT_V_ALIGN_T vAlign = EDA_TEXT::MapVertJustify( m_vAlign->GetSelection() - 1 );
+            SCH_SYMBOL*       parentSymbol = dynamic_cast<SCH_SYMBOL*>( aItem->GetParent() );
+
+            if( parentSymbol && parentSymbol->GetTransform().y1 < 0 )
+            {
+                if( vAlign == GR_TEXT_V_ALIGN_TOP )
+                    vAlign = GR_TEXT_V_ALIGN_BOTTOM;
+                else if( vAlign == GR_TEXT_V_ALIGN_BOTTOM )
+                    vAlign = GR_TEXT_V_ALIGN_TOP;
+            }
+
+            eda_text->SetVertJustify( vAlign );
+        }
 
         if( m_visible->Get3StateValue() != wxCHK_UNDETERMINED )
             eda_text->SetVisible( m_visible->GetValue() );
@@ -271,19 +302,34 @@ void DIALOG_GLOBAL_EDIT_TEXT_AND_GRAPHICS::processItem( const SCH_SHEET_PATH& aS
         if( m_bold->Get3StateValue() != wxCHK_UNDETERMINED )
             eda_text->SetBold( m_bold->GetValue() );
 
-        // Must comer after bold & italic
+        // Must come after bold & italic
         if( m_fontCtrl->GetStringSelection() != INDETERMINATE_ACTION )
         {
             eda_text->SetFont( m_fontCtrl->GetFontSelection( eda_text->IsBold(),
                                                              eda_text->IsItalic() ) );
         }
+        else if( m_italic->Get3StateValue() != wxCHK_UNDETERMINED
+                || m_bold->Get3StateValue() != wxCHK_UNDETERMINED )
+        {
+            if( !eda_text->GetFontName().IsEmpty() )
+            {
+                eda_text->SetFont( KIFONT::FONT::GetFont( eda_text->GetFontName(),
+                                                          eda_text->IsBold(),
+                                                          eda_text->IsItalic() ) );
+            }
+        }
     }
 
-    // No else!  Labels are both.
-    if( sch_text )
+    if( SCH_TEXT* sch_text = dynamic_cast<SCH_TEXT*>( aItem ) )
     {
         if( m_orientation->GetStringSelection() != INDETERMINATE_ACTION )
             sch_text->SetTextSpinStyle( (TEXT_SPIN_STYLE::SPIN) m_orientation->GetSelection() );
+    }
+
+    if( SCH_FIELD* sch_field = dynamic_cast<SCH_FIELD*>( aItem ) )
+    {
+        if( m_showFieldNames->Get3StateValue() != wxCHK_UNDETERMINED )
+            sch_field->SetNameShown( m_showFieldNames->GetValue() );
     }
 
     if( aItem->HasLineStroke() )
@@ -307,10 +353,8 @@ void DIALOG_GLOBAL_EDIT_TEXT_AND_GRAPHICS::processItem( const SCH_SHEET_PATH& aS
         aItem->SetStroke( stroke );
     }
 
-    if( aItem->Type() == SCH_SHAPE_T )
+    if( SCH_SHAPE* shape = dynamic_cast<SCH_SHAPE*>( aItem ) )
     {
-        SCH_SHAPE* shape = static_cast<SCH_SHAPE*>( aItem );
-
         if( m_setFillColor->GetValue() )
         {
             shape->SetFillColor( m_fillColorSwatch->GetSwatchColor() );
@@ -322,7 +366,7 @@ void DIALOG_GLOBAL_EDIT_TEXT_AND_GRAPHICS::processItem( const SCH_SHEET_PATH& aS
         }
     }
 
-    if( junction )
+    if( SCH_JUNCTION* junction = dynamic_cast<SCH_JUNCTION*>( aItem ) )
     {
         if( !m_junctionSize.IsIndeterminate() )
             junction->SetDiameter( m_junctionSize.GetValue() );
@@ -378,10 +422,6 @@ void DIALOG_GLOBAL_EDIT_TEXT_AND_GRAPHICS::visitItem( const SCH_SHEET_PATH& aShe
                 return;
         }
     }
-
-    static KICAD_T wireTypes[] = { SCH_ITEM_LOCATE_WIRE_T, SCH_LABEL_LOCATE_WIRE_T, EOT };
-    static KICAD_T busTypes[] = { SCH_ITEM_LOCATE_BUS_T, SCH_LABEL_LOCATE_BUS_T, EOT };
-    static KICAD_T schTextAndGraphics[] = { SCH_TEXT_T, SCH_ITEM_LOCATE_GRAPHIC_LINE_T, EOT };
 
     if( aItem->Type() == SCH_SYMBOL_T )
     {
@@ -443,6 +483,12 @@ void DIALOG_GLOBAL_EDIT_TEXT_AND_GRAPHICS::visitItem( const SCH_SHEET_PATH& aShe
             if( m_setFillColor->GetValue() )
                 sheet->SetBackgroundColor( m_fillColorSwatch->GetSwatchColor() );
         }
+
+        if( m_sheetPins->GetValue() )
+        {
+            for( SCH_SHEET_PIN* pin : sheet->GetPins() )
+                processItem( aSheetPath, pin );
+        }
     }
     else if( aItem->Type() == SCH_JUNCTION_T )
     {
@@ -462,18 +508,30 @@ void DIALOG_GLOBAL_EDIT_TEXT_AND_GRAPHICS::visitItem( const SCH_SHEET_PATH& aShe
             }
         }
     }
-    else if( m_wires->GetValue() && aItem->IsType( wireTypes ) )
+    else if( m_wires->GetValue() && aItem->IsType( { SCH_ITEM_LOCATE_WIRE_T,
+                                                     SCH_LABEL_LOCATE_WIRE_T } ) )
+    {
         processItem( aSheetPath, aItem );
-    else if( m_buses->GetValue() && aItem->IsType( busTypes ) )
+    }
+    else if( m_buses->GetValue() && aItem->IsType( { SCH_ITEM_LOCATE_BUS_T,
+                                                     SCH_LABEL_LOCATE_BUS_T } ) )
+    {
         processItem( aSheetPath, aItem );
+    }
     else if( m_globalLabels->GetValue() && aItem->Type() == SCH_GLOBAL_LABEL_T )
+    {
         processItem( aSheetPath, aItem );
+    }
     else if( m_hierLabels->GetValue() && aItem->Type() == SCH_HIER_LABEL_T )
+    {
         processItem( aSheetPath, aItem );
-    else if( m_sheetPins->GetValue() && aItem->Type() == SCH_SHEET_PIN_T )
+    }
+    else if( m_schTextAndGraphics->GetValue() && aItem->IsType( { SCH_TEXT_T, SCH_TEXTBOX_T,
+                                                                  SCH_ITEM_LOCATE_GRAPHIC_LINE_T,
+                                                                  SCH_SHAPE_T } ) )
+    {
         processItem( aSheetPath, aItem );
-    else if( m_schTextAndGraphics->GetValue() && aItem->IsType( schTextAndGraphics ) )
-        processItem( aSheetPath, aItem );
+    }
 }
 
 

@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  *
  * This program is free software; you can redistribute it and/or
@@ -23,13 +23,13 @@
  */
 
 #include <eda_item.h>
+#include <font/font.h>
 #include <plotters/plotter_dxf.h>
 #include <plotters/plotter_hpgl.h>
 #include <plotters/plotters_pslike.h>
 #include <plotters/plotter_gerber.h>
 #include <drawing_sheet/ds_data_item.h>
 #include <drawing_sheet/ds_draw_item.h>
-#include <drawing_sheet/ds_painter.h>
 #include <title_block.h>
 #include <wx/filename.h>
 
@@ -58,15 +58,17 @@ wxString GetDefaultPlotExtension( PLOT_FORMAT aFormat )
 
 
 void PlotDrawingSheet( PLOTTER* plotter, const PROJECT* aProject, const TITLE_BLOCK& aTitleBlock,
-                       const PAGE_INFO& aPageInfo, const wxString& aSheetNumber, int aSheetCount,
-                       const wxString& aSheetDesc, const wxString& aFilename, COLOR4D aColor,
+                       const PAGE_INFO& aPageInfo, const std::map<wxString, wxString>* aProperties,
+                       const wxString& aSheetNumber, int aSheetCount, const wxString& aSheetName,
+                       const wxString& aSheetPath, const wxString& aFilename, COLOR4D aColor,
                        bool aIsFirstPage )
 {
     /* Note: Page sizes values are given in mils
      */
-    double   iusPerMil = plotter->GetIUsPerDecimil() * 10.0;
-    COLOR4D  plotColor = plotter->GetColorMode() ? aColor : COLOR4D::BLACK;
-    int      defaultPenWidth = plotter->RenderSettings()->GetDefaultPenWidth();
+    double           iusPerMil = plotter->GetIUsPerDecimil() * 10.0;
+    COLOR4D          plotColor = plotter->GetColorMode() ? aColor : COLOR4D::BLACK;
+    RENDER_SETTINGS* settings = plotter->RenderSettings();
+    int              defaultPenWidth = settings->GetDefaultPenWidth();
 
     if( plotColor == COLOR4D::UNSPECIFIED )
         plotColor = COLOR4D( RED );
@@ -83,9 +85,12 @@ void PlotDrawingSheet( PLOTTER* plotter, const PROJECT* aProject, const TITLE_BL
     drawList.SetPageNumber( aSheetNumber );
     drawList.SetSheetCount( aSheetCount );
     drawList.SetFileName( fn.GetFullName() );   // Print only the short filename
-    drawList.SetSheetName( aSheetDesc );
+    drawList.SetSheetName( aSheetName );
+    drawList.SetSheetPath( aSheetPath );
+    drawList.SetSheetLayer( settings->GetLayerName() );
     drawList.SetProject( aProject );
     drawList.SetIsFirstPage( aIsFirstPage );
+    drawList.SetProperties( aProperties );
 
     drawList.BuildDrawItemsList( aPageInfo, aTitleBlock );
 
@@ -108,19 +113,32 @@ void PlotDrawingSheet( PLOTTER* plotter, const PROJECT* aProject, const TITLE_BL
         case WSG_RECT_T:
         {
             DS_DRAW_ITEM_RECT* rect = (DS_DRAW_ITEM_RECT*) item;
-            int penWidth = std::max( rect->GetPenWidth(), defaultPenWidth );
-            plotter->Rect( rect->GetStart(), rect->GetEnd(), FILL_T::NO_FILL, penWidth );
+            plotter->SetCurrentLineWidth( std::max( rect->GetPenWidth(), defaultPenWidth ) );
+            plotter->MoveTo( rect->GetStart() );
+            plotter->LineTo( VECTOR2I( rect->GetEnd().x, rect->GetStart().y ) );
+            plotter->LineTo( VECTOR2I( rect->GetEnd().x, rect->GetEnd().y ) );
+            plotter->LineTo( VECTOR2I( rect->GetStart().x, rect->GetEnd().y ) );
+            plotter->FinishTo( rect->GetStart() );
         }
             break;
 
         case WSG_TEXT_T:
         {
             DS_DRAW_ITEM_TEXT* text = (DS_DRAW_ITEM_TEXT*) item;
+            KIFONT::FONT*      font = text->GetFont();
+
+            if( !font )
+            {
+                font = KIFONT::FONT::GetFont( settings->GetDefaultFont(), text->IsBold(),
+                                              text->IsItalic() );
+            }
+
             int penWidth = std::max( text->GetEffectiveTextPenWidth(), defaultPenWidth );
+
             plotter->Text( text->GetTextPos(), plotColor, text->GetShownText(),
                            text->GetTextAngle(), text->GetTextSize(), text->GetHorizJustify(),
                            text->GetVertJustify(), penWidth, text->IsItalic(), text->IsBold(),
-                           text->IsMultilineAllowed(), text->GetDrawFont() );
+                           text->IsMultilineAllowed(), font );
         }
             break;
 

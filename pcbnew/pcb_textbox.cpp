@@ -34,14 +34,12 @@
 #include <geometry/shape_compound.h>
 #include <callback_gal.h>
 #include <convert_basic_shapes_to_polygon.h>
-#include "macros.h"
-
-using KIGFX::PCB_RENDER_SETTINGS;
+#include <macros.h>
 
 
 PCB_TEXTBOX::PCB_TEXTBOX( BOARD_ITEM* parent ) :
     PCB_SHAPE( parent, PCB_TEXTBOX_T, SHAPE_T::RECT ),
-    EDA_TEXT()
+    EDA_TEXT( pcbIUScale )
 {
     SetHorizJustify( GR_TEXT_H_ALIGN_LEFT );
     SetVertJustify( GR_TEXT_V_ALIGN_TOP );
@@ -60,24 +58,118 @@ int PCB_TEXTBOX::GetTextMargin() const
 }
 
 
+VECTOR2I PCB_TEXTBOX::GetTopLeft() const
+{
+    EDA_ANGLE rotation = GetDrawRotation();
+
+    if( rotation == ANGLE_90 )
+        return VECTOR2I( GetStartX(), GetEndY() );
+    else if( rotation == ANGLE_180 )
+        return GetEnd();
+    else if( rotation == ANGLE_270 )
+        return VECTOR2I( GetEndX(), GetStartY() );
+    else
+        return GetStart();
+}
+
+
+VECTOR2I PCB_TEXTBOX::GetBotRight() const
+{
+    EDA_ANGLE rotation = GetDrawRotation();
+
+    if( rotation == ANGLE_90 )
+        return VECTOR2I( GetEndX(), GetStartY() );
+    else if( rotation == ANGLE_180 )
+        return GetStart();
+    else if( rotation == ANGLE_270 )
+        return VECTOR2I( GetStartX(), GetEndY() );
+    else
+        return GetEnd();
+}
+
+
+void PCB_TEXTBOX::SetTop( int aVal )
+{
+    EDA_ANGLE rotation = GetDrawRotation();
+
+    if( rotation == ANGLE_90 || rotation == ANGLE_180 )
+        SetEndY( aVal );
+    else
+        SetStartY( aVal );
+}
+
+
+void PCB_TEXTBOX::SetBottom( int aVal )
+{
+    EDA_ANGLE rotation = GetDrawRotation();
+
+    if( rotation == ANGLE_90 || rotation == ANGLE_180 )
+        SetStartY( aVal );
+    else
+        SetEndY( aVal );
+}
+
+
+void PCB_TEXTBOX::SetLeft( int aVal )
+{
+    EDA_ANGLE rotation = GetDrawRotation();
+
+    if( rotation == ANGLE_180 || rotation == ANGLE_270 )
+        SetEndX( aVal );
+    else
+        SetStartX( aVal );
+}
+
+
+void PCB_TEXTBOX::SetRight( int aVal )
+{
+    EDA_ANGLE rotation = GetDrawRotation();
+
+    if( rotation == ANGLE_180 || rotation == ANGLE_270 )
+        SetStartX( aVal );
+    else
+        SetEndX( aVal );
+}
+
+
 std::vector<VECTOR2I> PCB_TEXTBOX::GetAnchorAndOppositeCorner() const
 {
-    EDA_ANGLE epsilon( 1.0, DEGREES_T );    // Yeah, it's a pretty coarse epsilon, but anything
-                                            // under 45° will work for our purposes.
-
     std::vector<VECTOR2I> pts;
     std::vector<VECTOR2I> corners = GetCorners();
+    EDA_ANGLE             textAngle( GetDrawRotation() );
 
-    EDA_ANGLE textAngle = GetDrawRotation().Normalize();
-    EDA_ANGLE toCorner1 = EDA_ANGLE( corners[1] - corners[0] ).Normalize();
-    EDA_ANGLE fromCorner1 = ( toCorner1 + ANGLE_180 ).Normalize();
+    textAngle.Normalize();
 
     pts.emplace_back( corners[0] );
 
-    if( std::abs( toCorner1 - textAngle ) < epsilon || std::abs( fromCorner1 - textAngle ) < epsilon )
-        pts.emplace_back( corners[1] );
+    if( textAngle < ANGLE_90 )
+    {
+        if( corners[1].y <= corners[0].y )
+            pts.emplace_back( corners[1] );
+        else
+            pts.emplace_back( corners[3] );
+    }
+    else if( textAngle < ANGLE_180 )
+    {
+        if( corners[1].x <= corners[0].x )
+            pts.emplace_back( corners[1] );
+        else
+            pts.emplace_back( corners[3] );
+    }
+    else if( textAngle < ANGLE_270 )
+    {
+        if( corners[1].y >= corners[0].y )
+            pts.emplace_back( corners[1] );
+        else
+            pts.emplace_back( corners[3] );
+    }
     else
-        pts.emplace_back( corners[3] );
+    {
+        if( corners[1].x >= corners[0].x )
+            pts.emplace_back( corners[1] );
+        else
+            pts.emplace_back( corners[3] );
+    }
 
     return pts;
 }
@@ -121,7 +213,32 @@ VECTOR2I PCB_TEXTBOX::GetDrawPos() const
 }
 
 
-wxString PCB_TEXTBOX::GetShownText( int aDepth ) const
+double PCB_TEXTBOX::ViewGetLOD( int aLayer, KIGFX::VIEW* aView ) const
+{
+    constexpr double HIDE = std::numeric_limits<double>::max();
+
+    KIGFX::PCB_PAINTER*  painter = static_cast<KIGFX::PCB_PAINTER*>( aView->GetPainter() );
+    KIGFX::PCB_RENDER_SETTINGS* renderSettings = painter->GetSettings();
+
+    if( aLayer == LAYER_LOCKED_ITEM_SHADOW )
+    {
+        // Hide shadow if the main layer is not shown
+        if( !aView->IsLayerVisible( m_layer ) )
+            return HIDE;
+
+        // Hide shadow on dimmed tracks
+        if( renderSettings->GetHighContrast() )
+        {
+            if( m_layer != renderSettings->GetPrimaryHighContrastLayer() )
+                return HIDE;
+        }
+    }
+
+    return 0.0;
+}
+
+
+wxString PCB_TEXTBOX::GetShownText( int aDepth, bool aAllowExtraText ) const
 {
     BOARD* board = dynamic_cast<BOARD*>( GetParent() );
 
@@ -165,7 +282,7 @@ wxString PCB_TEXTBOX::GetShownText( int aDepth ) const
     if( board && HasTextVars() && aDepth < 10 )
         text = ExpandTextVars( text, &pcbTextResolver, &boardTextResolver, board->GetProject() );
 
-    KIFONT::FONT*         font = GetDrawFont();
+    KIFONT::FONT*         font = getDrawFont();
     std::vector<VECTOR2I> corners = GetAnchorAndOppositeCorner();
     int                   colWidth = ( corners[1] - corners[0] ).EuclideanNorm();
 
@@ -178,10 +295,8 @@ wxString PCB_TEXTBOX::GetShownText( int aDepth ) const
 
 void PCB_TEXTBOX::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList )
 {
-    EDA_UNITS units = aFrame->GetUserUnits();
-
     // Don't use GetShownText() here; we want to show the user the variable references
-    aList.emplace_back( _( "Text Box" ), UnescapeString( GetText() ) );
+    aList.emplace_back( _( "Text Box" ), KIUI::EllipsizeStatusText( aFrame, GetText() ) );
 
     if( aFrame->GetName() == PCB_EDIT_FRAME_NAME && IsLocked() )
         aList.emplace_back( _( "Status" ), _( "Locked" ) );
@@ -190,9 +305,25 @@ void PCB_TEXTBOX::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL
     aList.emplace_back( _( "Mirror" ), IsMirrored() ? _( "Yes" ) : _( "No" ) );
     aList.emplace_back( _( "Angle" ), wxString::Format( "%g", GetTextAngle().AsDegrees() ) );
 
-    aList.emplace_back( _( "Thickness" ), MessageTextFromValue( units, GetTextThickness() ) );
-    aList.emplace_back( _( "Width" ), MessageTextFromValue( units, GetTextWidth() ) );
-    aList.emplace_back( _( "Height" ), MessageTextFromValue( units, GetTextHeight() ) );
+    aList.emplace_back( _( "Font" ), GetFont() ? GetFont()->GetName() : _( "Default" ) );
+    aList.emplace_back( _( "Text Thickness" ), aFrame->MessageTextFromValue( GetTextThickness() ) );
+    aList.emplace_back( _( "Text Width" ), aFrame->MessageTextFromValue( GetTextWidth() ) );
+    aList.emplace_back( _( "Text Height" ), aFrame->MessageTextFromValue( GetTextHeight() ) );
+
+    aList.emplace_back( _( "Box Width" ),
+                        aFrame->MessageTextFromValue( std::abs( GetEnd().x - GetStart().x ) ) );
+
+    aList.emplace_back( _( "Box Height" ),
+                        aFrame->MessageTextFromValue( std::abs( GetEnd().y - GetStart().y ) ));
+
+    m_stroke.GetMsgPanelInfo( aFrame, aList );
+}
+
+
+void PCB_TEXTBOX::Move( const VECTOR2I& aMoveVector )
+{
+    PCB_SHAPE::Move( aMoveVector );
+    EDA_TEXT::Offset( aMoveVector );
 }
 
 
@@ -200,6 +331,39 @@ void PCB_TEXTBOX::Rotate( const VECTOR2I& aRotCentre, const EDA_ANGLE& aAngle )
 {
     PCB_SHAPE::Rotate( aRotCentre, aAngle );
     SetTextAngle( GetTextAngle() + aAngle );
+
+    if( GetTextAngle().IsCardinal() && GetShape() != SHAPE_T::RECT )
+    {
+        std::vector<VECTOR2I> corners = GetCorners();
+        VECTOR2I              diag = corners[2] - corners[0];
+        EDA_ANGLE             angle = GetTextAngle();
+
+        SetShape( SHAPE_T::RECT );
+        SetStart( corners[0] );
+
+        angle.Normalize();
+
+        if( angle == ANGLE_90 )
+            SetEnd( VECTOR2I( corners[0].x + abs( diag.x ), corners[0].y - abs( diag.y ) ) );
+        else if( angle == ANGLE_180 )
+            SetEnd( VECTOR2I( corners[0].x - abs( diag.x ), corners[0].y - abs( diag.y ) ) );
+        else if( angle == ANGLE_270 )
+            SetEnd( VECTOR2I( corners[0].x - abs( diag.x ), corners[0].y + abs( diag.y ) ) );
+        else
+            SetEnd( VECTOR2I( corners[0].x + abs( diag.x ), corners[0].y + abs( diag.y ) ) );
+    }
+}
+
+
+void PCB_TEXTBOX::Mirror( const VECTOR2I& aCentre, bool aMirrorAroundXAxis )
+{
+    // the position is mirrored, but not the text (or its justification)
+    PCB_SHAPE::Mirror( aCentre, aMirrorAroundXAxis );
+
+    BOX2I rect( m_start, m_end - m_start );
+    rect.Normalize();
+    m_start = VECTOR2I( rect.GetLeft(), rect.GetTop() );
+    m_end = VECTOR2I( rect.GetRight(), rect.GetBottom() );
 }
 
 
@@ -219,13 +383,15 @@ void PCB_TEXTBOX::Flip( const VECTOR2I& aCentre, bool aFlipLeftRight )
     }
 
     SetLayer( FlipLayer( GetLayer(), GetBoard()->GetCopperLayerCount() ) );
-    SetMirrored( !IsMirrored() );
+
+    if( ( GetLayerSet() & LSET::SideSpecificMask() ).any() )
+        SetMirrored( !IsMirrored() );
 }
 
 
 bool PCB_TEXTBOX::HitTest( const VECTOR2I& aPosition, int aAccuracy ) const
 {
-    EDA_RECT rect = GetBoundingBox();
+    BOX2I rect = GetBoundingBox();
 
     rect.Inflate( aAccuracy );
 
@@ -233,9 +399,9 @@ bool PCB_TEXTBOX::HitTest( const VECTOR2I& aPosition, int aAccuracy ) const
 }
 
 
-bool PCB_TEXTBOX::HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy ) const
+bool PCB_TEXTBOX::HitTest( const BOX2I& aRect, bool aContained, int aAccuracy ) const
 {
-    EDA_RECT rect = aRect;
+    BOX2I rect = aRect;
 
     rect.Inflate( aAccuracy );
 
@@ -246,7 +412,7 @@ bool PCB_TEXTBOX::HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy
 }
 
 
-wxString PCB_TEXTBOX::GetSelectMenuText( EDA_UNITS aUnits ) const
+wxString PCB_TEXTBOX::GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const
 {
     return wxString::Format( _( "PCB Text Box on %s"), GetLayerName() );
 }
@@ -264,7 +430,7 @@ EDA_ITEM* PCB_TEXTBOX::Clone() const
 }
 
 
-void PCB_TEXTBOX::SwapData( BOARD_ITEM* aImage )
+void PCB_TEXTBOX::swapData( BOARD_ITEM* aImage )
 {
     assert( aImage->Type() == PCB_TEXTBOX_T );
 
@@ -272,56 +438,77 @@ void PCB_TEXTBOX::SwapData( BOARD_ITEM* aImage )
 }
 
 
-std::shared_ptr<SHAPE> PCB_TEXTBOX::GetEffectiveShape( PCB_LAYER_ID aLayer ) const
+std::shared_ptr<SHAPE> PCB_TEXTBOX::GetEffectiveShape( PCB_LAYER_ID aLayer, FLASHING aFlash ) const
 {
+    std::shared_ptr<SHAPE_COMPOUND> shape = GetEffectiveTextShape();
+
     if( PCB_SHAPE::GetStroke().GetWidth() >= 0 )
-        return PCB_SHAPE::GetEffectiveShape( aLayer );
-    else
-        return GetEffectiveTextShape();
+        shape->AddShape( PCB_SHAPE::GetEffectiveShape( aLayer, aFlash ) );
+
+    return shape;
 }
 
 
-void PCB_TEXTBOX::TransformTextShapeWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuffer,
-                                                         PCB_LAYER_ID aLayer, int aClearance,
-                                                         int aError, ERROR_LOC aErrorLoc ) const
+void PCB_TEXTBOX::TransformTextToPolySet( SHAPE_POLY_SET& aBuffer, PCB_LAYER_ID aLayer,
+                                          int aClearance, int aError, ERROR_LOC aErrorLoc ) const
 {
     KIGFX::GAL_DISPLAY_OPTIONS empty_opts;
-    KIFONT::FONT*              font = GetDrawFont();
+    KIFONT::FONT*              font = getDrawFont();
     int                        penWidth = GetEffectiveTextPenWidth();
+
+    // Note: this function is mainly used in 3D viewer.
+    // the polygonal shape of a text can have many basic shapes,
+    // so combining these shapes can be very useful to create a final shape
+    // swith a lot less vertices to speedup calculations using this final shape
+    // Simplify shapes is not usually always efficient, but in this case it is.
+    SHAPE_POLY_SET buffer;
 
     CALLBACK_GAL callback_gal( empty_opts,
             // Stroke callback
             [&]( const VECTOR2I& aPt1, const VECTOR2I& aPt2 )
             {
-                TransformOvalToPolygon( aCornerBuffer, aPt1, aPt2, penWidth+ ( 2 * aClearance ),
-                                        aError, ERROR_INSIDE );
+                TransformOvalToPolygon( buffer, aPt1, aPt2, penWidth + ( 2 * aClearance ), aError,
+                                        ERROR_INSIDE );
             },
             // Triangulation callback
             [&]( const VECTOR2I& aPt1, const VECTOR2I& aPt2, const VECTOR2I& aPt3 )
             {
-                aCornerBuffer.NewOutline();
+                buffer.NewOutline();
 
                 for( const VECTOR2I& point : { aPt1, aPt2, aPt3 } )
-                    aCornerBuffer.Append( point.x, point.y );
+                    buffer.Append( point.x, point.y );
             } );
 
-    font->Draw( &callback_gal, GetShownText(), GetTextPos(), GetAttributes() );
+    font->Draw( &callback_gal, GetShownText(), GetDrawPos(), GetAttributes() );
+
+    buffer.Simplify( SHAPE_POLY_SET::PM_FAST );
+    aBuffer.Append( buffer );
 }
 
 
-void PCB_TEXTBOX::TransformShapeWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuffer,
-                                                     PCB_LAYER_ID aLayer, int aClearance,
-                                                     int aError, ERROR_LOC aErrorLoc,
-                                                     bool aIgnoreLineWidth ) const
+void PCB_TEXTBOX::TransformShapeToPolygon( SHAPE_POLY_SET& aBuffer, PCB_LAYER_ID aLayer,
+                                           int aClearance, int aError, ERROR_LOC aErrorLoc,
+                                           bool aIgnoreLineWidth ) const
 {
-    if( PCB_SHAPE::GetStroke().GetWidth() >= 0 )
+    // Don't use PCB_SHAPE::TransformShapeToPolygon.  We want to treat the textbox as filled even
+    // if there's no background colour.
+
+    std::vector<VECTOR2I> pts = GetRectCorners();
+
+    aBuffer.NewOutline();
+
+    for( const VECTOR2I& pt : pts )
+        aBuffer.Append( pt );
+
+    int width = GetWidth() + ( 2 * aClearance );
+
+    if( width > 0 )
     {
-        PCB_SHAPE::TransformShapeWithClearanceToPolygon( aCornerBuffer, aLayer, aClearance,
-                                                         aError, aErrorLoc );
-    }
-    else
-    {
-        EDA_TEXT::TransformBoundingBoxWithClearanceToPolygon( &aCornerBuffer, aClearance );
+        // Add in segments
+        TransformOvalToPolygon( aBuffer, pts[0], pts[1], width, aError, aErrorLoc );
+        TransformOvalToPolygon( aBuffer, pts[1], pts[2], width, aError, aErrorLoc );
+        TransformOvalToPolygon( aBuffer, pts[2], pts[3], width, aError, aErrorLoc );
+        TransformOvalToPolygon( aBuffer, pts[3], pts[0], width, aError, aErrorLoc );
     }
 }
 

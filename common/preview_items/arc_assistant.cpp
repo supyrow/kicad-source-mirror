@@ -34,9 +34,11 @@
 
 using namespace KIGFX::PREVIEW;
 
-ARC_ASSISTANT::ARC_ASSISTANT( const ARC_GEOM_MANAGER& aManager, EDA_UNITS aUnits ) :
+ARC_ASSISTANT::ARC_ASSISTANT( const ARC_GEOM_MANAGER& aManager, const EDA_IU_SCALE& aIuScale,
+                              EDA_UNITS aUnits ) :
         EDA_ITEM( NOT_USED ),
         m_constructMan( aManager ),
+        m_iuScale( aIuScale ),
         m_units( aUnits )
 {
 }
@@ -90,8 +92,9 @@ void ARC_ASSISTANT::ViewDraw( int aLayer, KIGFX::VIEW* aView ) const
 
         initAngle.Normalize720();
 
-        cursorStrings.push_back( DimensionLabel( "r", m_constructMan.GetRadius(), m_units ) );
-        cursorStrings.push_back( DimensionLabel( wxString::FromUTF8( "θ" ), initAngle.AsDegrees(),
+        cursorStrings.push_back(
+                DimensionLabel( "r", m_constructMan.GetRadius(), m_iuScale, m_units ) );
+        cursorStrings.push_back( DimensionLabel( wxString::FromUTF8( "θ" ), initAngle.AsDegrees(), m_iuScale,
                                                  EDA_UNITS::DEGREES ) );
     }
     else
@@ -100,14 +103,15 @@ void ARC_ASSISTANT::ViewDraw( int aLayer, KIGFX::VIEW* aView ) const
 
         EDA_ANGLE start = m_constructMan.GetStartAngle();
         EDA_ANGLE subtended = m_constructMan.GetSubtended();
-        EDA_ANGLE endAngle = start + subtended;
+        EDA_ANGLE normalizedEnd = ( start + subtended ).Normalize180();
 
         // draw dimmed extender line to cursor
         preview_ctx.DrawLineWithAngleHighlight( origin, m_constructMan.GetLastPoint(), true );
 
         cursorStrings.push_back( DimensionLabel( wxString::FromUTF8( "Δθ" ), subtended.AsDegrees(),
-                                                 EDA_UNITS::DEGREES ) );
-        cursorStrings.push_back( DimensionLabel( wxString::FromUTF8( "θ" ), endAngle.AsDegrees(),
+                                                 m_iuScale, EDA_UNITS::DEGREES ) );
+        cursorStrings.push_back( DimensionLabel( wxString::FromUTF8( "θ" ),
+                                                 normalizedEnd.AsDegrees(), m_iuScale,
                                                  EDA_UNITS::DEGREES ) );
     }
 

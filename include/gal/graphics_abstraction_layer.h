@@ -39,7 +39,6 @@
 #include <gal/gal_display_options.h>
 #include <newstroke_font.h>
 #include <font/stroke_font.h>
-#include <eda_rect.h>
 #include <geometry/eda_angle.h>
 
 class SHAPE_LINE_CHAIN;
@@ -107,7 +106,16 @@ public:
      * @param aWidth        is a width of the segment
      */
     virtual void DrawSegment( const VECTOR2D& aStartPoint, const VECTOR2D& aEndPoint,
-                              double aWidth ) {};
+                              double aWidth ){};
+
+    /**
+     * Draw a chain of rounded segments.
+     *
+     * @param aPointList is a list of 2D-Vectors containing the chain points.
+     * @param aWidth     is a width of the segments
+     */
+    virtual void DrawSegmentChain( const std::vector<VECTOR2D>& aPointList, double aWidth ){};
+    virtual void DrawSegmentChain( const SHAPE_LINE_CHAIN& aLineChain, double aWidth ){};
 
     /**
      * Draw a polyline
@@ -118,6 +126,13 @@ public:
     virtual void DrawPolyline( const std::vector<VECTOR2D>& aPointList ) {};
     virtual void DrawPolyline( const VECTOR2D aPointList[], int aListSize ) {};
     virtual void DrawPolyline( const SHAPE_LINE_CHAIN& aLineChain ) {};
+
+    /**
+     * Draw multiple polylines
+     *
+     * @param aPointLists are lists of 2D-Vectors containing the polyline points.
+     */
+    virtual void DrawPolylines( const std::vector<std::vector<VECTOR2D>>& aPointLists ){};
 
     /**
      * Draw a circle using world coordinates.
@@ -168,15 +183,25 @@ public:
      */
     virtual void DrawRectangle( const VECTOR2D& aStartPoint, const VECTOR2D& aEndPoint ) {};
 
-    void DrawRectangle( const EDA_RECT& aRect )
+    void DrawRectangle( const BOX2I& aRect )
     {
         DrawRectangle( aRect.GetOrigin(), aRect.GetEnd() );
     }
 
     /**
-     * Draw a polygon representing an outline font glyph.
+     * Draw a polygon representing a font glyph.
      */
     virtual void DrawGlyph( const KIFONT::GLYPH& aGlyph, int aNth = 0, int aTotal = 1 ) {};
+
+    /**
+     * Draw polygons representing font glyphs.
+     */
+    virtual void DrawGlyphs( const std::vector<std::unique_ptr<KIFONT::GLYPH>>& aGlyphs )
+    {
+        for( size_t i = 0; i < aGlyphs.size(); i++ )
+            DrawGlyph( *aGlyphs[i], i, aGlyphs.size() );
+    }
+
 
     /**
      * Draw a polygon.
@@ -206,7 +231,7 @@ public:
     /**
      * Draw a bitmap image.
      */
-    virtual void DrawBitmap( const BITMAP_BASE& aBitmap ) {};
+    virtual void DrawBitmap( const BITMAP_BASE& aBitmap, double alphaBlend = 1.0 ) {};
 
     // --------------
     // Screen methods
@@ -365,7 +390,7 @@ public:
     void ResetTextAttributes();
 
     void SetGlyphSize( const VECTOR2I aSize )         { m_attributes.m_Size = aSize; }
-    const VECTOR2D& GetGlyphSize() const              { return m_attributes.m_Size; }
+    const VECTOR2I& GetGlyphSize() const              { return m_attributes.m_Size; }
 
     inline void SetFontBold( const bool aBold )       { m_attributes.m_Bold = aBold; }
     inline bool IsFontBold() const                    { return m_attributes.m_Bold; }
@@ -929,7 +954,7 @@ public:
     /// Use GAL_DRAWING_CONTEXT RAII object unless you know what you're doing.
     virtual void EndDrawing() {};
 protected:
-  
+
     /// Enable item update mode.
     /// Private: use GAL_UPDATE_CONTEXT RAII object
     virtual void beginUpdate() {}
@@ -937,7 +962,7 @@ protected:
     /// Disable item update mode.
     virtual void endUpdate() {}
 
-   
+
 
     /// Compute the scaling factor for the world->screen matrix
     inline void computeWorldScale()
@@ -1087,7 +1112,7 @@ public:
         m_gal->BeginDrawing();
     }
 
-    ~GAL_DRAWING_CONTEXT()
+    ~GAL_DRAWING_CONTEXT() noexcept( false )
     {
         m_gal->EndDrawing();
     }

@@ -37,7 +37,7 @@
 #include <pcb_group.h>
 #include <pcbnew_settings.h>
 #include <project.h>
-#include <wx_html_report_panel.h>
+#include <widgets/wx_html_report_panel.h>
 
 
 #define ID_MATCH_FP_ALL      4200
@@ -315,7 +315,6 @@ void DIALOG_EXCHANGE_FOOTPRINTS::OnOKClicked( wxCommandEvent& event )
 void DIALOG_EXCHANGE_FOOTPRINTS::processMatchingFootprints()
 {
     LIB_ID   newFPID;
-    wxString value;
 
     if( m_parent->GetBoard()->Footprints().empty() )
         return;
@@ -440,6 +439,7 @@ void processTextItem( const FP_TEXT& aSrc, FP_TEXT& aDest,
         bool visible = aDest.IsVisible();
         aDest.SetAttributes( aSrc );
         aDest.SetVisible( visible );
+        aDest.SetPos0( aSrc.GetPos0() );
     }
 
     aDest.SetLocked( aSrc.IsLocked() );
@@ -521,7 +521,7 @@ void PCB_EDIT_FRAME::ExchangeFootprint( FOOTPRINT* aExisting, FOOTPRINT* aNew,
     aNew->SetPosition( aExisting->GetPosition() );
 
     if( aNew->GetLayer() != aExisting->GetLayer() )
-        aNew->Flip( aNew->GetPosition(), m_settings->m_FlipLeftRight );
+        aNew->Flip( aNew->GetPosition(), GetPcbNewSettings()->m_FlipLeftRight );
 
     if( aNew->GetOrientation() != aExisting->GetOrientation() )
         aNew->SetOrientation( aExisting->GetOrientation() );

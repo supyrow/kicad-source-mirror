@@ -31,6 +31,15 @@ namespace PNS
 }
 
 
+// Settings for the CONVERT_TOOL.
+struct CONVERT_SETTINGS
+{
+    bool m_IgnoreLineWidths;
+    bool m_DeleteOriginals;
+};
+
+
+
 enum class MAGNETIC_OPTIONS
 {
     NO_EFFECT = 0,
@@ -82,14 +91,45 @@ enum PCB_DISPLAY_ORIGIN
 typedef std::vector<std::pair<wxString, bool>> ACTION_PLUGIN_SETTINGS_LIST;
 
 
-class PCBNEW_SETTINGS : public APP_SETTINGS_BASE
+// base class to handle Pcbnew SETTINGS also used in Cvpcb
+class PCB_VIEWERS_SETTINGS_BASE : public APP_SETTINGS_BASE
+{
+public:
+    struct VIEWERS_DISPLAY_OPTIONS
+    {
+        bool    m_DisplayGraphicsFill;
+        bool    m_DisplayTextFill;
+        bool    m_DisplayPadNumbers;
+        bool    m_DisplayPadFill;
+    };
+
+    VIEWERS_DISPLAY_OPTIONS m_ViewersDisplay;
+
+    PCB_VIEWERS_SETTINGS_BASE( const std::string& aFilename, int aSchemaVersion ):
+        APP_SETTINGS_BASE( aFilename, aSchemaVersion )
+    {
+        m_ViewersDisplay.m_DisplayGraphicsFill = true;
+        m_ViewersDisplay.m_DisplayTextFill = true;
+        m_ViewersDisplay.m_DisplayPadNumbers = true;
+        m_ViewersDisplay.m_DisplayPadFill = true;
+    }
+
+    virtual ~PCB_VIEWERS_SETTINGS_BASE() {};
+};
+
+
+class PCBNEW_SETTINGS : public PCB_VIEWERS_SETTINGS_BASE
 {
 public:
     struct AUI_PANELS
     {
         int  appearance_panel_tab;
+        bool appearance_expand_layer_display;
+        bool appearance_expand_net_display;
         int  right_panel_width;
         bool show_layer_manager;
+        bool show_properties;
+        bool show_search;
     };
 
     struct DIALOG_CLEANUP
@@ -175,8 +215,8 @@ public:
         int         layer;
         bool        interactive_placement;
         wxString    last_file;
-        double      line_width;
-        int         line_width_units;
+        double      dxf_line_width;
+        int         dxf_line_width_units;
         int         origin_units;
         double      origin_x;
         double      origin_y;
@@ -194,11 +234,15 @@ public:
 
     struct DIALOG_PLACE_FILE
     {
-        int  units;
-        int  file_options;
-        int  file_format;
-        bool include_board_edge;
-        bool use_aux_origin;
+        wxString output_directory;
+        int      units;
+        int      file_options;
+        int      file_format;
+        bool     include_board_edge;
+        bool     exclude_TH;
+        bool     only_SMD;
+        bool     use_aux_origin;
+        bool     negate_xcoord;
     };
 
     struct DIALOG_PLOT
@@ -241,28 +285,21 @@ public:
 
     struct ZONES
     {
-        int         hatching_style;
         int         net_sort_mode;
-        double      clearance;
-        double      min_thickness;
-        double      thermal_relief_gap;
-        double      thermal_relief_copper_width;
     };
 
     struct DISPLAY_OPTIONS
     {
-        bool                 m_DisplayPadFill;
+        // Note: Display options common to  Cvpcb and Pcbnew are stored in
+        // VIEWERS_DISPLAY_OPTIONS m_ViewersDisplay, because the section DISPLAY_OPTIONS
+        // exists only for Pcbnew
         bool                 m_DisplayViaFill;
-        bool                 m_DisplayGraphicsFill;
-        bool                 m_DisplayTextFill;
         bool                 m_DisplayPcbTrackFill;
 
         TRACK_CLEARANCE_MODE m_TrackClearance;
         bool                 m_PadClearance;
 
         int                  m_NetNames;
-        bool                 m_PadNumbers;
-        bool                 m_PadNoConnects;
 
         RATSNEST_MODE        m_RatsnestMode;
 
@@ -326,15 +363,21 @@ public:
 
     TRACK_DRAG_ACTION m_TrackDragAction;
 
+    bool m_CtrlClickHighlight;
+
     bool m_Use45DegreeLimit;            // True to constrain tool actions to horizontal,
                                         // vertical and 45deg
     bool m_FlipLeftRight;               // True: Flip footprints across Y axis
+
+    bool m_ESCClearsNetHighlight;
 
     bool m_PolarCoords;
 
     EDA_ANGLE m_RotationAngle;
 
     bool m_ShowPageLimits;
+
+    bool m_ShowCourtyardCollisions;
 
     ///<@todo Implement real auto zone filling (not just after zone properties are edited)
     bool m_AutoRefillZones; // Fill zones after editing the zone using the Zone Properties dialog
@@ -347,7 +390,10 @@ public:
 
     std::unique_ptr<PNS::ROUTING_SETTINGS> m_PnsSettings;
 
-    double m_FootprintViewerZoom;       ///< The last zoom level used (0 for auto)
+    double m_FootprintViewerZoom;               ///< The last zoom level used (0 for auto)
+    bool   m_FootprintViewerAutoZoomOnSelect;   ///< true to use automatic zoom on fp selection
+    int    m_FootprintViewerLibListWidth;
+    int    m_FootprintViewerFPListWidth;
 
     wxString m_lastFootprintLibDir;
 

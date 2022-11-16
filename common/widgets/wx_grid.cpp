@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2018-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2018-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -26,7 +26,7 @@
 #include <widgets/wx_grid.h>
 #include <widgets/ui_common.h>
 #include <algorithm>
-
+#include <core/kicad_algo.h>
 
 #define MIN_GRIDCELL_MARGIN 3
 
@@ -40,6 +40,13 @@ WX_GRID::WX_GRID( wxWindow *parent, wxWindowID id, const wxPoint& pos, const wxS
 
     // Make sure the GUI font scales properly on GTK
     SetDefaultCellFont( KIUI::GetControlFont( this ) );
+
+#if wxCHECK_VERSION( 3, 1, 3 )
+    Connect( wxEVT_DPI_CHANGED, wxDPIChangedEventHandler( WX_GRID::onDPIChanged ), nullptr, this );
+#endif
+
+    Connect( wxEVT_GRID_EDITOR_SHOWN, wxGridEventHandler( WX_GRID::onCellEditorShown ), nullptr, this );
+    Connect( wxEVT_GRID_EDITOR_HIDDEN, wxGridEventHandler( WX_GRID::onCellEditorHidden ), nullptr, this );
 }
 
 
@@ -47,8 +54,24 @@ WX_GRID::~WX_GRID()
 {
     if( m_weOwnTable )
         DestroyTable( GetTable() );
+
+#if wxCHECK_VERSION( 3, 1, 3 )
+    Disconnect( wxEVT_DPI_CHANGED, wxDPIChangedEventHandler( WX_GRID::onDPIChanged ), nullptr, this );
+#endif
+
 }
 
+
+#if wxCHECK_VERSION( 3, 1, 3 )
+void WX_GRID::onDPIChanged(wxDPIChangedEvent& aEvt)
+{
+    /// This terrible hack is a way to avoid the incredibly disruptive resizing of grids that happens on Macs
+    /// when moving a window between monitors of different DPIs.
+#ifndef __WXMAC__
+    aEvt.Skip();
+#endif
+}
+#endif
 
 void WX_GRID::SetColLabelSize( int aHeight )
 {
@@ -105,15 +128,67 @@ void WX_GRID::SetTable( wxGridTableBase* aTable, bool aTakeOwnership )
 void WX_GRID::onGridCellSelect( wxGridEvent& aEvent )
 {
     // Highlight the selected cell.
-    // Calling SelectBlock() allows a visual effect when cells are selected
-    // by tab or arrow keys.
-    // Otherwise, one cannot really know what actual cell is selected
+    // Calling SelectBlock() allows a visual effect when cells are selected by tab or arrow keys.
+    // Otherwise, one cannot really know what actual cell is selected.
     int row = aEvent.GetRow();
     int col = aEvent.GetCol();
 
     if( row >= 0 && col >= 0 )
-        SelectBlock(row,col,row,col,false);
+        SelectBlock( row, col, row, col, false );
 }
+
+
+void WX_GRID::onCellEditorShown( wxGridEvent& aEvent )
+{
+    if( alg::contains( m_autoEvalCols, aEvent.GetCol() ) )
+    {
+        int row = aEvent.GetRow();
+        int col = aEvent.GetCol();
+
+        const std::pair<wxString, wxString>& beforeAfter = m_evalBeforeAfter[ { row, col } ];
+
+        if( GetCellValue( row, col ) == beforeAfter.second )
+            SetCellValue( row, col, beforeAfter.first );
+    }
+}
+
+
+void WX_GRID::onCellEditorHidden( wxGridEvent& aEvent )
+{
+    if( alg::contains( m_autoEvalCols, aEvent.GetCol() ) )
+    {
+        UNITS_PROVIDER* unitsProvider = m_unitsProviders[ aEvent.GetCol() ];
+
+        if( !unitsProvider )
+            unitsProvider = m_unitsProviders.begin()->second;
+
+        m_eval->SetDefaultUnits( unitsProvider->GetUserUnits() );
+
+        int row = aEvent.GetRow();
+        int col = aEvent.GetCol();
+
+        CallAfter(
+              [this, row, col, unitsProvider]()
+              {
+                  wxString stringValue = GetCellValue( row, col );
+
+                  if( m_eval->Process( stringValue ) )
+                  {
+                      int      val = unitsProvider->ValueFromString( m_eval->Result() );
+                      wxString evalValue = unitsProvider->StringFromValue( val, true );
+
+                      if( stringValue != evalValue )
+                      {
+                          SetCellValue( row, col, evalValue );
+                          m_evalBeforeAfter[ { row, col } ] = { stringValue, evalValue };
+                      }
+                  }
+              } );
+    }
+
+    aEvent.Skip();
+}
+
 
 void WX_GRID::DestroyTable( wxGridTableBase* aTable )
 {
@@ -248,6 +323,47 @@ bool WX_GRID::CommitPendingChanges( bool aQuietMode )
     }
 
     return true;
+}
+
+
+void WX_GRID::SetUnitsProvider( UNITS_PROVIDER* aProvider, int aCol )
+{
+    m_unitsProviders[ aCol ] = aProvider;
+
+    if( !m_eval )
+        m_eval = std::make_unique<NUMERIC_EVALUATOR>( aProvider->GetUserUnits() );
+}
+
+
+int WX_GRID::GetUnitValue( int aRow, int aCol )
+{
+    UNITS_PROVIDER* unitsProvider = m_unitsProviders[ aCol ];
+
+    if( !unitsProvider )
+        unitsProvider = m_unitsProviders.begin()->second;
+
+    wxString stringValue = GetCellValue( aRow, aCol );
+
+    if( alg::contains( m_autoEvalCols, aCol ) )
+    {
+        m_eval->SetDefaultUnits( unitsProvider->GetUserUnits() );
+
+        if( m_eval->Process( stringValue ) )
+            stringValue = m_eval->Result();
+    }
+
+    return unitsProvider->ValueFromString( stringValue );
+}
+
+
+void WX_GRID::SetUnitValue( int aRow, int aCol, int aValue )
+{
+    UNITS_PROVIDER* unitsProvider = m_unitsProviders[ aCol ];
+
+    if( !unitsProvider )
+        unitsProvider = m_unitsProviders.begin()->second;
+
+    SetCellValue( aRow, aCol, unitsProvider->StringFromValue( aValue, true ) );
 }
 
 

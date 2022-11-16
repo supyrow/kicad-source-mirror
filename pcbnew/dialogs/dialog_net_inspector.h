@@ -25,14 +25,17 @@
 
 #pragma once
 
-#include <core/optional.h>
+#include <board.h>
+#include <optional>
 #include <dialog_net_inspector_base.h>
 
 class PCB_EDIT_FRAME;
 class NETINFO_ITEM;
 class BOARD;
+class BOARD_ITEM;
 class CN_ITEM;
 class EDA_PATTERN_MATCH;
+class PCB_TRACK;
 
 class DIALOG_NET_INSPECTOR : public DIALOG_NET_INSPECTOR_BASE, public BOARD_LISTENER
 {
@@ -72,15 +75,6 @@ private:
     using LIST_ITEM_ITER       = std::vector<std::unique_ptr<LIST_ITEM>>::iterator;
     using LIST_ITEM_CONST_ITER = std::vector<std::unique_ptr<LIST_ITEM>>::const_iterator;
 
-    static const COLUMN_DESC COLUMN_NET;
-    static const COLUMN_DESC COLUMN_NAME;
-    static const COLUMN_DESC COLUMN_PAD_COUNT;
-    static const COLUMN_DESC COLUMN_VIA_COUNT;
-    static const COLUMN_DESC COLUMN_VIA_LENGTH;
-    static const COLUMN_DESC COLUMN_BOARD_LENGTH;
-    static const COLUMN_DESC COLUMN_CHIP_LENGTH;
-    static const COLUMN_DESC COLUMN_TOTAL_LENGTH;
-
     wxString formatNetCode( const NETINFO_ITEM* aNet ) const;
     wxString formatNetName( const NETINFO_ITEM* aNet ) const;
     wxString formatCount( unsigned int aValue ) const;
@@ -111,7 +105,7 @@ private:
     void onUnitsChanged( wxCommandEvent& event );
     void onBoardChanged( wxCommandEvent& event );
 
-    void updateDisplayedRowValues( const OPT<LIST_ITEM_ITER>& aRow );
+    void updateDisplayedRowValues( const std::optional<LIST_ITEM_ITER>& aRow );
 
     // special zero-netcode item.  unconnected pads etc might use different
     // (dummy) NETINFO_ITEM.  redirect all of them to this item, which we get
@@ -127,6 +121,10 @@ private:
     bool            m_filter_change_no_rebuild = false;
     wxSize          m_size;
 
+    std::vector<COLUMN_DESC> m_columns;
+
     class DATA_MODEL;
     wxObjectDataPtr<DATA_MODEL> m_data_model;
+
+    friend DATA_MODEL;
 };

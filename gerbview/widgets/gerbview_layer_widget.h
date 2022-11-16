@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2004-2010 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2010 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
- * Copyright (C) 2010-2021 KiCad Developers, see change_log.txt for contributors.
+ * Copyright (C) 2010-2022 KiCad Developers, see change_log.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -41,6 +41,11 @@ public:
      * @param aFocusOwner is the window that has the keyboard focus.
      */
     GERBER_LAYER_WIDGET( GERBVIEW_FRAME* aParent, wxWindow* aFocusOwner );
+
+    /**
+     * Collect the current color settings and put it in aColorSettings
+     */
+    void CollectCurrentColorSettings(  COLOR_SETTINGS* aColorSettings );
 
     /**
      * Rebuild Render for instance after the config is read.
@@ -114,12 +119,6 @@ private:
     /// this is for the popup menu, the right click handler has to be installed
     /// on every child control within the layer panel.
     void installRightLayerClickHandler();
-
-    /**
-     * @return true if bitmaps shown in Render layer list are alternate bitmaps else false if
-     *         they are "normal" bitmaps.
-     */
-    virtual bool useAlternateBitmap( int aRow ) override;
 
     GERBER_FILE_IMAGE_LIST* GetImagesList();
 

@@ -1,7 +1,7 @@
 /*
 * This program source code file is part of KiCad, a free EDA CAD application.
 *
-* Copyright (C) 2020-2021 KiCad Developers, see AUTHORS.txt for contributors.
+* Copyright (C) 2020-2022 KiCad Developers, see AUTHORS.txt for contributors.
 *
 * This program is free software; you can redistribute it and/or
 * modify it under the terms of the GNU General Public License
@@ -40,19 +40,24 @@
 using namespace T_BOMCFG_T;     // for the BOM_CFG_PARSER parser and its keywords
 
 ///! Update the schema version whenever a migration is required
-const int eeschemaSchemaVersion = 1;
+const int eeschemaSchemaVersion = 3;
 
 /// Default value for bom.plugins
-const nlohmann::json defaultBomPlugins = {
+const nlohmann::json defaultBomPlugins =
         {
-            { "name", "bom_csv_grouped_by_value" },
-            { "path", "bom_csv_grouped_by_value.py" }
-        },
-        {
-            { "name", "bom_csv_grouped_by_value_with_fp" },
-            { "path", "bom_csv_grouped_by_value_with_fp.py" }
-        },
-    };
+            {
+                { "name", "bom_csv_grouped_extra" },
+                { "path", "bom_csv_grouped_extra.py" }
+            },
+            {
+                { "name", "bom_csv_grouped_by_value" },
+                { "path", "bom_csv_grouped_by_value.py" }
+            },
+            {
+                { "name", "bom_csv_grouped_by_value_with_fp" },
+                { "path", "bom_csv_grouped_by_value_with_fp.py" }
+            },
+        };
 
 
 EESCHEMA_SETTINGS::EESCHEMA_SETTINGS() :
@@ -60,6 +65,7 @@ EESCHEMA_SETTINGS::EESCHEMA_SETTINGS() :
         m_Appearance(),
         m_AutoplaceFields(),
         m_Drawing(),
+        m_FindReplaceExtra(),
         m_Input(),
         m_PageSettings(),
         m_AnnotatePanel(),
@@ -87,9 +93,6 @@ EESCHEMA_SETTINGS::EESCHEMA_SETTINGS() :
 
     m_params.emplace_back( new PARAM<bool>( "appearance.footprint_preview",
             &m_Appearance.footprint_preview, true ) );
-
-    m_params.emplace_back( new PARAM<bool>( "appearance.navigator_stays_open",
-            &m_Appearance.navigator_stays_open, false ) );
 
     m_params.emplace_back( new PARAM<bool>( "appearance.print_sheet_reference",
             &m_Appearance.print_sheet_reference, true ) );
@@ -124,6 +127,21 @@ EESCHEMA_SETTINGS::EESCHEMA_SETTINGS() :
     m_params.emplace_back(
             new PARAM<bool>( "appearance.show_sheet_filename_case_sensitivity_dialog",
             &m_Appearance.show_sheet_filename_case_sensitivity_dialog, true ) );
+
+    m_params.emplace_back( new PARAM<bool>( "aui.show_schematic_hierarchy",
+            &m_AuiPanels.show_schematic_hierarchy, true ) );
+
+    m_params.emplace_back( new PARAM<int>( "aui.hierarchy_panel_docked_width",
+            &m_AuiPanels.hierarchy_panel_docked_width, -1 ) );
+
+    m_params.emplace_back( new PARAM<int>( "aui.hierarchy_panel_float_width",
+            &m_AuiPanels.hierarchy_panel_float_width, -1 ) );
+
+    m_params.emplace_back( new PARAM<int>( "aui.hierarchy_panel_float_height",
+            &m_AuiPanels.hierarchy_panel_float_height, -1 ) );
+
+    m_params.emplace_back( new PARAM<bool>( "aui.schematic_hierarchy_float",
+            &m_AuiPanels.schematic_hierarchy_float, false ) );
 
     m_params.emplace_back( new PARAM<bool>( "autoplace_fields.enable",
             &m_AutoplaceFields.enable, true ) );
@@ -164,8 +182,8 @@ EESCHEMA_SETTINGS::EESCHEMA_SETTINGS() :
     m_params.emplace_back( new PARAM<wxString>( "drawing.field_names",
             &m_Drawing.field_names, "" ) );
 
-    m_params.emplace_back( new PARAM<bool>( "drawing.hv_lines_only",
-            &m_Drawing.hv_lines_only, true ) );
+    m_params.emplace_back( new PARAM<int>( "drawing.line_mode", &m_Drawing.line_mode,
+                                           LINE_MODE::LINE_MODE_90 ) );
 
     m_params.emplace_back( new PARAM<bool>( "drawing.auto_start_wires",
             &m_Drawing.auto_start_wires, true ) );
@@ -185,8 +203,24 @@ EESCHEMA_SETTINGS::EESCHEMA_SETTINGS() :
     m_params.emplace_back(new PARAM <int>( "drawing.junction_size_choice",
             &m_Drawing.junction_size_choice, 3 ) );
 
+    m_params.emplace_back( new PARAM<bool>( "find_replace.search_all_fields",
+                                            &m_FindReplaceExtra.search_all_fields, false ) );
+
+    m_params.emplace_back( new PARAM<bool>( "find_replace.search_all_pins",
+                                            &m_FindReplaceExtra.search_all_pins, false ) );
+
+    m_params.emplace_back( new PARAM<bool>( "find_replace.search_current_sheet_only",
+                                            &m_FindReplaceExtra.search_current_sheet_only,
+                                            false ) );
+
+    m_params.emplace_back( new PARAM<bool>( "find_replace.replace_references",
+                                            &m_FindReplaceExtra.replace_references, false ) );
+
     m_params.emplace_back( new PARAM<bool>( "input.drag_is_move",
             &m_Input.drag_is_move, false ) );
+
+    m_params.emplace_back( new PARAM<bool>( "input.esc_clears_net_highlight",
+            &m_Input.esc_clears_net_highlight, true ) );
 
     m_params.emplace_back( new PARAM<int>( "selection.thickness",
             &m_Selection.selection_thickness, 3 ) );
@@ -203,8 +237,11 @@ EESCHEMA_SETTINGS::EESCHEMA_SETTINGS() :
     m_params.emplace_back( new PARAM<bool>( "selection.select_pin_selects_symbol",
             &m_Selection.select_pin_selects_symbol, true ) );
 
-    m_params.emplace_back( new PARAM<bool>( "selection.text_as_box",
-            &m_Selection.text_as_box, false ) );
+    m_params.emplace_back( new PARAM<bool>( "annotation.automatic",
+            &m_AnnotatePanel.automatic, true ) );
+
+    m_params.emplace_back( new PARAM<bool>( "annotation.recursive",
+            &m_AnnotatePanel.recursive, true ) );
 
     m_params.emplace_back( new PARAM<int>( "annotation.method",
             &m_AnnotatePanel.method, 0, 0, 2 ) );
@@ -328,6 +365,9 @@ EESCHEMA_SETTINGS::EESCHEMA_SETTINGS() :
     m_params.emplace_back( new PARAM<int>( "plot.hpgl_origin",
             &m_PlotPanel.hpgl_origin, 0 ) );
 
+    m_params.emplace_back( new PARAM<bool>( "plot.other_open_file_after_plot",
+            &m_PlotPanel.open_file_after_plot, false ) );
+
     m_params.emplace_back( new PARAM<int>( "simulator.window.pos_x",
             &m_Simulator.window.state.pos_x, 0 ) );
 
@@ -427,6 +467,28 @@ EESCHEMA_SETTINGS::EESCHEMA_SETTINGS() :
                 // Version 0 to 1: BOM plugin settings moved from sexpr to JSON
                 return migrateBomSettings();
             } );
+
+
+    registerMigration( 1, 2,
+            [&]() -> bool
+            {
+                // We used to have a bug on GTK which would set the lib tree column width way
+                // too narrow.
+                if( std::optional<int> optval = Get<int>( "lib_tree.column_width" ) )
+                {
+                    if( optval < 150 )
+                        Set( "lib_tree.column_width",  300 );
+                }
+
+                return true;
+            } );
+
+    registerMigration( 2, 3,
+           [&]() -> bool
+           {
+                // This is actually a migration for APP_SETTINGS_BASE::m_LibTree
+                return migrateLibTreeWidth();
+           } );
 }
 
 
@@ -439,7 +501,7 @@ bool EESCHEMA_SETTINGS::MigrateFromLegacy( wxConfigBase* aCfg )
     // this index and the possible eeschema grids list that we have to subtract.
     std::string gridSizePtr = "window.grid.last_size";
 
-    if( OPT<int> currentSize = Get<int>( gridSizePtr ) )
+    if( std::optional<int> currentSize = Get<int>( gridSizePtr ) )
     {
         Set( gridSizePtr, *currentSize - 4 );
     }
@@ -471,7 +533,7 @@ bool EESCHEMA_SETTINGS::MigrateFromLegacy( wxConfigBase* aCfg )
     ret &= fromLegacy<int>(  aCfg, "RepeatStepY",          "drawing.default_repeat_offset_y" );
     ret &= fromLegacy<int>(  aCfg, "DefaultWireWidth",     "drawing.default_wire_thickness" );
     ret &= fromLegacyString( aCfg, "FieldNames",           "drawing.field_names" );
-    ret &= fromLegacy<bool>( aCfg, "HorizVertLinesOnly",   "drawing.hv_lines_only" );
+    ret &= fromLegacy<bool>( aCfg, "HorizVertLinesOnly",   "drawing.line_mode" );
     ret &= fromLegacy<int>(  aCfg, "RepeatLabelIncrement", "drawing.repeat_label_increment" );
 
     ret &= fromLegacy<bool>( aCfg, "DragActionIsMove",     "input.drag_is_move" );
@@ -481,7 +543,6 @@ bool EESCHEMA_SETTINGS::MigrateFromLegacy( wxConfigBase* aCfg )
     ret &= fromLegacy<bool>( aCfg, "SelectionFillShapes",     "selection.fill_shapes" );
     ret &= fromLegacy<bool>( aCfg, "SelectPinSelectSymbolOpt",
             "selection.select_pin_selects_symbol" );
-    ret &= fromLegacy<bool>( aCfg, "SelectionTextAsBox",      "selection.text_as_box" );
 
     ret &= fromLegacy<int>(  aCfg, "AnnotateAlgoOption",      "annotation.method" );
     ret &= fromLegacy<int>(  aCfg, "AnnotateFilterMsg",       "annotation.messages_filter" );
@@ -724,7 +785,7 @@ bool EESCHEMA_SETTINGS::migrateBomSettings()
     if( !Contains( "bom.plugins" ) )
         return false;
 
-    wxString list = Get<wxString>( "bom.plugins" ).value();
+    wxString list = *Get<wxString>( "bom.plugins" );
 
     BOM_CFG_PARSER cfg_parser( &m_BomPanel.plugins, TO_UTF8( list ), wxT( "plugins" ) );
 

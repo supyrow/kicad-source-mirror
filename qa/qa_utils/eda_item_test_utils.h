@@ -25,15 +25,15 @@
 #define EDA_ITEM_TEST_UTILS_H
 
 #include <qa_utils/wx_utils/unit_test_utils.h>
-#include <convert_to_biu.h>
+#include <base_units.h>
 #include <eda_item.h>
 
 
 template <typename T>
 static void IterateOverPositionsAndReferences( T* aItem, void ( *aCallback )( T*, wxPoint ) )
 {
-    constexpr int XSTEP = static_cast<int>( Millimeter2iu( 100 ) );
-    constexpr int YSTEP = static_cast<int>( Millimeter2iu( 50 ) );
+    constexpr int XSTEP = static_cast<int>( schIUScale.mmToIU( 100 ) );
+    constexpr int YSTEP = static_cast<int>( schIUScale.mmToIU( 50 ) );
     constexpr int XMIN = -1 * XSTEP;
     constexpr int XMAX = 1 * XSTEP;
     constexpr int YMIN = -1 * YSTEP;

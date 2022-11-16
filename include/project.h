@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2014-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2014-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -29,8 +29,8 @@
 #include <map>
 #include <vector>
 #include <kiid.h>
+#include <wx_filename.h>
 #include <wx/string.h>
-#include <wx/filename.h>
 #include <core/typeinfo.h>
 
 /// A variable name whose value holds the current project directory.
@@ -141,6 +141,9 @@ public:
      * Return the path and file name of this projects symbol library table.
      */
     virtual const wxString SymbolLibTableName() const;
+
+    void PinLibrary( const wxString& aLibrary, bool isSymbolLibrary );
+    void UnpinLibrary( const wxString& aLibrary, bool isSymbolLibrary );
 
     virtual PROJECT_FILE& GetProjectFile() const
     {

@@ -28,6 +28,7 @@
 
 #include <wx/dir.h>
 
+#include <base_units.h>
 #include <board.h>
 #include <confirm.h>
 #include <kiface_base.h>
@@ -138,12 +139,12 @@ public:
 
     double GetXRef()
     {
-        return DoubleValueFromString( EDA_UNITS::UNSCALED, m_VRML_Xref->GetValue() );
+        return EDA_UNIT_UTILS::UI::DoubleValueFromString( m_VRML_Xref->GetValue() );
     }
 
     double GetYRef()
     {
-        return DoubleValueFromString( EDA_UNITS::UNSCALED, m_VRML_Yref->GetValue() );
+        return EDA_UNIT_UTILS::UI::DoubleValueFromString( m_VRML_Yref->GetValue() );
     }
 
     int GetUnits()
@@ -231,8 +232,8 @@ void PCB_EDIT_FRAME::OnExportVRML( wxCommandEvent& event )
         // Origin = board center:
         BOARD* pcb = GetBoard();
         VECTOR2I center = pcb->GetBoundingBox().GetCenter();
-        aXRef = Iu2Millimeter( center.x );
-        aYRef = Iu2Millimeter( center.y );
+        aXRef = pcbIUScale.IUTomm( center.x );
+        aYRef = pcbIUScale.IUTomm( center.y );
     }
 
     double scale = scaleList[dlg.GetUnits()];     // final scale export

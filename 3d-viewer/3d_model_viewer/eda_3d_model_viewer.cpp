@@ -42,7 +42,7 @@
 /**
   * Scale conversion from 3d model units to pcb units
   */
-#define UNITS3D_TO_UNITSPCB (IU_PER_MM)
+#define UNITS3D_TO_UNITSPCB ( pcbIUScale.IU_PER_MM )
 
 /**
  * Trace mask used to enable or disable the trace output of this class.
@@ -156,7 +156,7 @@ void EDA_3D_MODEL_VIEWER::Set3DModel( const wxString& aModelPathName)
 
     if( m_cacheManager )
     {
-        const S3DMODEL* model = m_cacheManager->GetModel( aModelPathName );
+        const S3DMODEL* model = m_cacheManager->GetModel( aModelPathName, wxEmptyString );
 
         if( model )
             Set3DModel( (const S3DMODEL &)*model );

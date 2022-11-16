@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2018 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2008 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -32,14 +32,16 @@
 #include <wx/filedlg.h>
 #include <wx/regex.h>
 #include <wx/translation.h>
+#include <regex>
 
 bool compareFileExtensions( const std::string& aExtension,
-        const std::vector<std::string>& aReference, bool aCaseSensitive )
+                            const std::vector<std::string>& aReference, bool aCaseSensitive )
 {
     // Form the regular expression string by placing all possible extensions into it as alternatives
     std::string regexString = "(";
     bool        first = true;
-    for( const auto& ext : aReference )
+
+    for( const std::string& ext : aReference )
     {
         // The | separate goes between the extensions
         if( !first )
@@ -49,6 +51,7 @@ bool compareFileExtensions( const std::string& aExtension,
 
         regexString += ext;
     }
+
     regexString += ")";
 
     // Create the regex and see if it matches
@@ -62,7 +65,7 @@ wxString formatWildcardExt( const wxString& aWildcard )
     wxString wc;
 #if defined( __WXGTK__ )
 
-    for( auto ch : aWildcard )
+    for( const auto& ch : aWildcard )
     {
         if( wxIsalpha( ch ) )
             wc += wxString::Format( "[%c%c]", wxTolower( ch ), wxToupper( ch ) );
@@ -105,7 +108,8 @@ wxString AddFileExtListToFilter( const std::vector<std::string>& aExts )
 
     // Add extensions to the filter list, using a formatted string (GTK specific):
     bool first = true;
-    for( const auto& ext : aExts )
+
+    for( const std::string& ext : aExts )
     {
         if( !first )
             files_filter << ";*.";
@@ -131,7 +135,11 @@ const std::string ProjectFileExtension( "kicad_pro" );
 const std::string LegacyProjectFileExtension( "pro" );
 const std::string ProjectLocalSettingsFileExtension( "kicad_prl" );
 const std::string LegacySchematicFileExtension( "sch" );
+const std::string EagleSchematicFileExtension( "sch" );
+const std::string CadstarSchematicFileExtension( "csa" );
 const std::string KiCadSchematicFileExtension( "kicad_sch" );
+const std::string SpiceFileExtension( "cir" );
+const std::string CadstarNetlistFileExtension( "frp" );
 const std::string OrCadPcb2NetlistFileExtension( "net" );
 const std::string NetlistFileExtension( "net" );
 const std::string FootprintAssignmentFileExtension( "cmp" );
@@ -140,10 +148,13 @@ const std::string GerberJobFileExtension( "gbrjob" );
 const std::string HtmlFileExtension( "html" );
 const std::string EquFileExtension( "equ" );
 const std::string HotkeyFileExtension( "hotkeys" );
+const std::string DatabaseLibraryFileExtension( "kicad_dbl" );
 
 const std::string ArchiveFileExtension( "zip" );
 
 const std::string LegacyPcbFileExtension( "brd" );
+const std::string EaglePcbFileExtension( "brd" );
+const std::string CadstarPcbFileExtension( "cpa" );
 const std::string KiCadPcbFileExtension( "kicad_pcb" );
 const std::string DrawingSheetFileExtension( "kicad_wks" );
 const std::string DesignRulesFileExtension( "kicad_dru" );
@@ -170,6 +181,33 @@ const std::string WorkbookFileExtension( "wbk" );
 const std::string PngFileExtension( "png" );
 const std::string JpegFileExtension( "jpg" );
 const std::string TextFileExtension( "txt" );
+const std::string MarkdownFileExtension( "md" );
+const std::string CsvFileExtension( "csv" );
+
+/**
+ * Gerber files extensions Kicad is to open
+ */
+const std::vector<std::string> GerberFileExtensions =
+{
+    GerberFileExtension, GerberJobFileExtension,
+    "gbl", "gbo", "gbp", "gbs", "gko",
+    "gm1", "gm2", "gm3", "gm4", "gm5", "gm6", "gm7", "gm8", "gm9",
+    "g1", "g3",
+    "gpt", "gpb", "gtl", "gto", "gtp", "gts", "pho", "pos"
+};
+
+const wxString GerberFileExtensionWildCard( ".((gbr|gbrjob|(gb|gt)[alops])|pho)" );
+
+
+bool IsExtensionAccepted( const wxString& aExt, const std::vector<std::string> acceptedExts )
+{
+    for( auto extPtr = acceptedExts.begin(); extPtr != acceptedExts.end(); extPtr++ )
+    {
+        if( aExt.ToStdString() == *extPtr )
+            return true;
+    }
+    return false;
+}
 
 
 bool IsProtelExtension( const wxString& ext )
@@ -205,10 +243,19 @@ wxString LegacySymbolLibFileWildcard()
 }
 
 
+wxString DatabaseLibFileWildcard()
+{
+    return _( "KiCad database library files" )
+           + AddFileExtListToFilter( { DatabaseLibraryFileExtension } );
+}
+
+
 wxString AllSymbolLibFilesWildcard()
 {
     return _( "All KiCad symbol library files" )
-            + AddFileExtListToFilter( { KiCadSymbolLibFileExtension, "lib" } );
+            + AddFileExtListToFilter( { KiCadSymbolLibFileExtension,
+                                        DatabaseLibraryFileExtension,
+                                        "lib" } );
 }
 
 
@@ -425,7 +472,7 @@ wxString HtmlFileWildcard()
 
 wxString CsvFileWildcard()
 {
-    return _( "CSV Files" ) + AddFileExtListToFilter( { "csv" } );
+    return _( "CSV Files" ) + AddFileExtListToFilter( { CsvFileExtension } );
 }
 
 

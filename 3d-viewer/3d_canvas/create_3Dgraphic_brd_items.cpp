@@ -67,32 +67,73 @@ void BOARD_ADAPTER::addText( const EDA_TEXT* aText, CONTAINER_2D_BASE* aContaine
                              const BOARD_ITEM* aOwner )
 {
     KIGFX::GAL_DISPLAY_OPTIONS empty_opts;
-    KIFONT::FONT*              font = aText->GetDrawFont();
-    float                      penWidth = TO_3DU( aText->GetEffectiveTextPenWidth() );
+    TEXT_ATTRIBUTES            attrs = aText->GetAttributes();
+    float                      penWidth_3DU = TO_3DU( aText->GetEffectiveTextPenWidth() );
+    KIFONT::FONT*              font = aText->GetFont();
 
-    CALLBACK_GAL callback_gal( empty_opts,
-            // Stroke callback
-            [&]( const VECTOR2I& aPt1, const VECTOR2I& aPt2 )
-            {
-                const SFVEC2F pt1_3DU = TO_SFVEC2F( aPt1 );
-                const SFVEC2F pt2_3DU = TO_SFVEC2F( aPt2 );
+    if( !font )
+        font = KIFONT::FONT::GetFont( wxEmptyString, aText->IsBold(), aText->IsItalic() );
 
-                if( Is_segment_a_circle( pt1_3DU, pt2_3DU ) )
-                    aContainer->Add( new FILLED_CIRCLE_2D( pt1_3DU, penWidth / 2, *aOwner ) );
-                else
-                    aContainer->Add( new ROUND_SEGMENT_2D( pt1_3DU, pt2_3DU, penWidth, *aOwner ) );
-            },
-            // Triangulation callback
-            [&]( const VECTOR2I& aPt1, const VECTOR2I& aPt2, const VECTOR2I& aPt3 )
-            {
-                aContainer->Add( new TRIANGLE_2D( TO_SFVEC2F( aPt1 ), TO_SFVEC2F( aPt2 ),
-                                                  TO_SFVEC2F( aPt3 ), *aOwner ) );
-            } );
+    if( aOwner && aOwner->IsKnockout() )
+    {
+        SHAPE_POLY_SET knockouts;
 
-    TEXT_ATTRIBUTES attrs = aText->GetAttributes();
-    attrs.m_Angle = aText->GetDrawRotation();
+        CALLBACK_GAL callback_gal( empty_opts,
+                // Polygon callback
+                [&]( const SHAPE_LINE_CHAIN& aPoly )
+                {
+                    knockouts.AddOutline( aPoly );
+                } );
 
-    font->Draw( &callback_gal, aText->GetShownText(), aText->GetDrawPos(), attrs );
+        attrs.m_StrokeWidth = aText->GetEffectiveTextPenWidth();
+        attrs.m_Angle = aText->GetDrawRotation();
+
+        callback_gal.SetIsFill( font->IsOutline() );
+        callback_gal.SetIsStroke( font->IsStroke() );
+        callback_gal.SetLineWidth( attrs.m_StrokeWidth );
+        font->Draw( &callback_gal, aText->GetShownText(), aText->GetDrawPos(), attrs );
+
+        SHAPE_POLY_SET finalPoly;
+        int            margin = attrs.m_StrokeWidth * 1.5 +
+                                    GetKnockoutTextMargin( attrs.m_Size, attrs.m_StrokeWidth );
+
+        aText->TransformBoundingBoxToPolygon( &finalPoly, margin );
+        finalPoly.BooleanSubtract( knockouts, SHAPE_POLY_SET::PM_FAST );
+        finalPoly.Fracture( SHAPE_POLY_SET::PM_FAST );
+
+        ConvertPolygonToTriangles( finalPoly, *aContainer, m_biuTo3Dunits, *aOwner );
+    }
+    else
+    {
+        CALLBACK_GAL callback_gal( empty_opts,
+                // Stroke callback
+                [&]( const VECTOR2I& aPt1, const VECTOR2I& aPt2 )
+                {
+                    const SFVEC2F pt1_3DU = TO_SFVEC2F( aPt1 );
+                    const SFVEC2F pt2_3DU = TO_SFVEC2F( aPt2 );
+
+                    if( Is_segment_a_circle( pt1_3DU, pt2_3DU ) )
+                    {
+                        aContainer->Add( new FILLED_CIRCLE_2D( pt1_3DU, penWidth_3DU / 2,
+                                                               *aOwner ) );
+                    }
+                    else
+                    {
+                        aContainer->Add( new ROUND_SEGMENT_2D( pt1_3DU, pt2_3DU, penWidth_3DU,
+                                                               *aOwner ) );
+                    }
+                },
+                // Triangulation callback
+                [&]( const VECTOR2I& aPt1, const VECTOR2I& aPt2, const VECTOR2I& aPt3 )
+                {
+                    aContainer->Add( new TRIANGLE_2D( TO_SFVEC2F( aPt1 ), TO_SFVEC2F( aPt2 ),
+                                                      TO_SFVEC2F( aPt3 ), *aOwner ) );
+                } );
+
+        attrs.m_Angle = aText->GetDrawRotation();
+
+        font->Draw( &callback_gal, aText->GetShownText(), aText->GetDrawPos(), attrs );
+    }
 }
 
 
@@ -290,7 +331,7 @@ void BOARD_ADAPTER::createPadWithMargin( const PAD* aPad, CONTAINER_2D_BASE* aCo
 
         PAD dummy( *aPad );
         dummy.SetSize( wxSize( dummySize.x, dummySize.y ) );
-        dummy.TransformShapeWithClearanceToPolygon( poly, aLayer, 0, maxError, ERROR_INSIDE );
+        dummy.TransformShapeToPolygon( poly, aLayer, 0, maxError, ERROR_INSIDE );
         clearance = { 0, 0 };
     }
     else
@@ -324,7 +365,9 @@ void BOARD_ADAPTER::createPadWithMargin( const PAD* aPad, CONTAINER_2D_BASE* aCo
                 const double  radius3DU = TO_3DU( circle->GetRadius() + clearance.x );
                 const SFVEC2F center3DU = TO_SFVEC2F( circle->GetCenter() );
 
-                aContainer->Add( new FILLED_CIRCLE_2D( center3DU, radius3DU, *aPad ) );
+                // Don't render zero radius circles
+                if( radius3DU != 0.0 )
+                    aContainer->Add( new FILLED_CIRCLE_2D( center3DU, radius3DU, *aPad ) );
             }
                 break;
 
@@ -389,28 +432,26 @@ void BOARD_ADAPTER::createPadWithMargin( const PAD* aPad, CONTAINER_2D_BASE* aCo
 
 OBJECT_2D* BOARD_ADAPTER::createPadWithDrill( const PAD* aPad, int aInflateValue )
 {
-    VECTOR2I drillSize = aPad->GetDrillSize();
-
-    if( !drillSize.x || !drillSize.y )
+    if( !aPad->HasHole() )
     {
         wxLogTrace( m_logTrace, wxT( "BOARD_ADAPTER::createPadWithDrill - found an invalid pad" ) );
         return nullptr;
     }
 
-    if( drillSize.x == drillSize.y )    // usual round hole
+    std::shared_ptr<SHAPE_SEGMENT> slot = aPad->GetEffectiveHoleShape();
+
+    if( slot->GetSeg().A == slot->GetSeg().B )
     {
-        const int radius = ( drillSize.x / 2 ) + aInflateValue;
-
-        return new FILLED_CIRCLE_2D( TO_SFVEC2F( aPad->GetPosition() ), TO_3DU( radius ), *aPad );
-
+        return new FILLED_CIRCLE_2D( TO_SFVEC2F( slot->GetSeg().A ),
+                                     TO_3DU( slot->GetWidth() / 2 + aInflateValue ),
+                                     *aPad );
     }
-    else                                // Oblong hole
+    else
     {
-        const SHAPE_SEGMENT* seg = aPad->GetEffectiveHoleShape();
-        float width = seg->GetWidth() + aInflateValue * 2;
-
-        return new ROUND_SEGMENT_2D( TO_SFVEC2F( seg->GetSeg().A ), TO_SFVEC2F( seg->GetSeg().B ),
-                                     TO_3DU( width ), *aPad );
+        return new ROUND_SEGMENT_2D( TO_SFVEC2F( slot->GetSeg().A ),
+                                     TO_SFVEC2F( slot->GetSeg().B ),
+                                     TO_3DU( slot->GetWidth() + aInflateValue * 2 ),
+                                     *aPad );
     }
 }
 
@@ -428,8 +469,7 @@ void BOARD_ADAPTER::addPads( const FOOTPRINT* aFootprint, CONTAINER_2D_BASE* aCo
         if( !pad->FlashLayer( aLayerId ) && IsCopperLayer( aLayerId ) )
             continue;
 
-        // NPTH pads are not drawn on layers if the
-        // shape size and pos is the same as their hole:
+        // NPTH pads are not drawn on layers if the shape size and pos is the same as their hole:
         if( aSkipNPTHPadsWihNoCopper && ( pad->GetAttribute() == PAD_ATTRIB::NPTH ) )
         {
             if( pad->GetDrillSize() == pad->GetSize() && pad->GetOffset() == wxPoint( 0, 0 ) )
@@ -454,19 +494,28 @@ void BOARD_ADAPTER::addPads( const FOOTPRINT* aFootprint, CONTAINER_2D_BASE* aCo
             }
         }
 
-        const bool isPlated = ( ( aLayerId == F_Cu ) && pad->FlashLayer( F_Mask ) ) ||
-                              ( ( aLayerId == B_Cu ) && pad->FlashLayer( B_Mask ) );
-
-        if( aSkipPlatedPads && isPlated )
-            continue;
-
-        if( aSkipNonPlatedPads && !isPlated )
-            continue;
-
         VECTOR2I margin( 0, 0 );
 
         switch( aLayerId )
         {
+        case F_Cu:
+            if( aSkipPlatedPads && pad->FlashLayer( F_Mask ) )
+                continue;
+
+            if( aSkipNonPlatedPads && !pad->FlashLayer( F_Mask ) )
+                continue;
+
+            break;
+
+        case B_Cu:
+            if( aSkipPlatedPads && pad->FlashLayer( B_Mask ) )
+                continue;
+
+            if( aSkipNonPlatedPads && !pad->FlashLayer( B_Mask ) )
+                continue;
+
+            break;
+
         case F_Mask:
         case B_Mask:
             margin.x += pad->GetSolderMaskExpansion();
@@ -567,16 +616,17 @@ void BOARD_ADAPTER::addShape( const PCB_SHAPE* aShape, CONTAINER_2D_BASE* aConta
                 aContainer->Add( new FILLED_CIRCLE_2D( center3DU, outer_radius3DU, *aOwner ) );
             else
                 aContainer->Add( new RING_2D( center3DU, inner_radius3DU, outer_radius3DU, *aOwner ) );
-        }
+
             break;
+        }
 
         case SHAPE_T::RECT:
             if( aShape->IsFilled() )
             {
                 SHAPE_POLY_SET polyList;
 
-                aShape->TransformShapeWithClearanceToPolygon( polyList, UNDEFINED_LAYER, 0,
-                                                              ARC_HIGH_DEF, ERROR_INSIDE );
+                aShape->TransformShapeToPolygon( polyList, UNDEFINED_LAYER, 0, ARC_HIGH_DEF,
+                                                 ERROR_INSIDE );
 
                 polyList.Simplify( SHAPE_POLY_SET::PM_FAST );
 
@@ -624,10 +674,8 @@ void BOARD_ADAPTER::addShape( const PCB_SHAPE* aShape, CONTAINER_2D_BASE* aConta
         {
             SHAPE_POLY_SET polyList;
 
-            aShape->TransformShapeWithClearanceToPolygon( polyList, UNDEFINED_LAYER, 0,
-                                                          ARC_HIGH_DEF, ERROR_INSIDE );
-
-            polyList.Simplify( SHAPE_POLY_SET::PM_FAST );
+            aShape->TransformShapeToPolygon( polyList, UNDEFINED_LAYER, 0, ARC_HIGH_DEF,
+                                             ERROR_INSIDE );
 
             if( polyList.IsEmpty() ) // Just for caution
                 break;
@@ -637,7 +685,7 @@ void BOARD_ADAPTER::addShape( const PCB_SHAPE* aShape, CONTAINER_2D_BASE* aConta
         break;
 
         default:
-            wxFAIL_MSG( wxT( "BOARD_ADAPTER::addShapeWithClearance no implementation for " )
+            wxFAIL_MSG( wxT( "BOARD_ADAPTER::addShape no implementation for " )
                         + aShape->SHAPE_T_asString() );
             break;
         }
@@ -679,11 +727,9 @@ void BOARD_ADAPTER::addShape( const PCB_SHAPE* aShape, CONTAINER_2D_BASE* aConta
 void BOARD_ADAPTER::addSolidAreasShapes( const ZONE* aZone, CONTAINER_2D_BASE* aContainer,
                                          PCB_LAYER_ID aLayerId )
 {
-    // Copy the polys list because we have to simplify it
-    SHAPE_POLY_SET polyList = SHAPE_POLY_SET( *aZone->GetFilledPolysList( aLayerId ) );
-
     // This convert the poly in outline and holes
-    ConvertPolygonToTriangles( polyList, *aContainer, m_biuTo3Dunits, *aZone );
+    ConvertPolygonToTriangles( *aZone->GetFilledPolysList( aLayerId ), *aContainer,
+                               m_biuTo3Dunits, *aZone );
 }
 
 

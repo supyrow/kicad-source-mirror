@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2018-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2018-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -54,10 +54,10 @@ FP_TEXT_GRID_TABLE::FP_TEXT_GRID_TABLE( PCB_BASE_FRAME* aFrame ) :
 
     if( g_menuOrientations.IsEmpty() )
     {
-        g_menuOrientations.push_back( "0" + GetAbbreviatedUnitsLabel( EDA_UNITS::DEGREES ) );
-        g_menuOrientations.push_back( "90" + GetAbbreviatedUnitsLabel( EDA_UNITS::DEGREES ) );
-        g_menuOrientations.push_back( "-90" + GetAbbreviatedUnitsLabel( EDA_UNITS::DEGREES ) );
-        g_menuOrientations.push_back( "180" + GetAbbreviatedUnitsLabel( EDA_UNITS::DEGREES ) );
+        g_menuOrientations.push_back( "0" + EDA_UNIT_UTILS::GetText( EDA_UNITS::DEGREES ) );
+        g_menuOrientations.push_back( "90" + EDA_UNIT_UTILS::GetText( EDA_UNITS::DEGREES ) );
+        g_menuOrientations.push_back( "-90" + EDA_UNIT_UTILS::GetText( EDA_UNITS::DEGREES ) );
+        g_menuOrientations.push_back( "180" + EDA_UNIT_UTILS::GetText( EDA_UNITS::DEGREES ) );
     }
 
     m_orientationColAttr = new wxGridCellAttr;
@@ -66,6 +66,8 @@ FP_TEXT_GRID_TABLE::FP_TEXT_GRID_TABLE( PCB_BASE_FRAME* aFrame ) :
     m_layerColAttr = new wxGridCellAttr;
     m_layerColAttr->SetRenderer( new GRID_CELL_LAYER_RENDERER( m_frame ) );
     m_layerColAttr->SetEditor( new GRID_CELL_LAYER_SELECTOR( m_frame, {} ) );
+
+    m_eval = std::make_unique<NUMERIC_EVALUATOR>( m_frame->GetUserUnits() );
 
     m_frame->Bind( UNITS_CHANGED, &FP_TEXT_GRID_TABLE::onUnitsChanged, this );
 }
@@ -191,7 +193,17 @@ wxGridCellAttr* FP_TEXT_GRID_TABLE::GetAttr( int aRow, int aCol, wxGridCellAttr:
 
 wxString FP_TEXT_GRID_TABLE::GetValue( int aRow, int aCol )
 {
+    wxGrid*        grid = GetView();
     const FP_TEXT& text = this->at( (size_t) aRow );
+
+    if( grid->GetGridCursorRow() == aRow && grid->GetGridCursorCol() == aCol
+            && grid->IsCellEditControlShown() )
+    {
+        auto it = m_evalOriginal.find( { aRow, aCol } );
+
+        if( it != m_evalOriginal.end() )
+            return it->second;
+    }
 
     switch( aCol )
     {
@@ -199,25 +211,25 @@ wxString FP_TEXT_GRID_TABLE::GetValue( int aRow, int aCol )
         return text.GetText();
 
     case FPT_WIDTH:
-        return StringFromValue( m_frame->GetUserUnits(), text.GetTextWidth(), true );
+        return m_frame->StringFromValue( text.GetTextWidth(), true );
 
     case FPT_HEIGHT:
-        return StringFromValue( m_frame->GetUserUnits(), text.GetTextHeight(), true );
+        return m_frame->StringFromValue( text.GetTextHeight(), true );
 
     case FPT_THICKNESS:
-        return StringFromValue( m_frame->GetUserUnits(), text.GetTextThickness(), true );
+        return m_frame->StringFromValue( text.GetTextThickness(), true );
 
     case FPT_LAYER:
         return text.GetLayerName();
 
     case FPT_ORIENTATION:
-        return StringFromValue( EDA_UNITS::DEGREES, text.GetTextAngle().AsDegrees(), true );
+        return m_frame->StringFromValue( text.GetTextAngle(), true );
 
     case FPT_XOFFSET:
-        return StringFromValue( m_frame->GetUserUnits(), text.GetPos0().x, true );
+        return m_frame->StringFromValue( text.GetPos0().x, true );
 
     case FPT_YOFFSET:
-        return StringFromValue( m_frame->GetUserUnits(), text.GetPos0().y, true );
+        return m_frame->StringFromValue( text.GetPos0().y, true );
 
     default:
         // we can't assert here because wxWidgets sometimes calls this without checking
@@ -263,27 +275,49 @@ void FP_TEXT_GRID_TABLE::SetValue( int aRow, int aCol, const wxString &aValue )
 {
     FP_TEXT& text = this->at( (size_t) aRow );
     VECTOR2I pos;
+    wxString value = aValue;
+
+    switch( aCol )
+    {
+    case FPT_WIDTH:
+    case FPT_HEIGHT:
+    case FPT_THICKNESS:
+    case FPT_XOFFSET:
+    case FPT_YOFFSET:
+        m_eval->SetDefaultUnits( m_frame->GetUserUnits() );
+
+        if( m_eval->Process( value ) )
+        {
+            m_evalOriginal[ { aRow, aCol } ] = value;
+            value = m_eval->Result();
+        }
+
+        break;
+
+    default:
+        break;
+    }
 
     switch( aCol )
     {
     case FPT_TEXT:
-        text.SetText( aValue );
+        text.SetText( value );
         break;
 
     case FPT_WIDTH:
-        text.SetTextWidth( ValueFromString( m_frame->GetUserUnits(), aValue ) );
+        text.SetTextWidth( m_frame->ValueFromString( value ) );
         break;
 
     case FPT_HEIGHT:
-        text.SetTextHeight( ValueFromString( m_frame->GetUserUnits(), aValue ) );
+        text.SetTextHeight( m_frame->ValueFromString( value ) );
         break;
 
-    case FPT_THICKNESS:text.SetTextThickness( ValueFromString( m_frame->GetUserUnits(), aValue ) );
+    case FPT_THICKNESS:
+        text.SetTextThickness( m_frame->ValueFromString( value ) );
         break;
 
     case FPT_ORIENTATION:
-        text.SetTextAngle( EDA_ANGLE( DoubleValueFromString( EDA_UNITS::UNSCALED, aValue ),
-                                      DEGREES_T ) );
+        text.SetTextAngle( m_frame->AngleValueFromString( value ) );
         text.SetDrawCoord();
         break;
 
@@ -292,9 +326,9 @@ void FP_TEXT_GRID_TABLE::SetValue( int aRow, int aCol, const wxString &aValue )
         pos = text.GetPos0();
 
         if( aCol == FPT_XOFFSET )
-            pos.x = ValueFromString( m_frame->GetUserUnits(), aValue );
+            pos.x = m_frame->ValueFromString( value );
         else
-            pos.y = ValueFromString( m_frame->GetUserUnits(), aValue );
+            pos.y = m_frame->ValueFromString( value );
 
         text.SetPos0( pos );
         text.SetDrawCoord();

@@ -24,9 +24,7 @@
 #ifndef BOARD_INSPECTION_TOOL_H
 #define BOARD_INSPECTION_TOOL_H
 
-#include <dialogs/dialog_board_statistics.h>
 #include <dialogs/dialog_net_inspector.h>
-#include <dialogs/dialog_HTML_reporter_base.h>
 #include <dialogs/dialog_constraints_reporter.h>
 #include <drc/drc_rule.h>
 #include <drc/drc_engine.h>
@@ -55,10 +53,7 @@ public:
     /**
      * Show dialog with board statistics.
      */
-    int ShowStatisticsDialog( const TOOL_EVENT& aEvent );
-
-    ///< Notify Eeschema about the selected item.
-    int CrossProbePcbToSch( const TOOL_EVENT& aEvent );
+    int ShowBoardStatistics( const TOOL_EVENT& aEvent );
 
     ///< Highlight net belonging to the item under the cursor.
     int HighlightNet( const TOOL_EVENT& aEvent );
@@ -66,30 +61,25 @@ public:
     ///< Clear all board highlights
     int ClearHighlight( const TOOL_EVENT& aEvent );
 
-    ///< Launch a tool to pick the item whose net is going to be highlighted.
-    int HighlightNetTool( const TOOL_EVENT& aEvent );
-
     ///< Perform the appropriate action in response to an Eeschema cross-probe.
     int HighlightItem( const TOOL_EVENT& aEvent );
 
     ///< Update ratsnest for selected items.
-    int UpdateSelectionRatsnest( const TOOL_EVENT& aEvent );
+    int UpdateLocalRatsnest( const TOOL_EVENT& aEvent );
 
     ///< Hide ratsnest for selected items. Called when there are no items selected.
-    int HideDynamicRatsnest( const TOOL_EVENT& aEvent );
+    int HideLocalRatsnest( const TOOL_EVENT& aEvent );
 
     ///< Show local ratsnest of a component.
     int LocalRatsnestTool( const TOOL_EVENT& aEvent );
 
-    int FlipPcbView( const TOOL_EVENT& aEvent );
-
     int ListNets( const TOOL_EVENT& aEvent );
 
     ///< Hide the ratsnest for a given net.
-    int HideNet( const TOOL_EVENT& aEvent );
+    int HideNetInRatsnest( const TOOL_EVENT& aEvent );
 
     ///< Show the ratsnest for a given net.
-    int ShowNet( const TOOL_EVENT& aEvent );
+    int ShowNetInRatsnest( const TOOL_EVENT& aEvent );
 
     void InspectDRCError( const std::shared_ptr<RC_ITEM>& aDRCItem );
 
@@ -119,7 +109,7 @@ private:
      */
     bool highlightNet( const VECTOR2D& aPosition, bool aUseSelection );
 
-    void doHideNet( int aNetCode, bool aHide );
+    void doHideRatsnestNet( int aNetCode, bool aHide );
 
     ///< Bind handlers to corresponding TOOL_ACTIONs.
     void setTransitions() override;
@@ -141,7 +131,6 @@ private:
 private:
     PCB_EDIT_FRAME*     m_frame;    // Pointer to the currently used edit frame.
 
-    bool                m_probingSchToPcb;      // Recursion guard when cross-probing to Eeschema
     std::set<int>       m_currentlyHighlighted; // Active net being highlighted, or -1 when off
     std::set<int>       m_lastHighlighted;      // For toggling between last two highlighted nets
 

@@ -29,6 +29,7 @@
 #include <wx/log.h>
 #include <wx/mstream.h>
 #include <advanced_config.h>
+#include <base_units.h>
 #include <trace_helpers.h>
 #include <locale_io.h>
 #include <sch_bitmap.h>
@@ -46,9 +47,7 @@
 #include <schematic.h>
 #include <sch_plugins/kicad/sch_sexpr_plugin.h>
 #include <sch_screen.h>
-#include <symbol_library.h>
 #include <lib_shape.h>
-#include <lib_field.h>
 #include <lib_pin.h>
 #include <lib_text.h>
 #include <lib_textbox.h>
@@ -63,6 +62,7 @@
 #include <string_utils.h>
 #include <wx_filename.h>       // for ::ResolvePossibleSymlinks()
 #include <progress_reporter.h>
+#include <boost/algorithm/string/join.hpp>
 
 using namespace TSCHEMATIC_T;
 
@@ -85,9 +85,10 @@ SCH_SEXPR_PLUGIN::~SCH_SEXPR_PLUGIN()
 }
 
 
-void SCH_SEXPR_PLUGIN::init( SCHEMATIC* aSchematic, const PROPERTIES* aProperties )
+void SCH_SEXPR_PLUGIN::init( SCHEMATIC* aSchematic, const STRING_UTF8_MAP* aProperties )
 {
     m_version         = 0;
+    m_appending       = false;
     m_rootSheet       = nullptr;
     m_schematic       = aSchematic;
     m_cache           = nullptr;
@@ -97,7 +98,7 @@ void SCH_SEXPR_PLUGIN::init( SCHEMATIC* aSchematic, const PROPERTIES* aPropertie
 
 
 SCH_SHEET* SCH_SEXPR_PLUGIN::Load( const wxString& aFileName, SCHEMATIC* aSchematic,
-                                   SCH_SHEET* aAppendToMe, const PROPERTIES* aProperties )
+                                   SCH_SHEET* aAppendToMe, const STRING_UTF8_MAP* aProperties )
 {
     wxASSERT( !aFileName || aSchematic != nullptr );
 
@@ -113,6 +114,7 @@ SCH_SHEET* SCH_SEXPR_PLUGIN::Load( const wxString& aFileName, SCHEMATIC* aSchema
 
     if( aAppendToMe )
     {
+        m_appending = true;
         wxLogTrace( traceSchLegacyPlugin, "Append \"%s\" to sheet \"%s\".",
                     aFileName, aAppendToMe->GetFileName() );
 
@@ -149,7 +151,7 @@ SCH_SHEET* SCH_SEXPR_PLUGIN::Load( const wxString& aFileName, SCHEMATIC* aSchema
 
         newSheet->SetFileName( relPath.GetFullPath() );
         m_rootSheet = newSheet.get();
-        loadHierarchy( newSheet.get() );
+        loadHierarchy( SCH_SHEET_PATH(), newSheet.get() );
 
         // If we got here, the schematic loaded successfully.
         sheet = newSheet.release();
@@ -160,7 +162,7 @@ SCH_SHEET* SCH_SEXPR_PLUGIN::Load( const wxString& aFileName, SCHEMATIC* aSchema
         wxCHECK_MSG( aSchematic->IsValid(), nullptr, "Can't append to a schematic with no root!" );
         m_rootSheet = &aSchematic->Root();
         sheet = aAppendToMe;
-        loadHierarchy( sheet );
+        loadHierarchy( SCH_SHEET_PATH(), sheet );
     }
 
     wxASSERT( m_currentPath.size() == 1 );  // only the project path should remain
@@ -173,7 +175,7 @@ SCH_SHEET* SCH_SEXPR_PLUGIN::Load( const wxString& aFileName, SCHEMATIC* aSchema
 
 // Everything below this comment is recursive.  Modify with care.
 
-void SCH_SEXPR_PLUGIN::loadHierarchy( SCH_SHEET* aSheet )
+void SCH_SEXPR_PLUGIN::loadHierarchy( const SCH_SHEET_PATH& aParentSheetPath, SCH_SHEET* aSheet )
 {
     SCH_SCREEN* screen = nullptr;
 
@@ -195,7 +197,30 @@ void SCH_SEXPR_PLUGIN::loadHierarchy( SCH_SHEET* aSheet )
         wxLogTrace( traceSchLegacyPlugin, "Current path   '%s'", m_currentPath.top() );
         wxLogTrace( traceSchLegacyPlugin, "Loading        '%s'", fileName.GetFullPath() );
 
-        m_rootSheet->SearchHierarchy( fileName.GetFullPath(), &screen );
+        SCH_SHEET_PATH ancestorSheetPath = aParentSheetPath;
+
+        while( !ancestorSheetPath.empty() )
+        {
+            if( ancestorSheetPath.LastScreen()->GetFileName() == fileName.GetFullPath() )
+            {
+                if( !m_error.IsEmpty() )
+                    m_error += "\n";
+
+                m_error += wxString::Format( _( "Could not load sheet '%s' because it already "
+                                                "appears as a direct ancestor in the schematic "
+                                                "hierarchy." ),
+                                             fileName.GetFullPath() );
+
+                fileName = wxEmptyString;
+
+                break;
+            }
+
+            ancestorSheetPath.pop_back();
+        }
+
+        if( ancestorSheetPath.empty() )
+            m_rootSheet->SearchHierarchy( fileName.GetFullPath(), &screen );
 
         if( screen )
         {
@@ -236,7 +261,10 @@ void SCH_SEXPR_PLUGIN::loadHierarchy( SCH_SHEET* aSheet )
                 aSheet->GetScreen()->SetFileExists( false );
             }
 
-            // This was moved out of the try{} block so that any sheets definitionsthat
+            SCH_SHEET_PATH currentSheetPath = aParentSheetPath;
+            currentSheetPath.push_back( aSheet );
+
+            // This was moved out of the try{} block so that any sheet definitions that
             // the plugin fully parsed before the exception was raised will be loaded.
             for( SCH_ITEM* aItem : aSheet->GetScreen()->Items().OfType( SCH_SHEET_T ) )
             {
@@ -244,7 +272,7 @@ void SCH_SEXPR_PLUGIN::loadHierarchy( SCH_SHEET* aSheet )
                 SCH_SHEET* sheet = static_cast<SCH_SHEET*>( aItem );
 
                 // Recursion starts here.
-                loadHierarchy( sheet );
+                loadHierarchy( currentSheetPath, sheet );
             }
         }
 
@@ -273,7 +301,7 @@ void SCH_SEXPR_PLUGIN::loadFile( const wxString& aFileName, SCH_SHEET* aSheet )
         reader.Rewind();
     }
 
-    SCH_SEXPR_PARSER parser( &reader, m_progressReporter, lineCount );
+    SCH_SEXPR_PARSER parser( &reader, m_progressReporter, lineCount, m_rootSheet, m_appending );
 
     parser.ParseSchematic( aSheet );
 }
@@ -291,7 +319,7 @@ void SCH_SEXPR_PLUGIN::LoadContent( LINE_READER& aReader, SCH_SHEET* aSheet, int
 
 
 void SCH_SEXPR_PLUGIN::Save( const wxString& aFileName, SCH_SHEET* aSheet, SCHEMATIC* aSchematic,
-                             const PROPERTIES* aProperties )
+                             const STRING_UTF8_MAP* aProperties )
 {
     wxCHECK_RET( aSheet != nullptr, "NULL SCH_SHEET object." );
     wxCHECK_RET( !aFileName.IsEmpty(), "No schematic file name defined." );
@@ -342,10 +370,8 @@ void SCH_SEXPR_PLUGIN::Format( SCH_SHEET* aSheet )
 
     m_out->Print( 1, ")\n\n" );
 
-    for( const auto& alias : screen->GetBusAliases() )
-    {
+    for( const std::shared_ptr<BUS_ALIAS>& alias : screen->GetBusAliases() )
         saveBusAlias( alias, 1 );
-    }
 
     // Enforce item ordering
     auto cmp =
@@ -383,7 +409,7 @@ void SCH_SEXPR_PLUGIN::Format( SCH_SHEET* aSheet )
         {
         case SCH_SYMBOL_T:
             m_out->Print( 0, "\n" );
-            saveSymbol( static_cast<SCH_SYMBOL*>( item ), nullptr, 1 );
+            saveSymbol( static_cast<SCH_SYMBOL*>( item ), *m_schematic, 1, false );
             break;
 
         case SCH_BITMAP_T:
@@ -458,14 +484,14 @@ void SCH_SEXPR_PLUGIN::Format( SCH_SHEET* aSheet )
 
         symbolInstances.SortByReferenceOnly();
 
-        saveInstances( sheetPaths.GetSheetInstances(), symbolInstances.GetSymbolInstances(), 1 );
+        saveInstances( sheetPaths.GetSheetInstances(), 1 );
     }
     else
     {
         // Schematic files (SCH_SCREEN objects) can be shared so we have to save and restore
         // symbol and sheet instance data even if the file being saved is not the root sheet
         // because it is possible that the file is the root sheet of another project.
-        saveInstances( screen->m_sheetInstances, screen->m_symbolInstances, 1 );
+        saveInstances( screen->m_sheetInstances, 1 );
     }
 
     m_out->Print( 0, ")\n" );
@@ -473,12 +499,13 @@ void SCH_SEXPR_PLUGIN::Format( SCH_SHEET* aSheet )
 
 
 void SCH_SEXPR_PLUGIN::Format( EE_SELECTION* aSelection, SCH_SHEET_PATH* aSelectionPath,
-                               SCH_SHEET_LIST* aFullSheetHierarchy,
-                               OUTPUTFORMATTER* aFormatter )
+                               const SCHEMATIC& aSchematic, OUTPUTFORMATTER* aFormatter,
+                               bool aForClipboard )
 {
-    wxCHECK( aSelection && aSelectionPath && aFullSheetHierarchy && aFormatter, /* void */ );
+    wxCHECK( aSelection && aSelectionPath && aFormatter, /* void */ );
 
     LOCALE_IO toggle;
+    SCH_SHEET_LIST fullHierarchy = aSchematic.GetSheets();
 
     m_out = aFormatter;
 
@@ -515,7 +542,7 @@ void SCH_SEXPR_PLUGIN::Format( EE_SELECTION* aSelection, SCH_SHEET_PATH* aSelect
     {
         m_out->Print( 0, "(lib_symbols\n" );
 
-        for( auto libSymbol : libSymbols )
+        for( const std::pair<const wxString, LIB_SYMBOL*>& libSymbol : libSymbols )
             SCH_SEXPR_PLUGIN_CACHE::SaveSymbol( libSymbol.second, *m_out, 1, libSymbol.first );
 
         m_out->Print( 0, ")\n\n" );
@@ -534,7 +561,7 @@ void SCH_SEXPR_PLUGIN::Format( EE_SELECTION* aSelection, SCH_SHEET_PATH* aSelect
         switch( item->Type() )
         {
         case SCH_SYMBOL_T:
-            saveSymbol( static_cast<SCH_SYMBOL*>( item ), aSelectionPath, 0 );
+            saveSymbol( static_cast<SCH_SYMBOL*>( item ), aSchematic, 0, aForClipboard );
 
             aSelectionPath->AppendSymbol( selectedSymbols, static_cast<SCH_SYMBOL*>( item ),
                                           true, true );
@@ -551,9 +578,8 @@ void SCH_SEXPR_PLUGIN::Format( EE_SELECTION* aSelection, SCH_SHEET_PATH* aSelect
                 SCH_SHEET_PATH subSheetPath = *aSelectionPath;
                 subSheetPath.push_back( static_cast<SCH_SHEET*>( item ) );
 
-                aFullSheetHierarchy->GetSheetsWithinPath( selectedSheets, subSheetPath );
-                aFullSheetHierarchy->GetSymbolsWithinPath( selectedSymbols, subSheetPath, true,
-                                                          true );
+                fullHierarchy.GetSheetsWithinPath( selectedSheets, subSheetPath );
+                fullHierarchy.GetSymbolsWithinPath( selectedSymbols, subSheetPath, true, true );
             }
 
             break;
@@ -597,7 +623,7 @@ void SCH_SEXPR_PLUGIN::Format( EE_SELECTION* aSelection, SCH_SHEET_PATH* aSelect
     }
 
     // Make all instance information relative to the selection path
-    KIID_PATH selectionPath = aSelectionPath->PathWithoutRootUuid();
+    KIID_PATH selectionPath = aSelectionPath->Path();
 
     selectedSheets.SortByPageNumbers();
     std::vector<SCH_SHEET_INSTANCE> sheetinstances = selectedSheets.GetSheetInstances();
@@ -608,7 +634,6 @@ void SCH_SEXPR_PLUGIN::Format( EE_SELECTION* aSelection, SCH_SHEET_PATH* aSelect
                       "Sheet is not inside the selection path?" );
     }
 
-
     selectedSymbols.SortByReferenceOnly();
     std::vector<SYMBOL_INSTANCE_REFERENCE> symbolInstances = selectedSymbols.GetSymbolInstances();
 
@@ -618,19 +643,19 @@ void SCH_SEXPR_PLUGIN::Format( EE_SELECTION* aSelection, SCH_SHEET_PATH* aSelect
                       "Symbol is not inside the selection path?" );
     }
 
-    saveInstances( sheetinstances, symbolInstances, 0 );
+    saveInstances( sheetinstances, 0 );
 }
 
 
-void SCH_SEXPR_PLUGIN::saveSymbol( SCH_SYMBOL* aSymbol, SCH_SHEET_PATH* aSheetPath,
-                                   int aNestLevel )
+void SCH_SEXPR_PLUGIN::saveSymbol( SCH_SYMBOL* aSymbol, const SCHEMATIC& aSchematic,
+                                   int aNestLevel, bool aForClipboard )
 {
     wxCHECK_RET( aSymbol != nullptr && m_out != nullptr, "" );
 
-    std::string     libName;
-    wxArrayString   reference_fields;
+    // Sort symbol instance data to minimize file churn.
+    aSymbol->SortInstances( SortSymbolInstancesByProjectUuid );
 
-    static wxString delimiters( wxT( " " ) );
+    std::string     libName;
 
     wxString symbol_name = aSymbol->GetLibId().Format();
 
@@ -665,9 +690,9 @@ void SCH_SEXPR_PLUGIN::saveSymbol( SCH_SYMBOL* aSymbol, SCH_SHEET_PATH* aSheetPa
 
     m_out->Print( 0, " (lib_id %s) (at %s %s %s)",
                   m_out->Quotew( aSymbol->GetLibId().Format().wx_str() ).c_str(),
-                  FormatInternalUnits( aSymbol->GetPosition().x ).c_str(),
-                  FormatInternalUnits( aSymbol->GetPosition().y ).c_str(),
-                  FormatAngle( angle ).c_str() );
+                  EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aSymbol->GetPosition().x ).c_str(),
+                  EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aSymbol->GetPosition().y ).c_str(),
+                  EDA_UNIT_UTILS::FormatAngle( angle ).c_str() );
 
     bool mirrorX = aSymbol->GetOrientation() & SYM_MIRROR_X;
     bool mirrorY = aSymbol->GetOrientation() & SYM_MIRROR_Y;
@@ -685,14 +710,13 @@ void SCH_SEXPR_PLUGIN::saveSymbol( SCH_SYMBOL* aSymbol, SCH_SHEET_PATH* aSheetPa
         m_out->Print( 0, ")" );
     }
 
-    int unit = -1;
+    // The symbol unit is always set to the first instance regardless of the current sheet
+    // instance to prevent file churn.
+    int unit = ( aSymbol->GetInstanceReferences().size() == 0 ) ?
+               aSymbol->GetUnit() :
+               aSymbol->GetInstanceReferences()[0].m_Unit;
 
-    if( !( aSymbol->GetInstanceReferences().size() > 1 ) )
-        unit = aSymbol->GetUnit();
-    else if( aSheetPath != nullptr )
-        unit = aSymbol->GetUnitSelection( aSheetPath );
-    if ( unit >= 0 )
-        m_out->Print( 0, " (unit %d)", unit );
+    m_out->Print( 0, " (unit %d)", unit );
 
     if( aSymbol->GetConvert() == LIB_ITEM::LIB_CONVERT::DEMORGAN )
         m_out->Print( 0, " (convert %d)", aSymbol->GetConvert() );
@@ -701,6 +725,7 @@ void SCH_SEXPR_PLUGIN::saveSymbol( SCH_SYMBOL* aSymbol, SCH_SHEET_PATH* aSheetPa
 
     m_out->Print( aNestLevel + 1, "(in_bom %s)", ( aSymbol->GetIncludeInBom() ) ? "yes" : "no" );
     m_out->Print( 0, " (on_board %s)", ( aSymbol->GetIncludeOnBoard() ) ? "yes" : "no" );
+    m_out->Print( 0, " (dnp %s)", ( aSymbol->GetDNP() ) ? "yes" : "no" );
 
     if( aSymbol->GetFieldsAutoplaced() != FIELDS_AUTOPLACED_NO )
         m_out->Print( 0, " (fields_autoplaced)" );
@@ -713,10 +738,45 @@ void SCH_SEXPR_PLUGIN::saveSymbol( SCH_SYMBOL* aSymbol, SCH_SHEET_PATH* aSheetPa
 
     for( SCH_FIELD& field : aSymbol->GetFields() )
     {
-        saveField( &field, aNestLevel + 1 );
+        int id = field.GetId();
+        wxString value = field.GetText();
+
+        if( !aForClipboard && aSymbol->GetInstanceReferences().size() )
+        {
+            // The instance fields are always set to the default instance regardless of the
+            // sheet instance to prevent file churn.
+            if( id == REFERENCE_FIELD )
+            {
+                field.SetText( aSymbol->GetInstanceReferences()[0].m_Reference );
+            }
+            else if( id == VALUE_FIELD )
+            {
+                field.SetText( aSymbol->GetInstanceReferences()[0].m_Value );
+            }
+            else if( id == FOOTPRINT_FIELD )
+            {
+                field.SetText( aSymbol->GetInstanceReferences()[0].m_Footprint );
+            }
+        }
+
+        try
+        {
+            saveField( &field, aNestLevel + 1 );
+        }
+        catch( ... )
+        {
+            // Restore the changed field text on write error.
+            if( id == REFERENCE_FIELD || id == VALUE_FIELD || id == FOOTPRINT_FIELD )
+                field.SetText( value );
+
+            throw;
+        }
+
+        if( id == REFERENCE_FIELD || id == VALUE_FIELD || id == FOOTPRINT_FIELD )
+            field.SetText( value );
     }
 
-    for( const SCH_PIN* pin : aSymbol->GetPins() )
+    for( const std::unique_ptr<SCH_PIN>& pin : aSymbol->GetRawPins() )
     {
         if( pin->GetAlt().IsEmpty() )
         {
@@ -733,7 +793,73 @@ void SCH_SEXPR_PLUGIN::saveSymbol( SCH_SYMBOL* aSymbol, SCH_SHEET_PATH* aSheetPa
         }
     }
 
-    m_out->Print( aNestLevel, ")\n" );
+    if( !aSymbol->GetInstanceReferences().empty() )
+    {
+        m_out->Print( aNestLevel + 1, "(instances\n" );
+
+        KIID lastProjectUuid;
+        KIID rootSheetUuid = aSchematic.Root().m_Uuid;
+        SCH_SHEET_LIST fullHierarchy = aSchematic.GetSheets();
+        bool project_open = false;
+
+        for( size_t i = 0; i < aSymbol->GetInstanceReferences().size(); i++ )
+        {
+            // If the instance data is part of this design but no longer has an associated sheet
+            // path, don't save it.  This prevents large amounts of orphaned instance data for the
+            // current project from accumulating in the schematic files.
+            //
+            // Keep all instance data when copying to the clipboard.  It may be needed on paste.
+            if( !aForClipboard
+              && ( aSymbol->GetInstanceReferences()[i].m_Path[0] == rootSheetUuid )
+              && !fullHierarchy.GetSheetPathByKIIDPath( aSymbol->GetInstanceReferences()[i].m_Path ) )
+            {
+                if( project_open && ( ( i + 1 == aSymbol->GetInstanceReferences().size() )
+                  || lastProjectUuid != aSymbol->GetInstanceReferences()[i+1].m_Path[0] ) )
+                {
+                    m_out->Print( aNestLevel + 2, ")\n" );  // Closes `project`.
+                    project_open = false;
+                }
+
+                continue;
+            }
+
+            if( lastProjectUuid != aSymbol->GetInstanceReferences()[i].m_Path[0] )
+            {
+                wxString projectName;
+
+                if( aSymbol->GetInstanceReferences()[i].m_Path[0] == rootSheetUuid )
+                    projectName = aSchematic.Prj().GetProjectName();
+                else
+                    projectName = aSymbol->GetInstanceReferences()[i].m_ProjectName;
+
+                lastProjectUuid = aSymbol->GetInstanceReferences()[i].m_Path[0];
+                m_out->Print( aNestLevel + 2, "(project %s\n", m_out->Quotew( projectName ).c_str() );
+                project_open = true;
+            }
+
+            wxString path = aSymbol->GetInstanceReferences()[i].m_Path.AsString();
+
+            m_out->Print( aNestLevel + 3, "(path %s\n",
+                          m_out->Quotew( path ).c_str() );
+            m_out->Print( aNestLevel + 4, "(reference %s) (unit %d) (value %s) (footprint %s)\n",
+                          m_out->Quotew( aSymbol->GetInstanceReferences()[i].m_Reference ).c_str(),
+                          aSymbol->GetInstanceReferences()[i].m_Unit,
+                          m_out->Quotew( aSymbol->GetInstanceReferences()[i].m_Value ).c_str(),
+                          m_out->Quotew( aSymbol->GetInstanceReferences()[i].m_Footprint ).c_str() );
+            m_out->Print( aNestLevel + 3, ")\n" );
+
+            if( project_open && ( ( i + 1 == aSymbol->GetInstanceReferences().size() )
+              || lastProjectUuid != aSymbol->GetInstanceReferences()[i+1].m_Path[0] ) )
+            {
+                m_out->Print( aNestLevel + 2, ")\n" );  // Closes `project`.
+                project_open = false;
+            }
+        }
+
+        m_out->Print( aNestLevel + 1, ")\n" );  // Closes `instances`.
+    }
+
+    m_out->Print( aNestLevel, ")\n" );      // Closes `symbol`.
 }
 
 
@@ -742,7 +868,6 @@ void SCH_SEXPR_PLUGIN::saveField( SCH_FIELD* aField, int aNestLevel )
     wxCHECK_RET( aField != nullptr && m_out != nullptr, "" );
 
     wxString fieldName = aField->GetCanonicalName();
-
     // For some reason (bug in legacy parser?) the field ID for non-mandatory fields is -1 so
     // check for this in order to correctly use the field name.
 
@@ -756,16 +881,21 @@ void SCH_SEXPR_PLUGIN::saveField( SCH_FIELD* aField, int aNestLevel )
         m_nextFreeFieldId = aField->GetId() + 1;
     }
 
-    m_out->Print( aNestLevel, "(property %s %s (id %d) (at %s %s %s)",
+    m_out->Print( aNestLevel, "(property %s %s (at %s %s %s)",
                   m_out->Quotew( fieldName ).c_str(),
                   m_out->Quotew( aField->GetText() ).c_str(),
-                  aField->GetId(),
-                  FormatInternalUnits( aField->GetPosition().x ).c_str(),
-                  FormatInternalUnits( aField->GetPosition().y ).c_str(),
-                  FormatAngle( aField->GetTextAngle() ).c_str() );
+                  EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aField->GetPosition().x ).c_str(),
+                  EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aField->GetPosition().y ).c_str(),
+                  EDA_UNIT_UTILS::FormatAngle( aField->GetTextAngle() ).c_str() );
+
+    if( aField->IsNameShown() )
+        m_out->Print( 0, " (show_name)" );
+
+    if( !aField->CanAutoplace() )
+        m_out->Print( 0, " (do_not_autoplace)" );
 
     if( !aField->IsDefaultFormatting()
-      || ( aField->GetTextHeight() != Mils2iu( DEFAULT_SIZE_TEXT ) ) )
+      || ( aField->GetTextHeight() != schIUScale.MilsToIU( DEFAULT_SIZE_TEXT ) ) )
     {
         m_out->Print( 0, "\n" );
         aField->Format( m_out, aNestLevel, 0 );
@@ -787,8 +917,8 @@ void SCH_SEXPR_PLUGIN::saveBitmap( SCH_BITMAP* aBitmap, int aNestLevel )
     wxCHECK_RET( image != nullptr, "wxImage* is NULL" );
 
     m_out->Print( aNestLevel, "(image (at %s %s)",
-                  FormatInternalUnits( aBitmap->GetPosition().x ).c_str(),
-                  FormatInternalUnits( aBitmap->GetPosition().y ).c_str() );
+                  EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aBitmap->GetPosition().x ).c_str(),
+                  EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aBitmap->GetPosition().y ).c_str() );
 
     if( aBitmap->GetImage()->GetScale() != 1.0 )
         m_out->Print( 0, " (scale %g)", aBitmap->GetImage()->GetScale() );
@@ -831,10 +961,10 @@ void SCH_SEXPR_PLUGIN::saveSheet( SCH_SHEET* aSheet, int aNestLevel )
     wxCHECK_RET( aSheet != nullptr && m_out != nullptr, "" );
 
     m_out->Print( aNestLevel, "(sheet (at %s %s) (size %s %s)",
-                  FormatInternalUnits( aSheet->GetPosition().x ).c_str(),
-                  FormatInternalUnits( aSheet->GetPosition().y ).c_str(),
-                  FormatInternalUnits( aSheet->GetSize().GetWidth() ).c_str(),
-                  FormatInternalUnits( aSheet->GetSize().GetHeight() ).c_str() );
+                  EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aSheet->GetPosition().x ).c_str(),
+                  EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aSheet->GetPosition().y ).c_str(),
+                  EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aSheet->GetSize().GetWidth() ).c_str(),
+                  EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aSheet->GetSize().GetHeight() ).c_str() );
 
     if( aSheet->GetFieldsAutoplaced() != FIELDS_AUTOPLACED_NO )
         m_out->Print( 0, " (fields_autoplaced)" );
@@ -845,7 +975,7 @@ void SCH_SEXPR_PLUGIN::saveSheet( SCH_SHEET* aSheet, int aNestLevel )
                           aSheet->GetBorderColor() );
 
     stroke.SetWidth( aSheet->GetBorderWidth() );
-    stroke.Format( m_out, aNestLevel + 1 );
+    stroke.Format( m_out, schIUScale, aNestLevel + 1 );
 
     m_out->Print( 0, "\n" );
 
@@ -869,9 +999,9 @@ void SCH_SEXPR_PLUGIN::saveSheet( SCH_SHEET* aSheet, int aNestLevel )
         m_out->Print( aNestLevel + 1, "(pin %s %s (at %s %s %s)\n",
                       EscapedUTF8( pin->GetText() ).c_str(),
                       getSheetPinShapeToken( pin->GetShape() ),
-                      FormatInternalUnits( pin->GetPosition().x ).c_str(),
-                      FormatInternalUnits( pin->GetPosition().y ).c_str(),
-                      FormatAngle( getSheetPinAngle( pin->GetSide() ) ).c_str() );
+                      EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, pin->GetPosition().x ).c_str(),
+                      EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, pin->GetPosition().y ).c_str(),
+                      EDA_UNIT_UTILS::FormatAngle( getSheetPinAngle( pin->GetSide() ) ).c_str() );
 
         pin->Format( m_out, aNestLevel + 1, 0 );
 
@@ -889,13 +1019,13 @@ void SCH_SEXPR_PLUGIN::saveJunction( SCH_JUNCTION* aJunction, int aNestLevel )
     wxCHECK_RET( aJunction != nullptr && m_out != nullptr, "" );
 
     m_out->Print( aNestLevel, "(junction (at %s %s) (diameter %s) (color %d %d %d %s)\n",
-                  FormatInternalUnits( aJunction->GetPosition().x ).c_str(),
-                  FormatInternalUnits( aJunction->GetPosition().y ).c_str(),
-                  FormatInternalUnits( aJunction->GetDiameter() ).c_str(),
+                  EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aJunction->GetPosition().x ).c_str(),
+                  EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aJunction->GetPosition().y ).c_str(),
+                  EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aJunction->GetDiameter() ).c_str(),
                   KiROUND( aJunction->GetColor().r * 255.0 ),
                   KiROUND( aJunction->GetColor().g * 255.0 ),
                   KiROUND( aJunction->GetColor().b * 255.0 ),
-                  Double2Str( aJunction->GetColor().a ).c_str() );
+                  FormatDouble2Str( aJunction->GetColor().a ).c_str() );
 
     m_out->Print( aNestLevel + 1, "(uuid %s)\n", TO_UTF8( aJunction->m_Uuid.AsString() ) );
 
@@ -908,8 +1038,8 @@ void SCH_SEXPR_PLUGIN::saveNoConnect( SCH_NO_CONNECT* aNoConnect, int aNestLevel
     wxCHECK_RET( aNoConnect != nullptr && m_out != nullptr, "" );
 
     m_out->Print( aNestLevel, "(no_connect (at %s %s) (uuid %s))\n",
-                  FormatInternalUnits( aNoConnect->GetPosition().x ).c_str(),
-                  FormatInternalUnits( aNoConnect->GetPosition().y ).c_str(),
+                  EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aNoConnect->GetPosition().x ).c_str(),
+                  EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aNoConnect->GetPosition().y ).c_str(),
                   TO_UTF8( aNoConnect->m_Uuid.AsString() ) );
 }
 
@@ -929,12 +1059,12 @@ void SCH_SEXPR_PLUGIN::saveBusEntry( SCH_BUS_ENTRY_BASE* aBusEntry, int aNestLev
     else
     {
         m_out->Print( aNestLevel, "(bus_entry (at %s %s) (size %s %s)\n",
-                      FormatInternalUnits( aBusEntry->GetPosition().x ).c_str(),
-                      FormatInternalUnits( aBusEntry->GetPosition().y ).c_str(),
-                      FormatInternalUnits( aBusEntry->GetSize().GetWidth() ).c_str(),
-                      FormatInternalUnits( aBusEntry->GetSize().GetHeight() ).c_str() );
+                      EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aBusEntry->GetPosition().x ).c_str(),
+                      EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aBusEntry->GetPosition().y ).c_str(),
+                      EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aBusEntry->GetSize().GetWidth() ).c_str(),
+                      EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aBusEntry->GetSize().GetHeight() ).c_str() );
 
-        aBusEntry->GetStroke().Format( m_out, aNestLevel + 1 );
+        aBusEntry->GetStroke().Format( m_out, schIUScale, aNestLevel + 1 );
 
         m_out->Print( 0, "\n" );
 
@@ -948,8 +1078,6 @@ void SCH_SEXPR_PLUGIN::saveBusEntry( SCH_BUS_ENTRY_BASE* aBusEntry, int aNestLev
 void SCH_SEXPR_PLUGIN::saveShape( SCH_SHAPE* aShape, int aNestLevel )
 {
     wxCHECK_RET( aShape != nullptr && m_out != nullptr, "" );
-
-    wxString lineType;
 
     switch( aShape->GetShape() )
     {
@@ -1003,12 +1131,12 @@ void SCH_SEXPR_PLUGIN::saveLine( SCH_LINE* aLine, int aNestLevel )
 
     m_out->Print( aNestLevel, "(%s (pts (xy %s %s) (xy %s %s))\n",
                   TO_UTF8( lineType ),
-                  FormatInternalUnits( aLine->GetStartPoint().x ).c_str(),
-                  FormatInternalUnits( aLine->GetStartPoint().y ).c_str(),
-                  FormatInternalUnits( aLine->GetEndPoint().x ).c_str(),
-                  FormatInternalUnits( aLine->GetEndPoint().y ).c_str() );
+                  EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aLine->GetStartPoint().x ).c_str(),
+                  EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aLine->GetStartPoint().y ).c_str(),
+                  EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aLine->GetEndPoint().x ).c_str(),
+                  EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aLine->GetEndPoint().y ).c_str() );
 
-    line_stroke.Format( m_out, aNestLevel + 1 );
+    line_stroke.Format( m_out, schIUScale, aNestLevel + 1 );
     m_out->Print( 0, "\n" );
 
     m_out->Print( aNestLevel + 1, "(uuid %s)\n", TO_UTF8( aLine->m_Uuid.AsString() ) );
@@ -1021,6 +1149,7 @@ void SCH_SEXPR_PLUGIN::saveText( SCH_TEXT* aText, int aNestLevel )
 {
     wxCHECK_RET( aText != nullptr && m_out != nullptr, "" );
 
+    // Note: label is nullptr SCH_TEXT, but not for SCH_LABEL_XXX,
     SCH_LABEL_BASE* label = dynamic_cast<SCH_LABEL_BASE*>( aText );
 
     m_out->Print( aNestLevel, "(%s %s",
@@ -1032,16 +1161,19 @@ void SCH_SEXPR_PLUGIN::saveText( SCH_TEXT* aText, int aNestLevel )
         SCH_DIRECTIVE_LABEL* flag = static_cast<SCH_DIRECTIVE_LABEL*>( aText );
 
         m_out->Print( 0, " (length %s)",
-                      FormatInternalUnits( flag->GetPinLength() ).c_str() );
+                      EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, flag->GetPinLength() ).c_str() );
     }
 
     EDA_ANGLE angle = aText->GetTextAngle();
 
-    if( aText->Type() == SCH_GLOBAL_LABEL_T
-            || aText->Type() == SCH_HIER_LABEL_T
-            || aText->Type() == SCH_DIRECTIVE_LABEL_T )
+    if( label )
     {
-        m_out->Print( 0, " (shape %s)", getSheetPinShapeToken( label->GetShape() ) );
+        if( aText->Type() == SCH_GLOBAL_LABEL_T
+                || aText->Type() == SCH_HIER_LABEL_T
+                || aText->Type() == SCH_DIRECTIVE_LABEL_T )
+        {
+            m_out->Print( 0, " (shape %s)", getSheetPinShapeToken( label->GetShape() ) );
+        }
 
         // The angle of the text is always 0 or 90 degrees for readibility reasons,
         // but the item itself can have more rotation (-90 and 180 deg)
@@ -1058,17 +1190,17 @@ void SCH_SEXPR_PLUGIN::saveText( SCH_TEXT* aText, int aNestLevel )
     if( aText->GetText().Length() < 50 )
     {
         m_out->Print( 0, " (at %s %s %s)",
-                      FormatInternalUnits( aText->GetPosition().x ).c_str(),
-                      FormatInternalUnits( aText->GetPosition().y ).c_str(),
-                      FormatAngle( angle ).c_str() );
+                      EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aText->GetPosition().x ).c_str(),
+                      EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aText->GetPosition().y ).c_str(),
+                      EDA_UNIT_UTILS::FormatAngle( angle ).c_str() );
     }
     else
     {
         m_out->Print( 0, "\n" );
         m_out->Print( aNestLevel + 1, "(at %s %s %s)",
-                      FormatInternalUnits( aText->GetPosition().x ).c_str(),
-                      FormatInternalUnits( aText->GetPosition().y ).c_str(),
-                      FormatAngle( angle ).c_str() );
+                      EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aText->GetPosition().x ).c_str(),
+                      EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, aText->GetPosition().y ).c_str(),
+                      EDA_UNIT_UTILS::FormatAngle( angle ).c_str() );
     }
 
     if( aText->GetFieldsAutoplaced() != FIELDS_AUTOPLACED_NO )
@@ -1096,13 +1228,17 @@ void SCH_SEXPR_PLUGIN::saveTextBox( SCH_TEXTBOX* aTextBox, int aNestLevel )
     m_out->Print( aNestLevel, "(text_box %s\n",
                   m_out->Quotew( aTextBox->GetText() ).c_str() );
 
-    m_out->Print( aNestLevel + 1, "(start %s %s) (end %s %s)\n",
-                  FormatInternalUnits( aTextBox->GetStart().x ).c_str(),
-                  FormatInternalUnits( aTextBox->GetStart().y ).c_str(),
-                  FormatInternalUnits( aTextBox->GetEnd().x ).c_str(),
-                  FormatInternalUnits( aTextBox->GetEnd().y ).c_str() );
+    VECTOR2I pos = aTextBox->GetStart();
+    VECTOR2I size = aTextBox->GetEnd() - pos;
 
-    aTextBox->GetStroke().Format( m_out, aNestLevel + 1 );
+    m_out->Print( aNestLevel + 1, "(at %s %s %s) (size %s %s)\n",
+                  EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, pos.x ).c_str(),
+                  EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, pos.y ).c_str(),
+                  EDA_UNIT_UTILS::FormatAngle( aTextBox->GetTextAngle() ).c_str(),
+                  EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, size.x ).c_str(),
+                  EDA_UNIT_UTILS::FormatInternalUnits( schIUScale, size.y ).c_str() );
+
+    aTextBox->GetStroke().Format( m_out, schIUScale, aNestLevel + 1 );
     m_out->Print( 0, "\n" );
     formatFill( m_out, aNestLevel + 1, aTextBox->GetFillMode(), aTextBox->GetFillColor() );
     m_out->Print( 0, "\n" );
@@ -1122,12 +1258,12 @@ void SCH_SEXPR_PLUGIN::saveBusAlias( std::shared_ptr<BUS_ALIAS> aAlias, int aNes
 
     wxString members;
 
-    for( auto member : aAlias->Members() )
+    for( const wxString& member : aAlias->Members() )
     {
-        if( members.IsEmpty() )
-            members = m_out->Quotew( member );
-        else
-            members += " " + m_out->Quotew( member );
+        if( !members.IsEmpty() )
+            members += wxS( " " );
+
+        members += m_out->Quotew( member );
     }
 
     m_out->Print( aNestLevel, "(bus_alias %s (members %s))\n",
@@ -1137,7 +1273,6 @@ void SCH_SEXPR_PLUGIN::saveBusAlias( std::shared_ptr<BUS_ALIAS> aAlias, int aNes
 
 
 void SCH_SEXPR_PLUGIN::saveInstances( const std::vector<SCH_SHEET_INSTANCE>& aSheets,
-                                      const std::vector<SYMBOL_INSTANCE_REFERENCE>& aSymbols,
                                       int aNestLevel )
 {
     if( aSheets.size() )
@@ -1159,30 +1294,10 @@ void SCH_SEXPR_PLUGIN::saveInstances( const std::vector<SCH_SHEET_INSTANCE>& aSh
 
         m_out->Print( aNestLevel, ")\n" ); // Close sheet instances token.
     }
-
-    if( aSymbols.size() )
-    {
-        m_out->Print( 0, "\n" );
-        m_out->Print( aNestLevel, "(symbol_instances\n" );
-
-        for( const SYMBOL_INSTANCE_REFERENCE& instance : aSymbols )
-        {
-            m_out->Print( aNestLevel + 1, "(path %s\n",
-                          m_out->Quotew( instance.m_Path.AsString() ).c_str() );
-            m_out->Print( aNestLevel + 2, "(reference %s) (unit %d) (value %s) (footprint %s)\n",
-                          m_out->Quotew( instance.m_Reference ).c_str(),
-                          instance.m_Unit,
-                          m_out->Quotew( instance.m_Value ).c_str(),
-                          m_out->Quotew( instance.m_Footprint ).c_str() );
-            m_out->Print( aNestLevel + 1, ")\n" );
-        }
-
-        m_out->Print( aNestLevel, ")\n" ); // Close symbol instances token.
-    }
 }
 
 
-void SCH_SEXPR_PLUGIN::cacheLib( const wxString& aLibraryFileName, const PROPERTIES* aProperties )
+void SCH_SEXPR_PLUGIN::cacheLib( const wxString& aLibraryFileName, const STRING_UTF8_MAP* aProperties )
 {
     if( !m_cache || !m_cache->IsFile( aLibraryFileName ) || m_cache->IsFileChanged() )
     {
@@ -1196,7 +1311,7 @@ void SCH_SEXPR_PLUGIN::cacheLib( const wxString& aLibraryFileName, const PROPERT
 }
 
 
-bool SCH_SEXPR_PLUGIN::isBuffering( const PROPERTIES* aProperties )
+bool SCH_SEXPR_PLUGIN::isBuffering( const STRING_UTF8_MAP* aProperties )
 {
     return ( aProperties && aProperties->Exists( SCH_SEXPR_PLUGIN::PropBuffering ) );
 }
@@ -1214,7 +1329,7 @@ int SCH_SEXPR_PLUGIN::GetModifyHash() const
 
 void SCH_SEXPR_PLUGIN::EnumerateSymbolLib( wxArrayString&    aSymbolNameList,
                                            const wxString&   aLibraryPath,
-                                           const PROPERTIES* aProperties )
+                                           const STRING_UTF8_MAP* aProperties )
 {
     LOCALE_IO   toggle;     // toggles on, then off, the C locale.
 
@@ -1235,7 +1350,7 @@ void SCH_SEXPR_PLUGIN::EnumerateSymbolLib( wxArrayString&    aSymbolNameList,
 
 void SCH_SEXPR_PLUGIN::EnumerateSymbolLib( std::vector<LIB_SYMBOL*>& aSymbolList,
                                            const wxString&   aLibraryPath,
-                                           const PROPERTIES* aProperties )
+                                           const STRING_UTF8_MAP* aProperties )
 {
     LOCALE_IO   toggle;     // toggles on, then off, the C locale.
 
@@ -1255,7 +1370,7 @@ void SCH_SEXPR_PLUGIN::EnumerateSymbolLib( std::vector<LIB_SYMBOL*>& aSymbolList
 
 
 LIB_SYMBOL* SCH_SEXPR_PLUGIN::LoadSymbol( const wxString& aLibraryPath, const wxString& aSymbolName,
-                                          const PROPERTIES* aProperties )
+                                          const STRING_UTF8_MAP* aProperties )
 {
     LOCALE_IO toggle;     // toggles on, then off, the C locale.
 
@@ -1271,7 +1386,7 @@ LIB_SYMBOL* SCH_SEXPR_PLUGIN::LoadSymbol( const wxString& aLibraryPath, const wx
 
 
 void SCH_SEXPR_PLUGIN::SaveSymbol( const wxString& aLibraryPath, const LIB_SYMBOL* aSymbol,
-                                   const PROPERTIES* aProperties )
+                                   const STRING_UTF8_MAP* aProperties )
 {
     LOCALE_IO toggle;     // toggles on, then off, the C locale.
 
@@ -1285,7 +1400,7 @@ void SCH_SEXPR_PLUGIN::SaveSymbol( const wxString& aLibraryPath, const LIB_SYMBO
 
 
 void SCH_SEXPR_PLUGIN::DeleteSymbol( const wxString& aLibraryPath, const wxString& aSymbolName,
-                                     const PROPERTIES* aProperties )
+                                     const STRING_UTF8_MAP* aProperties )
 {
     LOCALE_IO toggle;     // toggles on, then off, the C locale.
 
@@ -1299,7 +1414,7 @@ void SCH_SEXPR_PLUGIN::DeleteSymbol( const wxString& aLibraryPath, const wxStrin
 
 
 void SCH_SEXPR_PLUGIN::CreateSymbolLib( const wxString& aLibraryPath,
-                                        const PROPERTIES* aProperties )
+                                        const STRING_UTF8_MAP* aProperties )
 {
     if( wxFileExists( aLibraryPath ) )
     {
@@ -1318,7 +1433,7 @@ void SCH_SEXPR_PLUGIN::CreateSymbolLib( const wxString& aLibraryPath,
 
 
 bool SCH_SEXPR_PLUGIN::DeleteSymbolLib( const wxString& aLibraryPath,
-                                        const PROPERTIES* aProperties )
+                                        const STRING_UTF8_MAP* aProperties )
 {
     wxFileName fn = aLibraryPath;
 
@@ -1343,7 +1458,7 @@ bool SCH_SEXPR_PLUGIN::DeleteSymbolLib( const wxString& aLibraryPath,
 }
 
 
-void SCH_SEXPR_PLUGIN::SaveLibrary( const wxString& aLibraryPath, const PROPERTIES* aProperties )
+void SCH_SEXPR_PLUGIN::SaveLibrary( const wxString& aLibraryPath, const STRING_UTF8_MAP* aProperties )
 {
     if( !m_cache )
         m_cache = new SCH_SEXPR_PLUGIN_CACHE( aLibraryPath );
@@ -1382,6 +1497,41 @@ bool SCH_SEXPR_PLUGIN::IsSymbolLibWritable( const wxString& aLibraryPath )
     wxFileName fn( aLibraryPath );
 
     return ( fn.FileExists() && fn.IsFileWritable() ) || fn.IsDirWritable();
+}
+
+
+void SCH_SEXPR_PLUGIN::GetAvailableSymbolFields( std::vector<wxString>& aNames )
+{
+    if( !m_cache )
+        return;
+
+    const LIB_SYMBOL_MAP& symbols = m_cache->m_symbols;
+
+    std::set<wxString> fieldNames;
+
+    for( LIB_SYMBOL_MAP::const_iterator it = symbols.begin();  it != symbols.end();  ++it )
+    {
+        std::vector<LIB_FIELD*> fields;
+        it->second->GetFields( fields );
+
+        for( LIB_FIELD* field : fields )
+        {
+            if( field->IsMandatory() )
+                continue;
+
+            // TODO(JE): enable configurability of this outside database libraries?
+            // if( field->ShowInChooser() )
+            fieldNames.insert( field->GetName() );
+        }
+    }
+
+    std::copy( fieldNames.begin(), fieldNames.end(), std::back_inserter( aNames ) );
+}
+
+
+void SCH_SEXPR_PLUGIN::GetDefaultSymbolFields( std::vector<wxString>& aNames )
+{
+    GetAvailableSymbolFields( aNames );
 }
 
 

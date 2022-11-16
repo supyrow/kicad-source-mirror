@@ -45,7 +45,6 @@ public:
         Add( PCB_ACTIONS::group );
         Add( PCB_ACTIONS::ungroup );
         Add( PCB_ACTIONS::removeFromGroup );
-        Add( PCB_ACTIONS::groupEnter );
     }
 
     ACTION_MENU* create() const override
@@ -57,19 +56,18 @@ private:
     void update() override
     {
         PCB_SELECTION_TOOL* selTool = getToolManager()->GetTool<PCB_SELECTION_TOOL>();
-        BOARD*              board = selTool->GetBoard();
+        BOARD*              board = static_cast<BOARD*>( getToolManager()->GetModel() );
 
         const auto& selection = selTool->GetSelection();
 
         wxString check = board->GroupsSanityCheck();
-        wxCHECK_RET( check == wxEmptyString, _( "Group is in inconsistent state:" ) + wxS( " " )+ check );
+        wxCHECK_RET( check == wxEmptyString, _( "Group is in inconsistent state:" ) + wxS( " " ) + check );
 
         BOARD::GroupLegalOpsField legalOps = board->GroupLegalOps( selection );
 
         Enable( PCB_ACTIONS::group.GetUIId(),           legalOps.create );
         Enable( PCB_ACTIONS::ungroup.GetUIId(),         legalOps.ungroup );
         Enable( PCB_ACTIONS::removeFromGroup.GetUIId(), legalOps.removeItems );
-        Enable( PCB_ACTIONS::groupEnter.GetUIId(),      legalOps.enter );
     }
 };
 
@@ -99,18 +97,16 @@ bool GROUP_TOOL::Init()
     // Find the selection tool, so they can cooperate
     m_selectionTool = m_toolMgr->GetTool<PCB_SELECTION_TOOL>();
 
-    std::shared_ptr<GROUP_CONTEXT_MENU> groupMenu = std::make_shared<GROUP_CONTEXT_MENU>();
-    groupMenu->SetTool( this );
-
     // Add the group control menus to relevant other tools
     if( m_selectionTool )
     {
-        TOOL_MENU&        toolMenu = m_selectionTool->GetToolMenu();
-        CONDITIONAL_MENU& menu = toolMenu.GetMenu();
+        TOOL_MENU& selToolMenu = m_selectionTool->GetToolMenu();
 
-        toolMenu.AddSubMenu( groupMenu );
+        std::shared_ptr<GROUP_CONTEXT_MENU> groupMenu = std::make_shared<GROUP_CONTEXT_MENU>();
+        groupMenu->SetTool( this );
+        selToolMenu.RegisterSubMenu( groupMenu );
 
-        menu.AddMenu( groupMenu.get(), SELECTION_CONDITIONS::NotEmpty, 100 );
+        selToolMenu.GetMenu().AddMenu( groupMenu.get(), SELECTION_CONDITIONS::NotEmpty, 100 );
     }
 
     return true;
@@ -195,6 +191,7 @@ int GROUP_TOOL::PickNewMember( const TOOL_EVENT& aEvent  )
 
     statusPopup.Move( wxGetMousePosition() + wxPoint( 20, -50 ) );
     statusPopup.Popup();
+    canvas()->SetStatusPopup( statusPopup.GetPanel() );
 
     m_toolMgr->RunAction( ACTIONS::pickerTool, true, &tool );
 
@@ -206,6 +203,8 @@ int GROUP_TOOL::PickNewMember( const TOOL_EVENT& aEvent  )
         else
             break;
     }
+
+    canvas()->SetStatusPopup( nullptr );
 
     return 0;
 }

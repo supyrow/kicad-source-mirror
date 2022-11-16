@@ -66,7 +66,6 @@ public:
     typedef std::map<std::string, TOOL_STATE*> NAME_STATE_MAP;
     typedef std::map<TOOL_ID, TOOL_STATE*> ID_STATE_MAP;
     typedef std::list<TOOL_ID> ID_LIST;
-    typedef std::vector<TOOL_BASE*> TOOL_VEC;
 
     /**
      * Generates a unique ID from for a tool with given name.
@@ -225,6 +224,11 @@ public:
 
         return nullptr;
     }
+
+    /*
+     * Return all registered tools.
+     */
+    std::vector<TOOL_BASE*> Tools() { return m_toolOrder; }
 
     /**
      * Deactivate the currently active tool.
@@ -531,7 +535,7 @@ private:
     void setActiveState( TOOL_STATE* aState );
 
     ///< List of tools in the order they were registered
-    TOOL_VEC m_toolOrder;
+    std::vector<TOOL_BASE*> m_toolOrder;
 
     ///< Index of registered tools current states, associated by tools' objects.
     TOOL_STATE_MAP m_toolState;
@@ -552,7 +556,7 @@ private:
     ACTION_MANAGER* m_actionMgr;
 
     ///< Original cursor position, if overridden by the context menu handler
-    std::map<TOOL_ID, OPT<VECTOR2D>> m_cursorSettings;
+    std::map<TOOL_ID, std::optional<VECTOR2D>> m_cursorSettings;
 
     EDA_ITEM*             m_model;
     KIGFX::VIEW*          m_view;
@@ -576,6 +580,9 @@ private:
 
     ///< Pointer to the state object corresponding to the currently executed tool.
     TOOL_STATE* m_activeState;
+
+    ///< True if the tool manager is shutting down (don't process additional events)
+    bool m_shuttingDown;
 };
 
 #endif // __TOOL_MANAGER_H

@@ -30,6 +30,7 @@
 #include <math/box2.h>
 #include <list>
 #include <vector>
+#include <memory>
 #include "eda_angle.h"
 
 class SHAPE_SIMPLE;
@@ -50,7 +51,7 @@ public:
     ~SHAPE_COMPOUND();
 
     SHAPE_COMPOUND*   Clone() const override;
-    const std::string Format() const override;
+    const std::string Format( bool aCplusPlus = true ) const override;
 
     bool Collide( const SEG& aSeg, int aClearance = 0, int* aActual = nullptr,
                   VECTOR2I* aLocation = nullptr ) const override;
@@ -82,10 +83,10 @@ public:
         // Don't make clients deal with nested SHAPE_COMPOUNDs
         if( aShape->HasIndexableSubshapes() )
         {
-            std::vector<SHAPE*> subshapes;
+            std::vector<const SHAPE*> subshapes;
             aShape->GetIndexableSubshapes( subshapes );
 
-            for( SHAPE* subshape : subshapes )
+            for( const SHAPE* subshape : subshapes )
                 m_shapes.push_back( subshape->Clone() );
 
             delete aShape;
@@ -93,6 +94,25 @@ public:
         else
         {
             m_shapes.push_back( aShape );
+        }
+
+        m_dirty = true;
+    }
+
+    void AddShape( std::shared_ptr<SHAPE> aShape )
+    {
+        // Don't make clients deal with nested SHAPE_COMPOUNDs
+        if( aShape->HasIndexableSubshapes() )
+        {
+            std::vector<const SHAPE*> subshapes;
+            aShape->GetIndexableSubshapes( subshapes );
+
+            for( const SHAPE* subshape : subshapes )
+                m_shapes.push_back( subshape->Clone() );
+        }
+        else
+        {
+            m_shapes.push_back( aShape->Clone() );
         }
 
         m_dirty = true;
@@ -127,9 +147,11 @@ public:
         return m_shapes.size();
     }
 
-    virtual void GetIndexableSubshapes( std::vector<SHAPE*>& aSubshapes ) override
+    virtual void GetIndexableSubshapes( std::vector<const SHAPE*>& aSubshapes ) const override
     {
-        aSubshapes = m_shapes;
+        aSubshapes.clear();
+        aSubshapes.reserve( m_shapes.size() );
+        std::copy( m_shapes.begin(), m_shapes.end(), std::back_inserter( aSubshapes ) );
     }
 
     bool ConvertToSimplePolygon( SHAPE_SIMPLE* aOut ) const;

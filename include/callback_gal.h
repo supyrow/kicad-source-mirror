@@ -26,34 +26,47 @@
 
 #include <gal/graphics_abstraction_layer.h>
 
-class CALLBACK_GAL: public KIGFX::GAL
+class CALLBACK_GAL : public KIGFX::GAL
 {
 public:
     CALLBACK_GAL( KIGFX::GAL_DISPLAY_OPTIONS& aDisplayOptions,
                   std::function<void( const VECTOR2I& aPt1,
                                       const VECTOR2I& aPt2 )> aStrokeCallback,
                   std::function<void( const VECTOR2I& aPt1,
-                                   const VECTOR2I& aPt2,
-                                   const VECTOR2I& aPt3 )> aTriangleCallback ) :
+                                      const VECTOR2I& aPt2,
+                                      const VECTOR2I& aPt3 )> aTriangleCallback ) :
         GAL( aDisplayOptions )
-   {
+    {
         m_strokeCallback = aStrokeCallback;
         m_triangleCallback = aTriangleCallback;
-        m_outlineCallback = [](const SHAPE_LINE_CHAIN&){};
+        m_outlineCallback = []( const SHAPE_LINE_CHAIN& ) {};
+        m_stroke = true;
         m_triangulate = true;
-   }
+    }
 
     CALLBACK_GAL( KIGFX::GAL_DISPLAY_OPTIONS& aDisplayOptions,
                   std::function<void( const VECTOR2I& aPt1,
                                       const VECTOR2I& aPt2 )> aStrokeCallback,
                   std::function<void( const SHAPE_LINE_CHAIN& aPoly )> aOutlineCallback ) :
         GAL( aDisplayOptions )
-   {
+    {
         m_strokeCallback = aStrokeCallback;
-        m_triangleCallback = []( const VECTOR2I&, const VECTOR2I&, const VECTOR2I& ){};
+        m_triangleCallback = []( const VECTOR2I&, const VECTOR2I&, const VECTOR2I& ) {};
         m_outlineCallback = aOutlineCallback;
+        m_stroke = true;
         m_triangulate = false;
-   }
+    }
+
+    CALLBACK_GAL( KIGFX::GAL_DISPLAY_OPTIONS& aDisplayOptions,
+                  std::function<void( const SHAPE_LINE_CHAIN& aPoly )> aOutlineCallback ) :
+        GAL( aDisplayOptions )
+    {
+        m_strokeCallback = []( const VECTOR2I& aPt1, const VECTOR2I& aPt2 ) {};
+        m_triangleCallback = []( const VECTOR2I&, const VECTOR2I&, const VECTOR2I& ) {};
+        m_outlineCallback = aOutlineCallback;
+        m_stroke = false;
+        m_triangulate = false;
+    }
 
     /**
      * Draw a polygon representing an outline font glyph.
@@ -70,8 +83,9 @@ private:
 
     std::function<void( const SHAPE_LINE_CHAIN& aPoly )> m_outlineCallback;
 
+    bool m_stroke;
     bool m_triangulate;
 };
 
 
-#endif      // define CALLBACK_GAL_H
+#endif // define CALLBACK_GAL_H

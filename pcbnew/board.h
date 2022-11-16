@@ -28,6 +28,7 @@
 #include <board_item_container.h>
 #include <common.h> // Needed for stl hash extensions
 #include <convert_shape_list_to_polygon.h> // for OUTLINE_ERROR_HANDLER
+#include <hash.h>
 #include <layer_ids.h>
 #include <netinfo.h>
 #include <pcb_item_containers.h>
@@ -62,6 +63,78 @@ class PROGRESS_REPORTER;
 
 // Forward declare endpoint from class_track.h
 enum ENDPOINT_T : int;
+
+
+struct PTR_PTR_CACHE_KEY
+{
+    BOARD_ITEM*  A;
+    BOARD_ITEM*  B;
+
+    bool operator==(const PTR_PTR_CACHE_KEY& other) const
+    {
+        return A == other.A && B == other.B;
+    }
+};
+
+struct PTR_LAYER_CACHE_KEY
+{
+    BOARD_ITEM*  A;
+    PCB_LAYER_ID Layer;
+
+    bool operator==(const PTR_LAYER_CACHE_KEY& other) const
+    {
+        return A == other.A && Layer == other.Layer;
+    }
+};
+
+struct PTR_PTR_LAYER_CACHE_KEY
+{
+    BOARD_ITEM*  A;
+    BOARD_ITEM*  B;
+    PCB_LAYER_ID Layer;
+
+    bool operator==(const PTR_PTR_LAYER_CACHE_KEY& other) const
+    {
+        return A == other.A && B == other.B && Layer == other.Layer;
+    }
+};
+
+namespace std
+{
+    template <>
+    struct hash<PTR_PTR_CACHE_KEY>
+    {
+        std::size_t operator()( const PTR_PTR_CACHE_KEY& k ) const
+        {
+            std::size_t seed = 0xa82de1c0;
+            hash_combine( seed, k.A, k.B );
+            return seed;
+        }
+    };
+
+    template <>
+    struct hash<PTR_LAYER_CACHE_KEY>
+    {
+        std::size_t operator()( const PTR_LAYER_CACHE_KEY& k ) const
+        {
+            std::size_t seed = 0xa82de1c0;
+            hash_combine( seed, k.A, k.Layer );
+            return seed;
+        }
+    };
+
+    template <>
+    struct hash<PTR_PTR_LAYER_CACHE_KEY>
+    {
+        std::size_t operator()( const PTR_PTR_LAYER_CACHE_KEY& k ) const
+        {
+            std::size_t seed = 0xa82de1c0;
+            hash_combine( seed, k.A, k.B, k.Layer );
+            return seed;
+        }
+    };
+}
+
 
 /**
  * The allowed types of layers, same as Specctra DSN spec.
@@ -372,8 +445,9 @@ public:
      * Should be called immediately after loading board in order for everything to work.
      *
      * @param aProject is a loaded project to link to.
+     * @param aReferenceOnly avoids taking ownership of settings stored in project if true
      */
-    void SetProject( PROJECT* aProject );
+    void SetProject( PROJECT* aProject, bool aReferenceOnly = false );
 
     void ClearProject();
 
@@ -381,6 +455,11 @@ public:
      * Rebuild DRC markers from the serialized data in BOARD_DESIGN_SETTINGS.
      */
     std::vector<PCB_MARKER*> ResolveDRCExclusions();
+
+    /**
+     * Update the visibility flags on the current unconnected ratsnest lines.
+     */
+    void UpdateRatsnestExclusions();
 
     /**
      * Reset all high light data to the init state
@@ -552,7 +631,7 @@ public:
     const TITLE_BLOCK& GetTitleBlock() const                { return m_titles; }
     void SetTitleBlock( const TITLE_BLOCK& aTitleBlock )    { m_titles = aTitleBlock; }
 
-    wxString GetSelectMenuText( EDA_UNITS aUnits ) const override;
+    wxString GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const override;
 
     /**
      * Extract the board outlines and build a closed polygon from lines, arcs and circle items
@@ -651,11 +730,6 @@ public:
     unsigned GetNodesCount( int aNet = -1 ) const;
 
     /**
-     * @return the number of unconnected nets in the current ratsnest.
-     */
-    unsigned GetUnconnectedNetCount() const;
-
-    /**
      * Return a reference to a list of all the pads.
      *
      * The returned list is not sorted and contains pointers to PADS, but those pointers do
@@ -728,9 +802,9 @@ public:
      * @param aBoardEdgesOnly is true if we are interested in board edge segments only.
      * @return the board's bounding box.
      */
-    EDA_RECT ComputeBoundingBox( bool aBoardEdgesOnly = false ) const;
+    BOX2I ComputeBoundingBox( bool aBoardEdgesOnly = false ) const;
 
-    const EDA_RECT GetBoundingBox() const override
+    const BOX2I GetBoundingBox() const override
     {
         return ComputeBoundingBox( false );
     }
@@ -744,7 +818,7 @@ public:
      *
      * @return bounding box calculated using exclusively the board edges.
      */
-    const EDA_RECT GetBoardEdgesBoundingBox() const
+    const BOX2I GetBoardEdgesBoundingBox() const
     {
         return ComputeBoundingBox( true );
     }
@@ -758,12 +832,12 @@ public:
      * to do so on lists of such data.
      * @param inspector An INSPECTOR instance to use in the inspection.
      * @param testData Arbitrary data used by the inspector.
-     * @param scanTypes Which KICAD_T types are of interest and the order
-     *  is significant too, terminated by EOT.
+     * @param scanTypes Which KICAD_T types are of interest and the order to process them in.
      * @return SEARCH_QUIT if the Iterator is to stop the scan, else SCAN_CONTINUE, and
      *         determined by the inspector.
      */
-    SEARCH_RESULT Visit( INSPECTOR inspector, void* testData, const KICAD_T scanTypes[] ) override;
+    INSPECT_RESULT Visit( INSPECTOR inspector, void* testData,
+                          const std::vector<KICAD_T>& scanTypes ) override;
 
     /**
      * Search for a FOOTPRINT within this board with the given reference designator.
@@ -784,12 +858,9 @@ public:
     FOOTPRINT* FindFootprintByPath( const KIID_PATH& aPath ) const;
 
     /**
-     * Return a list of name candidates for netclass assignment.
-     *
-     * Tokens may appear more than once if they were harvested from hierarchical nets
-     * (ie: /CLK, /sheet1/CLK).
+     * Return the set of netname candidates for netclass assignment.
      */
-    std::vector<wxString> GetNetClassAssignmentCandidates() const;
+    std::set<wxString> GetNetClassAssignmentCandidates() const;
 
     /**
      * Copy NETCLASS info to each NET, based on NET membership in a NETCLASS.
@@ -933,14 +1004,6 @@ public:
     PAD* GetPad( std::vector<PAD*>& aPadList, const VECTOR2I& aPosition, LSET aLayerMask ) const;
 
     /**
-     * Delete a given pad from the BOARD by removing it from its footprint and from the
-     * m_NetInfo.  Makes no UI calls.
-     *
-     * @param aPad is the pad to delete.
-     */
-    void PadDelete( PAD* aPad );
-
-    /**
      * First empties then fills the vector with all pads and sorts them by increasing x
      * coordinate, and for increasing y coordinate for same values of x coordinates.  The vector
      * only holds pointers to the pads and those pointers are only references to pads which are
@@ -987,11 +1050,6 @@ public:
                              bool aVisibleOnly, bool aIgnoreLocked = false ) const;
 
     /**
-     * Reset all items' netcodes to 0 (no net).
-     */
-    void ClearAllNetCodes();
-
-    /**
      * Map all nets in the given board to nets with the same name (if any) in the destination
      * board.  This allows us to share layouts which came from the same hierarchical sheet in
      * the schematic.
@@ -1015,6 +1073,11 @@ public:
      * will do nothing.
      */
     void RemoveListener( BOARD_LISTENER* aListener );
+
+    /**
+     * Remove all listeners
+     */
+    void RemoveAllListeners();
 
     /**
       * Notify the board and its listeners that an item on the board has
@@ -1048,7 +1111,6 @@ public:
         bool create      : 1;
         bool ungroup     : 1;
         bool removeItems : 1;
-        bool enter       : 1;
     };
 
     /**
@@ -1072,15 +1134,22 @@ public:
 
     // ------------ Run-time caches -------------
     std::mutex                                            m_CachesMutex;
-    std::map< std::pair<BOARD_ITEM*, BOARD_ITEM*>, bool > m_InsideCourtyardCache;
-    std::map< std::pair<BOARD_ITEM*, BOARD_ITEM*>, bool > m_InsideFCourtyardCache;
-    std::map< std::pair<BOARD_ITEM*, BOARD_ITEM*>, bool > m_InsideBCourtyardCache;
-    std::map< std::pair<BOARD_ITEM*, BOARD_ITEM*>, bool > m_InsideAreaCache;
-    std::map< wxString, LSET >                            m_LayerExpressionCache;
+    std::unordered_map<PTR_PTR_CACHE_KEY, bool>           m_IntersectsCourtyardCache;
+    std::unordered_map<PTR_PTR_CACHE_KEY, bool>           m_IntersectsFCourtyardCache;
+    std::unordered_map<PTR_PTR_CACHE_KEY, bool>           m_IntersectsBCourtyardCache;
+    std::unordered_map<PTR_PTR_LAYER_CACHE_KEY, bool>     m_IntersectsAreaCache;
+    std::unordered_map<PTR_PTR_LAYER_CACHE_KEY, bool>     m_EnclosedByAreaCache;
+    std::unordered_map< wxString, LSET >                  m_LayerExpressionCache;
+    std::unordered_map<ZONE*, std::unique_ptr<DRC_RTREE>> m_CopperZoneRTreeCache;
+    std::unique_ptr<DRC_RTREE>                            m_CopperItemRTreeCache;
+    mutable std::unordered_map<const ZONE*, BOX2I>        m_ZoneBBoxCache;
 
-    std::map< ZONE*, std::unique_ptr<DRC_RTREE> >         m_CopperZoneRTrees;
-
-    ZONE*                                                 m_SolderMask;
+    // ------------ DRC caches -------------
+    std::vector<ZONE*>    m_DRCZones;
+    std::vector<ZONE*>    m_DRCCopperZones;
+    int                   m_DRCMaxClearance;
+    int                   m_DRCMaxPhysicalClearance;
+    ZONE*                 m_SolderMask;
 
 private:
     // The default copy constructor & operator= are inadequate,
@@ -1142,5 +1211,6 @@ private:
 
     std::vector<BOARD_LISTENER*> m_listeners;
 };
+
 
 #endif      // CLASS_BOARD_H_

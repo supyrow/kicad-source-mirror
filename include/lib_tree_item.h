@@ -25,6 +25,7 @@
 #ifndef LIB_TREE_ITEM_H
 #define LIB_TREE_ITEM_H
 
+#include <map>
 #include <lib_id.h>
 #include <import_export.h>
 
@@ -46,8 +47,13 @@ public:
 
     virtual wxString GetName() const = 0;
     virtual wxString GetLibNickname() const = 0;
-
     virtual wxString GetDescription() = 0;
+
+    /**
+     * Retrieves a key/value map of the fields on this item that should be exposed to the library
+     * browser/chooser for displaying in columns, searching, etc
+     */
+    virtual void GetChooserFields( std::map<wxString , wxString>& aColumnMap ) {}
 
     virtual wxString GetSearchText() { return wxEmptyString; }
 
@@ -55,6 +61,11 @@ public:
      * For items having aliases, IsRoot() indicates the principal item.
      */
     virtual bool IsRoot() const { return true; }
+
+    /**
+     * For items with footprint fields.
+     */
+    virtual wxString GetFootprint() { return wxEmptyString; }
 
     /**
      * For items with units, return the number of units.
@@ -65,6 +76,16 @@ public:
      * For items with units, return an identifier for unit x.
      */
     virtual wxString GetUnitReference( int aUnit ) { return wxEmptyString; }
+
+    /**
+     * For items with units, return a display name for unit x.
+     */
+    virtual wxString GetUnitDisplayName( int aUnit ) { return wxEmptyString; }
+
+    /**
+     * For items with units, return true if a display name is set for x.
+     */
+    virtual bool HasUnitDisplayName( int aUnit ) { return false; }
 };
 
 #endif //LIB_TREE_ITEM_H

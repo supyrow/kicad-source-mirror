@@ -82,7 +82,8 @@ static const wxChar* s_allowedExtensionsToList[] = {
     wxT( "^.*\\.cir$" ),           // Spice netlist file
     wxT( "^.*\\.lib$" ),           // Legacy schematic library file
     wxT( "^.*\\.kicad_sym$" ),     // S-expr symbol libraries
-    wxT( "^.*\\.txt$" ),
+    wxT( "^.*\\.txt$" ),           // Text files
+    wxT( "^.*\\.md$" ),            // Markdown files
     wxT( "^.*\\.pho$" ),           // Gerber file (Old Kicad extension)
     wxT( "^.*\\.gbr$" ),           // Gerber file
     wxT( "^.*\\.gbrjob$" ),        // Gerber job file
@@ -101,17 +102,9 @@ static const wxChar* s_allowedExtensionsToList[] = {
     wxT( "^.*\\.xnc$" ),           // Excellon NC drill files (alternate file ext)
     wxT( "^.*\\.svg$" ),           // SVG print/plot files
     wxT( "^.*\\.ps$" ),            // PostScript plot files
+    wxT( "^.*\\.zip$" ),           // Zip archive files
     nullptr                        // end of list
 };
-
-
-/* TODO: Check if these file extension and wildcard definitions are used
- *       in any of the other KiCad programs and move them into the common
- *       library as required.
- */
-
-// Gerber file extension wildcard.
-const wxString GerberFileExtensionWildCard( ".((gbr|gbrjob|(gb|gt)[alops])|pho)" );
 
 
 /**
@@ -268,6 +261,7 @@ wxString PROJECT_TREE_PANE::GetFileExt( TREE_FILE_TYPE type )
     case TREE_FILE_TYPE::HTML:                  return HtmlFileExtension;
     case TREE_FILE_TYPE::PDF:                   return PdfFileExtension;
     case TREE_FILE_TYPE::TXT:                   return TextFileExtension;
+    case TREE_FILE_TYPE::MD:                    return MarkdownFileExtension;
     case TREE_FILE_TYPE::NET:                   return NetlistFileExtension;
     case TREE_FILE_TYPE::CMP_LINK:              return FootprintAssignmentFileExtension;
     case TREE_FILE_TYPE::REPORT:                return ReportFileExtension;
@@ -281,6 +275,7 @@ wxString PROJECT_TREE_PANE::GetFileExt( TREE_FILE_TYPE type )
     case TREE_FILE_TYPE::SCHEMATIC_LIBFILE:     return LegacySymbolLibFileExtension;
     case TREE_FILE_TYPE::SEXPR_SYMBOL_LIB_FILE: return KiCadSymbolLibFileExtension;
     case TREE_FILE_TYPE::DESIGN_RULES:          return DesignRulesFileExtension;
+    case TREE_FILE_TYPE::ZIP_ARCHIVE:           return ArchiveFileExtension;
     default:                                    return wxEmptyString;
     }
 }
@@ -644,8 +639,6 @@ void PROJECT_TREE_PANE::onRight( wxTreeEvent& Event )
 
         can_delete = item->CanDelete();
         can_rename = item->CanRename();
-
-        wxString full_file_name = item->GetFileName();
 
         switch( item->GetType() )
         {
@@ -1286,5 +1279,3 @@ void KICAD_MANAGER_FRAME::OnChangeWatchedPaths( wxCommandEvent& aEvent )
 {
     m_leftWin->FileWatcherReset();
 }
-
-

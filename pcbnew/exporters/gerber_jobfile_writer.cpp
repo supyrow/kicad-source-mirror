@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2018 Jean_Pierre Charras <jp.charras at wanadoo.fr>
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -55,7 +55,7 @@ GERBER_JOBFILE_WRITER::GERBER_JOBFILE_WRITER( BOARD* aPcb, REPORTER* aReporter )
 {
     m_pcb = aPcb;
     m_reporter = aReporter;
-    m_conversionUnits = 1.0 / IU_PER_MM; // Gerber units = mm
+    m_conversionUnits = 1.0 / pcbIUScale.IU_PER_MM; // Gerber units = mm
 }
 
 std::string GERBER_JOBFILE_WRITER::formatStringFromUTF32( const wxString& aText )
@@ -166,8 +166,6 @@ bool GERBER_JOBFILE_WRITER::CreateJobFile( const wxString& aFullFilename )
 
 void GERBER_JOBFILE_WRITER::addJSONHeader()
 {
-    wxString text;
-
     m_json["Header"] = {
         {
             "GenerationSoftware",
@@ -268,7 +266,7 @@ void GERBER_JOBFILE_WRITER::addJSONGeneralSpecs()
     m_json["GeneralSpecs"]["ProjectId"]["Revision"] = rev.ToAscii();
 
     // output the board size in mm:
-    EDA_RECT brect = m_pcb->GetBoardEdgesBoundingBox();
+    BOX2I brect = m_pcb->GetBoardEdgesBoundingBox();
 
     m_json["GeneralSpecs"]["Size"]["X"] = mapValue( brect.GetWidth() );
     m_json["GeneralSpecs"]["Size"]["Y"] = mapValue( brect.GetHeight() );
@@ -438,7 +436,10 @@ void GERBER_JOBFILE_WRITER::addJSONFilesAttributes()
 
             default:
                 skip_file = true;
-                m_reporter->Report( wxT( "Unexpected layer id in job file" ), RPT_SEVERITY_ERROR );
+
+                if( m_reporter )
+                    m_reporter->Report( wxT( "Unexpected layer id in job file" ), RPT_SEVERITY_ERROR );
+
                 break;
             }
         }
@@ -463,14 +464,14 @@ void GERBER_JOBFILE_WRITER::addJSONDesignRules()
 {
     // Add the Design Rules section in JSON format to m_JSONbuffer
     // Job file support a few design rules:
-    const BOARD_DESIGN_SETTINGS& dsnSettings = m_pcb->GetDesignSettings();
-    NETCLASS                     defaultNC = *dsnSettings.GetDefault();
-    int                          minclearanceOuter = defaultNC.GetClearance();
-    bool                         hasInnerLayers = m_pcb->GetCopperLayerCount() > 2;
+    std::shared_ptr<NET_SETTINGS>& netSettings = m_pcb->GetDesignSettings().m_NetSettings;
+
+    int  minclearanceOuter = netSettings->m_DefaultNetClass->GetClearance();
+    bool hasInnerLayers = m_pcb->GetCopperLayerCount() > 2;
 
     // Search a smaller clearance in other net classes, if any.
-    for( const std::pair<const wxString, NETCLASSPTR>& entry : dsnSettings.GetNetClasses() )
-        minclearanceOuter = std::min( minclearanceOuter, entry.second->GetClearance() );
+    for( const auto& [ name, netclass ] : netSettings->m_NetClasses )
+        minclearanceOuter = std::min( minclearanceOuter, netclass->GetClearance() );
 
     // job file knows different clearance types.
     // Kicad knows only one clearance for pads and tracks
@@ -479,8 +480,8 @@ void GERBER_JOBFILE_WRITER::addJSONDesignRules()
     // However, pads can have a specific clearance defined for a pad or a footprint,
     // and min clearance can be dependent on layers.
     // Search for a minimal pad clearance:
-    int minPadClearanceOuter = defaultNC.GetClearance();
-    int minPadClearanceInner = defaultNC.GetClearance();
+    int minPadClearanceOuter = netSettings->m_DefaultNetClass->GetClearance();
+    int minPadClearanceInner = netSettings->m_DefaultNetClass->GetClearance();
 
     for( FOOTPRINT* footprint : m_pcb->Footprints() )
     {
@@ -587,7 +588,7 @@ void GERBER_JOBFILE_WRITER::addJSONMaterialStackup()
     // Ensure brd_stackup is up to date (i.e. no change made by SynchronizeWithBoard() )
     bool uptodate = not brd_stackup.SynchronizeWithBoard( &m_pcb->GetDesignSettings() );
 
-    if( !uptodate && m_pcb->GetDesignSettings().m_HasStackup )
+    if( m_reporter && !uptodate && m_pcb->GetDesignSettings().m_HasStackup )
         m_reporter->Report( _( "Board stackup settings not up to date." ), RPT_SEVERITY_ERROR );
 
     PCB_LAYER_ID last_copper_layer = F_Cu;

@@ -33,7 +33,7 @@
 #include <wildcards_and_files_ext.h>
 #include <project/project_file.h>
 #include <project_rescue.h>
-#include <properties.h>
+#include <string_utf8_map.h>
 #include <widgets/app_progress_dialog.h>
 
 #include <general.h>
@@ -61,7 +61,8 @@ SYMBOL_LIB::SYMBOL_LIB( SCH_LIB_TYPE aType, const wxString& aFileName,
         fileName = "unnamed.lib";
 
     m_plugin.reset( SCH_IO_MGR::FindPlugin( m_pluginType ) );
-    m_properties = std::make_unique<PROPERTIES>();
+    m_properties = std::make_unique<STRING_UTF8_MAP>();
+    m_mod_hash = 0;
 }
 
 
@@ -76,7 +77,7 @@ void SYMBOL_LIB::Save( bool aSaveDocFile )
                  wxString::Format( wxT( "no plugin defined for library `%s`." ),
                                    fileName.GetFullPath() ) );
 
-    PROPERTIES props;
+    STRING_UTF8_MAP props;
 
     if( !aSaveDocFile )
         props[ SCH_LEGACY_PLUGIN::PropNoDocFile ] = "";
@@ -407,29 +408,29 @@ void SYMBOL_LIBS::FindLibraryNearEntries( std::vector<LIB_SYMBOL*>& aCandidates,
 }
 
 
-void SYMBOL_LIBS::LibNamesAndPaths( PROJECT* aProject, bool doSave,
-                                    wxString* aPaths, wxArrayString* aNames )
+void SYMBOL_LIBS::GetLibNamesAndPaths( PROJECT* aProject, wxString* aPaths, wxArrayString* aNames )
 {
-    wxCHECK_RET( aProject, "Null PROJECT in LibNamesAndPaths" );
+    wxCHECK_RET( aProject, "Null PROJECT in GetLibNamesAndPaths" );
 
     PROJECT_FILE& project = aProject->GetProjectFile();
 
-    if( doSave )
-    {
-        if( aPaths )
-            project.m_LegacyLibDir = *aPaths;
+    if( aPaths )
+        *aPaths = project.m_LegacyLibDir;
 
-        if( aNames )
-            project.m_LegacyLibNames = *aNames;
-    }
-    else
-    {
-        if( aPaths )
-            *aPaths = project.m_LegacyLibDir;
+    if( aNames )
+        *aNames = project.m_LegacyLibNames;
+}
 
-        if( aNames )
-            *aNames = project.m_LegacyLibNames;
-    }
+
+void SYMBOL_LIBS::SetLibNamesAndPaths( PROJECT* aProject, const wxString& aPaths,
+                                       const wxArrayString& aNames )
+{
+    wxCHECK_RET( aProject, "Null PROJECT in SetLibNamesAndPaths" );
+
+    PROJECT_FILE& project = aProject->GetProjectFile();
+
+    project.m_LegacyLibDir = aPaths;
+    project.m_LegacyLibNames = aNames;
 }
 
 
@@ -459,7 +460,7 @@ void SYMBOL_LIBS::LoadAllLibraries( PROJECT* aProject, bool aShowProgress )
 
     wxArrayString   lib_names;
 
-    LibNamesAndPaths( aProject, false, nullptr, &lib_names );
+    GetLibNamesAndPaths( aProject, nullptr, &lib_names );
 
     // Post symbol library table, this should be empty.  Only the cache library should get loaded.
     if( !lib_names.empty() )
@@ -475,8 +476,6 @@ void SYMBOL_LIBS::LoadAllLibraries( PROJECT* aProject, bool aShowProgress )
         {
             lib_dialog.Show();
         }
-
-        wxString progress_message;
 
         for( unsigned i = 0; i < lib_names.GetCount();  ++i )
         {

@@ -27,6 +27,10 @@
 #include <zone.h>
 #include <connectivity/connectivity_data.h>
 #include <board_commit.h>
+#include <footprint.h>
+#include <pcb_track.h>
+#include <pad.h>
+#include <pcb_group.h>
 #include <board_design_settings.h>
 #include <progress_reporter.h>
 #include <widgets/infobar.h>
@@ -66,7 +70,7 @@ void ZONE_FILLER_TOOL::CheckAllZones( wxWindow* aCaller, PROGRESS_REPORTER* aRep
     std::vector<ZONE*> toFill;
 
     for( ZONE* zone : board()->Zones() )
-        toFill.push_back(zone);
+        toFill.push_back( zone );
 
     BOARD_COMMIT                          commit( this );
     std::unique_ptr<WX_PROGRESS_REPORTER> reporter;
@@ -84,7 +88,7 @@ void ZONE_FILLER_TOOL::CheckAllZones( wxWindow* aCaller, PROGRESS_REPORTER* aRep
 
     if( filler.Fill( toFill, true, aCaller ) )
     {
-        commit.Push( _( "Fill Zone(s)" ), true, true, false );
+        commit.Push( _( "Fill Zone(s)" ), SKIP_CONNECTIVITY | ZONE_FILL_OP );
         getEditFrame<PCB_EDIT_FRAME>()->m_ZoneFillsDirty = false;
     }
     else
@@ -92,9 +96,10 @@ void ZONE_FILLER_TOOL::CheckAllZones( wxWindow* aCaller, PROGRESS_REPORTER* aRep
         commit.Revert();
     }
 
-    board()->GetConnectivity()->Build( board() );
+    board()->BuildConnectivity();
 
-    canvas()->Refresh();
+    refresh();
+
     m_fillInProgress = false;
 }
 
@@ -159,7 +164,7 @@ void ZONE_FILLER_TOOL::FillAllZones( wxWindow* aCaller, PROGRESS_REPORTER* aRepo
     {
         filler.GetProgressReporter()->AdvancePhase();
 
-        commit.Push( _( "Fill Zone(s)" ), true, true, false );
+        commit.Push( _( "Fill Zone(s)" ), SKIP_CONNECTIVITY | ZONE_FILL_OP );
         frame->m_ZoneFillsDirty = false;
     }
     else
@@ -167,12 +172,13 @@ void ZONE_FILLER_TOOL::FillAllZones( wxWindow* aCaller, PROGRESS_REPORTER* aRepo
         commit.Revert();
     }
 
-    board()->GetConnectivity()->Build( board(), reporter.get() );
+    board()->BuildConnectivity( reporter.get() );
 
     if( filler.IsDebug() )
         frame->UpdateUserInterface();
 
-    canvas()->Refresh();
+    refresh();
+
     m_fillInProgress = false;
 
     // wxWidgets has keyboard focus issues after the progress reporter.  Re-setting the focus
@@ -181,52 +187,87 @@ void ZONE_FILLER_TOOL::FillAllZones( wxWindow* aCaller, PROGRESS_REPORTER* aRepo
 }
 
 
-int ZONE_FILLER_TOOL::ZoneFill( const TOOL_EVENT& aEvent )
+int ZONE_FILLER_TOOL::ZoneFillDirty( const TOOL_EVENT& aEvent )
 {
-    if( m_fillInProgress )
+    PCB_EDIT_FRAME*    frame = getEditFrame<PCB_EDIT_FRAME>();
+    std::vector<ZONE*> toFill;
+
+    for( ZONE* zone : board()->Zones() )
     {
-        wxBell();
-        return -1;
+        if( m_dirtyZoneIDs.count( zone->m_Uuid ) )
+            toFill.push_back( zone );
     }
+
+    if( toFill.empty() )
+        return 0;
+
+    if( m_fillInProgress )
+        return 0;
 
     m_fillInProgress = true;
 
-    std::vector<ZONE*> toFill;
+    m_dirtyZoneIDs.clear();
 
-    if( ZONE* passedZone = aEvent.Parameter<ZONE*>() )
-    {
-        toFill.push_back( passedZone );
-    }
-    else
-    {
-        for( EDA_ITEM* item : selection() )
-        {
-            if( ZONE* zone = dynamic_cast<ZONE*>( item ) )
-                toFill.push_back( zone );
-        }
-    }
+    board()->IncrementTimeStamp();    // Clear caches
 
     BOARD_COMMIT                          commit( this );
     std::unique_ptr<WX_PROGRESS_REPORTER> reporter;
     ZONE_FILLER                           filler( board(), &commit );
+    int                                   pts = 0;
 
-    reporter = std::make_unique<WX_PROGRESS_REPORTER>( frame(), _( "Fill Zone" ), 5 );
-    filler.SetProgressReporter( reporter.get() );
+    if( !board()->GetDesignSettings().m_DRCEngine->RulesValid() )
+    {
+        WX_INFOBAR* infobar = frame->GetInfoBar();
+        wxHyperlinkCtrl* button = new wxHyperlinkCtrl( infobar, wxID_ANY, _( "Show DRC rules" ),
+                                                       wxEmptyString );
+
+        button->Bind( wxEVT_COMMAND_HYPERLINK,
+                      std::function<void( wxHyperlinkEvent& aLocEvent )>(
+                      [frame]( wxHyperlinkEvent& aLocEvent )
+                      {
+                          frame->ShowBoardSetupDialog( _( "Rules" ) );
+                      } ) );
+
+        infobar->RemoveAllButtons();
+        infobar->AddButton( button );
+
+        infobar->ShowMessageFor( _( "Zone fills may be inaccurate.  DRC rules contain errors." ),
+                                 10000, wxICON_WARNING );
+    }
+
+    for( ZONE* zone : toFill )
+    {
+        for( PCB_LAYER_ID layer : zone->GetLayerSet().Seq() )
+            pts += zone->GetFilledPolysList( layer )->FullPointCount();
+
+        if( pts > 1000 )
+        {
+            wxString title = wxString::Format( _( "Refill %d Zones" ), (int) toFill.size() );
+
+            reporter = std::make_unique<WX_PROGRESS_REPORTER>( frame, title, 5 );
+            filler.SetProgressReporter( reporter.get() );
+            break;
+        }
+    }
 
     if( filler.Fill( toFill ) )
-    {
-        reporter->AdvancePhase();
-        commit.Push( _( "Fill Zone(s)" ), true, true, false );
-    }
+        commit.Push( _( "Auto-fill Zone(s)" ), APPEND_UNDO | SKIP_CONNECTIVITY | ZONE_FILL_OP );
     else
-    {
         commit.Revert();
-    }
 
-    board()->GetConnectivity()->Build( board(), reporter.get() );
+    board()->BuildConnectivity( reporter.get() );
 
-    canvas()->Refresh();
+    if( filler.IsDebug() )
+        frame->UpdateUserInterface();
+
+    refresh();
+
     m_fillInProgress = false;
+
+    // wxWidgets has keyboard focus issues after the progress reporter.  Re-setting the focus
+    // here doesn't work, so we delay it to an idle event.
+    canvas()->Bind( wxEVT_IDLE, &ZONE_FILLER_TOOL::singleShotRefocus, this );
+
     return 0;
 }
 
@@ -234,28 +275,6 @@ int ZONE_FILLER_TOOL::ZoneFill( const TOOL_EVENT& aEvent )
 int ZONE_FILLER_TOOL::ZoneFillAll( const TOOL_EVENT& aEvent )
 {
     FillAllZones( frame() );
-    return 0;
-}
-
-
-int ZONE_FILLER_TOOL::ZoneUnfill( const TOOL_EVENT& aEvent )
-{
-    BOARD_COMMIT commit( this );
-
-    for( EDA_ITEM* item : selection() )
-    {
-        assert( item->Type() == PCB_ZONE_T || item->Type() == PCB_FP_ZONE_T );
-
-        ZONE* zone = static_cast<ZONE*>( item );
-
-        commit.Modify( zone );
-
-        zone->UnFill();
-    }
-
-    commit.Push( _( "Unfill Zone" ) );
-    canvas()->Refresh();
-
     return 0;
 }
 
@@ -271,18 +290,47 @@ int ZONE_FILLER_TOOL::ZoneUnfillAll( const TOOL_EVENT& aEvent )
         zone->UnFill();
     }
 
-    commit.Push( _( "Unfill All Zones" ) );
-    canvas()->Refresh();
+    commit.Push( _( "Unfill All Zones" ), ZONE_FILL_OP );
+
+    refresh();
 
     return 0;
+}
+
+
+void ZONE_FILLER_TOOL::refresh()
+{
+    canvas()->GetView()->UpdateAllItemsConditionally( KIGFX::REPAINT,
+            [&]( KIGFX::VIEW_ITEM* aItem ) -> bool
+            {
+                if( PCB_VIA* via = dynamic_cast<PCB_VIA*>( aItem ) )
+                {
+                    return via->GetRemoveUnconnected();
+                }
+                else if( PAD* pad = dynamic_cast<PAD*>( aItem ) )
+                {
+                    return pad->GetRemoveUnconnected();
+                }
+
+                return false;
+            } );
+
+    canvas()->Refresh();
+}
+
+
+bool ZONE_FILLER_TOOL::IsZoneFillAction( const TOOL_EVENT* aEvent )
+{
+    return aEvent->IsAction( &PCB_ACTIONS::zoneFillAll )
+           || aEvent->IsAction( &PCB_ACTIONS::zoneFillDirty )
+           || aEvent->IsAction( &PCB_ACTIONS::zoneUnfillAll );
 }
 
 
 void ZONE_FILLER_TOOL::setTransitions()
 {
     // Zone actions
-    Go( &ZONE_FILLER_TOOL::ZoneFill, PCB_ACTIONS::zoneFill.MakeEvent() );
-    Go( &ZONE_FILLER_TOOL::ZoneFillAll, PCB_ACTIONS::zoneFillAll.MakeEvent() );
-    Go( &ZONE_FILLER_TOOL::ZoneUnfill, PCB_ACTIONS::zoneUnfill.MakeEvent() );
-    Go( &ZONE_FILLER_TOOL::ZoneUnfillAll, PCB_ACTIONS::zoneUnfillAll.MakeEvent() );
+    Go( &ZONE_FILLER_TOOL::ZoneFillAll,    PCB_ACTIONS::zoneFillAll.MakeEvent() );
+    Go( &ZONE_FILLER_TOOL::ZoneFillDirty,  PCB_ACTIONS::zoneFillDirty.MakeEvent() );
+    Go( &ZONE_FILLER_TOOL::ZoneUnfillAll,  PCB_ACTIONS::zoneUnfillAll.MakeEvent() );
 }

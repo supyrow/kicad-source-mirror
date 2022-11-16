@@ -22,7 +22,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
-#include <convert_to_biu.h>
 #include <geometry/shape_poly_set.h>
 #include <layer_ids.h>
 
@@ -170,7 +169,7 @@ private:
      */
     double MapToPcbUnits( int aValue ) const
     {
-        return aValue / IU_PER_MM;
+        return aValue / gerbIUScale.IU_PER_MM;
     }
 
 private:

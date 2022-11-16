@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2019 CERN
- * Copyright (C) 2019-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2019-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -54,7 +54,7 @@ public:
 };
 
 
-class EE_SELECTION_TOOL : public SELECTION_TOOL, public TOOL_INTERACTIVE
+class EE_SELECTION_TOOL : public SELECTION_TOOL
 {
 public:
     EE_SELECTION_TOOL();
@@ -66,8 +66,6 @@ public:
     /// @copydoc TOOL_BASE::Reset()
     void Reset( RESET_REASON aReason ) override;
 
-    int UpdateMenu( const TOOL_EVENT& aEvent );
-
     /**
      * The main loop.
      */
@@ -75,65 +73,63 @@ public:
 
     void OnIdle( wxIdleEvent& aEvent );
 
+    ///< Zoom the screen to fit the bounding box for cross probing/selection sync.
+    void ZoomFitCrossProbeBBox( const BOX2I& aBBox );
+
     /**
-     * Return the set of currently selected items.
+     * @return the set of currently selected items.
      */
     EE_SELECTION& GetSelection();
 
     /**
-     * Return either an existing selection (filtered), or the selection at the current
-     * cursor if the existing selection is empty.
+     * Return either an existing selection (filtered), or the selection at the current cursor
+     * position if the existing selection is empty.
+     *
+     * @param aScanTypes [optional] List of item types that are acceptable for selection.
+     * @return either the current selection or, if empty, the selection at the cursor.
      */
-    EE_SELECTION& RequestSelection( const KICAD_T* aFilterList = EE_COLLECTOR::AllItems );
+    EE_SELECTION& RequestSelection( const std::vector<KICAD_T>& aScanTypes = { SCH_LOCATE_ANY_T } );
 
     /**
-     * This overload of SelectPoint will create an EE_COLLECTOR and collect hits at location aWhere
-     * before calling the primary SelectPoint method.
+     * Perform a click-type selection at a point (usually the cursor position).
      *
-     * @param aWhere is the location where the item(s) should be collected
-     * @param aItem is set to the newly selected item if only one was selected, otherwise is
+     * @param aWhere Point from which the selection should be made.
+     * @param aScanTypes [optional] List of item types that are acceptable for selection.
+     * @param aItem [out, optional] The newly selected item if only one was selected, otherwise
      *              unchanged.
-     * @param aSelectionCancelledFlag allows the function to inform its caller that a selection
-     *                                was canceled (for instance, by clicking outside of the
-     *                                disambiguation menu).
-     * @param aCheckLocked indicates if locked items should be excluded.
-     * @param aAdd indicates if found item(s) should be added to the selection
-     * @param aSubtract indicates if found item(s) should be subtracted from the selection
-     * @param aExclusiveOr indicates if found item(s) should be toggle in the selection
+     * @param aSelectionCancelledFlag [out] Allows the function to inform its caller that a
+     *                                selection was canceled (for instance, by clicking outside of
+     *                                the disambiguation menu).
+     * @param aCheckLocked Indicates if locked items should be excluded.
+     * @param aAdd Indicates if found item(s) should be added to the selection.
+     * @param aSubtract Indicates if found item(s) should be subtracted from the selection.
+     * @param aExclusiveOr Indicates if found item(s) should be toggle in the selection.
+     * @return true if the selection was modified.
      */
-    bool SelectPoint( const VECTOR2I& aWhere, const KICAD_T* aFilterList = EE_COLLECTOR::AllItems,
+    bool SelectPoint( const VECTOR2I& aWhere,
+                      const std::vector<KICAD_T>& aScanTypes = { SCH_LOCATE_ANY_T },
                       EDA_ITEM** aItem = nullptr, bool* aSelectionCancelledFlag = nullptr,
                       bool aCheckLocked = false, bool aAdd = false, bool aSubtract = false,
                       bool aExclusiveOr = false );
 
-    int AddItemToSel( const TOOL_EVENT& aEvent );
-    void AddItemToSel( EDA_ITEM* aItem, bool aQuietMode = false );
-    int AddItemsToSel( const TOOL_EVENT& aEvent );
-    void AddItemsToSel( EDA_ITEMS* aList, bool aQuietMode = false );
-
-    int RemoveItemFromSel( const TOOL_EVENT& aEvent );
-    void RemoveItemFromSel( EDA_ITEM* aItem, bool aQuietMode = false );
-    int RemoveItemsFromSel( const TOOL_EVENT& aEvent );
-    void RemoveItemsFromSel( EDA_ITEMS* aList, bool aQuietMode = false );
-
     /**
-     * A safer version of RemoveItemsFromSel( EDA_ITEMS ) which doesn't require the items to
-     * still exist.
+     * Finds a connected item at a point (usually the cursor position).  Iterative process with a
+     * decreasing slop factor.
+     * @param aPosition Cursor position from which the search should be made.
+     * @return a connected item or nullptr.
      */
-    void RemoveItemsFromSel( std::vector<KIID>* aList, bool aQuietMode = false );
-
-    void BrightenItem( EDA_ITEM* aItem );
-    void UnbrightenItem( EDA_ITEM* aItem );
-
-    void SelectHighlightItem( EDA_ITEM* aItem ) { highlight( aItem, SELECTED ); }
-
-    ///< Find (but don't select) node under cursor
     EDA_ITEM* GetNode( VECTOR2I aPosition );
 
-    ///< Select node under cursor
+    /**
+     * Selects the connected item at the current cursor position.  Iterative process with a
+     * decreasing slop factor.
+     */
     int SelectNode( const TOOL_EVENT& aEvent );
 
-    ///< If node selected then expand to connection, otherwise select connection under cursor
+    /**
+     * If a connected item is selected then expand the selection to the entire connection,
+     * otherwise select connection under the current cursor position.
+     */
     int SelectConnection( const TOOL_EVENT& aEvent );
 
     ///< Clear current selection event handler.
@@ -142,7 +138,7 @@ public:
     ///< Select all visible items in sheet
     int SelectAll( const TOOL_EVENT& aEvent );
 
-    void ClearSelection();
+    void ClearSelection( bool aQuietMode = false );
 
     /**
      * Check conditions for an item to be selected.
@@ -159,14 +155,6 @@ public:
     void GuessSelectionCandidates( EE_COLLECTOR& collector, const VECTOR2I& aPos );
 
     /**
-     * Show a popup menu to trim the COLLECTOR passed as aEvent's parameter down to a single
-     * item.
-     *
-     * @note This routine **does not** modify the selection.
-     */
-    int SelectionMenu( const TOOL_EVENT& aEvent );
-
-    /**
      * Rebuild the selection from the EDA_ITEMs' selection flags.
      *
      * Commonly called after rolling back an undo state to make sure there aren't any stale
@@ -175,17 +163,23 @@ public:
     void RebuildSelection();
 
     /**
-     * Select one or more items at the location given by parameter aWhere.
+     * Collect one or more items at a given point.  This method does not attempt to disambiguate
+     * multiple items and is simply "collecting".
      *
-     * This method does not attempt to disambiguate multiple items and is simply "collecting"
-     *
-     * @param aCollector is the collector object that will store found item(s)
-     * @param aWhere is the place where the item should be selected.
-     * @param aFilterList is a list of items that are acceptable for collection
-     * @param aCheckLocked indicates if locked items should be excluded.
+     * @param aCollector [in, out] Provides collection conditions and stores collected items.
+     * @param aWhere Point from which the collection should be made.
+     * @param aScanTypes [optional] A list of item types that are acceptable for collection.
      */
     bool CollectHits( EE_COLLECTOR& aCollector, const VECTOR2I& aWhere,
-                      const KICAD_T* aFilterList = EE_COLLECTOR::AllItems );
+                      const std::vector<KICAD_T>& aScanTypes = { SCH_LOCATE_ANY_T } );
+
+    ///< Set selection to items passed by parameter.
+    ///< Zooms to fit, if enabled.
+    int SyncSelection( std::optional<SCH_SHEET_PATH> targetSheetPath, SCH_ITEM* focusItem,
+                       std::vector<SCH_ITEM*> items );
+
+protected:
+    SELECTION& selection() override { return m_selection; }
 
 private:
     OPT_TOOL_EVENT autostartEvent( TOOL_EVENT* aEvent, EE_GRID_HELPER& aGrid, SCH_ITEM* aItem );
@@ -194,30 +188,30 @@ private:
      * Apply rules to narrow the collection down to selectable objects, and then heuristics
      * to try and narrow it to a single object.
      *
-     * @param collector EE_COLLECTOR with elements to filter
+     * @param aCollector [in, out] Provides collection conditions and stores collected items.
      * @param aWhere point where we should narrow (if relevant)
      * @param aCheckLocked If false, remove locked elements from #collector
-     * @param aSelectPoints If true, set STARTPOINT/ENDPOINT flags on individual wires
+     * @param aSelectedOnly If true, remove non-selected items from #collector
      */
     void narrowSelection( EE_COLLECTOR& collector, const VECTOR2I& aWhere, bool aCheckLocked,
-                          bool aSelectPoints );
+                          bool aSelectedOnly = false );
 
     /**
-     * This is the primary SelectPoint method that will prompt the user with a menu to disambiguate
-     * multiple selections and then finish by adding, subtracting or toggling the item(s) to the
-     * actual selection group.
+     * Perform a click-type selection at a point (usually the cursor position).
      *
-     * @param aCollector is an EE_COLLECTOR that already has collected items
-     * @param aItem is set to the newly selected item if only one was selected, otherwise is
+     * @param aCollector [in, out] Provides collection conditions and stores collected items.
+     * @param aWhere Point from which the selection should be made.
+     * @param aItem [out, optional] The newly selected item if only one was selected, otherwise
      *              unchanged.
-     * @param aSelectionCancelledFlag allows the function to inform its caller that a selection
-     *                                was canceled (for instance, by clicking outside of the
-     *                                disambiguation menu).
-     * @param aAdd indicates if found item(s) should be added to the selection
-     * @param aSubtract indicates if found item(s) should be subtracted from the selection
-     * @param aExclusiveOr indicates if found item(s) should be toggle in the selection
+     * @param aSelectionCancelledFlag [out] Allows the function to inform its caller that a
+     *                                selection was canceled (for instance, by clicking outside of
+     *                                the disambiguation menu).
+     * @param aAdd Indicates if found item(s) should be added to the selection.
+     * @param aSubtract Indicates if found item(s) should be subtracted from the selection.
+     * @param aExclusiveOr Indicates if found item(s) should be toggle in the selection.
+     * @return true if the selection was modified.
      */
-    bool selectPoint( EE_COLLECTOR& aCollector, EDA_ITEM** aItem = nullptr,
+    bool selectPoint( EE_COLLECTOR& aCollector, const VECTOR2I& aWhere, EDA_ITEM** aItem = nullptr,
                       bool* aSelectionCancelledFlag = nullptr, bool aAdd = false,
                       bool aSubtract = false, bool aExclusiveOr = false );
 
@@ -229,57 +223,41 @@ private:
     bool selectMultiple();
 
     /**
-     * Allow the selection of a single item from a list via pop-up menu.  The items are
-     * highlighted on the canvas when hovered in the menu.  The collector is trimmed to
-     * the picked item.
-     *
-     * @return true if an item was picked
-     */
-    bool doSelectionMenu( EE_COLLECTOR* aItems );
-
-    /**
-     * Start the process to show our disambiguation menu once the user has kept
-     * the mouse down for the minimum time
-     * @param aEvent
-     */
-    void onDisambiguationExpire( wxTimerEvent& aEvent );
-
-    /**
      * Handle disambiguation actions including displaying the menu.
      */
     int disambiguateCursor( const TOOL_EVENT& aEvent );
 
     /**
-     * Take necessary action mark an item as selected.
+     * Take necessary action to mark an item as selected.
      *
-     * @param aItem is an item to be selected.
+     * @param aItem The item to be selected.
      */
-    void select( EDA_ITEM* aItem );
+    void select( EDA_ITEM* aItem ) override;
 
     /**
-     * Take necessary action mark an item as unselected.
+     * Take necessary action to mark an item as unselected.
      *
-     * @param aItem is an item to be unselected.
+     * @param aItem The item to be unselected.
      */
-    void unselect( EDA_ITEM* aItem );
+    void unselect( EDA_ITEM* aItem ) override;
 
     /**
      * Highlight the item visually.
      *
-     * @param aItem is an item to be be highlighted.
-     * @param aHighlightMode should be either SELECTED or BRIGHTENED
-     * @param aGroup is the group to add the item to in the BRIGHTENED mode.
+     * @param aItem The item to be highlighted.
+     * @param aHighlightMode Either SELECTED or BRIGHTENED
+     * @param aGroup [otpional] A group to add the item to.
      */
-    void highlight( EDA_ITEM* aItem, int aHighlightMode, EE_SELECTION* aGroup = nullptr );
+    void highlight( EDA_ITEM* aItem, int aHighlightMode, SELECTION* aGroup = nullptr ) override;
 
     /**
      * Unhighlight the item visually.
      *
-     * @param aItem is an item to be be highlighted.
+     * @param aItem is an item to be highlighted.
      * @param aHighlightMode should be either SELECTED or BRIGHTENED
-     * @param aGroup is the group to remove the item from.
+     * @param aGroup [optional] A group to remove the item from.
      */
-    void unhighlight( EDA_ITEM* aItem, int aHighlightMode, EE_SELECTION* aGroup = nullptr );
+    void unhighlight( EDA_ITEM* aItem, int aHighlightMode, SELECTION* aGroup = nullptr ) override;
 
     /**
      * Set the reference point to the anchor of the top-left item.
@@ -287,7 +265,7 @@ private:
     void updateReferencePoint();
 
     /**
-     * @return True if the given point is contained in any of selected items' bounding box.
+     * @return true if the given point is contained in any of selected items' bounding boxes.
      */
     bool selectionContains( const VECTOR2I& aPoint ) const;
 

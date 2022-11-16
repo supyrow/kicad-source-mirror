@@ -25,7 +25,7 @@
  */
 
 #include <core/kicad_algo.h>
-#include <core/optional.h>
+#include <optional>
 #include <map>
 #include <stack>
 #include <trace_helpers.h>
@@ -64,6 +64,7 @@ struct TOOL_MANAGER::TOOL_STATE
         contextMenu        = aState.contextMenu;
         contextMenuTrigger = aState.contextMenuTrigger;
         cofunc             = aState.cofunc;
+        initialEvent       = aState.initialEvent;
         wakeupEvent        = aState.wakeupEvent;
         waitEvents         = aState.waitEvents;
         transitions        = aState.transitions;
@@ -102,6 +103,9 @@ struct TOOL_MANAGER::TOOL_STATE
     /// Tool execution context
     COROUTINE<int, const TOOL_EVENT&>* cofunc;
 
+    /// The first event that triggered activation of the tool.
+    TOOL_EVENT initialEvent;
+
     /// The event that triggered the execution/wakeup of the tool after Wait() call
     TOOL_EVENT wakeupEvent;
 
@@ -125,6 +129,7 @@ struct TOOL_MANAGER::TOOL_STATE
         contextMenu        = aState.contextMenu;
         contextMenuTrigger = aState.contextMenuTrigger;
         cofunc             = aState.cofunc;
+        initialEvent       = aState.initialEvent;
         wakeupEvent        = aState.wakeupEvent;
         waitEvents         = aState.waitEvents;
         transitions        = aState.transitions;
@@ -206,7 +211,8 @@ TOOL_MANAGER::TOOL_MANAGER() :
         m_warpMouseAfterContextMenu( true ),
         m_menuActive( false ),
         m_menuOwner( -1 ),
-        m_activeState( nullptr )
+        m_activeState( nullptr ),
+        m_shuttingDown( false )
 {
     m_actionMgr = new ACTION_MANAGER( this );
 }
@@ -313,6 +319,9 @@ VECTOR2D TOOL_MANAGER::GetCursorPosition() const
 
 bool TOOL_MANAGER::RunAction( const TOOL_ACTION& aAction, bool aNow, void* aParam )
 {
+    if( m_shuttingDown )
+        return true;
+
     bool       handled = false;
     TOOL_EVENT event = aAction.MakeEvent();
 
@@ -350,9 +359,15 @@ void TOOL_MANAGER::CancelTool()
 void TOOL_MANAGER::PrimeTool( const VECTOR2D& aPosition )
 {
     int modifiers = 0;
-    modifiers |= wxGetKeyState( WXK_SHIFT ) ? MD_SHIFT : 0;
-    modifiers |= wxGetKeyState( WXK_CONTROL ) ? MD_CTRL : 0;
-    modifiers |= wxGetKeyState( WXK_ALT ) ? MD_ALT : 0;
+
+    /*
+     * Don't include any modifiers.  They're part of the hotkey, not part of the resulting
+     * click.
+     *
+     * modifiers |= wxGetKeyState( WXK_SHIFT ) ? MD_SHIFT : 0;
+     * modifiers |= wxGetKeyState( WXK_CONTROL ) ? MD_CTRL : 0;
+     * modifiers |= wxGetKeyState( WXK_ALT ) ? MD_ALT : 0;
+     */
 
     TOOL_EVENT evt( TC_MOUSE, TA_PRIME, BUT_LEFT | modifiers );
     evt.SetMousePosition( aPosition );
@@ -440,9 +455,21 @@ bool TOOL_MANAGER::runTool( TOOL_BASE* aTool )
 
 void TOOL_MANAGER::ShutdownAllTools()
 {
+    m_shuttingDown = true;
+
     // Create a temporary list of tools to iterate over since when the tools shutdown
     // they remove themselves from the list automatically (invalidating the iterator)
     ID_LIST tmpList = m_activeTools;
+
+    // Make sure each tool knows that it is shutting down, so that loops get shut down
+    // at the dispatcher
+    for( auto id : tmpList )
+    {
+        if( m_toolIdIndex.count( id ) == 0 )
+            continue;
+
+        m_toolIdIndex[id]->shutdown = true;
+    }
 
     for( auto id : tmpList )
     {
@@ -561,7 +588,7 @@ void TOOL_MANAGER::ResetTools( TOOL_BASE::RESET_REASON aReason )
 
 void TOOL_MANAGER::InitTools()
 {
-    for( TOOL_VEC::iterator it = m_toolOrder.begin(); it != m_toolOrder.end(); /* iter inside */ )
+    for( auto it = m_toolOrder.begin(); it != m_toolOrder.end(); /* iter inside */ )
     {
         TOOL_BASE* tool = *it;
         wxASSERT( m_toolState.count( tool ) );
@@ -759,7 +786,8 @@ bool TOOL_MANAGER::dispatchInternal( TOOL_EVENT& aEvent )
                     // got match? Run the handler.
                     setActiveState( st );
                     st->idle = false;
-                    st->cofunc->Call( aEvent );
+                    st->initialEvent = aEvent;
+                    st->cofunc->Call( st->initialEvent );
                     handled = true;
 
                     if( !st->cofunc->Running() )
@@ -801,9 +829,7 @@ bool TOOL_MANAGER::dispatchActivation( const TOOL_EVENT& aEvent )
 
     if( aEvent.IsActivate() )
     {
-        wxString cmdStr( *aEvent.GetCommandStr() );
-
-        auto tool = m_toolNameIndex.find( *aEvent.GetCommandStr() );
+        auto tool = m_toolNameIndex.find( aEvent.getCommandStr() );
 
         if( tool != m_toolNameIndex.end() )
         {
@@ -851,7 +877,7 @@ void TOOL_MANAGER::DispatchContextMenu( const TOOL_EVENT& aEvent )
             m_menuCursor = m_viewControls->GetCursorPosition();
 
         // Save all tools cursor settings, as they will be overridden
-        for( auto idState : m_toolIdIndex )
+        for( const std::pair<const TOOL_ID, TOOL_STATE*>& idState : m_toolIdIndex )
         {
             TOOL_STATE* s = idState.second;
             const auto& vc = s->vcSettings;
@@ -859,7 +885,7 @@ void TOOL_MANAGER::DispatchContextMenu( const TOOL_EVENT& aEvent )
             if( vc.m_forceCursorPosition )
                 m_cursorSettings[idState.first] = vc.m_forcedPosition;
             else
-                m_cursorSettings[idState.first] = NULLOPT;
+                m_cursorSettings[idState.first] = std::nullopt;
         }
 
         if( m_viewControls )
@@ -896,7 +922,7 @@ void TOOL_MANAGER::DispatchContextMenu( const TOOL_EVENT& aEvent )
         m_menuOwner = -1;
 
         // Restore cursor settings
-        for( auto cursorSetting : m_cursorSettings )
+        for( const std::pair<const TOOL_ID, std::optional<VECTOR2D>>& cursorSetting : m_cursorSettings )
         {
             auto it = m_toolIdIndex.find( cursorSetting.first );
             wxASSERT( it != m_toolIdIndex.end() );
@@ -943,6 +969,11 @@ TOOL_MANAGER::ID_LIST::iterator TOOL_MANAGER::finishTool( TOOL_STATE* aState )
 
 bool TOOL_MANAGER::ProcessEvent( const TOOL_EVENT& aEvent )
 {
+    // Once the tool manager is shutting down, don't start
+    // activating more tools
+    if( m_shuttingDown )
+        return true;
+
     bool handled = processEvent( aEvent );
 
     TOOL_STATE* activeTool = GetCurrentToolState();
@@ -1078,13 +1109,13 @@ void TOOL_MANAGER::saveViewControls( TOOL_STATE* aState )
             if( !curr.m_forceCursorPosition || curr.m_forcedPosition != m_menuCursor )
             {
                 if( !curr.m_forceCursorPosition )
-                    it->second = NULLOPT;
+                    it->second = std::nullopt;
                 else
                     it->second = curr.m_forcedPosition;
             }
             else
             {
-                OPT<VECTOR2D> cursor = it->second;
+                std::optional<VECTOR2D> cursor = it->second;
 
                 if( cursor )
                 {
@@ -1122,8 +1153,8 @@ bool TOOL_MANAGER::processEvent( const TOOL_EVENT& aEvent )
         if( GetToolHolder() && !GetToolHolder()->GetDoImmediateActions() )
         {
             // An tool-selection-event has no position
-            if( mod_event.GetCommandStr().is_initialized()
-                    && mod_event.GetCommandStr().get() != GetToolHolder()->CurrentToolName()
+            if( !mod_event.getCommandStr().empty()
+                    && mod_event.getCommandStr() != GetToolHolder()->CurrentToolName()
                     && !mod_event.ForceImmediate() )
             {
                 mod_event.SetHasPosition( false );

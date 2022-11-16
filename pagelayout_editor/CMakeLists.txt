@@ -45,11 +45,6 @@ set( PL_EDITOR_SRCS
     )
 
 set( PL_EDITOR_EXTRA_SRCS
-    ${CMAKE_SOURCE_DIR}/common/base_screen.cpp
-    ${CMAKE_SOURCE_DIR}/common/base_units.cpp
-    ${CMAKE_SOURCE_DIR}/common/eda_text.cpp
-    ${CMAKE_SOURCE_DIR}/common/dialogs/panel_gal_display_options.cpp
-    ${CMAKE_SOURCE_DIR}/common/page_info.cpp
 )
 
 if( WIN32 )
@@ -109,13 +104,17 @@ target_link_libraries( pl_editor_kiface
     gal
     common
     ${wxWidgets_LIBRARIES}
-    ${GDI_PLUS_LIBRARIES}
     )
 set_target_properties( pl_editor_kiface PROPERTIES
     OUTPUT_NAME     pl_editor
     PREFIX          ${KIFACE_PREFIX}
     SUFFIX          ${KIFACE_SUFFIX}
     )
+
+target_include_directories( pl_editor_kiface PRIVATE
+    $<TARGET_PROPERTY:thread-pool,INTERFACE_INCLUDE_DIRECTORIES>
+    )
+
 set_source_files_properties( pl_editor.cpp PROPERTIES
     # The KIFACE is in pcbnew.cpp, export it:
     COMPILE_DEFINITIONS     "BUILD_KIWAY_DLL;COMPILING_DLL"
@@ -168,7 +167,7 @@ else()
         COMPONENT binary
         )
     install( TARGETS pl_editor_kiface
-        DESTINATION ${KICAD_BIN}
+        DESTINATION ${KICAD_KIFACE}
         COMPONENT binary
         )
 endif()
@@ -176,5 +175,5 @@ endif()
 if( KICAD_WIN32_INSTALL_PDBS )
     # Get the PDBs to copy over for MSVC
     install(FILES $<TARGET_PDB_FILE:pl_editor> DESTINATION ${KICAD_BIN})
-    install(FILES $<TARGET_PDB_FILE:pl_editor_kiface> DESTINATION ${KICAD_BIN})
+    install(FILES $<TARGET_PDB_FILE:pl_editor_kiface> DESTINATION ${KICAD_KIFACE})
 endif()

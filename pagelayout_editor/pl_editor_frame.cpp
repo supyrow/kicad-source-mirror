@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2013 CERN
- * Copyright (C) 2017-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2017-2022 KiCad Developers, see AUTHORS.txt for contributors.
  * @author Jean-Pierre Charras, jp.charras at wanadoo.fr
  *
  * This program is free software; you can redistribute it and/or
@@ -33,6 +33,7 @@
 #include <confirm.h>
 #include <kiplatform/app.h>
 #include <painter.h>
+#include <wildcards_and_files_ext.h>
 #include <tool/selection.h>
 #include <tool/action_toolbar.h>
 #include <tool/editor_conditions.h>
@@ -72,21 +73,25 @@ BEGIN_EVENT_TABLE( PL_EDITOR_FRAME, EDA_DRAW_FRAME )
 
     EVT_CHOICE( ID_SELECT_COORDINATE_ORIGIN, PL_EDITOR_FRAME::OnSelectCoordOriginCorner )
     EVT_CHOICE( ID_SELECT_PAGE_NUMBER, PL_EDITOR_FRAME::OnSelectPage )
+
+    // Drop files event
+    EVT_DROP_FILES( PL_EDITOR_FRAME::OnDropFiles )
 END_EVENT_TABLE()
 
 
 PL_EDITOR_FRAME::PL_EDITOR_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
         EDA_DRAW_FRAME( aKiway, aParent, FRAME_PL_EDITOR, wxT( "PlEditorFrame" ),
                         wxDefaultPosition, wxDefaultSize,
-                        KICAD_DEFAULT_DRAWFRAME_STYLE, PL_EDITOR_FRAME_NAME ),
+                        KICAD_DEFAULT_DRAWFRAME_STYLE, PL_EDITOR_FRAME_NAME, drawSheetIUScale ),
         m_propertiesPagelayout( nullptr ),
         m_propertiesFrameWidth( 200 ),
         m_originSelectBox( nullptr ),
         m_originSelectChoice( 0 ),
-        m_pageSelectBox( nullptr )
+        m_pageSelectBox( nullptr ),
+        m_mruImagePath( wxEmptyString )
 {
     m_maximizeByDefault = true;
-    m_userUnits = EDA_UNITS::MILLIMETRES;
+    SetUserUnits( EDA_UNITS::MILLIMETRES );
 
     m_showBorderAndTitleBlock   = true; // true for reference drawings.
     DS_DATA_MODEL::GetTheInstance().m_EditMode = true;
@@ -113,7 +118,10 @@ PL_EDITOR_FRAME::PL_EDITOR_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
 
     LoadSettings( config() );
 
-    wxSize pageSizeIU = GetPageLayout().GetPageSettings().GetSizeIU();
+    m_acceptedExts.emplace( DrawingSheetFileExtension, nullptr );
+    DragAcceptFiles( true );
+
+    wxSize pageSizeIU = GetPageLayout().GetPageSettings().GetSizeIU( drawSheetIUScale.IU_PER_MILS );
     SetScreen( new BASE_SCREEN( pageSizeIU ) );
 
     setupTools();
@@ -448,11 +456,11 @@ void PL_EDITOR_FRAME::ToPrinter( bool doPreview )
     if( pageInfo.IsCustom() )
     {
         if( pageInfo.IsPortrait() )
-            s_pageSetupData->SetPaperSize( wxSize( Mils2mm( pageInfo.GetWidthMils() ),
-                                                   Mils2mm( pageInfo.GetHeightMils() ) ) );
+            s_pageSetupData->SetPaperSize( wxSize( EDA_UNIT_UTILS::Mils2mm( pageInfo.GetWidthMils() ),
+                                                   EDA_UNIT_UTILS::Mils2mm( pageInfo.GetHeightMils() ) ) );
         else
-            s_pageSetupData->SetPaperSize( wxSize( Mils2mm( pageInfo.GetHeightMils() ),
-                                                   Mils2mm( pageInfo.GetWidthMils() ) ) );
+            s_pageSetupData->SetPaperSize( wxSize( EDA_UNIT_UTILS::Mils2mm( pageInfo.GetHeightMils() ),
+                                                   EDA_UNIT_UTILS::Mils2mm( pageInfo.GetWidthMils() ) ) );
     }
 
     *s_PrintData = s_pageSetupData->GetPrintData();
@@ -466,7 +474,7 @@ void PL_EDITOR_FRAME::ToPrinter( bool doPreview )
 
 const BOX2I PL_EDITOR_FRAME::GetDocumentExtents( bool aIncludeAllVisible ) const
 {
-    BOX2I rv( VECTOR2I( 0, 0 ), GetPageLayout().GetPageSettings().GetSizeIU() );
+    BOX2I rv( VECTOR2I( 0, 0 ), GetPageLayout().GetPageSettings().GetSizeIU( drawSheetIUScale.IU_PER_MILS ) );
     return rv;
 }
 
@@ -562,7 +570,7 @@ void PL_EDITOR_FRAME::SetPageSettings( const PAGE_INFO& aPageSettings )
     m_pageLayout.SetPageSettings( aPageSettings );
 
     if( GetScreen() )
-        GetScreen()->InitDataPoints( aPageSettings.GetSizeIU() );
+        GetScreen()->InitDataPoints( aPageSettings.GetSizeIU( drawSheetIUScale.IU_PER_MILS ) );
 }
 
 
@@ -577,7 +585,7 @@ const wxSize PL_EDITOR_FRAME::GetPageSizeIU() const
     // this function is only needed because EDA_DRAW_FRAME is not compiled
     // with either -DPCBNEW or -DEESCHEMA, so the virtual is used to route
     // into an application specific source file.
-    return m_pageLayout.GetPageSettings().GetSizeIU();
+    return m_pageLayout.GetPageSettings().GetSizeIU( drawSheetIUScale.IU_PER_MILS );
 }
 
 
@@ -657,14 +665,15 @@ void PL_EDITOR_FRAME::DisplayGridMsg()
     wxString line;
     wxString gridformatter;
 
-    switch( m_userUnits )
+    switch( GetUserUnits() )
     {
     case EDA_UNITS::INCHES:      gridformatter = "grid %.3f"; break;
     case EDA_UNITS::MILLIMETRES: gridformatter = "grid %.4f"; break;
     default:                     gridformatter = "grid %f";   break;
     }
 
-    double grid = To_User_Unit( m_userUnits, GetCanvas()->GetGAL()->GetGridSize().x );
+    double grid = EDA_UNIT_UTILS::UI::ToUserUnit( drawSheetIUScale, GetUserUnits(),
+                                                  GetCanvas()->GetGAL()->GetGridSize().x );
     line.Printf( gridformatter, grid );
 
     SetStatusText( line, 4 );
@@ -710,8 +719,10 @@ void PL_EDITOR_FRAME::UpdateStatusBar()
     // Display absolute coordinates:
     VECTOR2D cursorPos = GetCanvas()->GetViewControls()->GetCursorPosition();
     VECTOR2D coord = cursorPos - originCoord;
-    double   dXpos = To_User_Unit( GetUserUnits(), coord.x * Xsign );
-    double   dYpos = To_User_Unit( GetUserUnits(), coord.y * Ysign );
+    double   dXpos =
+            EDA_UNIT_UTILS::UI::ToUserUnit( drawSheetIUScale, GetUserUnits(), coord.x * Xsign );
+    double dYpos =
+            EDA_UNIT_UTILS::UI::ToUserUnit( drawSheetIUScale, GetUserUnits(), coord.y * Ysign );
 
     wxString absformatter = wxT( "X %.4g  Y %.4g" );
     wxString locformatter = wxT( "dx %.4g  dy %.4g" );
@@ -736,8 +747,8 @@ void PL_EDITOR_FRAME::UpdateStatusBar()
     {
         double dx = cursorPos.x - GetScreen()->m_LocalOrigin.x;
         double dy = cursorPos.y - GetScreen()->m_LocalOrigin.y;
-        dXpos = To_User_Unit( GetUserUnits(), dx * Xsign );
-        dYpos = To_User_Unit( GetUserUnits(), dy * Ysign );
+        dXpos = EDA_UNIT_UTILS::UI::ToUserUnit( drawSheetIUScale, GetUserUnits(), dx * Xsign );
+        dYpos = EDA_UNIT_UTILS::UI::ToUserUnit( drawSheetIUScale, GetUserUnits(), dy * Ysign );
         line.Printf( locformatter, dXpos, dYpos );
         SetStatusText( line, 3 );
     }
@@ -748,8 +759,6 @@ void PL_EDITOR_FRAME::UpdateStatusBar()
     line.Printf( _("coord origin: %s"),
                  m_originSelectBox->GetString( m_originSelectChoice ).GetData() );
     SetStatusText( line, 5 );
-
-    // Display units
 }
 
 
@@ -764,11 +773,12 @@ void PL_EDITOR_FRAME::PrintPage( const RENDER_SETTINGS* aSettings )
         if( dataItem->GetType() == DS_DATA_ITEM::DS_BITMAP )
         {
             BITMAP_BASE* bitmap = static_cast<DS_DATA_ITEM_BITMAP*>( dataItem )->m_ImageBitmap;
-            bitmap->SetPixelSizeIu( IU_PER_MILS * 1000 / bitmap->GetPPI() );
+            bitmap->SetPixelSizeIu( drawSheetIUScale.IU_PER_MILS * 1000 / bitmap->GetPPI() );
         }
     }
 
-    PrintDrawingSheet( aSettings, GetScreen(), IU_PER_MILS, wxEmptyString );
+    PrintDrawingSheet( aSettings, GetScreen(), nullptr, drawSheetIUScale.IU_PER_MILS,
+                       wxEmptyString );
 
     GetCanvas()->DisplayDrawingSheet();
     GetCanvas()->Refresh();
@@ -800,6 +810,7 @@ void PL_EDITOR_FRAME::HardRedraw()
 
     m_propertiesPagelayout->CopyPrmsFromItemToPanel( item );
     m_propertiesPagelayout->CopyPrmsFromGeneralToPanel();
+    UpdateMsgPanelInfo();
     GetCanvas()->Refresh();
 }
 
@@ -828,7 +839,7 @@ DS_DATA_ITEM* PL_EDITOR_FRAME::AddDrawingSheetItem( int aType )
 
     case DS_DATA_ITEM::DS_BITMAP:
     {
-        wxFileDialog fileDlg( this, _( "Choose Image" ), wxEmptyString, wxEmptyString,
+        wxFileDialog fileDlg( this, _( "Choose Image" ), m_mruImagePath, wxEmptyString,
                               _( "Image Files" ) + wxS( " " ) + wxImage::GetImageExtWildcard(),
                               wxFD_OPEN );
 
@@ -836,6 +847,7 @@ DS_DATA_ITEM* PL_EDITOR_FRAME::AddDrawingSheetItem( int aType )
             return nullptr;
 
         wxString fullFilename = fileDlg.GetPath();
+        m_mruImagePath = wxPathOnly( fullFilename );
 
         if( !wxFileExists( fullFilename ) )
         {
@@ -853,7 +865,7 @@ DS_DATA_ITEM* PL_EDITOR_FRAME::AddDrawingSheetItem( int aType )
         }
 
         // Set the scale factor for pl_editor (it is set for Eeschema by default)
-        image->SetPixelSizeIu( IU_PER_MILS * 1000.0 / image->GetPPI() );
+        image->SetPixelSizeIu( drawSheetIUScale.IU_PER_MILS * 1000.0 / image->GetPPI() );
         item = new DS_DATA_ITEM_BITMAP( image );
     }
     break;
@@ -913,7 +925,10 @@ void PL_EDITOR_FRAME::ClearUndoORRedoList( UNDO_REDO_LIST whichList, int aItemCo
         PICKED_ITEMS_LIST* curr_cmd = list.m_CommandsList[0];
         list.m_CommandsList.erase( list.m_CommandsList.begin() );
 
-        curr_cmd->ClearListAndDeleteItems();
+        curr_cmd->ClearListAndDeleteItems( []( EDA_ITEM* aItem )
+                                           {
+                                               delete aItem;
+                                           } );
         delete curr_cmd;    // Delete command
     }
 }
@@ -923,3 +938,16 @@ bool PL_EDITOR_FRAME::GetPageNumberOption() const
 {
     return m_pageSelectBox->GetSelection() == 0;
 }
+
+#if 1
+void PL_EDITOR_FRAME::UpdateMsgPanelInfo()
+{
+    VECTOR2D size = GetPageSettings().GetSizeIU( drawSheetIUScale.IU_PER_MILS );
+
+    std::vector<MSG_PANEL_ITEM> msgItems;
+    msgItems.emplace_back( _( "Page Width" ), MessageTextFromValue( size.x ) );
+    msgItems.emplace_back( _( "Page Height" ), MessageTextFromValue( size.y ) );
+
+    SetMsgPanel( msgItems );
+}
+#endif

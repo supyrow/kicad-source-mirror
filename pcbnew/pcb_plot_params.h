@@ -25,6 +25,7 @@
 
 #include <plotters/plotter.h>
 #include <layer_ids.h>
+#include <plotprint_opts.h>
 
 class COLOR_SETTINGS;
 class PCB_PLOT_PARAMS_PARSER;
@@ -35,12 +36,6 @@ class PCB_PLOT_PARAMS_PARSER;
 class PCB_PLOT_PARAMS
 {
 public:
-    enum DrillMarksType {
-        NO_DRILL_SHAPE    = 0,
-        SMALL_DRILL_SHAPE = 1,
-        FULL_DRILL_SHAPE  = 2
-    };
-
     PCB_PLOT_PARAMS();
 
     void        SetSkipPlotNPTH_Pads( bool aSkip ) { m_skipNPTH_Pads = aSkip; }
@@ -82,8 +77,8 @@ public:
     void        SetDXFPlotUnits( DXF_UNITS aUnit ) { m_DXFplotUnits = aUnit; }
     DXF_UNITS   GetDXFPlotUnits() const { return m_DXFplotUnits; }
 
-    void        SetDrillMarksType( DrillMarksType aVal ) { m_drillMarks = aVal; }
-    DrillMarksType GetDrillMarksType() const { return m_drillMarks; }
+    void        SetDrillMarksType( DRILL_MARKS aVal ) { m_drillMarks = aVal; }
+    DRILL_MARKS GetDrillMarksType() const { return m_drillMarks; }
 
     void        SetScale( double aVal ) { m_scale = aVal; }
     double      GetScale() const { return m_scale; }
@@ -122,9 +117,6 @@ public:
     void        SetPlotFrameRef( bool aFlag ) { m_plotFrameRef = aFlag; }
     bool        GetPlotFrameRef() const { return m_plotFrameRef; }
 
-    void        SetExcludeEdgeLayer( bool aFlag ) { m_excludeEdgeLayer = aFlag; }
-    bool        GetExcludeEdgeLayer() const { return m_excludeEdgeLayer; }
-
     void        SetFormat( PLOT_FORMAT aFormat ) { m_format = aFormat; }
     PLOT_FORMAT GetFormat() const { return m_format; }
 
@@ -152,6 +144,9 @@ public:
     void        SetSvgPrecision( unsigned aPrecision );
     unsigned    GetSvgPrecision() const { return m_svgPrecision; }
 
+    void        SetBlackAndWhite( bool blackAndWhite ) { m_blackAndWhite = blackAndWhite; }
+    unsigned    GetBlackAndWhite() const { return m_blackAndWhite; }
+
     /**
      * Default precision of coordinates in Gerber files.
      *
@@ -160,28 +155,35 @@ public:
      */
     static int  GetGerberDefaultPrecision() { return 6; }
 
-    void        SetSubtractMaskFromSilk( bool aSubtract ) { m_subtractMaskFromSilk = aSubtract; };
+    void        SetSubtractMaskFromSilk( bool aSubtract ) { m_subtractMaskFromSilk = aSubtract; }
     bool        GetSubtractMaskFromSilk() const { return m_subtractMaskFromSilk; }
 
-    void        SetLayerSelection( LSET aSelection )    { m_layerSelection = aSelection; };
-    LSET        GetLayerSelection() const               { return m_layerSelection; };
+    void        SetLayerSelection( LSET aSelection )    { m_layerSelection = aSelection; }
+    LSET        GetLayerSelection() const               { return m_layerSelection; }
 
-    void        SetUseAuxOrigin( bool aAux ) { m_useAuxOrigin = aAux; };
-    bool        GetUseAuxOrigin() const { return m_useAuxOrigin; };
+    void        SetPlotOnAllLayersSelection( LSET aSelection )
+    {
+        m_plotOnAllLayersSelection = aSelection;
+    }
 
-    void        SetScaleSelection( int aSelection ) { m_scaleSelection = aSelection; };
-    int         GetScaleSelection() const { return m_scaleSelection; };
+    LSET        GetPlotOnAllLayersSelection() const { return m_plotOnAllLayersSelection; }
 
-    void        SetA4Output( int aForce ) { m_A4Output = aForce; };
-    bool        GetA4Output() const { return m_A4Output; };
+    void        SetUseAuxOrigin( bool aAux ) { m_useAuxOrigin = aAux; }
+    bool        GetUseAuxOrigin() const { return m_useAuxOrigin; }
+
+    void        SetScaleSelection( int aSelection ) { m_scaleSelection = aSelection; }
+    int         GetScaleSelection() const { return m_scaleSelection; }
+
+    void        SetA4Output( int aForce ) { m_A4Output = aForce; }
+    bool        GetA4Output() const { return m_A4Output; }
 
     // For historical reasons, this parameter is stored in mils
     // (but is in mm in hpgl files...)
-    double      GetHPGLPenDiameter() const { return m_HPGLPenDiam; };
+    double      GetHPGLPenDiameter() const { return m_HPGLPenDiam; }
     bool        SetHPGLPenDiameter( double aValue );
 
     // This parameter is always in cm, due to hpgl file format constraint
-    int         GetHPGLPenSpeed() const { return m_HPGLPenSpeed; };
+    int         GetHPGLPenSpeed() const { return m_HPGLPenSpeed; }
     bool        SetHPGLPenSpeed( int aValue );
 
     void        SetHPGLPenNum( int aVal ) { m_HPGLPenNum = aVal; }
@@ -223,7 +225,7 @@ private:
     PLOT_FORMAT m_format;
 
     /// Holes can be not plotted, have a small mark or plotted in actual size
-    DrillMarksType m_drillMarks;
+    DRILL_MARKS m_drillMarks;
 
     /// Choose how represent text with PS, PDF and DXF drivers
     PLOT_TEXT_MODE m_textMode;
@@ -246,11 +248,11 @@ private:
     /// True to plot/print frame references
     bool        m_plotFrameRef;
 
-    /// If false always plot (merge) the pcb edge layer on other layers
-    bool        m_excludeEdgeLayer;
-
     /// Set of layers to plot
     LSET        m_layerSelection;
+
+    /// Set of layers that get plotted on each of the layers to plot.
+    LSET        m_plotOnAllLayersSelection;
 
     /** When plotting gerber files, use a conventional set of Protel extensions
      * instead of .gbr, that is now the official gerber file extension
@@ -280,6 +282,9 @@ private:
     /// precision of coordinates in SVG files: accepted 3 - 6
     /// 6 is the internal resolution of Pcbnew
     unsigned    m_svgPrecision;
+
+    /// Plot in black and white only
+    bool        m_blackAndWhite;
 
     /// Plot gerbers using auxiliary (drill) origin instead of absolute coordinates
     bool        m_useAuxOrigin;

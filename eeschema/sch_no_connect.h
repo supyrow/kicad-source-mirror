@@ -69,7 +69,7 @@ public:
 
     void GetEndPoints( std::vector< DANGLING_END_ITEM >& aItemList ) override;
 
-    const EDA_RECT GetBoundingBox() const override;
+    const BOX2I GetBoundingBox() const override;
 
     // Geometric transforms (used in block operations):
 
@@ -92,7 +92,7 @@ public:
 
     std::vector<VECTOR2I> GetConnectionPoints() const override;
 
-    wxString GetSelectMenuText( EDA_UNITS aUnits ) const override
+    wxString GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const override
     {
         return wxString( _( "No Connect" ) );
     }
@@ -103,7 +103,7 @@ public:
     void     SetPosition( const VECTOR2I& aPosition ) override { m_pos = aPosition; }
 
     bool HitTest( const VECTOR2I& aPosition, int aAccuracy = 0 ) const override;
-    bool HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy = 0 ) const override;
+    bool HitTest( const BOX2I& aRect, bool aContained, int aAccuracy = 0 ) const override;
 
     void Plot( PLOTTER* aPlotter, bool aBackground ) const override;
 

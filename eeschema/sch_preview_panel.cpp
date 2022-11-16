@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2018-2019 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2018-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -54,9 +54,10 @@ SCH_PREVIEW_PANEL::SCH_PREVIEW_PANEL( wxWindow* aParentWindow, wxWindowID aWindo
 
     m_painter.reset( new KIGFX::SCH_PAINTER( m_gal ) );
 
-    auto* renderSettings = static_cast<KIGFX::SCH_RENDER_SETTINGS*>( m_painter->GetSettings() );
+    KIGFX::SCH_RENDER_SETTINGS* renderSettings = GetRenderSettings();
     renderSettings->LoadColors( Pgm().GetSettingsManager().GetColorSettings() );
     renderSettings->m_ShowPinsElectricalType = false;
+    renderSettings->m_ShowPinNumbers = false;
     renderSettings->m_TextOffsetRatio = 0.35;
 
     m_view->SetPainter( m_painter.get() );
@@ -74,7 +75,7 @@ SCH_PREVIEW_PANEL::SCH_PREVIEW_PANEL( wxWindow* aParentWindow, wxWindowID aWindo
 
     m_gal->SetGridColor( m_painter->GetSettings()->GetLayerColor( LAYER_SCHEMATIC_GRID ) );
     m_gal->SetCursorEnabled( false );
-    m_gal->SetGridSize( VECTOR2D( Mils2iu( 100.0 ), Mils2iu( 100.0 ) ) );
+    m_gal->SetGridSize( VECTOR2D( schIUScale.MilsToIU( 100.0 ), schIUScale.MilsToIU( 100.0 ) ) );
 
     SetEvtHandlerEnabled( true );
     SetFocus();
@@ -86,6 +87,12 @@ SCH_PREVIEW_PANEL::SCH_PREVIEW_PANEL( wxWindow* aParentWindow, wxWindowID aWindo
 
 SCH_PREVIEW_PANEL::~SCH_PREVIEW_PANEL()
 {
+}
+
+
+KIGFX::SCH_RENDER_SETTINGS* SCH_PREVIEW_PANEL::GetRenderSettings() const
+{
+    return static_cast<KIGFX::SCH_RENDER_SETTINGS*>( m_painter->GetSettings() );
 }
 
 

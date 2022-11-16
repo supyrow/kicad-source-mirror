@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 1992-2017 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -29,12 +29,18 @@
 %ignore VECTOR2<int>::ECOORD_MAX;
 %ignore VECTOR2<int>::ECOORD_MIN;
 
+#pragma SWIG nowarn=317
+
 
 %rename(getWxPoint) operator wxPoint;
 %rename(getWxSize) operator wxSize;
 #include <math/vector2d.h>
 %include <math/vector2d.h>
+#include <math/box2.h>
+%include <math/box2.h>
+
 %template(VECTOR2I) VECTOR2<int>;
+%template(BOX2I) BOX2<VECTOR2I>;
 
 %extend VECTOR2<int>
 {

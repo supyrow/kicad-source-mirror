@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////
-// C++ code generated with wxFormBuilder (version Oct 26 2018)
+// C++ code generated with wxFormBuilder (version 3.10.1-0-g8feb16b)
 // http://www.wxformbuilder.org/
 //
 // PLEASE DO *NOT* EDIT THIS FILE!
@@ -49,8 +49,8 @@ PANEL_SETUP_FORMATTING_BASE::PANEL_SETUP_FORMATTING_BASE( wxWindow* parent, wxWi
 	wxFlexGridSizer* fgSizer2;
 	fgSizer2 = new wxFlexGridSizer( 0, 3, 5, 5 );
 	fgSizer2->AddGrowableCol( 1 );
-	fgSizer2->SetFlexibleDirection( wxBOTH );
-	fgSizer2->SetNonFlexibleGrowMode( wxFLEX_GROWMODE_SPECIFIED );
+	fgSizer2->SetFlexibleDirection( wxHORIZONTAL );
+	fgSizer2->SetNonFlexibleGrowMode( wxFLEX_GROWMODE_NONE );
 
 	m_textSizeLabel = new wxStaticText( sbSizer4->GetStaticBox(), wxID_ANY, _("Default text size:"), wxDefaultPosition, wxDefaultSize, 0 );
 	m_textSizeLabel->Wrap( -1 );
@@ -63,26 +63,30 @@ PANEL_SETUP_FORMATTING_BASE::PANEL_SETUP_FORMATTING_BASE( wxWindow* parent, wxWi
 	m_textSizeUnits->Wrap( -1 );
 	fgSizer2->Add( m_textSizeUnits, 0, wxALIGN_CENTER_VERTICAL|wxFIXED_MINSIZE, 5 );
 
-	m_textOffsetRatioLabel = new wxStaticText( sbSizer4->GetStaticBox(), wxID_ANY, _("Text offset ratio:"), wxDefaultPosition, wxDefaultSize, 0 );
+	m_textOffsetRatioLabel = new wxStaticText( sbSizer4->GetStaticBox(), wxID_ANY, _("Label offset ratio:"), wxDefaultPosition, wxDefaultSize, 0 );
 	m_textOffsetRatioLabel->Wrap( -1 );
-	m_textOffsetRatioLabel->SetToolTip( _("Percentage of the text size to offset text above or below wire or bus") );
+	m_textOffsetRatioLabel->SetToolTip( _("Percentage of the text size to offset labels above (or below) a wire, bus, or pin") );
 
 	fgSizer2->Add( m_textOffsetRatioLabel, 0, wxALIGN_CENTER_VERTICAL, 5 );
 
 	m_textOffsetRatioCtrl = new wxTextCtrl( sbSizer4->GetStaticBox(), wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, 0 );
+	m_textOffsetRatioCtrl->SetToolTip( _("Percentage of the text size to offset labels above (or below) a wire, bus, or pin") );
+
 	fgSizer2->Add( m_textOffsetRatioCtrl, 0, wxEXPAND, 5 );
 
 	m_offsetRatioUnits = new wxStaticText( sbSizer4->GetStaticBox(), wxID_ANY, _("%"), wxDefaultPosition, wxDefaultSize, 0 );
 	m_offsetRatioUnits->Wrap( -1 );
 	fgSizer2->Add( m_offsetRatioUnits, 0, wxALIGN_CENTER_VERTICAL|wxFIXED_MINSIZE, 5 );
 
-	m_labelSizeRatioLabel = new wxStaticText( sbSizer4->GetStaticBox(), wxID_ANY, _("Global label size:"), wxDefaultPosition, wxDefaultSize, 0 );
+	m_labelSizeRatioLabel = new wxStaticText( sbSizer4->GetStaticBox(), wxID_ANY, _("Global label margin:"), wxDefaultPosition, wxDefaultSize, 0 );
 	m_labelSizeRatioLabel->Wrap( -1 );
 	m_labelSizeRatioLabel->SetToolTip( _("Percentage of the text size to use as space around a global label") );
 
 	fgSizer2->Add( m_labelSizeRatioLabel, 0, wxALIGN_CENTER_VERTICAL, 5 );
 
 	m_labelSizeRatioCtrl = new wxTextCtrl( sbSizer4->GetStaticBox(), wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, 0 );
+	m_labelSizeRatioCtrl->SetToolTip( _("Percentage of the text size to use as space around a global label") );
+
 	fgSizer2->Add( m_labelSizeRatioCtrl, 0, wxEXPAND, 5 );
 
 	m_labelSizeRatioUnits = new wxStaticText( sbSizer4->GetStaticBox(), wxID_ANY, _("%"), wxDefaultPosition, wxDefaultSize, 0 );
@@ -90,7 +94,7 @@ PANEL_SETUP_FORMATTING_BASE::PANEL_SETUP_FORMATTING_BASE( wxWindow* parent, wxWi
 	fgSizer2->Add( m_labelSizeRatioUnits, 0, wxALIGN_CENTER_VERTICAL|wxFIXED_MINSIZE, 5 );
 
 
-	sbSizer4->Add( fgSizer2, 1, wxALL|wxEXPAND, 5 );
+	sbSizer4->Add( fgSizer2, 1, wxEXPAND|wxBOTTOM|wxRIGHT|wxLEFT, 5 );
 
 
 	bLeftColumn->Add( sbSizer4, 0, wxBOTTOM|wxEXPAND|wxLEFT|wxRIGHT, 5 );
@@ -146,10 +150,10 @@ PANEL_SETUP_FORMATTING_BASE::PANEL_SETUP_FORMATTING_BASE( wxWindow* parent, wxWi
 	int m_choiceJunctionDotSizeNChoices = sizeof( m_choiceJunctionDotSizeChoices ) / sizeof( wxString );
 	m_choiceJunctionDotSize = new wxChoice( sbSizer2->GetStaticBox(), wxID_ANY, wxDefaultPosition, wxDefaultSize, m_choiceJunctionDotSizeNChoices, m_choiceJunctionDotSizeChoices, 0 );
 	m_choiceJunctionDotSize->SetSelection( 3 );
-	bSizer61->Add( m_choiceJunctionDotSize, 1, wxEXPAND|wxRIGHT, 5 );
+	bSizer61->Add( m_choiceJunctionDotSize, 1, wxRIGHT|wxALIGN_CENTER_VERTICAL, 5 );
 
 
-	sbSizer2->Add( bSizer61, 0, wxBOTTOM|wxEXPAND, 5 );
+	sbSizer2->Add( bSizer61, 0, wxEXPAND|wxBOTTOM|wxRIGHT, 5 );
 
 
 	bLeftColumn->Add( sbSizer2, 1, wxEXPAND|wxALL, 5 );
@@ -239,7 +243,7 @@ PANEL_SETUP_FORMATTING_BASE::PANEL_SETUP_FORMATTING_BASE( wxWindow* parent, wxWi
 	sbSizer6->Add( m_dashedLineHelp, 0, wxALL, 5 );
 
 
-	bRightColumn->Add( sbSizer6, 1, wxEXPAND|wxBOTTOM, 5 );
+	bRightColumn->Add( sbSizer6, 1, wxEXPAND|wxBOTTOM|wxRIGHT|wxLEFT, 5 );
 
 
 	bPanelSizer->Add( bRightColumn, 1, wxRIGHT|wxLEFT|wxEXPAND, 10 );

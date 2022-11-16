@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2017-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2017-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -25,18 +25,18 @@
 #include <memory>
 using namespace std::placeholders;
 
-#include "position_relative_tool.h"
-#include "pcb_actions.h"
-#include "pcb_selection_tool.h"
-#include "edit_tool.h"
-#include "pcb_picker_tool.h"
+#include <tools/position_relative_tool.h>
+#include <tools/pcb_actions.h>
+#include <tools/pcb_selection_tool.h>
+#include <tools/pcb_picker_tool.h>
 #include <dialogs/dialog_position_relative.h>
 #include <status_popup.h>
 #include <board_commit.h>
-#include <bitmaps.h>
 #include <confirm.h>
 #include <collectors.h>
 #include <pad.h>
+#include <footprint.h>
+#include <pcb_group.h>
 
 
 POSITION_RELATIVE_TOOL::POSITION_RELATIVE_TOOL() :
@@ -64,44 +64,16 @@ bool POSITION_RELATIVE_TOOL::Init()
 }
 
 
-// TODO: Clean up this global once TOOL_EVENT supports std::functions as parameters
-BOARD_ITEM* g_PositionRelativePadAnchor;
-
-
 int POSITION_RELATIVE_TOOL::PositionRelative( const TOOL_EVENT& aEvent )
 {
     PCB_BASE_FRAME* editFrame = getEditFrame<PCB_BASE_FRAME>();
 
-    g_PositionRelativePadAnchor = nullptr;
-
     const auto& selection = m_selectionTool->RequestSelection(
             []( const VECTOR2I& aPt, GENERAL_COLLECTOR& aCollector, PCB_SELECTION_TOOL* sTool )
             {
-                std::set<BOARD_ITEM*> to_add;
-
-                // Iterate from the back so we don't have to worry about removals.
-                for( int i = aCollector.GetCount() - 1; i >= 0; --i )
-                {
-                    BOARD_ITEM* item = aCollector[i];
-
-                    if( item->Type() == PCB_MARKER_T )
-                        aCollector.Remove( item );
-
-                    /// Locked pads do not get moved independently of the footprint
-                    if( !sTool->IsFootprintEditor() && item->Type() == PCB_PAD_T && item->IsLocked()
-                        && !item->GetParent()->IsLocked() )
-                    {
-                        if( !aCollector.HasItem( item->GetParent() ) )
-                            to_add.insert( item->GetParent() );
-
-                        g_PositionRelativePadAnchor = item;
-
-                        aCollector.Remove( item );
-                    }
-                }
-
-                for( BOARD_ITEM* item : to_add )
-                    aCollector.Append( item );
+                sTool->FilterCollectorForHierarchy( aCollector, true );
+                sTool->FilterCollectorForMarkers( aCollector );
+                sTool->FilterCollectorForFreePads( aCollector );
             },
             !m_isFootprintEditor /* prompt user regarding locked items */ );
 
@@ -110,8 +82,24 @@ int POSITION_RELATIVE_TOOL::PositionRelative( const TOOL_EVENT& aEvent )
 
     m_selection = selection;
 
-    if( g_PositionRelativePadAnchor )
-        m_selectionAnchor = static_cast<PAD*>( g_PositionRelativePadAnchor )->GetPosition();
+    // We prefer footprints, then pads, then anything else here.
+    EDA_ITEM* preferredItem = m_selection.GetTopLeftItem( true );
+
+    if( !preferredItem && m_selection.HasType( PCB_PAD_T ) )
+    {
+        PCB_SELECTION padsOnly = m_selection;
+        std::deque<EDA_ITEM*>& items = padsOnly.Items();
+        items.erase( std::remove_if( items.begin(), items.end(),
+                                     []( const EDA_ITEM* aItem )
+                                     {
+                                         return aItem->Type() != PCB_PAD_T;
+                                     } ), items.end() );
+
+        preferredItem = padsOnly.GetTopLeftItem();
+    }
+
+    if( preferredItem )
+        m_selectionAnchor = preferredItem->GetPosition();
     else
         m_selectionAnchor = m_selection.GetTopLeftItem()->GetPosition();
 
@@ -138,13 +126,28 @@ int POSITION_RELATIVE_TOOL::RelativeItemSelectionMove( const VECTOR2I& aPosAncho
 {
     VECTOR2I aggregateTranslation = aPosAnchor + aTranslation - GetSelectionAnchorPosition();
 
-    for( auto item : m_selection )
+    for( EDA_ITEM* item : m_selection )
     {
         // Don't move a pad by itself unless editing the footprint
-        if( item->Type() == PCB_PAD_T && frame()->IsType( FRAME_PCB_EDITOR ) )
+        if( item->Type() == PCB_PAD_T
+            && !frame()->GetPcbNewSettings()->m_AllowFreePads
+            && frame()->IsType( FRAME_PCB_EDITOR ) )
+        {
             item = item->GetParent();
+        }
 
         m_commit->Modify( item );
+
+        // If moving a group, record position of all the descendants for undo
+        if( item->Type() == PCB_GROUP_T )
+        {
+            PCB_GROUP* group = static_cast<PCB_GROUP*>( item );
+            group->RunOnDescendants( [&]( BOARD_ITEM* bItem )
+                                     {
+                                         m_commit->Modify( bItem );
+                                     });
+        }
+
         static_cast<BOARD_ITEM*>( item )->Move( aggregateTranslation );
     }
 
@@ -216,6 +219,7 @@ int POSITION_RELATIVE_TOOL::SelectPositionRelativeItem( const TOOL_EVENT& aEvent
 
     statusPopup.Move( wxGetMousePosition() + wxPoint( 20, -50 ) );
     statusPopup.Popup();
+    canvas()->SetStatusPopup( statusPopup.GetPanel() );
 
     m_toolMgr->RunAction( ACTIONS::pickerTool, true, &tool );
 
@@ -227,6 +231,8 @@ int POSITION_RELATIVE_TOOL::SelectPositionRelativeItem( const TOOL_EVENT& aEvent
         else
             break;
     }
+
+    canvas()->SetStatusPopup( nullptr );
 
     return 0;
 }

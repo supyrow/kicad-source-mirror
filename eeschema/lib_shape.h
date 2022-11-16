@@ -53,11 +53,19 @@ public:
     void SetStroke( const STROKE_PARAMS& aStroke ) { m_stroke = aStroke; }
 
     bool HitTest( const VECTOR2I& aPosition, int aAccuracy = 0 ) const override;
-    bool HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy = 0 ) const override;
+    bool HitTest( const BOX2I& aRect, bool aContained, int aAccuracy = 0 ) const override;
 
     int GetPenWidth() const override;
 
-    const EDA_RECT GetBoundingBox() const override;
+    PLOT_DASH_TYPE GetEffectiveLineStyle() const
+    {
+        if( m_stroke.GetPlotStyle() == PLOT_DASH_TYPE::DEFAULT )
+            return PLOT_DASH_TYPE::SOLID;
+        else
+            return m_stroke.GetPlotStyle();
+    }
+
+    const BOX2I GetBoundingBox() const override;
 
     void GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList ) override;
 
@@ -79,14 +87,27 @@ public:
 
     VECTOR2I GetCenter() const { return getCenter(); }
 
+    /**
+     * Make a set of SHAPE objects representing the LIB_SHAPE.  Caller owns the objects.
+     *
+     * @param aEdgeOnly indicates only edges should be generated (even if 0 width), and no fill
+     *                  shapes.
+     */
+    virtual std::vector<SHAPE*> MakeEffectiveShapes( bool aEdgeOnly = false ) const override
+    {
+        return makeEffectiveShapes( aEdgeOnly, true );
+    }
+
+    void Normalize();
+
     void MirrorHorizontal( const VECTOR2I& aCenter ) override;
     void MirrorVertical( const VECTOR2I& aCenter ) override;
     void Rotate( const VECTOR2I& aCenter, bool aRotateCCW = true ) override;
 
     void Plot( PLOTTER* aPlotter, bool aBackground, const VECTOR2I& aOffset,
-               const TRANSFORM& aTransform ) const override;
+               const TRANSFORM& aTransform, bool aDimmed ) const override;
 
-    wxString GetSelectMenuText( EDA_UNITS aUnits ) const override;
+    wxString GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const override;
 
     BITMAPS GetMenuImage() const override;
 
@@ -103,11 +124,10 @@ private:
      *      - Circle vertical (Y) position.
      *      - Circle radius.
      */
-    int compare( const LIB_ITEM& aOther,
-            LIB_ITEM::COMPARE_FLAGS aCompareFlags = LIB_ITEM::COMPARE_FLAGS::NORMAL ) const override;
+    int compare( const LIB_ITEM& aOther, int aCompareFlags = 0 ) const override;
 
     void print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset, void* aData,
-                const TRANSFORM& aTransform ) override;
+                const TRANSFORM& aTransform, bool aDimmed ) override;
 
     EDA_ANGLE getParentOrientation() const override { return ANGLE_0; }
     VECTOR2I getParentPosition() const override { return VECTOR2I(); }

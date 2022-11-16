@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2018-2021 KiCad Developers, see change_log.txt for contributors.
+ * Copyright (C) 2018-2022 KiCad Developers, see change_log.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -21,7 +21,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
-#include <base_units.h>
 #include <pcb_edit_frame.h>
 #include <board_design_settings.h>
 #include <widgets/wx_grid.h>
@@ -62,10 +61,14 @@ PANEL_SETUP_TEXT_AND_GRAPHICS::PANEL_SETUP_TEXT_AND_GRAPHICS( PAGED_DIALOG* aPar
         m_extensionOffset( aFrame, m_lblExtensionOffset, m_dimensionExtensionOffset,
                            m_dimensionExtensionOffsetUnits )
 {
-    m_Parent = aParent;
     m_Frame = aFrame;
     m_BrdSettings = &m_Frame->GetBoard()->GetDesignSettings();
 
+    m_grid->SetUnitsProvider( m_Frame );
+    m_grid->SetAutoEvalCols( { COL_LINE_THICKNESS,
+                               COL_TEXT_WIDTH,
+                               COL_TEXT_HEIGHT,
+                               COL_TEXT_THICKNESS } );
     m_grid->SetDefaultRowSize( m_grid->GetDefaultRowSize() + 4 );
 
     // Work around a bug in wxWidgets where it fails to recalculate the grid height
@@ -82,7 +85,7 @@ PANEL_SETUP_TEXT_AND_GRAPHICS::PANEL_SETUP_TEXT_AND_GRAPHICS( PAGED_DIALOG* aPar
     {
         // We calculate the column min size only from texts sizes, not using the initial col width
         // as this initial width is sometimes strange depending on the language (wxGrid bug?)
-        int min_width =  m_grid->GetVisibleWidth( i, true, true, false );
+        int min_width =  m_grid->GetVisibleWidth( i );
 
         m_grid->SetColMinimalWidth( i, min_width );
 
@@ -126,7 +129,7 @@ bool PANEL_SETUP_TEXT_AND_GRAPHICS::TransferDataToWindow()
     wxColour disabledColour = wxSystemSettings::GetColour( wxSYS_COLOUR_BACKGROUND );
 
 #define SET_MILS_CELL( row, col, val ) \
-    m_grid->SetCellValue( row, col, StringFromValue( m_Frame->GetUserUnits(), val, true ) )
+    m_grid->SetCellValue( row, col, m_Frame->StringFromValue( val, true ) )
 
 #define DISABLE_CELL( row, col ) \
     m_grid->SetReadOnly( row, col ); m_grid->SetCellBackgroundColour( row, col, disabledColour );
@@ -167,7 +170,7 @@ bool PANEL_SETUP_TEXT_AND_GRAPHICS::TransferDataToWindow()
 
     // Work around an issue where wxWidgets doesn't calculate the row width on its own
     for( int col = 0; col < m_grid->GetNumberCols(); col++ )
-        m_grid->SetColMinimalWidth( col, m_grid->GetVisibleWidth( col, true, true, false ) );
+        m_grid->SetColMinimalWidth( col, m_grid->GetVisibleWidth( col ) );
 
     m_grid->SetRowLabelSize( m_grid->GetVisibleWidth( -1, true, true, true ) );
 
@@ -196,12 +199,6 @@ bool PANEL_SETUP_TEXT_AND_GRAPHICS::TransferDataToWindow()
 }
 
 
-int PANEL_SETUP_TEXT_AND_GRAPHICS::getGridValue( int aRow, int aCol )
-{
-    return ValueFromString( m_Frame->GetUserUnits(), m_grid->GetCellValue( aRow, aCol ) );
-}
-
-
 bool PANEL_SETUP_TEXT_AND_GRAPHICS::TransferDataFromWindow()
 {
     if( !m_grid->CommitPendingChanges() )
@@ -209,14 +206,14 @@ bool PANEL_SETUP_TEXT_AND_GRAPHICS::TransferDataFromWindow()
 
     for( int i = 0; i < ROW_COUNT; ++i )
     {
-        m_BrdSettings->m_LineThickness[ i ] = getGridValue( i, COL_LINE_THICKNESS );
+        m_BrdSettings->m_LineThickness[ i ] = m_grid->GetUnitValue( i, COL_LINE_THICKNESS );
 
         if( i == ROW_EDGES || i == ROW_COURTYARD )
             continue;
 
-        m_BrdSettings->m_TextSize[ i ] = wxSize( getGridValue( i, COL_TEXT_WIDTH ),
-                                                 getGridValue( i, COL_TEXT_HEIGHT ) );
-        m_BrdSettings->m_TextThickness[ i ] = getGridValue( i, COL_TEXT_THICKNESS );
+        m_BrdSettings->m_TextSize[ i ] = wxSize( m_grid->GetUnitValue( i, COL_TEXT_WIDTH ),
+                                                 m_grid->GetUnitValue( i, COL_TEXT_HEIGHT ) );
+        m_BrdSettings->m_TextThickness[ i ] = m_grid->GetUnitValue( i, COL_TEXT_THICKNESS );
         m_BrdSettings->m_TextItalic[ i ] =
                 wxGridCellBoolEditor::IsTrueValue( m_grid->GetCellValue( i, COL_TEXT_ITALIC ) );
         m_BrdSettings->m_TextUpright[ i ] =

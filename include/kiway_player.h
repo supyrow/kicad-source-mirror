@@ -67,7 +67,7 @@ class KIWAY_PLAYER : public EDA_BASE_FRAME
 public:
     KIWAY_PLAYER( KIWAY* aKiway, wxWindow* aParent, FRAME_T aFrameType,
                   const wxString& aTitle, const wxPoint& aPos, const wxSize& aSize,
-                  long aStyle, const wxString& aWdoName = wxFrameNameStr );
+                  long aStyle, const wxString& aFrameName, const EDA_IU_SCALE& aIuScale );
 
     /// Don't use this one, only wxformbuilder uses it, and it must be augmented with
     /// a SetKiway() early in derived constructor.
@@ -125,20 +125,6 @@ public:
         // Then update the window title.
 
         return false;
-    }
-
-    /**
-     * Handle command-line arguments in a frame-specific way.
-     *
-     * The given argument parser has already been initialized with the command line and any
-     * options/switches that are handled by the top-level launcher before passing control to
-     * the child frame.
-     *
-     * @param aParser is the argument parser created by the top-level launcher.
-     */
-    virtual void ParseArgs( wxCmdLineParser& aParser )
-    {
-        WXUNUSED( aParser );
     }
 
 

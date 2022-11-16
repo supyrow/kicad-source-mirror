@@ -1,6 +1,6 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
- *
+ *lib_tree_model
  * Copyright (C) 2017 Chris Pavlina <pavlina.chris@gmail.com>
  * Copyright (C) 2014 Henner Zeller <h.zeller@acm.org>
  * Copyright (C) 2014-2019 KiCad Developers, see AUTHORS.txt for contributors.
@@ -105,8 +105,17 @@ int LIB_TREE_NODE::Compare( LIB_TREE_NODE const& aNode1, LIB_TREE_NODE const& aN
     if( aNode1.m_Type != aNode2.m_Type )
         return 0;
 
-    if( aNode1.m_Score != aNode2.m_Score )
-        return aNode1.m_Score - aNode2.m_Score;
+    // Recently used sorts at top
+    if( aNode1.m_Name.StartsWith( wxT( "-- " ) ) )
+        return 1;
+    else if( aNode2.m_Name.StartsWith( wxT( "-- " ) ) )
+        return 0;
+
+    // Pinned nodes go next
+    if( aNode1.m_Pinned && !aNode2.m_Pinned )
+        return 1;
+    else if( aNode2.m_Pinned && !aNode1.m_Pinned )
+        return -1;
 
     if( aNode1.m_Parent != aNode2.m_Parent )
         return 0;
@@ -147,7 +156,16 @@ LIB_TREE_NODE_UNIT::LIB_TREE_NODE_UNIT( LIB_TREE_NODE* aParent, LIB_TREE_ITEM* a
     m_LibId = aParent->m_LibId;
 
     m_Name = namePrefix + " " + aItem->GetUnitReference( aUnit );
-    m_Desc = wxEmptyString;
+
+    if( aItem->HasUnitDisplayName( aUnit ) )
+    {
+        m_Desc = aItem->GetUnitDisplayName( aUnit );
+    }
+    else
+    {
+        m_Desc = wxEmptyString;
+    }
+
     m_MatchName = wxEmptyString;
 
     m_IntrinsicRank = -aUnit;
@@ -164,6 +182,9 @@ LIB_TREE_NODE_LIB_ID::LIB_TREE_NODE_LIB_ID( LIB_TREE_NODE* aParent, LIB_TREE_ITE
 
     m_Name = aItem->GetName();
     m_Desc = aItem->GetDescription();
+    m_Footprint = aItem->GetFootprint();
+
+    aItem->GetChooserFields( m_Fields );
 
     m_MatchName = aItem->GetName();
     m_SearchText = aItem->GetSearchText();
@@ -189,11 +210,14 @@ LIB_TREE_NODE_UNIT& LIB_TREE_NODE_LIB_ID::AddUnit( LIB_TREE_ITEM* aItem, int aUn
 
 void LIB_TREE_NODE_LIB_ID::Update( LIB_TREE_ITEM* aItem )
 {
-    // Update is called when the names match, so just update the other fields.
-
     m_LibId.SetLibNickname( aItem->GetLibId().GetLibNickname() );
+    m_LibId.SetLibItemName( aItem->GetName() );
 
+    m_Name = aItem->GetName();
     m_Desc = aItem->GetDescription();
+    m_MatchName = aItem->GetName();
+
+    aItem->GetChooserFields( m_Fields );
 
     m_SearchText = aItem->GetSearchText();
     m_Normalized = false;
@@ -295,7 +319,7 @@ void LIB_TREE_NODE_LIB::UpdateScore( EDA_COMBINED_MATCHER& aMatcher, const wxStr
 
     if( m_Children.size() )
     {
-    for( std::unique_ptr<LIB_TREE_NODE>& child: m_Children )
+        for( std::unique_ptr<LIB_TREE_NODE>& child: m_Children )
         {
             child->UpdateScore( aMatcher, aLib );
             m_Score = std::max( m_Score, child->m_Score );

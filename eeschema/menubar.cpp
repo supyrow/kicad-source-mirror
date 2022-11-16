@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2018 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2009 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  * Copyright (C) 2019 CERN
  *
  * This program is free software; you can redistribute it and/or
@@ -62,17 +62,20 @@ void SCH_EDIT_FRAME::ReCreateMenuBar()
         if( !openRecentMenu )
         {
             openRecentMenu = new ACTION_MENU( false, selTool );
-            openRecentMenu->SetTitle( _( "Open Recent" ) );
             openRecentMenu->SetIcon( BITMAPS::recent );
 
             fileHistory.UseMenu( openRecentMenu );
             fileHistory.AddFilesToMenu( openRecentMenu );
         }
 
+        // Ensure the title is up to date after changing language
+        openRecentMenu->SetTitle( _( "Open Recent" ) );
+        fileHistory.UpdateClearText( openRecentMenu, _( "Clear Recent Files" ) );
+
         fileMenu->Add( ACTIONS::doNew );
         fileMenu->Add( ACTIONS::open );
 
-        wxMenuItem* item = fileMenu->Add( openRecentMenu );
+        wxMenuItem* item = fileMenu->Add( openRecentMenu->Clone() );
 
         // Add the file menu condition here since it needs the item ID for the submenu
         ACTION_CONDITIONS cond;
@@ -87,6 +90,8 @@ void SCH_EDIT_FRAME::ReCreateMenuBar()
         fileMenu->Add( ACTIONS::saveAs );
     else
         fileMenu->Add( EE_ACTIONS::saveCurrSheetCopyAs );
+
+    fileMenu->Add( ACTIONS::revert );
 
     fileMenu->AppendSeparator();
 
@@ -116,6 +121,10 @@ void SCH_EDIT_FRAME::ReCreateMenuBar()
     submenuExport->SetIcon( BITMAPS::export_file );
     submenuExport->Add( EE_ACTIONS::drawSheetOnClipboard, ACTION_MENU::NORMAL, _( "Drawing to Clipboard" ) );
     submenuExport->Add( EE_ACTIONS::exportNetlist,        ACTION_MENU::NORMAL, _( "Netlist..." ) );
+    submenuExport->Add( EE_ACTIONS::exportSymbolsToLibrary, ACTION_MENU::NORMAL,
+                        _( "Symbols to Library..." ) );
+    submenuExport->Add( EE_ACTIONS::exportSymbolsToNewLibrary, ACTION_MENU::NORMAL,
+                        _( "Symbols to New Library..." ) );
     fileMenu->Add( submenuExport );
 
     fileMenu->AppendSeparator();
@@ -162,8 +171,12 @@ void SCH_EDIT_FRAME::ReCreateMenuBar()
     ACTION_MENU* viewMenu = new ACTION_MENU( false, selTool );
 
     viewMenu->Add( ACTIONS::showSymbolBrowser );
-    viewMenu->Add( EE_ACTIONS::navigateHierarchy );
-    viewMenu->Add( EE_ACTIONS::leaveSheet );
+    viewMenu->Add( EE_ACTIONS::showHierarchy, ACTION_MENU::CHECK );
+    viewMenu->Add( EE_ACTIONS::navigateBack );
+    viewMenu->Add( EE_ACTIONS::navigateUp );
+    viewMenu->Add( EE_ACTIONS::navigateForward );
+    viewMenu->Add( EE_ACTIONS::navigatePrevious );
+    viewMenu->Add( EE_ACTIONS::navigateNext );
 
     viewMenu->AppendSeparator();
     viewMenu->Add( ACTIONS::zoomInCenter );
@@ -272,7 +285,6 @@ void SCH_EDIT_FRAME::ReCreateMenuBar()
 
     toolsMenu->AppendSeparator();
     toolsMenu->Add( EE_ACTIONS::annotate );
-    toolsMenu->Add( EE_ACTIONS::showBusManager );
 
     toolsMenu->AppendSeparator();
     toolsMenu->Add( EE_ACTIONS::assignFootprints );

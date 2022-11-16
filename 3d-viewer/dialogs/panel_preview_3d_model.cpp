@@ -4,7 +4,7 @@
  * Copyright (C) 2016 Mario Luzeiro <mrluzeiro@ua.pt>
  * Copyright (C) 2015 Cirilo Bernardo <cirilo.bernardo@gmail.com>
  * Copyright (C) 2017 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 2015-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2015-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -40,6 +40,7 @@
 #include <settings/settings_manager.h>
 #include <widgets/infobar.h>
 #include <eda_3d_viewer_settings.h>
+#include <board_design_settings.h>
 
 PANEL_PREVIEW_3D_MODEL::PANEL_PREVIEW_3D_MODEL( wxWindow* aParent, PCB_BASE_FRAME* aFrame,
                                                 FOOTPRINT* aFootprint,
@@ -49,14 +50,23 @@ PANEL_PREVIEW_3D_MODEL::PANEL_PREVIEW_3D_MODEL( wxWindow* aParent, PCB_BASE_FRAM
         m_infobar( nullptr ),
         m_boardAdapter(),
         m_currentCamera( m_trackBallCamera ),
-        m_trackBallCamera( 2 * RANGE_SCALE_3D )
+        m_trackBallCamera( 2 * RANGE_SCALE_3D ),
+        m_boardThickness( aFrame, aFrame->GetIuScale(), nullptr, m_boardThicknessCtrl, m_boardThicknessUnits )
 {
     m_userUnits = aFrame->GetUserUnits();
 
     m_dummyBoard = new BOARD();
+    m_dummyBoard->SetProject( &aFrame->Prj(), true );
 
     // This board will only be used to hold a footprint for viewing
     m_dummyBoard->SetBoardUse( BOARD_USE::FPHOLDER );
+
+    BOARD_DESIGN_SETTINGS parent_bds = aFrame->GetDesignSettings();
+    BOARD_DESIGN_SETTINGS dummy_bds = m_dummyBoard->GetDesignSettings();
+    dummy_bds.SetBoardThickness( parent_bds.GetBoardThickness() );
+    BOARD_STACKUP& dummy_board_stackup = m_dummyBoard->GetDesignSettings().GetStackupDescriptor();
+    dummy_board_stackup.RemoveAll();
+    dummy_board_stackup.BuildDefaultStackupList( &dummy_bds, 2 );
 
     m_selected = -1;
 
@@ -124,8 +134,10 @@ PANEL_PREVIEW_3D_MODEL::PANEL_PREVIEW_3D_MODEL( wxWindow* aParent, PCB_BASE_FRAM
     m_SizerPanelView->Add( m_previewPane, 1, wxEXPAND, 5 );
 
     for( wxEventType eventType : { wxEVT_MENU_OPEN, wxEVT_MENU_CLOSE, wxEVT_MENU_HIGHLIGHT } )
+    {
         Connect( eventType, wxMenuEventHandler( PANEL_PREVIEW_3D_MODEL::OnMenuEvent ), nullptr,
                  this );
+    }
 
 #ifdef __WXOSX__
     // Call layout once to get the proper button sizes after the bitmaps have been set
@@ -220,7 +232,7 @@ void PANEL_PREVIEW_3D_MODEL::loadSettings()
  */
 static double rotationFromString( const wxString& aValue )
 {
-    double rotation = DoubleValueFromString( EDA_UNITS::DEGREES, aValue );
+    double rotation = EDA_UNIT_UTILS::UI::DoubleValueFromString( unityScale, EDA_UNITS::DEGREES, aValue );
 
     if( rotation > MAX_ROTATION )
     {
@@ -248,7 +260,7 @@ wxString PANEL_PREVIEW_3D_MODEL::formatRotationValue( double aValue )
 {
     return wxString::Format( wxT( "%.2f%s" ),
                              aValue,
-                             GetAbbreviatedUnitsLabel( EDA_UNITS::DEGREES ) );
+                             EDA_UNIT_UTILS::GetText( EDA_UNITS::DEGREES ) );
 }
 
 
@@ -262,7 +274,7 @@ wxString PANEL_PREVIEW_3D_MODEL::formatOffsetValue( double aValue )
 
     return wxString::Format( wxT( "%.6f%s" ),
                              aValue,
-                             GetAbbreviatedUnitsLabel( m_userUnits ) );
+                             EDA_UNIT_UTILS::GetText( m_userUnits ) );
 }
 
 
@@ -307,6 +319,9 @@ void PANEL_PREVIEW_3D_MODEL::SetSelectedModel( int idx )
 
         m_opacity->SetValue( 100 );
     }
+
+    BOARD_DESIGN_SETTINGS dummy_bds = m_dummyBoard->GetDesignSettings();
+    m_boardThickness.ChangeValue( dummy_bds.GetBoardThickness() );
 }
 
 
@@ -317,17 +332,26 @@ void PANEL_PREVIEW_3D_MODEL::updateOrientation( wxCommandEvent &event )
         // Write settings back to the parent
         FP_3DMODEL* modelInfo = &m_parentModelList->at( (unsigned) m_selected );
 
-        modelInfo->m_Scale.x = DoubleValueFromString( EDA_UNITS::UNSCALED, xscale->GetValue() );
-        modelInfo->m_Scale.y = DoubleValueFromString( EDA_UNITS::UNSCALED, yscale->GetValue() );
-        modelInfo->m_Scale.z = DoubleValueFromString( EDA_UNITS::UNSCALED, zscale->GetValue() );
+        modelInfo->m_Scale.x = EDA_UNIT_UTILS::UI::DoubleValueFromString(
+                pcbIUScale, EDA_UNITS::UNSCALED, xscale->GetValue() );
+        modelInfo->m_Scale.y = EDA_UNIT_UTILS::UI::DoubleValueFromString(
+                pcbIUScale, EDA_UNITS::UNSCALED, yscale->GetValue() );
+        modelInfo->m_Scale.z = EDA_UNIT_UTILS::UI::DoubleValueFromString(
+                pcbIUScale, EDA_UNITS::UNSCALED, zscale->GetValue() );
 
         modelInfo->m_Rotation.x = rotationFromString( xrot->GetValue() );
         modelInfo->m_Rotation.y = rotationFromString( yrot->GetValue() );
         modelInfo->m_Rotation.z = rotationFromString( zrot->GetValue() );
 
-        modelInfo->m_Offset.x = DoubleValueFromString( m_userUnits, xoff->GetValue() ) / IU_PER_MM;
-        modelInfo->m_Offset.y = DoubleValueFromString( m_userUnits, yoff->GetValue() ) / IU_PER_MM;
-        modelInfo->m_Offset.z = DoubleValueFromString( m_userUnits, zoff->GetValue() ) / IU_PER_MM;
+        modelInfo->m_Offset.x = EDA_UNIT_UTILS::UI::DoubleValueFromString( pcbIUScale, m_userUnits,
+                                                                           xoff->GetValue() )
+                                / pcbIUScale.IU_PER_MM;
+        modelInfo->m_Offset.y = EDA_UNIT_UTILS::UI::DoubleValueFromString( pcbIUScale, m_userUnits,
+                                                                           yoff->GetValue() )
+                                / pcbIUScale.IU_PER_MM;
+        modelInfo->m_Offset.z = EDA_UNIT_UTILS::UI::DoubleValueFromString( pcbIUScale, m_userUnits,
+                                                                           zoff->GetValue() )
+                                / pcbIUScale.IU_PER_MM;
 
         // Update the dummy footprint for the preview
         UpdateDummyFootprint( false );
@@ -350,6 +374,19 @@ void PANEL_PREVIEW_3D_MODEL::onOpacitySlider( wxCommandEvent& event )
 }
 
 
+void PANEL_PREVIEW_3D_MODEL::updateBoardThickness( wxCommandEvent& event )
+{
+    BOARD_DESIGN_SETTINGS dummy_bds = m_dummyBoard->GetDesignSettings();
+    dummy_bds.SetBoardThickness( m_boardThickness.GetValue() );
+
+    BOARD_STACKUP& dummy_board_stackup = m_dummyBoard->GetDesignSettings().GetStackupDescriptor();
+    dummy_board_stackup.RemoveAll();
+    dummy_board_stackup.BuildDefaultStackupList( &dummy_bds, 2 );
+
+    UpdateDummyFootprint( true );
+}
+
+
 void PANEL_PREVIEW_3D_MODEL::doIncrementScale( wxSpinEvent& event, double aSign )
 {
     wxSpinButton* spinCtrl = (wxSpinButton*) event.GetEventObject();
@@ -361,7 +398,8 @@ void PANEL_PREVIEW_3D_MODEL::doIncrementScale( wxSpinEvent& event, double aSign 
     else if( spinCtrl == m_spinZscale )
         textCtrl = zscale;
 
-    double curr_value = DoubleValueFromString( EDA_UNITS::UNSCALED, textCtrl->GetValue() );
+    double curr_value = EDA_UNIT_UTILS::UI::DoubleValueFromString( pcbIUScale, EDA_UNITS::UNSCALED,
+                                                                   textCtrl->GetValue() );
 
     curr_value += ( SCALE_INCREMENT * aSign );
     curr_value = std::max( 1/MAX_SCALE, curr_value );
@@ -381,7 +419,8 @@ void PANEL_PREVIEW_3D_MODEL::doIncrementRotation( wxSpinEvent& aEvent, double aS
     else if( spinCtrl == m_spinZrot )
         textCtrl = zrot;
 
-    double curr_value = DoubleValueFromString( EDA_UNITS::DEGREES, textCtrl->GetValue() );
+    double curr_value = EDA_UNIT_UTILS::UI::DoubleValueFromString( unityScale, EDA_UNITS::DEGREES,
+                                                                   textCtrl->GetValue() );
 
     curr_value += ( ROTATION_INCREMENT * aSign );
     curr_value = std::max( -MAX_ROTATION, curr_value );
@@ -403,7 +442,9 @@ void PANEL_PREVIEW_3D_MODEL::doIncrementOffset( wxSpinEvent& event, double aSign
         textCtrl = zoff;
 
     double step_mm = OFFSET_INCREMENT_MM;
-    double curr_value_mm = DoubleValueFromString( m_userUnits, textCtrl->GetValue() ) / IU_PER_MM;
+    double curr_value_mm =
+            EDA_UNIT_UTILS::UI::DoubleValueFromString( pcbIUScale, m_userUnits, textCtrl->GetValue() )
+            / pcbIUScale.IU_PER_MM;
 
     if( m_userUnits == EDA_UNITS::MILS || m_userUnits == EDA_UNITS::INCHES )
     {
@@ -430,7 +471,8 @@ void PANEL_PREVIEW_3D_MODEL::onMouseWheelScale( wxMouseEvent& event )
     if( event.GetWheelRotation() >= 0 )
         step = -step;
 
-    double curr_value = DoubleValueFromString( EDA_UNITS::UNSCALED, textCtrl->GetValue() );
+    double curr_value = EDA_UNIT_UTILS::UI::DoubleValueFromString( pcbIUScale, EDA_UNITS::UNSCALED,
+                                                                   textCtrl->GetValue() );
 
     curr_value += step;
     curr_value = std::max( 1/MAX_SCALE, curr_value );
@@ -452,7 +494,8 @@ void PANEL_PREVIEW_3D_MODEL::onMouseWheelRot( wxMouseEvent& event )
     if( event.GetWheelRotation() >= 0 )
         step = -step;
 
-    double curr_value = DoubleValueFromString( EDA_UNITS::DEGREES, textCtrl->GetValue() );
+    double curr_value = EDA_UNIT_UTILS::UI::DoubleValueFromString( unityScale, EDA_UNITS::DEGREES,
+                                                                   textCtrl->GetValue() );
 
     curr_value += step;
     curr_value = std::max( -MAX_ROTATION, curr_value );
@@ -482,7 +525,9 @@ void PANEL_PREVIEW_3D_MODEL::onMouseWheelOffset( wxMouseEvent& event )
     if( event.GetWheelRotation() >= 0 )
         step_mm = -step_mm;
 
-    double curr_value_mm = DoubleValueFromString( m_userUnits, textCtrl->GetValue() ) / IU_PER_MM;
+    double curr_value_mm = EDA_UNIT_UTILS::UI::DoubleValueFromString( pcbIUScale, m_userUnits,
+                                                                      textCtrl->GetValue() )
+                           / pcbIUScale.IU_PER_MM;
 
     curr_value_mm += step_mm;
     curr_value_mm = std::max( -MAX_OFFSET, curr_value_mm );

@@ -34,27 +34,15 @@
 #include <layer_ids.h>
 #include <geometry/shape_poly_set.h>
 #include <zone_settings.h>
+#include <teardrop/teardrop_types.h>
 
 
-class EDA_RECT;
 class LINE_READER;
 class PCB_EDIT_FRAME;
 class BOARD;
 class ZONE;
 class MSG_PANEL_ITEM;
 
-/**
- * define the type of a teardrop: on a via or pad, or atrack end
- */
-enum class TEARDROP_TYPE
-{
-    TD_NONE = 0,        // Not a teardrop: just a standard zone
-    TD_UNSPECIFIED,     // Not specified/unknown teardrop type
-    TD_VIAPAD,          // a teardrop on a via or pad
-    TD_TRACKEND         // a teardrop on a track end
-                        // (when 2 tracks having different widths have a teardrop on the
-                        // end of the largest track)
-};
 
 /**
  * Handle a list of polygons defining a copper zone.
@@ -96,26 +84,16 @@ public:
         return !GetIsRuleArea();
     }
 
-    NETCLASS* GetNetClass() const override
-    {
-        if( GetIsRuleArea() )
-            return nullptr;
-
-        return BOARD_CONNECTED_ITEM::GetNetClass();
-    }
-
-    wxString GetNetClassName() const override
-    {
-        if( GetIsRuleArea() )
-            return "UNDEFINED";
-
-        return BOARD_CONNECTED_ITEM::GetNetClassName();
-    }
-
     /**
      * Copy aZone data to me
      */
     void InitDataFromSrcInCopyCtor( const ZONE& aZone );
+
+    /**
+     * For rule areas which exclude footprints (and therefore participate in courtyard conflicts
+     * during move).
+     */
+    bool IsConflicting() const;
 
     /**
      * @return a VECTOR2I, position of the first point of the outline
@@ -126,36 +104,40 @@ public:
     /**
      * @param aPriority is the priority level.
      */
-    void SetPriority( unsigned aPriority ) { m_priority = aPriority; }
+    void SetAssignedPriority( unsigned aPriority ) { m_priority = aPriority; }
 
     /**
      * @return the priority level of this zone.
      */
-    unsigned GetPriority() const { return m_priority; }
+    unsigned GetAssignedPriority() const { return m_priority; }
+
+    bool HigherPriority( const ZONE* aOther ) const;
+
+    bool SameNet( const ZONE* aOther ) const;
 
     void GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList ) override;
 
     void SetLayerSet( LSET aLayerSet ) override;
-    virtual LSET GetLayerSet() const override;
+    virtual LSET GetLayerSet() const override { return m_layerSet; }
 
     wxString GetZoneName() const { return m_zoneName; }
     void SetZoneName( const wxString& aName ) { m_zoneName = aName; }
 
-    bool Matches( const wxFindReplaceData& aSearchData, void* aAuxData ) const override
+    bool Matches( const EDA_SEARCH_DATA& aSearchData, void* aAuxData ) const override
     {
         return BOARD_ITEM::Matches( GetZoneName(), aSearchData );
     }
 
     /**
-     * @return an EDA_RECT that is the bounding box of the zone outline.
+     * @return the bounding box of the zone outline.
      */
-    const EDA_RECT GetBoundingBox() const override;
+    const BOX2I GetBoundingBox() const override;
 
     /**
-     * ONLY TO BE USED BY CLIENTS WHICH SET UP THE CACHE!
+     * Used to preload the zone bounding box cache so we don't have to worry about mutex-locking
+     * it each time.
      */
-    const EDA_RECT GetCachedBoundingBox() const { return m_bboxCache; }
-    void CacheBoundingBox() { m_bboxCache = GetBoundingBox(); }
+    void CacheBoundingBox();
 
     /**
      * Return any local clearances set in the "classic" (ie: pre-rule) system.  These are
@@ -173,11 +155,6 @@ public:
      * @return true if this zone is on a copper layer, false if on a technical layer.
      */
     bool IsOnCopperLayer() const override;
-
-    /**
-     * Test if this zone shares a common layer with the given layer set.
-     */
-    bool CommonLayerExists( const LSET aLayerSet ) const;
 
     virtual void SetLayer( PCB_LAYER_ID aLayer ) override;
 
@@ -256,10 +233,10 @@ public:
 
     int GetFillFlag( PCB_LAYER_ID aLayer )
     {
-        return m_fillFlags.count( aLayer ) ? m_fillFlags[ aLayer ] : false;
+        return m_fillFlags.test( aLayer );
     }
 
-    void SetFillFlag( PCB_LAYER_ID aLayer, bool aFlag ) { m_fillFlags[ aLayer ] = aFlag; }
+    void SetFillFlag( PCB_LAYER_ID aLayer, bool aFlag ) { m_fillFlags.set( aLayer, aFlag ); }
 
     bool IsFilled() const { return m_isFilled; }
     void SetIsFilled( bool isFilled ) { m_isFilled = isFilled; }
@@ -328,9 +305,6 @@ public:
     }
 
     ///
-    // Like HitTest but selects the current corner to be operated on
-    void SetSelectedCorner( const VECTOR2I& aPosition, int aAccuracy );
-
     int GetLocalFlags() const { return m_localFlgs; }
     void SetLocalFlags( int aFlags ) { m_localFlgs = aFlags; }
 
@@ -341,7 +315,8 @@ public:
 
     // @copydoc BOARD_ITEM::GetEffectiveShape
     virtual std::shared_ptr<SHAPE>
-    GetEffectiveShape( PCB_LAYER_ID aLayer = UNDEFINED_LAYER ) const override;
+    GetEffectiveShape( PCB_LAYER_ID aLayer = UNDEFINED_LAYER,
+            FLASHING aFlash = FLASHING::DEFAULT ) const override;
 
     /**
      * Test if a point is near an outline edge or a corner of this zone.
@@ -377,7 +352,8 @@ public:
      * merged due to other parameters such as fillet radius.  The copper pour will end up
      * effectively merged though, so we need to do some calculations with them in mind.
      */
-    void GetInteractingZones( PCB_LAYER_ID aLayer, std::vector<ZONE*>* aZones ) const;
+    void GetInteractingZones( PCB_LAYER_ID aLayer, std::vector<ZONE*>* aSameNetCollidingZones,
+                              std::vector<ZONE*>* aOtherNetIntersectingZones ) const;
 
     /**
      * Convert solid areas full shapes to polygon set
@@ -386,11 +362,10 @@ public:
      * Arcs (ends of segments) are approximated by segments
      *
      * @param aLayer is the layer of the zone to retrieve
-     * @param aCornerBuffer = a buffer to store the polygons
+     * @param aBuffer = a buffer to store the polygons
      * @param aError = Maximum error allowed between true arc and polygon approx
      */
-    void TransformSolidAreasShapesToPolygon( PCB_LAYER_ID aLayer, SHAPE_POLY_SET& aCornerBuffer,
-                                             int aError = ARC_HIGH_DEF ) const;
+    void TransformSolidAreasShapesToPolygon( PCB_LAYER_ID aLayer, SHAPE_POLY_SET& aBuffer ) const;
 
     /**
      * Convert the outlines shape to a polygon with no holes
@@ -399,11 +374,12 @@ public:
      * Used in filling zones calculations
      * Circles (vias) and arcs (ends of tracks) are approximated by segments.
      *
-     * @param aCornerBuffer is a buffer to store the polygon
+     * @param aBuffer is a buffer to store the polygon
      * @param aClearance is the min clearance around outlines
      * @param aBoardOutline is the board outline (if a valid one exists; nullptr otherwise)
      */
-    void TransformSmoothedOutlineToPolygon( SHAPE_POLY_SET& aCornerBuffer, int aClearance,
+    void TransformSmoothedOutlineToPolygon( SHAPE_POLY_SET& aBuffer, int aClearance,
+                                            int aError, ERROR_LOC aErrorLoc,
                                             SHAPE_POLY_SET* aBoardOutline ) const;
 
     /**
@@ -412,65 +388,45 @@ public:
      * Circles and arcs are approximated by segments
      *
      * @param aLayer is the layer of the filled zone to retrieve
-     * @param aCornerBuffer is a buffer to store the polygon
-     * @param aClearanceValue is the clearance around the pad
+     * @param aBuffer is a buffer to store the polygon
+     * @param aClearance is the clearance around the pad
      * @param aError is the maximum deviation from true circle
-     * @param ignoreLineWidth is used for edge cut items where the line width is only
-     * for visualization
+     * @param ignoreLineWidth is used for edge cut items where the line width is only for
+     *                        visualization
      */
-    void TransformShapeWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuffer,
-                                               PCB_LAYER_ID aLayer, int aClearanceValue,
-                                               int aError, ERROR_LOC aErrorLoc,
-                                               bool ignoreLineWidth = false ) const override;
+    void TransformShapeToPolygon( SHAPE_POLY_SET& aBuffer, PCB_LAYER_ID aLayer,
+                                  int aClearance, int aError, ERROR_LOC aErrorLoc,
+                                  bool ignoreLineWidth = false ) const override;
 
     /**
      * Test if the given VECTOR2I is near a corner.
      *
      * @param  refPos     is the VECTOR2I to test.
      * @param  aAccuracy  increase the item bounding box by this amount.
-     * @param  aCornerHit [out] is the index of the closest vertex found, useless when return
-     *                    value is false.
+     * @param  aCornerHit [out, optional] is the index of the closest vertex found when return
+     *                    value is true
      * @return true if some corner was found to be closer to refPos than aClearance; false
      *         otherwise.
      */
     bool HitTestForCorner( const VECTOR2I& refPos, int aAccuracy,
-                           SHAPE_POLY_SET::VERTEX_INDEX& aCornerHit ) const;
-
-    /**
-     * Test if the given VECTOR2I is near a corner.
-     * @param  refPos     is the VECTOR2I to test.
-     * @param  aAccuracy  increase the item bounding box by this amount.
-     * @return true if some corner was found to be closer to refPos than aClearance; false
-     *         otherwise.
-     */
-    bool HitTestForCorner( const VECTOR2I& refPos, int aAccuracy ) const;
+                           SHAPE_POLY_SET::VERTEX_INDEX* aCornerHit = nullptr ) const;
 
     /**
      * Test if the given VECTOR2I is near a segment defined by 2 corners.
      *
      * @param  refPos     is the VECTOR2I to test.
      * @param  aAccuracy  increase the item bounding box by this amount.
-     * @param  aCornerHit [out] is the index of the closest vertex found, useless when return
-     *                    value is false.
+     * @param  aCornerHit [out, optional] is the index of the closest vertex found when return
+     *                    value is true.
      * @return true if some edge was found to be closer to refPos than aClearance.
      */
     bool HitTestForEdge( const VECTOR2I& refPos, int aAccuracy,
-                         SHAPE_POLY_SET::VERTEX_INDEX& aCornerHit ) const;
+                         SHAPE_POLY_SET::VERTEX_INDEX* aCornerHit = nullptr ) const;
 
     /**
-     * Test if the given VECTOR2I is near a segment defined by 2 corners.
-     *
-     * @param  refPos     is the VECTOR2I to test.
-     * @param  aAccuracy  increase the item bounding box by this amount.
-     * @return true if some edge was found to be closer to refPos than aClearance.
+     * @copydoc BOARD_ITEM::HitTest(const BOX2I& aRect, bool aContained, int aAccuracy) const
      */
-    bool HitTestForEdge( const VECTOR2I& refPos, int aAccuracy ) const;
-
-    /**
-     * @copydoc BOARD_ITEM::HitTest(const EDA_RECT& aRect,
-     *                              bool aContained = true, int aAccuracy) const
-     */
-    bool HitTest( const EDA_RECT& aRect, bool aContained = true, int aAccuracy = 0 ) const override;
+    bool HitTest( const BOX2I& aRect, bool aContained = true, int aAccuracy = 0 ) const override;
 
     /**
      * Removes the zone filling.
@@ -712,7 +668,7 @@ public:
 
     void AddPolygon( const SHAPE_LINE_CHAIN& aPolygon );
 
-    wxString GetSelectMenuText( EDA_UNITS aUnits ) const override;
+    wxString GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const override;
 
     BITMAPS GetMenuImage() const override;
 
@@ -743,8 +699,6 @@ public:
     bool GetDoNotAllowTracks() const     { return m_doNotAllowTracks; }
     bool GetDoNotAllowPads() const       { return m_doNotAllowPads; }
     bool GetDoNotAllowFootprints() const { return m_doNotAllowFootprints; }
-    bool IsKeepout() const;
-    bool KeepoutAll() const;
 
     void SetIsRuleArea( bool aEnable )           { m_isRuleArea = aEnable; }
     void SetDoNotAllowCopperPour( bool aEnable ) { m_doNotAllowCopperPour = aEnable; }
@@ -805,9 +759,6 @@ public:
 
     const std::vector<SEG>& GetHatchLines() const { return m_borderHatchLines; }
 
-    bool   GetHV45() const { return m_hv45; }
-    void   SetHV45( bool aConstrain ) { m_hv45 = aConstrain; }
-
     /**
      * Build the hash value of m_FilledPolysList, and store it internally in m_filledPolysHash.
      * Used in zone filling calculations, to know if m_FilledPolysList is up to date.
@@ -821,9 +772,17 @@ public:
 
 #if defined(DEBUG)
     virtual void Show( int nestLevel, std::ostream& os ) const override { ShowDummy( os ); }
+
+    void SetFillPoly( PCB_LAYER_ID aLayer, SHAPE_POLY_SET* aPoly )
+    {
+        m_FilledPolysList[ aLayer ] = std::make_shared<SHAPE_POLY_SET>( *aPoly );
+        SetFillFlag( aLayer, true );
+    }
+
 #endif
 
-    virtual void SwapData( BOARD_ITEM* aImage ) override;
+protected:
+    virtual void swapData( BOARD_ITEM* aImage ) override;
 
 protected:
     SHAPE_POLY_SET*       m_Poly;                ///< Outline of the zone.
@@ -847,7 +806,7 @@ protected:
     bool m_isRuleArea;
 
     /* A zone outline can be a teardrop zone with different rules for priority
-     * (alway bigger priority than copper zones) and never removed from a
+     * (always bigger priority than copper zones) and never removed from a
      * copper zone having the same netcode
      */
     TEARDROP_TYPE m_teardropType;
@@ -923,8 +882,7 @@ protected:
     std::map<PCB_LAYER_ID, std::shared_ptr<SHAPE_POLY_SET>> m_FilledPolysList;
 
     /// Temp variables used while filling
-    EDA_RECT                               m_bboxCache;
-    std::map<PCB_LAYER_ID, bool>           m_fillFlags;
+    LSET                                   m_fillFlags;
 
     /// A hash value used in zone filling calculations to see if the filled areas are up to date
     std::map<PCB_LAYER_ID, MD5_HASH>       m_filledPolysHash;
@@ -935,8 +893,6 @@ protected:
 
     /// For each layer, a set of insulated islands that were not removed
     std::map<PCB_LAYER_ID, std::set<int>> m_insulatedIslands;
-
-    bool                      m_hv45;              // constrain edges to horiz, vert or 45°
 
     double                    m_area;              // The filled zone area
     double                    m_outlinearea;       // The outline zone area

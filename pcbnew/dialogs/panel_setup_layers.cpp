@@ -31,6 +31,9 @@
 #include <pcb_edit_frame.h>
 #include <board.h>
 #include <collectors.h>
+#include <footprint.h>
+#include <pad.h>
+#include <pcb_track.h>
 #include <panel_setup_layers.h>
 #include <board_stackup_manager/panel_board_stackup.h>
 
@@ -419,7 +422,6 @@ void PANEL_SETUP_LAYERS::OnCheckBox( wxCommandEvent& event )
 void PANEL_SETUP_LAYERS::DenyChangeCheckBox( wxCommandEvent& event )
 {
     wxObject* source = event.GetEventObject();
-    wxString msg;
 
     for( LSEQ seq = LSET::AllCuMask().Seq(); seq; ++seq )
     {
@@ -516,15 +518,38 @@ bool PANEL_SETUP_LAYERS::TransferDataFromWindow()
 
     m_enabledLayers = GetUILayerMask();
 
-    if( m_enabledLayers != m_pcb->GetEnabledLayers() )
+    LSET previousEnabled = m_pcb->GetEnabledLayers();
+
+    if( m_enabledLayers != previousEnabled )
     {
         m_pcb->SetEnabledLayers( m_enabledLayers );
 
-        /* Ensure enabled layers are also visible
-         * This is mainly to avoid mistakes if some enabled
-         * layers are not visible when exiting this dialog
+        LSET changedLayers = m_enabledLayers ^ previousEnabled;
+
+        /*
+         * Ensure enabled layers are also visible.  This is mainly to avoid mistakes if some
+         * enabled layers are not visible when exiting this dialog.
          */
-        m_pcb->SetVisibleLayers( m_enabledLayers );
+        m_pcb->SetVisibleLayers( m_pcb->GetVisibleLayers() | changedLayers );
+
+        /*
+         * Ensure items with through holes have all inner copper layers.  (For historical reasons
+         * this is NOT trimmed to the currently-enabled inner layers.)
+         */
+        for( FOOTPRINT* fp : m_pcb->Footprints() )
+        {
+            for( PAD* pad : fp->Pads() )
+            {
+                if( pad->HasHole() && pad->IsOnCopperLayer() )
+                    pad->SetLayerSet( pad->GetLayerSet() | LSET::InternalCuMask() );
+            }
+        }
+
+        for( PCB_TRACK* via : m_pcb->Tracks() )
+        {
+            if( via->HasHole() )
+                via->SetLayerSet( via->GetLayerSet() | LSET::InternalCuMask() );
+        }
 
         modified = true;
     }
@@ -569,14 +594,10 @@ bool PANEL_SETUP_LAYERS::TransferDataFromWindow()
         }
     }
 
-    // If some board items are deleted: Rebuild the connectivity,
-    // because it is likely some tracks and vias were removed
+    // If some board items are deleted: Rebuild the connectivity, because it is likely some
+    // tracks and vias were removed
     if( hasRemovedBoardItems )
-    {
-        // Rebuild list of nets (full ratsnest rebuild)
         m_pcb->BuildConnectivity();
-        m_frame->Compile_Ratsnest( true );
-    }
 
     if( modified )
         m_frame->OnModify();
@@ -722,7 +743,7 @@ LSEQ PANEL_SETUP_LAYERS::getNonRemovableLayers()
     PCB_LAYER_COLLECTOR collector;
     LSEQ newLayerSeq = newLayers.Seq();
 
-    for( auto layer_id : curLayers.Seq() )
+    for( PCB_LAYER_ID layer_id : curLayers.Seq() )
     {
         if( IsCopperLayer( layer_id ) ) // Copper layers are not taken into account here
             continue;

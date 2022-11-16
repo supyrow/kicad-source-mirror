@@ -46,7 +46,7 @@
 #include <lib_table_lexer.h>
 #include <invoke_pcb_dialog.h>
 #include <bitmaps.h>
-#include <grid_tricks.h>
+#include <lib_table_grid_tricks.h>
 #include <widgets/wx_grid.h>
 #include <confirm.h>
 #include <lib_table_grid.h>
@@ -58,13 +58,13 @@
 #include <footprint_viewer_frame.h>
 #include <footprint_edit_frame.h>
 #include <kiway.h>
+#include <kiway_express.h>
 #include <widgets/grid_readonly_text_helpers.h>
 #include <widgets/grid_text_button_helpers.h>
 #include <pcbnew_id.h>          // For ID_PCBNEW_END_LIST
 #include <settings/settings_manager.h>
 #include <paths.h>
 #include <macros.h>
-
 // clang-format off
 
 /**
@@ -246,12 +246,11 @@ public:
 #define MYID_OPTIONS_EDITOR  15151
 
 
-class FP_GRID_TRICKS : public GRID_TRICKS
+class FP_GRID_TRICKS : public LIB_TABLE_GRID_TRICKS
 {
 public:
     FP_GRID_TRICKS( DIALOG_EDIT_LIBRARY_TABLES* aParent, WX_GRID* aGrid ) :
-            GRID_TRICKS( aGrid ),
-            m_dialog( aParent )
+            LIB_TABLE_GRID_TRICKS( aGrid ), m_dialog( aParent )
     { }
 
 protected:
@@ -297,7 +296,7 @@ protected:
             menu.AppendSeparator();
         }
 
-        GRID_TRICKS::showPopupMenu( menu );
+        LIB_TABLE_GRID_TRICKS::showPopupMenu( menu );
     }
 
     void doPopupSelection( wxCommandEvent& event ) override
@@ -305,7 +304,7 @@ protected:
         if( event.GetId() == MYID_OPTIONS_EDITOR )
             optionsEditor( m_grid->GetGridCursorRow() );
         else
-            GRID_TRICKS::doPopupSelection( event );
+            LIB_TABLE_GRID_TRICKS::doPopupSelection( event );
     }
 
     /// handle specialized clipboard text, with leading "(fp_lib_table", OR
@@ -421,6 +420,11 @@ PANEL_FP_LIB_TABLE::PANEL_FP_LIB_TABLE( DIALOG_EDIT_LIBRARY_TABLES* aParent,
                 attr->SetReadOnly();    // not really; we delegate interactivity to GRID_TRICKS
                 aGrid->SetColAttr( COL_ENABLED, attr );
 
+                // No visibility control for footprint libraries yet; this feature is primarily
+                // useful for database libraries and it's only implemented for schematic symbols
+                // at the moment.
+                aGrid->HideCol( COL_VISIBLE );
+
                 // all but COL_OPTIONS, which is edited with Option Editor anyways.
                 aGrid->AutoSizeColumn( COL_NICKNAME, false );
                 aGrid->AutoSizeColumn( COL_TYPE, false );
@@ -503,11 +507,6 @@ PANEL_FP_LIB_TABLE::PANEL_FP_LIB_TABLE( DIALOG_EDIT_LIBRARY_TABLES* aParent,
 
 PANEL_FP_LIB_TABLE::~PANEL_FP_LIB_TABLE()
 {
-    // When the dialog is closed it will hide the current notebook page first, which will
-    // in turn select the other one.  We then end up saving its index as the "current page".
-    // So flip them back again:
-    m_pageNdx = m_pageNdx == 1 ? 0 : 1;
-
     // Delete the GRID_TRICKS.
     // Any additional event handlers should be popped before the window is deleted.
     m_global_grid->PopEventHandler( true );
@@ -1138,4 +1137,7 @@ void InvokePcbLibTableEditor( KIWAY* aKiway, wxWindow* aCaller )
 
     if( viewer )
         viewer->ReCreateLibraryList();
+
+    std::string payload = "";
+    aKiway->ExpressMail( FRAME_CVPCB, MAIL_RELOAD_LIB, payload );
 }

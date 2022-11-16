@@ -54,22 +54,18 @@ enum SEARCH_PATH_GRID_COLUMNS
 };
 
 
-DIALOG_CONFIGURE_PATHS::DIALOG_CONFIGURE_PATHS( wxWindow* aParent, FILENAME_RESOLVER* aResolver ) :
+DIALOG_CONFIGURE_PATHS::DIALOG_CONFIGURE_PATHS( wxWindow* aParent ) :
     DIALOG_CONFIGURE_PATHS_BASE( aParent ),
     m_errorGrid( nullptr ),
     m_errorRow( -1 ),
     m_errorCol( -1 ),
-    m_resolver( aResolver ),
     m_gridWidth( 0 ),
     m_gridWidthsDirty( true ),
-    m_helpDialog( nullptr )
+    m_helpBox( nullptr ),
+    m_heightBeforeHelp( 400 )
 {
     m_btnAddEnvVar->SetBitmap( KiBitmap( BITMAPS::small_plus ) );
     m_btnDeleteEnvVar->SetBitmap( KiBitmap( BITMAPS::small_trash ) );
-    m_btnAddSearchPath->SetBitmap( KiBitmap( BITMAPS::small_plus ) );
-    m_btnDeleteSearchPath->SetBitmap( KiBitmap( BITMAPS::small_trash ) );
-    m_btnMoveUp->SetBitmap( KiBitmap( BITMAPS::small_up ) );
-    m_btnMoveDown->SetBitmap( KiBitmap( BITMAPS::small_down ) );
 
     m_EnvVars->ClearRows();
     m_EnvVars->AppendCols( 1 );     // for the isExternal flags
@@ -80,31 +76,16 @@ DIALOG_CONFIGURE_PATHS::DIALOG_CONFIGURE_PATHS( wxWindow* aParent, FILENAME_RESO
     attr->SetEditor( new GRID_CELL_PATH_EDITOR( this, m_EnvVars, &m_curdir, wxEmptyString ) );
     m_EnvVars->SetColAttr( TV_VALUE_COL, attr );
 
-    attr = new wxGridCellAttr;
-    attr->SetEditor( new GRID_CELL_PATH_EDITOR( this, m_SearchPaths, &m_curdir, wxEmptyString ) );
-    m_SearchPaths->SetColAttr( TV_VALUE_COL, attr );
-
     // Give a bit more room for combobox editors
     m_EnvVars->SetDefaultRowSize( m_EnvVars->GetDefaultRowSize() + 4 );
-    m_SearchPaths->SetDefaultRowSize( m_SearchPaths->GetDefaultRowSize() + 4 );
 
-    m_EnvVars->PushEventHandler( new GRID_TRICKS( m_EnvVars ) );
-    m_SearchPaths->PushEventHandler( new GRID_TRICKS( m_SearchPaths ) );
+    m_EnvVars->PushEventHandler( new GRID_TRICKS( m_EnvVars,
+                                                  [this]( wxCommandEvent& aEvent )
+                                                  {
+                                                      OnAddEnvVar( aEvent );
+                                                  } ) );
 
     m_EnvVars->SetSelectionMode( wxGrid::wxGridSelectionModes::wxGridSelectRows );
-    m_SearchPaths->SetSelectionMode( wxGrid::wxGridSelectionModes::wxGridSelectRows );
-
-    if( m_resolver )
-    {
-        m_SearchPaths->ClearRows();
-        m_SearchPaths->UseNativeColHeader( true );
-
-        // prohibit these characters in the alias names: []{}()%~<>"='`;:.,&?/\|$
-        m_aliasValidator.SetStyle( wxFILTER_EXCLUDE_CHAR_LIST );
-        m_aliasValidator.SetCharExcludes( wxT( "{}[]()%~<>\"='`;:.,&?/\\|$" ) );
-    }
-    else
-        m_sb3DSearchPaths->Show( false );
 
     SetInitialFocus( m_EnvVars );
     SetupStandardButtons();
@@ -113,9 +94,6 @@ DIALOG_CONFIGURE_PATHS::DIALOG_CONFIGURE_PATHS( wxWindow* aParent, FILENAME_RESO
     m_EnvVars->Connect( wxEVT_GRID_CELL_CHANGING,
                         wxGridEventHandler( DIALOG_CONFIGURE_PATHS::OnGridCellChanging ),
                         nullptr, this );
-    m_SearchPaths->Connect( wxEVT_GRID_CELL_CHANGING,
-                            wxGridEventHandler( DIALOG_CONFIGURE_PATHS::OnGridCellChanging ),
-                            nullptr, this );
 
     GetSizer()->SetSizeHints( this );
     Centre();
@@ -125,18 +103,11 @@ DIALOG_CONFIGURE_PATHS::DIALOG_CONFIGURE_PATHS( wxWindow* aParent, FILENAME_RESO
 DIALOG_CONFIGURE_PATHS::~DIALOG_CONFIGURE_PATHS()
 {
     // Delete the GRID_TRICKS.
-    m_SearchPaths->PopEventHandler( true );
     m_EnvVars->PopEventHandler( true );
-
-    if( m_helpDialog )
-        m_helpDialog->Destroy();
 
     m_EnvVars->Disconnect( wxEVT_GRID_CELL_CHANGING,
                            wxGridEventHandler( DIALOG_CONFIGURE_PATHS::OnGridCellChanging ),
                            nullptr, this );
-    m_SearchPaths->Disconnect( wxEVT_GRID_CELL_CHANGING,
-                               wxGridEventHandler( DIALOG_CONFIGURE_PATHS::OnGridCellChanging ),
-                               nullptr, this );
 }
 
 
@@ -144,26 +115,6 @@ bool DIALOG_CONFIGURE_PATHS::TransferDataToWindow()
 {
    if( !wxDialog::TransferDataToWindow() )
        return false;
-
-   // Do 3D search paths first so they get first crack at setting m_curdir
-
-   if( m_resolver )
-   {
-       const std::list<SEARCH_PATH>* paths = m_resolver->GetPaths();
-
-       for( auto it = paths->begin(); it != paths->end(); ++it )
-       {
-           if ( !( *it ).m_Alias.StartsWith( "${" ) && !( *it ).m_Alias.StartsWith( "$(" ) )
-           {
-               AppendSearchPath( it->m_Alias, it->m_Pathvar, it->m_Description );
-
-               if( m_curdir.IsEmpty() )
-                   m_curdir = it->m_Pathexp;
-           }
-       }
-   }
-
-    // Environment variables
 
     const ENV_VAR_MAP& envVars = Pgm().GetLocalEnvVariables();
 
@@ -207,29 +158,9 @@ void DIALOG_CONFIGURE_PATHS::AppendEnvVar( const wxString& aName, const wxString
 }
 
 
-void DIALOG_CONFIGURE_PATHS::AppendSearchPath( const wxString& aName, const wxString& aPath,
-                                               const wxString& aDescription )
-{
-    int i = m_SearchPaths->GetNumberRows();
-
-    m_SearchPaths->AppendRows( 1 );
-
-    m_SearchPaths->SetCellValue( i, SP_ALIAS_COL, aName );
-
-    wxGridCellAttr* nameCellAttr = m_SearchPaths->GetOrCreateCellAttr( i, SP_ALIAS_COL );
-    wxGridCellTextEditor* nameTextEditor = new GRID_CELL_TEXT_EDITOR();
-    nameTextEditor->SetValidator( m_aliasValidator );
-    nameCellAttr->SetEditor( nameTextEditor );
-    nameCellAttr->DecRef();
-
-    m_SearchPaths->SetCellValue( i, SP_PATH_COL, aPath );
-    m_SearchPaths->SetCellValue( i, SP_DESC_COL, aDescription );
-}
-
-
 bool DIALOG_CONFIGURE_PATHS::TransferDataFromWindow()
 {
-    if( !m_EnvVars->CommitPendingChanges() || !m_SearchPaths->CommitPendingChanges() )
+    if( !m_EnvVars->CommitPendingChanges() )
         return false;
 
     if( !wxDialog::TransferDataFromWindow() )
@@ -294,43 +225,6 @@ bool DIALOG_CONFIGURE_PATHS::TransferDataFromWindow()
     }
 
     Pgm().SetLocalEnvVariables();
-
-    // 3D search paths
-
-    if( m_resolver )
-    {
-        std::vector<SEARCH_PATH> alist;
-        SEARCH_PATH alias;
-
-        for( int row = 0; row < m_SearchPaths->GetNumberRows(); ++row )
-        {
-            alias.m_Alias = m_SearchPaths->GetCellValue( row, SP_ALIAS_COL );
-            alias.m_Pathvar = m_SearchPaths->GetCellValue( row, SP_PATH_COL );
-            alias.m_Description = m_SearchPaths->GetCellValue( row, SP_DESC_COL );
-
-            if( alias.m_Alias.IsEmpty() )
-            {
-                m_errorGrid = m_SearchPaths;
-                m_errorRow = row;
-                m_errorCol = SP_ALIAS_COL;
-                m_errorMsg = _( "3D search path alias cannot be empty." );
-                return false;
-            }
-            else if( alias.m_Pathvar.IsEmpty() )
-            {
-                m_errorGrid = m_SearchPaths;
-                m_errorRow = row;
-                m_errorCol = SP_PATH_COL;
-                m_errorMsg = _( "3D search path cannot be empty." );
-                return false;
-            }
-
-            alist.push_back( alias );
-        }
-
-        if( !m_resolver->UpdatePathList( alist ) )
-            return false;
-    }
 
     return true;
 }
@@ -420,21 +314,6 @@ void DIALOG_CONFIGURE_PATHS::OnAddEnvVar( wxCommandEvent& event )
 }
 
 
-void DIALOG_CONFIGURE_PATHS::OnAddSearchPath( wxCommandEvent& event )
-{
-    if( !m_SearchPaths->CommitPendingChanges() )
-        return;
-
-    AppendSearchPath( wxEmptyString, wxEmptyString, wxEmptyString);
-
-    m_SearchPaths->MakeCellVisible( m_SearchPaths->GetNumberRows() - 1, SP_ALIAS_COL );
-    m_SearchPaths->SetGridCursor( m_SearchPaths->GetNumberRows() - 1, SP_ALIAS_COL );
-
-    m_SearchPaths->EnableCellEditControl( true );
-    m_SearchPaths->ShowCellEditControl();
-}
-
-
 void DIALOG_CONFIGURE_PATHS::OnRemoveEnvVar( wxCommandEvent& event )
 {
     int curRow = m_EnvVars->GetGridCursorRow();
@@ -457,115 +336,6 @@ void DIALOG_CONFIGURE_PATHS::OnRemoveEnvVar( wxCommandEvent& event )
 }
 
 
-void DIALOG_CONFIGURE_PATHS::OnDeleteSearchPath( wxCommandEvent& event )
-{
-    wxArrayInt selectedRows = m_SearchPaths->GetSelectedRows();
-
-    if( selectedRows.empty() && m_SearchPaths->GetGridCursorRow() >= 0 )
-        selectedRows.push_back( m_SearchPaths->GetGridCursorRow() );
-
-    if( selectedRows.empty() )
-        return;
-
-    m_SearchPaths->CommitPendingChanges( true /* silent mode; we don't care if it's valid */ );
-
-    // Reverse sort so deleting a row doesn't change the indexes of the other rows.
-    selectedRows.Sort( []( int* first, int* second ) { return *second - *first; } );
-
-    for( int row : selectedRows )
-    {
-        m_SearchPaths->DeleteRows( row, 1 );
-
-        // if there are still rows in grid, make previous row visible
-        if( m_SearchPaths->GetNumberRows() )
-        {
-            m_SearchPaths->MakeCellVisible( std::max( 0, row-1 ),
-                                            m_SearchPaths->GetGridCursorCol() );
-            m_SearchPaths->SetGridCursor( std::max( 0, row-1 ),
-                                          m_SearchPaths->GetGridCursorCol() );
-        }
-    }
-}
-
-
-void DIALOG_CONFIGURE_PATHS::OnSearchPathMoveUp( wxCommandEvent& event )
-{
-    if( !m_SearchPaths->CommitPendingChanges() )
-        return;
-
-    int curRow   = m_SearchPaths->GetGridCursorRow();
-    int prevRow  = curRow - 1;
-
-    if( curRow > 0 )
-    {
-        for( int i = 0; i < m_SearchPaths->GetNumberCols(); ++i )
-        {
-            wxString tmp = m_SearchPaths->GetCellValue( curRow, i );
-            m_SearchPaths->SetCellValue( curRow, i, m_SearchPaths->GetCellValue( prevRow, i ) );
-            m_SearchPaths->SetCellValue( prevRow, i, tmp );
-        }
-
-        m_SearchPaths->SetGridCursor( prevRow, m_SearchPaths->GetGridCursorCol() );
-    }
-    else
-    {
-        wxBell();
-    }
-}
-
-
-void DIALOG_CONFIGURE_PATHS::OnSearchPathMoveDown( wxCommandEvent& event )
-{
-    if( !m_SearchPaths->CommitPendingChanges() )
-        return;
-
-    int curRow   = m_SearchPaths->GetGridCursorRow();
-    int nextRow  = curRow + 1;
-
-    if( curRow < m_SearchPaths->GetNumberRows() - 1 )
-    {
-        for( int i = 0; i < m_SearchPaths->GetNumberCols(); ++i )
-        {
-            wxString tmp = m_SearchPaths->GetCellValue( curRow, i );
-            m_SearchPaths->SetCellValue( curRow, i, m_SearchPaths->GetCellValue( nextRow, i ) );
-            m_SearchPaths->SetCellValue( nextRow, i, tmp );
-        }
-
-        m_SearchPaths->SetGridCursor( nextRow, m_SearchPaths->GetGridCursorCol() );
-    }
-    else
-    {
-        wxBell();
-    }
-}
-
-
-void DIALOG_CONFIGURE_PATHS::OnGridCellRightClick( wxGridEvent& aEvent )
-{
-    wxASSERT((int) TV_VALUE_COL == (int) SP_PATH_COL );
-
-    if( aEvent.GetCol() == TV_VALUE_COL )
-    {
-        wxMenu menu;
-
-        AddMenuItem( &menu, 1, _( "File Browser..." ), KiBitmap( BITMAPS::small_folder ) );
-
-        if( GetPopupMenuSelectionFromUser( menu ) == 1 )
-        {
-            wxDirDialog dlg( nullptr, _( "Select Path" ), m_curdir,
-                             wxDD_DEFAULT_STYLE | wxDD_DIR_MUST_EXIST );
-
-            if( dlg.ShowModal() == wxID_OK )
-            {
-                wxGrid* grid = dynamic_cast<wxGrid*>( aEvent.GetEventObject() );
-                grid->SetCellValue( aEvent.GetRow(), TV_VALUE_COL, dlg.GetPath() );
-                m_curdir = dlg.GetPath();
-            }
-        }
-    }
-}
-
-
 void DIALOG_CONFIGURE_PATHS::OnUpdateUI( wxUpdateUIEvent& event )
 {
     if( m_gridWidthsDirty )
@@ -577,31 +347,16 @@ void DIALOG_CONFIGURE_PATHS::OnUpdateUI( wxUpdateUIEvent& event )
 
         m_EnvVars->SetColSize( TV_VALUE_COL, width - m_EnvVars->GetColSize( TV_NAME_COL ) );
 
-        width = m_SearchPaths->GetClientRect().GetWidth();
-
-        m_SearchPaths->AutoSizeColumn( SP_ALIAS_COL );
-        m_SearchPaths->SetColSize( SP_ALIAS_COL,
-                                   std::max( m_SearchPaths->GetColSize( SP_ALIAS_COL ), 120 ) );
-
-        m_SearchPaths->AutoSizeColumn( SP_PATH_COL );
-        m_SearchPaths->SetColSize( SP_PATH_COL,
-                                   std::max( m_SearchPaths->GetColSize( SP_PATH_COL ), 300 ) );
-
-        m_SearchPaths->SetColSize( SP_DESC_COL, width -
-                                   ( m_SearchPaths->GetColSize( SP_ALIAS_COL ) +
-                                     m_SearchPaths->GetColSize( SP_PATH_COL ) ) );
         m_gridWidth = m_EnvVars->GetSize().GetX();
         m_gridWidthsDirty = false;
     }
 
-    // Handle a grid error.  This is delayed to OnUpdateUI so that we can change focus
-    // even when the original validation was triggered from a killFocus event (and for
-    // dialog with notebooks, so that the corresponding notebook page can be shown in
-    // the background when triggered from an OK).
+    // Handle a grid error.  This is delayed to OnUpdateUI so that we can change focus even when
+    // the original validation was triggered from a killFocus event.
     if( m_errorGrid )
     {
-        // We will re-enter this routine when the error dialog is displayed, so make
-        // sure we don't keep putting up more dialogs.
+        // We will re-enter this routine when the error dialog is displayed, so make sure we don't
+        // keep putting up more dialogs.
         wxGrid* grid = m_errorGrid;
         m_errorGrid = nullptr;
 
@@ -628,38 +383,55 @@ void DIALOG_CONFIGURE_PATHS::OnGridSize( wxSizeEvent& event )
 
 void DIALOG_CONFIGURE_PATHS::OnHelp( wxCommandEvent& event )
 {
-    if( m_helpDialog )
+    wxSizer* sizerMain = GetSizer();
+
+    if( !m_helpBox )
     {
-        m_helpDialog->ShowModeless();
-        return;
+        m_helpBox = new HTML_WINDOW( this, wxID_ANY, wxDefaultPosition, wxDefaultSize,
+                                     wxHW_SCROLLBAR_AUTO );
+
+        wxString msg = _( "Enter the name and value for each environment variable.  Grey entries "
+                          "are names that have been defined externally at the system or user "
+                          "level.  Environment variables defined at the system or user level "
+                          "take precedence over the ones defined in this table.  This means the "
+                          "values in this table are ignored." );
+        msg << "<br><br><b>";
+        msg << _( "To ensure environment variable names are valid on all platforms, the name field "
+                  "will only accept upper case letters, digits, and the underscore characters." );
+        msg << "</b>";
+
+        for( const wxString& var : ENV_VAR::GetPredefinedEnvVars() )
+        {
+            msg << "<br><br><b>" << var << "</b>";
+
+            const auto desc = ENV_VAR::LookUpEnvVarHelp( var );
+
+            if( desc.size() > 0 )
+                msg << ": " << desc;
+
+        }
+
+        m_helpBox->SetPage( msg );
+        m_helpBox->Show( false );
+
+        sizerMain->Insert( sizerMain->GetItemCount() - 1, m_helpBox, 1, wxALL|wxEXPAND, 10 );
     }
 
-    wxString msg = _( "Enter the name and value for each environment variable.  Grey entries "
-                      "are names that have been defined externally at the system or user "
-                      "level.  Environment variables defined at the system or user level "
-                      "take precedence over the ones defined in this table.  This means the "
-                      "values in this table are ignored." );
-    msg << "<br><br><b>";
-    msg << _( "To ensure environment variable names are valid on all platforms, the name field "
-              "will only accept upper case letters, digits, and the underscore characters." );
-    msg << "</b>";
-
-    for( const auto& var : ENV_VAR::GetPredefinedEnvVars() )
+    if( m_helpBox->IsShown() )
     {
-        msg << "<br><br><b>" << var << "</b>";
+        m_helpBox->Show( false );
+        SetClientSize( wxSize( GetClientSize().x, m_heightBeforeHelp ) );
+    }
+    else
+    {
+        m_helpBox->Show( true );
+        m_heightBeforeHelp = GetClientSize().y;
 
-        const auto desc = ENV_VAR::LookUpEnvVarHelp( var );
+        int minHelpBoxHeight = GetTextExtent( wxT( "T" ) ).y * 20;
 
-        if( desc.size() > 0 )
-            msg << ": " << desc;
-
+        if( GetClientSize().y < minHelpBoxHeight * 2 )
+            SetClientSize( wxSize( GetClientSize().x, GetClientSize().y + minHelpBoxHeight ) );
     }
 
-    m_helpDialog = new HTML_MESSAGE_BOX( nullptr, _( "Environment Variable Help" ) );
-    m_helpDialog->SetDialogSizeInDU( 400, 250 );
-
-    m_helpDialog->AddHTML_Text( msg );
-    m_helpDialog->ShowModeless();
-
-    // m_helpDialog will be destroyed when closing the dialog
+    Layout();
 }

@@ -54,7 +54,8 @@ public:
 
     SCH_FIELD( const SCH_FIELD& aText );
 
-    ~SCH_FIELD();
+    ~SCH_FIELD()
+    { }
 
     SCH_FIELD& operator=( const SCH_FIELD& aField );
 
@@ -68,20 +69,20 @@ public:
         return wxT( "SCH_FIELD" );
     }
 
-    bool IsType( const KICAD_T aScanTypes[] ) const override
+    bool IsType( const std::vector<KICAD_T>& aScanTypes ) const override
     {
         if( SCH_ITEM::IsType( aScanTypes ) )
             return true;
 
-        for( const KICAD_T* p = aScanTypes; *p != EOT; ++p )
+        for( KICAD_T scanType : aScanTypes )
         {
-            if( *p == SCH_FIELD_LOCATE_REFERENCE_T && m_id == REFERENCE_FIELD )
+            if( scanType == SCH_FIELD_LOCATE_REFERENCE_T && m_id == REFERENCE_FIELD )
                 return true;
-            else if ( *p == SCH_FIELD_LOCATE_VALUE_T && m_id == VALUE_FIELD )
+            else if ( scanType == SCH_FIELD_LOCATE_VALUE_T && m_id == VALUE_FIELD )
                 return true;
-            else if ( *p == SCH_FIELD_LOCATE_FOOTPRINT_T && m_id == FOOTPRINT_FIELD )
+            else if ( scanType == SCH_FIELD_LOCATE_FOOTPRINT_T && m_id == FOOTPRINT_FIELD )
                 return true;
-            else if ( *p == SCH_FIELD_LOCATE_DATASHEET_T && m_id == DATASHEET_FIELD )
+            else if ( scanType == SCH_FIELD_LOCATE_DATASHEET_T && m_id == DATASHEET_FIELD )
                 return true;
         }
 
@@ -93,10 +94,10 @@ public:
         return m_id == 0 && m_parent && m_parent->Type() == SCH_GLOBAL_LABEL_T;
     }
 
-    void DoHypertextMenu( EDA_DRAW_FRAME* aFrame ) override;
+    void DoHypertextAction( EDA_DRAW_FRAME* aFrame ) const override;
 
     /**
-     * Return the field name.
+     * Return the field name (not translated)..
      *
      * @param aUseDefaultName When true return the default field name if the field name is
      *                        empty.  Otherwise the default field name is returned.
@@ -116,14 +117,24 @@ public:
 
     void SetId( int aId );
 
-    wxString GetShownText( int aDepth = 0 ) const override;
+    wxString GetShownText( int aDepth = 0, bool aAllowExtraText = true ) const override;
+
+    COLOR4D GetFieldColor() const;
+
+    void SetLastResolvedState( const SCH_ITEM* aItem ) override
+    {
+        const SCH_FIELD* aField = dynamic_cast<const SCH_FIELD*>( aItem );
+
+        if( aField )
+            m_lastResolvedColor = aField->m_lastResolvedColor;
+    }
 
     /**
      * Adjusters to allow EDA_TEXT to draw/print/etc. text in absolute coords.
      */
-    EDA_ANGLE         GetDrawRotation() const override;
+    EDA_ANGLE GetDrawRotation() const override;
 
-    const EDA_RECT GetBoundingBox() const override;
+    const BOX2I GetBoundingBox() const override;
 
     /**
      * Return whether the field will be rendered with the horizontal justification
@@ -135,10 +146,11 @@ public:
     GR_TEXT_H_ALIGN_T GetEffectiveHorizJustify() const;
     GR_TEXT_V_ALIGN_T GetEffectiveVertJustify() const;
 
-    /**
-     * @return true if the field is either empty or holds "~".
-     */
-    bool IsVoid() const;
+    bool IsNameShown() const { return m_showName; }
+    void SetNameShown( bool aShown = true ) { m_showName = aShown; }
+
+    bool CanAutoplace() const { return m_allowAutoPlace; }
+    void SetCanAutoplace( bool aCanPlace ) { m_allowAutoPlace = aCanPlace; }
 
     void SwapData( SCH_ITEM* aItem ) override;
 
@@ -152,8 +164,6 @@ public:
     void ImportValues( const LIB_FIELD& aSource );
 
     int GetPenWidth() const override;
-
-    KIFONT::FONT* GetDrawFont() const override;
 
     void ClearCaches() override;
     void ClearRenderCache() override;
@@ -193,11 +203,11 @@ public:
     {
     }
 
-    bool Matches( const wxFindReplaceData& aSearchData, void* aAuxData ) const override;
+    bool Matches( const EDA_SEARCH_DATA& aSearchData, void* aAuxData ) const override;
 
-    bool Replace( const wxFindReplaceData& aSearchData, void* aAuxData = nullptr ) override;
+    bool Replace( const EDA_SEARCH_DATA& aSearchData, void* aAuxData = nullptr ) override;
 
-    wxString GetSelectMenuText( EDA_UNITS aUnits ) const override;
+    wxString GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const override;
     void GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList ) override;
 
     BITMAPS GetMenuImage() const override;
@@ -212,7 +222,7 @@ public:
     VECTOR2I GetParentPosition() const;
 
     bool HitTest( const VECTOR2I& aPosition, int aAccuracy = 0 ) const override;
-    bool HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy = 0 ) const override;
+    bool HitTest( const BOX2I& aRect, bool aContained, int aAccuracy = 0 ) const override;
 
     void Plot( PLOTTER* aPlotter, bool aBackground ) const override;
 
@@ -224,14 +234,22 @@ public:
     void Show( int nestLevel, std::ostream& os ) const override { ShowDummy( os ); }
 #endif
 
+protected:
+    KIFONT::FONT* getDrawFont() const override;
+
 private:
     int      m_id;         ///< Field index, @see enum MANDATORY_FIELD_T
 
     wxString m_name;
 
+    bool     m_showName;   ///< Render the field name in addition to its value
+    bool     m_allowAutoPlace;  ///< This field can be autoplaced
+
     mutable bool                                        m_renderCacheValid;
     mutable VECTOR2I                                    m_renderCachePos;
     mutable std::vector<std::unique_ptr<KIFONT::GLYPH>> m_renderCache;
+
+    mutable COLOR4D                                     m_lastResolvedColor;
 };
 
 

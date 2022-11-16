@@ -75,7 +75,7 @@ bool GERBVIEW_PRINTOUT::OnPrintPage( int aPage )
 
 int GERBVIEW_PRINTOUT::milsToIU( double aMils ) const
 {
-    return KiROUND( IU_PER_MILS * aMils );
+    return KiROUND( gerbIUScale.IU_PER_MILS * aMils );
 }
 
 
@@ -91,11 +91,11 @@ void GERBVIEW_PRINTOUT::setupViewLayers( KIGFX::VIEW& aView, const LSET& aLayerS
 void GERBVIEW_PRINTOUT::setupGal( KIGFX::GAL* aGal )
 {
     BOARD_PRINTOUT::setupGal( aGal );
-    aGal->SetWorldUnitLength( 1.0/IU_PER_MM /* 10 nm */ / 25.4 /* 1 inch in mm */ );
+    aGal->SetWorldUnitLength( 1.0/ gerbIUScale.IU_PER_MM /* 10 nm */ / 25.4 /* 1 inch in mm */ );
 }
 
 
-EDA_RECT GERBVIEW_PRINTOUT::getBoundingBox()
+BOX2I GERBVIEW_PRINTOUT::getBoundingBox()
 {
     return m_layout->ComputeBoundingBox();
 }

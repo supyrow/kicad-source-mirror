@@ -41,8 +41,8 @@ PCB_TARGET::PCB_TARGET( BOARD_ITEM* aParent ) :
     BOARD_ITEM( aParent, PCB_TARGET_T )
 {
     m_shape     = 0;
-    m_size      = Millimeter2iu( 5 );          // Gives a decent size
-    m_lineWidth = Millimeter2iu( DEFAULT_COPPER_LINE_WIDTH );
+    m_size      = pcbIUScale.mmToIU( 5 );          // Gives a decent size
+    m_lineWidth = pcbIUScale.mmToIU( DEFAULT_COPPER_LINE_WIDTH );
     m_layer     = Edge_Cuts;                   // a target is on all layers
 }
 
@@ -72,9 +72,9 @@ bool PCB_TARGET::HitTest( const VECTOR2I& aPosition, int aAccuracy ) const
 }
 
 
-bool PCB_TARGET::HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy ) const
+bool PCB_TARGET::HitTest( const BOX2I& aRect, bool aContained, int aAccuracy ) const
 {
-    EDA_RECT arect = aRect;
+    BOX2I arect = aRect;
     arect.Inflate( aAccuracy );
 
     if( aContained )
@@ -101,9 +101,9 @@ void PCB_TARGET::Flip( const VECTOR2I& aCentre, bool aFlipLeftRight )
 }
 
 
-const EDA_RECT PCB_TARGET::GetBoundingBox() const
+const BOX2I PCB_TARGET::GetBoundingBox() const
 {
-    EDA_RECT bBox;
+    BOX2I bBox;
     bBox.SetX( m_pos.x - m_size / 2 );
     bBox.SetY( m_pos.y - m_size / 2 );
     bBox.SetWidth( m_size );
@@ -113,13 +113,13 @@ const EDA_RECT PCB_TARGET::GetBoundingBox() const
 }
 
 
-std::shared_ptr<SHAPE> PCB_TARGET::GetEffectiveShape( PCB_LAYER_ID aLayer ) const
+std::shared_ptr<SHAPE> PCB_TARGET::GetEffectiveShape( PCB_LAYER_ID aLayer, FLASHING aFlash ) const
 {
     return std::make_shared<SHAPE_CIRCLE>( m_pos, m_size / 2 );
 }
 
 
-wxString PCB_TARGET::GetSelectMenuText( EDA_UNITS aUnits ) const
+wxString PCB_TARGET::GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const
 {
     // Targets are on *every* layer by definition
     return _( "Target" );
@@ -138,7 +138,7 @@ EDA_ITEM* PCB_TARGET::Clone() const
 }
 
 
-void PCB_TARGET::SwapData( BOARD_ITEM* aImage )
+void PCB_TARGET::swapData( BOARD_ITEM* aImage )
 {
     assert( aImage->Type() == PCB_TARGET_T );
 
@@ -148,22 +148,19 @@ void PCB_TARGET::SwapData( BOARD_ITEM* aImage )
 
 void PCB_TARGET::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList )
 {
-    EDA_UNITS units = aFrame->GetUserUnits();
-
     aList.emplace_back( _( "PCB Target" ), wxEmptyString );
 
     aList.emplace_back( _( "Layer" ), GetLayerName() );
 
-    aList.emplace_back( _( "Size" ), MessageTextFromValue( units, GetSize() ) );
-    aList.emplace_back( _( "Width" ), MessageTextFromValue( units, GetWidth() ) );
+    aList.emplace_back( _( "Size" ), aFrame->MessageTextFromValue( GetSize() ) );
+    aList.emplace_back( _( "Width" ), aFrame->MessageTextFromValue( GetWidth() ) );
     aList.emplace_back( _( "Shape" ), GetShape() == 0 ? wxT( "+" ) : wxT( "X" ) );
 }
 
 
-void PCB_TARGET::TransformShapeWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuffer,
-                                               PCB_LAYER_ID aLayer, int aClearanceValue,
-                                               int aError, ERROR_LOC aErrorLoc,
-                                               bool ignoreLineWidth ) const
+void PCB_TARGET::TransformShapeToPolygon( SHAPE_POLY_SET& aBuffer, PCB_LAYER_ID aLayer,
+                                          int aClearance, int aError, ERROR_LOC aErrorLoc,
+                                          bool ignoreLineWidth ) const
 {
     int size = GetShape() ? GetSize() / 1.5 : GetSize() / 2.0;
     int radius = GetShape() ? GetSize() / 2.0 : GetSize() / 3.0;
@@ -186,8 +183,8 @@ void PCB_TARGET::TransformShapeWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBu
     {
         item->SetWidth( GetWidth() );
         item->Move( GetPosition() );
-        item->TransformShapeWithClearanceToPolygon( aCornerBuffer, aLayer, aClearanceValue,
-                                                    aError, aErrorLoc, ignoreLineWidth );
+        item->TransformShapeToPolygon( aBuffer, aLayer, aClearance, aError, aErrorLoc,
+                                       ignoreLineWidth );
     }
 }
 
@@ -200,9 +197,9 @@ static struct PCB_TARGET_DESC
         REGISTER_TYPE( PCB_TARGET );
         propMgr.InheritsAfter( TYPE_HASH( PCB_TARGET ), TYPE_HASH( BOARD_ITEM ) );
         propMgr.AddProperty( new PROPERTY<PCB_TARGET, int>( _HKI( "Size" ),
-                    &PCB_TARGET::SetSize, &PCB_TARGET::GetSize, PROPERTY_DISPLAY::DISTANCE ) );
+                    &PCB_TARGET::SetSize, &PCB_TARGET::GetSize, PROPERTY_DISPLAY::PT_SIZE ) );
         propMgr.AddProperty( new PROPERTY<PCB_TARGET, int>( _HKI( "Width" ),
-                    &PCB_TARGET::SetWidth, &PCB_TARGET::GetWidth, PROPERTY_DISPLAY::DISTANCE ) );
+                    &PCB_TARGET::SetWidth, &PCB_TARGET::GetWidth, PROPERTY_DISPLAY::PT_SIZE ) );
 
         auto shape = new PROPERTY<PCB_TARGET, int>( _HKI( "Shape" ),
                 &PCB_TARGET::SetShape, &PCB_TARGET::GetShape );

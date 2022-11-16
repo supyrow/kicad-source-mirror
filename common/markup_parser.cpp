@@ -21,6 +21,7 @@
 
 #include <markup_parser.h>
 #include <sstream>
+#include "macros.h"
 
 using namespace MARKUP;
 
@@ -32,7 +33,7 @@ std::unique_ptr<NODE> MARKUP_PARSER::Parse()
         auto root = parse_tree::parse<MARKUP::grammar, MARKUP::NODE, MARKUP::selector>( in );
         return root;
     }
-    catch ( tao::pegtl::parse_error& parseError )
+    catch ( tao::pegtl::parse_error& )
     {
         // couldn't parse text item
         // TODO message to user?
@@ -53,6 +54,12 @@ std::string NODE::typeString() const
     else                                                os << "other";
 
     return os.str();
+}
+
+
+wxString NODE::asWxString() const
+{
+    return FROM_UTF8( string().c_str() );
 }
 
 

@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2014-2017 CERN
- * Copyright (C) 2018-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2018-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * @author Maciej Suminski <maciej.suminski@cern.ch>
  *
@@ -27,7 +27,7 @@
 #ifndef __DRAWING_TOOL_H
 #define __DRAWING_TOOL_H
 
-#include <core/optional.h>
+#include <optional>
 #include <tool/tool_menu.h>
 #include <tools/pcb_tool_base.h>
 #include <tools/pcb_actions.h>
@@ -67,6 +67,7 @@ public:
         RECTANGLE,
         CIRCLE,
         ARC,
+        IMAGE,
         TEXT,
         ANCHOR,
         DXF,
@@ -85,13 +86,13 @@ public:
 
     /**
      */
-    std::vector<BOARD_ITEM*> DrawBoardCharacteristics( const wxPoint& origin, PCB_LAYER_ID aLayer,
-                                                       bool aDrawNow, wxPoint* tablesize );
+    std::vector<BOARD_ITEM*> DrawBoardCharacteristics( const VECTOR2I& origin, PCB_LAYER_ID aLayer,
+                                                       bool aDrawNow, VECTOR2I* tablesize );
 
     /**
      */
-    std::vector<BOARD_ITEM*> DrawSpecificationStackup( const wxPoint& origin, PCB_LAYER_ID aLayer,
-                                                       bool aDrawNow, wxPoint* tablesize );
+    std::vector<BOARD_ITEM*> DrawSpecificationStackup( const VECTOR2I& origin, PCB_LAYER_ID aLayer,
+                                                       bool aDrawNow, VECTOR2I* tablesize );
 
     /**
      */
@@ -134,6 +135,12 @@ public:
      * the third one - the angle.
      */
     int DrawArc( const TOOL_EVENT& aEvent );
+
+    /**
+     * Display a dialog that allows one to select and image then decide where to place the
+     * image in the editor.
+     */
+    int PlaceImage( const TOOL_EVENT& aEvent );
 
     /**
      * Display a dialog that allows one to input text and its settings and then lets the user
@@ -195,9 +202,9 @@ public:
     int SetAnchor( const TOOL_EVENT& aEvent );
 
     /**
-     * Toggle the 45 degree angle constraint for graphic lines.
+     * Toggle the horizontal/vertical/45-degree constraint for drawing tools.
      */
-    int ToggleLine45degMode( const TOOL_EVENT& aEvent );
+    int ToggleHV45Mode( const TOOL_EVENT& toolEvent );
 
     ///< Set up handlers for various events.
     void setTransitions() override;
@@ -207,6 +214,8 @@ public:
         m_layer = aLayer;
         m_stroke = aStroke;
     }
+
+    void UpdateStatusBar() const;
 
 private:
     /**
@@ -220,8 +229,8 @@ private:
      * @return False if the tool was canceled before the origin was set or origin and end are
      *         the same point.
      */
-    bool drawSegment( const std::string& aTool, PCB_SHAPE** aGraphic,
-                      OPT<VECTOR2D> aStartingPoint );
+    bool drawShape( const TOOL_EVENT& aTool, PCB_SHAPE** aGraphic,
+                    std::optional<VECTOR2D> aStartingPoint );
 
     /**
      * Start drawing an arc.
@@ -231,7 +240,8 @@ private:
      * @return False if the tool was canceled before the origin was set or origin and end are
      *         the same point.
      */
-    bool drawArc( const std::string& aTool, PCB_SHAPE** aGraphic, bool aImmediateMode );
+    bool drawArc( const TOOL_EVENT& aTool, PCB_SHAPE** aGraphic,
+                  std::optional<VECTOR2D> aStartingPoint );
 
     /**
      * Draw a polygon, that is added as a zone or a keepout area.
@@ -264,10 +274,67 @@ private:
      */
     void constrainDimension( PCB_DIMENSION_BASE* aDim );
 
+    /**
+     * Clamps the end vector to respect numeric limits of difference representation
+     *
+     * @param aOrigin - the origin vector.
+     * @param aEnd - the end vector.
+     * @return clamped end vector.
+     */
+    VECTOR2I getClampedDifferenceEnd( const VECTOR2I& aOrigin, const VECTOR2I& aEnd )
+    {
+        typedef std::numeric_limits<int> coord_limits;
+        const int                        guardValue = 1;
+
+        VECTOR2I::extended_type maxDiff = coord_limits::max() - guardValue;
+
+        VECTOR2I::extended_type xDiff = VECTOR2I::extended_type( aEnd.x ) - aOrigin.x;
+        VECTOR2I::extended_type yDiff = VECTOR2I::extended_type( aEnd.y ) - aOrigin.y;
+
+        if( xDiff > maxDiff )
+            xDiff = maxDiff;
+        if( yDiff > maxDiff )
+            yDiff = maxDiff;
+
+        if( xDiff < -maxDiff )
+            xDiff = -maxDiff;
+        if( yDiff < -maxDiff )
+            yDiff = -maxDiff;
+
+        return aOrigin + VECTOR2I( int( xDiff ), int( yDiff ) );
+    }
+
+    /**
+     * Clamps the end vector to respect numeric limits of radius representation
+     *
+     * @param aOrigin - the origin vector.
+     * @param aEnd - the end vector.
+     * @return clamped end vector.
+     */
+    VECTOR2I getClampedRadiusEnd( const VECTOR2I& aOrigin, const VECTOR2I& aEnd )
+    {
+        typedef std::numeric_limits<int> coord_limits;
+        const int                        guardValue = 10;
+
+        VECTOR2I::extended_type xDiff = VECTOR2I::extended_type( aEnd.x ) - aOrigin.x;
+        VECTOR2I::extended_type yDiff = VECTOR2I::extended_type( aEnd.y ) - aOrigin.y;
+
+        double maxRadius = coord_limits::max() / 2 - guardValue;
+        double radius = std::hypot( xDiff, yDiff );
+
+        if( radius > maxRadius )
+        {
+            double scaleFactor = maxRadius / radius;
+
+            xDiff = KiROUND<double, int>( xDiff * scaleFactor );
+            yDiff = KiROUND<double, int>( yDiff * scaleFactor );
+        }
+
+        return aOrigin + VECTOR2I( int( xDiff ), int( yDiff ) );
+    }
+
     ///< Return the appropriate width for a segment depending on the settings.
     int getSegmentWidth( PCB_LAYER_ID aLayer ) const;
-
-    void updateStatusBar() const;
 
     KIGFX::VIEW*              m_view;
     KIGFX::VIEW_CONTROLS*     m_controls;
@@ -278,7 +345,10 @@ private:
 
     PCB_LAYER_ID              m_layer;             // The layer we last drew on
     STROKE_PARAMS             m_stroke;            // Current stroke for multi-segment drawing
+    TEXT_ATTRIBUTES           m_textAttrs;
+
     static const unsigned int WIDTH_STEP;          // Amount of width change for one -/+ key press
+    static const unsigned int COORDS_PADDING;      // Padding from coordinates limits for this tool
 
 
     friend class              ZONE_CREATE_HELPER;  // give internal access to helper classes

@@ -34,10 +34,12 @@
 #include <wx/fs_zip.h>
 #include <wx/dir.h>
 #include <wx/filename.h>
+#include <wx/propgrid/propgrid.h>
 #include <wx/snglinst.h>
 #include <wx/stdpaths.h>
 #include <wx/sysopt.h>
 #include <wx/filedlg.h>
+#include <wx/ffile.h>
 #include <wx/tooltip.h>
 
 #include <advanced_config.h>
@@ -49,15 +51,25 @@
 #include <eda_draw_frame.h>
 #include <gestfich.h>
 #include <id.h>
+#include <kiplatform/policy.h>
 #include <lockfile.h>
 #include <menus_helpers.h>
+#include <paths.h>
 #include <pgm_base.h>
+#include <policy_keys.h>
 #include <python_scripting.h>
 #include <settings/common_settings.h>
 #include <settings/settings_manager.h>
 #include <systemdirsappend.h>
+#include <thread_pool.h>
 #include <trace_helpers.h>
 
+#ifdef KICAD_USE_SENTRY
+#include <boost/uuid/uuid_io.hpp>
+#include <boost/uuid/uuid_generators.hpp>
+#include <sentry.h>
+#include <kicad_build_version.h>
+#endif
 
 /**
  * Current list of languages supported by KiCad.
@@ -95,6 +107,7 @@ LANGUAGE_DESCR LanguagesList[] =
     { wxLANGUAGE_SWEDISH,    ID_LANGUAGE_SWEDISH,    wxT( "Svenska" ),  true },
     { wxLANGUAGE_VIETNAMESE, ID_LANGUAGE_VIETNAMESE, wxT( "Tiếng Việt" ), true },
     { wxLANGUAGE_TURKISH,    ID_LANGUAGE_TURKISH,    wxT( "Türkçe" ),   true },
+    { wxLANGUAGE_UKRAINIAN,  ID_LANGUAGE_UKRANIAN,   wxT( "Українець" ),   true },
     { wxLANGUAGE_CHINESE_SIMPLIFIED, ID_LANGUAGE_CHINESE_SIMPLIFIED,
             wxT( "简体中文" ), true },
     { wxLANGUAGE_CHINESE_TRADITIONAL, ID_LANGUAGE_CHINESE_TRADITIONAL,
@@ -111,6 +124,8 @@ PGM_BASE::PGM_BASE()
     m_Printing = false;
     m_Quitting = false;
     m_ModalDialogCount = 0;
+    m_argcUtf8 = 0;
+    m_argvUtf8 = nullptr;
 
     setLanguageId( wxLANGUAGE_DEFAULT );
 
@@ -121,11 +136,22 @@ PGM_BASE::PGM_BASE()
 PGM_BASE::~PGM_BASE()
 {
     Destroy();
+
+    for( int n = 0; n < m_argcUtf8; n++ )
+    {
+        delete m_argvUtf8[n];
+    }
+
+    delete m_argvUtf8;
 }
 
 
 void PGM_BASE::Destroy()
 {
+#ifdef KICAD_USE_SENTRY
+    sentry_close();
+#endif
+
     // unlike a normal destructor, this is designed to be called more than once safely:
     delete m_locale;
     m_locale = nullptr;
@@ -152,13 +178,13 @@ const wxString& PGM_BASE::GetTextEditor( bool aCanShowFileChooser )
 
     if( !editorname )
     {
-        if( !wxGetEnv( "EDITOR", &editorname ) )
+        if( !wxGetEnv(  wxT( "EDITOR" ), &editorname ) )
         {
             // If there is no EDITOR variable set, try the desktop default
 #ifdef __WXMAC__
-            editorname = "/usr/bin/open -e";
+            editorname = wxT( "/usr/bin/open -e" );
 #elif __WXX11__
-            editorname = "/usr/bin/xdg-open";
+            editorname =  wxT( "/usr/bin/xdg-open" );
 #endif
         }
     }
@@ -203,8 +229,180 @@ const wxString PGM_BASE::AskUserForPreferredEditor( const wxString& aDefaultEdit
 }
 
 
-bool PGM_BASE::InitPgm( bool aHeadless, bool aSkipPyInit )
+#ifdef KICAD_USE_SENTRY
+bool PGM_BASE::IsSentryOptedIn()
 {
+    KIPLATFORM::POLICY::STATE policyState =
+            KIPLATFORM::POLICY::GetPolicyState( POLICY_KEY_DATACOLLECTION );
+    if( policyState != KIPLATFORM::POLICY::STATE::NOT_CONFIGURED )
+    {
+        return policyState == KIPLATFORM::POLICY::STATE::ENABLED;
+    }
+
+    return m_sentry_optin_fn.Exists();
+}
+
+
+void PGM_BASE::SetSentryOptIn( bool aOptIn )
+{
+    if( aOptIn )
+    {
+        if( !m_sentry_uid_fn.Exists() )
+        {
+            sentryCreateUid();
+        }
+
+        if( !m_sentry_optin_fn.Exists() )
+        {
+            wxFFile sentryInitFile( m_sentry_optin_fn.GetFullPath(), "w" );
+            sentryInitFile.Write( "" );
+            sentryInitFile.Close();
+        }
+    }
+    else
+    {
+        if( m_sentry_optin_fn.Exists() )
+        {
+            wxRemoveFile( m_sentry_optin_fn.GetFullPath() );
+            sentry_close();
+        }
+    }
+}
+
+
+wxString PGM_BASE::sentryCreateUid()
+{
+    boost::uuids::uuid uuid = boost::uuids::random_generator()();
+    wxString           userGuid = boost::uuids::to_string( uuid );
+
+    wxFFile sentryInitFile( m_sentry_uid_fn.GetFullPath(), "w" );
+    sentryInitFile.Write( userGuid );
+    sentryInitFile.Close();
+
+    return userGuid;
+}
+
+
+void PGM_BASE::ResetSentryId()
+{
+    m_sentryUid = sentryCreateUid();
+}
+
+
+const wxString& PGM_BASE::GetSentryId()
+{
+    return m_sentryUid;
+}
+
+
+void PGM_BASE::sentryInit()
+{
+    m_sentry_optin_fn = wxFileName( PATHS::GetUserCachePath(), "sentry-opt-in" );
+    m_sentry_uid_fn = wxFileName( PATHS::GetUserCachePath(), "sentry-uid" );
+
+    if( IsSentryOptedIn() )
+    {
+        wxFFile sentryInitFile( m_sentry_uid_fn.GetFullPath() );
+        sentryInitFile.ReadAll( &m_sentryUid );
+        sentryInitFile.Close();
+
+        if( m_sentryUid.IsEmpty() || m_sentryUid.length() != 36 )
+        {
+            m_sentryUid = sentryCreateUid();
+        }
+
+        sentry_options_t* options = sentry_options_new();
+
+        sentry_options_set_dsn(
+                options,
+                "https://463925e689c34632b5172436ffb76de5@sentry-relay.kicad.org/6266565" );
+
+        wxFileName tmp;
+        tmp.AssignDir( PATHS::GetUserCachePath() );
+        tmp.AppendDir( "sentry" );
+
+        sentry_options_set_database_pathw( options, tmp.GetPathWithSep().wc_str() );
+        sentry_options_set_symbolize_stacktraces( options, true );
+        sentry_options_set_auto_session_tracking( options, false );
+
+#if !KICAD_IS_NIGHTLY
+        sentry_options_set_release( options, KICAD_SEMANTIC_VERSION );
+#else
+        sentry_options_set_release( options, KICAD_COMMIT_HASH );
+#endif
+
+        sentry_init( options );
+
+        sentry_value_t user = sentry_value_new_object();
+        sentry_value_set_by_key( user, "id", sentry_value_new_string( m_sentryUid.c_str() ) );
+        sentry_set_user( user );
+
+        sentry_set_tag( "kicad.version", KICAD_VERSION_FULL );
+    }
+}
+
+
+void PGM_BASE::sentryPrompt()
+{
+    KIPLATFORM::POLICY::STATE policyState =
+            KIPLATFORM::POLICY::GetPolicyState( POLICY_KEY_DATACOLLECTION );
+
+    if( policyState == KIPLATFORM::POLICY::STATE::NOT_CONFIGURED
+        && !m_settings_manager->GetCommonSettings()->m_DoNotShowAgain.data_collection_prompt )
+    {
+        wxMessageDialog optIn = wxMessageDialog(
+                nullptr,
+                _( "KiCad can anonymously report crashes and special event "
+                   "data to developers in order to aid identifying critical bugs "
+                   "across the user base more effectively and help profile "
+                   "functionality to guide improvements. \n"
+                   "If you choose to voluntarily participate, KiCad will automatically "
+                   "handle sending said reports when crashes or events occur. \n"
+                   "Your design files such as schematic or PCB are not shared in this process." ),
+                _( "Data collection opt in request" ), wxYES_NO | wxCENTRE );
+
+        int result = optIn.ShowModal();
+
+        if( result == wxID_YES )
+        {
+            SetSentryOptIn( true );
+            sentryInit();
+        }
+        else
+        {
+            SetSentryOptIn( false );
+        }
+
+        m_settings_manager->GetCommonSettings()->m_DoNotShowAgain.data_collection_prompt = true;
+    }
+}
+#endif
+
+
+void PGM_BASE::BuildArgvUtf8()
+{
+    const wxArrayString& argArray = App().argv.GetArguments();
+    m_argcUtf8 = argArray.size();
+
+    m_argvUtf8 = new char*[m_argcUtf8 + 1];
+    for( int n = 0; n < m_argcUtf8; n++ )
+    {
+        m_argvUtf8[n] = wxStrdup( argArray[n].ToUTF8() );
+    }
+
+    m_argvUtf8[m_argcUtf8] = NULL;  // null terminator at end of argv
+}
+
+
+bool PGM_BASE::InitPgm( bool aHeadless, bool aSkipPyInit, bool aIsUnitTest )
+{
+    // Just make sure we init precreate any folders early for later code
+    // In particular, the user cache path is the most likely to be hit by startup code
+    PATHS::EnsureUserPathsExist();
+
+#ifdef KICAD_USE_SENTRY
+    sentryInit();
+#endif
     wxString pgm_name;
 
     /// Should never happen but boost unit_test isn't playing nicely in some cases
@@ -213,7 +411,14 @@ bool PGM_BASE::InitPgm( bool aHeadless, bool aSkipPyInit )
     else
         pgm_name = wxFileName( App().argv[0] ).GetName().Lower();
 
+#ifdef KICAD_USE_SENTRY
+    sentry_set_tag( "kicad.app", pgm_name.c_str() );
+#endif
+
     wxInitAllImageHandlers();
+
+    // Without this the wxPropertyGridManager segfaults on Windows.
+    wxPGInitResourceModule();
 
 #ifndef __WINDOWS__
     if( wxString( wxGetenv( "HOME" ) ).IsEmpty() )
@@ -227,7 +432,7 @@ bool PGM_BASE::InitPgm( bool aHeadless, bool aSkipPyInit )
     // Init KiCad environment
     // the environment variable KICAD (if exists) gives the kicad path:
     // something like set KICAD=d:\kicad
-    bool isDefined = wxGetEnv( "KICAD", &m_kicad_env );
+    bool isDefined = wxGetEnv( wxT( "KICAD" ), &m_kicad_env );
 
     if( isDefined )    // ensure m_kicad_env ends by "/"
     {
@@ -238,7 +443,7 @@ bool PGM_BASE::InitPgm( bool aHeadless, bool aSkipPyInit )
     }
 
     // Init parameters for configuration
-    App().SetVendorName( "KiCad" );
+    App().SetVendorName(  wxT( "KiCad" ) );
     App().SetAppName( pgm_name );
 
     // Install some image handlers, mainly for help
@@ -260,6 +465,12 @@ bool PGM_BASE::InitPgm( bool aHeadless, bool aSkipPyInit )
     SetDefaultLanguage( tmp );
 
     m_settings_manager = std::make_unique<SETTINGS_MANAGER>( aHeadless );
+
+    // Our unit test mocks break if we continue
+    // A bug caused InitPgm to terminate early in unit tests and the mocks are...simplistic
+    // TODO fix the unit tests so this can be removed
+    if( aIsUnitTest )
+        return false;
 
     // Something got in the way of settings load: can't continue
     if( !m_settings_manager->IsOK() )
@@ -284,6 +495,10 @@ bool PGM_BASE::InitPgm( bool aHeadless, bool aSkipPyInit )
 
     loadCommonSettings();
 
+#ifdef KICAD_USE_SENTRY
+    sentryPrompt();
+#endif
+
     ReadPdfBrowserInfos();      // needs GetCommonSettings()
 
     // Create the python scripting stuff
@@ -295,10 +510,13 @@ bool PGM_BASE::InitPgm( bool aHeadless, bool aSkipPyInit )
     // Need to create a project early for now (it can have an empty path for the moment)
     GetSettingsManager().LoadProject( "" );
 
-    // TODO: Move tooltips into KIPLATFORM
     // This sets the maximum tooltip display duration to 10s (up from 5) but only affects
     // Windows as other platforms display tooltips while the mouse is not moving
-    wxToolTip::SetAutoPop( 10000 );
+    if( !aHeadless )
+    {
+        wxToolTip::Enable( true );
+        wxToolTip::SetAutoPop( 10000 );
+    }
 
     if( ADVANCED_CFG::GetCfg().m_UpdateUIEventInterval != 0 )
         wxUpdateUIEvent::SetUpdateInterval( ADVANCED_CFG::GetCfg().m_UpdateUIEventInterval );
@@ -355,7 +573,7 @@ void PGM_BASE::loadCommonSettings()
 
     for( const std::pair<wxString, ENV_VAR_ITEM> it : GetCommonSettings()->m_Env.vars )
     {
-        wxLogTrace( traceEnvVars, "PGM_BASE::loadSettings: Found entry %s = %s",
+        wxLogTrace( traceEnvVars, wxT( "PGM_BASE::loadSettings: Found entry %s = %s" ),
                     it.first, it.second.GetValue() );
 
         // Do not store the env var PROJECT_VAR_NAME ("KIPRJMOD") definition if for some reason
@@ -387,7 +605,7 @@ void PGM_BASE::SaveCommonSettings()
 
 COMMON_SETTINGS* PGM_BASE::GetCommonSettings() const
 {
-    return m_settings_manager ? GetSettingsManager().GetCommonSettings() : nullptr;
+    return m_settings_manager ? m_settings_manager->GetCommonSettings() : nullptr;
 }
 
 
@@ -412,7 +630,7 @@ bool PGM_BASE::SetLanguage( wxString& aErrMsg, bool first_time )
     }
 
     // dictionary file name without extend (full name is kicad.mo)
-    wxString dictionaryName( "kicad" );
+    wxString dictionaryName( wxT( "kicad" ) );
 
     delete m_locale;
     m_locale = new wxLocale;
@@ -421,7 +639,7 @@ bool PGM_BASE::SetLanguage( wxString& aErrMsg, bool first_time )
     // false just because it failed to load wxstd catalog
     if( !m_locale->Init( m_language_id, wxLOCALE_DONT_LOAD_DEFAULT ) )
     {
-        wxLogTrace( traceLocale, "This language is not supported by the system." );
+        wxLogTrace( traceLocale, wxT( "This language is not supported by the system." ) );
 
         setLanguageId( wxLANGUAGE_DEFAULT );
         delete m_locale;
@@ -434,7 +652,7 @@ bool PGM_BASE::SetLanguage( wxString& aErrMsg, bool first_time )
     }
     else if( !first_time )
     {
-        wxLogTrace( traceLocale, "Search for dictionary %s.mo in %s",
+        wxLogTrace( traceLocale, wxT( "Search for dictionary %s.mo in %s" ) ,
                     dictionaryName, m_locale->GetName() );
     }
 
@@ -471,7 +689,7 @@ bool PGM_BASE::SetLanguage( wxString& aErrMsg, bool first_time )
     // the verification is skipped.
     if( !m_locale->IsLoaded( dictionaryName ) && m_language_id != wxLANGUAGE_ENGLISH )
     {
-        wxLogTrace( traceLocale, "Unable to load dictionary %s.mo in %s",
+        wxLogTrace( traceLocale, wxT( "Unable to load dictionary %s.mo in %s" ),
                     dictionaryName, m_locale->GetName() );
 
         setLanguageId( wxLANGUAGE_DEFAULT );
@@ -493,7 +711,7 @@ bool PGM_BASE::SetDefaultLanguage( wxString& aErrMsg )
     setLanguageId( wxLANGUAGE_DEFAULT );
 
     // dictionary file name without extend (full name is kicad.mo)
-    wxString dictionaryName( "kicad" );
+    wxString dictionaryName( wxT( "kicad" ) );
 
     delete m_locale;
     m_locale = new wxLocale;
@@ -509,7 +727,7 @@ bool PGM_BASE::SetDefaultLanguage( wxString& aErrMsg )
     // the verification is skipped.
     if( !m_locale->IsLoaded( dictionaryName ) && m_language_id != wxLANGUAGE_ENGLISH )
     {
-        wxLogTrace( traceLocale, "Unable to load dictionary %s.mo in %s",
+        wxLogTrace( traceLocale, wxT( "Unable to load dictionary %s.mo in %s" ),
                     dictionaryName, m_locale->GetName() );
 
         setLanguageId( wxLANGUAGE_DEFAULT );
@@ -528,7 +746,7 @@ bool PGM_BASE::SetDefaultLanguage( wxString& aErrMsg )
 
 void PGM_BASE::SetLanguageIdentifier( int menu_id )
 {
-    wxLogTrace( traceLocale, "Select language ID %d from %d possible languages.",
+    wxLogTrace( traceLocale, wxT( "Select language ID %d from %d possible languages." ),
                 menu_id, (int)arrayDim( LanguagesList )-1 );
 
     for( unsigned ii = 0;  LanguagesList[ii].m_KI_Lang_Identifier != 0; ii++ )
@@ -544,54 +762,13 @@ void PGM_BASE::SetLanguageIdentifier( int menu_id )
 
 void PGM_BASE::SetLanguagePath()
 {
-    SEARCH_STACK    guesses;
-
-    SystemDirsAppend( &guesses );
-
-    // Add our internat dir to the wxLocale catalog of paths
-    for( unsigned i = 0; i < guesses.GetCount(); i++ )
-    {
-        wxFileName fn( guesses[i], wxEmptyString );
-
-        // Append path for Windows and unix KiCad package install
-        fn.AppendDir( "share" );
-        fn.AppendDir( "internat" );
-
-        if( fn.IsDirReadable() )
-        {
-            wxLogTrace( traceLocale, "Adding locale lookup path: " + fn.GetPath() );
-            wxLocale::AddCatalogLookupPathPrefix( fn.GetPath() );
-        }
-
-        // Append path for unix standard install
-        fn.RemoveLastDir();
-        fn.AppendDir( "kicad" );
-        fn.AppendDir( "internat" );
-
-        if( fn.IsDirReadable() )
-        {
-            wxLogTrace( traceLocale, "Adding locale lookup path: " + fn.GetPath() );
-            wxLocale::AddCatalogLookupPathPrefix( fn.GetPath() );
-        }
-
-        // Append path for macOS install
-        fn.RemoveLastDir();
-        fn.RemoveLastDir();
-        fn.RemoveLastDir();
-        fn.AppendDir( "internat" );
-
-        if( fn.IsDirReadable() )
-        {
-            wxLogTrace( traceLocale, "Adding locale lookup path: " + fn.GetPath() );
-            wxLocale::AddCatalogLookupPathPrefix( fn.GetPath() );
-        }
-    }
+    wxLocale::AddCatalogLookupPathPrefix( PATHS::GetLocaleDataPath() );
 
     if( wxGetEnv( wxT( "KICAD_RUN_FROM_BUILD_DIR" ), nullptr ) )
     {
         wxFileName fn( Pgm().GetExecutablePath() );
         fn.RemoveLastDir();
-        fn.AppendDir( "translation" );
+        fn.AppendDir( wxT( "translation" ) );
         wxLocale::AddCatalogLookupPathPrefix( fn.GetPath() );
     }
 }
@@ -604,7 +781,7 @@ bool PGM_BASE::SetLocalEnvVariable( const wxString& aName, const wxString& aValu
     if( aName.IsEmpty() )
     {
         wxLogTrace( traceEnvVars,
-                    "PGM_BASE::SetLocalEnvVariable: Attempt to set empty variable to value %s",
+                    wxT( "PGM_BASE::SetLocalEnvVariable: Attempt to set empty variable to value %s" ),
                     aValue );
         return false;
     }
@@ -613,13 +790,13 @@ bool PGM_BASE::SetLocalEnvVariable( const wxString& aName, const wxString& aValu
     if( wxGetEnv( aName, &env ) )
     {
         wxLogTrace( traceEnvVars,
-                    "PGM_BASE::SetLocalEnvVariable: Environment variable %s already set to %s",
+                    wxT( "PGM_BASE::SetLocalEnvVariable: Environment variable %s already set to %s" ),
                     aName, env );
         return env == aValue;
     }
 
     wxLogTrace( traceEnvVars,
-                "PGM_BASE::SetLocalEnvVariable: Setting local environment variable %s to %s",
+                wxT( "PGM_BASE::SetLocalEnvVariable: Setting local environment variable %s to %s" ),
                 aName, aValue );
 
     return wxSetEnv( aName, aValue );
@@ -633,7 +810,7 @@ void PGM_BASE::SetLocalEnvVariables()
     for( const std::pair<wxString, ENV_VAR_ITEM> m_local_env_var : GetCommonSettings()->m_Env.vars )
     {
         wxLogTrace( traceEnvVars,
-                    "PGM_BASE::SetLocalEnvVariables: Setting local environment variable %s to %s",
+                    wxT( "PGM_BASE::SetLocalEnvVariables: Setting local environment variable %s to %s" ),
                     m_local_env_var.first,
                     m_local_env_var.second.GetValue() );
         wxSetEnv( m_local_env_var.first, m_local_env_var.second.GetValue() );

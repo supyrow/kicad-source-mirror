@@ -161,12 +161,15 @@ int CVPCB_CONTROL::ShowFootprintViewer( const TOOL_EVENT& aEvent )
 
     if( !fpframe )
     {
-        fpframe = (DISPLAY_FOOTPRINTS_FRAME*) m_frame->Kiway().Player(
-                FRAME_CVPCB_DISPLAY, true, m_frame );
+        fpframe = (DISPLAY_FOOTPRINTS_FRAME*) m_frame->Kiway().Player( FRAME_CVPCB_DISPLAY, true,
+                                                                       m_frame );
         fpframe->Show( true );
     }
     else
     {
+        if( wxWindow* blocking_win = fpframe->Kiway().GetBlockingDialog() )
+            blocking_win->Close( true );
+
         if( fpframe->IsIconized() )
             fpframe->Iconize( false );
 
@@ -210,9 +213,16 @@ int CVPCB_CONTROL::ShowEquFileTable( const TOOL_EVENT& aEvent )
 }
 
 
-int CVPCB_CONTROL::SaveAssociations( const TOOL_EVENT& aEvent )
+int CVPCB_CONTROL::SaveAssociationsToFile( const TOOL_EVENT& aEvent )
 {
     m_frame->SaveFootprintAssociation( true );
+    return 0;
+}
+
+
+int CVPCB_CONTROL::SaveAssociationsToSchematic( const TOOL_EVENT& aEvent )
+{
+    m_frame->SaveFootprintAssociation( false );
     return 0;
 }
 
@@ -231,8 +241,9 @@ int CVPCB_CONTROL::ToNA( const TOOL_EVENT& aEvent )
         return 0;
 
     // Extract the current selection
-    unsigned int curSel = -1;
-    unsigned int newSel = -1;
+    bool changeSel = false;
+    unsigned int newSel = UINT_MAX;
+
     switch( dir )
     {
     case CVPCB_MAINFRAME::ITEM_NEXT:
@@ -240,11 +251,12 @@ int CVPCB_CONTROL::ToNA( const TOOL_EVENT& aEvent )
             newSel = tempSel.front();
 
         // Find the next index in the component list
-        for( unsigned int i : naComp )
+        for( unsigned int idx : naComp )
         {
-            if( i > newSel )
+            if( idx > newSel )
             {
-                newSel = i;
+                changeSel = true;
+                newSel = idx;
                 break;
             }
         }
@@ -255,7 +267,19 @@ int CVPCB_CONTROL::ToNA( const TOOL_EVENT& aEvent )
         if( !tempSel.empty() )
         {
             newSel = tempSel.front();
-            curSel = newSel - 1;        // Break one before the current selection
+
+            // Find the previous index in the component list
+            for( int jj = naComp.size()-1; jj >= 0; jj-- )
+            {
+                unsigned idx = naComp[jj];
+
+                if( idx < newSel )
+                {
+                    changeSel = true;
+                    newSel = idx;
+                    break;
+                }
+            }
         }
 
         break;
@@ -264,18 +288,9 @@ int CVPCB_CONTROL::ToNA( const TOOL_EVENT& aEvent )
         wxASSERT_MSG( false, "Invalid direction" );
     }
 
-    // Find the next index in the component list
-    for( unsigned int i : naComp )
-    {
-        if( i >= curSel )
-        {
-            newSel = i;
-            break;
-        }
-    }
-
-    // Set the component selection
-    m_frame->SetSelectedComponent( newSel );
+    // Set the new component selection
+    if( changeSel )
+        m_frame->SetSelectedComponent( newSel );
 
     return 0;
 }
@@ -310,7 +325,8 @@ void CVPCB_CONTROL::setTransitions()
 
     // Management actions
     Go( &CVPCB_CONTROL::ShowEquFileTable,      CVPCB_ACTIONS::showEquFileTable.MakeEvent() );
-    Go( &CVPCB_CONTROL::SaveAssociations,      CVPCB_ACTIONS::saveAssociations.MakeEvent() );
+    Go( &CVPCB_CONTROL::SaveAssociationsToSchematic, CVPCB_ACTIONS::saveAssociationsToSchematic.MakeEvent() );
+    Go( &CVPCB_CONTROL::SaveAssociationsToFile,CVPCB_ACTIONS::saveAssociationsToFile.MakeEvent() );
 
     // Navigation actions
     Go( &CVPCB_CONTROL::ToNA,                  CVPCB_ACTIONS::gotoNextNA.MakeEvent() );

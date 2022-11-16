@@ -90,7 +90,8 @@ template<class T> void Flip( T& aValue )
 
 int PCB_VIEWER_TOOLS::ShowPadNumbers( const TOOL_EVENT& aEvent )
 {
-    Flip( displayOptions().m_PadNumbers );
+    PCB_VIEWERS_SETTINGS_BASE* cfg = frame()->GetViewerSettingsBase();
+    Flip( cfg->m_ViewersDisplay.m_DisplayPadNumbers );
 
     for( FOOTPRINT* fp : board()->Footprints() )
     {
@@ -106,7 +107,8 @@ int PCB_VIEWER_TOOLS::ShowPadNumbers( const TOOL_EVENT& aEvent )
 
 int PCB_VIEWER_TOOLS::PadDisplayMode( const TOOL_EVENT& aEvent )
 {
-    Flip( displayOptions().m_DisplayPadFill );
+    PCB_VIEWERS_SETTINGS_BASE* cfg = frame()->GetViewerSettingsBase();
+    Flip( cfg->m_ViewersDisplay.m_DisplayPadFill );
 
     for( FOOTPRINT* fp : board()->Footprints() )
     {
@@ -122,7 +124,8 @@ int PCB_VIEWER_TOOLS::PadDisplayMode( const TOOL_EVENT& aEvent )
 
 int PCB_VIEWER_TOOLS::GraphicOutlines( const TOOL_EVENT& aEvent )
 {
-    Flip( displayOptions().m_DisplayGraphicsFill );
+    PCB_VIEWERS_SETTINGS_BASE* cfg = frame()->GetViewerSettingsBase();
+    Flip( cfg->m_ViewersDisplay.m_DisplayGraphicsFill );
 
     for( FOOTPRINT* fp : board()->Footprints() )
     {
@@ -151,7 +154,8 @@ int PCB_VIEWER_TOOLS::GraphicOutlines( const TOOL_EVENT& aEvent )
 
 int PCB_VIEWER_TOOLS::TextOutlines( const TOOL_EVENT& aEvent )
 {
-    Flip( displayOptions().m_DisplayTextFill );
+    PCB_VIEWERS_SETTINGS_BASE* cfg = frame()->GetViewerSettingsBase();
+    Flip( cfg->m_ViewersDisplay.m_DisplayTextFill );
 
     for( FOOTPRINT* fp : board()->Footprints() )
     {
@@ -193,14 +197,13 @@ int PCB_VIEWER_TOOLS::MeasureTool( const TOOL_EVENT& aEvent )
     auto& view     = *getView();
     auto& controls = *getViewControls();
 
-    std::string tool = aEvent.GetCommandStr().get();
-    frame()->PushTool( tool );
+    frame()->PushTool( aEvent );
 
     TWO_POINT_GEOMETRY_MANAGER twoPtMgr;
     PCB_GRID_HELPER            grid( m_toolMgr, frame()->GetMagneticItemsSettings() );
     bool                       originSet = false;
     EDA_UNITS                  units = frame()->GetUserUnits();
-    KIGFX::PREVIEW::RULER_ITEM ruler( twoPtMgr, units,
+    KIGFX::PREVIEW::RULER_ITEM ruler( twoPtMgr, pcbIUScale, units,
                                       displayOptions().m_DisplayInvertXAxis,
                                       displayOptions().m_DisplayInvertYAxis );
 
@@ -219,6 +222,7 @@ int PCB_VIEWER_TOOLS::MeasureTool( const TOOL_EVENT& aEvent )
                 view.SetVisible( &ruler, false );
                 controls.SetAutoPan( false );
                 controls.CaptureCursor( false );
+                controls.ForceCursorPosition( false );
                 originSet = false;
             };
 
@@ -227,6 +231,8 @@ int PCB_VIEWER_TOOLS::MeasureTool( const TOOL_EVENT& aEvent )
     controls.ShowCursor( true );
     controls.SetAutoPan( false );
     controls.CaptureCursor( false );
+    controls.ForceCursorPosition( false );
+
     // Set initial cursor
     setCursor();
 
@@ -236,7 +242,7 @@ int PCB_VIEWER_TOOLS::MeasureTool( const TOOL_EVENT& aEvent )
         grid.SetSnap( !evt->Modifier( MD_SHIFT ) );
         grid.SetUseGrid( view.GetGAL()->GetGridSnapping() && !evt->DisableGridSnapping() );
         const VECTOR2I cursorPos = grid.BestSnapAnchor( controls.GetMousePosition(), nullptr );
-        controls.ForceCursorPosition(true, cursorPos );
+        controls.ForceCursorPosition( true, cursorPos );
 
         if( evt->IsCancelInteractive() )
         {
@@ -246,7 +252,7 @@ int PCB_VIEWER_TOOLS::MeasureTool( const TOOL_EVENT& aEvent )
             }
             else
             {
-                frame()->PopTool( tool );
+                frame()->PopTool( aEvent );
                 break;
             }
         }
@@ -262,7 +268,7 @@ int PCB_VIEWER_TOOLS::MeasureTool( const TOOL_EVENT& aEvent )
             }
             else
             {
-                frame()->PopTool( tool );
+                frame()->PopTool( aEvent );
                 break;
             }
         }
@@ -339,6 +345,7 @@ int PCB_VIEWER_TOOLS::MeasureTool( const TOOL_EVENT& aEvent )
     frame()->GetCanvas()->SetCurrentCursor( KICURSOR::ARROW );
     controls.SetAutoPan( false );
     controls.CaptureCursor( false );
+    controls.ForceCursorPosition( false );
     return 0;
 }
 

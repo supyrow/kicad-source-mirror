@@ -43,11 +43,14 @@
 #include <footprint.h>
 #include <zone.h>
 #include <view/view.h>
-#include <geometry/shape_null.h>
 #include <i18n_utility.h>
+#include <drc/drc_item.h>
+#include <geometry/shape_segment.h>
+#include <geometry/shape_simple.h>
 #include <convert_shape_list_to_polygon.h>
 #include <geometry/convex_hull.h>
 #include "fp_textbox.h"
+#include "convert_basic_shapes_to_polygon.h"
 
 FOOTPRINT::FOOTPRINT( BOARD* parent ) :
         BOARD_ITEM_CONTAINER((BOARD_ITEM*) parent, PCB_FOOTPRINT_T ),
@@ -55,7 +58,8 @@ FOOTPRINT::FOOTPRINT( BOARD* parent ) :
         m_visibleBBoxCacheTimeStamp( 0 ),
         m_textExcludedBBoxCacheTimeStamp( 0 ),
         m_hullCacheTimeStamp( 0 ),
-        m_initial_comments( nullptr )
+        m_initial_comments( nullptr ),
+        m_courtyard_cache_timestamp( 0 )
 {
     m_attributes   = 0;
     m_layer        = F_Cu;
@@ -104,6 +108,7 @@ FOOTPRINT::FOOTPRINT( const FOOTPRINT& aFootprint ) :
     m_localSolderPasteMargin         = aFootprint.m_localSolderPasteMargin;
     m_localSolderPasteMarginRatio    = aFootprint.m_localSolderPasteMarginRatio;
     m_zoneConnection                 = aFootprint.m_zoneConnection;
+    m_netTiePadGroups                = aFootprint.m_netTiePadGroups;
 
     std::map<BOARD_ITEM*, BOARD_ITEM*> ptrMap;
 
@@ -191,6 +196,13 @@ FOOTPRINT::FOOTPRINT( FOOTPRINT&& aFootprint ) :
 
 FOOTPRINT::~FOOTPRINT()
 {
+    // Untangle group parents before doing any deleting
+    for( PCB_GROUP* group : m_fp_groups )
+    {
+        for( BOARD_ITEM* item : group->GetItems() )
+            item->SetParentGroup( nullptr );
+    }
+
     // Clean up the owned elements
     delete m_reference;
     delete m_value;
@@ -283,6 +295,7 @@ FOOTPRINT& FOOTPRINT::operator=( FOOTPRINT&& aOther )
     m_localSolderPasteMargin         = aOther.m_localSolderPasteMargin;
     m_localSolderPasteMarginRatio    = aOther.m_localSolderPasteMarginRatio;
     m_zoneConnection                 = aOther.m_zoneConnection;
+    m_netTiePadGroups                = aOther.m_netTiePadGroups;
 
     // Move reference and value
     m_reference = aOther.m_reference;
@@ -379,6 +392,7 @@ FOOTPRINT& FOOTPRINT::operator=( const FOOTPRINT& aOther )
     m_localSolderPasteMargin         = aOther.m_localSolderPasteMargin;
     m_localSolderPasteMarginRatio    = aOther.m_localSolderPasteMarginRatio;
     m_zoneConnection                 = aOther.m_zoneConnection;
+    m_netTiePadGroups                = aOther.m_netTiePadGroups;
 
     // Copy reference and value
     *m_reference = *aOther.m_reference;
@@ -452,16 +466,30 @@ FOOTPRINT& FOOTPRINT::operator=( const FOOTPRINT& aOther )
 }
 
 
+bool FOOTPRINT::IsConflicting() const
+{
+    return HasFlag( COURTYARD_CONFLICT );
+}
+
+
 void FOOTPRINT::GetContextualTextVars( wxArrayString* aVars ) const
 {
     aVars->push_back( wxT( "REFERENCE" ) );
     aVars->push_back( wxT( "VALUE" ) );
     aVars->push_back( wxT( "LAYER" ) );
+    aVars->push_back( wxT( "FOOTPRINT_LIBRARY" ) );
+    aVars->push_back( wxT( "FOOTPRINT_NAME" ) );
+    aVars->push_back( wxT( "NET_NAME(<pad_number>)" ) );
+    aVars->push_back( wxT( "NET_CLASS(<pad_number>)" ) );
+    aVars->push_back( wxT( "PIN_NAME(<pad_number>)" ) );
 }
 
 
 bool FOOTPRINT::ResolveTextVar( wxString* token, int aDepth ) const
 {
+    if( GetBoard() && GetBoard()->GetBoardUse() == BOARD_USE::FPHOLDER )
+        return false;
+
     if( token->IsSameAs( wxT( "REFERENCE" ) ) )
     {
         *token = m_reference->GetShownText( aDepth + 1 );
@@ -476,6 +504,38 @@ bool FOOTPRINT::ResolveTextVar( wxString* token, int aDepth ) const
     {
         *token = GetLayerName();
         return true;
+    }
+    else if( token->IsSameAs( wxT( "FOOTPRINT_LIBRARY" ) ) )
+    {
+        *token = m_fpid.GetLibNickname();
+        return true;
+    }
+    else if( token->IsSameAs( wxT( "FOOTPRINT_NAME" ) ) )
+    {
+        *token = m_fpid.GetLibItemName();
+        return true;
+    }
+    else if( token->StartsWith( wxT( "NET_NAME(" ) )
+                || token->StartsWith( wxT( "NET_CLASS(" ) )
+                || token->StartsWith( wxT( "PIN_NAME(" ) ) )
+    {
+        wxString padNumber = token->AfterFirst( '(' );
+        padNumber = padNumber.BeforeLast( ')' );
+
+        for( PAD* pad : Pads() )
+        {
+            if( pad->GetNumber() == padNumber )
+            {
+                if( token->StartsWith( wxT( "NET_NAME" ) ) )
+                    *token = pad->GetNetname();
+                else if( token->StartsWith( wxT( "NET_CLASS" ) ) )
+                    *token = pad->GetNetClassName();
+                else
+                    *token = pad->GetPinFunction();
+
+                return true;
+            }
+        }
     }
     else if( m_properties.count( *token ) )
     {
@@ -512,6 +572,7 @@ void FOOTPRINT::Add( BOARD_ITEM* aBoardItem, ADD_MODE aMode, bool aSkipConnectiv
     case PCB_FP_DIM_ORTHOGONAL_T:
     case PCB_FP_SHAPE_T:
     case PCB_FP_TEXTBOX_T:
+    case PCB_BITMAP_T:
         if( aMode == ADD_MODE::APPEND )
             m_drawings.push_back( aBoardItem );
         else
@@ -639,7 +700,7 @@ void FOOTPRINT::Remove( BOARD_ITEM* aBoardItem, REMOVE_MODE aMode )
 
 double FOOTPRINT::GetArea( int aPadding ) const
 {
-    EDA_RECT bbox = GetBoundingBox( false, false );
+    BOX2I bbox = GetBoundingBox( false, false );
 
     double w = std::abs( static_cast<double>( bbox.GetWidth() ) ) + aPadding;
     double h = std::abs( static_cast<double>( bbox.GetHeight() ) ) + aPadding;
@@ -707,9 +768,9 @@ wxString FOOTPRINT::GetTypeName() const
 }
 
 
-EDA_RECT FOOTPRINT::GetFpPadsLocalBbox() const
+BOX2I FOOTPRINT::GetFpPadsLocalBbox() const
 {
-    EDA_RECT area;
+    BOX2I bbox;
 
     // We want the bounding box of the footprint pads at rot 0, not flipped
     // Create such a image:
@@ -722,19 +783,19 @@ EDA_RECT FOOTPRINT::GetFpPadsLocalBbox() const
         dummy.Flip( VECTOR2I( 0, 0 ), false );
 
     for( PAD* pad : dummy.Pads() )
-        area.Merge( pad->GetBoundingBox() );
+        bbox.Merge( pad->GetBoundingBox() );
 
-    return area;
+    return bbox;
 }
 
 
-const EDA_RECT FOOTPRINT::GetBoundingBox() const
+const BOX2I FOOTPRINT::GetBoundingBox() const
 {
     return GetBoundingBox( true, true );
 }
 
 
-const EDA_RECT FOOTPRINT::GetBoundingBox( bool aIncludeText, bool aIncludeInvisibleText ) const
+const BOX2I FOOTPRINT::GetBoundingBox( bool aIncludeText, bool aIncludeInvisibleText ) const
 {
     const BOARD* board = GetBoard();
     bool         isFPEdit = board && board->IsFootprintHolder();
@@ -758,26 +819,31 @@ const EDA_RECT FOOTPRINT::GetBoundingBox( bool aIncludeText, bool aIncludeInvisi
         }
     }
 
-    EDA_RECT area;
-
-    area.SetOrigin( m_pos );
-    area.SetEnd( m_pos );
-    area.Inflate( Millimeter2iu( 0.25 ) );   // Give a min size to the area
+    BOX2I bbox( m_pos );
+    bbox.Inflate( pcbIUScale.mmToIU( 0.25 ) );   // Give a min size to the bbox
 
     for( BOARD_ITEM* item : m_drawings )
     {
-        if( !isFPEdit && m_privateLayers.test( item->GetLayer() ) )
+        if( m_privateLayers.test( item->GetLayer() ) && !isFPEdit )
             continue;
 
-        if( item->Type() != PCB_FP_TEXT_T )
-            area.Merge( item->GetBoundingBox() );
+        // We want the bitmap bounding box just in the footprint editor
+        // so it will start with the correct initial zoom
+        if( item->Type() == PCB_BITMAP_T && !isFPEdit )
+            continue;
+
+        // Handle text separately
+        if( item->Type() == PCB_FP_TEXT_T )
+            continue;
+
+        bbox.Merge( item->GetBoundingBox() );
     }
 
     for( PAD* pad : m_pads )
-        area.Merge( pad->GetBoundingBox() );
+        bbox.Merge( pad->GetBoundingBox() );
 
     for( FP_ZONE* zone : m_fp_zones )
-        area.Merge( zone->GetBoundingBox() );
+        bbox.Merge( zone->GetBoundingBox() );
 
     bool noDrawItems = ( m_drawings.empty() && m_pads.empty() && m_fp_zones.empty() );
 
@@ -792,7 +858,7 @@ const EDA_RECT FOOTPRINT::GetBoundingBox( bool aIncludeText, bool aIncludeInvisi
             // Only FP_TEXT items are independently selectable; FP_TEXTBOX items go in with
             // other graphic items above.
             if( item->Type() == PCB_FP_TEXT_T )
-                area.Merge( item->GetBoundingBox() );
+                bbox.Merge( item->GetBoundingBox() );
         }
 
         // This can be further optimized when aIncludeInvisibleText is true, but currently
@@ -820,14 +886,14 @@ const EDA_RECT FOOTPRINT::GetBoundingBox( bool aIncludeText, bool aIncludeInvisi
                 || aIncludeInvisibleText
                 || noDrawItems )
         {
-            area.Merge( m_value->GetBoundingBox() );
+            bbox.Merge( m_value->GetBoundingBox() );
         }
 
         if( ( m_reference->IsVisible() && refLayerIsVisible )
                 || aIncludeInvisibleText
                 || noDrawItems )
         {
-            area.Merge( m_reference->GetBoundingBox() );
+            bbox.Merge( m_reference->GetBoundingBox() );
         }
     }
 
@@ -836,21 +902,21 @@ const EDA_RECT FOOTPRINT::GetBoundingBox( bool aIncludeText, bool aIncludeInvisi
         if( ( aIncludeText && aIncludeInvisibleText ) || noDrawItems )
         {
             m_boundingBoxCacheTimeStamp = board->GetTimeStamp();
-            m_cachedBoundingBox = area;
+            m_cachedBoundingBox = bbox;
         }
         else if( aIncludeText )
         {
             m_visibleBBoxCacheTimeStamp = board->GetTimeStamp();
-            m_cachedVisibleBBox = area;
+            m_cachedVisibleBBox = bbox;
         }
         else
         {
             m_textExcludedBBoxCacheTimeStamp = board->GetTimeStamp();
-            m_cachedTextExcludedBBox = area;
+            m_cachedTextExcludedBBox = bbox;
         }
     }
 
-    return area;
+    return bbox;
 }
 
 
@@ -873,10 +939,10 @@ SHAPE_POLY_SET FOOTPRINT::GetBoundingHull() const
         if( !isFPEdit && m_privateLayers.test( item->GetLayer() ) )
             continue;
 
-        if( item->Type() != PCB_FP_TEXT_T )
+        if( item->Type() != PCB_FP_TEXT_T && item->Type() != PCB_BITMAP_T )
         {
-            item->TransformShapeWithClearanceToPolygon( rawPolys, UNDEFINED_LAYER, 0, ARC_LOW_DEF,
-                                                        ERROR_OUTSIDE );
+            item->TransformShapeToPolygon( rawPolys, UNDEFINED_LAYER, 0, ARC_LOW_DEF,
+                                           ERROR_OUTSIDE );
         }
 
         // We intentionally exclude footprint text from the bounding hull.
@@ -884,17 +950,16 @@ SHAPE_POLY_SET FOOTPRINT::GetBoundingHull() const
 
     for( PAD* pad : m_pads )
     {
-        pad->TransformShapeWithClearanceToPolygon( rawPolys, UNDEFINED_LAYER, 0, ARC_LOW_DEF,
-                                                   ERROR_OUTSIDE );
+        pad->TransformShapeToPolygon( rawPolys, UNDEFINED_LAYER, 0, ARC_LOW_DEF, ERROR_OUTSIDE );
         // In case hole is larger than pad
-        pad->TransformHoleWithClearanceToPolygon( rawPolys, 0, ARC_LOW_DEF, ERROR_OUTSIDE );
+        pad->TransformHoleToPolygon( rawPolys, 0, ARC_LOW_DEF, ERROR_OUTSIDE );
     }
 
     for( FP_ZONE* zone : m_fp_zones )
     {
         for( PCB_LAYER_ID layer : zone->GetLayerSet().Seq() )
         {
-            SHAPE_POLY_SET layerPoly = *zone->GetFilledPolysList( layer );
+            const SHAPE_POLY_SET& layerPoly = *zone->GetFilledPolysList( layer );
 
             for( int ii = 0; ii < layerPoly.OutlineCount(); ii++ )
             {
@@ -910,7 +975,7 @@ SHAPE_POLY_SET FOOTPRINT::GetBoundingHull() const
     if( rawPolys.OutlineCount() == 0 )
     {
         // generate a small dummy rectangular outline around the anchor
-        const int halfsize = Millimeter2iu( 1.0 );
+        const int halfsize = pcbIUScale.mmToIU( 1.0 );
 
         rawPolys.NewOutline();
 
@@ -1029,7 +1094,7 @@ bool FOOTPRINT::IsOnLayer( PCB_LAYER_ID aLayer ) const
 
 bool FOOTPRINT::HitTest( const VECTOR2I& aPosition, int aAccuracy ) const
 {
-    EDA_RECT rect = GetBoundingBox( false, false );
+    BOX2I rect = GetBoundingBox( false, false );
     return rect.Inflate( aAccuracy ).Contains( aPosition );
 }
 
@@ -1040,9 +1105,9 @@ bool FOOTPRINT::HitTestAccurate( const VECTOR2I& aPosition, int aAccuracy ) cons
 }
 
 
-bool FOOTPRINT::HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy ) const
+bool FOOTPRINT::HitTest( const BOX2I& aRect, bool aContained, int aAccuracy ) const
 {
-    EDA_RECT arect = aRect;
+    BOX2I arect = aRect;
     arect.Inflate( aAccuracy );
 
     if( aContained )
@@ -1076,9 +1141,12 @@ bool FOOTPRINT::HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy )
         {
             // Text items are selectable on their own, and are therefore excluded from this
             // test.  TextBox items are NOT selectable on their own, and so MUST be included
-            // here.
-            if( item->Type() != PCB_FP_TEXT_T && item->HitTest( arect, false, 0 ) )
+            // here. Bitmaps aren't selectable since they aren't displayed.
+            if( item->Type() != PCB_FP_TEXT_T && item->Type() != PCB_FP_TEXT_T
+                && item->HitTest( arect, false, 0 ) )
+            {
                 return true;
+            }
         }
 
         // Groups are not hit-tested; only their members
@@ -1122,25 +1190,6 @@ PAD* FOOTPRINT::GetPad( const VECTOR2I& aPosition, LSET aLayerMask )
     }
 
     return nullptr;
-}
-
-
-PAD* FOOTPRINT::GetTopLeftPad()
-{
-    PAD* topLeftPad = m_pads.front();
-
-    for( PAD* p : m_pads )
-    {
-        VECTOR2I pnt = p->GetPosition(); // GetPosition() returns the center of the pad
-
-        if( ( pnt.x < topLeftPad->GetPosition().x ) ||
-            ( topLeftPad->GetPosition().x == pnt.x && pnt.y < topLeftPad->GetPosition().y ) )
-        {
-            topLeftPad = p;
-        }
-    }
-
-    return topLeftPad;
 }
 
 
@@ -1205,50 +1254,51 @@ void FOOTPRINT::Add3DModel( FP_3DMODEL* a3DModel )
 
 
 // see footprint.h
-SEARCH_RESULT FOOTPRINT::Visit( INSPECTOR inspector, void* testData, const KICAD_T scanTypes[] )
+INSPECT_RESULT FOOTPRINT::Visit( INSPECTOR inspector, void* testData,
+                                 const std::vector<KICAD_T>& aScanTypes )
 {
-    KICAD_T        stype;
-    SEARCH_RESULT  result = SEARCH_RESULT::CONTINUE;
-    const KICAD_T* p    = scanTypes;
-    bool           done = false;
-
 #if 0 && defined(DEBUG)
     std::cout << GetClass().mb_str() << ' ';
 #endif
 
-    while( !done )
-    {
-        stype = *p;
+    bool drawingsScanned = false;
 
-        switch( stype )
+    for( KICAD_T scanType : aScanTypes )
+    {
+        switch( scanType )
         {
         case PCB_FOOTPRINT_T:
-            result = inspector( this, testData );  // inspect me
-            ++p;
+            if( inspector( this, testData ) == INSPECT_RESULT::QUIT )
+                return INSPECT_RESULT::QUIT;
+
             break;
 
         case PCB_PAD_T:
-            result = IterateForward<PAD*>( m_pads, inspector, testData, p );
-            ++p;
+            if( IterateForward<PAD*>( m_pads, inspector, testData, { scanType } )
+                    == INSPECT_RESULT::QUIT )
+            {
+                return INSPECT_RESULT::QUIT;
+            }
+
             break;
 
         case PCB_FP_ZONE_T:
-            result = IterateForward<FP_ZONE*>( m_fp_zones, inspector, testData, p );
-            ++p;
+            if( IterateForward<FP_ZONE*>( m_fp_zones, inspector, testData, { scanType } )
+                    == INSPECT_RESULT::QUIT )
+            {
+                return INSPECT_RESULT::QUIT;
+            }
+
             break;
 
         case PCB_FP_TEXT_T:
-            result = inspector( m_reference, testData );
+            if( inspector( m_reference, testData ) == INSPECT_RESULT::QUIT )
+                return INSPECT_RESULT::QUIT;
 
-            if( result == SEARCH_RESULT::QUIT )
-                break;
+            if( inspector( m_value, testData ) == INSPECT_RESULT::QUIT )
+                return INSPECT_RESULT::QUIT;
 
-            result = inspector( m_value, testData );
-
-            if( result == SEARCH_RESULT::QUIT )
-                break;
-
-            // Intentionally fall through since m_Drawings can hold PCB_FP_SHAPE_T also
+            // Intentionally fall through since m_Drawings can hold PCB_FP_TEXT_T also
             KI_FALLTHROUGH;
 
         case PCB_FP_DIM_ALIGNED_T:
@@ -1258,51 +1308,38 @@ SEARCH_RESULT FOOTPRINT::Visit( INSPECTOR inspector, void* testData, const KICAD
         case PCB_FP_DIM_ORTHOGONAL_T:
         case PCB_FP_SHAPE_T:
         case PCB_FP_TEXTBOX_T:
-            result = IterateForward<BOARD_ITEM*>( m_drawings, inspector, testData, p );
-
-            // skip over any types handled in the above call.
-            for( ; ; )
+            if( !drawingsScanned )
             {
-                switch( stype = *++p )
+                if( IterateForward<BOARD_ITEM*>( m_drawings, inspector, testData, aScanTypes )
+                        == INSPECT_RESULT::QUIT )
                 {
-                case PCB_FP_TEXT_T:
-                case PCB_FP_TEXTBOX_T:
-                case PCB_FP_SHAPE_T:
-                case PCB_FP_DIM_ALIGNED_T:
-                case PCB_FP_DIM_LEADER_T:
-                case PCB_FP_DIM_CENTER_T:
-                case PCB_FP_DIM_RADIAL_T:
-                case PCB_FP_DIM_ORTHOGONAL_T:
-                    continue;
-
-                default:
-                    ;
+                    return INSPECT_RESULT::QUIT;
                 }
 
-                break;
+                drawingsScanned = true;
             }
 
             break;
 
         case PCB_GROUP_T:
-            result = IterateForward<PCB_GROUP*>( m_fp_groups, inspector, testData, p );
-            ++p;
+            if( IterateForward<PCB_GROUP*>( m_fp_groups, inspector, testData, { scanType } )
+                    == INSPECT_RESULT::QUIT )
+            {
+                return INSPECT_RESULT::QUIT;
+            }
+
             break;
 
         default:
-            done = true;
             break;
         }
-
-        if( result == SEARCH_RESULT::QUIT )
-            break;
     }
 
-    return result;
+    return INSPECT_RESULT::CONTINUE;
 }
 
 
-wxString FOOTPRINT::GetSelectMenuText( EDA_UNITS aUnits ) const
+wxString FOOTPRINT::GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const
 {
     wxString reference = GetReference();
 
@@ -1351,33 +1388,6 @@ void FOOTPRINT::RunOnChildren( const std::function<void ( BOARD_ITEM*)>& aFuncti
 }
 
 
-void FOOTPRINT::GetAllDrawingLayers( int aLayers[], int& aCount, bool aIncludePads ) const
-{
-    std::unordered_set<int> layers;
-
-    for( BOARD_ITEM* item : m_drawings )
-        layers.insert( static_cast<int>( item->GetLayer() ) );
-
-    if( aIncludePads )
-    {
-        for( PAD* pad : m_pads )
-        {
-            int pad_layers[KIGFX::VIEW::VIEW_MAX_LAYERS], pad_layers_count;
-            pad->ViewGetLayers( pad_layers, pad_layers_count );
-
-            for( int i = 0; i < pad_layers_count; i++ )
-                layers.insert( pad_layers[i] );
-        }
-    }
-
-    aCount = layers.size();
-    int i = 0;
-
-    for( int layer : layers )
-        aLayers[i++] = layer;
-}
-
-
 void FOOTPRINT::ViewGetLayers( int aLayers[], int& aCount ) const
 {
     aCount = 2;
@@ -1398,6 +1408,12 @@ void FOOTPRINT::ViewGetLayers( int aLayers[], int& aCount ) const
         aLayers[1] = LAYER_MOD_BK;
         break;
     }
+
+    if( IsLocked() )
+        aLayers[ aCount++ ] = LAYER_LOCKED_ITEM_SHADOW;
+
+    if( IsConflicting() )
+        aLayers[ aCount++ ] = LAYER_CONFLICTS_SHADOW;
 
     // If there are no pads, and only drawings on a silkscreen layer, then report the silkscreen
     // layer as well so that the component can be edited with the silkscreen layer
@@ -1426,6 +1442,30 @@ void FOOTPRINT::ViewGetLayers( int aLayers[], int& aCount ) const
 
 double FOOTPRINT::ViewGetLOD( int aLayer, KIGFX::VIEW* aView ) const
 {
+    if( aLayer == LAYER_LOCKED_ITEM_SHADOW )
+    {
+        // The locked shadow shape is shown only if the footprint itself is visible
+        if( ( m_layer == F_Cu ) && aView->IsLayerVisible( LAYER_MOD_FR ) )
+            return 0.0;
+
+        if( ( m_layer == B_Cu ) && aView->IsLayerVisible( LAYER_MOD_BK ) )
+            return 0.0;
+
+        return std::numeric_limits<double>::max();
+    }
+
+    if( aLayer == LAYER_CONFLICTS_SHADOW && IsConflicting() )
+    {
+        // The locked shadow shape is shown only if the footprint itself is visible
+        if( ( m_layer == F_Cu ) && aView->IsLayerVisible( LAYER_MOD_FR ) )
+            return 0.0;
+
+        if( ( m_layer == B_Cu ) && aView->IsLayerVisible( LAYER_MOD_BK ) )
+            return 0.0;
+
+        return std::numeric_limits<double>::max();
+    }
+
     int layer = ( m_layer == F_Cu ) ? LAYER_MOD_FR :
                 ( m_layer == B_Cu ) ? LAYER_MOD_BK : LAYER_ANCHOR;
 
@@ -1443,7 +1483,7 @@ double FOOTPRINT::ViewGetLOD( int aLayer, KIGFX::VIEW* aView ) const
 
 const BOX2I FOOTPRINT::ViewBBox() const
 {
-    EDA_RECT area = GetBoundingBox( true, true );
+    BOX2I area = GetBoundingBox( true, true );
 
     // Add the Clearance shape size: (shape around the pads when the clearance is shown.  Not
     // optimized, but the draw cost is small (perhaps smaller than optimization).
@@ -1474,7 +1514,9 @@ const wxChar* FOOTPRINT::StringLibNameInvalidChars( bool aUserReadable )
 {
     // This list of characters is also duplicated in validators.cpp and
     // lib_id.cpp
-    // TODO: Unify forbidden character lists
+    // TODO: Unify forbidden character lists - Warning, invalid filename characters are not the same
+    // as invalid LIB_ID characters.  We will need to separate the FP filenames from FP names before this
+    // can be unified
     static const wxChar invalidChars[] = wxT("%$<>\t\n\r\"\\/:");
     static const wxChar invalidCharsReadable[] = wxT("% $ < > 'tab' 'return' 'line feed' \\ \" / :");
 
@@ -1571,8 +1613,17 @@ void FOOTPRINT::Flip( const VECTOR2I& aCentre, bool aFlipLeftRight )
             static_cast<FP_TEXTBOX*>( item )->Flip( m_pos, false );
             break;
 
+        case PCB_FP_DIM_ALIGNED_T:
+        case PCB_FP_DIM_ORTHOGONAL_T:
+        case PCB_FP_DIM_RADIAL_T:
+        case PCB_FP_DIM_CENTER_T:
+        case PCB_FP_DIM_LEADER_T:
+            static_cast<PCB_DIMENSION_BASE*>( item )->Flip( m_pos, false );
+            break;
+
         default:
-            wxMessageBox( wxT( "FOOTPRINT::Flip() error: Unknown Draw Type" ) );
+            wxMessageBox( wxString::Format( wxT( "FOOTPRINT::Flip() error: Unknown Draw Type %d" ),
+                          (int)item->Type() ) );
             break;
         }
     }
@@ -1587,7 +1638,7 @@ void FOOTPRINT::Flip( const VECTOR2I& aCentre, bool aFlipLeftRight )
 
     m_cachedHull.Mirror( aFlipLeftRight, !aFlipLeftRight, m_pos );
 
-    std::swap( m_poly_courtyard_front, m_poly_courtyard_back );
+    std::swap( m_courtyard_cache_front, m_courtyard_cache_back );
 }
 
 
@@ -1630,6 +1681,7 @@ void FOOTPRINT::SetPosition( const VECTOR2I& aPos )
         case PCB_FP_DIM_ORTHOGONAL_T:
         case PCB_FP_DIM_RADIAL_T:
         case PCB_FP_DIM_LEADER_T:
+        case PCB_BITMAP_T:
             item->Move( delta );
             break;
 
@@ -1709,8 +1761,8 @@ void FOOTPRINT::MoveAnchorPosition( const VECTOR2I& aMoveVector )
     // Update the 3D models
     for( FP_3DMODEL& model : Models() )
     {
-        model.m_Offset.x += Iu2Millimeter( moveVector.x );
-        model.m_Offset.y -= Iu2Millimeter( moveVector.y );
+        model.m_Offset.x += pcbIUScale.IUTomm( moveVector.x );
+        model.m_Offset.y -= pcbIUScale.IUTomm( moveVector.y );
     }
 
     m_cachedBoundingBox.Move( moveVector );
@@ -1735,6 +1787,12 @@ void FOOTPRINT::SetOrientation( const EDA_ANGLE& aNewAngle )
 
     for( ZONE* zone : m_fp_zones )
         zone->Rotate( GetPosition(), angleChange );
+
+    for( BOARD_ITEM* item : m_drawings )
+    {
+        if( PCB_DIMENSION_BASE* dimension = dynamic_cast<PCB_DIMENSION_BASE*>( item ) )
+            dimension->Rotate( GetPosition(), angleChange );
+    }
 
     // Update of the reference and value.
     m_reference->SetDrawCoord();
@@ -1971,15 +2029,13 @@ double FOOTPRINT::GetCoverageArea( const BOARD_ITEM* aItem, const GENERAL_COLLEC
     {
         const FP_TEXT* text = static_cast<const FP_TEXT*>( aItem );
 
-        text->TransformTextShapeWithClearanceToPolygon( poly, UNDEFINED_LAYER, textMargin,
-                                                        ARC_LOW_DEF, ERROR_OUTSIDE );
+        text->TransformTextToPolySet( poly, UNDEFINED_LAYER, textMargin, ARC_LOW_DEF, ERROR_OUTSIDE );
     }
     else if( aItem->Type() == PCB_FP_TEXTBOX_T )
     {
-        const FP_TEXTBOX* textbox = static_cast<const FP_TEXTBOX*>( aItem );
+        const FP_TEXTBOX* tb = static_cast<const FP_TEXTBOX*>( aItem );
 
-        textbox->TransformTextShapeWithClearanceToPolygon( poly, UNDEFINED_LAYER, textMargin,
-                                                           ARC_LOW_DEF, ERROR_OUTSIDE );
+        tb->TransformTextToPolySet( poly, UNDEFINED_LAYER, textMargin, ARC_LOW_DEF, ERROR_OUTSIDE );
     }
     else if( aItem->Type() == PCB_SHAPE_T )
     {
@@ -2007,8 +2063,7 @@ double FOOTPRINT::GetCoverageArea( const BOARD_ITEM* aItem, const GENERAL_COLLEC
         }
 
         default:
-            shape->TransformShapeWithClearanceToPolygon( poly, UNDEFINED_LAYER, 0,
-                                                         ARC_LOW_DEF, ERROR_OUTSIDE );
+            shape->TransformShapeToPolygon( poly, UNDEFINED_LAYER, 0, ARC_LOW_DEF, ERROR_OUTSIDE );
         }
     }
     else if( aItem->Type() == PCB_TRACE_T || aItem->Type() == PCB_ARC_T )
@@ -2018,8 +2073,7 @@ double FOOTPRINT::GetCoverageArea( const BOARD_ITEM* aItem, const GENERAL_COLLEC
     }
     else
     {
-        aItem->TransformShapeWithClearanceToPolygon( poly, UNDEFINED_LAYER, 0,
-                                                     ARC_LOW_DEF, ERROR_OUTSIDE );
+        aItem->TransformShapeToPolygon( poly, UNDEFINED_LAYER, 0, ARC_LOW_DEF, ERROR_OUTSIDE );
     }
 
     return polygonArea( poly );
@@ -2033,13 +2087,13 @@ double FOOTPRINT::CoverageRatio( const GENERAL_COLLECTOR& aCollector ) const
     SHAPE_POLY_SET footprintRegion( GetBoundingHull() );
     SHAPE_POLY_SET coveredRegion;
 
-    TransformPadsWithClearanceToPolygon( coveredRegion, UNDEFINED_LAYER, 0, ARC_LOW_DEF,
-                                         ERROR_OUTSIDE );
+    TransformPadsToPolySet( coveredRegion, UNDEFINED_LAYER, 0, ARC_LOW_DEF, ERROR_OUTSIDE );
 
-    TransformFPShapesWithClearanceToPolygon( coveredRegion, UNDEFINED_LAYER, textMargin,
-                                             ARC_LOW_DEF, ERROR_OUTSIDE,
-                                             true, /* include text */
-                                             false /* include shapes */ );
+    TransformFPShapesToPolySet( coveredRegion, UNDEFINED_LAYER, textMargin, ARC_LOW_DEF,
+                                ERROR_OUTSIDE,
+                                true,  /* include text */
+                                false, /* include shapes */
+                                false  /* include private items */ );
 
     for( int i = 0; i < aCollector.GetCount(); ++i )
     {
@@ -2052,8 +2106,8 @@ double FOOTPRINT::CoverageRatio( const GENERAL_COLLECTOR& aCollector ) const
         case PCB_FP_SHAPE_T:
             if( item->GetParent() != this )
             {
-                item->TransformShapeWithClearanceToPolygon( coveredRegion, UNDEFINED_LAYER, 0,
-                                                            ARC_LOW_DEF, ERROR_OUTSIDE );
+                item->TransformShapeToPolygon( coveredRegion, UNDEFINED_LAYER, 0, ARC_LOW_DEF,
+                                               ERROR_OUTSIDE );
             }
             break;
 
@@ -2063,8 +2117,8 @@ double FOOTPRINT::CoverageRatio( const GENERAL_COLLECTOR& aCollector ) const
         case PCB_TRACE_T:
         case PCB_ARC_T:
         case PCB_VIA_T:
-            item->TransformShapeWithClearanceToPolygon( coveredRegion, UNDEFINED_LAYER, 0,
-                                                        ARC_LOW_DEF, ERROR_OUTSIDE );
+            item->TransformShapeToPolygon( coveredRegion, UNDEFINED_LAYER, 0, ARC_LOW_DEF,
+                                           ERROR_OUTSIDE );
             break;
 
         case PCB_FOOTPRINT_T:
@@ -2094,7 +2148,7 @@ double FOOTPRINT::CoverageRatio( const GENERAL_COLLECTOR& aCollector ) const
 }
 
 
-std::shared_ptr<SHAPE> FOOTPRINT::GetEffectiveShape( PCB_LAYER_ID aLayer ) const
+std::shared_ptr<SHAPE> FOOTPRINT::GetEffectiveShape( PCB_LAYER_ID aLayer, FLASHING aFlash ) const
 {
     std::shared_ptr<SHAPE_COMPOUND> shape = std::make_shared<SHAPE_COMPOUND>();
 
@@ -2103,26 +2157,52 @@ std::shared_ptr<SHAPE> FOOTPRINT::GetEffectiveShape( PCB_LAYER_ID aLayer ) const
     // 2) just the pads and "edges" (ie: non-text graphic items)
     // 3) the courtyard
 
-    // We'll go with (2) for now....
+    // We'll go with (2) for now, unless the caller is clearly looking for (3)
 
-    for( PAD* pad : Pads() )
-        shape->AddShape( pad->GetEffectiveShape( aLayer )->Clone() );
-
-    for( BOARD_ITEM* item : GraphicalItems() )
+    if( aLayer == F_CrtYd || aLayer == B_CrtYd )
     {
-        if( item->Type() == PCB_FP_SHAPE_T )
-            shape->AddShape( item->GetEffectiveShape( aLayer )->Clone() );
+        const SHAPE_POLY_SET& courtyard = GetCourtyard( aLayer );
+
+        if( courtyard.OutlineCount() == 0 )    // malformed/empty polygon
+            return shape;
+
+        shape->AddShape( new SHAPE_SIMPLE( courtyard.COutline( 0 ) ) );
+    }
+    else
+    {
+        for( PAD* pad : Pads() )
+            shape->AddShape( pad->GetEffectiveShape( aLayer, aFlash )->Clone() );
+
+        for( BOARD_ITEM* item : GraphicalItems() )
+        {
+            if( item->Type() == PCB_FP_SHAPE_T )
+                shape->AddShape( item->GetEffectiveShape( aLayer, aFlash )->Clone() );
+        }
     }
 
     return shape;
 }
 
 
-void FOOTPRINT::BuildPolyCourtyards( OUTLINE_ERROR_HANDLER* aErrorHandler )
+const SHAPE_POLY_SET& FOOTPRINT::GetCourtyard( PCB_LAYER_ID aLayer ) const
 {
-    m_poly_courtyard_front.RemoveAllContours();
-    m_poly_courtyard_back.RemoveAllContours();
+    if( GetBoard() && GetBoard()->GetTimeStamp() > m_courtyard_cache_timestamp )
+        const_cast<FOOTPRINT*>( this )->BuildCourtyardCaches();
+
+    if( IsBackLayer( aLayer ) )
+        return m_courtyard_cache_back;
+    else
+        return m_courtyard_cache_front;
+}
+
+
+void FOOTPRINT::BuildCourtyardCaches( OUTLINE_ERROR_HANDLER* aErrorHandler )
+{
+    m_courtyard_cache_front.RemoveAllContours();
+    m_courtyard_cache_back.RemoveAllContours();
     ClearFlags( MALFORMED_COURTYARDS );
+
+    m_courtyard_cache_timestamp = GetBoard()->GetTimeStamp();
 
     // Build the courtyard area from graphic items on the courtyard.
     // Only PCB_FP_SHAPE_T have meaning, graphic texts are ignored.
@@ -2142,29 +2222,29 @@ void FOOTPRINT::BuildPolyCourtyards( OUTLINE_ERROR_HANDLER* aErrorHandler )
     if( !list_front.size() && !list_back.size() )
         return;
 
-    int errorMax = Millimeter2iu( 0.02 );         // max error for polygonization
-    int chainingEpsilon = Millimeter2iu( 0.02 );  // max dist from one endPt to next startPt
+    int errorMax = pcbIUScale.mmToIU( 0.02 );         // max error for polygonization
+    int chainingEpsilon = pcbIUScale.mmToIU( 0.02 );  // max dist from one endPt to next startPt
 
-    if( ConvertOutlineToPolygon( list_front, m_poly_courtyard_front, errorMax, chainingEpsilon,
-                                 aErrorHandler ) )
+    if( ConvertOutlineToPolygon( list_front, m_courtyard_cache_front, errorMax, chainingEpsilon,
+                                 true, aErrorHandler ) )
     {
         // Touching courtyards, or courtyards -at- the clearance distance are legal.
-        m_poly_courtyard_front.Inflate( -1, SHAPE_POLY_SET::CHAMFER_ACUTE_CORNERS );
+        m_courtyard_cache_front.Inflate( -1, SHAPE_POLY_SET::CHAMFER_ACUTE_CORNERS );
 
-        m_poly_courtyard_front.CacheTriangulation( false );
+        m_courtyard_cache_front.CacheTriangulation( false );
     }
     else
     {
         SetFlags( MALFORMED_F_COURTYARD );
     }
 
-    if( ConvertOutlineToPolygon( list_back, m_poly_courtyard_back, errorMax, chainingEpsilon,
-                                 aErrorHandler ) )
+    if( ConvertOutlineToPolygon( list_back, m_courtyard_cache_back, errorMax, chainingEpsilon,
+                                 true, aErrorHandler ) )
     {
         // Touching courtyards, or courtyards -at- the clearance distance are legal.
-        m_poly_courtyard_back.Inflate( -1, SHAPE_POLY_SET::CHAMFER_ACUTE_CORNERS );
+        m_courtyard_cache_back.Inflate( -1, SHAPE_POLY_SET::CHAMFER_ACUTE_CORNERS );
 
-        m_poly_courtyard_back.CacheTriangulation( false );
+        m_courtyard_cache_back.CacheTriangulation( false );
     }
     else
     {
@@ -2173,66 +2253,338 @@ void FOOTPRINT::BuildPolyCourtyards( OUTLINE_ERROR_HANDLER* aErrorHandler )
 }
 
 
-void FOOTPRINT::CheckFootprintAttributes( const std::function<void( const wxString& msg )>* aErrorHandler )
+std::map<wxString, int> FOOTPRINT::MapPadNumbersToNetTieGroups() const
 {
+    std::map<wxString, int> padNumberToGroupIdxMap;
 
-    int      likelyAttr = GetLikelyAttribute();
-    int      setAttr = ( GetAttributes() & ( FP_SMD | FP_THROUGH_HOLE ) );
+    for( const PAD* pad : m_pads )
+        padNumberToGroupIdxMap[ pad->GetNumber() ] = -1;
 
-    // This is only valid if the footprint doesn't have FP_SMD and FP_THROUGH_HOLE set
-    // Which is, unfortunately, possible in theory but not in the UI (I think)
-    if( aErrorHandler && likelyAttr != setAttr )
+    for( size_t ii = 0; ii < m_netTiePadGroups.size(); ++ii )
+    {
+        wxStringTokenizer     groupParser( m_netTiePadGroups[ ii ], "," );
+        std::vector<wxString> numbersInGroup;
+
+        while( groupParser.HasMoreTokens() )
+            padNumberToGroupIdxMap[ groupParser.GetNextToken().Trim( false ).Trim( true ) ] = ii;
+    }
+
+    return padNumberToGroupIdxMap;
+}
+
+
+std::vector<PAD*> FOOTPRINT::GetNetTiePads( PAD* aPad ) const
+{
+    // First build a map from pad numbers to allowed-shorting-group indexes.  This ends up being
+    // something like O(3n), but it still beats O(n^2) for large numbers of pads.
+
+    std::map<wxString, int> padToNetTieGroupMap = MapPadNumbersToNetTieGroups();
+    int                     groupIdx = padToNetTieGroupMap[ aPad->GetNumber() ];
+    std::vector<PAD*>       otherPads;
+
+    if( groupIdx >= 0 )
+    {
+        for( PAD* pad : m_pads )
+        {
+            if( padToNetTieGroupMap[ pad->GetNumber() ] == groupIdx )
+                otherPads.push_back( pad );
+        }
+    }
+
+    return otherPads;
+}
+
+
+void FOOTPRINT::CheckFootprintAttributes( const std::function<void( const wxString& )>& aErrorHandler )
+{
+    int likelyAttr = ( GetLikelyAttribute() & ( FP_SMD | FP_THROUGH_HOLE ) );
+    int setAttr = ( GetAttributes() & ( FP_SMD | FP_THROUGH_HOLE ) );
+
+    if( setAttr && likelyAttr && setAttr != likelyAttr )
     {
         wxString msg;
 
-        if( likelyAttr == FP_THROUGH_HOLE )
+        switch( likelyAttr )
         {
-            msg.Printf( _( "Expected \"Through hole\" type but set to \"%s\"" ), GetTypeName() );
-        }
-        else if( likelyAttr == FP_SMD )
-        {
-            msg.Printf( _( "Expected \"SMD\" type but set to \"%s\"" ), GetTypeName() );
-        }
-        else
-        {
-            msg.Printf( _( "Expected \"Other\" type but set to \"%s\"" ), GetTypeName() );
+        case FP_THROUGH_HOLE:
+            msg.Printf( _( "(expected 'Through hole'; actual '%s')" ), GetTypeName() );
+            break;
+        case FP_SMD:
+            msg.Printf( _( "(expected 'SMD'; actual '%s')" ), GetTypeName() );
+            break;
         }
 
-        msg = wxT( "(" ) + msg + wxT( ")" );
-
-        (*aErrorHandler)( msg );
+        if( aErrorHandler )
+            (aErrorHandler)( msg );
     }
 }
 
-void FOOTPRINT::CheckFootprintTHPadNoHoles(
-        const std::function<void( const wxString& msg, const VECTOR2I& position )>* aErrorHandler )
+
+void FOOTPRINT::CheckPads( const std::function<void( const PAD*, int,
+                                                     const wxString& )>& aErrorHandler )
 {
     if( aErrorHandler == nullptr )
         return;
 
-    for( const PAD* pad: Pads() )
+    for( PAD* pad: Pads() )
     {
-
-        if( pad->GetAttribute() != PAD_ATTRIB::PTH
-            && pad->GetAttribute() != PAD_ATTRIB::NPTH )
-            continue;
-
-        if( pad->GetDrillSizeX() < 1 || pad->GetDrillSizeY() < 1 )
+        if( pad->GetAttribute() == PAD_ATTRIB::PTH ||  pad->GetAttribute() == PAD_ATTRIB::NPTH )
         {
-            wxString msg;
-            msg.Printf( _( "(pad \"%s\")" ), pad->GetNumber() );
+            if( pad->GetDrillSizeX() < 1 || pad->GetDrillSizeY() < 1 )
+                (aErrorHandler)( pad, DRCE_PAD_TH_WITH_NO_HOLE, wxEmptyString );
+        }
 
-            (*aErrorHandler)( msg, pad->GetPosition() );
+        if( pad->GetAttribute() == PAD_ATTRIB::PTH )
+        {
+            if( !pad->IsOnCopperLayer() )
+            {
+                (aErrorHandler)( pad, DRCE_PADSTACK, _( "(PTH pad has no copper layers)" ) );
+            }
+            else
+            {
+                LSET           lset = pad->GetLayerSet() & LSET::AllCuMask();
+                PCB_LAYER_ID   layer = lset.Seq().at( 0 );
+                SHAPE_POLY_SET padOutline;
+
+                pad->TransformShapeToPolygon( padOutline, layer, 0, ARC_HIGH_DEF, ERROR_INSIDE );
+
+                std::shared_ptr<SHAPE_SEGMENT> hole = pad->GetEffectiveHoleShape();
+                SHAPE_POLY_SET                 holeOutline;
+
+                TransformOvalToPolygon( holeOutline, hole->GetSeg().A, hole->GetSeg().B,
+                                        hole->GetWidth(), ARC_HIGH_DEF, ERROR_INSIDE );
+
+                padOutline.BooleanSubtract( holeOutline, SHAPE_POLY_SET::POLYGON_MODE::PM_FAST );
+
+                if( padOutline.IsEmpty() )
+                    aErrorHandler( pad, DRCE_PADSTACK, _( "(PTH pad's hole leaves no copper)" ) );
+            }
+        }
+
+        if( pad->GetAttribute() == PAD_ATTRIB::SMD )
+        {
+            if( pad->IsOnLayer( F_Cu ) && pad->IsOnLayer( B_Cu ) )
+            {
+                aErrorHandler( pad, DRCE_PADSTACK,
+                               _( "(SMD pad appears on both front and back copper)" ) );
+            }
+            else if( pad->IsOnLayer( F_Cu ) )
+            {
+                if( pad->IsOnLayer( B_Mask ) )
+                {
+                    aErrorHandler( pad, DRCE_PADSTACK,
+                                   _( "(SMD pad copper and mask layers don't match)" ) );
+                }
+                else if( pad->IsOnLayer( B_Paste ) )
+                {
+                    aErrorHandler( pad, DRCE_PADSTACK,
+                                   _( "(SMD pad copper and paste layers don't match)" ) );
+                }
+            }
+            else if( pad->IsOnLayer( B_Cu ) )
+            {
+                if( pad->IsOnLayer( F_Mask ) )
+                {
+                    aErrorHandler( pad, DRCE_PADSTACK,
+                                   _( "(SMD pad copper and mask layers don't match)" ) );
+                }
+                else if( pad->IsOnLayer( F_Paste ) )
+                {
+                    aErrorHandler( pad, DRCE_PADSTACK,
+                                   _( "(SMD pad copper and paste layers don't match)" ) );
+                }
+            }
         }
     }
 }
 
 
-void FOOTPRINT::SwapData( BOARD_ITEM* aImage )
+void FOOTPRINT::CheckShortingPads( const std::function<void( const PAD*, const PAD*,
+                                                             const VECTOR2I& )>& aErrorHandler )
+{
+    std::unordered_map<PTR_PTR_CACHE_KEY, int> checkedPairs;
+
+    for( PAD* pad : Pads() )
+    {
+        std::vector<PAD*> netTiePads = GetNetTiePads( pad );
+
+        for( PAD* other : Pads() )
+        {
+            if( other == pad || pad->SameLogicalPadAs( other ) )
+                continue;
+
+            if( alg::contains( netTiePads, other ) )
+                continue;
+
+            if( !( ( pad->GetLayerSet() & other->GetLayerSet() ) & LSET::AllCuMask() ).any() )
+                continue;
+
+            // store canonical order so we don't collide in both directions (a:b and b:a)
+            PAD* a = pad;
+            PAD* b = other;
+
+            if( static_cast<void*>( a ) > static_cast<void*>( b ) )
+                std::swap( a, b );
+
+            if( checkedPairs.find( { a, b } ) == checkedPairs.end() )
+            {
+                checkedPairs[ { a, b } ] = 1;
+
+                if( pad->GetBoundingBox().Intersects( other->GetBoundingBox() ) )
+                {
+                    VECTOR2I pos;
+                    SHAPE*   padShape = pad->GetEffectiveShape().get();
+                    SHAPE*   otherShape = other->GetEffectiveShape().get();
+
+                    if( padShape->Collide( otherShape, 0, nullptr, &pos ) )
+                        aErrorHandler( pad, other, pos );
+                }
+            }
+        }
+    }
+}
+
+
+void FOOTPRINT::CheckNetTies( const std::function<void( const BOARD_ITEM* aItem,
+                                                        const BOARD_ITEM* bItem,
+                                                        const BOARD_ITEM* cItem,
+                                                        const VECTOR2I& )>& aErrorHandler )
+{
+    // First build a map from pad numbers to allowed-shorting-group indexes.  This ends up being
+    // something like O(3n), but it still beats O(n^2) for large numbers of pads.
+
+    std::map<wxString, int> padNumberToGroupIdxMap = MapPadNumbersToNetTieGroups();
+
+    // Now collect all the footprint items which are on copper layers
+
+    std::vector<BOARD_ITEM*> copperItems;
+
+    for( BOARD_ITEM* item : m_drawings )
+    {
+        if( item->IsOnCopperLayer() )
+            copperItems.push_back( item );
+    }
+
+    for( ZONE* zone : m_fp_zones )
+    {
+        if( !zone->GetIsRuleArea() && zone->IsOnCopperLayer() )
+            copperItems.push_back( zone );
+    }
+
+    if( m_reference->IsOnCopperLayer() )
+        copperItems.push_back( m_reference );
+
+    if( m_value->IsOnCopperLayer() )
+        copperItems.push_back( m_value );
+
+    for( PCB_LAYER_ID layer : { F_Cu, In1_Cu, B_Cu } )
+    {
+        // Next, build a polygon-set for the copper on this layer.  We don't really care about
+        // nets here, we just want to end up with a set of outlines describing the distinct
+        // copper polygons of the footprint.
+
+        SHAPE_POLY_SET                         copperOutlines;
+        std::map<int, std::vector<const PAD*>> outlineIdxToPadsMap;
+
+        for( BOARD_ITEM* item : copperItems )
+        {
+            if( item->IsOnLayer( layer ) )
+            {
+                item->TransformShapeToPolygon( copperOutlines, layer, 0, ARC_HIGH_DEF,
+                                               ERROR_OUTSIDE );
+            }
+        }
+
+        copperOutlines.Simplify( SHAPE_POLY_SET::PM_FAST );
+
+        // Index each pad to the outline in the set that it is part of.
+
+        for( const PAD* pad : m_pads )
+        {
+            for( int ii = 0; ii < copperOutlines.OutlineCount(); ++ii )
+            {
+                if( pad->GetEffectiveShape( layer )->Collide( &copperOutlines.Outline( ii ), 0 ) )
+                    outlineIdxToPadsMap[ ii ].emplace_back( pad );
+            }
+        }
+
+        // Finally, ensure that each outline which contains multiple pads has all its pads
+        // listed in an allowed-shorting group.
+
+        for( const auto& [ outlineIdx, pads ] : outlineIdxToPadsMap )
+        {
+            if( pads.size() > 1 )
+            {
+                const PAD* firstPad = pads[0];
+                int        firstGroupIdx = padNumberToGroupIdxMap[ firstPad->GetNumber() ];
+
+                for( size_t ii = 1; ii < pads.size(); ++ii )
+                {
+                    const PAD* thisPad = pads[ii];
+                    int        thisGroupIdx = padNumberToGroupIdxMap[ thisPad->GetNumber() ];
+
+                    if( thisGroupIdx < 0 || thisGroupIdx != firstGroupIdx )
+                    {
+                        BOARD_ITEM* shortingItem = nullptr;
+                        VECTOR2I    pos = ( firstPad->GetPosition() + thisPad->GetPosition() ) / 2;
+
+                        pos = copperOutlines.Outline( outlineIdx ).NearestPoint( pos );
+
+                        for( BOARD_ITEM* item : copperItems )
+                        {
+                            if( item->HitTest( pos, 1 ) )
+                            {
+                                shortingItem = item;
+                                break;
+                            }
+                        }
+
+                        if( shortingItem )
+                            aErrorHandler( shortingItem, firstPad, thisPad, pos );
+                        else
+                            aErrorHandler( firstPad, thisPad, nullptr, pos );
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+void FOOTPRINT::CheckNetTiePadGroups( const std::function<void( const wxString& )>& aErrorHandler )
+{
+    std::set<wxString> padNumbers;
+    wxString           msg;
+
+    for( size_t ii = 0; ii < m_netTiePadGroups.size(); ++ii )
+    {
+        wxStringTokenizer groupParser( m_netTiePadGroups[ ii ], "," );
+
+        while( groupParser.HasMoreTokens() )
+        {
+            wxString   padNumber( groupParser.GetNextToken().Trim( false ).Trim( true ) );
+            const PAD* pad = FindPadByNumber( padNumber );
+
+            if( !pad )
+            {
+                msg.Printf( _( "(net-tie pad group contains unknown pad number %s)" ), padNumber );
+                aErrorHandler( msg );
+            }
+            else if( !padNumbers.insert( pad->GetNumber() ).second )
+            {
+                msg.Printf( _( "(pad %s appears in more than one net-tie pad group)" ), padNumber );
+                aErrorHandler( msg );
+            }
+        }
+    }
+}
+
+
+void FOOTPRINT::swapData( BOARD_ITEM* aImage )
 {
     wxASSERT( aImage->Type() == PCB_FOOTPRINT_T );
 
-    std::swap( *((FOOTPRINT*) this), *((FOOTPRINT*) aImage) );
+    std::swap( *this, *static_cast<FOOTPRINT*>( aImage ) );
 }
 
 
@@ -2310,7 +2662,7 @@ bool FOOTPRINT::cmp_pads::operator()( const PAD* aFirst, const PAD* aSecond ) co
 
 bool FOOTPRINT::cmp_zones::operator()( const FP_ZONE* aFirst, const FP_ZONE* aSecond ) const
 {
-    TEST( aFirst->GetPriority(), aSecond->GetPriority() );
+    TEST( aFirst->GetAssignedPriority(), aSecond->GetAssignedPriority() );
     TEST( aFirst->GetLayerSet().Seq(), aSecond->GetLayerSet().Seq() );
 
     TEST( aFirst->Outline()->TotalVertices(), aSecond->Outline()->TotalVertices() );
@@ -2327,60 +2679,38 @@ bool FOOTPRINT::cmp_zones::operator()( const FP_ZONE* aFirst, const FP_ZONE* aSe
 #undef TEST
 
 
-void FOOTPRINT::TransformPadsWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuffer,
-                                                     PCB_LAYER_ID aLayer, int aClearance,
-                                                     int aMaxError, ERROR_LOC aErrorLoc,
-                                                     bool aSkipNPTHPadsWihNoCopper,
-                                                     bool aSkipPlatedPads,
-                                                     bool aSkipNonPlatedPads ) const
+void FOOTPRINT::TransformPadsToPolySet( SHAPE_POLY_SET& aBuffer, PCB_LAYER_ID aLayer,
+                                        int aClearance, int aMaxError, ERROR_LOC aErrorLoc,
+                                        bool aSkipNPTHPadsWihNoCopper, bool aSkipPlatedPads,
+                                        bool aSkipNonPlatedPads ) const
 {
     for( const PAD* pad : m_pads )
     {
-        if( aLayer != UNDEFINED_LAYER && !pad->IsOnLayer(aLayer) )
-            continue;
-
-        if( !pad->FlashLayer( aLayer ) && IsCopperLayer( aLayer ) )
-            continue;
-
-        // NPTH pads are not drawn on layers if the shape size and pos is the same
-        // as their hole:
-        if( aSkipNPTHPadsWihNoCopper && pad->GetAttribute() == PAD_ATTRIB::NPTH )
-        {
-            if( pad->GetDrillSize() == pad->GetSize() && pad->GetOffset() == VECTOR2I( 0, 0 ) )
-            {
-                switch( pad->GetShape() )
-                {
-                case PAD_SHAPE::CIRCLE:
-                    if( pad->GetDrillShape() == PAD_DRILL_SHAPE_CIRCLE )
-                        continue;
-
-                    break;
-
-                case PAD_SHAPE::OVAL:
-                    if( pad->GetDrillShape() != PAD_DRILL_SHAPE_CIRCLE )
-                        continue;
-
-                    break;
-
-                default:
-                    break;
-                }
-            }
-        }
-
-        const bool isPlated = ( ( aLayer == F_Cu ) && pad->FlashLayer( F_Mask ) ) ||
-                              ( ( aLayer == B_Cu ) && pad->FlashLayer( B_Mask ) );
-
-        if( aSkipPlatedPads && isPlated )
-            continue;
-
-        if( aSkipNonPlatedPads && !isPlated )
+        if( !pad->FlashLayer( aLayer ) )
             continue;
 
         VECTOR2I clearance( aClearance, aClearance );
 
         switch( aLayer )
         {
+        case F_Cu:
+            if( aSkipPlatedPads && pad->FlashLayer( F_Mask ) )
+                continue;
+
+            if( aSkipNonPlatedPads && !pad->FlashLayer( F_Mask ) )
+                continue;
+
+            break;
+
+        case B_Cu:
+            if( aSkipPlatedPads && pad->FlashLayer( B_Mask ) )
+                continue;
+
+            if( aSkipNonPlatedPads && !pad->FlashLayer( B_Mask ) )
+                continue;
+
+            break;
+
         case F_Mask:
         case B_Mask:
             clearance.x += pad->GetSolderMaskExpansion();
@@ -2396,10 +2726,9 @@ void FOOTPRINT::TransformPadsWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuff
             break;
         }
 
-        // Our standard TransformShapeWithClearanceToPolygon() routines can't handle differing
-        // x:y clearance values (which get generated when a relative paste margin is used with
-        // an oblong pad).  So we apply this huge hack and fake a larger pad to run the transform
-        // on.
+        // Our standard TransformShapeToPolygon() routines can't handle differing x:y clearance
+        // values (which get generated when a relative paste margin is used with an oblong pad).
+        // So we apply this huge hack and fake a larger pad to run the transform on.
         // Of course being a hack it falls down when dealing with custom shape pads (where the
         // size is only the size of the anchor), so for those we punt and just use clearance.x.
 
@@ -2413,28 +2742,28 @@ void FOOTPRINT::TransformPadsWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuff
 
             PAD dummy( *pad );
             dummy.SetSize( dummySize );
-            dummy.TransformShapeWithClearanceToPolygon( aCornerBuffer, aLayer, 0,
-                                                        aMaxError, aErrorLoc );
+            dummy.TransformShapeToPolygon( aBuffer, aLayer, 0, aMaxError, aErrorLoc );
         }
         else
         {
-            pad->TransformShapeWithClearanceToPolygon( aCornerBuffer, aLayer, clearance.x,
-                                                       aMaxError, aErrorLoc );
+            pad->TransformShapeToPolygon( aBuffer, aLayer, clearance.x, aMaxError, aErrorLoc );
         }
     }
 }
 
 
-void FOOTPRINT::TransformFPShapesWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuffer,
-                                                         PCB_LAYER_ID aLayer, int aClearance,
-                                                         int aError, ERROR_LOC aErrorLoc,
-                                                         bool aIncludeText,
-                                                         bool aIncludeShapes ) const
+void FOOTPRINT::TransformFPShapesToPolySet( SHAPE_POLY_SET& aBuffer, PCB_LAYER_ID aLayer,
+                                            int aClearance, int aError, ERROR_LOC aErrorLoc,
+                                            bool aIncludeText, bool aIncludeShapes,
+                                            bool aIncludePrivateItems ) const
 {
     std::vector<FP_TEXT*> texts;  // List of FP_TEXT to convert
 
     for( BOARD_ITEM* item : GraphicalItems() )
     {
+        if( GetPrivateLayers().test( item->GetLayer() ) && !aIncludePrivateItems )
+            continue;
+
         if( item->Type() == PCB_FP_TEXT_T && aIncludeText )
         {
             FP_TEXT* text = static_cast<FP_TEXT*>( item );
@@ -2448,10 +2777,7 @@ void FOOTPRINT::TransformFPShapesWithClearanceToPolygon( SHAPE_POLY_SET& aCorner
             FP_TEXTBOX* textbox = static_cast<FP_TEXTBOX*>( item );
 
             if( aLayer != UNDEFINED_LAYER && textbox->GetLayer() == aLayer && textbox->IsVisible() )
-            {
-                textbox->TransformShapeWithClearanceToPolygon( aCornerBuffer, aLayer, 0,
-                                                               aError, aErrorLoc, false );
-            }
+                textbox->TransformShapeToPolygon( aBuffer, aLayer, 0, aError, aErrorLoc );
         }
 
         if( item->Type() == PCB_FP_SHAPE_T && aIncludeShapes )
@@ -2459,10 +2785,7 @@ void FOOTPRINT::TransformFPShapesWithClearanceToPolygon( SHAPE_POLY_SET& aCorner
             const FP_SHAPE* outline = static_cast<FP_SHAPE*>( item );
 
             if( aLayer != UNDEFINED_LAYER && outline->GetLayer() == aLayer )
-            {
-                outline->TransformShapeWithClearanceToPolygon( aCornerBuffer, aLayer, 0,
-                                                               aError, aErrorLoc );
-            }
+                outline->TransformShapeToPolygon( aBuffer, aLayer, 0, aError, aErrorLoc );
         }
     }
 
@@ -2476,10 +2799,7 @@ void FOOTPRINT::TransformFPShapesWithClearanceToPolygon( SHAPE_POLY_SET& aCorner
     }
 
     for( const FP_TEXT* text : texts )
-    {
-        text->TransformTextShapeWithClearanceToPolygon( aCornerBuffer, aLayer, aClearance,
-                                                        aError, aErrorLoc );
-    }
+        text->TransformTextToPolySet( aBuffer, aLayer, aClearance, aError, aErrorLoc );
 }
 
 
@@ -2512,24 +2832,28 @@ static struct FOOTPRINT_DESC
                     &FOOTPRINT::SetLayer, &FOOTPRINT::GetLayer );
         layer->SetChoices( fpLayers );
         propMgr.ReplaceProperty( TYPE_HASH( BOARD_ITEM ), _HKI( "Layer" ), layer );
-
         propMgr.AddProperty( new PROPERTY<FOOTPRINT, wxString>( _HKI( "Reference" ),
-                    &FOOTPRINT::SetReference, &FOOTPRINT::GetReference ) );
+                    &FOOTPRINT::SetReference, &FOOTPRINT::GetReferenceAsString ) );
         propMgr.AddProperty( new PROPERTY<FOOTPRINT, wxString>( _HKI( "Value" ),
-                    &FOOTPRINT::SetValue, &FOOTPRINT::GetValue ) );
+                    &FOOTPRINT::SetValue, &FOOTPRINT::GetValueAsString ) );
         propMgr.AddProperty( new PROPERTY<FOOTPRINT, double>( _HKI( "Orientation" ),
                     &FOOTPRINT::SetOrientationDegrees, &FOOTPRINT::GetOrientationDegrees,
-                    PROPERTY_DISPLAY::DEGREE ) );
+                    PROPERTY_DISPLAY::PT_DEGREE ) );
         propMgr.AddProperty( new PROPERTY<FOOTPRINT, int>( _HKI( "Clearance Override" ),
                     &FOOTPRINT::SetLocalClearance, &FOOTPRINT::GetLocalClearance,
-                    PROPERTY_DISPLAY::DISTANCE ) );
+                    PROPERTY_DISPLAY::PT_SIZE ) );
         propMgr.AddProperty( new PROPERTY<FOOTPRINT, int>( _HKI( "Solderpaste Margin Override" ),
                     &FOOTPRINT::SetLocalSolderPasteMargin, &FOOTPRINT::GetLocalSolderPasteMargin,
-                    PROPERTY_DISPLAY::DISTANCE ) );
-        propMgr.AddProperty( new PROPERTY<FOOTPRINT,
-                             double>( _HKI( "Solderpaste Margin Ratio Override" ),
-                                      &FOOTPRINT::SetLocalSolderPasteMarginRatio,
-                                      &FOOTPRINT::GetLocalSolderPasteMarginRatio ) );
-        // TODO zone connection, FPID?
+                    PROPERTY_DISPLAY::PT_SIZE ) );
+        propMgr.AddProperty( new PROPERTY<FOOTPRINT, double>( _HKI( "Solderpaste Margin Ratio Override" ),
+                    &FOOTPRINT::SetLocalSolderPasteMarginRatio,
+                &FOOTPRINT::GetLocalSolderPasteMarginRatio ) );
+        propMgr.AddProperty( new PROPERTY<FOOTPRINT, wxString>( _HKI( "Library ID" ),
+                    &FOOTPRINT::SetFPIDAsString, &FOOTPRINT::GetFPIDAsString ) );
+        propMgr.AddProperty( new PROPERTY<FOOTPRINT, wxString>( _HKI( "Description" ),
+                    &FOOTPRINT::SetDescription, &FOOTPRINT::GetDescription ) );
+        propMgr.AddProperty( new PROPERTY<FOOTPRINT, wxString>( _HKI( "Keywords" ),
+                    &FOOTPRINT::SetKeywords, &FOOTPRINT::GetKeywords ) );
+        // TODO zone connection
     }
 } _FOOTPRINT_DESC;

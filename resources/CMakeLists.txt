@@ -11,7 +11,7 @@ elseif( UNIX )
         COMMAND ${CMAKE_COMMAND}
             -DSRC_PATH=${PROJECT_SOURCE_DIR}
             -DBUILD_PATH=${PROJECT_BINARY_DIR}
-            -DCMAKE_MODULE_PATH=${PROJECT_SOURCE_DIR}/CMakeModules
+            -DCMAKE_MODULE_PATH=${PROJECT_SOURCE_DIR}/cmake
             -P ${CMAKE_MODULE_PATH}/BuildSteps/WritePlatformMetadata_linux.cmake
         DEPENDS ${CMAKE_MODULE_PATH}/BuildSteps/WritePlatformMetadata_linux.cmake
         COMMENT "Configuring Linux metainfo"
@@ -103,3 +103,6 @@ elseif( UNIX )
              PATTERN "*.in" EXCLUDE
              )
 endif()
+
+add_subdirectory(bitmaps_png)
+add_subdirectory(project_template)

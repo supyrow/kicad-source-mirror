@@ -36,7 +36,7 @@
 #include <kiplatform/app.h>
 #include <kiway_express.h>
 #include <symbol_edit_frame.h>
-#include <symbol_library_manager.h>
+#include <lib_symbol_library_manager.h>
 #include <lib_text.h>
 #include <symbol_editor_settings.h>
 #include <paths.h>
@@ -71,7 +71,6 @@
 #include <widgets/symbol_tree_pane.h>
 #include <wildcards_and_files_ext.h>
 #include <panel_sym_lib_table.h>
-#include <wx/choicdlg.h>
 #include <string_utils.h>
 
 
@@ -90,6 +89,9 @@ BEGIN_EVENT_TABLE( SYMBOL_EDIT_FRAME, EDA_DRAW_FRAME )
 
     // Update user interface elements.
     EVT_UPDATE_UI( ID_LIBEDIT_SELECT_UNIT_NUMBER, SYMBOL_EDIT_FRAME::OnUpdateUnitNumber )
+
+    // Drop files event
+    EVT_DROP_FILES( SYMBOL_EDIT_FRAME::OnDropFiles )
 
 END_EVENT_TABLE()
 
@@ -126,14 +128,21 @@ SYMBOL_EDIT_FRAME::SYMBOL_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
     m_settings = Pgm().GetSettingsManager().GetAppSettings<SYMBOL_EDITOR_SETTINGS>();
     LoadSettings( m_settings );
 
-    m_libMgr = new SYMBOL_LIBRARY_MANAGER( *this );
+    m_libMgr = new LIB_SYMBOL_LIBRARY_MANAGER( *this );
+    bool loadingCancelled = false;
 
-    // Preload libraries before using SyncLibraries the first time, as the preload is threaded
-    WX_PROGRESS_REPORTER reporter( this, _( "Loading Symbol Libraries" ),
-                                   m_libMgr->GetLibraryCount(), true );
-    m_libMgr->Preload( reporter );
+    {
+        // Preload libraries before using SyncLibraries the first time, as the preload is
+        // multi-threaded
+        WX_PROGRESS_REPORTER reporter( this, _( "Loading Symbol Libraries" ),
+                                       m_libMgr->GetLibraryCount(), true );
+        m_libMgr->Preload( reporter );
 
-    SyncLibraries( false );
+        loadingCancelled = reporter.IsCancelled();
+        wxSafeYield();
+    }
+
+    SyncLibraries( false, loadingCancelled );
     m_treePane = new SYMBOL_TREE_PANE( this, m_libMgr );
 
     resolveCanvasType();
@@ -168,20 +177,26 @@ SYMBOL_EDIT_FRAME::SYMBOL_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
     m_auimgr.SetManagedWindow( this );
 
     CreateInfoBar();
+
+    // Rows; layers 4 - 6
     m_auimgr.AddPane( m_mainToolBar, EDA_PANE().HToolbar().Name( "MainToolbar" )
                       .Top().Layer( 6 ) );
+
     m_auimgr.AddPane( m_messagePanel, EDA_PANE().Messages().Name( "MsgPanel" )
                       .Bottom().Layer( 6 ) );
 
-    m_auimgr.AddPane( m_optionsToolBar, EDA_PANE().VToolbar().Name( "OptToolbar" )
-                      .Left().Layer( 3 ) );
+    // Columns; layers 1 - 3
     m_auimgr.AddPane( m_treePane, EDA_PANE().Palette().Name( "SymbolTree" )
-                      .Left().Layer( 2 )
+                      .Left().Layer( 3 )
                       .Caption( _( "Libraries" ) )
                       .MinSize( 250, -1 ).BestSize( 250, -1 ) );
+    m_auimgr.AddPane( m_optionsToolBar, EDA_PANE().VToolbar().Name( "OptToolbar" )
+                      .Left().Layer( 2 ) );
+
     m_auimgr.AddPane( m_drawToolBar, EDA_PANE().VToolbar().Name( "ToolsToolbar" )
                       .Right().Layer( 2 ) );
 
+    // Center
     m_auimgr.AddPane( GetCanvas(), wxAuiPaneInfo().Name( "DrawFrame" )
                       .CentrePane() );
 
@@ -217,14 +232,17 @@ SYMBOL_EDIT_FRAME::SYMBOL_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
 
     // Set the working/draw area size to display a symbol to a reasonable value:
     // A 600mm x 600mm with a origin at the area center looks like a large working area
-    double max_size_x = Millimeter2iu( 600 );
-    double max_size_y = Millimeter2iu( 600 );
+    double max_size_x = schIUScale.mmToIU( 600 );
+    double max_size_y = schIUScale.mmToIU( 600 );
     BOX2D bbox;
     bbox.SetOrigin( -max_size_x /2, -max_size_y/2 );
     bbox.SetSize( max_size_x, max_size_y );
     GetCanvas()->GetView()->SetBoundary( bbox );
 
     m_toolManager->RunAction( ACTIONS::zoomFitScreen, true );
+
+    m_acceptedExts.emplace( KiCadSymbolLibFileExtension, &ACTIONS::ddAddLibrary );
+    DragAcceptFiles( true );
 
     KIPLATFORM::APP::SetShutdownBlockReason( this, _( "Library changes are unsaved" ) );
 
@@ -235,6 +253,9 @@ SYMBOL_EDIT_FRAME::SYMBOL_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
 
     // Ensure the window is on top
     Raise();
+
+    if( loadingCancelled )
+        ShowInfoBarWarning( _( "Symbol library loading was cancelled by user." ) );
 }
 
 
@@ -253,6 +274,7 @@ SYMBOL_EDIT_FRAME::~SYMBOL_EDIT_FRAME()
         delete screen;
         m_isSymbolFromSchematic = false;
     }
+
     // current screen is destroyed in EDA_DRAW_FRAME
     SetScreen( m_dummyScreen );
 
@@ -270,6 +292,7 @@ void SYMBOL_EDIT_FRAME::LoadSettings( APP_SETTINGS_BASE* aCfg )
     SCH_BASE_FRAME::LoadSettings( GetSettings() );
 
     GetRenderSettings()->m_ShowPinsElectricalType = m_settings->m_ShowPinElectricalType;
+    GetRenderSettings()->SetDefaultFont( wxEmptyString );
 }
 
 
@@ -360,10 +383,11 @@ void SYMBOL_EDIT_FRAME::setupUIConditions()
                 return IsSymbolEditable() && !IsSymbolAlias();
             };
 
-    auto libModifiedCondition =
+    auto symbolModifiedCondition =
             [this]( const SELECTION& sel )
             {
-                return m_libMgr->HasModifications();
+                return m_libMgr->IsSymbolModified( GetTargetLibId().GetLibItemName(),
+                                                   GetTargetLibId().GetLibNickname() );
             };
 
     auto libSelectedCondition =
@@ -393,7 +417,7 @@ void SYMBOL_EDIT_FRAME::setupUIConditions()
 
     mgr->SetConditions( ACTIONS::undo,              ENABLE( haveSymbolCond && cond.UndoAvailable() ) );
     mgr->SetConditions( ACTIONS::redo,              ENABLE( haveSymbolCond && cond.RedoAvailable() ) );
-    mgr->SetConditions( ACTIONS::revert,            ENABLE( haveSymbolCond && libModifiedCondition ) );
+    mgr->SetConditions( ACTIONS::revert,            ENABLE( symbolModifiedCondition ) );
 
     mgr->SetConditions( ACTIONS::toggleGrid,        CHECK( cond.GridVisible() ) );
     mgr->SetConditions( ACTIONS::toggleCursorStyle, CHECK( cond.FullscreenCursor() ) );
@@ -456,6 +480,12 @@ void SYMBOL_EDIT_FRAME::setupUIConditions()
                 return m_symbol && m_symbol->IsMulti() && !m_symbol->UnitsLocked();
             };
 
+    auto hasMultipleUnitsCond =
+            [this]( const SELECTION& )
+            {
+                return m_symbol && m_symbol->IsMulti();
+            };
+
     auto syncedPinsModeCond =
             [this]( const SELECTION& )
             {
@@ -479,6 +509,8 @@ void SYMBOL_EDIT_FRAME::setupUIConditions()
                         ACTION_CONDITIONS().Enable( demorganCond ).Check( demorganAlternateCond ) );
     mgr->SetConditions( EE_ACTIONS::toggleSyncedPinsMode,
                         ACTION_CONDITIONS().Enable( multiUnitModeCond ).Check( syncedPinsModeCond ) );
+    mgr->SetConditions( EE_ACTIONS::setUnitDisplayName,
+                        ACTION_CONDITIONS().Enable( isEditableCond && hasMultipleUnitsCond ) );
 
 // Only enable a tool if the symbol is edtable
 #define EDIT_TOOL( tool ) ACTION_CONDITIONS().Enable( isEditableCond ).Check( cond.CurrentTool( tool ) )
@@ -525,7 +557,6 @@ bool SYMBOL_EDIT_FRAME::CanCloseSymbolFromSchematic( bool doClose )
 
     if( doClose )
     {
-        GetInfoBar()->ShowMessageFor( wxEmptyString, 1 );
         SetCurSymbol( nullptr, false );
         updateTitle();
     }
@@ -549,6 +580,9 @@ bool SYMBOL_EDIT_FRAME::canCloseWindow( wxCloseEvent& aEvent )
 
     if( !saveAllLibraries( true ) )
         return false;
+
+    // Save symbol tree column widths
+    m_libMgr->GetAdapter()->SaveSettings();
 
     return true;
 }
@@ -577,9 +611,8 @@ void SYMBOL_EDIT_FRAME::RebuildSymbolUnitsList()
     {
         for( int i = 0; i < m_symbol->GetUnitCount(); i++ )
         {
-            wxString sub  = LIB_SYMBOL::SubReference( i+1, false );
-            wxString unit = wxString::Format( _( "Unit %s" ), sub );
-            m_unitSelectBox->Append( unit );
+            wxString unitDisplayName = m_symbol->GetUnitDisplayName( i + 1 );
+            m_unitSelectBox->Append( unitDisplayName );
         }
     }
 
@@ -593,7 +626,7 @@ void SYMBOL_EDIT_FRAME::RebuildSymbolUnitsList()
 
 void SYMBOL_EDIT_FRAME::OnToggleSymbolTree( wxCommandEvent& event )
 {
-    auto& treePane = m_auimgr.GetPane( m_treePane );
+    wxAuiPaneInfo& treePane = m_auimgr.GetPane( m_treePane );
     treePane.Show( !IsSymbolTreeShown() );
     m_auimgr.Update();
 }
@@ -790,7 +823,7 @@ void SYMBOL_EDIT_FRAME::SetCurSymbol( LIB_SYMBOL* aSymbol, bool aUpdateZoom )
 }
 
 
-SYMBOL_LIBRARY_MANAGER& SYMBOL_EDIT_FRAME::GetLibManager()
+LIB_SYMBOL_LIBRARY_MANAGER& SYMBOL_EDIT_FRAME::GetLibManager()
 {
     wxASSERT( m_libMgr );
     return *m_libMgr;
@@ -799,8 +832,13 @@ SYMBOL_LIBRARY_MANAGER& SYMBOL_EDIT_FRAME::GetLibManager()
 
 void SYMBOL_EDIT_FRAME::OnModify()
 {
+    EDA_BASE_FRAME::OnModify();
+
     GetScreen()->SetContentModified();
-    storeCurrentSymbol();
+    m_autoSaveRequired = true;
+
+    if( !IsSymbolFromSchematic() )
+        storeCurrentSymbol();
 
     m_treePane->GetLibTree()->RefreshLibTree();
 
@@ -815,13 +853,13 @@ bool SYMBOL_EDIT_FRAME::SynchronizePins()
 }
 
 
-bool SYMBOL_EDIT_FRAME::AddLibraryFile( bool aCreateNew )
+wxString SYMBOL_EDIT_FRAME::AddLibraryFile( bool aCreateNew )
 {
     // Select the target library table (global/project)
-    SYMBOL_LIB_TABLE* libTable = selectSymLibTable();
+    SYMBOL_LIB_TABLE* libTable = SelectSymLibTable();
 
     if( !libTable )
-        return false;
+        return wxEmptyString;
 
     wxFileName fn = m_libMgr->GetUniqueLibraryName();
 
@@ -830,18 +868,18 @@ bool SYMBOL_EDIT_FRAME::AddLibraryFile( bool aCreateNew )
                              ( libTable == &SYMBOL_LIB_TABLE::GetGlobalLibTable() ),
                              PATHS::GetDefaultUserSymbolsPath() ) )
     {
-        return false;
+        return wxEmptyString;
     }
 
     wxString libName = fn.GetName();
 
     if( libName.IsEmpty() )
-        return false;
+        return wxEmptyString;
 
     if( m_libMgr->LibraryExists( libName ) )
     {
         DisplayError( this, wxString::Format( _( "Library '%s' already exists." ), libName ) );
-        return false;
+        return wxEmptyString;
     }
 
     if( aCreateNew )
@@ -849,9 +887,10 @@ bool SYMBOL_EDIT_FRAME::AddLibraryFile( bool aCreateNew )
         if( !m_libMgr->CreateLibrary( fn.GetFullPath(), libTable ) )
         {
             DisplayError( this, wxString::Format( _( "Could not create the library file '%s'.\n"
-                                                     "Make sure you have write permissions and try again." ),
+                                                     "Make sure you have write permissions and "
+                                                     "try again." ),
                                                   fn.GetFullPath() ) );
-            return false;
+            return wxEmptyString;
         }
     }
     else
@@ -859,7 +898,7 @@ bool SYMBOL_EDIT_FRAME::AddLibraryFile( bool aCreateNew )
         if( !m_libMgr->AddLibrary( fn.GetFullPath(), libTable ) )
         {
             DisplayError( this, _( "Could not open the library file." ) );
-            return false;
+            return wxEmptyString;
         }
     }
 
@@ -869,13 +908,59 @@ bool SYMBOL_EDIT_FRAME::AddLibraryFile( bool aCreateNew )
     std::string packet = fn.GetFullPath().ToStdString();
     this->Kiway().ExpressMail( FRAME_SCH_SYMBOL_EDITOR, MAIL_LIB_EDIT, packet );
 
-    return true;
+    return fn.GetFullPath();
+}
+
+
+void SYMBOL_EDIT_FRAME::DdAddLibrary( wxString aLibFile )
+{
+        // Select the target library table (global/project)
+    SYMBOL_LIB_TABLE* libTable = SelectSymLibTable();
+
+    if( !libTable )
+        return;
+
+    wxFileName fn = wxFileName( aLibFile );
+
+    wxString libName = fn.GetName();
+
+    if( libName.IsEmpty() )
+        return;
+
+    if( m_libMgr->LibraryExists( libName ) )
+    {
+        DisplayError( this, wxString::Format( _( "Library '%s' already exists." ), libName ) );
+        return;
+    }
+
+    if( !m_libMgr->AddLibrary( fn.GetFullPath(), libTable ) )
+    {
+        DisplayError( this, _( "Could not open the library file." ) );
+        return;
+    }
+
+    bool globalTable = ( libTable == &SYMBOL_LIB_TABLE::GetGlobalLibTable() );
+    saveSymbolLibTables( globalTable, !globalTable );
+
+    std::string packet = fn.GetFullPath().ToStdString();
+    this->Kiway().ExpressMail( FRAME_SCH_SYMBOL_EDITOR, MAIL_LIB_EDIT, packet );
 }
 
 
 LIB_ID SYMBOL_EDIT_FRAME::GetTreeLIBID( int* aUnit ) const
 {
     return m_treePane->GetLibTree()->GetSelectedLibId( aUnit );
+}
+
+
+int SYMBOL_EDIT_FRAME::GetTreeSelectionCount() const
+{
+    return m_treePane->GetLibTree()->GetSelectionCount();
+}
+
+int SYMBOL_EDIT_FRAME::GetTreeLIBIDs( std::vector<LIB_ID>& aSelection ) const
+{
+    return m_treePane->GetLibTree()->GetSelectedLibIds( aSelection );
 }
 
 
@@ -907,6 +992,14 @@ LIB_ID SYMBOL_EDIT_FRAME::GetTargetLibId() const
 }
 
 
+std::vector<LIB_ID> SYMBOL_EDIT_FRAME::GetSelectedLibIds() const
+{
+    std::vector<LIB_ID> ids;
+    GetTreeLIBIDs( ids );
+    return ids;
+}
+
+
 LIB_TREE_NODE* SYMBOL_EDIT_FRAME::GetCurrentTreeNode() const
 {
     return m_treePane->GetLibTree()->GetCurrentTreeNode();
@@ -919,7 +1012,8 @@ wxString SYMBOL_EDIT_FRAME::getTargetLib() const
 }
 
 
-void SYMBOL_EDIT_FRAME::SyncLibraries( bool aShowProgress, const wxString& aForceRefresh )
+void SYMBOL_EDIT_FRAME::SyncLibraries( bool aShowProgress, bool aPreloadCancelled,
+                                       const wxString& aForceRefresh )
 {
     LIB_ID selected;
 
@@ -938,7 +1032,7 @@ void SYMBOL_EDIT_FRAME::SyncLibraries( bool aShowProgress, const wxString& aForc
                                                                     libName ) );
                 } );
     }
-    else
+    else if( !aPreloadCancelled )
     {
         m_libMgr->Sync( aForceRefresh,
                 [&]( int progress, int max, const wxString& libName )
@@ -999,46 +1093,19 @@ void SYMBOL_EDIT_FRAME::RefreshLibraryTree()
 }
 
 
-SYMBOL_LIB_TABLE* SYMBOL_EDIT_FRAME::selectSymLibTable( bool aOptional )
+void SYMBOL_EDIT_FRAME::FocusOnLibId( const LIB_ID& aLibID )
 {
-    // If no project is loaded, always work with the global table
-    if( Prj().IsNullProject() )
+    m_treePane->GetLibTree()->SelectLibId( aLibID );
+}
+
+
+void SYMBOL_EDIT_FRAME::UpdateLibraryTree( const wxDataViewItem& aTreeItem, LIB_SYMBOL* aSymbol )
+{
+    if( aTreeItem.IsOk() )   // Can be not found in tree if the current footprint is imported
+                             // from file therefore not yet in tree.
     {
-        SYMBOL_LIB_TABLE* ret = &SYMBOL_LIB_TABLE::GetGlobalLibTable();
-
-        if( aOptional )
-        {
-            wxMessageDialog dlg( this, _( "Add the library to the global library table?" ),
-                                 _( "Add To Global Library Table" ), wxYES_NO );
-
-            if( dlg.ShowModal() != wxID_OK )
-                ret = nullptr;
-        }
-
-        return ret;
-    }
-
-    wxArrayString libTableNames;
-    libTableNames.Add( _( "Global" ) );
-    libTableNames.Add( _( "Project" ) );
-
-    wxSingleChoiceDialog dlg( this, _( "Choose the Library Table to add the library to:" ),
-                              _( "Add To Library Table" ), libTableNames );
-
-    if( aOptional )
-    {
-        dlg.FindWindow( wxID_CANCEL )->SetLabel( _( "Skip" ) );
-        dlg.FindWindow( wxID_OK )->SetLabel( _( "Add" ) );
-    }
-
-    if( dlg.ShowModal() != wxID_OK )
-        return nullptr;
-
-    switch( dlg.GetSelection() )
-    {
-    case 0:  return &SYMBOL_LIB_TABLE::GetGlobalLibTable();
-    case 1:  return Prj().SchSymbolLibTable();
-    default: return nullptr;
+        static_cast<LIB_TREE_NODE_LIB_ID*>( aTreeItem.GetID() )->Update( aSymbol );
+        m_treePane->GetLibTree()->RefreshLibTree();
     }
 }
 
@@ -1072,11 +1139,11 @@ void SYMBOL_EDIT_FRAME::storeCurrentSymbol()
 }
 
 
-bool SYMBOL_EDIT_FRAME::isCurrentSymbol( const LIB_ID& aLibId ) const
+bool SYMBOL_EDIT_FRAME::IsCurrentSymbol( const LIB_ID& aLibId ) const
 {
     // This will return the root symbol of any alias
     LIB_SYMBOL* symbol = m_libMgr->GetBufferedSymbol( aLibId.GetLibItemName(),
-                                                  aLibId.GetLibNickname() );
+                                                      aLibId.GetLibNickname() );
 
     // Now we can compare the libId of the current symbol and the root symbol
     return ( symbol && m_symbol && symbol->GetLibId() == m_symbol->GetLibId() );
@@ -1111,6 +1178,9 @@ void SYMBOL_EDIT_FRAME::CommonSettingsChanged( bool aEnvVarsChanged, bool aTextV
 
     GetCanvas()->ForceRefresh();
 
+    GetCanvas()->GetView()->UpdateAllItems( KIGFX::ALL );
+    GetCanvas()->Refresh();
+
     RecreateToolbars();
 
     if( aEnvVarsChanged )
@@ -1131,6 +1201,14 @@ void SYMBOL_EDIT_FRAME::ShowChangedLanguage()
 
     // status bar
     UpdateMsgPanel();
+
+    if( GetRenderSettings()->m_ShowPinsElectricalType )
+    {
+        GetCanvas()->GetView()->UpdateAllItems( KIGFX::ALL );
+        GetCanvas()->Refresh();
+    }
+
+    updateTitle();
 }
 
 
@@ -1150,6 +1228,7 @@ void SYMBOL_EDIT_FRAME::RebuildView()
     GetCanvas()->GetView()->HideDrawingSheet();
     GetCanvas()->GetView()->ClearHiddenFlags();
 
+    GetCanvas()->GetView()->UpdateAllItems( KIGFX::ALL );
     GetCanvas()->Refresh();
 }
 
@@ -1182,14 +1261,16 @@ const BOX2I SYMBOL_EDIT_FRAME::GetDocumentExtents( bool aIncludeAllVisible ) con
 {
     if( !m_symbol )
     {
-        return BOX2I( VECTOR2I( Mils2iu( -100 ), Mils2iu( -100 ) ),
-                      VECTOR2I( Mils2iu( 200 ), Mils2iu( 200 ) ) );
+        // Gives a reasonable drawing area size
+        int width = schIUScale.mmToIU( 50 );
+        int height = schIUScale.mmToIU( 30 );
+
+        return BOX2I( VECTOR2I( -width/2, -height/2 ),
+                      VECTOR2I( width, height ) );
     }
     else
     {
-        EDA_RECT boundingBox = m_symbol->Flatten()->GetUnitBoundingBox( m_unit, m_convert );
-        return BOX2I( boundingBox.GetOrigin(), VECTOR2I( boundingBox.GetWidth(),
-                                                         boundingBox.GetHeight() ) );
+        return m_symbol->Flatten()->GetUnitBoundingBox( m_unit, m_convert );
     }
 }
 
@@ -1296,7 +1377,10 @@ void SYMBOL_EDIT_FRAME::ClearUndoORRedoList( UNDO_REDO_LIST whichList, int aItem
 
     for( PICKED_ITEMS_LIST* command : list.m_CommandsList )
     {
-        command->ClearListAndDeleteItems();
+        command->ClearListAndDeleteItems( []( EDA_ITEM* aItem )
+                                          {
+                                              delete aItem;
+                                          } );
         delete command;
     }
 

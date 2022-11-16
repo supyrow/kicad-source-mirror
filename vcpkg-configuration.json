@@ -1,0 +1,15 @@
+{
+  "default-registry": {
+    "kind": "git",
+    "repository": "https://github.com/microsoft/vcpkg",
+    "baseline": "306c9a9e22e4a4425e21da69d141e8b102a5b956"
+  },
+  "registries": [
+    {
+      "kind": "git",
+      "repository": "https://gitlab.com/kicad/packaging/kicad-vcpkg-registry.git",
+      "baseline": "edd58f64dfc375f119139e2efa191ced39cdc494",
+      "packages": [ "python3", "wxpython", "wxwidgets", "ngspice" ]
+    }
+  ]
+}

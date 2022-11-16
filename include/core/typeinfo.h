@@ -78,8 +78,6 @@ enum KICAD_T
 {
     NOT_USED = -1, ///< the 3d code uses this value
 
-    EOT = 0, ///< search types array terminator (End Of Types)
-
     TYPE_NOT_INIT = 0,
     PCB_T,
     SCREEN_T, ///< not really an item, used to identify a screen
@@ -88,6 +86,7 @@ enum KICAD_T
     PCB_FOOTPRINT_T,         ///< class FOOTPRINT, a footprint
     PCB_PAD_T,               ///< class PAD, a pad in a footprint
     PCB_SHAPE_T,             ///< class PCB_SHAPE, a segment not on copper layers
+    PCB_BITMAP_T,            ///< class PCB_BITMAP, bitmap on a layer
     PCB_TEXT_T,              ///< class PCB_TEXT, text on a layer
     PCB_TEXTBOX_T,           ///< class PCB_TEXTBOX, wrapped text on a layer
     PCB_FP_TEXT_T,           ///< class FP_TEXT, text in a footprint
@@ -111,10 +110,13 @@ enum KICAD_T
     PCB_DIM_ORTHOGONAL_T,    ///< class PCB_DIM_ORTHOGONAL, a linear dimension constrained to x/y
     PCB_TARGET_T,            ///< class PCB_TARGET, a target (graphic item)
     PCB_ZONE_T,              ///< class ZONE, a copper pour area
-    PCB_ITEM_LIST_T ,        ///< class BOARD_ITEM_LIST, a list of board items
+    PCB_ITEM_LIST_T,         ///< class BOARD_ITEM_LIST, a list of board items
     PCB_NETINFO_T,           ///< class NETINFO_ITEM, a description of a net
     PCB_GROUP_T,             ///< class PCB_GROUP, a set of BOARD_ITEMs
 
+    // Be prudent with these types:
+    // they should be used only to locate specific item sub-types
+    // N.B. If you add a type here, be sure to add it below to the BaseType()
     PCB_LOCATE_STDVIA_T,
     PCB_LOCATE_UVIA_T,
     PCB_LOCATE_BBVIA_T,
@@ -124,6 +126,14 @@ enum KICAD_T
     PCB_LOCATE_PTH_T,
     PCB_LOCATE_NPTH_T,
     PCB_LOCATE_BOARD_EDGE_T,
+
+    // Same for locating shapes types from PCB_SHAPE_T and PCB_FP_SHAPE_T items
+    PCB_SHAPE_LOCATE_SEGMENT_T,
+    PCB_SHAPE_LOCATE_RECT_T,
+    PCB_SHAPE_LOCATE_CIRCLE_T,
+    PCB_SHAPE_LOCATE_ARC_T,
+    PCB_SHAPE_LOCATE_POLY_T,
+    PCB_SHAPE_LOCATE_BEZIER_T,
 
     // Schematic draw Items.  The order of these items effects the sort order.
     // It is currently ordered to mimic the old Eeschema locate behavior where
@@ -269,6 +279,14 @@ constexpr KICAD_T BaseType( const KICAD_T aType )
     case PCB_LOCATE_NPTH_T:
         return PCB_LOCATE_HOLE_T;
 
+    case PCB_SHAPE_LOCATE_SEGMENT_T:
+    case PCB_SHAPE_LOCATE_RECT_T:
+    case PCB_SHAPE_LOCATE_CIRCLE_T:
+    case PCB_SHAPE_LOCATE_ARC_T:
+    case PCB_SHAPE_LOCATE_POLY_T:
+    case PCB_SHAPE_LOCATE_BEZIER_T:
+        return PCB_SHAPE_T;
+
     case PCB_DIM_ALIGNED_T:
     case PCB_DIM_CENTER_T:
     case PCB_DIM_RADIAL_T:
@@ -324,6 +342,13 @@ constexpr bool IsInstantiableType( const KICAD_T aType )
     case PCB_LOCATE_PTH_T:
     case PCB_LOCATE_NPTH_T:
     case PCB_LOCATE_BOARD_EDGE_T:
+
+    case PCB_SHAPE_LOCATE_SEGMENT_T:
+    case PCB_SHAPE_LOCATE_RECT_T:
+    case PCB_SHAPE_LOCATE_CIRCLE_T:
+    case PCB_SHAPE_LOCATE_ARC_T:
+    case PCB_SHAPE_LOCATE_POLY_T:
+    case PCB_SHAPE_LOCATE_BEZIER_T:
 
     case PCB_DIMENSION_T:
 
@@ -406,6 +431,7 @@ constexpr bool IsPcbnewType( const KICAD_T aType )
     case PCB_FOOTPRINT_T:
     case PCB_PAD_T:
     case PCB_SHAPE_T:
+    case PCB_BITMAP_T:
     case PCB_TEXT_T:
     case PCB_TEXTBOX_T:
     case PCB_FP_TEXT_T:
@@ -442,6 +468,12 @@ constexpr bool IsPcbnewType( const KICAD_T aType )
     case PCB_LOCATE_PTH_T:
     case PCB_LOCATE_NPTH_T:
     case PCB_LOCATE_BOARD_EDGE_T:
+    case PCB_SHAPE_LOCATE_SEGMENT_T:
+    case PCB_SHAPE_LOCATE_RECT_T:
+    case PCB_SHAPE_LOCATE_CIRCLE_T:
+    case PCB_SHAPE_LOCATE_ARC_T:
+    case PCB_SHAPE_LOCATE_POLY_T:
+    case PCB_SHAPE_LOCATE_BEZIER_T:
         return true;
 
     default:

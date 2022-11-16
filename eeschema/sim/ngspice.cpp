@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2016-2018 CERN
- * Copyright (C) 2018-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2018-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * @author Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  * @author Maciej Suminski <maciej.suminski@cern.ch>
@@ -28,6 +28,7 @@
 #include <config.h>     // Needed for MSW compilation
 #include <wx/log.h>
 
+#include "ngspice_helpers.h"
 #include "ngspice.h"
 #include "spice_reporter.h"
 #include "spice_settings.h"
@@ -72,9 +73,7 @@ NGSPICE::NGSPICE() :
 }
 
 
-NGSPICE::~NGSPICE()
-{
-}
+NGSPICE::~NGSPICE() = default;
 
 
 void NGSPICE::Init( const SPICE_SIMULATOR_SETTINGS* aSettings )
@@ -254,6 +253,28 @@ vector<double> NGSPICE::GetPhasePlot( const string& aName, int aMaxLen )
 }
 
 
+bool NGSPICE::Attach( const std::shared_ptr<SIMULATION_MODEL>& aModel )
+{
+    NGSPICE_CIRCUIT_MODEL* model = dynamic_cast<NGSPICE_CIRCUIT_MODEL*>( aModel.get() );
+    STRING_FORMATTER formatter;
+
+    if( model && model->GetNetlist( &formatter ) )
+    {
+        SIMULATOR::Attach( aModel );
+
+        LoadNetlist( formatter.GetString() );
+
+        return true;
+    }
+    else
+    {
+        SIMULATOR::Attach( nullptr );
+
+        return false;
+    }
+}
+
+
 bool NGSPICE::LoadNetlist( const string& aNetlist )
 {
     LOCALE_IO c_locale;       // ngspice works correctly only with C locale
@@ -271,20 +292,20 @@ bool NGSPICE::LoadNetlist( const string& aNetlist )
     }
 
     lines.push_back( nullptr ); // sentinel, as requested in ngSpice_Circ description
-    m_ngSpice_Circ( lines.data() );
+
+    Command( "remcirc" );
+    bool success = !m_ngSpice_Circ( lines.data() );
 
     for( auto line : lines )
         free( line );
 
-    return true;
+    return success;
 }
 
 
 bool NGSPICE::Run()
 {
-    wxBusyCursor dummy;
-
-    LOCALE_IO c_locale;                     // ngspice works correctly only with C locale
+    LOCALE_IO toggle;                       // ngspice works correctly only with C locale
     bool success = Command( "bg_run" );     // bg_* commands execute in a separate thread
 
     if( success )
@@ -322,8 +343,7 @@ bool NGSPICE::Command( const string& aCmd )
 {
     LOCALE_IO c_locale;               // ngspice works correctly only with C locale
     validate();
-    m_ngSpice_Command( (char*) aCmd.c_str() );
-    return true;
+    return !m_ngSpice_Command( (char*) aCmd.c_str() );
 }
 
 
@@ -559,6 +579,19 @@ void NGSPICE::init_dll()
     Command( "set noaskquit" );
     Command( "set nomoremode" );
 
+    // reset and remcirc give an error if no circuit is loaded, so load an empty circuit at the
+    // start.
+
+    vector<char*> lines;
+    lines.push_back( strdup( "*" ) );
+    lines.push_back( strdup( ".end" ) );
+    lines.push_back( nullptr ); // Sentinel.
+
+    m_ngSpice_Circ( lines.data() );
+
+    for( auto line : lines )
+        free( line );
+
     m_initialized = true;
 }
 
@@ -573,7 +606,7 @@ bool NGSPICE::loadSpinit( const string& aFileName )
     if( !file.Open( aFileName ) )
         return false;
 
-    for( auto cmd = file.GetFirstLine(); !file.Eof(); cmd = file.GetNextLine() )
+    for( wxString& cmd = file.GetFirstLine(); !file.Eof(); cmd = file.GetNextLine() )
         Command( cmd.ToStdString() );
 
     return true;
@@ -677,6 +710,12 @@ void NGSPICE::validate()
         m_initialized = false;
         init_dll();
     }
+}
+
+
+void NGSPICE::Clean()
+{
+    Command( "destroy all" );
 }
 
 

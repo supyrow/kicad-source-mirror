@@ -31,12 +31,15 @@
 #include <footprint.h>
 #include <fp_shape.h>
 #include <fp_textbox.h>
+#include <pcb_group.h>
+#include <pcb_target.h>
+#include <pcb_text.h>
+#include <pcb_textbox.h>
 #include <collectors.h>
 #include <pcb_edit_frame.h>
 #include <drawing_sheet/ds_proxy_view_item.h>
 #include <kiway.h>
 #include <array_creator.h>
-#include <pcbnew_settings.h>
 #include <status_popup.h>
 #include <tool/selection_conditions.h>
 #include <tool/tool_manager.h>
@@ -61,10 +64,9 @@ using namespace std::placeholders;
 #include <dialogs/dialog_track_via_properties.h>
 #include <dialogs/dialog_unit_entry.h>
 #include <board_commit.h>
-#include <pcb_group.h>
-#include <pcb_target.h>
 #include <zone_filler.h>
 
+const unsigned int EDIT_TOOL::COORDS_PADDING = pcbIUScale.mmToIU( 20 );
 
 EDIT_TOOL::EDIT_TOOL() :
         PCB_TOOL_BASE( "pcbnew.InteractiveEdit" ),
@@ -85,16 +87,15 @@ void EDIT_TOOL::Reset( RESET_REASON aReason )
 }
 
 
-SPECIAL_TOOLS_CONTEXT_MENU::SPECIAL_TOOLS_CONTEXT_MENU( TOOL_INTERACTIVE* aTool ) :
+POSITIONING_TOOLS_MENU::POSITIONING_TOOLS_MENU( TOOL_INTERACTIVE* aTool ) :
         CONDITIONAL_MENU( aTool )
 {
     SetIcon( BITMAPS::special_tools );
-    SetTitle( _( "Special Tools" ) );
+    SetTitle( _( "Positioning Tools" ) );
 
     AddItem( PCB_ACTIONS::moveExact,         SELECTION_CONDITIONS::ShowAlways );
     AddItem( PCB_ACTIONS::moveWithReference, SELECTION_CONDITIONS::ShowAlways );
     AddItem( PCB_ACTIONS::positionRelative,  SELECTION_CONDITIONS::ShowAlways );
-    AddItem( PCB_ACTIONS::createArray,       SELECTION_CONDITIONS::ShowAlways );
 }
 
 
@@ -103,6 +104,9 @@ bool EDIT_TOOL::Init()
     // Find the selection tool, so they can cooperate
     m_selectionTool = m_toolMgr->GetTool<PCB_SELECTION_TOOL>();
 
+    auto positioningToolsSubMenu = std::make_shared<POSITIONING_TOOLS_MENU>( this );
+    m_selectionTool->GetToolMenu().RegisterSubMenu( positioningToolsSubMenu );
+
     auto propertiesCondition =
             [&]( const SELECTION& aSel )
             {
@@ -110,7 +114,7 @@ bool EDIT_TOOL::Init()
                 {
                     if( getView()->IsLayerVisible( LAYER_SCHEMATIC_DRAWINGSHEET ) )
                     {
-                        DS_PROXY_VIEW_ITEM* ds = frame()->GetCanvas()->GetDrawingSheet();
+                        DS_PROXY_VIEW_ITEM* ds = canvas()->GetDrawingSheet();
                         VECTOR2D            cursor = getViewControls()->GetCursorPosition( false );
 
                         if( ds && ds->HitTestDrawingSheetItems( getView(), cursor ) )
@@ -138,7 +142,7 @@ bool EDIT_TOOL::Init()
                 return m_isFootprintEditor;
             };
 
-    auto singleFootprintCondition = SELECTION_CONDITIONS::OnlyType( PCB_FOOTPRINT_T )
+    auto singleFootprintCondition = SELECTION_CONDITIONS::OnlyTypes( { PCB_FOOTPRINT_T } )
                                         && SELECTION_CONDITIONS::Count( 1 );
 
     auto noActiveToolCondition =
@@ -160,25 +164,55 @@ bool EDIT_TOOL::Init()
                 return frame()->GetBoard() && !frame()->GetBoard()->IsEmpty();
             };
 
+    static std::vector<KICAD_T> connectedTypes = { PCB_TRACE_T,
+                                                   PCB_ARC_T,
+                                                   PCB_VIA_T,
+                                                   PCB_PAD_T,
+                                                   PCB_ZONE_T };
+
+    static std::vector<KICAD_T> unroutableTypes = { PCB_TRACE_T,
+                                                    PCB_ARC_T,
+                                                    PCB_VIA_T,
+                                                    PCB_PAD_T,
+                                                    PCB_FOOTPRINT_T };
+
+    static std::vector<KICAD_T> trackTypes = { PCB_TRACE_T,
+                                               PCB_ARC_T,
+                                               PCB_VIA_T };
+
+
     // Add context menu entries that are displayed when selection tool is active
     CONDITIONAL_MENU& menu = m_selectionTool->GetToolMenu().GetMenu();
 
     menu.AddItem( PCB_ACTIONS::move,              SELECTION_CONDITIONS::NotEmpty
                                                       && notMovingCondition );
+    menu.AddItem( PCB_ACTIONS::unrouteSelected,   SELECTION_CONDITIONS::NotEmpty
+                                                      && SELECTION_CONDITIONS::OnlyTypes( unroutableTypes ) );
+    menu.AddItem( PCB_ACTIONS::moveIndividually,  SELECTION_CONDITIONS::NotEmpty
+                                                      && notMovingCondition );
     menu.AddItem( PCB_ACTIONS::breakTrack,        SELECTION_CONDITIONS::Count( 1 )
-                                                      && SELECTION_CONDITIONS::OnlyTypes( GENERAL_COLLECTOR::Tracks ) );
+                                                      && SELECTION_CONDITIONS::OnlyTypes( trackTypes ) );
     menu.AddItem( PCB_ACTIONS::drag45Degree,      SELECTION_CONDITIONS::Count( 1 )
                                                       && SELECTION_CONDITIONS::OnlyTypes( GENERAL_COLLECTOR::DraggableItems ) );
     menu.AddItem( PCB_ACTIONS::dragFreeAngle,     SELECTION_CONDITIONS::Count( 1 )
                                                       && SELECTION_CONDITIONS::OnlyTypes( GENERAL_COLLECTOR::DraggableItems )
-                                                      && !SELECTION_CONDITIONS::OnlyType( PCB_FOOTPRINT_T ) );
-    menu.AddItem( PCB_ACTIONS::filletTracks,      SELECTION_CONDITIONS::OnlyTypes( GENERAL_COLLECTOR::Tracks ) );
+                                                      && !SELECTION_CONDITIONS::OnlyTypes( { PCB_FOOTPRINT_T } ) );
+    menu.AddItem( PCB_ACTIONS::filletTracks,      SELECTION_CONDITIONS::OnlyTypes( trackTypes ) );
     menu.AddItem( PCB_ACTIONS::rotateCcw,         SELECTION_CONDITIONS::NotEmpty );
     menu.AddItem( PCB_ACTIONS::rotateCw,          SELECTION_CONDITIONS::NotEmpty );
     menu.AddItem( PCB_ACTIONS::flip,              SELECTION_CONDITIONS::NotEmpty );
-    menu.AddItem( PCB_ACTIONS::mirror,            inFootprintEditor && SELECTION_CONDITIONS::NotEmpty );
+    menu.AddItem( PCB_ACTIONS::mirrorH,           SELECTION_CONDITIONS::NotEmpty
+                                                      && !singleFootprintCondition );
+    menu.AddItem( PCB_ACTIONS::mirrorV,           SELECTION_CONDITIONS::NotEmpty
+                                                      && !singleFootprintCondition );
+    menu.AddItem( PCB_ACTIONS::swap,              SELECTION_CONDITIONS::MoreThan( 1 ) );
+    menu.AddItem( PCB_ACTIONS::packAndMoveFootprints, SELECTION_CONDITIONS::MoreThan( 1 ) 
+                                                      && SELECTION_CONDITIONS::HasType( PCB_FOOTPRINT_T ) );
 
     menu.AddItem( PCB_ACTIONS::properties,        propertiesCondition );
+
+    menu.AddItem( PCB_ACTIONS::assignNetClass,    SELECTION_CONDITIONS::OnlyTypes( connectedTypes ) );
+    menu.AddItem( PCB_ACTIONS::inspectClearance,  SELECTION_CONDITIONS::Count( 2 ) );
 
     // Footprint actions
     menu.AddSeparator();
@@ -186,11 +220,9 @@ bool EDIT_TOOL::Init()
     menu.AddItem( PCB_ACTIONS::updateFootprint,   singleFootprintCondition );
     menu.AddItem( PCB_ACTIONS::changeFootprint,   singleFootprintCondition );
 
-    // Add the submenu for create array and special move
-    auto specialToolsSubMenu = std::make_shared<SPECIAL_TOOLS_CONTEXT_MENU>( this );
-    menu.AddSeparator();
-    m_selectionTool->GetToolMenu().AddSubMenu( specialToolsSubMenu );
-    menu.AddMenu( specialToolsSubMenu.get(),      SELECTION_CONDITIONS::NotEmpty, 100 );
+    // Add the submenu for the special positioning tools
+    menu.AddSeparator( 100 );
+    menu.AddMenu( positioningToolsSubMenu.get(),  SELECTION_CONDITIONS::NotEmpty, 100 );
 
     menu.AddSeparator( 150 );
     menu.AddItem( ACTIONS::cut,                   SELECTION_CONDITIONS::NotEmpty, 150 );
@@ -263,12 +295,11 @@ bool EDIT_TOOL::invokeInlineRouter( int aDragMode )
 }
 
 
-
 bool EDIT_TOOL::isRouterActive() const
 {
     ROUTER_TOOL* router = m_toolMgr->GetTool<ROUTER_TOOL>();
 
-    return router && router->IsToolActive();
+    return router && router->RoutingInProgress();
 }
 
 
@@ -290,6 +321,51 @@ int EDIT_TOOL::Drag( const TOOL_EVENT& aEvent )
             {
                 sTool->FilterCollectorForFreePads( aCollector );
                 sTool->FilterCollectorForHierarchy( aCollector, true );
+
+                if( aCollector.GetCount() > 1 )
+                    sTool->GuessSelectionCandidates( aCollector, aPt );
+
+                /*
+                 * If we have a knee between two segments, or a via attached to two segments,
+                 * then drop the selection to a single item.
+                 */
+
+                std::vector<PCB_TRACK*> tracks;
+                std::vector<PCB_TRACK*> vias;
+
+                for( EDA_ITEM* item : aCollector )
+                {
+                    if( PCB_TRACK* track = dynamic_cast<PCB_TRACK*>( item ) )
+                    {
+                        if( track->Type() == PCB_VIA_T )
+                            vias.push_back( track );
+                        else
+                            tracks.push_back( track );
+                    }
+                }
+
+                auto connected = []( PCB_TRACK* track, const VECTOR2I& pt )
+                                 {
+                                     return track->GetStart() == pt || track->GetEnd() == pt;
+                                 };
+
+                if( tracks.size() == 2 && vias.size() == 0 )
+                {
+                    if( connected( tracks[0], tracks[1]->GetStart() )
+                            || connected( tracks[0], tracks[1]->GetEnd() ) )
+                    {
+                        aCollector.Remove( tracks[1] );
+                    }
+                }
+                else if( tracks.size() == 2 && vias.size() == 1 )
+                {
+                    if( connected( tracks[0], vias[0]->GetPosition() )
+                            && connected( tracks[1], vias[0]->GetPosition() ) )
+                    {
+                        aCollector.Remove( tracks[0] );
+                        aCollector.Remove( tracks[1] );
+                    }
+                }
             },
             true /* prompt user regarding locked items */ );
 
@@ -318,14 +394,15 @@ int EDIT_TOOL::DragArcTrack( const TOOL_EVENT& aEvent )
     if( selection.Size() != 1 || selection.Front()->Type() != PCB_ARC_T )
         return 0;
 
-    PCB_ARC* theArc = static_cast<PCB_ARC*>( selection.Front() );
-    double   arcAngleDegrees = std::abs( theArc->GetAngle().AsDegrees() );
+    PCB_ARC*  theArc = static_cast<PCB_ARC*>( selection.Front() );
+    EDA_ANGLE maxTangentDeviation( ADVANCED_CFG::GetCfg().m_MaxTangentAngleDeviation, DEGREES_T );
 
-    if( arcAngleDegrees + ADVANCED_CFG::GetCfg().m_MaxTangentAngleDeviation >= 180.0 )
+    if( theArc->GetAngle() + maxTangentDeviation >= ANGLE_180 )
     {
-        frame()->ShowInfoBarError(
-                wxString::Format( _( "Unable to resize arc tracks %.1f degrees or greater." ),
-                                  180.0 - ADVANCED_CFG::GetCfg().m_MaxTangentAngleDeviation ) );
+        wxString msg = wxString::Format( _( "Unable to resize arc tracks of %s or greater." ),
+                                         EDA_UNIT_UTILS::UI::MessageTextFromValue( ANGLE_180 - maxTangentDeviation ) );
+        frame()->ShowInfoBarError( msg );
+
         return 0; // don't bother with > 180 degree arcs
     }
 
@@ -342,64 +419,65 @@ int EDIT_TOOL::DragArcTrack( const TOOL_EVENT& aEvent )
     SEG      tanEnd = SEG( arcCenter, theArc->GetEnd() ).PerpendicularSeg( theArc->GetEnd() );
 
     //Ensure the tangent segments are in the correct orientation
-    VECTOR2I tanIntersect = tanStart.IntersectLines( tanEnd ).get();
-    tanStart.A = tanIntersect;
+    OPT_VECTOR2I tanIntersect = tanStart.IntersectLines( tanEnd );
+
+    if( !tanIntersect )
+        return 0;
+
+    tanStart.A = *tanIntersect;
     tanStart.B = theArc->GetStart();
-    tanEnd.A = tanIntersect;
+    tanEnd.A = *tanIntersect;
     tanEnd.B = theArc->GetEnd();
 
-    KICAD_T track_types[] = { PCB_PAD_T, PCB_VIA_T, PCB_TRACE_T, PCB_ARC_T, EOT };
-
     auto getUniqueTrackAtAnchorCollinear =
-        [&]( const VECTOR2I& aAnchor, const SEG& aCollinearSeg ) -> PCB_TRACK*
-        {
-            auto conn = board()->GetConnectivity();
-
-            // Allow items at a distance within the width of the arc track
-            int allowedDeviation = theArc->GetWidth();
-
-            std::vector<BOARD_CONNECTED_ITEM*> itemsOnAnchor;
-
-            for( int i = 0; i < 3; i++ )
+            [&]( const VECTOR2I& aAnchor, const SEG& aCollinearSeg ) -> PCB_TRACK*
             {
-                itemsOnAnchor = conn->GetConnectedItemsAtAnchor( theArc, aAnchor, track_types,
-                                                                 allowedDeviation );
-                allowedDeviation /= 2;
+                std::shared_ptr<CONNECTIVITY_DATA> conn = board()->GetConnectivity();
 
-                if( itemsOnAnchor.size() == 1 )
-                    break;
-            }
+                // Allow items at a distance within the width of the arc track
+                int allowedDeviation = theArc->GetWidth();
 
-            PCB_TRACK* retval = nullptr;
+                std::vector<BOARD_CONNECTED_ITEM*> itemsOnAnchor;
 
-            if( itemsOnAnchor.size() == 1 && itemsOnAnchor.front()->Type() == PCB_TRACE_T )
-            {
-                retval = static_cast<PCB_TRACK*>( itemsOnAnchor.front() );
-                SEG trackSeg( retval->GetStart(), retval->GetEnd() );
-
-                // Allow deviations in colinearity as defined in ADVANCED_CFG
-                if( trackSeg.Angle( aCollinearSeg )
-                    > EDA_ANGLE( ADVANCED_CFG::GetCfg().m_MaxTangentAngleDeviation, DEGREES_T ) )
+                for( int i = 0; i < 3; i++ )
                 {
-                    retval = nullptr;
+                    itemsOnAnchor = conn->GetConnectedItemsAtAnchor( theArc, aAnchor,
+                                                                     { PCB_PAD_T, PCB_VIA_T,
+                                                                       PCB_TRACE_T, PCB_ARC_T },
+                                                                     allowedDeviation );
+                    allowedDeviation /= 2;
+
+                    if( itemsOnAnchor.size() == 1 )
+                        break;
                 }
-            }
 
-            if( !retval )
-            {
-                retval = new PCB_TRACK( theArc->GetParent() );
-                retval->SetStart( aAnchor );
-                retval->SetEnd( aAnchor );
-                retval->SetNet( theArc->GetNet() );
-                retval->SetLayer( theArc->GetLayer() );
-                retval->SetWidth( theArc->GetWidth() );
-                retval->SetLocked( theArc->IsLocked() );
-                retval->SetFlags( IS_NEW );
-                getView()->Add( retval );
-            }
+                PCB_TRACK* retval = nullptr;
 
-            return retval;
-        };
+                if( itemsOnAnchor.size() == 1 && itemsOnAnchor.front()->Type() == PCB_TRACE_T )
+                {
+                    retval = static_cast<PCB_TRACK*>( itemsOnAnchor.front() );
+                    SEG trackSeg( retval->GetStart(), retval->GetEnd() );
+
+                    // Allow deviations in colinearity as defined in ADVANCED_CFG
+                    if( trackSeg.Angle( aCollinearSeg ) > maxTangentDeviation )
+                        retval = nullptr;
+                }
+
+                if( !retval )
+                {
+                    retval = new PCB_TRACK( theArc->GetParent() );
+                    retval->SetStart( aAnchor );
+                    retval->SetEnd( aAnchor );
+                    retval->SetNet( theArc->GetNet() );
+                    retval->SetLayer( theArc->GetLayer() );
+                    retval->SetWidth( theArc->GetWidth() );
+                    retval->SetLocked( theArc->IsLocked() );
+                    retval->SetFlags( IS_NEW );
+                    getView()->Add( retval );
+                }
+
+                return retval;
+            };
 
     PCB_TRACK* trackOnStart = getUniqueTrackAtAnchorCollinear( theArc->GetStart(), tanStart);
     PCB_TRACK* trackOnEnd = getUniqueTrackAtAnchorCollinear( theArc->GetEnd(), tanEnd );
@@ -422,16 +500,17 @@ int EDIT_TOOL::DragArcTrack( const TOOL_EVENT& aEvent )
     }
 
     // Recalculate intersection point
-    tanIntersect = tanStart.IntersectLines( tanEnd ).get();
+    if( tanIntersect = tanStart.IntersectLines( tanEnd ); !tanIntersect )
+        return 0;
 
     auto isTrackStartClosestToArcStart =
-        [&]( PCB_TRACK* aTrack ) -> bool
-        {
-            double trackStartToArcStart = GetLineLength( aTrack->GetStart(), theArc->GetStart() );
-            double trackEndToArcStart = GetLineLength( aTrack->GetEnd(), theArc->GetStart() );
+            [&]( PCB_TRACK* aTrack ) -> bool
+            {
+                double trackStartToArcStart = GetLineLength( aTrack->GetStart(), theArc->GetStart() );
+                double trackEndToArcStart = GetLineLength( aTrack->GetEnd(), theArc->GetStart() );
 
-            return trackStartToArcStart < trackEndToArcStart;
-        };
+                return trackStartToArcStart < trackEndToArcStart;
+            };
 
     bool isStartTrackOnStartPt = isTrackStartClosestToArcStart( trackOnStart );
     bool isEndTrackOnStartPt = isTrackStartClosestToArcStart( trackOnEnd );
@@ -466,8 +545,8 @@ int EDIT_TOOL::DragArcTrack( const TOOL_EVENT& aEvent )
     auto getFurthestPointToTanInterstect =
             [&]( VECTOR2I& aPointA, VECTOR2I& aPointB ) -> VECTOR2I
             {
-                if( ( aPointA - tanIntersect ).EuclideanNorm()
-                    > ( aPointB - tanIntersect ).EuclideanNorm() )
+                if( ( aPointA - *tanIntersect ).EuclideanNorm()
+                    > ( aPointB - *tanIntersect ).EuclideanNorm() )
                 {
                     return aPointA;
                 }
@@ -489,8 +568,8 @@ int EDIT_TOOL::DragArcTrack( const TOOL_EVENT& aEvent )
     VECTOR2I maxTanPtStart = tanStart.LineProject( maxTanCircle.Center );
     VECTOR2I maxTanPtEnd = tanEnd.LineProject( maxTanCircle.Center );
 
-    SEG cSegTanStart( maxTanPtStart, tanIntersect );
-    SEG cSegTanEnd( maxTanPtEnd, tanIntersect );
+    SEG cSegTanStart( maxTanPtStart, *tanIntersect );
+    SEG cSegTanEnd( maxTanPtEnd, *tanIntersect );
     SEG cSegChord( maxTanPtStart, maxTanPtEnd );
 
     int cSegTanStartSide = cSegTanStart.Side( theArc->GetMid() );
@@ -602,26 +681,36 @@ int EDIT_TOOL::DragArcTrack( const TOOL_EVENT& aEvent )
 
                     if( aTrack->GetLength() <= aMaxLengthIU )
                     {
+                        aTrack->SetParentGroup( nullptr );
                         delete aTrack;
-                        delete aTrackCopy;
                         aTrack = nullptr;
+
+                        aTrackCopy->SetParentGroup( nullptr );
+                        delete aTrackCopy;
                         aTrackCopy = nullptr;
+
                         return false;
                     }
                     else
                     {
                         m_commit->Add( aTrack );
+
+                        aTrackCopy->SetParentGroup( nullptr );
                         delete aTrackCopy;
                         aTrackCopy = nullptr;
+
                         return true;
                     }
                 }
                 else if( aTrack->GetLength() <= aMaxLengthIU )
                 {
-                    aTrack->SwapData( aTrackCopy ); //restore the original before notifying COMMIT
+                    aTrack->SwapItemData( aTrackCopy ); //restore the original before notifying COMMIT
                     m_commit->Remove( aTrack );
+
+                    aTrackCopy->SetParentGroup( nullptr );
                     delete aTrackCopy;
                     aTrackCopy = nullptr;
+
                     return false;
                 }
                 else
@@ -642,7 +731,8 @@ int EDIT_TOOL::DragArcTrack( const TOOL_EVENT& aEvent )
     if( isEndTrackOnStartPt )
         newEnd = trackOnEnd->GetEnd();
 
-    int maxLengthIU = KiROUND( ADVANCED_CFG::GetCfg().m_MaxTrackLengthToKeep * IU_PER_MM );
+    int maxLengthIU =
+            KiROUND( ADVANCED_CFG::GetCfg().m_MaxTrackLengthToKeep * pcbIUScale.IU_PER_MM );
 
     if( !processTrack( trackOnStart, trackOnStartCopy, maxLengthIU ) )
         theArc->SetStart( newStart );
@@ -659,423 +749,6 @@ int EDIT_TOOL::DragArcTrack( const TOOL_EVENT& aEvent )
         m_commit->Push( _( "Drag Arc Track" ) );
 
     return 0;
-}
-
-
-int EDIT_TOOL::Move( const TOOL_EVENT& aEvent )
-{
-    if( isRouterActive() )
-    {
-        wxBell();
-        return 0;
-    }
-
-    return doMoveSelection( aEvent );
-}
-
-
-int EDIT_TOOL::MoveWithReference( const TOOL_EVENT& aEvent )
-{
-    if( isRouterActive() )
-    {
-        wxBell();
-        return 0;
-    }
-
-    return doMoveSelection( aEvent, true );
-}
-
-
-// Note: aEvent MUST NOT be const&; the source will get de-allocated if we go into the picker's
-// event loop.
-int EDIT_TOOL::doMoveSelection( TOOL_EVENT aEvent, bool aPickReference )
-{
-    PCB_BASE_EDIT_FRAME*  editFrame = getEditFrame<PCB_BASE_EDIT_FRAME>();
-    KIGFX::VIEW_CONTROLS* controls  = getViewControls();
-    VECTOR2I              originalCursorPos = controls->GetCursorPosition();
-
-    // Be sure that there is at least one item that we can modify. If nothing was selected before,
-    // try looking for the stuff under mouse cursor (i.e. KiCad old-style hover selection)
-    PCB_SELECTION& selection = m_selectionTool->RequestSelection(
-            []( const VECTOR2I& aPt, GENERAL_COLLECTOR& aCollector, PCB_SELECTION_TOOL* sTool )
-            {
-                sTool->FilterCollectorForMarkers( aCollector );
-                sTool->FilterCollectorForHierarchy( aCollector, true );
-            },
-            // Prompt user regarding locked items if in board editor and in free-pad-mode (if
-            // we're not in free-pad mode we delay this until the second RequestSelection()).
-            frame()->Settings().m_AllowFreePads && !m_isFootprintEditor );
-
-    if( m_dragging || selection.Empty() )
-        return 0;
-
-    LSET     item_layers = selection.GetSelectionLayers();
-    bool     is_hover    = selection.IsHover(); // N.B. This must be saved before the second call
-                                                // to RequestSelection() below
-    VECTOR2I pickedReferencePoint;
-
-    // Now filter out pads if not in free pads mode.  We cannot do this in the first
-    // RequestSelection() as we need the item_layers when a pad is the selection front.
-    if( !m_isFootprintEditor && !frame()->Settings().m_AllowFreePads )
-    {
-        selection = m_selectionTool->RequestSelection(
-                []( const VECTOR2I& aPt, GENERAL_COLLECTOR& aCollector, PCB_SELECTION_TOOL* sTool )
-                {
-                    sTool->FilterCollectorForMarkers( aCollector );
-                    sTool->FilterCollectorForHierarchy( aCollector, true );
-                    sTool->FilterCollectorForFreePads( aCollector );
-                },
-                true /* prompt user regarding locked items */ );
-    }
-
-    if( selection.Empty() )
-        return 0;
-
-    std::string tool = aEvent.GetCommandStr().get();
-    editFrame->PushTool( tool );
-
-    Activate();
-    // Must be done after Activate() so that it gets set into the correct context
-    controls->ShowCursor( true );
-    controls->SetAutoPan( true );
-
-    if( aPickReference && !pickReferencePoint( _( "Select reference point for move..." ), "", "",
-                                               pickedReferencePoint ) )
-    {
-        if( is_hover )
-            m_toolMgr->RunAction( PCB_ACTIONS::selectionClear, true );
-
-        editFrame->PopTool( tool );
-        return 0;
-    }
-
-    std::vector<BOARD_ITEM*> sel_items;     // All the items operated on by the move below
-    std::vector<BOARD_ITEM*> orig_items;    // All the original items in the selection
-
-    for( EDA_ITEM* item : selection )
-    {
-        BOARD_ITEM* boardItem = dynamic_cast<BOARD_ITEM*>( item );
-        FOOTPRINT*  footprint = dynamic_cast<FOOTPRINT*>( item );
-
-        if( boardItem )
-        {
-            orig_items.push_back( boardItem );
-            sel_items.push_back( boardItem );
-        }
-
-        if( footprint )
-        {
-            for( PAD* pad : footprint->Pads() )
-                sel_items.push_back( pad );
-
-            // Clear this flag here; it will be set by the netlist updater if the footprint is new
-            // so that it was skipped in the initial connectivity update in OnNetlistChanged
-            footprint->SetAttributes( footprint->GetAttributes() & ~FP_JUST_ADDED );
-        }
-    }
-
-    bool        restore_state = false;
-    VECTOR2I    originalPos;
-    VECTOR2I    totalMovement;
-    PCB_GRID_HELPER grid( m_toolMgr, editFrame->GetMagneticItemsSettings() );
-    TOOL_EVENT* evt = &aEvent;
-    VECTOR2I    prevPos;
-
-    bool lock45          = false;
-    bool eatFirstMouseUp = true;
-    bool hasRedrawn3D    = false;
-    bool allowRedraw3D   = editFrame->Settings().m_Display.m_Live3DRefresh;
-
-    // Prime the pump
-    m_toolMgr->RunAction( ACTIONS::refreshPreview );
-
-    // Main loop: keep receiving events
-    do
-    {
-        VECTOR2I movement;
-        editFrame->GetCanvas()->SetCurrentCursor( KICURSOR::MOVING );
-        grid.SetSnap( !evt->Modifier( MD_SHIFT ) );
-        grid.SetUseGrid( getView()->GetGAL()->GetGridSnapping() && !evt->DisableGridSnapping() );
-
-        if( evt->IsMotion() || evt->IsDrag( BUT_LEFT ) )
-            eatFirstMouseUp = false;
-
-        if( evt->IsAction( &PCB_ACTIONS::move ) || evt->IsMotion() || evt->IsDrag( BUT_LEFT )
-                || evt->IsAction( &ACTIONS::refreshPreview )
-                || evt->IsAction( &PCB_ACTIONS::moveWithReference ) )
-        {
-            if( m_dragging && evt->Category() == TC_MOUSE )
-            {
-                bool redraw3D = false;
-
-                VECTOR2I mousePos( controls->GetMousePosition() );
-
-                m_cursor = grid.BestSnapAnchor( mousePos, item_layers, sel_items );
-
-                if( controls->GetSettings().m_lastKeyboardCursorPositionValid )
-                {
-                    long action = controls->GetSettings().m_lastKeyboardCursorCommand;
-
-                    // The arrow keys are by definition SINGLE AXIS.  Do not allow the other
-                    // axis to be snapped to the grid.
-                    if( action == ACTIONS::CURSOR_LEFT || action == ACTIONS::CURSOR_RIGHT )
-                        m_cursor.y = prevPos.y;
-                    else if( action == ACTIONS::CURSOR_UP || action == ACTIONS::CURSOR_DOWN )
-                        m_cursor.x = prevPos.x;
-                }
-
-                if( !selection.HasReferencePoint() )
-                    originalPos = m_cursor;
-
-                if( lock45 )
-                {
-                    VECTOR2I moveVector = m_cursor - originalPos;
-                    m_cursor = originalPos + GetVectorSnapped45( moveVector );
-                }
-
-                controls->ForceCursorPosition( true, m_cursor );
-                selection.SetReferencePoint( m_cursor );
-
-                movement = m_cursor - prevPos;
-                prevPos = m_cursor;
-                totalMovement += movement;
-
-                // Drag items to the current cursor position
-                for( EDA_ITEM* item : sel_items )
-                {
-                    // Don't double move footprint pads, fields, etc.
-                    //
-                    // For PCB_GROUP_T, we make sure the selection includes only the top level
-                    // group and not its descendants.
-                    if( !item->GetParent() || !item->GetParent()->IsSelected() )
-                        static_cast<BOARD_ITEM*>( item )->Move( movement );
-
-                    if( !redraw3D && item->Type() == PCB_FOOTPRINT_T )
-                        redraw3D = true;
-                }
-
-                if( redraw3D && allowRedraw3D )
-                {
-                    editFrame->Update3DView( false, true );
-                    hasRedrawn3D = true;
-                }
-
-                m_toolMgr->PostEvent( EVENTS::SelectedItemsMoved );
-            }
-            else if( !m_dragging && !evt->IsAction( &ACTIONS::refreshPreview ) )
-            {
-                // Prepare to start dragging
-                if( !( evt->IsAction( &PCB_ACTIONS::move )
-                       || evt->IsAction( &PCB_ACTIONS::moveWithReference ) )
-                    && ( editFrame->Settings().m_TrackDragAction != TRACK_DRAG_ACTION::MOVE ) )
-                {
-                    if( invokeInlineRouter( PNS::DM_ANY ) )
-                        break;
-                }
-
-                editFrame->HideSolderMask();
-
-                m_dragging = true;
-
-                // When editing footprints, all items have the same parent
-                if( IsFootprintEditor() )
-                {
-                    m_commit->Modify( selection.Front() );
-                }
-                else
-                {
-                    // Save items, so changes can be undone
-                    for( EDA_ITEM* item : selection )
-                    {
-                        // Don't double move footprint pads, fields, etc.
-                        //
-                        // For PCB_GROUP_T, the parent is the board.
-                        if( item->GetParent() && item->GetParent()->IsSelected() )
-                            continue;
-
-                        m_commit->Modify( item );
-
-                        // If moving a group, record position of all the descendants for undo
-                        if( item->Type() == PCB_GROUP_T )
-                        {
-                            PCB_GROUP* group = static_cast<PCB_GROUP*>( item );
-                            group->RunOnDescendants( [&]( BOARD_ITEM* bItem )
-                                                     {
-                                                         m_commit->Modify( bItem );
-                                                     });
-                        }
-                    }
-                }
-
-                editFrame->UndoRedoBlock( true );
-                m_cursor = controls->GetCursorPosition();
-
-                if( selection.HasReferencePoint() )
-                {
-                    // start moving with the reference point attached to the cursor
-                    grid.SetAuxAxes( false );
-
-                    if( lock45 )
-                    {
-                        VECTOR2I moveVector = m_cursor - originalPos;
-                        m_cursor = originalPos + GetVectorSnapped45( moveVector );
-                    }
-
-                    movement = m_cursor - selection.GetReferencePoint();
-
-                    // Drag items to the current cursor position
-                    for( EDA_ITEM* item : selection )
-                    {
-                        // Don't double move footprint pads, fields, etc.
-                        if( item->GetParent() && item->GetParent()->IsSelected() )
-                            continue;
-
-                        static_cast<BOARD_ITEM*>( item )->Move( movement );
-                    }
-
-                    selection.SetReferencePoint( m_cursor );
-                }
-                else
-                {
-                    std::vector<BOARD_ITEM*> items;
-
-                    for( EDA_ITEM* item : selection )
-                        items.push_back( static_cast<BOARD_ITEM*>( item ) );
-
-                    m_cursor = grid.BestDragOrigin( originalCursorPos, items );
-
-                    // Set the current cursor position to the first dragged item origin, so the
-                    // movement vector could be computed later
-                    if( aPickReference )
-                    {
-                        selection.SetReferencePoint( pickedReferencePoint );
-                        controls->ForceCursorPosition( true, pickedReferencePoint );
-                        m_cursor = pickedReferencePoint;
-                    }
-                    else
-                    {
-                        // Check if user wants to warp the mouse to origin of moved object
-                        if( !editFrame->GetMoveWarpsCursor() )
-                            m_cursor = originalCursorPos; // No, so use original mouse pos instead
-
-                        selection.SetReferencePoint( m_cursor );
-                        grid.SetAuxAxes( true, m_cursor );
-                    }
-
-                    originalPos = m_cursor;
-
-                }
-
-                controls->SetCursorPosition( m_cursor, false );
-
-                prevPos = m_cursor;
-                controls->SetAutoPan( true );
-                m_toolMgr->PostEvent( EVENTS::SelectedItemsModified );
-            }
-
-            m_toolMgr->RunAction( PCB_ACTIONS::updateLocalRatsnest, false,
-                                  new VECTOR2I( movement ) );
-        }
-        else if( evt->IsCancelInteractive() || evt->IsActivate() )
-        {
-            if( m_dragging && evt->IsCancelInteractive() )
-                evt->SetPassEvent( false );
-
-            restore_state = true; // Canceling the tool means that items have to be restored
-            break;                // Finish
-        }
-        else if( evt->IsAction( &ACTIONS::undo ) )
-        {
-            restore_state = true; // Perform undo locally
-            break;                // Finish
-        }
-        else if( evt->IsAction( &ACTIONS::doDelete ) || evt->IsAction( &ACTIONS::cut ) )
-        {
-            // Dispatch TOOL_ACTIONs
-            evt->SetPassEvent();
-            break; // finish -- there is no further processing for removed items
-        }
-        else if( evt->IsAction( &ACTIONS::duplicate ) )
-        {
-            evt->SetPassEvent();
-            break; // finish -- Duplicate tool will start a new Move with the dup'ed items
-        }
-        else if( evt->IsAction( &PCB_ACTIONS::rotateCw )
-                || evt->IsAction( &PCB_ACTIONS::rotateCcw )
-                || evt->IsAction( &PCB_ACTIONS::flip )
-                || evt->IsAction( &PCB_ACTIONS::mirror ) )
-        {
-            eatFirstMouseUp = false;
-            evt->SetPassEvent();
-        }
-        else if( evt->IsAction( &PCB_ACTIONS::moveExact ) )
-        {
-            // Reset positions so the Move Exactly is from the start.
-            for( EDA_ITEM* item : selection )
-            {
-                BOARD_ITEM* i = static_cast<BOARD_ITEM*>( item );
-                i->Move( -totalMovement );
-            }
-
-            break; // finish -- we moved exactly, so we are finished
-        }
-        else if( evt->IsMouseUp( BUT_LEFT ) || evt->IsClick( BUT_LEFT ) )
-        {
-            // Eat mouse-up/-click events that leaked through from the lock dialog
-            if( eatFirstMouseUp && evt->Parameter<intptr_t>() != ACTIONS::CURSOR_CLICK )
-            {
-                eatFirstMouseUp = false;
-                continue;
-            }
-
-            break; // finish
-        }
-        else if( evt->IsAction( &PCB_ACTIONS::toggle45 ) )
-        {
-            lock45 = !lock45;
-            evt->SetPassEvent( false );
-        }
-        else
-        {
-            evt->SetPassEvent();
-        }
-
-    } while( ( evt = Wait() ) ); // Assignment (instead of equality test) is intentional
-
-    controls->ForceCursorPosition( false );
-    controls->ShowCursor( false );
-    controls->SetAutoPan( false );
-
-    m_dragging = false;
-    editFrame->UndoRedoBlock( false );
-
-    if( hasRedrawn3D && restore_state )
-        editFrame->Update3DView( false, true );
-
-    // Discard reference point when selection is "dropped" onto the board
-    selection.ClearReferencePoint();
-
-    // TODO: there's an encapsulation leak here: this commit often has more than just the move
-    // in it; for instance it might have a paste, append board, etc. as well.
-    if( restore_state )
-        m_commit->Revert();
-    else
-        m_commit->Push( _( "Drag" ) );
-
-    // Remove the dynamic ratsnest from the screen
-    m_toolMgr->RunAction( PCB_ACTIONS::hideDynamicRatsnest, true );
-
-    // Unselect all items to update flags
-    m_toolMgr->RunAction( PCB_ACTIONS::selectionClear, true );
-
-    // Reselect items if they were already selected and we completed the move
-    if( !is_hover && !restore_state )
-        m_toolMgr->RunAction( PCB_ACTIONS::selectItems, true, &orig_items );
-
-    editFrame->PopTool( tool );
-    editFrame->GetCanvas()->SetCurrentCursor( KICURSOR::ARROW );
-
-    return restore_state ? -1 : 0;
 }
 
 
@@ -1108,7 +781,7 @@ int EDIT_TOOL::ChangeTrackWidth( const TOOL_EVENT& aEvent )
 
             if( via->GetViaType() == VIATYPE::MICROVIA )
             {
-                NETCLASS* netClass = via->GetNetClass();
+                NETCLASS* netClass = via->GetEffectiveNetClass();
 
                 new_width = netClass->GetuViaDiameter();
                 new_drill = netClass->GetuViaDrill();
@@ -1135,7 +808,7 @@ int EDIT_TOOL::ChangeTrackWidth( const TOOL_EVENT& aEvent )
         }
     }
 
-    m_commit->Push( _("Edit track width/via size") );
+    m_commit->Push( _( "Edit track width/via size" ) );
 
     if( selection.IsHover() )
     {
@@ -1199,14 +872,13 @@ int EDIT_TOOL::FilletTracks( const TOOL_EVENT& aEvent )
     };
 
     std::vector<FILLET_OP> filletOperations;
-    KICAD_T                track_types[] = { PCB_PAD_T, PCB_VIA_T, PCB_TRACE_T, PCB_ARC_T, EOT };
     bool                   operationPerformedOnAtLeastOne = false;
     bool                   didOneAttemptFail              = false;
     std::set<PCB_TRACK*>   processedTracks;
 
-    for( auto it = selection.begin(); it != selection.end(); it++ )
+    for( EDA_ITEM* item : selection )
     {
-        PCB_TRACK* track = dyn_cast<PCB_TRACK*>( *it );
+        PCB_TRACK* track = dyn_cast<PCB_TRACK*>( item );
 
         if( !track || track->Type() != PCB_TRACE_T || track->GetLength() == 0 )
         {
@@ -1216,10 +888,14 @@ int EDIT_TOOL::FilletTracks( const TOOL_EVENT& aEvent )
         auto processFilletOp =
                 [&]( bool aStartPoint )
                 {
-            VECTOR2I anchor = ( aStartPoint ) ? track->GetStart() : track->GetEnd();
-                    auto connectivity = board()->GetConnectivity();
-                    auto itemsOnAnchor = connectivity->GetConnectedItemsAtAnchor( track, anchor,
-                                                                                  track_types );
+                    std::shared_ptr<CONNECTIVITY_DATA> c = board()->GetConnectivity();
+                    VECTOR2I                           anchor = aStartPoint ? track->GetStart()
+                                                                            : track->GetEnd();
+                    std::vector<BOARD_CONNECTED_ITEM*> itemsOnAnchor;
+
+                    itemsOnAnchor = c->GetConnectedItemsAtAnchor( track, anchor,
+                                                                  { PCB_PAD_T, PCB_VIA_T,
+                                                                    PCB_TRACE_T, PCB_ARC_T } );
 
                     if( itemsOnAnchor.size() > 0
                             && selection.Contains( itemsOnAnchor.at( 0 ) )
@@ -1277,11 +953,10 @@ int EDIT_TOOL::FilletTracks( const TOOL_EVENT& aEvent )
                 continue;
 
             SHAPE_ARC sArc( t1Seg, t2Seg, filletRadiusIU );
-
-            wxPoint t1newPoint, t2newPoint;
+            VECTOR2I  t1newPoint, t2newPoint;
 
             auto setIfPointOnSeg =
-                    []( wxPoint& aPointToSet, SEG aSegment, VECTOR2I aVecToTest )
+                    []( VECTOR2I& aPointToSet, SEG aSegment, VECTOR2I aVecToTest )
                     {
                         VECTOR2I segToVec = aSegment.NearestPoint( aVecToTest ) - aVecToTest;
 
@@ -1360,7 +1035,7 @@ int EDIT_TOOL::Properties( const TOOL_EVENT& aEvent )
             } );
 
     // Tracks & vias are treated in a special way:
-    if( ( SELECTION_CONDITIONS::OnlyTypes( GENERAL_COLLECTOR::Tracks ) )( selection ) )
+    if( ( SELECTION_CONDITIONS::OnlyTypes( { PCB_TRACE_T, PCB_ARC_T, PCB_VIA_T } ) )( selection ) )
     {
         DIALOG_TRACK_VIA_PROPERTIES dlg( editFrame, selection, *m_commit );
         dlg.ShowQuasiModal();       // QuasiModal required for NET_SELECTOR
@@ -1395,9 +1070,10 @@ int EDIT_TOOL::Properties( const TOOL_EVENT& aEvent )
     {
         // Check for items becoming invisible and drop them from the selection.
 
-        LSET visible = editFrame->GetBoard()->GetVisibleLayers();
+        PCB_SELECTION selCopy = selection;
+        LSET          visible = editFrame->GetBoard()->GetVisibleLayers();
 
-        for( EDA_ITEM* eda_item : selection )
+        for( EDA_ITEM* eda_item : selCopy )
         {
             BOARD_ITEM* item = static_cast<BOARD_ITEM*>( eda_item );
 
@@ -1430,12 +1106,12 @@ int EDIT_TOOL::Rotate( const TOOL_EVENT& aEvent )
             },
             // Prompt user regarding locked items if in board editor and in free-pad-mode (if
             // we're not in free-pad mode we delay this until the second RequestSelection()).
-            frame()->Settings().m_AllowFreePads && !m_isFootprintEditor );
+            frame()->GetPcbNewSettings()->m_AllowFreePads && !m_isFootprintEditor );
 
     if( selection.Empty() )
         return 0;
 
-    OPT<VECTOR2I> oldRefPt = boost::make_optional<VECTOR2I>( false, VECTOR2I( 0, 0 ) );
+    std::optional<VECTOR2I> oldRefPt;
     bool          is_hover = selection.IsHover();   // N.B. This must be saved before the second
                                                     // call to RequestSelection() below
 
@@ -1444,7 +1120,7 @@ int EDIT_TOOL::Rotate( const TOOL_EVENT& aEvent )
 
     // Now filter out pads if not in free pads mode.  We cannot do this in the first
     // RequestSelection() as we need the reference point when a pad is the selection front.
-    if( !m_isFootprintEditor && !frame()->Settings().m_AllowFreePads )
+    if( !m_isFootprintEditor && !frame()->GetPcbNewSettings()->m_AllowFreePads )
     {
         selection = m_selectionTool->RequestSelection(
                 []( const VECTOR2I& aPt, GENERAL_COLLECTOR& aCollector, PCB_SELECTION_TOOL* sTool )
@@ -1465,39 +1141,63 @@ int EDIT_TOOL::Rotate( const TOOL_EVENT& aEvent )
     VECTOR2I  refPt = selection.GetReferencePoint();
     EDA_ANGLE rotateAngle = TOOL_EVT_UTILS::GetEventRotationAngle( *editFrame, aEvent );
 
-    // When editing footprints, all items have the same parent
-    if( IsFootprintEditor() )
-        m_commit->Modify( selection.Front() );
+    // Calculate view bounding box
+    BOX2I viewBBox = selection.Front()->ViewBBox();
 
     for( EDA_ITEM* item : selection )
-    {
-        if( !item->IsNew() && !IsFootprintEditor() )
-        {
-            m_commit->Modify( item );
+        viewBBox.Merge( item->ViewBBox() );
 
-            // If rotating a group, record position of all the descendants for undo
-            if( item->Type() == PCB_GROUP_T )
+    // Check if the view bounding box will go out of bounds
+    VECTOR2D rotPos = viewBBox.GetPosition();
+    VECTOR2D rotEnd = viewBBox.GetEnd();
+
+    RotatePoint( &rotPos.x, &rotPos.y, refPt.x, refPt.y, rotateAngle );
+    RotatePoint( &rotEnd.x, &rotEnd.y, refPt.x, refPt.y, rotateAngle );
+
+    typedef std::numeric_limits<int> coord_limits;
+
+    int max = coord_limits::max() - COORDS_PADDING;
+    int min = -max;
+
+    bool outOfBounds = rotPos.x < min || rotPos.x > max || rotPos.y < min || rotPos.y > max
+                       || rotEnd.x < min || rotEnd.x > max || rotEnd.y < min || rotEnd.y > max;
+
+    if( !outOfBounds )
+    {
+        // When editing footprints, all items have the same parent
+        if( IsFootprintEditor() )
+            m_commit->Modify( selection.Front() );
+
+        for( EDA_ITEM* item : selection )
+        {
+            if( !item->IsNew() && !IsFootprintEditor() )
             {
-                static_cast<PCB_GROUP*>( item )->RunOnDescendants( [&]( BOARD_ITEM* bItem )
-                                                                   {
-                                                                       m_commit->Modify( bItem );
-                                                                   });
+                m_commit->Modify( item );
+
+                // If rotating a group, record position of all the descendants for undo
+                if( item->Type() == PCB_GROUP_T )
+                {
+                    static_cast<PCB_GROUP*>( item )->RunOnDescendants( [&]( BOARD_ITEM* bItem )
+                                                                    {
+                                                                        m_commit->Modify( bItem );
+                                                                    });
+                }
             }
+
+            static_cast<BOARD_ITEM*>( item )->Rotate( refPt, rotateAngle );
         }
 
-        static_cast<BOARD_ITEM*>( item )->Rotate( refPt, rotateAngle );
+        if( !m_dragging )
+            m_commit->Push( _( "Rotate" ) );
+
+        if( is_hover && !m_dragging )
+            m_toolMgr->RunAction( PCB_ACTIONS::selectionClear, true );
+
+        m_toolMgr->ProcessEvent( EVENTS::SelectedItemsModified );
+
+        if( m_dragging )
+            m_toolMgr->RunAction( PCB_ACTIONS::updateLocalRatsnest, false );
     }
-
-    if( !m_dragging )
-        m_commit->Push( _( "Rotate" ) );
-
-    if( is_hover && !m_dragging )
-        m_toolMgr->RunAction( PCB_ACTIONS::selectionClear, true );
-
-    m_toolMgr->ProcessEvent( EVENTS::SelectedItemsModified );
-
-    if( m_dragging )
-        m_toolMgr->RunAction( PCB_ACTIONS::updateLocalRatsnest, false );
 
     // Restore the old reference so any mouse dragging that occurs doesn't make the selection jump
     // to this now invalid reference
@@ -1520,6 +1220,21 @@ static VECTOR2I mirrorPointX( const VECTOR2I& aPoint, const VECTOR2I& aMirrorPoi
     mirrored.x -= aMirrorPoint.x;
     mirrored.x = -mirrored.x;
     mirrored.x += aMirrorPoint.x;
+
+    return mirrored;
+}
+
+
+/**
+ * Mirror a point about the vertical axis passing through another point.
+ */
+static VECTOR2I mirrorPointY( const VECTOR2I& aPoint, const VECTOR2I& aMirrorPoint )
+{
+    VECTOR2I mirrored = aPoint;
+
+    mirrored.y -= aMirrorPoint.y;
+    mirrored.y = -mirrored.y;
+    mirrored.y += aMirrorPoint.y;
 
     return mirrored;
 }
@@ -1550,6 +1265,31 @@ static void mirrorPadX( PAD& aPad, const VECTOR2I& aMirrorPoint )
 }
 
 
+/**
+ * Mirror a pad in the vertical axis passing through a point (mirror left to right).
+ */
+static void mirrorPadY( PAD& aPad, const VECTOR2I& aMirrorPoint )
+{
+    if( aPad.GetShape() == PAD_SHAPE::CUSTOM )
+        aPad.FlipPrimitives( false );  // mirror primitives top to bottom
+
+    VECTOR2I tmpPt = mirrorPointY( aPad.GetPosition(), aMirrorPoint );
+    aPad.SetPosition( tmpPt );
+
+    aPad.SetY0( aPad.GetPosition().y );
+
+    tmpPt = aPad.GetOffset();
+    tmpPt.y = -tmpPt.y;
+    aPad.SetOffset( tmpPt );
+
+    auto tmpz = aPad.GetDelta();
+    tmpz.y = -tmpz.y;
+    aPad.SetDelta( tmpz );
+
+    aPad.SetOrientation( -aPad.GetOrientation() );
+}
+
+
 int EDIT_TOOL::Mirror( const TOOL_EVENT& aEvent )
 {
     if( isRouterActive() )
@@ -1571,12 +1311,23 @@ int EDIT_TOOL::Mirror( const TOOL_EVENT& aEvent )
         return 0;
 
     updateModificationPoint( selection );
-    auto refPoint = selection.GetReferencePoint();
-    wxPoint mirrorPoint( refPoint.x, refPoint.y );
+    VECTOR2I mirrorPoint = selection.GetReferencePoint();
 
     // When editing footprints, all items have the same parent
     if( IsFootprintEditor() )
         m_commit->Modify( selection.Front() );
+
+    // Set the mirroring options.
+    // Unfortunately, the mirror function do not have the same parameter for all items
+    // So we need these 2 parameters to avoid mistakes
+    bool mirrorLeftRight = true;
+    bool mirrorAroundXaxis = false;
+
+    if( aEvent.IsAction( &PCB_ACTIONS::mirrorV ) )
+    {
+        mirrorLeftRight = false;
+        mirrorAroundXaxis = true;
+    }
 
     for( EDA_ITEM* item : selection )
     {
@@ -1584,15 +1335,22 @@ int EDIT_TOOL::Mirror( const TOOL_EVENT& aEvent )
         switch( item->Type() )
         {
         case PCB_FP_SHAPE_T:
+        case PCB_SHAPE_T:
         case PCB_FP_TEXT_T:
+        case PCB_TEXT_T:
         case PCB_FP_TEXTBOX_T:
+        case PCB_TEXTBOX_T:
         case PCB_FP_ZONE_T:
+        case PCB_ZONE_T:
         case PCB_PAD_T:
-            // Only create undo entry for items on the board
+        case PCB_TRACE_T:
+        case PCB_ARC_T:
+        case PCB_VIA_T:
             if( !item->IsNew() && !IsFootprintEditor() )
                 m_commit->Modify( item );
 
             break;
+
         default:
             continue;
         }
@@ -1601,39 +1359,44 @@ int EDIT_TOOL::Mirror( const TOOL_EVENT& aEvent )
         switch( item->Type() )
         {
         case PCB_FP_SHAPE_T:
-        {
-            FP_SHAPE* shape = static_cast<FP_SHAPE*>( item );
-            shape->Mirror( mirrorPoint, false );
+        case PCB_SHAPE_T:
+            static_cast<PCB_SHAPE*>( item )->Mirror( mirrorPoint, mirrorAroundXaxis );
             break;
-        }
 
         case PCB_FP_ZONE_T:
-        {
-            FP_ZONE* zone = static_cast<FP_ZONE*>( item );
-            zone->Mirror( mirrorPoint, false );
+        case PCB_ZONE_T:
+            static_cast<FP_ZONE*>( item )->Mirror( mirrorPoint, mirrorLeftRight );
             break;
-        }
 
         case PCB_FP_TEXT_T:
-        {
-            FP_TEXT* text = static_cast<FP_TEXT*>( item );
-            text->Mirror( mirrorPoint, false );
+            static_cast<FP_TEXT*>( item )->Mirror( mirrorPoint, mirrorAroundXaxis );
             break;
-        }
+
+        case PCB_TEXT_T:
+            static_cast<PCB_TEXT*>( item )->Mirror( mirrorPoint, mirrorAroundXaxis );
+            break;
 
         case PCB_FP_TEXTBOX_T:
-        {
-            FP_TEXTBOX* textbox = static_cast<FP_TEXTBOX*>( item );
-            textbox->Mirror( mirrorPoint, false );
+            static_cast<FP_TEXTBOX*>( item )->Mirror( mirrorPoint, mirrorAroundXaxis );
             break;
-        }
+
+        case PCB_TEXTBOX_T:
+            static_cast<PCB_TEXTBOX*>( item )->Mirror( mirrorPoint, mirrorAroundXaxis );
+            break;
 
         case PCB_PAD_T:
-        {
-            PAD* pad = static_cast<PAD*>( item );
-            mirrorPadX( *pad, mirrorPoint );
+            if( mirrorLeftRight )
+                mirrorPadX( *static_cast<PAD*>( item ), mirrorPoint );
+            else
+                mirrorPadY( *static_cast<PAD*>( item ), mirrorPoint );
+
             break;
-        }
+
+        case PCB_TRACE_T:
+        case PCB_ARC_T:
+        case PCB_VIA_T:
+            static_cast<PCB_TRACK*>( item )->Mirror( mirrorPoint, mirrorAroundXaxis );
+            break;
 
         default:
             // it's likely the commit object is wrong if you get here
@@ -1678,7 +1441,7 @@ int EDIT_TOOL::Flip( const TOOL_EVENT& aEvent )
     if( selection.Empty() )
         return 0;
 
-    OPT<VECTOR2I> oldRefPt = boost::make_optional<VECTOR2I>( false, VECTOR2I( 0, 0 ) );
+    std::optional<VECTOR2I> oldRefPt;
 
     if( selection.HasReferencePoint() )
         oldRefPt = selection.GetReferencePoint();
@@ -1698,7 +1461,7 @@ int EDIT_TOOL::Flip( const TOOL_EVENT& aEvent )
             refPt = static_cast<BOARD_ITEM*>( selection.GetItem( 0 ) )->GetPosition();
     }
 
-    bool leftRight = frame()->Settings().m_FlipLeftRight;
+    bool leftRight = frame()->GetPcbNewSettings()->m_FlipLeftRight;
 
     // When editing footprints, all items have the same parent
     if( IsFootprintEditor() )
@@ -1742,76 +1505,12 @@ int EDIT_TOOL::Flip( const TOOL_EVENT& aEvent )
 }
 
 
-int EDIT_TOOL::Remove( const TOOL_EVENT& aEvent )
+void EDIT_TOOL::DeleteItems( const PCB_SELECTION& aItems, bool aIsCut )
 {
-    if( isRouterActive() )
-    {
-        m_toolMgr->RunAction( PCB_ACTIONS::routerUndoLastSegment, true );
-        return 0;
-    }
-
-    std::vector<BOARD_ITEM*> lockedItems;
-    Activate();
-
-    // get a copy instead of reference (as we're going to clear the selection before removing items)
-    PCB_SELECTION selectionCopy;
-    bool isCut = aEvent.Parameter<PCB_ACTIONS::REMOVE_FLAGS>() == PCB_ACTIONS::REMOVE_FLAGS::CUT;
-    bool isAlt = aEvent.Parameter<PCB_ACTIONS::REMOVE_FLAGS>() == PCB_ACTIONS::REMOVE_FLAGS::ALT;
-
-    // If we are in a "Cut" operation, then the copied selection exists already and we want to
-    // delete exactly that; no more, no fewer.  Any filtering for locked items must be done in
-    // the copyToClipboard() routine.
-    if( isCut )
-    {
-        selectionCopy = m_selectionTool->GetSelection();
-    }
-    else
-    {
-        // When not in free-pad mode we normally auto-promote selected pads to their parent
-        // footprints.  But this is probably a little too dangerous for a destructive operation,
-        // so we just do the promotion but not the deletion (allowing for a second delete to do
-        // it if that's what the user wanted).
-        selectionCopy = m_selectionTool->RequestSelection(
-                []( const VECTOR2I& aPt, GENERAL_COLLECTOR& aCollector, PCB_SELECTION_TOOL* sTool )
-                {
-                } );
-
-        size_t beforeFPCount = selectionCopy.CountType( PCB_FOOTPRINT_T );
-
-        m_selectionTool->RequestSelection(
-                []( const VECTOR2I& aPt, GENERAL_COLLECTOR& aCollector, PCB_SELECTION_TOOL* sTool )
-                {
-                    sTool->FilterCollectorForFreePads( aCollector );
-                } );
-
-        if( !selectionCopy.IsHover()
-                && m_selectionTool->GetSelection().CountType( PCB_FOOTPRINT_T ) > beforeFPCount )
-        {
-            wxBell();
-            canvas()->Refresh();
-            return 0;
-        }
-
-        // In "alternative" mode, we expand selected track items to their full connection.
-        if( isAlt && ( selectionCopy.HasType( PCB_TRACE_T ) || selectionCopy.HasType( PCB_VIA_T ) ) )
-        {
-            m_toolMgr->RunAction( PCB_ACTIONS::selectConnection, true );
-        }
-
-        // Finally run RequestSelection() one more time to find out what user wants to do about
-        // locked objects.
-        selectionCopy = m_selectionTool->RequestSelection(
-                []( const VECTOR2I& aPt, GENERAL_COLLECTOR& aCollector, PCB_SELECTION_TOOL* sTool )
-                {
-                    sTool->FilterCollectorForFreePads( aCollector );
-                },
-                true /* prompt user regarding locked items */ );
-    }
-
     // As we are about to remove items, they have to be removed from the selection first
     m_toolMgr->RunAction( PCB_ACTIONS::selectionClear, true );
 
-    for( EDA_ITEM* item : selectionCopy )
+    for( EDA_ITEM* item : aItems )
     {
         PCB_GROUP* parentGroup = static_cast<BOARD_ITEM*>( item )->GetParentGroup();
 
@@ -1828,31 +1527,22 @@ int EDIT_TOOL::Remove( const TOOL_EVENT& aEvent )
             FP_TEXT*   text = static_cast<FP_TEXT*>( item );
             FOOTPRINT* parent = static_cast<FOOTPRINT*>( item->GetParent() );
 
-            if( text->GetType() == FP_TEXT::TEXT_is_DIVERS )
+            switch( text->GetType() )
             {
+            case FP_TEXT::TEXT_is_VALUE:
+            case FP_TEXT::TEXT_is_REFERENCE:
+                m_commit->Modify( parent );
+                text->SetVisible( false );
+                getView()->Update( text );
+                break;
+            case FP_TEXT::TEXT_is_DIVERS:
                 m_commit->Modify( parent );
                 getView()->Remove( text );
                 parent->Remove( text );
-            }
-            else if( selectionCopy.GetSize() == 1 )
-            {
-                text->SetVisible( false );
-                getView()->Update( text );
-
-                switch( text->GetType() )
-                {
-                case FP_TEXT::TEXT_is_REFERENCE:
-                    frame()->ShowInfoBarMsg( _( "Reference designator hidden (it is required and "
-                                                "can not be deleted)." ) );
-                    break;
-                case FP_TEXT::TEXT_is_VALUE:
-                    frame()->ShowInfoBarMsg( _( "Value hidden (it is required and can not be "
-                                                "deleted)." ) );
-                    break;
-                default:
-                    wxFAIL;   // Shouldn't get here
-                    break;
-                }
+                break;
+            default:
+                wxFAIL; // Shouldn't get here
+                break;
             }
 
             break;
@@ -1870,7 +1560,7 @@ int EDIT_TOOL::Remove( const TOOL_EVENT& aEvent )
         }
 
         case PCB_PAD_T:
-            if( IsFootprintEditor() || frame()->Settings().m_AllowFreePads )
+            if( IsFootprintEditor() || frame()->GetPcbNewSettings()->m_AllowFreePads )
             {
                 PAD*       pad = static_cast<PAD*>( item );
                 FOOTPRINT* parent = static_cast<FOOTPRINT*>( item->GetParent() );
@@ -1898,7 +1588,7 @@ int EDIT_TOOL::Remove( const TOOL_EVENT& aEvent )
         // is called from inside a cutout when the zone is selected.
         {
             // Only interact with cutouts when deleting and a single item is selected
-            if( !isCut && selectionCopy.GetSize() == 1 )
+            if( !aIsCut && aItems.GetSize() == 1 )
             {
                 VECTOR2I curPos = getViewControls()->GetCursorPosition();
                 ZONE*    zone   = static_cast<ZONE*>( item );
@@ -1950,8 +1640,11 @@ int EDIT_TOOL::Remove( const TOOL_EVENT& aEvent )
                             }
                             else if( bItem->Type() == PCB_PAD_T )
                             {
-                                if( !IsFootprintEditor() && !frame()->Settings().m_AllowFreePads )
+                                if( !IsFootprintEditor()
+                                        && !frame()->GetPcbNewSettings()->m_AllowFreePads )
+                                {
                                     return;
+                                }
                             }
 
                             m_commit->Modify( bItem->GetParent() );
@@ -1985,11 +1678,87 @@ int EDIT_TOOL::Remove( const TOOL_EVENT& aEvent )
     if( enteredGroup && enteredGroup->GetItems().empty() )
         m_selectionTool->ExitGroup();
 
-    if( isCut )
+    if( aIsCut )
         m_commit->Push( _( "Cut" ) );
     else
         m_commit->Push( _( "Delete" ) );
+}
 
+
+int EDIT_TOOL::Remove( const TOOL_EVENT& aEvent )
+{
+    PCB_BASE_EDIT_FRAME*  editFrame = getEditFrame<PCB_BASE_EDIT_FRAME>();
+
+    if( isRouterActive() )
+    {
+        m_toolMgr->RunAction( PCB_ACTIONS::routerUndoLastSegment, true );
+        return 0;
+    }
+
+    editFrame->PushTool( aEvent );
+
+    std::vector<BOARD_ITEM*> lockedItems;
+    Activate();
+
+    // get a copy instead of reference (as we're going to clear the selection before removing items)
+    PCB_SELECTION selectionCopy;
+    bool isCut = aEvent.Parameter<PCB_ACTIONS::REMOVE_FLAGS>() == PCB_ACTIONS::REMOVE_FLAGS::CUT;
+    bool isAlt = aEvent.Parameter<PCB_ACTIONS::REMOVE_FLAGS>() == PCB_ACTIONS::REMOVE_FLAGS::ALT;
+
+    // If we are in a "Cut" operation, then the copied selection exists already and we want to
+    // delete exactly that; no more, no fewer.  Any filtering for locked items must be done in
+    // the copyToClipboard() routine.
+    if( isCut )
+    {
+        selectionCopy = m_selectionTool->GetSelection();
+    }
+    else
+    {
+        // When not in free-pad mode we normally auto-promote selected pads to their parent
+        // footprints.  But this is probably a little too dangerous for a destructive operation,
+        // so we just do the promotion but not the deletion (allowing for a second delete to do
+        // it if that's what the user wanted).
+        selectionCopy = m_selectionTool->RequestSelection(
+                []( const VECTOR2I& aPt, GENERAL_COLLECTOR& aCollector, PCB_SELECTION_TOOL* sTool )
+                {
+                } );
+
+        size_t beforeFPCount = selectionCopy.CountType( PCB_FOOTPRINT_T );
+
+        m_selectionTool->RequestSelection(
+                []( const VECTOR2I& aPt, GENERAL_COLLECTOR& aCollector, PCB_SELECTION_TOOL* sTool )
+                {
+                    sTool->FilterCollectorForFreePads( aCollector );
+                } );
+
+        if( !selectionCopy.IsHover()
+                && m_selectionTool->GetSelection().CountType( PCB_FOOTPRINT_T ) > beforeFPCount )
+        {
+            wxBell();
+            canvas()->Refresh();
+            editFrame->PopTool( aEvent );
+            return 0;
+        }
+
+        // In "alternative" mode, we expand selected track items to their full connection.
+        if( isAlt && ( selectionCopy.HasType( PCB_TRACE_T ) || selectionCopy.HasType( PCB_VIA_T ) ) )
+        {
+            m_toolMgr->RunAction( PCB_ACTIONS::selectConnection, true );
+        }
+
+        // Finally run RequestSelection() one more time to find out what user wants to do about
+        // locked objects.
+        selectionCopy = m_selectionTool->RequestSelection(
+                []( const VECTOR2I& aPt, GENERAL_COLLECTOR& aCollector, PCB_SELECTION_TOOL* sTool )
+                {
+                    sTool->FilterCollectorForFreePads( aCollector );
+                },
+                true /* prompt user regarding locked items */ );
+    }
+
+    DeleteItems( selectionCopy, isCut );
+
+    editFrame->PopTool( aEvent );
     return 0;
 }
 
@@ -2019,7 +1788,7 @@ int EDIT_TOOL::MoveExact( const TOOL_EVENT& aEvent )
                                                           : ROTATE_AROUND_ITEM_ANCHOR;
 
     // TODO: Implement a visible bounding border at the edge
-    auto sel_box = selection.GetBoundingBox();
+    BOX2I sel_box = selection.GetBoundingBox();
 
     DIALOG_MOVE_EXACT dialog( frame(), translation, rotation, rotationAnchor, sel_box );
     int ret = dialog.ShowModal();
@@ -2033,7 +1802,7 @@ int EDIT_TOOL::MoveExact( const TOOL_EVENT& aEvent )
         // Make sure the rotation is from the right reference point
         selCenter += translation;
 
-        if( !frame()->Settings().m_Display.m_DisplayInvertYAxis )
+        if( !frame()->GetPcbNewSettings()->m_Display.m_DisplayInvertYAxis )
             rotation = -rotation;
 
         // When editing footprints, all items have the same parent
@@ -2163,6 +1932,7 @@ int EDIT_TOOL::Duplicate( const TOOL_EVENT& aEvent )
             case PCB_FOOTPRINT_T:
             case PCB_TEXT_T:
             case PCB_TEXTBOX_T:
+            case PCB_BITMAP_T:
             case PCB_SHAPE_T:
             case PCB_TRACE_T:
             case PCB_ARC_T:
@@ -2325,7 +2095,7 @@ bool EDIT_TOOL::pickReferencePoint( const wxString& aTooltip, const wxString& aS
                                     const wxString& aCanceledMessage, VECTOR2I& aReferencePoint )
 {
     PCB_PICKER_TOOL* picker = m_toolMgr->GetTool<PCB_PICKER_TOOL>();
-    OPT<VECTOR2I>    pickedPoint;
+    std::optional<VECTOR2I>    pickedPoint;
     bool             done = false;
 
     m_statusPopup->SetText( aTooltip );
@@ -2379,9 +2149,9 @@ bool EDIT_TOOL::pickReferencePoint( const wxString& aTooltip, const wxString& aS
 
     m_statusPopup->Move( wxGetMousePosition() + wxPoint( 20, -50 ) );
     m_statusPopup->Popup();
+    canvas()->SetStatusPopup( m_statusPopup->GetPanel() );
 
-    std::string tool = "";
-    m_toolMgr->RunAction( ACTIONS::pickerTool, true, &tool );
+    m_toolMgr->RunAction( ACTIONS::pickerSubTool, true );
 
     while( !done )
     {
@@ -2393,23 +2163,26 @@ bool EDIT_TOOL::pickReferencePoint( const wxString& aTooltip, const wxString& aS
     }
 
     // Ensure statusPopup is hidden after use and before deleting it:
+    canvas()->SetStatusPopup( nullptr );
     m_statusPopup->Hide();
 
-    if( pickedPoint.is_initialized() )
-        aReferencePoint = pickedPoint.get();
+    if( pickedPoint )
+        aReferencePoint = *pickedPoint;
 
-    return pickedPoint.is_initialized();
+    return pickedPoint.has_value();
 }
 
 
 int EDIT_TOOL::copyToClipboard( const TOOL_EVENT& aEvent )
 {
-    std::string  tool = "pcbnew.InteractiveEdit.selectReferencePoint";
     CLIPBOARD_IO io;
     PCB_GRID_HELPER grid( m_toolMgr,
                           getEditFrame<PCB_BASE_EDIT_FRAME>()->GetMagneticItemsSettings() );
+    TOOL_EVENT      selectReferencePoint( aEvent.Category(), aEvent.Action(),
+                                          "pcbnew.InteractiveEdit.selectReferencePoint",
+                                          TOOL_ACTION_SCOPE::AS_GLOBAL );
 
-    frame()->PushTool( tool );
+    frame()->PushTool( selectReferencePoint );
     Activate();
 
     PCB_SELECTION& selection = m_selectionTool->RequestSelection(
@@ -2445,7 +2218,7 @@ int EDIT_TOOL::copyToClipboard( const TOOL_EVENT& aEvent )
                                      _( "Copy canceled" ),
                                      refPoint ) )
             {
-                frame()->PopTool( tool );
+                frame()->PopTool( selectReferencePoint );
                 return 0;
             }
         }
@@ -2461,7 +2234,7 @@ int EDIT_TOOL::copyToClipboard( const TOOL_EVENT& aEvent )
         frame()->SetStatusText( _( "Selection copied" ) );
     }
 
-    frame()->PopTool( tool );
+    frame()->PopTool( selectReferencePoint );
 
     return 0;
 }
@@ -2474,7 +2247,7 @@ int EDIT_TOOL::cutToClipboard( const TOOL_EVENT& aEvent )
         // N.B. Setting the CUT flag prevents lock filtering as we only want to delete the items
         // that were copied to the clipboard, no more, no fewer.  Filtering for locked item, if
         // any will be done in the copyToClipboard() routine
-        TOOL_EVENT evt( aEvent.Category(), aEvent.Action(), TOOL_ACTION_SCOPE::AS_GLOBAL );
+        TOOL_EVENT evt = aEvent;
         evt.SetParameter( PCB_ACTIONS::REMOVE_FLAGS::CUT );
         Remove( evt );
     }
@@ -2485,26 +2258,30 @@ int EDIT_TOOL::cutToClipboard( const TOOL_EVENT& aEvent )
 
 void EDIT_TOOL::setTransitions()
 {
-    Go( &EDIT_TOOL::GetAndPlace,         PCB_ACTIONS::getAndPlace.MakeEvent() );
-    Go( &EDIT_TOOL::Move,                PCB_ACTIONS::move.MakeEvent() );
-    Go( &EDIT_TOOL::Drag,                PCB_ACTIONS::drag45Degree.MakeEvent() );
-    Go( &EDIT_TOOL::Drag,                PCB_ACTIONS::dragFreeAngle.MakeEvent() );
-    Go( &EDIT_TOOL::Rotate,              PCB_ACTIONS::rotateCw.MakeEvent() );
-    Go( &EDIT_TOOL::Rotate,              PCB_ACTIONS::rotateCcw.MakeEvent() );
-    Go( &EDIT_TOOL::Flip,                PCB_ACTIONS::flip.MakeEvent() );
-    Go( &EDIT_TOOL::Remove,              ACTIONS::doDelete.MakeEvent() );
-    Go( &EDIT_TOOL::Remove,              PCB_ACTIONS::deleteFull.MakeEvent() );
-    Go( &EDIT_TOOL::Properties,          PCB_ACTIONS::properties.MakeEvent() );
-    Go( &EDIT_TOOL::MoveExact,           PCB_ACTIONS::moveExact.MakeEvent() );
-    Go( &EDIT_TOOL::MoveWithReference,   PCB_ACTIONS::moveWithReference.MakeEvent() );
-    Go( &EDIT_TOOL::Duplicate,           ACTIONS::duplicate.MakeEvent() );
-    Go( &EDIT_TOOL::Duplicate,           PCB_ACTIONS::duplicateIncrement.MakeEvent() );
-    Go( &EDIT_TOOL::CreateArray,         PCB_ACTIONS::createArray.MakeEvent() );
-    Go( &EDIT_TOOL::Mirror,              PCB_ACTIONS::mirror.MakeEvent() );
-    Go( &EDIT_TOOL::ChangeTrackWidth,    PCB_ACTIONS::changeTrackWidth.MakeEvent() );
-    Go( &EDIT_TOOL::FilletTracks,        PCB_ACTIONS::filletTracks.MakeEvent() );
+    Go( &EDIT_TOOL::GetAndPlace,           PCB_ACTIONS::getAndPlace.MakeEvent() );
+    Go( &EDIT_TOOL::Move,                  PCB_ACTIONS::move.MakeEvent() );
+    Go( &EDIT_TOOL::Move,                  PCB_ACTIONS::moveIndividually.MakeEvent() );
+    Go( &EDIT_TOOL::Drag,                  PCB_ACTIONS::drag45Degree.MakeEvent() );
+    Go( &EDIT_TOOL::Drag,                  PCB_ACTIONS::dragFreeAngle.MakeEvent() );
+    Go( &EDIT_TOOL::Rotate,                PCB_ACTIONS::rotateCw.MakeEvent() );
+    Go( &EDIT_TOOL::Rotate,                PCB_ACTIONS::rotateCcw.MakeEvent() );
+    Go( &EDIT_TOOL::Flip,                  PCB_ACTIONS::flip.MakeEvent() );
+    Go( &EDIT_TOOL::Remove,                ACTIONS::doDelete.MakeEvent() );
+    Go( &EDIT_TOOL::Remove,                PCB_ACTIONS::deleteFull.MakeEvent() );
+    Go( &EDIT_TOOL::Properties,            PCB_ACTIONS::properties.MakeEvent() );
+    Go( &EDIT_TOOL::MoveExact,             PCB_ACTIONS::moveExact.MakeEvent() );
+    Go( &EDIT_TOOL::Move,                  PCB_ACTIONS::moveWithReference.MakeEvent() );
+    Go( &EDIT_TOOL::Duplicate,             ACTIONS::duplicate.MakeEvent() );
+    Go( &EDIT_TOOL::Duplicate,             PCB_ACTIONS::duplicateIncrement.MakeEvent() );
+    Go( &EDIT_TOOL::CreateArray,           PCB_ACTIONS::createArray.MakeEvent() );
+    Go( &EDIT_TOOL::Mirror,                PCB_ACTIONS::mirrorH.MakeEvent() );
+    Go( &EDIT_TOOL::Mirror,                PCB_ACTIONS::mirrorV.MakeEvent() );
+    Go( &EDIT_TOOL::Swap,                  PCB_ACTIONS::swap.MakeEvent() );
+    Go( &EDIT_TOOL::PackAndMoveFootprints, PCB_ACTIONS::packAndMoveFootprints.MakeEvent() );
+    Go( &EDIT_TOOL::ChangeTrackWidth,      PCB_ACTIONS::changeTrackWidth.MakeEvent() );
+    Go( &EDIT_TOOL::FilletTracks,          PCB_ACTIONS::filletTracks.MakeEvent() );
 
-    Go( &EDIT_TOOL::copyToClipboard,     ACTIONS::copy.MakeEvent() );
-    Go( &EDIT_TOOL::copyToClipboard,     PCB_ACTIONS::copyWithReference.MakeEvent() );
-    Go( &EDIT_TOOL::cutToClipboard,      ACTIONS::cut.MakeEvent() );
+    Go( &EDIT_TOOL::copyToClipboard,       ACTIONS::copy.MakeEvent() );
+    Go( &EDIT_TOOL::copyToClipboard,       PCB_ACTIONS::copyWithReference.MakeEvent() );
+    Go( &EDIT_TOOL::cutToClipboard,        ACTIONS::cut.MakeEvent() );
 }

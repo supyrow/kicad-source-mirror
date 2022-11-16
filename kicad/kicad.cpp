@@ -33,6 +33,7 @@
 #include <wx/app.h>
 #include <wx/stdpaths.h>
 #include <wx/msgdlg.h>
+#include <wx/cmdline.h>
 
 #include <filehistory.h>
 #include <hotkeys_basic.h>
@@ -41,6 +42,7 @@
 #include <paths.h>
 #include <richio.h>
 #include <settings/settings_manager.h>
+#include <settings/kicad_settings.h>
 #include <systemdirsappend.h>
 #include <trace_helpers.h>
 #include <wildcards_and_files_ext.h>
@@ -49,7 +51,6 @@
 
 #include "pgm_kicad.h"
 #include "kicad_manager_frame.h"
-#include "kicad_settings.h"
 
 #include <kiplatform/app.h>
 #include <kiplatform/environment.h>
@@ -104,12 +105,73 @@ bool PGM_KICAD::OnPgmInit()
     }
 #endif
 
-    if( !InitPgm() )
+    static const wxCmdLineEntryDesc desc[] = {
+        { wxCMD_LINE_OPTION, "f", "frame", "Frame to load", wxCMD_LINE_VAL_STRING, 0 },
+        { wxCMD_LINE_PARAM, nullptr, nullptr, "File to load", wxCMD_LINE_VAL_STRING,
+          wxCMD_LINE_PARAM_MULTIPLE | wxCMD_LINE_PARAM_OPTIONAL },
+        { wxCMD_LINE_NONE, nullptr, nullptr, nullptr, wxCMD_LINE_VAL_NONE, 0 }
+    };
+
+    wxCmdLineParser parser( App().argc, App().argv );
+    parser.SetDesc( desc );
+    parser.Parse( false );
+
+    FRAME_T appType = KICAD_MAIN_FRAME_T;
+
+    const struct
+    {
+        wxString name;
+        FRAME_T  type;
+    } frameTypes[] = { { wxT( "pcb" ), FRAME_PCB_EDITOR },
+                       { wxT( "fpedit" ), FRAME_FOOTPRINT_EDITOR },
+                       { wxT( "sch" ), FRAME_SCH },
+                       { wxT( "calc" ), FRAME_CALC },
+                       { wxT( "bm2cmp" ), FRAME_BM2CMP },
+                       { wxT( "ds" ), FRAME_PL_EDITOR },
+                       { wxT( "gerb" ), FRAME_GERBER },
+                       { wxT( "" ), FRAME_T_COUNT } };
+
+    wxString frameName;
+
+    if( parser.Found( "frame", &frameName ) )
+    {
+        appType = FRAME_T_COUNT;
+
+        for( const auto& it : frameTypes )
+        {
+            if( it.name == frameName )
+                appType = it.type;
+        }
+
+        if( appType == FRAME_T_COUNT )
+        {
+            wxLogError( wxT( "Unknown frame: %s" ), frameName );
+            // Clean up
+            OnPgmExit();
+            return false;
+        }
+    }
+
+    if( appType == KICAD_MAIN_FRAME_T )
+    {
+        Kiway.SetCtlBits( KFCTL_CPP_PROJECT_SUITE );
+    }
+    else
+    {
+        Kiway.SetCtlBits( KFCTL_STANDALONE );
+    }
+
+    bool skipPythonInit = false;
+
+    if( appType == FRAME_BM2CMP || appType == FRAME_PL_EDITOR || appType == FRAME_GERBER
+        || appType == FRAME_CALC )
+        skipPythonInit = true;
+
+    if( !InitPgm( false, skipPythonInit ) )
         return false;
 
     m_bm.InitSettings( new KICAD_SETTINGS );
     GetSettingsManager().RegisterSettings( PgmSettings() );
-    GetSettingsManager().SetKiway( &Kiway );
     m_bm.Init();
 
     // Add search paths to feed the PGM_KICAD::SysSearch() function,
@@ -148,9 +210,34 @@ bool PGM_KICAD::OnPgmInit()
             m_bm.m_search.Insert( it->second.GetValue(), 0 );
     }
 
-    KICAD_MANAGER_FRAME* frame = new KICAD_MANAGER_FRAME( nullptr, wxT( "KiCad" ),
-                                                          wxDefaultPosition, wxSize( 775, -1 ) );
+    wxFrame*      frame = nullptr;
+    KIWAY_PLAYER* playerFrame = nullptr;
+    KICAD_MANAGER_FRAME* managerFrame = nullptr;
+
+    if( appType == KICAD_MAIN_FRAME_T )
+    {
+        managerFrame = new KICAD_MANAGER_FRAME( nullptr, wxT( "KiCad" ), wxDefaultPosition,
+                                                wxSize( 775, -1 ) );
+        frame = managerFrame;
+    }
+    else
+    {
+        // Use KIWAY to create a top window, which registers its existence also.
+        // "TOP_FRAME" is a macro that is passed on compiler command line from CMake,
+        // and is one of the types in FRAME_T.
+        playerFrame = Kiway.Player( appType, true );
+        frame = playerFrame;
+
+        if( frame == nullptr )
+        {
+            return false;
+        }
+    }
+
     App().SetTopWindow( frame );
+
+    if( playerFrame )
+        App().SetAppDisplayName( playerFrame->GetAboutTitle() );
 
     Kiway.SetTop( frame );
 
@@ -158,48 +245,107 @@ bool PGM_KICAD::OnPgmInit()
 
     wxString projToLoad;
 
-    if( App().argc > 1 )
+
+    if( playerFrame && parser.GetParamCount() )
     {
-        wxFileName tmp = App().argv[1];
+        // Now after the frame processing, the rest of the positional args are files
+        std::vector<wxString> fileArgs;
+        /*
+            gerbview handles multiple project data files, i.e. gerber files on
+            cmd line. Others currently do not, they handle only one. For common
+            code simplicity we simply pass all the arguments in however, each
+            program module can do with them what they want, ignore, complain
+            whatever.  We don't establish policy here, as this is a multi-purpose
+            launcher.
+        */
 
-        if( tmp.GetExt() != ProjectFileExtension && tmp.GetExt() != LegacyProjectFileExtension )
+        for( size_t i = 0; i < parser.GetParamCount(); i++ )
+            fileArgs.push_back( parser.GetParam( i ) );
+
+        // special attention to a single argument: argv[1] (==argSet[0])
+        if( fileArgs.size() == 1 )
         {
-            wxString msg;
+            wxFileName argv1( fileArgs[0] );
 
-            msg.Printf( _( "File '%s'\ndoes not appear to be a valid KiCad project file." ),
-                        tmp.GetFullPath() );
-            wxMessageDialog dlg( nullptr, msg, _( "Error" ), wxOK | wxICON_EXCLAMATION );
-            dlg.ShowModal();
+#if defined( PGM_DATA_FILE_EXT )
+            // PGM_DATA_FILE_EXT, if present, may be different for each compile,
+            // it may come from CMake on the compiler command line, but often does not.
+            // This facility is mostly useful for those program footprints
+            // supporting a single argv[1].
+            if( !argv1.GetExt() )
+                argv1.SetExt( wxT( PGM_DATA_FILE_EXT ) );
+#endif
+            argv1.MakeAbsolute();
+
+            fileArgs[0] = argv1.GetFullPath();
         }
-        else
+
+        // Use the KIWAY_PLAYER::OpenProjectFiles() API function:
+        if( !playerFrame->OpenProjectFiles( fileArgs ) )
         {
-            projToLoad = tmp.GetFullPath();
+            // OpenProjectFiles() API asks that it report failure to the UI.
+            // Nothing further to say here.
+
+            // We've already initialized things at this point, but wx won't call OnExit if
+            // we fail out. Call our own cleanup routine here to ensure the relevant resources
+            // are freed at the right time (if they aren't, segfaults will occur).
+            OnPgmExit();
+
+            // Fail the process startup if the file could not be opened,
+            // although this is an optional choice, one that can be reversed
+            // also in the KIFACE specific OpenProjectFiles() return value.
+            return false;
         }
     }
-
-    // If no file was given as an argument, check that there was a file open.
-    if( projToLoad.IsEmpty() && settings->m_OpenProjects.size() )
+    else if( managerFrame )
     {
-        wxString last_pro = settings->m_OpenProjects.front();
-        settings->m_OpenProjects.erase( settings->m_OpenProjects.begin() );
-
-        if( wxFileExists( last_pro ) )
+        if( App().argc > 1 )
         {
-            // Try to open the last opened project,
-            // if a project name is not given when starting Kicad
-            projToLoad = last_pro;
+            wxFileName tmp = App().argv[1];
+
+            if( tmp.GetExt() != ProjectFileExtension && tmp.GetExt() != LegacyProjectFileExtension )
+            {
+                wxString msg;
+
+                msg.Printf( _( "File '%s'\ndoes not appear to be a valid KiCad project file." ),
+                            tmp.GetFullPath() );
+                wxMessageDialog dlg( nullptr, msg, _( "Error" ), wxOK | wxICON_EXCLAMATION );
+                dlg.ShowModal();
+            }
+            else
+            {
+                projToLoad = tmp.GetFullPath();
+            }
         }
-    }
 
-    // Do not attempt to load a non-existent project file.
-    if( !projToLoad.empty() )
-    {
-        wxFileName fn( projToLoad );
-
-        if( fn.Exists() )
+        // If no file was given as an argument, check that there was a file open.
+        if( projToLoad.IsEmpty() && settings->m_OpenProjects.size() )
         {
-            fn.MakeAbsolute();
-            frame->LoadProject( fn );
+            wxString last_pro = settings->m_OpenProjects.front();
+            settings->m_OpenProjects.erase( settings->m_OpenProjects.begin() );
+
+            if( wxFileExists( last_pro ) )
+            {
+                // Try to open the last opened project,
+                // if a project name is not given when starting Kicad
+                projToLoad = last_pro;
+            }
+        }
+
+        // Do not attempt to load a non-existent project file.
+        if( !projToLoad.empty() )
+        {
+            wxFileName fn( projToLoad );
+
+            if( fn.Exists() )
+            {
+                fn.MakeAbsolute();
+
+                if( appType == KICAD_MAIN_FRAME_T )
+                {
+                    managerFrame->LoadProject( fn );
+                }
+            }
         }
     }
 
@@ -207,6 +353,12 @@ bool PGM_KICAD::OnPgmInit()
     frame->Raise();
 
     return true;
+}
+
+
+int PGM_KICAD::OnPgmRun()
+{
+    return 0;
 }
 
 

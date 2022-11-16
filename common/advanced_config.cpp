@@ -191,9 +191,24 @@ static const wxChar AllowManualCanvasScale[] = wxT( "AllowManualCanvasScale" );
 
 static const wxChar UpdateUIEventInterval[] = wxT( "UpdateUIEventInterval" );
 
-static const wxChar AllowTeardrops[] = wxT( "AllowTeardrops" );
+static const wxChar ShowPropertiesPanel[] = wxT( "ShowPropertiesPanel" );
+
+static const wxChar V3DRT_BevelHeight_um[] = wxT( "V3DRT_BevelHeight_um" );
+
+static const wxChar V3DRT_BevelExtentFactor[] = wxT( "V3DRT_BevelExtentFactor" );
+
+static const wxChar UseClipper2[] = wxT( "UseClipper2" );
 } // namespace KEYS
 
+
+/**
+ * List of known groups for advanced configuration options.
+ *
+ */
+namespace AC_GROUPS
+{
+static const wxChar V3D_RayTracing[] = wxT( "G_3DV_RayTracing" );
+}
 
 /*
  * Get a simple string for common parameters.
@@ -304,9 +319,13 @@ ADVANCED_CFG::ADVANCED_CFG()
     m_AllowManualCanvasScale    = false;
     m_CompactSave               = false;
     m_UpdateUIEventInterval     = 0;
-
-    m_AllowTeardrops            = false;
     m_ShowRepairSchematic       = false;
+    m_ShowPropertiesPanel       = false;
+
+    m_3DRT_BevelHeight_um       = 30;
+    m_3DRT_BevelExtentFactor    = 1.0 / 16.0;
+
+    m_UseClipper2               = false;
 
     loadFromConfigFile();
 }
@@ -437,13 +456,28 @@ void ADVANCED_CFG::loadSettings( wxConfigBase& aCfg )
     configParams.push_back( new PARAM_CFG_BOOL( true, AC_KEYS::AllowManualCanvasScale,
                                                 &m_AllowManualCanvasScale, m_AllowManualCanvasScale ) );
 
-    configParams.push_back( new PARAM_CFG_BOOL( true, AC_KEYS::AllowTeardrops,
-                                                &m_AllowTeardrops, m_AllowTeardrops ) );
+    configParams.push_back( new PARAM_CFG_INT( true, AC_KEYS::V3DRT_BevelHeight_um,
+                                               &m_3DRT_BevelHeight_um, m_3DRT_BevelHeight_um,
+                                               0, std::numeric_limits<int>::max(),
+                                               AC_GROUPS::V3D_RayTracing ) );
+
+    configParams.push_back( new PARAM_CFG_DOUBLE( true, AC_KEYS::V3DRT_BevelExtentFactor,
+                                                  &m_3DRT_BevelExtentFactor, m_3DRT_BevelExtentFactor,
+                                                  0.0, 100.0,
+                                                  AC_GROUPS::V3D_RayTracing ) );
+
+    configParams.push_back( new PARAM_CFG_BOOL( true, AC_KEYS::UseClipper2,
+                                                &m_UseClipper2, m_UseClipper2 ) );
+
+
 
     // Special case for trace mask setting...we just grab them and set them immediately
     // Because we even use wxLogTrace inside of advanced config
     wxString traceMasks = "";
     configParams.push_back( new PARAM_CFG_WXSTRING( true, AC_KEYS::TraceMasks, &traceMasks, "" ) );
+
+    configParams.push_back( new PARAM_CFG_BOOL( true, AC_KEYS::ShowPropertiesPanel,
+                                                &m_ShowPropertiesPanel, false ) );
 
     // Load the config from file
     wxConfigLoadSetups( &aCfg, configParams );

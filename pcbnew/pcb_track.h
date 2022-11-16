@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2004 Jean-Pierre Charras, jaen-pierre.charras@gipsa-lab.inpg.com
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -37,8 +37,10 @@
 
 
 #include <board_connected_item.h>
-#include <convert_to_biu.h>
-
+#include <base_units.h>
+#include <geometry/shape_segment.h>
+#include <core/minoptmax.h>
+#include <core/arraydim.h>
 
 class PCB_TRACK;
 class PCB_VIA;
@@ -69,7 +71,7 @@ enum class VIATYPE : int
 #define UNDEFINED_DRILL_DIAMETER  -1       //< Undefined via drill diameter.
 
 // Used for tracks and vias for algorithmic safety, not to enforce constraints
-#define GEOMETRY_MIN_SIZE ( int )( 0.001 * IU_PER_MM )
+#define GEOMETRY_MIN_SIZE (int) ( 0.001 * pcbIUScale.IU_PER_MM )
 
 
 class PCB_TRACK : public BOARD_CONNECTED_ITEM
@@ -91,6 +93,8 @@ public:
     }
 
     void Rotate( const VECTOR2I& aRotCentre, const EDA_ANGLE& aAngle ) override;
+
+    virtual void Mirror( const VECTOR2I& aCentre, bool aMirrorAroundXAxis );
 
     void Flip( const VECTOR2I& aCentre, bool aFlipLeftRight ) override;
 
@@ -123,7 +127,7 @@ public:
     }
 
     // Virtual function
-    const EDA_RECT GetBoundingBox() const override;
+    const BOX2I GetBoundingBox() const override;
 
     /**
      * Function GetLength
@@ -133,23 +137,23 @@ public:
     virtual double GetLength() const;
 
     /**
-     * Function TransformShapeWithClearanceToPolygon
+     * Function TransformShapeToPolygon
      * Convert the track shape to a closed polygon
      * Used in filling zones calculations
      * Circles (vias) and arcs (ends of tracks) are approximated by segments
-     * @param aCornerBuffer = a buffer to store the polygon
-     * @param aClearanceValue = the clearance around the pad
+     * @param aBuffer = a buffer to store the polygon
+     * @param aClearance = the clearance around the pad
      * @param aError = the maximum deviation from true circle
-     * @param ignoreLineWidth = used for edge cut items where the line width is only
-     * for visualization
+     * @param ignoreLineWidth = used for edge cut items where the line width is only for
+     *                          visualization
      */
-    void TransformShapeWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuffer,
-                                               PCB_LAYER_ID aLayer, int aClearanceValue,
-                                               int aError, ERROR_LOC aErrorLoc,
-                                               bool ignoreLineWidth = false ) const override;
+    void TransformShapeToPolygon( SHAPE_POLY_SET& aBuffer, PCB_LAYER_ID aLayer, int aClearance,
+                                  int aError, ERROR_LOC aErrorLoc,
+                                  bool ignoreLineWidth = false ) const override;
 
     // @copydoc BOARD_ITEM::GetEffectiveShape
-    virtual std::shared_ptr<SHAPE> GetEffectiveShape( PCB_LAYER_ID aLayer = UNDEFINED_LAYER ) const override;
+    virtual std::shared_ptr<SHAPE> GetEffectiveShape( PCB_LAYER_ID aLayer = UNDEFINED_LAYER,
+            FLASHING aFlash = FLASHING::DEFAULT ) const override;
 
     /**
      * Function IsPointOnEnds
@@ -171,10 +175,11 @@ public:
 
     void GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList ) override;
 
-    SEARCH_RESULT Visit( INSPECTOR inspector, void* testData, const KICAD_T scanTypes[] ) override;
+    INSPECT_RESULT Visit( INSPECTOR inspector, void* testData,
+                          const std::vector<KICAD_T>& aScanTypes ) override;
 
     bool HitTest( const VECTOR2I& aPosition, int aAccuracy = 0 ) const override;
-    bool HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy = 0 ) const override;
+    bool HitTest( const BOX2I& aRect, bool aContained, int aAccuracy = 0 ) const override;
 
     bool ApproxCollinear( const PCB_TRACK& aTrack );
 
@@ -191,7 +196,9 @@ public:
      */
     int GetLocalClearance( wxString* aSource ) const override;
 
-    wxString GetSelectMenuText( EDA_UNITS aUnits ) const override;
+    MINOPTMAX<int> GetWidthConstraint( wxString* aSource ) const;
+
+    wxString GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const override;
 
     BITMAPS GetMenuImage() const override;
 
@@ -203,14 +210,48 @@ public:
 
     const BOX2I ViewBBox() const override;
 
-    virtual void SwapData( BOARD_ITEM* aImage ) override;
-
     /**
      * @return true because a track or a via is always on a copper layer.
      */
     bool IsOnCopperLayer() const override
     {
         return true;
+    }
+
+    /**
+     * Get last used LOD for the track net name
+     * @return LOD from ViewGetLOD()
+     */
+    double GetCachedLOD()
+    {
+        return m_CachedLOD;
+    }
+
+    /**
+     * Set the cached LOD
+     * @param aLOD value from ViewGetLOD() or 0.0 to always display
+     */
+    void SetCachedLOD( double aLOD )
+    {
+        m_CachedLOD = aLOD;
+    }
+
+    /**
+     * Get last used zoom scale for the track net name
+     * @return scale from GetScale()
+     */
+    double GetCachedScale()
+    {
+        return m_CachedScale;
+    }
+
+    /**
+     * Set the cached scale
+     * @param aScale value from GetScale()
+     */
+    void SetCachedScale( double aScale )
+    {
+        m_CachedScale = aScale;
     }
 
     struct cmp_tracks
@@ -220,24 +261,20 @@ public:
 
 #if defined (DEBUG)
     virtual void Show( int nestLevel, std::ostream& os ) const override { ShowDummy( os ); }
-
-    /**
-     * Function ShowState
-     * converts a set of state bits to a wxString
-     * @param stateBits Is an OR-ed together set of bits like IN_EDIT, etc.
-     */
-    static wxString ShowState( int stateBits );
-
 #endif
 
 protected:
+    virtual void swapData( BOARD_ITEM* aImage ) override;
+
     void GetMsgPanelInfoBase_Common( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList ) const;
 
-
+protected:
     int      m_Width; ///< Thickness of track, or via diameter
     VECTOR2I m_Start; ///< Line start point
     VECTOR2I m_End;   ///< Line end point
 
+    double   m_CachedLOD; ///< Last LOD used to draw this track's net
+    double   m_CachedScale; ///< Last zoom scale used to draw this track's net (we want to redraw when changing zoom)
 };
 
 
@@ -263,9 +300,11 @@ public:
         m_End   += aMoveVector;
     }
 
-    virtual void Rotate( const VECTOR2I& aRotCentre, const EDA_ANGLE& aAngle ) override;
+    void Rotate( const VECTOR2I& aRotCentre, const EDA_ANGLE& aAngle ) override;
 
-    virtual void Flip( const VECTOR2I& aCentre, bool aFlipLeftRight ) override;
+    void Mirror( const VECTOR2I& aCentre, bool aMirrorAroundXAxis ) override;
+
+    void Flip( const VECTOR2I& aCentre, bool aFlipLeftRight ) override;
 
     void            SetMid( const VECTOR2I& aMid ) { m_Mid = aMid; }
     const VECTOR2I& GetMid() const { return m_Mid; }
@@ -285,7 +324,9 @@ public:
     EDA_ANGLE GetArcAngleEnd() const;
     virtual bool HitTest( const VECTOR2I& aPosition, int aAccuracy = 0 ) const override;
 
-    virtual bool HitTest( const EDA_RECT& aRect, bool aContained = true, int aAccuracy = 0 ) const override;
+    virtual bool HitTest( const BOX2I& aRect, bool aContained = true, int aAccuracy = 0 ) const override;
+
+    bool IsCCW() const;
 
     wxString GetClass() const override
     {
@@ -293,7 +334,8 @@ public:
     }
 
     // @copydoc BOARD_ITEM::GetEffectiveShape
-    virtual std::shared_ptr<SHAPE> GetEffectiveShape( PCB_LAYER_ID aLayer = UNDEFINED_LAYER ) const override;
+    virtual std::shared_ptr<SHAPE> GetEffectiveShape( PCB_LAYER_ID aLayer = UNDEFINED_LAYER,
+            FLASHING aFlash = FLASHING::DEFAULT ) const override;
 
     /**
      * Function GetLength
@@ -307,7 +349,8 @@ public:
 
     EDA_ITEM* Clone() const override;
 
-    virtual void SwapData( BOARD_ITEM* aImage ) override;
+protected:
+    virtual void swapData( BOARD_ITEM* aImage ) override;
 
 private:
     VECTOR2I m_Mid; ///< Arc mid point, halfway between start and end
@@ -326,18 +369,18 @@ public:
 
     // Do not create a copy constructor.  The one generated by the compiler is adequate.
 
-    bool IsType( const KICAD_T aScanTypes[] ) const override
+    bool IsType( const std::vector<KICAD_T>& aScanTypes ) const override
     {
         if( BOARD_CONNECTED_ITEM::IsType( aScanTypes ) )
             return true;
 
-        for( const KICAD_T* p = aScanTypes; *p != EOT; ++p )
+        for( KICAD_T scanType : aScanTypes )
         {
-            if( *p == PCB_LOCATE_STDVIA_T && m_viaType == VIATYPE::THROUGH )
+            if( scanType == PCB_LOCATE_STDVIA_T && m_viaType == VIATYPE::THROUGH )
                 return true;
-            else if( *p == PCB_LOCATE_UVIA_T && m_viaType == VIATYPE::MICROVIA )
+            else if( scanType == PCB_LOCATE_UVIA_T && m_viaType == VIATYPE::MICROVIA )
                 return true;
-            else if( *p == PCB_LOCATE_BBVIA_T && m_viaType == VIATYPE::BLIND_BURIED )
+            else if( scanType == PCB_LOCATE_BBVIA_T && m_viaType == VIATYPE::BLIND_BURIED )
                 return true;
         }
 
@@ -347,7 +390,14 @@ public:
     VIATYPE GetViaType() const { return m_viaType; }
     void SetViaType( VIATYPE aViaType ) { m_viaType = aViaType; }
 
-    bool IsTented() const;
+    bool HasHole() const override
+    {
+        return true;
+    }
+
+    std::shared_ptr<SHAPE_SEGMENT> GetEffectiveHoleShape() const override;
+
+    bool IsTented() const override;
     int GetSolderMaskExpansion() const;
 
     bool IsOnLayer( PCB_LAYER_ID aLayer ) const override;
@@ -391,14 +441,14 @@ public:
     void GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList ) override;
 
     bool HitTest( const VECTOR2I& aPosition, int aAccuracy = 0 ) const override;
-    bool HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy = 0 ) const override;
+    bool HitTest( const BOX2I& aRect, bool aContained, int aAccuracy = 0 ) const override;
 
     wxString GetClass() const override
     {
         return wxT( "PCB_VIA" );
     }
 
-    wxString GetSelectMenuText( EDA_UNITS aUnits ) const override;
+    wxString GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const override;
 
     BITMAPS GetMenuImage() const override;
 
@@ -485,12 +535,24 @@ public:
     */
     bool IsDrillDefault() const { return m_drill <= 0; }
 
-    void SwapData( BOARD_ITEM* aImage ) override;
-
     // @copydoc BOARD_ITEM::GetEffectiveShape
-    std::shared_ptr<SHAPE> GetEffectiveShape( PCB_LAYER_ID aLayer = UNDEFINED_LAYER ) const override;
+    std::shared_ptr<SHAPE> GetEffectiveShape( PCB_LAYER_ID aLayer = UNDEFINED_LAYER,
+                                              FLASHING aFlash = FLASHING::DEFAULT ) const override;
+
+    void ClearZoneConnectionCache()
+    {
+        for( size_t ii = 0; ii < arrayDim( m_zoneLayerConnections ); ++ii )
+            m_zoneLayerConnections[ ii ] = ZLC_UNRESOLVED;
+    }
+
+    ZONE_LAYER_CONNECTION& ZoneConnectionCache( PCB_LAYER_ID aLayer ) const
+    {
+        return m_zoneLayerConnections[ aLayer ];
+    }
 
 protected:
+    void swapData( BOARD_ITEM* aImage ) override;
+
     wxString layerMaskDescribe() const override;
 
 private:
@@ -504,6 +566,8 @@ private:
     bool         m_removeUnconnectedLayer;   ///< Remove unconnected copper on a via
     bool         m_keepTopBottomLayer;       ///< Keep the top and bottom annular rings
     bool         m_isFree;                   ///< "Free" vias don't get their nets auto-updated
+
+    mutable ZONE_LAYER_CONNECTION m_zoneLayerConnections[B_Cu + 1];
 };
 
 

@@ -39,6 +39,7 @@
 #include <vector>
 
 #include <clipper.hpp>                  // for ClipType, PolyTree (ptr only)
+#include <clipper2/clipper.h>
 #include <geometry/seg.h>               // for SEG
 #include <geometry/shape.h>
 #include <geometry/shape_line_chain.h>
@@ -498,6 +499,16 @@ public:
 
     SHAPE_POLY_SET& operator=( const SHAPE_POLY_SET& aOther );
 
+    /**
+     * Build a polygon triangulation, needed to draw a polygon on OpenGL and in some
+     * other calculations
+     * @param aPartition = true to created a trinagulation in a partition on a grid
+     * false to create a more basic triangulation of the polygons
+     * Note
+     * in partition calculations the grid size is hard coded to 1e7.
+     * This is a good value for Pcbnew: 1cm, in internal units.
+     * But not good for Gerbview (1e7 = 10cm), however using a partition is not useful.
+     */
     void CacheTriangulation( bool aPartition = true );
     bool IsTriangulationUpToDate() const;
 
@@ -507,7 +518,7 @@ public:
 
     virtual size_t GetIndexableSubshapeCount() const override;
 
-    virtual void GetIndexableSubshapes( std::vector<SHAPE*>& aSubshapes ) override;
+    virtual void GetIndexableSubshapes( std::vector<const SHAPE*>& aSubshapes ) const override;
 
     /**
      * Convert a global vertex index ---i.e., a number that globally identifies a vertex in a
@@ -535,6 +546,8 @@ public:
 
     /// @copydoc SHAPE::Clone()
     SHAPE* Clone() const override;
+
+    SHAPE_POLY_SET CloneDropTriangulation() const;
 
     ///< Creates a new empty polygon in the set and returns its index
     int NewOutline();
@@ -1041,7 +1054,7 @@ public:
     int NormalizeAreaOutlines();
 
     /// @copydoc SHAPE::Format()
-    const std::string Format() const override;
+    const std::string Format( bool aCplusPlus = true ) const override;
 
     /// @copydoc SHAPE::Parse()
     bool Parse( std::stringstream& aStream ) override;
@@ -1149,7 +1162,7 @@ public:
      * @param aClosestVertex is the index of the closes vertex to \p aPoint.
      * @return bool - true if there is a collision, false in any other case.
      */
-    bool CollideVertex( const VECTOR2I& aPoint, VERTEX_INDEX& aClosestVertex,
+    bool CollideVertex( const VECTOR2I& aPoint, VERTEX_INDEX* aClosestVertex = nullptr,
                         int aClearance = 0 ) const;
 
     /**
@@ -1162,7 +1175,7 @@ public:
      * @param aClosestVertex is the index of the closes vertex to \p aPoint.
      * @return bool - true if there is a collision, false in any other case.
      */
-    bool CollideEdge( const VECTOR2I& aPoint, VERTEX_INDEX& aClosestVertex,
+    bool CollideEdge( const VECTOR2I& aPoint, VERTEX_INDEX* aClosestVertex = nullptr,
                       int aClearance = 0 ) const;
 
     /**
@@ -1357,7 +1370,7 @@ public:
 
     /**
      * Build a SHAPE_POLY_SET from a bunch of outlines in provided in random order.
-     * 
+     *
      * @param aPath set of closed outlines forming the polygon. Positive orientation = outline, negative = hole
      * @param aReverseOrientation inverts the sign of the orientation of aPaths (so negative = outline)
      * @param aEvenOdd forces the even-off fill rule (default is non zero)
@@ -1366,11 +1379,27 @@ public:
     static const SHAPE_POLY_SET BuildPolysetFromOrientedPaths( const std::vector<SHAPE_LINE_CHAIN>& aPaths, bool aReverseOrientation = false, bool aEvenOdd = false );
 
 private:
+    enum DROP_TRIANGULATION_FLAG { SINGLETON };
+
+    SHAPE_POLY_SET( const SHAPE_POLY_SET& aOther, DROP_TRIANGULATION_FLAG );
+
     void fractureSingle( POLYGON& paths );
     void unfractureSingle ( POLYGON& path );
     void importTree( ClipperLib::PolyTree*               tree,
                      const std::vector<CLIPPER_Z_VALUE>& aZValueBuffer,
                      const std::vector<SHAPE_ARC>&       aArcBuffe );
+    void importTree( Clipper2Lib::PolyTree64&            tree,
+                     const std::vector<CLIPPER_Z_VALUE>& aZValueBuffer,
+                     const std::vector<SHAPE_ARC>&       aArcBuffe );
+    void importPaths( Clipper2Lib::Paths64&               paths,
+                     const std::vector<CLIPPER_Z_VALUE>& aZValueBuffer,
+                     const std::vector<SHAPE_ARC>&       aArcBuffe );
+    void importPolyPath( Clipper2Lib::PolyPath64*        aPolyPath,
+                     const std::vector<CLIPPER_Z_VALUE>& aZValueBuffer,
+                     const std::vector<SHAPE_ARC>&       aArcBuffer );
+
+    void inflate1( int aAmount, int aCircleSegCount, CORNER_STRATEGY aCornerStrategy );
+    void inflate2( int aAmount, int aCircleSegCount, CORNER_STRATEGY aCornerStrategy );
 
     /**
      * This is the engine to execute all polygon boolean transforms (AND, OR, ... and polygon
@@ -1389,6 +1418,11 @@ private:
 
     void booleanOp( ClipperLib::ClipType aType, const SHAPE_POLY_SET& aShape,
                     const SHAPE_POLY_SET& aOtherShape, POLYGON_MODE aFastMode );
+
+    void booleanOp( Clipper2Lib::ClipType aType, const SHAPE_POLY_SET& aOtherShape );
+
+    void booleanOp( Clipper2Lib::ClipType aType, const SHAPE_POLY_SET& aShape,
+                    const SHAPE_POLY_SET& aOtherShape );
 
     /**
      * Check whether the point \a aP is inside the \a aSubpolyIndex-th polygon of the polyset. If

@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2009-2015 Jean-Pierre Charras, jp.charras wanadoo.fr
  * Copyright (C) 2011 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -33,6 +33,7 @@
 
 
 #include <vector>
+#include <map>
 
 #include <wx/aui/aui.h>
 #include <layer_ids.h>
@@ -43,7 +44,7 @@
 #include <widgets/ui_common.h>
 #include <widgets/infobar.h>
 #include <undo_redo_container.h>
-#include <eda_units.h>
+#include <units_provider.h>
 #include <origin_transforms.h>
 
 // Option for main frames
@@ -61,7 +62,6 @@ class wxChoice;
 class wxEvent;
 class wxFileName;
 class EDA_ITEM;
-class EDA_RECT;
 class EDA_DRAW_PANEL_GAL;
 class EDA_MSG_PANEL;
 class BASE_SCREEN;
@@ -101,7 +101,8 @@ wxDECLARE_EVENT( UNITS_CHANGED, wxCommandEvent );
  * calling it from the derived class's SaveSettings().  This class is not a #KIWAY_PLAYER
  * because #KICAD_MANAGER_FRAME is derived from it and that class is not a player.
  */
-class EDA_BASE_FRAME : public wxFrame, public TOOLS_HOLDER, public KIWAY_HOLDER
+class EDA_BASE_FRAME : public wxFrame, public TOOLS_HOLDER, public KIWAY_HOLDER,
+                       public UNITS_PROVIDER
 {
 public:
     /**
@@ -115,24 +116,9 @@ public:
 
     EDA_BASE_FRAME( wxWindow* aParent, FRAME_T aFrameType, const wxString& aTitle,
                     const wxPoint& aPos, const wxSize& aSize, long aStyle,
-                    const wxString& aFrameName, KIWAY* aKiway );
-
-    EDA_BASE_FRAME( FRAME_T aFrameType, KIWAY* aKiway );
+                    const wxString& aFrameName, KIWAY* aKiway, const EDA_IU_SCALE& aIuScale );
 
     ~EDA_BASE_FRAME();
-
-    /**
-     * Return the user units currently in use.
-     */
-    EDA_UNITS GetUserUnits() const
-    {
-        return m_userUnits;
-    }
-
-    void SetUserUnits( EDA_UNITS aUnits )
-    {
-        m_userUnits = aUnits;
-    }
 
     void ChangeUserUnits( EDA_UNITS aUnits );
 
@@ -578,6 +564,12 @@ public:
 
     int GetMaxUndoItems() const { return m_undoRedoCountMax; }
 
+    /**
+     * Must be called after a model change in order to set the "modify" flag and do other
+     * frame-specific processing.
+     */
+    virtual void OnModify();
+
     bool NonUserClose( bool aForce )
     {
         m_isNonUserClose = true;
@@ -606,12 +598,21 @@ protected:
      */
     void onAutoSaveTimer( wxTimerEvent& aEvent );
 
+
+    /**
+     * Handle a window iconize event.
+     *
+     * @param aEvent is the data for the event.
+     */
+    virtual void handleIconizeEvent( wxIconizeEvent& aEvent ) {}
+    void         onIconize( wxIconizeEvent& aEvent );
+
     /**
      * Return the auto save status of the application.
      *
      * Override this function if your derived frame supports automatic file saving.
      */
-    virtual bool isAutoSaveRequired() const { return false; }
+    virtual bool isAutoSaveRequired() const { return m_autoSaveRequired; }
 
     /**
      * This should be overridden by the derived class to handle the auto save feature.
@@ -648,6 +649,21 @@ protected:
     void initExitKey();
 
     void ensureWindowIsOnScreen();
+
+    /**
+     * Handles event fired when a file is dropped to the window.
+     * In this base class, stores the path of files accepted.
+     * Calls DoWithAcceptedFiles() to execute actions on files.
+     */
+    virtual void OnDropFiles( wxDropFilesEvent& aEvent );
+
+    /**
+     * Execute action on accepted dropped file.
+     * Called in OnDropFiles and should be populated with
+     * the action to execute in inherited classes.
+     */
+    virtual void            DoWithAcceptedFiles();
+    std::vector<wxFileName> m_AcceptedFiles;
 
     DECLARE_EVENT_TABLE()
 
@@ -713,7 +729,8 @@ private:
     FILE_HISTORY*   m_fileHistory;          // The frame's recently opened file list
 
     bool            m_supportsAutoSave;
-    bool            m_autoSaveState;
+    bool            m_autoSavePending;
+    bool            m_autoSaveRequired;
     wxTimer*        m_autoSaveTimer;
 
     int                 m_undoRedoCountMax; // undo/Redo command Max depth
@@ -723,7 +740,6 @@ private:
 
     wxString            m_mruPath;          // Most recently used path.
 
-    EDA_UNITS           m_userUnits;
     ORIGIN_TRANSFORMS   m_originTransforms; // Default display origin transforms object.
 
     ///< Map containing the UI update handlers registered with wx for each action.
@@ -735,6 +751,11 @@ private:
 
     ///< Set by #NonUserClose() to indicate that the user did not request the current close.
     bool            m_isNonUserClose;
+
+    /**
+     * Associates files extensions with action to execute.
+     */
+    std::map<const wxString, TOOL_ACTION*> m_acceptedExts;
 };
 
 

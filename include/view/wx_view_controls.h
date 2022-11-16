@@ -76,6 +76,8 @@ public:
     void CaptureCursor( bool aEnabled ) override;
 
 
+    void PinCursorInsideNonAutoscrollArea( bool aWarpMouseCursor ) override;
+
     ///< @copydoc VIEW_CONTROLS::GetMousePosition()
     VECTOR2D GetMousePosition( bool aWorldCoordinates = true ) const override;
 
@@ -94,8 +96,8 @@ public:
     void SetCrossHairCursorPosition( const VECTOR2D& aPosition, bool aWarpView ) override;
 
     ///< @copydoc VIEW_CONTROLS::CursorWarp()
-    void WarpCursor( const VECTOR2D& aPosition, bool aWorldCoordinates = false,
-            bool aWarpView = false ) override;
+    void WarpMouseCursor( const VECTOR2D& aPosition, bool aWorldCoordinates = false,
+                          bool aWarpView = false ) override;
 
     ///< @copydoc VIEW_CONTROLS::CenterOnCursor()
     void CenterOnCursor() const override;
@@ -127,6 +129,11 @@ private:
         AUTO_PANNING,       ///< Panning on approaching borders of the frame.
         DRAG_ZOOMING,       ///< Zooming with mouse button pressed.
     };
+
+    /**
+     * Sets the interaction state, simply a internal setter to make it easier to debug changes
+     */
+    void setState( STATE aNewState );
 
     /**
      * Compute new viewport settings while in autopanning mode.

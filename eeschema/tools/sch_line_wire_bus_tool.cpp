@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2019 CERN
- * Copyright (C) 2019-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2019-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -94,8 +94,7 @@ private:
     {
         SCH_EDIT_FRAME*    frame = (SCH_EDIT_FRAME*) getToolManager()->GetToolHolder();
         EE_SELECTION_TOOL* selTool = getToolManager()->GetTool<EE_SELECTION_TOOL>();
-        KICAD_T            busType[] = { SCH_ITEM_LOCATE_BUS_T, EOT };
-        EE_SELECTION&      selection = selTool->RequestSelection( busType );
+        EE_SELECTION&      selection = selTool->RequestSelection( { SCH_ITEM_LOCATE_BUS_T } );
         SCH_LINE*          bus = (SCH_LINE*) selection.Front();
 
         Clear();
@@ -106,7 +105,7 @@ private:
             frame->RecalculateConnections( NO_CLEANUP );
 
             // Pick up the pointer again because it may have been changed by SchematicCleanUp
-            selection = selTool->RequestSelection( busType );
+            selection = selTool->RequestSelection( { SCH_ITEM_LOCATE_BUS_T } );
             bus = (SCH_LINE*) selection.Front();
         }
 
@@ -163,7 +162,8 @@ private:
 
 
 SCH_LINE_WIRE_BUS_TOOL::SCH_LINE_WIRE_BUS_TOOL() :
-    EE_TOOL_BASE<SCH_EDIT_FRAME>( "eeschema.InteractiveDrawingLineWireBus" )
+    EE_TOOL_BASE<SCH_EDIT_FRAME>( "eeschema.InteractiveDrawingLineWireBus" ),
+    m_inDrawingTool( false )
 {
     m_busUnfold = {};
     m_wires.reserve( 16 );
@@ -178,6 +178,14 @@ SCH_LINE_WIRE_BUS_TOOL::~SCH_LINE_WIRE_BUS_TOOL()
 bool SCH_LINE_WIRE_BUS_TOOL::Init()
 {
     EE_TOOL_BASE::Init();
+
+    std::shared_ptr<BUS_UNFOLD_MENU> busUnfoldMenu = std::make_shared<BUS_UNFOLD_MENU>();
+    busUnfoldMenu->SetTool( this );
+    m_menu.RegisterSubMenu( busUnfoldMenu );
+
+    std::shared_ptr<BUS_UNFOLD_MENU> selBusUnfoldMenu = std::make_shared<BUS_UNFOLD_MENU>();
+    selBusUnfoldMenu->SetTool( m_selectionTool );
+    m_selectionTool->GetToolMenu().RegisterSubMenu( selBusUnfoldMenu );
 
     auto wireOrBusTool =
             [this]( const SELECTION& aSel )
@@ -199,48 +207,57 @@ bool SCH_LINE_WIRE_BUS_TOOL::Init()
             };
 
     auto busSelection = EE_CONDITIONS::MoreThan( 0 )
-                            && EE_CONDITIONS::OnlyType( SCH_ITEM_LOCATE_BUS_T );
+                            && EE_CONDITIONS::OnlyTypes( { SCH_ITEM_LOCATE_BUS_T } );
+
+    auto haveHighlight =
+            [&]( const SELECTION& sel )
+            {
+                SCH_EDIT_FRAME* editFrame = dynamic_cast<SCH_EDIT_FRAME*>( m_frame );
+
+                return editFrame && editFrame->GetHighlightedConnection() != nullptr;
+            };
 
     auto& ctxMenu = m_menu.GetMenu();
 
     // Build the tool menu
     //
-    ctxMenu.AddItem( EE_ACTIONS::leaveSheet,         belowRootSheetCondition, 2 );
+    ctxMenu.AddItem( EE_ACTIONS::clearHighlight,       haveHighlight && EE_CONDITIONS::Idle, 1 );
+    ctxMenu.AddSeparator(                              haveHighlight && EE_CONDITIONS::Idle, 1 );
+
+    ctxMenu.AddItem( EE_ACTIONS::leaveSheet,           belowRootSheetCondition, 2 );
 
     ctxMenu.AddSeparator( 10 );
-    ctxMenu.AddItem( EE_ACTIONS::drawWire,           wireOrBusTool && EE_CONDITIONS::Idle, 10 );
-    ctxMenu.AddItem( EE_ACTIONS::drawBus,            wireOrBusTool && EE_CONDITIONS::Idle, 10 );
-    ctxMenu.AddItem( EE_ACTIONS::drawLines,          lineTool && EE_CONDITIONS::Idle, 10 );
-    ctxMenu.AddItem( EE_ACTIONS::finishWire,         IsDrawingWire, 10 );
-    ctxMenu.AddItem( EE_ACTIONS::finishBus,          IsDrawingBus, 10 );
-    ctxMenu.AddItem( EE_ACTIONS::finishLine,         IsDrawingLine, 10 );
+    ctxMenu.AddItem( EE_ACTIONS::drawWire,             wireOrBusTool && EE_CONDITIONS::Idle, 10 );
+    ctxMenu.AddItem( EE_ACTIONS::drawBus,              wireOrBusTool && EE_CONDITIONS::Idle, 10 );
+    ctxMenu.AddItem( EE_ACTIONS::drawLines,            lineTool && EE_CONDITIONS::Idle, 10 );
 
-    std::shared_ptr<BUS_UNFOLD_MENU> busUnfoldMenu = std::make_shared<BUS_UNFOLD_MENU>();
-    busUnfoldMenu->SetTool( this );
-    m_menu.AddSubMenu( busUnfoldMenu );
-    ctxMenu.AddMenu( busUnfoldMenu.get(),            EE_CONDITIONS::Idle, 10 );
+    ctxMenu.AddItem( EE_ACTIONS::undoLastSegment,      EE_CONDITIONS::ShowAlways, 10 );
+    ctxMenu.AddItem( EE_ACTIONS::switchSegmentPosture, EE_CONDITIONS::ShowAlways, 10 );
+
+    ctxMenu.AddItem( EE_ACTIONS::finishWire,           IsDrawingWire, 10 );
+    ctxMenu.AddItem( EE_ACTIONS::finishBus,            IsDrawingBus, 10 );
+    ctxMenu.AddItem( EE_ACTIONS::finishLine,           IsDrawingLine, 10 );
+
+    ctxMenu.AddMenu( busUnfoldMenu.get(),              EE_CONDITIONS::Idle, 10 );
 
     ctxMenu.AddSeparator( 100 );
-    ctxMenu.AddItem( EE_ACTIONS::placeJunction,      wireOrBusTool && EE_CONDITIONS::Idle, 100 );
-    ctxMenu.AddItem( EE_ACTIONS::placeLabel,         wireOrBusTool && EE_CONDITIONS::Idle, 100 );
-    ctxMenu.AddItem( EE_ACTIONS::placeClassLabel,    wireOrBusTool && EE_CONDITIONS::Idle, 100 );
-    ctxMenu.AddItem( EE_ACTIONS::placeGlobalLabel,   wireOrBusTool && EE_CONDITIONS::Idle, 100 );
-    ctxMenu.AddItem( EE_ACTIONS::placeHierLabel,     wireOrBusTool && EE_CONDITIONS::Idle, 100 );
-    ctxMenu.AddItem( EE_ACTIONS::breakWire,          wireOrBusTool && EE_CONDITIONS::Idle, 100 );
-    ctxMenu.AddItem( EE_ACTIONS::breakBus,           wireOrBusTool && EE_CONDITIONS::Idle, 100 );
+    ctxMenu.AddItem( EE_ACTIONS::placeJunction,        wireOrBusTool && EE_CONDITIONS::Idle, 100 );
+    ctxMenu.AddItem( EE_ACTIONS::placeLabel,           wireOrBusTool && EE_CONDITIONS::Idle, 100 );
+    ctxMenu.AddItem( EE_ACTIONS::placeClassLabel,      wireOrBusTool && EE_CONDITIONS::Idle, 100 );
+    ctxMenu.AddItem( EE_ACTIONS::placeGlobalLabel,     wireOrBusTool && EE_CONDITIONS::Idle, 100 );
+    ctxMenu.AddItem( EE_ACTIONS::placeHierLabel,       wireOrBusTool && EE_CONDITIONS::Idle, 100 );
+    ctxMenu.AddItem( EE_ACTIONS::breakWire,            wireOrBusTool && EE_CONDITIONS::Idle, 100 );
+    ctxMenu.AddItem( EE_ACTIONS::breakBus,             wireOrBusTool && EE_CONDITIONS::Idle, 100 );
 
     ctxMenu.AddSeparator( 200 );
-    ctxMenu.AddItem( EE_ACTIONS::selectNode,         wireOrBusTool && EE_CONDITIONS::Idle, 200 );
-    ctxMenu.AddItem( EE_ACTIONS::selectConnection,   wireOrBusTool && EE_CONDITIONS::Idle, 200 );
+    ctxMenu.AddItem( EE_ACTIONS::selectNode,           wireOrBusTool && EE_CONDITIONS::Idle, 200 );
+    ctxMenu.AddItem( EE_ACTIONS::selectConnection,     wireOrBusTool && EE_CONDITIONS::Idle, 200 );
 
     // Add bus unfolding to the selection tool
     //
     CONDITIONAL_MENU& selToolMenu = m_selectionTool->GetToolMenu().GetMenu();
 
-    std::shared_ptr<BUS_UNFOLD_MENU> selBusUnfoldMenu = std::make_shared<BUS_UNFOLD_MENU>();
-    selBusUnfoldMenu->SetTool( m_selectionTool );
-    m_selectionTool->GetToolMenu().AddSubMenu( selBusUnfoldMenu );
-    selToolMenu.AddMenu( selBusUnfoldMenu.get(),     busSelection && EE_CONDITIONS::Idle, 100 );
+    selToolMenu.AddMenu( selBusUnfoldMenu.get(),       busSelection && EE_CONDITIONS::Idle, 100 );
 
     return true;
 }
@@ -248,22 +265,22 @@ bool SCH_LINE_WIRE_BUS_TOOL::Init()
 
 bool SCH_LINE_WIRE_BUS_TOOL::IsDrawingLine( const SELECTION& aSelection )
 {
-    static KICAD_T graphicLineType[] = { SCH_ITEM_LOCATE_GRAPHIC_LINE_T, EOT };
-    return IsDrawingLineWireOrBus( aSelection ) && aSelection.Front()->IsType( graphicLineType );
+    return IsDrawingLineWireOrBus( aSelection )
+                && aSelection.Front()->IsType( { SCH_ITEM_LOCATE_GRAPHIC_LINE_T } );
 }
 
 
 bool SCH_LINE_WIRE_BUS_TOOL::IsDrawingWire( const SELECTION& aSelection )
 {
-    static KICAD_T wireType[] = { SCH_ITEM_LOCATE_WIRE_T, EOT };
-    return IsDrawingLineWireOrBus( aSelection ) && aSelection.Front()->IsType( wireType );
+    return IsDrawingLineWireOrBus( aSelection )
+                && aSelection.Front()->IsType( { SCH_ITEM_LOCATE_WIRE_T } );
 }
 
 
 bool SCH_LINE_WIRE_BUS_TOOL::IsDrawingBus( const SELECTION& aSelection )
 {
-    static KICAD_T busType[] = { SCH_ITEM_LOCATE_BUS_T, EOT };
-    return IsDrawingLineWireOrBus( aSelection ) && aSelection.Front()->IsType( busType );
+    return IsDrawingLineWireOrBus( aSelection )
+                && aSelection.Front()->IsType( { SCH_ITEM_LOCATE_BUS_T } );
 }
 
 
@@ -278,10 +295,14 @@ bool SCH_LINE_WIRE_BUS_TOOL::IsDrawingLineWireOrBus( const SELECTION& aSelection
 
 int SCH_LINE_WIRE_BUS_TOOL::DrawSegments( const TOOL_EVENT& aEvent )
 {
+    if( m_inDrawingTool )
+        return 0;
+
+    REENTRANCY_GUARD guard( &m_inDrawingTool );
+
     DRAW_SEGMENT_EVENT_PARAMS* params = aEvent.Parameter<DRAW_SEGMENT_EVENT_PARAMS*>();
 
-    std::string tool = aEvent.GetCommandStr().get();
-    m_frame->PushTool( tool );
+    m_frame->PushTool( aEvent );
     m_toolMgr->RunAction( EE_ACTIONS::clearSelection, true );
 
     if( aEvent.HasPosition() )
@@ -294,18 +315,22 @@ int SCH_LINE_WIRE_BUS_TOOL::DrawSegments( const TOOL_EVENT& aEvent )
         startSegments( params->layer, cursorPos, params->sourceSegment );
     }
 
-    return doDrawSegments( tool, params->layer, params->quitOnDraw );
+    return doDrawSegments( aEvent, params->layer, params->quitOnDraw );
 }
 
 
 int SCH_LINE_WIRE_BUS_TOOL::UnfoldBus( const TOOL_EVENT& aEvent )
 {
+    if( m_inDrawingTool )
+        return 0;
+
+    REENTRANCY_GUARD guard( &m_inDrawingTool );
+
     wxString* netPtr = aEvent.Parameter<wxString*>();
     wxString  net;
     SCH_LINE* segment = nullptr;
 
-    std::string tool = aEvent.GetCommandStr().get();
-    m_frame->PushTool( tool );
+    m_frame->PushTool( aEvent );
     Activate();
 
     if( netPtr )
@@ -325,7 +350,7 @@ int SCH_LINE_WIRE_BUS_TOOL::UnfoldBus( const TOOL_EVENT& aEvent )
         {
             if( evt->Action() == TA_CHOICE_MENU_CHOICE )
             {
-                OPT<int> id = evt->GetCommandId();
+                std::optional<int> id = evt->GetCommandId();
 
                 if( id && ( *id > 0 ) )
                     net = *evt->Parameter<wxString*>();
@@ -349,10 +374,12 @@ int SCH_LINE_WIRE_BUS_TOOL::UnfoldBus( const TOOL_EVENT& aEvent )
 
     // If we have an unfolded wire to draw, then draw it
     if( segment )
-        return doDrawSegments( tool, LAYER_WIRE, false );
+    {
+        return doDrawSegments( aEvent, LAYER_WIRE, false );
+    }
     else
     {
-        m_frame->PopTool( tool );
+        m_frame->PopTool( aEvent );
         return 0;
     }
 }
@@ -409,18 +436,37 @@ const SCH_SHEET_PIN* SCH_LINE_WIRE_BUS_TOOL::getSheetPin( const VECTOR2I& aPosit
 
 
 void SCH_LINE_WIRE_BUS_TOOL::computeBreakPoint( const std::pair<SCH_LINE*, SCH_LINE*>& aSegments,
-                                                VECTOR2I&                              aPosition )
+                                                VECTOR2I&                              aPosition,
+                                                LINE_MODE                              mode,
+                                                bool                                   posture )
 {
     wxCHECK_RET( aSegments.first && aSegments.second,
                  wxT( "Cannot compute break point of NULL line segment." ) );
 
-    SCH_LINE* segment = aSegments.first;
-    SCH_LINE* next_segment = aSegments.second;
+    VECTOR2I  midPoint;
+    SCH_LINE* segment      = aSegments.first;
+    SCH_LINE* nextSegment  = aSegments.second;
 
-    VECTOR2I midPoint;
-    int iDx = segment->GetEndPoint().x - segment->GetStartPoint().x;
-    int iDy = segment->GetEndPoint().y - segment->GetStartPoint().y;
+    VECTOR2I delta = aPosition - segment->GetStartPoint();
+    int      xDir  = delta.x > 0 ? 1 : -1;
+    int      yDir  = delta.y > 0 ? 1 : -1;
 
+
+    bool preferHorizontal;
+    bool preferVertical;
+
+    if( ( mode == LINE_MODE_45 ) && posture )
+    {
+        preferHorizontal = ( nextSegment->GetEndPoint().x - nextSegment->GetStartPoint().x ) != 0;
+        preferVertical   = ( nextSegment->GetEndPoint().y - nextSegment->GetStartPoint().y ) != 0;
+    }
+    else
+    {
+        preferHorizontal = ( segment->GetEndPoint().x - segment->GetStartPoint().x ) != 0;
+        preferVertical   = ( segment->GetEndPoint().y - segment->GetStartPoint().y ) != 0;
+    }
+
+    // Check for times we need to force horizontal sheet pin connections
     const SCH_SHEET_PIN* connectedPin = getSheetPin( segment->GetStartPoint() );
     SHEET_SIDE           force = connectedPin ? connectedPin->GetSide() : SHEET_SIDE::UNDEFINED;
 
@@ -432,46 +478,108 @@ void SCH_LINE_WIRE_BUS_TOOL::computeBreakPoint( const std::pair<SCH_LINE*, SCH_L
             aPosition.x += KiROUND( getView()->GetGAL()->GetGridSize().x * direction );
         }
 
-        midPoint.x = aPosition.x;
-        midPoint.y = segment->GetStartPoint().y;     // force horizontal
+        preferHorizontal = true;
+        preferVertical = false;
     }
-    else if( iDy != 0 )    // keep the first segment orientation (vertical)
+
+
+    auto breakVertical = [&]() mutable
     {
-        midPoint.x = segment->GetStartPoint().x;
-        midPoint.y = aPosition.y;
-    }
-    else if( iDx != 0 )    // keep the first segment orientation (horizontal)
-    {
-        midPoint.x = aPosition.x;
-        midPoint.y = segment->GetStartPoint().y;
-    }
-    else
-    {
-        if( std::abs( aPosition.x - segment->GetStartPoint().x ) <
-            std::abs( aPosition.y - segment->GetStartPoint().y ) )
+        switch( mode )
         {
+        case LINE_MODE_45:
+            if( !posture )
+            {
+                midPoint.x = segment->GetStartPoint().x;
+                midPoint.y = aPosition.y - yDir * abs( delta.x );
+            }
+            else
+            {
+                midPoint.x = aPosition.x;
+                midPoint.y = segment->GetStartPoint().y + yDir * abs( delta.x );
+            }
+            break;
+        default:
             midPoint.x = segment->GetStartPoint().x;
             midPoint.y = aPosition.y;
         }
-        else
+    };
+
+
+    auto breakHorizontal = [&]() mutable
+    {
+        switch( mode )
         {
+        case LINE_MODE_45:
+            if( !posture )
+            {
+                midPoint.x = aPosition.x - xDir * abs( delta.y );
+                midPoint.y = segment->GetStartPoint().y;
+            }
+            else
+            {
+                midPoint.x = segment->GetStartPoint().x + xDir * abs( delta.y );
+                midPoint.y = aPosition.y;
+            }
+            break;
+        default:
             midPoint.x = aPosition.x;
             midPoint.y = segment->GetStartPoint().y;
         }
+    };
+
+
+    // Maintain current line shape if we can, e.g. if we were originally moving
+    // vertically keep the first segment vertical
+    if( preferVertical )
+        breakVertical();
+    else if( preferHorizontal )
+        breakHorizontal();
+
+    // Check if our 45 degree angle is one of these shapes
+    //    /
+    //   /
+    //  /
+    // /__________
+    VECTOR2I deltaMidpoint = midPoint - segment->GetStartPoint();
+
+    if( mode == LINE_MODE::LINE_MODE_45 && !posture
+        && ( ( alg::signbit( deltaMidpoint.x ) != alg::signbit( delta.x ) )
+             || ( alg::signbit( deltaMidpoint.y ) != alg::signbit( delta.y ) ) ) )
+    {
+        preferVertical = false;
+        preferHorizontal = false;
+    }
+    else if( mode == LINE_MODE::LINE_MODE_45 && posture
+             && ( ( abs( deltaMidpoint.x ) > abs( delta.x ) )
+                  || ( abs( deltaMidpoint.y ) > abs( delta.y ) ) ) )
+    {
+        preferVertical = false;
+        preferHorizontal = false;
+    }
+
+    if( !preferHorizontal && !preferVertical )
+    {
+        if( std::abs( delta.x ) < std::abs( delta.y ) )
+            breakVertical();
+        else
+            breakHorizontal();
     }
 
     segment->SetEndPoint( midPoint );
-    next_segment->SetStartPoint( midPoint );
-    next_segment->SetEndPoint( aPosition );
+    nextSegment->SetStartPoint( midPoint );
+    nextSegment->SetEndPoint( aPosition );
 }
 
 
-int SCH_LINE_WIRE_BUS_TOOL::doDrawSegments( const std::string& aTool, int aType, bool aQuitOnDraw )
+int SCH_LINE_WIRE_BUS_TOOL::doDrawSegments( const TOOL_EVENT& aTool, int aType, bool aQuitOnDraw )
 {
     SCH_SCREEN*           screen = m_frame->GetScreen();
     SCH_LINE*             segment = nullptr;
     EE_GRID_HELPER        grid( m_toolMgr );
     KIGFX::VIEW_CONTROLS* controls = getViewControls();
+    int                   lastMode = m_frame->eeconfig()->m_Drawing.line_mode;
+    static bool           posture = false;
 
     auto setCursor =
             [&]()
@@ -533,6 +641,13 @@ int SCH_LINE_WIRE_BUS_TOOL::doDrawSegments( const std::string& aTool, int aType,
     // Main loop: keep receiving events
     while( TOOL_EVENT* evt = Wait() )
     {
+        LINE_MODE currentMode = (LINE_MODE) m_frame->eeconfig()->m_Drawing.line_mode;
+        bool      twoSegments = currentMode != LINE_MODE::LINE_MODE_FREE;
+
+        // The tool hotkey is interpreted as a click when drawing
+        bool isSyntheticClick = ( segment || m_busUnfold.in_progress ) && evt->IsActivate()
+                                && evt->HasPosition() && evt->Matches( aTool );
+
         setCursor();
         grid.SetMask( GRID_HELPER::ALL );
         grid.SetSnap( !evt->Modifier( MD_SHIFT ) );
@@ -547,23 +662,58 @@ int SCH_LINE_WIRE_BUS_TOOL::doDrawSegments( const std::string& aTool, int aType,
                 grid.ClearMaskFlag( GRID_HELPER::HORIZONTAL );
         }
 
-        wxPoint eventPosition = static_cast<wxPoint>( evt->HasPosition() ?
-                                                      evt->Position() :
-                                                      controls->GetMousePosition() );
+        VECTOR2D eventPosition = evt->HasPosition() ? evt->Position()
+                                                    : controls->GetMousePosition();
 
         VECTOR2I cursorPos = grid.BestSnapAnchor( eventPosition, LAYER_CONNECTABLE, segment );
         controls->ForceCursorPosition( true, cursorPos );
 
-        bool forceHV = m_frame->eeconfig()->m_Drawing.hv_lines_only;
+        // Need to handle change in H/V mode while drawing
+        if( currentMode != lastMode )
+        {
+            // Need to delete extra segment if we have one
+            if( segment && currentMode == LINE_MODE::LINE_MODE_FREE && m_wires.size() >= 2 )
+            {
+                m_wires.pop_back();
+                m_selectionTool->RemoveItemFromSel( segment );
+                delete segment;
+
+                segment = m_wires.back();
+                segment->SetEndPoint( cursorPos );
+            }
+            // Add a segment so we can move orthogonally/45
+            else if( segment && lastMode == LINE_MODE::LINE_MODE_FREE )
+            {
+                segment->SetEndPoint( cursorPos );
+
+                // Create a new segment, and chain it after the current segment.
+                segment = static_cast<SCH_LINE*>( segment->Duplicate() );
+                segment->SetFlags( IS_NEW | IS_MOVING );
+                segment->SetStartPoint( cursorPos );
+                m_wires.push_back( segment );
+
+                m_selectionTool->AddItemToSel( segment, true /*quiet mode*/ );
+            }
+
+            lastMode = currentMode;
+        }
 
         //------------------------------------------------------------------------
         // Handle cancel:
         //
         if( evt->IsCancelInteractive() )
         {
+            m_frame->GetInfoBar()->Dismiss();
+
             if( segment || m_busUnfold.in_progress )
             {
                 cleanup();
+
+                if( aQuitOnDraw )
+                {
+                    m_frame->PopTool( aTool );
+                    break;
+                }
             }
             else
             {
@@ -571,7 +721,7 @@ int SCH_LINE_WIRE_BUS_TOOL::doDrawSegments( const std::string& aTool, int aType,
                 break;
             }
         }
-        else if( evt->IsActivate() )
+        else if( evt->IsActivate() && !isSyntheticClick )
         {
             if( segment || m_busUnfold.in_progress )
             {
@@ -614,7 +764,9 @@ int SCH_LINE_WIRE_BUS_TOOL::doDrawSegments( const std::string& aTool, int aType,
         //------------------------------------------------------------------------
         // Handle click:
         //
-        else if( evt->IsClick( BUT_LEFT ) || ( segment && evt->IsDblClick( BUT_LEFT ) ) )
+        else if( evt->IsClick( BUT_LEFT )
+                || ( segment && evt->IsDblClick( BUT_LEFT ) )
+                || isSyntheticClick )
         {
             // First click when unfolding places the label and wire-to-bus entry
             if( m_busUnfold.in_progress && !m_busUnfold.label_placed )
@@ -631,7 +783,8 @@ int SCH_LINE_WIRE_BUS_TOOL::doDrawSegments( const std::string& aTool, int aType,
                 segment = startSegments( aType, VECTOR2D( cursorPos ) );
             }
             // Create a new segment if we're out of previously-created ones
-            else if( !segment->IsNull() || ( forceHV && !m_wires[ m_wires.size() - 2 ]->IsNull() ) )
+            else if( !segment->IsNull()
+                     || ( twoSegments && !m_wires[m_wires.size() - 2]->IsNull() ) )
             {
                 // Terminate the command if the end point is on a pin, junction, label, or another
                 // wire or bus.
@@ -648,22 +801,34 @@ int SCH_LINE_WIRE_BUS_TOOL::doDrawSegments( const std::string& aTool, int aType,
                 }
                 else
                 {
+                    int placedSegments = 1;
+
+                    // When placing lines with the forty-five degree end, the user is
+                    // targetting the endpoint with the angled portion, so it's more
+                    // intuitive to place both segments at the same time.
+                    if( currentMode == LINE_MODE::LINE_MODE_45 )
+                        placedSegments++;
+
                     segment->SetEndPoint( cursorPos );
 
-                    // Create a new segment, and chain it after the current segment.
-                    segment = static_cast<SCH_LINE*>( segment->Duplicate() );
-                    segment->SetFlags( IS_NEW | IS_MOVING );
-                    segment->SetStartPoint( cursorPos );
-                    m_wires.push_back( segment );
+                    for( int i = 0; i < placedSegments; i++ )
+                    {
+                        // Create a new segment, and chain it after the current segment.
+                        segment = static_cast<SCH_LINE*>( segment->Duplicate() );
+                        segment->SetFlags( IS_NEW | IS_MOVING );
+                        segment->SetStartPoint( cursorPos );
+                        m_wires.push_back( segment );
 
-                    m_selectionTool->AddItemToSel( segment, true /*quiet mode*/ );
+                        m_selectionTool->AddItemToSel( segment, true /*quiet mode*/ );
+                    }
                 }
             }
 
             if( evt->IsDblClick( BUT_LEFT ) && segment )
             {
-                if( forceHV && m_wires.size() >= 2 )
-                    computeBreakPoint( { m_wires[ m_wires.size() - 2 ], segment }, cursorPos );
+                if( twoSegments && m_wires.size() >= 2 )
+                    computeBreakPoint( { m_wires[m_wires.size() - 2], segment }, cursorPos,
+                                       currentMode, posture );
 
                 finishSegments();
                 segment = nullptr;
@@ -720,17 +885,92 @@ int SCH_LINE_WIRE_BUS_TOOL::doDrawSegments( const std::string& aTool, int aType,
 
             if( segment )
             {
-                // Coerce the line to vertical or horizontal if necessary
-                if( forceHV && m_wires.size() >= 2 )
-                    computeBreakPoint( { m_wires[ m_wires.size() - 2 ], segment }, cursorPos );
+                // Coerce the line to vertical/horizontal/45 as necessary
+                if( twoSegments && m_wires.size() >= 2 )
+                {
+                    computeBreakPoint( { m_wires[m_wires.size() - 2], segment }, cursorPos,
+                                       currentMode, posture );
+                }
                 else
+                {
                     segment->SetEndPoint( cursorPos );
+                }
             }
 
             for( SCH_LINE* wire : m_wires )
             {
                 if( !wire->IsNull() )
                     m_view->AddToPreview( wire->Clone() );
+            }
+        }
+        else if( evt->IsAction( &EE_ACTIONS::undoLastSegment ) )
+        {
+            if( ( currentMode == LINE_MODE::LINE_MODE_FREE && m_wires.size() > 1 )
+                || ( LINE_MODE::LINE_MODE_90 && m_wires.size() > 2 ) )
+            {
+                m_view->ClearPreview();
+
+                m_wires.pop_back();
+                m_selectionTool->RemoveItemFromSel( segment );
+                delete segment;
+
+                segment = m_wires.back();
+                segment->SetEndPoint( cursorPos );
+
+                // Find new bend point for current mode
+                if( twoSegments && m_wires.size() >= 2 )
+                {
+                    computeBreakPoint( { m_wires[m_wires.size() - 2], segment }, cursorPos,
+                                       currentMode, posture );
+                }
+                else
+                {
+                    segment->SetEndPoint( cursorPos );
+                }
+
+                for( SCH_LINE* wire : m_wires )
+                {
+                    if( !wire->IsNull() )
+                        m_view->AddToPreview( wire->Clone() );
+                }
+            }
+            else
+            {
+                wxBell();
+            }
+        }
+        else if( evt->IsAction( &EE_ACTIONS::switchSegmentPosture ) && m_wires.size() >= 2 )
+        {
+            posture = !posture;
+
+            // The 90 degree mode doesn't have a forced posture like
+            // the 45 degree mode and computeBreakPoint maintains existing 90s' postures.
+            // Instead, just swap the 90 angle here.
+            if( currentMode == LINE_MODE::LINE_MODE_90 )
+            {
+                m_view->ClearPreview();
+
+                SCH_LINE* line2 = m_wires[m_wires.size() - 1];
+                SCH_LINE* line1 = m_wires[m_wires.size() - 2];
+
+                VECTOR2I delta2 = line2->GetEndPoint() - line2->GetStartPoint();
+                VECTOR2I delta1 = line1->GetEndPoint() - line1->GetStartPoint();
+
+                line2->SetStartPoint(line2->GetEndPoint() - delta1);
+                line1->SetEndPoint(line1->GetStartPoint() + delta2);
+
+                for( SCH_LINE* wire : m_wires )
+                {
+                    if( !wire->IsNull() )
+                        m_view->AddToPreview( wire->Clone() );
+                }
+            }
+            else
+            {
+                computeBreakPoint( { m_wires[m_wires.size() - 2], segment }, cursorPos, currentMode,
+                                   posture );
+
+                m_toolMgr->RunAction( ACTIONS::refreshPreview );
             }
         }
         //------------------------------------------------------------------------
@@ -742,13 +982,13 @@ int SCH_LINE_WIRE_BUS_TOOL::doDrawSegments( const std::string& aTool, int aType,
             if( !segment )
                 m_toolMgr->VetoContextMenuMouseWarp();
 
-            contextMenuPos = (wxPoint)cursorPos;
+            contextMenuPos = (wxPoint) cursorPos;
             m_menu.ShowContextMenu( m_selectionTool->GetSelection() );
         }
         else if( evt->Category() == TC_COMMAND && evt->Action() == TA_CHOICE_MENU_CHOICE )
         {
-            if( evt->GetCommandId().get() >= ID_POPUP_SCH_UNFOLD_BUS
-                && evt->GetCommandId().get() <= ID_POPUP_SCH_UNFOLD_BUS_END )
+            if( *evt->GetCommandId() >= ID_POPUP_SCH_UNFOLD_BUS
+                && *evt->GetCommandId() <= ID_POPUP_SCH_UNFOLD_BUS_END )
             {
                 wxASSERT_MSG( !segment, "Bus unfold event received when already drawing!" );
 
@@ -757,6 +997,9 @@ int SCH_LINE_WIRE_BUS_TOOL::doDrawSegments( const std::string& aTool, int aType,
                 segment = doUnfoldBus( net, contextMenuPos );
             }
         }
+        //------------------------------------------------------------------------
+        // Handle TOOL_ACTION special cases
+        //
         else if( evt->IsAction( &EE_ACTIONS::rotateCW ) || evt->IsAction( &EE_ACTIONS::rotateCCW ) )
         {
             if( m_busUnfold.in_progress )
@@ -799,9 +1042,9 @@ SCH_LINE* SCH_LINE_WIRE_BUS_TOOL::startSegments( int aType, const VECTOR2D& aPos
     {
         switch( aType )
         {
-        default: aSegment = new SCH_LINE( aPos, LAYER_NOTES ); break;
-        case LAYER_WIRE: aSegment = new SCH_LINE( aPos, LAYER_WIRE ); break;
-        case LAYER_BUS: aSegment = new SCH_LINE( aPos, LAYER_BUS ); break;
+        default:         aSegment = new SCH_LINE( aPos, LAYER_NOTES ); break;
+        case LAYER_WIRE: aSegment = new SCH_LINE( aPos, LAYER_WIRE );  break;
+        case LAYER_BUS:  aSegment = new SCH_LINE( aPos, LAYER_BUS );   break;
         }
 
         // Give segments a parent so they find the default line/wire/bus widths
@@ -810,7 +1053,7 @@ SCH_LINE* SCH_LINE_WIRE_BUS_TOOL::startSegments( int aType, const VECTOR2D& aPos
     else
     {
         aSegment = static_cast<SCH_LINE*>( aSegment->Duplicate() );
-        aSegment->SetStartPoint( (wxPoint) aPos );
+        aSegment->SetStartPoint( aPos );
     }
 
 
@@ -821,7 +1064,7 @@ SCH_LINE* SCH_LINE_WIRE_BUS_TOOL::startSegments( int aType, const VECTOR2D& aPos
 
     // We need 2 segments to go from a given start pin to an end point when the
     // horizontal and vertical lines only switch is on.
-    if( m_frame->eeconfig()->m_Drawing.hv_lines_only )
+    if( m_frame->eeconfig()->m_Drawing.line_mode )
     {
         aSegment = static_cast<SCH_LINE*>( aSegment->Duplicate() );
         aSegment->SetFlags( IS_NEW | IS_MOVING );
@@ -913,6 +1156,7 @@ void SCH_LINE_WIRE_BUS_TOOL::finishSegments()
             if( IsPointOnSegment( wire->GetStartPoint(), wire->GetEndPoint(), pt ) )
                 new_ends.push_back( pt );
         }
+
         itemList.PushItem( ITEM_PICKER( screen, wire, UNDO_REDO::NEWITEM ) );
     }
 
@@ -921,13 +1165,23 @@ void SCH_LINE_WIRE_BUS_TOOL::finishSegments()
         wxASSERT( m_busUnfold.entry && m_busUnfold.label );
 
         itemList.PushItem( ITEM_PICKER( screen, m_busUnfold.entry, UNDO_REDO::NEWITEM ) );
+        m_frame->SaveCopyForRepeatItem( m_busUnfold.entry );
+
         itemList.PushItem( ITEM_PICKER( screen, m_busUnfold.label, UNDO_REDO::NEWITEM ) );
+        m_frame->AddCopyForRepeatItem( m_busUnfold.label );
         m_busUnfold.label->ClearEditFlags();
     }
+    else if( !m_wires.empty() )
+    {
+        m_frame->SaveCopyForRepeatItem( m_wires[0] );
+    }
+
+    for( size_t ii = 1; ii < m_wires.size(); ++ii )
+        m_frame->AddCopyForRepeatItem( m_wires[ii] );
 
     // Get the last non-null wire (this is the last created segment).
     if( !m_wires.empty() )
-        m_frame->SaveCopyForRepeatItem( m_wires.back() );
+        m_frame->AddCopyForRepeatItem( m_wires.back() );
 
     // Add the new wires
     for( SCH_LINE* wire : m_wires )
@@ -990,7 +1244,7 @@ int SCH_LINE_WIRE_BUS_TOOL::TrimOverLappingWires( const TOOL_EVENT& aEvent )
     SCH_SCREEN* screen = sch->CurrentSheet().LastScreen();
 
     std::set<SCH_LINE*> lines;
-    EDA_RECT bb = aSelection->GetBoundingBox();
+    BOX2I bb = aSelection->GetBoundingBox();
 
     for( EDA_ITEM* item : screen->Items().Overlapping( SCH_LINE_T, bb ) )
         lines.insert( static_cast<SCH_LINE*>( item ) );
@@ -998,10 +1252,11 @@ int SCH_LINE_WIRE_BUS_TOOL::TrimOverLappingWires( const TOOL_EVENT& aEvent )
     for( unsigned ii = 0; ii < aSelection->GetSize(); ii++ )
     {
         SCH_ITEM* item = dynamic_cast<SCH_ITEM*>( aSelection->GetItem( ii ) );
-        std::vector<VECTOR2I> pts = item->GetConnectionPoints();
 
         if( !item || !item->IsConnectable() || ( item->Type() == SCH_LINE_T ) )
             continue;
+
+        std::vector<VECTOR2I> pts = item->GetConnectionPoints();
 
         /// If the line intersects with an item in the selection at only two points,
         /// then we can remove the line between the two points.
@@ -1035,7 +1290,7 @@ int SCH_LINE_WIRE_BUS_TOOL::AddJunctionsIfNeeded( const TOOL_EVENT& aEvent )
     std::vector<VECTOR2I> connections = m_frame->GetSchematicConnections();
 
     std::set<SCH_LINE*> lines;
-    EDA_RECT bb = aSelection->GetBoundingBox();
+    BOX2I bb = aSelection->GetBoundingBox();
 
     for( EDA_ITEM* item : m_frame->GetScreen()->Items().Overlapping( SCH_LINE_T, bb ) )
         lines.insert( static_cast<SCH_LINE*>( item ) );

@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2004 Jean-Pierre Charras, jaen-pierre.charras@gipsa-lab.inpg.com
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -29,7 +29,6 @@
 #include <board_item.h>
 
 class LINE_READER;
-class EDA_RECT;
 class FOOTPRINT;
 class MSG_PANEL_ITEM;
 class PCB_BASE_FRAME;
@@ -64,14 +63,14 @@ public:
         return aItem && aItem->Type() == PCB_FP_TEXT_T;
     }
 
-    bool IsType( const KICAD_T aScanTypes[] ) const override
+    bool IsType( const std::vector<KICAD_T>& aScanTypes ) const override
     {
         if( BOARD_ITEM::IsType( aScanTypes ) )
             return true;
 
-        for( const KICAD_T* p = aScanTypes; *p != EOT; ++p )
+        for( KICAD_T scanType : aScanTypes )
         {
-            if( *p == PCB_LOCATE_TEXT_T )
+            if( scanType == PCB_LOCATE_TEXT_T )
                 return true;
         }
 
@@ -80,7 +79,7 @@ public:
 
     wxString GetParentAsString() const { return m_parent->m_Uuid.AsString(); }
 
-    bool Matches( const wxFindReplaceData& aSearchData, void* aAuxData ) const override
+    bool Matches( const EDA_SEARCH_DATA& aSearchData, void* aAuxData ) const override
     {
         return BOARD_ITEM::Matches( GetShownText(), aSearchData );
     }
@@ -101,8 +100,6 @@ public:
      */
     void KeepUpright( const EDA_ANGLE& aOldOrientation, const EDA_ANGLE& aNewOrientation );
 
-    /// Rotate text, in footprint editor
-    /// (for instance in footprint rotation transform)
     void Rotate( const VECTOR2I& aOffset, const EDA_ANGLE& aAngle ) override;
 
     /// Flip entity during footprint flip
@@ -110,17 +107,15 @@ public:
 
     bool IsParentFlipped() const;
 
-    /// Mirror text position in footprint editing
-    /// the text itself is not mirrored, and the layer not modified,
-    /// only position is mirrored.
-    /// (use Flip to change layer to its paired and mirror the text in fp editor).
+    /**
+     * Mirror text position.  Do not mirror the text itself, or change its layer.
+     */
     void Mirror( const VECTOR2I& aCentre, bool aMirrorAroundXAxis );
 
-    /// move text in move transform, in footprint editor
     void Move( const VECTOR2I& aMoveVector ) override;
 
-    /// @deprecated it seems (but the type is used to 'protect'
-    //  reference and value from deletion, and for identification)
+    /// @deprecated it seems (but the type is used to 'protect' reference and value from deletion,
+    /// and for identification)
     void SetType( TEXT_TYPE aType )      { m_Type = aType; }
     TEXT_TYPE GetType() const            { return m_Type; }
 
@@ -137,7 +132,7 @@ public:
     virtual EDA_ANGLE GetDrawRotation() const override;
 
     // Virtual function
-    const EDA_RECT GetBoundingBox() const override;
+    const BOX2I GetBoundingBox() const override;
 
     ///< Set absolute coordinates.
     void SetDrawCoord();
@@ -148,41 +143,41 @@ public:
     void GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList ) override;
 
     bool TextHitTest( const VECTOR2I& aPoint, int aAccuracy = 0 ) const override;
-    bool TextHitTest( const EDA_RECT& aRect, bool aContains, int aAccuracy = 0 ) const override;
+    bool TextHitTest( const BOX2I& aRect, bool aContains, int aAccuracy = 0 ) const override;
 
     bool HitTest( const VECTOR2I& aPosition, int aAccuracy ) const override
     {
         return TextHitTest( aPosition, aAccuracy );
     }
 
-    bool HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy = 0 ) const override
+    bool HitTest( const BOX2I& aRect, bool aContained, int aAccuracy = 0 ) const override
     {
         return TextHitTest( aRect, aContained, aAccuracy );
     }
 
-    void TransformShapeWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuffer, PCB_LAYER_ID aLayer,
-                                               int aClearance, int aError, ERROR_LOC aErrorLoc,
-                                               bool aIgnoreLineWidth ) const override;
+    void TransformShapeToPolygon( SHAPE_POLY_SET& aBuffer, PCB_LAYER_ID aLayer, int aClearance,
+                                  int aError, ERROR_LOC aErrorLoc,
+                                  bool aIgnoreLineWidth ) const override;
 
-    void TransformTextShapeWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuffer,
-                                                   PCB_LAYER_ID aLayer, int aClearanceValue,
-                                                   int aError, ERROR_LOC aErrorLoc ) const;
+    void TransformTextToPolySet( SHAPE_POLY_SET& aBuffer, PCB_LAYER_ID aLayer, int aClearance,
+                                 int aError, ERROR_LOC aErrorLoc ) const;
 
     // @copydoc BOARD_ITEM::GetEffectiveShape
-    std::shared_ptr<SHAPE> GetEffectiveShape( PCB_LAYER_ID aLayer = UNDEFINED_LAYER ) const override;
+    std::shared_ptr<SHAPE> GetEffectiveShape( PCB_LAYER_ID aLayer = UNDEFINED_LAYER,
+                                              FLASHING aFlash = FLASHING::DEFAULT ) const override;
 
     wxString GetClass() const override
     {
         return wxT( "FP_TEXT" );
     }
 
-    wxString GetSelectMenuText( EDA_UNITS aUnits ) const override;
+    wxString GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const override;
 
     BITMAPS GetMenuImage() const override;
 
     EDA_ITEM* Clone() const override;
 
-    virtual wxString GetShownText( int aDepth = 0 ) const override;
+    virtual wxString GetShownText( int aDepth = 0, bool aAllowExtraText = true ) const override;
 
     virtual const BOX2I ViewBBox() const override;
 

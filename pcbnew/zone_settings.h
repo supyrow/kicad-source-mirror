@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2008-2018 Jean-Pierre Charras, jean-pierre.charras@ujf-grenoble.fr
- * Copyright (C) 1992-2018 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -33,6 +33,7 @@
 #include <layer_ids.h>
 #include <zones.h>
 #include <geometry/eda_angle.h>
+#include <teardrop/teardrop_types.h>
 
 class wxDataViewListCtrl;
 
@@ -54,7 +55,7 @@ enum class ZONE_BORDER_DISPLAY_STYLE
 /// Whether or not to remove isolated islands from a zone
 enum class ISLAND_REMOVAL_MODE
 {
-    ALWAYS,
+    ALWAYS = 0,
     NEVER,
     AREA
 };
@@ -77,7 +78,7 @@ public:
         SMOOTHING_LAST              // sentinel
     };
 
-    int             m_ZonePriority;          // Priority (0 ... N) of the zone
+    unsigned        m_ZonePriority;          // Priority (0 ... N) of the zone
 
     ZONE_FILL_MODE  m_FillMode;
     int             m_ZoneClearance;         // Minimal clearance value
@@ -104,8 +105,12 @@ public:
     long            m_ThermalReliefGap;        // thickness of the gap in thermal reliefs
     long            m_ThermalReliefSpokeWidth; // thickness of the copper bridge in thermal reliefs
 
-    bool            m_Zone_45_Only;
     bool            m_Locked;
+
+    /* A zone outline can be a teardrop zone with different rules
+     * priority, smoothed corners, thermal relief...
+     */
+    TEARDROP_TYPE   m_TeardropType;
 
 private:
     int             m_cornerSmoothingType;   // Corner smoothing type

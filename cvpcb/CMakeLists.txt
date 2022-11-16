@@ -26,7 +26,6 @@ set( CVPCB_DIALOGS
     )
 
 set( CVPCB_SRCS
-    ${CMAKE_SOURCE_DIR}/common/base_units.cpp
     ${CMAKE_SOURCE_DIR}/pcbnew/board_stackup_manager/stackup_predefined_prms.cpp
     ${CMAKE_SOURCE_DIR}/pcbnew/footprint_info_impl.cpp
     auto_associate.cpp
@@ -35,7 +34,6 @@ set( CVPCB_SRCS
     footprints_listbox.cpp
     library_listbox.cpp
     cvpcb_mainframe.cpp
-    cvpcb_settings.cpp
     listbox_base.cpp
     menubar.cpp
     readwrite_dlgs.cpp
@@ -77,11 +75,14 @@ target_link_libraries( cvpcb_kiface
     kimath
     ${PCBNEW_IO_LIBRARIES}
     ${wxWidgets_LIBRARIES}
-    ${GDI_PLUS_LIBRARIES}
     )
 
 # Must follow github_plugin
 target_link_libraries( cvpcb_kiface ${Boost_LIBRARIES} )
+
+target_include_directories( cvpcb_kiface PRIVATE
+    $<TARGET_PROPERTY:thread-pool,INTERFACE_INCLUDE_DIRECTORIES>
+    )
 
 if( UNIX AND NOT APPLE )
     # -lrt must follow Boost
@@ -106,12 +107,12 @@ if( APPLE )
         )
 else()
     install( TARGETS cvpcb_kiface
-        DESTINATION ${KICAD_BIN}
+        DESTINATION ${KICAD_KIFACE}
         COMPONENT binary
         )
 endif()
 
 if( KICAD_WIN32_INSTALL_PDBS )
     # Get the PDBs to copy over for MSVC
-    install(FILES $<TARGET_PDB_FILE:cvpcb_kiface> DESTINATION ${KICAD_BIN})
+    install(FILES $<TARGET_PDB_FILE:cvpcb_kiface> DESTINATION ${KICAD_KIFACE})
 endif()

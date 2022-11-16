@@ -21,11 +21,12 @@
 #ifndef _PARAMETERS_H
 #define _PARAMETERS_H
 
+#include <set>
 #include <string>
 #include <utility>
 #include <math/util.h>
 
-#include <core/optional.h>
+#include <optional>
 #include <settings/json_settings.h>
 
 
@@ -107,7 +108,7 @@ public:
         if( m_readOnly )
             return;
 
-        if( OPT<ValueType> optval = aSettings->Get<ValueType>( m_path ) )
+        if( std::optional<ValueType> optval = aSettings->Get<ValueType>( m_path ) )
         {
             ValueType val = *optval;
 
@@ -140,7 +141,7 @@ public:
 
     bool MatchesFile( JSON_SETTINGS* aSettings ) const override
     {
-        if( OPT<ValueType> optval = aSettings->Get<ValueType>( m_path ) )
+        if( std::optional<ValueType> optval = aSettings->Get<ValueType>( m_path ) )
             return *optval == *m_ptr;
 
         return false;
@@ -184,7 +185,7 @@ public:
 
     bool MatchesFile( JSON_SETTINGS* aSettings ) const override
     {
-        if( OPT<wxString> optval = aSettings->Get<wxString>( m_path ) )
+        if( std::optional<wxString> optval = aSettings->Get<wxString>( m_path ) )
             return fromFileFormat( *optval ) == *m_ptr;
 
         return false;
@@ -230,7 +231,7 @@ public:
         if( m_readOnly )
             return;
 
-        if( OPT<int> val = aSettings->Get<int>( m_path ) )
+        if( std::optional<int> val = aSettings->Get<int>( m_path ) )
         {
             if( *val >= static_cast<int>( m_min ) && *val <= static_cast<int>( m_max ) )
                 *m_ptr = static_cast<EnumType>( *val );
@@ -259,7 +260,7 @@ public:
 
     bool MatchesFile( JSON_SETTINGS* aSettings ) const override
     {
-        if( OPT<int> val = aSettings->Get<int>( m_path ) )
+        if( std::optional<int> val = aSettings->Get<int>( m_path ) )
             return *val == static_cast<int>( *m_ptr );
 
         return false;
@@ -362,7 +363,7 @@ public:
 
         double dval = m_default * m_scale;
 
-        if( OPT<double> optval = aSettings->Get<double>( m_path ) )
+        if( std::optional<double> optval = aSettings->Get<double>( m_path ) )
             dval = *optval;
         else if( !aResetIfMissing )
             return;
@@ -395,7 +396,7 @@ public:
 
     bool MatchesFile( JSON_SETTINGS* aSettings ) const override
     {
-        if( OPT<double> optval = aSettings->Get<double>( m_path ) )
+        if( std::optional<double> optval = aSettings->Get<double>( m_path ) )
             return *optval == ( *m_ptr * m_scale );
 
         return false;
@@ -443,6 +444,41 @@ protected:
     std::vector<Type>* m_ptr;
 
     std::vector<Type> m_default;
+};
+
+template<typename Type>
+class PARAM_SET : public PARAM_BASE
+{
+public:
+    PARAM_SET( const std::string& aJsonPath, std::set<Type>* aPtr,
+               std::initializer_list<Type> aDefault, bool aReadOnly = false ) :
+            PARAM_BASE( aJsonPath, aReadOnly ),
+            m_ptr( aPtr ),
+            m_default( aDefault )
+    { }
+
+    PARAM_SET( const std::string& aJsonPath, std::set<Type>* aPtr,
+               std::set<Type> aDefault, bool aReadOnly = false ) :
+            PARAM_BASE( aJsonPath, aReadOnly ),
+            m_ptr( aPtr ),
+            m_default( aDefault )
+    { }
+
+    void Load( JSON_SETTINGS* aSettings, bool aResetIfMissing = true ) const override;
+
+    void Store( JSON_SETTINGS* aSettings) const override;
+
+    void SetDefault() override
+    {
+        *m_ptr = m_default;
+    }
+
+    bool MatchesFile( JSON_SETTINGS* aSettings ) const override;
+
+protected:
+    std::set<Type>* m_ptr;
+
+    std::set<Type> m_default;
 };
 
 /**

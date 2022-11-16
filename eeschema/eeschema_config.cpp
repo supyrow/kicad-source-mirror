@@ -1,24 +1,20 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2014-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2014-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
+ * This program is free software: you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the
+ * Free Software Foundation, either version 3 of the License, or (at your
+ * option) any later version.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, you may find one here:
- * http://www.gnu.org/licenses/old-licenses/gpl-2.0.html
- * or you may search the http://www.gnu.org website for the version 2 license,
- * or you may write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
+ * You should have received a copy of the GNU General Public License along
+ * with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <mutex>
@@ -35,6 +31,7 @@
 #include <sch_edit_frame.h>
 #include <sch_painter.h>
 #include <schematic.h>
+#include <hierarch.h>
 #include <settings/app_settings.h>
 #include <settings/settings_manager.h>
 #include <symbol_lib_table.h>
@@ -59,7 +56,6 @@ bool SCH_EDIT_FRAME::LoadProjectSettings()
     GetRenderSettings()->m_LabelSizeRatio  = settings.m_LabelSizeRatio;
     GetRenderSettings()->m_TextOffsetRatio = settings.m_TextOffsetRatio;
     GetRenderSettings()->m_PinSymbolSize   = settings.m_PinSymbolSize;
-    GetRenderSettings()->m_JunctionSize    = settings.m_JunctionSize;
 
     GetRenderSettings()->SetDashLengthRatio( settings.m_DashedLineDashRatio );
     GetRenderSettings()->SetGapLengthRatio( settings.m_DashedLineGapRatio );
@@ -89,8 +85,6 @@ void SCH_EDIT_FRAME::ShowSchematicSetupDialog( const wxString& aInitialPage )
 
     if( dlg.ShowQuasiModal() == wxID_OK )
     {
-        Prj().GetProjectFile().NetSettings().RebuildNetClassAssignments();
-
         SaveProjectSettings();
 
         Kiway().CommonSettingsChanged( false, true );
@@ -99,7 +93,6 @@ void SCH_EDIT_FRAME::ShowSchematicSetupDialog( const wxString& aInitialPage )
         GetRenderSettings()->m_LabelSizeRatio  = Schematic().Settings().m_LabelSizeRatio;
         GetRenderSettings()->m_TextOffsetRatio = Schematic().Settings().m_TextOffsetRatio;
         GetRenderSettings()->m_PinSymbolSize   = Schematic().Settings().m_PinSymbolSize;
-        GetRenderSettings()->m_JunctionSize    = Schematic().Settings().m_JunctionSize;
 
         GetRenderSettings()->SetDashLengthRatio( Schematic().Settings().m_DashedLineDashRatio );
         GetRenderSettings()->SetGapLengthRatio( Schematic().Settings().m_DashedLineGapRatio );
@@ -115,11 +108,11 @@ int SCH_EDIT_FRAME::GetSchematicJunctionSize()
 {
     std::vector<double>& sizeMultipliers = eeconfig()->m_Drawing.junction_size_mult_list;
 
-    NETCLASSPTR defaultNetclass = Prj().GetProjectFile().NetSettings().m_NetClasses.GetDefault();
-    int         sizeChoice = Schematic().Settings().m_JunctionSizeChoice;
-    int         junctionSize = defaultNetclass->GetWireWidth() * sizeMultipliers[ sizeChoice ];
+    const std::shared_ptr<NET_SETTINGS>& netSettings = Prj().GetProjectFile().NetSettings();
+    int sizeChoice = Schematic().Settings().m_JunctionSizeChoice;
+    int dotSize = netSettings->m_DefaultNetClass->GetWireWidth() * sizeMultipliers[ sizeChoice ];
 
-    return std::max( junctionSize, 1 );
+    return std::max( dotSize, 1 );
 }
 
 
@@ -145,23 +138,53 @@ void SCH_EDIT_FRAME::LoadSettings( APP_SETTINGS_BASE* aCfg )
 
     SCH_BASE_FRAME::LoadSettings( eeconfig() );
 
+    SCH_SEARCH_DATA* searchData = dynamic_cast<SCH_SEARCH_DATA*>( m_findReplaceData.get() );
+
+    if( searchData )
+    {
+        searchData->replaceReferences = eeconfig()->m_FindReplaceExtra.replace_references;
+        searchData->searchAllFields = eeconfig()->m_FindReplaceExtra.search_all_fields;
+        searchData->searchAllPins = eeconfig()->m_FindReplaceExtra.search_all_pins;
+        searchData->searchCurrentSheetOnly = eeconfig()->m_FindReplaceExtra.search_current_sheet_only;
+    }
+
     GetRenderSettings()->m_ShowPinsElectricalType = false;
+    GetRenderSettings()->m_ShowPinNumbers = false;
+    GetRenderSettings()->SetDefaultFont( eeconfig()->m_Appearance.default_font );
 }
 
 
 void SCH_EDIT_FRAME::SaveSettings( APP_SETTINGS_BASE* aCfg )
 {
     SCH_BASE_FRAME::SaveSettings( eeconfig() );
+    wxAuiPaneInfo& hierarchy_pane = m_auimgr.GetPane( SchematicHierarchyPaneName() );
 
-    // TODO(JE) do we need to keep m_userUnits around?
     if( eeconfig() )
-        eeconfig()->m_System.units = static_cast<int>( m_userUnits );
+    {
+        eeconfig()->m_System.units = static_cast<int>( GetUserUnits() );
+        eeconfig()->m_AuiPanels.show_schematic_hierarchy = hierarchy_pane.IsShown();
+        eeconfig()->m_AuiPanels.schematic_hierarchy_float = hierarchy_pane.IsFloating();
+        // Other parameters (hierarchy_panel_float_width, hierarchy_panel_float_height,
+        // and hierarchy_panel_docked_width should have been updated when resizing the
+        // hierarchy panel
+
+        SCH_SEARCH_DATA* searchData = dynamic_cast<SCH_SEARCH_DATA*>( m_findReplaceData.get() );
+
+        if( searchData )
+        {
+            eeconfig()->m_FindReplaceExtra.replace_references = searchData->replaceReferences;
+            eeconfig()->m_FindReplaceExtra.search_all_fields = searchData->searchAllFields;
+            eeconfig()->m_FindReplaceExtra.search_all_pins = searchData->searchAllPins;
+            eeconfig()->m_FindReplaceExtra.search_current_sheet_only =
+                    searchData->searchCurrentSheetOnly;
+        }
+    }
 }
 
 
 void SCH_BASE_FRAME::LoadSettings( APP_SETTINGS_BASE* aCfg )
 {
-    wxCHECK_RET( aCfg, "Call to SCH_BASE_FRAME::SaveSettings with null settings" );
+    wxCHECK_RET( aCfg, "Call to SCH_BASE_FRAME::LoadSettings with null settings" );
 
     EDA_DRAW_FRAME::LoadSettings( aCfg );
 

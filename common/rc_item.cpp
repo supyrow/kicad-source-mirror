@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2020-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2020-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -44,11 +44,11 @@ wxString RC_ITEM::GetErrorMessage() const
 }
 
 
-wxString RC_ITEM::ShowCoord( EDA_UNITS aUnits, const VECTOR2I& aPos )
+static wxString showCoord( UNITS_PROVIDER* aUnitsProvider, const VECTOR2I& aPos )
 {
-    return wxString::Format( "@(%s, %s)",
-                             MessageTextFromValue( aUnits, aPos.x ),
-                             MessageTextFromValue( aUnits, aPos.y ) );
+    return wxString::Format( wxT( "@(%s, %s)" ),
+                             aUnitsProvider->MessageTextFromValue( aPos.x ),
+                             aUnitsProvider->MessageTextFromValue( aPos.y ) );
 }
 
 
@@ -76,7 +76,7 @@ void RC_ITEM::SetItems( const EDA_ITEM* aItem, const EDA_ITEM* bItem,
 }
 
 
-wxString RC_ITEM::ShowReport( EDA_UNITS aUnits, SEVERITY aSeverity,
+wxString RC_ITEM::ShowReport( UNITS_PROVIDER* aUnitsProvider, SEVERITY aSeverity,
                               const std::map<KIID, EDA_ITEM*>& aItemMap ) const
 {
     wxString severity;
@@ -88,6 +88,7 @@ wxString RC_ITEM::ShowReport( EDA_UNITS aUnits, SEVERITY aSeverity,
     case RPT_SEVERITY_ACTION:    severity = wxT( "Severity: action" );    break;
     case RPT_SEVERITY_INFO:      severity = wxT( "Severity: info" );      break;
     case RPT_SEVERITY_EXCLUSION: severity = wxT( "Severity: exclusion" ); break;
+    case RPT_SEVERITY_DEBUG:     severity = wxT( "Severity: debug" );     break;
     default:                   ;
     };
 
@@ -119,10 +120,10 @@ wxString RC_ITEM::ShowReport( EDA_UNITS aUnits, SEVERITY aSeverity,
                                  GetErrorMessage(),
                                  GetViolatingRuleDesc(),
                                  severity,
-                                 ShowCoord( aUnits, mainItem->GetPosition() ),
-                                 mainItem->GetSelectMenuText( aUnits ),
-                                 ShowCoord( aUnits, auxItem->GetPosition() ),
-                                 auxItem->GetSelectMenuText( aUnits ) );
+                                 showCoord( aUnitsProvider, mainItem->GetPosition()),
+                                 mainItem->GetSelectMenuText( aUnitsProvider ),
+                                 showCoord( aUnitsProvider, auxItem->GetPosition()),
+                                 auxItem->GetSelectMenuText( aUnitsProvider ) );
     }
     else if( mainItem )
     {
@@ -131,8 +132,8 @@ wxString RC_ITEM::ShowReport( EDA_UNITS aUnits, SEVERITY aSeverity,
                                  GetErrorMessage(),
                                  GetViolatingRuleDesc(),
                                  severity,
-                                 ShowCoord( aUnits, mainItem->GetPosition() ),
-                                 mainItem->GetSelectMenuText( aUnits ) );
+                                 showCoord( aUnitsProvider, mainItem->GetPosition()),
+                                 mainItem->GetSelectMenuText( aUnitsProvider ) );
     }
     else
     {
@@ -180,22 +181,19 @@ RC_TREE_MODEL::RC_TREE_MODEL( EDA_DRAW_FRAME* aParentFrame, wxDataViewCtrl* aVie
         m_severities( 0 ),
         m_rcItemsProvider( nullptr )
 {
-    m_view->GetMainWindow()->Connect( wxEVT_SIZE,
-                                      wxSizeEventHandler( RC_TREE_MODEL::onSizeView ),
+    m_view->GetMainWindow()->Connect( wxEVT_SIZE, wxSizeEventHandler( RC_TREE_MODEL::onSizeView ),
                                       nullptr, this );
 }
 
 
 RC_TREE_MODEL::~RC_TREE_MODEL()
 {
-    delete m_rcItemsProvider;
-
     for( RC_TREE_NODE* topLevelNode : m_tree )
         delete topLevelNode;
 }
 
 
-void RC_TREE_MODEL::rebuildModel( RC_ITEMS_PROVIDER* aProvider, int aSeverities )
+void RC_TREE_MODEL::rebuildModel( std::shared_ptr<RC_ITEMS_PROVIDER> aProvider, int aSeverities )
 {
     wxWindowUpdateLocker updateLock( m_view );
 
@@ -213,11 +211,7 @@ void RC_TREE_MODEL::rebuildModel( RC_ITEMS_PROVIDER* aProvider, int aSeverities 
 
     BeforeReset();
 
-    if( aProvider != m_rcItemsProvider )
-    {
-        delete m_rcItemsProvider;
-        m_rcItemsProvider = aProvider;
-    }
+    m_rcItemsProvider = aProvider;
 
     if( aSeverities != m_severities )
         m_severities = aSeverities;
@@ -292,15 +286,9 @@ void RC_TREE_MODEL::rebuildModel( RC_ITEMS_PROVIDER* aProvider, int aSeverities 
 }
 
 
-void RC_TREE_MODEL::SetProvider( RC_ITEMS_PROVIDER* aProvider )
+void RC_TREE_MODEL::Update( std::shared_ptr<RC_ITEMS_PROVIDER> aProvider, int aSeverities )
 {
-    rebuildModel( aProvider, m_severities );
-}
-
-
-void RC_TREE_MODEL::SetSeverities( int aSeverities )
-{
-    rebuildModel( m_rcItemsProvider, aSeverities );
+    rebuildModel( aProvider, aSeverities );
 }
 
 
@@ -378,30 +366,37 @@ void RC_TREE_MODEL::GetValue( wxVariant&              aVariant,
         break;
 
     case RC_TREE_NODE::MAIN_ITEM:
-    {
-        EDA_ITEM* item = m_editFrame->GetItem( rcItem->GetMainItemID() );
-        aVariant = item->GetSelectMenuText( m_editFrame->GetUserUnits() );
-    }
+        if( rcItem->GetParent() && rcItem->GetParent()->GetMarkerType() == MARKER_BASE::MARKER_DRAWING_SHEET )
+        {
+            aVariant = _( "Drawing Sheet" );
+            break;
+        }
+        else
+        {
+            EDA_ITEM* item = m_editFrame->GetItem( rcItem->GetMainItemID() );
+            aVariant = item->GetSelectMenuText( m_editFrame );
+        }
+
         break;
 
     case RC_TREE_NODE::AUX_ITEM:
     {
         EDA_ITEM* item = m_editFrame->GetItem( rcItem->GetAuxItemID() );
-        aVariant = item->GetSelectMenuText( m_editFrame->GetUserUnits() );
+        aVariant = item->GetSelectMenuText( m_editFrame );
     }
         break;
 
     case RC_TREE_NODE::AUX_ITEM2:
     {
         EDA_ITEM* item = m_editFrame->GetItem( rcItem->GetAuxItem2ID() );
-        aVariant = item->GetSelectMenuText( m_editFrame->GetUserUnits() );
+        aVariant = item->GetSelectMenuText( m_editFrame );
     }
         break;
 
     case RC_TREE_NODE::AUX_ITEM3:
     {
         EDA_ITEM* item = m_editFrame->GetItem( rcItem->GetAuxItem3ID() );
-        aVariant = item->GetSelectMenuText( m_editFrame->GetUserUnits() );
+        aVariant = item->GetSelectMenuText( m_editFrame );
     }
         break;
     }
@@ -473,7 +468,7 @@ void RC_TREE_MODEL::DeleteCurrentItem( bool aDeep )
 
 void RC_TREE_MODEL::DeleteItems( bool aCurrentOnly, bool aIncludeExclusions, bool aDeep )
 {
-    RC_TREE_NODE* current_node = ToNode( m_view->GetCurrentItem() );
+    RC_TREE_NODE* current_node = m_view ? ToNode( m_view->GetCurrentItem() ) : nullptr;
     const std::shared_ptr<RC_ITEM> current_item = current_node ? current_node->m_RcItem : nullptr;
 
     /// Keep a vector of elements to free after wxWidgets is definitely done accessing them
@@ -485,9 +480,6 @@ void RC_TREE_MODEL::DeleteItems( bool aCurrentOnly, bool aIncludeExclusions, boo
         return;
     }
 
-    if( !m_rcItemsProvider )
-        return;
-
     int  lastGood = -1;
     bool itemDeleted = false;
 
@@ -498,7 +490,10 @@ void RC_TREE_MODEL::DeleteItems( bool aCurrentOnly, bool aIncludeExclusions, boo
         m_view->Freeze();
     }
 
-    for( int i = m_rcItemsProvider->GetCount( m_severities ) - 1; i >= 0; --i )
+    if( !m_rcItemsProvider )
+        return;
+
+    for( int i = m_rcItemsProvider->GetCount() - 1; i >= 0; --i )
     {
         std::shared_ptr<RC_ITEM> rcItem = m_rcItemsProvider->GetItem( i );
         MARKER_BASE*             marker = rcItem->GetParent();
@@ -539,8 +534,8 @@ void RC_TREE_MODEL::DeleteItems( bool aCurrentOnly, bool aIncludeExclusions, boo
             ItemDeleted( parentItem, markerItem );
         }
 
-        // Only deep delete the current item here; others will be done through the
-        // DeleteAllItems() call below, which is more efficient.
+        // Only deep delete the current item here; others will be done by the caller, which
+        // can more efficiently delete all markers on the board.
         m_rcItemsProvider->DeleteItem( i, aDeep && aCurrentOnly );
 
         if( lastGood > i )
@@ -554,9 +549,6 @@ void RC_TREE_MODEL::DeleteItems( bool aCurrentOnly, bool aIncludeExclusions, boo
 
     for( RC_TREE_NODE* item : to_delete )
         delete( item );
-
-    if( !aCurrentOnly )
-        m_rcItemsProvider->DeleteAllItems( aIncludeExclusions, aDeep );
 
     if( m_view )
         m_view->Thaw();

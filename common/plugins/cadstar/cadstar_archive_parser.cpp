@@ -2258,6 +2258,10 @@ void CADSTAR_ARCHIVE_PARSER::ATTRCOLORS::Parse( XNODE* aNode, PARSER_CONTEXT* aC
             attrcol.Parse( cNode, aContext );
             AttributeColors.insert( { attrcol.AttributeID, attrcol } );
         }
+        else if( cNodeName == wxT( "INVISIBLE" ) )
+        {
+            IsVisible = false;
+        }
         else
         {
             THROW_UNKNOWN_NODE_IO_ERROR( cNodeName, aNode->GetName() );
@@ -2337,7 +2341,7 @@ XNODE* CADSTAR_ARCHIVE_PARSER::LoadArchiveFile( const wxString& aFileName,
     long fileSize = ftell( fp );
     rewind( fp );
 
-    DSNLEXER lexer( emptyKeywords, 0, fp, aFileName );
+    DSNLEXER lexer( emptyKeywords, 0, nullptr,  fp, aFileName );
 
     auto currentProgress =  [&]() -> double
                             {

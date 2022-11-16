@@ -23,7 +23,6 @@
 
 #include <board_design_settings.h>
 #include <board.h>
-#include <convert_to_biu.h>
 #include <math/util.h>
 #include <panel_setup_constraints.h>
 #include <panel_setup_constraints_base.h>
@@ -36,6 +35,7 @@
 PANEL_SETUP_CONSTRAINTS::PANEL_SETUP_CONSTRAINTS( PAGED_DIALOG* aParent, PCB_EDIT_FRAME* aFrame ) :
         PANEL_SETUP_CONSTRAINTS_BASE( aParent->GetTreebook() ),
         m_minClearance( aFrame, m_clearanceTitle, m_clearanceCtrl, m_clearanceUnits ),
+        m_minConn( aFrame, m_MinConnTitle, m_MinConnCtrl, m_MinConnUnits ),
         m_trackMinWidth( aFrame, m_TrackMinWidthTitle, m_TrackMinWidthCtrl, m_TrackMinWidthUnits ),
         m_viaMinAnnulus( aFrame, m_ViaMinAnnulusTitle, m_ViaMinAnnulusCtrl, m_ViaMinAnnulusUnits ),
         m_viaMinSize( aFrame, m_ViaMinTitle, m_SetViasMinSizeCtrl, m_ViaMinUnits ),
@@ -64,12 +64,9 @@ PANEL_SETUP_CONSTRAINTS::PANEL_SETUP_CONSTRAINTS( PAGED_DIALOG* aParent, PCB_EDI
 bool PANEL_SETUP_CONSTRAINTS::TransferDataToWindow()
 {
     wxString msg;
-    msg.Printf( m_stCircleToPolyWarning->GetLabel(),
-                StringFromValue( m_Frame->GetUserUnits(), ARC_HIGH_DEF, true ) );
+    msg.Printf( m_stCircleToPolyWarning->GetLabel(), m_Frame->StringFromValue( ARC_HIGH_DEF, true ) );
     m_stCircleToPolyWarning->SetLabel( msg );
 
-    m_OptAllowBlindBuriedVias->SetValue( m_BrdSettings->m_BlindBuriedViaAllowed );
-    m_OptAllowMicroVias->SetValue( m_BrdSettings->m_MicroViasAllowed );
     m_useHeightForLengthCalcs->SetValue( m_BrdSettings->m_UseHeightForLengthCalcs );
 
     m_maxError.SetValue( m_BrdSettings->m_MaxError );
@@ -78,6 +75,7 @@ bool PANEL_SETUP_CONSTRAINTS::TransferDataToWindow()
     m_minResolvedSpokeCountCtrl->SetValue( m_BrdSettings->m_MinResolvedSpokes );
 
     m_minClearance.SetValue( m_BrdSettings->m_MinClearance );
+    m_minConn.SetValue( m_BrdSettings->m_MinConn );
     m_trackMinWidth.SetValue( m_BrdSettings->m_TrackMinWidth );
     m_viaMinAnnulus.SetValue( m_BrdSettings->m_ViasMinAnnularWidth );
     m_viaMinSize.SetValue(m_BrdSettings->m_ViasMinSize );
@@ -103,6 +101,9 @@ bool PANEL_SETUP_CONSTRAINTS::TransferDataFromWindow()
     if( !m_minClearance.Validate( 0, 10, EDA_UNITS::INCHES ) )
         return false;
 
+    if( !m_minConn.Validate( 0, 10, EDA_UNITS::INCHES ) )
+        return false;
+
     if( !m_trackMinWidth.Validate( 0, 10, EDA_UNITS::INCHES ) )
         return false;
 
@@ -126,18 +127,17 @@ bool PANEL_SETUP_CONSTRAINTS::TransferDataFromWindow()
 
     // These are all stored in project file, not board, so no need for OnModify()
 
-    m_BrdSettings->m_BlindBuriedViaAllowed   = m_OptAllowBlindBuriedVias->GetValue();
-    m_BrdSettings->m_MicroViasAllowed        = m_OptAllowMicroVias->GetValue();
     m_BrdSettings->m_UseHeightForLengthCalcs = m_useHeightForLengthCalcs->GetValue();
 
-    m_BrdSettings->m_MaxError = Clamp<int>( IU_PER_MM * MINIMUM_ERROR_SIZE_MM,
+    m_BrdSettings->m_MaxError = Clamp<int>( pcbIUScale.IU_PER_MM * MINIMUM_ERROR_SIZE_MM,
                                             m_maxError.GetValue(),
-                                            IU_PER_MM * MAXIMUM_ERROR_SIZE_MM );
+                                            pcbIUScale.IU_PER_MM * MAXIMUM_ERROR_SIZE_MM );
 
     m_BrdSettings->m_ZoneKeepExternalFillets = m_allowExternalFilletsOpt->GetValue();
     m_BrdSettings->m_MinResolvedSpokes = m_minResolvedSpokeCountCtrl->GetValue();
 
     m_BrdSettings->m_MinClearance = m_minClearance.GetValue();
+    m_BrdSettings->m_MinConn = m_minConn.GetValue();
     m_BrdSettings->m_TrackMinWidth = m_trackMinWidth.GetValue();
     m_BrdSettings->m_ViasMinAnnularWidth = m_viaMinAnnulus.GetValue();
     m_BrdSettings->m_ViasMinSize = m_viaMinSize.GetValue();
@@ -171,6 +171,7 @@ bool PANEL_SETUP_CONSTRAINTS::Show( bool aShow )
         m_spokeBitmap->SetBitmap( KiBitmap( BITMAPS::thermal_spokes ) );
         m_bitmapClearance->SetBitmap( KiBitmap( BITMAPS::ps_diff_pair_gap ) );
         m_bitmapMinTrackWidth->SetBitmap( KiBitmap( BITMAPS::width_track ) );
+        m_bitmapMinConn->SetBitmap( KiBitmap( BITMAPS::width_conn ) );
         m_bitmapMinViaAnnulus->SetBitmap( KiBitmap( BITMAPS::via_annulus ) );
         m_bitmapMinViaDiameter->SetBitmap( KiBitmap( BITMAPS::via_diameter ) );
         m_bitmapMinViaDrill->SetBitmap( KiBitmap( BITMAPS::via_hole_diameter ) );
@@ -179,8 +180,6 @@ bool PANEL_SETUP_CONSTRAINTS::Show( bool aShow )
         m_bitmapHoleClearance->SetBitmap( KiBitmap( BITMAPS::hole_to_copper_clearance ) );
         m_bitmapMinHoleClearance->SetBitmap( KiBitmap( BITMAPS::hole_to_hole_clearance ) );
         m_bitmapEdgeClearance->SetBitmap( KiBitmap( BITMAPS::edge_to_copper_clearance ) );
-        m_bitmapBlindBuried->SetBitmap( KiBitmap( BITMAPS::via_buried ) );
-        m_bitmap_uVia->SetBitmap( KiBitmap( BITMAPS::via_microvia ) );
 
         Layout();
     }

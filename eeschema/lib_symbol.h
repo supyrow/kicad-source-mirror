@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2004-2015 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2008 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 2004-2021 KiCad Developers, see change_log.txt for contributors.
+ * Copyright (C) 2004-2022 KiCad Developers, see change_log.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -33,7 +33,6 @@
 #include <vector>
 #include <multivector.h>
 
-class EDA_RECT;
 class LINE_READER;
 class OUTPUTFORMATTER;
 class SYMBOL_LIB;
@@ -136,6 +135,7 @@ public:
     virtual void SetName( const wxString& aName );
     wxString GetName() const override { return m_name; }
 
+    LIB_ID& LibId() { return m_libId; }
     LIB_ID GetLibId() const override { return m_libId; }
     void SetLibId( const LIB_ID& aLibId ) { m_libId = aLibId; }
 
@@ -169,7 +169,14 @@ public:
 
     wxString GetSearchText() override;
 
-    /**
+    wxString GetFootprint() override
+    {
+        return GetFootprintField().GetText();
+    }
+
+    void GetChooserFields( std::map<wxString , wxString>& aColumnMap ) override;
+
+            /**
      * For symbols derived from other symbols, IsRoot() indicates no derivation.
      */
     bool IsRoot() const override { return m_parent.use_count() == 0; }
@@ -207,7 +214,7 @@ public:
      *  if aConvert == 0 Convert is non used
      *  Invisible fields are not taken in account
      **/
-    const EDA_RECT GetUnitBoundingBox( int aUnit, int aConvert ) const;
+    const BOX2I GetUnitBoundingBox( int aUnit, int aConvert ) const;
 
     /**
      * Get the symbol bounding box excluding fields.
@@ -219,9 +226,10 @@ public:
      *  if aConvert == 0 Convert is non used
      *  Fields are not taken in account
      **/
-    const EDA_RECT GetBodyBoundingBox( int aUnit, int aConvert, bool aIncludePins ) const;
+    const BOX2I GetBodyBoundingBox( int aUnit, int aConvert, bool aIncludePins,
+                                    bool aIncludePrivateItems ) const;
 
-    const EDA_RECT GetBoundingBox() const override
+    const BOX2I GetBoundingBox() const override
     {
         return GetUnitBoundingBox( 0, 0 );
     }
@@ -314,9 +322,22 @@ public:
      * @param aMulti - unit if multiple units per symbol.
      * @param aConvert - Symbol conversion (DeMorgan) if available.
      * @param aOpts - Drawing options
+     * @param aDimmed - Reduce brightness of symbol
      */
     void Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset, int aMulti, int aConvert,
-                const LIB_SYMBOL_OPTIONS& aOpts );
+                const LIB_SYMBOL_OPTIONS& aOpts, bool aDimmed );
+
+    /**
+     * Print just the background fills of a symbol
+     *
+     * @param aOffset - Position of symbol.
+     * @param aMulti - unit if multiple units per symbol.
+     * @param aConvert - Symbol conversion (DeMorgan) if available.
+     * @param aOpts - Drawing options
+     * @param aDimmed - Reduce brightness of symbol
+     */
+    void PrintBackground( const RENDER_SETTINGS *aSettings, const VECTOR2I &aOffset, int aMulti,
+            int aConvert, const LIB_SYMBOL_OPTIONS &aOpts, bool aDimmed );
 
     /**
      * Plot lib symbol to plotter.
@@ -329,9 +350,10 @@ public:
      * @param aBackground - A poor-man's Z-order.
      * @param aOffset - Distance to shift the plot coordinates.
      * @param aTransform - Symbol plot transform matrix.
+     * @param aDimmed - Reduce brightness of symbol
      */
     void Plot( PLOTTER* aPlotter, int aUnit, int aConvert, bool aBackground,
-               const VECTOR2I& aOffset, const TRANSFORM& aTransform ) const;
+               const VECTOR2I& aOffset, const TRANSFORM& aTransform, bool aDimmed ) const;
 
     /**
      * Plot Lib Fields only of the symbol to plotter.
@@ -343,9 +365,10 @@ public:
      * @param aBackground - A poor-man's Z-order.
      * @param aOffset - Distance to shift the plot coordinates.
      * @param aTransform - Symbol plot transform matrix.
+     * @param aDimmed - reduce brightness of fields
      */
     void PlotLibFields( PLOTTER* aPlotter, int aUnit, int aConvert, bool aBackground,
-                        const VECTOR2I& aOffset, const TRANSFORM& aTransform );
+                        const VECTOR2I& aOffset, const TRANSFORM& aTransform, bool aDimmed );
 
     /**
      * Add a new draw \a aItem to the draw object list and sort according to \a aSort.
@@ -453,6 +476,12 @@ public:
     bool HasConversion() const;
 
     /**
+     * @return the highest pin number of the symbol's pins.
+     * If none of the pins has pin number assigned it returns 0.
+     */
+    int GetMaxPinNumber() const;
+
+    /**
      * Clears the status flag all draw objects in this symbol.
      */
     void ClearTempFlags();
@@ -490,7 +519,8 @@ public:
     LIB_ITEMS_CONTAINER& GetDrawItems() { return m_drawings; }
     const LIB_ITEMS_CONTAINER& GetDrawItems() const { return m_drawings; }
 
-    SEARCH_RESULT Visit( INSPECTOR inspector, void* testData, const KICAD_T scanTypes[] ) override;
+    INSPECT_RESULT Visit( INSPECTOR inspector, void* testData,
+                          const std::vector<KICAD_T>& aScanTypes ) override;
 
     /**
      * Set the units per symbol count.
@@ -510,6 +540,26 @@ public:
      * Return an identifier for \a aUnit for symbols with units.
      */
     wxString GetUnitReference( int aUnit ) override;
+
+    /**
+     * Return true if the given unit \a aUnit has a display name defined
+     */
+    bool HasUnitDisplayName( int aUnit ) override;
+
+    /**
+     * Return the user-defined display name for \a aUnit for symbols with units.
+     */
+    wxString GetUnitDisplayName( int aUnit ) override;
+
+    /**
+     * Copy all unit display names into the given map \a aTarget
+     */
+    void CopyUnitDisplayNames( std::map<int, wxString>& aTarget ) const;
+
+    /**
+     * Set the user-defined display name for \a aUnit to \a aName for symbols with units.
+     */
+    void SetUnitDisplayName( int aUnit, const wxString& aName );
 
     /**
      * @return true if the symbol has multiple units per symbol.
@@ -618,8 +668,7 @@ public:
      *         1 if this symbol is greater than \a aRhs
      *         0 if this symbol is the same as \a aRhs
      */
-    int Compare( const LIB_SYMBOL& aRhs,
-                 LIB_ITEM::COMPARE_FLAGS aCompareFlags = LIB_ITEM::COMPARE_FLAGS::NORMAL ) const;
+    int Compare( const LIB_SYMBOL& aRhs, int aCompareFlags = 0 ) const;
 
     bool operator==( const LIB_SYMBOL* aSymbol ) const { return this == aSymbol; }
     bool operator==( const LIB_SYMBOL& aSymbol ) const
@@ -717,6 +766,7 @@ private:
     static int  m_subpartFirstId;           ///< the ASCII char value to calculate the subpart
                                             ///< symbol id from the symbol number: only 'A', 'a'
                                             ///< or '1' can be used, other values have no sense.
+    std::map<int, wxString> m_unitDisplayNames;
 };
 
 #endif  //  CLASS_LIBENTRY_H

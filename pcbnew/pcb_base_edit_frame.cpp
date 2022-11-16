@@ -24,11 +24,11 @@
  */
 
 #include <kiface_base.h>
+#include <kiplatform/ui.h>
 #include <pcb_base_edit_frame.h>
 #include <tool/tool_manager.h>
 #include <tools/pcb_actions.h>
 #include <tools/pcb_selection_tool.h>
-#include <pcbnew_settings.h>
 #include <pgm_base.h>
 #include <board.h>
 #include <board_design_settings.h>
@@ -39,6 +39,7 @@
 #include <settings/settings_manager.h>
 #include <widgets/appearance_controls.h>
 #include <dialogs/eda_view_switcher.h>
+#include <pcb_properties_panel.h>
 #include <wildcards_and_files_ext.h>
 #include <collectors.h>
 
@@ -50,8 +51,12 @@ PCB_BASE_EDIT_FRAME::PCB_BASE_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent,
         PCB_BASE_FRAME( aKiway, aParent, aFrameType, aTitle, aPos, aSize, aStyle, aFrameName ),
         m_undoRedoBlocked( false ),
         m_selectionFilterPanel( nullptr ),
-        m_appearancePanel( nullptr )
+        m_appearancePanel( nullptr ),
+        m_propertiesPanel( nullptr ),
+        m_tabbedPanel( nullptr )
 {
+    m_darkMode = KIPLATFORM::UI::IsDarkTheme();
+
     Bind( wxEVT_IDLE,
           [this]( wxIdleEvent& aEvent )
           {
@@ -63,6 +68,12 @@ PCB_BASE_EDIT_FRAME::PCB_BASE_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent,
 
                   if( selTool )
                       selTool->OnIdle( aEvent );
+              }
+
+              if( m_darkMode != KIPLATFORM::UI::IsDarkTheme() )
+              {
+                  onDarkModeToggle();
+                  m_darkMode = KIPLATFORM::UI::IsDarkTheme();
               }
           } );
 }
@@ -96,60 +107,61 @@ bool PCB_BASE_EDIT_FRAME::TryBefore( wxEvent& aEvent )
     static bool s_presetSwitcherShown = false;
     static bool s_viewportSwitcherShown = false;
 
+    // wxWidgets generates no key events for the tab key when the ctrl key is held down.  One
+    // way around this is to look at all events and inspect the keyboard state of the tab key.
+    // However, this runs into issues on some linux VMs where querying the keyboard state is
+    // very slow.  Fortunately we only use ctrl-tab on Mac, so we implement this lovely hack:
 #ifdef __WXMAC__
-    wxKeyCode presetSwitchKey = WXK_RAW_CONTROL;
-    wxKeyCode viewSwitchKey = WXK_ALT;
+    if( wxGetKeyState( WXK_TAB ) )
 #else
-    wxKeyCode presetSwitchKey = WXK_RAW_CONTROL;
-    wxKeyCode viewSwitchKey = WXK_WINDOWS_LEFT;
+    if( ( aEvent.GetEventType() == wxEVT_CHAR || aEvent.GetEventType() == wxEVT_CHAR_HOOK )
+            && static_cast<wxKeyEvent&>( aEvent ).GetKeyCode() == WXK_TAB )
 #endif
-
-    if( aEvent.GetEventType() != wxEVT_CHAR && aEvent.GetEventType() != wxEVT_CHAR_HOOK )
-        return PCB_BASE_FRAME::TryBefore( aEvent );
-
-    if( !s_presetSwitcherShown && wxGetKeyState( presetSwitchKey ) && wxGetKeyState( WXK_TAB ) )
     {
-        if( m_appearancePanel && this->IsActive() )
+        if( !s_presetSwitcherShown && wxGetKeyState( PRESET_SWITCH_KEY ) )
         {
-            const wxArrayString& mru = m_appearancePanel->GetLayerPresetsMRU();
-
-            if( mru.size() > 1 )
+            if( m_appearancePanel && this->IsActive() )
             {
-                EDA_VIEW_SWITCHER switcher( this, mru, presetSwitchKey );
+                const wxArrayString& mru = m_appearancePanel->GetLayerPresetsMRU();
 
-                s_presetSwitcherShown = true;
-                switcher.ShowModal();
-                s_presetSwitcherShown = false;
+                if( mru.size() > 0 )
+                {
+                    EDA_VIEW_SWITCHER switcher( this, mru, PRESET_SWITCH_KEY );
 
-                int idx = switcher.GetSelection();
+                    s_presetSwitcherShown = true;
+                    switcher.ShowModal();
+                    s_presetSwitcherShown = false;
 
-                if( idx >= 0 && idx < (int) mru.size() )
-                    m_appearancePanel->ApplyLayerPreset( mru[idx] );
+                    int idx = switcher.GetSelection();
 
-                return true;
+                    if( idx >= 0 && idx < (int) mru.size() )
+                        m_appearancePanel->ApplyLayerPreset( mru[idx] );
+
+                    return true;
+                }
             }
         }
-    }
-    else if( !s_viewportSwitcherShown && wxGetKeyState( viewSwitchKey ) && wxGetKeyState( WXK_TAB ) )
-    {
-        if( m_appearancePanel && this->IsActive() )
+        else if( !s_viewportSwitcherShown && wxGetKeyState( VIEWPORT_SWITCH_KEY ) )
         {
-            const wxArrayString& mru = m_appearancePanel->GetViewportsMRU();
-
-            if( mru.size() > 1 )
+            if( m_appearancePanel && this->IsActive() )
             {
-                EDA_VIEW_SWITCHER switcher( this, mru, viewSwitchKey );
+                const wxArrayString& mru = m_appearancePanel->GetViewportsMRU();
 
-                s_viewportSwitcherShown = true;
-                switcher.ShowModal();
-                s_viewportSwitcherShown = false;
+                if( mru.size() > 0 )
+                {
+                    EDA_VIEW_SWITCHER switcher( this, mru, VIEWPORT_SWITCH_KEY );
 
-                int idx = switcher.GetSelection();
+                    s_viewportSwitcherShown = true;
+                    switcher.ShowModal();
+                    s_viewportSwitcherShown = false;
 
-                if( idx >= 0 && idx < (int) mru.size() )
-                    m_appearancePanel->ApplyViewport( mru[idx] );
+                    int idx = switcher.GetSelection();
 
-                return true;
+                    if( idx >= 0 && idx < (int) mru.size() )
+                        m_appearancePanel->ApplyViewport( mru[idx] );
+
+                    return true;
+                }
             }
         }
     }
@@ -219,9 +231,10 @@ void PCB_BASE_EDIT_FRAME::unitsChangeRefresh()
     {
         EDA_UNITS    units = GetUserUnits();
         KIGFX::VIEW* view  = GetCanvas()->GetView();
+        bool         selectedItemModified = false;
 
         INSPECTOR_FUNC inspector =
-                [units, view]( EDA_ITEM* aItem, void* aTestData )
+                [units, view, &selectedItemModified]( EDA_ITEM* aItem, void* aTestData )
                 {
                     PCB_DIMENSION_BASE* dimension = static_cast<PCB_DIMENSION_BASE*>( aItem );
 
@@ -229,16 +242,33 @@ void PCB_BASE_EDIT_FRAME::unitsChangeRefresh()
                     {
                         dimension->SetUnits( units );
                         dimension->Update();
+
+                        if( dimension->IsSelected() )
+                            selectedItemModified = true;
+
                         view->Update( dimension );
                     }
 
-                    return SEARCH_RESULT::CONTINUE;
+                    return INSPECT_RESULT::CONTINUE;
                 };
 
-        board->Visit( inspector, nullptr, GENERAL_COLLECTOR::Dimensions );
+        board->Visit( inspector, nullptr, { PCB_DIM_ALIGNED_T,
+                                            PCB_DIM_LEADER_T,
+                                            PCB_DIM_ORTHOGONAL_T,
+                                            PCB_DIM_CENTER_T,
+                                            PCB_DIM_RADIAL_T,
+                                            PCB_FP_DIM_ALIGNED_T,
+                                            PCB_FP_DIM_LEADER_T,
+                                            PCB_FP_DIM_ORTHOGONAL_T,
+                                            PCB_FP_DIM_CENTER_T,
+                                            PCB_FP_DIM_RADIAL_T } );
+
+        if( selectedItemModified )
+            m_toolManager->PostEvent( EVENTS::SelectedItemsModified );
     }
 
     ReCreateAuxiliaryToolbar();
+    UpdateProperties();
 }
 
 
@@ -261,7 +291,7 @@ void PCB_BASE_EDIT_FRAME::SetObjectVisible( GAL_LAYER_ID aLayer, bool aVisible )
 
 COLOR_SETTINGS* PCB_BASE_EDIT_FRAME::GetColorSettings( bool aForceRefresh ) const
 {
-    return Pgm().GetSettingsManager().GetColorSettings( Settings().m_ColorTheme );
+    return Pgm().GetSettingsManager().GetColorSettings( GetPcbNewSettings()->m_ColorTheme );
 }
 
 
@@ -285,4 +315,18 @@ void PCB_BASE_EDIT_FRAME::handleActivateEvent( wxActivateEvent& aEvent )
         m_appearancePanel->RefreshCollapsiblePanes();
 }
 
+
+void PCB_BASE_EDIT_FRAME::onDarkModeToggle()
+{
+    m_appearancePanel->OnDarkModeToggle();
+}
+
+
+void PCB_BASE_EDIT_FRAME::UpdateProperties()
+{
+    if( !m_propertiesPanel || !m_propertiesPanel->IsShownOnScreen() )
+        return;
+
+    m_propertiesPanel->UpdateData();
+}
 

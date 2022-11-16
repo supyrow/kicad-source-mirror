@@ -20,6 +20,9 @@
 #ifndef VECTOR3_H_
 #define VECTOR3_H_
 
+#include <limits>
+#include <wx/debug.h>
+
 /**
  * Traits class for VECTOR2.
  */
@@ -55,31 +58,20 @@ public:
     static constexpr extended_type ECOORD_MAX = std::numeric_limits<extended_type>::max();
     static constexpr extended_type ECOORD_MIN = std::numeric_limits<extended_type>::min();
 
-    T x, y, z;
+    T x{};
+    T y{};
+    T z{};
 
-    /// Construct a 3D-vector with x, y = 0
-    VECTOR3();
+    /// Construct a 3D-vector with x, y, z = 0
+    VECTOR3() = default;
 
-    /// Construct a vector with given components x, y
+    /// Construct a vector with given components x, y, z
     VECTOR3( T x, T y, T z );
 
     /// Initializes a vector from another specialization. Beware of rounding
     /// issues.
     template <typename CastingType>
-    VECTOR3( const VECTOR3<CastingType>& aVec )
-    {
-        x = (T) aVec.x;
-        y = (T) aVec.y;
-        z = (T) aVec.z;
-    }
-
-    /// Copy a vector
-    VECTOR3( const VECTOR3<T>& aVec )
-    {
-        x = aVec.x;
-        y = aVec.y;
-        z = aVec.z;
-    }
+    VECTOR3( const VECTOR3<CastingType>& aVec );
 
     /**
      * Compute cross product of self with \a aVector
@@ -110,22 +102,24 @@ public:
 
     ///< Not equality operator
     bool operator!=( const VECTOR3<T>& aVector ) const;
+
+    VECTOR3<T>& operator*=( T val );
+    VECTOR3<T>& operator/=( T val );
 };
 
 
 template <class T>
-VECTOR3<T>::VECTOR3()
+VECTOR3<T>::VECTOR3( T aX, T aY, T aZ ) :
+        x( aX ), y( aY ), z( aZ )
 {
-    x = y = z = 0.0;
 }
 
 
 template <class T>
-VECTOR3<T>::VECTOR3( T aX, T aY, T aZ )
+template <typename CastingType>
+VECTOR3<T>::VECTOR3( const VECTOR3<CastingType>& aVec ) :
+        x( aVec.x ), y( aVec.y ), z( aVec.z )
 {
-    x = aX;
-    y = aY;
-    z = aZ;
 }
 
 
@@ -159,6 +153,9 @@ template <class T>
 VECTOR3<T> VECTOR3<T>::Normalize()
 {
     T norm = EuclideanNorm();
+
+    wxCHECK_MSG( norm > T( 0 ), *this, wxT( "Invalid element length 0" ) );
+
     x /= norm;
     y /= norm;
     z /= norm;
@@ -178,6 +175,28 @@ template <class T>
 bool VECTOR3<T>::operator!=( VECTOR3<T> const& aVector ) const
 {
     return ( aVector.x != x ) || ( aVector.y != y ) || ( aVector.z != z );
+}
+
+
+template <class T>
+VECTOR3<T>& VECTOR3<T>::operator*=( T aScalar )
+{
+    x = x * aScalar;
+    y = y * aScalar;
+    z = z * aScalar;
+
+    return *this;
+}
+
+
+template <class T>
+VECTOR3<T>& VECTOR3<T>::operator/=( T aScalar )
+{
+    x = x / aScalar;
+    y = y / aScalar;
+    z = z / aScalar;
+
+    return *this;
 }
 
 

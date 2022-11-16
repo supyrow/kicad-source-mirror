@@ -24,7 +24,6 @@ find_package( Boost COMPONENTS unit_test_framework filesystem system REQUIRED )
 set( QA_UTIL_COMMON_SRC
     stdstream_line_reader.cpp
     utility_program.cpp
-    mock_pgm.cpp
 
     geometry/line_chain_construction.cpp
     geometry/poly_set_construction.cpp
@@ -43,6 +42,7 @@ include_directories( BEFORE ${INC_BEFORE} )
 
 target_link_libraries( qa_utils
     common
+    turtle
     ${Boost_UNIT_TEST_FRAMEWORK_LIBRARY}
     ${Boost_FILESYSTEM_LIBRARY}
     ${Boost_SYSTEM_LIBRARY}

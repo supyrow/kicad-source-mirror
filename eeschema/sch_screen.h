@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2009 Jean-Pierre Charras, jaen-pierre.charras@gipsa-lab.inpg.com
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -49,6 +49,7 @@
 #include <sch_reference_list.h>
 #include <sch_rtree.h>
 #include <sch_sheet.h>
+#include <sch_text.h>
 #include <sch_sheet_path.h>
 
 class BUS_ALIAS;
@@ -60,6 +61,7 @@ class SCH_LINE;
 class SCH_LABEL_BASE;
 class PLOTTER;
 class REPORTER;
+class SCH_ALTIUM_PLUGIN;
 class SCH_EDIT_FRAME;
 class SCH_SHEET_LIST;
 class SCH_SEXPR_PARSER;
@@ -72,9 +74,6 @@ enum SCH_LINE_TEST_T
     EXCLUDE_END_POINTS_T
 };
 
-
-/// Max number of sheets in a hierarchy project
-#define NB_MAX_SHEET    500
 
 struct PICKED_SYMBOL
 {
@@ -102,8 +101,9 @@ public:
      * Gets the full RTree, usually for iterating.
      * N.B. The iteration order of the RTree is not readily apparent and will change
      * if/when you add or move items and the RTree is re-balanced.  Any exposure of the
-     * RTree contents to the user MUST be sorted before being presented.  See SCH_SEXPR_PLUGIN::Format
-     * or SCH_EDITOR_CONTROL::nextMatch for examples.
+     * RTree contents to the user MUST be sorted before being presented.  See
+     * SCH_SEXPR_PLUGIN::Format() or SCH_EDITOR_CONTROL::nextMatch() for examples.
+     *
      * @return Complete RTree of the screen's items
      */
     EE_RTREE& Items() { return m_rtree; }
@@ -301,7 +301,7 @@ public:
      *
      * @param aSegment The segment to test for connections.
      */
-    std::set<SCH_ITEM*> MarkConnections( SCH_LINE* aSegment );
+    std::set<SCH_ITEM*> MarkConnections( SCH_LINE* aSegment, bool aSecondPass );
 
     /**
      * Clear the state flags of all the items in the screen.
@@ -338,6 +338,9 @@ public:
      */
     bool IsExplicitJunctionNeeded( const VECTOR2I& aPosition ) const;
 
+    TEXT_SPIN_STYLE GetLabelOrientationForPoint( const VECTOR2I&       aPosition,
+                                                 TEXT_SPIN_STYLE       aDefaultOrientation,
+                                                 const SCH_SHEET_PATH* aSheet ) const;
     /**
      * Indicates that a juction dot may be placed at the given location.  See IsJunctionNeeded
      * for more info.
@@ -379,8 +382,10 @@ public:
      *
      * @param[in] aSheetPath The sheet path of the symbol annotation to clear.  If NULL then
      *                       the entire hierarchy is cleared.
+     * @param[in] aResetPrefix The annotation prefix ('R', 'U', etc.) should be reset to the
+     *                         symbol library prefix.
      */
-    void ClearAnnotation( SCH_SHEET_PATH* aSheetPath );
+    void ClearAnnotation( SCH_SHEET_PATH* aSheetPath, bool aResetPrefix );
 
     /**
      * For screens shared by many sheetpaths (complex hierarchies):
@@ -476,7 +481,7 @@ public:
     /**
      * Return a list of bus aliases defined in this screen
      */
-    std::unordered_set< std::shared_ptr<BUS_ALIAS> > GetBusAliases() const
+    std::set< std::shared_ptr<BUS_ALIAS> > GetBusAliases() const
     {
         return m_aliases;
     }
@@ -494,6 +499,16 @@ public:
     const KIID& GetUuid() const { return m_uuid; }
 
     void AssignNewUuid() { m_uuid = KIID(); }
+
+    /**
+     * Update the symbol value and footprint instance data for legacy designs.
+     */
+    void SetLegacySymbolInstanceData();
+
+    /**
+     * Check all symbol default instance to see if they are not set yet.
+     */
+    bool AllSymbolDefaultInstancesNotSet();
 
 #if defined(DEBUG)
     void Show( int nestLevel, std::ostream& os ) const override;
@@ -513,6 +528,7 @@ private:
     friend SCH_EDIT_FRAME;     // Only to populate m_symbolInstances.
     friend SCH_SEXPR_PARSER;   // Only to load instance information from schematic file.
     friend SCH_SEXPR_PLUGIN;   // Only to save the loaded instance information to schematic file.
+    friend SCH_ALTIUM_PLUGIN;
 
     void clearLibSymbols();
 
@@ -547,7 +563,7 @@ private:
     bool        m_fileExists;
 
     /// List of bus aliases stored in this screen.
-    std::unordered_set< std::shared_ptr< BUS_ALIAS > > m_aliases;
+    std::set< std::shared_ptr< BUS_ALIAS > > m_aliases;
 
     /// Library symbols required for this schematic.
     std::map<wxString, LIB_SYMBOL*> m_libSymbols;
@@ -712,6 +728,11 @@ public:
      * @return true if \a aSchematicFileName would cause an issue.
      */
     bool CanCauseCaseSensitivityIssue( const wxString& aSchematicFileName ) const;
+
+    /**
+     * Update the symbol value and footprint instance data for legacy designs.
+     */
+    void SetLegacySymbolInstanceData();
 
 private:
     void addScreenToList( SCH_SCREEN* aScreen, SCH_SHEET* aSheet );

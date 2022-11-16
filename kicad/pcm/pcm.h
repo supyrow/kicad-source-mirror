@@ -24,9 +24,11 @@
 #include "core/wx_stl_compat.h"
 #include "pcm_data.h"
 #include "widgets/wx_progress_reporters.h"
+#include <functional>
 #include <iostream>
 #include <map>
 #include <nlohmann/json-schema.hpp>
+#include <thread>
 #include <tuple>
 #include <unordered_map>
 #include <unordered_set>
@@ -55,7 +57,9 @@ enum PCM_PACKAGE_STATE
     PPS_UNAVAILABLE = 1,
     PPS_INSTALLED = 2,
     PPS_PENDING_INSTALL = 3,
-    PPS_PENDING_UNINSTALL = 4
+    PPS_PENDING_UNINSTALL = 4,
+    PPS_UPDATE_AVAILABLE = 5,
+    PPS_PENDING_UPDATE = 6,
 };
 
 
@@ -63,12 +67,16 @@ enum PCM_PACKAGE_STATE
 enum PCM_PACKAGE_ACTION
 {
     PPA_INSTALL = 0,
-    PPA_UNINSTALL = 1
+    PPA_UNINSTALL = 1,
+    PPA_UPDATE = 2,
 };
 
 
 typedef std::vector<std::pair<wxString, wxString>>            STRING_PAIR_LIST;
 typedef std::vector<std::tuple<wxString, wxString, wxString>> STRING_TUPLE_LIST;
+
+
+class STATUS_TEXT_REPORTER;
 
 
 /**
@@ -93,8 +101,16 @@ typedef std::vector<std::tuple<wxString, wxString, wxString>> STRING_TUPLE_LIST;
 class PLUGIN_CONTENT_MANAGER
 {
 public:
-    PLUGIN_CONTENT_MANAGER( wxWindow* aParent );
+    PLUGIN_CONTENT_MANAGER( std::function<void( int )>            aAvailableUpdateCallback,
+                            std::function<void( const wxString )> aStatusCallback );
     ~PLUGIN_CONTENT_MANAGER();
+
+    /**
+     * @brief Saves metadata of installed packages to disk
+     *
+     * Path is <user settings>/installed_packages.json
+     */
+    void SaveInstalledPackages();
 
     /**
      * @brief Fetches repository metadata from given url
@@ -106,7 +122,7 @@ public:
      * @return false if URL could not be downloaded or result could not be parsed
      */
     bool FetchRepository( const wxString& aUrl, PCM_REPOSITORY& aRepository,
-                          WX_PROGRESS_REPORTER* aReporter );
+                          PROGRESS_REPORTER* aReporter );
 
     /**
      * @brief Validates json against a specific definition in the PCM schema
@@ -225,6 +241,37 @@ public:
     PCM_PACKAGE_STATE GetPackageState( const wxString& aRepositoryId, const wxString& aPackageId );
 
     /**
+     * @brief Returns pinned status of a package
+     *
+     * @param aPackageId package id
+     * @return true if package is installed and is pinned
+     * @return false if package is not installed or not pinned
+     */
+    bool IsPackagePinned( const wxString& aPackageId ) const;
+
+    /**
+     * @brief Set the pinned status of a package
+     *
+     * no-op for not installed packages
+     *
+     * @param aPackageId package id
+     * @param aPinned pinned status
+     */
+    void SetPinned( const wxString& aPackageId, const bool aPinned );
+
+    /**
+     * @brief Get the preferred package update version or empty string if there is none
+     *
+     * Works only for installed packages and returns highest compatible version greater
+     * than currently installed that is at the same or higher (numerically lower)
+     * version stability level.
+     *
+     * @param aPackage package
+     * @return package version string
+     */
+    const wxString GetPackageUpdateVersion( const PCM_PACKAGE& aPackage );
+
+    /**
      * @brief Downloads url to an output stream
      *
      * @param aUrl URL to download
@@ -235,8 +282,8 @@ public:
      * @return false if download failed or was too large
      */
     bool DownloadToStream( const wxString& aUrl, std::ostream* aOutput,
-                           WX_PROGRESS_REPORTER* aReporter,
-                           const size_t          aSizeLimit = DEFAULT_DOWNLOAD_MEM_LIMIT );
+                           PROGRESS_REPORTER* aReporter,
+                           const size_t       aSizeLimit = DEFAULT_DOWNLOAD_MEM_LIMIT );
 
     /**
      * @brief Get the approximate measure of how much given package matches the search term
@@ -268,6 +315,32 @@ public:
      */
     std::unordered_map<wxString, wxBitmap> GetInstalledPackageBitmaps();
 
+    /**
+     * @brief Set the Dialog Window
+     *
+     * PCM can effectively run in "silent" mode with a background thread that
+     * reports to kicad manager window status bar. Setting valid window pointer here
+     * will switch it to GUI mode with WX_PROGRESS_DIALOG popup for downloads.
+     *
+     * @param aDialog parent dialog for progress window
+     */
+    void SetDialogWindow( wxWindow* aDialog ) { m_dialog = aDialog; };
+
+    /**
+     * @brief Runs a background update thread that checks for new package versions
+     */
+    void RunBackgroundUpdate();
+
+    /**
+     * @brief Interrupts and joins() the update thread
+     */
+    void StopBackgroundUpdate();
+
+    /**
+     * @brief Stores 3rdparty path from environment variables
+     */
+    void ReadEnvVar();
+
 private:
     ///< Default download limit of 10 Mb to not use too much memory
     static constexpr size_t DEFAULT_DOWNLOAD_MEM_LIMIT = 10 * 1024 * 1024;
@@ -281,8 +354,8 @@ private:
      * @param aReporter progress dialog to use for download
      * @return true if packages were successfully downloaded, verified and parsed
      */
-    bool fetchPackages( const wxString& aUrl, const boost::optional<wxString>& aHash,
-                        std::vector<PCM_PACKAGE>& aPackages, WX_PROGRESS_REPORTER* aReporter );
+    bool fetchPackages( const wxString& aUrl, const std::optional<wxString>& aHash,
+                        std::vector<PCM_PACKAGE>& aPackages, PROGRESS_REPORTER* aReporter );
 
     /**
      * @brief Get the cached repository metadata
@@ -291,6 +364,18 @@ private:
      * @return const PCM_REPOSITORY&
      */
     const PCM_REPOSITORY& getCachedRepository( const wxString& aRepositoryId ) const;
+
+    /**
+     * @brief Updates metadata of installed packages from freshly fetched repo
+     *
+     * This completely replaces all fields including description.
+     * Only exception is versions field, if currently installed version is missing
+     * from the repo metadata it is manually added back in to correctly display in the
+     * installed packages.
+     *
+     * @param aRepositoryId
+     */
+    void updateInstalledPackagesMetadata( const wxString& aRepositoryId );
 
     /**
      * @brief Parses version strings and calculates compatibility
@@ -313,7 +398,12 @@ private:
     STRING_TUPLE_LIST                            m_repository_list; // (id, name, url) tuples
     // Using sorted map to keep order of entries in installed list stable
     std::map<wxString, PCM_INSTALLATION_ENTRY> m_installed;
-    const static std::tuple<int, int>          m_kicad_version;
+    const static std::tuple<int, int, int>     m_kicad_version;
+    std::function<void( int )>                 m_availableUpdateCallback;
+    std::function<void( const wxString )>      m_statusCallback;
+    std::thread                                m_updateThread;
+
+    std::shared_ptr<STATUS_TEXT_REPORTER> m_statusReporter;
 };
 
 #endif // PCM_H_

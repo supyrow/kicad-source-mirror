@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2020 CERN
- * Copyright (C) 2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2021-2022 KiCad Developers, see AUTHORS.txt for contributors.
  * @author Jon Evans <jon@craftyjon.com>
  *
  * This program is free software: you can redistribute it and/or modify it
@@ -21,7 +21,6 @@
 
 #include <base_screen.h>
 #include <lib_symbol.h>
-#include <convert_to_biu.h>
 #include <default_values.h>
 #include <eeschema_settings.h>
 #include <kiface_base.h>
@@ -37,13 +36,13 @@ const int schSettingsSchemaVersion = 1;
 
 SCHEMATIC_SETTINGS::SCHEMATIC_SETTINGS( JSON_SETTINGS* aParent, const std::string& aPath ) :
         NESTED_SETTINGS( "schematic", schSettingsSchemaVersion, aParent, aPath ),
-        m_DefaultLineWidth( DEFAULT_LINE_WIDTH_MILS * IU_PER_MILS ),
-        m_DefaultTextSize( DEFAULT_TEXT_SIZE * IU_PER_MILS ),
+        m_DefaultLineWidth( DEFAULT_LINE_WIDTH_MILS * schIUScale.IU_PER_MILS ),
+        m_DefaultTextSize( DEFAULT_TEXT_SIZE * schIUScale.IU_PER_MILS ),
         m_LabelSizeRatio( DEFAULT_LABEL_SIZE_RATIO ),
         m_TextOffsetRatio( DEFAULT_TEXT_OFFSET_RATIO ),
-        m_PinSymbolSize( DEFAULT_TEXT_SIZE * IU_PER_MILS / 2 ),
+        m_PinSymbolSize( DEFAULT_TEXT_SIZE * schIUScale.IU_PER_MILS / 2 ),
         m_JunctionSizeChoice( 3 ),
-        m_JunctionSize( DEFAULT_JUNCTION_DIAM * IU_PER_MILS ),
+        m_JunctionSize( DEFAULT_JUNCTION_DIAM * schIUScale.IU_PER_MILS ),
         m_AnnotateStartNum( 0 ),
         m_IntersheetRefsShow( false ),
         m_IntersheetRefsListOwnPage( true ),
@@ -53,6 +52,10 @@ SCHEMATIC_SETTINGS::SCHEMATIC_SETTINGS( JSON_SETTINGS* aParent, const std::strin
         m_DashedLineDashRatio( 12.0 ),
         m_DashedLineGapRatio( 3.0 ),
         m_SpiceAdjustPassiveValues( false ),
+        m_SpiceCurSheetAsRoot( false ),
+        m_SpiceSaveAllVoltages( false ),
+        m_SpiceSaveAllCurrents( false ),
+        m_SpiceModelCurSheetAsRoot( true ),
         m_NgspiceSimulatorSettings( nullptr )
 {
     EESCHEMA_SETTINGS* appSettings = dynamic_cast<EESCHEMA_SETTINGS*>( Kiface().KifaceSettings() );
@@ -98,12 +101,12 @@ SCHEMATIC_SETTINGS::SCHEMATIC_SETTINGS( JSON_SETTINGS* aParent, const std::strin
             &m_DashedLineGapRatio, 3.0 ) );     // Default from ISO 128-2
 
     m_params.emplace_back( new PARAM_SCALED<int>( "drawing.default_line_thickness",
-            &m_DefaultLineWidth, Mils2iu( defaultLineThickness ), Mils2iu( 5 ), Mils2iu( 1000 ),
-            1 / IU_PER_MILS ) );
+            &m_DefaultLineWidth, schIUScale.MilsToIU( defaultLineThickness ), schIUScale.MilsToIU( 5 ), schIUScale.MilsToIU( 1000 ),
+            1 / schIUScale.IU_PER_MILS ) );
 
     m_params.emplace_back( new PARAM_SCALED<int>( "drawing.default_text_size",
-            &m_DefaultTextSize, Mils2iu( defaultTextSize ), Mils2iu( 5 ), Mils2iu( 1000 ),
-            1 / IU_PER_MILS ) );
+            &m_DefaultTextSize, schIUScale.MilsToIU( defaultTextSize ), schIUScale.MilsToIU( 5 ), schIUScale.MilsToIU( 1000 ),
+            1 / schIUScale.IU_PER_MILS ) );
 
     m_params.emplace_back( new PARAM<double>( "drawing.text_offset_ratio",
             &m_TextOffsetRatio, DEFAULT_TEXT_OFFSET_RATIO, 0.0, 2.0 ) );
@@ -112,8 +115,8 @@ SCHEMATIC_SETTINGS::SCHEMATIC_SETTINGS( JSON_SETTINGS* aParent, const std::strin
             &m_LabelSizeRatio, DEFAULT_LABEL_SIZE_RATIO, 0.0, 2.0 ) );
 
     m_params.emplace_back( new PARAM_SCALED<int>( "drawing.pin_symbol_size",
-            &m_PinSymbolSize, Mils2iu( defaultPinSymbolSize ), Mils2iu( 0 ), Mils2iu( 1000 ),
-            1 / IU_PER_MILS ) );
+            &m_PinSymbolSize, schIUScale.MilsToIU( defaultPinSymbolSize ), schIUScale.MilsToIU( 0 ), schIUScale.MilsToIU( 1000 ),
+            1 / schIUScale.IU_PER_MILS ) );
 
     // m_JunctionSize is only a run-time cache of the calculated size.  Do not save it.
 
@@ -195,6 +198,12 @@ SCHEMATIC_SETTINGS::SCHEMATIC_SETTINGS( JSON_SETTINGS* aParent, const std::strin
     m_params.emplace_back( new PARAM<bool>( "spice_adjust_passive_values",
             &m_SpiceAdjustPassiveValues, false ) );
 
+    m_params.emplace_back( new PARAM<bool>( "spice_save_all_voltages",
+            &m_SpiceSaveAllVoltages, false ) );
+
+    m_params.emplace_back( new PARAM<bool>( "spice_save_all_currents",
+            &m_SpiceSaveAllCurrents, false ) );
+
     m_params.emplace_back( new PARAM<wxString>( "spice_external_command",
             &m_SpiceCommandString, "spice \"%I\"" ) );
 
@@ -211,15 +220,16 @@ SCHEMATIC_SETTINGS::SCHEMATIC_SETTINGS( JSON_SETTINGS* aParent, const std::strin
     m_NgspiceSimulatorSettings =
         std::make_shared<NGSPICE_SIMULATOR_SETTINGS>( this, "ngspice" );
 
-    registerMigration( 0, 1, [&]() -> bool
-    {
-        OPT<double> tor = Get<double>( "drawing.text_offset_ratio" );
+    registerMigration( 0, 1,
+            [&]() -> bool
+            {
+                std::optional<double> tor = Get<double>( "drawing.text_offset_ratio" );
 
-        if( tor.is_initialized() )
-            Set( "drawing.label_size_ratio", tor.get() );
+                if( tor )
+                    Set( "drawing.label_size_ratio", *tor );
 
-        return true;
-    } );
+                return true;
+            } );
 }
 
 

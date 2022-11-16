@@ -53,6 +53,7 @@ public:
 
     void PrevMarker();
     void NextMarker();
+    void SelectMarker( const SCH_MARKER* aMarker );
 
     /**
      * Exclude aMarker from the ERC list. If aMarker is nullptr, exclude the selected marker
@@ -81,6 +82,8 @@ private:
     void OnSaveReport( wxCommandEvent& aEvent ) override;
     void OnCancelClick( wxCommandEvent& event ) override;
 
+    void centerMarkerIdleHandler( wxIdleEvent& aEvent );
+
     void redrawDrawPanel();
 
     void testErc();
@@ -94,15 +97,18 @@ private:
 
 private:
     SCH_EDIT_FRAME*    m_parent;
+    SCHEMATIC*         m_currentSchematic;
 
     wxString           m_violationsTitleTemplate;
     wxString           m_ignoredTitleTemplate;
 
-    RC_ITEMS_PROVIDER* m_markerProvider;
-    RC_TREE_MODEL*     m_markerTreeModel;
+    std::shared_ptr<RC_ITEMS_PROVIDER> m_markerProvider;
+    RC_TREE_MODEL*                     m_markerTreeModel;   // wx reference-counted ptr
 
     bool               m_running;
     bool               m_ercRun;
+
+    const SCH_MARKER*  m_centerMarkerOnIdle;
 
     int                m_severities;
 };

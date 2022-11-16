@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2015 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -55,7 +55,8 @@ class SCH_SHEET : public SCH_ITEM
 {
 public:
     SCH_SHEET( EDA_ITEM* aParent = nullptr, const VECTOR2I& aPos = VECTOR2I( 0, 0 ),
-               wxSize aSize = wxSize( Mils2iu( MIN_SHEET_WIDTH ), Mils2iu( MIN_SHEET_HEIGHT ) ),
+               wxSize aSize = wxSize( schIUScale.MilsToIU( MIN_SHEET_WIDTH ),
+                                      schIUScale.MilsToIU( MIN_SHEET_HEIGHT ) ),
                FIELDS_AUTOPLACED aAutoplaceFields = FIELDS_AUTOPLACED_AUTO );
 
     /**
@@ -95,10 +96,7 @@ public:
      *
      * @param aFields are the fields to set in this symbol.
      */
-    void SetFields( const std::vector<SCH_FIELD>& aFields )
-    {
-        m_fields = aFields;     // vector copying, length is changed possibly
-    }
+    void SetFields( const std::vector<SCH_FIELD>& aFields );
 
     wxString GetName() const { return m_fields[ SHEETNAME ].GetText(); }
 
@@ -115,18 +113,6 @@ public:
 
     KIGFX::COLOR4D GetBackgroundColor() const { return m_backgroundColor; }
     void SetBackgroundColor( KIGFX::COLOR4D aColor ) { m_backgroundColor = aColor; }
-
-    /**
-     * Test this sheet to see if the default stroke is used to draw the outline.
-     *
-     * The default stroke is defined as follows:
-     * * The outline width is the default line width or 0.
-     * * The outline style is set to #PLOT_DASH_TYPE::DEFAULT or #PLOT_DASH_TYPE::SOLID.
-     * * The outline color is set to #COLOR4D::UNSPECIFIED.
-     *
-     * @return True if the outline stroke meets the default criteria.
-     */
-    bool UsesDefaultStroke() const;
 
     /**
      * @return true if this sheet is the root sheet.
@@ -184,11 +170,7 @@ public:
     void AddPin( SCH_SHEET_PIN* aSheetPin );
 
     std::vector<SCH_SHEET_PIN*>& GetPins() { return m_pins; }
-
-    const std::vector<SCH_SHEET_PIN*>& GetPins() const
-    {
-        return m_pins;
-    }
+    const std::vector<SCH_SHEET_PIN*>& GetPins() const { return m_pins; }
 
     /**
      * Remove \a aSheetPin from the sheet.
@@ -263,9 +245,9 @@ public:
     /**
      * Return a bounding box for the sheet body but not the fields.
      */
-    const EDA_RECT GetBodyBoundingBox() const;
+    const BOX2I GetBodyBoundingBox() const;
 
-    const EDA_RECT GetBoundingBox() const override;
+    const BOX2I GetBoundingBox() const override;
 
     /**
      * Rotating around the boundingBox's center can cause walking when the sheetname or
@@ -335,7 +317,7 @@ public:
     void MirrorVertically( int aCenter ) override;
     void Rotate( const VECTOR2I& aCenter ) override;
 
-    bool Matches( const wxFindReplaceData& aSearchData, void* aAuxData ) const override;
+    bool Matches( const EDA_SEARCH_DATA& aSearchData, void* aAuxData ) const override;
 
     bool IsReplaceable() const override { return true; }
 
@@ -365,11 +347,12 @@ public:
 
     std::vector<VECTOR2I> GetConnectionPoints() const override;
 
-    SEARCH_RESULT Visit( INSPECTOR inspector, void* testData, const KICAD_T scanTypes[] ) override;
+    INSPECT_RESULT Visit( INSPECTOR inspector, void* testData,
+                          const std::vector<KICAD_T>& aScanTypes ) override;
 
     void RunOnChildren( const std::function<void( SCH_ITEM* )>& aFunction ) override;
 
-    wxString GetSelectMenuText( EDA_UNITS aUnits ) const override;
+    wxString GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const override;
 
     BITMAPS GetMenuImage() const override;
 
@@ -383,7 +366,7 @@ public:
     void     SetPosition( const VECTOR2I& aPosition ) override;
 
     bool HitTest( const VECTOR2I& aPosition, int aAccuracy ) const override;
-    bool HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy = 0 ) const override;
+    bool HitTest( const BOX2I& aRect, bool aContained, int aAccuracy = 0 ) const override;
 
     void Plot( PLOTTER* aPlotter, bool aBackground ) const override;
 
@@ -464,19 +447,27 @@ protected:
      */
     void renumberPins();
 
+    /**
+     * Get the sheetpath of this sheet.  NB: REQUIRES that the current sheet hierarchy contains
+     * the given sheet.
+     */
+    SCH_SHEET_PATH findSelf() const;
+
 private:
     bool doIsConnected( const VECTOR2I& aPosition ) const override;
 
     friend class SCH_SHEET_PIN;
 
-    SCH_SCREEN*   m_screen;     // Screen that contains the physical data for the sheet.  In
-                                // complex hierarchies multiple sheets can share a common screen.
+private:
+    SCH_SCREEN*                 m_screen;       // Screen that contains the physical data for the
+                                                // sheet.  In complex hierarchies multiple sheets
+                                                // can share a common screen.
 
-    std::vector<SCH_SHEET_PIN*> m_pins;               // The list of sheet connection points.
+    std::vector<SCH_SHEET_PIN*> m_pins;         // The list of sheet connection points.
     std::vector<SCH_FIELD>      m_fields;
 
-    VECTOR2I                    m_pos;                // The position of the sheet.
-    wxSize                      m_size;               // The size of the sheet.
+    VECTOR2I                    m_pos;          // The position of the sheet.
+    wxSize                      m_size;         // The size of the sheet.
     int                         m_borderWidth;
     KIGFX::COLOR4D              m_borderColor;
     KIGFX::COLOR4D              m_backgroundColor;

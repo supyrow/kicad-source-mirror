@@ -27,17 +27,22 @@
 #include <profile.h>
 #endif
 
-#include <thread>
 #include <algorithm>
 #include <future>
+#include <initializer_list>
 
 #include <connectivity/connectivity_data.h>
 #include <connectivity/connectivity_algo.h>
 #include <connectivity/from_to_cache.h>
-
+#include <project/net_settings.h>
+#include <board_design_settings.h>
+#include <geometry/shape_segment.h>
+#include <geometry/shape_circle.h>
 #include <ratsnest/ratsnest_data.h>
 #include <progress_reporter.h>
+#include <thread_pool.h>
 #include <trigo.h>
+#include <drc/drc_rtree.h>
 
 CONNECTIVITY_DATA::CONNECTIVITY_DATA()
 {
@@ -99,6 +104,8 @@ void CONNECTIVITY_DATA::Build( BOARD* aBoard, PROGRESS_REPORTER* aReporter )
         aReporter->KeepRefreshing( false );
     }
 
+    std::shared_ptr<NET_SETTINGS>& netSettings = aBoard->GetDesignSettings().m_NetSettings;
+
     m_connAlgo.reset( new CN_CONNECTIVITY_ALGO );
     m_connAlgo->Build( aBoard, aReporter );
 
@@ -106,6 +113,8 @@ void CONNECTIVITY_DATA::Build( BOARD* aBoard, PROGRESS_REPORTER* aReporter )
 
     for( NETINFO_ITEM* net : aBoard->GetNetInfo() )
     {
+        net->SetNetClass( netSettings->GetEffectiveNetClass( net->GetNetname() ) );
+
         if( net->GetNetClass()->GetName() != NETCLASS::Default )
             m_netclassMap[ net->GetNetCode() ] = net->GetNetClass()->GetName();
     }
@@ -152,7 +161,7 @@ void CONNECTIVITY_DATA::Move( const VECTOR2I& aDelta )
 void CONNECTIVITY_DATA::updateRatsnest()
 {
 #ifdef PROFILE
-    PROF_COUNTER rnUpdate( "update-ratsnest" );
+    PROF_TIMER rnUpdate( "update-ratsnest" );
 #endif
 
     std::vector<RN_NET*> dirty_nets;
@@ -165,35 +174,12 @@ void CONNECTIVITY_DATA::updateRatsnest()
                 return aNet->IsDirty() && aNet->GetNodeCount() > 0;
             } );
 
-    // We don't want to spin up a new thread for fewer than 8 nets (overhead costs)
-    size_t parallelThreadCount = std::min<size_t>( std::thread::hardware_concurrency(),
-                                                   ( dirty_nets.size() + 7 ) / 8 );
-
-    std::atomic<size_t> nextNet( 0 );
-    std::vector<std::future<size_t>> returns( parallelThreadCount );
-
-    auto update_lambda =
-            [this, &nextNet, &dirty_nets]() -> size_t
+    GetKiCadThreadPool().parallelize_loop( 0, dirty_nets.size(),
+            [&]( const int a, const int b)
             {
-                for( size_t i = nextNet++; i < dirty_nets.size(); i = nextNet++ )
-                    dirty_nets[i]->Update( m_exclusions );
-
-                return 1;
-            };
-
-    if( parallelThreadCount <= 1 )
-    {
-        update_lambda();
-    }
-    else
-    {
-        for( size_t ii = 0; ii < parallelThreadCount; ++ii )
-            returns[ii] = std::async( std::launch::async, update_lambda );
-
-        // Finalize the ratsnest threads
-        for( size_t ii = 0; ii < parallelThreadCount; ++ii )
-            returns[ii].wait();
-    }
+                for( int ii = a; ii < b; ++ii )
+                    dirty_nets[ii]->Update();
+            }).wait();
 
 #ifdef PROFILE
     rnUpdate.Show();
@@ -223,6 +209,11 @@ void CONNECTIVITY_DATA::RecalculateRatsnest( BOARD_COMMIT* aCommit  )
         for( unsigned int i = prevSize; i < m_nets.size(); i++ )
             m_nets[i] = new RN_NET;
     }
+    else
+    {
+        for( size_t ii = lastNet; ii < m_nets.size(); ++ii )
+            m_nets[ii]->Clear();
+    }
 
     const std::vector<std::shared_ptr<CN_CLUSTER>>& clusters = m_connAlgo->GetClusters();
 
@@ -249,9 +240,7 @@ void CONNECTIVITY_DATA::RecalculateRatsnest( BOARD_COMMIT* aCommit  )
         }
 
         if( m_connAlgo->IsNetDirty( net ) )
-        {
             addRatsnestCluster( c );
-        }
     }
 
     m_connAlgo->ClearDirtyFlags();
@@ -309,43 +298,58 @@ void CONNECTIVITY_DATA::FindIsolatedCopperIslands( ZONE* aZone, std::vector<int>
 #endif
 }
 
-void CONNECTIVITY_DATA::FindIsolatedCopperIslands( std::vector<CN_ZONE_ISOLATED_ISLAND_LIST>& aZones )
+void CONNECTIVITY_DATA::FindIsolatedCopperIslands( std::vector<CN_ZONE_ISOLATED_ISLAND_LIST>& aZones,
+                                                   bool aConnectivityAlreadyRebuilt )
 {
-    m_connAlgo->FindIsolatedCopperIslands( aZones );
+    m_connAlgo->FindIsolatedCopperIslands( aZones, aConnectivityAlreadyRebuilt );
 }
 
 
-void CONNECTIVITY_DATA::ComputeDynamicRatsnest( const std::vector<BOARD_ITEM*>& aItems,
-                                                const CONNECTIVITY_DATA* aDynamicData,
-                                                VECTOR2I aInternalOffset )
+void CONNECTIVITY_DATA::ComputeLocalRatsnest( const std::vector<BOARD_ITEM*>& aItems,
+                                              const CONNECTIVITY_DATA* aDynamicData,
+                                              VECTOR2I aInternalOffset )
 {
     if( !aDynamicData )
         return;
 
     m_dynamicRatsnest.clear();
+    std::mutex dynamic_ratsnest_mutex;
 
     // This gets connections between the stationary board and the
     // moving selection
-    for( unsigned int nc = 1; nc < aDynamicData->m_nets.size(); nc++ )
-    {
-        auto dynNet = aDynamicData->m_nets[nc];
 
-        if( dynNet->GetNodeCount() != 0 )
+    auto update_lambda = [&]( int nc )
+    {
+        RN_NET* dynamicNet = aDynamicData->m_nets[nc];
+        RN_NET* staticNet  = m_nets[nc];
+
+        /// We don't need to compute the dynamic ratsnest in two cases:
+        /// 1) We are not moving any net elements
+        /// 2) We are moving all net elements
+        if( dynamicNet->GetNodeCount() != 0
+                && dynamicNet->GetNodeCount() != staticNet->GetNodeCount() )
         {
-            RN_NET*  ourNet = m_nets[nc];
             VECTOR2I pos1, pos2;
 
-            if( ourNet->NearestBicoloredPair( *dynNet, &pos1, &pos2 ) )
+            if( staticNet->NearestBicoloredPair( dynamicNet, pos1, pos2 ) )
             {
                 RN_DYNAMIC_LINE l;
                 l.a = pos1;
                 l.b = pos2;
                 l.netCode = nc;
 
+                std::lock_guard<std::mutex> lock( dynamic_ratsnest_mutex );
                 m_dynamicRatsnest.push_back( l );
             }
         }
-    }
+    };
+
+    GetKiCadThreadPool().parallelize_loop( 1, aDynamicData->m_nets.size(),
+            [&]( const int a, const int b)
+            {
+                for( int ii = a; ii < b; ++ii )
+                    update_lambda( ii );
+            }).wait();
 
     // This gets the ratsnest for internal connections in the moving set
     const std::vector<CN_EDGE>& edges = GetRatsnestForItems( aItems );
@@ -365,17 +369,17 @@ void CONNECTIVITY_DATA::ComputeDynamicRatsnest( const std::vector<BOARD_ITEM*>& 
 }
 
 
-void CONNECTIVITY_DATA::ClearDynamicRatsnest()
+void CONNECTIVITY_DATA::ClearLocalRatsnest()
 {
     m_connAlgo->ForEachAnchor( []( CN_ANCHOR& anchor )
                                {
                                    anchor.SetNoLine( false );
                                } );
-    HideDynamicRatsnest();
+    HideLocalRatsnest();
 }
 
 
-void CONNECTIVITY_DATA::HideDynamicRatsnest()
+void CONNECTIVITY_DATA::HideLocalRatsnest()
 {
     m_dynamicRatsnest.clear();
 }
@@ -388,29 +392,80 @@ void CONNECTIVITY_DATA::PropagateNets( BOARD_COMMIT* aCommit, PROPAGATE_MODE aMo
 
 
 bool CONNECTIVITY_DATA::IsConnectedOnLayer( const BOARD_CONNECTED_ITEM *aItem, int aLayer,
-                                            std::vector<KICAD_T> aTypes ) const
+                                            const std::initializer_list<KICAD_T>& aTypes ) const
 {
     CN_CONNECTIVITY_ALGO::ITEM_MAP_ENTRY &entry = m_connAlgo->ItemEntry( aItem );
 
     auto matchType =
             [&]( KICAD_T aItemType )
             {
-                if( aTypes.empty() )
+                if( aTypes.size() == 0 )
                     return true;
 
-                return std::count( aTypes.begin(), aTypes.end(), aItemType ) > 0;
+                return alg::contains( aTypes, aItemType);
             };
 
     for( CN_ITEM* citem : entry.GetItems() )
     {
         for( CN_ITEM* connected : citem->ConnectedItems() )
         {
+            CN_ZONE_LAYER* zoneLayer = dynamic_cast<CN_ZONE_LAYER*>( connected );
+
             if( connected->Valid()
                     && connected->Layers().Overlaps( aLayer )
-                    && connected->Net() == aItem->GetNetCode()
-                    && matchType( connected->Parent()->Type() ) )
+                    && matchType( connected->Parent()->Type() )
+                    && connected->Net() == aItem->GetNetCode() )
             {
-                    return true;
+                if( aItem->Type() == PCB_PAD_T && zoneLayer )
+                {
+                    const PAD*    pad = static_cast<const PAD*>( aItem );
+                    ZONE*         zone = static_cast<ZONE*>( zoneLayer->Parent() );
+                    int           islandIdx = zoneLayer->SubpolyIndex();
+
+                    if( zone->IsFilled() )
+                    {
+                        const SHAPE_POLY_SET*   zoneFill = zone->GetFill( ToLAYER_ID( aLayer ) );
+                        const SHAPE_LINE_CHAIN& padHull = pad->GetEffectivePolygon()->Outline( 0 );
+
+                        for( const VECTOR2I& pt : zoneFill->COutline( islandIdx ).CPoints() )
+                        {
+                            // If the entire island is inside the pad's flashing then the pad
+                            // won't actually connect to anything else, so only return true if
+                            // part of the island is *outside* the pad's flashing.
+
+                            if( !padHull.PointInside( pt ) )
+                                return true;
+                        }
+                    }
+
+                    continue;
+                }
+                else if( aItem->Type() == PCB_VIA_T && zoneLayer )
+                {
+                    const PCB_VIA* via = static_cast<const PCB_VIA*>( aItem );
+                    ZONE*          zone = static_cast<ZONE*>( zoneLayer->Parent() );
+                    int            islandIdx = zoneLayer->SubpolyIndex();
+
+                    if( zone->IsFilled() )
+                    {
+                        const SHAPE_POLY_SET* zoneFill = zone->GetFill( ToLAYER_ID( aLayer ) );
+                        SHAPE_CIRCLE          viaHull( via->GetCenter(), via->GetWidth() / 2 );
+
+                        for( const VECTOR2I& pt : zoneFill->COutline( islandIdx ).CPoints() )
+                        {
+                            // If the entire island is inside the via's flashing then the via
+                            // won't actually connect to anything else, so only return true if
+                            // part of the island is *outside* the via's flashing.
+
+                            if( !viaHull.SHAPE::Collide( pt ) )
+                                return true;
+                        }
+                    }
+
+                    continue;
+                }
+
+                return true;
             }
         }
     }
@@ -419,7 +474,7 @@ bool CONNECTIVITY_DATA::IsConnectedOnLayer( const BOARD_CONNECTED_ITEM *aItem, i
 }
 
 
-unsigned int CONNECTIVITY_DATA::GetUnconnectedCount() const
+unsigned int CONNECTIVITY_DATA::GetUnconnectedCount( bool aVisibleOnly ) const
 {
     unsigned int unconnected = 0;
 
@@ -430,7 +485,7 @@ unsigned int CONNECTIVITY_DATA::GetUnconnectedCount() const
 
         for( const CN_EDGE& edge : net->GetEdges() )
         {
-            if( edge.IsVisible() )
+            if( edge.IsVisible() || !aVisibleOnly )
                 ++unconnected;
         }
     }
@@ -449,12 +504,10 @@ void CONNECTIVITY_DATA::Clear()
 
 
 const std::vector<BOARD_CONNECTED_ITEM*>
-CONNECTIVITY_DATA::GetConnectedItems( const BOARD_CONNECTED_ITEM* aItem, const KICAD_T aTypes[],
+CONNECTIVITY_DATA::GetConnectedItems( const BOARD_CONNECTED_ITEM *aItem,
+                                      const std::initializer_list<KICAD_T>& aTypes,
                                       bool aIgnoreNetcodes ) const
 {
-    constexpr KICAD_T types[] = { PCB_TRACE_T, PCB_ARC_T, PCB_PAD_T, PCB_VIA_T, PCB_ZONE_T,
-                                  PCB_FOOTPRINT_T, EOT };
-
     std::vector<BOARD_CONNECTED_ITEM*> rv;
     CN_CONNECTIVITY_ALGO::CLUSTER_SEARCH_MODE searchMode;
 
@@ -463,7 +516,7 @@ CONNECTIVITY_DATA::GetConnectedItems( const BOARD_CONNECTED_ITEM* aItem, const K
     else
         searchMode = CN_CONNECTIVITY_ALGO::CSM_CONNECTIVITY_CHECK;
 
-    const auto clusters = m_connAlgo->SearchClusters( searchMode, types,
+    const auto clusters = m_connAlgo->SearchClusters( searchMode, aTypes,
                                                       aIgnoreNetcodes ? -1 : aItem->GetNetCode() );
 
     for( const std::shared_ptr<CN_CLUSTER>& cl : clusters )
@@ -482,24 +535,26 @@ CONNECTIVITY_DATA::GetConnectedItems( const BOARD_CONNECTED_ITEM* aItem, const K
 }
 
 
-const std::vector<BOARD_CONNECTED_ITEM*> CONNECTIVITY_DATA::GetNetItems( int aNetCode,
-        const KICAD_T aTypes[] ) const
+const std::vector<BOARD_CONNECTED_ITEM*>
+CONNECTIVITY_DATA::GetNetItems( int aNetCode, const std::initializer_list<KICAD_T>& aTypes ) const
 {
     std::vector<BOARD_CONNECTED_ITEM*> items;
     items.reserve( 32 );
 
     std::bitset<MAX_STRUCT_TYPE_ID> type_bits;
 
-    for( unsigned int i = 0; aTypes[i] != EOT; ++i )
+    for( KICAD_T scanType : aTypes )
     {
-        wxASSERT( aTypes[i] < MAX_STRUCT_TYPE_ID );
-        type_bits.set( aTypes[i] );
+        wxASSERT( scanType < MAX_STRUCT_TYPE_ID );
+        type_bits.set( scanType );
     }
 
-    m_connAlgo->ForEachItem( [&]( CN_ITEM& aItem ) {
-        if( aItem.Valid() && ( aItem.Net() == aNetCode ) && type_bits[aItem.Parent()->Type()] )
-            items.push_back( aItem.Parent() );
-    } );
+    m_connAlgo->ForEachItem(
+            [&]( CN_ITEM& aItem )
+            {
+                if( aItem.Valid() && ( aItem.Net() == aNetCode ) && type_bits[aItem.Parent()->Type()] )
+                    items.push_back( aItem.Parent() );
+            } );
 
     std::sort( items.begin(), items.end() );
     items.erase( std::unique( items.begin(), items.end() ), items.end() );
@@ -507,35 +562,10 @@ const std::vector<BOARD_CONNECTED_ITEM*> CONNECTIVITY_DATA::GetNetItems( int aNe
 }
 
 
-bool CONNECTIVITY_DATA::CheckConnectivity( std::vector<CN_DISJOINT_NET_ENTRY>& aReport )
+const std::vector<PCB_TRACK*>
+CONNECTIVITY_DATA::GetConnectedTracks( const BOARD_CONNECTED_ITEM* aItem ) const
 {
-    RecalculateRatsnest();
-
-    for( auto net : m_nets )
-    {
-        if( net )
-        {
-            for( const auto& edge : net->GetEdges() )
-            {
-                CN_DISJOINT_NET_ENTRY ent;
-                ent.net = edge.GetSourceNode()->Parent()->GetNetCode();
-                ent.a   = edge.GetSourceNode()->Parent();
-                ent.b   = edge.GetTargetNode()->Parent();
-                ent.anchorA = edge.GetSourceNode()->Pos();
-                ent.anchorB = edge.GetTargetNode()->Pos();
-                aReport.push_back( ent );
-            }
-        }
-    }
-
-    return aReport.empty();
-}
-
-
-const std::vector<PCB_TRACK*> CONNECTIVITY_DATA::GetConnectedTracks(
-                                                        const BOARD_CONNECTED_ITEM* aItem ) const
-{
-    auto& entry = m_connAlgo->ItemEntry( aItem );
+    CN_CONNECTIVITY_ALGO::ITEM_MAP_ENTRY& entry = m_connAlgo->ItemEntry( aItem );
 
     std::set<PCB_TRACK*> tracks;
     std::vector<PCB_TRACK*> rv;
@@ -548,7 +578,9 @@ const std::vector<PCB_TRACK*> CONNECTIVITY_DATA::GetConnectedTracks(
                     ( connected->Parent()->Type() == PCB_TRACE_T ||
                             connected->Parent()->Type() == PCB_VIA_T ||
                             connected->Parent()->Type() == PCB_ARC_T ) )
+            {
                 tracks.insert( static_cast<PCB_TRACK*> ( connected->Parent() ) );
+            }
         }
     }
 
@@ -621,14 +653,17 @@ unsigned int CONNECTIVITY_DATA::GetPadCount( int aNet ) const
 }
 
 
-void CONNECTIVITY_DATA::GetUnconnectedEdges( std::vector<CN_EDGE>& aEdges) const
+void CONNECTIVITY_DATA::RunOnUnconnectedEdges( std::function<bool( CN_EDGE& )> aFunc )
 {
-    for( const RN_NET* rnNet : m_nets )
+    for( RN_NET* rnNet : m_nets )
     {
         if( rnNet )
         {
-            for( const CN_EDGE& edge : rnNet->GetEdges() )
-                aEdges.push_back( edge );
+            for( CN_EDGE& edge : rnNet->GetEdges() )
+            {
+                if( !aFunc( edge ) )
+                    return;
+            }
         }
     }
 }
@@ -684,14 +719,32 @@ bool CONNECTIVITY_DATA::TestTrackEndpointDangling( PCB_TRACK* aTrack, VECTOR2I* 
         for( CN_ITEM* connected : citem->ConnectedItems() )
         {
             BOARD_CONNECTED_ITEM* item = connected->Parent();
+            ZONE*                 zone = dynamic_cast<ZONE*>( item );
+            DRC_RTREE*            rtree = nullptr;
+            bool                  hitStart = false;
+            bool                  hitEnd = false;
 
             if( item->GetFlags() & IS_DELETED )
                 continue;
 
-            std::shared_ptr<SHAPE> shape = item->GetEffectiveShape( layer );
+            if( zone )
+                rtree = zone->GetBoard()->m_CopperZoneRTreeCache[ zone ].get();
 
-            bool hitStart = shape->Collide( aTrack->GetStart(), accuracy );
-            bool hitEnd = shape->Collide( aTrack->GetEnd(), accuracy );
+            if( rtree )
+            {
+                SHAPE_CIRCLE start( aTrack->GetStart(), accuracy );
+                SHAPE_CIRCLE end( aTrack->GetEnd(), accuracy );
+
+                hitStart = rtree->QueryColliding( start.BBox(), &start, layer );
+                hitEnd = rtree->QueryColliding( end.BBox(), &end, layer );
+            }
+            else
+            {
+                std::shared_ptr<SHAPE> shape = item->GetEffectiveShape( layer );
+
+                hitStart = shape->Collide( aTrack->GetStart(), accuracy );
+                hitEnd = shape->Collide( aTrack->GetEnd(), accuracy );
+            }
 
             if( hitStart && hitEnd )
             {
@@ -760,27 +813,27 @@ bool CONNECTIVITY_DATA::TestTrackEndpointDangling( PCB_TRACK* aTrack, VECTOR2I* 
 }
 
 
-const std::vector<BOARD_CONNECTED_ITEM*> CONNECTIVITY_DATA::GetConnectedItemsAtAnchor(
-        const BOARD_CONNECTED_ITEM* aItem,
-        const VECTOR2I& aAnchor,
-        const KICAD_T aTypes[],
-        const int& aMaxError ) const
+const std::vector<BOARD_CONNECTED_ITEM*>
+CONNECTIVITY_DATA::GetConnectedItemsAtAnchor( const BOARD_CONNECTED_ITEM* aItem,
+                                              const VECTOR2I& aAnchor,
+                                              const std::initializer_list<KICAD_T>& aTypes,
+                                              const int& aMaxError ) const
 {
-    auto&                              entry = m_connAlgo->ItemEntry( aItem );
-    std::vector<BOARD_CONNECTED_ITEM*> rv;
-    SEG::ecoord                        maxErrorSq = (SEG::ecoord) aMaxError * aMaxError;
+    CN_CONNECTIVITY_ALGO::ITEM_MAP_ENTRY& entry = m_connAlgo->ItemEntry( aItem );
+    std::vector<BOARD_CONNECTED_ITEM*>    rv;
+    SEG::ecoord                           maxError_sq = (SEG::ecoord) aMaxError * aMaxError;
 
-    for( auto cnItem : entry.GetItems() )
+    for( CN_ITEM* cnItem : entry.GetItems() )
     {
-        for( auto connected : cnItem->ConnectedItems() )
+        for( CN_ITEM* connected : cnItem->ConnectedItems() )
         {
-            for( auto anchor : connected->Anchors() )
+            for( const std::shared_ptr<CN_ANCHOR>& anchor : connected->Anchors() )
             {
-                if( ( anchor->Pos() - aAnchor ).SquaredEuclideanNorm() <= maxErrorSq )
+                if( ( anchor->Pos() - aAnchor ).SquaredEuclideanNorm() <= maxError_sq )
                 {
-                    for( int i = 0; aTypes[i] > 0; i++ )
+                    for( KICAD_T type : aTypes )
                     {
-                        if( connected->Valid() && connected->Parent()->Type() == aTypes[i] )
+                        if( connected->Valid() && connected->Parent()->Type() == type )
                         {
                             rv.push_back( connected->Parent() );
                             break;
@@ -826,48 +879,6 @@ void CONNECTIVITY_DATA::SetProgressReporter( PROGRESS_REPORTER* aReporter )
 {
     m_progressReporter = aReporter;
     m_connAlgo->SetProgressReporter( m_progressReporter );
-}
-
-
-void CONNECTIVITY_DATA::AddExclusion( const KIID& aBoardItemId1, const KIID& aBoardItemId2 )
-{
-    m_exclusions.emplace( aBoardItemId1, aBoardItemId2 );
-    m_exclusions.emplace( aBoardItemId2, aBoardItemId1 );
-
-    for( RN_NET* rnNet : m_nets )
-    {
-        for( CN_EDGE& edge : rnNet->GetEdges() )
-        {
-            if( ( edge.GetSourceNode()->Parent()->m_Uuid == aBoardItemId1
-                    && edge.GetTargetNode()->Parent()->m_Uuid == aBoardItemId2 )
-             || ( edge.GetSourceNode()->Parent()->m_Uuid == aBoardItemId2
-                    && edge.GetTargetNode()->Parent()->m_Uuid == aBoardItemId1 ) )
-            {
-                edge.SetVisible( false );
-            }
-        }
-    }
-}
-
-
-void CONNECTIVITY_DATA::RemoveExclusion( const KIID& aBoardItemId1, const KIID& aBoardItemId2 )
-{
-    m_exclusions.erase( std::pair<KIID, KIID>( aBoardItemId1, aBoardItemId2 ) );
-    m_exclusions.erase( std::pair<KIID, KIID>( aBoardItemId2, aBoardItemId1 ) );
-
-    for( RN_NET* rnNet : m_nets )
-    {
-        for( CN_EDGE& edge : rnNet->GetEdges() )
-        {
-            if( ( edge.GetSourceNode()->Parent()->m_Uuid == aBoardItemId1
-                    && edge.GetTargetNode()->Parent()->m_Uuid == aBoardItemId2 )
-             || ( edge.GetSourceNode()->Parent()->m_Uuid == aBoardItemId2
-                    && edge.GetTargetNode()->Parent()->m_Uuid == aBoardItemId1 ) )
-            {
-                edge.SetVisible( true );
-            }
-        }
-    }
 }
 
 
@@ -941,7 +952,7 @@ const std::vector<CN_EDGE> CONNECTIVITY_DATA::GetRatsnestForComponent( FOOTPRINT
     std::set<const PAD*> pads;
     std::vector<CN_EDGE> edges;
 
-    for( auto pad : aComponent->Pads() )
+    for( PAD* pad : aComponent->Pads() )
     {
         nets.insert( pad->GetNetCode() );
         pads.insert( pad );

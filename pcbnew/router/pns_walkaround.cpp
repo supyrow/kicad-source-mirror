@@ -19,7 +19,7 @@
  * with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <core/optional.h>
+#include <optional>
 
 #include <geometry/shape_line_chain.h>
 
@@ -28,6 +28,8 @@
 #include "pns_utils.h"
 #include "pns_router.h"
 #include "pns_debug_decorator.h"
+#include "pns_solid.h"
+
 
 namespace PNS {
 
@@ -41,7 +43,7 @@ void WALKAROUND::start( const LINE& aInitialPath )
 NODE::OPT_OBSTACLE WALKAROUND::nearestObstacle( const LINE& aPath )
 {
     NODE::OPT_OBSTACLE obs = m_world->NearestObstacle(
-            &aPath, m_itemMask, m_restrictedSet.empty() ? nullptr : &m_restrictedSet );
+            &aPath, m_itemMask, m_restrictedSet.empty() ? nullptr : &m_restrictedSet, false );
 
     if( m_restrictedSet.empty() )
         return obs;
@@ -53,9 +55,28 @@ NODE::OPT_OBSTACLE WALKAROUND::nearestObstacle( const LINE& aPath )
 }
 
 
+void WALKAROUND::RestrictToSet( bool aEnabled, const std::set<ITEM*>& aSet )
+{
+    m_restrictedVertices.clear();
+
+    if( aEnabled )
+        m_restrictedSet = aSet;
+    else
+        m_restrictedSet.clear();
+
+    for( auto item : aSet )
+    {
+        if( auto solid = dyn_cast<SOLID*>( item ) )
+        {
+            m_restrictedVertices.push_back( solid->Anchor( 0 ) );
+        }
+    }
+}
+
+
 WALKAROUND::WALKAROUND_STATUS WALKAROUND::singleStep( LINE& aPath, bool aWindingDirection )
 {
-    OPT<OBSTACLE>& current_obs =
+    std::optional<OBSTACLE>& current_obs =
         aWindingDirection ? m_currentObstacle[0] : m_currentObstacle[1];
 
     if( !current_obs )
@@ -67,14 +88,10 @@ WALKAROUND::WALKAROUND_STATUS WALKAROUND::singleStep( LINE& aPath, bool aWinding
 
     bool s_cw = aPath.Walkaround( current_obs->m_hull, path_walk, aWindingDirection );
 
-    PNS_DBG( Dbg(), BeginGroup, "hull/walk" );
-    char name[128];
-    snprintf( name, sizeof( name ), "hull-%s-%d", aWindingDirection ? "cw" : "ccw", m_iteration );
-    PNS_DBG( Dbg(), AddLine, current_obs->m_hull, RED, 1, name );
-    snprintf( name, sizeof( name ), "path-%s-%d", aWindingDirection ? "cw" : "ccw", m_iteration );
-    PNS_DBG( Dbg(), AddLine, aPath.CLine(), GREEN, 1, name );
-    snprintf( name, sizeof( name ), "result-%s-%d", aWindingDirection ? "cw" : "ccw", m_iteration );
-    PNS_DBG( Dbg(), AddLine, path_walk, BLUE, 10000, name );
+    PNS_DBG( Dbg(), BeginGroup, "hull/walk", 1 );
+    PNS_DBG( Dbg(), AddShape, &current_obs->m_hull, RED, 0, wxString::Format( "hull-%s-%d", aWindingDirection ? wxT( "cw" ) : wxT( "ccw" ), m_iteration ) );
+    PNS_DBG( Dbg(), AddShape, &aPath.CLine(), GREEN, 0, wxString::Format( "path-%s-%d", aWindingDirection ? wxT( "cw" ) : wxT( "ccw" ), m_iteration ) );
+    PNS_DBG( Dbg(), AddShape, &path_walk, BLUE, 0, wxString::Format( "result-%s-%d", aWindingDirection ? wxT( "cw" ) : wxT( "ccw" ), m_iteration ) );
     PNS_DBG( Dbg(), Message, wxString::Format( wxT( "Stat cw %d" ), !!s_cw ) );
     PNS_DBGN( Dbg(), EndGroup );
 
@@ -115,7 +132,6 @@ const WALKAROUND::RESULT WALKAROUND::Route( const LINE& aInitialPath )
     start( aInitialPath );
 
     m_currentObstacle[0] = m_currentObstacle[1] = nearestObstacle( aInitialPath );
-    m_recursiveBlockageCount = 0;
 
     result.lineCw = aInitialPath;
     result.lineCcw = aInitialPath;
@@ -124,11 +140,6 @@ const WALKAROUND::RESULT WALKAROUND::Route( const LINE& aInitialPath )
     {
         s_cw = m_forceCw ? IN_PROGRESS : STUCK;
         s_ccw = m_forceCw ? STUCK : IN_PROGRESS;
-        m_forceSingleDirection = true;
-    }
-    else
-    {
-        m_forceSingleDirection = false;
     }
 
     // In some situations, there isn't a trivial path (or even a path at all).  Hitting the
@@ -162,7 +173,7 @@ const WALKAROUND::RESULT WALKAROUND::Route( const LINE& aInitialPath )
             break;
 
         // Safety valve
-        if( path_cw.Line().Length() > lengthLimit && path_ccw.Line().Length() > lengthLimit )
+        if( m_lengthLimitOn && path_cw.Line().Length() > lengthLimit && path_ccw.Line().Length() > lengthLimit )
             break;
 
         m_iteration++;
@@ -202,6 +213,9 @@ const WALKAROUND::RESULT WALKAROUND::Route( const LINE& aInitialPath )
         result.statusCcw = ALMOST_DONE;
     }
 
+    result.lineCw.ClearLinks();
+    result.lineCcw.ClearLinks();
+
     return result;
 }
 
@@ -227,7 +241,6 @@ WALKAROUND::WALKAROUND_STATUS WALKAROUND::Route( const LINE& aInitialPath, LINE&
     start( aInitialPath );
 
     m_currentObstacle[0] = m_currentObstacle[1] = nearestObstacle( aInitialPath );
-    m_recursiveBlockageCount = 0;
 
     aWalkPath = aInitialPath;
 
@@ -235,11 +248,6 @@ WALKAROUND::WALKAROUND_STATUS WALKAROUND::Route( const LINE& aInitialPath, LINE&
     {
         s_cw = m_forceCw ? IN_PROGRESS : STUCK;
         s_ccw = m_forceCw ? STUCK : IN_PROGRESS;
-        m_forceSingleDirection = true;
-    }
-    else
-    {
-        m_forceSingleDirection = false;
     }
 
     while( m_iteration < m_iterationLimit )

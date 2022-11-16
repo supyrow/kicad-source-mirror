@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////
-// C++ code generated with wxFormBuilder (version Oct 26 2018)
+// C++ code generated with wxFormBuilder (version 3.10.1-0-g8feb16b3)
 // http://www.wxformbuilder.org/
 //
 // PLEASE DO *NOT* EDIT THIS FILE!
@@ -25,12 +25,21 @@ PANEL_PACKAGES_VIEW_BASE::PANEL_PACKAGES_VIEW_BASE( wxWindow* parent, wxWindowID
 	wxBoxSizer* bPanelListSizer;
 	bPanelListSizer = new wxBoxSizer( wxVERTICAL );
 
+	wxBoxSizer* bSizer8;
+	bSizer8 = new wxBoxSizer( wxHORIZONTAL );
+
 	m_searchCtrl = new wxSearchCtrl( m_panelList, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, 0 );
 	#ifndef __WXMAC__
 	m_searchCtrl->ShowSearchButton( true );
 	#endif
 	m_searchCtrl->ShowCancelButton( false );
-	bPanelListSizer->Add( m_searchCtrl, 0, wxEXPAND|wxALL, 5 );
+	bSizer8->Add( m_searchCtrl, 1, wxEXPAND|wxALL, 5 );
+
+	m_buttonUpdateAll = new wxButton( m_panelList, wxID_ANY, _("Update All"), wxDefaultPosition, wxDefaultSize, 0 );
+	bSizer8->Add( m_buttonUpdateAll, 0, wxBOTTOM|wxRIGHT|wxTOP, 5 );
+
+
+	bPanelListSizer->Add( bSizer8, 0, wxEXPAND, 5 );
 
 	m_packageListWindow = new wxScrolledWindow( m_panelList, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxBORDER_NONE|wxFULL_REPAINT_ON_RESIZE|wxVSCROLL );
 	m_packageListWindow->SetScrollRate( 5, 5 );
@@ -78,12 +87,12 @@ PANEL_PACKAGES_VIEW_BASE::PANEL_PACKAGES_VIEW_BASE( wxWindow* parent, wxWindowID
 	m_gridVersions->AutoSizeColumns();
 	m_gridVersions->EnableDragColMove( false );
 	m_gridVersions->EnableDragColSize( true );
-	m_gridVersions->SetColLabelSize( 22 );
 	m_gridVersions->SetColLabelValue( 0, _("Version") );
 	m_gridVersions->SetColLabelValue( 1, _("Download Size") );
 	m_gridVersions->SetColLabelValue( 2, _("Install Size") );
 	m_gridVersions->SetColLabelValue( 3, _("Compatible") );
 	m_gridVersions->SetColLabelValue( 4, _("Status") );
+	m_gridVersions->SetColLabelSize( 22 );
 	m_gridVersions->SetColLabelAlignment( wxALIGN_CENTER, wxALIGN_CENTER );
 
 	// Rows
@@ -109,8 +118,8 @@ PANEL_PACKAGES_VIEW_BASE::PANEL_PACKAGES_VIEW_BASE( wxWindow* parent, wxWindowID
 	m_buttonDownload = new wxButton( m_infoScrollWindow, wxID_ANY, _("Download"), wxDefaultPosition, wxDefaultSize, 0 );
 	bSizerVersionButtons->Add( m_buttonDownload, 0, wxALIGN_CENTER_VERTICAL|wxALL, 5 );
 
-	m_buttonInstall = new wxButton( m_infoScrollWindow, wxID_ANY, _("Install"), wxDefaultPosition, wxDefaultSize, 0 );
-	bSizerVersionButtons->Add( m_buttonInstall, 0, wxALIGN_CENTER_VERTICAL|wxTOP|wxBOTTOM|wxLEFT, 5 );
+	m_buttonAction = new wxButton( m_infoScrollWindow, wxID_ANY, _("Install"), wxDefaultPosition, wxDefaultSize, 0 );
+	bSizerVersionButtons->Add( m_buttonAction, 0, wxALIGN_CENTER_VERTICAL|wxTOP|wxBOTTOM|wxLEFT, 5 );
 
 
 	m_sizerVersions->Add( bSizerVersionButtons, 0, wxEXPAND|wxRIGHT, 5 );
@@ -137,24 +146,26 @@ PANEL_PACKAGES_VIEW_BASE::PANEL_PACKAGES_VIEW_BASE( wxWindow* parent, wxWindowID
 	bSizer1->Fit( this );
 
 	// Connect Events
+	m_buttonUpdateAll->Connect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( PANEL_PACKAGES_VIEW_BASE::OnUpdateAllClicked ), NULL, this );
 	m_infoScrollWindow->Connect( wxEVT_SIZE, wxSizeEventHandler( PANEL_PACKAGES_VIEW_BASE::OnSizeInfoBox ), NULL, this );
 	m_infoText->Connect( wxEVT_COMMAND_HTML_LINK_CLICKED, wxHtmlLinkEventHandler( PANEL_PACKAGES_VIEW_BASE::OnURLClicked ), NULL, this );
 	m_infoText->Connect( wxEVT_MOUSEWHEEL, wxMouseEventHandler( PANEL_PACKAGES_VIEW_BASE::OnInfoMouseWheel ), NULL, this );
 	m_gridVersions->Connect( wxEVT_GRID_CELL_LEFT_CLICK, wxGridEventHandler( PANEL_PACKAGES_VIEW_BASE::OnVersionsCellClicked ), NULL, this );
 	m_showAllVersions->Connect( wxEVT_COMMAND_CHECKBOX_CLICKED, wxCommandEventHandler( PANEL_PACKAGES_VIEW_BASE::OnShowAllVersionsClicked ), NULL, this );
 	m_buttonDownload->Connect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( PANEL_PACKAGES_VIEW_BASE::OnDownloadVersionClicked ), NULL, this );
-	m_buttonInstall->Connect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( PANEL_PACKAGES_VIEW_BASE::OnInstallVersionClicked ), NULL, this );
+	m_buttonAction->Connect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( PANEL_PACKAGES_VIEW_BASE::OnVersionActionClicked ), NULL, this );
 }
 
 PANEL_PACKAGES_VIEW_BASE::~PANEL_PACKAGES_VIEW_BASE()
 {
 	// Disconnect Events
+	m_buttonUpdateAll->Disconnect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( PANEL_PACKAGES_VIEW_BASE::OnUpdateAllClicked ), NULL, this );
 	m_infoScrollWindow->Disconnect( wxEVT_SIZE, wxSizeEventHandler( PANEL_PACKAGES_VIEW_BASE::OnSizeInfoBox ), NULL, this );
 	m_infoText->Disconnect( wxEVT_COMMAND_HTML_LINK_CLICKED, wxHtmlLinkEventHandler( PANEL_PACKAGES_VIEW_BASE::OnURLClicked ), NULL, this );
 	m_infoText->Disconnect( wxEVT_MOUSEWHEEL, wxMouseEventHandler( PANEL_PACKAGES_VIEW_BASE::OnInfoMouseWheel ), NULL, this );
 	m_gridVersions->Disconnect( wxEVT_GRID_CELL_LEFT_CLICK, wxGridEventHandler( PANEL_PACKAGES_VIEW_BASE::OnVersionsCellClicked ), NULL, this );
 	m_showAllVersions->Disconnect( wxEVT_COMMAND_CHECKBOX_CLICKED, wxCommandEventHandler( PANEL_PACKAGES_VIEW_BASE::OnShowAllVersionsClicked ), NULL, this );
 	m_buttonDownload->Disconnect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( PANEL_PACKAGES_VIEW_BASE::OnDownloadVersionClicked ), NULL, this );
-	m_buttonInstall->Disconnect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( PANEL_PACKAGES_VIEW_BASE::OnInstallVersionClicked ), NULL, this );
+	m_buttonAction->Disconnect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( PANEL_PACKAGES_VIEW_BASE::OnVersionActionClicked ), NULL, this );
 
 }

@@ -24,7 +24,7 @@
 
 #include <dialogs/dialog_track_via_properties_base.h>
 #include <widgets/unit_binder.h>
-#include <core/optional.h>
+#include <optional>
 #include <layer_ids.h>
 
 class PCB_SELECTION;
@@ -43,7 +43,8 @@ public:
     bool TransferDataFromWindow() override;
 
 private:
-    void onViaNotFreeClicked( wxCommandEvent& event ) override;
+    void onNetSelector( wxCommandEvent& aEvent );
+    void onViaNotFreeClicked( wxCommandEvent& aEvent ) override;
     void onTrackNetclassCheck( wxCommandEvent& aEvent ) override;
     void onWidthSelect( wxCommandEvent& aEvent ) override;
     void onWidthEdit( wxCommandEvent& aEvent ) override;

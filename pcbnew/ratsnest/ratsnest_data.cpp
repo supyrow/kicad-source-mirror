@@ -2,7 +2,7 @@
  * This program source code file is part of KICAD, a free EDA CAD application.
  *
  * Copyright (C) 2013-2017 CERN
- * Copyright (C) 2019-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2019-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * @author Maciej Suminski <maciej.suminski@cern.ch>
  * @author Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
@@ -107,8 +107,7 @@ private:
 };
 
 
-void RN_NET::kruskalMST( std::vector<CN_EDGE>& aEdges,
-                         const std::set< std::pair<KIID, KIID> >& aExclusions )
+void RN_NET::kruskalMST( const std::vector<CN_EDGE> &aEdges )
 {
     disjoint_set dset( m_nodes.size() );
 
@@ -119,20 +118,15 @@ void RN_NET::kruskalMST( std::vector<CN_EDGE>& aEdges,
     for( const std::shared_ptr<CN_ANCHOR>& node : m_nodes )
         node->SetTag( i++ );
 
-    for( CN_EDGE& tmp : aEdges )
+    for( const CN_EDGE& tmp : aEdges )
     {
-        const std::shared_ptr<CN_ANCHOR>&  source = tmp.GetSourceNode();
-        const std::shared_ptr<CN_ANCHOR>&  target = tmp.GetTargetNode();
+        const std::shared_ptr<CN_ANCHOR>& source = tmp.GetSourceNode();
+        const std::shared_ptr<CN_ANCHOR>& target = tmp.GetTargetNode();
 
         if( dset.unite( source->GetTag(), target->GetTag() ) )
         {
             if( tmp.GetWeight() > 0 )
-            {
-                std::pair<KIID, KIID> ids = { source->Parent()->m_Uuid, target->Parent()->m_Uuid };
-                tmp.SetVisible( aExclusions.count( ids ) == 0 );
-
                 m_rnEdges.push_back( tmp );
-            }
         }
     }
 }
@@ -271,7 +265,7 @@ RN_NET::RN_NET() : m_dirty( true )
 }
 
 
-void RN_NET::compute( const std::set< std::pair<KIID, KIID> >& aExclusions )
+void RN_NET::compute()
 {
     // Special cases do not need complicated algorithms (actually, it does not work well with
     // the Delaunay triangulator)
@@ -285,15 +279,9 @@ void RN_NET::compute( const std::set< std::pair<KIID, KIID> >& aExclusions )
             auto last = ++m_nodes.begin();
 
             // There can be only one possible connection, but it is missing
-            CN_EDGE                            edge( *m_nodes.begin(), *last );
-            const std::shared_ptr<CN_ANCHOR>&  source = edge.GetSourceNode();
-            const std::shared_ptr<CN_ANCHOR>&  target = edge.GetTargetNode();
-
-            std::pair<KIID, KIID> ids = { source->Parent()->m_Uuid, target->Parent()->m_Uuid };
-
-            source->SetTag( 0 );
-            target->SetTag( 1 );
-            edge.SetVisible( aExclusions.count( ids ) == 0 );
+            CN_EDGE edge ( *m_nodes.begin(), *last );
+            edge.GetSourceNode()->SetTag( 0 );
+            edge.GetTargetNode()->SetTag( 1 );
 
             m_rnEdges.push_back( edge );
         }
@@ -317,7 +305,7 @@ void RN_NET::compute( const std::set< std::pair<KIID, KIID> >& aExclusions )
     triangEdges.reserve( m_nodes.size() + m_boardEdges.size() );
 
 #ifdef PROFILE
-    PROF_COUNTER cnt("triangulate");
+    PROF_TIMER cnt( "triangulate" );
 #endif
     m_triangulator->Triangulate( triangEdges );
 #ifdef PROFILE
@@ -331,19 +319,135 @@ void RN_NET::compute( const std::set< std::pair<KIID, KIID> >& aExclusions )
 
 // Get the minimal spanning tree
 #ifdef PROFILE
-    PROF_COUNTER cnt2("mst");
+    PROF_TIMER cnt2( "mst" );
 #endif
-    kruskalMST( triangEdges, aExclusions );
+    kruskalMST( triangEdges );
 #ifdef PROFILE
     cnt2.Show();
 #endif
 }
 
 
-
-void RN_NET::Update( const std::set< std::pair<KIID, KIID> >& aExclusions )
+void RN_NET::optimizeRNEdges()
 {
-    compute( aExclusions );
+    auto findZoneAnchor =
+            [&]( const VECTOR2I& aPos, const LSET& aLayerSet,
+                 const std::shared_ptr<CN_ANCHOR> aAnchor )
+            {
+                SEG::ecoord closest_dist_sq = ( aAnchor->Pos() - aPos ).SquaredEuclideanNorm();
+                VECTOR2I    closest_pt;
+                CN_ITEM*    closest_item = nullptr;
+
+                for( CN_ITEM* item : aAnchor->Item()->ConnectedItems() )
+                {
+                    CN_ZONE_LAYER* zoneLayer = dynamic_cast<CN_ZONE_LAYER*>( item );
+
+                    if( zoneLayer && aLayerSet.test( zoneLayer->Layer() ) )
+                    {
+                        const std::vector<VECTOR2I>& pts = zoneLayer->GetOutline().CPoints();
+
+                        for( VECTOR2I pt : pts )
+                        {
+                            SEG::ecoord dist_sq = ( pt - aPos ).SquaredEuclideanNorm();
+
+                            if( dist_sq < closest_dist_sq )
+                            {
+                                closest_pt = pt;
+                                closest_item = zoneLayer;
+                                closest_dist_sq = dist_sq;
+                            }
+                        }
+                    }
+                }
+
+                if( closest_item )
+                {
+                    closest_item->AddAnchor( closest_pt );
+                    return closest_item->GetAnchorItem( closest_item->GetAnchorItemCount() - 1 );
+                }
+
+                return aAnchor;
+            };
+
+    auto findZoneToZoneAnchors =
+            [&]( std::shared_ptr<CN_ANCHOR>& a, std::shared_ptr<CN_ANCHOR>& b )
+            {
+                for( CN_ITEM* itemA : a->Item()->ConnectedItems() )
+                {
+                    CN_ZONE_LAYER* zoneLayerA = dynamic_cast<CN_ZONE_LAYER*>( itemA );
+
+                    if( !zoneLayerA )
+                        continue;
+
+                    for( CN_ITEM* itemB : b->Item()->ConnectedItems() )
+                    {
+                        CN_ZONE_LAYER* zoneLayerB = dynamic_cast<CN_ZONE_LAYER*>( itemB );
+
+                        if( zoneLayerB && zoneLayerB->Layer() == zoneLayerA->Layer() )
+                        {
+                            // Process the first matching layer.  We don't really care if it's
+                            // the "best" layer or not, as anything will be better than the
+                            // original anchors (which are connected to the zone and so certainly
+                            // don't look like they should have ratsnest lines coming off them).
+
+                            VECTOR2I     startA = zoneLayerA->GetOutline().GetPoint( 0 );
+                            VECTOR2I     startB = zoneLayerB->GetOutline().GetPoint( 0 );
+                            const SHAPE* shapeA = &zoneLayerA->GetOutline();
+                            const SHAPE* shapeB = &zoneLayerB->GetOutline();
+                            int          startDist = ( startA - startB ).EuclideanNorm();
+
+                            VECTOR2I ptA;
+                            shapeA->Collide( shapeB, startDist + 10, nullptr, &ptA );
+                            zoneLayerA->AddAnchor( ptA );
+                            a = zoneLayerA->GetAnchorItem( zoneLayerA->GetAnchorItemCount() - 1 );
+
+                            VECTOR2I ptB;
+                            shapeB->Collide( shapeA, startDist + 10, nullptr, &ptB );
+                            zoneLayerB->AddAnchor( ptB );
+                            b = zoneLayerB->GetAnchorItem( zoneLayerB->GetAnchorItemCount() - 1 );
+
+                            return;
+                        }
+                    }
+                }
+            };
+
+    for( CN_EDGE& edge : m_rnEdges )
+    {
+        std::shared_ptr<CN_ANCHOR> source = edge.GetSourceNode();
+        std::shared_ptr<CN_ANCHOR> target = edge.GetTargetNode();
+
+        if( source->ConnectedItemsCount() == 0 )
+        {
+            edge.SetTargetNode( findZoneAnchor( source->Pos(), source->Parent()->GetLayerSet(),
+                                                target ) );
+        }
+        else if( target->ConnectedItemsCount() == 0 )
+        {
+            edge.SetSourceNode( findZoneAnchor( target->Pos(), target->Parent()->GetLayerSet(),
+                                                source ) );
+        }
+        else
+        {
+            findZoneToZoneAnchors( source, target );
+            edge.SetSourceNode( source );
+            edge.SetTargetNode( target );
+        }
+    }
+}
+
+
+void RN_NET::Update()
+{
+    compute();
+
+#ifdef PROFILE
+    PROF_TIMER cnt( "optimize" );
+#endif
+    optimizeRNEdges();
+#ifdef PROFILE
+    cnt.Show();
+#endif
 
     m_dirty = false;
 }
@@ -390,7 +494,7 @@ void RN_NET::AddCluster( std::shared_ptr<CN_CLUSTER> aCluster )
 }
 
 
-bool RN_NET::NearestBicoloredPair( const RN_NET& aOtherNet, VECTOR2I* aPos1, VECTOR2I* aPos2 ) const
+bool RN_NET::NearestBicoloredPair( RN_NET* aOtherNet, VECTOR2I& aPos1, VECTOR2I& aPos2 ) const
 {
     bool rv = false;
 
@@ -407,31 +511,35 @@ bool RN_NET::NearestBicoloredPair( const RN_NET& aOtherNet, VECTOR2I* aPos1, VEC
                 {
                     rv         = true;
                     distMax_sq = dist_sq;
-                    *aPos1     = aTestNode1->Pos();
-                    *aPos2     = aTestNode2->Pos();
+                    aPos1     = aTestNode1->Pos();
+                    aPos2     = aTestNode2->Pos();
                 }
             };
+
+    std::multiset<std::shared_ptr<CN_ANCHOR>, CN_PTR_CMP> nodes_b;
+
+    std::copy_if( m_nodes.begin(), m_nodes.end(), std::inserter( nodes_b, nodes_b.end() ),
+            []( const std::shared_ptr<CN_ANCHOR> &aVal )
+            { return !aVal->GetNoLine(); } );
 
     /// Sweep-line algorithm to cut the number of comparisons to find the closest point
     ///
     /// Step 1: The outer loop needs to be the subset (selected nodes) as it is a linear search
-    for( const std::shared_ptr<CN_ANCHOR>& nodeA : aOtherNet.m_nodes )
+    for( const std::shared_ptr<CN_ANCHOR>& nodeA : aOtherNet->m_nodes )
     {
+
         if( nodeA->GetNoLine() )
             continue;
 
         /// Step 2: O( log n ) search to identify a close element ordered by x
         /// The fwd_it iterator will move forward through the elements while
         /// the rev_it iterator will move backward through the same set
-        auto fwd_it = m_nodes.lower_bound( nodeA );
+        auto fwd_it = nodes_b.lower_bound( nodeA );
         auto rev_it = std::make_reverse_iterator( fwd_it );
 
-        for( ; fwd_it != m_nodes.end(); ++fwd_it )
+        for( ; fwd_it != nodes_b.end(); ++fwd_it )
         {
             const std::shared_ptr<CN_ANCHOR>& nodeB = *fwd_it;
-
-            if( nodeB->GetNoLine() )
-                continue;
 
             SEG::ecoord distX_sq = SEG::Square( nodeA->Pos().x - nodeB->Pos().x );
 
@@ -444,12 +552,9 @@ bool RN_NET::NearestBicoloredPair( const RN_NET& aOtherNet, VECTOR2I* aPos1, VEC
         }
 
         /// Step 3: using the same starting point, check points backwards for closer points
-        for( ; rev_it != m_nodes.rend(); ++rev_it )
+        for( ; rev_it != nodes_b.rend(); ++rev_it )
         {
             const std::shared_ptr<CN_ANCHOR>& nodeB = *rev_it;
-
-            if( nodeB->GetNoLine() )
-                continue;
 
             SEG::ecoord distX_sq = SEG::Square( nodeA->Pos().x - nodeB->Pos().x );
 
@@ -462,5 +567,4 @@ bool RN_NET::NearestBicoloredPair( const RN_NET& aOtherNet, VECTOR2I* aPos1, VEC
 
     return rv;
 }
-
 

@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2020-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2020-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -30,6 +30,7 @@ class PANEL_SETUP_FORMATTING;
 class PANEL_SETUP_PINMAP;
 class PANEL_TEXT_VARIABLES;
 class PANEL_SETUP_NETCLASSES;
+class PANEL_SETUP_BUSES;
 class ERC_ITEM;
 
 
@@ -41,8 +42,8 @@ public:
 
 protected:
     // event handlers
-    void OnPageChanged( wxBookCtrlEvent& aEvent ) override;
-    void OnAuxiliaryAction( wxCommandEvent& aEvent ) override;
+    void onPageChanged( wxBookCtrlEvent& aEvent ) override;
+    void onAuxiliaryAction( wxCommandEvent& aEvent ) override;
 
     SCH_EDIT_FRAME*             m_frame;
 
@@ -51,6 +52,7 @@ protected:
     PANEL_SETUP_PINMAP*         m_pinMap;
     PANEL_SETUP_SEVERITIES*     m_severities;
     PANEL_SETUP_NETCLASSES*     m_netclasses;
+    PANEL_SETUP_BUSES*          m_buses;
     PANEL_TEXT_VARIABLES*       m_textVars;
     std::shared_ptr<ERC_ITEM>   m_pinToPinError;
 };

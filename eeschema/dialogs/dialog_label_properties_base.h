@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////
-// C++ code generated with wxFormBuilder (version Oct 26 2018)
+// C++ code generated with wxFormBuilder (version 3.10.1-0-g8feb16b)
 // http://www.wxformbuilder.org/
 //
 // PLEASE DO *NOT* EDIT THIS FILE!
@@ -11,6 +11,7 @@
 #include <wx/xrc/xmlres.h>
 #include <wx/intl.h>
 class BITMAP_BUTTON;
+class COLOR_SWATCH;
 class FONT_CHOICE;
 class WX_GRID;
 
@@ -34,6 +35,8 @@ class WX_GRID;
 #include <wx/statbox.h>
 #include <wx/radiobut.h>
 #include <wx/choice.h>
+#include <wx/checkbox.h>
+#include <wx/panel.h>
 #include <wx/gbsizer.h>
 #include <wx/dialog.h>
 
@@ -49,8 +52,7 @@ class DIALOG_LABEL_PROPERTIES_BASE : public DIALOG_SHIM
 	protected:
 		enum
 		{
-			wxID_VALUESINGLE = 1000,
-			wxID_SIZE
+			wxID_VALUESINGLE = 1000
 		};
 
 		wxFlexGridSizer* m_textEntrySizer;
@@ -74,8 +76,10 @@ class DIALOG_LABEL_PROPERTIES_BASE : public DIALOG_SHIM
 		wxRadioButton* m_circle;
 		wxRadioButton* m_diamond;
 		wxRadioButton* m_rectangle;
+		wxGridBagSizer* m_formattingGB;
 		wxStaticText* m_fontLabel;
 		FONT_CHOICE* m_fontCtrl;
+		wxBoxSizer* m_iconBar;
 		BITMAP_BUTTON* m_separator1;
 		BITMAP_BUTTON* m_bold;
 		BITMAP_BUTTON* m_italic;
@@ -84,16 +88,21 @@ class DIALOG_LABEL_PROPERTIES_BASE : public DIALOG_SHIM
 		BITMAP_BUTTON* m_spin1;
 		BITMAP_BUTTON* m_spin2;
 		BITMAP_BUTTON* m_spin3;
+		wxCheckBox* m_autoRotate;
 		BITMAP_BUTTON* m_separator3;
 		wxStaticText* m_textSizeLabel;
 		wxTextCtrl* m_textSizeCtrl;
 		wxStaticText* m_textSizeUnits;
+		wxStaticText* m_textColorLabel;
+		wxPanel* m_panelBorderColor1;
+		COLOR_SWATCH* m_textColorSwatch;
 		wxStdDialogButtonSizer* m_sdbSizer1;
 		wxButton* m_sdbSizer1OK;
 		wxButton* m_sdbSizer1Cancel;
 
-		// Virtual event handlers, overide them in your derived class
+		// Virtual event handlers, override them in your derived class
 		virtual void OnUpdateUI( wxUpdateUIEvent& event ) { event.Skip(); }
+		virtual void OnValueCharHook( wxKeyEvent& event ) { event.Skip(); }
 		virtual void OnEnterKey( wxCommandEvent& event ) { event.Skip(); }
 		virtual void OnFormattingHelp( wxHyperlinkEvent& event ) { event.Skip(); }
 		virtual void OnSizeGrid( wxSizeEvent& event ) { event.Skip(); }
@@ -106,6 +115,7 @@ class DIALOG_LABEL_PROPERTIES_BASE : public DIALOG_SHIM
 	public:
 
 		DIALOG_LABEL_PROPERTIES_BASE( wxWindow* parent, wxWindowID id = wxID_ANY, const wxString& title = _("Label Properties"), const wxPoint& pos = wxDefaultPosition, const wxSize& size = wxSize( -1,-1 ), long style = wxDEFAULT_DIALOG_STYLE|wxRESIZE_BORDER );
+
 		~DIALOG_LABEL_PROPERTIES_BASE();
 
 };

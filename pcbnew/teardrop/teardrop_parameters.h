@@ -27,7 +27,7 @@
 
 #include <string>
 #include <vector>
-#include <convert_to_biu.h>
+#include <base_units.h>
 
 // IDs for targets when creating teardrops
 enum TARGET_TD
@@ -49,8 +49,8 @@ class TEARDROP_PARAMETERS
 public:
     TEARDROP_PARAMETERS( TARGET_TD aTdType ):
         m_TdType( aTdType ),
-        m_TdMaxLen( Millimeter2iu( 1.0 ) ),
-        m_TdMaxHeight( Millimeter2iu( 2.0 ) ),
+        m_TdMaxLen( pcbIUScale.mmToIU( 1.0 ) ),
+        m_TdMaxHeight( pcbIUScale.mmToIU( 2.0 ) ),
         m_LengthRatio( 0.5),
         m_HeightRatio( 1.0 ),
         m_CurveSegCount( 0 ),
@@ -163,7 +163,7 @@ public:
     /**
      * @return the number of TEARDROP_PARAMETERS item. Should be 3
      */
-    int GetParametersCount()
+    size_t GetParametersCount()
     {
         return m_params_list.size();
     }

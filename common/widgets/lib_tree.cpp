@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2014 Henner Zeller <h.zeller@acm.org>
- * Copyright (C) 2014-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2014-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -23,28 +23,39 @@
  */
 
 #include <widgets/lib_tree.h>
+#include <core/kicad_algo.h>
 #include <macros.h>
 #include <wxdataviewctrl_helpers.h>
 #include <wx/sizer.h>
+#include <dialogs/eda_reorderable_list_dialog.h>
 #include <tool/tool_interactive.h>
 #include <tool/tool_manager.h>
+#include <tool/action_manager.h>
+#include <tool/actions.h>
 #include <wx/srchctrl.h>
 #include <wx/settings.h>
 #include <wx/timer.h>
 
+constexpr int RECENT_SEARCHES_MAX = 10;
 
-LIB_TREE::LIB_TREE( wxWindow* aParent, LIB_TABLE* aLibTable,
-                    wxObjectDataPtr<LIB_TREE_MODEL_ADAPTER>& aAdapter, WIDGETS aWidgets,
+std::map<wxString, std::vector<wxString>> g_recentSearches;
+
+
+LIB_TREE::LIB_TREE( wxWindow* aParent, const wxString& aRecentSearchesKey, LIB_TABLE* aLibTable,
+                    wxObjectDataPtr<LIB_TREE_MODEL_ADAPTER>& aAdapter, int aFlags,
                     HTML_WINDOW* aDetails ) :
         wxPanel( aParent, wxID_ANY, wxDefaultPosition, wxDefaultSize,
                  wxWANTS_CHARS | wxTAB_TRAVERSAL | wxNO_BORDER ),
         m_lib_table( aLibTable ), m_adapter( aAdapter ), m_query_ctrl( nullptr ),
-        m_details_ctrl( nullptr )
+        m_details_ctrl( nullptr ),
+        m_inTimerEvent( false ),
+        m_recentSearchesKey( aRecentSearchesKey ),
+        m_skipNextRightClick( false )
 {
     wxBoxSizer* sizer = new wxBoxSizer( wxVERTICAL );
 
     // Search text control
-    if( aWidgets & SEARCH )
+    if( aFlags & SEARCH )
     {
         wxBoxSizer* search_sizer = new wxBoxSizer( wxHORIZONTAL );
 
@@ -67,30 +78,44 @@ LIB_TREE::LIB_TREE( wxWindow* aParent, LIB_TABLE* aLibTable,
         m_query_ctrl->Bind( wxEVT_TEXT, &LIB_TREE::onQueryText, this );
 
 #if wxCHECK_VERSION( 3, 1, 1 )
-        m_query_ctrl->Bind( wxEVT_SEARCH, &LIB_TREE::onQueryEnter, this );
         m_query_ctrl->Bind( wxEVT_SEARCH_CANCEL, &LIB_TREE::onQueryText, this );
 #else
-        m_query_ctrl->Bind( wxEVT_TEXT_ENTER, &LIB_TREE::onQueryEnter, this );
         m_query_ctrl->Bind( wxEVT_SEARCHCTRL_CANCEL_BTN, &LIB_TREE::onQueryText, this );
 #endif
         m_query_ctrl->Bind( wxEVT_CHAR_HOOK, &LIB_TREE::onQueryCharHook, this );
         m_query_ctrl->Bind( wxEVT_MOTION, &LIB_TREE::onQueryMouseMoved, this );
+        m_query_ctrl->Bind( wxEVT_LEAVE_WINDOW,
+                            [this] ( wxMouseEvent& aEvt )
+                            {
+                                SetCursor( wxCURSOR_ARROW );
+                            } );
+
+        m_query_ctrl->Bind( wxEVT_MENU,
+                [this]( wxCommandEvent& aEvent )
+                {
+                    wxString search;
+                    size_t   idx = aEvent.GetId() - 1;
+
+                    if( idx < g_recentSearches[ m_recentSearchesKey ].size() )
+                        m_query_ctrl->SetValue( g_recentSearches[ m_recentSearchesKey ][idx] );
+                },
+                1, RECENT_SEARCHES_MAX );
 
         Bind( wxEVT_TIMER, &LIB_TREE::onDebounceTimer, this, m_debounceTimer->GetId() );
     }
 
     // Tree control
-    m_tree_ctrl = new wxDataViewCtrl( this, wxID_ANY, wxDefaultPosition, wxDefaultSize,
-                                      wxDV_SINGLE );
+    int dvFlags = ( aFlags & MULTISELECT ) ? wxDV_MULTIPLE : wxDV_SINGLE;
+    m_tree_ctrl = new wxDataViewCtrl( this, wxID_ANY, wxDefaultPosition, wxDefaultSize, dvFlags );
     m_adapter->AttachTo( m_tree_ctrl );
 
-    if( aWidgets & DETAILS )
+    if( aFlags & DETAILS )
         sizer->AddSpacer( 5 );
 
     sizer->Add( m_tree_ctrl, 5, wxRIGHT | wxBOTTOM | wxEXPAND, 1 );
 
     // Description panel
-    if( aWidgets & DETAILS )
+    if( aFlags & DETAILS )
     {
         if( !aDetails )
         {
@@ -112,9 +137,15 @@ LIB_TREE::LIB_TREE( wxWindow* aParent, LIB_TABLE* aLibTable,
 
     SetSizer( sizer );
 
+    m_tree_ctrl->Bind( wxEVT_SIZE, &LIB_TREE::onSize, this );
     m_tree_ctrl->Bind( wxEVT_DATAVIEW_ITEM_ACTIVATED, &LIB_TREE::onTreeActivate, this );
     m_tree_ctrl->Bind( wxEVT_DATAVIEW_SELECTION_CHANGED, &LIB_TREE::onTreeSelect, this );
-    m_tree_ctrl->Bind( wxEVT_COMMAND_DATAVIEW_ITEM_CONTEXT_MENU, &LIB_TREE::onContextMenu, this );
+    m_tree_ctrl->Bind( wxEVT_DATAVIEW_ITEM_CONTEXT_MENU, &LIB_TREE::onItemContextMenu, this );
+    m_tree_ctrl->Bind( wxEVT_DATAVIEW_COLUMN_HEADER_RIGHT_CLICK, &LIB_TREE::onHeaderContextMenu,
+                       this );
+
+    // Process hotkeys when the tree control has focus:
+    m_tree_ctrl->Bind( wxEVT_CHAR_HOOK, &LIB_TREE::onTreeCharHook, this );
 
     Bind( SYMBOL_PRESELECTED, &LIB_TREE::onPreselect, this );
 
@@ -123,6 +154,7 @@ LIB_TREE::LIB_TREE( wxWindow* aParent, LIB_TABLE* aLibTable,
         m_query_ctrl->SetDescriptiveText( _( "Filter" ) );
         m_query_ctrl->SetFocus();
         m_query_ctrl->SetValue( wxEmptyString );
+        updateRecentSearchMenu();
 
         // Force an update of the adapter with the empty text to ensure preselect is done
         Regenerate( false );
@@ -150,11 +182,6 @@ LIB_TREE::~LIB_TREE()
 {
     // Stop the timer during destruction early to avoid potential race conditions (that do happen)
     m_debounceTimer->Stop();
-
-    // Save the column widths to the config file
-    m_adapter->SaveColWidths();
-
-    m_adapter->SavePinnedItems();
 }
 
 
@@ -169,6 +196,23 @@ LIB_ID LIB_TREE::GetSelectedLibId( int* aUnit ) const
         *aUnit = m_adapter->GetUnitFor( sel );
 
     return m_adapter->GetAliasFor( sel );
+}
+
+
+int LIB_TREE::GetSelectedLibIds( std::vector<LIB_ID>& aSelection, std::vector<int>* aUnit ) const
+{
+    wxDataViewItemArray selection;
+    int count = m_tree_ctrl->GetSelections( selection );
+
+    for( const wxDataViewItem& item : selection )
+    {
+        aSelection.emplace_back( m_adapter->GetAliasFor( item ) );
+
+        if( aUnit )
+            aUnit->emplace_back( m_adapter->GetUnitFor( item ) );
+    }
+
+    return count;
 }
 
 
@@ -204,6 +248,47 @@ void LIB_TREE::Unselect()
 void LIB_TREE::ExpandLibId( const LIB_ID& aLibId )
 {
     expandIfValid( m_adapter->FindItem( aLibId ) );
+}
+
+
+void LIB_TREE::SetSearchString( const wxString& aSearchString )
+{
+    m_query_ctrl->ChangeValue( aSearchString );
+}
+
+
+wxString LIB_TREE::GetSearchString() const
+{
+    return m_query_ctrl->GetValue();
+}
+
+
+void LIB_TREE::updateRecentSearchMenu()
+{
+    wxString newEntry = GetSearchString();
+
+    std::vector<wxString>& recents = g_recentSearches[ m_recentSearchesKey ];
+
+    if( !newEntry.IsEmpty() )
+    {
+        if( alg::contains( recents, newEntry ) )
+            alg::delete_matching( recents, newEntry );
+
+        if( recents.size() >= RECENT_SEARCHES_MAX )
+            recents.pop_back();
+
+        recents.insert( recents.begin(), newEntry );
+    }
+
+    wxMenu* menu = new wxMenu();
+
+    for( const wxString& recent : recents )
+        menu->Append( menu->GetMenuItemCount() + 1, recent );
+
+    if( recents.empty() )
+        menu->Append( wxID_ANY, _( "recent searches" ) );
+
+    m_query_ctrl->SetMenu( menu );
 }
 
 
@@ -257,6 +342,7 @@ void LIB_TREE::selectIfValid( const wxDataViewItem& aTreeId )
     if( aTreeId.IsOk() )
     {
         m_tree_ctrl->EnsureVisible( aTreeId );
+        m_tree_ctrl->UnselectAll();
         m_tree_ctrl->Select( aTreeId );
         postPreselectEvent();
     }
@@ -376,16 +462,11 @@ void LIB_TREE::onQueryText( wxCommandEvent& aEvent )
 }
 
 
-void LIB_TREE::onQueryEnter( wxCommandEvent& aEvent )
-{
-    if( GetSelectedLibId().IsValid() )
-        postSelectEvent();
-}
-
-
 void LIB_TREE::onDebounceTimer( wxTimerEvent& aEvent )
 {
+    m_inTimerEvent = true;
     Regenerate( false );
+    m_inTimerEvent = false;
 }
 
 
@@ -397,30 +478,38 @@ void LIB_TREE::onQueryCharHook( wxKeyEvent& aKeyStroke )
     switch( aKeyStroke.GetKeyCode() )
     {
     case WXK_UP:
+        updateRecentSearchMenu();
         selectIfValid( GetPrevItem( *m_tree_ctrl, sel ) );
         break;
 
     case WXK_DOWN:
+        updateRecentSearchMenu();
         selectIfValid( GetNextItem( *m_tree_ctrl, sel ) );
         break;
 
     case WXK_ADD:
+        updateRecentSearchMenu();
+
         if( type == LIB_TREE_NODE::LIB )
             m_tree_ctrl->Expand( sel );
 
         break;
 
     case WXK_SUBTRACT:
+        updateRecentSearchMenu();
+
         if( type == LIB_TREE_NODE::LIB )
             m_tree_ctrl->Collapse( sel );
 
         break;
 
     case WXK_RETURN:
-        if( type == LIB_TREE_NODE::LIB )
+        updateRecentSearchMenu();
+
+        if( GetSelectedLibId().IsValid() )
+            postSelectEvent();
+        else if( type == LIB_TREE_NODE::LIB )
             toggleExpand( sel );
-        else
-            aKeyStroke.Skip();  // pass on to search box to select node
 
         break;
 
@@ -446,8 +535,37 @@ void LIB_TREE::onQueryMouseMoved( wxMouseEvent& aEvent )
 }
 
 
+void LIB_TREE::onTreeCharHook( wxKeyEvent& aKeyStroke )
+{
+    onQueryCharHook( aKeyStroke );
+
+    if( aKeyStroke.GetSkipped() )
+    {
+        if( TOOL_INTERACTIVE* tool = m_adapter->GetContextMenuTool() )
+        {
+            int hotkey = aKeyStroke.GetKeyCode();
+
+            if( aKeyStroke.ShiftDown() )
+                hotkey |= MD_SHIFT;
+
+            if( aKeyStroke.AltDown() )
+                hotkey |= MD_ALT;
+
+            if( aKeyStroke.ControlDown() )
+                hotkey |= MD_CTRL;
+
+            if( tool->GetManager()->GetActionManager()->RunHotKey( hotkey ) )
+                aKeyStroke.Skip( false );
+        }
+    }
+}
+
+
 void LIB_TREE::onTreeSelect( wxDataViewEvent& aEvent )
 {
+    if( !m_inTimerEvent )
+        updateRecentSearchMenu();
+
     if( !m_tree_ctrl->IsFrozen() )
         postPreselectEvent();
 }
@@ -459,6 +577,12 @@ void LIB_TREE::onTreeActivate( wxDataViewEvent& aEvent )
         toggleExpand( m_tree_ctrl->GetSelection() );    // Expand library/part units subtree
     else
         postSelectEvent();                              // Open symbol/footprint
+}
+
+
+void LIB_TREE::onSize( wxSizeEvent& aEvent )
+{
+    m_adapter->OnSize( aEvent );
 }
 
 
@@ -486,11 +610,15 @@ void LIB_TREE::onPreselect( wxCommandEvent& aEvent )
 }
 
 
-void LIB_TREE::onContextMenu( wxDataViewEvent& aEvent )
+void LIB_TREE::onItemContextMenu( wxDataViewEvent& aEvent )
 {
-    TOOL_INTERACTIVE* tool = m_adapter->GetContextMenuTool();
+    if( m_skipNextRightClick )
+    {
+        m_skipNextRightClick = false;
+        return;
+    }
 
-    if( tool )
+    if( TOOL_INTERACTIVE* tool = m_adapter->GetContextMenuTool() )
     {
         tool->Activate();
         tool->GetManager()->VetoContextMenuMouseWarp();
@@ -499,6 +627,53 @@ void LIB_TREE::onContextMenu( wxDataViewEvent& aEvent )
         TOOL_EVENT evt( TC_MOUSE, TA_MOUSE_CLICK, BUT_RIGHT );
         tool->GetManager()->DispatchContextMenu( evt );
     }
+    else
+    {
+        LIB_TREE_NODE* current = GetCurrentTreeNode();
+
+        if( current && current->m_Type == LIB_TREE_NODE::LIB )
+        {
+            ACTION_MENU menu( true, nullptr );
+
+            if( current->m_Pinned )
+            {
+                menu.Add( ACTIONS::unpinLibrary );
+
+                if( GetPopupMenuSelectionFromUser( menu ) != wxID_NONE )
+                    m_adapter->UnpinLibrary( current );
+            }
+            else
+            {
+                menu.Add( ACTIONS::pinLibrary );
+
+                if( GetPopupMenuSelectionFromUser( menu ) != wxID_NONE )
+                    m_adapter->PinLibrary( current );
+            }
+        }
+    }
+}
+
+
+void LIB_TREE::onHeaderContextMenu( wxDataViewEvent& aEvent )
+{
+    ACTION_MENU menu( true, nullptr );
+
+    menu.Add( ACTIONS::selectColumns );
+
+    if( GetPopupMenuSelectionFromUser( menu ) != wxID_NONE )
+    {
+        EDA_REORDERABLE_LIST_DIALOG dlg( m_parent, _( "Select Columns" ),
+                                         m_adapter->GetAvailableColumns(),
+                                         m_adapter->GetShownColumns() );
+
+        if( dlg.ShowModal() == wxID_OK )
+            m_adapter->SetShownColumns( dlg.EnabledList() );
+    }
+
+#if !wxCHECK_VERSION( 3, 1, 0 )
+    // wxGTK 3.0 sends item right click events for header right clicks
+    m_skipNextRightClick = true;
+#endif
 }
 
 

@@ -97,7 +97,7 @@ int SCH_SHEET_PIN::GetPenWidth() const
     if( Schematic() )
         return Schematic()->Settings().m_DefaultLineWidth;
 
-    return Mils2iu( DEFAULT_LINE_WIDTH_MILS );
+    return schIUScale.MilsToIU( DEFAULT_LINE_WIDTH_MILS );
 }
 
 
@@ -325,9 +325,10 @@ void SCH_SHEET_PIN::GetEndPoints( std::vector<DANGLING_END_ITEM>& aItemList )
 }
 
 
-wxString SCH_SHEET_PIN::GetSelectMenuText( EDA_UNITS aUnits ) const
+wxString SCH_SHEET_PIN::GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const
 {
-    return wxString::Format( _( "Hierarchical Sheet Pin %s" ), ShortenedShownText() );
+    return wxString::Format( _( "Hierarchical Sheet Pin %s" ),
+                             KIUI::EllipsizeMenuText( GetShownText() ) );
 }
 
 
@@ -339,7 +340,7 @@ BITMAPS SCH_SHEET_PIN::GetMenuImage() const
 
 bool SCH_SHEET_PIN::HitTest( const VECTOR2I& aPoint, int aAccuracy ) const
 {
-    EDA_RECT rect = GetBoundingBox();
+    BOX2I rect = GetBoundingBox();
 
     rect.Inflate( aAccuracy );
 

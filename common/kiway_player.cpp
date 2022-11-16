@@ -31,6 +31,7 @@
 #include <typeinfo>
 #include <wx/utils.h>
 #include <wx/evtloop.h>
+#include <wx/socket.h>
 
 
 BEGIN_EVENT_TABLE( KIWAY_PLAYER, EDA_BASE_FRAME )
@@ -40,14 +41,16 @@ END_EVENT_TABLE()
 
 
 KIWAY_PLAYER::KIWAY_PLAYER( KIWAY* aKiway, wxWindow* aParent, FRAME_T aFrameType,
-        const wxString& aTitle, const wxPoint& aPos, const wxSize& aSize,
-        long aStyle, const wxString& aWdoName ) :
-    EDA_BASE_FRAME( aParent, aFrameType, aTitle, aPos, aSize, aStyle, aWdoName, aKiway ),
-    m_modal( false ),
-    m_modal_loop( nullptr ),
-    m_modal_resultant_parent( nullptr ),
-    m_modal_ret_val( false ),
-    m_socketServer( nullptr )
+                            const wxString& aTitle, const wxPoint& aPos, const wxSize& aSize,
+                            long aStyle, const wxString& aFrameName,
+                            const EDA_IU_SCALE& aIuScale ) :
+        EDA_BASE_FRAME( aParent, aFrameType, aTitle, aPos, aSize, aStyle, aFrameName, aKiway,
+                        aIuScale ),
+        m_modal( false ),
+        m_modal_loop( nullptr ),
+        m_modal_resultant_parent( nullptr ),
+        m_modal_ret_val( false ),
+        m_socketServer( nullptr )
 {
 }
 
@@ -55,17 +58,30 @@ KIWAY_PLAYER::KIWAY_PLAYER( KIWAY* aKiway, wxWindow* aParent, FRAME_T aFrameType
 KIWAY_PLAYER::KIWAY_PLAYER( wxWindow* aParent, wxWindowID aId, const wxString& aTitle,
                             const wxPoint& aPos, const wxSize& aSize, long aStyle,
                             const wxString& aWdoName ) :
-    EDA_BASE_FRAME( aParent, (FRAME_T) aId, aTitle, aPos, aSize, aStyle, aWdoName, nullptr ),
-    m_modal( false ),
-    m_modal_loop( nullptr ),
-    m_modal_resultant_parent( nullptr ),
-    m_modal_ret_val( false ),
-    m_socketServer( nullptr )
+        EDA_BASE_FRAME( aParent, (FRAME_T) aId, aTitle, aPos, aSize, aStyle, aWdoName, nullptr,
+                        unityScale ),
+        m_modal( false ),
+        m_modal_loop( nullptr ),
+        m_modal_resultant_parent( nullptr ),
+        m_modal_ret_val( false ),
+        m_socketServer( nullptr )
 {
 }
 
 
-KIWAY_PLAYER::~KIWAY_PLAYER() throw() {}
+KIWAY_PLAYER::~KIWAY_PLAYER() throw() {
+
+    // socket server must be destructed before we complete
+    // destructing the frame or else we could crash
+    // as the socket server holds a reference to this frame
+    if( m_socketServer )
+    {
+        // ensure any event handling stops
+        m_socketServer->Notify( false );
+
+        delete m_socketServer;
+    }
+}
 
 
 void KIWAY_PLAYER::KiwayMailIn( KIWAY_EXPRESS& aEvent )

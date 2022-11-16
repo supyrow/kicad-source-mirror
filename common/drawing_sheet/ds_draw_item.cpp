@@ -48,7 +48,6 @@
  * describes the drawing sheet (can be the default drawing sheet or a custom file).
  */
 
-#include <eda_rect.h>
 #include <eda_draw_frame.h>
 #include <drawing_sheet/ds_draw_item.h>
 #include <drawing_sheet/ds_data_item.h>
@@ -84,9 +83,9 @@ void DS_DRAW_ITEM_BASE::ViewGetLayers( int aLayers[], int& aCount ) const
 
 
 // A generic HitTest that can be used by some, but not all, sub-classes.
-bool DS_DRAW_ITEM_BASE::HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy ) const
+bool DS_DRAW_ITEM_BASE::HitTest( const BOX2I& aRect, bool aContained, int aAccuracy ) const
 {
-    EDA_RECT sel = aRect;
+    BOX2I sel = aRect;
 
     if ( aAccuracy )
         sel.Inflate( aAccuracy );
@@ -140,15 +139,17 @@ void DS_DRAW_ITEM_BASE::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame,
 
     aList.emplace_back( _( "First Page Option" ), msg );
 
-    msg = MessageTextFromValue( EDA_UNITS::UNSCALED, dataItem->m_RepeatCount );
+    msg = EDA_UNIT_UTILS::UI::MessageTextFromValue( unityScale, EDA_UNITS::UNSCALED,
+                                                    dataItem->m_RepeatCount );
     aList.emplace_back( _( "Repeat Count" ), msg );
 
-    msg = MessageTextFromValue( EDA_UNITS::UNSCALED, dataItem->m_IncrementLabel );
+    msg = EDA_UNIT_UTILS::UI::MessageTextFromValue( unityScale, EDA_UNITS::UNSCALED,
+                                                    dataItem->m_IncrementLabel );
     aList.emplace_back( _( "Repeat Label Increment" ), msg );
 
     msg.Printf( wxT( "(%s, %s)" ),
-                MessageTextFromValue( aFrame->GetUserUnits(), dataItem->m_IncrementVector.x ),
-                MessageTextFromValue( aFrame->GetUserUnits(), dataItem->m_IncrementVector.y ) );
+                aFrame->MessageTextFromValue( dataItem->m_IncrementVector.x ),
+                aFrame->MessageTextFromValue( dataItem->m_IncrementVector.y ) );
 
     aList.emplace_back( _( "Repeat Position Increment" ), msg );
 
@@ -160,11 +161,16 @@ void DS_DRAW_ITEM_BASE::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame,
 
 void DS_DRAW_ITEM_TEXT::PrintWsItem( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset )
 {
-    Print( aSettings, aOffset, aSettings->GetLayerColor( LAYER_DRAWINGSHEET ), FILLED );
+    COLOR4D color = GetTextColor();
+
+    if( color == COLOR4D::UNSPECIFIED )
+        color = aSettings->GetLayerColor( LAYER_DRAWINGSHEET );
+
+    Print( aSettings, aOffset, color, FILLED );
 }
 
 
-const EDA_RECT DS_DRAW_ITEM_TEXT::GetBoundingBox() const
+const BOX2I DS_DRAW_ITEM_TEXT::GetBoundingBox() const
 {
     return EDA_TEXT::GetTextBox();
 }
@@ -176,16 +182,15 @@ bool DS_DRAW_ITEM_TEXT::HitTest( const VECTOR2I& aPosition, int aAccuracy ) cons
 }
 
 
-bool DS_DRAW_ITEM_TEXT::HitTest( const EDA_RECT& aRect, bool aContains, int aAccuracy ) const
+bool DS_DRAW_ITEM_TEXT::HitTest( const BOX2I& aRect, bool aContains, int aAccuracy ) const
 {
     return EDA_TEXT::TextHitTest( aRect, aContains, aAccuracy );
 }
 
 
-wxString DS_DRAW_ITEM_TEXT::GetSelectMenuText( EDA_UNITS aUnits ) const
+wxString DS_DRAW_ITEM_TEXT::GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const
 {
-    return wxString::Format( _( "Text '%s'" ),
-                             GetShownText() );
+    return wxString::Format( _( "Text '%s'" ), GetShownText() );
 }
 
 
@@ -227,17 +232,9 @@ void DS_DRAW_ITEM_POLYPOLYGONS::SetPosition( const VECTOR2I& aPos )
 }
 
 
-const EDA_RECT DS_DRAW_ITEM_POLYPOLYGONS::GetBoundingBox() const
+const BOX2I DS_DRAW_ITEM_POLYPOLYGONS::GetBoundingBox() const
 {
-    EDA_RECT rect;
-    BOX2I box = m_Polygons.BBox();
-
-    rect.SetX( box.GetX() );
-    rect.SetY( box.GetY() );
-    rect.SetWidth( box.GetWidth() );
-    rect.SetHeight( box.GetHeight() );
-
-    return rect;
+    return m_Polygons.BBox();
 }
 
 
@@ -247,10 +244,9 @@ bool DS_DRAW_ITEM_POLYPOLYGONS::HitTest( const VECTOR2I& aPosition, int aAccurac
 }
 
 
-bool DS_DRAW_ITEM_POLYPOLYGONS::HitTest( const EDA_RECT& aRect, bool aContained,
-                                         int aAccuracy ) const
+bool DS_DRAW_ITEM_POLYPOLYGONS::HitTest( const BOX2I& aRect, bool aContained, int aAccuracy ) const
 {
-    EDA_RECT sel = aRect;
+    BOX2I sel = aRect;
 
     if ( aAccuracy )
         sel.Inflate( aAccuracy );
@@ -287,9 +283,9 @@ bool DS_DRAW_ITEM_POLYPOLYGONS::HitTest( const EDA_RECT& aRect, bool aContained,
 }
 
 
-wxString DS_DRAW_ITEM_POLYPOLYGONS::GetSelectMenuText( EDA_UNITS aUnits ) const
+wxString DS_DRAW_ITEM_POLYPOLYGONS::GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const
 {
-    return wxString::Format( _( "Imported Shape" ) );
+    return _( "Imported Shape" );
 }
 
 
@@ -305,9 +301,9 @@ void DS_DRAW_ITEM_RECT::PrintWsItem( const RENDER_SETTINGS* aSettings, const VEC
 }
 
 
-const EDA_RECT DS_DRAW_ITEM_RECT::GetBoundingBox() const
+const BOX2I DS_DRAW_ITEM_RECT::GetBoundingBox() const
 {
-    return EDA_RECT( GetStart(), wxSize( GetEnd().x - GetStart().x, GetEnd().y - GetStart().y ) );
+    return BOX2I( GetStart(), GetEnd() - GetStart() );
 }
 
 
@@ -345,9 +341,9 @@ bool DS_DRAW_ITEM_RECT::HitTest( const VECTOR2I& aPosition, int aAccuracy ) cons
 }
 
 
-bool DS_DRAW_ITEM_RECT::HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy ) const
+bool DS_DRAW_ITEM_RECT::HitTest( const BOX2I& aRect, bool aContained, int aAccuracy ) const
 {
-    EDA_RECT sel = aRect;
+    BOX2I sel = aRect;
 
     if ( aAccuracy )
         sel.Inflate( aAccuracy );
@@ -357,7 +353,7 @@ bool DS_DRAW_ITEM_RECT::HitTest( const EDA_RECT& aRect, bool aContained, int aAc
 
     // For greedy we need to check each side of the rect as we're pretty much always inside the
     // rect which defines the drawing-sheet frame.
-    EDA_RECT side = GetBoundingBox();
+    BOX2I side = GetBoundingBox();
     side.SetHeight( 0 );
 
     if( sel.Intersects( side ) )
@@ -383,11 +379,11 @@ bool DS_DRAW_ITEM_RECT::HitTest( const EDA_RECT& aRect, bool aContained, int aAc
 }
 
 
-wxString DS_DRAW_ITEM_RECT::GetSelectMenuText( EDA_UNITS aUnits ) const
+wxString DS_DRAW_ITEM_RECT::GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const
 {
     return wxString::Format( _( "Rectangle, width %s height %s" ),
-                             MessageTextFromValue( aUnits, std::abs( GetStart().x - GetEnd().x ) ),
-                             MessageTextFromValue( aUnits, std::abs( GetStart().y - GetEnd().y ) ) );
+                             aUnitsProvider->MessageTextFromValue( std::abs( GetStart().x - GetEnd().x ) ),
+                             aUnitsProvider->MessageTextFromValue( std::abs( GetStart().y - GetEnd().y ) ) );
 }
 
 
@@ -403,9 +399,9 @@ void DS_DRAW_ITEM_LINE::PrintWsItem( const RENDER_SETTINGS* aSettings, const VEC
 }
 
 
-const EDA_RECT DS_DRAW_ITEM_LINE::GetBoundingBox() const
+const BOX2I DS_DRAW_ITEM_LINE::GetBoundingBox() const
 {
-    return EDA_RECT( GetStart(), wxSize( GetEnd().x - GetStart().x, GetEnd().y - GetStart().y ) );
+    return BOX2I( GetStart(), GetEnd() - GetStart() );
 }
 
 
@@ -416,10 +412,10 @@ bool DS_DRAW_ITEM_LINE::HitTest( const VECTOR2I& aPosition, int aAccuracy ) cons
 }
 
 
-wxString DS_DRAW_ITEM_LINE::GetSelectMenuText( EDA_UNITS aUnits ) const
+wxString DS_DRAW_ITEM_LINE::GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const
 {
     return wxString::Format( _( "Line, length %s" ),
-                             MessageTextFromValue( aUnits, EuclideanNorm( GetStart() - GetEnd() ) ) );
+                             aUnitsProvider->MessageTextFromValue( EuclideanNorm( GetStart() - GetEnd() ) ) );
 }
 
 
@@ -436,14 +432,14 @@ void DS_DRAW_ITEM_BITMAP::PrintWsItem( const RENDER_SETTINGS* aSettings, const V
 }
 
 
-const EDA_RECT DS_DRAW_ITEM_BITMAP::GetBoundingBox() const
+const BOX2I DS_DRAW_ITEM_BITMAP::GetBoundingBox() const
 {
-    auto*    bitmap = static_cast<const DS_DATA_ITEM_BITMAP*>( m_peer );
-    wxSize bm_size = bitmap->m_ImageBitmap->GetSize();
+    const DS_DATA_ITEM_BITMAP* bitmap = static_cast<const DS_DATA_ITEM_BITMAP*>( m_peer );
+    VECTOR2I                   bm_size = bitmap->m_ImageBitmap->GetSize();
+    BOX2I                      bbox;
 
-    EDA_RECT bbox;
     bbox.SetSize( bm_size );
-    bbox.SetOrigin( m_pos.x - bm_size.x/2, m_pos.y - bm_size.y/2 );
+    bbox.SetOrigin( m_pos.x - bm_size.x / 2, m_pos.y - bm_size.y / 2 );
 
     return bbox;
 }
@@ -451,38 +447,39 @@ const EDA_RECT DS_DRAW_ITEM_BITMAP::GetBoundingBox() const
 
 bool DS_DRAW_ITEM_BITMAP::HitTest( const VECTOR2I& aPosition, int aAccuracy ) const
 {
-    EDA_RECT bbox = GetBoundingBox();
+    BOX2I bbox = GetBoundingBox();
     bbox.Inflate( aAccuracy );
 
     return bbox.Contains( aPosition );
 }
 
 
-bool DS_DRAW_ITEM_BITMAP::HitTest( const EDA_RECT& aRect, bool aContains, int aAccuracy ) const
+bool DS_DRAW_ITEM_BITMAP::HitTest( const BOX2I& aRect, bool aContains, int aAccuracy ) const
 {
     return DS_DRAW_ITEM_BASE::HitTest( aRect, aContains, aAccuracy );
 }
 
 
-wxString DS_DRAW_ITEM_BITMAP::GetSelectMenuText( EDA_UNITS aUnits ) const
+wxString DS_DRAW_ITEM_BITMAP::GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const
 {
     return _( "Image" );
 }
 
 
-wxString DS_DRAW_ITEM_PAGE::GetSelectMenuText( EDA_UNITS aUnits ) const
+wxString DS_DRAW_ITEM_PAGE::GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const
 {
     return _( "Page Limits" );
 }
 
 
-const EDA_RECT DS_DRAW_ITEM_PAGE::GetBoundingBox() const
+const BOX2I DS_DRAW_ITEM_PAGE::GetBoundingBox() const
 {
-    EDA_RECT dummy;
+    BOX2I dummy;
 
     // We want this graphic item always visible. So gives the max size to the
     // bounding box to avoid any clamping:
-    dummy.SetSize( wxSize( std::numeric_limits<int>::max(), std::numeric_limits<int>::max() ) );
+    dummy.SetMaximum();
+
     return dummy;
 }
 
@@ -534,7 +531,7 @@ void DS_DRAW_ITEM_LIST::Print( const RENDER_SETTINGS* aSettings )
             second_items.push_back( item );
     }
 
-    for( auto item : second_items )
+    for( DS_DRAW_ITEM_BASE* item : second_items )
         item->PrintWsItem( aSettings );
 }
 

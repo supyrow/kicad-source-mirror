@@ -24,7 +24,7 @@
 
 #include <list>
 #include <memory>
-#include <core/optional.h>
+#include <optional>
 #include <math/box2.h>
 
 #include "pns_routing_settings.h"
@@ -97,7 +97,7 @@ enum DRAG_MODE
     virtual bool IsItemVisible( const PNS::ITEM* aItem ) const = 0;
     virtual bool IsFlashedOnLayer( const PNS::ITEM* aItem, int aLayer ) const = 0;
     virtual void DisplayItem( const ITEM* aItem, int aClearance, bool aEdit = false ) = 0;
-    virtual void DisplayRatline( const SHAPE_LINE_CHAIN& aRatline, int aColor = -1 ) = 0;
+    virtual void DisplayRatline( const SHAPE_LINE_CHAIN& aRatline, int aNetCode ) = 0;
     virtual void HideItem( ITEM* aItem ) = 0;
     virtual void Commit() = 0;
     virtual bool ImportSizes( SIZES_SETTINGS& aSizes, ITEM* aStartItem, int aNet ) = 0;
@@ -142,12 +142,15 @@ public:
 
     bool RoutingInProgress() const;
     bool StartRouting( const VECTOR2I& aP, ITEM* aItem, int aLayer );
-    void Move( const VECTOR2I& aP, ITEM* aItem );
+    bool Move( const VECTOR2I& aP, ITEM* aItem );
+    bool Finish();
+    bool ContinueFromEnd();
     bool FixRoute( const VECTOR2I& aP, ITEM* aItem, bool aForceFinish = false );
     void BreakSegment( ITEM *aItem, const VECTOR2I& aP );
 
     void UndoLastSegment();
     void CommitRouting();
+    bool GetUpdatedItems( std::vector<PNS::ITEM*>& aRemoved, std::vector<PNS::ITEM*>& aAdded );
     void StopRouting();
     void ClearViewDecorations();
 
@@ -211,8 +214,8 @@ public:
     const BOX2I& VisibleViewArea() const { return m_visibleViewArea; }
 
 private:
-    void movePlacing( const VECTOR2I& aP, ITEM* aItem );
-    void moveDragging( const VECTOR2I& aP, ITEM* aItem );
+    bool movePlacing( const VECTOR2I& aP, ITEM* aItem );
+    bool moveDragging( const VECTOR2I& aP, ITEM* aItem );
 
     void updateView( NODE* aNode, ITEM_SET& aCurrent, bool aDragging = false );
 
@@ -220,6 +223,9 @@ private:
 
     void markViolations( NODE* aNode, ITEM_SET& aCurrent, NODE::ITEM_VECTOR& aRemoved );
     bool isStartingPointRoutable( const VECTOR2I& aWhere, ITEM* aItem, int aLayer );
+
+    bool getNearestRatnestAnchor( VECTOR2I& aOtherEnd, LAYER_RANGE& aOtherEndLayers );
+
 
 private:
     BOX2I                           m_visibleViewArea;

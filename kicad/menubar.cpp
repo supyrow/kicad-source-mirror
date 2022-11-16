@@ -26,8 +26,10 @@
 
 #include <bitmaps.h>
 #include <filehistory.h>
+#include <kiplatform/policy.h>
 #include <menus_helpers.h>
 #include <paths.h>
+#include <policy_keys.h>
 #include <tool/action_manager.h>
 #include <tool/action_toolbar.h>
 #include <tool/tool_manager.h>
@@ -62,12 +64,14 @@ void KICAD_MANAGER_FRAME::ReCreateMenuBar()
     if( !openRecentMenu )
     {
         openRecentMenu = new ACTION_MENU( false, controlTool );
-        openRecentMenu->SetTitle( _( "Open Recent" ) );
         openRecentMenu->SetIcon( BITMAPS::recent );
 
         fileHistory.UseMenu( openRecentMenu );
         fileHistory.AddFilesToMenu();
     }
+
+    // Ensure the title is up to date after changing language
+    openRecentMenu->SetTitle( _( "Open Recent" ) );
 
     fileMenu->Add( KICAD_MANAGER_ACTIONS::newProject );
     fileMenu->Add( KICAD_MANAGER_ACTIONS::newFromTemplate );
@@ -79,7 +83,7 @@ void KICAD_MANAGER_FRAME::ReCreateMenuBar()
 
     fileMenu->Add( KICAD_MANAGER_ACTIONS::openProject );
 
-    wxMenuItem* item = fileMenu->Add( openRecentMenu );
+    wxMenuItem* item = fileMenu->Add( openRecentMenu->Clone() );
 
     // Add the file menu condition here since it needs the item ID for the submenu
     ACTION_CONDITIONS cond;
@@ -125,6 +129,19 @@ void KICAD_MANAGER_FRAME::ReCreateMenuBar()
     fileMenu->AppendSeparator();
     fileMenu->AddQuitOrClose( nullptr, "KiCad" );
 
+    //-- Edit menu -----------------------------------------------------------
+    //
+
+    ACTION_MENU* editMenu = new ACTION_MENU( false, controlTool );
+
+    /*
+     * While we don't presently use these, they need to be here so that cut/copy/paste work
+     * in things like search boxes in file open dialogs.
+     */
+    editMenu->Add( ACTIONS::cut );
+    editMenu->Add( ACTIONS::copy );
+    editMenu->Add( ACTIONS::paste );
+
     //-- View menu -----------------------------------------------------------
     //
     ACTION_MENU* viewMenu = new ACTION_MENU( false, controlTool );
@@ -157,7 +174,14 @@ void KICAD_MANAGER_FRAME::ReCreateMenuBar()
     toolsMenu->Add( KICAD_MANAGER_ACTIONS::convertImage );
     toolsMenu->Add( KICAD_MANAGER_ACTIONS::showCalculator );
     toolsMenu->Add( KICAD_MANAGER_ACTIONS::editDrawingSheet );
-    toolsMenu->Add( KICAD_MANAGER_ACTIONS::showPluginManager );
+
+    wxMenuItem* pcmMenuItem = toolsMenu->Add( KICAD_MANAGER_ACTIONS::showPluginManager );
+
+    if( KIPLATFORM::POLICY::GetPolicyState( POLICY_KEY_PCM )
+        == KIPLATFORM::POLICY::STATE::DISABLED )
+    {
+        pcmMenuItem->Enable( false );
+    }
 
     toolsMenu->AppendSeparator();
     toolsMenu->Add( _( "Edit Local File..." ),
@@ -187,6 +211,7 @@ void KICAD_MANAGER_FRAME::ReCreateMenuBar()
     //-- Menubar -------------------------------------------------------------
     //
     menuBar->Append( fileMenu,  _( "&File" ) );
+    menuBar->Append( editMenu,  _( "&Edit" ) );
     menuBar->Append( viewMenu,  _( "&View" ) );
     menuBar->Append( toolsMenu, _( "&Tools" ) );
     menuBar->Append( prefsMenu, _( "&Preferences" ) );

@@ -27,7 +27,6 @@
 #include <eda_draw_frame.h>
 #include <layer_ids.h>
 #include <gerbview.h>
-#include <convert_to_biu.h>
 #include <gbr_layout.h>
 #include <page_info.h>
 #include <gbr_display_options.h>
@@ -166,14 +165,6 @@ public:
     void SetLayerColor( int aLayer, const COLOR4D& aColor );
 
     /**
-     * This is usually the background color, but can be another color in order to see
-     * negative objects.
-     *
-     * @return the color of negative items.
-     */
-    COLOR4D GetNegativeItemsColor();
-
-    /**
      * Change out all the layers in m_Layers; called upon loading new gerber files.
      */
     void ReFillLayerWidget();
@@ -230,8 +221,9 @@ public:
     void DisplayGridMsg() override;
 
     void LoadSettings( APP_SETTINGS_BASE* aCfg ) override;
-
     void SaveSettings( APP_SETTINGS_BASE* aCfg ) override;
+
+    COLOR_SETTINGS* GetColorSettings( bool aForceRefresh = false ) const override;
 
     void ToggleLayerManager();
 
@@ -495,6 +487,8 @@ private:
     void OnClearDrlFileHistory( wxCommandEvent& aEvent );
     void OnClearGbrFileHistory( wxCommandEvent& aEvent );
 
+    void DoWithAcceptedFiles() override;
+
     /**
      * Loads the file provided or shows a dialog to get the file(s) from the user.
      *
@@ -525,9 +519,9 @@ public:
     wxTextCtrl*             m_TextInfo;         // a wxTextCtrl used to display some info about
                                                 // gerber data (format..)
 
-protected:
     GERBER_LAYER_WIDGET*    m_LayersManager;
 
+protected:
     FILE_HISTORY            m_zipFileHistory;
     FILE_HISTORY            m_drillFileHistory;
     FILE_HISTORY            m_jobFileHistory;

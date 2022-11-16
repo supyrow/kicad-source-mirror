@@ -60,6 +60,7 @@
 
 #include "invoke_pcb_dialog.h"
 #include <wildcards_and_files_ext.h>
+#include "pcbnew_jobs_handler.h"
 
 
 /* init functions defined by swig */
@@ -80,7 +81,7 @@ static struct IFACE : public KIFACE_BASE
 
     void OnKifaceEnd() override;
 
-    wxWindow* CreateWindow( wxWindow* aParent, int aClassId, KIWAY* aKiway,
+    wxWindow* CreateKiWindow( wxWindow* aParent, int aClassId, KIWAY* aKiway,
                             int aCtlBits = 0 ) override
     {
         switch( aClassId )
@@ -116,7 +117,7 @@ static struct IFACE : public KIFACE_BASE
 
         case DIALOG_CONFIGUREPATHS:
         {
-            DIALOG_CONFIGURE_PATHS dlg( aParent, aKiway->Prj().Get3DFilenameResolver() );
+            DIALOG_CONFIGURE_PATHS dlg( aParent );
 
             // The dialog's constructor probably failed to set its Kiway because the
             // dynamic_cast fails when aParent was allocated by a separate compilation
@@ -157,8 +158,8 @@ static struct IFACE : public KIFACE_BASE
 
             if( !unitsProvider )
             {
-                // If we can't find an eeschema frame we'll have to make do with the units
-                // defined in whatever FRAME we _can_ find.
+                // If we can't find a pcb-type frame we'll have to make do with whatever FRAME
+                // we _can_ find.
                 for( unsigned i = 0; !unitsProvider && i < KIWAY_PLAYER_COUNT;  ++i )
                     unitsProvider = aKiway->Player( (FRAME_T) i, false );
             }
@@ -167,6 +168,7 @@ static struct IFACE : public KIFACE_BASE
             {
                 wxWindow* manager = wxFindWindowByName( KICAD_MANAGER_FRAME_NAME );
                 unitsProvider = static_cast<EDA_BASE_FRAME*>( manager );
+                wxASSERT( unitsProvider );
             }
 
             if( aClassId == PANEL_FP_EDIT_OPTIONS )
@@ -290,6 +292,11 @@ static struct IFACE : public KIFACE_BASE
                      const wxString& aNewProjectBasePath, const wxString& aNewProjectName,
                      const wxString& aSrcFilePath, wxString& aErrors ) override;
 
+    int HandleJob( JOB* aJob ) override;
+
+private:
+    std::unique_ptr<PCBNEW_JOBS_HANDLER> m_jobHandler;
+
 } kiface( "pcbnew", KIWAY::FACE_PCB );
 
 } // namespace
@@ -380,6 +387,8 @@ bool IFACE::OnKifaceStart( PGM_BASE* aProgram, int aCtlBits )
             DisplayErrorMessage( nullptr, msg, ioe.What() );
         }
     }
+
+    m_jobHandler = std::make_unique<PCBNEW_JOBS_HANDLER>();
 
     return true;
 }
@@ -478,3 +487,8 @@ void IFACE::SaveFileAs( const wxString& aProjectBasePath, const wxString& aSrcPr
     }
 }
 
+
+int IFACE::HandleJob( JOB* aJob )
+{
+    return m_jobHandler->RunJob( aJob );
+}

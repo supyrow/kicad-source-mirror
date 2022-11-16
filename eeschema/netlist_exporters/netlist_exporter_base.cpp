@@ -3,7 +3,7 @@
  *
  * Copyright (C) 1992-2017 jp.charras at wanadoo.fr
  * Copyright (C) 2013-2017 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -113,16 +113,7 @@ SCH_SYMBOL* NETLIST_EXPORTER_BASE::findNextSymbol( EDA_ITEM* aItem, SCH_SHEET_PA
 }
 
 
-/// Comparison routine for sorting by pin numbers.
-static bool sortPinsByNum( PIN_INFO& aPin1, PIN_INFO& aPin2 )
-{
-    // return "lhs < rhs"
-    return StrNumCmp( aPin1.num, aPin2.num, true ) < 0;
-}
-
-
-void NETLIST_EXPORTER_BASE::CreatePinList( SCH_SYMBOL* aSymbol,
-                                           SCH_SHEET_PATH* aSheetPath,
+void NETLIST_EXPORTER_BASE::CreatePinList( SCH_SYMBOL* aSymbol, SCH_SHEET_PATH* aSheetPath,
                                            bool aKeepUnconnectedPins )
 {
     wxString ref( aSymbol->GetRef( aSheetPath ) );
@@ -149,8 +140,7 @@ void NETLIST_EXPORTER_BASE::CreatePinList( SCH_SYMBOL* aSymbol,
         // Collect all pins for this reference designator by searching the entire design for
         // other parts with the same reference designator.
         // This is only done once, it would be too expensive otherwise.
-        findAllUnitsOfSymbol( aSymbol, aSymbol->GetLibSymbolRef().get(),
-                              aSheetPath, aKeepUnconnectedPins );
+        findAllUnitsOfSymbol( aSymbol, aSheetPath, aKeepUnconnectedPins );
     }
 
     else // GetUnitCount() <= 1 means one part per package
@@ -168,7 +158,7 @@ void NETLIST_EXPORTER_BASE::CreatePinList( SCH_SYMBOL* aSymbol,
                     CONNECTION_SUBGRAPH* sg = graph->FindSubgraphByName( netName, *aSheetPath );
 
                     if( !sg || sg->m_no_connect || sg->m_items.size() < 2 )
-                    continue;
+                        continue;
                 }
 
                 m_sortedSymbolPinList.emplace_back( pin->GetShownNumber(), netName );
@@ -177,7 +167,11 @@ void NETLIST_EXPORTER_BASE::CreatePinList( SCH_SYMBOL* aSymbol,
     }
 
     // Sort pins in m_SortedSymbolPinList by pin number
-    sort( m_sortedSymbolPinList.begin(), m_sortedSymbolPinList.end(), sortPinsByNum );
+    std::sort( m_sortedSymbolPinList.begin(), m_sortedSymbolPinList.end(),
+               []( const PIN_INFO& lhs, const PIN_INFO& rhs )
+               {
+                   return StrNumCmp( lhs.num, rhs.num, true ) < 0;
+               } );
 
     // Remove duplicate Pins in m_SortedSymbolPinList
     eraseDuplicatePins();
@@ -220,7 +214,7 @@ void NETLIST_EXPORTER_BASE::eraseDuplicatePins()
 }
 
 
-void NETLIST_EXPORTER_BASE::findAllUnitsOfSymbol( SCH_SYMBOL* aSchSymbol, LIB_SYMBOL* aLibSymbol,
+void NETLIST_EXPORTER_BASE::findAllUnitsOfSymbol( SCH_SYMBOL* aSchSymbol,
                                                   SCH_SHEET_PATH* aSheetPath,
                                                   bool aKeepUnconnectedPins )
 {

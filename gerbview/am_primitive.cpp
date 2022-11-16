@@ -28,7 +28,6 @@
  */
 
 #include <trigo.h>
-#include <convert_to_biu.h>
 #include <convert_basic_shapes_to_polygon.h>
 #include <math/util.h>      // for KiROUND
 
@@ -817,7 +816,6 @@ SHAPE_POLY_SET* APERTURE_MACRO::GetApertureMacroShape( const GERBER_DRAW_ITEM* a
                                                        const VECTOR2I&         aShapePos )
 {
     SHAPE_POLY_SET holeBuffer;
-    bool hasHole = false;
 
     m_shape.RemoveAllContours();
 
@@ -839,7 +837,6 @@ SHAPE_POLY_SET* APERTURE_MACRO::GetApertureMacroShape( const GERBER_DRAW_ITEM* a
             {
                 m_shape.BooleanSubtract( holeBuffer, SHAPE_POLY_SET::PM_FAST );
                 holeBuffer.RemoveAllContours();
-                hasHole = true;
             }
         }
     }
@@ -847,12 +844,12 @@ SHAPE_POLY_SET* APERTURE_MACRO::GetApertureMacroShape( const GERBER_DRAW_ITEM* a
     // Merge and cleanup basic shape polygons
     m_shape.Simplify( SHAPE_POLY_SET::PM_FAST );
 
-    // If a hole is defined inside a polygon, we must fracture the polygon
-    // to be able to drawn it (i.e link holes by overlapping edges)
-    if( hasHole )
-        m_shape.Fracture( SHAPE_POLY_SET::PM_FAST );
+    // A hole can be is defined inside a polygon, or the polygons themselve can create
+    // a hole when merged, so we must fracture the polygon to be able to drawn it
+    // (i.e link holes by overlapping edges)
+    m_shape.Fracture( SHAPE_POLY_SET::PM_FAST );
 
-    m_boundingBox = EDA_RECT( VECTOR2I( 0, 0 ), VECTOR2I( 1, 1 ) );
+    m_boundingBox = BOX2I( VECTOR2I( 0, 0 ), VECTOR2I( 1, 1 ) );
 
     auto bb = m_shape.BBox();
     VECTOR2I center( bb.Centre().x, bb.Centre().y );
@@ -864,7 +861,7 @@ SHAPE_POLY_SET* APERTURE_MACRO::GetApertureMacroShape( const GERBER_DRAW_ITEM* a
 }
 
 
-void APERTURE_MACRO::DrawApertureMacroShape( GERBER_DRAW_ITEM* aParent, wxDC* aDC,
+void APERTURE_MACRO::DrawApertureMacroShape( const GERBER_DRAW_ITEM* aParent, wxDC* aDC,
                                              const COLOR4D& aColor, const VECTOR2I& aShapePos,
                                              bool aFilledShape )
 {

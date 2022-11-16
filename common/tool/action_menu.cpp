@@ -60,7 +60,7 @@ ACTION_MENU::ACTION_MENU( bool isContextMenu, TOOL_INTERACTIVE* aTool ) :
 ACTION_MENU::~ACTION_MENU()
 {
     // Set parent to NULL to prevent submenus from unregistering from a nonexistent object
-    for( auto menu : m_submenus )
+    for( ACTION_MENU* menu : m_submenus )
         menu->SetParent( nullptr );
 
     ACTION_MENU* parent = dynamic_cast<ACTION_MENU*>( GetParent() );
@@ -167,7 +167,7 @@ wxMenuItem* ACTION_MENU::Add( const TOOL_ACTION& aAction, bool aIsCheckmarkEntry
     BITMAPS icon = aAction.GetIcon();
 
     // Allow the label to be overridden at point of use
-    wxString menuLabel = aOverrideLabel.IsEmpty() ? aAction.GetMenuItem() :  aOverrideLabel;
+    wxString menuLabel = aOverrideLabel.IsEmpty() ? aAction.GetMenuItem() : aOverrideLabel;
 
     wxMenuItem* item = new wxMenuItem( this, aAction.GetUIId(), menuLabel,
                                        aAction.GetDescription(),
@@ -183,21 +183,20 @@ wxMenuItem* ACTION_MENU::Add( const TOOL_ACTION& aAction, bool aIsCheckmarkEntry
 
 wxMenuItem* ACTION_MENU::Add( ACTION_MENU* aMenu )
 {
-    ACTION_MENU* menuCopy = aMenu->Clone();
-    m_submenus.push_back( menuCopy );
+    m_submenus.push_back( aMenu );
 
-    wxASSERT_MSG( !menuCopy->m_title.IsEmpty(), "Set a title for ACTION_MENU using SetTitle()" );
+    wxASSERT_MSG( !aMenu->m_title.IsEmpty(), "Set a title for ACTION_MENU using SetTitle()" );
 
     if( !!aMenu->m_icon )
     {
-        wxMenuItem* newItem = new wxMenuItem( this, -1, menuCopy->m_title );
+        wxMenuItem* newItem = new wxMenuItem( this, -1, aMenu->m_title );
         AddBitmapToMenuItem( newItem, KiBitmap( aMenu->m_icon ) );
-        newItem->SetSubMenu( menuCopy );
+        newItem->SetSubMenu( aMenu );
         return Append( newItem );
     }
     else
     {
-        return AppendSubMenu( menuCopy, menuCopy->m_title );
+        return AppendSubMenu( aMenu, aMenu->m_title );
     }
 }
 
@@ -467,8 +466,14 @@ void ACTION_MENU::OnMenuEvent( wxMenuEvent& aEvent )
         }
 
         // Check if there is a TOOL_ACTION for the given ID
-        if( m_selected >= TOOL_ACTION::GetBaseUIId() )
+        // Note that we also have to check the standard wxWidgets' cut/copy/paste IDs because
+        // we can't use our own IDs there without losing cut/copy/paste in places like search
+        // boxes in standard file dialogs.
+        if( m_selected == wxID_CUT || m_selected == wxID_COPY || m_selected == wxID_PASTE
+                || m_selected >= TOOL_ACTION::GetBaseUIId() )
+        {
             evt = findToolAction( m_selected );
+        }
 
         if( !evt )
         {
@@ -575,10 +580,12 @@ void ACTION_MENU::runOnSubmenus( std::function<void(ACTION_MENU*)> aFunction )
 {
     try
     {
-        std::for_each( m_submenus.begin(), m_submenus.end(), [&]( ACTION_MENU* m ) {
-            aFunction( m );
-            m->runOnSubmenus( aFunction );
-        } );
+        std::for_each( m_submenus.begin(), m_submenus.end(),
+                       [&]( ACTION_MENU* m )
+                       {
+                           aFunction( m );
+                           m->runOnSubmenus( aFunction );
+                       } );
     }
     catch( std::exception& )
     {
@@ -590,15 +597,17 @@ OPT_TOOL_EVENT ACTION_MENU::findToolAction( int aId )
 {
     OPT_TOOL_EVENT evt;
 
-    auto findFunc = [&]( ACTION_MENU* m ) {
-        if( evt )
-            return;
+    auto findFunc =
+            [&]( ACTION_MENU* m )
+            {
+                if( evt )
+                    return;
 
-        const auto it = m->m_toolActions.find( aId );
+                const auto it = m->m_toolActions.find( aId );
 
-        if( it != m->m_toolActions.end() )
-            evt = it->second->MakeEvent();
-    };
+                if( it != m->m_toolActions.end() )
+                    evt = it->second->MakeEvent();
+            };
 
     findFunc( this );
 

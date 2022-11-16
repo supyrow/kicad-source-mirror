@@ -8,9 +8,9 @@ include_directories( BEFORE ${INC_BEFORE} )
 
 add_definitions( -DPCM )
 
-include_directories(
-    ${CMAKE_SOURCE_DIR}/common
-    ${CMAKE_SOURCE_DIR}/kicad
+set ( PCM_SETTINGS_SRCS
+    dialogs/panel_pcm_settings_base.cpp
+    dialogs/panel_pcm_settings.cpp
 )
 
 set ( PCM_DLG_SRCS
@@ -47,6 +47,33 @@ target_link_libraries( pcm
     picosha2
     nlohmann_json_schema_validator
 )
+
+add_library( pcm_settings STATIC
+    ${PCM_SETTINGS_SRCS}
+)
+
+# This is a circular dependency but it's not a problem for static libs.
+# Refactoring this would need separating kicad_settings, settings manager
+# and pgm_base out of common.
+target_link_libraries( pcm_settings common )
+
+target_include_directories(
+    pcm_settings
+    PUBLIC dialogs
+    PRIVATE $<TARGET_PROPERTY:common,INTERFACE_INCLUDE_DIRECTORIES>
+)
+
+# Copy the schema to the build directory when building outside the source tree
+# to allow for proper running of kicad from the build directory.
+if( NOT (${CMAKE_CURRENT_SOURCE_DIR} STREQUAL ${CMAKE_CURRENT_BINARY_DIR} ) )
+    file( GLOB SCHEMA_FILES ${CMAKE_CURRENT_SOURCE_DIR}/schemas/*.json )
+
+    add_custom_target( schema_build_copy ALL
+        COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/schemas ${CMAKE_BINARY_DIR}/schemas
+        DEPENDS ${SCHEMA_FILES}
+        COMMENT "Copying schema files into build directory"
+        )
+endif()
 
 INSTALL( DIRECTORY
     schemas

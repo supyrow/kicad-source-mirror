@@ -23,13 +23,18 @@
 #include <bitmaps.h>
 #include <board.h>
 #include <board_design_settings.h>
+#include <pad.h>
+#include <pcb_track.h>
 #include <eda_list_dialog.h>
+#include <string_utils.h>
 #include <footprint_edit_frame.h>
 #include <menus_helpers.h>
 #include <pcb_display_options.h>
 #include <pcb_edit_frame.h>
 #include <pcb_painter.h>
 #include <pcbnew_settings.h>
+#include <project.h>
+#include <project/project_local_settings.h>
 #include <settings/color_settings.h>
 #include <tool/tool_manager.h>
 #include <tools/pcb_actions.h>
@@ -43,6 +48,7 @@
 #include <widgets/indicator_icon.h>
 #include <widgets/infobar.h>
 #include <widgets/wx_grid.h>
+#include <dialogs/eda_view_switcher.h>
 #include <wx/bmpbuttn.h>
 #include <wx/checkbox.h>
 #include <wx/hyperlink.h>
@@ -75,24 +81,20 @@ NET_GRID_TABLE::~NET_GRID_TABLE()
 
 wxGridCellAttr* NET_GRID_TABLE::GetAttr( int aRow, int aCol, wxGridCellAttr::wxAttrKind )
 {
+    wxGridCellAttr* attr = nullptr;
+
     switch( aCol )
     {
-    case COL_COLOR:
-        m_defaultAttr->IncRef();
-        return m_defaultAttr;
-
-    case COL_VISIBILITY:
-        m_defaultAttr->IncRef();
-        return m_defaultAttr;
-
-    case COL_LABEL:
-        m_labelAttr->IncRef();
-        return m_labelAttr;
-
-    default:
-        wxFAIL;
-        return nullptr;
+    case COL_COLOR:      attr = m_defaultAttr; break;
+    case COL_VISIBILITY: attr = m_defaultAttr; break;
+    case COL_LABEL:      attr = m_labelAttr;   break;
+    default:             wxFAIL;
     }
+
+    if( attr )
+        attr->IncRef();
+
+    return attr;
 }
 
 
@@ -102,17 +104,10 @@ wxString NET_GRID_TABLE::GetValue( int aRow, int aCol )
 
     switch( aCol )
     {
-    case COL_COLOR:
-        return m_nets[aRow].color.ToWxString( wxC2S_CSS_SYNTAX );
-
-    case COL_VISIBILITY:
-        return m_nets[aRow].visible ? wxT( "1" ) : wxT( "0" );
-
-    case COL_LABEL:
-        return m_nets[aRow].name;
-
-    default:
-        return wxEmptyString;
+    case COL_COLOR:      return m_nets[aRow].color.ToCSSString();
+    case COL_VISIBILITY: return m_nets[aRow].visible ? wxT( "1" ) : wxT( "0" );
+    case COL_LABEL:      return m_nets[aRow].name;
+    default:             return wxEmptyString;
     }
 }
 
@@ -303,17 +298,19 @@ void NET_GRID_TABLE::HideOtherNets( const NET_GRID_ENTRY& aNet )
 
 void NET_GRID_TABLE::updateNetVisibility( const NET_GRID_ENTRY& aNet )
 {
-    const TOOL_ACTION& action = aNet.visible ? PCB_ACTIONS::showNet : PCB_ACTIONS::hideNet;
+    const TOOL_ACTION& action = aNet.visible ? PCB_ACTIONS::showNetInRatsnest
+                                             : PCB_ACTIONS::hideNetInRatsnest;
+
     m_frame->GetToolManager()->RunAction( action, true, static_cast<intptr_t>( aNet.code ) );
 }
 
 
 void NET_GRID_TABLE::updateNetColor( const NET_GRID_ENTRY& aNet )
 {
-    KIGFX::PCB_RENDER_SETTINGS* rs = static_cast<KIGFX::PCB_RENDER_SETTINGS*>(
-            m_frame->GetCanvas()->GetView()->GetPainter()->GetSettings() );
+    KIGFX::RENDER_SETTINGS*     rs = m_frame->GetCanvas()->GetView()->GetPainter()->GetSettings();
+    KIGFX::PCB_RENDER_SETTINGS* renderSettings = static_cast<KIGFX::PCB_RENDER_SETTINGS*>( rs );
 
-    std::map<int, KIGFX::COLOR4D>& netColors  = rs->GetNetColorMap();
+    std::map<int, KIGFX::COLOR4D>& netColors  = renderSettings->GetNetColorMap();
 
     if( aNet.color != COLOR4D::UNSPECIFIED )
         netColors[aNet.code] = aNet.color;
@@ -331,29 +328,30 @@ const APPEARANCE_CONTROLS::APPEARANCE_SETTING APPEARANCE_CONTROLS::s_objectSetti
 
 #define RR  APPEARANCE_CONTROLS::APPEARANCE_SETTING   // Render Row abbreviation to reduce source width
 
-    //     text                  id                        tooltip                   opacity slider
-    RR( _HKI( "Tracks" ),           LAYER_TRACKS,             _HKI( "Show tracks" ),       true ),
-    RR( _HKI( "Vias" ),             LAYER_VIAS,               _HKI( "Show all vias" ),     true ),
-    RR( _HKI( "Pads" ),             LAYER_PADS,               _HKI( "Show all pads" ),     true ),
-    RR( _HKI( "Zones" ),            LAYER_ZONES,              _HKI( "Show copper zones" ), true ),
+    //     text                         id                        tooltip                   opacity slider
+    RR( _HKI( "Tracks" ),             LAYER_TRACKS,             _HKI( "Show tracks" ),         true ),
+    RR( _HKI( "Vias" ),               LAYER_VIAS,               _HKI( "Show all vias" ),       true ),
+    RR( _HKI( "Pads" ),               LAYER_PADS,               _HKI( "Show all pads" ),       true ),
+    RR( _HKI( "Zones" ),              LAYER_ZONES,              _HKI( "Show copper zones" ),   true ),
+    RR( _HKI( "Images" ),             LAYER_DRAW_BITMAPS,       _HKI( "Show user images" ),    true ),
     RR(),
-    RR( _HKI( "Footprints Front" ), LAYER_MOD_FR,             _HKI( "Show footprints that are on board's front" ) ),
-    RR( _HKI( "Footprints Back" ),  LAYER_MOD_BK,             _HKI( "Show footprints that are on board's back" ) ),
-    RR( _HKI( "Through-hole Pads" ),LAYER_PADS_TH,            _HKI( "Show through-hole pads" ) ),
-    RR( _HKI( "Values" ),           LAYER_MOD_VALUES,         _HKI( "Show footprint values" ) ),
-    RR( _HKI( "References" ),       LAYER_MOD_REFERENCES,     _HKI( "Show footprint references" ) ),
-    RR( _HKI( "Footprint Text" ),   LAYER_MOD_TEXT,           _HKI( "Show all footprint text" ) ),
-    RR( _HKI( "Hidden Text" ),      LAYER_MOD_TEXT_INVISIBLE, _HKI( "Show footprint text marked as invisible" ) ),
+    RR( _HKI( "Footprints Front" ),   LAYER_MOD_FR,             _HKI( "Show footprints that are on board's front" ) ),
+    RR( _HKI( "Footprints Back" ),    LAYER_MOD_BK,             _HKI( "Show footprints that are on board's back" ) ),
+    RR( _HKI( "Through-hole Pads" ),  LAYER_PADS_TH,            _HKI( "Show through-hole pads" ) ),
+    RR( _HKI( "Values" ),             LAYER_MOD_VALUES,         _HKI( "Show footprint values" ) ),
+    RR( _HKI( "References" ),         LAYER_MOD_REFERENCES,     _HKI( "Show footprint references" ) ),
+    RR( _HKI( "Footprint Text" ),     LAYER_MOD_TEXT,           _HKI( "Show all footprint text" ) ),
+    RR( _HKI( "Hidden Text" ),        LAYER_MOD_TEXT_INVISIBLE, _HKI( "Show footprint text marked as invisible" ) ),
     RR(),
     RR(),
-    RR( _HKI( "Ratsnest" ),         LAYER_RATSNEST,           _HKI( "Show unconnected nets as a ratsnest") ),
-    RR( _HKI( "No-Connects" ),      LAYER_NO_CONNECTS,        _HKI( "Show a marker on pads which have no net connected" ) ),
-    RR( _HKI( "DRC Warnings" ),     LAYER_DRC_WARNING,        _HKI( "DRC violations with a Warning severity" ) ),
-    RR( _HKI( "DRC Errors" ),       LAYER_DRC_ERROR,          _HKI( "DRC violations with an Error severity" ) ),
-    RR( _HKI( "DRC Exclusions" ),   LAYER_DRC_EXCLUSION,      _HKI( "DRC violations which have been individually excluded" ) ),
-    RR( _HKI( "Anchors" ),          LAYER_ANCHOR,             _HKI( "Show footprint and text origins as a cross" ) ),
-    RR( _HKI( "Drawing Sheet" ),    LAYER_DRAWINGSHEET,       _HKI( "Show drawing sheet borders and title block" ) ),
-    RR( _HKI( "Grid" ),             LAYER_GRID,               _HKI( "Show the (x,y) grid dots" ) )
+    RR( _HKI( "Ratsnest" ),           LAYER_RATSNEST,           _HKI( "Show unconnected nets as a ratsnest") ),
+    RR( _HKI( "DRC Warnings" ),       LAYER_DRC_WARNING,        _HKI( "DRC violations with a Warning severity" ) ),
+    RR( _HKI( "DRC Errors" ),         LAYER_DRC_ERROR,          _HKI( "DRC violations with an Error severity" ) ),
+    RR( _HKI( "DRC Exclusions" ),     LAYER_DRC_EXCLUSION,      _HKI( "DRC violations which have been individually excluded" ) ),
+    RR( _HKI( "Anchors" ),            LAYER_ANCHOR,             _HKI( "Show footprint and text origins as a cross" ) ),
+    RR( _HKI( "Locked Item Shadow" ), LAYER_LOCKED_ITEM_SHADOW, _HKI( "Show a shadow marker on locked items" ) ),
+    RR( _HKI( "Drawing Sheet" ),      LAYER_DRAWINGSHEET,       _HKI( "Show drawing sheet borders and title block" ) ),
+    RR( _HKI( "Grid" ),               LAYER_GRID,               _HKI( "Show the (x,y) grid dots" ) )
 };
 
 /// These GAL layers are shown in the Objects tab in the footprint editor
@@ -368,6 +366,7 @@ static std::set<int> s_allowedInFpEditor =
             LAYER_MOD_REFERENCES,
             LAYER_MOD_TEXT,
             LAYER_MOD_TEXT_INVISIBLE,
+            LAYER_DRAW_BITMAPS,
             LAYER_GRID
         };
 
@@ -408,9 +407,9 @@ APPEARANCE_CONTROLS::APPEARANCE_CONTROLS( PCB_BASE_FRAME* aParent, wxWindow* aFo
         m_layerContextMenu( nullptr )
 {
     int indicatorSize = ConvertDialogToPixels( wxSize( 6, 6 ) ).x;
-    m_iconProvider    = new ROW_ICON_PROVIDER( indicatorSize );
-    int pointSize     = wxSystemSettings::GetFont( wxSYS_DEFAULT_GUI_FONT ).GetPointSize();
     int screenHeight  = wxSystemSettings::GetMetric( wxSYS_SCREEN_Y );
+    m_iconProvider    = new ROW_ICON_PROVIDER( indicatorSize );
+    m_pointSize       = wxSystemSettings::GetFont( wxSYS_DEFAULT_GUI_FONT ).GetPointSize();
 
     m_layerPanelColour = m_panelLayers->GetBackgroundColour().ChangeLightness( 110 );
     SetBorders( true, false, false, false );
@@ -434,6 +433,20 @@ APPEARANCE_CONTROLS::APPEARANCE_CONTROLS( PCB_BASE_FRAME* aParent, wxWindow* aFo
     m_presetsLabel->SetFont( infoFont );
     m_viewportsLabel->SetFont( infoFont );
 
+    m_cbLayerPresets->SetToolTip( wxString::Format( _( "Save and restore layer visibility combinations.\n"
+                                                       "Use %s+Tab to activate selector.\n"
+                                                       "Successive Tabs while holding %s down will "
+                                                       "cycle through presets in the popup." ),
+                                                    KeyNameFromKeyCode( PRESET_SWITCH_KEY ),
+                                                    KeyNameFromKeyCode( PRESET_SWITCH_KEY ) ) );
+
+    m_cbViewports->SetToolTip( wxString::Format( _( "Save and restore view location and zoom.\n"
+                                                    "Use %s+Tab to activate selector.\n"
+                                                    "Successive Tabs while holding %s down will "
+                                                    "cycle through viewports in the popup." ),
+                                                 KeyNameFromKeyCode( VIEWPORT_SWITCH_KEY ),
+                                                 KeyNameFromKeyCode( VIEWPORT_SWITCH_KEY ) ) );
+
     createControls();
 
     m_btnNetInspector->SetBitmap( KiBitmap( BITMAPS::list_nets_16 ) );
@@ -444,10 +457,9 @@ APPEARANCE_CONTROLS::APPEARANCE_CONTROLS( PCB_BASE_FRAME* aParent, wxWindow* aFo
 
     m_txtNetFilter->SetHint( _( "Filter nets" ) );
 
-    if( screenHeight <= 900 && pointSize >= indicatorSize )
-        pointSize = pointSize * 8 / 10;
+    if( screenHeight <= 900 && m_pointSize >= indicatorSize )
+        m_pointSize = m_pointSize * 8 / 10;
 
-    m_pointSize = pointSize;
     wxFont font = m_notebook->GetFont();
 
 #ifdef __WXMAC__
@@ -514,7 +526,6 @@ APPEARANCE_CONTROLS::APPEARANCE_CONTROLS( PCB_BASE_FRAME* aParent, wxWindow* aFo
 
     m_netsGrid->RegisterDataType( wxT( "bool" ), m_toggleGridRenderer, new wxGridCellBoolEditor );
 
-    // TODO(JE) Update background color of swatch renderer when theme changes
     m_netsGrid->RegisterDataType( wxT( "COLOR4D" ),
                                   new GRID_CELL_COLOR_RENDERER( m_frame, SWATCH_SMALL ),
                                   new GRID_CELL_COLOR_SELECTOR( m_frame, m_netsGrid ) );
@@ -556,6 +567,14 @@ APPEARANCE_CONTROLS::APPEARANCE_CONTROLS( PCB_BASE_FRAME* aParent, wxWindow* aFo
     if( m_isFpEditor )
         m_notebook->RemovePage( 2 );
 
+    PCBNEW_SETTINGS* settings = m_frame->GetPcbNewSettings();
+
+    if( settings->m_AuiPanels.appearance_expand_layer_display )
+        m_paneLayerDisplayOptions->Expand();
+
+    if( settings->m_AuiPanels.appearance_expand_net_display )
+        m_paneNetDisplayOptions->Expand();
+
     loadDefaultLayerPresets();
     rebuildObjects();
     OnBoardChanged();
@@ -570,6 +589,11 @@ APPEARANCE_CONTROLS::APPEARANCE_CONTROLS( PCB_BASE_FRAME* aParent, wxWindow* aFo
 
 APPEARANCE_CONTROLS::~APPEARANCE_CONTROLS()
 {
+    PCBNEW_SETTINGS* settings = m_frame->GetPcbNewSettings();
+
+    settings->m_AuiPanels.appearance_expand_layer_display = m_paneLayerDisplayOptions->IsExpanded();
+    settings->m_AuiPanels.appearance_expand_net_display   = m_paneNetDisplayOptions->IsExpanded();
+
     delete m_iconProvider;
 }
 
@@ -877,7 +901,8 @@ void APPEARANCE_CONTROLS::OnNetGridRightClick( wxGridEvent& event )
 {
     m_netsGrid->SelectRow( event.GetRow() );
 
-    wxString netName = m_netsGrid->GetCellValue( event.GetRow(), NET_GRID_TABLE::COL_LABEL );
+    wxString netName = UnescapeString( m_netsGrid->GetCellValue( event.GetRow(),
+                                                                 NET_GRID_TABLE::COL_LABEL ) );
     wxMenu menu;
 
     menu.Append( new wxMenuItem( &menu, ID_SET_NET_COLOR, _( "Set Net Color" ), wxEmptyString,
@@ -1116,6 +1141,38 @@ void APPEARANCE_CONTROLS::OnColorThemeChanged()
 }
 
 
+void APPEARANCE_CONTROLS::OnDarkModeToggle()
+{
+    // This is essentially a list of hacks because DarkMode isn't yet implemented inside
+    // wxWidgets.
+    //
+    // The individual wxPanels, COLOR_SWATCHes and GRID_CELL_COLOR_RENDERERs should really be
+    // overriding some virtual method or responding to some wxWidgets event so that the parent
+    // doesn't have to know what it contains.  But, that's not where we are, so... :shrug:
+
+    m_layerPanelColour = m_panelLayers->GetBackgroundColour().ChangeLightness( 110 );
+
+    for( wxSizerItem* child : m_layersOuterSizer->GetChildren() )
+    {
+        if( child && child->GetWindow() )
+            child->GetWindow()->SetBackgroundColour( m_layerPanelColour );
+    }
+
+    // Easier than calling OnDarkModeToggle on all the GRID_CELL_COLOR_RENDERERs:
+    m_netsGrid->RegisterDataType( wxT( "COLOR4D" ),
+                                  new GRID_CELL_COLOR_RENDERER( m_frame, SWATCH_SMALL ),
+                                  new GRID_CELL_COLOR_SELECTOR( m_frame, m_netsGrid ) );
+
+    for( const std::pair<const wxString, APPEARANCE_SETTING*>& pair : m_netclassSettingsMap )
+    {
+        if( pair.second->ctl_color )
+            pair.second->ctl_color->OnDarkModeToggle();
+    }
+
+    OnLayerChanged();       // Update selected highlighting
+}
+
+
 void APPEARANCE_CONTROLS::OnLayerChanged()
 {
     for( const std::unique_ptr<APPEARANCE_SETTING>& setting : m_layerSettings )
@@ -1124,11 +1181,9 @@ void APPEARANCE_CONTROLS::OnLayerChanged()
         setting->ctl_indicator->SetIndicatorState( ROW_ICON_PROVIDER::STATE::OFF );
     }
 
-    wxChar r, g, b;
-
-    r = m_layerPanelColour.Red();
-    g = m_layerPanelColour.Green();
-    b = m_layerPanelColour.Blue();
+    wxChar r = m_layerPanelColour.Red();
+    wxChar g = m_layerPanelColour.Green();
+    wxChar b = m_layerPanelColour.Blue();
 
     if( r < 240 || g < 240 || b < 240 )
     {
@@ -1194,16 +1249,27 @@ void APPEARANCE_CONTROLS::SetObjectVisible( GAL_LAYER_ID aLayer, bool isVisible 
 
 void APPEARANCE_CONTROLS::setVisibleLayers( LSET aLayers )
 {
+    KIGFX::VIEW* view = m_frame->GetCanvas()->GetView();
+
     if( m_isFpEditor )
     {
-        KIGFX::VIEW* view = m_frame->GetCanvas()->GetView();
-
         for( PCB_LAYER_ID layer : LSET::AllLayersMask().Seq() )
             view->SetLayerVisible( layer, aLayers.Contains( layer ) );
     }
     else
     {
         m_frame->GetBoard()->SetVisibleLayers( aLayers );
+
+        view->UpdateAllItemsConditionally( KIGFX::REPAINT,
+                []( KIGFX::VIEW_ITEM* aItem ) -> bool
+                {
+                    if( PCB_VIA* via = dynamic_cast<PCB_VIA*>( aItem ) )
+                        return via->GetRemoveUnconnected();
+                    else if( PAD* pad = dynamic_cast<PAD*>( aItem ) )
+                        return pad->GetRemoveUnconnected();
+
+                    return false;
+                } );
     }
 }
 
@@ -1221,7 +1287,7 @@ void APPEARANCE_CONTROLS::setVisibleObjects( GAL_SET aLayers )
     {
         // Ratsnest visibility is controlled by the ratsnest option, and not by the preset
         if( m_frame->IsType( FRAME_PCB_EDITOR ) )
-            aLayers.set( LAYER_RATSNEST, m_frame->Settings().m_Display.m_ShowGlobalRatsnest );
+            aLayers.set( LAYER_RATSNEST, m_frame->GetPcbNewSettings()->m_Display.m_ShowGlobalRatsnest );
 
         m_frame->GetBoard()->SetVisibleElements( aLayers );
     }
@@ -1289,16 +1355,18 @@ void APPEARANCE_CONTROLS::UpdateDisplayOptions()
 
     if( !m_isFpEditor )
     {
-        if( !m_frame->Settings().m_Display.m_ShowGlobalRatsnest )
+        PCBNEW_SETTINGS* cfg = m_frame->GetPcbNewSettings();
+
+        if( !cfg->m_Display.m_ShowGlobalRatsnest )
             m_rbRatsnestNone->SetValue( true );
-        else if( m_frame->Settings().m_Display.m_RatsnestMode == RATSNEST_MODE::ALL )
+        else if( cfg->m_Display.m_RatsnestMode == RATSNEST_MODE::ALL )
             m_rbRatsnestAllLayers->SetValue( true );
         else
             m_rbRatsnestVisLayers->SetValue( true );
 
         wxASSERT( m_objectSettingsMap.count( LAYER_RATSNEST ) );
         APPEARANCE_SETTING* ratsnest = m_objectSettingsMap.at( LAYER_RATSNEST );
-        ratsnest->ctl_visibility->SetValue( m_frame->Settings().m_Display.m_ShowGlobalRatsnest );
+        ratsnest->ctl_visibility->SetValue( cfg->m_Display.m_ShowGlobalRatsnest );
     }
 }
 
@@ -1498,25 +1566,15 @@ void APPEARANCE_CONTROLS::rebuildLayers()
                         [&]( wxCommandEvent& aEvent )
                         {
                             wxObject* btn = aEvent.GetEventObject();
-                            int layId = static_cast<wxWindow*>( btn )->GetId();
-                            bool isVisible = aEvent.GetInt();
+                            int       layerId = static_cast<wxWindow*>( btn )->GetId();
 
-                            wxASSERT( layId >= 0 && layId < PCB_LAYER_ID_COUNT );
-
-                            if( m_isFpEditor && LSET::ForbiddenFootprintLayers().test( layId ) )
-                            {
-                                static_cast<BITMAP_TOGGLE*>( btn )->SetValue( !isVisible );
-                                return;
-                            }
-
-                            onLayerVisibilityChanged( static_cast<PCB_LAYER_ID>( layId ),
-                                                      isVisible, true );
+                            onLayerVisibilityToggled( static_cast<PCB_LAYER_ID>( layerId ) );
                         } );
 
                 swatch->Bind( COLOR_SWATCH_CHANGED, &APPEARANCE_CONTROLS::OnColorSwatchChanged,
                               this );
-                swatch->SetReadOnlyCallback(std::bind( &APPEARANCE_CONTROLS::onReadOnlySwatch,
-                                                       this ) );
+                swatch->SetReadOnlyCallback( std::bind( &APPEARANCE_CONTROLS::onReadOnlySwatch,
+                                                        this ) );
                 swatch->SetReadOnly( readOnly );
 
                 panel->Bind( wxEVT_RIGHT_DOWN, &APPEARANCE_CONTROLS::rightClickHandler, this );
@@ -1685,6 +1743,16 @@ void APPEARANCE_CONTROLS::rebuildLayers()
 
     m_paneLayerDisplayOptions->SetLabel( _( "Layer Display Options" ) );
 
+    int hotkey = PCB_ACTIONS::highContrastModeCycle.GetHotKey();
+    wxString msg;
+
+    if( hotkey )
+        msg = wxString::Format( _( "Inactive layers (%s):" ), KeyNameFromKeyCode( hotkey ) );
+    else
+        msg = _( "Inactive layers:" );
+
+    m_inactiveLayersLabel->SetLabel( msg );
+
     m_rbHighContrastNormal->SetLabel( _( "Normal" ) );
     m_rbHighContrastNormal->SetToolTip( _( "Inactive layers will be shown in full color" ) );
 
@@ -1770,11 +1838,9 @@ void APPEARANCE_CONTROLS::OnLayerContextMenu( wxCommandEvent& aEvent )
         return;
 
     case ID_SHOW_ALL_COPPER_LAYERS:
-    {
         visible |= presetAllCopper.layers;
         setVisibleLayers( visible );
         break;
-    }
 
     case ID_HIDE_ALL_BUT_ACTIVE:
         ApplyLayerPreset( presetNoLayers );
@@ -1782,34 +1848,28 @@ void APPEARANCE_CONTROLS::OnLayerContextMenu( wxCommandEvent& aEvent )
         break;
 
     case ID_HIDE_ALL_COPPER_LAYERS:
-    {
         visible &= ~presetAllCopper.layers;
 
-        if( !visible.test( current ) )
+        if( !visible.test( current ) && visible.count() > 0 )
             m_frame->SetActiveLayer( *visible.Seq().begin() );
 
         setVisibleLayers( visible );
         break;
-    }
 
     case ID_HIDE_ALL_NON_COPPER:
-    {
         visible &= presetAllCopper.layers;
 
-        if( !visible.test( current ) )
+        if( !visible.test( current ) && visible.count() > 0 )
             m_frame->SetActiveLayer( *visible.Seq().begin() );
 
         setVisibleLayers( visible );
         break;
-    }
 
     case ID_SHOW_ALL_NON_COPPER:
-    {
         visible |= ~presetAllCopper.layers;
 
         setVisibleLayers( visible );
         break;
-    }
 
     case ID_PRESET_FRONT_ASSEMBLY:
         ApplyLayerPreset( presetFrontAssembly );
@@ -1907,7 +1967,7 @@ void APPEARANCE_CONTROLS::syncColorsAndVisibility()
 
 void APPEARANCE_CONTROLS::onLayerLeftClick( wxMouseEvent& aEvent )
 {
-    auto eventSource = static_cast<wxWindow*>( aEvent.GetEventObject() );
+    wxWindow* eventSource = static_cast<wxWindow*>( aEvent.GetEventObject() );
 
     PCB_LAYER_ID layer = ToLAYER_ID( eventSource->GetId() );
 
@@ -1927,24 +1987,16 @@ void APPEARANCE_CONTROLS::rightClickHandler( wxMouseEvent& aEvent )
 };
 
 
-void APPEARANCE_CONTROLS::onLayerVisibilityChanged( PCB_LAYER_ID aLayer, bool isVisible,
-                                                    bool isFinal )
+void APPEARANCE_CONTROLS::onLayerVisibilityToggled( PCB_LAYER_ID aLayer )
 {
     LSET visibleLayers = getVisibleLayers();
 
-    if( visibleLayers.test( aLayer ) != isVisible )
-    {
-        visibleLayers.set( aLayer, isVisible );
-
-        setVisibleLayers( visibleLayers );
-
-        m_frame->GetCanvas()->GetView()->SetLayerVisible( aLayer, isVisible );
-    }
+    visibleLayers.set( aLayer, !visibleLayers.test( aLayer ) );
+    setVisibleLayers( visibleLayers );
+    m_frame->GetCanvas()->GetView()->SetLayerVisible( aLayer, visibleLayers.test( aLayer ) );
 
     syncLayerPresetSelection();
-
-    if( isFinal )
-        m_frame->GetCanvas()->Refresh();
+    m_frame->GetCanvas()->Refresh();
 }
 
 
@@ -1962,7 +2014,7 @@ void APPEARANCE_CONTROLS::onObjectVisibilityChanged( GAL_LAYER_ID aLayer, bool i
 
         if( m_frame->IsType( FRAME_PCB_EDITOR ) )
         {
-            m_frame->Settings().m_Display.m_ShowGlobalRatsnest = isVisible;
+            m_frame->GetPcbNewSettings()->m_Display.m_ShowGlobalRatsnest = isVisible;
             m_frame->GetBoard()->SetElementVisibility( aLayer, isVisible );
             m_frame->GetCanvas()->RedrawRatsnest();
         }
@@ -2055,8 +2107,8 @@ void APPEARANCE_CONTROLS::rebuildObjects()
                     sizer->Add( swatch, 0,  wxALIGN_CENTER_VERTICAL, 0 );
                     aSetting->ctl_color = swatch;
 
-                    swatch->Bind( COLOR_SWATCH_CHANGED,
-                                  &APPEARANCE_CONTROLS::OnColorSwatchChanged, this );
+                    swatch->Bind( COLOR_SWATCH_CHANGED, &APPEARANCE_CONTROLS::OnColorSwatchChanged,
+                                  this );
 
                     swatch->SetReadOnlyCallback( std::bind( &APPEARANCE_CONTROLS::onReadOnlySwatch,
                                                             this ) );
@@ -2209,12 +2261,47 @@ void APPEARANCE_CONTROLS::syncObjectSettings()
     wxASSERT( m_objectSettingsMap.count( LAYER_TRACKS )
               && m_objectSettingsMap.count( LAYER_VIAS )
               && m_objectSettingsMap.count( LAYER_PADS )
-              && m_objectSettingsMap.count( LAYER_ZONES ) );
+              && m_objectSettingsMap.count( LAYER_ZONES )
+              && m_objectSettingsMap.count( LAYER_DRAW_BITMAPS ) );
 
     m_objectSettingsMap[LAYER_TRACKS]->ctl_opacity->SetValue( opts.m_TrackOpacity * 100 );
     m_objectSettingsMap[LAYER_VIAS]->ctl_opacity->SetValue( opts.m_ViaOpacity * 100 );
     m_objectSettingsMap[LAYER_PADS]->ctl_opacity->SetValue( opts.m_PadOpacity * 100 );
     m_objectSettingsMap[LAYER_ZONES]->ctl_opacity->SetValue( opts.m_ZoneOpacity * 100 );
+    m_objectSettingsMap[LAYER_DRAW_BITMAPS]->ctl_opacity->SetValue( opts.m_ImageOpacity * 100 );
+}
+
+
+void APPEARANCE_CONTROLS::buildNetClassMenu( wxMenu& aMenu, bool isDefaultClass,
+                                             const wxString& aName )
+{
+    if( !isDefaultClass)
+    {
+        aMenu.Append( new wxMenuItem( &aMenu, ID_SET_NET_COLOR, _( "Set Netclass Color" ),
+                                      wxEmptyString, wxITEM_NORMAL ) );
+    }
+
+    wxString name = UnescapeString( aName );
+
+    aMenu.Append( new wxMenuItem( &aMenu, ID_HIGHLIGHT_NET,
+                                  wxString::Format( _( "Highlight Nets in %s" ), name ),
+                                  wxEmptyString, wxITEM_NORMAL ) );
+    aMenu.Append( new wxMenuItem( &aMenu, ID_SELECT_NET,
+                                  wxString::Format( _( "Select Tracks and Vias in %s" ), name ),
+                                  wxEmptyString, wxITEM_NORMAL ) );
+    aMenu.Append( new wxMenuItem( &aMenu, ID_DESELECT_NET,
+                                  wxString::Format( _( "Unselect Tracks and Vias in %s" ), name ),
+                                  wxEmptyString, wxITEM_NORMAL ) );
+
+    aMenu.AppendSeparator();
+
+    aMenu.Append( new wxMenuItem( &aMenu, ID_SHOW_ALL_NETS, _( "Show All Netclasses" ),
+                                  wxEmptyString, wxITEM_NORMAL ) );
+    aMenu.Append( new wxMenuItem( &aMenu, ID_HIDE_OTHER_NETS, _( "Hide All Other Netclasses" ),
+                                  wxEmptyString, wxITEM_NORMAL ) );
+
+    aMenu.Bind( wxEVT_COMMAND_MENU_SELECTED, &APPEARANCE_CONTROLS::onNetclassContextMenu, this );
+
 }
 
 
@@ -2235,11 +2322,12 @@ void APPEARANCE_CONTROLS::rebuildNets()
             m_frame->GetCanvas()->GetView()->GetPainter()->GetSettings() );
 
     std::map<wxString, KIGFX::COLOR4D>& netclassColors = rs->GetNetclassColorMap();
+    const std::set<wxString>& hiddenClasses = m_frame->Prj().GetLocalSettings().m_HiddenNetclasses;
 
     m_netclassOuterSizer->Clear( true );
 
     auto appendNetclass =
-            [&]( int aId, const NETCLASSPTR& aClass, bool isDefaultClass = false )
+            [&]( int aId, const std::shared_ptr<NETCLASS>& aClass, bool isDefaultClass = false )
             {
                 wxString name = aClass->GetName();
 
@@ -2268,7 +2356,7 @@ void APPEARANCE_CONTROLS::rebuildNets()
                 setting->ctl_visibility = new BITMAP_TOGGLE( setting->ctl_panel, aId,
                                                              KiBitmap( BITMAPS::visibility ),
                                                              KiBitmap( BITMAPS::visibility_off ),
-                                                             true );
+                                                             !hiddenClasses.count( name ) );
 
                 wxString tip;
                 tip.Printf( _( "Show or hide ratsnest for nets in %s" ), name );
@@ -2295,41 +2383,10 @@ void APPEARANCE_CONTROLS::rebuildNets()
                 auto menuHandler =
                         [&, name, isDefaultClass]( wxMouseEvent& aEvent )
                         {
-                            m_contextMenuNetclass = name;
-
                             wxMenu menu;
+                            buildNetClassMenu( menu, isDefaultClass, name );
 
-                            if( !isDefaultClass)
-                            {
-                                menu.Append( new wxMenuItem( &menu, ID_SET_NET_COLOR,
-                                             _( "Set Netclass Color" ), wxEmptyString,
-                                             wxITEM_NORMAL ) );
-                            }
-
-                            menu.Append( new wxMenuItem( &menu, ID_HIGHLIGHT_NET,
-                                         wxString::Format( _( "Highlight Nets in %s" ), name ),
-                                                         wxEmptyString, wxITEM_NORMAL ) );
-                            menu.Append( new wxMenuItem( &menu, ID_SELECT_NET,
-                                         wxString::Format( _( "Select Tracks and Vias in %s" ),
-                                                           name ),
-                                         wxEmptyString, wxITEM_NORMAL ) );
-                            menu.Append( new wxMenuItem( &menu, ID_DESELECT_NET,
-                                         wxString::Format( _( "Unselect Tracks and Vias in %s" ),
-                                                           name ),
-                                         wxEmptyString, wxITEM_NORMAL ) );
-
-                            menu.AppendSeparator();
-
-                            menu.Append( new wxMenuItem( &menu, ID_SHOW_ALL_NETS,
-                                         _( "Show All Netclasses" ), wxEmptyString,
-                                         wxITEM_NORMAL ) );
-                            menu.Append( new wxMenuItem( &menu, ID_HIDE_OTHER_NETS,
-                                         _( "Hide All Other Netclasses" ), wxEmptyString,
-                                         wxITEM_NORMAL ) );
-
-                            menu.Bind( wxEVT_COMMAND_MENU_SELECTED,
-                                       &APPEARANCE_CONTROLS::onNetclassContextMenu, this );
-
+                            m_contextMenuNetclass = name;
                             PopupMenu( &menu );
                         };
 
@@ -2339,12 +2396,12 @@ void APPEARANCE_CONTROLS::rebuildNets()
                 setting->ctl_text->Bind( wxEVT_RIGHT_DOWN, menuHandler );
             };
 
-    const NETCLASS_MAP& classes = board->GetDesignSettings().GetNetClasses().NetClasses();
+    std::shared_ptr<NET_SETTINGS>& netSettings = board->GetDesignSettings().m_NetSettings;
 
     std::vector<wxString> names;
 
-    for( const auto& pair : classes )
-        names.emplace_back( pair.first );
+    for( const auto& [ name, netclass ] : netSettings->m_NetClasses )
+        names.emplace_back( name );
 
     std::sort( names.begin(), names.end() );
 
@@ -2352,15 +2409,13 @@ void APPEARANCE_CONTROLS::rebuildNets()
 
     int idx = wxID_HIGHEST;
 
-    NETCLASSPTR defaultClass = board->GetDesignSettings().GetNetClasses().GetDefault();
-
-    m_netclassIdMap[idx] = defaultClass->GetName();
-    appendNetclass( idx++, defaultClass, true );
+    m_netclassIdMap[idx] = netSettings->m_DefaultNetClass->GetName();
+    appendNetclass( idx++, netSettings->m_DefaultNetClass, true );
 
     for( const wxString& name : names )
     {
         m_netclassIdMap[idx] = name;
-        appendNetclass( idx++, classes.at( name ) );
+        appendNetclass( idx++, netSettings->m_NetClasses.at( name ) );
     }
 
     int      hotkey;
@@ -2415,26 +2470,36 @@ void APPEARANCE_CONTROLS::rebuildNets()
 
 void APPEARANCE_CONTROLS::rebuildLayerPresetsWidget()
 {
-    m_presetsLabel->SetLabel( _( "Presets (Ctrl+Tab):" ) );
+    m_viewportsLabel->SetLabel( wxString::Format( _( "Presets (%s+Tab):" ),
+                                                  KeyNameFromKeyCode( PRESET_SWITCH_KEY ) ) );
 
     m_cbLayerPresets->Clear();
+
+    // Build the layers preset list.
+    // By default, the presetAllLayers will be selected
+    int idx = 0;
+    int default_idx = 0;
 
     for( std::pair<const wxString, LAYER_PRESET>& pair : m_layerPresets )
     {
         m_cbLayerPresets->Append( wxGetTranslation( pair.first ),
                                   static_cast<void*>( &pair.second ) );
+
+        if( pair.first == presetAllLayers.name )
+            default_idx = idx;
+
+        idx++;
     }
 
-    m_cbLayerPresets->Append( wxT( "-----" ) );
+    m_cbLayerPresets->Append( wxT( "---" ) );
     m_cbLayerPresets->Append( _( "Save preset..." ) );
     m_cbLayerPresets->Append( _( "Delete preset..." ) );
-
-    m_cbLayerPresets->SetSelection( 0 );
 
     // At least the built-in presets should always be present
     wxASSERT( !m_layerPresets.empty() );
 
     // Default preset: all layers
+    m_cbLayerPresets->SetSelection( default_idx );
     m_currentPreset = &m_layerPresets[presetAllLayers.name];
 }
 
@@ -2452,9 +2517,18 @@ void APPEARANCE_CONTROLS::syncLayerPresetSelection()
                             } );
 
     if( it != m_layerPresets.end() )
-        m_cbLayerPresets->SetStringSelection( it->first );
+    {
+        // Select the right m_cbLayersPresets item.
+        // but these items are translated if they are predefined items.
+        bool do_translate = it->second.readOnly;
+        wxString text = do_translate ? wxGetTranslation( it->first ) : it->first;
+
+        m_cbLayerPresets->SetStringSelection( text );
+    }
     else
+    {
         m_cbLayerPresets->SetSelection( m_cbLayerPresets->GetCount() - 3 ); // separator
+    }
 
     m_currentPreset = static_cast<LAYER_PRESET*>(
             m_cbLayerPresets->GetClientData( m_cbLayerPresets->GetSelection() ) );
@@ -2463,7 +2537,24 @@ void APPEARANCE_CONTROLS::syncLayerPresetSelection()
 
 void APPEARANCE_CONTROLS::updateLayerPresetSelection( const wxString& aName )
 {
-    int idx = m_cbLayerPresets->FindString( aName );
+    // look at m_layerPresets to know if aName is a read only preset, or a user preset.
+    // Read only presets have translated names in UI, so we have to use
+    // a translated name in UI selection.
+    // But for a user preset name we should search for aName (not translated)
+    wxString ui_label = aName;
+
+    for( std::pair<const wxString, LAYER_PRESET>& pair : m_layerPresets )
+    {
+        if( pair.first != aName )
+            continue;
+
+        if( pair.second.readOnly == true )
+            ui_label = wxGetTranslation( aName );
+
+        break;
+    }
+
+    int idx = m_cbLayerPresets->FindString( ui_label );
 
     if( idx >= 0 && m_cbLayerPresets->GetSelection() != idx )
     {
@@ -2634,14 +2725,15 @@ void APPEARANCE_CONTROLS::doApplyLayerPreset( const LAYER_PRESET& aPreset )
 
 void APPEARANCE_CONTROLS::rebuildViewportsWidget()
 {
-    m_presetsLabel->SetLabel( _( "Viewports (Alt+Tab):" ) );
+    m_viewportsLabel->SetLabel( wxString::Format( _( "Viewports (%s+Tab):" ),
+                                                  KeyNameFromKeyCode( VIEWPORT_SWITCH_KEY ) ) );
 
     m_cbViewports->Clear();
 
     for( std::pair<const wxString, VIEWPORT>& pair : m_viewports )
         m_cbViewports->Append( pair.first, static_cast<void*>( &pair.second ) );
 
-    m_cbViewports->Append( wxT( "-----" ) );
+    m_cbViewports->Append( wxT( "---" ) );
     m_cbViewports->Append( _( "Save viewport..." ) );
     m_cbViewports->Append( _( "Delete viewport..." ) );
 
@@ -2654,7 +2746,7 @@ void APPEARANCE_CONTROLS::updateViewportSelection( const wxString& aName )
 {
     int idx = m_cbViewports->FindString( aName );
 
-    if( idx >= 0 && m_cbViewports->GetSelection() != idx )
+    if( idx >= 0 && idx < (int)m_cbViewports->GetCount() - 3 /* separator */ )
     {
         m_cbViewports->SetSelection( idx );
         m_lastSelectedViewport = static_cast<VIEWPORT*>( m_cbViewports->GetClientData( idx ) );
@@ -2676,8 +2768,9 @@ void APPEARANCE_CONTROLS::onViewportChanged( wxCommandEvent& aEvent )
     {
         VIEWPORT* viewport = static_cast<VIEWPORT*>( m_cbViewports->GetClientData( index ) );
 
-        if( viewport )
-            doApplyViewport( *viewport );
+        wxCHECK( viewport, /* void */ );
+
+        doApplyViewport( *viewport );
 
         if( !viewport->name.IsEmpty() )
         {
@@ -2713,6 +2806,7 @@ void APPEARANCE_CONTROLS::onViewportChanged( wxCommandEvent& aEvent )
         }
         else
         {
+            m_viewports[name].rect = m_frame->GetCanvas()->GetView()->GetViewport();
             index = m_cbViewports->FindString( name );
             m_viewportMRU.Remove( name );
         }
@@ -2724,7 +2818,7 @@ void APPEARANCE_CONTROLS::onViewportChanged( wxCommandEvent& aEvent )
     }
     else if( index == count - 1 )
     {
-        // Delete an existing preset
+        // Delete an existing viewport
         wxArrayString headers;
         std::vector<wxArrayString> items;
 
@@ -2747,7 +2841,7 @@ void APPEARANCE_CONTROLS::onViewportChanged( wxCommandEvent& aEvent )
 
             if( idx != wxNOT_FOUND )
             {
-                m_layerPresets.erase( viewportName );
+                m_viewports.erase( viewportName );
                 m_cbViewports->Delete( idx );
                 m_viewportMRU.Remove( viewportName );
             }
@@ -2809,10 +2903,11 @@ void APPEARANCE_CONTROLS::onObjectOpacitySlider( int aLayer, float aOpacity )
 
     switch( aLayer )
     {
-    case static_cast<int>( LAYER_TRACKS ): options.m_TrackOpacity = aOpacity; break;
-    case static_cast<int>( LAYER_VIAS ):   options.m_ViaOpacity = aOpacity;   break;
-    case static_cast<int>( LAYER_PADS ):   options.m_PadOpacity = aOpacity;   break;
-    case static_cast<int>( LAYER_ZONES ):  options.m_ZoneOpacity = aOpacity;  break;
+    case static_cast<int>( LAYER_TRACKS ):       options.m_TrackOpacity   = aOpacity; break;
+    case static_cast<int>( LAYER_VIAS ):         options.m_ViaOpacity     = aOpacity; break;
+    case static_cast<int>( LAYER_PADS ):         options.m_PadOpacity     = aOpacity; break;
+    case static_cast<int>( LAYER_ZONES ):        options.m_ZoneOpacity    = aOpacity; break;
+    case static_cast<int>( LAYER_DRAW_BITMAPS ): options.m_ImageOpacity   = aOpacity; break;
     default: return;
     }
 
@@ -2840,28 +2935,22 @@ void APPEARANCE_CONTROLS::onNetContextMenu( wxCommandEvent& aEvent )
     }
 
     case ID_HIGHLIGHT_NET:
-    {
         m_frame->GetToolManager()->RunAction( PCB_ACTIONS::highlightNet, true,
                                               static_cast<intptr_t>( net.code ) );
         m_frame->GetCanvas()->Refresh();
         break;
-    }
 
     case ID_SELECT_NET:
-    {
         m_frame->GetToolManager()->RunAction( PCB_ACTIONS::selectNet, true,
                                               static_cast<intptr_t>( net.code ) );
         m_frame->GetCanvas()->Refresh();
         break;
-    }
 
     case ID_DESELECT_NET:
-    {
         m_frame->GetToolManager()->RunAction( PCB_ACTIONS::deselectNet, true,
                                               static_cast<intptr_t>( net.code ) );
         m_frame->GetCanvas()->Refresh();
         break;
-    }
 
     case ID_SHOW_ALL_NETS:
         m_netsTable->ShowAllNets();
@@ -2890,52 +2979,28 @@ void APPEARANCE_CONTROLS::onNetclassVisibilityChanged( wxCommandEvent& aEvent )
 
 void APPEARANCE_CONTROLS::showNetclass( const wxString& aClassName, bool aShow )
 {
-    BOARD*        board    = m_frame->GetBoard();
-    NETINFO_LIST& nets     = board->GetNetInfo();
-    NETCLASSES&   classes  = board->GetDesignSettings().GetNetClasses();
-    NETCLASSPTR   netclass = classes.Find( aClassName );
-    TOOL_MANAGER* manager  = m_frame->GetToolManager();
-
-    if( !netclass )
-        return;
-
-    NETCLASS* defaultClass = classes.GetDefaultPtr();
-
-    if( netclass == classes.GetDefault() )
+    for( NETINFO_ITEM* net : m_frame->GetBoard()->GetNetInfo() )
     {
-        const TOOL_ACTION& action = aShow ? PCB_ACTIONS::showNet : PCB_ACTIONS::hideNet;
-
-        for( NETINFO_ITEM* net : nets )
+        if( net->GetNetClass()->GetName() == aClassName )
         {
-            if( net->GetNetClass() == defaultClass )
-            {
-                manager->RunAction( action, true, static_cast<intptr_t>( net->GetNetCode() ) );
+            m_frame->GetToolManager()->RunAction( aShow ? PCB_ACTIONS::showNetInRatsnest
+                                                        : PCB_ACTIONS::hideNetInRatsnest,
+                                                  true,
+                                                  static_cast<intptr_t>( net->GetNetCode() ) );
 
-                int row = m_netsTable->GetRowByNetcode( net->GetNetCode() );
+            int row = m_netsTable->GetRowByNetcode( net->GetNetCode() );
 
-                if( row >= 0 )
-                    m_netsTable->SetValueAsBool( row, NET_GRID_TABLE::COL_VISIBILITY, aShow );
-            }
+            if( row >= 0 )
+                m_netsTable->SetValueAsBool( row, NET_GRID_TABLE::COL_VISIBILITY, aShow );
         }
     }
+
+    PROJECT_LOCAL_SETTINGS& localSettings = m_frame->Prj().GetLocalSettings();
+
+    if( !aShow )
+        localSettings.m_HiddenNetclasses.insert( aClassName );
     else
-    {
-        const TOOL_ACTION& action = aShow ? PCB_ACTIONS::showNet : PCB_ACTIONS::hideNet;
-
-        for( const wxString& member : *netclass )
-        {
-            if( NETINFO_ITEM* net = nets.GetNetItem( member ) )
-            {
-                int code = net->GetNetCode();
-                manager->RunAction( action, true, static_cast<intptr_t>( code ) );
-
-                int row = m_netsTable->GetRowByNetcode( code );
-
-                if( row >= 0 )
-                    m_netsTable->SetValueAsBool( row, NET_GRID_TABLE::COL_VISIBILITY, aShow );
-            }
-        }
-    }
+        localSettings.m_HiddenNetclasses.erase( aClassName );
 
     m_netsGrid->ForceRefresh();
 }
@@ -2948,10 +3013,10 @@ void APPEARANCE_CONTROLS::onNetclassColorChanged( wxCommandEvent& aEvent )
 
     std::map<wxString, KIGFX::COLOR4D>& netclassColors = rs->GetNetclassColorMap();
 
-    COLOR_SWATCH* swatch    = static_cast<COLOR_SWATCH*>( aEvent.GetEventObject() );
-    wxString      className = netclassNameFromEvent( aEvent );
+    COLOR_SWATCH* swatch = static_cast<COLOR_SWATCH*>( aEvent.GetEventObject() );
+    wxString      netclassName = netclassNameFromEvent( aEvent );
 
-    netclassColors[className] = swatch->GetSwatchColor();
+    netclassColors[netclassName] = swatch->GetSwatchColor();
 
     m_frame->GetCanvas()->GetView()->UpdateAllLayersColor();
     m_frame->GetCanvas()->RedrawRatsnest();
@@ -2988,19 +3053,21 @@ void APPEARANCE_CONTROLS::onNetColorMode( wxCommandEvent& aEvent )
 
 void APPEARANCE_CONTROLS::onRatsnestMode( wxCommandEvent& aEvent )
 {
+    PCBNEW_SETTINGS* cfg = m_frame->GetPcbNewSettings();
+
     if( m_rbRatsnestAllLayers->GetValue() )
     {
-        m_frame->Settings().m_Display.m_ShowGlobalRatsnest = true;
-        m_frame->Settings().m_Display.m_RatsnestMode = RATSNEST_MODE::ALL;
+        cfg->m_Display.m_ShowGlobalRatsnest = true;
+        cfg->m_Display.m_RatsnestMode = RATSNEST_MODE::ALL;
     }
     else if( m_rbRatsnestVisLayers->GetValue() )
     {
-        m_frame->Settings().m_Display.m_ShowGlobalRatsnest = true;
-        m_frame->Settings().m_Display.m_RatsnestMode = RATSNEST_MODE::VISIBLE;
+        cfg->m_Display.m_ShowGlobalRatsnest = true;
+        cfg->m_Display.m_RatsnestMode = RATSNEST_MODE::VISIBLE;
     }
     else
     {
-        m_frame->Settings().m_Display.m_ShowGlobalRatsnest = false;
+        cfg->m_Display.m_ShowGlobalRatsnest = false;
     }
 
     m_frame->GetCanvas()->RedrawRatsnest();
@@ -3010,41 +3077,32 @@ void APPEARANCE_CONTROLS::onRatsnestMode( wxCommandEvent& aEvent )
 
 void APPEARANCE_CONTROLS::onNetclassContextMenu( wxCommandEvent& aEvent )
 {
-    KIGFX::VIEW* view = m_frame->GetCanvas()->GetView();
-    KIGFX::PCB_RENDER_SETTINGS* rs =
+    KIGFX::VIEW*                   view = m_frame->GetCanvas()->GetView();
+    KIGFX::PCB_RENDER_SETTINGS*    rs =
             static_cast<KIGFX::PCB_RENDER_SETTINGS*>( view->GetPainter()->GetSettings() );
 
-    BOARD*        board    = m_frame->GetBoard();
-    NETINFO_LIST& nets     = board->GetNetInfo();
-    NETCLASSES&   classes  = board->GetDesignSettings().GetNetClasses();
-    NETCLASSPTR   netclass = classes.Find( m_contextMenuNetclass );
+    BOARD*                         board = m_frame->GetBoard();
+    std::shared_ptr<NET_SETTINGS>& netSettings = board->GetDesignSettings().m_NetSettings;
+    APPEARANCE_SETTING*            setting = nullptr;
 
-    APPEARANCE_SETTING* setting = m_netclassSettingsMap.count( m_contextMenuNetclass ) ?
-                                  m_netclassSettingsMap.at( m_contextMenuNetclass ) : nullptr;
+    auto it = m_netclassSettingsMap.find( m_contextMenuNetclass );
 
-    NETCLASSPTR defaultClass     = classes.GetDefault();
-    wxString    defaultClassName = defaultClass->GetName();
+    if( it != m_netclassSettingsMap.end() )
+        setting = it->second;
 
     auto runOnNetsOfClass =
-            [&]( NETCLASSPTR aClass, std::function<void( NETINFO_ITEM* )> aFunction )
+            [&]( const wxString& netClassName, std::function<void( NETINFO_ITEM* )> aFunction )
             {
-                if( aClass == defaultClass )
+                for( NETINFO_ITEM* net : board->GetNetInfo() )
                 {
-                    for( NETINFO_ITEM* net : nets )
-                        if( net->GetNetClass() == defaultClass.get() )
-                            aFunction( net );
-                }
-                else
-                {
-                    for( const wxString& netName : *aClass )
-                        aFunction( nets.GetNetItem( netName ) );
+                    if( net->GetNetClass()->GetName() == netClassName )
+                        aFunction( net );
                 }
             };
 
     switch( aEvent.GetId() )
     {
         case ID_SET_NET_COLOR:
-        {
             if( setting )
             {
                 setting->ctl_color->GetNewSwatchColor();
@@ -3062,18 +3120,13 @@ void APPEARANCE_CONTROLS::onNetclassContextMenu( wxCommandEvent& aEvent )
             }
 
             break;
-        }
 
         case ID_HIGHLIGHT_NET:
-        {
-            if( netclass )
+            if( !m_contextMenuNetclass.IsEmpty() )
             {
-                runOnNetsOfClass( netclass,
+                runOnNetsOfClass( m_contextMenuNetclass,
                         [&]( NETINFO_ITEM* aItem )
                         {
-                            if( !aItem )
-                                return;
-
                             static bool first = true;
                             int code = aItem->GetNetCode();
 
@@ -3093,61 +3146,57 @@ void APPEARANCE_CONTROLS::onNetclassContextMenu( wxCommandEvent& aEvent )
                 view->UpdateAllLayersColor();
                 board->HighLightON();
             }
+
             break;
-        }
 
         case ID_SELECT_NET:
         case ID_DESELECT_NET:
-        {
-            if( netclass )
+            if( !m_contextMenuNetclass.IsEmpty() )
             {
-                TOOL_ACTION& action = aEvent.GetId() == ID_SELECT_NET ? PCB_ACTIONS::selectNet :
-                                                                        PCB_ACTIONS::deselectNet;
-                runOnNetsOfClass( netclass,
+                TOOL_MANAGER* toolMgr = m_frame->GetToolManager();
+                TOOL_ACTION&  action = aEvent.GetId() == ID_SELECT_NET ? PCB_ACTIONS::selectNet
+                                                                       : PCB_ACTIONS::deselectNet;
+
+                runOnNetsOfClass( m_contextMenuNetclass,
                         [&]( NETINFO_ITEM* aItem )
                         {
-                            if( !aItem )
-                                return;
-
-                            intptr_t code = static_cast<intptr_t>( aItem->GetNetCode() );
-                            m_frame->GetToolManager()->RunAction( action, true, code );
+                            toolMgr->RunAction( action, true,
+                                                static_cast<intptr_t>( aItem->GetNetCode() ) );
                         } );
             }
             break;
-        }
+
 
         case ID_SHOW_ALL_NETS:
-        {
-            showNetclass( defaultClassName );
-            wxASSERT( m_netclassSettingsMap.count( defaultClassName ) );
-            m_netclassSettingsMap.at( defaultClassName )->ctl_visibility->SetValue( true );
+            showNetclass( NETCLASS::Default );
+            wxASSERT( m_netclassSettingsMap.count( NETCLASS::Default ) );
+            m_netclassSettingsMap.at( NETCLASS::Default )->ctl_visibility->SetValue( true );
 
-            for( const auto& pair : classes.NetClasses() )
+            for( const auto& [ name, netclass ] : netSettings->m_NetClasses )
             {
-                showNetclass( pair.first );
+                showNetclass( name );
 
-                if( m_netclassSettingsMap.count( pair.first ) )
-                    m_netclassSettingsMap.at( pair.first )->ctl_visibility->SetValue( true );
+                if( m_netclassSettingsMap.count( name ) )
+                    m_netclassSettingsMap.at( name )->ctl_visibility->SetValue( true );
             }
 
             break;
-        }
 
         case ID_HIDE_OTHER_NETS:
         {
-            bool showDefault = m_contextMenuNetclass == defaultClassName;
-            showNetclass( defaultClassName, showDefault );
-            wxASSERT( m_netclassSettingsMap.count( defaultClassName ) );
-            m_netclassSettingsMap.at( defaultClassName )->ctl_visibility->SetValue( showDefault );
+            bool showDefault = m_contextMenuNetclass == NETCLASS::Default;
+            showNetclass( NETCLASS::Default, showDefault );
+            wxASSERT( m_netclassSettingsMap.count( NETCLASS::Default ) );
+            m_netclassSettingsMap.at( NETCLASS::Default )->ctl_visibility->SetValue( showDefault );
 
-            for( const auto& pair : classes.NetClasses() )
+            for( const auto& [ name, netclass ] : netSettings->m_NetClasses )
             {
-                bool show = pair.first == m_contextMenuNetclass;
+                bool show = ( name == m_contextMenuNetclass );
 
-                showNetclass( pair.first, show );
+                showNetclass( name, show );
 
-                if( m_netclassSettingsMap.count( pair.first ) )
-                    m_netclassSettingsMap.at( pair.first )->ctl_visibility->SetValue( show );
+                if( m_netclassSettingsMap.count( name ) )
+                    m_netclassSettingsMap.at( name )->ctl_visibility->SetValue( show );
             }
 
             break;

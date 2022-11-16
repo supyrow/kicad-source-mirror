@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2014 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
- * Copyright (C) 2014-2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2014-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -30,7 +30,7 @@
 
 #include <core/arraydim.h>
 #include <math/util.h>                        // for Clamp
-#include <layer_ids.h>  // for LSET, PCB_LAYER_ID, LSEQ
+#include <layer_ids.h>                        // for LSET, PCB_LAYER_ID, LSEQ
 #include <macros.h>                           // for arrayDim
 #include <wx/debug.h>                         // for wxASSERT, wxASSERT_MSG
 #include <wx/string.h>
@@ -437,6 +437,20 @@ LSEQ LSET::Seq( const PCB_LAYER_ID* aWishListSequence, unsigned aCount ) const
             ret.push_back( id );
     }
 #endif
+
+    return ret;
+}
+
+
+LSEQ LSET::Seq( const LSEQ& aSequence ) const
+{
+    LSEQ ret;
+
+    for( LSEQ seq = aSequence; seq; ++seq )
+    {
+        if( test( *seq ) )
+            ret.push_back( *seq );
+    }
 
     return ret;
 }
@@ -891,6 +905,12 @@ LSET LSET::BackMask()
     return saved;
 }
 
+LSET LSET::SideSpecificMask()
+{
+    static const LSET saved = BackTechMask() | FrontTechMask() | AllCuMask();
+    return saved;
+}
+
 
 LSET LSET::ForbiddenFootprintLayers()
 {
@@ -953,7 +973,6 @@ GAL_SET GAL_SET::DefaultVisible()
         LAYER_RATSNEST,
         LAYER_GRID,
         LAYER_GRID_AXES,
-        LAYER_NO_CONNECTS,
         LAYER_MOD_FR,
         LAYER_MOD_BK,
         LAYER_MOD_VALUES,
@@ -976,6 +995,8 @@ GAL_SET GAL_SET::DefaultVisible()
         LAYER_DRAW_BITMAPS,
         LAYER_PADS,
         LAYER_ZONES,
+        LAYER_LOCKED_ITEM_SHADOW,
+        LAYER_CONFLICTS_SHADOW
     };
 
     static const GAL_SET saved( visible, arrayDim( visible ) );

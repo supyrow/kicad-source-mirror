@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 1992-2019 Jean-Pierre Charras  jp.charras at wanadoo.fr
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -22,7 +22,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
-#include <convert_to_biu.h>
 #include <gerbview.h>
 #include <gerbview_frame.h>
 #include <gerber_file_image.h>
@@ -84,7 +83,6 @@ GERBER_FILE_IMAGE::GERBER_FILE_IMAGE( int aLayer ) :
     EDA_ITEM( nullptr, GERBER_IMAGE_T )
 {
     m_GraphicLayer = aLayer;        // Graphic layer Number
-    m_IsVisible    = true;          // must be drawn
     m_PositiveDrawColor  = WHITE;   // The color used to draw positive items for this image
 
     m_Selected_Tool = 0;
@@ -99,7 +97,6 @@ GERBER_FILE_IMAGE::GERBER_FILE_IMAGE( int aLayer ) :
 
 GERBER_FILE_IMAGE::~GERBER_FILE_IMAGE()
 {
-
     for( GERBER_DRAW_ITEM* item : GetItems() )
         delete item;
 
@@ -162,7 +159,7 @@ void GERBER_FILE_IMAGE::ResetDefaultValues()
     m_InUse         = false;
     m_GBRLayerParams.ResetDefaultValues();
     m_FileName.Empty();
-    m_ImageName     = wxT( "no name" );             // Image name from the IN command
+    m_ImageName     = wxEmptyString;                // Image name from the IN command (deprecated)
     m_ImageNegative = false;                        // true = Negative image
     m_IsX2_file     = false;                        // true only if a %TF, %TA or %TD command
     delete m_FileFunction;                          // file function parameters
@@ -269,21 +266,6 @@ int GERBER_FILE_IMAGE::GetDcodesCount()
 }
 
 
-void GERBER_FILE_IMAGE::InitToolTable()
-{
-    for( int count = 0; count < TOOLS_MAX_COUNT; count++ )
-    {
-        if( m_Aperture_List[count] == nullptr )
-            continue;
-
-        m_Aperture_List[count]->m_Num_Dcode = count + FIRST_DCODE;
-        m_Aperture_List[count]->Clear_D_CODE_Data();
-    }
-
-    m_aperture_macros.clear();
-}
-
-
 /**
  * Function StepAndRepeatItem
  * Gerber format has a command Step an Repeat
@@ -327,6 +309,7 @@ void GERBER_FILE_IMAGE::StepAndRepeatItem( const GERBER_DRAW_ITEM& aItem )
  * Display info about Image Parameters.
  * These parameters are valid for the entire file, and must set only once
  * (If more than once, only the last value is used)
+ * Some are deprecated
  */
 void GERBER_FILE_IMAGE::DisplayImageInfo(  GERBVIEW_FRAME* aMainFrame  )
 {
@@ -334,8 +317,13 @@ void GERBER_FILE_IMAGE::DisplayImageInfo(  GERBVIEW_FRAME* aMainFrame  )
 
     aMainFrame->ClearMsgPanel();
 
-    // Display Image name (Image specific)
-    aMainFrame->AppendMsgPanel( _( "Image name" ), m_ImageName );
+    // Display the Gerber variant (X1 / X2
+    aMainFrame->AppendMsgPanel( _( "Format" ), m_IsX2_file ? wxT( "X2" ) : wxT( "X1" ) );
+
+    // Display Image name (Image specific). IM command (Image Name) is deprecated
+    // So non empty image name is very rare, probably never found
+    if( !m_ImageName.IsEmpty() )
+        aMainFrame->AppendMsgPanel( _( "Image name" ), m_ImageName );
 
     // Display graphic layer number used to draw this Image
     // (not a Gerber parameter but is also image specific)
@@ -357,27 +345,9 @@ void GERBER_FILE_IMAGE::DisplayImageInfo(  GERBVIEW_FRAME* aMainFrame  )
     msg = m_ImageJustifyYCenter ? _("Center") : _("Normal");
     aMainFrame->AppendMsgPanel( _( "Y Justify" ), msg );
 
-    switch( aMainFrame->GetUserUnits() )
-    {
-    case EDA_UNITS::MILS:
-        msg.Printf( wxT( "X=%f Y=%f" ), Iu2Mils( m_ImageJustifyOffset.x ),
-                                        Iu2Mils( m_ImageJustifyOffset.y ) );
-        break;
-
-    case EDA_UNITS::INCHES:
-        msg.Printf( wxT( "X=%f Y=%f" ), Iu2Mils( m_ImageJustifyOffset.x ) / 1000.0,
-                                        Iu2Mils( m_ImageJustifyOffset.y ) / 1000.0 );
-        break;
-
-    case EDA_UNITS::MILLIMETRES:
-        msg.Printf( wxT( "X=%f Y=%f" ), Iu2Millimeter( m_ImageJustifyOffset.x ),
-                                        Iu2Millimeter( m_ImageJustifyOffset.y ) );
-        break;
-
-    default:
-        wxASSERT_MSG( false, wxT( "Invalid unit" ) );
-    }
-
+    msg.Printf( wxT( "X=%s Y=%s" ),
+                aMainFrame->MessageTextFromValue( m_ImageJustifyOffset.x ),
+                aMainFrame->MessageTextFromValue( m_ImageJustifyOffset.y ) );
 
     aMainFrame->AppendMsgPanel( _( "Image Justify Offset" ), msg );
 }
@@ -400,38 +370,17 @@ void GERBER_FILE_IMAGE::RemoveAttribute( X2_ATTRIBUTE& aAttribute )
 }
 
 
-SEARCH_RESULT GERBER_FILE_IMAGE::Visit( INSPECTOR inspector, void* testData, const KICAD_T scanTypes[] )
+INSPECT_RESULT GERBER_FILE_IMAGE::Visit( INSPECTOR inspector, void* testData,
+                                         const std::vector<KICAD_T>& aScanTypes )
 {
-    KICAD_T        stype;
-    SEARCH_RESULT  result = SEARCH_RESULT::CONTINUE;
-    const KICAD_T* p    = scanTypes;
-    bool           done = false;
-
-    while( !done )
+    for( KICAD_T scanType : aScanTypes )
     {
-        stype = *p;
-
-        switch( stype )
+        if( scanType == GERBER_DRAW_ITEM_T )
         {
-        case GERBER_IMAGE_T:
-        case GERBER_LAYOUT_T:
-            ++p;
-            break;
-
-        case GERBER_DRAW_ITEM_T:
-            result = IterateForward( GetItems(), inspector, testData, p );
-            ++p;
-            break;
-
-        case EOT:
-        default:        // catch EOT or ANY OTHER type here and return.
-            done = true;
-            break;
+            if( IterateForward( GetItems(), inspector, testData, { scanType } ) == INSPECT_RESULT::QUIT )
+                return INSPECT_RESULT::QUIT;
         }
-
-        if( result == SEARCH_RESULT::QUIT )
-            break;
     }
 
-    return result;
+    return INSPECT_RESULT::CONTINUE;
 }

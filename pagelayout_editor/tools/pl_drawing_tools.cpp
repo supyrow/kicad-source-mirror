@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2019 CERN
- * Copyright (C) 2019 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2019-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -24,21 +24,17 @@
 
 #include <class_draw_panel_gal.h>
 #include <confirm.h>
-#include <view/view_group.h>
 #include <view/view_controls.h>
-#include <view/view.h>
 #include <tool/tool_manager.h>
 #include <bitmaps.h>
 #include <drawing_sheet/ds_draw_item.h>
 #include <drawing_sheet/ds_data_item.h>
 
-#include "invoke_pl_editor_dialog.h"
 #include "pl_editor_frame.h"
-#include "pl_editor_id.h"
-#include "pl_point_editor.h"
 #include "tools/pl_actions.h"
 #include "tools/pl_selection_tool.h"
 #include "tools/pl_drawing_tools.h"
+#include "pgm_base.h"
 
 PL_DRAWING_TOOLS::PL_DRAWING_TOOLS() :
         TOOL_INTERACTIVE( "plEditor.InteractiveDrawing" ),
@@ -82,8 +78,7 @@ int PL_DRAWING_TOOLS::PlaceItem( const TOOL_EVENT& aEvent )
 
     m_toolMgr->RunAction( PL_ACTIONS::clearSelection, true );
 
-    std::string tool = aEvent.GetCommandStr().get();
-    m_frame->PushTool( tool );
+    m_frame->PushTool( aEvent );
 
     auto setCursor =
             [&]()
@@ -94,6 +89,16 @@ int PL_DRAWING_TOOLS::PlaceItem( const TOOL_EVENT& aEvent )
                     m_frame->GetCanvas()->SetCurrentCursor( isText ? KICURSOR::TEXT : KICURSOR::PENCIL );
             };
 
+    auto cleanup =
+            [&] ()
+            {
+                m_toolMgr->RunAction( PL_ACTIONS::clearSelection, true );
+                item = nullptr;
+
+                // There's nothing to roll-back, but we still need to pop the undo stack
+                // This also deletes the item being placed.
+                m_frame->RollbackFromUndo();
+            };
 
     Activate();
     // Must be done after Activate() so that it gets set into the correct context
@@ -101,27 +106,14 @@ int PL_DRAWING_TOOLS::PlaceItem( const TOOL_EVENT& aEvent )
     // Set initial cursor
     setCursor();
 
-    // Prime the pump
-    if( aEvent.HasPosition() || ( !aEvent.IsReactivate() && isText ) )
-        m_toolMgr->RunAction( ACTIONS::cursorClick );
+    if( aEvent.HasPosition() )
+        m_toolMgr->PrimeTool( aEvent.Position() );
 
     // Main loop: keep receiving events
     while( TOOL_EVENT* evt = Wait() )
     {
         setCursor();
-
         cursorPos = getViewControls()->GetCursorPosition( !evt->DisableGridSnapping() );
-
-        auto cleanup =
-                [&] ()
-                {
-                    m_toolMgr->RunAction( PL_ACTIONS::clearSelection, true );
-                    item = nullptr;
-
-                    // There's nothing to roll-back, but we still need to pop the undo stack
-                    // This also deletes the item being placed.
-                    m_frame->RollbackFromUndo();
-                };
 
         if( evt->IsCancelInteractive() )
         {
@@ -129,7 +121,7 @@ int PL_DRAWING_TOOLS::PlaceItem( const TOOL_EVENT& aEvent )
                 cleanup();
             else
             {
-                m_frame->PopTool( tool );
+                m_frame->PopTool( aEvent );
                 break;
             }
         }
@@ -145,7 +137,7 @@ int PL_DRAWING_TOOLS::PlaceItem( const TOOL_EVENT& aEvent )
             }
             else
             {
-                m_frame->PopTool( tool );
+                m_frame->PopTool( aEvent );
                 break;
             }
         }
@@ -176,7 +168,7 @@ int PL_DRAWING_TOOLS::PlaceItem( const TOOL_EVENT& aEvent )
             // ... and second click places:
             else
             {
-                item->GetPeer()->MoveStartPointToUi( (wxPoint) cursorPos );
+                item->GetPeer()->MoveStartPointToUi( cursorPos );
                 item->SetPosition( item->GetPeer()->GetStartPosUi( 0 ) );
                 item->ClearEditFlags();
                 getView()->Update( item );
@@ -201,7 +193,7 @@ int PL_DRAWING_TOOLS::PlaceItem( const TOOL_EVENT& aEvent )
         }
         else if( item && ( evt->IsAction( &ACTIONS::refreshPreview ) || evt->IsMotion() ) )
         {
-            item->GetPeer()->MoveStartPointToUi( (wxPoint) cursorPos );
+            item->GetPeer()->MoveStartPointToUi( cursorPos );
             item->SetPosition( item->GetPeer()->GetStartPosUi( 0 ) );
             getView()->Update( item );
         }
@@ -233,8 +225,7 @@ int PL_DRAWING_TOOLS::DrawShape( const TOOL_EVENT& aEvent )
 
     m_toolMgr->RunAction( PL_ACTIONS::clearSelection, true );
 
-    std::string tool = aEvent.GetCommandStr().get();
-    m_frame->PushTool( tool );
+    m_frame->PushTool( aEvent );
 
     auto setCursor =
             [&]()
@@ -248,9 +239,8 @@ int PL_DRAWING_TOOLS::DrawShape( const TOOL_EVENT& aEvent )
     // Set initial cursor
     setCursor();
 
-    // Prime the pump
     if( aEvent.HasPosition() )
-        m_toolMgr->RunAction( ACTIONS::cursorClick );
+        m_toolMgr->PrimeTool( aEvent.Position() );
 
     // Main loop: keep receiving events
     while( TOOL_EVENT* evt = Wait() )
@@ -286,7 +276,7 @@ int PL_DRAWING_TOOLS::DrawShape( const TOOL_EVENT& aEvent )
                 m_toolMgr->RunAction( PL_ACTIONS::clearSelection, true );
 
                 DS_DATA_ITEM* dataItem = m_frame->AddDrawingSheetItem( type );
-                dataItem->MoveToUi( (wxPoint) cursorPos );
+                dataItem->MoveToUi( cursorPos );
 
                 item = dataItem->GetDrawItems()[0];
                 item->SetFlags( IS_NEW );
@@ -315,7 +305,7 @@ int PL_DRAWING_TOOLS::DrawShape( const TOOL_EVENT& aEvent )
         {
             if( item )
             {
-                item->GetPeer()->MoveEndPointToUi( (wxPoint) cursorPos );
+                item->GetPeer()->MoveEndPointToUi( cursorPos );
                 item->SetEnd( item->GetPeer()->GetEndPosUi( 0 ) );
                 getView()->Update( item );
             }
@@ -341,7 +331,7 @@ int PL_DRAWING_TOOLS::DrawShape( const TOOL_EVENT& aEvent )
     getViewControls()->SetAutoPan( false );
     getViewControls()->CaptureCursor( false );
     m_frame->GetCanvas()->SetCurrentCursor( KICURSOR::ARROW );
-    m_frame->PopTool( tool );
+    m_frame->PopTool( aEvent );
     return 0;
 }
 

@@ -4,7 +4,7 @@
  * Copyright (C) 2015-2016 Mario Luzeiro <mrluzeiro@ua.pt>
  * Copyright (C) 2014 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2011 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 1992-2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -106,6 +106,9 @@ public:
 
     EDA_3D_CANVAS* GetCanvas()  { return m_canvas; }
 
+    std::vector<VIEWPORT3D> GetUserViewports() const;
+    void SetUserViewports( std::vector<VIEWPORT3D>& aViewportList );
+
     void SaveSettings( APP_SETTINGS_BASE* aCfg ) override;
     void LoadSettings( APP_SETTINGS_BASE* aCfg ) override;
 
@@ -120,22 +123,32 @@ public:
 protected:
     void setupUIConditions() override;
 
+    void handleIconizeEvent( wxIconizeEvent& aEvent ) override;
+
+    /**
+     * switch to a given predefined 3D viewport
+     * @param aViewportName is the name of the viewport to switch on
+     */
+    void applyViewport( const wxString& aViewportName );
+
 private:
     /// Called when user press the File->Exit
     void Exit3DFrame( wxCommandEvent& event );
 
     void OnCloseWindow( wxCloseEvent& event );
 
+    bool TryBefore( wxEvent& aEvent ) override;
+
     void Process_Special_Functions( wxCommandEvent& event );
 
-    void OnRenderEngineSelection( wxCommandEvent& event );
-    void OnDisableRayTracing( wxCommandEvent& aEvent );
+    void onRenderEngineSelection( wxCommandEvent& event );
+    void onDisableRayTracing( wxCommandEvent& aEvent );
+    void onViewportChanged( wxCommandEvent& aEvent );
+    void onUpdateViewportsCb( wxUpdateUIEvent& aEvent );
 
     void OnActivate( wxActivateEvent& event );
-
     void OnSetFocus( wxFocusEvent& event );
-
-    void Install3DViewOptionDialog( wxCommandEvent& event );
+    void passOnFocus();
 
     void CreateMenuBar();
     void ReCreateMainToolbar();
@@ -160,17 +173,24 @@ private:
      */
     void loadCommonSettings();
 
-    wxFileName       m_defaultSaveScreenshotFileName;
+private:
+    wxFileName                     m_defaultSaveScreenshotFileName;
 
-    ACTION_TOOLBAR*  m_mainToolBar;
-    EDA_3D_CANVAS*   m_canvas;
-    BOARD_ADAPTER    m_boardAdapter;
-    CAMERA&          m_currentCamera;
-    TRACK_BALL       m_trackBallCamera;
+    ACTION_TOOLBAR*                m_mainToolBar;
+    wxStaticText*                  m_viewportsLabel;
+    wxChoice*                      m_cbViewports;
+    EDA_3D_CANVAS*                 m_canvas;
+    BOARD_ADAPTER                  m_boardAdapter;
+    CAMERA&                        m_currentCamera;
+    TRACK_BALL                     m_trackBallCamera;
 
-    bool             m_disable_ray_tracing;
+    bool                           m_disable_ray_tracing;
 
-    NL_3D_VIEWER_PLUGIN* m_spaceMouse;
+    NL_3D_VIEWER_PLUGIN*           m_spaceMouse;
+
+    std::map<wxString, VIEWPORT3D> m_viewports;
+    VIEWPORT3D*                    m_lastSelectedViewport;
+    wxArrayString                  m_viewportMRU;
 
     /**
      *  Trace mask used to enable or disable the trace output of this class.

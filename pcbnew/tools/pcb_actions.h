@@ -79,11 +79,20 @@ public:
     /// entire connection.
     static TOOL_ACTION selectConnection;
 
+    /// Removes all tracks from the selected items to the first pad
+    static TOOL_ACTION unrouteSelected;
+
     /// Select all connections belonging to a single net.
     static TOOL_ACTION selectNet;
 
     /// Remove all connections belonging to a single net from the active selection
     static TOOL_ACTION deselectNet;
+
+    /// Select unconnected footprints from ratsnest of selection
+    static TOOL_ACTION selectUnconnected;
+
+    /// Select and move nearest unconnected footprint from ratsnest of selection
+    static TOOL_ACTION grabUnconnected;
 
     /// Select all components on sheet from Eeschema crossprobing.
     static TOOL_ACTION selectOnSheetFromEeschema;
@@ -91,11 +100,17 @@ public:
     /// Select all components on the same sheet as the selected footprint.
     static TOOL_ACTION selectSameSheet;
 
+    /// Select symbols/pins on schematic corresponding to selected footprints/pads.
+    static TOOL_ACTION selectOnSchematic;
+
     /// Filter the items in the current selection (invokes dialog)
     static TOOL_ACTION filterSelection;
 
     /// move or drag an item
     static TOOL_ACTION move;
+
+    /// move items one-by-one
+    static TOOL_ACTION moveIndividually;
 
     /// move with a reference point
     static TOOL_ACTION moveWithReference;
@@ -111,7 +126,14 @@ public:
     static TOOL_ACTION flip;
 
     /// Mirroring of selected items
-    static TOOL_ACTION mirror;
+    static TOOL_ACTION mirrorH;
+    static TOOL_ACTION mirrorV;
+
+    /// Swapping of selected items
+    static TOOL_ACTION swap;
+
+    /// Pack and start moving selected footprints
+    static TOOL_ACTION packAndMoveFootprints;
 
     /// Update selected tracks & vias to the current track & via dimensions
     static TOOL_ACTION changeTrackWidth;
@@ -140,13 +162,13 @@ public:
     static TOOL_ACTION drag45Degree;
     static TOOL_ACTION dragFreeAngle;
 
-
     // Drawing Tool Activations
     static TOOL_ACTION drawLine;
     static TOOL_ACTION drawPolygon;
     static TOOL_ACTION drawRectangle;
     static TOOL_ACTION drawCircle;
     static TOOL_ACTION drawArc;
+    static TOOL_ACTION placeImage;
     static TOOL_ACTION placeText;
     static TOOL_ACTION drawTextBox;
     static TOOL_ACTION drawAlignedDimension;
@@ -160,7 +182,6 @@ public:
     static TOOL_ACTION drawZoneCutout;
     static TOOL_ACTION drawSimilarZone;
     static TOOL_ACTION placeCharacteristics;
-    static TOOL_ACTION placeTarget;
     static TOOL_ACTION placeStackup;
     static TOOL_ACTION placeFootprint;
     static TOOL_ACTION placeImportedGraphics;
@@ -196,6 +217,12 @@ public:
 
     static TOOL_ACTION routerUndoLastSegment;
 
+    static TOOL_ACTION routerContinueFromEnd;
+    static TOOL_ACTION routerAttemptFinish;
+    static TOOL_ACTION routerRouteSelected;
+    static TOOL_ACTION routerRouteSelectedFromEnd;
+    static TOOL_ACTION routerAutorouteSelected;
+
     /// Activation of the Push and Shove settings dialogs
     static TOOL_ACTION routerSettingsDialog;
     static TOOL_ACTION routerDiffPairDialog;
@@ -211,12 +238,8 @@ public:
     static TOOL_ACTION routerInlineDrag;
 
     // Point Editor
-    /// Break outline (insert additional points to an edge)
     static TOOL_ACTION pointEditorAddCorner;
-
-    /// Removes a corner
     static TOOL_ACTION pointEditorRemoveCorner;
-
 
     // Group Tool
     static TOOL_ACTION groupProperties;
@@ -306,10 +329,11 @@ public:
 
     static TOOL_ACTION trackViaSizeChanged;   // notification
 
+    static TOOL_ACTION assignNetClass;
+
     // Zone actions
-    static TOOL_ACTION zoneFill;
     static TOOL_ACTION zoneFillAll;
-    static TOOL_ACTION zoneUnfill;
+    static TOOL_ACTION zoneFillDirty;
     static TOOL_ACTION zoneUnfillAll;
     static TOOL_ACTION zoneMerge;
 
@@ -353,6 +377,7 @@ public:
     static TOOL_ACTION editLibFpInFpEditor;
 
     static TOOL_ACTION showLayersManager;
+    static TOOL_ACTION showProperties;
     static TOOL_ACTION showPythonConsole;
 
     // Module editor tools
@@ -373,6 +398,8 @@ public:
     static TOOL_ACTION saveToLibrary;
 
     static TOOL_ACTION editFootprint;
+    static TOOL_ACTION duplicateFootprint;
+    static TOOL_ACTION renameFootprint;
     static TOOL_ACTION deleteFootprint;
     static TOOL_ACTION cutFootprint;
     static TOOL_ACTION copyFootprint;
@@ -425,7 +452,8 @@ public:
 
     static TOOL_ACTION microwaveCreateLine;
 
-    static TOOL_ACTION toggle45;
+    // Constrained drawing
+    static TOOL_ACTION toggleHV45Mode;
 
     // Locking
     static TOOL_ACTION toggleLock;
@@ -461,12 +489,12 @@ public:
     static TOOL_ACTION toggleNetHighlight;      // Toggles between highlight off and highlight on
     static TOOL_ACTION highlightNetSelection;   // Turns on highlight and takes net from selection
     static TOOL_ACTION highlightItem;           // Select component via cross-probe
-    static TOOL_ACTION hideNet;
-    static TOOL_ACTION showNet;
 
     // Ratsnest
+    static TOOL_ACTION hideNetInRatsnest;
+    static TOOL_ACTION showNetInRatsnest;
     static TOOL_ACTION localRatsnestTool;
-    static TOOL_ACTION hideDynamicRatsnest;
+    static TOOL_ACTION hideLocalRatsnest;
     static TOOL_ACTION updateLocalRatsnest;
 
     /// Find an item
@@ -485,6 +513,10 @@ public:
     static TOOL_ACTION convertToLines;
     static TOOL_ACTION convertToArc;
     static TOOL_ACTION convertToTracks;
+
+    /// Drag and drop
+    static TOOL_ACTION ddAppendBoard;
+    static TOOL_ACTION ddImportFootprint;
 };
 
 #endif

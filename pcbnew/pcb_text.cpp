@@ -38,12 +38,10 @@
 #include <callback_gal.h>
 #include <convert_basic_shapes_to_polygon.h>
 
-using KIGFX::PCB_RENDER_SETTINGS;
-
 
 PCB_TEXT::PCB_TEXT( BOARD_ITEM* parent ) :
     BOARD_ITEM( parent, PCB_TEXT_T ),
-    EDA_TEXT()
+    EDA_TEXT( pcbIUScale )
 {
     SetMultilineAllowed( true );
 }
@@ -54,7 +52,7 @@ PCB_TEXT::~PCB_TEXT()
 }
 
 
-wxString PCB_TEXT::GetShownText( int aDepth ) const
+wxString PCB_TEXT::GetShownText( int aDepth, bool aAllowExtraText ) const
 {
     BOARD* board = dynamic_cast<BOARD*>( GetParent() );
 
@@ -102,12 +100,35 @@ wxString PCB_TEXT::GetShownText( int aDepth ) const
 }
 
 
+double PCB_TEXT::ViewGetLOD( int aLayer, KIGFX::VIEW* aView ) const
+{
+    constexpr double HIDE = std::numeric_limits<double>::max();
+
+    KIGFX::PCB_PAINTER*  painter = static_cast<KIGFX::PCB_PAINTER*>( aView->GetPainter() );
+    KIGFX::PCB_RENDER_SETTINGS* renderSettings = painter->GetSettings();
+
+    if( aLayer == LAYER_LOCKED_ITEM_SHADOW )
+    {
+        // Hide shadow if the main layer is not shown
+        if( !aView->IsLayerVisible( m_layer ) )
+            return HIDE;
+
+        // Hide shadow on dimmed tracks
+        if( renderSettings->GetHighContrast() )
+        {
+            if( m_layer != renderSettings->GetPrimaryHighContrastLayer() )
+                return HIDE;
+        }
+    }
+
+    return 0.0;
+}
+
+
 void PCB_TEXT::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList )
 {
-    EDA_UNITS units = aFrame->GetUserUnits();
-
     // Don't use GetShownText() here; we want to show the user the variable references
-    aList.emplace_back( _( "PCB Text" ), UnescapeString( GetText() ) );
+    aList.emplace_back( _( "PCB Text" ), KIUI::EllipsizeStatusText( aFrame, GetText() ) );
 
     if( aFrame->GetName() == PCB_EDIT_FRAME_NAME && IsLocked() )
         aList.emplace_back( _( "Status" ), _( "Locked" ) );
@@ -118,15 +139,28 @@ void PCB_TEXT::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_IT
 
     aList.emplace_back( _( "Angle" ), wxString::Format( wxT( "%g" ), GetTextAngle().AsDegrees() ) );
 
-    aList.emplace_back( _( "Thickness" ), MessageTextFromValue( units, GetTextThickness() ) );
-    aList.emplace_back( _( "Width" ), MessageTextFromValue( units, GetTextWidth() ) );
-    aList.emplace_back( _( "Height" ), MessageTextFromValue( units, GetTextHeight() ) );
+    aList.emplace_back( _( "Font" ), GetFont() ? GetFont()->GetName() : _( "Default" ) );
+    aList.emplace_back( _( "Thickness" ), aFrame->MessageTextFromValue( GetTextThickness() ) );
+    aList.emplace_back( _( "Width" ), aFrame->MessageTextFromValue( GetTextWidth() ) );
+    aList.emplace_back( _( "Height" ), aFrame->MessageTextFromValue( GetTextHeight() ) );
 }
 
 
-const EDA_RECT PCB_TEXT::GetBoundingBox() const
+int PCB_TEXT::getKnockoutMargin() const
 {
-    EDA_RECT rect = GetTextBox();
+    VECTOR2I textSize( GetTextWidth(), GetTextHeight() );
+    int      thickness = GetTextThickness();
+
+    return thickness * 1.5 + GetKnockoutTextMargin( textSize, thickness );
+}
+
+
+const BOX2I PCB_TEXT::GetBoundingBox() const
+{
+    BOX2I rect = GetTextBox();
+
+    if( IsKnockout() )
+        rect.Inflate( getKnockoutMargin() );
 
     if( !GetTextAngle().IsZero() )
         rect = rect.GetBoundingBoxRotated( GetTextPos(), GetTextAngle() );
@@ -137,13 +171,24 @@ const EDA_RECT PCB_TEXT::GetBoundingBox() const
 
 bool PCB_TEXT::TextHitTest( const VECTOR2I& aPoint, int aAccuracy ) const
 {
-    return EDA_TEXT::TextHitTest( aPoint, aAccuracy );
+    if( IsKnockout() )
+    {
+        SHAPE_POLY_SET poly;
+
+        TransformBoundingBoxToPolygon( &poly, getKnockoutMargin());
+
+        return poly.Collide( aPoint, aAccuracy );
+    }
+    else
+    {
+        return EDA_TEXT::TextHitTest( aPoint, aAccuracy );
+    }
 }
 
 
-bool PCB_TEXT::TextHitTest( const EDA_RECT& aRect, bool aContains, int aAccuracy ) const
+bool PCB_TEXT::TextHitTest( const BOX2I& aRect, bool aContains, int aAccuracy ) const
 {
-    EDA_RECT rect = aRect;
+    BOX2I rect = aRect;
 
     rect.Inflate( aAccuracy );
 
@@ -166,6 +211,27 @@ void PCB_TEXT::Rotate( const VECTOR2I& aRotCentre, const EDA_ANGLE& aAngle )
 }
 
 
+void PCB_TEXT::Mirror( const VECTOR2I& aCentre, bool aMirrorAroundXAxis )
+{
+    // the position and justification are mirrored, but not the text itself
+
+    if( aMirrorAroundXAxis )
+    {
+        if( GetTextAngle() == ANGLE_VERTICAL )
+            SetHorizJustify( (GR_TEXT_H_ALIGN_T) -GetHorizJustify() );
+
+        SetTextY( MIRRORVAL( GetTextPos().y, aCentre.y ) );
+    }
+    else
+    {
+        if( GetTextAngle() == ANGLE_HORIZONTAL )
+            SetHorizJustify( (GR_TEXT_H_ALIGN_T) -GetHorizJustify() );
+
+        SetTextX( MIRRORVAL( GetTextPos().x, aCentre.x ) );
+    }
+}
+
+
 void PCB_TEXT::Flip( const VECTOR2I& aCentre, bool aFlipLeftRight )
 {
     if( aFlipLeftRight )
@@ -180,13 +246,17 @@ void PCB_TEXT::Flip( const VECTOR2I& aCentre, bool aFlipLeftRight )
     }
 
     SetLayer( FlipLayer( GetLayer(), GetBoard()->GetCopperLayerCount() ) );
-    SetMirrored( !IsMirrored() );
+
+    if( ( GetLayerSet() & LSET::SideSpecificMask() ).any() )
+        SetMirrored( !IsMirrored() );
 }
 
 
-wxString PCB_TEXT::GetSelectMenuText( EDA_UNITS aUnits ) const
+wxString PCB_TEXT::GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const
 {
-    return wxString::Format( _( "PCB Text '%s' on %s"), ShortenedShownText(), GetLayerName() );
+    return wxString::Format( _( "PCB Text '%s' on %s"),
+                             KIUI::EllipsizeMenuText( GetShownText() ),
+                             GetLayerName() );
 }
 
 
@@ -202,7 +272,7 @@ EDA_ITEM* PCB_TEXT::Clone() const
 }
 
 
-void PCB_TEXT::SwapData( BOARD_ITEM* aImage )
+void PCB_TEXT::swapData( BOARD_ITEM* aImage )
 {
     assert( aImage->Type() == PCB_TEXT_T );
 
@@ -210,46 +280,54 @@ void PCB_TEXT::SwapData( BOARD_ITEM* aImage )
 }
 
 
-std::shared_ptr<SHAPE> PCB_TEXT::GetEffectiveShape( PCB_LAYER_ID aLayer ) const
+std::shared_ptr<SHAPE> PCB_TEXT::GetEffectiveShape( PCB_LAYER_ID aLayer, FLASHING aFlash ) const
 {
     return GetEffectiveTextShape();
 }
 
 
-void PCB_TEXT::TransformTextShapeWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuffer,
-                                                         PCB_LAYER_ID aLayer, int aClearance,
-                                                         int aError, ERROR_LOC aErrorLoc ) const
+void PCB_TEXT::TransformTextToPolySet( SHAPE_POLY_SET& aBuffer, PCB_LAYER_ID aLayer,
+                                       int aClearance, int aError, ERROR_LOC aErrorLoc ) const
 {
     KIGFX::GAL_DISPLAY_OPTIONS empty_opts;
-    KIFONT::FONT*              font = GetDrawFont();
+    KIFONT::FONT*              font = getDrawFont();
     int                        penWidth = GetEffectiveTextPenWidth();
+
+    // Note: this function is mainly used in 3D viewer.
+    // the polygonal shape of a text can have many basic shapes,
+    // so combining these shapes can be very useful to create a final shape
+    // swith a lot less vertices to speedup calculations using this final shape
+    // Simplify shapes is not usually always efficient, but in this case it is.
+    SHAPE_POLY_SET buffer;
 
     CALLBACK_GAL callback_gal( empty_opts,
             // Stroke callback
             [&]( const VECTOR2I& aPt1, const VECTOR2I& aPt2 )
             {
-                TransformOvalToPolygon( aCornerBuffer, aPt1, aPt2, penWidth+ ( 2 * aClearance ),
+                TransformOvalToPolygon( aBuffer, aPt1, aPt2, penWidth + ( 2 * aClearance ),
                                         aError, ERROR_INSIDE );
             },
             // Triangulation callback
             [&]( const VECTOR2I& aPt1, const VECTOR2I& aPt2, const VECTOR2I& aPt3 )
             {
-                aCornerBuffer.NewOutline();
+                buffer.NewOutline();
 
                 for( const VECTOR2I& point : { aPt1, aPt2, aPt3 } )
-                    aCornerBuffer.Append( point.x, point.y );
+                    buffer.Append( point.x, point.y );
             } );
 
     font->Draw( &callback_gal, GetShownText(), GetTextPos(), GetAttributes() );
+
+    buffer.Simplify( SHAPE_POLY_SET::PM_FAST );
+    aBuffer.Append( buffer );
 }
 
 
-void PCB_TEXT::TransformShapeWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuffer,
-                                                     PCB_LAYER_ID aLayer, int aClearance,
-                                                     int aError, ERROR_LOC aErrorLoc,
-                                                     bool aIgnoreLineWidth ) const
+void PCB_TEXT::TransformShapeToPolygon( SHAPE_POLY_SET& aBuffer, PCB_LAYER_ID aLayer,
+                                        int aClearance, int aError, ERROR_LOC aErrorLoc,
+                                        bool aIgnoreLineWidth ) const
 {
-    EDA_TEXT::TransformBoundingBoxWithClearanceToPolygon( &aCornerBuffer, aClearance );
+    EDA_TEXT::TransformBoundingBoxToPolygon( &aBuffer, aClearance );
 }
 
 

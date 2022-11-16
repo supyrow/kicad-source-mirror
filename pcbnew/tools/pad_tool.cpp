@@ -59,7 +59,7 @@ void PAD_TOOL::Reset( RESET_REASON aReason )
     if( aReason == MODEL_RELOAD )
         m_lastPadNumber = wxT( "1" );
 
-    if( m_editPad != niluuid )
+    if( board() && board()->GetItem( m_editPad ) == DELETED_BOARD_ITEM::GetInstance() )
     {
         PCB_DISPLAY_OPTIONS opts = frame()->GetDisplayOptions();
         bool highContrast = ( opts.m_ContrastModeDisplay != HIGH_CONTRAST_MODE::NORMAL );
@@ -68,9 +68,9 @@ void PAD_TOOL::Reset( RESET_REASON aReason )
             m_toolMgr->RunAction( ACTIONS::highContrastMode, true );
 
         frame()->GetInfoBar()->Dismiss();
-    }
 
-    m_editPad = niluuid;
+        m_editPad = niluuid;
+    }
 }
 
 
@@ -85,7 +85,7 @@ bool PAD_TOOL::Init()
 
         SELECTION_CONDITION padSel = SELECTION_CONDITIONS::HasType( PCB_PAD_T );
         SELECTION_CONDITION singlePadSel = SELECTION_CONDITIONS::Count( 1 ) &&
-                                           SELECTION_CONDITIONS::OnlyType( PCB_PAD_T );
+                                           SELECTION_CONDITIONS::OnlyTypes( { PCB_PAD_T } );
 
         auto explodeCondition =
                 [&]( const SELECTION& aSel )
@@ -122,7 +122,8 @@ bool PAD_TOOL::Init()
     ctxMenu.AddItem( PCB_ACTIONS::rotateCcw,               SELECTION_CONDITIONS::ShowAlways );
     ctxMenu.AddItem( PCB_ACTIONS::rotateCw,                SELECTION_CONDITIONS::ShowAlways );
     ctxMenu.AddItem( PCB_ACTIONS::flip,                    SELECTION_CONDITIONS::ShowAlways );
-    ctxMenu.AddItem( PCB_ACTIONS::mirror,                  SELECTION_CONDITIONS::ShowAlways );
+    ctxMenu.AddItem( PCB_ACTIONS::mirrorH,                 SELECTION_CONDITIONS::ShowAlways );
+    ctxMenu.AddItem( PCB_ACTIONS::mirrorV,                 SELECTION_CONDITIONS::ShowAlways );
     ctxMenu.AddItem( PCB_ACTIONS::properties,              SELECTION_CONDITIONS::ShowAlways );
 
     // Finally, add the standard zoom/grid items
@@ -279,9 +280,7 @@ int PAD_TOOL::EnumeratePads( const TOOL_EVENT& aEvent )
     if( !board()->GetFirstFootprint() || board()->GetFirstFootprint()->Pads().empty() )
         return 0;
 
-    GENERAL_COLLECTOR collector;
-    const KICAD_T types[] = { PCB_PAD_T, EOT };
-
+    GENERAL_COLLECTOR        collector;
     GENERAL_COLLECTORS_GUIDE guide = frame()->GetCollectorsGuide();
     guide.SetIgnoreMTextsMarkedNoShow( true );
     guide.SetIgnoreMTextsOnBack( true );
@@ -301,8 +300,7 @@ int PAD_TOOL::EnumeratePads( const TOOL_EVENT& aEvent )
 
     m_toolMgr->RunAction( PCB_ACTIONS::selectionClear, true );
 
-    std::string tool = aEvent.GetCommandStr().get();
-    frame()->PushTool( tool );
+    frame()->PushTool( aEvent );
 
     VECTOR2I        oldCursorPos;  // store the previous mouse cursor position, during mouse drag
     std::list<PAD*> selectedPads;
@@ -322,20 +320,22 @@ int PAD_TOOL::EnumeratePads( const TOOL_EVENT& aEvent )
     auto setCursor =
             [&]()
             {
-                frame()->GetCanvas()->SetCurrentCursor( KICURSOR::BULLSEYE );
+                canvas()->SetCurrentCursor( KICURSOR::BULLSEYE );
             };
 
     Activate();
     // Must be done after Activate() so that it gets set into the correct context
     getViewControls()->ShowCursor( true );
+    getViewControls()->ForceCursorPosition( false );
     // Set initial cursor
     setCursor();
 
     STATUS_TEXT_POPUP statusPopup( frame() );
-    wxString msg = _( "Click on pad %s%d\nPress <esc> to cancel or double-click to commit" );
+    wxString msg = _( "Click on pad %s%d\nPress <esc> to cancel all; double-click to finish" );
     statusPopup.SetText( wxString::Format( msg, padPrefix, seqPadNum ) );
     statusPopup.Popup();
     statusPopup.Move( wxGetMousePosition() + wxPoint( 20, 20 ) );
+    canvas()->SetStatusPopup( statusPopup.GetPanel() );
 
     while( TOOL_EVENT* evt = Wait() )
     {
@@ -349,14 +349,14 @@ int PAD_TOOL::EnumeratePads( const TOOL_EVENT& aEvent )
             m_toolMgr->RunAction( PCB_ACTIONS::selectionClear, true );
             commit.Revert();
 
-            frame()->PopTool( tool );
+            frame()->PopTool( aEvent );
             break;
         }
         else if( evt->IsActivate() )
         {
             commit.Push( _( "Renumber pads" ) );
 
-            frame()->PopTool( tool );
+            frame()->PopTool( aEvent );
             break;
         }
         else if( evt->IsDrag( BUT_LEFT ) || evt->IsClick( BUT_LEFT ) )
@@ -375,7 +375,7 @@ int PAD_TOOL::EnumeratePads( const TOOL_EVENT& aEvent )
             // the mouse move and search pads that are on the line.
             int distance = ( cursorPos - oldCursorPos ).EuclideanNorm();
             // Search will be made every 0.1 mm:
-            int segments = distance / int( 0.1*IU_PER_MM ) + 1;
+            int           segments = distance / int( 0.1 * pcbIUScale.IU_PER_MM ) + 1;
             const wxPoint line_step( ( cursorPos - oldCursorPos ) / segments );
 
             collector.Empty();
@@ -383,7 +383,7 @@ int PAD_TOOL::EnumeratePads( const TOOL_EVENT& aEvent )
             for( int j = 0; j < segments; ++j )
             {
                 wxPoint testpoint( cursorPos.x - j * line_step.x, cursorPos.y - j * line_step.y );
-                collector.Collect( board(), types, testpoint, guide );
+                collector.Collect( board(), { PCB_PAD_T }, testpoint, guide );
 
                 for( int i = 0; i < collector.GetCount(); ++i )
                     selectedPads.push_back( static_cast<PAD*>( collector[i] ) );
@@ -448,11 +448,10 @@ int PAD_TOOL::EnumeratePads( const TOOL_EVENT& aEvent )
                 }
             }
         }
-        else if( ( evt->IsKeyPressed() && evt->KeyCode() == WXK_RETURN ) ||
-                 evt->IsDblClick( BUT_LEFT ) )
+        else if( evt->IsDblClick( BUT_LEFT ) )
         {
             commit.Push( _( "Renumber pads" ) );
-            frame()->PopTool( tool );
+            frame()->PopTool( aEvent );
             break;
         }
         else if( evt->IsClick( BUT_RIGHT ) )
@@ -476,8 +475,11 @@ int PAD_TOOL::EnumeratePads( const TOOL_EVENT& aEvent )
         getView()->Update( p );
     }
 
+    canvas()->SetStatusPopup( nullptr );
     statusPopup.Hide();
-    frame()->GetCanvas()->SetCurrentCursor( KICURSOR::ARROW );
+
+    canvas()->SetCurrentCursor( KICURSOR::ARROW );
+    getViewControls()->ForceCursorPosition( false );
     return 0;
 }
 
@@ -555,7 +557,7 @@ int PAD_TOOL::PlacePad( const TOOL_EVENT& aEvent )
 
     PAD_PLACER placer( this );
 
-    doInteractiveItemPlacement( aEvent.GetCommandStr().get(), &placer,  _( "Place pad" ),
+    doInteractiveItemPlacement( aEvent, &placer, _( "Place pad" ),
                                 IPO_REPEAT | IPO_SINGLE_CLICK | IPO_ROTATE | IPO_FLIP );
 
     return 0;
@@ -574,7 +576,11 @@ int PAD_TOOL::EditPad( const TOOL_EVENT& aEvent )
         PAD* pad = dynamic_cast<PAD*>( frame()->GetItem( m_editPad ) );
 
         if( pad )
-            recombinePad( pad );
+        {
+            BOARD_COMMIT commit( frame() );
+            RecombinePad( pad, false, commit );
+            commit.Push( _( "Recombine pad" ) );
+        }
 
         m_editPad = niluuid;
     }
@@ -592,8 +598,8 @@ int PAD_TOOL::EditPad( const TOOL_EVENT& aEvent )
         if( PCB_ACTIONS::explodePad.GetHotKey() == PCB_ACTIONS::recombinePad.GetHotKey() )
         {
             msg.Printf( _( "Pad Edit Mode.  Press %s again to exit." ),
-                        KeyNameFromKeyCode( PCB_ACTIONS::recombinePad.GetHotKey() ) );}
-
+                        KeyNameFromKeyCode( PCB_ACTIONS::recombinePad.GetHotKey() ) );
+        }
         else
         {
             msg.Printf( _( "Pad Edit Mode.  Press %s to exit." ),
@@ -641,6 +647,7 @@ PCB_LAYER_ID PAD_TOOL::explodePad( PAD* aPad )
             FP_SHAPE* shape = new FP_SHAPE( board()->GetFirstFootprint() );
 
             shape->SetShape( primitive->GetShape() );
+            shape->SetIsAnnotationProxy( primitive->IsAnnotationProxy());
             shape->SetFilled( primitive->IsFilled() );
             shape->SetStroke( primitive->GetStroke() );
 
@@ -684,6 +691,7 @@ PCB_LAYER_ID PAD_TOOL::explodePad( PAD* aPad )
 
         aPad->SetShape( aPad->GetAnchorPadShape() );
         aPad->DeletePrimitivesList();
+        aPad->SetFlags( ENTERED );
         m_editPad = aPad->m_Uuid;
     }
 
@@ -693,30 +701,39 @@ PCB_LAYER_ID PAD_TOOL::explodePad( PAD* aPad )
 }
 
 
-void PAD_TOOL::recombinePad( PAD* aPad )
+std::vector<FP_SHAPE*> PAD_TOOL::RecombinePad( PAD* aPad, bool aIsDryRun, BOARD_COMMIT& aCommit )
 {
-    int  maxError = board()->GetDesignSettings().m_MaxError;
+    int        maxError = board()->GetDesignSettings().m_MaxError;
+    FOOTPRINT* footprint = static_cast<FOOTPRINT*>( aPad->GetParentFootprint() );
+
+    // Don't leave an object in the point editor that might no longer exist after
+    // recombining the pad.
+    m_toolMgr->RunAction( PCB_ACTIONS::selectionClear, true );
+
+    for( BOARD_ITEM* item : footprint->GraphicalItems() )
+        item->ClearFlags( SKIP_STRUCT );
 
     auto findNext =
             [&]( PCB_LAYER_ID aLayer ) -> FP_SHAPE*
             {
                 SHAPE_POLY_SET padPoly;
-                aPad->TransformShapeWithClearanceToPolygon( padPoly, aLayer, 0, maxError,
-                                                            ERROR_INSIDE );
+                aPad->TransformShapeToPolygon( padPoly, aLayer, 0, maxError, ERROR_INSIDE );
 
-                for( BOARD_ITEM* item : board()->GetFirstFootprint()->GraphicalItems() )
+                for( BOARD_ITEM* item : footprint->GraphicalItems() )
                 {
-                    PCB_SHAPE* shape = dynamic_cast<PCB_SHAPE*>( item );
+                    FP_SHAPE* shape = dynamic_cast<FP_SHAPE*>( item );
 
-                    if( !shape || ( shape->GetEditFlags() & STRUCT_DELETED ) )
+                    if( !shape || ( shape->GetFlags() & SKIP_STRUCT ) )
                         continue;
 
                     if( shape->GetLayer() != aLayer )
                         continue;
 
+                    if( shape->IsAnnotationProxy() )    // Pad number (and net name) box
+                        return (FP_SHAPE*) item;
+
                     SHAPE_POLY_SET drawPoly;
-                    shape->TransformShapeWithClearanceToPolygon( drawPoly, aLayer, 0, maxError,
-                                                                 ERROR_INSIDE );
+                    shape->TransformShapeToPolygon( drawPoly, aLayer, 0, maxError, ERROR_INSIDE );
                     drawPoly.BooleanIntersection( padPoly, SHAPE_POLY_SET::PM_FAST );
 
                     if( !drawPoly.IsEmpty() )
@@ -726,8 +743,30 @@ void PAD_TOOL::recombinePad( PAD* aPad )
                 return nullptr;
             };
 
-    BOARD_COMMIT commit( frame() );
-    PCB_LAYER_ID layer;
+    auto findMatching =
+            [&]( FP_SHAPE* aShape ) -> std::vector<FP_SHAPE*>
+            {
+                std::vector<FP_SHAPE*> matching;
+
+                for( BOARD_ITEM* item : footprint->GraphicalItems() )
+                {
+                    FP_SHAPE* other = dynamic_cast<FP_SHAPE*>( item );
+
+                    if( !other || ( other->GetFlags() & SKIP_STRUCT ) )
+                        continue;
+
+                    if( aPad->GetLayerSet().test( other->GetLayer() )
+                            && aShape->Compare( other ) == 0 )
+                    {
+                        matching.push_back( other );
+                    }
+                }
+
+                return matching;
+            };
+
+    PCB_LAYER_ID           layer;
+    std::vector<FP_SHAPE*> mergedShapes;
 
     if( aPad->IsOnLayer( F_Cu ) )
         layer = F_Cu;
@@ -738,89 +777,116 @@ void PAD_TOOL::recombinePad( PAD* aPad )
 
     while( FP_SHAPE* fpShape = findNext( layer ) )
     {
-        commit.Modify( aPad );
-
-        // We've found an intersecting item.  First convert the pad to a custom-shape
-        // pad (if it isn't already)
+        // We've found an intersecting item to combine.
         //
-        if( aPad->GetShape() == PAD_SHAPE::RECT || aPad->GetShape() == PAD_SHAPE::CIRCLE )
+        fpShape->SetFlags( SKIP_STRUCT );
+
+        // First convert the pad to a custom-shape pad (if it isn't already)
+        //
+        if( !aIsDryRun )
         {
-            aPad->SetAnchorPadShape( aPad->GetShape() );
+            aCommit.Modify( aPad );
+
+            if( aPad->GetShape() == PAD_SHAPE::RECT || aPad->GetShape() == PAD_SHAPE::CIRCLE )
+            {
+                aPad->SetAnchorPadShape( aPad->GetShape() );
+            }
+            else if( aPad->GetShape() != PAD_SHAPE::CUSTOM )
+            {
+                // Create a new minimally-sized circular anchor and convert existing pad
+                // to a polygon primitive
+                SHAPE_POLY_SET existingOutline;
+                aPad->TransformShapeToPolygon( existingOutline, layer, 0, maxError, ERROR_INSIDE );
+
+                aPad->SetAnchorPadShape( PAD_SHAPE::CIRCLE );
+
+                if( aPad->GetSizeX() > aPad->GetSizeY() )
+                    aPad->SetSizeX( aPad->GetSizeY() );
+
+                aPad->SetOffset( VECTOR2I( 0, 0 ) );
+
+                PCB_SHAPE* shape = new PCB_SHAPE( nullptr, SHAPE_T::POLY );
+                shape->SetFilled( true );
+                shape->SetStroke( STROKE_PARAMS( 0, PLOT_DASH_TYPE::SOLID ) );
+                shape->SetPolyShape( existingOutline );
+                shape->Move( - aPad->GetPosition() );
+                shape->Rotate( VECTOR2I( 0, 0 ), - aPad->GetOrientation() );
+
+                aPad->AddPrimitive( shape );
+            }
+
+            aPad->SetShape( PAD_SHAPE::CUSTOM );
         }
-        else if( aPad->GetShape() != PAD_SHAPE::CUSTOM )
-        {
-            // Create a new minimally-sized circular anchor and convert existing pad
-            // to a polygon primitive
-            SHAPE_POLY_SET existingOutline;
-            aPad->TransformShapeWithClearanceToPolygon( existingOutline, layer, 0, maxError,
-                                                        ERROR_INSIDE );
-
-            aPad->SetAnchorPadShape( PAD_SHAPE::CIRCLE );
-            if( aPad->GetSizeX() > aPad->GetSizeY() )
-                aPad->SetSizeX( aPad->GetSizeY() );
-
-            aPad->SetOffset( VECTOR2I( 0, 0 ) );
-
-            PCB_SHAPE* shape = new PCB_SHAPE( nullptr, SHAPE_T::POLY );
-            shape->SetFilled( true );
-            shape->SetStroke( STROKE_PARAMS( 0, PLOT_DASH_TYPE::SOLID ) );
-            shape->SetPolyShape( existingOutline );
-            shape->Move( - aPad->GetPosition() );
-            shape->Rotate( VECTOR2I( 0, 0 ), - aPad->GetOrientation() );
-
-            aPad->AddPrimitive( shape );
-        }
-
-        aPad->SetShape( PAD_SHAPE::CUSTOM );
 
         // Now add the new shape to the primitives list
         //
-        PCB_SHAPE* pcbShape = new PCB_SHAPE;
+        mergedShapes.push_back( fpShape );
 
-        pcbShape->SetShape( fpShape->GetShape() );
-        pcbShape->SetFilled( fpShape->IsFilled() );
-        pcbShape->SetStroke( fpShape->GetStroke() );
-
-
-        switch( pcbShape->GetShape() )
+        if( !aIsDryRun )
         {
-        case SHAPE_T::SEGMENT:
-        case SHAPE_T::RECT:
-        case SHAPE_T::CIRCLE:
-            pcbShape->SetStart( fpShape->GetStart() );
-            pcbShape->SetEnd( fpShape->GetEnd() );
-            break;
+            PCB_SHAPE* pcbShape = new PCB_SHAPE;
 
-        case SHAPE_T::ARC:
-            pcbShape->SetStart( fpShape->GetStart() );
-            pcbShape->SetEnd( fpShape->GetEnd() );
-            pcbShape->SetCenter( fpShape->GetCenter() );
-            break;
+            pcbShape->SetShape( fpShape->GetShape() );
+            pcbShape->SetFilled( fpShape->IsFilled() );
+            pcbShape->SetStroke( fpShape->GetStroke() );
 
-        case SHAPE_T::BEZIER:
-            pcbShape->SetStart( fpShape->GetStart() );
-            pcbShape->SetEnd( fpShape->GetEnd() );
-            pcbShape->SetBezierC1( fpShape->GetBezierC1() );
-            pcbShape->SetBezierC2( fpShape->GetBezierC2() );
-            break;
+            switch( pcbShape->GetShape() )
+            {
+            case SHAPE_T::SEGMENT:
+            case SHAPE_T::RECT:
+            case SHAPE_T::CIRCLE:
+                pcbShape->SetStart( fpShape->GetStart() );
+                pcbShape->SetEnd( fpShape->GetEnd() );
+                break;
 
-        case SHAPE_T::POLY:
-            pcbShape->SetPolyShape( fpShape->GetPolyShape() );
-            break;
+            case SHAPE_T::ARC:
+                pcbShape->SetStart( fpShape->GetStart() );
+                pcbShape->SetEnd( fpShape->GetEnd() );
+                pcbShape->SetCenter( fpShape->GetCenter() );
+                break;
 
-        default:
-            UNIMPLEMENTED_FOR( pcbShape->SHAPE_T_asString() );
+            case SHAPE_T::BEZIER:
+                pcbShape->SetStart( fpShape->GetStart() );
+                pcbShape->SetEnd( fpShape->GetEnd() );
+                pcbShape->SetBezierC1( fpShape->GetBezierC1() );
+                pcbShape->SetBezierC2( fpShape->GetBezierC2() );
+                break;
+
+            case SHAPE_T::POLY:
+                pcbShape->SetPolyShape( fpShape->GetPolyShape() );
+                break;
+
+            default:
+                UNIMPLEMENTED_FOR( pcbShape->SHAPE_T_asString() );
+            }
+
+            pcbShape->Move( - aPad->GetPosition() );
+            pcbShape->Rotate( VECTOR2I( 0, 0 ), - aPad->GetOrientation() );
+            pcbShape->SetIsAnnotationProxy( fpShape->IsAnnotationProxy());
+            aPad->AddPrimitive( pcbShape );
+
+            aCommit.Remove( fpShape );
         }
 
-        pcbShape->Move( - aPad->GetPosition() );
-        pcbShape->Rotate( VECTOR2I( 0, 0 ), - aPad->GetOrientation() );
-        aPad->AddPrimitive( pcbShape );
+        // See if there are other shapes that match and mark them for delete.  (KiCad won't
+        // produce these, but old footprints from other vendors have them.)
+        for( FP_SHAPE* other : findMatching( fpShape ) )
+        {
+            other->SetFlags( SKIP_STRUCT );
+            mergedShapes.push_back( other );
 
-        fpShape->SetFlags( STRUCT_DELETED );
-        commit.Remove( fpShape );
+            if( !aIsDryRun )
+                aCommit.Remove( other );
+        }
     }
 
-    commit.Push(_("Recombine pads") );
+    for( BOARD_ITEM* item : footprint->GraphicalItems() )
+        item->ClearFlags( SKIP_STRUCT );
+
+    if( !aIsDryRun )
+        aPad->ClearFlags( ENTERED );
+
+    return mergedShapes;
 }
 
 

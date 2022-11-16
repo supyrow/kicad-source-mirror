@@ -35,7 +35,6 @@
 #include <convert_basic_shapes_to_polygon.h> // for enum RECT_CHAMFER_POSITIONS definition
 #include <geometry/shape_segment.h>
 #include <dialog_pad_properties.h>
-#include <gal/graphics_abstraction_layer.h>
 #include <dialogs/html_message_box.h>
 #include <macros.h>
 #include <pad.h>
@@ -215,8 +214,8 @@ DIALOG_PAD_PROPERTIES::DIALOG_PAD_PROPERTIES( PCB_BASE_FRAME* aParent, PAD* aPad
     m_staticTextInfoPaste->SetFont( infoFont );
     m_staticTextPrimitiveListWarning->SetFont( infoFont );
 
-    // Do not allow locking items in the footprint editor
-    m_locked->Show( !m_isFpEditor );
+    updateHoleControls();
+    updatePadSizeControls();
 
     // Usually, TransferDataToWindow is called by OnInitDialog
     // calling it here fixes all widget sizes so FinishDialogSettings can safely fix minsizes
@@ -232,6 +231,12 @@ DIALOG_PAD_PROPERTIES::DIALOG_PAD_PROPERTIES( PCB_BASE_FRAME* aParent, PAD* aPad
     m_padNetSelector->Connect( NET_SELECTED,
                                wxCommandEventHandler( DIALOG_PAD_PROPERTIES::OnValuesChanged ),
                                nullptr, this );
+
+    if( m_padType->GetSelection() != PTH_DLG_TYPE && m_padType->GetSelection() != NPTH_DLG_TYPE )
+    {
+        m_gbSizerHole->Show( false );
+        m_staticline6->Show( false );
+    }
 
     // Now all widgets have the size fixed, call FinishDialogSettings
     finishDialogSettings();
@@ -309,7 +314,7 @@ void DIALOG_PAD_PROPERTIES::prepareCanvas()
     KIGFX::COLOR4D axis_color = LIGHTBLUE;
 
     m_axisOrigin = new KIGFX::ORIGIN_VIEWITEM( axis_color, KIGFX::ORIGIN_VIEWITEM::CROSS,
-                                               Millimeter2iu( 0.2 ),
+                                               pcbIUScale.mmToIU( 0.2 ),
                                                VECTOR2D( m_dummyPad->GetPosition() ) );
     m_axisOrigin->SetDrawAtZero( true );
 
@@ -336,7 +341,7 @@ void DIALOG_PAD_PROPERTIES::prepareCanvas()
     settings->m_ContrastModeDisplay = HIGH_CONTRAST_MODE::NORMAL;
 
     // gives a non null grid size (0.001mm) because GAL layer does not like a 0 size grid:
-    double gridsize = 0.001 * IU_PER_MM;
+    double gridsize = 0.001 * pcbIUScale.IU_PER_MM;
     view->GetGAL()->SetGridSize( VECTOR2D( gridsize, gridsize ) );
 
     // And do not show the grid:
@@ -479,7 +484,6 @@ void DIALOG_PAD_PROPERTIES::initValues()
 
     if( m_currentPad )
     {
-        m_locked->SetValue( m_currentPad->IsLocked() );
         m_isFlipped = m_currentPad->IsFlipped();
 
         FOOTPRINT* footprint = m_currentPad->GetParent();
@@ -501,7 +505,6 @@ void DIALOG_PAD_PROPERTIES::initValues()
     }
     else
     {
-        m_locked->Hide();
         m_isFlipped = false;
     }
 
@@ -672,8 +675,8 @@ void DIALOG_PAD_PROPERTIES::initValues()
 static wxString formatCoord( EDA_UNITS aUnits, VECTOR2I aCoord )
 {
     return wxString::Format( wxT( "(X:%s Y:%s)" ),
-                             MessageTextFromValue( aUnits, aCoord.x ),
-                             MessageTextFromValue( aUnits, aCoord.y ) );
+                             EDA_UNIT_UTILS::UI::MessageTextFromValue( pcbIUScale, aUnits, aCoord.x ),
+                             EDA_UNIT_UTILS::UI::MessageTextFromValue( pcbIUScale, aUnits, aCoord.y ) );
 }
 
 void DIALOG_PAD_PROPERTIES::displayPrimitivesList()
@@ -695,45 +698,55 @@ void DIALOG_PAD_PROPERTIES::displayPrimitivesList()
         for( wxString& s : bs_info )
             s.Empty();
 
-        bs_info[4] = _( "width" ) + wxS( " " )+ MessageTextFromValue( m_units,
+        bs_info[4] = _( "width" ) + wxS( " " )+ EDA_UNIT_UTILS::UI::MessageTextFromValue( pcbIUScale, m_units,
                                                                       primitive->GetWidth() );
 
         switch( primitive->GetShape() )
         {
         case SHAPE_T::SEGMENT:
             bs_info[0] = _( "Segment" );
-            bs_info[1] = _( "from" ) + wxS( " " )+ formatCoord( m_units, primitive->GetStart() );
-            bs_info[2] = _( "to" ) + wxS( " " )+  formatCoord( m_units, primitive->GetEnd() );
+            bs_info[1] = _( "from" ) + wxS( " " ) + formatCoord( m_units, primitive->GetStart() );
+            bs_info[2] = _( "to" ) + wxS( " " ) +  formatCoord( m_units, primitive->GetEnd() );
             break;
 
         case SHAPE_T::BEZIER:
             bs_info[0] = _( "Bezier" );
-            bs_info[1] = _( "from" ) + wxS( " " )+ formatCoord( m_units, primitive->GetStart() );
-            bs_info[2] = _( "to" ) + wxS( " " )+  formatCoord( m_units, primitive->GetEnd() );
+            bs_info[1] = _( "from" ) + wxS( " " ) + formatCoord( m_units, primitive->GetStart() );
+            bs_info[2] = _( "to" ) + wxS( " " ) +  formatCoord( m_units, primitive->GetEnd() );
             break;
 
         case SHAPE_T::ARC:
             bs_info[0] = _( "Arc" );
-            bs_info[1] = _( "center" ) + wxS( " " )+ formatCoord( m_units, primitive->GetCenter() );
-            bs_info[2] = _( "start" ) + wxS( " " )+ formatCoord( m_units, primitive->GetStart() );
-            bs_info[3] = _( "angle" ) + wxS( " " )+ FormatAngle( primitive->GetArcAngle() );
+            bs_info[1] = _( "center" ) + wxS( " " ) + formatCoord( m_units, primitive->GetCenter() );
+            bs_info[2] = _( "start" ) + wxS( " " ) + formatCoord( m_units, primitive->GetStart() );
+            bs_info[3] = _( "angle" ) + wxS( " " ) + EDA_UNIT_UTILS::FormatAngle( primitive->GetArcAngle() );
             break;
 
         case SHAPE_T::CIRCLE:
             if( primitive->GetWidth() )
-                bs_info[0] = _( "ring" );
+                bs_info[0] = _( "Ring" );
             else
-                bs_info[0] = _( "circle" );
+                bs_info[0] = _( "Circle" );
 
-            bs_info[1] = formatCoord( m_units, primitive->GetStart() );
-            bs_info[2] = _( "radius" ) + wxS( " " )+ MessageTextFromValue( m_units,
-                                                                           primitive->GetRadius() );
+            bs_info[1] = _( "at" ) + wxS( " " ) + formatCoord( m_units, primitive->GetStart() );
+            bs_info[2] = _( "radius" ) + wxS( " " ) + EDA_UNIT_UTILS::UI::MessageTextFromValue( pcbIUScale, m_units,
+                                                                            primitive->GetRadius() );
             break;
 
         case SHAPE_T::POLY:
             bs_info[0] = _( "Polygon" );
             bs_info[1] = wxString::Format( _( "corners count %d" ),
                                            primitive->GetPolyShape().Outline( 0 ).PointCount() );
+            break;
+
+        case SHAPE_T::RECT:
+            if( primitive->IsAnnotationProxy() )
+                bs_info[0] = _( "Number box" );
+            else
+                bs_info[0] = _( "Rectangle" );
+
+            bs_info[1] = _( "from" ) + wxS( " " ) + formatCoord( m_units, primitive->GetStart() );
+            bs_info[2] = _( "to" ) + wxS( " " ) +  formatCoord( m_units, primitive->GetEnd() );
             break;
 
         default:
@@ -901,6 +914,7 @@ void DIALOG_PAD_PROPERTIES::OnPadShapeSelection( wxCommandEvent& event )
     if( m_MainSizer->GetSize().y < m_MainSizer->GetMinSize().y )
         m_MainSizer->SetSizeHints( this );
 
+    updatePadSizeControls();
     redraw();
 }
 
@@ -908,6 +922,7 @@ void DIALOG_PAD_PROPERTIES::OnPadShapeSelection( wxCommandEvent& event )
 void DIALOG_PAD_PROPERTIES::OnDrillShapeSelected( wxCommandEvent& event )
 {
     transferDataToPad( m_dummyPad );
+    updateHoleControls();
     redraw();
 }
 
@@ -974,6 +989,8 @@ void DIALOG_PAD_PROPERTIES::PadTypeSelected( wxCommandEvent& event )
     // Update Layers dropdown list and selects the "best" layer set for the new pad type:
     updatePadLayersList( {}, m_dummyPad->GetRemoveUnconnected(), m_dummyPad->GetKeepTopBottom() );
 
+    m_gbSizerHole->Show( hasHole );
+    m_staticline6->Show( hasHole );
     if( !hasHole )
     {
         m_holeX.ChangeValue( 0 );
@@ -1004,16 +1021,14 @@ void DIALOG_PAD_PROPERTIES::PadTypeSelected( wxCommandEvent& event )
 
     transferDataToPad( m_dummyPad );
 
+    // Layout adjustment is needed if the hole details got shown/hidden
+    m_LeftBoxSizer->Layout();
     redraw();
 }
 
 
 void DIALOG_PAD_PROPERTIES::OnUpdateUI( wxUpdateUIEvent& event )
 {
-    // Enable/disable position
-    m_posX.Enable( !m_locked->GetValue() || m_isFpEditor );
-    m_posY.Enable( !m_locked->GetValue() || m_isFpEditor );
-
     bool hasHole = true;
     bool hasConnection = true;
 
@@ -1030,7 +1045,7 @@ void DIALOG_PAD_PROPERTIES::OnUpdateUI( wxUpdateUIEvent& event )
     m_holeShapeLabel->Enable( hasHole );
     m_holeShapeCtrl->Enable( hasHole );
     m_holeX.Enable( hasHole );
-    m_holeY.Enable( hasHole && m_holeShapeCtrl->GetSelection() == 1 );
+    m_holeY.Enable( hasHole && m_holeShapeCtrl->GetSelection() == CHOICE_SHAPE_OVAL );
 
     // Enable/disable number and net
     m_padNumLabel->Enable( hasConnection );
@@ -1230,7 +1245,6 @@ bool DIALOG_PAD_PROPERTIES::padValuesOK()
 
     wxArrayString error_msgs;
     wxArrayString warning_msgs;
-    wxString      msg;
     VECTOR2I      pad_size = m_dummyPad->GetSize();
     VECTOR2I      drill_size = m_dummyPad->GetDrillSize();
 
@@ -1241,38 +1255,39 @@ bool DIALOG_PAD_PROPERTIES::padValuesOK()
     else if( m_dummyPad->GetShape() == PAD_SHAPE::CIRCLE )
     {
         if( pad_size.x <= 0 )
-            warning_msgs.Add( _( "Warning: Pad size is less than zero." ) );
+            error_msgs.Add( _( "Error: Pad must have a positive size." ) );
     }
     else
     {
         if( pad_size.x <= 0 || pad_size.y <= 0 )
-            warning_msgs.Add( _( "Warning: Pad size is less than zero." ) );
+            error_msgs.Add( _( "Error: Pad must have a positive size." ) );
     }
 
-    // Test hole size against pad size
-    if( m_dummyPad->IsOnCopperLayer() )
+    // Test hole against pad shape
+    if( m_dummyPad->IsOnCopperLayer() && m_dummyPad->GetDrillSize().x > 0 )
     {
-        LSET           lset = m_dummyPad->GetLayerSet() & LSET::AllCuMask();
-        PCB_LAYER_ID   layer = lset.Seq().at( 0 );
         int            maxError = m_board->GetDesignSettings().m_MaxError;
         SHAPE_POLY_SET padOutline;
 
-        m_dummyPad->TransformShapeWithClearanceToPolygon( padOutline, layer, 0, maxError,
-                                                          ERROR_LOC::ERROR_INSIDE );
+        m_dummyPad->TransformShapeToPolygon( padOutline, UNDEFINED_LAYER, 0, maxError,
+                                             ERROR_INSIDE );
 
-        const SHAPE_SEGMENT* drillShape = m_dummyPad->GetEffectiveHoleShape();
-        const SEG            drillSeg   = drillShape->GetSeg();
-        SHAPE_POLY_SET       drillOutline;
-
-        TransformOvalToPolygon( drillOutline, drillSeg.A, drillSeg.B,
-                                drillShape->GetWidth(), maxError, ERROR_LOC::ERROR_INSIDE );
-
-        drillOutline.BooleanSubtract( padOutline, SHAPE_POLY_SET::POLYGON_MODE::PM_FAST );
-
-        if( drillOutline.BBox().GetWidth() > 0 || drillOutline.BBox().GetHeight() > 0 )
+        if( !padOutline.Collide( m_dummyPad->GetPosition() ) )
         {
-            warning_msgs.Add( _( "Warning: Pad drill will leave no copper or drill shape and "
-                                 "pad shape do not overlap." ) );
+            warning_msgs.Add( _( "Warning: Pad hole not inside pad shape." ) );
+        }
+        else if( m_dummyPad->GetAttribute() == PAD_ATTRIB::PTH )
+        {
+            std::shared_ptr<SHAPE_SEGMENT> slot = m_dummyPad->GetEffectiveHoleShape();
+            SHAPE_POLY_SET                 slotOutline;
+
+            TransformOvalToPolygon( slotOutline, slot->GetSeg().A, slot->GetSeg().B,
+                                    slot->GetWidth(), maxError, ERROR_INSIDE );
+
+            padOutline.BooleanSubtract( slotOutline, SHAPE_POLY_SET::PM_FAST );
+
+            if( padOutline.IsEmpty() )
+                warning_msgs.Add( _( "Warning: Pad hole will leave no copper." ) );
         }
     }
 
@@ -1290,7 +1305,7 @@ bool DIALOG_PAD_PROPERTIES::padValuesOK()
         {
             for( const std::shared_ptr<PCB_SHAPE>& shape : m_dummyPad->GetPrimitives() )
             {
-                EDA_RECT shapeBBox = shape->GetBoundingBox();
+                BOX2I shapeBBox = shape->GetBoundingBox();
 
                 if( absMargin > shapeBBox.GetWidth() || absMargin > shapeBBox.GetHeight() )
                 {
@@ -1341,7 +1356,7 @@ bool DIALOG_PAD_PROPERTIES::padValuesOK()
     }
 
     if( error )
-        error_msgs.Add(  _( "Too large value for pad delta size." ) );
+        error_msgs.Add(  _( "Error: Trapazoid delta is too large." ) );
 
     switch( m_dummyPad->GetAttribute() )
     {
@@ -1350,20 +1365,25 @@ bool DIALOG_PAD_PROPERTIES::padValuesOK()
         if( drill_size.x <= 0
             || ( drill_size.y <= 0 && m_dummyPad->GetDrillShape() == PAD_DRILL_SHAPE_OBLONG ) )
         {
-            warning_msgs.Add( _( "Warning: Through hole pad has no hole." ) );
+            error_msgs.Add( _( "Error: Through hole pad has no hole." ) );
         }
         break;
 
     case PAD_ATTRIB::CONN:      // Connector pads are smd pads, just they do not have solder paste.
         if( padlayers_mask[B_Paste] || padlayers_mask[F_Paste] )
         {
-            warning_msgs.Add( _( "Warning: Connector pads normally have no solder paste. Use an "
+            warning_msgs.Add( _( "Warning: Connector pads normally have no solder paste. Use a "
                                  "SMD pad instead." ) );
         }
         KI_FALLTHROUGH;
 
     case PAD_ATTRIB::SMD:       // SMD and Connector pads (One external copper layer only)
     {
+        if( drill_size.x > 0 || drill_size.y > 0 )
+        {
+            error_msgs.Add( _( "Error: SMD pad has a hole." ) );
+        }
+
         LSET innerlayers_mask = padlayers_mask & LSET::InternalCuMask();
 
         if( ( padlayers_mask[F_Cu] && padlayers_mask[B_Cu] ) || innerlayers_mask.count() != 0 )
@@ -1431,10 +1451,12 @@ bool DIALOG_PAD_PROPERTIES::padValuesOK()
                                                : _( "Pad Properties Warnings" );
         HTML_MESSAGE_BOX dlg( this, title );
 
-        dlg.ListSet( error_msgs );
+        wxArrayString msgs = error_msgs;
 
-        if( warning_msgs.GetCount() )
-            dlg.ListSet( warning_msgs );
+        for( const wxString& msg : warning_msgs )
+            msgs.Add( msg );
+
+        dlg.ListSet( msgs );
 
         dlg.ShowModal();
     }
@@ -1572,11 +1594,7 @@ bool DIALOG_PAD_PROPERTIES::TransferDataFromWindow()
     m_currentPad->SetShape( m_padMaster->GetShape() );
     m_currentPad->SetAttribute( m_padMaster->GetAttribute() );
     m_currentPad->SetOrientation( m_padMaster->GetOrientation() );
-
-    m_currentPad->SetLocked( m_locked->GetValue() );
-
-    if( !m_locked->GetValue() || m_isFpEditor )
-        m_currentPad->SetPosition( m_padMaster->GetPosition() );
+    m_currentPad->SetPosition( m_padMaster->GetPosition() );
 
     VECTOR2I   size;
     FOOTPRINT* footprint = m_currentPad->GetParent();
@@ -1647,8 +1665,6 @@ bool DIALOG_PAD_PROPERTIES::TransferDataFromWindow()
 
     if( footprint )
     {
-        footprint->SetLastEditTime();
-
         // compute the pos 0 value, i.e. pad position for footprint with orientation = 0
         // i.e. relative to footprint origin (footprint position)
         VECTOR2I pt = m_currentPad->GetPosition() - footprint->GetPosition();
@@ -1686,17 +1702,40 @@ PAD_PROP DIALOG_PAD_PROPERTIES::getSelectedProperty()
     return prop;
 }
 
+void DIALOG_PAD_PROPERTIES::updateHoleControls()
+{
+    m_holeXLabel->SetLabel( ( m_holeShapeCtrl->GetSelection() == CHOICE_SHAPE_CIRCLE )
+                                    ? _( "Diameter:" )
+                                    : _( "Hole size X:" ) );
+    m_holeY.Show( m_holeShapeCtrl->GetSelection() != CHOICE_SHAPE_CIRCLE
+                  && m_holeShapeCtrl->GetSelection() != CHOICE_SHAPE_CUSTOM_CIRC_ANCHOR );
+    m_holeXLabel->GetParent()->Layout();
+}
+
+void DIALOG_PAD_PROPERTIES::updatePadSizeControls()
+{
+    m_sizeXLabel->SetLabel( m_PadShapeSelector->GetSelection() == CHOICE_SHAPE_CIRCLE
+                                            || m_PadShapeSelector->GetSelection()
+                                                       == CHOICE_SHAPE_CUSTOM_CIRC_ANCHOR
+                                    ? _( "Diameter:" )
+                                    : _( "Pad size X:" ) );
+    m_sizeY.Show( m_PadShapeSelector->GetSelection() != CHOICE_SHAPE_CIRCLE
+                  && m_PadShapeSelector->GetSelection() != CHOICE_SHAPE_CUSTOM_CIRC_ANCHOR );
+    m_sizeXLabel->GetParent()->Layout();
+}
+
 
 bool DIALOG_PAD_PROPERTIES::transferDataToPad( PAD* aPad )
 {
-    wxString    msg;
-
     if( !Validate() )
         return false;
+
     if( !m_panelGeneral->Validate() )
         return false;
+
     if( !m_localSettingsPanel->Validate() )
         return false;
+
     if( !m_spokeWidth.Validate( 0, INT_MAX ) )
         return false;
 
@@ -1734,7 +1773,7 @@ bool DIALOG_PAD_PROPERTIES::transferDataToPad( PAD* aPad )
 
     aPad->SetPosition( wxPoint( m_posX.GetValue(), m_posY.GetValue() ) );
 
-    if( m_holeShapeCtrl->GetSelection() == 0 )
+    if( m_holeShapeCtrl->GetSelection() == CHOICE_SHAPE_CIRCLE )
     {
         aPad->SetDrillShape( PAD_DRILL_SHAPE_CIRCLE );
         aPad->SetDrillSize( wxSize( m_holeX.GetValue(), m_holeX.GetValue() ) );
@@ -1763,25 +1802,25 @@ bool DIALOG_PAD_PROPERTIES::transferDataToPad( PAD* aPad )
         else
             delta.y = m_trapDelta.GetValue();
 
-        if( delta.x < 0 && delta.x <= -aPad->GetSize().y )
+        if( delta.x < 0 && delta.x < -aPad->GetSize().y )
         {
             delta.x = -aPad->GetSize().y + 2;
             error = true;
         }
 
-        if( delta.x > 0 && delta.x >= aPad->GetSize().y )
+        if( delta.x > 0 && delta.x > aPad->GetSize().y )
         {
             delta.x = aPad->GetSize().y - 2;
             error = true;
         }
 
-        if( delta.y < 0 && delta.y <= -aPad->GetSize().x )
+        if( delta.y < 0 && delta.y < -aPad->GetSize().x )
         {
             delta.y = -aPad->GetSize().x + 2;
             error = true;
         }
 
-        if( delta.y > 0 && delta.y >= aPad->GetSize().x )
+        if( delta.y > 0 && delta.y > aPad->GetSize().x )
         {
             delta.y = aPad->GetSize().x - 2;
             error = true;
@@ -2086,7 +2125,7 @@ void DIALOG_PAD_PROPERTIES::editPrimitive()
 void DIALOG_PAD_PROPERTIES::OnPrimitiveSelection( wxListEvent& event )
 {
     // Called on a double click on the basic shapes list
-    // To Do: highligth the primitive(s) currently selected.
+    // To Do: highlight the primitive(s) currently selected.
     redraw();
 }
 
@@ -2136,7 +2175,8 @@ void DIALOG_PAD_PROPERTIES::onAddPrimitive( wxCommandEvent& event )
             _( "Arc" ),
             _( "Bezier" ),
             _( "Ring/Circle" ),
-            _( "Polygon" )
+            _( "Polygon" ),
+            _( "Number box" ),
     };
 
     int type = wxGetSingleChoiceIndex( _( "Shape type:" ), _( "Add Primitive" ),
@@ -2147,10 +2187,14 @@ void DIALOG_PAD_PROPERTIES::onAddPrimitive( wxCommandEvent& event )
         return;
 
     SHAPE_T listtype[] = { SHAPE_T::SEGMENT, SHAPE_T::ARC, SHAPE_T::BEZIER, SHAPE_T::CIRCLE,
-                           SHAPE_T::POLY };
+                           SHAPE_T::POLY, SHAPE_T::RECT };
 
     PCB_SHAPE* primitive = new PCB_SHAPE();
     primitive->SetShape( listtype[type] );
+
+    if( type == arrayDim( shapelist ) - 1 )
+        primitive->SetIsAnnotationProxy();
+
     primitive->SetStroke( STROKE_PARAMS( m_board->GetDesignSettings().GetLineThickness( F_Cu ),
                                          PLOT_DASH_TYPE::SOLID ) );
     primitive->SetFilled( true );

@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2019 CERN
- * Copyright (C) 2019-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2019-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -39,24 +39,9 @@
 #include <eda_doc.h>
 #include <sch_marker.h>
 #include <project.h>
-#include <dialogs/dialog_display_html_text_base.h>
+#include <dialogs/html_message_box.h>
 #include <dialogs/dialog_erc.h>
 #include <math/util.h>      // for KiROUND
-
-
-class DIALOG_DISPLAY_HTML_TEXT : public DIALOG_DISPLAY_HTML_TEXT_BASE
-{
-public:
-    DIALOG_DISPLAY_HTML_TEXT( wxWindow* aParent, wxWindowID aId, const wxString& aTitle,
-                              const wxPoint& aPos, const wxSize& aSize, long aStyle = 0 ) :
-        DIALOG_DISPLAY_HTML_TEXT_BASE( aParent, aId, aTitle, aPos, aSize, aStyle )
-    { }
-
-    ~DIALOG_DISPLAY_HTML_TEXT()
-    { }
-
-    void SetPage( const wxString& message ) { m_htmlWindow->SetPage( message ); }
-};
 
 
 EE_INSPECTION_TOOL::EE_INSPECTION_TOOL() :
@@ -166,6 +151,29 @@ int EE_INSPECTION_TOOL::NextMarker( const TOOL_EVENT& aEvent )
 }
 
 
+int EE_INSPECTION_TOOL::CrossProbe( const TOOL_EVENT& aEvent )
+{
+    if( m_ercDialog )
+    {
+        EE_SELECTION_TOOL* selectionTool = m_toolMgr->GetTool<EE_SELECTION_TOOL>();
+        EE_SELECTION&      selection = selectionTool->GetSelection();
+
+        if( selection.GetSize() == 1 && selection.Front()->Type() == SCH_MARKER_T )
+        {
+            if( !m_ercDialog->IsShown() )
+                m_ercDialog->Show( true );
+
+            m_ercDialog->SelectMarker( static_cast<SCH_MARKER*>( selection.Front() ) );
+        }
+    }
+
+    // Show the item info on a left click on this item
+    UpdateMessagePanel( aEvent );
+
+    return 0;
+}
+
+
 int EE_INSPECTION_TOOL::ExcludeMarker( const TOOL_EVENT& aEvent )
 {
     EE_SELECTION_TOOL* selTool = m_toolMgr->GetTool<EE_SELECTION_TOOL>();
@@ -194,255 +202,20 @@ int EE_INSPECTION_TOOL::ExcludeMarker( const TOOL_EVENT& aEvent )
 }
 
 
-// helper function to sort pins by pin num
-bool sort_by_pin_number( const LIB_PIN* ref, const LIB_PIN* tst )
-{
-    // Use number as primary key
-    int test = ref->GetNumber().Cmp( tst->GetNumber() );
-
-    // Use DeMorgan variant as secondary key
-    if( test == 0 )
-        test = ref->GetConvert() - tst->GetConvert();
-
-    // Use unit as tertiary key
-    if( test == 0 )
-        test = ref->GetUnit() - tst->GetUnit();
-
-    return test < 0;
-}
-
+extern void CheckLibSymbol( LIB_SYMBOL* aSymbol, std::vector<wxString>& aMessages,
+                           int aGridForPins, EDA_DRAW_FRAME* aUnitsProvider );
 
 int EE_INSPECTION_TOOL::CheckSymbol( const TOOL_EVENT& aEvent )
 {
     LIB_SYMBOL* symbol = static_cast<SYMBOL_EDIT_FRAME*>( m_frame )->GetCurSymbol();
-    EDA_UNITS units = m_frame->GetUserUnits();
 
     if( !symbol )
         return 0;
 
-    LIB_PINS pinList;
-    symbol->GetPins( pinList );
-
-    // Test for duplicates:
-    // Sort pins by pin num, so 2 duplicate pins
-    // (pins with the same number) will be consecutive in list
-    sort( pinList.begin(), pinList.end(), sort_by_pin_number );
-
-    // The minimal grid size allowed to place a pin is 25 mils
-    // the best grid size is 50 mils, but 25 mils is still usable
-    // this is because all symbols are using a 50 mils grid to place pins, and therefore
-    // the wires must be on the 50 mils grid
-    // So raise an error if a pin is not on a 25 (or bigger :50 or 100) mils grid
-    const int min_grid_size = Mils2iu( 25 );
-    const int grid_size = KiROUND( getView()->GetGAL()->GetGridSize().x );
-    const int clamped_grid_size = ( grid_size < min_grid_size ) ? min_grid_size : grid_size;
-
     std::vector<wxString> messages;
-    wxString              msg;
+    const int grid_size = KiROUND( getView()->GetGAL()->GetGridSize().x );
 
-    for( unsigned ii = 1; ii < pinList.size(); ii++ )
-    {
-        LIB_PIN* pin  = pinList[ii - 1];
-        LIB_PIN* next = pinList[ii];
-
-        if( pin->GetNumber() != next->GetNumber() || pin->GetConvert() != next->GetConvert() )
-            continue;
-
-        wxString pinName;
-        wxString nextName;
-
-        if( pin->GetName() != "~"  && !pin->GetName().IsEmpty() )
-            pinName = " '" + pin->GetName() + "'";
-
-        if( next->GetName() != "~"  && !next->GetName().IsEmpty() )
-            nextName = " '" + next->GetName() + "'";
-
-        if( symbol->HasConversion() && next->GetConvert() )
-        {
-            if( symbol->GetUnitCount() <= 1 )
-            {
-                msg.Printf( _( "<b>Duplicate pin %s</b> %s at location <b>(%.3f, %.3f)</b>"
-                               " conflicts with pin %s%s at location <b>(%.3f, %.3f)</b>"
-                               " of converted." ),
-                            next->GetNumber(),
-                            nextName,
-                            MessageTextFromValue( units, next->GetPosition().x ),
-                            MessageTextFromValue( units, -next->GetPosition().y ),
-                            pin->GetNumber(),
-                            pin->GetName(),
-                            MessageTextFromValue( units, pin->GetPosition().x ),
-                            MessageTextFromValue( units, -pin->GetPosition().y ) );
-            }
-            else
-            {
-                msg.Printf( _( "<b>Duplicate pin %s</b> %s at location <b>(%.3f, %.3f)</b>"
-                               " conflicts with pin %s%s at location <b>(%.3f, %.3f)</b>"
-                               " in units %c and %c of converted." ),
-                            next->GetNumber(),
-                            nextName,
-                            MessageTextFromValue( units, next->GetPosition().x ),
-                            MessageTextFromValue( units, -next->GetPosition().y ),
-                            pin->GetNumber(),
-                            pinName,
-                            MessageTextFromValue( units, pin->GetPosition().x ),
-                            MessageTextFromValue( units, -pin->GetPosition().y ),
-                            'A' + next->GetUnit() - 1,
-                            'A' + pin->GetUnit() - 1 );
-            }
-        }
-        else
-        {
-            if( symbol->GetUnitCount() <= 1 )
-            {
-                msg.Printf( _( "<b>Duplicate pin %s</b> %s at location <b>(%s, %s)</b>"
-                               " conflicts with pin %s%s at location <b>(%s, %s)</b>." ),
-                            next->GetNumber(),
-                            nextName,
-                            MessageTextFromValue( units, next->GetPosition().x ),
-                            MessageTextFromValue( units, -next->GetPosition().y ),
-                            pin->GetNumber(),
-                            pinName,
-                            MessageTextFromValue( units, pin->GetPosition().x ),
-                            MessageTextFromValue( units, -pin->GetPosition().y ) );
-            }
-            else
-            {
-                msg.Printf( _( "<b>Duplicate pin %s</b> %s at location <b>(%s, %s)</b>"
-                               " conflicts with pin %s%s at location <b>(%s, %s)</b>"
-                               " in units %c and %c." ),
-                            next->GetNumber(),
-                            nextName,
-                            MessageTextFromValue( units, next->GetPosition().x ),
-                            MessageTextFromValue( units, -next->GetPosition().y ),
-                            pin->GetNumber(),
-                            pinName,
-                            MessageTextFromValue( units, pin->GetPosition().x ),
-                            MessageTextFromValue( units, -pin->GetPosition().y ),
-                            'A' + next->GetUnit() - 1,
-                            'A' + pin->GetUnit() - 1 );
-            }
-        }
-
-        msg += wxT( "<br><br>" );
-        messages.push_back( msg );
-    }
-
-    for( LIB_PIN* pin : pinList )
-    {
-        wxString pinName = pin->GetName();
-
-        if( pinName.IsEmpty() || pinName == "~" )
-            pinName = "";
-        else
-            pinName = "'" + pinName + "'";
-
-        if( !symbol->IsPower()
-                && pin->GetType() == ELECTRICAL_PINTYPE::PT_POWER_IN
-                && !pin->IsVisible() )
-        {
-            // hidden power pin
-            if( symbol->HasConversion() && pin->GetConvert() )
-            {
-                if( symbol->GetUnitCount() <= 1 )
-                {
-                    msg.Printf( _( "Info: <b>Hidden power pin %s</b> %s at location <b>(%s, %s)</b>"
-                                   " of converted." ),
-                                pin->GetNumber(),
-                                pinName,
-                                MessageTextFromValue( units, pin->GetPosition().x ),
-                                MessageTextFromValue( units, -pin->GetPosition().y ) );
-                }
-                else
-                {
-                    msg.Printf( _( "Info: <b>Hidden power pin %s</b> %s at location <b>(%s, %s)</b>"
-                                   " in unit %c of converted." ),
-                                pin->GetNumber(),
-                                pinName,
-                                MessageTextFromValue( units, pin->GetPosition().x ),
-                                MessageTextFromValue( units, -pin->GetPosition().y ),
-                                'A' + pin->GetUnit() - 1 );
-                }
-            }
-            else
-            {
-                if( symbol->GetUnitCount() <= 1 )
-                {
-                    msg.Printf( _( "Info: <b>Hidden power pin %s</b> %s at location <b>(%s, %s)</b>." ),
-                                pin->GetNumber(),
-                                pinName,
-                                MessageTextFromValue( units, pin->GetPosition().x ),
-                                MessageTextFromValue( units, -pin->GetPosition().y ) );
-                }
-                else
-                {
-                    msg.Printf( _( "Info: <b>Hidden power pin %s</b> %s at location <b>(%s, %s)</b>"
-                                   " in unit %c." ),
-                                pin->GetNumber(),
-                                pinName,
-                                MessageTextFromValue( units, pin->GetPosition().x ),
-                                MessageTextFromValue( units, -pin->GetPosition().y ),
-                                'A' + pin->GetUnit() - 1 );
-                }
-            }
-
-            msg += wxT( "<br>" );
-            msg += _( "(Hidden power pins will drive their pin names on to any connected nets.)" );
-            msg += wxT( "<br><br>" );
-            messages.push_back( msg );
-        }
-
-        if( ( (pin->GetPosition().x % clamped_grid_size) != 0 )
-                || ( (pin->GetPosition().y % clamped_grid_size) != 0 ) )
-        {
-            // pin is off grid
-            if( symbol->HasConversion() && pin->GetConvert() )
-            {
-                if( symbol->GetUnitCount() <= 1 )
-                {
-                    msg.Printf( _( "<b>Off grid pin %s</b> %s at location <b>(%s, %s)</b>"
-                                   " of converted." ),
-                                pin->GetNumber(),
-                                pinName,
-                                MessageTextFromValue( units, pin->GetPosition().x ),
-                                MessageTextFromValue( units, -pin->GetPosition().y ) );
-                }
-                else
-                {
-                    msg.Printf( _( "<b>Off grid pin %s</b> %s at location <b>(%.3s, %.3s)</b>"
-                                   " in unit %c of converted." ),
-                                pin->GetNumber(),
-                                pinName,
-                                MessageTextFromValue( units, pin->GetPosition().x ),
-                                MessageTextFromValue( units, -pin->GetPosition().y ),
-                                'A' + pin->GetUnit() - 1 );
-                }
-            }
-            else
-            {
-                if( symbol->GetUnitCount() <= 1 )
-                {
-                    msg.Printf( _( "<b>Off grid pin %s</b> %s at location <b>(%s, %s)</b>." ),
-                                pin->GetNumber(),
-                                pinName,
-                                MessageTextFromValue( units, pin->GetPosition().x ),
-                                MessageTextFromValue( units, -pin->GetPosition().y ) );
-                }
-                else
-                {
-                    msg.Printf( _( "<b>Off grid pin %s</b> %s at location <b>(%s, %s)</b>"
-                                   " in unit %c." ),
-                                pin->GetNumber(),
-                                pinName,
-                                MessageTextFromValue( units, pin->GetPosition().x ),
-                                MessageTextFromValue( units, -pin->GetPosition().y ),
-                                'A' + pin->GetUnit() - 1 );
-                }
-            }
-
-            msg += wxT( "<br><br>" );
-            messages.push_back( msg );
-        }
-    }
+    CheckLibSymbol( symbol, messages, grid_size, m_frame );
 
     if( messages.empty() )
     {
@@ -450,16 +223,12 @@ int EE_INSPECTION_TOOL::CheckSymbol( const TOOL_EVENT& aEvent )
     }
     else
     {
-        wxString outmsg;
+        HTML_MESSAGE_BOX dlg( m_frame, _( "Symbol Warnings" ) );
 
         for( const wxString& single_msg : messages )
-            outmsg += single_msg;
+            dlg.AddHTML_Text( single_msg );
 
-        DIALOG_DISPLAY_HTML_TEXT error_display( m_frame, wxID_ANY, _( "Symbol Warnings" ),
-                                                wxDefaultPosition, wxSize( 700, 350 ) );
-
-        error_display.SetPage( outmsg );
-        error_display.ShowModal();
+        dlg.ShowModal();
     }
 
     return 0;
@@ -473,6 +242,9 @@ int EE_INSPECTION_TOOL::RunSimulation( const TOOL_EVENT& aEvent )
 
     if( !simFrame )
         return -1;
+
+    if( wxWindow* blocking_win = simFrame->Kiway().GetBlockingDialog() )
+        blocking_win->Close( true );
 
     simFrame->Show( true );
 
@@ -510,7 +282,7 @@ int EE_INSPECTION_TOOL::ShowDatasheet( const TOOL_EVENT& aEvent )
     }
     else if( m_frame->IsType( FRAME_SCH ) )
     {
-        EE_SELECTION& selection = m_selectionTool->RequestSelection( EE_COLLECTOR::SymbolsOnly );
+        EE_SELECTION& selection = m_selectionTool->RequestSelection( { SCH_SYMBOL_T } );
 
         if( selection.Empty() )
             return 0;
@@ -527,7 +299,7 @@ int EE_INSPECTION_TOOL::ShowDatasheet( const TOOL_EVENT& aEvent )
     }
     else
     {
-        GetAssociatedDocument( m_frame, datasheet, &m_frame->Prj() );
+        GetAssociatedDocument( m_frame, datasheet, &m_frame->Prj(), m_frame->Prj().SchSearchS() );
     }
 
     return 0;
@@ -553,7 +325,10 @@ int EE_INSPECTION_TOOL::UpdateMessagePanel( const TOOL_EVENT& aEvent )
     }
 
     if( SCH_EDIT_FRAME* editFrame = dynamic_cast<SCH_EDIT_FRAME*>( m_frame ) )
+    {
         editFrame->UpdateNetHighlightStatus();
+        editFrame->UpdateHierarchySelection();
+    }
 
     return 0;
 }
@@ -564,6 +339,9 @@ void EE_INSPECTION_TOOL::setTransitions()
     Go( &EE_INSPECTION_TOOL::RunERC,              EE_ACTIONS::runERC.MakeEvent() );
     Go( &EE_INSPECTION_TOOL::PrevMarker,          EE_ACTIONS::prevMarker.MakeEvent() );
     Go( &EE_INSPECTION_TOOL::NextMarker,          EE_ACTIONS::nextMarker.MakeEvent() );
+    // See note 1:
+    Go( &EE_INSPECTION_TOOL::CrossProbe,          EVENTS::PointSelectedEvent );
+    Go( &EE_INSPECTION_TOOL::CrossProbe,          EVENTS::SelectedEvent );
     Go( &EE_INSPECTION_TOOL::ExcludeMarker,       EE_ACTIONS::excludeMarker.MakeEvent() );
 
     Go( &EE_INSPECTION_TOOL::CheckSymbol,         EE_ACTIONS::checkSymbol.MakeEvent() );
@@ -571,7 +349,9 @@ void EE_INSPECTION_TOOL::setTransitions()
 
     Go( &EE_INSPECTION_TOOL::ShowDatasheet,       EE_ACTIONS::showDatasheet.MakeEvent() );
 
-    Go( &EE_INSPECTION_TOOL::UpdateMessagePanel,  EVENTS::SelectedEvent );
+    // Note 1: tUpdateMessagePanel is called by CrossProbe. So uncomment this line if
+    // call to CrossProbe is modifiied
+    // Go( &EE_INSPECTION_TOOL::UpdateMessagePanel,  EVENTS::SelectedEvent );
     Go( &EE_INSPECTION_TOOL::UpdateMessagePanel,  EVENTS::UnselectedEvent );
     Go( &EE_INSPECTION_TOOL::UpdateMessagePanel,  EVENTS::ClearedEvent );
     Go( &EE_INSPECTION_TOOL::UpdateMessagePanel,  EVENTS::SelectedItemsModified );

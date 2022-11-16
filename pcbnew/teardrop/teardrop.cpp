@@ -52,10 +52,16 @@ TEARDROP_MANAGER::TEARDROP_MANAGER( BOARD* aBoard, PCB_EDIT_FRAME* aFrame )
 
 
 // Build a zone teardrop
+static ZONE_SETTINGS s_default_settings;      // Use zone default settings for teardrop
+
 ZONE* TEARDROP_MANAGER::createTeardrop( TEARDROP_VARIANT aTeardropVariant,
                                         std::vector<VECTOR2I>& aPoints, PCB_TRACK* aTrack) const
 {
     ZONE* teardrop = new ZONE( m_board );
+
+    // teardrop settings are the last zone settings used by a zone dialog.
+    // override them by default.
+    s_default_settings.ExportSetting( *teardrop, false );
 
     // Add zone properties (priority will be fixed later)
     teardrop->SetTeardropAreaType( aTeardropVariant == TD_TYPE_PADVIA ?
@@ -64,7 +70,7 @@ ZONE* TEARDROP_MANAGER::createTeardrop( TEARDROP_VARIANT aTeardropVariant,
     teardrop->SetLayer( aTrack->GetLayer() );
     teardrop->SetNetCode( aTrack->GetNetCode() );
     teardrop->SetLocalClearance( 0 );
-    teardrop->SetMinThickness( Millimeter2iu( 0.0254 ) );  // The minimum zone thickness
+    teardrop->SetMinThickness( pcbIUScale.mmToIU( 0.0254 ) );  // The minimum zone thickness
     teardrop->SetPadConnection( ZONE_CONNECTION::FULL );
     teardrop->SetIsFilled( false );
     teardrop->SetZoneName( aTeardropVariant == TD_TYPE_PADVIA ?
@@ -77,7 +83,7 @@ ZONE* TEARDROP_MANAGER::createTeardrop( TEARDROP_VARIANT aTeardropVariant,
     for( VECTOR2I pt: aPoints )
         outline->Append(pt.x, pt.y);
 
-    // Can be usefull:
+    // Used in priority calculations:
     teardrop->CalculateFilledArea();
 
     return teardrop;
@@ -87,7 +93,7 @@ ZONE* TEARDROP_MANAGER::createTeardrop( TEARDROP_VARIANT aTeardropVariant,
 int TEARDROP_MANAGER::SetTeardrops( BOARD_COMMIT* aCommitter, bool aFollowTracks )
 {
     // Init parameters:
-    m_tolerance = Millimeter2iu( 0.01 );
+    m_tolerance = pcbIUScale.mmToIU( 0.01 );
 
     int count = 0;      // Number of created teardrop
 
@@ -193,13 +199,37 @@ int TEARDROP_MANAGER::SetTeardrops( BOARD_COMMIT* aCommitter, bool aFollowTracks
     // Now set priority of teardrops now all teardrops are added
     setTeardropPriorities();
 
+    // Fill teardrop shapes. This is a rough calculation, just to show a filled
+    // shape on screen, but most of time this is a good shape.
+    // Exact shapes can be calculated only on a full zone refill, **much more** time consuming
+    if( m_createdTdList.size() )
+    {
+        int epsilon = pcbIUScale.mmToIU( 0.001 );
+
+        for( ZONE* zone: m_createdTdList )
+        {
+            int half_min_width = zone->GetMinThickness() / 2;
+            int numSegs = GetArcToSegmentCount( half_min_width, pcbIUScale.mmToIU( 0.005 ), FULL_CIRCLE );
+            SHAPE_POLY_SET filledPolys = *zone->Outline();
+
+            filledPolys.Deflate( half_min_width - epsilon, numSegs );
+
+            // Re-inflate after pruning of areas that don't meet minimum-width criteria
+            if( half_min_width - epsilon > epsilon )
+                filledPolys.Inflate( half_min_width - epsilon, numSegs );
+
+            zone->SetFilledPolysList( zone->GetFirstLayer(), filledPolys );
+        }
+    }
+
     if( count || removed_cnt || track2trackCount )
     {
-        ZONE_FILLER filler( m_board, aCommitter );
-        (void)filler.Fill( m_board->Zones() );
-
         if( aCommitter )
             aCommitter->Push( _( "Add teardrops" ) );
+
+        // Note:
+        // Refill zones can be made only with clean data, especially connectivity data,
+        // therefore only after changes are pushed to avoid crashes in some cases
     }
 
     return count + track2trackCount;
@@ -208,6 +238,9 @@ int TEARDROP_MANAGER::SetTeardrops( BOARD_COMMIT* aCommitter, bool aFollowTracks
 
 void TEARDROP_MANAGER::setTeardropPriorities()
 {
+    // Note: a teardrop area is on only one layer, so using GetFirstLayer() is OK
+    // to know the zone layer of a teardrop
+
     int priority_base = MAGIC_TEARDROP_ZONE_ID;
 
     // The sort function to sort by increasing copper layers. Group by layers.
@@ -216,10 +249,10 @@ void TEARDROP_MANAGER::setTeardropPriorities()
     {
         bool operator()(ZONE* a, ZONE* b) const
             {
-                if( a->GetLayer() == b->GetLayer() )
+                if( a->GetFirstLayer() == b->GetFirstLayer() )
                     return a->GetOutlineArea() > b->GetOutlineArea();
 
-                return a->GetLayer() < b->GetLayer();
+                return a->GetFirstLayer() < b->GetFirstLayer();
             }
     } compareLess;
 
@@ -232,13 +265,13 @@ void TEARDROP_MANAGER::setTeardropPriorities()
 
     for( ZONE* td: m_createdTdList )
     {
-        if( td->GetLayer() != curr_layer )
+        if( td->GetFirstLayer() != curr_layer )
         {
-            curr_layer = td->GetLayer();
+            curr_layer = td->GetFirstLayer();
             priority_base = MAGIC_TEARDROP_ZONE_ID;
         }
 
-        td->SetPriority( priority_base++ );
+        td->SetAssignedPriority( priority_base++ );
     }
 }
 
@@ -308,7 +341,7 @@ int TEARDROP_MANAGER::addTeardropsOnTracks( BOARD_COMMIT* aCommitter )
 
             for( unsigned jj = ii+1; jj < sublist->size(); jj++ )
             {
-                // Seach candidates with thickness > curr thickness
+                // Search candidates with thickness > curr thickness
                 PCB_TRACK* candidate = (*sublist)[jj];
 
                 if( min_width >= candidate->GetWidth() )
@@ -397,7 +430,9 @@ int TEARDROP_MANAGER::RemoveTeardrops( BOARD_COMMIT* aCommitter, bool aCommitAft
         (void)filler.Fill( m_board->Zones() );
 
         if( aCommitter && aCommitAfterRemove )
-            aCommitter->Push( _( "Remove teardrops" ) );
+            aCommitter->Push( _( "Remove teardrops" ), SKIP_CONNECTIVITY );
+
+        m_board->BuildConnectivity();
     }
 
     return count;

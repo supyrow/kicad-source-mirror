@@ -2,7 +2,7 @@
  * KiRouter - a push-and-(sometimes-)shove PCB router
  *
  * Copyright (C) 2013-2019 CERN
- * Copyright (C) 2016-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2016-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * @author Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  *
@@ -59,6 +59,7 @@ NODE::NODE()
     m_maxClearance = 800000;    // fixme: depends on how thick traces are.
     m_ruleResolver = nullptr;
     m_index = new INDEX;
+    m_collisionQueryScope = CQS_ALL_RULES;
 
 #ifdef DEBUG
     allocNodes.insert( this );
@@ -99,7 +100,7 @@ NODE::~NODE()
 }
 
 
-int NODE::GetClearance( const ITEM* aA, const ITEM* aB ) const
+int NODE::GetClearance( const ITEM* aA, const ITEM* aB, bool aUseClearanceEpsilon ) const
 {
    if( !m_ruleResolver )
         return 100000;
@@ -107,11 +108,11 @@ int NODE::GetClearance( const ITEM* aA, const ITEM* aB ) const
    if( aA->IsVirtual() || aB->IsVirtual() )
        return 0;
 
-   return m_ruleResolver->Clearance( aA, aB );
+   return m_ruleResolver->Clearance( aA, aB, aUseClearanceEpsilon );
 }
 
 
-int NODE::GetHoleClearance( const ITEM* aA, const ITEM* aB ) const
+int NODE::GetHoleClearance( const ITEM* aA, const ITEM* aB, bool aUseClearanceEpsilon ) const
 {
     if( !m_ruleResolver )
         return 0;
@@ -119,11 +120,11 @@ int NODE::GetHoleClearance( const ITEM* aA, const ITEM* aB ) const
     if( aA->IsVirtual() || aB->IsVirtual() )
         return 0;
 
-    return m_ruleResolver->HoleClearance( aA, aB );
+    return m_ruleResolver->HoleClearance( aA, aB, aUseClearanceEpsilon );
 }
 
 
-int NODE::GetHoleToHoleClearance( const ITEM* aA, const ITEM* aB ) const
+int NODE::GetHoleToHoleClearance( const ITEM* aA, const ITEM* aB, bool aUseClearanceEpsilon ) const
 {
    if( !m_ruleResolver )
         return 0;
@@ -131,7 +132,7 @@ int NODE::GetHoleToHoleClearance( const ITEM* aA, const ITEM* aB ) const
    if( aA->IsVirtual() || aB->IsVirtual() )
        return 0;
 
-   return m_ruleResolver->HoleToHoleClearance( aA, aB );
+   return m_ruleResolver->HoleToHoleClearance( aA, aB, aUseClearanceEpsilon );
 }
 
 
@@ -146,6 +147,7 @@ NODE* NODE::Branch()
     child->m_ruleResolver = m_ruleResolver;
     child->m_root = isRoot() ? this : m_root;
     child->m_maxClearance = m_maxClearance;
+    child->m_collisionQueryScope = m_collisionQueryScope;
 
     // Immediate offspring of the root branch needs not copy anything. For the rest, deep-copy
     // joints, overridden item maps and pointers to stored items.
@@ -215,15 +217,17 @@ struct NODE::DEFAULT_OBSTACLE_VISITOR : public OBSTACLE_VISITOR
     int        m_limitCount;
     int        m_matchCount;
     bool       m_differentNetsOnly;
+    int        m_overrideClearance;
 
     DEFAULT_OBSTACLE_VISITOR( NODE::OBSTACLES& aTab, const ITEM* aItem, int aKindMask,
-                              bool aDifferentNetsOnly ) :
+                              bool aDifferentNetsOnly, int aOverrideClearance ) :
         OBSTACLE_VISITOR( aItem ),
         m_tab( aTab ),
         m_kindMask( aKindMask ),
         m_limitCount( -1 ),
         m_matchCount( 0 ),
-        m_differentNetsOnly( aDifferentNetsOnly )
+        m_differentNetsOnly( aDifferentNetsOnly ),
+        m_overrideClearance( aOverrideClearance )
     {
     }
 
@@ -244,7 +248,7 @@ struct NODE::DEFAULT_OBSTACLE_VISITOR : public OBSTACLE_VISITOR
         if( visit( aCandidate ) )
             return true;
 
-        if( !aCandidate->Collide( m_item, m_node, m_differentNetsOnly ) )
+        if( !aCandidate->Collide( m_item, m_node, m_differentNetsOnly, m_overrideClearance ) )
             return true;
 
         OBSTACLE obs;
@@ -265,13 +269,13 @@ struct NODE::DEFAULT_OBSTACLE_VISITOR : public OBSTACLE_VISITOR
 
 
 int NODE::QueryColliding( const ITEM* aItem, NODE::OBSTACLES& aObstacles, int aKindMask,
-                          int aLimitCount, bool aDifferentNetsOnly )
+                          int aLimitCount, bool aDifferentNetsOnly, int aOverrideClearance )
 {
     /// By default, virtual items cannot collide
     if( aItem->IsVirtual() )
         return 0;
 
-    DEFAULT_OBSTACLE_VISITOR visitor( aObstacles, aItem, aKindMask, aDifferentNetsOnly );
+    DEFAULT_OBSTACLE_VISITOR visitor( aObstacles, aItem, aKindMask, aDifferentNetsOnly, aOverrideClearance );
 
 #ifdef DEBUG
     assert( allocNodes.find( this ) != allocNodes.end() );
@@ -295,7 +299,8 @@ int NODE::QueryColliding( const ITEM* aItem, NODE::OBSTACLES& aObstacles, int aK
 
 
 NODE::OPT_OBSTACLE NODE::NearestObstacle( const LINE* aLine, int aKindMask,
-                                          const std::set<ITEM*>* aRestrictedSet )
+                                          const std::set<ITEM*>* aRestrictedSet,
+                                          bool aUseClearanceEpsilon )
 {
     OBSTACLES obstacleList;
     obstacleList.reserve( 100 );
@@ -345,8 +350,10 @@ NODE::OPT_OBSTACLE NODE::NearestObstacle( const LINE* aLine, int aKindMask,
         if( aRestrictedSet && aRestrictedSet->find( obstacle.m_item ) == aRestrictedSet->end() )
             continue;
 
-        int clearance = GetClearance( obstacle.m_item, aLine ) + aLine->Width() / 2;
-        obstacleHull = obstacle.m_item->Hull( clearance + PNS_HULL_MARGIN, 0, layer );
+        int clearance =
+            GetClearance( obstacle.m_item, aLine, aUseClearanceEpsilon ) + aLine->Width() / 2;
+
+        obstacleHull = obstacle.m_item->Hull( clearance, 0, layer );
         //debugDecorator->AddLine( obstacleHull, 2, 40000, "obstacle-hull-test" );
         //debugDecorator->AddLine( aLine->CLine(), 5, 40000, "obstacle-test-line" );
 
@@ -356,7 +363,7 @@ NODE::OPT_OBSTACLE NODE::NearestObstacle( const LINE* aLine, int aKindMask,
         for( const auto& ip : intersectingPts )
         {
             //debugDecorator->AddPoint( ip.p, ip.valid?3:6, 100000, (const char *) wxString::Format("obstacle-isect-point-%d" ).c_str() );
-            if(ip.valid)
+            if( ip.valid )
                 updateNearest( ip, obstacle.m_item, obstacleHull, false );
         }
 
@@ -367,13 +374,15 @@ NODE::OPT_OBSTACLE NODE::NearestObstacle( const LINE* aLine, int aKindMask,
 
             int viaHoleRadius = static_cast<const SHAPE_CIRCLE*>( via.Hole() )->GetRadius();
 
-            int viaClearance = GetClearance( obstacle.m_item, &via ) + via.Diameter() / 2;
-            int holeClearance = GetHoleClearance( obstacle.m_item, &via ) + viaHoleRadius;
+            int viaClearance = GetClearance( obstacle.m_item, &via, aUseClearanceEpsilon )
+                               + via.Diameter() / 2;
+            int holeClearance =
+                    GetHoleClearance( obstacle.m_item, &via, aUseClearanceEpsilon ) + viaHoleRadius;
 
             if( holeClearance > viaClearance )
                 viaClearance = holeClearance;
 
-            obstacleHull = obstacle.m_item->Hull( viaClearance + PNS_HULL_MARGIN, 0, layer );
+            obstacleHull = obstacle.m_item->Hull( viaClearance, 0, layer );
             //debugDecorator->AddLine( obstacleHull, 3 );
 
             intersectingPts.clear();
@@ -385,11 +394,17 @@ NODE::OPT_OBSTACLE NODE::NearestObstacle( const LINE* aLine, int aKindMask,
                 updateNearest( ip, obstacle.m_item, obstacleHull, false );
         }
 
-        if( obstacle.m_item->Hole() )
+        if( ( m_collisionQueryScope == CQS_ALL_RULES
+              || !ROUTER::GetInstance()->GetInterface()->IsFlashedOnLayer( obstacle.m_item,
+                                                                           layer ) )
+            && obstacle.m_item->Hole() )
         {
-            clearance = GetHoleClearance( obstacle.m_item, aLine ) + aLine->Width() / 2;
-            obstacleHull = obstacle.m_item->HoleHull( clearance + PNS_HULL_MARGIN, 0, layer );
-            //debugDecorator->AddLine( obstacleHull, 4 );
+            clearance = GetHoleClearance( obstacle.m_item, aLine, aUseClearanceEpsilon );
+            int copperClearance = GetClearance( obstacle.m_item, aLine, aUseClearanceEpsilon );
+
+            clearance = std::max( clearance, copperClearance );
+
+            obstacleHull = obstacle.m_item->HoleHull( clearance, aLine->Width(), layer );
 
             intersectingPts.clear();
             HullIntersection( obstacleHull, aLine->CLine(), intersectingPts );
@@ -403,9 +418,13 @@ NODE::OPT_OBSTACLE NODE::NearestObstacle( const LINE* aLine, int aKindMask,
                 // Don't use via.Drill(); it doesn't include the plating thickness
                 int viaHoleRadius = static_cast<const SHAPE_CIRCLE*>( via.Hole() )->GetRadius();
 
-                int viaClearance = GetClearance( obstacle.m_item, &via ) + via.Diameter() / 2;
-                int holeClearance = GetHoleClearance( obstacle.m_item, &via ) + viaHoleRadius;
-                int holeToHole = GetHoleToHoleClearance( obstacle.m_item, &via ) + viaHoleRadius;
+                int viaClearance = GetClearance( obstacle.m_item, &via, aUseClearanceEpsilon )
+                                   + via.Diameter() / 2;
+                int holeClearance = GetHoleClearance( obstacle.m_item, &via, aUseClearanceEpsilon )
+                                    + viaHoleRadius;
+                int holeToHole =
+                        GetHoleToHoleClearance( obstacle.m_item, &via, aUseClearanceEpsilon )
+                        + viaHoleRadius;
 
                 if( holeClearance > viaClearance )
                     viaClearance = holeClearance;
@@ -413,7 +432,7 @@ NODE::OPT_OBSTACLE NODE::NearestObstacle( const LINE* aLine, int aKindMask,
                 if( holeToHole > viaClearance )
                     viaClearance = holeToHole;
 
-                obstacleHull = obstacle.m_item->Hull( viaClearance + PNS_HULL_MARGIN, 0, layer );
+                obstacleHull = obstacle.m_item->Hull( viaClearance, 0, layer );
                 //debugDecorator->AddLine( obstacleHull, 5 );
 
                 intersectingPts.clear();
@@ -427,8 +446,6 @@ NODE::OPT_OBSTACLE NODE::NearestObstacle( const LINE* aLine, int aKindMask,
 
     if( nearest.m_distFirst == INT_MAX )
         nearest.m_item = obstacleList[0].m_item;
-
-    // debugDecorator->AddLine( nearest.m_hull, YELLOW, 60000, "obstacle-nearest-hull" );
 
     return nearest;
 }
@@ -472,7 +489,7 @@ NODE::OPT_OBSTACLE NODE::CheckColliding( const ITEM* aItemA, int aKindMask )
         if( line->EndsWithVia() )
         {
             n += QueryColliding( &line->Via(), obs, aKindMask, 1 );
-
+            
             if( n )
                 return OPT_OBSTACLE( obs[0] );
         }
@@ -697,6 +714,24 @@ void NODE::Add( std::unique_ptr< ITEM > aItem, bool aAllowRedundant )
     default:
         assert( false );
     }
+}
+
+
+void NODE::AddEdgeExclusion( std::unique_ptr<SHAPE> aShape )
+{
+    m_edgeExclusions.push_back( std::move( aShape ) );
+}
+
+
+bool NODE::QueryEdgeExclusions( const VECTOR2I& aPos ) const
+{
+    for( const std::unique_ptr<SHAPE>& edgeExclusion : m_edgeExclusions )
+    {
+        if( edgeExclusion->Collide( aPos ) )
+            return true;
+    }
+
+    return false;
 }
 
 
@@ -1020,6 +1055,10 @@ const LINE NODE::AssembleLine( LINKED_ITEM* aSeg, int* aOriginSegmentIndex,
 
     // Remove duplicate verts, but do NOT remove colinear segments here!
     pl.Line().Simplify( false );
+
+    // TODO: maintain actual segment index under simplifcation system
+    if( aOriginSegmentIndex && *aOriginSegmentIndex >= pl.SegmentCount() )
+        *aOriginSegmentIndex = pl.SegmentCount() - 1;
 
     assert( pl.SegmentCount() != 0 );
 

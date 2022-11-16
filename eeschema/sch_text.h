@@ -108,9 +108,6 @@ enum LABEL_FLAG_SHAPE
 };
 
 
-extern const char* SheetLabelType[];    /* names of types of labels */
-
-
 class SCH_TEXT : public SCH_ITEM, public EDA_TEXT
 {
 public:
@@ -131,7 +128,14 @@ public:
         return wxT( "SCH_TEXT" );
     }
 
-    wxString GetShownText( int aDepth = 0 ) const override;
+    wxString GetShownText( int aDepth = 0, bool aAllowExtraText = true ) const override;
+
+    bool IsHypertext() const override
+    {
+        return HasHyperlink();
+    }
+
+    void DoHypertextAction( EDA_DRAW_FRAME* aFrame ) const override;
 
     /**
      * Set a spin or rotation angle, along with specific horizontal and vertical justification
@@ -158,15 +162,13 @@ public:
 
     void SwapData( SCH_ITEM* aItem ) override;
 
-    const EDA_RECT GetBoundingBox() const override;
+    const BOX2I GetBoundingBox() const override;
 
     bool operator<( const SCH_ITEM& aItem ) const override;
 
     int GetTextOffset( const RENDER_SETTINGS* aSettings = nullptr ) const;
 
     int GetPenWidth() const override;
-
-    KIFONT::FONT* GetDrawFont() const override;
 
     void Move( const VECTOR2I& aMoveVector ) override
     {
@@ -180,12 +182,12 @@ public:
     virtual void Rotate90( bool aClockwise );
     virtual void MirrorSpinStyle( bool aLeftRight );
 
-    bool Matches( const wxFindReplaceData& aSearchData, void* aAuxData ) const override
+    bool Matches( const EDA_SEARCH_DATA& aSearchData, void* aAuxData ) const override
     {
         return SCH_ITEM::Matches( GetText(), aSearchData );
     }
 
-    bool Replace( const wxFindReplaceData& aSearchData, void* aAuxData ) override
+    bool Replace( const EDA_SEARCH_DATA& aSearchData, void* aAuxData ) override
     {
         return EDA_TEXT::Replace( aSearchData );
     }
@@ -194,7 +196,7 @@ public:
 
     void ViewGetLayers( int aLayers[], int& aCount ) const override;
 
-    wxString GetSelectMenuText( EDA_UNITS aUnits ) const override;
+    wxString GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const override;
 
     BITMAPS GetMenuImage() const override;
 
@@ -202,7 +204,7 @@ public:
     void     SetPosition( const VECTOR2I& aPosition ) override { EDA_TEXT::SetTextPos( aPosition ); }
 
     bool HitTest( const VECTOR2I& aPosition, int aAccuracy = 0 ) const override;
-    bool HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy = 0 ) const override;
+    bool HitTest( const BOX2I& aRect, bool aContained, int aAccuracy = 0 ) const override;
 
     void Plot( PLOTTER* aPlotter, bool aBackground ) const override;
 
@@ -218,6 +220,9 @@ public:
 #endif
 
     static HTML_MESSAGE_BOX* ShowSyntaxHelp( wxWindow* aParentWindow );
+
+protected:
+    KIFONT::FONT* getDrawFont() const override;
 
 protected:
     /**

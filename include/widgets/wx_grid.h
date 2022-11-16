@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2018 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2018-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -24,7 +24,15 @@
 #ifndef KICAD_WX_GRID_H
 #define KICAD_WX_GRID_H
 
+#include <memory>
+#include <vector>
+#include <memory>
+#include <wx/event.h>
 #include <wx/grid.h>
+#include <wx/version.h>
+#include <units_provider.h>
+#include <libeval/numeric_evaluator.h>
+
 
 class WX_GRID : public wxGrid
 {
@@ -74,6 +82,25 @@ public:
     bool CommitPendingChanges( bool aQuietMode = false );
 
     /**
+     * Set a UNITS_PROVIDER to enable use of unit- and eval-based Getters.
+     * @param aProvider
+     */
+    void SetUnitsProvider( UNITS_PROVIDER* aProvider, int aCol = 0 );
+
+    void SetAutoEvalCols( const std::vector<int>& aCols ) { m_autoEvalCols = aCols; }
+
+    /**
+     * Apply standard KiCad unit and eval services to a numeric cell.
+     * @return the value held by the cell in internal units
+     */
+    int GetUnitValue( int aRow, int aCol );
+
+    /**
+     * Set a unitized cell's value.
+     */
+    void SetUnitValue( int aRow, int aCol, int aValue );
+
+    /**
      * Calculates the specified column based on the actual size of the text
      * on screen.  Will return the maximum value of all calculated widths.
      * @param aCol - Integer value of the column to resize.  Specify -1 for the row labels.
@@ -82,7 +109,7 @@ public:
      * @param aKeep - Use the current size as a minimum value
      * @return The new size of the column
      */
-    int GetVisibleWidth( int aCol, bool aHeader = true, bool aContents = false, bool aKeep = true );
+    int GetVisibleWidth( int aCol, bool aHeader = true, bool aContents = true, bool aKeep = false );
 
     /**
      * Ensure the height of the row displaying the column labels is enough, even
@@ -118,8 +145,22 @@ protected:
 
     void onGridColMove( wxGridEvent& aEvent );
     void onGridCellSelect( wxGridEvent& aEvent );
+    void onCellEditorShown( wxGridEvent& aEvent );
+    void onCellEditorHidden( wxGridEvent& aEvent );
 
-    bool m_weOwnTable;
+
+#if wxCHECK_VERSION( 3, 1, 3 )
+    void onDPIChanged(wxDPIChangedEvent& event);
+#endif
+
+protected:
+    bool                               m_weOwnTable;
+
+    std::map<int, UNITS_PROVIDER*>     m_unitsProviders;
+    std::unique_ptr<NUMERIC_EVALUATOR> m_eval;
+    std::vector<int>                   m_autoEvalCols;
+
+    std::map< std::pair<int, int>, std::pair<wxString, wxString> > m_evalBeforeAfter;
 };
 
 #endif //KICAD_WX_GRID_H

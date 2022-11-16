@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2010-2015 Jean-Pierre Charras, jean-pierre.charras at wanadoo.fr
- * Copyright (C) 1992-2015 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -88,6 +88,8 @@ private:
     void OnDeleteField( wxCommandEvent& event ) override;
     void OnAddLayer( wxCommandEvent& event ) override;
     void OnDeleteLayer( wxCommandEvent& event ) override;
+    void OnAddPadGroup( wxCommandEvent& event ) override;
+    void OnRemovePadGroup( wxCommandEvent& event ) override;
     void OnUpdateUI( wxUpdateUIEvent& event ) override;
 
     bool checkFootprintName( const wxString& aFootprintName );
@@ -117,6 +119,9 @@ private:
     wxString                   m_delayedErrorMessage;
 
     PANEL_FP_PROPERTIES_3D_MODEL* m_3dPanel;
+
+    wxSize                     m_gridSize;
+    wxSize                     m_lastRequestedSize;
 };
 
 

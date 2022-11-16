@@ -4,7 +4,7 @@
  * Copyright (C) 2015 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2014 Dick Hollenbeck, dick@softplc.com
  * Copyright (C) 2015 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -51,6 +51,7 @@
 #include <transform.h>
 
 struct PICKED_SYMBOL;
+class KIID_PATH;
 class SCH_SCREEN;
 class LIB_ITEM;
 class LIB_PIN;
@@ -86,16 +87,16 @@ public:
      * @param aSymbol is the library symbol to create schematic symbol from.
      * @param aLibId is the #LIB_ID of alias to create.
      * @param aSheet is the schematic sheet the symbol is place into.
-     * @param unit is unit for symbols that have multiple parts per package.
-     * @param convert is the alternate body style for the schematic symbols.
-     * @param pos is the position of the symbol.
-     * @param setNewItemFlag is used to set the symbol #IS_NEW and #IS_MOVING flags.
+     * @param aUnit is unit for symbols that have multiple parts per package.
+     * @param aConvert is the alternate body style for the schematic symbols.
+     * @param aPosition is the position of the symbol.
      */
     SCH_SYMBOL( const LIB_SYMBOL& aSymbol, const LIB_ID& aLibId, const SCH_SHEET_PATH* aSheet,
-                int unit = 0, int convert = 0, const VECTOR2I& pos = VECTOR2I( 0, 0 ) );
+                int aUnit, int aConvert = 0, const VECTOR2I& aPosition = VECTOR2I( 0, 0 ),
+                EDA_ITEM* aParent = nullptr );
 
     SCH_SYMBOL( const LIB_SYMBOL& aSymbol, const SCH_SHEET_PATH* aSheet, const PICKED_SYMBOL& aSel,
-                const VECTOR2I& pos = VECTOR2I( 0, 0 ) );
+                const VECTOR2I& aPosition = VECTOR2I( 0, 0 ), EDA_ITEM* aParent = nullptr );
 
     /**
      * Clone \a aSymbol into a new schematic symbol object.
@@ -120,10 +121,33 @@ public:
         return wxT( "SCH_SYMBOL" );
     }
 
+    /**
+     * Check to see if the library symbol is set to the dummy library symbol.
+     *
+     * When the library symbol is missing (which technically should not happen now that the
+     * library symbols are cached in the schematic file), a dummy library symbol is substituted
+     * for the missing symbol as an indicator that something is amiss.  The dummy symbol cannot
+     * be edited so a check for this symbol must be performed before attempting to edit the
+     * library symbol with the library editor or it will crash KiCad.
+     *
+     * @see dummy()
+     *
+     * @return true if the library symbol is missing or false if it is valid.
+     */
+    bool IsMissingLibSymbol() const;
+
     const std::vector<SYMBOL_INSTANCE_REFERENCE>& GetInstanceReferences()
     {
         return m_instanceReferences;
     }
+
+    bool GetInstance( SYMBOL_INSTANCE_REFERENCE& aInstance,
+                      const KIID_PATH& aSheetPath ) const;
+
+    void RemoveInstance( const SCH_SHEET_PATH& aInstancePath );
+
+    void SortInstances( bool ( *aSortFunction )( const SYMBOL_INSTANCE_REFERENCE& aLhs,
+                                                 const SYMBOL_INSTANCE_REFERENCE& aRhs ) );
 
     void ViewGetLayers( int aLayers[], int& aCount ) const override;
 
@@ -138,9 +162,10 @@ public:
      *       they are big.  However, this annoyed some users and we now have a preference which
      *       controls warping on move in general, so this was switched to true for symbols.
      *
-     * @return true for a symbol.
+     * @note We now use this to keep poorly-formed symbols from getting dragged off-grid.  If
+     *       the symbol contains off-grid pins we will not allow it to be moved from its anchor.
      */
-    bool IsMovableFromAnchorPoint() const override { return true; }
+    bool IsMovableFromAnchorPoint() const override;
 
     void SetLibId( const LIB_ID& aName );
 
@@ -183,9 +208,14 @@ public:
     void SetLibSymbol( LIB_SYMBOL* aLibSymbol );
 
     /**
-     * Return information about the aliased parts
+     * @return the associated LIB_SYMBOL's description field (or wxEmptyString).
      */
     wxString GetDescription() const;
+
+    /**
+     * @return the associated LIB_SYMBOL's keywords field (or wxEmptyString).
+     */
+    wxString GetKeyWords() const;
 
     /**
      * Return the documentation text for the given part alias
@@ -209,6 +239,20 @@ public:
      * @param aUnit is the new unit to select.
      */
     void SetUnit( int aUnit );
+
+    /**
+     * Return true if the given unit \a aUnit has a display name set.
+     *
+     * @return true if the display name of a unit is set, otherwise false.
+     */
+    bool HasUnitDisplayName( int aUnit );
+
+    /**
+     * Return the display name for a given unit \a aUnit.
+     *
+     * @return the display name of a unit if set, or the ordinal name of the unit otherwise.
+     */
+    wxString GetUnitDisplayName( int aUnit );
 
     /**
      * Change the unit number to \a aUnit without setting any internal flags.
@@ -263,7 +307,7 @@ public:
      *
      * @return the orientation and mirror of the symbol.
      */
-    int GetOrientation();
+    int GetOrientation() const;
 
     /**
      * Return the list of system text vars & fields for this symbol.
@@ -286,8 +330,10 @@ public:
      *
      * @param aSheetPath is the hierarchical path of the symbol to clear or remove all
      *                   annotations for this symbol if NULL.
+     * @param[in] aResetPrefix The annotation prefix ('R', 'U', etc.) should be reset to the
+     *                         symbol library prefix.
      */
-    void ClearAnnotation( const SCH_SHEET_PATH* aSheetPath );
+    void ClearAnnotation( const SCH_SHEET_PATH* aSheetPath, bool aResetPrefix );
 
     /**
      * Add an instance to the alternate references list (m_instanceReferences), if this entry
@@ -313,17 +359,17 @@ public:
      */
     bool ReplaceInstanceSheetPath( const KIID_PATH& aOldSheetPath, const KIID_PATH& aNewSheetPath );
 
-    const EDA_RECT GetBoundingBox() const override;
+    const BOX2I GetBoundingBox() const override;
 
     /**
      * Return a bounding box for the symbol body but not the pins or fields.
      */
-    EDA_RECT GetBodyBoundingBox() const;
+    BOX2I GetBodyBoundingBox() const;
 
     /**
      * Return a bounding box for the symbol body and pins but not the fields.
      */
-    EDA_RECT GetBodyAndPinsBoundingBox() const;
+    BOX2I GetBodyAndPinsBoundingBox() const;
 
 
     //-----<Fields>-----------------------------------------------------------
@@ -353,7 +399,7 @@ public:
      *
      * @param aFieldName is the name of the field
      */
-    wxString GetFieldText( const wxString& aFieldName, SCH_EDIT_FRAME* aFrame ) const;
+    wxString GetFieldText( const wxString& aFieldName ) const;
 
     /**
      * Populate a std::vector with SCH_FIELDs.
@@ -455,7 +501,14 @@ public:
      */
     void GetLibPins( std::vector<LIB_PIN*>& aPinsList ) const;
 
-    SCH_PIN* GetPin( LIB_PIN* aLibPin );
+    /**
+     * Return a vector with all the pins from the library object.
+     *
+     * @return List of the pins
+     */
+    std::vector<LIB_PIN*> GetLibPins() const;
+
+    SCH_PIN* GetPin( LIB_PIN* aLibPin ) const;
 
     /**
      * Retrieve a list of the SCH_PINs for the given sheet path.
@@ -467,16 +520,33 @@ public:
      */
     std::vector<SCH_PIN*> GetPins( const SCH_SHEET_PATH* aSheet = nullptr ) const;
 
+    /**
+     * Retrieve all SCH_PINs (from all sheets)
+     *
+     * @return a vector of pointers (non-owning) to SCH_PINs
+     */
+    std::vector<SCH_PIN*> GetAllPins() const;
+
+
     std::vector<std::unique_ptr<SCH_PIN>>& GetRawPins() { return m_pins; }
 
     /**
      * Print a symbol.
      *
-     * @param aDC is the device context (can be null).
+     * @param aSettings Render settings controlling output
      * @param aOffset is the drawing offset (usually VECTOR2I(0,0), but can be different when
      *                moving an object)
      */
     void Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset ) override;
+
+    /**
+     * Print only the background parts of a symbol (if any)
+     *
+     * @param aSettings Render settings controlling output
+     * @param aOffset is the drawing offset (usually VECTOR2I(0,0), but can be different when
+     *                moving an object)
+     */
+    void PrintBackground( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset ) override;
 
     void SwapData( SCH_ITEM* aItem ) override;
 
@@ -530,6 +600,8 @@ public:
                                    const wxString&  aValue = wxEmptyString,
                                    const wxString&  aFootprint = wxEmptyString );
 
+    void AddHierarchicalReference( const SYMBOL_INSTANCE_REFERENCE& aInstance );
+
     /// Return the instance-specific unit selection for the given sheet path.
     int GetUnitSelection( const SCH_SHEET_PATH* aSheet ) const;
 
@@ -578,7 +650,7 @@ public:
     void MirrorVertically( int aCenter ) override;
     void Rotate( const VECTOR2I& aCenter ) override;
 
-    bool Matches( const wxFindReplaceData& aSearchData, void* aAuxData ) const override;
+    bool Matches( const EDA_SEARCH_DATA& aSearchData, void* aAuxData ) const override;
 
     void GetEndPoints( std::vector<DANGLING_END_ITEM>& aItemList ) override;
 
@@ -618,7 +690,8 @@ public:
 
     std::vector<VECTOR2I> GetConnectionPoints() const override;
 
-    SEARCH_RESULT Visit( INSPECTOR inspector, void* testData, const KICAD_T scanTypes[] ) override;
+    INSPECT_RESULT Visit( INSPECTOR inspector, void* testData,
+                          const std::vector<KICAD_T>& aScanTypes ) override;
 
     /**
      * Return the symbol library item at \a aPosition that is part of this symbol.
@@ -629,7 +702,7 @@ public:
      */
     LIB_ITEM* GetDrawItem( const VECTOR2I& aPosition, KICAD_T aType = TYPE_NOT_INIT );
 
-    wxString GetSelectMenuText( EDA_UNITS aUnits ) const override;
+    wxString GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const override;
 
     BITMAPS GetMenuImage() const override;
 
@@ -646,9 +719,18 @@ public:
     void    SetPosition( const VECTOR2I& aPosition ) override { Move( aPosition - m_pos ); }
 
     bool HitTest( const VECTOR2I& aPosition, int aAccuracy = 0 ) const override;
-    bool HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy = 0 ) const override;
+    bool HitTest( const BOX2I& aRect, bool aContained, int aAccuracy = 0 ) const override;
 
     void Plot( PLOTTER* aPlotter, bool aBackground ) const override;
+
+    /**
+     * Plot just the symbol pins.  This is separated to match the GAL display order.  The pins
+     * are ALSO plotted with the symbol group.  This replotting allows us to ensure that they
+     * are shown above other elements in the schematic.
+     *
+     * @param aPlotter is the #PLOTTER object used to plot pins.
+     */
+    void PlotPins( PLOTTER* aPlotter ) const;
 
     EDA_ITEM* Clone() const override;
 
@@ -666,10 +748,13 @@ public:
     bool GetIncludeOnBoard() const { return m_onBoard; }
     void SetIncludeOnBoard( bool aIncludeOnBoard ) { m_onBoard = aIncludeOnBoard; }
 
+    bool GetDNP() const { return m_DNP; }
+    void SetDNP( bool aDNP ) { m_DNP = aDNP; }
+
     bool IsPointClickableAnchor( const VECTOR2I& aPos ) const override;
 
 private:
-    EDA_RECT doGetBoundingBox( bool aIncludePins, bool aIncludeFields ) const;
+    BOX2I doGetBoundingBox( bool aIncludePins, bool aIncludeFields ) const;
 
     bool doIsConnected( const VECTOR2I& aPosition ) const override;
 
@@ -706,6 +791,7 @@ private:
     bool        m_isInNetlist;  ///< True if the symbol should appear in the netlist
     bool        m_inBom;        ///< True to include in bill of materials export.
     bool        m_onBoard;      ///< True to include in netlist when updating board.
+    bool        m_DNP;          ///< True if symbol is set to 'Do Not Populate'.
 
     // Defines the hierarchical path and reference of the symbol.  This allows support
     // for multiple references to a single sub-sheet.

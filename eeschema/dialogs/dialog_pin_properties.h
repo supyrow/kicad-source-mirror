@@ -61,14 +61,15 @@ public:
 
     void OnPaintShowPanel( wxPaintEvent& event ) override;
     void OnPropertiesChange( wxCommandEvent& event ) override;
+    void OnCollapsiblePaneChanged( wxCollapsiblePaneEvent& event ) override;
     void OnAddAlternate( wxCommandEvent& event ) override;
     void OnDeleteAlternate( wxCommandEvent& event ) override;
     void OnSize( wxSizeEvent& event ) override;
     void OnUpdateUI( wxUpdateUIEvent& event ) override;
-    void onUpdateUIInfo( wxUpdateUIEvent& event ) override;
 
 protected:
     void adjustGridColumns();
+    wxString getSyncPinsMessage();
 
 private:
     SYMBOL_EDIT_FRAME*  m_frame;
@@ -93,6 +94,7 @@ private:
     int                 m_originalColWidths[ COL_COUNT ];
     wxSize              m_size;
     bool                m_initialized;
+    inline static bool  s_alternatesTurndownOpen = false;
 };
 
 #endif // __dialog_lib_edit_pin__

@@ -28,7 +28,6 @@
 #include <board_item.h>
 
 
-class EDA_RECT;
 class LINE_READER;
 
 
@@ -79,20 +78,19 @@ public:
     }
 
     bool HitTest( const VECTOR2I& aPosition, int aAccuracy = 0 ) const override;
-    bool HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy = 0 ) const override;
+    bool HitTest( const BOX2I& aRect, bool aContained, int aAccuracy = 0 ) const override;
 
     // Virtual function
-    const EDA_RECT GetBoundingBox() const override;
+    const BOX2I GetBoundingBox() const override;
 
-    std::shared_ptr<SHAPE> GetEffectiveShape( PCB_LAYER_ID aLayer ) const override;
+    std::shared_ptr<SHAPE>
+    GetEffectiveShape( PCB_LAYER_ID aLayer, FLASHING aFlash = FLASHING::DEFAULT ) const override;
 
-    wxString GetSelectMenuText( EDA_UNITS aUnits ) const override;
+    wxString GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const override;
 
     BITMAPS GetMenuImage() const override;
 
     EDA_ITEM* Clone() const override;
-
-    virtual void SwapData( BOARD_ITEM* aImage ) override;
 
     void GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList ) override;
 
@@ -101,21 +99,23 @@ public:
      *
      * Used in filling zones calculations.  Circles and arcs are approximated by segments.
      *
-     * @param aCornerBuffer is a buffer to store the polygon.
-     * @param aClearanceValue is the clearance around the pad.
+     * @param aBuffer is a buffer to store the polygon.
+     * @param aClearance is the clearance around the pad.
      * @param aError is the maximum deviation from a true arc.
-     * @param aErrorLoc whether any approximation error shoule be placed inside or outside
-     * @param ignoreLineWidth is used for edge cut items where the line width is only
-     *        for visualization
+     * @param aErrorLoc whether any approximation error should be placed inside or outside
+     * @param ignoreLineWidth is used for edge cut items where the line width is only for
+     *                        visualization
      */
-    void TransformShapeWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuffer,
-                                               PCB_LAYER_ID aLayer, int aClearanceValue,
-                                               int aError, ERROR_LOC aErrorLoc,
-                                               bool ignoreLineWidth = false ) const override;
+    void TransformShapeToPolygon( SHAPE_POLY_SET& aBuffer, PCB_LAYER_ID aLayer, int aClearance,
+                                  int aError, ERROR_LOC aErrorLoc,
+                                  bool ignoreLineWidth = false ) const override;
 
 #if defined(DEBUG)
     void Show( int nestLevel, std::ostream& os ) const override { ShowDummy( os ); }
 #endif
+
+protected:
+    virtual void swapData( BOARD_ITEM* aImage ) override;
 
 private:
     int      m_shape;            // bit 0 : 0 = draw +, 1 = draw X

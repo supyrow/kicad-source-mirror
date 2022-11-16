@@ -96,7 +96,12 @@ static struct PGM_SINGLE_TOP : public PGM_BASE
             KIWAY_PLAYER* frame = (KIWAY_PLAYER*) App().GetTopWindow();
     #endif
             if( frame )
+            {
+                if( wxWindow* blocking_win = frame->Kiway().GetBlockingDialog() )
+                    blocking_win->Close( true );
+
                 frame->OpenProjectFiles( std::vector<wxString>( 1, aFileName ) );
+            }
         }
     }
 
@@ -315,57 +320,13 @@ bool PGM_SINGLE_TOP::OnPgmInit()
     Kiway.set_kiface( KIWAY::KifaceType( TOP_FRAME ), kiface );
 #endif
 
-    static const wxCmdLineEntryDesc desc[] = {
-        { wxCMD_LINE_OPTION, "f", "frame", "Frame to load", wxCMD_LINE_VAL_STRING, 0 },
-        { wxCMD_LINE_PARAM, nullptr, nullptr, "File to load", wxCMD_LINE_VAL_STRING,
-                wxCMD_LINE_PARAM_MULTIPLE | wxCMD_LINE_PARAM_OPTIONAL },
-        { wxCMD_LINE_NONE, nullptr, nullptr, nullptr, wxCMD_LINE_VAL_NONE, 0 }
-    };
-
-    wxCmdLineParser parser( App().argc, App().argv );
-    parser.SetDesc( desc );
-    parser.Parse( false );
-
-    FRAME_T appType = TOP_FRAME;
-
-    const struct
-    {
-        wxString name;
-        FRAME_T type;
-    } frameTypes[] = {
-        { wxT( "pcb" ),    FRAME_PCB_EDITOR },
-        { wxT( "fpedit" ), FRAME_FOOTPRINT_EDITOR },
-        { wxT( "" ),       FRAME_T_COUNT }
-    };
-
-    wxString frameName;
-
-    if( parser.Found( "frame", &frameName ) )
-    {
-        appType = FRAME_T_COUNT;
-
-        for( const auto& it : frameTypes )
-        {
-            if( it.name == frameName )
-                appType = it.type;
-        }
-
-        if( appType == FRAME_T_COUNT )
-        {
-            wxLogError( wxT( "Unknown frame: %s" ), frameName );
-            // Clean up
-            OnPgmExit();
-            return false;
-        }
-    }
-
     // Tell the settings manager about the current Kiway
     GetSettingsManager().SetKiway( &Kiway );
 
     // Use KIWAY to create a top window, which registers its existence also.
     // "TOP_FRAME" is a macro that is passed on compiler command line from CMake,
     // and is one of the types in FRAME_T.
-    KIWAY_PLAYER* frame = Kiway.Player( appType, true );
+    KIWAY_PLAYER* frame = Kiway.Player( TOP_FRAME, true );
 
     if( frame == nullptr )
     {
@@ -385,13 +346,19 @@ bool PGM_SINGLE_TOP::OnPgmInit()
     frame->Show();
     wxSafeYield();
 
-    // Individual frames may provide additional option/switch processing, but for compatibility,
-    // any positional arguments are treated as a list of files to pass to OpenProjectFiles
-    frame->ParseArgs( parser );
-
     // Now after the frame processing, the rest of the positional args are files
     std::vector<wxString> fileArgs;
 
+
+    static const wxCmdLineEntryDesc desc[] = {
+        { wxCMD_LINE_PARAM, nullptr, nullptr, "File to load", wxCMD_LINE_VAL_STRING,
+          wxCMD_LINE_PARAM_MULTIPLE | wxCMD_LINE_PARAM_OPTIONAL },
+        { wxCMD_LINE_NONE, nullptr, nullptr, nullptr, wxCMD_LINE_VAL_NONE, 0 }
+    };
+
+    wxCmdLineParser parser( App().argc, App().argv );
+    parser.SetDesc( desc );
+    parser.Parse( false );
     if( parser.GetParamCount() )
     {
         /*

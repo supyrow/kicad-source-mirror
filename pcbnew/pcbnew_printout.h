@@ -1,6 +1,6 @@
 /*
  * Copyright (C) 2018 CERN
- * Copyright (C) 2018-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2018-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * @author Maciej Suminski <maciej.suminski@cern.ch>
  *
@@ -23,6 +23,7 @@
 
 #include <board_printout.h>
 #include <pcb_painter.h>
+#include <plotprint_opts.h>
 
 class BOARD;
 
@@ -30,11 +31,7 @@ struct PCBNEW_PRINTOUT_SETTINGS : BOARD_PRINTOUT_SETTINGS
 {
     PCBNEW_PRINTOUT_SETTINGS( const PAGE_INFO& aPageInfo );
 
-    enum DRILL_MARK_SHAPE_T {
-        NO_DRILL_SHAPE,
-        SMALL_DRILL_SHAPE,
-        FULL_DRILL_SHAPE
-    } m_DrillMarks;
+    enum DRILL_MARKS m_DrillMarks;
 
     enum PAGINATION_T {
         LAYER_PER_PAGE,
@@ -66,7 +63,7 @@ protected:
 
     void setupGal( KIGFX::GAL* aGal ) override;
 
-    EDA_RECT getBoundingBox() override;
+    BOX2I getBoundingBox() override;
 
     std::unique_ptr<KIGFX::PAINTER> getPainter( KIGFX::GAL* aGal ) override;
 
@@ -103,9 +100,9 @@ public:
 protected:
     int getDrillShape( const PAD* aPad ) const override;
 
-    VECTOR2D getDrillSize( const PAD* aPad ) const override;
+    SHAPE_SEGMENT getPadHoleShape( const PAD* aPad ) const override;
 
-    int getDrillSize( const PCB_VIA* aVia ) const override;
+    int getViaDrillSize( const PCB_VIA* aVia ) const override;
 
     ///< Flag deciding whether use the actual hole size or user-specified size for drill marks
     bool m_drillMarkReal;

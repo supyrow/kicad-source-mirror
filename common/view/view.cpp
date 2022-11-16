@@ -175,12 +175,8 @@ private:
             int orig_layer = m_groups[i].first;
             int new_layer = orig_layer;
 
-            try
-            {
+            if( aReorderMap.count( orig_layer ) )
                 new_layer = aReorderMap.at( orig_layer );
-            }
-            catch( const std::out_of_range& )
-            {}
 
             m_groups[i].first = new_layer;
         }
@@ -624,7 +620,7 @@ void VIEW::SetCenter( const VECTOR2D& aCenter, const std::vector<BOX2D>& obscuri
 
     while( !unobscuredPoly.IsEmpty() )
     {
-        unobscuredCenter = (wxPoint) unobscuredPoly.BBox().Centre();
+        unobscuredCenter = unobscuredPoly.BBox().Centre();
         unobscuredPoly.Deflate( step, 4 );
     }
 
@@ -1134,7 +1130,7 @@ void VIEW::ClearTargets()
 void VIEW::Redraw()
 {
 #ifdef KICAD_GAL_PROFILE
-    PROF_COUNTER totalRealTime;
+    PROF_TIMER totalRealTime;
 #endif /* KICAD_GAL_PROFILE */
 
     VECTOR2D screenSize = m_gal->GetScreenPixelSize();
@@ -1638,7 +1634,5 @@ void VIEW::ShowPreview( bool aShow )
    SetVisible( m_preview.get(), aShow );
 }
 
-
-const int VIEW::TOP_LAYER_MODIFIER = -VIEW_MAX_LAYERS;
 
 } // namespace KIGFX

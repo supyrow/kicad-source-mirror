@@ -32,8 +32,6 @@
 #ifndef __SCH_SEXPR_PARSER_H__
 #define __SCH_SEXPR_PARSER_H__
 
-#include <convert_to_biu.h>                      // IU_PER_MM
-
 #include <symbol_library.h>
 #include <schematic_lexer.h>
 #include <sch_file_versions.h>
@@ -78,22 +76,39 @@ public:
  */
 class SCH_SEXPR_PARSER : public SCHEMATIC_LEXER
 {
-    int m_requiredVersion;  ///< Set to the symbol library file version required.
-    int m_fieldId;          ///< The current field ID.
-    int m_unit;             ///< The current unit being parsed.
-    int m_convert;          ///< The current body style being parsed.
-    wxString m_symbolName;  ///< The current symbol name.
+public:
+    SCH_SEXPR_PARSER( LINE_READER* aLineReader = nullptr,
+                      PROGRESS_REPORTER* aProgressReporter = nullptr, unsigned aLineCount = 0,
+                      SCH_SHEET* aRootSheet = nullptr, bool aIsAppending = false );
 
-    /// Field IDs that have been read so far for the current symbol.
-    std::set<int>      m_fieldIDsRead;
+    void ParseLib( LIB_SYMBOL_MAP& aSymbolLibMap );
 
-    std::set<KIID>     m_uuids;
+    LIB_SYMBOL* ParseSymbol( LIB_SYMBOL_MAP& aSymbolLibMap,
+                             int aFileVersion = SEXPR_SYMBOL_LIB_FILE_VERSION );
 
-    PROGRESS_REPORTER* m_progressReporter;  // optional; may be nullptr
-    const LINE_READER* m_lineReader;        // for progress reporting
-    unsigned           m_lastProgressLine;
-    unsigned           m_lineCount;         // for progress reporting
+    LIB_ITEM* ParseDrawItem();
 
+    /**
+     * Parse the internal #LINE_READER object into \a aSheet.
+     *
+     * When \a aIsCopyableOnly is true, only schematic objects that are viewable on the canvas
+     * for copy and paste purposes are parsed.  Other schematic content such as bus definitions
+     * or instance data will throw an #IO_ERROR exception.
+     *
+     * When \a aIsCopyableOnly is false, full schematic file parsing is performed.
+     *
+     * @note This does not load any sub-sheets or decent complex sheet hierarchies.
+     *
+     * @param aSheet The #SCH_SHEET object to store the parsed schematic file.
+     * @param aIsCopyableOnly Load only the schematic objects that can be copied into \a aSheet
+     *                        if true.  Otherwise, load the full schematic file format.
+     * @param aFileVersion The schematic file version to parser.  Defaults to the schematic
+     *                     file being parsed when \a aIsCopyableOnly is false.
+     */
+    void ParseSchematic( SCH_SHEET* aSheet, bool aIsCopyablyOnly = false,
+                         int aFileVersion = SEXPR_SCHEMATIC_FILE_VERSION );
+
+private:
     void checkpoint();
 
     KIID parseKIID();
@@ -115,26 +130,6 @@ class SCH_SEXPR_PARSER : public SCHEMATIC_LEXER
     {
         NeedNUMBER( aExpected );
         return parseInt();
-    }
-
-    /**
-     * Parse the current token as an ASCII numeric string with possible leading
-     * whitespace into a double precision floating point number.
-     *
-     * @throw IO_ERROR if an error occurs attempting to convert the current token.
-     * @return The result of the parsed token.
-     */
-    double parseDouble();
-
-    inline double parseDouble( const char* aExpected )
-    {
-        NeedNUMBER( aExpected );
-        return parseDouble();
-    }
-
-    inline double parseDouble( TSCHEMATIC_T::T aToken )
-    {
-        return parseDouble( GetTokenText( aToken ) );
     }
 
     int parseInternalUnits();
@@ -195,6 +190,7 @@ class SCH_SEXPR_PARSER : public SCHEMATIC_LEXER
     SCH_NO_CONNECT* parseNoConnect();
     SCH_BUS_WIRE_ENTRY* parseBusEntry();
     SCH_LINE* parseLine();
+    SCH_SHAPE* parseSchPolyLine();
     SCH_SHAPE* parseSchArc();
     SCH_SHAPE* parseSchCircle();
     SCH_SHAPE* parseSchRectangle();
@@ -203,36 +199,27 @@ class SCH_SEXPR_PARSER : public SCHEMATIC_LEXER
     SCH_TEXTBOX* parseSchTextBox();
     void parseBusAlias( SCH_SCREEN* aScreen );
 
-public:
-    SCH_SEXPR_PARSER( LINE_READER* aLineReader = nullptr,
-                      PROGRESS_REPORTER* aProgressReporter = nullptr, unsigned aLineCount = 0 );
+    int m_requiredVersion;  ///< Set to the symbol library file version required.
+    int m_fieldId;          ///< The current field ID.
+    int m_unit;             ///< The current unit being parsed.
+    int m_convert;          ///< The current body style being parsed.
+    wxString m_symbolName;  ///< The current symbol name.
+    bool m_appending;       ///< Appending load status.
 
-    void ParseLib( LIB_SYMBOL_MAP& aSymbolLibMap );
+    /// Field IDs that have been read so far for the current symbol.
+    std::set<int>      m_fieldIDsRead;
 
-    LIB_SYMBOL* ParseSymbol( LIB_SYMBOL_MAP& aSymbolLibMap,
-                             int aFileVersion = SEXPR_SYMBOL_LIB_FILE_VERSION );
+    std::set<KIID>     m_uuids;
 
-    LIB_ITEM* ParseDrawItem();
+    PROGRESS_REPORTER* m_progressReporter;  // optional; may be nullptr
+    const LINE_READER* m_lineReader;        // for progress reporting
+    unsigned           m_lastProgressLine;
+    unsigned           m_lineCount;         // for progress reporting
 
-    /**
-     * Parse the internal #LINE_READER object into \a aSheet.
-     *
-     * When \a aIsCopyableOnly is true, only schematic objects that are viewable on the canvas
-     * for copy and paste purposes are parsed.  Other schematic content such as bus definitions
-     * or instance data will throw an #IO_ERROR exception.
-     *
-     * When \a aIsCopyableOnly is false, full schematic file parsing is performed.
-     *
-     * @note This does not load any sub-sheets or decent complex sheet hierarchies.
-     *
-     * @param aSheet The #SCH_SHEET object to store the parsed schematic file.
-     * @param aIsCopyableOnly Load only the schematic objects that can be copied into \a aSheet
-     *                        if true.  Otherwise, load the full schematic file format.
-     * @param aFileVersion The schematic file version to parser.  Defaults to the schematic
-     *                     file being parsed when \a aIsCopyableOnly is false.
-     */
-    void ParseSchematic( SCH_SHEET* aSheet, bool aIsCopyablyOnly = false,
-                         int aFileVersion = SEXPR_SCHEMATIC_FILE_VERSION );
+    KIID               m_rootUuid;          // The UUID of the root schematic.
+
+    /// The rootsheet for full project loads or null for importing a schematic.
+    SCH_SHEET*         m_rootSheet;
 };
 
 #endif    // __SCH_SEXPR_PARSER_H__

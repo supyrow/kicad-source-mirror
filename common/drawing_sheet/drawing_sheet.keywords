@@ -35,8 +35,10 @@ xy
 maxlen
 maxheight
 font
+face
 bold
 italic
+color
 size
 justify
 left

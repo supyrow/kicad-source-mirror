@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2018 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2013 Wayne Stambaugh <stambaughw@verizon.net>
- * Copyright (C) 1992-2018 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -50,18 +50,12 @@ public:
         return aItem && PCB_FP_SHAPE_T == aItem->Type();
     }
 
-    bool IsType( const KICAD_T aScanTypes[] ) const override
+    bool IsType( const std::vector<KICAD_T>& aScanTypes ) const override
     {
-        if( BOARD_ITEM::IsType( aScanTypes ) )
+        if( PCB_SHAPE::IsType( aScanTypes ) )
             return true;
 
-        for( const KICAD_T* p = aScanTypes; *p != EOT; ++p )
-        {
-            if( *p == PCB_LOCATE_GRAPHIC_T )
-                return true;
-            else if( *p == PCB_LOCATE_BOARD_EDGE_T )
-                return m_layer == Edge_Cuts;
-        }
+        // No special processing above and beyond PCB_SHAPE at present....
 
         return false;
     }
@@ -74,26 +68,13 @@ public:
 
     void SetArcGeometry0( const VECTOR2I& aStart, const VECTOR2I& aMid, const VECTOR2I& aEnd );
 
-    /**
-     * Move an edge of the footprint.
-     * This is a footprint shape modification.
-     * (should be only called by a footprint editing function)
-     */
     void Move( const VECTOR2I& aMoveVector ) override;
 
     /**
-     * Mirror an edge of the footprint.
-     * Do not change the layer
-     * This is a footprint shape modification.
-     * (should be only called by a footprint editing function)
+     * Mirror horizontally or vertically.  Do not change the layer.
      */
-    void Mirror( const VECTOR2I& aCentre, bool aMirrorAroundXAxis );
+    void Mirror( const VECTOR2I& aCentre, bool aMirrorAroundXAxis ) override;
 
-    /**
-     * Rotate an edge of the footprint.
-     * This is a footprint shape modification.
-     * (should be only called by a footprint editing function )
-     */
     void Rotate( const VECTOR2I& aRotCentre, const EDA_ANGLE& aAngle ) override;
 
     /**
@@ -146,7 +127,7 @@ public:
 
     wxString GetParentAsString() const { return m_parent->m_Uuid.AsString(); }
 
-    wxString GetSelectMenuText( EDA_UNITS aUnits ) const override;
+    wxString GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const override;
 
     BITMAPS GetMenuImage() const override;
 
@@ -164,6 +145,8 @@ protected:
     VECTOR2I m_arcCenter0;   ///< Center of arc, relative to footprint origin, orient 0.
     VECTOR2I m_bezierC1_0; ///< Bezier Control Point 1, relative to footprint origin, orient 0.
     VECTOR2I m_bezierC2_0;   ///< Bezier Control Point 2, relative to footprint origin, orient 0.
+
+    ARC_MID  m_arcMidData_0; ///< Originating Arc data, orient 0
 };
 
 #endif    // FP_SHAPE_H

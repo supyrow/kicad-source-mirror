@@ -86,7 +86,7 @@ public:
 
     // Derived types must define GetBoundingBox() as a minimum, and can then override the
     // two HitTest() functions if they need something more specific.
-    const EDA_RECT GetBoundingBox() const override = 0;
+    const BOX2I GetBoundingBox() const override = 0;
 
     bool HitTest( const VECTOR2I& aPosition, int aAccuracy = 0 ) const override
     {
@@ -95,7 +95,7 @@ public:
         return EDA_ITEM::HitTest( aPosition, aAccuracy );
     }
 
-    bool HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy = 0 ) const override;
+    bool HitTest( const BOX2I& aRect, bool aContained, int aAccuracy = 0 ) const override;
 
     void GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList ) override;
 
@@ -131,19 +131,20 @@ public:
     virtual wxString GetClass() const override { return wxT( "DS_DRAW_ITEM_LINE" ); }
 
     const VECTOR2I& GetStart() const { return m_start; }
-    void           SetStart( const VECTOR2I& aPos ) { m_start = aPos; }
+    void            SetStart( const VECTOR2I& aPos ) { m_start = aPos; }
     const VECTOR2I& GetEnd() const { return m_end; }
     void            SetEnd( const VECTOR2I& aPos ) override { m_end = aPos; }
 
     VECTOR2I GetPosition() const override { return GetStart(); }
     void     SetPosition( const VECTOR2I& aPos ) override { SetStart( aPos ); }
 
-    const EDA_RECT GetBoundingBox() const override;
-    bool           HitTest( const VECTOR2I& aPosition, int aAccuracy = 0 ) const override;
+    const BOX2I GetBoundingBox() const override;
+
+    bool HitTest( const VECTOR2I& aPosition, int aAccuracy = 0 ) const override;
 
     void PrintWsItem( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset ) override;
 
-    wxString GetSelectMenuText( EDA_UNITS aUnits ) const override;
+    wxString GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const override;
 
 #if defined(DEBUG)
     void Show( int nestLevel, std::ostream& os ) const override { ShowDummy( os ); }
@@ -171,14 +172,14 @@ public:
     VECTOR2I        GetPosition() const override { return m_pos; }
     void            SetPosition( const VECTOR2I& aPos ) override;
 
-    const EDA_RECT GetBoundingBox() const override;
+    const BOX2I GetBoundingBox() const override;
 
     bool HitTest( const VECTOR2I& aPosition, int aAccuracy = 0 ) const override;
-    bool HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy = 0 ) const override;
+    bool HitTest( const BOX2I& aRect, bool aContained, int aAccuracy = 0 ) const override;
 
     void PrintWsItem( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset ) override;
 
-    wxString GetSelectMenuText( EDA_UNITS aUnits ) const override;
+    wxString GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const override;
 
 #if defined(DEBUG)
     void Show( int nestLevel, std::ostream& os ) const override { ShowDummy( os ); }
@@ -218,7 +219,7 @@ public:
     virtual wxString GetClass() const override { return wxT( "DS_DRAW_ITEM_RECT" ); }
 
     const VECTOR2I& GetStart() const { return m_start; }
-    void           SetStart( const VECTOR2I& aPos ) { m_start = aPos; }
+    void            SetStart( const VECTOR2I& aPos ) { m_start = aPos; }
     const VECTOR2I& GetEnd() const { return m_end; }
     void            SetEnd( const VECTOR2I& aPos ) override { m_end = aPos; }
 
@@ -227,12 +228,12 @@ public:
 
     void PrintWsItem( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset ) override;
 
-    const EDA_RECT GetBoundingBox() const override;
+    const BOX2I GetBoundingBox() const override;
 
     bool HitTest( const VECTOR2I& aPosition, int aAccuracy = 0 ) const override;
-    bool HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy = 0 ) const override;
+    bool HitTest( const BOX2I& aRect, bool aContained, int aAccuracy = 0 ) const override;
 
-    wxString GetSelectMenuText( EDA_UNITS aUnits ) const override;
+    wxString GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const override;
 
 #if defined(DEBUG)
     void Show( int nestLevel, std::ostream& os ) const override { ShowDummy( os ); }
@@ -276,10 +277,10 @@ public:
 
     void PrintWsItem( const RENDER_SETTINGS* , const VECTOR2I& ) override { /* do nothing */ }
 
-    const EDA_RECT GetBoundingBox() const override;
+    const BOX2I GetBoundingBox() const override;
     bool HitTest( const VECTOR2I& aPosition, int aAccuracy = 0 ) const override { return false; }
 
-    wxString GetSelectMenuText( EDA_UNITS aUnits ) const override;
+    wxString GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const override;
 
 #if defined(DEBUG)
     void Show( int nestLevel, std::ostream& os ) const override { ShowDummy( os ); }
@@ -302,16 +303,19 @@ class DS_DRAW_ITEM_TEXT : public DS_DRAW_ITEM_BASE, public EDA_TEXT
 {
 public:
     DS_DRAW_ITEM_TEXT( DS_DATA_ITEM* aPeer, int aIndex, const wxString& aText, const VECTOR2I& aPos,
-                       const VECTOR2I& aSize, int aPenWidth, bool aItalic = false,
-                       bool aBold = false ) :
+                       const VECTOR2I& aSize, int aPenWidth, KIFONT::FONT* aFont,
+                       bool aItalic = false, bool aBold = false,
+                       const KIGFX::COLOR4D& aColor = KIGFX::COLOR4D::UNSPECIFIED ) :
             DS_DRAW_ITEM_BASE( aPeer, aIndex, WSG_TEXT_T),
-            EDA_TEXT( aText )
+            EDA_TEXT( drawSheetIUScale, aText )
     {
         SetTextPos( aPos );
-        SetTextSize( (wxSize) aSize );
+        SetTextSize( aSize );
         SetTextThickness( aPenWidth );
+        SetFont( aFont );
         SetItalic( aItalic );
         SetBold( aBold );
+        SetTextColor( aColor );
     }
 
     virtual wxString GetClass() const override { return wxT( "DS_DRAW_ITEM_TEXT" ); }
@@ -321,12 +325,12 @@ public:
     VECTOR2I GetPosition() const override { return GetTextPos(); }
     void     SetPosition( const VECTOR2I& aPos ) override { SetTextPos( aPos ); }
 
-    const EDA_RECT GetBoundingBox() const override;
+    const BOX2I GetBoundingBox() const override;
 
     bool HitTest( const VECTOR2I& aPosition, int aAccuracy = 0 ) const override;
-    bool HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy = 0 ) const override;
+    bool HitTest( const BOX2I& aRect, bool aContained, int aAccuracy = 0 ) const override;
 
-    wxString GetSelectMenuText( EDA_UNITS aUnits ) const override;
+    wxString GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const override;
 
 #if defined(DEBUG)
     void Show( int nestLevel, std::ostream& os ) const override { ShowDummy( os ); }
@@ -351,15 +355,16 @@ public:
     virtual wxString GetClass() const override { return wxT( "DS_DRAW_ITEM_BITMAP" ); }
 
     VECTOR2I GetPosition() const override { return m_pos; }
-    void    SetPosition( const VECTOR2I& aPos ) override { m_pos = aPos; }
+    void     SetPosition( const VECTOR2I& aPos ) override { m_pos = aPos; }
 
     void PrintWsItem( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset ) override;
 
     bool HitTest( const VECTOR2I& aPosition, int aAccuracy = 0 ) const override;
-    bool HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy = 0 ) const override;
-    const EDA_RECT GetBoundingBox() const override;
+    bool HitTest( const BOX2I& aRect, bool aContained, int aAccuracy = 0 ) const override;
 
-    wxString GetSelectMenuText( EDA_UNITS aUnits ) const override;
+    const BOX2I GetBoundingBox() const override;
+
+    wxString GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const override;
 
 #if defined(DEBUG)
     void Show( int nestLevel, std::ostream& os ) const override { ShowDummy( os ); }
@@ -391,6 +396,7 @@ public:
         m_paperFormat = nullptr;
         m_project = nullptr;
         m_isFirstPage = true;
+        m_properties = nullptr;
     }
 
     ~DS_DRAW_ITEM_LIST()
@@ -408,6 +414,11 @@ public:
     void SetTitleBlock( const TITLE_BLOCK* aTblock ) { m_titleBlock = aTblock; }
 
     /**
+     * Set properties used for text variable resolution.
+     */
+    void SetProperties( const std::map<wxString, wxString>* aProps ) { m_properties = aProps; }
+
+    /**
      * Set the paper format name (mainly for drawing sheet editor)
      */
     void SetPaperFormat( const wxString* aFormatName ) { m_paperFormat = aFormatName; }
@@ -415,26 +426,22 @@ public:
     /**
      * Set the filename to draw/plot
      */
-    void SetFileName( const wxString& aFileName )
-    {
-        m_fileName = aFileName;
-    }
+    void SetFileName( const wxString& aFileName ) { m_fileName = aFileName; }
 
     /**
      * Set the sheet name to draw/plot
      */
-    void SetSheetName( const wxString& aSheetName )
-    {
-        m_sheetFullName = aSheetName;
-    }
+    void SetSheetName( const wxString& aSheetName ) { m_sheetName = aSheetName; }
+
+    /**
+     * Set the sheet path to draw/plot
+     */
+    void SetSheetPath( const wxString& aSheetPath ) { m_sheetPath = aSheetPath; }
 
     /**
      * Set the sheet layer to draw/plot
      */
-    void SetSheetLayer( const wxString& aSheetLayer )
-    {
-        m_sheetLayer = &aSheetLayer;
-    }
+    void SetSheetLayer( const wxString& aSheetLayer ) { m_sheetLayer = &aSheetLayer;  }
 
     void SetDefaultPenSize( int aPenSize ) { m_penSize = aPenSize; }
     int GetDefaultPenSize() const { return m_penSize; }
@@ -442,10 +449,7 @@ public:
     /**
      * Set the scalar to convert pages units (mils) to draw/plot units
      */
-    void SetMilsToIUfactor( double aMils2Iu )
-    {
-        m_milsToIu = aMils2Iu;
-    }
+    void SetMilsToIUfactor( double aMils2Iu ) { m_milsToIu = aMils2Iu; }
 
     /**
      * Get the scalar to convert pages units (mils) to draw/plot units
@@ -455,10 +459,7 @@ public:
     /**
      * Set the value of the sheet number.
      */
-    void SetPageNumber( const wxString& aPageNumber )
-    {
-        m_pageNumber = aPageNumber;
-    }
+    void SetPageNumber( const wxString& aPageNumber ) { m_pageNumber = aPageNumber; }
 
     /**
      * Set if the page is the first page.
@@ -468,10 +469,7 @@ public:
     /**
      * Set the value of the count of sheets, for basic inscriptions
      */
-    void SetSheetCount( int aSheetCount )
-    {
-        m_sheetCount = aSheetCount;
-    }
+    void SetSheetCount( int aSheetCount ) { m_sheetCount = aSheetCount; }
 
     void Append( DS_DRAW_ITEM_BASE* aItem )
     {
@@ -523,7 +521,8 @@ public:
      *   SetSheetNumber( aSheetNumber );
      *   SetSheetCount( aSheetCount );
      *   SetFileName( aFileName );
-     *   SetSheetName( aFullSheetName );
+     *   SetSheetName( aSheetName );
+     *   SetSheetPath( aSheetPath );
      *
      * @param aPageInfo The PAGE_INFO, for page size, margins...
      * @param aTitleBlock The sheet title block, for basic inscriptions.
@@ -535,31 +534,8 @@ public:
     static void GetTextVars( wxArrayString* aVars );
 
     /**
-     * Return the full text corresponding to the aTextbase,
-     * after replacing format symbols by the corresponding value
-     *
-     * Basic texts in Ki_WorkSheetData struct use format notation
-     * like "Title %T" to identify at run time the full text
-     * to display.
-     * Currently format identifier is % followed by a letter or 2 letters
-     *
-     * %% = replaced by %
-     * %K = Kicad version
-     * %Z = paper format name (A4, USLetter)
-     * %Y = company name
-     * %D = date
-     * %R = revision
-     * %S = sheet number
-     * %N = number of sheets
-     * %Cx = comment (x = 0 to 9 to identify the comment)
-     * %F = filename
-     * %P = sheet path or sheet full name
-     * %T = title
-     * Other fields like Developer, Verifier, Approver could use %Cx
-     * and are seen as comments for format
-     *
-     * @param aTextbase = the text with format symbols
-     * @return the text, after replacing the format symbols by the actual value
+     * @return the full text corresponding to the aTextbase, after replacing any text variable
+     *         references.
      */
     wxString BuildFullText( const wxString& aTextbase );
 
@@ -572,14 +548,17 @@ protected:
                                           // used when an item has a pen size = 0
     bool               m_isFirstPage;     ///< Is this the first page or not.
     int                m_sheetCount;      ///< The number of sheets
-                                          // for basic inscriptions, in schematic
-    const TITLE_BLOCK* m_titleBlock;      // for basic inscriptions
-    const wxString*    m_paperFormat;     // for basic inscriptions
-    wxString           m_fileName;        // for basic inscriptions
-    wxString           m_sheetFullName;   // for basic inscriptions
+                                          // for text variable references, in schematic
+    const TITLE_BLOCK* m_titleBlock;      // for text variable references
+    const wxString*    m_paperFormat;     // for text variable references
+    wxString           m_fileName;        // for text variable references
+    wxString           m_sheetName;       // for text variable references
+    wxString           m_sheetPath;       // for text variable references
     wxString           m_pageNumber;      ///< The actual page number displayed in the title block.
-    const wxString*    m_sheetLayer;      // for basic inscriptions
-    const PROJECT*     m_project;         // for project-based variable substitutions
+    const wxString*    m_sheetLayer;      // for text variable references
+    const PROJECT*     m_project;         // for project-based text variable references
+
+    const std::map<wxString, wxString>* m_properties;    // for text variable references
 };
 
 

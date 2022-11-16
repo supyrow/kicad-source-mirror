@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2019-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2019-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -31,6 +31,7 @@
 #include <wx/stc/stc.h>
 
 #include <algorithm>
+#include "wx/listctrl.h"
 
 // Maps from dialogTitle <-> pageTitle for keeping track of last-selected pages.
 // This is not a simple page index because some dialogs have dynamic page sets.
@@ -45,8 +46,7 @@ PAGED_DIALOG::PAGED_DIALOG( wxWindow* aParent, const wxString& aTitle, bool aSho
         m_auxiliaryButton( nullptr ),
         m_resetButton( nullptr ),
         m_cancelButton( nullptr ),
-        m_title( aTitle ),
-        m_dirty( false )
+        m_title( aTitle )
 {
     auto mainSizer = new wxBoxSizer( wxVERTICAL );
     SetSizer( mainSizer );
@@ -97,22 +97,26 @@ PAGED_DIALOG::PAGED_DIALOG( wxWindow* aParent, const wxString& aTitle, bool aSho
 
     if( m_auxiliaryButton )
     {
-        m_auxiliaryButton->Bind( wxEVT_COMMAND_BUTTON_CLICKED, &PAGED_DIALOG::OnAuxiliaryAction,
+        m_auxiliaryButton->Bind( wxEVT_COMMAND_BUTTON_CLICKED, &PAGED_DIALOG::onAuxiliaryAction,
                                  this );
     }
 
     if( m_resetButton )
     {
-        m_resetButton->Bind( wxEVT_COMMAND_BUTTON_CLICKED, &PAGED_DIALOG::OnResetButton, this );
+        m_resetButton->Bind( wxEVT_COMMAND_BUTTON_CLICKED, &PAGED_DIALOG::onResetButton, this );
     }
 
-    m_treebook->Bind( wxEVT_TREEBOOK_PAGE_CHANGED, &PAGED_DIALOG::OnPageChanged, this );
-    m_treebook->Bind( wxEVT_TREEBOOK_PAGE_CHANGING, &PAGED_DIALOG::OnPageChanging, this );
+    m_treebook->Bind( wxEVT_CHAR_HOOK, &PAGED_DIALOG::onCharHook, this );
+    m_treebook->Bind( wxEVT_TREEBOOK_PAGE_CHANGED, &PAGED_DIALOG::onPageChanged, this );
+    m_treebook->Bind( wxEVT_TREEBOOK_PAGE_CHANGING, &PAGED_DIALOG::onPageChanging, this );
 }
 
 
 void PAGED_DIALOG::finishInitialization()
 {
+    for( size_t i = 1; i < m_treebook->GetPageCount(); ++i )
+   	    m_macHack.push_back( true );
+
     // For some reason adding page labels to the treeCtrl doesn't invalidate its bestSize
     // cache so we have to do it by hand
     m_treebook->GetTreeCtrl()->InvalidateBestSize();
@@ -160,17 +164,18 @@ PAGED_DIALOG::~PAGED_DIALOG()
 
     if( m_auxiliaryButton )
     {
-        m_auxiliaryButton->Unbind( wxEVT_COMMAND_BUTTON_CLICKED, &PAGED_DIALOG::OnAuxiliaryAction,
+        m_auxiliaryButton->Unbind( wxEVT_COMMAND_BUTTON_CLICKED, &PAGED_DIALOG::onAuxiliaryAction,
                                    this );
     }
 
     if( m_resetButton )
     {
-        m_resetButton->Unbind( wxEVT_COMMAND_BUTTON_CLICKED, &PAGED_DIALOG::OnResetButton, this );
+        m_resetButton->Unbind( wxEVT_COMMAND_BUTTON_CLICKED, &PAGED_DIALOG::onResetButton, this );
     }
 
-    m_treebook->Unbind( wxEVT_TREEBOOK_PAGE_CHANGED, &PAGED_DIALOG::OnPageChanged, this );
-    m_treebook->Unbind( wxEVT_TREEBOOK_PAGE_CHANGING, &PAGED_DIALOG::OnPageChanging, this );
+    m_treebook->Unbind( wxEVT_CHAR_HOOK, &PAGED_DIALOG::onCharHook, this );
+    m_treebook->Unbind( wxEVT_TREEBOOK_PAGE_CHANGED, &PAGED_DIALOG::onPageChanged, this );
+    m_treebook->Unbind( wxEVT_TREEBOOK_PAGE_CHANGING, &PAGED_DIALOG::onPageChanging, this );
 }
 
 
@@ -219,7 +224,9 @@ bool PAGED_DIALOG::TransferDataToWindow()
         }
     }
 
-    m_treebook->ChangeSelection( (unsigned) std::max( 0, lastPageIndex ) );
+    lastPageIndex = std::max( 0, lastPageIndex );
+    m_treebook->ChangeSelection( lastPageIndex );
+    UpdateResetButton( lastPageIndex );
 
     return true;
 }
@@ -301,33 +308,19 @@ void PAGED_DIALOG::SetError( const wxString& aMessage, wxWindow* aPage, wxWindow
 }
 
 
-void PAGED_DIALOG::OnPageChanged( wxBookCtrlEvent& event )
+void PAGED_DIALOG::UpdateResetButton( int aPage )
 {
-    int page = event.GetSelection();
-
-    // Use the first sub-page when a tree level node is selected.
-    if( m_treebook->GetCurrentPage()->GetChildren().IsEmpty() )
-    {
-        unsigned next = page + 1;
-
-        if( next < m_treebook->GetPageCount() )
-            m_treebook->ChangeSelection( next );
-    }
-
-    // NB: dynamic_cast doesn't work over Kiway.
-    wxWindow* panel = m_treebook->GetPage( page );
-
-    wxCHECK( panel, /* void */ );
+    wxWindow* panel = m_treebook->GetPage( aPage );
 
     // Enable the reset button only if the page is re-settable
     if( m_resetButton )
     {
-        if( panel && panel->GetWindowStyle() & wxRESETTABLE )
+        if( panel && ( panel->GetWindowStyle() & wxRESETTABLE ) )
         {
             m_resetButton->SetLabel( wxString::Format( _( "Reset %s to Defaults" ),
-                                                       m_treebook->GetPageText( page ) ) );
+                                                       m_treebook->GetPageText( aPage ) ) );
             m_resetButton->SetToolTip( panel->GetHelpTextAtPoint( wxPoint( -INT_MAX, INT_MAX ),
-                                       wxHelpEvent::Origin_Unknown ) );
+                                                                  wxHelpEvent::Origin_Unknown ) );
             m_resetButton->Enable( true );
         }
         else
@@ -339,14 +332,81 @@ void PAGED_DIALOG::OnPageChanged( wxBookCtrlEvent& event )
 
         m_resetButton->GetParent()->Layout();
     }
-
-    wxSizeEvent evt( wxDefaultSize );
-
-    wxQueueEvent( m_treebook, evt.Clone() );
 }
 
 
-void PAGED_DIALOG::OnPageChanging( wxBookCtrlEvent& aEvent )
+void PAGED_DIALOG::onCharHook( wxKeyEvent& aEvent )
+{
+    if( dynamic_cast<wxTextEntry*>( aEvent.GetEventObject() )
+            || dynamic_cast<wxStyledTextCtrl*>( aEvent.GetEventObject() )
+            || dynamic_cast<wxListView*>( aEvent.GetEventObject() ) )
+    {
+        aEvent.Skip();
+        return;
+    }
+
+    if( aEvent.GetKeyCode() == WXK_UP )
+    {
+        int page = m_treebook->GetSelection();
+
+        if( page >= 1 )
+        {
+            if( m_treebook->GetPage( page - 1 )->GetChildren().IsEmpty() )
+                m_treebook->SetSelection( std::max( page - 2, 0 ) );
+            else
+                m_treebook->SetSelection( page - 1 );
+        }
+
+        m_treebook->GetTreeCtrl()->SetFocus();     // Don't allow preview canvas to steal focus
+    }
+    else if( aEvent.GetKeyCode() == WXK_DOWN )
+    {
+        int page = m_treebook->GetSelection();
+
+        m_treebook->SetSelection( std::min<int>( page + 1, m_treebook->GetPageCount() - 1 ) );
+
+        m_treebook->GetTreeCtrl()->SetFocus();     // Don't allow preview canvas to steal focus
+    }
+    else
+    {
+        aEvent.Skip();
+    }
+}
+
+
+void PAGED_DIALOG::onPageChanged( wxBookCtrlEvent& event )
+{
+    size_t page = event.GetSelection();
+
+    // Use the first sub-page when a tree level node is selected.
+    if( m_treebook->GetCurrentPage()->GetChildren().IsEmpty()
+            && page + 1 < m_treebook->GetPageCount() )
+    {
+        m_treebook->ChangeSelection( ++page );
+    }
+
+    UpdateResetButton( page );
+
+#ifdef __WXMAC__
+    // Work around an OSX wxWidgets issue where the wxGrid children don't get placed correctly
+    // until the first resize event
+    if( page < m_macHack.size() && m_macHack[ page ] )
+    {
+        wxSize pageSize = m_treebook->GetPage( page )->GetSize();
+        pageSize.x -= 5;
+        pageSize.y += 2;
+
+        m_treebook->GetPage( page )->SetSize( pageSize );
+        m_macHack[ page ] = false;
+    }
+#else
+    wxSizeEvent evt( wxDefaultSize );
+    wxQueueEvent( m_treebook, evt.Clone() );
+#endif
+}
+
+
+void PAGED_DIALOG::onPageChanging( wxBookCtrlEvent& aEvent )
 {
     int currentPage = aEvent.GetOldSelection();
 
@@ -366,7 +426,7 @@ void PAGED_DIALOG::OnPageChanging( wxBookCtrlEvent& aEvent )
 }
 
 
-void PAGED_DIALOG::OnResetButton( wxCommandEvent& aEvent )
+void PAGED_DIALOG::onResetButton( wxCommandEvent& aEvent )
 {
     int sel = m_treebook->GetSelection();
 

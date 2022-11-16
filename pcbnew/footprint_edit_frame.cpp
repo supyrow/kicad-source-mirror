@@ -97,6 +97,10 @@ BEGIN_EVENT_TABLE( FOOTPRINT_EDIT_FRAME, PCB_BASE_FRAME )
     EVT_UPDATE_UI( ID_ADD_FOOTPRINT_TO_BOARD,
                    FOOTPRINT_EDIT_FRAME::OnUpdateSaveFootprintToBoard )
     EVT_UPDATE_UI( ID_TOOLBARH_PCB_SELECT_LAYER, FOOTPRINT_EDIT_FRAME::OnUpdateLayerSelectBox )
+
+    // Drop files event
+    EVT_DROP_FILES( FOOTPRINT_EDIT_FRAME::OnDropFiles )
+
 END_EVENT_TABLE()
 
 
@@ -138,7 +142,7 @@ FOOTPRINT_EDIT_FRAME::FOOTPRINT_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
     // In Footprint Editor, the default net clearance is not known (it depends on the actual
     // board).  So we do not show the default clearance, by setting it to 0.  The footprint or
     // pad specific clearance will be shown.
-    GetBoard()->GetDesignSettings().GetDefault()->SetClearance( 0 );
+    GetBoard()->GetDesignSettings().m_NetSettings->m_DefaultNetClass->SetClearance( 0 );
 
     // Don't show the default board solder mask expansion in the footprint editor.  Only the
     // footprint or pad mask expansions settings should be shown.
@@ -152,15 +156,11 @@ FOOTPRINT_EDIT_FRAME::FOOTPRINT_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
     // them, at least to be able to edit a bad layer
     GetBoard()->SetVisibleAlls();
 
-    // However the "no net" mark on pads is useless, because there are no nets in footprint
-    // editor: make it non visible.
-    GetBoard()->SetElementVisibility( LAYER_NO_CONNECTS, false );
-
     GetGalDisplayOptions().m_axesEnabled = true;
 
     // In Footprint Editor, set the default paper size to A4 for plot/print
     SetPageSettings( PAGE_INFO( PAGE_INFO::A4 ) );
-    SetScreen( new PCB_SCREEN( GetPageSettings().GetSizeIU() ) );
+    SetScreen( new PCB_SCREEN( GetPageSettings().GetSizeIU( pcbIUScale.IU_PER_MILS ) ) );
 
     // Create the manager and dispatcher & route draw panel events to the dispatcher
     setupTools();
@@ -208,20 +208,20 @@ FOOTPRINT_EDIT_FRAME::FOOTPRINT_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
     // Rows; layers 4 - 6
     m_auimgr.AddPane( m_mainToolBar, EDA_PANE().HToolbar().Name( "MainToolbar" )
                       .Top().Layer( 6 ) );
+
     m_auimgr.AddPane( m_messagePanel, EDA_PANE().Messages().Name( "MsgPanel" )
                       .Bottom().Layer( 6 ) );
 
     // Columns; layers 1 - 3
-    m_auimgr.AddPane( m_optionsToolBar, EDA_PANE().VToolbar().Name( "OptToolbar" )
-                      .Left().Layer( 3 ) );
     m_auimgr.AddPane( m_treePane, EDA_PANE().Palette().Name( "Footprints" )
-                      .Left().Layer(2)
+                      .Left().Layer( 3 )
                       .Caption( _( "Libraries" ) )
-                      .MinSize( 250, 400 ).Resizable() );
+                      .MinSize( 250, -1 ).BestSize( 250, -1 ) );
+    m_auimgr.AddPane( m_optionsToolBar, EDA_PANE().VToolbar().Name( "OptToolbar" )
+                      .Left().Layer( 2 ) );
 
     m_auimgr.AddPane( m_drawToolBar, EDA_PANE().VToolbar().Name( "ToolsToolbar" )
                       .Right().Layer(2) );
-
     m_auimgr.AddPane( m_appearancePanel, EDA_PANE().Name( "LayersManager" )
                       .Right().Layer( 3 )
                       .Caption( _( "Appearance" ) ).PaneBorder( false )
@@ -241,40 +241,52 @@ FOOTPRINT_EDIT_FRAME::FOOTPRINT_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
     // The selection filter doesn't need to grow in the vertical direction when docked
     m_auimgr.GetPane( "SelectionFilter" ).dock_proportion = 0;
 
+    m_acceptedExts.emplace( KiCadFootprintLibPathExtension, &ACTIONS::ddAddLibrary );
+    m_acceptedExts.emplace( KiCadFootprintFileExtension, &PCB_ACTIONS::ddImportFootprint );
+    DragAcceptFiles( true );
+
     ActivateGalCanvas();
 
     FinishAUIInitialization();
 
-    if( m_editorSettings->m_LibWidth > 0 )
-    {
-        wxAuiPaneInfo& treePane = m_auimgr.GetPane( "Footprints" );
-
-        // wxAUI hack: force width by setting MinSize() and then Fixed()
-        // thanks to ZenJu http://trac.wxwidgets.org/ticket/13180
-        treePane.MinSize( m_editorSettings->m_LibWidth, -1 );
-        treePane.Fixed();
-        m_auimgr.Update();
-
-        // now make it resizable again
-        treePane.Resizable();
-        m_auimgr.Update();
-
-        // Note: DO NOT call m_auimgr.Update() anywhere after this; it will nuke the size
-        // back to minimum.
-        treePane.MinSize( 250, -1 );
-    }
-
     // Apply saved visibility stuff at the end
     FOOTPRINT_EDITOR_SETTINGS* cfg = GetSettings();
-    m_appearancePanel->SetUserLayerPresets( cfg->m_LayerPresets );
-    m_appearancePanel->ApplyLayerPreset( cfg->m_ActiveLayerPreset );
+    wxAuiPaneInfo&             treePane = m_auimgr.GetPane( "Footprints" );
+    wxAuiPaneInfo&             layersManager = m_auimgr.GetPane( "LayersManager" );
+
+    // wxAUI hack: force widths by setting MinSize() and then Fixed()
+    // thanks to ZenJu http://trac.wxwidgets.org/ticket/13180
+
+    if( cfg->m_LibWidth > 0 )
+    {
+        SetAuiPaneSize( m_auimgr, treePane, cfg->m_LibWidth, -1 );
+
+        treePane.MinSize( cfg->m_LibWidth, -1 );
+        treePane.Fixed();
+    }
 
     if( cfg->m_AuiPanels.right_panel_width > 0 )
     {
-        wxAuiPaneInfo& layersManager = m_auimgr.GetPane( "LayersManager" );
         SetAuiPaneSize( m_auimgr, layersManager, cfg->m_AuiPanels.right_panel_width, -1 );
+
+        layersManager.MinSize( cfg->m_LibWidth, -1 );
+        layersManager.Fixed();
     }
 
+    // Apply fixed sizes
+    m_auimgr.Update();
+
+    // Now make them resizable again
+    treePane.Resizable();
+    m_auimgr.Update();
+
+    // Note: DO NOT call m_auimgr.Update() anywhere after this; it will nuke the sizes
+    // back to minimum.
+    treePane.MinSize( 250, -1 );
+    layersManager.MinSize( 250, -1 );
+
+    m_appearancePanel->SetUserLayerPresets( cfg->m_LayerPresets );
+    m_appearancePanel->ApplyLayerPreset( cfg->m_ActiveLayerPreset );
     m_appearancePanel->SetTabIndex( cfg->m_AuiPanels.appearance_panel_tab );
 
     GetToolManager()->RunAction( ACTIONS::zoomFitScreen, false );
@@ -322,7 +334,8 @@ FOOTPRINT_EDIT_FRAME::~FOOTPRINT_EDIT_FRAME()
 
 bool FOOTPRINT_EDIT_FRAME::IsContentModified() const
 {
-    return GetScreen() && GetScreen()->IsContentModified() && GetBoard() && GetBoard()->GetFirstFootprint();
+    return GetScreen() && GetScreen()->IsContentModified()
+                && GetBoard() && GetBoard()->GetFirstFootprint();
 }
 
 
@@ -357,7 +370,17 @@ void FOOTPRINT_EDIT_FRAME::ToggleSearchTree()
 {
     wxAuiPaneInfo& treePane = m_auimgr.GetPane( m_treePane );
     treePane.Show( !IsSearchTreeShown() );
-    m_auimgr.Update();
+
+    if( IsSearchTreeShown() )
+    {
+        // SetAuiPaneSize also updates m_auimgr
+        SetAuiPaneSize( m_auimgr, treePane, m_editorSettings->m_LibWidth, -1 );
+    }
+    else
+    {
+        m_editorSettings->m_LibWidth = m_treePane->GetSize().x;
+        m_auimgr.Update();
+    }
 }
 
 
@@ -483,12 +506,12 @@ void FOOTPRINT_EDIT_FRAME::restoreLastFootprint()
 
 void FOOTPRINT_EDIT_FRAME::AddFootprintToBoard( FOOTPRINT* aFootprint )
 {
-    m_revertModule.reset( (FOOTPRINT*) aFootprint->Clone() );
+    m_originalFootprintCopy.reset( static_cast<FOOTPRINT*>( aFootprint->Clone() ) );
 
     m_footprintNameWhenLoaded = aFootprint->GetFPID().GetLibItemName();
 
     PCB_BASE_EDIT_FRAME::AddFootprintToBoard( aFootprint );
-    // Ensure item UUIDs are valide
+    // Ensure item UUIDs are valid
     // ("old" footprints can have null uuids that create issues in fp editor)
     aFootprint->FixUuids();
 
@@ -501,6 +524,10 @@ void FOOTPRINT_EDIT_FRAME::AddFootprintToBoard( FOOTPRINT* aFootprint )
         GetInfoBar()->RemoveAllButtons();
         GetInfoBar()->AddCloseButton();
         GetInfoBar()->ShowMessage( msg, wxICON_INFORMATION );
+    }
+    else
+    {
+        GetInfoBar()->Dismiss();
     }
 
     UpdateMsgPanel();
@@ -641,7 +668,7 @@ const BOX2I FOOTPRINT_EDIT_FRAME::GetDocumentExtents( bool aIncludeAllVisible ) 
         else
         {
             BOX2I newFootprintBB( { 0, 0 }, { 0, 0 } );
-            newFootprintBB.Inflate( Millimeter2iu( 12 ) );
+            newFootprintBB.Inflate( pcbIUScale.mmToIU( 12 ) );
             return newFootprintBB;
         }
     }
@@ -707,6 +734,9 @@ bool FOOTPRINT_EDIT_FRAME::canCloseWindow( wxCloseEvent& aEvent )
             return false;
         }
     }
+
+    // Save footprint tree column widths
+    m_adapter->SaveSettings();
 
     return PCB_BASE_EDIT_FRAME::canCloseWindow( aEvent );
 }
@@ -800,6 +830,8 @@ void FOOTPRINT_EDIT_FRAME::ShowChangedLanguage()
     wxAuiPaneInfo& lm_pane_info = m_auimgr.GetPane( m_appearancePanel );
     bool lm_shown = lm_pane_info.IsShown();
     lm_pane_info.Caption( _( "Appearance" ) );
+    wxAuiPaneInfo& sf_pane_info = m_auimgr.GetPane( m_selectionFilterPanel );
+    sf_pane_info.Caption( _( "Selection Filter" ) );
 
     // update the layer manager
     m_appearancePanel->OnLanguageChanged();
@@ -810,6 +842,8 @@ void FOOTPRINT_EDIT_FRAME::ShowChangedLanguage()
     lm_pane_info.Show( lm_shown );
     tree_pane_info.Show( tree_shown );
     m_auimgr.Update();
+
+    UpdateTitle();
 }
 
 
@@ -914,7 +948,7 @@ void FOOTPRINT_EDIT_FRAME::initLibraryTree()
     m_adapter = FP_TREE_SYNCHRONIZING_ADAPTER::Create( this, fpTable );
     auto adapter = static_cast<FP_TREE_SYNCHRONIZING_ADAPTER*>( m_adapter.get() );
 
-    adapter->AddLibraries();
+    adapter->AddLibraries( this );
 }
 
 
@@ -1020,16 +1054,11 @@ void FOOTPRINT_EDIT_FRAME::setupTools()
     m_toolManager->RegisterTool( new CONVERT_TOOL );
     m_toolManager->RegisterTool( new SCRIPTING_TOOL );
 
-    m_toolManager->GetTool<PCB_SELECTION_TOOL>()->SetIsFootprintEditor( true );
-    m_toolManager->GetTool<EDIT_TOOL>()->SetIsFootprintEditor( true );
-    m_toolManager->GetTool<PAD_TOOL>()->SetIsFootprintEditor( true );
-    m_toolManager->GetTool<DRAWING_TOOL>()->SetIsFootprintEditor( true );
-    m_toolManager->GetTool<PCB_POINT_EDITOR>()->SetIsFootprintEditor( true );
-    m_toolManager->GetTool<PCB_CONTROL>()->SetIsFootprintEditor( true );
-    m_toolManager->GetTool<PCB_PICKER_TOOL>()->SetIsFootprintEditor( true );
-    m_toolManager->GetTool<POSITION_RELATIVE_TOOL>()->SetIsFootprintEditor( true );
-    m_toolManager->GetTool<GROUP_TOOL>()->SetIsFootprintEditor( true );
-    m_toolManager->GetTool<SCRIPTING_TOOL>()->SetIsFootprintEditor( true );
+    for( TOOL_BASE* tool : m_toolManager->Tools() )
+    {
+        if( PCB_TOOL_BASE* pcbTool = dynamic_cast<PCB_TOOL_BASE*>( tool ) )
+            pcbTool->SetIsFootprintEditor( true );
+    }
 
     m_toolManager->GetTool<PCB_VIEWER_TOOLS>()->SetFootprintFrame( true );
     m_toolManager->InitTools();
@@ -1097,7 +1126,8 @@ void FOOTPRINT_EDIT_FRAME::setupUIConditions()
 
     mgr->SetConditions( PCB_ACTIONS::rotateCw,           ENABLE( cond.HasItems() ) );
     mgr->SetConditions( PCB_ACTIONS::rotateCcw,          ENABLE( cond.HasItems() ) );
-    mgr->SetConditions( PCB_ACTIONS::mirror,             ENABLE( cond.HasItems() ) );
+    mgr->SetConditions( PCB_ACTIONS::mirrorH,            ENABLE( cond.HasItems() ) );
+    mgr->SetConditions( PCB_ACTIONS::mirrorV,            ENABLE( cond.HasItems() ) );
     mgr->SetConditions( PCB_ACTIONS::group,              ENABLE( SELECTION_CONDITIONS::MoreThan( 1 ) ) );
     mgr->SetConditions( PCB_ACTIONS::ungroup,            ENABLE( haveAtLeastOneGroupCond ) );
 
@@ -1107,6 +1137,12 @@ void FOOTPRINT_EDIT_FRAME::setupUIConditions()
 
     mgr->SetConditions( ACTIONS::zoomTool,               CHECK( cond.CurrentTool( ACTIONS::zoomTool ) ) );
     mgr->SetConditions( ACTIONS::selectionTool,          CHECK( cond.CurrentTool( ACTIONS::selectionTool ) ) );
+
+    auto constrainedDrawingModeCond =
+            [this]( const SELECTION& )
+            {
+                return GetSettings()->m_Use45Limit;
+            };
 
     auto highContrastCond =
             [this]( const SELECTION& )
@@ -1132,6 +1168,7 @@ void FOOTPRINT_EDIT_FRAME::setupUIConditions()
                 return m_auimgr.GetPane( "LayersManager" ).IsShown();
             };
 
+    mgr->SetConditions( PCB_ACTIONS::toggleHV45Mode,        CHECK( constrainedDrawingModeCond ) );
     mgr->SetConditions( ACTIONS::highContrastMode,          CHECK( highContrastCond ) );
     mgr->SetConditions( PCB_ACTIONS::flipBoard,             CHECK( boardFlippedCond ) );
     mgr->SetConditions( ACTIONS::toggleBoundingBoxes,       CHECK( cond.BoundingBoxes() ) );
@@ -1163,6 +1200,7 @@ void FOOTPRINT_EDIT_FRAME::setupUIConditions()
     CURRENT_EDIT_TOOL( PCB_ACTIONS::drawArc );
     CURRENT_EDIT_TOOL( PCB_ACTIONS::drawPolygon );
     CURRENT_EDIT_TOOL( PCB_ACTIONS::drawRuleArea );
+    CURRENT_EDIT_TOOL( PCB_ACTIONS::placeImage );
     CURRENT_EDIT_TOOL( PCB_ACTIONS::placeText );
     CURRENT_EDIT_TOOL( PCB_ACTIONS::drawTextBox );
     CURRENT_EDIT_TOOL( PCB_ACTIONS::drawAlignedDimension );
@@ -1200,6 +1238,8 @@ void FOOTPRINT_EDIT_FRAME::CommonSettingsChanged( bool aEnvVarsChanged, bool aTe
     auto cfg = Pgm().GetSettingsManager().GetAppSettings<FOOTPRINT_EDITOR_SETTINGS>();
     GetGalDisplayOptions().ReadWindowSettings( cfg->m_Window );
 
+    GetBoard()->GetDesignSettings() = cfg->m_DesignSettings;
+
     GetCanvas()->GetView()->UpdateAllLayersColor();
     GetCanvas()->GetView()->MarkTargetDirty( KIGFX::TARGET_NONCACHED );
     GetCanvas()->ForceRefresh();
@@ -1216,8 +1256,6 @@ void FOOTPRINT_EDIT_FRAME::CommonSettingsChanged( bool aEnvVarsChanged, bool aTe
 
 void FOOTPRINT_EDIT_FRAME::OnSaveFootprintAsPng( wxCommandEvent& event )
 {
-    wxString   fullFileName;
-
     LIB_ID id = GetLoadedFPID();
 
     if( id.empty() )

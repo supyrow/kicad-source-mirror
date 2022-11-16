@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2004-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2004-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -36,7 +36,6 @@
 #include <kiplatform/ui.h>
 #include <widgets/grid_icon_text_helpers.h>
 #include <widgets/grid_combobox.h>
-#include <widgets/wx_grid.h>
 #include <settings/settings_manager.h>
 #include <ee_collectors.h>
 #include <symbol_library.h>
@@ -49,7 +48,7 @@
 #include <math/vector2d.h>
 
 #ifdef KICAD_SPICE
-#include <dialog_spice_model.h>
+#include <dialog_sim_model.h>
 #endif /* KICAD_SPICE */
 
 
@@ -96,6 +95,14 @@ public:
 
     void BuildAttrs()
     {
+        for( wxGridCellAttr* attr : m_nameAttrs )
+            attr->DecRef();
+
+        m_nameAttrs.clear();
+
+        if( m_readOnlyAttr )
+            m_readOnlyAttr->DecRef();
+
         m_readOnlyAttr = new wxGridCellAttr;
         m_readOnlyAttr->SetReadOnly( true );
 
@@ -124,10 +131,16 @@ public:
             m_nameAttrs.push_back( attr );
         }
 
+        if( m_typeAttr )
+            m_typeAttr->DecRef();
+
         m_typeAttr = new wxGridCellAttr;
         m_typeAttr->SetRenderer( new GRID_CELL_ICON_TEXT_RENDERER( PinTypeIcons(),
                                                                    PinTypeNames() ) );
         m_typeAttr->SetReadOnly( true );
+
+        if( m_shapeAttr )
+            m_shapeAttr->DecRef();
 
         m_shapeAttr = new wxGridCellAttr;
         m_shapeAttr->SetRenderer( new GRID_CELL_ICON_TEXT_RENDERER( PinShapeIcons(),
@@ -285,6 +298,9 @@ DIALOG_SYMBOL_PROPERTIES::DIALOG_SYMBOL_PROPERTIES( SCH_EDIT_FRAME* aParent,
         DIALOG_SYMBOL_PROPERTIES_BASE( aParent ),
         m_symbol( nullptr ),
         m_part( nullptr ),
+        m_fieldsSize( 0, 0 ),
+        m_lastRequestedSize( 0, 0 ),
+        m_editorShown( false ),
         m_fields( nullptr ),
         m_dataModel( nullptr )
 {
@@ -296,10 +312,7 @@ DIALOG_SYMBOL_PROPERTIES::DIALOG_SYMBOL_PROPERTIES( SCH_EDIT_FRAME* aParent,
     // so we need to handle m_part == nullptr
     // wxASSERT( m_part );
 
-    m_fields = new FIELDS_GRID_TABLE<SCH_FIELD>( this, aParent, m_fieldsGrid, m_part );
-
-    m_editorShown = false;
-    m_lastRequestedSize = wxSize( 0, 0 );
+    m_fields = new FIELDS_GRID_TABLE<SCH_FIELD>( this, aParent, m_fieldsGrid, m_symbol );
 
 #ifndef KICAD_SPICE
     m_spiceFieldsButton->Hide();
@@ -462,8 +475,17 @@ bool DIALOG_SYMBOL_PROPERTIES::TransferDataToWindow()
     // If a multi-unit symbol, set up the unit selector and interchangeable checkbox.
     if( m_symbol->GetUnitCount() > 1 )
     {
+        // Ensure symbol unit is the currently selected unit (mandatory in complex hierarchies)
+        // from the current sheet path, because it can be modified by previous calculations
+        m_symbol->UpdateUnit( m_symbol->GetUnitSelection( &GetParent()->GetCurrentSheet() ) );
+
         for( int ii = 1; ii <= m_symbol->GetUnitCount(); ii++ )
-            m_unitChoice->Append( LIB_SYMBOL::SubReference( ii, false ) );
+        {
+            if( m_symbol->HasUnitDisplayName( ii ) )
+                m_unitChoice->Append( m_symbol->GetUnitDisplayName( ii ) );
+            else
+                m_unitChoice->Append( LIB_SYMBOL::SubReference( ii, false ) );
+        }
 
         if( m_symbol->GetUnit() <= ( int )m_unitChoice->GetCount() )
             m_unitChoice->SetSelection( m_symbol->GetUnit() - 1 );
@@ -507,6 +529,7 @@ bool DIALOG_SYMBOL_PROPERTIES::TransferDataToWindow()
 
     m_cbExcludeFromBom->SetValue( !m_symbol->GetIncludeInBom() );
     m_cbExcludeFromBoard->SetValue( !m_symbol->GetIncludeOnBoard() );
+    m_cbDNP->SetValue( m_symbol->GetDNP() );
 
     if( m_part )
     {
@@ -528,9 +551,12 @@ bool DIALOG_SYMBOL_PROPERTIES::TransferDataToWindow()
 void DIALOG_SYMBOL_PROPERTIES::OnEditSpiceModel( wxCommandEvent& event )
 {
 #ifdef KICAD_SPICE
+    if( !m_fieldsGrid->CommitPendingChanges() )
+        return;
+
     int diff = m_fields->size();
 
-    DIALOG_SPICE_MODEL dialog( this, *m_symbol, m_fields );
+    DIALOG_SIM_MODEL dialog( this, *m_symbol, *m_fields );
 
     if( dialog.ShowModal() != wxID_OK )
         return;
@@ -564,7 +590,6 @@ void DIALOG_SYMBOL_PROPERTIES::OnCancelButtonClick( wxCommandEvent& event )
 
 bool DIALOG_SYMBOL_PROPERTIES::Validate()
 {
-    wxString msg;
     LIB_ID   id;
 
     if( !m_fieldsGrid->CommitPendingChanges() || !m_fieldsGrid->Validate() )
@@ -615,15 +640,11 @@ bool DIALOG_SYMBOL_PROPERTIES::TransferDataFromWindow()
         return false;
 
     SCH_SCREEN* currentScreen = GetParent()->GetScreen();
-    SCHEMATIC&  schematic = GetParent()->Schematic();
-
     wxCHECK( currentScreen, false );
 
     // This needs to be done before the LIB_ID is changed to prevent stale library symbols in
     // the schematic file.
     currentScreen->Remove( m_symbol );
-
-    wxString msg;
 
     // save old cmp in undo list if not already in edit, or moving ...
     if( m_symbol->GetEditFlags() == 0 )
@@ -653,7 +674,7 @@ bool DIALOG_SYMBOL_PROPERTIES::TransferDataFromWindow()
 
     switch( m_mirrorCtrl->GetSelection() )
     {
-    case 0:                                         break;
+    case 0:                                           break;
     case 1: m_symbol->SetOrientation( SYM_MIRROR_X ); break;
     case 2: m_symbol->SetOrientation( SYM_MIRROR_Y ); break;
     }
@@ -664,7 +685,7 @@ bool DIALOG_SYMBOL_PROPERTIES::TransferDataFromWindow()
         m_part->SetShowPinNumbers( m_ShowPinNumButt->GetValue() );
     }
 
-    // Restore m_Flag modified by SetUnit() and other change settings
+    // Restore m_Flag modified by SetUnit() and other change settings from the dialog
     m_symbol->ClearFlags();
     m_symbol->SetFlags( flags );
 
@@ -672,38 +693,12 @@ bool DIALOG_SYMBOL_PROPERTIES::TransferDataFromWindow()
     for( unsigned i = 0;  i < m_fields->size();  ++i )
         m_fields->at( i ).Offset( m_symbol->GetPosition() );
 
-    LIB_SYMBOL* entry = GetParent()->GetLibSymbol( m_symbol->GetLibId() );
-
-    if( entry && entry->IsPower() )
-        m_fields->at( VALUE_FIELD ).SetText( m_symbol->GetLibId().GetLibItemName() );
-
-    // Push all fields to the symbol -except- for those which are TEMPLATE_FIELDNAMES
-    // with empty values.
     SCH_FIELDS& fields = m_symbol->GetFields();
 
     fields.clear();
 
     for( size_t i = 0; i < m_fields->size(); ++i )
-    {
-        SCH_FIELD& field = m_fields->at( i );
-        bool       emptyTemplateField = false;
-
-        if( i >= MANDATORY_FIELDS )
-        {
-            for( const TEMPLATE_FIELDNAME& fieldname :
-                    schematic.Settings().m_TemplateFieldNames.GetTemplateFieldNames() )
-            {
-                if( field.GetName() == fieldname.m_Name && field.GetText().IsEmpty() )
-                {
-                    emptyTemplateField = true;
-                    break;
-                }
-            }
-        }
-
-        if( !emptyTemplateField )
-            fields.push_back( field );
-    }
+        fields.push_back( m_fields->at( i ) );
 
     // Reference has a specific initialization, depending on the current active sheet
     // because for a given symbol, in a complex hierarchy, there are more than one
@@ -712,11 +707,13 @@ bool DIALOG_SYMBOL_PROPERTIES::TransferDataFromWindow()
 
     // Similar for Value and Footprint, except that the GUI behaviour is that they are kept
     // in sync between multiple instances.
-    m_symbol->SetValue( m_fields->at( VALUE_FIELD ).GetText() );
-    m_symbol->SetFootprint( m_fields->at( FOOTPRINT_FIELD ).GetText() );
+    m_symbol->SetValue( &GetParent()->GetCurrentSheet(), m_fields->at( VALUE_FIELD ).GetText() );
+    m_symbol->SetFootprint( &GetParent()->GetCurrentSheet(),
+                            m_fields->at( FOOTPRINT_FIELD ).GetText() );
 
     m_symbol->SetIncludeInBom( !m_cbExcludeFromBom->IsChecked() );
     m_symbol->SetIncludeOnBoard( !m_cbExcludeFromBoard->IsChecked() );
+    m_symbol->SetDNP( m_cbDNP->IsChecked() );
 
     // Update any assignments
     if( m_dataModel )
@@ -724,8 +721,10 @@ bool DIALOG_SYMBOL_PROPERTIES::TransferDataFromWindow()
         for( const SCH_PIN& model_pin : *m_dataModel )
         {
             // map from the edited copy back to the "real" pin in the symbol.
-            SCH_PIN* src_pin = m_symbol->GetPin( model_pin.GetLibPin() );
-            src_pin->SetAlt( model_pin.GetAlt() );
+            SCH_PIN* src_pin = m_symbol->GetPin( model_pin.GetNumber() );
+
+            if( src_pin )
+                src_pin->SetAlt( model_pin.GetAlt() );
         }
     }
 
@@ -762,8 +761,14 @@ bool DIALOG_SYMBOL_PROPERTIES::TransferDataFromWindow()
                     }
                     else
                     {
-                        SCH_FIELD* newField = otherUnit->AddField( m_fields->at( ii ) );
-                        const_cast<KIID&>( newField->m_Uuid ) = KIID();
+                        SCH_FIELD newField( m_fields->at( ii ) );
+                        const_cast<KIID&>( newField.m_Uuid ) = KIID();
+
+                        newField.Offset( -m_symbol->GetPosition() );
+                        newField.Offset( otherUnit->GetPosition() );
+
+                        newField.SetParent( otherUnit );
+                        otherUnit->AddField( newField );
                     }
                 }
 
@@ -777,6 +782,7 @@ bool DIALOG_SYMBOL_PROPERTIES::TransferDataFromWindow()
 
                 otherUnit->SetIncludeInBom( !m_cbExcludeFromBom->IsChecked() );
                 otherUnit->SetIncludeOnBoard( !m_cbExcludeFromBoard->IsChecked() );
+                otherUnit->SetDNP( m_cbDNP->IsChecked() );
 
                 if( m_dataModel )
                 {
@@ -866,7 +872,7 @@ void DIALOG_SYMBOL_PROPERTIES::OnAddField( wxCommandEvent& event )
     SCHEMATIC_SETTINGS& settings = m_symbol->Schematic()->Settings();
     int                 fieldID = m_fields->size();
     SCH_FIELD           newField( wxPoint( 0, 0 ), fieldID, m_symbol,
-                                  TEMPLATE_FIELDNAME::GetDefaultFieldName( fieldID ) );
+                                  TEMPLATE_FIELDNAME::GetDefaultFieldName( fieldID, DO_TRANSLATE ) );
 
     newField.SetTextAngle( m_fields->at( REFERENCE_FIELD ).GetTextAngle() );
     newField.SetTextSize( wxSize( settings.m_DefaultTextSize, settings.m_DefaultTextSize ) );
@@ -1017,8 +1023,11 @@ void DIALOG_SYMBOL_PROPERTIES::OnPinTableCellEdited( wxGridEvent& aEvent )
 {
     int row = aEvent.GetRow();
 
-    if( m_pinGrid->GetCellValue( row, COL_ALT_NAME ) == m_dataModel->GetValue( row, COL_BASE_NAME ) )
+    if( m_pinGrid->GetCellValue( row, COL_ALT_NAME )
+            == m_dataModel->GetValue( row, COL_BASE_NAME ) )
+    {
         m_dataModel->SetValue( row, COL_ALT_NAME, wxEmptyString );
+    }
 
     // These are just to get the cells refreshed
     m_dataModel->SetValue( row, COL_TYPE, m_dataModel->GetValue( row, COL_TYPE ) );
@@ -1043,6 +1052,7 @@ void DIALOG_SYMBOL_PROPERTIES::OnPinTableColSort( wxGridEvent& aEvent )
         ascending = true;
 
     m_dataModel->SortRows( sortCol, ascending );
+    m_dataModel->BuildAttrs();
 }
 
 
@@ -1182,7 +1192,48 @@ void DIALOG_SYMBOL_PROPERTIES::OnCheckBox( wxCommandEvent& event )
 }
 
 
-void DIALOG_SYMBOL_PROPERTIES::OnChoice( wxCommandEvent& event )
+void DIALOG_SYMBOL_PROPERTIES::OnUnitChoice( wxCommandEvent& event )
 {
+    if( m_dataModel )
+    {
+        EDA_ITEM_FLAGS flags = m_symbol->GetFlags();
+
+        int unit_selection = m_unitChoice->GetSelection() + 1;
+
+        // We need to select a new unit to build the new unit pin list
+        // but we should not change the symbol, so the initial unit will be selected
+        // after rebuilding the pin list
+        int old_unit = m_symbol->GetUnit();
+        m_symbol->SetUnit( unit_selection );
+
+        // Rebuild a copy of the pins of the new unit for editing
+        m_dataModel->clear();
+
+        for( const std::unique_ptr<SCH_PIN>& pin : m_symbol->GetRawPins() )
+            m_dataModel->push_back( *pin );
+
+        m_dataModel->SortRows( COL_NUMBER, true );
+        m_dataModel->BuildAttrs();
+
+        m_symbol->SetUnit(old_unit );
+
+        // Restore m_Flag modified by SetUnit()
+        m_symbol->ClearFlags();
+        m_symbol->SetFlags( flags );
+    }
+
     OnModify();
 }
+
+
+void DIALOG_SYMBOL_PROPERTIES::onUpdateEditSymbol( wxUpdateUIEvent& event )
+{
+    event.Enable( m_symbol && m_symbol->GetLibSymbolRef() );
+}
+
+
+void DIALOG_SYMBOL_PROPERTIES::onUpdateEditLibrarySymbol( wxUpdateUIEvent& event )
+{
+    event.Enable( m_symbol && m_symbol->GetLibSymbolRef() );
+}
+

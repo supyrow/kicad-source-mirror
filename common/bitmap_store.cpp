@@ -28,6 +28,7 @@
 #include <bitmaps.h>
 #include <bitmap_store.h>
 #include <bitmaps/bitmap_info.h>
+#include <hash.h>
 #include <kiplatform/ui.h>
 #include <paths.h>
 #include <pgm_base.h>
@@ -93,7 +94,10 @@ static const wxString IMAGE_ARCHIVE = wxT( "images.tar.gz" );
 
 size_t std::hash<std::pair<BITMAPS, int>>::operator()( const std::pair<BITMAPS, int>& aPair ) const
 {
-    return std::hash<int>()( static_cast<int>( aPair.first ) ^ std::hash<int>()( aPair.second ) );
+    std::size_t seed = 0xa82de1c0;
+    hash_combine( seed, static_cast<size_t>( aPair.first ), static_cast<size_t>( aPair.second ) );
+
+    return seed;
 }
 
 
@@ -158,7 +162,6 @@ wxImage BITMAP_STORE::getImage( BITMAPS aBitmapId, int aHeight )
 
     wxMemoryInputStream is( data, count );
     wxImage image( is, wxBITMAP_TYPE_PNG );
-    wxBitmap bitmap( image );
 
     return image;
 }
@@ -236,6 +239,5 @@ wxString BITMAP_STORE::computeBitmapName( BITMAPS aBitmapId, int aHeight )
 
 void BITMAP_STORE::buildBitmapInfoCache()
 {
-    for( const BITMAP_INFO& entry : g_BitmapInfo )
-        m_bitmapInfoCache[entry.id].emplace_back( entry );
+    BuildBitmapInfo( m_bitmapInfoCache );
 }

@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2012 Marco Mattila <marcom99@gmail.com>
  * Copyright (C) 2018 Jean-Pierre Charras jp.charras at wanadoo.fr
- * Copyright (C) 1992-2021 Kicad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 Kicad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -49,6 +49,7 @@ bool FindIncludeTexts = true;
 bool FindIncludeValues = true;
 bool FindIncludeReferences = true;
 bool FindIncludeMarkers = true;
+bool FindIncludeNets = true;
 
 
 DIALOG_FIND::DIALOG_FIND( PCB_BASE_FRAME *aFrame ) :
@@ -80,6 +81,7 @@ DIALOG_FIND::DIALOG_FIND( PCB_BASE_FRAME *aFrame ) :
     m_includeValues->SetValue( FindIncludeValues );
     m_includeReferences->SetValue( FindIncludeReferences );
     m_includeMarkers->SetValue( FindIncludeMarkers );
+    m_includeNets->SetValue( FindIncludeNets );
 
     m_status->SetLabel( wxEmptyString);
     m_upToDate = false;
@@ -91,6 +93,16 @@ DIALOG_FIND::DIALOG_FIND( PCB_BASE_FRAME *aFrame ) :
     SetInitialFocus( m_searchCombo );
 
     Center();
+}
+
+
+void DIALOG_FIND::Preload( const wxString& aFindString )
+{
+    if( !aFindString.IsEmpty() )
+    {
+        m_searchCombo->SetValue( aFindString );
+        m_searchCombo->SelectAll();
+    }
 }
 
 
@@ -122,7 +134,6 @@ void DIALOG_FIND::onSearchAgainClick( wxCommandEvent& aEvent )
 void DIALOG_FIND::search( bool aDirection )
 {
     PCB_SCREEN* screen = m_frame->GetScreen();
-    int         flags;
     int         index;
     wxString    msg;
     wxString    searchString;
@@ -165,9 +176,6 @@ void DIALOG_FIND::search( bool aDirection )
 
         m_frame->GetFindHistoryList().Insert( searchString, 0 );
     }
-
-    // Update search flags
-    flags = 0;
 
     if( FindOptionCase != m_matchCase->GetValue() )
     {
@@ -213,21 +221,29 @@ void DIALOG_FIND::search( bool aDirection )
         m_upToDate = false;
     }
 
+    if( FindIncludeNets != m_includeNets->GetValue() )
+    {
+        FindIncludeNets = m_includeNets->GetValue();
+        m_upToDate = false;
+    }
+
     if( FindOptionCase )
-        flags |= wxFR_MATCHCASE;
+        m_frame->GetFindReplaceData().matchCase = true;
 
     if( FindOptionWords )
-        flags |= wxFR_WHOLEWORD;
-
-    if( FindOptionWildcards )
-        flags |= FR_MATCH_WILDCARD;
+        m_frame->GetFindReplaceData().matchMode = EDA_SEARCH_MATCH_MODE::WHOLEWORD;
+    else if( FindOptionWildcards )
+        m_frame->GetFindReplaceData().matchMode = EDA_SEARCH_MATCH_MODE::WILDCARD;
+    else
+        m_frame->GetFindReplaceData().matchMode = EDA_SEARCH_MATCH_MODE::PLAIN;
 
     // Search parameters
-    m_frame->GetFindReplaceData().SetFindString( searchString );
-    m_frame->GetFindReplaceData().SetFlags( flags );
+    m_frame->GetFindReplaceData().findString = searchString;
 
     m_frame->GetToolManager()->RunAction( PCB_ACTIONS::selectionClear, true );
     m_frame->GetCanvas()->GetViewStart( &screen->m_StartVisu.x, &screen->m_StartVisu.y );
+
+    BOARD* board = m_frame->GetBoard();
 
     // Refresh the list of results
     if( !m_upToDate )
@@ -237,7 +253,7 @@ void DIALOG_FIND::search( bool aDirection )
 
         if( FindIncludeTexts || FindIncludeValues || FindIncludeReferences )
         {
-            for( FOOTPRINT* fp : m_frame->GetBoard()->Footprints() )
+            for( FOOTPRINT* fp : board->Footprints() )
             {
                 if( ( fp->Reference().Matches( m_frame->GetFindReplaceData(), nullptr )
                       && FindIncludeReferences )
@@ -264,7 +280,7 @@ void DIALOG_FIND::search( bool aDirection )
 
             if( FindIncludeTexts )
             {
-                for( BOARD_ITEM* item : m_frame->GetBoard()->Drawings() )
+                for( BOARD_ITEM* item : board->Drawings() )
                 {
                     PCB_TEXT* textItem = dynamic_cast<PCB_TEXT*>( item );
 
@@ -274,7 +290,7 @@ void DIALOG_FIND::search( bool aDirection )
                     }
                 }
 
-                for( BOARD_ITEM* item : m_frame->GetBoard()->Zones() )
+                for( BOARD_ITEM* item : board->Zones() )
                 {
                     ZONE* zoneItem = dynamic_cast<ZONE*>( item );
 
@@ -288,10 +304,21 @@ void DIALOG_FIND::search( bool aDirection )
 
         if( FindIncludeMarkers )
         {
-            for( PCB_MARKER* marker : m_frame->GetBoard()->Markers() )
+            for( PCB_MARKER* marker : board->Markers() )
             {
                 if( marker->Matches( m_frame->GetFindReplaceData(), nullptr ) )
                     m_hitList.push_back( marker );
+            }
+        }
+
+        if( FindIncludeNets )
+        {
+            for( NETINFO_ITEM* net : board->GetNetInfo() )
+            {
+                if( net && net->Matches( m_frame->GetFindReplaceData(), nullptr ) )
+                {
+                    m_hitList.push_back( net );
+                }
             }
         }
 
@@ -365,7 +392,6 @@ void DIALOG_FIND::search( bool aDirection )
     else
     {
         m_frame->GetToolManager()->RunAction( PCB_ACTIONS::selectItem, true, *m_it );
-        m_frame->FocusOnLocation( ( *m_it )->GetPosition() );
 
         msg.Printf( _( "'%s' found" ), searchString );
         m_frame->SetStatusText( msg );
@@ -412,6 +438,7 @@ void DIALOG_FIND::OnClose( wxCloseEvent& aEvent )
     FindIncludeValues = m_includeValues->GetValue();
     FindIncludeMarkers = m_includeMarkers->GetValue();
     FindIncludeReferences = m_includeReferences->GetValue();
+    FindIncludeNets = m_includeNets->GetValue();
 
     aEvent.Skip();
 }

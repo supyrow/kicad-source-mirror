@@ -39,6 +39,13 @@
 #include <project/net_settings.h>
 
 
+// Rendering fonts is expensive (particularly when using outline fonts).  At small effective
+// sizes (ie: zoomed out) the visual differences between outline and/or stroke fonts and the
+// bitmap font becomes immaterial, and there's often more to draw when zoomed out so the
+// performance gain becomes more significant.
+#define BITMAP_FONT_SIZE_THRESHOLD 3
+
+
 /* Constructor and destructor for SCH_ITEM */
 /* They are not inline because this creates problems with gcc at linking time in debug mode */
 
@@ -141,8 +148,8 @@ SCH_CONNECTION* SCH_ITEM::Connection( const SCH_SHEET_PATH* aSheet ) const
     if( !IsConnectable() )
         return nullptr;
 
-    wxASSERT_MSG( !IsConnectivityDirty(),
-                  "Shouldn't be asking for connection if connectivity is dirty!" );
+    wxCHECK_MSG( !IsConnectivityDirty(), nullptr,
+                  wxT( "Shouldn't be asking for connection if connectivity is dirty!" ) );
 
     if( !aSheet )
         aSheet = &Schematic()->CurrentSheet();
@@ -156,22 +163,24 @@ SCH_CONNECTION* SCH_ITEM::Connection( const SCH_SHEET_PATH* aSheet ) const
 }
 
 
-NETCLASSPTR SCH_ITEM::NetClass( const SCH_SHEET_PATH* aSheet ) const
+std::shared_ptr<NETCLASS> SCH_ITEM::GetEffectiveNetClass( const SCH_SHEET_PATH* aSheet ) const
 {
-    if( m_connection_map.size() )
+    static std::shared_ptr<NETCLASS> nullNetclass = std::make_shared<NETCLASS>( wxEmptyString );
+
+    SCHEMATIC* schematic = Schematic();
+
+    if( schematic )
     {
-        SCH_CONNECTION* connection = Connection( aSheet );
+        std::shared_ptr<NET_SETTINGS>& netSettings = schematic->Prj().GetProjectFile().m_NetSettings;
+        SCH_CONNECTION*                connection = Connection( aSheet );
 
         if( connection )
-        {
-            NET_SETTINGS&   netSettings = Schematic()->Prj().GetProjectFile().NetSettings();
-            const wxString& netclassName = netSettings.GetNetclassName( connection->Name() );
-
-            return netSettings.m_NetClasses.Find( netclassName );
-        }
+            return netSettings->GetEffectiveNetClass( connection->Name() );
+        else
+            return netSettings->m_DefaultNetClass;
     }
 
-    return nullptr;
+    return nullNetclass;
 }
 
 
@@ -183,7 +192,13 @@ SCH_ITEM_SET& SCH_ITEM::ConnectedItems( const SCH_SHEET_PATH& aSheet )
 
 void SCH_ITEM::AddConnectionTo( const SCH_SHEET_PATH& aSheet, SCH_ITEM* aItem )
 {
-    m_connected_items[ aSheet ].insert( aItem );
+    SCH_ITEM_SET& set = m_connected_items[ aSheet ];
+
+    // The vector elements are small, so reserve 1k at a time to prevent re-allocations
+    if( set.size() == set.capacity() )
+        set.reserve( set.size() + 4096 );
+
+    set.emplace_back( aItem );
 }
 
 
@@ -213,6 +228,9 @@ SCH_CONNECTION* SCH_ITEM::InitializeConnection( const SCH_SHEET_PATH& aSheet,
 SCH_CONNECTION* SCH_ITEM::GetOrInitConnection( const SCH_SHEET_PATH& aSheet,
                                                CONNECTION_GRAPH* aGraph )
 {
+    if( !IsConnectable() )
+        return nullptr;
+
     SetConnectivityDirty( false );
 
     SCH_CONNECTION* connection = Connection( &aSheet );
@@ -270,6 +288,18 @@ const wxString& SCH_ITEM::GetDefaultFont() const
     EESCHEMA_SETTINGS* cfg = Pgm().GetSettingsManager().GetAppSettings<EESCHEMA_SETTINGS>();
 
     return cfg->m_Appearance.default_font;
+}
+
+
+bool SCH_ITEM::RenderAsBitmap( double aWorldScale ) const
+{
+    if( IsHypertext() )
+        return false;
+
+    if( const EDA_TEXT* text = dynamic_cast<const EDA_TEXT*>( this ) )
+        return text->GetTextHeight() * aWorldScale < BITMAP_FONT_SIZE_THRESHOLD;
+
+    return false;
 }
 
 

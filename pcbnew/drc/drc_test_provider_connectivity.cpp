@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2004-2020 KiCad Developers.
+ * Copyright (C) 2004-2022 KiCad Developers.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -38,7 +38,7 @@
     Errors generated:
     - DRCE_DANGLING_TRACK
     - DRCE_DANGLING_VIA
-    - DRCE_ZONE_HAS_EMPTY_NET
+    - DRCE_ISOLATED_COPPER
 */
 
 class DRC_TEST_PROVIDER_CONNECTIVITY : public DRC_TEST_PROVIDER
@@ -56,12 +56,12 @@ public:
 
     virtual const wxString GetName() const override
     {
-        return "connectivity";
+        return wxT( "connectivity" );
     };
 
     virtual const wxString GetDescription() const override
     {
-        return "Tests board connectivity";
+        return wxT( "Tests board connectivity" );
     }
 };
 
@@ -73,15 +73,23 @@ bool DRC_TEST_PROVIDER_CONNECTIVITY::Run()
 
     BOARD* board = m_drcEngine->GetBoard();
 
-    std::shared_ptr<CONNECTIVITY_DATA> connectivity = board->GetConnectivity();
+    std::shared_ptr<CONNECTIVITY_DATA>        connectivity = board->GetConnectivity();
+    std::vector<CN_ZONE_ISOLATED_ISLAND_LIST> islandsList;
 
-    // Rebuild just in case. This really needs to be reliable.
+    for( ZONE* zone : board->Zones() )
+    {
+        if( !zone->GetIsRuleArea() )
+            islandsList.emplace_back( CN_ZONE_ISOLATED_ISLAND_LIST( zone ) );
+    }
+
+    // Rebuild (from scratch, ignoring dirty flags) just in case. This really needs to be reliable.
     connectivity->Clear();
     connectivity->Build( board, m_drcEngine->GetProgressReporter() );
+    connectivity->FindIsolatedCopperIslands( islandsList, true );
 
-    int delta = 100;  // This is the number of tests between 2 calls to the progress bar
+    int progressDelta = 250;
     int ii = 0;
-    int count = board->Tracks().size() + board->Zones().size();
+    int count = board->Tracks().size() + islandsList.size();
 
     ii += count;      // We gave half of this phase to CONNECTIVITY_DATA::Build()
     count += count;
@@ -98,8 +106,8 @@ bool DRC_TEST_PROVIDER_CONNECTIVITY::Run()
         else if( track->Type() == PCB_TRACE_T && exceedT )
             continue;
 
-        if( !reportProgress( ii++, count, delta ) )
-            break;
+        if( !reportProgress( ii++, count, progressDelta ) )
+            return false;   // DRC cancelled
 
         // Test for dangling items
         int code = track->Type() == PCB_VIA_T ? DRCE_DANGLING_VIA : DRCE_DANGLING_TRACK;
@@ -114,28 +122,30 @@ bool DRC_TEST_PROVIDER_CONNECTIVITY::Run()
     }
 
     /* test starved zones */
-    for( ZONE* zone : board->Zones() )
+    for( CN_ZONE_ISOLATED_ISLAND_LIST& zone : islandsList )
     {
-        if( m_drcEngine->IsErrorLimitExceeded( DRCE_ZONE_HAS_EMPTY_NET ) )
+        if( m_drcEngine->IsErrorLimitExceeded( DRCE_ISOLATED_COPPER ) )
             break;
 
-        if( !zone->IsOnCopperLayer() )
-            continue;
-
-        if( !reportProgress( ii++, count, delta ) )
+        if( !reportProgress( ii++, count, progressDelta ) )
             return false;   // DRC cancelled
 
-        int netcode = zone->GetNetCode();
-        // a netcode < 0 or > 0 and no pad in net is a error or strange
-        // perhaps a "dead" net, which happens when all pads in this net were removed
-        // Remark: a netcode < 0 should not happen (this is more a bug somewhere)
-        int pads_in_net = ( netcode > 0 ) ? connectivity->GetPadCount( netcode ) : 1;
-
-        if( ( netcode < 0 ) || pads_in_net == 0 )
+        for( PCB_LAYER_ID layer : zone.m_zone->GetLayerSet().Seq() )
         {
-            std::shared_ptr<DRC_ITEM> drcItem = DRC_ITEM::Create( DRCE_ZONE_HAS_EMPTY_NET );
-            drcItem->SetItems( zone );
-            reportViolation( drcItem, zone->GetPosition(), zone->GetLayer() );
+            if( !zone.m_islands.count( layer ) )
+                continue;
+
+            std::shared_ptr<SHAPE_POLY_SET> poly = zone.m_zone->GetFilledPolysList( layer );
+
+            for( int idx : zone.m_islands.at( layer ) )
+            {
+                if( m_drcEngine->IsErrorLimitExceeded( DRCE_ISOLATED_COPPER ) )
+                    break;
+
+                std::shared_ptr<DRC_ITEM> drcItem = DRC_ITEM::Create( DRCE_ISOLATED_COPPER );
+                drcItem->SetItems( zone.m_zone );
+                reportViolation( drcItem, poly->Outline( idx ).CPoint( 0 ), layer );
+            }
         }
     }
 
@@ -145,29 +155,28 @@ bool DRC_TEST_PROVIDER_CONNECTIVITY::Run()
     if( !reportPhase( _( "Checking net connections..." ) ) )
         return false;   // DRC cancelled
 
-    std::vector<CN_EDGE> edges;
-    connectivity->GetUnconnectedEdges( edges );
-
-    delta = 250;
     ii = 0;
-    count = edges.size();
+    count = connectivity->GetUnconnectedCount( false );
 
-    for( const CN_EDGE& edge : edges )
-    {
-        if( m_drcEngine->IsErrorLimitExceeded( DRCE_UNCONNECTED_ITEMS ) )
-            break;
+    connectivity->RunOnUnconnectedEdges(
+            [&]( CN_EDGE& edge )
+            {
+                if( m_drcEngine->IsErrorLimitExceeded( DRCE_UNCONNECTED_ITEMS ) )
+                    return false;
 
-        if( !reportProgress( ii++, count, delta ) )
-            return false;   // DRC cancelled
+                if( !reportProgress( ii++, count, progressDelta ) )
+                    return false;   // DRC cancelled
 
-        std::shared_ptr<DRC_ITEM> drcItem = DRC_ITEM::Create( DRCE_UNCONNECTED_ITEMS );
-        drcItem->SetItems( edge.GetSourceNode()->Parent(), edge.GetTargetNode()->Parent() );
-        reportViolation( drcItem, edge.GetSourceNode()->Pos(), UNDEFINED_LAYER );
-    }
+                std::shared_ptr<DRC_ITEM> drcItem = DRC_ITEM::Create( DRCE_UNCONNECTED_ITEMS );
+                drcItem->SetItems( edge.GetSourceNode()->Parent(), edge.GetTargetNode()->Parent() );
+                reportViolation( drcItem, edge.GetSourceNode()->Pos(), UNDEFINED_LAYER );
+
+                return true;
+            } );
 
     reportRuleStatistics();
 
-    return true;
+    return !m_drcEngine->IsCancelled();
 }
 
 

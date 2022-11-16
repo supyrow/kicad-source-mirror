@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////
-// C++ code generated with wxFormBuilder (version Oct 26 2018)
+// C++ code generated with wxFormBuilder (version 3.10.1-0-g8feb16b)
 // http://www.wxformbuilder.org/
 //
 // PLEASE DO *NOT* EDIT THIS FILE!
@@ -67,6 +67,8 @@ class DIALOG_GLOBAL_EDIT_TEXT_AND_GRAPHICS_BASE : public DIALOG_SHIM
 		wxPanel* m_specifiedValues;
 		wxStaticText* m_fontLabel;
 		FONT_CHOICE* m_fontCtrl;
+		wxCheckBox* m_setTextColor;
+		COLOR_SWATCH* m_textColorSwatch;
 		wxStaticText* m_textSizeLabel;
 		wxTextCtrl* m_textSizeCtrl;
 		wxStaticText* m_textSizeUnits;
@@ -76,9 +78,14 @@ class DIALOG_GLOBAL_EDIT_TEXT_AND_GRAPHICS_BASE : public DIALOG_SHIM
 		wxCheckBox* m_italic;
 		wxStaticText* hAlignLabel;
 		wxChoice* m_hAlign;
+		wxStaticText* m_staticText14;
 		wxCheckBox* m_visible;
+		wxStaticText* m_staticText12;
 		wxStaticText* vAlignLabel;
 		wxChoice* m_vAlign;
+		wxStaticText* m_staticText15;
+		wxCheckBox* m_showFieldNames;
+		wxStaticText* m_staticText13;
 		wxStaticLine* m_staticline1;
 		wxStaticLine* m_staticline2;
 		wxStaticLine* m_staticline21;
@@ -101,18 +108,22 @@ class DIALOG_GLOBAL_EDIT_TEXT_AND_GRAPHICS_BASE : public DIALOG_SHIM
 		COLOR_SWATCH* m_dotColorSwatch;
 		wxStdDialogButtonSizer* m_sdbSizerButtons;
 		wxButton* m_sdbSizerButtonsOK;
+		wxButton* m_sdbSizerButtonsApply;
 		wxButton* m_sdbSizerButtonsCancel;
 
-		// Virtual event handlers, overide them in your derived class
+		// Virtual event handlers, override them in your derived class
 		virtual void OnUpdateUI( wxUpdateUIEvent& event ) { event.Skip(); }
+		virtual void OnFieldNameFilterText( wxCommandEvent& event ) { event.Skip(); }
 		virtual void OnReferenceFilterText( wxCommandEvent& event ) { event.Skip(); }
 		virtual void OnSymbolFilterText( wxCommandEvent& event ) { event.Skip(); }
+		virtual void OnNetFilterText( wxCommandEvent& event ) { event.Skip(); }
 		virtual void onFontSelected( wxCommandEvent& event ) { event.Skip(); }
 
 
 	public:
 
 		DIALOG_GLOBAL_EDIT_TEXT_AND_GRAPHICS_BASE( wxWindow* parent, wxWindowID id = wxID_ANY, const wxString& title = _("Edit Text and Graphic Properties"), const wxPoint& pos = wxDefaultPosition, const wxSize& size = wxSize( -1,-1 ), long style = wxDEFAULT_DIALOG_STYLE|wxRESIZE_BORDER );
+
 		~DIALOG_GLOBAL_EDIT_TEXT_AND_GRAPHICS_BASE();
 
 };

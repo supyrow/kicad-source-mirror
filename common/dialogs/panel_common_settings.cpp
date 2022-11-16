@@ -77,22 +77,24 @@ PANEL_COMMON_SETTINGS::PANEL_COMMON_SETTINGS( DIALOG_SHIM* aDialog, wxWindow* aP
      * uniformly enough to exclude the explicit controls there.
      */
 #if defined( __WXGTK__ ) || defined( __WXMSW__ )
-    // Sadly wxSlider is poorly implemented and adds its legends as sibiling windows (so that
+    // Sadly wxSlider is poorly implemented and adds its legends as sibling windows (so that
     // showing/hiding the control doesn't work).  So we have to create it conditionally.
     wxWindow*       parent = m_sbUserInterface->GetStaticBox();
     wxGridBagSizer* gb = m_gbUserInterface;
 
     m_iconScaleLabel = new wxStaticText( parent, wxID_ANY, _( "Icon scale:" ) );
    	m_iconScaleLabel->Wrap( -1 );
-   	gb->Add( m_iconScaleLabel, wxGBPosition( 2, 0 ), wxGBSpan( 1, 1 ), wxALIGN_CENTER_VERTICAL, 5 );
+   	gb->Add( m_iconScaleLabel, wxGBPosition( 3, 0 ),
+             wxGBSpan( 1, 1 ), wxALIGN_CENTER_VERTICAL, 5 );
 
    	m_iconScaleSlider = new STEPPED_SLIDER( parent, wxID_ANY, 100, 50, 275, wxDefaultPosition,
                                             wxDefaultSize, wxSL_HORIZONTAL|wxSL_VALUE_LABEL );
    	m_iconScaleSlider->SetStep( 25 );
-   	gb->Add( m_iconScaleSlider, wxGBPosition( 2, 1 ), wxGBSpan( 1, 2 ), wxEXPAND|wxBOTTOM, 5 );
+   	gb->Add( m_iconScaleSlider, wxGBPosition( 3, 1 ), wxGBSpan( 1, 2 ), wxEXPAND|wxBOTTOM, 5 );
 
    	m_iconScaleAuto = new wxCheckBox( parent, wxID_ANY, _( "Automatic" ) );
-   	gb->Add( m_iconScaleAuto, wxGBPosition( 2, 3 ), wxGBSpan( 1, 1 ), wxALIGN_CENTER_VERTICAL|wxLEFT, 15 );
+   	gb->Add( m_iconScaleAuto, wxGBPosition( 3, 3 ),
+             wxGBSpan( 1, 1 ), wxALIGN_CENTER_VERTICAL|wxLEFT, 15 );
 #endif
 
    	/*
@@ -284,19 +286,22 @@ bool PANEL_COMMON_SETTINGS::TransferDataFromWindow()
     commonSettings->m_Appearance.use_icons_in_menus = m_checkBoxIconsInMenus->GetValue();
     commonSettings->m_Appearance.apply_icon_scale_to_fonts = m_scaleFonts->GetValue();
 
+    commonSettings->m_Appearance.show_scrollbars = m_showScrollbars->GetValue();
+
     double dimmingPercent = 80;
     m_highContrastCtrl->GetValue().ToDouble( &dimmingPercent );
     commonSettings->m_Appearance.hicontrast_dimming_factor = dimmingPercent / 100.0f;
 
-    commonSettings->m_Input.immediate_actions   = !m_NonImmediateActions->GetValue();
-    commonSettings->m_Input.warp_mouse_on_move  = m_warpMouseOnMove->GetValue();
+    commonSettings->m_Input.focus_follow_sch_pcb = m_focusFollowSchPcb->GetValue();
+    commonSettings->m_Input.immediate_actions    = !m_NonImmediateActions->GetValue();
+    commonSettings->m_Input.warp_mouse_on_move   = m_warpMouseOnMove->GetValue();
 
-    commonSettings->m_Backup.enabled            = m_cbBackupEnabled->GetValue();
-    commonSettings->m_Backup.backup_on_autosave = m_cbBackupAutosave->GetValue();
-    commonSettings->m_Backup.limit_total_files  = m_backupLimitTotalFiles->GetValue();
-    commonSettings->m_Backup.limit_daily_files  = m_backupLimitDailyFiles->GetValue();
-    commonSettings->m_Backup.min_interval       = m_backupMinInterval->GetValue() * 60;
-    commonSettings->m_Backup.limit_total_size   = m_backupLimitTotalSize->GetValue() * 1024 * 1024;
+    commonSettings->m_Backup.enabled             = m_cbBackupEnabled->GetValue();
+    commonSettings->m_Backup.backup_on_autosave  = m_cbBackupAutosave->GetValue();
+    commonSettings->m_Backup.limit_total_files   = m_backupLimitTotalFiles->GetValue();
+    commonSettings->m_Backup.limit_daily_files   = m_backupLimitDailyFiles->GetValue();
+    commonSettings->m_Backup.min_interval        = m_backupMinInterval->GetValue() * 60;
+    commonSettings->m_Backup.limit_total_size    = m_backupLimitTotalSize->GetValue() * 1024 * 1024;
 
     commonSettings->m_Session.remember_open_files = m_cbRememberOpenFiles->GetValue();
 
@@ -380,6 +385,7 @@ void PANEL_COMMON_SETTINGS::applySettingsToPanel( COMMON_SETTINGS& aSettings )
     double dimmingPercent = aSettings.m_Appearance.hicontrast_dimming_factor * 100.0f;
     m_highContrastCtrl->SetValue( wxString::Format( "%.0f", dimmingPercent ) );
 
+    m_focusFollowSchPcb->SetValue( aSettings.m_Input.focus_follow_sch_pcb );
     m_warpMouseOnMove->SetValue( aSettings.m_Input.warp_mouse_on_move );
     m_NonImmediateActions->SetValue( !aSettings.m_Input.immediate_actions );
 
@@ -391,6 +397,8 @@ void PANEL_COMMON_SETTINGS::applySettingsToPanel( COMMON_SETTINGS& aSettings )
     m_backupLimitDailyFiles->SetValue( aSettings.m_Backup.limit_daily_files );
     m_backupMinInterval->SetValue( aSettings.m_Backup.min_interval / 60 );
     m_backupLimitTotalSize->SetValue( aSettings.m_Backup.limit_total_size / ( 1024 * 1024 ) );
+
+    m_showScrollbars->SetValue( aSettings.m_Appearance.show_scrollbars );
 }
 
 

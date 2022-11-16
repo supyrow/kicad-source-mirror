@@ -45,17 +45,17 @@
 //
 TOOL_ACTION PCB_ACTIONS::convertToPoly( "pcbnew.Convert.convertToPoly",
         AS_GLOBAL, 0, "",
-        _( "Create Polygon from Selection" ), _( "Creates a graphic polygon from the selection" ),
+        _( "Create Polygon from Selection..." ), _( "Creates a graphic polygon from the selection" ),
         BITMAPS::add_graphical_polygon );
 
 TOOL_ACTION PCB_ACTIONS::convertToZone( "pcbnew.Convert.convertToZone",
         AS_GLOBAL, 0, "",
-        _( "Create Zone from Selection" ), _( "Creates a copper zone from the selection" ),
+        _( "Create Zone from Selection..." ), _( "Creates a copper zone from the selection" ),
         BITMAPS::add_zone );
 
 TOOL_ACTION PCB_ACTIONS::convertToKeepout( "pcbnew.Convert.convertToKeepout",
         AS_GLOBAL, 0, "",
-        _( "Create Rule Area from Selection" ), _( "Creates a rule area from the selection" ),
+        _( "Create Rule Area from Selection..." ), _( "Creates a rule area from the selection" ),
         BITMAPS::add_keepout_area );
 
 TOOL_ACTION PCB_ACTIONS::convertToLines( "pcbnew.Convert.convertToLines",
@@ -116,6 +116,11 @@ TOOL_ACTION PCB_ACTIONS::placeStackup( "pcbnew.InteractiveDrawing.placeStackup",
         _( "Add Stackup Table" ),
         _( "Add a board stackup table on a graphic layer" ),
         BITMAPS::INVALID_BITMAP, AF_ACTIVATE );
+
+TOOL_ACTION PCB_ACTIONS::placeImage( "pcbnew.InteractiveDrawing.placeImage",
+        AS_GLOBAL, 0, "",
+        _( "Add Image" ), _( "Add bitmap image" ),
+        BITMAPS::image, AF_ACTIVATE );
 
 TOOL_ACTION PCB_ACTIONS::placeText( "pcbnew.InteractiveDrawing.text",
         AS_GLOBAL,
@@ -265,6 +270,12 @@ TOOL_ACTION PCB_ACTIONS::move( "pcbnew.InteractiveMove.move",
         _( "Move" ), _( "Moves the selected item(s)" ),
         BITMAPS::move, AF_ACTIVATE );
 
+TOOL_ACTION PCB_ACTIONS::moveIndividually( "pcbnew.InteractiveMove.moveIndividually",
+        AS_GLOBAL,
+        MD_CTRL + 'M', "",
+        _( "Move Individually" ), _( "Moves the selected items one-by-one" ),
+        BITMAPS::move, AF_ACTIVATE );
+
 TOOL_ACTION PCB_ACTIONS::moveWithReference( "pcbnew.InteractiveMove.moveWithReference",
         AS_GLOBAL, 0, "",
         _( "Move with Reference" ),
@@ -315,10 +326,28 @@ TOOL_ACTION PCB_ACTIONS::flip( "pcbnew.InteractiveEdit.flip",
         _( "Change Side / Flip" ), _( "Flips selected item(s) to opposite side of board" ),
         BITMAPS::swap_layer );
 
-TOOL_ACTION PCB_ACTIONS::mirror( "pcbnew.InteractiveEdit.mirror",
+TOOL_ACTION PCB_ACTIONS::mirrorH( "pcbnew.InteractiveEdit.mirrorHoriontally",
         AS_GLOBAL, 0, "",
-        _( "Mirror" ), _( "Mirrors selected item" ),
+        _( "Mirror Horizontally" ), _( "Mirrors selected item across the Y axis" ),
         BITMAPS::mirror_h );
+
+TOOL_ACTION PCB_ACTIONS::mirrorV( "pcbnew.InteractiveEdit.mirrorVertically",
+        AS_GLOBAL, 0, "",
+        _( "Mirror Vertically" ), _( "Mirrors selected item across the X axis" ),
+        BITMAPS::mirror_v );
+
+TOOL_ACTION PCB_ACTIONS::swap( "pcbnew.InteractiveEdit.swap",
+        AS_GLOBAL,
+        MD_SHIFT + 'S', "",
+        _( "Swap" ), _( "Swaps selected items' positions" ),
+        BITMAPS::swap );
+
+TOOL_ACTION PCB_ACTIONS::packAndMoveFootprints( "pcbnew.InteractiveEdit.packAndMoveFootprints",
+        AS_GLOBAL, 
+        'P', "",
+        _( "Pack and Move Footprints" ), 
+        _( "Sorts selected footprints by reference, packs based on size and initiates movement" ),
+        BITMAPS::pack_footprints );
 
 TOOL_ACTION PCB_ACTIONS::changeTrackWidth( "pcbnew.InteractiveEdit.changeTrackWidth",
         AS_GLOBAL, 0, "",
@@ -367,6 +396,16 @@ TOOL_ACTION PCB_ACTIONS::createFootprint( "pcbnew.ModuleEditor.createFootprint",
 TOOL_ACTION PCB_ACTIONS::editFootprint( "pcbnew.ModuleEditor.editFootprint",
         AS_GLOBAL, 0, "",
         _( "Edit Footprint" ), _( "Show selected footprint on editor canvas" ),
+        BITMAPS::edit );
+
+TOOL_ACTION PCB_ACTIONS::duplicateFootprint( "pcbnew.ModuleEditor.duplicateFootprint",
+        AS_GLOBAL, 0, "",
+        _( "Duplicate Footprint" ), _( "Make a copy of the selected footprint" ),
+        BITMAPS::duplicate );
+
+TOOL_ACTION PCB_ACTIONS::renameFootprint( "pcbnew.ModuleEditor.renameFootprint",
+        AS_GLOBAL, 0, "",
+        _( "Rename Footprint..." ), _( "Rename the selected footprint" ),
         BITMAPS::edit );
 
 TOOL_ACTION PCB_ACTIONS::deleteFootprint( "pcbnew.ModuleEditor.deleteFootprint",
@@ -655,6 +694,11 @@ TOOL_ACTION PCB_ACTIONS::trackViaSizeChanged( "pcbnew.EditorControl.trackViaSize
         "", "",
         BITMAPS::INVALID_BITMAP, AF_NOTIFY );
 
+TOOL_ACTION PCB_ACTIONS::assignNetClass( "pcbnew.EditorControl.assignNetclass",
+        AS_GLOBAL, 0, "",
+        _( "Assign Netclass..." ), _( "Assign a netclass to nets matching a pattern" ),
+        BITMAPS::netlist );
+
 TOOL_ACTION PCB_ACTIONS::zoneMerge( "pcbnew.EditorControl.zoneMerge",
         AS_GLOBAL, 0, "",
         _( "Merge Zones" ), _( "Merge zones" ) );
@@ -663,11 +707,6 @@ TOOL_ACTION PCB_ACTIONS::zoneDuplicate( "pcbnew.EditorControl.zoneDuplicate",
         AS_GLOBAL, 0, "",
         _( "Duplicate Zone onto Layer..." ), _( "Duplicate zone outline onto a different layer" ),
         BITMAPS::zone_duplicate );
-
-TOOL_ACTION PCB_ACTIONS::placeTarget( "pcbnew.EditorControl.placeTarget",
-        AS_GLOBAL, 0, "",
-        _( "Add Layer Alignment Target" ), _( "Add a layer alignment target" ),
-        BITMAPS::add_pcb_target, AF_ACTIVATE );
 
 TOOL_ACTION PCB_ACTIONS::placeFootprint( "pcbnew.EditorControl.placeFootprint",
         AS_GLOBAL,
@@ -687,12 +726,12 @@ TOOL_ACTION PCB_ACTIONS::toggleLock( "pcbnew.EditorControl.toggleLock",
         _( "Toggle Lock" ), _( "Lock or unlock selected items" ),
         BITMAPS::lock_unlock );
 
-TOOL_ACTION PCB_ACTIONS::toggle45( "pcbnew.EditorControl.toggle45",
+TOOL_ACTION PCB_ACTIONS::toggleHV45Mode( "pcbnew.EditorControl.toggle45",
         AS_GLOBAL,
         MD_SHIFT + ' ', "",
         _( "Constrain to H, V, 45" ),
         _( "Limit actions to horizontal, vertical, or 45 degrees from the starting point" ),
-        BITMAPS::INVALID_BITMAP );
+        BITMAPS::hv45mode );
 
 TOOL_ACTION PCB_ACTIONS::lock( "pcbnew.EditorControl.lock",
         AS_GLOBAL, 0, "",
@@ -735,8 +774,10 @@ TOOL_ACTION PCB_ACTIONS::appendBoard( "pcbnew.EditorControl.appendBoard",
         BITMAPS::add_board );
 
 TOOL_ACTION PCB_ACTIONS::highlightNet( "pcbnew.EditorControl.highlightNet",
-        AS_GLOBAL, 0, "",
-        _( "Highlight Net" ), _( "Highlight the selected net" ),
+        AS_GLOBAL,
+        // Don't be tempted to remove "Modern Toolset only".  It's in the legacy property name.
+        '`', LEGACY_HK_NAME( "Toggle Highlight of Selected Net (Modern Toolset only)" ),
+        _( "Highlight Net" ), _( "Highlight net under cursor" ),
         BITMAPS::net_highlight );
 
 TOOL_ACTION PCB_ACTIONS::toggleLastNetHighlight( "pcbnew.EditorControl.toggleLastNetHighlight",
@@ -750,28 +791,28 @@ TOOL_ACTION PCB_ACTIONS::clearHighlight( "pcbnew.EditorControl.clearHighlight",
 
 TOOL_ACTION PCB_ACTIONS::toggleNetHighlight( "pcbnew.EditorControl.toggleNetHighlight",
         AS_GLOBAL,
-        MD_CTRL + '`', "",
+        MD_ALT + '`', "",
         _( "Toggle Net Highlight" ), _( "Toggle net highlighting" ),
         BITMAPS::net_highlight );
 
 TOOL_ACTION PCB_ACTIONS::highlightNetSelection( "pcbnew.EditorControl.highlightNetSelection",
-        AS_GLOBAL,
-        // Don't be tempted to remove "Modern Toolset only".  It's in the legacy property name.
-        '`', LEGACY_HK_NAME( "Toggle Highlight of Selected Net (Modern Toolset only)" ),
+        AS_GLOBAL, 0, "",
         _( "Highlight Net" ), _( "Highlight all copper items on the selected net(s)" ),
         BITMAPS::net_highlight );
 
 TOOL_ACTION PCB_ACTIONS::highlightItem( "pcbnew.EditorControl.highlightItem",
         AS_GLOBAL );
 
-TOOL_ACTION PCB_ACTIONS::hideNet( "pcbnew.EditorControl.hideNet",
+TOOL_ACTION PCB_ACTIONS::hideNetInRatsnest( "pcbnew.EditorControl.hideNet",
         AS_GLOBAL, 0, "",
-        _( "Hide Net" ), _( "Hide the ratsnest for the selected net" ),
+        _( "Hide Net in Ratsnest" ),
+        _( "Hide the selected net in the ratsnest of unconnected net lines/arcs" ),
         BITMAPS::hide_ratsnest );
 
-TOOL_ACTION PCB_ACTIONS::showNet( "pcbnew.EditorControl.showNet",
+TOOL_ACTION PCB_ACTIONS::showNetInRatsnest( "pcbnew.EditorControl.showNet",
         AS_GLOBAL, 0, "",
-        _( "Show Net" ), _( "Show the ratsnest for the selected net" ),
+        _( "Show Net in Ratsnest" ),
+        _( "Show the selected net in the ratsnest of unconnected net lines/arcs" ),
         BITMAPS::show_ratsnest );
 
 TOOL_ACTION PCB_ACTIONS::showEeschema( "pcbnew.EditorControl.showEeschema",
@@ -788,7 +829,7 @@ TOOL_ACTION PCB_ACTIONS::localRatsnestTool( "pcbnew.Control.localRatsnestTool",
         _( "Local Ratsnest" ), _( "Toggle ratsnest display of selected item(s)" ),
         BITMAPS::tool_ratsnest, AF_ACTIVATE );
 
-TOOL_ACTION PCB_ACTIONS::hideDynamicRatsnest( "pcbnew.Control.hideDynamicRatsnest",
+TOOL_ACTION PCB_ACTIONS::hideLocalRatsnest( "pcbnew.Control.hideDynamicRatsnest",
         AS_GLOBAL );
 
 TOOL_ACTION PCB_ACTIONS::updateLocalRatsnest( "pcbnew.Control.updateLocalRatsnest",
@@ -808,6 +849,11 @@ TOOL_ACTION PCB_ACTIONS::showLayersManager( "pcbnew.Control.showLayersManager",
         AS_GLOBAL, 0, "",
         _( "Show Appearance Manager" ), _( "Show/hide the appearance manager" ),
         BITMAPS::layers_manager );
+
+TOOL_ACTION PCB_ACTIONS::showProperties( "pcbnew.Control.showProperties",
+        AS_GLOBAL, 0, "",
+        _( "Show Properties Panel" ), _( "Show/hide the properties panel" ),
+        BITMAPS::tools );
 
 TOOL_ACTION PCB_ACTIONS::flipBoard( "pcbnew.Control.flipBoard",
         AS_GLOBAL, 0, "",
@@ -1101,7 +1147,7 @@ TOOL_ACTION PCB_ACTIONS::layerChanged( "pcbnew.Control.layerChanged",
         BITMAPS::INVALID_BITMAP, AF_NOTIFY );
 
 //Show board statistics tool
-TOOL_ACTION PCB_ACTIONS::boardStatistics( "pcbnew.InspectionTool.ShowStatisticsDialog",
+TOOL_ACTION PCB_ACTIONS::boardStatistics( "pcbnew.InspectionTool.ShowBoardStatistics",
         AS_GLOBAL, 0, "",
         _( "Show Board Statistics" ), _( "Shows board statistics" ) );
 
@@ -1183,7 +1229,7 @@ TOOL_ACTION PCB_ACTIONS::distributeVertically( "pcbnew.AlignAndDistribute.distri
 TOOL_ACTION PCB_ACTIONS::pointEditorAddCorner( "pcbnew.PointEditor.addCorner",
         AS_GLOBAL,
 #ifdef __WXMAC__
-        'I', "",
+        WXK_F1, "",
 #else
         WXK_INSERT, "",
 #endif
@@ -1253,6 +1299,12 @@ TOOL_ACTION PCB_ACTIONS::selectConnection( "pcbnew.InteractiveSelection.SelectCo
         _( "Selects a connection or expands an existing selection to junctions, pads, or entire connections" ),
         BITMAPS::add_tracks );
 
+TOOL_ACTION PCB_ACTIONS::unrouteSelected( "pcbnew.InteractiveSelection.unrouteSelected",
+        AS_GLOBAL, 0, "",
+        _( "Unroute Selected" ),
+        _( "Unroutes selected items to the nearest pad." ),
+        BITMAPS::general_deletions );
+
 TOOL_ACTION PCB_ACTIONS::syncSelection( "pcbnew.InteractiveSelection.SyncSelection",
         AS_GLOBAL );
 
@@ -1269,6 +1321,18 @@ TOOL_ACTION PCB_ACTIONS::deselectNet( "pcbnew.InteractiveSelection.DeselectNet",
         _( "Deselect All Tracks in Net" ),
         _( "Deselects all tracks & vias belonging to the same net." ) );
 
+TOOL_ACTION PCB_ACTIONS::selectUnconnected( "pcbnew.InteractiveSelection.SelectUnconnected",
+        AS_GLOBAL,
+        'O', "",
+        _( "Select All Unconnected Footprints" ),
+        _( "Selects all unconnected footprints belonging to each selected net." ) );
+
+TOOL_ACTION PCB_ACTIONS::grabUnconnected( "pcbnew.InteractiveSelection.GrabUnconnected",
+        AS_GLOBAL,
+        MD_SHIFT + 'O', "",
+        _( "Grab Nearest Unconnected Footprints" ),
+        _( "Selects and initiates moving the nearest unconnected footprint on each selected net." ) );
+
 TOOL_ACTION PCB_ACTIONS::selectOnSheetFromEeschema( "pcbnew.InteractiveSelection.SelectOnSheet",
         AS_GLOBAL, 0, "",
         _( "Sheet" ),
@@ -1281,6 +1345,12 @@ TOOL_ACTION PCB_ACTIONS::selectSameSheet( "pcbnew.InteractiveSelection.SelectSam
         _( "Selects all footprints and tracks in the same schematic sheet" ),
         BITMAPS::select_same_sheet );
 
+TOOL_ACTION PCB_ACTIONS::selectOnSchematic( "pcbnew.InteractiveSelection.SelectOnSchematic",
+        AS_GLOBAL, 0, "",
+        _( "Select on Schematic" ),
+        _( "Selects corresponding items in Schematic editor" ),
+        BITMAPS::select_same_sheet );
+
 TOOL_ACTION PCB_ACTIONS::filterSelection( "pcbnew.InteractiveSelection.FilterSelection",
         AS_GLOBAL, 0, "",
         _( "Filter Selected Items..." ), _( "Remove items from the selection by type" ),
@@ -1289,21 +1359,14 @@ TOOL_ACTION PCB_ACTIONS::filterSelection( "pcbnew.InteractiveSelection.FilterSel
 
 // ZONE_FILLER_TOOL
 //
-TOOL_ACTION PCB_ACTIONS::zoneFill( "pcbnew.ZoneFiller.zoneFill",
-        AS_GLOBAL, 0, "",
-        _( "Fill Zone" ), _( "Update copper fill of selected zone(s)" ),
-        BITMAPS::fill_zone );
-
 TOOL_ACTION PCB_ACTIONS::zoneFillAll( "pcbnew.ZoneFiller.zoneFillAll",
         AS_GLOBAL,
         'B', LEGACY_HK_NAME( "Fill or Refill All Zones" ),
         _( "Fill All Zones" ), _( "Update copper fill of all zones" ),
         BITMAPS::fill_zone );
 
-TOOL_ACTION PCB_ACTIONS::zoneUnfill( "pcbnew.ZoneFiller.zoneUnfill",
-        AS_GLOBAL, 0, "",
-        _( "Unfill Zone" ), _( "Remove copper fill from selected zone(s)" ),
-        BITMAPS::zone_unfill );
+TOOL_ACTION PCB_ACTIONS::zoneFillDirty( "pcbnew.ZoneFiller.zoneFillDirty",
+        AS_CONTEXT );
 
 TOOL_ACTION PCB_ACTIONS::zoneUnfillAll( "pcbnew.ZoneFiller.zoneUnfillAll",
         AS_GLOBAL,
@@ -1405,6 +1468,39 @@ TOOL_ACTION PCB_ACTIONS::routerUndoLastSegment( "pcbnew.InteractiveRouter.UndoLa
         WXK_BACK, "",
         _( "Undo Last Segment" ),  _( "Walks the current track back one segment." ) );
 
+TOOL_ACTION PCB_ACTIONS::routerContinueFromEnd( "pcbnew.InteractiveRouter.ContinueFromEnd",
+        AS_CONTEXT,
+        'E', "",
+        _( "Route From Other End" ),
+        _( "Commits current segments and starts next segment from nearest ratsnest end." ) );
+
+TOOL_ACTION PCB_ACTIONS::routerAttemptFinish( "pcbnew.InteractiveRouter.AttemptFinish",
+        AS_CONTEXT,
+        'F', "",
+        _( "Attempt Finish" ),
+        _( "Attempts to complete current route to nearest ratsnest end." ) );
+
+TOOL_ACTION PCB_ACTIONS::routerRouteSelected( "pcbnew.InteractiveRouter.RouteSelected",
+        AS_GLOBAL,
+        MD_SHIFT + 'X', "",
+        _( "Route Selected" ),
+        _( "Sequentially route selected items from ratsnest anchor." ),
+        BITMAPS::INVALID_BITMAP, AF_ACTIVATE, (void *) PNS::PNS_MODE_ROUTE_SINGLE);
+
+TOOL_ACTION PCB_ACTIONS::routerRouteSelectedFromEnd( "pcbnew.InteractiveRouter.RouteSelectedFromEnd",
+        AS_GLOBAL,
+        MD_SHIFT + 'E', "",
+        _( "Route Selected From Other End" ),
+        _( "Sequentially route selected items from other end of ratsnest anchor." ),
+        BITMAPS::INVALID_BITMAP, AF_ACTIVATE, (void *) PNS::PNS_MODE_ROUTE_SINGLE);
+
+TOOL_ACTION PCB_ACTIONS::routerAutorouteSelected( "pcbnew.InteractiveRouter.Autoroute",
+        AS_GLOBAL,
+        MD_SHIFT + 'F', "",
+        _( "Attempt Finish Selected (Autoroute)" ),
+        _( "Sequentially attempt to automatically route all selected pads." ),
+        BITMAPS::INVALID_BITMAP, AF_ACTIVATE, (void *) PNS::PNS_MODE_ROUTE_SINGLE);
+
 TOOL_ACTION PCB_ACTIONS::breakTrack( "pcbnew.InteractiveRouter.BreakTrack",
         AS_GLOBAL, 0, "",
         _( "Break Track" ),
@@ -1435,3 +1531,9 @@ TOOL_ACTION PCB_ACTIONS::lengthTunerSettingsDialog( "pcbnew.LengthTuner.Settings
         _( "Length Tuning Settings..." ),
         _( "Sets the length tuning parameters for currently routed item." ),
         BITMAPS::router_len_tuner_setup );
+
+TOOL_ACTION PCB_ACTIONS::ddAppendBoard( "pcbnew.Control.DdAppendBoard",
+        AS_GLOBAL );
+
+
+TOOL_ACTION PCB_ACTIONS::ddImportFootprint( "pcbnew.Control.ddImportFootprint", AS_GLOBAL );

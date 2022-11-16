@@ -55,7 +55,9 @@ enum ESCAPE_CONTEXT
     CTX_LIBID,
     CTX_IPC,
     CTX_QUOTED_STR,
+    CTX_JS_STR,
     CTX_LINE,
+    CTX_CSV,
     CTX_FILENAME,
     CTX_NO_SPACE        // to replace spaces in names that do not accept spaces
 };
@@ -351,11 +353,16 @@ void StripTrailingZeros( wxString& aStringValue, unsigned aTrailingZeroAllowed =
  * this helper function uses the %f format when needed, or %g when %f is
  * not well working and then removes trailing 0
  */
-std::string Double2Str( double aValue );
+std::string UIDouble2Str( double aValue );
 
 /**
- * A helper to convert the \a double \a aAngle (in internal unit) to a string in degrees.
+ * Print a float number without using scientific notation and no trailing 0
+ * This function is intended in uses to write to file, it ignores locale
+ *
+ * We cannot always just use the %g or the %f format to print a fp number
+ * this helper function uses the %f format when needed, or %g when %f is
+ * not well working and then removes trailing 0
  */
-wxString AngleToStringDegrees( double aAngle );
+std::string FormatDouble2Str( double aValue );
 
 #endif  // STRING_UTILS_H

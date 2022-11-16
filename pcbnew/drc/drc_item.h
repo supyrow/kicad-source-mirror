@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2007 Dick Hollenbeck, dick@softplc.com
- * Copyright (C) 2018-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2018-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -43,8 +43,8 @@ enum PCB_DRC_CODE {
     DRCE_CLEARANCE,                      // items are too close together
     DRCE_TRACKS_CROSSING,                // tracks are crossing
     DRCE_EDGE_CLEARANCE,                 // a copper item is too close to the board edge
-    DRCE_ZONES_INTERSECT,                // copper area outlines intersect
-    DRCE_ZONE_HAS_EMPTY_NET,             // copper area has a net but no pads in nets, which is suspicious
+    DRCE_ZONES_INTERSECT,                // copper zone outlines intersect
+    DRCE_ISOLATED_COPPER,                // copper fill with no electrical connections
     DRCE_STARVED_THERMAL,                // insufficient number of thermal spokes connected to zone
     DRCE_DANGLING_VIA,                   // via which isn't connected to anything
     DRCE_DANGLING_TRACK,                 // track with at least one end not connected to anything
@@ -53,6 +53,7 @@ enum PCB_DRC_CODE {
     DRCE_HOLE_CLEARANCE,                 //
     DRCE_TRACK_WIDTH,                    // Track width is too small or too large
     DRCE_ANNULAR_WIDTH,                  // Via size and drill leave annular ring too small
+    DRCE_CONNECTION_WIDTH,               // Net connection too small
     DRCE_DRILL_OUT_OF_RANGE,             // Too small via or pad drill
     DRCE_VIA_DIAMETER,                   // Via diameter checks (min/max)
     DRCE_PADSTACK,                       // something is wrong with a pad or via stackup
@@ -75,6 +76,7 @@ enum PCB_DRC_CODE {
     DRCE_LIB_FOOTPRINT_ISSUES,           // footprint not found in active libraries
     DRCE_LIB_FOOTPRINT_MISMATCH,         // footprint does not match the current library
     DRCE_PAD_TH_WITH_NO_HOLE,            // footprint has Plated Through-Hole with no hole
+    DRCE_FOOTPRINT,                      // error in footprint definition
 
     DRCE_UNRESOLVED_VARIABLE,
     DRCE_ASSERTION_FAILURE,              // user-defined (custom rule) assertion
@@ -85,6 +87,7 @@ enum PCB_DRC_CODE {
 
     DRCE_SILK_CLEARANCE,                 // silkscreen clipped by mask (potentially leaving it
                                          //   over pads, exposed copper, etc.)
+    DRCE_SILK_EDGE_CLEARANCE,
     DRCE_TEXT_HEIGHT,
     DRCE_TEXT_THICKNESS,
     DRCE_OVERLAPPING_SILK,               // silk to silk clearance error
@@ -129,6 +132,9 @@ public:
     void SetViolatingTest( DRC_TEST_PROVIDER *aProvider ) { m_violatingTest = aProvider; }
     DRC_TEST_PROVIDER* GetViolatingTest() const { return m_violatingTest; }
 
+    KIID GetAuxItem2ID() const override;
+    KIID GetAuxItem3ID() const override;
+
 private:
     DRC_ITEM( int aErrorCode = 0, const wxString& aTitle = "", const wxString& aSettingsKey = "" )
     {
@@ -156,13 +162,14 @@ private:
     static DRC_ITEM tracksCrossing;
     static DRC_ITEM edgeClearance;
     static DRC_ITEM zonesIntersect;
-    static DRC_ITEM zoneHasEmptyNet;
+    static DRC_ITEM isolatedCopper;
     static DRC_ITEM starvedThermal;
     static DRC_ITEM viaDangling;
     static DRC_ITEM trackDangling;
     static DRC_ITEM holeNearHole;
     static DRC_ITEM holesCoLocated;
     static DRC_ITEM holeClearance;
+    static DRC_ITEM connectionWidth;
     static DRC_ITEM trackWidth;
     static DRC_ITEM annularWidth;
     static DRC_ITEM drillTooSmall;
@@ -186,6 +193,7 @@ private:
     static DRC_ITEM assertionFailure;
     static DRC_ITEM copperSliver;
     static DRC_ITEM silkClearance;
+    static DRC_ITEM silkEdgeClearance;
     static DRC_ITEM solderMaskBridge;
     static DRC_ITEM silkOverlaps;
     static DRC_ITEM textHeightOutOfRange;
@@ -195,6 +203,7 @@ private:
     static DRC_ITEM tooManyVias;
     static DRC_ITEM diffPairGapOutOfRange;
     static DRC_ITEM diffPairUncoupledLengthTooLong;
+    static DRC_ITEM footprint;
     static DRC_ITEM footprintTypeMismatch;
     static DRC_ITEM footprintTHPadhasNoHole;
 
@@ -207,11 +216,15 @@ private:
 class DRC_ITEMS_PROVIDER : public RC_ITEMS_PROVIDER
 {
 public:
-    DRC_ITEMS_PROVIDER( BOARD* aBoard, MARKER_BASE::TYPEMARKER aMarkerType ) :
+    DRC_ITEMS_PROVIDER( BOARD* aBoard, MARKER_BASE::TYPEMARKER aMarkerType,
+                        MARKER_BASE::TYPEMARKER otherMarkerType = MARKER_BASE::MARKER_UNSPEC ) :
             m_board( aBoard ),
-            m_markerType( aMarkerType ),
             m_severities( 0 )
     {
+        m_markerTypes.push_back( aMarkerType );
+
+        if( otherMarkerType != MARKER_BASE::MARKER_UNSPEC )
+            m_markerTypes.push_back( otherMarkerType );
     }
 
     void SetSeverities( int aSeverities ) override;
@@ -222,14 +235,12 @@ public:
 
     void DeleteItem( int aIndex, bool aDeep ) override;
 
-    void DeleteAllItems( bool aIncludeExclusions, bool aDeep ) override;
-
 private:
-    BOARD*                   m_board;
-    MARKER_BASE::TYPEMARKER  m_markerType;
+    BOARD*                               m_board;
+    std::vector<MARKER_BASE::TYPEMARKER> m_markerTypes;
 
-    int                      m_severities;
-    std::vector<PCB_MARKER*> m_filteredMarkers;
+    int                                  m_severities;
+    std::vector<PCB_MARKER*>             m_filteredMarkers;
 };
 
 

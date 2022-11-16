@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2020 Thomas Pointhuber <thomas.pointhuber@gmx.at>
- * Copyright (C) 2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2021-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -48,6 +48,13 @@ struct ASCH_STORAGE_FILE
     explicit ASCH_STORAGE_FILE( ALTIUM_PARSER& aReader );
 };
 
+struct ASCH_ADDITIONAL_FILE
+{
+    wxString          FileName;
+    std::vector<char> Data;
+
+    explicit ASCH_ADDITIONAL_FILE( ALTIUM_PARSER& aReader );
+};
 
 enum class ALTIUM_SCH_RECORD
 {
@@ -92,10 +99,10 @@ enum class ALTIUM_SCH_RECORD
     RECORD_48           = 48,
     NOTE                = 209,
     COMPILE_MASK        = 211,
-    RECORD_215          = 215,
-    RECORD_216          = 216,
-    RECORD_217          = 217,
-    RECORD_218          = 218,
+    HARNESS_CONNECTOR   = 215,
+    HARNESS_ENTRY       = 216,
+    HARNESS_TYPE        = 217,
+    SIGNAL_HARNESS      = 218,
     RECORD_226          = 226,
 };
 
@@ -111,15 +118,15 @@ enum class ASCH_RECORD_ORIENTATION
 
 struct ASCH_SHAPE_INTERFACE
 {
-    int ownerindex;
-    int ownerpartid;
-    int ownerpartdisplaymode;
+    int OwnerIndex;
+    int OwnerPartID;
+    int OwnerPartDisplayMode;
 
-    int  lineWidth;
-    bool isSolid;
+    int  LineWidth;
+    bool IsSolid;
 
-    int color;
-    int areacolor;
+    int Color;
+    int AreaColor;
 };
 
 
@@ -282,18 +289,25 @@ struct ASCH_LABEL
 
 struct ASCH_TEXT_FRAME
 {
-    VECTOR2I location;
-    wxSize   size;
+    VECTOR2I Location;
+    wxSize   Size;
 
-    wxString text;
+    // have both coordinates, for convenience
+    VECTOR2I BottomLeft;
+    VECTOR2I TopRight;
 
-    int  fontId;
-    bool isWordWrapped;
-    bool border;
-    int  textMargin;
-    int  areaColor;
+    wxString Text;
 
-    ASCH_TEXT_FRAME_ALIGNMENT alignment;
+    bool IsWordWrapped; // to do when kicad supports this
+    bool ShowBorder;
+    bool IsSolid;
+
+    int  FontID;
+    int  TextMargin; // to do when kicad supports this
+    int  AreaColor;
+    int  BorderColor;
+
+    ASCH_TEXT_FRAME_ALIGNMENT Alignment;
 
     explicit ASCH_TEXT_FRAME( const std::map<wxString, wxString>& aProps );
 };
@@ -330,17 +344,27 @@ enum class ASCH_POLYLINE_LINESTYLE
 };
 
 
+enum class ASCH_SHEET_ENTRY_SIDE
+{
+    LEFT   = 0,
+    RIGHT  = 1,
+    TOP    = 2,
+    BOTTOM = 3
+};
+
+
 struct ASCH_POLYLINE
 {
-    int ownerindex;
-    int ownerpartid;
-    int ownerpartdisplaymode;
+    int OwnerIndex;
+    int OwnerPartID;
+    int OwnerPartDisplayMode;
 
-    std::vector<VECTOR2I> points;
+    std::vector<VECTOR2I> Points;
 
-    int lineWidth;
+    int LineWidth;
+    int Color;
 
-    ASCH_POLYLINE_LINESTYLE linestyle;
+    ASCH_POLYLINE_LINESTYLE LineStyle;
 
     explicit ASCH_POLYLINE( const std::map<wxString, wxString>& aProps );
 };
@@ -356,12 +380,12 @@ struct ASCH_POLYGON : ASCH_SHAPE_INTERFACE
 
 struct ASCH_ROUND_RECTANGLE : ASCH_SHAPE_INTERFACE
 {
-    VECTOR2I bottomLeft;
-    VECTOR2I topRight;
+    VECTOR2I BottomLeft;
+    VECTOR2I TopRight;
 
-    wxSize cornerradius;
+    wxSize CornerRadius;
 
-    bool isTransparent;
+    bool IsTransparent;
 
     explicit ASCH_ROUND_RECTANGLE( const std::map<wxString, wxString>& aProps );
 };
@@ -384,6 +408,23 @@ struct ASCH_ARC
 };
 
 
+struct ASCH_ELLIPSE
+{
+    int OwnerIndex;
+    int OwnerPartID;
+
+    VECTOR2I Center;
+    int      Radius;
+    double   SecondaryRadius;
+
+    int  AreaColor;
+    bool IsSolid;
+    bool IsNotAccesible;
+
+    explicit ASCH_ELLIPSE( const std::map<wxString, wxString>& aProps );
+};
+
+
 struct ASCH_LINE
 {
     int ownerindex;
@@ -399,12 +440,94 @@ struct ASCH_LINE
 };
 
 
+struct ASCH_SIGNAL_HARNESS
+{
+    int OwnerPartID;  // always -1, can be safely ignored I think
+
+    VECTOR2I Point1;
+    VECTOR2I Point2;
+
+    std::vector<VECTOR2I> Points;
+
+    int Color;
+    int IndexInSheet;
+    int LineWidth;
+
+    explicit ASCH_SIGNAL_HARNESS( const std::map<wxString, wxString>& aProps );
+};
+
+
+struct ASCH_HARNESS_CONNECTOR
+{
+    int OwnerPartID; // always -1, can be safely ignored I think
+
+    VECTOR2I Location;
+    wxSize   Size;
+
+    int AreaColor;
+    int Color;
+    int IndexInSheet; // Keeps increasing nicely
+    int LineWidth;
+    //int locationX; // keep just in case
+    //int locationY;
+    int LocationPrimaryConnectionPosition;
+    //int xSize;     // keep just in case
+    //int ySize;
+
+    explicit ASCH_HARNESS_CONNECTOR( const std::map<wxString, wxString>& aProps );
+};
+
+
+struct ASCH_HARNESS_ENTRY
+{
+    // Completely random, mostly this entry exists, but not always, should not be used!
+    // int ownerindex;
+
+    int OwnerPartID; // always -1, can be safely ignored I think
+
+    int AreaColor;
+    int Color;
+    int DistanceFromTop;
+    int IndexInSheet;
+    int TextColor;
+    int TextFontID;
+    int TextStyle;
+
+    bool OwnerIndexAdditionalList; // what is that?
+
+    wxString Name;
+    ASCH_SHEET_ENTRY_SIDE Side;
+
+    explicit ASCH_HARNESS_ENTRY( const std::map<wxString, wxString>& aProps );
+};
+
+
+struct ASCH_HARNESS_TYPE
+{
+    //int ownerindex; // use SCH_ALTIUM_PLUGIN::m_harnessEntryParent instead!
+    int OwnerPartID; // Always -1, presumably safe to remuve
+
+    int Color;
+    int IndexInSheet;
+    int FontID;
+
+    bool IsHidden;
+    bool OwnerIndexAdditionalList; // what is that?
+
+    VECTOR2I Location;
+
+    wxString Text;
+
+    explicit ASCH_HARNESS_TYPE( const std::map<wxString, wxString>& aProps );
+};
+
+
 struct ASCH_RECTANGLE : ASCH_SHAPE_INTERFACE
 {
-    VECTOR2I bottomLeft;
-    VECTOR2I topRight;
+    VECTOR2I BottomLeft;
+    VECTOR2I TopRight;
 
-    bool isTransparent;
+    bool IsTransparent;
 
     explicit ASCH_RECTANGLE( const std::map<wxString, wxString>& aProps );
 };
@@ -421,15 +544,6 @@ struct ASCH_SHEET_SYMBOL
     int areacolor;
 
     explicit ASCH_SHEET_SYMBOL( const std::map<wxString, wxString>& aProps );
-};
-
-
-enum class ASCH_SHEET_ENTRY_SIDE
-{
-    LEFT   = 0,
-    RIGHT  = 1,
-    TOP    = 2,
-    BOTTOM = 3
 };
 
 
@@ -507,17 +621,23 @@ struct ASCH_POWER_PORT
 
 struct ASCH_PORT
 {
-    int ownerpartid;
+    int OwnerPartID;
 
-    wxString name;
-    wxString harnessType;
+    wxString Name;
+    wxString HarnessType;
 
-    VECTOR2I location;
-    int      width;
-    int      height;
+    VECTOR2I Location;
+    int      Width;
+    int      Height;
+    int      AreaColor;
+    int      Color;
+    int      TextColor;
+    int      FontID;
 
-    ASCH_PORT_IOTYPE iotype;
-    ASCH_PORT_STYLE  style;
+    ASCH_TEXT_FRAME_ALIGNMENT Alignment;
+
+    ASCH_PORT_IOTYPE IOtype;
+    ASCH_PORT_STYLE  Style;
 
     explicit ASCH_PORT( const std::map<wxString, wxString>& aProps );
 };
@@ -596,14 +716,15 @@ struct ASCH_IMAGE
 
 struct ASCH_SHEET_FONT
 {
-    wxString fontname;
+    wxString FontName;
 
-    int size;
-    int rotation;
+    int Size;
+    int Rotation;
+    int AreaColor;
 
-    bool italic;
-    bool bold;
-    bool underline;
+    bool Italic;
+    bool Bold;
+    bool Underline;
 
     explicit ASCH_SHEET_FONT( const std::map<wxString, wxString>& aProps, int aId );
 };

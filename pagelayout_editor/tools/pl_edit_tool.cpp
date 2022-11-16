@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2019 CERN
- * Copyright (C) 2019-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2019-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -117,8 +117,7 @@ int PL_EDIT_TOOL::Main( const TOOL_EVENT& aEvent )
         unique_peers.insert( drawItem->GetPeer() );
     }
 
-    std::string tool = aEvent.GetCommandStr().get();
-    m_frame->PushTool( tool );
+    m_frame->PushTool( aEvent );
 
     Activate();
     // Must be done after Activate() so that it gets set into the correct context
@@ -127,7 +126,8 @@ int PL_EDIT_TOOL::Main( const TOOL_EVENT& aEvent )
 
     bool        restore_state = false;
     bool        chain_commands = false;
-    TOOL_EVENT* evt = const_cast<TOOL_EVENT*>( &aEvent );
+    TOOL_EVENT  copy = aEvent;
+    TOOL_EVENT* evt = &copy;
     VECTOR2I    prevPos;
 
     if( !selection.Front()->IsNew() )
@@ -204,6 +204,9 @@ int PL_EDIT_TOOL::Main( const TOOL_EVENT& aEvent )
         //
         else if( evt->IsCancelInteractive() || evt->IsActivate() )
         {
+            if( evt->IsCancelInteractive() )
+                m_frame->GetInfoBar()->Dismiss();
+
             if( m_moveInProgress )
             {
                 if( evt->IsActivate() )
@@ -298,7 +301,7 @@ int PL_EDIT_TOOL::Main( const TOOL_EVENT& aEvent )
         m_toolMgr->PostEvent( EVENTS::SelectedEvent );
 
     m_moveInProgress = false;
-    m_frame->PopTool( tool );
+    m_frame->PopTool( aEvent );
     return 0;
 }
 
@@ -354,6 +357,14 @@ int PL_EDIT_TOOL::DoDelete( const TOOL_EVENT& aEvent )
     if( selection.Size() == 0 )
         return 0;
 
+
+    // Do not delete an item if it is currently a new item being created to avoid a crash
+    // In this case the selection contains only one item.
+    DS_DRAW_ITEM_BASE* currItem = static_cast<DS_DRAW_ITEM_BASE*>( selection.Front() );
+
+    if( currItem->GetFlags() & ( IS_NEW ) )
+        return 0;
+
     m_frame->SaveCopyInUndoList();
 
     while( selection.Front() )
@@ -386,7 +397,6 @@ int PL_EDIT_TOOL::DoDelete( const TOOL_EVENT& aEvent )
 
 int PL_EDIT_TOOL::DeleteItemCursor( const TOOL_EVENT& aEvent )
 {
-    std::string  tool = aEvent.GetCommandStr().get();
     PICKER_TOOL* picker = m_toolMgr->GetTool<PICKER_TOOL>();
 
     // Deactivate other tools; particularly important if another PICKER is currently running
@@ -420,7 +430,7 @@ int PL_EDIT_TOOL::DeleteItemCursor( const TOOL_EVENT& aEvent )
             {
                 for( DS_DRAW_ITEM_BASE* drawItem : dataItem->GetDrawItems() )
                 {
-                    if( drawItem->HitTest( (wxPoint) aPos, threshold ) )
+                    if( drawItem->HitTest( aPos, threshold ) )
                     {
                         item = drawItem;
                         break;
@@ -452,7 +462,7 @@ int PL_EDIT_TOOL::DeleteItemCursor( const TOOL_EVENT& aEvent )
             m_toolMgr->RunAction( PL_ACTIONS::selectionActivate, false );
         } );
 
-    m_toolMgr->RunAction( ACTIONS::pickerTool, true, &tool );
+    m_toolMgr->RunAction( ACTIONS::pickerTool, true );
 
     return 0;
 }

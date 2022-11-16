@@ -118,6 +118,7 @@ bool FOOTPRINT_EDIT_FRAME::LoadFootprintFromBoard( FOOTPRINT* aFootprint )
 
     newFootprint = (FOOTPRINT*) aFootprint->Clone();    // Keep existing uuids
     newFootprint->SetParent( GetBoard() );
+    newFootprint->SetParentGroup( nullptr );
     newFootprint->SetLink( aFootprint->m_Uuid );
 
     newFootprint->ClearFlags();
@@ -147,7 +148,7 @@ bool FOOTPRINT_EDIT_FRAME::LoadFootprintFromBoard( FOOTPRINT* aFootprint )
     // Put it on FRONT layer,
     // because this is the default in Footprint Editor, and in libs
     if( newFootprint->GetLayer() != F_Cu )
-        newFootprint->Flip( newFootprint->GetPosition(), frame->Settings().m_FlipLeftRight );
+        newFootprint->Flip( newFootprint->GetPosition(), frame->GetPcbNewSettings()->m_FlipLeftRight );
 
     // Put it in orientation 0,
     // because this is the default orientation in Footprint Editor, and in libs
@@ -253,14 +254,14 @@ FOOTPRINT* PCB_BASE_FRAME::SelectFootprintFromLibTree( LIB_ID aPreselect )
     }
 
     adapter->DoAddLibrary( wxT( "-- " ) + _( "Recently Used" ) + wxT( " --" ), wxEmptyString,
-                           historyInfos, true );
+                           historyInfos, false, true );
 
     if( aPreselect.IsValid() )
         adapter->SetPreselectNode( aPreselect, 0 );
     else if( historyInfos.size() )
         adapter->SetPreselectNode( historyInfos[0]->GetLibId(), 0 );
 
-    adapter->AddLibraries();
+    adapter->AddLibraries( this );
 
     wxString title;
     title.Printf( _( "Choose Footprint (%d items loaded)" ), adapter->GetItemCount() );
@@ -269,6 +270,9 @@ FOOTPRINT* PCB_BASE_FRAME::SelectFootprintFromLibTree( LIB_ID aPreselect )
 
     if( dialog.ShowQuasiModal() == wxID_CANCEL )
         return nullptr;
+
+    // Save any changes to column widths, etc.
+    adapter->SaveSettings();
 
     if( dialog.IsExternalBrowserSelected() )
     {
@@ -391,10 +395,10 @@ FOOTPRINT* FOOTPRINT_EDIT_FRAME::SelectFootprintFromBoard( BOARD* aPcb )
 
     oldName = fpname;
 
-    for( auto mod : aPcb->Footprints() )
+    for( FOOTPRINT* fp : aPcb->Footprints() )
     {
-        if( fpname == mod->GetReference() )
-            return mod;
+        if( fpname == fp->GetReference() )
+            return fp;
     }
 
     return nullptr;
@@ -403,8 +407,8 @@ FOOTPRINT* FOOTPRINT_EDIT_FRAME::SelectFootprintFromBoard( BOARD* aPcb )
 
 bool FOOTPRINT_EDIT_FRAME::SaveLibraryAs( const wxString& aLibraryPath )
 {
-    const wxString&    curLibPath = aLibraryPath;
-    wxString    dstLibPath = CreateNewLibrary( wxEmptyString, aLibraryPath );
+    const wxString& curLibPath = aLibraryPath;
+    wxString        dstLibPath = CreateNewLibrary( wxEmptyString, aLibraryPath );
 
     if( !dstLibPath )
         return false;             // user aborted in CreateNewLibrary()

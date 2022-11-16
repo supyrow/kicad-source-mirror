@@ -46,7 +46,8 @@ enum TEXT_STYLE
     ITALIC = 1 << 1,
     SUBSCRIPT = 1 << 2,
     SUPERSCRIPT = 1 << 3,
-    OVERBAR = 1 << 4
+    OVERBAR = 1 << 4,
+    UNDERLINE = 1 << 5
 };
 
 
@@ -108,17 +109,17 @@ public:
     virtual ~FONT()
     { }
 
-    virtual bool IsStroke() const { return false; }
+    virtual bool IsStroke() const  { return false; }
     virtual bool IsOutline() const { return false; }
-    virtual bool IsBold() const { return false; }
-    virtual bool IsItalic() const { return false; }
+    virtual bool IsBold() const    { return false; }
+    virtual bool IsItalic() const  { return false; }
 
-    static FONT* GetFont( const wxString& aFontName = "", bool aBold = false,
+    static FONT* GetFont( const wxString& aFontName = wxEmptyString, bool aBold = false,
                           bool aItalic = false );
-    static bool  IsStroke( const wxString& aFontName );
+    static bool IsStroke( const wxString& aFontName );
 
-    const wxString&    Name() const;
-    inline const char* NameAsToken() const { return Name().utf8_str().data(); }
+    const wxString& GetName() const { return m_fontName; };
+    inline const char* NameAsToken() const { return GetName().utf8_str().data(); }
 
     /**
      * Draw a string.
@@ -158,6 +159,12 @@ public:
      * baseline and the overbar.
      */
     virtual double ComputeOverbarVerticalPosition( double aGlyphHeight ) const = 0;
+
+    /**
+     * Compute the vertical position of an underline.  This is the distance between the text
+     * baseline and the underline.
+     */
+    virtual double ComputeUnderlineVerticalPosition( double aGlyphHeight ) const = 0;
 
     /**
      * Compute the distance (interline) between 2 lines of text (for multiline texts).  This is
@@ -218,7 +225,7 @@ protected:
     void drawSingleLineText( KIGFX::GAL* aGal, BOX2I* aBoundingBox, const wxString& aText,
                              const VECTOR2I& aPosition, const VECTOR2I& aSize,
                              const EDA_ANGLE& aAngle, bool aMirror, const VECTOR2I& aOrigin,
-                             bool aItalic ) const;
+                             bool aItalic, bool aUnderline ) const;
 
     /**
      * Computes the bounding box for a single line of text.
@@ -266,7 +273,7 @@ private:
 
 inline std::ostream& operator<<(std::ostream& os, const KIFONT::FONT& aFont)
 {
-    os << "[Font \"" << aFont.Name() << "\"" << ( aFont.IsStroke() ? " stroke" : "" )
+    os << "[Font \"" << aFont.GetName() << "\"" << ( aFont.IsStroke() ? " stroke" : "" )
        << ( aFont.IsOutline() ? " outline" : "" ) << ( aFont.IsBold() ? " bold" : "" )
        << ( aFont.IsItalic() ? " italic" : "" ) << "]";
     return os;

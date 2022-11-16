@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2019 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2019-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -29,35 +29,43 @@
 class FOOTPRINT;
 class BOARD_COMMIT;
 class CLEANUP_ITEM;
+class TOOL_MANAGER;
 
 
 // Helper class used to clean tracks and vias
 class GRAPHICS_CLEANER
 {
 public:
-    GRAPHICS_CLEANER( DRAWINGS& aDrawings, FOOTPRINT* aParentFootprint, BOARD_COMMIT& aCommit );
+    GRAPHICS_CLEANER( DRAWINGS& aDrawings, FOOTPRINT* aParentFootprint, BOARD_COMMIT& aCommit,
+                      TOOL_MANAGER* aToolManager );
 
     /**
      * the cleanup function.
      * @param aMergeRects = merge for segments forming a rectangle into a rect
      * @param aDeleteRedundant = true to delete null graphics and duplicated graphics
+     * @param aMergePads = true to apply Pad Editor's merge algorithm to all pads in footprint
+     *                     (it is assumed this will only be run on FPEditor boards)
      */
     void CleanupBoard( bool aDryRun, std::vector<std::shared_ptr<CLEANUP_ITEM> >* aItemsList,
-                       bool aMergeRects, bool aDeleteRedundant );
+                       bool aMergeRects, bool aDeleteRedundant, bool aMergePads );
 
 private:
     bool isNullShape( PCB_SHAPE* aShape );
     bool areEquivalent( PCB_SHAPE* aShape1, PCB_SHAPE* aShape2 );
 
-    void cleanupSegments();
+    void cleanupShapes();
     void mergeRects();
+    void mergePads();
 
 private:
-    DRAWINGS&                   m_drawings;
-    FOOTPRINT*                  m_parentFootprint;  // nullptr if not in Footprint Editor
-    BOARD_COMMIT&               m_commit;
-    bool                        m_dryRun;
-    std::vector<std::shared_ptr<CLEANUP_ITEM> >* m_itemsList;
+    DRAWINGS&     m_drawings;
+    FOOTPRINT*    m_parentFootprint;  // nullptr if not in Footprint Editor
+    BOARD_COMMIT& m_commit;
+    TOOL_MANAGER* m_toolMgr;
+    bool          m_dryRun;
+    int           m_epsilon;
+
+    std::vector<std::shared_ptr<CLEANUP_ITEM>>* m_itemsList;
 };
 
 

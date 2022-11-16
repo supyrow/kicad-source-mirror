@@ -20,6 +20,7 @@
 
 #include <class_draw_panel_gal.h>
 #include <common.h>
+#include <eda_units.h>
 #include <layer_ids.h>
 #include <pgm_base.h>
 #include <settings/app_settings.h>
@@ -27,9 +28,6 @@
 #include <settings/common_settings.h>
 #include <settings/parameters.h>
 #include <base_units.h>
-
-///! Update the schema version whenever a migration is required
-const int appSettingsSchemaVersion = 0;
 
 
 APP_SETTINGS_BASE::APP_SETTINGS_BASE( const std::string& aFilename, int aSchemaVersion ) :
@@ -45,11 +43,17 @@ APP_SETTINGS_BASE::APP_SETTINGS_BASE( const std::string& aFilename, int aSchemaV
         m_appSettingsSchemaVersion( aSchemaVersion )
 {
     // Make Coverity happy:
-    m_LibTree.column_width = 360;
     m_Graphics.canvas_type = EDA_DRAW_PANEL_GAL::GAL_FALLBACK;
 
     // Build parameters list:
-    m_params.emplace_back( new PARAM<int>( "find_replace.flags", &m_FindReplace.flags, 1 ) );
+    m_params.emplace_back(
+            new PARAM<int>( "find_replace.match_mode", &m_FindReplace.match_mode, 0 ) );
+
+    m_params.emplace_back(
+            new PARAM<bool>( "find_replace.match_case", &m_FindReplace.match_case, false ) );
+
+    m_params.emplace_back( new PARAM<bool>( "find_replace.search_and_replace",
+                                            &m_FindReplace.search_and_replace, false ) );
 
     m_params.emplace_back( new PARAM<wxString>( "find_replace.find_string",
             &m_FindReplace.find_string, "" ) );
@@ -75,14 +79,34 @@ APP_SETTINGS_BASE::APP_SETTINGS_BASE( const std::string& aFilename, int aSchemaV
     m_params.emplace_back( new PARAM<int>( "color_picker.default_tab",
             &m_ColorPicker.default_tab, 0 ) );
 
-    m_params.emplace_back( new PARAM<int>( "lib_tree.column_width",
-            &m_LibTree.column_width, 360 ) );
+    m_params.emplace_back( new PARAM_LIST<wxString>( "lib_tree.columns", &m_LibTree.columns, {} ) );
 
-    // Now that we allow hiding/showing of the tree control, it's never terribly useful to
-    // decrease the width to nothing, and wxWidgets appears to have some bugs where it sets it
-    // way too narrow.
-    if( m_LibTree.column_width < 360 )
-        m_LibTree.column_width = 360;
+    m_params.emplace_back( new PARAM_LAMBDA<nlohmann::json>( "lib_tree.column_widths",
+            [&]() -> nlohmann::json
+            {
+                nlohmann::json ret = {};
+
+                for( const std::pair<const wxString, int>& pair : m_LibTree.column_widths )
+                    ret[std::string( pair.first.ToUTF8() )] = pair.second;
+
+                return ret;
+            },
+            [&]( const nlohmann::json& aJson )
+            {
+                if( !aJson.is_object() )
+                    return;
+
+                m_LibTree.column_widths.clear();
+
+                for( const auto& entry : aJson.items() )
+                {
+                    if( !entry.value().is_number_integer() )
+                        continue;
+
+                    m_LibTree.column_widths[ entry.key() ] = entry.value().get<int>();
+                }
+            },
+            {} ) );
 
     m_params.emplace_back( new PARAM<bool>( "printing.background",
             &m_Printing.background, false ) );
@@ -110,7 +134,6 @@ APP_SETTINGS_BASE::APP_SETTINGS_BASE( const std::string& aFilename, int aSchemaV
 
     m_params.emplace_back( new PARAM<int>( "system.max_undo_items",
             &m_System.max_undo_items, 0 ) );
-
 
     m_params.emplace_back( new PARAM_LIST<wxString>( "system.file_history",
             &m_System.file_history, {} ) );
@@ -365,4 +388,18 @@ const std::vector<wxString> APP_SETTINGS_BASE::DefaultGridSizeList() const
              "0.05 mm",
              "0.025 mm",
              "0.01 mm" };
+}
+
+
+bool APP_SETTINGS_BASE::migrateLibTreeWidth()
+{
+    // We used to store only the width of the first column, because there were only
+    // two possible columns.
+    if( std::optional<int> optWidth = Get<int>( "lib_tree.column_width" ) )
+    {
+        Set<nlohmann::json>( "lib_tree.column_widths", { { "Item", *optWidth } } );
+        At( "lib_tree" ).erase( "column_width" );
+    }
+
+    return true;
 }

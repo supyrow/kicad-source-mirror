@@ -52,12 +52,12 @@ BEGIN
     BEGIN
         BLOCK "040904E4"
         BEGIN
-            // this gets dispalyed in the windows 10 task manager
+            // this gets displayed in the windows 10 task manager
             VALUE "FileDescription", RC_VER_FILE_DESCRIPTION
             VALUE "FileVersion", KICAD_WIN32_RC_FILEVER_STR
             //original filename without extension
             VALUE "InternalName", RC_VER_INTERNALNAME
-            VALUE "LegalCopyright", "Copyright (C) 2021 KiCad Developers"
+            VALUE "LegalCopyright", "Copyright (C) 2022 KiCad Developers"
             // the exe name
             VALUE "OriginalFilename", RC_VER_ORIGINALFILENAME
             // name of distributed package

@@ -22,7 +22,7 @@
  */
 
 #include <board_design_settings.h>
-#include <convert_to_biu.h>
+#include <charconv>
 #include <layer_ids.h>
 #include <macros.h>
 #include <math/util.h> // for KiROUND
@@ -101,7 +101,6 @@ PCB_PLOT_PARAMS::PCB_PLOT_PARAMS()
 
     // we used 0.1mils for SVG step before, but nm precision is more accurate, so we use nm
     m_svgPrecision               = SVG_PRECISION_DEFAULT;
-    m_excludeEdgeLayer           = true;
     m_plotFrameRef               = false;
     m_plotViaOnMaskLayer         = false;
     m_plotMode                   = FILLED;
@@ -120,7 +119,7 @@ PCB_PLOT_PARAMS::PCB_PLOT_PARAMS()
     m_subtractMaskFromSilk       = false;
     m_format                     = PLOT_FORMAT::GERBER;
     m_mirror                     = false;
-    m_drillMarks                 = SMALL_DRILL_SHAPE;
+    m_drillMarks                 = DRILL_MARKS::SMALL_DRILL_SHAPE;
     m_autoScale                  = false;
     m_scale                      = 1.0;
     m_scaleSelection             = 1;
@@ -138,10 +137,12 @@ PCB_PLOT_PARAMS::PCB_PLOT_PARAMS()
     m_skipNPTH_Pads              = false;
 
     // line width to plot items in outline mode.
-    m_sketchPadLineWidth         = Millimeter2iu( 0.1 );
+    m_sketchPadLineWidth         = pcbIUScale.mmToIU( 0.1 );
 
     m_default_colors = std::make_shared<COLOR_SETTINGS>();
     m_colors         = m_default_colors.get();
+
+    m_blackAndWhite = true;
 }
 
 
@@ -177,6 +178,9 @@ void PCB_PLOT_PARAMS::Format( OUTPUTFORMATTER* aFormatter,
     aFormatter->Print( aNestLevel+1, "(layerselection 0x%s)\n",
                        m_layerSelection.FmtHex().c_str() );
 
+    aFormatter->Print( aNestLevel+1, "(plot_on_all_layers_selection 0x%s)\n",
+                       m_plotOnAllLayersSelection.FmtHex().c_str() );
+
     aFormatter->Print( aNestLevel+1, "(disableapertmacros %s)\n",
                        printBool( m_gerberDisableApertMacros ) );
 
@@ -203,7 +207,6 @@ void PCB_PLOT_PARAMS::Format( OUTPUTFORMATTER* aFormatter,
     // SVG options
     aFormatter->Print( aNestLevel+1, "(svgprecision %d)\n", m_svgPrecision );
 
-    aFormatter->Print( aNestLevel+1, "(excludeedgelayer %s)\n", printBool( m_excludeEdgeLayer ) );
     aFormatter->Print( aNestLevel+1, "(plotframeref %s)\n", printBool( m_plotFrameRef ) );
     aFormatter->Print( aNestLevel+1, "(viasonmask %s)\n", printBool( m_plotViaOnMaskLayer ) );
     aFormatter->Print( aNestLevel+1, "(mode %d)\n", GetPlotMode() == SKETCH ? 2 : 1 );
@@ -235,7 +238,7 @@ void PCB_PLOT_PARAMS::Format( OUTPUTFORMATTER* aFormatter,
                        printBool( m_subtractMaskFromSilk ) );
     aFormatter->Print( aNestLevel+1, "(outputformat %d)\n", static_cast<int>( m_format ) );
     aFormatter->Print( aNestLevel+1, "(mirror %s)\n", printBool( m_mirror ) );
-    aFormatter->Print( aNestLevel+1, "(drillshape %d)\n", m_drillMarks );
+    aFormatter->Print( aNestLevel+1, "(drillshape %d)\n", (int)m_drillMarks );
     aFormatter->Print( aNestLevel+1, "(scaleselection %d)\n", m_scaleSelection );
     aFormatter->Print( aNestLevel+1, "(outputdirectory \"%s\")",
                        (const char*) m_outputDirectory.utf8_str() );
@@ -253,6 +256,9 @@ void PCB_PLOT_PARAMS::Parse( PCB_PLOT_PARAMS_PARSER* aParser )
 bool PCB_PLOT_PARAMS::IsSameAs( const PCB_PLOT_PARAMS &aPcbPlotParams ) const
 {
     if( m_layerSelection != aPcbPlotParams.m_layerSelection )
+        return false;
+
+    if( m_plotOnAllLayersSelection != aPcbPlotParams.m_plotOnAllLayersSelection )
         return false;
 
     if( m_useGerberProtelExtensions != aPcbPlotParams.m_useGerberProtelExtensions )
@@ -277,9 +283,6 @@ bool PCB_PLOT_PARAMS::IsSameAs( const PCB_PLOT_PARAMS &aPcbPlotParams ) const
         return false;
 
     if( m_dashedLineGapRatio != aPcbPlotParams.m_dashedLineGapRatio )
-        return false;
-
-    if( m_excludeEdgeLayer != aPcbPlotParams.m_excludeEdgeLayer )
         return false;
 
     if( m_plotFrameRef != aPcbPlotParams.m_plotFrameRef )
@@ -363,6 +366,9 @@ bool PCB_PLOT_PARAMS::IsSameAs( const PCB_PLOT_PARAMS &aPcbPlotParams ) const
     if( m_textMode != aPcbPlotParams.m_textMode )
         return false;
 
+    if( m_blackAndWhite != aPcbPlotParams.m_blackAndWhite )
+        return false;
+
     if( !m_outputDirectory.IsSameAs( aPcbPlotParams.m_outputDirectory ) )
         return false;
 
@@ -440,6 +446,26 @@ void PCB_PLOT_PARAMS_PARSER::Parse( PCB_PLOT_PARAMS* aPcbPlotParams )
             break;
         }
 
+        case T_plot_on_all_layers_selection:
+        {
+            token = NeedSYMBOLorNUMBER();
+
+            const std::string& cur = CurStr();
+
+            if( cur.find_first_of( "0x" ) == 0 )
+            {
+                // skip the leading 2 0x bytes.
+                aPcbPlotParams->m_plotOnAllLayersSelection.ParseHex( cur.c_str() + 2,
+                                                                     cur.size() - 2 );
+            }
+            else
+            {
+                Expecting( "hex plot_on_all_layers_selection" );
+            }
+
+            break;
+        }
+
         case T_disableapertmacros:
             aPcbPlotParams->m_gerberDisableApertMacros = parseBool();
             break;
@@ -486,7 +512,9 @@ void PCB_PLOT_PARAMS_PARSER::Parse( PCB_PLOT_PARAMS* aPcbPlotParams )
             break;
 
         case T_excludeedgelayer:
-            aPcbPlotParams->m_excludeEdgeLayer = parseBool();
+            if( !parseBool() )
+                aPcbPlotParams->m_plotOnAllLayersSelection.set( Edge_Cuts );
+
             break;
 
         case T_plotframeref:
@@ -575,8 +603,7 @@ void PCB_PLOT_PARAMS_PARSER::Parse( PCB_PLOT_PARAMS* aPcbPlotParams )
             break;
 
         case T_drillshape:
-            aPcbPlotParams->m_drillMarks = static_cast<PCB_PLOT_PARAMS::DrillMarksType>
-                                            ( parseInt( 0, 2 ) );
+            aPcbPlotParams->m_drillMarks = static_cast<DRILL_MARKS> ( parseInt( 0, 2 ) );
             break;
 
         case T_scaleselection:
@@ -636,9 +663,7 @@ double PCB_PLOT_PARAMS_PARSER::parseDouble()
     if( token != T_NUMBER )
         Expecting( T_NUMBER );
 
-    double val = strtod( CurText(), nullptr );
-
-    return val;
+    return DSNLEXER::parseDouble();
 }
 
 

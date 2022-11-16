@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2020-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2020-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -32,7 +32,7 @@
 #include <string_utils.h>
 #include <tool/tool_manager.h>
 #include <panel_setup_rules.h>
-#include <wx_html_report_box.h>
+#include <widgets/wx_html_report_box.h>
 #include <wx/treebook.h>
 #include <dialogs/html_message_box.h>
 #include <scintilla_tricks.h>
@@ -55,12 +55,12 @@ PANEL_SETUP_RULES::PANEL_SETUP_RULES( PAGED_DIALOG* aParent, PCB_EDIT_FRAME* aFr
 
     m_textEditor->AutoCompSetSeparator( '|' );
 
-    m_netClassRegex.Compile( "NetClass\\s*[!=]=\\s*$", wxRE_ADVANCED );
-    m_netNameRegex.Compile( "NetName\\s*[!=]=\\s*$", wxRE_ADVANCED );
-    m_typeRegex.Compile( "Type\\s*[!=]=\\s*$", wxRE_ADVANCED );
-    m_padTypeRegex.Compile( "Pad_Type\\s*[!=]=\\s*$", wxRE_ADVANCED );
-    m_pinTypeRegex.Compile( "Pin_Type\\s*[!=]=\\s*$", wxRE_ADVANCED );
-    m_fabPropRegex.Compile( "Fabrication_Property\\s*[!=]=\\s*$", wxRE_ADVANCED );
+    m_netClassRegex.Compile( "^NetClass\\s*[!=]=\\s*$", wxRE_ADVANCED );
+    m_netNameRegex.Compile( "^NetName\\s*[!=]=\\s*$", wxRE_ADVANCED );
+    m_typeRegex.Compile( "^Type\\s*[!=]=\\s*$", wxRE_ADVANCED );
+    m_padTypeRegex.Compile( "^Pad_Type\\s*[!=]=\\s*$", wxRE_ADVANCED );
+    m_pinTypeRegex.Compile( "^Pin_Type\\s*[!=]=\\s*$", wxRE_ADVANCED );
+    m_fabPropRegex.Compile( "^Fabrication_Property\\s*[!=]=\\s*$", wxRE_ADVANCED );
 
     m_compileButton->SetBitmap( KiBitmap( BITMAPS::drc ) );
 
@@ -102,7 +102,6 @@ void PANEL_SETUP_RULES::onCharHook( wxKeyEvent& aEvent )
 void PANEL_SETUP_RULES::OnContextMenu(wxMouseEvent &event)
 {
     wxMenu   menu;
-    wxString msg;
 
     menu.Append( wxID_UNDO, _( "Undo" ) );
     menu.Append( wxID_REDO, _( "Redo" ) );
@@ -369,6 +368,7 @@ void PANEL_SETUP_RULES::onScintillaCharAdded( wxStyledTextEvent &aEvent )
             tokens = wxT( "annular_width|"
                           "assertion|"
                           "clearance|"
+                          "connection_width|"
                           "courtyard_clearance|"
                           "diff_pair_gap|"
                           "diff_pair_uncoupled|"
@@ -378,9 +378,9 @@ void PANEL_SETUP_RULES::onScintillaCharAdded( wxStyledTextEvent &aEvent )
                           "hole_clearance|"
                           "hole_size|"
                           "hole_to_hole|"
-                          "mechanical_clearance|"
-                          "mechanical_hole_clearance|"
                           "min_resolved_spokes|"
+                          "physical_clearance|"
+                          "physical_hole_clearance|"
                           "silk_clearance|"
                           "skew|"
                           "text_height|"
@@ -452,17 +452,20 @@ void PANEL_SETUP_RULES::onScintillaCharAdded( wxStyledTextEvent &aEvent )
             PCB_EXPR_BUILTIN_FUNCTIONS& functions = PCB_EXPR_BUILTIN_FUNCTIONS::Instance();
 
             for( const wxString& funcSig : functions.GetSignatures() )
-                tokens += wxT( "|" ) + funcSig;
+            {
+                if( !funcSig.Contains( "DEPRECATED" ) )
+                    tokens += wxT( "|" ) + funcSig;
+            }
         }
         else if( expr_context == STRING )
         {
             if( m_netClassRegex.Matches( last ) )
             {
-                BOARD*                 board = m_frame->GetBoard();
-                BOARD_DESIGN_SETTINGS& bds = board->GetDesignSettings();
+                BOARD_DESIGN_SETTINGS&         bds = m_frame->GetBoard()->GetDesignSettings();
+                std::shared_ptr<NET_SETTINGS>& netSettings = bds.m_NetSettings;
 
-                for( const std::pair<const wxString, NETCLASSPTR>& entry : bds.GetNetClasses() )
-                    tokens += wxT( "|" ) + entry.first;
+                for( const auto& [ name, netclass ] : netSettings->m_NetClasses )
+                    tokens += wxT( "|" ) + name;
             }
             else if( m_netNameRegex.Matches( last ) )
             {
@@ -590,6 +593,8 @@ bool PANEL_SETUP_RULES::TransferDataToWindow()
                 ConvertSmartQuotesAndDashes( &str );
                 m_textEditor->AddText( str << '\n' );
             }
+
+            m_textEditor->EmptyUndoBuffer();
 
             wxCommandEvent dummy;
             OnCompile( dummy );

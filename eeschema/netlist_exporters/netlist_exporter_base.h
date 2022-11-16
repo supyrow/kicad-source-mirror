@@ -99,13 +99,9 @@ public:
         m_schematic( aSchematic )
     {
         wxASSERT( aSchematic );
-        m_savedCurrentSheet = m_schematic->CurrentSheet();
     }
 
-    virtual ~NETLIST_EXPORTER_BASE()
-    {
-        m_schematic->SetCurrentSheet( m_savedCurrentSheet );
-    }
+    virtual ~NETLIST_EXPORTER_BASE() = default;
 
     /**
      * Write to specified output file.
@@ -193,8 +189,8 @@ protected:
      * if aKeepUnconnectedPins = false, unconnected pins will be removed from list
      * but usually we need all pins in netlists.
      */
-    void findAllUnitsOfSymbol( SCH_SYMBOL* aSchSymbol, LIB_SYMBOL* aLibSymbol,
-                               SCH_SHEET_PATH* aSheetPath, bool aKeepUnconnectedPins );
+    void findAllUnitsOfSymbol( SCH_SYMBOL* aSchSymbol, SCH_SHEET_PATH* aSheetPath,
+                               bool aKeepUnconnectedPins );
 
     /// Used to temporarily store and filter the list of pins of a schematic symbol when
     /// generating schematic symbol data in netlist (comp section). No ownership of members.
@@ -210,9 +206,6 @@ protected:
 
     /// The schematic we're generating a netlist for
     SCHEMATIC_IFACE*      m_schematic;
-
-    /// The schematic's CurrentSheet when we entered.  Restore on exiting.
-    SCH_SHEET_PATH        m_savedCurrentSheet;
 };
 
 #endif

@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2021 CERN
- * Copyright (C) 2018-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2018-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -30,6 +30,7 @@
 #include <bitmaps.h>
 #include <kiway.h>
 #include <kiway_player.h>
+#include <kiway_express.h>
 #include <string_utils.h>
 #include <dialog_shim.h>
 #include <common.h>
@@ -239,11 +240,12 @@ class TEXT_BUTTON_FP_CHOOSER : public wxComboCtrl
 {
 public:
     TEXT_BUTTON_FP_CHOOSER( wxWindow* aParent, DIALOG_SHIM* aParentDlg,
-                            const wxString& aPreselect ) :
+                            const wxString& aSymbolNetlist, const wxString& aPreselect ) :
             wxComboCtrl( aParent, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize,
                          wxTE_PROCESS_ENTER ),
             m_dlg( aParentDlg ),
-            m_preselect( aPreselect )
+            m_preselect( aPreselect ),
+            m_symbolNetlist( aSymbolNetlist.ToStdString() )
     {
         SetButtonBitmaps( KiBitmap( BITMAPS::small_library ) );
 
@@ -260,12 +262,18 @@ protected:
     void OnButtonClick() override
     {
         // pick a footprint using the footprint picker.
-        wxString      fpid = GetValue();
+        wxString fpid = GetValue();
 
         if( fpid.IsEmpty() )
             fpid = m_preselect;
 
         KIWAY_PLAYER* frame = m_dlg->Kiway().Player( FRAME_FOOTPRINT_VIEWER_MODAL, true, m_dlg );
+
+        if( !m_symbolNetlist.empty() )
+        {
+            KIWAY_EXPRESS event( FRAME_FOOTPRINT_VIEWER, MAIL_SYMBOL_NETLIST, m_symbolNetlist );
+            frame->KiwayMailIn( event );
+        }
 
         if( frame->ShowModal( &fpid, m_dlg ) )
             SetValue( fpid );
@@ -275,13 +283,24 @@ protected:
 
     DIALOG_SHIM* m_dlg;
     wxString     m_preselect;
+
+    /*
+     * Symbol netlist format:
+     *   library:footprint
+     *   reference
+     *   value
+     *   pinName,netName,pinFunction,pinType
+     *   pinName,netName,pinFunction,pinType
+     *   ...
+     */
+    std::string  m_symbolNetlist;
 };
 
 
-void GRID_CELL_FOOTPRINT_ID_EDITOR::Create( wxWindow* aParent, wxWindowID aId,
-                                            wxEvtHandler* aEventHandler )
+void GRID_CELL_FPID_EDITOR::Create( wxWindow* aParent, wxWindowID aId,
+                                    wxEvtHandler* aEventHandler )
 {
-    m_control = new TEXT_BUTTON_FP_CHOOSER( aParent, m_dlg, m_preselect );
+    m_control = new TEXT_BUTTON_FP_CHOOSER( aParent, m_dlg, m_symbolNetlist, m_preselect );
 
 #if wxUSE_VALIDATORS
     // validate text in textctrl, if validator is set
@@ -298,10 +317,11 @@ void GRID_CELL_FOOTPRINT_ID_EDITOR::Create( wxWindow* aParent, wxWindowID aId,
 class TEXT_BUTTON_URL : public wxComboCtrl
 {
 public:
-    TEXT_BUTTON_URL( wxWindow* aParent, DIALOG_SHIM* aParentDlg ) :
+    TEXT_BUTTON_URL( wxWindow* aParent, DIALOG_SHIM* aParentDlg, SEARCH_STACK* aSearchStack ) :
             wxComboCtrl( aParent, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize,
                          wxTE_PROCESS_ENTER ),
-            m_dlg( aParentDlg )
+            m_dlg( aParentDlg ),
+            m_searchStack( aSearchStack )
     {
         SetButtonBitmaps( KiBitmap( BITMAPS::www ) );
 
@@ -320,17 +340,18 @@ protected:
         wxString filename = GetValue();
 
         if( !filename.IsEmpty() && filename != wxT( "~" ) )
-            GetAssociatedDocument( m_dlg, GetValue(), &m_dlg->Prj() );
+            GetAssociatedDocument( m_dlg, GetValue(), &m_dlg->Prj(), m_searchStack );
     }
 
     DIALOG_SHIM* m_dlg;
+    SEARCH_STACK* m_searchStack;
 };
 
 
 void GRID_CELL_URL_EDITOR::Create( wxWindow* aParent, wxWindowID aId,
                                    wxEvtHandler* aEventHandler )
 {
-    m_control = new TEXT_BUTTON_URL( aParent, m_dlg );
+    m_control = new TEXT_BUTTON_URL( aParent, m_dlg, m_searchStack );
 
 #if wxUSE_VALIDATORS
     // validate text in textctrl, if validator is set

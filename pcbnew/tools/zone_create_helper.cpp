@@ -54,6 +54,38 @@ ZONE_CREATE_HELPER::~ZONE_CREATE_HELPER()
 }
 
 
+void ZONE_CREATE_HELPER::setUniquePriority( ZONE_SETTINGS& aZoneInfo )
+{
+    PCB_BASE_EDIT_FRAME*  frame = m_tool.getEditFrame<PCB_BASE_EDIT_FRAME>();
+    BOARD*                board = frame->GetBoard();
+
+    // By default, new zones get the first unused priority
+    std::set<unsigned> priorities;
+
+    for( ZONE* zone : board->Zones() )
+    {
+        if( zone->GetTeardropAreaType() == TEARDROP_TYPE::TD_NONE
+                && ( zone->GetLayerSet() & LSET::AllCuMask() ).any()
+                && !zone->GetIsRuleArea() )
+        {
+            priorities.insert( zone->GetAssignedPriority() );
+        }
+    }
+
+    unsigned priority = 0;
+
+    for( unsigned exist_priority : priorities )
+    {
+        if( priority != exist_priority )
+            break;
+
+        ++priority;
+    }
+
+    aZoneInfo.m_ZonePriority = priority;
+}
+
+
 std::unique_ptr<ZONE> ZONE_CREATE_HELPER::createNewZone( bool aKeepout )
 {
     PCB_BASE_EDIT_FRAME*  frame = m_tool.getEditFrame<PCB_BASE_EDIT_FRAME>();
@@ -67,7 +99,12 @@ std::unique_ptr<ZONE> ZONE_CREATE_HELPER::createNewZone( bool aKeepout )
     zoneInfo.m_Layers.reset().set( m_params.m_layer );  // TODO(JE) multilayer defaults?
     zoneInfo.m_NetcodeSelection = highlightedNets.empty() ? -1 : *highlightedNets.begin();
     zoneInfo.SetIsRuleArea( m_params.m_keepout );
-    zoneInfo.m_Zone_45_Only = ( m_params.m_leaderMode == POLYGON_GEOM_MANAGER::LEADER_MODE::DEG45 );
+
+    if( m_params.m_mode != ZONE_MODE::GRAPHIC_POLYGON
+            && ( zoneInfo.m_Layers & LSET::AllCuMask() ).any() )
+    {
+        setUniquePriority( zoneInfo );
+    }
 
     // If we don't have a net from highlighting, maybe we can get one from the selection
     PCB_SELECTION_TOOL* selectionTool = m_tool.GetManager()->GetTool<PCB_SELECTION_TOOL>();
@@ -102,7 +139,7 @@ std::unique_ptr<ZONE> ZONE_CREATE_HELPER::createNewZone( bool aKeepout )
         if( dialogResult == wxID_CANCEL )
             return nullptr;
 
-        controls->WarpCursor( controls->GetCursorPosition(), true );
+        controls->WarpMouseCursor( controls->GetCursorPosition(), true );
     }
 
     // The new zone is a ZONE if created in the board editor and a FP_ZONE if created in the
@@ -202,17 +239,12 @@ void ZONE_CREATE_HELPER::commitZone( std::unique_ptr<ZONE> aZone )
         case ZONE_MODE::SIMILAR:
         {
             BOARD_COMMIT commit( &m_tool );
-            BOARD*       board = m_tool.getModel<BOARD>();
 
             aZone->HatchBorder();
 
-            // TODO Refill zones when KiCad supports auto re-fill
-
             commit.Add( aZone.get() );
-
-            std::lock_guard<KISPINLOCK> lock( board->GetConnectivity()->GetLock() );
-
             commit.Push( _( "Add a zone" ) );
+
             m_tool.GetManager()->RunAction( PCB_ACTIONS::selectItem, true, aZone.release() );
             break;
         }
@@ -269,15 +301,15 @@ bool ZONE_CREATE_HELPER::OnFirstPoint( POLYGON_GEOM_MANAGER& aMgr )
 
             // set up properties from zone
             const auto& settings = *m_parentView.GetPainter()->GetSettings();
-            COLOR4D color = settings.GetColor( nullptr, m_zone->GetLayer() );
+            COLOR4D color = settings.GetColor( nullptr, m_zone->GetFirstLayer() );
 
             m_previewItem.SetStrokeColor( COLOR4D::WHITE );
             m_previewItem.SetFillColor( color.WithAlpha( 0.2 ) );
 
             m_parentView.SetVisible( &m_previewItem, true );
 
-            aMgr.SetLeaderMode( m_zone->GetHV45() ? POLYGON_GEOM_MANAGER::LEADER_MODE::DEG45
-                                                  : POLYGON_GEOM_MANAGER::LEADER_MODE::DIRECT );
+            aMgr.SetLeaderMode( m_tool.Is45Limited() ? POLYGON_GEOM_MANAGER::LEADER_MODE::DEG45
+                                                     : POLYGON_GEOM_MANAGER::LEADER_MODE::DIRECT );
         }
     }
 
@@ -323,8 +355,7 @@ void ZONE_CREATE_HELPER::OnComplete( const POLYGON_GEOM_MANAGER& aMgr )
         }
 
         outline->Outline( 0 ).SetClosed( true );
-        outline->RemoveNullSegments();
-        outline->Simplify( SHAPE_POLY_SET::PM_FAST );
+        outline->Outline( 0 ).Simplify( true );
 
         // hand the zone over to the committer
         commitZone( std::move( m_zone ) );

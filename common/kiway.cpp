@@ -34,6 +34,7 @@
 #include <core/arraydim.h>
 #include <id.h>
 #include <kiplatform/app.h>
+#include <kiplatform/environment.h>
 #include <settings/settings_manager.h>
 #include <tool/action_manager.h>
 #include <logging.h>
@@ -50,7 +51,7 @@ int     KIWAY::m_kiface_version[KIWAY_FACE_COUNT];
 
 
 KIWAY::KIWAY( PGM_BASE* aProgram, int aCtlBits, wxFrame* aTop ):
-    m_program( aProgram ), m_ctl( aCtlBits ), m_top( nullptr )
+    m_program( aProgram ), m_ctl( aCtlBits ), m_top( nullptr ), m_blockingDialog( wxID_NONE )
 {
     SetTop( aTop );     // hook player_destroy_handler() into aTop.
 
@@ -231,6 +232,15 @@ KIFACE* KIWAY::KiFACE( FACE_T aFaceId, bool doLoad )
             }
         }
 
+#ifdef KICAD_WIN32_VERIFY_CODESIGN
+        bool codeSignOk = KIPLATFORM::ENV::VerifyFileSignature( dname );
+        if( !codeSignOk )
+        {
+            msg.Printf( _( "Failed to verify kiface library '%s' signature." ), dname );
+            THROW_IO_ERROR( msg );
+        }
+#endif
+
         wxDynamicLibrary dso;
 
         void*   addr = nullptr;
@@ -407,7 +417,7 @@ KIWAY_PLAYER* KIWAY::Player( FRAME_T aFrameType, bool doCreate, wxTopLevelWindow
             FACE_T  face_type = KifaceType( aFrameType );
             KIFACE* kiface = KiFACE( face_type );
 
-            frame = (KIWAY_PLAYER*) kiface->CreateWindow(
+            frame = (KIWAY_PLAYER*) kiface->CreateKiWindow(
                                             aParent,    // Parent window of frame in modal mode,
                                                         // NULL in non modal mode
                                             aFrameType,
@@ -604,6 +614,19 @@ void KIWAY::ProjectChanged()
     }
 }
 
+wxWindow* KIWAY::GetBlockingDialog()
+{
+    return wxWindow::FindWindowById( m_blockingDialog );
+}
+
+void KIWAY::SetBlockingDialog( wxWindow* aWin )
+{
+    if( !aWin )
+        m_blockingDialog = wxID_NONE;
+    else
+        m_blockingDialog = aWin->GetId();
+}
+
 
 bool KIWAY::ProcessEvent( wxEvent& aEvent )
 {
@@ -628,6 +651,14 @@ bool KIWAY::ProcessEvent( wxEvent& aEvent )
     }
 
     return false;
+}
+
+
+int KIWAY::ProcessJob( KIWAY::FACE_T aFace, JOB* job )
+{
+    KIFACE* kiface = KiFACE( aFace );
+
+    return kiface->HandleJob( job );
 }
 
 

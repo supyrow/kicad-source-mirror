@@ -104,6 +104,7 @@
 #include <frame_type.h>
 #include <mail_type.h>
 #include <ki_exception.h>
+#include <jobs/job.h>
 
 
 #define KIFACE_VERSION      1
@@ -198,8 +199,8 @@ struct KIFACE
      *         and old school cast.  dynamic_cast is problematic since it needs typeinfo probably
      *         not contained in the caller's link image.
      */
-    virtual wxWindow* CreateWindow( wxWindow* aParent, int aClassId,
-                                    KIWAY* aKIWAY, int aCtlBits = 0 ) = 0;
+    virtual wxWindow* CreateKiWindow( wxWindow* aParent, int aClassId,
+                                      KIWAY* aKIWAY, int aCtlBits = 0 ) = 0;
 
     /**
      * Saving a file under a different name is delegated to the various KIFACEs because
@@ -233,6 +234,11 @@ struct KIFACE
      * Append this Kiface's registered actions to the given list.
      */
     virtual void GetActions( std::vector<TOOL_ACTION*>& aActions ) const = 0;
+
+    virtual int HandleJob( JOB* aJob )
+    {
+        return 0;
+    }
 };
 
 
@@ -389,6 +395,12 @@ public:
     KIWAY( PGM_BASE* aProgram, int aCtlBits, wxFrame* aTop = nullptr );
 
     /**
+     * Overwrites previously set ctl bits, only for use in kicad.cpp to flip between
+     * standalone and manager mode before we actually load anything
+     */
+    void SetCtlBits( int aCtlBits ) { m_ctl = aCtlBits; }
+
+    /**
      * Tell this KIWAY about the top most frame in the program and optionally allows it to
      * play the role of one of the KIWAY_PLAYERs if launched from single_top.cpp.
      *
@@ -402,6 +414,15 @@ public:
     void OnKiwayEnd();
 
     bool ProcessEvent( wxEvent& aEvent ) override;
+
+    int ProcessJob( KIWAY::FACE_T aFace, JOB* job );
+
+    /**
+     * Gets the window pointer to the blocking dialog (to send it signals)
+     * @return Pointer to blocking dialog window or null if none
+     */
+    wxWindow* GetBlockingDialog();
+    void SetBlockingDialog( wxWindow* aWin );
 
 private:
     /// Get the [path &] name of the DSO holding the requested FACE_T.
@@ -436,6 +457,8 @@ private:
     int             m_ctl;
 
     wxFrame*        m_top;      // Usually m_top is the Project manager
+
+    wxWindowID      m_blockingDialog;
 
     // An array to store the window ID of PLAYER frames which were run.
     // A non empty name means only a PLAYER was run at least one time.

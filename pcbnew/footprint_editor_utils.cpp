@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -29,11 +29,13 @@
 #include <fp_lib_table.h>
 #include <functional>
 #include <kiway_express.h>
-#include <pcbnew_id.h>
-#include <ratsnest/ratsnest_data.h>
+#include <pcb_marker.h>
+#include <pad.h>
+#include <zone.h>
 #include <settings/color_settings.h>
 #include <tool/tool_manager.h>
 #include <tools/pcb_actions.h>
+#include <tools/footprint_editor_control.h>
 #include <widgets/appearance_controls.h>
 #include <widgets/lib_tree.h>
 #include <pcb_layer_box_selector.h>
@@ -84,8 +86,7 @@ void FOOTPRINT_EDIT_FRAME::LoadFootprintFromLibrary( LIB_ID aFPID )
             val->SetText( wxT( "Val**" ) );
     }
 
-    if( m_zoomSelectBox->GetSelection() == 0 )
-        Zoom_Automatique( false );
+    Zoom_Automatique( false );
 
     Update3DView( true, true );
 
@@ -138,6 +139,8 @@ class BASIC_FOOTPRINT_INFO : public FOOTPRINT_INFO
 public:
     BASIC_FOOTPRINT_INFO( FOOTPRINT* aFootprint )
     {
+        wxASSERT( aFootprint );
+
         m_nickname = aFootprint->GetFPID().GetLibNickname().wx_str();
         m_fpname = aFootprint->GetFPID().GetLibItemName().wx_str();
         m_pad_count = aFootprint->GetPadCount( DO_NOT_INCLUDE_NPTH );
@@ -149,6 +152,22 @@ public:
 };
 
 
+void FOOTPRINT_EDIT_FRAME::UpdateLibraryTree( const wxDataViewItem& aTreeItem,
+                                              FOOTPRINT* aFootprint )
+{
+    wxCHECK( aFootprint, /* void */ );
+
+    BASIC_FOOTPRINT_INFO footprintInfo( aFootprint );
+
+    if( aTreeItem.IsOk() )   // Can be not found in tree if the current footprint is imported
+                             // from file therefore not yet in tree.
+    {
+        static_cast<LIB_TREE_NODE_LIB_ID*>( aTreeItem.GetID() )->Update( &footprintInfo );
+        m_treePane->GetLibTree()->RefreshLibTree();
+    }
+}
+
+
 void FOOTPRINT_EDIT_FRAME::editFootprintProperties( FOOTPRINT* aFootprint )
 {
     LIB_ID oldFPID = aFootprint->GetFPID();
@@ -156,18 +175,10 @@ void FOOTPRINT_EDIT_FRAME::editFootprintProperties( FOOTPRINT* aFootprint )
     DIALOG_FOOTPRINT_PROPERTIES_FP_EDITOR dialog( this, aFootprint );
     dialog.ShowModal();
 
-    // Update library tree
-    BASIC_FOOTPRINT_INFO footprintInfo( aFootprint );
-    wxDataViewItem       treeItem = m_adapter->FindItem( oldFPID );
-
-    if( treeItem.IsOk() )   // Can be not found in tree if the current footprint is imported
-                            // from file therefore not yet in tree.
-    {
-        static_cast<LIB_TREE_NODE_LIB_ID*>( treeItem.GetID() )->Update( &footprintInfo );
-        m_treePane->GetLibTree()->RefreshLibTree();
-    }
-
-    UpdateTitle();      // in case of a name change...
+    // Update library tree and title in case of a name change
+    wxDataViewItem treeItem = m_adapter->FindItem( oldFPID );
+    UpdateLibraryTree( treeItem, aFootprint );
+    UpdateTitle();
 
     UpdateMsgPanel();
 }
@@ -177,6 +188,10 @@ void FOOTPRINT_EDIT_FRAME::OnEditItemRequest( BOARD_ITEM* aItem )
 {
     switch( aItem->Type() )
     {
+    case PCB_BITMAP_T:
+        ShowBitmapPropertiesDialog( aItem );
+        break;
+
     case PCB_PAD_T:
         ShowPadPropertiesDialog( static_cast<PAD*>( aItem ) );
         break;
@@ -245,6 +260,10 @@ void FOOTPRINT_EDIT_FRAME::OnEditItemRequest( BOARD_ITEM* aItem )
         m_toolManager->RunAction( PCB_ACTIONS::groupProperties, true, aItem );
         break;
 
+    case PCB_MARKER_T:
+        m_toolManager->GetTool<FOOTPRINT_EDITOR_CONTROL>()->CrossProbe( static_cast<PCB_MARKER*>( aItem ) );
+        break;
+
     default:
         wxFAIL_MSG( wxT( "FOOTPRINT_EDIT_FRAME::OnEditItemRequest: unsupported item type " )
                     + aItem->GetClass() );
@@ -270,6 +289,7 @@ void FOOTPRINT_EDIT_FRAME::SetActiveLayer( PCB_LAYER_ID aLayer )
     GetCanvas()->SetHighContrastLayer( aLayer );
     GetCanvas()->Refresh();
 }
+
 
 bool FOOTPRINT_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, int aCtl )
 {
@@ -340,6 +360,6 @@ void FOOTPRINT_EDIT_FRAME::KiwayMailIn( KIWAY_EXPRESS& mail )
         break;
 
     default:
-        ;
+        break;
     }
 }

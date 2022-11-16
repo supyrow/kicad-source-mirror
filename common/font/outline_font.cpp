@@ -27,6 +27,7 @@
 #include <limits>
 #include <pgm_base.h>
 #include <settings/settings_manager.h>
+#include <harfbuzz/hb.h>
 #include <harfbuzz/hb-ft.h>
 #include <bezier_curves.h>
 #include <geometry/shape_poly_set.h>
@@ -57,11 +58,31 @@ wxString OUTLINE_FONT::FreeTypeVersion()
     if( !m_freeType )
         FT_Init_FreeType( &m_freeType );
 
-    FT_Int major, minor, patch;
+    FT_Int major = 0;
+    FT_Int minor = 0;
+    FT_Int patch = 0;
     FT_Library_Version( m_freeType, &major, &minor, &patch );
 
     return wxString::Format( "%d.%d.%d", major, minor, patch );
- }
+}
+
+
+wxString OUTLINE_FONT::HarfBuzzVersion()
+{
+    return wxString::FromUTF8( HB_VERSION_STRING );
+}
+
+
+wxString OUTLINE_FONT::FontConfigVersion()
+{
+    return fontconfig::FONTCONFIG::Version();
+}
+
+
+wxString OUTLINE_FONT::FontLibraryVersion()
+{
+    return wxString::Format( "FreeType %s HarfBuzz %s", FreeTypeVersion(), HarfBuzzVersion() );
+}
 
 
 OUTLINE_FONT* OUTLINE_FONT::LoadFont( const wxString& aFontName, bool aBold, bool aItalic )
@@ -123,6 +144,16 @@ double OUTLINE_FONT::ComputeOverbarVerticalPosition( double aGlyphHeight ) const
 
 
 /**
+ * Compute the vertical position of an underline.  This is the distance between the text
+ * baseline and the underline.
+ */
+double OUTLINE_FONT::ComputeUnderlineVerticalPosition( double aGlyphHeight ) const
+{
+    return aGlyphHeight * m_underlineOffsetScaler;
+}
+
+
+/**
  * Compute the distance (interline) between 2 lines of text (for multiline texts).  This is
  * the distance between baselines, not the space between line bounding boxes.
  */
@@ -145,10 +176,10 @@ double OUTLINE_FONT::GetInterline( double aGlyphHeight, double aLineSpacing ) co
 
 static bool contourIsFilled( const CONTOUR& c )
 {
-    switch( c.orientation )
+    switch( c.m_Orientation )
     {
-    case FT_ORIENTATION_TRUETYPE:   return c.winding == 1;
-    case FT_ORIENTATION_POSTSCRIPT: return c.winding == -1;
+    case FT_ORIENTATION_TRUETYPE:   return c.m_Winding == 1;
+    case FT_ORIENTATION_POSTSCRIPT: return c.m_Winding == -1;
     default:                        return false;
     }
 }
@@ -220,6 +251,58 @@ VECTOR2I OUTLINE_FONT::GetTextAsGlyphs( BOX2I* aBBox, std::vector<std::unique_pt
                                         bool aMirror, const VECTOR2I& aOrigin,
                                         TEXT_STYLE_FLAGS aTextStyle ) const
 {
+    // HarfBuzz needs further processing to split tab-delimited text into text runs.
+
+    constexpr double TAB_WIDTH = 4 * 0.6;
+
+    VECTOR2I position = aPosition;
+    wxString textRun;
+
+    if( aBBox )
+    {
+        aBBox->SetOrigin( aPosition );
+        aBBox->SetEnd( aPosition );
+    }
+
+    for( wxUniChar c : aText )
+    {
+        // Handle tabs as locked to the nearest 4th column (in space-widths).
+        if( c == '\t' )
+        {
+            if( !textRun.IsEmpty() )
+            {
+                position = getTextAsGlyphs( aBBox, aGlyphs, textRun, aSize, position, aAngle,
+                                            aMirror, aOrigin, aTextStyle );
+                textRun.clear();
+            }
+
+            int tabWidth = KiROUND( aSize.x * TAB_WIDTH );
+            int currentIntrusion = ( position.x - aOrigin.x ) % tabWidth;
+
+            position.x += tabWidth - currentIntrusion;
+        }
+        else
+        {
+            textRun += c;
+        }
+    }
+
+    if( !textRun.IsEmpty() )
+    {
+        position = getTextAsGlyphs( aBBox, aGlyphs, textRun, aSize, position, aAngle, aMirror,
+                                    aOrigin, aTextStyle );
+    }
+
+    return position;
+}
+
+
+VECTOR2I OUTLINE_FONT::getTextAsGlyphs( BOX2I* aBBox, std::vector<std::unique_ptr<GLYPH>>* aGlyphs,
+                                        const wxString& aText, const VECTOR2I& aSize,
+                                        const VECTOR2I& aPosition, const EDA_ANGLE& aAngle,
+                                        bool aMirror, const VECTOR2I& aOrigin,
+                                        TEXT_STYLE_FLAGS aTextStyle ) const
+{
     VECTOR2D glyphSize = aSize;
     FT_Face  face = m_face;
     double   scaler = faceSize();
@@ -234,7 +317,8 @@ VECTOR2I OUTLINE_FONT::GetTextAsGlyphs( BOX2I* aBBox, std::vector<std::unique_pt
 
     hb_buffer_t* buf = hb_buffer_create();
     hb_buffer_add_utf8( buf, aText.c_str(), -1, 0, -1 );
-    hb_buffer_guess_segment_properties( buf ); // guess direction, script, and language based on contents
+    hb_buffer_guess_segment_properties( buf );  // guess direction, script, and language based on
+                                                // contents
 
     unsigned int         glyphCount;
     hb_glyph_info_t*     glyphInfo = hb_buffer_get_glyph_infos( buf, &glyphCount );
@@ -251,6 +335,10 @@ VECTOR2I OUTLINE_FONT::GetTextAsGlyphs( BOX2I* aBBox, std::vector<std::unique_pt
 
     for( unsigned int i = 0; i < glyphCount; i++ )
     {
+        // Don't process glyphs that were already included in a previous cluster
+        if( i > 0 && glyphInfo[i].cluster == glyphInfo[i-1].cluster )
+            continue;
+
         if( aGlyphs )
         {
             FT_Load_Glyph( face, glyphInfo[i].codepoint, FT_LOAD_NO_BITMAP );
@@ -267,7 +355,7 @@ VECTOR2I OUTLINE_FONT::GetTextAsGlyphs( BOX2I* aBBox, std::vector<std::unique_pt
 
             for( CONTOUR& c : contours )
             {
-                GLYPH_POINTS     points = c.points;
+                GLYPH_POINTS     points = c.m_Points;
                 SHAPE_LINE_CHAIN shape;
 
                 for( const VECTOR2D& v : points )
@@ -336,11 +424,24 @@ VECTOR2I OUTLINE_FONT::GetTextAsGlyphs( BOX2I* aBBox, std::vector<std::unique_pt
     // Font metrics don't include all descenders and diacriticals, so beef them up just a little.
     extents.y *= 1.05;
 
-    // Shorten the bar a little so its rounded ends don't make it over-long
-    double barTrim = glyphSize.x * 0.125;
-
     if( IsOverbar( aTextStyle ) )
     {
+        std::vector<std::unique_ptr<GLYPH>> underscoreGlyphs;
+
+        getTextAsGlyphs( nullptr, &underscoreGlyphs, wxT( "_" ), aSize, { 0, 0 }, ANGLE_0, false,
+                         { 0, 0 }, aTextStyle & ~TEXT_STYLE::OVERBAR );
+
+        OUTLINE_GLYPH* underscoreGlyph = static_cast<OUTLINE_GLYPH*>( underscoreGlyphs[0].get() );
+        BOX2I          underscoreBBox;
+
+        for( const VECTOR2I& pt : underscoreGlyph->Outline( 0 ).CPoints() )
+            underscoreBBox.Merge( pt );
+
+        int barThickness = underscoreBBox.GetHeight();
+
+        // Shorten the bar a little so its rounded ends don't make it over-long
+        double barTrim = barThickness / 2.0;
+
         VECTOR2I topLeft( aPosition );
         VECTOR2I topRight( aPosition );
 
@@ -360,6 +461,12 @@ VECTOR2I OUTLINE_FONT::GetTextAsGlyphs( BOX2I* aBBox, std::vector<std::unique_pt
             extents.x += aSize.y * ITALIC_TILT;
         }
 
+        if( aMirror )
+        {
+            topLeft.x = aOrigin.x - ( topLeft.x - aOrigin.x );
+            topRight.x = aOrigin.x - ( topRight.x - aOrigin.x );
+        }
+
         if( !aAngle.IsZero() )
         {
             RotatePoint( topLeft, aOrigin, aAngle );
@@ -368,15 +475,10 @@ VECTOR2I OUTLINE_FONT::GetTextAsGlyphs( BOX2I* aBBox, std::vector<std::unique_pt
 
         if( aGlyphs )
         {
-            int thickness = abs( ascender * scaleFactor.y * m_overbarThicknessRatio );
-            int maxError = KiROUND( thickness / 48 );
-
-            if( IsBold() )
-                thickness = KiROUND( thickness * 1.5 );
-
+            int            maxError = KiROUND( barThickness / 48 );
             SHAPE_POLY_SET poly;
 
-            TransformOvalToPolygon( poly, topLeft, topRight, thickness, maxError, ERROR_INSIDE );
+            TransformOvalToPolygon( poly, topLeft, topRight, barThickness, maxError, ERROR_INSIDE );
 
             std::unique_ptr<OUTLINE_GLYPH> overbarGlyph = std::make_unique<OUTLINE_GLYPH>( poly );
             aGlyphs->push_back( std::move( overbarGlyph ) );
@@ -384,14 +486,12 @@ VECTOR2I OUTLINE_FONT::GetTextAsGlyphs( BOX2I* aBBox, std::vector<std::unique_pt
     }
 
     hb_buffer_destroy( buf );
+    hb_font_destroy( referencedFont );
 
     VECTOR2I cursorDisplacement( cursor.x * scaleFactor.x, -cursor.y * scaleFactor.y );
 
     if( aBBox )
-    {
-        aBBox->SetOrigin( aPosition.x, aPosition.y );
-        aBBox->SetEnd( aPosition + extents );
-    }
+        aBBox->Merge( aPosition + extents );
 
     return VECTOR2I( aPosition.x + cursorDisplacement.x, aPosition.y + cursorDisplacement.y );
 }

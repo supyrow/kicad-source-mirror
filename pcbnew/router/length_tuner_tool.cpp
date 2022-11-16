@@ -2,7 +2,7 @@
  * KiRouter - a push-and-(sometimes-)shove PCB router
  *
  * Copyright (C) 2013-2017 CERN
- * Copyright (C) 2016-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2016-2022 KiCad Developers, see AUTHORS.txt for contributors.
  * Author: Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  *
  * This program is free software: you can redistribute it and/or modify it
@@ -19,10 +19,11 @@
  * with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "class_draw_panel_gal.h"
+#include <class_draw_panel_gal.h>
 #include <dialogs/dialog_pns_length_tuning_settings.h>
 #include <tool/tool_manager.h>
 #include <tools/pcb_actions.h>
+#include <tools/zone_filler_tool.h>
 #include "pns_router.h"
 #include "pns_meander_placer.h" // fixme: move settings to separate header
 #include "pns_tune_status_popup.h"
@@ -166,6 +167,7 @@ void LENGTH_TUNER_TOOL::performTuning()
     // Create an instance of PNS_TUNE_STATUS_POPUP.
     PNS_TUNE_STATUS_POPUP statusPopup( frame() );
     statusPopup.Popup();
+    canvas()->SetStatusPopup( statusPopup.GetPanel() );
 
     m_router->Move( end, nullptr );
     updateStatusPopup( statusPopup );
@@ -238,11 +240,22 @@ void LENGTH_TUNER_TOOL::performTuning()
             meanderSettingsDialog( dummy );
             statusPopup.Show();
         }
+        // TODO: It'd be nice to be able to say "don't allow any non-trivial editing actions",
+        // but we don't at present have that, so we just knock out some of the egregious ones.
+        else if( ZONE_FILLER_TOOL::IsZoneFillAction( evt ) )
+        {
+            wxBell();
+        }
+        else
+        {
+            evt->SetPassEvent();
+        }
     }
 
     m_router->StopRouting();
     frame()->UndoRedoBlock( false );
 
+    canvas()->SetStatusPopup( nullptr );
     controls()->SetAutoPan( false );
     controls()->ForceCursorPosition( false );
     frame()->GetCanvas()->SetCurrentCursor( KICURSOR::ARROW );
@@ -268,8 +281,7 @@ int LENGTH_TUNER_TOOL::MainLoop( const TOOL_EVENT& aEvent )
     // Deselect all items
     m_toolMgr->RunAction( PCB_ACTIONS::selectionClear, true );
 
-    std::string tool = aEvent.GetCommandStr().get();
-    frame()->PushTool( tool );
+    frame()->PushTool( aEvent );
 
     auto setCursor =
             [&]()
@@ -332,7 +344,7 @@ int LENGTH_TUNER_TOOL::MainLoop( const TOOL_EVENT& aEvent )
     m_savedSizes = m_router->Sizes();
 
     frame()->GetCanvas()->SetCurrentCursor( KICURSOR::ARROW );
-    frame()->PopTool( tool );
+    frame()->PopTool( aEvent );
     return 0;
 }
 

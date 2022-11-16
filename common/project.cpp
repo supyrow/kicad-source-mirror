@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2014-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2014-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -22,10 +22,13 @@
  */
 
 #include <wx/log.h>
-#include <wx/stdpaths.h>
+#include <wx/stdpaths.h>                // required on Mac
+#include <kiplatform/environment.h>
 
+#include <pgm_base.h>
 #include <confirm.h>
 #include <core/arraydim.h>
+#include <core/kicad_algo.h>
 #include <fp_lib_table.h>
 #include <string_utils.h>
 #include <kiface_ids.h>
@@ -35,7 +38,8 @@
 #include <project/project_file.h>
 #include <trace_helpers.h>
 #include <wildcards_and_files_ext.h>
-
+#include <settings/common_settings.h>
+#include <settings/settings_manager.h>
 
 PROJECT::PROJECT() :
         m_readOnly( false ),
@@ -149,6 +153,44 @@ const wxString PROJECT::FootprintLibTblName() const
 }
 
 
+void PROJECT::PinLibrary( const wxString& aLibrary, bool isSymbolLibrary )
+{
+    COMMON_SETTINGS*       cfg = Pgm().GetCommonSettings();
+    std::vector<wxString>* pinnedLibs = isSymbolLibrary ? &m_projectFile->m_PinnedSymbolLibs
+                                                        : &m_projectFile->m_PinnedFootprintLibs;
+
+    if( !alg::contains( *pinnedLibs, aLibrary ) )
+        pinnedLibs->push_back( aLibrary );
+
+    Pgm().GetSettingsManager().SaveProject();
+
+    pinnedLibs = isSymbolLibrary ? &cfg->m_Session.pinned_symbol_libs
+                                 : &cfg->m_Session.pinned_fp_libs;
+
+    if( !alg::contains( *pinnedLibs, aLibrary ) )
+        pinnedLibs->push_back( aLibrary );
+
+    cfg->SaveToFile( Pgm().GetSettingsManager().GetPathForSettingsFile( cfg ) );
+}
+
+
+void PROJECT::UnpinLibrary( const wxString& aLibrary, bool isSymbolLibrary )
+{
+    COMMON_SETTINGS*       cfg = Pgm().GetCommonSettings();
+    std::vector<wxString>* pinnedLibs = isSymbolLibrary ? &m_projectFile->m_PinnedSymbolLibs
+                                                        : &m_projectFile->m_PinnedFootprintLibs;
+
+    alg::delete_matching( *pinnedLibs, aLibrary );
+    Pgm().GetSettingsManager().SaveProject();
+
+    pinnedLibs = isSymbolLibrary ? &cfg->m_Session.pinned_symbol_libs
+                                 : &cfg->m_Session.pinned_fp_libs;
+
+    alg::delete_matching( *pinnedLibs, aLibrary );
+    cfg->SaveToFile( Pgm().GetSettingsManager().GetPathForSettingsFile( cfg ) );
+}
+
+
 const wxString PROJECT::libTableName( const wxString& aLibTableName ) const
 {
     wxFileName  fn = GetProjectFullName();
@@ -164,8 +206,8 @@ const wxString PROJECT::libTableName( const wxString& aLibTableName ) const
         // application title which is no longer constant or known.  This next line needs
         // to be re-thought out.
 
-#ifndef __WXMAC__
-        fn.AssignDir( wxStandardPaths::Get().GetUserConfigDir() );
+#ifdef __WXMAC__
+        fn.AssignDir( KIPLATFORM::ENV::GetUserConfigPath() );
 #else
         // don't pollute home folder, temp folder seems to be more appropriate
         fn.AssignDir( wxStandardPaths::Get().GetTempDir() );
@@ -198,7 +240,7 @@ const wxString PROJECT::GetSheetName( const KIID& aSheetID )
 {
     if( m_sheetNames.empty() )
     {
-        for( auto pair : GetProjectFile().GetSheets() )
+        for( const std::pair<KIID, wxString>& pair : GetProjectFile().GetSheets() )
             m_sheetNames[pair.first] = pair.second;
     }
 
@@ -214,13 +256,9 @@ void PROJECT::SetRString( RSTRING_T aIndex, const wxString& aString )
     unsigned ndx = unsigned( aIndex );
 
     if( ndx < arrayDim( m_rstrings ) )
-    {
         m_rstrings[ndx] = aString;
-    }
     else
-    {
         wxASSERT( 0 );      // bad index
-    }
 }
 
 
@@ -247,9 +285,7 @@ PROJECT::_ELEM* PROJECT::GetElem( ELEM_T aIndex )
 {
     // This is virtual, so implement it out of line
     if( unsigned( aIndex ) < arrayDim( m_elems ) )
-    {
         return m_elems[aIndex];
-    }
 
     return nullptr;
 }
@@ -273,7 +309,7 @@ const wxString PROJECT::AbsolutePath( const wxString& aFileName ) const
     if( !fn.IsAbsolute() )
     {
         wxString pro_dir = wxPathOnly( GetProjectFullName() );
-        fn.Normalize( wxPATH_NORM_ALL, pro_dir );
+        fn.Normalize( FN_NORMALIZE_FLAGS | wxPATH_NORM_ENV_VARS, pro_dir );
     }
 
     return fn.GetFullPath();

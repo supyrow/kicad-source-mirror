@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2019 CERN
- * Copyright (C) 2019-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2019-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -25,7 +25,6 @@
 #include <tool/tool_manager.h>
 #include <tools/ee_selection_tool.h>
 #include <ee_actions.h>
-#include <bitmaps.h>
 #include <eda_item.h>
 #include <wx/log.h>
 #include "symbol_editor_move_tool.h"
@@ -90,8 +89,6 @@ void SYMBOL_EDITOR_MOVE_TOOL::Reset( RESET_REASON aReason )
 
 int SYMBOL_EDITOR_MOVE_TOOL::Main( const TOOL_EVENT& aEvent )
 {
-    static KICAD_T fieldsOnly[] = { LIB_FIELD_T, EOT };
-
     KIGFX::VIEW_CONTROLS* controls = getViewControls();
 
     m_anchorPos = { 0, 0 };
@@ -99,15 +96,21 @@ int SYMBOL_EDITOR_MOVE_TOOL::Main( const TOOL_EVENT& aEvent )
     // Be sure that there is at least one item that we can move. If there's no selection try
     // looking for the stuff under mouse cursor (i.e. Kicad old-style hover selection).
     EE_SELECTION& selection = m_frame->IsSymbolAlias()
-                                                ? m_selectionTool->RequestSelection( fieldsOnly )
-                                                : m_selectionTool->RequestSelection();
+                                            ? m_selectionTool->RequestSelection( { LIB_FIELD_T } )
+                                            : m_selectionTool->RequestSelection();
     bool          unselect = selection.IsHover();
 
-    if( !m_frame->IsSymbolEditable() || selection.Empty() || m_moveInProgress )
+    if( !m_frame->IsSymbolEditable() || selection.Empty() )
         return 0;
 
-    std::string tool = aEvent.GetCommandStr().get();
-    m_frame->PushTool( tool );
+    if( m_moveInProgress )
+    {
+        // The tool hotkey is interpreted as a click when already moving
+        m_toolMgr->RunAction( ACTIONS::cursorClick );
+        return 0;
+    }
+
+    m_frame->PushTool( aEvent );
 
     Activate();
     // Must be done after Activate() so that it gets set into the correct context
@@ -116,13 +119,14 @@ int SYMBOL_EDITOR_MOVE_TOOL::Main( const TOOL_EVENT& aEvent )
 
     bool        restore_state = false;
     bool        chain_commands = false;
-    TOOL_EVENT* evt = const_cast<TOOL_EVENT*>( &aEvent );
+    TOOL_EVENT  copy = aEvent;
+    TOOL_EVENT* evt = &copy;
     VECTOR2I    prevPos;
 
     if( !selection.Front()->IsNew() )
         saveCopyInUndoList( m_frame->GetCurSymbol(), UNDO_REDO::LIBEDIT );
 
-    m_cursor = controls->GetCursorPosition();
+    m_cursor = controls->GetCursorPosition( !aEvent.DisableGridSnapping() );
 
     // Main loop: keep receiving events
     do
@@ -188,7 +192,7 @@ int SYMBOL_EDITOR_MOVE_TOOL::Main( const TOOL_EVENT& aEvent )
 
                 // Set up the starting position and move/drag offset
                 //
-                m_cursor = controls->GetCursorPosition();
+                m_cursor = controls->GetCursorPosition( !evt->DisableGridSnapping() );
 
                 if( lib_item->IsNew() )
                 {
@@ -204,17 +208,17 @@ int SYMBOL_EDITOR_MOVE_TOOL::Main( const TOOL_EVENT& aEvent )
 
                     m_anchorPos = m_cursor;
                 }
-                else if( selection.Size() == 1 && m_frame->GetMoveWarpsCursor() )
+                else if( m_frame->GetMoveWarpsCursor() )
                 {
-                    VECTOR2I itemPos = lib_item->GetPosition();
+                    VECTOR2I itemPos = selection.GetTopLeftItem()->GetPosition();
                     m_anchorPos = VECTOR2I( itemPos.x, -itemPos.y );
 
-                    getViewControls()->WarpCursor( m_anchorPos, true, true );
+                    getViewControls()->WarpMouseCursor( m_anchorPos, true, true );
                     m_cursor = m_anchorPos;
                 }
                 else
                 {
-                    m_cursor = getViewControls()->GetCursorPosition( true );
+                    m_cursor = controls->GetCursorPosition( !evt->DisableGridSnapping() );
                     m_anchorPos = m_cursor;
                 }
 
@@ -229,7 +233,7 @@ int SYMBOL_EDITOR_MOVE_TOOL::Main( const TOOL_EVENT& aEvent )
             //------------------------------------------------------------------------
             // Follow the mouse
             //
-            m_cursor = controls->GetCursorPosition();
+            m_cursor = controls->GetCursorPosition( !evt->DisableGridSnapping() );
             VECTOR2I delta( m_cursor - prevPos );
             m_anchorPos = m_cursor;
 
@@ -361,7 +365,7 @@ int SYMBOL_EDITOR_MOVE_TOOL::Main( const TOOL_EVENT& aEvent )
     }
 
     m_moveInProgress = false;
-    m_frame->PopTool( tool );
+    m_frame->PopTool( aEvent );
     return 0;
 }
 

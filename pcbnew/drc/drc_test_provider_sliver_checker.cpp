@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2021 KiCad Developers.
+ * Copyright (C) 2021-2022 KiCad Developers.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -21,6 +21,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
+#include <atomic>
 #include <board.h>
 #include <board_design_settings.h>
 #include <zone.h>
@@ -31,6 +32,8 @@
 #include <drc/drc_item.h>
 #include <drc/drc_test_provider.h>
 #include <advanced_config.h>
+#include <progress_reporter.h>
+#include <thread_pool.h>
 
 /*
     Checks for slivers in copper layers
@@ -54,12 +57,12 @@ public:
 
     virtual const wxString GetName() const override
     {
-        return "sliver checker";
+        return wxT( "sliver checker" );
     };
 
     virtual const wxString GetDescription() const override
     {
-        return "Checks copper layers for slivers";
+        return wxT( "Checks copper layers for slivers" );
     }
 
 private:
@@ -75,62 +78,119 @@ wxString DRC_TEST_PROVIDER_SLIVER_CHECKER::layerDesc( PCB_LAYER_ID aLayer )
 
 bool DRC_TEST_PROVIDER_SLIVER_CHECKER::Run()
 {
-    const int delta = 250;  // This is the number of tests between 2 calls to the progress bar
-
     if( m_drcEngine->IsErrorLimitExceeded( DRCE_COPPER_SLIVER ) )
         return true;    // Continue with other tests
 
     if( !reportPhase( _( "Running sliver detection on copper layers..." ) ) )
         return false;   // DRC cancelled
 
-    int    widthTolerance = Millimeter2iu( ADVANCED_CFG::GetCfg().m_SliverWidthTolerance );
+    int    widthTolerance = pcbIUScale.mmToIU( ADVANCED_CFG::GetCfg().m_SliverWidthTolerance );
     double angleTolerance = ADVANCED_CFG::GetCfg().m_SliverAngleTolerance;
     int    testLength = widthTolerance / ( 2 * sin( DEG2RAD( angleTolerance / 2 ) ) );
-    LSET   copperLayers = m_drcEngine->GetBoard()->GetEnabledLayers() & LSET::AllCuMask();
+    LSET   copperLayerSet = m_drcEngine->GetBoard()->GetEnabledLayers() & LSET::AllCuMask();
+    LSEQ   copperLayers = copperLayerSet.Seq();
+    int    layerCount = copperLayers.size();
 
-    for( PCB_LAYER_ID layer : copperLayers.Seq() )
+    // Report progress on board zones only.  Everything else is in the noise.
+    int    zoneLayerCount = 0;
+    std::atomic<size_t> done( 1 );
+
+    for( PCB_LAYER_ID layer : copperLayers )
     {
+        for( ZONE* zone : m_drcEngine->GetBoard()->Zones() )
+        {
+            if( !zone->GetIsRuleArea() && zone->IsOnLayer( layer ) )
+                zoneLayerCount++;
+        }
+    }
+
+    PROGRESS_REPORTER* reporter = m_drcEngine->GetProgressReporter();
+
+    if( reporter && reporter->IsCancelled() )
+        return false;   // DRC cancelled
+
+    std::vector<SHAPE_POLY_SET> layerPolys( layerCount );
+
+    auto build_layer_polys =
+            [&]( int layerIdx ) -> size_t
+            {
+                PCB_LAYER_ID    layer = copperLayers[layerIdx];
+                SHAPE_POLY_SET& poly = layerPolys[layerIdx];
+
+                if( m_drcEngine->IsCancelled() )
+                    return 0;
+
+                SHAPE_POLY_SET  fill;
+
+                forEachGeometryItem( s_allBasicItems, LSET().set( layer ),
+                        [&]( BOARD_ITEM* item ) -> bool
+                        {
+                            if( ZONE* zone = dynamic_cast<ZONE*>( item) )
+                            {
+                                if( !zone->GetIsRuleArea() )
+                                {
+                                    fill = zone->GetFill( layer )->CloneDropTriangulation();
+                                    fill.Unfracture( SHAPE_POLY_SET::PM_FAST );
+                                    poly.Append( fill );
+
+                                    // Report progress on board zones only.  Everything else is
+                                    // in the noise.
+                                    done.fetch_add( 1 );
+                                }
+                            }
+                            else
+                            {
+                                item->TransformShapeToPolygon( poly, layer, 0, ARC_LOW_DEF,
+                                                               ERROR_OUTSIDE );
+                            }
+
+                            if( m_drcEngine->IsCancelled() )
+                                return false;
+
+                            return true;
+                        } );
+
+
+                if( m_drcEngine->IsCancelled() )
+                    return 0;
+
+                poly.Simplify( SHAPE_POLY_SET::PM_FAST );
+
+                // Sharpen corners
+                poly.Deflate( widthTolerance / 2, ARC_LOW_DEF,
+                              SHAPE_POLY_SET::ALLOW_ACUTE_CORNERS );
+
+                return 1;
+            };
+
+    thread_pool& tp = GetKiCadThreadPool();
+    std::vector<std::future<size_t>> returns;
+
+    returns.reserve( copperLayers.size() );
+
+    for( size_t ii = 0; ii < copperLayers.size(); ++ii )
+        returns.emplace_back( tp.submit( build_layer_polys, ii ) );
+
+    for( const std::future<size_t>& ret : returns )
+    {
+        std::future_status status = ret.wait_for( std::chrono::milliseconds( 250 ) );
+
+        while( status != std::future_status::ready )
+        {
+            m_drcEngine->ReportProgress( static_cast<double>( zoneLayerCount ) / done );
+
+            status = ret.wait_for( std::chrono::milliseconds( 250 ) );
+        }
+    }
+
+
+    for( int ii = 0; ii < layerCount; ++ii )
+    {
+        PCB_LAYER_ID    layer = copperLayers[ii];
+        SHAPE_POLY_SET& poly = layerPolys[ii];
+
         if( m_drcEngine->IsErrorLimitExceeded( DRCE_COPPER_SLIVER ) )
             continue;
-
-        int            itemCount = 0;
-        int            itemIdx = 0;
-        SHAPE_POLY_SET poly;
-
-
-        forEachGeometryItem( s_allBasicItems, LSET().set( layer ),
-                [&]( BOARD_ITEM* item ) -> bool
-                {
-                    ++itemCount;
-                    return true;
-                } );
-
-        forEachGeometryItem( s_allBasicItems, LSET().set( layer ),
-                [&]( BOARD_ITEM* item ) -> bool
-                {
-                    if( !reportProgress( itemIdx++, itemCount, delta ) )
-                        return false;
-
-                    if( item->Type() == PCB_ZONE_T || item->Type() == PCB_FP_ZONE_T )
-                    {
-                        ZONE* zone = static_cast<ZONE*>( item );
-
-                        poly.BooleanAdd( *zone->GetFilledPolysList( layer ),
-                                         SHAPE_POLY_SET::PM_FAST );
-                    }
-                    else
-                    {
-                        item->TransformShapeWithClearanceToPolygon( poly, layer, 0, ARC_LOW_DEF,
-                                                                    ERROR_OUTSIDE );
-                    }
-
-                    return true;
-                } );
-
-        poly.Simplify( SHAPE_POLY_SET::PM_FAST );
-
-        // Sharpen corners
-        poly.Deflate( widthTolerance / 2, ARC_LOW_DEF, SHAPE_POLY_SET::CHAMFER_ACUTE_CORNERS );
 
         // Frequently, in filled areas, some points of the polygons are very near (dist is only
         // a few internal units, like 2 or 3 units.
@@ -147,29 +207,25 @@ bool DRC_TEST_PROVIDER_SLIVER_CHECKER::Run()
             for( int kk = 0; kk < ptCount; ++kk )
             {
                 VECTOR2I pt = pts[ kk ];
-                VECTOR2I ptBefore = pts[ ( ptCount + kk - 1 ) % ptCount ];
-                VECTOR2I vBefore = ( ptBefore - pt );
+                VECTOR2I ptPrior = pts[ ( ptCount + kk - 1 ) % ptCount ];
+                VECTOR2I vPrior = ( ptPrior - pt );
 
-                if( std::abs( vBefore.x ) < min_len
-                        && std::abs( vBefore.y ) < min_len
-                        && ptCount > 5)
+                if( std::abs( vPrior.x ) < min_len && std::abs( vPrior.y ) < min_len && ptCount > 5)
                 {
-                    ptBefore = pts[ ( ptCount + kk - 2 ) % ptCount ];
-                    vBefore = ( ptBefore - pt );
+                    ptPrior = pts[ ( ptCount + kk - 2 ) % ptCount ];
+                    vPrior = ( ptPrior - pt );
                 }
 
                 VECTOR2I ptAfter  = pts[ ( kk + 1 ) % ptCount ];
                 VECTOR2I vAfter = ( ptAfter - pt );
 
-                if( std::abs( vAfter.x ) < min_len
-                        && std::abs( vAfter.y ) < min_len
-                        && ptCount > 5 )
+                if( std::abs( vAfter.x ) < min_len && std::abs( vAfter.y ) < min_len && ptCount > 5 )
                 {
                     ptAfter  = pts[ ( kk + 2 ) % ptCount ];
                     vAfter = ( ptAfter - pt );
                 }
 
-                VECTOR2I vIncluded = vBefore.Resize( testLength ) - vAfter.Resize( testLength );
+                VECTOR2I vIncluded = vPrior.Resize( testLength ) - vAfter.Resize( testLength );
 
                 if( vIncluded.SquaredEuclideanNorm() < SEG::Square( widthTolerance ) )
                 {

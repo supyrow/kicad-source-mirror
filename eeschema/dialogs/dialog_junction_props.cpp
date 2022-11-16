@@ -35,6 +35,9 @@ DIALOG_JUNCTION_PROPS::DIALOG_JUNCTION_PROPS( SCH_EDIT_FRAME* aParent,
 {
     m_colorSwatch->SetDefaultColor( COLOR4D::UNSPECIFIED );
 
+    KIGFX::COLOR4D canvas = m_frame->GetColorSettings()->GetColor( LAYER_SCHEMATIC_BACKGROUND );
+    m_colorSwatch->SetSwatchBackground( canvas.ToColour() );
+
     m_helpLabel1->SetFont( KIUI::GetInfoFont( this ).Italic() );
     m_helpLabel2->SetFont( KIUI::GetInfoFont( this ).Italic() );
 
@@ -97,7 +100,7 @@ bool DIALOG_JUNCTION_PROPS::TransferDataFromWindow()
     for( SCH_JUNCTION* junction : m_junctions )
         pickedItems.PushItem( ITEM_PICKER( m_frame->GetScreen(), junction, UNDO_REDO::CHANGED ) );
 
-    m_frame->SaveCopyInUndoList( pickedItems, UNDO_REDO::CHANGED, false );
+    m_frame->SaveCopyInUndoList( pickedItems, UNDO_REDO::CHANGED, false, false );
 
     for( SCH_JUNCTION* junction : m_junctions )
     {

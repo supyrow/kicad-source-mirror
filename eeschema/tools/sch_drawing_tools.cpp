@@ -22,13 +22,13 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
-#include "sch_drawing_tools.h"
-#include "ee_selection_tool.h"
-#include "ee_grid_helper.h"
+#include <tools/sch_drawing_tools.h>
+#include <tools/ee_selection_tool.h>
+#include <tools/ee_grid_helper.h>
 #include <ee_actions.h>
 #include <sch_edit_frame.h>
 #include <project.h>
-#include <id.h>
+#include <pgm_base.h>
 #include <eeschema_id.h>
 #include <confirm.h>
 #include <view/view_controls.h>
@@ -48,13 +48,12 @@
 #include <eeschema_settings.h>
 #include <dialogs/dialog_label_properties.h>
 #include <dialogs/dialog_text_properties.h>
-#include <dialogs/dialog_line_wire_bus_properties.h>
+#include <dialogs/dialog_wire_bus_properties.h>
 #include <dialogs/dialog_junction_props.h>
 #include <dialogs/dialog_sheet_pin_properties.h>
 #include <string_utils.h>
 #include <wildcards_and_files_ext.h>
 #include <wx/filedlg.h>
-#include <sch_shape.h>
 
 SCH_DRAWING_TOOLS::SCH_DRAWING_TOOLS() :
         EE_TOOL_BASE<SCH_EDIT_FRAME>( "eeschema.InteractiveDrawing" ),
@@ -64,8 +63,16 @@ SCH_DRAWING_TOOLS::SCH_DRAWING_TOOLS() :
         m_lastTextOrientation( TEXT_SPIN_STYLE::RIGHT ),
         m_lastTextBold( false ),
         m_lastTextItalic( false ),
-        m_lastNetClassDirectiveItalic( true ),
+        m_lastTextAngle( ANGLE_0 ),
+        m_lastTextJust( GR_TEXT_H_ALIGN_LEFT ),
         m_lastFillStyle( FILL_T::NO_FILL ),
+        m_lastTextboxFillStyle( FILL_T::NO_FILL ),
+        m_lastFillColor( COLOR4D::UNSPECIFIED ),
+        m_lastTextboxFillColor( COLOR4D::UNSPECIFIED ),
+        m_lastStroke( 0, PLOT_DASH_TYPE::DEFAULT, COLOR4D::UNSPECIFIED ),
+        m_lastTextboxStroke( 0, PLOT_DASH_TYPE::DEFAULT, COLOR4D::UNSPECIFIED ),
+        m_mruPath( wxEmptyString ),
+        m_lastAutoLabelRotateOnPlacement( false ),
         m_inPlaceSymbol( false ),
         m_inDrawShape( false ),
         m_inPlaceImage( false ),
@@ -93,34 +100,32 @@ bool SCH_DRAWING_TOOLS::Init()
 }
 
 
-EDA_RECT SCH_DRAWING_TOOLS::GetCanvasFreeAreaPixels()
-{
-    // calculate the area of the canvas in pixels that create no autopan when
-    // is inside this area the mouse cursor
-    wxSize canvas_size = m_frame->GetCanvas()->GetSize();
-    EDA_RECT canvas_area( wxPoint( 0, 0 ), canvas_size );
-    const KIGFX::VC_SETTINGS& v_settings = getViewControls()->GetSettings();
-
-    if( v_settings.m_autoPanEnabled )
-        canvas_area.Inflate( - v_settings.m_autoPanMargin );
-
-    // Gives a margin of 2 pixels
-    canvas_area.Inflate( -2 );
-
-    return canvas_area;
-}
-
-
 int SCH_DRAWING_TOOLS::PlaceSymbol( const TOOL_EVENT& aEvent )
 {
     SCH_SYMBOL*                 symbol = aEvent.Parameter<SCH_SYMBOL*>();
     SYMBOL_LIBRARY_FILTER       filter;
     std::vector<PICKED_SYMBOL>* historyList = nullptr;
+    bool                        ignorePrimePosition = false;
+    COMMON_SETTINGS*            common_settings = Pgm().GetCommonSettings();
+    EE_GRID_HELPER              grid( m_toolMgr );
 
     if( m_inPlaceSymbol )
         return 0;
 
     REENTRANCY_GUARD guard( &m_inPlaceSymbol );
+
+    // First we need to get all instances of this sheet so we can annotate
+    // whatever symbols we place on all copies
+    SCH_SHEET_LIST hierarchy = m_frame->Schematic().GetSheets();
+    SCH_SHEET_LIST newInstances =
+            hierarchy.FindAllSheetsForScreen( m_frame->GetCurrentSheet().LastScreen() );
+    newInstances.SortByPageNumbers();
+
+    // Get a list of all references in the schematic to avoid duplicates wherever
+    // they're placed
+    SCH_REFERENCE_LIST existingRefs;
+    hierarchy.GetSymbols( existingRefs );
+    existingRefs.SortByReferenceOnly();
 
     if( aEvent.IsAction( &EE_ACTIONS::placeSymbol ) )
     {
@@ -136,8 +141,7 @@ int SCH_DRAWING_TOOLS::PlaceSymbol( const TOOL_EVENT& aEvent )
         wxFAIL_MSG( "PlaceSymbol(): unexpected request" );
     }
 
-    std::string tool = aEvent.GetCommandStr().get();
-    m_frame->PushTool( tool );
+    m_frame->PushTool( aEvent );
 
     auto addSymbol =
             [&]( SCH_SYMBOL* aSymbol )
@@ -164,16 +168,54 @@ int SCH_DRAWING_TOOLS::PlaceSymbol( const TOOL_EVENT& aEvent )
             };
 
     auto cleanup =
-            [&] ()
+            [&]()
             {
                 m_toolMgr->RunAction( EE_ACTIONS::clearSelection, true );
                 m_frame->RollbackSchematicFromUndo();
                 symbol = nullptr;
             };
 
+    auto annotate =
+            [&]()
+            {
+                EESCHEMA_SETTINGS* cfg = m_frame->eeconfig();
+
+                // Then we need to annotate all instances by sheet
+                for( SCH_SHEET_PATH& instance : newInstances )
+                {
+                    SCH_REFERENCE newReference( symbol, symbol->GetLibSymbolRef().get(), instance );
+                    SCH_REFERENCE_LIST refs;
+                    refs.AddItem( newReference );
+
+                    if( symbol->GetLibSymbolRef()->IsPower() )
+                    {
+                        refs.ReannotateByOptions( UNSORTED, INCREMENTAL_BY_REF, 1, existingRefs,
+                                                  true, nullptr );
+                    }
+                    else if( cfg->m_AnnotatePanel.automatic )
+                    {
+                        refs.ReannotateByOptions(
+                                (ANNOTATE_ORDER_T) cfg->m_AnnotatePanel.sort_order,
+                                (ANNOTATE_ALGO_T) cfg->m_AnnotatePanel.method,
+                                m_frame->Schematic().Settings().m_AnnotateStartNum, existingRefs,
+                                false, &hierarchy );
+
+                        refs.UpdateAnnotation();
+
+                        // Update existing refs for next iteration
+                        for( size_t i = 0; i < refs.GetCount(); i++ )
+                            existingRefs.AddItem( refs[i] );
+                    }
+                }
+
+                m_frame->GetCurrentSheet().UpdateAllScreenReferences();
+            };
+
     Activate();
+
     // Must be done after Activate() so that it gets set into the correct context
     getViewControls()->ShowCursor( true );
+
     // Set initial cursor
     setCursor();
 
@@ -181,32 +223,47 @@ int SCH_DRAWING_TOOLS::PlaceSymbol( const TOOL_EVENT& aEvent )
     if( symbol )
     {
         addSymbol( symbol );
-        getViewControls()->WarpCursor( getViewControls()->GetMousePosition( false ) );
+        annotate();
+        getViewControls()->WarpMouseCursor( getViewControls()->GetMousePosition( false ) );
     }
-    else if( !aEvent.IsReactivate() )
+    else if( aEvent.HasPosition() )
     {
-        m_toolMgr->RunAction( EE_ACTIONS::cursorClick );
+        m_toolMgr->PrimeTool( aEvent.Position() );
+    }
+    else if( common_settings->m_Input.immediate_actions && !aEvent.IsReactivate() )
+    {
+        m_toolMgr->PrimeTool( { 0, 0 } );
+        ignorePrimePosition = true;
     }
 
     // Main loop: keep receiving events
     while( TOOL_EVENT* evt = Wait() )
     {
         setCursor();
+        grid.SetSnap( !evt->Modifier( MD_SHIFT ) );
+        grid.SetUseGrid( getView()->GetGAL()->GetGridSnapping() && !evt->DisableGridSnapping() );
+
         VECTOR2I cursorPos = getViewControls()->GetCursorPosition( !evt->DisableGridSnapping() );
+
+        // The tool hotkey is interpreted as a click when drawing
+        bool isSyntheticClick = symbol && evt->IsActivate() && evt->HasPosition()
+                                && evt->Matches( aEvent );
 
         if( evt->IsCancelInteractive() )
         {
+            m_frame->GetInfoBar()->Dismiss();
+
             if( symbol )
             {
                 cleanup();
             }
             else
             {
-                m_frame->PopTool( tool );
+                m_frame->PopTool( aEvent );
                 break;
             }
         }
-        else if( evt->IsActivate() )
+        else if( evt->IsActivate() && !isSyntheticClick )
         {
             if( symbol && evt->IsMoveTool() )
             {
@@ -229,50 +286,48 @@ int SCH_DRAWING_TOOLS::PlaceSymbol( const TOOL_EVENT& aEvent )
             }
             else
             {
-                m_frame->PopTool( tool );
+                m_frame->PopTool( aEvent );
                 break;
             }
         }
-        else if( evt->IsClick( BUT_LEFT ) || evt->IsDblClick( BUT_LEFT ) )
+        else if( evt->IsClick( BUT_LEFT ) || evt->IsDblClick( BUT_LEFT ) || isSyntheticClick )
         {
             if( !symbol )
             {
                 m_toolMgr->RunAction( EE_ACTIONS::clearSelection, true );
 
-                // Store the mouse position: if it is outside the canvas,
-                // (happens when clicking on a toolbar tool) one cannot
-                // use the last stored cursor position to place the new symbol
-                // (Current mouse pos after closing the dialog will be used)
-                KIGFX::VIEW_CONTROLS* controls = getViewControls();
-                VECTOR2D initialMousePos = controls->GetMousePosition(false);
-                // Build the rectangle area acceptable to move the cursor without
-                // having an auto-pan
-                EDA_RECT canvas_area = GetCanvasFreeAreaPixels();
-
                 // Pick the footprint to be placed
                 bool footprintPreviews = m_frame->eeconfig()->m_Appearance.footprint_preview;
                 PICKED_SYMBOL sel = m_frame->PickSymbolFromLibTree( &filter, *historyList, true,
                                                                     1, 1, footprintPreviews );
-                // Restore cursor position after closing the dialog,
-                // but only if it has meaning (i.e inside the canvas)
-                VECTOR2D newMousePos = controls->GetMousePosition(false);
 
-                if( canvas_area.Contains( VECTOR2I( initialMousePos ) ) )
-                    controls->WarpCursor( controls->GetCursorPosition(), true );
-                else if( !canvas_area.Contains( VECTOR2I( newMousePos ) ) )
-                    // The mouse is outside the canvas area, after closing the dialog,
-                    // thus can creating autopan issues. Warp the mouse to the canvas center
-                    controls->WarpCursor( canvas_area.Centre(), false );
-
-                LIB_SYMBOL* libSymbol = sel.LibId.IsValid() ?
-                                        m_frame->GetLibSymbol( sel.LibId ) : nullptr;
+                LIB_SYMBOL* libSymbol = sel.LibId.IsValid() ? m_frame->GetLibSymbol( sel.LibId )
+                                                            : nullptr;
 
                 if( !libSymbol )
                     continue;
 
-                VECTOR2I pos( cursorPos );
-                symbol = new SCH_SYMBOL( *libSymbol, &m_frame->GetCurrentSheet(), sel, pos );
+                // If we started with a hotkey which has a position then warp back to that.
+                // Otherwise update to the current mouse position pinned inside the autoscroll
+                // boundaries.
+                if( evt->IsPrime() && !ignorePrimePosition )
+                {
+                    cursorPos = grid.Align( evt->Position() );
+                    getViewControls()->WarpMouseCursor( cursorPos, true );
+                }
+                else
+                {
+                    getViewControls()->PinCursorInsideNonAutoscrollArea( true );
+                    cursorPos = getViewControls()->GetMousePosition();
+                }
+
+                symbol = new SCH_SYMBOL( *libSymbol, &m_frame->GetCurrentSheet(), sel, cursorPos,
+                                         &m_frame->Schematic() );
                 addSymbol( symbol );
+                annotate();
+
+                if( m_frame->eeconfig()->m_AutoplaceFields.enable )
+                    symbol->AutoplaceFields( /* aScreen */ nullptr, /* aManual */ false );
 
                 // Update cursor now that we have a symbol
                 setCursor();
@@ -317,7 +372,13 @@ int SCH_DRAWING_TOOLS::PlaceSymbol( const TOOL_EVENT& aEvent )
                         nextSymbol->SetUnit( new_unit );
                         nextSymbol->SetUnitSelection( new_unit );
 
+                        // Start new annotation sequence at first unit
+                        if( new_unit == 1 )
+                            nextSymbol->ClearAnnotation( nullptr, false );
+
                         addSymbol( nextSymbol );
+                        symbol = nextSymbol; // annotate() looks at symbol, update it
+                        annotate();
                     }
                 }
 
@@ -334,10 +395,10 @@ int SCH_DRAWING_TOOLS::PlaceSymbol( const TOOL_EVENT& aEvent )
         }
         else if( evt->Category() == TC_COMMAND && evt->Action() == TA_CHOICE_MENU_CHOICE )
         {
-            if( evt->GetCommandId().get() >= ID_POPUP_SCH_SELECT_UNIT_CMP
-                && evt->GetCommandId().get() <= ID_POPUP_SCH_SELECT_UNIT_SYM_MAX )
+            if( *evt->GetCommandId() >= ID_POPUP_SCH_SELECT_UNIT_CMP
+                && *evt->GetCommandId() <= ID_POPUP_SCH_SELECT_UNIT_SYM_MAX )
             {
-                int unit = evt->GetCommandId().get() - ID_POPUP_SCH_SELECT_UNIT_CMP;
+                int unit = *evt->GetCommandId() - ID_POPUP_SCH_SELECT_UNIT_CMP;
 
                 if( symbol )
                 {
@@ -350,6 +411,7 @@ int SCH_DRAWING_TOOLS::PlaceSymbol( const TOOL_EVENT& aEvent )
         {
             symbol->SetPosition( cursorPos );
             m_view->Update( symbol );
+            m_frame->SetMsgPanel( symbol );
         }
         else if( symbol && evt->IsAction( &ACTIONS::doDelete ) )
         {
@@ -375,9 +437,11 @@ int SCH_DRAWING_TOOLS::PlaceSymbol( const TOOL_EVENT& aEvent )
 
 int SCH_DRAWING_TOOLS::PlaceImage( const TOOL_EVENT& aEvent )
 {
-    SCH_BITMAP* image = aEvent.Parameter<SCH_BITMAP*>();
-    bool        immediateMode = image;
-    VECTOR2I    cursorPos = getViewControls()->GetCursorPosition();
+    SCH_BITMAP*      image = aEvent.Parameter<SCH_BITMAP*>();
+    bool             immediateMode = image != nullptr;
+    EE_GRID_HELPER   grid( m_toolMgr );
+    bool             ignorePrimePosition = false;
+    COMMON_SETTINGS* common_settings = Pgm().GetCommonSettings();
 
     if( m_inPlaceImage )
         return 0;
@@ -389,13 +453,13 @@ int SCH_DRAWING_TOOLS::PlaceImage( const TOOL_EVENT& aEvent )
     // Add all the drawable symbols to preview
     if( image )
     {
-        image->SetPosition( cursorPos );
+        image->SetPosition( getViewControls()->GetCursorPosition() );
         m_view->ClearPreview();
-        m_view->AddToPreview( image->Clone() );
+        m_view->AddToPreview( image, false );   // Add, but not give ownership
     }
 
-    std::string tool = aEvent.GetCommandStr().get();
-    m_frame->PushTool( tool );
+    m_frame->PushTool( aEvent );
+
     auto setCursor =
             [&]()
             {
@@ -415,42 +479,59 @@ int SCH_DRAWING_TOOLS::PlaceImage( const TOOL_EVENT& aEvent )
             };
 
     Activate();
+
     // Must be done after Activate() so that it gets set into the correct context
     getViewControls()->ShowCursor( true );
+
     // Set initial cursor
     setCursor();
 
     // Prime the pump
     if( image )
+    {
         m_toolMgr->RunAction( ACTIONS::refreshPreview );
-    else if( !aEvent.IsReactivate() )
-        m_toolMgr->RunAction( ACTIONS::cursorClick );
+    }
+    else if( aEvent.HasPosition() )
+    {
+        m_toolMgr->PrimeTool( aEvent.Position() );
+    }
+    else if( common_settings->m_Input.immediate_actions && !aEvent.IsReactivate() )
+    {
+        m_toolMgr->PrimeTool( { 0, 0 } );
+        ignorePrimePosition = true;
+    }
 
     // Main loop: keep receiving events
     while( TOOL_EVENT* evt = Wait() )
     {
         setCursor();
-        cursorPos = getViewControls()->GetCursorPosition( !evt->DisableGridSnapping() );
+        VECTOR2I cursorPos = getViewControls()->GetCursorPosition( !evt->DisableGridSnapping() );
+
+        // The tool hotkey is interpreted as a click when drawing
+        bool isSyntheticClick = image && evt->IsActivate() && evt->HasPosition()
+                                && evt->Matches( aEvent );
 
         if( evt->IsCancelInteractive() )
         {
+            m_frame->GetInfoBar()->Dismiss();
+
             if( image )
             {
                 cleanup();
             }
             else
             {
-                m_frame->PopTool( tool );
+                m_frame->PopTool( aEvent );
                 break;
             }
 
             if( immediateMode )
             {
-                m_frame->PopTool( tool );
+                m_frame->PopTool( aEvent );
                 break;
             }
         }
-        else if( evt->IsActivate() )
+        else if( evt->IsActivate() && !isSyntheticClick )
         {
             if( image && evt->IsMoveTool() )
             {
@@ -473,48 +554,39 @@ int SCH_DRAWING_TOOLS::PlaceImage( const TOOL_EVENT& aEvent )
             }
             else
             {
-                m_frame->PopTool( tool );
+                m_frame->PopTool( aEvent );
                 break;
             }
         }
-        else if( evt->IsClick( BUT_LEFT ) || evt->IsDblClick( BUT_LEFT ) )
+        else if( evt->IsClick( BUT_LEFT ) || evt->IsDblClick( BUT_LEFT ) || isSyntheticClick )
         {
             if( !image )
             {
                 m_toolMgr->RunAction( EE_ACTIONS::clearSelection, true );
 
-                // Store the mouse position: if it is outside the canvas,
-                // (happens when clicking on a toolbar tool) one cannot
-                // use the last stored cursor position to place the new symbol
-                // (Current mouse pos after closing the dialog will be used)
-                KIGFX::VIEW_CONTROLS* controls = getViewControls();
-                VECTOR2D initialMousePos = controls->GetMousePosition(false);
-
-                // Build the rectangle area acceptable to move the cursor without
-                // having an auto-pan
-                EDA_RECT canvas_area = GetCanvasFreeAreaPixels();
-
-                wxFileDialog dlg( m_frame, _( "Choose Image" ), wxEmptyString, wxEmptyString,
+                wxFileDialog dlg( m_frame, _( "Choose Image" ), m_mruPath, wxEmptyString,
                                   _( "Image Files" ) + wxS( " " ) + wxImage::GetImageExtWildcard(),
                                   wxFD_OPEN );
 
                 if( dlg.ShowModal() != wxID_OK )
                     continue;
 
-                // Restore cursor position after closing the dialog,
-                // but only if it has meaning (i.e inside the canvas)
-                VECTOR2D newMousePos = controls->GetMousePosition( false );
-
-                if( canvas_area.Contains( VECTOR2I( initialMousePos ) ) )
-                    controls->WarpCursor( controls->GetCursorPosition(), true );
-                else if( !canvas_area.Contains( VECTOR2I( newMousePos ) ) )
-                    // The mouse is outside the canvas area, after closing the dialog,
-                    // thus can creating autopan issues. Warp the mouse to the canvas center
-                    controls->WarpCursor( canvas_area.Centre(), false );
-
-                cursorPos = controls->GetMousePosition( true );
+                // If we started with a hotkey which has a position then warp back to that.
+                // Otherwise update to the current mouse position pinned inside the autoscroll
+                // boundaries.
+                if( evt->IsPrime() && !ignorePrimePosition )
+                {
+                    cursorPos = grid.Align( evt->Position() );
+                    getViewControls()->WarpMouseCursor( cursorPos, true );
+                }
+                else
+                {
+                    getViewControls()->PinCursorInsideNonAutoscrollArea( true );
+                    cursorPos = getViewControls()->GetMousePosition();
+                }
 
                 wxString fullFilename = dlg.GetPath();
+                m_mruPath = wxPathOnly( fullFilename );
 
                 if( wxFileExists( fullFilename ) )
                     image = new SCH_BITMAP( cursorPos );
@@ -532,7 +604,7 @@ int SCH_DRAWING_TOOLS::PlaceImage( const TOOL_EVENT& aEvent )
                 m_frame->SaveCopyForRepeatItem( image );
 
                 m_view->ClearPreview();
-                m_view->AddToPreview( image->Clone() );
+                m_view->AddToPreview( image, false );   // Add, but not give ownership
                 m_view->RecacheAllItems();  // Bitmaps are cached in Opengl
 
                 m_selectionTool->AddItemToSel( image );
@@ -550,7 +622,7 @@ int SCH_DRAWING_TOOLS::PlaceImage( const TOOL_EVENT& aEvent )
 
                 if( immediateMode )
                 {
-                    m_frame->PopTool( tool );
+                    m_frame->PopTool( aEvent );
                     break;
                 }
             }
@@ -567,8 +639,9 @@ int SCH_DRAWING_TOOLS::PlaceImage( const TOOL_EVENT& aEvent )
         {
             image->SetPosition( cursorPos );
             m_view->ClearPreview();
-            m_view->AddToPreview( image->Clone() );
+            m_view->AddToPreview( image, false );   // Add, but not give ownership
             m_view->RecacheAllItems();  // Bitmaps are cached in Opengl
+            m_frame->SetMsgPanel( image );
         }
         else if( image && evt->IsAction( &ACTIONS::doDelete ) )
         {
@@ -594,7 +667,7 @@ int SCH_DRAWING_TOOLS::PlaceImage( const TOOL_EVENT& aEvent )
 
 int SCH_DRAWING_TOOLS::SingleClickPlace( const TOOL_EVENT& aEvent )
 {
-    wxPoint               cursorPos;
+    VECTOR2I              cursorPos;
     KICAD_T               type = aEvent.Parameter<KICAD_T>();
     EE_GRID_HELPER        grid( m_toolMgr );
     KIGFX::VIEW_CONTROLS* controls = getViewControls();
@@ -616,7 +689,7 @@ int SCH_DRAWING_TOOLS::SingleClickPlace( const TOOL_EVENT& aEvent )
             SEG seg( wire->GetStartPoint(), wire->GetEndPoint() );
             VECTOR2I nearest = seg.NearestPoint( getViewControls()->GetCursorPosition() );
             getViewControls()->SetCrossHairCursorPosition( nearest, false );
-            getViewControls()->WarpCursor( getViewControls()->GetCursorPosition(), true );
+            getViewControls()->WarpMouseCursor( getViewControls()->GetCursorPosition(), true );
         }
     }
 
@@ -671,8 +744,7 @@ int SCH_DRAWING_TOOLS::SingleClickPlace( const TOOL_EVENT& aEvent )
                                       aEvent.Position() :
                                       controls->GetMousePosition() );
 
-    std::string tool = aEvent.GetCommandStr().get();
-    m_frame->PushTool( tool );
+    m_frame->PushTool( aEvent );
 
     auto setCursor =
             [&]()
@@ -681,8 +753,10 @@ int SCH_DRAWING_TOOLS::SingleClickPlace( const TOOL_EVENT& aEvent )
             };
 
     Activate();
+
     // Must be done after Activate() so that it gets set into the correct context
     getViewControls()->ShowCursor( true );
+
     // Set initial cursor
     setCursor();
 
@@ -691,7 +765,7 @@ int SCH_DRAWING_TOOLS::SingleClickPlace( const TOOL_EVENT& aEvent )
 
     // Prime the pump
     if( aEvent.HasPosition() && type != SCH_SHEET_PIN_T )
-        m_toolMgr->RunAction( ACTIONS::cursorClick );
+        m_toolMgr->PrimeTool( aEvent.Position() );
     else
         m_toolMgr->RunAction( ACTIONS::refreshPreview );
 
@@ -702,15 +776,13 @@ int SCH_DRAWING_TOOLS::SingleClickPlace( const TOOL_EVENT& aEvent )
         grid.SetSnap( !evt->Modifier( MD_SHIFT ) );
         grid.SetUseGrid( getView()->GetGAL()->GetGridSnapping() && !evt->DisableGridSnapping() );
 
-        cursorPos = evt->IsPrime() ? (wxPoint) evt->Position()
-                                   : (wxPoint) controls->GetMousePosition();
-
-        cursorPos = wxPoint( grid.BestSnapAnchor( cursorPos, LAYER_CONNECTABLE, nullptr ) );
+        cursorPos = evt->IsPrime() ? evt->Position() : controls->GetMousePosition();
+        cursorPos = grid.BestSnapAnchor( cursorPos, LAYER_CONNECTABLE, nullptr );
         controls->ForceCursorPosition( true, cursorPos );
 
         if( evt->IsCancelInteractive() )
         {
-            m_frame->PopTool( tool );
+            m_frame->PopTool( aEvent );
             break;
         }
         else if( evt->IsActivate() )
@@ -722,7 +794,7 @@ int SCH_DRAWING_TOOLS::SingleClickPlace( const TOOL_EVENT& aEvent )
             }
             else
             {
-                m_frame->PopTool( tool );
+                m_frame->PopTool( aEvent );
                 break;
             }
         }
@@ -746,6 +818,7 @@ int SCH_DRAWING_TOOLS::SingleClickPlace( const TOOL_EVENT& aEvent )
                 }
 
                 SCH_ITEM* newItem = static_cast<SCH_ITEM*>( previewItem->Clone() );
+                const_cast<KIID&>( newItem->m_Uuid ) = KIID();
                 newItem->SetPosition( cursorPos );
                 newItem->SetFlags( IS_NEW );
 
@@ -761,7 +834,7 @@ int SCH_DRAWING_TOOLS::SingleClickPlace( const TOOL_EVENT& aEvent )
 
             if( evt->IsDblClick( BUT_LEFT ) || type == SCH_SHEET_PIN_T )  // Finish tool.
             {
-                m_frame->PopTool( tool );
+                m_frame->PopTool( aEvent );
                 break;
             }
         }
@@ -771,17 +844,17 @@ int SCH_DRAWING_TOOLS::SingleClickPlace( const TOOL_EVENT& aEvent )
         }
         else if( evt->IsAction( &ACTIONS::refreshPreview ) || evt->IsMotion() )
         {
-            previewItem->SetPosition( (wxPoint)cursorPos );
+            previewItem->SetPosition( cursorPos );
             m_view->ClearPreview();
             m_view->AddToPreview( previewItem->Clone() );
+            m_frame->SetMsgPanel( previewItem );
         }
         else if( evt->Category() == TC_COMMAND )
         {
-            if( ( type == SCH_BUS_WIRE_ENTRY_T )
-                    && (   evt->IsAction( &EE_ACTIONS::rotateCW )
-                        || evt->IsAction( &EE_ACTIONS::rotateCCW )
-                        || evt->IsAction( &EE_ACTIONS::mirrorV )
-                        || evt->IsAction( &EE_ACTIONS::mirrorH ) ) )
+            if( ( type == SCH_BUS_WIRE_ENTRY_T ) && (   evt->IsAction( &EE_ACTIONS::rotateCW )
+                                                     || evt->IsAction( &EE_ACTIONS::rotateCCW )
+                                                     || evt->IsAction( &EE_ACTIONS::mirrorV )
+                                                     || evt->IsAction( &EE_ACTIONS::mirrorH ) ) )
             {
                 SCH_BUS_ENTRY_BASE* busItem = static_cast<SCH_BUS_ENTRY_BASE*>( previewItem );
 
@@ -812,7 +885,7 @@ int SCH_DRAWING_TOOLS::SingleClickPlace( const TOOL_EVENT& aEvent )
                     std::deque<SCH_ITEM*> strokeItems;
                     strokeItems.push_back( previewItem );
 
-                    DIALOG_LINE_WIRE_BUS_PROPERTIES dlg( m_frame, strokeItems );
+                    DIALOG_WIRE_BUS_PROPERTIES dlg( m_frame, strokeItems );
 
                     if( dlg.ShowModal() == wxID_OK )
                     {
@@ -895,13 +968,15 @@ SCH_TEXT* SCH_DRAWING_TOOLS::createNewText( const VECTOR2I& aPosition, int aType
     case LAYER_HIERLABEL:
         labelItem = new SCH_HIERLABEL( aPosition );
         labelItem->SetShape( m_lastGlobalLabelShape );
+        labelItem->SetAutoRotateOnPlacement( m_lastAutoLabelRotateOnPlacement );
         textItem = labelItem;
         break;
 
     case LAYER_GLOBLABEL:
         labelItem = new SCH_GLOBALLABEL( aPosition );
         labelItem->SetShape( m_lastGlobalLabelShape );
-        labelItem->GetFields()[0].SetVisible( true );
+        labelItem->GetFields()[0].SetVisible( settings.m_IntersheetRefsShow );
+        labelItem->SetAutoRotateOnPlacement( m_lastAutoLabelRotateOnPlacement );
         textItem = labelItem;
         break;
 
@@ -911,12 +986,12 @@ SCH_TEXT* SCH_DRAWING_TOOLS::createNewText( const VECTOR2I& aPosition, int aType
     }
 
     textItem->SetParent( schematic );
-    textItem->SetBold( m_lastTextBold );
 
-    if( aType == LAYER_NETCLASS_REFS )
-        textItem->SetItalic( m_lastNetClassDirectiveItalic );
-    else
+    if( aType != LAYER_NETCLASS_REFS )
+    {
+        textItem->SetBold( m_lastTextBold );
         textItem->SetItalic( m_lastTextItalic );
+    }
 
     textItem->SetTextSpinStyle( m_lastTextOrientation );
     textItem->SetTextSize( wxSize( settings.m_DefaultTextSize, settings.m_DefaultTextSize ) );
@@ -953,19 +1028,23 @@ SCH_TEXT* SCH_DRAWING_TOOLS::createNewText( const VECTOR2I& aPosition, int aType
         return nullptr;
     }
 
-    m_lastTextBold = textItem->IsBold();
-
-    if( aType == LAYER_NETCLASS_REFS )
-        m_lastNetClassDirectiveItalic = textItem->IsItalic();
-    else
+    if( aType != LAYER_NETCLASS_REFS )
+    {
+        m_lastTextBold = textItem->IsBold();
         m_lastTextItalic = textItem->IsItalic();
+    }
 
     m_lastTextOrientation = textItem->GetTextSpinStyle();
 
     if( aType == LAYER_GLOBLABEL || aType == LAYER_HIERLABEL )
+    {
         m_lastGlobalLabelShape = labelItem->GetShape();
+        m_lastAutoLabelRotateOnPlacement = labelItem->AutoRotateOnPlacement();
+    }
     else if( aType == LAYER_NETCLASS_REFS )
+    {
         m_lastNetClassFlagShape = labelItem->GetShape();
+    }
 
     return textItem;
 }
@@ -1030,6 +1109,8 @@ int SCH_DRAWING_TOOLS::TwoClickPlace( const TOOL_EVENT& aEvent )
     SCH_ITEM*             item = nullptr;
     KIGFX::VIEW_CONTROLS* controls = getViewControls();
     EE_GRID_HELPER        grid( m_toolMgr );
+    bool                  ignorePrimePosition = false;
+    COMMON_SETTINGS*      common_settings = Pgm().GetCommonSettings();
 
     if( m_inTwoClickPlace )
         return 0;
@@ -1046,8 +1127,7 @@ int SCH_DRAWING_TOOLS::TwoClickPlace( const TOOL_EVENT& aEvent )
 
     m_toolMgr->RunAction( EE_ACTIONS::clearSelection, true );
 
-    std::string tool = aEvent.GetCommandStr().get();
-    m_frame->PushTool( tool );
+    m_frame->PushTool( aEvent );
     auto setCursor =
             [&]()
             {
@@ -1076,6 +1156,7 @@ int SCH_DRAWING_TOOLS::TwoClickPlace( const TOOL_EVENT& aEvent )
                                      {
                                          m_view->AddToPreview( aChild->Clone() );
                                      } );
+                m_frame->SetMsgPanel( item );
             };
 
     auto cleanup =
@@ -1088,16 +1169,22 @@ int SCH_DRAWING_TOOLS::TwoClickPlace( const TOOL_EVENT& aEvent )
             };
 
     Activate();
+
     // Must be done after Activate() so that it gets set into the correct context
     controls->ShowCursor( true );
+
     // Set initial cursor
     setCursor();
 
-    // Prime the pump if the tool isn't being re-activated
-    if( aEvent.HasPosition() || ( !aEvent.IsReactivate()
-            && ( isText || isGlobalLabel || isHierLabel || isClassLabel || isNetLabel ) ) )
+    if( aEvent.HasPosition() )
     {
-        m_toolMgr->RunAction( ACTIONS::cursorClick );
+        m_toolMgr->PrimeTool( aEvent.Position() );
+    }
+    else if( common_settings->m_Input.immediate_actions && !aEvent.IsReactivate()
+                && ( isText || isGlobalLabel || isHierLabel || isClassLabel || isNetLabel ) )
+    {
+        m_toolMgr->PrimeTool( { 0, 0 } );
+        ignorePrimePosition = true;
     }
 
     // Main loop: keep receiving events
@@ -1107,23 +1194,29 @@ int SCH_DRAWING_TOOLS::TwoClickPlace( const TOOL_EVENT& aEvent )
         grid.SetSnap( !evt->Modifier( MD_SHIFT ) );
         grid.SetUseGrid( getView()->GetGAL()->GetGridSnapping() && !evt->DisableGridSnapping() );
 
-        VECTOR2I cursorPos = evt->IsPrime() ? evt->Position() : controls->GetMousePosition();
+        VECTOR2I cursorPos = controls->GetMousePosition();
         cursorPos = grid.BestSnapAnchor( cursorPos, snapLayer, item );
         controls->ForceCursorPosition( true, cursorPos );
 
+        // The tool hotkey is interpreted as a click when drawing
+        bool isSyntheticClick = item && evt->IsActivate() && evt->HasPosition()
+                                && evt->Matches( aEvent );
+
         if( evt->IsCancelInteractive() )
         {
+            m_frame->GetInfoBar()->Dismiss();
+
             if( item )
             {
                 cleanup();
             }
             else
             {
-                m_frame->PopTool( tool );
+                m_frame->PopTool( aEvent );
                 break;
             }
         }
-        else if( evt->IsActivate() )
+        else if( evt->IsActivate() && !isSyntheticClick )
         {
             if( item && evt->IsMoveTool() )
             {
@@ -1149,11 +1242,11 @@ int SCH_DRAWING_TOOLS::TwoClickPlace( const TOOL_EVENT& aEvent )
             }
             else
             {
-                m_frame->PopTool( tool );
+                m_frame->PopTool( aEvent );
                 break;
             }
         }
-        else if( evt->IsClick( BUT_LEFT ) || evt->IsDblClick( BUT_LEFT ) )
+        else if( evt->IsClick( BUT_LEFT ) || evt->IsDblClick( BUT_LEFT ) || isSyntheticClick )
         {
             // First click creates...
             if( !item )
@@ -1164,17 +1257,68 @@ int SCH_DRAWING_TOOLS::TwoClickPlace( const TOOL_EVENT& aEvent )
                 {
                     item = createNewText( cursorPos, LAYER_NOTES );
                 }
-                else if( isGlobalLabel )
-                {
-                    item = createNewText( cursorPos, LAYER_GLOBLABEL );
-                }
                 else if( isHierLabel )
                 {
                     item = createNewText( cursorPos, LAYER_HIERLABEL );
                 }
-                else if( isNetLabel )
+                else if( isNetLabel || isGlobalLabel )
                 {
-                    item = createNewText( cursorPos, LAYER_LOCLABEL );
+                    wxString netName;
+
+                    for( SCH_ITEM* overlapItem :
+                         m_frame->GetScreen()->Items().Overlapping( cursorPos ) )
+                    {
+                        if( overlapItem->GetEditFlags() & STRUCT_DELETED )
+                            continue;
+
+                        if( overlapItem->Type() == SCH_LINE_T )
+                        {
+                            SCH_LINE* line = static_cast<SCH_LINE*>( overlapItem );
+                            if( line->IsWire() )
+                            {
+                                netName = line->GetNetname(m_frame->GetCurrentSheet());
+                                break;
+                            }
+                        }
+                    }
+
+                    if( netName.IsEmpty() )
+                    {
+                        // no connected net label found -> open up the new label dialog
+                        if( isGlobalLabel )
+                            item = createNewText( cursorPos, LAYER_GLOBLABEL );
+                        else
+                            item = createNewText( cursorPos, LAYER_LOCLABEL );
+                    }
+                    else
+                    {
+                        // connected net label found -> create the label immediately
+                        SCHEMATIC*          schematic = getModel<SCHEMATIC>();
+                        SCHEMATIC_SETTINGS& sch_settings = schematic->Settings();
+                        SCH_LABEL_BASE*     labelItem = nullptr;
+
+                        if( isGlobalLabel )
+                        {
+                            labelItem = new SCH_GLOBALLABEL( cursorPos );
+                            labelItem->SetShape( m_lastGlobalLabelShape );
+                            // make intersheets reference visible based on settings
+                            labelItem->GetFields()[0].SetVisible( sch_settings.m_IntersheetRefsShow );
+                        }
+                        else
+                        {
+                            labelItem = new SCH_LABEL( cursorPos );
+                        }
+
+                        labelItem->SetParent( getModel<SCHEMATIC>() );
+                        labelItem->SetBold( m_lastTextBold );
+                        labelItem->SetItalic( m_lastTextItalic );
+                        labelItem->SetTextSpinStyle( m_lastTextOrientation );
+                        labelItem->SetTextSize( wxSize( sch_settings.m_DefaultTextSize,
+                                                        sch_settings.m_DefaultTextSize ) );
+                        labelItem->SetFlags( IS_NEW | IS_MOVING );
+                        labelItem->SetText( netName );
+                        item = labelItem;
+                    }
                 }
                 else if( isClassLabel )
                 {
@@ -1186,7 +1330,7 @@ int SCH_DRAWING_TOOLS::TwoClickPlace( const TOOL_EVENT& aEvent )
                     SCH_HIERLABEL* label = nullptr;
                     SCH_SHEET*     sheet = nullptr;
 
-                    if( m_selectionTool->SelectPoint( cursorPos, EE_COLLECTOR::SheetsOnly, &i ) )
+                    if( m_selectionTool->SelectPoint( cursorPos, { SCH_SHEET_T }, &i ) )
                         sheet = dynamic_cast<SCH_SHEET*>( i );
 
                     m_selectionTool->ClearSelection();
@@ -1214,20 +1358,41 @@ int SCH_DRAWING_TOOLS::TwoClickPlace( const TOOL_EVENT& aEvent )
                         else
                         {
                             item = createSheetPin( sheet, label );
+
+                            if( item->Type() == SCH_SHEET_PIN_T )
+                            {
+                                item->ClearSelected();
+                            }
                         }
                     }
                 }
 
-                // Restore cursor after dialog
-                controls->WarpCursor( controls->GetCursorPosition(), true );
+                // If we started with a hotkey which has a position then warp back to that.
+                // Otherwise update to the current mouse position pinned inside the autoscroll
+                // boundaries.
+                if( evt->IsPrime() && !ignorePrimePosition )
+                {
+                    cursorPos = grid.Align( evt->Position() );
+                    getViewControls()->WarpMouseCursor( cursorPos, true );
+                }
+                else
+                {
+                    getViewControls()->PinCursorInsideNonAutoscrollArea( true );
+                    cursorPos = getViewControls()->GetMousePosition();
+                }
 
                 if( item )
                 {
+                    item->SetPosition( cursorPos );
+
                     item->SetFlags( IS_NEW | IS_MOVING );
                     item->AutoplaceFields( /* aScreen */ nullptr, /* aManual */ false );
                     updatePreview();
 
-                    m_selectionTool->AddItemToSel( item );
+                    if( item->Type() != SCH_SHEET_PIN_T )
+                        m_selectionTool->AddItemToSel( item );
+
+                    m_toolMgr->RunAction( ACTIONS::refreshPreview );
 
                     // update the cursor so it looks correct before another event
                     setCursor();
@@ -1269,7 +1434,7 @@ int SCH_DRAWING_TOOLS::TwoClickPlace( const TOOL_EVENT& aEvent )
         }
         else if( item && ( evt->IsAction( &ACTIONS::refreshPreview ) || evt->IsMotion() ) )
         {
-            item->SetPosition( (wxPoint) cursorPos );
+            item->SetPosition( cursorPos );
             item->AutoplaceFields( /* aScreen */ nullptr, /* aManual */ false );
             updatePreview();
         }
@@ -1297,26 +1462,24 @@ int SCH_DRAWING_TOOLS::TwoClickPlace( const TOOL_EVENT& aEvent )
 
 int SCH_DRAWING_TOOLS::DrawShape( const TOOL_EVENT& aEvent )
 {
+    SCHEMATIC*          schematic = getModel<SCHEMATIC>();
+    SCHEMATIC_SETTINGS& sch_settings = schematic->Settings();
+    SCH_SHAPE*          item = nullptr;
+    bool                isTextBox = aEvent.IsAction( &EE_ACTIONS::drawTextBox );
+    SHAPE_T             type = aEvent.Parameter<SHAPE_T>();
+
     if( m_inDrawShape )
         return 0;
-    else
-        m_inDrawShape = true;
 
-    bool    isTextBox = aEvent.IsAction( &EE_ACTIONS::drawTextBox );
-    SHAPE_T type = aEvent.Parameter<SHAPE_T>();
+    REENTRANCY_GUARD guard( &m_inDrawShape );
 
     // We might be running as the same shape in another co-routine.  Make sure that one
     // gets whacked.
     m_toolMgr->DeactivateTool();
 
     m_toolMgr->RunAction( EE_ACTIONS::clearSelection, true );
-    getViewControls()->ShowCursor( true );
 
-    std::string tool = aEvent.GetCommandStr().get();
-    m_frame->PushTool( tool );
-    Activate();
-
-    SCH_SHAPE* item = nullptr;
+    m_frame->PushTool( aEvent );
 
     auto setCursor =
             [&]()
@@ -1333,12 +1496,16 @@ int SCH_DRAWING_TOOLS::DrawShape( const TOOL_EVENT& aEvent )
                 item = nullptr;
             };
 
-    // Prime the pump
-    if( aEvent.HasPosition() )
-        m_toolMgr->RunAction( ACTIONS::cursorClick );
+    Activate();
+
+    // Must be done after Activate() so that it gets set into the correct context
+    getViewControls()->ShowCursor( true );
 
     // Set initial cursor
     setCursor();
+
+    if( aEvent.HasPosition() )
+        m_toolMgr->PrimeTool( aEvent.Position() );
 
     // Main loop: keep receiving events
     while( TOOL_EVENT* evt = Wait() )
@@ -1346,6 +1513,10 @@ int SCH_DRAWING_TOOLS::DrawShape( const TOOL_EVENT& aEvent )
         setCursor();
 
         VECTOR2I cursorPos = getViewControls()->GetCursorPosition( !evt->DisableGridSnapping() );
+
+        // The tool hotkey is interpreted as a click when drawing
+        bool isSyntheticClick = item && evt->IsActivate() && evt->HasPosition()
+                                && evt->Matches( aEvent );
 
         if( evt->IsCancelInteractive() )
         {
@@ -1355,11 +1526,11 @@ int SCH_DRAWING_TOOLS::DrawShape( const TOOL_EVENT& aEvent )
             }
             else
             {
-                m_frame->PopTool( tool );
+                m_frame->PopTool( aEvent );
                 break;
             }
         }
-        else if( evt->IsActivate() )
+        else if( evt->IsActivate() && !isSyntheticClick )
         {
             if( item && evt->IsMoveTool() )
             {
@@ -1382,34 +1553,51 @@ int SCH_DRAWING_TOOLS::DrawShape( const TOOL_EVENT& aEvent )
             }
             else
             {
-                m_frame->PopTool( tool );
+                m_frame->PopTool( aEvent );
                 break;
             }
         }
         else if( evt->IsClick( BUT_LEFT ) && !item )
         {
-            EESCHEMA_SETTINGS* cfg = m_frame->eeconfig();
-
             m_toolMgr->RunAction( EE_ACTIONS::clearSelection, true );
 
-            int lineWidth = Mils2iu( cfg->m_Drawing.default_line_thickness );
-
             if( isTextBox )
-                item = new SCH_TEXTBOX( lineWidth, m_lastFillStyle );
+            {
+                SCH_TEXTBOX* textbox = new SCH_TEXTBOX( 0, m_lastTextboxFillStyle );
+
+                textbox->SetBold( m_lastTextBold );
+                textbox->SetItalic( m_lastTextItalic );
+                textbox->SetTextSize( wxSize( sch_settings.m_DefaultTextSize,
+                                              sch_settings.m_DefaultTextSize ) );
+                textbox->SetTextAngle( m_lastTextAngle );
+                textbox->SetHorizJustify( m_lastTextJust );
+                textbox->SetStroke( m_lastTextboxStroke );
+                textbox->SetFillColor( m_lastTextboxFillColor );
+
+                item = textbox;
+            }
             else
-                item = new SCH_SHAPE( type, lineWidth, m_lastFillStyle );
+            {
+                item = new SCH_SHAPE( type, 0, m_lastFillStyle );
+
+                item->SetStroke( m_lastStroke );
+                item->SetFillColor( m_lastFillColor );
+            }
 
             item->SetFlags( IS_NEW );
-            item->BeginEdit( (wxPoint) cursorPos );
+            item->BeginEdit( cursorPos );
 
             m_view->ClearPreview();
             m_view->AddToPreview( item->Clone() );
         }
-        else if( item && ( evt->IsClick( BUT_LEFT ) || evt->IsDblClick( BUT_LEFT )
+        else if( item && ( evt->IsClick( BUT_LEFT )
+                        || evt->IsDblClick( BUT_LEFT )
+                        || isSyntheticClick
                         || evt->IsAction( &EE_ACTIONS::finishDrawing ) ) )
         {
-            if( evt->IsDblClick( BUT_LEFT ) || evt->IsAction( &EE_ACTIONS::finishDrawing )
-                    || !item->ContinueEdit( (wxPoint) cursorPos ) )
+            if( evt->IsDblClick( BUT_LEFT )
+                    || evt->IsAction( &EE_ACTIONS::finishDrawing )
+                    || !item->ContinueEdit( cursorPos ) )
             {
                 item->EndEdit();
                 item->ClearEditFlags();
@@ -1417,13 +1605,30 @@ int SCH_DRAWING_TOOLS::DrawShape( const TOOL_EVENT& aEvent )
 
                 if( isTextBox )
                 {
-                    DIALOG_TEXT_PROPERTIES dlg( m_frame, item );
+                    SCH_TEXTBOX*           textbox = static_cast<SCH_TEXTBOX*>( item );
+                    DIALOG_TEXT_PROPERTIES dlg( m_frame, textbox );
 
-                    if( dlg.ShowQuasiModal() != wxID_OK )
+                    // This is modal not quasi to protect against place symbol calls starting
+                    // TwoClickPlace wait routines in the middle
+                    if( dlg.ShowModal() != wxID_OK )
                     {
                         cleanup();
                         continue;
                     }
+
+                    m_lastTextBold = textbox->IsBold();
+                    m_lastTextItalic = textbox->IsItalic();
+                    m_lastTextAngle = textbox->GetTextAngle();
+                    m_lastTextJust = textbox->GetHorizJustify();
+                    m_lastTextboxStroke = textbox->GetStroke();
+                    m_lastTextboxFillStyle = textbox->GetFillMode();
+                    m_lastTextboxFillColor = textbox->GetFillColor();
+                }
+                else
+                {
+                    m_lastStroke = item->GetStroke();
+                    m_lastFillStyle = item->GetFillMode();
+                    m_lastFillColor = item->GetFillColor();
                 }
 
                 m_frame->AddItemToScreenAndUndoList( m_frame->GetScreen(), item, false );
@@ -1436,9 +1641,10 @@ int SCH_DRAWING_TOOLS::DrawShape( const TOOL_EVENT& aEvent )
         }
         else if( item && ( evt->IsAction( &ACTIONS::refreshPreview ) || evt->IsMotion() ) )
         {
-            item->CalcEdit( (wxPoint) cursorPos );
+            item->CalcEdit( cursorPos );
             m_view->ClearPreview();
             m_view->AddToPreview( item->Clone() );
+            m_frame->SetMsgPanel( item );
         }
         else if( evt->IsDblClick( BUT_LEFT ) && !item )
         {
@@ -1465,7 +1671,6 @@ int SCH_DRAWING_TOOLS::DrawShape( const TOOL_EVENT& aEvent )
     getViewControls()->SetAutoPan( false );
     getViewControls()->CaptureCursor( false );
     m_frame->GetCanvas()->SetCurrentCursor( KICURSOR::ARROW );
-    m_inDrawShape = false;
     return 0;
 }
 
@@ -1481,8 +1686,7 @@ int SCH_DRAWING_TOOLS::DrawSheet( const TOOL_EVENT& aEvent )
 
     m_toolMgr->RunAction( EE_ACTIONS::clearSelection, true );
 
-    std::string tool = aEvent.GetCommandStr().get();
-    m_frame->PushTool( tool );
+    m_frame->PushTool( aEvent );
 
     auto setCursor =
             [&]()
@@ -1500,14 +1704,15 @@ int SCH_DRAWING_TOOLS::DrawSheet( const TOOL_EVENT& aEvent )
             };
 
     Activate();
+
     // Must be done after Activate() so that it gets set into the correct context
     getViewControls()->ShowCursor( true );
+
     // Set initial cursor
     setCursor();
 
-    // Prime the pump
     if( aEvent.HasPosition() )
-        m_toolMgr->RunAction( ACTIONS::cursorClick );
+        m_toolMgr->PrimeTool( aEvent.Position() );
 
     // Main loop: keep receiving events
     while( TOOL_EVENT* evt = Wait() )
@@ -1516,19 +1721,25 @@ int SCH_DRAWING_TOOLS::DrawSheet( const TOOL_EVENT& aEvent )
 
         VECTOR2I cursorPos = getViewControls()->GetCursorPosition( !evt->DisableGridSnapping() );
 
+        // The tool hotkey is interpreted as a click when drawing
+        bool isSyntheticClick = sheet && evt->IsActivate() && evt->HasPosition()
+                                && evt->Matches( aEvent );
+
         if( evt->IsCancelInteractive() )
         {
+            m_frame->GetInfoBar()->Dismiss();
+
             if( sheet )
             {
                 cleanup();
             }
             else
             {
-                m_frame->PopTool( tool );
+                m_frame->PopTool( aEvent );
                 break;
             }
         }
-        else if( evt->IsActivate() )
+        else if( evt->IsActivate() && !isSyntheticClick )
         {
             if( sheet && evt->IsMoveTool() )
             {
@@ -1555,20 +1766,37 @@ int SCH_DRAWING_TOOLS::DrawSheet( const TOOL_EVENT& aEvent )
             }
             else
             {
-                m_frame->PopTool( tool );
+                m_frame->PopTool( aEvent );
                 break;
             }
         }
         else if( !sheet && ( evt->IsClick( BUT_LEFT ) || evt->IsDblClick( BUT_LEFT ) ) )
         {
+            EE_SELECTION&      selection = m_selectionTool->GetSelection();
             EESCHEMA_SETTINGS* cfg = m_frame->eeconfig();
+
+            if( selection.Size() == 1
+                    && selection.Front()->Type() == SCH_SHEET_T
+                    && selection.Front()->GetBoundingBox().Contains( cursorPos ) )
+            {
+                if( evt->IsClick( BUT_LEFT ) )
+                {
+                    // sheet already selected
+                    continue;
+                }
+                else if( evt->IsDblClick( BUT_LEFT ) )
+                {
+                    m_toolMgr->RunAction( EE_ACTIONS::enterSheet, false );
+                    break;
+                }
+            }
 
             m_toolMgr->RunAction( EE_ACTIONS::clearSelection, true );
 
-            sheet = new SCH_SHEET( m_frame->GetCurrentSheet().Last(), (VECTOR2I) cursorPos );
+            sheet = new SCH_SHEET( m_frame->GetCurrentSheet().Last(), cursorPos );
             sheet->SetFlags( IS_NEW | IS_RESIZING );
             sheet->SetScreen( nullptr );
-            sheet->SetBorderWidth( Mils2iu( cfg->m_Drawing.default_line_thickness ) );
+            sheet->SetBorderWidth( schIUScale.MilsToIU( cfg->m_Drawing.default_line_thickness ) );
             sheet->SetBorderColor( cfg->m_Drawing.default_sheet_border_color );
             sheet->SetBackgroundColor( cfg->m_Drawing.default_sheet_background_color );
             sheet->GetFields()[ SHEETNAME ].SetText( "Untitled Sheet" );
@@ -1580,6 +1808,7 @@ int SCH_DRAWING_TOOLS::DrawSheet( const TOOL_EVENT& aEvent )
         }
         else if( sheet && ( evt->IsClick( BUT_LEFT )
                          || evt->IsDblClick( BUT_LEFT )
+                         || isSyntheticClick
                          || evt->IsAction( &EE_ACTIONS::finishSheet ) ) )
         {
             m_view->ClearPreview();
@@ -1625,6 +1854,7 @@ int SCH_DRAWING_TOOLS::DrawSheet( const TOOL_EVENT& aEvent )
             sizeSheet( sheet, cursorPos );
             m_view->ClearPreview();
             m_view->AddToPreview( sheet->Clone() );
+            m_frame->SetMsgPanel( sheet );
         }
         else if( evt->IsClick( BUT_RIGHT ) )
         {
@@ -1657,8 +1887,8 @@ void SCH_DRAWING_TOOLS::sizeSheet( SCH_SHEET* aSheet, const VECTOR2I& aPos )
     VECTOR2I pos = aSheet->GetPosition();
     VECTOR2I size = aPos - pos;
 
-    size.x = std::max( size.x, MIN_SHEET_WIDTH );
-    size.y = std::max( size.y, MIN_SHEET_HEIGHT );
+    size.x = std::max( size.x, schIUScale.MilsToIU( MIN_SHEET_WIDTH ) );
+    size.y = std::max( size.y, schIUScale.MilsToIU( MIN_SHEET_HEIGHT ) );
 
     VECTOR2I grid = m_frame->GetNearestGridPosition( pos + size );
     aSheet->Resize( wxSize( grid.x - pos.x, grid.y - pos.y ) );

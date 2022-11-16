@@ -25,6 +25,7 @@
 #include <eda_draw_frame.h>
 #include <board.h>
 #include <board_item.h>
+#include <footprint.h>
 #include <pcb_group.h>
 #include <confirm.h>
 #include <widgets/msgpanel.h>
@@ -70,21 +71,26 @@ void PCB_GROUP::RemoveAll()
 }
 
 
-PCB_GROUP* getTopLevelGroup( BOARD_ITEM* aItem, PCB_GROUP* aScope, bool isFootprintEditor )
+/*
+ * @return if not in the footprint editor and aItem is in a footprint, returns the
+ * footprint's parent group. Otherwise, returns the aItem's parent group.
+ */
+PCB_GROUP* getClosestGroup( BOARD_ITEM* aItem, bool isFootprintEditor )
 {
-    PCB_GROUP* group = nullptr;
-
-    if( isFootprintEditor )
-    {
-        group = aItem->GetParentGroup();
-    }
+    if( !isFootprintEditor && aItem->GetParent() && aItem->GetParent()->Type() == PCB_FOOTPRINT_T )
+        return aItem->GetParent()->GetParentGroup();
     else
-    {
-        if( aItem->GetParent() && aItem->GetParent()->Type() == PCB_FOOTPRINT_T )
-            group = aItem->GetParent()->GetParentGroup();
-        else
-            group = aItem->GetParentGroup();
-    }
+        return aItem->GetParentGroup();
+}
+
+
+/// Returns the top level group inside the aScope group, or nullptr
+PCB_GROUP* getNestedGroup( BOARD_ITEM* aItem, PCB_GROUP* aScope, bool isFootprintEditor )
+{
+    PCB_GROUP* group = getClosestGroup( aItem, isFootprintEditor );
+
+    if( group == aScope )
+        return nullptr;
 
     while( group && group->GetParentGroup() && group->GetParentGroup() != aScope )
     {
@@ -97,19 +103,23 @@ PCB_GROUP* getTopLevelGroup( BOARD_ITEM* aItem, PCB_GROUP* aScope, bool isFootpr
     return group;
 }
 
+
 PCB_GROUP* PCB_GROUP::TopLevelGroup( BOARD_ITEM* aItem, PCB_GROUP* aScope, bool isFootprintEditor )
 {
-    PCB_GROUP* candidate = getTopLevelGroup( aItem, aScope, isFootprintEditor );
-
-    return candidate == aScope ? nullptr : candidate;
+    return getNestedGroup( aItem, aScope, isFootprintEditor );
 }
 
 
 bool PCB_GROUP::WithinScope( BOARD_ITEM* aItem, PCB_GROUP* aScope, bool isFootprintEditor )
 {
-    PCB_GROUP* candidate = getTopLevelGroup( aItem, aScope, isFootprintEditor );
+    PCB_GROUP* group = getClosestGroup( aItem, isFootprintEditor );
 
-    return candidate == aScope;
+    if( group && group == aScope )
+        return true;
+
+    PCB_GROUP* nested = getNestedGroup( aItem, aScope, isFootprintEditor );
+
+    return nested && nested->GetParentGroup() && nested->GetParentGroup() == aScope;
 }
 
 
@@ -129,7 +139,7 @@ void PCB_GROUP::SetPosition( const VECTOR2I& aNewpos )
 
 void PCB_GROUP::SetLayerRecursive( PCB_LAYER_ID aLayer, int aDepth )
 {
-    for( auto item : m_items )
+    for( BOARD_ITEM* item : m_items )
     {
         if( ( item->Type() == PCB_GROUP_T ) && ( aDepth > 0 ) )
         {
@@ -198,7 +208,7 @@ PCB_GROUP* PCB_GROUP::DeepDuplicate() const
 }
 
 
-void PCB_GROUP::SwapData( BOARD_ITEM* aImage )
+void PCB_GROUP::swapData( BOARD_ITEM* aImage )
 {
     assert( aImage->Type() == PCB_GROUP_T );
 
@@ -213,39 +223,44 @@ bool PCB_GROUP::HitTest( const VECTOR2I& aPosition, int aAccuracy ) const
 }
 
 
-bool PCB_GROUP::HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy ) const
+bool PCB_GROUP::HitTest( const BOX2I& aRect, bool aContained, int aAccuracy ) const
 {
     // Groups are selected by promoting a selection of one of their children
     return false;
 }
 
 
-const EDA_RECT PCB_GROUP::GetBoundingBox() const
+const BOX2I PCB_GROUP::GetBoundingBox() const
 {
-    EDA_RECT area;
+    BOX2I bbox;
 
     for( BOARD_ITEM* item : m_items )
-        area.Merge( item->GetBoundingBox() );
+    {
+        if( item->Type() == PCB_FOOTPRINT_T )
+            bbox.Merge( static_cast<FOOTPRINT*>( item )->GetBoundingBox( true, false ) );
+        else
+            bbox.Merge( item->GetBoundingBox() );
+    }
 
-    area.Inflate( Millimeter2iu( 0.25 ) ); // Give a min size to the area
+    bbox.Inflate( pcbIUScale.mmToIU( 0.25 ) ); // Give a min size to the bbox
 
-    return area;
+    return bbox;
 }
 
 
-SEARCH_RESULT PCB_GROUP::Visit( INSPECTOR aInspector, void* aTestData, const KICAD_T aScanTypes[] )
+INSPECT_RESULT PCB_GROUP::Visit( INSPECTOR aInspector, void* aTestData,
+                                 const std::vector<KICAD_T>& aScanTypes )
 {
-    for( const KICAD_T* stype = aScanTypes; *stype != EOT; ++stype )
+    for( KICAD_T scanType : aScanTypes )
     {
-        // If caller wants to inspect my type
-        if( *stype == Type() )
+        if( scanType == Type() )
         {
-            if( SEARCH_RESULT::QUIT == aInspector( this, aTestData ) )
-                return SEARCH_RESULT::QUIT;
+            if( INSPECT_RESULT::QUIT == aInspector( this, aTestData ) )
+                return INSPECT_RESULT::QUIT;
         }
     }
 
-    return SEARCH_RESULT::CONTINUE;
+    return INSPECT_RESULT::CONTINUE;
 }
 
 
@@ -310,17 +325,12 @@ void PCB_GROUP::Flip( const VECTOR2I& aCentre, bool aFlipLeftRight )
 }
 
 
-wxString PCB_GROUP::GetSelectMenuText( EDA_UNITS aUnits ) const
+wxString PCB_GROUP::GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const
 {
     if( m_name.empty() )
-    {
-        return wxString::Format( _( "Unnamed Group, %zu members" ),
-                                 m_items.size() );
-    }
-
-    return wxString::Format( _( "Group '%s', %zu members" ),
-                             m_name,
-                             m_items.size() );
+        return wxString::Format( _( "Unnamed Group, %zu members" ), m_items.size() );
+    else
+        return wxString::Format( _( "Group '%s', %zu members" ), m_name, m_items.size() );
 }
 
 

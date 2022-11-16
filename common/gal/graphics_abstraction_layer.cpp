@@ -268,10 +268,10 @@ void GAL::BitmapText( const wxString& aText, const VECTOR2I& aPosition, const ED
     attrs.m_Angle = aAngle;
     attrs.m_Mirrored = m_globalFlipX;    // Prevent text flipping when view is flipped
 
-    // Bitmap font is slightly smaller and slightly heavier than the stroke font so we
-    // compensate a bit before stroking
-    attrs.m_StrokeWidth *= 1.2f;
-    attrs.m_Size = attrs.m_Size * 0.8;
+    // Bitmap font has different metrics than the stroke font so we compensate a bit before
+    // stroking
+    attrs.m_Size = VECTOR2I( m_attributes.m_Size.x, m_attributes.m_Size.y * 0.95 );
+    attrs.m_StrokeWidth = GetLineWidth() * 0.74;
 
     font->Draw( this, aText, aPosition, attrs );
 }

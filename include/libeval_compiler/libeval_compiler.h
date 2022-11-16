@@ -42,7 +42,7 @@
 #define TR_OP_DIV 0x202
 #define TR_OP_ADD 0x203
 #define TR_OP_SUB 0x204
-#define TR_OP_LESS 0x25
+#define TR_OP_LESS 0x205
 #define TR_OP_GREATER 0x206
 #define TR_OP_LESS_EQUAL 0x207
 #define TR_OP_GREATER_EQUAL 0x208
@@ -296,7 +296,7 @@ public:
     virtual ~VAR_REF() {};
 
     virtual VAR_TYPE_T GetType() const = 0;
-    virtual VALUE GetValue( CONTEXT* aCtx ) = 0;
+    virtual VALUE* GetValue( CONTEXT* aCtx ) = 0;
 };
 
 
@@ -312,7 +312,7 @@ public:
 
     virtual ~CONTEXT()
     {
-        for( auto &v : m_ownedValues )
+        for( VALUE* v : m_ownedValues )
         {
             delete v;
         }
@@ -321,6 +321,12 @@ public:
     VALUE* AllocValue()
     {
         m_ownedValues.emplace_back( new VALUE );
+        return m_ownedValues.back();
+    }
+
+    VALUE* StoreValue( VALUE* aValue )
+    {
+        m_ownedValues.emplace_back( aValue );
         return m_ownedValues.back();
     }
 

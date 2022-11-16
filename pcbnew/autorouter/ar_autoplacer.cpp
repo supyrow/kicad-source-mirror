@@ -65,7 +65,7 @@ AR_AUTOPLACER::AR_AUTOPLACER( BOARD* aBoard )
     for( FOOTPRINT* footprint : m_board->Footprints() )
         m_connectivity->Add( footprint );
 
-    m_gridSize = Millimeter2iu( STEP_AR_MM );
+    m_gridSize = pcbIUScale.mmToIU( STEP_AR_MM );
     m_progressReporter = nullptr;
     m_refreshCallback = nullptr;
     m_minCost = 0.0;
@@ -87,7 +87,7 @@ int AR_AUTOPLACER::genPlacementRoutingMatrix()
 {
     m_matrix.UnInitRoutingMatrix();
 
-    EDA_RECT bbox = m_board->GetBoardEdgesBoundingBox();
+    BOX2I bbox = m_board->GetBoardEdgesBoundingBox();
 
     if( bbox.GetWidth() == 0 || bbox.GetHeight() == 0 )
         return 0;
@@ -145,7 +145,7 @@ bool AR_AUTOPLACER::fillMatrix()
     VECTOR2I coord_orgin = m_matrix.GetBrdCoordOrigin(); // Board coordinate of matruix cell (0,0)
 
     // Create a single board outline:
-    SHAPE_POLY_SET brd_shape = m_boardShape;
+    SHAPE_POLY_SET brd_shape = m_boardShape.CloneDropTriangulation();
     brd_shape.Fracture( SHAPE_POLY_SET::PM_FAST );
     const SHAPE_LINE_CHAIN& outline = brd_shape.Outline(0);
     const BOX2I& rect = outline.BBox();
@@ -277,7 +277,7 @@ void AR_AUTOPLACER::addFpBody( const VECTOR2I& aStart, const VECTOR2I& aEnd, LSE
 void AR_AUTOPLACER::addPad( PAD* aPad, int aClearance )
 {
     // Add a polygonal shape (rectangle) to m_fpAreaFront and/or m_fpAreaBack
-    EDA_RECT bbox = aPad->GetBoundingBox();
+    BOX2I bbox = aPad->GetBoundingBox();
     bbox.Inflate( aClearance );
 
     if( aPad->IsOnLayer( F_Cu ) )
@@ -305,9 +305,9 @@ void AR_AUTOPLACER::buildFpAreas( FOOTPRINT* aFootprint, int aFpClearance )
     m_fpAreaTop.RemoveAllContours();
     m_fpAreaBottom.RemoveAllContours();
 
-    aFootprint->BuildPolyCourtyards();
-    m_fpAreaTop = aFootprint->GetPolyCourtyard( F_CrtYd );
-    m_fpAreaBottom = aFootprint->GetPolyCourtyard( B_CrtYd );
+    aFootprint->BuildCourtyardCaches();
+    m_fpAreaTop = aFootprint->GetCourtyard( F_CrtYd );
+    m_fpAreaBottom = aFootprint->GetCourtyard( B_CrtYd );
 
     LSET layerMask;
 
@@ -317,7 +317,7 @@ void AR_AUTOPLACER::buildFpAreas( FOOTPRINT* aFootprint, int aFpClearance )
     if( aFootprint->GetLayer() == B_Cu )
         layerMask.set( B_Cu );
 
-    EDA_RECT fpBBox = aFootprint->GetBoundingBox();
+    BOX2I fpBBox = aFootprint->GetBoundingBox();
 
     fpBBox.Inflate( ( m_matrix.m_GridRouting / 2 ) + aFpClearance );
 
@@ -335,9 +335,9 @@ void AR_AUTOPLACER::buildFpAreas( FOOTPRINT* aFootprint, int aFpClearance )
 
 void AR_AUTOPLACER::genModuleOnRoutingMatrix( FOOTPRINT* Module )
 {
-    int         ox, oy, fx, fy;
-    LSET        layerMask;
-    EDA_RECT    fpBBox = Module->GetBoundingBox();
+    int   ox, oy, fx, fy;
+    LSET  layerMask;
+    BOX2I fpBBox = Module->GetBoundingBox();
 
     fpBBox.Inflate( m_matrix.m_GridRouting / 2 );
     ox  = fpBBox.GetX();
@@ -398,9 +398,9 @@ void AR_AUTOPLACER::genModuleOnRoutingMatrix( FOOTPRINT* Module )
 }
 
 
-int AR_AUTOPLACER::testRectangle( const EDA_RECT& aRect, int side )
+int AR_AUTOPLACER::testRectangle( const BOX2I& aRect, int side )
 {
-    EDA_RECT rect = aRect;
+    BOX2I rect = aRect;
 
     rect.Inflate( m_matrix.m_GridRouting / 2 );
 
@@ -451,7 +451,7 @@ int AR_AUTOPLACER::testRectangle( const EDA_RECT& aRect, int side )
 }
 
 
-unsigned int AR_AUTOPLACER::calculateKeepOutArea( const EDA_RECT& aRect, int side )
+unsigned int AR_AUTOPLACER::calculateKeepOutArea( const BOX2I& aRect, int side )
 {
     VECTOR2I start = aRect.GetOrigin();
     VECTOR2I end = aRect.GetEnd();
@@ -511,7 +511,7 @@ int AR_AUTOPLACER::testFootprintOnBoard( FOOTPRINT* aFootprint, bool TstOtherSid
         side = AR_SIDE_BOTTOM; otherside = AR_SIDE_TOP;
     }
 
-    EDA_RECT    fpBBox = aFootprint->GetBoundingBox( false, false );
+    BOX2I fpBBox = aFootprint->GetBoundingBox( false, false );
     fpBBox.Move( -1*aOffset );
 
     buildFpAreas( aFootprint, 0 );
@@ -548,7 +548,7 @@ int AR_AUTOPLACER::getOptimalFPPlacement( FOOTPRINT* aFootprint )
     lastPosOK = m_matrix.m_BrdBox.GetOrigin();
 
     VECTOR2I fpPos = aFootprint->GetPosition();
-    EDA_RECT fpBBox  = aFootprint->GetBoundingBox( false, false );
+    BOX2I    fpBBox  = aFootprint->GetBoundingBox( false, false );
 
     // Move fpBBox to have the footprint position at (0,0)
     fpBBox.Move( -fpPos );
@@ -611,11 +611,12 @@ int AR_AUTOPLACER::getOptimalFPPlacement( FOOTPRINT* aFootprint )
                 {
                     lastPosOK   = m_curPosition;
                     min_cost    = Score;
+/*
                     wxString msg;
-/*                    msg.Printf( wxT( "Score %g, pos %s, %s" ),
+                    msg.Printf( wxT( "Score %g, pos %s, %s" ),
                                 min_cost,
-                                GetChars( ::CoordinateToString( LastPosOK.x ) ),
-                                GetChars( ::CoordinateToString( LastPosOK.y ) ) );
+                                ::CoordinateToString( LastPosOK.x ),
+                                ::CoordinateToString( LastPosOK.y ) );
                     m_frame->SetStatusText( msg );*/
                 }
             }
@@ -800,7 +801,7 @@ void AR_AUTOPLACER::drawPlacementRoutingMatrix( )
     m_overlay->SetIsFill( true );
     m_overlay->SetIsStroke( false );
 
-    SHAPE_POLY_SET freeArea = m_topFreeArea;
+    SHAPE_POLY_SET freeArea = m_topFreeArea.CloneDropTriangulation();
     freeArea.Fracture( SHAPE_POLY_SET::PM_FAST );
 
     // Draw the free polygon areas, top side:
@@ -837,8 +838,8 @@ AR_RESULT AR_AUTOPLACER::AutoplaceFootprints( std::vector<FOOTPRINT*>& aFootprin
     m_matrix.m_GridRouting = m_gridSize; //(int) m_frame->GetScreen()->GetGridSize().x;
 
     // Ensure Board.m_GridRouting has a reasonable value:
-    if( m_matrix.m_GridRouting < Millimeter2iu( 0.25 ) )
-        m_matrix.m_GridRouting = Millimeter2iu( 0.25 );
+    if( m_matrix.m_GridRouting < pcbIUScale.mmToIU( 0.25 ) )
+        m_matrix.m_GridRouting = pcbIUScale.mmToIU( 0.25 );
 
     // Compute footprint parameters used in autoplace
     if( genPlacementRoutingMatrix( ) == 0 )
@@ -882,7 +883,6 @@ AR_RESULT AR_AUTOPLACER::AutoplaceFootprints( std::vector<FOOTPRINT*>& aFootprin
 
 
     int         cnt = 0;
-    wxString    msg;
 
     if( m_progressReporter )
     {
@@ -900,7 +900,6 @@ AR_RESULT AR_AUTOPLACER::AutoplaceFootprints( std::vector<FOOTPRINT*>& aFootprin
     while( ( footprint = pickFootprint() ) != nullptr )
     {
         // Display some info about activity, footprint placement can take a while:
-        //m_frame->SetStatusText( msg );
 
         if( m_progressReporter )
             m_progressReporter->SetTitle( wxString::Format( _( "Autoplacing %s" ),

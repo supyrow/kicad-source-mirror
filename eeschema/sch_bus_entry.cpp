@@ -41,14 +41,15 @@
 #include <advanced_config.h>
 #include <connection_graph.h>
 #include "sch_painter.h"
+#include "plotters/plotter.h"
 
 
 SCH_BUS_ENTRY_BASE::SCH_BUS_ENTRY_BASE( KICAD_T aType, const VECTOR2I& pos, bool aFlipY ) :
     SCH_ITEM( nullptr, aType )
 {
     m_pos    = pos;
-    m_size.x = Mils2iu( DEFAULT_SCH_ENTRY_SIZE );
-    m_size.y = Mils2iu( DEFAULT_SCH_ENTRY_SIZE );
+    m_size.x = schIUScale.MilsToIU( DEFAULT_SCH_ENTRY_SIZE );
+    m_size.y = schIUScale.MilsToIU( DEFAULT_SCH_ENTRY_SIZE );
 
     m_stroke.SetWidth( 0 );
     m_stroke.SetPlotStyle( PLOT_DASH_TYPE::DEFAULT );
@@ -59,7 +60,7 @@ SCH_BUS_ENTRY_BASE::SCH_BUS_ENTRY_BASE( KICAD_T aType, const VECTOR2I& pos, bool
 
     m_isDanglingStart = m_isDanglingEnd = true;
 
-    m_lastResolvedWidth = Mils2iu( DEFAULT_WIRE_WIDTH_MILS );
+    m_lastResolvedWidth = schIUScale.MilsToIU( DEFAULT_WIRE_WIDTH_MILS );
     m_lastResolvedLineStyle = PLOT_DASH_TYPE::SOLID;
     m_lastResolvedColor = COLOR4D::UNSPECIFIED;
 }
@@ -71,7 +72,7 @@ SCH_BUS_WIRE_ENTRY::SCH_BUS_WIRE_ENTRY( const VECTOR2I& pos, bool aFlipY ) :
     m_layer  = LAYER_WIRE;
     m_connected_bus_item = nullptr;
 
-    m_lastResolvedWidth = Mils2iu( DEFAULT_WIRE_WIDTH_MILS );
+    m_lastResolvedWidth = schIUScale.MilsToIU( DEFAULT_WIRE_WIDTH_MILS );
     m_lastResolvedLineStyle = PLOT_DASH_TYPE::SOLID;
     m_lastResolvedColor = COLOR4D::UNSPECIFIED;
 }
@@ -92,7 +93,7 @@ SCH_BUS_WIRE_ENTRY::SCH_BUS_WIRE_ENTRY( const VECTOR2I& pos, int aQuadrant ) :
     m_layer  = LAYER_WIRE;
     m_connected_bus_item = nullptr;
 
-    m_lastResolvedWidth = Mils2iu( DEFAULT_WIRE_WIDTH_MILS );
+    m_lastResolvedWidth = schIUScale.MilsToIU( DEFAULT_WIRE_WIDTH_MILS );
     m_lastResolvedLineStyle = PLOT_DASH_TYPE::SOLID;
     m_lastResolvedColor = COLOR4D::UNSPECIFIED;
 }
@@ -105,7 +106,7 @@ SCH_BUS_BUS_ENTRY::SCH_BUS_BUS_ENTRY( const VECTOR2I& pos, bool aFlipY ) :
     m_connected_bus_items[0] = nullptr;
     m_connected_bus_items[1] = nullptr;
 
-    m_lastResolvedWidth = Mils2iu( DEFAULT_WIRE_WIDTH_MILS );
+    m_lastResolvedWidth = schIUScale.MilsToIU( DEFAULT_WIRE_WIDTH_MILS );
     m_lastResolvedLineStyle = PLOT_DASH_TYPE::SOLID;
     m_lastResolvedColor = COLOR4D::UNSPECIFIED;
 }
@@ -159,69 +160,67 @@ void SCH_BUS_ENTRY_BASE::ViewGetLayers( int aLayers[], int& aCount ) const
 }
 
 
-const EDA_RECT SCH_BUS_ENTRY_BASE::GetBoundingBox() const
+const BOX2I SCH_BUS_ENTRY_BASE::GetBoundingBox() const
 {
-    EDA_RECT box;
+    BOX2I bbox( m_pos );
+    bbox.SetEnd( GetEnd() );
 
-    box.SetOrigin( m_pos );
-    box.SetEnd( GetEnd() );
+    bbox.Normalize();
+    bbox.Inflate( ( GetPenWidth() / 2 ) + 1 );
 
-    box.Normalize();
-    box.Inflate( ( GetPenWidth() / 2 ) + 1 );
-
-    return box;
+    return bbox;
 }
 
 
 COLOR4D SCH_BUS_ENTRY_BASE::GetBusEntryColor() const
 {
     if( m_stroke.GetColor() != COLOR4D::UNSPECIFIED )
-    {
         m_lastResolvedColor = m_stroke.GetColor();
-    }
     else if( IsConnectable() && !IsConnectivityDirty() )
-    {
-        NETCLASSPTR netclass = NetClass();
-
-        if( netclass )
-            m_lastResolvedColor = netclass->GetSchematicColor();
-    }
+        m_lastResolvedColor = GetEffectiveNetClass()->GetSchematicColor();
 
     return m_lastResolvedColor;
+}
+
+
+void SCH_BUS_ENTRY_BASE::SetPenWidth( int aWidth )
+{
+    m_stroke.SetWidth( aWidth );
+    m_lastResolvedWidth = aWidth;
+}
+
+
+void SCH_BUS_ENTRY_BASE::SetBusEntryColor( const COLOR4D& aColor )
+{
+    m_stroke.SetColor( aColor );
+    m_lastResolvedColor = aColor;
 }
 
 
 PLOT_DASH_TYPE SCH_BUS_ENTRY_BASE::GetLineStyle() const
 {
     if( m_stroke.GetPlotStyle() != PLOT_DASH_TYPE::DEFAULT )
-    {
         m_lastResolvedLineStyle = m_stroke.GetPlotStyle();
-    }
     else if( IsConnectable() && !IsConnectivityDirty() )
-    {
-        NETCLASSPTR netclass = NetClass();
-
-        if( netclass )
-            m_lastResolvedLineStyle = static_cast<PLOT_DASH_TYPE>( netclass->GetLineStyle() );
-    }
+        m_lastResolvedLineStyle = (PLOT_DASH_TYPE) GetEffectiveNetClass()->GetLineStyle();
 
     return m_lastResolvedLineStyle;
+}
+
+
+void SCH_BUS_ENTRY_BASE::SetLineStyle( PLOT_DASH_TYPE aStyle )
+{
+    m_stroke.SetPlotStyle( aStyle );
+    m_lastResolvedLineStyle = aStyle;
 }
 
 
 int SCH_BUS_WIRE_ENTRY::GetPenWidth() const
 {
     if( m_stroke.GetWidth() > 0 )
-    {
         m_lastResolvedWidth = m_stroke.GetWidth();
-    }
     else if( IsConnectable() && !IsConnectivityDirty() )
-    {
-        NETCLASSPTR netclass = NetClass();
-
-        if( netclass )
-            m_lastResolvedWidth = netclass->GetWireWidth();
-    }
+        m_lastResolvedWidth = GetEffectiveNetClass()->GetWireWidth();
 
     return m_lastResolvedWidth;
 }
@@ -230,16 +229,9 @@ int SCH_BUS_WIRE_ENTRY::GetPenWidth() const
 int SCH_BUS_BUS_ENTRY::GetPenWidth() const
 {
     if( m_stroke.GetWidth() > 0 )
-    {
         m_lastResolvedWidth = m_stroke.GetWidth();
-    }
     else if( IsConnectable() && !IsConnectivityDirty() )
-    {
-        NETCLASSPTR netclass = NetClass();
-
-        if( netclass )
-            m_lastResolvedWidth = netclass->GetBusWidth();
-    }
+        m_lastResolvedWidth = GetEffectiveNetClass()->GetBusWidth();
 
     return m_lastResolvedWidth;
 }
@@ -421,13 +413,13 @@ std::vector<VECTOR2I> SCH_BUS_ENTRY_BASE::GetConnectionPoints() const
 }
 
 
-wxString SCH_BUS_WIRE_ENTRY::GetSelectMenuText( EDA_UNITS aUnits ) const
+wxString SCH_BUS_WIRE_ENTRY::GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const
 {
     return wxString( _( "Bus to Wire Entry" ) );
 }
 
 
-wxString SCH_BUS_BUS_ENTRY::GetSelectMenuText( EDA_UNITS aUnits ) const
+wxString SCH_BUS_BUS_ENTRY::GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const
 {
     return wxString( _( "Bus to Bus Entry" ) );
 }
@@ -455,9 +447,9 @@ bool SCH_BUS_ENTRY_BASE::HitTest( const VECTOR2I& aPosition, int aAccuracy ) con
 }
 
 
-bool SCH_BUS_ENTRY_BASE::HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy ) const
+bool SCH_BUS_ENTRY_BASE::HitTest( const BOX2I& aRect, bool aContained, int aAccuracy ) const
 {
-    EDA_RECT rect = aRect;
+    BOX2I rect = aRect;
 
     rect.Inflate( aAccuracy );
 
@@ -485,11 +477,11 @@ void SCH_BUS_ENTRY_BASE::Plot( PLOTTER* aPlotter, bool aBackground ) const
 
     aPlotter->SetCurrentLineWidth( penWidth );
     aPlotter->SetColor( color );
-    aPlotter->SetDash( GetLineStyle() );
+    aPlotter->SetDash( penWidth, GetLineStyle() );
     aPlotter->MoveTo( m_pos );
     aPlotter->FinishTo( GetEnd() );
 
-    aPlotter->SetDash( PLOT_DASH_TYPE::SOLID );
+    aPlotter->SetDash( penWidth, PLOT_DASH_TYPE::SOLID );
 }
 
 
@@ -517,16 +509,7 @@ void SCH_BUS_ENTRY_BASE::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame,
         conn->AppendInfoToMsgPanel( aList );
 
         if( !conn->IsBus() )
-        {
-            NET_SETTINGS& netSettings = Schematic()->Prj().GetProjectFile().NetSettings();
-            wxString netname = conn->Name();
-            wxString netclassName = netSettings.m_NetClasses.GetDefaultPtr()->GetName();
-
-            if( netSettings.m_NetClassAssignments.count( netname ) )
-                netclassName = netSettings.m_NetClassAssignments[ netname ];
-
-            aList.emplace_back( _( "Assigned Netclass" ), netclassName );
-        }
+            aList.emplace_back( _( "Resolved Netclass" ), GetEffectiveNetClass()->GetName() );
     }
 }
 

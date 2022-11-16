@@ -46,11 +46,16 @@ SHAPE_ARC::SHAPE_ARC( const VECTOR2I& aArcCenter, const VECTOR2I& aArcStartPoint
         m_width( aWidth )
 {
     m_start = aArcStartPoint;
-    m_mid = aArcStartPoint;
-    m_end = aArcStartPoint;
 
-    RotatePoint( m_mid, aArcCenter, -aCenterAngle / 2.0 );
-    RotatePoint( m_end, aArcCenter, -aCenterAngle );
+    VECTOR2D mid = aArcStartPoint;
+    VECTOR2D end = aArcStartPoint;
+    VECTOR2D center = aArcCenter;
+
+    RotatePoint( mid, center, -aCenterAngle / 2.0 );
+    RotatePoint( end, center, -aCenterAngle );
+
+    m_mid = VECTOR2I( KiROUND( mid.x ), KiROUND( mid.y ) );
+    m_end = VECTOR2I( KiROUND( end.x ), KiROUND( end.y ) );
 
     update_bbox();
 }
@@ -130,14 +135,14 @@ SHAPE_ARC::SHAPE_ARC( const SEG& aSegmentA, const SEG& aSegmentB, int aRadius, i
     }
     else
     {
-        VECTOR2I pToA = aSegmentA.B - p.get();
-        VECTOR2I pToB = aSegmentB.B - p.get();
+        VECTOR2I pToA = aSegmentA.B - *p;
+        VECTOR2I pToB = aSegmentB.B - *p;
 
         if( pToA.EuclideanNorm() == 0 )
-            pToA = aSegmentA.A - p.get();
+            pToA = aSegmentA.A - *p;
 
         if( pToB.EuclideanNorm() == 0 )
-            pToB = aSegmentB.A - p.get();
+            pToB = aSegmentB.A - *p;
 
         EDA_ANGLE pToAangle( pToA );
         EDA_ANGLE pToBangle( pToB );
@@ -148,8 +153,8 @@ SHAPE_ARC::SHAPE_ARC( const SEG& aSegmentA, const SEG& aSegmentB, int aRadius, i
         EDA_ANGLE angPC  = pToAangle - alpha / 2;
         VECTOR2I  arcCenter;
 
-        arcCenter.x = p.get().x + KiROUND( distPC * angPC.Cos() );
-        arcCenter.y = p.get().y + KiROUND( distPC * angPC.Sin() );
+        arcCenter.x = p->x + KiROUND( distPC * angPC.Cos() );
+        arcCenter.y = p->y + KiROUND( distPC * angPC.Sin() );
 
         // The end points of the arc are the orthogonal projected lines from the line segments
         // to the center of the arc
@@ -267,6 +272,9 @@ bool SHAPE_ARC::Collide( const SEG& aSeg, int aClearance, int* aActual, VECTOR2I
 
 int SHAPE_ARC::IntersectLine( const SEG& aSeg, std::vector<VECTOR2I>* aIpsBuffer ) const
 {
+    if( aSeg.A == aSeg.B )      // One point does not define a line....
+        return 0;
+
     CIRCLE circ( GetCenter(), GetRadius() );
 
     std::vector<VECTOR2I> intersections = circ.IntersectLine( aSeg );
@@ -319,11 +327,13 @@ void SHAPE_ARC::update_bbox()
     int quad_angle_start = std::ceil( start_angle.AsDegrees() / 90.0 );
     int quad_angle_end = std::floor( end_angle.AsDegrees() / 90.0 );
 
+    VECTOR2I center = GetCenter();
+    const int radius = KiROUND( GetRadius() );
+
     // count through quadrants included in arc
     for( int quad_angle = quad_angle_start; quad_angle <= quad_angle_end; ++quad_angle )
     {
-        const int radius = KiROUND( GetRadius() );
-        VECTOR2I  quad_pt = GetCenter();
+        VECTOR2I  quad_pt = center;
 
         switch( quad_angle % 4 )
         {
@@ -369,21 +379,21 @@ bool SHAPE_ARC::Collide( const VECTOR2I& aP, int aClearance, int* aActual,
     if( !bbox.Contains( aP ) )
         return false;
 
-    VECTOR2I center = GetCenter();
-    VECTOR2I vec = aP - center;
+    CIRCLE   fullCircle( GetCenter(), GetRadius() );
+    VECTOR2I nearestPt = fullCircle.NearestPoint( aP );
 
-    int dist = abs( vec.EuclideanNorm() - GetRadius() );
+    int dist = ( nearestPt - aP ).EuclideanNorm();
 
     // If not a 360 degree arc, need to use arc angles to decide if point collides
     if( m_start != m_end )
     {
         bool   ccw = GetCentralAngle() > ANGLE_0;
-        EDA_ANGLE vecAngle( vec );
-        EDA_ANGLE rotatedVecAngle = ( vecAngle.Normalize() - GetStartAngle() ).Normalize();
+        EDA_ANGLE angleToPt( aP - fullCircle.Center ); // Angle from center to the point
+        EDA_ANGLE rotatedPtAngle = ( angleToPt.Normalize() - GetStartAngle() ).Normalize();
         EDA_ANGLE rotatedEndAngle = ( GetEndAngle() - GetStartAngle() ).Normalize();
 
-        if( ( ccw && rotatedVecAngle > rotatedEndAngle )
-            || ( !ccw && rotatedVecAngle < rotatedEndAngle ) )
+        if( ( ccw && rotatedPtAngle > rotatedEndAngle )
+            || ( !ccw && rotatedPtAngle < rotatedEndAngle ) )
         {
             int distStartpt = ( aP - m_start ).EuclideanNorm();
             int distEndpt = ( aP - m_end ).EuclideanNorm();

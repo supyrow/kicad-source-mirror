@@ -42,6 +42,7 @@ public:
 
 private:
     void OnEnterKey( wxCommandEvent& aEvent ) override;
+    void OnValueCharHook( wxKeyEvent& aEvent ) override;
     void OnFormattingHelp( wxHyperlinkEvent& aEvent ) override;
 
     void onSpinButton( wxCommandEvent &aEvent );
@@ -76,7 +77,6 @@ private:
 
     HTML_MESSAGE_BOX*             m_helpWindow;
 };
-
 
 
 #endif // DIALOG_LABEL_PROPERTIES_H

@@ -26,7 +26,6 @@
 
 #include <bitmaps.h>
 #include <eda_item.h>
-#include <eda_rect.h>
 #include <trace_helpers.h>
 #include <trigo.h>
 #include <i18n_utility.h>
@@ -72,11 +71,11 @@ void EDA_ITEM::SetModified()
 }
 
 
-const EDA_RECT EDA_ITEM::GetBoundingBox() const
+const BOX2I EDA_ITEM::GetBoundingBox() const
 {
     // return a zero-sized box per default. derived classes should override
     // this
-    return EDA_RECT( VECTOR2I( 0, 0 ), VECTOR2I( 0, 0 ) );
+    return BOX2I( VECTOR2I( 0, 0 ), VECTOR2I( 0, 0 ) );
 }
 
 
@@ -89,24 +88,24 @@ EDA_ITEM* EDA_ITEM::Clone() const
 
 // see base_struct.h
 // many classes inherit this method, be careful:
-//TODO (snh): Fix this to use std::set instead of C-style vector
-SEARCH_RESULT EDA_ITEM::Visit( INSPECTOR inspector, void* testData, const KICAD_T scanTypes[] )
+INSPECT_RESULT EDA_ITEM::Visit( INSPECTOR inspector, void* testData,
+                                const std::vector<KICAD_T>& aScanTypes )
 {
 #if 0 && defined(DEBUG)
     std::cout << GetClass().mb_str() << ' ';
 #endif
 
-    if( IsType( scanTypes ) )
+    if( IsType( aScanTypes ) )
     {
-        if( SEARCH_RESULT::QUIT == inspector( this, testData ) )
-            return SEARCH_RESULT::QUIT;
+        if( INSPECT_RESULT::QUIT == inspector( this, testData ) )
+            return INSPECT_RESULT::QUIT;
     }
 
-    return SEARCH_RESULT::CONTINUE;
+    return INSPECT_RESULT::CONTINUE;
 }
 
 
-wxString EDA_ITEM::GetSelectMenuText( EDA_UNITS aUnits ) const
+wxString EDA_ITEM::GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const
 {
     wxFAIL_MSG( wxT( "GetSelectMenuText() was not overridden for schematic item type " ) +
                 GetClass() );
@@ -115,23 +114,22 @@ wxString EDA_ITEM::GetSelectMenuText( EDA_UNITS aUnits ) const
 }
 
 
-bool EDA_ITEM::Matches( const wxString& aText, const wxFindReplaceData& aSearchData ) const
+bool EDA_ITEM::Matches( const wxString& aText, const EDA_SEARCH_DATA& aSearchData ) const
 {
     wxString text = aText;
-    int      flags = aSearchData.GetFlags();
-    wxString searchText = aSearchData.GetFindString();
+    wxString searchText = aSearchData.findString;
 
     // Don't match if searching for replaceable item and the item doesn't support text replace.
-    if( ( flags & FR_SEARCH_REPLACE ) && !IsReplaceable() )
+    if( aSearchData.searchAndReplace && !IsReplaceable() )
         return false;
 
-    if( !( flags & wxFR_MATCHCASE ) )
+    if( !aSearchData.matchCase )
     {
         text.MakeUpper();
         searchText.MakeUpper();
     }
 
-    if( flags & wxFR_WHOLEWORD )
+    if( aSearchData.matchMode == EDA_SEARCH_MATCH_MODE::WHOLEWORD )
     {
         int ii = 0;
 
@@ -156,7 +154,7 @@ bool EDA_ITEM::Matches( const wxString& aText, const wxFindReplaceData& aSearchD
 
         return false;
     }
-    else if( flags & FR_MATCH_WILDCARD )
+    else if( aSearchData.matchMode == EDA_SEARCH_MATCH_MODE::WILDCARD )
     {
         return text.Matches( searchText );
     }
@@ -167,15 +165,14 @@ bool EDA_ITEM::Matches( const wxString& aText, const wxFindReplaceData& aSearchD
 }
 
 
-bool EDA_ITEM::Replace( const wxFindReplaceData& aSearchData, wxString& aText )
+bool EDA_ITEM::Replace( const EDA_SEARCH_DATA& aSearchData, wxString& aText )
 {
     wxString text = aText;
-    int      flags = aSearchData.GetFlags();
-    wxString searchText = aSearchData.GetFindString();
+    wxString searchText = aSearchData.findString;
     wxString result;
     bool     replaced = false;
 
-    if( flags & wxFR_MATCHCASE )
+    if( !aSearchData.matchCase )
     {
         text = text.Upper();
         searchText = searchText.Upper();
@@ -202,7 +199,7 @@ bool EDA_ITEM::Replace( const wxFindReplaceData& aSearchData, wxString& aText )
         bool startOK;
         bool endOK;
 
-        if( flags & wxFR_WHOLEWORD )
+        if( aSearchData.matchMode == EDA_SEARCH_MATCH_MODE::WHOLEWORD )
         {
             startOK = ( ii == 0 || !wxIsalnum( text.GetChar( ii - 1 ) ) );
             endOK = ( next == (int) text.length() || !wxIsalnum( text.GetChar( next ) ) );
@@ -215,7 +212,7 @@ bool EDA_ITEM::Replace( const wxFindReplaceData& aSearchData, wxString& aText )
 
         if( startOK && endOK )
         {
-            result += aSearchData.GetReplaceString();
+            result += aSearchData.replaceString;
             replaced = true;
             ii = next;
         }
@@ -257,9 +254,7 @@ EDA_ITEM& EDA_ITEM::operator=( const EDA_ITEM& aItem )
 const BOX2I EDA_ITEM::ViewBBox() const
 {
     // Basic fallback
-    EDA_RECT bbox = GetBoundingBox();
-
-    return BOX2I( bbox.GetOrigin(), bbox.GetSize() );
+    return GetBoundingBox();
 }
 
 
@@ -303,6 +298,15 @@ std::ostream& EDA_ITEM::NestedSpace( int nestLevel, std::ostream& os )
 #endif
 
 
+wxString EDA_ITEM::GetTypeDesc()
+{
+    //@see EDA_ITEM_DESC for definition of ENUM_MAP<KICAD_T>
+    wxString typeDescr = ENUM_MAP<KICAD_T>::Instance().ToString( Type() );
+
+    return wxGetTranslation( typeDescr );
+}
+
+
 static struct EDA_ITEM_DESC
 {
     EDA_ITEM_DESC()
@@ -315,6 +319,7 @@ static struct EDA_ITEM_DESC
             .Map( PCB_FOOTPRINT_T,         _HKI( "Footprint" ) )
             .Map( PCB_PAD_T,               _HKI( "Pad" ) )
             .Map( PCB_SHAPE_T,             _HKI( "Graphic" ) )
+            .Map( PCB_BITMAP_T,            _HKI( "Bitmap" ) )
             .Map( PCB_TEXT_T,              _HKI( "Text" ) )
             .Map( PCB_TEXTBOX_T,           _HKI( "Text Box" ) )
             .Map( PCB_FP_TEXT_T,           _HKI( "Text" ) )
@@ -327,6 +332,7 @@ static struct EDA_ITEM_DESC
             .Map( PCB_FP_DIM_LEADER_T,     _HKI( "Leader" ) )
             .Map( PCB_FP_ZONE_T,           _HKI( "Zone" ) )
             .Map( PCB_TRACE_T,             _HKI( "Track" ) )
+            .Map( PCB_ARC_T,               _HKI( "Track" ) )
             .Map( PCB_VIA_T,               _HKI( "Via" ) )
             .Map( PCB_MARKER_T,            _HKI( "Marker" ) )
             .Map( PCB_DIM_ALIGNED_T,       _HKI( "Dimension" ) )

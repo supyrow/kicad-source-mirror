@@ -89,7 +89,8 @@ TOOL_ACTION EE_ACTIONS::selectNode( "eeschema.InteractiveSelection.SelectNode",
 TOOL_ACTION EE_ACTIONS::selectConnection( "eeschema.InteractiveSelection.SelectConnection",
         AS_GLOBAL,
         MD_ALT + '4', LEGACY_HK_NAME( "Select Connection" ),
-        _( "Select Connection" ), _( "Select a complete connection" ) );
+        _( "Select Connection" ), _( "Select a complete connection" ),
+        BITMAPS::net_highlight_schematic);
 
 TOOL_ACTION EE_ACTIONS::selectionMenu( "eeschema.InteractiveSelection.SelectionMenu",
         AS_GLOBAL );
@@ -107,6 +108,9 @@ TOOL_ACTION EE_ACTIONS::removeItemsFromSel( "eeschema.InteractiveSelection.Remov
         AS_GLOBAL );
 
 TOOL_ACTION EE_ACTIONS::clearSelection( "eeschema.InteractiveSelection.ClearSelection",
+        AS_GLOBAL );
+
+TOOL_ACTION EE_ACTIONS::syncSelection( "eeschema.InteractiveSelection.SyncSelection",
         AS_GLOBAL );
 
 
@@ -132,6 +136,11 @@ TOOL_ACTION EE_ACTIONS::duplicateSymbol( "eeschema.SymbolLibraryControl.duplicat
         AS_GLOBAL, 0, "",
         _( "Duplicate Symbol" ), _( "Make a copy of the selected symbol" ),
         BITMAPS::duplicate );
+
+TOOL_ACTION EE_ACTIONS::renameSymbol( "eeschema.SymbolLibraryControl.renameFootprint",
+        AS_GLOBAL, 0, "",
+        _( "Rename Symbol..." ), _( "Rename the selected symbol" ),
+        BITMAPS::edit );
 
 TOOL_ACTION EE_ACTIONS::saveSymbolAs( "eeschema.SymbolLibraryControl.saveSymbolAs",
         AS_GLOBAL, 0, "",
@@ -173,6 +182,10 @@ TOOL_ACTION EE_ACTIONS::updateSymbolFields( "eeschema.SymbolLibraryControl.updat
         _( "Update Symbol Fields..." ), _( "Update symbol to match changes made in parent symbol" ),
         BITMAPS::refresh );
 
+TOOL_ACTION EE_ACTIONS::setUnitDisplayName( "eeschema.SymbolLibraryControl.setUnitDisplayName",
+                                            AS_GLOBAL, 0, "", _( "Set Unit Display Name..." ),
+                                            _( "Set the display name for a unit" ) );
+
 TOOL_ACTION EE_ACTIONS::addSymbolToSchematic( "eeschema.SymbolLibraryControl.addSymbolToSchematic",
         AS_GLOBAL, 0, "",
         _( "Add Symbol to Schematic" ), _( "Add Symbol to Schematic" ),
@@ -182,6 +195,11 @@ TOOL_ACTION EE_ACTIONS::showElectricalTypes( "eeschema.SymbolLibraryControl.show
         AS_GLOBAL, 0, "",
         _( "Show Pin Electrical Types" ), _( "Annotate pins with their electrical types" ),
         BITMAPS::pin_show_etype );
+
+TOOL_ACTION EE_ACTIONS::showPinNumbers( "eeschema.SymbolLibraryControl.showPinNumbers",
+        AS_GLOBAL, 0, "",
+        _( "Show Pin Numbers" ), _( "Annotate pins with their numbers" ),
+        BITMAPS::pin );
 
 TOOL_ACTION EE_ACTIONS::showSymbolTree( "eeschema.SymbolLibraryControl.showSymbolTree",
         AS_GLOBAL, 0, "",
@@ -205,8 +223,8 @@ TOOL_ACTION EE_ACTIONS::exportSymbolAsSVG( "eeschema.SymbolLibraryControl.export
 
 TOOL_ACTION EE_ACTIONS::toggleSyncedPinsMode( "eeschema.SymbolLibraryControl.toggleSyncedPinsMode",
         AS_GLOBAL, 0, "",
-        _( "Synchronized Pins Edit Mode" ),
-        _( "Synchronized Pins Edit Mode\n"
+        _( "Synchronized Pins Mode" ),
+        _( "Synchronized Pins Mode\n"
            "When enabled propagates all changes (except pin numbers) to other units.\n"
            "Enabled by default for multiunit parts with interchangeable units." ),
         BITMAPS::pin2pin );
@@ -376,7 +394,7 @@ TOOL_ACTION EE_ACTIONS::finishSheet( "eeschema.InteractiveDrawing.finishSheet",
 TOOL_ACTION EE_ACTIONS::repeatDrawItem( "eeschema.InteractiveEdit.repeatDrawItem",
         AS_GLOBAL,
 #ifdef __WXMAC__
-        'I', LEGACY_HK_NAME( "Repeat Last Item" ),
+        WXK_F1, LEGACY_HK_NAME( "Repeat Last Item" ),
 #else
         WXK_INSERT, LEGACY_HK_NAME( "Repeat Last Item" ),
 #endif
@@ -404,6 +422,12 @@ TOOL_ACTION EE_ACTIONS::mirrorH( "eeschema.InteractiveEdit.mirrorH",
         'X', LEGACY_HK_NAME( "Mirror Y" ),  // Yes, these were backwards prior to 6.0....
         _( "Mirror Horizontally" ), _( "Flips selected item(s) from left to right" ),
         BITMAPS::mirror_h );
+
+TOOL_ACTION EE_ACTIONS::swap( "eeschema.InteractiveEdit.swap",
+        AS_GLOBAL,
+        MD_SHIFT + 'S', "",
+        _( "Swap" ), _( "Swaps selected items' positions" ),
+        BITMAPS::swap );
 
 TOOL_ACTION EE_ACTIONS::properties( "eeschema.InteractiveEdit.properties",
         AS_GLOBAL,
@@ -461,7 +485,8 @@ TOOL_ACTION EE_ACTIONS::updateSymbol( "eeschema.InteractiveEdit.updateSymbol",
 
 TOOL_ACTION EE_ACTIONS::assignNetclass( "eeschema.InteractiveEdit.assignNetclass",
         AS_GLOBAL, 0, "",
-        _( "Assign Netclass..." ), _( "Assign a netclass to the net of the selected wire" ) );
+        _( "Assign Netclass..." ), _( "Assign a netclass to nets matching a pattern" ),
+        BITMAPS::netlist);
 
 TOOL_ACTION EE_ACTIONS::toggleDeMorgan( "eeschema.InteractiveEdit.toggleDeMorgan",
         AS_GLOBAL, 0, "",
@@ -502,6 +527,11 @@ TOOL_ACTION EE_ACTIONS::toText( "eeschema.InteractiveEdit.toText",
         AS_GLOBAL, 0, "",
         _( "Change to Text" ), _( "Change existing item to a text comment" ),
         BITMAPS::text, AF_NONE, (void*) SCH_TEXT_T );
+
+TOOL_ACTION EE_ACTIONS::toTextBox( "eeschema.InteractiveEdit.toTextBox",
+        AS_GLOBAL, 0, "",
+        _( "Change to Text Box" ), _( "Change existing item to a text box" ),
+        BITMAPS::add_textbox, AF_NONE, (void*) SCH_TEXTBOX_T );
 
 TOOL_ACTION EE_ACTIONS::cleanupSheetPins( "eeschema.InteractiveEdit.cleanupSheetPins",
         AS_GLOBAL, 0, "",
@@ -626,11 +656,6 @@ TOOL_ACTION EE_ACTIONS::remapSymbols( "eeschema.EditorControl.remapSymbols",
         _( "Remap library symbol references in legacy schematics to the symbol library table" ),
         BITMAPS::rescue );
 
-TOOL_ACTION EE_ACTIONS::showBusManager( "eeschema.EditorControl.showBusManager",
-        AS_GLOBAL, 0, "",
-        _( "Bus Definitions..." ), _( "Manage bus definitions" ),
-        BITMAPS::bus_definition_tool );
-
 TOOL_ACTION EE_ACTIONS::drawSheetOnClipboard( "eeschema.EditorControl.drawSheetOnClipboard",
         AS_GLOBAL, 0, "",
         _( "Export Drawing to Clipboard" ), _( "Export drawing of current sheet to clipboard" ),
@@ -650,6 +675,20 @@ TOOL_ACTION EE_ACTIONS::generateBOM( "eeschema.EditorControl.generateBOM",
         AS_GLOBAL, 0, "",
         _( "Generate BOM..." ), _( "Generate a bill of materials for the current schematic" ),
         BITMAPS::post_bom );
+
+TOOL_ACTION EE_ACTIONS::exportSymbolsToLibrary( "eeschema.EditorControl.exportSymbolsToLibrary",
+       AS_GLOBAL, 0, "",
+       _( "Export Symbols to Library..." ),
+       _( "Add symbols used in schematic to an existing symbol library\n"
+          "(does not remove other symbols from this library)" ),
+       BITMAPS::library_archive );
+
+TOOL_ACTION EE_ACTIONS::exportSymbolsToNewLibrary( "eeschema.EditorControl.exportSymbolsToNewLibrary",
+       AS_GLOBAL, 0, "",
+       _( "Export Symbols to New Library..." ),
+       _( "Create a new symbol library using the symbols used in the schematic\n"
+          "(if the library already exists it will be replaced)" ),
+       BITMAPS::library_archive_as );
 
 TOOL_ACTION EE_ACTIONS::selectOnPCB( "eeschema.EditorControl.selectOnPCB",
         AS_GLOBAL, 0, "",
@@ -679,10 +718,32 @@ TOOL_ACTION EE_ACTIONS::toggleERCExclusions( "eeschema.EditorControl.showERCExcl
         _( "Show ERC Exclusions" ),
         _( "Show markers for excluded electrical rules checker violations" ) );
 
-TOOL_ACTION EE_ACTIONS::toggleForceHV( "eeschema.EditorControl.forceHVLines",
+TOOL_ACTION EE_ACTIONS::lineModeFree( "eeschema.EditorControl.lineModeFree",
         AS_GLOBAL, 0, "",
-        _( "Force H/V Wires and Buses" ), _( "Switch H & V only mode for new wires and buses" ),
-        BITMAPS::lines90 );
+        _( "Line Mode for Wires and Buses" ), _( "Draw and drag at any angle" ),
+        BITMAPS::lines_any, AF_NONE, (void*) LINE_MODE::LINE_MODE_FREE );
+
+TOOL_ACTION EE_ACTIONS::lineMode90( "eeschema.EditorControl.lineModeOrthonal",
+        AS_GLOBAL, 0, "",
+        _( "Line Mode for Wires and Buses" ),
+        _( "Constrain drawing and dragging to horizontal or vertical motions" ),
+        BITMAPS::lines90, AF_NONE, (void*) LINE_MODE::LINE_MODE_90);
+
+TOOL_ACTION EE_ACTIONS::lineMode45( "eeschema.EditorControl.lineMode45",
+        AS_GLOBAL, 0, "",
+        _( "Line Mode for Wires and Buses" ),
+        _( "Constrain drawing and dragging to horizontal, vertical, or 45-degree angle motions" ),
+        BITMAPS::hv45mode, AF_NONE, (void*) LINE_MODE::LINE_MODE_45);
+
+TOOL_ACTION EE_ACTIONS::lineModeNext( "eeschema.EditorControl.lineModeNext",
+        AS_GLOBAL, MD_SHIFT + WXK_SPACE, "",
+        _( "Line Mode for Wires and Buses" ), _( "Switch to next line mode" ),
+        BITMAPS::unknown );
+
+TOOL_ACTION EE_ACTIONS::toggleAnnotateAuto( "eeschema.EditorControl.annotateAutomatically",
+        AS_GLOBAL, 0, "",
+        _( "Annotate Automatically" ), _( "Toggle automatic annotation of new parts symbols" ),
+        BITMAPS::annotate );
 
 TOOL_ACTION EE_ACTIONS::repairSchematic( "eeschema.EditorControl.repairSchematic",
         AS_GLOBAL, 0, "",
@@ -698,6 +759,11 @@ TOOL_ACTION EE_ACTIONS::showPythonConsole( "eeschema.EditorControl.showPythonCon
 
 // SCH_NAVIGATE_TOOL
 //
+TOOL_ACTION EE_ACTIONS::changeSheet( "eeschema.NavigateTool.changeSheet",
+        AS_GLOBAL, 0, "",
+        _( "Enter Sheet" ), _( "Change to provided sheet's contents in the schematic editor" ),
+        BITMAPS::enter_sheet );
+
 TOOL_ACTION EE_ACTIONS::enterSheet( "eeschema.NavigateTool.enterSheet",
         AS_GLOBAL, 0, "",
         _( "Enter Sheet" ), _( "Display the selected sheet's contents in the schematic editor" ),
@@ -709,14 +775,40 @@ TOOL_ACTION EE_ACTIONS::leaveSheet( "eeschema.NavigateTool.leaveSheet",
         _( "Leave Sheet" ), _( "Display the parent sheet in the schematic editor" ),
         BITMAPS::leave_sheet );
 
-TOOL_ACTION EE_ACTIONS::navigateHierarchy( "eeschema.NavigateTool.navigateHierarchy",
-        AS_GLOBAL, 0, "",
-        _( "Hierarchy Navigator" ), _( "Show schematic sheet hierarchy" ),
-        BITMAPS::hierarchy_nav );
+TOOL_ACTION EE_ACTIONS::navigateUp( "eeschema.NavigateTool.up",
+        AS_GLOBAL, MD_ALT + WXK_UP, "",
+        _( "Navigate Up" ), _( "Navigate up one sheet in the hierarchy" ),
+        BITMAPS::up );
 
-TOOL_ACTION EE_ACTIONS::hypertextCommand( "eeschema.NavigateTool.hypertextCommand",
-        AS_GLOBAL, 0, "",
-        _( "Navigate to page" ), _( "Navigate to page" ) );
+TOOL_ACTION EE_ACTIONS::navigateBack( "eeschema.NavigateTool.back",
+        AS_GLOBAL,
+        MD_ALT + WXK_LEFT, "",
+        _( "Navigate Back" ), _( "Move forward in sheet navigation history" ),
+        BITMAPS::left );
+
+TOOL_ACTION EE_ACTIONS::navigateForward( "eeschema.NavigateTool.forward",
+        AS_GLOBAL,
+        MD_ALT + WXK_RIGHT, "",
+        _( "Navigate Forward" ), _( "Move backward in sheet navigation history" ),
+        BITMAPS::right );
+
+TOOL_ACTION EE_ACTIONS::navigatePrevious( "eeschema.NavigateTool.previous",
+        AS_GLOBAL,
+        WXK_PAGEUP, "",
+        _( "Previous Sheet" ), _( "Move to previous sheet by number" ),
+        BITMAPS::left );
+
+TOOL_ACTION EE_ACTIONS::navigateNext( "eeschema.NavigateTool.next",
+        AS_GLOBAL,
+        WXK_PAGEDOWN, "",
+        _( "Next Sheet" ), _( "Move to next sheet by number" ),
+        BITMAPS::right );
+
+TOOL_ACTION EE_ACTIONS::showHierarchy( "eeschema.EditorTool.showHierarchy",
+        AS_GLOBAL,
+        MD_CTRL + 'H', "",
+        _( "Hierarchy Navigator" ), _( "Show or hide the schematic sheet hierarchy navigator" ),
+        BITMAPS::hierarchy_nav );
 
 
 // SCH_LINE_WIRE_BUS_TOOL
@@ -758,6 +850,18 @@ TOOL_ACTION EE_ACTIONS::drawLines( "eeschema.InteractiveDrawingLineWireBus.drawL
         'I', LEGACY_HK_NAME( "Add Graphic PolyLine" ),
         _( "Add Lines" ), _( "Add connected graphic lines" ),
         BITMAPS::add_dashed_line, AF_ACTIVATE, (void*) &drawLinesActionParam );
+
+TOOL_ACTION EE_ACTIONS::undoLastSegment( "eeschema.InteractiveDrawingLineWireBus.undoLastSegment",
+        AS_GLOBAL,
+        WXK_BACK, "",
+        _( "Undo Last Segment" ),  _( "Walks the current line back one segment." ),
+        BITMAPS::undo );
+
+TOOL_ACTION EE_ACTIONS::switchSegmentPosture( "eeschema.InteractiveDrawingLineWireBus.switchPosture",
+        AS_GLOBAL,
+        '/', "",
+        _( "Switch Segment Posture" ), _( "Switches posture of the current segment." ),
+        BITMAPS::change_entry_orient, AF_NONE );
 
 TOOL_ACTION EE_ACTIONS::finishLineWireOrBus( "eeschema.InteractiveDrawingLineWireBus.finish",
         AS_GLOBAL,
@@ -811,3 +915,7 @@ TOOL_ACTION EE_ACTIONS::saveCurrSheetCopyAs( "eeschema.EditorControl.saveCurrShe
         0, "",
         _( "Save Current Sheet Copy As..." ), _( "Save a copy of the current sheet to another location or name" ),
         BITMAPS::save_as );
+
+// Drag and drop
+TOOL_ACTION EE_ACTIONS::ddAppendFile( "eeschema.EditorControl.ddAppendFile",
+        AS_GLOBAL );

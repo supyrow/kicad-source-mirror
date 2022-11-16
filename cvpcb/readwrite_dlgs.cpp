@@ -80,12 +80,12 @@ static int guessNickname( FP_LIB_TABLE* aTbl, LIB_ID* aFootprintId )
 }
 
 
-bool CVPCB_MAINFRAME::ReadNetListAndFpFiles( const std::string& aNetlist )
+bool CVPCB_MAINFRAME::readNetListAndFpFiles( const std::string& aNetlist )
 {
     wxString        msg;
     bool            hasMissingNicks = false;
 
-    ReadSchematicNetlist( aNetlist );
+    readSchematicNetlist( aNetlist );
 
     if( m_symbolsListBox == nullptr )
         return false;
@@ -269,6 +269,14 @@ bool CVPCB_MAINFRAME::ReadNetListAndFpFiles( const std::string& aNetlist )
                                 FROM_UTF8( component->GetFPID().Format().c_str() ) );
 
         m_symbolsListBox->AppendLine( msg );
+
+        FOOTPRINT_INFO* fp =
+                m_FootprintsList->GetFootprintInfo( component->GetFPID().Format().wx_str() );
+
+        if( !fp )
+        {
+            m_symbolsListBox->AppendWarning( i );
+        }
     }
 
     if( !m_netlist.IsEmpty() )

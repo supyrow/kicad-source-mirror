@@ -32,19 +32,16 @@
 /**
  * A logical library item identifier and consists of various portions much like a URI.
  *
- * It consists of of triad of the library nickname, the name of the item in the library,
- * and an optional revision of the item.  This is a generic library identifier that can be
+ * It consists of of a dyad of the library nickname and the name of the item in the library
+ * This is a generic library identifier that can be
  * used for any type of library that contains multiple named items such as footprint or
  * symbol libraries.
  *
  * Example LIB_ID string:
- * "smt:R_0805/rev0".
+ * "smt:R_0805".
  *
  * - "smt" is the logical library name used to look up library information saved in the #LIB_TABLE.
  * - "R" is the name of the item within the library.
- * - "rev0" is the revision, which is optional.  If missing then its delimiter should also not
- *    be present. A revision must begin with "rev" and be followed by at least one or more
- *    decimal digits.
  *
  * @author Dick Hollenbeck
  */
@@ -123,6 +120,16 @@ public:
     int SetLibItemName( const UTF8& aLibItemName );
 
     /**
+     * Some LIB_IDs can have a sub-library identifier in addition to a library nickname.
+     * This identifier is *not* part of the canonical LIB_ID and is not written out / parsed.
+     * It is only used for internal sorting/grouping, if present.
+     *
+     * @return the sub-library name for this LIB_ID, if one exists
+     */
+    UTF8 GetSubLibraryName() const { return m_subLibraryName; }
+    void SetSubLibraryName( const UTF8& aName ) { m_subLibraryName = aName; }
+
+    /**
      * @return the fully formatted text of the LIB_ID in a UTF8 string.
      */
     UTF8 Format() const;
@@ -138,7 +145,7 @@ public:
 
     /**
      * @return a string in the proper format as an LIB_ID for a combination of
-     *         aLibraryName, aLibItemName, and aRevision.
+     *         aLibraryName, aLibItemName
      *
      * @throw PARSE_ERROR if any of the pieces are illegal.
      */
@@ -148,7 +155,6 @@ public:
      * Check if this LID_ID is valid.
      *
      * A valid #LIB_ID must have both the library nickname and the library item name defined.
-     * The revision field is optional.
      *
      * @note A return value of true does not indicated that the #LIB_ID is a valid #LIB_TABLE
      *       entry.
@@ -170,7 +176,7 @@ public:
     }
 
     /**
-     * Clear the contents of the library nickname, library entry name, and revision strings.
+     * Clear the contents of the library nickname, library entry name
      */
     void clear();
 
@@ -184,7 +190,7 @@ public:
 
     /**
      * Compare the contents of LIB_ID objects by performing a std::string comparison of the
-     * library nickname, library entry name, and revision strings respectively.
+     * library nickname, library entry name
      *
      * @param aLibId is the LIB_ID to compare against.
      * @return -1 if less than \a aLibId, 1 if greater than \a aLibId, and 0 if equal to \a aLibId.
@@ -257,6 +263,7 @@ protected:
 
     UTF8    m_libraryName;    ///< The nickname of the library or empty.
     UTF8    m_itemName;       ///< The name of the entry in the logical library.
+    UTF8    m_subLibraryName; ///< Optional sub-library name used for grouping within a library
 };
 
 

@@ -42,7 +42,7 @@
 %{
 #include <footprint.h>
 %}
-%template(FP_3DMODEL_List) std::list<FP_3DMODEL>;
+%template(VECTOR_FP_3DMODEL) std::vector<FP_3DMODEL>;
 
 
 // BOARD_ITEM_CONTAINER's interface functions will be implemented by SWIG
@@ -119,9 +119,9 @@
         plug = GetPluginForPath(libname)
         return plug.FootprintEnumerate(libname)
 
-    def FootprintLoad(libname,name):
+    def FootprintLoad(libname,name,preserveUUID=False):
         plug = GetPluginForPath(libname)
-        return plug.FootprintLoad(libname,name)
+        return plug.FootprintLoad(libname,name,preserveUUID)
 
     def FootprintSave(libname,module):
         plug = GetPluginForPath(libname)

@@ -57,6 +57,7 @@ class LIB_ID;
 class SYMBOL_LIB_TABLE;
 class EESCHEMA_SETTINGS;
 class SYMBOL_EDITOR_SETTINGS;
+class NL_SCHEMATIC_PLUGIN;
 
 /**
  * Load symbol from symbol library table.
@@ -88,11 +89,9 @@ LIB_SYMBOL* SchGetLibSymbol( const LIB_ID& aLibId, SYMBOL_LIB_TABLE* aLibTable,
 class SCH_BASE_FRAME : public EDA_DRAW_FRAME
 {
 public:
-    SCH_BASE_FRAME( KIWAY* aKiway, wxWindow* aParent,
-                    FRAME_T aWindowType,
-                    const wxString& aTitle,
-                    const wxPoint& aPosition, const wxSize& aSize,
-                    long aStyle, const wxString & aFrameName );
+    SCH_BASE_FRAME( KIWAY* aKiway, wxWindow* aParent, FRAME_T aWindowType, const wxString& aTitle,
+                    const wxPoint& aPosition, const wxSize& aSize, long aStyle,
+                    const wxString & aFrameName );
 
     virtual ~SCH_BASE_FRAME();
 
@@ -192,9 +191,24 @@ public:
                                             const LIB_ID& aPreselectedLibId,
                                             int aUnit, int aConvert );
 
-    virtual void RedrawScreen( const VECTOR2I& aCenterPoint, bool aWarpPointer );
+    /**
+     * Display a list of loaded libraries and allows the user to select a library.
+     *
+     * This list is sorted, with the library cache always at end of the list
+     *
+     * @return the library nickname used in the symbol library table.
+     */
+    wxString SelectLibraryFromList();
 
-    virtual void CenterScreen( const VECTOR2I& aCenterPoint, bool aWarpPointer );
+    /**
+     * Display a dialog asking the user to select a symbol library table.
+     *
+     * @param aOptional if set the Cancel button will be relabelled "Skip".
+     * @return Pointer to the selected symbol library table or nullptr if canceled.
+     */
+    SYMBOL_LIB_TABLE* SelectSymLibTable( bool aOptional = false );
+
+    virtual void RedrawScreen( const VECTOR2I& aCenterPoint, bool aWarpPointer );
 
     void HardRedraw() override;
 
@@ -219,18 +233,12 @@ public:
     /**
      * Mark selected items for refresh.
      */
-    void RefreshSelection();
+    void RefreshZoomDependentItems();
 
     /**
      * Mark all items for refresh.
      */
     void SyncView();
-
-    /**
-     * Must be called after a model change in order to set the "modify" flag and
-     * do other frame-specific processing.
-     */
-    virtual void OnModify() {}
 
     void CommonSettingsChanged( bool aEnvVarsChanged, bool aTextVarsChanged ) override;
 
@@ -241,7 +249,13 @@ public:
 
     COLOR_SETTINGS* GetColorSettings( bool aForceRefresh = false ) const override;
 
+    void ActivateGalCanvas() override;
+
 protected:
+    void handleActivateEvent( wxActivateEvent& aEvent ) override;
+
+    void handleIconizeEvent( wxIconizeEvent& aEvent ) override;
+
     /**
      * Save Symbol Library Tables to disk.
      *
@@ -254,6 +268,11 @@ protected:
     /// These are only used by symbol_editor.  Eeschema should be using the one inside
     /// the SCHEMATIC.
     SCHEMATIC_SETTINGS  m_base_frame_defaults;
+
+private:
+#if defined( KICAD_USE_3DCONNEXION )
+    NL_SCHEMATIC_PLUGIN* m_spaceMouse;
+#endif
 };
 
 #endif // SCH_BASE_FRAME_H_

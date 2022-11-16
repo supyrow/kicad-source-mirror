@@ -51,12 +51,14 @@ public:
         return hitTest( aPosition, aAccuracy );
     }
 
-    bool HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy = 0 ) const override
+    bool HitTest( const BOX2I& aRect, bool aContained, int aAccuracy = 0 ) const override
     {
         return hitTest( aRect, aContained, aAccuracy );
     }
 
     int GetPenWidth() const override;
+
+    int GetEffectiveWidth() const override            { return GetPenWidth(); }
 
     bool HasLineStroke() const override               { return true; }
     STROKE_PARAMS GetStroke() const override          { return m_stroke; }
@@ -65,25 +67,27 @@ public:
     PLOT_DASH_TYPE GetEffectiveLineStyle() const
     {
         if( m_stroke.GetPlotStyle() == PLOT_DASH_TYPE::DEFAULT )
-            return PLOT_DASH_TYPE::DASH;
+            return PLOT_DASH_TYPE::SOLID;
         else
             return m_stroke.GetPlotStyle();
     }
 
-    const EDA_RECT GetBoundingBox() const override    { return getBoundingBox(); }
+    const BOX2I GetBoundingBox() const override    { return getBoundingBox(); }
 
     VECTOR2I GetPosition() const override { return getPosition(); }
     void     SetPosition( const VECTOR2I& aPos ) override { setPosition( aPos ); }
 
     VECTOR2I GetCenter() const { return getCenter(); }
 
-    void BeginEdit( const VECTOR2I& aStartPoint ) { beginEdit( aStartPoint ); }
-    bool ContinueEdit( const VECTOR2I& aPosition ) { return continueEdit( aPosition ); }
-    void CalcEdit( const VECTOR2I& aPosition ) { calcEdit( aPosition ); }
+    void BeginEdit( const VECTOR2I& aStartPoint )     { beginEdit( aStartPoint ); }
+    bool ContinueEdit( const VECTOR2I& aPosition )    { return continueEdit( aPosition ); }
+    void CalcEdit( const VECTOR2I& aPosition )        { calcEdit( aPosition ); }
     void EndEdit()                                    { endEdit(); }
     void SetEditState( int aState )                   { setEditState( aState ); }
 
     void Move( const VECTOR2I& aOffset ) override;
+
+    void Normalize();
 
     void MirrorHorizontally( int aCenter ) override;
     void MirrorVertically( int aCenter ) override;
@@ -95,7 +99,7 @@ public:
 
     void GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList ) override;
 
-    wxString GetSelectMenuText( EDA_UNITS aUnits ) const override;
+    wxString GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const override;
 
     BITMAPS GetMenuImage() const override;
 
@@ -109,6 +113,7 @@ public:
 
 private:
     void Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset ) override;
+    void PrintBackground( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset ) override;
 
     EDA_ANGLE getParentOrientation() const override { return ANGLE_0; }
     VECTOR2I getParentPosition() const override { return VECTOR2I(); }

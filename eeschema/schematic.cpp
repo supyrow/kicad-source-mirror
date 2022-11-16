@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2020-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2020-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -27,7 +27,7 @@
 #include <schematic.h>
 #include <sch_screen.h>
 #include <sim/spice_settings.h>
-
+#include <sch_label.h>
 
 SCHEMATIC::SCHEMATIC( PROJECT* aPrj ) :
           EDA_ITEM( nullptr, SCHEMATIC_T ),
@@ -134,9 +134,14 @@ bool SCHEMATIC::ResolveTextVar( wxString* token, int aDepth ) const
             *token = wxString::Format( "%i", Root().CountSheets() );
             return true;
         }
-        else if( token->IsSameAs( wxT( "SHEETNAME" ) ) )
+        else if( token->IsSameAs( wxT( "SHEETPATH" ) ) )
         {
             *token = CurrentSheet().PathHumanReadable();
+            return true;
+        }
+        else if( token->IsSameAs( wxT( "SHEETNAME" ) ) )
+        {
+            *token = CurrentSheet().Last()->GetName();
             return true;
         }
         else if( token->IsSameAs( wxT( "FILENAME" ) ) )
@@ -219,9 +224,9 @@ std::vector<SCH_MARKER*> SCHEMATIC::ResolveERCExclusions()
 
 std::shared_ptr<BUS_ALIAS> SCHEMATIC::GetBusAlias( const wxString& aLabel ) const
 {
-    for( const auto& sheet : GetSheets() )
+    for( const SCH_SHEET_PATH& sheet : GetSheets() )
     {
-        for( const auto& alias : sheet.LastScreen()->GetBusAliases() )
+        for( const std::shared_ptr<BUS_ALIAS>& alias : sheet.LastScreen()->GetBusAliases() )
         {
             if( alias->GetName() == aLabel )
                 return alias;
@@ -232,19 +237,18 @@ std::shared_ptr<BUS_ALIAS> SCHEMATIC::GetBusAlias( const wxString& aLabel ) cons
 }
 
 
-std::vector<wxString> SCHEMATIC::GetNetClassAssignmentCandidates()
+std::set<wxString> SCHEMATIC::GetNetClassAssignmentCandidates()
 {
-    std::vector<wxString> names;
+    std::set<wxString> names;
 
-    // Key is a NET_NAME_CODE aka std::pair<name, code>
-    for( const NET_MAP::value_type& pair: m_connectionGraph->GetNetMap() )
+    for( const auto& [ key, subgraphList ] : m_connectionGraph->GetNetMap() )
     {
-        CONNECTION_SUBGRAPH* subgraph = pair.second[0];
+        CONNECTION_SUBGRAPH* firstSubgraph = subgraphList[0];
 
-        if( !subgraph->m_driver_connection->IsBus()
-                && subgraph->GetDriverPriority() >= CONNECTION_SUBGRAPH::PRIORITY::PIN )
+        if( !firstSubgraph->m_driver_connection->IsBus()
+                && firstSubgraph->GetDriverPriority() >= CONNECTION_SUBGRAPH::PRIORITY::PIN )
         {
-            names.emplace_back( pair.first.first );
+            names.insert( key.Name );
         }
     }
 
@@ -285,6 +289,33 @@ bool SCHEMATIC::ResolveCrossReference( wxString* token, int aDepth ) const
 }
 
 
+std::map<int, wxString> SCHEMATIC::GetVirtualPageToSheetNamesMap() const
+{
+    std::map<int, wxString> namesMap;
+
+    for( const SCH_SHEET_PATH& sheet : GetSheets() )
+    {
+        if( sheet.size() == 1 )
+            namesMap[sheet.GetVirtualPageNumber()] = _( "<root sheet>" );
+        else
+            namesMap[sheet.GetVirtualPageNumber()] = sheet.Last()->GetName();
+    }
+
+    return namesMap;
+}
+
+
+std::map<int, wxString> SCHEMATIC::GetVirtualPageToSheetPagesMap() const
+{
+    std::map<int, wxString> pagesMap;
+
+    for( const SCH_SHEET_PATH& sheet : GetSheets() )
+        pagesMap[sheet.GetVirtualPageNumber()] = sheet.GetPageNumber();
+
+    return pagesMap;
+}
+
+
 wxString SCHEMATIC::ConvertRefsToKIIDs( const wxString& aSource ) const
 {
     wxString newbuf;
@@ -296,11 +327,23 @@ wxString SCHEMATIC::ConvertRefsToKIIDs( const wxString& aSource ) const
         {
             wxString token;
             bool     isCrossRef = false;
+            int      nesting = 0;
 
             for( i = i + 2; i < sourceLen; ++i )
             {
+                if( aSource[i] == '{'
+                        && ( aSource[i-1] == '_' || aSource[i-1] == '^' || aSource[i-1] == '~' ) )
+                {
+                    nesting++;
+                }
+
                 if( aSource[i] == '}' )
-                    break;
+                {
+                    nesting--;
+
+                    if( nesting < 0 )
+                        break;
+                }
 
                 if( aSource[i] == ':' )
                     isCrossRef = true;
@@ -400,4 +443,119 @@ SCH_SHEET_LIST& SCHEMATIC::GetFullHierarchy() const
     hierarchy.BuildSheetList( m_rootSheet, false );
 
     return hierarchy;
+}
+
+
+void SCHEMATIC::SetLegacySymbolInstanceData()
+{
+    SCH_SCREENS screens( m_rootSheet );
+
+    screens.SetLegacySymbolInstanceData();
+}
+
+
+wxString SCHEMATIC::GetUniqueFilenameForCurrentSheet()
+{
+    // Filename is rootSheetName-sheetName-...-sheetName
+    // Note that we need to fetch the rootSheetName out of its filename, as the root SCH_SHEET's
+    // name is just a timestamp.
+
+    wxFileName rootFn( CurrentSheet().at( 0 )->GetFileName() );
+    wxString   filename = rootFn.GetName();
+
+    for( unsigned i = 1; i < CurrentSheet().size(); i++ )
+        filename += wxT( "-" ) + CurrentSheet().at( i )->GetName();
+
+    return filename;
+}
+
+
+void SCHEMATIC::SetSheetNumberAndCount()
+{
+    SCH_SCREEN* screen;
+    SCH_SCREENS s_list( Root() );
+
+    // Set the sheet count, and the sheet number (1 for root sheet)
+    int              sheet_count = Root().CountSheets();
+    int              sheet_number = 1;
+    const KIID_PATH& current_sheetpath = CurrentSheet().Path();
+
+    // @todo Remove all pseudo page number system is left over from prior to real page number
+    //       implementation.
+    for( const SCH_SHEET_PATH& sheet : GetSheets() )
+    {
+        if( sheet.Path() == current_sheetpath ) // Current sheet path found
+            break;
+
+        sheet_number++; // Not found, increment before this current path
+    }
+
+    for( screen = s_list.GetFirst(); screen != nullptr; screen = s_list.GetNext() )
+        screen->SetPageCount( sheet_count );
+
+    CurrentSheet().SetVirtualPageNumber( sheet_number );
+    CurrentSheet().LastScreen()->SetVirtualPageNumber( sheet_number );
+    CurrentSheet().LastScreen()->SetPageNumber( CurrentSheet().GetPageNumber() );
+}
+
+
+void SCHEMATIC::RecomputeIntersheetRefs( bool autoplaceUninitialized, const std::function<void( SCH_GLOBALLABEL* )>& aItemCallback )
+{
+    std::map<wxString, std::set<int>>& pageRefsMap = GetPageRefsMap();
+
+    pageRefsMap.clear();
+
+    SCH_SCREENS      screens( Root() );
+    std::vector<int> virtualPageNumbers;
+
+    /* Iterate over screens */
+    for( SCH_SCREEN* screen = screens.GetFirst(); screen != nullptr; screen = screens.GetNext() )
+    {
+        virtualPageNumbers.clear();
+
+        /* Find in which sheets this screen is used */
+        for( const SCH_SHEET_PATH& sheet : GetSheets() )
+        {
+            if( sheet.LastScreen() == screen )
+                virtualPageNumbers.push_back( sheet.GetVirtualPageNumber() );
+        }
+
+        for( SCH_ITEM* item : screen->Items() )
+        {
+            if( item->Type() == SCH_GLOBAL_LABEL_T )
+            {
+                SCH_GLOBALLABEL* globalLabel = static_cast<SCH_GLOBALLABEL*>( item );
+                std::set<int>&   virtualpageList = pageRefsMap[globalLabel->GetText()];
+
+                for( const int& pageNo : virtualPageNumbers )
+                    virtualpageList.insert( pageNo );
+            }
+        }
+    }
+
+    bool show = Settings().m_IntersheetRefsShow;
+
+    // Refresh all global labels.  Note that we have to collect them first as the
+    // SCH_SCREEN::Update() call is going to invalidate the RTree iterator.
+
+    std::vector<SCH_GLOBALLABEL*> globalLabels;
+
+    for( EDA_ITEM* item : CurrentSheet().LastScreen()->Items().OfType( SCH_GLOBAL_LABEL_T ) )
+        globalLabels.push_back( static_cast<SCH_GLOBALLABEL*>( item ) );
+
+    for( SCH_GLOBALLABEL* globalLabel : globalLabels )
+    {
+        std::vector<SCH_FIELD>& fields = globalLabel->GetFields();
+
+        fields[0].SetVisible( show );
+
+        if( show )
+        {
+            if( fields.size() == 1 && fields[0].GetTextPos() == globalLabel->GetPosition() )
+                globalLabel->AutoplaceFields( CurrentSheet().LastScreen(), false );
+
+            CurrentSheet().LastScreen()->Update( globalLabel );
+            aItemCallback( globalLabel );
+        }
+    }
 }

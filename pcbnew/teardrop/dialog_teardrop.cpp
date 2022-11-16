@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2021 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2021-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -45,12 +45,12 @@ public:
         TEARDROP_DIALOG_BASE( aParent ),
         m_brdSettings( nullptr ),
         m_frame( aParent ),
-        m_teardropMaxLenSettingRound( aParent,m_stMaxLenRound, m_tcTdMaxLenRound, nullptr ),
-        m_teardropMaxHeightSettingRound( aParent, m_stTdMaxSizeRound, m_tcMaxHeightRound, m_stLenUnitRound ),
-        m_teardropMaxLenSettingRect( aParent,m_stMaxLenRect, m_tcTdMaxLenRect, nullptr ),
-        m_teardropMaxHeightSettingRect( aParent, m_stTdMaxSizeRect, m_tcMaxHeightRect, m_stLenUnitRect ),
-        m_teardropMaxLenSettingTrack( aParent,m_stMaxLenTrack, m_tcTdMaxLenTrack, nullptr ),
-        m_teardropMaxHeightSettingTrack( aParent, m_stTdMaxSizeTrack, m_tcMaxHeightTrack, m_stLenUnitTrack )
+        m_teardropMaxLenSettingRound( aParent,m_stMaxLenRound, m_tcTdMaxLenRound, m_stMaxLenRoundUnits ),
+        m_teardropMaxHeightSettingRound( aParent, m_stTdMaxSizeRound, m_tcMaxHeightRound, m_stMaxHeightRoundUnits ),
+        m_teardropMaxLenSettingRect( aParent,m_stMaxLenRect, m_tcTdMaxLenRect, m_stMaxLenRectUnits ),
+        m_teardropMaxHeightSettingRect( aParent, m_stTdMaxSizeRect, m_tcMaxHeightRect, m_stMaxHeightRectUnits ),
+        m_teardropMaxLenSettingTrack( aParent,m_stMaxLenTrack, m_tcTdMaxLenTrack, m_stMaxLenTrackUnits ),
+        m_teardropMaxHeightSettingTrack( aParent, m_stTdMaxSizeTrack, m_tcMaxHeightTrack, m_stMaxHeightTrackUnits )
     {
         // Setup actual bitmaps that cannot be set inside wxFormBuilder:
         m_bitmapTdCircularInfo->SetBitmap( KiBitmap( BITMAPS::teardrop_sizes ) );
@@ -218,7 +218,7 @@ void PCB_EDIT_FRAME::OnRunTeardropTool( wxCommandEvent& event )
 
     m_infoBar->RemoveAllButtons();
     m_infoBar->AddCloseButton();
-    m_infoBar->ShowMessageFor( wxString::Format( _( "%d Teardrops created" ), added_count ),
+    m_infoBar->ShowMessageFor( wxString::Format( _( "%d teardrops created" ), added_count ),
                                1000, wxICON_EXCLAMATION );
 }
 
@@ -230,9 +230,12 @@ void PCB_EDIT_FRAME::OnRemoveTeardropTool( wxCommandEvent& event )
 
     int count = trdm.RemoveTeardrops( &committer, true );
 
+    GetCanvas()->RedrawRatsnest();
+    GetCanvas()->Refresh();
+
     m_infoBar->RemoveAllButtons();
     m_infoBar->AddCloseButton();
-    m_infoBar->ShowMessageFor( wxString::Format( _( "%d Teardrops removed." ), count ),
+    m_infoBar->ShowMessageFor( wxString::Format( _( "%d teardrops removed." ), count ),
                                1000, wxICON_EXCLAMATION );
 }
 

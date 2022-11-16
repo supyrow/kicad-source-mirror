@@ -22,7 +22,7 @@
 
 
 template <typename T>
-void to_optional( const json& j, const char* key, boost::optional<T>& dest )
+void to_optional( const json& j, const char* key, std::optional<T>& dest )
 {
     if( j.contains( key ) )
     {
@@ -40,25 +40,28 @@ void to_json( json& j, const PACKAGE_VERSION& v )
               { "kicad_version", v.kicad_version } };
 
     if( v.version_epoch )
-        j["version_epoch"] = v.version_epoch.get();
+        j["version_epoch"] = *v.version_epoch;
 
     if( v.download_url )
-        j["download_url"] = v.download_url.get();
+        j["download_url"] = *v.download_url;
 
     if( v.download_sha256 )
-        j["download_sha256"] = v.download_sha256.get();
+        j["download_sha256"] = *v.download_sha256;
 
     if( v.download_size )
-        j["download_size"] = v.download_size.get();
+        j["download_size"] = *v.download_size;
 
     if( v.install_size )
-        j["install_size"] = v.install_size.get();
+        j["install_size"] = *v.install_size;
 
     if( v.platforms.size() > 0 )
         nlohmann::to_json( j["platforms"], v.platforms );
 
     if( v.kicad_version_max )
-        j["kicad_version_max"] = v.kicad_version_max.get();
+        j["kicad_version_max"] = *v.kicad_version_max;
+
+    if( v.keep_on_update.size() > 0 )
+        nlohmann::to_json( j["keep_on_update"], v.keep_on_update );
 }
 
 
@@ -77,6 +80,9 @@ void from_json( const json& j, PACKAGE_VERSION& v )
 
     if( j.contains( "platforms" ) )
         j.at( "platforms" ).get_to( v.platforms );
+
+    if( j.contains( "keep_on_update" ) )
+        j.at( "keep_on_update" ).get_to( v.keep_on_update );
 }
 
 
@@ -93,10 +99,13 @@ void to_json( json& j, const PCM_PACKAGE& p )
               { "versions", p.versions } };
 
     if( p.maintainer )
-        j["maintainer"] = p.maintainer.get();
+        j["maintainer"] = *p.maintainer;
 
     if( p.tags.size() > 0 )
         j["tags"] = p.tags;
+
+    if( p.keep_on_update.size() > 0 )
+        j["keep_on_update"] = p.keep_on_update;
 }
 
 
@@ -116,6 +125,9 @@ void from_json( const json& j, PCM_PACKAGE& p )
 
     if( j.contains( "tags" ) )
         j.at( "tags" ).get_to( p.tags );
+
+    if( j.contains( "keep_on_update" ) )
+        j.at( "keep_on_update" ).get_to( p.keep_on_update );
 }
 
 
@@ -124,7 +136,7 @@ void to_json( json& j, const PCM_RESOURCE_REFERENCE& r )
     j = json{ { "url", r.url }, { "update_timestamp", r.update_timestamp } };
 
     if( r.sha256 )
-        j["sha256"] = r.sha256.get();
+        j["sha256"] = *r.sha256;
 }
 
 
@@ -133,7 +145,7 @@ void from_json( const json& j, PCM_RESOURCE_REFERENCE& r )
     j.at( "url" ).get_to( r.url );
     j.at( "update_timestamp" ).get_to( r.update_timestamp );
 
-    to_optional(j, "sha256", r.sha256 );
+    to_optional( j, "sha256", r.sha256 );
 }
 
 
@@ -142,13 +154,13 @@ void to_json( json& j, const PCM_REPOSITORY& r )
     j = json{ { "name", r.name }, { "packages", r.packages } };
 
     if( r.resources )
-        j["resources"] = r.resources.get();
+        j["resources"] = *r.resources;
 
     if( r.manifests )
-        j["manifests"] = r.manifests.get();
+        j["manifests"] = *r.manifests;
 
     if( r.maintainer )
-        j["maintainer"] = r.maintainer.get();
+        j["maintainer"] = *r.maintainer;
 }
 
 
@@ -157,7 +169,32 @@ void from_json( const json& j, PCM_REPOSITORY& r )
     j.at( "name" ).get_to( r.name );
     j.at( "packages" ).get_to( r.packages );
 
-    to_optional(j, "resources", r.resources );
-    to_optional(j, "manifests", r.manifests );
-    to_optional(j, "maintainer", r.maintainer );
+    to_optional( j, "resources", r.resources );
+    to_optional( j, "manifests", r.manifests );
+    to_optional( j, "maintainer", r.maintainer );
+}
+
+
+void to_json( json& j, const PCM_INSTALLATION_ENTRY& e )
+{
+    j = json{ { "package", e.package },
+              { "current_version", e.current_version },
+              { "repository_id", e.repository_id },
+              { "repository_name", e.repository_name },
+              { "install_timestamp", e.install_timestamp },
+              { "pinned", e.pinned } };
+}
+
+
+void from_json( const json& j, PCM_INSTALLATION_ENTRY& e )
+{
+    j.at( "package" ).get_to( e.package );
+    j.at( "current_version" ).get_to( e.current_version );
+    j.at( "repository_id" ).get_to( e.repository_id );
+    j.at( "repository_name" ).get_to( e.repository_name );
+    j.at( "install_timestamp" ).get_to( e.install_timestamp );
+
+    e.pinned = false;
+    if( j.contains( "pinned" ) )
+        j.at( "pinned" ).get_to( e.pinned );
 }

@@ -30,6 +30,7 @@
 #include <string>            // for basic_string
 
 #include <clipper.hpp>
+#include <clipper2/clipper.h>
 #include <core/kicad_algo.h> // for alg::run_on_pair
 #include <geometry/seg.h>    // for SEG, OPT_VECTOR2I
 #include <geometry/shape_line_chain.h>
@@ -51,6 +52,7 @@ SHAPE_LINE_CHAIN::SHAPE_LINE_CHAIN( const std::vector<int>& aV)
         Append( aV[i], aV[i+1] );
     }
 }
+
 
 SHAPE_LINE_CHAIN::SHAPE_LINE_CHAIN( const ClipperLib::Path&             aPath,
                                     const std::vector<CLIPPER_Z_VALUE>& aZValueBuffer,
@@ -95,6 +97,51 @@ SHAPE_LINE_CHAIN::SHAPE_LINE_CHAIN( const ClipperLib::Path&             aPath,
     fixIndicesRotation();
 }
 
+
+SHAPE_LINE_CHAIN::SHAPE_LINE_CHAIN( const Clipper2Lib::Path64&          aPath,
+                                    const std::vector<CLIPPER_Z_VALUE>& aZValueBuffer,
+                                    const std::vector<SHAPE_ARC>&       aArcBuffer ) :
+        SHAPE_LINE_CHAIN_BASE( SH_LINE_CHAIN ),
+        m_closed( true ), m_width( 0 )
+{
+    std::map<ssize_t, ssize_t> loadedArcs;
+    m_points.reserve( aPath.size() );
+    m_shapes.reserve( aPath.size() );
+
+    auto loadArc =
+        [&]( ssize_t aArcIndex ) -> ssize_t
+        {
+            if( aArcIndex == SHAPE_IS_PT )
+            {
+                return SHAPE_IS_PT;
+            }
+            else if( loadedArcs.count( aArcIndex ) == 0 )
+            {
+                loadedArcs.insert( { aArcIndex, m_arcs.size() } );
+                m_arcs.push_back( aArcBuffer.at( aArcIndex ) );
+            }
+
+            return loadedArcs.at( aArcIndex );
+        };
+
+    for( size_t ii = 0; ii < aPath.size(); ++ii )
+    {
+        Append( aPath[ii].x, aPath[ii].y );
+
+        m_shapes[ii].first = loadArc( aZValueBuffer[aPath[ii].z].m_FirstArcIdx );
+        m_shapes[ii].second = loadArc( aZValueBuffer[aPath[ii].z].m_SecondArcIdx );
+    }
+
+    // Clipper shouldn't return duplicate contiguous points. if it did, these would be
+    // removed during Append() and we would have different number of shapes to points
+    wxASSERT( m_shapes.size() == m_points.size() );
+
+    // Clipper might mess up the rotation of the indices such that an arc can be split between
+    // the end point and wrap around to the start point. Lets fix the indices up now
+    fixIndicesRotation();
+}
+
+
 ClipperLib::Path SHAPE_LINE_CHAIN::convertToClipper( bool aRequiredOrientation,
                                                      std::vector<CLIPPER_Z_VALUE>& aZValueBuffer,
                                                      std::vector<SHAPE_ARC>& aArcBuffer ) const
@@ -109,7 +156,44 @@ ClipperLib::Path SHAPE_LINE_CHAIN::convertToClipper( bool aRequiredOrientation,
     else
         input = *this;
 
-    for( int i = 0; i < input.PointCount(); i++ )
+    int pointCount = input.PointCount();
+    c_path.reserve( pointCount );
+
+    for( int i = 0; i < pointCount; i++ )
+    {
+        const VECTOR2I& vertex = input.CPoint( i );
+
+        CLIPPER_Z_VALUE z_value( input.m_shapes[i], shape_offset );
+        size_t          z_value_ptr = aZValueBuffer.size();
+        aZValueBuffer.push_back( z_value );
+
+        c_path.emplace_back( vertex.x, vertex.y, z_value_ptr );
+    }
+
+    aArcBuffer.insert( aArcBuffer.end(), input.m_arcs.begin(), input.m_arcs.end() );
+
+    return c_path;
+}
+
+
+Clipper2Lib::Path64 SHAPE_LINE_CHAIN::convertToClipper2( bool aRequiredOrientation,
+                                                     std::vector<CLIPPER_Z_VALUE>& aZValueBuffer,
+                                                     std::vector<SHAPE_ARC>& aArcBuffer ) const
+{
+    Clipper2Lib::Path64 c_path;
+    SHAPE_LINE_CHAIN input;
+    bool             orientation = Area( false ) >= 0;
+    ssize_t          shape_offset = aArcBuffer.size();
+
+    if( orientation != aRequiredOrientation )
+        input = Reverse();
+    else
+        input = *this;
+
+    int pointCount = input.PointCount();
+    c_path.reserve( pointCount );
+
+    for( int i = 0; i < pointCount; i++ )
     {
         const VECTOR2I& vertex = input.CPoint( i );
 
@@ -143,8 +227,9 @@ void SHAPE_LINE_CHAIN::fixIndicesRotation()
         std::rotate( m_points.rbegin(), m_points.rbegin() + 1, m_points.rend() );
         std::rotate( m_shapes.rbegin(), m_shapes.rbegin() + 1, m_shapes.rend() );
 
-        // Sanity check - avoid infinite loops
-        wxCHECK( rotations++ <= m_shapes.size(), /* void */ );
+        // Sanity check - avoid infinite loops  (NB: wxCHECK is not thread-safe)
+        if( rotations++ > m_shapes.size() )
+            return;
     }
 }
 
@@ -1394,9 +1479,9 @@ static inline void addIntersection( SHAPE_LINE_CHAIN::INTERSECTIONS& aIps, int a
 
 
 int SHAPE_LINE_CHAIN::Intersect( const SHAPE_LINE_CHAIN& aChain, INTERSECTIONS& aIp,
-                                 bool aExcludeColinearAndTouching ) const
+                                 bool aExcludeColinearAndTouching, BOX2I* aChainBBox ) const
 {
-    BOX2I bb_other = aChain.BBox();
+    BOX2I bb_other = aChainBBox ? *aChainBBox : aChain.BBox();
 
     for( int s1 = 0; s1 < SegmentCount(); s1++ )
     {
@@ -1634,7 +1719,7 @@ bool SHAPE_LINE_CHAIN::CheckClearance( const VECTOR2I& aP, const int aDist ) con
 }
 
 
-const OPT<SHAPE_LINE_CHAIN::INTERSECTION> SHAPE_LINE_CHAIN::SelfIntersecting() const
+const std::optional<SHAPE_LINE_CHAIN::INTERSECTION> SHAPE_LINE_CHAIN::SelfIntersecting() const
 {
     for( int s1 = 0; s1 < SegmentCount(); s1++ )
     {
@@ -1678,7 +1763,7 @@ const OPT<SHAPE_LINE_CHAIN::INTERSECTION> SHAPE_LINE_CHAIN::SelfIntersecting() c
         }
     }
 
-    return OPT<SHAPE_LINE_CHAIN::INTERSECTION>();
+    return std::optional<SHAPE_LINE_CHAIN::INTERSECTION>();
 }
 
 
@@ -1695,7 +1780,7 @@ SHAPE_LINE_CHAIN& SHAPE_LINE_CHAIN::Simplify( bool aRemoveColinear )
     else if( PointCount() == 3 )
     {
         if( m_points[0] == m_points[1] )
-            m_points.pop_back();
+            Remove( 1 );
 
         return *this;
     }
@@ -1742,15 +1827,14 @@ SHAPE_LINE_CHAIN& SHAPE_LINE_CHAIN::Simplify( bool aRemoveColinear )
     while( i < np - 2 )
     {
         const VECTOR2I p0 = pts_unique[i];
-        const VECTOR2I p1 = pts_unique[i + 1];
         int n = i;
 
         if( aRemoveColinear && shapes_unique[i] == SHAPES_ARE_PT
             && shapes_unique[i + 1] == SHAPES_ARE_PT )
         {
             while( n < np - 2
-                    && ( SEG( p0, p1 ).LineDistance( pts_unique[n + 2] ) <= 1
-                            || SEG( p0, p1 ).Collinear( SEG( p1, pts_unique[n + 2] ) ) ) )
+                    && ( SEG( p0, pts_unique[n + 2] ).LineDistance( pts_unique[n + 1] ) <= 1
+                      || SEG( p0, pts_unique[n + 2] ).Collinear( SEG( p0, pts_unique[n + 1] ) ) ) )
                 n++;
         }
 
@@ -1788,6 +1872,12 @@ SHAPE_LINE_CHAIN& SHAPE_LINE_CHAIN::Simplify( bool aRemoveColinear )
 const VECTOR2I SHAPE_LINE_CHAIN::NearestPoint( const VECTOR2I& aP,
                                                bool aAllowInternalShapePoints ) const
 {
+    if( PointCount() == 0 )
+    {
+        // The only right answer here is "don't crash".
+        return { 0, 0 };
+    }
+
     int min_d = INT_MAX;
     int nearest = 0;
 
@@ -1839,6 +1929,12 @@ const VECTOR2I SHAPE_LINE_CHAIN::NearestPoint( const VECTOR2I& aP,
 
 const VECTOR2I SHAPE_LINE_CHAIN::NearestPoint( const SEG& aSeg, int& dist ) const
 {
+    if( PointCount() == 0 )
+    {
+        // The only right answer here is "don't crash".
+        return { 0, 0 };
+    }
+
     int nearest = 0;
 
     dist = INT_MAX;
@@ -1878,7 +1974,7 @@ int SHAPE_LINE_CHAIN::NearestSegment( const VECTOR2I& aP ) const
 }
 
 
-const std::string SHAPE_LINE_CHAIN::Format() const
+const std::string SHAPE_LINE_CHAIN::Format( bool aCplusPlus ) const
 {
     std::stringstream ss;
 

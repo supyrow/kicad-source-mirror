@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2020-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -26,6 +26,7 @@
 #include <tool/tool_manager.h>
 #include <tools/pcb_actions.h>
 #include <footprint.h>
+#include <pad.h>
 #include <pcb_marker.h>
 #include <drc/drc_item.h>
 #include <footprint_edit_frame.h>
@@ -33,17 +34,29 @@
 #include <tools/footprint_editor_control.h>
 
 
+static FOOTPRINT* g_lastFootprint = nullptr;
+static bool       g_lastChecksRun = false;
+
+
 DIALOG_FOOTPRINT_CHECKER::DIALOG_FOOTPRINT_CHECKER( FOOTPRINT_EDIT_FRAME* aParent ) :
         DIALOG_FOOTPRINT_CHECKER_BASE( aParent ),
         m_frame( aParent ),
         m_checksRun( false ),
-        m_markersProvider( nullptr ),
-        m_severities( RPT_SEVERITY_ERROR | RPT_SEVERITY_WARNING )
+        m_severities( RPT_SEVERITY_ERROR | RPT_SEVERITY_WARNING ),
+        m_centerMarkerOnIdle( nullptr )
 {
+    m_markersProvider = std::make_shared<DRC_ITEMS_PROVIDER>( m_frame->GetBoard(),
+                                                              MARKER_BASE::MARKER_DRC );
+
     m_markersTreeModel = new RC_TREE_MODEL( m_frame, m_markersDataView );
     m_markersDataView->AssociateModel( m_markersTreeModel );
+    m_markersTreeModel->Update( m_markersProvider, m_severities );
 
-    m_markersTreeModel->SetSeverities( -1 );
+    if( m_frame->GetBoard()->GetFirstFootprint() == g_lastFootprint )
+    {
+        m_checksRun = g_lastChecksRun;
+        updateDisplayedCounts();
+    }
 
     SetupStandardButtons( { { wxID_OK,     _( "Run Checks" ) },
                             { wxID_CANCEL, _( "Close" )      } } );
@@ -56,6 +69,11 @@ DIALOG_FOOTPRINT_CHECKER::DIALOG_FOOTPRINT_CHECKER( FOOTPRINT_EDIT_FRAME* aParen
 
 DIALOG_FOOTPRINT_CHECKER::~DIALOG_FOOTPRINT_CHECKER()
 {
+    m_frame->FocusOnItem( nullptr );
+
+    g_lastFootprint = m_frame->GetBoard()->GetFirstFootprint();
+    g_lastChecksRun = m_checksRun;
+
     m_markersTreeModel->DecRef();
 }
 
@@ -91,8 +109,6 @@ void DIALOG_FOOTPRINT_CHECKER::runChecks()
     FOOTPRINT* footprint = board->GetFirstFootprint();
     wxString   msg;
 
-    SetMarkersProvider( new DRC_ITEMS_PROVIDER( board, MARKER_BASE::MARKER_DRC ) );
-
     deleteAllMarkers();
 
     if( !footprint )
@@ -101,62 +117,92 @@ void DIALOG_FOOTPRINT_CHECKER::runChecks()
         return;
     }
 
-    OUTLINE_ERROR_HANDLER errorHandler =
-            [&]( const wxString& aMsg, BOARD_ITEM* aItemA, BOARD_ITEM* aItemB, const VECTOR2I& aPt )
+    auto errorHandler =
+            [&]( const BOARD_ITEM* aItemA, const BOARD_ITEM* aItemB, const BOARD_ITEM* aItemC,
+                 int aErrorCode, const wxString& aMsg, const VECTOR2I& aPt )
             {
-                std::shared_ptr<DRC_ITEM> drcItem = DRC_ITEM::Create( DRCE_MALFORMED_COURTYARD );
+                std::shared_ptr<DRC_ITEM> drcItem = DRC_ITEM::Create( aErrorCode );
 
-                drcItem->SetErrorMessage( drcItem->GetErrorText() + wxS( " " ) + aMsg );
-                drcItem->SetItems( aItemA, aItemB );
+                if( !aMsg.IsEmpty() )
+                    drcItem->SetErrorMessage( drcItem->GetErrorText() + wxS( " " ) + aMsg );
+
+                drcItem->SetItems( aItemA, aItemB, aItemC );
 
                 PCB_MARKER* marker = new PCB_MARKER( drcItem, aPt );
                 board->Add( marker );
                 m_frame->GetCanvas()->GetView()->Add( marker );
             };
 
-    footprint->BuildPolyCourtyards( &errorHandler );
+    OUTLINE_ERROR_HANDLER outlineErrorHandler =
+            [&]( const wxString& aMsg, BOARD_ITEM* aItemA, BOARD_ITEM* aItemB, const VECTOR2I& aPt )
+            {
+                errorHandler( aItemA, aItemB, nullptr, DRCE_MALFORMED_COURTYARD, aMsg, aPt );
+            };
 
+    footprint->BuildCourtyardCaches( &outlineErrorHandler );
 
-    const std::function<void( const wxString& msg )> typeWarning =
+    footprint->CheckFootprintAttributes(
             [&]( const wxString& aMsg )
             {
-                std::shared_ptr<DRC_ITEM> drcItem = DRC_ITEM::Create( DRCE_FOOTPRINT_TYPE_MISMATCH );
+                errorHandler( footprint, nullptr, nullptr, DRCE_FOOTPRINT_TYPE_MISMATCH, aMsg,
+                              { 0, 0 } );
+            } );
 
-                drcItem->SetErrorMessage( drcItem->GetErrorText() + wxS( " " ) + aMsg );
-                drcItem->SetItems( footprint );
-
-                PCB_MARKER* marker = new PCB_MARKER( drcItem, wxPoint( 0, 0 ) );
-                board->Add( marker );
-                m_frame->GetCanvas()->GetView()->Add( marker );
-            };
-
-    const std::function<void( const wxString& msg, const VECTOR2I& position )> tstHoleInTHPad =
-            [&]( const wxString& aMsg, const VECTOR2I& aPosition )
+    footprint->CheckPads(
+            [&]( const PAD* aPad, int aErrorCode, const wxString& aMsg )
             {
-                std::shared_ptr<DRC_ITEM> drcItem = DRC_ITEM::Create( DRCE_PAD_TH_WITH_NO_HOLE );
+                errorHandler( aPad, nullptr, nullptr, aErrorCode, aMsg, aPad->GetPosition() );
+            } );
 
-                drcItem->SetErrorMessage( drcItem->GetErrorText() + wxS( " " ) + aMsg );
-                drcItem->SetItems( footprint );
+    footprint->CheckShortingPads(
+            [&]( const PAD* aPadA, const PAD* aPadB, const VECTOR2I& aPosition )
+            {
+                errorHandler( aPadA, aPadB, nullptr, DRCE_SHORTING_ITEMS, wxEmptyString,
+                              aPosition );
+            } );
 
-                PCB_MARKER* marker = new PCB_MARKER( drcItem, aPosition );
-                board->Add( marker );
-                m_frame->GetCanvas()->GetView()->Add( marker );
-            };
+    if( footprint->IsNetTie() )
+    {
+        footprint->CheckNetTiePadGroups(
+                [&]( const wxString& aMsg )
+                {
+                    errorHandler( footprint, nullptr, nullptr, DRCE_FOOTPRINT, aMsg, { 0, 0 } );
+                } );
 
-    footprint->CheckFootprintAttributes( &typeWarning );
-    footprint->CheckFootprintTHPadNoHoles( &tstHoleInTHPad );
+        footprint->CheckNetTies(
+                [&]( const BOARD_ITEM* aItemA, const BOARD_ITEM* aItemB, const BOARD_ITEM* aItemC,
+                     const VECTOR2I& aPosition )
+                {
+                    errorHandler( aItemA, aItemB, aItemC, DRCE_SHORTING_ITEMS, wxEmptyString,
+                                  aPosition );
+                } );
+    }
+
     m_checksRun = true;
 
-    SetMarkersProvider( new DRC_ITEMS_PROVIDER( board, MARKER_BASE::MARKER_DRC ) );
+    m_markersTreeModel->Update( m_markersProvider, m_severities );
+    updateDisplayedCounts();
 
     refreshEditor();
 }
 
 
-void DIALOG_FOOTPRINT_CHECKER::SetMarkersProvider( RC_ITEMS_PROVIDER* aProvider )
+void DIALOG_FOOTPRINT_CHECKER::SelectMarker( const PCB_MARKER* aMarker )
 {
-    m_markersTreeModel->SetProvider( aProvider );
-    updateDisplayedCounts();
+    m_markersTreeModel->SelectMarker( aMarker );
+
+    // wxWidgets on some platforms fails to correctly ensure that a selected item is
+    // visible, so we have to do it in a separate idle event.
+    m_centerMarkerOnIdle = aMarker;
+    Bind( wxEVT_IDLE, &DIALOG_FOOTPRINT_CHECKER::centerMarkerIdleHandler, this );
+}
+
+
+void DIALOG_FOOTPRINT_CHECKER::centerMarkerIdleHandler( wxIdleEvent& aEvent )
+{
+    m_markersTreeModel->CenterMarker( m_centerMarkerOnIdle );
+    m_centerMarkerOnIdle = nullptr;
+    Unbind( wxEVT_IDLE, &DIALOG_FOOTPRINT_CHECKER::centerMarkerIdleHandler, this );
 }
 
 
@@ -175,11 +221,23 @@ void DIALOG_FOOTPRINT_CHECKER::OnSelectItem( wxDataViewEvent& aEvent )
     const KIID&   itemID = node ? RC_TREE_MODEL::ToUUID( aEvent.GetItem() ) : niluuid;
     BOARD_ITEM*   item = board->GetItem( itemID );
 
+    if( m_centerMarkerOnIdle )
+    {
+        // we already came from a cross-probe of the marker in the document; don't go
+        // around in circles
+
+        aEvent.Skip();
+        return;
+    }
+
     if( node && item )
     {
-        PCB_LAYER_ID             principalLayer = item->GetLayer();
+        PCB_LAYER_ID             principalLayer = UNDEFINED_LAYER;
         LSET                     violationLayers;
         std::shared_ptr<RC_ITEM> rc_item = node->m_RcItem;
+
+        if( item->GetLayerSet().count() > 0 )
+            principalLayer = item->GetLayerSet().Seq().front();
 
         if( rc_item->GetErrorCode() == DRCE_MALFORMED_COURTYARD )
         {
@@ -283,14 +341,7 @@ void DIALOG_FOOTPRINT_CHECKER::OnSeverity( wxCommandEvent& aEvent )
 
     syncCheckboxes();
 
-    // Set the provider's severity levels through the TreeModel so that the old tree
-    // can be torn down before the severity changes.
-    //
-    // It's not clear this is required, but we've had a lot of issues with wxDataView
-    // being cranky on various platforms.
-
-    m_markersTreeModel->SetSeverities( m_severities );
-
+    m_markersTreeModel->Update( m_markersProvider, m_severities );
     updateDisplayedCounts();
 }
 
@@ -351,7 +402,8 @@ void DIALOG_FOOTPRINT_CHECKER::deleteAllMarkers()
     // Clear current selection list to avoid selection of deleted items
     m_frame->GetToolManager()->RunAction( PCB_ACTIONS::selectionClear, true );
 
-    m_markersTreeModel->DeleteItems( false, true, true );
+    m_markersTreeModel->DeleteItems( false, true, false );
+    m_frame->GetBoard()->DeleteMARKERs( true, true );
 }
 
 

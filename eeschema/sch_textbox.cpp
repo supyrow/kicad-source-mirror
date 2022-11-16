@@ -21,6 +21,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
+#include <base_units.h>
 #include <pgm_base.h>
 #include <sch_edit_frame.h>
 #include <plotters/plotter.h>
@@ -37,13 +38,14 @@
 #include <core/kicad_algo.h>
 #include <trigo.h>
 #include <sch_textbox.h>
+#include <tools/sch_navigate_tool.h>
 
 using KIGFX::SCH_RENDER_SETTINGS;
 
 
 SCH_TEXTBOX::SCH_TEXTBOX( int aLineWidth, FILL_T aFillType, const wxString& text ) :
         SCH_SHAPE( SHAPE_T::RECT, aLineWidth, aFillType, SCH_TEXTBOX_T ),
-        EDA_TEXT( text )
+        EDA_TEXT( schIUScale, text )
 {
     m_layer = LAYER_NOTES;
 
@@ -115,16 +117,34 @@ VECTOR2I SCH_TEXTBOX::GetDrawPos() const
 
     bbox.Normalize();
 
+    VECTOR2I pos( bbox.GetLeft() + margin, bbox.GetBottom() - margin );
+
     if( GetTextAngle() == ANGLE_VERTICAL )
     {
         switch( GetHorizJustify() )
         {
         case GR_TEXT_H_ALIGN_LEFT:
-            return VECTOR2I( bbox.GetLeft() + margin, bbox.GetBottom() - margin );
+            pos.y = bbox.GetBottom() - margin;
+            break;
         case GR_TEXT_H_ALIGN_CENTER:
-            return VECTOR2I( bbox.GetLeft() + margin, ( bbox.GetTop() + bbox.GetBottom() ) / 2 );
+            pos.y = ( bbox.GetTop() + bbox.GetBottom() ) / 2;
+            break;
         case GR_TEXT_H_ALIGN_RIGHT:
-            return VECTOR2I( bbox.GetLeft() + margin, bbox.GetTop() + margin );
+            pos.y = bbox.GetTop() + margin;
+            break;
+        }
+
+        switch( GetVertJustify() )
+        {
+        case GR_TEXT_V_ALIGN_TOP:
+            pos.x = bbox.GetLeft() + margin;
+            break;
+        case GR_TEXT_V_ALIGN_CENTER:
+            pos.x = ( bbox.GetLeft() + bbox.GetRight() ) / 2;
+            break;
+        case GR_TEXT_V_ALIGN_BOTTOM:
+            pos.x = bbox.GetRight() - margin;
+            break;
         }
     }
     else
@@ -132,16 +152,31 @@ VECTOR2I SCH_TEXTBOX::GetDrawPos() const
         switch( GetHorizJustify() )
         {
         case GR_TEXT_H_ALIGN_LEFT:
-            return VECTOR2I( bbox.GetLeft() + margin, bbox.GetTop() + margin );
+            pos.x = bbox.GetLeft() + margin;
+            break;
         case GR_TEXT_H_ALIGN_CENTER:
-            return VECTOR2I( ( bbox.GetLeft() + bbox.GetRight() ) / 2, bbox.GetTop() + margin );
+            pos.x = ( bbox.GetLeft() + bbox.GetRight() ) / 2;
+            break;
         case GR_TEXT_H_ALIGN_RIGHT:
-            return VECTOR2I( bbox.GetRight() - margin, bbox.GetTop() + margin );
+            pos.x = bbox.GetRight() - margin;
+            break;
+        }
+
+        switch( GetVertJustify() )
+        {
+        case GR_TEXT_V_ALIGN_TOP:
+            pos.y = bbox.GetTop() + margin;
+            break;
+        case GR_TEXT_V_ALIGN_CENTER:
+            pos.y = ( bbox.GetTop() + bbox.GetBottom() ) / 2;
+            break;
+        case GR_TEXT_V_ALIGN_BOTTOM:
+            pos.y = bbox.GetBottom() - margin;
+            break;
         }
     }
 
-    // Dummy default.  Should never reach here
-    return VECTOR2I( bbox.GetLeft() + margin, bbox.GetBottom() - margin );
+    return pos;
 }
 
 
@@ -178,7 +213,7 @@ bool SCH_TEXTBOX::operator<( const SCH_ITEM& aItem ) const
 }
 
 
-KIFONT::FONT* SCH_TEXTBOX::GetDrawFont() const
+KIFONT::FONT* SCH_TEXTBOX::getDrawFont() const
 {
     KIFONT::FONT* font = EDA_TEXT::GetFont();
 
@@ -191,25 +226,28 @@ KIFONT::FONT* SCH_TEXTBOX::GetDrawFont() const
 
 void SCH_TEXTBOX::Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset )
 {
-    wxDC*    DC = aSettings->GetPrintDC();
-    int      penWidth = GetPenWidth();
-    VECTOR2I pt1 = GetStart();
-    VECTOR2I pt2 = GetEnd();
-    COLOR4D  color;
+    wxDC*          DC = aSettings->GetPrintDC();
+    int            penWidth = GetPenWidth();
+    bool           blackAndWhiteMode = GetGRForceBlackPenState();
+    VECTOR2I       pt1 = GetStart();
+    VECTOR2I       pt2 = GetEnd();
+    COLOR4D        color = GetStroke().GetColor();
+    PLOT_DASH_TYPE lineStyle = GetStroke().GetPlotStyle();
 
-    if( GetFillMode() == FILL_T::FILLED_WITH_COLOR )
+    if( GetFillMode() == FILL_T::FILLED_WITH_COLOR && !blackAndWhiteMode )
         GRFilledRect( DC, pt1, pt2, 0, GetFillColor(), GetFillColor() );
 
     if( penWidth > 0 )
     {
         penWidth = std::max( penWidth, aSettings->GetMinPenWidth() );
 
-        if( GetStroke().GetColor() == COLOR4D::UNSPECIFIED )
+        if( blackAndWhiteMode || color == COLOR4D::UNSPECIFIED )
             color = aSettings->GetLayerColor( m_layer );
-        else
-            color = GetStroke().GetColor();
 
-        if( GetStroke().GetPlotStyle() <= PLOT_DASH_TYPE::FIRST_TYPE )
+        if( lineStyle == PLOT_DASH_TYPE::DEFAULT )
+            lineStyle = PLOT_DASH_TYPE::SOLID;
+
+        if( lineStyle == PLOT_DASH_TYPE::SOLID )
         {
             GRRect( DC, pt1, pt2, penWidth, color );
         }
@@ -219,7 +257,7 @@ void SCH_TEXTBOX::Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffs
 
             for( SHAPE* shape : shapes )
             {
-                STROKE_PARAMS::Stroke( shape, GetStroke().GetPlotStyle(), penWidth, aSettings,
+                STROKE_PARAMS::Stroke( shape, lineStyle, penWidth, aSettings,
                                        [&]( const VECTOR2I& a, const VECTOR2I& b )
                                        {
                                            GRLine( DC, a.x, a.y, b.x, b.y, penWidth, color );
@@ -231,12 +269,16 @@ void SCH_TEXTBOX::Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffs
         }
     }
 
-    color = aSettings->GetLayerColor( m_layer );
+    color = GetTextColor();
+
+    if( blackAndWhiteMode || color == COLOR4D::UNSPECIFIED )
+        color = aSettings->GetLayerColor( m_layer );
+
     EDA_TEXT::Print( aSettings, aOffset, color );
 }
 
 
-wxString SCH_TEXTBOX::GetShownText( int aDepth ) const
+wxString SCH_TEXTBOX::GetShownText( int aDepth, bool aAllowExtraText ) const
 {
     std::function<bool( wxString* )> textResolver =
             [&]( wxString* token ) -> bool
@@ -277,9 +319,13 @@ wxString SCH_TEXTBOX::GetShownText( int aDepth ) const
             text = ExpandTextVars( text, &textResolver, &schematicTextResolver, project );
     }
 
-    KIFONT::FONT* font = GetDrawFont();
-    VECTOR2D      size = GetEnd() - GetStart();
-    int           colWidth = GetTextAngle() == ANGLE_HORIZONTAL ? size.x : size.y;
+    KIFONT::FONT* font = GetFont();
+
+    if( !font )
+        font = KIFONT::FONT::GetFont( GetDefaultFont(), IsBold(), IsItalic() );
+
+    VECTOR2D size = GetEnd() - GetStart();
+    int      colWidth = GetTextAngle() == ANGLE_HORIZONTAL ? size.x : size.y;
 
     colWidth = abs( colWidth ) - GetTextMargin() * 2;
     font->LinebreakText( text, colWidth, GetTextSize(), GetTextThickness(), IsBold(), IsItalic() );
@@ -290,7 +336,7 @@ wxString SCH_TEXTBOX::GetShownText( int aDepth ) const
 
 bool SCH_TEXTBOX::HitTest( const VECTOR2I& aPosition, int aAccuracy ) const
 {
-    EDA_RECT rect = GetBoundingBox();
+    BOX2I rect = GetBoundingBox();
 
     rect.Inflate( aAccuracy );
 
@@ -298,9 +344,9 @@ bool SCH_TEXTBOX::HitTest( const VECTOR2I& aPosition, int aAccuracy ) const
 }
 
 
-bool SCH_TEXTBOX::HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy ) const
+bool SCH_TEXTBOX::HitTest( const BOX2I& aRect, bool aContained, int aAccuracy ) const
 {
-    EDA_RECT rect = aRect;
+    BOX2I rect = aRect;
 
     rect.Inflate( aAccuracy );
 
@@ -311,7 +357,17 @@ bool SCH_TEXTBOX::HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy
 }
 
 
-wxString SCH_TEXTBOX::GetSelectMenuText( EDA_UNITS aUnits ) const
+void SCH_TEXTBOX::DoHypertextAction( EDA_DRAW_FRAME* aFrame ) const
+{
+    wxCHECK_MSG( IsHypertext(), /* void */,
+                 "Calling a hypertext menu on a SCH_TEXTBOX with no hyperlink?" );
+
+    SCH_NAVIGATE_TOOL* navTool = aFrame->GetToolManager()->GetTool<SCH_NAVIGATE_TOOL>();
+    navTool->HypertextCommand( m_hyperlink );
+}
+
+
+wxString SCH_TEXTBOX::GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const
 {
     return wxString::Format( _( "Graphic Text Box" ) );
 }
@@ -332,17 +388,35 @@ void SCH_TEXTBOX::Plot( PLOTTER* aPlotter, bool aBackground ) const
     }
 
     RENDER_SETTINGS* settings = aPlotter->RenderSettings();
-    KIFONT::FONT*    font = GetDrawFont();
     int              penWidth = GetPenWidth();
-    COLOR4D          color = settings->GetLayerColor( LAYER_NOTES );
+    COLOR4D          color = GetStroke().GetColor();
+    PLOT_DASH_TYPE   lineStyle = GetStroke().GetPlotStyle();
 
     if( penWidth > 0 )
     {
         penWidth = std::max( penWidth, settings->GetMinPenWidth() );
 
+        if( !aPlotter->GetColorMode() || color == COLOR4D::UNSPECIFIED )
+            color = settings->GetLayerColor( m_layer );
+
+        if( lineStyle == PLOT_DASH_TYPE::DEFAULT )
+            lineStyle = PLOT_DASH_TYPE::SOLID;
+
         aPlotter->SetColor( color );
+        aPlotter->SetDash( penWidth, lineStyle );
         aPlotter->Rect( m_start, m_end, FILL_T::NO_FILL, penWidth );
+        aPlotter->SetDash( penWidth, PLOT_DASH_TYPE::SOLID );
     }
+
+    KIFONT::FONT* font = GetFont();
+
+    if( !font )
+        font = KIFONT::FONT::GetFont( settings->GetDefaultFont(), IsBold(), IsItalic() );
+
+    color = GetTextColor();
+
+    if( !aPlotter->GetColorMode() || color == COLOR4D::UNSPECIFIED )
+        color = settings->GetLayerColor( m_layer );
 
     penWidth = GetEffectiveTextPenWidth( settings->GetDefaultPenWidth() );
     penWidth = std::max( penWidth, settings->GetMinPenWidth() );
@@ -361,18 +435,30 @@ void SCH_TEXTBOX::Plot( PLOTTER* aPlotter, bool aBackground ) const
                         GetTextSize(), GetHorizJustify(), GetVertJustify(), penWidth, IsItalic(),
                         IsBold(), false, font );
     }
+
+    if( HasHyperlink() )
+        aPlotter->HyperlinkBox( GetBoundingBox(), GetHyperlink() );
 }
 
 
 void SCH_TEXTBOX::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList )
 {
     // Don't use GetShownText() here; we want to show the user the variable references
-    aList.emplace_back( _( "Text Box" ), UnescapeString( GetText() ) );
+    aList.emplace_back( _( "Text Box" ), KIUI::EllipsizeStatusText( aFrame, GetText() ) );
+
+    aList.emplace_back( _( "Font" ), GetFont() ? GetFont()->GetName() : _( "Default" ) );
 
     wxString textStyle[] = { _( "Normal" ), _( "Italic" ), _( "Bold" ), _( "Bold Italic" ) };
     int style = IsBold() && IsItalic() ? 3 : IsBold() ? 2 : IsItalic() ? 1 : 0;
     aList.emplace_back( _( "Style" ), textStyle[style] );
 
-    aList.emplace_back( _( "Text Size" ), MessageTextFromValue( aFrame->GetUserUnits(),
-                                                                GetTextWidth() ) );
+    aList.emplace_back( _( "Text Size" ), aFrame->MessageTextFromValue( GetTextWidth() ) );
+
+    aList.emplace_back( _( "Box Width" ),
+                        aFrame->MessageTextFromValue( std::abs( GetEnd().x - GetStart().x ) ) );
+
+    aList.emplace_back( _( "Box Height" ),
+                        aFrame->MessageTextFromValue( std::abs( GetEnd().y - GetStart().y ) ) );
+
+    m_stroke.GetMsgPanelInfo( aFrame, aList );
 }

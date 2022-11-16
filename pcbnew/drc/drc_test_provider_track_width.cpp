@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2004-2020 KiCad Developers.
+ * Copyright (C) 2004-2022 KiCad Developers.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -49,29 +49,27 @@ public:
 
     virtual const wxString GetName() const override
     {
-        return "width";
+        return wxT( "width" );
     };
 
     virtual const wxString GetDescription() const override
     {
-        return "Tests track widths";
+        return wxT( "Tests track widths" );
     }
 };
 
 
 bool DRC_TEST_PROVIDER_TRACK_WIDTH::Run()
 {
-    const int delta = 100;  // This is the number of tests between 2 calls to the progress bar
-
     if( m_drcEngine->IsErrorLimitExceeded( DRCE_TRACK_WIDTH ) )
     {
-        reportAux( "Track width violations ignored. Tests not run." );
+        reportAux( wxT( "Track width violations ignored. Tests not run." ) );
         return true;        // continue with other tests
     }
 
     if( !m_drcEngine->HasRulesForConstraintType( TRACK_WIDTH_CONSTRAINT ) )
     {
-        reportAux( "No track width constraints found. Tests not run." );
+        reportAux( wxT( "No track width constraints found. Tests not run." ) );
         return true;        // continue with other tests
     }
 
@@ -126,23 +124,24 @@ bool DRC_TEST_PROVIDER_TRACK_WIDTH::Run()
                 if( fail_min || fail_max )
                 {
                     std::shared_ptr<DRC_ITEM> drcItem = DRC_ITEM::Create( DRCE_TRACK_WIDTH );
+                    wxString msg;
 
                     if( fail_min )
                     {
-                        m_msg.Printf( _( "(%s min width %s; actual %s)" ),
-                                      constraint.GetName(),
-                                      MessageTextFromValue( userUnits(), constraintWidth ),
-                                      MessageTextFromValue( userUnits(), actual ) );
+                        msg = formatMsg( _( "(%s min width %s; actual %s)" ),
+                                         constraint.GetName(),
+                                         constraintWidth,
+                                         actual );
                     }
                     else
                     {
-                        m_msg.Printf( _( "(%s max width %s; actual %s)" ),
-                                      constraint.GetName(),
-                                      MessageTextFromValue( userUnits(), constraintWidth ),
-                                      MessageTextFromValue( userUnits(), actual ) );
+                        msg = formatMsg( _( "(%s max width %s; actual %s)" ),
+                                         constraint.GetName(),
+                                         constraintWidth,
+                                         actual );
                     }
 
-                    drcItem->SetErrorMessage( drcItem->GetErrorText() + wxS( " " ) + m_msg );
+                    drcItem->SetErrorMessage( drcItem->GetErrorText() + wxS( " " ) + msg );
                     drcItem->SetItems( item );
                     drcItem->SetViolatingRule( constraint.GetParentRule() );
 
@@ -152,11 +151,12 @@ bool DRC_TEST_PROVIDER_TRACK_WIDTH::Run()
                 return true;
             };
 
-    int ii = 0;
+    const int progressDelta = 250;
+    int       ii = 0;
 
     for( PCB_TRACK* item : m_drcEngine->GetBoard()->Tracks() )
     {
-        if( !reportProgress( ii++, m_drcEngine->GetBoard()->Tracks().size(), delta ) )
+        if( !reportProgress( ii++, m_drcEngine->GetBoard()->Tracks().size(), progressDelta ) )
             break;
 
         if( !checkTrackWidth( item ) )
@@ -165,7 +165,7 @@ bool DRC_TEST_PROVIDER_TRACK_WIDTH::Run()
 
     reportRuleStatistics();
 
-    return true;
+    return !m_drcEngine->IsCancelled();
 }
 
 

@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2016-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2016-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -53,15 +53,15 @@ public:
     void SetTargetChordLength( double chord_len );
 
     /// Switch to the user coordinate system
-    void SetUserCoords( bool user_coords ) { useUserCoords = user_coords; }
+    void SetUserCoords( bool user_coords ) { m_useUserCoords = user_coords; }
 
     /// Set whether the user coordinate system is fit to content
-    void SetUserCoordsFit( bool user_coords_fit ) { fitUserCoords = user_coords_fit; }
+    void SetUserCoordsFit( bool user_coords_fit ) { m_fitUserCoords = user_coords_fit; }
 
     /**
      * At the start of the HPGL plot pen speed and number are requested.
      */
-    virtual bool StartPlot() override;
+    virtual bool StartPlot( const wxString& aPageNumber ) override;
 
     /**
      * HPGL end of plot: sort and emit graphics, pen return and release.
@@ -72,24 +72,24 @@ public:
     virtual void SetCurrentLineWidth( int width, void* aData = nullptr ) override
     {
         // This is the truth
-        m_currentPenWidth = userToDeviceSize( penDiameter );
+        m_currentPenWidth = userToDeviceSize( m_penDiameter );
     }
 
     /**
      * HPGL supports dashed lines.
      */
-    virtual void SetDash( PLOT_DASH_TYPE dashed ) override;
+    virtual void SetDash( int aLineWidth, PLOT_DASH_TYPE aLineStyle ) override;
 
     virtual void SetColor( const COLOR4D& color ) override {}
 
     virtual void SetPenSpeed( int speed )
     {
-        penSpeed = speed;
+        m_penSpeed = speed;
     }
 
     virtual void SetPenNumber( int number )
     {
-        penNumber = number;
+        m_penNumber = number;
     }
 
     virtual void SetPenDiameter( double diameter );
@@ -106,22 +106,11 @@ public:
     virtual void ThickSegment( const VECTOR2I& start, const VECTOR2I& end, int width,
                                OUTLINE_MODE tracemode, void* aData ) override;
 
-    /**
-     * Plot an arc.
-     *
-     * Command
-     * PU PY x, y; PD start_arc_X AA, start_arc_Y, angle, NbSegm; PU;
-     * Or PU PY x, y; PD start_arc_X AA, start_arc_Y, angle, PU;
-     *
-     * center is the center of the arc.
-     * StAngled is the start angle of the arc.
-     * aEndAngle is end angle the arc.
-     * Radius is the radius of the arc.
-     */
-    virtual void Arc( const VECTOR2I& aCenter, const EDA_ANGLE& aStartAngle,
-                      const EDA_ANGLE& aEndAngle, int aRadius, FILL_T aFill,
-                      int aWidth = USE_DEFAULT_LINE_WIDTH ) override;
+    virtual void Arc( const VECTOR2I& aCenter, const VECTOR2I& aStart, const VECTOR2I& aEnd,
+                      FILL_T aFill, int aWidth, int aMaxError ) override;
+
     virtual void PenTo( const VECTOR2I& pos, char plume ) override;
+
     virtual void FlashPadCircle( const VECTOR2I& aPadPos, int aDiameter,
                                  OUTLINE_MODE aTraceMode, void* aData ) override;
     virtual void FlashPadOval( const VECTOR2I& aPadPos, const VECTOR2I& aSize,
@@ -145,6 +134,22 @@ public:
 
 protected:
     /**
+     * Plot an arc.
+     *
+     * Command
+     * PU PY x, y; PD start_arc_X AA, start_arc_Y, angle, NbSegm; PU;
+     * Or PU PY x, y; PD start_arc_X AA, start_arc_Y, angle, PU;
+     *
+     * center is the center of the arc.
+     * StAngled is the start angle of the arc.
+     * aEndAngle is end angle the arc.
+     * Radius is the radius of the arc.
+     */
+    virtual void Arc( const VECTOR2I& aCenter, const EDA_ANGLE& aStartAngle,
+                      const EDA_ANGLE& aEndAngle, int aRadius, FILL_T aFill,
+                      int aWidth = USE_DEFAULT_LINE_WIDTH ) override;
+
+    /**
      * Start a new HPGL_ITEM if necessary, keeping the current one if it exists.
      *
      * @param location is the location of the item.
@@ -164,15 +169,6 @@ protected:
      * @return whether a new item was made.
      */
     bool startOrAppendItem( const VECTOR2D& location, const wxString& content );
-
-    int            penSpeed;
-    int            penNumber;
-    double         penDiameter;
-    double         arcTargetChordLength;
-    EDA_ANGLE      arcMinChordDegrees;
-    PLOT_DASH_TYPE dashType;
-    bool           useUserCoords;
-    bool           fitUserCoords;
 
     struct HPGL_ITEM
     {
@@ -216,7 +212,17 @@ protected:
     static void sortItems( std::list<HPGL_ITEM>& items );
 
     /// Return the plot command corresponding to a line type
-    static const char* lineTypeCommand( PLOT_DASH_TYPE linetype );
+    static const char* lineStyleCommand( PLOT_DASH_TYPE aLineStyle );
+
+protected:
+    int                  m_penSpeed;
+    int                  m_penNumber;
+    double               m_penDiameter;
+    double               m_arcTargetChordLength;
+    EDA_ANGLE            m_arcMinChordDegrees;
+    PLOT_DASH_TYPE       m_lineStyle;
+    bool                 m_useUserCoords;
+    bool                 m_fitUserCoords;
 
     std::list<HPGL_ITEM> m_items;
     HPGL_ITEM*           m_current_item;

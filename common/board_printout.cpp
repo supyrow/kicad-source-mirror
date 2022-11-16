@@ -116,6 +116,10 @@ void BOARD_PRINTOUT::DrawPage( const wxString& aLayerName, int aPageNum, int aPa
     {
         for( int i = 0; i < LAYER_ID_COUNT; ++i )
             dstSettings->SetLayerColor( i, COLOR4D::BLACK );
+
+        // In B&W mode, draw the background only in wxhite, because any other color
+        // will be replaced by a black background
+        dstSettings->SetBackgroundColor( COLOR4D::WHITE );
     }
     else // color enabled
     {
@@ -132,6 +136,9 @@ void BOARD_PRINTOUT::DrawPage( const wxString& aLayerName, int aPageNum, int aPa
 
     setupPainter( *painter );
     setupViewLayers( *view, m_settings.m_LayerSet );
+    dstSettings->SetPrintLayers( m_settings.m_LayerSet );
+
+    dstSettings->SetLayerName( aLayerName );
 
     VECTOR2I sheetSizeMils = m_settings.m_pageInfo.GetSizeMils();
     VECTOR2I sheetSizeIU( milsToIU( sheetSizeMils.x ),
@@ -146,8 +153,7 @@ void BOARD_PRINTOUT::DrawPage( const wxString& aLayerName, int aPageNum, int aPa
     }
     else
     {
-        EDA_RECT targetBbox = getBoundingBox();
-        bBox = BOX2I( targetBbox.GetOrigin(), targetBbox.GetSize() );
+        bBox = getBoundingBox();
         view->SetLayerVisible( LAYER_DRAWINGSHEET, false );
     }
 

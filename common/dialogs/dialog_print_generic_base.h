@@ -57,6 +57,7 @@ class DIALOG_PRINT_GENERIC_BASE : public DIALOG_SHIM
 		wxRadioButton* m_scaleFit;
 		wxRadioButton* m_scaleCustom;
 		wxTextCtrl* m_scaleCustomText;
+		wxStaticText* m_infoText;
 		wxStaticLine* m_staticline1;
 		wxButton* m_buttonOption;
 		wxStdDialogButtonSizer* m_sdbSizer1;
@@ -64,7 +65,7 @@ class DIALOG_PRINT_GENERIC_BASE : public DIALOG_SHIM
 		wxButton* m_sdbSizer1Apply;
 		wxButton* m_sdbSizer1Cancel;
 
-		// Virtual event handlers, overide them in your derived class
+		// Virtual event handlers, override them in your derived class
 		virtual void onClose( wxCloseEvent& event ) { event.Skip(); }
 		virtual void onSetCustomScale( wxCommandEvent& event ) { event.Skip(); }
 		virtual void onPageSetup( wxCommandEvent& event ) { event.Skip(); }

@@ -45,7 +45,7 @@ LIB_TABLE_ROW* new_clone( const LIB_TABLE_ROW& aRow )
 }
 
 
-void LIB_TABLE_ROW::setProperties( PROPERTIES* aProperties )
+void LIB_TABLE_ROW::setProperties( STRING_UTF8_MAP* aProperties )
 {
     properties.reset( aProperties );
 }
@@ -89,6 +89,9 @@ void LIB_TABLE_ROW::Format( OUTPUTFORMATTER* out, int nestLevel ) const
     if( !GetIsEnabled() )
         extraOptions += "(disabled)";
 
+    if( !GetIsVisible() )
+        extraOptions += "(hidden)";
+
     out->Print( nestLevel, "(lib (name %s)(type %s)(uri %s)(options %s)(descr %s)%s)\n",
                 out->Quotew( GetNickName() ).c_str(),
                 out->Quotew( GetType() ).c_str(),
@@ -105,7 +108,8 @@ bool LIB_TABLE_ROW::operator==( const LIB_TABLE_ROW& r ) const
         && uri_user == r.uri_user
         && options == r.options
         && description == r.description
-        && enabled == r.enabled;
+        && enabled == r.enabled
+        && visible == r.visible;
 }
 
 
@@ -164,6 +168,18 @@ bool LIB_TABLE::HasLibrary( const wxString& aNickname, bool aCheckEnabled ) cons
 }
 
 
+bool LIB_TABLE::HasLibraryWithPath( const wxString& aPath ) const
+{
+    for( const LIB_TABLE_ROW& row : rows )
+    {
+        if( row.GetFullURI() == aPath )
+            return true;
+    }
+
+    return false;
+}
+
+
 wxString LIB_TABLE::GetFullURI( const wxString& aNickname, bool aExpandEnvVars ) const
 {
     const LIB_TABLE_ROW* row = findRow( aNickname, true );
@@ -184,7 +200,6 @@ LIB_TABLE_ROW* LIB_TABLE::findRow( const wxString& aNickName, bool aCheckIfEnabl
 
     do
     {
-        std::lock_guard<std::recursive_mutex> lock( cur->m_nickIndexMutex );
         cur->ensureIndex();
 
         for( const std::pair<const wxString, int>& entry : cur->nickIndex )
@@ -295,11 +310,13 @@ std::vector<wxString> LIB_TABLE::GetLogicalLibs()
 
 bool LIB_TABLE::InsertRow( LIB_TABLE_ROW* aRow, bool doReplace )
 {
-    std::lock_guard<std::recursive_mutex> lock( m_nickIndexMutex );
-
     ensureIndex();
 
+    std::lock_guard<std::mutex> lock( m_nickIndexMutex );
+
     INDEX_CITER it = nickIndex.find( aRow->GetNickName() );
+
+    aRow->SetParent( this );
 
     if( it == nickIndex.end() )
     {
@@ -338,14 +355,14 @@ void LIB_TABLE::Save( const wxString& aFileName ) const
 }
 
 
-PROPERTIES* LIB_TABLE::ParseOptions( const std::string& aOptionsList )
+STRING_UTF8_MAP* LIB_TABLE::ParseOptions( const std::string& aOptionsList )
 {
     if( aOptionsList.size() )
     {
         const char* cp  = &aOptionsList[0];
         const char* end = cp + aOptionsList.size();
 
-        PROPERTIES  props;
+        STRING_UTF8_MAP props;
         std::string pair;
 
         // Parse all name=value pairs
@@ -396,20 +413,20 @@ PROPERTIES* LIB_TABLE::ParseOptions( const std::string& aOptionsList )
         }
 
         if( props.size() )
-            return new PROPERTIES( props );
+            return new STRING_UTF8_MAP( props );
     }
 
     return nullptr;
 }
 
 
-UTF8 LIB_TABLE::FormatOptions( const PROPERTIES* aProperties )
+UTF8 LIB_TABLE::FormatOptions( const STRING_UTF8_MAP* aProperties )
 {
     UTF8 ret;
 
     if( aProperties )
     {
-        for( PROPERTIES::const_iterator it = aProperties->begin(); it != aProperties->end(); ++it )
+        for( STRING_UTF8_MAP::const_iterator it = aProperties->begin(); it != aProperties->end(); ++it )
         {
             const std::string& name = it->first;
 

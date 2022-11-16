@@ -46,7 +46,9 @@ bool SELECTION_CONDITIONS::Empty( const SELECTION& aSelection )
 
 bool SELECTION_CONDITIONS::Idle( const SELECTION& aSelection )
 {
-    return ( !aSelection.Front() || aSelection.Front()->GetEditFlags() == 0 );
+    constexpr int busyMask = ( IS_NEW | IS_PASTED | IS_MOVING | IS_RESIZING | IS_DRAGGING );
+
+    return !aSelection.Front() || ( aSelection.Front()->GetEditFlags() & busyMask ) == 0;
 }
 
 
@@ -62,19 +64,13 @@ SELECTION_CONDITION SELECTION_CONDITIONS::HasType( KICAD_T aType )
 }
 
 
-SELECTION_CONDITION SELECTION_CONDITIONS::HasTypes( const KICAD_T aTypes[] )
+SELECTION_CONDITION SELECTION_CONDITIONS::HasTypes( std::vector<KICAD_T> aTypes )
 {
     return std::bind( &SELECTION_CONDITIONS::hasTypesFunc, _1, aTypes );
 }
 
 
-SELECTION_CONDITION SELECTION_CONDITIONS::OnlyType( KICAD_T aType )
-{
-    return std::bind( &SELECTION_CONDITIONS::onlyTypeFunc, _1, aType );
-}
-
-
-SELECTION_CONDITION SELECTION_CONDITIONS::OnlyTypes( const KICAD_T aTypes[] )
+SELECTION_CONDITION SELECTION_CONDITIONS::OnlyTypes( std::vector<KICAD_T> aTypes )
 {
     return std::bind( &SELECTION_CONDITIONS::onlyTypesFunc, _1, aTypes );
 }
@@ -113,7 +109,7 @@ bool SELECTION_CONDITIONS::hasTypeFunc( const SELECTION& aSelection, KICAD_T aTy
 }
 
 
-bool SELECTION_CONDITIONS::hasTypesFunc( const SELECTION& aSelection, const KICAD_T aTypes[] )
+bool SELECTION_CONDITIONS::hasTypesFunc( const SELECTION& aSelection, std::vector<KICAD_T> aTypes )
 {
     if( aSelection.Empty() )
         return false;
@@ -128,24 +124,7 @@ bool SELECTION_CONDITIONS::hasTypesFunc( const SELECTION& aSelection, const KICA
 }
 
 
-bool SELECTION_CONDITIONS::onlyTypeFunc( const SELECTION& aSelection, KICAD_T aType )
-{
-    if( aSelection.Empty() )
-        return false;
-
-    KICAD_T types[] = { aType, EOT };
-
-    for( const EDA_ITEM* item : aSelection )
-    {
-        if( !item->IsType( types ) )
-            return false;
-    }
-
-    return true;
-}
-
-
-bool SELECTION_CONDITIONS::onlyTypesFunc( const SELECTION& aSelection, const KICAD_T aTypes[] )
+bool SELECTION_CONDITIONS::onlyTypesFunc( const SELECTION& aSelection, std::vector<KICAD_T> aTypes )
 {
     if( aSelection.Empty() )
         return false;

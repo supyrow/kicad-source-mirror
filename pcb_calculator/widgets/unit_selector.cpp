@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2011-2014 Jean-Pierre Charras
- * Copyright (C) 2004-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2004-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -18,7 +18,7 @@
  * with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
- /**
+/**
   * @file UnitSelector.cpp
   * a wxChoiceBox to select units in Pcb_Calculator
   */
@@ -171,3 +171,163 @@ double UNIT_SELECTOR_RESISTOR::GetUnitScale()
     return 1.0;
 }
 
+
+UNIT_SELECTOR_LINEAR_RESISTANCE::UNIT_SELECTOR_LINEAR_RESISTANCE( wxWindow *parent, wxWindowID id,
+                  const wxPoint& pos, const wxSize& size,
+                  const wxArrayString& choices, long style )
+                : UNIT_SELECTOR( parent, id, pos, size, choices, style )
+{
+    Append( wxT( "Ω/m" ) );
+    Append( wxT( "Ω/km" ) );
+    Append( wxT( "Ω/ft" ) );
+    Append( wxT( "Ω/1000ft" ) );
+}
+
+
+/*
+ * Function GetUnitScale
+ * return the scaling factor to convert users units
+ * to normalized units ( ohm )
+ */
+double UNIT_SELECTOR_LINEAR_RESISTANCE::GetUnitScale()
+{
+    switch( GetCurrentSelection() )
+    {
+    case 0: return UNIT_OHM_PER_METER; break;
+    case 1: return UNIT_OHM_PER_KILOMETER; break;
+    case 2: return UNIT_OHM_PER_FEET; break;
+    case 3: return UNIT_OHM_PER_1000FEET; break;
+    }
+    return 1.0;
+}
+
+
+UNIT_SELECTOR_LEN_CABLE::UNIT_SELECTOR_LEN_CABLE( wxWindow *parent, wxWindowID id,
+                                      const wxPoint& pos, const wxSize& size,
+                                      const wxArrayString& choices, long style ) :
+        UNIT_SELECTOR( parent, id, pos, size, choices, style )
+{
+    Append( _( "cm" ) );
+    Append( _( "m" ) );
+    Append( _( "km" ) );
+    Append( _( "inch" ) );
+    Append( _( "feet" ) );
+}
+
+/*
+ * Function GetUnitScale
+ * return the scaling factor to convert users units
+ * to normalized units ( m )
+ */
+double UNIT_SELECTOR_LEN_CABLE::GetUnitScale()
+{
+    switch( GetCurrentSelection() )
+    {
+    case 0: return UNIT_CM;     break;
+    case 1: return UNIT_M;      break;
+    case 2: return UNIT_KM;     break;
+    case 3: return UNIT_INCH;    break;
+    case 4: return UNIT_FEET;   break;
+    }
+    return 1.0;
+}
+
+/*
+ * Function GetUnitScale
+ * return the scaling factor to convert users units
+ * to normalized units ( V )
+ */
+double UNIT_SELECTOR_VOLTAGE::GetUnitScale()
+{
+    switch( GetCurrentSelection() )
+    {
+    case 0: return UNIT_MILLIVOLT; break;
+    case 1: return UNIT_VOLT; break;
+    }
+    return 1.0;
+}
+
+UNIT_SELECTOR_VOLTAGE::UNIT_SELECTOR_VOLTAGE( wxWindow* parent, wxWindowID id, const wxPoint& pos,
+                                              const wxSize& size, const wxArrayString& choices,
+                                              long style ) :
+        UNIT_SELECTOR( parent, id, pos, size, choices, style )
+{
+    Append( _( "mV" ) );
+    Append( _( "V" ) );
+}
+
+/*
+ * Function GetUnitScale
+ * return the scaling factor to convert users units
+ * to normalized units ( W )
+ */
+double UNIT_SELECTOR_POWER::GetUnitScale()
+{
+    switch( GetCurrentSelection() )
+    {
+    case 0: return UNIT_MILLIWATT; break;
+    case 1: return UNIT_WATT; break;
+    }
+    return 1.0;
+}
+
+UNIT_SELECTOR_POWER::UNIT_SELECTOR_POWER( wxWindow* parent, wxWindowID id, const wxPoint& pos,
+                                          const wxSize& size, const wxArrayString& choices,
+                                          long style ) :
+        UNIT_SELECTOR( parent, id, pos, size, choices, style )
+{
+    Append( _( "mW" ) );
+    Append( _( "W" ) );
+}
+
+UNIT_SELECTOR_SPEED::UNIT_SELECTOR_SPEED( wxWindow* parent, wxWindowID id, const wxPoint& pos,
+                                          const wxSize& size, const wxArrayString& choices,
+                                          long style ) :
+        UNIT_SELECTOR( parent, id, pos, size, choices, style )
+{
+    Append( _( "m/s" ) );
+    Append( _( "ft/s" ) );
+    Append( _( "km/h" ) );
+    Append( _( "mi/h" ) );
+}
+
+/*
+ * Function GetUnitScale
+ * return the scaling factor to convert users units
+ * to normalized units (meter per second)
+ */
+double UNIT_SELECTOR_SPEED::GetUnitScale()
+{
+    switch( GetCurrentSelection() )
+    {
+    case 0: return UNIT_METER_PER_SECOND; break;
+    case 1: return UNIT_FEET_PER_SECOND; break;
+    case 2: return UNIT_KILOMETER_PER_HOUR; break;
+    case 3: return UNIT_MILES_PER_HOUR; break;
+    }
+    return 1.0;
+}
+
+UNIT_SELECTOR_TIME::UNIT_SELECTOR_TIME( wxWindow* parent, wxWindowID id, const wxPoint& pos,
+                                        const wxSize& size, const wxArrayString& choices,
+                                        long style ) :
+        UNIT_SELECTOR( parent, id, pos, size, choices, style )
+{
+    Append( _( "ns" ) );
+    Append( _( "ps" ) );
+}
+
+/*
+ * Function GetUnitScale
+ * return the scaling factor to convert users units
+ * to normalized units (second)
+ */
+double UNIT_SELECTOR_TIME::GetUnitScale()
+{
+    switch( GetCurrentSelection() )
+    {
+    case 0: return UNIT_NSECOND; break;
+    case 1: return UNIT_PSECOND; break;
+    }
+    return 1.0;
+}

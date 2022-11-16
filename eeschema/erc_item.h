@@ -72,6 +72,7 @@ private:
     static ERC_ITEM heading_misc;
 
     static ERC_ITEM duplicateSheetName;
+    static ERC_ITEM endpointOffGrid;
     static ERC_ITEM pinNotConnected;
     static ERC_ITEM pinNotDriven;
     static ERC_ITEM powerpinNotDriven;
@@ -87,11 +88,13 @@ private:
     static ERC_ITEM differentUnitNet;
     static ERC_ITEM busDefinitionConflict;
     static ERC_ITEM multipleNetNames;
+    static ERC_ITEM netclassConflict;
     static ERC_ITEM netNotBusMember;
     static ERC_ITEM busLabelSyntax;
     static ERC_ITEM busToBusConflict;
     static ERC_ITEM busToNetConflict;
     static ERC_ITEM unresolvedVariable;
+    static ERC_ITEM simulationModelIssues;
     static ERC_ITEM wireDangling;
     static ERC_ITEM libSymbolIssues;
     static ERC_ITEM unannotated;

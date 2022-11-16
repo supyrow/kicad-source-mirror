@@ -33,11 +33,13 @@
 #include <kiway.h>
 #include <symbol_viewer_frame.h>
 #include <widgets/msgpanel.h>
+#include <widgets/wx_listbox.h>
 #include <sch_view.h>
 #include <sch_painter.h>
 #include <symbol_lib_table.h>
 #include <symbol_tree_model_adapter.h>
 #include <pgm_base.h>
+#include <project/project_file.h>
 #include <settings/settings_manager.h>
 #include <tool/action_toolbar.h>
 #include <tool/common_control.h>
@@ -51,10 +53,11 @@
 #include <tools/symbol_editor_control.h>
 #include <tools/ee_inspection_tool.h>
 #include <view/view_controls.h>
-#include <wx/listbox.h>
+#include <wx/srchctrl.h>
 
 #include <default_values.h>
 #include <string_utils.h>
+#include "eda_pattern_match.h"
 
 // Save previous symbol library viewer state.
 wxString SYMBOL_VIEWER_FRAME::m_libraryName;
@@ -76,9 +79,11 @@ BEGIN_EVENT_TABLE( SYMBOL_VIEWER_FRAME, EDA_DRAW_FRAME )
     EVT_CHOICE( ID_LIBVIEW_SELECT_UNIT_NUMBER, SYMBOL_VIEWER_FRAME::onSelectSymbolUnit )
 
     // listbox events
+    EVT_TEXT( ID_LIBVIEW_LIB_FILTER, SYMBOL_VIEWER_FRAME::OnLibFilter )
     EVT_LISTBOX( ID_LIBVIEW_LIB_LIST, SYMBOL_VIEWER_FRAME::ClickOnLibList )
-    EVT_LISTBOX( ID_LIBVIEW_SYM_LIST, SYMBOL_VIEWER_FRAME::ClickOnCmpList )
-    EVT_LISTBOX_DCLICK( ID_LIBVIEW_SYM_LIST, SYMBOL_VIEWER_FRAME::DClickOnCmpList )
+    EVT_TEXT( ID_LIBVIEW_SYM_FILTER, SYMBOL_VIEWER_FRAME::OnSymFilter )
+    EVT_LISTBOX( ID_LIBVIEW_SYM_LIST, SYMBOL_VIEWER_FRAME::ClickOnSymbolList )
+    EVT_LISTBOX_DCLICK( ID_LIBVIEW_SYM_LIST, SYMBOL_VIEWER_FRAME::DClickOnSymbolList )
 
     // Menu (and/or hotkey) events
     EVT_MENU( wxID_CLOSE, SYMBOL_VIEWER_FRAME::CloseLibraryViewer )
@@ -141,7 +146,7 @@ SYMBOL_VIEWER_FRAME::SYMBOL_VIEWER_FRAME( KIWAY* aKiway, wxWindow* aParent, FRAM
     GetRenderSettings()->LoadColors( GetColorSettings() );
     GetCanvas()->GetGAL()->SetAxesColor( m_colorSettings->GetColor( LAYER_SCHEMATIC_GRID_AXES ) );
 
-    GetRenderSettings()->SetDefaultPenWidth( DEFAULT_LINE_WIDTH_MILS * IU_PER_MILS );
+    GetRenderSettings()->SetDefaultPenWidth( DEFAULT_LINE_WIDTH_MILS * schIUScale.IU_PER_MILS );
 
     setupTools();
     setupUIConditions();
@@ -150,11 +155,46 @@ SYMBOL_VIEWER_FRAME::SYMBOL_VIEWER_FRAME( KIWAY* aKiway, wxWindow* aParent, FRAM
     ReCreateVToolbar();
     ReCreateMenuBar();
 
-    m_libList = new wxListBox( this, ID_LIBVIEW_LIB_LIST, wxDefaultPosition, wxDefaultSize,
-                               0, nullptr, wxLB_HSCROLL | wxNO_BORDER );
+    wxPanel* libPanel = new wxPanel( this );
+    wxSizer* libSizer = new wxBoxSizer( wxVERTICAL );
 
-    m_symbolList = new wxListBox( this, ID_LIBVIEW_SYM_LIST, wxDefaultPosition, wxDefaultSize,
-                                  0, nullptr, wxLB_HSCROLL | wxNO_BORDER );
+    m_libFilter = new wxSearchCtrl( libPanel, ID_LIBVIEW_LIB_FILTER, wxEmptyString,
+                                    wxDefaultPosition, wxDefaultSize, wxTE_PROCESS_ENTER );
+    m_libFilter->SetDescriptiveText( _( "Filter" ) );
+    libSizer->Add( m_libFilter, 0, wxEXPAND, 5 );
+
+    m_libList = new WX_LISTBOX( libPanel, ID_LIBVIEW_LIB_LIST, wxDefaultPosition, wxDefaultSize,
+                                0, nullptr, wxLB_HSCROLL | wxNO_BORDER );
+    libSizer->Add( m_libList, 1, wxEXPAND, 5 );
+
+    libPanel->SetSizer( libSizer );
+    libPanel->Fit();
+
+    wxPanel* symbolPanel = new wxPanel( this );
+    wxSizer* symbolSizer = new wxBoxSizer( wxVERTICAL );
+
+    m_symbolFilter = new wxSearchCtrl( symbolPanel, ID_LIBVIEW_SYM_FILTER, wxEmptyString,
+                                       wxDefaultPosition, wxDefaultSize, wxTE_PROCESS_ENTER );
+    m_symbolFilter->SetDescriptiveText( _( "Filter" ) );
+    m_symbolFilter->SetToolTip(
+            _( "Filter on symbol name, keywords, description and pin count.\n"
+               "Search terms are separated by spaces.  All search terms must match.\n"
+               "A term which is a number will also match against the pin count." ) );
+    symbolSizer->Add( m_symbolFilter, 0, wxEXPAND, 5 );
+
+#ifdef __WXGTK__
+    // wxSearchCtrl vertical height is not calculated correctly on some GTK setups
+    // See https://gitlab.com/kicad/code/kicad/-/issues/9019
+    m_libFilter->SetMinSize( wxSize( -1, GetTextExtent( wxT( "qb" ) ).y + 10 ) );
+    m_symbolFilter->SetMinSize( wxSize( -1, GetTextExtent( wxT( "qb" ) ).y + 10 ) );
+#endif
+
+    m_symbolList = new WX_LISTBOX( symbolPanel, ID_LIBVIEW_SYM_LIST, wxDefaultPosition, wxDefaultSize,
+                                   0, nullptr, wxLB_HSCROLL | wxNO_BORDER );
+    symbolSizer->Add( m_symbolList, 1, wxEXPAND, 5 );
+
+    symbolPanel->SetSizer( symbolSizer );
+    symbolPanel->Fit();
 
     if( aLibraryName.empty() )
     {
@@ -174,22 +214,62 @@ SYMBOL_VIEWER_FRAME::SYMBOL_VIEWER_FRAME( KIWAY* aKiway, wxWindow* aParent, FRAM
 
     m_auimgr.SetManagedWindow( this );
 
-    // Manage main toolbar
-    m_auimgr.AddPane( m_mainToolBar, EDA_PANE().HToolbar().Name( "MainToolbar" ).Top().Layer( 6 ) );
-    m_auimgr.AddPane( m_messagePanel, EDA_PANE().Messages().Name( "MsgPanel" )
-                      .Bottom().Layer( 6 ) );
+    CreateInfoBar();
 
-    m_auimgr.AddPane( m_libList, EDA_PANE().Palette().Name( "Libraries" ).Left().Layer(3)
-                      .CaptionVisible( false ).MinSize( 80, -1 ).BestSize( m_libListWidth, -1 ) );
-    m_auimgr.AddPane( m_symbolList, EDA_PANE().Palette().Name( "Symbols" ).Left().Layer(1)
-                      .CaptionVisible( false ).MinSize( 80, -1 )
-                      .BestSize( m_symbolListWidth, -1 ) );
+    // Manage main toolbar
+    m_auimgr.AddPane( m_mainToolBar, EDA_PANE().HToolbar().Name( "MainToolbar" ).Top().Layer(6) );
+    m_auimgr.AddPane( m_messagePanel, EDA_PANE().Messages().Name( "MsgPanel" ) .Bottom().Layer(6) );
+
+    m_auimgr.AddPane( libPanel, EDA_PANE().Palette().Name( "Libraries" ).Left().Layer(2)
+                      .CaptionVisible( false ).MinSize( 100, -1 ).BestSize( 200, -1 ) );
+    m_auimgr.AddPane( symbolPanel, EDA_PANE().Palette().Name( "Symbols" ).Left().Layer(1)
+                      .CaptionVisible( false ).MinSize( 100, -1 ).BestSize( 300, -1 ) );
 
     m_auimgr.AddPane( GetCanvas(), EDA_PANE().Canvas().Name( "DrawFrame" ).Center() );
 
-    m_auimgr.GetPane( m_libList ).Show( aLibraryName.empty() );
+    m_auimgr.GetPane( libPanel ).Show( aLibraryName.empty() );
 
     m_auimgr.Update();
+
+    if( m_libListWidth > 0 )
+    {
+        wxAuiPaneInfo& treePane = m_auimgr.GetPane( "Libraries" );
+
+        // wxAUI hack: force width by setting MinSize() and then Fixed()
+        // thanks to ZenJu http://trac.wxwidgets.org/ticket/13180
+        treePane.MinSize( m_libListWidth, -1 );
+        treePane.Fixed();
+        m_auimgr.Update();
+
+        // now make it resizable again
+        treePane.Resizable();
+        m_auimgr.Update();
+
+        // Note: DO NOT call m_auimgr.Update() anywhere after this; it will nuke the size
+        // back to minimum.
+        treePane.MinSize( 100, -1 );
+    }
+
+    if( m_symbolListWidth > 0 )
+    {
+        wxAuiPaneInfo& treePane = m_auimgr.GetPane( "Symbols" );
+
+        // wxAUI hack: force width by setting MinSize() and then Fixed()
+        // thanks to ZenJu http://trac.wxwidgets.org/ticket/13180
+        treePane.MinSize( m_symbolListWidth, -1 );
+        treePane.Fixed();
+        m_auimgr.Update();
+
+        // now make it resizable again
+        treePane.Resizable();
+        m_auimgr.Update();
+
+        // Note: DO NOT call m_auimgr.Update() anywhere after this; it will nuke the size
+        // back to minimum.
+        treePane.MinSize( 100, -1 );
+    }
+
+    FinishAUIInitialization();
 
     if( !IsModal() )        // For modal mode, calling ShowModal() will show this frame
     {
@@ -204,8 +284,8 @@ SYMBOL_VIEWER_FRAME::SYMBOL_VIEWER_FRAME( KIWAY* aKiway, wxWindow* aParent, FRAM
 
     // Set the working/draw area size to display a symbol to a reasonable value:
     // A 450mm x 450mm with a origin at the area center looks like a large working area
-    double max_size_x = Millimeter2iu( 450 );
-    double max_size_y = Millimeter2iu( 450 );
+    double max_size_x = schIUScale.mmToIU( 450 );
+    double max_size_y = schIUScale.mmToIU( 450 );
     BOX2D bbox;
     bbox.SetOrigin( -max_size_x / 2, -max_size_y / 2 );
     bbox.SetSize( max_size_x, max_size_y );
@@ -238,9 +318,9 @@ void SYMBOL_VIEWER_FRAME::setupTools()
     m_toolManager->RegisterTool( new COMMON_TOOLS );
     m_toolManager->RegisterTool( new COMMON_CONTROL );
     m_toolManager->RegisterTool( new ZOOM_TOOL );
-    m_toolManager->RegisterTool( new EE_INSPECTION_TOOL );  // manage show datasheet
-    m_toolManager->RegisterTool( new EE_SELECTION_TOOL );   // manage context menu
-    m_toolManager->RegisterTool( new SYMBOL_EDITOR_CONTROL );
+    m_toolManager->RegisterTool( new EE_INSPECTION_TOOL );     // manage show datasheet
+    m_toolManager->RegisterTool( new EE_SELECTION_TOOL );      // manage context menu
+    m_toolManager->RegisterTool( new SYMBOL_EDITOR_CONTROL );  // manage render settings
 
     m_toolManager->InitTools();
 
@@ -267,41 +347,48 @@ void SYMBOL_VIEWER_FRAME::setupUIConditions()
     mgr->SetConditions( ACTIONS::toggleGrid,          CHECK( cond.GridVisible() ) );
 
     auto electricalTypesShownCondition =
-        [this] ( const SELECTION& aSel )
-        {
-            return GetRenderSettings()->m_ShowPinsElectricalType;
-        };
+            [this]( const SELECTION& aSel )
+            {
+                return GetRenderSettings()->m_ShowPinsElectricalType;
+            };
+
+    auto pinNumbersShownCondition =
+            [this]( const SELECTION& )
+            {
+                return GetRenderSettings()->m_ShowPinNumbers;
+            };
 
     auto demorganCond =
-        [this] ( const SELECTION& )
-        {
-            LIB_SYMBOL* symbol = GetSelectedSymbol();
+            [this]( const SELECTION& )
+            {
+                LIB_SYMBOL* symbol = GetSelectedSymbol();
 
-            return symbol && symbol->HasConversion();
-        };
+                return symbol && symbol->HasConversion();
+            };
 
     auto demorganStandardCond =
-        [] ( const SELECTION& )
-        {
-            return m_convert == LIB_ITEM::LIB_CONVERT::BASE;
-        };
+            []( const SELECTION& )
+            {
+                return m_convert == LIB_ITEM::LIB_CONVERT::BASE;
+            };
 
     auto demorganAlternateCond =
-        [] ( const SELECTION& )
-        {
-            return m_convert == LIB_ITEM::LIB_CONVERT::DEMORGAN;
-        };
+            []( const SELECTION& )
+            {
+                return m_convert == LIB_ITEM::LIB_CONVERT::DEMORGAN;
+            };
 
     auto haveDatasheetCond =
-        [this] ( const SELECTION& )
-        {
-            LIB_SYMBOL* symbol = GetSelectedSymbol();
+            [this]( const SELECTION& )
+            {
+                LIB_SYMBOL* symbol = GetSelectedSymbol();
 
-            return symbol && !symbol->GetDatasheetField().GetText().IsEmpty();
-        };
+                return symbol && !symbol->GetDatasheetField().GetText().IsEmpty();
+            };
 
     mgr->SetConditions( EE_ACTIONS::showDatasheet,       ENABLE( haveDatasheetCond ) );
     mgr->SetConditions( EE_ACTIONS::showElectricalTypes, CHECK( electricalTypesShownCondition ) );
+    mgr->SetConditions( EE_ACTIONS::showPinNumbers,      CHECK( pinNumbersShownCondition ) );
 
     mgr->SetConditions( EE_ACTIONS::showDeMorganStandard,
                         ACTION_CONDITIONS().Enable( demorganCond ).Check( demorganStandardCond ) );
@@ -408,6 +495,7 @@ bool SYMBOL_VIEWER_FRAME::ShowModal( wxString* aSymbol, wxWindow* aParent )
         }
     }
 
+    m_libFilter->SetFocus();
     return KIWAY_PLAYER::ShowModal( aSymbol, aParent );
 }
 
@@ -458,7 +546,10 @@ void SYMBOL_VIEWER_FRAME::onUpdateUnitChoice( wxUpdateUIEvent& aEvent )
             m_unitChoice->Clear();
 
             for( int ii = 0; ii < unit_count; ii++ )
-                m_unitChoice->Append( wxString::Format( _( "Unit %c" ), 'A' + ii ) );
+            {
+                wxString unit = symbol->GetUnitDisplayName( ii + 1 );
+                m_unitChoice->Append( unit );
+            }
 
         }
 
@@ -479,45 +570,75 @@ bool SYMBOL_VIEWER_FRAME::ReCreateLibList()
 
     m_libList->Clear();
 
+    COMMON_SETTINGS*      cfg = Pgm().GetCommonSettings();
+    PROJECT_FILE&         project = Kiway().Prj().GetProjectFile();
     std::vector<wxString> libs = Prj().SchSymbolLibTable()->GetLogicalLibs();
+    std::set<wxString>    pinnedMatches;
+    std::set<wxString>    otherMatches;
 
-    // Remove not allowed libs from main list, if the allowed lib list is not empty
-    if( m_allowedLibs.GetCount() )
+    auto process =
+            [&]( const wxString& aLib )
+            {
+                // Remove not allowed libs, if the allowed lib list is not empty
+                if( m_allowedLibs.GetCount() )
+                {
+                    if( m_allowedLibs.Index( aLib ) == wxNOT_FOUND )
+                        return;
+                }
+
+                // Remove libs which have no power symbols, if this filter is activated
+                if( m_listPowerOnly )
+                {
+                    wxArrayString aliasNames;
+
+                    Prj().SchSymbolLibTable()->EnumerateSymbolLib( aLib, aliasNames, true );
+
+                    if( aliasNames.IsEmpty() )
+                        return;
+                }
+
+                if( alg::contains( project.m_PinnedSymbolLibs, aLib )
+                        || alg::contains( cfg->m_Session.pinned_symbol_libs, aLib ) )
+                {
+                    pinnedMatches.insert( aLib );
+                }
+                else
+                {
+                    otherMatches.insert( aLib );
+                }
+            };
+
+    if( m_libFilter->GetValue().IsEmpty() )
     {
-        for( unsigned ii = 0; ii < libs.size(); )
-        {
-            if( m_allowedLibs.Index( libs[ii] ) == wxNOT_FOUND )
-                libs.erase( libs.begin() + ii );
-            else
-                ii++;
-        }
+        for( const wxString& lib : libs )
+            process( lib );
     }
-
-    // Remove libs which have no power symbols, if this filter is activated
-    if( m_listPowerOnly )
+    else
     {
-        for( unsigned ii = 0; ii < libs.size(); )
+        wxStringTokenizer tokenizer( m_libFilter->GetValue() );
+
+        while( tokenizer.HasMoreTokens() )
         {
-            wxArrayString aliasNames;
+            const wxString       term = tokenizer.GetNextToken().Lower();
+            EDA_COMBINED_MATCHER matcher( term, CTX_LIBITEM );
+            int                  matches, position;
 
-            Prj().SchSymbolLibTable()->EnumerateSymbolLib( libs[ii], aliasNames, true );
-
-            if( aliasNames.IsEmpty() )
-                libs.erase( libs.begin() + ii );
-            else
-                ii++;
+            for( const wxString& lib : libs )
+            {
+                if( matcher.Find( lib.Lower(), matches, position ) )
+                    process( lib );
+            }
         }
     }
 
     if( libs.empty() )
         return true;
 
-    wxArrayString libNames;
+    for( const wxString& name : pinnedMatches )
+        m_libList->Append( LIB_TREE_MODEL_ADAPTER::GetPinningSymbol() + UnescapeString( name ) );
 
-    for( const auto& name : libs )
-        libNames.Add( UnescapeString( name ) );
-
-    m_libList->Append( libNames );
+    for( const wxString& name : otherMatches )
+        m_libList->Append( UnescapeString( name ) );
 
     // Search for a previous selection:
     int index = m_libList->FindString( UnescapeString( m_libraryName ) );
@@ -528,9 +649,9 @@ bool SYMBOL_VIEWER_FRAME::ReCreateLibList()
     }
     else
     {
-        // If not found, clear current library selection because it can be
-        // deleted after a config change.
-        m_libraryName = libs[0];
+        // If not found, clear current library selection because it can be deleted after a
+        // config change.
+        m_libraryName = m_libList->GetCount() > 0 ? m_libList->GetBaseString( 0 ) : wxT( "" );
         m_entryName = wxEmptyString;
         m_unit = 1;
         m_convert = LIB_ITEM::LIB_CONVERT::BASE;
@@ -549,18 +670,53 @@ bool SYMBOL_VIEWER_FRAME::ReCreateSymbolList()
     if( m_symbolList == nullptr )
         return false;
 
-    wxArrayString aliasNames;
+    m_symbolList->Clear();
+
+    if( m_libraryName.IsEmpty() )
+        return false;
+
+    std::vector<LIB_SYMBOL*> symbols;
 
     try
     {
-        Prj().SchSymbolLibTable()->EnumerateSymbolLib( m_libraryName, aliasNames,
-                                                       m_listPowerOnly );
+        if( Prj().SchSymbolLibTable()->FindRow( m_libraryName ) )
+            Prj().SchSymbolLibTable()->LoadSymbolLib( symbols, m_libraryName, m_listPowerOnly );
     }
     catch( const IO_ERROR& ) {}   // ignore, it is handled below
 
-    m_symbolList->Clear();
+    std::set<wxString> excludes;
 
-    if( aliasNames.IsEmpty() )
+    if( !m_symbolFilter->GetValue().IsEmpty() )
+    {
+        wxStringTokenizer tokenizer( m_symbolFilter->GetValue() );
+
+        while( tokenizer.HasMoreTokens() )
+        {
+            const wxString       term = tokenizer.GetNextToken().Lower();
+            EDA_COMBINED_MATCHER matcher( term, CTX_LIBITEM );
+            int                  matches, position;
+
+            for( LIB_SYMBOL* symbol : symbols )
+            {
+                wxString search = symbol->GetName() + wxS( " " ) + symbol->GetSearchText();
+                bool     matched = matcher.Find( search.Lower(), matches, position );
+
+                if( !matched && term.IsNumber() )
+                    matched = ( wxAtoi( term ) == (int)symbol->GetPinCount() );
+
+                if( !matched )
+                    excludes.insert( symbol->GetName() );
+            }
+        }
+    }
+
+    for( const LIB_SYMBOL* symbol : symbols )
+    {
+        if( !excludes.count( symbol->GetName() ) )
+            m_symbolList->Append( UnescapeString( symbol->GetName() ) );
+    }
+
+    if( m_symbolList->IsEmpty() )
     {
         m_libraryName = wxEmptyString;
         m_entryName = wxEmptyString;
@@ -568,13 +724,6 @@ bool SYMBOL_VIEWER_FRAME::ReCreateSymbolList()
         m_unit    = 1;
         return true;
     }
-
-    wxArrayString unescapedNames;
-
-    for( const wxString& name : aliasNames )
-        unescapedNames.Add( UnescapeString( name ) );
-
-    m_symbolList->Append( unescapedNames );
 
     int  index = m_symbolList->FindString( UnescapeString( m_entryName ) );
     bool changed = false;
@@ -592,9 +741,6 @@ bool SYMBOL_VIEWER_FRAME::ReCreateSymbolList()
 
     m_symbolList->SetSelection( index, true );
 
-    wxCommandEvent evt( wxEVT_COMMAND_LISTBOX_SELECTED, ID_LIBVIEW_SYM_LIST );
-    ProcessEvent( evt );
-
     return changed;
 }
 
@@ -608,7 +754,7 @@ void SYMBOL_VIEWER_FRAME::ClickOnLibList( wxCommandEvent& event )
 
     m_selection_changed = true;
 
-    SetSelectedLibrary( EscapeString( m_libList->GetString( ii ), CTX_LIBID ) );
+    SetSelectedLibrary( EscapeString( m_libList->GetBaseString( ii ), CTX_LIBID ) );
 }
 
 
@@ -635,7 +781,7 @@ void SYMBOL_VIEWER_FRAME::SetSelectedLibrary( const wxString& aLibraryName )
 }
 
 
-void SYMBOL_VIEWER_FRAME::ClickOnCmpList( wxCommandEvent& event )
+void SYMBOL_VIEWER_FRAME::ClickOnSymbolList( wxCommandEvent& event )
 {
     int ii = m_symbolList->GetSelection();
 
@@ -644,7 +790,7 @@ void SYMBOL_VIEWER_FRAME::ClickOnCmpList( wxCommandEvent& event )
 
     m_selection_changed = true;
 
-    SetSelectedSymbol( EscapeString( m_symbolList->GetString( ii ), CTX_LIBID ) );
+    SetSelectedSymbol( EscapeString( m_symbolList->GetBaseString( ii ), CTX_LIBID ) );
 
     // The m_symbolList has now the focus, in order to be able to use arrow keys
     // to navigate inside the list.
@@ -662,7 +808,7 @@ void SYMBOL_VIEWER_FRAME::SetSelectedSymbol( const wxString& aSymbolName )
 
         // Ensure the corresponding line in m_symbolList is selected
         // (which is not necessarily the case if SetSelectedSymbol is called
-        // by another caller than ClickOnCmpList.
+        // by another caller than ClickOnSymbolList.
         m_symbolList->SetStringSelection( UnescapeString( aSymbolName ), true );
         DisplayLibInfos();
 
@@ -678,7 +824,7 @@ void SYMBOL_VIEWER_FRAME::SetSelectedSymbol( const wxString& aSymbolName )
 }
 
 
-void SYMBOL_VIEWER_FRAME::DClickOnCmpList( wxCommandEvent& event )
+void SYMBOL_VIEWER_FRAME::DClickOnSymbolList( wxCommandEvent& event )
 {
     m_toolManager->RunAction( EE_ACTIONS::addSymbolToSchematic, true );
 }
@@ -697,13 +843,16 @@ void SYMBOL_VIEWER_FRAME::LoadSettings( APP_SETTINGS_BASE* aCfg )
     m_symbolListWidth = cfg->m_LibViewPanel.cmp_list_width;
 
     GetRenderSettings()->m_ShowPinsElectricalType = cfg->m_LibViewPanel.show_pin_electrical_type;
+    GetRenderSettings()->m_ShowPinNumbers = cfg->m_LibViewPanel.show_pin_numbers;
 
     // Set parameters to a reasonable value.
-    if( m_libListWidth > m_frameSize.x / 2 )
-        m_libListWidth = m_frameSize.x / 2;
+    int maxWidth = cfg->m_LibViewPanel.window.state.size_x - 80;
 
-    if( m_symbolListWidth > m_frameSize.x / 2 )
-        m_symbolListWidth = m_frameSize.x / 2;
+    if( m_libListWidth + m_symbolListWidth > maxWidth )
+    {
+        m_libListWidth = maxWidth * ( m_libListWidth / ( m_libListWidth + m_symbolListWidth ) );
+        m_symbolListWidth = maxWidth - m_libListWidth;
+    }
 }
 
 
@@ -721,8 +870,11 @@ void SYMBOL_VIEWER_FRAME::SaveSettings( APP_SETTINGS_BASE* aCfg)
     cfg->m_LibViewPanel.lib_list_width = m_libListWidth;
     cfg->m_LibViewPanel.cmp_list_width = m_symbolListWidth;
 
-    if( GetRenderSettings() )
-        cfg->m_LibViewPanel.show_pin_electrical_type = GetRenderSettings()->m_ShowPinsElectricalType;
+    if( KIGFX::SCH_RENDER_SETTINGS* renderSettings = GetRenderSettings() )
+    {
+        cfg->m_LibViewPanel.show_pin_electrical_type = renderSettings->m_ShowPinsElectricalType;
+        cfg->m_LibViewPanel.show_pin_numbers = renderSettings->m_ShowPinNumbers;
+    }
 }
 
 
@@ -795,18 +947,16 @@ const BOX2I SYMBOL_VIEWER_FRAME::GetDocumentExtents( bool aIncludeAllVisible ) c
 
     if( !symbol )
     {
-        return BOX2I( VECTOR2I(-200, -200), VECTOR2I( 400, 400 ) );
+        return BOX2I( VECTOR2I( -200, -200 ), VECTOR2I( 400, 400 ) );
     }
     else
     {
-        std::shared_ptr< LIB_SYMBOL > tmp;
+        std::shared_ptr<LIB_SYMBOL> tmp = symbol->IsAlias() ? symbol->GetParent().lock()
+                                                            : symbol->SharedPtr();
 
-        tmp = ( symbol->IsAlias() ) ? symbol->GetParent().lock() : symbol->SharedPtr();
+        wxCHECK( tmp, BOX2I( VECTOR2I( -200, -200 ), VECTOR2I( 400, 400 ) ) );
 
-        wxCHECK( tmp, BOX2I( VECTOR2I(-200, -200), VECTOR2I( 400, 400 ) ) );
-
-        EDA_RECT bbox = tmp->GetUnitBoundingBox( m_unit, m_convert );
-        return BOX2I( bbox.GetOrigin(), VECTOR2I( bbox.GetWidth(), bbox.GetHeight() ) );
+        return tmp->GetUnitBoundingBox( m_unit, m_convert );
     }
 }
 
@@ -837,11 +987,16 @@ void SYMBOL_VIEWER_FRAME::OnSelectSymbol( wxCommandEvent& aEvent )
 
     // Container doing search-as-you-type.
     SYMBOL_LIB_TABLE* libs = Prj().SchSymbolLibTable();
-    wxObjectDataPtr<LIB_TREE_MODEL_ADAPTER> adapter =
-            SYMBOL_TREE_MODEL_ADAPTER::Create( this, libs );
+    wxObjectDataPtr<LIB_TREE_MODEL_ADAPTER> dataPtr
+                                    = SYMBOL_TREE_MODEL_ADAPTER::Create( this, libs );
+    SYMBOL_TREE_MODEL_ADAPTER* modelAdapter
+                                    = static_cast<SYMBOL_TREE_MODEL_ADAPTER*>( dataPtr.get() );
 
-    const auto libNicknames = libs->GetLogicalLibs();
-    static_cast<SYMBOL_TREE_MODEL_ADAPTER*>( adapter.get() )->AddLibraries( libNicknames, this );
+    if( !modelAdapter->AddLibraries( libs->GetLogicalLibs(), this ) )
+    {
+        // loading cancelled by user
+        return;
+    }
 
     LIB_SYMBOL* current = GetSelectedSymbol();
     LIB_ID id;
@@ -850,16 +1005,19 @@ void SYMBOL_VIEWER_FRAME::OnSelectSymbol( wxCommandEvent& aEvent )
     if( current )
     {
         id = current->GetLibId();
-        adapter->SetPreselectNode( id, unit );
+        modelAdapter->SetPreselectNode( id, unit );
     }
 
     wxString dialogTitle;
-    dialogTitle.Printf( _( "Choose Symbol (%d items loaded)" ), adapter->GetItemCount() );
+    dialogTitle.Printf( _( "Choose Symbol (%d items loaded)" ), modelAdapter->GetItemCount() );
 
-    DIALOG_CHOOSE_SYMBOL dlg( this, dialogTitle, adapter, m_convert, false, false, false );
+    DIALOG_CHOOSE_SYMBOL dlg( this, dialogTitle, dataPtr, m_convert, false, false, false );
 
     if( dlg.ShowQuasiModal() == wxID_CANCEL )
         return;
+
+    // Save any changes to column widths, etc.
+    modelAdapter->SaveSettings();
 
     id = dlg.GetSelectedLibId( &unit );
 
@@ -869,6 +1027,96 @@ void SYMBOL_VIEWER_FRAME::OnSelectSymbol( wxCommandEvent& aEvent )
     SetSelectedLibrary( id.GetLibNickname() );
     SetSelectedSymbol( id.GetLibItemName() );
     SetUnitAndConvert( unit, 1 );
+}
+
+
+void SYMBOL_VIEWER_FRAME::OnLibFilter( wxCommandEvent& aEvent )
+{
+    ReCreateLibList();
+
+    // Required to avoid interaction with SetHint()
+    // See documentation for wxTextEntry::SetHint
+    aEvent.Skip();
+}
+
+
+void SYMBOL_VIEWER_FRAME::OnSymFilter( wxCommandEvent& aEvent )
+{
+    ReCreateSymbolList();
+
+    // Required to avoid interaction with SetHint()
+    // See documentation for wxTextEntry::SetHint
+    aEvent.Skip();
+}
+
+
+void SYMBOL_VIEWER_FRAME::OnCharHook( wxKeyEvent& aEvent )
+{
+    if( aEvent.GetKeyCode() == WXK_UP )
+    {
+        if( m_libFilter->HasFocus() || m_libList->HasFocus() )
+        {
+            int prev = m_libList->GetSelection() - 1;
+
+            if( prev >= 0 )
+            {
+                m_libList->SetSelection( prev );
+                m_libList->EnsureVisible( prev );
+
+                wxCommandEvent dummy;
+                ClickOnLibList( dummy );
+            }
+        }
+        else
+        {
+            wxCommandEvent dummy;
+            onSelectPreviousSymbol( dummy );
+        }
+    }
+    else if( aEvent.GetKeyCode() == WXK_DOWN )
+    {
+        if( m_libFilter->HasFocus() || m_libList->HasFocus() )
+        {
+            int next = m_libList->GetSelection() + 1;
+
+            if( next < (int)m_libList->GetCount() )
+            {
+                m_libList->SetSelection( next );
+                m_libList->EnsureVisible( next );
+
+                wxCommandEvent dummy;
+                ClickOnLibList( dummy );
+            }
+        }
+        else
+        {
+            wxCommandEvent dummy;
+            onSelectNextSymbol( dummy );
+        }
+    }
+    else if( aEvent.GetKeyCode() == WXK_TAB && m_libFilter->HasFocus() )
+    {
+        if( !aEvent.ShiftDown() )
+            m_symbolFilter->SetFocus();
+        else
+            aEvent.Skip();
+    }
+    else if( aEvent.GetKeyCode() == WXK_TAB && m_symbolFilter->HasFocus() )
+    {
+        if( aEvent.ShiftDown() )
+            m_libFilter->SetFocus();
+        else
+            aEvent.Skip();
+    }
+    else if( aEvent.GetKeyCode() == WXK_RETURN && m_symbolList->GetSelection() >= 0 )
+    {
+        wxCommandEvent dummy;
+        DClickOnSymbolList( dummy );
+    }
+    else
+    {
+        aEvent.Skip();
+    }
 }
 
 

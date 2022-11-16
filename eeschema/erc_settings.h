@@ -38,6 +38,7 @@ enum ERCE_T
     ERCE_UNSPECIFIED = 0,
     ERCE_FIRST,
     ERCE_DUPLICATE_SHEET_NAME = ERCE_FIRST,  ///< Duplicate sheet names within a given sheet.
+    ERCE_ENDPOINT_OFF_GRID,       ///< Pin or wire-end off grid.
     ERCE_PIN_NOT_CONNECTED,       ///< Pin not connected and not no connect symbol.
     ERCE_PIN_NOT_DRIVEN,          ///< Pin connected to some others pins but no pin to drive it.
                                   ///< pins to drive it can be output, passive, 3sttae, I/O
@@ -60,8 +61,10 @@ enum ERCE_T
                                   ///< one net.
     ERCE_BUS_TO_NET_CONFLICT,     ///< A bus wire is graphically connected to a net port/pin
                                   ///< (or vice versa).
+    ERCE_NETCLASS_CONFLICT,       ///< Multiple labels assign different netclasses to same net.
     ERCE_GLOBLABEL,               ///< A global label is unique.
     ERCE_UNRESOLVED_VARIABLE,     ///< A text variable could not be resolved.
+    ERCE_SIMULATION_MODEL,        ///< An error was found in the simulation model.
     ERCE_WIRE_DANGLING,           ///< Some wires are not connected to anything else.
     ERCE_LIB_SYMBOL_ISSUES,       ///< Library symbol changed from current symbol in schematic or
                                   ///< the library symbol link no longer valid.
@@ -112,7 +115,7 @@ public:
 
     bool operator==( const ERC_SETTINGS& other ) const
     {
-        return ( other.m_Severities == m_Severities );
+        return ( other.m_ERCSeverities == m_ERCSeverities );
     }
 
     bool operator!=( const ERC_SETTINGS& other ) const
@@ -163,7 +166,7 @@ public:
 
 public:
 
-    std::map<int, SEVERITY> m_Severities;
+    std::map<int, SEVERITY> m_ERCSeverities;
     std::set<wxString>      m_ErcExclusions;
 
     PIN_ERROR m_PinMap[ELECTRICAL_PINTYPES_TOTAL][ELECTRICAL_PINTYPES_TOTAL];
@@ -202,8 +205,6 @@ public:
     std::shared_ptr<ERC_ITEM> GetERCItem( int aIndex ) const;
 
     void DeleteItem( int aIndex, bool aDeep ) override;
-
-    void DeleteAllItems( bool aIncludeExclusions, bool aDeep ) override;
 
 private:
 

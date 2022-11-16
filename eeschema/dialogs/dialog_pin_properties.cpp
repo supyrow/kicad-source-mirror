@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2010 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 2016 - 2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2016-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -33,6 +33,7 @@
 #include <widgets/wx_grid.h>
 #include <grid_tricks.h>
 #include <widgets/grid_icon_text_helpers.h>
+#include <wx/hyperlink.h>
 
 class ALT_PIN_DATA_MODEL : public wxGridTableBase, public std::vector<LIB_PIN::ALT>
 {
@@ -141,24 +142,6 @@ DIALOG_PIN_PROPERTIES::DIALOG_PIN_PROPERTIES( SYMBOL_EDIT_FRAME* parent, LIB_PIN
     m_dummyParent->SetShowPinNames( true );
     m_dummyParent->SetShowPinNumbers( true );
 
-    m_bSizerInfo->Show( m_frame->m_SyncPinEdit );
-
-    if( m_frame->m_SyncPinEdit )
-    {
-        if( aPin->IsNew() )
-        {
-            m_textInfoUpper->SetLabel( _( "Synchronized pins edit mode, and this pin is new" ) );
-            m_textInfoLower->SetLabel( _( "Similar pins will be automatically added to other units, "
-                                          "if this pin is not common to all units" ) );
-        }
-        else
-        {
-            m_textInfoUpper->SetLabel( _( "Synchronized pins edit mode" ) );
-            m_textInfoLower->SetLabel( _( "Similar pins at the same location will be edited. "
-                                          "Pin number of other pins will be not modified" ) );
-        }
-    }
-
     COLOR4D bgColor = parent->GetRenderSettings()->GetLayerColor( LAYER_SCHEMATIC_BACKGROUND );
     m_panelShowPin->SetBackgroundColour( bgColor.ToColour() );
 
@@ -188,8 +171,13 @@ DIALOG_PIN_PROPERTIES::DIALOG_PIN_PROPERTIES( SYMBOL_EDIT_FRAME* parent, LIB_PIN
         m_sdbSizerButtonsCancel
     };
 
-    // Default alternates turndow to whether or not alternates exist
-    m_alternatesTurndown->Collapse( m_pin->GetAlternates().size() == 0 );
+    // Default alternates turndown to whether or not alternates exist, or if we've had it open before
+    m_alternatesTurndown->Collapse( m_pin->GetAlternates().size() == 0 && !s_alternatesTurndownOpen);
+
+    // wxwidgets doesn't call the OnCollapseChange even at init, so we update this value if
+    // the alternates pane defaults to open
+    if ( m_pin->GetAlternates().size() > 0 )
+        s_alternatesTurndownOpen = true;
 
     m_alternatesDataModel = new ALT_PIN_DATA_MODEL( GetUserUnits() );
 
@@ -201,7 +189,11 @@ DIALOG_PIN_PROPERTIES::DIALOG_PIN_PROPERTIES( SYMBOL_EDIT_FRAME* parent, LIB_PIN
     m_alternatesGrid->SetDefaultRowSize( m_alternatesGrid->GetDefaultRowSize() + 4 );
 
     m_alternatesGrid->SetTable( m_alternatesDataModel );
-    m_alternatesGrid->PushEventHandler( new GRID_TRICKS( m_alternatesGrid ) );
+    m_alternatesGrid->PushEventHandler( new GRID_TRICKS( m_alternatesGrid,
+                                                         [this]( wxCommandEvent& aEvent )
+                                                         {
+                                                             OnAddAlternate( aEvent );
+                                                         } ) );
 
     if( aPin->GetParent()->HasConversion() )
     {
@@ -272,27 +264,45 @@ bool DIALOG_PIN_PROPERTIES::TransferDataToWindow()
     m_textPinNumber->SetValue( m_pin->GetNumber() );
     m_numberSize.SetValue( m_pin->GetNumberTextSize() );
     m_pinLength.SetValue( m_pin->GetLength() );
+    m_checkApplyToAllParts->Enable( m_pin->GetParent()->IsMulti() );
     m_checkApplyToAllParts->SetValue( m_pin->GetUnit() == 0 );
     m_checkApplyToAllConversions->SetValue( m_pin->GetConvert() == 0 );
     m_checkShow->SetValue( m_pin->IsVisible() );
 
     m_dummyPin->SetVisible( m_pin->IsVisible() );
 
-    bool hasMultiUnit    = m_pin->GetParent()->GetUnitCount() > 1;
+    wxString commonUnitsToolTip;
 
-    m_checkApplyToAllParts->Enable( hasMultiUnit );
+    if( m_frame->m_SyncPinEdit )
+    {
+        wxHyperlinkCtrl* button = new wxHyperlinkCtrl( m_infoBar, wxID_ANY,
+                                                       _( "Exit sync pins mode" ),
+                                                       wxEmptyString );
 
-    wxString toolTip;
+        button->Bind( wxEVT_COMMAND_HYPERLINK,
+                      std::function<void( wxHyperlinkEvent& aEvent )>(
+                      [&]( wxHyperlinkEvent& aEvent )
+                      {
+                          m_frame->m_SyncPinEdit = false;
+                          m_infoBar->Dismiss();
+                      } ) );
 
-    if( !hasMultiUnit )
-        toolTip = _( "This symbol only has one unit. This control has no effect." );
-    else if( m_frame->m_SyncPinEdit )
-        toolTip = _( "Synchronized pin edit mode is enabled.\n"
-                     "Similar pins will be edited, regardless this option." );
+        m_infoBar->RemoveAllButtons();
+        m_infoBar->AddButton( button );
+        m_infoBar->ShowMessage( getSyncPinsMessage() );
+
+        commonUnitsToolTip = _( "Synchronized pins mode is enabled.\n"
+                                "Similar pins will be edited regardless of this option." );
+    }
     else
-        toolTip = _( "If checked, this pin will exist in all units." );
+    {
+        commonUnitsToolTip = _( "If checked, this pin will exist in all units." );
+    }
 
-    m_checkApplyToAllParts->SetToolTip( toolTip );
+    if( !m_pin->GetParent()->IsMulti() )
+        commonUnitsToolTip = _( "This symbol only has one unit. This control has no effect." );
+
+    m_checkApplyToAllParts->SetToolTip( commonUnitsToolTip );
 
     for( const std::pair<const wxString, LIB_PIN::ALT>& alt : m_pin->GetAlternates() )
         m_alternatesDataModel->AppendRow( alt.second );
@@ -325,16 +335,16 @@ bool DIALOG_PIN_PROPERTIES::TransferDataFromWindow()
 
     wxPoint newPos( m_posX.GetValue(), -m_posY.GetValue() );
 
-    const int acceptable_mingrid = 50;
+    const int standard_grid = 50;
 
     // Only show the warning if the position has been changed
     if( ( m_origPos != newPos )
-        && ( ( m_posX.GetValue() % acceptable_mingrid ) || ( m_posY.GetValue() % acceptable_mingrid ) ) )
+        && (( m_posX.GetValue() % standard_grid ) || ( m_posY.GetValue() % standard_grid ) ) )
     {
-        auto msg = wxString::Format( _( "This pin is not on a %d mils grid which will make it\n"
-                                        "difficult to connect to in the schematic.\n"
-                                        "Do you want to continue?" ),
-                                     acceptable_mingrid );
+        wxString msg = wxString::Format( _( "This pin is not on a %d mils grid which will make it "
+                                            "difficult to connect to in the schematic.\n"
+                                            "Do you wish to continue?" ),
+                                         standard_grid );
         if( !IsOK( this, msg ) )
             return false;
     }
@@ -344,8 +354,8 @@ bool DIALOG_PIN_PROPERTIES::TransferDataFromWindow()
     m_pin->SetNameTextSize( m_nameSize.GetValue() );
     m_pin->SetNumberTextSize( m_numberSize.GetValue() );
     m_pin->SetOrientation( PinOrientationCode( m_choiceOrientation->GetSelection() ) );
-    m_pin->SetLength( m_pinLength.GetValue() );
     m_pin->SetPosition( newPos );
+    m_pin->ChangeLength( m_pinLength.GetValue() );
     m_pin->SetType( m_choiceElectricalType->GetPinTypeSelection() );
     m_pin->SetShape( m_choiceStyle->GetPinShapeSelection() );
     m_pin->SetConvert( m_checkApplyToAllConversions->GetValue() ? 0 : m_frame->GetConvert() );
@@ -377,10 +387,10 @@ void DIALOG_PIN_PROPERTIES::OnPaintShowPanel( wxPaintEvent& event )
     SYMBOL_EDIT_FRAME* symbolEditor = (SYMBOL_EDIT_FRAME*) GetParent();
 
     // Calculate a suitable scale to fit the available draw area
-    EDA_RECT bBox = m_dummyPin->GetBoundingBox( true );
-    double   xscale = (double) dc_size.x / bBox.GetWidth();
-    double   yscale = (double) dc_size.y / bBox.GetHeight();
-    double   scale = std::min( xscale, yscale );
+    BOX2I  bBox = m_dummyPin->GetBoundingBox( true, true, false );
+    double xscale = (double) dc_size.x / bBox.GetWidth();
+    double yscale = (double) dc_size.y / bBox.GetHeight();
+    double scale = std::min( xscale, yscale );
 
     // Give a 7% margin (each side) and limit to no more than 100% zoom
     scale = std::min( scale * 0.85, 1.0 );
@@ -395,7 +405,7 @@ void DIALOG_PIN_PROPERTIES::OnPaintShowPanel( wxPaintEvent& event )
     RENDER_SETTINGS* renderSettings = symbolEditor->GetRenderSettings();
     renderSettings->SetPrintDC( &dc );
 
-    m_dummyPin->Print( renderSettings, -bBox.Centre(), (void*) &opts, DefaultTransform );
+    m_dummyPin->Print( renderSettings, -bBox.Centre(), (void*) &opts, DefaultTransform, false );
 
     event.Skip();
 }
@@ -416,7 +426,26 @@ void DIALOG_PIN_PROPERTIES::OnPropertiesChange( wxCommandEvent& event )
     m_dummyPin->SetShape( m_choiceStyle->GetPinShapeSelection() );
     m_dummyPin->SetVisible( m_checkShow->GetValue() );
 
+    if( event.GetEventObject() == m_checkApplyToAllParts && m_frame->m_SyncPinEdit )
+        m_infoBar->ShowMessage( getSyncPinsMessage() );
+
     m_panelShowPin->Refresh();
+}
+
+void DIALOG_PIN_PROPERTIES::OnCollapsiblePaneChanged( wxCollapsiblePaneEvent& event )
+{
+    s_alternatesTurndownOpen = !event.GetCollapsed();
+}
+
+
+wxString DIALOG_PIN_PROPERTIES::getSyncPinsMessage()
+{
+    if( m_checkApplyToAllParts->GetValue() )
+        return _( "Synchronized Pins Mode." );
+    else if( m_pin->IsNew() )
+        return _( "Synchronized Pins Mode.  New pin will be added to all units." );
+    else
+        return _( "Synchronized Pins Mode.  Matching pins in other units will be updated." );
 }
 
 
@@ -509,11 +538,4 @@ void DIALOG_PIN_PROPERTIES::OnUpdateUI( wxUpdateUIEvent& event )
         m_delayedFocusRow = -1;
         m_delayedFocusColumn = -1;
     }
-}
-
-
-void DIALOG_PIN_PROPERTIES::onUpdateUIInfo( wxUpdateUIEvent& event )
-{
-    // Disable Info texts for pins common to all units
-    event.Enable( m_checkApplyToAllParts->GetValue() == 0 );
 }

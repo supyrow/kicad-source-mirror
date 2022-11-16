@@ -23,6 +23,7 @@
 #include "pns_line.h"
 #include "pns_via.h"
 #include "pns_router.h"
+#include "pns_debug_decorator.h"
 
 #include <geometry/shape_arc.h>
 #include <geometry/shape_segment.h>
@@ -65,7 +66,7 @@ const SHAPE_LINE_CHAIN OctagonalHull( const VECTOR2I& aP0, const VECTOR2I& aSize
 
 const SHAPE_LINE_CHAIN ArcHull( const SHAPE_ARC& aSeg, int aClearance, int aWalkaroundThickness )
 {
-    int d = aSeg.GetWidth() / 2 + aClearance + aWalkaroundThickness / 2 + HULL_MARGIN
+    int d = aSeg.GetWidth() / 2 + aClearance + aWalkaroundThickness / 2
             + SHAPE_ARC::DefaultAccuracyForPCB();
     int x = (int) ( 2.0 / ( 1.0 + M_SQRT2 ) * d ) / 2;
 
@@ -141,29 +142,112 @@ const SHAPE_LINE_CHAIN ArcHull( const SHAPE_ARC& aSeg, int aClearance, int aWalk
 }
 
 
+static bool IsSegment45Degree( const SEG& aS )
+{
+    VECTOR2I dir( aS.B - aS.A );
+
+    if( std::abs( dir.x ) <= 1 )
+        return true;
+    
+    if( std::abs( dir.y ) <= 1 )
+        return true;
+    
+    int delta = std::abs(dir.x) - std::abs(dir.y);
+
+    if( delta >= -1 && delta <= 1)
+        return true;
+
+    return false;
+}
+
+
+template <typename T> int sgn(T val) {
+    return (T(0) < val) - (val < T(0));
+}
+
+
 const SHAPE_LINE_CHAIN SegmentHull ( const SHAPE_SEGMENT& aSeg, int aClearance,
                                      int aWalkaroundThickness )
 {
-    int cl = aClearance + aWalkaroundThickness / 2 + HULL_MARGIN;
-    int d = aSeg.GetWidth() / 2 + cl;
-    int x = (int)( 2.0 / ( 1.0 + M_SQRT2 ) * d );
+    const int kinkThreshold = aClearance / 10;
+
+    int cl = aClearance + aWalkaroundThickness / 2;
+    double d = (double)aSeg.GetWidth() / 2.0 + cl;
+    double x = 2.0 / ( 1.0 + M_SQRT2 ) * d;
+    int dr = KiROUND( d );
+    int xr = KiROUND( x );
+    int xr2 = KiROUND( x / 2.0 );
 
     const VECTOR2I a = aSeg.GetSeg().A;
-    const VECTOR2I b = aSeg.GetSeg().B;
+    VECTOR2I b = aSeg.GetSeg().B;
+    int len = aSeg.GetSeg().Length();
+    int w = b.x - a.x;
+    int h = b.y - a.y;
+
+    /*
+    auto dbg = ROUTER::GetInstance()->GetInterface()->GetDebugDecorator();
+
+    if( len < kinkThreshold )
+    {
+        PNS_DBG( dbg, AddShape, &aSeg, CYAN,  10000, wxString::Format( "kinky-seg 45 %d l %d dx %d dy %d", !!IsSegment45Degree( aSeg.GetSeg() ), len, w, h ) );
+    }
+    */
+
+    if ( !IsSegment45Degree( aSeg.GetSeg() ) )
+    {
+        if ( len <= kinkThreshold && len > 0 )
+        {
+            int ll = std::max( std::abs( w ), std::abs( h ) );
+
+            b = a + VECTOR2I( sgn( w ) * ll, sgn( h ) * ll );
+        }
+    }
+    else
+    {
+        if( len <= kinkThreshold )
+        {
+            int delta45 = std::abs( std::abs(w) - std::abs(h) );
+            if( std::abs(w) <= 1 ) // almost vertical
+            {
+                w = 0;
+                cl ++;
+            }
+            else if ( std::abs(h) <= 1 ) // almost horizontal
+            {
+                h = 0;
+                cl ++;
+            }
+            else if ( delta45 <= 2 ) // almost 45 degree
+            {
+                int newW = sgn( w ) * std::max( std::abs(w), std::abs( h ) );
+                int newH = sgn( h ) * std::max( std::abs(w), std::abs( h ) );
+                w = newW;
+                h = newH;
+                cl += 2;
+                //PNS_DBG( dbg, AddShape, &aSeg, CYAN,  10000, wxString::Format( "almostkinky45 45 %d l %d dx %d dy %d", !!IsSegment45Degree( aSeg.GetSeg() ), len, w, h ) );
+
+            }
+
+            b.x = a.x + w;
+            b.y = a.y + h;
+        }
+    }
 
     if( a == b )
     {
+        int xx2 = KiROUND( 2.0 * ( 1.0 - M_SQRT2 ) * d );
+
         return OctagonalHull( a - VECTOR2I( aSeg.GetWidth() / 2, aSeg.GetWidth() / 2 ),
                               VECTOR2I( aSeg.GetWidth(), aSeg.GetWidth() ),
-                              cl + 1,
-                              2.0 * ( 1.0 - M_SQRT1_2 ) * d );
+                              cl,
+                              xx2 );
     }
 
     VECTOR2I dir = b - a;
-    VECTOR2I p0 = dir.Perpendicular().Resize( d );
-    VECTOR2I ds = dir.Perpendicular().Resize( x / 2 );
-    VECTOR2I pd = dir.Resize( x / 2 );
-    VECTOR2I dp = dir.Resize( d );
+    VECTOR2I p0 = dir.Perpendicular().Resize( dr );
+    VECTOR2I ds = dir.Perpendicular().Resize( xr2 );
+    VECTOR2I pd = dir.Resize( xr2 );
+    VECTOR2I dp = dir.Resize( dr );
 
     SHAPE_LINE_CHAIN s;
 
@@ -191,7 +275,6 @@ static void MoveDiagonal( SEG& aDiagonal, const SHAPE_LINE_CHAIN& aVertices, int
     int dist;
 
     aVertices.NearestPoint( aDiagonal, dist );
-    dist -= HULL_MARGIN;
     VECTOR2I moveBy = ( aDiagonal.A - aDiagonal.B ).Perpendicular().Resize( dist - aClearance );
     aDiagonal.A += moveBy;
     aDiagonal.B += moveBy;
@@ -201,7 +284,7 @@ static void MoveDiagonal( SEG& aDiagonal, const SHAPE_LINE_CHAIN& aVertices, int
 const SHAPE_LINE_CHAIN ConvexHull( const SHAPE_SIMPLE& aConvex, int aClearance )
 {
     // this defines the horizontal and vertical lines in the hull octagon
-    BOX2I box = aConvex.BBox( aClearance + HULL_MARGIN );
+    BOX2I box = aConvex.BBox( aClearance );
     box.Normalize();
 
     SEG topline = SEG( VECTOR2I( box.GetX(), box.GetY() + box.GetHeight() ),

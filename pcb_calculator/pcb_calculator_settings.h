@@ -1,7 +1,7 @@
 /*
 * This program source code file is part of KiCad, a free EDA CAD application.
 *
-* Copyright (C) 2020-2021 KiCad Developers, see AUTHORS.txt for contributors.
+* Copyright (C) 2020-2022 KiCad Developers, see AUTHORS.txt for contributors.
 *
 * This program is free software; you can redistribute it and/or
 * modify it under the terms of the GNU General Public License
@@ -62,6 +62,29 @@ public:
         int last_param;
     };
 
+    struct CABLE_SIZE
+    {
+        int diameterUnit;
+        int linResUnit;
+        int frequencyUnit;
+        int lengthUnit;
+        wxString conductorMaterialResitivity;
+        wxString conductorTemperature;
+        wxString conductorThermalCoef;
+    };
+
+    struct WAVELENGTH
+    {
+        double permittivity;
+        double permeability;
+        double frequency;
+        int    frequencyUnit;
+        int    periodUnit;
+        int    wavelengthVacuumUnit;
+        int    wavelengthMediumUnit;
+        int    speedUnit;
+    };
+
     struct TRACK_WIDTH
     {
         wxString current;
@@ -117,6 +140,11 @@ public:
         wxString pulse_rise_time;
     };
 
+    struct CORROSION_TABLE
+    {
+        wxString threshold_voltage;
+    };
+
     PCB_CALCULATOR_SETTINGS();
 
     virtual ~PCB_CALCULATOR_SETTINGS() {}
@@ -139,11 +167,17 @@ public:
 
     REGULATORS m_Regulators;
 
+    CABLE_SIZE m_cableSize;
+
+    WAVELENGTH m_wavelength;
+
     TRACK_WIDTH m_TrackWidth;
 
     TRANSMISSION_LINE m_TransLine;
 
     VIA_SIZE m_ViaSize;
+
+    CORROSION_TABLE m_CorrosionTable;
 };
 
 #endif

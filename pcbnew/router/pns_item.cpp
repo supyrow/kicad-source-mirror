@@ -2,7 +2,7 @@
  * KiRouter - a push-and-(sometimes-)shove PCB router
  *
  * Copyright (C) 2013-2014 CERN
- * Copyright (C) 2016-2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2016-2022 KiCad Developers, see AUTHORS.txt for contributors.
  * Author: Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  *
  * This program is free software: you can redistribute it and/or modify it
@@ -29,7 +29,7 @@ typedef VECTOR2I::extended_type ecoord;
 
 namespace PNS {
 
-bool ITEM::collideSimple( const ITEM* aOther, const NODE* aNode, bool aDifferentNetsOnly ) const
+bool ITEM::collideSimple( const ITEM* aOther, const NODE* aNode, bool aDifferentNetsOnly, int aOverrideClearance ) const
 {
     const ROUTER_IFACE* iface = ROUTER::GetInstance()->GetInterface();
     const SHAPE*        shapeA = Shape();
@@ -51,6 +51,10 @@ bool ITEM::collideSimple( const ITEM* aOther, const NODE* aNode, bool aDifferent
     if( aDifferentNetsOnly && m_net == aOther->m_net && m_net >= 0 && aOther->m_net >= 0 )
         return false;
 
+    // a pad associated with a "free" pin (NIC) doesn't have a net until it has been used
+    if( aDifferentNetsOnly && ( IsFreePad() || aOther->IsFreePad() ) )
+        return false;
+
     // check if we are not on completely different layers first
     if( !m_layers.Overlaps( aOther->m_layers ) )
         return false;
@@ -58,9 +62,7 @@ bool ITEM::collideSimple( const ITEM* aOther, const NODE* aNode, bool aDifferent
     auto checkKeepout =
             []( const ZONE* aKeepout, const BOARD_ITEM* aOther )
             {
-                constexpr KICAD_T TRACK_TYPES[] = { PCB_ARC_T, PCB_TRACE_T, EOT };
-
-                if( aKeepout->GetDoNotAllowTracks() && aOther->IsType( TRACK_TYPES ) )
+                if( aKeepout->GetDoNotAllowTracks() && aOther->IsType( { PCB_ARC_T, PCB_TRACE_T } ) )
                     return true;
 
                 if( aKeepout->GetDoNotAllowVias() && aOther->Type() == PCB_VIA_T )
@@ -88,17 +90,22 @@ bool ITEM::collideSimple( const ITEM* aOther, const NODE* aNode, bool aDifferent
     if( zoneB && Parent() && !checkKeepout( zoneB, Parent() ) )
         return false;
 
-    if( holeA || holeB )
+    bool thisNotFlashed  = !iface->IsFlashedOnLayer( this, aOther->Layer() );
+    bool otherNotFlashed = !iface->IsFlashedOnLayer( aOther, Layer() );
+
+    if( ( aNode->GetCollisionQueryScope() == NODE::CQS_ALL_RULES
+          || ( thisNotFlashed || otherNotFlashed ) )
+        && ( holeA || holeB ) )
     {
         int holeClearance = aNode->GetHoleClearance( this, aOther );
 
-        if( holeA && holeA->Collide( shapeB, holeClearance + lineWidthB ) )
+        if( holeClearance >= 0 && holeA && holeA->Collide( shapeB, holeClearance + lineWidthB ) )
         {
             Mark( Marker() | MK_HOLE );
             return true;
         }
 
-        if( holeB && holeB->Collide( shapeA, holeClearance + lineWidthA ) )
+        if( holeB && holeClearance >= 0 && holeB->Collide( shapeA, holeClearance + lineWidthA ) )
         {
             aOther->Mark( aOther->Marker() | MK_HOLE );
             return true;
@@ -108,7 +115,7 @@ bool ITEM::collideSimple( const ITEM* aOther, const NODE* aNode, bool aDifferent
         {
             int holeToHoleClearance = aNode->GetHoleToHoleClearance( this, aOther );
 
-            if( holeA->Collide( holeB, holeToHoleClearance ) )
+            if( holeToHoleClearance >= 0 && holeA->Collide( holeB, holeToHoleClearance ) )
             {
                 Mark( Marker() | MK_HOLE );
                 aOther->Mark( aOther->Marker() | MK_HOLE );
@@ -117,20 +124,51 @@ bool ITEM::collideSimple( const ITEM* aOther, const NODE* aNode, bool aDifferent
         }
     }
 
-    if( !aOther->Layers().IsMultilayer() && !iface->IsFlashedOnLayer( this, aOther->Layer()) )
+    if( !aOther->Layers().IsMultilayer() && thisNotFlashed )
         return false;
 
-    if( !Layers().IsMultilayer() && !iface->IsFlashedOnLayer( aOther, Layer()) )
+    if( !Layers().IsMultilayer() && otherNotFlashed )
         return false;
 
-    int clearance = aNode->GetClearance( this, aOther );
-    return shapeA->Collide( shapeB, clearance + lineWidthA + lineWidthB );
+    int clearance = aOverrideClearance >= 0 ? aOverrideClearance : aNode->GetClearance( this, aOther );
+
+    if( clearance >= 0 )
+    {
+        bool checkCastellation = ( m_parent && m_parent->GetLayer() == Edge_Cuts );
+        bool checkNetTie = aNode->GetRuleResolver()->IsInNetTie( this );
+
+        if( checkCastellation || checkNetTie )
+        {
+            // Slow method
+            int      actual;
+            VECTOR2I pos;
+
+            if( shapeA->Collide( shapeB, clearance + lineWidthA, &actual, &pos ) )
+            {
+                if( checkCastellation && aNode->QueryEdgeExclusions( pos ) )
+                    return false;
+
+                if( checkNetTie && aNode->GetRuleResolver()->IsNetTieExclusion( aOther, pos, this ) )
+                    return false;
+
+                return true;
+            }
+        }
+        else
+        {
+            // Fast method
+            if( shapeA->Collide( shapeB, clearance + lineWidthA + lineWidthB ) )
+                return true;
+        }
+    }
+
+    return false;
 }
 
 
-bool ITEM::Collide( const ITEM* aOther, const NODE* aNode, bool aDifferentNetsOnly ) const
+bool ITEM::Collide( const ITEM* aOther, const NODE* aNode, bool aDifferentNetsOnly, int aOverrideClearance ) const
 {
-    if( collideSimple( aOther, aNode, aDifferentNetsOnly ) )
+    if( collideSimple( aOther, aNode, aDifferentNetsOnly, aOverrideClearance ) )
         return true;
 
     // Special cases for "head" lines with vias attached at the end.  Note that this does not
@@ -141,7 +179,7 @@ bool ITEM::Collide( const ITEM* aOther, const NODE* aNode, bool aDifferentNetsOn
     {
         const LINE* line = static_cast<const LINE*>( this );
 
-        if( line->EndsWithVia() && line->Via().collideSimple( aOther, aNode, aDifferentNetsOnly ) )
+        if( line->EndsWithVia() && line->Via().collideSimple( aOther, aNode, aDifferentNetsOnly, aOverrideClearance ) )
             return true;
     }
 
@@ -149,7 +187,7 @@ bool ITEM::Collide( const ITEM* aOther, const NODE* aNode, bool aDifferentNetsOn
     {
         const LINE* line = static_cast<const LINE*>( aOther );
 
-        if( line->EndsWithVia() && line->Via().collideSimple( this, aNode, aDifferentNetsOnly ) )
+        if( line->EndsWithVia() && line->Via().collideSimple( this, aNode, aDifferentNetsOnly, aOverrideClearance ) )
             return true;
     }
 
@@ -175,6 +213,15 @@ std::string ITEM::KindStr() const
 
 ITEM::~ITEM()
 {
+}
+
+const std::string ITEM::Format() const
+{
+    std::stringstream ss;
+    ss << KindStr() << " ";
+    ss << "net " << m_net << " ";
+    ss << "layers " << m_layers.Start() << " " << m_layers.End();
+    return ss.str();
 }
 
 }

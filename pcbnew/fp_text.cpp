@@ -40,7 +40,7 @@
 
 FP_TEXT::FP_TEXT( FOOTPRINT* aParentFootprint, TEXT_TYPE text_type ) :
     BOARD_ITEM( aParentFootprint, PCB_FP_TEXT_T ),
-    EDA_TEXT()
+    EDA_TEXT( pcbIUScale )
 {
     FOOTPRINT* parentFootprint = static_cast<FOOTPRINT*>( m_parent );
 
@@ -48,7 +48,7 @@ FP_TEXT::FP_TEXT( FOOTPRINT* aParentFootprint, TEXT_TYPE text_type ) :
     SetKeepUpright( true );
 
     // Set text thickness to a default value
-    SetTextThickness( Millimeter2iu( DEFAULT_TEXT_WIDTH ) );
+    SetTextThickness( pcbIUScale.mmToIU( DEFAULT_TEXT_WIDTH ) );
     SetLayer( F_SilkS );
 
     // Set position and give a default layer if a valid parent footprint exists
@@ -74,7 +74,7 @@ FP_TEXT::~FP_TEXT()
 
 bool FP_TEXT::TextHitTest( const VECTOR2I& aPoint, int aAccuracy ) const
 {
-    EDA_RECT rect = GetTextBox();
+    BOX2I    rect = GetTextBox();
     VECTOR2I location = aPoint;
 
     rect.Inflate( aAccuracy );
@@ -85,9 +85,9 @@ bool FP_TEXT::TextHitTest( const VECTOR2I& aPoint, int aAccuracy ) const
 }
 
 
-bool FP_TEXT::TextHitTest( const EDA_RECT& aRect, bool aContains, int aAccuracy ) const
+bool FP_TEXT::TextHitTest( const BOX2I& aRect, bool aContains, int aAccuracy ) const
 {
-    EDA_RECT rect = aRect;
+    BOX2I rect = aRect;
 
     rect.Inflate( aAccuracy );
 
@@ -149,7 +149,10 @@ void FP_TEXT::Flip( const VECTOR2I& aCentre, bool aFlipLeftRight )
     }
 
     SetLayer( FlipLayer( GetLayer(), GetBoard()->GetCopperLayerCount() ) );
-    SetMirrored( IsBackLayer( GetLayer() ) );
+
+    if( ( GetLayerSet() & LSET::SideSpecificMask() ).any() )
+        SetMirrored( !IsMirrored() );
+
     SetLocalCoord();
 }
 
@@ -163,12 +166,22 @@ bool FP_TEXT::IsParentFlipped() const
 
 void FP_TEXT::Mirror( const VECTOR2I& aCentre, bool aMirrorAroundXAxis )
 {
-    // the position is mirrored, but the text itself is not mirrored
+    // the position and justification are mirrored, but not the text itself
 
     if( aMirrorAroundXAxis )
+    {
+        if( GetTextAngle() == ANGLE_VERTICAL )
+            SetHorizJustify( (GR_TEXT_H_ALIGN_T) -GetHorizJustify() );
+
         SetTextY( ::MIRRORVAL( GetTextPos().y, aCentre.y ) );
+    }
     else
+    {
+        if( GetTextAngle() == ANGLE_HORIZONTAL )
+            SetHorizJustify( (GR_TEXT_H_ALIGN_T) -GetHorizJustify() );
+
         SetTextX( ::MIRRORVAL( GetTextPos().x, aCentre.x ) );
+    }
 
     SetLocalCoord();
 }
@@ -219,15 +232,15 @@ void FP_TEXT::SetLocalCoord()
     }
 }
 
-const EDA_RECT FP_TEXT::GetBoundingBox() const
+const BOX2I FP_TEXT::GetBoundingBox() const
 {
     EDA_ANGLE angle = GetDrawRotation();
-    EDA_RECT  text_area = GetTextBox();
+    BOX2I     bbox = GetTextBox();
 
     if( !angle.IsZero() )
-        text_area = text_area.GetBoundingBoxRotated( GetTextPos(), angle );
+        bbox = bbox.GetBoundingBoxRotated( GetTextPos(), angle );
 
-    return text_area;
+    return bbox;
 }
 
 
@@ -241,11 +254,11 @@ EDA_ANGLE FP_TEXT::GetDrawRotation() const
 
     if( IsKeepUpright() )
     {
-        // Keep angle between 0 .. 90 deg. Otherwise the text is not easy to read
+        // Keep angle between ]-90 .. 90 deg]. Otherwise the text is not easy to read
         while( rotation > ANGLE_90 )
             rotation -= ANGLE_180;
 
-        while( rotation < ANGLE_0 )
+        while( rotation <= -ANGLE_90 )
             rotation += ANGLE_180;
     }
     else
@@ -293,18 +306,14 @@ void FP_TEXT::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITE
     msg.Printf( wxT( "%g" ), GetTextAngle().AsDegrees() );
     aList.emplace_back( _( "Angle" ), msg );
 
-    msg = MessageTextFromValue( aFrame->GetUserUnits(), GetTextThickness() );
-    aList.emplace_back( _( "Thickness" ), msg );
-
-    msg = MessageTextFromValue( aFrame->GetUserUnits(), GetTextWidth() );
-    aList.emplace_back( _( "Width" ), msg );
-
-    msg = MessageTextFromValue( aFrame->GetUserUnits(), GetTextHeight() );
-    aList.emplace_back( _( "Height" ), msg );
+    aList.emplace_back( _( "Font" ), GetFont() ? GetFont()->GetName() : _( "Default" ) );
+    aList.emplace_back( _( "Thickness" ), aFrame->MessageTextFromValue( GetTextThickness() ) );
+    aList.emplace_back( _( "Width" ), aFrame->MessageTextFromValue( GetTextWidth() ) );
+    aList.emplace_back( _( "Height" ), aFrame->MessageTextFromValue( GetTextHeight() ) );
 }
 
 
-wxString FP_TEXT::GetSelectMenuText( EDA_UNITS aUnits ) const
+wxString FP_TEXT::GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const
 {
     switch( m_Type )
     {
@@ -319,7 +328,7 @@ wxString FP_TEXT::GetSelectMenuText( EDA_UNITS aUnits ) const
 
     default:
         return wxString::Format( _( "Footprint Text '%s' of %s" ),
-                                 ShortenedShownText(),
+                                 KIUI::EllipsizeMenuText( GetShownText() ),
                                  static_cast<FOOTPRINT*>( GetParent() )->GetReference() );
     }
 }
@@ -340,7 +349,7 @@ EDA_ITEM* FP_TEXT::Clone() const
 const BOX2I FP_TEXT::ViewBBox() const
 {
     EDA_ANGLE angle = GetDrawRotation();
-    EDA_RECT  text_area = GetTextBox();
+    BOX2I     text_area = GetTextBox();
 
     if( !angle.IsZero() )
         text_area = text_area.GetBoundingBoxRotated( GetTextPos(), angle );
@@ -372,14 +381,10 @@ double FP_TEXT::ViewGetLOD( int aLayer, KIGFX::VIEW* aView ) const
     if( !aView->IsLayerVisible( GetLayer() ) )
         return HIDE;
 
-    RENDER_SETTINGS* renderSettings = aView->GetPainter()->GetSettings();
-    COLOR4D          backgroundColor = renderSettings->GetLayerColor( LAYER_PCB_BACKGROUND );
-
     // Handle Render tab switches
     if( m_Type == TEXT_is_VALUE || GetText() == wxT( "${VALUE}" ) )
     {
-        if( !aView->IsLayerVisible( LAYER_MOD_VALUES )
-                || renderSettings->GetLayerColor( LAYER_MOD_VALUES ) == backgroundColor )
+        if( !aView->IsLayerVisible( LAYER_MOD_VALUES ) )
         {
             return HIDE;
         }
@@ -387,8 +392,7 @@ double FP_TEXT::ViewGetLOD( int aLayer, KIGFX::VIEW* aView ) const
 
     if( m_Type == TEXT_is_REFERENCE || GetText() == wxT( "${REFERENCE}" ) )
     {
-        if( !aView->IsLayerVisible( LAYER_MOD_REFERENCES )
-                || renderSettings->GetLayerColor( LAYER_MOD_REFERENCES ) == backgroundColor )
+        if( !aView->IsLayerVisible( LAYER_MOD_REFERENCES ) )
         {
             return HIDE;
         }
@@ -408,7 +412,7 @@ double FP_TEXT::ViewGetLOD( int aLayer, KIGFX::VIEW* aView ) const
 }
 
 
-wxString FP_TEXT::GetShownText( int aDepth ) const
+wxString FP_TEXT::GetShownText( int aDepth, bool aAllowExtraText ) const
 {
     const FOOTPRINT* parentFootprint = static_cast<FOOTPRINT*>( GetParent() );
     wxASSERT( parentFootprint );
@@ -443,57 +447,59 @@ wxString FP_TEXT::GetShownText( int aDepth ) const
 }
 
 
-std::shared_ptr<SHAPE> FP_TEXT::GetEffectiveShape( PCB_LAYER_ID aLayer ) const
+std::shared_ptr<SHAPE> FP_TEXT::GetEffectiveShape( PCB_LAYER_ID aLayer, FLASHING aFlash ) const
 {
     return GetEffectiveTextShape();
 }
 
 
-void FP_TEXT::TransformTextShapeWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuffer,
-                                                        PCB_LAYER_ID aLayer, int aClearance,
-                                                        int aError, ERROR_LOC aErrorLoc ) const
+void FP_TEXT::TransformTextToPolySet( SHAPE_POLY_SET& aBuffer, PCB_LAYER_ID aLayer, int aClearance,
+                                      int aError, ERROR_LOC aErrorLoc ) const
 {
     KIGFX::GAL_DISPLAY_OPTIONS empty_opts;
-    KIFONT::FONT*              font = GetDrawFont();
+    KIFONT::FONT*              font = getDrawFont();
     int                        penWidth = GetEffectiveTextPenWidth();
+
+    // Note: this function is mainly used in 3D viewer.
+    // the polygonal shape of a text can have many basic shapes,
+    // so combining these shapes can be very useful to create a final shape
+    // swith a lot less vertices to speedup calculations using this final shape
+    // Simplify shapes is not usually always efficient, but in this case it is.
+    SHAPE_POLY_SET buffer;
 
     CALLBACK_GAL callback_gal( empty_opts,
             // Stroke callback
             [&]( const VECTOR2I& aPt1, const VECTOR2I& aPt2 )
             {
-                TransformOvalToPolygon( aCornerBuffer, aPt1, aPt2, penWidth+ ( 2 * aClearance ),
-                                        aError, ERROR_INSIDE );
+                TransformOvalToPolygon( buffer, aPt1, aPt2, penWidth + ( 2 * aClearance ), aError,
+                                        ERROR_INSIDE );
             },
             // Triangulation callback
             [&]( const VECTOR2I& aPt1, const VECTOR2I& aPt2, const VECTOR2I& aPt3 )
             {
-                aCornerBuffer.NewOutline();
+                buffer.NewOutline();
 
                 for( const VECTOR2I& point : { aPt1, aPt2, aPt3 } )
-                    aCornerBuffer.Append( point.x, point.y );
+                    buffer.Append( point.x, point.y );
             } );
 
     TEXT_ATTRIBUTES attrs = GetAttributes();
     attrs.m_Angle = GetDrawRotation();
 
     font->Draw( &callback_gal, GetShownText(), GetTextPos(), attrs );
+
+    buffer.Simplify( SHAPE_POLY_SET::PM_FAST );
+    aBuffer.Append( buffer );
 }
 
 
-void FP_TEXT::TransformShapeWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuffer,
-                                                    PCB_LAYER_ID aLayer, int aClearance,
-                                                    int aError, ERROR_LOC aErrorLoc,
-                                                    bool aIgnoreLineWidth ) const
+void FP_TEXT::TransformShapeToPolygon( SHAPE_POLY_SET& aBuffer, PCB_LAYER_ID aLayer, int aClearance,
+                                       int aError, ERROR_LOC aErrorLoc, bool aIgnoreLineWidth ) const
 {
     SHAPE_POLY_SET buffer;
-    EDA_TEXT::TransformBoundingBoxWithClearanceToPolygon( &buffer, aClearance );
 
-    const FOOTPRINT* parentFootprint = static_cast<const FOOTPRINT*>( m_parent );
-
-    if( parentFootprint )
-        buffer.Rotate( -GetDrawRotation(), GetTextPos() );
-
-    aCornerBuffer.Append( buffer );
+    EDA_TEXT::TransformBoundingBoxToPolygon( &buffer, aClearance );
+    aBuffer.Append( buffer );
 }
 
 

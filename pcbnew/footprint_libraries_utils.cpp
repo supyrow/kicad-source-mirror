@@ -46,6 +46,7 @@
 #include <env_paths.h>
 #include <paths.h>
 #include <settings/settings_manager.h>
+#include <project/project_file.h>
 #include <footprint_editor_settings.h>
 #include "footprint_viewer_frame.h"
 #include "tools/pad_tool.h"
@@ -851,6 +852,39 @@ bool FOOTPRINT_EDIT_FRAME::SaveFootprint( FOOTPRINT* aFootprint )
 }
 
 
+bool FOOTPRINT_EDIT_FRAME::DuplicateFootprint( FOOTPRINT* aFootprint )
+{
+    LIB_ID     fpID = aFootprint->GetFPID();
+    wxString   libraryName = fpID.GetLibNickname();
+    wxString   footprintName = fpID.GetLibItemName();
+
+    // Legacy libraries are readable, but modifying legacy format is not allowed
+    // So prompt the user if he try to add/replace a footprint in a legacy lib
+    wxString libFullName = Prj().PcbFootprintLibs()->FindRow( libraryName )->GetFullURI();
+
+    if( IO_MGR::GuessPluginTypeFromLibPath( libFullName ) == IO_MGR::LEGACY )
+    {
+        DisplayInfoMessage( this, INFO_LEGACY_LIB_WARN_EDIT );
+        return false;
+    }
+
+    FP_LIB_TABLE* tbl = Prj().PcbFootprintLibs();
+    int           i = 1;
+    wxString      newName = footprintName;
+
+    // Append a number to the name until the name is unique in the library.
+    while( tbl->FootprintExists( libraryName, newName ) )
+        newName.Printf( "%s_%d", footprintName, i++ );
+
+    aFootprint->SetFPID( LIB_ID( libraryName, newName ) );
+
+    if( aFootprint->GetValue() == footprintName )
+        aFootprint->SetValue( newName );
+
+    return SaveFootprintInLibrary( aFootprint, libraryName );
+}
+
+
 bool FOOTPRINT_EDIT_FRAME::SaveFootprintInLibrary( FOOTPRINT* aFootprint,
                                                    const wxString& aLibraryName )
 {
@@ -911,7 +945,9 @@ bool FOOTPRINT_EDIT_FRAME::SaveFootprintToBoard( bool aAddNew )
         return false;
     }
 
-    if( aAddNew && m_toolManager->GetTool<BOARD_EDITOR_CONTROL>()->PlacingFootprint() )
+    TOOL_MANAGER* pcb_ToolManager = pcbframe->GetToolManager();
+
+    if( aAddNew && pcb_ToolManager->GetTool<BOARD_EDITOR_CONTROL>()->PlacingFootprint() )
     {
         DisplayError( this, _( "Previous footprint placement still in progress." ) );
         return false;
@@ -964,12 +1000,98 @@ bool FOOTPRINT_EDIT_FRAME::SaveFootprintToBoard( bool aAddNew )
         commit.Push( wxT( "Insert footprint" ) );
 
         pcbframe->Raise();
-        m_toolManager->RunAction( PCB_ACTIONS::placeFootprint, true, newFootprint );
+        pcb_ToolManager->RunAction( PCB_ACTIONS::placeFootprint, true, newFootprint );
     }
 
     newFootprint->ClearFlags();
 
     return true;
+}
+
+
+static int ID_SAVE_AS_NAME     = 4172;
+static int ID_MAKE_NEW_LIBRARY = 4173;
+
+
+EDA_LIST_DIALOG* FOOTPRINT_EDIT_FRAME::buildSaveAsDialog( const wxString& aFootprintName,
+                                                          const wxString& aLibraryPreselect )
+{
+    COMMON_SETTINGS*           cfg = Pgm().GetCommonSettings();
+    PROJECT_FILE&              project = Kiway().Prj().GetProjectFile();
+    FP_LIB_TABLE*              tbl = Prj().PcbFootprintLibs();
+    std::vector<wxString>      nicknames = tbl->GetLogicalLibs();
+    wxArrayString              headers;
+    std::vector<wxArrayString> itemsToDisplay;
+
+    headers.Add( _( "Nickname" ) );
+    headers.Add( _( "Description" ) );
+
+    for( const wxString& nickname : nicknames )
+    {
+        if( alg::contains( project.m_PinnedFootprintLibs, nickname )
+                || alg::contains( cfg->m_Session.pinned_fp_libs, nickname ) )
+        {
+            wxArrayString item;
+
+            item.Add( LIB_TREE_MODEL_ADAPTER::GetPinningSymbol() + nickname );
+            item.Add( tbl->GetDescription( nickname ) );
+            itemsToDisplay.push_back( item );
+        }
+    }
+
+    for( const wxString& nickname : nicknames )
+    {
+        if( !alg::contains( project.m_PinnedFootprintLibs, nickname )
+                && !alg::contains( cfg->m_Session.pinned_fp_libs, nickname ) )
+        {
+            wxArrayString item;
+
+            item.Add( nickname );
+            item.Add( tbl->GetDescription( nickname ) );
+            itemsToDisplay.push_back( item );
+        }
+    }
+
+    EDA_LIST_DIALOG* dlg = new EDA_LIST_DIALOG( this, _( "Save Footprint As" ), headers,
+                                                itemsToDisplay, aLibraryPreselect, false );
+
+    dlg->SetListLabel( _( "Save in library:" ) );
+    dlg->SetOKLabel( _( "Save" ) );
+
+    wxBoxSizer* bNameSizer = new wxBoxSizer( wxHORIZONTAL );
+
+    wxStaticText* label = new wxStaticText( dlg, wxID_ANY, _( "Name:" ) );
+    bNameSizer->Add( label, 0, wxALIGN_CENTER_VERTICAL|wxTOP|wxBOTTOM|wxLEFT, 5 );
+
+    wxTextCtrl* nameTextCtrl = new wxTextCtrl( dlg, ID_SAVE_AS_NAME, aFootprintName );
+    bNameSizer->Add( nameTextCtrl, 1, wxALIGN_CENTER_VERTICAL|wxALL, 5 );
+
+    wxTextValidator nameValidator( wxFILTER_EXCLUDE_CHAR_LIST );
+    nameValidator.SetCharExcludes( FOOTPRINT::StringLibNameInvalidChars( false ) );
+    nameTextCtrl->SetValidator( nameValidator );
+
+    wxButton* newLibraryButton = new wxButton( dlg, ID_MAKE_NEW_LIBRARY, _( "New Library..." ) );
+    dlg->m_ButtonsSizer->Prepend( 80, 20 );
+    dlg->m_ButtonsSizer->Prepend( newLibraryButton, 0, wxALIGN_CENTER_VERTICAL|wxLEFT|wxRIGHT, 10 );
+
+    dlg->GetSizer()->Prepend( bNameSizer, 0, wxEXPAND|wxTOP|wxLEFT|wxRIGHT, 5 );
+
+    dlg->Bind( wxEVT_BUTTON,
+            [dlg]( wxCommandEvent& )
+            {
+                dlg->EndModal( ID_MAKE_NEW_LIBRARY );
+            }, ID_MAKE_NEW_LIBRARY );
+
+    // Move nameTextCtrl to the head of the tab-order
+    if( dlg->GetChildren().DeleteObject( nameTextCtrl ) )
+        dlg->GetChildren().Insert( nameTextCtrl );
+
+    dlg->SetInitialFocus( nameTextCtrl );
+
+    dlg->Layout();
+    dlg->GetSizer()->Fit( dlg );
+
+    return dlg;
 }
 
 
@@ -985,56 +1107,32 @@ bool FOOTPRINT_EDIT_FRAME::SaveFootprintAs( FOOTPRINT* aFootprint )
     wxString libraryName = aFootprint->GetFPID().GetLibNickname();
     wxString footprintName = aFootprint->GetFPID().GetLibItemName();
     bool     updateValue = aFootprint->GetValue() == footprintName;
+    bool     done = false;
 
-    wxArrayString              headers;
-    std::vector<wxArrayString> itemsToDisplay;
-    std::vector<wxString>      nicknames = tbl->GetLogicalLibs();
+    std::unique_ptr<EDA_LIST_DIALOG> dlg;
 
-    headers.Add( _( "Nickname" ) );
-    headers.Add( _( "Description" ) );
-
-    for( const wxString& nickname : nicknames )
+    while( !done )
     {
-        wxArrayString item;
-        item.Add( nickname );
-        item.Add( tbl->GetDescription( nickname ) );
-        itemsToDisplay.push_back( item );
+        dlg.reset( buildSaveAsDialog( footprintName, libraryName ) );
+
+        int ret = dlg->ShowModal();
+
+        if( ret == wxID_CANCEL )
+        {
+            return false;
+        }
+        else if( ret == wxID_OK )
+        {
+            done = true;
+        }
+        else if( ret == ID_MAKE_NEW_LIBRARY )
+        {
+            wxFileName newLibrary( CreateNewLibrary() );
+            libraryName = newLibrary.GetName();
+        }
     }
 
-    EDA_LIST_DIALOG dlg( this, _( "Save Footprint As" ), headers, itemsToDisplay, libraryName );
-    dlg.SetListLabel( _( "Save in library:" ) );
-    dlg.SetOKLabel( _( "Save" ) );
-
-    wxBoxSizer* bNameSizer = new wxBoxSizer( wxHORIZONTAL );
-
-    wxStaticText* label = new wxStaticText( &dlg, wxID_ANY, _( "Name:" ),
-                                            wxDefaultPosition, wxDefaultSize, 0 );
-    bNameSizer->Add( label, 0, wxALIGN_CENTER_VERTICAL|wxTOP|wxBOTTOM|wxLEFT, 5 );
-
-    wxTextCtrl* nameTextCtrl = new wxTextCtrl( &dlg, wxID_ANY, footprintName,
-                                               wxDefaultPosition, wxDefaultSize, 0 );
-    bNameSizer->Add( nameTextCtrl, 1, wxALIGN_CENTER_VERTICAL|wxALL, 5 );
-
-    wxTextValidator nameValidator( wxFILTER_EXCLUDE_CHAR_LIST );
-    nameValidator.SetCharExcludes( FOOTPRINT::StringLibNameInvalidChars( false ) );
-    nameTextCtrl->SetValidator( nameValidator );
-
-    wxSizer* mainSizer = dlg.GetSizer();
-    mainSizer->Prepend( bNameSizer, 0, wxEXPAND|wxTOP|wxLEFT|wxRIGHT, 5 );
-
-    // Move nameTextCtrl to the head of the tab-order
-    if( dlg.GetChildren().DeleteObject( nameTextCtrl ) )
-        dlg.GetChildren().Insert( nameTextCtrl );
-
-    dlg.SetInitialFocus( nameTextCtrl );
-
-    dlg.Layout();
-    mainSizer->Fit( &dlg );
-
-    if( dlg.ShowModal() != wxID_OK )
-        return false;                   // canceled by user
-
-    libraryName = dlg.GetTextSelection();
+    libraryName = dlg->GetTextSelection();
 
     if( libraryName.IsEmpty() )
     {
@@ -1042,7 +1140,7 @@ bool FOOTPRINT_EDIT_FRAME::SaveFootprintAs( FOOTPRINT* aFootprint )
         return false;
     }
 
-    footprintName = nameTextCtrl->GetValue();
+    footprintName = static_cast<wxTextCtrl*>( dlg->FindWindow( ID_SAVE_AS_NAME ) )->GetValue();
     footprintName.Trim( true );
     footprintName.Trim( false );
 
@@ -1102,7 +1200,7 @@ bool FOOTPRINT_EDIT_FRAME::SaveFootprintAs( FOOTPRINT* aFootprint )
 
 bool FOOTPRINT_EDIT_FRAME::RevertFootprint()
 {
-    if( GetScreen()->IsContentModified() && m_revertModule )
+    if( GetScreen()->IsContentModified() && m_originalFootprintCopy )
     {
         wxString msg = wxString::Format( _( "Revert '%s' to last version saved?" ),
                                          GetLoadedFPID().GetLibItemName().wx_str() );
@@ -1110,7 +1208,7 @@ bool FOOTPRINT_EDIT_FRAME::RevertFootprint()
         if( ConfirmRevertDialog( this, msg ) )
         {
             Clear_Pcb( false );
-            AddFootprintToBoard( static_cast<FOOTPRINT*>( m_revertModule->Clone() ) );
+            AddFootprintToBoard( static_cast<FOOTPRINT*>( m_originalFootprintCopy->Clone() ) );
 
             Zoom_Automatique( false );
 
@@ -1173,9 +1271,6 @@ FOOTPRINT* PCB_BASE_FRAME::CreateNewFootprint( const wxString& aFootprintName, b
 
     // Creates the new footprint and add it to the head of the linked list of footprints
     FOOTPRINT* footprint = new FOOTPRINT( GetBoard() );
-
-    // Update parameters: timestamp ...
-    footprint->SetLastEditTime();
 
     // Update its name in lib
     footprint->SetFPID( LIB_ID( wxEmptyString, footprintName ) );
@@ -1248,22 +1343,40 @@ wxString PCB_BASE_FRAME::SelectLibrary( const wxString& aNicknameExisting )
     headers.Add( _( "Nickname" ) );
     headers.Add( _( "Description" ) );
 
-    FP_LIB_TABLE*   fptbl = Prj().PcbFootprintLibs();
-
+    COMMON_SETTINGS*             cfg = Pgm().GetCommonSettings();
+    PROJECT_FILE&                project = Kiway().Prj().GetProjectFile();
+    FP_LIB_TABLE*                fptbl = Prj().PcbFootprintLibs();
     std::vector< wxArrayString > itemsToDisplay;
     std::vector< wxString >      nicknames = fptbl->GetLogicalLibs();
 
     for( const wxString& nickname : nicknames )
     {
-        wxArrayString item;
+        if( alg::contains( project.m_PinnedFootprintLibs, nickname )
+                || alg::contains( cfg->m_Session.pinned_fp_libs, nickname ) )
+        {
+            wxArrayString item;
 
-        item.Add( nickname );
-        item.Add( fptbl->GetDescription( nickname ) );
-
-        itemsToDisplay.push_back( item );
+            item.Add( LIB_TREE_MODEL_ADAPTER::GetPinningSymbol() + nickname );
+            item.Add( fptbl->GetDescription( nickname ) );
+            itemsToDisplay.push_back( item );
+        }
     }
 
-    EDA_LIST_DIALOG dlg( this, _( "Select Library" ), headers, itemsToDisplay, aNicknameExisting );
+    for( const wxString& nickname : nicknames )
+    {
+        if( !alg::contains( project.m_PinnedFootprintLibs, nickname )
+                && !alg::contains( cfg->m_Session.pinned_fp_libs, nickname ) )
+        {
+            wxArrayString item;
+
+            item.Add( nickname );
+            item.Add( fptbl->GetDescription( nickname ) );
+            itemsToDisplay.push_back( item );
+        }
+    }
+
+    EDA_LIST_DIALOG dlg( this, _( "Select Library" ), headers, itemsToDisplay, aNicknameExisting,
+                         false );
 
     if( dlg.ShowModal() != wxID_OK )
         return wxEmptyString;

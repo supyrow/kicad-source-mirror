@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2020-2021 KiCad Developers, see change_log.txt for contributors.
+ * Copyright (C) 2020-2022 KiCad Developers, see change_log.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -68,6 +68,20 @@ void DRC_RULES_PARSER::reportError( const wxString& aMessage )
         wxString msg = wxString::Format( _( "ERROR: %s%s" ), first, rest );
 
         THROW_PARSE_ERROR( msg, CurSource(), CurLine(), CurLineNumber(), CurOffset() );
+    }
+}
+
+
+void DRC_RULES_PARSER::reportDeprecation( const wxString& oldToken, const wxString newToken )
+{
+    if( m_reporter )
+    {
+        wxString msg = wxString::Format( _( "The '%s' keyword has been deprecated.  "
+                                            "Please use '%s' instead." ),
+                                         oldToken,
+                                         newToken);
+
+        m_reporter->Report( msg, RPT_SEVERITY_WARNING );
     }
 }
 
@@ -155,7 +169,7 @@ void DRC_RULES_PARSER::Parse( std::vector<std::shared_ptr<DRC_RULE>>& aRules, RE
 
         default:
             msg.Printf( _( "Unrecognized item '%s'.| Expected %s." ), FromUTF8(),
-                        "'rule', 'version'" );
+                        wxT( "rule or version" ) );
             reportError( msg );
             parseUnknown();
         }
@@ -237,7 +251,7 @@ std::shared_ptr<DRC_RULE> DRC_RULES_PARSER::parseDRC_RULE()
 
         default:
             msg.Printf( _( "Unrecognized item '%s'.| Expected %s." ), FromUTF8(),
-                           "constraint, condition or disallow" );
+                        wxT( "constraint, condition, or disallow" ) );
             reportError( msg );
             parseUnknown();
         }
@@ -258,14 +272,30 @@ void DRC_RULES_PARSER::parseConstraint( DRC_RULE* aRule )
 
     T token = NextTok();
 
-    if( (int) token == DSN_RIGHT || token == T_EOF )
+    if( token == T_mechanical_clearance )
+    {
+        reportDeprecation( wxT( "mechanical_clearance" ), wxT( "physical_clearance" ) );
+        token = T_physical_clearance;
+    }
+    else if( token == T_mechanical_hole_clearance )
+    {
+        reportDeprecation( wxT( "mechanical_hole_clearance" ), wxT( "physical_hole_clearance" ) );
+        token = T_physical_hole_clearance;
+    }
+    else if( token == T_hole )
+    {
+        reportDeprecation( wxT( "hole" ), wxT( "hole_size" ) );
+        token = T_hole_size;
+    }
+    else if( (int) token == DSN_RIGHT || token == T_EOF )
     {
         msg.Printf( _( "Missing constraint type.|  Expected %s." ),
-                    "assertion, clearance, hole_clearance, edge_clearance, mechanical_clearance, "
-                    "mechanical_hole_clearance, courtyard_clearance, silk_clearance, hole_size, "
-                    "hole_to_hole, track_width, annular_width, via_diameter, disallow, "
-                    "zone_connection, thermal_relief_gap, thermal_spoke_width, min_resolved_spokes, "
-                    "length, skew, via_count, diff_pair_gap or diff_pair_uncoupled" );
+                    wxT( "assertion, clearance, hole_clearance, edge_clearance, "
+                         "physical_clearance, physical_hole_clearance, courtyard_clearance, "
+                         "silk_clearance, hole_size, hole_to_hole, track_width, annular_width, "
+                         "via_diameter, disallow, zone_connection, thermal_relief_gap, "
+                         "thermal_spoke_width, min_resolved_spokes, length, skew, via_count, "
+                         "diff_pair_gap or diff_pair_uncoupled" ) );
         reportError( msg );
         return;
     }
@@ -276,7 +306,6 @@ void DRC_RULES_PARSER::parseConstraint( DRC_RULE* aRule )
     case T_clearance:                 c.m_Type = CLEARANCE_CONSTRAINT;                 break;
     case T_hole_clearance:            c.m_Type = HOLE_CLEARANCE_CONSTRAINT;            break;
     case T_edge_clearance:            c.m_Type = EDGE_CLEARANCE_CONSTRAINT;            break;
-    case T_hole:  // legacy token
     case T_hole_size:                 c.m_Type = HOLE_SIZE_CONSTRAINT;                 break;
     case T_hole_to_hole:              c.m_Type = HOLE_TO_HOLE_CONSTRAINT;              break;
     case T_courtyard_clearance:       c.m_Type = COURTYARD_CLEARANCE_CONSTRAINT;       break;
@@ -284,6 +313,7 @@ void DRC_RULES_PARSER::parseConstraint( DRC_RULE* aRule )
     case T_text_height:               c.m_Type = TEXT_HEIGHT_CONSTRAINT;               break;
     case T_text_thickness:            c.m_Type = TEXT_THICKNESS_CONSTRAINT;            break;
     case T_track_width:               c.m_Type = TRACK_WIDTH_CONSTRAINT;               break;
+    case T_connection_width:          c.m_Type = CONNECTION_WIDTH_CONSTRAINT;          break;
     case T_annular_width:             c.m_Type = ANNULAR_WIDTH_CONSTRAINT;             break;
     case T_via_diameter:              c.m_Type = VIA_DIAMETER_CONSTRAINT;              break;
     case T_zone_connection:           c.m_Type = ZONE_CONNECTION_CONSTRAINT;           break;
@@ -296,15 +326,16 @@ void DRC_RULES_PARSER::parseConstraint( DRC_RULE* aRule )
     case T_via_count:                 c.m_Type = VIA_COUNT_CONSTRAINT;                 break;
     case T_diff_pair_gap:             c.m_Type = DIFF_PAIR_GAP_CONSTRAINT;             break;
     case T_diff_pair_uncoupled:       c.m_Type = DIFF_PAIR_MAX_UNCOUPLED_CONSTRAINT;   break;
-    case T_mechanical_clearance:      c.m_Type = MECHANICAL_CLEARANCE_CONSTRAINT;      break;
-    case T_mechanical_hole_clearance: c.m_Type = MECHANICAL_HOLE_CLEARANCE_CONSTRAINT; break;
+    case T_physical_clearance:        c.m_Type = PHYSICAL_CLEARANCE_CONSTRAINT;        break;
+    case T_physical_hole_clearance:   c.m_Type = PHYSICAL_HOLE_CLEARANCE_CONSTRAINT;   break;
     default:
         msg.Printf( _( "Unrecognized item '%s'.| Expected %s." ), FromUTF8(),
-                    "assertion, clearance, hole_clearance, edge_clearance, mechanical_clearance, "
-                    "mechanical_hole_clearance, courtyard_clearance, silk_clearance, hole_size, "
-                    "hole_to_hole, track_width, annular_width, disallow, zone_connection, "
-                    "thermal_relief_gap, thermal_spoke_width, min_resolved_spokes, length, skew, "
-                    "via_count, via_diameter, diff_pair_gap or diff_pair_uncoupled" );
+                    wxT( "assertion, clearance, hole_clearance, edge_clearance, "
+                         "physical_clearance, physical_hole_clearance, courtyard_clearance, "
+                         "silk_clearance, hole_size, hole_to_hole, track_width, annular_width, "
+                         "disallow, zone_connection, thermal_relief_gap, thermal_spoke_width, "
+                         "min_resolved_spokes, length, skew, via_count, via_diameter, "
+                         "diff_pair_gap or diff_pair_uncoupled" ) );
         reportError( msg );
     }
 
@@ -340,8 +371,8 @@ void DRC_RULES_PARSER::parseConstraint( DRC_RULE* aRule )
 
             default:
                 msg.Printf( _( "Unrecognized item '%s'.| Expected %s." ), FromUTF8(),
-                            "track, via, micro_via, buried_via, pad, zone, text, graphic, hole "
-                            "or footprint." );
+                            wxT( "track, via, micro_via, buried_via, pad, zone, text, graphic, "
+                                 "hole, or footprint." ) );
                 reportError( msg );
                 break;
             }
@@ -518,7 +549,7 @@ void DRC_RULES_PARSER::parseConstraint( DRC_RULE* aRule )
         default:
             msg.Printf( _( "Unrecognized item '%s'.| Expected %s." ),
                         FromUTF8(),
-                        "min, max or opt" );
+                        wxT( "min, max, or opt" ) );
             reportError( msg );
             parseUnknown();
         }
@@ -633,7 +664,7 @@ SEVERITY DRC_RULES_PARSER::parseSeverity()
     default:
         msg.Printf( _( "Unrecognized item '%s'.| Expected %s." ),
                     FromUTF8(),
-                    "ignore, warning, error or exclusion" );
+                    wxT( "ignore, warning, error, or exclusion" ) );
         reportError( msg );
         parseUnknown();
     }

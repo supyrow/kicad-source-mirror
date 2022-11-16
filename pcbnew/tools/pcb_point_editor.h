@@ -74,9 +74,6 @@ private:
     ///< Update item's points with edit points.
     void updateItem() const;
 
-    ///< Apply the last changes to the edited item.
-    void finishItem();
-
     /**
      * Validate a polygon and displays a popup warning if invalid.
      *
@@ -110,6 +107,10 @@ private:
     {
         return m_editedPoint == &aPoint;
     }
+
+    void pinEditedCorner( VECTOR2I& aTopLeft, VECTOR2I& aTopRight, VECTOR2I& aBotLeft,
+                          VECTOR2I& aBotRight, const VECTOR2I& aHole = { 0, 0 },
+                          const VECTOR2I& aHoleSize = { 0, 0 } ) const;
 
     ///< Set up an alternative constraint (typically enabled upon a modifier key being pressed).
     void setAltConstraint( bool aEnabled );
@@ -161,9 +162,9 @@ private:
     ///< Change the edit method to an alternative method ( currently, arcs only )
     int changeEditMethod( const TOOL_EVENT& aEvent );
 
-    PCB_SELECTION_TOOL*                m_selectionTool;
-    std::unique_ptr<STATUS_TEXT_POPUP> m_statusPopup;
-    std::shared_ptr<EDIT_POINTS>       m_editPoints;
+    PCB_SELECTION_TOOL*                        m_selectionTool;
+    mutable std::unique_ptr<STATUS_TEXT_POPUP> m_statusPopup;
+    std::shared_ptr<EDIT_POINTS>               m_editPoints;
 
     EDIT_POINT*         m_editedPoint;
     EDIT_POINT*         m_hoveredPoint;
@@ -176,6 +177,8 @@ private:
     // Alternative constraint, enabled while a modifier key is held
     std::shared_ptr<EDIT_CONSTRAINT<EDIT_POINT>> m_altConstraint;
     EDIT_POINT                                   m_altConstrainer;
+
+    static const unsigned int COORDS_PADDING; // Padding from coordinates limits for this tool
 };
 
 #endif

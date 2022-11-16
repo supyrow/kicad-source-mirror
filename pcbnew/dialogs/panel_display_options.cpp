@@ -53,8 +53,7 @@ void PANEL_DISPLAY_OPTIONS::loadPCBSettings( PCBNEW_SETTINGS* aCfg )
     m_OptDisplayTracksClearance->SetSelection( i );
 
     m_OptDisplayPadClearence->SetValue( aCfg->m_Display.m_PadClearance );
-    m_OptDisplayPadNumber->SetValue( aCfg->m_Display.m_PadNumbers );
-    m_OptDisplayPadNoConn->SetValue( aCfg->m_Display.m_PadNoConnects );
+    m_OptDisplayPadNumber->SetValue( aCfg->m_ViewersDisplay.m_DisplayPadNumbers );
     m_ShowNetNamesOption->SetSelection( aCfg->m_Display.m_NetNames );
     m_live3Drefresh->SetValue( aCfg->m_Display.m_Live3DRefresh );
     m_checkCrossProbeOnSelection->SetValue( aCfg->m_CrossProbing.on_selection );
@@ -89,18 +88,17 @@ bool PANEL_DISPLAY_OPTIONS::TransferDataFromWindow()
 
     if( m_isPCBEdit )
     {
-        SETTINGS_MANAGER& mgr = Pgm().GetSettingsManager();
-        PCBNEW_SETTINGS*  cfg = mgr.GetAppSettings<PCBNEW_SETTINGS>();
+        PCBNEW_SETTINGS* cfg = Pgm().GetSettingsManager().GetAppSettings<PCBNEW_SETTINGS>();
 
         int i = m_OptDisplayTracksClearance->GetSelection();
         cfg->m_Display.m_TrackClearance = UTIL::GetValFromConfig( clearanceModeMap, i );
 
         cfg->m_Display.m_PadClearance = m_OptDisplayPadClearence->GetValue();
-        cfg->m_Display.m_PadNumbers = m_OptDisplayPadNumber->GetValue();
-        cfg->m_Display.m_PadNoConnects = m_OptDisplayPadNoConn->GetValue();
+        cfg->m_ViewersDisplay.m_DisplayPadNumbers = m_OptDisplayPadNumber->GetValue();
         cfg->m_Display.m_NetNames = m_ShowNetNamesOption->GetSelection();
         cfg->m_Display.m_Live3DRefresh = m_live3Drefresh->GetValue();
         cfg->m_CrossProbing.on_selection = m_checkCrossProbeOnSelection->GetValue();
+        cfg->m_CrossProbing.center_on_items = m_checkCrossProbeCenter->GetValue();
         cfg->m_CrossProbing.zoom_to_fit = m_checkCrossProbeZoom->GetValue();
         cfg->m_CrossProbing.auto_highlight = m_checkCrossProbeAutoHighlight->GetValue();
     }

@@ -1,13 +1,10 @@
-/**
- * @file pcbnew/netlist.cpp
- */
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 1992-2013 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2013 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
  * Copyright (C) 2013-2016 Wayne Stambaugh <stambaughw@verizon.net>
- * Copyright (C) 1992-2016 KiCad Developers, see change_log.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see change_log.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -39,6 +36,7 @@ using namespace std::placeholders;
 #include <fp_lib_table.h>
 #include <board.h>
 #include <footprint.h>
+#include <spread_footprints.h>
 #include <ratsnest/ratsnest_data.h>
 #include <io_mgr.h>
 #include "board_netlist_updater.h"
@@ -47,9 +45,6 @@ using namespace std::placeholders;
 #include <tools/pcb_selection_tool.h>
 #include <project/project_file.h>  // LAST_PATH_TYPE
 #include <wx/msgdlg.h>
-
-
-extern void SpreadFootprints( std::vector<FOOTPRINT*>* aFootprints, VECTOR2I aSpreadAreaPosition );
 
 
 bool PCB_EDIT_FRAME::ReadNetlistFromFile( const wxString &aFilename, NETLIST& aNetlist,
@@ -88,9 +83,6 @@ bool PCB_EDIT_FRAME::ReadNetlistFromFile( const wxString &aFilename, NETLIST& aN
 
 void PCB_EDIT_FRAME::OnNetlistChanged( BOARD_NETLIST_UPDATER& aUpdater, bool* aRunDragCommand )
 {
-    std::string dummyPayload;
-    Kiway().ExpressMail( FRAME_SCH, MAIL_SCH_CLEAN_NETCLASSES, dummyPayload, this );
-
     BOARD* board = GetBoard();
 
     SetMsgPanel( board );
@@ -100,15 +92,12 @@ void PCB_EDIT_FRAME::OnNetlistChanged( BOARD_NETLIST_UPDATER& aUpdater, bool* aR
     for( auto track : board->Tracks() )
         GetCanvas()->GetView()->Update( track );
 
-    std::vector<FOOTPRINT*> newFootprints = aUpdater.GetAddedFootprints();
-
     // Spread new footprints.
-    wxPoint areaPosition = (wxPoint) GetCanvas()->GetViewControls()->GetCursorPosition();
-    EDA_RECT bbox = board->GetBoundingBox();
+    std::vector<FOOTPRINT*> newFootprints = aUpdater.GetAddedFootprints();
 
     GetToolManager()->RunAction( PCB_ACTIONS::selectionClear, true );
 
-    SpreadFootprints( &newFootprints, areaPosition );
+    SpreadFootprints( &newFootprints, { 0, 0 }, true );
 
     // Start drag command for new footprints
     if( !newFootprints.empty() )
@@ -117,13 +106,6 @@ void PCB_EDIT_FRAME::OnNetlistChanged( BOARD_NETLIST_UPDATER& aUpdater, bool* aR
             GetToolManager()->RunAction( PCB_ACTIONS::selectItem, true, footprint );
 
         *aRunDragCommand = true;
-
-        // Now fix a reference point to move the footprints.
-        // We use the first footprint in list as reference point
-        // The graphic cursor will be on this fp when moving the footprints.
-        PCB_SELECTION_TOOL* selTool = GetToolManager()->GetTool<PCB_SELECTION_TOOL>();
-        PCB_SELECTION&      selection = selTool->GetSelection();
-        selection.SetReferencePoint( newFootprints[0]->GetPosition() );
     }
 
     Compile_Ratsnest( true );

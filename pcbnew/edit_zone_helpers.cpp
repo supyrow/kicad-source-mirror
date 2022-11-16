@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2012 Jean-Pierre Charras, jean-pierre.charras@ujf-grenoble.fr
- * Copyright (C) 1992-2012 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * Some code comes from FreePCB.
  *
@@ -33,8 +33,6 @@
 #include <zones.h>
 #include <zones_functions_for_undo_redo.h>
 #include <connectivity/connectivity_data.h>
-#include <widgets/wx_progress_reporters.h>
-#include <zone_filler.h>
 
 
 void PCB_EDIT_FRAME::Edit_Zone_Params( ZONE* aZone )
@@ -47,9 +45,7 @@ void PCB_EDIT_FRAME::Edit_Zone_Params( ZONE* aZone )
 
     // Save initial zones configuration, for undo/redo, before adding new zone
     // note the net name and the layer can be changed, so we must save all zones
-    deletedList.ClearListAndDeleteItems();
-    pickedList.ClearListAndDeleteItems();
-    SaveCopyOfZones( pickedList, GetBoard(), -1, UNDEFINED_LAYER );
+    SaveCopyOfZones( pickedList, GetBoard() );
 
     if( aZone->GetIsRuleArea() )
     {
@@ -57,7 +53,7 @@ void PCB_EDIT_FRAME::Edit_Zone_Params( ZONE* aZone )
         zoneInfo << *aZone;
         dialogResult = InvokeRuleAreaEditor( this, &zoneInfo );
     }
-    else if( IsCopperLayer( aZone->GetLayer() ) )
+    else if( IsCopperLayer( aZone->GetFirstLayer() ) )
     {
         // edit a zone on a copper layer
         zoneInfo << *aZone;
@@ -71,8 +67,8 @@ void PCB_EDIT_FRAME::Edit_Zone_Params( ZONE* aZone )
 
     if( dialogResult == wxID_CANCEL )
     {
-        deletedList.ClearListAndDeleteItems();
-        pickedList.ClearListAndDeleteItems();
+        ClearListAndDeleteItems( &deletedList );
+        ClearListAndDeleteItems( &pickedList );
         return;
     }
 
@@ -103,45 +99,10 @@ void PCB_EDIT_FRAME::Edit_Zone_Params( ZONE* aZone )
 
     UpdateCopyOfZonesList( pickedList, deletedList, GetBoard() );
 
-    // refill zones with the new properties applied
-    std::vector<ZONE*> zones_to_refill;
-
-    for( unsigned i = 0; i < pickedList.GetCount(); ++i )
-    {
-        ZONE* zone = dyn_cast<ZONE*>( pickedList.GetPickedItem( i ) );
-
-        if( zone == nullptr )
-        {
-            wxASSERT_MSG( false, wxT( "Expected a zone after zone properties edit" ) );
-            continue;
-        }
-
-        // aZone won't be filled if the layer set was modified, but it needs to be updated
-        if( zone->IsFilled() || zone == aZone )
-            zones_to_refill.push_back( zone );
-    }
-
     commit.Stage( pickedList );
 
-    // Only auto-refill zones here if in user preferences
-    if( Settings().m_AutoRefillZones )
-    {
-        if( zones_to_refill.size() )
-        {
-            ZONE_FILLER filler( GetBoard(), &commit );
-            wxString    title = wxString::Format( _( "Refill %d Zones" ),
-                                                  (int) zones_to_refill.size() );
-
-            std::unique_ptr<WX_PROGRESS_REPORTER> reporter;
-            reporter = std::make_unique<WX_PROGRESS_REPORTER>( this, title, 4 );
-            filler.SetProgressReporter( reporter.get() );
-
-            (void) filler.Fill( zones_to_refill );
-        }
-    }
-
-    commit.Push( _( "Modify zone properties" ), true, true, false );
-    GetBoard()->GetConnectivity()->Build( GetBoard() );
+    commit.Push( _( "Modify zone properties" ), SKIP_CONNECTIVITY );
+    GetBoard()->BuildConnectivity();
 
     pickedList.ClearItemsList();  // s_ItemsListPicker is no longer owner of picked items
 }
@@ -150,7 +111,7 @@ void PCB_EDIT_FRAME::Edit_Zone_Params( ZONE* aZone )
 bool BOARD::TestZoneIntersection( ZONE* aZone1, ZONE* aZone2 )
 {
     // see if areas are on same layer
-    if( aZone1->GetLayer() != aZone2->GetLayer() )
+    if( !( aZone1->GetLayerSet() & aZone2->GetLayerSet() ).any() )
         return false;
 
     SHAPE_POLY_SET* poly1 = aZone1->Outline();

@@ -40,21 +40,24 @@
 
 
 LIB_FIELD::LIB_FIELD( LIB_SYMBOL* aParent, int aId ) :
-    LIB_ITEM( LIB_FIELD_T, aParent )
+    LIB_ITEM( LIB_FIELD_T, aParent ),
+    EDA_TEXT( schIUScale )
 {
     Init( aId );
 }
 
 
 LIB_FIELD::LIB_FIELD( int aId ) :
-    LIB_ITEM( LIB_FIELD_T, nullptr )
+    LIB_ITEM( LIB_FIELD_T, nullptr ),
+    EDA_TEXT( schIUScale )
 {
     Init( aId );
 }
 
 
 LIB_FIELD::LIB_FIELD( int aId, const wxString& aName ) :
-    LIB_ITEM( LIB_FIELD_T, nullptr )
+    LIB_ITEM( LIB_FIELD_T, nullptr ),
+    EDA_TEXT( schIUScale )
 {
     Init( aId );
     m_name = aName;
@@ -68,9 +71,13 @@ LIB_FIELD::~LIB_FIELD()
 
 LIB_FIELD& LIB_FIELD::operator=( const LIB_FIELD& field )
 {
-    m_id = field.m_id;
-    m_name = field.m_name;
-    m_parent = field.m_parent;
+    m_id             = field.m_id;
+    m_name           = field.m_name;
+    m_parent         = field.m_parent;
+    m_autoAdded      = field.m_autoAdded;
+    m_showName       = field.m_showName;
+    m_allowAutoPlace = field.m_allowAutoPlace;
+    m_showInChooser  = field.m_showInChooser;
 
     SetText( field.GetText() );
     SetAttributes( field );
@@ -95,6 +102,11 @@ void LIB_FIELD::Init( int aId )
     // template fieldsnames' initial visibility is controlled by the template fieldname config.
     if( aId == DATASHEET_FIELD || aId == FOOTPRINT_FIELD )
         SetVisible( false );
+
+    m_autoAdded      = false;
+    m_showName       = false;
+    m_allowAutoPlace = true;
+    m_showInChooser  = true;
 }
 
 
@@ -111,7 +123,7 @@ int LIB_FIELD::GetPenWidth() const
 }
 
 
-KIFONT::FONT* LIB_FIELD::GetDrawFont() const
+KIFONT::FONT* LIB_FIELD::getDrawFont() const
 {
     KIFONT::FONT* font = EDA_TEXT::GetFont();
 
@@ -123,16 +135,32 @@ KIFONT::FONT* LIB_FIELD::GetDrawFont() const
 
 
 void LIB_FIELD::print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset, void* aData,
-                       const TRANSFORM& aTransform )
+                       const TRANSFORM& aTransform, bool aDimmed )
 {
     wxDC*    DC = aSettings->GetPrintDC();
     COLOR4D  color = aSettings->GetLayerColor( IsVisible() ? GetDefaultLayer() : LAYER_HIDDEN );
+    COLOR4D  bg = aSettings->GetBackgroundColor();
+    bool     blackAndWhiteMode = GetGRForceBlackPenState();
     int      penWidth = GetEffectivePenWidth( aSettings );
     VECTOR2I text_pos = aTransform.TransformCoordinate( GetTextPos() ) + aOffset;
     wxString text = aData ? *static_cast<wxString*>( aData ) : GetText();
 
+    if( blackAndWhiteMode || bg == COLOR4D::UNSPECIFIED )
+        bg = COLOR4D::WHITE;
+
+    if( !blackAndWhiteMode && GetTextColor() != COLOR4D::UNSPECIFIED )
+        color = GetTextColor();
+
+    if( aDimmed )
+        color = color.Mix( bg, 0.5f );
+
+    KIFONT::FONT* font = GetFont();
+
+    if( !font )
+        font = KIFONT::FONT::GetFont( aSettings->GetDefaultFont(), IsBold(), IsItalic() );
+
     GRPrintText( DC, text_pos, color, text, GetTextAngle(), GetTextSize(), GetHorizJustify(),
-                 GetVertJustify(), penWidth, IsItalic(), IsBold(), GetDrawFont() );
+                 GetVertJustify(), penWidth, IsItalic(), IsBold(), font );
 }
 
 
@@ -182,15 +210,19 @@ EDA_ITEM* LIB_FIELD::Clone() const
 
 void LIB_FIELD::Copy( LIB_FIELD* aTarget ) const
 {
-    aTarget->m_name = m_name;
+    aTarget->m_name           = m_name;
+    aTarget->m_showName       = m_showName;
+    aTarget->m_allowAutoPlace = m_allowAutoPlace;
+    aTarget->m_showInChooser  = m_showInChooser;
 
     aTarget->CopyText( *this );
     aTarget->SetAttributes( *this );
     aTarget->SetParent( m_parent );
+    aTarget->SetAutoAdded( IsAutoAdded() );
 }
 
 
-int LIB_FIELD::compare( const LIB_ITEM& aOther, LIB_ITEM::COMPARE_FLAGS aCompareFlags ) const
+int LIB_FIELD::compare( const LIB_ITEM& aOther, int aCompareFlags ) const
 {
     wxASSERT( aOther.Type() == LIB_FIELD_T );
 
@@ -296,10 +328,12 @@ void LIB_FIELD::Rotate( const VECTOR2I& center, bool aRotateCCW )
 
 
 void LIB_FIELD::Plot( PLOTTER* aPlotter, bool aBackground, const VECTOR2I& aOffset,
-                      const TRANSFORM& aTransform ) const
+                      const TRANSFORM& aTransform, bool aDimmed ) const
 {
     if( GetText().IsEmpty() || aBackground )
         return;
+
+    RENDER_SETTINGS* renderSettings = aPlotter->RenderSettings();
 
     // Calculate the text orientation, according to the symbol orientation/mirror.
     EDA_ANGLE orient = GetTextAngle();
@@ -312,7 +346,7 @@ void LIB_FIELD::Plot( PLOTTER* aPlotter, bool aBackground, const VECTOR2I& aOffs
             orient = ANGLE_HORIZONTAL;
     }
 
-    EDA_RECT bbox = GetBoundingBox();
+    BOX2I bbox = GetBoundingBox();
     bbox.RevertYAxis();
 
     GR_TEXT_H_ALIGN_T hjustify = GR_TEXT_H_ALIGN_CENTER;
@@ -320,16 +354,37 @@ void LIB_FIELD::Plot( PLOTTER* aPlotter, bool aBackground, const VECTOR2I& aOffs
     VECTOR2I          textpos = aTransform.TransformCoordinate( bbox.Centre() ) + aOffset;
 
     COLOR4D color;
+    COLOR4D bg;
 
     if( aPlotter->GetColorMode() )
-        color = aPlotter->RenderSettings()->GetLayerColor( GetDefaultLayer() );
-    else
-        color = COLOR4D::BLACK;
+    {
+        if( GetTextColor() != COLOR4D::UNSPECIFIED )
+            color = GetTextColor();
+        else
+            color = renderSettings->GetLayerColor( GetDefaultLayer() );
 
-    int penWidth = GetEffectivePenWidth( aPlotter->RenderSettings() );
+        bg = renderSettings->GetBackgroundColor();
+
+        if( bg == COLOR4D::UNSPECIFIED )
+            bg = COLOR4D::WHITE;
+    }
+    else
+    {
+        color = COLOR4D::BLACK;
+        bg = COLOR4D::WHITE;
+    }
+
+    if( aDimmed )
+        color = color.Mix( bg, 0.5f );
+
+    int           penWidth = GetEffectivePenWidth( renderSettings );
+    KIFONT::FONT* font = GetFont();
+
+    if( !font )
+        font = KIFONT::FONT::GetFont( renderSettings->GetDefaultFont(), IsBold(), IsItalic() );
 
     aPlotter->Text( textpos, color, GetShownText(), orient, GetTextSize(), hjustify, vjustify,
-                    penWidth, IsItalic(), IsBold(), false, GetDrawFont() );
+                    penWidth, IsItalic(), IsBold(), false, font );
 }
 
 
@@ -350,28 +405,39 @@ wxString LIB_FIELD::GetFullText( int unit ) const
 }
 
 
-const EDA_RECT LIB_FIELD::GetBoundingBox() const
+wxString LIB_FIELD::GetShownText( int aDepth, bool aAllowExtraText ) const
+{
+    wxString text = EDA_TEXT::GetShownText( aDepth );
+
+    if( IsNameShown() )
+        text = GetName() << wxT( ": " ) << text;
+
+    return text;
+}
+
+
+const BOX2I LIB_FIELD::GetBoundingBox() const
 {
     /* Y coordinates for LIB_ITEMS are bottom to top, so we must invert the Y position when
      * calling GetTextBox() that works using top to bottom Y axis orientation.
      */
-    EDA_RECT rect = GetTextBox( -1, true );
-    rect.RevertYAxis();
+    BOX2I bbox = GetTextBox( -1, true );
+    bbox.RevertYAxis();
 
     // We are using now a bottom to top Y axis.
-    VECTOR2I orig = rect.GetOrigin();
-    VECTOR2I end = rect.GetEnd();
+    VECTOR2I orig = bbox.GetOrigin();
+    VECTOR2I end = bbox.GetEnd();
 
     RotatePoint( orig, GetTextPos(), -GetTextAngle() );
     RotatePoint( end, GetTextPos(), -GetTextAngle() );
 
-    rect.SetOrigin( orig );
-    rect.SetEnd( end );
+    bbox.SetOrigin( orig );
+    bbox.SetEnd( end );
 
     // We are using now a top to bottom Y axis:
-    rect.RevertYAxis();
+    bbox.RevertYAxis();
 
-    return rect;
+    return bbox;
 }
 
 
@@ -414,10 +480,11 @@ wxString LIB_FIELD::GetCanonicalName() const
 {
     switch( m_id )
     {
-    case  REFERENCE_FIELD: return wxT( "Reference" );
-    case  VALUE_FIELD:     return wxT( "Value" );
-    case  FOOTPRINT_FIELD: return wxT( "Footprint" );
-    case  DATASHEET_FIELD: return wxT( "Datasheet" );
+    case  REFERENCE_FIELD:
+    case  VALUE_FIELD:
+    case  FOOTPRINT_FIELD:
+    case  DATASHEET_FIELD:
+        return TEMPLATE_FIELDNAME::GetDefaultFieldName( m_id );
     }
 
     return m_name;
@@ -441,9 +508,9 @@ void LIB_FIELD::SetName( const wxString& aName )
 }
 
 
-wxString LIB_FIELD::GetSelectMenuText( EDA_UNITS aUnits ) const
+wxString LIB_FIELD::GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const
 {
-    return wxString::Format( "%s '%s'", GetName(), ShortenedShownText() );
+    return wxString::Format( "%s '%s'", GetName(), KIUI::EllipsizeMenuText( GetShownText() ) );
 }
 
 
@@ -472,10 +539,11 @@ void LIB_FIELD::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_I
 
     aList.emplace_back( _( "Visible" ), IsVisible() ? _( "Yes" ) : _( "No" ) );
 
+    aList.emplace_back( _( "Font" ), GetFont() ? GetFont()->GetName() : _( "Default" ) );
+
     aList.emplace_back( _( "Style" ), GetTextStyleName() );
 
-    aList.emplace_back( _( "Text Size" ), MessageTextFromValue( aFrame->GetUserUnits(),
-                                                                GetTextWidth() ) );
+    aList.emplace_back( _( "Text Size" ), aFrame->MessageTextFromValue( GetTextWidth() ) );
 
     switch ( GetHorizJustify() )
     {

@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2018 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2008-2016 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -21,11 +21,6 @@
  * or you may search the http://www.gnu.org website for the version 2 license,
  * or you may write to the Free Software Foundation, Inc.,
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
- */
-
-/**
- * @file pcb_base_frame.h
- * @brief Classes used in Pcbnew, CvPcb and GerbView.
  */
 
 #ifndef  PCB_BASE_FRAME_H
@@ -59,6 +54,7 @@ class BOARD_DESIGN_SETTINGS;
 class ZONE_SETTINGS;
 class PCB_PLOT_PARAMS;
 class FP_LIB_TABLE;
+class PCB_VIEWERS_SETTINGS_BASE;
 class PCBNEW_SETTINGS;
 class FOOTPRINT_EDITOR_SETTINGS;
 struct MAGNETIC_SETTINGS;
@@ -89,11 +85,9 @@ public:
      *
      * @param aMarkDirty alerts the 3D view that data is stale (it may not refresh instantly)
      * @param aRefresh will tell the 3D view to refresh immediately
-     * @param aTitle is the new title of the 3D frame, or nullptr to do not change the
-     *               frame title
+     * @param aTitle is the new title of the 3D frame, or nullptr to do not change the frame title
      */
-    virtual void Update3DView( bool aMarkDirty, bool aRefresh,
-                               const wxString* aTitle = nullptr );
+    virtual void Update3DView( bool aMarkDirty, bool aRefresh, const wxString* aTitle = nullptr );
 
     /**
      * Attempt to load \a aFootprintId from the footprint library table.
@@ -110,7 +104,7 @@ public:
      * @param aBoardEdgesOnly is true if we are interested in board edge segments only.
      * @return the board's bounding box.
      */
-    EDA_RECT GetBoardBoundingBox( bool aBoardEdgesOnly = false ) const;
+    BOX2I GetBoardBoundingBox( bool aBoardEdgesOnly = false ) const;
 
     const BOX2I GetDocumentExtents( bool aIncludeAllVisible = true ) const override
     {
@@ -165,9 +159,6 @@ public:
         return nullptr;
     }
 
-    PCBNEW_SETTINGS& Settings() { return *m_settings; }
-    const PCBNEW_SETTINGS& Settings() const { return *m_settings; }
-
     void SetDrawBgColor( const COLOR4D& aColor ) override;
 
     /**
@@ -211,6 +202,7 @@ public:
     EDA_ITEM* GetItem( const KIID& aId ) const override;
 
     void FocusOnItem( BOARD_ITEM* aItem, PCB_LAYER_ID aLayer = UNDEFINED_LAYER );
+    void FocusOnItems( std::vector<BOARD_ITEM*> aItems, PCB_LAYER_ID aLayer = UNDEFINED_LAYER );
 
     void HideSolderMask();
     void ShowSolderMask();
@@ -251,13 +243,10 @@ public:
     FOOTPRINT* GetFootprintFromBoardByReference();
 
     /**
-     * Must be called after a change in order to set the "modify" flag of the current screen
-     * and update the date in frame reference.
-     *
-     * Do not forget to call this basic OnModify function to update info in derived OnModify
-     * functions.
+     * Must be called after a change in order to set the "modify" flag and update other data
+     * structures and GUI elements.
      */
-    virtual void OnModify();
+    void OnModify() override;
 
     /**
      * Creates a new footprint, at position 0,0.
@@ -311,7 +300,6 @@ public:
      * This must be called after a board change (changes for pads, footprints or a read
      * netlist ).
      *
-     * @param aDC is the current device context (can be NULL).
      * @param aDisplayStatus  if true, display the computation results.
      */
     void Compile_Ratsnest( bool aDisplayStatus );
@@ -332,6 +320,12 @@ public:
      */
     virtual void SaveCopyInUndoList( const PICKED_ITEMS_LIST& aItemsList,
                                      UNDO_REDO aTypeCommand ) = 0;
+
+    /**
+     * As SaveCopyInUndoList, but appends the changes to the last undo item on the stack.
+     */
+    virtual void AppendCopyToUndoList( const PICKED_ITEMS_LIST& aItemsList,
+                                       UNDO_REDO aTypeCommand ) = 0;
 
 
     /**
@@ -368,6 +362,8 @@ public:
 
     FOOTPRINT_EDITOR_SETTINGS* GetFootprintEditorSettings() const;
 
+    virtual PCB_VIEWERS_SETTINGS_BASE* GetViewerSettingsBase() const;
+
     virtual MAGNETIC_SETTINGS* GetMagneticItemsSettings();
 
     void CommonSettingsChanged( bool aEnvVarsChanged, bool aTextVarsChanged ) override;
@@ -386,6 +382,8 @@ protected:
 
     void handleActivateEvent( wxActivateEvent& aEvent ) override;
 
+    void handleIconizeEvent( wxIconizeEvent& aEvent ) override;
+
     /**
      * Attempts to load \a aFootprintId from the footprint library table.
      *
@@ -403,10 +401,9 @@ protected:
     BOARD*                  m_pcb;
     PCB_DISPLAY_OPTIONS     m_displayOptions;
     PCB_ORIGIN_TRANSFORMS   m_originTransforms;
-    PCBNEW_SETTINGS*        m_settings; // No ownership, just a shortcut
 
 private:
-    NL_PCBNEW_PLUGIN* m_spaceMouse;
+    NL_PCBNEW_PLUGIN*       m_spaceMouse;
 };
 
 #endif  // PCB_BASE_FRAME_H

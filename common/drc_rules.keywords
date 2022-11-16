@@ -4,6 +4,7 @@ board_edge
 buried_via
 clearance
 condition
+connection_width
 constraint
 courtyard_clearance
 diff_pair_gap
@@ -34,6 +35,8 @@ opt
 outer
 pad
 pth
+physical_clearance
+physical_hole_clearance
 rule
 severity
 silk_clearance

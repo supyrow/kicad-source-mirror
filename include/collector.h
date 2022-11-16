@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2007-2008 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
- * Copyright (C) 2004-2021 KiCad Developers, see change_log.txt for contributors.
+ * Copyright (C) 2004-2022 KiCad Developers, see change_log.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -28,7 +28,6 @@
 #include <vector>
 #include <core/kicad_algo.h>
 #include <eda_item.h>    // SEARCH_RESULT
-#include <eda_rect.h>
 
 
 class EDA_ITEM;
@@ -51,7 +50,7 @@ public:
     COLLECTOR() :
             m_Threshold( 0 ),
             m_MenuCancelled( false ),
-            m_scanTypes( nullptr ),
+            m_scanTypes( {} ),
             // Inspect() is virtual so calling it from a class common inspector preserves
             // polymorphism.
             m_inspector( [=]( EDA_ITEM* aItem, void* aTestData )
@@ -63,9 +62,9 @@ public:
 
     virtual ~COLLECTOR() {}
 
-    virtual SEARCH_RESULT Inspect( EDA_ITEM* aItem, void* aTestData )
+    virtual INSPECT_RESULT Inspect( EDA_ITEM* aItem, void* aTestData )
     {
-        return SEARCH_RESULT::QUIT;
+        return INSPECT_RESULT::QUIT;
     };
 
     using ITER = std::vector<EDA_ITEM*>::iterator;
@@ -207,17 +206,11 @@ public:
     /**
      * Record the list of #KICAD_T types to consider for collection by the Inspect() function.
      *
-     * @param scanTypes An array of KICAD_T, terminated by EOT.  No copy is
-     *                  is made of this array (so cannot come from caller's stack).
+     * @param aScanTypes A list of KICAD_Ts.
      */
-    void SetScanTypes( const KICAD_T* scanTypes )
-    {
-        m_scanTypes = scanTypes;
-    }
+    void SetScanTypes( const std::vector<KICAD_T>& aTypes ) { m_scanTypes = aTypes; }
 
-    void SetRefPos( const VECTOR2I& aRefPos )  { m_refPos = aRefPos; }
-
-    const EDA_RECT& GetBoundingBox() const {  return m_refBox; }
+    void SetRefPos( const VECTOR2I& aRefPos ) { m_refPos = aRefPos; }
 
     /**
      * Count the number of items matching \a aType.
@@ -247,10 +240,10 @@ protected:
     std::vector<EDA_ITEM*> m_list;       // Primary list of most likely items
     std::vector<EDA_ITEM*> m_backupList; // Secondary list with items removed by heuristics
 
-    const KICAD_T*         m_scanTypes;
+    std::vector<KICAD_T>   m_scanTypes;
     INSPECTOR_FUNC         m_inspector;
-    VECTOR2I               m_refPos;     // Reference position used to generate the collection.
-    EDA_RECT               m_refBox;     // Selection rectangle used to generate the collection.};
+
+    VECTOR2I               m_refPos;     // Reference pos used to generate the collection.
 };
 
 #endif  // COLLECTOR_H

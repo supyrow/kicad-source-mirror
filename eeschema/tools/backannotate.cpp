@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2019 Alexander Shuklin <Jasuramme@gmail.com>
- * Copyright (C) 2004-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2004-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -66,7 +66,6 @@ bool BACK_ANNOTATE::BackAnnotateSymbols( const std::string& aNetlist )
 {
     m_changesCount = 0;
     m_appendUndo = false;
-    wxString msg;
 
     if( !m_matchByReference && !m_processValues && !m_processFootprints && !m_processReferences
         && !m_processNetNames )
@@ -225,7 +224,7 @@ void BACK_ANNOTATE::getChangeList()
             if( m_matchByReference )
                 refIndex = refList.FindRef( pcbPath );
             else
-                refIndex = refList.FindRefByPath( pcbPath );
+                refIndex = refList.FindRefByFullPath( pcbPath );
 
             if( refIndex >= 0 )
             {
@@ -249,7 +248,7 @@ void BACK_ANNOTATE::getChangeList()
         if( m_matchByReference )
             refIndex = m_refs.FindRef( pcbPath );
         else
-            refIndex = m_refs.FindRefByPath( pcbPath );
+            refIndex = m_refs.FindRefByFullPath( pcbPath );
 
         if( refIndex >= 0 )
         {
@@ -291,7 +290,7 @@ void BACK_ANNOTATE::checkForUnusedSymbols()
                 wxString msg = wxString::Format( _( "Footprint '%s' is not present on PCB. "
                                                     "Corresponding symbols in schematic must be "
                                                     "manually deleted (if desired)." ),
-                                                 m_refs[i].GetFullRef() );
+                                                 m_refs[i].GetRef() );
                 m_reporter.ReportTail( msg, RPT_SEVERITY_WARNING );
             }
 
@@ -328,7 +327,7 @@ void BACK_ANNOTATE::applyChangelist()
         {
             ++m_changesCount;
             msg.Printf( _( "Change '%s' reference designator to '%s'." ),
-                        ref.GetFullRef(),
+                        ref.GetRef(),
                         fpData.m_ref );
 
             if( !m_dryRun )
@@ -345,7 +344,7 @@ void BACK_ANNOTATE::applyChangelist()
         {
             ++m_changesCount;
             msg.Printf( _( "Change %s footprint assignment from '%s' to '%s'." ),
-                        ref.GetFullRef(),
+                        ref.GetRef(),
                         oldFootprint,
                         fpData.m_footprint );
 
@@ -363,7 +362,7 @@ void BACK_ANNOTATE::applyChangelist()
         {
             ++m_changesCount;
             msg.Printf( _( "Change %s value from '%s' to '%s'." ),
-                        ref.GetFullRef(),
+                        ref.GetRef(),
                         oldValue,
                         fpData.m_value );
 
@@ -388,7 +387,7 @@ void BACK_ANNOTATE::applyChangelist()
                 if( !pin )
                 {
                     msg.Printf( _( "Cannot find %s pin '%s'." ),
-                                ref.GetFullRef(),
+                                ref.GetRef(),
                                 pinNumber );
                     m_reporter.ReportHead( msg, RPT_SEVERITY_ERROR );
 
@@ -399,7 +398,7 @@ void BACK_ANNOTATE::applyChangelist()
 
                 if( connection && connection->Name( true ) != shortNetName )
                 {
-                    processNetNameChange( ref.GetFullRef(), pin, connection,
+                    processNetNameChange( ref.GetRef(), pin, connection,
                                           connection->Name( true ), shortNetName );
                 }
             }
@@ -413,8 +412,6 @@ void BACK_ANNOTATE::applyChangelist()
         m_frame->RecalculateConnections( NO_CLEANUP );
         m_frame->UpdateNetHighlightStatus();
     }
-
-    m_reporter.ReportHead( msg, RPT_SEVERITY_INFO );
 }
 
 

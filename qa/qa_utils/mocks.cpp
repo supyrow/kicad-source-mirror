@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 1992-2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -32,9 +32,9 @@
 #include <board.h>
 #include <fp_lib_table.h>
 #include <footprint_viewer_frame.h>
-#include <footprint_wizard_frame.h>
 #include <footprint.h>
 #include <tools/pcb_actions.h>
+#include <tools/zone_filler_tool.h>
 #include <router/router_tool.h>
 #include <dialog_find.h>
 #include <dialog_filter_selection.h>
@@ -42,104 +42,8 @@
 FP_LIB_TABLE GFootprintTable;
 
 
-#if 0
-
-static struct IFACE : public KIFACE_BASE
-{
-    // Of course all are overloads, implementations of the KIFACE.
-
-    IFACE( const char* aName, KIWAY::FACE_T aType ) :
-        KIFACE_BASE( aName, aType )
-    {}
-
-    bool OnKifaceStart( PGM_BASE* aProgram, int aCtlBits ) override
-    {
-        return true;
-    }
-
-    void OnKifaceEnd() override {}
-
-    wxWindow* CreateWindow( wxWindow* aParent, int aClassId, KIWAY* aKiway, int aCtlBits = 0 ) override
-    {
-        assert( false );
-        return nullptr;
-    }
-
-    /**
-     * Function IfaceOrAddress
-     * return a pointer to the requested object.  The safest way to use this
-     * is to retrieve a pointer to a static instance of an interface, similar to
-     * how the KIFACE interface is exported.  But if you know what you are doing
-     * use it to retrieve anything you want.
-     *
-     * @param aDataId identifies which object you want the address of.
-     *
-     * @return void* - and must be cast into the know type.
-     */
-    void* IfaceOrAddress( int aDataId ) override
-    {
-        return NULL;
-    }
-}
-kiface( "pcb_test_frame", KIWAY::FACE_PCB );
-
-static struct PGM_TEST_FRAME : public PGM_BASE
-{
-    bool OnPgmInit();
-
-    void OnPgmExit()
-    {
-        Kiway.OnKiwayEnd();
-
-        // Destroy everything in PGM_BASE, especially wxSingleInstanceCheckerImpl
-        // earlier than wxApp and earlier than static destruction would.
-        PGM_BASE::Destroy();
-    }
-
-    void MacOpenFile( const wxString& aFileName )   override
-    {
-        wxFileName filename( aFileName );
-
-        if( filename.FileExists() )
-        {
-    #if 0
-            // this pulls in EDA_DRAW_FRAME type info, which we don't want in
-            // the single_top link image.
-            KIWAY_PLAYER* frame = dynamic_cast<KIWAY_PLAYER*>( App().GetTopWindow() );
-    #else
-            KIWAY_PLAYER* frame = (KIWAY_PLAYER*) App().GetTopWindow();
-    #endif
-
-            if( frame )
-                frame->OpenProjectFiles( std::vector<wxString>( 1, aFileName ) );
-        }
-    }
-}
-program;
-
-PGM_BASE& Pgm()
-{
-    return program;
-}
-
-
-// Similar to PGM_BASE& Pgm(), but return nullptr when a *.ki_face
-// is run from a python script, mot from a Kicad application
-PGM_BASE* PgmOrNull()
-{
-    return nullptr; //&program;
-}
-
-
-KIFACE_BASE& Kiface()
-{
-    return kiface;
-}
-#endif
-
-// FP_LIB_TABLE GFootprintTable;
-
-DIALOG_FIND::DIALOG_FIND( PCB_BASE_FRAME* aParent ) : DIALOG_FIND_BASE( aParent )
+DIALOG_FIND::DIALOG_FIND( PCB_BASE_FRAME* aParent ) :
+        DIALOG_FIND_BASE( aParent )
 {
     // these members are initialized to avoid warnings about non initialized vars
     m_frame = aParent;
@@ -193,7 +97,7 @@ DIALOG_FIND_BASE::DIALOG_FIND_BASE( wxWindow* parent, wxWindowID id, const wxStr
     m_includeReferences = nullptr;
     m_includeTexts = nullptr;
     m_includeMarkers = nullptr;
-    m_includeVias = nullptr;
+    m_includeNets = nullptr;
     m_findNext = nullptr;
     m_findPrevious = nullptr;
     m_searchAgain = nullptr;
@@ -287,7 +191,7 @@ public:
 
 
 PCB_SELECTION_TOOL::PCB_SELECTION_TOOL() :
-        PCB_TOOL_BASE( "pcbnew.InteractiveSelection" ),
+        SELECTION_TOOL( "pcbnew.InteractiveSelection" ),
         m_frame( NULL ),
         m_enteredGroup( NULL ),
         m_nonModifiedCursor( KICURSOR::ARROW ),
@@ -379,53 +283,9 @@ int PCB_SELECTION_TOOL::ClearSelection( const TOOL_EVENT& aEvent )
 }
 
 
-int PCB_SELECTION_TOOL::SelectItems( const TOOL_EVENT& aEvent )
-{
-    return 0;
-}
-
-
-int PCB_SELECTION_TOOL::SelectItem( const TOOL_EVENT& aEvent )
-{
-    return 0;
-}
-
-
 int PCB_SELECTION_TOOL::SelectAll( const TOOL_EVENT& aEvent )
 {
     return 0;
-}
-
-
-void PCB_SELECTION_TOOL::AddItemToSel( BOARD_ITEM* aItem, bool aQuietMode )
-{
-}
-
-
-int PCB_SELECTION_TOOL::UnselectItems( const TOOL_EVENT& aEvent )
-{
-    return 0;
-}
-
-
-int PCB_SELECTION_TOOL::UnselectItem( const TOOL_EVENT& aEvent )
-{
-    return 0;
-}
-
-
-void PCB_SELECTION_TOOL::RemoveItemFromSel( BOARD_ITEM* aItem, bool aQuietMode )
-{
-}
-
-
-void PCB_SELECTION_TOOL::BrightenItem( BOARD_ITEM* aItem )
-{
-}
-
-
-void PCB_SELECTION_TOOL::UnbrightenItem( BOARD_ITEM* aItem )
-{
 }
 
 
@@ -441,7 +301,7 @@ void PCB_SELECTION_TOOL::selectAllConnectedTracks(
 }
 
 
-void PCB_SELECTION_TOOL::selectAllItemsOnNet( int aNetCode, bool aSelect )
+void PCB_SELECTION_TOOL::SelectAllItemsOnNet( int aNetCode, bool aSelect )
 {
 }
 
@@ -471,6 +331,12 @@ int PCB_SELECTION_TOOL::selectSheetContents( const TOOL_EVENT& aEvent )
 int PCB_SELECTION_TOOL::selectSameSheet( const TOOL_EVENT& aEvent )
 {
     return 0;
+}
+
+
+bool PCB_SELECTION_TOOL::ctrlClickHighlights()
+{
+    return false;
 }
 
 
@@ -515,49 +381,9 @@ void PCB_SELECTION_TOOL::RebuildSelection()
 }
 
 
-int PCB_SELECTION_TOOL::SelectionMenu( const TOOL_EVENT& aEvent )
-{
-    return 0;
-}
-
-
-bool PCB_SELECTION_TOOL::doSelectionMenu( GENERAL_COLLECTOR* aCollector )
-{
-    return false;
-}
-
-
 bool PCB_SELECTION_TOOL::Selectable( const BOARD_ITEM* aItem, bool checkVisibilityOnly ) const
 {
     return false;
-}
-
-
-void PCB_SELECTION_TOOL::select( BOARD_ITEM* aItem )
-{
-}
-
-
-void PCB_SELECTION_TOOL::unselect( BOARD_ITEM* aItem )
-{
-}
-
-void PCB_SELECTION_TOOL::highlight( BOARD_ITEM* aItem, int aMode, PCB_SELECTION* aGroup )
-{
-}
-
-void PCB_SELECTION_TOOL::highlightInternal( BOARD_ITEM* aItem, int aMode, bool aUsingOverlay )
-{
-}
-
-
-void PCB_SELECTION_TOOL::unhighlight( BOARD_ITEM* aItem, int aMode, PCB_SELECTION* aGroup )
-{
-}
-
-
-void PCB_SELECTION_TOOL::unhighlightInternal( BOARD_ITEM* aItem, int aMode, bool aUsingOverlay )
-{
 }
 
 
@@ -580,17 +406,33 @@ int PCB_SELECTION_TOOL::updateSelection( const TOOL_EVENT& aEvent )
 }
 
 
-int PCB_SELECTION_TOOL::UpdateMenu( const TOOL_EVENT& aEvent )
-{
-    return 0;
-}
-
-
 void PCB_SELECTION_TOOL::setTransitions()
 {
 }
 
-void PCB_TOOL_BASE::doInteractiveItemPlacement( const std::string& aTool,
+
+void PCB_SELECTION_TOOL::select( EDA_ITEM* aItem )
+{
+}
+
+
+void PCB_SELECTION_TOOL::unselect( EDA_ITEM* aItem )
+{
+}
+
+
+void PCB_SELECTION_TOOL::highlight( EDA_ITEM* aItem, int aHighlightMode,
+                                    SELECTION* aGroup )
+{
+}
+
+
+void PCB_SELECTION_TOOL::unhighlight( EDA_ITEM* aItem, int aHighlightMode,
+                                              SELECTION* aGroup )
+{
+}
+
+void PCB_TOOL_BASE::doInteractiveItemPlacement( const TOOL_EVENT&        aTool,
                                                 INTERACTIVE_PLACER_BASE* aPlacer,
                                                 const wxString& aCommitMessage, int aOptions )
 {
@@ -616,6 +458,28 @@ void PCB_TOOL_BASE::setTransitions()
 bool PCB_TOOL_BASE::Is45Limited() const
 {
     return false;
+}
+
+
+ZONE_FILLER_TOOL::ZONE_FILLER_TOOL() :
+    PCB_TOOL_BASE( "pcbnew.ZoneFiller" ),
+    m_fillInProgress( false )
+{
+}
+
+
+ZONE_FILLER_TOOL::~ZONE_FILLER_TOOL()
+{
+}
+
+
+void ZONE_FILLER_TOOL::Reset( RESET_REASON aReason )
+{
+}
+
+
+void ZONE_FILLER_TOOL::setTransitions()
+{
 }
 
 

@@ -422,7 +422,7 @@ bool EXCELLON_IMAGE::TestFileIsExcellon( const wxString& aFullFileName )
                     foundY = true;
         }
     }
-    catch( IO_ERROR& e )
+    catch( IO_ERROR& )
     {
         return false;
     }
@@ -793,7 +793,7 @@ bool EXCELLON_IMAGE::readToolInformation( char*& aText )
         return false;
 
     // conv_scale = scaling factor from inch to Internal Unit
-    double conv_scale = IU_PER_MILS * 1000;
+    double conv_scale = gerbIUScale.IU_PER_MILS * 1000;
 
     if( m_GerbMetric )
         conv_scale /= 25.4;

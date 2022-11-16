@@ -54,12 +54,15 @@ void PL_EDITOR_FRAME::ReCreateMenuBar()
     if( !openRecentMenu )
     {
         openRecentMenu = new ACTION_MENU( false, selTool );
-        openRecentMenu->SetTitle( _( "Open Recent" ) );
         openRecentMenu->SetIcon( BITMAPS::recent );
 
         recentFiles.UseMenu( openRecentMenu );
         recentFiles.AddFilesToMenu();
     }
+
+    // Ensure the title is up to date after changing language
+    openRecentMenu->SetTitle( _( "Open Recent" ) );
+    recentFiles.UpdateClearText( openRecentMenu, _( "Clear Recent Files" ) );
 
     //-- File menu -------------------------------------------------------
     //
@@ -68,7 +71,7 @@ void PL_EDITOR_FRAME::ReCreateMenuBar()
     fileMenu->Add( ACTIONS::doNew );
     fileMenu->Add( ACTIONS::open );
 
-    wxMenuItem* item = fileMenu->Add( openRecentMenu );
+    wxMenuItem* item = fileMenu->Add( openRecentMenu->Clone() );
 
     // Add the file menu condition here since it needs the item ID for the submenu
     ACTION_CONDITIONS cond;

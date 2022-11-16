@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2012 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
- * Copyright (C) 2012-2020 KiCad Developers, see change_log.txt for contributors.
+ * Copyright (C) 2012-2022 KiCad Developers, see change_log.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -27,6 +27,8 @@
 
 
 #include <bitset>
+#include <functional>
+
 #include <wx/grid.h>
 #include <wx/event.h>
 #include <wx/menu.h>
@@ -43,7 +45,10 @@ enum
     GRIDTRICKS_ID_PASTE,
     GRIDTRICKS_ID_SELECT,
 
-    GRIDTRICKS_FIRST_SHOWHIDE = 949, // reserve IDs for show/hide-column-n
+    GRIDTRICKS_FIRST_CLIENT_ID = 1101,  // reserve IDs for sub-classes
+    GRID_TRICKS_LAST_CLIENT_ID = 2100,
+
+    GRIDTRICKS_FIRST_SHOWHIDE,          // reserve IDs for show/hide-column-n
 
     GRIDTRICKS_LAST_ID = GRIDTRICKS_FIRST_SHOWHIDE + GRIDTRICKS_MAX_COL
 };
@@ -56,6 +61,8 @@ class GRID_TRICKS : public wxEvtHandler
 {
 public:
     explicit GRID_TRICKS( WX_GRID* aGrid );
+
+    GRID_TRICKS( WX_GRID* aGrid, std::function<void( wxCommandEvent& )> aAddHandler );
 
     /**
      * Enable the tooltip for a column.
@@ -82,6 +89,9 @@ public:
     }
 
 protected:
+    /// Shared initialization for various ctors.
+    void init();
+
     /// Puts the selected area into a sensible rectangle of m_sel_{row,col}_{start,count} above.
     void getSelectedArea();
 
@@ -107,6 +117,7 @@ protected:
     virtual void paste_text( const wxString& cb_text );
     virtual void cutcopy( bool doCopy, bool doDelete );
 
+protected:
     WX_GRID* m_grid;     ///< I don't own the grid, but he owns me
 
     // row & col "selection" acquisition
@@ -116,7 +127,9 @@ protected:
     int      m_sel_row_count;
     int      m_sel_col_count;
 
-    std::bitset<GRIDTRICKS_MAX_COL> m_tooltipEnabled;
+    std::function<void( wxCommandEvent& )> m_addHandler;
+
+    std::bitset<GRIDTRICKS_MAX_COL>        m_tooltipEnabled;
 };
 
 #endif  // _GRID_TRICKS_H_

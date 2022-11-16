@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////
-// C++ code generated with wxFormBuilder (version Oct 26 2018)
+// C++ code generated with wxFormBuilder (version 3.10.0-4761b0c5)
 // http://www.wxformbuilder.org/
 //
 // PLEASE DO *NOT* EDIT THIS FILE!
@@ -20,9 +20,15 @@ PANEL_EESCHEMA_EDITING_OPTIONS_BASE::PANEL_EESCHEMA_EDITING_OPTIONS_BASE( wxWind
 	wxStaticBoxSizer* sbSizerEditOpt;
 	sbSizerEditOpt = new wxStaticBoxSizer( new wxStaticBox( this, wxID_ANY, _("Editing") ), wxVERTICAL );
 
-	m_checkHVOrientation = new wxCheckBox( sbSizerEditOpt->GetStaticBox(), wxID_ANY, _("Constrain buses and wires to H or V"), wxDefaultPosition, wxDefaultSize, 0 );
-	m_checkHVOrientation->SetValue(true);
-	sbSizerEditOpt->Add( m_checkHVOrientation, 0, wxRIGHT|wxLEFT, 5 );
+	m_staticText24 = new wxStaticText( sbSizerEditOpt->GetStaticBox(), wxID_ANY, _("Line Drawing Mode:"), wxDefaultPosition, wxDefaultSize, 0 );
+	m_staticText24->Wrap( -1 );
+	sbSizerEditOpt->Add( m_staticText24, 0, wxLEFT|wxRIGHT|wxBOTTOM, 5 );
+
+	wxString m_choiceLineModeChoices[] = { _("Free Angle"), _("90 deg Angle"), _("45 deg Angle") };
+	int m_choiceLineModeNChoices = sizeof( m_choiceLineModeChoices ) / sizeof( wxString );
+	m_choiceLineMode = new wxChoice( sbSizerEditOpt->GetStaticBox(), wxID_ANY, wxDefaultPosition, wxDefaultSize, m_choiceLineModeNChoices, m_choiceLineModeChoices, 0 );
+	m_choiceLineMode->SetSelection( 1 );
+	sbSizerEditOpt->Add( m_choiceLineMode, 0, wxALL, 5 );
 
 	m_mouseDragIsDrag = new wxCheckBox( sbSizerEditOpt->GetStaticBox(), wxID_ANY, _("Mouse drag performs Drag (G) operation"), wxDefaultPosition, wxDefaultSize, 0 );
 	m_mouseDragIsDrag->SetToolTip( _("If unchecked, mouse drag will perform move (M) operation") );
@@ -32,7 +38,12 @@ PANEL_EESCHEMA_EDITING_OPTIONS_BASE::PANEL_EESCHEMA_EDITING_OPTIONS_BASE( wxWind
 	m_cbAutoStartWires = new wxCheckBox( sbSizerEditOpt->GetStaticBox(), wxID_ANY, _("Automatically start wires on unconnected pins"), wxDefaultPosition, wxDefaultSize, 0 );
 	m_cbAutoStartWires->SetToolTip( _("When enabled, you can start wiring by clicking on unconnected pins even when the wire tool is not active") );
 
-	sbSizerEditOpt->Add( m_cbAutoStartWires, 0, wxALL, 5 );
+	sbSizerEditOpt->Add( m_cbAutoStartWires, 0, wxLEFT|wxTOP, 5 );
+
+	m_escClearsNetHighlight = new wxCheckBox( sbSizerEditOpt->GetStaticBox(), wxID_ANY, _("<ESC> clears net highlighting"), wxDefaultPosition, wxDefaultSize, 0 );
+	m_escClearsNetHighlight->SetToolTip( _("First <ESC> in selection tool clears selection, next clears net highlighting") );
+
+	sbSizerEditOpt->Add( m_escClearsNetHighlight, 0, wxBOTTOM|wxLEFT|wxRIGHT|wxTOP, 5 );
 
 
 	bLeftColumn->Add( sbSizerEditOpt, 0, wxEXPAND|wxTOP|wxBOTTOM, 5 );
@@ -262,10 +273,6 @@ PANEL_EESCHEMA_EDITING_OPTIONS_BASE::PANEL_EESCHEMA_EDITING_OPTIONS_BASE( wxWind
 	m_footprintPreview = new wxCheckBox( sbSizer6->GetStaticBox(), wxID_ANY, _("Show footprint previews in Symbol Chooser"), wxDefaultPosition, wxDefaultSize, 0 );
 	sbSizer6->Add( m_footprintPreview, 0, wxRIGHT|wxLEFT, 5 );
 
-	m_navigatorStaysOpen = new wxCheckBox( sbSizer6->GetStaticBox(), wxID_ANY, _("Keep hierarchy navigator open"), wxDefaultPosition, wxDefaultSize, 0 );
-	m_navigatorStaysOpen->SetValue(true);
-	sbSizer6->Add( m_navigatorStaysOpen, 0, wxALL, 5 );
-
 
 	bRightColumn->Add( sbSizer6, 1, wxEXPAND|wxALL, 5 );
 
@@ -275,7 +282,6 @@ PANEL_EESCHEMA_EDITING_OPTIONS_BASE::PANEL_EESCHEMA_EDITING_OPTIONS_BASE( wxWind
 
 	this->SetSizer( bPanelSizer );
 	this->Layout();
-	bPanelSizer->Fit( this );
 }
 
 PANEL_EESCHEMA_EDITING_OPTIONS_BASE::~PANEL_EESCHEMA_EDITING_OPTIONS_BASE()

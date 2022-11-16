@@ -111,7 +111,7 @@ TOOL_ACTION EDA_3D_ACTIONS::resetView( "3DViewer.Control.resetView",
 
 TOOL_ACTION EDA_3D_ACTIONS::flipView( "3DViewer.Control.flipView",
         AS_ACTIVE,
-        0, "",
+        'F', "",
         _( "Flip Board" ), _( "Flip the board view" ),
         BITMAPS::flip_board, AF_NONE, (void*) ID_VIEW3D_FLIP );
 
@@ -219,8 +219,14 @@ TOOL_ACTION EDA_3D_ACTIONS::showSMD( "3DViewer.Control.attributesSMD",
 TOOL_ACTION EDA_3D_ACTIONS::showVirtual( "3DViewer.Control.attributesOther",
         AS_ACTIVE,
         'V', "",
-        _( "Toggle Other 3D models" ), _( "Toggle 3D models for 'Other' type components" ),
+        _( "Toggle unspecified 3D models" ), _( "Toggle 3D models for 'unspecified' type components" ),
         BITMAPS::show_other, AF_NONE );
+
+TOOL_ACTION EDA_3D_ACTIONS::showNotInPosFile( "3DViewer.Control.attribute_not_in_posfile",
+        AS_ACTIVE,
+        'P', "",
+        _( "Toggle 3D models not in pos file" ), _( "Toggle 3D models not in pos file" ),
+        BITMAPS::show_not_in_posfile, AF_NONE );
 
 TOOL_ACTION EDA_3D_ACTIONS::showBBoxes( "3DViewer.Control.showBoundingBoxes",
          AS_GLOBAL, 0, "",

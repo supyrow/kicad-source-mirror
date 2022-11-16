@@ -26,13 +26,15 @@
 #define SCH_ITEM_H
 
 #include <unordered_map>
-#include <unordered_set>
+#include <map>
+#include <set>
 
 #include <eda_item.h>
-#include <plotters/plotter.h>
 #include <default_values.h>
 #include <sch_sheet_path.h>
 #include <netclass.h>
+#include <stroke_params.h>
+#include <layer_ids.h>
 
 class CONNECTION_GRAPH;
 class SCH_CONNECTION;
@@ -44,6 +46,7 @@ class wxFindReplaceData;
 class PLOTTER;
 class NETLIST_OBJECT;
 class NETLIST_OBJECT_LIST;
+class PLOTTER;
 
 using KIGFX::RENDER_SETTINGS;
 
@@ -130,7 +133,7 @@ private:
 };
 
 
-typedef std::unordered_set<SCH_ITEM*> SCH_ITEM_SET;
+typedef std::vector<SCH_ITEM*> SCH_ITEM_SET;
 
 
 /**
@@ -156,20 +159,20 @@ public:
         return wxT( "SCH_ITEM" );
     }
 
-    bool IsType( const KICAD_T aScanTypes[] ) const override
+    bool IsType( const std::vector<KICAD_T>& aScanTypes ) const override
     {
         if( EDA_ITEM::IsType( aScanTypes ) )
             return true;
 
-        for( const KICAD_T* p = aScanTypes; *p != EOT; ++p )
+        for( KICAD_T scanType : aScanTypes )
         {
-            if( *p == SCH_ITEM_LOCATE_WIRE_T && m_layer == LAYER_WIRE )
+            if( scanType == SCH_ITEM_LOCATE_WIRE_T && m_layer == LAYER_WIRE )
                 return true;
 
-            if ( *p == SCH_ITEM_LOCATE_BUS_T && m_layer == LAYER_BUS )
+            if ( scanType == SCH_ITEM_LOCATE_BUS_T && m_layer == LAYER_BUS )
                 return true;
 
-            if ( *p == SCH_ITEM_LOCATE_GRAPHIC_LINE_T
+            if ( scanType == SCH_ITEM_LOCATE_GRAPHIC_LINE_T
                     && Type() == SCH_LINE_T && m_layer == LAYER_NOTES )
             {
                 return true;
@@ -235,7 +238,7 @@ public:
      */
     virtual bool IsHypertext() const { return false; }
 
-    virtual void DoHypertextMenu( EDA_DRAW_FRAME* aFrame ) { }
+    virtual void DoHypertextAction( EDA_DRAW_FRAME* aFrame ) const { }
 
     /**
      * Return the layer this item is on.
@@ -261,6 +264,8 @@ public:
 
     const wxString& GetDefaultFont() const;
 
+    bool RenderAsBitmap( double aWorldScale ) const override;
+
     /**
      * Print a schematic item.
      *
@@ -270,6 +275,15 @@ public:
      *                object).
      */
     virtual void Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset ) = 0;
+
+    /**
+     * Print the (optional) backaground elements if they exist
+     * @param aSettings Print settings
+     * @param aOffset is the drawing offset (usually {0,0} but can be different when moving an
+     *                object).
+     */
+
+    virtual void PrintBackground( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset ) {};
 
     /**
      * Move the item by \a aMoveVector to a new position.
@@ -402,7 +416,7 @@ public:
 
     virtual void SetLastResolvedState( const SCH_ITEM* aItem ) { }
 
-    NETCLASSPTR NetClass( const SCH_SHEET_PATH* aSheet = nullptr ) const;
+    std::shared_ptr<NETCLASS> GetEffectiveNetClass( const SCH_SHEET_PATH* aSheet = nullptr ) const;
 
     /**
      * Return whether the fields have been automatically placed.
@@ -481,7 +495,7 @@ protected:
                                           // to store a initial pos of the item or mouse cursor
 
     /// Store pointers to other items that are connected to this one, per sheet.
-    std::unordered_map<SCH_SHEET_PATH, SCH_ITEM_SET> m_connected_items;
+    std::map<SCH_SHEET_PATH, SCH_ITEM_SET, SHEET_PATH_CMP> m_connected_items;
 
     /// Store connectivity information, per sheet.
     std::unordered_map<SCH_SHEET_PATH, SCH_CONNECTION*> m_connection_map;

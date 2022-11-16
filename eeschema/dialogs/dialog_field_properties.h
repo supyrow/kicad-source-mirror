@@ -94,12 +94,15 @@ protected:
     KIFONT::FONT*     m_font;
     bool              m_isItalic;
     bool              m_isBold;
+    KIGFX::COLOR4D    m_color;
     VECTOR2I          m_position;
     int               m_size;
     bool              m_isVertical;
     GR_TEXT_V_ALIGN_T m_verticalJustification;
     GR_TEXT_H_ALIGN_T m_horizontalJustification;
     bool              m_isVisible;
+    bool              m_isNameVisible;
+    bool              m_allowAutoplace;
 
     bool              m_firstFocus;
 

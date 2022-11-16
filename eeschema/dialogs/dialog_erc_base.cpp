@@ -1,12 +1,12 @@
 ///////////////////////////////////////////////////////////////////////////
-// C++ code generated with wxFormBuilder (version Oct 26 2018)
+// C++ code generated with wxFormBuilder (version 3.10.1-0-g8feb16b)
 // http://www.wxformbuilder.org/
 //
 // PLEASE DO *NOT* EDIT THIS FILE!
 ///////////////////////////////////////////////////////////////////////////
 
-#include "dialogs/wx_html_report_box.h"
 #include "widgets/infobar.h"
+#include "widgets/wx_html_report_box.h"
 
 #include "dialog_erc_base.h"
 
@@ -84,7 +84,7 @@ DIALOG_ERC_BASE::DIALOG_ERC_BASE( wxWindow* parent, wxWindowID id, const wxStrin
 	violationsPanel->SetSizer( bViolationsSizer );
 	violationsPanel->Layout();
 	bViolationsSizer->Fit( violationsPanel );
-	m_notebook->AddPage( violationsPanel, _("Violations (%d)"), false );
+	m_notebook->AddPage( violationsPanel, _("Violations (%s)"), false );
 	m_panelIgnored = new wxPanel( m_notebook, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxTAB_TRAVERSAL );
 	wxBoxSizer* bSizer15;
 	bSizer15 = new wxBoxSizer( wxVERTICAL );
@@ -96,7 +96,7 @@ DIALOG_ERC_BASE::DIALOG_ERC_BASE( wxWindow* parent, wxWindowID id, const wxStrin
 	m_panelIgnored->SetSizer( bSizer15 );
 	m_panelIgnored->Layout();
 	bSizer15->Fit( m_panelIgnored );
-	m_notebook->AddPage( m_panelIgnored, _("Ignored Tests (%d)"), false );
+	m_notebook->AddPage( m_panelIgnored, _("Ignored Tests (%s)"), false );
 
 	bSizer13->Add( m_notebook, 1, wxEXPAND, 5 );
 

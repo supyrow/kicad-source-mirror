@@ -97,6 +97,11 @@ public:
         return m_type;
     }
 
+    wxString TypeName() const
+    {
+        return SHAPE_TYPE_asString( m_type );
+    }
+
     virtual bool HasIndexableSubshapes() const
     {
         return false;
@@ -104,7 +109,7 @@ public:
 
     virtual size_t GetIndexableSubshapeCount() const { return 0; }
 
-    virtual void GetIndexableSubshapes( std::vector<SHAPE*>& aSubshapes ) { }
+    virtual void GetIndexableSubshapes( std::vector<const SHAPE*>& aSubshapes ) const { }
 
 protected:
     ///< type of our shape
@@ -142,6 +147,13 @@ public:
         assert( false );
         return nullptr;
     };
+
+    /**
+     * Return the actual minimum distance between two shapes
+     *
+     * @retval distance in IU
+     */
+    int GetClearance( const SHAPE* aOther ) const;
 
     /**
      * Return true if the shape is a null shape.
@@ -231,7 +243,7 @@ public:
 
     virtual bool Parse( std::stringstream& aStream );
 
-    virtual const std::string Format( ) const;
+    virtual const std::string Format( bool aCplusPlus = true ) const;
 
 protected:
     typedef VECTOR2I::extended_type ecoord;

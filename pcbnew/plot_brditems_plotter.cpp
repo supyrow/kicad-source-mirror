@@ -37,6 +37,7 @@
 #include <math/vector2d.h>                    // for VECTOR2I
 #include <plotters/plotter_gerber.h>
 #include <trigo.h>
+#include <callback_gal.h>
 
 #include <board_design_settings.h>            // for BOARD_DESIGN_SETTINGS
 #include <core/typeinfo.h>                    // for dyn_cast, PCB_DIMENSION_T
@@ -352,13 +353,19 @@ void BRDITEMS_PLOTTER::PlotPcbGraphicItem( const BOARD_ITEM* item )
         break;
 
     case PCB_TEXT_T:
-        PlotPcbText( static_cast<const PCB_TEXT*>( item ), item->GetLayer() );
+    {
+        const PCB_TEXT* text = static_cast<const PCB_TEXT*>( item );
+        PlotPcbText( text, text->GetLayer(), text->IsKnockout() );
         break;
+    }
 
     case PCB_TEXTBOX_T:
-        PlotPcbText( static_cast<const PCB_TEXTBOX*>( item ), item->GetLayer() );
-        PlotPcbShape( static_cast<const PCB_TEXTBOX*>( item ) );
+    {
+        const PCB_TEXTBOX* textbox = static_cast<const PCB_TEXTBOX*>( item );
+        PlotPcbText( textbox, textbox->GetLayer(), textbox->IsKnockout() );
+        PlotPcbShape( textbox );
         break;
+    }
 
     case PCB_DIM_ALIGNED_T:
     case PCB_DIM_CENTER_T:
@@ -395,9 +402,16 @@ void BRDITEMS_PLOTTER::PlotFootprintTextItem( const FP_TEXT* aText, const COLOR4
     m_plotter->SetColor( color );
 
     // calculate some text parameters :
-    VECTOR2I size = aText->GetTextSize();
-    VECTOR2I pos = aText->GetTextPos();
-    int     thickness = aText->GetEffectiveTextPenWidth();
+    VECTOR2I      size = aText->GetTextSize();
+    VECTOR2I      pos = aText->GetTextPos();
+    int           thickness = aText->GetEffectiveTextPenWidth();
+    KIFONT::FONT* font = aText->GetFont();
+
+    if( !font )
+    {
+        font = KIFONT::FONT::GetFont( m_plotter->RenderSettings()->GetDefaultFont(),
+                                      aText->IsBold(), aText->IsItalic() );
+    }
 
     if( aText->IsMirrored() )
         size.x = -size.x;  // Text is mirrored
@@ -421,7 +435,7 @@ void BRDITEMS_PLOTTER::PlotFootprintTextItem( const FP_TEXT* aText, const COLOR4
 
     m_plotter->Text( pos, aColor, aText->GetShownText(), aText->GetDrawRotation(), size,
                      aText->GetHorizJustify(), aText->GetVertJustify(), thickness,
-                     aText->IsItalic(), allow_bold, false, aText->GetDrawFont(), &gbr_metadata );
+                     aText->IsItalic(), allow_bold, false, font, &gbr_metadata );
 }
 
 
@@ -441,7 +455,7 @@ void BRDITEMS_PLOTTER::PlotDimension( const PCB_DIMENSION_BASE* aDim )
     // the white items are not seen on a white paper or screen
     m_plotter->SetColor( color != WHITE ? color : LIGHTGRAY);
 
-    PlotPcbText( &aDim->Text(), aDim->GetLayer() );
+    PlotPcbText( &aDim->Text(), aDim->GetLayer(), false );
 
     for( const std::shared_ptr<SHAPE>& shape : aDim->GetShapes() )
     {
@@ -559,18 +573,18 @@ void BRDITEMS_PLOTTER::PlotFootprintGraphicItems( const FOOTPRINT* aFootprint )
 
             if( m_layerMask[ textbox->GetLayer() ] )
             {
-                PlotPcbText( textbox, textbox->GetLayer() );
+                PlotPcbText( textbox, textbox->GetLayer(), textbox->IsKnockout() );
                 PlotFootprintShape( textbox );
             }
 
             break;
         }
 
-        case PCB_DIM_ALIGNED_T:
-        case PCB_DIM_CENTER_T:
-        case PCB_DIM_RADIAL_T:
-        case PCB_DIM_ORTHOGONAL_T:
-        case PCB_DIM_LEADER_T:
+        case PCB_FP_DIM_ALIGNED_T:
+        case PCB_FP_DIM_CENTER_T:
+        case PCB_FP_DIM_RADIAL_T:
+        case PCB_FP_DIM_ORTHOGONAL_T:
+        case PCB_FP_DIM_LEADER_T:
         {
             const PCB_DIMENSION_BASE* dimension = static_cast<const PCB_DIMENSION_BASE*>( item );
 
@@ -593,9 +607,6 @@ void BRDITEMS_PLOTTER::PlotFootprintGraphicItems( const FOOTPRINT* aFootprint )
 
 void BRDITEMS_PLOTTER::PlotFootprintShape( const FP_SHAPE* aShape )
 {
-    if( aShape->Type() != PCB_FP_SHAPE_T )
-        return;
-
     m_plotter->SetColor( getColor( aShape->GetLayer() ) );
 
     bool sketch = GetPlotMode() == SKETCH;
@@ -673,10 +684,9 @@ void BRDITEMS_PLOTTER::PlotFootprintShape( const FP_SHAPE* aShape )
         case SHAPE_T::ARC:
         {
             radius = KiROUND( GetLineLength( aShape->GetCenter(), aShape->GetStart() ) );
-            EDA_ANGLE startAngle( aShape->GetStart() - aShape->GetCenter() );
-            EDA_ANGLE endAngle = startAngle - aShape->GetArcAngle();
 
             // when startAngle == endAngle ThickArc() doesn't know whether it's 0 deg and 360 deg
+            // but it is a circle
             if( std::abs( aShape->GetArcAngle().AsDegrees() ) == 360.0 )
             {
                 m_plotter->ThickCircle( aShape->GetCenter(), radius * 2, thickness, GetPlotMode(),
@@ -684,8 +694,7 @@ void BRDITEMS_PLOTTER::PlotFootprintShape( const FP_SHAPE* aShape )
             }
             else
             {
-                m_plotter->ThickArc( aShape->GetCenter(), -startAngle, -endAngle, radius,
-                                     thickness, GetPlotMode(), &gbr_metadata );
+                m_plotter->ThickArc( *aShape, GetPlotMode(), &gbr_metadata );
             }
         }
             break;
@@ -709,7 +718,7 @@ void BRDITEMS_PLOTTER::PlotFootprintShape( const FP_SHAPE* aShape )
                     }
                 }
 
-                if( sketch || thickness > 0 )
+                if( sketch )
                 {
                     for( size_t i = 1; i < cornerList.size(); i++ )
                     {
@@ -721,8 +730,7 @@ void BRDITEMS_PLOTTER::PlotFootprintShape( const FP_SHAPE* aShape )
                                              GetPlotMode(), &gbr_metadata );
 
                 }
-
-                if( !sketch && aShape->IsFilled() )
+                else
                 {
                     // This must be simplified and fractured to prevent overlapping polygons
                     // from generating invalid Gerber files
@@ -737,7 +745,9 @@ void BRDITEMS_PLOTTER::PlotFootprintShape( const FP_SHAPE* aShape )
                     for( int jj = 0; jj < tmpPoly.OutlineCount(); ++jj )
                     {
                         SHAPE_LINE_CHAIN &poly = tmpPoly.Outline( jj );
-                        m_plotter->PlotPoly( poly, FILL_T::FILLED_SHAPE, thickness, &gbr_metadata );
+                        m_plotter->PlotPoly( poly, aShape->IsFilled() ? FILL_T::FILLED_SHAPE
+                                                                      : FILL_T::NO_FILL,
+                                             thickness, &gbr_metadata );
                     }
                 }
             }
@@ -774,10 +784,18 @@ void BRDITEMS_PLOTTER::PlotFootprintShape( const FP_SHAPE* aShape )
 }
 
 
-void BRDITEMS_PLOTTER::PlotPcbText( const EDA_TEXT* aText, PCB_LAYER_ID aLayer )
+void BRDITEMS_PLOTTER::PlotPcbText( const EDA_TEXT* aText, PCB_LAYER_ID aLayer, bool aIsKnockout )
 {
-    wxString      shownText( aText->GetShownText() );
-    KIFONT::FONT* font = aText->GetDrawFont();
+    KIFONT::FONT* font = aText->GetFont();
+
+    if( !font )
+    {
+        font = KIFONT::FONT::GetFont( m_plotter->RenderSettings()->GetDefaultFont(),
+                                      aText->IsBold(), aText->IsItalic() );
+    }
+
+    wxString        shownText( aText->GetShownText() );
+    TEXT_ATTRIBUTES attrs = aText->GetAttributes();
 
     if( shownText.IsEmpty() )
         return;
@@ -795,20 +813,42 @@ void BRDITEMS_PLOTTER::PlotPcbText( const EDA_TEXT* aText, PCB_LAYER_ID aLayer )
 
     VECTOR2I size = aText->GetTextSize();
     VECTOR2I pos = aText->GetTextPos();
-    int     thickness = aText->GetEffectiveTextPenWidth();
+
+    attrs.m_StrokeWidth = aText->GetEffectiveTextPenWidth();
 
     if( aText->IsMirrored() )
         size.x = -size.x;
 
-    // Non bold texts thickness is clamped at 1/6 char size by the low level draw function.
-    // but in Pcbnew we do not manage bold texts and thickness up to 1/4 char size
-    // (like bold text) and we manage the thickness.
-    // So we set bold flag to true
-    bool allow_bold = true;
+    m_plotter->SetCurrentLineWidth( attrs.m_StrokeWidth );
 
-    m_plotter->SetCurrentLineWidth( thickness );
+    if( aIsKnockout )
+    {
+        KIGFX::GAL_DISPLAY_OPTIONS empty_opts;
+        SHAPE_POLY_SET             knockouts;
 
-    if( aText->IsMultilineAllowed() )
+        CALLBACK_GAL callback_gal( empty_opts,
+                // Polygon callback
+                [&]( const SHAPE_LINE_CHAIN& aPoly )
+                {
+                    knockouts.AddOutline( aPoly );
+                } );
+
+        callback_gal.SetIsFill( font->IsOutline() );
+        callback_gal.SetIsStroke( font->IsStroke() );
+        font->Draw( &callback_gal, shownText, aText->GetDrawPos(), attrs );
+
+        SHAPE_POLY_SET finalPoly;
+        int            margin = attrs.m_StrokeWidth * 1.5
+                                    + GetKnockoutTextMargin( attrs.m_Size, attrs.m_StrokeWidth );
+
+        aText->TransformBoundingBoxToPolygon( &finalPoly, margin );
+        finalPoly.BooleanSubtract( knockouts, SHAPE_POLY_SET::PM_FAST );
+        finalPoly.Fracture( SHAPE_POLY_SET::PM_FAST );
+
+        for( int ii = 0; ii < finalPoly.OutlineCount(); ++ii )
+            m_plotter->PlotPoly( finalPoly.Outline( ii ), FILL_T::FILLED_SHAPE, 0, &gbr_metadata );
+    }
+    else if( aText->IsMultilineAllowed() )
     {
         std::vector<VECTOR2I> positions;
         wxArrayString strings_list;
@@ -821,20 +861,21 @@ void BRDITEMS_PLOTTER::PlotPcbText( const EDA_TEXT* aText, PCB_LAYER_ID aLayer )
         {
             wxString& txt =  strings_list.Item( ii );
             m_plotter->Text( positions[ii], color, txt, aText->GetDrawRotation(), size,
-                             aText->GetHorizJustify(), aText->GetVertJustify(), thickness,
-                             aText->IsItalic(), allow_bold, false, font, &gbr_metadata );
+                             attrs.m_Halign, attrs.m_Valign, attrs.m_StrokeWidth, attrs.m_Italic,
+                             attrs.m_Bold, false, font, &gbr_metadata );
         }
     }
     else
     {
-        m_plotter->Text( pos, color, shownText, aText->GetDrawRotation(), size,
-                         aText->GetHorizJustify(), aText->GetVertJustify(), thickness,
-                         aText->IsItalic(), allow_bold, false, font, &gbr_metadata );
+        m_plotter->Text( pos, color, shownText, aText->GetDrawRotation(), size, attrs.m_Halign,
+                         attrs.m_Valign, attrs.m_StrokeWidth, attrs.m_Italic, attrs.m_Bold, false,
+                         font, &gbr_metadata );
     }
 }
 
 
-void BRDITEMS_PLOTTER::PlotFilledAreas( const ZONE* aZone, const SHAPE_POLY_SET& polysList )
+void BRDITEMS_PLOTTER::PlotFilledAreas( const ZONE* aZone, PCB_LAYER_ID aLayer,
+                                        const SHAPE_POLY_SET& polysList )
 {
     if( polysList.IsEmpty() )
         return;
@@ -863,7 +904,7 @@ void BRDITEMS_PLOTTER::PlotFilledAreas( const ZONE* aZone, const SHAPE_POLY_SET&
         }
     }
 
-    m_plotter->SetColor( getColor( aZone->GetLayer() ) );
+    m_plotter->SetColor( getColor( aLayer ) );
 
     m_plotter->StartBlock( nullptr );    // Clean current object attributes
 
@@ -945,10 +986,8 @@ void BRDITEMS_PLOTTER::PlotPcbShape( const PCB_SHAPE* aShape )
 
         case SHAPE_T::ARC:
         {
-            EDA_ANGLE startAngle( aShape->GetStart() - aShape->GetCenter() );
-            EDA_ANGLE endAngle = startAngle - aShape->GetArcAngle();
-
             // when startAngle == endAngle ThickArc() doesn't know whether it's 0 deg and 360 deg
+            // but it is a circle
             if( std::abs( aShape->GetArcAngle().AsDegrees() ) == 360.0 )
             {
                 m_plotter->ThickCircle( aShape->GetCenter(), aShape->GetRadius() * 2, thickness,
@@ -956,8 +995,7 @@ void BRDITEMS_PLOTTER::PlotPcbShape( const PCB_SHAPE* aShape )
             }
             else
             {
-                m_plotter->ThickArc( aShape->GetCenter(), -startAngle, -endAngle,
-                                     aShape->GetRadius(), thickness, GetPlotMode(), &gbr_metadata );
+                m_plotter->ThickArc( *aShape, GetPlotMode(), &gbr_metadata );
             }
 
             break;
@@ -971,7 +1009,7 @@ void BRDITEMS_PLOTTER::PlotPcbShape( const PCB_SHAPE* aShape )
         case SHAPE_T::POLY:
             if( aShape->IsPolyShapeValid() )
             {
-                if( sketch || thickness > 0 )
+                if( sketch )
                 {
                     for( auto it = aShape->GetPolyShape().CIterateSegments( 0 ); it; it++ )
                     {
@@ -980,8 +1018,7 @@ void BRDITEMS_PLOTTER::PlotPcbShape( const PCB_SHAPE* aShape )
                                                  &gbr_metadata );
                     }
                 }
-
-                if( !sketch && aShape->IsFilled() )
+                else
                 {
                     m_plotter->SetCurrentLineWidth( thickness, &gbr_metadata );
 
@@ -990,13 +1027,18 @@ void BRDITEMS_PLOTTER::PlotPcbShape( const PCB_SHAPE* aShape )
                     // ( for the future or to show a non expected shape )
                     // This must be simplified and fractured to prevent overlapping polygons
                     // from generating invalid Gerber files
-                    auto tmpPoly = SHAPE_POLY_SET( aShape->GetPolyShape() );
+                    SHAPE_POLY_SET tmpPoly = aShape->GetPolyShape().CloneDropTriangulation();
                     tmpPoly.Fracture( SHAPE_POLY_SET::PM_FAST );
+                    FILL_T fill = aShape->IsFilled() ? FILL_T::FILLED_SHAPE : FILL_T::NO_FILL;
 
                     for( int jj = 0; jj < tmpPoly.OutlineCount(); ++jj )
                     {
                         SHAPE_LINE_CHAIN& poly = tmpPoly.Outline( jj );
-                        m_plotter->PlotPoly( poly, FILL_T::FILLED_SHAPE, thickness, &gbr_metadata );
+
+                        // Ensure the polygon is closed:
+                        poly.SetClosed( true );
+
+                        m_plotter->PlotPoly( poly, fill, thickness, &gbr_metadata );
                     }
                 }
             }
@@ -1084,8 +1126,8 @@ void BRDITEMS_PLOTTER::PlotDrillMarks()
 {
     /* If small drills marks were requested prepare a clamp value to pass
        to the helper function */
-    int smallDrill = GetDrillMarksType() == PCB_PLOT_PARAMS::SMALL_DRILL_SHAPE
-                    ? Millimeter2iu( ADVANCED_CFG::GetCfg().m_SmallDrillMarkSize ) : 0;
+    int smallDrill = GetDrillMarksType() == DRILL_MARKS::SMALL_DRILL_SHAPE
+                    ? pcbIUScale.mmToIU( ADVANCED_CFG::GetCfg().m_SmallDrillMarkSize ) : 0;
 
     /* In the filled trace mode drill marks are drawn white-on-black to scrape
        the underlying pad. This works only for drivers supporting color change,

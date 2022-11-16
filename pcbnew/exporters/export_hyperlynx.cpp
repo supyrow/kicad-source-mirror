@@ -58,7 +58,7 @@ public:
     HYPERLYNX_PAD_STACK( BOARD* aBoard, const PCB_VIA* aVia );
     ~HYPERLYNX_PAD_STACK(){};
 
-    bool isThrough() const
+    bool IsThrough() const
     {
         return m_type == PAD_ATTRIB::NPTH || m_type == PAD_ATTRIB::PTH;
     }
@@ -71,7 +71,7 @@ public:
         if( m_type != other.m_type )
             return false;
 
-        if( isThrough() && other.isThrough() && m_drill != other.m_drill )
+        if( IsThrough() && other.IsThrough() && m_drill != other.m_drill )
             return false;
 
         if( m_sx != other.m_sx )
@@ -89,21 +89,6 @@ public:
         return true;
     }
 
-    bool isSMD() const
-    {
-        return m_type == PAD_ATTRIB::SMD;
-    }
-
-    PCB_LAYER_ID getSMDLayer() const
-    {
-        for( auto l : LSET::AllCuMask().Seq() )
-        {
-            if( m_layers[l] )
-                return l;
-        }
-        return F_Cu;
-    }
-
     void SetId( int id )
     {
         m_id = id;
@@ -114,19 +99,7 @@ public:
         return m_id;
     }
 
-    int IsSupportedByExporter() const
-    {
-        switch( m_shape )
-        {
-        case PAD_SHAPE::CIRCLE:
-        case PAD_SHAPE::OVAL:
-        case PAD_SHAPE::ROUNDRECT:
-        case PAD_SHAPE::RECT: return true;
-        default: return false;
-        }
-    }
-
-    bool isEmpty() const
+    bool IsEmpty() const
     {
         LSET layerMask = LSET::AllCuMask() & m_board->GetEnabledLayers();
         LSET outLayers = m_layers & layerMask;
@@ -180,28 +153,38 @@ private:
         switch( aStack.m_shape )
         {
         case PAD_SHAPE::CIRCLE:
-        case PAD_SHAPE::OVAL:      shapeId = 0; break;
-        case PAD_SHAPE::ROUNDRECT: shapeId = 2; break;
-        case PAD_SHAPE::RECT:      shapeId = 1; break;
-        default:
+        case PAD_SHAPE::OVAL:
             shapeId = 0;
+            break;
 
+        case PAD_SHAPE::ROUNDRECT:
+            shapeId = 2;
+            break;
+
+        case PAD_SHAPE::RECT:
+            shapeId = 1;
+            break;
+
+        default:
             if( m_reporter )
             {
                 m_reporter->Report( _( "File contains pad shapes that are not supported by the "
-                                       "Hyperlynx exporter (supported shapes are oval, rectangle "
-                                       "and circle)." ),
+                                       "Hyperlynx exporter (supported shapes are oval, rectangle, "
+                                       "rounded rectangle, and circle)." ),
                                     RPT_SEVERITY_WARNING );
                 m_reporter->Report( _( "They have been exported as oval pads." ),
                                     RPT_SEVERITY_INFO );
             }
+
+            shapeId = 0;
             break;
         }
 
-        snprintf( buf, sizeof( buf ), "%d, %.9f, %.9f, %.1f, M", shapeId,
-                iu2hyp( aStack.m_sx ),
-                iu2hyp( aStack.m_sy ),
-                aStack.m_angle );
+        snprintf( buf, sizeof( buf ), "%d, %.9f, %.9f, %.1f, M",
+                  shapeId,
+                  iu2hyp( aStack.m_sx ),
+                  iu2hyp( aStack.m_sy ),
+                  aStack.m_angle );
 
         return buf;
     }
@@ -219,12 +202,12 @@ private:
 
     const std::vector<BOARD_ITEM*> collectNetObjects( int netcode );
 
+private:
     std::vector<HYPERLYNX_PAD_STACK*>           m_padStacks;
     std::map<BOARD_ITEM*, HYPERLYNX_PAD_STACK*> m_padMap;
 
-
-    std::shared_ptr<FILE_OUTPUTFORMATTER> m_out;
-    int                                   m_polyId;
+    std::shared_ptr<FILE_OUTPUTFORMATTER>       m_out;
+    int                                         m_polyId;
 };
 
 
@@ -236,9 +219,7 @@ HYPERLYNX_PAD_STACK::HYPERLYNX_PAD_STACK( BOARD* aBoard, const PAD* aPad )
     m_angle = 180.0 - aPad->GetOrientation().AsDegrees();
 
     if( m_angle < 0.0 )
-    {
         m_angle += 360.0;
-    }
 
     m_layers = aPad->GetLayerSet();
     m_drill  = aPad->GetDrillSize().x;
@@ -254,7 +235,7 @@ HYPERLYNX_PAD_STACK::HYPERLYNX_PAD_STACK( BOARD* aBoard, const PCB_VIA* aVia )
     m_sx     = aVia->GetWidth();
     m_sy     = aVia->GetWidth();
     m_angle  = 0;
-    m_layers = LSET::AllCuMask();
+    m_layers = aVia->GetLayerSet();
     m_drill  = aVia->GetDrillValue();
     m_shape  = PAD_SHAPE::CIRCLE;
     m_type   = PAD_ATTRIB::PTH;
@@ -282,14 +263,15 @@ void HYPERLYNX_EXPORTER::writeSinglePadStack( HYPERLYNX_PAD_STACK& aStack )
 
     if( outLayers == layerMask )
     {
-        m_out->Print( 1, "(\"%s\", %s)\n", "MDEF", formatPadShape( aStack ).c_str() );
+        m_out->Print( 1, "(\"MDEF\", %s)\n", formatPadShape( aStack ).c_str() );
     }
     else
     {
         for( PCB_LAYER_ID l : outLayers.Seq() )
         {
-            m_out->Print( 1, "(\"%s\", %s)\n", (const char*) m_board->GetLayerName( l ).c_str(),
-                    formatPadShape( aStack ).c_str() );
+            m_out->Print( 1, "(\"%s\", %s)\n",
+                          (const char*) m_board->GetLayerName( l ).c_str(),
+                          formatPadShape( aStack ).c_str() );
         }
     }
 
@@ -315,9 +297,12 @@ bool HYPERLYNX_EXPORTER::writeBoardInfo()
 
         for( int i = 0; i < outl.SegmentCount(); i++ )
         {
-            const auto& s = outl.CSegment( i );
+            const SEG& s = outl.CSegment( i );
             m_out->Print( 1, "(PERIMETER_SEGMENT X1=%.9f Y1=%.9f X2=%.9f Y2=%.9f)\n",
-                    iu2hyp( s.A.x ), iu2hyp( s.A.y ), iu2hyp( s.B.x ), iu2hyp( s.B.y ) );
+                          iu2hyp( s.A.x ),
+                          iu2hyp( s.A.y ),
+                          iu2hyp( s.B.x ),
+                          iu2hyp( s.B.y ) );
         }
     }
 
@@ -374,7 +359,8 @@ bool HYPERLYNX_EXPORTER::writeStackupInfo()
                 m_out->Print( 1, "(DIELECTRIC T=%g C=%g L=\"DE%d_%.16s\" M=\"%.20s\")\n",
                               iu2hyp( item->GetThickness( idx ) ),
                               item->GetEpsilonR( idx ),
-                              idx, TO_UTF8( layer_name ),
+                              idx,
+                              TO_UTF8( layer_name ),
                               TO_UTF8( item->GetMaterial( idx ) ) );
             }
         }
@@ -398,8 +384,9 @@ bool HYPERLYNX_EXPORTER::writeDevices()
         if( ref.IsEmpty() )
             ref = wxT( "EMPTY" );
 
-        m_out->Print( 1, "(? REF=\"%s\" L=\"%s\")\n", (const char*) ref.c_str(),
-                (const char*) layerName.c_str() );
+        m_out->Print( 1, "(? REF=\"%s\" L=\"%s\")\n",
+                      (const char*) ref.c_str(),
+                      (const char*) layerName.c_str() );
     }
     m_out->Print( 0, "}\n\n" );
 
@@ -456,9 +443,11 @@ bool HYPERLYNX_EXPORTER::writeNetObjects( const std::vector<BOARD_ITEM*>& aObjec
 
 
                 m_out->Print( 1, "(PIN X=%.10f Y=%.10f R=\"%s.%s\" P=%d)\n",
-                        iu2hyp( pad->GetPosition().x ), iu2hyp( pad->GetPosition().y ),
-                        (const char*) ref.c_str(), (const char*) padName.c_str(),
-                        pstackIter->second->GetId() );
+                              iu2hyp( pad->GetPosition().x ),
+                              iu2hyp( pad->GetPosition().y ),
+                              (const char*) ref.c_str(),
+                              (const char*) padName.c_str(),
+                              pstackIter->second->GetId() );
             }
         }
         else if( PCB_VIA* via = dyn_cast<PCB_VIA*>( item ) )
@@ -467,8 +456,10 @@ bool HYPERLYNX_EXPORTER::writeNetObjects( const std::vector<BOARD_ITEM*>& aObjec
 
             if( pstackIter != m_padMap.end() )
             {
-                m_out->Print( 1, "(VIA X=%.10f Y=%.10f P=%d)\n", iu2hyp( via->GetPosition().x ),
-                        iu2hyp( via->GetPosition().y ), pstackIter->second->GetId() );
+                m_out->Print( 1, "(VIA X=%.10f Y=%.10f P=%d)\n",
+                              iu2hyp( via->GetPosition().x ),
+                              iu2hyp( via->GetPosition().y ),
+                              pstackIter->second->GetId() );
             }
         }
         else if( PCB_TRACK* track = dyn_cast<PCB_TRACK*>( item ) )
@@ -476,54 +467,83 @@ bool HYPERLYNX_EXPORTER::writeNetObjects( const std::vector<BOARD_ITEM*>& aObjec
             const wxString layerName = m_board->GetLayerName( track->GetLayer() );
 
             m_out->Print( 1, "(SEG X1=%.10f Y1=%.10f X2=%.10f Y2=%.10f W=%.10f L=\"%s\")\n",
-                    iu2hyp( track->GetStart().x ), iu2hyp( track->GetStart().y ),
-                    iu2hyp( track->GetEnd().x ), iu2hyp( track->GetEnd().y ),
-                    iu2hyp( track->GetWidth() ), (const char*) layerName.c_str() );
+                          iu2hyp( track->GetStart().x ),
+                          iu2hyp( track->GetStart().y ),
+                          iu2hyp( track->GetEnd().x ),
+                          iu2hyp( track->GetEnd().y ),
+                          iu2hyp( track->GetWidth() ),
+                          (const char*) layerName.c_str() );
+        }
+        else if( PCB_ARC* arc = dyn_cast<PCB_ARC*>( item ) )
+        {
+            const wxString layerName = m_board->GetLayerName( arc->GetLayer() );
+            VECTOR2I       start = arc->GetStart();
+            VECTOR2I       end = arc->GetEnd();
+
+            if( arc->IsCCW() )
+                std::swap( start, end );
+
+            m_out->Print( 1, "(ARC X1=%.10f Y1=%.10f X2=%.10f Y2=%.10f XC=%.10f YC=%.10f R=%.10f W=%.10f L=\"%s\")\n",
+                          iu2hyp( start.x ),
+                          iu2hyp( start.y ),
+                          iu2hyp( end.x ),
+                          iu2hyp( end.y ),
+                          iu2hyp( arc->GetCenter().x ),
+                          iu2hyp( arc->GetCenter().y ),
+                          iu2hyp( arc->GetRadius() ),
+                          iu2hyp( arc->GetWidth() ),
+                          (const char*) layerName.c_str() );
         }
         else if( ZONE* zone = dyn_cast<ZONE*>( item ) )
         {
             for( PCB_LAYER_ID layer : zone->GetLayerSet().Seq() )
             {
                 const wxString layerName   = m_board->GetLayerName( layer );
-                SHAPE_POLY_SET filledShape = *zone->GetFilledPolysList( layer );
+                SHAPE_POLY_SET fill = zone->GetFilledPolysList( layer )->CloneDropTriangulation();
 
-                filledShape.Simplify( SHAPE_POLY_SET::PM_FAST );
+                fill.Simplify( SHAPE_POLY_SET::PM_FAST );
 
-                for( int i = 0; i < filledShape.OutlineCount(); i++ )
+                for( int i = 0; i < fill.OutlineCount(); i++ )
                 {
-                    const SHAPE_LINE_CHAIN& outl = filledShape.COutline( i );
+                    const SHAPE_LINE_CHAIN& outl = fill.COutline( i );
+                    const VECTOR2I          p0 = outl.CPoint( 0 );
 
-                    auto p0 = outl.CPoint( 0 );
                     m_out->Print( 1, "{POLYGON T=POUR L=\"%s\" ID=%d X=%.10f Y=%.10f\n",
-                            (const char*) layerName.c_str(), m_polyId, iu2hyp( p0.x ),
-                            iu2hyp( p0.y ) );
+                                  (const char*) layerName.c_str(),
+                                  m_polyId,
+                                  iu2hyp( p0.x ),
+                                  iu2hyp( p0.y ) );
 
                     for( int v = 0; v < outl.PointCount(); v++ )
                     {
-                        m_out->Print( 2, "(LINE X=%.10f Y=%.10f)\n", iu2hyp( outl.CPoint( v ).x ),
-                                iu2hyp( outl.CPoint( v ).y ) );
+                        m_out->Print( 2, "(LINE X=%.10f Y=%.10f)\n",
+                                      iu2hyp( outl.CPoint( v ).x ),
+                                      iu2hyp( outl.CPoint( v ).y ) );
                     }
 
                     m_out->Print( 2, "(LINE X=%.10f Y=%.10f)\n", iu2hyp( p0.x ), iu2hyp( p0.y ) );
                     m_out->Print( 1, "}\n" );
 
-                    for( int h = 0; h < filledShape.HoleCount( i ); h++ )
+                    for( int h = 0; h < fill.HoleCount( i ); h++ )
                     {
-                        const SHAPE_LINE_CHAIN& holeShape = filledShape.CHole( i, h );
-                        VECTOR2I                ph0       = holeShape.CPoint( 0 );
+                        const SHAPE_LINE_CHAIN& holeShape = fill.CHole( i, h );
+                        const VECTOR2I          ph0       = holeShape.CPoint( 0 );
 
-                        m_out->Print( 1, "{POLYVOID ID=%d X=%.10f Y=%.10f\n", m_polyId,
-                                iu2hyp( ph0.x ), iu2hyp( ph0.y ) );
+                        m_out->Print( 1, "{POLYVOID ID=%d X=%.10f Y=%.10f\n",
+                                      m_polyId,
+                                      iu2hyp( ph0.x ),
+                                      iu2hyp( ph0.y ) );
 
                         for( int v = 0; v < holeShape.PointCount(); v++ )
                         {
                             m_out->Print( 2, "(LINE X=%.10f Y=%.10f)\n",
-                                    iu2hyp( holeShape.CPoint( v ).x ),
-                                    iu2hyp( holeShape.CPoint( v ).y ) );
+                                          iu2hyp( holeShape.CPoint( v ).x ),
+                                          iu2hyp( holeShape.CPoint( v ).y ) );
                         }
 
                         m_out->Print( 2, "(LINE X=%.10f Y=%.10f)\n",
-                                iu2hyp( ph0.x ), iu2hyp( ph0.y ) );
+                                      iu2hyp( ph0.x ),
+                                      iu2hyp( ph0.y ) );
                         m_out->Print( 1, "}\n" );
                     }
 
@@ -582,15 +602,15 @@ bool HYPERLYNX_EXPORTER::writeNets()
 {
     m_polyId = 1;
 
-    for( const auto netInfo : m_board->GetNetInfo() )
+    for( const NETINFO_ITEM* netInfo : m_board->GetNetInfo() )
     {
-        int netcode = netInfo->GetNetCode();
+        int  netcode = netInfo->GetNetCode();
         bool isNullNet = netInfo->GetNetCode() <= 0 || netInfo->GetNetname().IsEmpty();
 
         if( isNullNet )
             continue;
 
-        auto netObjects = collectNetObjects( netcode );
+        const std::vector<BOARD_ITEM*> netObjects = collectNetObjects( netcode );
 
         if( netObjects.size() )
         {
@@ -600,11 +620,11 @@ bool HYPERLYNX_EXPORTER::writeNets()
         }
     }
 
-    auto nullNetObjects = collectNetObjects( -1 );
+    const std::vector<BOARD_ITEM*> nullNetObjects = collectNetObjects( -1 );
 
     int idx = 0;
 
-    for( auto item : nullNetObjects )
+    for( BOARD_ITEM* item : nullNetObjects )
     {
         m_out->Print( 0, "{NET=\"EmptyNet%d\"\n", idx );
         writeNetObjects( { item } );

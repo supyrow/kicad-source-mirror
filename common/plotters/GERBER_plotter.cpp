@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2019 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -234,7 +234,7 @@ void GERBER_PLOTTER::formatNetAttribute( GBR_NETLIST_METADATA* aData )
 }
 
 
-bool GERBER_PLOTTER::StartPlot()
+bool GERBER_PLOTTER::StartPlot( const wxString& aPageNumber )
 {
     m_hasApertureRoundRect = false;     // true is at least one round rect aperture is in use
     m_hasApertureRotOval = false;       // true is at least one oval rotated aperture is in use
@@ -317,7 +317,6 @@ bool GERBER_PLOTTER::StartPlot()
 bool GERBER_PLOTTER::EndPlot()
 {
     char     line[1024];
-    wxString msg;
 
     wxASSERT( m_outputFile );
 
@@ -843,8 +842,6 @@ void GERBER_PLOTTER::plotArc( const SHAPE_ARC& aArc, bool aPlotInRegion )
     VECTOR2I  start( aArc.GetP0() );
     VECTOR2I  end( aArc.GetP1() );
     VECTOR2I  center( aArc.GetCenter() );
-    EDA_ANGLE start_angle = aArc.GetStartAngle();
-    EDA_ANGLE end_angle = aArc.GetEndAngle();
 
     if( !aPlotInRegion )
         MoveTo( start);
@@ -852,14 +849,18 @@ void GERBER_PLOTTER::plotArc( const SHAPE_ARC& aArc, bool aPlotInRegion )
         LineTo( start );
 
     VECTOR2D devEnd = userToDeviceCoordinates( end );
-    VECTOR2D devCenter = userToDeviceCoordinates( center ) - userToDeviceCoordinates( start );
+    VECTOR2D devCenter = userToDeviceCoordinates( center - start );
+
+    // We need to know if the arc is CW or CCW in device coordinates, so build this arc.
+    SHAPE_ARC deviceArc( userToDeviceCoordinates( start ),
+                         userToDeviceCoordinates( aArc.GetArcMid() ), devEnd, 0 );
 
     fprintf( m_outputFile, "G75*\n" );        // Multiquadrant (360 degrees) mode
 
-    if( start_angle < end_angle )
-        fprintf( m_outputFile, "G03*\n" );    // Active circular interpolation, CCW
-    else
+    if( deviceArc.IsClockwise() )
         fprintf( m_outputFile, "G02*\n" );    // Active circular interpolation, CW
+    else
+        fprintf( m_outputFile, "G03*\n" );    // Active circular interpolation, CCW
 
     fprintf( m_outputFile, "X%dY%dI%dJ%dD01*\n",
              KiROUND( devEnd.x ), KiROUND( devEnd.y ),
@@ -1011,6 +1012,10 @@ void GERBER_PLOTTER::PlotPoly( const SHAPE_LINE_CHAIN& aPoly, FILL_T aFill, int 
                 const SHAPE_ARC& arc = aPoly.Arc( arcindex );
 
                 plotArc( arc, ii > 0 );
+
+                // skip points on arcs, since we plot the arc itself
+                while( ii+1 < aPoly.PointCount() && arcindex == aPoly.ArcIndex( ii+1 ) )
+                    ii++;
             }
         }
 
@@ -1041,12 +1046,17 @@ void GERBER_PLOTTER::PlotPoly( const SHAPE_LINE_CHAIN& aPoly, FILL_T aFill, int 
                 const SHAPE_ARC& arc = aPoly.Arc( arcindex );
 
                 plotArc( arc, ii > 0 );
-            }
+
+                // skip points on arcs, since we plot the arc itself
+                while( ii+1 < aPoly.PointCount() && arcindex == aPoly.ArcIndex( ii+1 ) )
+                    ii++;
+             }
         }
 
         // Ensure the thick outline is closed for filled polygons
         // (if not filled, could be only a polyline)
-        if( aFill != FILL_T::NO_FILL && ( aPoly.CPoint( 0 ) != aPoly.CPoint( -1 ) ) )
+        if( ( aPoly.CPoint( 0 ) != aPoly.CPoint( -1 ) )
+            && ( aPoly.IsClosed() || aFill != FILL_T::NO_FILL ) )
             LineTo( VECTOR2I( aPoly.CPoint( 0 ) ) );
 
         PenFinish();
@@ -1124,9 +1134,9 @@ void GERBER_PLOTTER::ThickSegment( const VECTOR2I& start, const VECTOR2I& end, i
     }
 }
 
-void GERBER_PLOTTER::ThickArc( const VECTOR2I& centre, const EDA_ANGLE& aStartAngle,
+void GERBER_PLOTTER::ThickArc( const VECTOR2I& aCentre, const EDA_ANGLE& aStartAngle,
                                const EDA_ANGLE& aEndAngle, int aRadius, int aWidth,
-                               OUTLINE_MODE tracemode, void* aData )
+                               OUTLINE_MODE aTraceMode, void* aData )
 {
     GBR_METADATA *gbr_metadata = static_cast<GBR_METADATA*>( aData );
     SetCurrentLineWidth( aWidth, gbr_metadata );
@@ -1134,18 +1144,56 @@ void GERBER_PLOTTER::ThickArc( const VECTOR2I& centre, const EDA_ANGLE& aStartAn
     if( gbr_metadata )
         formatNetAttribute( &gbr_metadata->m_NetlistMetadata );
 
-    if( tracemode == FILLED )
+    if( aTraceMode == FILLED )
     {
-        Arc( centre, aStartAngle, aEndAngle, aRadius, FILL_T::NO_FILL, DO_NOT_SET_LINE_WIDTH );
+        Arc( aCentre, aStartAngle, aEndAngle, aRadius, FILL_T::NO_FILL, DO_NOT_SET_LINE_WIDTH );
     }
     else
     {
         SetCurrentLineWidth( USE_DEFAULT_LINE_WIDTH );
-        Arc( centre, aStartAngle, aEndAngle, aRadius - ( aWidth - m_currentPenWidth ) / 2,
+        Arc( aCentre, aStartAngle, aEndAngle, aRadius - ( aWidth - m_currentPenWidth ) / 2,
              FILL_T::NO_FILL, DO_NOT_SET_LINE_WIDTH );
-        Arc( centre, aStartAngle, aEndAngle, aRadius + ( aWidth - m_currentPenWidth ) / 2,
+        Arc( aCentre, aStartAngle, aEndAngle, aRadius + ( aWidth - m_currentPenWidth ) / 2,
              FILL_T::NO_FILL, DO_NOT_SET_LINE_WIDTH );
     }
+}
+
+
+void GERBER_PLOTTER::ThickArc( const VECTOR2I& aCentre, const VECTOR2I& aStart,
+                               const VECTOR2I& aEnd, int aWidth,
+                               OUTLINE_MODE aTraceMode, void* aData )
+{
+    EDA_ANGLE start_angle( aStart - aCentre );
+    EDA_ANGLE end_angle( aEnd - aCentre );
+
+    if( start_angle > end_angle )
+    {
+        if( end_angle < ANGLE_0 )
+            end_angle.Normalize();
+        else
+            start_angle = start_angle.Normalize() - ANGLE_360;
+    }
+
+    int radius = (aStart - aCentre).EuclideanNorm();
+
+    if( !m_yaxisReversed )   // should be always the case
+    {
+        std::swap( end_angle, start_angle );
+        end_angle = -end_angle;
+        start_angle = -start_angle;
+    }
+
+    ThickArc( aCentre, start_angle, end_angle, radius, aWidth, aTraceMode, aData );
+}
+
+
+void GERBER_PLOTTER::ThickArc( const EDA_SHAPE& aArcShape,
+                           OUTLINE_MODE aTraceMode, void* aData )
+{
+    wxASSERT( aArcShape.GetShape() == SHAPE_T::ARC );
+
+    ThickArc( aArcShape.getCenter(), aArcShape.GetStart(), aArcShape.GetEnd(),
+              aArcShape.GetWidth(), aTraceMode, aData );
 }
 
 
@@ -1241,7 +1289,7 @@ void GERBER_PLOTTER::FlashPadCircle( const VECTOR2I& pos, int diametre, OUTLINE_
 
         SetCurrentLineWidth( USE_DEFAULT_LINE_WIDTH );
 
-        Circle( pos, diametre - m_currentPenWidth, FILL_T::NO_FILL, DO_NOT_SET_LINE_WIDTH );
+        Circle( pos, diametre, FILL_T::NO_FILL, DO_NOT_SET_LINE_WIDTH );
     }
     else
     {
@@ -1362,10 +1410,8 @@ void GERBER_PLOTTER::FlashPadRect( const VECTOR2I& pos, const VECTOR2I& aSize,
                 formatNetAttribute( &gbr_metadata->m_NetlistMetadata );
 
             SetCurrentLineWidth( USE_DEFAULT_LINE_WIDTH );
-            Rect( VECTOR2I( pos.x - ( size.x - GetCurrentLineWidth() ) / 2,
-                            pos.y - (size.y - GetCurrentLineWidth()) / 2 ),
-                  VECTOR2I( pos.x + ( size.x - GetCurrentLineWidth() ) / 2,
-                            pos.y + (size.y - GetCurrentLineWidth()) / 2 ),
+            Rect( VECTOR2I( pos.x - ( size.x / 2 ), pos.y - (size.y / 2 ) ),
+                  VECTOR2I( pos.x + ( size.x / 2 ), pos.y + (size.y / 2 ) ),
                   FILL_T::NO_FILL, GetCurrentLineWidth() );
         }
         else
@@ -1434,7 +1480,6 @@ void GERBER_PLOTTER::FlashPadRoundRect( const VECTOR2I& aPadPos, const VECTOR2I&
                                               0, 0, GetPlotterArcHighDef(), ERROR_INSIDE );
 
         SetCurrentLineWidth( USE_DEFAULT_LINE_WIDTH, &gbr_metadata );
-        outline.Inflate( -GetCurrentLineWidth()/2, 16 );
 
         std::vector<VECTOR2I> cornerList;
         // TransformRoundRectToPolygon creates only one convex polygon
@@ -1641,12 +1686,11 @@ void GERBER_PLOTTER::FlashPadCustom( const VECTOR2I& aPadPos, const VECTOR2I& aS
     if( aData )
         gbr_metadata = *static_cast<GBR_METADATA*>( aData );
 
-    SHAPE_POLY_SET polyshape = *aPolygons;
+    SHAPE_POLY_SET polyshape = aPolygons->CloneDropTriangulation();
 
     if( aTraceMode != FILLED )
     {
         SetCurrentLineWidth( USE_DEFAULT_LINE_WIDTH, &gbr_metadata );
-        polyshape.Inflate( -GetCurrentLineWidth()/2, 16 );
     }
 
     std::vector<VECTOR2I> cornerList;

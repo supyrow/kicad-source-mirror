@@ -175,6 +175,30 @@ void delete_if( _Container& __c, _Function&& __f )
     __c.erase( std::remove_if( __c.begin(), __c.end(), std::forward<_Function>( __f ) ), __c.end() );
 }
 
+/**
+ * @brief Deletes all duplicate values from \a __c.
+ */
+template <class _Container>
+void remove_duplicates( _Container& __c )
+{
+    __c.erase( std::unique( __c.begin(), __c.end() ), __c.end() );
+}
+
+template <class _Container, class _Function>
+void remove_duplicates( _Container& __c, _Function&& __f )
+{
+    __c.erase( std::unique( __c.begin(), __c.end(), std::forward<_Function>( __f ) ), __c.end() );
+}
+
+/**
+ * @brief Integral version of std::signbit that works all compilers.
+ */
+template <typename T, std::enable_if_t<std::is_integral<T>::value, int> = 0>
+bool signbit( T v )
+{
+    return v < 0;
+}
+
 
 } // namespace alg
 

@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2012 Jean-Pierre Charras, jean-pierre.charras@ujf-grenoble.fr
  * Copyright (C) 2012 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -32,6 +32,12 @@
 #include <board.h>
 #include <board_design_settings.h>
 #include <pcb_group.h>
+
+
+BOARD_ITEM::~BOARD_ITEM()
+{
+    wxASSERT( m_group == nullptr );
+}
 
 
 const BOARD* BOARD_ITEM::GetBoard() const
@@ -69,13 +75,13 @@ bool BOARD_ITEM::IsLocked() const
 
     const BOARD* board = GetBoard();
 
-    return board && board->GetBoardUse() != BOARD_USE::FPHOLDER && GetState( LOCKED );
+    return board && board->GetBoardUse() != BOARD_USE::FPHOLDER && m_isLocked;
 }
 
 
 STROKE_PARAMS BOARD_ITEM::GetStroke() const
 {
-    wxCHECK( false, STROKE_PARAMS( Millimeter2iu( DEFAULT_LINE_WIDTH ) ) );
+    wxCHECK( false, STROKE_PARAMS( pcbIUScale.mmToIU( DEFAULT_LINE_WIDTH ) ) );
 }
 
 
@@ -135,6 +141,9 @@ void BOARD_ITEM::ViewGetLayers( int aLayers[], int& aCount ) const
     // Basic fallback
     aCount = 1;
     aLayers[0] = m_layer;
+
+    if( IsLocked() )
+        aLayers[aCount++] = LAYER_LOCKED_ITEM_SHADOW;
 }
 
 
@@ -149,8 +158,29 @@ void BOARD_ITEM::DeleteStructure()
 }
 
 
-void BOARD_ITEM::SwapData( BOARD_ITEM* aImage )
+void BOARD_ITEM::swapData( BOARD_ITEM* aImage )
 {
+}
+
+
+void BOARD_ITEM::SwapItemData( BOARD_ITEM* aImage )
+{
+    if( aImage == nullptr )
+        return;
+
+    wxASSERT( Type() == aImage->Type() );
+    wxASSERT( m_Uuid == aImage->m_Uuid );
+
+    EDA_ITEM*  parent = GetParent();
+    PCB_GROUP* group = GetParentGroup();
+
+    SetParentGroup( nullptr );
+    aImage->SetParentGroup( nullptr );
+    swapData( aImage );
+
+    // Restore pointers to be sure they are not broken
+    SetParent( parent );
+    SetParentGroup( group );
 }
 
 
@@ -166,13 +196,11 @@ BOARD_ITEM* BOARD_ITEM::Duplicate() const
 }
 
 
-void BOARD_ITEM::TransformShapeWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuffer,
-                                                       PCB_LAYER_ID aLayer, int aClearanceValue,
-                                                       int aError, ERROR_LOC aErrorLoc,
-                                                       bool ignoreLineWidth ) const
+void BOARD_ITEM::TransformShapeToPolygon( SHAPE_POLY_SET& aBuffer, PCB_LAYER_ID aLayer,
+                                          int aClearance, int aError, ERROR_LOC aErrorLoc,
+                                          bool ignoreLineWidth ) const
 {
-    wxASSERT_MSG( false, wxT( "Called TransformShapeWithClearanceToPolygon() on unsupported "
-                              "BOARD_ITEM." ) );
+    wxASSERT_MSG( false, wxT( "Called TransformShapeToPolygon() on unsupported BOARD_ITEM." ) );
 };
 
 
@@ -191,13 +219,23 @@ bool BOARD_ITEM::ptr_cmp::operator() ( const BOARD_ITEM* a, const BOARD_ITEM* b 
 }
 
 
-std::shared_ptr<SHAPE> BOARD_ITEM::GetEffectiveShape( PCB_LAYER_ID aLayer ) const
+std::shared_ptr<SHAPE> BOARD_ITEM::GetEffectiveShape( PCB_LAYER_ID aLayer, FLASHING aFlash ) const
 {
-    std::shared_ptr<SHAPE> shape;
+    static std::shared_ptr<SHAPE> shape;
 
     UNIMPLEMENTED_FOR( GetClass() );
 
     return shape;
+}
+
+
+std::shared_ptr<SHAPE_SEGMENT> BOARD_ITEM::GetEffectiveHoleShape() const
+{
+    static std::shared_ptr<SHAPE_SEGMENT> slot;
+
+    UNIMPLEMENTED_FOR( GetClass() );
+
+    return slot;
 }
 
 
@@ -243,9 +281,11 @@ static struct BOARD_ITEM_DESC
         propMgr.InheritsAfter( TYPE_HASH( BOARD_ITEM ), TYPE_HASH( EDA_ITEM ) );
 
         propMgr.AddProperty( new PROPERTY<BOARD_ITEM, int>( _HKI( "Position X" ),
-                    &BOARD_ITEM::SetX, &BOARD_ITEM::GetX, PROPERTY_DISPLAY::DISTANCE ) );
+                    &BOARD_ITEM::SetX, &BOARD_ITEM::GetX, PROPERTY_DISPLAY::PT_COORD,
+                    ORIGIN_TRANSFORMS::ABS_X_COORD) );
         propMgr.AddProperty( new PROPERTY<BOARD_ITEM, int>( _HKI( "Position Y" ),
-                    &BOARD_ITEM::SetY, &BOARD_ITEM::GetY, PROPERTY_DISPLAY::DISTANCE ) );
+                    &BOARD_ITEM::SetY, &BOARD_ITEM::GetY, PROPERTY_DISPLAY::PT_COORD,
+                    ORIGIN_TRANSFORMS::ABS_Y_COORD) );
         propMgr.AddProperty( new PROPERTY_ENUM<BOARD_ITEM, PCB_LAYER_ID>( _HKI( "Layer" ),
                     &BOARD_ITEM::SetLayer, &BOARD_ITEM::GetLayer ) );
         propMgr.AddProperty( new PROPERTY<BOARD_ITEM, bool>( _HKI( "Locked" ),

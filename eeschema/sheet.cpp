@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2015 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 2004-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2004-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -182,12 +182,29 @@ bool SCH_EDIT_FRAME::LoadSheetFromFile( SCH_SHEET* aSheet, SCH_SHEET_PATH* aHier
 
         if( wxFileName::GetPathSeparator() == '\\' )
             topLevelSheetPath.Replace( "\\", "/" );
+
+        // Update the paths to the loaded sheets.
+        std::vector< SCH_ITEM* > sheetsInLoadedSchematic;
+
+        newSheet->GetScreen()->GetSheets( &sheetsInLoadedSchematic );
+
+        for( SCH_ITEM* item : sheetsInLoadedSchematic )
+        {
+            SCH_SHEET* sheet = static_cast< SCH_SHEET* >( item );
+
+            wxCHECK2( sheet, continue );
+
+            wxFileName loadedSheetFileName = sheet->GetFileName();
+            wxString newSheetFilePath = topLevelSheetPath + loadedSheetFileName.GetFullName();
+
+            sheet->SetFileName( newSheetFilePath );
+        }
     }
 
-    // Make sure any new sheet changes do not cause any recursion issues.
-    SCH_SHEET_LIST hierarchy = Schematic().GetSheets(); // This is the schematic sheet hierarchy.
     SCH_SHEET_LIST sheetHierarchy( newSheet.get() );    // This is the hierarchy of the loaded file.
+    SCH_SHEET_LIST hierarchy = Schematic().GetSheets(); // This is the schematic sheet hierarchy.
 
+    // Make sure any new sheet changes do not cause any recursion issues.
     if( CheckSheetForRecursion( newSheet.get(), aHierarchy )
           || checkForNoFullyDefinedLibIds( newSheet.get() ) )
     {
@@ -206,229 +223,254 @@ bool SCH_EDIT_FRAME::LoadSheetFromFile( SCH_SHEET* aSheet, SCH_SHEET_PATH* aHier
     wxMessageDialog::ButtonLabel okButtonLabel( _( "Continue Load" ) );
     wxMessageDialog::ButtonLabel cancelButtonLabel( _( "Cancel Load" ) );
 
-    if( fileName.GetPathWithSep() == Prj().GetProjectPath()
-      && !prjScreens.HasSchematic( fullFilename ) )
+    // Prior to schematic file format 20221002, all symbol instance data was saved in the root
+    // sheet so loading a hierarchical sheet that is not the root sheet will have no symbol
+    // instance data.  Give the user a chance to go back and save the project that contains this
+    // hierarchical sheet so the symbol instance data will be correct on load.
+    if( ( newSheet->GetScreen()->GetFileFormatVersionAtLoad() < 20221002 )
+      && newSheet->GetScreen()->GetSymbolInstances().empty() )
     {
-        // A schematic in the current project path that isn't part of the current project.
-        // It's possible the user copied this schematic from another project so the library
-        // links may not be available.  Even this is check is no guarantee that all symbol
-        // library links are valid but it's better than nothing.
-        for( const wxString& name : names )
-        {
-            if( !Prj().SchSymbolLibTable()->HasLibrary( name ) )
-                newLibNames.Add( name );
-        }
+        msg = _( "There hierarchical sheets in the loaded schematic file from an older "
+                 "file version resulting in  missing symbol instance data.  This will "
+                 "result in all of the symbols in the loaded schematic to use either the "
+                 "default instance setting or fall back to the library symbol settings.  "
+                 "Loading the project that uses this schematic file and saving to the "
+                 "lastest file version will resolve this issue.\n\n"
+                 "Do you wish to continue?" );
+        wxMessageDialog msgDlg7( this, msg, _( "Continue Load Schematic" ),
+                                 wxOK | wxCANCEL | wxCANCEL_DEFAULT | wxCENTER | wxICON_QUESTION );
+        msgDlg7.SetOKCancelLabels( okButtonLabel, cancelButtonLabel );
 
-        if( !newLibNames.IsEmpty() )
-        {
-            msg = _( "There are library names in the loaded schematic that are missing "
-                     "from the project library table.  This may result in broken symbol "
-                     "library links for the loaded schematic.  Do you wish to continue?" );
-            wxMessageDialog msgDlg3( this, msg, _( "Continue Load Schematic" ),
-                                     wxOK | wxCANCEL | wxCANCEL_DEFAULT |
-                                     wxCENTER | wxICON_QUESTION );
-            msgDlg3.SetOKCancelLabels( okButtonLabel, cancelButtonLabel );
-
-            if( msgDlg3.ShowModal() == wxID_CANCEL )
-                return false;
-        }
+        if( msgDlg7.ShowModal() == wxID_CANCEL )
+            return false;
     }
-    else if( fileName.GetPathWithSep() != Prj().GetProjectPath() )
+
+    if( !prjScreens.HasSchematic( fullFilename ) )
     {
-        // A schematic loaded from a path other than the current project path.
-
-        // If there are symbol libraries in the imported schematic that are not in the
-        // symbol library table of this project, there could be a lot of broken symbol
-        // library links.  Attempt to add the missing libraries to the project symbol
-        // library table.
-        wxArrayString    duplicateLibNames;
-
-        for( const wxString& name : names )
+        if( fileName.GetPathWithSep() == Prj().GetProjectPath() )
         {
-            if( !Prj().SchSymbolLibTable()->HasLibrary( name ) )
-                newLibNames.Add( name );
-            else
-                duplicateLibNames.Add( name );
-        }
-
-        SYMBOL_LIB_TABLE table;
-        wxFileName symLibTableFn( fileName.GetPath(),
-                                  SYMBOL_LIB_TABLE::GetSymbolLibTableFileName() );
-
-        // If there are any new or duplicate libraries, check to see if it's possible that
-        // there could be any missing libraries that would cause broken symbol library links.
-        if( !newLibNames.IsEmpty() || !duplicateLibNames.IsEmpty() )
-        {
-            if( !symLibTableFn.Exists() || !symLibTableFn.IsFileReadable() )
+            // A schematic in the current project path that isn't part of the current project.
+            // It's possible the user copied this schematic from another project so the library
+            // links may not be available.  Even this is check is no guarantee that all symbol
+            // library links are valid but it's better than nothing.
+            for( const wxString& name : names )
             {
-                msg.Printf( _( "The project library table '%s' does not exist or cannot "
-                               "be read.  This may result in broken symbol links for the "
-                               "schematic.  Do you wish to continue?" ),
-                            fileName.GetFullPath() );
-                wxMessageDialog msgDlg4( this, msg, _( "Continue Load Schematic" ),
+                if( !Prj().SchSymbolLibTable()->HasLibrary( name ) )
+                    newLibNames.Add( name );
+            }
+
+            if( !newLibNames.IsEmpty() )
+            {
+                msg = _( "There are library names in the selected schematic that are missing "
+                         "from the current project library table.  This may result in broken "
+                         "symbol library references for the loaded schematic.\n\n"
+                         "Do you wish to continue?" );
+                wxMessageDialog msgDlg3( this, msg, _( "Continue Load Schematic" ),
                                          wxOK | wxCANCEL | wxCANCEL_DEFAULT |
                                          wxCENTER | wxICON_QUESTION );
-                msgDlg4.SetOKCancelLabels( okButtonLabel, cancelButtonLabel );
+                msgDlg3.SetOKCancelLabels( okButtonLabel, cancelButtonLabel );
 
-                if( msgDlg4.ShowModal() == wxID_CANCEL )
+                if( msgDlg3.ShowModal() == wxID_CANCEL )
                     return false;
-            }
-            else
-            {
-                try
-                {
-                    table.Load( symLibTableFn.GetFullPath() );
-                }
-                catch( const IO_ERROR& ioe )
-                {
-                    msg.Printf( _( "Error loading the symbol library table '%s'." ),
-                                symLibTableFn.GetFullPath() );
-                    DisplayErrorMessage( nullptr, msg, ioe.What() );
-                    return false;
-                }
             }
         }
-
-        // Check to see if any of the symbol libraries found in the appended schematic do
-        // not exist in the current project are missing from the appended project symbol
-        // library table.
-        if( !newLibNames.IsEmpty() )
+        else if( fileName.GetPathWithSep() != Prj().GetProjectPath() )
         {
-            bool missingLibNames = table.IsEmpty();
+            // A schematic loaded from a path other than the current project path.
 
-            if( !missingLibNames )
+            // If there are symbol libraries in the imported schematic that are not in the
+            // symbol library table of this project, there could be a lot of broken symbol
+            // library links.  Attempt to add the missing libraries to the project symbol
+            // library table.
+            wxArrayString    duplicateLibNames;
+
+            for( const wxString& name : names )
             {
-                for( const wxString& newLibName : newLibNames )
+                if( !Prj().SchSymbolLibTable()->HasLibrary( name ) )
+                    newLibNames.Add( name );
+                else
+                    duplicateLibNames.Add( name );
+            }
+
+            SYMBOL_LIB_TABLE table;
+            wxFileName symLibTableFn( fileName.GetPath(),
+                                      SYMBOL_LIB_TABLE::GetSymbolLibTableFileName() );
+
+            // If there are any new or duplicate libraries, check to see if it's possible that
+            // there could be any missing libraries that would cause broken symbol library links.
+            if( !newLibNames.IsEmpty() || !duplicateLibNames.IsEmpty() )
+            {
+                if( !symLibTableFn.Exists() || !symLibTableFn.IsFileReadable() )
                 {
-                    if( !table.HasLibrary( newLibName ) )
+                    msg = _( "The selected file was created as part of a different project.  "
+                             "Linking the file to this project may result in missing or "
+                             "incorrect symbol library references.\n\n"
+                             "Do you wish to continue?" );
+                    wxMessageDialog msgDlg4( this, msg, _( "Continue Load Schematic" ),
+                                             wxOK | wxCANCEL | wxCANCEL_DEFAULT |
+                                             wxCENTER | wxICON_QUESTION );
+                    msgDlg4.SetOKCancelLabels( okButtonLabel, cancelButtonLabel );
+
+                    if( msgDlg4.ShowModal() == wxID_CANCEL )
+                        return false;
+                }
+                else
+                {
+                    try
                     {
-                        missingLibNames = true;
-                        break;
+                        table.Load( symLibTableFn.GetFullPath() );
+                    }
+                    catch( const IO_ERROR& ioe )
+                    {
+                        msg.Printf( _( "Error loading the symbol library table '%s'." ),
+                                    symLibTableFn.GetFullPath() );
+                        DisplayErrorMessage( nullptr, msg, ioe.What() );
+                        return false;
                     }
                 }
             }
 
-            if( missingLibNames )
+            // Check to see if any of the symbol libraries found in the appended schematic do
+            // not exist in the current project are missing from the appended project symbol
+            // library table.
+            if( !newLibNames.IsEmpty() )
             {
-                msg = _( "There are library names in the loaded schematic that are missing "
-                         "from the loaded schematic project library table.  This may result "
-                         "in broken symbol library links for the schematic.  "
-                         "Do you wish to continue?" );
-                wxMessageDialog msgDlg5( this, msg, _( "Continue Load Schematic" ),
-                                         wxOK | wxCANCEL | wxCANCEL_DEFAULT |
-                                         wxCENTER | wxICON_QUESTION );
-                msgDlg5.SetOKCancelLabels( okButtonLabel, cancelButtonLabel );
+                bool missingLibNames = table.IsEmpty();
 
-                if( msgDlg5.ShowModal() == wxID_CANCEL )
-                    return false;
-            }
-        }
-
-        // The library name already exists in the current project.  Check to see if the
-        // duplicate name is the same library in the current project.  If it's not, it's
-        // most likely that the symbol library links will be broken.
-        if( !duplicateLibNames.IsEmpty() && !table.IsEmpty() )
-        {
-            bool libNameConflict = false;
-
-            for( const wxString& duplicateLibName : duplicateLibNames )
-            {
-                const SYMBOL_LIB_TABLE_ROW* thisRow = nullptr;
-                const SYMBOL_LIB_TABLE_ROW* otherRow = nullptr;
-
-                if( Prj().SchSymbolLibTable()->HasLibrary( duplicateLibName ) )
-                    thisRow = Prj().SchSymbolLibTable()->FindRow( duplicateLibName );
-
-                if( table.HasLibrary( duplicateLibName ) )
-                    otherRow = table.FindRow( duplicateLibName );
-
-                // It's in the global library table so there is no conflict.
-                if( thisRow && !otherRow )
-                    continue;
-
-                if( !thisRow || !otherRow )
-                    continue;
-
-                wxFileName otherUriFileName;
-                wxString thisURI = thisRow->GetFullURI( true );
-                wxString otherURI = otherRow->GetFullURI( false);
-
-                if( otherURI.Contains( "${KIPRJMOD}" ) || otherURI.Contains( "$(KIPRJMOD)" ) )
+                if( !missingLibNames )
                 {
-                    // Cannot use relative paths here, "${KIPRJMOD}../path-to-cache-lib" does
-                    // not expand to a valid symbol library path.
-                    otherUriFileName.SetPath( fileName.GetPath() );
-                    otherUriFileName.SetFullName( otherURI.AfterLast( '}' ) );
-                    otherURI = otherUriFileName.GetFullPath();
+                    for( const wxString& newLibName : newLibNames )
+                    {
+                        if( !table.HasLibrary( newLibName ) )
+                        {
+                            missingLibNames = true;
+                            break;
+                        }
+                    }
                 }
 
-                if( thisURI != otherURI )
+                if( missingLibNames )
                 {
-                    libNameConflict = true;
-                    break;
+                    msg = _( "There are symbol library names in the selected schematic that "
+                             "are missing from the selected schematic project library table.  "
+                             "This may result in broken symbol library references.\n\n"
+                             "Do you wish to continue?" );
+                    wxMessageDialog msgDlg5( this, msg, _( "Continue Load Schematic" ),
+                                             wxOK | wxCANCEL | wxCANCEL_DEFAULT |
+                                             wxCENTER | wxICON_QUESTION );
+                    msgDlg5.SetOKCancelLabels( okButtonLabel, cancelButtonLabel );
+
+                    if( msgDlg5.ShowModal() == wxID_CANCEL )
+                        return false;
                 }
             }
 
-            if( libNameConflict )
+            // The library name already exists in the current project.  Check to see if the
+            // duplicate name is the same library in the current project.  If it's not, it's
+            // most likely that the symbol library links will be broken.
+            if( !duplicateLibNames.IsEmpty() && !table.IsEmpty() )
             {
-                msg = _( "A duplicate library name that references a different library exists "
-                         "in the current library table.  This conflict cannot be resolved and "
-                         "may result in broken symbol library links for the schematic.  "
-                         "Do you wish to continue?" );
-                wxMessageDialog msgDlg6( this, msg, _( "Continue Load Schematic" ),
-                                         wxOK | wxCANCEL | wxCANCEL_DEFAULT |
-                                         wxCENTER | wxICON_QUESTION );
-                msgDlg6.SetOKCancelLabels( okButtonLabel, cancelButtonLabel );
+                bool libNameConflict = false;
 
-                if( msgDlg6.ShowModal() == wxID_CANCEL )
-                    return false;
+                for( const wxString& duplicateLibName : duplicateLibNames )
+                {
+                    const SYMBOL_LIB_TABLE_ROW* thisRow = nullptr;
+                    const SYMBOL_LIB_TABLE_ROW* otherRow = nullptr;
+
+                    if( Prj().SchSymbolLibTable()->HasLibrary( duplicateLibName ) )
+                        thisRow = Prj().SchSymbolLibTable()->FindRow( duplicateLibName );
+
+                    if( table.HasLibrary( duplicateLibName ) )
+                        otherRow = table.FindRow( duplicateLibName );
+
+                    // It's in the global library table so there is no conflict.
+                    if( thisRow && !otherRow )
+                        continue;
+
+                    if( !thisRow || !otherRow )
+                        continue;
+
+                    wxFileName otherUriFileName;
+                    wxString thisURI = thisRow->GetFullURI( true );
+                    wxString otherURI = otherRow->GetFullURI( false);
+
+                    if( otherURI.Contains( "${KIPRJMOD}" ) || otherURI.Contains( "$(KIPRJMOD)" ) )
+                    {
+                        // Cannot use relative paths here, "${KIPRJMOD}../path-to-cache-lib" does
+                        // not expand to a valid symbol library path.
+                        otherUriFileName.SetPath( fileName.GetPath() );
+                        otherUriFileName.SetFullName( otherURI.AfterLast( '}' ) );
+                        otherURI = otherUriFileName.GetFullPath();
+                    }
+
+                    if( thisURI != otherURI )
+                    {
+                        libNameConflict = true;
+                        break;
+                    }
+                }
+
+                if( libNameConflict )
+                {
+                    msg = _( "A duplicate library name that references a different library exists "
+                             "in the current library table.  This conflict cannot be resolved and "
+                             "may result in broken symbol library references.\n\n"
+                             "Do you wish to continue?" );
+                    wxMessageDialog msgDlg6( this, msg, _( "Continue Load Schematic" ),
+                                             wxOK | wxCANCEL | wxCANCEL_DEFAULT |
+                                             wxCENTER | wxICON_QUESTION );
+                    msgDlg6.SetOKCancelLabels( okButtonLabel, cancelButtonLabel );
+
+                    if( msgDlg6.ShowModal() == wxID_CANCEL )
+                        return false;
+                }
             }
-        }
 
-        // All (most?) of the possible broken symbol library link cases are covered.  Map the
-        // new appended schematic project symbol library table entries to the current project
-        // symbol library table.
-        if( !newLibNames.IsEmpty() && !table.IsEmpty() )
-        {
-            for( const wxString& libName : newLibNames )
+            // All (most?) of the possible broken symbol library link cases are covered.  Map the
+            // new appended schematic project symbol library table entries to the current project
+            // symbol library table.
+            if( !newLibNames.IsEmpty() && !table.IsEmpty() )
             {
-                if( !table.HasLibrary( libName )
-                  || Prj().SchSymbolLibTable()->HasLibrary( libName ) )
+                for( const wxString& libName : newLibNames )
                 {
-                    continue;
+                    if( !table.HasLibrary( libName )
+                      || Prj().SchSymbolLibTable()->HasLibrary( libName ) )
+                    {
+                        continue;
+                    }
+
+                    // Don't expand environment variable because KIPRJMOD will not be correct
+                    // for a different project.
+                    wxString uri = table.GetFullURI( libName, false );
+                    wxFileName newLib;
+
+                    if( uri.Contains( "${KIPRJMOD}" ) || uri.Contains( "$(KIPRJMOD)" ) )
+                    {
+                        // Cannot use relative paths here, "${KIPRJMOD}../path-to-cache-lib" does
+                        // not expand to a valid symbol library path.
+                        newLib.SetPath( fileName.GetPath() );
+                        newLib.SetFullName( uri.AfterLast( '}' ) );
+                        uri = newLib.GetFullPath();
+                    }
+                    else
+                    {
+                        uri = table.GetFullURI( libName );
+                    }
+
+                    // Add the library from the imported project to the current project
+                    // symbol library table.
+                    const SYMBOL_LIB_TABLE_ROW* row = table.FindRow( libName );
+
+                    wxCHECK( row, false );
+
+                    SYMBOL_LIB_TABLE_ROW* newRow = new SYMBOL_LIB_TABLE_ROW( libName, uri,
+                                                                             row->GetType(),
+                                                                             row->GetOptions(),
+                                                                             row->GetDescr() );
+
+                    Prj().SchSymbolLibTable()->InsertRow( newRow );
+                    libTableChanged = true;
                 }
-
-                // Don't expand environment variable because KIPRJMOD will not be correct
-                // for a different project.
-                wxString uri = table.GetFullURI( libName, false );
-                wxFileName newLib;
-
-                if( uri.Contains( "${KIPRJMOD}" ) || uri.Contains( "$(KIPRJMOD)" ) )
-                {
-                    // Cannot use relative paths here, "${KIPRJMOD}../path-to-cache-lib" does
-                    // not expand to a valid symbol library path.
-                    newLib.SetPath( fileName.GetPath() );
-                    newLib.SetFullName( uri.AfterLast( '}' ) );
-                    uri = newLib.GetFullPath();
-                }
-                else
-                {
-                    uri = table.GetFullURI( libName );
-                }
-
-                // Add the library from the imported project to the current project
-                // symbol library table.
-                const SYMBOL_LIB_TABLE_ROW* row = table.FindRow( libName );
-
-                wxCHECK( row, false );
-
-                SYMBOL_LIB_TABLE_ROW* newRow = new SYMBOL_LIB_TABLE_ROW( libName, uri,
-                                                                         row->GetType(),
-                                                                         row->GetOptions(),
-                                                                         row->GetDescr() );
-
-                Prj().SchSymbolLibTable()->InsertRow( newRow );
-                libTableChanged = true;
             }
         }
     }
@@ -441,6 +483,23 @@ bool SCH_EDIT_FRAME::LoadSheetFromFile( SCH_SHEET* aSheet, SCH_SHEET_PATH* aHier
         Prj().SchSymbolLibTable()->Save( Prj().GetProjectPath() +
                                          SYMBOL_LIB_TABLE::GetSymbolLibTableFileName() );
     }
+
+    // Make the best attempt to set the symbol instance data for the loaded scheamtic.
+    if( newScreen->GetFileFormatVersionAtLoad() < 20221002 )
+    {
+        if( !newScreen->GetSymbolInstances().empty() )
+        {
+            // If the loaded schematic is a root sheet for another project, update the symbol
+            // instances.
+            sheetHierarchy.UpdateSymbolInstances( newScreen->GetSymbolInstances() );
+        }
+    }
+
+    // Attempt to create new symbol instances using the instance data loaded above.
+    sheetHierarchy.AddNewSymbolInstances( *aHierarchy );
+
+    // Add new sheet instance data.
+    sheetHierarchy.AddNewSheetInstances( *aHierarchy, hierarchy.GetLastVirtualPageNumber() );
 
     // It is finally safe to add or append the imported schematic.
     if( aSheet->GetScreen() == nullptr )
@@ -482,7 +541,7 @@ void SCH_EDIT_FRAME::DrawCurrentSheetToClipboard()
     // the drawings into the dc size
     // scale is the ratio resolution (in PPI) / internal units
     double ppi = 300;   // Use 300 pixels per inch to create bitmap images on start
-    double inch2Iu = 1000.0 * IU_PER_MILS;
+    double inch2Iu = 1000.0 * schIUScale.IU_PER_MILS;
     double scale = ppi / inch2Iu;
 
     wxSize dcsize = DrawArea.GetSize();
@@ -517,12 +576,16 @@ void SCH_EDIT_FRAME::DrawCurrentSheetToClipboard()
     GRForceBlackPen( false );
     dc.SetUserScale( scale, scale );
 
-    GetRenderSettings()->SetPrintDC( &dc );
-    // Init the color of the layer actually used to print the drawing sheet:
-    GetRenderSettings()->SetLayerColor( LAYER_DRAWINGSHEET,
-                GetRenderSettings()->GetLayerColor( LAYER_SCHEMATIC_DRAWINGSHEET ) );
+    KIGFX::SCH_RENDER_SETTINGS* cfg = GetRenderSettings();
 
-    PrintPage( GetRenderSettings() );
+    cfg->SetPrintDC( &dc );
+
+    // Init the color of the layer actually used to print the drawing sheet:
+    cfg->SetLayerColor( LAYER_DRAWINGSHEET, cfg->GetLayerColor( LAYER_SCHEMATIC_DRAWINGSHEET ) );
+
+    cfg->SetDefaultFont( eeconfig()->m_Appearance.default_font );
+
+    PrintPage( cfg );
 
     {
         wxLogNull doNotLog; // disable logging of failed clipboard actions

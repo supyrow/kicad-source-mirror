@@ -33,6 +33,9 @@ endif()
 
 project( kicad )
 
+# Create a default build type for our QA that doesn't include `NDEBUG`
+set(CMAKE_CXX_FLAGS_QABUILD "-Os -g1 -ggdb1")
+
 include( GNUInstallDirs )
 include( CMakeDependentOption )
 
@@ -40,7 +43,7 @@ include( CMakeDependentOption )
 set( CMAKE_EXPORT_COMPILE_COMMANDS ON )
 
 # Path to local CMake modules.
-set( CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/CMakeModules )
+set( CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake )
 
 # On Windows, binaries created by link option -g3 are very large (more than 1Gb for pcbnew,
 # and more than 3Gb for the full kicad suite)
@@ -61,10 +64,6 @@ option( KICAD_SCRIPTING_WXPYTHON
     "Build wxPython implementation for wx interface building in Python and py.shell (default ON)."
     ON )
 mark_as_advanced( KICAD_SCRIPTING_WXPYTHON )
-
-option( KICAD_USE_OCC
-    "Build tools and plugins related to OpenCascade Technology (default ON)"
-    ON )
 
 option( KICAD_INSTALL_DEMOS
     "Install KiCad demos and examples (default ON)"
@@ -95,6 +94,10 @@ option( KICAD_SANITIZE_ADDRESS
 option( KICAD_SANITIZE_THREADS
     "Build KiCad with sanitizer options. WARNING: Not compatible with gold linker"
     OFF )
+
+option( KICAD_SIGNAL_INTEGRITY
+    "Build tools for signal integrity analysis ( default ON )"
+    ON )
 
 option( KICAD_STDLIB_DEBUG
     "Build KiCad with libstdc++ debug flags enabled."
@@ -137,6 +140,10 @@ option( KICAD_DRC_PROTO
     "Build the DRC prototype QA tool"
     OFF )
 
+option( KICAD_BUILD_PEGTL_DEBUG_TOOL
+    "Build the PEGTL parser debugging/playground QA tool"
+    OFF )
+
 option( KICAD_BUILD_PNS_DEBUG_TOOL
     "Build the P&S debugging/playground QA tool"
     OFF )
@@ -151,12 +158,17 @@ cmake_dependent_option( KICAD_WIN32_INSTALL_PDBS
     OFF "WIN32"
     OFF )
 
-option( KICAD_STEP_EXPORT_LIB
-    "Build and use kicad2step as a library, meant for debugging"
-    OFF )
-
 option( KICAD_USE_3DCONNEXION
     "Build KiCad with support for 3Dconnexion devices (Currently only for Mac/MSW)"
+    OFF )
+
+cmake_dependent_option( KICAD_WIN32_VERIFY_CODESIGN
+    "When enabled, verifies the code signing signature of certain DLLs loaded during runtime."
+    OFF "WIN32"
+    OFF )
+
+option( KICAD_USE_SENTRY
+    "Build KiCad with support for sentry app metrics"
     OFF )
 
 if( KICAD_USE_3DCONNEXION )
@@ -188,6 +200,10 @@ endif()
 
 if( KICAD_GAL_PROFILE )
     add_definitions( -DKICAD_GAL_PROFILE )
+endif()
+
+if( KICAD_WIN32_VERIFY_CODESIGN )
+    add_definitions( -DKICAD_WIN32_VERIFY_CODESIGN )
 endif()
 
 # Ensure DEBUG is defined for all platforms in Debug builds
@@ -346,6 +362,12 @@ if( CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang" )
         set( CMAKE_CXX_FLAGS_DEBUG "-g3 -ggdb3" )
     endif()
 
+    # Clang needs this flag or wxStrings, etc. won't be viewable in the debugger
+    if( CMAKE_CXX_COMPILER_ID MATCHES "Clang" )
+        set( CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fstandalone-debug" )
+        set( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fstandalone-debug" )
+    endif()
+
     if( KICAD_SANITIZE_ADDRESS )
         add_definitions( -DKICAD_SANITIZE_ADDRESS )
         set( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_GLIBCXX_SANITIZE_VECTOR -fsanitize=address -fno-optimize-sibling-calls -fsanitize-address-use-after-scope -fno-omit-frame-pointer" )
@@ -388,21 +410,6 @@ if( CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang" )
         endif()
 
         set( CMAKE_EXE_LINKER_FLAGS_RELEASE "-s" )
-
-        # Since version 2.8.5, Cmake uses a response file (.rsp) to
-        # pass the list of include paths to gcc
-        # unfortunately, under mingw32+msys, at least with gcc 4.8 and previous,
-        # this file is not always expanded and in this case include paths defined in this file
-        # are not taken in account ( this is the case of wxWidgets includes )
-        # If it is the case, disable this response file for includes ( See Windows-GNU.cmake module )
-        if( false ) #set to true to disable the include response file
-            if( WIN32 AND MSYS AND NOT CMAKE_CROSSCOMPILING )
-                # fixme: it is needed only with MSYS+MINGW32? or always under MINGW
-                if( ${CMAKE_SIZEOF_VOID_P} MATCHES 4 )
-                    set( CMAKE_CXX_USE_RESPONSE_FILE_FOR_INCLUDES 0 )
-                endif()
-            endif()
-        endif()
 
         # for some reasons, cmake does do use always a response file to send the list of objects
         # to the archiver, and because this list can be very long, and can create issue
@@ -489,9 +496,10 @@ if( KICAD_SPICE )
     add_definitions( -DKICAD_SPICE )
 endif()
 
-if( KICAD_USE_OCC )
-    add_definitions( -DKICAD_USE_OCC )
+if( KICAD_SIGNAL_INTEGRITY )
+    add_definitions( -DKICAD_SIGNAL_INTEGRITY )
 endif()
+
 
 if( KICAD_USE_EGL AND UNIX AND NOT APPLE )
     message( STATUS "Configuring KiCad for the wxGLCanvas EGL backend" )
@@ -503,9 +511,10 @@ endif()
 # KIFACE_SUFFIX is the file extension used for top level program modules which
 # implement the KIFACE interface.  A valid suffix starts with a period '.'.
 
-if( false )
-    # This is the eventual situation near milestone C) of modular-kicad blueprint.
-    # Until then we use .kiface extension so we don't collide with python DSO.
+if( WIN32 )
+    # We use .kiface extension so we don't collide with python DSO. (Linux/mac issue?)
+    # Windows works fine with the native dll extension
+    # which also resolves metadata issues because windows wants to see the dll extension
     set( KIFACE_SUFFIX  ${CMAKE_SHARED_MODULE_SUFFIX} )
 else()
     # Temporary situation until we can dovetail the python DSO into the kiface DSO.
@@ -523,8 +532,17 @@ set( KIFACE_PREFIX  "_" )
 #================================================
 if( NOT APPLE )
     # Everything without leading / is relative to CMAKE_INSTALL_PREFIX.
-    set( KICAD_BIN bin
-        CACHE PATH "Location of KiCad binaries." )
+    if( WIN32 )
+        set( KICAD_BIN bin
+            CACHE PATH "Location of KiCad binaries." )
+    else()
+        set( KICAD_BIN ${CMAKE_INSTALL_BINDIR}
+            CACHE PATH "Location of KiCad binaries." )
+    endif()
+
+    # For now, the kifaces are just in the normal bin folder
+    set( KICAD_KIFACE ${KICAD_BIN}
+        CACHE PATH "Location of KiCad kifaces." )
 
     # Do not make these variables "PATH" b/c cmake will truncate them and we need the full path
     if( NOT IS_ABSOLUTE ${CMAKE_INSTALL_DATADIR} )
@@ -636,6 +654,7 @@ else()
 endif()
 
 mark_as_advanced( KICAD_BIN
+    KICAD_KIFACE
     KICAD_PLUGINS
     KICAD_USER_PLUGIN
     KICAD_LIB
@@ -722,7 +741,7 @@ include_directories( SYSTEM ${PIXMAN_INCLUDE_DIR} )
 
 #
 # Find Boost headers, required.
-find_package( Boost 1.59.0 REQUIRED )
+find_package( Boost 1.71.0 REQUIRED )
 include_directories( SYSTEM ${Boost_INCLUDE_DIR} )
 
 #
@@ -743,32 +762,25 @@ find_package( Fontconfig REQUIRED )
 # Include MinGW resource compiler.
 include( MinGWResourceCompiler )
 
-if( WIN32 )
-    # we need the gdiplus library for cairo printing on windows
-    set( GDI_PLUS_LIBRARIES gdiplus )
-endif()
-
 # Find ngspice library, required for integrated circuit simulator
 if( KICAD_SPICE )
     find_package( ngspice REQUIRED )
 endif()
 
 # Find OpenCascade, required for STEP plugin and tools
-if( KICAD_USE_OCC )
-    find_package(OCC)
-    if( NOT OCC_FOUND )
-        MESSAGE( FATAL_ERROR "================================================================\n"
-                             " KICAD_USE_OCC=True but OpenCASCADE was not found!\n"
-                             "================================================================\n")
-    endif()
-    if( OCC_VERSION_STRING VERSION_LESS 7.3.0 )
-        MESSAGE( FATAL_ERROR "================================================================\n"
-                             "OpenCASCADE version ${OCC_VERSION_STRING} was found.\n"
-                             "  KiCad requires a minimum version of 7.3.0\n"
-                             "================================================================\n")
-    endif()
-    include_directories( SYSTEM ${OCC_INCLUDE_DIR} )
+find_package(OCC)
+if( NOT OCC_FOUND )
+    MESSAGE( FATAL_ERROR "================================================================\n"
+                         " OpenCASCADE was not found!\n"
+                         "================================================================\n")
 endif()
+if( OCC_VERSION_STRING VERSION_LESS 7.3.0 )
+    MESSAGE( FATAL_ERROR "================================================================\n"
+                         "OpenCASCADE version ${OCC_VERSION_STRING} was found.\n"
+                         "  KiCad requires a minimum version of 7.3.0\n"
+                         "================================================================\n")
+endif()
+include_directories( SYSTEM ${OCC_INCLUDE_DIR} )
 
 # Assist with header file searching optimization:
 # INC_BEFORE and INC_AFTER are two lists which go at the front and back of the
@@ -792,15 +804,9 @@ set( INC_AFTER
 # Find Python and other scripting resources
 #
 
-# SWIG 3.0 or later require for C++11 support.
-find_package( SWIG 3.0 REQUIRED )
+# SWIG 4.0 or later require for proper C++11 support.
+find_package( SWIG 4.0 REQUIRED )
 include( ${SWIG_USE_FILE} )
-
-# pybind11 is header-only, so include the subdir
-add_subdirectory(thirdparty/pybind11)
-
-# Make sure that we get our pybind11 and not the system pybind11 (ours is patched to work with wx)
-include_directories( BEFORE SYSTEM ${PYBIND11_INCLUDE_DIR} )
 
 set( PythonInterp_FIND_VERSION 3.6 )
 set( PythonLibs_FIND_VERSION 3.6 )
@@ -838,10 +844,26 @@ else()
     set( PYTHON_DEST "${PYTHON_SITE_PACKAGE_PATH}"
         CACHE PATH "Python module install path."
         )
+
+    if( IS_ABSOLUTE ${PYTHON_SITE_PACKAGE_PATH} )
+        set( PYTHON_FULL_DEST "${PYTHON_SITE_PACKAGE_PATH}"
+            CACHE PATH "Python module full install path."
+            )
+    else()
+        set( PYTHON_FULL_DEST "${CMAKE_INSTALL_PREFIX}/${PYTHON_SITE_PACKAGE_PATH}"
+            CACHE PATH "Python module full install path."
+            )
+    endif()
 endif()
 message( STATUS "Python module install path: ${PYTHON_DEST}" )
 
 find_package( PythonLibs 3.6 REQUIRED )
+
+# pybind11 is header-only, so include the subdir
+add_subdirectory(thirdparty/pybind11)
+
+# Make sure that we get our pybind11 and not the system pybind11 (ours is patched to work with wx)
+include_directories( BEFORE SYSTEM ${PYBIND11_INCLUDE_DIR} )
 
 # Infrequently needed headers go at end of search paths, append to INC_AFTER which
 # although is used for all components, should be a harmless hit for something like eeschema
@@ -865,9 +887,11 @@ if( UNIX AND NOT APPLE AND KICAD_SCRIPTING_WXPYTHON )
     endif()
 endif()
 
-message( STATUS "Found ${WXPYTHON_FLAVOR} "
-    "${WXPYTHON_VERSION}/${WXPYTHON_TOOLKIT} "
-    "(wxWidgets ${WXPYTHON_WXVERSION})" )
+if( WXPYTHON_FLAVOR )
+    message( STATUS "Found wxPython ${WXPYTHON_FLAVOR} "
+        "${WXPYTHON_VERSION}/${WXPYTHON_TOOLKIT} "
+        "(wxWidgets ${WXPYTHON_WXVERSION})" )
+endif()
 
 #
 # Find wxWidgets library, required
@@ -897,7 +921,7 @@ endif()
 # Require the same wxWidgets version as is used by wxPython
 set( wxWidgets_REQ_VERSION ${WXPYTHON_WXVERSION} )
 
-# See line 49 of CMakeModules/FindwxWidgets.cmake
+# See line 49 of cmake/FindwxWidgets.cmake
 set( wxWidgets_CONFIG_OPTIONS ${wxWidgets_CONFIG_OPTIONS} --static=no )
 
 find_package( wxWidgets ${wxWidgets_REQ_VERSION} COMPONENTS gl aui adv html core net base propgrid xml stc richtext REQUIRED )
@@ -933,15 +957,21 @@ if( APPLE )
         )
 endif()
 
+
+if( KICAD_USE_SENTRY )
+    add_subdirectory( thirdparty/sentry-native )
+    add_definitions( -DKICAD_USE_SENTRY )
+endif()
+
 #================================================
-# Add the documentation
+# Add the doxygen target
 #================================================
 find_package( Doxygen )
 
-add_subdirectory( Documentation )
+add_subdirectory( doxygen )
 
 # Generate config.h.
-configure_file( ${PROJECT_SOURCE_DIR}/CMakeModules/config.h.cmake
+configure_file( ${PROJECT_SOURCE_DIR}/cmake/config.h.cmake
     ${CMAKE_BINARY_DIR}/config.h )
 
 ###
@@ -972,17 +1002,6 @@ add_custom_target( uninstall
 # Installation
 #================================================
 
-###
-# Install scripts
-###
-if( UNIX AND NOT APPLE )
-    install( DIRECTORY scripts
-        DESTINATION ${KICAD_DOCS}
-        COMPONENT resources
-        PATTERN "*.bat" EXCLUDE
-        )
-endif()
-
 
 include( CTest )
 enable_testing()
@@ -1011,7 +1030,6 @@ endif()
 # Binaries ( CMake targets )
 add_subdirectory( resources )
 add_subdirectory( thirdparty )
-add_subdirectory( bitmaps_png )
 add_subdirectory( libs )
 add_subdirectory( scripting )
 add_subdirectory( common )
@@ -1027,7 +1045,10 @@ add_subdirectory( cvpcb )               # must be after pcbnew
 add_subdirectory( kicad )               # should follow pcbnew, eeschema
 add_subdirectory( tools )
 add_subdirectory( utils )
-add_subdirectory( qa )
+
+if( KICAD_BUILD_QA_TESTS )
+    add_subdirectory( qa )
+endif()
 
 # Demos
 if( KICAD_INSTALL_DEMOS )
@@ -1038,5 +1059,3 @@ endif ( KICAD_INSTALL_DEMOS )
 if( KICAD_BUILD_I18N )
     add_subdirectory( translation )
 endif()
-
-add_subdirectory( template )

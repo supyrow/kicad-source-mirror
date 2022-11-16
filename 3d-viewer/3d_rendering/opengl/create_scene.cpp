@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2015-2016 Mario Luzeiro <mrluzeiro@ua.pt>
- * Copyright (C) 2015-2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2015-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -30,6 +30,7 @@
 #include <trigo.h>
 #include <project.h>
 #include <profile.h>        // To use GetRunningMicroSecs or another profiling utility
+#include <fp_lib_table.h>
 #include <eda_3d_canvas.h>
 #include <eda_3d_viewer_frame.h>
 
@@ -374,23 +375,37 @@ OPENGL_RENDER_LIST* RENDER_3D_OPENGL::generateLayerList( const BVH_CONTAINER_2D*
 }
 
 
+OPENGL_RENDER_LIST* RENDER_3D_OPENGL::generateEmptyLayerList( PCB_LAYER_ID aLayerId )
+{
+    float layer_z_bot = 0.0f;
+    float layer_z_top = 0.0f;
+
+    getLayerZPos( aLayerId, layer_z_top, layer_z_bot );
+
+    TRIANGLE_DISPLAY_LIST* layerTriangles = new TRIANGLE_DISPLAY_LIST( 1 );
+
+    // store in a list so it will be latter deleted
+    m_triangles.push_back( layerTriangles );
+
+    return new OPENGL_RENDER_LIST( *layerTriangles, m_circleTexture, layer_z_bot, layer_z_top );
+}
+
+
 OPENGL_RENDER_LIST* RENDER_3D_OPENGL::createBoard( const SHAPE_POLY_SET& aBoardPoly,
                                                    const BVH_CONTAINER_2D* aThroughHoles )
 {
     OPENGL_RENDER_LIST* dispLists = nullptr;
     CONTAINER_2D boardContainer;
-    SHAPE_POLY_SET brd_outlines = aBoardPoly;
 
-    ConvertPolygonToTriangles( brd_outlines, boardContainer, m_boardAdapter.BiuTo3dUnits(),
+    ConvertPolygonToTriangles( aBoardPoly, boardContainer, m_boardAdapter.BiuTo3dUnits(),
                                (const BOARD_ITEM &)*m_boardAdapter.GetBoard() );
 
     const LIST_OBJECT2D& listBoardObject2d = boardContainer.GetList();
 
     if( listBoardObject2d.size() > 0 )
     {
-        // We will set a unitary Z so it will in future used with transformations
-        // since the board poly will be used not only to draw itself but also the
-        // solder mask layers.
+        // We will set a unitary Z so it will in future used with transformations since the
+        // board poly will be used not only to draw itself but also the solder mask layers.
         const float layer_z_top = 1.0f;
         const float layer_z_bot = 0.0f;
 
@@ -466,7 +481,7 @@ void RENDER_3D_OPENGL::reload( REPORTER* aStatusReporter, REPORTER* aWarningRepo
         m_antiBoard = createBoard( m_antiBoardPolys );
     }
 
-    SHAPE_POLY_SET board_poly_with_holes = m_boardAdapter.GetBoardPoly();
+    SHAPE_POLY_SET board_poly_with_holes = m_boardAdapter.GetBoardPoly().CloneDropTriangulation();
     board_poly_with_holes.BooleanSubtract( m_boardAdapter.GetThroughHoleOdPolys(),
                                            SHAPE_POLY_SET::PM_FAST );
     board_poly_with_holes.BooleanSubtract( m_boardAdapter.GetOuterNonPlatedThroughHolePoly(),
@@ -481,11 +496,13 @@ void RENDER_3D_OPENGL::reload( REPORTER* aStatusReporter, REPORTER* aWarningRepo
     if( aStatusReporter )
         aStatusReporter->Report( _( "Load OpenGL: holes and vias" ) );
 
-    SHAPE_POLY_SET outerPolyTHT = m_boardAdapter.GetThroughHoleOdPolys();
+    SHAPE_POLY_SET outerPolyTHT = m_boardAdapter.GetThroughHoleOdPolys().CloneDropTriangulation();
 
     if( m_boardAdapter.m_Cfg->m_Render.realistic )
+    {
         outerPolyTHT.BooleanIntersection( m_boardAdapter.GetBoardPoly(),
                                           SHAPE_POLY_SET::PM_STRICTLY_SIMPLE );
+    }
 
     m_outerThroughHoles = generateHoles( m_boardAdapter.GetThroughHoleOds().GetList(),
                                          outerPolyTHT, 1.0f, 0.0f, false,
@@ -515,7 +532,7 @@ void RENDER_3D_OPENGL::reload( REPORTER* aStatusReporter, REPORTER* aWarningRepo
         float layer_z_bot = 0.0f;
         float layer_z_top = 0.0f;
 
-        for( const auto ii : outerMapHoles )
+        for( const std::pair<const PCB_LAYER_ID, SHAPE_POLY_SET*>& ii : outerMapHoles )
         {
             const PCB_LAYER_ID      layer_id  = ii.first;
             const SHAPE_POLY_SET*   poly      = ii.second;
@@ -527,7 +544,7 @@ void RENDER_3D_OPENGL::reload( REPORTER* aStatusReporter, REPORTER* aWarningRepo
                                                          layer_z_top, layer_z_bot, false );
         }
 
-        for( const auto ii : innerMapHoles )
+        for( const std::pair<const PCB_LAYER_ID, SHAPE_POLY_SET*>& ii : innerMapHoles )
         {
             const PCB_LAYER_ID      layer_id  = ii.first;
             const SHAPE_POLY_SET*   poly      = ii.second;
@@ -549,7 +566,7 @@ void RENDER_3D_OPENGL::reload( REPORTER* aStatusReporter, REPORTER* aWarningRepo
 
     const MAP_POLY& map_poly = m_boardAdapter.GetPolyMap();
 
-    for( const auto ii : m_boardAdapter.GetLayerMap() )
+    for( const std::pair<const PCB_LAYER_ID, BVH_CONTAINER_2D*>& ii : m_boardAdapter.GetLayerMap() )
     {
         const PCB_LAYER_ID layer_id = ii.first;
 
@@ -565,7 +582,7 @@ void RENDER_3D_OPENGL::reload( REPORTER* aStatusReporter, REPORTER* aWarningRepo
         const BVH_CONTAINER_2D* container2d = ii.second;
 
         SHAPE_POLY_SET polyListSubtracted;
-        SHAPE_POLY_SET* aPolyList = nullptr;
+        SHAPE_POLY_SET* polyList = nullptr;
 
         // Load the vertical (Z axis) component of shapes
 
@@ -582,9 +599,8 @@ void RENDER_3D_OPENGL::reload( REPORTER* aStatusReporter, REPORTER* aWarningRepo
                 {
                     polyListSubtracted.BooleanSubtract( m_boardAdapter.GetThroughHoleOdPolys(),
                                                         SHAPE_POLY_SET::PM_FAST );
-                    polyListSubtracted.BooleanSubtract(
-                            m_boardAdapter.GetOuterNonPlatedThroughHolePoly(),
-                            SHAPE_POLY_SET::PM_FAST );
+                    polyListSubtracted.BooleanSubtract( m_boardAdapter.GetOuterNonPlatedThroughHolePoly(),
+                                                        SHAPE_POLY_SET::PM_FAST );
                 }
 
                 if( m_boardAdapter.m_Cfg->m_Render.subtract_mask_from_silk )
@@ -602,10 +618,10 @@ void RENDER_3D_OPENGL::reload( REPORTER* aStatusReporter, REPORTER* aWarningRepo
                 }
             }
 
-            aPolyList = &polyListSubtracted;
+            polyList = &polyListSubtracted;
         }
 
-        OPENGL_RENDER_LIST* oglList = generateLayerList( container2d, aPolyList, layer_id,
+        OPENGL_RENDER_LIST* oglList = generateLayerList( container2d, polyList, layer_id,
                                                          &m_boardAdapter.GetThroughHoleIds() );
 
         if( oglList != nullptr )
@@ -616,9 +632,12 @@ void RENDER_3D_OPENGL::reload( REPORTER* aStatusReporter, REPORTER* aWarningRepo
     if( m_boardAdapter.m_Cfg->m_Render.renderPlatedPadsAsPlated
             && m_boardAdapter.m_Cfg->m_Render.realistic )
     {
-        if( m_boardAdapter.GetFrontPlatedPadPolys() )
+        const SHAPE_POLY_SET* frontPlatedPadPolys = m_boardAdapter.GetFrontPlatedPadPolys();
+        const SHAPE_POLY_SET* backPlatedPadPolys = m_boardAdapter.GetBackPlatedPadPolys();
+
+        if( frontPlatedPadPolys )
         {
-            SHAPE_POLY_SET polySubtracted = *m_boardAdapter.GetFrontPlatedPadPolys();
+            SHAPE_POLY_SET polySubtracted = frontPlatedPadPolys->CloneDropTriangulation();
             polySubtracted.BooleanIntersection( m_boardAdapter.GetBoardPoly(),
                                                 SHAPE_POLY_SET::PM_FAST );
             polySubtracted.BooleanSubtract( m_boardAdapter.GetThroughHoleOdPolys(),
@@ -628,11 +647,15 @@ void RENDER_3D_OPENGL::reload( REPORTER* aStatusReporter, REPORTER* aWarningRepo
 
             m_platedPadsFront = generateLayerList( m_boardAdapter.GetPlatedPadsFront(),
                                                    &polySubtracted, F_Cu );
+
+            // An entry for F_Cu must exist in m_layers or we'll never look at m_platedPadsFront
+            if( m_layers.count( F_Cu ) == 0 )
+                m_layers[F_Cu] = generateEmptyLayerList( F_Cu );
         }
 
-        if( m_boardAdapter.GetBackPlatedPadPolys() )
+        if( backPlatedPadPolys )
         {
-            SHAPE_POLY_SET polySubtracted = *m_boardAdapter.GetBackPlatedPadPolys();
+            SHAPE_POLY_SET polySubtracted = backPlatedPadPolys->CloneDropTriangulation();
             polySubtracted.BooleanIntersection( m_boardAdapter.GetBoardPoly(),
                                                 SHAPE_POLY_SET::PM_FAST );
             polySubtracted.BooleanSubtract( m_boardAdapter.GetThroughHoleOdPolys(),
@@ -642,6 +665,10 @@ void RENDER_3D_OPENGL::reload( REPORTER* aStatusReporter, REPORTER* aWarningRepo
 
             m_platedPadsBack = generateLayerList( m_boardAdapter.GetPlatedPadsBack(),
                                                   &polySubtracted, B_Cu );
+
+            // An entry for B_Cu must exist in m_layers or we'll never look at m_platedPadsBack
+            if( m_layers.count( B_Cu ) == 0 )
+                m_layers[B_Cu] = generateEmptyLayerList( B_Cu );
         }
     }
 
@@ -798,11 +825,10 @@ void RENDER_3D_OPENGL::generateViasAndPads()
                     if( !hasHole )
                         continue;
 
-                    pad->TransformHoleWithClearanceToPolygon( tht_outer_holes_poly,
-                                                              platingThickness,
-                                                              ARC_HIGH_DEF, ERROR_INSIDE );
-                    pad->TransformHoleWithClearanceToPolygon( tht_inner_holes_poly, 0,
-                                                              ARC_HIGH_DEF, ERROR_INSIDE );
+                    pad->TransformHoleToPolygon( tht_outer_holes_poly, platingThickness,
+                                                 ARC_HIGH_DEF, ERROR_INSIDE );
+                    pad->TransformHoleToPolygon( tht_inner_holes_poly, 0, ARC_HIGH_DEF,
+                                                 ERROR_INSIDE );
                 }
             }
         }
@@ -896,6 +922,27 @@ void RENDER_3D_OPENGL::load3dModels( REPORTER* aStatusReporter )
     // Go for all footprints
     for( const FOOTPRINT* footprint : m_boardAdapter.GetBoard()->Footprints() )
     {
+        wxString                libraryName = footprint->GetFPID().GetLibNickname();
+        wxString                footprintBasePath = wxEmptyString;
+
+        if( m_boardAdapter.GetBoard()->GetProject() )
+        {
+            try
+            {
+                // FindRow() can throw an exception
+                const FP_LIB_TABLE_ROW* fpRow =
+                        m_boardAdapter.GetBoard()->GetProject()->PcbFootprintLibs()->FindRow(
+                                libraryName, false );
+
+                if( fpRow )
+                    footprintBasePath = fpRow->GetFullURI( true );
+            }
+            catch( ... )
+            {
+                // Do nothing if the libraryName is not found in lib table
+            }
+        }
+
         for( const FP_3DMODEL& fp_model : footprint->Models() )
         {
             if( fp_model.m_Show && !fp_model.m_Filename.empty() )
@@ -915,7 +962,7 @@ void RENDER_3D_OPENGL::load3dModels( REPORTER* aStatusReporter )
                 {
                     // It is not present, try get it from cache
                     const S3DMODEL* modelPtr =
-                            m_boardAdapter.Get3dCacheManager()->GetModel( fp_model.m_Filename );
+                            m_boardAdapter.Get3dCacheManager()->GetModel( fp_model.m_Filename, footprintBasePath );
 
                     // only add it if the return is not NULL
                     if( modelPtr )

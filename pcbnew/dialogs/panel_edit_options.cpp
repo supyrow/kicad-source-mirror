@@ -34,7 +34,7 @@ PANEL_EDIT_OPTIONS::PANEL_EDIT_OPTIONS( wxWindow* aParent, EDA_BASE_FRAME* aUnit
                                         bool isFootprintEditor ) :
         PANEL_EDIT_OPTIONS_BASE( aParent ),
         m_isFootprintEditor( isFootprintEditor ),
-        m_rotationAngle( aUnitsProvider, m_rotationAngleLabel, m_rotationAngleCtrl,
+        m_rotationAngle( aUnitsProvider, pcbIUScale, m_rotationAngleLabel, m_rotationAngleCtrl,
                          m_rotationAngleUnits )
 {
     m_magneticPads->Show( m_isFootprintEditor );
@@ -47,9 +47,13 @@ PANEL_EDIT_OPTIONS::PANEL_EDIT_OPTIONS( wxWindow* aParent, EDA_BASE_FRAME* aUnit
 #ifdef __WXOSX_MAC__
     m_mouseCmdsOSX->Show( true );
     m_mouseCmdsWinLin->Show( false );
+    // Disable highlight net option for footprint editor
+    m_rbCtrlClickActionMac->Enable( 1, !m_isFootprintEditor );
 #else
     m_mouseCmdsWinLin->Show( true );
     m_mouseCmdsOSX->Show( false );
+    // Disable highlight net option for footprint editor
+    m_rbCtrlClickAction->Enable( 1, !m_isFootprintEditor );
 #endif
 
     m_optionsBook->SetSelection( isFootprintEditor ? 0 : 1 );
@@ -63,7 +67,8 @@ void PANEL_EDIT_OPTIONS::loadPCBSettings( PCBNEW_SETTINGS* aCfg )
     m_magneticTrackChoice->SetSelection( static_cast<int>( aCfg->m_MagneticItems.tracks ) );
     m_magneticGraphicsChoice->SetSelection( !aCfg->m_MagneticItems.graphics );
     m_flipLeftRight->SetValue( aCfg->m_FlipLeftRight );
-    m_cbPcbGraphic45Mode->SetValue( aCfg->m_Use45DegreeLimit );
+    m_cbConstrainHV45Mode->SetValue( aCfg->m_Use45DegreeLimit );
+    m_cbCourtyardCollisions->SetValue( aCfg->m_ShowCourtyardCollisions );
 
     /* Set display options */
     m_OptDisplayCurvedRatsnestLines->SetValue( aCfg->m_Display.m_DisplayRatsnestLinesCurved );
@@ -76,9 +81,17 @@ void PANEL_EDIT_OPTIONS::loadPCBSettings( PCBNEW_SETTINGS* aCfg )
     case TRACK_DRAG_ACTION::DRAG_FREE_ANGLE: m_rbTrackDragFree->SetValue( true ); break;
     }
 
+#ifdef __WXOSX_MAC__
+    m_rbCtrlClickActionMac->SetSelection( aCfg->m_CtrlClickHighlight );
+#else
+    m_rbCtrlClickAction->SetSelection( aCfg->m_CtrlClickHighlight );
+#endif
+
     m_showPageLimits->SetValue( aCfg->m_ShowPageLimits );
     m_autoRefillZones->SetValue( aCfg->m_AutoRefillZones );
     m_allowFreePads->SetValue( aCfg->m_AllowFreePads );
+
+    m_escClearsNetHighlight->SetValue( aCfg->m_ESCClearsNetHighlight );
 }
 
 
@@ -87,7 +100,7 @@ void PANEL_EDIT_OPTIONS::loadFPSettings( FOOTPRINT_EDITOR_SETTINGS* aCfg )
     m_rotationAngle.SetAngleValue( aCfg->m_RotationAngle );
     m_magneticPads->SetValue( aCfg->m_MagneticItems.pads == MAGNETIC_OPTIONS::CAPTURE_ALWAYS );
     m_magneticGraphics->SetValue( aCfg->m_MagneticItems.graphics );
-    m_cbFpGraphic45Mode->SetValue( aCfg->m_Use45Limit );
+    m_cbConstrainHV45Mode->SetValue( aCfg->m_Use45Limit );
 }
 
 
@@ -126,7 +139,7 @@ bool PANEL_EDIT_OPTIONS::TransferDataFromWindow()
                                                                : MAGNETIC_OPTIONS::NO_EFFECT;
         cfg->m_MagneticItems.graphics = m_magneticGraphics->GetValue();
 
-        cfg->m_Use45Limit = m_cbFpGraphic45Mode->GetValue();
+        cfg->m_Use45Limit = m_cbConstrainHV45Mode->GetValue();
     }
     else
     {
@@ -142,6 +155,7 @@ bool PANEL_EDIT_OPTIONS::TransferDataFromWindow()
         cfg->m_MagneticItems.graphics = !m_magneticGraphicsChoice->GetSelection();
 
         cfg->m_FlipLeftRight = m_flipLeftRight->GetValue();
+        cfg->m_ESCClearsNetHighlight = m_escClearsNetHighlight->GetValue();
         cfg->m_AutoRefillZones = m_autoRefillZones->GetValue();
         cfg->m_AllowFreePads = m_allowFreePads->GetValue();
         cfg->m_ShowPageLimits = m_showPageLimits->GetValue();
@@ -153,7 +167,14 @@ bool PANEL_EDIT_OPTIONS::TransferDataFromWindow()
         else if( m_rbTrackDragFree->GetValue() )
             cfg->m_TrackDragAction = TRACK_DRAG_ACTION::DRAG_FREE_ANGLE;
 
-        cfg->m_Use45DegreeLimit = m_cbPcbGraphic45Mode->GetValue();
+#ifdef __WXOSX_MAC__
+        cfg->m_CtrlClickHighlight = m_rbCtrlClickActionMac->GetSelection();
+#else
+        cfg->m_CtrlClickHighlight = m_rbCtrlClickAction->GetSelection();
+#endif
+
+        cfg->m_Use45DegreeLimit = m_cbConstrainHV45Mode->GetValue();
+        cfg->m_ShowCourtyardCollisions = m_cbCourtyardCollisions->GetValue();
     }
 
     return true;

@@ -24,7 +24,6 @@ GitLab CI pipeline status can be viewed for Linux and Windows builds of the late
 * [AUTHORS.txt](AUTHORS.txt) - The authors, contributors, document writers and translators list
 * [CMakeLists.txt](CMakeLists.txt) - Main CMAKE build tool script
 * [copyright.h](copyright.h) - A very short copy of the GNU General Public License to be included in new source files
-* [CTestConfig.cmake](CTestConfig.cmake) - Support for CTest and CDash testing tools
 * [Doxyfile](Doxyfile) - Doxygen config file for KiCad
 * [INSTALL.txt](INSTALL.txt) - The release (binary) installation instructions
 * [uncrustify.cfg](uncrustify.cfg) - Uncrustify config file for uncrustify sources formatting tool
@@ -34,15 +33,13 @@ GitLab CI pipeline status can be viewed for Linux and Windows builds of the late
 
 * [3d-viewer](3d-viewer)         - Sourcecode of the 3D viewer
 * [bitmap2component](bitmap2component)  - Sourcecode of the bitmap to PCB artwork converter
-* [bitmaps_png](bitmaps_png)       - Menu and program icons
-* [CMakeModules](CMakeModules)      - Modules for the CMAKE build tool
+* [cmake](cmake)      - Modules for the CMAKE build tool
 * [common](common)            - Sourcecode of the common library
 * [cvpcb](cvpcb)             - Sourcecode of the CvPCB tool
 * [demos](demos)             - Some demo examples
-* [Documentation](Documentation)     - Developer documentation (deprecated; moved to [https://dev-docs.kicad.org](https://dev-docs.kicad.org))
+* [doxygen](doxygen)     - Configuration for generating pretty doxygen manual of the codebase
 * [eeschema](eeschema)          - Sourcecode of the schematic editor
 * [gerbview](gerbview)          - Sourcecode of the gerber viewer
-* [helpers](helpers)           - Helper tools and utilities for development
 * [include](include)           - Interfaces to the common library
 * [kicad](kicad)             - Sourcecode of the project manager
 * [libs](libs)           - Sourcecode of KiCad utilities (geometry and others)
@@ -51,11 +48,11 @@ GitLab CI pipeline status can be viewed for Linux and Windows builds of the late
 * [pcbnew](pcbnew)           - Sourcecode of the printed circuit board editor
 * [plugins](plugins)           - Sourcecode for the 3D viewer plugins
 * [qa](qa)                - Unit testing framework for KiCad
-* [resources](resources)         - Packaging resources for various operating systems
-* [scripting](scripting)         - SWIG Python scripting definitions and build scripts
-* [scripts](scripts)           - Example scripts for distribution with KiCad
-* [template](template)          - Project template
+* [resources](resources)         - Packaging resources such as bitmaps and operating system specific files
+    - [bitmaps_png](bitmaps_png)       - Menu and program icons
+    - [project_template](project_template)          - Project template
+* [scripting](scripting)         - Python integration for KiCad
 * [thirdparty](thirdparty)           - Sourcecode of external libraries used in KiCad but not written by the KiCad team
-* [tools](tools)             - Other miscellaneous helpers for testing
+* [tools](tools)             - Helpers for developing, testing and building
 * [translation](translation) - Translation data files (managed through [Weblate](https://hosted.weblate.org/projects/kicad/master-source/) for most languages)
 * [utils](utils)             - Small utils for KiCad, e.g. IDF, STEP, and OGL tools and converters

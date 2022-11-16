@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2019 CERN
- * Copyright (C) 2019-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2019-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -52,7 +52,7 @@ static int GetLastPinLength()
     if( g_LastPinLength == -1 )
     {
         auto* settings = Pgm().GetSettingsManager().GetAppSettings<SYMBOL_EDITOR_SETTINGS>();
-        g_LastPinLength = Mils2iu( settings->m_Defaults.pin_length );
+        g_LastPinLength = schIUScale.MilsToIU( settings->m_Defaults.pin_length );
     }
 
     return g_LastPinLength;
@@ -63,7 +63,7 @@ static int GetLastPinNameSize()
     if( g_LastPinNameSize == -1 )
     {
         auto* settings = Pgm().GetSettingsManager().GetAppSettings<SYMBOL_EDITOR_SETTINGS>();
-        g_LastPinNameSize = Mils2iu( settings->m_Defaults.pin_name_size );
+        g_LastPinNameSize = schIUScale.MilsToIU( settings->m_Defaults.pin_name_size );
     }
 
     return g_LastPinNameSize;
@@ -74,7 +74,7 @@ static int GetLastPinNumSize()
     if( g_LastPinNumSize == -1 )
     {
         auto* settings = Pgm().GetSettingsManager().GetAppSettings<SYMBOL_EDITOR_SETTINGS>();
-        g_LastPinNumSize = Mils2iu( settings->m_Defaults.pin_num_size );
+        g_LastPinNumSize = schIUScale.MilsToIU( settings->m_Defaults.pin_num_size );
     }
 
     return g_LastPinNumSize;
@@ -103,7 +103,7 @@ bool SYMBOL_EDITOR_PIN_TOOL::Init()
                 return editor->IsSymbolEditable() && !editor->IsSymbolAlias();
             };
 
-    auto singlePinCondition = EE_CONDITIONS::Count( 1 ) && EE_CONDITIONS::OnlyType( LIB_PIN_T );
+    auto singlePinCondition = EE_CONDITIONS::Count( 1 ) && EE_CONDITIONS::OnlyTypes( { LIB_PIN_T } );
 
     CONDITIONAL_MENU& selToolMenu = m_selectionTool->GetToolMenu().GetMenu();
 
@@ -171,7 +171,7 @@ bool SYMBOL_EDITOR_PIN_TOOL::EditPinProperties( LIB_PIN* aPin )
                 else if( other->GetConvert() == aPin->GetConvert() )
                 {
                     other->SetPosition( aPin->GetPosition() );
-                    other->SetLength( aPin->GetLength() );
+                    other->ChangeLength( aPin->GetLength() );
                     other->SetShape( aPin->GetShape() );
                 }
 
@@ -244,7 +244,7 @@ bool SYMBOL_EDITOR_PIN_TOOL::PlacePin( LIB_PIN* aPin )
 
             if( !status )
             {
-                if( aPin->IsNew() )
+                if( aPin->IsNew() && !aPin->HasFlag( IS_PASTED ) )
                     delete aPin;
 
                 return false;
@@ -301,7 +301,7 @@ LIB_PIN* SYMBOL_EDITOR_PIN_TOOL::CreatePin( const VECTOR2I& aPosition, LIB_SYMBO
     if( m_frame->SynchronizePins() )
         pin->SetFlags( IS_LINKED );
 
-    pin->MoveTo((wxPoint) aPosition );
+    pin->MoveTo( aPosition );
     pin->SetLength( GetLastPinLength() );
     pin->SetOrientation( g_LastPinOrient );
     pin->SetType( g_LastPinType );
@@ -392,7 +392,7 @@ int SYMBOL_EDITOR_PIN_TOOL::PushPinProperties( const TOOL_EVENT& aEvent )
         if( aEvent.IsAction( &EE_ACTIONS::pushPinLength ) )
         {
             if( !pin->GetConvert() || pin->GetConvert() == m_frame->GetConvert() )
-                pin->SetLength( sourcePin->GetLength() );
+                pin->ChangeLength( sourcePin->GetLength() );
         }
         else if( aEvent.IsAction( &EE_ACTIONS::pushPinNameSize ) )
         {
@@ -424,10 +424,10 @@ LIB_PIN* SYMBOL_EDITOR_PIN_TOOL::RepeatPin( const LIB_PIN* aSourcePin )
 
     switch( pin->GetOrientation() )
     {
-    case PIN_UP:    step.x = Mils2iu(settings->m_Repeat.pin_step);   break;
-    case PIN_DOWN:  step.x = Mils2iu(settings->m_Repeat.pin_step);   break;
-    case PIN_LEFT:  step.y = Mils2iu(-settings->m_Repeat.pin_step);  break;
-    case PIN_RIGHT: step.y = Mils2iu(-settings->m_Repeat.pin_step);  break;
+    case PIN_UP:    step.x = schIUScale.MilsToIU(settings->m_Repeat.pin_step);   break;
+    case PIN_DOWN:  step.x = schIUScale.MilsToIU(settings->m_Repeat.pin_step);   break;
+    case PIN_LEFT:  step.y = schIUScale.MilsToIU(-settings->m_Repeat.pin_step);  break;
+    case PIN_RIGHT: step.y = schIUScale.MilsToIU(-settings->m_Repeat.pin_step);  break;
     }
 
     pin->Offset( step );

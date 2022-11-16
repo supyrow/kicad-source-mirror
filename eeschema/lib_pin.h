@@ -27,13 +27,12 @@
 #ifndef CLASS_PIN_H
 #define CLASS_PIN_H
 
-#include <eda_rect.h>
 #include <lib_item.h>
 #include <pin_type.h>
 #include <lib_symbol.h>
 
 // Circle diameter drawn at the active end of pins:
-#define TARGET_PIN_RADIUS   Mils2iu( 15 )
+#define TARGET_PIN_RADIUS   schIUScale.MilsToIU( 15 )
 
 // Pin visibility flag bit:
 #define PIN_INVISIBLE 1    // Set makes pin invisible
@@ -80,6 +79,13 @@ public:
 
     int GetLength() const { return m_length; }
     void SetLength( int aLength ) { m_length = aLength; }
+
+    /**
+     * Change the length of a pin and adjust its position based on orientation.
+     *
+     * @param aLength New length of pin
+     */
+    void ChangeLength( int aLength );
 
     ELECTRICAL_PINTYPE GetType() const { return m_type; }
     void SetType( ELECTRICAL_PINTYPE aType ) { m_type = aType; }
@@ -142,7 +148,7 @@ public:
      * @param aTransform Transform Matrix (rotation, mirror ..)
      */
     void print( const RENDER_SETTINGS* aSettings, const VECTOR2I& aOffset, void* aData,
-                const TRANSFORM& aTransform ) override;
+                const TRANSFORM& aTransform, bool aDimmed ) override;
 
     /**
      * Return the pin real orientation (PIN_UP, PIN_DOWN, PIN_RIGHT, PIN_LEFT),
@@ -166,20 +172,23 @@ public:
 
     bool HitTest( const VECTOR2I& aPosition, int aAccuracy = 0 ) const override;
 
-    bool HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy = 0 ) const override;
+    bool HitTest( const BOX2I& aRect, bool aContained, int aAccuracy = 0 ) const override;
 
     void GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList ) override;
+
+    const BOX2I ViewBBox() const override;
 
     void ViewGetLayers( int aLayers[], int& aCount ) const override;
 
     /* Cannot use a default parameter here as it will not be compatible with the virtual. */
-    const EDA_RECT GetBoundingBox() const override { return GetBoundingBox( false ); }
+    const BOX2I GetBoundingBox() const override { return GetBoundingBox( false, true, false ); }
 
     /**
      * @param aIncludeInvisibles - if false, do not include labels for invisible pins
      *      in the calculation.
      */
-    const EDA_RECT GetBoundingBox( bool aIncludeInvisibles, bool aPinOnly = false ) const;
+    const BOX2I GetBoundingBox( bool aIncludeInvisiblePins, bool aIncludeNameAndNumber,
+                                bool aIncludeElectricalType ) const;
 
     /**
      * Return whether this pin forms an implicit power connection: i.e., is hidden
@@ -193,8 +202,6 @@ public:
 
     int GetPenWidth() const override;
 
-    KIFONT::FONT* GetDrawFont() const;
-
     /**
      * Plot the pin number and pin text info, given the pin line coordinates.
      * Same as DrawPinTexts((), but output is the plotter
@@ -202,10 +209,11 @@ public:
      * If TextInside then the text is been put inside (moving from x1, y1 in
      * the opposite direction to x2,y2), otherwise all is drawn outside.
      */
-    void PlotPinTexts( PLOTTER* aPlotter, const VECTOR2I& aPinPos, int aPinOrient,
-                       int aTextInside, bool aDrawPinNum, bool aDrawPinName ) const;
+    void PlotPinTexts( PLOTTER *aPlotter, const VECTOR2I &aPinPos, int aPinOrient, int aTextInside,
+            bool aDrawPinNum, bool aDrawPinName, bool aDimmed ) const;
 
-    void PlotSymbol( PLOTTER* aPlotter, const VECTOR2I& aPosition, int aOrientation ) const;
+    void PlotSymbol( PLOTTER *aPlotter, const VECTOR2I &aPosition, int aOrientation,
+            bool aDimmed ) const;
 
     void Offset( const VECTOR2I& aOffset ) override;
 
@@ -221,11 +229,11 @@ public:
     void Rotate( const VECTOR2I& aCenter, bool aRotateCCW = true ) override;
 
     void Plot( PLOTTER* aPlotter, bool aBackground, const VECTOR2I& aOffset,
-               const TRANSFORM& aTransform ) const override;
+               const TRANSFORM& aTransform, bool aDimmed ) const override;
 
     BITMAPS GetMenuImage() const override;
 
-    wxString GetSelectMenuText( EDA_UNITS aUnits ) const override;
+    wxString GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const override;
 
     EDA_ITEM* Clone() const override;
 
@@ -246,7 +254,8 @@ protected:
      * Print the pin symbol without text.
      * If \a aColor != 0, draw with \a aColor, else with the normal pin color.
      */
-    void printPinSymbol( const RENDER_SETTINGS* aSettings, const VECTOR2I& aPos, int aOrientation );
+    void printPinSymbol( const RENDER_SETTINGS *aSettings, const VECTOR2I &aPos, int aOrientation,
+            bool aDimmed );
 
     /**
      * Put the pin number and pin text info, given the pin line coordinates.
@@ -257,13 +266,13 @@ protected:
      * Pin Name:    substring between '~' is negated
      */
     void printPinTexts( const RENDER_SETTINGS* aSettings, VECTOR2I& aPinPos, int aPinOrient,
-                        int aTextInside, bool aDrawPinNum, bool aDrawPinName );
+                        int aTextInside, bool aDrawPinNum, bool aDrawPinName, bool aDimmed );
 
     /**
      * Draw the electrical type text of the pin (only for the footprint editor)
      */
     void printPinElectricalTypeName( const RENDER_SETTINGS* aSettings, VECTOR2I& aPosition,
-                                     int aOrientation );
+                                     int aOrientation, bool aDimmed );
 
 private:
     /**
@@ -275,8 +284,7 @@ private:
      *      - Pin horizontal (X) position.
      *      - Pin vertical (Y) position.
      */
-    int compare( const LIB_ITEM& aOther,
-            LIB_ITEM::COMPARE_FLAGS aCompareFlags = LIB_ITEM::COMPARE_FLAGS::NORMAL ) const override;
+    int compare( const LIB_ITEM& aOther, int aCompareFlags = 0 ) const override;
 
 protected:
     VECTOR2I                m_position;      // Position of the pin.

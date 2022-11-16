@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2013-2018 CERN
- * Copyright (C) 2019-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2019-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * @author Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  * @author Maciej Suminski <maciej.suminski@cern.ch>
@@ -28,7 +28,6 @@
 #include <core/typeinfo.h>
 #include <memory>
 #include <view/view.h>
-#include <view/view_group.h>
 #include <view/view_rtree.h>
 #include <view/wx_view_controls.h>
 #include <drawing_sheet/ds_proxy_view_item.h>
@@ -36,6 +35,7 @@
 #include <sch_screen.h>
 #include <schematic.h>
 #include <sch_base_frame.h>
+#include <sch_edit_frame.h>
 
 #include "sch_view.h"
 
@@ -47,10 +47,11 @@ SCH_VIEW::SCH_VIEW( bool aIsDynamic, SCH_BASE_FRAME* aFrame ) :
     VIEW( aIsDynamic )
 {
     m_frame = aFrame;
+
     // Set m_boundary to define the max working area size. The default value is acceptable for
     // Pcbnew and Gerbview, but too large for Eeschema due to very different internal units.
     // A full size = 3 * MAX_PAGE_SIZE_MILS size allows a wide margin around the drawing-sheet.
-    double max_size = Mils2iu( MAX_PAGE_SIZE_MILS ) * 3.0;
+    double max_size = schIUScale.MilsToIU( MAX_PAGE_SIZE_EESCHEMA_MILS ) * 3.0;
     m_boundary.SetOrigin( -max_size/4, -max_size/4 );
     m_boundary.SetSize( max_size, max_size );
 }
@@ -73,17 +74,17 @@ void SCH_VIEW::SetScale( double aScale, VECTOR2D aAnchor )
 {
     VIEW::SetScale( aScale, aAnchor );
 
-    //Redraw selection halos since their width is dependent on zoom
+    // Redraw items whose rendering is dependent on zoom
     if( m_frame )
-        m_frame->RefreshSelection();
+        m_frame->RefreshZoomDependentItems();
 }
 
 
 void SCH_VIEW::ResizeSheetWorkingArea( const SCH_SCREEN* aScreen )
 {
     const PAGE_INFO& page_info = aScreen->GetPageSettings();
-    double max_size_x = page_info.GetWidthIU() * 3.0;
-    double max_size_y = page_info.GetHeightIU() * 3.0;
+    double           max_size_x = page_info.GetWidthIU( schIUScale.IU_PER_MILS ) * 3.0;
+    double           max_size_y = page_info.GetHeightIU( schIUScale.IU_PER_MILS ) * 3.0;
     m_boundary.SetOrigin( -max_size_x / 4, -max_size_y / 4 );
     m_boundary.SetSize( max_size_x, max_size_y );
 }
@@ -94,21 +95,34 @@ void SCH_VIEW::DisplaySheet( const SCH_SCREEN *aScreen )
     for( SCH_ITEM* item : aScreen->Items() )
         Add( item );
 
-    m_drawingSheet.reset( new DS_PROXY_VIEW_ITEM( static_cast<int>( IU_PER_MILS ),
+    m_drawingSheet.reset( new DS_PROXY_VIEW_ITEM( static_cast<int>( schIUScale.IU_PER_MILS ),
                                                   &aScreen->GetPageSettings(),
                                                   &aScreen->Schematic()->Prj(),
-                                                  &aScreen->GetTitleBlock() ) );
+                                                  &aScreen->GetTitleBlock(),
+                                                  aScreen->Schematic()->GetProperties() ) );
     m_drawingSheet->SetPageNumber( TO_UTF8( aScreen->GetPageNumber() ) );
     m_drawingSheet->SetSheetCount( aScreen->GetPageCount() );
     m_drawingSheet->SetFileName( TO_UTF8( aScreen->GetFileName() ) );
     m_drawingSheet->SetColorLayer( LAYER_SCHEMATIC_DRAWINGSHEET );
-    m_drawingSheet->SetPageBorderColorLayer( LAYER_SCHEMATIC_GRID );
+    m_drawingSheet->SetPageBorderColorLayer( LAYER_SCHEMATIC_PAGE_LIMITS );
     m_drawingSheet->SetIsFirstPage( aScreen->GetVirtualPageNumber() == 1 );
 
     if( m_frame && m_frame->IsType( FRAME_SCH ) )
-        m_drawingSheet->SetSheetName( TO_UTF8( m_frame->GetScreenDesc() ) );
+    {
+        SCH_EDIT_FRAME* editFrame = dynamic_cast<SCH_EDIT_FRAME*>( m_frame );
+
+        wxCHECK( editFrame, /* void */ );
+
+        wxString        sheetName = editFrame->GetCurrentSheet().Last()->GetName();
+        wxString        sheetPath = editFrame->GetCurrentSheet().PathHumanReadable();
+        m_drawingSheet->SetSheetName( TO_UTF8( sheetName ) );
+        m_drawingSheet->SetSheetPath( TO_UTF8( sheetPath ) );
+    }
     else
+    {
         m_drawingSheet->SetSheetName( "" );
+        m_drawingSheet->SetSheetPath( "" );
+    }
 
     ResizeSheetWorkingArea( aScreen );
 
@@ -170,7 +184,7 @@ void SCH_VIEW::DisplaySymbol( LIB_SYMBOL* aSymbol )
 
 void SCH_VIEW::ClearHiddenFlags()
 {
-    for( auto item : *m_allItems )
+    for( VIEW_ITEM* item : *m_allItems )
         Hide( item, false );
 }
 

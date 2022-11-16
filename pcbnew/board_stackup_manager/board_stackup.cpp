@@ -20,7 +20,6 @@
 
 
 #include "board_stackup.h"
-#include <convert_to_biu.h>
 #include <base_units.h>
 #include <string_utils.h>
 #include <layer_ids.h>
@@ -120,14 +119,14 @@ void BOARD_STACKUP_ITEM::RemoveDielectricPrms( int aDielectricPrmsIdx )
 int BOARD_STACKUP_ITEM::GetCopperDefaultThickness()
 {
     // A reasonable thickness for copper layers:
-    return Millimeter2iu( 0.035 );
+    return pcbIUScale.mmToIU( 0.035 );
 }
 
 
 int BOARD_STACKUP_ITEM::GetMaskDefaultThickness()
 {
     // A reasonable thickness for solder mask:
-    return Millimeter2iu( 0.01 );
+    return pcbIUScale.mmToIU( 0.01 );
 }
 
 
@@ -267,7 +266,7 @@ wxString BOARD_STACKUP_ITEM::FormatEpsilonR( int aDielectricSubLayer ) const
 {
     // return a wxString to print/display Epsilon R
     // note: we do not want scientific notation
-    wxString txt = Double2Str( GetEpsilonR( aDielectricSubLayer ) );
+    wxString txt = UIDouble2Str( GetEpsilonR( aDielectricSubLayer ) );
     return txt;
 }
 
@@ -276,7 +275,7 @@ wxString BOARD_STACKUP_ITEM::FormatLossTangent( int aDielectricSubLayer ) const
 {
     // return a wxString to print/display Loss Tangent
     // note: we do not want scientific notation
-    wxString txt = Double2Str( GetLossTangent( aDielectricSubLayer ) );
+    wxString txt = UIDouble2Str( GetLossTangent( aDielectricSubLayer ) );
     return txt;
 }
 
@@ -466,7 +465,7 @@ bool BOARD_STACKUP::SynchronizeWithBoard( BOARD_DESIGN_SETTINGS* aSettings )
         }
     }
 
-    // Transfert layer settings:
+    // Transfer layer settings:
     *this = stackup;
 
     // Transfer other stackup settings from aSettings
@@ -500,7 +499,7 @@ void BOARD_STACKUP::BuildDefaultStackupList( const BOARD_DESIGN_SETTINGS* aSetti
     if( aSettings == nullptr && aActiveCopperLayersCount > 0 )
         activeCuLayerCount = aActiveCopperLayersCount;
 
-    int brd__thickness = aSettings ? aSettings->GetBoardThickness() : Millimeter2iu( 1.6 );
+    int brd__thickness = aSettings ? aSettings->GetBoardThickness() : pcbIUScale.mmToIU( 1.6 );
     int diel_thickness = brd__thickness -
                          ( BOARD_STACKUP_ITEM::GetCopperDefaultThickness() * activeCuLayerCount );
 
@@ -652,10 +651,10 @@ void BOARD_STACKUP::FormatBoardStackup( OUTPUTFORMATTER* aFormatter,
             {
                 if( item->GetType() == BS_ITEM_TYPE_DIELECTRIC && item->IsThicknessLocked( idx ) )
                     aFormatter->Print( 0, " (thickness %s locked)",
-                                       FormatInternalUnits( item->GetThickness( idx ) ).c_str() );
+                                       EDA_UNIT_UTILS::FormatInternalUnits( pcbIUScale, item->GetThickness( idx ) ).c_str() );
                 else
                     aFormatter->Print( 0, " (thickness %s)",
-                                       FormatInternalUnits( item->GetThickness( idx ) ).c_str() );
+                                       EDA_UNIT_UTILS::FormatInternalUnits( pcbIUScale, item->GetThickness( idx ) ).c_str() );
             }
 
             if( item->HasMaterialValue( idx ) )
@@ -667,7 +666,7 @@ void BOARD_STACKUP::FormatBoardStackup( OUTPUTFORMATTER* aFormatter,
 
             if( item->HasLossTangentValue() && item->HasMaterialValue( idx ) )
                 aFormatter->Print( 0, " (loss_tangent %s)",
-                                   Double2Str(item->GetLossTangent( idx ) ).c_str() );
+                                   FormatDouble2Str( item->GetLossTangent( idx ) ).c_str() );
         }
 
         aFormatter->Print( 0, ")\n" );

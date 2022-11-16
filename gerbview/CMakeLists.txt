@@ -17,6 +17,7 @@ include_directories(
 
 
 set( DIALOGS_SRCS
+    dialogs/panel_gerbview_color_settings.cpp
     dialogs/panel_gerbview_display_options.cpp
     dialogs/panel_gerbview_display_options_base.cpp
     dialogs/panel_gerbview_excellon_settings.cpp
@@ -72,12 +73,6 @@ set( GERBVIEW_SRCS
     )
 
 set( GERBVIEW_EXTRA_SRCS
-    ${CMAKE_SOURCE_DIR}/common/base_screen.cpp
-    ${CMAKE_SOURCE_DIR}/common/base_units.cpp
-    ${CMAKE_SOURCE_DIR}/common/eda_text.cpp
-    ${CMAKE_SOURCE_DIR}/common/widgets/layer_box_selector.cpp
-    ${CMAKE_SOURCE_DIR}/common/lset.cpp
-    ${CMAKE_SOURCE_DIR}/common/page_info.cpp
 )
 
 if( WIN32 )
@@ -120,6 +115,10 @@ target_link_libraries( gerbview
     ${wxWidgets_LIBRARIES}
     )
 
+target_include_directories( gerbview PRIVATE
+    $<TARGET_PROPERTY:thread-pool,INTERFACE_INCLUDE_DIRECTORIES>
+    )
+
 if( MAKE_LINK_MAPS )
     set_target_properties( gerbview PROPERTIES
         LINK_FLAGS "-Wl,-cref,-Map=gerbview.map" )
@@ -152,7 +151,6 @@ target_link_libraries( gerbview_kiface
     gal
     common
     ${wxWidgets_LIBRARIES}
-    ${GDI_PLUS_LIBRARIES}
     )
 set_source_files_properties( gerbview.cpp PROPERTIES
     # The KIFACE is in gerbview.cpp, export it:
@@ -205,7 +203,7 @@ else()
         COMPONENT binary
         )
     install( TARGETS gerbview_kiface
-        DESTINATION ${KICAD_BIN}
+        DESTINATION ${KICAD_KIFACE}
         COMPONENT binary
         )
 endif()
@@ -214,5 +212,5 @@ endif()
 if( KICAD_WIN32_INSTALL_PDBS )
     # Get the PDBs to copy over for MSVC
     install(FILES $<TARGET_PDB_FILE:gerbview> DESTINATION ${KICAD_BIN})
-    install(FILES $<TARGET_PDB_FILE:gerbview_kiface> DESTINATION ${KICAD_BIN})
+    install(FILES $<TARGET_PDB_FILE:gerbview_kiface> DESTINATION ${KICAD_KIFACE})
 endif()

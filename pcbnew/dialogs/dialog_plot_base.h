@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////
-// C++ code generated with wxFormBuilder (version 3.10.0-39-g3487c3cb)
+// C++ code generated with wxFormBuilder (version 3.10.1-0-g8feb16b3)
 // http://www.wxformbuilder.org/
 //
 // PLEASE DO *NOT* EDIT THIS FILE!
@@ -66,6 +66,7 @@ class DIALOG_PLOT_BASE : public DIALOG_SHIM
 		wxStaticText* m_staticTextDir;
 		wxTextCtrl* m_outputDirectoryName;
 		wxBitmapButton* m_browseButton;
+		wxBoxSizer* bmiddleSizer;
 		wxStaticBoxSizer* m_LayersSizer;
 		wxCheckListBox* m_layerCheckListBox;
 		wxBoxSizer* m_PlotOptionsSizer;
@@ -73,7 +74,6 @@ class DIALOG_PLOT_BASE : public DIALOG_SHIM
 		wxCheckBox* m_plotModuleValueOpt;
 		wxCheckBox* m_plotModuleRefOpt;
 		wxCheckBox* m_plotInvisibleText;
-		wxCheckBox* m_includeEdgeLayerOpt;
 		wxCheckBox* m_sketchPadsOnFabLayers;
 		wxCheckBox* m_plotNoViaOnMaskOpt;
 		wxCheckBox* m_useAuxOriginCheckBox;
@@ -121,6 +121,9 @@ class DIALOG_PLOT_BASE : public DIALOG_SHIM
 		wxStaticBoxSizer* m_svgOptionsSizer;
 		wxStaticText* svgPrecisionLabel;
 		wxSpinCtrl* m_svgPrecsision;
+		wxCheckBox* m_SVGBlackAndWhite;
+		wxStaticBoxSizer* m_PDFOptionsSizer;
+		wxCheckBox* m_PDFBlackAndWhite;
 		WX_HTML_REPORT_PANEL* m_messagesPanel;
 		wxBoxSizer* m_sizerButtons;
 		wxButton* m_buttonDRC;

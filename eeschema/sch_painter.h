@@ -86,7 +86,7 @@ public:
         return luma < 0.5;
     }
 
-    const COLOR4D& GetBackgroundColor() override
+    const COLOR4D& GetBackgroundColor() const override
     {
         return m_layerColors[ LAYER_SCHEMATIC_BACKGROUND ];
     }
@@ -110,10 +110,11 @@ public:
 public:
     bool   m_IsSymbolEditor;
 
-    int    m_ShowUnit;                // Show all units if 0
-    int    m_ShowConvert;             // Show all conversions if 0
+    int    m_ShowUnit;               // Show all units if 0
+    int    m_ShowConvert;            // Show all conversions if 0
 
     bool   m_ShowPinsElectricalType;
+    bool   m_ShowPinNumbers;         // Force showing of pin numbers (normally symbol-specific)
     bool   m_ShowDisabled;
     bool   m_ShowGraphicsDisabled;
 
@@ -122,9 +123,7 @@ public:
     double m_LabelSizeRatio;         // Proportion of font size to label box
     double m_TextOffsetRatio;        // Proportion of font size to offset text above/below
                                      // wires, buses, etc.
-
     int    m_PinSymbolSize;
-    int    m_JunctionSize;
 };
 
 
@@ -140,27 +139,22 @@ public:
     virtual bool Draw( const VIEW_ITEM*, int ) override;
 
     /// @copydoc PAINTER::GetSettings()
-    virtual SCH_RENDER_SETTINGS* GetSettings() override
-    {
-        return &m_schSettings;
-    }
+    virtual SCH_RENDER_SETTINGS* GetSettings() override { return &m_schSettings; }
 
-    void SetSchematic( SCHEMATIC* aSchematic )
-    {
-        m_schematic = aSchematic;
-    }
+    void SetSchematic( SCHEMATIC* aSchematic ) { m_schematic = aSchematic; }
 
 private:
-    void draw( LIB_PIN* aPin, int aLayer );
-    void draw( const LIB_SHAPE* aCircle, int aLayer );
+    void draw( const EDA_ITEM*, int, bool aDimmed );
+    void draw( const LIB_PIN* aPin, int aLayer, bool aDimmed );
+    void draw( const LIB_SHAPE* aCircle, int aLayer, bool aDimmed );
     void draw( const LIB_SYMBOL* aSymbol, int, bool aDrawFields = true, int aUnit = 0,
-               int aConvert = 0 );
-    void draw( const LIB_FIELD* aField, int aLayer );
-    void draw( const LIB_TEXT* aText, int aLayer );
-    void draw( const LIB_TEXTBOX* aTextBox, int aLayer );
-    void draw( SCH_SYMBOL* aSymbol, int aLayer );
+               int aConvert = 0, bool aDimmed = false );
+    void draw( const LIB_FIELD* aField, int aLayer, bool aDimmed );
+    void draw( const LIB_TEXT* aText, int aLayer, bool aDimmed );
+    void draw( const LIB_TEXTBOX* aTextBox, int aLayer, bool aDimmed );
+    void draw( const SCH_SYMBOL* aSymbol, int aLayer );
     void draw( const SCH_JUNCTION* aJct, int aLayer );
-    void draw( const SCH_FIELD* aField, int aLayer );
+    void draw( const SCH_FIELD* aField, int aLayer, bool aDimmed );
     void draw( const SCH_SHAPE* aShape, int aLayer );
     void draw( const SCH_TEXTBOX* aTextBox, int aLayer );
     void draw( const SCH_TEXT* aText, int aLayer );
@@ -183,25 +177,32 @@ private:
     int internalPinDecoSize( const LIB_PIN &aPin );
     int externalPinDecoSize( const LIB_PIN &aPin );
 
+    // Indicates the item is drawn on a non-cached layer in OpenGL
+    bool nonCached( const EDA_ITEM* aItem );
+
     bool isUnitAndConversionShown( const LIB_ITEM* aItem ) const;
 
     float getShadowWidth( bool aForHighlight ) const;
-    COLOR4D getRenderColor( const EDA_ITEM* aItem, int aLayer, bool aDrawingShadows ) const;
+    COLOR4D getRenderColor( const EDA_ITEM* aItem, int aLayer, bool aDrawingShadows,
+                            bool aDimmed = false ) const;
     float getLineWidth( const EDA_ITEM* aItem, bool aDrawingShadows ) const;
-    float getTextThickness( const EDA_ITEM* aItem, bool aDrawingShadows ) const;
+    float getTextThickness( const EDA_ITEM* aItem ) const;
 
-    bool setDeviceColors( const LIB_ITEM* aItem, int aLayer );
+    bool setDeviceColors( const LIB_ITEM* aItem, int aLayer, bool aDimmed );
 
-    void triLine ( const VECTOR2D &a, const VECTOR2D &b, const VECTOR2D &c );
+    void triLine( const VECTOR2D &a, const VECTOR2D &b, const VECTOR2D &c );
     void strokeText( const wxString& aText, const VECTOR2D& aPosition,
                      const TEXT_ATTRIBUTES& aAttributes );
-    void boxText( const wxString& aText, const VECTOR2D& aPosition,
-                  const TEXT_ATTRIBUTES& aAttrs );
+    void bitmapText( const wxString& aText, const VECTOR2D& aPosition,
+                     const TEXT_ATTRIBUTES& aAttributes );
+    void boxText( const wxString& aText, const VECTOR2D& aPosition, const TEXT_ATTRIBUTES& aAttrs );
+
+public:
+    static std::vector<KICAD_T> g_ScaledSelectionTypes;
 
 private:
     SCH_RENDER_SETTINGS m_schSettings;
-
-    SCHEMATIC* m_schematic;
+    SCHEMATIC*          m_schematic;
 };
 
 }; // namespace KIGFX

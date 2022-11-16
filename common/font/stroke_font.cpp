@@ -38,11 +38,16 @@
 // The "official" name of the building Kicad stroke font (always existing)
 #include <font/kicad_font_name.h>
 
+#include <mutex>
+
 using namespace KIFONT;
 
 
 ///< Factor that determines relative vertical position of the overbar.
 static constexpr double OVERBAR_POSITION_FACTOR = 1.33;
+
+///< Factor that determines relative vertical position of the underline.
+static constexpr double UNDERLINE_POSITION_FACTOR = -0.16;
 
 ///< Scale factor for a glyph
 static constexpr double STROKE_FONT_SCALE = 1.0 / 21.0;
@@ -53,6 +58,7 @@ static constexpr int FONT_OFFSET = -10;
 bool                                g_defaultFontInitialized = false;
 std::vector<std::shared_ptr<GLYPH>> g_defaultFontGlyphs;
 std::vector<BOX2D>*                 g_defaultFontGlyphBoundingBoxes;
+std::mutex                          g_defaultFontLoadMutex;
 
 
 STROKE_FONT::STROKE_FONT() :
@@ -99,6 +105,9 @@ void buildGlyphBoundingBox( std::shared_ptr<STROKE_GLYPH>& aGlyph, double aGlyph
 
 void STROKE_FONT::loadNewStrokeFont( const char* const aNewStrokeFont[], int aNewStrokeFontSize )
 {
+    // Protect the initialization sequence against multiple entries
+    std::lock_guard<std::mutex> lock( g_defaultFontLoadMutex );
+
     if( !g_defaultFontInitialized )
     {
         g_defaultFontGlyphs.reserve( aNewStrokeFontSize );
@@ -204,6 +213,12 @@ double STROKE_FONT::ComputeOverbarVerticalPosition( double aGlyphHeight ) const
 }
 
 
+double STROKE_FONT::ComputeUnderlineVerticalPosition( double aGlyphHeight ) const
+{
+    return aGlyphHeight * UNDERLINE_POSITION_FACTOR;
+}
+
+
 VECTOR2I STROKE_FONT::GetTextAsGlyphs( BOX2I* aBBox, std::vector<std::unique_ptr<GLYPH>>* aGlyphs,
                                        const wxString& aText, const VECTOR2I& aSize,
                                        const VECTOR2I& aPosition, const EDA_ANGLE& aAngle,
@@ -212,6 +227,9 @@ VECTOR2I STROKE_FONT::GetTextAsGlyphs( BOX2I* aBBox, std::vector<std::unique_ptr
 {
     constexpr double SPACE_WIDTH = 0.6;
     constexpr double INTER_CHAR = 0.2;
+    constexpr double TAB_WIDTH = 4 * 0.82;  // Not quite as wide as 5.1/6.0 tab formatting, but
+                                            // a better match for Scintilla, and closer to the
+                                            // nominal SPACE_WIDTH + INTER_CHAR
     constexpr double SUPER_SUB_SIZE_MULTIPLIER = 0.7;
     constexpr double SUPER_HEIGHT_OFFSET = 0.5;
     constexpr double SUB_HEIGHT_OFFSET = 0.3;
@@ -232,28 +250,31 @@ VECTOR2I STROKE_FONT::GetTextAsGlyphs( BOX2I* aBBox, std::vector<std::unique_ptr
 
     for( wxUniChar c : aText )
     {
-        // dd is the index into bounding boxes table
-        int dd = (signed) c - ' ';
-
-        if( dd >= (int) m_glyphBoundingBoxes->size() || dd < 0 )
+        // Handle tabs as locked to the nearest 4th column (in space-widths).
+        if( c == '\t' )
         {
-            // Filtering non existing glyphes and non printable chars
-            if( c == '\t' )
-                c = ' ';
-            else
-                c = '?';
+            int tabWidth = KiROUND( glyphSize.x * TAB_WIDTH );
+            int currentIntrusion = ( cursor.x - aOrigin.x ) % tabWidth;
 
-            // Fix the index:
-            dd = (signed) c - ' ';
+            cursor.x += tabWidth - currentIntrusion;
         }
-
-        if( dd <= 0 )   // dd < 0 should not happen
+        else if( c == ' ' )
         {
             // 'space' character - draw nothing, advance cursor position
             cursor.x += KiROUND( glyphSize.x * SPACE_WIDTH );
         }
         else
         {
+            // dd is the index into bounding boxes table
+            int dd = (signed) c - ' ';
+
+            // Filtering non existing glyphs and non printable chars
+            if( dd < 0 || dd >= (int) m_glyphBoundingBoxes->size() )
+            {
+                c = '?';
+                dd = (signed) c - ' ';
+            }
+
             STROKE_GLYPH* source = static_cast<STROKE_GLYPH*>( m_glyphs->at( dd ).get() );
 
             if( aGlyphs )
@@ -288,21 +309,39 @@ VECTOR2I STROKE_FONT::GetTextAsGlyphs( BOX2I* aBBox, std::vector<std::unique_ptr
         VECTOR2D barStart( aPosition.x + barOffset.x + barTrim, cursor.y - barOffset.y );
         VECTOR2D barEnd( cursor.x + barOffset.x - barTrim, cursor.y - barOffset.y );
 
-        if( !aAngle.IsZero() )
+        if( aGlyphs )
         {
-            RotatePoint( barStart, aOrigin, aAngle );
-            RotatePoint( barEnd, aOrigin, aAngle );
+            STROKE_GLYPH overbarGlyph;
+
+            overbarGlyph.AddPoint( barStart );
+            overbarGlyph.AddPoint( barEnd );
+            overbarGlyph.Finalize();
+
+            aGlyphs->push_back( overbarGlyph.Transform( { 1.0, 1.0 }, { 0, 0 }, false,
+                                                         aAngle, aMirror, aOrigin ) );
         }
+    }
+
+    if( aTextStyle & TEXT_STYLE::UNDERLINE )
+    {
+        barOffset.y = ComputeUnderlineVerticalPosition( glyphSize.y );
+
+        if( aTextStyle & TEXT_STYLE::ITALIC )
+            barOffset.x = barOffset.y * ITALIC_TILT;
+
+        VECTOR2D barStart( aPosition.x + barOffset.x + barTrim, cursor.y - barOffset.y );
+        VECTOR2D barEnd( cursor.x + barOffset.x - barTrim, cursor.y - barOffset.y );
 
         if( aGlyphs )
         {
-            std::unique_ptr<STROKE_GLYPH> overbarGlyph = std::make_unique<STROKE_GLYPH>();
+            STROKE_GLYPH underlineGlyph;
 
-            overbarGlyph->AddPoint( barStart );
-            overbarGlyph->AddPoint( barEnd );
-            overbarGlyph->Finalize();
+            underlineGlyph.AddPoint( barStart );
+            underlineGlyph.AddPoint( barEnd );
+            underlineGlyph.Finalize();
 
-            aGlyphs->push_back( std::move( overbarGlyph ) );
+            aGlyphs->push_back( underlineGlyph.Transform( { 1.0, 1.0 }, { 0, 0 }, false,
+                                                          aAngle, aMirror, aOrigin ) );
         }
     }
 

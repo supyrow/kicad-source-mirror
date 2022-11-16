@@ -50,7 +50,7 @@ PL_DRAW_PANEL_GAL::PL_DRAW_PANEL_GAL( wxWindow* aParentWindow, wxWindowID aWindo
     m_view = new KIGFX::VIEW( true );
     m_view->SetGAL( m_gal );
 
-    GetGAL()->SetWorldUnitLength( 1.0/IU_PER_MM /* 10 nm */ / 25.4 /* 1 inch in mm */ );
+    GetGAL()->SetWorldUnitLength( 1.0/drawSheetIUScale.IU_PER_MM /* 10 nm */ / 25.4 /* 1 inch in mm */ );
 
     m_painter = std::make_unique<KIGFX::DS_PAINTER>( m_gal );
 
@@ -93,7 +93,7 @@ void PL_DRAW_PANEL_GAL::DisplayDrawingSheet()
 
     m_pageDrawItem.reset();
 
-    model.SetupDrawEnvironment( m_edaFrame->GetPageSettings(), IU_PER_MILS );
+    model.SetupDrawEnvironment( m_edaFrame->GetPageSettings(), drawSheetIUScale.IU_PER_MILS );
 
     // To show the formatted texts instead of raw texts in drawing sheet editor, we need
     // a dummy DS_DRAW_ITEM_LIST.
@@ -101,7 +101,7 @@ void PL_DRAW_PANEL_GAL::DisplayDrawingSheet()
     dummy.SetPaperFormat( &m_edaFrame->GetPageSettings().GetType() );
     dummy.SetTitleBlock( &m_edaFrame->GetTitleBlock() );
     dummy.SetProject( &m_edaFrame->Prj() );
-    dummy.SetMilsToIUfactor( IU_PER_MILS );
+    dummy.SetMilsToIUfactor( drawSheetIUScale.IU_PER_MILS );
 
     for( DS_DATA_ITEM* dataItem : model.GetItems() )
         dataItem->SyncDrawItems( &dummy, m_view );
@@ -110,7 +110,7 @@ void PL_DRAW_PANEL_GAL::DisplayDrawingSheet()
     // of the selected corner for coord origin of new items
     // Not also this item has no peer in DS_DATA_MODEL list.
     const int penWidth = 0;     // This value is to use the default thickness line
-    constexpr double markerSize = Millimeter2iu( 5 );
+    constexpr double markerSize = drawSheetIUScale.mmToIU( 5 );
     m_pageDrawItem = std::make_unique<DS_DRAW_ITEM_PAGE>( penWidth, markerSize );
     m_view->Add( m_pageDrawItem.get() );
 
@@ -137,7 +137,7 @@ bool PL_DRAW_PANEL_GAL::SwitchBackend( GAL_TYPE aGalType )
 
     setDefaultLayerDeps();
 
-    GetGAL()->SetWorldUnitLength( 1.0/IU_PER_MM /* 10 nm */ / 25.4 /* 1 inch in mm */ );
+    GetGAL()->SetWorldUnitLength( 1.0/drawSheetIUScale.IU_PER_MM /* 10 nm */ / 25.4 /* 1 inch in mm */ );
 
     return rv;
 }

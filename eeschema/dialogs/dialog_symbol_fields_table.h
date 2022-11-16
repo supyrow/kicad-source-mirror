@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2017 Oliver Walters
- * Copyright (C) 2017-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2017-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -45,7 +45,7 @@ public:
 
 private:
     void AddField( const wxString& displayName, const wxString& aCanonicalName, bool defaultShow,
-                   bool defaultSortBy );
+                   bool defaultSortBy, bool addedByUser = false );
 
     /**
      * Construct the rows of m_fieldsCtrl and the columns of m_dataModel from a union of all
@@ -64,10 +64,16 @@ private:
     void OnTableColSize( wxGridSizeEvent& event ) override;
     void OnSizeFieldList( wxSizeEvent& event ) override;
     void OnAddField( wxCommandEvent& event ) override;
+    void OnRemoveField( wxCommandEvent& event ) override;
+    void OnExport( wxCommandEvent& aEvent ) override;
     void OnSaveAndContinue( wxCommandEvent& aEvent ) override;
-    void OnCancel( wxCommandEvent& event ) override;
-    void OnClose( wxCloseEvent& event ) override;
+    void OnCancel( wxCommandEvent& aEvent ) override;
+    void OnClose( wxCloseEvent& aEvent ) override;
+    void OnFilterText( wxCommandEvent& aEvent ) override;
+    void OnFilterMouseMoved( wxMouseEvent& event ) override;
+    void OnFieldsCtrlSelectionChanged( wxDataViewEvent& event ) override;
 
+private:
     SCH_EDIT_FRAME*                m_parent;
     int                            m_showColWidth;
     int                            m_groupByColWidth;

@@ -86,7 +86,7 @@ static int compute_pad_access_code( BOARD *aPcb, LSET aLayerMask )
 /* Convert and clamp a size from IU to decimils */
 static int iu_to_d356(int iu, int clamp)
 {
-    int val = KiROUND( iu / ( IU_PER_MILS / 10 ) );
+    int val = KiROUND( iu / ( pcbIUScale.IU_PER_MILS / 10 ) );
     if( val > clamp ) return clamp;
     if( val < -clamp ) return -clamp;
     return val;
@@ -370,7 +370,7 @@ void IPC356D_WRITER::Write( const wxString& aFilename )
 void PCB_EDIT_FRAME::GenD356File( wxCommandEvent& aEvent )
 {
     wxFileName  fn = GetBoard()->GetFileName();
-    wxString    msg, ext, wildcard;
+    wxString    ext, wildcard;
 
     ext = IpcD356FileExtension;
     wildcard = IpcD356FileWildcard();

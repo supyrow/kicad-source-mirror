@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2012 CERN.
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -39,6 +39,7 @@ class BOARD_DESIGN_SETTINGS;
 class PCB_DIMENSION_BASE;
 class FP_SHAPE;
 class PCB_SHAPE;
+class PCB_BITMAP;
 class PCB_TARGET;
 class PAD;
 class FP_TEXT;
@@ -116,17 +117,30 @@ class SHAPE_LINE_CHAIN;
 //#define SEXPR_BOARD_FILE_VERSION    20211231  // Private footprint layers
 //#define SEXPR_BOARD_FILE_VERSION    20211232  // Fonts
 //#define SEXPR_BOARD_FILE_VERSION    20220131  // Textboxes
-#define SEXPR_BOARD_FILE_VERSION      20220211  // End support for V5 zone fill strategy
+//#define SEXPR_BOARD_FILE_VERSION    20220211  // End support for V5 zone fill strategy
+//#define SEXPR_BOARD_FILE_VERSION    20220225  // Remove TEDIT
+//#define SEXPR_BOARD_FILE_VERSION    20220308  // Knockout text and Locked graphic text property saved
+//#define SEXPR_BOARD_FILE_VERSION    20220331  // Plot on all layers selection setting
+//#define SEXPR_BOARD_FILE_VERSION    20220417  // Automatic dimension precisions
+//#define SEXPR_BOARD_FILE_VERSION    20220427  // Exclude Edge.Cuts & Margin from fp private layers
+//#define SEXPR_BOARD_FILE_VERSION    20220609  // Add teardrop keywords to identify teardrop zones
+//#define SEXPR_BOARD_FILE_VERSION    20220621  // Add Image support
+//#define SEXPR_BOARD_FILE_VERSION    20220815  // Add allow-soldermask-bridges-in-FPs flag
+//#define SEXPR_BOARD_FILE_VERSION    20220818  // First-class storage for net-ties
+//#define SEXPR_BOARD_FILE_VERSION    20220914  // Number boxes for custom-shape pads
+#define SEXPR_BOARD_FILE_VERSION      20221018  // Via & pad zone-layer-connections
 
 #define BOARD_FILE_HOST_VERSION       20200825  ///< Earlier files than this include the host tag
 #define LEGACY_ARC_FORMATTING         20210925  ///< These were the last to use old arc formatting
+#define LEGACY_NET_TIES               20220815  ///< These were the last to use the keywords field
+                                                ///<   to indicate a net-tie.
 
 #define CTL_OMIT_PAD_NETS           (1 << 1)    ///< Omit pads net names (useless in library)
 #define CTL_OMIT_TSTAMPS            (1 << 2)    ///< Omit component time stamp (useless in library)
 #define CTL_OMIT_INITIAL_COMMENTS   (1 << 3)    ///< omit FOOTPRINT initial comments
 #define CTL_OMIT_PATH               (1 << 4)    ///< Omit component sheet time stamp (useless in library)
 #define CTL_OMIT_AT                 (1 << 5)    ///< Omit position and rotation. (always saved
-                                                ///< with potion 0,0 and rotation = 0 in library).
+                                                ///< with position 0,0 and rotation = 0 in library).
 //#define CTL_OMIT_HIDE             (1 << 6)    // found and defined in eda_text.h
 #define CTL_OMIT_LIBNAME            (1 << 7)    ///< Omit lib alias when saving (used for
                                                 ///< board/not library).
@@ -176,42 +190,42 @@ public:
     }
 
     void Save( const wxString& aFileName, BOARD* aBoard,
-               const PROPERTIES* aProperties = nullptr ) override;
+               const STRING_UTF8_MAP* aProperties = nullptr ) override;
 
     BOARD* Load( const wxString& aFileName, BOARD* aAppendToMe,
-                 const PROPERTIES* aProperties = nullptr, PROJECT* aProject = nullptr,
+                 const STRING_UTF8_MAP* aProperties = nullptr, PROJECT* aProject = nullptr,
                  PROGRESS_REPORTER* aProgressReporter = nullptr ) override;
 
-    BOARD* DoLoad( LINE_READER& aReader, BOARD* aAppendToMe, const PROPERTIES* aProperties,
+    BOARD* DoLoad( LINE_READER& aReader, BOARD* aAppendToMe, const STRING_UTF8_MAP* aProperties,
                      PROGRESS_REPORTER* aProgressReporter, unsigned aLineCount );
 
     void FootprintEnumerate( wxArrayString& aFootprintNames, const wxString& aLibraryPath,
-                             bool aBestEfforts, const PROPERTIES* aProperties = nullptr ) override;
+                             bool aBestEfforts, const STRING_UTF8_MAP* aProperties = nullptr ) override;
 
     const FOOTPRINT* GetEnumeratedFootprint( const wxString& aLibraryPath,
                                              const wxString& aFootprintName,
-                                             const PROPERTIES* aProperties = nullptr ) override;
+                                             const STRING_UTF8_MAP* aProperties = nullptr ) override;
 
     bool FootprintExists( const wxString& aLibraryPath, const wxString& aFootprintName,
-                          const PROPERTIES* aProperties = nullptr ) override;
+                          const STRING_UTF8_MAP* aProperties = nullptr ) override;
 
     FOOTPRINT* FootprintLoad( const wxString& aLibraryPath, const wxString& aFootprintName,
                               bool  aKeepUUID = false,
-                              const PROPERTIES* aProperties = nullptr ) override;
+                              const STRING_UTF8_MAP* aProperties = nullptr ) override;
 
     void FootprintSave( const wxString& aLibraryPath, const FOOTPRINT* aFootprint,
-                        const PROPERTIES* aProperties = nullptr ) override;
+                        const STRING_UTF8_MAP* aProperties = nullptr ) override;
 
     void FootprintDelete( const wxString& aLibraryPath, const wxString& aFootprintName,
-                          const PROPERTIES* aProperties = nullptr ) override;
+                          const STRING_UTF8_MAP* aProperties = nullptr ) override;
 
     long long GetLibraryTimestamp( const wxString& aLibraryPath ) const override;
 
     void FootprintLibCreate( const wxString& aLibraryPath,
-                             const PROPERTIES* aProperties = nullptr) override;
+                             const STRING_UTF8_MAP* aProperties = nullptr) override;
 
     bool FootprintLibDelete( const wxString& aLibraryPath,
-                             const PROPERTIES* aProperties = nullptr ) override;
+                             const STRING_UTF8_MAP* aProperties = nullptr ) override;
 
     bool IsFootprintLibWritable( const wxString& aLibraryPath ) override;
 
@@ -246,9 +260,9 @@ protected:
     void validateCache( const wxString& aLibraryPath, bool checkModified = true );
 
     const FOOTPRINT* getFootprint( const wxString& aLibraryPath, const wxString& aFootprintName,
-                                   const PROPERTIES* aProperties, bool checkModified );
+                                   const STRING_UTF8_MAP* aProperties, bool checkModified );
 
-    void init( const PROPERTIES* aProperties );
+    void init( const STRING_UTF8_MAP* aProperties );
 
     /// formats the board setup information
     void formatSetup( const BOARD* aBoard, int aNestLevel = 0 ) const;
@@ -275,6 +289,8 @@ private:
 
     void format( const FP_SHAPE* aFPShape, int aNestLevel = 0 ) const;
 
+    void format( const PCB_BITMAP* aBitmap, int aNestLevel = 0 ) const;
+
     void format( const PCB_GROUP* aGroup, int aNestLevel = 0 ) const;
 
     void format( const PCB_SHAPE* aSegment, int aNestLevel = 0 ) const;
@@ -299,7 +315,7 @@ private:
 
     void formatRenderCache( const EDA_TEXT* aText, int aNestLevel ) const;
 
-    void formatLayer( PCB_LAYER_ID aLayer ) const;
+    void formatLayer( PCB_LAYER_ID aLayer, bool aIsKnockout = false ) const;
 
     void formatLayers( LSET aLayerMask, int aNestLevel = 0 ) const;
 
@@ -309,8 +325,7 @@ protected:
     wxString        m_error;        ///< for throwing exceptions
     BOARD*          m_board;        ///< which BOARD, no ownership here
 
-    const
-    PROPERTIES*     m_props;        ///< passed via Save() or Load(), no ownership, may be NULL.
+    const STRING_UTF8_MAP*     m_props;        ///< passed via Save() or Load(), no ownership, may be NULL.
     FP_CACHE*       m_cache;        ///< Footprint library cache.
 
     LINE_READER*    m_reader;       ///< no ownership here.

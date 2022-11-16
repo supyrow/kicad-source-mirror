@@ -78,6 +78,8 @@ set( PCBNEW_DIALOGS
     dialogs/dialog_export_idf_base.cpp
     dialogs/dialog_export_step.cpp
     dialogs/dialog_export_step_base.cpp
+    dialogs/dialog_export_step_process.cpp
+    dialogs/dialog_export_step_process_base.cpp
     dialogs/dialog_export_svg.cpp
     dialogs/dialog_export_svg_base.cpp
     dialogs/dialog_export_vrml.cpp
@@ -88,6 +90,7 @@ set( PCBNEW_DIALOGS
     dialogs/dialog_footprint_wizard_list_base.cpp
     dialogs/dialog_fp_plugin_options.cpp
     dialogs/dialog_fp_plugin_options_base.cpp
+    dialogs/dialog_gen_footprint_position.cpp
     dialogs/dialog_gen_footprint_position_file_base.cpp
     dialogs/dialog_gencad_export_options.cpp
     dialogs/dialog_gendrill.cpp
@@ -106,6 +109,8 @@ set( PCBNEW_DIALOGS
     dialogs/dialog_push_pad_properties_base.cpp
     dialogs/dialog_graphic_item_properties.cpp
     dialogs/dialog_graphic_item_properties_base.cpp
+    dialogs/dialog_image_properties.cpp
+    dialogs/dialog_image_properties_base.cpp
     dialogs/dialog_import_settings.cpp
     dialogs/dialog_import_settings_base.cpp
     dialogs/dialog_imported_layers_base.cpp
@@ -181,6 +186,7 @@ set( PCBNEW_DIALOGS
     dialogs/panel_setup_text_and_graphics_base.cpp
     dialogs/panel_setup_tracks_and_vias.cpp
     dialogs/panel_setup_tracks_and_vias_base.cpp
+    dialogs/pcb_properties_panel.cpp
     footprint_wizard.cpp
     footprint_wizard_frame.cpp
     footprint_wizard_frame_functions.cpp
@@ -216,10 +222,11 @@ set( PCBNEW_EXPORTERS
     exporters/export_footprint_associations.cpp
     exporters/export_gencad.cpp
     exporters/export_idf.cpp
-    exporters/export_vrml.cpp
-    exporters/export_footprints_placefile.cpp
+    exporters/step/exporter_step.cpp
+    exporters/step/step_pcb_model.cpp
+    exporters/exporter_vrml.cpp
+    exporters/place_file_exporter.cpp
     exporters/gen_drill_report_files.cpp
-    exporters/gen_footprints_placefile.cpp
     exporters/gendrill_Excellon_writer.cpp
     exporters/gendrill_file_writer_base.cpp
     exporters/gendrill_gerber_writer.cpp
@@ -235,14 +242,17 @@ set( PCBNEW_MICROWAVE_SRCS
     )
 
 set( PCBNEW_DRC_SRCS
+    drc/drc_interactive_courtyard_clearance.cpp
     drc/drc_test_provider.cpp
     drc/drc_test_provider_annular_width.cpp
     drc/drc_test_provider_disallow.cpp
     drc/drc_test_provider_connectivity.cpp
+    drc/drc_test_provider_connection_width.cpp
     drc/drc_test_provider_copper_clearance.cpp
-    drc/drc_test_provider_mechanical_clearance.cpp
+    drc/drc_test_provider_physical_clearance.cpp
     drc/drc_test_provider_courtyard_clearance.cpp
     drc/drc_test_provider_edge_clearance.cpp
+    drc/drc_test_provider_footprint_checks.cpp
     drc/drc_test_provider_hole_to_hole.cpp
     drc/drc_test_provider_hole_size.cpp
     drc/drc_test_provider_library_parity.cpp
@@ -272,7 +282,6 @@ set( PCBNEW_CLASS_SRCS
     ${PCBNEW_NETLIST_SRCS}
     ${PCBNEW_BRDSTACKUP_MGR}
 
-    autorouter/rect_placement/rect_placement.cpp
     autorouter/spread_footprints.cpp
     autorouter/ar_autoplacer.cpp
     autorouter/ar_matrix.cpp
@@ -309,6 +318,7 @@ set( PCBNEW_CLASS_SRCS
     pcb_layer_box_selector.cpp
     pcb_edit_frame.cpp
     pcbnew_config.cpp
+    pcbnew_jobs_handler.cpp
     pcbnew_printout.cpp
     pcbnew_settings.cpp
     pcbplot.cpp
@@ -337,6 +347,7 @@ set( PCBNEW_CLASS_SRCS
     tools/drawing_stackup_table_tool.cpp
     tools/drc_tool.cpp
     tools/edit_tool.cpp
+    tools/edit_tool_move_fct.cpp
     tools/global_edit_tool.cpp
     tools/group_tool.cpp
     tools/footprint_editor_control.cpp
@@ -350,6 +361,7 @@ set( PCBNEW_CLASS_SRCS
     tools/placement_tool.cpp
     tools/pcb_point_editor.cpp
     tools/position_relative_tool.cpp
+    tools/properties_tool.cpp
     tools/tool_event_utils.cpp
     tools/zone_create_helper.cpp
     tools/zone_filler_tool.cpp
@@ -363,6 +375,8 @@ set( PCBNEW_CLASS_SRCS
     widgets/appearance_controls_base.cpp
     widgets/panel_selection_filter.cpp
     widgets/panel_selection_filter_base.cpp
+    widgets/pcb_search_pane.cpp
+    widgets/search_handlers.cpp
 
     )
 
@@ -374,7 +388,6 @@ set( PCBNEW_SRCS
 
 # extra sources from common
 set( PCBNEW_COMMON_SRCS
-    ${CMAKE_SOURCE_DIR}/common/base_units.cpp
     )
 
 set( PCBNEW_SCRIPTING_PYTHON_HELPERS
@@ -475,6 +488,7 @@ add_custom_command( OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/pcbnew_wrap.cxx
     DEPENDS python/swig/netinfo.i
     DEPENDS python/swig/pad.i
     DEPENDS python/swig/pcb_group.i
+    DEPENDS python/swig/pcb_bitmap.i
     DEPENDS python/swig/pcb_text.i
     DEPENDS python/swig/pcb_group.i
     DEPENDS python/swig/plugins.i
@@ -502,9 +516,11 @@ add_custom_command( OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/pcbnew_wrap.cxx
     COMMAND ${SWIG_EXECUTABLE}
         ${SWIG_OPTS} -o ${CMAKE_CURRENT_BINARY_DIR}/pcbnew_wrap.cxx ${CMAKE_SOURCE_DIR}/pcbnew/python/swig/pcbnew.i
 
-    COMMAND ${PYTHON_EXECUTABLE}
-        ${CMAKE_SOURCE_DIR}/scripting/build_tools/fix_swig_imports.py
-        ${CMAKE_CURRENT_BINARY_DIR}/pcbnew.py
+    # was needed only with SWIG version < 4 to disable a python section "def swig_import_helper()"
+    # found in pcbnew.py but not existing in SWIG version >= 4
+    # So it is left here for documentation purpose
+    #COMMAND ${PYTHON_EXECUTABLE}
+    #    ${CMAKE_SOURCE_DIR}/tools/build/fix_swig_imports.py ${CMAKE_CURRENT_BINARY_DIR}/pcbnew.py
 
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     )
@@ -532,7 +548,7 @@ if( DOXYGEN_FOUND )
     add_custom_target( xml-to-docstrings
         COMMAND ${CMAKE_COMMAND} -E remove_directory docstrings
         COMMAND ${CMAKE_COMMAND} -E make_directory docstrings
-        COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripting/build_tools/extract_docstrings.py pcbnew.py doxygen-xml/xml docstrings
+        COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/build/extract_docstrings.py pcbnew.py doxygen-xml/xml docstrings
         COMMAND ${CMAKE_COMMAND} -E remove pcbnew.py # force removal so it will be recreated later with the new docstrings
         COMMENT "building docstring files"
         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
@@ -628,6 +644,8 @@ target_link_libraries( pcbnew
     gal
     scripting
     nlohmann_json
+    rectpack2d
+    argparse::argparse
     ${wxWidgets_LIBRARIES}
     )
 
@@ -653,8 +671,6 @@ make_lexer(
     DSN
     )
 
-# CMake <3.9 can't link anything to object libraries,
-# but we only need include directories, as we will link the kiface MODULE
 target_link_libraries( pcbnew_kiface_objects
     PRIVATE
         common
@@ -662,11 +678,15 @@ target_link_libraries( pcbnew_kiface_objects
         nanosvg
         tinyspline_lib
         nlohmann_json
+        rectpack2d
+        gzip-hpp
+        ${ZLIB_LIBRARIES}
+        ${OCC_LIBRARIES}
     )
 
-if( KICAD_STEP_EXPORT_LIB )
-    add_definitions( -DKICAD_STEP_EXPORT_LIB )
-endif()
+target_include_directories( pcbnew_kiface_objects PRIVATE
+    $<TARGET_PROPERTY:thread-pool,INTERFACE_INCLUDE_DIRECTORIES>
+    )
 
 add_library( pcbnew_kiface MODULE )
 
@@ -707,7 +727,6 @@ set( PCBNEW_KIFACE_LIBRARIES
     markdown_lib
     ${PCBNEW_IO_LIBRARIES}
     ${wxWidgets_LIBRARIES}
-    ${GDI_PLUS_LIBRARIES}
     ${PYTHON_LIBRARIES}
     ${Boost_LIBRARIES}
     ${PCBNEW_EXTRA_LIBS}    # -lrt must follow Boost
@@ -781,7 +800,7 @@ else()
         COMPONENT binary
         )
     install( TARGETS pcbnew_kiface
-        DESTINATION ${KICAD_BIN}
+        DESTINATION ${KICAD_KIFACE}
         COMPONENT binary
         )
 endif()
@@ -789,7 +808,7 @@ endif()
 if( KICAD_WIN32_INSTALL_PDBS )
     # Get the PDBs to copy over for MSVC
     install(FILES $<TARGET_PDB_FILE:pcbnew> DESTINATION ${KICAD_BIN})
-    install(FILES $<TARGET_PDB_FILE:pcbnew_kiface> DESTINATION ${KICAD_BIN})
+    install(FILES $<TARGET_PDB_FILE:pcbnew_kiface> DESTINATION ${KICAD_KIFACE})
 endif()
 
 if( NOT APPLE )
@@ -814,7 +833,7 @@ install( DIRECTORY ${PROJECT_SOURCE_DIR}/pcbnew/python/plugins/
 # Here is built the _pcbnew.{so,pyd} which is the native part of the pcbnew Python library
 # when Python is used from the command line.
 
-if( MINGW OR VCPKG_TOOLCHAIN )
+if( WIN32 )
     install( FILES ${CMAKE_BINARY_DIR}/pcbnew/_pcbnew.pyd DESTINATION ${PYTHON_DEST} )
     set( PYMOD_EXT "pyd" )
 elseif( APPLE )
@@ -826,9 +845,11 @@ elseif( APPLE )
         )
     add_dependencies( ScriptingModulesPcbnewSoCopy ScriptingPythonDirectoryCreation )
     set( PYMOD_EXT "so" )
-else()  # only linux remains among supported platforms
-    install( FILES ${CMAKE_CURRENT_BINARY_DIR}/_pcbnew.kiface DESTINATION ${PYTHON_DEST} COMPONENT binary RENAME "_pcbnew.so" )
+else()
+    # Linux is the remaining platform, and all that has to be installed is the created symlink.
     set( PYMOD_EXT "so" )
+
+    install( FILES ${CMAKE_CURRENT_BINARY_DIR}/python/_pcbnew.${PYMOD_EXT} DESTINATION ${PYTHON_DEST} )
 endif()
 
 if( APPLE )
@@ -837,22 +858,52 @@ if( APPLE )
         COMMAND ${CMAKE_COMMAND} -E copy  ${OSX_BUNDLE_BUILD_KIFACE_DIR}/_pcbnew.kiface _pcbnew.${PYMOD_EXT}
         COMMENT "Creating python's pcbnew native module _pcbnew.${PYMOD_EXT} for command line use."
         )
-    add_custom_target(
-        pcbnew_python_module ALL
-        DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/_pcbnew.${PYMOD_EXT}
-        )
-else()
+
+     set( PYTHON_FILES ${CMAKE_CURRENT_BINARY_DIR}/_pcbnew.${PYMOD_EXT} )
+elseif( WIN32 )
     # For phase 1, copy _pcbnew.kiface to the python module.
     add_custom_command( OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/_pcbnew.${PYMOD_EXT}
         DEPENDS pcbnew_kiface
-        COMMAND ${CMAKE_COMMAND} -E copy _pcbnew.kiface _pcbnew.${PYMOD_EXT}
+        COMMAND ${CMAKE_COMMAND} -E copy _pcbnew${KIFACE_SUFFIX} _pcbnew.${PYMOD_EXT}
         COMMENT "Creating python's pcbnew native module _pcbnew.${PYMOD_EXT} for command line use."
         )
-    add_custom_target(
-        pcbnew_python_module ALL
-        DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/_pcbnew.${PYMOD_EXT}
+
+    set( PYTHON_FILES ${CMAKE_CURRENT_BINARY_DIR}/_pcbnew.${PYMOD_EXT} )
+else()
+    # For linux, just create a symlink in the build directory to ensure the unit tests can find the library
+    # We don't actually do anything with this symlink though, since we create the proper one for the install
+    # later.
+    add_custom_command( OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/_pcbnew.${PYMOD_EXT}
+        DEPENDS pcbnew_kiface
+        COMMAND ${CMAKE_COMMAND} -E create_symlink _pcbnew${KIFACE_SUFFIX} _pcbnew.${PYMOD_EXT}
+        COMMENT "Symlinking _pcbnew.${PYMOD_EXT} to _pcbnew${KIFACE_SUFFIX}."
+        )
+
+    if( IS_ABSOLUTE ${KICAD_KIFACE} )
+        file( RELATIVE_PATH PCBNEW_PYTHON_SYMLINK ${PYTHON_FULL_DEST} ${KICAD_KIFACE}/_pcbnew${KIFACE_SUFFIX} )
+    else()
+        file( RELATIVE_PATH PCBNEW_PYTHON_SYMLINK ${PYTHON_FULL_DEST} ${CMAKE_INSTALL_PREFIX}/${KICAD_KIFACE}/_pcbnew${KIFACE_SUFFIX} )
+    endif()
+
+    file( MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/python )
+
+    # This is the symlink we use in the installation directory, so it will not resolve in the build directory.
+    add_custom_command( OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/python/_pcbnew.${PYMOD_EXT}
+        DEPENDS pcbnew_kiface
+        COMMAND ln -sf "${PCBNEW_PYTHON_SYMLINK}" "${CMAKE_CURRENT_BINARY_DIR}/python/_pcbnew.${PYMOD_EXT}"
+        COMMENT "Creating install symlink from _pcbnew.${PYMOD_EXT} to _pcbnew${KIFACE_SUFFIX}."
+        )
+
+    set( PYTHON_FILES
+         ${CMAKE_CURRENT_BINARY_DIR}/_pcbnew.${PYMOD_EXT}
+         ${CMAKE_CURRENT_BINARY_DIR}/python/_pcbnew.${PYMOD_EXT}
         )
 endif()
+
+add_custom_target(
+    pcbnew_python_module ALL
+    DEPENDS ${PYTHON_FILES}
+    )
 
 
 if( APPLE )

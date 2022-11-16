@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2017-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2017-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -35,8 +35,10 @@
 #include <tools/pcb_selection_tool.h>
 #include <tools/pcb_actions.h>
 #include <tools/tool_event_utils.h>
+#include <tools/zone_filler_tool.h>
 
-void PCB_TOOL_BASE::doInteractiveItemPlacement( const std::string& aTool,
+
+void PCB_TOOL_BASE::doInteractiveItemPlacement( const TOOL_EVENT&        aTool,
                                                 INTERACTIVE_PLACER_BASE* aPlacer,
                                                 const wxString& aCommitMessage, int aOptions )
 {
@@ -52,6 +54,7 @@ void PCB_TOOL_BASE::doInteractiveItemPlacement( const std::string& aTool,
     Activate();
     // Must be done after Activate() so that it gets set into the correct context
     controls()->ShowCursor( true );
+    controls()->ForceCursorPosition( false );
     // do not capture or auto-pan until we start placing an item
 
     PCB_GRID_HELPER grid( m_toolMgr, frame()->GetMagneticItemsSettings() );
@@ -72,7 +75,7 @@ void PCB_TOOL_BASE::doInteractiveItemPlacement( const std::string& aTool,
 
                 if( newItem )
                 {
-                    newItem->SetPosition( (wxPoint) aPosition );
+                    newItem->SetPosition( aPosition );
                     preview.Add( newItem.get() );
 
                     if( newItem->Type() == PCB_FOOTPRINT_T )
@@ -120,6 +123,7 @@ void PCB_TOOL_BASE::doInteractiveItemPlacement( const std::string& aTool,
                     controls()->SetAutoPan( false );
                     controls()->CaptureCursor( false );
                     controls()->ShowCursor( true );
+                    controls()->ForceCursorPosition( false );
                 };
 
         if( evt->IsCancelInteractive() )
@@ -223,7 +227,7 @@ void PCB_TOOL_BASE::doInteractiveItemPlacement( const std::string& aTool,
             }
             else if( evt->IsAction( &PCB_ACTIONS::flip ) && ( aOptions & IPO_FLIP ) )
             {
-                newItem->Flip( newItem->GetPosition(), frame()->Settings().m_FlipLeftRight );
+                newItem->Flip( newItem->GetPosition(), frame()->GetPcbNewSettings()->m_FlipLeftRight );
                 view()->Update( &preview );
             }
             else if( evt->IsAction( &PCB_ACTIONS::properties ) )
@@ -233,12 +237,16 @@ void PCB_TOOL_BASE::doInteractiveItemPlacement( const std::string& aTool,
                 // Notify other tools of the changes
                 m_toolMgr->ProcessEvent( EVENTS::SelectedItemsModified );
             }
+            else if( ZONE_FILLER_TOOL::IsZoneFillAction( evt ) )
+            {
+                wxBell();
+            }
             else if( evt->IsAction( &ACTIONS::refreshPreview ) )
             {
                 preview.Clear();
                 newItem.release();
 
-                makeNewItem( (wxPoint) cursorPos );
+                makeNewItem( cursorPos );
                 aPlacer->SnapItem( newItem.get() );
                 view()->Update( &preview );
             }
@@ -250,7 +258,7 @@ void PCB_TOOL_BASE::doInteractiveItemPlacement( const std::string& aTool,
         else if( newItem && evt->IsMotion() )
         {
             // track the cursor
-            newItem->SetPosition( (wxPoint) cursorPos );
+            newItem->SetPosition( cursorPos );
             aPlacer->SnapItem( newItem.get() );
 
             // Show a preview of the item
@@ -266,6 +274,7 @@ void PCB_TOOL_BASE::doInteractiveItemPlacement( const std::string& aTool,
     frame()->GetCanvas()->SetCurrentCursor( KICURSOR::ARROW );
     controls()->SetAutoPan( false );
     controls()->CaptureCursor( false );
+    controls()->ForceCursorPosition( false );
 }
 
 

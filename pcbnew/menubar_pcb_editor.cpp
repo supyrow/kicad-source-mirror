@@ -64,26 +64,29 @@ void PCB_EDIT_FRAME::ReCreateMenuBar()
         if( !openRecentMenu )
         {
             openRecentMenu = new ACTION_MENU( false, selTool );
-            openRecentMenu->SetTitle( _( "Open Recent" ) );
             openRecentMenu->SetIcon( BITMAPS::recent );
 
             fileHistory.UseMenu( openRecentMenu );
             fileHistory.AddFilesToMenu();
         }
 
+        // Ensure the title is up to date after changing language
+        openRecentMenu->SetTitle( _( "Open Recent" ) );
+        fileHistory.UpdateClearText( openRecentMenu, _( "Clear Recent Files" ) );
+
         fileMenu->Add( ACTIONS::doNew );
         fileMenu->Add( ACTIONS::open );
 
-        wxMenuItem* item = fileMenu->Add( openRecentMenu );
+        wxMenuItem* item = fileMenu->Add( openRecentMenu->Clone() );
 
         // Add the file menu condition here since it needs the item ID for the submenu
         ACTION_CONDITIONS cond;
         cond.Enable( FILE_HISTORY::FileHistoryNotEmpty( fileHistory ) );
         RegisterUIUpdateHandler( item->GetId(), cond );
-
-        fileMenu->Add( PCB_ACTIONS::appendBoard );
-        fileMenu->AppendSeparator();
     }
+
+    fileMenu->Add( PCB_ACTIONS::appendBoard );
+    fileMenu->AppendSeparator();
 
     fileMenu->Add( ACTIONS::save );
 
@@ -94,7 +97,9 @@ void PCB_EDIT_FRAME::ReCreateMenuBar()
     if( Kiface().IsSingle() )
         fileMenu->Add( ACTIONS::saveAs );
     else
-        fileMenu->Add( ACTIONS::saveCopyAs );
+        fileMenu->Add( ACTIONS::saveCopy );
+
+    fileMenu->Add( ACTIONS::revert );
 
     fileMenu->AppendSeparator();
     fileMenu->Add( _( "Resc&ue" ),
@@ -223,6 +228,11 @@ void PCB_EDIT_FRAME::ReCreateMenuBar()
     ACTION_MENU* viewMenu = new ACTION_MENU( false, selTool );
 
     viewMenu->Add( PCB_ACTIONS::showLayersManager,    ACTION_MENU::CHECK );
+
+    if( ADVANCED_CFG::GetCfg().m_ShowPropertiesPanel )
+        viewMenu->Add( PCB_ACTIONS::showProperties, ACTION_MENU::CHECK );
+
+    viewMenu->Add( PCB_ACTIONS::showSearch, ACTION_MENU::CHECK );
     viewMenu->Add( ACTIONS::showFootprintBrowser );
     viewMenu->Add( ACTIONS::show3DViewer );
 
@@ -321,6 +331,7 @@ void PCB_EDIT_FRAME::ReCreateMenuBar()
     placeMenu->Add( PCB_ACTIONS::drawRectangle );
     placeMenu->Add( PCB_ACTIONS::drawCircle );
     placeMenu->Add( PCB_ACTIONS::drawPolygon );
+    placeMenu->Add( PCB_ACTIONS::placeImage );
     placeMenu->Add( PCB_ACTIONS::placeText );
     placeMenu->Add( PCB_ACTIONS::drawTextBox );
 
@@ -334,7 +345,6 @@ void PCB_EDIT_FRAME::ReCreateMenuBar()
     placeMenu->AppendSeparator();
     placeMenu->Add( PCB_ACTIONS::placeCharacteristics );
     placeMenu->Add( PCB_ACTIONS::placeStackup );
-    placeMenu->Add( PCB_ACTIONS::placeTarget );
 
     placeMenu->AppendSeparator();
     placeMenu->Add( PCB_ACTIONS::drillOrigin );
@@ -403,16 +413,10 @@ void PCB_EDIT_FRAME::ReCreateMenuBar()
     toolsMenu->Add( ACTIONS::showFootprintEditor );
     toolsMenu->Add( PCB_ACTIONS::updateFootprints );
 
-    // Currently: available only with advanced_config m_AllowTeardrops = true
-    // (AllowTeardrops = 1)
-    if(  ADVANCED_CFG::GetCfg().m_AllowTeardrops )
-    {
-        toolsMenu->AppendSeparator();
-        toolsMenu->Add( _( "Add Teardrops" ), "",
-                        ID_RUN_TEARDROP_TOOL, BITMAPS::via );
-        toolsMenu->Add( _( "Remove Teardrops" ), "",
-                        ID_REMOVE_TEARDROP_TOOL, BITMAPS::via );
-    }
+    // Add/remove teardrops menuitems:
+    toolsMenu->AppendSeparator();
+    toolsMenu->Add( _( "Add Teardrops..." ), "", ID_RUN_TEARDROP_TOOL, BITMAPS::via );
+    toolsMenu->Add( _( "Remove Teardrops" ), "", ID_REMOVE_TEARDROP_TOOL, BITMAPS::via );
 
     toolsMenu->AppendSeparator();
     toolsMenu->Add( PCB_ACTIONS::cleanupTracksAndVias );

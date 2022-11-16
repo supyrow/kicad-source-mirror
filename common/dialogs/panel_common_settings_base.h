@@ -1,5 +1,5 @@
 ///////////////////////////////////////////////////////////////////////////
-// C++ code generated with wxFormBuilder (version 3.10.0-4761b0c)
+// C++ code generated with wxFormBuilder (version 3.10.1-0-g8feb16b)
 // http://www.wxformbuilder.org/
 //
 // PLEASE DO *NOT* EDIT THIS FILE!
@@ -54,6 +54,8 @@ class PANEL_COMMON_SETTINGS_BASE : public RESETTABLE_PANEL
 		wxStaticBoxSizer* m_sbUserInterface;
 		wxGridBagSizer* m_gbUserInterface;
 		wxCheckBox* m_checkBoxIconsInMenus;
+		wxCheckBox* m_showScrollbars;
+		wxCheckBox* m_focusFollowSchPcb;
 		wxStaticText* m_stIconTheme;
 		wxRadioButton* m_rbIconThemeLight;
 		wxRadioButton* m_rbIconThemeDark;

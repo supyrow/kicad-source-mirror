@@ -51,7 +51,7 @@ class SCH_SYMBOL;
 
 class SPICE_SIMULATOR;
 class SPICE_SIMULATOR_SETTINGS;
-class NETLIST_EXPORTER_PSPICE_SIM;
+class NGSPICE_CIRCUIT_MODEL;
 
 #include "sim_plot_panel.h"
 #include "sim_panel_base.h"
@@ -70,7 +70,6 @@ public:
     ~SIM_PLOT_FRAME();
 
     void StartSimulation( const wxString& aSimCommand = wxEmptyString );
-    void StopSimulation();
 
     /**
      * Create a new plot panel for a given simulation type and adds it to the main notebook.
@@ -93,7 +92,7 @@ public:
      * @param aDeviceName is the device name (e.g. R1, C1).
      * @param aParam is the current type (e.g. I, Ic, Id).
      */
-    void AddCurrentPlot( const wxString& aDeviceName, const wxString& aParam );
+    void AddCurrentPlot( const wxString& aDeviceName );
 
     /**
      * Add a tuner for a symbol.
@@ -117,7 +116,7 @@ public:
      * @param aId id of the symbol field
      * @param aValue new value of the symbol field
      */
-    void UpdateTunerValue( SCH_SYMBOL* aSymbol, int aId, const wxString& aValue );
+    void UpdateTunerValue( SCH_SYMBOL* aSymbol, const wxString& aValue );
 
     /**
      * Return the currently opened plot panel (or NULL if there is none).
@@ -127,7 +126,7 @@ public:
     /**
      * Return the netlist exporter object used for simulations.
      */
-    const NETLIST_EXPORTER_PSPICE_SIM* GetExporter() const;
+    const NGSPICE_CIRCUIT_MODEL* GetExporter() const;
 
     /**
      * @return the current background option for plotting.
@@ -170,7 +169,7 @@ private:
      * @param aType describes the type of plot.
      * @param aParam is the parameter for the device/net (e.g. I, Id, V).
      */
-    void addPlot( const wxString& aName, SIM_PLOT_TYPE aType, const wxString& aParam );
+    void addPlot( const wxString& aName, SIM_PLOT_TYPE aType );
 
     /**
      * Remove a plot with a specific title.
@@ -178,11 +177,6 @@ private:
      * @param aPlotName is the full plot title (e.g. I(Net-C1-Pad1)).
      */
     void removePlot( const wxString& aPlotName );
-
-    /**
-     * Reload the current schematic for the netlist exporter.
-     */
-    void updateNetlistExporter();
 
     /**
      * Update plot in a particular SIM_PLOT_PANEL. If the panel does not contain
@@ -194,8 +188,7 @@ private:
      * @param aPlotPanel is the panel that should receive the update.
      * @return True if a plot was successfully added/updated.
      */
-    bool updatePlot( const wxString& aName, SIM_PLOT_TYPE aType, const wxString& aParam,
-                     SIM_PLOT_PANEL* aPlotPanel );
+    bool updatePlot( const wxString& aName, SIM_PLOT_TYPE aType, SIM_PLOT_PANEL* aPlotPanel );
 
     /**
      * Update the list of currently plotted signals.
@@ -254,7 +247,7 @@ private:
     wxString getCurrentSimCommand() const
     {
         if( getCurrentPlotWindow() == nullptr )
-            return m_exporter->GetSheetSimCommand();
+            return m_circuitModel->GetSheetSimCommand();
         else
             return m_workbook->GetSimCommand( getCurrentPlotWindow() );
     }
@@ -339,7 +332,7 @@ private:
     wxToolBarToolBase* m_toolSettings;
 
     SCH_EDIT_FRAME* m_schematicFrame;
-    std::unique_ptr<NETLIST_EXPORTER_PSPICE_SIM> m_exporter;
+    std::shared_ptr<NGSPICE_CIRCUIT_MODEL> m_circuitModel;
     std::shared_ptr<SPICE_SIMULATOR> m_simulator;
     SIM_THREAD_REPORTER* m_reporter;
 
@@ -373,7 +366,7 @@ private:
     };
 
     ///< Panel that was used as the most recent one for simulations
-    SIM_PLOT_PANEL* m_lastSimPlot;
+    SIM_PANEL_BASE* m_lastSimPlot;
 
     ///< imagelists used to add a small colored icon to signal names
     ///< and cursors name, the same color as the corresponding signal traces

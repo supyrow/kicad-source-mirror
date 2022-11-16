@@ -4,7 +4,7 @@
  * Copyright (C) 2018 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2015 Dick Hollenbeck, dick@softplc.com
  * Copyright (C) 2008 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 2004-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2004-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -26,14 +26,13 @@
 
 #include <panel_fp_properties_3d_model.h>
 
-#include <confirm.h>
 #include <3d_viewer/eda_3d_viewer_frame.h>
-#include <board_design_settings.h>
 #include <bitmaps.h>
 #include <widgets/grid_icon_text_helpers.h>
 #include <widgets/grid_text_button_helpers.h>
 #include <widgets/wx_grid.h>
 #include <footprint.h>
+#include <fp_lib_table.h>
 #include <footprint_edit_frame.h>
 #include <footprint_editor_settings.h>
 #include <dialog_footprint_properties_fp_editor.h>
@@ -43,7 +42,6 @@
 #include "dialogs/panel_preview_3d_model.h"
 #include "dialogs/3d_cache_dialogs.h"
 #include <settings/settings_manager.h>
-#include <kiway_holder.h>
 #include <wx/defs.h>
 
 enum MODELS_TABLE_COLUMNS
@@ -65,7 +63,10 @@ PANEL_FP_PROPERTIES_3D_MODEL::PANEL_FP_PROPERTIES_3D_MODEL(
 {
     m_modelsGrid->SetDefaultRowSize( m_modelsGrid->GetDefaultRowSize() + 4 );
 
-    GRID_TRICKS* trick = new GRID_TRICKS( m_modelsGrid );
+    GRID_TRICKS* trick = new GRID_TRICKS( m_modelsGrid, [this]( wxCommandEvent& aEvent )
+                                                        {
+                                                            OnAdd3DRow( aEvent );
+                                                        } );
     trick->SetTooltipEnable( COL_PROBLEM );
 
     m_modelsGrid->PushEventHandler( trick );
@@ -99,7 +100,7 @@ PANEL_FP_PROPERTIES_3D_MODEL::PANEL_FP_PROPERTIES_3D_MODEL(
 
     m_previewPane = new PANEL_PREVIEW_3D_MODEL( this, m_frame, m_footprint, &m_shapes3D_list );
 
-    bLowerSizer3D->Add( m_previewPane, 1, wxEXPAND, 5 );
+    m_LowerSizer3D->Add( m_previewPane, 1, wxEXPAND, 5 );
 
     // Configure button logos
     m_button3DShapeAdd->SetBitmap( KiBitmap( BITMAPS::small_plus ) );
@@ -174,7 +175,7 @@ void PANEL_FP_PROPERTIES_3D_MODEL::ReloadModelsFromFootprint()
     select3DModel( 0 );
 
     m_previewPane->UpdateDummyFootprint();
-    m_modelsGrid->SetColSize( COL_SHOWN, m_modelsGrid->GetVisibleWidth( COL_SHOWN, true, false, false ) );
+    m_modelsGrid->SetColSize( COL_SHOWN, m_modelsGrid->GetVisibleWidth( COL_SHOWN, true, false ) );
 
     Layout();
 }
@@ -427,7 +428,23 @@ MODEL_VALIDATE_ERRORS PANEL_FP_PROPERTIES_3D_MODEL::validateModelExists( const w
     if( !resolv->ValidateFileName( aFilename, hasAlias ) )
         return MODEL_VALIDATE_ERRORS::ILLEGAL_FILENAME;
 
-    wxString fullPath = resolv->ResolvePath( aFilename );
+    wxString libraryName = m_footprint->GetFPID().GetLibNickname();
+    const FP_LIB_TABLE_ROW* fpRow = nullptr;
+    try
+    {
+        fpRow = m_frame->Prj().PcbFootprintLibs()->FindRow( libraryName, false );
+    }
+    catch( ... )
+    {
+        // if libraryName is not found in table, do nothing
+    }
+
+    wxString footprintBasePath = wxEmptyString;
+
+    if( fpRow )
+        footprintBasePath = fpRow->GetFullURI( true );
+
+    wxString fullPath = resolv->ResolvePath( aFilename, footprintBasePath );
 
     if( fullPath.IsEmpty() )
         return MODEL_VALIDATE_ERRORS::RESOLVE_FAIL;
@@ -454,7 +471,8 @@ void PANEL_FP_PROPERTIES_3D_MODEL::AdjustGridColumnWidths()
     int width = modelsWidth - m_modelsGrid->GetColSize( COL_SHOWN )
                 - m_modelsGrid->GetColSize( COL_PROBLEM );
 
-    m_modelsGrid->SetColSize( COL_FILENAME, width );
+    if( width > 0 )
+        m_modelsGrid->SetColSize( COL_FILENAME, width );
 }
 
 

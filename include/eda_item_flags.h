@@ -45,16 +45,16 @@
 #define IS_WIRE_IMAGE  (1 << 8)    ///< Item to be drawn as wireframe while editing
 #define STARTPOINT     (1 << 9)    ///< When a line is selected, these flags indicate which
 #define ENDPOINT       (1 << 10)   ///< ends.  (Used to support dragging.)
-#define SELECTED       (1 << 11)
-#define TEMP_SELECTED  (1 << 12)   ///< flag indicating that the structure has already selected
+#define SELECTED       (1 << 11)   ///< Item was manually selected by the user
+#define SELECTED_BY_DRAG (1 << 12)   ///< Item was algorithmically selected as a dragged item
 #define STRUCT_DELETED (1 << 13)   ///< flag indication structures to be erased
 #define CANDIDATE      (1 << 14)   ///< flag indicating that the structure is connected
 #define SKIP_STRUCT    (1 << 15)   ///< flag indicating that the structure should be ignored
 #define DO_NOT_DRAW    (1 << 16)   ///< Used to disable draw function
 #define IS_PASTED      (1 << 17)   ///< Modifier on IS_NEW which indicates it came from clipboard
-#define LOCKED         (1 << 18)   ///< Pcbnew: locked from movement and deletion
-                                   ///< NB: stored in m_status flags, NOT m_flags.
-#define UNUSED         (1 << 19)
+#define IS_SHOWN_AS_BITMAP    (1 << 18)
+#define COURTYARD_CONFLICT    (1 << 19)     ///< temporary set when moving footprints
+                                            ///< having courtyard overlapping
 #define MALFORMED_F_COURTYARD (1 << 20)
 #define MALFORMED_B_COURTYARD (1 << 21)
 #define MALFORMED_COURTYARDS ( MALFORMED_F_COURTYARD | MALFORMED_B_COURTYARD )
@@ -62,6 +62,7 @@
 #define END_ONPAD      (1 << 23)   ///< Pcbnew: flag set for track segment ending on a pad
 #define HOLE_PROXY     (1 << 24)   ///< Indicates the BOARD_ITEM is a proxy for its hole
 #define IS_ROLLOVER    (1 << 25)   ///< Rollover active.  Used for hyperlink highlighting.
+#define SHOW_ELEC_TYPE (1 << 25)   ///< Show pin electrical type.  Shared with IS_ROLLOVER.
 #define BRIGHTENED     (1 << 26)   ///< item is drawn with a bright contour
 
 #define DP_COUPLED     (1 << 27)   ///< item is coupled with another item making a differential pair

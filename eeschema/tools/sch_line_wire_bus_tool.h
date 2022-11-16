@@ -100,7 +100,7 @@ public:
     int TrimOverLappingWires( const TOOL_EVENT& aEvent );
 
 private:
-    int       doDrawSegments( const std::string& aTool, int aType, bool aQuitOnDraw );
+    int       doDrawSegments( const TOOL_EVENT& aTool, int aType, bool aQuitOnDraw );
     SCH_LINE* startSegments( int aType, const VECTOR2D& aPos, SCH_LINE* aSegment = nullptr );
     SCH_LINE* doUnfoldBus( const wxString& aNet, const VECTOR2I& aPos = VECTOR2I( 0, 0 ) );
     void finishSegments();
@@ -130,15 +130,17 @@ private:
      *                  break point to compute.
      * @param aPosition A reference to a wxPoint object containing the coordinates of the
      *                  position used to calculate the line break point.
+     * @param mode      LINE_MODE specifying the way to break the line
+     * @param posture   Toggles the posture of the line
      */
-    void computeBreakPoint( const std::pair<SCH_LINE*, SCH_LINE*>& aSegments, VECTOR2I& aPosition );
+    void computeBreakPoint( const std::pair<SCH_LINE*, SCH_LINE*>& aSegments, VECTOR2I& aPosition,
+                            LINE_MODE mode, bool posture );
 
 private:
-    /// Data related to bus unfolding tool.
-    BUS_UNFOLDING_T         m_busUnfold;
+    bool                    m_inDrawingTool;   // Reentrancy guard
 
-    /// Storage for the line segments while drawing
-    std::vector<SCH_LINE*>   m_wires;
+    BUS_UNFOLDING_T         m_busUnfold;
+    std::vector<SCH_LINE*>  m_wires;           // Lines being drawn
 };
 
 #endif /* SCH_LINE_WIRE_BUS_TOOL_H */

@@ -105,7 +105,7 @@ static void convertPolygon( std::list<std::unique_ptr<IMPORTED_SHAPE>>& aShapes,
     double maxY = maxX;
 
     // as Clipper/SHAPE_POLY_SET uses ints we first need to upscale to a reasonably large size (in integer coordinates)
-    // to avoid loosing accuracy
+    // to avoid losing accuracy
     const double convert_scale = 1000000000.0;
 
     for( IMPORTED_POLYGON* path : aPaths )
@@ -178,7 +178,7 @@ void GRAPHICS_IMPORTER_BUFFER::PostprocessNestedPolygons()
     std::list<std::unique_ptr<IMPORTED_SHAPE>> newShapes;
     std::vector<IMPORTED_POLYGON*>             polypaths;
 
-    for( auto& shape : m_shapes )
+    for( std::unique_ptr<IMPORTED_SHAPE>& shape : m_shapes )
     {
         IMPORTED_POLYGON* poly = dynamic_cast<IMPORTED_POLYGON*>( shape.get() );
 
@@ -188,26 +188,21 @@ void GRAPHICS_IMPORTER_BUFFER::PostprocessNestedPolygons()
             continue;
         }
 
-        lastWidth = poly->GetWidth();
         int index = poly->GetParentShapeIndex();
 
-        if( curShapeIdx < 0 )
-            index = curShapeIdx;
-
-        if( index == curShapeIdx )
-        {
-            polypaths.push_back( poly );
-        }
-        else if( index >= curShapeIdx + 1 )
+        if( index != curShapeIdx && curShapeIdx >= 0 )
         {
             convertPolygon( newShapes, polypaths, m_shapeFillRules[curShapeIdx], lastWidth );
-            curShapeIdx++;
             polypaths.clear();
-            polypaths.push_back( poly );
         }
+
+        curShapeIdx = index;
+        lastWidth = poly->GetWidth();
+        polypaths.push_back( poly );
     }
 
-    convertPolygon( newShapes, polypaths, m_shapeFillRules[curShapeIdx], lastWidth );
+    if( curShapeIdx >= 0 )
+        convertPolygon( newShapes, polypaths, m_shapeFillRules[curShapeIdx], lastWidth );
 
     m_shapes.swap( newShapes );
 }

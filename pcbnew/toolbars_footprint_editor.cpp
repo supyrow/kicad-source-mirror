@@ -54,8 +54,6 @@ void FOOTPRINT_EDIT_FRAME::ReCreateHToolbar()
         m_mainToolBar->SetAuiManager( &m_auimgr );
     }
 
-    wxString msg;
-
     // Set up toolbar
     m_mainToolBar->Add( PCB_ACTIONS::newFootprint );
     m_mainToolBar->Add( PCB_ACTIONS::createFootprint );
@@ -78,7 +76,8 @@ void FOOTPRINT_EDIT_FRAME::ReCreateHToolbar()
     m_mainToolBar->AddScaledSeparator( this );
     m_mainToolBar->Add( PCB_ACTIONS::rotateCcw );
     m_mainToolBar->Add( PCB_ACTIONS::rotateCw );
-    m_mainToolBar->Add( PCB_ACTIONS::mirror );
+    m_mainToolBar->Add( PCB_ACTIONS::mirrorH );
+    m_mainToolBar->Add( PCB_ACTIONS::mirrorV );
     m_mainToolBar->Add( PCB_ACTIONS::group );
     m_mainToolBar->Add( PCB_ACTIONS::ungroup );
 
@@ -185,6 +184,7 @@ void FOOTPRINT_EDIT_FRAME::ReCreateVToolbar()
     m_drawToolBar->Add( PCB_ACTIONS::drawRectangle,   ACTION_TOOLBAR::TOGGLE );
     m_drawToolBar->Add( PCB_ACTIONS::drawCircle,      ACTION_TOOLBAR::TOGGLE );
     m_drawToolBar->Add( PCB_ACTIONS::drawPolygon,     ACTION_TOOLBAR::TOGGLE );
+    m_drawToolBar->Add( PCB_ACTIONS::placeImage,      ACTION_TOOLBAR::TOGGLE );
     m_drawToolBar->Add( PCB_ACTIONS::placeText,       ACTION_TOOLBAR::TOGGLE );
     m_drawToolBar->Add( PCB_ACTIONS::drawTextBox,     ACTION_TOOLBAR::TOGGLE );
     m_drawToolBar->AddGroup( dimensionGroup,          ACTION_TOOLBAR::TOGGLE );
@@ -219,6 +219,9 @@ void FOOTPRINT_EDIT_FRAME::ReCreateOptToolbar()
     m_optionsToolBar->Add( ACTIONS::milsUnits,               ACTION_TOOLBAR::TOGGLE );
     m_optionsToolBar->Add( ACTIONS::millimetersUnits,        ACTION_TOOLBAR::TOGGLE );
     m_optionsToolBar->Add( ACTIONS::toggleCursorStyle,       ACTION_TOOLBAR::TOGGLE );
+
+    m_optionsToolBar->AddScaledSeparator( this );
+    m_optionsToolBar->Add( PCB_ACTIONS::toggleHV45Mode,      ACTION_TOOLBAR::TOGGLE );
 
     m_optionsToolBar->AddScaledSeparator( this );
     m_optionsToolBar->Add( PCB_ACTIONS::padDisplayMode,      ACTION_TOOLBAR::TOGGLE );

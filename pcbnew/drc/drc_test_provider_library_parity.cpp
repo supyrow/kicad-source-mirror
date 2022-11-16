@@ -59,12 +59,12 @@ public:
 
     virtual const wxString GetName() const override
     {
-        return "library_parity";
+        return wxT( "library_parity" );
     };
 
     virtual const wxString GetDescription() const override
     {
-        return "Performs board footprint vs library integity checks";
+        return wxT( "Performs board footprint vs library integity checks" );
     }
 };
 
@@ -144,7 +144,13 @@ bool padsNeedUpdate( const PAD* a, const PAD* b )
         TEST( a->GetKeepTopBottom(), b->GetKeepTopBottom() );
 
     TEST( a->GetShape(), b->GetShape() );
-    TEST( a->GetLayerSet(), b->GetLayerSet() );
+
+    // Trim layersets to the current board before comparing
+    LSET enabledLayers = a->GetBoard()->GetEnabledLayers();
+    LSET aLayers = a->GetLayerSet() & enabledLayers;
+    LSET bLayers = b->GetLayerSet() & enabledLayers;
+    TEST( aLayers, bLayers );
+
     TEST( a->GetAttribute(), b->GetAttribute() );
     TEST( a->GetProperty(), b->GetProperty() );
 
@@ -163,6 +169,15 @@ bool padsNeedUpdate( const PAD* a, const PAD* b )
     TEST( a->GetDrillShape(), b->GetDrillShape() );
     TEST( a->GetDrillSize(), b->GetDrillSize() );
 
+    // Clearance and zone connection overrides are as likely to be set at the board level as in
+    // the library.
+    //
+    // If we ignore them and someone *does* change one of them in the library, then stale
+    // footprints won't be caught.
+    //
+    // On the other hand, if we report them then boards that override at the board level are
+    // going to be VERY noisy.
+#if 0
     TEST( a->GetLocalClearance(), b->GetLocalClearance() );
     TEST( a->GetLocalSolderMaskMargin(), b->GetLocalSolderMaskMargin() );
     TEST( a->GetLocalSolderPasteMargin(), b->GetLocalSolderPasteMargin() );
@@ -173,6 +188,7 @@ bool padsNeedUpdate( const PAD* a, const PAD* b )
     TEST( a->GetThermalSpokeWidth(), b->GetThermalSpokeWidth() );
     TEST_D( a->GetThermalSpokeAngle().AsDegrees(), b->GetThermalSpokeAngle().AsDegrees() );
     TEST( a->GetCustomShapeInZoneOpt(), b->GetCustomShapeInZoneOpt() );
+#endif
 
     TEST( a->GetPrimitives().size(), b->GetPrimitives().size() );
 
@@ -199,8 +215,12 @@ bool shapesNeedUpdate( const FP_SHAPE* a, const FP_SHAPE* b )
     case SHAPE_T::ARC:
         TEST( a->GetStart0(), b->GetStart0() );
         TEST( a->GetEnd0(), b->GetEnd0() );
-        TEST( a->GetCenter0(), b->GetCenter0() );
-        TEST_D( a->GetArcAngle().AsDegrees(), b->GetArcAngle().AsDegrees() );
+
+        // Arc center is calculated and so may have round-off errors when parents are
+        // differentially rotated.
+        if( ( a->GetCenter0() - b->GetCenter0() ).EuclideanNorm() > pcbIUScale.mmToIU( 0.0001 ) )
+            return true;
+
         break;
 
     case SHAPE_T::BEZIER:
@@ -260,7 +280,7 @@ bool zonesNeedUpdate( const FP_ZONE* a, const FP_ZONE* b )
     TEST( a->GetCornerSmoothingType(), b->GetCornerSmoothingType() );
     TEST( a->GetCornerRadius(), b->GetCornerRadius() );
     TEST( a->GetZoneName(), b->GetZoneName() );
-    TEST( a->GetPriority(), b->GetPriority() );
+    TEST( a->GetAssignedPriority(), b->GetAssignedPriority() );
 
     TEST( a->GetIsRuleArea(), b->GetIsRuleArea() );
     TEST( a->GetDoNotAllowCopperPour(), b->GetDoNotAllowCopperPour() );
@@ -294,11 +314,17 @@ bool zonesNeedUpdate( const FP_ZONE* a, const FP_ZONE* b )
 
     TEST( a->Outline()->TotalVertices(), b->Outline()->TotalVertices() );
 
+    // The footprint's zone will be in board position, so we must translate & rotate the library
+    // footprint's zone to match.
+    FOOTPRINT* parentFootprint = static_cast<FOOTPRINT*>( a->GetParentFootprint() );
+    const SHAPE_POLY_SET& aPoly = *a->Outline();
+    SHAPE_POLY_SET        bPoly = b->Outline()->CloneDropTriangulation();
+
+    bPoly.Rotate( parentFootprint->GetOrientation() );
+    bPoly.Move( parentFootprint->GetPosition() );
+
     for( int ii = 0; ii < a->Outline()->TotalVertices(); ++ii )
-    {
-        TEST( a->Outline()->CVertex( ii ) - a->GetParent()->GetPosition(),
-              b->Outline()->CVertex( ii ) - b->GetParent()->GetPosition() );
-    }
+        TEST( aPoly.CVertex( ii ), bPoly.CVertex( ii ) );
 
     return false;
 }
@@ -339,22 +365,42 @@ bool FOOTPRINT::FootprintNeedsUpdate( const FOOTPRINT* aLibFootprint )
     TEST_ATTR( GetAttributes(), aLibFootprint->GetAttributes(), FP_ALLOW_SOLDERMASK_BRIDGES );
     TEST_ATTR( GetAttributes(), aLibFootprint->GetAttributes(), FP_ALLOW_MISSING_COURTYARD );
 
+    // Clearance and zone connection overrides are as likely to be set at the board level as in
+    // the library.
+    //
+    // If we ignore them and someone *does* change one of them in the library, then stale
+    // footprints won't be caught.
+    //
+    // On the other hand, if we report them then boards that override at the board level are
+    // going to be VERY noisy.
+#if 0
     TEST( GetLocalClearance(), aLibFootprint->GetLocalClearance() );
     TEST( GetLocalSolderMaskMargin(), aLibFootprint->GetLocalSolderMaskMargin() );
     TEST( GetLocalSolderPasteMargin(), aLibFootprint->GetLocalSolderPasteMargin() );
     TEST_D( GetLocalSolderPasteMarginRatio(), aLibFootprint->GetLocalSolderPasteMarginRatio() );
 
     TEST( GetZoneConnection(), aLibFootprint->GetZoneConnection() );
+#endif
+
+    TEST( GetNetTiePadGroups().size(), aLibFootprint->GetNetTiePadGroups().size() );
+
+    for( size_t ii = 0; ii < GetNetTiePadGroups().size(); ++ii )
+        TEST( GetNetTiePadGroups()[ii], aLibFootprint->GetNetTiePadGroups()[ii] );
 
     // Text items are really problematic.  We don't want to test the reference, but after that
-    // it gets messy.  What about the value?  Depends on whether or not it's a singleton part.
+    // it gets messy.
+    //
+    // What about the value?  Depends on whether or not it's a singleton part.
+    //
     // And what about other texts?  They might be added only to instances on the board, or even
     // changed for instances on the board.  Or they might want to be tested for equality.
+    //
     // Currently we punt and ignore all the text items.
 
-    // Drawings and pads are also somewhat problematic as there's no gaurantee that they'll be
+    // Drawings and pads are also somewhat problematic as there's no guarantee that they'll be
     // in the same order in the two footprints.  Rather than building some sophisticated hashing
-    // algorithm we use the footprint sorting functions to attempt to sort them in the same order.
+    // algorithm we use the footprint sorting functions to attempt to sort them in the same
+    // order.
 
     std::set<BOARD_ITEM*, FOOTPRINT::cmp_drawings> aShapes;
     std::copy_if( GraphicalItems().begin(), GraphicalItems().end(),
@@ -421,7 +467,7 @@ bool DRC_TEST_PROVIDER_LIBRARY_PARITY::Run()
     FP_LIB_TABLE* libTable = project->PcbFootprintLibs();
     wxString      msg;
     int           ii = 0;
-    const int     delta = 50;  // Number of tests between calls to progress bar
+    const int     progressDelta = 250;
 
     if( !reportPhase( _( "Checking board footprints against library..." ) ) )
         return false;
@@ -434,7 +480,7 @@ bool DRC_TEST_PROVIDER_LIBRARY_PARITY::Run()
             return true;    // Continue with other tests
         }
 
-        if( !reportProgress( ii++, board->Footprints().size(), delta ) )
+        if( !reportProgress( ii++, board->Footprints().size(), progressDelta ) )
             return false;   // DRC cancelled
 
         LIB_ID               fpID = footprint->GetFPID();
@@ -505,7 +551,7 @@ bool DRC_TEST_PROVIDER_LIBRARY_PARITY::Run()
             if( !m_drcEngine->IsErrorLimitExceeded( DRCE_LIB_FOOTPRINT_ISSUES ) )
             {
                 std::shared_ptr<DRC_ITEM> drcItem = DRC_ITEM::Create( DRCE_LIB_FOOTPRINT_ISSUES );
-                msg.Printf( "Footprint '%s' not found in library '%s'.",
+                msg.Printf( _( "Footprint '%s' not found in library '%s'." ),
                             fpName,
                             libName );
                 drcItem->SetErrorMessage( msg );
@@ -518,7 +564,7 @@ bool DRC_TEST_PROVIDER_LIBRARY_PARITY::Run()
             if( !m_drcEngine->IsErrorLimitExceeded( DRCE_LIB_FOOTPRINT_MISMATCH ) )
             {
                 std::shared_ptr<DRC_ITEM> drcItem = DRC_ITEM::Create( DRCE_LIB_FOOTPRINT_MISMATCH );
-                msg.Printf( "Footprint '%s' does not match copy in library '%s'.",
+                msg.Printf( _( "Footprint '%s' does not match copy in library '%s'." ),
                             fpName,
                             libName );
                 drcItem->SetErrorMessage( msg );

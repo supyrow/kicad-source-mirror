@@ -26,6 +26,7 @@
 
 #include <wx/listctrl.h>
 #include <footprint_filter.h>
+#include <memory>
 
 /*  Forward declarations of all top-level window classes. */
 class CVPCB_MAINFRAME;
@@ -75,7 +76,7 @@ private:
      * if needed. This is effectively the wxListCtrl code for autosizing.
      * NB. it relies on the caller checking the given line number is valid.
      */
-    void UpdateLineWidth( unsigned aLine );
+    void UpdateLineWidth( unsigned aLine, wxClientDC& dc );
 
     int columnWidth;
 };
@@ -100,7 +101,7 @@ public:
     ~FOOTPRINTS_LISTBOX();
 
     int      GetCount();
-    void     SetSelection( int index, bool State = true );
+    void     SetSelection( int aIndex, bool aState = true );
     void     SetSelectedFootprint( const LIB_ID& aFPID );
     void     SetString( unsigned linecount, const wxString& text );
     void     AppendLine( const wxString& text );
@@ -149,7 +150,8 @@ public:
     void     SetSelection( int index, bool State = true );
     void     SetString( unsigned linecount, const wxString& text );
     void     AppendLine( const wxString& text );
-    void     SetLibraryList( const wxArrayString& aList );
+    void     Finish();
+    void     ClearList();
 
     wxString GetSelectedLibrary();
     wxString OnGetItemText( long item, long column ) const override;
@@ -191,6 +193,7 @@ public:
      * because real data is not handled by #ITEMS_LISTBOX_BASE.
      */
     wxString OnGetItemText( long item, long column ) const override;
+    wxListItemAttr* OnGetItemAttr( long item) const override;
 
     /*
      * Enable or disable an item
@@ -198,6 +201,8 @@ public:
     void     SetSelection( int index, bool State = true );
     void     SetString( unsigned linecount, const wxString& text );
     void     AppendLine( const wxString& text );
+    void     AppendWarning( int index );
+    void     RemoveWarning( int index );
 
     // Events functions:
 
@@ -220,6 +225,10 @@ public:
 
 public:
     wxArrayString      m_SymbolList;
+
+private:
+    std::vector<long>               m_symbolWarning;
+    std::unique_ptr<wxListItemAttr> m_warningAttr;
 };
 
 

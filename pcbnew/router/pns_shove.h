@@ -94,7 +94,7 @@ public:
 
 private:
     typedef std::vector<SHAPE_LINE_CHAIN> HULL_SET;
-    typedef OPT<LINE> OPT_LINE;
+    typedef std::optional<LINE> OPT_LINE;
     typedef std::pair<LINE, LINE> LINE_PAIR;
     typedef std::vector<LINE_PAIR> LINE_PAIR_VEC;
 
@@ -132,8 +132,8 @@ private:
     SHOVE_STATUS onCollidingArc( LINE& aCurrent, ARC* aObstacleArc );
     SHOVE_STATUS onCollidingLine( LINE& aCurrent, LINE& aObstacle );
     SHOVE_STATUS onCollidingSegment( LINE& aCurrent, SEGMENT* aObstacleSeg );
-    SHOVE_STATUS onCollidingSolid( LINE& aCurrent, ITEM* aObstacle );
-    SHOVE_STATUS onCollidingVia( ITEM* aCurrent, VIA* aObstacleVia );
+    SHOVE_STATUS onCollidingSolid( LINE& aCurrent, ITEM* aObstacle, OBSTACLE& aObstacleInfo );
+    SHOVE_STATUS onCollidingVia( ITEM* aCurrent, VIA* aObstacleVia, OBSTACLE& aObstacleInfo );
     SHOVE_STATUS onReverseCollidingVia( LINE& aCurrent, VIA* aObstacleVia );
     SHOVE_STATUS pushOrShoveVia( VIA* aVia, const VECTOR2I& aForce, int aCurrentRank );
 
@@ -162,7 +162,7 @@ private:
 
     int getClearance( const ITEM* aA, const ITEM* aB ) const;
     int getHoleClearance( const ITEM* aA, const ITEM* aB ) const;
-
+    bool fixupViaCollisions( const LINE* aCurrent, OBSTACLE& obs );
     void sanityCheck( LINE* aOld, LINE* aNew );
 
     std::vector<SPRINGBACK_TAG> m_nodeStack;

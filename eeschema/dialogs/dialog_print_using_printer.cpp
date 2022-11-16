@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2015 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 2015-2021 KiCad Developers, see AUTHORS.TXT for contributors.
+ * Copyright (C) 2015-2022 KiCad Developers, see AUTHORS.TXT for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -166,6 +166,12 @@ bool DIALOG_PRINT_USING_PRINTER::TransferDataToWindow()
 {
     EESCHEMA_SETTINGS* cfg = m_parent->eeconfig();
 
+    if( cfg->m_Printing.monochrome )
+    {
+        m_checkBackgroundColor->SetValue( false );
+        m_checkBackgroundColor->Enable( false );
+    }
+
     m_checkReference->SetValue( cfg->m_Printing.title_block );
     m_checkMonochrome->SetValue( cfg->m_Printing.monochrome );
     m_checkBackgroundColor->SetValue( cfg->m_Printing.background );
@@ -203,11 +209,11 @@ bool DIALOG_PRINT_USING_PRINTER::TransferDataToWindow()
     if( pageInfo.IsCustom() )
     {
         if( pageInfo.IsPortrait() )
-            pageSetupDialogData.SetPaperSize( wxSize( Mils2mm( pageInfo.GetWidthMils() ),
-                                                      Mils2mm( pageInfo.GetHeightMils() ) ) );
+            pageSetupDialogData.SetPaperSize( wxSize( EDA_UNIT_UTILS::Mils2mm( pageInfo.GetWidthMils() ),
+                                                      EDA_UNIT_UTILS::Mils2mm( pageInfo.GetHeightMils() ) ) );
         else
-            pageSetupDialogData.SetPaperSize( wxSize( Mils2mm( pageInfo.GetHeightMils() ),
-                                                      Mils2mm( pageInfo.GetWidthMils() ) ) );
+            pageSetupDialogData.SetPaperSize( wxSize( EDA_UNIT_UTILS::Mils2mm( pageInfo.GetHeightMils() ),
+                                                      EDA_UNIT_UTILS::Mils2mm( pageInfo.GetWidthMils() ) ) );
     }
 
     pageSetupDialogData.GetPrintData().SetOrientation( pageInfo.GetWxOrientation() );
@@ -241,7 +247,12 @@ void DIALOG_PRINT_USING_PRINTER::SavePrintOptions()
 
     cfg->m_Printing.monochrome  = m_checkMonochrome->IsChecked();
     cfg->m_Printing.title_block = m_checkReference->IsChecked();
-    cfg->m_Printing.background  = m_checkBackgroundColor->IsChecked();
+
+    if( m_checkBackgroundColor->IsEnabled() )
+        cfg->m_Printing.background = m_checkBackgroundColor->IsChecked();
+    else
+        cfg->m_Printing.background = false;
+
     cfg->m_Printing.use_theme   = m_checkUseColorTheme->IsChecked();
 
     COLOR_SETTINGS* theme = static_cast<COLOR_SETTINGS*>(
@@ -274,12 +285,6 @@ void DIALOG_PRINT_USING_PRINTER::OnPrintPreview( wxCommandEvent& event )
     preview->SetZoom( 100 );
 
     SCH_PREVIEW_FRAME* frame = new SCH_PREVIEW_FRAME( preview, this, title );
-    frame->SetMinSize( wxSize( 550, 350 ) );
-
-    // on first invocation in this runtime session, set to 2/3 size of my parent,
-    // but will be changed in Show() if not first time as will position.
-    frame->SetSize( (m_parent->GetSize() * 2) / 3 );
-    frame->Center();
 
     // On wxGTK, set the flag wxTOPLEVEL_EX_DIALOG is mandatory, if we want
     // close the frame using the X box in caption, when the preview frame is run
@@ -293,6 +298,13 @@ void DIALOG_PRINT_USING_PRINTER::OnPrintPreview( wxCommandEvent& event )
     // With this option, only the parent is reenabled.
     // Reenabling all top level frames should be made by the parent dialog.
     frame->InitializeWithModality( wxPreviewFrame_WindowModal );
+
+    // on first invocation in this runtime session, set to 3/4 size of parent,
+    // but will be changed in Show() if not first time as will position.
+    // Must be called after InitializeWithModality because otherwise in some wxWidget
+    // versions it is not always taken in account
+    frame->SetMinSize( wxSize( 650, 500 ) );
+    frame->SetSize( (m_parent->GetSize() * 3) / 4 );
 
     frame->Raise(); // Needed on Ubuntu/Unity to display the frame
     frame->Show( true );
@@ -395,6 +407,11 @@ bool SCH_PRINTOUT::OnBeginDocument( int startPage, int endPage )
  */
 void SCH_PRINTOUT::PrintPage( SCH_SCREEN* aScreen )
 {
+    // Warning:
+    // When printing many pages, changes in the current wxDC will affect all next printings
+    // because all prints are using the same wxPrinterDC after creation
+    // So be careful and reinit parameters, especially when using offsets.
+
     VECTOR2I tmp_startvisu;
     wxSize   pageSizeIU;             // Page size in internal units
     VECTOR2I old_org;
@@ -414,7 +431,7 @@ void SCH_PRINTOUT::PrintPage( SCH_SCREEN* aScreen )
     // Change scale factor and offset to print the whole page.
     bool printReference = cfg->m_Printing.title_block;
 
-    pageSizeIU = aScreen->GetPageSettings().GetSizeIU();
+    pageSizeIU = aScreen->GetPageSettings().GetSizeIU( schIUScale.IU_PER_MILS );
     FitThisSizeToPaper( pageSizeIU );
 
     fitRect = GetLogicalPaperRect();
@@ -425,16 +442,31 @@ void SCH_PRINTOUT::PrintPage( SCH_SCREEN* aScreen )
     int xoffset = ( fitRect.width - pageSizeIU.x ) / 2;
     int yoffset = ( fitRect.height - pageSizeIU.y ) / 2;
 
+    // Using a wxAffineMatrix2D has a big advantage: it handles different pages orientations
+    //(PORTRAIT/LANDSCAPE), but the affine matrix is not always supported
     if( dc->CanUseTransformMatrix() )
     {
-        wxAffineMatrix2D matrix = dc->GetTransformMatrix();
+        wxAffineMatrix2D matrix;    // starts from a unity matrix (the current wxDC default)
 
         // Check for portrait/landscape mismatch:
         if( ( fitRect.width > fitRect.height ) != ( pageSizeIU.x > pageSizeIU.y ) )
         {
+            // Rotate the coordinates, and keep the draw coordinates inside the page
             matrix.Rotate( M_PI_2 );
-            xoffset = ( fitRect.height - pageSizeIU.x ) / 2;
-            yoffset = ( fitRect.width - pageSizeIU.y ) / 2;
+            matrix.Translate( 0, -pageSizeIU.y );
+
+            // Recalculate the offsets and page sizes according to the page rotation
+            std::swap( pageSizeIU.x, pageSizeIU.y );
+            FitThisSizeToPaper( pageSizeIU );
+            fitRect = GetLogicalPaperRect();
+
+            xoffset = ( fitRect.width - pageSizeIU.x ) / 2;
+            yoffset = ( fitRect.height - pageSizeIU.y ) / 2;
+
+            // All the coordinates will be rotated 90 deg when printing,
+            // so the X,Y offset vector must be rotated -90 deg before printing
+            std::swap( xoffset, yoffset );
+            yoffset = -yoffset;
         }
 
         matrix.Translate( xoffset, yoffset );
@@ -442,12 +474,8 @@ void SCH_PRINTOUT::PrintPage( SCH_SCREEN* aScreen )
     }
     else
     {
-        // wxWidgets appears to have a bug when OffsetLogicalOrigin()'s yoffset changes from
-        // page to page.
-        // NB: this is a workaround, not a fix.  The Y centering will be off, but this is less
-        // annoying than a blank page.  See https://bugs.launchpad.net/kicad/+bug/1464773.
-        yoffset = 0;
-
+        SetLogicalOrigin( 0, 0 );   // Reset all offset settings made previously.
+                                    // When printing previous pages (all prints are using the same wxDC)
         OffsetLogicalOrigin( xoffset, yoffset );
     }
 
@@ -481,15 +509,19 @@ void SCH_PRINTOUT::PrintPage( SCH_SCREEN* aScreen )
     if( cfg->m_Printing.use_theme && theme )
         renderSettings.LoadColors( theme );
 
+    renderSettings.SetBackgroundColor( bgColor );
+
     // The drawing-sheet-item print code is shared between PCBNew and Eeschema, so it's easier
     // if they just use the PCB layer.
     renderSettings.SetLayerColor( LAYER_DRAWINGSHEET,
                                   renderSettings.GetLayerColor( LAYER_SCHEMATIC_DRAWINGSHEET ) );
 
+    renderSettings.SetDefaultFont( cfg->m_Appearance.default_font );
+
     if( printReference )
     {
-        m_parent->PrintDrawingSheet( &renderSettings, aScreen, IU_PER_MILS, aScreen->GetFileName(),
-                                     wxEmptyString );
+        m_parent->PrintDrawingSheet( &renderSettings, aScreen, aScreen->Schematic()->GetProperties(),
+                                     schIUScale.IU_PER_MILS, aScreen->GetFileName(), wxEmptyString );
     }
 
     renderSettings.SetIsPrinting( true );

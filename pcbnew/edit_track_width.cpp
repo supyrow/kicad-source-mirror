@@ -42,7 +42,7 @@ void PCB_EDIT_FRAME::SetTrackSegmentWidth( PCB_TRACK*         aTrackItem,
     initial_width = aTrackItem->GetWidth();
 
     if( aUseNetclassValue )
-        new_width = aTrackItem->GetNetClass()->GetTrackWidth();
+        new_width = aTrackItem->GetEffectiveNetClass()->GetTrackWidth();
     else
         new_width = GetDesignSettings().GetCurrentTrackWidth();
 
@@ -55,8 +55,8 @@ void PCB_EDIT_FRAME::SetTrackSegmentWidth( PCB_TRACK*         aTrackItem,
 
         if( aUseNetclassValue || via->GetViaType() == VIATYPE::MICROVIA )
         {
-            new_width = aTrackItem->GetNetClass()->GetViaDiameter();
-            new_drill = aTrackItem->GetNetClass()->GetViaDrill();
+            new_width = aTrackItem->GetEffectiveNetClass()->GetViaDiameter();
+            new_drill = aTrackItem->GetEffectiveNetClass()->GetViaDrill();
         }
         else
         {
@@ -64,20 +64,15 @@ void PCB_EDIT_FRAME::SetTrackSegmentWidth( PCB_TRACK*         aTrackItem,
             new_drill = GetDesignSettings().GetCurrentViaDrill();
         }
 
-        // Old versions set a drill value <= 0, when the default netclass it used
-        // but it could be better to set the drill value to the actual value
-        // to avoid issues for existing vias, if the default drill value is modified
-        // in the netclass, and not in current vias.
+        // Old versions set a drill value <= 0, when the default netclass it used but it could
+        // be better to set the drill value to the actual value to avoid issues for existing vias,
+        // if the default drill value is modified in the netclass, and not in current vias.
         if( via->GetDrill() <= 0 )      // means default netclass drill value used
-        {
             initial_drill  = -1;        // Force drill vias re-initialization
-        }
     }
 
     if( initial_width != new_width || initial_drill != new_drill )
     {
-        OnModify();
-
         if( aItemsListPicker )
         {
             aTrackItem->SetWidth( initial_width );
@@ -194,6 +189,9 @@ void PCB_EDIT_FRAME::Tracks_and_Vias_Size_Event( wxCommandEvent& event )
             GetDesignSettings().m_TempOverrideTrackWidth = true;
         }
 
+        // Needed on Windows because the canvas loses focus after clicking on m_SelTrackWidthBox:
+        GetCanvas()->SetFocus();
+
         break;
 
     case ID_AUX_TOOLBAR_PCB_VIA_SIZE:
@@ -213,6 +211,9 @@ void PCB_EDIT_FRAME::Tracks_and_Vias_Size_Event( wxCommandEvent& event )
         {
             GetDesignSettings().SetViaSizeIndex( ii );
         }
+
+        // Needed on Windows because the canvas loses focus after clicking on m_SelViaSizeBox:
+        GetCanvas()->SetFocus();
 
         break;
 

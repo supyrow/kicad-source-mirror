@@ -37,7 +37,7 @@
 /**
  * Scale conversion from 3d model units to pcb units
  */
-#define UNITS3D_TO_UNITSPCB (IU_PER_MM)
+#define UNITS3D_TO_UNITSPCB ( pcbIUScale.IU_PER_MM )
 
 RENDER_3D_OPENGL::RENDER_3D_OPENGL( EDA_3D_CANVAS* aCanvas, BOARD_ADAPTER& aAdapter,
                                     CAMERA& aCamera ) :
@@ -504,7 +504,7 @@ void RENDER_3D_OPENGL::setCopperMaterial()
 void RENDER_3D_OPENGL::setPlatedCopperAndDepthOffset( PCB_LAYER_ID aLayer_id )
 {
     glEnable( GL_POLYGON_OFFSET_FILL );
-    glPolygonOffset(-0.1f, -2.0f );
+    glPolygonOffset( -0.1f, -2.0f );
     setLayerMaterial( aLayer_id );
 }
 
@@ -700,20 +700,16 @@ bool RENDER_3D_OPENGL::Redraw( bool aIsMoving, REPORTER* aStatusReporter,
             {
                 pLayerDispList->DrawAllCameraCulled( m_camera.GetPos().z, drawMiddleSegments );
 
-                // Draw copper plated pads
-                if( ( layer_id == F_Cu || layer_id == B_Cu )
-                        && ( m_platedPadsFront || m_platedPadsBack ) )
-                {
-                    setPlatedCopperAndDepthOffset( layer_id );
-                }
-
+                // Draw plated pads
                 if( layer_id == F_Cu && m_platedPadsFront )
                 {
+                    setPlatedCopperAndDepthOffset( layer_id );
                     m_platedPadsFront->DrawAllCameraCulled( m_camera.GetPos().z,
                                                             drawMiddleSegments );
                 }
                 else if( layer_id == B_Cu && m_platedPadsBack )
                 {
+                    setPlatedCopperAndDepthOffset( layer_id );
                     m_platedPadsBack->DrawAllCameraCulled( m_camera.GetPos().z,
                                                            drawMiddleSegments );
                 }
@@ -749,16 +745,10 @@ bool RENDER_3D_OPENGL::Redraw( bool aIsMoving, REPORTER* aStatusReporter,
                                                                           viasHolesLayer,
                                                                           m_antiBoard );
 
-                        // Draw copper plated pads
-
-                        if( ( ( layer_id == F_Cu ) || ( layer_id == B_Cu ) ) &&
-                            ( m_platedPadsFront || m_platedPadsBack ) )
-                        {
-                            setPlatedCopperAndDepthOffset( layer_id );
-                        }
-
+                        // Draw plated pads
                         if( layer_id == F_Cu && m_platedPadsFront )
                         {
+                            setPlatedCopperAndDepthOffset( layer_id );
                             m_platedPadsFront->DrawAllCameraCulledSubtractLayer(
                                     drawMiddleSegments,
                                     m_outerThroughHoles,
@@ -767,6 +757,7 @@ bool RENDER_3D_OPENGL::Redraw( bool aIsMoving, REPORTER* aStatusReporter,
                         }
                         else if( layer_id == B_Cu && m_platedPadsBack )
                         {
+                            setPlatedCopperAndDepthOffset( layer_id );
                             m_platedPadsBack->DrawAllCameraCulledSubtractLayer(
                                     drawMiddleSegments,
                                     m_outerThroughHoles,
@@ -783,21 +774,16 @@ bool RENDER_3D_OPENGL::Redraw( bool aIsMoving, REPORTER* aStatusReporter,
                                                                       m_outerThroughHoles,
                                                                       m_antiBoard );
 
-                    // Draw copper plated pads
-                    if( ( ( layer_id == F_Cu ) || ( layer_id == B_Cu ) ) &&
-                        ( m_platedPadsFront || m_platedPadsBack ) )
-                    {
-                        setPlatedCopperAndDepthOffset( layer_id );
-                    }
-
                     if( layer_id == F_Cu && m_platedPadsFront )
                     {
+                        setPlatedCopperAndDepthOffset( layer_id );
                         m_platedPadsFront->DrawAllCameraCulledSubtractLayer( drawMiddleSegments,
                                                                              m_outerThroughHoles,
                                                                              m_antiBoard );
                     }
                     else if( layer_id == B_Cu && m_platedPadsBack )
                     {
+                        setPlatedCopperAndDepthOffset( layer_id );
                         m_platedPadsBack->DrawAllCameraCulledSubtractLayer( drawMiddleSegments,
                                                                             m_outerThroughHoles,
                                                                             m_antiBoard );
@@ -933,7 +919,7 @@ bool RENDER_3D_OPENGL::Redraw( bool aIsMoving, REPORTER* aStatusReporter,
     glTexEnvi( GL_TEXTURE_ENV, GL_SRC0_ALPHA, GL_PRIMARY_COLOR );
     glTexEnvi( GL_TEXTURE_ENV, GL_OPERAND0_ALPHA, GL_SRC_ALPHA );
     glTexEnvi( GL_TEXTURE_ENV, GL_SRC1_ALPHA, GL_CONSTANT );
-    glTexEnvi( GL_TEXTURE_ENV, GL_OPERAND1_ALPHA, GL_CONSTANT );
+    glTexEnvi( GL_TEXTURE_ENV, GL_OPERAND1_ALPHA, GL_SRC_ALPHA );
 
     render3dModels( false, true );
     render3dModels( true, true );
@@ -1065,7 +1051,7 @@ void RENDER_3D_OPENGL::freeAllLists()
 
     m_triangles.clear();
 
-    for( const std::pair<const wxString&, MODEL_3D*>& entry : m_3dModelMap )
+    for( const std::pair<const wxString, MODEL_3D*>& entry : m_3dModelMap )
         delete entry.second;
 
     m_3dModelMap.clear();
@@ -1378,16 +1364,16 @@ void RENDER_3D_OPENGL::generate3dGrid( GRID3D_TYPE aGridType )
 
     brd_center_pos.y = -brd_center_pos.y;
 
-    const int xsize = std::max( brd_size.x, Millimeter2iu( 100 ) ) * 1.2;
-    const int ysize = std::max( brd_size.y, Millimeter2iu( 100 ) ) * 1.2;
+    const int xsize = std::max( brd_size.x, pcbIUScale.mmToIU( 100 ) ) * 1.2;
+    const int ysize = std::max( brd_size.y, pcbIUScale.mmToIU( 100 ) ) * 1.2;
 
     // Grid limits, in 3D units
     double  xmin = ( brd_center_pos.x - xsize / 2 ) * scale;
     double  xmax = ( brd_center_pos.x + xsize / 2 ) * scale;
     double  ymin = ( brd_center_pos.y - ysize / 2 ) * scale;
     double  ymax = ( brd_center_pos.y + ysize / 2 ) * scale;
-    double  zmin = Millimeter2iu( -50 ) * scale;
-    double  zmax = Millimeter2iu( 100 ) * scale;
+    double  zmin = pcbIUScale.mmToIU( -50 ) * scale;
+    double  zmax = pcbIUScale.mmToIU( 100 ) * scale;
 
     // Set rasterised line width (min value = 1)
     glLineWidth( 1 );
@@ -1401,7 +1387,7 @@ void RENDER_3D_OPENGL::generate3dGrid( GRID3D_TYPE aGridType )
             glColor4f( gridColor_marker.r, gridColor_marker.g, gridColor_marker.b,
                        transparency );
 
-        const int delta = KiROUND( ii * griSizeMM * IU_PER_MM );
+        const int delta = KiROUND( ii * griSizeMM * pcbIUScale.IU_PER_MM );
 
         if( delta <= xsize / 2 )    // Draw grid lines parallel to X axis
         {
@@ -1453,7 +1439,7 @@ void RENDER_3D_OPENGL::generate3dGrid( GRID3D_TYPE aGridType )
             glColor4f( gridColor_marker.r, gridColor_marker.g, gridColor_marker.b,
                        transparency );
 
-        const double delta = ii * griSizeMM * IU_PER_MM;
+        const double delta = ii * griSizeMM * pcbIUScale.IU_PER_MM;
 
         glBegin( GL_LINES );
         xmax = ( brd_center_pos.x + delta ) * scale;
@@ -1483,7 +1469,7 @@ void RENDER_3D_OPENGL::generate3dGrid( GRID3D_TYPE aGridType )
         else
             glColor4f( gridColor_marker.r, gridColor_marker.g, gridColor_marker.b, transparency );
 
-        const double delta = ii * griSizeMM * IU_PER_MM * scale;
+        const double delta = ii * griSizeMM * pcbIUScale.IU_PER_MM * scale;
 
         if( delta <= zmax )
         {

@@ -234,6 +234,25 @@ void CAIRO_GAL_BASE::syncLineWidth( bool aForceWidth, double aWidth )
 }
 
 
+void CAIRO_GAL_BASE::DrawSegmentChain( const std::vector<VECTOR2D>& aPointList, double aWidth )
+{
+    for( size_t i = 0; i + 1 < aPointList.size(); ++i )
+        DrawSegment( aPointList[i], aPointList[i + 1], aWidth );
+}
+
+
+void CAIRO_GAL_BASE::DrawSegmentChain( const SHAPE_LINE_CHAIN& aLineChain, double aWidth )
+{
+    int numPoints = aLineChain.PointCount();
+
+    if( aLineChain.IsClosed() )
+        numPoints += 1;
+
+    for( int i = 0; i + 1 < numPoints; ++i )
+        DrawSegment( aLineChain.CPoint( i ), aLineChain.CPoint( i + 1 ), aWidth );
+}
+
+
 void CAIRO_GAL_BASE::DrawSegment( const VECTOR2D& aStartPoint, const VECTOR2D& aEndPoint,
                                   double aWidth )
 {
@@ -480,9 +499,11 @@ void CAIRO_GAL_BASE::DrawCurve( const VECTOR2D& aStartPoint, const VECTOR2D& aCo
 }
 
 
-void CAIRO_GAL_BASE::DrawBitmap( const BITMAP_BASE& aBitmap )
+void CAIRO_GAL_BASE::DrawBitmap( const BITMAP_BASE& aBitmap, double alphaBlend )
 {
     cairo_save( m_currentContext );
+
+    alphaBlend = std::clamp( alphaBlend, 0.0, 1.0 );
 
     // We have to calculate the pixel size in users units to draw the image.
     // m_worldUnitLength is a factor used for converting IU to inches
@@ -537,7 +558,7 @@ void CAIRO_GAL_BASE::DrawBitmap( const BITMAP_BASE& aBitmap )
 
     cairo_surface_mark_dirty( image );
     cairo_set_source_surface( m_currentContext, image, 0, 0 );
-    cairo_paint( m_currentContext );
+    cairo_paint_with_alpha( m_currentContext, alphaBlend );
 
     // store the image handle so it can be destroyed later
     m_imageSurfaces.push_back( image );
@@ -1302,6 +1323,7 @@ CAIRO_GAL::CAIRO_GAL( GAL_DISPLAY_OPTIONS& aDisplayOptions, wxWindow* aParent,
     m_tempBuffer = 0;
     m_savedBuffer = 0;
     m_validCompositor = false;
+    m_currentTarget = TARGET_NONCACHED;
     SetTarget( TARGET_NONCACHED );
 
     m_bitmapBuffer = nullptr;
@@ -1329,6 +1351,12 @@ CAIRO_GAL::CAIRO_GAL( GAL_DISPLAY_OPTIONS& aDisplayOptions, wxWindow* aParent,
     Connect( wxEVT_RIGHT_DOWN, wxMouseEventHandler( CAIRO_GAL::skipMouseEvent ) );
     Connect( wxEVT_RIGHT_UP, wxMouseEventHandler( CAIRO_GAL::skipMouseEvent ) );
     Connect( wxEVT_RIGHT_DCLICK, wxMouseEventHandler( CAIRO_GAL::skipMouseEvent ) );
+    Connect( wxEVT_AUX1_DOWN, wxMouseEventHandler( CAIRO_GAL::skipMouseEvent ) );
+    Connect( wxEVT_AUX1_UP, wxMouseEventHandler( CAIRO_GAL::skipMouseEvent ) );
+    Connect( wxEVT_AUX1_DCLICK, wxMouseEventHandler( CAIRO_GAL::skipMouseEvent ) );
+    Connect( wxEVT_AUX2_DOWN, wxMouseEventHandler( CAIRO_GAL::skipMouseEvent ) );
+    Connect( wxEVT_AUX2_UP, wxMouseEventHandler( CAIRO_GAL::skipMouseEvent ) );
+    Connect( wxEVT_AUX2_DCLICK, wxMouseEventHandler( CAIRO_GAL::skipMouseEvent ) );
     Connect( wxEVT_MOUSEWHEEL, wxMouseEventHandler( CAIRO_GAL::skipMouseEvent ) );
 #if defined _WIN32 || defined _WIN64
     Connect( wxEVT_ENTER_WINDOW, wxMouseEventHandler( CAIRO_GAL::skipMouseEvent ) );

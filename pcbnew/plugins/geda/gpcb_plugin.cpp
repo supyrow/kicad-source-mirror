@@ -309,11 +309,11 @@ long long GPCB_FPL_CACHE::GetTimestamp( const wxString& aLibPath )
 
 FOOTPRINT* GPCB_FPL_CACHE::parseFOOTPRINT( LINE_READER* aLineReader )
 {
-    #define TEXT_DEFAULT_SIZE  ( 40*IU_PER_MILS )
-    #define OLD_GPCB_UNIT_CONV IU_PER_MILS
+    #define TEXT_DEFAULT_SIZE  ( 40*pcbIUScale.IU_PER_MILS )
+    #define OLD_GPCB_UNIT_CONV pcbIUScale.IU_PER_MILS
 
     // Old version unit = 1 mil, so conv_unit is 10 or 0.1
-    #define NEW_GPCB_UNIT_CONV ( 0.01*IU_PER_MILS )
+    #define NEW_GPCB_UNIT_CONV ( 0.01*pcbIUScale.IU_PER_MILS )
 
     int                        paramCnt;
 
@@ -398,7 +398,7 @@ FOOTPRINT* GPCB_FPL_CACHE::parseFOOTPRINT( LINE_READER* aLineReader )
     // Calculate size: default height is 40 mils, width 30 mil.
     // real size is:  default * ibuf[idx+3] / 100 (size in gpcb is given in percent of default size
     int thsize = parseInt( parameters[paramCnt-3], TEXT_DEFAULT_SIZE ) / 100;
-    thsize = std::max( (int)( 5 * IU_PER_MILS ), thsize ); // Ensure a minimal size = 5 mils
+    thsize = std::max( (int)( 5 * pcbIUScale.IU_PER_MILS ), thsize ); // Ensure a minimal size = 5 mils
     int twsize = thsize * 30 / 40;
     int thickness = thsize / 8;
 
@@ -539,7 +539,7 @@ FOOTPRINT* GPCB_FPL_CACHE::parseFOOTPRINT( LINE_READER* aLineReader )
                                    aLineReader->LineNumber(), 0 );
             }
 
-            PAD* pad = new PAD( footprint.get() );
+            std::unique_ptr<PAD> pad = std::make_unique<PAD>( footprint.get() );
 
             static const LSET pad_front( 3, F_Cu, F_Mask, F_Paste );
             static const LSET pad_back(  3, B_Cu, B_Mask, B_Paste );
@@ -607,7 +607,16 @@ FOOTPRINT* GPCB_FPL_CACHE::parseFOOTPRINT( LINE_READER* aLineReader )
                     pad->SetShape( PAD_SHAPE::OVAL );
             }
 
-            footprint->Add( pad );
+            if( pad->GetSizeX() > 0 && pad->GetSizeY() > 0 )
+            {
+                footprint->Add( pad.release() );
+            }
+            else
+            {
+                wxLogError( _( "Invalid zero-sized pad ignored in\nfile: %s" ),
+                            aLineReader->GetSource() );
+            }
+
             continue;
         }
 
@@ -844,7 +853,7 @@ GPCB_PLUGIN::~GPCB_PLUGIN()
 }
 
 
-void GPCB_PLUGIN::init( const PROPERTIES* aProperties )
+void GPCB_PLUGIN::init( const STRING_UTF8_MAP* aProperties )
 {
     m_props = aProperties;
 }
@@ -863,7 +872,7 @@ void GPCB_PLUGIN::validateCache( const wxString& aLibraryPath, bool checkModifie
 
 
 void GPCB_PLUGIN::FootprintEnumerate( wxArrayString& aFootprintNames, const wxString& aLibraryPath,
-                                      bool aBestEfforts, const PROPERTIES* aProperties )
+                                      bool aBestEfforts, const STRING_UTF8_MAP* aProperties )
 {
     LOCALE_IO toggle;     // toggles on, then off, the C locale.
     wxDir     dir( aLibraryPath );
@@ -904,7 +913,7 @@ void GPCB_PLUGIN::FootprintEnumerate( wxArrayString& aFootprintNames, const wxSt
 
 const FOOTPRINT* GPCB_PLUGIN::getFootprint( const wxString& aLibraryPath,
                                             const wxString& aFootprintName,
-                                            const PROPERTIES* aProperties,
+                                            const STRING_UTF8_MAP* aProperties,
                                             bool checkModified )
 {
     LOCALE_IO   toggle;     // toggles on, then off, the C locale.
@@ -926,7 +935,7 @@ const FOOTPRINT* GPCB_PLUGIN::getFootprint( const wxString& aLibraryPath,
 
 const FOOTPRINT* GPCB_PLUGIN::GetEnumeratedFootprint( const wxString& aLibraryPath,
                                                       const wxString& aFootprintName,
-                                                      const PROPERTIES* aProperties )
+                                                      const STRING_UTF8_MAP* aProperties )
 {
     return getFootprint( aLibraryPath, aFootprintName, aProperties, false );
 }
@@ -935,7 +944,7 @@ const FOOTPRINT* GPCB_PLUGIN::GetEnumeratedFootprint( const wxString& aLibraryPa
 FOOTPRINT* GPCB_PLUGIN::FootprintLoad( const wxString& aLibraryPath,
                                        const wxString& aFootprintName,
                                        bool  aKeepUUID,
-                                       const PROPERTIES* aProperties )
+                                       const STRING_UTF8_MAP* aProperties )
 {
     const FOOTPRINT* footprint = getFootprint( aLibraryPath, aFootprintName, aProperties, true );
 
@@ -951,7 +960,7 @@ FOOTPRINT* GPCB_PLUGIN::FootprintLoad( const wxString& aLibraryPath,
 
 
 void GPCB_PLUGIN::FootprintDelete( const wxString& aLibraryPath, const wxString& aFootprintName,
-                                   const PROPERTIES* aProperties )
+                                   const STRING_UTF8_MAP* aProperties )
 {
     LOCALE_IO   toggle;     // toggles on, then off, the C locale.
 
@@ -969,7 +978,7 @@ void GPCB_PLUGIN::FootprintDelete( const wxString& aLibraryPath, const wxString&
 }
 
 
-bool GPCB_PLUGIN::FootprintLibDelete( const wxString& aLibraryPath, const PROPERTIES* aProperties )
+bool GPCB_PLUGIN::FootprintLibDelete( const wxString& aLibraryPath, const STRING_UTF8_MAP* aProperties )
 {
     wxFileName fn;
     fn.SetPath( aLibraryPath );

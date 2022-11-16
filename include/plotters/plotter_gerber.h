@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2020 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 2016-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2016-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -49,16 +49,16 @@ public:
     /**
      * Write GERBER header to file initialize global variable g_Plot_PlotOutputFile.
      */
-    virtual bool StartPlot() override;
+    virtual bool StartPlot( const wxString& pageNumber ) override;
     virtual bool EndPlot() override;
-    virtual void SetCurrentLineWidth( int width, void* aData = nullptr ) override;
+    virtual void SetCurrentLineWidth( int aLineWidth, void* aData = nullptr ) override;
 
     // RS274X has no dashing, nor colors
-    virtual void SetDash( PLOT_DASH_TYPE dashed ) override
+    virtual void SetDash( int aLineWidth, PLOT_DASH_TYPE aLineStyle ) override
     {
     }
 
-    virtual void SetColor( const COLOR4D& color ) override {}
+    virtual void SetColor( const COLOR4D& aColor ) override {}
 
     // Currently, aScale and aMirror are not used in gerber plotter
     virtual void SetViewport( const VECTOR2I& aOffset, double aIusPerDecimil,
@@ -69,21 +69,24 @@ public:
                        int width = USE_DEFAULT_LINE_WIDTH ) override;
     virtual void Circle( const VECTOR2I& pos, int diametre, FILL_T fill,
                          int width = USE_DEFAULT_LINE_WIDTH ) override;
-    virtual void Arc( const VECTOR2I& aCenter, const EDA_ANGLE& aStartAngle,
-                      const EDA_ANGLE& aEndAngle, int aRadius, FILL_T aFill,
-                      int aWidth = USE_DEFAULT_LINE_WIDTH ) override;
 
     // These functions plot an item and manage X2 gerber attributes
     virtual void ThickSegment( const VECTOR2I& start, const VECTOR2I& end, int width,
                                OUTLINE_MODE tracemode, void* aData ) override;
 
-    virtual void ThickArc( const VECTOR2I& centre, const EDA_ANGLE& aStartAngle,
-                           const EDA_ANGLE& aEndAngle, int aRadius, int aWidth,
-                           OUTLINE_MODE tracemode, void* aData ) override;
+    virtual void ThickArc( const VECTOR2I& aCentre, const VECTOR2I& aStart,
+                           const VECTOR2I& aEnd, int aWidth,
+                           OUTLINE_MODE aTraceMode, void* aData ) override;
+
+    virtual void ThickArc( const EDA_SHAPE& aArcShape,
+                           OUTLINE_MODE aTraceMode, void* aData ) override;
+
     virtual void ThickRect( const VECTOR2I& p1, const VECTOR2I& p2, int width,
                             OUTLINE_MODE tracemode, void* aData ) override;
+
     virtual void ThickCircle( const VECTOR2I& pos, int diametre, int width,
                               OUTLINE_MODE tracemode, void* aData ) override;
+
     virtual void FilledCircle( const VECTOR2I& pos, int diametre,
                               OUTLINE_MODE tracemode, void* aData ) override;
 
@@ -253,6 +256,14 @@ public:
                              APERTURE::APERTURE_TYPE aType, int aApertureAttribute );
 
 protected:
+    virtual void Arc( const VECTOR2I& aCenter, const EDA_ANGLE& aStartAngle,
+                      const EDA_ANGLE& aEndAngle, int aRadius, FILL_T aFill,
+                      int aWidth = USE_DEFAULT_LINE_WIDTH ) override;
+
+    virtual void ThickArc( const VECTOR2I& aCentre, const EDA_ANGLE& aStartAngle,
+                           const EDA_ANGLE& aEndAngle, int aRadius, int aWidth,
+                           OUTLINE_MODE aTraceMode, void* aData ) override;
+
     /**
      * Plot a round rect (a round rect shape in fact) as a Gerber region using lines and arcs
      * for corners.

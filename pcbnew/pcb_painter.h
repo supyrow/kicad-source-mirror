@@ -28,14 +28,17 @@
 #ifndef PCB_PAINTER_H
 #define PCB_PAINTER_H
 
+#include <frame_type.h>
 #include <painter.h>
 #include <pcb_display_options.h>
 #include <math/vector2d.h>
 #include <memory>
+#include <geometry/shape_segment.h>
 
 
 class EDA_ITEM;
 class PCB_DISPLAY_OPTIONS;
+class PCB_VIEWERS_SETTINGS_BASE;
 class BOARD_ITEM;
 class PCB_ARC;
 class BOARD;
@@ -46,6 +49,7 @@ class PCB_SHAPE;
 class PCB_GROUP;
 class FOOTPRINT;
 class ZONE;
+class PCB_BITMAP;
 class PCB_TEXT;
 class PCB_TEXTBOX;
 class FP_TEXT;
@@ -93,7 +97,7 @@ public:
         return luma < 0.5;
     }
 
-    const COLOR4D& GetBackgroundColor() override { return m_layerColors[ LAYER_PCB_BACKGROUND ]; }
+    const COLOR4D& GetBackgroundColor() const override { return m_layerColors[ LAYER_PCB_BACKGROUND ]; }
 
     void SetBackgroundColor( const COLOR4D& aColor ) override
     {
@@ -120,7 +124,6 @@ public:
 
     ZONE_DISPLAY_MODE  m_ZoneDisplayMode;
     HIGH_CONTRAST_MODE m_ContrastModeDisplay;
-    bool               m_DrawIndividualViaLayers;
 
 protected:
     ///< Maximum font size for netnames (and other dynamically shown strings)
@@ -143,6 +146,7 @@ protected:
     double m_viaOpacity;       ///< Opacity override for all types of via
     double m_padOpacity;       ///< Opacity override for SMD pads and PTHs
     double m_zoneOpacity;      ///< Opacity override for filled zones
+    double m_imageOpacity;     ///< Opacity override for user images
 };
 
 
@@ -152,7 +156,7 @@ protected:
 class PCB_PAINTER : public PAINTER
 {
 public:
-    PCB_PAINTER( GAL* aGal );
+    PCB_PAINTER( GAL* aGal, FRAME_T aFrameType );
 
     /// @copydoc PAINTER::GetSettings()
     virtual PCB_RENDER_SETTINGS* GetSettings() override
@@ -164,12 +168,15 @@ public:
     virtual bool Draw( const VIEW_ITEM* aItem, int aLayer ) override;
 
 protected:
+    PCB_VIEWERS_SETTINGS_BASE* viewer_settings();
+
     // Drawing functions for various types of PCB-specific items
     void draw( const PCB_TRACK* aTrack, int aLayer );
     void draw( const PCB_ARC* aArc, int aLayer );
     void draw( const PCB_VIA* aVia, int aLayer );
     void draw( const PAD* aPad, int aLayer );
     void draw( const PCB_SHAPE* aSegment, int aLayer );
+    void draw( const PCB_BITMAP* aBitmap, int aLayer );
     void draw( const PCB_TEXT* aText, int aLayer );
     void draw( const PCB_TEXTBOX* aText, int aLayer );
     void draw( const FP_TEXT* aText, int aLayer );
@@ -195,23 +202,25 @@ protected:
     virtual int getDrillShape( const PAD* aPad ) const;
 
     /**
-     * Return drill size for a pad (internal units).
+     * Return hole shape for a pad (internal units).
      */
-    virtual VECTOR2D getDrillSize( const PAD* aPad ) const;
+    virtual SHAPE_SEGMENT getPadHoleShape( const PAD* aPad ) const;
 
     /**
      * Return drill diameter for a via (internal units).
      */
-    virtual int getDrillSize( const PCB_VIA* aVia ) const;
+    virtual int getViaDrillSize( const PCB_VIA* aVia ) const;
 
     void strokeText( const wxString& aText, const VECTOR2I& aPosition,
                      const TEXT_ATTRIBUTES& aAttrs );
 
 protected:
     PCB_RENDER_SETTINGS m_pcbSettings;
+    FRAME_T             m_frameType;
 
     int                 m_maxError;
     int                 m_holePlatingThickness;
+    int                 m_lockedShadowMargin;
 };
 } // namespace KIGFX
 

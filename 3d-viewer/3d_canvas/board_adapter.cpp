@@ -1,8 +1,8 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2015-2016 Mario Luzeiro <mrluzeiro@ua.pt>
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2015-2022 Mario Luzeiro <mrluzeiro@ua.pt>
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -33,19 +33,19 @@
 #include <3d_math.h>
 #include "3d_fastmath.h"
 #include <geometry/geometry_utils.h>
-#include <convert_to_biu.h>
 #include <pgm_base.h>
 #include <settings/settings_manager.h>
 #include <wx/log.h>
+#include <advanced_config.h>
 
 
-#define DEFAULT_BOARD_THICKNESS Millimeter2iu( 1.6 )
-#define DEFAULT_COPPER_THICKNESS Millimeter2iu( 0.035 )   // for 35 um
+#define DEFAULT_BOARD_THICKNESS pcbIUScale.mmToIU( 1.6 )
+#define DEFAULT_COPPER_THICKNESS pcbIUScale.mmToIU( 0.035 ) // for 35 um
 // The solder mask layer (and silkscreen) thickness
-#define DEFAULT_TECH_LAYER_THICKNESS Millimeter2iu( 0.025 )
+#define DEFAULT_TECH_LAYER_THICKNESS pcbIUScale.mmToIU( 0.025 )
 // The solder paste thickness is chosen bigger than the solder mask layer
 // to be sure is covers the mask when overlapping.
-#define SOLDERPASTE_LAYER_THICKNESS Millimeter2iu( 0.04 )
+#define SOLDERPASTE_LAYER_THICKNESS pcbIUScale.mmToIU( 0.04 )
 
 
 CUSTOM_COLORS_LIST   BOARD_ADAPTER::g_SilkscreenColors;
@@ -61,6 +61,9 @@ KIGFX::COLOR4D       BOARD_ADAPTER::g_DefaultSolderMask;
 KIGFX::COLOR4D       BOARD_ADAPTER::g_DefaultSolderPaste;
 KIGFX::COLOR4D       BOARD_ADAPTER::g_DefaultSurfaceFinish;
 KIGFX::COLOR4D       BOARD_ADAPTER::g_DefaultBoardBody;
+
+// To be used in Raytracing render to create bevels on layer items
+float                g_BevelThickness3DU = 0.0f;
 
 static bool          g_ColorsLoaded = false;
 
@@ -82,6 +85,7 @@ BOARD_ADAPTER::BOARD_ADAPTER() :
         m_IsPreviewer( false ),
         m_board( nullptr ),
         m_3dModelManager( nullptr ),
+        m_renderSettings( nullptr ),
         m_colors( nullptr ),
         m_layerZcoordTop(),
         m_layerZcoordBottom()
@@ -258,15 +262,22 @@ bool BOARD_ADAPTER::Is3dLayerEnabled( PCB_LAYER_ID aLayer ) const
 
 bool BOARD_ADAPTER::IsFootprintShown( FOOTPRINT_ATTR_T aFPAttributes ) const
 {
-    if( m_IsPreviewer )     // In panel Preview, footprints are always shown, of cource
+    if( m_IsPreviewer )     // In panel Preview, footprints are always shown, of course
         return true;
+
+    if( aFPAttributes & FP_EXCLUDE_FROM_POS_FILES )
+    {
+        if( !m_Cfg->m_Render.show_footprints_not_in_posfile )
+            return false;
+    }
 
     if( aFPAttributes & FP_SMD )
         return m_Cfg->m_Render.show_footprints_insert;
-    else if( aFPAttributes & FP_THROUGH_HOLE )
+
+    if( aFPAttributes & FP_THROUGH_HOLE )
         return m_Cfg->m_Render.show_footprints_normal;
-    else
-        return m_Cfg->m_Render.show_footprints_virtual;
+
+    return m_Cfg->m_Render.show_footprints_virtual;
 }
 
 
@@ -312,7 +323,7 @@ void BOARD_ADAPTER::InitSettings( REPORTER* aStatusReporter, REPORTER* aWarningR
             aWarningReporter->Report( wxEmptyString );
     }
 
-    EDA_RECT bbbox;
+    BOX2I bbbox;
 
     if( m_board )
     {
@@ -323,7 +334,7 @@ void BOARD_ADAPTER::InitSettings( REPORTER* aStatusReporter, REPORTER* aWarningR
 
     // Gives a non null size to avoid issues in zoom / scale calculations
     if( ( bbbox.GetWidth() == 0 ) && ( bbbox.GetHeight() == 0 ) )
-        bbbox.Inflate( Millimeter2iu( 10 ) );
+        bbbox.Inflate( pcbIUScale.mmToIU( 10 ) );
 
     m_boardSize = bbbox.GetSize();
     m_boardPos  = bbbox.Centre();
@@ -347,6 +358,8 @@ void BOARD_ADAPTER::InitSettings( REPORTER* aStatusReporter, REPORTER* aWarningR
     m_backCopperThickness3DU       = DEFAULT_COPPER_THICKNESS     * m_biuTo3Dunits;
     m_nonCopperLayerThickness3DU   = DEFAULT_TECH_LAYER_THICKNESS * m_biuTo3Dunits;
     m_solderPasteLayerThickness3DU = SOLDERPASTE_LAYER_THICKNESS  * m_biuTo3Dunits;
+
+    g_BevelThickness3DU = pcbIUScale.mmToIU( ADVANCED_CFG::GetCfg().m_3DRT_BevelHeight_um / 1000.0 ) * m_biuTo3Dunits;
 
     if( m_board )
     {
@@ -657,7 +670,7 @@ bool BOARD_ADAPTER::createBoardPolygon( wxString* aErrorMsg )
             return false;
         }
 
-        int chainingEpsilon = Millimeter2iu( 0.02 );  // max dist from one endPt to next startPt
+        int chainingEpsilon = pcbIUScale.mmToIU( 0.02 ); // max dist from one endPt to next startPt
 
         success = BuildFootprintPolygonOutlines( m_board, m_board_poly,
                                                  m_board->GetDesignSettings().m_MaxError,

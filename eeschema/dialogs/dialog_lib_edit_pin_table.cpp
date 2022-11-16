@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -26,6 +26,7 @@
 #include "lib_pin.h"
 #include "pin_numbers.h"
 #include "pgm_base.h"
+#include <base_units.h>
 #include <bitmaps.h>
 #include <confirm.h>
 #include <symbol_edit_frame.h>
@@ -34,20 +35,59 @@
 #include <widgets/grid_icon_text_helpers.h>
 #include <widgets/grid_combobox.h>
 #include <widgets/wx_grid.h>
+#include <widgets/bitmap_button.h>
 #include <settings/settings_manager.h>
 #include <wx/tokenzr.h>
 #include <string_utils.h>
 
-#define UNITS_ALL "ALL"
+#define UNITS_ALL _( "ALL" )
+#define DEMORGAN_ALL _( "ALL" )
+#define DEMORGAN_STD _( "Standard" )
+#define DEMORGAN_ALT _( "Alternate" )
+
+
+void getSelectedArea( WX_GRID* aGrid, int* aRowStart, int* aRowCount )
+{
+    wxGridCellCoordsArray topLeft  = aGrid->GetSelectionBlockTopLeft();
+    wxGridCellCoordsArray botRight = aGrid->GetSelectionBlockBottomRight();
+
+    wxArrayInt  cols = aGrid->GetSelectedCols();
+    wxArrayInt  rows = aGrid->GetSelectedRows();
+
+    if( topLeft.Count() && botRight.Count() )
+    {
+        *aRowStart = topLeft[0].GetRow();
+        *aRowCount = botRight[0].GetRow() - *aRowStart + 1;
+    }
+    else if( cols.Count() )
+    {
+        *aRowStart = 0;
+        *aRowCount = aGrid->GetNumberRows();
+    }
+    else if( rows.Count() )
+    {
+        *aRowStart = rows[0];
+        *aRowCount = rows.Count();
+    }
+    else
+    {
+        *aRowStart = aGrid->GetGridCursorRow();
+        *aRowCount = *aRowStart >= 0 ? 1 : 0;
+    }
+}
+
 
 class PIN_TABLE_DATA_MODEL : public wxGridTableBase
 {
 public:
     PIN_TABLE_DATA_MODEL( SYMBOL_EDIT_FRAME* aFrame, DIALOG_LIB_EDIT_PIN_TABLE* aPinTable ) :
             m_frame( aFrame ),
+            m_unitFilter( -1 ),
             m_edited( false ),
             m_pinTable( aPinTable )
     {
+        m_eval = std::make_unique<NUMERIC_EVALUATOR>( m_frame->GetUserUnits() );
+
         m_frame->Bind( UNITS_CHANGED, &PIN_TABLE_DATA_MODEL::onUnitsChanged, this );
     }
 
@@ -64,6 +104,7 @@ public:
         aEvent.Skip();
     }
 
+    void SetUnitFilter( int aFilter ) { m_unitFilter = aFilter; }
 
     int GetNumberRows() override { return (int) m_rows.size(); }
     int GetNumberCols() override { return COL_COUNT; }
@@ -85,6 +126,7 @@ public:
         case COL_POSY:         return _( "Y Position" );
         case COL_VISIBLE:      return _( "Visible" );
         case COL_UNIT:         return _( "Unit" );
+        case COL_DEMORGAN:     return _( "De Morgan" );
         default:               wxFAIL; return wxEmptyString;
         }
     }
@@ -96,10 +138,21 @@ public:
 
     wxString GetValue( int aRow, int aCol ) override
     {
-        return GetValue( m_rows[ aRow ], aCol, m_frame->GetUserUnits() );
+        wxGrid*  grid = GetView();
+
+        if( grid->GetGridCursorRow() == aRow && grid->GetGridCursorCol() == aCol
+                && grid->IsCellEditControlShown() )
+        {
+            auto it = m_evalOriginal.find( { m_rows[ aRow ], aCol } );
+
+            if( it != m_evalOriginal.end() )
+                return it->second;
+        }
+
+        return GetValue( m_rows[ aRow ], aCol, m_frame );
     }
 
-    static wxString GetValue( const LIB_PINS& pins, int aCol, EDA_UNITS aUserUnits )
+    static wxString GetValue( const LIB_PINS& pins, int aCol, EDA_DRAW_FRAME* aParentFrame )
     {
         wxString fieldValue;
 
@@ -112,47 +165,78 @@ public:
 
             switch( aCol )
             {
-            case COL_PIN_COUNT: val << pins.size(); break;
+            case COL_PIN_COUNT:
+                val << pins.size();
+                break;
+
             case COL_NUMBER:
                 val = pin->GetNumber();
                 break;
+
             case COL_NAME:
                 val = pin->GetName();
                 break;
+
             case COL_TYPE:
                 val = PinTypeNames()[static_cast<int>( pin->GetType() )];
                 break;
+
             case COL_SHAPE:
                 val = PinShapeNames()[static_cast<int>( pin->GetShape() )];
                 break;
+
             case COL_ORIENTATION:
                 if( PinOrientationIndex( pin->GetOrientation() ) >= 0 )
                     val = PinOrientationNames()[ PinOrientationIndex( pin->GetOrientation() ) ];
+
                 break;
+
             case COL_NUMBER_SIZE:
-                val = StringFromValue( aUserUnits, pin->GetNumberTextSize(), true );
+                val = aParentFrame->StringFromValue( pin->GetNumberTextSize(), true );
                 break;
+
             case COL_NAME_SIZE:
-                val = StringFromValue( aUserUnits, pin->GetNameTextSize(), true );
+                val = aParentFrame->StringFromValue( pin->GetNameTextSize(), true );
                 break;
+
             case COL_LENGTH:
-                val = StringFromValue( aUserUnits, pin->GetLength(), true );
+                val = aParentFrame->StringFromValue( pin->GetLength(), true );
                 break;
+
             case COL_POSX:
-                val = StringFromValue( aUserUnits, pin->GetPosition().x, true );
+                val = aParentFrame->StringFromValue( pin->GetPosition().x, true );
                 break;
+
             case COL_POSY:
-                val = StringFromValue( aUserUnits, pin->GetPosition().y, true );
+                val = aParentFrame->StringFromValue( -pin->GetPosition().y, true );
                 break;
+
             case COL_VISIBLE:
                 val = StringFromBool( pin->IsVisible() );
                 break;
+
             case COL_UNIT:
                 if( pin->GetUnit() )
                     val = LIB_SYMBOL::SubReference( pin->GetUnit(), false );
                 else
                     val = UNITS_ALL;
                 break;
+
+            case COL_DEMORGAN:
+                switch( pin->GetConvert() )
+                {
+                case LIB_ITEM::LIB_CONVERT::BASE:
+                    val = DEMORGAN_STD;
+                    break;
+                case LIB_ITEM::LIB_CONVERT::DEMORGAN:
+                    val = DEMORGAN_ALT;
+                    break;
+                default:
+                    val = DEMORGAN_ALL;
+                    break;
+                }
+                break;
+
             default:
                 wxFAIL;
                 break;
@@ -181,13 +265,38 @@ public:
         if( aValue == INDETERMINATE_STATE )
             return;
 
+        wxString value = aValue;
+
+        switch( aCol )
+        {
+        case COL_NUMBER_SIZE:
+        case COL_NAME_SIZE:
+        case COL_LENGTH:
+        case COL_POSX:
+        case COL_POSY:
+            m_eval->SetDefaultUnits( m_frame->GetUserUnits() );
+
+            if( m_eval->Process( value ) )
+            {
+                m_evalOriginal[ { m_rows[ aRow ], aCol } ] = value;
+                value = m_eval->Result();
+            }
+
+            break;
+
+        default:
+            break;
+        }
+
         LIB_PINS pins = m_rows[ aRow ];
 
-        // If the NUMBER column is edited and the pins are grouped, renumber, and add or remove pins based on the comma separated list of pins.
+        // If the NUMBER column is edited and the pins are grouped, renumber, and add or
+        // remove pins based on the comma separated list of pins.
         if( aCol == COL_NUMBER && m_pinTable->IsDisplayGrouped() )
         {
-            wxStringTokenizer tokenizer( aValue, "," );
+            wxStringTokenizer tokenizer( value, "," );
             size_t            i = 0;
+
             while( tokenizer.HasMoreTokens() )
             {
                 wxString pinName = tokenizer.GetNextToken();
@@ -219,9 +328,9 @@ public:
                     auto* cfg = Pgm().GetSettingsManager().GetAppSettings<SYMBOL_EDITOR_SETTINGS>();
 
                     if( last->GetOrientation() == PIN_LEFT || last->GetOrientation() == PIN_RIGHT )
-                        pos.y -= Mils2iu( cfg->m_Repeat.pin_step );
+                        pos.y -= schIUScale.MilsToIU( cfg->m_Repeat.pin_step );
                     else
-                        pos.x += Mils2iu( cfg->m_Repeat.pin_step );
+                        pos.x += schIUScale.MilsToIU( cfg->m_Repeat.pin_step );
 
                     newPin->SetPosition( pos );
 
@@ -232,10 +341,9 @@ public:
                 i++;
             }
 
-            while( i < pins.size() )
+            while( pins.size() > i )
             {
-                auto pin = pins.back();
-                m_pinTable->RemovePin( pin );
+                m_pinTable->RemovePin( pins.back() );
                 pins.pop_back();
             }
 
@@ -251,68 +359,67 @@ public:
             {
             case COL_NUMBER:
                 if( !m_pinTable->IsDisplayGrouped() )
-                {
-                    pin->SetNumber( aValue );
-                }
+                    pin->SetNumber( value );
+
                 break;
 
             case COL_NAME:
-                pin->SetName( aValue );
+                pin->SetName( value );
                 break;
 
             case COL_TYPE:
-                if( PinTypeNames().Index( aValue ) != wxNOT_FOUND )
-                    pin->SetType( (ELECTRICAL_PINTYPE) PinTypeNames().Index( aValue ) );
+                if( PinTypeNames().Index( value ) != wxNOT_FOUND )
+                    pin->SetType( (ELECTRICAL_PINTYPE) PinTypeNames().Index( value ) );
 
                 break;
 
             case COL_SHAPE:
-                if( PinShapeNames().Index( aValue ) != wxNOT_FOUND )
-                    pin->SetShape( (GRAPHIC_PINSHAPE) PinShapeNames().Index( aValue ) );
+                if( PinShapeNames().Index( value ) != wxNOT_FOUND )
+                    pin->SetShape( (GRAPHIC_PINSHAPE) PinShapeNames().Index( value ) );
 
                 break;
 
             case COL_ORIENTATION:
-                if( PinOrientationNames().Index( aValue ) != wxNOT_FOUND )
-                    pin->SetOrientation( PinOrientationCode( PinOrientationNames().Index( aValue ) ) );
+                if( PinOrientationNames().Index( value ) != wxNOT_FOUND )
+                    pin->SetOrientation( PinOrientationCode( PinOrientationNames().Index( value ) ) );
                 break;
 
             case COL_NUMBER_SIZE:
-                pin->SetNumberTextSize( ValueFromString( m_frame->GetUserUnits(), aValue ) );
+                pin->SetNumberTextSize( m_frame->ValueFromString( value ) );
                 break;
 
             case COL_NAME_SIZE:
-                pin->SetNameTextSize( ValueFromString( m_frame->GetUserUnits(), aValue ) );
+                pin->SetNameTextSize( m_frame->ValueFromString( value ) );
                 break;
 
             case COL_LENGTH:
-                pin->SetLength( ValueFromString( m_frame->GetUserUnits(), aValue ) );
+                pin->ChangeLength( m_frame->ValueFromString( value ) );
                 break;
 
             case COL_POSX:
-                pin->SetPosition( wxPoint( ValueFromString( m_frame->GetUserUnits(), aValue ),
+                pin->SetPosition( wxPoint( m_frame->ValueFromString( value ),
                                            pin->GetPosition().y ) );
                 break;
 
             case COL_POSY:
                 pin->SetPosition( wxPoint( pin->GetPosition().x,
-                                           ValueFromString( m_frame->GetUserUnits(), aValue ) ) );
+                                           -m_frame->ValueFromString( value ) ) );
                 break;
 
             case COL_VISIBLE:
-                pin->SetVisible(BoolFromString( aValue ));
+                pin->SetVisible(BoolFromString( value ));
                 break;
 
             case COL_UNIT:
-                if( aValue == UNITS_ALL )
+                if( value == UNITS_ALL )
                 {
                     pin->SetUnit( 0 );
                 }
                 else
                 {
-                    for( auto i = 1; i <= pin->GetParent()->GetUnitCount(); i++ )
+                    for( int i = 1; i <= pin->GetParent()->GetUnitCount(); i++ )
                     {
-                        if( aValue == LIB_SYMBOL::SubReference( i, false ) )
+                        if( value == LIB_SYMBOL::SubReference( i, false ) )
                         {
                             pin->SetUnit( i );
                             break;
@@ -320,6 +427,16 @@ public:
                     }
                 }
                 break;
+
+            case COL_DEMORGAN:
+                if( value == DEMORGAN_STD )
+                    pin->SetConvert( 1 );
+                else if( value == DEMORGAN_ALT )
+                    pin->SetConvert( 2 );
+                else
+                    pin->SetConvert( 0 );
+                break;
+
             default:
                 wxFAIL;
                 break;
@@ -341,17 +458,17 @@ public:
     }
 
     static bool compare( const LIB_PINS& lhs, const LIB_PINS& rhs, int sortCol, bool ascending,
-                         EDA_UNITS units )
+                         EDA_DRAW_FRAME* parentFrame )
     {
-        wxString lhStr = GetValue( lhs, sortCol, units );
-        wxString rhStr = GetValue( rhs, sortCol, units );
+        wxString lhStr = GetValue( lhs, sortCol, parentFrame );
+        wxString rhStr = GetValue( rhs, sortCol, parentFrame );
 
         if( lhStr == rhStr )
         {
             // Secondary sort key is always COL_NUMBER
             sortCol = COL_NUMBER;
-            lhStr = GetValue( lhs, sortCol, units );
-            rhStr = GetValue( rhs, sortCol, units );
+            lhStr = GetValue( lhs, sortCol, parentFrame );
+            rhStr = GetValue( rhs, sortCol, parentFrame );
         }
 
         bool res;
@@ -374,14 +491,17 @@ public:
             break;
         case COL_NUMBER_SIZE:
         case COL_NAME_SIZE:
-            res = cmp( ValueFromString( units, lhStr ), ValueFromString( units, rhStr ) );
+            res = cmp( parentFrame->ValueFromString( lhStr ),
+                       parentFrame->ValueFromString( rhStr ) );
             break;
         case COL_LENGTH:
         case COL_POSX:
         case COL_POSY:
-            res = cmp( ValueFromString( units, lhStr ), ValueFromString( units, rhStr ) );
+            res = cmp( parentFrame->ValueFromString( lhStr ),
+                       parentFrame->ValueFromString( rhStr ) );
             break;
         case COL_VISIBLE:
+        case COL_DEMORGAN:
         default:
             res = cmp( StrNumCmp( lhStr, rhStr ), 0 );
             break;
@@ -390,14 +510,38 @@ public:
         return res;
     }
 
-    void RebuildRows( const LIB_PINS& aPins, bool groupByName )
+    void RebuildRows( const LIB_PINS& aPins, bool groupByName, bool groupBySelection )
     {
-        if ( GetView() )
+        WX_GRID* grid = dynamic_cast<WX_GRID*>( GetView() );
+        std::vector<LIB_PIN*> clear_flags;
+
+        clear_flags.reserve( aPins.size() );
+
+        if( grid )
         {
+            if( groupBySelection )
+            {
+                for( LIB_PIN* pin : aPins )
+                    pin->ClearTempFlags();
+
+                int firstSelectedRow;
+                int selectedRowCount;
+
+                getSelectedArea( grid, &firstSelectedRow, &selectedRowCount );
+
+                for( int ii = 0; ii < selectedRowCount; ++ii )
+                {
+                    for( LIB_PIN* pin : m_rows[ firstSelectedRow + ii ] )
+                    {
+                        pin->SetFlags( CANDIDATE );
+                        clear_flags.push_back( pin );
+                    }
+                }
+            }
+
             // Commit any pending in-place edits before the row gets moved out from under
             // the editor.
-            if( auto grid = dynamic_cast<WX_GRID*>( GetView() ) )
-                grid->CommitPendingChanges( true );
+            grid->CommitPendingChanges( true );
 
             wxGridTableMessage msg( this, wxGRIDTABLE_NOTIFY_ROWS_DELETED, 0, m_rows.size() );
             GetView()->ProcessTableMessage( msg );
@@ -405,20 +549,28 @@ public:
 
         m_rows.clear();
 
+        if( groupBySelection )
+            m_rows.emplace_back( LIB_PINS() );
+
         for( LIB_PIN* pin : aPins )
         {
-            int      rowIndex = -1;
-
-            if( groupByName )
-                rowIndex = findRow( m_rows, pin->GetName() );
-
-            if( rowIndex < 0 )
+            if( m_unitFilter == -1 || pin->GetUnit() == 0 || pin->GetUnit() == m_unitFilter )
             {
-                m_rows.emplace_back( LIB_PINS() );
-                rowIndex = m_rows.size() - 1;
-            }
+                int rowIndex = -1;
 
-            m_rows[ rowIndex ].push_back( pin );
+                if( groupByName )
+                    rowIndex = findRow( m_rows, pin->GetName() );
+                else if( groupBySelection && ( pin->GetFlags() & CANDIDATE ) )
+                    rowIndex = 0;
+
+                if( rowIndex < 0 )
+                {
+                    m_rows.emplace_back( LIB_PINS() );
+                    rowIndex = m_rows.size() - 1;
+                }
+
+                m_rows[ rowIndex ].push_back( pin );
+            }
         }
 
         int sortCol = 0;
@@ -433,13 +585,20 @@ public:
         for( LIB_PINS& row : m_rows )
             SortPins( row );
 
-        SortRows( sortCol, ascending );
+        if( !groupBySelection )
+            SortRows( sortCol, ascending );
 
         if ( GetView() )
         {
             wxGridTableMessage msg( this, wxGRIDTABLE_NOTIFY_ROWS_APPENDED, m_rows.size() );
             GetView()->ProcessTableMessage( msg );
+
+            if( groupBySelection )
+                GetView()->SelectRow( 0 );
         }
+
+        for( LIB_PIN* pin : clear_flags )
+            pin->ClearFlags( CANDIDATE );
     }
 
     void SortRows( int aSortCol, bool ascending )
@@ -447,7 +606,7 @@ public:
         std::sort( m_rows.begin(), m_rows.end(),
                    [ aSortCol, ascending, this ]( const LIB_PINS& lhs, const LIB_PINS& rhs ) -> bool
                    {
-                       return compare( lhs, rhs, aSortCol, ascending, m_frame->GetUserUnits() );
+                       return compare( lhs, rhs, aSortCol, ascending, m_frame );
                    } );
     }
 
@@ -514,8 +673,8 @@ private:
         }
         else
         {
-            wxFAIL_MSG( wxString::Format( "string '%s' can't be converted to boolean "
-                                          "correctly, it will have been perceived as FALSE",
+            wxFAIL_MSG( wxString::Format( "string '%s' can't be converted to boolean correctly, "
+                                          "it will have been perceived as FALSE",
                                           aValue ) );
             return false;
         }
@@ -528,10 +687,14 @@ private:
     // data model is a 2D vector.  If we're in the single pin case, each row's LIB_PINS
     // contains only a single pin.
     std::vector<LIB_PINS> m_rows;
+    int                   m_unitFilter;     // 0 to show pins for all units
 
     bool                  m_edited;
 
     DIALOG_LIB_EDIT_PIN_TABLE* m_pinTable;
+
+    std::unique_ptr<NUMERIC_EVALUATOR>             m_eval;
+    std::map< std::pair<LIB_PINS, int>, wxString > m_evalOriginal;
 };
 
 
@@ -551,10 +714,13 @@ DIALOG_LIB_EDIT_PIN_TABLE::DIALOG_LIB_EDIT_PIN_TABLE( SYMBOL_EDIT_FRAME* parent,
     m_grid->SetDefaultRowSize( m_grid->GetDefaultRowSize() + 4 );
 
     m_grid->SetTable( m_dataModel );
-    m_grid->PushEventHandler( new GRID_TRICKS( m_grid ) );
+    m_grid->PushEventHandler( new GRID_TRICKS( m_grid, [this]( wxCommandEvent& aEvent )
+                                                       {
+                                                           OnAddRow( aEvent );
+                                                       } ) );
 
     // Show/hide columns according to the user's preference
-    auto cfg = parent->GetSettings();
+    SYMBOL_EDITOR_SETTINGS* cfg = parent->GetSettings();
     m_columnsShown = cfg->m_PinTableVisibleColumns;
 
     m_grid->ShowHideColumns( m_columnsShown );
@@ -590,15 +756,21 @@ DIALOG_LIB_EDIT_PIN_TABLE::DIALOG_LIB_EDIT_PIN_TABLE( SYMBOL_EDIT_FRAME* parent,
 
     attr = new wxGridCellAttr;
     wxArrayString unitNames;
-    unitNames.push_back( _("ALL") );
+    unitNames.push_back( UNITS_ALL );
 
-    for( auto i = 1; i <= aSymbol->GetUnitCount(); i++ )
-    {
+    for( int i = 1; i <= aSymbol->GetUnitCount(); i++ )
         unitNames.push_back( LIB_SYMBOL::SubReference( i, false ) );
-    }
 
     attr->SetEditor( new GRID_CELL_COMBOBOX( unitNames ) );
     m_grid->SetColAttr( COL_UNIT, attr );
+
+    attr = new wxGridCellAttr;
+    wxArrayString demorganNames;
+    demorganNames.push_back( DEMORGAN_ALL );
+    demorganNames.push_back( DEMORGAN_STD );
+    demorganNames.push_back( DEMORGAN_ALT );
+    attr->SetEditor( new GRID_CELL_COMBOBOX( demorganNames ) );
+    m_grid->SetColAttr( COL_DEMORGAN, attr );
 
     attr = new wxGridCellAttr;
     attr->SetRenderer( new wxGridCellBoolRenderer() );
@@ -622,8 +794,26 @@ DIALOG_LIB_EDIT_PIN_TABLE::DIALOG_LIB_EDIT_PIN_TABLE( SYMBOL_EDIT_FRAME* parent,
     m_deleteButton->SetBitmap( KiBitmap( BITMAPS::small_trash ) );
     m_refreshButton->SetBitmap( KiBitmap( BITMAPS::small_refresh ) );
 
+    m_divider1->SetIsSeparator();
+    m_divider2->SetIsSeparator();
+
     GetSizer()->SetSizeHints(this);
     Centre();
+
+    if( aSymbol->IsMulti() )
+    {
+        m_unitFilter->Append( UNITS_ALL );
+
+        for( int ii = 0; ii < aSymbol->GetUnitCount(); ++ii )
+            m_unitFilter->Append( aSymbol->GetUnitReference( ii + 1 ) );
+
+        m_unitFilter->SetSelection( -1 );
+    }
+    else
+    {
+        m_cbFilterByUnit->Show( false );
+        m_unitFilter->Show( false );
+    }
 
     SetupStandardButtons();
 
@@ -645,7 +835,7 @@ DIALOG_LIB_EDIT_PIN_TABLE::DIALOG_LIB_EDIT_PIN_TABLE( SYMBOL_EDIT_FRAME* parent,
 
 DIALOG_LIB_EDIT_PIN_TABLE::~DIALOG_LIB_EDIT_PIN_TABLE()
 {
-    auto cfg = m_editFrame->GetSettings();
+    SYMBOL_EDITOR_SETTINGS* cfg = m_editFrame->GetSettings();
     cfg->m_PinTableVisibleColumns = m_grid->GetShownColumns().ToStdString();
 
     // Disconnect Events
@@ -660,7 +850,7 @@ DIALOG_LIB_EDIT_PIN_TABLE::~DIALOG_LIB_EDIT_PIN_TABLE()
 
     // This is our copy of the pins.  If they were transferred to the part on an OK, then
     // m_pins will already be empty.
-    for( auto pin : m_pins )
+    for( LIB_PIN* pin : m_pins )
         delete pin;
 }
 
@@ -671,21 +861,17 @@ bool DIALOG_LIB_EDIT_PIN_TABLE::TransferDataToWindow()
     for( LIB_PIN* pin = m_part->GetNextPin( nullptr ); pin; pin = m_part->GetNextPin( pin ) )
         m_pins.push_back( new LIB_PIN( *pin ) );
 
-    m_dataModel->RebuildRows( m_pins, m_cbGroup->GetValue() );
+    m_dataModel->RebuildRows( m_pins, m_cbGroup->GetValue(), false );
 
     if( m_part->IsMulti() )
-    {
         m_grid->ShowCol( COL_UNIT );
-    }
     else
-    {
         m_grid->HideCol( COL_UNIT );
-    }
 
-    if( m_cbGroup->GetValue() )
-        m_grid->ShowCol( COL_PIN_COUNT );
+    if( m_editFrame->GetShowDeMorgan() )
+        m_grid->ShowCol( COL_DEMORGAN );
     else
-        m_grid->HideCol( COL_PIN_COUNT );
+        m_grid->HideCol( COL_DEMORGAN );
 
     updateSummary();
 
@@ -756,9 +942,9 @@ void DIALOG_LIB_EDIT_PIN_TABLE::OnAddRow( wxCommandEvent& event )
         SYMBOL_EDITOR_SETTINGS* cfg = m_editFrame->GetSettings();
 
         if( last->GetOrientation() == PIN_LEFT || last->GetOrientation() == PIN_RIGHT )
-            pos.y -= Mils2iu(cfg->m_Repeat.pin_step);
+            pos.y -= schIUScale.MilsToIU(cfg->m_Repeat.pin_step);
         else
-            pos.x += Mils2iu(cfg->m_Repeat.pin_step);
+            pos.x += schIUScale.MilsToIU(cfg->m_Repeat.pin_step);
 
         newPin->SetPosition( pos );
     }
@@ -801,7 +987,7 @@ void DIALOG_LIB_EDIT_PIN_TABLE::OnDeleteRow( wxCommandEvent& event )
 
     LIB_PINS removedRow = m_dataModel->RemoveRow( curRow );
 
-    for( auto pin : removedRow )
+    for( LIB_PIN* pin : removedRow )
         m_pins.erase( std::find( m_pins.begin(), m_pins.end(), pin ) );
 
     curRow = std::min( curRow, m_grid->GetNumberRows() - 1 );
@@ -832,25 +1018,58 @@ bool DIALOG_LIB_EDIT_PIN_TABLE::IsDisplayGrouped()
 }
 
 
+void DIALOG_LIB_EDIT_PIN_TABLE::OnGroupSelected( wxCommandEvent& event )
+{
+    m_cbGroup->SetValue( false );
+
+    m_dataModel->RebuildRows( m_pins, false, true );
+
+    m_grid->ShowCol( COL_PIN_COUNT );
+    m_grid->SetColLabelAlignment( wxALIGN_CENTER, wxALIGN_CENTER );
+
+    adjustGridColumns();
+}
+
+
 void DIALOG_LIB_EDIT_PIN_TABLE::OnRebuildRows( wxCommandEvent&  )
 {
     if( !m_grid->CommitPendingChanges() )
         return;
 
-    m_dataModel->RebuildRows( m_pins, m_cbGroup->GetValue() );
+    m_dataModel->RebuildRows( m_pins, m_cbGroup->GetValue(), false );
 
     if( m_cbGroup->GetValue() )
     {
         m_grid->ShowCol( COL_PIN_COUNT );
         m_grid->SetColLabelAlignment( wxALIGN_CENTER, wxALIGN_CENTER );
     }
-    else
-    {
-        m_grid->HideCol( COL_PIN_COUNT );
-    }
-
 
     adjustGridColumns();
+}
+
+
+void DIALOG_LIB_EDIT_PIN_TABLE::OnFilterCheckBox( wxCommandEvent& event )
+{
+    if( event.IsChecked() )
+    {
+        m_dataModel->SetUnitFilter( m_unitFilter->GetSelection() );
+    }
+    else
+    {
+        m_dataModel->SetUnitFilter( -1 );
+        m_unitFilter->SetSelection( -1 );
+    }
+
+    OnRebuildRows( event );
+}
+
+
+void DIALOG_LIB_EDIT_PIN_TABLE::OnFilterChoice( wxCommandEvent& event )
+{
+    m_cbFilterByUnit->SetValue( true );
+    m_dataModel->SetUnitFilter( m_unitFilter->GetSelection() );
+
+    OnRebuildRows( event );
 }
 
 
@@ -890,7 +1109,7 @@ void DIALOG_LIB_EDIT_PIN_TABLE::adjustGridColumns()
 
 void DIALOG_LIB_EDIT_PIN_TABLE::OnSize( wxSizeEvent& event )
 {
-    auto new_size = event.GetSize();
+    wxSize new_size = event.GetSize();
 
     if( m_initialized && m_size != new_size )
     {
@@ -915,6 +1134,14 @@ void DIALOG_LIB_EDIT_PIN_TABLE::OnUpdateUI( wxUpdateUIEvent& event )
         if( !m_grid->IsCellEditControlShown() )
             adjustGridColumns();
     }
+
+    int firstSelectedRow;
+    int selectedRowCount;
+
+    getSelectedArea( m_grid, &firstSelectedRow, &selectedRowCount );
+
+    if( ( selectedRowCount > 1 ) != m_groupSelected->IsEnabled() )
+        m_groupSelected->Enable( selectedRowCount > 1 );
 }
 
 
@@ -980,10 +1207,8 @@ void DIALOG_LIB_EDIT_PIN_TABLE::updateSummary()
     }
 
     m_pin_numbers_summary->SetLabel( pinNumbers.GetSummary() );
-
-    wxString count;
-    count << m_pins.size();
-    m_pin_count->SetLabel( count );
-
+    m_pin_count->SetLabel( wxString::Format( wxT( "%u" ), (unsigned) m_pins.size() ) );
     m_duplicate_pins->SetLabel( pinNumbers.GetDuplicates() );
+
+    Layout();
 }

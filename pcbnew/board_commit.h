@@ -2,6 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2016 CERN
+ * Copyright (C) 2016-2022 KiCad Developers, see AUTHORS.txt for contributors.
  * @author Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  *
  * This program is free software; you can redistribute it and/or
@@ -22,17 +23,24 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
-#ifndef __BOARD_COMMIT_H
-#define __BOARD_COMMIT_H
+#ifndef BOARD_COMMIT_H
+#define BOARD_COMMIT_H
 
 #include <commit.h>
 
 class BOARD_ITEM;
+class BOARD;
 class PICKED_ITEMS_LIST;
 class PCB_TOOL_BASE;
 class TOOL_MANAGER;
 class EDA_DRAW_FRAME;
 class TOOL_BASE;
+
+#define SKIP_UNDO          0x0001
+#define APPEND_UNDO        0x0002
+#define SKIP_SET_DIRTY     0x0004
+#define SKIP_CONNECTIVITY  0x0008
+#define ZONE_FILL_OP       0x0010
 
 class BOARD_COMMIT : public COMMIT
 {
@@ -43,15 +51,16 @@ public:
 
     virtual ~BOARD_COMMIT();
 
+    BOARD* GetBoard() const;
+
     virtual void Push( const wxString& aMessage = wxT( "A commit" ),
-                       bool aCreateUndoEntry = true, bool aSetDirtyBit = true,
-                       bool aUpdateConnectivity = true ) override;
+                       int aCommitFlags = 0 ) override;
 
     virtual void Revert() override;
     COMMIT&      Stage( EDA_ITEM* aItem, CHANGE_TYPE aChangeType ) override;
     COMMIT&      Stage( std::vector<EDA_ITEM*>& container, CHANGE_TYPE aChangeType ) override;
-    COMMIT&      Stage(
-                 const PICKED_ITEMS_LIST& aItems, UNDO_REDO aModFlag = UNDO_REDO::UNSPECIFIED ) override;
+    COMMIT&      Stage( const PICKED_ITEMS_LIST& aItems,
+                        UNDO_REDO aModFlag = UNDO_REDO::UNSPECIFIED ) override;
 
     /**
      * Sets a flag that will cause Push() to resolve net conflicts on track/via clusters instead
@@ -64,12 +73,17 @@ public:
     void SetResolveNetConflicts( bool aResolve = true ) { m_resolveNetConflicts = aResolve; }
 
 private:
-    virtual EDA_ITEM* parentObject( EDA_ITEM* aItem ) const override;
+    EDA_ITEM* parentObject( EDA_ITEM* aItem ) const override;
+
+    EDA_ITEM* makeImage( EDA_ITEM* aItem ) const override;
+
+    void dirtyIntersectingZones( BOARD_ITEM* item );
 
 private:
-    TOOL_MANAGER* m_toolMgr;
-    bool          m_isFootprintEditor;
-    bool          m_resolveNetConflicts;
+    TOOL_MANAGER*  m_toolMgr;
+    bool           m_isFootprintEditor;
+    bool           m_isBoardEditor;
+    bool           m_resolveNetConflicts;
 };
 
 #endif

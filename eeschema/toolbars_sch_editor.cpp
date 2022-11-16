@@ -30,11 +30,13 @@
 #include <kiface_base.h>
 #include <bitmaps.h>
 #include <eeschema_id.h>
+#include <hierarch.h>
 #include <python_scripting.h>
 #include <tool/tool_manager.h>
 #include <tool/action_toolbar.h>
 #include <tools/ee_actions.h>
 #include <tools/ee_selection_tool.h>
+#include <widgets/wx_aui_utils.h>
 
 /* Create  the main Horizontal Toolbar for the schematic editor
  */
@@ -89,8 +91,9 @@ void SCH_EDIT_FRAME::ReCreateHToolbar()
     m_mainToolBar->Add( ACTIONS::zoomTool, ACTION_TOOLBAR::TOGGLE, ACTION_TOOLBAR::CANCEL );
 
     m_mainToolBar->AddScaledSeparator( this );
-    m_mainToolBar->Add( EE_ACTIONS::navigateHierarchy );
-    m_mainToolBar->Add( EE_ACTIONS::leaveSheet );
+    m_mainToolBar->Add( EE_ACTIONS::navigateBack );
+    m_mainToolBar->Add( EE_ACTIONS::navigateUp );
+    m_mainToolBar->Add( EE_ACTIONS::navigateForward );
 
     m_mainToolBar->AddScaledSeparator( this );
     m_mainToolBar->Add( EE_ACTIONS::rotateCCW );
@@ -194,8 +197,20 @@ void SCH_EDIT_FRAME::ReCreateOptToolbar()
     m_optionsToolBar->Add( ACTIONS::milsUnits,           ACTION_TOOLBAR::TOGGLE );
     m_optionsToolBar->Add( ACTIONS::millimetersUnits,    ACTION_TOOLBAR::TOGGLE );
     m_optionsToolBar->Add( ACTIONS::toggleCursorStyle,   ACTION_TOOLBAR::TOGGLE );
+
+    m_optionsToolBar->AddScaledSeparator( this );
     m_optionsToolBar->Add( EE_ACTIONS::toggleHiddenPins, ACTION_TOOLBAR::TOGGLE );
-    m_optionsToolBar->Add( EE_ACTIONS::toggleForceHV,    ACTION_TOOLBAR::TOGGLE );
+
+    m_optionsToolBar->AddScaledSeparator( this );
+    m_optionsToolBar->Add( EE_ACTIONS::lineModeFree,     ACTION_TOOLBAR::TOGGLE );
+    m_optionsToolBar->Add( EE_ACTIONS::lineMode90,       ACTION_TOOLBAR::TOGGLE );
+    m_optionsToolBar->Add( EE_ACTIONS::lineMode45,       ACTION_TOOLBAR::TOGGLE );
+
+    m_optionsToolBar->AddScaledSeparator( this );
+    m_optionsToolBar->Add( EE_ACTIONS::toggleAnnotateAuto,      ACTION_TOOLBAR::TOGGLE );
+
+    m_optionsToolBar->AddScaledSeparator( this );
+    m_optionsToolBar->Add( EE_ACTIONS::showHierarchy,           ACTION_TOOLBAR::TOGGLE );
 
     if( ADVANCED_CFG::GetCfg().m_DrawBoundingBoxes )
         m_optionsToolBar->Add( ACTIONS::toggleBoundingBoxes,    ACTION_TOOLBAR::TOGGLE );
@@ -206,4 +221,43 @@ void SCH_EDIT_FRAME::ReCreateOptToolbar()
     m_optionsToolBar->AddToolContextMenu( ACTIONS::toggleGrid, std::move( gridMenu ) );
 
     m_optionsToolBar->KiRealize();
+}
+
+
+void SCH_EDIT_FRAME::ToggleSchematicHierarchy()
+{
+    EESCHEMA_SETTINGS* cfg = eeconfig();
+    wxAuiPaneInfo&     hierarchy_pane = m_auimgr.GetPane( SchematicHierarchyPaneName() );
+
+    hierarchy_pane.Show( !hierarchy_pane.IsShown() );
+
+    if( hierarchy_pane.IsShown() )
+    {
+        if( hierarchy_pane.IsFloating() )
+        {
+            hierarchy_pane.FloatingSize( cfg->m_AuiPanels.hierarchy_panel_float_width,
+                                         cfg->m_AuiPanels.hierarchy_panel_float_height );
+            m_auimgr.Update();
+        }
+        else if( cfg->m_AuiPanels.hierarchy_panel_docked_width > 0 )
+        {
+            // SetAuiPaneSize also updates m_auimgr
+            SetAuiPaneSize( m_auimgr, hierarchy_pane,
+                            cfg->m_AuiPanels.hierarchy_panel_docked_width, -1 );
+        }
+    }
+    else
+    {
+        if( hierarchy_pane.IsFloating() )
+        {
+            cfg->m_AuiPanels.hierarchy_panel_float_width  = hierarchy_pane.floating_size.x;
+            cfg->m_AuiPanels.hierarchy_panel_float_height = hierarchy_pane.floating_size.y;
+        }
+        else
+        {
+            cfg->m_AuiPanels.hierarchy_panel_docked_width = m_hierarchy->GetSize().x;
+        }
+
+        m_auimgr.Update();
+    }
 }

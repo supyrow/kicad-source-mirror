@@ -47,11 +47,11 @@ class SCH_EDITOR_CONTROL;
 class DIALOG_SCH_FIND : public DIALOG_SCH_FIND_BASE
 {
 public:
-    DIALOG_SCH_FIND( SCH_EDIT_FRAME* aParent, wxFindReplaceData* aData,
+    DIALOG_SCH_FIND( SCH_EDIT_FRAME* aParent, SCH_SEARCH_DATA* aData,
                      const wxPoint& aPosition = wxDefaultPosition,
                      const wxSize& aSize = wxDefaultSize, int aStyle = 0 );
 
-    void SetFindEntries( const wxArrayString& aEntries );
+    void SetFindEntries( const wxArrayString& aEntries, const wxString& aFindString );
     wxArrayString GetFindEntries() const;
 
     void SetReplaceEntries( const wxArrayString& aEntries );
@@ -75,9 +75,12 @@ protected:
     void OnFind( wxCommandEvent& aEvent ) override;
     void OnReplace( wxCommandEvent& aEvent ) override;
 
+    // Rebuild the search flags from dialog settings
+    void updateFlags();
+
     SCH_EDIT_FRAME*     m_frame;
     SCH_EDITOR_CONTROL* m_editorControl;
-    wxFindReplaceData*  m_findReplaceData;
+    SCH_SEARCH_DATA*    m_findReplaceData;
     bool                m_findDirty;
 
     DECLARE_NO_COPY_CLASS( DIALOG_SCH_FIND )

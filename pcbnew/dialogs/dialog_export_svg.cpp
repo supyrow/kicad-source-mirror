@@ -35,12 +35,13 @@
 #include <locale_io.h>
 #include <board.h>
 #include <dialog_export_svg_base.h>
-#include <wx_html_report_panel.h>
 #include <bitmaps.h>
 #include <widgets/unit_binder.h>
+#include <widgets/wx_html_report_panel.h>
 #include <plotters/plotters_pslike.h>
 #include <wx/dirdlg.h>
 #include <pgm_base.h>
+#include <pcb_plot_svg.h>
 
 class DIALOG_EXPORT_SVG : public DIALOG_EXPORT_SVG_BASE
 {
@@ -67,8 +68,6 @@ private:
     void onPagePerLayerClicked( wxCommandEvent& event ) override;
     void OnOutputDirectoryBrowseClicked( wxCommandEvent& event ) override;
     void ExportSVGFile( bool aOnlyOneFile );
-
-    bool CreateSVGFile( const wxString& FullFileName );
 
     LSET getCheckBoxSelectedLayers() const;
 };
@@ -218,7 +217,8 @@ void DIALOG_EXPORT_SVG::OnOutputDirectoryBrowseClicked( wxCommandEvent& event )
         boardFilePath = wxPathOnly( boardFilePath );
 
         if( !dirName.MakeRelativeTo( boardFilePath ) )
-            wxMessageBox( _( "Cannot make path relative (target volume different from board file volume)!" ),
+            wxMessageBox( _( "Cannot make path relative (target volume different from board "
+                             "file volume)!" ),
                           _( "Plot Output Directory" ), wxOK | wxICON_ERROR );
     }
 
@@ -280,6 +280,13 @@ void DIALOG_EXPORT_SVG::ExportSVGFile( bool aOnlyOneFile )
 
     LSET all_selected = getCheckBoxSelectedLayers();
 
+    PCB_PLOT_SVG_OPTIONS svgPlotOptions;
+    svgPlotOptions.m_blackAndWhite = m_printBW;
+    svgPlotOptions.m_printMaskLayer = m_printMaskLayer;
+    svgPlotOptions.m_pageSizeMode = m_rbSvgPageSizeOpt->GetSelection();
+    svgPlotOptions.m_colorTheme = "";   // will use default
+    svgPlotOptions.m_mirror = m_printMirror;
+
     for( LSEQ seq = all_selected.Seq();  seq;  ++seq )
     {
         PCB_LAYER_ID layer = *seq;
@@ -294,7 +301,10 @@ void DIALOG_EXPORT_SVG::ExportSVGFile( bool aOnlyOneFile )
         if( m_checkboxEdgesOnAllPages->GetValue() )
             m_printMaskLayer.set( Edge_Cuts );
 
-        if( CreateSVGFile( svgPath ) )
+        svgPlotOptions.m_outputFile = svgPath;
+        svgPlotOptions.m_printMaskLayer = m_printMaskLayer;
+
+        if( PCB_PLOT_SVG::Plot(m_board, svgPlotOptions ) )
         {
             reporter.Report( wxString::Format( _( "Exported '%s'." ), svgPath ),
                              RPT_SEVERITY_ACTION );
@@ -308,72 +318,6 @@ void DIALOG_EXPORT_SVG::ExportSVGFile( bool aOnlyOneFile )
         if( aOnlyOneFile )
             break;
     }
-}
-
-
-// Actual SVG file export function.
-bool DIALOG_EXPORT_SVG::CreateSVGFile( const wxString& aFullFileName )
-{
-    PCB_PLOT_PARAMS plot_opts;
-
-    plot_opts.SetPlotFrameRef( m_rbSvgPageSizeOpt->GetSelection() == 0 );
-
-    // Adding drill marks, for copper layers
-    if( ( m_printMaskLayer & LSET::AllCuMask() ).any() )
-        plot_opts.SetDrillMarksType( PCB_PLOT_PARAMS::FULL_DRILL_SHAPE );
-    else
-        plot_opts.SetDrillMarksType( PCB_PLOT_PARAMS::NO_DRILL_SHAPE );
-
-    plot_opts.SetSkipPlotNPTH_Pads( false );
-
-    plot_opts.SetMirror( m_printMirror );
-    plot_opts.SetFormat( PLOT_FORMAT::SVG );
-    // coord format: 4 digits in mantissa (units always in mm). This is a good choice.
-    plot_opts.SetSvgPrecision( 4 );
-
-    PAGE_INFO   savedPageInfo = m_board->GetPageSettings();
-    VECTOR2I  savedAuxOrigin = m_board->GetDesignSettings().GetAuxOrigin();
-
-    if( m_rbSvgPageSizeOpt->GetSelection() == 2 )   // Page is board boundary size
-    {
-        EDA_RECT    bbox = m_board->ComputeBoundingBox();
-        PAGE_INFO   currpageInfo = m_board->GetPageSettings();
-
-        currpageInfo.SetWidthMils(  bbox.GetWidth() / IU_PER_MILS );
-        currpageInfo.SetHeightMils( bbox.GetHeight() / IU_PER_MILS );
-        m_board->SetPageSettings( currpageInfo );
-        plot_opts.SetUseAuxOrigin( true );
-        VECTOR2I origin = bbox.GetOrigin();
-        m_board->GetDesignSettings().SetAuxOrigin( origin );
-    }
-
-    SETTINGS_MANAGER& mgr = Pgm().GetSettingsManager();
-    PCBNEW_SETTINGS*  cfg = mgr.GetAppSettings<PCBNEW_SETTINGS>();
-
-    plot_opts.SetColorSettings( mgr.GetColorSettings( cfg->m_ColorTheme ) );
-
-    LOCALE_IO    toggle;
-
-    SVG_PLOTTER* plotter = (SVG_PLOTTER*) StartPlotBoard( m_board, &plot_opts, UNDEFINED_LAYER,
-                                                          aFullFileName, wxEmptyString );
-
-    if( plotter )
-    {
-        plotter->SetColorMode( !m_printBW );
-
-        for( LSEQ seq = m_printMaskLayer.SeqStackupBottom2Top();  seq;  ++seq )
-            PlotOneBoardLayer( m_board, plotter, *seq, plot_opts );
-
-        plotter->EndPlot();
-    }
-
-    delete plotter;
-
-    // reset to the values saved earlier
-    m_board->GetDesignSettings().SetAuxOrigin( savedAuxOrigin );
-    m_board->SetPageSettings( savedPageInfo );
-
-    return true;
 }
 
 

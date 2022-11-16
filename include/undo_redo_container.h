@@ -28,6 +28,7 @@
 
 #include <core/typeinfo.h>
 #include <eda_item_flags.h>
+#include <functional>
 #include <vector>
 
 class EDA_ITEM;
@@ -170,7 +171,7 @@ public:
      * Delete the list of pickers AND the data pointed by #m_PickedItem or #m_PickedItemLink
      * according to the type of undo/redo command recorded.
      */
-    void ClearListAndDeleteItems();
+    void ClearListAndDeleteItems( std::function<void(EDA_ITEM*)> aItemDeleter );
 
     /**
      * @return The count of pickers stored in this list.

@@ -164,6 +164,11 @@ public:
      */
     void UpdateTitleAndInfo();
 
+    /**
+     * Display the size of the sheet to the message panel.
+     */
+    void UpdateMsgPanelInfo();
+
     void LoadSettings( APP_SETTINGS_BASE* aCfg ) override;
 
     void SaveSettings( APP_SETTINGS_BASE* aCfg ) override;
@@ -232,8 +237,10 @@ public:
     /**
      * Must be called after a change in order to set the "modify" flag.
      */
-    void OnModify()
+    void OnModify() override
     {
+        EDA_BASE_FRAME::OnModify();
+
         GetScreen()->SetContentModified();
     }
 
@@ -283,8 +290,11 @@ private:
     int         m_originSelectChoice;   // the last choice for m_originSelectBox
     wxChoice*   m_pageSelectBox;        // The page number sel'ector (page 1 or other pages
                                         // useful when there are some items which are
+    wxString    m_mruImagePath;         // Most recently used path for placing a new image
                                         // only on page 1, not on page 1
     VECTOR2I m_grid_origin;
+
+    void DoWithAcceptedFiles() override;
 };
 
 #endif /* _PL_EDITOR_FRAME_H */

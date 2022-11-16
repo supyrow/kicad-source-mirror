@@ -30,6 +30,8 @@
 #include <math/vector2d.h>
 #include <kiid.h>
 
+#include "pns_sizes_settings.h"
+
 class SHAPE_LINE_CHAIN;
 class SHAPE;
 
@@ -46,13 +48,16 @@ public:
         EVT_START_DRAG,
         EVT_FIX,
         EVT_MOVE,
-        EVT_ABORT
+        EVT_ABORT,
+        EVT_TOGGLE_VIA,
+        EVT_UNFIX
     };
 
     struct EVENT_ENTRY {
         VECTOR2I p;
         EVENT_TYPE type;
         KIID uuid;
+        SIZES_SETTINGS sizes;
     };
 
     LOGGER();
@@ -60,7 +65,7 @@ public:
 
     void Save( const std::string& aFilename );
     void Clear();
-    void Log( EVENT_TYPE evt, const VECTOR2I& pos, const ITEM* item = nullptr );
+    void Log( EVENT_TYPE evt, const VECTOR2I& pos = VECTOR2I(), const ITEM* item = nullptr, const SIZES_SETTINGS* sizes = nullptr );
 
     const std::vector<EVENT_ENTRY>& GetEvents()
     {

@@ -25,7 +25,7 @@
   tar cfz cov-int.tar.gz cov-int
   echo "Submitting scan results"
   export KICAD_VERSION=$(sed 's/[()]//g' kicad_build_version.txt)
-  curl -v https://scan.coverity.com/builds?project=$COVERITY_SCAN_PROJECT_NAME \
+  curl https://scan.coverity.com/builds?project=$COVERITY_SCAN_PROJECT_NAME \
        --form token=$COVERITY_SCAN_TOKEN \
        --form email=$GITLAB_USER_EMAIL \
        --form file=@cov-int.tar.gz \
@@ -39,8 +39,7 @@ Coverity:
   tags:
     - coverity
   stage: build
-  # Use Fedora 33 because Coverity needs GCC 10 still (as of 06/16/2021)
-  image: registry.gitlab.com/kicad/kicad-ci/source_containers/master/fedora:33
+  image: registry.gitlab.com/kicad/kicad-ci/source_containers/master/fedora:36
   only:
     refs:
       - schedules

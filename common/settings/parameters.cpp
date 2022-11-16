@@ -35,14 +35,14 @@ void PARAM_LAMBDA<ValueType>::Load( JSON_SETTINGS* aSettings, bool aResetIfMissi
 
     if( std::is_same<ValueType, nlohmann::json>::value )
     {
-        if( OPT<nlohmann::json> optval = aSettings->GetJson( m_path ) )
+        if( std::optional<nlohmann::json> optval = aSettings->GetJson( m_path ) )
             m_setter( *optval );
         else
             m_setter( m_default );
     }
     else
     {
-        if( OPT<ValueType> optval = aSettings->Get<ValueType>( m_path ) )
+        if( std::optional<ValueType> optval = aSettings->Get<ValueType>( m_path ) )
             m_setter( *optval );
         else
             m_setter( m_default );
@@ -55,12 +55,12 @@ bool PARAM_LAMBDA<ValueType>::MatchesFile( JSON_SETTINGS* aSettings ) const
 {
     if( std::is_same<ValueType, nlohmann::json>::value )
     {
-        if( OPT<nlohmann::json> optval = aSettings->GetJson( m_path ) )
+        if( std::optional<nlohmann::json> optval = aSettings->GetJson( m_path ) )
             return *optval == m_getter();
     }
     else
     {
-        if( OPT<ValueType> optval = aSettings->Get<ValueType>( m_path ) )
+        if( std::optional<ValueType> optval = aSettings->Get<ValueType>( m_path ) )
             return *optval == m_getter();
     }
 
@@ -82,7 +82,7 @@ void PARAM_LIST<ValueType>::Load( JSON_SETTINGS* aSettings, bool aResetIfMissing
     if( m_readOnly )
         return;
 
-    if( OPT<nlohmann::json> js = aSettings->GetJson( m_path ) )
+    if( std::optional<nlohmann::json> js = aSettings->GetJson( m_path ) )
     {
         std::vector<ValueType> val;
 
@@ -114,7 +114,7 @@ void PARAM_LIST<ValueType>::Store( JSON_SETTINGS* aSettings ) const
 template <typename ValueType>
 bool PARAM_LIST<ValueType>::MatchesFile( JSON_SETTINGS* aSettings ) const
 {
-    if( OPT<nlohmann::json> js = aSettings->GetJson( m_path ) )
+    if( std::optional<nlohmann::json> js = aSettings->GetJson( m_path ) )
     {
         if( js->is_array() )
         {
@@ -138,6 +138,64 @@ template class PARAM_LIST<KIGFX::COLOR4D>;
 template class PARAM_LIST<FILE_INFO_PAIR>;
 
 
+template <typename ValueType>
+void PARAM_SET<ValueType>::Load( JSON_SETTINGS* aSettings, bool aResetIfMissing ) const
+{
+    if( m_readOnly )
+        return;
+
+    if( std::optional<nlohmann::json> js = aSettings->GetJson( m_path ) )
+    {
+        std::set<ValueType> val;
+
+        if( js->is_array() )
+        {
+            for( const auto& el : js->items() )
+                val.insert( el.value().get<ValueType>() );
+        }
+
+        *m_ptr = val;
+    }
+    else if( aResetIfMissing )
+        *m_ptr = m_default;
+}
+
+
+template <typename ValueType>
+void PARAM_SET<ValueType>::Store( JSON_SETTINGS* aSettings ) const
+{
+    nlohmann::json js = nlohmann::json::array();
+
+    for( const auto& el : *m_ptr )
+        js.push_back( el );
+
+    aSettings->Set<nlohmann::json>( m_path, js );
+}
+
+
+template <typename ValueType>
+bool PARAM_SET<ValueType>::MatchesFile( JSON_SETTINGS* aSettings ) const
+{
+    if( std::optional<nlohmann::json> js = aSettings->GetJson( m_path ) )
+    {
+        if( js->is_array() )
+        {
+            std::set<ValueType> val;
+
+            for( const auto& el : js->items() )
+                val.insert( el.value().get<ValueType>() );
+
+            return val == *m_ptr;
+        }
+    }
+
+    return false;
+}
+
+
+template class PARAM_SET<wxString>;
+
+
 void PARAM_PATH_LIST::Store( JSON_SETTINGS* aSettings ) const
 {
     nlohmann::json js = nlohmann::json::array();
@@ -151,7 +209,7 @@ void PARAM_PATH_LIST::Store( JSON_SETTINGS* aSettings ) const
 
 bool PARAM_PATH_LIST::MatchesFile( JSON_SETTINGS* aSettings ) const
 {
-    if( OPT<nlohmann::json> js = aSettings->GetJson( m_path ) )
+    if( std::optional<nlohmann::json> js = aSettings->GetJson( m_path ) )
     {
         if( js->is_array() )
         {
@@ -174,7 +232,7 @@ void PARAM_MAP<Value>::Load( JSON_SETTINGS* aSettings, bool aResetIfMissing ) co
     if( m_readOnly )
         return;
 
-    if( OPT<nlohmann::json> js = aSettings->GetJson( m_path ) )
+    if( std::optional<nlohmann::json> js = aSettings->GetJson( m_path ) )
     {
         if( js->is_object() )
         {
@@ -204,7 +262,7 @@ void PARAM_MAP<Value>::Store( JSON_SETTINGS* aSettings ) const
 template <typename Value>
 bool PARAM_MAP<Value>::MatchesFile( JSON_SETTINGS* aSettings ) const
 {
-    if( OPT<nlohmann::json> js = aSettings->GetJson( m_path ) )
+    if( std::optional<nlohmann::json> js = aSettings->GetJson( m_path ) )
     {
         if( js->is_object() )
         {
@@ -234,7 +292,7 @@ void PARAM_WXSTRING_MAP::Load( JSON_SETTINGS* aSettings, bool aResetIfMissing ) 
     if( m_readOnly )
         return;
 
-    if( OPT<nlohmann::json> js = aSettings->GetJson( m_path ) )
+    if( std::optional<nlohmann::json> js = aSettings->GetJson( m_path ) )
     {
         if( js->is_object() )
         {
@@ -267,7 +325,7 @@ void PARAM_WXSTRING_MAP::Store( JSON_SETTINGS* aSettings ) const
 
 bool PARAM_WXSTRING_MAP::MatchesFile( JSON_SETTINGS* aSettings ) const
 {
-    if( OPT<nlohmann::json> js = aSettings->GetJson( m_path ) )
+    if( std::optional<nlohmann::json> js = aSettings->GetJson( m_path ) )
     {
         if( js->is_object() )
         {

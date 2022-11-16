@@ -50,20 +50,19 @@ namespace KIGFX
 class PLOTTER;
 
 /**
- * As a rule, pen width should not be >1/4em, otherwise the character will be cluttered up in
- * its own fatness.
- *
- * The pen width max is aSize/4 for bold texts, and aSize/6 for normal texts. The "best" pen
- * width is aSize/5 for bold texts so the clamp is consistent with bold option.
+ * Pen width should not allow characters to become cluttered up in their own fatness.  Normal
+ * text is normally around 15% the fontsize, and bold text around 20%.  So we set a hard limit
+ * at 25%, and a secondary limit for non-decorative text that must be readable at small sizes
+ * at 18%.
  *
  * @param aPenSize the pen size to clamp.
  * @param aSize the char size (height or width, or its wxSize).
  * @param aBold true if text accept bold pen size.
  * @return the max pen size allowed.
  */
-int Clamp_Text_PenSize( int aPenSize, int aSize, bool aBold = true );
-float Clamp_Text_PenSize( float aPenSize, int aSize, bool aBold = true );
-int Clamp_Text_PenSize( int aPenSize, const VECTOR2I& aSize, bool aBold = true );
+int Clamp_Text_PenSize( int aPenSize, int aSize, bool aStrict = false );
+float Clamp_Text_PenSize( float aPenSize, int aSize, bool aStrict = false );
+int Clamp_Text_PenSize( int aPenSize, const VECTOR2I& aSize, bool aStrict = false );
 
 /**
  * @param aTextSize the char size (height or width).
@@ -78,6 +77,28 @@ int GetPenSizeForBold( const wxSize& aTextSize );
  */
 int GetPenSizeForNormal( int aTextSize );
 int GetPenSizeForNormal( const wxSize& aTextSize );
+
+inline void InferBold( TEXT_ATTRIBUTES* aAttrs )
+{
+    int    penSize( aAttrs->m_StrokeWidth );
+    wxSize textSize( aAttrs->m_Size.x, aAttrs->m_Size.y );
+
+    aAttrs->m_Bold = abs( penSize - GetPenSizeForBold( textSize ) )
+                   < abs( penSize - GetPenSizeForNormal( textSize ) );
+}
+
+
+/**
+ * Returns the margin for knockout text.
+ *
+ * Note that this is not a perfect calculation as fonts (especially outline fonts) vary greatly
+ * in how well ascender and descender heights are enforced.
+ */
+inline int GetKnockoutTextMargin( const VECTOR2I& aSize, int aThickness )
+{
+    return std::max( aThickness, KiROUND( aSize.y / 4.0 ) );
+}
+
 
 /**
  * The full X size is GraphicTextWidth + the thickness of graphic lines.

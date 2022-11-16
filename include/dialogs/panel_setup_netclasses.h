@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2019-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2019-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -29,14 +29,15 @@
 #include <widgets/paged_dialog.h>
 #include <panel_setup_netclasses_base.h>
 
-class NETCLASSES;
+class NET_SETTINGS;
 
 
 class PANEL_SETUP_NETCLASSES : public PANEL_SETUP_NETCLASSES_BASE
 {
 public:
-    PANEL_SETUP_NETCLASSES( PAGED_DIALOG* aParent, EDA_DRAW_FRAME* aFrame, NETCLASSES* aNetclasses,
-                            const std::vector<wxString>& aNetNames, bool isEEschema );
+    PANEL_SETUP_NETCLASSES( PAGED_DIALOG* aParent, EDA_DRAW_FRAME* aFrame,
+                            std::shared_ptr<NET_SETTINGS> aSettings,
+                            const std::set<wxString>& aNetNames, bool isEEschema );
     ~PANEL_SETUP_NETCLASSES( ) override;
 
     bool TransferDataToWindow() override;
@@ -44,21 +45,18 @@ public:
 
     bool Validate() override;
 
-    void ImportSettingsFrom( NETCLASSES* aBoard );
+    void ImportSettingsFrom( const std::shared_ptr<NET_SETTINGS>& aNetSettings );
 
 private:
     void OnAddNetclassClick( wxCommandEvent& event ) override;
     void OnRemoveNetclassClick( wxCommandEvent& event ) override;
     void OnSizeNetclassGrid( wxSizeEvent& event ) override;
-	void OnSizeMembershipGrid( wxSizeEvent& event ) override;
-    void onmembershipPanelSize( wxSizeEvent& event ) override;
+	void OnSizeAssignmentGrid( wxSizeEvent& event ) override;
+    void OnAddAssignmentClick( wxCommandEvent& event ) override;
+    void OnRemoveAssignmentClick( wxCommandEvent& event ) override;
     void OnUpdateUI( wxUpdateUIEvent &event ) override;
     void OnNetclassGridCellChanging( wxGridEvent& event );
     void OnNetclassGridMouseEvent( wxMouseEvent& event );
-    void OnShowAll( wxCommandEvent& event ) override { doApplyFilters( true ); }
-    void OnApplyFilters( wxCommandEvent& event ) override { doApplyFilters( false ); }
-    void OnAssignAll( wxCommandEvent& event ) override { doAssignments( true ); }
-    void OnAssignSelected( wxCommandEvent& event ) override { doAssignments( false ); }
 
     void onUnitsChanged( wxCommandEvent& aEvent );
 
@@ -66,21 +64,25 @@ private:
 
     void rebuildNetclassDropdowns();
 
-    void addNet( const wxString& netName, const wxString& netclass, bool aStale );
-    void doApplyFilters( bool aShowAll );
-    void doAssignments( bool aAssignAll );
-
     void AdjustNetclassGridColumns( int aWidth );
-    void AdjustMembershipGridColumns( int aWidth );
+    void AdjustAssignmentGridColumns( int aWidth );
 
-    EDA_DRAW_FRAME*       m_frame;
-    PAGED_DIALOG*         m_parent;
-    NETCLASSES*           m_netclasses;
-    std::vector<wxString> m_netNames;
+private:
+    EDA_DRAW_FRAME*                 m_frame;
+    PAGED_DIALOG*                   m_parent;
+    bool                            m_isEEschema;
+    std::shared_ptr<NET_SETTINGS>   m_netSettings;
+    std::set<wxString>              m_netNames;
+
+    std::unique_ptr<UNITS_PROVIDER> m_schUnitsProvider;
+    std::unique_ptr<UNITS_PROVIDER> m_pcbUnitsProvider;
 
     int*                  m_originalColWidths;
     bool                  m_netclassesDirty;    // The netclass drop-down menus need rebuilding
     int                   m_hoveredCol;         // Column being hovered over, for tooltips
+    wxString              m_lastPattern;
+
+    int                   m_lastNetclassGridWidth;
 };
 
 #endif //PANEL_SETUP_NETCLASSES_H

@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2014-2017 CERN
- * Copyright (C) 2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2021-2022 KiCad Developers, see AUTHORS.txt for contributors.
  * @author Maciej Suminski <maciej.suminski@cern.ch>
  *
  * This program is free software; you can redistribute it and/or
@@ -59,12 +59,15 @@ const int GAL_LAYER_ORDER[] =
 {
     LAYER_GP_OVERLAY,
     LAYER_SELECT_OVERLAY,
+    LAYER_CONFLICTS_SHADOW,
     LAYER_DRC_ERROR, LAYER_DRC_WARNING, LAYER_DRC_EXCLUSION, LAYER_MARKER_SHADOWS,
     LAYER_PAD_NETNAMES, LAYER_VIA_NETNAMES,
-    Dwgs_User,
-    Cmts_User,
-    Eco1_User, Eco2_User,
-    Edge_Cuts, Margin,
+    Dwgs_User, ZONE_LAYER_FOR( Dwgs_User ),
+    Cmts_User, ZONE_LAYER_FOR( Cmts_User ),
+    Eco1_User, ZONE_LAYER_FOR( Eco1_User ),
+    Eco2_User, ZONE_LAYER_FOR( Eco2_User ),
+    Edge_Cuts, ZONE_LAYER_FOR( Edge_Cuts ),
+    Margin, ZONE_LAYER_FOR( Margin ),
 
     User_1, ZONE_LAYER_FOR( User_1 ),
     User_2, ZONE_LAYER_FOR( User_2 ),
@@ -80,6 +83,7 @@ const int GAL_LAYER_ORDER[] =
 
     LAYER_RATSNEST,
     LAYER_ANCHOR,
+    LAYER_LOCKED_ITEM_SHADOW,
     LAYER_VIA_HOLES, LAYER_VIA_HOLEWALLS,
     LAYER_PAD_PLATEDHOLES, LAYER_PAD_HOLEWALLS, LAYER_NON_PLATEDHOLES,
     LAYER_VIA_THROUGH, LAYER_VIA_BBLIND, LAYER_VIA_MICROVIA,
@@ -134,6 +138,68 @@ const int GAL_LAYER_ORDER[] =
     B_CrtYd, ZONE_LAYER_FOR( B_CrtYd ),
     B_Fab, ZONE_LAYER_FOR( B_Fab ),
 
+    BITMAP_LAYER_FOR( Dwgs_User ),
+    BITMAP_LAYER_FOR( Cmts_User ),
+    BITMAP_LAYER_FOR( Eco1_User ), BITMAP_LAYER_FOR( Eco2_User ),
+    BITMAP_LAYER_FOR( Edge_Cuts ), BITMAP_LAYER_FOR( Margin ),
+
+    BITMAP_LAYER_FOR( User_1 ),
+    BITMAP_LAYER_FOR( User_2 ),
+    BITMAP_LAYER_FOR( User_3 ),
+    BITMAP_LAYER_FOR( User_4 ),
+    BITMAP_LAYER_FOR( User_5 ),
+    BITMAP_LAYER_FOR( User_6 ),
+    BITMAP_LAYER_FOR( User_7 ),
+    BITMAP_LAYER_FOR( User_8 ),
+    BITMAP_LAYER_FOR( User_9 ),
+
+    BITMAP_LAYER_FOR( F_Cu ),
+    BITMAP_LAYER_FOR( F_Mask ),
+    BITMAP_LAYER_FOR( F_SilkS ),
+    BITMAP_LAYER_FOR( F_Paste ),
+    BITMAP_LAYER_FOR( F_Adhes ),
+    BITMAP_LAYER_FOR( F_CrtYd ),
+    BITMAP_LAYER_FOR( F_Fab ),
+
+    BITMAP_LAYER_FOR( In1_Cu ),
+    BITMAP_LAYER_FOR( In2_Cu ),
+    BITMAP_LAYER_FOR( In3_Cu ),
+    BITMAP_LAYER_FOR( In4_Cu ),
+    BITMAP_LAYER_FOR( In5_Cu ),
+    BITMAP_LAYER_FOR( In6_Cu ),
+    BITMAP_LAYER_FOR( In7_Cu ),
+    BITMAP_LAYER_FOR( In8_Cu ),
+    BITMAP_LAYER_FOR( In9_Cu ),
+    BITMAP_LAYER_FOR( In10_Cu ),
+    BITMAP_LAYER_FOR( In11_Cu ),
+    BITMAP_LAYER_FOR( In12_Cu ),
+    BITMAP_LAYER_FOR( In13_Cu ),
+    BITMAP_LAYER_FOR( In14_Cu ),
+    BITMAP_LAYER_FOR( In15_Cu ),
+    BITMAP_LAYER_FOR( In16_Cu ),
+    BITMAP_LAYER_FOR( In17_Cu ),
+    BITMAP_LAYER_FOR( In18_Cu ),
+    BITMAP_LAYER_FOR( In19_Cu ),
+    BITMAP_LAYER_FOR( In20_Cu ),
+    BITMAP_LAYER_FOR( In21_Cu ),
+    BITMAP_LAYER_FOR( In22_Cu ),
+    BITMAP_LAYER_FOR( In23_Cu ),
+    BITMAP_LAYER_FOR( In24_Cu ),
+    BITMAP_LAYER_FOR( In25_Cu ),
+    BITMAP_LAYER_FOR( In26_Cu ),
+    BITMAP_LAYER_FOR( In27_Cu ),
+    BITMAP_LAYER_FOR( In28_Cu ),
+    BITMAP_LAYER_FOR( In29_Cu ),
+    BITMAP_LAYER_FOR( In30_Cu ),
+
+    BITMAP_LAYER_FOR( B_Cu ),
+    BITMAP_LAYER_FOR( B_Mask ),
+    BITMAP_LAYER_FOR( B_SilkS ),
+    BITMAP_LAYER_FOR( B_Paste ),
+    BITMAP_LAYER_FOR( B_Adhes ),
+    BITMAP_LAYER_FOR( B_CrtYd ),
+    BITMAP_LAYER_FOR( B_Fab ),
+
     LAYER_DRAWINGSHEET
 };
 
@@ -146,7 +212,12 @@ PCB_DRAW_PANEL_GAL::PCB_DRAW_PANEL_GAL( wxWindow* aParentWindow, wxWindowID aWin
     m_view = new KIGFX::PCB_VIEW( true );
     m_view->SetGAL( m_gal );
 
-    m_painter = std::make_unique<KIGFX::PCB_PAINTER>( m_gal );
+    FRAME_T frameType = FRAME_FOOTPRINT_PREVIEW;
+
+    if( EDA_BASE_FRAME* frame = dynamic_cast<EDA_BASE_FRAME*>( aParentWindow ) )
+        frameType = frame->GetFrameType();
+
+    m_painter = std::make_unique<KIGFX::PCB_PAINTER>( m_gal, frameType );
     m_view->SetPainter( m_painter.get() );
 
     // This fixes the zoom in and zoom out limits:
@@ -268,15 +339,17 @@ void PCB_DRAW_PANEL_GAL::SetHighContrastLayer( PCB_LAYER_ID aLayer )
         // fixme do not like the idea of storing the list of layers here,
         // should be done in some other way I guess..
         int layers[] = {
+                LAYER_CONFLICTS_SHADOW,
                 GetNetnameLayer( aLayer ), LAYER_VIA_NETNAMES,
                 LAYER_PAD_FR_NETNAMES, LAYER_PAD_BK_NETNAMES, LAYER_PAD_NETNAMES,
                 ZONE_LAYER_FOR( aLayer ),
+                BITMAP_LAYER_FOR( aLayer ),
                 LAYER_PADS_TH, LAYER_PAD_PLATEDHOLES, LAYER_PAD_HOLEWALLS, LAYER_NON_PLATEDHOLES,
                 LAYER_VIA_THROUGH, LAYER_VIA_BBLIND, LAYER_VIA_MICROVIA, LAYER_VIA_HOLES,
                 LAYER_VIA_HOLEWALLS,
                 LAYER_DRC_ERROR, LAYER_DRC_WARNING, LAYER_DRC_EXCLUSION, LAYER_MARKER_SHADOWS,
                 LAYER_SELECT_OVERLAY, LAYER_GP_OVERLAY,
-                LAYER_RATSNEST, LAYER_CURSOR, LAYER_ANCHOR
+                LAYER_RATSNEST, LAYER_CURSOR, LAYER_ANCHOR, LAYER_LOCKED_ITEM_SHADOW
         };
 
         for( unsigned int i : layers )
@@ -373,6 +446,7 @@ void PCB_DRAW_PANEL_GAL::SetTopLayer( PCB_LAYER_ID aLayer )
         m_view->SetTopLayer( GetNetnameLayer( aLayer ) );
     }
 
+    m_view->SetTopLayer( BITMAP_LAYER_FOR( aLayer ) );
     m_view->EnableTopLayer( true );
     m_view->UpdateAllLayersOrder();
 }
@@ -403,6 +477,9 @@ void PCB_DRAW_PANEL_GAL::SyncLayersVisibility( const BOARD* aBoard )
     for( int i = LAYER_ZONE_START; i < LAYER_ZONE_END; i++ )
         m_view->SetLayerVisible( i, true );
 
+    for( int i = LAYER_BITMAP_START; i < LAYER_BITMAP_END; i++ )
+        m_view->SetLayerVisible( i, true );
+
     // Enable some layers that are GAL specific
     m_view->SetLayerVisible( LAYER_PAD_PLATEDHOLES, true );
     m_view->SetLayerVisible( LAYER_PAD_HOLEWALLS, true );
@@ -423,7 +500,7 @@ void PCB_DRAW_PANEL_GAL::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame,
     int           viaCount = 0;
     int           trackSegmentCount = 0;
     std::set<int> netCodes;
-    int           unconnected = board->GetConnectivity()->GetUnconnectedCount();
+    int           unconnected = board->GetConnectivity()->GetUnconnectedCount( true );
 
     for( PCB_TRACK* item : board->Tracks() )
     {
@@ -498,7 +575,12 @@ void PCB_DRAW_PANEL_GAL::setDefaultLayerOrder()
         int layer = GAL_LAYER_ORDER[i];
         wxASSERT( layer < KIGFX::VIEW::VIEW_MAX_LAYERS );
 
-        m_view->SetLayerOrder( layer, i );
+        // MW: Gross hack to make SetTopLayer bring the correct bitmap layer to
+        // the top of the other bitmaps, but still below all the other layers
+        if( layer < LAYER_BITMAP_START )
+            m_view->SetLayerOrder( layer, i );
+        else
+            m_view->SetLayerOrder( layer, i - KIGFX::VIEW::TOP_LAYER_MODIFIER );
     }
 }
 
@@ -545,11 +627,15 @@ void PCB_DRAW_PANEL_GAL::setDefaultLayerDeps()
         if( IsCopperLayer( layer ) )
         {
             m_view->SetRequired( ZONE_LAYER_FOR( layer ), layer );
+            m_view->SetRequired( BITMAP_LAYER_FOR( layer ), layer );
+            m_view->SetLayerTarget( BITMAP_LAYER_FOR( layer ), KIGFX::TARGET_NONCACHED );
             m_view->SetRequired( GetNetnameLayer( layer ), layer );
         }
         else if( IsNonCopperLayer( layer ) )
         {
             m_view->SetRequired( ZONE_LAYER_FOR( layer ), layer );
+            m_view->SetLayerTarget( BITMAP_LAYER_FOR( layer ), KIGFX::TARGET_NONCACHED );
+            m_view->SetRequired( BITMAP_LAYER_FOR( layer ), layer );
         }
         else if( IsNetnameLayer( layer ) )
         {
@@ -559,6 +645,12 @@ void PCB_DRAW_PANEL_GAL::setDefaultLayerDeps()
 
     m_view->SetLayerTarget( LAYER_ANCHOR, KIGFX::TARGET_NONCACHED );
     m_view->SetLayerDisplayOnly( LAYER_ANCHOR );
+
+    m_view->SetLayerTarget( LAYER_LOCKED_ITEM_SHADOW, KIGFX::TARGET_OVERLAY );
+    m_view->SetLayerTarget( LAYER_CONFLICTS_SHADOW, KIGFX::TARGET_OVERLAY );
+
+    m_view->SetLayerDisplayOnly( LAYER_LOCKED_ITEM_SHADOW );
+    m_view->SetLayerDisplayOnly( LAYER_CONFLICTS_SHADOW );
 
     // Some more required layers settings
     m_view->SetRequired( LAYER_VIA_NETNAMES, LAYER_VIAS );

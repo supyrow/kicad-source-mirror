@@ -43,11 +43,11 @@
 
 
 ///! Update the schema version whenever a migration is required
-const int pcbnewSchemaVersion = 1;
+const int pcbnewSchemaVersion = 4;
 
 
 PCBNEW_SETTINGS::PCBNEW_SETTINGS()
-        : APP_SETTINGS_BASE( "pcbnew", pcbnewSchemaVersion ),
+        : PCB_VIEWERS_SETTINGS_BASE( "pcbnew", pcbnewSchemaVersion ),
           m_AuiPanels(),
           m_Cleanup(),
           m_DrcDialog(),
@@ -67,15 +67,21 @@ PCBNEW_SETTINGS::PCBNEW_SETTINGS()
           m_FootprintWizard(),
           m_Display(),
           m_TrackDragAction( TRACK_DRAG_ACTION::DRAG ),
+          m_CtrlClickHighlight( false ),
           m_Use45DegreeLimit( false ),
           m_FlipLeftRight( false ),
+          m_ESCClearsNetHighlight( true ),
           m_PolarCoords( false ),
           m_RotationAngle( ANGLE_90 ),
           m_ShowPageLimits( true ),
-          m_AutoRefillZones( true ),
+          m_ShowCourtyardCollisions( true ),
+          m_AutoRefillZones( false ),
           m_AllowFreePads( false ),
           m_PnsSettings( nullptr ),
-          m_FootprintViewerZoom( 1.0 )
+          m_FootprintViewerZoom( 1.0 ),
+          m_FootprintViewerAutoZoomOnSelect( true ),
+          m_FootprintViewerLibListWidth( 200 ),
+          m_FootprintViewerFPListWidth( 300 )
 {
     m_MagneticItems.pads     = MAGNETIC_OPTIONS::CAPTURE_CURSOR_IN_TRACK_TOOL;
     m_MagneticItems.tracks   = MAGNETIC_OPTIONS::CAPTURE_CURSOR_IN_TRACK_TOOL;
@@ -89,6 +95,18 @@ PCBNEW_SETTINGS::PCBNEW_SETTINGS()
 
     m_params.emplace_back( new PARAM<int>( "aui.appearance_panel_tab",
             &m_AuiPanels.appearance_panel_tab, 0, 0, 2 ) );
+
+    m_params.emplace_back( new PARAM<bool>( "aui.appearance_expand_layer_display",
+            &m_AuiPanels.appearance_expand_layer_display, false ) );
+
+    m_params.emplace_back( new PARAM<bool>( "aui.appearance_expand_net_display",
+            &m_AuiPanels.appearance_expand_net_display, false ) );
+
+    m_params.emplace_back( new PARAM<bool>( "aui.show_properties",
+            &m_AuiPanels.show_properties, true ) );
+
+    m_params.emplace_back( new PARAM<bool>( "aui.show_search",
+            &m_AuiPanels.show_search, false ) );
 
     m_params.emplace_back( new PARAM<int>( "footprint_chooser.width",
             &m_FootprintChooser.width, -1 ) );
@@ -104,6 +122,12 @@ PCBNEW_SETTINGS::PCBNEW_SETTINGS()
 
     m_params.emplace_back( new PARAM<bool>( "editing.flip_left_right",
             &m_FlipLeftRight, true ) );
+
+    m_params.emplace_back( new PARAM<bool>( "editing.esc_clears_net_highlight",
+            &m_ESCClearsNetHighlight, true ) );
+
+    m_params.emplace_back( new PARAM<bool>( "editing.show_courtyard_collisions",
+            &m_ShowCourtyardCollisions, true ) );
 
     m_params.emplace_back( new PARAM<bool>( "editing.magnetic_graphics",
             &m_MagneticItems.graphics, true ) );
@@ -123,11 +147,14 @@ PCBNEW_SETTINGS::PCBNEW_SETTINGS()
             reinterpret_cast<int*>( &m_TrackDragAction ),
             static_cast<int>( TRACK_DRAG_ACTION::DRAG ) ) );
 
+    m_params.emplace_back( new PARAM<bool>( "editing.ctrl_click_highlight",
+            &m_CtrlClickHighlight, false ) );
+
     m_params.emplace_back( new PARAM<bool>( "editing.pcb_use_45_degree_limit",
             &m_Use45DegreeLimit, false ) );
 
     m_params.emplace_back( new PARAM<bool>( "editing.auto_fill_zones",
-            &m_AutoRefillZones, true ) );
+            &m_AutoRefillZones, false ) );
 
     m_params.emplace_back( new PARAM<bool>( "editing.allow_free_pads",
             &m_AllowFreePads, false ) );
@@ -135,26 +162,36 @@ PCBNEW_SETTINGS::PCBNEW_SETTINGS()
     m_params.emplace_back( new PARAM_LAMBDA<int>( "editing.rotation_angle",
             [this] () -> int
             {
-                return m_RotationAngle.AsTenthsOfADegree();
+                int rot = m_RotationAngle.AsTenthsOfADegree();
+
+                // Don't store values larger than 360 degrees
+                return rot % 3600;
             },
             [this] ( int aVal )
             {
                 if( aVal )
                     m_RotationAngle = EDA_ANGLE( aVal, TENTHS_OF_A_DEGREE_T );
+
+                // A misconfiguration allowed some angles to be stored as tenth of a degree but read
+                // as tens of degrees.  By disallowing storage of values larger than 360, we can weed out
+                // those invalid values here.
+                while( m_RotationAngle > ANGLE_360 )
+                    m_RotationAngle = m_RotationAngle / 100;
+
             },
             900 ) );
 
     m_params.emplace_back( new PARAM<bool>( "pcb_display.graphic_items_fill",
-            &m_Display.m_DisplayGraphicsFill, true ) );
+            &m_ViewersDisplay.m_DisplayGraphicsFill, true ) );
 
     m_params.emplace_back( new PARAM<int>( "pcb_display.max_links_shown",
             &m_Display.m_MaxLinksShowed, 3, 0, 15 ) );
 
     m_params.emplace_back( new PARAM<bool>( "pcb_display.graphics_fill",
-            &m_Display.m_DisplayGraphicsFill, true ) );
+            &m_ViewersDisplay.m_DisplayGraphicsFill, true ) );
 
     m_params.emplace_back( new PARAM<bool>( "pcb_display.text_fill",
-            &m_Display.m_DisplayTextFill, true ) );
+            &m_ViewersDisplay.m_DisplayTextFill, true ) );
 
     m_params.emplace_back( new PARAM<int>( "pcb_display.net_names_mode",
             &m_Display.m_NetNames, 3, 0, 3 ) );
@@ -162,14 +199,11 @@ PCBNEW_SETTINGS::PCBNEW_SETTINGS()
     m_params.emplace_back( new PARAM<bool>( "pcb_display.pad_clearance",
             &m_Display.m_PadClearance, true ) );
 
-    m_params.emplace_back( new PARAM<bool>( "pcb_display.pad_no_connects",
-            &m_Display.m_PadNoConnects, true ) );
-
     m_params.emplace_back( new PARAM<bool>( "pcb_display.pad_fill",
-            &m_Display.m_DisplayPadFill, true ) );
+            &m_ViewersDisplay.m_DisplayPadFill, true ) );
 
     m_params.emplace_back( new PARAM<bool>( "pcb_display.pad_numbers",
-            &m_Display.m_PadNumbers, true ) );
+            &m_ViewersDisplay.m_DisplayPadNumbers, true ) );
 
     m_params.emplace_back( new PARAM<bool>( "pcb_display.ratsnest_global",
             &m_Display.m_ShowGlobalRatsnest, true ) );
@@ -275,7 +309,7 @@ PCBNEW_SETTINGS::PCBNEW_SETTINGS()
             &m_ExportIdf.units_mils, false ) );
 
     m_params.emplace_back( new PARAM<int>( "export_step.origin_mode",
-            &m_ExportStep.origin_mode, 0 ) );
+            &m_ExportStep.origin_mode, 1 ) );
 
     m_params.emplace_back( new PARAM<int>( "export_step.origin_units",
             &m_ExportStep.origin_units, 0 ) );
@@ -337,23 +371,8 @@ PCBNEW_SETTINGS::PCBNEW_SETTINGS()
     m_params.emplace_back( new PARAM<int>( "export_vrml.origin_mode",
             &m_ExportVrml.origin_mode, 0 ) );
 
-    m_params.emplace_back( new PARAM<int>( "zones.hatching_style",
-            &m_Zones.hatching_style, 0 ) );
-
     m_params.emplace_back( new PARAM<int>( "zones.net_sort_mode",
             &m_Zones.net_sort_mode, -1 ) );
-
-    m_params.emplace_back( new PARAM<double>( "zones.clearance",
-            &m_Zones.clearance, ZONE_CLEARANCE_MIL ) );
-
-    m_params.emplace_back( new PARAM<double>( "zones.min_thickness",
-            &m_Zones.min_thickness, ZONE_THICKNESS_MIL ) );
-
-    m_params.emplace_back( new PARAM<double>( "zones.thermal_relief_gap",
-            &m_Zones.thermal_relief_gap, ZONE_THERMAL_RELIEF_GAP_MIL ) );
-
-    m_params.emplace_back( new PARAM<double>( "zones.thermal_relief_copper_width",
-            &m_Zones.thermal_relief_copper_width, ZONE_THERMAL_RELIEF_COPPER_WIDTH_MIL ) );
 
     m_params.emplace_back( new PARAM<int>( "import_graphics.layer",
             &m_ImportGraphics.layer, Dwgs_User ) );
@@ -362,10 +381,10 @@ PCBNEW_SETTINGS::PCBNEW_SETTINGS()
             &m_ImportGraphics.interactive_placement, true ) );
 
     m_params.emplace_back( new PARAM<int>( "import_graphics.line_width_units",
-            &m_ImportGraphics.line_width_units, 0 ) );
+            &m_ImportGraphics.dxf_line_width_units, 0 ) );
 
     m_params.emplace_back( new PARAM<double>( "import_graphics.line_width",
-            &m_ImportGraphics.line_width, 0.2 ) );
+            &m_ImportGraphics.dxf_line_width, 0.2 ) );
 
     m_params.emplace_back( new PARAM<int>( "import_graphics.origin_units",
             &m_ImportGraphics.origin_units, 0 ) );
@@ -394,7 +413,10 @@ PCBNEW_SETTINGS::PCBNEW_SETTINGS()
     m_params.emplace_back( new PARAM<bool>( "netlist.associate_by_ref_sch",
             &m_NetlistDialog.associate_by_ref_sch, false ) );
 
-    m_params.emplace_back(new PARAM<int>( "place_file.units",
+    m_params.emplace_back( new PARAM<wxString>( "place_file.output_directory",
+            &m_PlaceFile.output_directory, wxEmptyString ) );
+
+    m_params.emplace_back( new PARAM<int>( "place_file.units",
             &m_PlaceFile.units, 1 ) );
 
     m_params.emplace_back( new PARAM<int>( "place_file.file_options",
@@ -403,11 +425,20 @@ PCBNEW_SETTINGS::PCBNEW_SETTINGS()
     m_params.emplace_back( new PARAM<int>( "place_file.file_format",
             &m_PlaceFile.file_format, 0 ) );
 
+    m_params.emplace_back( new PARAM<bool>( "place_file.excludeTH",
+            &m_PlaceFile.exclude_TH, false ) );
+
+    m_params.emplace_back( new PARAM<bool>( "place_file.onlySMD",
+            &m_PlaceFile.only_SMD, false ) );
+
     m_params.emplace_back( new PARAM<bool>( "place_file.include_board_edge",
             &m_PlaceFile.include_board_edge, false ) );
 
     m_params.emplace_back( new PARAM<bool>( "place_file.use_place_file_origin",
             &m_PlaceFile.use_aux_origin, true ) );
+
+    m_params.emplace_back( new PARAM<bool>( "place_file.negate_xcoord",
+            &m_PlaceFile.negate_xcoord, false ) );
 
     m_params.emplace_back( new PARAM<int>( "plot.all_layers_on_one_page",
             &m_Plot.all_layers_on_one_page, 1 ) );
@@ -511,6 +542,15 @@ PCBNEW_SETTINGS::PCBNEW_SETTINGS()
     m_params.emplace_back( new PARAM<double>( "footprint_viewer.zoom",
             &m_FootprintViewerZoom, 1.0 ) );
 
+    m_params.emplace_back( new PARAM<bool>( "footprint_viewer.autozoom",
+            &m_FootprintViewerAutoZoomOnSelect, true ) );
+
+    m_params.emplace_back( new PARAM<int>( "footprint_viewer.lib_list_width",
+            &m_FootprintViewerLibListWidth, 200 ) );
+
+    m_params.emplace_back( new PARAM<int>( "footprint_viewer.fp_list_width",
+            &m_FootprintViewerFPListWidth, 300 ) );
+
     addParamsForWindow( &m_FootprintWizard, "footprint_wizard" );
 
     m_params.emplace_back( new PARAM<wxString>( "system.last_footprint_lib_dir",
@@ -522,8 +562,8 @@ PCBNEW_SETTINGS::PCBNEW_SETTINGS()
     registerMigration( 0, 1,
             [&]()
             {
-                if( OPT<int> optval = Get<int>( "pcb_display.rotation_angle" ) )
-                    Set( "editing.rotation_angle", optval.get() );
+                if( std::optional<int> optval = Get<int>( "pcb_display.rotation_angle" ) )
+                    Set( "editing.rotation_angle", *optval );
 
                 try
                 {
@@ -535,6 +575,37 @@ PCBNEW_SETTINGS::PCBNEW_SETTINGS()
                 return true;
             } );
 
+    registerMigration( 1, 2,
+            [&]()
+            {
+                // In version 1 this meant "after Zone Properties dialog", but it now means
+                // "everywhere" so we knock it off on transition.
+                Set( "editing.auto_fill_zones", false );
+
+                return true;
+            } );
+
+
+    registerMigration( 2, 3,
+            [&]() -> bool
+            {
+                // We used to have a bug on GTK which would set the lib tree column width way
+                // too narrow.
+                if( std::optional<int> optval = Get<int>( "lib_tree.column_width" ) )
+                {
+                    if( optval < 150 )
+                        Set( "lib_tree.column_width",  300 );
+                }
+
+                return true;
+            } );
+
+    registerMigration( 3, 4,
+                       [&]() -> bool
+                       {
+                           // This is actually a migration for APP_SETTINGS_BASE::m_LibTree
+                           return migrateLibTreeWidth();
+                       } );
 }
 
 
@@ -780,7 +851,6 @@ bool PCBNEW_SETTINGS::MigrateFromLegacy( wxConfigBase* aCfg )
     migrateLegacyColor( "Color4DAnchorEx",           LAYER_ANCHOR );
     migrateLegacyColor( "Color4DAuxItems",           LAYER_AUX_ITEMS );
     migrateLegacyColor( "Color4DGrid",               LAYER_GRID );
-    migrateLegacyColor( "Color4DNoNetPadMarker",     LAYER_NO_CONNECTS );
     migrateLegacyColor( "Color4DNonPlatedEx",        LAYER_NON_PLATEDHOLES );
     migrateLegacyColor( "Color4DPadThruHoleEx",      LAYER_PADS_TH );
     migrateLegacyColor( "Color4DPCBBackground",      LAYER_PCB_BACKGROUND );
@@ -791,6 +861,7 @@ bool PCBNEW_SETTINGS::MigrateFromLegacy( wxConfigBase* aCfg )
     migrateLegacyColor( "Color4DViaMicroEx",         LAYER_VIA_MICROVIA );
     migrateLegacyColor( "Color4DViaThruEx",          LAYER_VIA_THROUGH );
     migrateLegacyColor( "Color4DWorksheet",          LAYER_DRAWINGSHEET );
+    migrateLegacyColor( "Color4DGrid",               LAYER_PAGE_LIMITS );
 
     Pgm().GetSettingsManager().SaveColorSettings( cs, "board" );
 
@@ -804,11 +875,11 @@ bool PCBNEW_SETTINGS::MigrateFromLegacy( wxConfigBase* aCfg )
                 static_cast<long>( EDA_UNITS::INCHES ) ) );
 
         // Convert to internal units
-        x = From_User_Unit( u, x );
-        y = From_User_Unit( u, y );
+        x = EDA_UNIT_UTILS::UI::FromUserUnit( pcbIUScale, u, x );
+        y = EDA_UNIT_UTILS::UI::FromUserUnit( pcbIUScale, u, y );
 
-        Set( "window.grid.user_grid_x", StringFromValue( u, x ) );
-        Set( "window.grid.user_grid_y", StringFromValue( u, y ) );
+        Set( "window.grid.user_grid_x", EDA_UNIT_UTILS::UI::StringFromValue( pcbIUScale, u, x ) );
+        Set( "window.grid.user_grid_y", EDA_UNIT_UTILS::UI::StringFromValue( pcbIUScale, u, y ) );
     }
 
     // Footprint editor settings were stored in pcbnew config file.  Migrate them here.

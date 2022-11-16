@@ -30,6 +30,7 @@
 #include <board.h>
 #include <board_design_settings.h>
 #include <footprint.h>
+#include <fp_lib_table.h>
 #include <fp_shape.h>
 #include <idf_parser.h>
 #include <pad.h>
@@ -40,14 +41,12 @@
 #include "3d_cache/3d_cache.h"
 #include "filename_resolver.h"
 
-#ifndef PCBNEW
-#define PCBNEW                  // needed to define the right value of Millimeter2iu(x)
-#endif
-#include <convert_to_biu.h>     // to define Millimeter2iu(x)
+
+#include <base_units.h>     // to define pcbIUScale.FromMillimeter(x)
 
 
 // assumed default graphical line thickness: == 0.1mm
-#define LINE_WIDTH (Millimeter2iu( 0.1 ))
+#define LINE_WIDTH (pcbIUScale.mmToIU( 0.1 ))
 
 
 static FILENAME_RESOLVER* resolver;
@@ -223,7 +222,7 @@ UseBoundingBox:
     // Fetch a rectangular bounding box for the board; there is always some uncertainty in the
     // board dimensions computed via ComputeBoundingBox() since this depends on the individual
     // footprint entities.
-    EDA_RECT bbbox = aPcb->GetBoardEdgesBoundingBox();
+    BOX2I bbbox = aPcb->GetBoardEdgesBoundingBox();
 
     // convert to mm and compensate for an assumed LINE_WIDTH line thickness
     double  x   = ( bbbox.GetOrigin().x + LINE_WIDTH / 2 ) * scale + offX;
@@ -276,6 +275,26 @@ static void idf_export_footprint( BOARD* aPcb, FOOTPRINT* aFootprint, IDF3_BOARD
 {
     // Reference Designator
     std::string crefdes = TO_UTF8( aFootprint->Reference().GetShownText() );
+
+    wxString libraryName = aFootprint->GetFPID().GetLibNickname();
+    wxString footprintBasePath = wxEmptyString;
+
+    if( aPcb->GetProject() )
+    {
+        const FP_LIB_TABLE_ROW* fpRow = nullptr;
+
+        try
+        {
+            fpRow = aPcb->GetProject()->PcbFootprintLibs()->FindRow( libraryName, false );
+        }
+        catch( ... )
+        {
+            // Not found: do nothing
+        }
+
+        if( fpRow )
+            footprintBasePath = fpRow->GetFullURI( true );
+    }
 
     if( crefdes.empty() || !crefdes.compare( "~" ) )
     {
@@ -413,7 +432,7 @@ static void idf_export_footprint( BOARD* aPcb, FOOTPRINT* aFootprint, IDF3_BOARD
             continue;
         }
 
-        idfFile.Assign( resolver->ResolvePath( sM->m_Filename ) );
+        idfFile.Assign( resolver->ResolvePath( sM->m_Filename, footprintBasePath ) );
         idfExt = idfFile.GetExt();
 
         if( idfExt.Cmp( wxT( "idf" ) ) && idfExt.Cmp( wxT( "IDF" ) ) )
@@ -592,7 +611,7 @@ bool PCB_EDIT_FRAME::Export_IDF3( BOARD* aPcb, const wxString& aFullFileName,
     resolver = Prj().Get3DCacheManager()->GetResolver();
 
     bool ok = true;
-    double scale = MM_PER_IU;   // we must scale internal units to mm for IDF
+    double scale = pcbIUScale.MM_PER_IU;   // we must scale internal units to mm for IDF
     IDF3::IDF_UNIT idfUnit;
 
     if( aUseThou )

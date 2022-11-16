@@ -55,15 +55,20 @@ public:
 
     VECTOR2I GetDrawPos() const override;
 
-    wxString GetShownText( int aDepth = 0 ) const override;
+    wxString GetShownText( int aDepth = 0, bool aAllowExtraText = true ) const override;
+
+    bool IsHypertext() const override
+    {
+        return HasHyperlink();
+    }
+
+    void DoHypertextAction( EDA_DRAW_FRAME* aFrame ) const override;
 
     void Print( const RENDER_SETTINGS* aSettings, const VECTOR2I& offset ) override;
 
     void SwapData( SCH_ITEM* aItem ) override;
 
     bool operator<( const SCH_ITEM& aItem ) const override;
-
-    KIFONT::FONT* GetDrawFont() const override;
 
     void Move( const VECTOR2I& aMoveVector ) override
     {
@@ -79,21 +84,21 @@ public:
 
     bool HitTest( const VECTOR2I& aPosition, int aAccuracy = 0 ) const override;
 
-    bool HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy = 0 ) const override;
+    bool HitTest( const BOX2I& aRect, bool aContained, int aAccuracy = 0 ) const override;
 
-    bool Matches( const wxFindReplaceData& aSearchData, void* aAuxData ) const override
+    bool Matches( const EDA_SEARCH_DATA& aSearchData, void* aAuxData ) const override
     {
         return SCH_ITEM::Matches( GetText(), aSearchData );
     }
 
-    bool Replace( const wxFindReplaceData& aSearchData, void* aAuxData ) override
+    bool Replace( const EDA_SEARCH_DATA& aSearchData, void* aAuxData ) override
     {
         return EDA_TEXT::Replace( aSearchData );
     }
 
     virtual bool IsReplaceable() const override { return true; }
 
-    wxString GetSelectMenuText( EDA_UNITS aUnits ) const override;
+    wxString GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const override;
 
     BITMAPS GetMenuImage() const override;
 
@@ -105,6 +110,9 @@ public:
     }
 
     void GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList ) override;
+
+protected:
+    KIFONT::FONT* getDrawFont() const override;
 };
 
 

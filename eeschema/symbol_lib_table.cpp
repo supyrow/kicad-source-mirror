@@ -27,10 +27,14 @@
 #include <lib_table_lexer.h>
 #include <pgm_base.h>
 #include <search_stack.h>
+#include <settings/kicad_settings.h>
 #include <settings/settings_manager.h>
 #include <systemdirsappend.h>
 #include <symbol_lib_table.h>
 #include <lib_symbol.h>
+
+#include <wx/dir.h>
+
 
 #define OPT_SEP     '|'         ///< options separator character
 
@@ -76,12 +80,22 @@ bool SYMBOL_LIB_TABLE_ROW::Refresh()
 
         plugin.set( SCH_IO_MGR::FindPlugin( type ) );
         SetLoaded( false );
+        plugin->SetLibTable( static_cast<SYMBOL_LIB_TABLE*>( GetParent() ) );
         plugin->EnumerateSymbolLib( dummyList, GetFullURI( true ), GetProperties() );
         SetLoaded( true );
         return true;
     }
 
     return false;
+}
+
+
+void SYMBOL_LIB_TABLE_ROW::GetSubLibraryNames( std::vector<wxString>& aNames ) const
+{
+    if( !plugin )
+        return;
+
+    plugin->GetSubLibraryNames( aNames );
 }
 
 
@@ -149,6 +163,7 @@ void SYMBOL_LIB_TABLE::Parse( LIB_TABLE_LEXER* in )
         bool    sawDesc     = false;
         bool    sawUri      = false;
         bool    sawDisabled = false;
+        bool    sawHidden   = false;
 
         while( ( tok = in->NextTok() ) != T_RIGHT )
         {
@@ -199,6 +214,13 @@ void SYMBOL_LIB_TABLE::Parse( LIB_TABLE_LEXER* in )
                     in->Duplicate( tok );
                 sawDisabled = true;
                 row->SetEnabled( false );
+                break;
+
+            case T_hidden:
+                if( sawHidden )
+                    in->Duplicate( tok );
+                sawHidden = true;
+                row->SetVisible( false );
                 break;
 
             default:
@@ -312,7 +334,10 @@ SYMBOL_LIB_TABLE_ROW* SYMBOL_LIB_TABLE::FindRow( const wxString& aNickname, bool
     // instantiate a PLUGIN of the proper kind if it is not already in this
     // SYMBOL_LIB_TABLE_ROW.
     if( !row->plugin )
+    {
         row->setPlugin( SCH_IO_MGR::FindPlugin( row->type ) );
+        row->plugin->SetLibTable( this );
+    }
 
     return row;
 }
@@ -324,10 +349,12 @@ void SYMBOL_LIB_TABLE::LoadSymbolLib( std::vector<LIB_SYMBOL*>& aSymbolList,
     SYMBOL_LIB_TABLE_ROW* row = FindRow( aNickname, true );
     wxCHECK( row && row->plugin, /* void */  );
 
+    std::lock_guard<std::mutex> lock( row->GetMutex() );
+
     wxString options = row->GetOptions();
 
     if( aPowerSymbolsOnly )
-        row->SetOptions( row->GetOptions() + " " + PropPowerSymsOnly );
+            row->SetOptions( row->GetOptions() + " " + PropPowerSymsOnly );
 
     row->SetLoaded( false );
     row->plugin->EnumerateSymbolLib( aSymbolList, row->GetFullURI( true ), row->GetProperties() );
@@ -355,6 +382,12 @@ LIB_SYMBOL* SYMBOL_LIB_TABLE::LoadSymbol( const wxString& aNickname, const wxStr
     SYMBOL_LIB_TABLE_ROW* row = FindRow( aNickname, true );
 
     if( !row || !row->plugin )
+        return nullptr;
+
+    // If another thread is loading this library at the moment; continue
+    std::unique_lock<std::mutex> lock( row->GetMutex(), std::try_to_lock );
+
+    if( !lock.owns_lock() )
         return nullptr;
 
     LIB_SYMBOL* symbol = row->plugin->LoadSymbol( row->GetFullURI( true ), aSymbolName,
@@ -487,6 +520,68 @@ const wxString SYMBOL_LIB_TABLE::GlobalPathEnvVariableName()
 }
 
 
+class PCM_SYM_LIB_TRAVERSER final : public wxDirTraverser
+{
+public:
+    explicit PCM_SYM_LIB_TRAVERSER( const wxString& aPath, SYMBOL_LIB_TABLE& aTable,
+                                    const wxString& aPrefix ) :
+            m_lib_table( aTable ),
+            m_path_prefix( aPath ),
+            m_lib_prefix( aPrefix )
+    {
+        wxFileName f( aPath, "" );
+        m_prefix_dir_count = f.GetDirCount();
+    }
+
+    wxDirTraverseResult OnFile( const wxString& aFilePath ) override
+    {
+        wxFileName file = wxFileName::FileName( aFilePath );
+
+        // consider a file to be a lib if it's name ends with .kicad_sym and
+        // it is under $KICAD6_3RD_PARTY/symbols/<pkgid>/ i.e. has nested level of at least +2
+        if( file.GetExt() == wxT( "kicad_sym" ) && file.GetDirCount() >= m_prefix_dir_count + 2 )
+        {
+            wxArrayString parts = file.GetDirs();
+            parts.RemoveAt( 0, m_prefix_dir_count );
+            parts.Insert( "${KICAD6_3RD_PARTY}", 0 );
+            parts.Add( file.GetFullName() );
+
+            wxString libPath = wxJoin( parts, '/' );
+
+            if( !m_lib_table.HasLibraryWithPath( libPath ) )
+            {
+                wxString name = parts.Last().substr( 0, parts.Last().length() - 10 );
+                wxString nickname = wxString::Format( "%s%s", m_lib_prefix, name );
+
+                if( m_lib_table.HasLibrary( nickname ) )
+                {
+                    int increment = 1;
+                    do
+                    {
+                        nickname = wxString::Format( "%s%s_%d", m_lib_prefix, name, increment );
+                        increment++;
+                    } while( m_lib_table.HasLibrary( nickname ) );
+                }
+
+                m_lib_table.InsertRow(
+                        new SYMBOL_LIB_TABLE_ROW( nickname, libPath, wxT( "KiCad" ), wxEmptyString,
+                                                  _( "Added by Plugin and Content Manager" ) ) );
+            }
+        }
+
+        return wxDIR_CONTINUE;
+    }
+
+    wxDirTraverseResult OnDir( const wxString& dirPath ) override { return wxDIR_CONTINUE; }
+
+private:
+    SYMBOL_LIB_TABLE& m_lib_table;
+    wxString          m_path_prefix;
+    wxString          m_lib_prefix;
+    size_t            m_prefix_dir_count;
+};
+
+
 bool SYMBOL_LIB_TABLE::LoadGlobalTable( SYMBOL_LIB_TABLE& aTable )
 {
     bool        tableExists = true;
@@ -526,6 +621,44 @@ bool SYMBOL_LIB_TABLE::LoadGlobalTable( SYMBOL_LIB_TABLE& aTable )
     }
 
     aTable.Load( fn.GetFullPath() );
+
+    SETTINGS_MANAGER& mgr = Pgm().GetSettingsManager();
+    KICAD_SETTINGS*   settings = mgr.GetAppSettings<KICAD_SETTINGS>();
+
+    wxString packagesPath = Pgm().GetLocalEnvVariables().at( wxT( "KICAD6_3RD_PARTY" ) ).GetValue();
+
+    if( settings->m_PcmLibAutoAdd )
+    {
+        // Scan for libraries in PCM packages directory
+        wxFileName d( packagesPath, "" );
+        d.AppendDir( "symbols" );
+
+        if( d.DirExists() )
+        {
+            PCM_SYM_LIB_TRAVERSER traverser( packagesPath, aTable, settings->m_PcmLibPrefix );
+            wxDir                 dir( d.GetPath() );
+
+            dir.Traverse( traverser );
+        }
+    }
+
+    if( settings->m_PcmLibAutoRemove )
+    {
+        // Remove PCM libraries that no longer exist
+        std::vector<wxString> to_remove;
+
+        for( size_t i = 0; i < aTable.GetCount(); i++ )
+        {
+            LIB_TABLE_ROW& row = aTable.At( i );
+            wxString       path = row.GetFullURI( true );
+
+            if( path.StartsWith( packagesPath ) && !wxFile::Exists( path ) )
+                to_remove.push_back( row.GetNickName() );
+        }
+
+        for( const wxString& nickName : to_remove )
+            aTable.RemoveRow( aTable.FindRow( nickName ) );
+    }
 
     return tableExists;
 }

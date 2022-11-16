@@ -34,6 +34,7 @@
 #include <vector>
 #include <wx/string.h>
 
+class PROJECT;
 class PGM_BASE;
 
 struct SEARCH_PATH
@@ -90,19 +91,16 @@ public:
     bool UpdatePathList( const std::vector<SEARCH_PATH>& aPathList );
 
     /**
-     * Write the current path list to a config file.
-     * @param aResolvePaths indicates whether env vars should also be written out or not
-     */
-    bool WritePathList( const wxString& aDir, const wxString& aFilename, bool aResolvePaths );
-
-    /**
      * Determines the full path of the given file name.
      *
      * In the future remote files may be supported, in which case it is best to require a full
      * URI in which case ResolvePath should check that the URI conforms to RFC-2396 and related
      * documents and copies \a aFileName into aResolvedName if the URI is valid.
+     *
+     * @param aFileName The configured file path to resolve
+     * @param aWorkingPath The current working path for relative path resolutions
      */
-    wxString ResolvePath( const wxString& aFileName );
+    wxString ResolvePath( const wxString& aFileName, const wxString& aWorkingPath );
 
     /**
      * Produce a relative path based on the existing search directories or returns the same path
@@ -160,13 +158,6 @@ private:
      * @return true if aPath is valid.
      */
     bool addPath( const SEARCH_PATH& aPath );
-
-    /**
-     * Read a list of path names from a configuration file.
-     *
-     * @return true if a file was found and contained at least one valid path.
-     */
-    bool readPathList( void );
 
     /**
      * Check the ${ENV_VAR} component of a path and adds it to the resolver's path list if

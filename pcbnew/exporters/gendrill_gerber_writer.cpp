@@ -147,7 +147,7 @@ int GERBER_WRITER::createDrillFile( wxString& aFullFilename, bool aIsNpth,
 
     // Add the standard X2 header, without FileFunction
     AddGerberX2Header( &plotter, m_pcb );
-    plotter.SetViewport( m_offset, IU_PER_MILS/10, /* scale */ 1.0, /* mirror */false );
+    plotter.SetViewport( m_offset, pcbIUScale.IU_PER_MILS/10, /* scale */ 1.0, /* mirror */false );
 
     // has meaning only for gerber plotter. Must be called only after SetViewport
     plotter.SetGerberCoordinatesFormat( 6 );
@@ -156,9 +156,8 @@ int GERBER_WRITER::createDrillFile( wxString& aFullFilename, bool aIsNpth,
     // Add the standard X2 FileFunction for drill files
     // %TF.FileFunction,Plated[NonPlated],layer1num,layer2num,PTH[NPTH][Blind][Buried],Drill[Route][Mixed]*%
     wxString text = BuildFileFunctionAttributeString( aLayerPair,
-                                                      aIsNpth
-                                                            ? TYPE_FILE::NPTH_FILE
-                                                            : TYPE_FILE::PTH_FILE );
+                                                      aIsNpth ? TYPE_FILE::NPTH_FILE
+                                                              : TYPE_FILE::PTH_FILE );
     plotter.AddLineToHeader( text );
 
     // Add file polarity (positive)
@@ -168,7 +167,7 @@ int GERBER_WRITER::createDrillFile( wxString& aFullFilename, bool aIsNpth,
     if( !plotter.OpenFile( aFullFilename ) )
         return -1;
 
-    plotter.StartPlot();
+    plotter.StartPlot( wxT( "1" ) );
 
     holes_count = 0;
 
@@ -289,7 +288,7 @@ void convertOblong2Segment( wxSize aSize, const EDA_ANGLE& aOrient, VECTOR2I& aS
 void GERBER_WRITER::SetFormat( int aRightDigits )
 {
     /* Set conversion scale depending on drill file units */
-    m_conversionUnits = 1.0 / IU_PER_MM;        // Gerber units = mm
+    m_conversionUnits = 1.0 / pcbIUScale.IU_PER_MM; // Gerber units = mm
 
     // Set precision (unit is mm).
     m_precision.m_Lhs = 4;

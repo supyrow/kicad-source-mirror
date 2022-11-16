@@ -28,6 +28,7 @@
 
 
 #include <clipper.hpp>
+#include <clipper2/clipper.h>
 #include <geometry/seg.h>
 #include <geometry/shape.h>
 #include <geometry/shape_arc.h>
@@ -111,6 +112,15 @@ public:
         ///< used by the refining code (e.g. hull handling stuff in the P&S) to reject false
         ///< intersection points.
         bool valid;
+
+        INTERSECTION() :
+            index_our( -1 ),
+            index_their( -1 ),
+            is_corner_our( false ),
+            is_corner_their( false ),
+            valid( false )
+        {
+        }
     };
 
 
@@ -183,6 +193,10 @@ public:
     }
 
     SHAPE_LINE_CHAIN( const ClipperLib::Path& aPath,
+                      const std::vector<CLIPPER_Z_VALUE>& aZValueBuffer,
+                      const std::vector<SHAPE_ARC>& aArcBuffer );
+
+    SHAPE_LINE_CHAIN( const Clipper2Lib::Path64& aPath,
                       const std::vector<CLIPPER_Z_VALUE>& aZValueBuffer,
                       const std::vector<SHAPE_ARC>& aArcBuffer );
 
@@ -282,6 +296,7 @@ public:
     int SegmentCount() const
     {
         int c = m_points.size() - 1;
+
         if( m_closed )
             c++;
 
@@ -635,7 +650,8 @@ public:
      * @return the number of intersections found.
      */
     int Intersect( const SHAPE_LINE_CHAIN& aChain, INTERSECTIONS& aIp,
-                   bool aExcludeColinearAndTouching = false ) const;
+                   bool aExcludeColinearAndTouching = false,
+                   BOX2I* aChainBBox = nullptr ) const;
 
     /**
      * Compute the walk path length from the beginning of the line chain and the point \a aP
@@ -659,7 +675,7 @@ public:
      *
      * @return (optional) first found self-intersection point.
      */
-    const OPT<INTERSECTION> SelfIntersecting() const;
+    const std::optional<INTERSECTION> SelfIntersecting() const;
 
     /**
      * Simplify the line chain by removing colinear adjacent segments and duplicate vertices.
@@ -698,7 +714,7 @@ public:
     const VECTOR2I NearestPoint( const SEG& aSeg, int& dist ) const;
 
     /// @copydoc SHAPE::Format()
-    const std::string Format() const override;
+    const std::string Format( bool aCplusPlus = true ) const override;
 
     /// @copydoc SHAPE::Parse()
     bool Parse( std::stringstream& aStream ) override;
@@ -901,6 +917,13 @@ protected:
     ClipperLib::Path convertToClipper( bool aRequiredOrientation,
                                        std::vector<CLIPPER_Z_VALUE>& aZValueBuffer,
                                        std::vector<SHAPE_ARC>&       aArcBuffer ) const;
+
+    /**
+     * Create a new Clipper2 path from the SHAPE_LINE_CHAIN in a given orientation
+     */
+    Clipper2Lib::Path64 convertToClipper2( bool aRequiredOrientation,
+            std::vector<CLIPPER_Z_VALUE> &aZValueBuffer,
+            std::vector<SHAPE_ARC> &aArcBuffer ) const;
 
     /**
      * Fix indices of this chain to ensure arcs are not split between the end and start indices

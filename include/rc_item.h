@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2020-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -25,6 +25,7 @@
 #define RC_ITEM_H
 
 #include <wx/dataview.h>
+#include <units_provider.h>
 #include <kiid.h>
 #include <reporter.h>
 #include <math/vector2d.h>
@@ -60,8 +61,6 @@ public:
      * @param aDeep If true, the source item should be deleted as well as its entry in the list.
      */
     virtual void DeleteItem( int aIndex, bool aDeep ) = 0;
-
-    virtual void DeleteAllItems( bool aIncludeExclusions, bool aDeep ) = 0;
 
     virtual ~RC_ITEMS_PROVIDER() { }
 };
@@ -115,10 +114,12 @@ public:
         m_ids.push_back( dItem );
     }
 
-    KIID GetMainItemID() const { return m_ids.size() > 0 ? m_ids[0] : niluuid; }
-    KIID GetAuxItemID() const { return m_ids.size() > 1 ? m_ids[1] : niluuid;; }
-    KIID GetAuxItem2ID() const { return m_ids.size() > 2 ? m_ids[2] : niluuid;; }
-    KIID GetAuxItem3ID() const { return m_ids.size() > 3 ? m_ids[3] : niluuid;; }
+    virtual KIID GetMainItemID() const { return m_ids.size() > 0 ? m_ids[0] : niluuid; }
+    virtual KIID GetAuxItemID() const { return m_ids.size() > 1 ? m_ids[1] : niluuid; }
+    virtual KIID GetAuxItem2ID() const { return m_ids.size() > 2 ? m_ids[2] : niluuid; }
+    virtual KIID GetAuxItem3ID() const { return m_ids.size() > 3 ? m_ids[3] : niluuid; }
+
+    std::vector<KIID> GetIDs() const { return m_ids; }
 
     void SetParent( MARKER_BASE* aMarker ) { m_parent = aMarker; }
     MARKER_BASE* GetParent() const { return m_parent; }
@@ -129,17 +130,22 @@ public:
      *
      * @return wxString - the simple multi-line report text.
      */
-    virtual wxString ShowReport( EDA_UNITS aUnits, SEVERITY aSeverity,
+    virtual wxString ShowReport( UNITS_PROVIDER* aUnitsProvider, SEVERITY aSeverity,
                                  const std::map<KIID, EDA_ITEM*>& aItemMap ) const;
 
     int GetErrorCode() const { return m_errorCode; }
     void SetErrorCode( int aCode ) { m_errorCode = aCode; }
 
     /**
-     * Return the error message of a RC_ITEM.
+     * @return the error message describing the specific details of a RC_ITEM.  For instance,
+     * "Clearance violation (netclass '100ohm' clearance 0.4000mm; actual 0.3200mm)"
      */
     virtual wxString GetErrorMessage() const;
 
+    /**
+     * @return the error text for the class of error of this RC_ITEM represents.  For instance,
+     * "Clearance violation".
+     */
     wxString GetErrorText() const
     {
         return wxGetTranslation( m_errorTitle );
@@ -154,11 +160,6 @@ public:
     {
         return wxEmptyString;
     }
-
-    /**
-     * Format a coordinate or position to text.
-     */
-    static wxString ShowCoord( EDA_UNITS aUnits, const VECTOR2I& aPos );
 
 protected:
     int           m_errorCode;         ///< The error code's numeric value
@@ -216,10 +217,7 @@ public:
 
     ~RC_TREE_MODEL();
 
-    void SetProvider( RC_ITEMS_PROVIDER* aProvider );
-    void SetSeverities( int aSeverities );
-
-    int GetDRCItemCount() const { return m_tree.size(); }
+    void Update( std::shared_ptr<RC_ITEMS_PROVIDER> aProvider, int aSeverities );
 
     void ExpandAll();
 
@@ -274,15 +272,15 @@ public:
     void DeleteItems( bool aCurrentOnly, bool aIncludeExclusions, bool aDeep );
 
 private:
-    void rebuildModel( RC_ITEMS_PROVIDER* aProvider, int aSeverities );
+    void rebuildModel( std::shared_ptr<RC_ITEMS_PROVIDER> aProvider, int aSeverities );
     void onSizeView( wxSizeEvent& aEvent );
 
-    EDA_DRAW_FRAME*            m_editFrame;
-    wxDataViewCtrl*            m_view;
-    int                        m_severities;
-    RC_ITEMS_PROVIDER*         m_rcItemsProvider;   // I own this, but not its contents
+    EDA_DRAW_FRAME*                    m_editFrame;
+    wxDataViewCtrl*                    m_view;
+    int                                m_severities;
+    std::shared_ptr<RC_ITEMS_PROVIDER> m_rcItemsProvider;
 
-    std::vector<RC_TREE_NODE*> m_tree;              // I own this
+    std::vector<RC_TREE_NODE*>         m_tree;              // I own this
 };
 
 #endif      // RC_ITEM_H

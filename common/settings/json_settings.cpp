@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2020 Jon Evans <jon@craftyjon.com>
- * Copyright (C) 2020-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2020-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -120,12 +120,6 @@ bool JSON_SETTINGS::Contains( const std::string& aPath ) const
 }
 
 
-size_t JSON_SETTINGS::Count( const std::string& aPath ) const
-{
-    return m_internals->count( JSON_SETTINGS_INTERNALS::PointerFromString( aPath ) );
-}
-
-
 JSON_SETTINGS_INTERNALS* JSON_SETTINGS::Internals()
 {
     return m_internals.get();
@@ -189,12 +183,14 @@ bool JSON_SETTINGS::LoadFromFile( const wxString& aDirectory )
         // already loaded above
         if( !MigrateFromLegacy( cfg.get() ) )
         {
+            success = false;
             wxLogTrace( traceSettings,
                         wxT( "%s: migrated; not all settings were found in legacy file" ),
                         GetFullFilename() );
         }
         else
         {
+            success = true;
             wxLogTrace( traceSettings, wxT( "%s: migrated from legacy format" ), GetFullFilename() );
         }
 
@@ -316,6 +312,7 @@ bool JSON_SETTINGS::LoadFromFile( const wxString& aDirectory )
         }
         catch( nlohmann::json::parse_error& error )
         {
+            success = false;
             wxLogTrace( traceSettings, wxT( "Json parse error reading %s: %s" ),
                         path.GetFullPath(), error.what() );
             wxLogTrace( traceSettings, wxT( "Attempting migration in case file is in legacy format" ) );
@@ -333,7 +330,7 @@ bool JSON_SETTINGS::LoadFromFile( const wxString& aDirectory )
     wxLogTrace( traceSettings, wxT( "Loaded <%s> with schema %d" ), GetFullFilename(), m_schemaVersion );
 
     // If we migrated, clean up the legacy file (with no extension)
-    if( legacy_migrated || migrated )
+    if( m_writeFile && ( legacy_migrated || migrated ) )
     {
         if( legacy_migrated && m_deleteLegacyAfterMigration && !wxRemoveFile( path.GetFullPath() ) )
         {
@@ -471,7 +468,50 @@ bool JSON_SETTINGS::SaveToFile( const wxString& aDirectory, bool aForce )
 }
 
 
-OPT<nlohmann::json> JSON_SETTINGS::GetJson( const std::string& aPath ) const
+const std::string JSON_SETTINGS::FormatAsString() const
+{
+    LOCALE_IO dummy;
+
+    std::stringstream buffer;
+    buffer << std::setw( 2 ) << *m_internals << std::endl;
+
+    return buffer.str();
+}
+
+
+bool JSON_SETTINGS::LoadFromRawFile( const wxString& aPath )
+{
+    try
+    {
+        wxFFileInputStream fp( aPath, wxT( "rt" ) );
+        wxStdInputStream   fstream( fp );
+
+        if( fp.IsOk() )
+        {
+            *static_cast<nlohmann::json*>( m_internals.get() ) =
+                    nlohmann::json::parse( fstream, nullptr,
+                                           /* allow_exceptions = */ true,
+                                           /* ignore_comments  = */ true );
+        }
+        else
+        {
+            return false;
+        }
+    }
+    catch( nlohmann::json::parse_error& error )
+    {
+        wxLogTrace( traceSettings, wxT( "Json parse error reading %s: %s" ), aPath, error.what() );
+
+        return false;
+    }
+
+    // Now that we have new data in the JSON structure, load the params again
+    Load();
+    return true;
+}
+
+
+std::optional<nlohmann::json> JSON_SETTINGS::GetJson( const std::string& aPath ) const
 {
     nlohmann::json::json_pointer ptr = m_internals->PointerFromString( aPath );
 
@@ -479,21 +519,21 @@ OPT<nlohmann::json> JSON_SETTINGS::GetJson( const std::string& aPath ) const
     {
         try
         {
-            return OPT<nlohmann::json>{ m_internals->at( ptr ) };
+            return std::optional<nlohmann::json>{ m_internals->at( ptr ) };
         }
         catch( ... )
         {
         }
     }
 
-    return OPT<nlohmann::json>{};
+    return std::optional<nlohmann::json>{};
 }
 
 
 template<typename ValueType>
-OPT<ValueType> JSON_SETTINGS::Get( const std::string& aPath ) const
+std::optional<ValueType> JSON_SETTINGS::Get( const std::string& aPath ) const
 {
-    if( OPT<nlohmann::json> ret = GetJson( aPath ) )
+    if( std::optional<nlohmann::json> ret = GetJson( aPath ) )
     {
         try
         {
@@ -504,20 +544,20 @@ OPT<ValueType> JSON_SETTINGS::Get( const std::string& aPath ) const
         }
     }
 
-    return NULLOPT;
+    return std::nullopt;
 }
 
 
 // Instantiate all required templates here to allow reducing scope of json.hpp
-template OPT<bool> JSON_SETTINGS::Get<bool>( const std::string& aPath ) const;
-template OPT<double> JSON_SETTINGS::Get<double>( const std::string& aPath ) const;
-template OPT<float> JSON_SETTINGS::Get<float>( const std::string& aPath ) const;
-template OPT<int> JSON_SETTINGS::Get<int>( const std::string& aPath ) const;
-template OPT<unsigned int> JSON_SETTINGS::Get<unsigned int>( const std::string& aPath ) const;
-template OPT<unsigned long long> JSON_SETTINGS::Get<unsigned long long>( const std::string& aPath ) const;
-template OPT<std::string> JSON_SETTINGS::Get<std::string>( const std::string& aPath ) const;
-template OPT<nlohmann::json> JSON_SETTINGS::Get<nlohmann::json>( const std::string& aPath ) const;
-template OPT<KIGFX::COLOR4D> JSON_SETTINGS::Get<KIGFX::COLOR4D>( const std::string& aPath ) const;
+template std::optional<bool> JSON_SETTINGS::Get<bool>( const std::string& aPath ) const;
+template std::optional<double> JSON_SETTINGS::Get<double>( const std::string& aPath ) const;
+template std::optional<float> JSON_SETTINGS::Get<float>( const std::string& aPath ) const;
+template std::optional<int> JSON_SETTINGS::Get<int>( const std::string& aPath ) const;
+template std::optional<unsigned int> JSON_SETTINGS::Get<unsigned int>( const std::string& aPath ) const;
+template std::optional<unsigned long long> JSON_SETTINGS::Get<unsigned long long>( const std::string& aPath ) const;
+template std::optional<std::string> JSON_SETTINGS::Get<std::string>( const std::string& aPath ) const;
+template std::optional<nlohmann::json> JSON_SETTINGS::Get<nlohmann::json>( const std::string& aPath ) const;
+template std::optional<KIGFX::COLOR4D> JSON_SETTINGS::Get<KIGFX::COLOR4D>( const std::string& aPath ) const;
 
 
 template<typename ValueType>
@@ -682,7 +722,7 @@ template bool JSON_SETTINGS::fromLegacy<int>( wxConfigBase*, const std::string&,
                                               const std::string& );
 
 template bool JSON_SETTINGS::fromLegacy<double>( wxConfigBase*, const std::string&,
-                                              const std::string& );
+                                                 const std::string& );
 
 template bool JSON_SETTINGS::fromLegacy<bool>( wxConfigBase*, const std::string&,
                                                const std::string& );
@@ -749,7 +789,7 @@ void JSON_SETTINGS::AddNestedSettings( NESTED_SETTINGS* aSettings )
 
 void JSON_SETTINGS::ReleaseNestedSettings( NESTED_SETTINGS* aSettings )
 {
-    if( !aSettings )
+    if( !aSettings || !m_manager )
         return;
 
     auto it = std::find_if( m_nested_settings.begin(), m_nested_settings.end(),
@@ -770,12 +810,12 @@ void JSON_SETTINGS::ReleaseNestedSettings( NESTED_SETTINGS* aSettings )
 
 // Specializations to allow conversion between wxString and std::string via JSON_SETTINGS API
 
-template<> OPT<wxString> JSON_SETTINGS::Get( const std::string& aPath ) const
+template<> std::optional<wxString> JSON_SETTINGS::Get( const std::string& aPath ) const
 {
-    if( OPT<nlohmann::json> opt_json = GetJson( aPath ) )
+    if( std::optional<nlohmann::json> opt_json = GetJson( aPath ) )
         return wxString( opt_json->get<std::string>().c_str(), wxConvUTF8 );
 
-    return NULLOPT;
+    return std::nullopt;
 }
 
 
@@ -796,3 +836,29 @@ void from_json( const nlohmann::json& aJson, wxString& aString )
 {
     aString = wxString( aJson.get<std::string>().c_str(), wxConvUTF8 );
 }
+
+
+template<typename ResultType>
+ResultType JSON_SETTINGS::fetchOrDefault( const nlohmann::json& aJson, const std::string& aKey,
+                                          ResultType aDefault )
+{
+    ResultType ret = aDefault;
+
+    try
+    {
+        if( aJson.contains( aKey ) )
+            ret = aJson.at( aKey ).get<ResultType>();
+    }
+    catch( ... )
+    {
+    }
+
+    return ret;
+}
+
+
+template std::string JSON_SETTINGS::fetchOrDefault( const nlohmann::json& aJson,
+                                                    const std::string& aKey, std::string aDefault );
+
+template bool JSON_SETTINGS::fetchOrDefault( const nlohmann::json& aJson, const std::string& aKey,
+                                             bool aDefault );

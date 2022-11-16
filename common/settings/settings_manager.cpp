@@ -55,8 +55,6 @@ SETTINGS_MANAGER::SETTINGS_MANAGER( bool aHeadless ) :
         m_migration_source(),
         m_migrateLibraryTables( true )
 {
-    PATHS::EnsureUserPathsExist();
-
     // Check if the settings directory already exists, and if not, perform a migration if possible
     if( !MigrateIfNeeded() )
     {
@@ -72,9 +70,9 @@ SETTINGS_MANAGER::SETTINGS_MANAGER( bool aHeadless ) :
 
 SETTINGS_MANAGER::~SETTINGS_MANAGER()
 {
+    m_projects.clear();
     m_settings.clear();
     m_color_settings.clear();
-    m_projects.clear();
 }
 
 
@@ -363,7 +361,7 @@ void SETTINGS_MANAGER::SaveColorSettings( COLOR_SETTINGS* aSettings, const std::
                 aSettings->GetFilename(),
                 aNamespace );
 
-    OPT<nlohmann::json> backup = aSettings->GetJson( aNamespace );
+    std::optional<nlohmann::json> backup = aSettings->GetJson( aNamespace );
     wxString path = GetColorSettingsPath();
 
     aSettings->LoadFromFile( path );
@@ -387,6 +385,7 @@ wxString SETTINGS_MANAGER::GetPathForSettingsFile( JSON_SETTINGS* aSettings )
         return GetUserSettingsPath();
 
     case SETTINGS_LOC::PROJECT:
+        // TODO: MDI support
         return Prj().GetProjectPath();
 
     case SETTINGS_LOC::COLORS:
@@ -484,7 +483,7 @@ bool SETTINGS_MANAGER::MigrateIfNeeded()
     if( m_headless )
     {
         wxLogTrace( traceSettings, wxT( "Settings migration not checked; running headless" ) );
-        return false;
+        return true;
     }
 
     wxFileName path( GetUserSettingsPath(), "" );
@@ -618,7 +617,7 @@ bool SETTINGS_MANAGER::GetPreviousVersionPaths( std::vector<wxString>* aPaths )
 
     std::set<wxString> checkedPaths;
 
-    for( auto base_path : base_paths )
+    for( const wxFileName& base_path : base_paths )
     {
         if( checkedPaths.count( base_path.GetFullPath() ) )
             continue;
@@ -954,42 +953,48 @@ std::vector<wxString> SETTINGS_MANAGER::GetOpenProjects() const
 }
 
 
-bool SETTINGS_MANAGER::SaveProject( const wxString& aFullPath )
+bool SETTINGS_MANAGER::SaveProject( const wxString& aFullPath, PROJECT* aProject )
 {
+    if( !aProject )
+        aProject = &Prj();
+
     wxString path = aFullPath;
 
     if( path.empty() )
-        path = Prj().GetProjectFullName();
+        path = aProject->GetProjectFullName();
 
     // TODO: refactor for MDI
-    if( Prj().IsReadOnly() )
+    if( aProject->IsReadOnly() )
         return false;
 
     if( !m_project_files.count( path ) )
         return false;
 
     PROJECT_FILE* project     = m_project_files.at( path );
-    wxString      projectPath = GetPathForSettingsFile( project );
+    wxString      projectPath = aProject->GetProjectPath();
 
     project->SaveToFile( projectPath );
-    Prj().GetLocalSettings().SaveToFile( projectPath );
+    aProject->GetLocalSettings().SaveToFile( projectPath );
 
     return true;
 }
 
 
-void SETTINGS_MANAGER::SaveProjectAs( const wxString& aFullPath )
+void SETTINGS_MANAGER::SaveProjectAs( const wxString& aFullPath, PROJECT* aProject )
 {
-    wxString oldName = Prj().GetProjectFullName();
+    if( !aProject )
+        aProject = &Prj();
+
+    wxString oldName = aProject->GetProjectFullName();
 
     if( aFullPath.IsSameAs( oldName ) )
     {
-        SaveProject( aFullPath );
+        SaveProject( aFullPath, aProject );
         return;
     }
 
     // Changing this will cause UnloadProject to not save over the "old" project when loading below
-    Prj().setProjectFullName( aFullPath );
+    aProject->setProjectFullName( aFullPath );
 
     wxFileName fn( aFullPath );
 
@@ -997,14 +1002,14 @@ void SETTINGS_MANAGER::SaveProjectAs( const wxString& aFullPath )
 
     // Ensure read-only flags are copied; this allows doing a "Save As" on a standalong board/sch
     // without creating project files if the checkbox is turned off
-    project->SetReadOnly( Prj().IsReadOnly() );
-    Prj().GetLocalSettings().SetReadOnly( Prj().IsReadOnly() );
+    project->SetReadOnly( aProject->IsReadOnly() );
+    aProject->GetLocalSettings().SetReadOnly( aProject->IsReadOnly() );
 
     project->SetFilename( fn.GetName() );
     project->SaveToFile( fn.GetPath() );
 
-    Prj().GetLocalSettings().SetFilename( fn.GetName() );
-    Prj().GetLocalSettings().SaveToFile( fn.GetPath() );
+    aProject->GetLocalSettings().SetFilename( fn.GetName() );
+    aProject->GetLocalSettings().SaveToFile( fn.GetPath() );
 
     m_project_files[fn.GetFullPath()] = project;
     m_project_files.erase( oldName );
@@ -1014,9 +1019,12 @@ void SETTINGS_MANAGER::SaveProjectAs( const wxString& aFullPath )
 }
 
 
-void SETTINGS_MANAGER::SaveProjectCopy( const wxString& aFullPath )
+void SETTINGS_MANAGER::SaveProjectCopy( const wxString& aFullPath, PROJECT* aProject )
 {
-    PROJECT_FILE* project = m_project_files.at( Prj().GetProjectFullName() );
+    if( !aProject )
+        aProject = &Prj();
+
+    PROJECT_FILE* project = m_project_files.at( aProject->GetProjectFullName() );
     wxString      oldName = project->GetFilename();
     wxFileName    fn( aFullPath );
 
@@ -1027,9 +1035,11 @@ void SETTINGS_MANAGER::SaveProjectCopy( const wxString& aFullPath )
     project->SaveToFile( fn.GetPath() );
     project->SetFilename( oldName );
 
-    Prj().GetLocalSettings().SetFilename( fn.GetName() );
-    Prj().GetLocalSettings().SaveToFile( fn.GetPath() );
-    Prj().GetLocalSettings().SetFilename( oldName );
+    PROJECT_LOCAL_SETTINGS& localSettings = aProject->GetLocalSettings();
+
+    localSettings.SetFilename( fn.GetName() );
+    localSettings.SaveToFile( fn.GetPath() );
+    localSettings.SetFilename( oldName );
 
     project->SetReadOnly( readOnly );
 }
@@ -1109,8 +1119,6 @@ bool SETTINGS_MANAGER::BackupProject( REPORTER& aReporter ) const
     target.SetPath( GetProjectBackupsPath() );
     target.SetName( fileName );
     target.SetExt( ArchiveFileExtension );
-
-    wxDir dir( target.GetPath() );
 
     if( !target.DirExists() && !wxMkdir( target.GetPath() ) )
     {

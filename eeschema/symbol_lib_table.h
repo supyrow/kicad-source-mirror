@@ -80,6 +80,28 @@ public:
      */
     bool Refresh();
 
+    bool SupportsSubLibraries() const { return plugin ? plugin->SupportsSubLibraries() : false; }
+
+    void GetSubLibraryNames( std::vector<wxString>& aNames ) const;
+
+    /**
+     * @see SCH_PLUGIN::GetAvailableSymbolFields
+     */
+    void GetAvailableSymbolFields( std::vector<wxString>& aNames ) const
+    {
+        if( plugin )
+            plugin->GetAvailableSymbolFields( aNames );
+    }
+
+    /**
+     * @see SCH_PLUGIN::GetDefaultSymbolFields
+     */
+    void GetDefaultSymbolFields( std::vector<wxString>& aNames ) const
+    {
+        if( plugin )
+            plugin->GetDefaultSymbolFields( aNames );
+    }
+
 protected:
     SYMBOL_LIB_TABLE_ROW( const SYMBOL_LIB_TABLE_ROW& aRow ) :
         LIB_TABLE_ROW( aRow ),

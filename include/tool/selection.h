@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2013-2017 CERN
- * Copyright (C) 2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2021-2022 KiCad Developers, see AUTHORS.txt for contributors.
  * @author Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  * @author Maciej Suminski <maciej.suminski@cern.ch>
  *
@@ -27,14 +27,12 @@
 #ifndef SELECTION_H
 #define SELECTION_H
 
-#include <core/optional.h>
+#include <optional>
 #include <core/typeinfo.h>
 #include <deque>
-#include <eda_rect.h>
 #include <eda_item.h>
 #include <view/view_group.h>
 
-class EDA_ITEM;
 
 class SELECTION : public KIGFX::VIEW_GROUP
 {
@@ -43,19 +41,27 @@ public:
             KIGFX::VIEW_GROUP::VIEW_GROUP()
     {
         m_isHover = false;
+        m_lastAddedItem = nullptr;
+        m_orderCounter = 0;
     }
 
     SELECTION( const SELECTION& aOther ) :
             KIGFX::VIEW_GROUP::VIEW_GROUP()
     {
         m_items = aOther.m_items;
+        m_itemsOrders = aOther.m_itemsOrders;
         m_isHover = aOther.m_isHover;
+        m_lastAddedItem = aOther.m_lastAddedItem;
+        m_orderCounter = aOther.m_orderCounter;
     }
 
     SELECTION& operator= ( const SELECTION& aOther )
     {
         m_items = aOther.m_items;
+        m_itemsOrders = aOther.m_itemsOrders;
         m_isHover = aOther.m_isHover;
+        m_lastAddedItem = aOther.m_lastAddedItem;
+        m_orderCounter = aOther.m_orderCounter;
         return *this;
     }
 
@@ -84,6 +90,8 @@ public:
     virtual void Clear() override
     {
         m_items.clear();
+        m_itemsOrders.clear();
+        m_orderCounter = 0;
     }
 
     virtual unsigned int GetSize() const override
@@ -112,6 +120,11 @@ public:
         return m_items;
     }
 
+    EDA_ITEM* GetLastAddedItem() const
+    {
+        return m_lastAddedItem;
+    }
+
     /**
      * Returns a copy of this selection of items sorted by their X then Y position.
      *
@@ -120,34 +133,44 @@ public:
     const std::vector<EDA_ITEM*> GetItemsSortedByTypeAndXY( bool leftBeforeRight = true,
                                                             bool topBeforeBottom = true ) const
     {
-        std::vector<EDA_ITEM*> sorted_items =
-                std::vector<EDA_ITEM*>( m_items.begin(), m_items.end() );
+        std::vector<EDA_ITEM*> sorted_items = std::vector<EDA_ITEM*>( m_items.begin(),
+                                                                      m_items.end() );
 
-        std::sort( sorted_items.begin(), sorted_items.end(), [&]( EDA_ITEM* a, EDA_ITEM* b ) {
-            if( a->Type() == b->Type() )
-            {
-                if( a->GetPosition().x == b->GetPosition().x )
+        std::sort( sorted_items.begin(), sorted_items.end(),
+                [&]( EDA_ITEM* a, EDA_ITEM* b )
                 {
-                    // Ensure deterministic sort
-                    if( a->GetPosition().y == b->GetPosition().y )
-                        return a->m_Uuid < b->m_Uuid;
+                    if( a->Type() == b->Type() )
+                    {
+                        if( a->GetSortPosition().x == b->GetSortPosition().x )
+                        {
+                            // Ensure deterministic sort
+                            if( a->GetSortPosition().y == b->GetSortPosition().y )
+                                return a->m_Uuid < b->m_Uuid;
 
-                    if( topBeforeBottom )
-                        return a->GetPosition().y < b->GetPosition().y;
+                            if( topBeforeBottom )
+                                return a->GetSortPosition().y < b->GetSortPosition().y;
+                            else
+                                return a->GetSortPosition().y > b->GetSortPosition().y;
+                        }
+                        else if( leftBeforeRight )
+                        {
+                            return a->GetSortPosition().x < b->GetSortPosition().x;
+                        }
+                        else
+                        {
+                            return a->GetSortPosition().x > b->GetSortPosition().x;
+                        }
+                    }
                     else
-                        return a->GetPosition().y > b->GetPosition().y;
-                }
-                else if( leftBeforeRight )
-                    return a->GetPosition().x < b->GetPosition().x;
-                else
-                    return a->GetPosition().x > b->GetPosition().x;
-            }
-            else
-                return a->Type() < b->Type();
-        } );
+                    {
+                        return a->Type() < b->Type();
+                    }
+                } );
 
         return sorted_items;
     }
+
+    const std::vector<EDA_ITEM*> GetItemsSortedBySelectionOrder() const;
 
     /// Returns the center point of the selection area bounding box.
     virtual VECTOR2I GetCenter() const;
@@ -162,10 +185,10 @@ public:
     /// Returns the top left point of the selection area bounding box.
     VECTOR2I GetPosition() const
     {
-        return static_cast<VECTOR2I>( GetBoundingBox().GetPosition() );
+        return GetBoundingBox().GetPosition();
     }
 
-    virtual EDA_RECT GetBoundingBox() const;
+    virtual BOX2I GetBoundingBox() const;
 
     virtual EDA_ITEM* GetTopLeftItem( bool onlyModules = false ) const
     {
@@ -186,6 +209,11 @@ public:
     }
 
     std::deque<EDA_ITEM*>& Items()
+    {
+        return m_items;
+    }
+
+    const std::deque<EDA_ITEM*>& Items() const
     {
         return m_items;
     }
@@ -216,7 +244,7 @@ public:
 
     bool HasReferencePoint() const
     {
-        return m_referencePoint != NULLOPT;
+        return m_referencePoint != std::nullopt;
     }
 
     VECTOR2I GetReferencePoint() const
@@ -234,7 +262,7 @@ public:
 
     void ClearReferencePoint()
     {
-        m_referencePoint = NULLOPT;
+        m_referencePoint = std::nullopt;
     }
 
     /**
@@ -251,8 +279,11 @@ public:
     bool OnlyContains( std::vector<KICAD_T> aList ) const;
 
 protected:
-    OPT<VECTOR2I>         m_referencePoint;
+    std::optional<VECTOR2I>         m_referencePoint;
     std::deque<EDA_ITEM*> m_items;
+    std::deque<int>       m_itemsOrders;
+    int                   m_orderCounter;
+    EDA_ITEM*             m_lastAddedItem;
     bool                  m_isHover;
 
     // mute hidden overloaded virtual function warnings

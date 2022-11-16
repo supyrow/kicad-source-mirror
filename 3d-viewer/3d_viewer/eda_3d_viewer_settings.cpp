@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2020 Jon Evans <jon@craftyjon.com>
- * Copyright (C) 2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2020-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -180,6 +180,8 @@ EDA_3D_VIEWER_SETTINGS::EDA_3D_VIEWER_SETTINGS()
                                             &m_Render.show_footprints_normal, true ) );
     m_params.emplace_back( new PARAM<bool>( "render.show_footprints_virtual",
                                             &m_Render.show_footprints_virtual, true ) );
+    m_params.emplace_back( new PARAM<bool>( "render.show_footprints_not_in_posfile",
+                                            &m_Render.show_footprints_not_in_posfile, true ) );
     m_params.emplace_back( new PARAM<bool>( "render.show_silkscreen",
                                             &m_Render.show_silkscreen, true ) );
     m_params.emplace_back( new PARAM<bool>( "render.show_soldermask",
@@ -205,11 +207,12 @@ EDA_3D_VIEWER_SETTINGS::EDA_3D_VIEWER_SETTINGS()
 
     registerMigration( 0, 1, std::bind( &EDA_3D_VIEWER_SETTINGS::migrateSchema0to1, this ) );
 
-    registerMigration( 1, 2, [&]() -> bool
-    {
-        Set( "render.opengl_copper_thickness", false );
-        return true;
-    } );
+    registerMigration( 1, 2,
+            [&]() -> bool
+            {
+                Set( "render.opengl_copper_thickness", false );
+                return true;
+            } );
 }
 
 

@@ -201,7 +201,6 @@ public:
         wxString  escapedNetName;
         wxString  remainingName;
         int       selection     = m_listBox->GetSelection();
-        wxString  prefix        = CREATE_NET;
 
         if( selection >= 0 )
             selectedNetName = m_listBox->GetString( (unsigned) selection );
@@ -335,7 +334,12 @@ protected:
             }
         }
 
-        std::sort( netNames.begin(), netNames.end() );
+        std::sort( netNames.begin(), netNames.end(),
+                []( const wxString& lhs, const wxString& rhs )
+                {
+                    return StrNumCmp( lhs, rhs, true /* ignore case */ ) < 0;
+                } );
+
 
         // Special handling for <no net>
         if( filter.IsEmpty() || wxString( NO_NET ).MakeLower().Matches( filter ) )

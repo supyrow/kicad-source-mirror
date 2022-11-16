@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2019 Jean_Pierre Charras <jp.charras at wanadoo.fr>
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -85,7 +85,7 @@ int PLACEFILE_GERBER_WRITER::CreatePlaceFile( wxString& aFullFilename, PCB_LAYER
 
     // Add the standard X2 header, without FileFunction
     AddGerberX2Header( &plotter, m_pcb );
-    plotter.SetViewport( m_offset, IU_PER_MILS/10, /* scale */ 1.0, /* mirror */false );
+    plotter.SetViewport( m_offset, pcbIUScale.IU_PER_MILS/10, /* scale */ 1.0, /* mirror */false );
 
     // has meaning only for gerber plotter. Must be called only after SetViewport
     plotter.SetGerberCoordinatesFormat( 6 );
@@ -109,15 +109,15 @@ int PLACEFILE_GERBER_WRITER::CreatePlaceFile( wxString& aFullFilename, PCB_LAYER
     // We need a BRDITEMS_PLOTTER to plot pads
     BRDITEMS_PLOTTER brd_plotter( &plotter, m_pcb, plotOpts );
 
-    plotter.StartPlot();
+    plotter.StartPlot( wxT( "1" ) );
 
     // Some tools in P&P files have the type and size defined.
     // they are position flash (round), pad1 flash (diamond), other pads flash (round)
     // and component outline thickness (polyline)
-    int flash_position_shape_diam = Millimeter2iu( 0.3 ); // defined size for position shape (circle)
-    int pad1_mark_size = Millimeter2iu( 0.36 );           // defined size for pad 1 position (diamond)
+    int flash_position_shape_diam = pcbIUScale.mmToIU( 0.3 ); // defined size for position shape (circle)
+    int pad1_mark_size = pcbIUScale.mmToIU( 0.36 );           // defined size for pad 1 position (diamond)
     int other_pads_mark_size = 0;                         // defined size for position shape (circle)
-    int line_thickness = Millimeter2iu( 0.1 );            // defined size for component outlines
+    int line_thickness = pcbIUScale.mmToIU( 0.1 );            // defined size for component outlines
 
     brd_plotter.SetLayerSet( LSET( aLayer ) );
     int cmp_count = 0;
@@ -142,7 +142,8 @@ int PLACEFILE_GERBER_WRITER::CreatePlaceFile( wxString& aFullFilename, PCB_LAYER
         GBR_CMP_PNP_METADATA pnpAttrib;
 
         // Add rotation info (rotation is CCW, in degrees):
-        pnpAttrib.m_Orientation = mapRotationAngle( footprint->GetOrientationDegrees() );
+        pnpAttrib.m_Orientation = mapRotationAngle( footprint->GetOrientationDegrees(),
+                                                    aLayer == B_Cu ? true : false );
 
         pnpAttrib.m_MountType = GBR_CMP_PNP_METADATA::MOUNT_TYPE_UNSPECIFIED;
 
@@ -178,7 +179,7 @@ int PLACEFILE_GERBER_WRITER::CreatePlaceFile( wxString& aFullFilename, PCB_LAYER
         bool useFpPadsBbox = true;
         bool onBack = aLayer == B_Cu;
 
-        footprint->BuildPolyCourtyards();
+        footprint->BuildCourtyardCaches();
 
         int checkFlag = onBack ? MALFORMED_B_COURTYARD : MALFORMED_F_COURTYARD;
 
@@ -187,7 +188,7 @@ int PLACEFILE_GERBER_WRITER::CreatePlaceFile( wxString& aFullFilename, PCB_LAYER
             gbr_metadata.SetApertureAttrib(
                     GBR_APERTURE_METADATA::GBR_APERTURE_ATTRIB_CMP_COURTYARD );
 
-            const SHAPE_POLY_SET& courtyard = footprint->GetPolyCourtyard( aLayer );
+            const SHAPE_POLY_SET& courtyard = footprint->GetCourtyard( aLayer );
 
             for( int ii = 0; ii < courtyard.OutlineCount(); ii++ )
             {
@@ -207,7 +208,7 @@ int PLACEFILE_GERBER_WRITER::CreatePlaceFile( wxString& aFullFilename, PCB_LAYER
                     GBR_APERTURE_METADATA::GBR_APERTURE_ATTRIB_CMP_FOOTPRINT );
 
             // bbox of fp pads, pos 0, rot 0, non flipped
-            EDA_RECT bbox = footprint->GetFpPadsLocalBbox();
+            BOX2I bbox = footprint->GetFpPadsLocalBbox();
 
             // negate bbox Y values if the fp is flipped (always flipped around X axis
             // in Gerber P&P files).
@@ -315,10 +316,29 @@ int PLACEFILE_GERBER_WRITER::CreatePlaceFile( wxString& aFullFilename, PCB_LAYER
 }
 
 
-double PLACEFILE_GERBER_WRITER::mapRotationAngle( double aAngle )
+double PLACEFILE_GERBER_WRITER::mapRotationAngle( double aAngle, bool aIsFlipped )
 {
     // Convert a KiCad footprint orientation to gerber rotation, depending on the layer
-    // Currently, same notation as KiCad.
+    // Gerber rotation is:
+    // rot angle > 0 for rot CW, seen from Top side
+    // same a Pcbnew for Top side
+    // (angle + 180) for Bottom layer i.e flipped around Y axis: X axis coordinates mirrored.
+    // because Pcbnew flip around the X axis : Y coord mirrored, that is similar to mirror
+    // around Y axis + 180 deg rotation
+    if( aIsFlipped )
+    {
+        double gbr_angle = 180.0 + aAngle;
+
+        // Normalize between -180 ... + 180 deg
+        // Not mandatory, but the angle is more easy to read
+        if( gbr_angle <= -180 )
+            gbr_angle += 360.0;
+        else if( gbr_angle > 180 )
+            gbr_angle -= 360.0;
+
+        return gbr_angle;
+    }
+
     return aAngle;
 }
 

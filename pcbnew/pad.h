@@ -28,11 +28,11 @@
 #include <mutex>
 #include <zones.h>
 #include <board_connected_item.h>
-#include <convert_to_biu.h>
 #include <geometry/shape_poly_set.h>
 #include <geometry/shape_compound.h>
 #include <pad_shapes.h>
 #include <geometry/eda_angle.h>
+#include <core/arraydim.h>
 
 class PCB_SHAPE;
 class PARAM_CFG;
@@ -82,25 +82,30 @@ public:
         return aItem && PCB_PAD_T == aItem->Type();
     }
 
-    bool IsType( const KICAD_T aScanTypes[] ) const override
+    bool IsType( const std::vector<KICAD_T>& aScanTypes ) const override
     {
         if( BOARD_CONNECTED_ITEM::IsType( aScanTypes ) )
             return true;
 
-        for( const KICAD_T* p = aScanTypes; *p != EOT; ++p )
+        for( KICAD_T scanType : aScanTypes )
         {
-            if( m_drill.x > 0 && m_drill.y > 0 )
+            if( HasHole() )
             {
-                if( *p == PCB_LOCATE_HOLE_T )
+                if( scanType == PCB_LOCATE_HOLE_T )
                     return true;
-                else if( *p == PCB_LOCATE_PTH_T && m_attribute != PAD_ATTRIB::NPTH )
+                else if( scanType == PCB_LOCATE_PTH_T && m_attribute != PAD_ATTRIB::NPTH )
                     return true;
-                else if( *p == PCB_LOCATE_NPTH_T && m_attribute == PAD_ATTRIB::NPTH )
+                else if( scanType == PCB_LOCATE_NPTH_T && m_attribute == PAD_ATTRIB::NPTH )
                     return true;
             }
         }
 
         return false;
+    }
+
+    bool HasHole() const override
+    {
+        return GetDrillSizeX() > 0 && GetDrillSizeY() > 0;
     }
 
     FOOTPRINT* GetParent() const;
@@ -153,8 +158,21 @@ public:
     bool SameLogicalPadAs( const PAD* other ) const
     {
         // hide tricks behind sensible API
-        return GetParent() == other->GetParent() && m_number == other->m_number;
+        return GetParentFootprint() == other->GetParentFootprint()
+            && !m_number.IsEmpty() && m_number == other->m_number;
     }
+
+    /**
+     * @return true if the pad is associated with an "unconnected" pin (or a no-connect symbol)
+     * and has no net.
+     */
+    bool IsNoConnectPad() const;
+
+    /**
+     * @return true if the pad is associated with a "free" pin (not-internally-connected) and has
+     * not yet been assigned another net (ie: by being routed to).
+     */
+    bool IsFreePad() const;
 
     /**
      * Set the new shape of this pad.
@@ -233,9 +251,9 @@ public:
     void SetSize( const VECTOR2I& aSize )       { m_size = aSize; SetDirty(); }
     const VECTOR2I& GetSize() const             { return m_size; }
     void SetSizeX( const int aX )               { m_size.x = aX; SetDirty(); }
-    const int GetSizeX() const                  { return m_size.x; }
+    int GetSizeX() const                        { return m_size.x; }
     void SetSizeY( const int aY )               { m_size.y = aY; SetDirty(); }
-    const int GetSizeY() const                  { return m_size.y; }
+    int GetSizeY() const                        { return m_size.y; }
 
     void SetDelta( const VECTOR2I& aSize )      { m_deltaSize = aSize; SetDirty(); }
     const VECTOR2I& GetDelta() const            { return m_deltaSize; }
@@ -243,9 +261,9 @@ public:
     void SetDrillSize( const VECTOR2I& aSize )  { m_drill = aSize; SetDirty(); }
     const VECTOR2I& GetDrillSize() const        { return m_drill; }
     void SetDrillSizeX( const int aX )          { m_drill.x = aX; SetDirty(); }
-    const int GetDrillSizeX() const             { return m_drill.x; }
+    int GetDrillSizeX() const                   { return m_drill.x; }
     void SetDrillSizeY( const int aY )          { m_drill.y = aY; SetDirty(); }
-    const int GetDrillSizeY() const             { return m_drill.y; }
+    int GetDrillSizeY() const                   { return m_drill.y; }
 
     void SetOffset( const VECTOR2I& aOffset )    { m_offset = aOffset; SetDirty(); }
     const VECTOR2I& GetOffset() const            { return m_offset; }
@@ -274,6 +292,11 @@ public:
     void AddPrimitiveCurve( const VECTOR2I& aStart, const VECTOR2I& aEnd, const VECTOR2I& aCtrl1,
                             const VECTOR2I& aCtrl2, int aThickness );
 
+    /**
+     * Has meaning only for custom shape pads.  Allows one to specify the box in which to place
+     * the pad number and/or net name (if they are being displayed).
+     */
+    void AddPrimitiveAnnotationBox( const VECTOR2I& aStart, const VECTOR2I& aEnd );
 
     bool GetBestAnchorPosition( VECTOR2I& aPos );
 
@@ -336,7 +359,6 @@ public:
      */
     void SetOrientation( const EDA_ANGLE& aAngle );
 
-
     /**
      * Return the rotation angle of the pad.
      */
@@ -398,41 +420,58 @@ public:
     double GetLocalSolderPasteMarginRatio() const { return m_localSolderPasteMarginRatio; }
     void SetLocalSolderPasteMarginRatio( double aRatio ) { m_localSolderPasteMarginRatio = aRatio; }
 
+    int GetOwnClearance( PCB_LAYER_ID aLayer, wxString* aSource = nullptr ) const override;
+
     /**
      * Convert the pad shape to a closed polygon. Circles and arcs are approximated by segments.
      *
-     * @param aCornerBuffer a buffer to store the polygon.
-     * @param aClearanceValue the clearance around the pad.
+     * @param aBuffer a buffer to store the polygon.
+     * @param aClearance the clearance around the pad.
      * @param aMaxError maximum error from true when converting arcs.
      * @param aErrorLoc should the approximation error be placed outside or inside the polygon?
      * @param ignoreLineWidth used for edge cuts where the line width is only for visualization.
      */
-    void TransformShapeWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuffer,
-                                               PCB_LAYER_ID aLayer, int aClearanceValue,
-                                               int aMaxError, ERROR_LOC aErrorLoc,
-                                               bool ignoreLineWidth = false ) const override;
+    void TransformShapeToPolygon( SHAPE_POLY_SET& aBuffer, PCB_LAYER_ID aLayer, int aClearance,
+                                  int aMaxError, ERROR_LOC aErrorLoc,
+                                  bool ignoreLineWidth = false ) const override;
 
     /**
      * Build the corner list of the polygonal drill shape in the board coordinate system.
      *
-     * @param aCornerBuffer a buffer to fill.
-     * @param aInflateValue the clearance or margin value.
+     * @param aBuffer a buffer to fill.
+     * @param aClearance the clearance or margin value.
      * @param aError maximum deviation of an arc from the polygon approximation.
      * @param aErrorLoc = should the approximation error be placed outside or inside the polygon?
      * @return false if the pad has no hole, true otherwise.
      */
-    bool TransformHoleWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuffer, int aInflateValue,
-                                              int aError, ERROR_LOC aErrorLoc ) const;
+    bool TransformHoleToPolygon( SHAPE_POLY_SET& aBuffer, int aClearance, int aError,
+                                 ERROR_LOC aErrorLoc ) const;
 
-    // @copydoc BOARD_ITEM::GetEffectiveShape
-    virtual std::shared_ptr<SHAPE> GetEffectiveShape( PCB_LAYER_ID aLayer = UNDEFINED_LAYER ) const override;
+    /**
+     * Some pad shapes can be complex (rounded/chamfered rectangle), even without considering
+     * custom shapes.  This routine returns a COMPOUND shape (set of simple shapes which make
+     * up the pad for use with routing, collision determination, etc).
+     *
+     * @note This list can contain a SHAPE_SIMPLE (a simple single-outline non-intersecting
+     * polygon), but should never contain a SHAPE_POLY_SET (a complex polygon consisting of
+     * multiple outlines and/or holes).
+     *
+     * @param aLayer optional parameter allowing a caller to specify a particular layer (default
+     *               is to return the pad's "natural" shape).
+     * @param aFlash optional parameter allowing a caller to force the pad to be flashed (or not
+     *               flashed) on the current layer (default is to honour the pad's setting and
+     *               the current connections for the given layer).
+     */
+    virtual std::shared_ptr<SHAPE>
+    GetEffectiveShape( PCB_LAYER_ID aLayer = UNDEFINED_LAYER,
+                       FLASHING flashPTHPads = FLASHING::DEFAULT ) const override;
 
     const std::shared_ptr<SHAPE_POLY_SET>& GetEffectivePolygon() const;
 
     /**
-     * Return a SHAPE object representing the pad's hole.
+     * Return a SHAPE_SEGMENT object representing the pad's hole.
      */
-    const SHAPE_SEGMENT* GetEffectiveHoleShape() const;
+    std::shared_ptr<SHAPE_SEGMENT> GetEffectiveHoleShape() const override;
 
     /**
      * Return the radius of a minimum sized circle which fully encloses this pad.
@@ -602,7 +641,7 @@ public:
     bool FlashLayer( LSET aLayers ) const;
 
     bool HitTest( const VECTOR2I& aPosition, int aAccuracy = 0 ) const override;
-    bool HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy = 0 ) const override;
+    bool HitTest( const BOX2I& aRect, bool aContained, int aAccuracy = 0 ) const override;
 
     wxString GetClass() const override
     {
@@ -612,7 +651,7 @@ public:
     /**
      * The bounding box is cached, so this will be efficient most of the time.
      */
-    const EDA_RECT GetBoundingBox() const override;
+    const BOX2I GetBoundingBox() const override;
 
     ///< Set absolute coordinates.
     void SetDrawCoord();
@@ -638,7 +677,7 @@ public:
 
     void Rotate( const VECTOR2I& aRotCentre, const EDA_ANGLE& aAngle ) override;
 
-    wxString GetSelectMenuText( EDA_UNITS aUnits ) const override;
+    wxString GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const override;
 
     BITMAPS GetMenuImage() const override;
 
@@ -677,12 +716,23 @@ public:
 
     virtual const BOX2I ViewBBox() const override;
 
-    virtual void SwapData( BOARD_ITEM* aImage ) override;
+    void ClearZoneConnectionCache()
+    {
+        for( size_t ii = 0; ii < arrayDim( m_zoneLayerConnections ); ++ii )
+            m_zoneLayerConnections[ ii ] = ZLC_UNRESOLVED;
+    }
+
+    ZONE_LAYER_CONNECTION& ZoneConnectionCache( PCB_LAYER_ID aLayer ) const
+    {
+        return m_zoneLayerConnections[ aLayer ];
+    }
 
 #if defined(DEBUG)
     virtual void Show( int nestLevel, std::ostream& os ) const override { ShowDummy( os ); }
 #endif
 
+protected:
+    virtual void swapData( BOARD_ITEM* aImage ) override;
 
 private:
     void addPadPrimitivesToPolygon( SHAPE_POLY_SET* aMergedPolygon, int aError,
@@ -702,12 +752,12 @@ private:
      * Editing definitions of primitives for custom pad shapes.  In local coordinates relative
      * to m_Pos (NOT shapePos) at orient 0.
      */
-    std::vector<std::shared_ptr<PCB_SHAPE>> m_editPrimitives;
+    std::vector<std::shared_ptr<PCB_SHAPE>>   m_editPrimitives;
 
     // Must be set to true to force rebuild shapes to draw (after geometry change for instance)
     mutable bool                              m_shapesDirty;
     mutable std::mutex                        m_shapesBuildingLock;
-    mutable EDA_RECT                          m_effectiveBoundingBox;
+    mutable BOX2I                             m_effectiveBoundingBox;
     mutable std::shared_ptr<SHAPE_COMPOUND>   m_effectiveShape;
     mutable std::shared_ptr<SHAPE_SEGMENT>    m_effectiveHoleShape;
 
@@ -794,6 +844,8 @@ private:
     EDA_ANGLE   m_thermalSpokeAngle;            // Rotation of the spokes.  45° will produce an X,
                                                 //   while 90° will produce a +.
     int         m_thermalGap;
+
+    mutable ZONE_LAYER_CONNECTION m_zoneLayerConnections[B_Cu + 1];
 };
 
 #endif  // PAD_H

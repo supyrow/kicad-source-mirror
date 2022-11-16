@@ -29,13 +29,12 @@
  */
 
 #include <trigo.h>
-#include <eda_rect.h>
 #include <gerbview_frame.h>
 #include <gerber_file_image.h>
-#include <convert_to_biu.h>
+#include <eda_units.h>
 #include <convert_basic_shapes_to_polygon.h>
 
-#define DCODE_DEFAULT_SIZE Millimeter2iu( 0.1 )
+#define DCODE_DEFAULT_SIZE gerbIUScale.mmToIU( 0.1 )
 
 /* Format Gerber: NOTES:
  * Tools and D_CODES
@@ -145,7 +144,7 @@ int D_CODE::GetShapeDim( GERBER_DRAW_ITEM* aParent )
 }
 
 
-void D_CODE::DrawFlashedShape( GERBER_DRAW_ITEM* aParent, wxDC* aDC, const COLOR4D& aColor,
+void D_CODE::DrawFlashedShape( const GERBER_DRAW_ITEM* aParent, wxDC* aDC, const COLOR4D& aColor,
                                const VECTOR2I& aShapePos, bool aFilledShape )
 {
     int radius;
@@ -175,7 +174,7 @@ void D_CODE::DrawFlashedShape( GERBER_DRAW_ITEM* aParent, wxDC* aDC, const COLOR
         else                            // rectangular hole
         {
             if( m_Polygon.OutlineCount() == 0 )
-                ConvertShapeToPolygon();
+                ConvertShapeToPolygon( aParent );
 
             DrawFlashedPolygon( aParent, aDC, aColor, aFilledShape, aShapePos );
         }
@@ -202,7 +201,7 @@ void D_CODE::DrawFlashedShape( GERBER_DRAW_ITEM* aParent, wxDC* aDC, const COLOR
         else
         {
             if( m_Polygon.OutlineCount() == 0 )
-                ConvertShapeToPolygon();
+                ConvertShapeToPolygon( aParent );
 
             DrawFlashedPolygon( aParent, aDC, aColor, aFilledShape, aShapePos );
         }
@@ -243,7 +242,7 @@ void D_CODE::DrawFlashedShape( GERBER_DRAW_ITEM* aParent, wxDC* aDC, const COLOR
         else
         {
             if( m_Polygon.OutlineCount() == 0 )
-                ConvertShapeToPolygon();
+                ConvertShapeToPolygon( aParent );
 
             DrawFlashedPolygon( aParent, aDC, aColor, aFilledShape, aShapePos );
         }
@@ -253,7 +252,7 @@ void D_CODE::DrawFlashedShape( GERBER_DRAW_ITEM* aParent, wxDC* aDC, const COLOR
 
     case APT_POLYGON:
         if( m_Polygon.OutlineCount() == 0 )
-            ConvertShapeToPolygon();
+            ConvertShapeToPolygon( aParent );
 
         DrawFlashedPolygon( aParent, aDC, aColor, aFilledShape, aShapePos );
         break;
@@ -261,7 +260,8 @@ void D_CODE::DrawFlashedShape( GERBER_DRAW_ITEM* aParent, wxDC* aDC, const COLOR
 }
 
 
-void D_CODE::DrawFlashedPolygon( GERBER_DRAW_ITEM* aParent, wxDC* aDC, const COLOR4D& aColor,
+void D_CODE::DrawFlashedPolygon( const GERBER_DRAW_ITEM* aParent, wxDC* aDC,
+                                 const COLOR4D& aColor,
                                  bool aFilled, const VECTOR2I& aPosition )
 {
     if( m_Polygon.OutlineCount() == 0 )
@@ -291,7 +291,7 @@ static void addHoleToPolygon( SHAPE_POLY_SET* aPolygon, APERTURE_DEF_HOLETYPE aH
                               const VECTOR2I& aSize, const VECTOR2I& aAnchorPos );
 
 
-void D_CODE::ConvertShapeToPolygon()
+void D_CODE::ConvertShapeToPolygon( const GERBER_DRAW_ITEM* aParent )
 {
     VECTOR2I initialpos;
     VECTOR2I currpos;
@@ -373,8 +373,7 @@ void D_CODE::ConvertShapeToPolygon()
 
         addHoleToPolygon( &m_Polygon, m_DrillShape, m_Drill, initialpos );
     }
-
-    break;
+        break;
 
     case APT_POLYGON:
         m_Polygon.NewOutline();
@@ -403,8 +402,9 @@ void D_CODE::ConvertShapeToPolygon()
         break;
 
     case APT_MACRO:
-
-        // TODO
+        APERTURE_MACRO* macro = GetMacro();
+        SHAPE_POLY_SET* macroShape = macro->GetApertureMacroShape( aParent, initialpos );
+        m_Polygon.Append( *macroShape );
         break;
     }
 }

@@ -37,7 +37,6 @@
 #include FT_FREETYPE_H
 #include FT_OUTLINE_H
 //#include <gal/opengl/opengl_freetype.h>
-#include <harfbuzz/hb.h>
 #include <font/font.h>
 #include <font/glyph.h>
 #include <font/outline_decomposer.h>
@@ -52,7 +51,13 @@ class OUTLINE_FONT : public FONT
 public:
     OUTLINE_FONT();
 
+    static wxString FontConfigVersion();
+
     static wxString FreeTypeVersion();
+
+    static wxString HarfBuzzVersion();
+
+    static wxString FontLibraryVersion();
 
     bool IsOutline() const override { return true; }
 
@@ -77,6 +82,12 @@ public:
      * baseline and the overbar.
      */
     double ComputeOverbarVerticalPosition( double aGlyphHeight ) const override;
+
+    /**
+     * Compute the vertical position of an underline.  This is the distance between the text
+     * baseline and the underline.
+     */
+    double ComputeUnderlineVerticalPosition( double aGlyphHeight ) const override;
 
     /**
      * Compute the distance (interline) between 2 lines of text (for multiline texts).  This is
@@ -105,6 +116,11 @@ protected:
 
     BOX2I getBoundingBox( const std::vector<std::unique_ptr<GLYPH>>& aGlyphs ) const;
 
+    VECTOR2I getTextAsGlyphs( BOX2I* aBoundingBox, std::vector<std::unique_ptr<GLYPH>>* aGlyphs,
+                              const wxString& aText, const VECTOR2I& aSize,
+                              const VECTOR2I& aPosition, const EDA_ANGLE& aAngle, bool aMirror,
+                              const VECTOR2I& aOrigin, TEXT_STYLE_FLAGS aTextStyle ) const;
+
 private:
     // FreeType variables
     static FT_Library m_freeType;
@@ -132,6 +148,8 @@ private:
     // with 0.64.
     static constexpr double m_subscriptSuperscriptSize = 0.64;
 
+    static constexpr double m_underlineOffsetScaler = -0.16;
+
     int faceSize( int aSize ) const
     {
         return aSize * m_charSizeScaler * m_outlineFontSizeCompensation;
@@ -147,7 +165,7 @@ private:
 
     static constexpr double m_subscriptVerticalOffset   = -0.25;
     static constexpr double m_superscriptVerticalOffset = 0.45;
-    static constexpr double m_overbarOffsetRatio        = 0.02;
+    static constexpr double m_overbarOffsetRatio        = -0.15;
     static constexpr double m_overbarThicknessRatio     = 0.08;
 };
 

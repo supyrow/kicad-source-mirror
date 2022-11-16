@@ -66,6 +66,9 @@ struct VC_SETTINGS
     ///< Flag for grabbing the mouse cursor.
     bool m_grabMouse;
 
+    ///< Flag for automatic focus switching between Schematic and PCB editors.
+    bool m_focusFollowSchPcb;
+
     ///< Flag for turning on autopanning.
     bool m_autoPanEnabled;
 
@@ -198,6 +201,8 @@ public:
         m_settings.m_autoPanMargin = aMargin;
     }
 
+    virtual void PinCursorInsideNonAutoscrollArea( bool aWarpMouseCursor ) = 0;
+
     /**
      * Return the current mouse pointer position.
      *
@@ -324,8 +329,8 @@ public:
      *                  specified in the world coordinates and its not visible in the current
      *                  viewport).
      */
-    virtual void WarpCursor( const VECTOR2D& aPosition, bool aWorldCoordinates = false,
-            bool aWarpView = false ) = 0;
+    virtual void WarpMouseCursor( const VECTOR2D& aPosition, bool aWorldCoordinates = false,
+                                  bool aWarpView = false ) = 0;
 
     /**
      * Enable or disable warping the cursor.

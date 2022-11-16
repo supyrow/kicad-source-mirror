@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2004 Jean-Pierre Charras, jaen-pierre.charras@gipsa-lab.inpg.com
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -97,14 +97,14 @@ class PCB_DIMENSION_BASE : public BOARD_ITEM
 public:
     PCB_DIMENSION_BASE( BOARD_ITEM* aParent, KICAD_T aType = PCB_DIMENSION_T );
 
-    bool IsType( const KICAD_T aScanTypes[] ) const override
+    bool IsType( const std::vector<KICAD_T>& aScanTypes ) const override
     {
         if( BOARD_ITEM::IsType( aScanTypes ) )
             return true;
 
-        for( const KICAD_T* p = aScanTypes; *p != EOT; ++p )
+        for( KICAD_T scanType : aScanTypes )
         {
-            if( *p == PCB_LOCATE_GRAPHIC_T )
+            if( scanType == PCB_LOCATE_GRAPHIC_T )
                 return true;
         }
 
@@ -158,7 +158,7 @@ public:
     wxString GetSuffix() const { return m_suffix; }
     void SetSuffix( const wxString& aSuffix );
 
-    void GetUnits( EDA_UNITS& aUnits ) const { aUnits = m_units; }
+    EDA_UNITS GetUnits() const { return m_units; }
     void SetUnits( EDA_UNITS aUnits );
 
     DIM_UNITS_MODE GetUnitsMode() const;
@@ -233,24 +233,25 @@ public:
      *
      * @param axis_pos is the vertical axis position to mirror around.
      */
-    void Mirror( const VECTOR2I& axis_pos, bool aMirrorLeftRight = false );
+    virtual void Mirror( const VECTOR2I& axis_pos, bool aMirrorLeftRight = false );
 
     void GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList ) override;
 
     bool HitTest( const VECTOR2I& aPosition, int aAccuracy ) const override;
-    bool HitTest( const EDA_RECT& aRect, bool aContained, int aAccuracy = 0 ) const override;
+    bool HitTest( const BOX2I& aRect, bool aContained, int aAccuracy = 0 ) const override;
 
-    const EDA_RECT GetBoundingBox() const override;
+    const BOX2I GetBoundingBox() const override;
 
-    std::shared_ptr<SHAPE> GetEffectiveShape( PCB_LAYER_ID aLayer ) const override;
+    std::shared_ptr<SHAPE> GetEffectiveShape( PCB_LAYER_ID aLayer,
+            FLASHING aFlash = FLASHING::DEFAULT ) const override;
 
-    wxString GetSelectMenuText( EDA_UNITS aUnits ) const override;
+    wxString GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const override;
 
     const BOX2I ViewBBox() const override;
 
-    void TransformShapeWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuffer, PCB_LAYER_ID aLayer,
-                                               int aClearance, int aError, ERROR_LOC aErrorLoc,
-                                               bool aIgnoreLineWidth = false ) const override;
+    void TransformShapeToPolygon( SHAPE_POLY_SET& aBuffer, PCB_LAYER_ID aLayer, int aClearance,
+                                  int aError, ERROR_LOC aErrorLoc,
+                                  bool aIgnoreLineWidth = false ) const override;
 
 #if defined(DEBUG)
     virtual void Show( int nestLevel, std::ostream& os ) const override { ShowDummy( os ); }
@@ -357,7 +358,7 @@ public:
 
     EDA_ITEM* Clone() const override;
 
-    virtual void SwapData( BOARD_ITEM* aImage ) override;
+    void Mirror( const VECTOR2I& axis_pos, bool aMirrorLeftRight = false ) override;
 
     BITMAPS GetMenuImage() const override;
 
@@ -403,6 +404,8 @@ public:
     void GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList ) override;
 
 protected:
+    virtual void swapData( BOARD_ITEM* aImage ) override;
+
     void updateGeometry() override;
 
     void updateText() override;
@@ -442,8 +445,6 @@ public:
 
     EDA_ITEM* Clone() const override;
 
-    void SwapData( BOARD_ITEM* aImage ) override;
-
     BITMAPS GetMenuImage() const override;
 
     /**
@@ -461,6 +462,8 @@ public:
     void     Rotate( const VECTOR2I& aRotCentre, const EDA_ANGLE& aAngle ) override;
 
 protected:
+    void swapData( BOARD_ITEM* aImage ) override;
+
     void updateGeometry() override;
 
     void updateText() override;
@@ -505,8 +508,6 @@ public:
 
     EDA_ITEM* Clone() const override;
 
-    virtual void SwapData( BOARD_ITEM* aImage ) override;
-
     void SetLeaderLength( int aLength ) { m_leaderLength = aLength; }
     int GetLeaderLength() const { return m_leaderLength; }
 
@@ -521,6 +522,8 @@ public:
     }
 
 protected:
+    virtual void swapData( BOARD_ITEM* aImage ) override;
+
     void updateText() override;
     void updateGeometry() override;
 
@@ -556,8 +559,6 @@ public:
 
     EDA_ITEM* Clone() const override;
 
-    virtual void SwapData( BOARD_ITEM* aImage ) override;
-
     BITMAPS GetMenuImage() const override;
 
     wxString GetClass() const override
@@ -571,6 +572,8 @@ public:
     void GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList ) override;
 
 protected:
+    virtual void swapData( BOARD_ITEM* aImage ) override;
+
     void updateGeometry() override;
 
 private:
@@ -597,8 +600,6 @@ public:
 
     EDA_ITEM* Clone() const override;
 
-    virtual void SwapData( BOARD_ITEM* aImage ) override;
-
     BITMAPS GetMenuImage() const override;
 
     wxString GetClass() const override
@@ -606,11 +607,13 @@ public:
         return wxT( "PCB_DIM_CENTER" );
     }
 
-    const EDA_RECT GetBoundingBox() const override;
+    const BOX2I GetBoundingBox() const override;
 
     const BOX2I ViewBBox() const override;
 
 protected:
+    virtual void swapData( BOARD_ITEM* aImage ) override;
+
     void updateGeometry() override;
 };
 

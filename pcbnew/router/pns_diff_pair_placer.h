@@ -104,6 +104,14 @@ public:
     const ITEM_SET Traces() override;
 
     /**
+     * Return the current start of the line being placed.
+     */
+    const VECTOR2I& CurrentStart() const override
+    {
+        return m_currentStart;
+    }
+
+    /**
      * Return the current end of the line being placed. It may not be equal to the cursor
      * position due to collisions.
      */
@@ -222,7 +230,7 @@ private:
     int m_netP, m_netN;
 
     DP_PRIMITIVE_PAIR m_start;
-    OPT<DP_PRIMITIVE_PAIR> m_prevPair;
+    std::optional<DP_PRIMITIVE_PAIR> m_prevPair;
 
     ///< current algorithm iteration
     int m_iteration;

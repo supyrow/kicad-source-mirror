@@ -103,6 +103,8 @@ public:
      */
     void AddSeparator( int aOrder = ANY_ORDER );
 
+    void AddSeparator( const SELECTION_CONDITION& aCondition, int aOrder );
+
     /**
      * Update the contents of the menu based on the supplied conditions.
      */
@@ -122,7 +124,8 @@ private:
     public:
         ENTRY( const TOOL_ACTION* aAction, SELECTION_CONDITION aCondition, int aOrder,
                bool aCheckmark ) :
-            m_type( ACTION ), m_icon( static_cast<BITMAPS>( 0 ) ),
+            m_type( ACTION ),
+            m_icon( static_cast<BITMAPS>( 0 ) ),
             m_condition( aCondition ),
             m_order( aOrder ),
             m_isCheckmarkEntry( aCheckmark )
@@ -131,7 +134,8 @@ private:
         }
 
         ENTRY( ACTION_MENU* aMenu, SELECTION_CONDITION aCondition, int aOrder ) :
-            m_type( MENU ), m_icon( static_cast<BITMAPS>( 0 ) ),
+            m_type( MENU ),
+            m_icon( static_cast<BITMAPS>( 0 ) ),
             m_condition( aCondition ),
             m_order( aOrder ),
             m_isCheckmarkEntry( false )
@@ -141,7 +145,8 @@ private:
 
         ENTRY( const wxMenuItem& aItem, BITMAPS aBitmap,
                SELECTION_CONDITION aCondition, int aOrder, bool aCheckmark ) :
-            m_type( WXITEM ), m_icon( aBitmap ),
+            m_type( WXITEM ),
+            m_icon( aBitmap ),
             m_condition( aCondition ),
             m_order( aOrder ),
             m_isCheckmarkEntry( aCheckmark )
@@ -152,7 +157,8 @@ private:
 
         // Separator
         ENTRY( SELECTION_CONDITION aCondition, int aOrder ) :
-            m_type( SEPARATOR ), m_icon( static_cast<BITMAPS>( 0 ) ),
+            m_type( SEPARATOR ),
+            m_icon( static_cast<BITMAPS>( 0 ) ),
             m_data(),
             m_condition( aCondition ),
             m_order( aOrder ),

@@ -21,6 +21,7 @@
 #include <pgm_base.h>
 #include <bitmaps.h>
 #include <base_screen.h>
+#include <common.h>     // ExpandEnvVarSubstitutions
 #include <confirm.h>
 #include <core/arraydim.h>
 #include <dialogs/dialog_page_settings.h>
@@ -126,8 +127,6 @@ DIALOG_PAGES_SETTINGS::~DIALOG_PAGES_SETTINGS()
 
 bool DIALOG_PAGES_SETTINGS::TransferDataToWindow()
 {
-    wxString      msg;
-
     // initialize page format choice box and page format list.
     // The first shows translated strings, the second contains not translated strings
     m_paperSizeComboBox->Clear();
@@ -676,8 +675,8 @@ void DIALOG_PAGES_SETTINGS::UpdateDrawingSheetExample()
             GRFilledRect( &memDC, VECTOR2I( 0, 0 ), m_layout_size, 0, bgColor, bgColor );
 
             PrintDrawingSheet( &renderSettings, pageDUMMY, emptyString, emptyString, m_tb,
-                               m_screen->GetPageCount(), m_screen->GetPageNumber(), 1, &Prj(),
-                               wxEmptyString, m_screen->GetVirtualPageNumber() == 1 );
+                               nullptr, m_screen->GetPageCount(), m_screen->GetPageNumber(), 1,
+                               &Prj(), wxEmptyString, m_screen->GetVirtualPageNumber() == 1 );
 
             memDC.SelectObject( wxNullBitmap );
             m_PageLayoutExampleBitmap->SetBitmap( *m_pageBitmap );
@@ -775,17 +774,21 @@ void DIALOG_PAGES_SETTINGS::GetCustomSizeMilsFromDialog()
 void DIALOG_PAGES_SETTINGS::OnWksFileSelection( wxCommandEvent& event )
 {
     wxFileName fn = GetWksFileName();
-    wxString name = GetWksFileName();
+    wxString name = fn.GetFullName();
     wxString path;
 
     if( fn.IsAbsolute() )
     {
         path = fn.GetPath();
-        name = fn.GetFullName();
     }
     else
     {
-        path = m_projectPath;
+        wxFileName expanded( ExpandEnvVarSubstitutions( GetWksFileName(), &m_parentFrame->Prj() ) );
+
+         if( expanded.IsAbsolute() )
+            path = expanded.GetPath();
+        else
+            path = m_projectPath;
     }
 
     // Display a file picker dialog

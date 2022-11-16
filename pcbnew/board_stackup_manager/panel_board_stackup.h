@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2019 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 2009-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2009-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -189,6 +189,12 @@ private:
      */
     int computeBoardThickness();
 
+    /**
+     * Set the widths of dielectric layers to sensible defaults
+     * @param targetThickness target thickness of PCB in IU
+     */
+    void setDefaultLayerWidths( int targetThickness );
+
     void onColorSelected( wxCommandEvent& event );
     void onMaterialChange( wxCommandEvent& event );
     void onThicknessChange( wxCommandEvent& event );
@@ -247,7 +253,6 @@ private:
     PAGED_DIALOG*   m_parentDialog;
     BOARD*          m_board;
     BOARD_DESIGN_SETTINGS*  m_brdSettings;
-    EDA_UNITS       m_units;
     PCB_EDIT_FRAME* m_frame;
     wxSize          m_numericTextCtrlSize;  // Best size to enter values with units in wxTextCtrl
     wxSize          m_numericFieldsSize;    // Best size to enter double values in wxTextCtrl

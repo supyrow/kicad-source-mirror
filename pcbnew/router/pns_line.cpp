@@ -19,7 +19,7 @@
  * with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <core/optional.h>
+#include <optional>
 
 #include <math/box2.h>
 #include <math/vector2d.h>
@@ -164,10 +164,9 @@ static int areNeighbours( int x, int y, int max = 0 )
     return false;
 }
 
-
-//#ifdef TOM_EXTRA_DEBUG
+#ifdef TOM_EXTRA_DEBUG
 SHAPE_LINE_CHAIN g_pnew, g_hnew;
-//#endif
+#endif
 
 bool LINE::Walkaround( const SHAPE_LINE_CHAIN& aObstacle, SHAPE_LINE_CHAIN& aPath, bool aCw ) const
 {
@@ -475,6 +474,9 @@ bool LINE::Walkaround( const SHAPE_LINE_CHAIN& aObstacle, SHAPE_LINE_CHAIN& aPat
             // we should never reach this part of the code, but who really knows?
             if( !v_next )
             {
+#ifdef TOM_EXTRA_DEBUG
+                printf("still no v_next\n");
+#endif
                 for( VERTEX* vn : v->neighbours )
                 {
                     if( vn->type == ON_EDGE )
@@ -486,6 +488,19 @@ bool LINE::Walkaround( const SHAPE_LINE_CHAIN& aObstacle, SHAPE_LINE_CHAIN& aPat
                         }
                     }
                 }
+
+                if( v_next )
+                {
+                    for( auto &v : vts )
+                    {
+                        if( v.isHull )
+                            v.visited = false;
+                    }
+                }
+
+#ifdef TOM_EXTRA_DEBUG
+                printf("v_next %p\n", v_next);
+#endif
 
                 // Did we get the next hull point but the end of the line is inside?  Instead of walking
                 // around the hull some more (which will just end up taking us back to the start), lets
@@ -533,36 +548,6 @@ const SHAPE_LINE_CHAIN SEGMENT::Hull( int aClearance, int aWalkaroundThickness, 
    return SegmentHull( m_seg, aClearance, aWalkaroundThickness );
 }
 
-
-bool LINE::Is45Degree() const
-{
-    for( int i = 0; i < m_line.SegmentCount(); i++ )
-    {
-        const SEG& s = m_line.CSegment( i );
-
-        if( m_line.IsArcSegment( i ) )
-            continue;
-
-        if( s.Length() < 10 )
-            continue;
-
-        double angle = 180.0 / M_PI *
-                       atan2( (double) s.B.y - (double) s.A.y,
-                              (double) s.B.x - (double) s.A.x );
-
-        if( angle < 0 )
-            angle += 360.0;
-
-        double angle_a = fabs( fmod( angle, 45.0 ) );
-
-        if( angle_a > 1.0 && angle_a < 44.0 )
-            return false;
-    }
-
-    return true;
-}
-
-
 const LINE LINE::ClipToNearestObstacle( NODE* aNode ) const
 {
     const int IterationLimit = 5;
@@ -608,7 +593,7 @@ const LINE LINE::ClipToNearestObstacle( NODE* aNode ) const
 
 SHAPE_LINE_CHAIN dragCornerInternal( const SHAPE_LINE_CHAIN& aOrigin, const VECTOR2I& aP )
 {
-    OPT<SHAPE_LINE_CHAIN> picked;
+    std::optional<SHAPE_LINE_CHAIN> picked;
     int i;
     int d = 2;
 
@@ -709,7 +694,7 @@ void LINE::dragCorner45( const VECTOR2I& aP, int aIndex )
         // fixme: awkward behaviour for "outwards" drags
         path = dragCornerInternal( m_line.Slice( 0, aIndex ), snapped );
         SHAPE_LINE_CHAIN path_rev =
-                dragCornerInternal( m_line.Slice( aIndex + 1, -1 ).Reverse(), snapped ).Reverse();
+                dragCornerInternal( m_line.Slice( aIndex, -1 ).Reverse(), snapped ).Reverse();
         path.Append( path_rev );
     }
 
@@ -1070,12 +1055,13 @@ int LINE::Rank() const
 {
     int min_rank = INT_MAX;
 
-    if( IsLinked() ) {
-        for( auto s : m_links )
-        {
-            min_rank = std::min( min_rank, s->Rank() );
-        }
-    } else {
+    if( IsLinked() )
+    {
+        for( const LINKED_ITEM* item : m_links )
+            min_rank = std::min( min_rank, item->Rank() );
+    }
+    else
+    {
         min_rank = m_rank;
     }
 
@@ -1254,12 +1240,21 @@ bool LINE::HasLockedSegments() const
     return false;
 }
 
+
 void LINE::Clear()
 {
     m_hasVia = false;
     m_line.Clear();
 }
 
+
+const std::string SEGMENT::Format( ) const
+{
+    std::stringstream ss;
+    ss << ITEM::Format() << " ";
+    ss << m_seg.Format( false );
+    return ss.str();
+}
 
 }
 

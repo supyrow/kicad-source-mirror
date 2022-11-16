@@ -68,7 +68,7 @@
 #include <string_utils.h>
 #include <locale_io.h>
 #include <macros.h>
-#include <properties.h>
+#include <string_utf8_map.h>
 #include <zones.h>
 
 #include <board.h>
@@ -85,7 +85,6 @@
 #include <fp_shape.h>
 #include <pcb_plot_params.h>
 #include <pcb_plot_params_parser.h>
-#include <convert_to_biu.h>
 #include <trigo.h>
 #include <confirm.h>
 #include <math/util.h>      // for KiROUND
@@ -404,7 +403,7 @@ static inline long hexParse( const char* next, const char** out = nullptr )
 
 
 BOARD* LEGACY_PLUGIN::Load( const wxString& aFileName, BOARD* aAppendToMe,
-                            const PROPERTIES* aProperties, PROJECT* aProject,
+                            const STRING_UTF8_MAP* aProperties, PROJECT* aProject,
                             PROGRESS_REPORTER* aProgressReporter )
 {
     LOCALE_IO   toggle;     // toggles on, then off, the C locale.
@@ -613,7 +612,7 @@ void LEGACY_PLUGIN::loadGENERAL()
 
             if( !strcmp( data, "mm" ) )
             {
-                diskToBiu = IU_PER_MM;
+                diskToBiu = pcbIUScale.IU_PER_MM;
             }
         }
         else if( TESTLINE( "LayerCount" ) )
@@ -841,11 +840,11 @@ void LEGACY_PLUGIN::loadSHEET()
 
 void LEGACY_PLUGIN::loadSETUP()
 {
-    BOARD_DESIGN_SETTINGS& bds              = m_board->GetDesignSettings();
-    ZONE_SETTINGS          zs               = m_board->GetZoneSettings();
-    NETCLASS*              netclass_default = bds.GetDefault();
-    char*                  line;
-    char*                  saveptr;
+    BOARD_DESIGN_SETTINGS&    bds             = m_board->GetDesignSettings();
+    ZONE_SETTINGS             zoneSettings    = m_board->GetZoneSettings();
+    std::shared_ptr<NETCLASS> defaultNetclass = bds.m_NetSettings->m_DefaultNetClass;
+    char*                     line;
+    char*                     saveptr;
 
     m_board->m_LegacyDesignSettingsLoaded = true;
 
@@ -897,7 +896,7 @@ void LEGACY_PLUGIN::loadSETUP()
         else if( TESTLINE( "TrackWidth" ) )
         {
             BIU tmp = biuParse( line + SZ( "TrackWidth" ) );
-            netclass_default->SetTrackWidth( tmp );
+            defaultNetclass->SetTrackWidth( tmp );
         }
         else if( TESTLINE( "TrackWidthList" ) )
         {
@@ -907,7 +906,7 @@ void LEGACY_PLUGIN::loadSETUP()
         else if( TESTLINE( "TrackClearence" ) )
         {
             BIU tmp = biuParse( line + SZ( "TrackClearence" ) );
-            netclass_default->SetClearance( tmp );
+            defaultNetclass->SetClearance( tmp );
         }
         else if( TESTLINE( "TrackMinWidth" ) )
         {
@@ -917,12 +916,11 @@ void LEGACY_PLUGIN::loadSETUP()
         else if( TESTLINE( "ZoneClearence" ) )
         {
             BIU tmp = biuParse( line + SZ( "ZoneClearence" ) );
-            zs.m_ZoneClearance = tmp;
+            zoneSettings.m_ZoneClearance = tmp;
         }
-        else if( TESTLINE( "Zone_45_Only" ) )
+        else if( TESTLINE( "Zone_45_Only" ) )   // No longer used
         {
-            bool tmp = (bool) intParse( line + SZ( "Zone_45_Only" ) );
-            zs.m_Zone_45_Only = tmp;
+            /* bool tmp = (bool) */ intParse( line + SZ( "Zone_45_Only" ) );
         }
         else if( TESTLINE( "DrawSegmWidth" ) )
         {
@@ -960,12 +958,12 @@ void LEGACY_PLUGIN::loadSETUP()
         else if( TESTLINE( "ViaSize" ) )
         {
             BIU tmp = biuParse( line + SZ( "ViaSize" ) );
-            netclass_default->SetViaDiameter( tmp );
+            defaultNetclass->SetViaDiameter( tmp );
         }
         else if( TESTLINE( "ViaDrill" ) )
         {
             BIU tmp = biuParse( line + SZ( "ViaDrill" ) );
-            netclass_default->SetViaDrill( tmp );
+            defaultNetclass->SetViaDrill( tmp );
         }
         else if( TESTLINE( "ViaMinDrill" ) )
         {
@@ -975,12 +973,12 @@ void LEGACY_PLUGIN::loadSETUP()
         else if( TESTLINE( "MicroViaSize" ) )
         {
             BIU tmp = biuParse( line + SZ( "MicroViaSize" ) );
-            netclass_default->SetuViaDiameter( tmp );
+            defaultNetclass->SetuViaDiameter( tmp );
         }
         else if( TESTLINE( "MicroViaDrill" ) )
         {
             BIU tmp = biuParse( line + SZ( "MicroViaDrill" ) );
-            netclass_default->SetuViaDrill( tmp );
+            defaultNetclass->SetuViaDrill( tmp );
         }
         else if( TESTLINE( "MicroViaMinDrill" ) )
         {
@@ -989,8 +987,7 @@ void LEGACY_PLUGIN::loadSETUP()
         }
         else if( TESTLINE( "MicroViasAllowed" ) )
         {
-            int tmp = intParse( line + SZ( "MicroViasAllowed" ) );
-            bds.m_MicroViasAllowed = tmp;
+            intParse( line + SZ( "MicroViasAllowed" ) );
         }
         else if( TESTLINE( "TextPcbWidth" ) )
         {
@@ -1084,7 +1081,7 @@ void LEGACY_PLUGIN::loadSETUP()
         }
         else if( TESTLINE( "$EndSETUP" ) )
         {
-            m_board->SetZoneSettings( zs );
+            m_board->SetZoneSettings( zoneSettings );
 
             // Very old *.brd file does not have  NETCLASSes
             // "TrackWidth", "ViaSize", "ViaDrill", "ViaMinSize", and "TrackClearence" were
@@ -1179,7 +1176,9 @@ void LEGACY_PLUGIN::loadFOOTPRINT( FOOTPRINT* aFootprint )
             int          orient    = intParse( data, &data );
             int          layer_num = intParse( data, &data );
             PCB_LAYER_ID layer_id  = leg_layer2new( m_cu_count,  layer_num );
-            long         edittime  = hexParse( data, &data );
+
+            [[maybe_unused]] long edittime  = hexParse( data, &data );
+
             char*        uuid      = strtok_r( (char*) data, delims, (char**) &data );
 
             data = strtok_r( (char*) data+1, delims, (char**) &data );
@@ -1196,7 +1195,6 @@ void LEGACY_PLUGIN::loadFOOTPRINT( FOOTPRINT* aFootprint )
             aFootprint->SetLayer( layer_id );
             aFootprint->SetOrientation( EDA_ANGLE( orient, TENTHS_OF_A_DEGREE_T ) );
             const_cast<KIID&>( aFootprint->m_Uuid ) = KIID( uuid );
-            aFootprint->SetLastEditTime( edittime );
         }
         else if( TESTLINE( "Sc" ) )         // timestamp
         {
@@ -1515,7 +1513,16 @@ void LEGACY_PLUGIN::loadPAD( FOOTPRINT* aFootprint )
 
             pad->SetPosition( padpos + aFootprint->GetPosition() );
 
-            aFootprint->Add( pad.release() );
+            if( pad->GetSizeX() > 0 && pad->GetSizeY() > 0 )
+            {
+                aFootprint->Add( pad.release() );
+            }
+            else
+            {
+                wxLogError( _( "Invalid zero-sized pad ignored in\nfile: %s" ),
+                            m_reader->GetSource() );
+            }
+
             return;     // preferred exit
         }
     }
@@ -2245,7 +2252,7 @@ void LEGACY_PLUGIN::loadNETCLASS()
     // yet since that would bypass duplicate netclass name checking within the BOARD.
     // store it temporarily in an unique_ptr until successfully inserted into the BOARD
     // just before returning.
-    NETCLASSPTR nc = std::make_shared<NETCLASS>( wxEmptyString );
+    std::shared_ptr<NETCLASS> nc = std::make_shared<NETCLASS>( wxEmptyString );
 
     while( ( line = READLINE( m_reader ) ) != nullptr )
     {
@@ -2254,7 +2261,12 @@ void LEGACY_PLUGIN::loadNETCLASS()
             // e.g. "AddNet "V3.3D"\n"
             ReadDelimitedText( buf, line + SZ( "AddNet" ), sizeof(buf) );
             netname = ConvertToNewOverbarNotation( FROM_UTF8( buf ) );
-            nc->Add( netname );
+
+            m_board->GetDesignSettings().m_NetSettings->m_NetClassPatternAssignments.push_back(
+                    {
+                        std::make_unique<EDA_COMBINED_MATCHER>( netname, CTX_NETCLASS ),
+                        nc->GetName()
+                    } );
         }
         else if( TESTLINE( "Clearance" ) )
         {
@@ -2298,15 +2310,19 @@ void LEGACY_PLUGIN::loadNETCLASS()
         }
         else if( TESTLINE( "$EndNCLASS" ) )
         {
-            if( !m_board->GetDesignSettings().GetNetClasses().Add( nc ) )
+            if( m_board->GetDesignSettings().m_NetSettings->m_NetClasses.count( nc->GetName() ) )
             {
                 // Must have been a name conflict, this is a bad board file.
                 // User may have done a hand edit to the file.
 
                 // unique_ptr will delete nc on this code path
 
-                m_error.Printf( _( "Duplicate NETCLASS name '%s'." ), nc->GetName().GetData() );
+                m_error.Printf( _( "Duplicate NETCLASS name '%s'." ), nc->GetName() );
                 THROW_IO_ERROR( m_error );
+            }
+            else
+            {
+                m_board->GetDesignSettings().m_NetSettings->m_NetClasses[ nc->GetName() ] = nc;
             }
 
             return;     // preferred exit
@@ -2519,7 +2535,7 @@ void LEGACY_PLUGIN::loadZONE_CONTAINER()
         else if( TESTLINE( "ZPriority" ) )
         {
             int priority = intParse( line + SZ( "ZPriority" ) );
-            zc->SetPriority( priority );
+            zc->SetAssignedPriority( priority );
         }
         else if( TESTLINE( "$POLYSCORNERS" ) )
         {
@@ -2850,7 +2866,7 @@ EDA_ANGLE LEGACY_PLUGIN::degParse( const char* aValue, const char** nptrptr )
 }
 
 
-void LEGACY_PLUGIN::init( const PROPERTIES* aProperties )
+void LEGACY_PLUGIN::init( const STRING_UTF8_MAP* aProperties )
 {
     m_loading_format_version = 0;
     m_cu_count = 16;
@@ -2859,7 +2875,7 @@ void LEGACY_PLUGIN::init( const PROPERTIES* aProperties )
     m_props = aProperties;
 
     // conversion factor for saving RAM BIUs to KICAD legacy file format.
-    biuToDisk = 1.0/IU_PER_MM;      // BIUs are nanometers & file is mm
+    biuToDisk = 1.0 / pcbIUScale.IU_PER_MM; // BIUs are nanometers & file is mm
 
     // Conversion factor for loading KICAD legacy file format into BIUs in RAM
     // Start by assuming the *.brd file is in deci-mils.
@@ -2868,7 +2884,7 @@ void LEGACY_PLUGIN::init( const PROPERTIES* aProperties )
     // mm to nanometers.  The deci-mil legacy files have no such "Units" marker
     // so we must assume the file is in deci-mils until told otherwise.
 
-    diskToBiu = IU_PER_MILS / 10;    // BIUs are nanometers
+    diskToBiu = pcbIUScale.IU_PER_MILS / 10;    // BIUs are nanometers
 }
 
 
@@ -2989,7 +3005,7 @@ void LP_CACHE::ReadAndVerifyHeader( LINE_READER* aReader )
             const char* units = strtok_r( line + SZ( "Units" ), delims, &data );
 
             if( !strcmp( units, "mm" ) )
-                m_owner->diskToBiu = IU_PER_MM;
+                m_owner->diskToBiu = pcbIUScale.IU_PER_MM;
 
         }
         else if( TESTLINE( "$INDEX" ) )
@@ -3139,7 +3155,7 @@ void LEGACY_PLUGIN::cacheLib( const wxString& aLibraryPath )
 
 
 void LEGACY_PLUGIN::FootprintEnumerate( wxArrayString& aFootprintNames, const wxString& aLibPath,
-                                        bool aBestEfforts, const PROPERTIES* aProperties )
+                                        bool aBestEfforts, const STRING_UTF8_MAP* aProperties )
 {
     LOCALE_IO toggle;     // toggles on, then off, the C locale.
     wxString  errorMsg;
@@ -3168,7 +3184,7 @@ void LEGACY_PLUGIN::FootprintEnumerate( wxArrayString& aFootprintNames, const wx
 
 FOOTPRINT* LEGACY_PLUGIN::FootprintLoad( const wxString& aLibraryPath,
                                          const wxString& aFootprintName, bool aKeepUUID,
-                                         const PROPERTIES* aProperties )
+                                         const STRING_UTF8_MAP* aProperties )
 {
     LOCALE_IO   toggle;     // toggles on, then off, the C locale.
 
@@ -3192,7 +3208,7 @@ FOOTPRINT* LEGACY_PLUGIN::FootprintLoad( const wxString& aLibraryPath,
 
 
 bool LEGACY_PLUGIN::FootprintLibDelete( const wxString& aLibraryPath,
-                                        const PROPERTIES* aProperties )
+                                        const STRING_UTF8_MAP* aProperties )
 {
     wxFileName fn = aLibraryPath;
 

@@ -68,12 +68,12 @@ private:
      * Retrieve the start and end points for a generic item.
      *
      * @param aItem is an item that has a start and end point.
-     * @return a segment from start to end, or NULLOPT if invalid.
+     * @return a segment from start to end, or std::nullopt if invalid.
      */
-    static OPT<SEG> getStartEndPoints( EDA_ITEM* aItem, int* aWidth );
+    static std::optional<SEG> getStartEndPoints( EDA_ITEM* aItem, int* aWidth );
 
     /**
-     * Try to make polygons from segments in the selected items.
+     * Try to make polygons from chained segments in the selected items.
      *
      * Polygons are formed from chains of lines/arcs.  Each set containing two or more lines/arcs
      * that are connected will be added to the return SHAPE_POLY_SET as an outline.  No attempt
@@ -82,29 +82,16 @@ private:
      * @param aItems is a list of items to process.
      * @return a #SHAPE_POLY_SET containing any polygons that were created.
      */
-    static SHAPE_POLY_SET makePolysFromSegs( const std::deque<EDA_ITEM*>& aItems );
+    SHAPE_POLY_SET makePolysFromChainedSegs( const std::deque<EDA_ITEM*>& aItems );
 
     /**
-     * Try to make polygons from rectangles.
+     * Make polygons from graphic shapes and zones.
      *
-     * @param aItems is a list of rect shapes to process.
+     * @param aItems is a list of items to process.
      * @return a #SHAPE_POLY_SET containing any polygons that were created.
      */
-    static SHAPE_POLY_SET makePolysFromRects( const std::deque<EDA_ITEM*>& aItems );
-
-    /**
-     * Try to make polygons from circles.
-     *
-     * @param aItems is a list of circle shapes to process.
-     * @return a #SHAPE_POLY_SET containing any polygons that were created.
-     */
-    static SHAPE_POLY_SET makePolysFromCircles( const std::deque<EDA_ITEM*>& aItems );
-
-    /**
-     * For any polygon shapes (zones, keepouts, graphic polys) in aItems, extracts
-     * the polygon outlines into the returned #SHAPE_POLY_SET.
-     */
-    static SHAPE_POLY_SET extractPolygons( const std::deque<EDA_ITEM*>& aItems );
+    SHAPE_POLY_SET makePolysFromGraphics( const std::deque<EDA_ITEM*>& aItems,
+                                          bool aIgnoreLineWidths );
 
     PCB_SELECTION_TOOL* m_selectionTool;
     CONDITIONAL_MENU*   m_menu;

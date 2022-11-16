@@ -205,6 +205,13 @@ extern const wxChar* const traceEnvVars;
  */
 extern const wxChar* const traceGalProfile;
 
+/**
+ * Flag to enable KiCad2Step debug tracing.
+ *
+ * Use "KICAD2STEP" to enable.
+ */
+extern const wxChar* const traceKiCad2Step;
+
 ///@}
 
 /**
@@ -255,6 +262,8 @@ public:
     }
 #endif
 
+    bool IsTraceEnabled( const wxString& aWhat );
+
 private:
     void traceV( const wxString& aWhat, const wxString& aFmt, va_list vargs );
     void init();
@@ -264,6 +273,13 @@ private:
     bool                     m_printAllTraces;
 };
 
-#define KI_TRACE( ... ) TRACE_MANAGER::Instance().Trace( __VA_ARGS__ )
+#define KI_TRACE( aWhat, ... )                                                                     \
+    if( TRACE_MANAGER::Instance().IsTraceEnabled( aWhat ) )                                        \
+    {                                                                                              \
+        TRACE_MANAGER::Instance().Trace( aWhat, __VA_ARGS__ );                                     \
+    }                                                                                              \
+    else                                                                                           \
+    {                                                                                              \
+    }
 
 #endif    // _TRACE_HELPERS_H_

@@ -44,24 +44,35 @@ TOOL_ACTION KICAD_MANAGER_ACTIONS::newProject( "kicad.Control.newProject",
 TOOL_ACTION KICAD_MANAGER_ACTIONS::newFromTemplate( "kicad.Control.newFromTemplate",
         AS_GLOBAL,
         MD_CTRL + 'T', LEGACY_HK_NAME( "New Project From Template" ),
-        _( "New Project from Template..." ), _( "Create new project from template" ) );
+        _( "New Project from Template..." ), _( "Create new project from template" ),
+        BITMAPS::new_project_from_template );
 
 TOOL_ACTION KICAD_MANAGER_ACTIONS::openDemoProject( "kicad.Control.openDemoProject",
         AS_GLOBAL,
         0, LEGACY_HK_NAME( "Open Demo Project" ),
-        _( "Open Demo Project..." ), _( "Open a demo project" ) );
+        _( "Open Demo Project..." ), _( "Open a demo project" ),
+        BITMAPS::open_project_demo );
 
 TOOL_ACTION KICAD_MANAGER_ACTIONS::openProject( "kicad.Control.openProject",
         AS_GLOBAL,
         MD_CTRL + 'O', LEGACY_HK_NAME( "Open Project" ),
         _( "Open Project..." ), _( "Open an existing project" ),
-        BITMAPS::directory_open );
+        BITMAPS::open_project );
 
 TOOL_ACTION KICAD_MANAGER_ACTIONS::closeProject( "kicad.Control.closeProject",
         AS_GLOBAL,
         0, LEGACY_HK_NAME( "Close Project" ),
         _( "Close Project" ), _( "Close the current project" ),
         BITMAPS::project_close );
+
+TOOL_ACTION KICAD_MANAGER_ACTIONS::loadProject( "kicad.Control.loadProject",
+        AS_GLOBAL);
+
+TOOL_ACTION KICAD_MANAGER_ACTIONS::importNonKicadProj( "kicad.Control.importNonKicadProj",
+        AS_GLOBAL );
+
+TOOL_ACTION KICAD_MANAGER_ACTIONS::viewDroppedGerbers( "kicad.Control.viewDroppedGerbers",
+        AS_GLOBAL );
 
 TOOL_ACTION KICAD_MANAGER_ACTIONS::editSchematic( "kicad.Control.editSchematic",
         AS_GLOBAL,
@@ -127,5 +138,3 @@ TOOL_ACTION KICAD_MANAGER_ACTIONS::editOtherSch( "kicad.Control.editOtherSch",
 
 TOOL_ACTION KICAD_MANAGER_ACTIONS::editOtherPCB( "kicad.Control.editOtherPCB",
         AS_GLOBAL );
-
-

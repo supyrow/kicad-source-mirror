@@ -99,6 +99,12 @@ void CONDITIONAL_MENU::AddSeparator( int aOrder )
 }
 
 
+void CONDITIONAL_MENU::AddSeparator( const SELECTION_CONDITION& aCondition, int aOrder )
+{
+    addEntry( ENTRY( aCondition, aOrder ) );
+}
+
+
 SELECTION g_resolveDummySelection;
 
 
@@ -107,12 +113,14 @@ void CONDITIONAL_MENU::Resolve()
     Evaluate( g_resolveDummySelection );
     UpdateAll();
 
-    runOnSubmenus( [] ( ACTION_MENU* aMenu ) {
-        CONDITIONAL_MENU* conditionalMenu = dynamic_cast<CONDITIONAL_MENU*>( aMenu );
+    runOnSubmenus(
+            [] ( ACTION_MENU* aMenu )
+            {
+                CONDITIONAL_MENU* conditionalMenu = dynamic_cast<CONDITIONAL_MENU*>( aMenu );
 
-        if( conditionalMenu )
-            conditionalMenu->Resolve();
-    } );
+                if( conditionalMenu )
+                    conditionalMenu->Resolve();
+            } );
 }
 
 
@@ -144,20 +152,21 @@ void CONDITIONAL_MENU::Evaluate( SELECTION& aSelection )
         switch( entry.Type() )
         {
             case ENTRY::ACTION:
-                menuItem = Add( *entry.Action(), entry.IsCheckmarkEntry() );
+                Add( *entry.Action(), entry.IsCheckmarkEntry() );
                 menu_count++;
                 break;
 
             case ENTRY::MENU:
-                menuItem = Add( entry.Menu() );
+                entry.Menu()->UpdateTitle();
+                Add( entry.Menu()->Clone() );
                 menu_count++;
                 break;
 
             case ENTRY::WXITEM:
                 menuItem = new wxMenuItem( this,
                                            entry.wxItem()->GetId(),
-                                           entry.wxItem()->GetItemLabel(),
-                                           entry.wxItem()->GetHelp(),
+                                           wxGetTranslation( entry.wxItem()->GetItemLabel() ),
+                                           wxGetTranslation( entry.wxItem()->GetHelp() ),
                                            entry.wxItem()->GetKind() );
 
                 if( !!entry.GetIcon() )
@@ -171,7 +180,7 @@ void CONDITIONAL_MENU::Evaluate( SELECTION& aSelection )
 
             case ENTRY::SEPARATOR:
                 if( menu_count )
-                    menuItem = AppendSeparator();
+                    AppendSeparator();
 
                 menu_count = 0;
                 break;
@@ -186,13 +195,13 @@ void CONDITIONAL_MENU::Evaluate( SELECTION& aSelection )
     // they are updated. This is also required on GTK to make sure the menus have the proper
     // size when created.
     runOnSubmenus(
-        [&aSelection]( ACTION_MENU* aMenu )
-        {
-            CONDITIONAL_MENU* conditionalMenu = dynamic_cast<CONDITIONAL_MENU*>( aMenu );
+            [&aSelection]( ACTION_MENU* aMenu )
+            {
+                CONDITIONAL_MENU* conditionalMenu = dynamic_cast<CONDITIONAL_MENU*>( aMenu );
 
-            if( conditionalMenu )
-                conditionalMenu->Evaluate( aSelection );
-        } );
+                if( conditionalMenu )
+                    conditionalMenu->Evaluate( aSelection );
+            } );
 }
 
 
@@ -209,6 +218,7 @@ void CONDITIONAL_MENU::addEntry( ENTRY aEntry )
 
     m_entries.insert( it, aEntry );
 }
+
 
 CONDITIONAL_MENU::ENTRY::ENTRY( const ENTRY& aEntry )
 {

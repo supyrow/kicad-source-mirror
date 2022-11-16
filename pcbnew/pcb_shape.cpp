@@ -25,30 +25,66 @@
  */
 
 #include <bitmaps.h>
+#include <core/mirror.h>
+#include <macros.h>
 #include <pcb_edit_frame.h>
 #include <board_design_settings.h>
 #include <footprint.h>
 #include <base_units.h>
 #include <geometry/shape_compound.h>
 #include <pcb_shape.h>
-#include "macros.h"
+#include <pcb_painter.h>
 
 PCB_SHAPE::PCB_SHAPE( BOARD_ITEM* aParent, KICAD_T aItemType, SHAPE_T aShapeType ) :
     BOARD_ITEM( aParent, aItemType ),
-    EDA_SHAPE( aShapeType, Millimeter2iu( DEFAULT_LINE_WIDTH ), FILL_T::NO_FILL, false )
+    EDA_SHAPE( aShapeType, pcbIUScale.mmToIU( DEFAULT_LINE_WIDTH ), FILL_T::NO_FILL )
 {
 }
 
 
 PCB_SHAPE::PCB_SHAPE( BOARD_ITEM* aParent, SHAPE_T shapetype ) :
     BOARD_ITEM( aParent, PCB_SHAPE_T ),
-    EDA_SHAPE( shapetype, Millimeter2iu( DEFAULT_LINE_WIDTH ), FILL_T::NO_FILL, false )
+    EDA_SHAPE( shapetype, pcbIUScale.mmToIU( DEFAULT_LINE_WIDTH ), FILL_T::NO_FILL )
 {
 }
 
 
 PCB_SHAPE::~PCB_SHAPE()
 {
+}
+
+
+bool PCB_SHAPE::IsType( const std::vector<KICAD_T>& aScanTypes ) const
+{
+    if( BOARD_ITEM::IsType( aScanTypes ) )
+        return true;
+
+    bool sametype = false;
+
+    for( KICAD_T scanType : aScanTypes )
+    {
+        if( scanType == PCB_LOCATE_GRAPHIC_T )
+            return true;
+        else if( scanType == PCB_LOCATE_BOARD_EDGE_T )
+            sametype = m_layer == Edge_Cuts;
+        else if( scanType == PCB_SHAPE_LOCATE_ARC_T )
+            sametype = m_shape == SHAPE_T::ARC;
+        else if( scanType == PCB_SHAPE_LOCATE_CIRCLE_T )
+            sametype = m_shape == SHAPE_T::CIRCLE;
+        else if( scanType == PCB_SHAPE_LOCATE_RECT_T )
+            sametype = m_shape == SHAPE_T::RECT;
+        else if( scanType == PCB_SHAPE_LOCATE_SEGMENT_T )
+            sametype = m_shape == SHAPE_T::SEGMENT;
+        else if( scanType == PCB_SHAPE_LOCATE_POLY_T )
+            sametype = m_shape == SHAPE_T::POLY;
+        else if( scanType == PCB_SHAPE_LOCATE_BEZIER_T )
+            sametype = m_shape == SHAPE_T::BEZIER;
+
+        if( sametype )
+            return true;
+    }
+
+    return false;
 }
 
 
@@ -104,8 +140,13 @@ std::vector<VECTOR2I> PCB_SHAPE::GetCorners() const
     }
     else if( GetShape() == SHAPE_T::POLY )
     {
-        for( const VECTOR2I& pt : GetPolyShape().Outline( 0 ).CPoints() )
-            pts.emplace_back( pt );
+        VECTOR2I offset = getParentPosition();
+
+        for( int ii = 0; ii < GetPolyShape().OutlineCount(); ++ii )
+        {
+            for( const VECTOR2I& pt : GetPolyShape().Outline( ii ).CPoints() )
+                pts.emplace_back( pt + offset );
+        }
     }
     else
     {
@@ -131,6 +172,22 @@ void PCB_SHAPE::Scale( double aScale )
 }
 
 
+void PCB_SHAPE::NormalizeRect()
+{
+    if( m_shape == SHAPE_T::RECT )
+    {
+        VECTOR2I start = GetStart();
+        VECTOR2I end = GetEnd();
+
+        BOX2I rect( start, end - start );
+        rect.Normalize();
+
+        SetStart( rect.GetPosition() );
+        SetEnd( rect.GetEnd() );
+    }
+}
+
+
 void PCB_SHAPE::Rotate( const VECTOR2I& aRotCentre, const EDA_ANGLE& aAngle )
 {
     rotate( aRotCentre, aAngle );
@@ -145,12 +202,56 @@ void PCB_SHAPE::Flip( const VECTOR2I& aCentre, bool aFlipLeftRight )
 }
 
 
+void PCB_SHAPE::Mirror( const VECTOR2I& aCentre, bool aMirrorAroundXAxis )
+{
+    // Mirror an edge of the footprint. the layer is not modified
+    // This is a footprint shape modification.
+
+    switch( GetShape() )
+    {
+    case SHAPE_T::ARC:
+    case SHAPE_T::SEGMENT:
+    case SHAPE_T::RECT:
+    case SHAPE_T::CIRCLE:
+    case SHAPE_T::BEZIER:
+        if( aMirrorAroundXAxis )
+        {
+            MIRROR( m_start.y, aCentre.y );
+            MIRROR( m_end.y, aCentre.y );
+            MIRROR( m_arcCenter.y, aCentre.y );
+            MIRROR( m_bezierC1.y, aCentre.y );
+            MIRROR( m_bezierC2.y, aCentre.y );
+        }
+        else
+        {
+            MIRROR( m_start.x, aCentre.x );
+            MIRROR( m_end.x, aCentre.x );
+            MIRROR( m_arcCenter.x, aCentre.x );
+            MIRROR( m_bezierC1.x, aCentre.x );
+            MIRROR( m_bezierC2.x, aCentre.x );
+        }
+
+        if( GetShape() == SHAPE_T::ARC )
+            std::swap( m_start, m_end );
+
+        if( GetShape() == SHAPE_T::BEZIER )
+            RebuildBezierToSegmentsPointsList( GetWidth() );
+
+        break;
+
+    case SHAPE_T::POLY:
+        m_poly.Mirror( !aMirrorAroundXAxis, aMirrorAroundXAxis, aCentre );
+        break;
+
+    default:
+        UNIMPLEMENTED_FOR( SHAPE_T_asString() );
+    }
+}
+
+
 FOOTPRINT* PCB_SHAPE::GetParentFootprint() const
 {
-    if( !m_parent || m_parent->Type() != PCB_FOOTPRINT_T )
-        return nullptr;
-
-    return (FOOTPRINT*) m_parent;
+    return dynamic_cast<FOOTPRINT*>( BOARD_ITEM::GetParentFootprint() );
 }
 
 
@@ -172,6 +273,32 @@ VECTOR2I PCB_SHAPE::getParentPosition() const
 }
 
 
+double PCB_SHAPE::ViewGetLOD( int aLayer, KIGFX::VIEW* aView ) const
+{
+    constexpr double HIDE = std::numeric_limits<double>::max();
+    constexpr double SHOW = 0.0;
+
+    KIGFX::PCB_PAINTER*  painter = static_cast<KIGFX::PCB_PAINTER*>( aView->GetPainter() );
+    KIGFX::PCB_RENDER_SETTINGS* renderSettings = painter->GetSettings();
+
+    if( aLayer == LAYER_LOCKED_ITEM_SHADOW )
+    {
+        // Hide shadow if the main layer is not shown
+        if( !aView->IsLayerVisible( m_layer ) )
+            return HIDE;
+
+        // Hide shadow on dimmed tracks
+        if( renderSettings->GetHighContrast() )
+        {
+            if( m_layer != renderSettings->GetPrimaryHighContrastLayer() )
+                return HIDE;
+        }
+    }
+
+    return SHOW;
+}
+
+
 void PCB_SHAPE::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList )
 {
     aList.emplace_back( _( "Type" ), _( "Drawing" ) );
@@ -185,7 +312,7 @@ void PCB_SHAPE::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_I
 }
 
 
-wxString PCB_SHAPE::GetSelectMenuText( EDA_UNITS aUnits ) const
+wxString PCB_SHAPE::GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const
 {
     return wxString::Format( _( "%s on %s" ), ShowShape(), GetLayerName() );
 }
@@ -214,13 +341,13 @@ const BOX2I PCB_SHAPE::ViewBBox() const
 }
 
 
-std::shared_ptr<SHAPE> PCB_SHAPE::GetEffectiveShape( PCB_LAYER_ID aLayer ) const
+std::shared_ptr<SHAPE> PCB_SHAPE::GetEffectiveShape( PCB_LAYER_ID aLayer, FLASHING aFlash ) const
 {
     return std::make_shared<SHAPE_COMPOUND>( MakeEffectiveShapes() );
 }
 
 
-void PCB_SHAPE::SwapData( BOARD_ITEM* aImage )
+void PCB_SHAPE::swapData( BOARD_ITEM* aImage )
 {
     PCB_SHAPE* image = dynamic_cast<PCB_SHAPE*>( aImage );
     assert( image );
@@ -258,13 +385,11 @@ bool PCB_SHAPE::cmp_drawings::operator()( const BOARD_ITEM* aFirst,
 }
 
 
-void PCB_SHAPE::TransformShapeWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuffer,
-                                                      PCB_LAYER_ID aLayer, int aClearanceValue,
-                                                      int aError, ERROR_LOC aErrorLoc,
-                                                      bool ignoreLineWidth ) const
+void PCB_SHAPE::TransformShapeToPolygon( SHAPE_POLY_SET& aBuffer, PCB_LAYER_ID aLayer,
+                                         int aClearance, int aError, ERROR_LOC aErrorLoc,
+                                         bool ignoreLineWidth ) const
 {
-    EDA_SHAPE::TransformShapeWithClearanceToPolygon( aCornerBuffer, aClearanceValue, aError,
-                                                     aErrorLoc, ignoreLineWidth );
+    EDA_SHAPE::TransformShapeToPolygon( aBuffer, aClearance, aError, aErrorLoc, ignoreLineWidth );
 }
 
 
@@ -278,5 +403,10 @@ static struct PCB_SHAPE_DESC
         propMgr.AddTypeCast( new TYPE_CAST<PCB_SHAPE, EDA_SHAPE> );
         propMgr.InheritsAfter( TYPE_HASH( PCB_SHAPE ), TYPE_HASH( BOARD_ITEM ) );
         propMgr.InheritsAfter( TYPE_HASH( PCB_SHAPE ), TYPE_HASH( EDA_SHAPE ) );
+
+        auto layerProperty = new PROPERTY_ENUM<PCB_SHAPE, PCB_LAYER_ID, BOARD_ITEM>(
+                _HKI( "Layer" ), &PCB_SHAPE::SetLayer, &PCB_SHAPE::GetLayer );
+
+        propMgr.ReplaceProperty( TYPE_HASH( BOARD_ITEM ), _HKI( "Layer" ), layerProperty );
     }
 } _PCB_SHAPE_DESC;

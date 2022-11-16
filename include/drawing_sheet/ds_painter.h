@@ -32,7 +32,6 @@
 #include <drawing_sheet/ds_draw_item.h>
 
 // Forward declarations:
-class EDA_RECT;
 class TITLE_BLOCK;
 
 using KIGFX::COLOR4D;
@@ -61,7 +60,7 @@ public:
         return luma < 0.5;
     }
 
-    const COLOR4D& GetBackgroundColor() override { return m_backgroundColor; }
+    const COLOR4D& GetBackgroundColor() const override { return m_backgroundColor; }
     void SetBackgroundColor( const COLOR4D& aColor ) override { m_backgroundColor = aColor; }
 
     void SetNormalColor( const COLOR4D& aColor ) { m_normalColor = aColor; }
@@ -132,8 +131,9 @@ private:
  * @param aPageInfo for margins and page size (in mils).
  * @param aFullSheetName The sheetpath (full sheet name), for basic inscriptions.
  * @param aFileName The file name, for basic inscriptions.
- * @param aTitleBlock The sheet title block, for basic inscriptions.
- * @param aSheetCount The number of sheets (for basic inscriptions).
+ * @param aTitleBlock The sheet title block, for text variable resolution.
+ * @param aProperties Optional properties for text variable resolution.
+ * @param aSheetCount The number of sheets (for text variable resolution).
  * @param aPageNumber The page number.
  * @param aScalar the scale factor to convert from mils to internal units.
  * @param aSheetLayer The layer from Pcbnew.
@@ -146,7 +146,8 @@ private:
  */
 void PrintDrawingSheet( const RENDER_SETTINGS* aSettings, const PAGE_INFO& aPageInfo,
                         const wxString& aFullSheetName, const wxString& aFileName,
-                        const TITLE_BLOCK& aTitleBlock, int aSheetCount,
+                        const TITLE_BLOCK& aTitleBlock,
+                        const std::map<wxString, wxString>* aProperties, int aSheetCount,
                         const wxString& aPageNumber, double aScalar, const PROJECT* aProject,
                         const wxString& aSheetLayer = wxEmptyString, bool aIsFirstPage = true );
 

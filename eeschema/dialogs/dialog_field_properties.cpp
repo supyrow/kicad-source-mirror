@@ -25,6 +25,8 @@
 
 #include <widgets/bitmap_button.h>
 #include <widgets/font_choice.h>
+#include <widgets/color_swatch.h>
+#include <settings/color_settings.h>
 #include <bitmaps.h>
 #include <kiway.h>
 #include <confirm.h>
@@ -46,7 +48,7 @@
 
 DIALOG_FIELD_PROPERTIES::DIALOG_FIELD_PROPERTIES( SCH_BASE_FRAME* aParent, const wxString& aTitle,
                                                   const EDA_TEXT* aTextItem ) :
-    DIALOG_FIELD_PROPERTIES_BASE( aParent ),
+    DIALOG_FIELD_PROPERTIES_BASE( aParent, wxID_ANY, aTitle ),
     m_posX( aParent, m_xPosLabel, m_xPosCtrl, m_xPosUnits, true ),
     m_posY( aParent, m_yPosLabel, m_yPosCtrl, m_yPosUnits, true ),
     m_textSize( aParent, m_textSizeLabel, m_textSizeCtrl, m_textSizeUnits, true ),
@@ -54,9 +56,10 @@ DIALOG_FIELD_PROPERTIES::DIALOG_FIELD_PROPERTIES( SCH_BASE_FRAME* aParent, const
     m_firstFocus( true ),
     m_scintillaTricks( nullptr )
 {
-    wxASSERT( aTextItem );
+    COLOR_SETTINGS* colorSettings = aParent->GetColorSettings();
+    COLOR4D         schematicBackground = colorSettings->GetColor( LAYER_SCHEMATIC_BACKGROUND );
 
-    SetTitle( aTitle );
+    wxASSERT( aTextItem );
 
     m_note->SetFont( KIUI::GetInfoFont( this ).Italic() );
     m_note->Show( false );
@@ -72,11 +75,14 @@ DIALOG_FIELD_PROPERTIES::DIALOG_FIELD_PROPERTIES( SCH_BASE_FRAME* aParent, const
             } );
     m_StyledTextCtrl->SetEOLMode( wxSTC_EOL_LF );   // Normalize EOL across platforms
 
+    m_textColorSwatch->SetDefaultColor( COLOR4D::UNSPECIFIED );
+    m_textColorSwatch->SetSwatchBackground( schematicBackground );
+
     m_separator1->SetIsSeparator();
 
-    m_horizontal->SetIsCheckButton();
+    m_horizontal->SetIsRadioButton();
     m_horizontal->SetBitmap( KiBitmap( BITMAPS::text_horizontal ) );
-    m_vertical->SetIsCheckButton();
+    m_vertical->SetIsRadioButton();
     m_vertical->SetBitmap( KiBitmap( BITMAPS::text_vertical ) );
 
     m_separator2->SetIsSeparator();
@@ -88,20 +94,20 @@ DIALOG_FIELD_PROPERTIES::DIALOG_FIELD_PROPERTIES( SCH_BASE_FRAME* aParent, const
 
     m_separator3->SetIsSeparator();
 
-    m_hAlignLeft->SetIsCheckButton();
+    m_hAlignLeft->SetIsRadioButton();
     m_hAlignLeft->SetBitmap( KiBitmap( BITMAPS::text_align_left ) );
-    m_hAlignCenter->SetIsCheckButton();
+    m_hAlignCenter->SetIsRadioButton();
     m_hAlignCenter->SetBitmap( KiBitmap( BITMAPS::text_align_center ) );
-    m_hAlignRight->SetIsCheckButton();
+    m_hAlignRight->SetIsRadioButton();
     m_hAlignRight->SetBitmap( KiBitmap( BITMAPS::text_align_right ) );
 
     m_separator4->SetIsSeparator();
 
-    m_vAlignTop->SetIsCheckButton();
+    m_vAlignTop->SetIsRadioButton();
     m_vAlignTop->SetBitmap( KiBitmap( BITMAPS::text_valign_top ) );
-    m_vAlignCenter->SetIsCheckButton();
+    m_vAlignCenter->SetIsRadioButton();
     m_vAlignCenter->SetBitmap( KiBitmap( BITMAPS::text_valign_center ) );
-    m_vAlignBottom->SetIsCheckButton();
+    m_vAlignBottom->SetIsRadioButton();
     m_vAlignBottom->SetBitmap( KiBitmap( BITMAPS::text_valign_bottom ) );
 
     m_separator5->SetIsSeparator();
@@ -120,12 +126,17 @@ DIALOG_FIELD_PROPERTIES::DIALOG_FIELD_PROPERTIES( SCH_BASE_FRAME* aParent, const
     m_text = aTextItem->GetText();
     m_isItalic = aTextItem->IsItalic();
     m_isBold = aTextItem->IsBold();
+    m_color = aTextItem->GetTextColor();
     m_position = aTextItem->GetTextPos();
     m_size = aTextItem->GetTextWidth();
     m_isVertical = aTextItem->GetTextAngle().IsVertical();
     m_verticalJustification = aTextItem->GetVertJustify();
     m_horizontalJustification = aTextItem->GetHorizJustify();
     m_isVisible = aTextItem->IsVisible();
+
+    // These should be initialized in the child classes implementing dialogs for lib and sch items.
+    m_isNameVisible  = false;
+    m_allowAutoplace = true;
 }
 
 
@@ -291,9 +302,14 @@ void DIALOG_FIELD_PROPERTIES::onVAlignButton( wxCommandEvent& aEvent )
 bool DIALOG_FIELD_PROPERTIES::TransferDataToWindow()
 {
     if( m_TextCtrl->IsShown() )
+    {
         m_TextCtrl->SetValue( m_text );
+    }
     else if( m_StyledTextCtrl->IsShown() )
+    {
         m_StyledTextCtrl->SetValue( m_text );
+        m_StyledTextCtrl->EmptyUndoBuffer();
+    }
 
     m_fontCtrl->SetFontSelection( m_font );
 
@@ -306,6 +322,8 @@ bool DIALOG_FIELD_PROPERTIES::TransferDataToWindow()
 
     m_italic->Check( m_isItalic );
     m_bold->Check( m_isBold );
+
+    m_textColorSwatch->SetSwatchColor( m_color, false );
 
     switch ( m_horizontalJustification )
     {
@@ -322,6 +340,8 @@ bool DIALOG_FIELD_PROPERTIES::TransferDataToWindow()
     }
 
     m_visible->SetValue( m_isVisible );
+    m_nameVisible->SetValue( m_isNameVisible );
+    m_cbAllowAutoPlace->SetValue( m_allowAutoplace );
 
     return true;
 }
@@ -374,6 +394,7 @@ bool DIALOG_FIELD_PROPERTIES::TransferDataFromWindow()
 
     m_isBold = m_bold->IsChecked();
     m_isItalic = m_italic->IsChecked();
+    m_color = m_textColorSwatch->GetSwatchColor();
 
     if( m_hAlignLeft->IsChecked() )
         m_horizontalJustification = GR_TEXT_H_ALIGN_LEFT;
@@ -389,7 +410,9 @@ bool DIALOG_FIELD_PROPERTIES::TransferDataFromWindow()
     else
         m_verticalJustification = GR_TEXT_V_ALIGN_BOTTOM;
 
-    m_isVisible = m_visible->GetValue();
+    m_isVisible      = m_visible->GetValue();
+    m_isNameVisible  = m_nameVisible->GetValue();
+    m_allowAutoplace = m_cbAllowAutoPlace->GetValue();
 
     return true;
 }
@@ -404,6 +427,7 @@ void DIALOG_FIELD_PROPERTIES::updateText( EDA_TEXT* aText )
     aText->SetTextAngle( m_isVertical ? ANGLE_VERTICAL : ANGLE_HORIZONTAL );
     aText->SetItalic( m_isItalic );
     aText->SetBold( m_isBold );
+    aText->SetTextColor( m_color );
 }
 
 
@@ -412,10 +436,15 @@ DIALOG_LIB_FIELD_PROPERTIES::DIALOG_LIB_FIELD_PROPERTIES( SCH_BASE_FRAME* aParen
                                                           const LIB_FIELD* aField ) :
         DIALOG_FIELD_PROPERTIES( aParent, aTitle, aField )
 {
-    m_fieldId = aField->GetId();
+    m_fieldId        = aField->GetId();
+    m_isNameVisible  = aField->IsNameShown();
+    m_allowAutoplace = aField->CanAutoplace();
 
     if( m_fieldId == VALUE_FIELD )
         m_text = UnescapeString( aField->GetText() );
+
+    m_nameVisible->Show();
+    m_cbAllowAutoPlace->Show();
 
     // When in the library editor, power symbols can be renamed.
     m_isPower = false;
@@ -437,6 +466,9 @@ void DIALOG_LIB_FIELD_PROPERTIES::UpdateField( LIB_FIELD* aField )
         aField->GetParent()->SetName( value );
 
     updateText( aField );
+
+    aField->SetNameShown( m_isNameVisible );
+    aField->SetCanAutoplace( m_allowAutoplace );
 
     aField->SetHorizJustify( EDA_TEXT::MapHorizJustify( m_horizontalJustification ) );
     aField->SetVertJustify( EDA_TEXT::MapVertJustify( m_verticalJustification  ) );
@@ -477,6 +509,10 @@ DIALOG_SCH_FIELD_PROPERTIES::DIALOG_SCH_FIELD_PROPERTIES( SCH_BASE_FRAME* aParen
             break;
         }
     }
+    else if( aField->GetParent() && aField->GetParent()->IsType( { SCH_LABEL_LOCATE_ANY_T } ) )
+    {
+        m_fieldId = LABELUSERFIELD_V;
+    }
 
     // show text variable cross-references in a human-readable format
     m_text = aField->Schematic()->ConvertKIIDsToRefs( aField->GetText() );
@@ -485,9 +521,12 @@ DIALOG_SCH_FIELD_PROPERTIES::DIALOG_SCH_FIELD_PROPERTIES( SCH_BASE_FRAME* aParen
 
     m_isPower = false;
 
-    m_textLabel->SetLabel( m_field->GetName() + ":" );
+    m_textLabel->SetLabel( aField->GetName() + ":" );
 
     m_position = m_field->GetPosition();
+
+    m_isNameVisible = m_field->IsNameShown();
+    m_allowAutoplace = m_field->CanAutoplace();
 
     m_horizontalJustification = m_field->GetEffectiveHorizJustify();
     m_verticalJustification = m_field->GetEffectiveVertJustify();
@@ -507,6 +546,9 @@ DIALOG_SCH_FIELD_PROPERTIES::DIALOG_SCH_FIELD_PROPERTIES( SCH_BASE_FRAME* aParen
 
     m_StyledTextCtrl->Bind( wxEVT_STC_CHARADDED, &DIALOG_SCH_FIELD_PROPERTIES::onScintillaCharAdded,
                             this );
+
+    m_nameVisible->Show();
+    m_cbAllowAutoPlace->Show();
 
     init();
 
@@ -621,9 +663,21 @@ void DIALOG_SCH_FIELD_PROPERTIES::UpdateField( SCH_FIELD* aField, SCH_SHEET_PATH
         if( fieldType == REFERENCE_FIELD )
             symbol->SetRef( aSheetPath, m_text );
         else if( fieldType == VALUE_FIELD )
-            symbol->SetValue( m_text );
+            symbol->SetValue( aSheetPath, m_text );
         else if( fieldType == FOOTPRINT_FIELD )
-            symbol->SetFootprint( m_text );
+            symbol->SetFootprint( aSheetPath, m_text );
+    }
+    else if( parent && parent->Type() == SCH_GLOBAL_LABEL_T )
+    {
+        if( fieldType == 0 )
+        {
+            if( m_visible->GetValue() != parent->Schematic()->Settings().m_IntersheetRefsShow )
+            {
+                DisplayInfoMessage( this, _( "Intersheet reference visibility is "
+                                             "controlled globally from "
+                                             "Schematic Setup > General > Formatting" ) );
+            }
+        }
     }
 
     bool positioningModified = false;
@@ -648,6 +702,9 @@ void DIALOG_SCH_FIELD_PROPERTIES::UpdateField( SCH_FIELD* aField, SCH_SHEET_PATH
     aField->SetPosition( m_position );
 
     aField->SetFont( m_font );
+
+    aField->SetNameShown( m_isNameVisible );
+    aField->SetCanAutoplace( m_allowAutoplace );
 
     // Note that we must set justifications before we can ask if they're flipped.  If the old
     // justification is center then it won't know (whereas if the new justification is center

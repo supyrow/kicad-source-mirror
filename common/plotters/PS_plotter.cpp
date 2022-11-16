@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2017 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 2020-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2020-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -64,9 +64,9 @@ void PSLIKE_PLOTTER::SetColor( const COLOR4D& color )
     if( m_colorMode )
     {
         if( m_negativeMode )
-            emitSetRGBColor( 1 - color.r, 1 - color.g, 1 - color.b );
+            emitSetRGBColor( 1 - color.r, 1 - color.g, 1 - color.b, color.a );
         else
-            emitSetRGBColor( color.r, color.g, color.b );
+            emitSetRGBColor( color.r, color.g, color.b, color.a );
     }
     else
     {
@@ -80,9 +80,9 @@ void PSLIKE_PLOTTER::SetColor( const COLOR4D& color )
             k = 0;
 
         if( m_negativeMode )
-            emitSetRGBColor( 1 - k, 1 - k, 1 - k );
+            emitSetRGBColor( 1 - k, 1 - k, 1 - k, 1.0 );
         else
-            emitSetRGBColor( k, k, k );
+            emitSetRGBColor( k, k, k, 1.0 );
     }
 }
 
@@ -127,13 +127,7 @@ void PSLIKE_PLOTTER::FlashPadCircle( const VECTOR2I& aPadPos, int aDiameter,
     else    // Plot a ring:
     {
         SetCurrentLineWidth( USE_DEFAULT_LINE_WIDTH );
-        int linewidth = GetCurrentLineWidth();
-
-        // avoid aDiameter <= 1 )
-        if( linewidth > aDiameter-2 )
-            linewidth = aDiameter-2;
-
-        Circle( aPadPos, aDiameter - linewidth, FILL_T::NO_FILL, linewidth );
+        Circle( aPadPos, aDiameter, FILL_T::NO_FILL, GetCurrentLineWidth() );
     }
 
     SetCurrentLineWidth( USE_DEFAULT_LINE_WIDTH );
@@ -152,15 +146,6 @@ void PSLIKE_PLOTTER::FlashPadRect( const VECTOR2I& aPadPos, const VECTOR2I& aSiz
         SetCurrentLineWidth( 0 );
     else
         SetCurrentLineWidth( USE_DEFAULT_LINE_WIDTH );
-
-    size.x -= GetCurrentLineWidth();
-    size.y -= GetCurrentLineWidth();
-
-    if( size.x < 1 )
-        size.x = 1;
-
-    if( size.y < 1 )
-        size.y = 1;
 
     int dx = size.x / 2;
     int dy = size.y / 2;
@@ -202,9 +187,6 @@ void PSLIKE_PLOTTER::FlashPadRoundRect( const VECTOR2I& aPadPos, const VECTOR2I&
     else
     {
         SetCurrentLineWidth( USE_DEFAULT_LINE_WIDTH );
-        size.x -= GetCurrentLineWidth();
-        size.y -= GetCurrentLineWidth();
-        aCornerRadius -= GetCurrentLineWidth() / 2;
     }
 
 
@@ -242,8 +224,6 @@ void PSLIKE_PLOTTER::FlashPadCustom( const VECTOR2I& aPadPos, const VECTOR2I& aS
     else
     {
         SetCurrentLineWidth( USE_DEFAULT_LINE_WIDTH );
-        size.x -= GetCurrentLineWidth();
-        size.y -= GetCurrentLineWidth();
     }
 
 
@@ -283,23 +263,6 @@ void PSLIKE_PLOTTER::FlashPadTrapez( const VECTOR2I& aPadPos, const VECTOR2I* aC
     else
     {
         SetCurrentLineWidth( USE_DEFAULT_LINE_WIDTH );
-        int w = GetCurrentLineWidth();
-
-        // offset polygon by w
-        // coord[0] is assumed the lower left
-        // coord[1] is assumed the upper left
-        // coord[2] is assumed the upper right
-        // coord[3] is assumed the lower right
-
-        /* Trace the outline. */
-        cornerList[0].x += w;
-        cornerList[0].y -= w;
-        cornerList[1].x += w;
-        cornerList[1].y += w;
-        cornerList[2].x -= w;
-        cornerList[2].y += w;
-        cornerList[3].x -= w;
-        cornerList[3].y -= w;
     }
 
     for( int ii = 0; ii < 4; ii++ )
@@ -527,38 +490,53 @@ void PS_PLOTTER::SetCurrentLineWidth( int aWidth, void* aData )
 }
 
 
-void PS_PLOTTER::emitSetRGBColor( double r, double g, double b )
+void PS_PLOTTER::emitSetRGBColor( double r, double g, double b, double a )
 {
     wxASSERT( m_outputFile );
+
+    // Postscript treats all colors as opaque, so the best we can do with alpha is generate
+    // an appropriate blended color assuming white paper.  (It's possible that a halftone would
+    // work better on *some* drivers, but most drivers are known to still treat halftones as
+    // opaque and remove any colors underneath them.)
+    if( a < 1.0 )
+    {
+        r = ( r * a ) + ( 1 - a );
+        g = ( g * a ) + ( 1 - a );
+        b = ( b * a ) + ( 1 - a );
+    }
 
     // XXX why %.3g ? shouldn't %g suffice? who cares...
     fprintf( m_outputFile, "%.3g %.3g %.3g setrgbcolor\n", r, g, b );
 }
 
 
-void PS_PLOTTER::SetDash( PLOT_DASH_TYPE dashed )
+void PS_PLOTTER::SetDash( int aLineWidth, PLOT_DASH_TYPE aLineStyle )
 {
-    switch( dashed )
+    switch( aLineStyle )
     {
     case PLOT_DASH_TYPE::DASH:
         fprintf( m_outputFile, "[%d %d] 0 setdash\n",
-                 (int) GetDashMarkLenIU(), (int) GetDashGapLenIU() );
+                 (int) GetDashMarkLenIU( aLineWidth ), (int) GetDashGapLenIU( aLineWidth ) );
         break;
+
     case PLOT_DASH_TYPE::DOT:
         fprintf( m_outputFile, "[%d %d] 0 setdash\n",
-                 (int) GetDotMarkLenIU(), (int) GetDashGapLenIU() );
+                 (int) GetDotMarkLenIU( aLineWidth ), (int) GetDashGapLenIU( aLineWidth ) );
         break;
+
     case PLOT_DASH_TYPE::DASHDOT:
         fprintf( m_outputFile, "[%d %d %d %d] 0 setdash\n",
-                 (int) GetDashMarkLenIU(), (int) GetDashGapLenIU(),
-                 (int) GetDotMarkLenIU(), (int) GetDashGapLenIU() );
+                 (int) GetDashMarkLenIU( aLineWidth ), (int) GetDashGapLenIU( aLineWidth ),
+                 (int) GetDotMarkLenIU( aLineWidth ), (int) GetDashGapLenIU( aLineWidth ) );
         break;
+
     case PLOT_DASH_TYPE::DASHDOTDOT:
         fprintf( m_outputFile, "[%d %d %d %d %d %d] 0 setdash\n",
-                 (int) GetDashMarkLenIU(), (int) GetDashGapLenIU(),
-                 (int) GetDotMarkLenIU(), (int) GetDashGapLenIU(),
-                 (int) GetDotMarkLenIU(), (int) GetDashGapLenIU() );
+                 (int) GetDashMarkLenIU( aLineWidth ), (int) GetDashGapLenIU( aLineWidth ),
+                 (int) GetDotMarkLenIU( aLineWidth ), (int) GetDashGapLenIU( aLineWidth ),
+                 (int) GetDotMarkLenIU( aLineWidth ), (int) GetDashGapLenIU( aLineWidth ) );
         break;
+
     default:
         fputs( "solidline\n", m_outputFile );
     }
@@ -784,10 +762,9 @@ void PS_PLOTTER::PenTo( const VECTOR2I& pos, char plume )
 }
 
 
-bool PS_PLOTTER::StartPlot()
+bool PS_PLOTTER::StartPlot( const wxString& aPageNumber )
 {
     wxASSERT( m_outputFile );
-    wxString           msg;
 
     static const char* PSMacro[] =
     {
@@ -916,12 +893,14 @@ bool PS_PLOTTER::StartPlot()
         fputs( PSMacro[ii], m_outputFile );
     }
 
-    // The following string has been specified here (rather than within
-    // PSMacro[]) to highlight that it has been provided to ensure that the
-    // contents of the postscript file comply with the details specified
-    // within the Document Structuring Convention.
-    fputs( "%%Page: 1 1\n"
-           "%%BeginPageSetup\n"
+    // The following strings are output here (rather than within PSMacro[])
+    // to highlight that it has been provided to ensure that the contents of
+    // the postscript file comply with the Document Structuring Convention.
+    std::string page_num = encodeStringForPlotter( aPageNumber );
+
+    fprintf( m_outputFile, "%%Page: %s 1\n", page_num.c_str() );
+
+    fputs( "%%BeginPageSetup\n"
            "gsave\n"
            "0.0072 0.0072 scale\n"    // Configure postscript for decimils coordinates
            "linemode1\n", m_outputFile );

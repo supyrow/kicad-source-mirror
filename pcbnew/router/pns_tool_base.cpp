@@ -133,13 +133,14 @@ ITEM* TOOL_BASE::pickSingleItem( const VECTOR2I& aWhere, int aNet, int aLayer, b
         //if( item->Parent() && !item->Parent()->ViewIsVisible() )
         //    continue;
 
-        if( aNet <= 0 || item->Net() == aNet )
+        if( item->OfKind( ITEM::SOLID_T ) && aIgnorePads )
+        {
+            continue;
+        }
+        else if( aNet <= 0 || item->Net() == aNet )
         {
             if( item->OfKind( ITEM::VIA_T | ITEM::SOLID_T ) )
             {
-                if( item->OfKind( ITEM::SOLID_T ) && aIgnorePads )
-                    continue;
-
                 SEG::ecoord d = ( item->Shape()->Centre() - aWhere ).SquaredEuclideanNorm();
 
                 if( d < dist[2] )
@@ -173,12 +174,18 @@ ITEM* TOOL_BASE::pickSingleItem( const VECTOR2I& aWhere, int aNet, int aLayer, b
                 }
             }
         }
+        else if( item->OfKind( ITEM::SOLID_T ) && item->IsFreePad() )
+        {
+            // Allow free pads only when already inside pad
+            if( item->Shape()->Collide( aWhere ) )
+            {
+                prioritized[0] = item;
+                dist[0] = 0;
+            }
+        }
         else if ( item->Net() == 0 && m_router->Settings().Mode() == RM_MarkObstacles )
         {
             // Allow unconnected items as last resort in RM_MarkObstacles mode
-            if( item->OfKind( ITEM::SOLID_T ) && aIgnorePads )
-                continue;
-
             if( item->Layers().Overlaps( tl ) )
                 prioritized[4] = item;
         }
@@ -235,6 +242,8 @@ void TOOL_BASE::highlightNet( bool aEnabled, int aNetcode )
         m_startHighlight = false;
     }
 
+    // Do not remove this call.  This is required to update the layers when we highlight a net.
+    // In this case, highlighting a net dims all other elements, so the colors need to update
     getView()->UpdateAllLayersColor();
 }
 
@@ -275,7 +284,8 @@ bool TOOL_BASE::checkSnap( ITEM *aItem )
 void TOOL_BASE::updateStartItem( const TOOL_EVENT& aEvent, bool aIgnorePads )
 {
     int      tl = getView()->GetTopLayer();
-    VECTOR2I cp = controls()->GetCursorPosition( !aEvent.Modifier( MD_SHIFT ) );
+    VECTOR2I cp = aEvent.IsPrime() ? aEvent.Position()
+                                   : controls()->GetCursorPosition( !aEvent.Modifier( MD_SHIFT ) );
     VECTOR2I p;
     GAL*     gal = m_toolMgr->GetView()->GetGAL();
 
@@ -307,7 +317,16 @@ void TOOL_BASE::updateEndItem( const TOOL_EVENT& aEvent )
     m_gridHelper->SetSnap( !aEvent.Modifier( MD_SHIFT ) );
 
     controls()->ForceCursorPosition( false );
+    
     VECTOR2I mousePos = controls()->GetMousePosition();
+    
+    if( m_router->GetState() == ROUTER::ROUTE_TRACK && aEvent.IsDrag() )
+    {
+        // If the user is moving the mouse quickly while routing then clicks will come in as
+        // short drags.  In this case we want to use the drag origin rather than the current
+        // mouse position.
+        mousePos = aEvent.DragOrigin();
+    }
 
     if( m_router->Settings().Mode() != RM_MarkObstacles &&
         ( m_router->GetCurrentNets().empty() || m_router->GetCurrentNets().front() < 0 ) )

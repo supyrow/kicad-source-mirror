@@ -118,19 +118,19 @@ bool TRIANGLE_2D::IsPointInside( const SFVEC2F& aPoint ) const
 }
 
 
-void ConvertPolygonToTriangles( SHAPE_POLY_SET& aPolyList, CONTAINER_2D_BASE& aDstContainer,
+void ConvertPolygonToTriangles( const SHAPE_POLY_SET& aPolyList, CONTAINER_2D_BASE& aDstContainer,
                                 float aBiuTo3dUnitsScale, const BOARD_ITEM& aBoardItem )
 {
     VECTOR2I a;
     VECTOR2I b;
     VECTOR2I c;
 
-    aPolyList.CacheTriangulation( false );
+    const_cast<SHAPE_POLY_SET&>( aPolyList ).CacheTriangulation( false );
     const double conver_d = (double)aBiuTo3dUnitsScale;
 
     for( unsigned int j = 0; j < aPolyList.TriangulatedPolyCount(); j++ )
     {
-        auto triPoly = aPolyList.TriangulatedPolygon( j );
+        const SHAPE_POLY_SET::TRIANGULATED_POLYGON* triPoly = aPolyList.TriangulatedPolygon( j );
 
         for( size_t i = 0; i < triPoly->GetTriangleCount(); i++ )
         {

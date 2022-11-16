@@ -71,7 +71,7 @@ Supported units are millimeters (mm), Mil (mil) and inch (")
 #include <map>
 #include <string>
 
-#include <base_units.h>
+#include <eda_units.h>
 
 // This namespace is used for the lemon parser
 namespace numEval
@@ -103,6 +103,8 @@ public:
      * will reset the parser. User defined variables are retained.
      */
     void Clear();
+
+    void SetDefaultUnits( EDA_UNITS aUnits );
 
     /* Used by the lemon parser */
     void parseError(const char* s);
@@ -159,11 +161,14 @@ private:
     /* Token state for input string. */
     struct TokenStat
     {
-        enum { OutLen = 32 };
-        TokenStat() : input( nullptr ), token( nullptr ), inputLen( 0 ), pos( 0 ) { /* empty */ }
+        TokenStat() :
+            input( nullptr ), token( nullptr ), inputLen( 0 ), outputLen( 0 ), pos( 0 )
+            { /* empty */ }
+
         const char* input;      // current input string ("var=4")
         char*       token;      // output token ("var", type:VAR; "4", type:VALUE)
         size_t      inputLen;   // strlen(input)
+        size_t      outputLen;  // At least 64, up to input length
         size_t      pos;        // current index
     }
             m_token;

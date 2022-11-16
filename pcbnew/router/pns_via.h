@@ -2,7 +2,7 @@
  * KiRouter - a push-and-(sometimes-)shove PCB router
  *
  * Copyright (C) 2013-2014 CERN
- * Copyright (C) 2016-2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2016-2022 KiCad Developers, see AUTHORS.txt for contributors.
  * Author: Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  *
  * This program is free software: you can redistribute it and/or modify it
@@ -29,6 +29,7 @@
 #include "pcb_track.h"
 
 #include "pns_item.h"
+#include "pns_linked_item.h"
 
 namespace PNS {
 
@@ -42,14 +43,14 @@ struct VIA_HANDLE
     bool        valid = false;
     VECTOR2I    pos;
     LAYER_RANGE layers;
-    int         net;
+    int         net = -1;
 };
 
-class VIA : public ITEM
+class VIA : public LINKED_ITEM
 {
 public:
     VIA() :
-        ITEM( VIA_T )
+        LINKED_ITEM( VIA_T )
     {
         m_diameter = 2; // Dummy value
         m_drill    = 0;
@@ -60,7 +61,7 @@ public:
 
     VIA( const VECTOR2I& aPos, const LAYER_RANGE& aLayers, int aDiameter, int aDrill,
          int aNet = -1, VIATYPE aViaType = VIATYPE::THROUGH ) :
-        ITEM( VIA_T )
+        LINKED_ITEM( VIA_T )
     {
         SetNet( aNet );
         SetLayers( aLayers );
@@ -75,7 +76,7 @@ public:
     }
 
     VIA( const VIA& aB ) :
-        ITEM( aB )
+        LINKED_ITEM( aB )
     {
         SetNet( aB.Net() );
         SetLayers( aB.Layers() );
@@ -128,7 +129,7 @@ public:
     void SetIsFree( bool aIsFree ) { m_isFree = aIsFree; }
 
     bool PushoutForce( NODE* aNode, const VECTOR2I& aDirection, VECTOR2I& aForce,
-                       bool aSolidsOnly = true, int aMaxIterations = 10 );
+                       int aCollisionMask = ITEM::ANY_T, int aMaxIterations = 10 );
 
     bool PushoutForce( NODE* aNode, const ITEM* aOther, VECTOR2I& aForce );
 
@@ -141,6 +142,9 @@ public:
 
     const SHAPE_LINE_CHAIN Hull( int aClearance = 0, int aWalkaroundThickness = 0,
                                  int aLayer = -1 ) const override;
+
+    const SHAPE_LINE_CHAIN HoleHull( int aClearance = 0, int aWalkaroundThickness = 0,
+                                     int aLayer = -1 ) const override;
 
     virtual VECTOR2I Anchor( int n ) const override
     {
@@ -155,6 +159,8 @@ public:
     OPT_BOX2I ChangedArea( const VIA* aOther ) const;
 
     const VIA_HANDLE MakeHandle() const;
+
+    virtual const std::string Format() const override;
 
 private:
     int          m_diameter;

@@ -141,8 +141,11 @@ BOARD* LoadBoard( wxString& aFileName, IO_MGR::PCB_FILE_T aFormat )
 
     if( !project )
     {
-        GetSettingsManager()->LoadProject( projectPath, false );
-        project = GetSettingsManager()->GetProject( projectPath );
+        if( wxFileExists( projectPath ) )
+        {
+            GetSettingsManager()->LoadProject( projectPath, false );
+            project = GetSettingsManager()->GetProject( projectPath );
+        }
     }
     else if( s_PcbEditFrame && project == &GetSettingsManager()->Prj() )
     {
@@ -159,9 +162,6 @@ BOARD* LoadBoard( wxString& aFileName, IO_MGR::PCB_FILE_T aFormat )
     if( brd )
     {
         brd->SetProject( project );
-
-        if( brd->m_LegacyDesignSettingsLoaded )
-            project->GetProjectFile().NetSettings().RebuildNetClassAssignments();
 
         // Move legacy view settings to local project settings
         if( !brd->m_LegacyVisibleLayers.test( Rescue ) )
@@ -238,10 +238,14 @@ BOARD* CreateEmptyBoard()
 }
 
 
-bool SaveBoard( wxString& aFileName, BOARD* aBoard, IO_MGR::PCB_FILE_T aFormat )
+bool SaveBoard( wxString& aFileName, BOARD* aBoard, IO_MGR::PCB_FILE_T aFormat, bool aSkipSettings )
 {
     aBoard->BuildConnectivity();
     aBoard->SynchronizeNetsAndNetClasses();
+
+    // Ensure the "C" locale is temporary set, before saving any file
+    // It also avoid wxWidget alerts about locale issues, later, when using Python 3
+    LOCALE_IO dummy;
 
     try
     {
@@ -252,20 +256,22 @@ bool SaveBoard( wxString& aFileName, BOARD* aBoard, IO_MGR::PCB_FILE_T aFormat )
         return false;
     }
 
-    wxFileName pro = aFileName;
-    pro.SetExt( ProjectFileExtension );
-    pro.MakeAbsolute();
-    wxString projectPath = pro.GetFullPath();
+    if( !aSkipSettings )
+    {
+        wxFileName pro = aFileName;
+        pro.SetExt( ProjectFileExtension );
+        pro.MakeAbsolute();
 
-    GetSettingsManager()->SaveProjectAs( pro.GetFullPath() );
+        GetSettingsManager()->SaveProjectAs( pro.GetFullPath(), aBoard->GetProject() );
+    }
 
     return true;
 }
 
 
-bool SaveBoard( wxString& aFileName, BOARD* aBoard )
+bool SaveBoard( wxString& aFileName, BOARD* aBoard, bool aSkipSettings )
 {
-    return SaveBoard( aFileName, aBoard, IO_MGR::KICAD_SEXP );
+    return SaveBoard( aFileName, aBoard, IO_MGR::KICAD_SEXP, aSkipSettings );
 }
 
 
@@ -444,8 +450,9 @@ bool WriteDRCReport( BOARD* aBoard, const wxString& aFileName, EDA_UNITS aUnits,
 {
     wxCHECK( aBoard, false );
 
-    BOARD_DESIGN_SETTINGS& bds = aBoard->GetDesignSettings();
+    BOARD_DESIGN_SETTINGS&      bds = aBoard->GetDesignSettings();
     std::shared_ptr<DRC_ENGINE> engine = bds.m_DRCEngine;
+    UNITS_PROVIDER              unitsProvider( pcbIUScale, aUnits );
 
     if( !engine )
     {
@@ -484,7 +491,7 @@ bool WriteDRCReport( BOARD* aBoard, const wxString& aFileName, EDA_UNITS aUnits,
     engine->SetProgressReporter( nullptr );
 
     engine->SetViolationHandler(
-            [&]( const std::shared_ptr<DRC_ITEM>& aItem, VECTOR2D aPos, PCB_LAYER_ID aLayer )
+            [&]( const std::shared_ptr<DRC_ITEM>& aItem, VECTOR2D aPos, int aLayer )
             {
                 if(    aItem->GetErrorCode() == DRCE_MISSING_FOOTPRINT
                     || aItem->GetErrorCode() == DRCE_DUPLICATE_FOOTPRINT
@@ -527,7 +534,7 @@ bool WriteDRCReport( BOARD* aBoard, const wxString& aFileName, EDA_UNITS aUnits,
     for( const std::shared_ptr<DRC_ITEM>& item : violations )
     {
         SEVERITY severity = item->GetParent()->GetSeverity();
-        fprintf( fp, "%s", TO_UTF8( item->ShowReport( aUnits, severity, itemMap ) ) );
+        fprintf( fp, "%s", TO_UTF8( item->ShowReport( &unitsProvider, severity, itemMap ) ) );
     }
 
     fprintf( fp, "\n** Found %d unconnected pads **\n", static_cast<int>( unconnected.size() ) );
@@ -535,7 +542,7 @@ bool WriteDRCReport( BOARD* aBoard, const wxString& aFileName, EDA_UNITS aUnits,
     for( const std::shared_ptr<DRC_ITEM>& item : unconnected )
     {
         SEVERITY severity = bds.GetSeverity( item->GetErrorCode() );
-        fprintf( fp, "%s", TO_UTF8( item->ShowReport( aUnits, severity, itemMap ) ) );
+        fprintf( fp, "%s", TO_UTF8( item->ShowReport( &unitsProvider, severity, itemMap ) ) );
     }
 
     fprintf( fp, "\n** Found %d Footprint errors **\n", static_cast<int>( footprints.size() ) );
@@ -543,7 +550,7 @@ bool WriteDRCReport( BOARD* aBoard, const wxString& aFileName, EDA_UNITS aUnits,
     for( const std::shared_ptr<DRC_ITEM>& item : footprints )
     {
         SEVERITY severity = bds.GetSeverity( item->GetErrorCode() );
-        fprintf( fp, "%s", TO_UTF8( item->ShowReport( aUnits, severity, itemMap ) ) );
+        fprintf( fp, "%s", TO_UTF8( item->ShowReport( &unitsProvider, severity, itemMap ) ) );
     }
 
     fprintf( fp, "\n** End of Report **\n" );

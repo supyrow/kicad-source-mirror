@@ -23,7 +23,7 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
-
+#include <charconv>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>         // bsearch()
@@ -49,27 +49,11 @@ void DSNLEXER::init()
     commentsAreTokens = false;
 
     curOffset = 0;
-
-#if 1
-    if( keywordCount > 11 )
-    {
-        // resize the hashtable bucket count
-        keyword_hash.reserve( keywordCount );
-    }
-
-    // fill the specialized "C string" hashtable from keywords[]
-    const KEYWORD*  it  = keywords;
-    const KEYWORD*  end = it + keywordCount;
-
-    for( ; it < end; ++it )
-    {
-        keyword_hash[it->name] = it->token;
-    }
-#endif
 }
 
 
 DSNLEXER::DSNLEXER( const KEYWORD* aKeywordTable, unsigned aKeywordCount,
+                    const KEYWORD_MAP* aKeywordMap,
                     FILE* aFile, const wxString& aFilename ) :
     iOwnReaders( true ),
     start( nullptr ),
@@ -77,7 +61,8 @@ DSNLEXER::DSNLEXER( const KEYWORD* aKeywordTable, unsigned aKeywordCount,
     limit( nullptr ),
     reader( nullptr ),
     keywords( aKeywordTable ),
-    keywordCount( aKeywordCount )
+    keywordCount( aKeywordCount ),
+    keywordsLookup( aKeywordMap )
 {
     FILE_LINE_READER* fileReader = new FILE_LINE_READER( aFile, aFilename );
     PushReader( fileReader );
@@ -86,6 +71,7 @@ DSNLEXER::DSNLEXER( const KEYWORD* aKeywordTable, unsigned aKeywordCount,
 
 
 DSNLEXER::DSNLEXER( const KEYWORD* aKeywordTable, unsigned aKeywordCount,
+                    const KEYWORD_MAP* aKeywordMap,
                     const std::string& aClipboardTxt, const wxString& aSource ) :
     iOwnReaders( true ),
     start( nullptr ),
@@ -93,7 +79,8 @@ DSNLEXER::DSNLEXER( const KEYWORD* aKeywordTable, unsigned aKeywordCount,
     limit( nullptr ),
     reader( nullptr ),
     keywords( aKeywordTable ),
-    keywordCount( aKeywordCount )
+    keywordCount( aKeywordCount ),
+    keywordsLookup( aKeywordMap )
 {
     STRING_LINE_READER* stringReader = new STRING_LINE_READER( aClipboardTxt, aSource.IsEmpty() ?
                                         wxString( FMT_CLIPBOARD ) : aSource );
@@ -103,6 +90,7 @@ DSNLEXER::DSNLEXER( const KEYWORD* aKeywordTable, unsigned aKeywordCount,
 
 
 DSNLEXER::DSNLEXER( const KEYWORD* aKeywordTable, unsigned aKeywordCount,
+                    const KEYWORD_MAP* aKeywordMap,
                     LINE_READER* aLineReader ) :
     iOwnReaders( false ),
     start( nullptr ),
@@ -110,7 +98,8 @@ DSNLEXER::DSNLEXER( const KEYWORD* aKeywordTable, unsigned aKeywordCount,
     limit( nullptr ),
     reader( nullptr ),
     keywords( aKeywordTable ),
-    keywordCount( aKeywordCount )
+    keywordCount( aKeywordCount ),
+    keywordsLookup( aKeywordMap )
 {
     if( aLineReader )
         PushReader( aLineReader );
@@ -127,7 +116,8 @@ DSNLEXER::DSNLEXER( const std::string& aSExpression, const wxString& aSource ) :
     limit( nullptr ),
     reader( nullptr ),
     keywords( empty_keywords ),
-    keywordCount( 0 )
+    keywordCount( 0 ),
+    keywordsLookup( nullptr )
 {
     STRING_LINE_READER* stringReader = new STRING_LINE_READER( aSExpression, aSource.IsEmpty() ?
                                         wxString( FMT_CLIPBOARD ) : aSource );
@@ -239,10 +229,13 @@ LINE_READER* DSNLEXER::PopReader()
 
 int DSNLEXER::findToken( const std::string& tok ) const
 {
-    KEYWORD_MAP::const_iterator it = keyword_hash.find( tok.c_str() );
+    if( keywordsLookup != nullptr )
+    {
+        KEYWORD_MAP::const_iterator it = keywordsLookup->find( tok.c_str() );
 
-    if( it != keyword_hash.end() )
-        return it->second;
+        if( it != keywordsLookup->end() )
+            return it->second;
+    }
 
     return DSN_SYMBOL;      // not a keyword, some arbitrary symbol.
 }
@@ -826,4 +819,62 @@ wxArrayString* DSNLEXER::ReadCommentLines()
     SetCommentsAreTokens( cmt_setting );
 
     return ret;
+}
+
+
+double DSNLEXER::parseDouble()
+{
+#if ( defined( __GNUC__ ) && __GNUC__ < 11 ) || ( defined( __clang__ ) && __clang_major__ < 13 )
+    // GCC older than 11 "supports" C++17 without supporting the C++17 std::from_chars for doubles
+    // clang is similar
+
+    char* tmp;
+
+    errno = 0;
+
+    double fval = strtod( CurText(), &tmp );
+
+    if( errno )
+    {
+        wxString error;
+        error.Printf( _( "Invalid floating point number in\nfile: '%s'\nline: %d\noffset: %d" ),
+                      CurSource(), CurLineNumber(), CurOffset() );
+
+        THROW_IO_ERROR( error );
+    }
+
+    if( CurText() == tmp )
+    {
+        wxString error;
+        error.Printf( _( "Missing floating point number in\nfile: '%s'\nline: %d\noffset: %d" ),
+                      CurSource(), CurLineNumber(), CurOffset() );
+
+        THROW_IO_ERROR( error );
+    }
+
+    return fval;
+#else
+    // Use std::from_chars which is designed to be locale independent and performance oriented for data interchange
+
+    const std::string& str = CurStr();
+
+    // Offset any leading whitespace, this is one thing from_chars does not handle
+    size_t woff = 0;
+    while( std::isspace( str[woff] ) && woff < str.length() )
+    {
+        woff++;
+    }
+
+    double                 dval{};
+    std::from_chars_result res =
+            std::from_chars( str.data() + woff, str.data() + str.size(), dval );
+
+    if( res.ec != std::errc() )
+    {
+        THROW_PARSE_ERROR( _( "Invalid floating point number" ), CurSource(), CurLine(),
+                           CurLineNumber(), CurOffset() );
+    }
+
+    return dval;
+#endif
 }

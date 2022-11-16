@@ -29,14 +29,13 @@
 #include <vector>
 
 #include <outline_mode.h>
-#include <eda_rect.h>
+#include <eda_search_data.h>
 #include <font/glyph.h>
 #include <font/text_attributes.h>
 
 class OUTPUTFORMATTER;
 class SHAPE_COMPOUND;
 class SHAPE_POLY_SET;
-class wxFindReplaceData;
 
 
 namespace KIGFX
@@ -72,7 +71,7 @@ using KIGFX::COLOR4D;
 class EDA_TEXT
 {
 public:
-    EDA_TEXT( const wxString& text = wxEmptyString );
+    EDA_TEXT( const EDA_IU_SCALE& aIuScale, const wxString& aText = wxEmptyString );
 
     EDA_TEXT( const EDA_TEXT& aText );
 
@@ -92,13 +91,11 @@ public:
      *
      * @param aDepth is used to prevent infinite recursions and loops when expanding
      * text variables.
+     * @param aAllowExtraText is true to allow adding more text than the initial expanded text,
+     * for intance a title, a prefix for texts in display functions.
+     * False to disable any added text (for instance when writing the shown text in netlists).
      */
-    virtual wxString GetShownText( int aDepth = 0 ) const { return m_shown_text; }
-
-    /**
-     * Returns a shortened version (max 15 characters) of the shown text
-     */
-    wxString ShortenedShownText() const;
+    virtual wxString GetShownText( int aDepth = 0, bool aAllowExtraText = true ) const { return m_shown_text; }
 
     /**
      * Indicates the ShownText has text var references which need to be processed.
@@ -115,9 +112,9 @@ public:
     int GetTextThickness() const                { return m_attributes.m_StrokeWidth; };
 
     /**
-     * The EffectiveTextPenWidth uses the text thickness if > 1 or aDefaultWidth.
+     * The EffectiveTextPenWidth uses the text thickness if > 1 or aDefaultPenWidth.
      */
-    int GetEffectiveTextPenWidth( int aDefaultWidth = 0 ) const;
+    int GetEffectiveTextPenWidth( int aDefaultPenWidth = 0 ) const;
 
     virtual void SetTextAngle( const EDA_ANGLE& aAngle );
     const EDA_ANGLE& GetTextAngle() const       { return m_attributes.m_Angle; }
@@ -164,6 +161,7 @@ public:
 
     void CopyText( const EDA_TEXT& aSrc );
 
+    void SetAttributes( const TEXT_ATTRIBUTES& aTextAttrs ) { m_attributes = aTextAttrs; }
     const TEXT_ATTRIBUTES& GetAttributes() const { return m_attributes; }
 
     /**
@@ -171,11 +169,11 @@ public:
      *
      * Perform a text replace using the find and replace criteria in \a aSearchData.
      *
-     * @param aSearchData A reference to a wxFindReplaceData object containing the
+     * @param aSearchData A reference to a EDA_SEARCH_DATA object containing the
      *                    search and replace criteria.
      * @return True if the text item was modified, otherwise false.
      */
-    bool Replace( const wxFindReplaceData& aSearchData );
+    bool Replace( const EDA_SEARCH_DATA& aSearchData );
 
     bool IsDefaultFormatting() const;
 
@@ -187,15 +185,17 @@ public:
     void SetLineSpacing( double aLineSpacing );
     double GetLineSpacing() const               { return m_attributes.m_LineSpacing; }
 
-    void SetTextSize( const wxSize& aNewSize );
-    wxSize GetTextSize() const                  { return wxSize( m_attributes.m_Size.x,
-                                                                 m_attributes.m_Size.y ); }
+    void SetTextSize( const VECTOR2I& aNewSize );
+    VECTOR2I GetTextSize() const                { return m_attributes.m_Size; }
 
     void SetTextWidth( int aWidth );
     int GetTextWidth() const                    { return m_attributes.m_Size.x; }
 
     void SetTextHeight( int aHeight );
     int GetTextHeight() const                   { return m_attributes.m_Size.y; }
+
+    void SetTextColor( const COLOR4D& aColor )  { m_attributes.m_Color = aColor; }
+    COLOR4D GetTextColor() const                { return m_attributes.m_Color; }
 
     void SetTextPos( const VECTOR2I& aPoint );
     const VECTOR2I& GetTextPos() const          { return m_pos; }
@@ -228,14 +228,20 @@ public:
      * Used in filling zones calculations
      * Circles and arcs are approximated by segments
      *
-     * @param aCornerBuffer a buffer to store the polygon.
-     * @param aClearanceValue the clearance around the text bounding box
+     * @param aBuffer a buffer to store the polygon.
+     * @param aClearance the clearance around the text bounding box
      * to the real clearance value (usually near from 1.0).
      */
-    void TransformBoundingBoxWithClearanceToPolygon( SHAPE_POLY_SET* aCornerBuffer,
-                                                     int aClearanceValue ) const;
+    void TransformBoundingBoxToPolygon( SHAPE_POLY_SET* aBuffer, int aClearance ) const;
 
-    std::shared_ptr<SHAPE_COMPOUND> GetEffectiveTextShape() const;
+    /**
+     * build a list of segments (SHAPE_SEGMENT) to describe a text shape.
+     * @param aTriangulate: true to build also the triangulation of each shape
+     * @param aUseTextRotation: true to use the actual text draw rotation.
+     * false to build a list of shape for a not rotated text ("native" shapes).
+     */
+    std::shared_ptr<SHAPE_COMPOUND> GetEffectiveTextShape( bool aTriangulate = true,
+                                                           bool aUseTextRotation = true ) const;
 
     /**
      * Test if \a aPoint is within the bounds of this object.
@@ -254,7 +260,7 @@ public:
      * @param aAccuracy Amount to inflate the bounding box.
      * @return true if a hit, else false.
      */
-    virtual bool TextHitTest( const EDA_RECT& aRect, bool aContains, int aAccuracy = 0 ) const;
+    virtual bool TextHitTest( const BOX2I& aRect, bool aContains, int aAccuracy = 0 ) const;
 
     /**
      * Useful in multiline texts to calculate the full text or a line area (for zones filling,
@@ -266,7 +272,7 @@ public:
      *         this rectangle is calculated for 0 orient text.
      *         If orientation is not 0 the rect must be rotated to match the physical area
      */
-    EDA_RECT GetTextBox( int aLine = -1, bool aInvertY = false ) const;
+    BOX2I GetTextBox( int aLine = -1, bool aInvertY = false ) const;
 
     /**
      * Return the distance between two lines of text.
@@ -301,7 +307,6 @@ public:
      */
     virtual void Format( OUTPUTFORMATTER* aFormatter, int aNestLevel, int aControlBits ) const;
 
-    virtual KIFONT::FONT* GetDrawFont() const;
     virtual EDA_ANGLE GetDrawRotation() const               { return GetTextAngle(); }
     virtual VECTOR2I GetDrawPos() const                     { return GetTextPos(); }
 
@@ -309,7 +314,8 @@ public:
     virtual void ClearBoundingBoxCache();
 
     std::vector<std::unique_ptr<KIFONT::GLYPH>>*
-    GetRenderCache( const wxString& forResolvedText ) const;
+    GetRenderCache( const KIFONT::FONT* aFont, const wxString& forResolvedText,
+                    const VECTOR2I& aOffset = { 0, 0 } ) const;
 
     // Support for reading the cache from disk.
     void SetupRenderCache( const wxString& aResolvedText, const EDA_ANGLE& aAngle );
@@ -317,7 +323,40 @@ public:
 
     int Compare( const EDA_TEXT* aOther ) const;
 
-private:
+    virtual bool HasHyperlink() const           { return !m_hyperlink.IsEmpty(); }
+    wxString     GetHyperlink() const           { return m_hyperlink; }
+    void         SetHyperlink( wxString aLink ) { m_hyperlink = aLink; }
+    void         RemoveHyperlink()              { m_hyperlink = wxEmptyString; }
+
+    /**
+     * Check if aURL is a valid hyperlink.
+     *
+     * @param aURL String to validate
+     * @return true if aURL is a valid hyperlink
+     */
+    static bool ValidateHyperlink( const wxString& aURL );
+
+    /**
+     * Check if aHref is a valid internal hyperlink.
+     *
+     * @param aHref String to validate
+     * @param aDestination [optional] pointer to populate with the destination page
+     * @return true if aHref is a valid internal hyperlink.  Does *not* check if the destination
+     *         page actually exists.
+     */
+    static bool IsGotoPageHref( const wxString& aHref, wxString* aDestination = nullptr );
+
+    /**
+     * Generate a href to a page in the current schematic.
+     *
+     * @param aDestination Destination sheet's page number.
+     * @return A hyperlink href string that goes to the specified page.
+     */
+    static wxString GotoPageHref( const wxString& aDestination );
+
+protected:
+    virtual KIFONT::FONT* getDrawFont() const;
+
     void cacheShownText();
 
     /**
@@ -333,19 +372,29 @@ private:
                              const COLOR4D& aColor, OUTLINE_MODE aFillMode, const wxString& aText,
                              const VECTOR2I& aPos );
 
+protected:
+    /**
+     * A hyperlink URL.  If empty, this text object is not a hyperlink.
+     */
+    wxString m_hyperlink;
+
+private:
     wxString         m_text;
     wxString         m_shown_text;           // Cache of unescaped text for efficient access
     bool             m_shown_text_has_text_var_refs;
 
+    std::reference_wrapper<const EDA_IU_SCALE> m_IuScale;
+
     mutable wxString                                    m_render_cache_text;
     mutable EDA_ANGLE                                   m_render_cache_angle;
+    mutable VECTOR2I                                    m_render_cache_offset;
     mutable std::vector<std::unique_ptr<KIFONT::GLYPH>> m_render_cache;
 
     mutable bool     m_bounding_box_cache_valid;
     mutable VECTOR2I m_bounding_box_cache_pos;
     mutable int      m_bounding_box_cache_line;
     mutable bool     m_bounding_box_cache_inverted;
-    mutable EDA_RECT m_bounding_box_cache;
+    mutable BOX2I    m_bounding_box_cache;
 
     TEXT_ATTRIBUTES  m_attributes;
     VECTOR2I         m_pos;

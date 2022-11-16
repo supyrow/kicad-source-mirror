@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -170,16 +170,12 @@ enum
 
 
 PANEL_FP_EDITOR_DEFAULTS::PANEL_FP_EDITOR_DEFAULTS( wxWindow* aParent,
-                                                    EDA_BASE_FRAME* aUnitsProvider ) :
+                                                    UNITS_PROVIDER* aUnitsProvider ) :
         PANEL_FP_EDITOR_DEFAULTS_BASE( aParent )
 {
-    if( aUnitsProvider )
-        m_units = aUnitsProvider->GetUserUnits();
-
     m_parent = static_cast<PAGED_DIALOG*>( aParent->GetParent() );
 
     m_textItemsGrid->SetDefaultRowSize( m_textItemsGrid->GetDefaultRowSize() + 4 );
-    m_graphicsGrid->SetDefaultRowSize( m_graphicsGrid->GetDefaultRowSize() + 4 );
 
     m_textItemsGrid->SetTable( new TEXT_ITEMS_GRID_TABLE(), true );
     m_textItemsGrid->PushEventHandler( new GRID_TRICKS( m_textItemsGrid ) );
@@ -195,6 +191,14 @@ PANEL_FP_EDITOR_DEFAULTS::PANEL_FP_EDITOR_DEFAULTS( wxWindow* aParent,
     attr->SetRenderer( new GRID_CELL_LAYER_RENDERER( nullptr ) );
     attr->SetEditor( new GRID_CELL_LAYER_SELECTOR( nullptr, {} ) );
     m_textItemsGrid->SetColAttr( 2, attr );
+
+    m_graphicsGrid->SetUnitsProvider( aUnitsProvider );
+    m_graphicsGrid->SetAutoEvalCols( { COL_LINE_THICKNESS,
+                                       COL_TEXT_WIDTH,
+                                       COL_TEXT_HEIGHT,
+                                       COL_TEXT_THICKNESS } );
+
+    m_graphicsGrid->SetDefaultRowSize( m_graphicsGrid->GetDefaultRowSize() + 4 );
 
     // Work around a bug in wxWidgets where it fails to recalculate the grid height
     // after changing the default row size
@@ -219,29 +223,29 @@ void PANEL_FP_EDITOR_DEFAULTS::loadFPSettings( FOOTPRINT_EDITOR_SETTINGS* aCfg )
 {
     wxColour disabledColour = wxSystemSettings::GetColour( wxSYS_COLOUR_BACKGROUND );
 
-#define SET_MILS_CELL( row, col, val ) \
-    m_graphicsGrid->SetCellValue( row, col, StringFromValue( m_units, val, true ) )
-
-#define DISABLE_CELL( row, col ) \
-    m_graphicsGrid->SetReadOnly( row, col ); \
-    m_graphicsGrid->SetCellBackgroundColour( row, col, disabledColour );
+    auto disableCell =
+            [&]( int row, int col )
+            {
+                m_graphicsGrid->SetReadOnly( row, col );
+                m_graphicsGrid->SetCellBackgroundColour( row, col, disabledColour );
+            };
 
     for( int i = 0; i < ROW_COUNT; ++i )
     {
-        SET_MILS_CELL( i, COL_LINE_THICKNESS, aCfg->m_DesignSettings.m_LineThickness[ i ] );
+        m_graphicsGrid->SetUnitValue( i, COL_LINE_THICKNESS, aCfg->m_DesignSettings.m_LineThickness[ i ] );
 
         if( i == ROW_EDGES || i == ROW_COURTYARD )
         {
-            DISABLE_CELL( i, COL_TEXT_WIDTH );
-            DISABLE_CELL( i, COL_TEXT_HEIGHT );
-            DISABLE_CELL( i, COL_TEXT_THICKNESS );
-            DISABLE_CELL( i, COL_TEXT_ITALIC );
+            disableCell( i, COL_TEXT_WIDTH );
+            disableCell( i, COL_TEXT_HEIGHT );
+            disableCell( i, COL_TEXT_THICKNESS );
+            disableCell( i, COL_TEXT_ITALIC );
         }
         else
         {
-            SET_MILS_CELL( i, COL_TEXT_WIDTH, aCfg->m_DesignSettings.m_TextSize[ i ].x );
-            SET_MILS_CELL( i, COL_TEXT_HEIGHT, aCfg->m_DesignSettings.m_TextSize[ i ].y );
-            SET_MILS_CELL( i, COL_TEXT_THICKNESS, aCfg->m_DesignSettings.m_TextThickness[ i ] );
+            m_graphicsGrid->SetUnitValue( i, COL_TEXT_WIDTH, aCfg->m_DesignSettings.m_TextSize[ i ].x );
+            m_graphicsGrid->SetUnitValue( i, COL_TEXT_HEIGHT, aCfg->m_DesignSettings.m_TextSize[ i ].y );
+            m_graphicsGrid->SetUnitValue( i, COL_TEXT_THICKNESS, aCfg->m_DesignSettings.m_TextThickness[ i ] );
             m_graphicsGrid->SetCellValue( i, COL_TEXT_ITALIC, aCfg->m_DesignSettings.m_TextItalic[ i ] ? wxT( "1" ) : wxT( "" ) );
 
             auto attr = new wxGridCellAttr;
@@ -268,7 +272,7 @@ void PANEL_FP_EDITOR_DEFAULTS::loadFPSettings( FOOTPRINT_EDITOR_SETTINGS* aCfg )
     for( int col = 0; col < m_graphicsGrid->GetNumberCols(); col++ )
     {
         // Set the minimal width to the column label size.
-        m_graphicsGrid->SetColMinimalWidth( col, m_graphicsGrid->GetVisibleWidth( col, true, false, false ) );
+        m_graphicsGrid->SetColMinimalWidth( col, m_graphicsGrid->GetVisibleWidth( col, true, false ) );
 
         // Set the width to see the full contents
         if( m_graphicsGrid->IsColShown( col ) )
@@ -315,12 +319,6 @@ bool PANEL_FP_EDITOR_DEFAULTS::Show( bool aShow )
 }
 
 
-int PANEL_FP_EDITOR_DEFAULTS::getGridValue( int aRow, int aCol )
-{
-    return ValueFromString( m_units, m_graphicsGrid->GetCellValue( aRow, aCol ) );
-}
-
-
 bool PANEL_FP_EDITOR_DEFAULTS::validateData()
 {
     if( !m_textItemsGrid->CommitPendingChanges() || !m_graphicsGrid->CommitPendingChanges() )
@@ -329,10 +327,10 @@ bool PANEL_FP_EDITOR_DEFAULTS::validateData()
     // Test text parameters.
     for( int row : { ROW_SILK, ROW_COPPER, ROW_FAB, ROW_OTHERS } )
     {
-        int textSize = std::min( getGridValue( row, COL_TEXT_WIDTH ),
-                                 getGridValue( row, COL_TEXT_HEIGHT ) );
+        int textSize = std::min( m_graphicsGrid->GetUnitValue( row, COL_TEXT_WIDTH ),
+                                 m_graphicsGrid->GetUnitValue( row, COL_TEXT_HEIGHT ) );
 
-        if( getGridValue( row, COL_TEXT_THICKNESS ) > textSize / 4 )
+        if( m_graphicsGrid->GetUnitValue( row, COL_TEXT_THICKNESS ) > textSize / 4 )
         {
             wxString msg = _( "Text will not be readable with a thickness greater than\n"
                               "1/4 its width or height." );
@@ -350,27 +348,27 @@ bool PANEL_FP_EDITOR_DEFAULTS::TransferDataFromWindow()
     if( !validateData() )
         return false;
 
-    SETTINGS_MANAGER&          mgr = Pgm().GetSettingsManager();
-    FOOTPRINT_EDITOR_SETTINGS* cfg = mgr.GetAppSettings<FOOTPRINT_EDITOR_SETTINGS>();
+    SETTINGS_MANAGER&      mgr = Pgm().GetSettingsManager();
+    BOARD_DESIGN_SETTINGS& cfg = mgr.GetAppSettings<FOOTPRINT_EDITOR_SETTINGS>()->m_DesignSettings;
 
     for( int i = 0; i < ROW_COUNT; ++i )
     {
-        cfg->m_DesignSettings.m_LineThickness[ i ] = getGridValue( i, COL_LINE_THICKNESS );
+        cfg.m_LineThickness[ i ] = m_graphicsGrid->GetUnitValue( i, COL_LINE_THICKNESS );
 
         if( i == ROW_EDGES || i == ROW_COURTYARD )
             continue;
 
-        cfg->m_DesignSettings.m_TextSize[ i ] = wxSize( getGridValue( i, COL_TEXT_WIDTH ),
-                                                        getGridValue( i, COL_TEXT_HEIGHT ) );
-        cfg->m_DesignSettings.m_TextThickness[ i ] = getGridValue( i, COL_TEXT_THICKNESS );
+        cfg.m_TextSize[ i ] = wxSize( m_graphicsGrid->GetUnitValue( i, COL_TEXT_WIDTH ),
+                                      m_graphicsGrid->GetUnitValue( i, COL_TEXT_HEIGHT ) );
+        cfg.m_TextThickness[ i ] = m_graphicsGrid->GetUnitValue( i, COL_TEXT_THICKNESS );
 
         wxString msg = m_graphicsGrid->GetCellValue( i, COL_TEXT_ITALIC );
-        cfg->m_DesignSettings.m_TextItalic[ i ] = wxGridCellBoolEditor::IsTrueValue( msg );
+        cfg.m_TextItalic[ i ] = wxGridCellBoolEditor::IsTrueValue( msg );
     }
 
     // Footprint defaults
     wxGridTableBase* table = m_textItemsGrid->GetTable();
-    cfg->m_DesignSettings.m_DefaultFPTextItems.clear();
+    cfg.m_DefaultFPTextItems.clear();
 
     for( int i = 0; i < m_textItemsGrid->GetNumberRows(); ++i )
     {
@@ -378,7 +376,7 @@ bool PANEL_FP_EDITOR_DEFAULTS::TransferDataFromWindow()
         bool     visible = table->GetValueAsBool( i, 1 );
         int      layer = (int) table->GetValueAsLong( i, 2 );
 
-        cfg->m_DesignSettings.m_DefaultFPTextItems.emplace_back( text, visible, layer );
+        cfg.m_DefaultFPTextItems.emplace_back( text, visible, layer );
     }
 
     return true;

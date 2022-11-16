@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2020-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2020-2022 KiCad Developers, see AUTHORS.txt for contributors.
  * Copyright (C) 2020 CERN
  *
  * This program is free software; you can redistribute it and/or
@@ -25,7 +25,6 @@
 #ifndef DRC_RTREE_H_
 #define DRC_RTREE_H_
 
-#include <eda_rect.h>
 #include <board_item.h>
 #include <pad.h>
 #include <fp_text.h>
@@ -38,6 +37,8 @@
 #include <geometry/shape.h>
 #include <geometry/shape_segment.h>
 #include <math/vector2d.h>
+#include "geometry/shape_null.h"
+#include "board.h"
 
 /**
  * Implement an R-tree for fast spatial and layer indexing of connectable items.
@@ -50,15 +51,25 @@ public:
 
     struct ITEM_WITH_SHAPE
     {
-        ITEM_WITH_SHAPE( BOARD_ITEM *aParent, SHAPE* aShape,
+        ITEM_WITH_SHAPE( BOARD_ITEM *aParent, const SHAPE* aShape,
                          std::shared_ptr<SHAPE> aParentShape = nullptr ) :
-            parent ( aParent ),
-            shape ( aShape ),
+            parent( aParent ),
+            shape( aShape ),
+            shapeStorage( nullptr ),
             parentShape( aParentShape )
         {};
 
-        BOARD_ITEM* parent;
-        SHAPE* shape;
+        ITEM_WITH_SHAPE( BOARD_ITEM *aParent, std::shared_ptr<SHAPE> aShape,
+                         std::shared_ptr<SHAPE> aParentShape = nullptr ) :
+            parent( aParent ),
+            shape( aShape.get() ),
+            shapeStorage( aShape ),
+            parentShape( aParentShape )
+        {};
+
+        BOARD_ITEM*            parent;
+        const SHAPE*           shape;
+        std::shared_ptr<SHAPE> shapeStorage;
         std::shared_ptr<SHAPE> parentShape;
     };
 
@@ -78,9 +89,9 @@ public:
 
     ~DRC_RTREE()
     {
-        for( auto tree : m_tree )
+        for( drc_rtree* tree : m_tree )
         {
-            for( auto el : *tree )
+            for( DRC_RTREE::ITEM_WITH_SHAPE* el : *tree )
                 delete el;
 
             delete tree;
@@ -107,28 +118,19 @@ public:
         if( aItem->Type() == PCB_FP_TEXT_T && !static_cast<FP_TEXT*>( aItem )->IsVisible() )
             return;
 
-        std::vector<SHAPE*> subshapes;
+        std::vector<const SHAPE*> subshapes;
         std::shared_ptr<SHAPE> shape = aItem->GetEffectiveShape( aRefLayer );
-        subshapes.clear();
 
         if( shape->HasIndexableSubshapes() )
             shape->GetIndexableSubshapes( subshapes );
         else
             subshapes.push_back( shape.get() );
 
-        if( aItem->Type() == PCB_PAD_T )
+        for( const SHAPE* subshape : subshapes )
         {
-            PAD* pad = static_cast<PAD*>( aItem );
+            if( dynamic_cast<const SHAPE_NULL*>( subshape ) )
+                continue;
 
-            if( pad->GetDrillSizeX() )
-            {
-                const SHAPE* hole = pad->GetEffectiveHoleShape();
-                subshapes.push_back( const_cast<SHAPE*>( hole ) );
-            }
-        }
-
-        for( SHAPE* subshape : subshapes )
-        {
             BOX2I bbox = subshape->BBox();
 
             bbox.Inflate( aWorstClearance );
@@ -139,6 +141,22 @@ public:
 
             m_tree[aTargetLayer]->Insert( mmin, mmax, itemShape );
             m_count++;
+        }
+
+        if( aItem->Type() == PCB_PAD_T && aItem->HasHole() )
+        {
+            std::shared_ptr<SHAPE_SEGMENT> hole = aItem->GetEffectiveHoleShape();
+            BOX2I                          bbox = hole->BBox();
+
+            bbox.Inflate( aWorstClearance );
+
+            const int        mmin[2] = { bbox.GetX(), bbox.GetY() };
+            const int        mmax[2] = { bbox.GetRight(), bbox.GetBottom() };
+            ITEM_WITH_SHAPE* itemShape = new ITEM_WITH_SHAPE( aItem, hole, shape );
+
+            m_tree[aTargetLayer]->Insert( mmin, mmax, itemShape );
+            m_count++;
+
         }
     }
 
@@ -190,23 +208,21 @@ public:
      * clearance.  It's used when looking up the specific item-to-item clearance might be
      * expensive and should be deferred till we know we have a possible hit.
      */
-    int QueryColliding( BOARD_ITEM* aRefItem,
-                        PCB_LAYER_ID aRefLayer,
-                        PCB_LAYER_ID aTargetLayer,
+    int QueryColliding( BOARD_ITEM* aRefItem, PCB_LAYER_ID aRefLayer, PCB_LAYER_ID aTargetLayer,
                         std::function<bool( BOARD_ITEM* )> aFilter = nullptr,
                         std::function<bool( BOARD_ITEM* )> aVisitor = nullptr,
                         int aClearance = 0 ) const
     {
-        // keep track of BOARD_ITEMs that have been already found to collide (some items
-        // might be build of COMPOUND/triangulated shapes and a single subshape collision
-        // means we have a hit)
+        // keep track of BOARD_ITEMs that have already been found to collide (some items might
+        // be built of COMPOUND/triangulated shapes and a single subshape collision means we have
+        // a hit)
         std::unordered_set<BOARD_ITEM*> collidingCompounds;
 
         // keep track of results of client filter so we don't ask more than once for compound
         // shapes
-        std::map<BOARD_ITEM*, bool> filterResults;
+        std::unordered_map<BOARD_ITEM*, bool> filterResults;
 
-        EDA_RECT box = aRefItem->GetBoundingBox();
+        BOX2I box = aRefItem->GetBoundingBox();
         box.Inflate( aClearance );
 
         int min[2] = { box.GetX(),     box.GetY() };
@@ -263,13 +279,14 @@ public:
      * It checks all items in the bbox overlap to find the minimal actual distance and
      * position.
      */
-    bool QueryColliding( EDA_RECT aBox, SHAPE* aRefShape, PCB_LAYER_ID aLayer, int aClearance,
+    bool QueryColliding( const BOX2I& aBox, SHAPE* aRefShape, PCB_LAYER_ID aLayer, int aClearance,
                          int* aActual, VECTOR2I* aPos ) const
     {
-        aBox.Inflate( aClearance );
+        BOX2I bbox = aBox;
+        bbox.Inflate( aClearance );
 
-        int min[2] = { aBox.GetX(), aBox.GetY() };
-        int max[2] = { aBox.GetRight(), aBox.GetBottom() };
+        int min[2] = { bbox.GetX(), bbox.GetY() };
+        int max[2] = { bbox.GetRight(), bbox.GetBottom() };
 
         bool     collision = false;
         int      actual = INT_MAX;
@@ -318,13 +335,39 @@ public:
     /**
      * Quicker version of above that just reports a raw yes/no.
      */
-    bool QueryColliding( EDA_RECT aBox, SHAPE* aRefShape, PCB_LAYER_ID aLayer ) const
+    bool QueryColliding( const BOX2I& aBox, SHAPE* aRefShape, PCB_LAYER_ID aLayer ) const
     {
+        SHAPE_POLY_SET* poly = dynamic_cast<SHAPE_POLY_SET*>( aRefShape );
+
         int  min[2] = { aBox.GetX(), aBox.GetY() };
         int  max[2] = { aBox.GetRight(), aBox.GetBottom() };
         bool collision = false;
 
-        auto visit =
+        // Special case the polygon case.  Otherwise we'll call its Collide() method which will
+        // triangulate it as well and then do triangle/triangle collisions.  This ends up being
+        // *much* slower than 4 calls to PointInside().
+        auto polyVisitor =
+                [&]( ITEM_WITH_SHAPE* aItem ) -> bool
+                {
+                    const SHAPE* shape = aItem->shape;
+                    wxASSERT( dynamic_cast<const SHAPE_POLY_SET::TRIANGULATED_POLYGON::TRI*>( shape ) );
+                    auto tri = static_cast<const SHAPE_POLY_SET::TRIANGULATED_POLYGON::TRI*>( shape );
+
+                    const SHAPE_LINE_CHAIN& outline = poly->Outline( 0 );
+
+                    if( outline.PointInside( tri->GetPoint( 0 ) )
+                            || outline.PointInside( tri->GetPoint( 1 ) )
+                            || outline.PointInside( tri->GetPoint( 2 ) )
+                            || tri->PointInside( outline.CPoint( 0 ) ) )
+                    {
+                        collision = true;
+                        return false;
+                    }
+
+                    return true;
+                };
+
+        auto visitor =
                 [&]( ITEM_WITH_SHAPE* aItem ) -> bool
                 {
                     if( aRefShape->Collide( aItem->shape, 0 ) )
@@ -336,9 +379,37 @@ public:
                     return true;
                 };
 
-        this->m_tree[aLayer]->Search( min, max, visit );
+        if( poly && poly->OutlineCount() == 1 )
+            this->m_tree[aLayer]->Search( min, max, polyVisitor );
+        else
+            this->m_tree[aLayer]->Search( min, max, visitor );
 
         return collision;
+    }
+
+    /**
+     * Gets the BOARD_ITEMs that overlap the specified point/layer
+     * @param aPt Position on the tree
+     * @param aLayer Layer to search
+     * @return vector of overlapping BOARD_ITEMS*
+     */
+    std::unordered_set<BOARD_ITEM*> GetObjectsAt( const VECTOR2I& aPt, PCB_LAYER_ID aLayer,
+                                                  int aClearance = 0 )
+    {
+        std::unordered_set<BOARD_ITEM*> retval;
+        int min[2] = { aPt.x - aClearance, aPt.y - aClearance };
+        int max[2] = { aPt.x + aClearance, aPt.y + aClearance };
+
+        auto visitor =
+                [&]( ITEM_WITH_SHAPE* aItem ) -> bool
+                {
+                    retval.insert( aItem->parent );
+                    return true;
+                };
+
+        m_tree[aLayer]->Search( min, max, visitor );
+
+        return retval;
     }
 
     typedef std::pair<PCB_LAYER_ID, PCB_LAYER_ID> LAYER_PAIR;
@@ -356,11 +427,9 @@ public:
         ITEM_WITH_SHAPE* testItem;
     };
 
-    int QueryCollidingPairs( DRC_RTREE* aRefTree,
-                             std::vector<LAYER_PAIR> aLayerPairs,
-                             std::function<bool( const LAYER_PAIR&,
-                                                 ITEM_WITH_SHAPE*, ITEM_WITH_SHAPE*,
-                                                 bool* aCollision )> aVisitor,
+    int QueryCollidingPairs( DRC_RTREE* aRefTree, std::vector<LAYER_PAIR> aLayerPairs,
+                             std::function<bool( const LAYER_PAIR&, ITEM_WITH_SHAPE*,
+                                                 ITEM_WITH_SHAPE*, bool* aCollision )> aVisitor,
                              int aMaxClearance,
                              std::function<bool(int, int )> aProgressReporter ) const
     {
@@ -397,7 +466,7 @@ public:
         // keep track of BOARD_ITEMs pairs that have been already found to collide (some items
         // might be build of COMPOUND/triangulated shapes and a single subshape collision
         // means we have a hit)
-        std::map< std::pair<BOARD_ITEM*, BOARD_ITEM*>, int> collidingCompounds;
+        std::unordered_map<PTR_PTR_CACHE_KEY, int> collidingCompounds;
 
         int progress = 0;
         int count = pairsToVisit.size();
@@ -462,7 +531,7 @@ public:
             m_rect = { { INT_MIN, INT_MIN }, { INT_MAX, INT_MAX } };
         };
 
-        DRC_LAYER( drc_rtree* aTree, const EDA_RECT aRect ) : layer_tree( aTree )
+        DRC_LAYER( drc_rtree* aTree, const BOX2I& aRect ) : layer_tree( aTree )
         {
             m_rect = { { aRect.GetX(), aRect.GetY() },
                        { aRect.GetRight(), aRect.GetBottom() } };
@@ -489,12 +558,12 @@ public:
 
     DRC_LAYER Overlapping( PCB_LAYER_ID aLayer, const VECTOR2I& aPoint, int aAccuracy = 0 ) const
     {
-        EDA_RECT rect( aPoint, VECTOR2I( 0, 0 ) );
+        BOX2I rect( aPoint, VECTOR2I( 0, 0 ) );
         rect.Inflate( aAccuracy );
         return DRC_LAYER( m_tree[int( aLayer )], rect );
     }
 
-    DRC_LAYER Overlapping( PCB_LAYER_ID aLayer, const EDA_RECT& aRect ) const
+    DRC_LAYER Overlapping( PCB_LAYER_ID aLayer, const BOX2I& aRect ) const
     {
         return DRC_LAYER( m_tree[int( aLayer )], aRect );
     }

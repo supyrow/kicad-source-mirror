@@ -69,16 +69,19 @@ private:
     ///< Connected items with no wire are included (as there is no wire to adjust for the drag).
     ///< Connected wires are included with any un-connected ends flagged (STARTPOINT or ENDPOINT).
     void getConnectedItems( SCH_ITEM* aOriginalItem, const VECTOR2I& aPoint, EDA_ITEMS& aList );
-    void getConnectedDragItems( SCH_ITEM* aOriginalItem, const VECTOR2I& aPoint, EDA_ITEMS& aList );
+    void getConnectedDragItems( SCH_ITEM* fixed, const VECTOR2I& selected, EDA_ITEMS& aList );
 
-    ///< Set up handlers for various events.
-    void setTransitions() override;
+    void orthoLineDrag( SCH_LINE* line, const VECTOR2I& splitDelta, int& xBendCount,
+                        int& yBendCount, const EE_GRID_HELPER& grid );
 
     ///< Saves the new drag lines to the undo list
-    void commitNewDragLines();
+    void commitDragLines();
 
     ///< Clears the new drag lines and removes them from the screen
     void clearNewDragLines();
+
+    ///< Set up handlers for various events.
+    void setTransitions() override;
 
 private:
     ///< Flag determining if anything is being dragged right now
@@ -86,11 +89,13 @@ private:
     bool                  m_isDrag;
 
     ///< Items (such as wires) which were added to the selection for a drag
-    std::vector<KIID>     m_dragAdditions;
+    std::vector<KIID>                   m_dragAdditions;
     ///< Cache of the line's original connections before dragging started
-    std::map<SCH_LINE*, EDA_ITEMS> m_lineConnectionCache;
+    std::map<SCH_LINE*, EDA_ITEMS>      m_lineConnectionCache;
     ///< Lines added at bend points dynamically during the move
-    std::unordered_set<SCH_LINE*> m_newDragLines;
+    std::unordered_set<SCH_LINE*>       m_newDragLines;
+    ///< Lines changed by drag algorithm that weren't selected
+    std::unordered_set<SCH_LINE*>       m_changedDragLines;
 
     ///< Used for chaining commands
     VECTOR2I              m_moveOffset;
@@ -99,12 +104,15 @@ private:
     ///< of edit reference point).
     VECTOR2I              m_cursor;
 
-    boost::optional<VECTOR2I> m_anchorPos;
+    OPT_VECTOR2I          m_anchorPos;
 
     // A map of labels to scaling factors.  Used to scale the movement vector for labels that
     // are attached to wires which have only one end moving.
     std::map<SCH_LABEL_BASE*, SPECIAL_CASE_LABEL_INFO> m_specialCaseLabels;
 
+    // A map of sheet pins to the line-endings (true == start) they're connected to.  Sheet
+    // pins are constrained in their movement so their attached lines must be too.
+    std::map<SCH_SHEET_PIN*, std::pair<SCH_LINE*, bool>> m_specialCaseSheetPins;
 };
 
 #endif //KICAD_SCH_MOVE_TOOL_H

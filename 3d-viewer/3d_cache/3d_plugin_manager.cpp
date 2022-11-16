@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2015-2016 Cirilo Bernardo <cirilo.bernardo@gmail.com>
- * Copyright (C) 2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2020-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -29,13 +29,13 @@
 
 #include <wx/dir.h>
 #include <wx/dynlib.h>
-#include <wx/filename.h>
 #include <wx/log.h>
 #include <wx/stdpaths.h>
 #include <wx/string.h>
 
 #include <common.h>
 #include <paths.h>
+#include <wx_filename.h>
 #include "3d_plugin_manager.h"
 #include "plugins/3d/3d_plugin.h"
 #include "3d_cache/sg/scenegraph.h"
@@ -120,57 +120,48 @@ S3D_PLUGIN_MANAGER::~S3D_PLUGIN_MANAGER()
 
 void S3D_PLUGIN_MANAGER::loadPlugins( void )
 {
-    std::list< wxString > searchpaths;
-    std::list< wxString > pluginlist;
-    wxFileName fn;
+    std::list<wxString> searchpaths;
+    std::list<wxString> pluginlist;
+    wxFileName          fn;
 
 #ifndef __WXMAC__
-
-#ifdef DEBUG
-    // set up to work from the build directory
-    fn.Assign( wxStandardPaths::Get().GetExecutablePath() );
-    fn.AppendDir( wxT( ".." ) );
-    fn.AppendDir( wxT( "plugins" ) );
-    fn.AppendDir( wxT( "3d" ) );
-
-    std::string testpath = std::string( fn.GetPathWithSep().ToUTF8() );
-    checkPluginPath( testpath, searchpaths );
-
-    // add subdirectories too
-    wxDir debugPluginDir;
-    wxString subdir;
-
-    debugPluginDir.Open( testpath );
-
-    if( debugPluginDir.IsOpened() && debugPluginDir.GetFirst( &subdir, wxEmptyString, wxDIR_DIRS ) )
+    if( wxGetEnv( wxT( "KICAD_RUN_FROM_BUILD_DIR" ), nullptr ) )
     {
-        checkPluginPath( testpath + subdir, searchpaths );
+        // set up to work from the build directory
+        fn.Assign( wxStandardPaths::Get().GetExecutablePath() );
+        fn.AppendDir( wxT( ".." ) );
+        fn.AppendDir( wxT( "plugins" ) );
+        fn.AppendDir( wxT( "3d" ) );
 
-        while( debugPluginDir.GetNext( &subdir ) )
+        std::string testpath = std::string( fn.GetPathWithSep().ToUTF8() );
+        checkPluginPath( testpath, searchpaths );
+
+        // add subdirectories too
+        wxDir    debugPluginDir;
+        wxString subdir;
+
+        debugPluginDir.Open( testpath );
+
+        if( debugPluginDir.IsOpened()
+            && debugPluginDir.GetFirst( &subdir, wxEmptyString, wxDIR_DIRS ) )
+        {
             checkPluginPath( testpath + subdir, searchpaths );
+
+            while( debugPluginDir.GetNext( &subdir ) )
+                checkPluginPath( testpath + subdir, searchpaths );
+        }
     }
-#endif
 
     fn.AssignDir( PATHS::GetStockPlugins3DPath() );
     checkPluginPath( std::string( fn.GetPathWithSep().ToUTF8() ), searchpaths );
-
-    // check for per-user third party plugins
-    // note: GetUserDataDir() gives '.pcbnew' rather than '.kicad' since it uses the exe name;
-    fn.AssignDir( PATHS::GetUserPlugins3DPath() );
-    checkPluginPath( fn.GetPathWithSep(), searchpaths );
 #else
-
    // Search path on OS X is
-   // (1) User     ~/Library/Application Support/kicad/PlugIns/3d
-   checkPluginPath( PATHS::GetOSXKicadUserDataDir() + wxT( "/PlugIns/3d" ), searchpaths );
-
-   // (2) Machine  /Library/Application Support/kicad/PlugIns/3d
+   // (1) Machine  /Library/Application Support/kicad/PlugIns/3d
    checkPluginPath( PATHS::GetOSXKicadMachineDataDir() + wxT( "/PlugIns/3d" ), searchpaths );
 
-   // (3) Bundle   kicad.app/Contents/PlugIns/3d
+   // (2) Bundle   kicad.app/Contents/PlugIns/3d
    fn.AssignDir( PATHS::GetStockPlugins3DPath() );
    checkPluginPath( fn.GetPathWithSep(), searchpaths );
-
 #endif
 
     std::list< wxString >::iterator sPL = searchpaths.begin();
@@ -288,7 +279,7 @@ void S3D_PLUGIN_MANAGER::checkPluginName( const wxString& aPath,
 
     wxFileName path( ExpandEnvVarSubstitutions( aPath, nullptr ) );
 
-    path.Normalize();
+    path.Normalize( FN_NORMALIZE_FLAGS );
 
     // determine if the path is already in the list
     wxString wxpath = path.GetFullPath();
@@ -312,21 +303,15 @@ void S3D_PLUGIN_MANAGER::checkPluginName( const wxString& aPath,
 void S3D_PLUGIN_MANAGER::checkPluginPath( const wxString& aPath,
                                           std::list< wxString >& aSearchList )
 {
-    // check the existence of a path and add it to the path search list
     if( aPath.empty() )
         return;
 
-    wxLogTrace( MASK_3D_PLUGINMGR, wxT( " * [INFO] checking for 3D plugins in '%s'\n" ),
+    wxLogTrace( MASK_3D_PLUGINMGR, wxT( " * [INFO] checking if valid plugin directory '%s'\n" ),
                 aPath.GetData() );
 
     wxFileName path;
-
-    if( aPath.StartsWith( wxT( "${" ) ) || aPath.StartsWith( wxT( "$(" ) ) )
-        path.Assign( ExpandEnvVarSubstitutions( aPath, nullptr ), wxEmptyString );
-    else
-        path.Assign( aPath, wxT( "" ) );
-
-    path.Normalize();
+    path.AssignDir( aPath );
+    path.Normalize( FN_NORMALIZE_FLAGS );
 
     if( !wxFileName::DirExists( path.GetFullPath() ) )
         return;

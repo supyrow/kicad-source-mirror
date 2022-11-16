@@ -34,10 +34,11 @@ class SCH_SHEET;
 class SCH_SCREEN;
 class SCH_PLUGIN;
 class SCHEMATIC;
+class SYMBOL_LIB_TABLE;
 class KIWAY;
 class LIB_SYMBOL;
 class SYMBOL_LIB;
-class PROPERTIES;
+class STRING_UTF8_MAP;
 class PROGRESS_REPORTER;
 
 
@@ -59,6 +60,7 @@ public:
                     SCH_ALTIUM,  ///< Altium file format
                     SCH_CADSTAR_ARCHIVE, ///< CADSTAR Schematic Archive
                     SCH_EAGLE,  ///< Autodesk Eagle file format
+                    SCH_DATABASE, ///< KiCad database library
 
                     // Add your schematic type here.
                     SCH_FILE_UNKNOWN
@@ -191,7 +193,7 @@ public:
      */
     virtual int GetModifyHash() const = 0;
 
-    virtual void SaveLibrary( const wxString& aFileName, const PROPERTIES* aProperties = nullptr );
+    virtual void SaveLibrary( const wxString& aFileName, const STRING_UTF8_MAP* aProperties = nullptr );
 
     /**
      * Load information from some input file format that this #SCH_PLUGIN implementation
@@ -223,7 +225,7 @@ public:
      */
     virtual SCH_SHEET* Load( const wxString& aFileName, SCHEMATIC* aSchematic,
                              SCH_SHEET* aAppendToMe = nullptr,
-                             const PROPERTIES* aProperties = nullptr );
+                             const STRING_UTF8_MAP* aProperties = nullptr );
 
     /**
      * Write \a aSchematic to a storage file in a format that this #SCH_PLUGIN implementation
@@ -251,7 +253,7 @@ public:
      * @throw IO_ERROR if there is a problem saving or exporting.
      */
     virtual void Save( const wxString& aFileName, SCH_SHEET* aSheet, SCHEMATIC* aSchematic,
-                       const PROPERTIES* aProperties = nullptr );
+                       const STRING_UTF8_MAP* aProperties = nullptr );
 
     /**
      * Populate a list of #LIB_SYMBOL alias names contained within the library \a aLibraryPath.
@@ -270,7 +272,7 @@ public:
      * @throw IO_ERROR if the library cannot be found, the part library cannot be loaded.
      */
     virtual void EnumerateSymbolLib( wxArrayString& aSymbolNameList, const wxString& aLibraryPath,
-                                     const PROPERTIES* aProperties = nullptr );
+                                     const STRING_UTF8_MAP* aProperties = nullptr );
 
     /**
      * Populate a list of #LIB_SYMBOL aliases contained within the library \a aLibraryPath.
@@ -293,7 +295,7 @@ public:
      */
     virtual void EnumerateSymbolLib( std::vector<LIB_SYMBOL*>& aSymbolList,
                                      const wxString& aLibraryPath,
-                                     const PROPERTIES* aProperties = nullptr );
+                                     const STRING_UTF8_MAP* aProperties = nullptr );
 
     /**
      * Load a #LIB_SYMBOL object having \a aPartName from the \a aLibraryPath containing
@@ -317,7 +319,7 @@ public:
      *                 is thrown in the case where aAliasName cannot be found.
      */
     virtual LIB_SYMBOL* LoadSymbol( const wxString& aLibraryPath, const wxString& aPartName,
-                                    const PROPERTIES* aProperties = nullptr );
+                                    const STRING_UTF8_MAP* aProperties = nullptr );
 
     /**
      * Write \a aSymbol to an existing library located at \a aLibraryPath.  If a #LIB_SYMBOL
@@ -341,7 +343,7 @@ public:
      * @throw IO_ERROR if there is a problem saving.
      */
     virtual void SaveSymbol( const wxString& aLibraryPath, const LIB_SYMBOL* aSymbol,
-                             const PROPERTIES* aProperties = nullptr );
+                             const STRING_UTF8_MAP* aProperties = nullptr );
 
     /**
      * Delete the entire #LIB_SYMBOL associated with \a aAliasName from the library
@@ -362,7 +364,7 @@ public:
      * @throw IO_ERROR if there is a problem finding the alias or the library or deleting it.
      */
     virtual void DeleteSymbol( const wxString& aLibraryPath, const wxString& aSymbolName,
-                               const PROPERTIES* aProperties = nullptr );
+                               const STRING_UTF8_MAP* aProperties = nullptr );
 
     /**
      * Create a new empty symbol library at \a aLibraryPath.  It is an error to attempt
@@ -380,7 +382,7 @@ public:
      * @throw IO_ERROR if there is a problem finding the library, or creating it.
      */
     virtual void CreateSymbolLib( const wxString& aLibraryPath,
-                                  const PROPERTIES* aProperties = nullptr );
+                                  const STRING_UTF8_MAP* aProperties = nullptr );
 
     /**
      * Delete an existing symbol library and returns true if successful, or if library
@@ -402,7 +404,7 @@ public:
      * @throw IO_ERROR if there is a problem deleting an existing library.
      */
     virtual bool DeleteSymbolLib( const wxString& aLibraryPath,
-                                  const PROPERTIES* aProperties = nullptr );
+                                  const STRING_UTF8_MAP* aProperties = nullptr );
 
     /**
      * Return true if the library at \a aLibraryPath is writable.  (Often
@@ -439,7 +441,54 @@ public:
      *   This would require a 3 column list, and introducing wx GUI knowledge to
      *   #SCH_PLUGIN, which has been avoided to date.
      */
-    virtual void SymbolLibOptions( PROPERTIES* aListToAppendTo ) const;
+    virtual void SymbolLibOptions( STRING_UTF8_MAP* aListToAppendTo ) const;
+
+    /**
+     * @return true if this plugin supports libraries that contain sub-libraries.
+     */
+    virtual bool SupportsSubLibraries() const { return false; }
+
+    /**
+     * Retrieves a list of sub-libraries in this library.
+     *
+     * Some types of symbol library support sub-libraries, which are a single-level organizational
+     * hierarchy that is implementation-defined per plugin.  Most of KiCad ignores sub-libraries and
+     * treats the hierarchy between library and symbol as flat, but the sub-libraries are used for
+     * sorting and grouping symbols in the symbol chooser.
+     *
+     * Has no effect if SupportsSubLibraries() returns false.
+     *
+     * @param aNames will be filled with a list of sub-libraries within this symbol library
+     */
+    virtual void GetSubLibraryNames( std::vector<wxString>& aNames ) {}
+
+    /**
+     * Retrieves a list of (custom) field names that are present on symbols in this library.
+     * The plugin is responsible for guaranteeing that this list contains the set of unique
+     * custom field names present on any symbols contained in the library.
+     *
+     * The required KiCad fields are not included in this list.
+     *
+     * @param aNames will be filled with any custom fields present in this library.
+     */
+    virtual void GetAvailableSymbolFields( std::vector<wxString>& aNames ) {}
+
+    /**
+     * Retrieves a list of (custom) field names that should be shown by default for this library
+     * in the symbol chooser.  This list should be a subset of the result returned by
+     * GetAvailableSymbolFields().
+     *
+     * The preference for which fields to hide and show for a given library is stored on a
+     * per-library basis in a user's preferences (or in the project local settings for a project-
+     * local library).  The set of fields returned by GetDefaultSymbolFields() will be used if this
+     * preference is missing.
+     *
+     * @param aNames will be filled with the custom field names that should be shown by default
+     */
+    virtual void GetDefaultSymbolFields( std::vector<wxString>& aNames )
+    {
+        return GetAvailableSymbolFields( aNames );
+    }
 
     /**
      * Return true if the first line in @a aFileName begins with the expected header.
@@ -458,6 +507,12 @@ public:
      * @return an unformatted string containing errors if any.
      */
     virtual const wxString& GetError() const;
+
+    /**
+     * Some library plugins need to have access to their parent library table.
+     * @param aTable is the table this plugin is registered within.
+     */
+    virtual void SetLibTable( SYMBOL_LIB_TABLE* aTable ) {}
 
     //-----</PUBLIC SCH_PLUGIN API>------------------------------------------------
 

@@ -44,7 +44,7 @@ class LIB_SYMBOL;
 class LIB_ID;
 class LINE_READER;
 class OUTPUTFORMATTER;
-class PROPERTIES;
+class STRING_UTF8_MAP;
 class SCH_PLUGIN;
 class SYMBOL_LIB;
 
@@ -93,11 +93,11 @@ public:
      */
     void LoadAllLibraries( PROJECT* aProject, bool aShowProgress=true );
 
-    /**
-     * Save or load the names of the currently configured symbol libraries (without paths).
-     */
-    static void LibNamesAndPaths( PROJECT* aProject, bool doSave,
-                                  wxString* aPaths, wxArrayString* aNames = nullptr );
+    static void GetLibNamesAndPaths( PROJECT* aProject, wxString* aPaths,
+                                     wxArrayString* aNames = nullptr );
+
+    static void SetLibNamesAndPaths( PROJECT* aProject, const wxString& aPaths,
+                                     const wxArrayString& aNames );
 
     /**
      * Return the name of the cache library after potentially fixing it from
@@ -316,7 +316,7 @@ private:
 
     SCH_IO_MGR::SCH_FILE_T        m_pluginType;
     std::unique_ptr< SCH_PLUGIN > m_plugin;
-    std::unique_ptr< PROPERTIES > m_properties;   ///< Library properties
+    std::unique_ptr<STRING_UTF8_MAP> m_properties;   ///< Library properties
 };
 
 

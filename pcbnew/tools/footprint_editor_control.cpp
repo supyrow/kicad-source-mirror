@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2014-2019 CERN
- * Copyright (C) 2019-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2019-2022 KiCad Developers, see AUTHORS.txt for contributors.
  * @author Maciej Suminski <maciej.suminski@cern.ch>
  *
  * This program is free software; you can redistribute it and/or
@@ -24,20 +24,19 @@
  */
 
 #include "footprint_editor_control.h"
-#include "kicad_clipboard.h"
+#include <wx/generic/textdlgg.h>
+#include <string_utils.h>
+#include <pgm_base.h>
 #include <tool/tool_manager.h>
 #include <tools/pcb_actions.h>
-#include <view/view_controls.h>
 #include <footprint_edit_frame.h>
 #include <pcbnew_id.h>
 #include <confirm.h>
 #include <widgets/infobar.h>
-#include <bitmaps.h>
 #include <footprint.h>
 #include <pad.h>
 #include <pcb_group.h>
 #include <zone.h>
-#include <project.h>
 #include <fp_lib_table.h>
 #include <dialogs/dialog_cleanup_graphics.h>
 #include <dialogs/dialog_footprint_checker.h>
@@ -109,31 +108,32 @@ bool FOOTPRINT_EDITOR_CONTROL::Init()
                 return !sel.GetLibNickname().empty() && !sel.GetLibItemName().empty();
             };
 
-    ctxMenu.AddItem( ACTIONS::pinLibrary,            unpinnedLibSelectedCondition );
-    ctxMenu.AddItem( ACTIONS::unpinLibrary,          pinnedLibSelectedCondition );
+    ctxMenu.AddItem( ACTIONS::pinLibrary,             unpinnedLibSelectedCondition );
+    ctxMenu.AddItem( ACTIONS::unpinLibrary,           pinnedLibSelectedCondition );
 
     ctxMenu.AddSeparator();
-    ctxMenu.AddItem( PCB_ACTIONS::newFootprint,      libSelectedCondition );
-    ctxMenu.AddItem( PCB_ACTIONS::createFootprint,   libSelectedCondition );
+    ctxMenu.AddItem( PCB_ACTIONS::newFootprint,       libSelectedCondition );
+    ctxMenu.AddItem( PCB_ACTIONS::createFootprint,    libSelectedCondition );
 
     ctxMenu.AddSeparator();
-    ctxMenu.AddItem( ACTIONS::save,                  libSelectedCondition || libInferredCondition );
-    ctxMenu.AddItem( ACTIONS::saveAs,                libSelectedCondition );
-    ctxMenu.AddItem( ACTIONS::saveCopyAs,            fpSelectedCondition );
-    ctxMenu.AddItem( ACTIONS::revert,                libSelectedCondition || libInferredCondition );
+    ctxMenu.AddItem( ACTIONS::save,                   SELECTION_CONDITIONS::ShowAlways );
+    ctxMenu.AddItem( ACTIONS::saveAs,                 libSelectedCondition || fpSelectedCondition );
+    ctxMenu.AddItem( ACTIONS::revert,                 libSelectedCondition || libInferredCondition );
 
     ctxMenu.AddSeparator();
-    ctxMenu.AddItem( PCB_ACTIONS::cutFootprint,      fpSelectedCondition );
-    ctxMenu.AddItem( PCB_ACTIONS::copyFootprint,     fpSelectedCondition );
-    ctxMenu.AddItem( PCB_ACTIONS::pasteFootprint,    libInferredCondition );
-    ctxMenu.AddItem( PCB_ACTIONS::deleteFootprint,   fpSelectedCondition );
+    ctxMenu.AddItem( PCB_ACTIONS::cutFootprint,       fpSelectedCondition );
+    ctxMenu.AddItem( PCB_ACTIONS::copyFootprint,      fpSelectedCondition );
+    ctxMenu.AddItem( PCB_ACTIONS::pasteFootprint,     libInferredCondition );
+    ctxMenu.AddItem( PCB_ACTIONS::duplicateFootprint, fpSelectedCondition );
+    ctxMenu.AddItem( PCB_ACTIONS::renameFootprint,    fpSelectedCondition );
+    ctxMenu.AddItem( PCB_ACTIONS::deleteFootprint,    fpSelectedCondition );
 
     ctxMenu.AddSeparator();
-    ctxMenu.AddItem( PCB_ACTIONS::importFootprint,   libInferredCondition );
-    ctxMenu.AddItem( PCB_ACTIONS::exportFootprint,   fpSelectedCondition );
+    ctxMenu.AddItem( PCB_ACTIONS::importFootprint,    libInferredCondition );
+    ctxMenu.AddItem( PCB_ACTIONS::exportFootprint,    fpSelectedCondition );
 
     // If we've got nothing else to show, at least show a hide tree option
-    ctxMenu.AddItem( PCB_ACTIONS::hideFootprintTree, !libInferredCondition );
+    ctxMenu.AddItem( PCB_ACTIONS::hideFootprintTree,  !libInferredCondition );
 
     return true;
 }
@@ -221,6 +221,7 @@ int FOOTPRINT_EDITOR_CONTROL::CreateFootprint( const TOOL_EVENT& aEvent )
 
             m_frame->Zoom_Automatique( false );
             m_frame->GetScreen()->SetContentModified();
+            m_frame->OnModify();
 
             // If selected from the library tree then go ahead and save it there
             if( !selected.GetLibNickname().empty() )
@@ -280,7 +281,7 @@ int FOOTPRINT_EDITOR_CONTROL::SaveAs( const TOOL_EVENT& aEvent )
     }
     else if( m_frame->GetTargetFPID() == m_frame->GetLoadedFPID() )
     {
-        // Save Board Footprint As
+        // Save Footprint As
         if( footprint() && m_frame->SaveFootprintAs( footprint() ) )
         {
             view()->Update( footprint() );
@@ -350,8 +351,122 @@ int FOOTPRINT_EDITOR_CONTROL::PasteFootprint( const TOOL_EVENT& aEvent )
         m_frame->SaveFootprintInLibrary( m_copiedFootprint.get(), newLib );
 
         m_frame->SyncLibraryTree( true );
+        m_frame->LoadFootprintFromLibrary( m_copiedFootprint->GetFPID() );
         m_frame->FocusOnLibID( m_copiedFootprint->GetFPID() );
+        m_frame->RefreshLibraryTree();
     }
+
+    return 0;
+}
+
+
+int FOOTPRINT_EDITOR_CONTROL::DuplicateFootprint( const TOOL_EVENT& aEvent )
+{
+    LIB_ID     fpID = m_frame->GetTreeFPID();
+    FOOTPRINT* footprint;
+
+    if( fpID == m_frame->GetLoadedFPID() )
+        footprint = new FOOTPRINT( *m_frame->GetBoard()->GetFirstFootprint() );
+    else
+        footprint = m_frame->LoadFootprint( m_frame->GetTargetFPID() );
+
+    if( footprint && m_frame->DuplicateFootprint( footprint ) )
+    {
+        m_frame->SyncLibraryTree( true );
+        m_frame->LoadFootprintFromLibrary( footprint->GetFPID() );
+        m_frame->FocusOnLibID( footprint->GetFPID() );
+        m_frame->RefreshLibraryTree();
+    }
+
+    return 0;
+}
+
+
+int FOOTPRINT_EDITOR_CONTROL::RenameFootprint( const TOOL_EVENT& aEvent )
+{
+    FP_LIB_TABLE* tbl = m_frame->Prj().PcbFootprintLibs();
+    LIB_ID        fpID = m_frame->GetTreeFPID();
+    wxString      libraryName = fpID.GetLibNickname();
+    wxString      oldName = fpID.GetLibItemName();
+    wxString      newName = oldName;
+    bool          done = false;
+
+    while( !done )
+    {
+        wxTextEntryDialog dlg( m_frame, _( "New name:" ), _( "Change Footprint Name" ), newName );
+
+        if( dlg.ShowModal() != wxID_OK )
+            return 0;   // canceled by user
+
+        newName = dlg.GetValue();
+        newName.Trim( true ).Trim( false );
+
+        if( newName.IsEmpty() )
+        {
+            DisplayErrorMessage( m_frame, _( "Footprint name cannot be empty." ) );
+        }
+        else if( tbl->FootprintExists( libraryName, newName ) )
+        {
+            DisplayErrorMessage( m_frame, wxString::Format( _( "Footprint name '%s' already "
+                                                               "in use in library '%s'." ),
+                                                            UnescapeString( newName ),
+                                                            libraryName ) );
+            newName = oldName;
+        }
+        else
+        {
+            done = true;
+        }
+    }
+
+    FOOTPRINT* footprint = nullptr;
+
+    if( fpID == m_frame->GetLoadedFPID() )
+    {
+        footprint = m_frame->GetBoard()->GetFirstFootprint();
+
+        if( footprint )
+        {
+            footprint->SetFPID( LIB_ID( libraryName, newName ) );
+
+            if( footprint->GetValue() == oldName )
+                footprint->SetValue( newName );
+
+            m_frame->OnModify();
+            m_frame->UpdateView();
+        }
+    }
+    else
+    {
+        footprint = m_frame->LoadFootprint( fpID );
+
+        if( footprint )
+        {
+            try
+            {
+                footprint->SetFPID( LIB_ID( libraryName, newName ) );
+
+                if( footprint->GetValue() == oldName )
+                    footprint->SetValue( newName );
+
+                m_frame->SaveFootprintInLibrary( footprint, libraryName );
+
+                m_frame->Prj().PcbFootprintLibs()->FootprintDelete( libraryName, oldName );
+            }
+            catch( const IO_ERROR& ioe )
+            {
+                DisplayError( m_frame, ioe.What() );
+            }
+            catch( ... )
+            {
+                // Best efforts...
+            }
+        }
+    }
+
+    wxDataViewItem treeItem = m_frame->GetLibTreeAdapter()->FindItem( fpID );
+    m_frame->UpdateLibraryTree( treeItem, footprint );
+    m_frame->FocusOnLibID( LIB_ID( libraryName, newName ) );
 
     return 0;
 }
@@ -429,6 +544,8 @@ int FOOTPRINT_EDITOR_CONTROL::PinLibrary( const TOOL_EVENT& aEvent )
 
     if( currentNode && !currentNode->m_Pinned )
     {
+        m_frame->Prj().PinLibrary( currentNode->m_LibId.GetLibNickname(), false );
+
         currentNode->m_Pinned = true;
         m_frame->RegenerateLibraryTree();
     }
@@ -443,6 +560,8 @@ int FOOTPRINT_EDITOR_CONTROL::UnpinLibrary( const TOOL_EVENT& aEvent )
 
     if( currentNode && currentNode->m_Pinned )
     {
+        m_frame->Prj().UnpinLibrary( currentNode->m_LibId.GetLibNickname(), false );
+
         currentNode->m_Pinned = false;
         m_frame->RegenerateLibraryTree();
     }
@@ -505,12 +624,22 @@ int FOOTPRINT_EDITOR_CONTROL::CheckFootprint( const TOOL_EVENT& aEvent )
     }
     else // The dialog is just not visible (because the user has double clicked on an error item)
     {
-        m_checkerDialog->SetMarkersProvider(
-                new DRC_ITEMS_PROVIDER( m_frame->GetBoard(), MARKER_BASE::MARKER_DRC ) );
-
         m_checkerDialog->Show( true );
     }
+
     return 0;
+}
+
+
+void FOOTPRINT_EDITOR_CONTROL::CrossProbe( const PCB_MARKER* aMarker )
+{
+    if( !m_checkerDialog )
+        m_checkerDialog = new DIALOG_FOOTPRINT_CHECKER( m_frame );
+
+    if( !m_checkerDialog->IsShown() )
+        m_checkerDialog->Show( true );
+
+    m_checkerDialog->SelectMarker( aMarker );
 }
 
 
@@ -606,8 +735,9 @@ void FOOTPRINT_EDITOR_CONTROL::setTransitions()
     Go( &FOOTPRINT_EDITOR_CONTROL::CreateFootprint,      PCB_ACTIONS::createFootprint.MakeEvent() );
     Go( &FOOTPRINT_EDITOR_CONTROL::Save,                 ACTIONS::save.MakeEvent() );
     Go( &FOOTPRINT_EDITOR_CONTROL::SaveAs,               ACTIONS::saveAs.MakeEvent() );
-    Go( &FOOTPRINT_EDITOR_CONTROL::SaveAs,               ACTIONS::saveCopyAs.MakeEvent() );
     Go( &FOOTPRINT_EDITOR_CONTROL::Revert,               ACTIONS::revert.MakeEvent() );
+    Go( &FOOTPRINT_EDITOR_CONTROL::DuplicateFootprint,   PCB_ACTIONS::duplicateFootprint.MakeEvent() );
+    Go( &FOOTPRINT_EDITOR_CONTROL::RenameFootprint,      PCB_ACTIONS::renameFootprint.MakeEvent() );
     Go( &FOOTPRINT_EDITOR_CONTROL::DeleteFootprint,      PCB_ACTIONS::deleteFootprint.MakeEvent() );
 
     Go( &FOOTPRINT_EDITOR_CONTROL::EditFootprint,        PCB_ACTIONS::editFootprint.MakeEvent() );

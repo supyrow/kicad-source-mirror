@@ -35,12 +35,18 @@
 BITMAP_BUTTON::BITMAP_BUTTON( wxWindow* aParent, wxWindowID aId, const wxPoint& aPos,
                               const wxSize& aSize, int aStyles ) :
         wxPanel( aParent, aId, aPos, aSize, aStyles ),
+        m_isRadioButton( false ),
+        m_showBadge( false ),
+        m_badgeColor( wxColor( 210, 0, 0, 0 ) ), // dark red
+        m_badgeTextColor( wxColor( wxT( "white" ) ) ),
         m_buttonState( 0 ),
         m_padding( 0 ),
         m_acceptDraggedInClicks( false )
 {
     if( aSize == wxDefaultSize )
         SetMinSize( wxButton::GetDefaultSize() + wxSize( m_padding * 2, m_padding * 2) );
+
+    m_badgeFont = GetFont().Smaller().MakeBold();
 
     setupEvents();
 }
@@ -49,6 +55,8 @@ BITMAP_BUTTON::BITMAP_BUTTON( wxWindow* aParent, wxWindowID aId, const wxPoint& 
 BITMAP_BUTTON::BITMAP_BUTTON( wxWindow* aParent, wxWindowID aId, const wxBitmap& aDummyBitmap,
                               const wxPoint& aPos, const wxSize& aSize, int aStyles ) :
         wxPanel( aParent, aId, aPos, aSize, aStyles ),
+        m_isRadioButton( false ),
+        m_showBadge( false ),
         m_buttonState( 0 ),
         m_padding( 5 ),
         m_acceptDraggedInClicks( false )
@@ -165,7 +173,7 @@ void BITMAP_BUTTON::OnLeftButtonDown( wxMouseEvent& aEvent )
 {
     if( hasFlag( wxCONTROL_CHECKABLE ) )
     {
-        if( hasFlag( wxCONTROL_CHECKED ) )
+        if( hasFlag( wxCONTROL_CHECKED ) && !m_isRadioButton )
         {
             clearFlag( wxCONTROL_CHECKED );
 
@@ -252,6 +260,23 @@ void BITMAP_BUTTON::OnPaint( wxPaintEvent& aEvent )
     // Draw the bitmap with the upper-left corner offset by the padding
     if( bmp.IsOk() )
         dc.DrawBitmap( bmp, m_padding, m_padding, true );
+
+    // Draw the badge
+    if( m_showBadge )
+    {
+        dc.SetFont( m_badgeFont );
+
+        wxSize box_size = dc.GetTextExtent( m_badgeText ) + wxSize( 6, 2 );
+        wxSize box_offset = box_size + wxSize( m_padding - 2, m_padding );
+        wxSize text_offset = box_offset - wxSize( 3, 1 );
+
+        dc.SetPen( wxPen( m_badgeColor ) );
+        dc.SetBrush( wxBrush( m_badgeColor ) );
+        dc.DrawRoundedRectangle( rect.GetRightBottom() - box_offset, box_size, -0.25 );
+
+        dc.SetTextForeground( m_badgeTextColor );
+        dc.DrawText( m_badgeText, rect.GetRightBottom() - text_offset );
+    }
 }
 
 
@@ -277,6 +302,13 @@ bool BITMAP_BUTTON::Enable( bool aEnable )
 void BITMAP_BUTTON::SetIsCheckButton()
 {
     setFlag( wxCONTROL_CHECKABLE );
+}
+
+
+void BITMAP_BUTTON::SetIsRadioButton()
+{
+    setFlag( wxCONTROL_CHECKABLE );
+    m_isRadioButton = true;
 }
 
 

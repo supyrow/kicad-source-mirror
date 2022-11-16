@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2018 Jean-Pierre Charras, jp.charras at wandadoo.fr
- * Copyright (C) 1992-2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -27,9 +27,6 @@
 
 
 #include <eda_item.h>
-#include <eda_units.h>
-#include <convert_to_biu.h>
-#include <gr_basic.h>
 #include <layer_ids.h>
 #include <geometry/geometry_utils.h>
 #include <stroke_params.h>
@@ -38,9 +35,18 @@
 class BOARD;
 class BOARD_ITEM_CONTAINER;
 class SHAPE_POLY_SET;
+class SHAPE_SEGMENT;
 class PCB_BASE_FRAME;
 class SHAPE;
 class PCB_GROUP;
+
+
+enum ZONE_LAYER_CONNECTION
+{
+    ZLC_UNRESOLVED,
+    ZLC_CONNECTED,
+    ZLC_UNCONNECTED
+};
 
 
 /**
@@ -54,9 +60,13 @@ public:
     BOARD_ITEM( BOARD_ITEM* aParent, KICAD_T idtype, PCB_LAYER_ID aLayer = F_Cu ) :
             EDA_ITEM( aParent, idtype ),
             m_layer( aLayer ),
+            m_isKnockout( false ),
+            m_isLocked( false ),
             m_group( nullptr )
     {
     }
+
+    ~BOARD_ITEM();
 
     void SetParentGroup( PCB_GROUP* aGroup ) { m_group = aGroup; }
     PCB_GROUP* GetParentGroup() const { return m_group; }
@@ -115,6 +125,16 @@ public:
         return IsCopperLayer( GetLayer() );
     }
 
+    virtual bool HasHole() const
+    {
+        return false;
+    }
+
+    virtual bool IsTented() const
+    {
+        return false;
+    }
+
     /**
      * A value of wxPoint(0,0) which can be passed to the Draw() functions.
      */
@@ -131,8 +151,14 @@ public:
      *
      * @param aLayer in case of items spanning multiple layers, only the shapes belonging to aLayer
      *               will be returned. Pass UNDEFINED_LAYER to return shapes for all layers.
+     * @param aFlash optional parameter allowing a caller to force the pad to be flashed (or not
+     *               flashed) on the current layer (default is to honour the pad's setting and
+     *               the current connections for the given layer).
      */
-    virtual std::shared_ptr<SHAPE> GetEffectiveShape( PCB_LAYER_ID aLayer = UNDEFINED_LAYER ) const;
+    virtual std::shared_ptr<SHAPE> GetEffectiveShape( PCB_LAYER_ID aLayer = UNDEFINED_LAYER,
+                                                      FLASHING aFlash = FLASHING::DEFAULT ) const;
+
+    virtual std::shared_ptr<SHAPE_SEGMENT> GetEffectiveHoleShape() const;
 
     BOARD_ITEM_CONTAINER* GetParent() const { return (BOARD_ITEM_CONTAINER*) m_parent; }
 
@@ -166,6 +192,12 @@ public:
 
     virtual void SetLayerSet( LSET aLayers )
     {
+        if( aLayers.count() == 1 )
+        {
+            SetLayer( aLayers.Seq()[0] );
+            return;
+        }
+
         wxFAIL_MSG( wxT( "Attempted to SetLayerSet() on a single-layer object." ) );
 
         // Derived classes which support multiple layers must implement this
@@ -199,7 +231,7 @@ public:
      *
      * @param aImage the item image which contains data to swap.
      */
-    virtual void SwapData( BOARD_ITEM* aImage );
+    void SwapItemData( BOARD_ITEM* aImage );
 
     /**
      * Test to see if this object is on the given layer.
@@ -215,28 +247,11 @@ public:
         return m_layer == aLayer;
     }
 
-    /**
-     * Test to see if this object is a track or via (or microvia).
-     *
-     * @return true if a track or via, else false.
-     */
-    bool IsTrack() const
-    {
-        return ( Type() == PCB_TRACE_T ) || ( Type() == PCB_VIA_T );
-    }
+    virtual bool IsKnockout() const { return m_isKnockout; }
+    virtual void SetIsKnockout( bool aKnockout ) { m_isKnockout = aKnockout; }
 
-    /**
-     * @return true if the object is locked, else false.
-     */
     virtual bool IsLocked() const;
-
-    /**
-     * Modify the 'lock' status for of the item.
-     */
-    virtual void SetLocked( bool aLocked )
-    {
-        SetState( LOCKED, aLocked );
-    }
+    virtual void SetLocked( bool aLocked ) { m_isLocked = aLocked; }
 
     /**
      * Delete this object after removing from its parent if it has one.
@@ -284,21 +299,18 @@ public:
     virtual void ViewGetLayers( int aLayers[], int& aCount ) const override;
 
     /**
-     * Convert the item shape to a closed polygon.
+     * Convert the item shape to a closed polygon. Circles and arcs are approximated by segments.
      *
-     * Used in filling zones calculations.  Circles and arcs are approximated by segments.
-     *
-     * @param aCornerBuffer a buffer to store the polygon.
-     * @param aClearanceValue the clearance around the pad.
+     * @param aBuffer a buffer to store the polygon.
+     * @param aClearance the clearance around the pad.
      * @param aError the maximum deviation from true circle.
      * @param aErrorLoc should the approximation error be placed outside or inside the polygon?
      * @param ignoreLineWidth used for edge cut items where the line width is only
      *                        for visualization.
      */
-    virtual void TransformShapeWithClearanceToPolygon( SHAPE_POLY_SET& aCornerBuffer,
-                                                       PCB_LAYER_ID aLayer, int aClearanceValue,
-                                                       int aError, ERROR_LOC aErrorLoc,
-                                                       bool ignoreLineWidth = false ) const;
+    virtual void TransformShapeToPolygon( SHAPE_POLY_SET& aBuffer, PCB_LAYER_ID aLayer,
+                                          int aClearance, int aError, ERROR_LOC aErrorLoc,
+                                          bool ignoreLineWidth = false ) const;
 
     struct ptr_cmp
     {
@@ -307,12 +319,18 @@ public:
 
 protected:
     /**
-     * Return a string (to be shown to the user) describing a layer mask. The BOARD is needed
-     * because layer names are customizable.
+     * Return a string (to be shown to the user) describing a layer mask.
      */
     virtual wxString layerMaskDescribe() const;
 
+    virtual void swapData( BOARD_ITEM* aImage );
+
+protected:
     PCB_LAYER_ID    m_layer;
+    bool            m_isKnockout;
+
+    bool            m_isLocked;
+
     PCB_GROUP*      m_group;
 };
 
@@ -333,7 +351,7 @@ public:
         BOARD_ITEM( nullptr, NOT_USED )
     {}
 
-    wxString GetSelectMenuText( EDA_UNITS aUnits ) const override
+    wxString GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const override
     {
         return _( "(Deleted Item)" );
     }

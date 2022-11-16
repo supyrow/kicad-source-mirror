@@ -43,6 +43,7 @@
 #include <convert_basic_shapes_to_polygon.h>
 #include <trigo.h>
 #include <macros.h>
+#include <wx/debug.h>
 #include <wx/log.h>
 
 #include <limits> // std::numeric_limits
@@ -160,6 +161,10 @@ void CADSTAR_PCB_ARCHIVE_LOADER::Load( BOARD* aBoard, PROJECT* aProject )
                 _( "The CADSTAR design contains re-use blocks which has no KiCad equivalent. The "
                    "re-use block information has been discarded during the import." ) );
     }
+
+    wxLogWarning( _( "CADSTAR fonts are different to the ones in KiCad. This will likely result "
+                     "in alignment issues that may cause DRC errors. Please review the imported "
+                     "text elements carefully and correct manually if required." ) );
 
     wxLogMessage(
             _( "The CADSTAR design has been imported successfully.\n"
@@ -457,7 +462,7 @@ void CADSTAR_PCB_ARCHIVE_LOADER::loadBoardStackup()
     boardDesignSettings.SetBoardThickness( thickness );
     boardDesignSettings.m_HasStackup = true;
 
-    int numElecAndPowerLayers = 0;
+    int numElecLayersProcessed = 0;
 
     // Map CADSTAR documentation layers to KiCad "User layers"
     int                       currentDocLayer = 0;
@@ -480,7 +485,7 @@ void CADSTAR_PCB_ARCHIVE_LOADER::loadBoardStackup()
         auto selectLayerID =
             [&]( PCB_LAYER_ID aFront, PCB_LAYER_ID aBack, LOG_LEVEL aLogType )
             {
-                if( numElecAndPowerLayers > 0 )
+                if( numElecLayersProcessed >= m_numCopperLayers )
                     kicadLayerID = aBack;
                 else
                     kicadLayerID = aFront;
@@ -515,7 +520,7 @@ void CADSTAR_PCB_ARCHIVE_LOADER::loadBoardStackup()
         case LAYER_TYPE::JUMPERLAYER:
         case LAYER_TYPE::ELEC:
         case LAYER_TYPE::POWER:
-            ++numElecAndPowerLayers;
+            ++numElecLayersProcessed;
             KI_FALLTHROUGH;
         case LAYER_TYPE::CONSTRUCTION:
             //Already dealt with these when loading board stackup
@@ -619,14 +624,8 @@ void CADSTAR_PCB_ARCHIVE_LOADER::remapUnsureLayers()
     {
         LAYER* curLayer = &Assignments.Layerdefs.Layers.at( layerPair.first );
 
-        //Only remap layers that we aren't sure about
-        if( curLayer->Type == LAYER_TYPE::DOC
-                || ( curLayer->Type == LAYER_TYPE::NONELEC
-                        && curLayer->SubType == LAYER_SUBTYPE::LAYERSUBTYPE_NONE )
-                || ( curLayer->Type == LAYER_TYPE::NONELEC
-                        && curLayer->SubType == LAYER_SUBTYPE::LAYERSUBTYPE_ROUT )
-                || ( curLayer->Type == LAYER_TYPE::NONELEC
-                        && curLayer->SubType == LAYER_SUBTYPE::LAYERSUBTYPE_CLEARANCE ) )
+        //Only remap documentation and non-electrical layers
+        if( curLayer->Type == LAYER_TYPE::NONELEC || curLayer->Type == LAYER_TYPE::DOC )
         {
             INPUT_LAYER_DESC iLdesc;
             iLdesc.Name            = curLayer->Name;
@@ -664,7 +663,7 @@ void CADSTAR_PCB_ARCHIVE_LOADER::remapUnsureLayers()
 
 void CADSTAR_PCB_ARCHIVE_LOADER::loadDesignRules()
 {
-    BOARD_DESIGN_SETTINGS&                 ds           = m_board->GetDesignSettings();
+    BOARD_DESIGN_SETTINGS&                 bds          = m_board->GetDesignSettings();
     std::map<SPACINGCODE_ID, SPACINGCODE>& spacingCodes = Assignments.Codedefs.SpacingCodes;
 
     auto applyRule =
@@ -678,27 +677,28 @@ void CADSTAR_PCB_ARCHIVE_LOADER::loadDesignRules()
 
     //Note: for details on the different spacing codes see SPACINGCODE::ID
 
-    applyRule( "T_T", &ds.m_MinClearance );
-    applyRule( "C_B", &ds.m_CopperEdgeClearance );
-    applyRule( "H_H", &ds.m_HoleToHoleMin );
+    applyRule( "T_T", &bds.m_MinClearance );
+    applyRule( "C_B", &bds.m_CopperEdgeClearance );
+    applyRule( "H_H", &bds.m_HoleToHoleMin );
 
-    ds.m_TrackMinWidth = getKiCadLength( Assignments.Technology.MinRouteWidth );
-    ds.m_ViasMinSize = ds.m_TrackMinWidth; // Not specified, assumed same as track width
-    ds.m_ViasMinAnnularWidth = ds.m_TrackMinWidth / 2; // Not specified, assumed half track width
-    ds.m_MinThroughDrill = PCB_IU_PER_MM * 0.0508; // CADSTAR does not specify a minimum hole size
+    bds.m_TrackMinWidth = getKiCadLength( Assignments.Technology.MinRouteWidth );
+    bds.m_ViasMinSize = bds.m_TrackMinWidth; // Not specified, assumed same as track width
+    bds.m_ViasMinAnnularWidth = bds.m_TrackMinWidth / 2; // Not specified, assumed half track width
+    bds.m_MinThroughDrill = PCB_IU_PER_MM * 0.0508; // CADSTAR does not specify a minimum hole size
                                                    // so set to minimum permitted in KiCad (2 mils)
-    ds.m_HoleClearance = 0; // Testing suggests cadstar might not have a copper-to-hole clearance
+    bds.m_HoleClearance = 0; // Testing suggests cadstar might not have a copper-to-hole clearance
 
-    auto applyNetClassRule = [&]( wxString aID, NETCLASS* aNetClassPtr,
-                                     void ( NETCLASS::*aFunc )( int ) ) {
-        int value = -1;
-        applyRule( aID, &value );
+    auto applyNetClassRule =
+            [&]( wxString aID, std::shared_ptr<NETCLASS>& aNetClassPtr )
+            {
+                int value = -1;
+                applyRule( aID, &value );
 
-        if( value != -1 )
-            ( aNetClassPtr->*aFunc )( value );
-    };
+                if( value != -1 )
+                    aNetClassPtr->SetClearance( value );
+            };
 
-    applyNetClassRule( "T_T", ds.GetDefault(), &::NETCLASS::SetClearance );
+    applyNetClassRule( "T_T", bds.m_NetSettings->m_DefaultNetClass );
 
     wxLogWarning( _( "KiCad design rules are different from CADSTAR ones. Only the compatible "
                      "design rules were imported. It is recommended that you review the design "
@@ -807,7 +807,7 @@ void CADSTAR_PCB_ARCHIVE_LOADER::loadLibraryCoppers( const SYMDEF_PCB& aComponen
             if( !found )
                 anchorPad = aComponent.ComponentPads.at( compCopper.AssociatedPadIDs.front() );
 
-            PAD* pad = new PAD( aFootprint );
+            std::unique_ptr<PAD> pad = std::make_unique<PAD>( aFootprint );
             pad->SetAttribute( PAD_ATTRIB::SMD );
             pad->SetLayerSet( LSET( 1, copperLayer ) );
             pad->SetNumber( anchorPad.Identifier.IsEmpty()
@@ -821,24 +821,20 @@ void CADSTAR_PCB_ARCHIVE_LOADER::loadLibraryCoppers( const SYMDEF_PCB& aComponen
             int     anchorSize = getKiCadLength( anchorpadcode.Shape.Size );
             VECTOR2I anchorPos = getKiCadPoint( anchorPad.Position );
 
+            if( anchorSize <= 0 )
+                anchorSize = 1;
+
             pad->SetShape( PAD_SHAPE::CUSTOM );
             pad->SetAnchorPadShape( PAD_SHAPE::CIRCLE );
             pad->SetSize( { anchorSize, anchorSize } );
             pad->SetPosition( anchorPos );
             pad->SetLocalCoord();
-            pad->SetLocked( true ); // Cadstar pads are always locked with respect to the footprint
 
             SHAPE_POLY_SET shapePolys = getPolySetFromCadstarShape( compCopper.Shape,
                                                                     lineThickness,
                                                                     aFootprint );
             shapePolys.Move( aFootprint->GetPosition() - anchorPos );
             pad->AddPrimitivePoly( shapePolys, 0, true );
-
-            aFootprint->Add( pad, ADD_MODE::APPEND ); // Append so that we get the correct behaviour
-                                                      // when finding pads by PAD_ID. See loadNets()
-
-            m_librarycopperpads[aComponent.ID][anchorPad.ID].push_back( aFootprint->Pads().size() );
-            totalCopperPads++;
 
             // Now renumber all the associated pads
             COMPONENT_PAD associatedPad;
@@ -848,6 +844,12 @@ void CADSTAR_PCB_ARCHIVE_LOADER::loadLibraryCoppers( const SYMDEF_PCB& aComponen
                 PAD* assocPad = getPadReference( aFootprint, padID );
                 assocPad->SetNumber( pad->GetNumber() );
             }
+
+            aFootprint->Add( pad.release(), ADD_MODE::APPEND ); // Append so that we get the correct behaviour
+                                                      // when finding pads by PAD_ID. See loadNets()
+
+            m_librarycopperpads[aComponent.ID][anchorPad.ID].push_back( aFootprint->Pads().size() );
+            totalCopperPads++;
         }
         else
         {
@@ -911,9 +913,9 @@ void CADSTAR_PCB_ARCHIVE_LOADER::loadLibraryPads( const SYMDEF_PCB& aComponent,
 {
     for( std::pair<PAD_ID, COMPONENT_PAD> padPair : aComponent.ComponentPads )
     {
-        PAD* pad = getKiCadPad( padPair.second, aFootprint );
-        aFootprint->Add( pad, ADD_MODE::APPEND ); // Append so that we get correct behaviour
-                                                  // when finding pads by PAD_ID - see loadNets()
+        if( PAD* pad = getKiCadPad( padPair.second, aFootprint ) )
+            aFootprint->Add( pad, ADD_MODE::APPEND ); // Append so that we get correct behaviour
+                    // when finding pads by PAD_ID - see loadNets()
     }
 }
 
@@ -923,7 +925,7 @@ PAD* CADSTAR_PCB_ARCHIVE_LOADER::getKiCadPad( const COMPONENT_PAD& aCadstarPad, 
     PADCODE csPadcode = getPadCode( aCadstarPad.PadCodeID );
     wxString errorMSG;
 
-    PAD* pad = new PAD( aParent );
+    std::unique_ptr<PAD> pad = std::make_unique<PAD>( aParent );
     LSET padLayerSet;
 
     switch( aCadstarPad.Side )
@@ -1172,8 +1174,7 @@ PAD* CADSTAR_PCB_ARCHIVE_LOADER::getKiCadPad( const COMPONENT_PAD& aCadstarPad, 
 
             pad->SetPosition( { 0, 0 } );
             pad->SetPos0( { 0, 0 } );
-            pad->TransformShapeWithClearanceToPolygon( padOutline, layer, 0, maxError,
-                                                       ERROR_LOC::ERROR_INSIDE );
+            pad->TransformShapeToPolygon( padOutline, layer, 0, maxError, ERROR_INSIDE );
 
             PCB_SHAPE* padShape = new PCB_SHAPE;
             padShape->SetShape( SHAPE_T::POLY );
@@ -1231,8 +1232,6 @@ PAD* CADSTAR_PCB_ARCHIVE_LOADER::getKiCadPad( const COMPONENT_PAD& aCadstarPad, 
 
     //TODO handle csPadcode.Reassigns when KiCad supports full padstacks
 
-    pad->SetLocked( true ); // Cadstar pads are always locked with respect to the footprint
-
     //log warnings:
     if( m_padcodesTested.find( csPadcode.ID ) == m_padcodesTested.end() && !errorMSG.IsEmpty() )
     {
@@ -1243,7 +1242,7 @@ PAD* CADSTAR_PCB_ARCHIVE_LOADER::getKiCadPad( const COMPONENT_PAD& aCadstarPad, 
         m_padcodesTested.insert( csPadcode.ID );
     }
 
-    return pad;
+    return pad.release();
 }
 
 
@@ -1719,11 +1718,14 @@ void CADSTAR_PCB_ARCHIVE_LOADER::loadComponents()
                 wxString padNumber = kiPad->GetNumber();
 
                 delete kiPad;
-                kiPad = getKiCadPad( csPad, footprint );
-                kiPad->SetNumber( padNumber );
 
-                // Change the pointer in the footprint to the newly created pad
-                getPadReference( footprint, padEx.ID ) = kiPad;
+                if( ( kiPad = getKiCadPad( csPad, footprint ) ) )
+                {
+                    kiPad->SetNumber( padNumber );
+
+                    // Change the pointer in the footprint to the newly created pad
+                    getPadReference( footprint, padEx.ID ) = kiPad;
+                }
             }
         }
 
@@ -1827,7 +1829,7 @@ void CADSTAR_PCB_ARCHIVE_LOADER::loadTemplates()
 
         zone->SetZoneName( csTemplate.Name );
         zone->SetLayer( getKiCadLayer( csTemplate.LayerID ) );
-        zone->SetPriority( 1 ); // initially 1, we will increase in calculateZonePriorities
+        zone->SetAssignedPriority( 1 ); // initially 1, we will increase in calculateZonePriorities
 
         if( !( csTemplate.NetID.IsEmpty() || csTemplate.NetID == wxT( "NONE" ) ) )
             zone->SetNet( getKiCadNet( csTemplate.NetID ) );
@@ -2009,7 +2011,7 @@ void CADSTAR_PCB_ARCHIVE_LOADER::loadTemplates()
                 zone->SetFillMode( ZONE_FILL_MODE::POLYGONS );
                 zone->SetPadConnection( ZONE_CONNECTION::FULL );
                 zone->SetMinIslandArea( -1 );
-                zone->SetPriority( 0 ); // Priority always 0 (lowest priority) for implied power planes.
+                zone->SetAssignedPriority( 0 ); // Priority always 0 (lowest priority) for implied power planes.
                 zone->SetNet( getKiCadNet( netid ) );
             }
         }
@@ -2152,7 +2154,7 @@ void CADSTAR_PCB_ARCHIVE_LOADER::loadCoppers()
             zone->SetIslandRemovalMode( ISLAND_REMOVAL_MODE::NEVER );
             zone->SetPadConnection( ZONE_CONNECTION::FULL );
             zone->SetNet( getKiCadNet( csCopper.NetRef.NetID ) );
-            zone->SetPriority( m_zonesMap.size() + 1 ); // Highest priority (always fill first)
+            zone->SetAssignedPriority( m_zonesMap.size() + 1 ); // Highest priority (always fill first)
 
             SHAPE_POLY_SET fill( *zone->Outline() );
             fill.Fracture( SHAPE_POLY_SET::POLYGON_MODE::PM_STRICTLY_SIMPLE );
@@ -2445,6 +2447,15 @@ void CADSTAR_PCB_ARCHIVE_LOADER::loadNetTracks( const NET_ID&         aCadstarNe
         shape->SetLocked( v.Fixed );
         shapes.push_back( shape );
         prevEnd = v.Vertex.End;
+
+        if( !m_doneTearDropWarning && ( v.TeardropAtEnd || v.TeardropAtStart ) )
+        {
+            // TODO: load teardrops
+            wxLogError( _( "The CADSTAR design contains teardrops. This importer does not yet "
+                           "support them, so the teardrops in the design have been ignored." ) );
+
+            m_doneTearDropWarning = true;
+        }
     }
 
     NETINFO_ITEM*           net = getKiCadNet( aCadstarNetID );
@@ -2670,17 +2681,22 @@ void CADSTAR_PCB_ARCHIVE_LOADER::drawCadstarShape( const SHAPE& aCadstarShape,
                                                    const VECTOR2I& aTransformCentre,
                                                    const bool& aMirrorInvert )
 {
+    auto drawAsOutline = [&]()
+    {
+        drawCadstarVerticesAsShapes( aCadstarShape.Vertices, aKiCadLayer, aLineThickness,
+                                     aContainer, aCadstarGroupID, aMoveVector, aRotationAngle,
+                                     aScalingFactor, aTransformCentre, aMirrorInvert );
+        drawCadstarCutoutsAsShapes( aCadstarShape.Cutouts, aKiCadLayer, aLineThickness, aContainer,
+                                    aCadstarGroupID, aMoveVector, aRotationAngle, aScalingFactor,
+                                    aTransformCentre, aMirrorInvert );
+    };
+
     switch( aCadstarShape.Type )
     {
     case SHAPE_TYPE::OPENSHAPE:
     case SHAPE_TYPE::OUTLINE:
         ///TODO update this when Polygons in KiCad can be defined with no fill
-        drawCadstarVerticesAsShapes( aCadstarShape.Vertices, aKiCadLayer, aLineThickness,
-                                     aContainer, aCadstarGroupID, aMoveVector, aRotationAngle,
-                                     aScalingFactor, aTransformCentre, aMirrorInvert );
-        drawCadstarCutoutsAsShapes( aCadstarShape.Cutouts, aKiCadLayer, aLineThickness,
-                                    aContainer, aCadstarGroupID, aMoveVector, aRotationAngle,
-                                    aScalingFactor, aTransformCentre, aMirrorInvert );
+        drawAsOutline();
         break;
 
     case SHAPE_TYPE::HATCHED:
@@ -2692,6 +2708,15 @@ void CADSTAR_PCB_ARCHIVE_LOADER::drawCadstarShape( const SHAPE& aCadstarShape,
 
     case SHAPE_TYPE::SOLID:
     {
+        // Special case solid shapes that are effectively a single line
+        if( aCadstarShape.Vertices.size() < 3
+            || ( aCadstarShape.Vertices.size() == 3
+                 && aCadstarShape.Vertices.at( 0 ).End == aCadstarShape.Vertices.at( 2 ).End ) )
+        {
+            drawAsOutline();
+            break;
+        }
+
         PCB_SHAPE* shape;
 
         if( isFootprint( aContainer ) )
@@ -3759,7 +3784,7 @@ bool CADSTAR_PCB_ARCHIVE_LOADER::calculateZonePriorities( PCB_LAYER_ID& aLayer )
             {
                 // Test if this zone were lower priority than other zone, what is the error?
                 double areaThis = errorArea( thisZone, otherZone );
-                // Viceversa
+                // Vice-versa
                 double areaOther = errorArea( otherZone, thisZone );
 
                 if( areaThis > areaOther )
@@ -3832,13 +3857,13 @@ bool CADSTAR_PCB_ARCHIVE_LOADER::calculateZonePriorities( PCB_LAYER_ID& aLayer )
 
         wxASSERT( !isLowerPriority( id, prevID ) );
 
-        int newPriority = m_zonesMap.at( prevID )->GetPriority();
+        int newPriority = m_zonesMap.at( prevID )->GetAssignedPriority();
 
         // Only increase priority of the current zone
         if( isLowerPriority( prevID, id ) )
             newPriority++;
 
-        m_zonesMap.at( id )->SetPriority( newPriority );
+        m_zonesMap.at( id )->SetAssignedPriority( newPriority );
         prevID = id;
     }
 
@@ -3849,8 +3874,8 @@ bool CADSTAR_PCB_ARCHIVE_LOADER::calculateZonePriorities( PCB_LAYER_ID& aLayer )
 
         for( const TEMPLATE_ID& losingID : idPair.second )
         {
-            if( m_zonesMap.at( losingID )->GetPriority()
-                > m_zonesMap.at( winningID )->GetPriority() )
+            if( m_zonesMap.at( losingID )->GetAssignedPriority()
+                > m_zonesMap.at( winningID )->GetAssignedPriority() )
             {
                 return false;
             }
@@ -3941,10 +3966,11 @@ NETINFO_ITEM* CADSTAR_PCB_ARCHIVE_LOADER::getKiCadNet( const NET_ID& aCadstarNet
             m_doneSpacingClassWarning = true;
         }
 
-        NETINFO_ITEM* netInfo = new NETINFO_ITEM( m_board, newName, ++m_numNets );
-        NETCLASSPTR   netclass;
+        std::shared_ptr<NET_SETTINGS>& netSettings = m_board->GetDesignSettings().m_NetSettings;
+        NETINFO_ITEM*                  netInfo = new NETINFO_ITEM( m_board, newName, ++m_numNets );
+        std::shared_ptr<NETCLASS>      netclass;
 
-         std::tuple<ROUTECODE_ID, NETCLASS_ID, SPACING_CLASS_ID> key = { csNet.RouteCodeID,
+        std::tuple<ROUTECODE_ID, NETCLASS_ID, SPACING_CLASS_ID> key = { csNet.RouteCodeID,
                                                                         csNet.NetClassID,
                                                                         csNet.SpacingClassID };
 
@@ -3955,7 +3981,6 @@ NETINFO_ITEM* CADSTAR_PCB_ARCHIVE_LOADER::getKiCadNet( const NET_ID& aCadstarNet
         else
         {
             wxString  netClassName;
-
 
             ROUTECODE rc = getRouteCode( csNet.RouteCodeID );
             netClassName += wxT( "Route code: " ) + rc.Name;
@@ -3972,14 +3997,19 @@ NETINFO_ITEM* CADSTAR_PCB_ARCHIVE_LOADER::getKiCadNet( const NET_ID& aCadstarNet
                 netClassName += wxT( " | Spacing class: " ) + sp.Name;
             }
 
-            netclass.reset( new NETCLASS( *m_board->GetDesignSettings().GetDefault() ) );
+            netclass.reset( new NETCLASS( *netSettings->m_DefaultNetClass ) );
             netclass->SetName( netClassName );
-            m_board->GetDesignSettings().GetNetClasses().Add( netclass );
+            netSettings->m_NetClasses[ netClassName ] = netclass;
             netclass->SetTrackWidth( getKiCadLength( rc.OptimalWidth ) );
             m_netClassMap.insert( { key, netclass } );
         }
 
-        netclass->Add( newName );
+        m_board->GetDesignSettings().m_NetSettings->m_NetClassPatternAssignments.push_back(
+                {
+                    std::make_unique<EDA_COMBINED_MATCHER>( newName, CTX_NETCLASS ),
+                    netclass->GetName()
+                } );
+
         netInfo->SetNetClass( netclass );
         m_board->Add( netInfo, ADD_MODE::APPEND );
         m_netMap.insert( { aCadstarNetID, netInfo } );

@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2014 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
  * Copyright (C) 2010 Jean-Pierre Charras, jp.charras at wanadoo.fr
- * Copyright (C) 2007-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2007-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -139,6 +139,17 @@ enum PCB_LAYER_ID: int
 
 #define MAX_CU_LAYERS       (B_Cu - F_Cu + 1)
 
+/**
+ * Enum used during connectivity building to ensure we do not query connectivity while building
+ * the database
+ */
+enum class FLASHING
+{
+    DEFAULT,                // Flashing follows connectivity
+    ALWAYS_FLASHED,         // Always flashed for connectivity
+    NEVER_FLASHED,          // Never flashed for connectivity
+};
+
 /// Dedicated layers for net names used in Pcbnew
 enum NETNAMES_LAYER_ID: int
 {
@@ -166,7 +177,7 @@ enum NETNAMES_LAYER_ID: int
  *  GAL layers are "virtual" layers, i.e. not tied into design data.
  *  Some layers here are shared between applications.
  *
- *  NOTE: Be very careful where you add new layers here.  Layers below GAL_LAYER_ID_BITMASK_END
+ *  NOTE: Be very careful where you add new layers here.  Layers up to GAL_LAYER_ID_BITMASK_END
  *  must never be re-ordered and new layers must always be added after this value, because the
  *  layers before this value are mapped to bit locations in legacy board files.
  *
@@ -193,7 +204,7 @@ enum GAL_LAYER_ID: int
     LAYER_RATSNEST           = GAL_LAYER_ID_START + 11,
     LAYER_GRID               = GAL_LAYER_ID_START + 12,
     LAYER_GRID_AXES          = GAL_LAYER_ID_START + 13,
-    LAYER_NO_CONNECTS        = GAL_LAYER_ID_START + 14, ///< show a marker on pads with no nets
+//  LAYER_NO_CONNECTS deprecated                  + 14, ///< show a marker on pads with no nets
     LAYER_MOD_FR             = GAL_LAYER_ID_START + 15, ///< show footprints on front
     LAYER_MOD_BK             = GAL_LAYER_ID_START + 16, ///< show footprints on back
     LAYER_MOD_VALUES         = GAL_LAYER_ID_START + 17, ///< show footprints values (when texts are visible)
@@ -211,7 +222,7 @@ enum GAL_LAYER_ID: int
     LAYER_AUX_ITEMS          = GAL_LAYER_ID_START + 29, ///< Auxiliary items (guides, rule, etc)
     LAYER_DRAW_BITMAPS       = GAL_LAYER_ID_START + 30, ///< to handle and draw images bitmaps
 
-    /// This is the end of the layers used for visibility bit masks in Pcbnew
+    /// This is the end of the layers used for visibility bit masks in legacy board files
     GAL_LAYER_ID_BITMASK_END = GAL_LAYER_ID_START + 31,
 
     // Layers in this section have visibility controls but were not present in legacy board files.
@@ -225,15 +236,26 @@ enum GAL_LAYER_ID: int
     LAYER_DRC_EXCLUSION      = GAL_LAYER_ID_START + 37, ///< layer for drc markers which have been individually excluded
     LAYER_MARKER_SHADOWS     = GAL_LAYER_ID_START + 38, ///< shadows for drc markers
 
+    LAYER_LOCKED_ITEM_SHADOW = GAL_LAYER_ID_START + 39, ///< shadow layer for locked items
+
+    LAYER_CONFLICTS_SHADOW   = GAL_LAYER_ID_START + 40, ///< shadow layer for items flagged conficting
+
     // Add layers below this point that do not have visibility controls, so don't need explicit
     // enum values
 
     LAYER_DRAWINGSHEET_PAGE1,      ///< for drawingsheetEditor previewing
     LAYER_DRAWINGSHEET_PAGEn,      ///< for drawingsheetEditor previewing
 
+    LAYER_PAGE_LIMITS,             ///< color for drawing the page extents (visibility stored in
+                                   ///<   PCBNEW_SETTINGS::m_ShowPageLimits)
+
     /// Virtual layers for stacking zones and tracks on a given copper layer
     LAYER_ZONE_START,
     LAYER_ZONE_END = LAYER_ZONE_START + PCB_LAYER_ID_COUNT,
+
+    /// Virtual layers for background images per board layer
+    LAYER_BITMAP_START,
+    LAYER_BITMAP_END = LAYER_BITMAP_START + PCB_LAYER_ID_COUNT,
 
     GAL_LAYER_ID_END
 };
@@ -241,8 +263,9 @@ enum GAL_LAYER_ID: int
 /// Use this macro to convert a GAL layer to a 0-indexed offset from LAYER_VIAS
 #define GAL_LAYER_INDEX( x ) ( x - GAL_LAYER_ID_START )
 
-/// Macro for getting the zone layer for a given copper layer
-#define ZONE_LAYER_FOR( copperLayer ) ( LAYER_ZONE_START + copperLayer )
+/// Macros for getting the extra layers for a given board layer
+#define BITMAP_LAYER_FOR( boardLayer ) ( LAYER_BITMAP_START + boardLayer )
+#define ZONE_LAYER_FOR( boardLayer ) ( LAYER_ZONE_START + boardLayer )
 
 constexpr int GAL_LAYER_ID_COUNT = GAL_LAYER_ID_END - GAL_LAYER_ID_START;
 
@@ -333,6 +356,7 @@ enum SCH_LAYER_ID: int
     LAYER_NETCLASS_REFS,
     LAYER_DEVICE,
     LAYER_NOTES,
+    LAYER_PRIVATE_NOTES,
     LAYER_NOTES_BACKGROUND,
     LAYER_PIN,
     LAYER_SHEET,
@@ -351,10 +375,12 @@ enum SCH_LAYER_ID: int
     LAYER_SCHEMATIC_GRID_AXES,
     LAYER_SCHEMATIC_BACKGROUND,
     LAYER_SCHEMATIC_CURSOR,
+    LAYER_HOVERED,
     LAYER_BRIGHTENED,
     LAYER_HIDDEN,
     LAYER_SELECTION_SHADOWS,
     LAYER_SCHEMATIC_DRAWINGSHEET,
+    LAYER_SCHEMATIC_PAGE_LIMITS,
     LAYER_BUS_JUNCTION,
     LAYER_SCHEMATIC_AUX_ITEMS,
     LAYER_SCHEMATIC_ANCHOR,
@@ -389,6 +415,7 @@ enum GERBVIEW_LAYER_ID: int
     LAYER_GERBVIEW_AXES,
     LAYER_GERBVIEW_BACKGROUND,
     LAYER_GERBVIEW_DRAWINGSHEET,
+    LAYER_GERBVIEW_PAGE_LIMITS,
 
     GERBVIEW_LAYER_ID_END
 };
@@ -662,6 +689,8 @@ public:
      */
     static LSET BackMask();
 
+    static LSET SideSpecificMask();
+
     static LSET UserMask();
 
     /**
@@ -712,6 +741,8 @@ public:
      * @param aCount is the length of aWishListSequence array.
      */
     LSEQ Seq( const PCB_LAYER_ID* aWishListSequence, unsigned aCount ) const;
+
+    LSEQ Seq( const LSEQ& aSequence ) const;
 
     /**
      * Return a LSEQ from this LSET in ascending PCB_LAYER_ID order.  Each LSEQ
@@ -901,10 +932,8 @@ inline bool IsBackLayer( PCB_LAYER_ID aLayerId )
     case B_Fab:
         return true;
     default:
-        ;
+        return false;
     }
-
-    return false;
 }
 
 
@@ -963,7 +992,7 @@ inline bool IsNetnameLayer( int aLayer )
 }
 
 
-inline bool IsZoneLayer( int aLayer )
+inline bool IsZoneFillLayer( int aLayer )
 {
     return aLayer >= LAYER_ZONE_START && aLayer <= LAYER_ZONE_END;
 }

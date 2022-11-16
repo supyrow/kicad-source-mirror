@@ -31,7 +31,7 @@
 #include <gal/gal_display_options.h>
 #include <lib_id.h>
 #include <kiway_player.h>
-#include <core/optional.h>
+#include <optional>
 
 #include <widgets/footprint_preview_widget.h>
 
@@ -55,8 +55,8 @@ public:
 
     virtual bool DisplayFootprint( const LIB_ID& aFPID ) override;
 
-    virtual const KIGFX::COLOR4D& GetBackgroundColor() override;
-    virtual const KIGFX::COLOR4D& GetForegroundColor() override;
+    virtual const KIGFX::COLOR4D& GetBackgroundColor() const override;
+    virtual const KIGFX::COLOR4D& GetForegroundColor() const override;
 
     virtual wxWindow* GetWindow() override;
     BOARD* GetBoard() { return m_dummyBoard.get(); }

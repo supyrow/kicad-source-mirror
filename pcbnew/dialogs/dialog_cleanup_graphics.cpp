@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2020-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -24,6 +24,7 @@
 #include <dialog_cleanup_graphics.h>
 #include <board_commit.h>
 #include <footprint.h>
+#include <pad.h>
 #include <tool/tool_manager.h>
 #include <tools/pcb_actions.h>
 #include <graphics_cleaner.h>
@@ -39,12 +40,17 @@ DIALOG_CLEANUP_GRAPHICS::DIALOG_CLEANUP_GRAPHICS( PCB_BASE_FRAME* aParent,
     m_changesTreeModel = new RC_TREE_MODEL( m_parentFrame, m_changesDataView );
     m_changesDataView->AssociateModel( m_changesTreeModel );
 
-    m_changesTreeModel->SetSeverities( RPT_SEVERITY_ACTION );
-
     if( aIsFootprintEditor )
+    {
         SetupStandardButtons( { { wxID_OK, _( "Update Footprint" ) } } );
+        m_nettieHint->SetFont( KIUI::GetInfoFont( aParent ).Italic() );
+    }
     else
+    {
         SetupStandardButtons( { { wxID_OK, _( "Update PCB" ) } } );
+        m_mergePadsOpt->Show( false );
+        m_nettieHint->Show( false );
+    }
 
     GetSizer()->SetSizeHints(this);
     Centre();
@@ -86,7 +92,8 @@ void DIALOG_CLEANUP_GRAPHICS::doCleanup( bool aDryRun )
     BOARD_COMMIT     commit( m_parentFrame );
     BOARD*           board = m_parentFrame->GetBoard();
     FOOTPRINT*       fp = m_isFootprintEditor ? board->GetFirstFootprint() : nullptr;
-    GRAPHICS_CLEANER cleaner( fp ? fp->GraphicalItems() : board->Drawings(), fp, commit );
+    GRAPHICS_CLEANER cleaner( fp ? fp->GraphicalItems() : board->Drawings(), fp, commit,
+                              m_parentFrame->GetToolManager() );
 
     if( !aDryRun )
     {
@@ -94,7 +101,7 @@ void DIALOG_CLEANUP_GRAPHICS::doCleanup( bool aDryRun )
         m_parentFrame->GetToolManager()->RunAction( PCB_ACTIONS::selectionClear, true );
 
         // ... and to keep the treeModel from trying to refresh a deleted item
-        m_changesTreeModel->SetProvider( nullptr );
+        m_changesTreeModel->Update( nullptr, RPT_SEVERITY_ACTION );
     }
 
     m_items.clear();
@@ -103,12 +110,13 @@ void DIALOG_CLEANUP_GRAPHICS::doCleanup( bool aDryRun )
     m_parentFrame->Compile_Ratsnest( false );
 
     cleaner.CleanupBoard( aDryRun, &m_items, m_createRectanglesOpt->GetValue(),
-                                             m_deleteRedundantOpt->GetValue() );
+                                             m_deleteRedundantOpt->GetValue(),
+                                             m_mergePadsOpt->GetValue() );
 
     if( aDryRun )
     {
-        RC_ITEMS_PROVIDER* provider = new VECTOR_CLEANUP_ITEMS_PROVIDER( &m_items );
-        m_changesTreeModel->SetProvider( provider );
+        m_changesTreeModel->Update( std::make_shared<VECTOR_CLEANUP_ITEMS_PROVIDER>( &m_items ),
+                                    RPT_SEVERITY_ACTION );
     }
     else if( !commit.Empty() )
     {
@@ -124,6 +132,9 @@ void DIALOG_CLEANUP_GRAPHICS::OnSelectItem( wxDataViewEvent& aEvent )
     const KIID&   itemID = RC_TREE_MODEL::ToUUID( aEvent.GetItem() );
     BOARD_ITEM*   item = m_parentFrame->GetBoard()->GetItem( itemID );
     WINDOW_THAWER thawer( m_parentFrame );
+
+    if( item && !item->GetLayerSet().test( m_parentFrame->GetActiveLayer() ) )
+        m_parentFrame->SetActiveLayer( item->GetLayerSet().UIOrder().front() );
 
     m_parentFrame->FocusOnItem( item );
     m_parentFrame->GetCanvas()->Refresh();

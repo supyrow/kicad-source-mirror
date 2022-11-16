@@ -1,7 +1,7 @@
 /*
 * This program source code file is part of KiCad, a free EDA CAD application.
 *
-* Copyright (C) 2020-2021 KiCad Developers, see AUTHORS.txt for contributors.
+* Copyright (C) 2020-2022 KiCad Developers, see AUTHORS.txt for contributors.
 *
 * This program is free software; you can redistribute it and/or
 * modify it under the terms of the GNU General Public License
@@ -30,6 +30,16 @@
 using KIGFX::COLOR4D;
 
 
+enum LINE_MODE
+{
+    LINE_MODE_FREE          = 0,
+    LINE_MODE_90            = 1,
+    LINE_MODE_45            = 2,
+
+    LINE_MODE_COUNT,
+};
+
+
 class EESCHEMA_SETTINGS : public APP_SETTINGS_BASE
 {
 public:
@@ -40,7 +50,6 @@ public:
         wxString edit_label_visible_columns;
         int  erc_severities;
         bool footprint_preview;
-        bool navigator_stays_open;
         bool print_sheet_reference;
         wxString default_font;
         bool show_hidden_pins;
@@ -52,6 +61,15 @@ public:
         bool show_page_limits;
         bool show_sexpr_file_convert_warning;
         bool show_sheet_filename_case_sensitivity_dialog;
+    };
+
+    struct AUI_PANELS
+    {
+        int  hierarchy_panel_docked_width;  // width of hierarchy tree panel and pane when docked
+        int  hierarchy_panel_float_width;   // width of hierarchy tree panel when floating
+        int  hierarchy_panel_float_height;  // height of hierarchy tree panel when floating
+        bool schematic_hierarchy_float;     // show hierarchy tree panel as floating
+        bool show_schematic_hierarchy;      // show hierarchy tree pane
     };
 
     struct AUTOPLACE_FIELDS
@@ -103,7 +121,7 @@ public:
         COLOR4D  default_sheet_border_color;
         COLOR4D  default_sheet_background_color;
         wxString field_names;
-        bool     hv_lines_only;
+        int      line_mode;
         int      repeat_label_increment;
         bool     intersheets_ref_show;
         bool     intersheets_ref_own_page;
@@ -119,6 +137,7 @@ public:
     struct INPUT
     {
         bool drag_is_move;
+        bool esc_clears_net_highlight;
     };
 
     struct SELECTION
@@ -128,7 +147,6 @@ public:
         bool draw_selected_children;
         bool fill_shapes;
         bool select_pin_selects_symbol;
-        bool text_as_box;
     };
 
     struct PAGE_SETTINGS
@@ -151,6 +169,8 @@ public:
 
     struct PANEL_ANNOTATE
     {
+        bool automatic;
+        bool recursive;
         int scope;
         int options;
         int method;
@@ -176,6 +196,7 @@ public:
         int lib_list_width;
         int cmp_list_width;
         bool show_pin_electrical_type;
+        bool show_pin_numbers;
         WINDOW_SETTINGS window;
     };
 
@@ -194,6 +215,7 @@ public:
         int      hpgl_paper_size;
         double   hpgl_pen_size;
         int      hpgl_origin;
+        bool     open_file_after_plot;
     };
 
     struct PANEL_SYM_CHOOSER
@@ -214,6 +236,15 @@ public:
         int cursors_panel_height;
         bool white_background;
         WINDOW_SETTINGS window;
+    };
+
+    struct FIND_REPLACE_EXTRA
+    {
+        bool search_all_fields;
+        bool search_all_pins;
+        bool search_current_sheet_only;
+
+        bool replace_references;
     };
 
     EESCHEMA_SETTINGS();
@@ -243,7 +274,11 @@ public:
 
     AUTOPLACE_FIELDS m_AutoplaceFields;
 
+    AUI_PANELS m_AuiPanels;
+
     DRAWING m_Drawing;
+
+    FIND_REPLACE_EXTRA m_FindReplaceExtra;
 
     INPUT m_Input;
 

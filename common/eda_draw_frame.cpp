@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2004-2017 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2008 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 2004-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2004-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -59,6 +59,7 @@
 #include <wx/snglinst.h>
 #include <dialogs/dialog_grid_settings.h>
 #include <widgets/ui_common.h>
+#include <widgets/search_pane.h>
 #include <wx/dirdlg.h>
 #include <wx/filedlg.h>
 #include <wx/msgdlg.h>
@@ -72,6 +73,7 @@
 
 BEGIN_EVENT_TABLE( EDA_DRAW_FRAME, KIWAY_PLAYER )
     EVT_UPDATE_UI( ID_ON_GRID_SELECT, EDA_DRAW_FRAME::OnUpdateSelectGrid )
+    EVT_UPDATE_UI( ID_ON_ZOOM_SELECT, EDA_DRAW_FRAME::OnUpdateSelectZoom )
 
     EVT_ACTIVATE( EDA_DRAW_FRAME::onActivate )
 END_EVENT_TABLE()
@@ -79,8 +81,8 @@ END_EVENT_TABLE()
 
 EDA_DRAW_FRAME::EDA_DRAW_FRAME( KIWAY* aKiway, wxWindow* aParent, FRAME_T aFrameType,
                                 const wxString& aTitle, const wxPoint& aPos, const wxSize& aSize,
-                                long aStyle, const wxString & aFrameName ) :
-    KIWAY_PLAYER( aKiway, aParent, aFrameType, aTitle, aPos, aSize, aStyle, aFrameName )
+                                long aStyle, const wxString& aFrameName, const EDA_IU_SCALE& aIuScale ) :
+    KIWAY_PLAYER( aKiway, aParent, aFrameType, aTitle, aPos, aSize, aStyle, aFrameName, aIuScale )
 {
     m_socketServer        = nullptr;
     m_mainToolBar         = nullptr;
@@ -89,6 +91,7 @@ EDA_DRAW_FRAME::EDA_DRAW_FRAME( KIWAY* aKiway, wxWindow* aParent, FRAME_T aFrame
     m_auxiliaryToolBar    = nullptr;
     m_gridSelectBox       = nullptr;
     m_zoomSelectBox       = nullptr;
+    m_searchPane          = nullptr;
     m_firstRunDialogSetting = 0;
     m_undoRedoCountMax    = DEFAULT_MAX_UNDO_ITEMS;
 
@@ -103,9 +106,10 @@ EDA_DRAW_FRAME::EDA_DRAW_FRAME( KIWAY* aKiway, wxWindow* aParent, FRAME_T aFrame
                                                 // BLACK for Pcbnew, BLACK or WHITE for Eeschema
     m_colorSettings       = nullptr;
     m_msgFrameHeight      = EDA_MSG_PANEL::GetRequiredHeight( this );
-    m_userUnits           = EDA_UNITS::MILLIMETRES;
     m_polarCoords         = false;
-    m_findReplaceData     = new wxFindReplaceData( wxFR_DOWN );
+    m_findReplaceData     = std::make_unique<EDA_SEARCH_DATA>();
+
+    SetUserUnits( EDA_UNITS::MILLIMETRES );
 
     m_auimgr.SetFlags( wxAUI_MGR_DEFAULT );
 
@@ -165,6 +169,16 @@ EDA_DRAW_FRAME::EDA_DRAW_FRAME( KIWAY* aKiway, wxWindow* aParent, FRAME_T aFrame
           {
               wxMoveEvent dummy;
               OnMove( dummy );
+
+              // we need to kludge the msg panel to the correct size again
+              // especially important even for first launches as the constructor of the window here usually doesn't
+              // have the correct dpi awareness yet
+              m_frameSize.y += m_msgFrameHeight;
+              m_msgFrameHeight = EDA_MSG_PANEL::GetRequiredHeight( this );
+              m_frameSize.y -= m_msgFrameHeight;
+
+              m_messagePanel->SetPosition( wxPoint( 0, m_frameSize.y ) );
+              m_messagePanel->SetSize( m_frameSize.x, m_msgFrameHeight );
           } );
 #endif
 }
@@ -174,7 +188,7 @@ EDA_DRAW_FRAME::~EDA_DRAW_FRAME()
 {
     delete m_socketServer;
 
-    for( auto socket : m_sockets )
+    for( wxSocketBase* socket : m_sockets )
     {
         socket->Shutdown();
         socket->Destroy();
@@ -189,8 +203,6 @@ EDA_DRAW_FRAME::~EDA_DRAW_FRAME()
 
     delete m_currentScreen;
     m_currentScreen = nullptr;
-
-    delete m_findReplaceData;
 
     m_auimgr.UnInit();
 
@@ -272,7 +284,7 @@ void EDA_DRAW_FRAME::ToggleUserUnits()
     }
     else
     {
-        SetUserUnits( m_userUnits == EDA_UNITS::INCHES ? EDA_UNITS::MILLIMETRES
+        SetUserUnits( GetUserUnits() == EDA_UNITS::INCHES ? EDA_UNITS::MILLIMETRES
                                                        : EDA_UNITS::INCHES );
         unitsChangeRefresh();
 
@@ -298,7 +310,7 @@ void EDA_DRAW_FRAME::CommonSettingsChanged( bool aEnvVarsChanged, bool aTextVars
         else
         {
             m_autoSaveTimer->Stop();
-            m_autoSaveState = false;
+            m_autoSavePending = false;
         }
     }
 
@@ -369,6 +381,37 @@ void EDA_DRAW_FRAME::OnUpdateSelectGrid( wxUpdateUIEvent& aEvent )
 }
 
 
+
+void EDA_DRAW_FRAME::OnUpdateSelectZoom( wxUpdateUIEvent& aEvent )
+{
+    // No need to update the grid select box if it doesn't exist or the grid setting change
+    // was made using the select box.
+    if( m_zoomSelectBox == nullptr )
+        return;
+
+    double zoom = GetCanvas()->GetGAL()->GetZoomFactor();
+    const std::vector<double>& zoomList = config()->m_Window.zoom_factors;
+    int curr_selection = m_zoomSelectBox->GetSelection();
+    int new_selection = 0;      // select zoom auto
+    double last_approx = 1e9;   // large value to start calculation
+
+    // Search for the nearest available value to the current zoom setting, and select it
+    for( size_t jj = 0; jj < zoomList.size(); ++jj )
+    {
+        double rel_error = std::fabs( zoomList[jj] - zoom ) / zoom;
+
+        if( rel_error < last_approx )
+        {
+            last_approx = rel_error;
+            // zoom IDs in m_zoomSelectBox start with 1 (leaving 0 for auto-zoom choice)
+            new_selection = jj+1;
+        }
+    }
+
+    if( curr_selection != new_selection )
+        m_zoomSelectBox->SetSelection( new_selection );
+}
+
 void EDA_DRAW_FRAME::PrintPage( const RENDER_SETTINGS* aSettings )
 {
     wxMessageBox( wxT("EDA_DRAW_FRAME::PrintPage() error") );
@@ -408,6 +451,9 @@ void EDA_DRAW_FRAME::OnSelectGrid( wxCommandEvent& event )
 
     UpdateStatusBar();
     m_canvas->Refresh();
+    // Needed on Windows because clicking on m_gridSelectBox remove the focus from m_canvas
+    // (Windows specific
+    m_canvas->SetFocus();
 }
 
 
@@ -484,6 +530,9 @@ void EDA_DRAW_FRAME::OnSelectZoom( wxCommandEvent& event )
     m_toolManager->RunAction( ACTIONS::zoomPreset, true, static_cast<intptr_t>( id ) );
     UpdateStatusBar();
     m_canvas->Refresh();
+    // Needed on Windows because clicking on m_zoomSelectBox remove the focus from m_canvas
+    // (Windows specific
+    m_canvas->SetFocus();
 }
 
 
@@ -511,13 +560,13 @@ void EDA_DRAW_FRAME::AddStandardSubMenus( TOOL_MENU& aToolMenu )
 
     aMenu.AddSeparator( 1000 );
 
-    auto zoomMenu = std::make_shared<ZOOM_MENU>( this );
+    std::shared_ptr<ZOOM_MENU> zoomMenu = std::make_shared<ZOOM_MENU>( this );
     zoomMenu->SetTool( commonTools );
-    aToolMenu.AddSubMenu( zoomMenu );
+    aToolMenu.RegisterSubMenu( zoomMenu );
 
-    auto gridMenu = std::make_shared<GRID_MENU>( this );
+    std::shared_ptr<GRID_MENU> gridMenu = std::make_shared<GRID_MENU>( this );
     gridMenu->SetTool( commonTools );
-    aToolMenu.AddSubMenu( gridMenu );
+    aToolMenu.RegisterSubMenu( gridMenu );
 
     aMenu.AddMenu( zoomMenu.get(), SELECTION_CONDITIONS::ShowAlways, 1000 );
     aMenu.AddMenu( gridMenu.get(), SELECTION_CONDITIONS::ShowAlways, 1000 );
@@ -538,13 +587,11 @@ void EDA_DRAW_FRAME::DisplayConstraintsMsg( const wxString& msg )
 
 void EDA_DRAW_FRAME::DisplayGridMsg()
 {
-    wxString line;
+    wxString msg;
 
-    line.Printf( "grid %s",
-                 MessageTextFromValue( GetUserUnits(), GetCanvas()->GetGAL()->GetGridSize().x,
-                                       false ) );
+    msg.Printf( "grid %s", MessageTextFromValue( GetCanvas()->GetGAL()->GetGridSize().x, false ) );
 
-    SetStatusText( line, 4 );
+    SetStatusText( msg, 4 );
 }
 
 
@@ -552,7 +599,7 @@ void EDA_DRAW_FRAME::DisplayUnitsMsg()
 {
     wxString msg;
 
-    switch( m_userUnits )
+    switch( GetUserUnits() )
     {
     case EDA_UNITS::INCHES:      msg = _( "inches" ); break;
     case EDA_UNITS::MILS:        msg = _( "mils" );   break;
@@ -610,14 +657,17 @@ void EDA_DRAW_FRAME::LoadSettings( APP_SETTINGS_BASE* aCfg )
 
     m_galDisplayOptions.ReadConfig( *cmnCfg, *window, this );
 
-    m_findReplaceData->SetFlags( aCfg->m_FindReplace.flags );
-    m_findReplaceData->SetFindString( aCfg->m_FindReplace.find_string );
-    m_findReplaceData->SetReplaceString( aCfg->m_FindReplace.replace_string );
+    m_findReplaceData->findString = aCfg->m_FindReplace.find_string;
+    m_findReplaceData->replaceString = aCfg->m_FindReplace.replace_string;
+    m_findReplaceData->matchMode =
+            static_cast<EDA_SEARCH_MATCH_MODE>( aCfg->m_FindReplace.match_mode );
+    m_findReplaceData->matchCase = aCfg->m_FindReplace.match_case;
+    m_findReplaceData->searchAndReplace = aCfg->m_FindReplace.search_and_replace;
 
-    for( auto& s : aCfg->m_FindReplace.find_history )
+    for( const wxString& s : aCfg->m_FindReplace.find_history )
         m_findStringHistoryList.Add( s );
 
-    for( auto& s : aCfg->m_FindReplace.replace_history )
+    for( const wxString& s : aCfg->m_FindReplace.replace_history )
         m_replaceStringHistoryList.Add( s );
 }
 
@@ -628,15 +678,16 @@ void EDA_DRAW_FRAME::SaveSettings( APP_SETTINGS_BASE* aCfg )
 
     WINDOW_SETTINGS* window = GetWindowSettings( aCfg );
 
-    aCfg->m_System.units = static_cast<int>( m_userUnits );
+    aCfg->m_System.units = static_cast<int>( GetUserUnits() );
     aCfg->m_System.first_run_shown = m_firstRunDialogSetting;
     aCfg->m_System.max_undo_items = GetMaxUndoItems();
 
     m_galDisplayOptions.WriteConfig( *window );
 
-    aCfg->m_FindReplace.flags = m_findReplaceData->GetFlags();
-    aCfg->m_FindReplace.find_string = m_findReplaceData->GetFindString();
-    aCfg->m_FindReplace.replace_string = m_findReplaceData->GetReplaceString();
+    aCfg->m_FindReplace.search_and_replace = m_findReplaceData->searchAndReplace;
+
+    aCfg->m_FindReplace.find_string = m_findReplaceData->findString;
+    aCfg->m_FindReplace.replace_string = m_findReplaceData->replaceString;
 
     aCfg->m_FindReplace.find_history.clear();
     aCfg->m_FindReplace.replace_history.clear();
@@ -715,7 +766,7 @@ void EDA_DRAW_FRAME::SetMsgPanel( EDA_ITEM* aItem )
 
 void EDA_DRAW_FRAME::UpdateMsgPanel()
 {
-    GetToolManager()->PostEvent( EVENTS::SelectedItemsModified );
+    GetToolManager()->ProcessEvent( EVENTS::SelectedItemsModified );
 }
 
 
@@ -918,7 +969,8 @@ static const wxString productName = wxT( "KiCad E.D.A.  " );
 
 void PrintDrawingSheet( const RENDER_SETTINGS* aSettings, const PAGE_INFO& aPageInfo,
                         const wxString& aFullSheetName, const wxString& aFileName,
-                        const TITLE_BLOCK& aTitleBlock, int aSheetCount,
+                        const TITLE_BLOCK& aTitleBlock,
+                        const std::map<wxString, wxString>* aProperties, int aSheetCount,
                         const wxString& aPageNumber, double aMils2Iu, const PROJECT* aProject,
                         const wxString& aSheetLayer, bool aIsFirstPage )
 {
@@ -933,6 +985,7 @@ void PrintDrawingSheet( const RENDER_SETTINGS* aSettings, const PAGE_INFO& aPage
     drawList.SetSheetLayer( aSheetLayer );
     drawList.SetProject( aProject );
     drawList.SetIsFirstPage( aIsFirstPage );
+    drawList.SetProperties( aProperties );
 
     drawList.BuildDrawItemsList( aPageInfo, aTitleBlock );
 
@@ -942,6 +995,7 @@ void PrintDrawingSheet( const RENDER_SETTINGS* aSettings, const PAGE_INFO& aPage
 
 
 void EDA_DRAW_FRAME::PrintDrawingSheet( const RENDER_SETTINGS* aSettings, BASE_SCREEN* aScreen,
+                                        const std::map<wxString, wxString>* aProperties,
                                         double aMils2Iu, const wxString &aFilename,
                                         const wxString &aSheetLayer )
 {
@@ -958,8 +1012,8 @@ void EDA_DRAW_FRAME::PrintDrawingSheet( const RENDER_SETTINGS* aSettings, BASE_S
     }
 
     ::PrintDrawingSheet( aSettings, GetPageSettings(), GetScreenDesc(), aFilename, GetTitleBlock(),
-                         aScreen->GetPageCount(), aScreen->GetPageNumber(), aMils2Iu, &Prj(),
-                         aSheetLayer, aScreen->GetVirtualPageNumber() == 1 );
+                         aProperties, aScreen->GetPageCount(), aScreen->GetPageNumber(), aMils2Iu,
+                         &Prj(), aSheetLayer, aScreen->GetVirtualPageNumber() == 1 );
 
     if( origin.y > 0 )
     {
@@ -984,22 +1038,27 @@ bool EDA_DRAW_FRAME::LibraryFileBrowser( bool doOpen, wxFileName& aFilename,
     wxString prompt = doOpen ? _( "Select Library" ) : _( "New Library" );
     aFilename.SetExt( ext );
 
-    wxString dir;
+    wxString projectDir = Prj().IsNullProject() ? aFilename.GetPath() : Prj().GetProjectPath();
+    wxString defaultDir;
 
-    if( GetMruPath().IsEmpty() )
-        dir = aGlobalPath;
+    if( aIsGlobal )
+    {
+        if( !GetMruPath().IsEmpty() && !GetMruPath().StartsWith( projectDir ) )
+            defaultDir = GetMruPath();
+        else
+            defaultDir = aGlobalPath;
+    }
     else
-        dir = GetMruPath();
-
+    {
+        if( !GetMruPath().IsEmpty() && GetMruPath().StartsWith( projectDir ) )
+            defaultDir = GetMruPath();
+        else
+            defaultDir = projectDir;
+    }
 
     if( isDirectory && doOpen )
     {
-        if( !aIsGlobal && GetMruPath().IsEmpty() )
-        {
-            dir = Prj().GetProjectPath();
-        }
-
-        wxDirDialog dlg( this, prompt, dir, wxDD_DEFAULT_STYLE | wxDD_DIR_MUST_EXIST );
+        wxDirDialog dlg( this, prompt, defaultDir, wxDD_DEFAULT_STYLE | wxDD_DIR_MUST_EXIST );
 
         if( dlg.ShowModal() == wxID_CANCEL )
             return false;
@@ -1013,12 +1072,7 @@ bool EDA_DRAW_FRAME::LibraryFileBrowser( bool doOpen, wxFileName& aFilename,
         if( aFilename.GetName().empty() )
             aFilename.SetName( "Library" );
 
-        if( !aIsGlobal && GetMruPath().IsEmpty() )
-        {
-            dir = Prj().IsNullProject() ? aFilename.GetFullPath() : Prj().GetProjectPath();
-        }
-
-        wxFileDialog dlg( this, prompt, dir, aFilename.GetFullName(),
+        wxFileDialog dlg( this, prompt, defaultDir, aFilename.GetFullName(),
                           wildcard, doOpen ? wxFD_OPEN | wxFD_FILE_MUST_EXIST
                                            : wxFD_SAVE | wxFD_CHANGE_DIR | wxFD_OVERWRITE_PROMPT );
 
@@ -1049,6 +1103,17 @@ void EDA_DRAW_FRAME::RecreateToolbars()
 
     if( m_auxiliaryToolBar )    // Additional tools under main toolbar
        ReCreateAuxiliaryToolbar();
+}
+
+
+void EDA_DRAW_FRAME::ShowChangedLanguage()
+{
+    EDA_BASE_FRAME::ShowChangedLanguage();
+
+    if( m_searchPane )
+    {
+        m_searchPane->OnLanguageChange();
+    }
 }
 
 

@@ -3,7 +3,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2010 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
- * Copyright (C) 2010-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2010-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -404,8 +404,6 @@ void LAYER_WIDGET::updateLayerRow( int aRow, const wxString& aName )
     {
         if( aRow == m_CurrentRow )
             indicator->SetIndicatorState( ROW_ICON_PROVIDER::STATE::ON );
-        if( useAlternateBitmap( aRow ) )
-            indicator->SetIndicatorState( ROW_ICON_PROVIDER::STATE::DIMMED );
         else
             indicator->SetIndicatorState( ROW_ICON_PROVIDER::STATE::OFF );
     }
@@ -509,7 +507,7 @@ LAYER_WIDGET::LAYER_WIDGET( wxWindow* aParent, wxWindow* aFocusOwner, wxWindowID
     // change the font size on the notebook's tabs to match aPointSize
     font.SetPointSize( pointSize );
     m_notebook->SetFont( font );
-    
+
     m_LayerPanel = new wxPanel( m_notebook, wxID_ANY, wxDefaultPosition, wxDefaultSize,
                                 wxTAB_TRAVERSAL );
 
@@ -673,31 +671,16 @@ void LAYER_WIDGET::ClearRenderRows()
 
 void LAYER_WIDGET::SelectLayerRow( int aRow )
 {
-    // enable the layer tab at index 0
-    m_notebook->SetSelection( 0 );
-
     INDICATOR_ICON* oldIndicator = (INDICATOR_ICON*) getLayerComp( m_CurrentRow, 0 );
 
     if( oldIndicator )
-    {
-        if( useAlternateBitmap( m_CurrentRow ) )
-            oldIndicator->SetIndicatorState( ROW_ICON_PROVIDER::STATE::DIMMED );
-        else
-            oldIndicator->SetIndicatorState( ROW_ICON_PROVIDER::STATE::OFF );
-    }
+        oldIndicator->SetIndicatorState( ROW_ICON_PROVIDER::STATE::OFF );
 
     INDICATOR_ICON* newIndicator = (INDICATOR_ICON*) getLayerComp( aRow, 0 );
 
     if( newIndicator )
     {
         newIndicator->SetIndicatorState( ROW_ICON_PROVIDER::STATE::ON );
-
-        // Make sure the desired layer row is visible.
-        // It seems that as of 2.8.2, setting the focus does this.
-        // I don't expect the scrolling to be needed at all because
-        // the minimum window size may end up being established so that the
-        // scroll bars will not be visible.
-        getLayerComp( aRow, 1 )->SetFocus();
     }
 
     m_CurrentRow = aRow;
@@ -781,8 +764,25 @@ COLOR4D LAYER_WIDGET::GetLayerColor( int aLayer ) const
 
     if( row >= 0 )
     {
-        int col = 1;    // bitmap button is column 1
+        const int col = 1;    // bitmap button is column 1
         auto swatch = static_cast<COLOR_SWATCH*>( getLayerComp( row, col ) );
+        wxASSERT( swatch );
+
+        return swatch->GetSwatchColor();
+    }
+
+    return COLOR4D::UNSPECIFIED;   // it's caller fault, gave me a bad layer
+}
+
+
+COLOR4D LAYER_WIDGET::GetRenderColor( int aRow ) const
+{
+    int row = aRow;
+
+    if( row >= 0 )
+    {
+        const int col = 0;    // bitmap button (swatch) is column 0
+        auto swatch = static_cast<COLOR_SWATCH*>( getRenderComp( row, col ) );
         wxASSERT( swatch );
 
         return swatch->GetSwatchColor();
@@ -846,8 +846,6 @@ void LAYER_WIDGET::UpdateLayerIcons()
 
             if( row == m_CurrentRow )
                 state = ROW_ICON_PROVIDER::STATE::ON;
-            else if( useAlternateBitmap( row ) )
-                state = ROW_ICON_PROVIDER::STATE::DIMMED;
             else
                 state = ROW_ICON_PROVIDER::STATE::OFF;
 

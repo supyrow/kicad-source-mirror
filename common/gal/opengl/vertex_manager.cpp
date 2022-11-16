@@ -36,6 +36,7 @@
 #include <gal/opengl/gpu_manager.h>
 #include <gal/opengl/vertex_item.h>
 #include <confirm.h>
+#include <wx/log.h>
 
 using namespace KIGFX;
 
@@ -68,7 +69,11 @@ void VERTEX_MANAGER::Unmap()
 
 bool VERTEX_MANAGER::Reserve( unsigned int aSize )
 {
-    assert( m_reservedSpace == 0 && m_reserved == nullptr );
+    if( !aSize )
+        return true;
+
+    if( m_reservedSpace != 0 || m_reserved )
+        wxLogDebug( wxT( "Did not use all previous vertices allocated" ) );
 
     // flag to avoid hanging by calling DisplayError too many times:
     static bool show_err = true;
@@ -111,17 +116,17 @@ bool VERTEX_MANAGER::Vertex( GLfloat aX, GLfloat aY, GLfloat aZ )
     else
     {
         newVertex = m_container->Allocate( 1 );
-    }
 
-    if( newVertex == nullptr )
-    {
-        if( show_err )
+        if( newVertex == nullptr )
         {
-            DisplayError( nullptr, wxT( "VERTEX_MANAGER::Vertex: Vertex allocation error" ) );
-            show_err = false;
-        }
+            if( show_err )
+            {
+                DisplayError( nullptr, wxT( "VERTEX_MANAGER::Vertex: Vertex allocation error" ) );
+                show_err = false;
+            }
 
-        return false;
+            return false;
+        }
     }
 
     putVertex( *newVertex, aX, aY, aZ );
@@ -167,6 +172,9 @@ void VERTEX_MANAGER::SetItem( VERTEX_ITEM& aItem ) const
 
 void VERTEX_MANAGER::FinishItem() const
 {
+    if( m_reservedSpace != 0 || m_reserved )
+        wxLogDebug( wxT( "Did not use all previous vertices allocated" ) );
+
     m_container->FinishItem();
 }
 

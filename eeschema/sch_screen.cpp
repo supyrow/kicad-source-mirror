@@ -4,7 +4,7 @@
  * Copyright (C) 2013 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2012 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
  * Copyright (C) 2008 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -24,15 +24,9 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
-/**
- * @file sch_screen.cpp
- * @brief Implementation of SCH_SCREEN and SCH_SCREENS classes.
- */
-
 #include <wx/filefn.h>
 
 #include <eda_item.h>
-#include <eda_rect.h>
 #include <id.h>
 #include <string_utils.h>
 #include <kiway.h>
@@ -45,7 +39,9 @@
 
 #include <symbol_library.h>
 #include <connection_graph.h>
+#include <lib_item.h>
 #include <lib_pin.h>
+#include <lib_shape.h>
 #include <sch_symbol.h>
 #include <sch_junction.h>
 #include <sch_line.h>
@@ -78,7 +74,7 @@ SCH_SCREEN::SCH_SCREEN( EDA_ITEM* aParent ) :
     // Suitable for schematic only. For symbol_editor and viewlib, must be set to true
     m_Center = false;
 
-    InitDataPoints( m_paper.GetSizeIU() );
+    InitDataPoints( m_paper.GetSizeIU( schIUScale.IU_PER_MILS ) );
 }
 
 
@@ -92,7 +88,7 @@ SCH_SCREEN::~SCH_SCREEN()
 SCHEMATIC* SCH_SCREEN::Schematic() const
 {
     wxCHECK_MSG( GetParent() && GetParent()->Type() == SCHEMATIC_T, nullptr,
-            "SCH_SCREEN must have a SCHEMATIC parent!" );
+                 wxT( "SCH_SCREEN must have a SCHEMATIC parent!" ) );
 
     return static_cast<SCHEMATIC*>( GetParent() );
 }
@@ -100,7 +96,7 @@ SCHEMATIC* SCH_SCREEN::Schematic() const
 
 void SCH_SCREEN::clearLibSymbols()
 {
-    for( auto libSymbol : m_libSymbols )
+    for( const std::pair<const wxString, LIB_SYMBOL*>& libSymbol : m_libSymbols )
         delete libSymbol.second;
 
     m_libSymbols.clear();
@@ -123,8 +119,7 @@ void SCH_SCREEN::IncRefCount()
 
 void SCH_SCREEN::DecRefCount()
 {
-    wxCHECK_RET( m_refCount != 0,
-                 wxT( "Screen reference count already zero.  Bad programmer!" ) );
+    wxCHECK_RET( m_refCount != 0, wxT( "Screen reference count already zero.  Bad programmer!" ) );
     m_refCount--;
 }
 
@@ -341,7 +336,7 @@ bool SCH_SCREEN::CheckIfOnDrawList( const SCH_ITEM* aItem ) const
 
 SCH_ITEM* SCH_SCREEN::GetItem( const VECTOR2I& aPosition, int aAccuracy, KICAD_T aType ) const
 {
-    EDA_RECT bbox;
+    BOX2I bbox;
     bbox.SetOrigin( aPosition );
     bbox.Inflate( aAccuracy );
 
@@ -355,8 +350,10 @@ SCH_ITEM* SCH_SCREEN::GetItem( const VECTOR2I& aPosition, int aAccuracy, KICAD_T
 }
 
 
-std::set<SCH_ITEM*> SCH_SCREEN::MarkConnections( SCH_LINE* aSegment )
+std::set<SCH_ITEM*> SCH_SCREEN::MarkConnections( SCH_LINE* aSegment, bool aSecondPass )
 {
+#define PROCESSED CANDIDATE     // Don't use SKIP_STRUCT; IsConnected() returns false if it's set.
+
     std::set<SCH_ITEM*>   retval;
     std::stack<SCH_LINE*> to_search;
 
@@ -366,35 +363,54 @@ std::set<SCH_ITEM*> SCH_SCREEN::MarkConnections( SCH_LINE* aSegment )
 
     while( !to_search.empty() )
     {
-        SCH_LINE* test_item = to_search.top();
+        SCH_ITEM* item = to_search.top();
         to_search.pop();
 
-        for( SCH_ITEM* item : Items().Overlapping( SCH_JUNCTION_T, test_item->GetBoundingBox() ) )
-        {
-            if( test_item->IsEndPoint( item->GetPosition() ) )
-                retval.insert( item );
-        }
+        if( item->HasFlag( PROCESSED ) )
+            continue;
 
-        for( SCH_ITEM* item : Items().Overlapping( SCH_LINE_T, test_item->GetBoundingBox() ) )
+        item->SetFlags( PROCESSED );
+
+        for( SCH_ITEM* candidate : Items().Overlapping( SCH_LINE_T, item->GetBoundingBox() ) )
         {
-            // Skip connecting lines on different layers (e.g. buses)
-            if( test_item->GetLayer() != item->GetLayer() )
+            SCH_LINE* line = static_cast<SCH_LINE*>( candidate );
+
+            if( line->HasFlag( PROCESSED ) )
                 continue;
 
-            SCH_LINE* line = static_cast<SCH_LINE*>( item );
+            // Skip connecting lines on different layers (e.g. buses)
+            if( item->GetLayer() != line->GetLayer() )
+                continue;
 
-            if( ( test_item->IsEndPoint( line->GetStartPoint() )
-                        && !GetPin( line->GetStartPoint(), nullptr, true ) )
-             || ( test_item->IsEndPoint( line->GetEndPoint() )
-                        && !GetPin( line->GetEndPoint(), nullptr, true ) ) )
+            for( VECTOR2I pt : { line->GetStartPoint(), line->GetEndPoint() } )
             {
-                auto result = retval.insert( line );
+                if( item->IsConnected( pt ) )
+                {
+                    SCH_ITEM* junction = GetItem( pt, 0, SCH_JUNCTION_T );
+                    SCH_ITEM*      pin = GetItem( pt, 0, SCH_PIN_T );
 
-                if( result.second )
-                    to_search.push( line );
+                    if( item->IsSelected() && aSecondPass )
+                    {
+                        if( junction )
+                            retval.insert( junction );
+
+                        retval.insert( line );
+                        to_search.push( line );
+                    }
+                    else if( !junction && !pin )
+                    {
+                        retval.insert( line );
+                        to_search.push( line );
+                    }
+
+                    break;
+                }
             }
         }
     }
+
+    for( SCH_ITEM* item : Items() )
+        item->ClearTempFlags();
 
     return retval;
 }
@@ -427,6 +443,223 @@ bool SCH_SCREEN::IsExplicitJunctionNeeded( const VECTOR2I& aPosition ) const
     bool isJunction = doIsJunction( aPosition, false, &hasExplicitJunction, &hasBusEntry );
 
     return isJunction && !hasBusEntry && !hasExplicitJunction;
+}
+
+TEXT_SPIN_STYLE SCH_SCREEN::GetLabelOrientationForPoint( const VECTOR2I&       aPosition,
+                                                         TEXT_SPIN_STYLE       aDefaultOrientation,
+                                                         const SCH_SHEET_PATH* aSheet ) const
+{
+    auto ret = aDefaultOrientation;
+    for( SCH_ITEM* item : Items().Overlapping( aPosition ) )
+    {
+        if( item->GetEditFlags() & STRUCT_DELETED )
+            continue;
+
+        switch( item->Type() )
+        {
+        case SCH_BUS_WIRE_ENTRY_T:
+        {
+            auto busEntry = static_cast<const SCH_BUS_WIRE_ENTRY*>( item );
+            if( busEntry->m_connected_bus_item )
+            {
+                // bus connected, take the bus direction into consideration ony if it is
+                // vertical or horizontal
+                auto bus = static_cast<const SCH_LINE*>( busEntry->m_connected_bus_item );
+                if( bus->Angle().AsDegrees() == 90.0 )
+                {
+                    // bus is vertical -> label shall be horizontal and
+                    // shall be placed to the side where the bus entry is
+                    if( aPosition.x < bus->GetPosition().x )
+                        ret = TEXT_SPIN_STYLE::LEFT;
+                    else if( aPosition.x > bus->GetPosition().x )
+                        ret = TEXT_SPIN_STYLE::RIGHT;
+                }
+                else if( bus->Angle().AsDegrees() == 0.0 )
+                {
+                    // bus is horizontal -> label shall be vertical and
+                    // shall be placed to the side where the bus entry is
+                    if( aPosition.y < bus->GetPosition().y )
+                        ret = TEXT_SPIN_STYLE::UP;
+                    else if( aPosition.y > bus->GetPosition().y )
+                        ret = TEXT_SPIN_STYLE::BOTTOM;
+                }
+            }
+        }
+        break;
+
+        case SCH_LINE_T:
+        {
+            auto line = static_cast<const SCH_LINE*>( item );
+            // line angles goes between -90 and 90 degrees, but normalize
+            auto angle = line->Angle().Normalize90().AsDegrees();
+
+            if( -45 < angle && angle <= 45 )
+            {
+                if( line->GetStartPoint().x <= line->GetEndPoint().x )
+                {
+                    ret = line->GetEndPoint() == aPosition ? TEXT_SPIN_STYLE::RIGHT
+                                                           : TEXT_SPIN_STYLE::LEFT;
+                }
+                else
+                {
+                    ret = line->GetEndPoint() == aPosition ? TEXT_SPIN_STYLE::LEFT
+                                                           : TEXT_SPIN_STYLE::RIGHT;
+                }
+            }
+            else
+            {
+                if( line->GetStartPoint().y <= line->GetEndPoint().y )
+                {
+                    ret = line->GetEndPoint() == aPosition ? TEXT_SPIN_STYLE::BOTTOM
+                                                           : TEXT_SPIN_STYLE::UP;
+                }
+                else
+                {
+                    ret = line->GetEndPoint() == aPosition ? TEXT_SPIN_STYLE::UP
+                                                           : TEXT_SPIN_STYLE::BOTTOM;
+                }
+            }
+        }
+        break;
+
+        case SCH_SYMBOL_T:
+        {
+            SCH_SYMBOL* symbol = static_cast<SCH_SYMBOL*>( item );
+
+            for( SCH_PIN* pin : symbol->GetPins( aSheet ) )
+            {
+                if( pin->GetPosition() == aPosition )
+                {
+                    if( pin->GetOrientation() == PIN_RIGHT )
+                    {
+                        ret = TEXT_SPIN_STYLE::LEFT;
+                    }
+                    else if( pin->GetOrientation() == PIN_LEFT )
+                    {
+                        ret = TEXT_SPIN_STYLE::RIGHT;
+                    }
+                    else if( pin->GetOrientation() == PIN_UP )
+                    {
+                        ret = TEXT_SPIN_STYLE::BOTTOM;
+                    }
+                    else if( pin->GetOrientation() == PIN_DOWN )
+                    {
+                        ret = TEXT_SPIN_STYLE::UP;
+                    }
+
+                    switch( static_cast<SYMBOL_ORIENTATION_T>(
+                            symbol->GetOrientation() & ( ~( SYM_MIRROR_X | SYM_MIRROR_Y ) ) ) )
+                    {
+                    case SYM_ROTATE_CLOCKWISE:
+                    case SYM_ORIENT_90:
+                        if( ret == TEXT_SPIN_STYLE::UP )
+                            ret = TEXT_SPIN_STYLE::LEFT;
+                        else if( ret == TEXT_SPIN_STYLE::BOTTOM )
+                            ret = TEXT_SPIN_STYLE::RIGHT;
+                        else if( ret == TEXT_SPIN_STYLE::LEFT )
+                            ret = TEXT_SPIN_STYLE::BOTTOM;
+                        else if( ret == TEXT_SPIN_STYLE::RIGHT )
+                            ret = TEXT_SPIN_STYLE::UP;
+
+                        if( symbol->GetOrientation() & SYM_MIRROR_X )
+                        {
+                            if( ret == TEXT_SPIN_STYLE::UP )
+                                ret = TEXT_SPIN_STYLE::BOTTOM;
+                            else if( ret == TEXT_SPIN_STYLE::BOTTOM )
+                                ret = TEXT_SPIN_STYLE::UP;
+                        }
+
+                        if( symbol->GetOrientation() & SYM_MIRROR_Y )
+                        {
+                            if( ret == TEXT_SPIN_STYLE::LEFT )
+                                ret = TEXT_SPIN_STYLE::RIGHT;
+                            else if( ret == TEXT_SPIN_STYLE::RIGHT )
+                                ret = TEXT_SPIN_STYLE::LEFT;
+                        }
+                        break;
+                    case SYM_ROTATE_COUNTERCLOCKWISE:
+                    case SYM_ORIENT_270:
+                        if( ret == TEXT_SPIN_STYLE::UP )
+                            ret = TEXT_SPIN_STYLE::RIGHT;
+                        else if( ret == TEXT_SPIN_STYLE::BOTTOM )
+                            ret = TEXT_SPIN_STYLE::LEFT;
+                        else if( ret == TEXT_SPIN_STYLE::LEFT )
+                            ret = TEXT_SPIN_STYLE::UP;
+                        else if( ret == TEXT_SPIN_STYLE::RIGHT )
+                            ret = TEXT_SPIN_STYLE::BOTTOM;
+
+                        if( symbol->GetOrientation() & SYM_MIRROR_X )
+                        {
+                            if( ret == TEXT_SPIN_STYLE::UP )
+                                ret = TEXT_SPIN_STYLE::BOTTOM;
+                            else if( ret == TEXT_SPIN_STYLE::BOTTOM )
+                                ret = TEXT_SPIN_STYLE::UP;
+                        }
+
+                        if( symbol->GetOrientation() & SYM_MIRROR_Y )
+                        {
+                            if( ret == TEXT_SPIN_STYLE::LEFT )
+                                ret = TEXT_SPIN_STYLE::RIGHT;
+                            else if( ret == TEXT_SPIN_STYLE::RIGHT )
+                                ret = TEXT_SPIN_STYLE::LEFT;
+                        }
+                        break;
+                    case SYM_ORIENT_180:
+                        if( ret == TEXT_SPIN_STYLE::UP )
+                            ret = TEXT_SPIN_STYLE::BOTTOM;
+                        else if( ret == TEXT_SPIN_STYLE::BOTTOM )
+                            ret = TEXT_SPIN_STYLE::UP;
+                        else if( ret == TEXT_SPIN_STYLE::LEFT )
+                            ret = TEXT_SPIN_STYLE::RIGHT;
+                        else if( ret == TEXT_SPIN_STYLE::RIGHT )
+                            ret = TEXT_SPIN_STYLE::LEFT;
+
+                        if( symbol->GetOrientation() & SYM_MIRROR_X )
+                        {
+                            if( ret == TEXT_SPIN_STYLE::UP )
+                                ret = TEXT_SPIN_STYLE::BOTTOM;
+                            else if( ret == TEXT_SPIN_STYLE::BOTTOM )
+                                ret = TEXT_SPIN_STYLE::UP;
+                        }
+
+                        if( symbol->GetOrientation() & SYM_MIRROR_Y )
+                        {
+                            if( ret == TEXT_SPIN_STYLE::LEFT )
+                                ret = TEXT_SPIN_STYLE::RIGHT;
+                            else if( ret == TEXT_SPIN_STYLE::RIGHT )
+                                ret = TEXT_SPIN_STYLE::LEFT;
+                        }
+                        break;
+                    case SYM_ORIENT_0:
+                    case SYM_NORMAL:
+                    default:
+                        if( symbol->GetOrientation() & SYM_MIRROR_X )
+                        {
+                            if( ret == TEXT_SPIN_STYLE::UP )
+                                ret = TEXT_SPIN_STYLE::BOTTOM;
+                            else if( ret == TEXT_SPIN_STYLE::BOTTOM )
+                                ret = TEXT_SPIN_STYLE::UP;
+                        }
+
+                        if( symbol->GetOrientation() & SYM_MIRROR_Y )
+                        {
+                            if( ret == TEXT_SPIN_STYLE::LEFT )
+                                ret = TEXT_SPIN_STYLE::RIGHT;
+                            else if( ret == TEXT_SPIN_STYLE::RIGHT )
+                                ret = TEXT_SPIN_STYLE::LEFT;
+                        }
+                        break;
+                    }
+
+                    break;
+                }
+            }
+        }
+        break;
+        default: break;
+        }
+    }
+    return ret;
 }
 
 
@@ -701,7 +934,7 @@ void SCH_SCREEN::UpdateSymbolLinks( REPORTER* aReporter )
 
         if( !tmp && legacyLibs && legacyLibs->GetLibraryCount() )
         {
-            SYMBOL_LIB& legacyCacheLib = legacyLibs->at( 0 );
+            SYMBOL_LIB& legacyCacheLib = legacyLibs->back();
 
             // It better be the cache library.
             wxCHECK2( legacyCacheLib.IsCache(), continue );
@@ -815,17 +1048,20 @@ void SCH_SCREEN::Print( const RENDER_SETTINGS* aSettings )
     }
 
     /// Sort to ensure plot-order consistency with screen drawing
-    std::sort( other.begin(), other.end(),
+    std::stable_sort( other.begin(), other.end(),
                []( const SCH_ITEM* a, const SCH_ITEM* b )
                {
                     if( a->Type() == b->Type() )
                         return a->GetLayer() > b->GetLayer();
 
-                    return a->Type() > b->Type();
+                    return a->Type() < b->Type();
                } );
 
     for( SCH_ITEM* item : bitmaps )
         item->Print( aSettings, VECTOR2I( 0, 0 ) );
+
+    for( SCH_ITEM* item : other )
+        item->PrintBackground( aSettings, VECTOR2I( 0, 0 ) );
 
     for( SCH_ITEM* item : other )
         item->Print( aSettings, VECTOR2I( 0, 0 ) );
@@ -838,9 +1074,10 @@ void SCH_SCREEN::Print( const RENDER_SETTINGS* aSettings )
 void SCH_SCREEN::Plot( PLOTTER* aPlotter ) const
 {
     // Ensure links are up to date, even if a library was reloaded for some reason:
-    std::vector< SCH_ITEM* > junctions;
-    std::vector< SCH_ITEM* > bitmaps;
-    std::vector< SCH_ITEM* > other;
+    std::vector<SCH_ITEM*>   junctions;
+    std::vector<SCH_ITEM*>   bitmaps;
+    std::vector<SCH_SYMBOL*> symbols;
+    std::vector<SCH_ITEM*>   other;
 
     for( SCH_ITEM* item : Items() )
     {
@@ -853,6 +1090,21 @@ void SCH_SCREEN::Plot( PLOTTER* aPlotter ) const
             bitmaps.push_back( item );
         else
             other.push_back( item );
+
+        // Where the symbols overlap each other, we need to plot the text items a second
+        // time to get them on top of the overlapping element.  This collection is in addition
+        // to the symbols already collected in `other`
+        if( item->Type() == SCH_SYMBOL_T )
+        {
+            for( SCH_ITEM* sym : m_rtree.Overlapping( SCH_SYMBOL_T, item->GetBoundingBox() ) )
+            {
+                if( sym != item )
+                {
+                    symbols.push_back( static_cast<SCH_SYMBOL*>( item ) );
+                    break;
+                }
+            }
+        }
     }
 
     /// Sort to ensure plot-order consistency with screen drawing
@@ -887,6 +1139,18 @@ void SCH_SCREEN::Plot( PLOTTER* aPlotter ) const
     {
         aPlotter->SetCurrentLineWidth( std::max( item->GetPenWidth(), defaultPenWidth ) );
         item->Plot( aPlotter, !background );
+    }
+
+    // After plotting the symbols as a group above (in `other`), we need to overplot the pins
+    // and symbols to ensure that they are always visible
+    for( const SCH_SYMBOL* sym :symbols )
+    {
+        aPlotter->SetCurrentLineWidth( std::max( sym->GetPenWidth(), defaultPenWidth ) );
+
+        for( SCH_FIELD field : sym->GetFields() )
+            field.Plot( aPlotter, false );
+
+        sym->PlotPins( aPlotter );
     }
 
     for( const SCH_ITEM* item : junctions )
@@ -988,14 +1252,14 @@ size_t SCH_SCREEN::CountConnectedItems( const VECTOR2I& aPos, bool aTestJunction
 }
 
 
-void SCH_SCREEN::ClearAnnotation( SCH_SHEET_PATH* aSheetPath )
+void SCH_SCREEN::ClearAnnotation( SCH_SHEET_PATH* aSheetPath, bool aResetPrefix )
 {
 
     for( SCH_ITEM* item : Items().OfType( SCH_SYMBOL_T ) )
     {
         SCH_SYMBOL* symbol = static_cast<SCH_SYMBOL*>( item );
 
-        symbol->ClearAnnotation( aSheetPath );
+        symbol->ClearAnnotation( aSheetPath, aResetPrefix );
     }
 }
 
@@ -1018,17 +1282,9 @@ void SCH_SCREEN::EnsureAlternateReferencesExist()
 
 void SCH_SCREEN::GetHierarchicalItems( std::vector<SCH_ITEM*>* aItems ) const
 {
-    static KICAD_T hierarchicalTypes[] = { SCH_SYMBOL_T,
-                                           SCH_SHEET_T,
-                                           SCH_LABEL_T,
-                                           SCH_HIER_LABEL_T,
-                                           SCH_DIRECTIVE_LABEL_T,
-                                           SCH_GLOBAL_LABEL_T,
-                                           EOT };
-
     for( SCH_ITEM* item : Items() )
     {
-        if( item->IsType( hierarchicalTypes ) )
+        if( item->IsType( { SCH_SYMBOL_T, SCH_SHEET_T, SCH_LABEL_LOCATE_ANY_T } ) )
             aItems->push_back( item );
     }
 }
@@ -1051,7 +1307,9 @@ void SCH_SCREEN::GetSheets( std::vector<SCH_ITEM*>* aItems ) const
                     return a->GetPosition().y < b->GetPosition().y;
                 }
                 else
+                {
                     return a->GetPosition().x < b->GetPosition().x;
+                }
             } );
 }
 
@@ -1162,6 +1420,24 @@ void SCH_SCREEN::AddLibSymbol( LIB_SYMBOL* aLibSymbol )
 void SCH_SCREEN::AddBusAlias( std::shared_ptr<BUS_ALIAS> aAlias )
 {
     m_aliases.insert( aAlias );
+}
+
+
+void SCH_SCREEN::SetLegacySymbolInstanceData()
+{
+    for( SCH_ITEM* item : Items().OfType( SCH_SYMBOL_T ) )
+    {
+        SCH_SYMBOL* symbol = static_cast<SCH_SYMBOL*>( item );
+
+        // Add missing value and footprint instance data for legacy schematics.
+        for( const SYMBOL_INSTANCE_REFERENCE& instance : symbol->GetInstanceReferences() )
+        {
+            symbol->AddHierarchicalReference( instance.m_Path, instance.m_Reference,
+                                              instance.m_Unit,
+                                              symbol->GetField( VALUE_FIELD )->GetText(),
+                                              symbol->GetField( FOOTPRINT_FIELD )->GetText() );
+        }
+    }
 }
 
 
@@ -1301,7 +1577,7 @@ void SCH_SCREENS::ClearAnnotationOfNewSheetPaths( SCH_SHEET_LIST& aInitialSheetP
             // Otherwise ClearAnnotation do nothing, because the F1 field is used as
             // reference default value and takes the latest displayed value
             curr_screen->EnsureAlternateReferencesExist();
-            curr_screen->ClearAnnotation( &sheetpath );
+            curr_screen->ClearAnnotation( &sheetpath, false );
         }
     }
 }
@@ -1334,6 +1610,10 @@ int SCH_SCREENS::ReplaceDuplicateTimeStamps()
             // side-effects.
             const_cast<KIID&>( item->m_Uuid ) = KIID();
             count++;
+
+            // @todo If the item is a sheet, we need to decend the heirarchy from the sheet
+            //       and repace all instances of the changed UUID in sheet paths.  Otherwise,
+            //       all instance paths with the sheet's UUID will get clobbered.
         }
     }
 
@@ -1544,7 +1824,7 @@ void SCH_SCREENS::BuildClientSheetPathList()
     {
         SCH_SCREEN* used_screen = sheetpath.LastScreen();
 
-        // SEarch for the used_screen in list and add this unique sheet path:
+        // Search for the used_screen in list and add this unique sheet path:
         for( SCH_SCREEN* curr_screen = GetFirst(); curr_screen; curr_screen = GetNext() )
         {
             if( used_screen == curr_screen )
@@ -1554,4 +1834,11 @@ void SCH_SCREENS::BuildClientSheetPathList()
             }
         }
     }
+}
+
+
+void SCH_SCREENS::SetLegacySymbolInstanceData()
+{
+    for( SCH_SCREEN* screen = GetFirst(); screen; screen = GetNext() )
+        screen->SetLegacySymbolInstanceData();
 }

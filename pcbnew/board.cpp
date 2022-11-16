@@ -26,37 +26,40 @@
  */
 
 #include <iterator>
-#include <thread>
+
+#include <wx/log.h>
+
 #include <drc/drc_rtree.h>
-#include <pcb_base_frame.h>
 #include <board_design_settings.h>
-#include <reporter.h>
 #include <board_commit.h>
 #include <board.h>
+#include <core/arraydim.h>
+#include <core/kicad_algo.h>
+#include <connectivity/connectivity_data.h>
+#include <convert_shape_list_to_polygon.h>
 #include <footprint.h>
+#include <pcb_base_frame.h>
 #include <pcb_track.h>
-#include <zone.h>
 #include <pcb_marker.h>
 #include <pcb_group.h>
 #include <pcb_target.h>
 #include <pcb_shape.h>
+#include <pcb_bitmap.h>
 #include <pcb_text.h>
 #include <pcb_textbox.h>
-#include <core/arraydim.h>
-#include <core/kicad_algo.h>
-#include <connectivity/connectivity_data.h>
-#include <string_utils.h>
 #include <pgm_base.h>
 #include <pcbnew_settings.h>
+#include <progress_reporter.h>
 #include <project.h>
 #include <project/net_settings.h>
 #include <project/project_file.h>
 #include <project/project_local_settings.h>
 #include <ratsnest/ratsnest_data.h>
+#include <reporter.h>
 #include <tool/selection_conditions.h>
-#include <convert_shape_list_to_polygon.h>
-#include <wx/log.h>
-#include <progress_reporter.h>
+#include <string_utils.h>
+#include <thread_pool.h>
+#include <zone.h>
 
 // This is an odd place for this, but CvPcb won't link if it's in board_item.cpp like I first
 // tried it.
@@ -90,8 +93,7 @@ BOARD::BOARD() :
 
     m_SolderMask = new ZONE( this );
     m_SolderMask->SetLayerSet( LSET().set( F_Mask ).set( B_Mask ) );
-    m_SolderMask->SetOutline( new SHAPE_POLY_SET() );
-    int infinity = ( std::numeric_limits<int>::max() / 2 ) - Millimeter2iu( 1 );
+    int infinity = ( std::numeric_limits<int>::max() / 2 ) - pcbIUScale.mmToIU( 1 );
     m_SolderMask->Outline()->NewOutline();
     m_SolderMask->Outline()->Append( VECTOR2I( -infinity, -infinity ) );
     m_SolderMask->Outline()->Append( VECTOR2I( -infinity, +infinity ) );
@@ -102,8 +104,8 @@ BOARD::BOARD() :
     BOARD_DESIGN_SETTINGS& bds = GetDesignSettings();
 
     // Initialize default netclass.
-    NETCLASS* defaultClass = bds.GetDefault();
-    defaultClass->SetDescription( _( "This is the default net class." ) );
+    bds.m_NetSettings->m_DefaultNetClass = std::make_shared<NETCLASS>( NETCLASS::Default );
+    bds.m_NetSettings->m_DefaultNetClass->SetDescription( _( "This is the default net class." ) );
 
     bds.UseCustomTrackViaSize( false );
 
@@ -118,6 +120,13 @@ BOARD::BOARD() :
 
 BOARD::~BOARD()
 {
+    // Untangle group parents before doing any deleting
+    for( PCB_GROUP* group : m_groups )
+    {
+        for( BOARD_ITEM* item : group->GetItems() )
+            item->SetParentGroup( nullptr );
+    }
+
     // Clean up the owned elements
     DeleteMARKERs();
 
@@ -153,17 +162,18 @@ BOARD::~BOARD()
 void BOARD::BuildConnectivity( PROGRESS_REPORTER* aReporter )
 {
     GetConnectivity()->Build( this, aReporter );
+    UpdateRatsnestExclusions();
 }
 
 
-void BOARD::SetProject( PROJECT* aProject )
+void BOARD::SetProject( PROJECT* aProject, bool aReferenceOnly )
 {
     if( m_project )
         ClearProject();
 
     m_project = aProject;
 
-    if( aProject )
+    if( aProject && !aReferenceOnly )
     {
         PROJECT_FILE& project = aProject->GetProjectFile();
 
@@ -178,10 +188,14 @@ void BOARD::SetProject( PROJECT* aProject )
         // list at this point. If we loaded anything into it from a legacy board file then we
         // want to transfer it over to the project netclasses list.
         if( m_LegacyNetclassesLoaded )
-            project.NetSettings().m_NetClasses = GetDesignSettings().GetNetClasses();
+        {
+            std::shared_ptr<NET_SETTINGS> legacySettings = GetDesignSettings().m_NetSettings;
+            project.NetSettings()->m_DefaultNetClass = legacySettings->m_DefaultNetClass;
+            project.NetSettings()->m_NetClasses = legacySettings->m_NetClasses;
+        }
 
         // Now update the DesignSettings' netclass pointer to point into the project.
-        GetDesignSettings().SetNetClasses( &project.NetSettings().m_NetClasses );
+        GetDesignSettings().m_NetSettings = project.NetSettings();
     }
 }
 
@@ -200,6 +214,7 @@ void BOARD::ClearProject()
         project.m_BoardSettings = nullptr;
     }
 
+    GetDesignSettings().m_NetSettings = nullptr;
     GetDesignSettings().SetParent( nullptr );
     m_project = nullptr;
 }
@@ -211,39 +226,61 @@ void BOARD::IncrementTimeStamp()
 
     {
         std::unique_lock<std::mutex> cacheLock( m_CachesMutex );
-        m_InsideAreaCache.clear();
-        m_InsideCourtyardCache.clear();
-        m_InsideFCourtyardCache.clear();
-        m_InsideBCourtyardCache.clear();
+
+        m_IntersectsAreaCache.clear();
+        m_EnclosedByAreaCache.clear();
+        m_IntersectsCourtyardCache.clear();
+        m_IntersectsFCourtyardCache.clear();
+        m_IntersectsBCourtyardCache.clear();
         m_LayerExpressionCache.clear();
+
+        m_DRCMaxClearance = 0;
+        m_DRCMaxPhysicalClearance = 0;
+        m_DRCZones.clear();
+        m_DRCCopperZones.clear();
+        m_CopperZoneRTreeCache.clear();
+        m_CopperItemRTreeCache = std::make_unique<DRC_RTREE>();
+        m_ZoneBBoxCache.clear();
+    }
+}
+
+
+void BOARD::UpdateRatsnestExclusions()
+{
+    std::set<std::pair<KIID, KIID>> m_ratsnestExclusions;
+
+    for( PCB_MARKER* marker : GetBoard()->Markers() )
+    {
+        if( marker->GetMarkerType() == MARKER_BASE::MARKER_RATSNEST && marker->IsExcluded() )
+        {
+            const std::shared_ptr<RC_ITEM>& rcItem = marker->GetRCItem();
+            m_ratsnestExclusions.emplace( rcItem->GetMainItemID(), rcItem->GetAuxItemID() );
+            m_ratsnestExclusions.emplace( rcItem->GetAuxItemID(), rcItem->GetMainItemID() );
+        }
     }
 
-    m_CopperZoneRTrees.clear();
+    GetConnectivity()->RunOnUnconnectedEdges(
+            [&]( CN_EDGE& aEdge )
+            {
+                std::pair<KIID, KIID> ids = { aEdge.GetSourceNode()->Parent()->m_Uuid,
+                                              aEdge.GetTargetNode()->Parent()->m_Uuid };
+
+                aEdge.SetVisible( m_ratsnestExclusions.count( ids ) == 0 );
+
+                return true;
+            } );
 }
+
 
 std::vector<PCB_MARKER*> BOARD::ResolveDRCExclusions()
 {
-    std::shared_ptr<CONNECTIVITY_DATA> conn = GetConnectivity();
-
-    auto setExcluded =
-            [&conn]( PCB_MARKER* aMarker )
-            {
-                if( aMarker->GetMarkerType() == MARKER_BASE::MARKER_RATSNEST )
-                {
-                    const std::shared_ptr<RC_ITEM>& rcItem = aMarker->GetRCItem();
-                    conn->AddExclusion( rcItem->GetMainItemID(), rcItem->GetAuxItemID() );
-                }
-
-                aMarker->SetExcluded( true );
-            };
-
     for( PCB_MARKER* marker : GetBoard()->Markers() )
     {
         auto i = m_designSettings->m_DrcExclusions.find( marker->Serialize() );
 
         if( i != m_designSettings->m_DrcExclusions.end() )
         {
-            setExcluded( marker );
+            marker->SetExcluded( true );
             m_designSettings->m_DrcExclusions.erase( i );
         }
     }
@@ -256,7 +293,7 @@ std::vector<PCB_MARKER*> BOARD::ResolveDRCExclusions()
 
         if( marker )
         {
-            setExcluded( marker );
+            marker->SetExcluded( true );
             newMarkers.push_back( marker );
         }
     }
@@ -269,13 +306,15 @@ std::vector<PCB_MARKER*> BOARD::ResolveDRCExclusions()
 
 bool BOARD::ResolveTextVar( wxString* token, int aDepth ) const
 {
+    wxString var = *token;
+
     if( GetTitleBlock().TextVarResolver( token, m_project ) )
     {
         return true;
     }
-    else if( m_properties.count( *token ) )
+    else if( m_properties.count( var ) )
     {
-        *token = m_properties.at( *token );
+        *token = m_properties.at( var );
         return true;
     }
 
@@ -297,37 +336,20 @@ void BOARD::SetPosition( const VECTOR2I& aPos )
 
 void BOARD::Move( const VECTOR2I& aMoveVector ) // overload
 {
-    // @todo : anything like this elsewhere?  maybe put into GENERAL_COLLECTOR class.
-    static const KICAD_T top_level_board_stuff[] = {
-        PCB_MARKER_T,
-        PCB_TEXT_T,
-        PCB_TEXTBOX_T,
-        PCB_SHAPE_T,
-        PCB_DIM_ALIGNED_T,
-        PCB_DIM_ORTHOGONAL_T,
-        PCB_DIM_CENTER_T,
-        PCB_DIM_RADIAL_T,
-        PCB_DIM_LEADER_T,
-        PCB_TARGET_T,
-        PCB_VIA_T,
-        PCB_TRACE_T,
-        PCB_ARC_T,
-        PCB_FOOTPRINT_T,
-        PCB_ZONE_T,
-        EOT
-    };
+    INSPECTOR_FUNC inspector =
+            [&] ( EDA_ITEM* item, void* testData )
+            {
+                BOARD_ITEM* brdItem = static_cast<BOARD_ITEM*>( item );
 
-    INSPECTOR_FUNC inspector = [&] ( EDA_ITEM* item, void* testData )
-    {
-        BOARD_ITEM* brd_item = (BOARD_ITEM*) item;
+                // aMoveVector was snapshotted, don't need "data".
+                // Only move the top level group
+                if( brdItem->GetParentGroup() == nullptr )
+                    brdItem->Move( aMoveVector );
 
-        // aMoveVector was snapshotted, don't need "data".
-        brd_item->Move( aMoveVector );
+                return INSPECT_RESULT::CONTINUE;
+            };
 
-        return SEARCH_RESULT::CONTINUE;
-    };
-
-    Visit( inspector, nullptr, top_level_board_stuff );
+    Visit( inspector, nullptr, GENERAL_COLLECTOR::BoardLevelItems );
 }
 
 
@@ -342,7 +364,7 @@ TRACKS BOARD::TracksInNet( int aNetCode )
                                    if( t->GetNetCode() == aNetCode )
                                        ret.push_back( t );
 
-                                   return SEARCH_RESULT::CONTINUE;
+                                   return INSPECT_RESULT::CONTINUE;
                                };
 
     // visit this BOARD's PCB_TRACKs and PCB_VIAs with above TRACK INSPECTOR which
@@ -634,40 +656,40 @@ void BOARD::CacheTriangulation( PROGRESS_REPORTER* aReporter, const std::vector<
     if( aReporter )
         aReporter->Report( _( "Tessellating copper zones..." ) );
 
-    std::atomic<size_t> next( 0 );
-    std::atomic<size_t> zones_done( 0 );
-    std::atomic<size_t> threads_done( 0 );
-    size_t parallelThreadCount = std::max<size_t>( std::thread::hardware_concurrency(), 2 );
+    thread_pool& tp = GetKiCadThreadPool();
+    std::vector<std::future<size_t>> returns;
 
-    for( size_t ii = 0; ii < parallelThreadCount; ++ii )
-    {
-        std::thread t = std::thread(
-                [ &zones, &zones_done, &threads_done, &next ]( )
-                {
-                    for( size_t i = next.fetch_add( 1 ); i < zones.size(); i = next.fetch_add( 1 ) )
-                    {
-                        zones[i]->CacheTriangulation();
-                        zones_done.fetch_add( 1 );
-                    }
+    returns.reserve( zones.size() );
 
-                    threads_done.fetch_add( 1 );
-                } );
+    auto cache_zones = [aReporter]( ZONE* aZone ) -> size_t
+            {
+                if( aReporter && aReporter->IsCancelled() )
+                    return 0;
 
-        t.detach();
-    }
+                aZone->CacheTriangulation();
+
+                if( aReporter )
+                    aReporter->AdvanceProgress();
+
+                return 1;
+            };
+
+    for( ZONE* zone : zones )
+        returns.emplace_back( tp.submit( cache_zones, zone ) );
 
     // Finalize the triangulation threads
-    while( threads_done < parallelThreadCount )
+    for( const std::future<size_t>& ret : returns )
     {
-        if( aReporter )
+        std::future_status status = ret.wait_for( std::chrono::milliseconds( 250 ) );
+
+        while( status != std::future_status::ready )
         {
-            aReporter->SetCurrentProgress( (double) zones_done / (double) zones.size() );
-            aReporter->KeepRefreshing();
+            if( aReporter )
+                aReporter->KeepRefreshing();
+
+            status = ret.wait_for( std::chrono::milliseconds( 250 ) );
         }
-
-        std::this_thread::sleep_for( std::chrono::milliseconds( 100 ) );
     }
-
 }
 
 
@@ -732,6 +754,7 @@ void BOARD::Add( BOARD_ITEM* aBoardItem, ADD_MODE aMode, bool aSkipConnectivity 
     case PCB_DIM_ORTHOGONAL_T:
     case PCB_DIM_LEADER_T:
     case PCB_SHAPE_T:
+    case PCB_BITMAP_T:
     case PCB_TEXT_T:
     case PCB_TEXTBOX_T:
     case PCB_TARGET_T:
@@ -844,6 +867,7 @@ void BOARD::Remove( BOARD_ITEM* aBoardItem, REMOVE_MODE aRemoveMode )
     case PCB_DIM_ORTHOGONAL_T:
     case PCB_DIM_LEADER_T:
     case PCB_SHAPE_T:
+    case PCB_BITMAP_T:
     case PCB_TEXT_T:
     case PCB_TEXTBOX_T:
     case PCB_TARGET_T:
@@ -869,7 +893,7 @@ void BOARD::Remove( BOARD_ITEM* aBoardItem, REMOVE_MODE aRemoveMode )
 }
 
 
-wxString BOARD::GetSelectMenuText( EDA_UNITS aUnits ) const
+wxString BOARD::GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const
 {
     return wxString::Format( _( "PCB" ) );
 }
@@ -1150,18 +1174,12 @@ unsigned BOARD::GetNodesCount( int aNet ) const
 }
 
 
-unsigned BOARD::GetUnconnectedNetCount() const
+BOX2I BOARD::ComputeBoundingBox( bool aBoardEdgesOnly ) const
 {
-    return m_connectivity->GetUnconnectedCount();
-}
-
-
-EDA_RECT BOARD::ComputeBoundingBox( bool aBoardEdgesOnly ) const
-{
-    EDA_RECT area;
-    LSET     visible = GetVisibleLayers();
-    bool     showInvisibleText = IsElementVisible( LAYER_MOD_TEXT_INVISIBLE )
-                                 && PgmOrNull() && !PgmOrNull()->m_Printing;
+    BOX2I bbox;
+    LSET  visible = GetVisibleLayers();
+    bool  showInvisibleText = IsElementVisible( LAYER_MOD_TEXT_INVISIBLE )
+                                      && PgmOrNull() && !PgmOrNull()->m_Printing;
 
     if( aBoardEdgesOnly )
         visible.set( Edge_Cuts );
@@ -1173,7 +1191,7 @@ EDA_RECT BOARD::ComputeBoundingBox( bool aBoardEdgesOnly ) const
             continue;
 
         if( ( item->GetLayerSet() & visible ).any() )
-            area.Merge( item->GetBoundingBox() );
+            bbox.Merge( item->GetBoundingBox() );
     }
 
     // Check footprints
@@ -1187,12 +1205,12 @@ EDA_RECT BOARD::ComputeBoundingBox( bool aBoardEdgesOnly ) const
             for( const BOARD_ITEM* edge : footprint->GraphicalItems() )
             {
                 if( edge->GetLayer() == Edge_Cuts  && edge->Type() == PCB_FP_SHAPE_T )
-                    area.Merge( edge->GetBoundingBox() );
+                    bbox.Merge( edge->GetBoundingBox() );
             }
         }
         else
         {
-            area.Merge( footprint->GetBoundingBox( true, showInvisibleText ) );
+            bbox.Merge( footprint->GetBoundingBox( true, showInvisibleText ) );
         }
     }
 
@@ -1202,18 +1220,18 @@ EDA_RECT BOARD::ComputeBoundingBox( bool aBoardEdgesOnly ) const
         for( PCB_TRACK* track : m_tracks )
         {
             if( ( track->GetLayerSet() & visible ).any() )
-                area.Merge( track->GetBoundingBox() );
+                bbox.Merge( track->GetBoundingBox() );
         }
 
         // Check zones
         for( ZONE* aZone : m_zones )
         {
             if( ( aZone->GetLayerSet() & visible ).any() )
-                area.Merge( aZone->GetBoundingBox() );
+                bbox.Merge( aZone->GetBoundingBox() );
         }
     }
 
-    return area;
+    return bbox;
 }
 
 
@@ -1223,7 +1241,7 @@ void BOARD::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>
     int           viaCount = 0;
     int           trackSegmentCount = 0;
     std::set<int> netCodes;
-    int           unconnected = GetConnectivity()->GetUnconnectedCount();
+    int           unconnected = GetConnectivity()->GetUnconnectedCount( true );
 
     for( PCB_TRACK* item : m_tracks )
     {
@@ -1255,27 +1273,25 @@ void BOARD::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>
 }
 
 
-SEARCH_RESULT BOARD::Visit( INSPECTOR inspector, void* testData, const KICAD_T scanTypes[] )
+INSPECT_RESULT BOARD::Visit( INSPECTOR inspector, void* testData,
+                             const std::vector<KICAD_T>& scanTypes )
 {
-    KICAD_T        stype;
-    SEARCH_RESULT  result = SEARCH_RESULT::CONTINUE;
-    const KICAD_T* p      = scanTypes;
-    bool           done   = false;
-
 #if 0 && defined(DEBUG)
     std::cout << GetClass().mb_str() << ' ';
 #endif
 
-    while( !done )
-    {
-        stype = *p;
+    bool footprintsScanned = false;
+    bool drawingsScanned = false;
+    bool tracksScanned = false;
 
-        switch( stype )
+    for( KICAD_T scanType : scanTypes )
+    {
+        switch( scanType )
         {
         case PCB_T:
-            result = inspector( this, testData );  // inspect me
-            // skip over any types handled in the above call.
-            ++p;
+            if( inspector( this, testData ) == INSPECT_RESULT::QUIT )
+                return INSPECT_RESULT::QUIT;
+
             break;
 
         /*
@@ -1295,38 +1311,21 @@ SEARCH_RESULT BOARD::Visit( INSPECTOR inspector, void* testData, const KICAD_T s
         case PCB_FP_DIM_RADIAL_T:
         case PCB_FP_DIM_ORTHOGONAL_T:
         case PCB_FP_ZONE_T:
-
-            // this calls FOOTPRINT::Visit() on each footprint.
-            result = IterateForward<FOOTPRINT*>( m_footprints, inspector, testData, p );
-
-            // skip over any types handled in the above call.
-            for( ; ; )
+            if( !footprintsScanned )
             {
-                switch( stype = *++p )
+                if( IterateForward<FOOTPRINT*>( m_footprints, inspector, testData, scanTypes )
+                        == INSPECT_RESULT::QUIT )
                 {
-                case PCB_FOOTPRINT_T:
-                case PCB_PAD_T:
-                case PCB_FP_TEXT_T:
-                case PCB_FP_TEXTBOX_T:
-                case PCB_FP_SHAPE_T:
-                case PCB_FP_DIM_ALIGNED_T:
-                case PCB_FP_DIM_LEADER_T:
-                case PCB_FP_DIM_CENTER_T:
-                case PCB_FP_DIM_RADIAL_T:
-                case PCB_FP_DIM_ORTHOGONAL_T:
-                case PCB_FP_ZONE_T:
-                    continue;
-
-                default:
-                    ;
+                    return INSPECT_RESULT::QUIT;
                 }
 
-                break;
+                footprintsScanned = true;
             }
 
             break;
 
         case PCB_SHAPE_T:
+        case PCB_BITMAP_T:
         case PCB_TEXT_T:
         case PCB_TEXTBOX_T:
         case PCB_DIM_ALIGNED_T:
@@ -1335,83 +1334,68 @@ SEARCH_RESULT BOARD::Visit( INSPECTOR inspector, void* testData, const KICAD_T s
         case PCB_DIM_ORTHOGONAL_T:
         case PCB_DIM_LEADER_T:
         case PCB_TARGET_T:
-            result = IterateForward<BOARD_ITEM*>( m_drawings, inspector, testData, p );
-
-            // skip over any types handled in the above call.
-            for( ; ; )
+            if( !drawingsScanned )
             {
-                switch( stype = *++p )
+                if( IterateForward<BOARD_ITEM*>( m_drawings, inspector, testData, scanTypes )
+                        == INSPECT_RESULT::QUIT )
                 {
-                case PCB_SHAPE_T:
-                case PCB_TEXT_T:
-                case PCB_TEXTBOX_T:
-                case PCB_DIM_ALIGNED_T:
-                case PCB_DIM_CENTER_T:
-                case PCB_DIM_RADIAL_T:
-                case PCB_DIM_ORTHOGONAL_T:
-                case PCB_DIM_LEADER_T:
-                case PCB_TARGET_T:
-                    continue;
-
-                default:
-                    ;
+                    return INSPECT_RESULT::QUIT;
                 }
 
-                break;
+                drawingsScanned = true;
             }
 
             break;
 
         case PCB_VIA_T:
-            result = IterateForward<PCB_TRACK*>( m_tracks, inspector, testData, p );
-            ++p;
-            break;
-
         case PCB_TRACE_T:
         case PCB_ARC_T:
-            result = IterateForward<PCB_TRACK*>( m_tracks, inspector, testData, p );
-            ++p;
+            if( !tracksScanned )
+            {
+                if( IterateForward<PCB_TRACK*>( m_tracks, inspector, testData, scanTypes )
+                        == INSPECT_RESULT::QUIT )
+                {
+                    return INSPECT_RESULT::QUIT;
+                }
+
+                tracksScanned = true;
+            }
+
             break;
 
         case PCB_MARKER_T:
             for( PCB_MARKER* marker : m_markers )
             {
-                result = marker->Visit( inspector, testData, p );
-
-                if( result == SEARCH_RESULT::QUIT )
-                    break;
+                if( marker->Visit( inspector, testData, { scanType } ) == INSPECT_RESULT::QUIT )
+                    return INSPECT_RESULT::QUIT;
             }
 
-            ++p;
             break;
 
         case PCB_ZONE_T:
             for( ZONE* zone : m_zones)
             {
-                result = zone->Visit( inspector, testData, p );
-
-                if( result == SEARCH_RESULT::QUIT )
-                    break;
+                if( zone->Visit( inspector, testData, { scanType } ) == INSPECT_RESULT::QUIT )
+                    return INSPECT_RESULT::QUIT;
             }
 
-            ++p;
             break;
 
         case PCB_GROUP_T:
-            result = IterateForward<PCB_GROUP*>( m_groups, inspector, testData, p );
-            ++p;
+            if( IterateForward<PCB_GROUP*>( m_groups, inspector, testData, { scanType } )
+                    == INSPECT_RESULT::QUIT )
+            {
+                return INSPECT_RESULT::QUIT;
+            }
+
             break;
 
-        default:        // catch EOT or ANY OTHER type here and return.
-            done = true;
+        default:
             break;
         }
-
-        if( result == SEARCH_RESULT::QUIT )
-            break;
     }
 
-    return result;
+    return INSPECT_RESULT::CONTINUE;
 }
 
 
@@ -1460,14 +1444,14 @@ FOOTPRINT* BOARD::FindFootprintByPath( const KIID_PATH& aPath ) const
 }
 
 
-std::vector<wxString> BOARD::GetNetClassAssignmentCandidates() const
+std::set<wxString> BOARD::GetNetClassAssignmentCandidates() const
 {
-    std::vector<wxString> names;
+    std::set<wxString> names;
 
     for( const NETINFO_ITEM* net : m_NetInfo )
     {
         if( !net->GetNetname().IsEmpty() )
-            names.emplace_back( net->GetNetname() );
+            names.insert( net->GetNetname() );
     }
 
     return names;
@@ -1476,7 +1460,9 @@ std::vector<wxString> BOARD::GetNetClassAssignmentCandidates() const
 
 void BOARD::SynchronizeProperties()
 {
-    if( m_project )
+    wxCHECK( m_project, /*void*/ );
+
+    if( !m_project->IsNullProject() )
         SetProperties( m_project->GetTextVars() );
 }
 
@@ -1486,19 +1472,11 @@ void BOARD::SynchronizeNetsAndNetClasses()
     if( !m_project )
         return;
 
-    NET_SETTINGS* netSettings     = m_project->GetProjectFile().m_NetSettings.get();
-    NETCLASSES&   netClasses      = netSettings->m_NetClasses;
-    NETCLASSPTR   defaultNetClass = netClasses.GetDefault();
+    BOARD_DESIGN_SETTINGS&     bds = GetDesignSettings();
+    std::shared_ptr<NETCLASS>& defaultNetClass = bds.m_NetSettings->m_DefaultNetClass;
 
     for( NETINFO_ITEM* net : m_NetInfo )
-    {
-        const wxString& netname = net->GetNetname();
-        const wxString& netclassName = netSettings->GetNetclassName( netname );
-
-        net->SetNetClass( netClasses.Find( netclassName ) );
-    }
-
-    BOARD_DESIGN_SETTINGS& bds = GetDesignSettings();
+        net->SetNetClass( bds.m_NetSettings->GetEffectiveNetClass( net->GetNetname() ) );
 
     // Set initial values for custom track width & via size to match the default
     // netclass settings
@@ -1720,29 +1698,19 @@ void BOARD::GetSortedPadListByXthenYCoord( std::vector<PAD*>& aVector, int aNetC
 }
 
 
-void BOARD::PadDelete( PAD* aPad )
-{
-    GetConnectivity()->Remove( aPad );
-
-    InvokeListeners( &BOARD_LISTENER::OnBoardItemRemoved, *this, aPad );
-
-    aPad->DeleteStructure();
-}
-
-
 std::tuple<int, double, double> BOARD::GetTrackLength( const PCB_TRACK& aTrack ) const
 {
     int    count = 0;
     double length = 0.0;
     double package_length = 0.0;
 
-    constexpr KICAD_T types[]      = { PCB_TRACE_T, PCB_ARC_T, PCB_VIA_T, PCB_PAD_T, EOT };
     auto              connectivity = GetBoard()->GetConnectivity();
     BOARD_STACKUP&    stackup      = GetDesignSettings().GetStackupDescriptor();
     bool              useHeight    = GetDesignSettings().m_UseHeightForLengthCalcs;
 
     for( BOARD_CONNECTED_ITEM* item : connectivity->GetConnectedItems(
-                 static_cast<const BOARD_CONNECTED_ITEM*>( &aTrack ), types ) )
+            static_cast<const BOARD_CONNECTED_ITEM*>( &aTrack ),
+            { PCB_TRACE_T, PCB_ARC_T, PCB_VIA_T, PCB_PAD_T } ) )
     {
         count++;
 
@@ -1837,7 +1805,7 @@ FOOTPRINT* BOARD::GetFootprint( const VECTOR2I& aPosition, PCB_LAYER_ID aActiveL
         // Filter non visible footprints if requested
         if( !aVisibleOnly || IsFootprintLayerVisible( layer ) )
         {
-            EDA_RECT bb = candidate->GetBoundingBox( false, false );
+            BOX2I bb = candidate->GetBoundingBox( false, false );
 
             int offx = bb.GetX() + bb.GetWidth() / 2;
             int offy = bb.GetY() + bb.GetHeight() / 2;
@@ -1925,7 +1893,7 @@ ZONE* BOARD::AddArea( PICKED_ITEMS_LIST* aNewZonesList, int aNetcode, PCB_LAYER_
 bool BOARD::GetBoardPolygonOutlines( SHAPE_POLY_SET& aOutlines,
                                      OUTLINE_ERROR_HANDLER* aErrorHandler )
 {
-    int chainingEpsilon = Millimeter2iu( 0.02 );  // max dist from one endPt to next startPt
+    int chainingEpsilon = pcbIUScale.mmToIU( 0.02 ); // max dist from one endPt to next startPt
 
     bool success = BuildBoardPolygonOutlines( this, aOutlines, GetDesignSettings().m_MaxError,
                                               chainingEpsilon, aErrorHandler );
@@ -1971,13 +1939,6 @@ const std::vector<BOARD_CONNECTED_ITEM*> BOARD::AllConnectedItems()
 }
 
 
-void BOARD::ClearAllNetCodes()
-{
-    for( BOARD_CONNECTED_ITEM* item : AllConnectedItems() )
-        item->SetNetCode( 0 );
-}
-
-
 void BOARD::MapNets( const BOARD* aDestBoard )
 {
     for( BOARD_CONNECTED_ITEM* item : AllConnectedItems() )
@@ -2018,6 +1979,12 @@ void BOARD::RemoveListener( BOARD_LISTENER* aListener )
         std::iter_swap( i, m_listeners.end() - 1 );
         m_listeners.pop_back();
     }
+}
+
+
+void BOARD::RemoveAllListeners()
+{
+    m_listeners.clear();
 }
 
 
@@ -2163,7 +2130,6 @@ BOARD::GroupLegalOpsField BOARD::GroupLegalOps( const PCB_SELECTION& selection )
     legalOps.create      = true;
     legalOps.removeItems = hasMember;
     legalOps.ungroup     = hasGroup;
-    legalOps.enter       = hasGroup && selection.Size() == 1;
 
     return legalOps;
 }
@@ -2234,21 +2200,19 @@ void BOARD::ConvertBrdLayerToPolygonalContours( PCB_LAYER_ID aLayer,
         if( !track->IsOnLayer( aLayer ) )
             continue;
 
-        track->TransformShapeWithClearanceToPolygon( aOutlines, aLayer, 0, maxError,
-                                                     ERROR_INSIDE );
+        track->TransformShapeToPolygon( aOutlines, aLayer, 0, maxError, ERROR_INSIDE );
     }
 
     // convert pads and other copper items in footprints
     for( const FOOTPRINT* footprint : m_footprints )
     {
-        footprint->TransformPadsWithClearanceToPolygon( aOutlines, aLayer, 0, maxError,
-                                                        ERROR_INSIDE );
+        footprint->TransformPadsToPolySet( aOutlines, aLayer, 0, maxError, ERROR_INSIDE );
 
-        // Micro-wave footprints may have items on copper layers
-        footprint->TransformFPShapesWithClearanceToPolygon( aOutlines, aLayer, 0, maxError,
-                                                            ERROR_INSIDE,
-                                                            true, /* include text */
-                                                            true  /* include shapes */ );
+        // Microwave footprints may have items on copper layers
+        footprint->TransformFPShapesToPolySet( aOutlines, aLayer, 0, maxError, ERROR_INSIDE,
+                                               true, /* include text */
+                                               true, /* include shapes */
+                                               false /* include private items */ );
 
         for( const ZONE* zone : footprint->Zones() )
         {
@@ -2275,24 +2239,26 @@ void BOARD::ConvertBrdLayerToPolygonalContours( PCB_LAYER_ID aLayer,
         case PCB_SHAPE_T:
         {
             const PCB_SHAPE* shape = static_cast<const PCB_SHAPE*>( item );
-            shape->TransformShapeWithClearanceToPolygon( aOutlines, aLayer, 0, maxError,
-                                                         ERROR_INSIDE );
+            shape->TransformShapeToPolygon( aOutlines, aLayer, 0, maxError, ERROR_INSIDE );
             break;
         }
 
         case PCB_TEXT_T:
         {
             const PCB_TEXT* text = static_cast<const PCB_TEXT*>( item );
-            text->TransformTextShapeWithClearanceToPolygon( aOutlines, aLayer, 0, maxError,
-                                                            ERROR_INSIDE );
+            text->TransformTextToPolySet( aOutlines, aLayer, 0, maxError, ERROR_INSIDE );
             break;
         }
 
         case PCB_TEXTBOX_T:
         {
             const PCB_TEXTBOX* textbox = static_cast<const PCB_TEXTBOX*>( item );
-            textbox->TransformTextShapeWithClearanceToPolygon( aOutlines, aLayer, 0, maxError,
-                                                               ERROR_INSIDE );
+
+            // plot border
+            textbox->PCB_SHAPE::TransformShapeToPolygon( aOutlines, aLayer, 0, maxError,
+                                                         ERROR_INSIDE );
+            // plot text
+            textbox->TransformTextToPolySet( aOutlines, aLayer, 0, maxError, ERROR_INSIDE );
             break;
         }
 

@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2011 Wayne Stambaugh <stambaughw@gmail.com>
- * Copyright (C) 2004-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2004-2022 KiCad Developers, see AUTHORS.txt for contributors.
  * Copyright (C) 2019 CERN
  *
  * This program is free software; you can redistribute it and/or
@@ -36,13 +36,7 @@
 #include "sch_reference_list.h"
 
 
-const KICAD_T EE_COLLECTOR::AllItems[] = {
-    SCH_LOCATE_ANY_T,
-    EOT
-};
-
-
-const KICAD_T EE_COLLECTOR::EditableItems[] = {
+const std::vector<KICAD_T> EE_COLLECTOR::EditableItems = {
     SCH_SHAPE_T,
     SCH_TEXT_T,
     SCH_TEXTBOX_T,
@@ -57,24 +51,11 @@ const KICAD_T EE_COLLECTOR::EditableItems[] = {
     SCH_BITMAP_T,
     SCH_LINE_T,
     SCH_BUS_WIRE_ENTRY_T,
-    SCH_JUNCTION_T,
-    EOT
+    SCH_JUNCTION_T
 };
 
 
-const KICAD_T EE_COLLECTOR::SymbolsOnly[] = {
-    SCH_SYMBOL_T,
-    EOT
-};
-
-
-const KICAD_T EE_COLLECTOR::SheetsOnly[] = {
-    SCH_SHEET_T,
-    EOT
-};
-
-
-const KICAD_T EE_COLLECTOR::MovableItems[] =
+const std::vector<KICAD_T> EE_COLLECTOR::MovableItems =
 {
     SCH_MARKER_T,
     SCH_JUNCTION_T,
@@ -93,56 +74,50 @@ const KICAD_T EE_COLLECTOR::MovableItems[] =
     SCH_FIELD_T,
     SCH_SYMBOL_T,
     SCH_SHEET_PIN_T,
-    SCH_SHEET_T,
-    EOT
+    SCH_SHEET_T
 };
 
 
-const KICAD_T EE_COLLECTOR::WiresOnly[] = {
-    SCH_LINE_T,
-    EOT
-};
-
-
-const KICAD_T EE_COLLECTOR::FieldOwners[] = {
+const std::vector<KICAD_T> EE_COLLECTOR::FieldOwners = {
     SCH_SYMBOL_T,
     SCH_SHEET_T,
-    SCH_LABEL_T,
-    SCH_GLOBAL_LABEL_T,
-    SCH_HIER_LABEL_T,
-    SCH_DIRECTIVE_LABEL_T,
-    EOT
+    SCH_LABEL_LOCATE_ANY_T
 };
 
 
-SEARCH_RESULT EE_COLLECTOR::Inspect( EDA_ITEM* aItem, void* aTestData )
+INSPECT_RESULT EE_COLLECTOR::Inspect( EDA_ITEM* aItem, void* aTestData )
 {
-    if( aItem->Type() == LIB_PIN_T )
-    {
-        // Special selection rules apply to pins of different units when edited in
-        // synchronized pins mode.  Leave it to EE_SELECTION_TOOL::Selectable() to
-        // decide what to do with them.
-    }
-    else if( m_Unit || m_Convert )
+    if( m_Unit || m_Convert )
     {
         LIB_ITEM* lib_item = dynamic_cast<LIB_ITEM*>( aItem );
 
-        if( m_Unit && lib_item && lib_item->GetUnit() && lib_item->GetUnit() != m_Unit )
-            return SEARCH_RESULT::CONTINUE;
+        // Special selection rules apply to pins of different units when edited in synchronized
+        // pins mode.  Leave it to EE_SELECTION_TOOL::Selectable() to decide what to do with them.
 
-        if( m_Convert && lib_item && lib_item->GetConvert() && lib_item->GetConvert() != m_Convert )
-            return SEARCH_RESULT::CONTINUE;
+        if( lib_item && lib_item->Type() != LIB_PIN_T )
+        {
+            if( m_Unit && lib_item->GetUnit() && lib_item->GetUnit() != m_Unit )
+                return INSPECT_RESULT::CONTINUE;
+
+            if( m_Convert && lib_item->GetConvert() && lib_item->GetConvert() != m_Convert )
+                return INSPECT_RESULT::CONTINUE;
+        }
     }
+
+    if( m_ShowPinElectricalTypes )
+        aItem->SetFlags( SHOW_ELEC_TYPE );
 
     if( aItem->HitTest( m_refPos, m_Threshold ) )
         Append( aItem );
 
-    return SEARCH_RESULT::CONTINUE;
+    aItem->ClearFlags( SHOW_ELEC_TYPE );
+
+    return INSPECT_RESULT::CONTINUE;
 }
 
 
-void EE_COLLECTOR::Collect( SCH_SCREEN* aScreen, const KICAD_T aFilterList[], const VECTOR2I& aPos,
-                            int aUnit, int aConvert )
+void EE_COLLECTOR::Collect( SCH_SCREEN* aScreen, const std::vector<KICAD_T>& aFilterList,
+                            const VECTOR2I& aPos, int aUnit, int aConvert )
 {
     Empty(); // empty the collection just in case
 
@@ -161,7 +136,7 @@ void EE_COLLECTOR::Collect( SCH_SCREEN* aScreen, const KICAD_T aFilterList[], co
 }
 
 
-void EE_COLLECTOR::Collect( LIB_ITEMS_CONTAINER& aItems, const KICAD_T aFilterList[],
+void EE_COLLECTOR::Collect( LIB_ITEMS_CONTAINER& aItems, const std::vector<KICAD_T>& aFilterList,
                             const VECTOR2I& aPos, int aUnit, int aConvert )
 {
     Empty();        // empty the collection just in case
@@ -175,7 +150,7 @@ void EE_COLLECTOR::Collect( LIB_ITEMS_CONTAINER& aItems, const KICAD_T aFilterLi
 
     for( LIB_ITEM& item : aItems )
     {
-        if( item.Visit( m_inspector, nullptr, m_scanTypes ) == SEARCH_RESULT::QUIT )
+        if( item.Visit( m_inspector, nullptr, m_scanTypes ) == INSPECT_RESULT::QUIT )
             break;
     }
 }

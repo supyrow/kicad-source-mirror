@@ -104,7 +104,8 @@ public:
      * The difference between this function and wxMenu::AppendSubMenu() is the capability to
      * handle icons.
      *
-     * @param aMenu is the submenu to be added.
+     * @param aMenu is the submenu to be added. This should be a new instance (use Clone()) if required
+     * as the menu is destructed after use.
      */
     wxMenuItem* Add( ACTION_MENU* aMenu );
 
@@ -155,6 +156,11 @@ public:
      * Run update handlers for the menu and its submenus.
      */
     void UpdateAll();
+
+    /**
+     * Used by some menus to just-in-time translate their titles.
+     */
+    virtual void UpdateTitle() {}
 
     /**
      * Clear the dirty flag on the menu and all descendants.

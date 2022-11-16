@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2012 NBEE Embedded Systems, Miguel Angel Ajo <miguelangel@nbee.es>
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -44,6 +44,7 @@
 #include <kiface_ids.h>
 #include <paths.h>
 #include <pgm_base.h>
+#include <wx_filename.h>
 #include <settings/settings_manager.h>
 
 #include <kiplatform/environment.h>
@@ -110,7 +111,6 @@ if modulename in sys.modules:
 bool SCRIPTING::scriptingSetup()
 {
 #if defined( __WINDOWS__ )
-
   #ifdef _MSC_VER
     // Under vcpkg/msvc, we need to explicitly set the python home or else it'll start consuming
     // system python registry keys and the like instead of the Python distributed with KiCad.
@@ -121,11 +121,21 @@ bool SCRIPTING::scriptingSetup()
 
     pyHome.Assign( Pgm().GetExecutablePath() );
 
-    pyHome.Normalize();
+    // @warning Do we want to use our own ExpandEnvVarSubstitutions() here rather than depend
+    //          on wxFileName::Normalize() to expand environment variables.
+    pyHome.Normalize( FN_NORMALIZE_FLAGS | wxPATH_NORM_ENV_VARS );
 
     // MUST be called before Py_Initialize so it will to create valid default lib paths
     if( !wxGetEnv( wxT( "KICAD_USE_EXTERNAL_PYTHONHOME" ), nullptr ) )
     {
+        // Global config flag to ignore PYTHONPATH & PYTHONHOME
+        Py_IgnoreEnvironmentFlag = 1;
+
+        // Extra insurance to ignore PYTHONPATH and PYTHONHOME
+        wxSetEnv( wxT( "PYTHONPATH" ), wxEmptyString );
+        wxSetEnv( wxT( "PYTHONHOME" ), wxEmptyString );
+
+        // Now initialize Python Home via capi
         Py_SetPythonHome( pyHome.GetFullPath().c_str() );
     }
   #else
@@ -156,6 +166,10 @@ bool SCRIPTING::scriptingSetup()
   #endif
 #elif defined( __WXMAC__ )
 
+    // Prevent Mac builds from generating JIT versions as this will break
+    // the package signing
+    wxSetEnv( wxT( "PYTHONDONTWRITEBYTECODE" ), wxT( "1" ) );
+
     // Add default paths to PYTHONPATH
     wxString pypath;
 
@@ -163,7 +177,7 @@ bool SCRIPTING::scriptingSetup()
     pypath += PATHS::GetOSXKicadDataDir() + wxT( "/scripting" );
 
     // $(KICAD_PATH)/scripting/plugins is always added in kicadplugins.i
-    if( wxGetenv("KICAD_PATH") != nullptr )
+    if( wxGetenv( "KICAD_PATH" ) != nullptr )
     {
         pypath += wxT( ":" ) + wxString( wxGetenv("KICAD_PATH") );
     }
@@ -179,7 +193,7 @@ bool SCRIPTING::scriptingSetup()
     }
 
     // set $PYTHONPATH
-    wxSetEnv( "PYTHONPATH", pypath );
+    wxSetEnv( wxT( "PYTHONPATH" ), pypath );
 
     wxString pyhome;
 
@@ -187,7 +201,7 @@ bool SCRIPTING::scriptingSetup()
               wxT( "Contents/Frameworks/Python.framework/Versions/Current" );
 
     // set $PYTHONHOME
-    wxSetEnv( "PYTHONHOME", pyhome );
+    wxSetEnv( wxT( "PYTHONHOME" ), pyhome );
 #else
     wxString pypath;
 

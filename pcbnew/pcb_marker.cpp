@@ -3,7 +3,7 @@
  *
  * Copyright (C) 2018 Jean-Pierre Charras, jp.charras at wanadoo.fr
  * Copyright (C) 2012 SoftPLC Corporation, Dick Hollenbeck <dick@softplc.com>
- * Copyright (C) 1992-2018 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -40,35 +40,43 @@
 
 
 /// Factor to convert the maker unit shape to internal units:
-#define SCALING_FACTOR  Millimeter2iu( 0.1625 )
+#define SCALING_FACTOR  pcbIUScale.mmToIU( 0.1625 )
 
 
 
-PCB_MARKER::PCB_MARKER( std::shared_ptr<RC_ITEM> aItem, const VECTOR2I& aPosition,
-                        PCB_LAYER_ID aLayer ) :
-    BOARD_ITEM( nullptr, PCB_MARKER_T, aLayer ),  // parent set during BOARD::Add()
-    MARKER_BASE( SCALING_FACTOR, aItem )
+PCB_MARKER::PCB_MARKER( std::shared_ptr<RC_ITEM> aItem, const VECTOR2I& aPosition, int aLayer ) :
+        BOARD_ITEM( nullptr, PCB_MARKER_T, F_Cu ),  // parent set during BOARD::Add()
+        MARKER_BASE( SCALING_FACTOR, aItem )
 {
     if( m_rcItem )
     {
         m_rcItem->SetParent( this );
 
-        switch( m_rcItem->GetErrorCode() )
+        if( aLayer == LAYER_DRAWINGSHEET )
         {
-        case DRCE_UNCONNECTED_ITEMS:
-            SetMarkerType( MARKER_BASE::MARKER_RATSNEST );
-            break;
+            SetMarkerType( MARKER_BASE::MARKER_DRAWING_SHEET );
+        }
+        else
+        {
+            switch( m_rcItem->GetErrorCode() )
+            {
+            case DRCE_UNCONNECTED_ITEMS:
+                SetMarkerType( MARKER_BASE::MARKER_RATSNEST );
+                break;
 
-        case DRCE_MISSING_FOOTPRINT:
-        case DRCE_DUPLICATE_FOOTPRINT:
-        case DRCE_EXTRA_FOOTPRINT:
-        case DRCE_NET_CONFLICT:
-            SetMarkerType( MARKER_BASE::MARKER_PARITY );
-            break;
+            case DRCE_MISSING_FOOTPRINT:
+            case DRCE_DUPLICATE_FOOTPRINT:
+            case DRCE_EXTRA_FOOTPRINT:
+            case DRCE_NET_CONFLICT:
+                SetMarkerType( MARKER_BASE::MARKER_PARITY );
+                break;
 
-        default:
-            SetMarkerType( MARKER_BASE::MARKER_DRC );
-            break;
+            default:
+                SetMarkerType( MARKER_BASE::MARKER_DRC );
+                break;
+            }
+
+            SetLayer( ToLAYER_ID( aLayer ) );
         }
     }
 
@@ -89,23 +97,41 @@ wxString PCB_MARKER::Serialize() const
     wxString lastItem;
 
     if( m_rcItem->GetErrorCode() == DRCE_COPPER_SLIVER )
-        lastItem = LayerName( m_layer );
+    {
+        return wxString::Format( wxT( "%s|%d|%d|%s|%s" ),
+                                 m_rcItem->GetSettingsKey(),
+                                 m_Pos.x,
+                                 m_Pos.y,
+                                 m_rcItem->GetMainItemID().AsString(),
+                                 LayerName( m_layer ) );
+    }
+    else if( m_rcItem->GetErrorCode() == DRCE_UNRESOLVED_VARIABLE
+            && m_rcItem->GetParent()->GetMarkerType() == MARKER_DRAWING_SHEET )
+    {
+        return wxString::Format( wxT( "%s|%d|%d|%s|%s" ),
+                                 m_rcItem->GetSettingsKey(),
+                                 m_Pos.x,
+                                 m_Pos.y,
+                                 // Drawing sheet KIIDs aren't preserved between runs
+                                 wxEmptyString,
+                                 wxEmptyString );
+    }
     else
-        lastItem = m_rcItem->GetAuxItemID().AsString();
-
-    return wxString::Format( wxT( "%s|%d|%d|%s|%s" ),
-                             m_rcItem->GetSettingsKey(),
-                             m_Pos.x,
-                             m_Pos.y,
-                             m_rcItem->GetMainItemID().AsString(),
-                             lastItem );
+    {
+        return wxString::Format( wxT( "%s|%d|%d|%s|%s" ),
+                                 m_rcItem->GetSettingsKey(),
+                                 m_Pos.x,
+                                 m_Pos.y,
+                                 m_rcItem->GetMainItemID().AsString(),
+                                 m_rcItem->GetAuxItemID().AsString() );
+    }
 }
 
 
 PCB_MARKER* PCB_MARKER::Deserialize( const wxString& data )
 {
     wxArrayString props = wxSplit( data, '|' );
-    PCB_LAYER_ID  markerLayer = F_Cu;
+    int           markerLayer = F_Cu;
     VECTOR2I      markerPos( (int) strtol( props[1].c_str(), nullptr, 10 ),
                              (int) strtol( props[2].c_str(), nullptr, 10 ) );
 
@@ -122,10 +148,16 @@ PCB_MARKER* PCB_MARKER::Deserialize( const wxString& data )
         {
             if( LayerName( ToLAYER_ID( layer ) ) == props[4] )
             {
-                markerLayer = ToLAYER_ID( layer );
+                markerLayer = layer;
                 break;
             }
         }
+    }
+    else if( drcItem->GetErrorCode() == DRCE_UNRESOLVED_VARIABLE
+            && props[3].IsEmpty() && props[4].IsEmpty() )
+    {
+        // Note: caller must load our item pointer with the drawing sheet proxy item
+        markerLayer = LAYER_DRAWINGSHEET;
     }
     else
     {
@@ -140,27 +172,47 @@ void PCB_MARKER::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_
 {
     aList.emplace_back( _( "Type" ), _( "Marker" ) );
     aList.emplace_back( _( "Violation" ), m_rcItem->GetErrorMessage() );
-    aList.emplace_back( _( "Severity" ), GetSeverity() == RPT_SEVERITY_ERROR ? _( "Error" )
-                                                                             : _( "Warning" ) );
 
-    wxString  mainText;
-    wxString  auxText;
-    EDA_ITEM* mainItem = nullptr;
-    EDA_ITEM* auxItem = nullptr;
+    switch( GetSeverity() )
+    {
+    case RPT_SEVERITY_IGNORE:
+        aList.emplace_back( _( "Severity" ), _( "Ignore" ) );
+        break;
+    case RPT_SEVERITY_WARNING:
+        aList.emplace_back( _( "Severity" ), _( "Warning" ) );
+        break;
+    case RPT_SEVERITY_ERROR:
+        aList.emplace_back( _( "Severity" ), _( "Error" ) );
+        break;
+    default:
+        break;
+    }
 
-    if( m_rcItem->GetMainItemID() != niluuid )
-        mainItem = aFrame->GetItem( m_rcItem->GetMainItemID() );
+    if( GetMarkerType() == MARKER_DRAWING_SHEET )
+    {
+        aList.emplace_back( _( "Drawing Sheet" ), wxEmptyString );
+    }
+    else
+    {
+        wxString  mainText;
+        wxString  auxText;
+        EDA_ITEM* mainItem = nullptr;
+        EDA_ITEM* auxItem = nullptr;
 
-    if( m_rcItem->GetAuxItemID() != niluuid )
-        auxItem = aFrame->GetItem( m_rcItem->GetAuxItemID() );
+        if( m_rcItem->GetMainItemID() != niluuid )
+            mainItem = aFrame->GetItem( m_rcItem->GetMainItemID() );
 
-    if( mainItem )
-        mainText = mainItem->GetSelectMenuText( aFrame->GetUserUnits() );
+        if( m_rcItem->GetAuxItemID() != niluuid )
+            auxItem = aFrame->GetItem( m_rcItem->GetAuxItemID() );
 
-    if( auxItem )
-        auxText = auxItem->GetSelectMenuText( aFrame->GetUserUnits() );
+        if( mainItem )
+            mainText = mainItem->GetSelectMenuText( aFrame );
 
-    aList.emplace_back( mainText, auxText );
+        if( auxItem )
+            auxText = auxItem->GetSelectMenuText( aFrame );
+
+        aList.emplace_back( mainText, auxText );
+    }
 }
 
 
@@ -176,7 +228,7 @@ void PCB_MARKER::Flip( const VECTOR2I& aCentre, bool aFlipLeftRight )
 }
 
 
-std::shared_ptr<SHAPE> PCB_MARKER::GetEffectiveShape( PCB_LAYER_ID aLayer ) const
+std::shared_ptr<SHAPE> PCB_MARKER::GetEffectiveShape( PCB_LAYER_ID aLayer, FLASHING aFlash ) const
 {
     // Markers do not participate in the board geometry space, and therefore have no
     // effectiven shape.
@@ -184,7 +236,7 @@ std::shared_ptr<SHAPE> PCB_MARKER::GetEffectiveShape( PCB_LAYER_ID aLayer ) cons
 }
 
 
-wxString PCB_MARKER::GetSelectMenuText( EDA_UNITS aUnits ) const
+wxString PCB_MARKER::GetSelectMenuText( UNITS_PROVIDER* aUnitsProvider ) const
 {
     // m_rcItem->GetErrorMessage() could be used instead, but is probably too long
     // for menu duty.
@@ -260,23 +312,15 @@ void PCB_MARKER::SetZoom( double aZoomFactor )
 }
 
 
-const EDA_RECT PCB_MARKER::GetBoundingBox() const
+const BOX2I PCB_MARKER::GetBoundingBox() const
 {
-    EDA_RECT bbox = m_shapeBoundingBox;
-
-    VECTOR2I pos = m_Pos;
-    pos.x += int( bbox.GetOrigin().x * MarkerScale() );
-    pos.y += int( bbox.GetOrigin().y * MarkerScale() );
-
-    return EDA_RECT( pos, wxSize( int( bbox.GetWidth() * MarkerScale() ),
-                                  int( bbox.GetHeight() * MarkerScale() ) ) );
+    return GetBoundingBoxMarker();
 }
 
 
 const BOX2I PCB_MARKER::ViewBBox() const
 {
-    EDA_RECT bbox = GetBoundingBox();
-    return BOX2I( bbox.GetOrigin(), VECTOR2I( bbox.GetWidth(), bbox.GetHeight() ) );
+    return GetBoundingBox();
 }
 
 

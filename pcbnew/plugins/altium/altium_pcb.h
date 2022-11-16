@@ -149,9 +149,9 @@ private:
     void ParseArcs6Data( const ALTIUM_COMPOUND_FILE&     aAltiumPcbFile,
                          const CFB::COMPOUND_FILE_ENTRY* aEntry );
     void ConvertArcs6ToPcbShape( const AARC6& aElem, PCB_SHAPE* aShape );
-    void ConvertArcs6ToBoardItem( const AARC6& aElem );
+    void ConvertArcs6ToBoardItem( const AARC6& aElem, const int aPrimitiveIndex );
     void ConvertArcs6ToFootprintItem( FOOTPRINT* aFootprint, const AARC6& aElem,
-                                      const bool aIsBoardImport );
+                                      const int aPrimitiveIndex, const bool aIsBoardImport );
     void ConvertArcs6ToBoardItemOnLayer( const AARC6& aElem, PCB_LAYER_ID aLayer );
     void ConvertArcs6ToFootprintItemOnLayer( FOOTPRINT* aFootprint, const AARC6& aElem,
                                              PCB_LAYER_ID aLayer );
@@ -168,9 +168,9 @@ private:
                          const CFB::COMPOUND_FILE_ENTRY* aEntry );
     void ParseTracks6Data( const ALTIUM_COMPOUND_FILE&     aAltiumPcbFile,
                            const CFB::COMPOUND_FILE_ENTRY* aEntry );
-    void ConvertTracks6ToBoardItem( const ATRACK6& aElem );
+    void ConvertTracks6ToBoardItem( const ATRACK6& aElem, const int aPrimitiveIndex );
     void ConvertTracks6ToFootprintItem( FOOTPRINT* aFootprint, const ATRACK6& aElem,
-                                        const bool aIsBoardImport );
+                                        const int aPrimitiveIndex, const bool aIsBoardImport );
     void ConvertTracks6ToBoardItemOnLayer( const ATRACK6& aElem, PCB_LAYER_ID aLayer );
     void ConvertTracks6ToFootprintItemOnLayer( FOOTPRINT* aFootprint, const ATRACK6& aElem,
                                                PCB_LAYER_ID aLayer );
@@ -201,6 +201,8 @@ private:
     void ConvertShapeBasedRegions6ToFootprintItemOnLayer( FOOTPRINT*      aFootprint,
                                                           const AREGION6& aElem,
                                                           PCB_LAYER_ID    aLayer );
+    void ParseExtendedPrimitiveInformationData( const ALTIUM_COMPOUND_FILE&     aAltiumPcbFile,
+                                                const CFB::COMPOUND_FILE_ENTRY* aEntry );
     void ParseRegions6Data( const ALTIUM_COMPOUND_FILE&     aAltiumPcbFile,
                             const CFB::COMPOUND_FILE_ENTRY* aEntry );
     void ParseWideStrings6Data( const ALTIUM_COMPOUND_FILE&     aAltiumPcbFile,
@@ -218,9 +220,17 @@ private:
     void HelperCreateBoardOutline( const std::vector<ALTIUM_VERTICE>& aVertices );
 
     void HelperSetZoneLayers( ZONE* aZone, const ALTIUM_LAYER aAltiumLayer );
-    void HelperPcpShapeAsBoardKeepoutRegion( const PCB_SHAPE& aShape, ALTIUM_LAYER aAltiumLayer );
+    void HelperSetZoneKeepoutRestrictions( ZONE* aZone, const uint8_t aKeepoutRestrictions );
+    void HelperPcpShapeAsBoardKeepoutRegion( const PCB_SHAPE&   aShape,
+                                             const ALTIUM_LAYER aAltiumLayer,
+                                             const uint8_t      aKeepoutRestrictions );
     void HelperPcpShapeAsFootprintKeepoutRegion( FOOTPRINT* aFootprint, const PCB_SHAPE& aShape,
-                                                 ALTIUM_LAYER aAltiumLayer );
+                                                 const ALTIUM_LAYER aAltiumLayer,
+                                                 const uint8_t      aKeepoutRestrictions );
+
+    std::vector<std::pair<PCB_LAYER_ID, int>>
+    HelperGetSolderAndPasteMaskExpansions( const ALTIUM_RECORD aType, const int aPrimitiveIndex,
+                                           const ALTIUM_LAYER aAltiumLayer );
 
     FOOTPRINT* HelperGetFootprint( uint16_t aComponent ) const;
     PCB_SHAPE* HelperCreateAndAddShape( uint16_t aComponent );
@@ -236,6 +246,8 @@ private:
     size_t                               m_num_nets;
     std::map<ALTIUM_LAYER, PCB_LAYER_ID> m_layermap; // used to correctly map copper layers
     std::map<ALTIUM_RULE_KIND, std::vector<ARULE6>> m_rules;
+    std::map<ALTIUM_RECORD, std::multimap<int, const AEXTENDED_PRIMITIVE_INFORMATION>>
+            m_extendedPrimitiveInformationMaps;
 
     std::map<ALTIUM_LAYER, ZONE*>        m_outer_plane;
 

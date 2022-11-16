@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2020-2021 CERN
- * Copyright (C) 2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2021-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * @author Wayne Stambaugh <stambaughw@gmail.com>
  *
@@ -35,7 +35,7 @@
 #include <sch_sheet_path.h>
 #include <schematic.h>
 #include <template_fieldnames.h>
-#include <wx_html_report_panel.h>
+#include <widgets/wx_html_report_panel.h>
 
 bool g_selectRefDes = false;
 bool g_selectValue  = false;
@@ -100,7 +100,7 @@ DIALOG_CHANGE_SYMBOLS::DIALOG_CHANGE_SYMBOLS( SCH_EDIT_FRAME* aParent, SCH_SYMBO
 
     for( int i = 0; i < MANDATORY_FIELDS; ++i )
     {
-        m_fieldsBox->Append( TEMPLATE_FIELDNAME::GetDefaultFieldName( i ) );
+        m_fieldsBox->Append( TEMPLATE_FIELDNAME::GetDefaultFieldName( i, DO_TRANSLATE ) );
 
         if( i == REFERENCE_FIELD )
             m_fieldsBox->Check( i, g_selectRefDes );
@@ -644,6 +644,8 @@ bool DIALOG_CHANGE_SYMBOLS::processSymbol( SCH_SYMBOL* aSymbol, const SCH_SHEET_
 
                 field.SetVisible( visible );
                 field.SetPosition( pos );
+                field.SetNameShown( libField->IsNameShown() );
+                field.SetCanAutoplace( libField->CanAutoplace() );
             }
 
             if( resetPositions )
@@ -669,7 +671,7 @@ bool DIALOG_CHANGE_SYMBOLS::processSymbol( SCH_SYMBOL* aSymbol, const SCH_SHEET_
         if( !aSymbol->FindField( libField.GetName(), false ) )
         {
             wxString   fieldName = libField.GetCanonicalName();
-            SCH_FIELD  newField( VECTOR2I( 0, 0), aSymbol->GetFieldCount(), aSymbol, fieldName );
+            SCH_FIELD  newField( VECTOR2I( 0, 0 ), aSymbol->GetFieldCount(), aSymbol, fieldName );
             SCH_FIELD* schField = aSymbol->AddField( newField );
 
             // Careful: the visible bit and position are also set by SetAttributes()
@@ -678,6 +680,9 @@ bool DIALOG_CHANGE_SYMBOLS::processSymbol( SCH_SYMBOL* aSymbol, const SCH_SHEET_
             schField->SetTextPos( aSymbol->GetPosition() + libField.GetTextPos() );
         }
     }
+
+    if( resetPositions && frame->eeconfig()->m_AutoplaceFields.enable )
+        aSymbol->AutoAutoplaceFields( screen );
 
     aSymbol->SetSchSymbolLibraryName( wxEmptyString );
     screen->Append( aSymbol );

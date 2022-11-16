@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2013-2017 CERN
- * Copyright (C) 2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2021-2022 KiCad Developers, see AUTHORS.txt for contributors.
  * @author Tomasz Wlostowski <tomasz.wlostowski@cern.ch>
  * @author Maciej Suminski <maciej.suminski@cern.ch>
  *
@@ -37,7 +37,13 @@ void SELECTION::Add( EDA_ITEM* aItem )
     ITER i = std::lower_bound( m_items.begin(), m_items.end(), aItem );
 
     if( i == m_items.end() || *i > aItem )
+    {
+        m_itemsOrders.insert( m_itemsOrders.begin() + std::distance( m_items.begin(), i ),
+                              m_orderCounter );
         m_items.insert( i, aItem );
+        m_orderCounter++;
+        m_lastAddedItem = aItem;
+    }
 }
 
 
@@ -46,7 +52,13 @@ void SELECTION::Remove( EDA_ITEM* aItem )
     ITER i = std::lower_bound( m_items.begin(), m_items.end(), aItem );
 
     if( !( i == m_items.end() || *i > aItem ) )
+    {
+        m_itemsOrders.erase( m_itemsOrders.begin() + std::distance( m_items.begin(), i ) );
         m_items.erase( i );
+
+        if( aItem == m_lastAddedItem )
+            m_lastAddedItem = nullptr;
+    }
 }
 
 
@@ -70,8 +82,7 @@ bool SELECTION::Contains( EDA_ITEM* aItem ) const
 /// Returns the center point of the selection area bounding box.
 VECTOR2I SELECTION::GetCenter() const
 {
-    KICAD_T textTypes[] = { SCH_TEXT_T, SCH_LABEL_LOCATE_ANY_T, EOT };
-    bool    hasOnlyText = true;
+    bool hasOnlyText = true;
 
     // If the selection contains only texts calculate the center as the mean of all positions
     // instead of using the center of the total bounding box. Otherwise rotating the selection will
@@ -79,14 +90,14 @@ VECTOR2I SELECTION::GetCenter() const
 
     for( EDA_ITEM* item : m_items )
     {
-        if( !item->IsType( textTypes ) )
+        if( !item->IsType( { SCH_TEXT_T, SCH_LABEL_LOCATE_ANY_T } ) )
         {
             hasOnlyText = false;
             break;
         }
     }
 
-    EDA_RECT bbox;
+    BOX2I bbox;
 
     if( hasOnlyText )
     {
@@ -101,7 +112,7 @@ VECTOR2I SELECTION::GetCenter() const
 
     for( EDA_ITEM* item : m_items )
     {
-        if( !item->IsType( textTypes ) )
+        if( !item->IsType( { SCH_TEXT_T, SCH_LABEL_LOCATE_ANY_T } ) )
             bbox.Merge( item->GetBoundingBox() );
     }
 
@@ -109,9 +120,9 @@ VECTOR2I SELECTION::GetCenter() const
 }
 
 
-EDA_RECT SELECTION::GetBoundingBox() const
+BOX2I SELECTION::GetBoundingBox() const
 {
-    EDA_RECT bbox;
+    BOX2I bbox;
 
     for( EDA_ITEM* item : m_items )
         bbox.Merge( item->GetBoundingBox() );
@@ -122,7 +133,7 @@ EDA_RECT SELECTION::GetBoundingBox() const
 
 bool SELECTION::HasType( KICAD_T aType ) const
 {
-    for( auto item : m_items )
+    for( const EDA_ITEM* item : m_items )
     {
         if( item->Type() == aType )
             return true;
@@ -136,7 +147,7 @@ size_t SELECTION::CountType( KICAD_T aType ) const
 {
     size_t count = 0;
 
-    for( EDA_ITEM* item : m_items )
+    for( const EDA_ITEM* item : m_items )
     {
         if( item->Type() == aType )
             count++;
@@ -150,7 +161,7 @@ const std::vector<KIGFX::VIEW_ITEM*> SELECTION::updateDrawList() const
 {
     std::vector<VIEW_ITEM*> items;
 
-    for( auto item : m_items )
+    for( EDA_ITEM* item : m_items )
         items.push_back( item );
 
     return items;
@@ -185,4 +196,34 @@ bool SELECTION::OnlyContains( std::vector<KICAD_T> aList ) const
 
                 return ok;
             } ) );
+}
+
+
+const std::vector<EDA_ITEM*> SELECTION::GetItemsSortedBySelectionOrder() const
+{
+    using pairedIterators =
+            std::pair<decltype( m_items.begin() ), decltype( m_itemsOrders.begin() )>;
+
+    // Create a vector of all {selection item, selection order} iterator pairs
+    std::vector<pairedIterators> pairs;
+    auto                         item = m_items.begin();
+    auto                         order = m_itemsOrders.begin();
+
+    for( ; item != m_items.end(); ++item, ++order )
+        pairs.emplace_back( make_pair( item, order ) );
+
+    // Sort the pairs by the selection order
+    std::sort( pairs.begin(), pairs.end(),
+               []( pairedIterators const& a, pairedIterators const& b )
+               {
+                   return *a.second < *b.second;
+               } );
+
+    // Make a vector of just the sortedItems
+    std::vector<EDA_ITEM*> sortedItems;
+
+    for( pairedIterators sortedItem : pairs )
+        sortedItems.emplace_back( *sortedItem.first );
+
+    return sortedItems;
 }

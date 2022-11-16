@@ -24,22 +24,23 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
-#ifndef DIALOG_SIM_SETTINGS_BASE_H
-#define DIALOG_SIM_SETTINGS_BASE_H
+#ifndef DIALOG_SIM_SETTINGS_H
+#define DIALOG_SIM_SETTINGS_H
 
 #include "dialog_sim_settings_base.h"
 #include <sim/spice_value.h>
 
 #include <wx/valnum.h>
 
-class NETLIST_EXPORTER_PSPICE_SIM;
+class NGSPICE_CIRCUIT_MODEL;
 class SPICE_SIMULATOR_SETTINGS;
 
 
 class DIALOG_SIM_SETTINGS : public DIALOG_SIM_SETTINGS_BASE
 {
 public:
-    DIALOG_SIM_SETTINGS( wxWindow* aParent, std::shared_ptr<SPICE_SIMULATOR_SETTINGS>& aSettings );
+    DIALOG_SIM_SETTINGS( wxWindow* aParent, std::shared_ptr<NGSPICE_CIRCUIT_MODEL> aCircuitModel,
+                         std::shared_ptr<SPICE_SIMULATOR_SETTINGS>& aSettings );
 
     const wxString& GetSimCommand() const
     {
@@ -61,10 +62,6 @@ public:
         return m_netlistOpts;
     }
 
-    void SetNetlistExporter( NETLIST_EXPORTER_PSPICE_SIM* aExporter )
-    {
-        m_exporter = aExporter;
-    }
 
     bool TransferDataFromWindow() override;
     bool TransferDataToWindow() override;
@@ -181,11 +178,11 @@ private:
 
     wxString m_simCommand;
     int m_netlistOpts;
-    NETLIST_EXPORTER_PSPICE_SIM* m_exporter;
+    std::shared_ptr<NGSPICE_CIRCUIT_MODEL> m_circuitModel;
     std::shared_ptr<SPICE_SIMULATOR_SETTINGS> m_settings;
     SPICE_VALIDATOR m_spiceValidator;
     SPICE_VALIDATOR m_spiceEmptyValidator;
     wxIntegerValidator<int> m_posIntValidator;
 };
 
-#endif /* DIALOG_SIM_SETTINGS_BASE_H */
+#endif /* DIALOG_SIM_SETTINGS_H */

@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2015-2016 Cirilo Bernardo <cirilo.bernardo@gmail.com>
- * Copyright (C) 2018-2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2018-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -29,7 +29,6 @@
 
 #include <wx/datetime.h>
 #include <wx/dir.h>
-#include <wx/filename.h>
 #include <wx/log.h>
 #include <wx/stdpaths.h>
 
@@ -55,6 +54,7 @@
 #include <project.h>
 #include <settings/common_settings.h>
 #include <settings/settings_manager.h>
+#include <wx_filename.h>
 
 
 #define MASK_3D_CACHE "3D_CACHE"
@@ -194,12 +194,13 @@ S3D_CACHE::S3D_CACHE()
 
 S3D_CACHE::~S3D_CACHE()
 {
-    COMMON_SETTINGS* commonSettings = Pgm().GetCommonSettings();
-
     FlushCache();
 
     // We'll delete ".3dc" cache files older than this many days
-    int clearCacheInterval = commonSettings->m_System.clear_3d_cache_interval;
+    int clearCacheInterval = 0;
+
+    if( Pgm().GetCommonSettings() )
+        clearCacheInterval = Pgm().GetCommonSettings()->m_System.clear_3d_cache_interval;
 
     // An interval of zero means the user doesn't want to ever clear the cache
 
@@ -211,12 +212,13 @@ S3D_CACHE::~S3D_CACHE()
 }
 
 
-SCENEGRAPH* S3D_CACHE::load( const wxString& aModelFile, S3D_CACHE_ENTRY** aCachePtr )
+SCENEGRAPH* S3D_CACHE::load( const wxString& aModelFile, const wxString& aBasePath,
+                             S3D_CACHE_ENTRY** aCachePtr )
 {
     if( aCachePtr )
         *aCachePtr = nullptr;
 
-    wxString full3Dpath = m_FNResolver->ResolvePath( aModelFile );
+    wxString full3Dpath = m_FNResolver->ResolvePath( aModelFile, aBasePath );
 
     if( full3Dpath.empty() )
     {
@@ -281,9 +283,9 @@ SCENEGRAPH* S3D_CACHE::load( const wxString& aModelFile, S3D_CACHE_ENTRY** aCach
 }
 
 
-SCENEGRAPH* S3D_CACHE::Load( const wxString& aModelFile )
+SCENEGRAPH* S3D_CACHE::Load( const wxString& aModelFile, const wxString& aBasePath )
 {
-    return load( aModelFile );
+    return load( aModelFile, aBasePath );
 }
 
 
@@ -511,7 +513,7 @@ bool S3D_CACHE::Set3DConfigDir( const wxString& aConfigDir )
 
     wxFileName cfgdir( ExpandEnvVarSubstitutions( aConfigDir, m_project ), wxEmptyString );
 
-    cfgdir.Normalize();
+    cfgdir.Normalize( FN_NORMALIZE_FLAGS );
 
     if( !cfgdir.DirExists() )
     {
@@ -640,10 +642,10 @@ void S3D_CACHE::ClosePlugins()
 }
 
 
-S3DMODEL* S3D_CACHE::GetModel( const wxString& aModelFileName )
+S3DMODEL* S3D_CACHE::GetModel( const wxString& aModelFileName, const wxString& aBasePath )
 {
     S3D_CACHE_ENTRY* cp = nullptr;
-    SCENEGRAPH* sp = load( aModelFileName, &cp );
+    SCENEGRAPH*      sp = load( aModelFileName, aBasePath,&cp );
 
     if( !sp )
         return nullptr;

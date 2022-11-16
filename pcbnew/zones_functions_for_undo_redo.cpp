@@ -1,12 +1,8 @@
-/**
- * @file zones_functions_for_undo_redo.cpp
- */
-
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2009 Jean-Pierre Charras <jp.charras@wanadoo.fr>
- * Copyright (C) 2007-2015 KiCad Developers, see change_log.txt for contributors.
+ * Copyright (C) 2007-2022 KiCad Developers, see change_log.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -45,8 +41,6 @@
 
 #include <board.h>
 #include <zone.h>
-
-#include <pcbnew.h>
 #include <zones.h>
 #include <zones_functions_for_undo_redo.h>
 
@@ -66,7 +60,7 @@ bool ZONE::IsSame( const ZONE& aZoneToCompare )
     if( GetNetCode() != aZoneToCompare.GetNetCode() )
         return false;
 
-    if( GetPriority() != aZoneToCompare.GetPriority() )
+    if( GetAssignedPriority() != aZoneToCompare.GetAssignedPriority() )
         return false;
 
     // Compare zone specific parameters
@@ -138,36 +132,19 @@ bool ZONE::IsSame( const ZONE& aZoneToCompare )
  * Later, UpdateCopyOfZonesList will change and update these pickers after a zone editing
  * @param aPickList = the pick list
  * @param aPcb = the Board
- * @param aNetCode = the reference netcode. if aNetCode < 0 all netcodes are used
- * @param aLayer = the layer of zones. if aLayer < 0, all layers are used
- * @return the count of saved copies
  */
-int SaveCopyOfZones( PICKED_ITEMS_LIST& aPickList, BOARD* aPcb, int aNetCode, int aLayer )
+void SaveCopyOfZones( PICKED_ITEMS_LIST& aPickList, BOARD* aPcb )
 {
-    int copyCount = 0;
-
-    for( unsigned ii = 0; ; ii++ )
+    for( ZONE* zone : aPcb->Zones() )
     {
-        ZONE* zone = aPcb->GetArea( ii );
-
-        if( zone == nullptr )      // End of list
-            break;
-
-        if( aNetCode >= 0 && aNetCode != zone->GetNetCode() )
-            continue;
-
-        if( aLayer >= 0 && !zone->GetLayerSet().test( aLayer ) )
-            continue;
-
         ZONE* zoneDup = new ZONE( *zone );
         zoneDup->SetParent( aPcb );
+        zoneDup->SetParentGroup( nullptr );
+
         ITEM_PICKER picker( nullptr, zone, UNDO_REDO::CHANGED );
         picker.SetLink( zoneDup );
         aPickList.PushItem( picker );
-        copyCount++;
     }
-
-    return copyCount;
 }
 
 
@@ -206,9 +183,8 @@ int SaveCopyOfZones( PICKED_ITEMS_LIST& aPickList, BOARD* aPcb, int aNetCode, in
  *  must have been removed (removed for new and deleted zones, or moved in aPickList.)
  * If not an error is set.
  */
-void UpdateCopyOfZonesList( PICKED_ITEMS_LIST& aPickList,
-                            PICKED_ITEMS_LIST& aAuxiliaryList,
-                            BOARD*             aPcb )
+void UpdateCopyOfZonesList( PICKED_ITEMS_LIST& aPickList, PICKED_ITEMS_LIST& aAuxiliaryList,
+                            BOARD* aPcb )
 {
     for( unsigned kk = 0; kk < aPickList.GetCount(); kk++ )
     {
@@ -243,7 +219,7 @@ void UpdateCopyOfZonesList( PICKED_ITEMS_LIST& aPickList,
                     wxASSERT_MSG( zcopy != nullptr,
                                   wxT( "UpdateCopyOfZonesList() error: link = NULL" ) );
 
-                    *ref = *zcopy;
+                    ref->SwapItemData( zcopy );
 
                     // the copy was deleted; the link does not exists now.
                     aPickList.SetPickedItemLink( nullptr, kk );
@@ -266,12 +242,13 @@ void UpdateCopyOfZonesList( PICKED_ITEMS_LIST& aPickList,
                 if( notfound )  // happens when the new zone overlaps an existing zone
                                 // and these zones are combined
                 {
-                #if  defined(DEBUG)
+#if  defined(DEBUG)
                     printf( "UpdateCopyOfZonesList(): item not found in aAuxiliaryList,"
                             "combined with another zone\n" );
                     fflush(nullptr);
-                #endif
+#endif
                 }
+
                 break;
             }
 
@@ -309,7 +286,9 @@ void UpdateCopyOfZonesList( PICKED_ITEMS_LIST& aPickList,
             aAuxiliaryList.RemovePicker( ii );
         }
         else
+        {
             ii++;
+        }
     }
 
     // Should not occur:

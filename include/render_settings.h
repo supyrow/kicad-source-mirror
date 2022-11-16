@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2019-2020 KiCad Developers, see AUTHORS.TXT for contributors.
+ * Copyright (C) 2019-2022 KiCad Developers, see AUTHORS.TXT for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -111,6 +111,12 @@ public:
 
     PCB_LAYER_ID GetActiveLayer() const { return m_activeLayer; }
     void SetActiveLayer( PCB_LAYER_ID aLayer ) { m_activeLayer = aLayer; }
+
+    const wxString& GetLayerName() const { return m_layerName; }
+    void SetLayerName( const wxString& aLayerName ) { m_layerName = aLayerName; }
+
+    LSET GetPrintLayers() const { return m_printLayers; }
+    void SetPrintLayers( LSET aLayerSet ) { m_printLayers = aLayerSet; }
 
     /**
      * Clear the list of active layers.
@@ -223,7 +229,7 @@ public:
     /**
      * Return current background color settings.
      */
-    virtual const COLOR4D& GetBackgroundColor() = 0;
+    virtual const COLOR4D& GetBackgroundColor() const = 0;
 
     /**
      * Set the background color.
@@ -247,6 +253,10 @@ public:
      */
     inline const COLOR4D& GetLayerColor( int aLayer ) const
     {
+        // We don't (yet?) have a separate color for intersheet refs
+        if( aLayer == LAYER_INTERSHEET_REFS )
+            aLayer = LAYER_GLOBLABEL;
+
         return m_layerColors[aLayer];
     }
 
@@ -281,6 +291,9 @@ public:
     void SetHighlightFactor( float aFactor ) { m_highlightFactor = aFactor; }
     void SetSelectFactor( float aFactor ) { m_selectFactor = aFactor; }
 
+    void SetDefaultFont( const wxString& aFont ) { m_defaultFont = aFont; }
+    const wxString& GetDefaultFont() const { return m_defaultFont; }
+
     // TODO: these can go away once the drawing sheet is moved to Cairo-based printing
     wxDC* GetPrintDC() const { return m_printDC; }
     void SetPrintDC( wxDC* aDC ) { m_printDC = aDC; }
@@ -293,6 +306,7 @@ protected:
     virtual void update();
 
     PCB_LAYER_ID           m_activeLayer;        // The active layer (as shown by appearance mgr)
+    wxString               m_layerName;
     std::set<unsigned int> m_highContrastLayers; // High-contrast layers (both board layers and
                                                  //   synthetic GAL layers)
     COLOR4D m_layerColors[LAYER_ID_COUNT];       // Layer colors
@@ -324,7 +338,10 @@ protected:
     double        m_dashLengthRatio;
     double        m_gapLengthRatio;
 
+    wxString      m_defaultFont;
+
     bool          m_isPrinting;
+    LSET          m_printLayers;
 
     wxDC*         m_printDC;              // This can go away once the drawing sheet is moved to
                                           // Cairo-based printing.

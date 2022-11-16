@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2020-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2020-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -24,6 +24,7 @@
 #include <dialog_sch_import_settings.h>
 #include <dialogs/panel_setup_netclasses.h>
 #include <dialogs/panel_setup_severities.h>
+#include <dialogs/panel_setup_buses.h>
 #include <panel_setup_formatting.h>
 #include <panel_setup_pinmap.h>
 #include <erc_item.h>
@@ -55,13 +56,15 @@ DIALOG_SCHEMATIC_SETUP::DIALOG_SCHEMATIC_SETUP( SCH_EDIT_FRAME* aFrame ) :
 
     m_pinToPinError = ERC_ITEM::Create( ERCE_PIN_TO_PIN_WARNING );
     m_severities = new PANEL_SETUP_SEVERITIES( this, ERC_ITEM::GetItemsWithSeverities(),
-                                               schematic.ErcSettings().m_Severities,
+                                               schematic.ErcSettings().m_ERCSeverities,
                                                m_pinToPinError.get() );
 
     m_textVars = new PANEL_TEXT_VARIABLES( m_treebook, &Prj() );
 
-    m_netclasses = new PANEL_SETUP_NETCLASSES( this, aFrame, &project.NetSettings().m_NetClasses,
+    m_netclasses = new PANEL_SETUP_NETCLASSES( this, aFrame, project.NetSettings(),
                                                schematic.GetNetClassAssignmentCandidates(), true );
+
+    m_buses = new PANEL_SETUP_BUSES( m_treebook, aFrame );
 
     /*
      * WARNING: If you change page names you MUST update calls to ShowSchematicSetupDialog().
@@ -77,6 +80,7 @@ DIALOG_SCHEMATIC_SETUP::DIALOG_SCHEMATIC_SETUP( SCH_EDIT_FRAME* aFrame ) :
 
     m_treebook->AddPage( new wxPanel( GetTreebook() ), _( "Project" ) );
     m_treebook->AddSubPage( m_netclasses, _( "Net Classes" ) );
+    m_treebook->AddSubPage( m_buses, _( "Bus Alias Definitions" ) );
     m_treebook->AddSubPage( m_textVars, _( "Text Variables" ) );
 
     for( size_t i = 0; i < m_treebook->GetPageCount(); ++i )
@@ -101,18 +105,18 @@ DIALOG_SCHEMATIC_SETUP::~DIALOG_SCHEMATIC_SETUP()
 }
 
 
-void DIALOG_SCHEMATIC_SETUP::OnPageChanged( wxBookCtrlEvent& event )
+void DIALOG_SCHEMATIC_SETUP::onPageChanged( wxBookCtrlEvent& aEvent )
 {
-    PAGED_DIALOG::OnPageChanged( event );
+    PAGED_DIALOG::onPageChanged( aEvent );
 
-    int page = event.GetSelection();
+    int page = aEvent.GetSelection();
 
     if( Prj().IsReadOnly() )
         KIUI::Disable( m_treebook->GetPage( page ) );
 }
 
 
-void DIALOG_SCHEMATIC_SETUP::OnAuxiliaryAction( wxCommandEvent& event )
+void DIALOG_SCHEMATIC_SETUP::onAuxiliaryAction( wxCommandEvent& event )
 {
     DIALOG_SCH_IMPORT_SETTINGS importDlg( this, m_frame );
 
@@ -149,10 +153,10 @@ void DIALOG_SCHEMATIC_SETUP::OnAuxiliaryAction( wxCommandEvent& event )
         m_pinMap->ImportSettingsFrom( file.m_ErcSettings->m_PinMap );
 
     if( importDlg.m_SeveritiesOpt->GetValue() )
-        m_severities->ImportSettingsFrom( file.m_ErcSettings->m_Severities );
+        m_severities->ImportSettingsFrom( file.m_ErcSettings->m_ERCSeverities );
 
     if( importDlg.m_NetClassesOpt->GetValue() )
-        m_netclasses->ImportSettingsFrom( &file.m_NetSettings->m_NetClasses );
+        m_netclasses->ImportSettingsFrom( file.m_NetSettings );
 
     m_frame->GetSettingsManager()->UnloadProject( otherPrj, false );
 }

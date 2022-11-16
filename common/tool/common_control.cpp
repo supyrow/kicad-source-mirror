@@ -2,7 +2,7 @@
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
  * Copyright (C) 2014-2016 CERN
- * Copyright (C) 2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2021-2022 KiCad Developers, see AUTHORS.txt for contributors.
  * @author Maciej Suminski <maciej.suminski@cern.ch>
  *
  * This program is free software; you can redistribute it and/or
@@ -55,21 +55,6 @@ wxString COMMON_CONTROL::m_bugReportUrl =
 
 /// Issue template to use for reporting bugs (this should not be translated)
 wxString COMMON_CONTROL::m_bugReportTemplate =
-        "<!-- Before Creating a New Issue:\n"
-        "* Search the issue tracker to verify the issue has not already been reported.\n"
-        "* Only report one problem per issue. -->\n"
-        "\n"
-        "# Description\n"
-        "<!-- What is the current behavior and what is the expected behavior? -->\n"
-        "<!-- Please attach screenshots if they will help explain the problem. -->\n"
-        "\n"
-        "# Steps to reproduce\n"
-        "<!-- Please include a screen recording if it will help explain how to reproduce. -->\n"
-        "<!-- If this issue is specific to a project, please attach it. -->\n"
-        "1.\n"
-        "2.\n"
-        "# KiCad Version\n"
-        "\n"
         "```\n"
         "%s\n"
         "```";
@@ -101,7 +86,7 @@ int COMMON_CONTROL::ConfigurePaths( const TOOL_EVENT& aEvent )
     {
         try
         {
-            pcbnew->CreateWindow( m_frame, DIALOG_CONFIGUREPATHS, &m_frame->Kiway() );
+            pcbnew->CreateKiWindow( m_frame, DIALOG_CONFIGUREPATHS, &m_frame->Kiway() );
         }
         catch( ... )
         {
@@ -111,10 +96,9 @@ int COMMON_CONTROL::ConfigurePaths( const TOOL_EVENT& aEvent )
     }
     else
     {
-        DIALOG_CONFIGURE_PATHS dlg( m_frame, nullptr );
+        DIALOG_CONFIGURE_PATHS dlg( m_frame );
 
-        // Use QuasiModal so that HTML help window will work
-        if( dlg.ShowQuasiModal() == wxID_OK )
+        if( dlg.ShowModal() == wxID_OK )
             m_frame->Kiway().CommonSettingsChanged( true, false );
     }
 
@@ -129,7 +113,7 @@ int COMMON_CONTROL::ShowLibraryTable( const TOOL_EVENT& aEvent )
         try     // Sch frame was not available, try to start it
         {
             KIFACE* kiface = m_frame->Kiway().KiFACE( KIWAY::FACE_SCH );
-            kiface->CreateWindow( m_frame, DIALOG_SCH_LIBRARY_TABLE, &m_frame->Kiway() );
+            kiface->CreateKiWindow( m_frame, DIALOG_SCH_LIBRARY_TABLE, &m_frame->Kiway() );
         }
         catch( ... )
         {
@@ -144,7 +128,7 @@ int COMMON_CONTROL::ShowLibraryTable( const TOOL_EVENT& aEvent )
         try     // Pcb frame was not available, try to start it
         {
             KIFACE* kiface = m_frame->Kiway().KiFACE( KIWAY::FACE_PCB );
-            kiface->CreateWindow( m_frame, DIALOG_PCB_LIBRARY_TABLE, &m_frame->Kiway() );
+            kiface->CreateKiWindow( m_frame, DIALOG_PCB_LIBRARY_TABLE, &m_frame->Kiway() );
         }
         catch( ... )
         {
@@ -164,7 +148,7 @@ int COMMON_CONTROL::ShowPlayer( const TOOL_EVENT& aEvent )
     KIWAY_PLAYER* editor = m_frame->Kiway().Player( playerType, true );
 
     // editor can be null if Player() fails:
-    wxCHECK_MSG( editor != nullptr, 0, "Cannot open/create the editor frame" );
+    wxCHECK_MSG( editor != nullptr, 0, wxT( "Cannot open/create the editor frame" ) );
 
     // Needed on Windows, other platforms do not use it, but it creates no issue
     if( editor->IsIconized() )
@@ -177,6 +161,13 @@ int COMMON_CONTROL::ShowPlayer( const TOOL_EVENT& aEvent )
     if( wxWindow::FindFocus() != editor )
         editor->SetFocus();
 
+    // If the player is currently blocked, focus the user attention on the correct window
+    if( wxWindow* blocking_win = editor->Kiway().GetBlockingDialog() )
+    {
+        blocking_win->Raise();
+        blocking_win->SetFocus();
+    }
+
     return 0;
 }
 
@@ -187,8 +178,8 @@ int COMMON_CONTROL::ShowHelp( const TOOL_EVENT& aEvent )
     wxString msg;
 
     // the URL of help files is "https://docs.kicad.org/<version>/<language>/<name>/"
-    const wxString baseUrl = URL_DOCUMENTATION + GetMajorMinorVersion() + "/"
-                             + Pgm().GetLocale()->GetName().BeforeLast( '_' ) + "/";
+    const wxString baseUrl = URL_DOCUMENTATION + GetMajorMinorVersion() + wxT( "/" )
+                             + Pgm().GetLocale()->GetName().BeforeLast( '_' ) + wxT( "/" );
 
     /* We have to get document for beginners,
      * or the full specific doc

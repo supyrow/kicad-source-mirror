@@ -32,12 +32,17 @@
 PANEL_EESCHEMA_EDITING_OPTIONS::PANEL_EESCHEMA_EDITING_OPTIONS( wxWindow* aWindow,
                                                                 EDA_BASE_FRAME* aUnitsProvider ) :
         PANEL_EESCHEMA_EDITING_OPTIONS_BASE( aWindow ),
-        m_hPitch( aUnitsProvider, m_hPitchLabel, m_hPitchCtrl, m_hPitchUnits ),
-        m_vPitch( aUnitsProvider, m_vPitchLabel, m_vPitchCtrl, m_vPitchUnits )
+        m_hPitch( aUnitsProvider, schIUScale, m_hPitchLabel, m_hPitchCtrl, m_hPitchUnits ),
+        m_vPitch( aUnitsProvider, schIUScale, m_vPitchLabel, m_vPitchCtrl, m_vPitchUnits )
 {
     // Make the color swatch show "Clear Color" instead
     m_borderColorSwatch->SetDefaultColor( COLOR4D::UNSPECIFIED );
     m_backgroundColorSwatch->SetDefaultColor( COLOR4D::UNSPECIFIED );
+
+    m_spinLabelRepeatStep->SetRange( -100000, 100000 );
+#if wxCHECK_VERSION( 3, 1, 6 )
+    m_spinLabelRepeatStep->SetIncrement( 1 );
+#endif
 
 #ifdef __WXOSX_MAC__
     m_leftClickCmdsBook->SetSelection( 1 );
@@ -49,8 +54,8 @@ PANEL_EESCHEMA_EDITING_OPTIONS::PANEL_EESCHEMA_EDITING_OPTIONS( wxWindow* aWindo
 
 void PANEL_EESCHEMA_EDITING_OPTIONS::loadEEschemaSettings( EESCHEMA_SETTINGS* aCfg )
 {
-    m_hPitch.SetValue( Mils2iu( aCfg->m_Drawing.default_repeat_offset_x ) );
-    m_vPitch.SetValue( Mils2iu( aCfg->m_Drawing.default_repeat_offset_y ) );
+    m_hPitch.SetValue( schIUScale.MilsToIU( aCfg->m_Drawing.default_repeat_offset_x ) );
+    m_vPitch.SetValue( schIUScale.MilsToIU( aCfg->m_Drawing.default_repeat_offset_y ) );
     m_spinLabelRepeatStep->SetValue( aCfg->m_Drawing.repeat_label_increment );
 
     SETTINGS_MANAGER& mgr = Pgm().GetSettingsManager();
@@ -63,9 +68,8 @@ void PANEL_EESCHEMA_EDITING_OPTIONS::loadEEschemaSettings( EESCHEMA_SETTINGS* aC
     m_backgroundColorSwatch->SetSwatchBackground( schematicBackground );
     m_backgroundColorSwatch->SetSwatchColor( aCfg->m_Drawing.default_sheet_background_color, false );
 
-    m_checkHVOrientation->SetValue( aCfg->m_Drawing.hv_lines_only );
+    m_choiceLineMode->SetSelection( aCfg->m_Drawing.line_mode );
     m_footprintPreview->SetValue( aCfg->m_Appearance.footprint_preview );
-    m_navigatorStaysOpen->SetValue( aCfg->m_Appearance.navigator_stays_open );
 
     m_checkAutoplaceFields->SetValue( aCfg->m_AutoplaceFields.enable );
     m_checkAutoplaceJustify->SetValue( aCfg->m_AutoplaceFields.allow_rejustify );
@@ -75,6 +79,7 @@ void PANEL_EESCHEMA_EDITING_OPTIONS::loadEEschemaSettings( EESCHEMA_SETTINGS* aC
     m_cbPinSelectionOpt->SetValue( aCfg->m_Selection.select_pin_selects_symbol );
 
     m_cbAutoStartWires->SetValue( aCfg->m_Drawing.auto_start_wires );
+    m_escClearsNetHighlight->SetValue( aCfg->m_Input.esc_clears_net_highlight );
 }
 
 
@@ -97,13 +102,12 @@ bool PANEL_EESCHEMA_EDITING_OPTIONS::TransferDataFromWindow()
     cfg->m_Drawing.default_sheet_border_color = m_borderColorSwatch->GetSwatchColor();
     cfg->m_Drawing.default_sheet_background_color = m_backgroundColorSwatch->GetSwatchColor();
 
-    cfg->m_Drawing.default_repeat_offset_x = Iu2Mils( (int) m_hPitch.GetValue() );
-    cfg->m_Drawing.default_repeat_offset_y = Iu2Mils( (int) m_vPitch.GetValue() );
+    cfg->m_Drawing.default_repeat_offset_x = schIUScale.IUToMils( (int) m_hPitch.GetValue() );
+    cfg->m_Drawing.default_repeat_offset_y = schIUScale.IUToMils( (int) m_vPitch.GetValue() );
     cfg->m_Drawing.repeat_label_increment = m_spinLabelRepeatStep->GetValue();
 
-    cfg->m_Drawing.hv_lines_only = m_checkHVOrientation->GetValue();
+    cfg->m_Drawing.line_mode = m_choiceLineMode->GetSelection();
     cfg->m_Appearance.footprint_preview = m_footprintPreview->GetValue();
-    cfg->m_Appearance.navigator_stays_open = m_navigatorStaysOpen->GetValue();
 
     cfg->m_AutoplaceFields.enable = m_checkAutoplaceFields->GetValue();
     cfg->m_AutoplaceFields.allow_rejustify = m_checkAutoplaceJustify->GetValue();
@@ -113,6 +117,7 @@ bool PANEL_EESCHEMA_EDITING_OPTIONS::TransferDataFromWindow()
     cfg->m_Selection.select_pin_selects_symbol = m_cbPinSelectionOpt->GetValue();
 
     cfg->m_Drawing.auto_start_wires = m_cbAutoStartWires->GetValue();
+    cfg->m_Input.esc_clears_net_highlight = m_escClearsNetHighlight->GetValue();
 
     return true;
 }

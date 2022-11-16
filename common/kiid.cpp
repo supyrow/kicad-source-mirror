@@ -33,6 +33,9 @@
 #include <boost/uuid/entropy_error.hpp>
 #endif
 
+#include <nlohmann/json.hpp>
+
+#include <cctype>
 #include <mutex>
 
 #include <wx/log.h>
@@ -40,9 +43,12 @@
 // boost:mt19937 is not thread-safe
 static std::mutex                                           rng_mutex;
 
-// Create only once, as seeding is *very* expensive
+// Static rng and generators are used because the overhead of constant seeding is expensive
+// We rely on the default non-arg constructor of basic_random_generator to provide a random seed.
+// We use a separate rng object for cases where we want to control the basic_random_generator
+// initial seed by calling SeedGenerator from unit tests and other special cases.
 static boost::mt19937                                       rng;
-static boost::uuids::basic_random_generator<boost::mt19937> randomGenerator( rng );
+static boost::uuids::basic_random_generator<boost::mt19937> randomGenerator;
 
 // These don't have the same performance penalty, but we might as well be consistent
 static boost::uuids::string_generator                       stringGenerator;
@@ -101,16 +107,21 @@ KIID::KIID( int null ) : m_uuid( nilGenerator() ), m_cached_timestamp( 0 )
 }
 
 
-KIID::KIID( const wxString& aString ) : m_uuid(), m_cached_timestamp( 0 )
+KIID::KIID( const std::string& aString ) : m_uuid(), m_cached_timestamp( 0 )
 {
-    if( aString.length() == 8 )
+    if( aString.length() == 8
+        && std::all_of( aString.begin(), aString.end(),
+                        []( unsigned char c )
+                        {
+                            return std::isxdigit( c );
+                        } ) )
     {
         // A legacy-timestamp-based UUID has only the last 4 octets filled in.
         // Convert them individually to avoid stepping in the little-endian/big-endian
         // doo-doo.
         for( int i = 0; i < 4; ++i )
         {
-            wxString octet      = aString.substr( i * 2, 2 );
+            std::string octet = aString.substr( i * 2, 2 );
             m_uuid.data[i + 12] = strtol( octet.data(), nullptr, 16 );
         }
 
@@ -120,7 +131,7 @@ KIID::KIID( const wxString& aString ) : m_uuid(), m_cached_timestamp( 0 )
     {
         try
         {
-            m_uuid = stringGenerator( aString.wc_str() );
+            m_uuid = stringGenerator( aString );
 
             if( IsLegacyTimestamp() )
                 m_cached_timestamp = strtol( aString.substr( 28 ).c_str(), nullptr, 16 );
@@ -146,6 +157,16 @@ KIID::KIID( const wxString& aString ) : m_uuid(), m_cached_timestamp( 0 )
 #endif
         }
     }
+}
+
+
+KIID::KIID( const char* aString ) : KIID( std::string( aString ) )
+{
+}
+
+
+KIID::KIID( const wxString& aString ) : KIID( std::string( aString.ToUTF8() ) )
+{
 }
 
 
@@ -273,6 +294,7 @@ void KIID::CreateNilUuids( bool aNil )
 void KIID::SeedGenerator( unsigned int aSeed )
 {
     rng.seed( aSeed );
+    randomGenerator = boost::uuids::basic_random_generator<boost::mt19937>( rng );
 }
 
 
@@ -315,4 +337,16 @@ wxString KIID_PATH::AsString() const
         path += '/' + pathStep.AsString();
 
     return path;
+}
+
+
+void to_json( nlohmann::json& aJson, const KIID& aKIID )
+{
+    aJson = aKIID.AsString().ToUTF8();
+}
+
+
+void from_json( const nlohmann::json& aJson, KIID& aKIID )
+{
+    aKIID = KIID( aJson.get<std::string>() );
 }

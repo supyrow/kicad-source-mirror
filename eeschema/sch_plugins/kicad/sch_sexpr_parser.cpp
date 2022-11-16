@@ -27,11 +27,14 @@
 
 // For some reason wxWidgets is built with wxUSE_BASE64 unset so expose the wxWidgets
 // base64 code.
+#include <charconv>
+
 #define wxUSE_BASE64 1
 #include <wx/base64.h>
 #include <wx/mstream.h>
 #include <wx/tokenzr.h>
 
+#include <base_units.h>
 #include <lib_id.h>
 #include <lib_shape.h>
 #include <lib_pin.h>
@@ -62,16 +65,19 @@ using namespace TSCHEMATIC_T;
 
 
 SCH_SEXPR_PARSER::SCH_SEXPR_PARSER( LINE_READER* aLineReader, PROGRESS_REPORTER* aProgressReporter,
-                                    unsigned aLineCount ) :
+                                    unsigned aLineCount, SCH_SHEET* aRootSheet,
+                                    bool aIsAppending ) :
     SCHEMATIC_LEXER( aLineReader ),
     m_requiredVersion( 0 ),
     m_fieldId( 0 ),
     m_unit( 1 ),
     m_convert( 1 ),
+    m_appending( aIsAppending ),
     m_progressReporter( aProgressReporter ),
     m_lineReader( aLineReader ),
     m_lastProgressLine( 0 ),
-    m_lineCount( aLineCount )
+    m_lineCount( aLineCount ),
+    m_rootSheet( aRootSheet )
 {
 }
 
@@ -165,6 +171,7 @@ LIB_SYMBOL* SCH_SEXPR_PARSER::ParseSymbol( LIB_SYMBOL_MAP& aSymbolLibMap, int aF
     long tmp;
     wxString name;
     wxString error;
+    wxString unitDisplayName;
     LIB_ITEM* item;
     std::unique_ptr<LIB_SYMBOL> symbol = std::make_unique<LIB_SYMBOL>( wxEmptyString );
 
@@ -185,9 +192,20 @@ LIB_SYMBOL* SCH_SEXPR_PARSER::ParseSymbol( LIB_SYMBOL_MAP& aSymbolLibMap, int aF
     name = FromUTF8();
 
     LIB_ID id;
+    int bad_pos = id.Parse( name );
 
-    if( id.Parse( name ) >= 0 )
+    if( bad_pos >= 0 )
     {
+        if( static_cast<int>( name.size() ) > bad_pos )
+        {
+            wxString msg = wxString::Format(
+                    _( "Symbol %s contains invalid character '%c'" ), name,
+                    name[bad_pos] );
+
+            THROW_PARSE_ERROR( msg, CurSource(), CurLine(), CurLineNumber(), CurOffset() );
+        }
+
+
         THROW_PARSE_ERROR( _( "Invalid library identifier" ), CurSource(), CurLine(),
                            CurLineNumber(), CurOffset() );
     }
@@ -321,6 +339,17 @@ LIB_SYMBOL* SCH_SEXPR_PARSER::ParseSymbol( LIB_SYMBOL_MAP& aSymbolLibMap, int aF
 
                 switch( token )
                 {
+                case T_unit_name:
+                    token = NextTok();
+
+                    if( IsSymbol( token ) )
+                    {
+                        unitDisplayName = FromUTF8();
+                        symbol->SetUnitDisplayName( m_unit, unitDisplayName );
+                    }
+                    NeedRIGHT();
+                    break;
+
                 case T_arc:
                 case T_bezier:
                 case T_circle:
@@ -420,40 +449,9 @@ LIB_ITEM* SCH_SEXPR_PARSER::ParseDrawItem()
 }
 
 
-double SCH_SEXPR_PARSER::parseDouble()
-{
-    char* tmp;
-
-    // In case the file got saved with the wrong locale.
-    if( strchr( CurText(), ',' ) != nullptr )
-    {
-        THROW_PARSE_ERROR( _( "Floating point number with incorrect locale" ), CurSource(),
-                           CurLine(), CurLineNumber(), CurOffset() );
-    }
-
-    errno = 0;
-
-    double fval = strtod( CurText(), &tmp );
-
-    if( errno )
-    {
-        THROW_PARSE_ERROR( _( "Invalid floating point number" ), CurSource(), CurLine(),
-                           CurLineNumber(), CurOffset() );
-    }
-
-    if( CurText() == tmp )
-    {
-        THROW_PARSE_ERROR( _( "Missing floating point number" ), CurSource(), CurLine(),
-                           CurLineNumber(), CurOffset() );
-    }
-
-    return fval;
-}
-
-
 int SCH_SEXPR_PARSER::parseInternalUnits()
 {
-    auto retval = parseDouble() * IU_PER_MM;
+    auto retval = parseDouble() * schIUScale.IU_PER_MM;
 
     // Schematic internal units are represented as integers.  Any values that are
     // larger or smaller than the schematic units represent undefined behavior for
@@ -466,7 +464,7 @@ int SCH_SEXPR_PARSER::parseInternalUnits()
 
 int SCH_SEXPR_PARSER::parseInternalUnits( const char* aExpected )
 {
-    auto retval = parseDouble( aExpected ) * IU_PER_MM;
+    auto retval = parseDouble( aExpected ) * schIUScale.IU_PER_MM;
 
     constexpr double int_limit = std::numeric_limits<int>::max() * 0.7071;
 
@@ -476,7 +474,7 @@ int SCH_SEXPR_PARSER::parseInternalUnits( const char* aExpected )
 
 void SCH_SEXPR_PARSER::parseStroke( STROKE_PARAMS& aStroke )
 {
-    STROKE_PARAMS_PARSER strokeParser( reader, IU_PER_MM );
+    STROKE_PARAMS_PARSER strokeParser( reader, schIUScale.IU_PER_MM );
     strokeParser.SyncLineReaderWith( *this );
 
     strokeParser.ParseStroke( aStroke );
@@ -541,7 +539,7 @@ void SCH_SEXPR_PARSER::parseFill( FILL_PARAMS& aFill )
 
 void SCH_SEXPR_PARSER::parseEDA_TEXT( EDA_TEXT* aText, bool aConvertOverbarSyntax )
 {
-    wxCHECK_RET( aText && CurTok() == T_effects,
+    wxCHECK_RET( aText && ( CurTok() == T_effects || CurTok() == T_href ),
                  "Cannot parse " + GetTokenString( CurTok() ) + " as an EDA_TEXT." );
 
     // In version 20210606 the notation for overbars was changed from `~...~` to `~{...}`.
@@ -551,6 +549,7 @@ void SCH_SEXPR_PARSER::parseEDA_TEXT( EDA_TEXT* aText, bool aConvertOverbarSynta
 
     T        token;
     wxString faceName;
+    COLOR4D  color = COLOR4D::UNSPECIFIED;
 
     // Various text objects (text boxes, schematic text, etc.) all have their own defaults,
     // but the file format default is {center,center} so we have to set that before parsing.
@@ -601,6 +600,15 @@ void SCH_SEXPR_PARSER::parseEDA_TEXT( EDA_TEXT* aText, bool aConvertOverbarSynta
                     aText->SetItalic( true );
                     break;
 
+                case T_color:
+                    color.r = parseInt( "red" ) / 255.0;
+                    color.g = parseInt( "green" ) / 255.0;
+                    color.b = parseInt( "blue" ) / 255.0;
+                    color.a = Clamp( parseDouble( "alpha" ), 0.0, 1.0 );
+                    aText->SetTextColor( color );
+                    NeedRIGHT();
+                    break;
+
                 case T_line_spacing:
                     aText->SetLineSpacing( parseDouble( "line spacing" ) );
                     NeedRIGHT();
@@ -635,12 +643,31 @@ void SCH_SEXPR_PARSER::parseEDA_TEXT( EDA_TEXT* aText, bool aConvertOverbarSynta
 
             break;
 
+        case T_href:
+        {
+            NeedSYMBOL();
+            wxString hyperlink = FromUTF8();
+
+            if( !aText->ValidateHyperlink( hyperlink ) )
+            {
+                THROW_PARSE_ERROR( wxString::Format( _( "Invalid hyperlink url '%s'" ), hyperlink ),
+                                   CurSource(), CurLine(), CurLineNumber(), CurOffset() );
+            }
+            else
+            {
+                aText->SetHyperlink( hyperlink );
+            }
+
+            NeedRIGHT();
+        }
+        break;
+
         case T_hide:
             aText->SetVisible( false );
             break;
 
         default:
-            Expecting( "font, justify, or hide" );
+            Expecting( "font, justify, hide or href" );
         }
     }
 }
@@ -691,8 +718,6 @@ void SCH_SEXPR_PARSER::parsePinNames( std::unique_ptr<LIB_SYMBOL>& aSymbol )
     wxCHECK_RET( CurTok() == T_pin_names,
                  "Cannot parse " + GetTokenString( CurTok() ) + " as a pin_name token." );
 
-    wxString error;
-
     T token = NextTok();
 
     if( token == T_LEFT )
@@ -726,7 +751,6 @@ LIB_FIELD* SCH_SEXPR_PARSER::parseProperty( std::unique_ptr<LIB_SYMBOL>& aSymbol
                  wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as a property." ) );
     wxCHECK( aSymbol, nullptr );
 
-    wxString error;
     wxString name;
     wxString value;
     std::unique_ptr<LIB_FIELD> field = std::make_unique<LIB_FIELD>( aSymbol.get(),
@@ -749,6 +773,18 @@ LIB_FIELD* SCH_SEXPR_PARSER::parseProperty( std::unique_ptr<LIB_SYMBOL>& aSymbol
     }
 
     field->SetName( name );
+
+    // Correctly set the ID based on canonical (untranslated) field name
+    // If ID is stored in the file (old versions), it will overwrite this
+    for( int ii = 0; ii < MANDATORY_FIELDS; ++ii )
+    {
+        if( !name.CmpNoCase( TEMPLATE_FIELDNAME::GetDefaultFieldName( ii ) ) )
+        {
+            field->SetId( ii );
+            break;
+        }
+    }
+
     token = NextTok();
 
     if( !IsSymbol( token ) )
@@ -786,8 +822,18 @@ LIB_FIELD* SCH_SEXPR_PARSER::parseProperty( std::unique_ptr<LIB_SYMBOL>& aSymbol
             parseEDA_TEXT( static_cast<EDA_TEXT*>( field.get() ), field->GetId() == VALUE_FIELD );
             break;
 
+        case T_show_name:
+            field->SetNameShown();
+            NeedRIGHT();
+            break;
+
+        case T_do_not_autoplace:
+            field->SetCanAutoplace( false );
+            NeedRIGHT();
+            break;
+
         default:
-            Expecting( "id, at or effects" );
+            Expecting( "id, at, show_name, do_not_autoplace, or effects" );
         }
     }
 
@@ -899,7 +945,7 @@ LIB_SHAPE* SCH_SEXPR_PARSER::parseArc()
     VECTOR2I      midPoint( 1, 1 );
     VECTOR2I      endPoint( 0, 1 );
     bool          hasMidPoint = false;
-    STROKE_PARAMS stroke( Mils2iu( DEFAULT_LINE_WIDTH_MILS ), PLOT_DASH_TYPE::DEFAULT );
+    STROKE_PARAMS stroke( schIUScale.MilsToIU( DEFAULT_LINE_WIDTH_MILS ), PLOT_DASH_TYPE::DEFAULT );
     FILL_PARAMS   fill;
 
     // Parameters for legacy format
@@ -1000,38 +1046,38 @@ LIB_SHAPE* SCH_SEXPR_PARSER::parseArc()
         }
     }
 
-    arc->SetStart( startPoint );
-    arc->SetEnd( endPoint );
-
     if( hasMidPoint )
     {
-        arc->SetCenter( CalcArcCenter( arc->GetStart(), midPoint, arc->GetEnd() ) );
+        arc->SetArcGeometry( startPoint, midPoint, endPoint );
 
-#if 1   // This code will be removed if the current code in Eeschema is modified to allow
-        // full support of arcs >= 180 deg without issue.
-        // For now the arcs are just modified to be < 180 degrees to do not break
-        // some other functions ( Draw, Plot, HitTest)
-
-        /*
-         * Current file format stores start-mid-end and so doesn't care about winding.  We
-         * store start-end with an implied winding internally though, so we need to swap the
-         * ends if they don't match what we're expecting.
-         * This issue is only for 180 deg arcs, because 180 deg are a limit to handle arcs in
-         * previous versions of Kicad
-         */
+    #if 1
+        // Should be not required. Unfortunately it is needed because some bugs created
+        // incorrect data after conversion of old libraries to the new arc format using
+        // startPoint, midPoint, endPoint
+        // Until now, in Eeschema the arc angle should be <= 180 deg.
+        // If > 180 (bug...) we need to swap arc ends.
+        // However arc angle == 180 deg can also create issues in some cases (plotters, hittest)
+        // so also avoid arc == 180 deg
         EDA_ANGLE arc_start, arc_end, arc_angle;
         arc->CalcArcAngles( arc_start, arc_end );
         arc_angle = arc_end - arc_start;
 
-        // So a workaround is to slightly change the arc angle to
-        // avoid it == 180 deg after correction
-        if( arc_angle == ANGLE_180 )
+        if( arc_angle > ANGLE_180 )
         {
+            // Change arc to its complement (360deg - arc_angle)
+            arc->SetStart( endPoint );
+            arc->SetEnd( startPoint );
             VECTOR2I new_center = CalcArcCenter( arc->GetStart(), arc->GetEnd(),
-                                  EDA_ANGLE( 179.5, DEGREES_T ) );
+                                                 ANGLE_360 - arc_angle );
             arc->SetCenter( new_center );
         }
-#endif
+        else if( arc_angle == ANGLE_180 )
+        {
+            VECTOR2I new_center = CalcArcCenter( arc->GetStart(), arc->GetEnd(),
+                                                 EDA_ANGLE( 179.5, DEGREES_T ) );
+            arc->SetCenter( new_center );
+        }
+    #endif
     }
     else if( hasAngles )
     {
@@ -1041,9 +1087,30 @@ LIB_SHAPE* SCH_SEXPR_PARSER::parseArc()
          * between LibEdit and PCBNew.  Since we now use a common class (EDA_SHAPE) for both we
          * need to flip one of them.  LibEdit drew the short straw.
          */
-        VECTOR2I temp = arc->GetStart();
-        arc->SetStart( arc->GetEnd() );
-        arc->SetEnd( temp );
+        arc->SetStart( endPoint );
+        arc->SetEnd( startPoint );
+
+        // Like previously, 180 degrees arcs that create issues are just modified
+        // to be < 180 degrees to do not break some other functions ( Draw, Plot, HitTest)
+        EDA_ANGLE arc_start, arc_end, arc_angle;
+        arc->CalcArcAngles( arc_start, arc_end );
+        arc_angle = arc_end - arc_start;
+
+        // The arc angle should be <= 180 deg.
+        // If > 180 we need to swap arc ends (the first choice was not good)
+        if( arc_angle > ANGLE_180 )
+        {
+            arc->SetStart( startPoint );
+            arc->SetEnd( endPoint );
+        }
+        else if( arc_angle == ANGLE_180 )
+        {
+            arc->SetStart( startPoint );
+            arc->SetEnd( endPoint );
+            VECTOR2I new_center = CalcArcCenter( arc->GetStart(), arc->GetEnd(),
+                                  EDA_ANGLE( 179.5, DEGREES_T ) );
+            arc->SetCenter( new_center );
+        }
     }
     else
     {
@@ -1060,7 +1127,7 @@ LIB_SHAPE* SCH_SEXPR_PARSER::parseBezier()
                  wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as a bezier." ) );
 
     T             token;
-    STROKE_PARAMS stroke( Mils2iu( DEFAULT_LINE_WIDTH_MILS ), PLOT_DASH_TYPE::DEFAULT );
+    STROKE_PARAMS stroke( schIUScale.MilsToIU( DEFAULT_LINE_WIDTH_MILS ), PLOT_DASH_TYPE::DEFAULT );
     FILL_PARAMS   fill;
 
     std::unique_ptr<LIB_SHAPE> bezier = std::make_unique<LIB_SHAPE>( nullptr, SHAPE_T::BEZIER );
@@ -1143,7 +1210,7 @@ LIB_SHAPE* SCH_SEXPR_PARSER::parseCircle()
     T             token;
     VECTOR2I      center( 0, 0 );
     int           radius = 1;     // defaulting to 0 could result in troublesome math....
-    STROKE_PARAMS stroke( Mils2iu( DEFAULT_LINE_WIDTH_MILS ), PLOT_DASH_TYPE::DEFAULT );
+    STROKE_PARAMS stroke( schIUScale.MilsToIU( DEFAULT_LINE_WIDTH_MILS ), PLOT_DASH_TYPE::DEFAULT );
     FILL_PARAMS   fill;
 
     std::unique_ptr<LIB_SHAPE> circle = std::make_unique<LIB_SHAPE>( nullptr, SHAPE_T::CIRCLE );
@@ -1328,7 +1395,7 @@ LIB_PIN* SCH_SEXPR_PARSER::parsePin()
                 {
                     // The EDA_TEXT font effects formatting is used so use and EDA_TEXT object
                     // so duplicate parsing is not required.
-                    EDA_TEXT text;
+                    EDA_TEXT text( schIUScale.MilsToIU( DEFAULT_SIZE_TEXT ) );
 
                     parseEDA_TEXT( &text, true );
                     pin->SetNameTextSize( text.GetTextHeight() );
@@ -1362,7 +1429,7 @@ LIB_PIN* SCH_SEXPR_PARSER::parsePin()
                 {
                     // The EDA_TEXT font effects formatting is used so use and EDA_TEXT object
                     // so duplicate parsing is not required.
-                    EDA_TEXT text;
+                    EDA_TEXT text( schIUScale.MilsToIU( DEFAULT_SIZE_TEXT ) );
 
                     parseEDA_TEXT( &text, false );
                     pin->SetNumberTextSize( text.GetTextHeight() );
@@ -1417,7 +1484,7 @@ LIB_SHAPE* SCH_SEXPR_PARSER::parsePolyLine()
                  wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as a poly." ) );
 
     T token;
-    STROKE_PARAMS stroke( Mils2iu( DEFAULT_LINE_WIDTH_MILS ), PLOT_DASH_TYPE::DEFAULT );
+    STROKE_PARAMS stroke( schIUScale.MilsToIU( DEFAULT_LINE_WIDTH_MILS ), PLOT_DASH_TYPE::DEFAULT );
     FILL_PARAMS fill;
     std::unique_ptr<LIB_SHAPE> poly = std::make_unique<LIB_SHAPE>( nullptr, SHAPE_T::POLY );
 
@@ -1485,7 +1552,7 @@ LIB_SHAPE* SCH_SEXPR_PARSER::parseRectangle()
                  wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as a rectangle." ) );
 
     T token;
-    STROKE_PARAMS stroke( Mils2iu( DEFAULT_LINE_WIDTH_MILS ), PLOT_DASH_TYPE::DEFAULT );
+    STROKE_PARAMS stroke( schIUScale.MilsToIU( DEFAULT_LINE_WIDTH_MILS ), PLOT_DASH_TYPE::DEFAULT );
     FILL_PARAMS fill;
     std::unique_ptr<LIB_SHAPE> rectangle = std::make_unique<LIB_SHAPE>( nullptr, SHAPE_T::RECT );
 
@@ -1545,7 +1612,6 @@ LIB_TEXT* SCH_SEXPR_PARSER::parseText()
                  wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as a text token." ) );
 
     T token;
-    wxString tmp;
     std::unique_ptr<LIB_TEXT> text = std::make_unique<LIB_TEXT>( nullptr );
 
     text->SetUnit( m_unit );
@@ -1601,7 +1667,12 @@ LIB_TEXTBOX* SCH_SEXPR_PARSER::parseTextBox()
                  wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as a text box." ) );
 
     T             token;
-    STROKE_PARAMS stroke( Mils2iu( DEFAULT_LINE_WIDTH_MILS ), PLOT_DASH_TYPE::DEFAULT );
+    VECTOR2I      pos;
+    VECTOR2I      end;
+    VECTOR2I      size;
+    bool          foundEnd = false;
+    bool          foundSize = false;
+    STROKE_PARAMS stroke( schIUScale.MilsToIU( DEFAULT_LINE_WIDTH_MILS ), PLOT_DASH_TYPE::DEFAULT );
     FILL_PARAMS   fill;
     std::unique_ptr<LIB_TEXTBOX> textBox = std::make_unique<LIB_TEXTBOX>( nullptr );
 
@@ -1630,13 +1701,26 @@ LIB_TEXTBOX* SCH_SEXPR_PARSER::parseTextBox()
 
         switch( token )
         {
-        case T_start:
-            textBox->SetPosition( parseXY() );
+        case T_start:       // Legacy token during 6.99 development; fails to handle angle
+            pos = parseXY();
             NeedRIGHT();
             break;
 
-        case T_end:
-            textBox->SetEnd( parseXY() );
+        case T_end:         // Legacy token during 6.99 development; fails to handle angle
+            end = parseXY();
+            foundEnd = true;
+            NeedRIGHT();
+            break;
+
+        case T_at:
+            pos = parseXY();
+            textBox->SetTextAngle( EDA_ANGLE( parseDouble( "textbox angle" ), DEGREES_T ) );
+            NeedRIGHT();
+            break;
+
+        case T_size:
+            size = parseXY();
+            foundSize = true;
             NeedRIGHT();
             break;
 
@@ -1656,9 +1740,18 @@ LIB_TEXTBOX* SCH_SEXPR_PARSER::parseTextBox()
             break;
 
         default:
-            Expecting( "start, end, stroke, fill or effects" );
+            Expecting( "at, size, stroke, fill or effects" );
         }
     }
+
+    textBox->SetPosition( pos );
+
+    if( foundEnd )
+        textBox->SetEnd( end );
+    else if( foundSize )
+        textBox->SetEnd( pos + size );
+    else
+        Expecting( "size" );
 
     return textBox.release();
 }
@@ -1683,20 +1776,20 @@ void SCH_SEXPR_PARSER::parsePAGE_INFO( PAGE_INFO& aPageInfo )
 
     if( pageType == PAGE_INFO::Custom )
     {
-        int width = Mm2mils( parseDouble( "width" ) ); // width stored in mm so we convert to mils
+        int width = EDA_UNIT_UTILS::Mm2mils( parseDouble( "width" ) ); // width stored in mm so we convert to mils
 
         // Perform some controls to avoid crashes if the size is edited by hands
         if( width < MIN_PAGE_SIZE_MILS )
             width = MIN_PAGE_SIZE_MILS;
-        else if( width > MAX_PAGE_SIZE_MILS )
-            width = MAX_PAGE_SIZE_MILS;
+        else if( width > MAX_PAGE_SIZE_EESCHEMA_MILS )
+            width = MAX_PAGE_SIZE_EESCHEMA_MILS;
 
-        int height = Mm2mils( parseDouble( "height" ) ); // height stored in mm so we convert to mils
+        int height = EDA_UNIT_UTILS::Mm2mils( parseDouble( "height" ) ); // height stored in mm so we convert to mils
 
         if( height < MIN_PAGE_SIZE_MILS )
             height = MIN_PAGE_SIZE_MILS;
-        else if( height > MAX_PAGE_SIZE_MILS )
-            height = MAX_PAGE_SIZE_MILS;
+        else if( height > MAX_PAGE_SIZE_EESCHEMA_MILS )
+            height = MAX_PAGE_SIZE_EESCHEMA_MILS;
 
         aPageInfo.SetWidthMils( width );
         aPageInfo.SetHeightMils( height );
@@ -1858,6 +1951,31 @@ SCH_FIELD* SCH_SEXPR_PARSER::parseSchField( SCH_ITEM* aParent )
     field->SetText( value );
     field->SetVisible( true );
 
+    // Correctly set the ID based on canonical (untranslated) field name
+    // If ID is stored in the file (old versions), it will overwrite this
+    if( aParent->Type() == SCH_SYMBOL_T )
+    {
+        for( int ii = 0; ii < MANDATORY_FIELDS; ++ii )
+        {
+            if( name == TEMPLATE_FIELDNAME::GetDefaultFieldName( ii, false ) )
+            {
+                field->SetId( ii );
+                break;
+            }
+        }
+    }
+    else if( aParent->Type() == SCH_SHEET_T )
+    {
+        for( int ii = 0; ii < SHEET_MANDATORY_FIELDS; ++ii )
+        {
+            if( name == SCH_SHEET::GetDefaultFieldName( ii,  false ) )
+            {
+                field->SetId( ii );
+                break;
+            }
+        }
+    }
+
     for( token = NextTok(); token != T_RIGHT; token = NextTok() )
     {
         if( token != T_LEFT )
@@ -1882,8 +2000,18 @@ SCH_FIELD* SCH_SEXPR_PARSER::parseSchField( SCH_ITEM* aParent )
             parseEDA_TEXT( static_cast<EDA_TEXT*>( field.get() ), field->GetId() == VALUE_FIELD );
             break;
 
+        case T_show_name:
+            field->SetNameShown();
+            NeedRIGHT();
+            break;
+
+        case T_do_not_autoplace:
+            field->SetCanAutoplace( false );
+            NeedRIGHT();
+            break;
+
         default:
-            Expecting( "at or effects" );
+            Expecting( "id, at, show_name, do_not_autoplace or effects" );
         }
     }
 
@@ -2002,6 +2130,10 @@ void SCH_SEXPR_PARSER::parseSchSheetInstances( SCH_SHEET* aRootSheet, SCH_SCREEN
 
             instance.m_Path = KIID_PATH( FromUTF8() );
 
+            if( ( !m_appending && aRootSheet->GetScreen() == aScreen ) &&
+                ( aScreen->GetFileFormatVersionAtLoad() < 20221002 ) )
+                instance.m_Path.insert( instance.m_Path.begin(), m_rootUuid );
+
             for( token = NextTok(); token != T_RIGHT; token = NextTok() )
             {
                 if( token != T_LEFT )
@@ -2061,6 +2193,7 @@ void SCH_SEXPR_PARSER::parseSchSymbolInstances( SCH_SCREEN* aScreen )
     wxCHECK_RET( CurTok() == T_symbol_instances,
                  "Cannot parse " + GetTokenString( CurTok() ) + " as an instances token." );
     wxCHECK( aScreen, /* void */ );
+    wxCHECK( m_rootUuid != NilUuid(), /* void */ );
 
     T token;
 
@@ -2080,6 +2213,9 @@ void SCH_SEXPR_PARSER::parseSchSymbolInstances( SCH_SCREEN* aScreen )
             SYMBOL_INSTANCE_REFERENCE instance;
 
             instance.m_Path = KIID_PATH( FromUTF8() );
+
+            if( !m_appending )
+                instance.m_Path.insert( instance.m_Path.begin(), m_rootUuid );
 
             for( token = NextTok(); token != T_RIGHT; token = NextTok() )
             {
@@ -2140,6 +2276,8 @@ void SCH_SEXPR_PARSER::ParseSchematic( SCH_SHEET* aSheet, bool aIsCopyableOnly, 
     if( aIsCopyableOnly )
         m_requiredVersion = aFileVersion;
 
+    bool fileHasUuid = false;
+
     T token;
 
     if( !aIsCopyableOnly )
@@ -2151,6 +2289,11 @@ void SCH_SEXPR_PARSER::ParseSchematic( SCH_SHEET* aSheet, bool aIsCopyableOnly, 
             Expecting( "kicad_sch" );
 
         parseHeader( T_kicad_sch, SEXPR_SCHEMATIC_FILE_VERSION );
+
+        // Prior to schematic file version 20210406, schematics did not have UUIDs so we need
+        // to generate one for the root schematic for instance paths.
+        if( m_requiredVersion < 20210406 )
+            m_rootUuid = screen->GetUuid();
     }
 
     screen->SetFileFormatVersionAtLoad( m_requiredVersion );
@@ -2175,6 +2318,17 @@ void SCH_SEXPR_PARSER::ParseSchematic( SCH_SHEET* aSheet, bool aIsCopyableOnly, 
         case T_uuid:
             NeedSYMBOL();
             screen->m_uuid = parseKIID();
+
+            // Set the root sheet UUID with the schematic file UUID.  Root sheets are virtual
+            // and always get a new UUID so this prevents file churn now that the root UUID
+            // is saved in the symbol instance path.
+            if( aSheet == m_rootSheet )
+            {
+                const_cast<KIID&>( aSheet->m_Uuid ) = screen->GetUuid();
+                m_rootUuid = screen->GetUuid();
+                fileHasUuid = true;
+            }
+
             NeedRIGHT();
             break;
 
@@ -2277,6 +2431,40 @@ void SCH_SEXPR_PARSER::ParseSchematic( SCH_SHEET* aSheet, bool aIsCopyableOnly, 
             break;
 
         case T_polyline:
+        {
+            // polyline keyword is used in eeschema both for SCH_SHAPE and SCH_LINE items.
+            // In symbols it describes a polygon, having n corners and can be filled
+            // In schematic it describes a line (with no fill descr), but could be extended to a
+            // polygon (for instance when importing files) because the schematic handles all
+            // SCH_SHAPE.
+
+            // parseSchPolyLine() returns always a SCH_SHAPE, io convert it to a simple SCH_LINE
+            // For compatibility reasons, keep SCH_SHAPE for a polygon and convert to SCH_LINE
+            // when the item has only 2 corners, similar to a SCH_LINE
+            SCH_SHAPE* poly = parseSchPolyLine();
+
+            if( poly->GetPointCount() > 2 )
+            {
+                screen->Append( poly );
+            }
+            else
+            {
+                // For SCH_SHAPE having only 2 points, this is a "old" SCH_LINE entity.
+                // So convert the SCH_SHAPE to a simple SCH_LINE
+                SCH_LINE* line = new SCH_LINE( VECTOR2I(), LAYER_NOTES );
+                SHAPE_LINE_CHAIN& outline = poly->GetPolyShape().Outline(0);
+                line->SetStartPoint( outline.CPoint(0) );
+                line->SetEndPoint( outline.CPoint(1) );
+                line->SetStroke( poly->GetStroke() );
+                const_cast<KIID&>( line->m_Uuid ) = poly->m_Uuid;
+
+                screen->Append( line );
+
+                delete poly;
+            }
+        }
+            break;
+
         case T_bus:
         case T_wire:
             screen->Append( parseLine() );
@@ -2335,7 +2523,18 @@ void SCH_SEXPR_PARSER::ParseSchematic( SCH_SHEET* aSheet, bool aIsCopyableOnly, 
         }
     }
 
+    // Older s-expression schematics may not have a UUID so use the one automatically generated
+    // as the virtual root sheet UUID.
+    if( ( aSheet == m_rootSheet ) && !fileHasUuid )
+    {
+        const_cast<KIID&>( aSheet->m_Uuid ) = screen->GetUuid();
+        m_rootUuid = screen->GetUuid();
+    }
+
     screen->UpdateLocalLibSymbolLinks();
+
+    if( m_requiredVersion < 20200828 )
+        screen->SetLegacySymbolInstanceData();
 }
 
 
@@ -2345,7 +2544,6 @@ SCH_SYMBOL* SCH_SEXPR_PARSER::parseSchematicSymbol()
                  wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as a symbol." ) );
 
     T token;
-    wxString tmp;
     wxString libName;
     SCH_FIELD* field;
     std::unique_ptr<SCH_SYMBOL> symbol = std::make_unique<SCH_SYMBOL>();
@@ -2356,6 +2554,7 @@ SCH_SYMBOL* SCH_SEXPR_PARSER::parseSchematicSymbol()
     symbol->ClearFieldsAutoplaced();
 
     m_fieldId = MANDATORY_FIELDS;
+    m_fieldIDsRead.clear();
 
     for( token = NextTok(); token != T_RIGHT; token = NextTok() )
     {
@@ -2391,9 +2590,20 @@ SCH_SYMBOL* SCH_SEXPR_PARSER::parseSchematicSymbol()
                 Expecting( "symbol|number" );
 
             LIB_ID libId;
+            wxString name = FromUTF8();
+            int bad_pos = libId.Parse( name );
 
-            if( libId.Parse( FromUTF8() ) >= 0 )
+            if( bad_pos >= 0 )
             {
+                if( static_cast<int>( name.size() ) > bad_pos )
+                {
+                    wxString msg = wxString::Format(
+                            _( "Symbol %s contains invalid character '%c'" ), name,
+                            name[bad_pos] );
+
+                    THROW_PARSE_ERROR( msg, CurSource(), CurLine(), CurLineNumber(), CurOffset() );
+                }
+
                 THROW_PARSE_ERROR( _( "Invalid symbol library ID" ), CurSource(), CurLine(),
                                    CurLineNumber(), CurOffset() );
             }
@@ -2452,6 +2662,11 @@ SCH_SYMBOL* SCH_SEXPR_PARSER::parseSchematicSymbol()
             NeedRIGHT();
             break;
 
+        case T_dnp:
+            symbol->SetDNP( parseBool() );
+            NeedRIGHT();
+            break;
+
         case T_fields_autoplaced:
             symbol->SetFieldsAutoplaced();
             NeedRIGHT();
@@ -2463,22 +2678,141 @@ SCH_SYMBOL* SCH_SEXPR_PARSER::parseSchematicSymbol()
             NeedRIGHT();
             break;
 
+        case T_default_instance:
+        {
+            SYMBOL_INSTANCE_REFERENCE defaultInstance;
+
+            for( token = NextTok(); token != T_RIGHT; token = NextTok() )
+            {
+                if( token != T_LEFT )
+                    Expecting( T_LEFT );
+
+                token = NextTok();
+
+                switch( token )
+                {
+                case T_reference:
+                    NeedSYMBOL();
+                    defaultInstance.m_Reference = FromUTF8();
+                    NeedRIGHT();
+                    break;
+
+                case T_unit:
+                    defaultInstance.m_Unit = parseInt( "symbol unit" );
+                    NeedRIGHT();
+                    break;
+
+                case T_value:
+                    NeedSYMBOL();
+                    defaultInstance.m_Value = FromUTF8();
+                    NeedRIGHT();
+                    break;
+
+                case T_footprint:
+                    NeedSYMBOL();
+                    defaultInstance.m_Footprint = FromUTF8();
+                    NeedRIGHT();
+                    break;
+
+                default:
+                    Expecting( "reference, unit, value or footprint" );
+                }
+            }
+
+            break;
+        }
+
+        case T_instances:
+        {
+            for( token = NextTok(); token != T_RIGHT; token = NextTok() )
+            {
+                if( token != T_LEFT )
+                    Expecting( T_LEFT );
+
+                token = NextTok();
+
+                if( token != T_project )
+                    Expecting( "project" );
+
+                NeedSYMBOL();
+
+                wxString projectName = FromUTF8();
+
+                for( token = NextTok(); token != T_RIGHT; token = NextTok() )
+                {
+                    if( token != T_LEFT )
+                        Expecting( T_LEFT );
+
+                    token = NextTok();
+
+                    if( token != T_path )
+                        Expecting( "path" );
+
+                    SYMBOL_INSTANCE_REFERENCE instance;
+
+                    instance.m_ProjectName = projectName;
+
+                    NeedSYMBOL();
+                    instance.m_Path = KIID_PATH( FromUTF8() );
+
+                    for( token = NextTok(); token != T_RIGHT; token = NextTok() )
+                    {
+                        if( token != T_LEFT )
+                            Expecting( T_LEFT );
+
+                        token = NextTok();
+
+                        switch( token )
+                        {
+                        case T_reference:
+                            NeedSYMBOL();
+                            instance.m_Reference = FromUTF8();
+                            NeedRIGHT();
+                            break;
+
+                        case T_unit:
+                            instance.m_Unit = parseInt( "symbol unit" );
+                            NeedRIGHT();
+                            break;
+
+                        case T_value:
+                            NeedSYMBOL();
+                            instance.m_Value = FromUTF8();
+                            NeedRIGHT();
+                            break;
+
+                        case T_footprint:
+                            NeedSYMBOL();
+                            instance.m_Footprint = FromUTF8();
+                            NeedRIGHT();
+                            break;
+
+                        default:
+                            Expecting( "reference, unit, value or footprint" );
+                        }
+
+                        symbol->AddHierarchicalReference( instance );
+                    }
+                }
+            }
+
+            break;
+        }
+
         case T_property:
             // The field parent symbol must be set and its orientation must be set before
             // the field positions are set.
             field = parseSchField( symbol.get() );
 
-            // It would appear that at some point we allowed duplicate ids to slip through
-            // when writing files.  The easiest (and most complete) solution is to disallow
-            // multiple instances of the same id (for all files since the source of the error
-            // *might* in fact be hand-edited files).
-            //
-            // While no longer used, -1 is still a valid id for user field.  It gets converted
-            // to the next unused number on save.
-            if( fieldIDsRead.count( field->GetId() ) )
-                field->SetId( -1 );
-            else
-                fieldIDsRead.insert( field->GetId() );
+            if( m_fieldIDsRead.count( field->GetId() ) )
+            {
+                int nextAvailableId = field->GetId() + 1;
+
+                while( m_fieldIDsRead.count( nextAvailableId ) )
+                    nextAvailableId += 1;
+
+                field->SetId( nextAvailableId );
+            }
 
             // Set the default symbol reference prefix.
             if( field->GetId() == REFERENCE_FIELD )
@@ -2511,6 +2845,8 @@ SCH_SYMBOL* SCH_SEXPR_PARSER::parseSchematicSymbol()
                 *symbol->GetFieldById( field->GetId() ) = *field;
             else
                 symbol->AddField( *field );
+
+            m_fieldIDsRead.insert( field->GetId() );
 
             delete field;
             break;
@@ -2564,7 +2900,8 @@ SCH_SYMBOL* SCH_SEXPR_PARSER::parseSchematicSymbol()
             break;
 
         default:
-            Expecting( "lib_id, lib_name, at, mirror, uuid, property, pin, or instances" );
+            Expecting( "lib_id, lib_name, at, mirror, uuid, on_board, in_bom, dnp, "
+                       "default_instance, property, pin, or instances" );
         }
     }
 
@@ -2659,7 +2996,7 @@ SCH_SHEET* SCH_SEXPR_PARSER::parseSheet()
                  wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as a sheet." ) );
 
     T token;
-    STROKE_PARAMS stroke( Mils2iu( DEFAULT_LINE_WIDTH_MILS ), PLOT_DASH_TYPE::DEFAULT );
+    STROKE_PARAMS stroke( schIUScale.MilsToIU( DEFAULT_LINE_WIDTH_MILS ), PLOT_DASH_TYPE::DEFAULT );
     FILL_PARAMS fill;
     SCH_FIELD* field;
     std::vector<SCH_FIELD> fields;
@@ -2734,12 +3071,14 @@ SCH_SHEET* SCH_SEXPR_PARSER::parseSheet()
             // complete) solution is to disallow multiple instances of the same id (for all
             // files since the source of the error *might* in fact be hand-edited files).
             //
-            // While no longer used, -1 is still a valid id for user field.  It gets converted
-            // to the next unused number on save.
-            if( fieldIDsRead.count( field->GetId() ) )
-                field->SetId( -1 );
-            else
-                fieldIDsRead.insert( field->GetId() );
+            // While no longer used, -1 is still a valid id for user field.  We convert it to
+            // the first available ID after the mandatory fields
+
+            if( field->GetId() < 0 )
+                field->SetId( SHEET_MANDATORY_FIELDS );
+
+            while( !fieldIDsRead.insert( field->GetId() ).second )
+                field->SetId( field->GetId() + 1 );
 
             fields.emplace_back( *field );
             delete field;
@@ -2859,7 +3198,7 @@ SCH_BUS_WIRE_ENTRY* SCH_SEXPR_PARSER::parseBusEntry()
                  wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as a bus entry." ) );
 
     T token;
-    STROKE_PARAMS stroke( Mils2iu( DEFAULT_LINE_WIDTH_MILS ), PLOT_DASH_TYPE::DEFAULT );
+    STROKE_PARAMS stroke( schIUScale.MilsToIU( DEFAULT_LINE_WIDTH_MILS ), PLOT_DASH_TYPE::DEFAULT );
     std::unique_ptr<SCH_BUS_WIRE_ENTRY> busEntry = std::make_unique<SCH_BUS_WIRE_ENTRY>();
 
     for( token = NextTok(); token != T_RIGHT; token = NextTok() )
@@ -2907,10 +3246,74 @@ SCH_BUS_WIRE_ENTRY* SCH_SEXPR_PARSER::parseBusEntry()
 }
 
 
-SCH_LINE* SCH_SEXPR_PARSER::parseLine()
+SCH_SHAPE* SCH_SEXPR_PARSER::parseSchPolyLine()
 {
     T             token;
-    STROKE_PARAMS stroke( Mils2iu( DEFAULT_LINE_WIDTH_MILS ), PLOT_DASH_TYPE::DEFAULT );
+    STROKE_PARAMS stroke( schIUScale.MilsToIU( DEFAULT_LINE_WIDTH_MILS ), PLOT_DASH_TYPE::DEFAULT );
+    FILL_PARAMS   fill;
+    int           layer = LAYER_NOTES;
+
+    std::unique_ptr<SCH_SHAPE> polyline = std::make_unique<SCH_SHAPE>( SHAPE_T::POLY, layer );
+
+    for( token = NextTok(); token != T_RIGHT; token = NextTok() )
+    {
+        if( token != T_LEFT )
+            Expecting( T_LEFT );
+
+        token = NextTok();
+
+        switch( token )
+        {
+        case T_pts:
+            for( token = NextTok(); token != T_RIGHT; token = NextTok() )
+            {
+                if( token != T_LEFT )
+                    Expecting( T_LEFT );
+
+                token = NextTok();
+
+                if( token != T_xy )
+                    Expecting( "xy" );
+
+                polyline->AddPoint( parseXY() );
+
+                NeedRIGHT();
+            }
+            break;
+
+        case T_stroke:
+            parseStroke( stroke );
+            polyline->SetStroke( stroke );
+            break;
+
+        case T_fill:
+            parseFill( fill );
+            polyline->SetFillMode( fill.m_FillType );
+            polyline->SetFillColor( fill.m_Color );
+            break;
+
+        case T_uuid:
+            NeedSYMBOL();
+            const_cast<KIID&>( polyline->m_Uuid ) = parseKIID();
+            NeedRIGHT();
+            break;
+
+        default:
+            Expecting( "pts, uuid, stroke, or fill" );
+        }
+    }
+
+    return polyline.release();
+}
+
+
+SCH_LINE* SCH_SEXPR_PARSER::parseLine()
+{
+    // Note: T_polyline is deprecated in this code: it is now handled by
+    // parseSchPolyLine() that can handle true polygons, and not only one segment.
+
+    T             token;
+    STROKE_PARAMS stroke( schIUScale.MilsToIU( DEFAULT_LINE_WIDTH_MILS ), PLOT_DASH_TYPE::DEFAULT );
     int           layer;
 
     switch( CurTok() )
@@ -2982,7 +3385,7 @@ SCH_SHAPE* SCH_SEXPR_PARSER::parseSchArc()
     VECTOR2I      startPoint;
     VECTOR2I      midPoint;
     VECTOR2I      endPoint;
-    STROKE_PARAMS stroke( Mils2iu( DEFAULT_LINE_WIDTH_MILS ), PLOT_DASH_TYPE::DEFAULT );
+    STROKE_PARAMS stroke( schIUScale.MilsToIU( DEFAULT_LINE_WIDTH_MILS ), PLOT_DASH_TYPE::DEFAULT );
     FILL_PARAMS   fill;
     std::unique_ptr<SCH_SHAPE> arc = std::make_unique<SCH_SHAPE>( SHAPE_T::ARC );
 
@@ -3032,25 +3435,7 @@ SCH_SHAPE* SCH_SEXPR_PARSER::parseSchArc()
         }
     }
 
-    arc->SetStart( startPoint );
-    arc->SetEnd( endPoint );
-    arc->SetCenter( CalcArcCenter( arc->GetStart(), midPoint, arc->GetEnd() ) );
-
-    /**
-     * Current file format stores start-mid-end and so doesn't care about winding.  We store
-     * start-end with an implied winding internally though, so we need to swap the ends if they
-     * don't match what we're expecting.  (Note that what we're expecting is backwards from the
-     * LIB_SHAPE case because LibEdit has an upside-down coordinate system.)
-     */
-    EDA_ANGLE arc_start, arc_end;
-    arc->CalcArcAngles( arc_start, arc_end );
-
-    if( arc_start > arc_end )
-    {
-        VECTOR2I temp = arc->GetStart();
-        arc->SetStart( arc->GetEnd() );
-        arc->SetEnd( temp );
-    }
+    arc->SetArcGeometry( startPoint, midPoint, endPoint );
 
     return arc.release();
 }
@@ -3064,7 +3449,7 @@ SCH_SHAPE* SCH_SEXPR_PARSER::parseSchCircle()
     T             token;
     VECTOR2I      center;
     int           radius = 0;
-    STROKE_PARAMS stroke( Mils2iu( DEFAULT_LINE_WIDTH_MILS ), PLOT_DASH_TYPE::DEFAULT );
+    STROKE_PARAMS stroke( schIUScale.MilsToIU( DEFAULT_LINE_WIDTH_MILS ), PLOT_DASH_TYPE::DEFAULT );
     FILL_PARAMS   fill;
     std::unique_ptr<SCH_SHAPE> circle = std::make_unique<SCH_SHAPE>( SHAPE_T::CIRCLE );
 
@@ -3122,7 +3507,7 @@ SCH_SHAPE* SCH_SEXPR_PARSER::parseSchRectangle()
                  wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as a rectangle." ) );
 
     T             token;
-    STROKE_PARAMS stroke( Mils2iu( DEFAULT_LINE_WIDTH_MILS ), PLOT_DASH_TYPE::DEFAULT );
+    STROKE_PARAMS stroke( schIUScale.MilsToIU( DEFAULT_LINE_WIDTH_MILS ), PLOT_DASH_TYPE::DEFAULT );
     FILL_PARAMS   fill;
     std::unique_ptr<SCH_SHAPE> rectangle = std::make_unique<SCH_SHAPE>( SHAPE_T::RECT );
 
@@ -3177,7 +3562,7 @@ SCH_SHAPE* SCH_SEXPR_PARSER::parseSchBezier()
                  wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as a bezier." ) );
 
     T             token;
-    STROKE_PARAMS stroke( Mils2iu( DEFAULT_LINE_WIDTH_MILS ), PLOT_DASH_TYPE::DEFAULT );
+    STROKE_PARAMS stroke( schIUScale.MilsToIU( DEFAULT_LINE_WIDTH_MILS ), PLOT_DASH_TYPE::DEFAULT );
     FILL_PARAMS   fill;
     std::unique_ptr<SCH_SHAPE> bezier = std::make_unique<SCH_SHAPE>( SHAPE_T::BEZIER );
 
@@ -3411,7 +3796,12 @@ SCH_TEXTBOX* SCH_SEXPR_PARSER::parseSchTextBox()
                  wxT( "Cannot parse " ) + GetTokenString( CurTok() ) + wxT( " as a text box." ) );
 
     T             token;
-    STROKE_PARAMS stroke( Mils2iu( DEFAULT_LINE_WIDTH_MILS ), PLOT_DASH_TYPE::DEFAULT );
+    VECTOR2I      pos;
+    VECTOR2I      end;
+    VECTOR2I      size;
+    bool          foundEnd = false;
+    bool          foundSize = false;
+    STROKE_PARAMS stroke( schIUScale.MilsToIU( DEFAULT_LINE_WIDTH_MILS ), PLOT_DASH_TYPE::DEFAULT );
     FILL_PARAMS   fill;
     std::unique_ptr<SCH_TEXTBOX> textBox = std::make_unique<SCH_TEXTBOX>();
 
@@ -3428,13 +3818,26 @@ SCH_TEXTBOX* SCH_SEXPR_PARSER::parseSchTextBox()
 
         switch( token )
         {
-        case T_start:
-            textBox->SetPosition( parseXY() );
+        case T_start:       // Legacy token during 6.99 development; fails to handle angle
+            pos = parseXY();
             NeedRIGHT();
             break;
 
-        case T_end:
-            textBox->SetEnd( parseXY() );
+        case T_end:         // Legacy token during 6.99 development; fails to handle angle
+            end = parseXY();
+            foundEnd = true;
+            NeedRIGHT();
+            break;
+
+        case T_at:
+            pos = parseXY();
+            textBox->SetTextAngle( EDA_ANGLE( parseDouble( "textbox angle" ), DEGREES_T ) );
+            NeedRIGHT();
+            break;
+
+        case T_size:
+            size = parseXY();
+            foundSize = true;
             NeedRIGHT();
             break;
 
@@ -3460,9 +3863,18 @@ SCH_TEXTBOX* SCH_SEXPR_PARSER::parseSchTextBox()
             break;
 
         default:
-            Expecting( "start, end, stroke, fill or uuid" );
+            Expecting( "at, size, stroke, fill, effects or uuid" );
         }
     }
+
+    textBox->SetPosition( pos );
+
+    if( foundEnd )
+        textBox->SetEnd( end );
+    else if( foundSize )
+        textBox->SetEnd( pos + size );
+    else
+        Expecting( "size" );
 
     return textBox.release();
 }
@@ -3506,7 +3918,7 @@ void SCH_SEXPR_PARSER::parseBusAlias( SCH_SCREEN* aScreen )
         if( m_requiredVersion < 20210621 )
             member = ConvertToNewOverbarNotation( member );
 
-        busAlias->AddMember( member );
+        busAlias->Members().emplace_back( member );
 
         token = NextTok();
     }

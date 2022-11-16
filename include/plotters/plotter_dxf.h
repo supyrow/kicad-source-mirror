@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2016-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2016-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -61,7 +61,7 @@ public:
     /**
      * Open the DXF plot with a skeleton header.
      */
-    virtual bool StartPlot() override;
+    virtual bool StartPlot( const wxString& aPageNumber ) override;
     virtual bool EndPlot() override;
 
     // For now we don't use 'thick' primitives, so no line width
@@ -70,7 +70,7 @@ public:
         m_currentPenWidth = 0;
     }
 
-    virtual void SetDash( PLOT_DASH_TYPE dashed ) override;
+    virtual void SetDash( int aLineWidth, PLOT_DASH_TYPE aLineStyle ) override;
 
     /**
      * The DXF exporter handles 'colors' as layers...
@@ -112,9 +112,7 @@ public:
                            int aWidth = USE_DEFAULT_LINE_WIDTH, void* aData = nullptr ) override;
     virtual void ThickSegment( const VECTOR2I& start, const VECTOR2I& end, int width,
                                OUTLINE_MODE tracemode, void* aData ) override;
-    virtual void Arc( const VECTOR2I& aCenter, const EDA_ANGLE& aStartAngle,
-                      const EDA_ANGLE& aEndAngle, int aRadius, FILL_T aFill,
-                      int aWidth = USE_DEFAULT_LINE_WIDTH ) override;
+
     virtual void PenTo( const VECTOR2I& pos, char plume ) override;
 
     /**
@@ -154,19 +152,19 @@ public:
                                       const EDA_ANGLE& aOrient, OUTLINE_MODE aTraceMode,
                                       void* aData ) override;
 
-    virtual void Text( const VECTOR2I&             aPos,
-                       const COLOR4D&              aColor,
-                       const wxString&             aText,
-                       const EDA_ANGLE&            aOrient,
-                       const VECTOR2I&             aSize,
-                       enum GR_TEXT_H_ALIGN_T      aH_justify,
-                       enum GR_TEXT_V_ALIGN_T      aV_justify,
-                       int                         aWidth,
-                       bool                        aItalic,
-                       bool                        aBold,
-                       bool                        aMultilineAllowed = false,
-                       KIFONT::FONT*            aFont = nullptr,
-                       void*                       aData = nullptr ) override;
+    virtual void Text( const VECTOR2I&        aPos,
+                       const COLOR4D&         aColor,
+                       const wxString&        aText,
+                       const EDA_ANGLE&       aOrient,
+                       const VECTOR2I&        aSize,
+                       enum GR_TEXT_H_ALIGN_T aH_justify,
+                       enum GR_TEXT_V_ALIGN_T aV_justify,
+                       int                    aWidth,
+                       bool                   aItalic,
+                       bool                   aBold,
+                       bool                   aMultilineAllowed = false,
+                       KIFONT::FONT*          aFont = nullptr,
+                       void*                  aData = nullptr ) override;
 
 
     /**
@@ -208,6 +206,10 @@ public:
     }
 
 protected:
+    virtual void Arc( const VECTOR2I& aCenter, const EDA_ANGLE& aStartAngle,
+                      const EDA_ANGLE& aEndAngle, int aRadius, FILL_T aFill,
+                      int aWidth = USE_DEFAULT_LINE_WIDTH ) override;
+
     bool           m_textAsLines;
     COLOR4D        m_currentColor;
     PLOT_DASH_TYPE m_currentLineType;
