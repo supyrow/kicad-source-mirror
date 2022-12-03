@@ -120,8 +120,8 @@ void RN_NET::kruskalMST( const std::vector<CN_EDGE> &aEdges )
 
     for( const CN_EDGE& tmp : aEdges )
     {
-        const std::shared_ptr<CN_ANCHOR>& source = tmp.GetSourceNode();
-        const std::shared_ptr<CN_ANCHOR>& target = tmp.GetTargetNode();
+        const std::shared_ptr<const CN_ANCHOR>& source = tmp.GetSourceNode();
+        const std::shared_ptr<const CN_ANCHOR>& target = tmp.GetTargetNode();
 
         if( dset.unite( source->GetTag(), target->GetTag() ) )
         {
@@ -276,14 +276,14 @@ void RN_NET::compute()
         // Check if the only possible connection exists
         if( m_boardEdges.size() == 0 && m_nodes.size() == 2 )
         {
-            auto last = ++m_nodes.begin();
-
             // There can be only one possible connection, but it is missing
-            CN_EDGE edge ( *m_nodes.begin(), *last );
-            edge.GetSourceNode()->SetTag( 0 );
-            edge.GetTargetNode()->SetTag( 1 );
+            auto                              it = m_nodes.begin();
+            const std::shared_ptr<CN_ANCHOR>& source = *it++;
+            const std::shared_ptr<CN_ANCHOR>& target = *it;
 
-            m_rnEdges.push_back( edge );
+            source->SetTag( 0 );
+            target->SetTag( 1 );
+            m_rnEdges.emplace_back( source, target );
         }
         else
         {
@@ -330,9 +330,10 @@ void RN_NET::compute()
 
 void RN_NET::optimizeRNEdges()
 {
-    auto findZoneAnchor =
+    auto optimizeZoneAnchor =
             [&]( const VECTOR2I& aPos, const LSET& aLayerSet,
-                 const std::shared_ptr<CN_ANCHOR> aAnchor )
+                 const std::shared_ptr<const CN_ANCHOR>& aAnchor,
+                 std::function<void( std::shared_ptr<const CN_ANCHOR> )> setOptimizedTo )
             {
                 SEG::ecoord closest_dist_sq = ( aAnchor->Pos() - aPos ).SquaredEuclideanNorm();
                 VECTOR2I    closest_pt;
@@ -361,16 +362,14 @@ void RN_NET::optimizeRNEdges()
                 }
 
                 if( closest_item )
-                {
-                    closest_item->AddAnchor( closest_pt );
-                    return closest_item->GetAnchorItem( closest_item->GetAnchorItemCount() - 1 );
-                }
-
-                return aAnchor;
+                    setOptimizedTo( std::make_shared<CN_ANCHOR>( closest_pt, closest_item ) );
             };
 
-    auto findZoneToZoneAnchors =
-            [&]( std::shared_ptr<CN_ANCHOR>& a, std::shared_ptr<CN_ANCHOR>& b )
+    auto optimizeZoneToZoneAnchors =
+            [&]( const std::shared_ptr<const CN_ANCHOR>& a,
+                 const std::shared_ptr<const CN_ANCHOR>& b,
+                 std::function<void(const std::shared_ptr<const CN_ANCHOR>&)> setOptimizedATo,
+                 std::function<void(const std::shared_ptr<const CN_ANCHOR>&)> setOptimizedBTo )
             {
                 for( CN_ITEM* itemA : a->Item()->ConnectedItems() )
                 {
@@ -398,15 +397,11 @@ void RN_NET::optimizeRNEdges()
 
                             VECTOR2I ptA;
                             shapeA->Collide( shapeB, startDist + 10, nullptr, &ptA );
-                            zoneLayerA->AddAnchor( ptA );
-                            a = zoneLayerA->GetAnchorItem( zoneLayerA->GetAnchorItemCount() - 1 );
+                            setOptimizedATo( std::make_shared<CN_ANCHOR>( ptA, zoneLayerA ) );
 
                             VECTOR2I ptB;
                             shapeB->Collide( shapeA, startDist + 10, nullptr, &ptB );
-                            zoneLayerB->AddAnchor( ptB );
-                            b = zoneLayerB->GetAnchorItem( zoneLayerB->GetAnchorItemCount() - 1 );
-
-                            return;
+                            setOptimizedBTo( std::make_shared<CN_ANCHOR>( ptB, zoneLayerB ) );
                         }
                     }
                 }
@@ -414,30 +409,42 @@ void RN_NET::optimizeRNEdges()
 
     for( CN_EDGE& edge : m_rnEdges )
     {
-        std::shared_ptr<CN_ANCHOR> source = edge.GetSourceNode();
-        std::shared_ptr<CN_ANCHOR> target = edge.GetTargetNode();
+        const std::shared_ptr<const CN_ANCHOR>& source = edge.GetSourceNode();
+        const std::shared_ptr<const CN_ANCHOR>& target = edge.GetTargetNode();
 
         if( source->ConnectedItemsCount() == 0 )
         {
-            edge.SetTargetNode( findZoneAnchor( source->Pos(), source->Parent()->GetLayerSet(),
-                                                target ) );
+            optimizeZoneAnchor( source->Pos(), source->Parent()->GetLayerSet(), target,
+                                [&]( std::shared_ptr<const CN_ANCHOR> optimized )
+                                {
+                                    edge.SetTargetNode( optimized );
+                                } );
         }
         else if( target->ConnectedItemsCount() == 0 )
         {
-            edge.SetSourceNode( findZoneAnchor( target->Pos(), target->Parent()->GetLayerSet(),
-                                                source ) );
+            optimizeZoneAnchor( target->Pos(), target->Parent()->GetLayerSet(), source,
+                                [&]( std::shared_ptr<const CN_ANCHOR> optimized )
+                                {
+                                    edge.SetSourceNode( optimized );
+                                } );
         }
         else
         {
-            findZoneToZoneAnchors( source, target );
-            edge.SetSourceNode( source );
-            edge.SetTargetNode( target );
+            optimizeZoneToZoneAnchors( source, target,
+                                       [&]( std::shared_ptr<const CN_ANCHOR> optimized )
+                                       {
+                                           edge.SetSourceNode( optimized );
+                                       },
+                                       [&]( std::shared_ptr<const CN_ANCHOR> optimized )
+                                       {
+                                           edge.SetTargetNode( optimized );
+                                       } );
         }
     }
 }
 
 
-void RN_NET::Update()
+void RN_NET::UpdateNet()
 {
     compute();
 

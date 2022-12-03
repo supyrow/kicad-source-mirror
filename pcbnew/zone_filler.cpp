@@ -97,7 +97,7 @@ bool ZONE_FILLER::Fill( std::vector<ZONE*>& aZones, bool aCheck, wxWindow* aPare
     std::shared_ptr<CONNECTIVITY_DATA> connectivity = m_board->GetConnectivity();
 
     // Rebuild (from scratch, ignoring dirty flags) just in case. This really needs to be reliable.
-    connectivity->Clear();
+    connectivity->ClearRatsnest();
     connectivity->Build( m_board, m_progressReporter );
 
     BOARD_DESIGN_SETTINGS& bds = m_board->GetDesignSettings();
@@ -294,7 +294,7 @@ bool ZONE_FILLER::Fill( std::vector<ZONE*>& aZones, bool aCheck, wxWindow* aPare
                     {
                         PCB_VIA* via = static_cast<PCB_VIA*>( track );
 
-                        if( !via->IsOnLayer( layer ) || !via->GetRemoveUnconnected() )
+                        if( !via->IsOnLayer( layer ) || !via->ConditionallyFlashed( layer ) )
                             continue;
 
                         if( via->ZoneConnectionCache( layer ) == ZLC_UNRESOLVED

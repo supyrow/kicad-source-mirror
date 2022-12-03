@@ -143,17 +143,17 @@ std::string SPICE_GENERATOR_KIBIS::IbisDevice( const SPICE_ITEM& aItem, const st
         if( paramValue == "hi-Z" )
         {
             kparams.m_waveform =
-                    static_cast<KIBIS_WAVEFORM*>( new KIBIS_WAVEFORM_HIGH_Z() );
+                    static_cast<KIBIS_WAVEFORM*>( new KIBIS_WAVEFORM_HIGH_Z( &kibis ) );
         }
         else if( paramValue == "low" )
         {
             kparams.m_waveform =
-                    static_cast<KIBIS_WAVEFORM*>( new KIBIS_WAVEFORM_STUCK_LOW() );
+                    static_cast<KIBIS_WAVEFORM*>( new KIBIS_WAVEFORM_STUCK_LOW( &kibis ) );
         }
         else if( paramValue == "high" )
         {
             kparams.m_waveform =
-                    static_cast<KIBIS_WAVEFORM*>( new KIBIS_WAVEFORM_STUCK_HIGH() );
+                    static_cast<KIBIS_WAVEFORM*>( new KIBIS_WAVEFORM_STUCK_HIGH( &kibis ) );
         }
 
         if( diffMode )
@@ -165,7 +165,7 @@ std::string SPICE_GENERATOR_KIBIS::IbisDevice( const SPICE_ITEM& aItem, const st
 
     case SIM_MODEL::TYPE::KIBIS_DRIVER_RECT:
     {
-        KIBIS_WAVEFORM_RECTANGULAR* waveform = new KIBIS_WAVEFORM_RECTANGULAR();
+        KIBIS_WAVEFORM_RECTANGULAR* waveform = new KIBIS_WAVEFORM_RECTANGULAR( &kibis );
 
         if ( m_model.FindParam( "ton" ) )
             waveform->m_ton = static_cast<SIM_VALUE_FLOAT&>( *m_model.FindParam( "ton" )->value ).Get().value_or( 1 );
@@ -173,11 +173,11 @@ std::string SPICE_GENERATOR_KIBIS::IbisDevice( const SPICE_ITEM& aItem, const st
         if ( m_model.FindParam( "toff" ) )
             waveform->m_toff = static_cast<SIM_VALUE_FLOAT&>( *m_model.FindParam( "toff" )->value ).Get().value_or( 1 );
 
-        if ( m_model.FindParam( "delay" ) )
-            waveform->m_delay = static_cast<SIM_VALUE_FLOAT&>( *m_model.FindParam( "delay" )->value ).Get().value_or( 0 );
+        if ( m_model.FindParam( "td" ) )
+            waveform->m_delay = static_cast<SIM_VALUE_FLOAT&>( *m_model.FindParam( "td" )->value ).Get().value_or( 0 );
 
-        if ( m_model.FindParam( "cycles" ) )
-            waveform->m_cycles = static_cast<SIM_VALUE_FLOAT&>( *m_model.FindParam( "cycles" )->value ).Get().value_or( 0 );
+        if ( m_model.FindParam( "n" ) )
+            waveform->m_cycles = static_cast<SIM_VALUE_INT&>( *m_model.FindParam( "n" )->value ).Get().value_or( 1 );
 
         kparams.m_waveform = waveform;
 
@@ -190,16 +190,16 @@ std::string SPICE_GENERATOR_KIBIS::IbisDevice( const SPICE_ITEM& aItem, const st
 
     case SIM_MODEL::TYPE::KIBIS_DRIVER_PRBS:
     {
-        KIBIS_WAVEFORM_PRBS* waveform = new KIBIS_WAVEFORM_PRBS();
+        KIBIS_WAVEFORM_PRBS* waveform = new KIBIS_WAVEFORM_PRBS( &kibis );
 
         if ( m_model.FindParam( "f0" ) )
             waveform->m_bitrate = static_cast<SIM_VALUE_FLOAT&>( *m_model.FindParam( "f0" )->value ).Get().value_or( 0 );
 
-        if ( m_model.FindParam( "bits" ) )
-        waveform->m_bits = static_cast<SIM_VALUE_FLOAT&>( *m_model.FindParam( "bits" )->value ).Get().value_or( 0 );
+        if ( m_model.FindParam( "td" ) )
+            waveform->m_delay = static_cast<SIM_VALUE_FLOAT&>( *m_model.FindParam( "td" )->value ).Get().value_or( 0 );
 
-        if ( m_model.FindParam( "delay" ) )
-        waveform->m_delay = static_cast<SIM_VALUE_FLOAT&>( *m_model.FindParam( "delay" )->value ).Get().value_or( 0 );
+        if ( m_model.FindParam( "n" ) )
+            waveform->m_bits = static_cast<SIM_VALUE_INT&>( *m_model.FindParam( "n" )->value ).Get().value_or( 0 );
 
         kparams.m_waveform = waveform;
 
@@ -252,7 +252,7 @@ SIM_MODEL_KIBIS::SIM_MODEL_KIBIS( TYPE aType ) :
 
 void SIM_MODEL_KIBIS::SwitchSingleEndedDiff( bool aDiff )
 {
-    DeletePins();
+    ClearPins();
 
     if( aDiff )
     {
@@ -313,7 +313,7 @@ void SIM_MODEL_KIBIS::CreatePins( unsigned aSymbolPinCount )
 }
 
 
-bool SIM_MODEL_KIBIS::ChangePin( SIM_LIBRARY_KIBIS& aLib, std::string aPinNumber )
+bool SIM_MODEL_KIBIS::ChangePin( const SIM_LIBRARY_KIBIS& aLib, std::string aPinNumber )
 {
     KIBIS_COMPONENT* kcomp = aLib.m_kibis.GetComponent( std::string( GetComponentName() ) );
 
@@ -353,40 +353,40 @@ std::vector<SIM_MODEL::PARAM::INFO> SIM_MODEL_KIBIS::makeParamInfos( TYPE aType 
     paramInfo.type = SIM_VALUE::TYPE_STRING;
     paramInfo.unit = "";
     paramInfo.category = PARAM::CATEGORY::PRINCIPAL;
-    paramInfo.defaultValue = "TYP";
+    paramInfo.defaultValue = "typ";
     paramInfo.description = _( "Power supply" );
     paramInfo.spiceModelName = "";
-    paramInfo.enumValues = { "TYP", "MIN", "MAX" };
+    paramInfo.enumValues = { "typ", "min", "max" };
     paramInfos.push_back( paramInfo );
 
     paramInfo.name = "rpin";
     paramInfo.type = SIM_VALUE::TYPE_STRING;
     paramInfo.unit = "";
     paramInfo.category = PARAM::CATEGORY::PRINCIPAL;
-    paramInfo.defaultValue = "TYP";
-    paramInfo.description = _( "Parasitic Resistance" );
+    paramInfo.defaultValue = "typ";
+    paramInfo.description = _( "Parasitic pin resistance" );
     paramInfo.spiceModelName = "";
-    paramInfo.enumValues = { "TYP", "MIN", "MAX" };
+    paramInfo.enumValues = { "typ", "min", "max" };
     paramInfos.push_back( paramInfo );
 
     paramInfo.name = "lpin";
     paramInfo.type = SIM_VALUE::TYPE_STRING;
     paramInfo.unit = "";
     paramInfo.category = PARAM::CATEGORY::PRINCIPAL;
-    paramInfo.defaultValue = "TYP";
-    paramInfo.description = _( "Parasitic Pin Inductance" );
+    paramInfo.defaultValue = "typ";
+    paramInfo.description = _( "Parasitic pin inductance" );
     paramInfo.spiceModelName = "";
-    paramInfo.enumValues = { "TYP", "MIN", "MAX" };
+    paramInfo.enumValues = { "typ", "min", "max" };
     paramInfos.push_back( paramInfo );
 
     paramInfo.name = "cpin";
     paramInfo.type = SIM_VALUE::TYPE_STRING;
     paramInfo.unit = "";
     paramInfo.category = PARAM::CATEGORY::PRINCIPAL;
-    paramInfo.defaultValue = "TYP";
-    paramInfo.description = _( "Parasitic Pin Capacitance" );
+    paramInfo.defaultValue = "typ";
+    paramInfo.description = _( "Parasitic pin capacitance" );
     paramInfo.spiceModelName = "";
-    paramInfo.enumValues = { "TYP", "MIN", "MAX" };
+    paramInfo.enumValues = { "typ", "min", "max" };
     paramInfos.push_back( paramInfo );
 
     std::vector<PARAM::INFO> dc = makeDcWaveformParamInfos();
@@ -457,7 +457,7 @@ std::vector<SIM_MODEL::PARAM::INFO> SIM_MODEL_KIBIS::makeRectWaveformParamInfos(
     paramInfo.description = _( "OFF time" );
     paramInfos.push_back( paramInfo );
 
-    paramInfo.name = "delay";
+    paramInfo.name = "td";
     paramInfo.type = SIM_VALUE::TYPE_FLOAT;
     paramInfo.unit = "s";
     paramInfo.category = PARAM::CATEGORY::WAVEFORM;
@@ -465,12 +465,12 @@ std::vector<SIM_MODEL::PARAM::INFO> SIM_MODEL_KIBIS::makeRectWaveformParamInfos(
     paramInfo.description = _( "Delay" );
     paramInfos.push_back( paramInfo );
 
-    paramInfo.name = "cycles";
-    paramInfo.type = SIM_VALUE::TYPE_FLOAT;
+    paramInfo.name = "n";
+    paramInfo.type = SIM_VALUE::TYPE_INT;
     paramInfo.unit = "";
     paramInfo.category = PARAM::CATEGORY::WAVEFORM;
     paramInfo.defaultValue = "1";
-    paramInfo.description = _( "cycles" );
+    paramInfo.description = _( "Number of cycles" );
     paramInfos.push_back( paramInfo );
 
     return paramInfos;
@@ -490,8 +490,16 @@ std::vector<SIM_MODEL::PARAM::INFO> SIM_MODEL_KIBIS::makePrbsWaveformParamInfos(
     paramInfo.description = _( "Bitrate" );
     paramInfos.push_back( paramInfo );
 
-    paramInfo.name = "bits";
+    paramInfo.name = "td";
     paramInfo.type = SIM_VALUE::TYPE_FLOAT;
+    paramInfo.unit = "s";
+    paramInfo.category = PARAM::CATEGORY::WAVEFORM;
+    paramInfo.defaultValue = "";
+    paramInfo.description = _( "Delay" );
+    paramInfos.push_back( paramInfo );
+
+    paramInfo.name = "n";
+    paramInfo.type = SIM_VALUE::TYPE_INT;
     paramInfo.unit = "";
     paramInfo.category = PARAM::CATEGORY::WAVEFORM;
     paramInfo.defaultValue = "";
@@ -500,6 +508,7 @@ std::vector<SIM_MODEL::PARAM::INFO> SIM_MODEL_KIBIS::makePrbsWaveformParamInfos(
 
     return paramInfos;
 }
+
 
 void SIM_MODEL_KIBIS::ReadDataSchFields( unsigned aSymbolPinCount, const std::vector<SCH_FIELD>* aFields )
 {

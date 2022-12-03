@@ -1570,7 +1570,7 @@ void PCB_PARSER::parseBoardStackup()
                                          wx_color.Alpha() );
                         }
 
-                        item->SetColor( name );
+                        item->SetColor( name, sublayer_idx );
                         NeedRIGHT();
                         break;
 
@@ -3621,6 +3621,7 @@ FOOTPRINT* PCB_PARSER::parseFOOTPRINT_unchecked( wxArrayString* aInitialComments
             NeedRIGHT();
             m_requiredVersion = std::max( m_requiredVersion, this_version );
             m_tooRecent       = ( m_requiredVersion > SEXPR_BOARD_FILE_VERSION );
+            footprint->SetFileFormatVersionAtLoad( this_version );
             break;
         }
 
@@ -5369,7 +5370,7 @@ PCB_VIA* PCB_PARSER::parsePCB_VIA()
 
     // File format default is no-token == no-feature.
     via->SetRemoveUnconnected( false );
-    via->SetKeepTopBottom( false );
+    via->SetKeepStartEnd( false );
 
     for( token = NextTok();  token != T_RIGHT;  token = NextTok() )
     {
@@ -5438,7 +5439,7 @@ PCB_VIA* PCB_PARSER::parsePCB_VIA()
             break;
 
         case T_keep_end_layers:
-            via->SetKeepTopBottom( true );
+            via->SetKeepStartEnd( true );
             NeedRIGHT();
             break;
 

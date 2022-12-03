@@ -528,7 +528,7 @@ int EE_SELECTION_TOOL::Main( const TOOL_EVENT& aEvent )
                 }
 
                 // Check if dragging has started within any of selected items bounding box
-                if( selectionContains( evt->Position() ) )
+                if( selectionContains( evt->DragOrigin() ) )
                 {
                     // Yes -> run the move tool and wait till it finishes
                     if( m_isSymbolEditor )
@@ -902,9 +902,10 @@ bool EE_SELECTION_TOOL::selectPoint( EE_COLLECTOR& aCollector, const VECTOR2I& a
         for( int i = 0; i < aCollector.GetCount(); ++i )
         {
             EDA_ITEM_FLAGS flags = 0;
+            bool           isLine = aCollector[i]->Type() == SCH_LINE_T;
 
             // Handle line ends specially
-            if( aCollector[i]->Type() == SCH_LINE_T )
+            if( isLine )
             {
                 SCH_LINE* line = (SCH_LINE*) aCollector[i];
 
@@ -916,9 +917,15 @@ bool EE_SELECTION_TOOL::selectPoint( EE_COLLECTOR& aCollector, const VECTOR2I& a
                     flags = STARTPOINT | ENDPOINT;
             }
 
-            if( aSubtract || ( aExclusiveOr && aCollector[i]->IsSelected() ) )
+            if( aSubtract
+                || ( aExclusiveOr && aCollector[i]->IsSelected()
+                     && ( !isLine || ( isLine && aCollector[i]->HasFlag( flags ) ) ) ) )
             {
                 aCollector[i]->ClearFlags( flags );
+
+                // Need to update end shadows after ctrl-click unselecting one of two selected endpoints
+                if( isLine )
+                    getView()->Update( aCollector[i] );
 
                 if( !aCollector[i]->HasFlag( STARTPOINT ) && !aCollector[i]->HasFlag( ENDPOINT ) )
                 {
@@ -1104,6 +1111,20 @@ void EE_SELECTION_TOOL::GuessSelectionCandidates( EE_COLLECTOR& collector, const
             }
             else if( text )
             {
+                if( SCH_FIELD* field = dynamic_cast<SCH_FIELD*>( text ) )
+                {
+                    if( field->GetParent() && field->GetParent()->Type() == SCH_SYMBOL_T )
+                    {
+                        symbol = static_cast<SCH_SYMBOL*>( field->GetParent() );
+
+                        VECTOR2I relPos = pos - symbol->GetPosition();
+                        relPos = symbol->GetTransform().InverseTransform().TransformCoordinate( relPos );
+                        pos = relPos + symbol->GetPosition();
+
+                        poss = SEG( pos, pos );
+                    }
+                }
+
                 text->GetEffectiveTextShape()->Collide( poss, closestDist, &dist );
             }
             else if( symbol )
@@ -1895,13 +1916,13 @@ void EE_SELECTION_TOOL::unhighlight( EDA_ITEM* aItem, int aMode, SELECTION* aGro
 bool EE_SELECTION_TOOL::selectionContains( const VECTOR2I& aPoint ) const
 {
     const unsigned GRIP_MARGIN = 20;
-    VECTOR2I margin = getView()->ToWorld( VECTOR2I( GRIP_MARGIN, GRIP_MARGIN ), false );
+    double         margin = getView()->ToWorld( GRIP_MARGIN );
 
     // Check if the point is located within any of the currently selected items bounding boxes
     for( EDA_ITEM* item : m_selection )
     {
         BOX2I itemBox = item->ViewBBox();
-        itemBox.Inflate( margin.x, margin.y );    // Give some margin for gripping an item
+        itemBox.Inflate( margin ); // Give some margin for gripping an item
 
         if( itemBox.Contains( aPoint ) )
             return true;

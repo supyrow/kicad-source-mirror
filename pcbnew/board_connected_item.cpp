@@ -133,7 +133,7 @@ wxString BOARD_CONNECTED_ITEM::GetNetnameMsg() const
 
 wxString BOARD_CONNECTED_ITEM::GetShortNetname() const
 {
-    return m_netinfo->GetShortNetname();
+    return m_netinfo ? m_netinfo->GetShortNetname() : wxString();
 }
 
 
@@ -155,10 +155,16 @@ static struct BOARD_CONNECTED_ITEM_DESC
         REGISTER_TYPE( BOARD_CONNECTED_ITEM );
         propMgr.InheritsAfter( TYPE_HASH( BOARD_CONNECTED_ITEM ), TYPE_HASH( BOARD_ITEM ) );
 
+        // Replace layer property as the properties panel will set a restriction for copper layers
+        // only for BOARD_CONNECTED_ITEM that we don't want to apply to BOARD_ITEM
+        auto layer = new PROPERTY_ENUM<BOARD_CONNECTED_ITEM, PCB_LAYER_ID, BOARD_ITEM>(
+                _HKI( "Layer" ),
+                &BOARD_CONNECTED_ITEM::SetLayer, &BOARD_CONNECTED_ITEM::GetLayer );
+        layer->SetChoices( layerEnum.Choices() );
+        propMgr.ReplaceProperty( TYPE_HASH( BOARD_ITEM ), _HKI( "Layer" ), layer );
+
         propMgr.AddProperty( new PROPERTY_ENUM<BOARD_CONNECTED_ITEM, int>( _HKI( "Net" ),
                     &BOARD_CONNECTED_ITEM::SetNetCode, &BOARD_CONNECTED_ITEM::GetNetCode ) );
-        propMgr.AddProperty( new PROPERTY<BOARD_CONNECTED_ITEM, wxString>( _HKI( "Net Name" ),
-                    NO_SETTER( BOARD_CONNECTED_ITEM, wxString ), &BOARD_CONNECTED_ITEM::GetNetname ) );
         propMgr.AddProperty( new PROPERTY<BOARD_CONNECTED_ITEM, wxString>( _HKI( "Net Class" ),
                     NO_SETTER( BOARD_CONNECTED_ITEM, wxString ), &BOARD_CONNECTED_ITEM::GetNetClassName ) );
     }

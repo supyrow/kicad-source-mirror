@@ -54,11 +54,11 @@ public:
      */
     UNIT_BINDER( EDA_DRAW_FRAME* aParent,
                  wxStaticText* aLabel, wxWindow* aValueCtrl, wxStaticText* aUnitLabel,
-                 bool aAllowEval = true, bool aBindFrameEvents = true );
+                 bool aAllowEval = true, bool aBindFocusEvent = true );
 
     UNIT_BINDER( EDA_BASE_FRAME* aParent, const EDA_IU_SCALE& aIUScale, wxStaticText* aLabel,
                  wxWindow* aValueCtrl, wxStaticText* aUnitLabel, bool aAllowEval = true,
-                 bool aBindFrameEvents = true );
+                 bool aBindFocusEvent = true );
 
     virtual ~UNIT_BINDER() override;
 
@@ -221,7 +221,7 @@ protected:
     double setPrecision( double aValue, bool aValueUsesUserUnits );
 
     EDA_BASE_FRAME*   m_frame;
-    bool              m_bindFrameEvents;
+    bool              m_bindFocusEvent;
 
     ///< The bound widgets
     wxStaticText*     m_label;
@@ -243,6 +243,8 @@ protected:
 
     long              m_selStart;       ///< Selection start and end of the original text
     long              m_selEnd;
+
+    bool              m_unitsInValue;   ///< Units label should be included in value text
 
     /// A reference to an ORIGIN_TRANSFORMS object
     ORIGIN_TRANSFORMS&               m_originTransforms;

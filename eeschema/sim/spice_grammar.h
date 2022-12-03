@@ -92,7 +92,17 @@ namespace SPICE_GRAMMAR
 
     struct modelName : plus<not_at<garbageOrEolf>, any> {};
 
-    struct dotModelType : plus<alpha> {};
+    struct dotModelType : sor<// VDMOS models have a special syntax.
+                              seq<TAO_PEGTL_ISTRING( "vdmos" ),
+                                  sep,
+                                  sor<TAO_PEGTL_ISTRING( "nchan" ),
+                                      TAO_PEGTL_ISTRING( "pchan" )>>,
+                              plus<alpha>> {};
+
+    struct numparamBracedExpr : seq<one<'{'>,
+                                    star<sor<numparamBracedExpr,
+                                             not_one<'}'>>>,
+                                    one<'}'>> {};
 
     // Ngspice has some heuristic logic to allow + and - in tokens. We replicate that here.
     struct tokenStart : seq<opt<one<'+', '-'>>,
@@ -110,8 +120,8 @@ namespace SPICE_GRAMMAR
     // Param names cannot be `token` because LTspice models contain spurious values without
     // parameter names, which we need to skip.
     struct param : identifier {};
-
-    struct paramValue : token {};
+    struct paramValue : sor<numparamBracedExpr,
+                            token> {};
 
     struct paramValuePair : seq<param,
                                 sep,
@@ -145,12 +155,20 @@ namespace SPICE_GRAMMAR
                                      
 
 
-    struct dotSubcktPinName : seq<not_at<TAO_PEGTL_ISTRING( "params:" )>,
+    struct dotSubcktParamValuePair : seq<param,
+                                         // TODO: Check if these `star<space>`s match Ngspice's
+                                         // behavior.
+                                         star<space>,
+                                         one<'='>,
+                                         star<space>,
+                                         paramValue> {};
+    struct dotSubcktParamValuePairs : list<dotSubcktParamValuePair, sep> {};
+    struct dotSubcktParams : seq<opt<TAO_PEGTL_ISTRING( "params:" ),
+                                     opt<sep>>,
+                                 dotSubcktParamValuePairs> {};
+    struct dotSubcktPinName : seq<not_at<dotSubcktParams>,
                                   plus<not_at<space>, any>> {};
     struct dotSubcktPinSequence : list<dotSubcktPinName, sep> {};
-    struct dotSubcktParams : seq<TAO_PEGTL_ISTRING( "params:" ),
-                                 sep,
-                                 paramValuePairs> {};
     struct dotSubcktEnd : seq<TAO_PEGTL_ISTRING( ".ends" ),
                               until<newline>> {};
     struct spiceUnit;
@@ -248,7 +266,7 @@ namespace SPICE_GRAMMAR
     template <> inline constexpr auto errorMessage<newline> =
         "expected newline not followed by a line continuation";
     template <> inline constexpr auto errorMessage<sep> =
-        "expected token separator (typ. one or more whitespace, parenthesis, '=', ',', line continuation)";
+        "expected token separator (one or more whitespace, parenthesis, '=', ',', line continuation)";
     template <> inline constexpr auto errorMessage<opt<sep>> = "";
     template <> inline constexpr auto errorMessage<modelName> = "expected model name";
     template <> inline constexpr auto errorMessage<dotModelType> = "expected model type";

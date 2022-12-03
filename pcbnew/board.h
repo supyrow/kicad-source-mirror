@@ -510,6 +510,8 @@ public:
     int  GetCopperLayerCount() const;
     void SetCopperLayerCount( int aCount );
 
+    int LayerDepth( PCB_LAYER_ID aStartLayer, PCB_LAYER_ID aEndLayer ) const;
+
     /**
      * A proxy function that calls the corresponding function in m_BoardSettings.
      *
@@ -869,7 +871,7 @@ public:
      * the list of nets)  Also this function removes the non existing nets in netclasses
      * and add net nets in default netclass (this happens after reading a netlist)
      */
-    void SynchronizeNetsAndNetClasses();
+    void SynchronizeNetsAndNetClasses( bool aResetTrackAndViaSizes );
 
     /**
      * Copy the current project's text variables into the boards property cache.

@@ -199,10 +199,7 @@ bool GERBVIEW_FRAME::LoadGerberFiles( const wxString& aFileName )
      * Now (2014) Ucamco (the company which manages the Gerber format) encourages use of .gbr
      * only and the Gerber X2 file format.
      */
-    filetypes = _( "Gerber files (.g* .lgr .pho)" );
-    filetypes << wxT( "|" );
-    filetypes += wxT( "*.g*;*.G*;*.pho;*.PHO" );
-    filetypes << wxT( "|" );
+    filetypes = _( "Gerber files" ) + AddFileExtListToFilter( { "G*", "PHO" } ) + wxT( "|" );
 
     /* Special gerber filetypes */
     filetypes += _( "Top layer" ) + AddFileExtListToFilter( { "GTL" } ) + wxT( "|" );
@@ -431,7 +428,7 @@ bool GERBVIEW_FRAME::unarchiveFiles( const wxString& aFullFileName, REPORTER* aR
 
     // Extract the path of aFullFileName. We use it to store temporary files
     wxFileName fn( aFullFileName );
-    wxString unzipDir = fn.GetPath();
+    wxString   unzipDir = fn.GetPath();
 
     wxFFileInputStream zipFile( aFullFileName );
 
@@ -458,16 +455,20 @@ bool GERBVIEW_FRAME::unarchiveFiles( const wxString& aFullFileName, REPORTER* aR
     wxString unzipped_tempfile = temp_fn.GetFullPath();
 
 
-    bool success = true;
+    bool             success = true;
     wxZipInputStream zipArchive( zipFile );
-    wxZipEntry* entry;
-    bool reported_no_more_layer = false;
+    wxZipEntry*      entry;
+    bool             reported_no_more_layer = false;
+    KIGFX::VIEW*     view = GetCanvas()->GetView();
 
     while( ( entry = zipArchive.GetNextEntry() ) )
     {
-        wxString fname = entry->GetName();
+        if( entry->IsDir() )
+            continue;
+
+        wxString   fname = entry->GetName();
         wxFileName uzfn = fname;
-        wxString curr_ext = uzfn.GetExt().Lower();
+        wxString   curr_ext = uzfn.GetExt().Lower();
 
         // The archive contains Gerber and/or Excellon drill files. Use the right loader.
         // However it can contain a few other files (reports, pdf files...),
@@ -563,8 +564,10 @@ bool GERBVIEW_FRAME::unarchiveFiles( const wxString& aFullFileName, REPORTER* aR
             read_ok = Read_GERBER_File( unzipped_tempfile );
 
             if( read_ok )
-                GetCanvas()->GetView()->SetLayerHasNegatives(
-                        GERBER_DRAW_LAYER( layer ), GetGbrImage( layer )->HasNegativeItems() );
+            {
+                view->SetLayerHasNegatives( GERBER_DRAW_LAYER( layer ),
+                                            GetGbrImage( layer )->HasNegativeItems() );
+            }
         }
 
         // Select the first added layer by default when done loading
@@ -680,7 +683,7 @@ void GERBVIEW_FRAME::DoWithAcceptedFiles()
 
     for( const wxFileName& file : m_AcceptedFiles )
     {
-        if( IsExtensionAccepted( file.GetExt(), { ArchiveFileExtension } ) )
+        if( file.GetExt() == ArchiveFileExtension )
         {
             wxString fn = file.GetFullPath();
             // Open zip archive in editor
@@ -695,5 +698,5 @@ void GERBVIEW_FRAME::DoWithAcceptedFiles()
 
     // Open files in editor
     if( !gerbFn.IsEmpty() )
-        m_toolManager->RunAction( *m_acceptedExts.at( DrillFileExtension ), true, &gerbFn );
+        m_toolManager->RunAction( *m_acceptedExts.at( GerberFileExtension ), true, &gerbFn );
 }

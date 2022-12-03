@@ -18,32 +18,17 @@
  * with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef JOB_EXPORT_SCH_BOM_H
-#define JOB_EXPORT_SCH_BOM_H
+#ifndef COMMAND_SYM_H
+#define COMMAND_SYM_H
 
-#include <wx/string.h>
-#include "job.h"
+#include "command.h"
 
-class JOB_EXPORT_SCH_BOM : public JOB
+namespace CLI
 {
-public:
-    JOB_EXPORT_SCH_BOM( bool aIsCli ) :
-            JOB( "bom", aIsCli ),
-            m_filename(),
-            m_outputFile()
-    {
-        format = FORMAT::XML;
-    }
-
-    wxString m_filename;
-    wxString m_outputFile;
-
-    enum class FORMAT
-    {
-        XML
-    };
-
-    FORMAT format;
+struct SYM_COMMAND : public COMMAND
+{
+    SYM_COMMAND() : COMMAND( "sym" ) {}
 };
+}
 
 #endif

@@ -20,10 +20,11 @@
 
 #include "eeschema_jobs_handler.h"
 #include <cli/exit_codes.h>
-#include <jobs/job_export_sch_bom.h>
+#include <jobs/job_export_sch_pythonbom.h>
 #include <jobs/job_export_sch_netlist.h>
 #include <jobs/job_export_sch_pdf.h>
 #include <jobs/job_export_sch_svg.h>
+#include <jobs/job_sym_upgrade.h>
 #include <pgm_base.h>
 #include <sch_plotter.h>
 #include <schematic.h>
@@ -37,6 +38,9 @@
 
 #include <settings/settings_manager.h>
 
+#include <sch_file_versions.h>
+#include <sch_plugins/kicad/sch_sexpr_lib_plugin_cache.h>
+
 #include <netlist.h>
 #include <netlist_exporter_base.h>
 #include <netlist_exporter_orcadpcb2.h>
@@ -49,14 +53,16 @@
 
 EESCHEMA_JOBS_HANDLER::EESCHEMA_JOBS_HANDLER()
 {
-    Register( "bom",
-              std::bind( &EESCHEMA_JOBS_HANDLER::JobExportBom, this, std::placeholders::_1 ) );
+    Register( "pythonbom",
+              std::bind( &EESCHEMA_JOBS_HANDLER::JobExportPythonBom, this, std::placeholders::_1 ) );
     Register( "netlist",
               std::bind( &EESCHEMA_JOBS_HANDLER::JobExportNetlist, this, std::placeholders::_1 ) );
     Register( "pdf",
               std::bind( &EESCHEMA_JOBS_HANDLER::JobExportPdf, this, std::placeholders::_1 ) );
     Register( "svg",
               std::bind( &EESCHEMA_JOBS_HANDLER::JobExportSvg, this, std::placeholders::_1 ) );
+    Register( "symupgrade",
+              std::bind( &EESCHEMA_JOBS_HANDLER::JobExportSymLibUpgrade, this, std::placeholders::_1 ) );
 }
 
 
@@ -76,9 +82,23 @@ void EESCHEMA_JOBS_HANDLER::InitRenderSettings( KIGFX::SCH_RENDER_SETTINGS* aRen
 }
 
 
+REPORTER& EESCHEMA_JOBS_HANDLER::Report( const wxString& aText, SEVERITY aSeverity )
+{
+    if( aSeverity == RPT_SEVERITY_ERROR )
+        wxFprintf( stderr, aText );
+    else
+        wxPrintf( aText );
+
+    return *this;
+}
+
+
 int EESCHEMA_JOBS_HANDLER::JobExportPdf( JOB* aJob )
 {
     JOB_EXPORT_SCH_PDF* aPdfJob = dynamic_cast<JOB_EXPORT_SCH_PDF*>( aJob );
+
+    if( !aPdfJob )
+        return CLI::EXIT_CODES::ERR_UNKNOWN;
 
     SCHEMATIC* sch = EESCHEMA_HELPERS::LoadSchematic( aPdfJob->m_filename, SCH_IO_MGR::SCH_KICAD );
 
@@ -113,6 +133,9 @@ int EESCHEMA_JOBS_HANDLER::JobExportSvg( JOB* aJob )
 {
     JOB_EXPORT_SCH_SVG* aSvgJob = dynamic_cast<JOB_EXPORT_SCH_SVG*>( aJob );
 
+    if( !aSvgJob )
+        return CLI::EXIT_CODES::ERR_UNKNOWN;
+
     SCHEMATIC* sch = EESCHEMA_HELPERS::LoadSchematic( aSvgJob->m_filename, SCH_IO_MGR::SCH_KICAD );
 
     if( sch == nullptr )
@@ -145,6 +168,9 @@ int EESCHEMA_JOBS_HANDLER::JobExportSvg( JOB* aJob )
 int EESCHEMA_JOBS_HANDLER::JobExportNetlist( JOB* aJob )
 {
     JOB_EXPORT_SCH_NETLIST* aNetJob = dynamic_cast<JOB_EXPORT_SCH_NETLIST*>( aJob );
+
+    if( !aNetJob )
+        return CLI::EXIT_CODES::ERR_UNKNOWN;
 
     SCHEMATIC* sch = EESCHEMA_HELPERS::LoadSchematic( aNetJob->m_filename, SCH_IO_MGR::SCH_KICAD );
 
@@ -224,7 +250,7 @@ int EESCHEMA_JOBS_HANDLER::JobExportNetlist( JOB* aJob )
         aNetJob->m_outputFile = fn.GetFullName();
     }
 
-    bool res = helper->WriteNetlist( aNetJob->m_outputFile, 0 );
+    bool res = helper->WriteNetlist( aNetJob->m_outputFile, 0, *this );
 
     if(!res)
     {
@@ -235,9 +261,9 @@ int EESCHEMA_JOBS_HANDLER::JobExportNetlist( JOB* aJob )
 }
 
 
-int EESCHEMA_JOBS_HANDLER::JobExportBom( JOB* aJob )
+int EESCHEMA_JOBS_HANDLER::JobExportPythonBom( JOB* aJob )
 {
-    JOB_EXPORT_SCH_BOM* aNetJob = dynamic_cast<JOB_EXPORT_SCH_BOM*>( aJob );
+    JOB_EXPORT_SCH_PYTHONBOM* aNetJob = dynamic_cast<JOB_EXPORT_SCH_PYTHONBOM*>( aJob );
 
     SCHEMATIC* sch = EESCHEMA_HELPERS::LoadSchematic( aNetJob->m_filename, SCH_IO_MGR::SCH_KICAD );
 
@@ -271,31 +297,69 @@ int EESCHEMA_JOBS_HANDLER::JobExportBom( JOB* aJob )
         wxPrintf( _( "Warning: duplicate sheet names.\n" ) );
     }
 
-    if( aNetJob->format == JOB_EXPORT_SCH_BOM::FORMAT::XML )
+    std::unique_ptr<NETLIST_EXPORTER_XML> xmlNetlist =
+            std::make_unique<NETLIST_EXPORTER_XML>( sch );
+
+    wxString fileExt = wxS( "xml" );
+
+    if( aNetJob->m_outputFile.IsEmpty() )
     {
-        std::unique_ptr<NETLIST_EXPORTER_XML> xmlNetlist =
-                std::make_unique<NETLIST_EXPORTER_XML>( sch );
+        wxFileName fn = sch->GetFileName();
+        fn.SetName( fn.GetName() + "-bom" );
+        fn.SetExt( fileExt );
 
-        wxString fileExt = wxS( "xml" );
-
-        if( aNetJob->m_outputFile.IsEmpty() )
-        {
-            wxFileName fn = sch->GetFileName();
-            fn.SetName( fn.GetName() + "-bom" );
-            fn.SetExt( fileExt );
-
-            aNetJob->m_outputFile = fn.GetFullName();
-        }
-
-        bool res = xmlNetlist->WriteNetlist( aNetJob->m_outputFile, GNL_OPT_BOM );
-
-        if( !res )
-        {
-            return CLI::EXIT_CODES::ERR_UNKNOWN;
-        }
-
-        return CLI::EXIT_CODES::OK;
+        aNetJob->m_outputFile = fn.GetFullName();
     }
 
-    return CLI::EXIT_CODES::ERR_UNKNOWN;
+    bool res = xmlNetlist->WriteNetlist( aNetJob->m_outputFile, GNL_OPT_BOM, *this );
+
+    if( !res )
+    {
+        return CLI::EXIT_CODES::ERR_UNKNOWN;
+    }
+
+    return CLI::EXIT_CODES::OK;
+}
+
+
+int EESCHEMA_JOBS_HANDLER::JobExportSymLibUpgrade( JOB* aJob )
+{
+    JOB_SYM_UPGRADE* upgradeJob = dynamic_cast<JOB_SYM_UPGRADE*>( aJob );
+
+    SCH_SEXPR_PLUGIN_CACHE schLibrary( upgradeJob->m_libraryPath );
+
+    try
+    {
+        schLibrary.Load();
+    }
+    catch( ... )
+    {
+        wxFprintf( stderr, _( "Unable to load library\n" ) );
+        return CLI::EXIT_CODES::ERR_UNKNOWN;
+    }
+
+    bool shouldSave = upgradeJob->m_force
+                      || schLibrary.GetFileFormatVersionAtLoad() < SEXPR_SYMBOL_LIB_FILE_VERSION;
+
+    if( shouldSave )
+    {
+        wxPrintf( _( "Saving symbol library in updated format\n" ) );
+
+        try
+        {
+            schLibrary.SetModified();
+            schLibrary.Save();
+        }
+        catch( ... )
+        {
+            wxFprintf( stderr, _( "Unable to save library\n" ) );
+            return CLI::EXIT_CODES::ERR_UNKNOWN;
+        }
+    }
+    else
+    {
+        wxPrintf( _( "Symbol library was not updated\n" ) );
+    }
+
+    return CLI::EXIT_CODES::OK;
 }

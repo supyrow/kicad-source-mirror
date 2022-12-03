@@ -27,6 +27,11 @@
 #include <wx/debug.h>
 #include <wx/stc/stc.h>
 
+// For some obscure reason, needed on msys2 with some wxWidgets versions (3.0) to avoid
+// undefined symbol at link stage (due to use of #include <pegtl.hpp>)
+// Should not create issues on other platforms
+#include <wx/menu.h>
+
 #include <project/project_file.h>
 #include <sch_edit_frame.h>
 #include <eeschema_id.h>
@@ -38,10 +43,8 @@
 #include <dialogs/dialog_signal_list.h>
 #include <scintilla_tricks.h>
 #include "string_utils.h"
-#include "ngspice_helpers.h"
 #include <pgm_base.h>
 #include "ngspice.h"
-#include "sim_plot_colors.h"
 #include "sim_plot_frame.h"
 #include "sim_plot_panel.h"
 #include "spice_simulator.h"
@@ -52,7 +55,6 @@
 #include <eeschema_settings.h>
 #include <wx/ffile.h>
 #include <wx/filedlg.h>
-#include <dialog_shim.h>
 #include <wx_filename.h>
 
 
@@ -241,7 +243,9 @@ SIM_PLOT_FRAME::SIM_PLOT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
 
 SIM_PLOT_FRAME::~SIM_PLOT_FRAME()
 {
-    m_simulator->Attach( nullptr );
+    NULL_REPORTER devnull;
+
+    m_simulator->Attach( nullptr, devnull );
     m_simulator->SetReporter( nullptr );
     delete m_reporter;
     delete m_signalsIconColorList;
@@ -476,10 +480,14 @@ void SIM_PLOT_FRAME::StartSimulation( const wxString& aSimCommand )
             | NETLIST_EXPORTER_SPICE::OPTION_SAVE_ALL_VOLTAGES
             | NETLIST_EXPORTER_SPICE::OPTION_SAVE_ALL_CURRENTS );
 
+    wxString           errors;
+    WX_STRING_REPORTER reporter( &errors );
+
     if( !m_schematicFrame->ReadyToNetlist( _( "Simulator requires a fully annotated schematic." ) )
-            || !m_simulator->Attach( m_circuitModel ) )
+            || !m_simulator->Attach( m_circuitModel, reporter ) )
     {
-        DisplayErrorMessage( this, _( "Errors during netlist generation; simulation aborted." ) );
+        DisplayErrorMessage( this, _( "Errors during netlist generation; simulation aborted.\n\n" )
+                                   + errors );
         return;
     }
 
@@ -1472,9 +1480,14 @@ void SIM_PLOT_FRAME::onSettings( wxCommandEvent& event )
     if( !m_settingsDlg )
         m_settingsDlg = new DIALOG_SIM_SETTINGS( this, m_circuitModel, m_simulator->Settings() );
 
-    if( !m_circuitModel->ReadSchematicAndLibraries( NETLIST_EXPORTER_SPICE::OPTION_DEFAULT_FLAGS ) )
+    wxString           errors;
+    WX_STRING_REPORTER reporter( &errors );
+
+    if( !m_circuitModel->ReadSchematicAndLibraries( NETLIST_EXPORTER_SPICE::OPTION_DEFAULT_FLAGS,
+                                                    reporter ) )
     {
-        DisplayErrorMessage( this, _( "There were errors during netlist export, aborted." ) );
+        DisplayErrorMessage( this, _( "Errors during netlist generation; simulation aborted.\n\n" )
+                                   + errors );
         return;
     }
 
@@ -1623,10 +1636,12 @@ void SIM_PLOT_FRAME::onShowNetlist( wxCommandEvent& event )
     if( m_schematicFrame == nullptr || m_simulator == nullptr )
         return;
 
-    STRING_FORMATTER formatter;
-    m_circuitModel->GetNetlist( &formatter );
+    wxString           errors;
+    WX_STRING_REPORTER reporter( &errors );
+    STRING_FORMATTER   formatter;
+    m_circuitModel->GetNetlist( &formatter, reporter );
 
-    NETLIST_VIEW_DIALOG dlg( this, formatter.GetString() );
+    NETLIST_VIEW_DIALOG dlg( this, errors.IsEmpty() ? formatter.GetString() : errors );
     dlg.ShowModal();
 }
 

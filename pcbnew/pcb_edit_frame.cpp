@@ -38,7 +38,6 @@
 #include <dialog_find.h>
 #include <dialog_footprint_properties.h>
 #include <dialogs/dialog_exchange_footprints.h>
-#include <pcb_properties_panel.h>
 #include <dialog_board_setup.h>
 #include <invoke_pcb_dialog.h>
 #include <board.h>
@@ -99,6 +98,7 @@
 #include <widgets/pcb_search_pane.h>
 #include <widgets/infobar.h>
 #include <widgets/panel_selection_filter.h>
+#include <widgets/pcb_properties_panel.h>
 #include <widgets/wx_aui_utils.h>
 #include <kiplatform/app.h>
 #include <profile.h>
@@ -333,6 +333,19 @@ PCB_EDIT_FRAME::PCB_EDIT_FRAME( KIWAY* aKiway, wxWindow* aParent ) :
         {
             wxAuiPaneInfo& layersManager = m_auimgr.GetPane( "LayersManager" );
             SetAuiPaneSize( m_auimgr, layersManager, settings->m_AuiPanels.right_panel_width, -1 );
+        }
+
+        if( settings->m_AuiPanels.properties_panel_width > 0 && m_propertiesPanel )
+        {
+            wxAuiPaneInfo& propertiesPanel = m_auimgr.GetPane( "PropertiesManager" );
+            SetAuiPaneSize( m_auimgr, propertiesPanel,
+                            settings->m_AuiPanels.properties_panel_width, -1 );
+        }
+
+        if( settings->m_AuiPanels.search_panel_height > 0 )
+        {
+            wxAuiPaneInfo& searchPane = m_auimgr.GetPane( SearchPaneName() );
+            SetAuiPaneSize( m_auimgr, searchPane, -1, settings->m_AuiPanels.search_panel_height );
         }
 
         m_appearancePanel->SetTabIndex( settings->m_AuiPanels.appearance_panel_tab );
@@ -693,6 +706,8 @@ void PCB_EDIT_FRAME::setupUIConditions()
     mgr->SetConditions( PCB_ACTIONS::padDisplayMode, CHECK( !cond.PadFillDisplay() ) );
     mgr->SetConditions( PCB_ACTIONS::viaDisplayMode, CHECK( !cond.ViaFillDisplay() ) );
     mgr->SetConditions( PCB_ACTIONS::trackDisplayMode, CHECK( !cond.TrackFillDisplay() ) );
+    mgr->SetConditions( PCB_ACTIONS::graphicsOutlines, CHECK( !cond.GraphicsFillDisplay() ) );
+    mgr->SetConditions( PCB_ACTIONS::textOutlines, CHECK( !cond.TextFillDisplay() ) );
 
     if( SCRIPTING::IsWxAvailable() )
         mgr->SetConditions( PCB_ACTIONS::showPythonConsole, CHECK( cond.ScriptingConsoleVisible() ) );
@@ -869,6 +884,8 @@ void PCB_EDIT_FRAME::setupUIConditions()
     mgr->SetConditions( PCB_ACTIONS::drawZoneCutout,  ENABLE( singleZoneCond ) );
     mgr->SetConditions( PCB_ACTIONS::drawSimilarZone, ENABLE( singleZoneCond ) );
     mgr->SetConditions( PCB_ACTIONS::zoneMerge,       ENABLE( zoneMergeCond ) );
+    mgr->SetConditions( PCB_ACTIONS::zoneFill,        ENABLE( SELECTION_CONDITIONS::MoreThan( 0 ) ) );
+    mgr->SetConditions( PCB_ACTIONS::zoneUnfill,      ENABLE( SELECTION_CONDITIONS::MoreThan( 0 ) ) );
 
     mgr->SetConditions( PCB_ACTIONS::toggleHV45Mode,  CHECK( cond.Get45degMode() ) );
 
@@ -947,7 +964,7 @@ void PCB_EDIT_FRAME::RecordDRCExclusions()
 
     for( PCB_MARKER* marker : GetBoard()->Markers() )
     {
-        if( marker->GetSeverity() == RPT_SEVERITY_EXCLUSION )
+        if( marker->IsExcluded() )
             bds.m_DrcExclusions.insert( marker->Serialize() );
     }
 }
@@ -965,7 +982,7 @@ void PCB_EDIT_FRAME::ResolveDRCExclusions()
         commit.Add( marker );
     }
 
-    commit.Push( wxEmptyString, SKIP_UNDO | SKIP_SET_DIRTY | SKIP_CONNECTIVITY );
+    commit.Push( wxEmptyString, SKIP_UNDO | SKIP_SET_DIRTY );
 
     for( PCB_MARKER* marker : GetBoard()->Markers() )
     {
@@ -1123,7 +1140,7 @@ void PCB_EDIT_FRAME::ShowBoardSetupDialog( const wxString& aInitialPage )
 
     if( dlg.ShowQuasiModal() == wxID_OK )
     {
-        GetBoard()->SynchronizeNetsAndNetClasses();
+        GetBoard()->SynchronizeNetsAndNetClasses( true );
         SaveProjectSettings();
 
         Kiway().CommonSettingsChanged( false, true );
@@ -1131,25 +1148,27 @@ void PCB_EDIT_FRAME::ShowBoardSetupDialog( const wxString& aInitialPage )
         PCBNEW_SETTINGS* settings = GetPcbNewSettings();
         static LSET      maskAndPasteLayers = LSET( 4, F_Mask, F_Paste, B_Mask, B_Paste );
 
-        bool maskOrPasteVisible = ( GetBoard()->GetVisibleLayers() & maskAndPasteLayers ).any();
-
         GetCanvas()->GetView()->UpdateAllItemsConditionally( KIGFX::REPAINT,
                 [&]( KIGFX::VIEW_ITEM* aItem ) -> bool
                 {
                     if( dynamic_cast<PCB_TRACK*>( aItem ) )
                     {
-                        return settings->m_Display.m_TrackClearance == SHOW_WITH_VIA_ALWAYS;
+                        if( settings->m_Display.m_TrackClearance == SHOW_WITH_VIA_ALWAYS )
+                            return true;
                     }
                     else if( dynamic_cast<PAD*>( aItem ) )
                     {
-                        return settings->m_Display.m_PadClearance || maskOrPasteVisible;
-                    }
-                    else if( dynamic_cast<EDA_TEXT*>( aItem ) )
-                    {
-                        EDA_TEXT* text = dynamic_cast<EDA_TEXT*>( aItem );
+                        if( settings->m_Display.m_PadClearance )
+                            return true;
 
-                        return text->HasTextVars();
+                        if( ( GetBoard()->GetVisibleLayers() & maskAndPasteLayers ).any() )
+                            return true;
                     }
+
+                    EDA_TEXT* text = dynamic_cast<EDA_TEXT*>( aItem );
+
+                    if( text && text->HasTextVars() )
+                        return true;
 
                     return false;
                 } );
@@ -1198,11 +1217,17 @@ void PCB_EDIT_FRAME::SaveSettings( APP_SETTINGS_BASE* aCfg )
         cfg->m_AuiPanels.show_layer_manager   = m_show_layer_manager_tools;
         cfg->m_AuiPanels.right_panel_width    = m_appearancePanel->GetSize().x;
         cfg->m_AuiPanels.appearance_panel_tab = m_appearancePanel->GetTabIndex();
-        cfg->m_AuiPanels.show_properties = m_show_properties;
+
+        if( m_propertiesPanel )
+        {
+            cfg->m_AuiPanels.show_properties        = m_show_properties;
+            cfg->m_AuiPanels.properties_panel_width = m_propertiesPanel->GetSize().x;
+        }
 
         // ensure m_show_search is up to date (the pane can be closed)
         m_show_search = m_auimgr.GetPane( SearchPaneName() ).IsShown();
         cfg->m_AuiPanels.show_search = m_show_search;
+        cfg->m_AuiPanels.search_panel_height = m_searchPane->GetSize().y;
     }
 }
 

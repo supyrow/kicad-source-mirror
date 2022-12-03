@@ -26,7 +26,7 @@ DIALOG_SIM_MODEL_BASE::DIALOG_SIM_MODEL_BASE( wxWindow* parent, wxWindowID id, c
 	wxBoxSizer* bSizerMargins;
 	bSizerMargins = new wxBoxSizer( wxVERTICAL );
 
-	m_useLibraryModelRadioButton = new wxRadioButton( m_modelPanel, wxID_ANY, _("SPICE model from file (*.lib or *.sub)"), wxDefaultPosition, wxDefaultSize, wxRB_GROUP );
+	m_useLibraryModelRadioButton = new wxRadioButton( m_modelPanel, wxID_ANY, _("SPICE model from file (*.lib, *.sub or *.ibs)"), wxDefaultPosition, wxDefaultSize, wxRB_GROUP );
 	bSizerMargins->Add( m_useLibraryModelRadioButton, 0, wxLEFT, 5 );
 
 	wxGridBagSizer* gbSizer1;
@@ -41,8 +41,8 @@ DIALOG_SIM_MODEL_BASE::DIALOG_SIM_MODEL_BASE( wxWindow* parent, wxWindowID id, c
 	wxBoxSizer* bSizer7;
 	bSizer7 = new wxBoxSizer( wxHORIZONTAL );
 
-	m_tclibraryPathName = new wxTextCtrl( m_modelPanel, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, wxTE_READONLY );
-	bSizer7->Add( m_tclibraryPathName, 1, wxALIGN_CENTER_VERTICAL|wxRIGHT, 3 );
+	m_libraryPathText = new wxTextCtrl( m_modelPanel, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, wxTE_PROCESS_ENTER );
+	bSizer7->Add( m_libraryPathText, 1, wxALIGN_CENTER_VERTICAL|wxRIGHT, 3 );
 
 	m_browseButton = new wxBitmapButton( m_modelPanel, wxID_ANY, wxNullBitmap, wxDefaultPosition, wxDefaultSize, wxBU_AUTODRAW|0 );
 	bSizer7->Add( m_browseButton, 0, wxALIGN_CENTER_VERTICAL|wxRIGHT, 5 );
@@ -62,19 +62,29 @@ DIALOG_SIM_MODEL_BASE::DIALOG_SIM_MODEL_BASE( wxWindow* parent, wxWindowID id, c
 
 	m_ibisPinLabel = new wxStaticText( m_modelPanel, wxID_ANY, _("Pin:"), wxDefaultPosition, wxDefaultSize, 0 );
 	m_ibisPinLabel->Wrap( -1 );
+	m_ibisPinLabel->Hide();
+
 	gbSizer1->Add( m_ibisPinLabel, wxGBPosition( 2, 0 ), wxGBSpan( 1, 1 ), wxALIGN_CENTER_VERTICAL, 5 );
 
 	m_ibisPinCombobox = new wxComboBox( m_modelPanel, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, 0, NULL, wxTE_PROCESS_ENTER );
+	m_ibisPinCombobox->Hide();
+
 	gbSizer1->Add( m_ibisPinCombobox, wxGBPosition( 2, 1 ), wxGBSpan( 1, 1 ), wxEXPAND, 5 );
 
 	m_differentialCheckbox = new wxCheckBox( m_modelPanel, wxID_ANY, _("Differential"), wxDefaultPosition, wxDefaultSize, 0 );
+	m_differentialCheckbox->Hide();
+
 	gbSizer1->Add( m_differentialCheckbox, wxGBPosition( 2, 2 ), wxGBSpan( 1, 1 ), wxALIGN_CENTER_VERTICAL|wxRIGHT|wxLEFT, 40 );
 
 	m_ibisModelLabel = new wxStaticText( m_modelPanel, wxID_ANY, _("Model:"), wxDefaultPosition, wxDefaultSize, 0 );
 	m_ibisModelLabel->Wrap( -1 );
+	m_ibisModelLabel->Hide();
+
 	gbSizer1->Add( m_ibisModelLabel, wxGBPosition( 3, 0 ), wxGBSpan( 1, 1 ), wxALIGN_CENTER_VERTICAL, 5 );
 
 	m_ibisModelCombobox = new wxComboBox( m_modelPanel, wxID_ANY, wxEmptyString, wxDefaultPosition, wxDefaultSize, 0, NULL, wxTE_PROCESS_ENTER );
+	m_ibisModelCombobox->Hide();
+
 	gbSizer1->Add( m_ibisModelCombobox, wxGBPosition( 3, 1 ), wxGBSpan( 1, 1 ), wxEXPAND, 5 );
 
 
@@ -114,9 +124,6 @@ DIALOG_SIM_MODEL_BASE::DIALOG_SIM_MODEL_BASE( wxWindow* parent, wxWindowID id, c
 
 
 	bSizerMargins->Add( fgSizer16, 0, wxEXPAND|wxLEFT, 24 );
-
-
-	bSizerMargins->Add( 0, 10, 0, 0, 5 );
 
 	m_notebook4 = new wxNotebook( m_modelPanel, wxID_ANY, wxDefaultPosition, wxDefaultSize, 0 );
 	m_parametersPanel = new wxPanel( m_notebook4, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxTAB_TRAVERSAL );
@@ -239,20 +246,22 @@ DIALOG_SIM_MODEL_BASE::DIALOG_SIM_MODEL_BASE( wxWindow* parent, wxWindowID id, c
 
 	bSizer8->Add( m_notebook, 1, wxEXPAND|wxTOP|wxRIGHT|wxLEFT, 5 );
 
-	wxGridSizer* gSizer1;
-	gSizer1 = new wxGridSizer( 0, 2, 0, 0 );
-
-	m_excludeCheckbox = new wxCheckBox( this, wxID_ANY, _("Exclude from simulation"), wxDefaultPosition, wxDefaultSize, 0 );
-	gSizer1->Add( m_excludeCheckbox, 0, wxBOTTOM|wxRIGHT|wxLEFT, 5 );
-
-	m_inferCheckbox = new wxCheckBox( this, wxID_ANY, _("Store in Reference and Value"), wxDefaultPosition, wxDefaultSize, 0 );
-	gSizer1->Add( m_inferCheckbox, 0, wxALIGN_RIGHT|wxBOTTOM|wxRIGHT|wxLEFT, 5 );
-
-
-	bSizer8->Add( gSizer1, 0, wxEXPAND|wxTOP|wxRIGHT|wxLEFT, 10 );
-
 	m_staticline1 = new wxStaticLine( this, wxID_ANY, wxDefaultPosition, wxDefaultSize, wxLI_HORIZONTAL );
 	bSizer8->Add( m_staticline1, 0, wxEXPAND | wxALL, 5 );
+
+	m_saveInValueCheckbox = new wxCheckBox( this, wxID_ANY, _("Save {} in Value field as \"{}\""), wxDefaultPosition, wxDefaultSize, 0 );
+	m_saveInValueCheckbox->Hide();
+
+	bSizer8->Add( m_saveInValueCheckbox, 0, wxALL, 5 );
+
+	wxBoxSizer* bSizer81;
+	bSizer81 = new wxBoxSizer( wxHORIZONTAL );
+
+	m_excludeCheckbox = new wxCheckBox( this, wxID_ANY, _("Exclude from simulation"), wxDefaultPosition, wxDefaultSize, 0 );
+	bSizer81->Add( m_excludeCheckbox, 0, wxALIGN_CENTER_VERTICAL|wxBOTTOM|wxLEFT|wxRIGHT, 5 );
+
+
+	bSizer81->Add( 0, 0, 1, wxEXPAND, 5 );
 
 	m_sdbSizer1 = new wxStdDialogButtonSizer();
 	m_sdbSizer1OK = new wxButton( this, wxID_OK );
@@ -261,7 +270,10 @@ DIALOG_SIM_MODEL_BASE::DIALOG_SIM_MODEL_BASE( wxWindow* parent, wxWindowID id, c
 	m_sdbSizer1->AddButton( m_sdbSizer1Cancel );
 	m_sdbSizer1->Realize();
 
-	bSizer8->Add( m_sdbSizer1, 0, wxEXPAND|wxALL, 5 );
+	bSizer81->Add( m_sdbSizer1, 0, wxEXPAND|wxALL, 5 );
+
+
+	bSizer8->Add( bSizer81, 0, wxEXPAND, 5 );
 
 
 	this->SetSizer( bSizer8 );
@@ -273,7 +285,9 @@ DIALOG_SIM_MODEL_BASE::DIALOG_SIM_MODEL_BASE( wxWindow* parent, wxWindowID id, c
 	// Connect Events
 	m_useLibraryModelRadioButton->Connect( wxEVT_COMMAND_RADIOBUTTON_SELECTED, wxCommandEventHandler( DIALOG_SIM_MODEL_BASE::onRadioButton ), NULL, this );
 	m_pathLabel->Connect( wxEVT_UPDATE_UI, wxUpdateUIEventHandler( DIALOG_SIM_MODEL_BASE::onLibraryPathLabelUpdate ), NULL, this );
-	m_tclibraryPathName->Connect( wxEVT_UPDATE_UI, wxUpdateUIEventHandler( DIALOG_SIM_MODEL_BASE::onLibraryPathUpdate ), NULL, this );
+	m_libraryPathText->Connect( wxEVT_KILL_FOCUS, wxFocusEventHandler( DIALOG_SIM_MODEL_BASE::onLibraryPathTextKillFocus ), NULL, this );
+	m_libraryPathText->Connect( wxEVT_COMMAND_TEXT_ENTER, wxCommandEventHandler( DIALOG_SIM_MODEL_BASE::onLibraryPathTextEnter ), NULL, this );
+	m_libraryPathText->Connect( wxEVT_UPDATE_UI, wxUpdateUIEventHandler( DIALOG_SIM_MODEL_BASE::onLibraryPathUpdate ), NULL, this );
 	m_browseButton->Connect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( DIALOG_SIM_MODEL_BASE::onBrowseButtonClick ), NULL, this );
 	m_browseButton->Connect( wxEVT_UPDATE_UI, wxUpdateUIEventHandler( DIALOG_SIM_MODEL_BASE::onBrowseButtonUpdate ), NULL, this );
 	m_modelNameLabel->Connect( wxEVT_UPDATE_UI, wxUpdateUIEventHandler( DIALOG_SIM_MODEL_BASE::onModelNameLabelUpdate ), NULL, this );
@@ -303,8 +317,8 @@ DIALOG_SIM_MODEL_BASE::DIALOG_SIM_MODEL_BASE( wxWindow* parent, wxWindowID id, c
 	m_codePreview->Connect( wxEVT_SET_FOCUS, wxFocusEventHandler( DIALOG_SIM_MODEL_BASE::onCodePreviewSetFocus ), NULL, this );
 	m_pinAssignmentsGrid->Connect( wxEVT_GRID_CELL_CHANGED, wxGridEventHandler( DIALOG_SIM_MODEL_BASE::onPinAssignmentsGridCellChange ), NULL, this );
 	m_pinAssignmentsGrid->Connect( wxEVT_SIZE, wxSizeEventHandler( DIALOG_SIM_MODEL_BASE::onPinAssignmentsGridSize ), NULL, this );
+	m_saveInValueCheckbox->Connect( wxEVT_COMMAND_CHECKBOX_CLICKED, wxCommandEventHandler( DIALOG_SIM_MODEL_BASE::onSaveInValueCheckbox ), NULL, this );
 	m_excludeCheckbox->Connect( wxEVT_COMMAND_CHECKBOX_CLICKED, wxCommandEventHandler( DIALOG_SIM_MODEL_BASE::onExcludeCheckbox ), NULL, this );
-	m_inferCheckbox->Connect( wxEVT_COMMAND_CHECKBOX_CLICKED, wxCommandEventHandler( DIALOG_SIM_MODEL_BASE::onInferCheckbox ), NULL, this );
 }
 
 DIALOG_SIM_MODEL_BASE::~DIALOG_SIM_MODEL_BASE()
@@ -312,7 +326,9 @@ DIALOG_SIM_MODEL_BASE::~DIALOG_SIM_MODEL_BASE()
 	// Disconnect Events
 	m_useLibraryModelRadioButton->Disconnect( wxEVT_COMMAND_RADIOBUTTON_SELECTED, wxCommandEventHandler( DIALOG_SIM_MODEL_BASE::onRadioButton ), NULL, this );
 	m_pathLabel->Disconnect( wxEVT_UPDATE_UI, wxUpdateUIEventHandler( DIALOG_SIM_MODEL_BASE::onLibraryPathLabelUpdate ), NULL, this );
-	m_tclibraryPathName->Disconnect( wxEVT_UPDATE_UI, wxUpdateUIEventHandler( DIALOG_SIM_MODEL_BASE::onLibraryPathUpdate ), NULL, this );
+	m_libraryPathText->Disconnect( wxEVT_KILL_FOCUS, wxFocusEventHandler( DIALOG_SIM_MODEL_BASE::onLibraryPathTextKillFocus ), NULL, this );
+	m_libraryPathText->Disconnect( wxEVT_COMMAND_TEXT_ENTER, wxCommandEventHandler( DIALOG_SIM_MODEL_BASE::onLibraryPathTextEnter ), NULL, this );
+	m_libraryPathText->Disconnect( wxEVT_UPDATE_UI, wxUpdateUIEventHandler( DIALOG_SIM_MODEL_BASE::onLibraryPathUpdate ), NULL, this );
 	m_browseButton->Disconnect( wxEVT_COMMAND_BUTTON_CLICKED, wxCommandEventHandler( DIALOG_SIM_MODEL_BASE::onBrowseButtonClick ), NULL, this );
 	m_browseButton->Disconnect( wxEVT_UPDATE_UI, wxUpdateUIEventHandler( DIALOG_SIM_MODEL_BASE::onBrowseButtonUpdate ), NULL, this );
 	m_modelNameLabel->Disconnect( wxEVT_UPDATE_UI, wxUpdateUIEventHandler( DIALOG_SIM_MODEL_BASE::onModelNameLabelUpdate ), NULL, this );
@@ -342,7 +358,7 @@ DIALOG_SIM_MODEL_BASE::~DIALOG_SIM_MODEL_BASE()
 	m_codePreview->Disconnect( wxEVT_SET_FOCUS, wxFocusEventHandler( DIALOG_SIM_MODEL_BASE::onCodePreviewSetFocus ), NULL, this );
 	m_pinAssignmentsGrid->Disconnect( wxEVT_GRID_CELL_CHANGED, wxGridEventHandler( DIALOG_SIM_MODEL_BASE::onPinAssignmentsGridCellChange ), NULL, this );
 	m_pinAssignmentsGrid->Disconnect( wxEVT_SIZE, wxSizeEventHandler( DIALOG_SIM_MODEL_BASE::onPinAssignmentsGridSize ), NULL, this );
+	m_saveInValueCheckbox->Disconnect( wxEVT_COMMAND_CHECKBOX_CLICKED, wxCommandEventHandler( DIALOG_SIM_MODEL_BASE::onSaveInValueCheckbox ), NULL, this );
 	m_excludeCheckbox->Disconnect( wxEVT_COMMAND_CHECKBOX_CLICKED, wxCommandEventHandler( DIALOG_SIM_MODEL_BASE::onExcludeCheckbox ), NULL, this );
-	m_inferCheckbox->Disconnect( wxEVT_COMMAND_CHECKBOX_CLICKED, wxCommandEventHandler( DIALOG_SIM_MODEL_BASE::onInferCheckbox ), NULL, this );
 
 }

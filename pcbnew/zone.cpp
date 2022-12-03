@@ -60,11 +60,11 @@ ZONE::ZONE( BOARD_ITEM_CONTAINER* aParent, bool aInFP ) :
     SetLocalFlags( 0 );               // flags temporary used in zone calculations
     m_fillVersion = 5;                // set the "old" way to build filled polygon areas (< 6.0.x)
 
-    aParent->GetZoneSettings().ExportSetting( *this );
-
     m_ZoneMinThickness = EDA_UNIT_UTILS::Mils2IU( pcbIUScale, ZONE_THICKNESS_MIL );
     m_thermalReliefSpokeWidth = EDA_UNIT_UTILS::Mils2IU( pcbIUScale,  ZONE_THERMAL_RELIEF_COPPER_WIDTH_MIL );
     m_thermalReliefGap = EDA_UNIT_UTILS::Mils2IU( pcbIUScale, ZONE_THERMAL_RELIEF_GAP_MIL );
+
+    aParent->GetZoneSettings().ExportSetting( *this );
 
     m_needRefill = false;   // True only after edits.
 }
@@ -517,16 +517,7 @@ bool ZONE::HitTestCutout( const VECTOR2I& aRefPos, int* aOutlineIdx, int* aHoleI
 
 void ZONE::GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList )
 {
-    wxString msg;
-
-    if( GetIsRuleArea() )
-        msg = _( "Rule Area" );
-    else if( IsTeardropArea() )
-        msg = _( "Teardrop Area" );
-    else if( IsOnCopperLayer() )
-        msg = _( "Copper Zone" );
-    else
-        msg = _( "Non-copper Zone" );
+    wxString msg = GetFriendlyName();
 
     // Display Cutout instead of Outline for holes inside a zone (i.e. when num contour !=0).
     // Check whether the selected corner is in a hole; i.e., in any contour but the first one.
@@ -639,8 +630,36 @@ void ZONE::Move( const VECTOR2I& offset )
 
     HatchBorder();
 
+    /* move fills */
     for( std::pair<const PCB_LAYER_ID, std::shared_ptr<SHAPE_POLY_SET>>& pair : m_FilledPolysList )
         pair.second->Move( offset );
+
+    /*
+     * move boundingbox cache
+     *
+     * While the cache will get nuked at the conclusion of the operation, we use it for some
+     * things (such as drawing the parent group) during the move.
+     */
+    if( GetBoard() )
+    {
+        auto it = GetBoard()->m_ZoneBBoxCache.find( this );
+        
+        if( it != GetBoard()->m_ZoneBBoxCache.end() )
+            it->second.Move( offset );
+    }
+}
+
+
+wxString ZONE::GetFriendlyName() const
+{
+    if( GetIsRuleArea() )
+        return _( "Rule Area" );
+    else if( IsTeardropArea() )
+        return _( "Teardrop Area" );
+    else if( IsOnCopperLayer() )
+        return _( "Copper Zone" );
+    else
+        return _( "Non-copper Zone" );
 }
 
 
@@ -1335,37 +1354,93 @@ static struct ZONE_DESC
 {
     ZONE_DESC()
     {
-        ENUM_MAP<ZONE_CONNECTION>::Instance()
-                .Map( ZONE_CONNECTION::INHERITED,   _HKI( "Inherited" ) )
-                .Map( ZONE_CONNECTION::NONE,        _HKI( "None" ) )
-                .Map( ZONE_CONNECTION::THERMAL,     _HKI( "Thermal reliefs" ) )
-                .Map( ZONE_CONNECTION::FULL,        _HKI( "Solid" ) )
-                .Map( ZONE_CONNECTION::THT_THERMAL, _HKI( "Thermal reliefs for PTH" ) );
+        ENUM_MAP<ZONE_CONNECTION>& zcMap = ENUM_MAP<ZONE_CONNECTION>::Instance();
+
+        if( zcMap.Choices().GetCount() == 0 )
+        {
+            zcMap.Undefined( ZONE_CONNECTION::INHERITED );
+            zcMap.Map( ZONE_CONNECTION::INHERITED, _HKI( "Inherited" ) )
+                 .Map( ZONE_CONNECTION::NONE, _HKI( "None" ) )
+                 .Map( ZONE_CONNECTION::THERMAL, _HKI( "Thermal reliefs" ) )
+                 .Map( ZONE_CONNECTION::FULL, _HKI( "Solid" ) )
+                 .Map( ZONE_CONNECTION::THT_THERMAL, _HKI( "Thermal reliefs for PTH" ) );
+        }
 
         PROPERTY_MANAGER& propMgr = PROPERTY_MANAGER::Instance();
         REGISTER_TYPE( ZONE );
         propMgr.InheritsAfter( TYPE_HASH( ZONE ), TYPE_HASH( BOARD_CONNECTED_ITEM ) );
-        propMgr.AddProperty( new PROPERTY<ZONE, unsigned>( _HKI( "Priority" ),
-                    &ZONE::SetAssignedPriority, &ZONE::GetAssignedPriority ) );
-        //propMgr.AddProperty( new PROPERTY<ZONE, bool>( "Filled",
-                    //&ZONE::SetIsFilled, &ZONE::IsFilled ) );
+
+        // Mask layer and position properties; they aren't useful in current form
+        auto posX = new PROPERTY<ZONE, int>( _HKI( "Position X" ),
+                                             NO_SETTER( ZONE, int ),
+                                             reinterpret_cast<int (ZONE::*)() const>( &ZONE::GetX ),
+                                             PROPERTY_DISPLAY::PT_COORD,
+                                             ORIGIN_TRANSFORMS::ABS_X_COORD );
+        posX->SetIsInternal( true );
+
+        auto posY = new PROPERTY<ZONE, int>( _HKI( "Position Y" ), NO_SETTER( ZONE, int ),
+                                             reinterpret_cast<int (ZONE::*)() const>( &ZONE::GetY ),
+                                             PROPERTY_DISPLAY::PT_COORD,
+                                             ORIGIN_TRANSFORMS::ABS_Y_COORD );
+        posY->SetIsInternal( true );
+
+        propMgr.ReplaceProperty( TYPE_HASH( BOARD_ITEM ), _HKI( "Position X" ), posX );
+        propMgr.ReplaceProperty( TYPE_HASH( BOARD_ITEM ), _HKI( "Position Y" ), posY );
+
+        auto isCopperZone =
+                []( INSPECTABLE* aItem ) -> bool
+                {
+                    if( ZONE* zone = dynamic_cast<ZONE*>( aItem ) )
+                        return !zone->GetIsRuleArea() && IsCopperLayer( zone->GetFirstLayer() );
+
+                    return false;
+                };
+        
+        auto layer = new PROPERTY_ENUM<ZONE, PCB_LAYER_ID>( _HKI( "Layer" ),
+                    &ZONE::SetLayer, &ZONE::GetLayer );
+        layer->SetIsInternal( true );
+        propMgr.ReplaceProperty( TYPE_HASH( BOARD_CONNECTED_ITEM ), _HKI( "Layer" ), layer );
+
+        auto priority = new PROPERTY<ZONE, unsigned>( _HKI( "Priority" ),
+                    &ZONE::SetAssignedPriority, &ZONE::GetAssignedPriority );
+        priority->SetAvailableFunc( isCopperZone );
+        propMgr.AddProperty( priority );
+
         propMgr.AddProperty( new PROPERTY<ZONE, wxString>( _HKI( "Name" ),
                     &ZONE::SetZoneName, &ZONE::GetZoneName ) );
-        propMgr.AddProperty( new PROPERTY<ZONE, int>( _HKI( "Clearance Override" ),
+
+        const wxString groupOverrides = _( "Overrides" );
+
+        auto clearanceOverride = new PROPERTY<ZONE, int>( _HKI( "Clearance Override" ),
                     &ZONE::SetLocalClearance, &ZONE::GetLocalClearance,
-                    PROPERTY_DISPLAY::PT_SIZE ) );
-        propMgr.AddProperty( new PROPERTY<ZONE, int>( _HKI( "Min Width" ),
+                    PROPERTY_DISPLAY::PT_SIZE );
+        clearanceOverride->SetAvailableFunc( isCopperZone );
+        
+        auto minWidth = new PROPERTY<ZONE, int>( _HKI( "Minimum Width" ),
                     &ZONE::SetMinThickness, &ZONE::GetMinThickness,
-                    PROPERTY_DISPLAY::PT_SIZE ) );
-        propMgr.AddProperty( new PROPERTY_ENUM<ZONE, ZONE_CONNECTION>( _HKI( "Pad Connections" ),
-                    &ZONE::SetPadConnection, &ZONE::GetPadConnection ) );
-        propMgr.AddProperty( new PROPERTY<ZONE, int>( _HKI( "Thermal Relief Gap" ),
+                    PROPERTY_DISPLAY::PT_SIZE );
+        minWidth->SetAvailableFunc( isCopperZone );
+        
+        auto padConnections = new PROPERTY_ENUM<ZONE, ZONE_CONNECTION>( _HKI( "Pad Connections" ),
+                    &ZONE::SetPadConnection, &ZONE::GetPadConnection );
+        padConnections->SetAvailableFunc( isCopperZone );
+
+        auto thermalGap = new PROPERTY<ZONE, int>( _HKI( "Thermal Relief Gap" ),
                     &ZONE::SetThermalReliefGap, &ZONE::GetThermalReliefGap,
-                    PROPERTY_DISPLAY::PT_SIZE ) );
-        propMgr.AddProperty( new PROPERTY<ZONE, int>( _HKI( "Thermal Relief Spoke Width" ),
+                    PROPERTY_DISPLAY::PT_SIZE );
+        thermalGap->SetAvailableFunc( isCopperZone );
+
+        auto thermalSpokeWidth = new PROPERTY<ZONE, int>( _HKI( "Thermal Relief Spoke Width" ),
                     &ZONE::SetThermalReliefSpokeWidth, &ZONE::GetThermalReliefSpokeWidth,
-                    PROPERTY_DISPLAY::PT_SIZE ) );
+                    PROPERTY_DISPLAY::PT_SIZE );
+        thermalSpokeWidth->SetAvailableFunc( isCopperZone );
+
+        propMgr.AddProperty( clearanceOverride, groupOverrides );
+        propMgr.AddProperty( minWidth, groupOverrides );
+        propMgr.AddProperty( padConnections, groupOverrides );
+        propMgr.AddProperty( thermalGap, groupOverrides );
+        propMgr.AddProperty( thermalSpokeWidth, groupOverrides );
     }
 } _ZONE_DESC;
 
-ENUM_TO_WXANY( ZONE_CONNECTION );
+IMPLEMENT_ENUM_TO_WXANY( ZONE_CONNECTION )

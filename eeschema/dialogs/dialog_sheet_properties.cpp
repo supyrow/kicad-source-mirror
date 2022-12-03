@@ -172,7 +172,7 @@ bool DIALOG_SHEET_PROPERTIES::TransferDataToWindow()
 
     instance.push_back( m_sheet );
 
-    wxString nextPageNumber = m_sheet->GetPageNumber( instance );
+    wxString nextPageNumber = instance.GetPageNumber();
 
     m_pageNumberTextCtrl->ChangeValue( nextPageNumber );
 
@@ -378,12 +378,7 @@ bool DIALOG_SHEET_PROPERTIES::TransferDataFromWindow()
 
     instance.push_back( m_sheet );
 
-    if( m_sheet->IsNew() )
-    {
-        m_sheet->AddInstance( instance );
-    }
-
-    m_sheet->SetPageNumber( instance, m_pageNumberTextCtrl->GetValue() );
+    instance.SetPageNumber( m_pageNumberTextCtrl->GetValue() );
 
     m_frame->TestDanglingEnds();
 
@@ -821,16 +816,14 @@ void DIALOG_SHEET_PROPERTIES::AdjustGridColumns()
     int width = KIPLATFORM::UI::GetUnobscuredSize( m_grid ).x;
 
     m_grid->AutoSizeColumn( 0 );
+    m_grid->SetColSize( 0, std::max( 72, m_grid->GetColSize( 0 ) ) );
 
     int fixedColsWidth = m_grid->GetColSize( 0 );
 
     for( int i = 2; i < m_grid->GetNumberCols(); i++ )
         fixedColsWidth += m_grid->GetColSize( i );
 
-    int colSize = std::max( width - fixedColsWidth, -1 );
-    colSize = ( colSize == 0 ) ? -1 : colSize; // don't hide the column!
-
-    m_grid->SetColSize( 1, colSize );
+    m_grid->SetColSize( 1, std::max( 120, width - fixedColsWidth ) );
 }
 
 

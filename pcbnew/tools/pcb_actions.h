@@ -135,11 +135,15 @@ public:
     /// Pack and start moving selected footprints
     static TOOL_ACTION packAndMoveFootprints;
 
+    // Compound Action Tool actions, e.g. Move Individually
+    static TOOL_ACTION skip;
+
     /// Update selected tracks & vias to the current track & via dimensions
     static TOOL_ACTION changeTrackWidth;
 
     /// Fillet (i.e. adds an arc tangent to) all selected straight tracks by a user defined radius
     static TOOL_ACTION filletTracks;
+    static TOOL_ACTION filletLines;
 
     /// Activation of the edit tool
     static TOOL_ACTION properties;
@@ -332,8 +336,10 @@ public:
     static TOOL_ACTION assignNetClass;
 
     // Zone actions
+    static TOOL_ACTION zoneFill;
     static TOOL_ACTION zoneFillAll;
     static TOOL_ACTION zoneFillDirty;
+    static TOOL_ACTION zoneUnfill;
     static TOOL_ACTION zoneUnfillAll;
     static TOOL_ACTION zoneMerge;
 

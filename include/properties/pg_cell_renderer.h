@@ -1,8 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2022 Mark Roszko <mark.roszko@gmail.com>
- * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -18,15 +17,18 @@
  * with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "command_pcb.h"
+#include <wx/propgrid/property.h>
 
-CLI::PCB_COMMAND::PCB_COMMAND() : COMMAND( "pcb" )
+
+/**
+ * Enhanced renderer to work around some limitations in wxWidgets 3.0 capabilities
+ */
+class PG_CELL_RENDERER : public wxPGDefaultRenderer
 {
-}
+public:
+    PG_CELL_RENDERER();
+    virtual ~PG_CELL_RENDERER() = default;
 
-int CLI::PCB_COMMAND::Perform( KIWAY& aKiway )
-{
-    std::cout << m_argParser;
-
-    return 1;
-}
+    bool Render( wxDC &aDC, const wxRect &aRect, const wxPropertyGrid *aGrid,
+                 wxPGProperty *aProperty, int aColumn, int aItem, int aFlags ) const override;
+};

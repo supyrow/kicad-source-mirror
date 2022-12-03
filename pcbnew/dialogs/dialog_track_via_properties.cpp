@@ -106,7 +106,7 @@ DIALOG_TRACK_VIA_PROPERTIES::DIALOG_TRACK_VIA_PROPERTIES( PCB_BASE_FRAME* aParen
             {
                 if( !via->GetRemoveUnconnected() )
                     return 0;
-                else if( via->GetKeepTopBottom() )
+                else if( via->GetKeepStartEnd() )
                     return 1;
                 else
                     return 2;
@@ -265,6 +265,7 @@ DIALOG_TRACK_VIA_PROPERTIES::DIALOG_TRACK_VIA_PROPERTIES( PCB_BASE_FRAME* aParen
             m_ViaStartLayer->SetUndefinedLayerName( INDETERMINATE_STATE );
             m_ViaStartLayer->Resync();
         }
+
         m_ViaStartLayer->SetLayerSelection( selection_first_layer );
 
         if( selection_last_layer == UNDEFINED_LAYER )
@@ -272,6 +273,7 @@ DIALOG_TRACK_VIA_PROPERTIES::DIALOG_TRACK_VIA_PROPERTIES( PCB_BASE_FRAME* aParen
             m_ViaEndLayer->SetUndefinedLayerName( INDETERMINATE_STATE );
             m_ViaEndLayer->Resync();
         }
+
         m_ViaEndLayer->SetLayerSelection( selection_last_layer );
     }
 
@@ -336,6 +338,9 @@ DIALOG_TRACK_VIA_PROPERTIES::DIALOG_TRACK_VIA_PROPERTIES( PCB_BASE_FRAME* aParen
 
         m_ViaStartLayer->Enable( viaType != VIATYPE::THROUGH );
         m_ViaEndLayer->Enable( viaType != VIATYPE::THROUGH );
+
+        m_annularRingsLabel->Show( getLayerDepth() > 1 );
+        m_annularRingsCtrl->Show( getLayerDepth() > 1 );
     }
     else
     {
@@ -481,7 +486,7 @@ bool DIALOG_TRACK_VIA_PROPERTIES::confirmPadChange( const std::vector<PAD*>& cha
 
 bool DIALOG_TRACK_VIA_PROPERTIES::TransferDataFromWindow()
 {
-    // Run validations:
+    // Check for malformed data ONLY; design rules and constraints are the business of DRC.
 
     if( m_vias )
     {
@@ -607,11 +612,11 @@ bool DIALOG_TRACK_VIA_PROPERTIES::TransferDataFromWindow()
                     break;
                 case 1:
                     v->SetRemoveUnconnected( true );
-                    v->SetKeepTopBottom( true );
+                    v->SetKeepStartEnd( true );
                     break;
                 case 2:
                     v->SetRemoveUnconnected( true );
-                    v->SetKeepTopBottom( false );
+                    v->SetKeepStartEnd( false );
                     break;
                 default:
                     break;
@@ -797,6 +802,23 @@ void DIALOG_TRACK_VIA_PROPERTIES::onViaSelect( wxCommandEvent& aEvent )
 }
 
 
+int DIALOG_TRACK_VIA_PROPERTIES::getLayerDepth()
+{
+    int viaType = m_ViaTypeChoice->GetSelection();
+
+    if( viaType <= 0 )
+        return m_frame->GetBoard()->GetCopperLayerCount() - 1;
+
+    int startLayer = m_ViaStartLayer->GetLayerSelection();
+    int endLayer = m_ViaEndLayer->GetLayerSelection();
+
+    if( startLayer < 0 || endLayer < 0 )
+        return m_frame->GetBoard()->GetCopperLayerCount() - 1;
+    else
+        return m_frame->GetBoard()->LayerDepth( ToLAYER_ID( startLayer ), ToLAYER_ID( endLayer ) );
+}
+
+
 void DIALOG_TRACK_VIA_PROPERTIES::onViaEdit( wxCommandEvent& aEvent )
 {
     m_DesignRuleViasCtrl->SetSelection( wxNOT_FOUND );
@@ -816,5 +838,8 @@ void DIALOG_TRACK_VIA_PROPERTIES::onViaEdit( wxCommandEvent& aEvent )
             m_ViaStartLayer->Enable( false );
             m_ViaEndLayer->Enable( false );
         }
+
+        m_annularRingsLabel->Show( getLayerDepth() > 1 );
+        m_annularRingsCtrl->Show( getLayerDepth() > 1 );
     }
 }

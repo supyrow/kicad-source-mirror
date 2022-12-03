@@ -90,6 +90,8 @@ static const wxChar* s_allowedExtensionsToList[] = {
     wxT( "^.*\\.gb[alops]$" ),     // Gerber back (or bottom) layer file (deprecated Protel ext)
     wxT( "^.*\\.gt[alops]$" ),     // Gerber front (or top) layer file (deprecated Protel ext)
     wxT( "^.*\\.g[0-9]{1,2}$" ),   // Gerber inner layer file (deprecated Protel ext)
+    wxT( "^.*\\.gm[0-9]{1,2}$" ),  // Gerber mechanical layer file (deprecated Protel ext)
+    wxT( "^.*\\.gko$" ),           // Gerber keepout layer file (deprecated Protel ext)
     wxT( "^.*\\.odt$" ),
     wxT( "^.*\\.htm$" ),
     wxT( "^.*\\.html$" ),
@@ -256,7 +258,7 @@ wxString PROJECT_TREE_PANE::GetFileExt( TREE_FILE_TYPE type )
     case TREE_FILE_TYPE::SEXPR_SCHEMATIC:       return KiCadSchematicFileExtension;
     case TREE_FILE_TYPE::LEGACY_PCB:            return LegacyPcbFileExtension;
     case TREE_FILE_TYPE::SEXPR_PCB:             return KiCadPcbFileExtension;
-    case TREE_FILE_TYPE::GERBER:                return GerberFileExtensionWildCard;
+    case TREE_FILE_TYPE::GERBER:                return GerberFileExtensionsRegex;
     case TREE_FILE_TYPE::GERBER_JOB_FILE:       return GerberJobFileExtension;
     case TREE_FILE_TYPE::HTML:                  return HtmlFileExtension;
     case TREE_FILE_TYPE::PDF:                   return PdfFileExtension;
@@ -346,10 +348,6 @@ wxTreeItemId PROJECT_TREE_PANE::addItemToProjectTree( const wxString& aName,
 
             if( ext == wxT( "" ) )
                 continue;
-
-            // For gerber files, the official ext is gbr
-            if( i == static_cast<int>( TREE_FILE_TYPE::GERBER ) )
-                ext = "gbr";
 
             reg.Compile( wxString::FromAscii( "^.*\\." ) + ext + wxString::FromAscii( "$" ),
                          wxRE_ICASE );

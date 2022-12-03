@@ -45,6 +45,23 @@
 #define _( x ) x
 #endif
 
+
+std::vector<std::pair<int, double>> SimplifyBitSequence( std::vector<std::pair<int, double>> bits )
+{
+    std::vector<std::pair<int, double>> result;
+    int                                 prevbit = -1;
+
+    for( std::pair<int, double> bit : bits )
+    {
+        if( prevbit != bit.first )
+            result.push_back( bit );
+
+        prevbit = bit.first;
+    }
+
+    return result;
+}
+
 KIBIS_ANY::KIBIS_ANY( KIBIS* aTopLevel ) : IBIS_ANY( aTopLevel->m_reporter )
 {
     m_topLevel = aTopLevel;
@@ -68,10 +85,12 @@ IBIS_CORNER ReverseLogic( IBIS_CORNER aIn )
     return out;
 }
 
-KIBIS::KIBIS( std::string aFileName ) : KIBIS_ANY( this ), m_file( this )
+KIBIS::KIBIS( std::string aFileName, IBIS_REPORTER* aReporter ) :
+        KIBIS_ANY( this ),
+        m_reporter( aReporter ),
+        m_file( this )
 {
-    IBIS_REPORTER reporter;
-    IbisParser    parser( &reporter );
+    IbisParser    parser( m_reporter );
     bool          status = true;
 
     parser.m_parrot = false;
@@ -407,17 +426,18 @@ std::string KIBIS_MODEL::SpiceDie( KIBIS_PARAMETER& aParam, int aIndex )
     {
         result += m_pulldown.Spice( aIndex * 4 + 3, DIEBUFF, PD_GND, PD, supply );
         result += "VmeasPD GND " + PD_GND + " 0\n";
-        result += "BKD GND " + DIE + " i=( -i(VmeasPU) * v(KU) )\n";
+        result += "BKD GND " + DIE + " i=( i(VmeasPD) * v(KD) )\n";
     }
 
     if( HasPullup() )
     {
         result += m_pullup.Spice( aIndex * 4 + 4, PU_PWR, DIEBUFF, PU, supply );
         result += "VmeasPU POWER " + PU_PWR + " 0\n";
-        result += "BKU POWER " + DIE + " i=( i(VmeasPD) * v(KD) )\n";
+        result += "BKU POWER " + DIE + " i=( -i(VmeasPU) * v(KU) )\n";
     }
 
-    result += "BDIEBUFF " + DIEBUFF + " GND v=v(" + DIE + ")\n";
+    if ( HasPullup() || HasPulldown() )
+        result += "BDIEBUFF " + DIEBUFF + " GND v=v(" + DIE + ")\n";
 
     return result;
 }
@@ -746,25 +766,11 @@ std::string KIBIS_PIN::KuKdDriver( KIBIS_MODEL&                            aMode
     simul += std::to_string( aIndex );
     simul += " POWER GND PIN \n"; // 1: POWER, 2:GND, 3:PIN
 
-    if( ( aPair.first->m_R_dut == 0 ) && ( aPair.first->m_L_dut == 0 )
-                && ( aPair.first->m_C_dut == 0 )
-        || true )
+    simul += "Vdummy 2 PIN 0\n";
+
+    if( ( aPair.first->m_R_dut != 0 ) || ( aPair.first->m_L_dut != 0 )
+        || ( aPair.first->m_C_dut != 0 ) )
     {
-        simul += "Vdummy 2 PIN 0\n";
-    }
-    else
-    {
-        /*
-        simul += "RPIN 1 PIN ";
-        simul << aPair.first->m_R_dut;
-        simul += "\n";
-        simul += "LPIN 2 1 ";
-        simul << aPair.first->m_L_dut;
-        simul += "\n";
-        simul += "CPIN PIN GND ";
-        simul << aPair.first->m_C_dut;
-        simul += "\n";
-        */
         Report( _( "Kibis does not support DUT values yet. "
                    "https://ibis.org/summits/nov16a/chen.pdf" ),
                 RPT_SEVERITY_WARNING );
@@ -781,31 +787,11 @@ std::string KIBIS_PIN::KuKdDriver( KIBIS_MODEL&                            aMode
     switch( wave->GetType() )
     {
     case KIBIS_WAVEFORM_TYPE::RECTANGULAR:
-    {
-        KIBIS_WAVEFORM_RECTANGULAR* rectWave = dynamic_cast<KIBIS_WAVEFORM_RECTANGULAR*>( wave );
-
-        if( !rectWave )
-        {
-            break;
-        }
-        if( rectWave->m_ton < risingWF->m_table.m_entries.back().t )
-        {
-            Report( _( "Rising edge is longer than on time." ), RPT_SEVERITY_WARNING );
-        }
-
-        if( rectWave->m_toff < fallingWF->m_table.m_entries.back().t )
-        {
-            Report( _( "Falling edge is longer than off time." ), RPT_SEVERITY_WARNING );
-        }
-
-
-        std::vector<std::pair<int, double>> bits = wave->GenerateBitSequence();
-        simul += aModel.generateSquareWave( "DIE0", "GND", bits, aPair, aParam );
-        break;
-    }
     case KIBIS_WAVEFORM_TYPE::PRBS:
     {
+        wave->Check( risingWF, fallingWF );
         std::vector<std::pair<int, double>> bits = wave->GenerateBitSequence();
+        bits = SimplifyBitSequence( bits );
         simul += aModel.generateSquareWave( "DIE0", "GND", bits, aPair, aParam );
         break;
     }
@@ -959,26 +945,24 @@ void KIBIS_PIN::getKuKdNoWaveform( KIBIS_MODEL& aModel, KIBIS_PARAMETER& aParam 
     switch( wave->GetType() )
     {
     case KIBIS_WAVEFORM_TYPE::RECTANGULAR:
+    case KIBIS_WAVEFORM_TYPE::PRBS:
     {
-        KIBIS_WAVEFORM_RECTANGULAR* rectWave = static_cast<KIBIS_WAVEFORM_RECTANGULAR*>( wave );
+        wave->Check( aModel.m_ramp.m_rising, aModel.m_ramp.m_falling );
+        std::vector<std::pair<int, double>> bits = wave->GenerateBitSequence();
+        bits = SimplifyBitSequence( bits );
 
-        for( int i = 0; i < rectWave->m_cycles; i++ )
+        for( std::pair<int, double> bit : bits )
         {
-            ku.push_back( 0 );
-            kd.push_back( 1 );
-            t.push_back( ( rectWave->m_ton + rectWave->m_toff ) * i );
-            ku.push_back( 1 );
-            kd.push_back( 0 );
-            t.push_back( ( rectWave->m_ton + rectWave->m_toff ) * i
-                         + aModel.m_ramp.m_rising.value[supply].m_dt
-                                   / 0.6 ); // 0.6 because ibis only gives 20%-80% time
-            ku.push_back( 1 );
-            kd.push_back( 0 );
-            t.push_back( ( rectWave->m_ton + rectWave->m_toff ) * i + rectWave->m_toff );
-            ku.push_back( 0 );
-            kd.push_back( 1 );
-            t.push_back( ( rectWave->m_ton + rectWave->m_toff ) * i + rectWave->m_toff
-                         + aModel.m_ramp.m_falling.value[supply].m_dt / 0.6 );
+            ku.push_back( bit.first ? 0 : 1 );
+            kd.push_back( bit.first ? 1 : 0 );
+            t.push_back( bit.second );
+            ku.push_back( bit.first ? 1 : 0 );
+            kd.push_back( bit.first ? 0 : 1 );
+            t.push_back( bit.second
+                         + ( bit.first ? +aModel.m_ramp.m_rising.value[supply].m_dt
+                                       : aModel.m_ramp.m_falling.value[supply].m_dt )
+                                   / 0.6 );
+            // 0.6 because ibis only gives 20%-80% time
         }
         break;
     }
@@ -1300,7 +1284,7 @@ bool KIBIS_PIN::writeSpiceDevice( std::string* aDest, std::string aName, KIBIS_M
         result += "RPIN 1 PIN ";
         result += doubleToString( m_Rpin.value[aParam.m_Rpin] );
         result += "\n";
-        result += "LPIN DIE 1 ";
+        result += "LPIN DIE0 1 ";
         result += doubleToString( m_Lpin.value[aParam.m_Lpin] );
         result += "\n";
         result += "CPIN PIN GND ";
@@ -1529,4 +1513,150 @@ std::vector<std::pair<int, double>> KIBIS_WAVEFORM_PRBS::GenerateBitSequence()
     } while ( ++bits < m_bits );
 
     return bitSequence;
+}
+
+bool KIBIS_WAVEFORM_RECTANGULAR::Check( IbisWaveform* aRisingWf, IbisWaveform* aFallingWf )
+{
+    bool status = true;
+
+    if( m_cycles < 1 )
+    {
+        status = false;
+        Report( _( "Number of cycles should be greater than 0." ), RPT_SEVERITY_ERROR );
+    }
+
+    if( m_ton <= 0 )
+    {
+        status = false;
+        Report( _( "ON time should be greater than 0." ), RPT_SEVERITY_ERROR );
+    }
+
+    if( m_toff <= 0 )
+    {
+        status = false;
+        Report( _( "OFF time should be greater than 0." ), RPT_SEVERITY_ERROR );
+    }
+
+    if( aRisingWf )
+    {
+        if( m_ton < aRisingWf->m_table.m_entries.back().t )
+        {
+            status = false;
+            Report( _( "Rising edge is longer than on time." ), RPT_SEVERITY_WARNING );
+        }
+    }
+
+    if( aFallingWf )
+    {
+        if( m_toff < aFallingWf->m_table.m_entries.back().t )
+        {
+            status = false;
+            Report( _( "Falling edge is longer than off time." ), RPT_SEVERITY_WARNING );
+        }
+    }
+
+    status &= aRisingWf && aFallingWf;
+
+    return status;
+}
+
+
+bool KIBIS_WAVEFORM_RECTANGULAR::Check( dvdtTypMinMax aRisingRp, dvdtTypMinMax aFallingRp )
+{
+    bool status = true;
+
+    if( m_cycles < 1 )
+    {
+        status = false;
+        Report( _( "Number of cycles should be greater than 0." ), RPT_SEVERITY_ERROR );
+    }
+
+    if( m_ton <= 0 )
+    {
+        status = false;
+        Report( _( "ON time should be greater than 0." ), RPT_SEVERITY_ERROR );
+    }
+
+    if( m_toff <= 0 )
+    {
+        status = false;
+        Report( _( "OFF time should be greater than 0." ), RPT_SEVERITY_ERROR );
+    }
+
+    if( ( m_ton < aRisingRp.value[IBIS_CORNER::TYP].m_dt / 0.6 )
+        || ( m_ton < aRisingRp.value[IBIS_CORNER::MIN].m_dt / 0.6 )
+        || ( m_ton < aRisingRp.value[IBIS_CORNER::MAX].m_dt / 0.6 ) )
+    {
+        status = false;
+        Report( _( "Rising edge is longer than ON time." ), RPT_SEVERITY_ERROR );
+    }
+
+    if( ( m_toff < aFallingRp.value[IBIS_CORNER::TYP].m_dt / 0.6 )
+        || ( m_toff < aFallingRp.value[IBIS_CORNER::MIN].m_dt / 0.6 )
+        || ( m_toff < aFallingRp.value[IBIS_CORNER::MAX].m_dt / 0.6 ) )
+    {
+        status = false;
+        Report( _( "Falling edge is longer than OFF time." ), RPT_SEVERITY_ERROR );
+    }
+
+    return status;
+}
+
+
+bool KIBIS_WAVEFORM_PRBS::Check( dvdtTypMinMax aRisingRp, dvdtTypMinMax aFallingRp )
+{
+    bool status = true;
+
+    if( m_bitrate <= 0 )
+    {
+        status = false;
+        Report( _( "Bitrate should be greater than 0." ), RPT_SEVERITY_ERROR );
+    }
+
+    if( m_bits <= 0 )
+    {
+        status = false;
+        Report( _( "Number of bits should be greater than 0." ), RPT_SEVERITY_ERROR );
+    }
+
+    if( m_bitrate
+        && ( ( 1 / m_bitrate ) < ( aRisingRp.value[IBIS_CORNER::TYP].m_dt / 0.6
+                                   + aFallingRp.value[IBIS_CORNER::TYP].m_dt / 0.6 ) )
+        && ( ( 1 / m_bitrate ) < ( aRisingRp.value[IBIS_CORNER::TYP].m_dt / 0.6
+                                   + aFallingRp.value[IBIS_CORNER::TYP].m_dt / 0.6 ) )
+        && ( ( 1 / m_bitrate ) < ( aRisingRp.value[IBIS_CORNER::TYP].m_dt / 0.6
+                                   + aFallingRp.value[IBIS_CORNER::TYP].m_dt / 0.6 ) ) )
+    {
+        status = false;
+        Report( _( "Bitrate is too high for rising / falling edges" ), RPT_SEVERITY_ERROR );
+    }
+
+    return status;
+}
+
+bool KIBIS_WAVEFORM_PRBS::Check( IbisWaveform* aRisingWf, IbisWaveform* aFallingWf )
+{
+    bool status = true;
+
+    if( m_bitrate <= 0 )
+    {
+        status = false;
+        Report( _( "Bitrate should be greater than 0." ), RPT_SEVERITY_ERROR );
+    }
+
+    if( m_bits <= 0 )
+    {
+        status = false;
+        Report( _( "Number of bits should be greater than 0." ), RPT_SEVERITY_ERROR );
+    }
+
+    if( m_bitrate && aRisingWf && aFallingWf
+        && ( ( 1 / m_bitrate ) < ( aRisingWf->m_table.m_entries.back().t
+                                   + aFallingWf->m_table.m_entries.back().t ) ) )
+    {
+        status = false;
+        Report( _( "Bitrate could be too high for rising / falling edges" ), RPT_SEVERITY_WARNING );
+    }
+
+    return status;
 }

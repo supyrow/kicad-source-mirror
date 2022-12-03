@@ -65,11 +65,6 @@ public:
     RN_NET();
 
     /**
-     * Mark ratsnest for given net as 'dirty', i.e. requiring recomputation.
-     */
-    void MarkDirty() { m_dirty = true; }
-
-    /**
      * Return state of the 'dirty' flag, indicating that ratsnest for a given net is invalid
      * and requires an update.
      *
@@ -80,7 +75,7 @@ public:
     /**
      * Recompute ratsnest for a net.
      */
-    void Update();
+    void UpdateNet();
     void Clear();
 
     void AddCluster( std::shared_ptr<CN_CLUSTER> aCluster );

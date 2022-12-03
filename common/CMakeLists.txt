@@ -459,6 +459,7 @@ set( COMMON_SRCS
     project/project_local_settings.cpp
 
     properties/eda_angle_variant.cpp
+    properties/pg_cell_renderer.cpp
     properties/pg_editors.cpp
     properties/pg_properties.cpp
     properties/property_mgr.cpp
@@ -525,6 +526,7 @@ set( PCB_COMMON_SRCS
     hash_eda.cpp
     ${CMAKE_SOURCE_DIR}/pcbnew/pcb_base_frame.cpp
     ${CMAKE_SOURCE_DIR}/pcbnew/pcb_expr_evaluator.cpp
+    ${CMAKE_SOURCE_DIR}/pcbnew/pcb_expr_functions.cpp
     ${CMAKE_SOURCE_DIR}/pcbnew/board_commit.cpp
     ${CMAKE_SOURCE_DIR}/pcbnew/board_connected_item.cpp
     ${CMAKE_SOURCE_DIR}/pcbnew/board_design_settings.cpp

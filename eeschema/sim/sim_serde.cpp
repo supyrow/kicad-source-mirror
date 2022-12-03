@@ -29,6 +29,7 @@
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/algorithm/string/case_conv.hpp>
 #include <boost/algorithm/string/predicate.hpp>
+#include <string_utils.h>
 
 
 namespace SIM_SERDE_PARSER
@@ -42,19 +43,18 @@ namespace SIM_SERDE_PARSER
 
 
     template <typename Rule> struct pinSequenceSelector : std::false_type {};
-    template <> struct pinSequenceSelector<pinNumber> : std::true_type {};
+    template <> struct pinSequenceSelector<pinAssignment> : std::true_type {};
+    template <> struct pinSequenceSelector<pinSymbolPinNumber> : std::true_type {};
+    template <> struct pinSequenceSelector<pinName> : std::true_type {};
 
     template <typename Rule> struct fieldInferValueSelector : std::false_type {};
-    template <> struct fieldInferValueSelector<fieldInferValueType> : std::true_type {};
-    template <> struct fieldInferValueSelector<fieldInferValuePrimaryValue> : std::true_type {};
     template <> struct fieldInferValueSelector<number<SIM_VALUE::TYPE_FLOAT, NOTATION::SI>> : std::true_type {};
-    template <> struct fieldInferValueSelector<fieldParamValuePairs> : std::true_type {};
 }
 
 
 std::string SIM_SERDE::GenerateDevice() const
 {
-    return m_model.GetDeviceTypeInfo().fieldValue;
+    return m_model.GetDeviceInfo().fieldValue;
 }
 
 
@@ -66,31 +66,11 @@ std::string SIM_SERDE::GenerateType() const
 
 std::string SIM_SERDE::GenerateValue() const
 {
-    std::string result;
-
-    for( int i = 0; i < m_model.GetParamCount(); ++i )
-    {
-        const SIM_MODEL::PARAM& param = m_model.GetUnderlyingParam( i );
-
-        if( i == 0 && m_model.HasPrimaryValue() )
-        {
-            result.append( param.value->ToString() );
-            continue;
-        }
-
-        if( param.value->ToString() == "" )
-            continue;
-
-        std::string paramValuePair = GenerateParamValuePair( param );
-
-        if( paramValuePair == "" )
-            continue; // Prevent adding empty spaces.
-
-        result.append( fmt::format( " {}", paramValuePair ) );
-    }
+    const SIM_MODEL::PARAM& param = m_model.GetUnderlyingParam( 0 );
+    std::string result = param.value->ToString();
 
     if( result == "" )
-        result = m_model.GetDeviceTypeInfo().fieldValue;
+        result = m_model.GetDeviceInfo().fieldValue;
 
     return result;
 }
@@ -103,9 +83,19 @@ std::string SIM_SERDE::GenerateParams() const
 
     for( int i = 0; i < m_model.GetParamCount(); ++i )
     {
+        if( i == 0 && m_model.IsStoredInValue() )
+            continue;
+
         const SIM_MODEL::PARAM& param = m_model.GetUnderlyingParam( i );
 
-        if( param.value->ToString() == "" )
+        if( param.value->ToString() == ""
+            && !( i == 0 && m_model.HasPrimaryValue() && !m_model.IsStoredInValue() ) )
+        {
+            continue;
+        }
+
+        // If the parameter is an enum and the value is default, don't write anything.
+        if( param.info.enumValues.size() >= 1 && param.value->ToString() == param.info.defaultValue )
             continue;
 
         std::string paramValuePair = GenerateParamValuePair( param );
@@ -129,17 +119,30 @@ std::string SIM_SERDE::GeneratePins() const
 {
     std::string result;
 
-    for( int i = 0; i < m_model.GetPinCount(); ++i )
+    std::vector<std::reference_wrapper<const SIM_MODEL::PIN>> pins = m_model.GetPins();
+
+    // m_model.GetPins() returns pins in the order they appear in the model, but the keys in the
+    // key=value pairs we create here are symbol pin numbers, so we sort the pins so that they are
+    // ordered by the latter instead.
+    std::sort( pins.begin(), pins.end(),
+               []( const SIM_MODEL::PIN& lhs, const SIM_MODEL::PIN& rhs )
+               {
+                   return StrNumCmp( lhs.symbolPinNumber, rhs.symbolPinNumber, true ) < 0;
+               } );
+
+    bool isFirst = true;
+
+    for( const SIM_MODEL::PIN& pin : pins )
     {
-        const SIM_MODEL::PIN& pin = m_model.GetPin( i );
+        if( pin.symbolPinNumber != "" )
+        {
+            if( !isFirst )
+                result.append( " " );
+            else
+                isFirst = false;
 
-        if( i != 0 )
-            result.append( " " );
-
-        if( pin.symbolPinNumber == "" )
-            result.append( "~" );
-        else
-            result.append( pin.symbolPinNumber );
+            result.append( fmt::format( "{}={}", pin.symbolPinNumber, pin.name ) );
+        }
     }
 
     return result;
@@ -158,7 +161,7 @@ SIM_MODEL::TYPE SIM_SERDE::ParseDeviceAndType( const std::string& aDevice,
     for( SIM_MODEL::TYPE type : SIM_MODEL::TYPE_ITERATOR() )
     {
         if( aType == SIM_MODEL::TypeInfo( type ).fieldValue
-            && aDevice == SIM_MODEL::DeviceTypeInfo( SIM_MODEL::TypeInfo( type ).deviceType ).fieldValue )
+            && aDevice == SIM_MODEL::DeviceInfo( SIM_MODEL::TypeInfo( type ).deviceType ).fieldValue )
         {
             return type;
         }
@@ -172,7 +175,6 @@ void SIM_SERDE::ParseValue( const std::string& aValue )
 {
     try
     {
-        // TODO: Don't call this multiple times.
         tao::pegtl::string_input<> in( aValue, SIM_MODEL::VALUE_FIELD );
         auto root = tao::pegtl::parse_tree::parse<SIM_SERDE_PARSER::fieldInferValueGrammar,
                                                   SIM_SERDE_PARSER::fieldInferValueSelector,
@@ -181,39 +183,24 @@ void SIM_SERDE::ParseValue( const std::string& aValue )
 
         for( const auto& node : root->children )
         {
-            if( node->is_type<SIM_SERDE_PARSER::fieldInferValuePrimaryValue>() )
+            if( node->is_type<SIM_SERDE_PARSER::number<SIM_VALUE::TYPE_FLOAT,
+                                                       SIM_VALUE::NOTATION::SI>>()
+                && node->string() != "" )
             {
-                if( m_model.HasPrimaryValue() )
-                {
-                    for( const auto& subnode : node->children )
-                    {
-                        if( subnode->is_type<SIM_SERDE_PARSER::number<SIM_VALUE::TYPE_FLOAT,
-                                                                      SIM_VALUE::NOTATION::SI>>() )
-                        {
-                            m_model.SetParamValue( 0, subnode->string() );
-                        }
-                    }
-                }
-                else
-                {
-                    THROW_IO_ERROR(
-                        wxString::Format( _( "Simulation model of type '%s' cannot have a primary value (which is '%s') in Value field" ),
-                                          m_model.GetTypeInfo().fieldValue,
-                                          node->string() ) );
-                }
+                m_model.SetParamValue( 0, node->string() );
             }
-            else if( node->is_type<SIM_SERDE_PARSER::fieldParamValuePairs>() )
-                ParseParams( node->string() );
         }
     }
     catch( const tao::pegtl::parse_error& e )
     {
         THROW_IO_ERROR( e.what() );
     }
+
+    m_model.SetIsStoredInValue( true );
 }
 
 
-void SIM_SERDE::ParseParams( const std::string& aParams )
+bool SIM_SERDE::ParseParams( const std::string& aParams )
 {
     tao::pegtl::string_input<> in( aParams, SIM_MODEL::PARAMS_FIELD );
     std::unique_ptr<tao::pegtl::parse_tree::node> root;
@@ -235,6 +222,7 @@ void SIM_SERDE::ParseParams( const std::string& aParams )
     }
 
     std::string paramName;
+    bool isPrimaryValueSet = false;
 
     for( const auto& node : root->children )
     {
@@ -249,6 +237,9 @@ void SIM_SERDE::ParseParams( const std::string& aParams )
             // TODO: Shouldn't be named "...fromSpiceCode" here...
 
             m_model.SetParamValue( paramName, node->string(), SIM_VALUE_GRAMMAR::NOTATION::SI );
+
+            if( paramName == m_model.GetParam( 0 ).info.name )
+                isPrimaryValueSet = true;
         }
         else if( node->is_type<SIM_SERDE_PARSER::quotedString>() )
         {
@@ -264,6 +255,8 @@ void SIM_SERDE::ParseParams( const std::string& aParams )
             wxFAIL;
         }
     }
+
+    return !m_model.HasPrimaryValue() || isPrimaryValueSet;
 }
 
 
@@ -281,26 +274,18 @@ void SIM_SERDE::ParsePins( const std::string& aPins )
                                              SIM_SERDE_PARSER::pinSequenceSelector,
                                              tao::pegtl::nothing,
                                              SIM_SERDE_PARSER::control>( in );
+
+        for( const auto& node : root->children )
+        {
+            std::string symbolPinNumber = node->children.at( 0 )->string();
+            std::string pinName = node->children.at( 1 )->string();
+
+            m_model.SetPinSymbolPinNumber( pinName, symbolPinNumber );
+        }
     }
     catch( const tao::pegtl::parse_error& e )
     {
         THROW_IO_ERROR( e.what() );
-    }
-
-    if( static_cast<int>( root->children.size() ) != m_model.GetPinCount() )
-    {
-        THROW_IO_ERROR( wxString::Format( _( "%s describes %lu pins, expected %u" ),
-                                          PINS_FIELD,
-                                          root->children.size(),
-                                          m_model.GetPinCount() ) );
-    }
-
-    for( int pinIndex = 0; pinIndex < static_cast<int>( root->children.size() ); ++pinIndex )
-    {
-        if( root->children.at( pinIndex )->string() == "~" )
-            m_model.SetPinSymbolPinNumber( pinIndex, "" );
-        else
-            m_model.SetPinSymbolPinNumber( pinIndex, root->children.at( pinIndex )->string() );
     }
 }
 
@@ -317,49 +302,6 @@ void SIM_SERDE::ParseEnable( const std::string& aEnable )
 }
 
 
-SIM_MODEL::TYPE SIM_SERDE::InferTypeFromRefAndValue( const std::string& aRef,
-                                                     const std::string& aValue,
-                                                     int aSymbolPinCount )
-{
-    std::string typeString;
-
-    try
-    {
-        tao::pegtl::string_input<> in( aValue, VALUE_FIELD );
-        auto root = tao::pegtl::parse_tree::parse<SIM_SERDE_PARSER::fieldInferValueGrammar,
-                                                  SIM_SERDE_PARSER::fieldInferValueSelector,
-                                                  tao::pegtl::nothing,
-                                                  SIM_SERDE_PARSER::control>( in );
-
-        for( const auto& node : root->children )
-        {
-            if( node->is_type<SIM_SERDE_PARSER::fieldInferValueType>() )
-                typeString = node->string();
-        }
-    }
-    catch( const tao::pegtl::parse_error& )
-    {
-    }
-
-    SIM_MODEL::DEVICE_TYPE_ deviceType = SIM_MODEL::InferDeviceTypeFromRef( aRef );
-
-    // Exception. Potentiometer model is determined from pin count.
-    if( deviceType == SIM_MODEL::DEVICE_TYPE_::R && aSymbolPinCount == 3 )
-        return SIM_MODEL::TYPE::R_POT;
-
-    for( SIM_MODEL::TYPE type : SIM_MODEL::TYPE_ITERATOR() )
-    {
-        if( SIM_MODEL::TypeInfo( type ).deviceType == deviceType
-            && SIM_MODEL::TypeInfo( type ).fieldValue == typeString )
-        {
-            return type;
-        }
-    }
-
-    return SIM_MODEL::TYPE::NONE;
-}
-
-
 std::string SIM_SERDE::GenerateParamValuePair( const SIM_MODEL::PARAM& aParam ) const
 {
     std::string name = aParam.info.name;
@@ -370,7 +312,7 @@ std::string SIM_SERDE::GenerateParamValuePair( const SIM_MODEL::PARAM& aParam ) 
 
     std::string value = aParam.value->ToString();
     
-    if( value.find( " " ) != std::string::npos )
+    if( value == "" || value.find( " " ) != std::string::npos )
         value = fmt::format( "\"{}\"", value );
 
     return fmt::format( "{}={}", aParam.info.name, value );

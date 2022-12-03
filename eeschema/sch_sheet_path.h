@@ -48,7 +48,8 @@ struct SYMBOL_INSTANCE_REFERENCE
     wxString  m_Reference;
     int       m_Unit = 1;
 
-    // Things that can be back-annotated:
+    // Do not use.  This is left over from the dubious decision to instantiate symbol value
+    // and footprint fields.
     wxString  m_Value;
     wxString  m_Footprint;
 
@@ -69,6 +70,9 @@ struct SCH_SHEET_INSTANCE
     KIID_PATH m_Path;
 
     wxString  m_PageNumber;
+
+    // The project name associated with this instance.
+    wxString  m_ProjectName;
 };
 
 
@@ -175,6 +179,11 @@ public:
 
     /// Forwarded method from std::vector
     size_t size() const { return m_sheets.size(); }
+
+    std::vector<SCH_SHEET*>::iterator erase( std::vector<SCH_SHEET*>::const_iterator aPosition )
+    {
+        return m_sheets.erase( aPosition );
+    }
 
     void Rehash();
 
@@ -644,11 +653,6 @@ public:
     void SetInitialPageNumbers();
 
     /**
-     * Migrate V6 simulator models to V7. Must be called only after UpdateSymbolInstances().
-     */
-    void MigrateSimModelNameFields();
-
-    /**
      * Attempt to add new symbol instances for all symbols in this list of sheet paths prefixed
      * with \a aPrefixSheetPath.
      *
@@ -663,7 +667,17 @@ public:
 
     void RemoveSymbolInstances( const SCH_SHEET_PATH& aPrefixSheetPath );
 
+    /**
+     * Migrate V6 simulator models to V7. Must be called only after UpdateSymbolInstances().
+     */
+    void MigrateSimModelNameFields();
+
 private:
+    /**
+     * Migrate a single V6 simulator model to V7. Must be called only after UpdateSymbolInstances().
+     */
+    void migrateSimModel( SCH_SYMBOL& aSymbol, unsigned aSheetIndex );
+
     SCH_SHEET_PATH  m_currentSheetPath;
 };
 

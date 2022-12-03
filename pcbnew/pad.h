@@ -110,7 +110,7 @@ public:
 
     FOOTPRINT* GetParent() const;
 
-    wxString GetParentAsString() const { return m_parent->m_Uuid.AsString(); }
+    wxString GetParentAsString() const;
 
     bool IsLocked() const override;
 
@@ -608,6 +608,17 @@ public:
      */
     void SetKeepTopBottom( bool aSet )      { m_keepTopBottomLayer = aSet; }
     bool GetKeepTopBottom() const           { return m_keepTopBottomLayer; }
+
+    bool ConditionallyFlashed( PCB_LAYER_ID aLayer ) const
+    {
+        if( !m_removeUnconnectedLayer )
+            return false;
+
+        if( m_keepTopBottomLayer && ( aLayer == F_Cu || aLayer == B_Cu ) )
+            return false;
+
+        return true;
+    }
 
     void GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList ) override;
 

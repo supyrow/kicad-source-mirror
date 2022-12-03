@@ -56,7 +56,7 @@ class DIALOG_SIM_MODEL_BASE : public DIALOG_SHIM
 		wxPanel* m_modelPanel;
 		wxRadioButton* m_useLibraryModelRadioButton;
 		wxStaticText* m_pathLabel;
-		wxTextCtrl* m_tclibraryPathName;
+		wxTextCtrl* m_libraryPathText;
 		wxBitmapButton* m_browseButton;
 		wxStaticText* m_modelNameLabel;
 		wxComboBox* m_modelNameCombobox;
@@ -78,9 +78,9 @@ class DIALOG_SIM_MODEL_BASE : public DIALOG_SHIM
 		wxStyledTextCtrl* m_codePreview;
 		wxPanel* m_pinAssignmentsPanel;
 		WX_GRID* m_pinAssignmentsGrid;
-		wxCheckBox* m_excludeCheckbox;
-		wxCheckBox* m_inferCheckbox;
 		wxStaticLine* m_staticline1;
+		wxCheckBox* m_saveInValueCheckbox;
+		wxCheckBox* m_excludeCheckbox;
 		wxStdDialogButtonSizer* m_sdbSizer1;
 		wxButton* m_sdbSizer1OK;
 		wxButton* m_sdbSizer1Cancel;
@@ -88,6 +88,8 @@ class DIALOG_SIM_MODEL_BASE : public DIALOG_SHIM
 		// Virtual event handlers, override them in your derived class
 		virtual void onRadioButton( wxCommandEvent& event ) { event.Skip(); }
 		virtual void onLibraryPathLabelUpdate( wxUpdateUIEvent& event ) { event.Skip(); }
+		virtual void onLibraryPathTextKillFocus( wxFocusEvent& event ) { event.Skip(); }
+		virtual void onLibraryPathTextEnter( wxCommandEvent& event ) { event.Skip(); }
 		virtual void onLibraryPathUpdate( wxUpdateUIEvent& event ) { event.Skip(); }
 		virtual void onBrowseButtonClick( wxCommandEvent& event ) { event.Skip(); }
 		virtual void onBrowseButtonUpdate( wxUpdateUIEvent& event ) { event.Skip(); }
@@ -113,8 +115,8 @@ class DIALOG_SIM_MODEL_BASE : public DIALOG_SHIM
 		virtual void onCodePreviewSetFocus( wxFocusEvent& event ) { event.Skip(); }
 		virtual void onPinAssignmentsGridCellChange( wxGridEvent& event ) { event.Skip(); }
 		virtual void onPinAssignmentsGridSize( wxSizeEvent& event ) { event.Skip(); }
+		virtual void onSaveInValueCheckbox( wxCommandEvent& event ) { event.Skip(); }
 		virtual void onExcludeCheckbox( wxCommandEvent& event ) { event.Skip(); }
-		virtual void onInferCheckbox( wxCommandEvent& event ) { event.Skip(); }
 
 
 	public:

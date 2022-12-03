@@ -168,9 +168,6 @@ void BOARD_ITEM::SwapItemData( BOARD_ITEM* aImage )
     if( aImage == nullptr )
         return;
 
-    wxASSERT( Type() == aImage->Type() );
-    wxASSERT( m_Uuid == aImage->m_Uuid );
-
     EDA_ITEM*  parent = GetParent();
     PCB_GROUP* group = GetParentGroup();
 
@@ -282,10 +279,10 @@ static struct BOARD_ITEM_DESC
 
         propMgr.AddProperty( new PROPERTY<BOARD_ITEM, int>( _HKI( "Position X" ),
                     &BOARD_ITEM::SetX, &BOARD_ITEM::GetX, PROPERTY_DISPLAY::PT_COORD,
-                    ORIGIN_TRANSFORMS::ABS_X_COORD) );
+                    ORIGIN_TRANSFORMS::ABS_X_COORD ) );
         propMgr.AddProperty( new PROPERTY<BOARD_ITEM, int>( _HKI( "Position Y" ),
                     &BOARD_ITEM::SetY, &BOARD_ITEM::GetY, PROPERTY_DISPLAY::PT_COORD,
-                    ORIGIN_TRANSFORMS::ABS_Y_COORD) );
+                    ORIGIN_TRANSFORMS::ABS_Y_COORD ) );
         propMgr.AddProperty( new PROPERTY_ENUM<BOARD_ITEM, PCB_LAYER_ID>( _HKI( "Layer" ),
                     &BOARD_ITEM::SetLayer, &BOARD_ITEM::GetLayer ) );
         propMgr.AddProperty( new PROPERTY<BOARD_ITEM, bool>( _HKI( "Locked" ),

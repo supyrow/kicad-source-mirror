@@ -38,10 +38,11 @@
 #include <wx/event.h>
 #include <wx/hyperlink.h>
 #include <tool/tool_manager.h>
+#include <tool/actions.h>
 #include "pcb_actions.h"
 #include "zone_filler_tool.h"
 #include "zone_filler.h"
-
+#include <profile.h>
 
 ZONE_FILLER_TOOL::ZONE_FILLER_TOOL() :
     PCB_TOOL_BASE( "pcbnew.ZoneFiller" ),
@@ -96,8 +97,7 @@ void ZONE_FILLER_TOOL::CheckAllZones( wxWindow* aCaller, PROGRESS_REPORTER* aRep
         commit.Revert();
     }
 
-    board()->BuildConnectivity();
-
+    rebuildConnectivity();
     refresh();
 
     m_fillInProgress = false;
@@ -172,12 +172,11 @@ void ZONE_FILLER_TOOL::FillAllZones( wxWindow* aCaller, PROGRESS_REPORTER* aRepo
         commit.Revert();
     }
 
-    board()->BuildConnectivity( reporter.get() );
+    rebuildConnectivity();
+    refresh();
 
     if( filler.IsDebug() )
         frame->UpdateUserInterface();
-
-    refresh();
 
     m_fillInProgress = false;
 
@@ -204,6 +203,7 @@ int ZONE_FILLER_TOOL::ZoneFillDirty( const TOOL_EVENT& aEvent )
     if( m_fillInProgress )
         return 0;
 
+    unsigned startTime = GetRunningMicroSecs();
     m_fillInProgress = true;
 
     m_dirtyZoneIDs.clear();
@@ -255,12 +255,32 @@ int ZONE_FILLER_TOOL::ZoneFillDirty( const TOOL_EVENT& aEvent )
     else
         commit.Revert();
 
-    board()->BuildConnectivity( reporter.get() );
+    rebuildConnectivity();
+    refresh();
+
+    if( GetRunningMicroSecs() - startTime > 3000000 )   // 3 seconds
+    {
+        WX_INFOBAR* infobar = frame->GetInfoBar();
+
+        wxHyperlinkCtrl* button = new wxHyperlinkCtrl( infobar, wxID_ANY, _( "Open Preferences" ),
+                                                       wxEmptyString );
+
+        button->Bind( wxEVT_COMMAND_HYPERLINK, std::function<void( wxHyperlinkEvent& )>(
+                [this]( wxHyperlinkEvent& )
+                {
+                    getEditFrame<PCB_EDIT_FRAME>()->ShowPreferences( _( "Editing Options" ),
+                                                                     _( "PCB Editor" ) );
+                } ) );
+
+        infobar->RemoveAllButtons();
+        infobar->AddButton( button );
+        infobar->ShowMessageFor( _( "Automatic refill of zones can be turned off in Preferences "
+                                    "if it becomes too slow." ),
+                                 10000, wxICON_INFORMATION, WX_INFOBAR::MESSAGE_TYPE::GENERIC );
+    }
 
     if( filler.IsDebug() )
         frame->UpdateUserInterface();
-
-    refresh();
 
     m_fillInProgress = false;
 
@@ -272,9 +292,82 @@ int ZONE_FILLER_TOOL::ZoneFillDirty( const TOOL_EVENT& aEvent )
 }
 
 
+int ZONE_FILLER_TOOL::ZoneFill( const TOOL_EVENT& aEvent )
+{
+    if( m_fillInProgress )
+    {
+        wxBell();
+        return -1;
+    }
+
+    m_fillInProgress = true;
+
+    std::vector<ZONE*> toFill;
+
+    if( ZONE* passedZone = aEvent.Parameter<ZONE*>() )
+    {
+        toFill.push_back( passedZone );
+    }
+    else
+    {
+        for( EDA_ITEM* item : selection() )
+        {
+            if( ZONE* zone = dynamic_cast<ZONE*>( item ) )
+                toFill.push_back( zone );
+        }
+    }
+
+    BOARD_COMMIT                          commit( this );
+    std::unique_ptr<WX_PROGRESS_REPORTER> reporter;
+    ZONE_FILLER                           filler( board(), &commit );
+
+    reporter = std::make_unique<WX_PROGRESS_REPORTER>( frame(), _( "Fill Zone" ), 5 );
+    filler.SetProgressReporter( reporter.get() );
+
+    if( filler.Fill( toFill ) )
+    {
+        reporter->AdvancePhase();
+        commit.Push( _( "Fill Zone(s)" ), SKIP_CONNECTIVITY | ZONE_FILL_OP );
+    }
+    else
+    {
+        commit.Revert();
+    }
+
+    rebuildConnectivity();
+    refresh();
+
+    m_fillInProgress = false;
+    return 0;
+}
+
+
 int ZONE_FILLER_TOOL::ZoneFillAll( const TOOL_EVENT& aEvent )
 {
     FillAllZones( frame() );
+    return 0;
+}
+
+
+int ZONE_FILLER_TOOL::ZoneUnfill( const TOOL_EVENT& aEvent )
+{
+    BOARD_COMMIT commit( this );
+
+    for( EDA_ITEM* item : selection() )
+    {
+        assert( item->Type() == PCB_ZONE_T || item->Type() == PCB_FP_ZONE_T );
+
+        ZONE* zone = static_cast<ZONE*>( item );
+
+        commit.Modify( zone );
+
+        zone->UnFill();
+    }
+
+    commit.Push( _( "Unfill Zone" ), ZONE_FILL_OP );
+
+    refresh();
+
     return 0;
 }
 
@@ -295,6 +388,14 @@ int ZONE_FILLER_TOOL::ZoneUnfillAll( const TOOL_EVENT& aEvent )
     refresh();
 
     return 0;
+}
+
+
+void ZONE_FILLER_TOOL::rebuildConnectivity()
+{
+    board()->BuildConnectivity();
+    m_toolMgr->PostEvent( EVENTS::ConnectivityChangedEvent );
+    canvas()->RedrawRatsnest();
 }
 
 
@@ -330,7 +431,9 @@ bool ZONE_FILLER_TOOL::IsZoneFillAction( const TOOL_EVENT* aEvent )
 void ZONE_FILLER_TOOL::setTransitions()
 {
     // Zone actions
-    Go( &ZONE_FILLER_TOOL::ZoneFillAll,    PCB_ACTIONS::zoneFillAll.MakeEvent() );
-    Go( &ZONE_FILLER_TOOL::ZoneFillDirty,  PCB_ACTIONS::zoneFillDirty.MakeEvent() );
-    Go( &ZONE_FILLER_TOOL::ZoneUnfillAll,  PCB_ACTIONS::zoneUnfillAll.MakeEvent() );
+    Go( &ZONE_FILLER_TOOL::ZoneFill,      PCB_ACTIONS::zoneFill.MakeEvent() );
+    Go( &ZONE_FILLER_TOOL::ZoneFillAll,   PCB_ACTIONS::zoneFillAll.MakeEvent() );
+    Go( &ZONE_FILLER_TOOL::ZoneFillDirty, PCB_ACTIONS::zoneFillDirty.MakeEvent() );
+    Go( &ZONE_FILLER_TOOL::ZoneUnfill,    PCB_ACTIONS::zoneUnfill.MakeEvent() );
+    Go( &ZONE_FILLER_TOOL::ZoneUnfillAll, PCB_ACTIONS::zoneUnfillAll.MakeEvent() );
 }

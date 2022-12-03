@@ -111,6 +111,8 @@ public:
         m_scale = aScale;
     }
 
+    wxValidator* DoGetValidator() const override;
+
 protected:
     ///> Scale factor to convert between raw and displayed value
     double m_scale;
@@ -126,6 +128,7 @@ public:
             wxEnumProperty( aLabel, aName, const_cast<wxPGChoices&>( aChoices ), aValue ),
             m_colorFunc( []( const wxString& aChoice ) { return wxNullColour; } )
     {
+        SetFlag( wxPG_PROP_CUSTOMIMAGE );
     }
 
     wxSize OnMeasureImage( int aItem = -1 ) const override;
@@ -144,6 +147,23 @@ public:
 
 protected:
     std::function<wxColour( const wxString& aChoice )> m_colorFunc;
+};
+
+
+class PGPROPERTY_STRING : public wxStringProperty
+{
+public:
+    PGPROPERTY_STRING( const wxString& aLabel = wxPG_LABEL, const wxString& aName = wxPG_LABEL,
+                       const wxString& aValue = wxEmptyString ) :
+            wxStringProperty( aLabel, aName, aValue )
+    {}
+
+    virtual ~PGPROPERTY_STRING() = default;
+
+    wxString ValueToString( wxVariant& aValue, int aFlags = 0 ) const override;
+
+    bool StringToValue( wxVariant& aVariant, const wxString& aString,
+                        int aFlags = 0 ) const override;
 };
 
 #endif /* PG_PROPERTIES_H */

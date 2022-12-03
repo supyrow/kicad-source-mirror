@@ -221,10 +221,10 @@ SIM_MODEL_NGSPICE::MODEL_TYPE SIM_MODEL_NGSPICE::getModelType() const
     case TYPE::NONE:                 return MODEL_TYPE::NONE;
     case TYPE::D:                    return MODEL_TYPE::DIODE;
 
-    case TYPE::NPN_GUMMELPOON:
-    case TYPE::PNP_GUMMELPOON:       return MODEL_TYPE::BJT;
     case TYPE::NPN_VBIC:
     case TYPE::PNP_VBIC:             return MODEL_TYPE::VBIC;
+    case TYPE::NPN_GUMMELPOON:
+    case TYPE::PNP_GUMMELPOON:       return MODEL_TYPE::BJT;
     case TYPE::NPN_HICUM2:
     case TYPE::PNP_HICUM2:           return MODEL_TYPE::HICUM2;
 
@@ -242,6 +242,8 @@ SIM_MODEL_NGSPICE::MODEL_TYPE SIM_MODEL_NGSPICE::getModelType() const
     case TYPE::NMES_HFET2:
     case TYPE::PMES_HFET2:           return MODEL_TYPE::HFET2;
 
+    case TYPE::NMOS_VDMOS:
+    case TYPE::PMOS_VDMOS:           return MODEL_TYPE::VDMOS;
     case TYPE::NMOS_MOS1:
     case TYPE::PMOS_MOS1:            return MODEL_TYPE::MOS1;
     case TYPE::NMOS_MOS2:
@@ -295,6 +297,7 @@ bool SIM_MODEL_NGSPICE::getIsOtherVariant()
     case TYPE::PMES_YTTERDAL:
     case TYPE::PMES_HFET1:
     case TYPE::PMES_HFET2:
+    case TYPE::PMOS_VDMOS:
     case TYPE::PMOS_MOS1:
     case TYPE::PMOS_MOS2:
     case TYPE::PMOS_MOS3:

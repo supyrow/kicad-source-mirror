@@ -51,8 +51,10 @@ public:
     void CheckAllZones( wxWindow* aCaller, PROGRESS_REPORTER* aReporter = nullptr );
     void FillAllZones( wxWindow* aCaller, PROGRESS_REPORTER* aReporter = nullptr );
 
+    int ZoneFill( const TOOL_EVENT& aEvent );
     int ZoneFillAll( const TOOL_EVENT& aEvent );
     int ZoneFillDirty( const TOOL_EVENT& aEvent );
+    int ZoneUnfill( const TOOL_EVENT& aEvent );
     int ZoneUnfillAll( const TOOL_EVENT& aEvent );
 
     bool IsBusy() { return m_fillInProgress; }
@@ -68,6 +70,7 @@ private:
     ///< Refocus on an idle event (used after the Progress Reporter messes up the focus).
     void singleShotRefocus( wxIdleEvent& );
 
+    void rebuildConnectivity();
     void refresh();
 
     ///< Set up handlers for various events.

@@ -27,6 +27,7 @@
 #include <wx/statline.h>
 #include <wx/checkbox.h>
 #include <wx/button.h>
+#include <wx/radiobut.h>
 #include <board.h>
 #include <board_commit.h>
 #include <board_design_settings.h>
@@ -45,6 +46,7 @@
 #include <tools/pcb_actions.h>
 #include <tools/pcb_selection_tool.h>
 #include <trigo.h>
+#include <macros.h>
 #include <zone.h>
 
 #include "convert_tool.h"
@@ -53,23 +55,28 @@
 class CONVERT_SETTINGS_DIALOG : public DIALOG_SHIM
 {
 public:
-    CONVERT_SETTINGS_DIALOG( wxWindow* aParent, CONVERT_SETTINGS* aSettings ) :
+    CONVERT_SETTINGS_DIALOG( EDA_DRAW_FRAME* aParent, CONVERT_SETTINGS* aSettings ) :
             DIALOG_SHIM( aParent, wxID_ANY, _( "Conversion Settings" ), wxDefaultPosition,
                          wxDefaultSize, wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER ),
-            m_settings( aSettings ),
-            m_cbIgnoreLineWidths( nullptr ),
-            m_cbDeleteOriginals( nullptr )
+            m_settings( aSettings )
     {
         wxBoxSizer* mainSizer = new wxBoxSizer( wxVERTICAL );
         wxBoxSizer* topSizer = new wxBoxSizer( wxVERTICAL );
         SetSizer( mainSizer );
 
-        m_cbIgnoreLineWidths = new wxCheckBox( this, wxID_ANY,
-                                               _( "Ignore source object line widths" )  );
-        topSizer->Add( m_cbIgnoreLineWidths, 0, wxLEFT|wxRIGHT, 5 );
+        m_rbMimicLineWidth = new wxRadioButton( this, wxID_ANY, _( "Copy line width of first object" ) );
+        topSizer->Add( m_rbMimicLineWidth, 0, wxLEFT|wxRIGHT, 5 );
 
-        m_cbDeleteOriginals = new wxCheckBox( this, wxID_ANY,
-                                              _( "Delete source objects after conversion" ) );
+        topSizer->AddSpacer( 2 );
+        m_rbCenterline = new wxRadioButton( this, wxID_ANY, _( "Use centerlines" ) );
+        topSizer->Add( m_rbCenterline, 0, wxLEFT|wxRIGHT, 5 );
+
+        topSizer->AddSpacer( 2 );
+        m_rbEnvelope = new wxRadioButton( this, wxID_ANY, _( "Create bounding hull" ) );
+        topSizer->Add( m_rbEnvelope, 0, wxLEFT|wxRIGHT, 5 );
+
+        topSizer->AddSpacer( 8 );
+        m_cbDeleteOriginals = new wxCheckBox( this, wxID_ANY, _( "Delete source objects after conversion" ) );
         topSizer->Add( m_cbDeleteOriginals, 0, wxALL, 5 );
 
         wxStaticLine* line =  new wxStaticLine( this, wxID_ANY, wxDefaultPosition, wxDefaultSize,
@@ -102,21 +109,36 @@ public:
 protected:
     bool TransferDataToWindow() override
     {
-        m_cbIgnoreLineWidths->SetValue( m_settings->m_IgnoreLineWidths );
+        switch( m_settings->m_Strategy )
+        {
+        case COPY_LINEWIDTH: m_rbMimicLineWidth->SetValue( true ); break;
+        case CENTERLINE:     m_rbCenterline->SetValue( true );     break;
+        case BOUNDING_HULL:  m_rbEnvelope->SetValue( true );       break;
+        }
+
         m_cbDeleteOriginals->SetValue( m_settings->m_DeleteOriginals );
         return true;
     }
 
     bool TransferDataFromWindow() override
     {
-        m_settings->m_IgnoreLineWidths = m_cbIgnoreLineWidths->GetValue();
+        if( m_rbEnvelope->GetValue() )
+            m_settings->m_Strategy = BOUNDING_HULL;
+        else if( m_rbCenterline->GetValue() )
+            m_settings->m_Strategy = CENTERLINE;
+        else
+            m_settings->m_Strategy = COPY_LINEWIDTH;
+
         m_settings->m_DeleteOriginals = m_cbDeleteOriginals->GetValue();
         return true;
     }
 
 private:
     CONVERT_SETTINGS* m_settings;
-    wxCheckBox*       m_cbIgnoreLineWidths;
+
+    wxRadioButton*    m_rbMimicLineWidth;
+    wxRadioButton*    m_rbCenterline;
+    wxRadioButton*    m_rbEnvelope;
     wxCheckBox*       m_cbDeleteOriginals;
 };
 
@@ -127,6 +149,9 @@ CONVERT_TOOL::CONVERT_TOOL() :
     m_menu( nullptr ),
     m_frame( nullptr )
 {
+    m_userSettings.m_Strategy = CENTERLINE;
+    m_userSettings.m_LineWidth = 0;
+    m_userSettings.m_DeleteOriginals = true;
 }
 
 
@@ -157,26 +182,28 @@ bool CONVERT_TOOL::Init()
 
     auto graphicToTrack = S_C::OnlyTypes( { PCB_SHAPE_LOCATE_SEGMENT_T, PCB_SHAPE_LOCATE_ARC_T } );
 
-    auto trackLines = S_C::MoreThan( 1 ) && S_C::OnlyTypes( { PCB_TRACE_T, PCB_ARC_T } )
+    auto anyTracks = S_C::MoreThan( 0 ) && S_C::OnlyTypes( { PCB_TRACE_T, PCB_ARC_T, PCB_VIA_T } )
                             && P_S_C::SameLayer();
 
-    auto anyLines = graphicLines || trackLines;
     auto anyPolys = S_C::OnlyTypes( { PCB_ZONE_T, PCB_FP_ZONE_T,
                                       PCB_SHAPE_LOCATE_POLY_T, PCB_SHAPE_LOCATE_RECT_T } );
 
-    auto lineToArc = S_C::Count( 1 ) && S_C::OnlyTypes( { PCB_TRACE_T, PCB_SHAPE_LOCATE_SEGMENT_T } );
-
-    auto canCreateArray = S_C::MoreThan( 0 );
-
-    auto showConvertMenu   = anyPolys || anyLines || lineToArc || canCreateArray;
-
-    auto canCreatePolyType = anyLines || anyPolys;
+    auto canCreateArcs     = S_C::Count( 1 )
+                                && S_C::OnlyTypes( { PCB_TRACE_T, PCB_SHAPE_LOCATE_SEGMENT_T } );
+    auto canCreateArray    = S_C::MoreThan( 0 );
+    auto canCreatePolyType = graphicLines || anyPolys || anyTracks;
+    auto canCreateLines    = anyPolys;
     auto canCreateTracks   = anyPolys || graphicToTrack;
+    auto canCreate         = canCreatePolyType
+                                || canCreateLines
+                                || canCreateTracks
+                                || canCreateArcs
+                                || canCreateArray;
 
     m_menu->AddItem( PCB_ACTIONS::convertToPoly, canCreatePolyType );
     m_menu->AddItem( PCB_ACTIONS::convertToZone, canCreatePolyType );
     m_menu->AddItem( PCB_ACTIONS::convertToKeepout, canCreatePolyType );
-    m_menu->AddItem( PCB_ACTIONS::convertToLines, anyPolys );
+    m_menu->AddItem( PCB_ACTIONS::convertToLines, canCreateLines );
     m_menu->AppendSeparator();
 
     // Currently the code exists, but tracks are not really existing in footprints
@@ -184,13 +211,13 @@ bool CONVERT_TOOL::Init()
     if( m_frame->IsType( FRAME_PCB_EDITOR ) )
         m_menu->AddItem( PCB_ACTIONS::convertToTracks, canCreateTracks );
 
-    m_menu->AddItem( PCB_ACTIONS::convertToArc, lineToArc );
+    m_menu->AddItem( PCB_ACTIONS::convertToArc, canCreateArcs );
 
     m_menu->AppendSeparator();
     m_menu->AddItem( PCB_ACTIONS::createArray, canCreateArray );
 
     CONDITIONAL_MENU& selToolMenu = m_selectionTool->GetToolMenu().GetMenu();
-    selToolMenu.AddMenu( m_menu, showConvertMenu, 100 );
+    selToolMenu.AddMenu( m_menu, canCreate, 100 );
 
     return true;
 }
@@ -199,11 +226,8 @@ bool CONVERT_TOOL::Init()
 int CONVERT_TOOL::CreatePolys( const TOOL_EVENT& aEvent )
 {
     std::vector<SHAPE_POLY_SET> polys;
-    CONVERT_SETTINGS            convertSettings;
     PCB_LAYER_ID                destLayer = m_frame->GetActiveLayer();
     FOOTPRINT*                  parentFootprint = nullptr;
-    bool                        foundChainedSegs = false;
-    bool                        foundFilledShape = false;
 
     PCB_SELECTION& selection = m_selectionTool->RequestSelection(
             []( const VECTOR2I& aPt, GENERAL_COLLECTOR& aCollector, PCB_SELECTION_TOOL* sTool )
@@ -214,28 +238,21 @@ int CONVERT_TOOL::CreatePolys( const TOOL_EVENT& aEvent )
         return 0;
 
     auto getPolys =
-            [&]()
+            [&]( CONVERT_SETTINGS cfg )
             {
                 polys.clear();
 
                 for( EDA_ITEM* item : selection )
-                {
                     item->ClearTempFlags();
-
-                    if( item->Type() == PCB_SHAPE_T || item->Type() == PCB_FP_SHAPE_T )
-                        foundFilledShape = static_cast<PCB_SHAPE*>( item )->IsFilled();
-                }
 
                 SHAPE_POLY_SET polySet;
 
-                if( convertSettings.m_IgnoreLineWidths )
-                {
-                    polySet.Append( makePolysFromChainedSegs( selection.GetItems() ) );
-                    foundChainedSegs = polySet.OutlineCount() > 0;
-                }
+                polySet.Append( makePolysFromClosedGraphics( selection.GetItems(), cfg.m_Strategy ) );
 
-                polySet.Append( makePolysFromGraphics( selection.GetItems(),
-                                                       convertSettings.m_IgnoreLineWidths ) );
+                polySet.Append( makePolysFromChainedSegs( selection.GetItems(), cfg.m_Strategy ) );
+
+                if( cfg.m_Strategy == BOUNDING_HULL )
+                    polySet.Append( makePolysFromOpenGraphics( selection.GetItems() ) );
 
                 if( polySet.IsEmpty() )
                     return false;
@@ -253,17 +270,12 @@ int CONVERT_TOOL::CreatePolys( const TOOL_EVENT& aEvent )
                 return true;
             };
 
-    // Pre-flight getPolys().  If we find any chained segments then we default m_IgnoreLineWidths
-    // to true.
-    // We also use the pre-flight to keep from putting up any of the dialogs if there's nothing
-    // to convert.
-    convertSettings.m_IgnoreLineWidths = true;
-    convertSettings.m_DeleteOriginals = false;
+    // Pre-flight getPolys() to see if there's anything to convert.
+    CONVERT_SETTINGS preflightSettings = m_userSettings;
+    preflightSettings.m_Strategy = BOUNDING_HULL;
 
-    if( !getPolys() )
+    if( !getPolys( preflightSettings ) )
         return 0;
-
-    convertSettings.m_IgnoreLineWidths = foundChainedSegs;
 
     bool isFootprint = m_frame->IsType( FRAME_FOOTPRINT_EDITOR );
 
@@ -277,25 +289,58 @@ int CONVERT_TOOL::CreatePolys( const TOOL_EVENT& aEvent )
             wxFAIL_MSG( wxT( "Unimplemented footprint parent in CONVERT_TOOL::CreatePolys" ) );
     }
 
-    BOARD_COMMIT commit( m_frame );
+    BOARD_DESIGN_SETTINGS& bds = m_frame->GetBoard()->GetDesignSettings();
+    PCB_LAYER_ID           layer = m_frame->GetActiveLayer();
+    BOARD_COMMIT           commit( m_frame );
 
     if( aEvent.IsAction( &PCB_ACTIONS::convertToPoly ) )
     {
-        CONVERT_SETTINGS_DIALOG dlg( m_frame, &convertSettings );
+        CONVERT_SETTINGS_DIALOG dlg( m_frame, &m_userSettings );
 
         if( dlg.ShowModal() != wxID_OK )
             return 0;
 
-        if( !getPolys() )
+        CONVERT_SETTINGS resolvedSettings = m_userSettings;
+
+        if( resolvedSettings.m_LineWidth == 0 )
+            resolvedSettings.m_LineWidth = bds.m_LineThickness[ bds.GetLayerClass( layer ) ];
+
+        if( !getPolys( resolvedSettings ) )
             return 0;
 
         for( const SHAPE_POLY_SET& poly : polys )
         {
             PCB_SHAPE* graphic = isFootprint ? new FP_SHAPE( parentFootprint ) : new PCB_SHAPE;
 
+            if( resolvedSettings.m_Strategy == COPY_LINEWIDTH )
+            {
+                BOARD_ITEM* topLeftItem = nullptr;
+                VECTOR2I    pos;
+
+                for( EDA_ITEM* item : selection )
+                {
+                    if( BOARD_ITEM* candidate = dynamic_cast<BOARD_ITEM*>( item ) )
+                    {
+                        if( candidate->HasLineStroke() )
+                        {
+                            pos = candidate->GetPosition();
+
+                            if( !topLeftItem
+                                || ( pos.x < topLeftItem->GetPosition().x )
+                                || ( topLeftItem->GetPosition().x == pos.x
+                                        && pos.y < topLeftItem->GetPosition().y ) )
+                            {
+                                topLeftItem = candidate;
+                                resolvedSettings.m_LineWidth = topLeftItem->GetStroke().GetWidth();
+                            }
+                        }
+                    }
+                }
+            }
+
             graphic->SetShape( SHAPE_T::POLY );
-            graphic->SetFilled( !convertSettings.m_IgnoreLineWidths || foundFilledShape );
-            graphic->SetStroke( STROKE_PARAMS( 0, PLOT_DASH_TYPE::SOLID, COLOR4D::UNSPECIFIED ) );
+            graphic->SetStroke( STROKE_PARAMS( resolvedSettings.m_LineWidth, PLOT_DASH_TYPE::SOLID,
+                                               COLOR4D::UNSPECIFIED ) );
             graphic->SetLayer( destLayer );
             graphic->SetPolyShape( poly );
 
@@ -315,26 +360,30 @@ int CONVERT_TOOL::CreatePolys( const TOOL_EVENT& aEvent )
 
         int ret;
 
+        // No copy-line-width option for zones/keepouts
+        if( m_userSettings.m_Strategy == COPY_LINEWIDTH )
+            m_userSettings.m_Strategy = CENTERLINE;
+
         if( aEvent.IsAction( &PCB_ACTIONS::convertToKeepout ) )
         {
             zoneInfo.SetIsRuleArea( true );
-            ret = InvokeRuleAreaEditor( frame, &zoneInfo, &convertSettings );
+            ret = InvokeRuleAreaEditor( frame, &zoneInfo, &m_userSettings );
         }
         else if( nonCopper )
         {
             zoneInfo.SetIsRuleArea( false );
-            ret = InvokeNonCopperZonesEditor( frame, &zoneInfo, &convertSettings );
+            ret = InvokeNonCopperZonesEditor( frame, &zoneInfo, &m_userSettings );
         }
         else
         {
             zoneInfo.SetIsRuleArea( false );
-            ret = InvokeCopperZonesEditor( frame, &zoneInfo, &convertSettings );
+            ret = InvokeCopperZonesEditor( frame, &zoneInfo, &m_userSettings );
         }
 
         if( ret == wxID_CANCEL )
             return 0;
 
-        if( !getPolys() )
+        if( !getPolys( m_userSettings ) )
             return 0;
 
         for( const SHAPE_POLY_SET& poly : polys )
@@ -350,7 +399,7 @@ int CONVERT_TOOL::CreatePolys( const TOOL_EVENT& aEvent )
         }
     }
 
-    if( convertSettings.m_DeleteOriginals )
+    if( m_userSettings.m_DeleteOriginals )
     {
         PCB_SELECTION selectionCopy = selection;
         m_selectionTool->ClearSelection();
@@ -371,25 +420,29 @@ int CONVERT_TOOL::CreatePolys( const TOOL_EVENT& aEvent )
 }
 
 
-SHAPE_POLY_SET CONVERT_TOOL::makePolysFromChainedSegs( const std::deque<EDA_ITEM*>& aItems )
+SHAPE_POLY_SET CONVERT_TOOL::makePolysFromChainedSegs( const std::deque<EDA_ITEM*>& aItems,
+                                                       CONVERT_STRATEGY aStrategy )
 {
     // TODO: This code has a somewhat-similar purpose to ConvertOutlineToPolygon but is slightly
     // different, so this remains a separate algorithm.  It might be nice to analyze the dfiferences
     // in requirements and refactor this.
 
-    // Very tight epsilon used here to account for rounding errors in import, not sloppy drawing
-    const int chainingEpsilonSquared = SEG::Square( 100 );
+    // Using a large epsilon here to allow for sloppy drawing can cause the algorithm to miss very
+    // short segments in a converted bezier.  So use an epsilon only large enough to cover for
+    // rouding errors in the conversion.
+    int chainingEpsilon = 100; // max dist from one endPt to next startPt in IU
 
-    SHAPE_POLY_SET poly;
+    BOARD_DESIGN_SETTINGS& bds = m_frame->GetBoard()->GetDesignSettings();
+    SHAPE_POLY_SET         poly;
 
     // Stores pairs of (anchor, item) where anchor == 0 -> SEG.A, anchor == 1 -> SEG.B
     std::map<VECTOR2I, std::vector<std::pair<int, EDA_ITEM*>>> connections;
     std::deque<EDA_ITEM*> toCheck;
 
     auto closeEnough =
-            []( VECTOR2I aLeft, VECTOR2I aRight, unsigned aLimit )
+            []( VECTOR2I aLeft, VECTOR2I aRight, int aLimit )
             {
-                return ( aLeft - aRight ).SquaredEuclideanNorm() <= aLimit;
+                return ( aLeft - aRight ).SquaredEuclideanNorm() <= SEG::Square( aLimit );
             };
 
     auto findInsertionPoint =
@@ -400,7 +453,7 @@ SHAPE_POLY_SET CONVERT_TOOL::makePolysFromChainedSegs( const std::deque<EDA_ITEM
 
                 for( const auto& candidatePair : connections )
                 {
-                    if( closeEnough( aPoint, candidatePair.first, chainingEpsilonSquared ) )
+                    if( closeEnough( aPoint, candidatePair.first, chainingEpsilon ) )
                         return candidatePair.first;
                 }
 
@@ -409,9 +462,7 @@ SHAPE_POLY_SET CONVERT_TOOL::makePolysFromChainedSegs( const std::deque<EDA_ITEM
 
     for( EDA_ITEM* item : aItems )
     {
-        item->ClearFlags( SKIP_STRUCT );
-
-        if( std::optional<SEG> seg = getStartEndPoints( item, nullptr ) )
+        if( std::optional<SEG> seg = getStartEndPoints( item ) )
         {
             toCheck.push_back( item );
             connections[findInsertionPoint( seg->A )].emplace_back( std::make_pair( 0, item ) );
@@ -421,13 +472,14 @@ SHAPE_POLY_SET CONVERT_TOOL::makePolysFromChainedSegs( const std::deque<EDA_ITEM
 
     while( !toCheck.empty() )
     {
+        std::vector<BOARD_ITEM*> insertedItems;
+
         EDA_ITEM* candidate = toCheck.front();
         toCheck.pop_front();
 
         if( candidate->GetFlags() & SKIP_STRUCT )
             continue;
 
-        int width = -1;
         SHAPE_LINE_CHAIN outline;
 
         auto insert =
@@ -455,6 +507,8 @@ SHAPE_POLY_SET CONVERT_TOOL::makePolysFromChainedSegs( const std::deque<EDA_ITEM
                             outline.Append( aAnchor == arc.GetP0() ? arc : arc.Reversed() );
                         else
                             outline.Insert( 0, aAnchor == arc.GetP0() ? arc : arc.Reversed() );
+
+                        insertedItems.push_back( static_cast<BOARD_ITEM*>( aItem ) );
                     }
                     else if( aItem->IsType( { PCB_SHAPE_LOCATE_BEZIER_T } ) )
                     {
@@ -485,18 +539,19 @@ SHAPE_POLY_SET CONVERT_TOOL::makePolysFromChainedSegs( const std::deque<EDA_ITEM
                                     outline.Insert( 0, *it );
                             }
                         }
-                    }
-                    else
-                    {
-                        std::optional<SEG> nextSeg = getStartEndPoints( aItem, &width );
-                        wxASSERT( nextSeg );
 
+                        insertedItems.push_back( static_cast<BOARD_ITEM*>( aItem ) );
+                    }
+                    else if( std::optional<SEG> nextSeg = getStartEndPoints( aItem ) )
+                    {
                         VECTOR2I& point = ( aAnchor == nextSeg->A ) ? nextSeg->B : nextSeg->A;
 
                         if( aDirection )
                             outline.Append( point );
                         else
                             outline.Insert( 0, point );
+
+                        insertedItems.push_back( static_cast<BOARD_ITEM*>( aItem ) );
                     }
                 };
 
@@ -512,7 +567,7 @@ SHAPE_POLY_SET CONVERT_TOOL::makePolysFromChainedSegs( const std::deque<EDA_ITEM
 
                     insert( aItem, aAnchor, aDirection );
 
-                    std::optional<SEG> anchors = getStartEndPoints( aItem, &width );
+                    std::optional<SEG> anchors = getStartEndPoints( aItem );
                     wxASSERT( anchors );
 
                     VECTOR2I nextAnchor = ( aAnchor == anchors->A ) ? anchors->B : anchors->A;
@@ -526,7 +581,7 @@ SHAPE_POLY_SET CONVERT_TOOL::makePolysFromChainedSegs( const std::deque<EDA_ITEM
                     }
                 };
 
-        std::optional<SEG> anchors = getStartEndPoints( candidate, &width );
+        std::optional<SEG> anchors = getStartEndPoints( candidate );
         wxASSERT( anchors );
 
         // Start with the first object and walk "right"
@@ -556,24 +611,37 @@ SHAPE_POLY_SET CONVERT_TOOL::makePolysFromChainedSegs( const std::deque<EDA_ITEM
         if( left )
             process( left, anchors->A, false );
 
-        if( outline.PointCount() < 3 )
+        if( outline.PointCount() < 3
+                || !closeEnough( outline.GetPoint( 0 ), outline.GetPoint( -1 ), chainingEpsilon ) )
+        {
+            for( EDA_ITEM* item : insertedItems )
+                item->ClearFlags( SKIP_STRUCT );
+
             continue;
+        }
 
         outline.SetClosed( true );
         outline.Simplify();
 
-        if( width >= 0 )
-            outline.SetWidth( width );
-
         poly.AddOutline( outline );
+
+        if( aStrategy == BOUNDING_HULL )
+        {
+            for( BOARD_ITEM* item : insertedItems )
+            {
+                item->TransformShapeToPolygon( poly, UNDEFINED_LAYER, 0, bds.m_MaxError,
+                                               ERROR_INSIDE, false );
+            }
+        }
+
+        insertedItems.clear();
     }
 
     return poly;
 }
 
 
-SHAPE_POLY_SET CONVERT_TOOL::makePolysFromGraphics( const std::deque<EDA_ITEM*>& aItems,
-                                                    bool aIgnoreLineWidths )
+SHAPE_POLY_SET CONVERT_TOOL::makePolysFromOpenGraphics( const std::deque<EDA_ITEM*>& aItems )
 {
     BOARD_DESIGN_SETTINGS& bds = m_frame->GetBoard()->GetDesignSettings();
     SHAPE_POLY_SET         poly;
@@ -588,14 +656,68 @@ SHAPE_POLY_SET CONVERT_TOOL::makePolysFromGraphics( const std::deque<EDA_ITEM*>&
         case PCB_SHAPE_T:
         case PCB_FP_SHAPE_T:
         {
-            PCB_SHAPE* temp = static_cast<PCB_SHAPE*>( item->Clone() );
+            PCB_SHAPE* shape = static_cast<PCB_SHAPE*>( item );
 
-            if( aIgnoreLineWidths )
-                temp->SetFilled( true );
+            if( shape->IsClosed() )
+                continue;
 
-            temp->TransformShapeToPolygon( poly, UNDEFINED_LAYER, 0, bds.m_MaxError, ERROR_INSIDE,
-                                           aIgnoreLineWidths );
-            item->SetFlags( SKIP_STRUCT );
+            shape->TransformShapeToPolygon( poly, UNDEFINED_LAYER, 0, bds.m_MaxError,
+                                            ERROR_INSIDE, false );
+            shape->SetFlags( SKIP_STRUCT );
+
+            break;
+        }
+
+        case PCB_TRACE_T:
+        case PCB_ARC_T:
+        case PCB_VIA_T:
+        {
+            PCB_TRACK* track = static_cast<PCB_TRACK*>( item );
+
+            track->TransformShapeToPolygon( poly, UNDEFINED_LAYER, 0, bds.m_MaxError,
+                                            ERROR_INSIDE, false );
+            track->SetFlags( SKIP_STRUCT );
+
+            break;
+        }
+
+        default:
+            continue;
+        }
+    }
+
+    return poly;
+}
+
+
+SHAPE_POLY_SET CONVERT_TOOL::makePolysFromClosedGraphics( const std::deque<EDA_ITEM*>& aItems,
+                                                          CONVERT_STRATEGY aStrategy )
+{
+    BOARD_DESIGN_SETTINGS& bds = m_frame->GetBoard()->GetDesignSettings();
+    SHAPE_POLY_SET         poly;
+
+    for( EDA_ITEM* item : aItems )
+    {
+        if( item->GetFlags() & SKIP_STRUCT )
+            continue;
+
+        switch( item->Type() )
+        {
+        case PCB_SHAPE_T:
+        case PCB_FP_SHAPE_T:
+        {
+            PCB_SHAPE* shape = static_cast<PCB_SHAPE*>( item );
+            FILL_T     wasFilled = shape->GetFillMode();
+
+            if( !shape->IsClosed() )
+                continue;
+
+            shape->SetFilled( true );
+            shape->TransformShapeToPolygon( poly, UNDEFINED_LAYER, 0, bds.m_MaxError, ERROR_INSIDE,
+                                            aStrategy == COPY_LINEWIDTH || aStrategy == CENTERLINE );
+            shape->SetFillMode( wasFilled );
+            shape->SetFlags( SKIP_STRUCT );
+
             break;
         }
 
@@ -877,7 +999,7 @@ int CONVERT_TOOL::SegmentToArc( const TOOL_EVENT& aEvent )
     // Offset the midpoint along the normal a little bit so that it's more obviously an arc
     const double offsetRatio = 0.1;
 
-    if( std::optional<SEG> seg = getStartEndPoints( source, nullptr ) )
+    if( std::optional<SEG> seg = getStartEndPoints( source ) )
     {
         start = seg->A;
         end   = seg->B;
@@ -941,7 +1063,7 @@ int CONVERT_TOOL::SegmentToArc( const TOOL_EVENT& aEvent )
 }
 
 
-std::optional<SEG> CONVERT_TOOL::getStartEndPoints( EDA_ITEM* aItem, int* aWidth )
+std::optional<SEG> CONVERT_TOOL::getStartEndPoints( EDA_ITEM* aItem )
 {
     switch( aItem->Type() )
     {
@@ -959,9 +1081,6 @@ std::optional<SEG> CONVERT_TOOL::getStartEndPoints( EDA_ITEM* aItem, int* aWidth
             if( shape->GetStart() == shape->GetEnd() )
                 return std::nullopt;
 
-            if( aWidth )
-                *aWidth = shape->GetWidth();
-
             return std::make_optional<SEG>( VECTOR2I( shape->GetStart() ),
                                             VECTOR2I( shape->GetEnd() ) );
 
@@ -973,20 +1092,12 @@ std::optional<SEG> CONVERT_TOOL::getStartEndPoints( EDA_ITEM* aItem, int* aWidth
     case PCB_TRACE_T:
     {
         PCB_TRACK* line = static_cast<PCB_TRACK*>( aItem );
-
-        if( aWidth )
-            *aWidth = line->GetWidth();
-
         return std::make_optional<SEG>( VECTOR2I( line->GetStart() ), VECTOR2I( line->GetEnd() ) );
     }
 
     case PCB_ARC_T:
     {
         PCB_ARC* arc = static_cast<PCB_ARC*>( aItem );
-
-        if( aWidth )
-            *aWidth = arc->GetWidth();
-
         return std::make_optional<SEG>( VECTOR2I( arc->GetStart() ), VECTOR2I( arc->GetEnd() ) );
     }
 

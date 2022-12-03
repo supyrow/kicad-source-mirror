@@ -453,7 +453,8 @@ bool SCH_EDIT_FRAME::OpenProjectFiles( const std::vector<wxString>& aFileSet, in
             if( Schematic().RootScreen()->GetFileFormatVersionAtLoad() < 20221002 )
                 sheetList.UpdateSymbolInstances( Schematic().RootScreen()->GetSymbolInstances() );
 
-            sheetList.UpdateSheetInstances( Schematic().RootScreen()->GetSheetInstances() );
+            if( Schematic().RootScreen()->GetFileFormatVersionAtLoad() < 20221110 )
+                sheetList.UpdateSheetInstances( Schematic().RootScreen()->GetSheetInstances() );
         }
 
         Schematic().ConnectionGraph()->Reset();
@@ -1429,12 +1430,17 @@ void SCH_EDIT_FRAME::CheckForAutoSaveFile( const wxFileName& aFileName )
                                             "  Auto save file: '%s'" ),
                         recoveredFn.GetFullPath(), backupFn.GetFullPath(), fn );
 
-            // Attempt to back up the last schematic file before overwriting it with the auto
-            // save file.
-            if( !wxCopyFile( recoveredFn.GetFullPath(), backupFn.GetFullPath() ) )
+            if( !wxFileExists( fn ) )
             {
                 unrecoveredFiles.Add( recoveredFn.GetFullPath() );
             }
+            // Attempt to back up the last schematic file before overwriting it with the auto
+            // save file.
+            else if( !wxCopyFile( recoveredFn.GetFullPath(), backupFn.GetFullPath() ) )
+            {
+                unrecoveredFiles.Add( recoveredFn.GetFullPath() );
+            }
+            // Attempt to replace last saved file with auto save file
             else if( !wxRenameFile( fn, recoveredFn.GetFullPath() ) )
             {
                 unrecoveredFiles.Add( recoveredFn.GetFullPath() );
@@ -1462,10 +1468,8 @@ void SCH_EDIT_FRAME::CheckForAutoSaveFile( const wxFileName& aFileName )
         {
             wxLogTrace( traceAutoSave, wxT( "Removing auto save file " ) + fn );
 
-            if( !wxRemoveFile( fn ) )
-            {
+            if( wxFileExists( fn ) && !wxRemoveFile( fn ) )
                 unremovedFiles.Add( fn );
-            }
         }
 
         if( !unremovedFiles.IsEmpty() )

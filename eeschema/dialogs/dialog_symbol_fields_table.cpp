@@ -28,7 +28,6 @@
 #include <symbol_library.h>
 #include <confirm.h>
 #include <eda_doc.h>
-//#include "eda_list_dialog.h"
 #include <wildcards_and_files_ext.h>
 #include <eeschema_settings.h>
 #include <general.h>
@@ -221,9 +220,9 @@ public:
             wxString val = symbol->GetFieldText( aFieldName );
 
             if( aFieldName == wxT( "Value" ) )
-                val = symbol->GetInstanceReferences()[0].m_Value;
+                val = symbol->GetValueFieldText( true );
             else if( aFieldName == wxT( "Footprint" ) )
-                val = symbol->GetInstanceReferences()[0].m_Footprint;
+                val = symbol->GetFootprintFieldText( true );
 
             m_dataStore[ symbol->m_Uuid ][ aFieldName ] = val;
         }
@@ -695,11 +694,11 @@ public:
                 {
                     // Value field cannot be empty
                     if( !srcValue.IsEmpty() )
-                        symbol.SetValue( srcValue );
+                        symbol.SetValueFieldText( srcValue );
                 }
                 else if( destField->GetId() == FOOTPRINT_FIELD )
                 {
-                    symbol.SetFootprint( srcValue );
+                    symbol.SetFootprintFieldText( srcValue );
                 }
                 else
                 {
@@ -1120,7 +1119,7 @@ void DIALOG_SYMBOL_FIELDS_TABLE::OnRemoveField( wxCommandEvent& event )
 
     wxString confirm_msg = wxString::Format( _( "Are you sure you want to remove the field '%s'?" ),
                                         fieldName );
-    
+
     if( !IsOK( this, confirm_msg ) )
         return;
 
@@ -1142,7 +1141,7 @@ void DIALOG_SYMBOL_FIELDS_TABLE::OnRemoveField( wxCommandEvent& event )
 
     wxGridTableMessage msg( m_dataModel, wxGRIDTABLE_NOTIFY_COLS_DELETED,
                                 m_fieldsCtrl->GetItemCount(), 1 );
-   
+
     m_grid->ProcessTableMessage( msg );
 
     // set up attributes on the new quantities column
@@ -1303,18 +1302,27 @@ void DIALOG_SYMBOL_FIELDS_TABLE::OnTableCellClick( wxGridEvent& event )
         m_grid->ClearSelection();
         m_grid->SetGridCursor( event.GetRow(), event.GetCol() );
 
+        int flag = m_dataModel->GetRowFlags( event.GetRow() );
         m_dataModel->ExpandCollapseRow( event.GetRow() );
         std::vector<SCH_REFERENCE> refs = m_dataModel->GetRowReferences( event.GetRow() );
 
         // Focus Eeschema view on the symbol selected in the dialog
-        if( refs.size() == 1 )
+        // TODO: Highlight or select more than one unit
+        if( ( flag == GROUP_SINGLETON || flag == CHILD_ITEM ) && refs.size() >= 1 )
         {
             SCH_EDITOR_CONTROL* editor = m_parent->GetToolManager()->GetTool<SCH_EDITOR_CONTROL>();
 
-            wxString path = refs[0].GetPath();
-            wxString reference = refs[0].GetRef() + refs[0].GetRefNumber();
+            std::sort( refs.begin(), refs.end(),
+                       []( const SCH_REFERENCE& a, const SCH_REFERENCE& b )
+                       {
+                           return a.GetUnit() < b.GetUnit();
+                       } );
 
-            editor->FindSymbolAndItem( &path, &reference, true, HIGHLIGHT_SYMBOL, wxEmptyString );
+            // search and highlight the symbol found by its full path.
+            // It allows select of not yet annotated or duplicaded symbols
+            wxString symbol_path = refs[0].GetFullPath();
+            // wxString reference = refs[0].GetRef() + refs[0].GetRefNumber();  // Not used
+            editor->FindSymbolAndItem( &symbol_path, nullptr, true, HIGHLIGHT_SYMBOL, wxEmptyString );
         }
     }
     else

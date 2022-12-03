@@ -37,16 +37,16 @@
 static wxString StartLine( wxT( "." ) );
 
 bool NETLIST_EXPORTER_CADSTAR::WriteNetlist( const wxString& aOutFileName,
-                                             unsigned /* aNetlistOptions */ )
+                                             unsigned /* aNetlistOptions */,
+                                             REPORTER& aReporter )
 {
     int ret = 0;
     FILE* f = nullptr;
 
     if( ( f = wxFopen( aOutFileName, wxT( "wt" ) ) ) == nullptr )
     {
-        wxString msg;
-        msg.Printf( _( "Failed to create file '%s'." ), aOutFileName );
-        DisplayError( nullptr, msg );
+        wxString msg = wxString::Format( _( "Failed to create file '%s'." ), aOutFileName );
+        aReporter.Report( msg, RPT_SEVERITY_ERROR );
         return false;
     }
 
@@ -76,7 +76,7 @@ bool NETLIST_EXPORTER_CADSTAR::WriteNetlist( const wxString& aOutFileName,
             if( !symbol )
                 continue;
 
-            footprint = symbol->GetFootprint( &sheetList[i], true );
+            footprint = symbol->GetFootprintFieldText( true );
 
             if( footprint.IsEmpty() )
                 footprint = "$noname";
@@ -85,7 +85,7 @@ bool NETLIST_EXPORTER_CADSTAR::WriteNetlist( const wxString& aOutFileName,
             ret |= fprintf( f, "%s     ", TO_UTF8( StartCmpDesc ) );
             ret |= fprintf( f, "%s", TO_UTF8( msg ) );
 
-            msg = symbol->GetValue( &sheetList[i], true );
+            msg = symbol->GetValueFieldText( true );
             msg.Replace( wxT( " " ), wxT( "_" ) );
             ret |= fprintf( f, "     \"%s\"", TO_UTF8( msg ) );
             ret |= fprintf( f, "     \"%s\"", TO_UTF8( footprint ) );

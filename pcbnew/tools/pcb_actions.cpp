@@ -343,11 +343,17 @@ TOOL_ACTION PCB_ACTIONS::swap( "pcbnew.InteractiveEdit.swap",
         BITMAPS::swap );
 
 TOOL_ACTION PCB_ACTIONS::packAndMoveFootprints( "pcbnew.InteractiveEdit.packAndMoveFootprints",
-        AS_GLOBAL, 
+        AS_GLOBAL,
         'P', "",
-        _( "Pack and Move Footprints" ), 
+        _( "Pack and Move Footprints" ),
         _( "Sorts selected footprints by reference, packs based on size and initiates movement" ),
         BITMAPS::pack_footprints );
+
+TOOL_ACTION PCB_ACTIONS::skip( "pcbnew.InteractiveEdit.skip",
+        AS_CONTEXT,
+        WXK_TAB, "",
+        _( "Skip" ), _( "Skip item" ),
+        BITMAPS::right );
 
 TOOL_ACTION PCB_ACTIONS::changeTrackWidth( "pcbnew.InteractiveEdit.changeTrackWidth",
         AS_GLOBAL, 0, "",
@@ -356,6 +362,10 @@ TOOL_ACTION PCB_ACTIONS::changeTrackWidth( "pcbnew.InteractiveEdit.changeTrackWi
 TOOL_ACTION PCB_ACTIONS::filletTracks( "pcbnew.InteractiveEdit.filletTracks",
         AS_GLOBAL, 0, "",
         _( "Fillet Tracks" ), _( "Adds arcs tangent to the selected straight track segments" ) );
+
+TOOL_ACTION PCB_ACTIONS::filletLines( "pcbnew.InteractiveEdit.filletLines",
+        AS_GLOBAL, 0, "",
+        _( "Fillet Lines" ), _( "Adds arcs tangent to the selected lines" ) );
 
 TOOL_ACTION PCB_ACTIONS::deleteFull( "pcbnew.InteractiveEdit.deleteFull",
         AS_GLOBAL,
@@ -852,7 +862,7 @@ TOOL_ACTION PCB_ACTIONS::showLayersManager( "pcbnew.Control.showLayersManager",
 
 TOOL_ACTION PCB_ACTIONS::showProperties( "pcbnew.Control.showProperties",
         AS_GLOBAL, 0, "",
-        _( "Show Properties Panel" ), _( "Show/hide the properties panel" ),
+        _( "Show Properties Manager" ), _( "Show/hide the properties manager" ),
         BITMAPS::tools );
 
 TOOL_ACTION PCB_ACTIONS::flipBoard( "pcbnew.Control.flipBoard",
@@ -1359,6 +1369,12 @@ TOOL_ACTION PCB_ACTIONS::filterSelection( "pcbnew.InteractiveSelection.FilterSel
 
 // ZONE_FILLER_TOOL
 //
+TOOL_ACTION PCB_ACTIONS::zoneFill( "pcbnew.ZoneFiller.zoneFill",
+        AS_GLOBAL, 0, "",
+        _( "Draft Fill Selected Zone(s)" ),
+        _( "Update copper fill of selected zone(s) without regard to other interacting zones" ),
+        BITMAPS::fill_zone );
+
 TOOL_ACTION PCB_ACTIONS::zoneFillAll( "pcbnew.ZoneFiller.zoneFillAll",
         AS_GLOBAL,
         'B', LEGACY_HK_NAME( "Fill or Refill All Zones" ),
@@ -1367,6 +1383,11 @@ TOOL_ACTION PCB_ACTIONS::zoneFillAll( "pcbnew.ZoneFiller.zoneFillAll",
 
 TOOL_ACTION PCB_ACTIONS::zoneFillDirty( "pcbnew.ZoneFiller.zoneFillDirty",
         AS_CONTEXT );
+
+TOOL_ACTION PCB_ACTIONS::zoneUnfill( "pcbnew.ZoneFiller.zoneUnfill",
+        AS_GLOBAL, 0, "",
+        _( "Unfill Selected Zone(s)" ), _( "Remove copper fill from selected zone(s)" ),
+        BITMAPS::zone_unfill );
 
 TOOL_ACTION PCB_ACTIONS::zoneUnfillAll( "pcbnew.ZoneFiller.zoneUnfillAll",
         AS_GLOBAL,

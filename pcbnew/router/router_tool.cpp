@@ -594,7 +594,7 @@ void ROUTER_TOOL::saveRouterDebugLog()
                  evt.sizes.TrackWidthIsExplicit() ? 1: 0,
                  evt.sizes.GetLayerBottom(),
                  evt.sizes.GetLayerTop(),
-                 evt.sizes.ViaType() );
+                 static_cast<int>( evt.sizes.ViaType() ) );
     }
 
     // Export as *.kicad_pcb format, using a strategy which is specifically chosen
@@ -608,8 +608,9 @@ void ROUTER_TOOL::saveRouterDebugLog()
     prj->GetProjectFile().SaveAs( cwd, "pns" );
 
     std::vector<PNS::ITEM*> added, removed;
+    auto tmpNode = m_router->GetUpdatedItems( removed, added );
 
-    if( !m_router->GetUpdatedItems( removed, added ) )
+    if( !tmpNode )
     {
         fclose( f );
         return;
@@ -1581,12 +1582,12 @@ int ROUTER_TOOL::RouteSelected( const TOOL_EVENT& aEvent )
         // the side of the connectivity on this pad. It also checks for ratsnest points
         // inside the pad (like a trace end) and counts them.
         RN_NET* net = connectivity->GetRatsnestForNet( item->GetNetCode() );
-        std::vector<std::shared_ptr<CN_ANCHOR>> anchors;
+        std::vector<std::shared_ptr<const CN_ANCHOR>> anchors;
 
         for( const CN_EDGE& edge : net->GetEdges() )
         {
-            std::shared_ptr<CN_ANCHOR> target = edge.GetTargetNode();
-            std::shared_ptr<CN_ANCHOR> source = edge.GetSourceNode();
+            std::shared_ptr<const CN_ANCHOR> target = edge.GetTargetNode();
+            std::shared_ptr<const CN_ANCHOR> source = edge.GetSourceNode();
 
             if( source->Parent() == item )
                 anchors.push_back( edge.GetSourceNode() );
@@ -1595,7 +1596,7 @@ int ROUTER_TOOL::RouteSelected( const TOOL_EVENT& aEvent )
         }
 
         // Route them
-        for( std::shared_ptr<CN_ANCHOR> anchor : anchors )
+        for( std::shared_ptr<const CN_ANCHOR> anchor : anchors )
         {
             // Try to return to the original layer as indicating the user's preferred
             // layer for autorouting tracks. The layer can be changed by the user to

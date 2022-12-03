@@ -85,7 +85,9 @@ public:
         SetIcon( BITMAPS::add_zone );
         SetTitle( _( "Zones" ) );
 
+        Add( PCB_ACTIONS::zoneFill );
         Add( PCB_ACTIONS::zoneFillAll );
+        Add( PCB_ACTIONS::zoneUnfill );
         Add( PCB_ACTIONS::zoneUnfillAll );
 
         AppendSeparator();
@@ -188,10 +190,10 @@ bool BOARD_EDITOR_CONTROL::Init()
     // Finally, add the standard zoom & grid items
     getEditFrame<PCB_BASE_FRAME>()->AddStandardSubMenus( m_menu );
 
-    auto zoneMenu = std::make_shared<ZONE_CONTEXT_MENU>();
+    std::shared_ptr<ZONE_CONTEXT_MENU> zoneMenu = std::make_shared<ZONE_CONTEXT_MENU>();
     zoneMenu->SetTool( this );
 
-    auto lockMenu = std::make_shared<LOCK_CONTEXT_MENU>();
+    std::shared_ptr<LOCK_CONTEXT_MENU> lockMenu = std::make_shared<LOCK_CONTEXT_MENU>();
     lockMenu->SetTool( this );
 
     // Add the PCB control menus to relevant other tools
@@ -212,7 +214,7 @@ bool BOARD_EDITOR_CONTROL::Init()
 
         menu.AddMenu( lockMenu.get(), SELECTION_CONDITIONS::NotEmpty, 100 );
 
-        menu.AddMenu( zoneMenu.get(), SELECTION_CONDITIONS::OnlyTypes( { PCB_ZONE_T } ), 200 );
+        menu.AddMenu( zoneMenu.get(), SELECTION_CONDITIONS::OnlyTypes( { PCB_ZONE_T } ), 100 );
     }
 
     DRAWING_TOOL* drawingTool = m_toolMgr->GetTool<DRAWING_TOOL>();
@@ -235,7 +237,7 @@ bool BOARD_EDITOR_CONTROL::Init()
                            };
                 };
 
-        menu.AddMenu( zoneMenu.get(), toolActiveFunctor( DRAWING_TOOL::MODE::ZONE ), 200 );
+        menu.AddMenu( zoneMenu.get(), toolActiveFunctor( DRAWING_TOOL::MODE::ZONE ), 300 );
     }
 
     return true;
@@ -294,7 +296,7 @@ int BOARD_EDITOR_CONTROL::PageSettings( const TOOL_EVENT& aEvent )
     m_frame->SaveCopyInUndoList( undoCmd, UNDO_REDO::PAGESETTINGS );
 
     DIALOG_PAGES_SETTINGS dlg( m_frame, pcbIUScale.IU_PER_MILS, wxSize( MAX_PAGE_SIZE_PCBNEW_MILS,
-                                                             MAX_PAGE_SIZE_PCBNEW_MILS ) );
+                                                                        MAX_PAGE_SIZE_PCBNEW_MILS ) );
     dlg.SetWksFileName( BASE_SCREEN::m_DrawingSheetFileName );
 
     if( dlg.ShowModal() == wxID_OK )
@@ -302,20 +304,12 @@ int BOARD_EDITOR_CONTROL::PageSettings( const TOOL_EVENT& aEvent )
         m_frame->GetCanvas()->GetView()->UpdateAllItemsConditionally( KIGFX::REPAINT,
                 [&]( KIGFX::VIEW_ITEM* aItem ) -> bool
                 {
-                    BOARD_ITEM* item = dynamic_cast<BOARD_ITEM*>( aItem );
+                    EDA_TEXT* text = dynamic_cast<EDA_TEXT*>( aItem );
 
-                    if( !item )
-                        return false;
+                    if( text && text->HasTextVars() )
+                        return true;
 
-                    switch( item->Type() )
-                    {
-                    case PCB_TEXT_T:
-                    case PCB_FP_TEXT_T:
-                        return true;        // text variables
-
-                    default:
-                        return false;
-                    }
+                    return false;
                 } );
 
         m_frame->OnModify();
@@ -1520,9 +1514,14 @@ int BOARD_EDITOR_CONTROL::AssignNetclass( const TOOL_EVENT& aEvent )
                 }
 
                 canvas()->ForceRefresh();
+                m_frame->UpdateMsgPanel();
             } );
 
-    dlg.ShowModal();
+    if( dlg.ShowModal() == wxID_OK )
+    {
+        board()->SynchronizeNetsAndNetClasses( false );
+        m_frame->UpdateMsgPanel();
+    }
 
     return 0;
 }
@@ -1662,8 +1661,8 @@ void BOARD_EDITOR_CONTROL::setTransitions()
         ACTIONS::updateSchematicFromPcb.MakeEvent() );
     Go( &BOARD_EDITOR_CONTROL::ShowEeschema,           PCB_ACTIONS::showEeschema.MakeEvent() );
     Go( &BOARD_EDITOR_CONTROL::ToggleLayersManager,    PCB_ACTIONS::showLayersManager.MakeEvent() );
-    Go( &BOARD_EDITOR_CONTROL::ToggleProperties, PCB_ACTIONS::showProperties.MakeEvent() );
-    Go( &BOARD_EDITOR_CONTROL::ToggleSearch, PCB_ACTIONS::showSearch.MakeEvent() );
+    Go( &BOARD_EDITOR_CONTROL::ToggleProperties,       PCB_ACTIONS::showProperties.MakeEvent() );
+    Go( &BOARD_EDITOR_CONTROL::ToggleSearch,           PCB_ACTIONS::showSearch.MakeEvent() );
     Go( &BOARD_EDITOR_CONTROL::TogglePythonConsole,    PCB_ACTIONS::showPythonConsole.MakeEvent() );
     Go( &BOARD_EDITOR_CONTROL::RepairBoard,            PCB_ACTIONS::repairBoard.MakeEvent() );
 }

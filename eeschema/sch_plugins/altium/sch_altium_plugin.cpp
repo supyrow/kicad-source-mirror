@@ -246,9 +246,8 @@ SCH_SHEET* SCH_ALTIUM_PLUGIN::Load( const wxString& aFileName, SCHEMATIC* aSchem
         SCH_SHEET_PATH sheetpath;
         sheetpath.push_back( m_rootSheet );
 
-        m_rootSheet->AddInstance( sheetpath );
-        m_rootSheet->SetPageNumber( sheetpath, "#" );   // We'll update later if we find a
-                                                        // pageNumber record for it
+        // We'll update later if we find a pageNumber record for it.
+        sheetpath.SetPageNumber( "#" );
     }
 
     if( !m_rootSheet->GetScreen() )
@@ -374,7 +373,7 @@ void SCH_ALTIUM_PLUGIN::ParseAltiumSch( const wxString& aFileName )
         {
             sheet->SetScreen( new SCH_SCREEN( m_schematic ) );
             SCH_SCREEN* screen = sheet->GetScreen();
-
+            sheet->SetName( loadAltiumFileName.GetName() );
             wxCHECK2( screen, continue );
 
             m_sheetPath.push_back( sheet );
@@ -481,8 +480,8 @@ void SCH_ALTIUM_PLUGIN::ParseAdditional( const ALTIUM_COMPOUND_FILE& aAltiumSchF
             break;
 
         default:
-            m_reporter->Report( wxString::Format( _( "Unknown or unexpected record found inside "
-                                                     "\"Additional\" section, Record id: %d." ),
+            m_reporter->Report( wxString::Format( _( "Unknown or unexpected record ID %d found "
+                                                     "inside \"Additional\" section." ),
                                                   recordId ),
                                 RPT_SEVERITY_ERROR );
             break;
@@ -554,6 +553,8 @@ void SCH_ALTIUM_PLUGIN::ParseFileHeader( const ALTIUM_COMPOUND_FILE& aAltiumSchF
             break;
 
         case ALTIUM_SCH_RECORD::IEEE_SYMBOL:
+            m_reporter->Report( _( "Record 'IEEE_SYMBOL' not handled." ),
+                                RPT_SEVERITY_INFO );
             break;
 
         case ALTIUM_SCH_RECORD::LABEL:
@@ -577,6 +578,8 @@ void SCH_ALTIUM_PLUGIN::ParseFileHeader( const ALTIUM_COMPOUND_FILE& aAltiumSchF
             break;
 
         case ALTIUM_SCH_RECORD::PIECHART:
+            m_reporter->Report( _( "Record 'PIECHART' not handled." ),
+                                RPT_SEVERITY_INFO );
             break;
 
         case ALTIUM_SCH_RECORD::ROUND_RECTANGLE:
@@ -584,8 +587,6 @@ void SCH_ALTIUM_PLUGIN::ParseFileHeader( const ALTIUM_COMPOUND_FILE& aAltiumSchF
             break;
 
         case ALTIUM_SCH_RECORD::ELLIPTICAL_ARC:
-            break;
-
         case ALTIUM_SCH_RECORD::ARC:
             ParseArc( properties );
             break;
@@ -703,8 +704,8 @@ void SCH_ALTIUM_PLUGIN::ParseFileHeader( const ALTIUM_COMPOUND_FILE& aAltiumSchF
             break;
 
         default:
-            m_reporter->Report( wxString::Format( _( "Unknown or unexpected record found inside "
-                                                     "\"FileHeader\" section, Record id: %d." ),
+            m_reporter->Report( wxString::Format( _( "Unknown or unexpected record id %d found "
+                                                     "inside \"FileHeader\" section." ),
                                                   recordId ),
                                 RPT_SEVERITY_ERROR );
             break;
@@ -745,7 +746,7 @@ void SCH_ALTIUM_PLUGIN::ParseFileHeader( const ALTIUM_COMPOUND_FILE& aAltiumSchF
         ParsePort( port );
 
     m_altiumPortsCurrentSheet.clear();
-
+    m_altiumComponents.clear();
     m_symbols.clear();
     m_libSymbols.clear();
 
@@ -789,11 +790,35 @@ const ASCH_STORAGE_FILE* SCH_ALTIUM_PLUGIN::GetFileFromStorage( const wxString& 
 void SCH_ALTIUM_PLUGIN::ParseComponent( int aIndex,
                                         const std::map<wxString, wxString>& aProperties )
 {
-    auto pair = m_altiumComponents.insert( { aIndex, ASCH_SYMBOL( aProperties ) } );
+    SCH_SHEET* currentSheet = m_sheetPath.Last();
+    wxCHECK( currentSheet, /* void */ );
+
+    wxString sheetName = currentSheet->GetName();
+
+    if( sheetName.IsEmpty() )
+        sheetName = wxT( "root" );
+
+    ASCH_SYMBOL altiumSymbol( aProperties );
+
+    if( m_altiumComponents.count( aIndex ) )
+    {
+        const ASCH_SYMBOL& currentSymbol = m_altiumComponents.at( aIndex );
+
+        m_reporter->Report( wxString::Format( _( "Symbol \"%s\" in sheet \"%s\" at index %d "
+                                                 "replaced with symbol \"%s\"." ),
+                                              currentSymbol.libreference,
+                                              sheetName,
+                                              aIndex,
+                                              altiumSymbol.libreference ),
+                            RPT_SEVERITY_ERROR );
+    }
+
+    auto pair = m_altiumComponents.insert( { aIndex, altiumSymbol } );
     const ASCH_SYMBOL& elem = pair.first->second;
 
     // TODO: this is a hack until we correctly apply all transformations to every element
-    wxString name = wxString::Format( "%d%s_%s",
+    wxString name = wxString::Format( "%s_%d%s_%s",
+                                      sheetName,
                                       elem.orientation,
                                       elem.isMirrored ? "_mirrored" : "",
                                       elem.libreference );
@@ -811,9 +836,9 @@ void SCH_ALTIUM_PLUGIN::ParseComponent( int aIndex,
     symbol->SetPosition( elem.location + m_sheetOffset );
 
     // TODO: keep it simple for now, and only set position.
-    //component->SetOrientation( elem.orientation );
+    // component->SetOrientation( elem.orientation );
     symbol->SetLibId( libId );
-    symbol->SetUnit( elem.currentpartid );
+    symbol->SetUnit( std::max( 0, elem.currentpartid ) );
 
     SCH_SCREEN* screen = getCurrentScreen();
     wxCHECK( screen, /* void */ );
@@ -846,7 +871,7 @@ void SCH_ALTIUM_PLUGIN::ParsePin( const std::map<wxString, wxString>& aPropertie
     LIB_PIN*    pin = new LIB_PIN( libSymbolIt->second );
     libSymbolIt->second->AddDrawItem( pin );
 
-    pin->SetUnit( elem.ownerpartid );
+    pin->SetUnit( std::max( 0, elem.ownerpartid ) );
 
     pin->SetName( elem.name );
     pin->SetNumber( elem.designator );
@@ -1125,7 +1150,7 @@ void SCH_ALTIUM_PLUGIN::ParseLabel( const std::map<wxString, wxString>& aPropert
         LIB_TEXT*   textItem = new LIB_TEXT( libSymbolIt->second );
         libSymbolIt->second->AddDrawItem( textItem );
 
-        textItem->SetUnit( elem.ownerpartid );
+        textItem->SetUnit( std::max( 0, elem.ownerpartid ) );
 
         textItem->SetPosition( GetRelativePosition( elem.location + m_sheetOffset, symbol ) );
         textItem->SetText( elem.text );
@@ -1306,7 +1331,7 @@ void SCH_ALTIUM_PLUGIN::ParseBezier( const std::map<wxString, wxString>& aProper
                 LIB_SHAPE* line = new LIB_SHAPE( libSymbolIt->second, SHAPE_T::POLY );
                 libSymbolIt->second->AddDrawItem( line );
 
-                line->SetUnit( elem.ownerpartid );
+                line->SetUnit( std::max( 0, elem.ownerpartid ) );
 
                 for( size_t j = i; j < elem.points.size() && j < i + 2; j++ )
                 {
@@ -1325,7 +1350,7 @@ void SCH_ALTIUM_PLUGIN::ParseBezier( const std::map<wxString, wxString>& aProper
                 LIB_SHAPE* line = new LIB_SHAPE( libSymbolIt->second, SHAPE_T::POLY );
                 libSymbolIt->second->AddDrawItem( line );
 
-                line->SetUnit( elem.ownerpartid );
+                line->SetUnit( std::max( 0, elem.ownerpartid ) );
 
                 for( size_t j = i; j < elem.points.size() && j < i + 2; j++ )
                 {
@@ -1341,7 +1366,7 @@ void SCH_ALTIUM_PLUGIN::ParseBezier( const std::map<wxString, wxString>& aProper
                 LIB_SHAPE* bezier = new LIB_SHAPE( libSymbolIt->second, SHAPE_T::BEZIER );
                 libSymbolIt->second->AddDrawItem( bezier );
 
-                bezier->SetUnit( elem.ownerpartid );
+                bezier->SetUnit( std::max( 0, elem.ownerpartid ) );
 
                 for( size_t j = i; j < elem.points.size() && j < i + 4; j++ )
                 {
@@ -1522,36 +1547,47 @@ void SCH_ALTIUM_PLUGIN::ParseRoundRectangle( const std::map<wxString, wxString>&
 
 void SCH_ALTIUM_PLUGIN::ParseArc( const std::map<wxString, wxString>& aProperties )
 {
+    // The Arc can be ALTIUM_SCH_RECORD::ELLIPTICAL_ARC or ALTIUM_SCH_RECORD::ARC
+    // Elliptical arcs are not handled in kicad. So use an arc instead
+    // TODO: handle elliptical arc better.
+
     ASCH_ARC elem( aProperties );
 
     SCH_SCREEN* screen = getCurrentScreen();
     wxCHECK( screen, /* void */ );
 
+    int arc_radius = elem.m_Radius;
+
+    // Try to approxiammate this ellipse by an arc. use the biggest of radius and secondary radius
+    // One can of course use another recipe
+    if( elem.m_IsElliptical )
+        arc_radius = std::max( elem.m_Radius, elem.m_SecondaryRadius );
+
     if( elem.ownerpartid == ALTIUM_COMPONENT_NONE )
     {
-        if( elem.startAngle == 0 && ( elem.endAngle == 0 || elem.endAngle == 360 ) )
+        if( elem.m_StartAngle == 0 && ( elem.m_EndAngle == 0 || elem.m_EndAngle == 360 ) )
         {
             SCH_SHAPE* circle = new SCH_SHAPE( SHAPE_T::CIRCLE );
 
-            circle->SetPosition( elem.center + m_sheetOffset );
-            circle->SetEnd( circle->GetPosition() + VECTOR2I( elem.radius, 0 ) );
-            circle->SetStroke( STROKE_PARAMS( elem.lineWidth, PLOT_DASH_TYPE::SOLID ) );
+            circle->SetPosition( elem.m_Center + m_sheetOffset );
+            circle->SetEnd( circle->GetPosition() + VECTOR2I( arc_radius, 0 ) );
+            circle->SetStroke( STROKE_PARAMS( elem.m_LineWidth, PLOT_DASH_TYPE::SOLID ) );
 
             screen->Append( circle );
         }
         else
         {
             SCH_SHAPE* arc = new SCH_SHAPE( SHAPE_T::ARC );
-            EDA_ANGLE  includedAngle( elem.endAngle - elem.startAngle, DEGREES_T );
-            EDA_ANGLE  startAngle( elem.endAngle, DEGREES_T );
-            VECTOR2I   startOffset( KiROUND( elem.radius * startAngle.Cos() ),
-                                   -KiROUND( elem.radius * startAngle.Sin() ) );
+            EDA_ANGLE  includedAngle( elem.m_EndAngle - elem.m_StartAngle, DEGREES_T );
+            EDA_ANGLE  startAngle( elem.m_EndAngle, DEGREES_T );
+            VECTOR2I   startOffset( KiROUND( arc_radius * startAngle.Cos() ),
+                                   -KiROUND( arc_radius * startAngle.Sin() ) );
 
-            arc->SetCenter( elem.center + m_sheetOffset );
-            arc->SetStart( elem.center + startOffset + m_sheetOffset );
+            arc->SetCenter( elem.m_Center + m_sheetOffset );
+            arc->SetStart( elem.m_Center + startOffset + m_sheetOffset );
             arc->SetArcAngleAndEnd( includedAngle.Normalize(), true );
 
-            arc->SetStroke( STROKE_PARAMS( elem.lineWidth, PLOT_DASH_TYPE::SOLID ) );
+            arc->SetStroke( STROKE_PARAMS( elem.m_LineWidth, PLOT_DASH_TYPE::SOLID ) );
 
             screen->Append( arc );
         }
@@ -1574,36 +1610,36 @@ void SCH_ALTIUM_PLUGIN::ParseArc( const std::map<wxString, wxString>& aPropertie
 
         SCH_SYMBOL* symbol = m_symbols.at( libSymbolIt->first );
 
-        if( elem.startAngle == 0 && ( elem.endAngle == 0 || elem.endAngle == 360 ) )
+        if( elem.m_StartAngle == 0 && ( elem.m_EndAngle == 0 || elem.m_EndAngle == 360 ) )
         {
             LIB_SHAPE* circle = new LIB_SHAPE( libSymbolIt->second, SHAPE_T::CIRCLE );
             libSymbolIt->second->AddDrawItem( circle );
 
-            circle->SetUnit( elem.ownerpartid );
+            circle->SetUnit( std::max( 0, elem.ownerpartid ) );
 
-            circle->SetPosition( GetRelativePosition( elem.center + m_sheetOffset, symbol ) );
-            circle->SetEnd( circle->GetPosition() + VECTOR2I( elem.radius, 0 ) );
-            circle->SetStroke( STROKE_PARAMS( elem.lineWidth, PLOT_DASH_TYPE::SOLID ) );
+            circle->SetPosition( GetRelativePosition( elem.m_Center + m_sheetOffset, symbol ) );
+            circle->SetEnd( circle->GetPosition() + VECTOR2I( arc_radius, 0 ) );
+            circle->SetStroke( STROKE_PARAMS( elem.m_LineWidth, PLOT_DASH_TYPE::SOLID ) );
         }
         else
         {
             LIB_SHAPE* arc = new LIB_SHAPE( libSymbolIt->second, SHAPE_T::ARC );
             libSymbolIt->second->AddDrawItem( arc );
-            arc->SetUnit( elem.ownerpartid );
+            arc->SetUnit( std::max( 0, elem.ownerpartid ) );
 
-            arc->SetCenter( GetRelativePosition( elem.center + m_sheetOffset, symbol ) );
+            arc->SetCenter( GetRelativePosition( elem.m_Center + m_sheetOffset, symbol ) );
 
-            VECTOR2I arcStart( elem.radius, 0 );
-            RotatePoint( arcStart, -EDA_ANGLE( elem.startAngle, DEGREES_T ) );
+            VECTOR2I arcStart( arc_radius, 0 );
+            RotatePoint( arcStart, -EDA_ANGLE( elem.m_StartAngle, DEGREES_T ) );
             arcStart += arc->GetCenter();
             arc->SetStart( arcStart );
 
-            VECTOR2I arcEnd( elem.radius, 0 );
-            RotatePoint( arcEnd, -EDA_ANGLE( elem.endAngle, DEGREES_T ) );
+            VECTOR2I arcEnd( arc_radius, 0 );
+            RotatePoint( arcEnd, -EDA_ANGLE( elem.m_EndAngle, DEGREES_T ) );
             arcEnd += arc->GetCenter();
             arc->SetEnd( arcEnd );
 
-            arc->SetStroke( STROKE_PARAMS( elem.lineWidth, PLOT_DASH_TYPE::SOLID ) );
+            arc->SetStroke( STROKE_PARAMS( elem.m_LineWidth, PLOT_DASH_TYPE::SOLID ) );
         }
     }
 }
@@ -1715,7 +1751,7 @@ void SCH_ALTIUM_PLUGIN::ParseLine( const std::map<wxString, wxString>& aProperti
         LIB_SHAPE*  line = new LIB_SHAPE( libSymbolIt->second, SHAPE_T::POLY );
         libSymbolIt->second->AddDrawItem( line );
 
-        line->SetUnit( elem.ownerpartid );
+        line->SetUnit( std::max( 0, elem.ownerpartid ) );
 
         line->AddPoint( GetRelativePosition( elem.point1 + m_sheetOffset, symbol ) );
         line->AddPoint( GetRelativePosition( elem.point2 + m_sheetOffset, symbol ) );
@@ -1775,8 +1811,7 @@ void SCH_ALTIUM_PLUGIN::ParseHarnessConnector( int aIndex, const std::map<wxStri
         SCH_SHEET_PATH sheetpath = m_sheetPath;
         sheetpath.push_back( sheet );
 
-        sheet->AddInstance( sheetpath );
-        sheet->SetPageNumber( sheetpath, "Harness #" );
+        sheetpath.SetPageNumber( "Harness #" );
 
         m_harnessEntryParent = aIndex + m_harnessOwnerIndexOffset;
         m_sheets.insert( { m_harnessEntryParent, sheet } );
@@ -1945,8 +1980,6 @@ void SCH_ALTIUM_PLUGIN::ParseSheetSymbol( int aIndex,
 
     SCH_SHEET_PATH sheetpath = m_sheetPath;
     sheetpath.push_back( sheet );
-
-    sheet->AddInstance( sheetpath );
 
     // We'll update later if we find a pageNumber record for it.
     sheetpath.SetPageNumber( "#" );
@@ -2298,7 +2331,7 @@ void SCH_ALTIUM_PLUGIN::ParsePowerPort( const std::map<wxString, wxString>& aPro
     // each symbol has its own powerSymbolIt for now
     SCH_SYMBOL* symbol = new SCH_SYMBOL();
     symbol->SetRef( &m_sheetPath, "#PWR?" );
-    symbol->SetValue( &m_sheetPath, elem.text );
+    symbol->SetValueFieldText( elem.text );
     symbol->SetLibId( libId );
     symbol->SetLibSymbol( new LIB_SYMBOL( *libSymbol ) );
 
@@ -2467,11 +2500,13 @@ void SCH_ALTIUM_PLUGIN::ParsePort( const ASCH_PORT& aElem )
     SCH_LABEL_BASE* label;
 
     // TODO: detect correct label type depending on sheet settings, etc.
-    //{
-    //    label = new SCH_HIERLABEL( elem.location + m_sheetOffset, elem.name );
-    //}
-
+    #if 1   // Set to 1 to use SCH_HIERLABEL label, 0 to use SCH_GLOBALLABEL
+    {
+        label = new SCH_HIERLABEL( position, aElem.Name );
+    }
+    #else
     label = new SCH_GLOBALLABEL( position, aElem.Name );
+    #endif
 
     switch( aElem.IOtype )
     {
@@ -2520,7 +2555,9 @@ void SCH_ALTIUM_PLUGIN::ParsePort( const ASCH_PORT& aElem )
     label->AutoplaceFields( screen, false );
 
     // Default "Sheet References" field should be hidden, at least for now
-    label->GetFields()[0].SetVisible( false );
+    if( label->GetFields().size() > 0 )
+        label->GetFields()[0].SetVisible( false );
+
     label->SetFlags( IS_NEW );
 
     screen->Append( label );
@@ -2836,16 +2873,14 @@ void SCH_ALTIUM_PLUGIN::ParseDesignator( const std::map<wxString, wxString>& aPr
     bool emptyRef = elem.text.IsEmpty();
     symbol->SetRef( &m_sheetPath, emptyRef ? "#GRAPHIC" : elem.text );
 
-    SCH_FIELD* field = symbol->GetField( VALUE_FIELD );
+    // I am not sure value and ref should be invisible just because emptyRef is true
+    // I have examples with this criteria fully incorrect.
+    bool visible = !emptyRef;
 
-    if ( emptyRef )
-        field->SetVisible( false );
+    symbol->GetField( VALUE_FIELD )->SetVisible( visible );
+    symbol->GetField( REFERENCE_FIELD )->SetVisible( visible );
 
-    field = symbol->GetField( REFERENCE_FIELD );
-
-    if ( emptyRef )
-        field->SetVisible( false );
-
+    SCH_FIELD* field = symbol->GetField( REFERENCE_FIELD );
     field->SetPosition( elem.location + m_sheetOffset );
     SetTextPositioning( field, elem.justification, elem.orientation );
 }
@@ -2891,7 +2926,7 @@ void SCH_ALTIUM_PLUGIN::ParseParameter( const std::map<wxString, wxString>& aPro
 
         if( paramName == "SHEETNUMBER" )
         {
-            m_rootSheet->SetPageNumber( m_sheetPath, elem.text );
+            m_sheetPath.SetPageNumber( elem.text );
         }
         else if( paramName == "TITLE" )
         {
@@ -3007,6 +3042,6 @@ void SCH_ALTIUM_PLUGIN::ParseImplementation( const std::map<wxString, wxString>&
 
         SCH_SYMBOL* symbol = m_symbols.at( libSymbolIt->first );
 
-        symbol->SetFootprint( fpLibId.Format() );
+        symbol->SetFootprintFieldText( fpLibId.Format() );
     }
 }

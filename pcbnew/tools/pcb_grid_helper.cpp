@@ -78,41 +78,52 @@ PCB_GRID_HELPER::PCB_GRID_HELPER( TOOL_MANAGER* aToolMgr, MAGNETIC_SETTINGS* aMa
 
 VECTOR2I PCB_GRID_HELPER::AlignToSegment( const VECTOR2I& aPoint, const SEG& aSeg )
 {
-    OPT_VECTOR2I pts[6];
+    const int c_gridSnapEpsilon_sq = 4;
 
-    const int c_gridSnapEpsilon = 2;
+    VECTOR2I aligned = Align( aPoint );
 
     if( !m_enableSnap )
-        return aPoint;
+        return aligned;
 
-    VECTOR2I nearest = Align( aPoint );
+    std::vector<VECTOR2I> points;
 
-    SEG pos_slope( nearest + VECTOR2I( -1, 1 ), nearest + VECTOR2I( 1, -1 ) );
-    SEG neg_slope( nearest + VECTOR2I( -1, -1 ), nearest + VECTOR2I( 1, 1 ) );
-    int max_i = 2;
+    const SEG testSegments[] = { SEG( aligned, aligned + VECTOR2( 1, 0 ) ),
+                                 SEG( aligned, aligned + VECTOR2( 0, 1 ) ),
+                                 SEG( aligned, aligned + VECTOR2( 1, 1 ) ),
+                                 SEG( aligned, aligned + VECTOR2( 1, -1 ) ) };
 
-    pts[0] = aSeg.A;
-    pts[1] = aSeg.B;
-
-    if( !aSeg.ApproxParallel( pos_slope ) )
-        pts[max_i++] = aSeg.IntersectLines( pos_slope );
-
-    if( !aSeg.ApproxParallel( neg_slope ) )
-        pts[max_i++] = aSeg.IntersectLines( neg_slope );
-
-    int min_d = std::numeric_limits<int>::max();
-
-    for( int i = 0; i < max_i; i++ )
+    for( const SEG& seg : testSegments )
     {
-        if( pts[i] && aSeg.Distance( *pts[i] ) <= c_gridSnapEpsilon )
-        {
-            int d = (*pts[i] - aPoint).EuclideanNorm();
+        OPT_VECTOR2I vec = aSeg.IntersectLines( seg );
 
-            if( d < min_d )
-            {
-                min_d = d;
-                nearest = *pts[i];
-            }
+        if( vec && aSeg.SquaredDistance( *vec ) <= c_gridSnapEpsilon_sq )
+            points.push_back( *vec );
+    }
+
+    VECTOR2I    nearest = aligned;
+    SEG::ecoord min_d_sq = VECTOR2I::ECOORD_MAX;
+
+    // Snap by distance between pointer and endpoints
+    for( const VECTOR2I& pt : { aSeg.A, aSeg.B } )
+    {
+        SEG::ecoord d_sq = ( pt - aPoint ).SquaredEuclideanNorm();
+
+        if( d_sq < min_d_sq )
+        {
+            min_d_sq = d_sq;
+            nearest = pt;
+        }
+    }
+
+    // Snap by distance between aligned cursor and intersections
+    for( const VECTOR2I& pt : points )
+    {
+        SEG::ecoord d_sq = ( pt - aligned ).SquaredEuclideanNorm();
+
+        if( d_sq < min_d_sq )
+        {
+            min_d_sq = d_sq;
+            nearest = pt;
         }
     }
 
@@ -122,28 +133,43 @@ VECTOR2I PCB_GRID_HELPER::AlignToSegment( const VECTOR2I& aPoint, const SEG& aSe
 
 VECTOR2I PCB_GRID_HELPER::AlignToArc( const VECTOR2I& aPoint, const SHAPE_ARC& aArc )
 {
+    VECTOR2I aligned = Align( aPoint );
+
     if( !m_enableSnap )
-        return aPoint;
+        return aligned;
 
-    const VECTOR2D gridOffset( GetOrigin() );
-    const VECTOR2D gridSize( GetGrid() );
+    std::vector<VECTOR2I> points;
 
-    VECTOR2I nearest( KiROUND( ( aPoint.x - gridOffset.x ) / gridSize.x ) * gridSize.x + gridOffset.x,
-                      KiROUND( ( aPoint.y - gridOffset.y ) / gridSize.y ) * gridSize.y + gridOffset.y );
+    aArc.IntersectLine( SEG( aligned, aligned + VECTOR2( 1, 0 ) ), &points );
+    aArc.IntersectLine( SEG( aligned, aligned + VECTOR2( 0, 1 ) ), &points );
+    aArc.IntersectLine( SEG( aligned, aligned + VECTOR2( 1, 1 ) ), &points );
+    aArc.IntersectLine( SEG( aligned, aligned + VECTOR2( 1, -1 ) ), &points );
 
-    int min_d = std::numeric_limits<int>::max();
+    VECTOR2I    nearest = aligned;
+    SEG::ecoord min_d_sq = VECTOR2I::ECOORD_MAX;
 
+    // Snap by distance between pointer and endpoints
     for( const VECTOR2I& pt : { aArc.GetP0(), aArc.GetP1() } )
     {
-        int d = ( pt - aPoint ).EuclideanNorm();
+        SEG::ecoord d_sq = ( pt - aPoint ).SquaredEuclideanNorm();
 
-        if( d < min_d )
+        if( d_sq < min_d_sq )
         {
-            min_d = d;
+            min_d_sq = d_sq;
             nearest = pt;
         }
-        else
-            break;
+    }
+
+    // Snap by distance between aligned cursor and intersections
+    for( const VECTOR2I& pt : points )
+    {
+        SEG::ecoord d_sq = ( pt - aligned ).SquaredEuclideanNorm();
+
+        if( d_sq < min_d_sq )
+        {
+            min_d_sq = d_sq;
+            nearest = pt;
+        }
     }
 
     return nearest;

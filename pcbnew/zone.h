@@ -116,6 +116,7 @@ public:
     bool SameNet( const ZONE* aOther ) const;
 
     void GetMsgPanelInfo( EDA_DRAW_FRAME* aFrame, std::vector<MSG_PANEL_ITEM>& aList ) override;
+    wxString GetFriendlyName() const override;
 
     void SetLayerSet( LSET aLayerSet ) override;
     virtual LSET GetLayerSet() const override { return m_layerSet; }
@@ -916,5 +917,9 @@ public:
 
     double ViewGetLOD( int aLayer, KIGFX::VIEW* aView ) const override;
 };
+
+#ifndef SWIG
+DECLARE_ENUM_TO_WXANY( ZONE_CONNECTION )
+#endif
 
 #endif  // ZONE_H

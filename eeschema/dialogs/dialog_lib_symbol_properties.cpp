@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 1992-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 1992-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -271,7 +271,7 @@ bool DIALOG_LIB_SYMBOL_PROPERTIES::Validate()
 
         if( parentName.IsEmpty() )
         {
-            m_delayedErrorMessage = _( "Aliased symbol must have a parent selected" );
+            m_delayedErrorMessage = _( "Derived symbol must have a parent selected" );
 
             return false;
         }
@@ -716,13 +716,14 @@ void DIALOG_LIB_SYMBOL_PROPERTIES::adjustGridColumns()
     int width = KIPLATFORM::UI::GetUnobscuredSize( m_grid ).x;
 
     m_grid->AutoSizeColumn( FDC_NAME );
+    m_grid->SetColSize( FDC_NAME, std::max( 72, m_grid->GetColSize( FDC_NAME ) ) );
 
     int fixedColsWidth = m_grid->GetColSize( FDC_NAME );
 
     for( int i = 2; i < m_grid->GetNumberCols(); i++ )
         fixedColsWidth += m_grid->GetColSize( i );
 
-    m_grid->SetColSize( FDC_VALUE, width - fixedColsWidth );
+    m_grid->SetColSize( FDC_VALUE, std::max( 120, width - fixedColsWidth ) );
 }
 
 

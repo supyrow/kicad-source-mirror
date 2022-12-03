@@ -66,7 +66,7 @@
 
 int EDIT_TOOL::Swap( const TOOL_EVENT& aEvent )
 {
-    if( isRouterActive() || m_dragging )
+    if( isRouterActive() )
     {
         wxBell();
         return 0;
@@ -179,7 +179,8 @@ int EDIT_TOOL::Swap( const TOOL_EVENT& aEvent )
         }
     }
 
-    m_commit->Push( _( "Swap" ) );
+    if( !m_dragging )
+        m_commit->Push( _( "Swap" ) );
 
     m_toolMgr->ProcessEvent( EVENTS::SelectedItemsModified );
 
@@ -464,6 +465,8 @@ int EDIT_TOOL::doMoveSelection( const TOOL_EVENT& aEvent )
         grid.SetSnap( !evt->Modifier( MD_SHIFT ) );
         grid.SetUseGrid( getView()->GetGAL()->GetGridSnapping() && !evt->DisableGridSnapping() );
 
+        bool isSkip = evt->IsAction( &PCB_ACTIONS::skip ) && moveIndividually;
+
         if( evt->IsMotion() || evt->IsDrag( BUT_LEFT ) )
             eatFirstMouseUp = false;
 
@@ -725,7 +728,7 @@ int EDIT_TOOL::doMoveSelection( const TOOL_EVENT& aEvent )
 
             break; // finish -- we moved exactly, so we are finished
         }
-        else if( evt->IsMouseUp( BUT_LEFT ) || evt->IsClick( BUT_LEFT ) )
+        else if( evt->IsMouseUp( BUT_LEFT ) || evt->IsClick( BUT_LEFT ) || isSkip )
         {
             // Eat mouse-up/-click events that leaked through from the lock dialog
             if( eatFirstMouseUp && evt->Parameter<intptr_t>() != ACTIONS::CURSOR_CLICK )
@@ -735,6 +738,12 @@ int EDIT_TOOL::doMoveSelection( const TOOL_EVENT& aEvent )
             }
             else if( moveIndividually && m_dragging )
             {
+                // Put skipped items back where they started
+                if( isSkip )
+                    orig_items[itemIdx]->SetPosition( originalPos );
+
+                rebuildConnectivity();
+
                 if( ++itemIdx < orig_items.size() )
                 {
                     m_selectionTool->ClearSelection();
@@ -805,6 +814,9 @@ int EDIT_TOOL::doMoveSelection( const TOOL_EVENT& aEvent )
         // Mainly for point editor, but there might be other clients that need to adjust to
         // reverted state.
         m_toolMgr->PostEvent( EVENTS::SelectedItemsMoved );
+
+        // Property panel needs to know about the reselect
+        m_toolMgr->PostEvent( EVENTS::SelectedItemsModified );
 
         if( hasRedrawn3D )
             editFrame->Update3DView( false, true );

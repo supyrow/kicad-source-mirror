@@ -298,12 +298,18 @@ std::ostream& EDA_ITEM::NestedSpace( int nestLevel, std::ostream& os )
 #endif
 
 
-wxString EDA_ITEM::GetTypeDesc()
+wxString EDA_ITEM::GetTypeDesc() const
 {
     //@see EDA_ITEM_DESC for definition of ENUM_MAP<KICAD_T>
     wxString typeDescr = ENUM_MAP<KICAD_T>::Instance().ToString( Type() );
 
     return wxGetTranslation( typeDescr );
+}
+
+
+wxString EDA_ITEM::GetFriendlyName() const
+{
+    return GetTypeDesc();
 }
 
 
@@ -373,7 +379,6 @@ static struct EDA_ITEM_DESC
             .Map( SCH_SCREEN_T,            _HKI( "SCH Screen" ) )
 
             .Map( LIB_SYMBOL_T,            _HKI( "Symbol" ) )
-            .Map( LIB_ALIAS_T,             _HKI( "Alias" ) )
             .Map( LIB_SHAPE_T,             _HKI( "Graphic" ) )
             .Map( LIB_TEXT_T,              _HKI( "Text" ) )
             .Map( LIB_TEXTBOX_T,           _HKI( "Text Box" ) )
@@ -386,8 +391,11 @@ static struct EDA_ITEM_DESC
 
         PROPERTY_MANAGER& propMgr = PROPERTY_MANAGER::Instance();
         REGISTER_TYPE( EDA_ITEM );
-        propMgr.AddProperty( new PROPERTY_ENUM<EDA_ITEM, KICAD_T>( "Type",
-                    NO_SETTER( EDA_ITEM, KICAD_T ), &EDA_ITEM::Type ) );
+
+        auto typeProp = new PROPERTY_ENUM<EDA_ITEM, KICAD_T>( "Type",
+                NO_SETTER( EDA_ITEM, KICAD_T ), &EDA_ITEM::Type );
+        typeProp->SetIsInternal( true );
+        propMgr.AddProperty( typeProp );
     }
 } _EDA_ITEM_DESC;
 

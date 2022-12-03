@@ -770,6 +770,10 @@ void PCB_CONTROL::pruneItemLayers( std::vector<BOARD_ITEM*>& aItems )
             if( fp->GraphicalItems().size() || fp->Pads().size() || fp->Zones().size() )
                 returnItems.push_back( fp );
         }
+        else if( item->Type() == PCB_GROUP_T )
+        {
+            returnItems.push_back( item );
+        }
         else
         {
             LSET allowed = item->GetLayerSet() & enabledLayers;
@@ -850,7 +854,7 @@ int PCB_CONTROL::Paste( const TOOL_EVENT& aEvent )
 
                 for( PCB_GROUP* group : clipBoard->Groups() )
                 {
-                    group->SetParent( nullptr );
+                    group->SetParent( editorFootprint );
                     pastedItems.push_back( group );
                 }
 
@@ -1148,7 +1152,7 @@ int PCB_CONTROL::placeBoardItems( std::vector<BOARD_ITEM*>& aItems, bool aIsNew,
     m_toolMgr->RunAction( PCB_ACTIONS::selectItems, true, &itemsToSel );
 
     // Reannotate duplicate footprints (make sense only in board editor )
-    if( aReannotateDuplicates && m_frame->IsType( FRAME_PCB_EDITOR ) )
+    if( aReannotateDuplicates && m_isBoardEditor )
         m_toolMgr->GetTool<BOARD_REANNOTATE_TOOL>()->ReannotateDuplicatesInSelection();
 
     for( BOARD_ITEM* item : aItems )
@@ -1275,7 +1279,7 @@ int PCB_CONTROL::AppendBoard( PLUGIN& pi, wxString& fileName )
 
     // rebuild nets and ratsnest before any use of nets
     brd->BuildListOfNets();
-    brd->SynchronizeNetsAndNetClasses();
+    brd->SynchronizeNetsAndNetClasses( true );
     brd->BuildConnectivity();
 
     // Synchronize layers
@@ -1502,6 +1506,27 @@ int PCB_CONTROL::UpdateMessagePanel( const TOOL_EVENT& aEvent )
         {
             msgItems.emplace_back( _( "Selected Items" ),
                                    wxString::Format( wxT( "%d" ), selection.GetSize() ) );
+
+            std::set<wxString> netNames;
+            std::set<wxString> netClasses;
+
+            for( EDA_ITEM* item : selection )
+            {
+                if( BOARD_CONNECTED_ITEM* bci = dynamic_cast<BOARD_CONNECTED_ITEM*>( item ) )
+                {
+                    netNames.insert( UnescapeString( bci->GetNetname() ) );
+                    netClasses.insert( UnescapeString( bci->GetEffectiveNetClass()->GetName() ) );
+
+                    if( netNames.size() > 1 && netClasses.size() > 1 )
+                        break;
+                }
+            }
+
+            if( netNames.size() == 1 )
+                msgItems.emplace_back( _( "Net" ), *netNames.begin() );
+
+            if( netClasses.size() == 1 )
+                msgItems.emplace_back( _( "Resolved Netclass" ), *netClasses.begin() );
         }
         else
         {
@@ -1628,6 +1653,7 @@ void PCB_CONTROL::setTransitions()
     Go( &PCB_CONTROL::UpdateMessagePanel,   EVENTS::UnselectedEvent );
     Go( &PCB_CONTROL::UpdateMessagePanel,   EVENTS::ClearedEvent );
     Go( &PCB_CONTROL::UpdateMessagePanel,   EVENTS::SelectedItemsModified );
+    Go( &PCB_CONTROL::UpdateMessagePanel,   EVENTS::ConnectivityChangedEvent );
 
     // Add library by dropping file
     Go( &PCB_CONTROL::DdAddLibrary,         ACTIONS::ddAddLibrary.MakeEvent() );

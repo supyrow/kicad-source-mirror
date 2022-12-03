@@ -47,9 +47,9 @@ UNIT_BINDER::UNIT_BINDER( EDA_DRAW_FRAME* aParent, wxStaticText* aLabel, wxWindo
 
 UNIT_BINDER::UNIT_BINDER( EDA_BASE_FRAME* aParent, const EDA_IU_SCALE& aIUScale,
                           wxStaticText* aLabel, wxWindow* aValueCtrl,
-                          wxStaticText* aUnitLabel, bool allowEval, bool aBindFrameEvents ) :
+                          wxStaticText* aUnitLabel, bool allowEval, bool aBindFocusEvent ) :
         m_frame( aParent ),
-        m_bindFrameEvents( aBindFrameEvents ),
+        m_bindFocusEvent( aBindFocusEvent ),
         m_label( aLabel ),
         m_valueCtrl( aValueCtrl ),
         m_unitLabel( aUnitLabel ),
@@ -58,6 +58,7 @@ UNIT_BINDER::UNIT_BINDER( EDA_BASE_FRAME* aParent, const EDA_IU_SCALE& aIUScale,
         m_dataType( EDA_DATA_TYPE::DISTANCE ),
         m_precision( 0 ),
         m_eval( aParent->GetUserUnits() ),
+        m_unitsInValue( false ),
         m_originTransforms( aParent->GetOriginTransforms() ),
         m_coordType( ORIGIN_TRANSFORMS::NOT_A_COORD )
 {
@@ -87,24 +88,21 @@ UNIT_BINDER::UNIT_BINDER( EDA_BASE_FRAME* aParent, const EDA_IU_SCALE& aIUScale,
                               this );
     }
 
-    if( m_bindFrameEvents )
+    if( m_bindFocusEvent )
     {
         Connect( DELAY_FOCUS, wxCommandEventHandler( UNIT_BINDER::delayedFocusHandler ), nullptr,
                  this );
-
-        m_frame->Connect( UNITS_CHANGED, wxCommandEventHandler( UNIT_BINDER::onUnitsChanged ),
-                          nullptr, this );
     }
+
+    m_frame->Connect( UNITS_CHANGED, wxCommandEventHandler( UNIT_BINDER::onUnitsChanged ),
+                      nullptr, this );
 }
 
 
 UNIT_BINDER::~UNIT_BINDER()
 {
-    if( m_bindFrameEvents )
-    {
-        m_frame->Disconnect( UNITS_CHANGED, wxCommandEventHandler( UNIT_BINDER::onUnitsChanged ),
-                             nullptr, this );
-    }
+    m_frame->Disconnect( UNITS_CHANGED, wxCommandEventHandler( UNIT_BINDER::onUnitsChanged ),
+                         nullptr, this );
 }
 
 
@@ -345,16 +343,27 @@ void UNIT_BINDER::SetValue( const wxString& aValue )
     wxTextEntry*  textEntry = dynamic_cast<wxTextEntry*>( m_valueCtrl );
     wxStaticText* staticText = dynamic_cast<wxStaticText*>( m_valueCtrl );
 
+    wxString value = aValue;
+
+    if( m_unitsInValue )
+    {
+        if( !( m_units == EDA_UNITS::DEGREES || m_units == EDA_UNITS::PERCENT ) )
+            value += wxT( " " );
+
+        value += EDA_UNIT_UTILS::GetLabel( m_units, m_dataType );
+    }
+ 
     if( textEntry )
-        textEntry->SetValue( aValue );
+        textEntry->SetValue( value );
     else if( staticText )
-        staticText->SetLabel( aValue );
+        staticText->SetLabel( value );
 
     if( m_allowEval )
         m_eval.Clear();
 
     if( m_unitLabel )
         m_unitLabel->SetLabel( EDA_UNIT_UTILS::GetLabel( m_units, m_dataType ) );
+
 }
 
 
@@ -397,10 +406,20 @@ void UNIT_BINDER::ChangeValue( const wxString& aValue )
     wxTextEntry*  textEntry = dynamic_cast<wxTextEntry*>( m_valueCtrl );
     wxStaticText* staticText = dynamic_cast<wxStaticText*>( m_valueCtrl );
 
+    wxString value = aValue;
+
+    if( m_unitsInValue )
+    {
+        if( !( m_units == EDA_UNITS::DEGREES || m_units == EDA_UNITS::PERCENT ) )
+            value += wxT( " " );
+
+        value += EDA_UNIT_UTILS::GetLabel( m_units, m_dataType );
+    }
+
     if( textEntry )
-        textEntry->ChangeValue( aValue );
+        textEntry->ChangeValue( value );
     else if( staticText )
-        staticText->SetLabel( aValue );
+        staticText->SetLabel( value );
 
     if( m_allowEval )
         m_eval.Clear();
@@ -571,6 +590,7 @@ void UNIT_BINDER::Show( bool aShow, bool aResize )
 PROPERTY_EDITOR_UNIT_BINDER::PROPERTY_EDITOR_UNIT_BINDER( EDA_DRAW_FRAME* aParent ) :
         UNIT_BINDER( aParent, nullptr, nullptr, nullptr, true, false )
 {
+    m_unitsInValue = true;
 }
 
 

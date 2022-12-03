@@ -32,10 +32,19 @@ namespace PNS
 
 
 // Settings for the CONVERT_TOOL.
+enum CONVERT_STRATEGY
+{
+    COPY_LINEWIDTH,
+    CENTERLINE,
+    BOUNDING_HULL
+};
+
+
 struct CONVERT_SETTINGS
 {
-    bool m_IgnoreLineWidths;
-    bool m_DeleteOriginals;
+    CONVERT_STRATEGY m_Strategy;
+    int              m_LineWidth;
+    bool             m_DeleteOriginals;
 };
 
 
@@ -127,6 +136,8 @@ public:
         bool appearance_expand_layer_display;
         bool appearance_expand_net_display;
         int  right_panel_width;
+        int  properties_panel_width;
+        int  search_panel_height;
         bool show_layer_manager;
         bool show_properties;
         bool show_search;

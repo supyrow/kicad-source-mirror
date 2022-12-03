@@ -190,6 +190,15 @@ public:
     void SetOrientation( const EDA_ANGLE& aNewAngle );
     EDA_ANGLE GetOrientation() const { return m_orient; }
 
+    /**
+     * Used as Layer property setter -- performs a flip if necessary to set the footprint layer
+     * @param aLayer is the target layer (F_Cu or B_Cu)
+     */
+    void SetLayerAndFlip( PCB_LAYER_ID aLayer );
+
+    // to make property magic work
+    PCB_LAYER_ID GetLayer() const override { return BOARD_ITEM::GetLayer(); }
+
     // For property system:
     void SetOrientationDegrees( double aOrientation )
     {
@@ -571,6 +580,45 @@ public:
     }
     void SetProperty( const wxString& aKey, const wxString& aVal )   { m_properties[ aKey ] = aVal; }
 
+    bool IsBoardOnly() const { return m_attributes & FP_BOARD_ONLY; }
+    void SetBoardOnly( bool aIsBoardOnly = true )
+    {
+        if( aIsBoardOnly )
+            m_attributes |= FP_BOARD_ONLY;
+        else
+            m_attributes &= ~FP_BOARD_ONLY;
+    }
+
+    bool IsExcludedFromPosFiles() const { return m_attributes & FP_EXCLUDE_FROM_POS_FILES; }
+    void SetExcludedFromPosFiles( bool aExclude = true )
+    {
+        if( aExclude )
+            m_attributes |= FP_EXCLUDE_FROM_POS_FILES;
+        else
+            m_attributes &= ~FP_EXCLUDE_FROM_POS_FILES;
+    }
+
+    bool IsExcludedFromBOM() const { return m_attributes & FP_EXCLUDE_FROM_BOM; }
+    void SetExcludedFromBOM( bool aExclude = true )
+    {
+        if( aExclude )
+            m_attributes |= FP_EXCLUDE_FROM_BOM;
+        else
+            m_attributes &= ~FP_EXCLUDE_FROM_BOM;
+    }
+
+    bool AllowMissingCourtyard() const { return m_attributes & FP_ALLOW_MISSING_COURTYARD; }
+    void SetAllowMissingCourtyard( bool aAllow = true )
+    {
+        if( aAllow )
+            m_attributes |= FP_ALLOW_MISSING_COURTYARD;
+        else
+            m_attributes &= ~FP_ALLOW_MISSING_COURTYARD;
+    }
+
+    void SetFileFormatVersionAtLoad( int aVersion ) { m_fileFormatVersionAtLoad = aVersion; }
+    int GetFileFormatVersionAtLoad() const { return m_fileFormatVersionAtLoad; }
+
     /**
      * Return a #PAD with a matching number.
      *
@@ -750,8 +798,9 @@ public:
      */
     void BuildCourtyardCaches( OUTLINE_ERROR_HANDLER* aErrorHandler = nullptr );
 
-    virtual std::shared_ptr<SHAPE> GetEffectiveShape( PCB_LAYER_ID aLayer = UNDEFINED_LAYER,
-            FLASHING aFlash = FLASHING::DEFAULT ) const override;
+    // @copydoc BOARD_ITEM::GetEffectiveShape
+    std::shared_ptr<SHAPE> GetEffectiveShape( PCB_LAYER_ID aLayer = UNDEFINED_LAYER,
+                                              FLASHING aFlash = FLASHING::DEFAULT ) const override;
 
 #if defined(DEBUG)
     virtual void Show( int nestLevel, std::ostream& os ) const override { ShowDummy( os ); }
@@ -788,6 +837,7 @@ private:
     LIB_ID          m_fpid;              // The #LIB_ID of the FOOTPRINT.
     int             m_attributes;        // Flag bits (see FOOTPRINT_ATTR_T)
     int             m_fpStatus;          // For autoplace: flags (LOCKED, FIELDS_AUTOPLACED)
+    int             m_fileFormatVersionAtLoad;
 
     // Bounding box caching strategy:
     // While we attempt to notice the low-hanging fruit operations and update the bounding boxes

@@ -17,11 +17,15 @@
  * with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <eda_draw_frame.h>
+#include <properties/eda_angle_variant.h>
 #include <properties/pg_editors.h>
 #include <properties/pg_properties.h>
 #include <widgets/unit_binder.h>
 
 #include <wx/log.h>
+
+const wxString PG_UNIT_EDITOR::EDITOR_NAME = wxS( "KiCadUnitEditor" );
 
 
 PG_UNIT_EDITOR::PG_UNIT_EDITOR( EDA_DRAW_FRAME* aFrame ) :
@@ -29,6 +33,7 @@ PG_UNIT_EDITOR::PG_UNIT_EDITOR( EDA_DRAW_FRAME* aFrame ) :
         m_frame( aFrame )
 {
     m_unitBinder = std::make_unique<PROPERTY_EDITOR_UNIT_BINDER>( m_frame );
+    m_unitBinder->SetUnits( m_frame->GetUserUnits() );
 }
 
 
@@ -37,9 +42,27 @@ PG_UNIT_EDITOR::~PG_UNIT_EDITOR()
 }
 
 
+void PG_UNIT_EDITOR::UpdateFrame( EDA_DRAW_FRAME* aFrame )
+{
+    m_frame = aFrame;
+
+    if( aFrame )
+    {
+        m_unitBinder = std::make_unique<PROPERTY_EDITOR_UNIT_BINDER>( m_frame );
+        m_unitBinder->SetUnits( m_frame->GetUserUnits() );
+    }
+    else
+    {
+        m_unitBinder = nullptr;
+    }
+}
+
+
 wxPGWindowList PG_UNIT_EDITOR::CreateControls( wxPropertyGrid* aPropGrid, wxPGProperty* aProperty,
                                                const wxPoint& aPos, const wxSize& aSize ) const
 {
+    wxASSERT( m_unitBinder );
+
     wxPGWindowList ret = wxPGTextCtrlEditor::CreateControls( aPropGrid, aProperty, aPos, aSize );
 
     m_unitBinder->SetControl( ret.m_primary );
@@ -47,14 +70,47 @@ wxPGWindowList PG_UNIT_EDITOR::CreateControls( wxPropertyGrid* aPropGrid, wxPGPr
 
     if( PGPROPERTY_DISTANCE* prop = dynamic_cast<PGPROPERTY_DISTANCE*>( aProperty ) )
         m_unitBinder->SetCoordType( prop->CoordType() );
+    else if( dynamic_cast<PGPROPERTY_ANGLE*>( aProperty ) )
+        m_unitBinder->SetUnits( EDA_UNITS::DEGREES );
 
     return ret;
+}
+
+
+void PG_UNIT_EDITOR::UpdateControl( wxPGProperty* aProperty, wxWindow* aCtrl ) const
+{
+    m_unitBinder->ChangeValue( aProperty->GetValueAsString() );
+}
+
+
+bool PG_UNIT_EDITOR::OnEvent( wxPropertyGrid* aPropGrid, wxPGProperty* aProperty,
+                              wxWindow* aCtrl, wxEvent& aEvent ) const
+{
+    if( aEvent.GetEventType() == wxEVT_LEFT_UP )
+    {
+        if( wxTextCtrl* textCtrl = dynamic_cast<wxTextCtrl*>( aCtrl ) )
+        {
+            if( !textCtrl->HasFocus() )
+            {
+                textCtrl->SelectAll();
+                return false;
+            }
+        }
+    }
+    
+    if( aEvent.GetEventType() == wxEVT_KILL_FOCUS )
+        wxLogDebug( "test" );
+
+    return wxPGTextCtrlEditor::OnEvent( aPropGrid, aProperty, aCtrl, aEvent );
 }
 
 
 bool PG_UNIT_EDITOR::GetValueFromControl( wxVariant& aVariant, wxPGProperty* aProperty,
                                           wxWindow* aCtrl ) const
 {
+    if( !m_unitBinder )
+        return false;
+
     wxTextCtrl* textCtrl = dynamic_cast<wxTextCtrl*>( aCtrl );
     wxCHECK_MSG( textCtrl, false, "PG_UNIT_EDITOR requires a text control!" );
     wxString textVal = textCtrl->GetValue();
@@ -64,15 +120,29 @@ bool PG_UNIT_EDITOR::GetValueFromControl( wxVariant& aVariant, wxPGProperty* aPr
         aVariant.MakeNull();
         return true;
     }
+    bool changed = false;
 
-    long result = m_unitBinder->GetValue();
-
-    bool changed = ( aVariant.IsNull() || result != aVariant.GetLong() );
-
-    if( changed )
+    if( dynamic_cast<PGPROPERTY_ANGLE*>( aProperty ) )
     {
-        aVariant = result;
-        m_unitBinder->SetValue( result );
+        double result = m_unitBinder->GetAngleValue().AsDegrees();
+        changed = ( aVariant.IsNull() || result != aVariant.GetDouble() );
+
+        if( changed )
+        {
+            aVariant = result;
+            m_unitBinder->SetValue( result );
+        }
+    }
+    else
+    {
+        long result = m_unitBinder->GetValue();
+        changed = ( aVariant.IsNull() || result != aVariant.GetLong() );
+
+        if( changed )
+        {
+            aVariant = result;
+            m_unitBinder->SetValue( result );
+        }
     }
 
     // Changing unspecified always causes event (returning

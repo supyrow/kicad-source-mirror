@@ -87,7 +87,7 @@ PCB_VIA::PCB_VIA( BOARD_ITEM* aParent ) :
     SetDrillDefault();
 
     m_removeUnconnectedLayer = false;
-    m_keepTopBottomLayer = true;
+    m_keepStartEndLayer = true;
 
     for( size_t ii = 0; ii < arrayDim( m_zoneLayerConnections ); ++ii )
         m_zoneLayerConnections[ ii ] = ZLC_UNCONNECTED;
@@ -615,7 +615,7 @@ bool PCB_VIA::FlashLayer( int aLayer ) const
     if( !m_removeUnconnectedLayer )
         return true;
 
-    if( m_keepTopBottomLayer && ( aLayer == m_layer || aLayer == m_bottomLayer ) )
+    if( m_keepStartEndLayer && ( aLayer == m_layer || aLayer == m_bottomLayer ) )
         return true;
 
     // Must be static to keep from raising its ugly head in performance profiles
@@ -1240,11 +1240,11 @@ static struct TRACK_VIA_DESC
         propMgr.AddProperty( new PROPERTY<PCB_TRACK, int>( _HKI( "Width" ),
             &PCB_TRACK::SetWidth, &PCB_TRACK::GetWidth, PROPERTY_DISPLAY::PT_SIZE ) );
         propMgr.ReplaceProperty( TYPE_HASH( BOARD_ITEM ), _HKI( "Position X" ),
-            new PROPERTY<PCB_TRACK, int, BOARD_ITEM>( _HKI( "Origin X" ),
+            new PROPERTY<PCB_TRACK, int, BOARD_ITEM>( _HKI( "Start X" ),
             &PCB_TRACK::SetX, &PCB_TRACK::GetX, PROPERTY_DISPLAY::PT_COORD,
             ORIGIN_TRANSFORMS::ABS_X_COORD) );
         propMgr.ReplaceProperty( TYPE_HASH( BOARD_ITEM ), _HKI( "Position Y" ),
-            new PROPERTY<PCB_TRACK, int, BOARD_ITEM>( _HKI( "Origin Y" ),
+            new PROPERTY<PCB_TRACK, int, BOARD_ITEM>( _HKI( "Start Y" ),
             &PCB_TRACK::SetY, &PCB_TRACK::GetY, PROPERTY_DISPLAY::PT_COORD,
             ORIGIN_TRANSFORMS::ABS_Y_COORD ) );
         propMgr.AddProperty( new PROPERTY<PCB_TRACK, int>( _HKI( "End X" ),
@@ -1258,41 +1258,48 @@ static struct TRACK_VIA_DESC
         REGISTER_TYPE( PCB_ARC );
         propMgr.InheritsAfter( TYPE_HASH( PCB_ARC ), TYPE_HASH( BOARD_CONNECTED_ITEM ) );
 
-        propMgr.AddProperty( new PROPERTY<PCB_TRACK, int>( _HKI( "Width" ),
+        propMgr.AddProperty( new PROPERTY<PCB_ARC, int, PCB_TRACK>( _HKI( "Width" ),
             &PCB_ARC::SetWidth, &PCB_ARC::GetWidth, PROPERTY_DISPLAY::PT_SIZE ) );
+
         propMgr.ReplaceProperty( TYPE_HASH( BOARD_ITEM ), _HKI( "Position X" ),
-            new PROPERTY<PCB_ARC, int, BOARD_ITEM>( _HKI( "Origin X" ),
+            new PROPERTY<PCB_ARC, int, BOARD_ITEM>( _HKI( "Start X" ),
             &PCB_TRACK::SetX, &PCB_ARC::GetX, PROPERTY_DISPLAY::PT_COORD,
             ORIGIN_TRANSFORMS::ABS_X_COORD) );
+
         propMgr.ReplaceProperty( TYPE_HASH( BOARD_ITEM ), _HKI( "Position Y" ),
-            new PROPERTY<PCB_ARC, int, BOARD_ITEM>( _HKI( "Origin Y" ),
+            new PROPERTY<PCB_ARC, int, BOARD_ITEM>( _HKI( "Start Y" ),
             &PCB_TRACK::SetY, &PCB_ARC::GetY, PROPERTY_DISPLAY::PT_COORD,
             ORIGIN_TRANSFORMS::ABS_Y_COORD) );
-        propMgr.AddProperty( new PROPERTY<PCB_TRACK, int>( _HKI( "End X" ),
-            &PCB_TRACK::SetEndX, &PCB_ARC::GetEndX, PROPERTY_DISPLAY::PT_COORD,
+
+        propMgr.AddProperty( new PROPERTY<PCB_ARC, int, PCB_TRACK>( _HKI( "End X" ),
+            &PCB_TRACK::SetEndX, &PCB_TRACK::GetEndX, PROPERTY_DISPLAY::PT_COORD,
             ORIGIN_TRANSFORMS::ABS_X_COORD) );
-        propMgr.AddProperty( new PROPERTY<PCB_TRACK, int>( _HKI( "End Y" ),
-            &PCB_TRACK::SetEndY, &PCB_ARC::GetEndY, PROPERTY_DISPLAY::PT_COORD,
-            ORIGIN_TRANSFORMS::ABS_Y_COORD) );
+
+        propMgr.AddProperty( new PROPERTY<PCB_ARC, int, PCB_TRACK>( _HKI( "End Y" ),
+            &PCB_TRACK::SetEndY, &PCB_TRACK::GetEndY, PROPERTY_DISPLAY::PT_COORD,
+            ORIGIN_TRANSFORMS::ABS_X_COORD) );
 
         // Via
         REGISTER_TYPE( PCB_VIA );
         propMgr.InheritsAfter( TYPE_HASH( PCB_VIA ), TYPE_HASH( BOARD_CONNECTED_ITEM ) );
 
-        // TODO layerset for vias?
         // TODO test drill, use getdrillvalue?
+        const wxString groupVia = _( "Via Properties" );
+
+        propMgr.Mask( TYPE_HASH( PCB_VIA ), TYPE_HASH( BOARD_CONNECTED_ITEM ), _HKI( "Layer" ) );
+
         propMgr.ReplaceProperty( TYPE_HASH( PCB_TRACK ), _HKI( "Width" ),
             new PROPERTY<PCB_VIA, int, PCB_TRACK>( _HKI( "Diameter" ),
             &PCB_VIA::SetWidth, &PCB_VIA::GetWidth, PROPERTY_DISPLAY::PT_SIZE ) );
         propMgr.AddProperty( new PROPERTY<PCB_VIA, int>( _HKI( "Hole" ),
-            &PCB_VIA::SetDrill, &PCB_VIA::GetDrillValue, PROPERTY_DISPLAY::PT_SIZE ) );
+            &PCB_VIA::SetDrill, &PCB_VIA::GetDrillValue, PROPERTY_DISPLAY::PT_SIZE ), groupVia );
         propMgr.ReplaceProperty( TYPE_HASH( BOARD_ITEM ), _HKI( "Layer" ),
             new PROPERTY_ENUM<PCB_VIA, PCB_LAYER_ID, BOARD_ITEM>( _HKI( "Layer Top" ),
-            &PCB_VIA::SetLayer, &PCB_VIA::GetLayer ) );
+            &PCB_VIA::SetLayer, &PCB_VIA::GetLayer ), groupVia );
         propMgr.AddProperty( new PROPERTY_ENUM<PCB_VIA, PCB_LAYER_ID>( _HKI( "Layer Bottom" ),
-            &PCB_VIA::SetBottomLayer, &PCB_VIA::BottomLayer ) );
+            &PCB_VIA::SetBottomLayer, &PCB_VIA::BottomLayer ), groupVia );
         propMgr.AddProperty( new PROPERTY_ENUM<PCB_VIA, VIATYPE>( _HKI( "Via Type" ),
-            &PCB_VIA::SetViaType, &PCB_VIA::GetViaType ) );
+            &PCB_VIA::SetViaType, &PCB_VIA::GetViaType ), groupVia );
     }
 } _TRACK_VIA_DESC;
 

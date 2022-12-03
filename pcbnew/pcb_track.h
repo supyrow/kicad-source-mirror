@@ -152,8 +152,8 @@ public:
                                   bool ignoreLineWidth = false ) const override;
 
     // @copydoc BOARD_ITEM::GetEffectiveShape
-    virtual std::shared_ptr<SHAPE> GetEffectiveShape( PCB_LAYER_ID aLayer = UNDEFINED_LAYER,
-            FLASHING aFlash = FLASHING::DEFAULT ) const override;
+    std::shared_ptr<SHAPE> GetEffectiveShape( PCB_LAYER_ID aLayer = UNDEFINED_LAYER,
+                                              FLASHING aFlash = FLASHING::DEFAULT ) const override;
 
     /**
      * Function IsPointOnEnds
@@ -334,8 +334,8 @@ public:
     }
 
     // @copydoc BOARD_ITEM::GetEffectiveShape
-    virtual std::shared_ptr<SHAPE> GetEffectiveShape( PCB_LAYER_ID aLayer = UNDEFINED_LAYER,
-            FLASHING aFlash = FLASHING::DEFAULT ) const override;
+    std::shared_ptr<SHAPE> GetEffectiveShape( PCB_LAYER_ID aLayer = UNDEFINED_LAYER,
+                                              FLASHING aFlash = FLASHING::DEFAULT ) const override;
 
     /**
      * Function GetLength
@@ -474,10 +474,21 @@ public:
     bool GetRemoveUnconnected() const           { return m_removeUnconnectedLayer; }
 
     /**
-     * Sets whether we keep the top and bottom connections even if they are not connected
+     * Sets whether we keep the start and end annular rings even if they are not connected
      */
-    void SetKeepTopBottom( bool aSet )      { m_keepTopBottomLayer = aSet; }
-    bool GetKeepTopBottom() const           { return m_keepTopBottomLayer; }
+    void SetKeepStartEnd( bool aSet )      { m_keepStartEndLayer = aSet; }
+    bool GetKeepStartEnd() const           { return m_keepStartEndLayer; }
+
+    bool ConditionallyFlashed( PCB_LAYER_ID aLayer ) const
+    {
+        if( !m_removeUnconnectedLayer )
+            return false;
+
+        if( m_keepStartEndLayer && ( aLayer == m_layer || aLayer == m_bottomLayer ) )
+            return false;
+
+        return true;
+    }
 
     /**
      * Checks to see whether the via should have a pad on the specific layer
@@ -563,8 +574,8 @@ private:
 
     int          m_drill;                    ///< for vias: via drill (- 1 for default value)
 
-    bool         m_removeUnconnectedLayer;   ///< Remove unconnected copper on a via
-    bool         m_keepTopBottomLayer;       ///< Keep the top and bottom annular rings
+    bool         m_removeUnconnectedLayer;   ///< Remove annular rings on unconnected layers
+    bool         m_keepStartEndLayer;        ///< Keep the start and end annular rings
     bool         m_isFree;                   ///< "Free" vias don't get their nets auto-updated
 
     mutable ZONE_LAYER_CONNECTION m_zoneLayerConnections[B_Cu + 1];

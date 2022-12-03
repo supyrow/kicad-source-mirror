@@ -22,23 +22,48 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
-#include <sim/sim_lib_mgr.h>
-#include <sch_symbol.h>
-#include <sim/sim_library.h>
-#include <sim/sim_model.h>
 #include <pgm_base.h>
 #include <string>
+#include <sch_symbol.h>
 
+// Include simulator headers after wxWidgets headers to avoid conflicts with Windows headers
+// (especially on msys2 + wxWidgets 3.0.x)
+#include <sim/sim_lib_mgr.h>
+#include <sim/sim_library.h>
+#include <sim/sim_model.h>
 
 SIM_LIB_MGR::SIM_LIB_MGR( const PROJECT& aPrj ) : m_project( aPrj )
 {
 }
 
 
-SIM_LIBRARY& SIM_LIB_MGR::CreateLibrary( const std::string& aLibraryPath )
+void SIM_LIB_MGR::Clear()
 {
-    auto it = m_libraries.try_emplace( aLibraryPath, SIM_LIBRARY::Create( aLibraryPath ) ).first;
+    m_libraries.clear();
+    m_models.clear();
+}
+
+
+SIM_LIBRARY& SIM_LIB_MGR::CreateLibrary( const std::string& aLibraryPath, REPORTER* aReporter )
+{
+    std::string absolutePath = std::string( m_project.AbsolutePath( aLibraryPath ).ToUTF8() );
+
+    auto it =
+            m_libraries.try_emplace( aLibraryPath, SIM_LIBRARY::Create( absolutePath, aReporter ) )
+                    .first;
     return *it->second;
+}
+
+SIM_LIBRARY& SIM_LIB_MGR::SetLibrary( const std::string& aLibraryPath, REPORTER* aReporter  )
+{
+    std::string absolutePath = std::string( m_project.AbsolutePath( aLibraryPath ).ToUTF8() );
+
+    // May throw an exception.
+    std::unique_ptr<SIM_LIBRARY> library = SIM_LIBRARY::Create( absolutePath, aReporter );
+    
+    Clear();
+    m_libraries[aLibraryPath] = std::move( library );
+    return *m_libraries.at( aLibraryPath );
 }
 
 
@@ -56,66 +81,94 @@ SIM_MODEL& SIM_LIB_MGR::CreateModel( const SIM_MODEL& aBaseModel, int aSymbolPin
 }
 
 
-SIM_LIBRARY::MODEL SIM_LIB_MGR::CreateModel( SCH_SYMBOL& aSymbol )
+template <typename T>
+SIM_MODEL& SIM_LIB_MGR::CreateModel( const SIM_MODEL& aBaseModel, int aSymbolPinCount,
+                                     const std::vector<T>& aFields )
 {
-    return CreateModel( aSymbol.GetFields(), static_cast<int>( aSymbol.GetLibPins().size() ) );
+    m_models.push_back( SIM_MODEL::Create( aBaseModel, aSymbolPinCount, aFields ) );
+    return *m_models.back();
 }
 
+template SIM_MODEL& SIM_LIB_MGR::CreateModel( const SIM_MODEL& aBaseModel, int aSymbolPinCount,
+                                              const std::vector<SCH_FIELD>& aFields );
+template SIM_MODEL& SIM_LIB_MGR::CreateModel( const SIM_MODEL& aBaseModel, int aSymbolPinCount,
+                                              const std::vector<LIB_FIELD>& aFields );
+
+
+SIM_LIBRARY::MODEL SIM_LIB_MGR::CreateModel( SCH_SYMBOL& aSymbol )
+{
+    return CreateModel( aSymbol.GetFields(), static_cast<int>( aSymbol.GetRawPins().size() ) );
+}
+
+template <typename T>
+SIM_LIBRARY::MODEL SIM_LIB_MGR::CreateModel( const std::vector<T>& aFields, int aSymbolPinCount )
+{
+    std::string libraryPath = SIM_MODEL::GetFieldValue( &aFields, SIM_LIBRARY::LIBRARY_FIELD );
+    std::string baseModelName = SIM_MODEL::GetFieldValue( &aFields, SIM_LIBRARY::NAME_FIELD );
+
+    if( libraryPath != "" )
+        return CreateModel( libraryPath, baseModelName, aFields, aSymbolPinCount );
+    else
+    {
+        m_models.push_back( SIM_MODEL::Create( aSymbolPinCount, aFields ) );
+        return { baseModelName, *m_models.back() };
+    }
+}
 
 template SIM_LIBRARY::MODEL SIM_LIB_MGR::CreateModel( const std::vector<SCH_FIELD>& aFields,
                                                       int aSymbolPinCount );
 template SIM_LIBRARY::MODEL SIM_LIB_MGR::CreateModel( const std::vector<LIB_FIELD>& aFields,
                                                       int aSymbolPinCount );
 
+
 template <typename T>
-SIM_LIBRARY::MODEL SIM_LIB_MGR::CreateModel( const std::vector<T>& aFields, int aSymbolPinCount )
+SIM_LIBRARY::MODEL SIM_LIB_MGR::CreateModel( const std::string& aLibraryPath,
+                                             const std::string& aBaseModelName,
+                                             const std::vector<T>& aFields,
+                                             int aSymbolPinCount )
 {
-    std::string libraryPath = SIM_MODEL::GetFieldValue( &aFields, SIM_LIBRARY::LIBRARY_FIELD );
-    std::string baseModelName;
+    std::string  absolutePath = std::string( m_project.AbsolutePath( aLibraryPath ).ToUTF8() );
+    SIM_LIBRARY* library = nullptr;
 
-    if( libraryPath != "" )
+    try
     {
-        std::string  absolutePath = std::string( m_project.AbsolutePath( libraryPath ).ToUTF8() );
-        SIM_LIBRARY* library = nullptr;
-
-        try
-        {
-            auto it = m_libraries.try_emplace( libraryPath,
-                    SIM_LIBRARY::Create( absolutePath ) ).first;
-            library = &*it->second;
-        }
-        catch( const IO_ERROR& e )
-        {
-            THROW_IO_ERROR(
-                    wxString::Format( _( "Error loading simulation model library '%s': %s" ),
-                                      absolutePath,
-                                      e.What() ) );
-        }
-
-        baseModelName = SIM_MODEL::GetFieldValue( &aFields, SIM_LIBRARY::NAME_FIELD );
-
-        if( baseModelName == "" )
-        {
-            THROW_IO_ERROR( wxString::Format( _( "Error loading simulation model: no '%s' field" ),
-                                              SIM_LIBRARY::NAME_FIELD ) );
-        }
-
-        SIM_MODEL* baseModel = library->FindModel( baseModelName );
-
-        if( !baseModel )
-        {
-            THROW_IO_ERROR(
-                    wxString::Format( _( "Error loading simulation model: could not find base model '%s' in library '%s'" ),
-                                      baseModelName,
-                                      absolutePath ) );
-        }
-
-        m_models.push_back( SIM_MODEL::Create( *baseModel, aSymbolPinCount, aFields ) );
+        auto it = m_libraries.try_emplace( aLibraryPath,
+                SIM_LIBRARY::Create( absolutePath ) ).first;
+        library = &*it->second;
     }
-    else
-        m_models.push_back( SIM_MODEL::Create( aSymbolPinCount, aFields ) );
+    catch( const IO_ERROR& e )
+    {
+        THROW_IO_ERROR(
+                wxString::Format( _( "Error loading simulation model library '%s': %s" ),
+                                  absolutePath,
+                                  e.What() ) );
+    }
 
-    return { baseModelName, *m_models.back() };
+    if( aBaseModelName == "" )
+    {
+        THROW_IO_ERROR( wxString::Format( _( "Error loading simulation model: no '%s' field" ),
+                                          SIM_LIBRARY::NAME_FIELD ) );
+    }
+
+    SIM_MODEL* baseModel = library->FindModel( aBaseModelName );
+
+    if( !baseModel )
+    {
+        THROW_IO_ERROR(
+                wxString::Format( _( "Error loading simulation model: could not find base model '%s' in library '%s'" ),
+                                  aBaseModelName,
+                                  absolutePath ) );
+    }
+
+    m_models.push_back( SIM_MODEL::Create( *baseModel, aSymbolPinCount, aFields ) );
+
+    return { aBaseModelName, *m_models.back() };
+}
+
+
+void SIM_LIB_MGR::SetModel( int aIndex, std::unique_ptr<SIM_MODEL> aModel )
+{
+    m_models.at( aIndex ) = std::move( aModel );
 }
 
 

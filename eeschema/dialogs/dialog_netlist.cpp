@@ -36,6 +36,7 @@
 #include <pgm_base.h>
 #include <kiface_base.h>
 #include <gestfich.h>
+#include <widgets/wx_html_report_panel.h>
 #include <sch_edit_frame.h>
 #include <general.h>
 #include <netlist.h>
@@ -307,9 +308,6 @@ void NETLIST_DIALOG::OnRunExternSpiceCommand( wxCommandEvent& event )
     wxFileName fn = m_Parent->Schematic().GetFileName();
     fn.SetExt( SpiceFileExtension );
 
-    if( settings.m_SpiceAdjustPassiveValues )
-        netlist_opt |= NETLIST_EXPORTER_SPICE::OPTION_ADJUST_PASSIVE_VALS;
-
     if( settings.m_SpiceSaveAllVoltages )
         netlist_opt |= NETLIST_EXPORTER_SPICE::OPTION_SAVE_ALL_VOLTAGES;
 
@@ -322,7 +320,9 @@ void NETLIST_DIALOG::OnRunExternSpiceCommand( wxCommandEvent& event )
 
     if( m_Parent->ReadyToNetlist( _( "Simulator requires a fully annotated schematic." ) ) )
     {
-        m_Parent->WriteNetListFile( NET_TYPE_SPICE, fn.GetFullPath(), netlist_opt, nullptr );
+        m_Parent->WriteNetListFile( NET_TYPE_SPICE, fn.GetFullPath(), netlist_opt,
+                                    &m_MessagesBox->Reporter() );
+
         commandLine.Trim( true ).Trim( false );
 
         if( !commandLine.IsEmpty() )
@@ -562,7 +562,10 @@ bool NETLIST_DIALOG::TransferDataFromWindow()
         m_Parent->SetNetListerCommand( wxEmptyString );
 
     if( m_Parent->ReadyToNetlist( _( "Exporting netlist requires a fully annotated schematic." ) ) )
-        m_Parent->WriteNetListFile( currPage->m_IdNetType, fullpath, netlist_opt, nullptr );
+    {
+        m_Parent->WriteNetListFile( currPage->m_IdNetType, fullpath, netlist_opt,
+                                    &m_MessagesBox->Reporter() );
+    }
 
     WriteCurrentNetlistSetup();
 

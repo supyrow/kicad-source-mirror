@@ -52,6 +52,8 @@
 
 #include <memory>
 #include <macros.h>
+#include "kiface_base.h"
+#include "pcbnew_settings.h"
 
 using KIGFX::PCB_PAINTER;
 using KIGFX::PCB_RENDER_SETTINGS;
@@ -1435,12 +1437,14 @@ const BOX2I PAD::ViewBBox() const
     int      solderMaskMargin  = std::max( GetSolderMaskExpansion(), 0 );
     VECTOR2I solderPasteMargin = VECTOR2D( GetSolderPasteMargin() );
     BOX2I    bbox              = GetBoundingBox();
+    int      clearance         = 0;
 
-    // get the biggest possible clearance
-    int clearance = 0;
-
-    for( PCB_LAYER_ID layer : GetLayerSet().Seq() )
-        clearance = std::max( clearance, GetOwnClearance( layer ) );
+    // If we're drawing clearance lines then get the biggest possible clearance
+    if( PCBNEW_SETTINGS* cfg = dynamic_cast<PCBNEW_SETTINGS*>( Kiface().KifaceSettings() ) )
+    {
+        if( cfg && cfg->m_Display.m_PadClearance && GetBoard() )
+            clearance = GetBoard()->GetDesignSettings().GetBiggestClearanceValue();
+    }
 
     // Look for the biggest possible bounding box
     int xMargin = std::max( solderMaskMargin, solderPasteMargin.x ) + clearance;
@@ -1669,6 +1673,15 @@ void PAD::TransformShapeToPolygon( SHAPE_POLY_SET& aBuffer, PCB_LAYER_ID aLayer,
 }
 
 
+wxString PAD::GetParentAsString() const
+{
+    if( FOOTPRINT* fp = dynamic_cast<FOOTPRINT*>( m_parent ) )
+        return fp->GetReference();
+
+    return m_parent->m_Uuid.AsString();
+}
+
+
 static struct PAD_DESC
 {
     PAD_DESC()
@@ -1697,61 +1710,52 @@ static struct PAD_DESC
                 .Map( PAD_PROP::HEATSINK,          _HKI( "Heatsink pad" ) )
                 .Map( PAD_PROP::CASTELLATED,       _HKI( "Castellated pad" ) );
 
+        ENUM_MAP<ZONE_CONNECTION>& zcMap = ENUM_MAP<ZONE_CONNECTION>::Instance();
+
+        if( zcMap.Choices().GetCount() == 0 )
+        {
+            zcMap.Undefined( ZONE_CONNECTION::INHERITED );
+            zcMap.Map( ZONE_CONNECTION::INHERITED, _HKI( "Inherited" ) )
+                 .Map( ZONE_CONNECTION::NONE, _HKI( "None" ) )
+                 .Map( ZONE_CONNECTION::THERMAL, _HKI( "Thermal reliefs" ) )
+                 .Map( ZONE_CONNECTION::FULL, _HKI( "Solid" ) )
+                 .Map( ZONE_CONNECTION::THT_THERMAL, _HKI( "Thermal reliefs for PTH" ) );
+        }
+
         PROPERTY_MANAGER& propMgr = PROPERTY_MANAGER::Instance();
         REGISTER_TYPE( PAD );
         propMgr.InheritsAfter( TYPE_HASH( PAD ), TYPE_HASH( BOARD_CONNECTED_ITEM ) );
 
-        auto padType = new PROPERTY_ENUM<PAD, PAD_ATTRIB>( _HKI( "Pad Type" ),
-                    &PAD::SetAttribute, &PAD::GetAttribute );
-        propMgr.AddProperty( padType );
+        propMgr.Mask( TYPE_HASH( PAD ), TYPE_HASH( BOARD_CONNECTED_ITEM ), _HKI( "Layer" ) );
 
-        auto shape = new PROPERTY_ENUM<PAD, PAD_SHAPE>( _HKI( "Shape" ),
-                    &PAD::SetShape, &PAD::GetShape );
-        propMgr.AddProperty( shape );
-
-        propMgr.AddProperty( new PROPERTY<PAD, wxString>( _HKI( "Pad Number" ),
-                    &PAD::SetNumber, &PAD::GetNumber ) );
-        propMgr.AddProperty( new PROPERTY<PAD, wxString>( _HKI( "Pin Name" ),
-                    &PAD::SetPinFunction, &PAD::GetPinFunction ) );
-        propMgr.AddProperty( new PROPERTY<PAD, wxString>( _HKI( "Pin Type" ),
-                    &PAD::SetPinType, &PAD::GetPinType ) );
         propMgr.AddProperty( new PROPERTY<PAD, double>( _HKI( "Orientation" ),
                     &PAD::SetOrientationDegrees, &PAD::GetOrientationDegrees,
                     PROPERTY_DISPLAY::PT_DEGREE ) );
+
+        const wxString groupPad = _( "Pad Properties" );
+
+        auto padType = new PROPERTY_ENUM<PAD, PAD_ATTRIB>( _HKI( "Pad Type" ),
+                    &PAD::SetAttribute, &PAD::GetAttribute );
+        propMgr.AddProperty( padType, groupPad );
+
+        auto shape = new PROPERTY_ENUM<PAD, PAD_SHAPE>( _HKI( "Shape" ),
+                    &PAD::SetShape, &PAD::GetShape );
+        propMgr.AddProperty( shape, groupPad );
+
+        propMgr.AddProperty( new PROPERTY<PAD, wxString>( _HKI( "Parent" ),
+                     NO_SETTER( PAD, wxString ), &PAD::GetParentAsString ), groupPad );
+        propMgr.AddProperty( new PROPERTY<PAD, wxString>( _HKI( "Pad Number" ),
+                    &PAD::SetNumber, &PAD::GetNumber ), groupPad);
+        propMgr.AddProperty( new PROPERTY<PAD, wxString>( _HKI( "Pin Name" ),
+                    NO_SETTER( PAD, wxString ), &PAD::GetPinFunction ), groupPad );
+        propMgr.AddProperty( new PROPERTY<PAD, wxString>( _HKI( "Pin Type" ),
+                    NO_SETTER( PAD, wxString ), &PAD::GetPinType ), groupPad);
         propMgr.AddProperty( new PROPERTY<PAD, int>( _HKI( "Size X" ),
                     &PAD::SetSizeX, &PAD::GetSizeX,
-                    PROPERTY_DISPLAY::PT_SIZE ) );
+                    PROPERTY_DISPLAY::PT_SIZE ), groupPad );
         propMgr.AddProperty( new PROPERTY<PAD, int>( _HKI( "Size Y" ),
                     &PAD::SetSizeY, &PAD::GetSizeY,
-                    PROPERTY_DISPLAY::PT_SIZE ) );
-        propMgr.AddProperty( new PROPERTY<PAD, int>( _HKI( "Hole Size X" ),
-                    &PAD::SetDrillSizeX, &PAD::GetDrillSizeX,
-                    PROPERTY_DISPLAY::PT_SIZE ) );
-        propMgr.AddProperty( new PROPERTY<PAD, int>( _HKI( "Hole Size Y" ),
-                    &PAD::SetDrillSizeY, &PAD::GetDrillSizeY,
-                    PROPERTY_DISPLAY::PT_SIZE ) );
-        propMgr.AddProperty( new PROPERTY<PAD, int>( _HKI( "Pad To Die Length" ),
-                    &PAD::SetPadToDieLength, &PAD::GetPadToDieLength,
-                    PROPERTY_DISPLAY::PT_SIZE ) );
-        propMgr.AddProperty( new PROPERTY<PAD, int>( _HKI( "Soldermask Margin Override" ),
-                    &PAD::SetLocalSolderMaskMargin, &PAD::GetLocalSolderMaskMargin,
-                    PROPERTY_DISPLAY::PT_SIZE ) );
-        propMgr.AddProperty( new PROPERTY<PAD, int>( _HKI( "Solderpaste Margin Override" ),
-                    &PAD::SetLocalSolderPasteMargin, &PAD::GetLocalSolderPasteMargin,
-                    PROPERTY_DISPLAY::PT_SIZE ) );
-        propMgr.AddProperty( new PROPERTY<PAD, double>( _HKI( "Solderpaste Margin Ratio Override" ),
-                    &PAD::SetLocalSolderPasteMarginRatio, &PAD::GetLocalSolderPasteMarginRatio ) );
-        propMgr.AddProperty( new PROPERTY<PAD, int>( _HKI( "Thermal Relief Spoke Width" ),
-                    &PAD::SetThermalSpokeWidth, &PAD::GetThermalSpokeWidth,
-                    PROPERTY_DISPLAY::PT_SIZE ) );
-        propMgr.AddProperty( new PROPERTY<PAD, double>( _HKI( "Thermal Relief Spoke Angle" ),
-                    &PAD::SetThermalSpokeAngleDegrees, &PAD::GetThermalSpokeAngleDegrees,
-                    PROPERTY_DISPLAY::PT_DEGREE ) );
-        propMgr.AddProperty( new PROPERTY<PAD, int>( _HKI( "Thermal Relief Gap" ),
-                    &PAD::SetThermalGap, &PAD::GetThermalGap,
-                    PROPERTY_DISPLAY::PT_SIZE ) );
-        propMgr.AddProperty( new PROPERTY_ENUM<PAD, PAD_PROP>( _HKI( "Fabrication Property" ),
-                    &PAD::SetProperty, &PAD::GetProperty ) );
+                    PROPERTY_DISPLAY::PT_SIZE ), groupPad );
 
         auto roundRadiusRatio = new PROPERTY<PAD, double>( _HKI( "Round Radius Ratio" ),
                     &PAD::SetRoundRectRadiusRatio, &PAD::GetRoundRectRadiusRatio );
@@ -1760,15 +1764,49 @@ static struct PAD_DESC
                     {
                         return aItem->Get( shape ) == static_cast<int>( PAD_SHAPE::ROUNDRECT );
                     } );
-        propMgr.AddProperty( roundRadiusRatio );
+        propMgr.AddProperty( roundRadiusRatio, groupPad );
+
+        propMgr.AddProperty( new PROPERTY<PAD, int>( _HKI( "Hole Size X" ),
+                    &PAD::SetDrillSizeX, &PAD::GetDrillSizeX,
+                    PROPERTY_DISPLAY::PT_SIZE ), groupPad );
+        propMgr.AddProperty( new PROPERTY<PAD, int>( _HKI( "Hole Size Y" ),
+                    &PAD::SetDrillSizeY, &PAD::GetDrillSizeY,
+                    PROPERTY_DISPLAY::PT_SIZE ), groupPad );
+
+        propMgr.AddProperty( new PROPERTY_ENUM<PAD, PAD_PROP>( _HKI( "Fabrication Property" ),
+                    &PAD::SetProperty, &PAD::GetProperty ), groupPad );
+        propMgr.AddProperty( new PROPERTY<PAD, int>( _HKI( "Pad To Die Length" ),
+                    &PAD::SetPadToDieLength, &PAD::GetPadToDieLength,
+                    PROPERTY_DISPLAY::PT_SIZE ), groupPad );
+
+        const wxString groupOverrides = _( "Overrides" );
 
         propMgr.AddProperty( new PROPERTY<PAD, int>( _HKI( "Clearance Override" ),
                     &PAD::SetLocalClearance, &PAD::GetLocalClearance,
-                    PROPERTY_DISPLAY::PT_SIZE ) );
-        propMgr.AddProperty( new PROPERTY<PAD, wxString>( _HKI( "Parent" ),
-                    NO_SETTER( PAD, wxString ), &PAD::GetParentAsString ) );
+                    PROPERTY_DISPLAY::PT_SIZE ), groupOverrides );
+        propMgr.AddProperty( new PROPERTY<PAD, int>( _HKI( "Soldermask Margin Override" ),
+                    &PAD::SetLocalSolderMaskMargin, &PAD::GetLocalSolderMaskMargin,
+                    PROPERTY_DISPLAY::PT_SIZE ), groupOverrides );
+        propMgr.AddProperty( new PROPERTY<PAD, int>( _HKI( "Solderpaste Margin Override" ),
+                    &PAD::SetLocalSolderPasteMargin, &PAD::GetLocalSolderPasteMargin,
+                    PROPERTY_DISPLAY::PT_SIZE ), groupOverrides );
+        propMgr.AddProperty( new PROPERTY<PAD, double>( _HKI( "Solderpaste Margin Ratio Override" ),
+                    &PAD::SetLocalSolderPasteMarginRatio, &PAD::GetLocalSolderPasteMarginRatio ),
+                    groupOverrides );
+        propMgr.AddProperty( new PROPERTY_ENUM<PAD, ZONE_CONNECTION>(
+                    _HKI( "Zone Connection Style" ),
+                    &PAD::SetZoneConnection, &PAD::GetZoneConnection ), groupOverrides );
+        propMgr.AddProperty( new PROPERTY<PAD, int>( _HKI( "Thermal Relief Spoke Width" ),
+                    &PAD::SetThermalSpokeWidth, &PAD::GetThermalSpokeWidth,
+                    PROPERTY_DISPLAY::PT_SIZE ), groupOverrides );
+        propMgr.AddProperty( new PROPERTY<PAD, double>( _HKI( "Thermal Relief Spoke Angle" ),
+                    &PAD::SetThermalSpokeAngleDegrees, &PAD::GetThermalSpokeAngleDegrees,
+                    PROPERTY_DISPLAY::PT_DEGREE ), groupOverrides );
+        propMgr.AddProperty( new PROPERTY<PAD, int>( _HKI( "Thermal Relief Gap" ),
+                    &PAD::SetThermalGap, &PAD::GetThermalGap,
+                    PROPERTY_DISPLAY::PT_SIZE ), groupOverrides );
 
-        // TODO delta, drill shape offset, layer set, zone connection
+        // TODO delta, drill shape offset, layer set
     }
 } _PAD_DESC;
 

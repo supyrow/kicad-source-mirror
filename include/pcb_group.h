@@ -157,6 +157,10 @@ public:
     ///< @copydoc EDA_ITEM::GetBoundingBox
     const BOX2I GetBoundingBox() const override;
 
+    // @copydoc BOARD_ITEM::GetEffectiveShape
+    std::shared_ptr<SHAPE> GetEffectiveShape( PCB_LAYER_ID aLayer = UNDEFINED_LAYER,
+                                              FLASHING aFlash = FLASHING::DEFAULT ) const override;
+
     ///< @copydoc EDA_ITEM::Visit
     INSPECT_RESULT Visit( INSPECTOR aInspector, void* aTestData,
                           const std::vector<KICAD_T>& aScanTypes ) override;
@@ -217,6 +221,13 @@ public:
      * @param aFunction is the function to be invoked.
      */
     void RunOnDescendants( const std::function<void( BOARD_ITEM* )>& aFunction ) const;
+
+    /**
+     * Check if the proposed type can be added to a group
+     * @param aType KICAD_T type to check
+     * @return true if the type can belong to a group, false otherwise
+     */
+    static bool IsGroupableType( KICAD_T aType );
 
 protected:
     ///< @copydoc BOARD_ITEM::swapData

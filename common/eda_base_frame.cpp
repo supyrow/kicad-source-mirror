@@ -980,8 +980,16 @@ void EDA_BASE_FRAME::OnKicadAbout( wxCommandEvent& event )
 
 void EDA_BASE_FRAME::OnPreferences( wxCommandEvent& event )
 {
+    ShowPreferences( wxEmptyString, wxEmptyString );
+}
+
+
+void EDA_BASE_FRAME::ShowPreferences( wxString aStartPage, wxString aStartParentPage )
+{
+    wxBeginBusyCursor( wxHOURGLASS_CURSOR );
+
     PAGED_DIALOG dlg( this, _( "Preferences" ), true );
-    wxTreebook* book = dlg.GetTreebook();
+    wxTreebook*  book = dlg.GetTreebook();
 
     PANEL_HOTKEYS_EDITOR*   hotkeysPanel = new PANEL_HOTKEYS_EDITOR( this, book, false );
     KIFACE*                 kiface = nullptr;
@@ -1114,6 +1122,11 @@ void EDA_BASE_FRAME::OnPreferences( wxCommandEvent& event )
     for( int page : expand )
         book->ExpandNode( page );
 
+    if( !aStartPage.IsEmpty() )
+        dlg.SetInitialPage( aStartPage, aStartParentPage );
+
+    wxEndBusyCursor();
+
     if( dlg.ShowModal() == wxID_OK )
     {
         Pgm().GetSettingsManager().Save();
@@ -1131,14 +1144,14 @@ void EDA_BASE_FRAME::OnDropFiles( wxDropFilesEvent& aEvent )
     for( int nb = 0; nb < aEvent.GetNumberOfFiles(); nb++ )
     {
         const wxFileName fn = wxFileName( files[nb] );
-        for( const auto& [ext, tool] : m_acceptedExts )
-        {
-            if( IsExtensionAccepted( fn.GetExt(), { ext.ToStdString() } ) )
-            {
-                m_AcceptedFiles.emplace( m_AcceptedFiles.end(), fn );
-                break;
-            }
-        }
+        wxString         ext = fn.GetExt();
+
+        // Alias all gerber files as GerberFileExtension
+        if( IsGerberFileExtension( ext ) )
+            ext = GerberFileExtension;
+
+        if( m_acceptedExts.find( ext.ToStdString() ) != m_acceptedExts.end() )
+            m_AcceptedFiles.emplace_back( fn );
     }
 
     DoWithAcceptedFiles();

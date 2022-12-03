@@ -262,10 +262,13 @@ void BOARD::UpdateRatsnestExclusions()
     GetConnectivity()->RunOnUnconnectedEdges(
             [&]( CN_EDGE& aEdge )
             {
-                std::pair<KIID, KIID> ids = { aEdge.GetSourceNode()->Parent()->m_Uuid,
-                                              aEdge.GetTargetNode()->Parent()->m_Uuid };
+                if( aEdge.GetSourceNode() && aEdge.GetTargetNode() )
+                {
+                    std::pair<KIID, KIID> ids = { aEdge.GetSourceNode()->Parent()->m_Uuid,
+                                                  aEdge.GetTargetNode()->Parent()->m_Uuid };
 
-                aEdge.SetVisible( m_ratsnestExclusions.count( ids ) == 0 );
+                    aEdge.SetVisible( m_ratsnestExclusions.count( ids ) == 0 );
+                }
 
                 return true;
             } );
@@ -505,6 +508,18 @@ int BOARD::GetCopperLayerCount() const
 void BOARD::SetCopperLayerCount( int aCount )
 {
     GetDesignSettings().SetCopperLayerCount( aCount );
+}
+
+
+int BOARD::LayerDepth( PCB_LAYER_ID aStartLayer, PCB_LAYER_ID aEndLayer ) const
+{
+    if( aStartLayer > aEndLayer )
+        std::swap( aStartLayer, aEndLayer );
+
+    if( aEndLayer == B_Cu )
+        aEndLayer = ToLAYER_ID( F_Cu + GetCopperLayerCount() - 1 );
+
+    return aEndLayer - aStartLayer;
 }
 
 
@@ -1467,7 +1482,7 @@ void BOARD::SynchronizeProperties()
 }
 
 
-void BOARD::SynchronizeNetsAndNetClasses()
+void BOARD::SynchronizeNetsAndNetClasses( bool aResetTrackAndViaSizes )
 {
     if( !m_project )
         return;
@@ -1478,15 +1493,18 @@ void BOARD::SynchronizeNetsAndNetClasses()
     for( NETINFO_ITEM* net : m_NetInfo )
         net->SetNetClass( bds.m_NetSettings->GetEffectiveNetClass( net->GetNetname() ) );
 
-    // Set initial values for custom track width & via size to match the default
-    // netclass settings
-    bds.UseCustomTrackViaSize( false );
-    bds.SetCustomTrackWidth( defaultNetClass->GetTrackWidth() );
-    bds.SetCustomViaSize( defaultNetClass->GetViaDiameter() );
-    bds.SetCustomViaDrill( defaultNetClass->GetViaDrill() );
-    bds.SetCustomDiffPairWidth( defaultNetClass->GetDiffPairWidth() );
-    bds.SetCustomDiffPairGap( defaultNetClass->GetDiffPairGap() );
-    bds.SetCustomDiffPairViaGap( defaultNetClass->GetDiffPairViaGap() );
+    if( aResetTrackAndViaSizes )
+    {
+        // Set initial values for custom track width & via size to match the default
+        // netclass settings
+        bds.UseCustomTrackViaSize( false );
+        bds.SetCustomTrackWidth( defaultNetClass->GetTrackWidth() );
+        bds.SetCustomViaSize( defaultNetClass->GetViaDiameter() );
+        bds.SetCustomViaDrill( defaultNetClass->GetViaDrill() );
+        bds.SetCustomDiffPairWidth( defaultNetClass->GetDiffPairWidth() );
+        bds.SetCustomDiffPairGap( defaultNetClass->GetDiffPairGap() );
+        bds.SetCustomDiffPairViaGap( defaultNetClass->GetDiffPairViaGap() );
+    }
 
     InvokeListeners( &BOARD_LISTENER::OnBoardNetSettingsChanged, *this );
 }

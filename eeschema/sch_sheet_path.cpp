@@ -155,7 +155,8 @@ void SCH_SHEET_PATH::initFromOther( const SCH_SHEET_PATH& aOther )
 
 bool SCH_SHEET_PATH::IsFullPath() const
 {
-    return GetSheet( 0 ) && GetSheet( 0 )->IsRootSheet();
+    // The root sheet path is empty.  All other sheet paths must start with the root sheet path.
+    return ( m_sheets.size() == 0 ) || ( GetSheet( 0 )->IsRootSheet() );
 }
 
 
@@ -192,7 +193,7 @@ int SCH_SHEET_PATH::Cmp( const SCH_SHEET_PATH& aSheetPathToTest ) const
 
 int SCH_SHEET_PATH::ComparePageNum( const SCH_SHEET_PATH& aSheetPathToTest ) const
 {
-    wxString pageA = GetPageNumber();
+    wxString pageA = this->GetPageNumber();
     wxString pageB = aSheetPathToTest.GetPageNumber();
 
     int pageNumComp = SCH_SHEET::ComparePageNum( pageA, pageB );
@@ -336,8 +337,6 @@ void SCH_SHEET_PATH::UpdateAllScreenReferences() const
     {
         SCH_SYMBOL* symbol = static_cast<SCH_SYMBOL*>( item );
         symbol->GetField( REFERENCE_FIELD )->SetText( symbol->GetRef( this ) );
-        symbol->GetField( VALUE_FIELD )->SetText( symbol->GetValue( this, false ) );
-        symbol->GetField( FOOTPRINT_FIELD )->SetText( symbol->GetFootprint( this, false ) );
         symbol->UpdateUnit( symbol->GetUnitSelection( this ) );
         LastScreen()->Update( item );
     }
@@ -507,7 +506,11 @@ wxString SCH_SHEET_PATH::GetPageNumber() const
 
     wxCHECK( sheet, wxEmptyString );
 
-    return sheet->GetPageNumber( *this );
+    SCH_SHEET_PATH tmpPath = *this;
+
+    tmpPath.pop_back();
+
+    return sheet->getPageNumber( tmpPath );
 }
 
 
@@ -517,7 +520,12 @@ void SCH_SHEET_PATH::SetPageNumber( const wxString& aPageNumber )
 
     wxCHECK( sheet, /* void */ );
 
-    sheet->SetPageNumber( *this, aPageNumber );
+    SCH_SHEET_PATH tmpPath = *this;
+
+    tmpPath.pop_back();
+
+    sheet->AddInstance( tmpPath );
+    sheet->setPageNumber( tmpPath, aPageNumber );
 }
 
 
@@ -560,8 +568,6 @@ void SCH_SHEET_PATH::AddNewSymbolInstances( const SCH_SHEET_PATH& aPrefixSheetPa
             newSymbolInstance.m_Reference = symbol->GetLibSymbolRef()->GetReferenceField().GetText();
             newSymbolInstance.m_Reference += wxT( "?" );
             newSymbolInstance.m_Unit = 1;
-            newSymbolInstance.m_Value = symbol->GetLibSymbolRef()->GetValueField().GetText();
-            newSymbolInstance.m_Footprint = symbol->GetLibSymbolRef()->GetFootprintField().GetText();
             symbol->AddHierarchicalReference( newSymbolInstance );
         }
         else
@@ -612,7 +618,6 @@ int SCH_SHEET_PATH::AddNewSheetInstances( const SCH_SHEET_PATH& aPrefixSheetPath
 
         // Prefix the new hierarchical path.
         newSheetPath = newSheetPath + currentSheetPath;
-        newSheetPath.push_back( sheet );
 
         wxString pageNumber;
 
@@ -735,7 +740,14 @@ void SCH_SHEET_LIST::SortByPageNumbers( bool aUpdateVirtualPageNums )
     std::sort( begin(), end(),
         []( SCH_SHEET_PATH a, SCH_SHEET_PATH b ) -> bool
         {
-             return a.ComparePageNum( b ) < 0;
+            int retval = a.ComparePageNum( b );
+
+            if( retval < 0 )
+                return true;
+            else if( retval > 0 )
+                return false;
+            else /// Enforce strict ordering.  If the page numbers are the same, use UUIDs
+                return a.GetCurrentHash() < b.GetCurrentHash();
         } );
 
     if( aUpdateVirtualPageNums )
@@ -1097,10 +1109,10 @@ void SCH_SHEET_LIST::UpdateSymbolInstances(
 
             // Symbol instance paths are stored and looked up in memory with the root path so use
             // the full path here.
-            symbol->AddHierarchicalReference( sheetPath.Path(),
-                                              it->m_Reference, it->m_Unit, it->m_Value,
-                                              it->m_Footprint );
+            symbol->AddHierarchicalReference( sheetPath.Path(), it->m_Reference, it->m_Unit );
             symbol->GetField( REFERENCE_FIELD )->SetText( it->m_Reference );
+            symbol->SetValueFieldText( it->m_Value );
+            symbol->SetFootprintFieldText( it->m_Footprint );
         }
     }
 
@@ -1112,7 +1124,7 @@ void SCH_SHEET_LIST::UpdateSymbolInstances(
 void SCH_SHEET_LIST::UpdateSheetInstances( const std::vector<SCH_SHEET_INSTANCE>& aSheetInstances )
 {
 
-    for( const SCH_SHEET_PATH& path : *this )
+    for( SCH_SHEET_PATH& path : *this )
     {
         SCH_SHEET* sheet = path.Last();
 
@@ -1134,8 +1146,7 @@ void SCH_SHEET_LIST::UpdateSheetInstances( const std::vector<SCH_SHEET_INSTANCE>
         wxLogTrace( traceSchSheetPaths, "Setting sheet '%s' instance '%s' page number '%s'",
                     ( sheet->GetName().IsEmpty() ) ? wxT( "root" ) : sheet->GetName(),
                     path.Path().AsString(), it->m_PageNumber );
-        sheet->AddInstance( path );
-        sheet->SetPageNumber( path, it->m_PageNumber );
+        path.SetPageNumber( it->m_PageNumber );
     }
 }
 
@@ -1162,8 +1173,11 @@ std::vector<SCH_SHEET_INSTANCE> SCH_SHEET_LIST::GetSheetInstances() const
         wxCHECK2( sheet, continue );
 
         SCH_SHEET_INSTANCE instance;
-        instance.m_Path = path.Path();
-        instance.m_PageNumber = sheet->GetPageNumber( path );
+        SCH_SHEET_PATH tmpPath = path;
+
+        tmpPath.pop_back();
+        instance.m_Path = tmpPath.Path();
+        instance.m_PageNumber = path.GetPageNumber();
 
         retval.push_back( instance );
     }
@@ -1176,11 +1190,7 @@ bool SCH_SHEET_LIST::AllSheetPageNumbersEmpty() const
 {
     for( const SCH_SHEET_PATH& instance : *this )
     {
-        const SCH_SHEET* sheet = instance.Last();
-
-        wxCHECK2( sheet, continue );
-
-        if( !sheet->GetPageNumber( instance ).IsEmpty() )
+        if( !instance.GetPageNumber().IsEmpty() )
             return false;
     }
 
@@ -1196,15 +1206,10 @@ void SCH_SHEET_LIST::SetInitialPageNumbers()
     wxString tmp;
     int pageNumber = 1;
 
-    for( const SCH_SHEET_PATH& instance : *this )
+    for( SCH_SHEET_PATH& instance : *this )
     {
-        SCH_SHEET* sheet = instance.Last();
-
-        wxCHECK2( sheet, continue );
-
-        sheet->AddInstance( instance );
         tmp.Printf( "%d", pageNumber );
-        sheet->SetPageNumber( instance, tmp );
+        instance.SetPageNumber( tmp );
         pageNumber += 1;
     }
 }
@@ -1260,116 +1265,165 @@ void SCH_SHEET_LIST::MigrateSimModelNameFields()
         // V6 schematics may specify model names in Value fields, which we don't do in V7.
         // Migrate by adding an equivalent model for these symbols.
 
-        bool mayHaveModelsInValues = false;
-
-        for( SCH_ITEM* item : screen->Items().OfType( SCH_TEXT_T ) )
+        for( SCH_ITEM* item : screen->Items().OfType( SCH_SYMBOL_T ) )
         {
-            wxString text = static_cast<SCH_TEXT*>( item )->GetShownText();
+            SCH_SYMBOL* symbol = static_cast<SCH_SYMBOL*>( item );
 
-            if( text.StartsWith( ".inc" ) || text.StartsWith( ".lib" )
-                || text.StartsWith( ".model" ) || text.StartsWith( ".subckt" ) )
+            if( !symbol )
             {
-                mayHaveModelsInValues = true;
+                // Shouldn't happen.
+                wxFAIL;
+                continue;
+            }
+
+            migrateSimModel( *symbol, sheetIndex );
+        }
+    }
+}
+
+
+void SCH_SHEET_LIST::migrateSimModel( SCH_SYMBOL& aSymbol, unsigned aSheetIndex )
+{
+    if( aSymbol.FindField( SIM_MODEL::DEVICE_TYPE_FIELD )
+        || aSymbol.FindField( SIM_MODEL::TYPE_FIELD )
+        || aSymbol.FindField( SIM_MODEL::PINS_FIELD )
+        || aSymbol.FindField( SIM_MODEL::PARAMS_FIELD ) )
+    {
+        // Has a V7 model field -- skip.
+        return;
+    }
+
+    wxString ref = aSymbol.GetRef( &at( aSheetIndex ), true );
+    wxString value = aSymbol.GetValueFieldText( true );
+
+    wxString spiceType;
+    wxString spiceModel;
+    wxString spiceLib;
+    wxString pinMap;
+
+    if( aSymbol.FindField( "Spice_Primitive" )
+        || aSymbol.FindField( "Spice_Node_Sequence" )
+        || aSymbol.FindField( "Spice_Model" )
+        || aSymbol.FindField( "Spice_Netlist_Enabled" )
+        || aSymbol.FindField( "Spice_Lib_File" ) )
+    {
+        if( SCH_FIELD* primitiveField = aSymbol.FindField( "Spice_Primitive" ) )
+        {
+            spiceType = primitiveField->GetText();
+            aSymbol.RemoveField( "Spice_Primitive" );
+        }
+
+        if( SCH_FIELD* nodeSequenceField = aSymbol.FindField( "Spice_Node_Sequence" ) )
+        {
+            const wxString  delimiters( "{:,; }" );
+            const wxString& nodeSequence = nodeSequenceField->GetText();
+
+            if( nodeSequence != "" )
+            {
+                wxStringTokenizer tkz( nodeSequence, delimiters );
+
+                for( long modelPinNumber = 1; tkz.HasMoreTokens(); ++modelPinNumber )
+                {
+                    long symbolPinNumber = 1;
+                    tkz.GetNextToken().ToLong( &symbolPinNumber );
+
+                    if( modelPinNumber != 1 )
+                        pinMap.Append( " " );
+
+                    pinMap.Append( wxString::Format( "%ld=%ld", symbolPinNumber, modelPinNumber ) );
+                }
+            }
+
+            aSymbol.RemoveField( "Spice_Node_Sequence" );
+        }
+
+        if( SCH_FIELD* modelField = aSymbol.FindField( "Spice_Model" ) )
+        {
+            spiceModel = modelField->GetText();
+            aSymbol.RemoveField( "Spice_Model" );
+        }
+        else
+            spiceModel = aSymbol.FindField( "Value" )->GetText();
+
+        if( SCH_FIELD* netlistEnabledField = aSymbol.FindField( "Spice_Netlist_Enabled" ) )
+        {
+            wxString netlistEnabled = netlistEnabledField->GetText().Lower();
+
+            if( netlistEnabled.StartsWith( "0" )
+                || netlistEnabled.StartsWith( "n" )
+                || netlistEnabled.StartsWith( "f" ) )
+            {
+                SCH_FIELD enableField( VECTOR2I( 0, 0 ), aSymbol.GetFieldCount(), &aSymbol,
+                                       SIM_MODEL::ENABLE_FIELD );
             }
         }
 
-        for( SCH_ITEM* item : screen->Items().OfType( SCH_TEXTBOX_T ) )
+        if( SCH_FIELD* libFileField = aSymbol.FindField( "Spice_Lib_File" ) )
         {
-            wxString text = static_cast<SCH_TEXTBOX*>( item )->GetShownText();
+            spiceLib = libFileField->GetText();
+            aSymbol.RemoveField( "Spice_Lib_File" );
+        }
+    }
+    else if( ref.StartsWith( "R" ) || ref.StartsWith( "L" ) || ref.StartsWith( "C" ) )
+    {
+        wxRegEx passiveVal(
+            wxT( "^([0-9\\. ]+)([fFpPnNuUmMkKgGtTμµ𝛍𝜇𝝁 ]|M(e|E)(g|G))?([fFhHΩΩ𝛀𝛺𝝮]|ohm)?([-1-9 ]*)$" ) );
 
-            if( text.StartsWith( ".inc" ) || text.StartsWith( ".lib" )
-                || text.StartsWith( ".model" ) || text.StartsWith( ".subckt" ) )
-            {
-                mayHaveModelsInValues = true;
-            }
+        if( !passiveVal.Matches( value ) )
+            return;
+
+        wxString prefix( passiveVal.GetMatch( value, 1 ) );
+        wxString unit( passiveVal.GetMatch( value, 2 ) );
+        wxString suffix( passiveVal.GetMatch( value, 6 ) );
+
+        if( unit == "M" )
+            unit = "Meg";
+
+        spiceModel = prefix + unit;
+    }
+    else if( ref.StartsWith( "V" ) || ref.StartsWith( "I" ) )
+        spiceModel = value;
+    else
+        return;
+
+    // Insert a plaintext model as a substitute.
+
+    SCH_FIELD deviceTypeField( VECTOR2I( 0, 0 ), aSymbol.GetFieldCount(), &aSymbol,
+                               SIM_MODEL::DEVICE_TYPE_FIELD );
+    deviceTypeField.SetText(
+        SIM_MODEL::DeviceInfo( SIM_MODEL::DEVICE_TYPE_::SPICE ).fieldValue );
+    aSymbol.AddField( deviceTypeField );
+
+    SCH_FIELD paramsField( VECTOR2I( 0, 0 ), aSymbol.GetFieldCount(), &aSymbol,
+                           SIM_MODEL::PARAMS_FIELD );
+    paramsField.SetText( wxString::Format( "type=\"%s\" model=\"%s\" lib=\"%s\"",
+                                           spiceType, spiceModel, spiceLib ) );
+    aSymbol.AddField( paramsField );
+
+    // Legacy models by default get linear pin mapping.
+    if( pinMap != "" )
+    {
+        SCH_FIELD pinsField( VECTOR2I( 0, 0 ), aSymbol.GetFieldCount(), &aSymbol,
+                             SIM_MODEL::PINS_FIELD );
+
+        pinsField.SetText( pinMap );
+        aSymbol.AddField( pinsField );
+    }
+    else
+    {
+        wxString pins;
+
+        for( unsigned i = 0; i < aSymbol.GetLibPins().size(); ++i )
+        {
+            if( i != 0 )
+                pins.Append( " " );
+
+            pins.Append( wxString::Format( "%u=%u", i + 1, i + 1 ) );
         }
 
-        if( mayHaveModelsInValues )
-        {
-            for( SCH_ITEM* item : screen->Items().OfType( SCH_SYMBOL_T ) )
-            {
-                SCH_SYMBOL* symbol = static_cast<SCH_SYMBOL*>( item );
-
-                if( !symbol )
-                {
-                    // Shouldn't happen.
-                    wxFAIL;
-                    continue;
-                }
-
-                if( symbol->FindField( "Spice_Primitive" )
-                    || symbol->FindField( "Spice_Node_Sequence" )
-                    || symbol->FindField( "Spice_Model" )
-                    || symbol->FindField( "Spice_Netlist_Enabled" )
-                    || symbol->FindField( "Spice_Lib_File" ) )
-                {
-                    // Has a legacy raw (plaintext) model -- this is handled in the SIM_MODEL class.
-                    continue;
-                }
-
-                if( symbol->FindField( SIM_MODEL::DEVICE_TYPE_FIELD )
-                    || symbol->FindField( SIM_MODEL::TYPE_FIELD )
-                    || symbol->FindField( SIM_MODEL::PINS_FIELD )
-                    || symbol->FindField( SIM_MODEL::PARAMS_FIELD ) )
-                {
-                    // Has a V7 model field - skip.
-                    continue;
-                }
-
-                // Insert a plaintext model as a substitute.
-
-                wxString refdes = symbol->GetRef( &at( sheetIndex ), true );
-
-                if( refdes.Length() == 0 )
-                    continue; // No refdes? We need the first character to determine type. Skip.
-
-                wxString value = symbol->GetValue( &at( sheetIndex ), true );
-
-                if( refdes.StartsWith( "R" )
-                    || refdes.StartsWith( "C" )
-                    || refdes.StartsWith( "L" ) )
-                {
-                    // This is taken from the former Spice exporter.
-                    wxRegEx passiveVal(
-                        wxT( "^([0-9\\. ]+)([fFpPnNuUmMkKgGtTμµ𝛍𝜇𝝁 ]|M(e|E)(g|G))?([fFhHΩΩ𝛀𝛺𝝮]|ohm)?([-1-9 ]*)$" ) );
-
-                    if( passiveVal.Matches( value ) )
-                    {
-                        wxString prefix( passiveVal.GetMatch( value, 1 ) );
-                        wxString unit( passiveVal.GetMatch( value, 2 ) );
-                        wxString suffix( passiveVal.GetMatch( value, 6 ) );
-
-                        prefix.Trim(); prefix.Trim( false );
-                        unit.Trim(); unit.Trim( false );
-                        suffix.Trim(); suffix.Trim( false );
-
-                        // Make 'mega' units comply with the Spice expectations
-                        if( unit == "M" )
-                            unit = "Meg";
-
-                        std::unique_ptr<SIM_VALUE> simValue =
-                            SIM_VALUE::Create( SIM_VALUE::TYPE_FLOAT );
-                        simValue->FromString( ( prefix + unit + suffix ).ToStdString(),
-                                              SIM_VALUE::NOTATION::SPICE );
-
-                        if( value == simValue->ToString() )
-                            continue; // Can stay the same.
-                    }
-                }
-
-                SCH_FIELD deviceTypeField( VECTOR2I( 0, 0 ), symbol->GetFieldCount(), symbol,
-                                           SIM_MODEL::DEVICE_TYPE_FIELD );
-                deviceTypeField.SetText(
-                    SIM_MODEL::DeviceTypeInfo( SIM_MODEL::DEVICE_TYPE_::SPICE ).fieldValue );
-                symbol->AddField( deviceTypeField );
-
-                SCH_FIELD modelParamsField( VECTOR2I( 0, 0 ), symbol->GetFieldCount(), symbol,
-                                            SIM_MODEL::PARAMS_FIELD );
-                modelParamsField.SetText( wxString::Format( "type=%s model=\"%s\"",
-                                                            refdes.Left( 1 ),
-                                                            value ) );
-                symbol->AddField( modelParamsField );
-            }
-        }
+        SCH_FIELD pinsField( VECTOR2I( 0, 0 ), aSymbol.GetFieldCount(), &aSymbol,
+                             SIM_MODEL::PINS_FIELD );
+        pinsField.SetText( pins );
+        aSymbol.AddField( pinsField );
     }
 }

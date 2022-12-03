@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2020 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2020-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -103,10 +103,31 @@ BOOST_AUTO_TEST_CASE( TestEditPageNumbersInSharedDesign )
         sheets.at( 4 ).SetPageNumber( "E" );
 
         // Save and reload
-        wxString   tempName = "complex_hierarchy_shared/complex_hierarchy_modified";
-        wxFileName tempFn = GetSchematicPath( tempName );
-        m_pi->Save( tempFn.GetFullPath(), &m_schematic.Root(), &m_schematic );
-        LoadSchematic( tempName );
+        wxFileName rootFn = GetSchematicPath( "complex_hierarchy_shared/complex_hierarchy" );
+        wxFileName prjFn = rootFn;
+
+        prjFn.SetExt( ProjectFileExtension );
+
+        rootFn.AppendDir( "temp" );
+        BOOST_CHECK( rootFn.Mkdir() );
+
+        wxFileName newPrjFn = rootFn;
+        newPrjFn.SetExt( ProjectFileExtension );
+        BOOST_CHECK( wxCopyFile( prjFn.GetFullPath(), newPrjFn.GetFullPath() ) );
+
+        m_pi->Save( rootFn.GetFullPath(), &m_schematic.Root(), &m_schematic );
+
+        wxFileName subSheetFn = rootFn;
+        BOOST_CHECK( subSheetFn.AppendDir( "ampli_ht" ) );
+        BOOST_CHECK( subSheetFn.Mkdir() );
+
+        subSheetFn.SetName( "ampli_ht" );
+        m_pi->Save( subSheetFn.GetFullPath(), sheets.at( 1 ).Last(), &m_schematic );
+
+        subSheetFn.SetName( "filter" );
+        m_pi->Save( subSheetFn.GetFullPath(), sheets.at( 2 ).Last(), &m_schematic );
+
+        LoadSchematic( "complex_hierarchy_shared/temp/complex_hierarchy" );
 
         sheets = m_schematic.GetSheets();
 
@@ -118,7 +139,13 @@ BOOST_AUTO_TEST_CASE( TestEditPageNumbersInSharedDesign )
         BOOST_CHECK_EQUAL( sheets.at( 4 ).GetPageNumber(), "E" );
 
         // Cleanup
-        wxRemoveFile( tempFn.GetFullPath() );
+        BOOST_CHECK( wxRemoveFile( subSheetFn.GetFullPath() ) );
+        subSheetFn.SetName( "ampli_ht" );
+        BOOST_CHECK( wxRemoveFile( subSheetFn.GetFullPath() ) );
+        BOOST_CHECK( subSheetFn.Rmdir() );
+        BOOST_CHECK( wxRemoveFile( newPrjFn.GetFullPath() ) );
+        BOOST_CHECK( wxRemoveFile( rootFn.GetFullPath() ) );
+        BOOST_CHECK( rootFn.Rmdir() );
     }
 
     BOOST_TEST_CONTEXT( "Read Sub-Sheet, after modification" )

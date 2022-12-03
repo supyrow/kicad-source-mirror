@@ -54,11 +54,11 @@ public:
     static constexpr auto REFERENCE_FIELD = "Reference";
     static constexpr auto VALUE_FIELD = "Value";
 
-    static constexpr auto DEVICE_TYPE_FIELD = "Sim_Device";
-    static constexpr auto TYPE_FIELD = "Sim_Type";
-    static constexpr auto PINS_FIELD = "Sim_Pins";
-    static constexpr auto PARAMS_FIELD = "Sim_Params";
-    static constexpr auto ENABLE_FIELD = "Sim_Enable";
+    static constexpr auto DEVICE_TYPE_FIELD = "Sim.Device";
+    static constexpr auto TYPE_FIELD = "Sim.Type";
+    static constexpr auto PINS_FIELD = "Sim.Pins";
+    static constexpr auto PARAMS_FIELD = "Sim.Params";
+    static constexpr auto ENABLE_FIELD = "Sim.Enable";
 
 
     // There's a trailing '_' because `DEVICE_TYPE` collides with something in Windows headers.
@@ -99,6 +99,7 @@ public:
     {
         std::string fieldValue;
         std::string description;
+        bool        isBuiltin;
     };
 
 
@@ -124,10 +125,10 @@ public:
 
         D,
 
-        NPN_GUMMELPOON,
-        PNP_GUMMELPOON,
         NPN_VBIC,
         PNP_VBIC,
+        NPN_GUMMELPOON,
+        PNP_GUMMELPOON,
         //NPN_MEXTRAM,
         //PNP_MEXTRAM,
         NPN_HICUM2,
@@ -154,6 +155,9 @@ public:
         NMES_HFET2,
         PMES_HFET2,
 
+
+        NMOS_VDMOS,
+        PMOS_VDMOS,
 
         NMOS_MOS1,
         PMOS_MOS1,
@@ -380,7 +384,7 @@ public:
     };
 
 
-    static DEVICE_INFO DeviceTypeInfo( DEVICE_TYPE_ aDeviceType );
+    static DEVICE_INFO DeviceInfo( DEVICE_TYPE_ aDeviceType );
     static INFO TypeInfo( TYPE aType );
     static SPICE_INFO SpiceInfo( TYPE aType );
 
@@ -388,11 +392,8 @@ public:
     template <typename T>
     static TYPE ReadTypeFromFields( const std::vector<T>& aFields, int aSymbolPinCount );
 
-    static DEVICE_TYPE_ InferDeviceTypeFromRef( const std::string& aRef );
-
     template <typename T>
     static TYPE InferTypeFromLegacyFields( const std::vector<T>& aFields );
-
 
     static std::unique_ptr<SIM_MODEL> Create( TYPE aType, unsigned aSymbolPinCount );
     static std::unique_ptr<SIM_MODEL> Create( const SIM_MODEL& aBaseModel,
@@ -414,6 +415,7 @@ public:
                                const std::string& aValue );
 
     const SPICE_GENERATOR& SpiceGenerator() const { return *m_spiceGenerator; }
+    const SIM_SERDE& Serde() const { return *m_serde; }
 
 
     // Move semantics.
@@ -427,15 +429,14 @@ public:
     template <typename T>
     void ReadDataFields( unsigned aSymbolPinCount, const std::vector<T>* aFields );
 
-    // C++ doesn't allow virtual template methods, so we do this:
-    virtual void ReadDataSchFields( unsigned aSymbolPinCount, const std::vector<SCH_FIELD>* aFields );
-    virtual void ReadDataLibFields( unsigned aSymbolPinCount, const std::vector<LIB_FIELD>* aFields );
-
+    virtual void ReadDataSchFields( unsigned aSymbolPinCount,
+                                    const std::vector<SCH_FIELD>* aFields );
+    virtual void ReadDataLibFields( unsigned aSymbolPinCount,
+                                    const std::vector<LIB_FIELD>* aFields );
 
     template <typename T>
     void WriteFields( std::vector<T>& aFields ) const;
 
-    // C++ doesn't allow virtual template methods, so we do this:
     virtual void WriteDataSchFields( std::vector<SCH_FIELD>& aFields ) const;
     virtual void WriteDataLibFields( std::vector<LIB_FIELD>& aFields ) const;
 
@@ -445,12 +446,12 @@ public:
     SPICE_INFO GetSpiceInfo() const { return SpiceInfo( GetType() ); }
 
     void AddPin( const PIN& aPin );
-    void DeletePins();
+    void ClearPins();
 
     int FindModelPinIndex( const std::string& aSymbolPinNumber );
     void AddParam( const PARAM::INFO& aInfo, bool aIsOtherVariant = false );
 
-    DEVICE_INFO GetDeviceTypeInfo() const { return DeviceTypeInfo( GetDeviceType() ); }
+    DEVICE_INFO GetDeviceInfo() const { return DeviceInfo( GetDeviceType() ); }
     INFO GetTypeInfo() const { return TypeInfo( GetType() ); }
 
     DEVICE_TYPE_ GetDeviceType() const { return GetTypeInfo().deviceType; }
@@ -475,10 +476,8 @@ public:
 
     std::vector<std::reference_wrapper<const PIN>> GetPins() const;
 
-    void SetPinSymbolPinNumber( int aPinIndex, const std::string& aSymbolPinNumber )
-    {
-        m_pins.at( aPinIndex ).symbolPinNumber = aSymbolPinNumber;
-    }
+    void SetPinSymbolPinNumber( int aPinIndex, const std::string& aSymbolPinNumber );
+    void SetPinSymbolPinNumber( const std::string& aPinName, const std::string& aSymbolPinNumber );
 
 
     int GetParamCount() const { return static_cast<int>( m_params.size() ); }
@@ -507,14 +506,17 @@ public:
 
     // Can modifying a model parameter also modify other parameters?
     virtual bool HasAutofill() const { return false; }
-
     virtual bool HasPrimaryValue() const { return false; }
 
     void SetIsEnabled( bool aIsEnabled ) { m_isEnabled = aIsEnabled; }
     bool IsEnabled() const { return m_isEnabled; }
 
-    void SetIsInferred( bool aIsInferred ) { m_isInferred = aIsInferred; }
-    bool IsInferred() const { return m_isInferred; }
+    void SetIsStoredInValue( bool aIsStoredInValue )
+    {
+        if( HasPrimaryValue() )
+            m_isStoredInValue = aIsStoredInValue;
+    }
+    bool IsStoredInValue() const { return m_isStoredInValue; }
 
 protected:
     static std::unique_ptr<SIM_MODEL> Create( TYPE aType );
@@ -528,12 +530,6 @@ protected:
 
     virtual void CreatePins( unsigned aSymbolPinCount );
 
-    template <typename T>
-    void WriteInferredDataFields( std::vector<T>& aFields, const std::string& aValue = "" ) const;
-
-    template <typename T>
-    void InferredReadDataFields( unsigned aSymbolPinCount, const std::vector<T>* aFields );
-
     std::vector<PARAM> m_params;
     const SIM_MODEL* m_baseModel;
     std::unique_ptr<SIM_SERDE> m_serde;
@@ -543,7 +539,6 @@ private:
                                           const std::string& aLevel = "",
                                           const std::string& aVersion = "",
                                           bool aSkipDefaultLevel = true );
-
 
     template <typename T>
     void doReadDataFields( unsigned aSymbolPinCount, const std::vector<T>* aFields );
@@ -561,7 +556,7 @@ private:
     const TYPE m_type;
     std::vector<PIN> m_pins;
     bool m_isEnabled;
-    bool m_isInferred;
+    bool m_isStoredInValue;
 };
 
 #endif // SIM_MODEL_H

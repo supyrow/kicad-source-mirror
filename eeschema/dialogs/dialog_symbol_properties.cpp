@@ -707,9 +707,8 @@ bool DIALOG_SYMBOL_PROPERTIES::TransferDataFromWindow()
 
     // Similar for Value and Footprint, except that the GUI behaviour is that they are kept
     // in sync between multiple instances.
-    m_symbol->SetValue( &GetParent()->GetCurrentSheet(), m_fields->at( VALUE_FIELD ).GetText() );
-    m_symbol->SetFootprint( &GetParent()->GetCurrentSheet(),
-                            m_fields->at( FOOTPRINT_FIELD ).GetText() );
+    m_symbol->SetValueFieldText( m_fields->at( VALUE_FIELD ).GetText() );
+    m_symbol->SetFootprintFieldText(  m_fields->at( FOOTPRINT_FIELD ).GetText() );
 
     m_symbol->SetIncludeInBom( !m_cbExcludeFromBom->IsChecked() );
     m_symbol->SetIncludeOnBoard( !m_cbExcludeFromBoard->IsChecked() );
@@ -748,8 +747,8 @@ bool DIALOG_SYMBOL_PROPERTIES::TransferDataFromWindow()
             {
                 GetParent()->SaveCopyInUndoList( screen, otherUnit, UNDO_REDO::CHANGED,
                                                  appendUndo );
-                otherUnit->SetValue( m_fields->at( VALUE_FIELD ).GetText() );
-                otherUnit->SetFootprint( m_fields->at( FOOTPRINT_FIELD ).GetText() );
+                otherUnit->SetValueFieldText( m_fields->at( VALUE_FIELD ).GetText() );
+                otherUnit->SetFootprintFieldText( m_fields->at( FOOTPRINT_FIELD ).GetText() );
 
                 for( size_t ii = DATASHEET_FIELD; ii < m_fields->size(); ++ii )
                 {
@@ -1064,16 +1063,14 @@ void DIALOG_SYMBOL_PROPERTIES::AdjustFieldsGridColumns()
     int fieldsWidth = KIPLATFORM::UI::GetUnobscuredSize( m_fieldsGrid ).x;
 
     m_fieldsGrid->AutoSizeColumn( 0 );
+    m_fieldsGrid->SetColSize( 0, std::max( 72, m_fieldsGrid->GetColSize( 0 ) ) );
 
     int fixedColsWidth = m_fieldsGrid->GetColSize( 0 );
 
     for( int i = 2; i < m_fieldsGrid->GetNumberCols(); i++ )
         fixedColsWidth += m_fieldsGrid->GetColSize( i );
 
-    int colSize = std::max( fieldsWidth - fixedColsWidth, -1 );
-    colSize = ( colSize == 0 ) ? -1 : colSize; // don't hide the column!
-
-    m_fieldsGrid->SetColSize( 1, colSize );
+    m_fieldsGrid->SetColSize( 1, std::max( 120, fieldsWidth - fixedColsWidth ) );
 }
 
 

@@ -136,6 +136,7 @@ ASCH_SYMBOL::ASCH_SYMBOL( const std::map<wxString, wxString>& aProps )
 
     partcount        = ALTIUM_PARSER::ReadInt( aProps, "PARTCOUNT", 0 );
     displaymodecount = ALTIUM_PARSER::ReadInt( aProps, "DISPLAYMODECOUNT", 0 );
+    m_indexInSheet   = ALTIUM_PARSER::ReadInt( aProps, "INDEXINSHEET", -1 );
     displaymode      = ALTIUM_PARSER::ReadInt( aProps, "DISPLAYMODE", 0 );
 }
 
@@ -392,20 +393,25 @@ ASCH_ROUND_RECTANGLE::ASCH_ROUND_RECTANGLE( const std::map<wxString, wxString>& 
 
 ASCH_ARC::ASCH_ARC( const std::map<wxString, wxString>& aProps )
 {
-    wxASSERT( ReadRecord( aProps ) == ALTIUM_SCH_RECORD::ARC );
+    m_IsElliptical = ReadRecord( aProps ) == ALTIUM_SCH_RECORD::ELLIPTICAL_ARC;
+    wxASSERT( ReadRecord( aProps ) == ALTIUM_SCH_RECORD::ARC || m_IsElliptical );
 
     ownerindex = ReadOwnerIndex( aProps );
     ownerpartid = ReadOwnerPartId( aProps );
     ownerpartdisplaymode = ALTIUM_PARSER::ReadInt( aProps, "OWNERPARTDISPLAYMODE", 0 );
 
-    center = VECTOR2I( ReadKiCadUnitFrac( aProps, "LOCATION.X" ),
+    m_Center = VECTOR2I( ReadKiCadUnitFrac( aProps, "LOCATION.X" ),
                        -ReadKiCadUnitFrac( aProps, "LOCATION.Y" ) );
-    radius = ReadKiCadUnitFrac( aProps, "RADIUS" );
+    m_Radius = ReadKiCadUnitFrac( aProps, "RADIUS" );
+    m_SecondaryRadius = m_Radius;
 
-    startAngle = ALTIUM_PARSER::ReadDouble( aProps, "STARTANGLE", 0 );
-    endAngle   = ALTIUM_PARSER::ReadDouble( aProps, "ENDANGLE", 0 );
+    if( m_IsElliptical )
+        m_SecondaryRadius = ReadKiCadUnitFrac( aProps, "SECONDARYRADIUS" );
 
-    lineWidth = ReadKiCadUnitFrac( aProps, "LINEWIDTH" );
+    m_StartAngle = ALTIUM_PARSER::ReadDouble( aProps, "STARTANGLE", 0 );
+    m_EndAngle   = ALTIUM_PARSER::ReadDouble( aProps, "ENDANGLE", 0 );
+
+    m_LineWidth = ReadKiCadUnitFrac( aProps, "LINEWIDTH" );
 }
 
 
@@ -648,7 +654,7 @@ ASCH_NO_ERC::ASCH_NO_ERC( const std::map<wxString, wxString>& aProps )
                          -ReadKiCadUnitFrac( aProps, "LOCATION.Y" ) );
 
     isActive   = ALTIUM_PARSER::ReadBool( aProps, "ISACTIVE", true );
-    supressAll = ALTIUM_PARSER::ReadInt( aProps, "SUPPRESSALL", true );
+    suppressAll = ALTIUM_PARSER::ReadInt( aProps, "SUPPRESSALL", true );
 }
 
 

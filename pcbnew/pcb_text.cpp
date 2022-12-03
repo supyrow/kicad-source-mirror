@@ -331,9 +331,9 @@ void PCB_TEXT::TransformShapeToPolygon( SHAPE_POLY_SET& aBuffer, PCB_LAYER_ID aL
 }
 
 
-static struct TEXTE_PCB_DESC
+static struct PCB_TEXT_DESC
 {
-    TEXTE_PCB_DESC()
+    PCB_TEXT_DESC()
     {
         PROPERTY_MANAGER& propMgr = PROPERTY_MANAGER::Instance();
         REGISTER_TYPE( PCB_TEXT );
@@ -341,5 +341,9 @@ static struct TEXTE_PCB_DESC
         propMgr.AddTypeCast( new TYPE_CAST<PCB_TEXT, EDA_TEXT> );
         propMgr.InheritsAfter( TYPE_HASH( PCB_TEXT ), TYPE_HASH( BOARD_ITEM ) );
         propMgr.InheritsAfter( TYPE_HASH( PCB_TEXT ), TYPE_HASH( EDA_TEXT ) );
+
+        propMgr.AddProperty( new PROPERTY<PCB_TEXT, bool, BOARD_ITEM>( _HKI( "Knockout" ),
+                &BOARD_ITEM::SetIsKnockout, &BOARD_ITEM::IsKnockout ),
+                _HKI( "Text Properties" ) );
     }
-} _TEXTE_PCB_DESC;
+} _PCB_TEXT_DESC;

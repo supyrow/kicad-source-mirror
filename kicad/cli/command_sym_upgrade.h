@@ -18,17 +18,17 @@
  * with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef COMMAND_EXPORT_SCH_BOM_H
-#define COMMAND_EXPORT_SCH_BOM_H
+#ifndef COMMAND_SYM_UPGRADE_H
+#define COMMAND_SYM_UPGRADE_H
 
 #include "command_export_pcb_base.h"
 
 namespace CLI
 {
-class EXPORT_SCH_BOM_COMMAND : public EXPORT_PCB_BASE_COMMAND
+class SYM_UPGRADE_COMMAND : public EXPORT_PCB_BASE_COMMAND
 {
 public:
-    EXPORT_SCH_BOM_COMMAND();
+    SYM_UPGRADE_COMMAND();
 
     int Perform( KIWAY& aKiway ) override;
 };

@@ -2,7 +2,7 @@
  * This file is part of libeval, a simple math expression evaluator
  *
  * Copyright (C) 2017 Michael Geselbracht, mgeselbracht3@gmail.com
- * Copyright (C) 2019-2021 KiCad Developers, see AUTHORS.txt for contributors.
+ * Copyright (C) 2019-2022 KiCad Developers, see AUTHORS.txt for contributors.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -124,7 +124,7 @@ bool VALUE::EqualTo( CONTEXT* aCtx, const VALUE* b ) const
         if( b->m_stringIsWildcard )
             return WildCompareString( b->AsString(), AsString(), false );
         else
-            return !AsString().CmpNoCase( b->AsString() );
+            return AsString().IsSameAs( b->AsString(), false );
     }
 
     return false;
@@ -250,6 +250,7 @@ COMPILER::~COMPILER()
     if( m_tree )
     {
         freeTree( m_tree );
+        m_tree = nullptr;
     }
 
     // Allow explicit call to destructor
@@ -694,6 +695,7 @@ void COMPILER::freeTree( LIBEVAL::TREE_NODE *tree )
         freeTree( tree->leaf[1] );
 
     delete tree->uop;
+    tree->uop = nullptr;
 }
 
 
@@ -1001,16 +1003,25 @@ bool COMPILER::generateUCode( UCODE* aCode, CONTEXT* aPreflightContext )
             }
             else if( son && son->op == TR_UNIT )
             {
+                if( m_unitResolver->GetSupportedUnits().empty() )
+                {
+                    msg.Printf( _( "Unexpected units for '%s'" ), *node->value.str );
+                    reportError( CST_CODEGEN, msg, node->srcPos );
+                }
+
                 int units = son->value.idx;
                 value =  m_unitResolver->Convert( *node->value.str, units );
                 son->isVisited = true;
             }
             else
             {
-                msg.Printf( _( "Missing units for '%s'| (%s)" ),
-                            *node->value.str,
-                            m_unitResolver->GetSupportedUnitsMessage() );
-                reportError( CST_CODEGEN, msg, node->srcPos );
+                if( !m_unitResolver->GetSupportedUnitsMessage().empty() )
+                {
+                    msg.Printf( _( "Missing units for '%s'| (%s)" ),
+                                *node->value.str,
+                                m_unitResolver->GetSupportedUnitsMessage() );
+                    reportError( CST_CODEGEN, msg, node->srcPos );
+                }
 
                 value = EDA_UNIT_UTILS::UI::DoubleValueFromString( *node->value.str );
             }

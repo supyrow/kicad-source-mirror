@@ -29,8 +29,10 @@
 #include <eda_units.h>
 #include <properties/eda_angle_variant.h>
 #include <properties/pg_properties.h>
+#include <properties/pg_editors.h>
 #include <properties/property_mgr.h>
 #include <properties/property.h>
+#include <string_utils.h>
 #include <widgets/color_swatch.h>
 
 // reg-ex describing a signed valid value with a unit
@@ -85,13 +87,13 @@ wxPGProperty* PGPropertyFactory( const PROPERTY_BASE* aProperty )
     {
     case PROPERTY_DISPLAY::PT_SIZE:
         ret = new PGPROPERTY_SIZE();
-        ret->SetEditor( wxT( "UnitEditor" ) );
+        ret->SetEditor( PG_UNIT_EDITOR::EDITOR_NAME );
         break;
 
     case PROPERTY_DISPLAY::PT_COORD:
         ret = new PGPROPERTY_COORD();
         static_cast<PGPROPERTY_COORD*>( ret )->SetCoordType( aProperty->CoordType() );
-        ret->SetEditor( wxT( "UnitEditor" ) );
+        ret->SetEditor( PG_UNIT_EDITOR::EDITOR_NAME );
         break;
 
     case PROPERTY_DISPLAY::PT_DECIDEGREE:
@@ -103,6 +105,7 @@ wxPGProperty* PGPropertyFactory( const PROPERTY_BASE* aProperty )
             prop->SetScale( 10.0 );
 
         ret = prop;
+        ret->SetEditor( PG_UNIT_EDITOR::EDITOR_NAME );
         break;
     }
 
@@ -141,7 +144,7 @@ wxPGProperty* PGPropertyFactory( const PROPERTY_BASE* aProperty )
         }
         else if( typeId == TYPE_HASH( wxString ) )
         {
-            ret = new wxStringProperty();
+            ret = new PGPROPERTY_STRING();
         }
         else
         {
@@ -159,6 +162,7 @@ wxPGProperty* PGPropertyFactory( const PROPERTY_BASE* aProperty )
         ret->SetLabel( aProperty->Name() );
         ret->SetName( aProperty->Name() );
         ret->Enable( !aProperty->IsReadOnly() );
+        ret->SetHelpString( aProperty->Name() );
         ret->SetClientData( const_cast<PROPERTY_BASE*>( aProperty ) );
     }
 
@@ -202,7 +206,7 @@ wxString PGPROPERTY_DISTANCE::DistanceToString( wxVariant& aVariant, int aArgFla
     switch( PROPERTY_MANAGER::Instance().GetUnits() )
     {
         case EDA_UNITS::INCHES:
-            return wxString::Format( wxT( "%d in" ), pcbIUScale.IUToMils( distanceIU ) / 1000.0 );
+            return wxString::Format( wxT( "%g in" ), pcbIUScale.IUToMils( distanceIU ) / 1000.0 );
 
         case EDA_UNITS::MILS:
             return wxString::Format( wxT( "%d mils" ), pcbIUScale.IUToMils( distanceIU ) );
@@ -232,8 +236,7 @@ PGPROPERTY_SIZE::PGPROPERTY_SIZE( const wxString& aLabel, const wxString& aName,
 
 wxValidator* PGPROPERTY_SIZE::DoGetValidator() const
 {
-    //return m_regExValidator.get();
-            return nullptr;
+    return nullptr;
 }
 
 
@@ -247,7 +250,6 @@ PGPROPERTY_COORD::PGPROPERTY_COORD( const wxString& aLabel, const wxString& aNam
 
 wxValidator* PGPROPERTY_COORD::DoGetValidator() const
 {
-    //return m_regExValidator.get();
     return nullptr;
 }
 
@@ -294,6 +296,12 @@ wxString PGPROPERTY_ANGLE::ValueToString( wxVariant& aVariant, int aArgFlags ) c
 }
 
 
+wxValidator* PGPROPERTY_ANGLE::DoGetValidator() const
+{
+    return nullptr;
+}
+
+
 wxSize PGPROPERTY_COLORENUM::OnMeasureImage( int aItem ) const
 {
     // TODO(JE) calculate size from window metrics?
@@ -324,4 +332,21 @@ void PGPROPERTY_COLORENUM::OnCustomPaint( wxDC& aDC, const wxRect& aRect,
     aDC.DrawRectangle( aRect );
 
     aPaintData.m_drawnWidth = aRect.width;
+}
+
+
+wxString PGPROPERTY_STRING::ValueToString( wxVariant& aValue, int aFlags ) const
+{
+    if( aValue.GetType() != wxPG_VARIANT_TYPE_STRING )
+        return wxEmptyString;
+
+    return UnescapeString( aValue.GetString() );
+}
+
+
+bool PGPROPERTY_STRING::StringToValue( wxVariant& aVariant, const wxString& aString,
+                                       int aFlags ) const
+{
+    aVariant = EscapeString( aString, CTX_QUOTED_STR );
+    return true;
 }

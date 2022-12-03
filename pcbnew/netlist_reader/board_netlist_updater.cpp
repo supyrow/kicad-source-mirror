@@ -260,7 +260,7 @@ bool BOARD_NETLIST_UPDATER::updateFootprintParameters( FOOTPRINT* aPcbFootprint,
     // Create a copy only if the footprint has not been added during this update
     FOOTPRINT* copy = nullptr;
 
-    if( m_commit.GetStatus( aPcbFootprint ) )
+    if( !m_commit.GetStatus( aPcbFootprint ) )
     {
         copy = static_cast<FOOTPRINT*>( aPcbFootprint->Clone() );
         copy->SetParentGroup( nullptr );
@@ -1085,7 +1085,7 @@ bool BOARD_NETLIST_UPDATER::UpdateNetlist( NETLIST& aNetlist )
         // * it is useless because zones will be refilled after placing new footprints
         m_commit.Push( _( "Update netlist" ), m_newFootprintsCount ? ZONE_FILL_OP  : 0 );
 
-        m_board->SynchronizeNetsAndNetClasses();
+        m_board->SynchronizeNetsAndNetClasses( true );
         m_frame->SaveProjectSettings();
     }
 

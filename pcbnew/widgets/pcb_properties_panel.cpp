@@ -29,17 +29,45 @@
 #include <board_connected_item.h>
 #include <properties/pg_properties.h>
 #include <pcb_shape.h>
+#include <pcb_text.h>
 #include <pcb_track.h>
 #include <settings/color_settings.h>
+#include <string_utils.h>
 
 
 PCB_PROPERTIES_PANEL::PCB_PROPERTIES_PANEL( wxWindow* aParent, PCB_EDIT_FRAME* aFrame )
     : PROPERTIES_PANEL( aParent, aFrame ), m_frame( aFrame ), m_propMgr( PROPERTY_MANAGER::Instance() )
 {
     m_propMgr.Rebuild();
+    bool found = false;
 
-    m_editor = wxPropertyGrid::RegisterEditorClass( new PG_UNIT_EDITOR( m_frame ),
-                                                    wxT( "UnitEditor" ) );
+    PG_UNIT_EDITOR* new_editor = new PG_UNIT_EDITOR( m_frame );
+
+    if( wxPGGlobalVars )
+    {
+        auto it = wxPGGlobalVars->m_mapEditorClasses.find( new_editor->GetName() );
+
+        if( it != wxPGGlobalVars->m_mapEditorClasses.end() )
+        {
+            m_editor = static_cast<PG_UNIT_EDITOR*>( it->second );
+            m_editor->UpdateFrame( m_frame );
+            found = true;
+        }
+    }
+
+    if( found )
+        delete new_editor;
+    else
+        m_editor = static_cast<PG_UNIT_EDITOR*>( wxPropertyGrid::RegisterEditorClass( new_editor ) );
+
+
+}
+
+
+
+PCB_PROPERTIES_PANEL::~PCB_PROPERTIES_PANEL()
+{
+    m_editor->UpdateFrame( nullptr );
 }
 
 
@@ -88,7 +116,8 @@ void PCB_PROPERTIES_PANEL::valueChanged( wxPropertyGridEvent& aEvent )
     PCB_SELECTION_TOOL* selectionTool = m_frame->GetToolManager()->GetTool<PCB_SELECTION_TOOL>();
     const SELECTION& selection = selectionTool->GetSelection();
     BOARD_ITEM* firstItem = static_cast<BOARD_ITEM*>( selection.Front() );
-    PROPERTY_BASE* property = m_propMgr.GetProperty( TYPE_HASH( *firstItem ), aEvent.GetPropertyName() );
+    PROPERTY_BASE* property = m_propMgr.GetProperty( TYPE_HASH( *firstItem ),
+                                                     aEvent.GetPropertyName() );
     wxVariant newValue = aEvent.GetPropertyValue();
     BOARD_COMMIT changes( m_frame );
 
@@ -98,6 +127,9 @@ void PCB_PROPERTIES_PANEL::valueChanged( wxPropertyGridEvent& aEvent )
         changes.Modify( item );
         item->Set( property, newValue );
     }
+
+    // Pushing the commit will result in a SelectedItemsModified event, which we want to skip
+    m_skipNextUpdate = true;
 
     changes.Push( _( "Change property" ) );
     m_frame->Refresh();
@@ -119,16 +151,18 @@ void PCB_PROPERTIES_PANEL::updateLists( const BOARD* aBoard )
     m_propMgr.GetProperty( TYPE_HASH( PCB_SHAPE ), _HKI( "Layer" ) )->SetChoices( layersAll );
 
     // Copper only properties
-    m_propMgr.GetProperty( TYPE_HASH( BOARD_CONNECTED_ITEM ), _HKI( "Layer" ) )->SetChoices( layersCu );
+    m_propMgr.GetProperty( TYPE_HASH( BOARD_CONNECTED_ITEM ),
+                           _HKI( "Layer" ) )->SetChoices( layersCu );
     m_propMgr.GetProperty( TYPE_HASH( PCB_VIA ), _HKI( "Layer Top" ) )->SetChoices( layersCu );
     m_propMgr.GetProperty( TYPE_HASH( PCB_VIA ), _HKI( "Layer Bottom" ) )->SetChoices( layersCu );
 
     // Regenerate nets
     for( const auto& netinfo : aBoard->GetNetInfo().NetsByNetcode() )
     {
-        nets.Add( netinfo.second->GetNetname(), netinfo.first );
+        nets.Add( UnescapeString( netinfo.second->GetNetname() ), netinfo.first );
     }
 
-    auto netProperty = m_propMgr.GetProperty( TYPE_HASH( BOARD_CONNECTED_ITEM ), _HKI( "Net" ) );
+    auto netProperty = m_propMgr.GetProperty( TYPE_HASH( BOARD_CONNECTED_ITEM ),
+                                                              _HKI( "Net" ) );
     netProperty->SetChoices( nets );
 }

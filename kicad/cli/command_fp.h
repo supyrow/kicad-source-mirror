@@ -18,15 +18,17 @@
  * with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "command_sch.h"
+#ifndef COMMAND_FP_H
+#define COMMAND_FP_H
 
-CLI::SCH_COMMAND::SCH_COMMAND() : COMMAND( "sch" )
+#include "command.h"
+
+namespace CLI
 {
+struct FP_COMMAND : public COMMAND
+{
+    FP_COMMAND() : COMMAND( "fp" ) {}
+};
 }
 
-int CLI::SCH_COMMAND::Perform( KIWAY& aKiway )
-{
-    std::cout << m_argParser;
-
-    return 1;
-}
+#endif

@@ -22,6 +22,8 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA
  */
 
+#include <confirm.h>
+
 #include <sim/spice_library_parser.h>
 #include <sim/sim_library_spice.h>
 #include <sim/spice_grammar.h>
@@ -67,7 +69,15 @@ void SPICE_LIBRARY_PARSER::ReadFile( const std::string& aFilePath )
         {
             if( node->is_type<SIM_LIBRARY_SPICE_PARSER::modelUnit>() )
             {
-                m_library.m_models.push_back( SIM_MODEL_SPICE::Create( m_library, node->string() ) );
+                try
+                {
+                    m_library.m_models.push_back( SIM_MODEL_SPICE::Create( m_library, node->string() ) );
+                }
+                catch( const IO_ERROR& e )
+                {
+                    DisplayErrorMessage( nullptr, e.What() );
+                }
+
                 m_library.m_modelNames.emplace_back( node->children.at( 0 )->string() );
             }
             else if( node->is_type<SIM_LIBRARY_SPICE_PARSER::unknownLine>() )

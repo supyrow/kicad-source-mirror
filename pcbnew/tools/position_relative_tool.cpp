@@ -73,7 +73,6 @@ int POSITION_RELATIVE_TOOL::PositionRelative( const TOOL_EVENT& aEvent )
             {
                 sTool->FilterCollectorForHierarchy( aCollector, true );
                 sTool->FilterCollectorForMarkers( aCollector );
-                sTool->FilterCollectorForFreePads( aCollector );
             },
             !m_isFootprintEditor /* prompt user regarding locked items */ );
 
@@ -113,7 +112,7 @@ int POSITION_RELATIVE_TOOL::PositionRelative( const TOOL_EVENT& aEvent )
     }
 
     if( !m_dialog )
-        m_dialog = new DIALOG_POSITION_RELATIVE( editFrame, m_translation, m_anchor );
+        m_dialog = new DIALOG_POSITION_RELATIVE( editFrame );
 
     m_dialog->Show( true );
 

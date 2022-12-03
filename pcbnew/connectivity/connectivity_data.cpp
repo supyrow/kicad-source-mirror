@@ -63,7 +63,10 @@ CONNECTIVITY_DATA::CONNECTIVITY_DATA( const std::vector<BOARD_ITEM*>& aItems, bo
 
 CONNECTIVITY_DATA::~CONNECTIVITY_DATA()
 {
-    Clear();
+    for( RN_NET* net : m_nets )
+        delete net;
+
+    m_nets.clear();
 }
 
 
@@ -174,12 +177,15 @@ void CONNECTIVITY_DATA::updateRatsnest()
                 return aNet->IsDirty() && aNet->GetNodeCount() > 0;
             } );
 
-    GetKiCadThreadPool().parallelize_loop( 0, dirty_nets.size(),
+    thread_pool& tp = GetKiCadThreadPool();
+
+    tp.push_loop( dirty_nets.size(),
             [&]( const int a, const int b)
             {
                 for( int ii = a; ii < b; ++ii )
-                    dirty_nets[ii]->Update();
-            }).wait();
+                    dirty_nets[ii]->UpdateNet();
+            } );
+    tp.wait_for_tasks();
 
 #ifdef PROFILE
     rnUpdate.Show();
@@ -344,21 +350,24 @@ void CONNECTIVITY_DATA::ComputeLocalRatsnest( const std::vector<BOARD_ITEM*>& aI
         }
     };
 
-    GetKiCadThreadPool().parallelize_loop( 1, aDynamicData->m_nets.size(),
+    thread_pool& tp = GetKiCadThreadPool();
+
+    tp.push_loop( 1, aDynamicData->m_nets.size(),
             [&]( const int a, const int b)
             {
                 for( int ii = a; ii < b; ++ii )
                     update_lambda( ii );
-            }).wait();
+            });
+    tp.wait_for_tasks();
 
     // This gets the ratsnest for internal connections in the moving set
     const std::vector<CN_EDGE>& edges = GetRatsnestForItems( aItems );
 
     for( const CN_EDGE& edge : edges )
     {
-        const std::shared_ptr<CN_ANCHOR>& nodeA = edge.GetSourceNode();
-        const std::shared_ptr<CN_ANCHOR>& nodeB = edge.GetTargetNode();
-        RN_DYNAMIC_LINE                   l;
+        const std::shared_ptr<const CN_ANCHOR>& nodeA = edge.GetSourceNode();
+        const std::shared_ptr<const CN_ANCHOR>& nodeB = edge.GetTargetNode();
+        RN_DYNAMIC_LINE l;
 
         // Use the parents' positions
         l.a = nodeA->Parent()->GetPosition() + aInternalOffset;
@@ -494,12 +503,10 @@ unsigned int CONNECTIVITY_DATA::GetUnconnectedCount( bool aVisibleOnly ) const
 }
 
 
-void CONNECTIVITY_DATA::Clear()
+void CONNECTIVITY_DATA::ClearRatsnest()
 {
     for( RN_NET* net : m_nets )
-        delete net;
-
-    m_nets.clear();
+        net->Clear();
 }
 
 
@@ -913,8 +920,8 @@ const std::vector<CN_EDGE> CONNECTIVITY_DATA::GetRatsnestForItems( std::vector<B
 
         for( const CN_EDGE& edge : net->GetEdges() )
         {
-            std::shared_ptr<CN_ANCHOR> srcNode = edge.GetSourceNode();
-            std::shared_ptr<CN_ANCHOR> dstNode = edge.GetTargetNode();
+            std::shared_ptr<const CN_ANCHOR> srcNode = edge.GetSourceNode();
+            std::shared_ptr<const CN_ANCHOR> dstNode = edge.GetTargetNode();
 
             BOARD_CONNECTED_ITEM* srcParent = srcNode->Parent();
             BOARD_CONNECTED_ITEM* dstParent = dstNode->Parent();

@@ -73,6 +73,7 @@ FOOTPRINT::FOOTPRINT( BOARD* parent ) :
     m_localSolderPasteMargin      = 0;
     m_localSolderPasteMarginRatio = 0.0;
     m_zoneConnection              = ZONE_CONNECTION::INHERITED;
+    m_fileFormatVersionAtLoad     = 0;
 
     // These are special and mandatory text fields
     m_reference = new FP_TEXT( this, FP_TEXT::TEXT_is_REFERENCE );
@@ -109,6 +110,7 @@ FOOTPRINT::FOOTPRINT( const FOOTPRINT& aFootprint ) :
     m_localSolderPasteMarginRatio    = aFootprint.m_localSolderPasteMarginRatio;
     m_zoneConnection                 = aFootprint.m_zoneConnection;
     m_netTiePadGroups                = aFootprint.m_netTiePadGroups;
+    m_fileFormatVersionAtLoad        = aFootprint.m_fileFormatVersionAtLoad;
 
     std::map<BOARD_ITEM*, BOARD_ITEM*> ptrMap;
 
@@ -1556,6 +1558,16 @@ void FOOTPRINT::Rotate( const VECTOR2I& aRotCentre, const EDA_ANGLE& aAngle )
     m_visibleBBoxCacheTimeStamp = 0;
     m_textExcludedBBoxCacheTimeStamp = 0;
     m_hullCacheTimeStamp = 0;
+    m_courtyard_cache_timestamp = 0;
+}
+
+
+void FOOTPRINT::SetLayerAndFlip( PCB_LAYER_ID aLayer )
+{
+    wxASSERT( aLayer == F_Cu || aLayer == B_Cu );
+
+    if( aLayer != GetLayer() )
+        Flip( GetPosition(), true );
 }
 
 
@@ -1578,7 +1590,7 @@ void FOOTPRINT::Flip( const VECTOR2I& aCentre, bool aFlipLeftRight )
     SetPosition( finalPos );
 
     // Flip layer
-    SetLayer( FlipLayer( GetLayer() ) );
+    BOARD_ITEM::SetLayer( FlipLayer( GetLayer() ) );
 
     // Reverse mirror orientation.
     m_orient = -m_orient;
@@ -1635,6 +1647,7 @@ void FOOTPRINT::Flip( const VECTOR2I& aCentre, bool aFlipLeftRight )
     m_boundingBoxCacheTimeStamp = 0;
     m_visibleBBoxCacheTimeStamp = 0;
     m_textExcludedBBoxCacheTimeStamp = 0;
+    m_courtyard_cache_timestamp = 0;
 
     m_cachedHull.Mirror( aFlipLeftRight, !aFlipLeftRight, m_pos );
 
@@ -1694,6 +1707,8 @@ void FOOTPRINT::SetPosition( const VECTOR2I& aPos )
     m_cachedBoundingBox.Move( delta );
     m_cachedVisibleBBox.Move( delta );
     m_cachedTextExcludedBBox.Move( delta );
+    m_courtyard_cache_back.Move( delta );
+    m_courtyard_cache_front.Move( delta );
     m_cachedHull.Move( delta );
 }
 
@@ -1820,6 +1835,7 @@ void FOOTPRINT::SetOrientation( const EDA_ANGLE& aNewAngle )
     m_boundingBoxCacheTimeStamp = 0;
     m_visibleBBoxCacheTimeStamp = 0;
     m_textExcludedBBoxCacheTimeStamp = 0;
+    m_courtyard_cache_timestamp = 0;
 
     m_cachedHull.Rotate( angleChange, GetPosition() );
 }
@@ -2653,6 +2669,7 @@ bool FOOTPRINT::cmp_pads::operator()( const PAD* aFirst, const PAD* aSecond ) co
     TEST_PT( aFirst->GetPos0(), aSecond->GetPos0() );
     TEST_PT( aFirst->GetSize(), aSecond->GetSize() );
     TEST( aFirst->GetShape(), aSecond->GetShape() );
+    TEST( aFirst->GetLayerSet().Seq(), aSecond->GetLayerSet().Seq() );
 
     TEST( aFirst->m_Uuid, aSecond->m_Uuid );   // should be always the case for valid boards
 
@@ -2807,6 +2824,18 @@ static struct FOOTPRINT_DESC
 {
     FOOTPRINT_DESC()
     {
+        ENUM_MAP<ZONE_CONNECTION>& zcMap = ENUM_MAP<ZONE_CONNECTION>::Instance();
+
+        if( zcMap.Choices().GetCount() == 0 )
+        {
+            zcMap.Undefined( ZONE_CONNECTION::INHERITED );
+            zcMap.Map( ZONE_CONNECTION::INHERITED, _HKI( "Inherited" ) )
+                 .Map( ZONE_CONNECTION::NONE, _HKI( "None" ) )
+                 .Map( ZONE_CONNECTION::THERMAL, _HKI( "Thermal reliefs" ) )
+                 .Map( ZONE_CONNECTION::FULL, _HKI( "Solid" ) )
+                 .Map( ZONE_CONNECTION::THT_THERMAL, _HKI( "Thermal reliefs for PTH" ) );
+        }
+
         ENUM_MAP<PCB_LAYER_ID>& layerEnum = ENUM_MAP<PCB_LAYER_ID>::Instance();
 
         if( layerEnum.Choices().GetCount() == 0 )
@@ -2828,32 +2857,67 @@ static struct FOOTPRINT_DESC
         propMgr.InheritsAfter( TYPE_HASH( FOOTPRINT ), TYPE_HASH( BOARD_ITEM ) );
         propMgr.InheritsAfter( TYPE_HASH( FOOTPRINT ), TYPE_HASH( BOARD_ITEM_CONTAINER ) );
 
-        auto layer = new PROPERTY_ENUM<FOOTPRINT, PCB_LAYER_ID, BOARD_ITEM>( _HKI( "Layer" ),
-                    &FOOTPRINT::SetLayer, &FOOTPRINT::GetLayer );
+        auto layer = new PROPERTY_ENUM<FOOTPRINT, PCB_LAYER_ID>( _HKI( "Layer" ),
+                    &FOOTPRINT::SetLayerAndFlip, &FOOTPRINT::GetLayer );
         layer->SetChoices( fpLayers );
         propMgr.ReplaceProperty( TYPE_HASH( BOARD_ITEM ), _HKI( "Layer" ), layer );
-        propMgr.AddProperty( new PROPERTY<FOOTPRINT, wxString>( _HKI( "Reference" ),
-                    &FOOTPRINT::SetReference, &FOOTPRINT::GetReferenceAsString ) );
-        propMgr.AddProperty( new PROPERTY<FOOTPRINT, wxString>( _HKI( "Value" ),
-                    &FOOTPRINT::SetValue, &FOOTPRINT::GetValueAsString ) );
+
         propMgr.AddProperty( new PROPERTY<FOOTPRINT, double>( _HKI( "Orientation" ),
                     &FOOTPRINT::SetOrientationDegrees, &FOOTPRINT::GetOrientationDegrees,
                     PROPERTY_DISPLAY::PT_DEGREE ) );
+
+        const wxString groupFootprint = _( "Footprint Properties" );
+
+        propMgr.AddProperty( new PROPERTY<FOOTPRINT, wxString>( _HKI( "Reference" ),
+                    &FOOTPRINT::SetReference, &FOOTPRINT::GetReferenceAsString ),
+                    groupFootprint );
+        propMgr.AddProperty( new PROPERTY<FOOTPRINT, wxString>( _HKI( "Value" ),
+                    &FOOTPRINT::SetValue, &FOOTPRINT::GetValueAsString ),
+                    groupFootprint );
+
+        propMgr.AddProperty( new PROPERTY<FOOTPRINT, wxString>( _HKI( "Library link" ),
+                    NO_SETTER( FOOTPRINT, wxString ), &FOOTPRINT::GetFPIDAsString ),
+                    groupFootprint );
+        propMgr.AddProperty( new PROPERTY<FOOTPRINT, wxString>( _HKI( "Description" ),
+                    NO_SETTER( FOOTPRINT, wxString ), &FOOTPRINT::GetDescription ),
+                    groupFootprint );
+        propMgr.AddProperty( new PROPERTY<FOOTPRINT, wxString>( _HKI( "Keywords" ),
+                    NO_SETTER( FOOTPRINT, wxString ), &FOOTPRINT::GetKeywords ),
+                    groupFootprint );
+
+        const wxString groupAttributes = _( "Fabrication Attributes" );
+
+        propMgr.AddProperty( new PROPERTY<FOOTPRINT, bool>( _HKI( "Not in schematic" ),
+                    &FOOTPRINT::SetBoardOnly, &FOOTPRINT::IsBoardOnly ), groupAttributes );
+        propMgr.AddProperty( new PROPERTY<FOOTPRINT, bool>( _HKI( "Exclude from position files" ),
+                    &FOOTPRINT::SetExcludedFromPosFiles, &FOOTPRINT::IsExcludedFromPosFiles ),
+                    groupAttributes );
+        propMgr.AddProperty( new PROPERTY<FOOTPRINT, bool>( _HKI( "Exclude from BOM" ),
+                    &FOOTPRINT::SetExcludedFromBOM, &FOOTPRINT::IsExcludedFromBOM ),
+                    groupAttributes );
+
+        const wxString groupOverrides = _( "Overrides" );
+
+        propMgr.AddProperty( new PROPERTY<FOOTPRINT, bool>(
+                    _HKI( "Exempt from courtyard requirement" ),
+                    &FOOTPRINT::SetAllowMissingCourtyard, &FOOTPRINT::AllowMissingCourtyard ),
+                    groupOverrides );
         propMgr.AddProperty( new PROPERTY<FOOTPRINT, int>( _HKI( "Clearance Override" ),
                     &FOOTPRINT::SetLocalClearance, &FOOTPRINT::GetLocalClearance,
-                    PROPERTY_DISPLAY::PT_SIZE ) );
+                    PROPERTY_DISPLAY::PT_SIZE ),
+                    groupOverrides );
         propMgr.AddProperty( new PROPERTY<FOOTPRINT, int>( _HKI( "Solderpaste Margin Override" ),
                     &FOOTPRINT::SetLocalSolderPasteMargin, &FOOTPRINT::GetLocalSolderPasteMargin,
-                    PROPERTY_DISPLAY::PT_SIZE ) );
-        propMgr.AddProperty( new PROPERTY<FOOTPRINT, double>( _HKI( "Solderpaste Margin Ratio Override" ),
+                    PROPERTY_DISPLAY::PT_SIZE ),
+                    groupOverrides );
+        propMgr.AddProperty( new PROPERTY<FOOTPRINT, double>(
+                    _HKI( "Solderpaste Margin Ratio Override" ),
                     &FOOTPRINT::SetLocalSolderPasteMarginRatio,
-                &FOOTPRINT::GetLocalSolderPasteMarginRatio ) );
-        propMgr.AddProperty( new PROPERTY<FOOTPRINT, wxString>( _HKI( "Library ID" ),
-                    &FOOTPRINT::SetFPIDAsString, &FOOTPRINT::GetFPIDAsString ) );
-        propMgr.AddProperty( new PROPERTY<FOOTPRINT, wxString>( _HKI( "Description" ),
-                    &FOOTPRINT::SetDescription, &FOOTPRINT::GetDescription ) );
-        propMgr.AddProperty( new PROPERTY<FOOTPRINT, wxString>( _HKI( "Keywords" ),
-                    &FOOTPRINT::SetKeywords, &FOOTPRINT::GetKeywords ) );
-        // TODO zone connection
+                    &FOOTPRINT::GetLocalSolderPasteMarginRatio ),
+                    groupOverrides );
+        propMgr.AddProperty( new PROPERTY_ENUM<FOOTPRINT, ZONE_CONNECTION>(
+                    _HKI( "Zone Connection Style" ),
+                    &FOOTPRINT::SetZoneConnection, &FOOTPRINT::GetZoneConnection ),
+                    groupOverrides );
     }
 } _FOOTPRINT_DESC;

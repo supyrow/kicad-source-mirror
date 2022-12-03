@@ -1401,7 +1401,7 @@ void VIEW::UpdateItems()
         return;
 
     unsigned int cntGeomUpdate = 0;
-    unsigned int cntAnyUpdate = 0;
+    bool         anyUpdated = false;
 
     for( VIEW_ITEM* item : *m_allItems )
     {
@@ -1410,13 +1410,14 @@ void VIEW::UpdateItems()
         if( !vpd )
             continue;
 
-        if( vpd->m_requiredUpdate & ( GEOMETRY | LAYERS ) )
-        {
-            cntGeomUpdate++;
-        }
         if( vpd->m_requiredUpdate != NONE )
         {
-            cntAnyUpdate++;
+            anyUpdated = true;
+
+            if( vpd->m_requiredUpdate & ( GEOMETRY | LAYERS ) )
+            {
+                cntGeomUpdate++;
+            }
         }
     }
 
@@ -1456,7 +1457,7 @@ void VIEW::UpdateItems()
         }
     }
 
-    if( cntAnyUpdate )
+    if( anyUpdated )
     {
         GAL_UPDATE_CONTEXT ctx( m_gal );
 
@@ -1470,8 +1471,8 @@ void VIEW::UpdateItems()
         }
     }
 
-    KI_TRACE( traceGalProfile, "View update: total items %u, geom %u updates %u\n", cntTotal,
-              cntGeomUpdate, cntAnyUpdate );
+    KI_TRACE( traceGalProfile, "View update: total items %u, geom %u anyUpdated %u\n", cntTotal,
+              cntGeomUpdate, (unsigned) anyUpdated );
 }
 
 

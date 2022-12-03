@@ -26,13 +26,14 @@
 #define SIM_LIBRARY_H
 
 #include <sim/sim_model.h>
+#include <reporter.h>
 
 
 class SIM_LIBRARY
 {
 public:
-    static constexpr auto LIBRARY_FIELD = "Sim_Library";
-    static constexpr auto NAME_FIELD = "Sim_Name";
+    static constexpr auto LIBRARY_FIELD = "Sim.Library";
+    static constexpr auto NAME_FIELD = "Sim.Name";
 
     struct MODEL
     {
@@ -48,9 +49,11 @@ public:
      * object of an appropriate subclass.
      *
      * @param aFilePath Path to the file.
+     * @param aReporter The reporter the library reports to
      * @return The library loaded in a newly constructed object.
      */
-    static std::unique_ptr<SIM_LIBRARY> Create( std::string aFilePath );
+    static std::unique_ptr<SIM_LIBRARY> Create( std::string aFilePath,
+                                                REPORTER*   aReporter = nullptr );
 
     /**
      * Read library from a source file. Must be in the format appropriate to the subclass, e.g.
@@ -80,6 +83,8 @@ protected:
     std::vector<std::unique_ptr<SIM_MODEL>> m_models;
 
     std::string m_filePath;
+
+    REPORTER* m_reporter = nullptr;
 };
 
 

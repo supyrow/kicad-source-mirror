@@ -669,10 +669,10 @@ void SCH_EDIT_FRAME::CreateScreens()
 
     // Don't leave root page number empty
     SCH_SHEET_PATH rootSheetPath;
-    rootSheetPath.push_back( &m_schematic->Root() );
+
+    rootSheetPath.push_back( rootSheet );
     m_schematic->RootScreen()->SetPageNumber( wxT( "1" ) );
-    m_schematic->Root().AddInstance( rootSheetPath );
-    m_schematic->Root().SetPageNumber( rootSheetPath, wxT( "1" ) );
+    rootSheetPath.SetPageNumber( wxT( "1" ) );
 
     if( GetScreen() == nullptr )
     {
@@ -708,7 +708,10 @@ void SCH_EDIT_FRAME::HardRedraw()
         item->ClearCaches();
 
     for( std::pair<const wxString, LIB_SYMBOL*>& libSymbol : screen->GetLibSymbols() )
+    {
+        wxCHECK2( libSymbol.second, continue );
         libSymbol.second->ClearCaches();
+    }
 
     RecalculateConnections( LOCAL_CLEANUP );
 
@@ -1009,7 +1012,7 @@ void SCH_EDIT_FRAME::ShowFindReplaceDialog( bool aReplace )
         switch( front->Type() )
         {
         case SCH_SYMBOL_T:
-            findString = static_cast<SCH_SYMBOL*>( front )->GetValue( &GetCurrentSheet(), true );
+            findString = static_cast<SCH_SYMBOL*>( front )->GetValueFieldText( true );
             break;
 
         case SCH_FIELD_T:

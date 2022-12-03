@@ -517,6 +517,9 @@ void PCB_SELECTION_TOOL::EnterGroup()
                                        select( titem );
                                    } );
 
+    m_toolMgr->ProcessEvent( EVENTS::SelectedEvent );
+
+    view()->Hide( m_enteredGroup, true );
     m_enteredGroupOverlay.Add( m_enteredGroup );
     view()->Update( &m_enteredGroupOverlay );
 }
@@ -529,10 +532,14 @@ void PCB_SELECTION_TOOL::ExitGroup( bool aSelectGroup )
         return;
 
     m_enteredGroup->ClearFlags( ENTERED );
+    view()->Hide( m_enteredGroup, false );
     ClearSelection();
 
     if( aSelectGroup )
+    {
         select( m_enteredGroup );
+        m_toolMgr->ProcessEvent( EVENTS::SelectedEvent );
+    }
 
     m_enteredGroupOverlay.Clear();
     m_enteredGroup = nullptr;
@@ -1499,21 +1506,17 @@ int PCB_SELECTION_TOOL::grabUnconnected( const TOOL_EVENT& aEvent )
         for( const CN_EDGE& edge : edges )
         {
             // Figure out if we are the source or the target node on the ratnest
-            std::shared_ptr<CN_ANCHOR> ourNode = edge.GetSourceNode()->Parent() == pad
-                                                         ? edge.GetSourceNode()
-                                                         : edge.GetTargetNode();
-            std::shared_ptr<CN_ANCHOR> otherNode = edge.GetSourceNode()->Parent() != pad
-                                                           ? edge.GetSourceNode()
-                                                           : edge.GetTargetNode();
+            const CN_ANCHOR* other = edge.GetSourceNode()->Parent() == pad ? edge.GetTargetNode().get()
+                                                                           : edge.GetSourceNode().get();
 
             // We only want to grab footprints, so the ratnest has to point to a pad
-            if( otherNode->Parent()->Type() != PCB_PAD_T )
+            if( other->Parent()->Type() != PCB_PAD_T )
                 continue;
 
             if( edge.GetLength() < currentDistance )
             {
                 currentDistance = edge.GetLength();
-                nearest = static_cast<PAD*>( otherNode->Parent() )->GetParent();
+                nearest = static_cast<PAD*>( other->Parent() )->GetParent();
             }
         }
 
@@ -2696,24 +2699,34 @@ void PCB_SELECTION_TOOL::unhighlightInternal( EDA_ITEM* aItem, int aMode, bool a
 
 bool PCB_SELECTION_TOOL::selectionContains( const VECTOR2I& aPoint ) const
 {
-    GENERAL_COLLECTORS_GUIDE   guide = getCollectorsGuide();
-    GENERAL_COLLECTOR          collector;
+    const unsigned GRIP_MARGIN = 20;
+    double         margin = getView()->ToWorld( GRIP_MARGIN );
 
-    // Since we're just double-checking, we want a considerably sloppier check than the initial
-    // selection (for which most tools use 5 pixels).  So we increase this to an effective 20
-    // pixels by artificially inflating the value of a pixel by 4X.
-    guide.SetOnePixelInIU( guide.OnePixelInIU() * 4 );
-
-    collector.Collect( board(), m_isFootprintEditor ? GENERAL_COLLECTOR::FootprintItems
-                                                    : GENERAL_COLLECTOR::AllBoardItems,
-                       aPoint, guide );
-
-    for( int i = collector.GetCount() - 1; i >= 0; --i )
+    // Check if the point is located close to any of the currently selected items
+    for( EDA_ITEM* item : m_selection )
     {
-        BOARD_ITEM* item = collector[i];
+        BOX2I itemBox = item->ViewBBox();
+        itemBox.Inflate( margin ); // Give some margin for gripping an item
 
-        if( item->IsSelected() && item->HitTest( aPoint, 5 * guide.OnePixelInIU() ) )
-            return true;
+        if( itemBox.Contains( aPoint ) )
+        {
+            if( item->HitTest( aPoint, margin ) )
+                return true;
+
+            if( PCB_GROUP* group = dyn_cast<PCB_GROUP*>( item ) )
+            {
+                bool found = false;
+
+                group->RunOnChildren( [&] ( BOARD_ITEM* aItem )
+                    {
+                        if( aItem->HitTest( aPoint, margin ) )
+                            found = true;
+                    } );
+
+                if( found )
+                    return true;
+            }
+        }
     }
 
     return false;

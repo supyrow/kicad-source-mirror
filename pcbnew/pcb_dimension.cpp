@@ -997,7 +997,7 @@ void PCB_DIM_LEADER::updateGeometry()
     // Now that we have the text updated, we can determine how to draw the second line
     // First we need to create an appropriate bounding polygon to collide with
     BOX2I textBox = m_text.GetTextBox().Inflate( m_text.GetTextWidth() / 2,
-                                                 m_text.GetEffectiveTextPenWidth() );
+                                                 m_text.GetEffectiveTextPenWidth() * 1.8 );
 
     SHAPE_POLY_SET polyBox;
     polyBox.NewOutline();
@@ -1300,8 +1300,11 @@ static struct DIMENSION_DESC
         PROPERTY_MANAGER& propMgr = PROPERTY_MANAGER::Instance();
         REGISTER_TYPE( PCB_DIMENSION_BASE );
         propMgr.InheritsAfter( TYPE_HASH( PCB_DIMENSION_BASE ), TYPE_HASH( BOARD_ITEM ) );
-        // TODO: add dimension properties:
-        //propMgr.AddProperty( new PROPERTY<DIMENSION, int>( _HKI( "Height" ),
-                    //&DIMENSION::SetHeight, &DIMENSION::GetHeight, PROPERTY_DISPLAY::SIZE ) );
+
+        const wxString groupDimension = _( "Dimension Properties" );
+
+        propMgr.AddProperty( new PROPERTY<PCB_DIMENSION_BASE, wxString>( _HKI( "Override Text" ),
+                &PCB_DIMENSION_BASE::SetOverrideText, &PCB_DIMENSION_BASE::GetOverrideText ),
+                groupDimension );
     }
 } _DIMENSION_DESC;

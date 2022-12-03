@@ -1,7 +1,7 @@
 /*
  * This program source code file is part of KiCad, a free EDA CAD application.
  *
- * Copyright (C) 2020 Kicad Developers, see AUTHORS.txt for contributors
+ * Copyright (C) 2020-2022 Kicad Developers, see AUTHORS.txt for contributors
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -28,7 +28,9 @@
 #include <wx/glcanvas.h>
 #include <wx/utils.h>
 
-#include <limits>
+#ifdef _WIN32
+#pragma optimize( "", off )
+#endif
 
 class GL_UTILS
 {
@@ -41,8 +43,6 @@ public:
      */
     static int SetSwapInterval( int aVal )
     {
-        /// This routine is written for Linux using X11 only.  The equivalent functions under
-        /// Windows would include <wglext.h> and call wglSwapIntervalEXT
 #if defined( __linux__ ) && !defined( KICAD_USE_EGL )
 
         if( Display* dpy = glXGetCurrentDisplay() )
@@ -54,11 +54,11 @@ public:
             if( glXSwapIntervalEXT && glXQueryDrawable && drawable
                 && exts.find( "GLX_EXT_swap_control" ) != std::string::npos )
             {
-                if( aVal < 0 )
+                if( aVal == -1 )
                 {
                     if( exts.find( "GLX_EXT_swap_control_tear" ) == std::string::npos )
                     {
-                        aVal = 0;
+                        aVal = 1;
                     }
                     else
                     {
@@ -87,28 +87,61 @@ public:
             if( glXSwapIntervalMESA && glXGetSwapIntervalMESA
                 && exts.find( "GLX_MESA_swap_control" ) != std::string::npos )
             {
-                if( aVal < 0 )
-                    aVal = 0;
+                if( aVal == -1 )
+                    aVal = 1;
 
-                glXSwapIntervalMESA( aVal );
-                return glXGetSwapIntervalMESA();
+                if( !glXSwapIntervalMESA( aVal ) )
+                    return aVal;
             }
 
-            if( aVal > 0 && glXSwapIntervalSGI
-                && exts.find( "GLX_SGI_swap_control" ) != std::string::npos )
+            if( glXSwapIntervalSGI && exts.find( "GLX_SGI_swap_control" ) != std::string::npos )
             {
-                if( glXSwapIntervalSGI( aVal ) )
-                    glXSwapIntervalSGI( 1 );
+                if( aVal == -1 )
+                    aVal = 1;
 
-                return 1;
+                if( !glXSwapIntervalSGI( aVal ) )
+                    return aVal;
             }
         }
 
-        return std::numeric_limits<int>::max();
-#else
-        return 0;
+#elif defined( _WIN32 )
+
+        if( wglSwapIntervalEXT && wxGLCanvas::IsExtensionSupported( "WGL_EXT_swap_control" ) )
+        {
+            if( aVal == -1 && !wxGLCanvas::IsExtensionSupported( "WGL_EXT_swap_control_tear" ) )
+                aVal = 1;
+
+            const GLubyte* vendor = glGetString( GL_VENDOR );
+            const GLubyte* renderer = glGetString( GL_RENDERER );
+
+            HDC   hdc = wglGetCurrentDC();
+            HGLRC hglrc = wglGetCurrentContext();
+
+            if( hdc && hglrc )
+            {
+                // Mostly for debugging
+                wxString vendor_wx = vendor;
+                wxString renderer_wx = renderer;
+
+                int currentInterval = wglGetSwapIntervalEXT();
+
+                if( currentInterval != aVal )
+                {
+                    wglSwapIntervalEXT( aVal );
+                    currentInterval = wglGetSwapIntervalEXT();
+                }
+
+                return currentInterval;
+            }
+        }
+
 #endif
+        return 0;
     }
 };
+
+#ifdef _WIN32
+#pragma optimize( "", on )
+#endif
 
 #endif /* GL_CONTEXT_MANAGER_H */

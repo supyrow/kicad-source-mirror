@@ -69,7 +69,8 @@ private:
     ///< Connected items with no wire are included (as there is no wire to adjust for the drag).
     ///< Connected wires are included with any un-connected ends flagged (STARTPOINT or ENDPOINT).
     void getConnectedItems( SCH_ITEM* aOriginalItem, const VECTOR2I& aPoint, EDA_ITEMS& aList );
-    void getConnectedDragItems( SCH_ITEM* fixed, const VECTOR2I& selected, EDA_ITEMS& aList );
+    void getConnectedDragItems( SCH_ITEM* fixed, const VECTOR2I& selected, EDA_ITEMS& aList,
+                                bool& aAppendUndo );
 
     void orthoLineDrag( SCH_LINE* line, const VECTOR2I& splitDelta, int& xBendCount,
                         int& yBendCount, const EE_GRID_HELPER& grid );
@@ -83,7 +84,13 @@ private:
     ///< Set up handlers for various events.
     void setTransitions() override;
 
+    ///< Cleanup dangling lines left after a drag
+    void trimDanglingLines();
+
 private:
+    ///< Re-entrancy guard
+    bool                  m_inMoveTool;
+
     ///< Flag determining if anything is being dragged right now
     bool                  m_moveInProgress;
     bool                  m_isDrag;

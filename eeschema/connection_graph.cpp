@@ -763,12 +763,15 @@ void CONNECTION_GRAPH::updateItemConnectivity( const SCH_SHEET_PATH& aSheet,
             return 1;
         };
 
-        GetKiCadThreadPool().parallelize_loop( 0, connection_vec.size(),
+        thread_pool& tp = GetKiCadThreadPool();
+
+        tp.push_loop( connection_vec.size(),
                 [&]( const int a, const int b)
                 {
                     for( int ii = a; ii < b; ++ii )
                         update_lambda( connection_vec[ii] );
-                }).wait();
+                });
+        tp.wait_for_tasks();
     }
 }
 
@@ -915,12 +918,15 @@ void CONNECTION_GRAPH::resolveAllDrivers()
         return 1;
     };
 
-    GetKiCadThreadPool().parallelize_loop( 0, dirty_graphs.size(),
+    thread_pool& tp = GetKiCadThreadPool();
+
+    tp.push_loop( dirty_graphs.size(),
             [&]( const int a, const int b)
             {
                 for( int ii = a; ii < b; ++ii )
                     update_lambda( dirty_graphs[ii] );
-            }).wait();
+            });
+    tp.wait_for_tasks();
 
     // Now discard any non-driven subgraphs from further consideration
 
@@ -1463,12 +1469,15 @@ void CONNECTION_GRAPH::buildConnectionGraph( std::function<void( SCH_ITEM* )>* a
     for( CONNECTION_SUBGRAPH* subgraph : m_driver_subgraphs )
         m_sheet_to_subgraphs_map[ subgraph->m_sheet ].emplace_back( subgraph );
 
-    GetKiCadThreadPool().parallelize_loop( 0, m_driver_subgraphs.size(),
+    thread_pool& tp = GetKiCadThreadPool();
+
+    tp.push_loop( m_driver_subgraphs.size(),
             [&]( const int a, const int b)
             {
                 for( int ii = a; ii < b; ++ii )
                     m_driver_subgraphs[ii]->UpdateItemConnections();
-            }).wait();
+            });
+    tp.wait_for_tasks();
 
     // Next time through the subgraphs, we do some post-processing to handle things like
     // connecting bus members to their neighboring subgraphs, and then propagate connections
@@ -1656,12 +1665,13 @@ void CONNECTION_GRAPH::buildConnectionGraph( std::function<void( SCH_ITEM* )>* a
                 return 1;
             };
 
-    GetKiCadThreadPool().parallelize_loop( 0, m_driver_subgraphs.size(),
+    tp.push_loop( m_driver_subgraphs.size(),
             [&]( const int a, const int b)
             {
                 for( int ii = a; ii < b; ++ii )
                     updateItemConnectionsTask( m_driver_subgraphs[ii] );
-            }).wait();
+            });
+    tp.wait_for_tasks();
 
     m_net_code_to_subgraphs_map.clear();
     m_net_name_to_subgraphs_map.clear();
@@ -3080,6 +3090,21 @@ bool CONNECTION_GRAPH::ercCheckLabels( const CONNECTION_SUBGRAPH* aSubgraph )
     if( label_map.empty() )
         return true;
 
+    // This is a hacky way to find the true subgraph net name (why do we not store it?)
+    // TODO: Remove once the actual netname of the subgraph is stored with the subgraph
+    wxString netName = aSubgraph->GetNetName();
+
+    for( auto it = m_net_name_to_subgraphs_map.begin(); it != m_net_name_to_subgraphs_map.end(); ++it )
+    {
+        for( CONNECTION_SUBGRAPH* graph : it->second )
+        {
+            if( graph == aSubgraph )
+            {
+                netName = it->first;
+            }
+        }
+    }
+
     wxCHECK_MSG( m_schematic, true, "Null m_schematic in CONNECTION_GRAPH::ercCheckLabels" );
 
     // Labels that have multiple pins connected are not dangling (may be used for naming segments)
@@ -3108,23 +3133,7 @@ bool CONNECTION_GRAPH::ercCheckLabels( const CONNECTION_SUBGRAPH* aSubgraph )
         {
             int allPins = pinCount;
 
-            // Labels are connected if there are at least 2 pins on their net
-            const CONNECTION_SUBGRAPH* subgraph = aSubgraph;
-
-            // If there is a hierarchical connection, walk up the hierarchy
-            // to get the top-most subgraph
-            while( subgraph->m_hier_parent )
-                subgraph = subgraph->m_hier_parent;
-
-            wxString name = subgraph->m_driver_connection->Name();
-
-            // If there are local bus connections (a label with the same name as a bus element)
-            // Then get the name from the SCH_CONNECTION element used to map the bus connection
-            // as this is the "true" connection name
-            if( !subgraph->m_bus_parents.empty() )
-                name = subgraph->m_bus_parents.begin()->first->Name();
-
-            auto it = m_net_name_to_subgraphs_map.find( name );
+            auto it = m_net_name_to_subgraphs_map.find( netName );
 
             if( it != m_net_name_to_subgraphs_map.end() )
             {

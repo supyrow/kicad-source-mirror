@@ -30,10 +30,10 @@
 #include <pegtl/contrib/parse_tree.hpp>
 
 
-void SIM_LIBRARY_KIBIS::ReadFile( const std::string& aFilePath, SIM_MODEL::TYPE aType )
+void SIM_LIBRARY_KIBIS::ReadFile( const std::string& aFilePath )
 {
     SIM_LIBRARY::ReadFile( aFilePath );
-    m_kibis = KIBIS( aFilePath );
+    m_kibis = KIBIS( aFilePath, m_reporter );
 
     if( !m_kibis.m_valid )
     {
@@ -45,7 +45,7 @@ void SIM_LIBRARY_KIBIS::ReadFile( const std::string& aFilePath, SIM_MODEL::TYPE 
 
     for( KIBIS_COMPONENT& kcomp : m_kibis.m_components )
     {
-        m_models.push_back( SIM_MODEL::Create( aType, pinNumber ) );
+        m_models.push_back( SIM_MODEL::Create( SIM_MODEL::TYPE::KIBIS_DEVICE, pinNumber ) );
         m_modelNames.emplace_back( kcomp.m_name );
 
         SIM_MODEL_KIBIS* libcomp = dynamic_cast<SIM_MODEL_KIBIS*>( m_models.back().get() );
@@ -79,7 +79,7 @@ bool SIM_LIBRARY_KIBIS::InitModel( SIM_MODEL_KIBIS& aModel, wxString aCompName )
 }
 
 
-bool SIM_LIBRARY_KIBIS::isPinDiff( const std::string& aComp, const std::string& aPinNumber )
+bool SIM_LIBRARY_KIBIS::isPinDiff( const std::string& aComp, const std::string& aPinNumber ) const
 {
     for( std::pair<std::string, std::string> aInfo : m_diffPins )
     {
